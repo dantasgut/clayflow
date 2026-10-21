@@ -102,10 +102,14 @@ async function main(): Promise<void> {
     log(`quadros seguintes: ${frames.map((f) => f.toFixed(1)).join(', ')} ms`);
     const heap = heapBytes();
     const memory = app.core.memoryUsage(8);
-    const pools = ['Transform', 'WorldTransform', 'StandardMaterial', 'Renderable'].reduce(
-        (sum, key) => sum + (app.resources.poolInfo(key)?.buffer.byteSize ?? 0),
-        0,
-    );
+    // Pools do estado de cena (com o das matrizes do quadro anterior, spec 034 — decisão do usuário, 2026-10-21).
+    const pools = [
+        'Transform',
+        'WorldTransform',
+        'PreviousWorldTransform',
+        'StandardMaterial',
+        'Renderable',
+    ].reduce((sum, key) => sum + (app.resources.poolInfo(key)?.buffer.byteSize ?? 0), 0);
     log(`heap JS: ${heap === undefined ? 'n/d' : mib(heap)}`);
     log(
         `GPU: total ${mib(memory.totalBytes)}, pools de cena ${mib(pools)}, além dos pools ${mib(memory.totalBytes - pools)}`,

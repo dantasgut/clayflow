@@ -10,7 +10,8 @@
 //   - trail: uma bola clara atravessa a cena; nos pixels por onde ela passou há 4 quadros ou mais (e não está agora), o
 //     excesso sobre a imagem sem a bola (o modo temporal em passo, sem a bola) fica ≤ 1 % do brilho da bola (sem
 //     rastro). A pegada da bola: onde o quadro sem antisserrilhado com a bola difere do sem a bola; contam os pixels de
-//     fundo liso (numa aresta, o pixel recomeçado tem outra média das amostras — ruído, não rastro).
+//     fundo liso (numa aresta, o pixel recomeçado tem outra média das amostras — ruído, não rastro) e sem detalhe menor
+//     que o pixel (faixa < 0,02 do fundo temporal entre as 8 primeiras posições da amostra; decisão de 2026-10-21).
 //   - deform: o mesmo, com a bola como superfície paramétrica deslocada pelos vértices (o `Transform` parado; os
 //     vetores de movimento vêm dos vértices do quadro anterior) numa cena sem o vidro e a esfera lisa.
 //   - orbit: a câmera gira a 30°/s em volta do vidro; em três poses o quadro do modo temporal contra a referência
@@ -385,14 +386,25 @@ async function trailOf(
     const bg = await scene('temporal', bare);
     let worst = 0;
     let lowest = 0;
+    let lowAt = '';
     let counted = 0;
     let at = '';
+    // Faixa do fundo temporal nos 8 primeiros quadros desde o corte (cada um com outra posição da amostra): detalhe
+    // menor que o pixel (o xadrez ao longe) varia entre as posições, e o pixel recomeçado depois que a bola passa
+    // reconverge com esse ruído (simétrico, não rastro) — decisão do usuário, 2026-10-21: fora da medida, como as arestas.
+    const lo = new Float32Array(W * H).fill(Infinity);
+    const hi = new Float32Array(W * H).fill(-Infinity);
     for (let i = 0; i < 120; i++) {
         tmp.move!(i);
         tmp.app.step(1 / 60);
         const img = lum(await tmp.app.core.readCanvas());
         bg.app.step(1 / 60);
         const background = lum(await bg.app.core.readCanvas());
+        if (i < 8)
+            for (let k = 0; k < background.length; k++) {
+                lo[k] = Math.min(lo[k]!, background[k]!);
+                hi[k] = Math.max(hi[k]!, background[k]!);
+            }
         if (i === 119 && new URLSearchParams(location.search).get('dump') === '1') {
             await dump(`zz-aa-${label}-tmp.png`, img);
             await dump(`zz-aa-${label}-bg.png`, background);
@@ -409,7 +421,7 @@ async function trailOf(
                 && Math.hypot((k % W) - 240, Math.floor(k / W) - 135) < 48
             )
                 continue;
-            if (flat[k] !== 1) continue;
+            if (flat[k] !== 1 || hi[k]! - lo[k]! >= 0.02) continue;
             let past = false;
             for (let d = 4; d <= 8; d++) if (masks[i - d]![k] === 1) past = true;
             if (!past) continue;
@@ -419,6 +431,8 @@ async function trailOf(
             if (img[k]! - background[k]! > worst)
                 at = `quadro ${i}, pixel (${k % W}, ${Math.floor(k / W)})`;
             worst = Math.max(worst, img[k]! - background[k]!);
+            if (img[k]! - background[k]! < lowest)
+                lowAt = `quadro ${i}, pixel (${k % W}, ${Math.floor(k / W)})`;
             lowest = Math.min(lowest, img[k]! - background[k]!);
             counted++;
         }
@@ -426,7 +440,7 @@ async function trailOf(
     close(tmp);
     close(bg);
     log(
-        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at}); maior falta ${pct(-lowest)}`,
+        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at}); maior falta ${pct(-lowest)} (${lowAt})`,
     );
     check(counted > 0, `${label}: a bola não foi vista`);
     check(
