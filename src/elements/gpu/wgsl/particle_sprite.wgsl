@@ -3,13 +3,18 @@
 // cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pelo mesmo
 // modelo do forward (ponto `scene_lighting`, spec 011: o fechamento da cor do material sobre a normal do impostor). Structs `CameraMatrices`, `PointSpriteMaterial`, `ParticleFrameParams`
 // e `ParticleDrawParams` gerados dos schemas; recursos declarados pelo módulo (spec 031): o pool do corpo (o do
-// pipeline), o dos materiais de sprite e a região do corpo desenhado (offset dinâmico).
+// pipeline), o dos materiais de sprite e a região do corpo desenhado (offset dinâmico). Com o antisserrilhado temporal
+// (spec 034), o passe de movimento desenha o mesmo quadrado com `fs_motion`: a partícula andou `vel · dt` no quadro.
 
 struct SpriteOut {
-    @builtin(position) clip_position: vec4f,
+    // Invariante: o passe de cor e o de movimento (teste igual) chegam à mesma profundidade bit a bit.
+    @builtin(position) @invariant clip_position: vec4f,
     @location(0) corner: vec2f,
     @location(1) @interpolate(flat) material_slot: u32,
     @location(2) center: vec3f,
+    // Vetores de movimento (spec 034): o centro em clip no quadro anterior e neste, sem o deslocamento da amostra.
+    @location(3) motion_previous: vec4f,
+    @location(4) motion_current: vec4f,
 }
 
 // Cantos do quad (dois triângulos).
@@ -39,7 +44,26 @@ fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance
     }
     let view = camera.view * vec4f(center, 1.0);
     out.clip_position = camera.projection * vec4f(view.xy + corner * material.radius, view.z, 1.0);
+    // O ponto do quadrado acompanha o centro (o quadrado só gira com a câmera, o que a matriz anterior já conta).
+    var velocity = vec3f(0.0);
+    if (particle_draw.velOffsetVec4 != NONE) {
+        velocity = particles[slot * particle_draw.strideVec4 + particle_draw.velOffsetVec4].xyz;
+    }
+    let previous = center - velocity * particle_frame.dt;
+    let offset = vec4f(corner * material.radius, 0.0, 0.0);
+    out.motion_current = camera.unjitteredViewProjection * vec4f(center, 1.0)
+        + camera.projection * offset;
+    out.motion_previous = camera.previousViewProjection * vec4f(previous, 1.0)
+        + camera.projection * offset;
     return out;
+}
+
+// Passe de movimento (spec 034): o deslocamento do ponto do pixel na tela desde o quadro anterior, em uv (anterior −
+// atual), o mesmo da superfície e do que está atrás (rg e ba), com a profundidade do passe principal (teste igual).
+@fragment
+fn fs_motion(in: SpriteOut) -> @location(0) vec4f {
+    if (dot(in.corner, in.corner) > 1.0) { discard; }
+    return camera_motion(in.motion_previous, in.motion_current);
 }
 
 @fragment

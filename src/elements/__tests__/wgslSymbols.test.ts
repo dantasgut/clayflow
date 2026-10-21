@@ -18,6 +18,8 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const ALLOWED: Readonly<Record<string, string>> = {
     vs_main: 'entrada de vértice de cada pipeline de render',
     fs_main: 'entrada de fragmento de cada pipeline de render',
+    fs_motion:
+        'entrada de fragmento do passe de movimento (spec 034) de cada pipeline de render — a conta é a de `camera_motion`',
     VsIn: 'entrada de vértice, local a cada pipeline de render',
     VsOut: 'saída do vértice, local a cada pipeline de render',
     camera_clip:

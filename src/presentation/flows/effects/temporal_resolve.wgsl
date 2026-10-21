@@ -149,6 +149,12 @@ fn taa_moving(r: TaaReprojection, pixel: vec2i, uv: vec2f, size: vec2f) -> f32 {
     return smoothstep(0.01, 0.1, m);
 }
 
+/** Profundidade de vista (positiva) da profundidade do alvo pela projeção: perspectiva ou ortográfica. */
+fn taa_view_depth(depth: f32, projection: mat4x4f) -> f32 {
+    if (projection[3].w == 1.0) { return abs((depth - projection[3].z) / projection[2].z); }
+    return projection[3].z / (depth + projection[2].z);
+}
+
 struct TaaOut {
     @location(0) color: vec4f,
     /** Distância da câmera ao ponto do pixel e quanto ele se movia (a desoclusão do quadro seguinte). */
@@ -206,9 +212,13 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     }
     // Em movimento (perto de algo que se move), a caixa da variância da vizinhança 3 × 3 em YCoCg (Salvi) recorta o
     // histórico (o que saiu do pixel não deixa rastro). Parado, sem recorte: o histórico de um detalhe menor que o pixel
-    // converge para a integral do pixel.
+    // converge para a integral do pixel. A caixa e a reconstrução só com as amostras da mesma superfície do centro (a
+    // profundidade de vista a até 5 %, o critério da desoclusão): a amostra de um objeto vizinho (um sprite, a borda de
+    // outro objeto) não entra na cor do fundo nem alarga a caixa que recorta o que ele deixou.
+    let center_depth = taa_view_depth(depth, cam.projection);
     var m1 = vec3f(0.0);
     var m2 = vec3f(0.0);
+    var count = 0.0;
     var filtered = vec3f(0.0);
     var wsum = 0.0;
     var light_lo = light.r;
@@ -218,11 +228,19 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
             let rgb = textureLoad(src_tex, q, 0).rgb;
             let direct = textureLoad(taa_light, q, 0).r;
+            // A faixa da luz com todos os vizinhos: numa silhueta, a amostra deslocada cai ora numa superfície, ora na
+            // outra, e a luz acumulada é a mistura das duas.
             light_lo = min(light_lo, direct);
             light_hi = max(light_hi, direct);
+            // Só em movimento a caixa e a reconstrução valem: parado, sem as leituras da profundidade.
+            if (stirred > 0.0) {
+                let near = taa_view_depth(textureLoad(taa_depth, q, 0), cam.projection);
+                if (abs(near - center_depth) > 0.05 * center_depth) { continue; }
+            }
             let c = taa_ycocg(rgb);
             m1 += c;
             m2 += c * c;
+            count += 1.0;
             // A amostra do vizinho caiu em (vizinho − deslocamento): o peso é o da distância dela ao centro, dividido por
             // (1 + brilho) — uma amostra muito clara (uma luz, radiância ≫ 1) não domina o pixel vizinho, que o
             // histórico guardaria depois que ela passa.
@@ -242,8 +260,8 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let relighted = history.rgb * mix(1.0, ratio, relit);
     stirred = max(stirred, relit);
     let reconstructed = mix(current, filtered / wsum, stirred);
-    let mean = m1 / 9.0;
-    let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
+    let mean = m1 / count;
+    let sigma = sqrt(max(m2 / count - mean * mean, vec3f(0.0)));
     let floor_extent = vec3f(TAA_CLIP_FLOOR * max(mean.x, 1e-4));
     let extent = max(TAA_GAMMA_MOVING * sigma, floor_extent);
     let d = taa_ycocg(relighted) - mean;

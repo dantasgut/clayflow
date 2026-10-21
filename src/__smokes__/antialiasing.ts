@@ -19,6 +19,10 @@
 //     médio ≤ 3 %.
 //   - sprites: partículas em sprites caindo; a cobertura delas no modo temporal ≥ 90 % da do modo sem antisserrilhado
 //     (o histórico não as apaga).
+//   - spriteTrail: partículas em sprites (raio 0,04 m) atravessando a cena de lado a 1 m/s, acima do chão, no lugar da
+//     bola: o rastro delas, nos dois sentidos, ≤ 1 % (T031).
+//   - pointTrail: os vértices de uma esfera como sprites (`PointSpriteMaterial`), movidos pelo `Transform` no caminho
+//     da bola: o mesmo rastro (T031).
 //   - cost: a 1280 × 720 em órbita, com profiling por passe, a duração do quadro na GPU (mediana de 120 quadros, do
 //     primeiro início ao último fim) com o temporal menos a sem antisserrilhado ≤ 1,5 ms (SC-011, 9 % do quadro de 60 Hz
 //     no M4). Não a soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
@@ -80,8 +84,11 @@ const ballAt = (i: number): [number, number, number, number] => [-2 + (4 * i) / 
 async function scene(
     mode: AntialiasingMode,
     options: {
-        /** A bola: por `Transform` ou superfície paramétrica deslocada pelos vértices (`Transform` parado). */
-        ball?: 'transform' | 'surface';
+        /**
+         * A bola: por `Transform` ou superfície paramétrica deslocada pelos vértices (`Transform` parado); ou, no lugar
+         * dela, partículas em sprites caindo (o movimento delas é o da física).
+         */
+        ball?: 'transform' | 'surface' | 'sprites' | 'points';
         /** Sem o vidro e a esfera lisa (nada reflete nem refrata a bola). */
         bare?: boolean;
         size?: readonly [number, number];
@@ -180,6 +187,18 @@ async function scene(
         move = (i) => {
             fn.values.center = ballAt(i).slice(0, 3);
         };
+    } else if (options.ball === 'sprites') insertSprites(app, 0.04, 'cross');
+    else if (options.ball === 'points') {
+        // Os vértices de uma esfera como sprites (`PointSpriteMaterial` no forward), movidos pelo `Transform`.
+        const ball = new Transform({ position: ballAt(0) });
+        app.world.insert(
+            new SphereGeometry({ radius: 0.12, latSegments: 8, lonSegments: 16 })
+                .add(new clayflow.PointSpriteMaterial({ color: [1, 1, 0.2, 1], radius: 0.025 }))
+                .add(ball),
+        );
+        move = (i) => {
+            ball.data.position = ballAt(i);
+        };
     }
     await app.whenReady({ timeoutMs: 60_000 });
     // Aquecimento: a sombra, as tabelas e o primeiro histórico assentados; o corte recomeça a acumulação e o histórico
@@ -187,6 +206,39 @@ async function scene(
     app.step(1 / 60, 8);
     camera.cut();
     return { app, canvas, look, camera, ...(move !== undefined ? { move } : {}) };
+}
+
+/**
+ * 400 partículas (SPH) em sprites de raio `radius`: caindo sob a gravidade (`fall`) ou atravessando a cena de lado a
+ * 1 m/s, sem gravidade, acima do chão (`cross`: o movimento delas sem tocar em superfície nenhuma).
+ */
+function insertSprites(app: Application, radius: number, motion: 'fall' | 'cross'): void {
+    const position: number[] = [];
+    const velocity: number[] = [];
+    for (let k = 0; k < 400; k++) {
+        if (motion === 'fall')
+            position.push(
+                -1.2 + 2.4 * ((k * 0.618) % 1),
+                1.6 + 0.6 * ((k * 0.381) % 1),
+                -0.6 + 1.2 * ((k * 0.271) % 1),
+            );
+        else
+            position.push(
+                -1.8 + 1.2 * ((k * 0.618) % 1),
+                0.5 + 0.6 * ((k * 0.381) % 1),
+                -0.6 + 1.2 * ((k * 0.271) % 1),
+            );
+        velocity.push(motion === 'fall' ? 0 : 1, 0, 0);
+    }
+    // Sem campo, o SPH cai com −9,81: atravessando, a gravidade é zero.
+    app.world.insert(
+        new clayflow.GravityField({ acceleration: [0, motion === 'fall' ? -9.81 : 0, 0, 0] }),
+    );
+    app.world.insert(
+        new clayflow.FluidBody({ algorithm: 'SPH', position, velocity }).add(
+            new clayflow.PointSpriteMaterial({ color: [1, 1, 0.2, 1], radius }),
+        ),
+    );
 }
 
 /** Esfera de raio 0,12 m em volta de `center`, pelos vértices. */
@@ -333,7 +385,7 @@ async function still(): Promise<void> {
 /** Rastro da bola (`label`) que atravessa a cena na forma pedida. */
 async function trailOf(
     label: string,
-    options: { ball: 'transform' | 'surface'; bare?: boolean },
+    options: { ball: 'transform' | 'surface' | 'sprites' | 'points'; bare?: boolean },
 ): Promise<void> {
     const bare = options.bare === true ? { bare: true } : {};
     // A pegada da bola a cada quadro (sem antisserrilhado): onde o quadro com a bola difere do sem a bola.
@@ -359,7 +411,7 @@ async function trailOf(
     const masks: Uint8Array[] = [];
     const near: Uint8Array[] = [];
     for (let i = 0; i < 120; i++) {
-        off.move!(i);
+        off.move?.(i);
         off.app.step(1 / 60);
         const img = lum(await off.app.core.readCanvas());
         const m = new Uint8Array(W * H);
@@ -395,7 +447,7 @@ async function trailOf(
     const lo = new Float32Array(W * H).fill(Infinity);
     const hi = new Float32Array(W * H).fill(-Infinity);
     for (let i = 0; i < 120; i++) {
-        tmp.move!(i);
+        tmp.move?.(i);
         tmp.app.step(1 / 60);
         const img = lum(await tmp.app.core.readCanvas());
         bg.app.step(1 / 60);
@@ -464,6 +516,10 @@ async function trailOf(
 const trail = (): Promise<void> => trailOf('trail', { ball: 'transform' });
 /** A bola como superfície deslocada pelos vértices (o `Transform` parado), sem nada que a reflita ou refrate. */
 const deform = (): Promise<void> => trailOf('deform', { ball: 'surface', bare: true });
+/** Partículas em sprites caindo (spec 034, T031): o movimento de cada uma pela velocidade dela. */
+const spriteTrail = (): Promise<void> => trailOf('spriteTrail', { ball: 'sprites', bare: true });
+/** Sprites nos vértices de uma geometria (forward) no lugar da bola: o movimento pela matriz anterior. */
+const pointTrail = (): Promise<void> => trailOf('pointTrail', { ball: 'points', bare: true });
 
 /** Pose da órbita (30°/s em volta do alvo, raio 3 m) no tempo `t` (s). */
 const orbitAt = (t: number): [number, number, number] => {
@@ -527,19 +583,7 @@ async function orbit(): Promise<void> {
 /** Cobertura (pixels claros) das partículas em sprites caindo, no modo pedido. */
 async function spriteCoverage(mode: AntialiasingMode): Promise<number> {
     const s = await scene(mode);
-    s.app.world.insert(new clayflow.GravityField({ acceleration: [0, -9.81, 0, 0] }));
-    const position: number[] = [];
-    for (let k = 0; k < 400; k++)
-        position.push(
-            -1.2 + 2.4 * ((k * 0.618) % 1),
-            1.6 + 0.6 * ((k * 0.381) % 1),
-            -0.6 + 1.2 * ((k * 0.271) % 1),
-        );
-    s.app.world.insert(
-        new clayflow.FluidBody({ algorithm: 'SPH', position }).add(
-            new clayflow.PointSpriteMaterial({ color: [1, 1, 0.2, 1], radius: 0.015 }),
-        ),
-    );
+    insertSprites(s.app, 0.015, 'fall');
     await s.app.whenReady();
     const img = await frameAfter(s, 20);
     close(s);
@@ -623,6 +667,8 @@ const CASES: Record<string, () => Promise<void>> = {
     deform,
     orbit,
     sprites,
+    spriteTrail,
+    pointTrail,
     cost,
 };
 

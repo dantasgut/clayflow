@@ -20,6 +20,7 @@ import {
     particlePoolResource,
     pointSpriteMaterialsResource,
     pointVerticesResource,
+    pointPreviousVerticesResource,
     standardMaterialsResource,
     surfaceDiffReadResource,
     wireEdgesResource,
@@ -86,6 +87,7 @@ export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
     requires: [
+        camera,
         bsdf,
         NONE.module,
         forwardCameraReady,
@@ -136,6 +138,8 @@ export const particleSprite = wgslModule({
     name: 'particle_sprite',
     source: particleSpriteSource,
     requires: [
+        camera,
+        NONE.module,
         materialPointTypes,
         closure,
         sceneLightingReady,
@@ -157,6 +161,7 @@ export const pointSprite = wgslModule({
     name: 'point_sprite',
     source: pointSpriteSource,
     requires: [
+        camera,
         materialPointTypes,
         closure,
         sceneLightingReady,
@@ -168,10 +173,13 @@ export const pointSprite = wgslModule({
         pointSpriteMaterialsResource,
         forwardFrameResource,
         pointVerticesResource,
+        previousWorldsResource,
+        pointPreviousVerticesResource,
     ],
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,
+        Transform.previousWorldSchema,
         RenderableSchema,
         RenderInstanceSchema,
         PointSpriteMaterialSchema,
@@ -184,6 +192,7 @@ export const diffuseSprite = wgslModule({
     name: 'diffuse_sprite',
     source: diffuseSpriteSource,
     requires: [
+        camera,
         materialPointTypes,
         closure,
         sceneLightingReady,
@@ -195,10 +204,13 @@ export const diffuseSprite = wgslModule({
         diffuseMaterialsResource,
         forwardFrameResource,
         pointVerticesResource,
+        previousWorldsResource,
+        pointPreviousVerticesResource,
     ],
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,
+        Transform.previousWorldSchema,
         RenderableSchema,
         RenderInstanceSchema,
         DiffuseMaterialSchema,

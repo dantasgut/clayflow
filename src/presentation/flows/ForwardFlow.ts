@@ -12,6 +12,7 @@ import type {
     TextureSpec,
     TextureViewSpec,
     UniformBufferSpec,
+    VertexBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
@@ -48,6 +49,7 @@ import { ForwardFrameParamsSchema } from '../../elements/material/forwardSchemas
 import {
     forwardFrameResource,
     pointVerticesResource,
+    pointPreviousVerticesResource,
     surfaceDiffReadResource,
     wireEdgesResource,
     wireVerticesResource,
@@ -235,6 +237,15 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
 
 type Ctx = TransitionContext<ForwardSlots>;
 
+/** Pipeline por geometria (sprites e arame): o de cor, o de movimento (sprites sem MSAA) e os vértices anteriores ligados. */
+interface GeometryPipeline {
+    readonly id: string;
+    users: number;
+    readonly geometry: Geometry;
+    readonly motion: string | undefined;
+    previous: VertexBufferSpec;
+}
+
 /** Opções do `ForwardFlow`. */
 export interface ForwardFlowOptions {
     /** Onde desenhar a cor. Padrão `'scene'` (o pós-processamento compõe no canvas). */
@@ -323,7 +334,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      * material, vertex buffer da geometria); os vértices (e as arestas do arame) são bindings privados do pipeline.
      * Contagem de entidades por pipeline (liberado com a última).
      */
-    private readonly geometryPipelines = new Map<string, { readonly id: string; users: number }>();
+    private readonly geometryPipelines = new Map<string, GeometryPipeline>();
     /** Pipeline por geometria de cada entidade que o usa (para liberar na saída). */
     private readonly geometryOfEntity = new Map<EntityId, string>();
     /** Geometrias escritas pela GPU sem escritor já avisadas. */
@@ -613,6 +624,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.syncProjection(c);
                         this.prepareBackground(c);
                         this.prepareIndirect(c);
+                        this.bindPreviousVertices(c);
                         this.writeFrameParams(c);
                     },
                 },
@@ -1282,6 +1294,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         let pipeline = this.geometryPipelines.get(key);
         if (pipeline === undefined) {
             const id = `forward:${desc.id}:${wire ? 'wire' : 'points'}:${n}`;
+            // Sprites sem MSAA: o passe de movimento (spec 034) com os vértices do quadro anterior.
+            const motion = !wire && samples === 1 ? `${id}:motion` : undefined;
             const at = (resource: WgslResource): BindingKey => ({ pipeline: id, resource });
             ctx.bind(
                 new Map<BindingKey, BindingSource>(
@@ -1290,10 +1304,28 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                               [at(wireVerticesResource), vertices],
                               [at(wireEdgesResource), edges! as IndexBufferSpec],
                           ]
-                        : [[at(pointVerticesResource), vertices]],
+                        : [
+                              [at(pointVerticesResource), vertices],
+                              [at(pointPreviousVerticesResource), vertices],
+                              ...(motion !== undefined
+                                  ? ([
+                                        [
+                                            { pipeline: motion, resource: pointVerticesResource },
+                                            vertices,
+                                        ],
+                                        [
+                                            {
+                                                pipeline: motion,
+                                                resource: pointPreviousVerticesResource,
+                                            },
+                                            vertices,
+                                        ],
+                                    ] as const)
+                                  : []),
+                          ],
                 ),
             );
-            ctx.prepare({
+            const color: PipelineDescriptor = {
                 ...desc,
                 id,
                 topology: 'triangle-list',
@@ -1307,8 +1339,26 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ...(wire && samples > 1 ? { alphaToCoverageEnabled: true } : {}),
                 },
                 ...(this.preferAsync ? { preferAsync: true } : {}),
-            });
-            pipeline = { id, users: 0 };
+            };
+            ctx.prepare(color);
+            if (motion !== undefined) {
+                ctx.prepare({
+                    ...color,
+                    id: motion,
+                    entryPoints: [
+                        ...color.entryPoints.filter((e) => e.startsWith('vs_')),
+                        'fs_motion',
+                    ],
+                    colorTargets: [{ format: 'rgba16float' }],
+                    depth: {
+                        format: 'depth24plus',
+                        depthWriteEnabled: false,
+                        depthCompare: 'equal',
+                    },
+                });
+                this.motionPipelines.set(id, motion);
+            }
+            pipeline = { id, users: 0, geometry, motion, previous: vertices };
             this.geometryPipelines.set(key, pipeline);
         }
         pipeline.users++;
@@ -1332,6 +1382,34 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             if (--pipeline.users > 0) continue;
             this.geometryPipelines.delete(key);
             ctx.release(pipeline.id);
+            if (pipeline.motion !== undefined) {
+                ctx.release(pipeline.motion);
+                this.motionPipelines.delete(pipeline.id);
+            }
+        }
+    }
+
+    /**
+     * Os vértices do quadro anterior dos sprites (spec 034): os `previousVertices` que o histórico de movimento aloca na
+     * geometria que a GPU reescreve (com o temporal), religados quando aparecem ou mudam; sem eles, os próprios vértices.
+     */
+    private bindPreviousVertices(ctx: Ctx): void {
+        for (const pipeline of this.geometryPipelines.values()) {
+            if (pipeline.motion === undefined) continue;
+            const history = this.resources.bufferOf(pipeline.geometry, 'previousVertices');
+            const vertices = this.resources.bufferOf(pipeline.geometry, 'vertices');
+            const previous = history?.subkind === 'vertex' ? history : vertices;
+            if (previous?.subkind !== 'vertex' || previous === pipeline.previous) continue;
+            pipeline.previous = previous;
+            ctx.bind(
+                new Map<BindingKey, BindingSource>([
+                    [{ pipeline: pipeline.id, resource: pointPreviousVerticesResource }, previous],
+                    [
+                        { pipeline: pipeline.motion, resource: pointPreviousVerticesResource },
+                        previous,
+                    ],
+                ]),
+            );
         }
     }
 

@@ -2,6 +2,7 @@ import type { EntityId } from '../../scene/world/EntityId';
 import type {
     EngineCore,
     Frame,
+    RenderPass,
     RenderTarget,
     StorageBufferSpec,
     UniformBufferSpec,
@@ -28,6 +29,7 @@ import {
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
+    type TextureSlot,
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
@@ -46,6 +48,9 @@ import {
 import { particleSprite } from '../../elements/material/shaders';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
 import { Camera } from '../../elements/scene/Camera';
+import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
+import { NONE } from '../../scene/shaders/engineConstants';
+import { Time } from '../../scene/time/Time';
 import { FrameTargets } from '../app/FrameTargets';
 
 /** Slots do desenho de corpos de partículas. */
@@ -58,6 +63,12 @@ export interface ParticleSlots extends SlotMap {
     readonly bodies: EntitiesSlot;
     /** Cor e profundidade da cena (`FrameTargets`), carregadas: o desenho vem depois do forward. */
     readonly target: TargetSlot;
+    /** Vetores de movimento (`FrameTargets.motion`, spec 034; sem MSAA): os sprites escrevem o deles. */
+    readonly motion: TextureSlot<true>;
+    /** Antisserrilhado da cena: o passe de movimento vale com o modo temporal. */
+    readonly antialiasing: SingletonSlot<true>;
+    /** Relógio da cena: o tempo simulado no quadro (o quanto a partícula andou). */
+    readonly time: SingletonSlot<true>;
 }
 
 const slots: ParticleSlots = {
@@ -69,15 +80,20 @@ const slots: ParticleSlots = {
         depth: { schema: FrameTargets.schema, descId: 'depth' },
         samples: { schema: FrameTargets.schema, descId: 'samples' },
     }),
+    motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+    time: slot.singleton(Time.schema, { optional: true }),
 };
 
 type Ctx = TransitionContext<ParticleSlots>;
 
-/** Corpo desenhado: a região de parâmetros dele e o pipeline do pool do schema. */
+/** Corpo desenhado: a região de parâmetros dele e os pipelines do pool do schema (cor e movimento). */
 interface DrawnBody {
     readonly entity: EntityId;
     readonly body: ParticleBody;
     readonly pipeline: string;
+    /** Pipeline do passe de movimento (spec 034; sem MSAA), ou `undefined`. */
+    readonly motion: string | undefined;
 }
 
 /**
@@ -191,30 +207,59 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             },
         };
         frame.render(renderTarget, 'ParticleFlow', (pass) => {
-            let current: string | undefined;
-            const boundGroups: (BindGroupSpec | undefined)[] = [];
-            this.order.forEach((drawn, region) => {
-                const prepared = bound.pipelines.get(drawn.pipeline);
-                if (prepared?.role !== 'render' || !prepared.ready) return;
-                if (drawn.pipeline !== current) {
-                    pass.bind.setPipeline(prepared.spec);
-                    for (const frequency of BINDING_FREQUENCIES) {
-                        if (frequency === 'draw') continue;
-                        for (const g of prepared.groupsOf(frequency)) {
-                            if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
-                            pass.bind.setBindGroup(g.index, g.spec);
-                            boundGroups[g.index] = g.spec;
-                        }
+            this.recordBodies(pass, bound, (drawn) => drawn.pipeline);
+        });
+        // Passe de movimento (spec 034): com o temporal, os mesmos quadrados com a profundidade de agora (teste igual)
+        // escrevem o deslocamento de cada sprite sobre o do forward.
+        const motion = bound.slots.motion;
+        const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        if (motion === undefined || aa?.mode !== 'temporal') return;
+        frame.render(
+            {
+                colorAttachments: [{ view: motion.view, loadOp: 'load', storeOp: 'store' }],
+                depthStencilAttachment: {
+                    view: target.depth,
+                    depthLoadOp: 'load',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ParticleFlow.motion',
+            (pass) => {
+                this.recordBodies(pass, bound, (drawn) => drawn.motion);
+            },
+        );
+    }
+
+    /** Um desenho por corpo com o pipeline escolhido (os grupos compartilhados uma vez; a região por offset). */
+    private recordBodies(
+        pass: RenderPass,
+        bound: BoundFlow<ParticleSlots>,
+        pipelineOf: (drawn: DrawnBody) => string | undefined,
+    ): void {
+        let current: string | undefined;
+        const boundGroups: (BindGroupSpec | undefined)[] = [];
+        this.order.forEach((drawn, region) => {
+            const id = pipelineOf(drawn);
+            const prepared = id === undefined ? undefined : bound.pipelines.get(id);
+            if (prepared?.role !== 'render' || !prepared.ready) return;
+            if (id !== current) {
+                pass.bind.setPipeline(prepared.spec);
+                for (const frequency of BINDING_FREQUENCIES) {
+                    if (frequency === 'draw') continue;
+                    for (const g of prepared.groupsOf(frequency)) {
+                        if (sameBindGroup(boundGroups[g.index], g.spec)) continue;
+                        pass.bind.setBindGroup(g.index, g.spec);
+                        boundGroups[g.index] = g.spec;
                     }
-                    current = drawn.pipeline;
                 }
-                // Região do corpo (offset dinâmico) a cada desenho.
-                for (const g of prepared.groupsOf('draw')) {
-                    pass.bind.setBindGroup(g.index, g.spec, [this.draws.offset(region)]);
-                    boundGroups[g.index] = undefined;
-                }
-                pass.draw.vertices(6, drawn.body.count, 0, 0);
-            });
+                current = id;
+            }
+            // Região do corpo (offset dinâmico) a cada desenho.
+            for (const g of prepared.groupsOf('draw')) {
+                pass.bind.setBindGroup(g.index, g.spec, [this.draws.offset(region)]);
+                boundGroups[g.index] = undefined;
+            }
+            pass.draw.vertices(6, drawn.body.count, 0, 0);
         });
     }
 
@@ -252,15 +297,24 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             }
             const poolKey = this.resources.poolKeyForResource(body);
             if (poolKey === undefined) continue;
-            this.bodies.set(id, { entity: id, body, pipeline: this.preparePool(ctx, poolKey) });
+            const pipelines = this.preparePool(ctx, poolKey);
+            this.bodies.set(id, { entity: id, body, ...pipelines });
         }
         this.drawsDirty = true;
     }
 
-    /** Pipeline do pool de partícula (um por pool: o pool é um binding privado dele). */
-    private preparePool(ctx: Ctx, poolKey: string): string {
+    /**
+     * Pipelines do pool de partícula (um por pool: o pool é um binding privado dele): a cor e, sem MSAA, o movimento (o
+     * mesmo vértice, `fs_motion`, teste de profundidade igual sem escrita; spec 034).
+     */
+    private preparePool(
+        ctx: Ctx,
+        poolKey: string,
+    ): { pipeline: string; motion: string | undefined } {
         const id = `particle_sprite:${poolKey}`;
-        if (this.boundPools.has(poolKey)) return id;
+        const samples = ctx.bound.slots.target.sampleCount;
+        const motionId = samples === 1 ? `${id}:motion` : undefined;
+        if (this.boundPools.has(poolKey)) return { pipeline: id, motion: motionId };
         const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
         const descriptor: PipelineDescriptor = {
             id,
@@ -273,13 +327,33 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             cullMode: 'none',
             colorTargets: [{ format }],
             depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-            multisample: { count: ctx.bound.slots.target.sampleCount },
+            multisample: { count: samples },
         };
         const buffer = this.resources.poolBufferSpec(poolKey)!;
         this.boundPools.set(poolKey, buffer);
-        ctx.bind(new Map([[{ pipeline: id, resource: particlePoolResource }, buffer]]));
+        ctx.bind(this.poolBindings(poolKey, buffer));
         ctx.prepare(descriptor);
-        return id;
+        if (motionId !== undefined)
+            ctx.prepare({
+                ...descriptor,
+                id: motionId,
+                entryPoints: ['vs_main', 'fs_motion'],
+                colorTargets: [{ format: 'rgba16float' }],
+                depth: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'equal' },
+            });
+        return { pipeline: id, motion: motionId };
+    }
+
+    /** O pool ligado aos pipelines dele (cor e movimento). */
+    private poolBindings(
+        poolKey: string,
+        buffer: StorageBufferSpec,
+    ): Map<BindingKey, BindingSource> {
+        const id = `particle_sprite:${poolKey}`;
+        return new Map<BindingKey, BindingSource>([
+            [{ pipeline: id, resource: particlePoolResource }, buffer],
+            [{ pipeline: `${id}:motion`, resource: particlePoolResource }, buffer],
+        ]);
     }
 
     /** Religa o pool de cada pipeline cujo buffer foi recriado pelo crescimento. */
@@ -288,14 +362,7 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
             const buffer = this.resources.poolBufferSpec(poolKey);
             if (buffer === undefined || buffer === bound) continue;
             this.boundPools.set(poolKey, buffer);
-            ctx.bind(
-                new Map([
-                    [
-                        { pipeline: `particle_sprite:${poolKey}`, resource: particlePoolResource },
-                        buffer,
-                    ],
-                ]),
-            );
+            ctx.bind(this.poolBindings(poolKey, buffer));
             this.drawsDirty = true;
         }
     }
@@ -321,19 +388,25 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
                 strideVec4: schema.stride / 16,
                 posOffsetVec4: schema.offsetOf('pos') / 16,
                 materialSlot: material ?? 0,
+                velOffsetVec4: schema.fields.has('vel') ? schema.offsetOf('vel') / 16 : NONE.value,
             });
         });
         this.draws.flush(this.order.length);
     }
 
-    /** Slot da câmera ativa, escrito quando muda (a luz dos sprites vem do ponto `scene_lighting`). */
+    /**
+     * Slot da câmera ativa e tempo simulado no quadro (os passos da física dados nele: o movimento dos sprites), escritos
+     * quando mudam (a luz dos sprites vem do ponto `scene_lighting`).
+     */
     private writeFrameParams(ctx: Ctx): void {
         const slots = ctx.bound.slots;
         const cameraId = this.world.entityIdOfResource(slots.camera.resource);
         const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
-        const key = `${cameraSlot}`;
+        const time = slots.time?.resource as Time | undefined;
+        const dt = time === undefined ? 0 : time.steps * time.stepDt;
+        const key = `${cameraSlot}:${dt}`;
         if (key === this.writtenFrame) return;
-        this.core.write(this.frameParams, ParticleFrameParamsSchema.pack({ cameraSlot }));
+        this.core.write(this.frameParams, ParticleFrameParamsSchema.pack({ cameraSlot, dt }));
         this.writtenFrame = key;
     }
 }

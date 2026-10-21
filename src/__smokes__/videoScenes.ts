@@ -6,7 +6,8 @@
 // Cenas: lente (esfera de vidro sobre um xadrez emissor, a bola laranja passando atrás), dispersao (esfera de Abbe 20,
 // câmera orbitando), agua (barragem no tanque, câmera parada), causticas (água agitada vista de cima, fundo de areia), cornell (caixa de
 // Cornell com a luz global), dia (cômodo com janela, o sol andando), nevoa (o mesmo cômodo com névoa e a luz global,
-// o feixe do sol), pano (tecido XPBD caindo sob o sol, com a sombra). A refração dos vidros é a do motor no momento da
+// o feixe do sol), pano (tecido XPBD caindo sob o sol, com a sombra), sprites (partículas atravessando a cena e os
+// vértices de uma esfera como sprites girando, sobre o xadrez). A refração dos vidros é a do motor no momento da
 // gravação — o título não promete mais do que isso.
 import * as clayflow from 'clayflow';
 import {
@@ -260,6 +261,60 @@ const SHOTS: Record<string, Shot> = {
             return (i) => {
                 const d = sunFrom(20 + 30 * (i / 479), -25 + 50 * (i / 479));
                 if (built.sun !== undefined) built.sun.data.direction = [...d, 0];
+            };
+        },
+    },
+    sprites: {
+        frames: 300,
+        build(app) {
+            // Sprites em movimento sobre o xadrez (spec 034, T031): 400 partículas (SPH, sem gravidade) atravessando a
+            // cena a 1 m/s e os vértices de uma esfera como sprites girando em volta do centro.
+            app.world.insert(
+                new clayflow.DirectionalLight({
+                    direction: [-0.4, -1, -0.3, 0],
+                    intensity: 3,
+                    castShadow: true,
+                    shadow: { size: [2048, 2048] },
+                }),
+            );
+            app.world.insert(
+                new clayflow.PlaneGeometry({ size: [8, 8] })
+                    .add(new StandardMaterial({ albedo: [0.7, 0.7, 0.7, 1], roughness: 0.9 }))
+                    .add(new Transform())
+                    .add(
+                        new clayflow.MaterialFunction({
+                            code: 'fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {\n    let c = (floor(s.world_position.x * 10.0) + floor(s.world_position.z * 10.0)) % 2.0;\n    return closure_diffuse(mix(vec3f(0.1), vec3f(0.8), abs(c)), 0.0);\n}',
+                        }),
+                    ),
+            );
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, 0, 0, 0] }));
+            const position: number[] = [];
+            const velocity: number[] = [];
+            for (let k = 0; k < 400; k++) {
+                position.push(
+                    -2.4 + 1.2 * ((k * 0.618) % 1),
+                    0.5 + 0.6 * ((k * 0.381) % 1),
+                    -0.6 + 1.2 * ((k * 0.271) % 1),
+                );
+                velocity.push(1, 0, 0);
+            }
+            app.world.insert(
+                new clayflow.FluidBody({ algorithm: 'SPH', position, velocity }).add(
+                    new clayflow.PointSpriteMaterial({ color: [1, 0.8, 0.2, 1], radius: 0.04 }),
+                ),
+            );
+            const ball = new Transform({ position: [0, 0.4, 0, 1] });
+            app.world.insert(
+                new SphereGeometry({ radius: 0.25, latSegments: 8, lonSegments: 16 })
+                    .add(
+                        new clayflow.PointSpriteMaterial({ color: [0.2, 0.6, 1, 1], radius: 0.03 }),
+                    )
+                    .add(ball),
+            );
+            camera(app, 0.8, [0, 1, 3], [0, 0.4, 0]);
+            return (i) => {
+                const a = (2 * Math.PI * i) / 150;
+                ball.data.position = [0.9 * Math.cos(a), 0.4, 0.9 * Math.sin(a), 1];
             };
         },
     },

@@ -62,6 +62,11 @@ const vertices = (name: string): ReturnType<typeof wgslResource> =>
 
 /** Vértices da geometria de um pipeline de sprites (`array<MeshVertex>`), lidos como storage. */
 export const pointVerticesResource = vertices('point_vertices');
+/**
+ * Vértices do quadro anterior da geometria de um pipeline de sprites (spec 034: os `previousVertices` da geometria que a
+ * GPU reescreve; nas outras, os mesmos `vertices`).
+ */
+export const pointPreviousVerticesResource = vertices('point_previous_vertices');
 /** Vértices da geometria de um pipeline de arame. */
 export const wireVerticesResource = vertices('wire_vertices');
 /** Arestas da geometria de um pipeline de arame (índices aos pares). */

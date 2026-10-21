@@ -2,16 +2,22 @@
 // vértice da nuvem de pontos (posição; uv = tipo e fração de vida), com a aparência do tipo — spray: gotícula
 // (esfera com reflexo especular e Fresnel, tom de água); espuma: disco branco que se dissolve com a vida (descarte
 // pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Direção da luz pelo ponto de cena
-// `scene_lighting` (spec 011): cada tipo com o seu fechamento sobre a normal do impostor, o mesmo modelo do forward.
+// `scene_lighting` (spec 011): cada tipo com o seu fechamento sobre a normal do impostor, o mesmo modelo do forward. Com
+// o antisserrilhado temporal (spec 034), o passe de movimento desenha o mesmo quadrado com `fs_motion`, pelos vértices do
+// quadro anterior (`point_previous_vertices`: a nuvem que a GPU reescreve guarda a do quadro anterior).
 
 struct DiffuseOut {
-    @builtin(position) clip_position: vec4f,
+    // Invariante: o passe de cor e o de movimento (teste igual) chegam à mesma profundidade bit a bit.
+    @builtin(position) @invariant clip_position: vec4f,
     @location(0) corner: vec2f,
     @location(1) @interpolate(flat) material_slot: u32,
     @location(2) @interpolate(flat) kind: f32,
     @location(3) @interpolate(flat) life: f32,
     @location(4) @interpolate(flat) id: u32,
     @location(5) center: vec3f,
+    // O centro em clip no quadro anterior e neste, sem o deslocamento da amostra (spec 034).
+    @location(6) motion_previous: vec4f,
+    @location(7) motion_current: vec4f,
 }
 
 @vertex
@@ -42,8 +48,26 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     out.center = world.xyz;
     let view = camera.view * world;
     out.clip_position = camera.projection * vec4f(view.xy + corner * radius, view.z, 1.0);
+    // Vetores de movimento (spec 034): o vértice no quadro anterior (o da geometria que a GPU reescreve; nas outras, o
+    // mesmo) pela matriz anterior; o ponto do quadrado acompanha o centro.
+    let p = point_previous_vertices[point];
+    // O ponto que nasceu neste quadro (o anterior fora do recorte, morto) fica sem movimento: a distância o recomeça.
+    let before = select(local, vec3f(p.px, p.py, p.pz), all(abs(vec3f(p.px, p.py, p.pz)) < vec3f(1e8)));
+    let previous = previous_worlds[r.transformSlot].world * vec4f(before, 1.0);
+    let offset = vec4f(corner * radius, 0.0, 0.0);
+    out.motion_current = camera.unjitteredViewProjection * world + camera.projection * offset;
+    out.motion_previous = camera.previousViewProjection * previous + camera.projection * offset;
     return out;
 }
+
+// Passe de movimento (spec 034): o deslocamento do ponto do pixel na tela desde o quadro anterior, em uv (anterior −
+// atual), o mesmo da superfície e do que está atrás (rg e ba), com a profundidade do passe principal (teste igual).
+@fragment
+fn fs_motion(in: DiffuseOut) -> @location(0) vec4f {
+    if (dot(in.corner, in.corner) > 1.0) { discard; }
+    return camera_motion(in.motion_previous, in.motion_current);
+}
+
 
 // Hash do pixel e da partícula → [0, 1) (descarte pontilhado da espuma).
 fn diffuse_dither(p: vec2f, id: u32) -> f32 {

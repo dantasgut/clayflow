@@ -63,3 +63,11 @@ fn camera_orthographic_box(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> ma
         vec4f((r + l) / (l - r), (t + b) / (b - t), n / (n - f), 1.0),
     );
 }
+
+// Vetor de movimento (spec 034): o deslocamento do ponto na tela desde o quadro anterior, em uv (anterior − atual), a
+// partir dele em clip no quadro anterior e neste (sem o deslocamento da amostra); repetido em rg e ba (o da superfície e
+// o do que está atrás dela — iguais fora de um transmissivo).
+fn camera_motion(previous: vec4f, current: vec4f) -> vec4f {
+    let m = (previous.xy / previous.w - current.xy / current.w) * vec2f(0.5, -0.5);
+    return vec4f(m, m);
+}

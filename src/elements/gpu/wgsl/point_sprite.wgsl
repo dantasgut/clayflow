@@ -3,13 +3,18 @@
 // geometria da CPU ou escrita por um estágio (`PointCloudGeometry`). `vertex_index / 6` é o vértice; a instância é a
 // entidade do grupo (registro `Renderable`: matriz de mundo e material). A direção da luz vem do ponto de cena
 // `scene_lighting` (spec 011): o fechamento da cor do material sobre a normal do impostor, o mesmo modelo do forward.
-// Vértices da geometria do pipeline (binding privado por geometria).
+// Vértices da geometria do pipeline (binding privado por geometria). Com o antisserrilhado temporal (spec 034), o passe de
+// movimento desenha o mesmo quadrado com `fs_motion`, pelos vértices do quadro anterior (`point_previous_vertices`).
 
 struct PointOut {
-    @builtin(position) clip_position: vec4f,
+    // Invariante: o passe de cor e o de movimento (teste igual) chegam à mesma profundidade bit a bit.
+    @builtin(position) @invariant clip_position: vec4f,
     @location(0) corner: vec2f,
     @location(1) @interpolate(flat) material_slot: u32,
     @location(2) center: vec3f,
+    // O centro em clip no quadro anterior e neste, sem o deslocamento da amostra (spec 034).
+    @location(3) motion_previous: vec4f,
+    @location(4) motion_current: vec4f,
 }
 
 @vertex
@@ -35,8 +40,26 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     out.center = world.xyz;
     let view = camera.view * world;
     out.clip_position = camera.projection * vec4f(view.xy + corner * material.radius, view.z, 1.0);
+    // Vetores de movimento (spec 034): o vértice no quadro anterior (o da geometria que a GPU reescreve; nas outras, o
+    // mesmo) pela matriz anterior; o ponto do quadrado acompanha o centro.
+    let p = point_previous_vertices[index / 6u];
+    // O ponto que nasceu neste quadro (o anterior fora do recorte, morto) fica sem movimento: a distância o recomeça.
+    let before = select(local, vec3f(p.px, p.py, p.pz), all(abs(vec3f(p.px, p.py, p.pz)) < vec3f(1e8)));
+    let previous = previous_worlds[r.transformSlot].world * vec4f(before, 1.0);
+    let offset = vec4f(corner * material.radius, 0.0, 0.0);
+    out.motion_current = camera.unjitteredViewProjection * world + camera.projection * offset;
+    out.motion_previous = camera.previousViewProjection * previous + camera.projection * offset;
     return out;
 }
+
+// Passe de movimento (spec 034): o deslocamento do ponto do pixel na tela desde o quadro anterior, em uv (anterior −
+// atual), o mesmo da superfície e do que está atrás (rg e ba), com a profundidade do passe principal (teste igual).
+@fragment
+fn fs_motion(in: PointOut) -> @location(0) vec4f {
+    if (dot(in.corner, in.corner) > 1.0) { discard; }
+    return camera_motion(in.motion_previous, in.motion_current);
+}
+
 
 @fragment
 fn fs_main(in: PointOut) -> @location(0) vec4f {

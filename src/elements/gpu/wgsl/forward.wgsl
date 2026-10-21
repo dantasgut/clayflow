@@ -74,10 +74,7 @@ fn fs_depth() {}
 // o que o transmissivo mostra.
 @fragment
 fn fs_motion(in: VsOut) -> @location(0) vec4<f32> {
-    let previous = in.motion_previous.xy / in.motion_previous.w;
-    let current = in.motion_current.xy / in.motion_current.w;
-    let m = (previous - current) * vec2<f32>(0.5, -0.5);
-    return vec4<f32>(m, m);
+    return camera_motion(in.motion_previous, in.motion_current);
 }
 
 // Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).

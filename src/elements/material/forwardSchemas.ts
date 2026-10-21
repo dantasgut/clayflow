@@ -28,14 +28,16 @@ export const ForwardFrameParamsSchema = new StructSchema(
 );
 
 /**
- * Parâmetros do quadro do desenho de partículas (uniform privado do `ParticleFlow`): o slot da câmera ativa. A luz dos
- * sprites vem do ponto de cena `scene_lighting` (spec 011).
+ * Parâmetros do quadro do desenho de partículas (uniform privado do `ParticleFlow`): o slot da câmera ativa e o tempo
+ * simulado no quadro (os passos da física dados nele; o movimento dos sprites, spec 034). A luz dos sprites vem do ponto
+ * de cena `scene_lighting` (spec 011).
  */
 export const ParticleFrameParamsSchema = new StructSchema(
     'ParticleFrameParams',
     {
         cameraSlot: FieldType.u32,
-        _pad0: FieldType.u32,
+        /** Tempo simulado no quadro (s): a partícula andou `vel · dt` desde o quadro anterior. */
+        dt: FieldType.f32,
         _pad1: FieldType.u32,
         _pad2: FieldType.u32,
     },
@@ -44,8 +46,8 @@ export const ParticleFrameParamsSchema = new StructSchema(
 
 /**
  * Desenho de um corpo de partículas em sprites (spec 008, uma região por corpo, com offset dinâmico): o primeiro slot da
- * faixa do corpo no pool, o stride do registro e o deslocamento do campo `pos` em `vec4f` (o pool é lido como
- * `array<vec4f>`, o mesmo shader para todo schema de partícula) e o slot do material no pool `PointSpriteMaterial`.
+ * faixa do corpo no pool, o stride do registro e os deslocamentos dos campos `pos` e `vel` em `vec4f` (o pool é lido
+ * como `array<vec4f>`, o mesmo shader para todo schema de partícula) e o slot do material no pool `PointSpriteMaterial`.
  */
 export const ParticleDrawParamsSchema = new StructSchema(
     'ParticleDrawParams',
@@ -54,6 +56,11 @@ export const ParticleDrawParamsSchema = new StructSchema(
         strideVec4: FieldType.u32,
         posOffsetVec4: FieldType.u32,
         materialSlot: FieldType.u32,
+        /** Deslocamento do campo `vel` (spec 034: o movimento do sprite); `NONE` sem ele (o sprite fica sem movimento). */
+        velOffsetVec4: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
