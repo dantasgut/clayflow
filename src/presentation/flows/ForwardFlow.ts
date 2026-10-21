@@ -100,6 +100,19 @@ const VERTEX_LAYOUT = [
     },
 ];
 
+/**
+ * Desenho pelos buffers de vértice: o mesmo layout e, no buffer 1, a posição do vértice no quadro anterior (spec 034) — os `previousVertices`
+ * da geometria que a GPU reescreve; nas outras, os próprios vértices.
+ */
+const SURFACE_VERTEX_LAYOUT = [
+    ...VERTEX_LAYOUT,
+    {
+        arrayStride: 32,
+        stepMode: 'vertex' as const,
+        attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x3' as const }],
+    },
+];
+
 /** Onde o forward desenha a cor: a cor da cena (`FrameTargets`, lida pelo pós) ou direto no canvas. */
 export type ForwardOutput = 'scene' | 'canvas';
 
@@ -886,6 +899,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 continue;
             }
             pass.geometry.vertex(0, vertices);
+            const previous = this.resources.bufferOf(geometry, 'previousVertices');
+            pass.geometry.vertex(1, previous?.subkind === 'vertex' ? previous : vertices);
             const indices = this.resources.bufferOf(geometry, 'indices');
             if (indices?.subkind === 'index') {
                 pass.geometry.index(indices);
@@ -1142,7 +1157,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     topology,
                     cullMode: topology === 'triangle-list' ? 'back' : 'none',
                     frontFace,
-                    vertexBuffers: VERTEX_LAYOUT,
+                    vertexBuffers: SURFACE_VERTEX_LAYOUT,
                     colorTargets: [{ format }],
                     // Depois do passe de profundidade só o fragmento visível passa (o igual); sem o passe, `less-equal`
                     // dá o mesmo que o teste comum fora dos empates exatos.

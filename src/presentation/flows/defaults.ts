@@ -392,7 +392,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
     });
     // Histórico de movimento (spec 034): a primeira coisa do quadro (fase `physics`, maior prioridade), antes de qualquer
     // escrita nas matrizes de mundo.
-    const motionHistoryRegistration = flows.register(() => new MotionHistoryFlow(), {
+    const motionHistoryRegistration = flows.register((ctx) => new MotionHistoryFlow(ctx), {
         type: 'motionHistory',
         phase: 'physics',
         priority: 1000,

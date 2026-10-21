@@ -11,6 +11,8 @@
 //     excesso sobre a imagem sem a bola (o modo temporal em passo, sem a bola) fica ≤ 1 % do brilho da bola (sem
 //     rastro). A pegada da bola: onde o quadro sem antisserrilhado com a bola difere do sem a bola; contam os pixels de
 //     fundo liso (numa aresta, o pixel recomeçado tem outra média das amostras — ruído, não rastro).
+//   - deform: o mesmo, com a bola como superfície paramétrica deslocada pelos vértices (o `Transform` parado; os
+//     vetores de movimento vêm dos vértices do quadro anterior) numa cena sem o vidro e a esfera lisa.
 //   - orbit: a câmera gira a 30°/s em volta do vidro; em três poses o quadro do modo temporal contra a referência
 //     parada na mesma pose: a energia de gradiente da referência / a do temporal ≤ 1,5 (o borrão do movimento) e erro
 //     médio ≤ 3 %.
@@ -62,17 +64,28 @@ interface Scene {
     readonly look: Look;
     /** A câmera (corte: a acumulação e o histórico recomeçam). */
     readonly camera: clayflow.Camera;
-    readonly ball?: Transform;
+    /** Leva a bola à posição do quadro `i` (com a bola). */
+    readonly move?: (i: number) => void;
 }
 
 const TARGET = [0, 0.4, 0] as const;
 /** Posições da amostra (e quadros) da referência parada. */
 const REF_SAMPLES = 256;
 
+/** Posição da bola no quadro `i` (atravessa a cena atrás do vidro em 2 s). */
+const ballAt = (i: number): [number, number, number, number] => [-2 + (4 * i) / 120, 0.4, -0.8, 1];
+
 /** A cena de teste no modo pedido. */
 async function scene(
     mode: AntialiasingMode,
-    options: { ball?: boolean; size?: readonly [number, number]; profiling?: boolean } = {},
+    options: {
+        /** A bola: por `Transform` ou superfície paramétrica deslocada pelos vértices (`Transform` parado). */
+        ball?: 'transform' | 'surface';
+        /** Sem o vidro e a esfera lisa (nada reflete nem refrata a bola). */
+        bare?: boolean;
+        size?: readonly [number, number];
+        profiling?: boolean;
+    } = {},
 ): Promise<Scene> {
     const [width, height] = options.size ?? [W, H];
     const canvas = document.createElement('canvas');
@@ -124,18 +137,70 @@ async function scene(
                 ),
             ),
     );
-    // Caixa escura de arestas vivas e esfera lisa (realce fino).
+    // Caixa escura de arestas vivas.
     app.world.insert(
         new BoxGeometry({ size: [0.6, 0.6, 0.6] })
             .add(new StandardMaterial({ albedo: [0.05, 0.05, 0.05, 1], roughness: 0.6 }))
             .add(new Transform({ position: [-0.9, 0.3, -0.4, 1] })),
     );
+    if (options.bare !== true) insertProps(app);
+    const emissive = closureFn(
+        'return closure_add(closure_diffuse(vec3f(0.0), 0.0), closure_emission(vec3f(6.0, 6.0, 6.0), 1.0));',
+        ['diffuse', 'emission'],
+    );
+    let move: ((i: number) => void) | undefined;
+    if (options.ball === 'transform') {
+        const ball = new Transform({ position: ballAt(0) });
+        app.world.insert(
+            new SphereGeometry({ radius: 0.12, latSegments: 32, lonSegments: 64 })
+                .add(new StandardMaterial({ albedo: [0, 0, 0, 1], roughness: 1 }))
+                .add(ball)
+                .add(emissive),
+        );
+        move = (i) => {
+            ball.data.position = ballAt(i);
+        };
+    } else if (options.ball === 'surface') {
+        const fn = new clayflow.SurfaceFunction({
+            code: BALL_SURFACE,
+            params: { center: 'vec3f' },
+            values: { center: ballAt(0).slice(0, 3) },
+        });
+        app.world.insert(
+            new clayflow.ParametricSurface({
+                domain: [0, 2 * Math.PI, 0, Math.PI],
+                resolution: [64, 32],
+            })
+                .add(fn)
+                .add(new StandardMaterial({ albedo: [0, 0, 0, 1], roughness: 1 }))
+                .add(new Transform())
+                .add(emissive),
+        );
+        move = (i) => {
+            fn.values.center = ballAt(i).slice(0, 3);
+        };
+    }
+    await app.whenReady({ timeoutMs: 60_000 });
+    // Aquecimento: a sombra, as tabelas e o primeiro histórico assentados; o corte recomeça a acumulação e o histórico
+    // do zero no quadro seguinte (a medida não depende de quantos quadros a prontidão levou).
+    app.step(1 / 60, 8);
+    camera.cut();
+    return { app, canvas, look, camera, ...(move !== undefined ? { move } : {}) };
+}
+
+/** Esfera de raio 0,12 m em volta de `center`, pelos vértices. */
+const BALL_SURFACE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return data.center + 0.12 * vec3f(cos(u) * sin(v), cos(v), sin(u) * sin(v));
+}`;
+
+/** Esfera lisa (realce fino) e esfera de vidro no centro. */
+function insertProps(app: Application): void {
     app.world.insert(
         new SphereGeometry({ radius: 0.3, latSegments: 64, lonSegments: 128 })
             .add(new StandardMaterial({ albedo: [0.9, 0.3, 0.1, 1], roughness: 0.08, metallic: 0 }))
             .add(new Transform({ position: [0.9, 0.3, -0.3, 1] })),
     );
-    // Esfera de vidro no centro.
     app.world.insert(
         new SphereGeometry({ radius: 0.35, latSegments: 96, lonSegments: 192 })
             .add(new StandardMaterial())
@@ -147,27 +212,6 @@ async function scene(
                 ),
             ),
     );
-    let ball: Transform | undefined;
-    if (options.ball === true) {
-        ball = new Transform({ position: [-2, 0.4, -0.8, 1] });
-        app.world.insert(
-            new SphereGeometry({ radius: 0.12, latSegments: 32, lonSegments: 64 })
-                .add(new StandardMaterial({ albedo: [0, 0, 0, 1], roughness: 1 }))
-                .add(ball)
-                .add(
-                    closureFn(
-                        'return closure_add(closure_diffuse(vec3f(0.0), 0.0), closure_emission(vec3f(6.0, 6.0, 6.0), 1.0));',
-                        ['diffuse', 'emission'],
-                    ),
-                ),
-        );
-    }
-    await app.whenReady({ timeoutMs: 60_000 });
-    // Aquecimento: a sombra, as tabelas e o primeiro histórico assentados; o corte recomeça a acumulação e o histórico
-    // do zero no quadro seguinte (a medida não depende de quantos quadros a prontidão levou).
-    app.step(1 / 60, 8);
-    camera.cut();
-    return { app, canvas, look, camera, ...(ball !== undefined ? { ball } : {}) };
 }
 
 function close(s: Scene): void {
@@ -285,12 +329,14 @@ async function still(): Promise<void> {
     check(c.edges <= 0.03, `still: erro nas bordas ${pct(c.edges)} após 64 quadros (≤ 3 %)`);
 }
 
-/** Posição da bola no quadro `i` (atravessa a cena atrás do vidro em 2 s). */
-const ballAt = (i: number): [number, number, number, number] => [-2 + (4 * i) / 120, 0.4, -0.8, 1];
-
-async function trail(): Promise<void> {
+/** Rastro da bola (`label`) que atravessa a cena na forma pedida. */
+async function trailOf(
+    label: string,
+    options: { ball: 'transform' | 'surface'; bare?: boolean },
+): Promise<void> {
+    const bare = options.bare === true ? { bare: true } : {};
     // A pegada da bola a cada quadro (sem antisserrilhado): onde o quadro com a bola difere do sem a bola.
-    const plain = await scene('off');
+    const plain = await scene('off', bare);
     const empty = await frameAfter(plain, 1);
     close(plain);
     // Onde o fundo é liso (vizinhança 3 × 3 sem aresta): lá o excesso é só o que a bola deixou — numa aresta, o pixel
@@ -308,11 +354,11 @@ async function trail(): Promise<void> {
                 }
             flat[y * W + x] = hi - lo < 0.02 ? 1 : 0;
         }
-    const off = await scene('off', { ball: true });
+    const off = await scene('off', options);
     const masks: Uint8Array[] = [];
     const near: Uint8Array[] = [];
     for (let i = 0; i < 120; i++) {
-        off.ball!.data.position = ballAt(i);
+        off.move!(i);
         off.app.step(1 / 60);
         const img = lum(await off.app.core.readCanvas());
         const m = new Uint8Array(W * H);
@@ -335,17 +381,25 @@ async function trail(): Promise<void> {
     close(off);
     // O modo temporal com e sem a bola em passo (a mesma sequência de posições da amostra desde o corte): a diferença
     // entre os dois é só a bola.
-    const tmp = await scene('temporal', { ball: true });
-    const bg = await scene('temporal');
+    const tmp = await scene('temporal', options);
+    const bg = await scene('temporal', bare);
     let worst = 0;
     let counted = 0;
     let at = '';
     for (let i = 0; i < 120; i++) {
-        tmp.ball!.data.position = ballAt(i);
+        tmp.move!(i);
         tmp.app.step(1 / 60);
         const img = lum(await tmp.app.core.readCanvas());
         bg.app.step(1 / 60);
         const background = lum(await bg.app.core.readCanvas());
+        if (i === 119 && new URLSearchParams(location.search).get('dump') === '1') {
+            await dump(`zz-aa-${label}-tmp.png`, img);
+            await dump(`zz-aa-${label}-bg.png`, background);
+            await dump(
+                `zz-aa-${label}-diff.png`,
+                img.map((v, j) => Math.min(1, Math.max(0, v - background[j]!) * 10)),
+            );
+        }
         if (i < 8) continue;
         // Pixels cobertos pela bola há 4 a 8 quadros e livres desde então.
         for (let k = 0; k < img.length; k++) {
@@ -370,11 +424,18 @@ async function trail(): Promise<void> {
     close(tmp);
     close(bg);
     log(
-        `trail: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at})`,
+        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at})`,
     );
-    check(counted > 0, 'trail: a bola não foi vista');
-    check(worst <= 0.01, `trail: rastro de ${pct(worst)} do brilho da bola após 4 quadros (≤ 1 %)`);
+    check(counted > 0, `${label}: a bola não foi vista`);
+    check(
+        worst <= 0.01,
+        `${label}: rastro de ${pct(worst)} do brilho da bola após 4 quadros (≤ 1 %)`,
+    );
 }
+
+const trail = (): Promise<void> => trailOf('trail', { ball: 'transform' });
+/** A bola como superfície deslocada pelos vértices (o `Transform` parado), sem nada que a reflita ou refrate. */
+const deform = (): Promise<void> => trailOf('deform', { ball: 'surface', bare: true });
 
 /** Pose da órbita (30°/s em volta do alvo, raio 3 m) no tempo `t` (s). */
 const orbitAt = (t: number): [number, number, number] => {
@@ -528,7 +589,14 @@ async function cost(): Promise<void> {
     check(own <= 1.5, `cost: antisserrilhado ${own.toFixed(3)} ms (≤ 1,5 ms)`);
 }
 
-const CASES: Record<string, () => Promise<void>> = { still, trail, orbit, sprites, cost };
+const CASES: Record<string, () => Promise<void>> = {
+    still,
+    trail,
+    deform,
+    orbit,
+    sprites,
+    cost,
+};
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

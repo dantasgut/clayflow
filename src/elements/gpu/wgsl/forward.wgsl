@@ -10,6 +10,8 @@ struct VsIn {
     @location(0) position: vec3<f32>,
     @location(1) normal:   vec3<f32>,
     @location(2) uv:       vec2<f32>,
+    // A posição no quadro anterior (spec 034): a da geometria que a GPU reescreve; nas outras, a mesma.
+    @location(3) previous_position: vec3<f32>,
 }
 
 struct VsOut {
@@ -51,7 +53,7 @@ fn vs_main(
     out.origin = w.world[3].xyz;
     let cam = cameras[forward_frame.cameraSlot];
     out.motion_current = cam.unjitteredViewProjection * world;
-    out.motion_previous = cam.previousViewProjection * (previous_worlds[r.transformSlot].world * vec4<f32>(in.position, 1.0));
+    out.motion_previous = cam.previousViewProjection * (previous_worlds[r.transformSlot].world * vec4<f32>(in.previous_position, 1.0));
     if (r.diffSlot != NONE) {
         let d = surface_diff[r.diffSlot + vertex];
         out.metric = d.metric.xyz;
