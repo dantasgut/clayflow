@@ -2,7 +2,7 @@ import { wgslModule } from '../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { lightTransmissionReady, sceneLightingPoint } from '../scene/points/lighting';
+import { lightTransmissionReady, sceneIndirectLightingPoint } from '../scene/points/lighting';
 import { sceneAmbientPoint } from '../scene/points/media';
 import { camerasResource } from '../scene/resources';
 import { rayScene } from '../raytrace/shaders';
@@ -39,7 +39,7 @@ fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
     return gi_irradiance(p, nl, v) / GI_PI;
 }
 
-fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
     // A irradiância das sondas mais a das cáusticas por fótons (a luz focada por vidro e metal).
@@ -107,10 +107,10 @@ const giAmbient = wgslModule({
 });
 
 /**
- * Contribuições da `GlobalIllumination` (spec 033, R7, R12): a luz indireta em `scene_lighting`, depois das luzes, e
+ * Contribuições da `GlobalIllumination` (spec 033, R7, R12): a luz indireta em `scene_indirect_lighting`, e
  * em `scene_ambient` (os meios).
  */
 export const giContributions: readonly SceneContribution[] = [
-    { point: sceneLightingPoint, order: 5, pools: [], build: () => giLighting },
+    { point: sceneIndirectLightingPoint, order: 5, pools: [], build: () => giLighting },
     { point: sceneAmbientPoint, order: 5, pools: [], build: () => giAmbient },
 ];

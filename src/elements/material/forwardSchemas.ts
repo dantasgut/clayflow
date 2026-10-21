@@ -19,12 +19,8 @@ export const ForwardFrameParamsSchema = new StructSchema(
         viewport: FieldType.vec2f,
         /** Tempo simulado (s) — a amostra de superfície das funções `material` (spec 009). */
         time: FieldType.f32,
-        /**
-         * 1 com o antisserrilhado temporal (spec 034): o alfa da cor leva a luz que chega ao ponto (a radiância refletida
-         * sobre a refletância do fechamento), que a resolução compara com a do quadro anterior; 0: o alfa é a opacidade.
-         */
-        lightSignal: FieldType.u32,
         /** Preenchimento do layout. */
+        _pad1: FieldType.u32,
         _pad2: FieldType.u32,
         _pad3: FieldType.u32,
     },

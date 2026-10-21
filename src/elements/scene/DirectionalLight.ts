@@ -39,7 +39,7 @@ export class DirectionalLight extends Light {
     private readonly contributions: readonly SceneContribution[];
 
     /**
-     * O laço das luzes do pool no ponto `scene_lighting` e, com o mapa de sombra, a sombra desta luz em
+     * O laço das luzes do pool no ponto `scene_direct_lighting` e, com o mapa de sombra, a sombra desta luz em
      * `light_visibility` (spec 011).
      */
     getSceneContributions(): readonly SceneContribution[] {

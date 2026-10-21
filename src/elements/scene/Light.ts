@@ -34,7 +34,7 @@ export interface LightValues extends Partial<Omit<LightData, 'kind' | 'castShado
 
 /**
  * Base dos tipos de luz (`DirectionalLight`, `PointLight`, `SpotLight`): um struct comum num pool, lido pela
- * contribuição das luzes ao ponto de cena `scene_lighting` (spec 011) — o desenho não conhece nenhuma classe de luz.
+ * contribuição das luzes ao ponto de cena `scene_direct_lighting` (spec 011) — o desenho não conhece nenhuma classe de luz.
  * Cor e intensidade em unidades físicas: lux na direcional, candela na pontual e na spot.
  *
  * `kind`: 0 = direcional, 1 = pontual, 2 = spot.

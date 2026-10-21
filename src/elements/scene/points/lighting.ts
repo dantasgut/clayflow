@@ -3,17 +3,42 @@ import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
 import { closure } from '../../material/pbr/shaders';
 
 // Pontos de cena do sombreamento (spec 031, R4; spec 011, R7): o desenho chama estas funções sem conhecer quem as
-// implementa. As luzes contribuem para `scene_lighting` (soma); a sombra de cada luz para `light_visibility` e a água
-// para `light_transmission` (produtos, por luz). Sem contribuinte, fica o pronto.
+// implementa. As luzes contribuem para `scene_direct_lighting` e a luz rebatida para `scene_indirect_lighting` (somas;
+// `scene_lighting` é as duas); a sombra de cada luz para `light_visibility` e a água para `light_transmission`
+// (produtos, por luz). Sem contribuinte, fica o pronto.
 
 /**
- * `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` pelo fechamento
- * `c` no ponto `p` (normal `n`) sob todas as luzes da cena; pronto: nenhuma luz (0).
+ * `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` pelo
+ * fechamento `c` no ponto `p` (normal `n`) sob as luzes analíticas da cena (as do pool, com a sombra e o meio, e o
+ * hemisfério); pronto: nenhuma luz (0).
+ */
+export const sceneDirectLightingReady = wgslModule({
+    name: 'scene_direct_lighting_ready',
+    requires: [closure],
+    source: 'fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * `fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` sob a
+ * luz rebatida (spec 033: as sondas e as cáusticas); pronto: nenhuma (0).
+ */
+export const sceneIndirectLightingReady = wgslModule({
+    name: 'scene_indirect_lighting_ready',
+    requires: [closure],
+    source: 'fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` sob toda a
+ * luz da cena: a direta mais a rebatida. O desenho com o antisserrilhado temporal lê as duas em separado (spec 034: a
+ * luz que muda sobre a superfície parada é a direta; o ruído da rebatida tem o acúmulo próprio).
  */
 export const sceneLightingReady = wgslModule({
-    name: 'scene_lighting_ready',
-    requires: [closure],
-    source: 'fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+    name: 'scene_lighting',
+    requires: [closure, sceneDirectLightingReady, sceneIndirectLightingReady],
+    source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return scene_direct_lighting(c, p, n, v) + scene_indirect_lighting(c, p, n, v);
+}`,
 });
 
 /**
@@ -60,22 +85,36 @@ function memo(key: string, make: () => WgslModule): WgslModule {
     return m;
 }
 
-/** Iluminação da cena: a soma das contribuições (cada classe de luz, o hemisfério). */
-export const sceneLightingPoint: ContributionPoint = {
-    name: 'scene_lighting',
-    ready: sceneLightingReady,
-    functionName: 'scene_lighting',
-    combine: (modules) =>
-        memo(`light:${modules.map((m) => m.name).join('+')}`, () =>
-            wgslModule({
-                name: `scene_lighting:${modules.map((m) => m.name).join('+')}`,
-                requires: [closure, ...modules],
-                source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return ${modules
-                    .map((_, k) => `scene_lighting_${k}(c, p, n, v)`)
-                    .join(' + ')};\n}`,
-            }),
-        ),
-};
+/** Ponto de iluminação de nome `name`: a soma das contribuições, em ordem. */
+function lightingPoint(name: string, ready: WgslModule): ContributionPoint {
+    return {
+        name,
+        ready,
+        functionName: name,
+        combine: (modules) =>
+            memo(`${name}:${modules.map((m) => m.name).join('+')}`, () =>
+                wgslModule({
+                    name: `${name}:${modules.map((m) => m.name).join('+')}`,
+                    requires: [closure, ...modules],
+                    source: `fn ${name}(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return ${modules
+                        .map((_, k) => `${name}_${k}(c, p, n, v)`)
+                        .join(' + ')};\n}`,
+                }),
+            ),
+    };
+}
+
+/** Luz direta da cena: a soma das contribuições (cada classe de luz, o hemisfério). */
+export const sceneDirectLightingPoint = lightingPoint(
+    'scene_direct_lighting',
+    sceneDirectLightingReady,
+);
+
+/** Luz rebatida da cena: a soma das contribuições (a iluminação global). */
+export const sceneIndirectLightingPoint = lightingPoint(
+    'scene_indirect_lighting',
+    sceneIndirectLightingReady,
+);
 
 /** Visibilidade da luz: o produto dos contribuintes, em ordem. */
 export const lightVisibilityPoint: ContributionPoint = {

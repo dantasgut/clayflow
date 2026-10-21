@@ -208,7 +208,7 @@ function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
  * filtradas pelo ruído estimado. O acúmulo das duas tem histerese adaptativa: parado, converge e fica estável; quando a
  * luz muda de verdade (uma luz acende, a geometria muda), responde em poucos quadros sem rastro.
  * Fótons das fontes pelos caminhos especulares dão as cáusticas de toda superfície. A luz indireta chega ao desenho pelo
- * ponto `scene_lighting` (`closure_indirect`); com ela na cena, os estágios padrão retiram o hemisfério. Mudar valores
+ * ponto `scene_indirect_lighting` (`closure_indirect`); com ela na cena, os estágios padrão retiram o hemisfério. Mudar valores
  * vale no quadro seguinte, sem recompilar.
  */
 export class GlobalIllumination extends Entity<GlobalIlluminationData> implements Resource {
@@ -330,7 +330,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         return [];
     }
 
-    /** A luz indireta em `scene_lighting` (e as cáusticas). */
+    /** A luz indireta em `scene_indirect_lighting` (e as cáusticas). */
     getSceneContributions(): readonly SceneContribution[] {
         return giContributions;
     }

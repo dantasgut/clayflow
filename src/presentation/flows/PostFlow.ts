@@ -32,7 +32,7 @@ import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing'
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import { ToneMapping, operatorIndex } from '../resources/ToneMapping';
-import { FrameTargets, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
+import { FrameTargets, LIGHT_FORMAT, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
 import {
     EffectParamsSchema,
     PresentationParamsSchema,
@@ -65,6 +65,8 @@ export interface PostSlots extends SlotMap {
     readonly depth: TextureSlot<true>;
     /** Vetores de movimento (`FrameTargets.motion`). */
     readonly motion: TextureSlot<true>;
+    /** A luz que chega a cada pixel (`FrameTargets.light`: direta, total). */
+    readonly light: TextureSlot<true>;
     /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
     readonly camera: SingletonSlot<true>;
     readonly cameras: PoolSlot<true>;
@@ -78,6 +80,7 @@ const slots: PostSlots = {
     antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
     motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+    light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
 };
@@ -142,7 +145,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         views: [TextureViewSpec, TextureViewSpec];
         distanceTextures: [TextureSpec, TextureSpec];
         distanceViews: [TextureViewSpec, TextureViewSpec];
-        /** A luz que chegava a cada pixel (r16float, o alfa da cor da cena): a mudança de iluminação do quadro seguinte. */
+        /** A luz que chegava a cada pixel (direta, total; acumulada): a mudança de iluminação do quadro seguinte. */
         lightTextures: [TextureSpec, TextureSpec];
         lightViews: [TextureViewSpec, TextureViewSpec];
         /** A imagem resolvida com a nitidez adaptativa (o que a cadeia e a apresentação leem). */
@@ -381,7 +384,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 discriminator: `post_taa_${name}:${width}x${height}`,
                 width,
                 height,
-                format: 'r16float',
+                format: LIGHT_FORMAT,
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             });
         const lightView = (source: TextureSpec, name: string): TextureViewSpec =>
@@ -389,7 +392,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 kind: 'textureview',
                 discriminator: `post_taa_${name}_v:${width}x${height}`,
                 source,
-                format: 'r16float',
+                format: LIGHT_FORMAT,
             });
         const l0 = light('l0');
         const l1 = light('l1');
@@ -441,6 +444,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
         const depth = ctx.bound.slots.depth;
         const motion = ctx.bound.slots.motion;
+        const light = ctx.bound.slots.light;
         const camera = ctx.bound.slots.camera?.resource;
         const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
         const cameraSlot =
@@ -450,6 +454,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             || !aa.jitters
             || depth === undefined
             || motion === undefined
+            || light === undefined
             || ctx.bound.slots.samples !== undefined
             || cameraSlot === undefined
             || this.history === null
@@ -481,6 +486,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 ],
                 [{ pipeline: id, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: id, resource: temporalResources.motion }, motion.view],
+                [{ pipeline: id, resource: temporalResources.light }, light.view],
             ]),
         );
         // A nitidez lê o histórico e o estado (o movimento de cada pixel) que a resolução acabou de escrever.
@@ -501,6 +507,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 ],
                 [{ pipeline: sharpenId, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: sharpenId, resource: temporalResources.motion }, motion.view],
+                [{ pipeline: sharpenId, resource: temporalResources.light }, light.view],
             ]),
         );
         if (!this.taaPrepared.has(sharpenId)) {
@@ -524,7 +531,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 colorTargets: [
                     { format: SCENE_COLOR_FORMAT },
                     { format: 'rg32float' },
-                    { format: 'r16float' },
+                    { format: LIGHT_FORMAT },
                 ],
             });
             this.taaPrepared.add(id);

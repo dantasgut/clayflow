@@ -89,7 +89,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             });
         // A luz indireta no desenho e, para os meios participantes (R12), a radiância média.
         expect(gi.getSceneContributions().map((c) => c.point.name)).toEqual([
-            'scene_lighting',
+            'scene_indirect_lighting',
             'scene_ambient',
         ]);
     });

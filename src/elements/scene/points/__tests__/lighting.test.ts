@@ -13,7 +13,10 @@ import {
     lightTransmissionReady,
     lightVisibilityPoint,
     lightVisibilityReady,
-    sceneLightingPoint,
+    sceneDirectLightingPoint,
+    sceneIndirectLightingPoint,
+    sceneDirectLightingReady,
+    sceneIndirectLightingReady,
     sceneLightingReady,
 } from '../lighting';
 import {
@@ -25,7 +28,12 @@ import {
 
 describe('pontos de cena do sombreamento (spec 011, T039)', () => {
     it('prontos: nenhuma luz (0), visibilidade 1, transmissão 1 — e montam sozinhos', () => {
-        expect(sceneLightingReady.source).toContain('return vec3f(0.0);');
+        expect(sceneDirectLightingReady.source).toContain('return vec3f(0.0);');
+        expect(sceneIndirectLightingReady.source).toContain('return vec3f(0.0);');
+        // Toda a luz: a direta mais a rebatida.
+        expect(sceneLightingReady.source).toContain(
+            'return scene_direct_lighting(c, p, n, v) + scene_indirect_lighting(c, p, n, v);',
+        );
         expect(lightVisibilityReady.source).toContain(
             'fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32',
         );
@@ -45,13 +53,16 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
                 fn(
                     `lit${k}`,
                     'return vec3f(0.0);',
-                    'scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f',
+                    'scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f',
                 ),
                 `_${k}`,
             ),
         );
-        expect(sceneLightingPoint.combine(lit).source).toContain(
-            'return scene_lighting_0(c, p, n, v) + scene_lighting_1(c, p, n, v);',
+        expect(sceneDirectLightingPoint.combine(lit).source).toContain(
+            'return scene_direct_lighting_0(c, p, n, v) + scene_direct_lighting_1(c, p, n, v);',
+        );
+        expect(sceneIndirectLightingPoint.combine(lit).source).toContain(
+            'return scene_indirect_lighting_0(c, p, n, v) + scene_indirect_lighting_1(c, p, n, v);',
         );
         const vis = [0, 1].map((k) =>
             instantiateModule(
@@ -85,7 +96,7 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         const casting = new DirectionalLight({ castShadow: true });
         const [pool, visibility] = casting.getSceneContributions();
         expect(pool).toBe(poolLightContribution);
-        expect(pool!.point).toBe(sceneLightingPoint);
+        expect(pool!.point).toBe(sceneDirectLightingPoint);
         expect(visibility!.point).toBe(lightVisibilityPoint);
         expect(visibility!.pools).toEqual([Light.schema, ShadowMap.schema]);
         const slots = (light?: number, shadow?: number) => (p: { name: string }) =>

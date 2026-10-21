@@ -62,7 +62,7 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
         return [];
     }
 
-    /** O hemisfério no ponto `scene_lighting` e, para os meios participantes, em `scene_ambient` (spec 033). */
+    /** O hemisfério no ponto `scene_direct_lighting` e, para os meios participantes, em `scene_ambient` (spec 033). */
     getSceneContributions(): readonly SceneContribution[] {
         return [hemisphereContribution, hemisphereAmbientContribution];
     }

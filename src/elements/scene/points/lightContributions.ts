@@ -8,7 +8,7 @@ import { closure, closureEval } from '../../material/pbr/shaders';
 import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
 import { lightsResource } from '../resources';
-import { lightTransmissionReady, lightVisibilityReady, sceneLightingPoint } from './lighting';
+import { lightTransmissionReady, lightVisibilityReady, sceneDirectLightingPoint } from './lighting';
 import { sceneAmbientPoint } from './media';
 
 /**
@@ -91,7 +91,7 @@ const poolLights = wgslModule({
         lightVisibilityReady,
         lightTransmissionReady,
     ],
-    source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     var sum = vec3f(0.0);
     let count = min(arrayLength(&lights), LIGHT_LIMIT);
     for (var i = 0u; i < count; i++) {
@@ -109,7 +109,7 @@ const poolLights = wgslModule({
 const hemisphereLight = wgslModule({
     name: 'scene_lighting_hemisphere',
     requires: [closure, closureEval, NONE.module, hemisphereResource, lightTransmissionReady],
-    source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     let k = hemisphere.intensity;
     let up = normalize(hemisphere.up.xyz);
     return closure_ambient(c, n, v, hemisphere.skyColor.rgb * k, hemisphere.groundColor.rgb * k, up)
@@ -121,11 +121,11 @@ const hemisphereLight = wgslModule({
 let warnedLimit = false;
 
 /**
- * Contribuição de toda luz do pool (spec 011, R7) ao ponto `scene_lighting`: o mesmo laço para todas (a C2 o compõe uma
+ * Contribuição de toda luz do pool (spec 011, R7) ao ponto `scene_direct_lighting`: o mesmo laço para todas (a C2 o compõe uma
  * vez); a luz acima do teto não ilumina e avisa uma vez.
  */
 export const poolLightContribution: SceneContribution = {
-    point: sceneLightingPoint,
+    point: sceneDirectLightingPoint,
     order: 0,
     pools: [Light.schema],
     build: (slotOf) => {
@@ -140,9 +140,9 @@ export const poolLightContribution: SceneContribution = {
     },
 };
 
-/** Contribuição do hemisfério (spec 011, R7) ao ponto `scene_lighting`, depois das luzes do pool. */
+/** Contribuição do hemisfério (spec 011, R7) ao ponto `scene_direct_lighting`, depois das luzes do pool. */
 export const hemisphereContribution: SceneContribution = {
-    point: sceneLightingPoint,
+    point: sceneDirectLightingPoint,
     order: 10,
     pools: [],
     build: () => hemisphereLight,

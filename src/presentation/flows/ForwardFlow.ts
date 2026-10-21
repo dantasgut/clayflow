@@ -74,7 +74,7 @@ import {
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import { SCENE_COLOR_FORMAT } from '../app/FrameTargets';
+import { LIGHT_FORMAT, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
 import { sceneCopyMips, sceneMipResources } from './shaders';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
@@ -141,6 +141,8 @@ export interface ForwardSlots extends SlotMap {
     readonly targets: SingletonSlot<true>;
     /** Vetores de movimento (`FrameTargets.motion`, spec 034; sem MSAA). */
     readonly motion: TextureSlot<true>;
+    /** A luz que chega a cada pixel (`FrameTargets.light`, spec 034; sem MSAA): escrita pelo passe principal. */
+    readonly light: TextureSlot<true>;
     /** Antisserrilhado da cena: o passe de movimento vale com o modo temporal. */
     readonly antialiasing: SingletonSlot<true>;
 }
@@ -226,6 +228,7 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
         time: slot.singleton(Time.schema, { optional: true }),
         targets: slot.singleton(FrameTargets.schema, { optional: true }),
         motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+        light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     };
 }
@@ -633,8 +636,20 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const tsWrites = this.profileTimestamps
             ? this.core.profiler.timestampWritesFor(0, 1)
             : undefined;
+        const light = bound.slots.light;
         const renderTarget: RenderTarget = {
-            colorAttachments: [color],
+            colorAttachments:
+                light === undefined
+                    ? [color]
+                    : [
+                          color,
+                          {
+                              view: light.view,
+                              loadOp: 'clear',
+                              clearValue: [0, 0, 0, 0],
+                              storeOp: 'store',
+                          },
+                      ],
             depthStencilAttachment: {
                 view: target.depth,
                 depthClearValue: 1.0,
@@ -714,6 +729,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         );
     }
 
+    /**
+     * O anexo da luz que chega no passe principal (spec 034): presente com o alvo `FrameTargets.light` (sem MSAA). Só o
+     * fragmento do forward o escreve; o fundo, a profundidade, os sprites e o arame o declaram sem escrever (fica o
+     * zero da limpeza ou o da superfície de antes).
+     */
+    private lightTargets(ctx: Ctx, write: boolean): GPUColorTargetState[] {
+        if (ctx.bound.slots.light === undefined) return [];
+        return [{ format: LIGHT_FORMAT, ...(write ? {} : { writeMask: 0 }) }];
+    }
+
     /** O passe de profundidade vale neste quadro: forçado pela opção ou ligado nos `FrameTargets`. */
     private prepassActive(bound: BoundFlow<ForwardSlots>): boolean {
         if (!this.depthPrepass) return false;
@@ -740,7 +765,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             entryPoints: ['vs_background', 'fs_background'],
             topology: 'triangle-list',
             cullMode: 'none',
-            colorTargets: [{ format }],
+            colorTargets: [{ format }, ...this.lightTargets(ctx, false)],
             depth: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
             multisample: { count: samples },
         });
@@ -1158,7 +1183,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     cullMode: topology === 'triangle-list' ? 'back' : 'none',
                     frontFace,
                     vertexBuffers: SURFACE_VERTEX_LAYOUT,
-                    colorTargets: [{ format }],
+                    colorTargets: [{ format }, ...this.lightTargets(ctx, true)],
                     // Depois do passe de profundidade só o fragmento visível passa (o igual); sem o passe, `less-equal`
                     // dá o mesmo que o teste comum fora dos empates exatos.
                     depth: {
@@ -1181,7 +1206,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
                             'fs_depth',
                         ],
-                        colorTargets: [{ format, writeMask: 0 }],
+                        colorTargets: [{ format, writeMask: 0 }, ...this.lightTargets(ctx, false)],
                         depth: {
                             format: 'depth24plus',
                             depthWriteEnabled: true,
@@ -1273,7 +1298,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 id,
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format }],
+                colorTargets: [{ format }, ...this.lightTargets(ctx, false)],
                 depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
                 // Arame sem mistura: escreve profundidade como um opaco e a ordem de desenho não importa. A borda é
                 // suavizada pelo MSAA; o alfa da cor vira a fração das amostras cobertas (alpha-to-coverage).
@@ -1425,10 +1450,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const time = this.usesTime
             ? ((slots.time?.resource as Time | undefined)?.simulated ?? 0)
             : 0;
-        // Com a resolução temporal, o alfa da cor leva a luz que chega ao ponto (a mudança de iluminação, spec 034).
-        const aa = slots.antialiasing?.resource as TemporalAntialiasing | undefined;
-        const lightSignal = aa?.jitters === true ? 1 : 0;
-        const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}:${lightSignal}`;
+        const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}`;
         if (key === this.writtenFrame) return;
         this.core.write(
             this.frameParams,
@@ -1437,7 +1459,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 cameraFnSlot: this.cameraFnSlot,
                 viewport: [width, height],
                 time,
-                lightSignal,
             }),
         );
         this.writtenFrame = key;

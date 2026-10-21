@@ -21,7 +21,7 @@ export class PointLight extends Light {
         };
     }
 
-    /** O laço das luzes do pool no ponto `scene_lighting` (spec 011). */
+    /** O laço das luzes do pool no ponto `scene_direct_lighting` (spec 011). */
     getSceneContributions(): readonly SceneContribution[] {
         return [poolLightContribution];
     }

@@ -26,6 +26,9 @@ export interface FrameTargetsData {
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
 export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
 
+/** Formato do alvo da luz que chega (spec 034): a direta e a total, demoduladas. */
+export const LIGHT_FORMAT: GPUTextureFormat = 'rg16float';
+
 /**
  * Alvos da cena do quadro (Camada 4): a cor (`color`, HDR em `rgba16float`, lida pelo pós e pela apresentação) e a
  * profundidade (`depth`, `depth24plus`), do tamanho do canvas e recriadas pela C2 quando ele muda. Com MSAA (spec 008,
@@ -64,6 +67,15 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                           id: 'motion',
                           role: 'texture' as const,
                           textureShape: { format: 'rgba16float' as const, sizeFromCanvas: true },
+                      },
+                      // A luz que chega ao ponto de cada pixel (spec 034), sem a textura (a radiância refletida sobre a
+                      // refletância do fechamento): r a direta, g toda (a direta mais a rebatida). Escrita pelo passe
+                      // principal do forward e lida pela resolução temporal: a direta separa a sombra ou a luz que passa
+                      // sobre a superfície parada; a razão das totais reilumina o histórico.
+                      {
+                          id: 'light',
+                          role: 'texture' as const,
+                          textureShape: { format: LIGHT_FORMAT, sizeFromCanvas: true },
                       },
                   ]
                 : []),

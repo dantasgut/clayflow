@@ -6,10 +6,10 @@
 // integral do pixel. Perto de movimento, a caixa da variância da vizinhança 3 × 3 recorta o histórico, e o quadro atual
 // entra reconstruído das amostras vizinhas. Média exponencial na radiância linear, sem viés. No modo de acumulação, média
 // uniforme dos quadros desde o corte, sem recorte (a referência de imagem parada). O alfa guarda quantos quadros o
-// histórico tem. Parado, a luz que chega ao ponto (o alfa da cor da cena: a radiância sobre a refletância, sem a textura)
-// comparada à do quadro anterior separa a mudança de iluminação — a sombra ou a luz que passa sobre a superfície parada —
-// do detalhe menor que o pixel: o histórico é reiluminado pela razão e tratado como em movimento.
-// Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor; alfa = a luz que chega), taa_history,
+// histórico tem. Parado, a luz direta que chega ao ponto (o alvo da luz da cena: a radiância sobre a refletância, sem a
+// textura) comparada à do quadro anterior separa a mudança de iluminação — a sombra ou a luz que passa sobre a superfície
+// parada — do detalhe menor que o pixel: o histórico é reiluminado pela razão da luz total e tratado como em movimento.
+// Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_light (r direta, g total), taa_history,
 // taa_history_distance, taa_history_light, taa_depth, taa_motion, src_smp.
 
 const TAA_ACCUMULATE: u32 = 3u;
@@ -153,8 +153,11 @@ struct TaaOut {
     @location(0) color: vec4f,
     /** Distância da câmera ao ponto do pixel e quanto ele se movia (a desoclusão do quadro seguinte). */
     @location(1) state: vec2f,
-    /** A luz que chega ao ponto do pixel, acumulada com os pesos da cor (a mudança de iluminação do quadro seguinte). */
-    @location(2) light: f32,
+    /**
+     * A luz que chega ao ponto do pixel (direta, total), acumulada com os pesos da cor (a mudança de iluminação do quadro
+     * seguinte).
+     */
+    @location(2) light: vec2f,
 }
 
 @fragment
@@ -162,8 +165,8 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let dims = textureDimensions(src_tex, 0);
     let size = vec2f(dims);
     let pixel = vec2i(in.clip_position.xy);
-    let center = textureLoad(src_tex, pixel, 0);
-    let current = center.rgb;
+    let current = textureLoad(src_tex, pixel, 0).rgb;
+    let light = textureLoad(taa_light, pixel, 0).rg;
     let cam = cameras[taa_params.cameraSlot];
     let r = taa_reproject(pixel, in.uv);
     let depth = r.depth;
@@ -196,7 +199,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     var out: TaaOut;
     out.state = vec2f(distance, moving);
     if (taa_params.mode == TAA_ACCUMULATE) {
-        out.light = center.a;
+        out.light = light;
         let n = min(frames, TAA_MAX_FRAMES - 1.0);
         out.color = vec4f(select(current, mix(history.rgb, current, 1.0 / (n + 1.0)), n > 0.0), n + 1.0);
         return out;
@@ -208,15 +211,15 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     var m2 = vec3f(0.0);
     var filtered = vec3f(0.0);
     var wsum = 0.0;
-    var light_lo = center.a;
-    var light_hi = center.a;
+    var light_lo = light.r;
+    var light_hi = light.r;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
-            let texel = textureLoad(src_tex, q, 0);
-            let rgb = texel.rgb;
-            light_lo = min(light_lo, texel.a);
-            light_hi = max(light_hi, texel.a);
+            let rgb = textureLoad(src_tex, q, 0).rgb;
+            let direct = textureLoad(taa_light, q, 0).r;
+            light_lo = min(light_lo, direct);
+            light_hi = max(light_hi, direct);
             let c = taa_ycocg(rgb);
             m1 += c;
             m2 += c * c;
@@ -229,13 +232,13 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             wsum += w;
         }
     }
-    // Mudança de iluminação na superfície (não no fundo): a luz acumulada com o histórico fora da faixa da vizinhança de
-    // agora. O histórico é reiluminado pela razão (a textura integrada fica; a sombra que passou sai) e, como em
-    // movimento, recortado com o quadro novo entrando depressa.
-    let prev_light = textureLoad(taa_history_light, prev_pixel, 0).r;
-    let beyond = max(prev_light - light_hi, light_lo - prev_light) / max(max(light_hi, prev_light), 1e-4);
+    // Mudança de iluminação na superfície (não no fundo): a luz direta acumulada com o histórico fora da faixa da
+    // vizinhança de agora. O histórico é reiluminado pela razão da luz total (a textura integrada fica; a sombra que
+    // passou sai, a luz rebatida fica) e, como em movimento, recortado com o quadro novo entrando depressa.
+    let prev_light = textureLoad(taa_history_light, prev_pixel, 0).rg;
+    let beyond = max(prev_light.r - light_hi, light_lo - prev_light.r) / max(max(light_hi, prev_light.r), 1e-4);
     let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0 && depth < 1.0);
-    let ratio = clamp(center.a / max(prev_light, 1e-4), 0.0, 16.0);
+    let ratio = clamp(light.g / max(prev_light.g, 1e-4), 0.0, 16.0);
     let relighted = history.rgb * mix(1.0, ratio, relit);
     stirred = max(stirred, relit);
     let reconstructed = mix(current, filtered / wsum, stirred);
@@ -250,7 +253,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, stirred));
     out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
     // A luz acumulada como a cor: reiluminada, ela é a de agora.
-    out.light = select(center.a, mix(prev_light * mix(1.0, ratio, relit), center.a, alpha), frames > 0.0);
+    out.light = select(light, mix(mix(prev_light, light, relit), light, alpha), frames > 0.0);
     return out;
 }
 

@@ -86,8 +86,15 @@ fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {
     return select(normalize(cam.position.xyz - p), normalize(axis), cam.projection[3].w == 1.0);
 }
 
+// Saída do fragmento do forward: a cor e a luz que chega ao ponto (spec 034; o alvo `light` só existe sem MSAA — sem
+// ele, a saída 1 é descartada).
+struct ForwardOut {
+    @location(0) color: vec4<f32>,
+    @location(1) light: vec2<f32>,
+}
+
 @fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VsOut) -> ForwardOut {
     let material = materials[in.material_slot];
     let n = normalize(in.world_normal);
     // Variância da normal na tela (controle de serrilhado especular) e a largura do pixel no ponto (filtragem na origem,
@@ -111,13 +118,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
     let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
-    let lit = scene_lighting(c, in.world_position, n, v);
+    let direct = scene_direct_lighting(c, in.world_position, n, v);
+    let lit = direct + scene_indirect_lighting(c, in.world_position, n, v);
     let color = lit + closure_emitted(c, n, v);
     // A névoa entre a câmera e o ponto (ponto de cena `scene_fog`; sem névoa, nada muda).
     let fog = scene_fog(in.world_position);
-    // Com o antisserrilhado temporal, o alfa leva a luz que chega ao ponto: o brilho refletido sobre o da refletância
-    // (spec 034). A textura se cancela; a resolução vê a sombra ou a luz que muda sobre a superfície parada.
+    var out: ForwardOut;
+    out.color = vec4<f32>(color * fog.a + fog.rgb, c.opacity);
+    // A luz que chega ao ponto (spec 034): o brilho refletido sobre o da refletância, a textura se cancela. A direta
+    // separa na resolução temporal a sombra ou a luz que muda sobre a superfície parada (a rebatida fica fora: o ruído
+    // dela, em manchas maiores que a vizinhança, pareceria luz mudando); a razão das totais reilumina o histórico.
     let luma = vec3<f32>(0.25, 0.5, 0.25);
-    let light = min(dot(lit, luma) / max(dot(closure_albedo(c), luma), 1e-3), 60000.0);
-    return vec4<f32>(color * fog.a + fog.rgb, select(c.opacity, light, forward_frame.lightSignal != 0u));
+    let albedo = max(dot(closure_albedo(c), luma), 1e-3);
+    out.light = min(vec2<f32>(dot(direct, luma), dot(lit, luma)) / albedo, vec2<f32>(60000.0));
+    return out;
 }
