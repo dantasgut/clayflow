@@ -3,8 +3,8 @@
 // movimento do forward) ou, no fundo, da câmera; o histórico é lido com Catmull–Rom (5 leituras bilineares). Desoclusão
 // (a distância à câmera guardada no quadro anterior difere em mais de 5 %), corte de câmera, primeiro quadro e ponto
 // que sai da tela recomeçam o histórico. Parado na tela, sem recorte: o detalhe menor que o pixel converge para a
-// integral do pixel. Em movimento, a caixa da variância da vizinhança 3 × 3 da cor atual em YCoCg recorta o histórico
-// (o que saiu do pixel não deixa rastro). Média exponencial na radiância linear, sem viés. No modo de acumulação, média
+// integral do pixel. Perto de movimento, a caixa da variância da vizinhança 3 × 3 recorta o histórico, e o quadro atual
+// entra reconstruído das amostras vizinhas. Média exponencial na radiância linear, sem viés. No modo de acumulação, média
 // uniforme dos quadros desde o corte, sem recorte (a referência de imagem parada). O alfa guarda quantos quadros o
 // histórico tem.
 // Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_history, taa_history_distance, taa_depth,
@@ -12,13 +12,24 @@
 
 const TAA_ACCUMULATE: u32 = 3u;
 /**
- * Peso mínimo do quadro novo no modo temporal: parado, ≈ 32 quadros de memória (a média cobre a sequência inteira de
+ * Peso mínimo do quadro novo no modo temporal: parado, ≈ 64 quadros de memória (a média cobre a sequência inteira de 64
  * posições da amostra); em movimento, ≈ 10 (responde rápido ao que muda).
  */
-const TAA_MIN_ALPHA_STILL: f32 = 1.0 / 32.0;
-const TAA_MIN_ALPHA_MOVING: f32 = 0.1;
+const TAA_MIN_ALPHA_STILL: f32 = 1.0 / 64.0;
+const TAA_MIN_ALPHA_MOVING: f32 = 0.25;
 /** Largura da caixa da variância (desvios-padrão) com o ponto em movimento na tela. */
 const TAA_GAMMA_MOVING: f32 = 1.0;
+/**
+ * Piso da caixa (fração do brilho médio da vizinhança): num eixo sem variância (a croma de uma região cinza), o
+ * arredondamento do histórico não pode bastar para recortá-lo inteiro para a média.
+ */
+const TAA_CLIP_FLOOR: f32 = 0.01;
+/**
+ * Em movimento, o quadro atual entra reconstruído das amostras 3 × 3 (cada uma no seu ponto deslocado), pesadas por
+ * uma gaussiana da distância ao centro do pixel (ajuste da Blackman–Harris de raio 1,5 px): o histórico curto não
+ * integra o serrilhado de uma amostra pontual.
+ */
+const TAA_FILTER_SHARPNESS: f32 = 4.0;
 /** Quadros máximos do histórico no modo de acumulação. */
 const TAA_MAX_FRAMES: f32 = 4096.0;
 
@@ -85,10 +96,56 @@ fn taa_history_catmull(uv: vec2f, size: vec2f) -> vec4f {
     return max(sum / weight, vec4f(0.0));
 }
 
+/**
+ * Onde o ponto do pixel estava no quadro anterior (uv): o vetor de movimento do objeto; no fundo, pela câmera. `behind`:
+ * onde estava o que está atrás dele (difere só sob um transmissivo, que mostra o que está atrás).
+ */
+struct TaaReprojection {
+    prev_uv: vec2f,
+    world: vec3f,
+    depth: f32,
+    behind_uv: vec2f,
+}
+
+fn taa_reproject(pixel: vec2i, uv: vec2f) -> TaaReprojection {
+    let cam = cameras[taa_params.cameraSlot];
+    let depth = textureLoad(taa_depth, pixel, 0);
+    let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    let world_h = taa_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
+    let world = world_h.xyz / world_h.w;
+    let motion = textureLoad(taa_motion, pixel, 0);
+    var prev_uv = uv + motion.xy;
+    if (depth >= 1.0) {
+        let prev = cam.previousViewProjection * vec4f(world, 1.0);
+        prev_uv = vec2f(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
+    }
+    return TaaReprojection(prev_uv, world, depth, uv + motion.zw);
+}
+
+/**
+ * Quanto o pixel se move na tela: 0 parado (abaixo de 0,01 pixel por quadro), 1 a partir de 0,1 pixel — com o histórico
+ * reamostrado a cada quadro numa posição fracionária, o histórico longo de parado só vale sem movimento. Conta o maior
+ * movimento num raio de 4 pixels (5 × 5 pontos a cada 2): a borda de um objeto parado tem amostras do que passa atrás
+ * ou ao lado, e o que um objeto descobre ao começar a andar fica a até um passo dele. Sob um transmissivo, conta também
+ * o movimento do que está atrás (a cor dele muda mesmo com a superfície parada).
+ */
+fn taa_moving(r: TaaReprojection, pixel: vec2i, uv: vec2f, size: vec2f) -> f32 {
+    var m = max(length((r.prev_uv - uv) * size), length((r.behind_uv - uv) * size));
+    let dims = vec2i(size);
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let q = clamp(pixel + 2 * vec2i(dx, dy), vec2i(0), dims - 1);
+            let v = textureLoad(taa_motion, q, 0);
+            m = max(m, max(length(v.xy * size), length(v.zw * size)));
+        }
+    }
+    return smoothstep(0.01, 0.1, m);
+}
+
 struct TaaOut {
     @location(0) color: vec4f,
-    /** Distância da câmera ao ponto do pixel (a desoclusão do quadro seguinte). */
-    @location(1) distance: f32,
+    /** Distância da câmera ao ponto do pixel e quanto ele se movia (a desoclusão do quadro seguinte). */
+    @location(1) state: vec2f,
 }
 
 @fragment
@@ -98,64 +155,99 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let pixel = vec2i(in.clip_position.xy);
     let current = textureLoad(src_tex, pixel, 0).rgb;
     let cam = cameras[taa_params.cameraSlot];
-    // O ponto do pixel em mundo (profundidade e a vista-projeção sem o deslocamento) e a distância dele à câmera.
-    let depth = textureLoad(taa_depth, pixel, 0);
-    let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
-    let world_h = taa_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
-    let world = world_h.xyz / world_h.w;
-    let distance = select(length(world - cam.position.xyz), 1e30, depth >= 1.0);
-    // Onde ele estava no quadro anterior: o vetor de movimento do objeto; no fundo (sem geometria), pela câmera.
-    var prev_uv = in.uv + textureLoad(taa_motion, pixel, 0).xy;
-    if (depth >= 1.0) {
-        let prev = cam.previousViewProjection * vec4f(world, 1.0);
-        prev_uv = vec2f(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
-    }
+    let r = taa_reproject(pixel, in.uv);
+    let depth = r.depth;
+    let prev_uv = r.prev_uv;
+    // No fundo, o ponto no plano distante.
+    let distance = length(r.world - cam.position.xyz);
     let inside = all(prev_uv >= vec2f(0.0)) && all(prev_uv <= vec2f(1.0));
     let history = taa_history_catmull(prev_uv, size);
-    // Desoclusão: o que estava ali no quadro anterior era outra superfície (distância diferente em mais de 5 %).
+    let moving = taa_moving(r, pixel, in.uv, size);
+    // Desoclusão: o que estava ali no quadro anterior era outra superfície (distância diferente em mais de 5 %). Com tudo
+    // parado em volta (neste quadro e no anterior), vale qualquer ponto da vizinhança 3 × 3 anterior: na silhueta, a
+    // amostra deslocada cai ora num objeto, ora no que está atrás, e o pixel não recomeça a cada quadro. Com movimento,
+    // só o ponto reprojetado: o que um objeto deixa para trás recomeça — também quando ele some atrás de outro, pelo
+    // movimento guardado do quadro anterior.
     let prev_pixel = clamp(vec2i(prev_uv * size), vec2i(0), vec2i(dims) - 1);
-    let prev_distance = textureLoad(taa_history_distance, prev_pixel, 0).r;
-    let occluded = depth < 1.0 && abs(prev_distance - distance) > 0.05 * distance;
+    let prev_moving = textureLoad(taa_history_distance, prev_pixel, 0).g;
+    // Movimento agora ou no quadro anterior: no quadro em que um objeto some (atrás de outro), o que ele deixou no
+    // histórico ainda é recortado.
+    let stirred = max(moving, prev_moving);
+    let reach = select(1, 0, stirred > 0.0);
+    var occluded = true;
+    for (var dy = -reach; dy <= reach; dy++) {
+        for (var dx = -reach; dx <= reach; dx++) {
+            let q = clamp(prev_pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
+            let prev_distance = textureLoad(taa_history_distance, q, 0).r;
+            if (abs(prev_distance - distance) <= 0.05 * distance) { occluded = false; }
+        }
+    }
     let frames = select(0.0, history.a, inside && !occluded && cam.history.x == 0.0);
     var out: TaaOut;
-    out.distance = distance;
+    out.state = vec2f(distance, moving);
     if (taa_params.mode == TAA_ACCUMULATE) {
         let n = min(frames, TAA_MAX_FRAMES - 1.0);
         out.color = vec4f(select(current, mix(history.rgb, current, 1.0 / (n + 1.0)), n > 0.0), n + 1.0);
         return out;
     }
-    let motion = length((prev_uv - in.uv) * size);
-    if ((taa_params._pad0 & 4u) != 0u) {
-        out.color = vec4f(vec3f(motion * 0.25), 1.0);
-        return out;
-    }
-    // Parado na tela (menos de ¼ de pixel por quadro): sem recorte — o histórico de um detalhe menor que o pixel converge
-    // para a integral do pixel. Em movimento (até 1 pixel por quadro, recorte cheio): a caixa da variância da
-    // vizinhança 3 × 3 em YCoCg (Salvi), que corta o que saiu do pixel.
-    let moving = smoothstep(0.25, 1.0, motion);
-    var clipped = history.rgb;
-    if (moving > 0.0 && (taa_params._pad0 & 1u) == 0u) {
-        var m1 = vec3f(0.0);
-        var m2 = vec3f(0.0);
-        for (var dy = -1; dy <= 1; dy++) {
-            for (var dx = -1; dx <= 1; dx++) {
-                let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
-                let c = taa_ycocg(textureLoad(src_tex, q, 0).rgb);
-                m1 += c;
-                m2 += c * c;
-            }
+    // Em movimento (perto de algo que se move), a caixa da variância da vizinhança 3 × 3 em YCoCg (Salvi) recorta o
+    // histórico (o que saiu do pixel não deixa rastro). Parado, sem recorte: o histórico de um detalhe menor que o pixel
+    // converge para a integral do pixel.
+    var m1 = vec3f(0.0);
+    var m2 = vec3f(0.0);
+    var filtered = vec3f(0.0);
+    var wsum = 0.0;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
+            let rgb = textureLoad(src_tex, q, 0).rgb;
+            let c = taa_ycocg(rgb);
+            m1 += c;
+            m2 += c * c;
+            // A amostra do vizinho caiu em (vizinho − deslocamento): o peso é o da distância dela ao centro.
+            let o = vec2f(f32(dx), f32(dy)) - cam.jitter.zw;
+            let w = exp(-TAA_FILTER_SHARPNESS * dot(o, o));
+            filtered += rgb * w;
+            wsum += w;
         }
-        let mean = m1 / 9.0;
-        let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
-        let h = taa_ycocg(history.rgb);
-        let d = h - mean;
-        let extent = max(TAA_GAMMA_MOVING * sigma, vec3f(1e-6));
-        let scale = max(abs(d) / extent, vec3f(1.0));
-        let box = taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z)));
-        clipped = mix(history.rgb, box, moving);
     }
+    let reconstructed = mix(current, filtered / wsum, stirred);
+    let mean = m1 / 9.0;
+    let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
+    let floor_extent = vec3f(TAA_CLIP_FLOOR * max(mean.x, 1e-4));
+    let extent = max(TAA_GAMMA_MOVING * sigma, floor_extent);
+    let d = taa_ycocg(history.rgb) - mean;
+    let scale = max(abs(d) / extent, vec3f(1.0));
+    let clipped = mix(history.rgb, taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
     // Média exponencial na radiância linear (sem peso por luminância: a média fica sem viés).
-    let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, moving));
-    out.color = vec4f(select(current, mix(clipped, current, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
+    let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, stirred));
+    out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
     return out;
+}
+
+/** Nitidez máxima (em movimento): o peso da diferença para a média em cruz. */
+const TAA_SHARPEN: f32 = 0.7;
+
+/**
+ * Nitidez adaptativa depois da resolução (spec 034, decisão do usuário): em movimento, a reamostragem do histórico a
+ * cada quadro amacia a imagem; a diferença do pixel para a média em cruz é somada de volta, proporcional ao movimento
+ * do pixel e limitada aos extremos da cruz (sem halo). Parado, a imagem resolvida passa intacta. O histórico fica sem
+ * a nitidez (a próxima resolução não a acumula).
+ */
+@fragment
+fn fs_temporal_sharpen(in: VsOut) -> @location(0) vec4f {
+    let dims = vec2i(textureDimensions(taa_history, 0));
+    let pixel = vec2i(in.clip_position.xy);
+    let c = textureLoad(taa_history, pixel, 0);
+    let r = taa_reproject(pixel, in.uv);
+    let k = TAA_SHARPEN * taa_moving(r, pixel, in.uv, vec2f(dims));
+    if (k <= 0.0) { return vec4f(c.rgb, 1.0); }
+    let n = textureLoad(taa_history, clamp(pixel + vec2i(0, -1), vec2i(0), dims - 1), 0).rgb;
+    let s = textureLoad(taa_history, clamp(pixel + vec2i(0, 1), vec2i(0), dims - 1), 0).rgb;
+    let w = textureLoad(taa_history, clamp(pixel + vec2i(-1, 0), vec2i(0), dims - 1), 0).rgb;
+    let e = textureLoad(taa_history, clamp(pixel + vec2i(1, 0), vec2i(0), dims - 1), 0).rgb;
+    let lo = min(c.rgb, min(min(n, s), min(w, e)));
+    let hi = max(c.rgb, max(max(n, s), max(w, e)));
+    let sharp = c.rgb + k * (c.rgb - 0.25 * (n + s + w + e));
+    return vec4f(clamp(sharp, lo, hi), 1.0);
 }

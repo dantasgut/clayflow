@@ -67,12 +67,15 @@ fn vs_main(
 fn fs_depth() {}
 
 // Passe de movimento (spec 034): o deslocamento do ponto do pixel na tela desde o quadro anterior, em uv (anterior −
-// atual), sem o deslocamento da amostra. Depois do passe principal, com a profundidade dele (teste igual).
+// atual), sem o deslocamento da amostra. Opacos (rg e, repetido, ba): depois do passe principal, com a profundidade dele
+// (teste igual). Transmissivos: depois da transmissão, só rg (a superfície); ba guarda o movimento do que está atrás —
+// o que o transmissivo mostra.
 @fragment
-fn fs_motion(in: VsOut) -> @location(0) vec2<f32> {
+fn fs_motion(in: VsOut) -> @location(0) vec4<f32> {
     let previous = in.motion_previous.xy / in.motion_previous.w;
     let current = in.motion_current.xy / in.motion_current.w;
-    return (previous - current) * vec2<f32>(0.5, -0.5);
+    let m = (previous - current) * vec2<f32>(0.5, -0.5);
+    return vec4<f32>(m, m);
 }
 
 // Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).

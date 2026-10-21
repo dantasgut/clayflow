@@ -46,6 +46,7 @@ import {
     presentSingle,
     temporalResolve,
     temporalResources,
+    temporalSharpen,
 } from './shaders';
 
 /** Slots do pós-processamento. */
@@ -141,9 +142,18 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         views: [TextureViewSpec, TextureViewSpec];
         distanceTextures: [TextureSpec, TextureSpec];
         distanceViews: [TextureViewSpec, TextureViewSpec];
+        /** A imagem resolvida com a nitidez adaptativa (o que a cadeia e a apresentação leem). */
+        outTexture: TextureSpec;
+        outView: TextureViewSpec;
     } | null = null;
     /** Histórico escrito neste quadro (0 ou 1); `-1` sem resolução temporal. */
     private taaWrite = -1;
+    /**
+     * Paridade do histórico, avançada uma vez por quadro (`framePrepare`): a cadeia também é religada fora do quadro
+     * (`slotChanged`, redimensionamento), e trocar o histórico ali faria a resolução ler o de dois quadros atrás com a
+     * câmera de um.
+     */
+    private taaParity = 0;
     private readonly taaPrepared = new Set<string>();
 
     constructor(ctx: FlowContext) {
@@ -195,6 +205,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
+                        this.taaParity = 1 - this.taaParity;
                         this.prepareChain(c);
                     },
                 },
@@ -254,6 +265,27 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 resolve.bindTo(p.bind);
                 p.draw.vertices(3);
             });
+            // Nitidez adaptativa ao movimento, fora do histórico.
+            const sharpen = bound.pipelines.get(`post:taa_sharpen:${this.taaWrite}`);
+            if (sharpen?.role !== 'render' || !sharpen.ready) return;
+            frame.render(
+                {
+                    colorAttachments: [
+                        {
+                            view: this.history.outView,
+                            loadOp: 'clear',
+                            clearValue: [0, 0, 0, 1],
+                            storeOp: 'store',
+                        },
+                    ],
+                },
+                'PostFlow.temporalSharpen',
+                (p) => {
+                    p.bind.setPipeline(sharpen.spec);
+                    sharpen.bindTo(p.bind);
+                    p.draw.vertices(3);
+                },
+            );
         }
         const passes = [...this.chain.map((p) => p.pipeline), this.presentPipeline];
         for (let i = 0; i < passes.length; i++) {
@@ -320,7 +352,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 discriminator: `post_taa_${name}:${width}x${height}`,
                 width,
                 height,
-                format: 'r32float',
+                format: 'rg32float',
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             });
         const distanceView = (source: TextureSpec, name: string): TextureViewSpec =>
@@ -328,15 +360,19 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 kind: 'textureview',
                 discriminator: `post_taa_${name}_v:${width}x${height}`,
                 source,
-                format: 'r32float',
+                format: 'rg32float',
             });
-        const d0 = distance('d0');
-        const d1 = distance('d1');
+        // Estado por pixel (distância à câmera, quanto se movia) para a desoclusão do quadro seguinte.
+        const d0 = distance('s0');
+        const d1 = distance('s1');
+        const out = texture('taa_out');
         this.history = {
             textures: [h0, h1],
             views: [view(h0, 'taa0'), view(h1, 'taa1')],
             distanceTextures: [d0, d1],
             distanceViews: [distanceView(d0, 'd0'), distanceView(d1, 'd1')],
+            outTexture: out,
+            outView: view(out, 'taa_out'),
         };
         this.chainKey = '';
         this.prepareChain(ctx);
@@ -344,9 +380,17 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
 
     private releasePingPong(): void {
         if (this.history !== null) {
-            for (const v of [...this.history.views, ...this.history.distanceViews])
+            for (const v of [
+                ...this.history.views,
+                ...this.history.distanceViews,
+                this.history.outView,
+            ])
                 this.core.destroy(v);
-            for (const t of [...this.history.textures, ...this.history.distanceTextures])
+            for (const t of [
+                ...this.history.textures,
+                ...this.history.distanceTextures,
+                this.history.outTexture,
+            ])
                 this.core.destroy(t);
             this.history = null;
         }
@@ -381,13 +425,12 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             this.taaWrite = -1;
             return undefined;
         }
-        this.taaWrite = this.taaWrite === 0 ? 1 : 0;
+        this.taaWrite = this.taaParity;
         this.core.write(
             this.taaParams,
             TemporalResolveParamsSchema.pack({
                 cameraSlot,
                 mode: aa.data.mode,
-                _pad0: aa.data._pad0,
             }),
         );
         const id = `post:taa:${this.taaWrite}`;
@@ -404,6 +447,29 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 [{ pipeline: id, resource: temporalResources.motion }, motion.view],
             ]),
         );
+        // A nitidez lê o histórico que a resolução acabou de escrever.
+        const sharpenId = `post:taa_sharpen:${this.taaWrite}`;
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [
+                    { pipeline: sharpenId, resource: temporalResources.history },
+                    this.history.views[this.taaWrite]!,
+                ],
+                [{ pipeline: sharpenId, resource: temporalResources.depth }, depth.view],
+                [{ pipeline: sharpenId, resource: temporalResources.motion }, motion.view],
+            ]),
+        );
+        if (!this.taaPrepared.has(sharpenId)) {
+            ctx.prepare({
+                id: sharpenId,
+                role: 'render',
+                shader: temporalSharpen,
+                entryPoints: ['vs_fullscreen', 'fs_temporal_sharpen'],
+                topology: 'triangle-list',
+                colorTargets: [{ format: SCENE_COLOR_FORMAT }],
+            });
+            this.taaPrepared.add(sharpenId);
+        }
         if (!this.taaPrepared.has(id)) {
             ctx.prepare({
                 id,
@@ -411,11 +477,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 shader: temporalResolve,
                 entryPoints: ['vs_fullscreen', 'fs_temporal_resolve'],
                 topology: 'triangle-list',
-                colorTargets: [{ format: SCENE_COLOR_FORMAT }, { format: 'r32float' }],
+                colorTargets: [{ format: SCENE_COLOR_FORMAT }, { format: 'rg32float' }],
             });
             this.taaPrepared.add(id);
         }
-        return this.history.views[this.taaWrite]!;
+        return this.history.outView;
     }
 
     /** Descritor e uniform de parâmetros do efeito, criados uma vez; o efeito escreve no pingue-pongue HDR. */

@@ -1,12 +1,16 @@
 // Spec 034 — Smoke do antisserrilhado temporal (US2; SC-004, SC-005).
 //
 // Mede a imagem apresentada (lida direto da GPU, `readCanvas`) contra a referência do próprio motor: o modo
-// `accumulate` com 64 posições da amostra dentro do pixel, câmera parada — a integral do pixel sem rejeição.
-//   - still: a cena de teste (arestas de alto contraste, xadrez procedural fino, esfera lisa com realce, sombra, vidro)
-//     depois de 16 quadros do modo temporal: erro médio ≤ 1 % e erro nas bordas ≤ 3 % (relativos ao brilho médio da
-//     imagem; bordas = os 5 % de pixels de maior gradiente da referência).
+// `accumulate` com 256 posições da amostra dentro do pixel (outra sequência que a de 64 do temporal), câmera parada — a
+// integral do pixel sem rejeição.
+//   - still: a cena de teste (arestas de alto contraste, xadrez procedural fino, esfera lisa com realce, sombra, vidro):
+//     erro médio ≤ 1 % depois de 16 quadros do modo temporal e erro nas bordas ≤ 3 % depois de 64 (relativos ao brilho
+//     médio da imagem; bordas = os 5 % de pixels de maior gradiente da referência; decisão do usuário, 2026-10-20: o
+//     resto das bordas é o número de posições da amostra, não o tempo).
 //   - trail: uma bola clara atravessa a cena; nos pixels por onde ela passou há 4 quadros ou mais (e não está agora), o
-//     excesso sobre a imagem sem a bola fica ≤ 1 % do brilho da bola (sem rastro).
+//     excesso sobre a imagem sem a bola (o modo temporal em passo, sem a bola) fica ≤ 1 % do brilho da bola (sem
+//     rastro). A pegada da bola: onde o quadro sem antisserrilhado com a bola difere do sem a bola; contam os pixels de
+//     fundo liso (numa aresta, o pixel recomeçado tem outra média das amostras — ruído, não rastro).
 //   - orbit: a câmera gira a 30°/s em volta do vidro; em três poses o quadro do modo temporal contra a referência
 //     parada na mesma pose: a energia de gradiente da referência / a do temporal ≤ 1,5 (o borrão do movimento) e erro
 //     médio ≤ 3 %.
@@ -58,6 +62,8 @@ interface Scene {
 }
 
 const TARGET = [0, 0.4, 0] as const;
+/** Posições da amostra (e quadros) da referência parada. */
+const REF_SAMPLES = 256;
 
 /** A cena de teste no modo pedido. */
 async function scene(mode: AntialiasingMode, options: { ball?: boolean } = {}): Promise<Scene> {
@@ -74,11 +80,7 @@ async function scene(mode: AntialiasingMode, options: { ball?: boolean } = {}): 
         canvasOptions: { capture: true },
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
-    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = 64;
-    const seq = new URLSearchParams(location.search).get('seq');
-    if (mode === 'temporal' && seq !== null) app.defaults.antialiasing.data.sequence = Number(seq);
-    const dbg = new URLSearchParams(location.search).get('dbg');
-    if (dbg !== null) app.defaults.antialiasing.data._pad0 = Number(dbg);
+    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
     const view = new Transform({ position: [0, 1, 3, 1] });
     const camera = new clayflow.Camera({
         fov: 0.8,
@@ -243,10 +245,11 @@ function errors(img: Float32Array, ref: Float32Array): { all: number; edges: num
 
 async function still(): Promise<void> {
     const ref = await scene('accumulate');
-    const reference = await frameAfter(ref, 64);
+    const reference = await frameAfter(ref, REF_SAMPLES);
     close(ref);
     const tmp = await scene('temporal');
     const temporal = await frameAfter(tmp, 16);
+    const converged = await frameAfter(tmp, 48);
     close(tmp);
     const off = await scene('off');
     const aliased = await frameAfter(off, 1);
@@ -264,56 +267,101 @@ async function still(): Promise<void> {
         );
     }
     const e = errors(temporal, reference);
+    const c = errors(converged, reference);
     const a = errors(aliased, reference);
     log(
-        `still: temporal após 16 quadros contra 64 amostras — erro médio ${pct(e.all)}, bordas ${pct(e.edges)} (sem antisserrilhado: ${pct(a.all)}, ${pct(a.edges)})`,
+        `still: contra ${REF_SAMPLES} amostras — temporal após 16 quadros: erro médio ${pct(e.all)}, bordas ${pct(e.edges)}; após 64: ${pct(c.all)}, ${pct(c.edges)} (sem antisserrilhado: ${pct(a.all)}, ${pct(a.edges)})`,
     );
-    check(e.all <= 0.01, `still: erro médio ${pct(e.all)} (≤ 1 %)`);
-    check(e.edges <= 0.03, `still: erro nas bordas ${pct(e.edges)} (≤ 3 %)`);
+    check(e.all <= 0.01, `still: erro médio ${pct(e.all)} após 16 quadros (≤ 1 %)`);
+    check(c.edges <= 0.03, `still: erro nas bordas ${pct(c.edges)} após 64 quadros (≤ 3 %)`);
 }
 
 /** Posição da bola no quadro `i` (atravessa a cena atrás do vidro em 2 s). */
 const ballAt = (i: number): [number, number, number, number] => [-2 + (4 * i) / 120, 0.4, -0.8, 1];
 
 async function trail(): Promise<void> {
-    // A imagem sem a bola (fundo) e, a cada quadro, a máscara de onde a bola está (sem antisserrilhado).
-    const bg = await scene('temporal');
-    const background = await frameAfter(bg, 32);
-    close(bg);
+    // A pegada da bola a cada quadro (sem antisserrilhado): onde o quadro com a bola difere do sem a bola.
+    const plain = await scene('off');
+    const empty = await frameAfter(plain, 1);
+    close(plain);
+    // Onde o fundo é liso (vizinhança 3 × 3 sem aresta): lá o excesso é só o que a bola deixou — numa aresta, o pixel
+    // recomeçado depois que a bola passa tem outra média das amostras que o fundo (ruído, não rastro).
+    const flat = new Uint8Array(W * H);
+    for (let y = 1; y < H - 1; y++)
+        for (let x = 1; x < W - 1; x++) {
+            let lo = Infinity;
+            let hi = -Infinity;
+            for (let dy = -1; dy <= 1; dy++)
+                for (let dx = -1; dx <= 1; dx++) {
+                    const v = empty[(y + dy) * W + x + dx]!;
+                    lo = Math.min(lo, v);
+                    hi = Math.max(hi, v);
+                }
+            flat[y * W + x] = hi - lo < 0.02 ? 1 : 0;
+        }
     const off = await scene('off', { ball: true });
     const masks: Uint8Array[] = [];
+    const near: Uint8Array[] = [];
     for (let i = 0; i < 120; i++) {
         off.ball!.data.position = ballAt(i);
         off.app.step(1 / 60);
         const img = lum(await off.app.core.readCanvas());
         const m = new Uint8Array(W * H);
-        for (let k = 0; k < m.length; k++) m[k] = img[k]! > 0.97 ? 1 : 0;
+        for (let k = 0; k < m.length; k++) m[k] = Math.abs(img[k]! - empty[k]!) > 0.05 ? 1 : 0;
         masks.push(m);
+        // A pegada alargada em 2 px: com o antisserrilhado, o pixel vizinho da borda cobre parte da bola agora.
+        const g = new Uint8Array(W * H);
+        for (let y = 0; y < H; y++)
+            for (let x = 0; x < W; x++) {
+                if (m[y * W + x] !== 1) continue;
+                for (let dy = -2; dy <= 2; dy++)
+                    for (let dx = -2; dx <= 2; dx++) {
+                        const xx = x + dx;
+                        const yy = y + dy;
+                        if (xx >= 0 && xx < W && yy >= 0 && yy < H) g[yy * W + xx] = 1;
+                    }
+            }
+        near.push(g);
     }
     close(off);
+    // O modo temporal com e sem a bola em passo (a mesma sequência de posições da amostra desde o corte): a diferença
+    // entre os dois é só a bola.
     const tmp = await scene('temporal', { ball: true });
+    const bg = await scene('temporal');
     let worst = 0;
     let counted = 0;
+    let at = '';
     for (let i = 0; i < 120; i++) {
         tmp.ball!.data.position = ballAt(i);
         tmp.app.step(1 / 60);
         const img = lum(await tmp.app.core.readCanvas());
+        bg.app.step(1 / 60);
+        const background = lum(await bg.app.core.readCanvas());
         if (i < 8) continue;
         // Pixels cobertos pela bola há 4 a 8 quadros e livres desde então.
         for (let k = 0; k < img.length; k++) {
+            if (
+                new URLSearchParams(location.search).get('noglass') === '1'
+                && Math.hypot((k % W) - 240, Math.floor(k / W) - 135) < 48
+            )
+                continue;
+            if (flat[k] !== 1) continue;
             let past = false;
             for (let d = 4; d <= 8; d++) if (masks[i - d]![k] === 1) past = true;
             if (!past) continue;
             let recent = false;
-            for (let d = 0; d < 4; d++) if (masks[i - d]![k] === 1) recent = true;
+            for (let d = 0; d < 4; d++) if (near[i - d]![k] === 1) recent = true;
             if (recent) continue;
+            if (img[k]! - background[k]! > worst)
+                at = `quadro ${i}, pixel (${k % W}, ${Math.floor(k / W)})`;
             worst = Math.max(worst, img[k]! - background[k]!);
             counted++;
         }
     }
     close(tmp);
+    close(bg);
     log(
-        `trail: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola`,
+        `trail: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at})`,
     );
     check(counted > 0, 'trail: a bola não foi vista');
     check(worst <= 0.01, `trail: rastro de ${pct(worst)} do brilho da bola após 4 quadros (≤ 1 %)`);
@@ -346,7 +394,7 @@ async function orbit(): Promise<void> {
     for (let k = 0; k < poses.length; k++) {
         const ref = await scene('accumulate');
         ref.look(orbitAt(poses[k]!));
-        const reference = await frameAfter(ref, 64);
+        const reference = await frameAfter(ref, REF_SAMPLES);
         close(ref);
         const off = await scene('off');
         off.look(orbitAt(poses[k]!));
@@ -356,6 +404,18 @@ async function orbit(): Promise<void> {
         log(
             `orbit: pose ${k + 1} sem antisserrilhado — erro médio ${pct(ea.all)}, bordas ${pct(ea.edges)}`,
         );
+        if (
+            new URLSearchParams(location.search).get('dump') === '1'
+            && k === Number(new URLSearchParams(location.search).get('dumpk') ?? 0)
+        ) {
+            await dump('zz-aa-orbit-ref.png', reference);
+            await dump('zz-aa-orbit-tmp.png', moving[k]!);
+            await dump('zz-aa-orbit-off.png', aliased);
+            await dump(
+                'zz-aa-orbit-diff.png',
+                moving[k]!.map((v, j) => Math.min(1, Math.abs(v - reference[j]!) * 10)),
+            );
+        }
         const sharp = mean(gradient(reference)) / Math.max(1e-9, mean(gradient(moving[k]!)));
         const e = errors(moving[k]!, reference);
         log(

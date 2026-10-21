@@ -271,6 +271,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly depthPipelines = new Map<string, string>();
     /** Pipeline de movimento de cada pipeline base de opaco (o mesmo vértice, o fragmento `fs_motion`; spec 034). */
     private readonly motionPipelines = new Map<string, string>();
+    /** O mesmo para a face da frente dos transmissivos, escrevendo só rg (ba fica com o movimento do que está atrás). */
+    private readonly surfaceMotionPipelines = new Map<string, string>();
     private readonly frameParams: UniformBufferSpec;
     /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
     private readonly dummyDiff: StorageBufferSpec;
@@ -651,20 +653,26 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             );
             this.recordBackground(pass, bound);
         });
-        this.recordMotion(frame, bound, opaque);
-        if (transmissive.length > 0) this.recordTransmission(frame, bound, transmissive);
+        this.recordMotion(frame, bound, opaque, 'clear');
+        if (transmissive.length > 0) {
+            this.recordTransmission(frame, bound, transmissive);
+            this.recordMotion(frame, bound, transmissive, 'load');
+        }
     }
 
     /**
      * Passe de movimento (spec 034): com o antisserrilhado temporal e o alvo de movimento, os opacos de novo só no vértice
-     * (a profundidade do passe principal, teste igual) escrevendo o deslocamento de cada pixel desde o quadro anterior.
-     * O fundo (nenhuma geometria) fica com zero: a resolução usa a reprojeção pela câmera onde a profundidade é a do
-     * plano distante.
+     * (a profundidade do passe principal, teste igual) escrevendo o deslocamento de cada pixel desde o quadro anterior
+     * (`clear`); depois da transmissão, a face da frente dos transmissivos (a profundidade dela) reescreve só o da
+     * superfície (`load`), e o do que está atrás fica — a resolução o usa para o que o transmissivo mostra. O fundo
+     * (nenhuma geometria) fica com zero: a resolução usa a reprojeção pela câmera onde a profundidade é a do plano
+     * distante.
      */
     private recordMotion(
         frame: Frame,
         bound: BoundFlow<ForwardSlots>,
-        opaque: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        load: 'clear' | 'load',
     ): void {
         const motion = bound.slots.motion;
         const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
@@ -672,13 +680,25 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         if (motion === undefined || depth === undefined || aa?.mode !== 'temporal') return;
         const target: RenderTarget = {
             colorAttachments: [
-                { view: motion.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+                load === 'clear'
+                    ? {
+                          view: motion.view,
+                          loadOp: 'clear',
+                          clearValue: [0, 0, 0, 0],
+                          storeOp: 'store',
+                      }
+                    : { view: motion.view, loadOp: 'load', storeOp: 'store' },
             ],
             depthStencilAttachment: { view: depth, depthLoadOp: 'load', depthStoreOp: 'store' },
         };
-        frame.render(target, 'ForwardFlow.motion', (pass) => {
-            this.recordGroups(pass, bound, opaque, (_entry, id) => this.motionPipelines.get(id));
-        });
+        const pipelines = load === 'clear' ? this.motionPipelines : this.surfaceMotionPipelines;
+        frame.render(
+            target,
+            load === 'clear' ? 'ForwardFlow.motion' : 'ForwardFlow.surfaceMotion',
+            (pass) => {
+                this.recordGroups(pass, bound, groups, (_entry, id) => pipelines.get(id));
+            },
+        );
     }
 
     /** O passe de profundidade vale neste quadro: forçado pela opção ou ligado nos `FrameTargets`. */
@@ -1159,23 +1179,33 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 }
                 if (samples === 1 && topology === 'triangle-list') {
                     // Passe de movimento (spec 034): o mesmo vértice (a mesma profundidade, bit a bit), teste igual sem
-                    // escrita, o deslocamento do pixel no alvo rg16float.
-                    const motion: PipelineDescriptor = {
+                    // escrita, o deslocamento do pixel no alvo rgba16float.
+                    const motionOf = (surface: boolean): PipelineDescriptor => ({
                         ...descriptor,
-                        id: `${descriptor.id}:motion`,
+                        id: `${descriptor.id}:${surface ? 'surfaceMotion' : 'motion'}`,
                         entryPoints: [
                             ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
                             'fs_motion',
                         ],
-                        colorTargets: [{ format: 'rg16float' }],
+                        colorTargets: [
+                            {
+                                format: 'rgba16float',
+                                // Só vermelho e verde (`GPUColorWrite.RED | GREEN`).
+                                ...(surface ? { writeMask: 0x3 } : {}),
+                            },
+                        ],
                         depth: {
                             format: 'depth24plus',
                             depthWriteEnabled: false,
                             depthCompare: 'equal',
                         },
-                    };
+                    });
+                    const motion = motionOf(false);
                     ctx.prepare(motion);
                     this.motionPipelines.set(descriptor.id, motion.id);
+                    const surface = motionOf(true);
+                    ctx.prepare(surface);
+                    this.surfaceMotionPipelines.set(descriptor.id, surface.id);
                 }
                 return descriptor.id;
             };

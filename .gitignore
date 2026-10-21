@@ -7,3 +7,6 @@ coverage/**
 *.log
 .env*
 bench/results/**
+
+# Diagnósticos locais dos smokes (nunca versionados)
+src/__smokes__/fixtures/zz-*

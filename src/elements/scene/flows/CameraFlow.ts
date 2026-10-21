@@ -200,8 +200,10 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
+                        // O corte recomeça a sequência: a acumulação depois dele usa o prefixo da sequência de baixa
+                        // discrepância, e a imagem não depende de quantos quadros vieram antes (a prontidão).
+                        if (this.clearCuts(c)) this.frame = 0;
                         this.updateJitter(c);
-                        this.clearCuts(c);
                         this.writeParams(c);
                         this.syncFunctions(c);
                         this.writeGroups(c);
@@ -365,8 +367,12 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
         this.jitter = [(2 * px) / Math.max(1, width), (-2 * py) / Math.max(1, height), px, py];
     }
 
-    /** `cut` vale um quadro: as câmeras que o enviaram no quadro anterior voltam a 0. */
-    private clearCuts(ctx: Ctx): void {
+    /**
+     * `cut` vale um quadro: as câmeras que o enviaram no quadro anterior voltam a 0. Devolve se alguma câmera envia o
+     * corte neste quadro.
+     */
+    private clearCuts(ctx: Ctx): boolean {
+        let sending = false;
         for (const entry of ctx.bound.slots.cameras.entries) {
             const camera = entry.get(Camera);
             if (camera.data.cut === 0) {
@@ -376,8 +382,12 @@ export class CameraFlow extends Flow<CameraSlots, 'idle'> {
             if (this.cutSent.has(camera)) {
                 camera.data.cut = 0;
                 this.cutSent.delete(camera);
-            } else this.cutSent.add(camera);
+            } else {
+                this.cutSent.add(camera);
+                sending = true;
+            }
         }
+        return sending;
     }
 
     /** Toda `Camera` precisa de um `Transform` na mesma entidade (posição e orientação). */

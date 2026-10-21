@@ -163,7 +163,7 @@ export const temporalResources = {
         frequency: 'draw',
         provider: 'private',
     }),
-    /** A distância à câmera guardada no quadro anterior (r32float), para a desoclusão. */
+    /** A distância à câmera e o movimento de cada pixel no quadro anterior (rg32float), para a desoclusão. */
     historyDistance: wgslResource({
         name: 'taa_history_distance',
         binding: { texture: { sample: 'f32' } },
@@ -189,6 +189,23 @@ export const temporalResources = {
 /** Resolução temporal: a cor deslocada do quadro mais o histórico reprojetado e recortado (spec 034, R3). */
 export const temporalResolve = wgslModule({
     name: 'temporal_resolve',
+    source: temporalResolveSource,
+    requires: [
+        fullscreen,
+        camerasResource,
+        temporalResources.params,
+        effectResources.source,
+        temporalResources.history,
+        temporalResources.historyDistance,
+        temporalResources.depth,
+        temporalResources.motion,
+        effectResources.sampler,
+    ],
+});
+
+/** Nitidez adaptativa ao movimento depois da resolução (spec 034): o mesmo módulo, outra entrada. */
+export const temporalSharpen = wgslModule({
+    name: 'temporal_sharpen',
     source: temporalResolveSource,
     requires: [
         fullscreen,

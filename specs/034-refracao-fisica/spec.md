@@ -384,10 +384,12 @@ com estado e destino; smokes e bench das pendências fechadas.
 - **SC-002**: Refração idêntica (≤ 0,5 % por região) com a GI ligada, desligada ou ausente, descontada a luz indireta
   das superfícies de trás.
 - **SC-003**: Todas as cenas dos smokes e das demos abrem no Apple M4 e na RTX 4090 sem erro de limite de dispositivo.
-- **SC-004**: Antisserrilhado parado: erro médio ≤ 1 % e erro nas bordas ≤ 3 % contra a referência de 64 amostras por
-  pixel, após 16 quadros.
-- **SC-005**: Em movimento: rastro de um objeto que sai do pixel ≤ 1 % da sua luminância após 4 quadros; borrão atrás
-  do vidro com câmera a 30°/s ≤ 1,5× a largura da borda na referência em movimento.
+- **SC-004**: Antisserrilhado parado (sequência de 64 posições da amostra; decisão do usuário, 2026-10-20): erro médio
+  ≤ 1 % após 16 quadros e erro nas bordas ≤ 3 % após 64 quadros, contra uma referência parada de 256 amostras por
+  pixel.
+- **SC-005**: Em movimento: rastro de um objeto que sai do pixel ≤ 1 % da sua luminância após 4 quadros; com a câmera a
+  30°/s, borrão ≤ 1,5× (energia de gradiente da referência parada na mesma pose / a do quadro em movimento) e erro
+  médio ≤ 3 % contra essa referência (nitidez adaptativa ao movimento; decisão do usuário, 2026-10-20).
 - **SC-006**: GI parada em `medium` e `high` (cômodo com janela e Cornell): viés por face ≤ 5 %, manchas ≤ 2 %,
   cintilação por pixel ≤ 1 %; névoa com câmera andando: cintilação ≤ 1 % e nenhuma periodicidade na escala do froxel.
 - **SC-007**: Fluxo da cáustica a ≤ 5 % da referência em três alturas e num plano a 30°.
