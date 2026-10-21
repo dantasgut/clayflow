@@ -405,12 +405,19 @@ async function trailOf(
                 lo[k] = Math.min(lo[k]!, background[k]!);
                 hi[k] = Math.max(hi[k]!, background[k]!);
             }
-        if (i === 119 && new URLSearchParams(location.search).get('dump') === '1') {
+        if (
+            i === Number(new URLSearchParams(location.search).get('dumpi') ?? 119)
+            && new URLSearchParams(location.search).get('dump') === '1'
+        ) {
             await dump(`zz-aa-${label}-tmp.png`, img);
             await dump(`zz-aa-${label}-bg.png`, background);
             await dump(
                 `zz-aa-${label}-diff.png`,
                 img.map((v, j) => Math.min(1, Math.max(0, v - background[j]!) * 10)),
+            );
+            await dump(
+                `zz-aa-${label}-dark.png`,
+                img.map((v, j) => Math.min(1, Math.max(0, background[j]! - v) * 10)),
             );
         }
         if (i < 8) continue;
@@ -446,6 +453,11 @@ async function trailOf(
     check(
         worst <= 0.01,
         `${label}: rastro de ${pct(worst)} do brilho da bola após 4 quadros (≤ 1 %)`,
+    );
+    // O rastro escuro (a sombra da bola guardada no chão parado) — decisão do usuário, 2026-10-21: os dois sentidos.
+    check(
+        -lowest <= 0.01,
+        `${label}: rastro escuro de ${pct(-lowest)} do brilho da bola após 4 quadros (≤ 1 %)`,
     );
 }
 

@@ -314,6 +314,16 @@ fn closure_normal(c: Closure, n: vec3f) -> Closure {
     return o;
 }
 
+// Refletância do fechamento (a cor da superfície, sem a luz): cada lobo pelo peso e pela cor; o especular dielétrico pelo
+// F0 do IOR. Aproximada (sem o ângulo nem o verniz): serve para separar a luz da textura (spec 034, a mudança de
+// iluminação na resolução temporal), não para sombrear.
+fn closure_albedo(c: Closure) -> vec3f {
+    let f = (c.dielectric_ior - 1.0) / (c.dielectric_ior + 1.0);
+    return c.diffuse_weight * c.diffuse_color + c.subsurface_weight * c.subsurface_color
+        + c.dielectric_weight * f * f * c.dielectric_tint + c.conductor_weight * c.conductor_f0
+        + c.sheen_weight * c.sheen_color + c.translucent_weight * c.translucent_color;
+}
+
 // Fechamento dos parâmetros da 009 (`SurfaceParams`): a "base" do OpenPBR — difuso + especular dielétrico de IOR 1,5 +
 // condutor pela metalicidade, com a rugosidade e a emissão da função.
 fn closure_from_params(p: SurfaceParams) -> Closure {

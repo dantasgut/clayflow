@@ -1425,7 +1425,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const time = this.usesTime
             ? ((slots.time?.resource as Time | undefined)?.simulated ?? 0)
             : 0;
-        const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}`;
+        // Com a resolução temporal, o alfa da cor leva a luz que chega ao ponto (a mudança de iluminação, spec 034).
+        const aa = slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        const lightSignal = aa?.jitters === true ? 1 : 0;
+        const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}:${lightSignal}`;
         if (key === this.writtenFrame) return;
         this.core.write(
             this.frameParams,
@@ -1434,6 +1437,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 cameraFnSlot: this.cameraFnSlot,
                 viewport: [width, height],
                 time,
+                lightSignal,
             }),
         );
         this.writtenFrame = key;

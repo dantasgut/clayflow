@@ -142,6 +142,9 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         views: [TextureViewSpec, TextureViewSpec];
         distanceTextures: [TextureSpec, TextureSpec];
         distanceViews: [TextureViewSpec, TextureViewSpec];
+        /** A luz que chegava a cada pixel (r16float, o alfa da cor da cena): a mudança de iluminação do quadro seguinte. */
+        lightTextures: [TextureSpec, TextureSpec];
+        lightViews: [TextureViewSpec, TextureViewSpec];
         /** A imagem resolvida com a nitidez adaptativa (o que a cadeia e a apresentação leem). */
         outTexture: TextureSpec;
         outView: TextureViewSpec;
@@ -258,6 +261,12 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                         clearValue: [0, 0, 0, 0],
                         storeOp: 'store',
                     },
+                    {
+                        view: this.history.lightViews[this.taaWrite]!,
+                        loadOp: 'clear',
+                        clearValue: [0, 0, 0, 0],
+                        storeOp: 'store',
+                    },
                 ],
             };
             frame.render(target, 'PostFlow.temporalResolve', (p) => {
@@ -365,12 +374,33 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         // Estado por pixel (distância à câmera, quanto se movia) para a desoclusão do quadro seguinte.
         const d0 = distance('s0');
         const d1 = distance('s1');
+        // A luz que chegava a cada pixel, para a mudança de iluminação do quadro seguinte.
+        const light = (name: string): TextureSpec =>
+            this.core.create<TextureSpec>({
+                kind: 'texture',
+                discriminator: `post_taa_${name}:${width}x${height}`,
+                width,
+                height,
+                format: 'r16float',
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+        const lightView = (source: TextureSpec, name: string): TextureViewSpec =>
+            this.core.create<TextureViewSpec>({
+                kind: 'textureview',
+                discriminator: `post_taa_${name}_v:${width}x${height}`,
+                source,
+                format: 'r16float',
+            });
+        const l0 = light('l0');
+        const l1 = light('l1');
         const out = texture('taa_out');
         this.history = {
             textures: [h0, h1],
             views: [view(h0, 'taa0'), view(h1, 'taa1')],
             distanceTextures: [d0, d1],
             distanceViews: [distanceView(d0, 'd0'), distanceView(d1, 'd1')],
+            lightTextures: [l0, l1],
+            lightViews: [lightView(l0, 'l0'), lightView(l1, 'l1')],
             outTexture: out,
             outView: view(out, 'taa_out'),
         };
@@ -383,12 +413,14 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             for (const v of [
                 ...this.history.views,
                 ...this.history.distanceViews,
+                ...this.history.lightViews,
                 this.history.outView,
             ])
                 this.core.destroy(v);
             for (const t of [
                 ...this.history.textures,
                 ...this.history.distanceTextures,
+                ...this.history.lightTextures,
                 this.history.outTexture,
             ])
                 this.core.destroy(t);
@@ -443,6 +475,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                     { pipeline: id, resource: temporalResources.historyDistance },
                     this.history.distanceViews[1 - this.taaWrite]!,
                 ],
+                [
+                    { pipeline: id, resource: temporalResources.historyLight },
+                    this.history.lightViews[1 - this.taaWrite]!,
+                ],
                 [{ pipeline: id, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: id, resource: temporalResources.motion }, motion.view],
             ]),
@@ -458,6 +494,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 [
                     { pipeline: sharpenId, resource: temporalResources.historyDistance },
                     this.history.distanceViews[this.taaWrite]!,
+                ],
+                [
+                    { pipeline: sharpenId, resource: temporalResources.historyLight },
+                    this.history.lightViews[this.taaWrite]!,
                 ],
                 [{ pipeline: sharpenId, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: sharpenId, resource: temporalResources.motion }, motion.view],
@@ -481,7 +521,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 shader: temporalResolve,
                 entryPoints: ['vs_fullscreen', 'fs_temporal_resolve'],
                 topology: 'triangle-list',
-                colorTargets: [{ format: SCENE_COLOR_FORMAT }, { format: 'rg32float' }],
+                colorTargets: [
+                    { format: SCENE_COLOR_FORMAT },
+                    { format: 'rg32float' },
+                    { format: 'r16float' },
+                ],
             });
             this.taaPrepared.add(id);
         }

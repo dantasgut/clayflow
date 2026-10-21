@@ -6,9 +6,11 @@
 // integral do pixel. Perto de movimento, a caixa da variância da vizinhança 3 × 3 recorta o histórico, e o quadro atual
 // entra reconstruído das amostras vizinhas. Média exponencial na radiância linear, sem viés. No modo de acumulação, média
 // uniforme dos quadros desde o corte, sem recorte (a referência de imagem parada). O alfa guarda quantos quadros o
-// histórico tem.
-// Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_history, taa_history_distance, taa_depth,
-// taa_motion, src_smp.
+// histórico tem. Parado, a luz que chega ao ponto (o alfa da cor da cena: a radiância sobre a refletância, sem a textura)
+// comparada à do quadro anterior separa a mudança de iluminação — a sombra ou a luz que passa sobre a superfície parada —
+// do detalhe menor que o pixel: o histórico é reiluminado pela razão e tratado como em movimento.
+// Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor; alfa = a luz que chega), taa_history,
+// taa_history_distance, taa_history_light, taa_depth, taa_motion, src_smp.
 
 const TAA_ACCUMULATE: u32 = 3u;
 /**
@@ -30,6 +32,11 @@ const TAA_CLIP_FLOOR: f32 = 0.01;
  * integra o serrilhado de uma amostra pontual.
  */
 const TAA_FILTER_SHARPNESS: f32 = 4.0;
+/**
+ * Mudança de iluminação: a luz que chegava ao pixel no quadro anterior fora da faixa da vizinhança 3 × 3 de agora por
+ * mais que esta fração (o dobro: inteira). Abaixo, a variação da amostra deslocada numa penumbra ou numa aresta.
+ */
+const TAA_LIGHT_CHANGE: f32 = 0.1;
 /** Quadros máximos do histórico no modo de acumulação. */
 const TAA_MAX_FRAMES: f32 = 4096.0;
 
@@ -146,6 +153,8 @@ struct TaaOut {
     @location(0) color: vec4f,
     /** Distância da câmera ao ponto do pixel e quanto ele se movia (a desoclusão do quadro seguinte). */
     @location(1) state: vec2f,
+    /** A luz que chega ao ponto do pixel, acumulada com os pesos da cor (a mudança de iluminação do quadro seguinte). */
+    @location(2) light: f32,
 }
 
 @fragment
@@ -153,7 +162,8 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let dims = textureDimensions(src_tex, 0);
     let size = vec2f(dims);
     let pixel = vec2i(in.clip_position.xy);
-    let current = textureLoad(src_tex, pixel, 0).rgb;
+    let center = textureLoad(src_tex, pixel, 0);
+    let current = center.rgb;
     let cam = cameras[taa_params.cameraSlot];
     let r = taa_reproject(pixel, in.uv);
     let depth = r.depth;
@@ -172,7 +182,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let prev_moving = textureLoad(taa_history_distance, prev_pixel, 0).g;
     // Movimento agora ou no quadro anterior: no quadro em que um objeto some (atrás de outro), o que ele deixou no
     // histórico ainda é recortado.
-    let stirred = max(moving, prev_moving);
+    var stirred = max(moving, prev_moving);
     let reach = select(1, 0, stirred > 0.0);
     var occluded = true;
     for (var dy = -reach; dy <= reach; dy++) {
@@ -186,6 +196,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     var out: TaaOut;
     out.state = vec2f(distance, moving);
     if (taa_params.mode == TAA_ACCUMULATE) {
+        out.light = center.a;
         let n = min(frames, TAA_MAX_FRAMES - 1.0);
         out.color = vec4f(select(current, mix(history.rgb, current, 1.0 / (n + 1.0)), n > 0.0), n + 1.0);
         return out;
@@ -197,10 +208,15 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     var m2 = vec3f(0.0);
     var filtered = vec3f(0.0);
     var wsum = 0.0;
+    var light_lo = center.a;
+    var light_hi = center.a;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
-            let rgb = textureLoad(src_tex, q, 0).rgb;
+            let texel = textureLoad(src_tex, q, 0);
+            let rgb = texel.rgb;
+            light_lo = min(light_lo, texel.a);
+            light_hi = max(light_hi, texel.a);
             let c = taa_ycocg(rgb);
             m1 += c;
             m2 += c * c;
@@ -213,17 +229,28 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             wsum += w;
         }
     }
+    // Mudança de iluminação na superfície (não no fundo): a luz acumulada com o histórico fora da faixa da vizinhança de
+    // agora. O histórico é reiluminado pela razão (a textura integrada fica; a sombra que passou sai) e, como em
+    // movimento, recortado com o quadro novo entrando depressa.
+    let prev_light = textureLoad(taa_history_light, prev_pixel, 0).r;
+    let beyond = max(prev_light - light_hi, light_lo - prev_light) / max(max(light_hi, prev_light), 1e-4);
+    let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0 && depth < 1.0);
+    let ratio = clamp(center.a / max(prev_light, 1e-4), 0.0, 16.0);
+    let relighted = history.rgb * mix(1.0, ratio, relit);
+    stirred = max(stirred, relit);
     let reconstructed = mix(current, filtered / wsum, stirred);
     let mean = m1 / 9.0;
     let sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3f(0.0)));
     let floor_extent = vec3f(TAA_CLIP_FLOOR * max(mean.x, 1e-4));
     let extent = max(TAA_GAMMA_MOVING * sigma, floor_extent);
-    let d = taa_ycocg(history.rgb) - mean;
+    let d = taa_ycocg(relighted) - mean;
     let scale = max(abs(d) / extent, vec3f(1.0));
-    let clipped = mix(history.rgb, taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
+    let clipped = mix(relighted, taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
     // Média exponencial na radiância linear (sem peso por luminância: a média fica sem viés).
     let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, stirred));
     out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
+    // A luz acumulada como a cor: reiluminada, ela é a de agora.
+    out.light = select(center.a, mix(prev_light * mix(1.0, ratio, relit), center.a, alpha), frames > 0.0);
     return out;
 }
 

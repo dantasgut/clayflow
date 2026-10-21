@@ -170,6 +170,13 @@ export const temporalResources = {
         frequency: 'draw',
         provider: 'private',
     }),
+    /** A luz que chegava a cada pixel no quadro anterior (r16float), para a mudança de iluminação. */
+    historyLight: wgslResource({
+        name: 'taa_history_light',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
     /** Os vetores de movimento (`FrameTargets.motion`). */
     motion: wgslResource({
         name: 'taa_motion',
@@ -197,6 +204,7 @@ export const temporalResolve = wgslModule({
         effectResources.source,
         temporalResources.history,
         temporalResources.historyDistance,
+        temporalResources.historyLight,
         temporalResources.depth,
         temporalResources.motion,
         effectResources.sampler,
@@ -214,6 +222,7 @@ export const temporalSharpen = wgslModule({
         effectResources.source,
         temporalResources.history,
         temporalResources.historyDistance,
+        temporalResources.historyLight,
         temporalResources.depth,
         temporalResources.motion,
         effectResources.sampler,

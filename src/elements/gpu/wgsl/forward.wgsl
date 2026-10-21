@@ -111,8 +111,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
     let c = closure_specular_aa(material_eval(sample, material, in.fn_slot), variance);
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
-    let color = scene_lighting(c, in.world_position, n, v) + closure_emitted(c, n, v);
+    let lit = scene_lighting(c, in.world_position, n, v);
+    let color = lit + closure_emitted(c, n, v);
     // A névoa entre a câmera e o ponto (ponto de cena `scene_fog`; sem névoa, nada muda).
     let fog = scene_fog(in.world_position);
-    return vec4<f32>(color * fog.a + fog.rgb, c.opacity);
+    // Com o antisserrilhado temporal, o alfa leva a luz que chega ao ponto: o brilho refletido sobre o da refletância
+    // (spec 034). A textura se cancela; a resolução vê a sombra ou a luz que muda sobre a superfície parada.
+    let luma = vec3<f32>(0.25, 0.5, 0.25);
+    let light = min(dot(lit, luma) / max(dot(closure_albedo(c), luma), 1e-3), 60000.0);
+    return vec4<f32>(color * fog.a + fog.rgb, select(c.opacity, light, forward_frame.lightSignal != 0u));
 }
