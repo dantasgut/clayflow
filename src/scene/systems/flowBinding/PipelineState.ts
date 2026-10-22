@@ -172,7 +172,7 @@ export class PipelineState {
     }
 
     get ready(): boolean {
-        return this.pipelineSpec !== null && this.compiled && !this.waiting;
+        return this.pipelineSpec !== null && this.compiled && !this.waiting && this.failed === null;
     }
 
     /**
@@ -389,32 +389,49 @@ export class PipelineState {
         this.bindGroups = sources.map((list, g) => this.createBindGroup(g, list));
     }
 
-    /** Cria o módulo e o pipeline (síncrono, ou em segundo plano com `onCompiled` ao concluir). */
+    /**
+     * Cria o módulo e o pipeline (síncrono, ou em segundo plano com `onCompiled` ao concluir). O erro de validação da
+     * criação (o WGSL que não compila, o descritor inválido) chega depois, pelo escopo de erro do device: sem ele, só
+     * apareceria na gravação do quadro, como pipeline inválido sem nome.
+     */
     private createPipeline(token: number, async: boolean): void {
-        this.shader = this.core.create<ShaderModuleSpec>({ ...this.composedShader });
-        const spec =
-            this.role === 'compute' ? this.computeSpec(this.shader) : this.renderSpec(this.shader);
-        this.pipelineSpec = spec;
-        if (async) {
-            this.compiled = false;
-            void this.core.createAsync(spec).then(
-                () => {
-                    if (token !== this.token) return;
-                    this.compiled = true;
-                    this.onCompiled(this);
-                },
-                (error: unknown) => {
-                    if (token === this.token) this.fail(error);
-                },
-            );
-        } else {
-            this.core.create(spec);
+        let spec: ComputePipelineSpec | RenderPipelineSpec | undefined;
+        void this.core
+            .withErrorScope('validation', () => {
+                this.shader = this.core.create<ShaderModuleSpec>({ ...this.composedShader });
+                spec =
+                    this.role === 'compute'
+                        ? this.computeSpec(this.shader)
+                        : this.renderSpec(this.shader);
+                this.pipelineSpec = spec;
+                if (!async) this.core.create(spec);
+            })
+            .catch((error: unknown) => {
+                if (token === this.token) this.fail(error);
+            });
+        if (!async) {
             this.compiled = true;
+            return;
         }
+        this.compiled = false;
+        void this.core.createAsync(spec!).then(
+            () => {
+                if (token !== this.token) return;
+                this.compiled = true;
+                this.onCompiled(this);
+            },
+            (error: unknown) => {
+                if (token === this.token) this.fail(error);
+            },
+        );
     }
 
-    /** Compilação ou conferência falhou no device: estado final até o Flow trocar o shader (ou a cena se refazer). */
+    /**
+     * Compilação ou conferência falhou no device: estado final até o Flow trocar o shader (ou a cena se refazer). Um
+     * aviso por construção (o módulo e o pipeline assíncrono podem falhar os dois).
+     */
     private fail(error: unknown): void {
+        if (this.failed !== null) return;
         this.failed = error instanceof Error ? error.message : String(error);
         this.onFailed(this, this.failed);
     }

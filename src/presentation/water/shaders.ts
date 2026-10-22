@@ -17,6 +17,7 @@ import {
 import { closure, closureEval } from '../../elements/material/pbr/shaders';
 import { WATER_DEPTH_LIMIT, WATER_NO_DEPTH } from './constants';
 import { fields } from '../../elements/fields/shaders';
+import { camera } from '../../elements/gpu/shaders/math';
 import {
     CausticParamsSchema,
     WaterCompositeParamsSchema,
@@ -250,6 +251,7 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
             waterRipple,
             sceneLightingReady,
             sceneFogReady,
+            camera,
             WATER_DEPTH_LIMIT.module,
             camerasResource,
             R.materials,

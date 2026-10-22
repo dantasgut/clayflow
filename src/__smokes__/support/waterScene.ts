@@ -45,6 +45,8 @@ export interface WaterSceneOptions {
     /** Posição e alvo da câmera. */
     readonly eye?: readonly [number, number, number];
     readonly target?: readonly [number, number, number];
+    /** A câmera, já com o `Transform` que quem chama move; sem ela, uma parada em `eye` olhando `target`. */
+    readonly camera?: Camera;
 }
 
 /** Monta a cena; devolve o corpo (ou `undefined` sem água). */
@@ -53,15 +55,19 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
     const eye = options.eye ?? [0, 1.25, 1.55];
     const target = options.target ?? [0, 0.1, 0];
     world.insert(
-        new Camera({
-            fov: Math.PI / 4,
-            aspect: options.width / options.height,
-            aspectMode: 'fixed',
-            near: 0.05,
-            far: 20,
-        }).add(
-            new Transform({ position: [...eye, 1], rotation: Transform.lookRotation(eye, target) }),
-        ),
+        options.camera
+            ?? new Camera({
+                fov: Math.PI / 4,
+                aspect: options.width / options.height,
+                aspectMode: 'fixed',
+                near: 0.05,
+                far: 20,
+            }).add(
+                new Transform({
+                    position: [...eye, 1],
+                    rotation: Transform.lookRotation(eye, target),
+                }),
+            ),
     );
     const dir = options.light ?? [-0.25, -1, -0.35];
     world.insert(

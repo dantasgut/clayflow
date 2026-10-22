@@ -23,6 +23,8 @@
 //     bola: o rastro delas, nos dois sentidos, ≤ 1 % (T031).
 //   - pointTrail: os vértices de uma esfera como sprites (`PointSpriteMaterial`), movidos pelo `Transform` no caminho
 //     da bola: o mesmo rastro (T031).
+//   - waterOrbit: a câmera gira a 30°/s em volta de um tanque de água parada (a física e as ondulações congeladas
+//     depois de assentar); os mesmos critérios da órbita (T031: o movimento da superfície da água).
 //   - cost: a 1280 × 720 em órbita, com profiling por passe, a duração do quadro na GPU (mediana de 120 quadros, do
 //     primeiro início ao último fim) com o temporal menos a sem antisserrilhado ≤ 1,5 ms (SC-011, 9 % do quadro de 60 Hz
 //     no M4). Não a soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
@@ -40,6 +42,7 @@ import {
     type GpuFrameTimedPayload,
 } from 'clayflow';
 import { closureFn } from './support/materialScenes';
+import { waterScene } from './support/waterScene';
 import { writeFixture } from './support/fixtures';
 
 function log(msg: string): void {
@@ -580,6 +583,131 @@ async function orbit(): Promise<void> {
     }
 }
 
+/** Pose da órbita em volta do tanque (30°/s, raio 1,6 m, 1 m acima do fundo) no tempo `t` (s). */
+const waterOrbitAt = (t: number): [number, number, number] => {
+    const a = (30 * Math.PI * t) / 180;
+    return [1.6 * Math.sin(a), 1, 1.6 * Math.cos(a)];
+};
+const WATER_TARGET = [0, 0.1, 0] as const;
+/** Quadros até a camada de água assentar. */
+const WATER_SETTLE = 300;
+
+/** Uma água da órbita: a altura da camada (em partículas) e a absorção (padrão a do material). */
+interface Water {
+    readonly layer: number;
+    readonly absorption?: readonly number[];
+}
+
+/** O tanque com a camada de água parada (física e ondulações congeladas depois de assentar), no modo pedido. */
+async function waterTank(mode: AntialiasingMode, water: Water): Promise<Scene> {
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    document.body.appendChild(canvas);
+    const app = await Application.create({
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+        captureErrors: true,
+        antialias: mode,
+        canvasOptions: { capture: true },
+    });
+    app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
+    const view = new Transform();
+    const look: Look = (p) => {
+        view.data.position = [...p, 1];
+        view.data.rotation = Transform.lookRotation(p, WATER_TARGET);
+    };
+    look(waterOrbitAt(0));
+    const camera = new clayflow.Camera({
+        fov: Math.PI / 4,
+        aspect: W / H,
+        aspectMode: 'fixed',
+        near: 0.05,
+        far: 20,
+    });
+    camera.add(view);
+    // As ondulações do material paradas no tempo (a referência acumula a mesma superfície).
+    waterScene(app, {
+        width: W,
+        height: H,
+        layer: water.layer,
+        material: {
+            rippleSpeed: 0,
+            ...(water.absorption !== undefined ? { absorption: water.absorption } : {}),
+        },
+        camera,
+    });
+    await app.whenReady({ timeoutMs: 60_000 });
+    for (let i = 0; i < WATER_SETTLE; i++) {
+        app.step(1 / 60);
+        if (i % 8 === 7) await new Promise((r) => setTimeout(r, 0));
+    }
+    app.time.physicsScale = 0;
+    return { app, canvas, look, camera };
+}
+
+/** As duas águas da órbita: clara e rasa (o fundo atravessado domina a cor) e turva e funda (a superfície domina). */
+const WATERS: Record<string, Water> = {
+    clara: { layer: 6 },
+    turva: { layer: 20, absorption: [12, 10, 9, 0] },
+};
+
+async function waterOrbit(): Promise<void> {
+    for (const [name, water] of Object.entries(WATERS)) await waterOrbitOf(name, water);
+}
+
+async function waterOrbitOf(name: string, water: Water): Promise<void> {
+    const poses = [1, 2, 3];
+    const tmp = await waterTank('temporal', water);
+    tmp.camera.cut();
+    const moving: Float32Array[] = [];
+    let i = 0;
+    for (const at of poses) {
+        while (i < at * 60) {
+            tmp.look(waterOrbitAt(i / 60));
+            tmp.app.step(1 / 60);
+            i++;
+            if (i % 8 === 0) await new Promise((r) => setTimeout(r, 0));
+        }
+        tmp.look(waterOrbitAt(i / 60));
+        tmp.app.step(1 / 60);
+        i++;
+        moving.push(lum(await tmp.app.core.readCanvas()));
+    }
+    close(tmp);
+    const q = new URLSearchParams(location.search);
+    for (let k = 0; k < poses.length; k++) {
+        const ref = await waterTank('accumulate', water);
+        ref.look(waterOrbitAt(poses[k]!));
+        ref.camera.cut();
+        const reference = await frameAfter(ref, REF_SAMPLES);
+        close(ref);
+        if (q.get('dump') === '1' && k === Number(q.get('dumpk') ?? 0)) {
+            await dump(`zz-aa-water-${name}-ref.png`, reference);
+            await dump(`zz-aa-water-${name}-tmp.png`, moving[k]!);
+            await dump(
+                `zz-aa-water-${name}-diff.png`,
+                moving[k]!.map((v, j) => Math.min(1, Math.abs(v - reference[j]!) * 10)),
+            );
+        }
+        const sharp = mean(gradient(reference)) / Math.max(1e-9, mean(gradient(moving[k]!)));
+        const e = errors(moving[k]!, reference);
+        log(
+            `waterOrbit: água ${name}, pose ${k + 1} (${poses[k]} s a 30°/s) — gradiente da referência / do temporal ${sharp.toFixed(3)}, erro médio ${pct(e.all)}, bordas ${pct(e.edges)}`,
+        );
+        check(
+            sharp <= 1.5,
+            `waterOrbit: água ${name}, borrão ${sharp.toFixed(2)}× na pose ${k + 1} (≤ 1,5×)`,
+        );
+        check(
+            e.all <= 0.03,
+            `waterOrbit: água ${name}, erro médio ${pct(e.all)} na pose ${k + 1} (≤ 3 %)`,
+        );
+    }
+}
+
 /** Cobertura (pixels claros) das partículas em sprites caindo, no modo pedido. */
 async function spriteCoverage(mode: AntialiasingMode): Promise<number> {
     const s = await scene(mode);
@@ -669,6 +797,7 @@ const CASES: Record<string, () => Promise<void>> = {
     sprites,
     spriteTrail,
     pointTrail,
+    waterOrbit,
     cost,
 };
 

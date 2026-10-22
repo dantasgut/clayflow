@@ -136,6 +136,33 @@ describe('prontidão pela reconciliação dos Flows', () => {
         expect(s.flow.lifecycle).toBe('preparing');
     });
 
+    it('pipeline síncrono que não valida no device: engineError com o Flow e o pipeline', async () => {
+        // Arrange
+        const s = await probeScene();
+        s.scene.world.insert(new ProbeCam());
+        s.scene.world.insert(new ProbeBody());
+        const flow = new ProbeFlow(probeParams, { pipelines: [probePipeline()] });
+        const errors: EngineErrorPayload[] = [];
+        s.scene.events.on('engineError', (e) => errors.push(e));
+        vi.mocked(s.counting.core.withErrorScope).mockImplementation(async (_filter, body) => {
+            await body();
+            throw new Error("[validation] redeclaration of 'm'");
+        });
+        // Act
+        s.scene.flows.register(() => flow, {
+            type: 'ProbeFlow',
+            phase: 'transform',
+            bodyType: 'ProbeBody',
+        });
+        s.frame();
+        await flush();
+        s.frame();
+        // Assert
+        expect(errors).toHaveLength(1);
+        expect(errors[0]!.stage).toBe('pipeline');
+        expect(errors[0]!.message).toMatch(/Flow 'ProbeFlow', pipeline 'main': .*redeclaration/);
+    });
+
     it('falha depois do descarte da cena é absorvida (sem erro nem rejeição não tratada)', async () => {
         const s = await asyncScene();
         const errors = vi.fn();

@@ -46,6 +46,9 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
     const core = {
         create: vi.fn(<S>(spec: S) => spec),
         shaderMessages: vi.fn(() => Promise.resolve([])),
+        withErrorScope: vi.fn(async <T>(_filter: GPUErrorFilter, body: () => T | Promise<T>) =>
+            body(),
+        ),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(spec)),
         writeTexture: vi.fn(),
         write: vi.fn((spec: ResourceSpec) => {

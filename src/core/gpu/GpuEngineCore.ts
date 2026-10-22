@@ -524,15 +524,30 @@ export class GpuEngineCore implements EngineCore {
     async withErrorScope<T>(filter: GPUErrorFilter, body: () => T | Promise<T>): Promise<T> {
         const ctx = this.requireContext();
         ctx.device.pushErrorScope(filter);
+        let value: T | Promise<T>;
         try {
-            const result = await body();
-            const err = await ctx.device.popErrorScope();
-            if (err !== null) throw new Error(`[${filter}] ${err.message}`);
-            return result;
+            value = body();
         } catch (e) {
             await ctx.device.popErrorScope().catch(() => null);
             throw e;
         }
+        // Corpo síncrono: o escopo fecha na mesma tarefa, antes de qualquer outro abrir — os escopos de quem chama em
+        // seguida (o pipeline criado na preparação, a gravação do quadro) ficam aninhados, cada erro no seu.
+        if (!(value instanceof Promise)) {
+            const err = await ctx.device.popErrorScope();
+            if (err !== null) throw new Error(`[${filter}] ${err.message}`);
+            return value;
+        }
+        let result: T;
+        try {
+            result = await value;
+        } catch (e) {
+            await ctx.device.popErrorScope().catch(() => null);
+            throw e;
+        }
+        const err = await ctx.device.popErrorScope();
+        if (err !== null) throw new Error(`[${filter}] ${err.message}`);
+        return result;
     }
 
     async shaderMessages(spec: ShaderModuleSpec): Promise<readonly ShaderMessage[]> {

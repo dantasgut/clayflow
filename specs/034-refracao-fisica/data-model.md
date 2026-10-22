@@ -43,7 +43,7 @@ composição. Vértices anteriores: buffer em anel de 2 para geometrias com `pro
 | `mode`      | `'temporal' \| 'msaa' \| 'off'` | `'temporal'`                                                     |
 | `sharpness` | `f32`                           | 0 (sem nitidez extra; qualquer valor > 0 é aplicado só na saída) |
 
-Alvos: `motion` (rgba16f: rg o movimento do ponto do pixel, ba o do que está atrás dele), `light` (rg16f: a luz que
+Alvos: `motion` (rgba16f: rg o movimento do ponto do pixel, ba o do que está atrás dele; a água troca o rg pelo da superfície onde ela domina a cor), `light` (rg16f: a luz que
 chega ao ponto sem a textura, r a direta e g a total; escrita pelo passe principal do forward), `history[2]` (rgba16f,
 ping-pong), o estado por pixel (rg32f: distância e movimento) e a luz acumulada (rg16f), os dois também em ping-pong.
 A máscara reativa do raio secundário (T044a) ainda falta. O histórico é descartado em corte de câmera,

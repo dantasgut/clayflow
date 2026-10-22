@@ -22,6 +22,7 @@ import {
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
+    type TextureSlot,
 } from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { World } from '../../scene/world/World';
@@ -45,6 +46,11 @@ export interface WaterSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Cor e profundidade da cena (a água é composta sobre elas). */
     readonly target: TargetSlot;
+    /**
+     * Vetores de movimento (`FrameTargets.motion`, spec 034; só sem MSAA): onde a superfície domina a cor do pixel, a
+     * água troca o rg pelo dela.
+     */
+    readonly motion: TextureSlot<true>;
 }
 
 type Ctx = TransitionContext<WaterSlots>;
@@ -75,6 +81,8 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
     private readonly params: UniformBufferSpec;
     private pipeline: string | undefined;
     private samples = 0;
+    /** O pipeline escreve o movimento (o alvo existe só sem MSAA). */
+    private withMotion = false;
     private written = '';
     private active = false;
     private water: WaterSurface | undefined;
@@ -94,6 +102,7 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
                 depth: { schema: FrameTargets.schema, descId: 'depth' },
                 samples: { schema: FrameTargets.schema, descId: 'samples' },
             }),
+            motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
         };
         this.params = ctx.core.create<UniformBufferSpec>({
             kind: 'buffer',
@@ -139,8 +148,14 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
         ]);
         const color = this.colorAttachment(frame, target, { loadOp: 'load' });
         if (color === undefined) return;
+        const motion = bound.slots.motion;
         const renderTarget: RenderTarget = {
-            colorAttachments: [color],
+            colorAttachments: [
+                color,
+                ...(this.withMotion && motion !== undefined
+                    ? [{ view: motion.view, loadOp: 'load' as const, storeOp: 'store' as const }]
+                    : []),
+            ],
             depthStencilAttachment: { view: target.depth, depthReadOnly: true },
         };
         frame.render(renderTarget, 'WaterFlow', (pass) => {
@@ -171,10 +186,16 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
             depthView !== undefined && materials !== undefined && sceneDepth !== undefined;
         if (depthView === undefined || materials === undefined || sceneDepth === undefined) return;
         const samples = slots.target.sampleCount;
-        if (this.pipeline === undefined || samples !== this.samples) {
+        const withMotion = samples === 1 && slots.motion !== undefined;
+        if (
+            this.pipeline === undefined
+            || samples !== this.samples
+            || withMotion !== this.withMotion
+        ) {
             if (this.pipeline !== undefined) ctx.release(this.pipeline);
             this.samples = samples;
-            this.pipeline = `water_composite:${samples}`;
+            this.withMotion = withMotion;
+            this.pipeline = `water_composite:${samples}${withMotion ? ':motion' : ''}`;
             ctx.bind(this.sources(water, sceneDepth));
             ctx.prepare({
                 id: this.pipeline,
@@ -185,7 +206,30 @@ export class WaterFlow extends RenderFlow<WaterSlots, 'idle'> {
                 constants: { CLOSURE_LOBES: LOBES.specular | LOBES.diffuse },
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format: slots.target.format ?? this.core.canvasFormat }],
+                colorTargets: [
+                    { format: slots.target.format ?? this.core.canvasFormat },
+                    // Movimento (spec 034): só rg, misturado pelo seletor em alfa (1 substitui, 0 fica o de antes).
+                    ...(withMotion
+                        ? [
+                              {
+                                  format: 'rgba16float' as const,
+                                  writeMask: 0x3,
+                                  blend: {
+                                      color: {
+                                          srcFactor: 'src-alpha' as const,
+                                          dstFactor: 'one-minus-src-alpha' as const,
+                                          operation: 'add' as const,
+                                      },
+                                      alpha: {
+                                          srcFactor: 'zero' as const,
+                                          dstFactor: 'one' as const,
+                                          operation: 'add' as const,
+                                      },
+                                  },
+                              },
+                          ]
+                        : []),
+                ],
                 depth: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
                 multisample: { count: samples },
             });

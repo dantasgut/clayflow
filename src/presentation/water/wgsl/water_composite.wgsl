@@ -28,6 +28,9 @@ fn composite_view_pos(pixel: vec2f, z: f32, p: mat4x4f, size: vec2f, jitter: vec
 
 struct CompositeOut {
     @location(0) color: vec4f,
+    // O movimento do pixel (spec 034; o alvo só existe sem MSAA — sem ele, a saída é descartada): rg o da superfície
+    // pela câmera; a o seletor da mistura no alvo (1 a superfície domina a cor e o substitui, 0 fica o do que está atrás).
+    @location(1) motion: vec4f,
     @builtin(frag_depth) depth: f32,
 }
 
@@ -86,6 +89,15 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     if (!all(abs(color) < vec3f(6.5e4))) { color = material.color.rgb; }
     var out: CompositeOut;
     out.color = vec4f(max(color, vec3f(0.0)), 1.0);
+    // Movimento (spec 034): o do que domina a cor do pixel. A superfície é a de nível do campo, refeita a cada quadro —
+    // o ponto dela se move com a câmera (o que a forma muda a resolução rejeita pela vizinhança); a cor do fundo
+    // atravessado se move com ele, cujo movimento já está no alvo.
+    let luma = vec3f(0.25, 0.5, 0.25);
+    let through = dot(tau * background, luma);
+    let own = dot(max(color, vec3f(0.0)), luma) - through;
+    let p = vec4f(pw, 1.0);
+    let moved = camera_motion(cam.previousViewProjection * p, cam.unjitteredViewProjection * p);
+    out.motion = vec4f(moved.xy, 0.0, select(0.0, 1.0, own > through));
     out.depth = clamp(water_ndc_depth(pv, proj), 0.0, 1.0);
     return out;
 }
