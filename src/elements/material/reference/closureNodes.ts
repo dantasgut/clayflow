@@ -39,6 +39,7 @@ export const CLOSURE_FIELDS = [
     ['transmission_ior', 1],
     ['transmission_abbe', 1],
     ['transmission_roughness', 1],
+    ['transmission_priority', 1],
     ['translucent_weight', 1],
     ['translucent_color', 3],
     ['emission', 3],
@@ -155,6 +156,12 @@ export const closureTransmission = (
     transmission_depth: Math.max(depth, 0),
     transmission_abbe: abbe > 0 ? Math.max(abbe, 10) : 0,
     transmission_roughness: c01(roughness),
+});
+
+/** `closure_medium_priority`: a prioridade do meio na sobreposição de volumes transmissivos. */
+export const closureMediumPriority = (c: Closure, priority: number): Closure => ({
+    ...c,
+    transmission_priority: priority,
 });
 
 export const closureTranslucent = (color: Vec3): Closure => ({
@@ -312,6 +319,7 @@ export function closureAdd(a: Closure, b: Closure): Closure {
             b.transmission_roughness,
             wtb,
         ),
+        transmission_priority: Math.max(a.transmission_priority, b.transmission_priority),
         translucent_weight: a.translucent_weight + b.translucent_weight,
         translucent_color: merge3(
             a.translucent_color,

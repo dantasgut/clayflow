@@ -79,7 +79,8 @@ function trace(scene: PtScene, origin: Vec3, dir: Vec3, samples: number): Vec3 {
     return radianceAt(scene, origin, dir, { width: 1, height: 1, samples, bounces: 0 });
 }
 
-describe('referência da CPU — dielétricos (spec 034, R10)', () => {
+// Milhares de caminhos por caso (a água por marcha): o prazo cobre o CI com os arquivos em paralelo.
+describe('referência da CPU — dielétricos (spec 034, R10)', { timeout: 30_000 }, () => {
     it('Fresnel exato: as leis do seno e da tangente, incidência normal, Brewster e reflexão interna total', () => {
         for (const i of [0, 10, 30, 45, 60, 75, 85, 89]) {
             expect(fresnelDielectric(Math.cos(i * DEG), 1, 1.5)).toBeCloseTo(

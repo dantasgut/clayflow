@@ -42,6 +42,31 @@ export interface PtMaterial {
     readonly mirror?: Vec3;
     /** Dielétrico (vidro, água): sem difuso; o volume da forma é o meio. */
     readonly dielectric?: PtDielectric;
+    /** Xadrez pela posição no mundo no lugar do albedo e da emissão constantes. */
+    readonly checker?: PtChecker;
+}
+
+/**
+ * Xadrez procedural (spec 034, smoke `refraction`): a paridade de ⌊p[a]/size⌋ + ⌊p[b]/size⌋ nos dois eixos `axes`
+ * escolhe o primeiro valor (par) ou o segundo.
+ */
+export interface PtChecker {
+    readonly size: number;
+    readonly axes: readonly [number, number];
+    readonly albedo?: readonly [Vec3, Vec3];
+    readonly emission?: readonly [Vec3, Vec3];
+}
+
+/** Albedo e emissão do material no ponto `p` (o xadrez, se houver). */
+function surfaceAt(m: PtMaterial, p: Vec3): { albedo: Vec3; emission: Vec3 | undefined } {
+    const c = m.checker;
+    if (c === undefined) return { albedo: m.albedo, emission: m.emission };
+    const cell = Math.floor(p[c.axes[0]]! / c.size) + Math.floor(p[c.axes[1]]! / c.size);
+    const odd = ((cell % 2) + 2) % 2;
+    return {
+        albedo: c.albedo?.[odd] ?? m.albedo,
+        emission: c.emission?.[odd] ?? m.emission,
+    };
 }
 
 /** Dielétrico na convenção do `closure_transmission` do motor. */
@@ -819,6 +844,7 @@ function radiance(
         }
         const p = add(o, scale(d, hit.t));
         const mat = hit.object.material;
+        const surf = surfaceAt(mat, p);
         if (mat.dielectric !== undefined) {
             if (++interfaces > maxInterfaces) break;
             const next = crossDielectric(scene, o, d, hit, stack, channel, rng);
@@ -836,8 +862,8 @@ function radiance(
         // Quadriláteros emissores entram pela amostragem direta; as outras formas emissoras, pelo acerto.
         const sampledEmitter = hit.object.shape.kind === 'quad';
         const firstHitDirect = opts.indirectOnly === true && depth === 0;
-        if (mat.emission !== undefined && (countEmission || !sampledEmitter) && !firstHitDirect) {
-            sum = add(sum, mul(throughput, mat.emission));
+        if (surf.emission !== undefined && (countEmission || !sampledEmitter) && !firstHitDirect) {
+            sum = add(sum, mul(throughput, surf.emission));
         }
         if (mat.mirror !== undefined) {
             throughput = mul(throughput, mat.mirror);
@@ -847,11 +873,11 @@ function radiance(
             depth++;
             continue;
         }
-        const brdf = scale(mat.albedo, 1 / Math.PI);
+        const brdf = scale(surf.albedo, 1 / Math.PI);
         const direct = directLight(scene, p, (l) => scale(brdf, Math.max(0, dot(n, l))), rng, n);
         if (!(opts.indirectOnly === true && depth === 0)) sum = add(sum, mul(throughput, direct));
         // Rebatimento difuso por cosseno: o peso é o albedo.
-        throughput = mul(throughput, mat.albedo);
+        throughput = mul(throughput, surf.albedo);
         d = cosineSample(n, rng.next(), rng.next());
         o = add(p, scale(n, EPS * 10));
         // A emissão de área já entrou pela amostragem direta.

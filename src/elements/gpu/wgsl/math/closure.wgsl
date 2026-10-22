@@ -63,6 +63,9 @@ struct Closure {
     transmission_ior: f32,
     transmission_abbe: f32,
     transmission_roughness: f32,
+    // Prioridade do meio na sobreposição de volumes transmissivos (a maior vale dentro da interseção; empate: o último
+    // em que o raio entrou). Padrão 0.
+    transmission_priority: f32,
     // Parede fina: transmissão difusa sem refração.
     translucent_weight: f32,
     translucent_color: vec3f,
@@ -140,6 +143,15 @@ fn closure_transmission(ior: f32, color: vec3f, depth: f32, abbe: f32, roughness
     c.transmission_abbe = select(0.0, max(abbe, 10.0), abbe > 0.0);
     c.transmission_roughness = clamp(roughness, 0.0, 1.0);
     return c;
+}
+
+// Prioridade do meio de `c` na sobreposição de volumes transmissivos (o vidro mergulhado na água: o vidro com a maior
+// vale dentro dele, e a borda da água que passa por dentro do vidro não é interface). Empate: o último em que o raio
+// entrou. Padrão 0.
+fn closure_medium_priority(c: Closure, priority: f32) -> Closure {
+    var o = c;
+    o.transmission_priority = priority;
+    return o;
 }
 
 // Parede fina translúcida (cortina, folha): a luz de trás atravessa espalhada, sem refratar o fundo.
@@ -256,6 +268,7 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.transmission_ior = closure_merge1(a.transmission_ior, wta, b.transmission_ior, wtb);
     o.transmission_abbe = closure_merge1(a.transmission_abbe, wta, b.transmission_abbe, wtb);
     o.transmission_roughness = closure_merge_roughness(a.transmission_roughness, wta, b.transmission_roughness, wtb);
+    o.transmission_priority = max(a.transmission_priority, b.transmission_priority);
     o.translucent_weight = a.translucent_weight + b.translucent_weight;
     o.translucent_color = closure_merge3(a.translucent_color, a.translucent_weight, b.translucent_color, b.translucent_weight);
     o.emission = a.emission + b.emission;
@@ -364,9 +377,11 @@ fn closure_sanitize(c: Closure) -> Closure {
     let ok_sh = finite3(vec3f(c.sheen_weight, c.sheen_roughness, 0.0)) && finite3(c.sheen_color);
     o.sheen_weight = select(0.0, max(c.sheen_weight, 0.0), ok_sh);
     let ok_t = finite3(vec3f(c.transmission_weight, c.transmission_depth, c.transmission_ior))
-        && finite3(vec3f(c.transmission_abbe, c.transmission_roughness, 0.0)) && finite3(c.transmission_color);
+        && finite3(vec3f(c.transmission_abbe, c.transmission_roughness, c.transmission_priority))
+        && finite3(c.transmission_color);
     o.transmission_weight = select(0.0, max(c.transmission_weight, 0.0), ok_t);
     o.transmission_ior = select(1.5, max(c.transmission_ior, 1.0), ok_t);
+    o.transmission_priority = select(0.0, c.transmission_priority, ok_t);
     let ok_tl = finite3(vec3f(c.translucent_weight, 0.0, 0.0)) && finite3(c.translucent_color);
     o.translucent_weight = select(0.0, max(c.translucent_weight, 0.0), ok_tl);
     o.emission = select(vec3f(0.0), clamp(c.emission, vec3f(0.0), vec3f(65000.0)), finite3(c.emission));

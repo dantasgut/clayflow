@@ -5,6 +5,9 @@
 - Vidro, água e qualquer transmissivo continuam definidos pelo `Closure` devolvido pela função `material`
   (`closure_transmission(ior, color, depth, abbe, roughness)`, `closure_dielectric`, nós `bsdf`). Nenhum parâmetro novo
   é exigido; a refração passa a ser traçada automaticamente.
+- Volumes transmissivos sobrepostos (o vidro meio mergulhado num tanque): `closure_medium_priority(c, prioridade)` —
+  dentro da interseção vale o meio de maior prioridade e a borda do outro não é interface; empate (padrão 0): o último
+  em que o raio entrou. Interfaces coincidentes (vidro encostado na água) são cruzadas juntas.
 - `FluidSurfaceMaterial`: `refraction` obsoleto (aviso único, ignorado); `roughness` novo.
 - `Application.create({ antialias })`: `'temporal'` (padrão), `'msaa'`, `'off'`; `true` ≡ `'temporal'`,
   `false` ≡ `'off'`.
