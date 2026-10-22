@@ -13,14 +13,18 @@ Eventos: `enginePreparing { pending }`, `engineReady { revision }`, `consumerMis
 
 ## Refraction (C3, Resource singleton)
 
-| Campo           | Tipo  | Padrão | Regra                                                           |
-| --------------- | ----- | ------ | --------------------------------------------------------------- |
-| `maxInterfaces` | `u32` | 16     | 1–32; no limite a energia conta como absorvida (contador)       |
-| `maxMediaDepth` | `u32` | 4      | fixo no WGSL; meios excedentes viram erro de autoria            |
-| `enabled`       | bool  | true   | desligada, transmissivos usam só a reflexão traçada e opacidade |
+| Campo           | Tipo  | Padrão | Regra                                                                         |
+| --------------- | ----- | ------ | ----------------------------------------------------------------------------- |
+| `maxInterfaces` | `u32` | 16     | 1–32; no limite a energia conta como absorvida (contador)                     |
+| `maxMediaDepth` | `u32` | 4      | fixo no WGSL (`REFRACTION_MAX_MEDIA`); meios excedentes viram erro de autoria |
+| `enabled`       | bool  | true   | desligada, transmissivos usam só a reflexão traçada e opacidade               |
 
-Alvos (texturas, C4 `FrameTargets` sob demanda): `refraction_request` (posição/normal/entidade/lobo), `refraction_radiance`
-e `refraction_reflection` (rgba16f), fila de pixels (storage `u32` + contagem e argumentos indiretos).
+Alvos (do próprio `Refraction`, do tamanho do canvas, sob demanda — o `RefractionFlow` é C3 e não importa o
+`FrameTargets` da C4; o forward, C4, escreve neles): `refraction_request` (rgba32uint: distância da câmera pelo raio do
+pixel, normal octaédrica 2 × 16 bits, entidade, lobos), `refraction_radiance` e `refraction_reflection` (rgba16f), fila
+de pixels (`refraction_queue`, r32uint: o texel i guarda o pixel do i-ésimo pedido — textura, fora da conta dos 10
+storage) com a contagem e os argumentos do despacho em `refraction_queue_count` (`SetCount`, indireto) e os contadores
+de energia do quadro em `refraction_stats` (total e no limite de interfaces, 64 bits cada, ponto fixo 1/65536).
 
 **Meio** (registro na pilha, por caminho): `entity: u32`, `ior: vec3f` (por canal pela dispersão), `sigmaA: vec3f`
 (de `transmission_color`/`transmission_depth`). **Caminho**: origem, direção, `throughput: vec3f` (ou escalar por canal),
