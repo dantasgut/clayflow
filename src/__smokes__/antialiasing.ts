@@ -30,6 +30,11 @@
 //     ajustada (o degrau que a grade do mapa deixa, em pixels) e a cintilação da penumbra de um quadro ao seguinte
 //     (relativa ao contraste) — sem antisserrilhado, no temporal após 64 quadros e na acumulação de 256 (T034). Só
 //     medida, sem limite ainda.
+//   - matrices: as matrizes da câmera compostas na GPU (pool `CameraMatrices` lido de volta) contra o oráculo daqui
+//     (vista por `lookAt`, perspectiva da WebGPU, Halton (2, 3) escrita à mão): no corte, o deslocamento da posição 1
+//     da sequência, a projeção e a vista-projeção com ele (a translação em clip proporcional a w), a sem ele, a anterior
+//     igual à atual e o histórico recomeçado; no quadro seguinte, com a câmera movida, a posição 2, a anterior bit a bit
+//     a sem deslocamento do quadro de antes; num novo corte, a sequência recomeça (T025).
 //   - cost: a 1280 × 720 em órbita, com profiling por passe, a duração do quadro na GPU (mediana de 120 quadros, do
 //     primeiro início ao último fim) com o temporal menos a sem antisserrilhado ≤ 1,5 ms (SC-011, 9 % do quadro de 60 Hz
 //     no M4). Não a soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
@@ -1014,6 +1019,200 @@ async function shadowEdge(): Promise<void> {
     }
 }
 
+type Mat4 = number[];
+
+/** Produto de matrizes 4 × 4 por colunas. */
+function mat4Mul(a: Mat4, b: Mat4): Mat4 {
+    const out = new Array<number>(16).fill(0);
+    for (let c = 0; c < 4; c++)
+        for (let r = 0; r < 4; r++)
+            for (let k = 0; k < 4; k++) out[c * 4 + r]! += a[k * 4 + r]! * b[c * 4 + k]!;
+    return out;
+}
+
+/** Vista do olho `eye` mirando `target` com o "para cima" Y (a câmera olha para −Z local). */
+function lookAtView(eye: readonly number[], target: readonly number[]): Mat4 {
+    const z = [eye[0]! - target[0]!, eye[1]! - target[1]!, eye[2]! - target[2]!];
+    const zl = Math.hypot(z[0]!, z[1]!, z[2]!);
+    const zn = z.map((v) => v / zl);
+    const x = [zn[2]!, 0, -zn[0]!];
+    const xl = Math.hypot(x[0]!, x[1]!, x[2]!);
+    const xn = x.map((v) => v / xl);
+    const y = [
+        zn[1]! * xn[2]! - zn[2]! * xn[1]!,
+        zn[2]! * xn[0]! - zn[0]! * xn[2]!,
+        zn[0]! * xn[1]! - zn[1]! * xn[0]!,
+    ];
+    const dot = (a: readonly number[]): number =>
+        a[0]! * eye[0]! + a[1]! * eye[1]! + a[2]! * eye[2]!;
+    return [
+        xn[0]!,
+        y[0]!,
+        zn[0]!,
+        0,
+        xn[1]!,
+        y[1]!,
+        zn[1]!,
+        0,
+        xn[2]!,
+        y[2]!,
+        zn[2]!,
+        0,
+        -dot(xn),
+        -dot(y),
+        -dot(zn),
+        1,
+    ];
+}
+
+/** Perspectiva da WebGPU (z de clip em [0, 1]). */
+function perspectiveOf(fov: number, aspect: number, near: number, far: number): Mat4 {
+    const f = 1 / Math.tan(fov / 2);
+    const nf = 1 / (near - far);
+    return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, far * nf, -1, 0, 0, far * near * nf, 0];
+}
+
+/** Halton de base 2 e 3, índices 1 a 8. */
+const HALTON_2 = [1 / 2, 1 / 4, 3 / 4, 1 / 8, 5 / 8, 3 / 8, 7 / 8, 1 / 16];
+const HALTON_3 = [1 / 3, 2 / 3, 1 / 9, 4 / 9, 7 / 9, 2 / 9, 5 / 9, 8 / 9];
+
+/** O deslocamento da posição `i` (0–7) da sequência: NDC xy (y para cima) e pixels zw. */
+function jitterAt(i: number): number[] {
+    const px = HALTON_2[i]! - 0.5;
+    const py = HALTON_3[i]! - 0.5;
+    return [(2 * px) / W, (-2 * py) / H, px, py];
+}
+
+/** A translação em clip proporcional a w (o deslocamento da amostra aplicado depois da projeção). */
+function shiftOf(j: readonly number[]): Mat4 {
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, j[0]!, j[1]!, 0, 1];
+}
+
+/** O registro `CameraMatrices` da câmera, lido do pool na GPU. */
+async function readMatrices(
+    app: Application,
+    camera: clayflow.Camera,
+): Promise<Record<string, number[]>> {
+    const schema = clayflow.Camera.matricesSchema;
+    const pool = app.resources.poolBufferSpec(schema.name);
+    const id = app.world.entityIdOfResource(camera);
+    const slot = id === undefined ? undefined : app.resources.poolSlotOf(schema.name, id);
+    if (pool === undefined || slot === undefined)
+        throw new Error('matrices: pool CameraMatrices sem a câmera');
+    const staging = app.core.create<clayflow.StagingBufferSpec>({
+        kind: 'buffer',
+        subkind: 'staging',
+        discriminator: `aa_matrices_staging_${pool.byteSize}_${app.time.frame}`,
+        byteSize: pool.byteSize,
+    });
+    app.core.record('aa-matrices-readback', (frame) => {
+        frame.copy(pool, staging, pool.byteSize);
+    });
+    app.core.submit();
+    const all = new Float32Array(await app.core.readback(staging));
+    app.core.destroy(staging);
+    const base = (slot * schema.stride) / 4;
+    const field = (name: string, n: number): number[] =>
+        Array.from(
+            all.subarray(base + schema.offsetOf(name) / 4, base + schema.offsetOf(name) / 4 + n),
+        );
+    return {
+        view: field('view', 16),
+        projection: field('projection', 16),
+        viewProjection: field('viewProjection', 16),
+        unjittered: field('unjitteredViewProjection', 16),
+        previous: field('previousViewProjection', 16),
+        jitter: field('jitter', 4),
+        history: field('history', 4),
+    };
+}
+
+/** Maior diferença absoluta entre dois vetores. */
+function maxDiff(a: readonly number[], b: readonly number[]): number {
+    return a.reduce((m, v, k) => Math.max(m, Math.abs(v - b[k]!)), 0);
+}
+
+async function matrices(): Promise<void> {
+    const s = await scene('temporal');
+    const fov = 0.8;
+    const projection = perspectiveOf(fov, W / H, 0.05, 50);
+    // f32 contra f64: a projeção e a vista têm termos até ~20 (far·near/(near − far) e a translação).
+    const TOL = 2e-5;
+    const verify = (
+        label: string,
+        m: Record<string, number[]>,
+        eye: readonly number[],
+        index: number,
+        fresh: boolean,
+    ): void => {
+        const view = lookAtView(eye, TARGET);
+        const j = jitterAt(index);
+        const shift = shiftOf(j);
+        const checks: [string, number[], Mat4, number][] = [
+            ['deslocamento', m.jitter!, j, 1e-7],
+            ['vista', m.view!, view, TOL],
+            ['projeção', m.projection!, mat4Mul(shift, projection), TOL],
+            ['vista-projeção', m.viewProjection!, mat4Mul(mat4Mul(shift, projection), view), TOL],
+            ['sem deslocamento', m.unjittered!, mat4Mul(projection, view), TOL],
+        ];
+        for (const [name, got, want, tol] of checks) {
+            const d = maxDiff(got, want);
+            check(d <= tol, `matrices: ${label}: ${name} difere ${d.toExponential(2)} (≤ ${tol})`);
+        }
+        check(
+            m.history![0] === (fresh ? 1 : 0),
+            `matrices: ${label}: histórico ${m.history![0]} (esperado ${fresh ? 1 : 0})`,
+        );
+    };
+    // Quadro do corte: a posição 1 da sequência; a anterior é a atual.
+    const eye0 = [0, 1, 3];
+    s.app.step(1 / 60);
+    const m0 = await readMatrices(s.app, s.camera);
+    verify('corte', m0, eye0, 0, true);
+    check(maxDiff(m0.previous!, m0.unjittered!) === 0, 'matrices: corte: a anterior não é a atual');
+    // Câmera movida: a posição 2; a anterior é a sem deslocamento do quadro de antes, bit a bit.
+    const eye1 = [0.3, 1.1, 2.9];
+    s.look(eye1 as [number, number, number]);
+    s.app.step(1 / 60);
+    const m1 = await readMatrices(s.app, s.camera);
+    verify('movida', m1, eye1, 1, false);
+    check(
+        maxDiff(m1.previous!, m0.unjittered!) === 0,
+        'matrices: movida: a anterior não é a do quadro de antes',
+    );
+    // Novo corte com a câmera em outro lugar: a sequência recomeça e a anterior é a atual.
+    const eye2 = [-0.4, 0.9, 3.1];
+    s.look(eye2 as [number, number, number]);
+    s.camera.cut();
+    s.app.step(1 / 60);
+    const m2 = await readMatrices(s.app, s.camera);
+    verify('novo corte', m2, eye2, 0, true);
+    check(
+        maxDiff(m2.previous!, m2.unjittered!) === 0,
+        'matrices: novo corte: a anterior não é a atual',
+    );
+    log(
+        `matrices: corte, câmera movida e novo corte — maior diferença da vista-projeção ${Math.max(
+            maxDiff(
+                m0.viewProjection!,
+                mat4Mul(mat4Mul(shiftOf(jitterAt(0)), projection), lookAtView(eye0, TARGET)),
+            ),
+            maxDiff(
+                m1.viewProjection!,
+                mat4Mul(mat4Mul(shiftOf(jitterAt(1)), projection), lookAtView(eye1, TARGET)),
+            ),
+        ).toExponential(2)}; deslocamentos ${[m0, m1, m2]
+            .map((m) =>
+                m
+                    .jitter!.slice(2)
+                    .map((v) => v.toFixed(4))
+                    .join('/'),
+            )
+            .join(', ')} px`,
+    );
+    close(s);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     still,
     trail,
@@ -1024,6 +1223,7 @@ const CASES: Record<string, () => Promise<void>> = {
     pointTrail,
     waterOrbit,
     shadowEdge,
+    matrices,
     cost,
 };
 
