@@ -349,6 +349,8 @@ export interface StageOptions {
      * cor; o passe tem o seu teste).
      */
     readonly depthPrepass?: boolean;
+    /** Amostras por pixel dos `FrameTargets` inseridos aqui (padrão o deles, 4). */
+    readonly samples?: 1 | 4;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -389,7 +391,7 @@ export function registerStages(
         || options.post === true
         || options.particles === true
         || options.water === true
-            ? new FrameTargets()
+            ? new FrameTargets(options.samples === undefined ? {} : { samples: options.samples })
             : undefined;
     if (frameTargets !== undefined) scene.world.insert(frameTargets);
     // Tabelas do sombreamento físico (spec 011): o fechamento as lê em todo desenho iluminado.

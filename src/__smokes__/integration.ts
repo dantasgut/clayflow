@@ -1,7 +1,7 @@
 // Fase L.2 — Integration smoke (30 frames).
 //
-// Cena: Camera + DirectionalLight + Box + Sphere + 4 PostEffects (Bloom,
-// Fxaa, Vignette; a apresentação com AgX é o último passe) + UI overlay. Sem física por enquanto
+// Cena: Camera + DirectionalLight + Box + Sphere + 2 PostEffects (Bloom,
+// Vignette; a apresentação com AgX é o último passe) + UI overlay. Sem física por enquanto
 // (RigidBody readback deixado como extensão futura — requer kernel LCP +
 // staging buffer + readback ciclo).
 //
@@ -14,7 +14,6 @@
 import {
     Application,
     Bloom,
-    Fxaa,
     Vignette,
     BoxGeometry,
     SphereGeometry,
@@ -79,12 +78,11 @@ async function main(): Promise<void> {
     sphere.add(new Transform({ position: [1.5, 0, 0, 1] }));
     app.world.insert(sphere);
 
-    // ─── 4 PostEffects ────────────────────────────────────────────────────
+    // ─── 2 PostEffects ────────────────────────────────────────────────────
     app.defaults.post
         .addEffect(new Bloom({ strength: 0.4 }))
-        .addEffect(new Fxaa({}))
         .addEffect(new Vignette({ strength: 0.3 }));
-    log('3 post-effects registered (Bloom, Fxaa, Vignette) + apresentação');
+    log('2 post-effects registered (Bloom, Vignette) + apresentação');
 
     // ─── Listener engineError ─────────────────────────────────────────────
     let engineErrors = 0;

@@ -29,8 +29,6 @@ Subclasses devem implementar `name` (identificador) e `fragmentEntry`
 - [`Bloom`](Bloom.md)
 - [`Blur`](Blur.md)
 - [`ToneMapping`](ToneMapping.md)
-- [`Fxaa`](Fxaa.md)
-- [`Ssao`](Ssao.md)
 - [`Vignette`](Vignette.md)
 - [`ChromaticAberration`](ChromaticAberration.md)
 - [`ColorGrading`](ColorGrading.md)

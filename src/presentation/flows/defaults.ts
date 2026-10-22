@@ -82,7 +82,7 @@ export interface PresentationDefaults {
     readonly water: WaterFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
-    /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
+    /** Post-processing chain (Bloom/Vignette/etc. em ping-pong). */
     readonly post: PostFlow;
     /** UI pass (quads + glyphs sobre o canvas). */
     readonly ui: UIFlow;

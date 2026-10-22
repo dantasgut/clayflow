@@ -115,11 +115,10 @@ app.world.insert(
 **Depois:** `app.defaults.post.addEffect(...)`:
 
 ```typescript
-import { Bloom, ToneMapping, Fxaa, Vignette } from 'webgpu-engine';
+import { Bloom, ToneMapping, Vignette } from 'webgpu-engine';
 
-app.defaults.post.addEffect(new ToneMapping());
+app.world.insert(new ToneMapping()); // a apresentação: último passe, não é efeito
 app.defaults.post.addEffect(new Bloom({ aux: [0.5, 0, 0] }));
-app.defaults.post.addEffect(new Fxaa());
 app.defaults.post.addEffect(new Vignette());
 ```
 

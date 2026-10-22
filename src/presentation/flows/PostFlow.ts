@@ -44,6 +44,7 @@ import {
     presentMultisampled,
     presentResources,
     presentSingle,
+    temporalPresent,
     temporalResolve,
     temporalResources,
     temporalSharpen,
@@ -155,6 +156,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     /** Histórico escrito neste quadro (0 ou 1); `-1` sem resolução temporal. */
     private taaWrite = -1;
     /**
+     * O passe depois da resolução: a nitidez para os efeitos (`post:taa_sharpen:*`, no HDR) ou, sem efeitos, a nitidez
+     * já apresentada no canvas (`post:taa_present:*`, G2).
+     */
+    private taaFinal = '';
+    /**
      * Paridade do histórico, avançada uma vez por quadro (`framePrepare`): a cadeia também é religada fora do quadro
      * (`slotChanged`, redimensionamento), e trocar o histórico ali faria a resolução ler o de dois quadros atrás com a
      * câmera de um.
@@ -234,7 +240,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
 
     /**
      * Empilha um efeito na cadeia (antes da apresentação). A ordem importa: efeitos são aplicados em sequência
-     * (`Bloom → Fxaa → …`), todos sobre o HDR; desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo.
+     * (`Bloom → Vignette → …`), todos sobre o HDR; desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo.
      * Builder fluente.
      */
     addEffect(effect: PostProcessEffect): this {
@@ -277,27 +283,29 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 resolve.bindTo(p.bind);
                 p.draw.vertices(3);
             });
-            // Nitidez adaptativa ao movimento, fora do histórico.
-            const sharpen = bound.pipelines.get(`post:taa_sharpen:${this.taaWrite}`);
+            // Nitidez adaptativa ao movimento, fora do histórico; sem efeitos, já apresentada no canvas (G2).
+            const sharpen = bound.pipelines.get(this.taaFinal);
             if (sharpen?.role !== 'render' || !sharpen.ready) return;
+            const presents = this.chain.length === 0;
             frame.render(
                 {
                     colorAttachments: [
                         {
-                            view: this.history.outView,
+                            view: presents ? canvas : this.history.outView,
                             loadOp: 'clear',
                             clearValue: [0, 0, 0, 1],
                             storeOp: 'store',
                         },
                     ],
                 },
-                'PostFlow.temporalSharpen',
+                presents ? 'PostFlow.present' : 'PostFlow.temporalSharpen',
                 (p) => {
                     p.bind.setPipeline(sharpen.spec);
                     sharpen.bindTo(p.bind);
                     p.draw.vertices(3);
                 },
             );
+            if (presents) return;
         }
         const passes = [...this.chain.map((p) => p.pipeline), this.presentPipeline];
         for (let i = 0; i < passes.length; i++) {
@@ -438,9 +446,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     /**
      * Resolução temporal do quadro (spec 034): ativa com o antisserrilhado temporal ou de acumulação, a profundidade
      * sem MSAA e uma câmera. Troca o histórico escrito, escreve os parâmetros e liga/prepara o pipeline da paridade.
-     * Devolve a vista da imagem resolvida deste quadro, ou `undefined` sem a resolução.
+     * Com `presents` (nenhum efeito), a nitidez apresenta no canvas (G2). Devolve a vista da imagem resolvida deste
+     * quadro, ou `undefined` sem a resolução.
      */
-    private prepareTemporal(ctx: Ctx): TextureViewSpec | undefined {
+    private prepareTemporal(ctx: Ctx, presents: boolean): TextureViewSpec | undefined {
         const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
         const depth = ctx.bound.slots.depth;
         const motion = ctx.bound.slots.motion;
@@ -490,7 +499,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             ]),
         );
         // A nitidez lê o histórico e o estado (o movimento de cada pixel) que a resolução acabou de escrever.
-        const sharpenId = `post:taa_sharpen:${this.taaWrite}`;
+        const format = this.core.canvasFormat;
+        const sharpenId = presents
+            ? `post:taa_present:${this.taaWrite}:${format}`
+            : `post:taa_sharpen:${this.taaWrite}`;
+        this.taaFinal = sharpenId;
         ctx.bind(
             new Map<BindingKey, BindingSource>([
                 [
@@ -514,10 +527,13 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             ctx.prepare({
                 id: sharpenId,
                 role: 'render',
-                shader: temporalSharpen,
-                entryPoints: ['vs_fullscreen', 'fs_temporal_sharpen'],
+                shader: presents ? temporalPresent : temporalSharpen,
+                entryPoints: [
+                    'vs_fullscreen',
+                    presents ? 'fs_temporal_present' : 'fs_temporal_sharpen',
+                ],
                 topology: 'triangle-list',
-                colorTargets: [{ format: SCENE_COLOR_FORMAT }],
+                colorTargets: [{ format: presents ? format : SCENE_COLOR_FORMAT }],
             });
             this.taaPrepared.add(sharpenId);
         }
@@ -631,7 +647,14 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         for (let i = 0; i < enabled.length; i++)
             this.core.write(chain[i]!.params, enabled[i]!.paramsBytes());
         // Com a resolução temporal, a cadeia e a apresentação leem a imagem resolvida, não a cor crua da cena.
-        const scene = this.prepareTemporal(ctx) ?? ctx.bound.slots.scene.view;
+        const resolved = this.prepareTemporal(ctx, chain.length === 0);
+        this.chain = chain;
+        if (resolved !== undefined && chain.length === 0) {
+            // A resolução já apresenta no canvas (G2): sem passe de apresentação.
+            this.presentPipeline = this.taaFinal;
+            return;
+        }
+        const scene = resolved ?? ctx.bound.slots.scene.view;
         const samples = ctx.bound.slots.samples;
         const multisampled = chain.length === 0 && samples !== undefined;
         const present = this.presentDescriptor(multisampled);

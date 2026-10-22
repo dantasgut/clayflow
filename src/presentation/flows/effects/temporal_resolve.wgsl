@@ -284,20 +284,24 @@ const TAA_SHARPEN: f32 = 0.7;
  * do pixel e limitada aos extremos da cruz (sem halo). Parado, a imagem resolvida passa intacta. O histórico fica sem
  * a nitidez (a próxima resolução não a acumula).
  */
-@fragment
-fn fs_temporal_sharpen(in: VsOut) -> @location(0) vec4f {
+fn taa_sharpened(pixel: vec2i) -> vec3f {
     let dims = vec2i(textureDimensions(taa_history, 0));
-    let pixel = vec2i(in.clip_position.xy);
-    let c = textureLoad(taa_history, pixel, 0);
+    let c = textureLoad(taa_history, pixel, 0).rgb;
     // O movimento do pixel, já medido pela resolução deste quadro (o estado que ela acabou de escrever).
     let k = TAA_SHARPEN * textureLoad(taa_history_distance, pixel, 0).g;
-    if (k <= 0.0) { return vec4f(c.rgb, 1.0); }
+    if (k <= 0.0) { return c; }
     let n = textureLoad(taa_history, clamp(pixel + vec2i(0, -1), vec2i(0), dims - 1), 0).rgb;
     let s = textureLoad(taa_history, clamp(pixel + vec2i(0, 1), vec2i(0), dims - 1), 0).rgb;
     let w = textureLoad(taa_history, clamp(pixel + vec2i(-1, 0), vec2i(0), dims - 1), 0).rgb;
     let e = textureLoad(taa_history, clamp(pixel + vec2i(1, 0), vec2i(0), dims - 1), 0).rgb;
-    let lo = min(c.rgb, min(min(n, s), min(w, e)));
-    let hi = max(c.rgb, max(max(n, s), max(w, e)));
-    let sharp = c.rgb + k * (c.rgb - 0.25 * (n + s + w + e));
-    return vec4f(clamp(sharp, lo, hi), 1.0);
+    let lo = min(c, min(min(n, s), min(w, e)));
+    let hi = max(c, max(max(n, s), max(w, e)));
+    let sharp = c + k * (c - 0.25 * (n + s + w + e));
+    return clamp(sharp, lo, hi);
+}
+
+/** A imagem resolvida com a nitidez, em HDR, para os efeitos de pós. */
+@fragment
+fn fs_temporal_sharpen(in: VsOut) -> @location(0) vec4f {
+    return vec4f(taa_sharpened(vec2i(in.clip_position.xy)), 1.0);
 }

@@ -8,7 +8,7 @@ import { EffectParamsSchema } from '../flows/renderSchemas';
 
 /**
  * Opções comuns a todos os post-process effects. Cada effect concreto
- * (Bloom, Fxaa, etc.) pode estender via cast em `data`, mas estes 3 campos
+ * (Bloom, Vignette, etc.) pode estender via cast em `data`, mas estes 3 campos
  * são padrão e mapeiam direto pro uniform buffer de 16 bytes do shader.
  */
 export interface PostProcessOptions {
@@ -42,8 +42,8 @@ export interface PostProcessData {
  * (strength + aux). PostFlow encadeia os effects ativos via ping-pong de
  * texturas: scene → pp[0] → pp[1] → ... → canvas.
  *
- * Built-in effects: Bloom, Blur, ChromaticAberration, ColorGrading, Fxaa,
- * Ssao, ToneMapping, Vignette. Custom effects: implemente `fragmentModule()`
+ * Built-in effects: Bloom, Blur, ChromaticAberration, ColorGrading,
+ * Vignette (a apresentação, `ToneMapping`, não é efeito: é o último passe). Custom effects: implemente `fragmentModule()`
  * retornando um módulo WGSL próprio (ver método).
  *
  * Subclasses devem implementar `name` (identificador) e `fragmentEntry`

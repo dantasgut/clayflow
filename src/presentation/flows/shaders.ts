@@ -9,6 +9,7 @@ import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
 import sceneCopyMipsSource from './scene_copy_mips.wgsl?raw';
 import temporalResolveSource from './effects/temporal_resolve.wgsl?raw';
+import temporalPresentSource from './effects/temporal_present.wgsl?raw';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { color, present } from '../../elements/gpu/shaders/math';
 import {
@@ -236,6 +237,13 @@ export const temporalSharpen = wgslModule({
         temporalResources.motion,
         effectResources.sampler,
     ],
+});
+
+/** Nitidez e apresentação no mesmo passe, sem efeitos de pós (spec 034, G2): a imagem resolvida vai direto ao canvas. */
+export const temporalPresent = wgslModule({
+    name: 'temporal_present',
+    source: temporalPresentSource,
+    requires: [temporalSharpen, presentCommon],
 });
 
 /** Recursos da UI (spec 031, R1), privados do `UIFlow` (`UiGpuPipeline`). */

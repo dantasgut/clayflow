@@ -5,34 +5,33 @@ title: Post-Processing
 
 # Post-Processing
 
-A Clay Engine vem com 8 effects modulares aplicados em chain ping-pong sobre o offscreen color do `ForwardFlow` antes de blittar para o canvas.
+A Clay Engine vem com 5 effects modulares aplicados em chain ping-pong sobre a cor HDR da cena (`FrameTargets.color`, `rgba16float`) antes da apresentação — o último passe, que aplica a exposição e o mapeamento de tons do `ToneMapping` da cena e escreve no canvas.
 
 ## Effects disponíveis
 
 | Effect                | Fragment WGSL    | Parâmetros principais         |
 |-----------------------|------------------|-------------------------------|
 | `Vignette`            | `fs_vignette`    | `strength` (escurecer borda)  |
-| `Fxaa`                | `fs_fxaa`        | `strength` (mix avg-cc)       |
-| `ToneMapping`         | `fs_tonemap`     | `strength` = exposure         |
 | `Bloom`               | `fs_bloom`       | `strength`, `aux[0]` = threshold |
 | `Blur`                | `fs_blur`        | `strength` = mix              |
-| `Ssao`                | `fs_ssao`        | `strength`                    |
 | `ChromaticAberration` | `fs_chromatic`   | `strength` = offset           |
 | `ColorGrading`        | `fs_grading`     | `aux[0..2]` = LUT indices     |
 
 ## Encadeando
 
 ```typescript
-import { Bloom, ToneMapping, Fxaa, Vignette } from 'webgpu-engine';
+import { Bloom, ToneMapping, Vignette } from 'webgpu-engine';
 
-// Ordem importa — Bloom precisa de HDR, então ToneMapping vem depois.
+// A apresentação não é efeito: é um Resource da cena, aplicado sempre por último.
+app.world.insert(new ToneMapping({ operator: 'agx', exposure: 0 }));
+// Ordem importa — os efeitos rodam em sequência, todos sobre o HDR.
 app.defaults.post.addEffect(new Bloom({ strength: 0.6, aux: [0.7, 0, 0] }));
-app.defaults.post.addEffect(new ToneMapping({ strength: 1.0 }));
-app.defaults.post.addEffect(new Fxaa({ strength: 0.5 }));
 app.defaults.post.addEffect(new Vignette({ strength: 0.3 }));
 ```
 
-Quando nenhum effect está ativo, o `PostFlow` ainda renderiza um pass passthrough (blita scene → canvas), assegurando que o pipeline completo é resilient a `addEffect`/`isEnabled = false`.
+Quando nenhum effect está ativo, não há passe só para levar a imagem à tela: com o antisserrilhado temporal, a resolução temporal (com a nitidez adaptativa ao movimento) já apresenta no canvas; sem ele, a apresentação lê a cor da cena direto (com MSAA, mapeando cada amostra antes da média).
+
+> **Removidos na spec 034:** `Fxaa` e `Ssao`. O "FXAA" era uma média de 5 leituras, não FXAA; o antisserrilhado agora é o temporal da cena (opção `antialias` de `Application.create`: `'temporal'`, `'msaa'` ou `'off'`). O "SSAO" escurecia pelo brilho da cor, sem oclusão nenhuma; a oclusão vem da iluminação global (`GlobalIllumination`).
 
 ## Toggling
 

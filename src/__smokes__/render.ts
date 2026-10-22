@@ -3,8 +3,8 @@
 // Três cenas determinísticas cobrem todos os shaders de render: (1) `forward` — chão, caixa e esfera com
 // `StandardMaterial`, caixa com `WireframeMaterial` (arestas, spec 008), caixa com `PointSpriteMaterial` (sprites nos
 // vértices), luz direcional com sombra (forward + shadow_depth); (2) `post` — a
-// mesma cena com toda a cadeia de pós-processamento (bloom, blur, aberração cromática, color grading, FXAA, SSAO,
-// tone mapping, vinheta); (3) `ui` — a cena com painéis de UI por cima. Cada cena desenha um quadro por `app.step`, o
+// mesma cena com toda a cadeia de pós-processamento (bloom, blur, aberração cromática, color grading, tone
+// mapping, vinheta); (3) `ui` — a cena com painéis de UI por cima. Cada cena desenha um quadro por `app.step`, o
 // canvas é lido por um canvas 2D e os pixels comparados com a fixture PNG (igualdade exata).
 //   - `--record`: grava `fixtures/render-<cena>-<perfil>.png`.
 //
@@ -19,11 +19,9 @@ import {
     ColorGrading,
     createScene,
     DirectionalLight,
-    Fxaa,
     PlaneGeometry,
     PointSpriteMaterial,
     SphereGeometry,
-    Ssao,
     StandardMaterial,
     Transform,
     UiPanel,
@@ -105,8 +103,6 @@ const SCENES: readonly RenderScene[] = [
             ['blur', () => new Blur({})],
             ['chromatic', () => new ChromaticAberration({})],
             ['color-grading', () => new ColorGrading({})],
-            ['fxaa', () => new Fxaa({})],
-            ['ssao', () => new Ssao({})],
             ['vignette', () => new Vignette({ strength: 0.3 })],
         ] as const
     ).map(

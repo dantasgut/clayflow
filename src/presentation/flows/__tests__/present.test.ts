@@ -6,6 +6,9 @@ import { FrameTargets } from '../../app/FrameTargets';
 import { PostFlow } from '../PostFlow';
 import { PresentationParamsSchema } from '../renderSchemas';
 import type { RenderPipelineSpec } from '../../../scene/contracts/gpu';
+import { Camera } from '../../../elements/scene/Camera';
+import { Transform } from '../../../elements/scene/Transform';
+import { TemporalAntialiasing } from '../../../elements/scene/TemporalAntialiasing';
 
 // Apresentação (spec 011, T007): o último passe do pós, sempre; o resolve mapeado por amostra sem efeitos; efeitos em
 // HDR; parâmetros sem recriar pipeline; saída HDR com recuo anunciado.
@@ -41,6 +44,44 @@ describe('PostFlow — apresentação', () => {
         const fragments = pipelines(s.creates()).map((p) => p.fragment?.entryPoint);
         expect(fragments).toContain('fs_present');
         expect(fragments).not.toContain('fs_present_ms');
+    });
+
+    /** Cena com o antisserrilhado temporal (sem MSAA): a resolução abre o pós (spec 034). */
+    async function temporalScene() {
+        const s = await renderScene();
+        s.scene.world.insert(new TemporalAntialiasing({ mode: 'temporal' }));
+        s.scene.world.insert(new Camera().add(new Transform({ position: [0, 0, 5, 1] })));
+        const { post } = registerStages(s.scene, { forward: 'scene', post: true, samples: 1 });
+        return { s, post: post! };
+    }
+
+    it('temporal sem efeitos: a nitidez já apresenta no canvas, sem passe só de apresentação (G2)', async () => {
+        const { s } = await temporalScene();
+        s.step();
+        const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
+        expect(passes.map((p) => p.label)).toEqual([
+            'PostFlow.temporalResolve',
+            'PostFlow.present',
+        ]);
+        const fragments = pipelines(s.creates());
+        const present = fragments.find((p) => p.fragment?.entryPoint === 'fs_temporal_present')!;
+        expect(present.fragment!.targets[0]!.format).toBe(s.core.canvasFormat);
+        expect(fragments.map((p) => p.fragment?.entryPoint)).not.toContain('fs_present');
+    });
+
+    it('temporal com efeitos: a nitidez fica no HDR e a apresentação lê o último efeito', async () => {
+        const { s, post } = await temporalScene();
+        post.addEffect(new Bloom());
+        s.step();
+        const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
+        expect(passes.map((p) => p.label)).toEqual([
+            'PostFlow.temporalResolve',
+            'PostFlow.temporalSharpen',
+            'PostFlow.Bloom',
+            'PostFlow.present',
+        ]);
+        const fragments = pipelines(s.creates()).map((p) => p.fragment?.entryPoint);
+        expect(fragments).toContain('fs_present');
     });
 
     it('com efeitos: o efeito escreve no pingue-pongue rgba16float e a apresentação é o último passe', async () => {
