@@ -201,3 +201,21 @@ mais a medida das manchas (spec, Contexto). Das tentativas anteriores entram só
 - Nós `noise.value2/3`, `gradient2/3` e `fbm3` filtram pela entrada `width` (oitava → média 0 entre ¼ e ¾ de célula
   por pixel); `width` 0 dá o ruído de antes, bit a bit (hashes das fixtures iguais). O `cellular3` não filtra: a média
   dele depende do `jitter` — limitação documentada no nó.
+
+### Nota de implementação (Fase 6, 2026-10-22)
+
+- **Onde ficam os alvos**: no próprio `Refraction` (C3), não no `FrameTargets`: o `RefractionFlow` é C3 e não importa a
+  C4 (a GI faz igual com as sondas de tela); o forward e a composição (C4) os leem pelo slot do `Refraction`.
+- **Pedido**: depois dos opacos, o forward desenha os transmissivos com as duas faces (`cullMode: 'none'`), sem amostras,
+  numa profundidade própria (`requestDepth`, teste `less`: a superfície mais próxima por pixel, determinística) e atrás
+  dos opacos descartados pela profundidade deles (amostra 0 com MSAA). O pedido (`rg32uint`) guarda a distância à
+  primeira interface e as marcas (há pedido; face de trás — a câmera dentro do meio). Com a câmera dentro d'água a
+  primeira interface é uma face de trás: por isso as duas faces.
+- **O raster só escolhe os pixels**: o traçado refaz o raio da câmera de cada pixel da fila (o mesmo deslocamento da
+  amostra) a partir da pilha de meios inicial da câmera, como a referência da CPU. O valor traçado é o do raio do
+  pixel também na borda, onde raster e raio podem discordar por arredondamento; a entidade e a normal do raster não
+  são necessárias.
+- **Fila**: uma invocação por pixel, contagem atômica, a fila numa textura `r32uint` (fora da conta dos 10 storage) e o
+  despacho do traçado pelos argumentos indiretos (`CountToArgs`).
+- **Composição**: um passe depois do `RefractionFlow` escreve a radiância e a profundidade da primeira interface (os
+  passes seguintes, como a água, veem o vidro à frente); a água pelo traçado é a T065.

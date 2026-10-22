@@ -11,7 +11,6 @@ import {
 // Refração traçada (spec 034, T040): valores e validação, e os alvos do tamanho do canvas alocados só sob demanda.
 
 const TARGETS = [
-    ['request', 'rgba32uint'],
     ['radiance', 'rgba16float'],
     ['reflection', 'rgba16float'],
     ['queue', 'r32uint'],
@@ -37,7 +36,7 @@ describe('Refraction (spec 034, T040)', () => {
         expect(r.data.enabled).toBe(0);
     });
 
-    it('descritores: parâmetros; pedido, radiâncias e fila do tamanho do canvas; contagem indireta e contadores — tudo sob demanda menos os parâmetros', () => {
+    it('descritores: parâmetros; pedido (alvo de render) e a profundidade dele, radiâncias e fila (storage) do tamanho do canvas; contagem indireta e contadores — tudo sob demanda menos os parâmetros', () => {
         const byId = new Map(new Refraction().getDescriptors().map((d) => [d.id, d]));
         expect(byId.get('params')).toEqual({
             id: 'params',
@@ -51,6 +50,18 @@ describe('Refraction (spec 034, T040)', () => {
                 allocation: 'onDemand',
                 textureShape: { format, sizeFromCanvas: true, access: 'write-only' },
             });
+        expect(byId.get('request')).toEqual({
+            id: 'request',
+            role: 'texture',
+            allocation: 'onDemand',
+            textureShape: { format: 'rg32uint', sizeFromCanvas: true },
+        });
+        expect(byId.get('requestDepth')).toEqual({
+            id: 'requestDepth',
+            role: 'texture',
+            allocation: 'onDemand',
+            textureShape: { format: 'depth24plus', sizeFromCanvas: true },
+        });
         expect(byId.get('queueCount')).toMatchObject({
             role: 'indirect',
             schema: SetCountSchema,
@@ -65,7 +76,7 @@ describe('Refraction (spec 034, T040)', () => {
             upload: 'never',
             allocation: 'onDemand',
         });
-        expect(byId.size).toBe(7);
+        expect(byId.size).toBe(8);
     });
 
     it('a C2 aloca só os parâmetros na inserção; os alvos quando pedidos, no tamanho do canvas, e recriados quando ele muda', async () => {
@@ -75,11 +86,18 @@ describe('Refraction (spec 034, T040)', () => {
         s.step();
         const rs = s.scene.resourceSystem;
         expect(rs.bufferOf(r, 'params')).toBeDefined();
-        for (const [id] of TARGETS) expect(rs.textureOf(r, id)).toBeUndefined();
+        for (const id of [...TARGETS.map(([t]) => t), 'request', 'requestDepth'])
+            expect(rs.textureOf(r, id)).toBeUndefined();
         expect(rs.bufferOf(r, 'queueCount')).toBeUndefined();
         expect(rs.bufferOf(r, 'stats')).toBeUndefined();
 
         for (const [id] of TARGETS) rs.ensureAllocated(r, id);
+        rs.ensureAllocated(r, 'request');
+        const request = rs.textureOf(r, 'request')!;
+        // O pedido é alvo de render do desenho e lido como textura pela fila.
+        expect([request.width, request.height, request.format]).toEqual([800, 600, 'rg32uint']);
+        expect(request.usage & GPUTextureUsage.RENDER_ATTACHMENT).toBeTruthy();
+        expect(request.usage & GPUTextureUsage.TEXTURE_BINDING).toBeTruthy();
         const count = rs.ensureAllocated(r, 'queueCount')!;
         const stats = rs.ensureAllocated(r, 'stats')!;
         for (const [id, format] of TARGETS) {

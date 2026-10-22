@@ -20,11 +20,12 @@ Eventos: `enginePreparing { pending }`, `engineReady { revision }`, `consumerMis
 | `enabled`       | bool  | true   | desligada, transmissivos usam só a reflexão traçada e opacidade               |
 
 Alvos (do próprio `Refraction`, do tamanho do canvas, sob demanda — o `RefractionFlow` é C3 e não importa o
-`FrameTargets` da C4; o forward, C4, escreve neles): `refraction_request` (rgba32uint: distância da câmera pelo raio do
-pixel, normal octaédrica 2 × 16 bits, entidade, lobos), `refraction_radiance` e `refraction_reflection` (rgba16f), fila
-de pixels (`refraction_queue`, r32uint: o texel i guarda o pixel do i-ésimo pedido — textura, fora da conta dos 10
-storage) com a contagem e os argumentos do despacho em `refraction_queue_count` (`SetCount`, indireto) e os contadores
-de energia do quadro em `refraction_stats` (total e no limite de interfaces, 64 bits cada, ponto fixo 1/65536).
+`FrameTargets` da C4; o forward, C4, escreve neles): `refraction_request` (rg32uint, alvo de render do desenho dos
+transmissivos: a distância da câmera à primeira interface e as marcas — há pedido, face de trás) com a profundidade
+própria `requestDepth`, `refraction_radiance` e `refraction_reflection` (rgba16f), fila de pixels (`refraction_queue`,
+r32uint: o texel i guarda o pixel do i-ésimo pedido — textura, fora da conta dos 10 storage) com a contagem e os
+argumentos do despacho em `refraction_queue_count` (`SetCount`, indireto) e os contadores de energia do quadro em
+`refraction_stats` (total e no limite de interfaces, 64 bits cada, ponto fixo 1/65536).
 
 **Meio** (registro na pilha, por caminho): `entity: u32`, `ior: vec3f` (por canal pela dispersão), `sigmaA: vec3f`
 (de `transmission_color`/`transmission_depth`). **Caminho**: origem, direção, `throughput: vec3f` (ou escalar por canal),

@@ -66,9 +66,14 @@ import {
     forwardBackground,
     forwardCameraAdapter,
     forwardCameraClip,
+    forwardRefractionRequest,
     forwardTransmission,
     transmissionResources,
 } from '../../elements/material/shaders';
+import {
+    Refraction,
+    REFRACTION_REQUEST_FORMAT,
+} from '../../elements/lighting/refraction/Refraction';
 import { LOBES } from '../../elements/material/pbr/lobes';
 import {
     createComputeKernel,
@@ -147,6 +152,8 @@ export interface ForwardSlots extends SlotMap {
     readonly light: TextureSlot<true>;
     /** Antisserrilhado da cena: o passe de movimento vale com o modo temporal. */
     readonly antialiasing: SingletonSlot<true>;
+    /** Refração traçada (spec 034): com ela, os transmissivos marcam o pedido por pixel depois dos opacos. */
+    readonly refraction: SingletonSlot<true>;
 }
 
 /**
@@ -178,6 +185,8 @@ interface MaterialFnVariant extends PipelineVariant {
     readonly transmission?: {
         readonly back: { readonly ccw: string; readonly cw: string };
         readonly front: { readonly ccw: string; readonly cw: string };
+        /** O pedido da refração (spec 034), com a `Refraction` na cena. */
+        readonly request?: { readonly ccw: string; readonly cw: string };
     };
 }
 
@@ -232,6 +241,7 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
         motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
         light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+        refraction: slot.singleton(Refraction.schema, { optional: true }),
     };
 }
 
@@ -385,15 +395,21 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const ccw = `${base.ccw}|material:${name}`;
             const cw = `${base.cw}|material:${name}`;
             const transmissive = isTransmissive(fn) && this.ensureTransmission(ctx);
+            const request = transmissive && this.ensureRefractionRequest(ctx);
             const transmission = transmissive
                 ? {
                       back: { ccw: `${ccw}|back`, cw: `${cw}|back` },
                       front: { ccw: `${ccw}|front`, cw: `${cw}|front` },
+                      ...(request
+                          ? { request: { ccw: `${ccw}|request`, cw: `${cw}|request` } }
+                          : {}),
                   }
                 : undefined;
             const next: MaterialFnVariant = {
-                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}`,
-                id: transmission?.front.ccw ?? ccw,
+                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}${request ? '|request' : ''}`,
+                // A variante passa a valer quando o pipeline `id` compila: o do pedido, quando há (a entrada da
+                // refração troca a variante de uma entidade cujas camadas já compilaram).
+                id: transmission?.request?.ccw ?? transmission?.front.ccw ?? ccw,
                 ids: [
                     ccw,
                     cw,
@@ -404,6 +420,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                               transmission.back.cw,
                               transmission.front.ccw,
                               transmission.front.cw,
+                              ...(transmission.request === undefined
+                                  ? []
+                                  : [transmission.request.ccw, transmission.request.cw]),
                           ]),
                 ],
                 base,
@@ -468,7 +487,35 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 layer(cw, transmission.back.cw, 'back');
                 const frontReady = layer(ccw, transmission.front.ccw, 'front');
                 layer(cw, transmission.front.cw, 'front');
-                return ready && frontReady;
+                // Pedido da refração (spec 034): as duas faces, sem amostras, na profundidade própria.
+                const requestLayer = (fromId: string, id: string): boolean => {
+                    const f = this.baseDescriptors.get(fromId)!;
+                    return ctx.prepare({
+                        ...f,
+                        id,
+                        shader: bindPoints(
+                            ctx.bound.slots.target.sampleCount > 1
+                                ? forwardRefractionRequest.multisampled
+                                : forwardRefractionRequest.single,
+                            new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
+                        ),
+                        entryPoints: ['vs_main', 'fs_refraction_request'],
+                        cullMode: 'none',
+                        colorTargets: [{ format: REFRACTION_REQUEST_FORMAT }],
+                        depth: {
+                            format: 'depth24plus',
+                            depthWriteEnabled: true,
+                            depthCompare: 'less',
+                        },
+                        multisample: { count: 1 },
+                    }).ready;
+                };
+                let requestReady = true;
+                if (transmission.request !== undefined) {
+                    requestReady = requestLayer(ccw, transmission.request.ccw);
+                    requestLayer(cw, transmission.request.cw);
+                }
+                return ready && frontReady && requestReady;
             });
         }
         this.materialFns.retain(ctx, present);
@@ -570,7 +617,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.prepareMaterials(c);
                     },
                 },
-                slotChanged: diffs,
+                slotChanged: {
+                    to: 'idle',
+                    run: (e, c) => {
+                        this.bindDiff(c);
+                        // A refração entrou ou saiu: as variantes dos transmissivos ganham ou perdem o pedido.
+                        if (e.type === 'slotChanged' && e.slot === 'refraction')
+                            this.materialFnDirty = true;
+                    },
+                },
                 poolReallocated: diffs,
                 entitiesChanged: {
                     to: 'idle',
@@ -694,6 +749,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.recordBackground(pass, bound);
         });
         this.recordMotion(frame, bound, opaque, 'clear');
+        this.recordRefractionRequest(frame, bound, transmissive);
         if (transmissive.length > 0) {
             this.recordTransmission(frame, bound, transmissive);
             this.recordMotion(frame, bound, transmissive, 'load');
@@ -796,13 +852,58 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         pass.draw.vertices(3);
     }
 
+    /**
+     * Pedido da refração (spec 034, R1): com a `Refraction` e os alvos dela alocados, os transmissivos com as duas faces
+     * na profundidade própria, à frente dos opacos — o pixel guarda a distância à primeira interface vista e a face. O
+     * passe é gravado (limpando o pedido) também sem transmissivos: a fila do quadro nunca lê um pedido antigo.
+     */
+    private recordRefractionRequest(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): void {
+        const refraction = bound.slots.refraction;
+        const view = refraction?.textureViewOf('request');
+        const depth = refraction?.textureViewOf('requestDepth');
+        if (view === undefined || depth === undefined) return;
+        frame.render(
+            {
+                colorAttachments: [
+                    { view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+                ],
+                depthStencilAttachment: {
+                    view: depth,
+                    depthClearValue: 1,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ForwardFlow.refractionRequest',
+            (pass) => {
+                this.recordGroups(pass, bound, groups, (entry, id) => {
+                    const request = this.transmissionOf(entry)?.request;
+                    if (request === undefined) return undefined;
+                    const v = this.materialFns.active(entry.entityId)!;
+                    return id === v.base.cw ? request.cw : request.ccw;
+                });
+            },
+        );
+    }
+
+    /**
+     * Aloca o pedido da refração e a profundidade dele (spec 034) quando a cena tem a `Refraction`: `false` sem ela (os
+     * transmissivos ficam só com as duas camadas).
+     */
+    private ensureRefractionRequest(ctx: Ctx): boolean {
+        const refraction = ctx.bound.slots.refraction?.resource;
+        if (refraction === undefined) return false;
+        this.resources.ensureAllocated(refraction, 'request');
+        this.resources.ensureAllocated(refraction, 'requestDepth');
+        return true;
+    }
+
     /** Pipelines de transmissivo da entidade (as duas camadas), se a função dela os tem e estão prontos. */
-    private transmissionOf(entry: EntityEntry):
-        | {
-              readonly back: { ccw: string; cw: string };
-              readonly front: { ccw: string; cw: string };
-          }
-        | undefined {
+    private transmissionOf(entry: EntityEntry): MaterialFnVariant['transmission'] {
         if (!isTransmissive(materialFunctionOf(entry))) return undefined;
         return this.materialFns.active(entry.entityId)?.transmission;
     }

@@ -40,6 +40,7 @@ import {
     Transform,
     type GpuFrameTimedPayload,
     type LobeName,
+    type StagingBufferSpec,
 } from 'clayflow';
 import type {
     PtCamera,
@@ -753,12 +754,102 @@ async function dump(name: string, ref: Float32Array, img: Float32Array): Promise
 // ── Casos ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Compara uma cena; devolve as regiões e a imagem do motor (para quem mede mais). */
+/** Lê de volta `bytes` bytes de um buffer, ou de uma textura (linhas de `rowBytes`), num buffer de leitura. */
+async function readBack(
+    app: Application,
+    source:
+        | { readonly kind: 'buffer'; readonly spec: unknown; readonly bytes: number }
+        | {
+              readonly kind: 'texture';
+              readonly spec: { readonly width: number; readonly height: number };
+              readonly rowBytes: number;
+          },
+): Promise<{ data: ArrayBuffer; bytesPerRow: number }> {
+    const bytesPerRow =
+        source.kind === 'texture' ? Math.ceil(source.rowBytes / 256) * 256 : source.bytes;
+    const rows = source.kind === 'texture' ? source.spec.height : 1;
+    const staging = app.core.create<StagingBufferSpec>({
+        kind: 'buffer',
+        subkind: 'staging',
+        discriminator: `refraction_readback_${source.kind}_${bytesPerRow}x${rows}`,
+        byteSize: bytesPerRow * rows,
+    });
+    app.core.record('refraction-readback', (frame) => {
+        if (source.kind === 'buffer')
+            frame.copy(source.spec as Parameters<typeof frame.copy>[0], staging, source.bytes);
+        else
+            frame.copyTextureToBuffer(
+                source.spec as Parameters<typeof frame.copyTextureToBuffer>[0],
+                staging,
+                { bytesPerRow, rowsPerImage: rows },
+                [source.spec.width, rows],
+            );
+    });
+    app.core.submit();
+    const data = await app.core.readback(staging);
+    app.core.destroy(staging);
+    return { data, bytesPerRow };
+}
+
+/**
+ * O pedido da refração do último quadro (T041): cada pixel do interior de uma região da referência (a ≥ 2 px de outra)
+ * tem pedido se e só se a primeira superfície no centro dele é um dielétrico; a contagem da fila, lida da GPU, é a dos
+ * pixels com pedido.
+ */
+async function checkRequest(
+    scene: RefractionScene,
+    engine: EngineImage,
+    regions: Map<number, number[]>,
+): Promise<void> {
+    const refraction = engine.app.defaults.refraction;
+    const request = engine.app.resources.textureOf(refraction, 'request');
+    const count = engine.app.resources.bufferOf(refraction, 'queueCount');
+    if (request === undefined || count === undefined) {
+        check(false, `${scene.name}: pedido da refração não alocado`);
+        return;
+    }
+    const { data, bytesPerRow } = await readBack(engine.app, {
+        kind: 'texture',
+        spec: request,
+        rowBytes: request.width * 8,
+    });
+    const words = new Uint32Array(data);
+    const marked = new Uint8Array(W * H);
+    let total = 0;
+    for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) {
+            const v = words[(y * bytesPerRow) / 4 + x * 2 + 1]! & 1;
+            marked[y * W + x] = v;
+            total += v;
+        }
+    const queued = new Uint32Array(
+        (await readBack(engine.app, { kind: 'buffer', spec: count, bytes: 4 })).data,
+    )[0]!;
+    const glass = new Set(scene.solids.filter((o) => o.glass !== undefined).map((o) => o.id));
+    let wrong = 0;
+    let interior = 0;
+    for (const [id, pixels] of regions)
+        for (const i of pixels) {
+            interior++;
+            if ((marked[i] === 1) !== glass.has(id)) wrong++;
+        }
+    log(
+        `${scene.name}: pedido em ${total} pixels, fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência`,
+    );
+    check(queued === total, `${scene.name}: fila com ${queued} pixels, pedido em ${total}`);
+    check(
+        wrong === 0 && interior > 0,
+        `${scene.name}: ${wrong} pixels do interior com o pedido diferente da referência`,
+    );
+}
+
 async function compareScene(
     scene: RefractionScene,
 ): Promise<{ ref: PtImage; regions: Map<number, number[]>; engine: EngineImage }> {
     const ref = await renderReference(scene);
     const engine = await renderEngine(scene);
     const regions = interiorRegions(ref.ids);
+    await checkRequest(scene, engine, regions);
     const limit = scene.limit ?? 0.03;
     const { worst, where, lines } = regionErrors(engine.rgb, ref.rgb, regions);
     await dump(scene.name, ref.rgb, engine.rgb);

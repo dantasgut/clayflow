@@ -3,6 +3,8 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
+import { Refraction } from '../../elements/lighting/refraction/Refraction';
+import { RefractionFlow } from '../../elements/lighting/refraction/RefractionFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
@@ -102,6 +104,8 @@ export interface PresentationDefaults {
     readonly targets: FrameTargets;
     /** Antisserrilhado da cena (spec 034): o modo e a sequência das posições da amostra dentro do pixel. */
     readonly antialiasing: TemporalAntialiasing;
+    /** Refração traçada (spec 034): ligada e o limite de interfaces por caminho. */
+    readonly refraction: Refraction;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -114,6 +118,7 @@ interface RegisteredDefaults {
     readonly froxels: Froxels;
     readonly presentation: ToneMapping;
     readonly antialiasing: TemporalAntialiasing;
+    readonly refraction: Refraction;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
@@ -164,6 +169,9 @@ export function registerPresentationDefaults(
     // Antisserrilhado (spec 034): o estágio de câmera desloca a amostra, o pós resolve o histórico.
     const antialiasing = new TemporalAntialiasing({ mode: options.antialiasing ?? 'temporal' });
     options.world.insert(antialiasing);
+    // Refração traçada (spec 034): os alvos só são alocados quando um transmissivo é desenhado.
+    const refraction = new Refraction();
+    options.world.insert(refraction);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -181,6 +189,7 @@ export function registerPresentationDefaults(
         ambient,
         targets: frameTargets,
         antialiasing,
+        refraction,
     };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
@@ -191,6 +200,7 @@ export function registerPresentationDefaults(
         froxels,
         presentation,
         antialiasing,
+        refraction,
         pbrTables,
         ambient,
         world: options.world,
@@ -217,6 +227,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.pbrTables);
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.antialiasing);
+    entry.world.remove(entry.refraction);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
@@ -255,7 +266,10 @@ function swapAmbientForGi(
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
-    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets' | 'antialiasing'>;
+    flows: Omit<
+        PresentationDefaults,
+        'presentation' | 'ambient' | 'targets' | 'antialiasing' | 'refraction'
+    >;
     registrations: readonly FlowRegistration[];
 } {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {
@@ -368,6 +382,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -70,
     });
+    // Refração traçada (spec 034, R1): depois do pedido dos transmissivos (forward), dos sprites e da superfície da água
+    // vista pela câmera; antes da composição da água.
+    const refractionRegistration = flows.register((ctx) => new RefractionFlow(ctx), {
+        type: 'refraction',
+        phase: 'forward',
+        priority: -65,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -435,6 +456,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             fluidLightRegistration,
             causticsRegistration,
             fluidRegistration,
+            refractionRegistration,
             waterRegistration,
             postRegistration,
             debugRegistration,

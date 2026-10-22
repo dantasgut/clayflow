@@ -38,6 +38,11 @@ import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
+import forwardRefractionRequestSource from '../gpu/wgsl/forward_refraction_request.wgsl?raw';
+import {
+    REFRACTION_REQUEST_BACK_FACE,
+    REFRACTION_REQUEST_VALID,
+} from '../lighting/refraction/Refraction';
 import forwardBackgroundSource from '../gpu/wgsl/forward_background.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
@@ -294,6 +299,30 @@ export const forwardTransmission = {
     /** Alvos com MSAA. */
     multisampled: transmissionModule(true),
 } as const;
+
+/**
+ * Pedido da refração (spec 034, R1): o vértice do forward e o fragmento que marca, por pixel, a primeira interface vista
+ * (distância e face), à frente dos opacos (a profundidade deles, com ou sem amostras).
+ */
+export const forwardRefractionRequest = {
+    /** Alvos sem amostras. */
+    single: refractionRequestModule(false),
+    /** Alvos com MSAA (a profundidade dos opacos com amostras; o pedido, sem). */
+    multisampled: refractionRequestModule(true),
+} as const;
+
+function refractionRequestModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'forward_refraction_request_ms' : 'forward_refraction_request',
+        source: forwardRefractionRequestSource,
+        requires: [
+            forward,
+            REFRACTION_REQUEST_VALID.module,
+            REFRACTION_REQUEST_BACK_FACE.module,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}
 
 function transmissionModule(multisampled: boolean): WgslModule {
     return wgslModule({

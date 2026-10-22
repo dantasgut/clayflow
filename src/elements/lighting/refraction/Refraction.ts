@@ -6,6 +6,7 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { SetCountSchema } from '../../../scene/graph/SetCountSchema';
+import { sharedConstant } from '../../../scene/shaders/SharedConstant';
 
 /** Meios na pilha de um caminho (spec 034, R1): fixo no WGSL; um meio além disso é erro de autoria. */
 export const REFRACTION_MAX_MEDIA = 4;
@@ -15,8 +16,15 @@ export const REFRACTION_MAX_INTERFACES = 32;
 /** Unidades do contador de energia por unidade de vazão (ponto fixo de 16 bits). */
 export const REFRACTION_ENERGY_SCALE = 65536;
 
-/** Formato do pedido por pixel: distância, normal, entidade e lobos, em quatro palavras. */
-export const REFRACTION_REQUEST_FORMAT: GPUTextureFormat = 'rgba32uint';
+/** Formato do pedido por pixel: a distância da câmera à primeira interface (bits de f32) e as marcas. */
+export const REFRACTION_REQUEST_FORMAT: GPUTextureFormat = 'rg32uint';
+/** Marcas do pedido (palavra y): há pedido; a primeira interface é uma face de trás (a câmera dentro do meio). */
+export const REFRACTION_REQUEST_VALID = sharedConstant('REFRACTION_REQUEST_VALID', 1, 'u32');
+export const REFRACTION_REQUEST_BACK_FACE = sharedConstant(
+    'REFRACTION_REQUEST_BACK_FACE',
+    2,
+    'u32',
+);
 /** Formato das radiâncias traçadas (transmitida e refletida). */
 export const REFRACTION_RADIANCE_FORMAT: GPUTextureFormat = 'rgba16float';
 /** Formato da fila de pixels: o índice linear do pixel (`x + y · largura`), um por texel. */
@@ -70,14 +78,16 @@ function validate(d: RefractionData): void {
 
 /**
  * Refração traçada (Camada 3, spec 034, R1): o que se vê através de vidro, água e de todo transmissivo, por raios na
- * estrutura de raios (`RayScene`), sem cópia da tela. A camada da frente dos transmissivos (e a superfície da água)
- * escreve um pedido por pixel (`request`: distância da câmera, normal, entidade, lobos); a fila compacta os pixels que
- * pedem (`queue`, com a contagem e os argumentos do despacho indireto em `queueCount`); o estágio da refração traça cada
- * caminho — Fresnel exato, reflexão interna total, GGX pela distribuição visível de normais, pilha de até
- * `REFRACTION_MAX_MEDIA` meios, absorção de Beer–Lambert e dispersão por canal — e escreve a radiância transmitida e a
- * refletida (`radiance`, `reflection`), lidas pela composição no próprio pixel. Os alvos têm o tamanho do canvas e são
- * alocados sob demanda, por quem desenha um transmissivo. Desligada, os transmissivos usam só a reflexão traçada e a
- * opacidade. Um por cena; mudar valores vale no quadro seguinte, sem recompilar.
+ * estrutura de raios (`RayScene`), sem cópia da tela. Depois dos opacos, o desenho dos transmissivos (as duas faces, com
+ * profundidade própria em `requestDepth`, à frente dos opacos) marca os pixels cuja primeira superfície é uma interface
+ * (`request`: a distância e as marcas); a fila compacta esses pixels (`queue`, com a contagem e os argumentos do
+ * despacho indireto em `queueCount`); o estágio da refração refaz o raio da câmera de cada um (o mesmo deslocamento da
+ * amostra) e traça o caminho — Fresnel exato, reflexão interna total, GGX pela distribuição visível de normais, pilha
+ * de até `REFRACTION_MAX_MEDIA` meios, absorção de Beer–Lambert e dispersão por canal — escrevendo a radiância
+ * transmitida e a refletida (`radiance`, `reflection`), lidas pela composição no próprio pixel. O raster só escolhe os
+ * pixels: o valor traçado é o do raio do pixel, também na borda. Os alvos têm o tamanho do canvas e são alocados sob
+ * demanda, por quem desenha um transmissivo. Desligada, os transmissivos usam só a reflexão traçada e a opacidade. Um
+ * por cena; mudar valores vale no quadro seguinte, sem recompilar.
  */
 export class Refraction extends Entity<RefractionData> implements Resource {
     /** Parâmetros (uniform `Refraction`). */
@@ -135,9 +145,20 @@ export class Refraction extends Entity<RefractionData> implements Resource {
         });
         return [
             { id: 'params', role: 'uniform', schema: Refraction.schema },
-            // Pedido por pixel da camada da frente: x a distância da câmera pelo raio do pixel (bits de f32), y a normal
-            // (octaédrica, 2 × 16 bits), z a entidade atravessada, w os lobos pedidos (transmissão, reflexão).
-            target('request', REFRACTION_REQUEST_FORMAT),
+            // Pedido por pixel (alvo de render do desenho dos transmissivos, sem amostras): x a distância da câmera à
+            // primeira interface (bits de f32), y as marcas; e a profundidade própria desse desenho.
+            {
+                id: 'request',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: REFRACTION_REQUEST_FORMAT, sizeFromCanvas: true },
+            },
+            {
+                id: 'requestDepth',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'depth24plus', sizeFromCanvas: true },
+            },
             target('radiance', REFRACTION_RADIANCE_FORMAT),
             target('reflection', REFRACTION_RADIANCE_FORMAT),
             // A fila compacta: o texel i guarda o pixel do i-ésimo pedido (a largura do canvas linha a linha).
