@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { DirectionalLight } from '../DirectionalLight';
 import { ShadowMap } from '../ShadowMap';
+import { halton, TemporalAntialiasing, type AntialiasingMode } from '../TemporalAntialiasing';
 import { Transform } from '../Transform';
 import { ShadowMatrixParamsSchema } from '../flows/ShadowMatrixSchemas';
 import {
@@ -92,5 +93,43 @@ describe('ShadowMap', () => {
         expect(written).toContain(lights);
         expect(written.filter((w) => w !== lights)).toEqual([]);
         expect(light.shadowMap!.data).not.toHaveProperty('lightViewProj');
+    });
+
+    /** Rotação do PCF e deslocamento da grade enviados pelo estágio da matriz em `frames` quadros, no modo `mode`. */
+    async function samples(mode: AntialiasingMode, frames: number): Promise<number[][]> {
+        const s = await renderScene();
+        registerStages(s.scene, { shadow: true });
+        s.scene.world.insert(new TemporalAntialiasing({ mode, sequence: 8 }));
+        s.scene.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true }));
+        s.scene.world.insert(new BoxGeometry().add(new Transform()));
+        for (let i = 0; i < frames; i++) s.step();
+        return vi
+            .mocked(s.core.write)
+            .mock.calls.filter(([spec]) => discOf(spec) === 'shadow_matrix_params')
+            .map(([, data]) => {
+                const f32 = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+                const r = ShadowMatrixParamsSchema.offsetOf('kernelRotation') / 4;
+                const j = ShadowMatrixParamsSchema.offsetOf('texelJitter') / 4;
+                return [f32[r]!, f32[r + 1]!, f32[j]!, f32[j + 1]!];
+            });
+    }
+
+    it('com o deslocamento da amostra, a grade do mapa anda no texel e o PCF gira a cada quadro pela sequência', async () => {
+        const sent = await samples('temporal', 10);
+        expect(sent).toHaveLength(10);
+        sent.forEach(([c, s, jx, jy], k) => {
+            const i = (k % 8) + 1;
+            const angle = (Math.PI / 2) * halton(i, 11);
+            expect(c).toBeCloseTo(Math.cos(angle), 6);
+            expect(s).toBeCloseTo(Math.sin(angle), 6);
+            expect(jx).toBeCloseTo(halton(i, 5) - 0.5, 6);
+            expect(jy).toBeCloseTo(halton(i, 7) - 0.5, 6);
+        });
+        // A sequência repete com o comprimento da do antisserrilhado.
+        expect(sent[8]).toEqual(sent[0]);
+    });
+
+    it('sem o deslocamento da amostra (msaa), a grade e o padrão parados, enviados uma vez', async () => {
+        expect(await samples('msaa', 5)).toEqual([[1, 0, 0, 0]]);
     });
 });

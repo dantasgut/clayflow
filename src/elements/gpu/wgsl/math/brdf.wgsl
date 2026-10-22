@@ -6,8 +6,10 @@
 // a consulta sai do ponto pela normal da superfície `normal` (0 num volume) `normal_texels` texels, mais quanto mais
 // rasante a luz `light_dir` (unitária, do ponto para a luz) — os vizinhos do PCF ficam acima da superfície — e compara
 // com `bias_texels` texels de profundidade. Pequenos assim, nenhum ponto atrás de quem faz sombra (um canto, a junta
-// de duas placas) passa por iluminado. Fora do frustum da luz ou com a sombra desligada (`enabled` < 0.5) devolve 1.
-// Sem desvio de fluxo dependente de dados.
+// de duas placas) passa por iluminado. O padrão 3×3 gira em torno do ponto por `rotation` (cosseno, seno; spec 034: a
+// sequência do deslocamento da amostra muda o ângulo a cada quadro e o acúmulo temporal faz a média — o núcleo fica
+// redondo e a borda sem o degrau da grade; (1, 0) é a grade alinhada aos texels). Fora do frustum da luz ou com a sombra
+// desligada (`enabled` < 0.5) devolve 1. Sem desvio de fluxo dependente de dados.
 fn sample_shadow_pcf(
     shadow_map: texture_depth_2d,
     shadow_sampler: sampler_comparison,
@@ -17,6 +19,7 @@ fn sample_shadow_pcf(
     light_dir: vec3f,
     bias_texels: f32,
     normal_texels: f32,
+    rotation: vec2f,
     enabled: f32,
 ) -> f32 {
     let size = vec2<f32>(textureDimensions(shadow_map, 0));
@@ -31,12 +34,13 @@ fn sample_shadow_pcf(
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     let ref_depth = ndc.z - bias_texels * texel_world * per_metre_z;
     let texel = vec2<f32>(1.0) / size;
+    let turn = mat2x2<f32>(rotation.x, rotation.y, -rotation.y, rotation.x);
     var sum = 0.0;
     for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
         for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
             sum = sum + textureSampleCompareLevel(
                 shadow_map, shadow_sampler,
-                uv + vec2<f32>(f32(dx), f32(dy)) * texel,
+                uv + turn * vec2<f32>(f32(dx), f32(dy)) * texel,
                 ref_depth,
             );
         }

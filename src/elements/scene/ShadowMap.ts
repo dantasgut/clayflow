@@ -46,9 +46,15 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
         size: FieldType.vec2f,
     });
 
-    /** Produto do `ShadowMatrixFlow`, só na GPU (pool `ShadowMatrix`, mesmo slot do mapa). */
+    /**
+     * Produto do `ShadowMatrixFlow`, só na GPU (pool `ShadowMatrix`, mesmo slot do mapa): a matriz e a rotação do padrão
+     * do PCF no quadro (cosseno, seno). Com o deslocamento da amostra (spec 034), a matriz traz a grade do mapa deslocada
+     * dentro do texel e o padrão gira, pela mesma sequência — o acúmulo temporal integra o mapa supersamplado; sem ele, a
+     * grade parada e (1, 0).
+     */
     static readonly matrixSchema = new StructSchema('ShadowMatrix', {
         lightViewProj: FieldType.mat4x4f,
+        kernelRotation: FieldType.vec2f,
     });
 
     state: ResourceState = ResourceState.Uninitialized;

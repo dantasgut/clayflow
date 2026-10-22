@@ -7,10 +7,17 @@ import { Flow } from '../../../scene/flows/Flow';
 import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type EntitiesSlot, type PoolSlot, type SlotMap } from '../../../scene/flows/slots';
+import {
+    slot,
+    type EntitiesSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { DirectionalLight } from '../DirectionalLight';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
+import { halton, TemporalAntialiasing } from '../TemporalAntialiasing';
 import {
     ShadowMatrixInstanceSchema,
     ShadowMatrixParamsSchema,
@@ -26,18 +33,24 @@ export interface ShadowMatrixSlots extends SlotMap {
     readonly lights: PoolSlot<false>;
     /** Pool `ShadowMatrix` (saída). */
     readonly matrices: PoolSlot<false>;
+    /** Pool `ShadowMap` (o tamanho do mapa: o deslocamento da grade em texels). */
+    readonly maps: PoolSlot<false>;
     /** Luzes direcionais com mapa de sombra: registro `ShadowRecord` e a lista das vivas (grupo único). */
     readonly casters: EntitiesSlot;
+    /** O antisserrilhado da cena (spec 034): com o deslocamento da amostra, a grade do mapa anda e o PCF gira. */
+    readonly antialiasing: SingletonSlot<true>;
 }
 
 const slots: ShadowMatrixSlots = {
     lights: slot.pool(Light.schema.name),
     matrices: slot.pool(ShadowMap.matrixSchema.name),
+    maps: slot.pool(ShadowMap.schema.name),
     casters: slot.entities({
         all: [DirectionalLight, ShadowMap],
         record: shadowRecord,
         groups: { schema: ShadowMatrixInstanceSchema, key: () => 'casters', instance: 'record' },
     }),
+    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
 };
 
 type Ctx = TransitionContext<ShadowMatrixSlots>;
@@ -47,6 +60,11 @@ type Ctx = TransitionContext<ShadowMatrixSlots>;
  * `DirectionalLight` que projeta sombra a partir da direção dela (pool `Light`), no pool `ShadowMatrix` (segundo
  * descritor do `ShadowMap`, mesmo slot), que o estágio de sombra e o render principal leem. A CPU não calcula a
  * matriz nem acompanha mudanças da luz: a direção chega ao pool pelo envio da C2 e o kernel a lê.
+ *
+ * Com o deslocamento da amostra dentro do pixel (`TemporalAntialiasing` temporal ou acumulação; spec 034, R3/R6), a
+ * sombra entra na mesma sequência (o mesmo comprimento; as dimensões 5, 7 e 11 do Halton, que não se alinham ao
+ * deslocamento da câmera, de bases 2 e 3): a grade do mapa anda dentro do texel e o padrão do PCF gira a cada quadro —
+ * o acúmulo integra o mapa supersamplado e a média das rotações. Sem ele, a grade e o padrão parados.
  *
  * Fase `transform`, depois do `CameraFlow`. Roda todo quadro com luzes que projetam (poucas threads).
  */
@@ -70,6 +88,8 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
     private readonly params: UniformBufferSpec;
     private count = 0;
     private written = '';
+    /** Quadros com o deslocamento da amostra (índice da sequência da sombra). */
+    private frame = 0;
 
     constructor(ctx: FlowContext) {
         super();
@@ -117,14 +137,43 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         this.core.destroy(this.params);
     }
 
-    /** Início e tamanho da lista, escritos quando mudam. */
+    /** Início e tamanho da lista e a posição da sequência no quadro, escritos quando mudam. */
     private writeParams(ctx: Ctx): void {
         const list = ctx.bound.slots.casters.groups[0];
         this.count = list?.count ?? 0;
         const first = list?.first ?? 0;
-        const key = `${first}:${this.count}`;
+        const { kernelRotation, texelJitter } = this.sample(ctx);
+        const key = `${first}:${this.count}:${kernelRotation.join(',')}:${texelJitter.join(',')}`;
         if (key === this.written) return;
-        this.core.write(this.params, ShadowMatrixParamsSchema.pack({ first, count: this.count }));
+        this.core.write(
+            this.params,
+            ShadowMatrixParamsSchema.pack({
+                first,
+                count: this.count,
+                kernelRotation,
+                texelJitter,
+            }),
+        );
         this.written = key;
+    }
+
+    /**
+     * A posição da sequência do deslocamento da amostra no quadro: o deslocamento da grade do mapa (texels, cada eixo em
+     * [−½, ½)) e a rotação do padrão 3×3 (cosseno, seno; até um quarto de volta, a simetria da grade). Sem o
+     * deslocamento, nenhum dos dois.
+     */
+    private sample(ctx: Ctx): {
+        kernelRotation: readonly [number, number];
+        texelJitter: readonly [number, number];
+    } {
+        const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        if (!aa?.jitters) return { kernelRotation: [1, 0], texelJitter: [0, 0] };
+        const i = (this.frame % Math.max(1, aa.data.sequence)) + 1;
+        this.frame++;
+        const angle = (Math.PI / 2) * halton(i, 11);
+        return {
+            kernelRotation: [Math.cos(angle), Math.sin(angle)],
+            texelJitter: [halton(i, 5) - 0.5, halton(i, 7) - 0.5],
+        };
     }
 }

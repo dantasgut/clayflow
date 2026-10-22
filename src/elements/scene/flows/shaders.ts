@@ -7,6 +7,7 @@ import {
     cameraMatricesWriteResource,
     cameraParamsResource,
     lightsResource,
+    shadowMapsResource,
     shadowMatricesWriteResource,
     transformsResource,
     worldsResource,
@@ -297,6 +298,7 @@ export const shadowMatrix = wgslModule({
         camera,
         WORKGROUP_SIZE.module,
         lightsResource,
+        shadowMapsResource,
         shadowMatricesWriteResource,
         shadowMatrixResources.records,
         shadowMatrixResources.list,
@@ -304,6 +306,7 @@ export const shadowMatrix = wgslModule({
     ],
     structs: [
         Light.schema,
+        ShadowMap.schema,
         ShadowMap.matrixSchema,
         ShadowRecordSchema,
         ShadowMatrixInstanceSchema,

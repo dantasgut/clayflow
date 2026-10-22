@@ -25,6 +25,11 @@
 //     da bola: o mesmo rastro (T031).
 //   - waterOrbit: a câmera gira a 30°/s em volta de um tanque de água parada (a física e as ondulações congeladas
 //     depois de assentar); os mesmos critérios da órbita (T031: o movimento da superfície da água).
+//   - shadowEdge: a sombra de uma placa girada 20° sobre o chão liso (mapa de 1024², luz a 50° da vertical), 960 × 540:
+//     nas quatro bordas (retas no chão), onde a imagem cruza o meio entre o iluminado e a sombra, o resíduo da reta
+//     ajustada (o degrau que a grade do mapa deixa, em pixels) e a cintilação da penumbra de um quadro ao seguinte
+//     (relativa ao contraste) — sem antisserrilhado, no temporal após 64 quadros e na acumulação de 256 (T034). Só
+//     medida, sem limite ainda.
 //   - cost: a 1280 × 720 em órbita, com profiling por passe, a duração do quadro na GPU (mediana de 120 quadros, do
 //     primeiro início ao último fim) com o temporal menos a sem antisserrilhado ≤ 1,5 ms (SC-011, 9 % do quadro de 60 Hz
 //     no M4). Não a soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
@@ -789,6 +794,226 @@ async function cost(): Promise<void> {
     check(own <= 1.5, `cost: antisserrilhado ${own.toFixed(3)} ms (≤ 1,5 ms)`);
 }
 
+/** Tamanho da imagem da borda da sombra. */
+const EDGE_SIZE = [960, 540] as const;
+const EDGE_EYE = [0, 2, 0.8] as const;
+/** A placa que projeta a sombra: meio tamanho em x e z, altura, giro em torno de y e a luz (a sombra cai na origem). */
+const PLATE = { half: [0.25, 0.35], height: 0.5, turn: (20 * Math.PI) / 180 } as const;
+const EDGE_LIGHT = [-1.2, -1, 0] as const;
+
+/** Ponto do mundo em pixels da imagem da borda (câmera em `EDGE_EYE` olhando a origem, campo vertical 0,8 rad). */
+function edgePixel(p: readonly [number, number, number]): [number, number] {
+    const [w, h] = EDGE_SIZE;
+    const f = [-EDGE_EYE[0], -EDGE_EYE[1], -EDGE_EYE[2]];
+    const fl = Math.hypot(f[0]!, f[1]!, f[2]!);
+    const fw = f.map((v) => v / fl);
+    // Direita = frente × y, cima = direita × frente.
+    let r = [-fw[2]!, 0, fw[0]!];
+    const rl = Math.hypot(r[0]!, r[2]!);
+    r = r.map((v) => v / rl);
+    const u = [
+        r[1]! * fw[2]! - r[2]! * fw[1]!,
+        r[2]! * fw[0]! - r[0]! * fw[2]!,
+        r[0]! * fw[1]! - r[1]! * fw[0]!,
+    ];
+    const d = [p[0] - EDGE_EYE[0], p[1] - EDGE_EYE[1], p[2] - EDGE_EYE[2]];
+    const dot = (a: number[], b: number[]): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+    const z = dot(d, fw);
+    const focal = h / 2 / Math.tan(0.4);
+    return [w / 2 + (focal * dot(d, r)) / z, h / 2 - (focal * dot(d, u)) / z];
+}
+
+/**
+ * O degrau da borda da sombra: ao longo das quatro bordas da sombra da placa (retas no chão), no meio de cada uma
+ * (60 %), por linha de varredura transversal, onde a imagem cruza o meio entre o iluminado e a sombra; a reta ajustada
+ * a esses pontos e o resíduo (RMS das quatro e o máximo, em pixels) — o que a grade do mapa de sombra deixa na borda.
+ */
+function edgeStairs(img: Float32Array): { rms: number; max: number; lines: number } {
+    const [w, h] = EDGE_SIZE;
+    const { half, turn } = PLATE;
+    // Cantos da placa girados; a placa está deslocada contra a luz e a sombra dela cai na origem.
+    const at = (x: number, z: number): [number, number] =>
+        edgePixel([
+            x * Math.cos(turn) + z * Math.sin(turn),
+            0,
+            -x * Math.sin(turn) + z * Math.cos(turn),
+        ]);
+    const [hx, hz] = half;
+    const corners = [at(-hx, -hz), at(hx, -hz), at(hx, hz), at(-hx, hz)];
+    const center = at(0, 0);
+    const value = (x: number, y: number): number =>
+        img[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))]!;
+    let sum = 0;
+    let max = 0;
+    let lines = 0;
+    for (let e = 0; e < 4; e++) {
+        const p = corners[e]!;
+        const q = corners[(e + 1) % 4]!;
+        // Varre na direção em que a borda menos anda (colunas para uma borda deitada, linhas para uma em pé).
+        const lying = Math.abs(q[0] - p[0]) >= Math.abs(q[1] - p[1]);
+        const [u0, u1] = lying ? [p[0], q[0]] : [p[1], q[1]];
+        const [v0, v1] = lying ? [p[1], q[1]] : [p[0], q[0]];
+        const inward = Math.sign((lying ? center[1] : center[0]) - (v0 + v1) / 2);
+        const us: number[] = [];
+        const vs: number[] = [];
+        const lo = Math.min(u0, u1) + 0.2 * Math.abs(u1 - u0);
+        const hi = Math.max(u0, u1) - 0.2 * Math.abs(u1 - u0);
+        for (let u = Math.ceil(lo); u <= Math.floor(hi); u++) {
+            const vLine = Math.round(v0 + ((v1 - v0) * (u - u0)) / (u1 - u0));
+            const sample = (v: number): number => (lying ? value(u, v) : value(v, u));
+            const mid = (sample(vLine - 40 * inward) + sample(vLine + 40 * inward)) / 2;
+            for (let v = vLine - 30; v < vLine + 30; v++) {
+                const a = sample(v);
+                const b = sample(v + 1);
+                if ((a - mid) * (b - mid) <= 0 && a !== b) {
+                    us.push(u);
+                    vs.push(v + (a - mid) / (a - b));
+                    break;
+                }
+            }
+        }
+        const n = us.length;
+        const mu = us.reduce((s, v) => s + v, 0) / n;
+        const mv = vs.reduce((s, v) => s + v, 0) / n;
+        let suv = 0;
+        let suu = 0;
+        for (let k = 0; k < n; k++) {
+            suv += (us[k]! - mu) * (vs[k]! - mv);
+            suu += (us[k]! - mu) ** 2;
+        }
+        const slope = suv / suu;
+        for (let k = 0; k < n; k++) {
+            const r = Math.abs(vs[k]! - (mv + slope * (us[k]! - mu)));
+            sum += r * r;
+            max = Math.max(max, r);
+        }
+        lines += n;
+    }
+    return { rms: Math.sqrt(sum / lines), max, lines };
+}
+
+/**
+ * A placa sobre o chão liso, a sombra dela na origem, no modo pedido; lê as imagens dos dois últimos de `frames`
+ * quadros.
+ */
+async function edgeFrames(
+    mode: AntialiasingMode,
+    frames: number,
+): Promise<{ last: Float32Array; previous: Float32Array }> {
+    const [width, height] = EDGE_SIZE;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    document.body.appendChild(canvas);
+    const app = await Application.create({
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+        captureErrors: true,
+        antialias: mode,
+        canvasOptions: { capture: true },
+    });
+    app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
+    const camera = new clayflow.Camera({
+        fov: 0.8,
+        aspect: width / height,
+        aspectMode: 'fixed',
+        near: 0.05,
+        far: 50,
+    });
+    app.world.insert(
+        camera.add(
+            new Transform({
+                position: [...EDGE_EYE, 1],
+                rotation: Transform.lookRotation(EDGE_EYE, [0, 0, 0]),
+            }),
+        ),
+    );
+    app.world.insert(
+        new clayflow.DirectionalLight({
+            direction: [...EDGE_LIGHT, 0],
+            intensity: 3,
+            castShadow: true,
+        }),
+    );
+    app.world.insert(
+        new clayflow.PlaneGeometry({ size: [8, 8] })
+            .add(new StandardMaterial({ albedo: [0.7, 0.7, 0.7, 1], roughness: 0.9 }))
+            .add(new Transform()),
+    );
+    const shift = PLATE.height / -EDGE_LIGHT[1];
+    app.world.insert(
+        new BoxGeometry({ size: [2 * PLATE.half[0], 0.02, 2 * PLATE.half[1]] })
+            .add(new StandardMaterial({ albedo: [0.3, 0.3, 0.3, 1], roughness: 0.9 }))
+            .add(
+                new Transform({
+                    position: [-EDGE_LIGHT[0] * shift, PLATE.height, 0, 1],
+                    rotation: [0, Math.sin(PLATE.turn / 2), 0, Math.cos(PLATE.turn / 2)],
+                }),
+            ),
+    );
+    await app.whenReady({ timeoutMs: 60_000 });
+    app.step(1 / 60, 8);
+    camera.cut();
+    let last: Float32Array | undefined;
+    let previous: Float32Array | undefined;
+    for (let i = 0; i < frames; i++) {
+        app.step(1 / 60);
+        if (i === frames - 2) previous = lum(await app.core.readCanvas());
+        else if (i === frames - 1) last = lum(await app.core.readCanvas());
+        else if (i % 8 === 7) await new Promise((r) => setTimeout(r, 0));
+    }
+    app.dispose();
+    canvas.remove();
+    return { last: last!, previous: previous ?? last! };
+}
+
+/**
+ * Cintilação da borda parada: a maior mudança de um quadro para o seguinte nos pixels da penumbra (entre 10 % e 90 % do
+ * caminho do iluminado à sombra), relativa a esse contraste.
+ */
+function edgeFlicker(last: Float32Array, previous: Float32Array): number {
+    const [w] = EDGE_SIZE;
+    const read = (p: [number, number]): number => last[Math.round(p[1]) * w + Math.round(p[0])]!;
+    const dark = read(edgePixel([0, 0, 0]));
+    const lit = read(edgePixel([0, 0, -0.7]));
+    let max = 0;
+    for (let k = 0; k < last.length; k++) {
+        const t = (last[k]! - dark) / (lit - dark);
+        if (t > 0.1 && t < 0.9)
+            max = Math.max(max, Math.abs(last[k]! - previous[k]!) / Math.abs(lit - dark));
+    }
+    return max;
+}
+
+async function shadowEdge(): Promise<void> {
+    for (const [label, mode, frames] of [
+        ['sem antisserrilhado', 'off', 1],
+        ['temporal após 64 quadros', 'temporal', 64],
+        ['acumulação de 256', 'accumulate', REF_SAMPLES],
+    ] as const) {
+        const { last: img, previous } = await edgeFrames(mode, frames);
+        const s = edgeStairs(img);
+        log(
+            `shadowEdge: ${label} — degrau da borda ${s.rms.toFixed(3)} px RMS, máximo ${s.max.toFixed(3)} px (${s.lines} linhas de varredura)${frames > 1 ? `; cintilação ${pct(edgeFlicker(img, previous))} do contraste` : ''}`,
+        );
+        if (new URLSearchParams(location.search).get('dump') === '1') {
+            const data = new ImageData(EDGE_SIZE[0], EDGE_SIZE[1]);
+            for (let k = 0; k < img.length; k++) {
+                const v = Math.round(Math.min(1, img[k]!) * 255);
+                data.data.set([v, v, v, 255], k * 4);
+            }
+            const c = new OffscreenCanvas(EDGE_SIZE[0], EDGE_SIZE[1]);
+            c.getContext('2d')!.putImageData(data, 0, 0);
+            await writeFixture(
+                `zz-aa-edge-${mode}.png`,
+                new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()),
+            );
+        }
+    }
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     still,
     trail,
@@ -798,6 +1023,7 @@ const CASES: Record<string, () => Promise<void>> = {
     spriteTrail,
     pointTrail,
     waterOrbit,
+    shadowEdge,
     cost,
 };
 

@@ -15,14 +15,18 @@ export const ShadowMatrixInstanceSchema = new StructSchema('ShadowMatrixInstance
     record: FieldType.u32,
 });
 
-/** Parâmetros do estágio: início e tamanho da lista. */
+/**
+ * Parâmetros do estágio: início e tamanho da lista, a rotação do padrão do PCF neste quadro (cosseno, seno) e o
+ * deslocamento da grade do mapa dentro do texel (em texels; spec 034).
+ */
 export const ShadowMatrixParamsSchema = new StructSchema(
     'ShadowMatrixParams',
     {
         first: FieldType.u32,
         count: FieldType.u32,
-        _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
+        kernelRotation: FieldType.vec2f,
+        texelJitter: FieldType.vec2f,
+        _pad0: FieldType.vec2f,
     },
     { addressSpace: 'uniform' },
 );
