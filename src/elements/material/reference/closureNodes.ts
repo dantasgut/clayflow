@@ -40,6 +40,7 @@ export const CLOSURE_FIELDS = [
     ['transmission_abbe', 1],
     ['transmission_roughness', 1],
     ['transmission_priority', 1],
+    ['transmission_thin', 1],
     ['translucent_weight', 1],
     ['translucent_color', 3],
     ['emission', 3],
@@ -163,6 +164,9 @@ export const closureMediumPriority = (c: Closure, priority: number): Closure => 
     ...c,
     transmission_priority: priority,
 });
+
+/** `closure_thin_walled`: a transmissão como parede fina (placa de espessura zero, sem interior). */
+export const closureThinWalled = (c: Closure): Closure => ({ ...c, transmission_thin: 1 });
 
 export const closureTranslucent = (color: Vec3): Closure => ({
     ...closureZero(),
@@ -320,6 +324,7 @@ export function closureAdd(a: Closure, b: Closure): Closure {
             wtb,
         ),
         transmission_priority: Math.max(a.transmission_priority, b.transmission_priority),
+        transmission_thin: Math.max(a.transmission_thin, b.transmission_thin),
         translucent_weight: a.translucent_weight + b.translucent_weight,
         translucent_color: merge3(
             a.translucent_color,

@@ -1,26 +1,85 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
-import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import refractionQueueSource from '../../gpu/wgsl/refraction/refraction_queue.wgsl?raw';
-import { REFRACTION_QUEUE_FORMAT, REFRACTION_REQUEST_VALID } from './Refraction';
+import refractionInterfaceSource from '../../gpu/wgsl/refraction/refraction_interface.wgsl?raw';
+import refractionMediaSource from '../../gpu/wgsl/refraction/refraction_media.wgsl?raw';
+import refractionCameraSource from '../../gpu/wgsl/refraction/refraction_camera.wgsl?raw';
+import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl?raw';
+import refractionTraceSource from '../../gpu/wgsl/refraction/refraction_trace.wgsl?raw';
+import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
+import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
+import refractionDenoiseSourceSource from '../../gpu/wgsl/refraction/refraction_denoise_source.wgsl?raw';
+import refractionCompositeSource from '../../gpu/wgsl/refraction/refraction_composite.wgsl?raw';
+import refractionCompositeDenoisedSource from '../../gpu/wgsl/refraction/refraction_composite_denoised.wgsl?raw';
+import refractionScreenSource from '../../gpu/wgsl/refraction/refraction_screen.wgsl?raw';
+import refractionMotionSource from '../../gpu/wgsl/refraction/refraction_motion.wgsl?raw';
+import { bsdf, camera } from '../../gpu/shaders/math';
+import { tracedDenoiseResources } from '../denoise/shaders';
+import { closure, closureEval } from '../../material/pbr/shaders';
+import { rayCamera, rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
+import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
+import { sceneFogReady } from '../../scene/points/media';
+import {
+    camerasResource,
+    previousWorldsResource,
+    renderablesResource,
+    worldsResource,
+} from '../../scene/resources';
+import { RenderableSchema } from '../../scene/Renderable';
+import {
+    Refraction,
+    REFRACTION_FRAME_COUNT,
+    REFRACTION_HIT_FORMAT,
+    REFRACTION_GRADIENT_FORMAT,
+    REFRACTION_GRADIENT_RAY_FORMAT,
+    REFRACTION_MAX_MEDIA,
+    REFRACTION_QUEUE_FORMAT,
+    REFRACTION_RADIANCE_FORMAT,
+    REFRACTION_REQUEST_VALID,
+    REFRACTION_STRATUM,
+} from './Refraction';
 
-// Módulos da refração traçada (spec 034, R1): os alvos do `Refraction` ligados pelo `RefractionFlow` (privados dele) e
-// os kernels da fila e do traçado.
+// Módulos da refração traçada (spec 034, R1): o uniform do `Refraction` (resolver `Refraction.params`), os alvos dele
+// ligados pelo `RefractionFlow` (privados do estágio) e os kernels da fila, dos meios da câmera e do traçado.
 
-/** Recursos privados do estágio: o pedido por pixel (leitura), a fila (escrita) e a contagem dela. */
+/** Parâmetros da refração (resolver `Refraction.params`). */
+export const refractionParamsResource = wgslResource({
+    name: 'refraction',
+    binding: { uniform: true },
+    type: { schema: Refraction.schema },
+    frequency: 'frame',
+    provider: { consumer: 'Refraction.params' },
+});
+
+const texture = (
+    name: string,
+    sample: 'u32' | 'f32' | 'depth' = 'u32',
+): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { texture: { sample } },
+        frequency: 'frame',
+        provider: 'private',
+    });
+
+const storageTexture = (name: string, format: GPUTextureFormat): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { storageTexture: { format, access: 'write' } },
+        frequency: 'frame',
+        provider: 'private',
+    });
+
+/**
+ * Recursos privados do estágio: o pedido por pixel, a fila (escrita na compactação, lida no traçado) e a contagem dela,
+ * o estado do quadro (os meios da câmera e a contagem; escrito e lido), a radiância traçada, o ponto que o pixel mostra
+ * e o gradiente temporal com os raios dele; e, de quem os lê, os mesmos como textura e a profundidade do pedido.
+ */
 export const refractionResources = Object.freeze({
-    request: wgslResource({
-        name: 'refraction_request',
-        binding: { texture: { sample: 'u32' } },
-        frequency: 'frame',
-        provider: 'private',
-    }),
-    queueOut: wgslResource({
-        name: 'refraction_queue_out',
-        binding: { storageTexture: { format: REFRACTION_QUEUE_FORMAT, access: 'write' } },
-        frequency: 'frame',
-        provider: 'private',
-    }),
+    request: texture('refraction_request'),
+    queueOut: storageTexture('refraction_queue_out', REFRACTION_QUEUE_FORMAT),
+    queueIn: texture('refraction_queue_in'),
     queueCount: wgslResource({
         name: 'refraction_queue_count',
         binding: { storage: 'read_write' },
@@ -28,17 +87,214 @@ export const refractionResources = Object.freeze({
         frequency: 'frame',
         provider: 'private',
     }),
+    frameOut: storageTexture('refraction_frame_out', 'rgba32uint'),
+    frame: texture('refraction_frame'),
+    radianceOut: storageTexture('refraction_radiance_out', REFRACTION_RADIANCE_FORMAT),
+    radiance: texture('refraction_radiance', 'f32'),
+    hitOut: storageTexture('refraction_hit_out', REFRACTION_HIT_FORMAT),
+    hit: texture('refraction_hit', 'f32'),
+    gradientOut: storageTexture('refraction_gradient_out', REFRACTION_GRADIENT_FORMAT),
+    gradient: texture('refraction_gradient', 'f32'),
+    gradientOrigin: texture('refraction_gradient_origin', 'f32'),
+    gradientDirection: texture('refraction_gradient_dir', 'f32'),
+    gradientOriginOut: storageTexture(
+        'refraction_gradient_origin_out',
+        REFRACTION_GRADIENT_RAY_FORMAT,
+    ),
+    gradientDirectionOut: storageTexture(
+        'refraction_gradient_dir_out',
+        REFRACTION_GRADIENT_RAY_FORMAT,
+    ),
+    requestDepth: texture('refraction_request_depth', 'depth'),
 });
 
-/** Kernel da fila compacta dos pixels com pedido. */
+const R = refractionResources;
+
+/** Kernels da fila compacta dos pixels com pedido e da contagem no estado do quadro. */
 export const refractionQueue = wgslModule({
     name: 'refraction_queue',
     source: refractionQueueSource,
     requires: [
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
-        refractionResources.request,
-        refractionResources.queueOut,
-        refractionResources.queueCount,
+        REFRACTION_FRAME_COUNT.module,
+        R.request,
+        R.queueOut,
+        R.queueCount,
+        R.frameOut,
+    ],
+});
+
+/** Interface dielétrica: Fresnel exato, microfaceta GGX pela distribuição visível, G1, reflexão e refração. */
+export const refractionInterface = wgslModule({
+    name: 'refraction_interface',
+    source: refractionInterfaceSource,
+    requires: [bsdf],
+});
+
+/** Pilha de meios (prioridade, índice por canal, absorção). */
+export const refractionMedia = wgslModule({
+    name: 'refraction_media',
+    source: refractionMediaSource,
+    requires: [NONE.module, closure, REFRACTION_MAX_MEDIA.module],
+});
+
+/** Os meios em que a câmera está, no estado do quadro. */
+export const refractionCamera = wgslModule({
+    name: 'refraction_camera',
+    source: refractionCameraSource,
+    requires: [
+        NONE.module,
+        REFRACTION_MAX_MEDIA.module,
+        refractionParamsResource,
+        refractionMedia,
+        camerasResource,
+        rayScene,
+        rayHit,
+        R.frameOut,
+    ],
+});
+
+/** Uma amostra do caminho traçado do raio de um pixel (determinística pelo estado aleatório). */
+export const refractionPath = wgslModule({
+    name: 'refraction_path',
+    source: refractionPathSource,
+    requires: [
+        NONE.module,
+        REFRACTION_MAX_MEDIA.module,
+        refractionParamsResource,
+        refractionInterface,
+        refractionMedia,
+        rayScene,
+        rayHit,
+        rayCamera,
+        rayDirect,
+        closureEval,
+        sceneEnvironmentReady,
+        sceneIndirectLightingReady,
+        R.frame,
+    ],
+});
+
+/** O traçado por pixel da fila. */
+export const refractionTrace = wgslModule({
+    name: 'refraction_trace',
+    source: refractionTraceSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        REFRACTION_FRAME_COUNT.module,
+        refractionParamsResource,
+        refractionPath,
+        R.queueIn,
+        R.frame,
+        R.radianceOut,
+        R.hitOut,
+    ],
+});
+
+/** O gradiente temporal (spec 034, T044a): a amostra do quadro anterior refeita na cena de agora, por bloco. */
+export const refractionGradient = wgslModule({
+    name: 'refraction_gradient',
+    source: refractionGradientSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        REFRACTION_STRATUM.module,
+        REFRACTION_REQUEST_VALID.module,
+        refractionParamsResource,
+        refractionPath,
+        rayCamera,
+        R.request,
+        R.frame,
+        R.radiance,
+        R.gradientOrigin,
+        R.gradientDirection,
+        R.gradientOut,
+        R.gradientOriginOut,
+        R.gradientDirectionOut,
+    ],
+});
+
+/**
+ * O que o histórico de um pixel com pedido precisa: onde estava o ponto mostrado, a largura do pixel nele e a mudança da
+ * cena pelo gradiente temporal.
+ */
+export const refractionHistory = wgslModule({
+    name: 'refraction_history',
+    source: refractionHistorySource,
+    requires: [
+        NONE.module,
+        REFRACTION_STRATUM.module,
+        refractionParamsResource,
+        camerasResource,
+        renderablesResource,
+        worldsResource,
+        previousWorldsResource,
+        R.hit,
+        R.gradient,
+    ],
+    structs: [RenderableSchema],
+});
+
+/**
+ * A refração como sinal do filtro de sinal traçado (a implementação do ponto `traced_denoise_source`): os pixels com
+ * pedido, a radiância e, como guia, o ponto mostrado.
+ */
+export const refractionDenoiseSource = wgslModule({
+    name: 'refraction_denoise_source',
+    source: refractionDenoiseSourceSource,
+    requires: [REFRACTION_REQUEST_VALID.module, refractionHistory, R.request, R.radiance, R.hit],
+});
+
+/** O triângulo de tela cheia dos passes da refração (`refraction_screen_vs`). */
+export const refractionScreen = wgslModule({
+    name: 'refraction_screen',
+    source: refractionScreenSource,
+});
+
+/** A composição do traçado nos alvos da cena: a cor e a profundidade dos pixels com pedido. */
+export const refractionComposite = wgslModule({
+    name: 'refraction_composite',
+    source: refractionCompositeSource,
+    requires: [
+        refractionScreen,
+        REFRACTION_REQUEST_VALID.module,
+        refractionParamsResource,
+        rayCamera,
+        sceneFogReady,
+        R.request,
+        R.radiance,
+        R.requestDepth,
+    ],
+});
+
+/** A composição com a cor do filtro do traçado (com o antisserrilhado temporal). */
+export const refractionCompositeDenoised = wgslModule({
+    name: 'refraction_composite_denoised',
+    source: refractionCompositeDenoisedSource,
+    requires: [
+        refractionComposite,
+        REFRACTION_REQUEST_VALID.module,
+        R.request,
+        tracedDenoiseResources.output,
+    ],
+});
+
+/**
+ * O movimento do que o pixel com pedido mostra (spec 034, T044a): o ponto que o traçado achou, levado do mundo deste
+ * quadro ao do anterior pelas matrizes do objeto atingido, e projetado pelas duas câmeras; e se a cena mudou em volta
+ * do pixel pelo gradiente temporal (a máscara reativa).
+ */
+export const refractionMotion = wgslModule({
+    name: 'refraction_motion',
+    source: refractionMotionSource,
+    requires: [
+        refractionScreen,
+        REFRACTION_REQUEST_VALID.module,
+        refractionParamsResource,
+        camera,
+        camerasResource,
+        refractionHistory,
+        R.request,
+        R.hit,
     ],
 });

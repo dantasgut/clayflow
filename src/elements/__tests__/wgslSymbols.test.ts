@@ -40,6 +40,20 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'predicado da compactação (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
     compact_value:
         'valor compactado (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
+    traced_denoise_source_size:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    traced_denoise_source_valid:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    traced_denoise_source_signal:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    traced_denoise_source_guide:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    traced_denoise_source_previous_point:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    traced_denoise_source_footprint:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    traced_denoise_source_change:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
     surface_jet:
         'lugar do jato da superfície (spec 010): numérico (pronto), analítico, das prontas ou do mapa com o espaço — bindPoints troca um pelo outro',
 };

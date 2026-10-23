@@ -28,8 +28,9 @@
 //   - shadowEdge: a sombra de uma placa girada 20° sobre o chão liso (mapa de 1024², luz a 50° da vertical), 960 × 540:
 //     nas quatro bordas (retas no chão), onde a imagem cruza o meio entre o iluminado e a sombra, o resíduo da reta
 //     ajustada (o degrau que a grade do mapa deixa, em pixels) e a cintilação da penumbra de um quadro ao seguinte
-//     (relativa ao contraste) — sem antisserrilhado, no temporal após 64 quadros e na acumulação de 256 (T034). Só
-//     medida, sem limite ainda.
+//     (relativa ao contraste) — sem antisserrilhado, no temporal após 64 quadros e na acumulação de 256 (T034).
+//     Critério (decisão do usuário, 2026-10-22): o degrau do temporal no máximo 0,1 px RMS acima do da acumulação e a
+//     cintilação do temporal ≤ 4 % do contraste.
 //   - matrices: as matrizes da câmera compostas na GPU (pool `CameraMatrices` lido de volta) contra o oráculo daqui
 //     (vista por `lookAt`, perspectiva da WebGPU, Halton (2, 3) escrita à mão): no corte, o deslocamento da posição 1
 //     da sequência, a projeção e a vista-projeção com ele (a translação em clip proporcional a w), a sem ele, a anterior
@@ -993,6 +994,8 @@ function edgeFlicker(last: Float32Array, previous: Float32Array): number {
 }
 
 async function shadowEdge(): Promise<void> {
+    const rms = new Map<string, number>();
+    let flicker = 0;
     for (const [label, mode, frames] of [
         ['sem antisserrilhado', 'off', 1],
         ['temporal após 64 quadros', 'temporal', 64],
@@ -1000,6 +1003,8 @@ async function shadowEdge(): Promise<void> {
     ] as const) {
         const { last: img, previous } = await edgeFrames(mode, frames);
         const s = edgeStairs(img);
+        rms.set(mode, s.rms);
+        if (mode === 'temporal') flicker = edgeFlicker(img, previous);
         log(
             `shadowEdge: ${label} — degrau da borda ${s.rms.toFixed(3)} px RMS, máximo ${s.max.toFixed(3)} px (${s.lines} linhas de varredura)${frames > 1 ? `; cintilação ${pct(edgeFlicker(img, previous))} do contraste` : ''}`,
         );
@@ -1017,6 +1022,13 @@ async function shadowEdge(): Promise<void> {
             );
         }
     }
+    const temporal = rms.get('temporal')!;
+    const accumulated = rms.get('accumulate')!;
+    check(
+        temporal <= accumulated + 0.1,
+        `shadowEdge: degrau do temporal ${temporal.toFixed(3)} px > acumulação ${accumulated.toFixed(3)} + 0,1 px`,
+    );
+    check(flicker <= 0.04, `shadowEdge: cintilação do temporal ${pct(flicker)} > 4 %`);
 }
 
 type Mat4 = number[];

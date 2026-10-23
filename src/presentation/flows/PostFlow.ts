@@ -66,6 +66,8 @@ export interface PostSlots extends SlotMap {
     readonly depth: TextureSlot<true>;
     /** Vetores de movimento (`FrameTargets.motion`). */
     readonly motion: TextureSlot<true>;
+    /** Máscara reativa (`FrameTargets.reactive`): onde o histórico recomeça. */
+    readonly reactive: TextureSlot<true>;
     /** A luz que chega a cada pixel (`FrameTargets.light`: direta, total). */
     readonly light: TextureSlot<true>;
     /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
@@ -81,6 +83,7 @@ const slots: PostSlots = {
     antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
     motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+    reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
     light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
@@ -453,6 +456,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
         const depth = ctx.bound.slots.depth;
         const motion = ctx.bound.slots.motion;
+        const reactive = ctx.bound.slots.reactive;
         const light = ctx.bound.slots.light;
         const camera = ctx.bound.slots.camera?.resource;
         const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
@@ -463,6 +467,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             || !aa.jitters
             || depth === undefined
             || motion === undefined
+            || reactive === undefined
             || light === undefined
             || ctx.bound.slots.samples !== undefined
             || cameraSlot === undefined
@@ -495,6 +500,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 ],
                 [{ pipeline: id, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: id, resource: temporalResources.motion }, motion.view],
+                [{ pipeline: id, resource: temporalResources.reactive }, reactive.view],
                 [{ pipeline: id, resource: temporalResources.light }, light.view],
             ]),
         );
@@ -520,6 +526,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 ],
                 [{ pipeline: sharpenId, resource: temporalResources.depth }, depth.view],
                 [{ pipeline: sharpenId, resource: temporalResources.motion }, motion.view],
+                [{ pipeline: sharpenId, resource: temporalResources.reactive }, reactive.view],
                 [{ pipeline: sharpenId, resource: temporalResources.light }, light.view],
             ]),
         );

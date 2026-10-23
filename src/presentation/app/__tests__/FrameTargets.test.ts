@@ -3,7 +3,7 @@ import { FrameTargets } from '../FrameTargets';
 import { renderScene } from '../../flows/__tests__/helpers/renderHarness';
 
 describe('FrameTargets', () => {
-    it('descritores (spec 011, 034): cor HDR rgba16float, movimento rgba16float, luz rg16float, cópia com mips sob demanda e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
+    it('descritores (spec 011, 034): cor HDR rgba16float, movimento rgba16float, máscara reativa r8unorm, luz rg16float e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
         expect(new FrameTargets({ samples: 1 }).getDescriptors()).toEqual([
             {
                 id: 'color',
@@ -16,33 +16,16 @@ describe('FrameTargets', () => {
                 role: 'texture',
                 textureShape: { format: 'rgba16float', sizeFromCanvas: true },
             },
+            // Máscara reativa (T044a): onde o histórico recomeça.
+            {
+                id: 'reactive',
+                role: 'texture',
+                textureShape: { format: 'r8unorm', sizeFromCanvas: true },
+            },
             {
                 id: 'light',
                 role: 'texture',
                 textureShape: { format: 'rg16float', sizeFromCanvas: true },
-            },
-            {
-                id: 'sceneCopy',
-                role: 'storage-texture',
-                allocation: 'onDemand',
-                textureShape: {
-                    format: 'rgba16float',
-                    sizeFromCanvas: true,
-                    mipLevelCount: 'full',
-                    access: 'write-only',
-                },
-            },
-            {
-                id: 'transmissionDepth',
-                role: 'texture',
-                allocation: 'onDemand',
-                textureShape: { format: 'r16float', sizeFromCanvas: true },
-            },
-            {
-                id: 'transmissionZ',
-                role: 'texture',
-                allocation: 'onDemand',
-                textureShape: { format: 'depth24plus', sizeFromCanvas: true },
             },
             {
                 id: 'depth',
@@ -57,12 +40,8 @@ describe('FrameTargets', () => {
             new FrameTargets().getDescriptors().map((d) => [d.id, d.textureShape?.sampleCount]),
         ).toEqual([
             ['color', undefined],
-            ['sceneCopy', undefined],
-            ['transmissionDepth', undefined],
-            ['transmissionZ', 4],
             ['depth', 4],
             ['samples', 4],
-            ['transmissionSamples', 4],
         ]);
         const s = await renderScene();
         const targets = new FrameTargets();
@@ -76,7 +55,7 @@ describe('FrameTargets', () => {
         );
     });
 
-    it('a C2 aloca a cor HDR e a profundidade no tamanho do canvas; a cópia com mips só sob demanda', async () => {
+    it('a C2 aloca a cor HDR e a profundidade no tamanho do canvas', async () => {
         const s = await renderScene();
         const targets = new FrameTargets();
         s.scene.world.insert(targets);
@@ -86,13 +65,6 @@ describe('FrameTargets', () => {
         expect([color.width, color.height, color.format]).toEqual([800, 600, 'rgba16float']);
         expect([depth.width, depth.height, depth.format]).toEqual([800, 600, 'depth24plus']);
         expect(s.scene.resourceSystem.textureViewOf(targets, 'color')).toBeDefined();
-        expect(s.scene.resourceSystem.textureOf(targets, 'sceneCopy')).toBeUndefined();
-        s.scene.resourceSystem.ensureAllocated(targets, 'sceneCopy');
-        const copy = s.scene.resourceSystem.textureOf(targets, 'sceneCopy')!;
-        // 800×600 → cadeia completa até 1×1: ⌊log2 800⌋ + 1 = 10 níveis; storage para os mips, cópia para a base.
-        expect([copy.format, copy.mipLevelCount]).toEqual(['rgba16float', 10]);
-        expect(copy.usage & GPUTextureUsage.STORAGE_BINDING).toBeTruthy();
-        expect(copy.usage & GPUTextureUsage.COPY_DST).toBeTruthy();
     });
 
     it('canvasReconfigured recria as texturas no novo tamanho e destrói as antigas', async () => {

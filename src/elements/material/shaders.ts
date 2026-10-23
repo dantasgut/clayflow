@@ -37,7 +37,6 @@ import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
-import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
 import forwardRefractionRequestSource from '../gpu/wgsl/forward_refraction_request.wgsl?raw';
 import {
     REFRACTION_REQUEST_BACK_FACE,
@@ -250,23 +249,12 @@ export const wire = wgslModule({
     ],
 });
 
-/** Recursos do passe de transmissivos (spec 011, R6), privados do estágio que o grava. */
+/**
+ * Recursos dos transmissivos (spec 011, R6; spec 034): a profundidade dos opacos lida pelo pedido da refração, privada do
+ * estágio que o grava.
+ */
 export const transmissionResources = {
-    /** Cópia da cena com mips (o que está atrás, em HDR). */
-    sceneCopy: wgslResource({
-        name: 'scene_copy',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'frame',
-        provider: 'private',
-    }),
-    /** Amostrador linear com mips da cópia. */
-    sampler: wgslResource({
-        name: 'scene_copy_sampler',
-        binding: { sampler: 'filtering' },
-        frequency: 'frame',
-        provider: 'private',
-    }),
-    /** Profundidade dos opacos (sem amostras), para a camada de trás ficar à frente deles. */
+    /** Profundidade dos opacos (sem amostras): o pedido fica à frente deles. */
     sceneDepth: wgslResource({
         name: 'scene_depth',
         binding: { texture: { sample: 'depth' } },
@@ -280,24 +268,6 @@ export const transmissionResources = {
         frequency: 'frame',
         provider: 'private',
     }),
-    /** Distância da câmera às faces de trás dos transmissivos (a espessura da camada da frente). */
-    depth: wgslResource({
-        name: 'transmission_depth',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'frame',
-        provider: 'private',
-    }),
-} as const;
-
-/**
- * Transmissivos em duas camadas (spec 011, R6): o vértice do forward e os fragmentos das faces de trás e da frente, que
- * refratam a cópia da cena com mips (Beer-Lambert, dispersão, parede fina, opacidade).
- */
-export const forwardTransmission = {
-    /** Alvos sem amostras. */
-    single: transmissionModule(false),
-    /** Alvos com MSAA. */
-    multisampled: transmissionModule(true),
 } as const;
 
 /**
@@ -319,21 +289,6 @@ function refractionRequestModule(multisampled: boolean): WgslModule {
             forward,
             REFRACTION_REQUEST_VALID.module,
             REFRACTION_REQUEST_BACK_FACE.module,
-            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
-        ],
-    });
-}
-
-function transmissionModule(multisampled: boolean): WgslModule {
-    return wgslModule({
-        name: multisampled ? 'forward_transmission_ms' : 'forward_transmission',
-        source: forwardTransmissionSource,
-        requires: [
-            forward,
-            closureEval,
-            transmissionResources.sceneCopy,
-            transmissionResources.sampler,
-            transmissionResources.depth,
             multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
         ],
     });

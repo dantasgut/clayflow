@@ -28,11 +28,10 @@ import giPhotonTraceSource from '../gpu/wgsl/gi/gi_photon_trace.wgsl?raw';
 import giPhotonResolveSource from '../gpu/wgsl/gi/gi_photon_resolve.wgsl?raw';
 import { rayVolumeHitReady } from '../raytrace/points';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { rayHit, rayScene } from '../raytrace/shaders';
-import { lightTransmissionReady, sceneEnvironmentReady } from '../scene/points/lighting';
+import { rayCamera, rayDirect, rayHit, rayScene } from '../raytrace/shaders';
+import { sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
-import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
-import { camerasResource, lightsResource } from '../scene/resources';
+import { camerasResource } from '../scene/resources';
 import { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
 
 // Módulos da iluminação global (spec 033, R2/R5/R6/R7): as sondas (endereçamento, pesos, leitura dos atlas e dos
@@ -172,17 +171,7 @@ const giGeneration = wgslModule({
 const giDirect = wgslModule({
     name: 'gi_direct',
     source: giDirectSource,
-    requires: [
-        NONE.module,
-        R.params,
-        closure,
-        closureEval,
-        rayScene,
-        lightsResource,
-        LIGHT_LIMIT.module,
-        lightIncoming,
-        lightTransmissionReady,
-    ],
+    requires: [R.params, closure, rayDirect],
 });
 
 /** Luz que sai de um ponto atingido: a direta, a emissão e o rebatimento anterior das sondas do mundo. */
@@ -196,7 +185,7 @@ const giShade = wgslModule({
 const giScreenCommon = wgslModule({
     name: 'gi_screen_common',
     source: giScreenCommonSource,
-    requires: [R.params, camerasResource],
+    requires: [R.params, rayCamera],
 });
 
 /** Histórico das sondas de tela: o layout e a busca da sonda do quadro anterior num ponto. */

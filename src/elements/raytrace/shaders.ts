@@ -20,11 +20,15 @@ import rayGeometryReadSource from '../gpu/wgsl/raytrace/ray_geometry_read.wgsl?r
 import rayBvhReadSource from '../gpu/wgsl/raytrace/ray_bvh_read.wgsl?raw';
 import rayHitSource from '../gpu/wgsl/raytrace/ray_hit.wgsl?raw';
 import rayHitMaterialReadySource from '../gpu/wgsl/raytrace/ray_hit_material_ready.wgsl?raw';
+import rayDirectSource from '../gpu/wgsl/raytrace/ray_direct.wgsl?raw';
+import rayCameraSource from '../gpu/wgsl/raytrace/ray_camera.wgsl?raw';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
-import { closure } from '../material/pbr/shaders';
+import { closure, closureEval } from '../material/pbr/shaders';
+import { lightTransmissionReady } from '../scene/points/lighting';
+import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
-import { worldsResource } from '../scene/resources';
+import { camerasResource, lightsResource, worldsResource } from '../scene/resources';
 import {
     RayBuildParamsSchema,
     RayBvhSchema,
@@ -299,4 +303,30 @@ export const rayHit = wgslModule({
     source: rayHitSource,
     requires: [rayScene, rayInstanceRead, materialPointTypes, closure, rayHitMaterialReady],
     structs: [StandardMaterialSchema],
+});
+
+/** Raio da câmera por um ponto da tela (spec 033 R2, comum na spec 034): `ray_camera(slot, px, size)`. */
+export const rayCamera = wgslModule({
+    name: 'ray_camera',
+    source: rayCameraSource,
+    requires: [camerasResource],
+});
+
+/**
+ * Luz direta num ponto atingido (spec 033 R2, comum na spec 034): `ray_direct(c, p, n, v, slots, seed)` — as luzes do
+ * pool com raio de sombra pela estrutura; a iluminação global e a refração passam a contagem de slots usados.
+ */
+export const rayDirect = wgslModule({
+    name: 'ray_direct',
+    source: rayDirectSource,
+    requires: [
+        NONE.module,
+        closure,
+        closureEval,
+        rayScene,
+        lightsResource,
+        LIGHT_LIMIT.module,
+        lightIncoming,
+        lightTransmissionReady,
+    ],
 });

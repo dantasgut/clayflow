@@ -9,8 +9,10 @@
 // histórico tem. Parado, a luz direta que chega ao ponto (o alvo da luz da cena: a radiância sobre a refletância, sem a
 // textura) comparada à do quadro anterior separa a mudança de iluminação — a sombra ou a luz que passa sobre a superfície
 // parada — do detalhe menor que o pixel: o histórico é reiluminado pela razão da luz total e tratado como em movimento.
+// A máscara reativa (`taa_reactive`, no modo temporal) recomeça o histórico onde o que o pixel mostra mudou sem que o
+// vetor de movimento o leve até lá: o conteúdo visto pelo vidro, cuja imagem a lente desloca e inverte.
 // Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_light (r direta, g total), taa_history,
-// taa_history_distance, taa_history_light, taa_depth, taa_motion, src_smp.
+// taa_history_distance, taa_history_light, taa_depth, taa_motion, taa_reactive, src_smp.
 
 const TAA_ACCUMULATE: u32 = 3u;
 /**
@@ -201,7 +203,9 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             if (abs(prev_distance - distance) <= 0.05 * distance) { occluded = false; }
         }
     }
-    let frames = select(0.0, history.a, inside && !occluded && cam.history.x == 0.0);
+    // O conteúdo traçado mudou (máscara reativa): como uma desoclusão. Na acumulação ninguém a escreve.
+    let reacted = taa_params.mode != TAA_ACCUMULATE && textureLoad(taa_reactive, pixel, 0).r > 0.5;
+    let frames = select(0.0, history.a, inside && !occluded && !reacted && cam.history.x == 0.0);
     var out: TaaOut;
     out.state = vec2f(distance, moving);
     if (taa_params.mode == TAA_ACCUMULATE) {

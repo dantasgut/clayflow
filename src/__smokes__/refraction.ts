@@ -20,13 +20,12 @@
 //     xadrez vista pela lente (por linha e por coluna, a posição subpixel de cada cruzamento da borda contra a da
 //     referência: nenhum deslocado ≥ 1 px; controles da medida: a referência em blocos de 4 px tem degraus, outra
 //     referência de amostras independentes não tem); a fração da energia contada como absorvida
-//     no limite de interfaces ≤ 0,1 % (o contador do `Refraction`).
+//     no limite de interfaces ≤ 0,1 % (o alfa da radiância traçada do `Refraction`).
 //   - gi: a cena `sphere` sem a iluminação global, com ela desligada e com ela ligada: as médias por região iguais a
 //     ≤ 0,5 % (SC-002; albedo 0, nenhuma luz indireta a descontar) (US1-6).
 // Em todas: nenhum quadro com o passe de cópia da tela (`sceneCopy`): 0 leituras dela pelos transmissivos (SC-001).
 // Diagnóstico: `--query dump=1` grava a referência, o motor e a diferença de cada cena (`zz-refraction-*.png`).
 // Para rodar: `npm run smoke -- refraction [--query case=sphere]`. Resultado: `REFRACTION SMOKE PASSED` ou `FAIL: …`.
-import * as clayflow from 'clayflow';
 import {
     Application,
     BoxGeometry,
@@ -331,7 +330,10 @@ function materialOf(s: Solid): ReturnType<typeof closureFn> {
             g.priority === undefined
                 ? body
                 : `closure_medium_priority(${body}, ${g.priority.toFixed(1)})`;
-        return closureFn(`    return ${withPriority};`, ['specular', 'transmission']);
+        // O plano de vidro é placa de espessura zero, como o quadrilátero da referência.
+        const thin =
+            s.shape.kind === 'pane' ? `closure_thin_walled(${withPriority})` : withPriority;
+        return closureFn(`    return ${thin};`, ['specular', 'transmission']);
     }
     const lobes: LobeName[] = [];
     const lines: string[] = [];
@@ -418,10 +420,16 @@ function buildEngine(app: Application, scene: RefractionScene): Camera {
     return camera;
 }
 
-/** Imagem do motor: a média do alvo HDR em `SAMPLES` quadros, e os quadros que gravaram a cópia da tela. */
+/**
+ * Imagem do motor: a média do alvo HDR em `SAMPLES` quadros, os quadros que gravaram a cópia da tela e, por pixel, a
+ * média do que o traçado da refração escreveu — a luminância traçada (transmitida mais refletida) e a energia contada
+ * como absorvida no limite de interfaces (o alfa de `Refraction.radiance`, T044); vazias sem os alvos da refração.
+ */
 interface EngineImage {
     readonly rgb: Float32Array;
     readonly sceneCopyFrames: number;
+    readonly traced: Float32Array;
+    readonly truncated: Float32Array;
     readonly app: Application;
     close(): void;
 }
@@ -488,11 +496,23 @@ async function renderEngine(
     const texture = app.resources.textureOf(app.defaults.targets, 'color');
     if (texture === undefined) throw new Error('alvo HDR não alocado');
     const rgb = new Float32Array(W * H * 3);
+    const traced = new Float32Array(W * H);
+    const truncated = new Float32Array(W * H);
+    const lum = (d: Float32Array, i: number): number =>
+        0.2126 * d[i * 4]! + 0.7152 * d[i * 4 + 1]! + 0.0722 * d[i * 4 + 2]!;
     for (let f = 0; f < SAMPLES; f++) {
         app.step(1 / 60);
         const img = await readHdrTexture(app, texture);
         for (let i = 0; i < W * H; i++)
             for (let k = 0; k < 3; k++) rgb[i * 3 + k]! += img.data[i * 4 + k]! / SAMPLES;
+        const refraction = app.defaults.refraction;
+        const radiance = app.resources.textureOf(refraction, 'radiance');
+        if (radiance === undefined) continue;
+        const t = (await readHdrTexture(app, radiance)).data;
+        for (let i = 0; i < W * H; i++) {
+            traced[i]! += lum(t, i) / SAMPLES;
+            truncated[i]! += t[i * 4 + 3]! / SAMPLES;
+        }
     }
     // Os tempos chegam alguns quadros depois.
     await new Promise((r) => setTimeout(r, 300));
@@ -500,6 +520,8 @@ async function renderEngine(
     return {
         rgb,
         sceneCopyFrames,
+        traced,
+        truncated,
         app,
         close() {
             app.dispose();
@@ -908,29 +930,23 @@ async function caseLens(): Promise<void> {
             e.crossings > 200 && e.steps === 0,
             `lens: ${e.steps} degraus de pixel na borda vista pela lente (de ${e.crossings} cruzamentos)`,
         );
-        // A energia contada como absorvida no limite de interfaces (o contador do `Refraction`, T040/T044).
-        const RefractionClass = (clayflow as Record<string, unknown>).Refraction;
-        if (typeof RefractionClass !== 'function') {
+        // A energia contada como absorvida no limite de interfaces (o alfa da radiância traçada, T044), sobre toda a que
+        // o traçado achou nos pixels da lente.
+        let cut = 0;
+        let total = 0;
+        for (const i of lens) {
+            cut += engine.truncated[i]!;
+            total += engine.traced[i]! + engine.truncated[i]!;
+        }
+        if (total <= 0)
+            check(false, 'lens: o traçado da refração não escreveu nos pixels da lente');
+        else {
+            const truncatedEnergy = cut / total;
+            log(`lens: energia no limite de interfaces ${pct(truncatedEnergy)}`);
             check(
-                false,
-                'lens: `Refraction` ausente — a fração da energia no limite de interfaces não foi medida',
+                truncatedEnergy <= 0.001,
+                `lens: energia no limite de interfaces ${pct(truncatedEnergy)} > 0,1 %`,
             );
-        } else {
-            const stats = (
-                engine.app as unknown as {
-                    refractionStats?: () => Promise<{ truncatedEnergy: number }>;
-                }
-            ).refractionStats;
-            if (stats === undefined)
-                check(false, 'lens: sem a leitura do contador do limite de interfaces');
-            else {
-                const { truncatedEnergy } = await stats.call(engine.app);
-                log(`lens: energia no limite de interfaces ${pct(truncatedEnergy)}`);
-                check(
-                    truncatedEnergy <= 0.001,
-                    `lens: energia no limite de interfaces ${pct(truncatedEnergy)} > 0,1 %`,
-                );
-            }
         }
     } finally {
         engine.close();

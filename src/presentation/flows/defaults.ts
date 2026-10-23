@@ -3,9 +3,16 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
+import { TracedDenoiser } from '../../elements/lighting/denoise/TracedDenoiser';
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import { RefractionFlow } from '../../elements/lighting/refraction/RefractionFlow';
+import { RefractionCompositeFlow } from './RefractionCompositeFlow';
+import { RefractionDenoiseFlow } from './RefractionDenoiseFlow';
+import { RefractionMotionFlow } from './RefractionMotionFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
+import { MaterialFunction } from '../../elements/extension/MaterialFunction';
+import { LOBES } from '../../elements/material/pbr/lobes';
+import type { Resource } from '../../scene/contracts/Resource';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
 import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
@@ -106,6 +113,11 @@ export interface PresentationDefaults {
     readonly antialiasing: TemporalAntialiasing;
     /** Refração traçada (spec 034): ligada e o limite de interfaces por caminho. */
     readonly refraction: Refraction;
+    /**
+     * Filtro do sinal traçado da refração (spec 034), com o antisserrilhado temporal: ligado e os quadros da média
+     * temporal (`defaults.denoiser.enabled = false` mostra a amostra crua).
+     */
+    readonly denoiser: TracedDenoiser;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -119,6 +131,7 @@ interface RegisteredDefaults {
     readonly presentation: ToneMapping;
     readonly antialiasing: TemporalAntialiasing;
     readonly refraction: Refraction;
+    readonly denoiser: TracedDenoiser;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
@@ -172,6 +185,9 @@ export function registerPresentationDefaults(
     // Refração traçada (spec 034): os alvos só são alocados quando um transmissivo é desenhado.
     const refraction = new Refraction();
     options.world.insert(refraction);
+    // O filtro do sinal traçado da refração (spec 034): os alvos só são alocados por quem filtra (com o temporal).
+    const denoiser = new TracedDenoiser();
+    options.world.insert(denoiser);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -179,10 +195,19 @@ export function registerPresentationDefaults(
     const ambient = new HemisphereLight();
     options.world.insert(ambient);
     const { flows: stages, registrations } = createPresentationDefaults(flows);
+    const events = options.events;
     const unsubscribe =
-        options.events === undefined
+        events === undefined
             ? undefined
-            : swapAmbientForGi(options.world, options.events, ambient, frameTargets);
+            : ((): (() => void) => {
+                  const offs = [
+                      swapAmbientForGi(options.world, events, ambient, frameTargets),
+                      raySceneForTransmissives(options.world, events),
+                  ];
+                  return () => {
+                      for (const off of offs) off();
+                  };
+              })();
     const defaults: PresentationDefaults = {
         ...stages,
         presentation,
@@ -190,6 +215,7 @@ export function registerPresentationDefaults(
         targets: frameTargets,
         antialiasing,
         refraction,
+        denoiser,
     };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
@@ -201,6 +227,7 @@ export function registerPresentationDefaults(
         presentation,
         antialiasing,
         refraction,
+        denoiser,
         pbrTables,
         ambient,
         world: options.world,
@@ -228,11 +255,36 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.antialiasing);
     entry.world.remove(entry.refraction);
+    entry.world.remove(entry.denoiser);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
     return true;
+}
+
+/** Lobos que fazem de uma função `material` um transmissivo (o que está atrás aparece através dele). */
+const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
+
+/**
+ * Estrutura de raios para a refração (spec 034, R1) por evento: o que um transmissivo mostra vem do traçado, que consulta
+ * a `RayScene` — com a GI desligada também. A entrada de uma função `material` transmissiva (ou uma já na cena) insere a
+ * `RayScene`, se a cena não tem. Devolve o cancelamento.
+ */
+function raySceneForTransmissives(world: World, events: EventBus): () => void {
+    const ensure = (resources: Iterable<Resource>): void => {
+        for (const r of resources) {
+            if (!(r instanceof MaterialFunction) || (r.lobeMask & TRANSMISSIVE_LOBES) === 0)
+                continue;
+            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
+                world.insert(new RayScene());
+            return;
+        }
+    };
+    for (const record of world.allRecords()) ensure(record.resources);
+    return events.on('resourcesChanged', (e) => {
+        ensure(e.added);
+    });
 }
 
 /**
@@ -268,7 +320,7 @@ function swapAmbientForGi(
 function createPresentationDefaults(flows: FlowRegistry): {
     flows: Omit<
         PresentationDefaults,
-        'presentation' | 'ambient' | 'targets' | 'antialiasing' | 'refraction'
+        'presentation' | 'ambient' | 'targets' | 'antialiasing' | 'refraction' | 'denoiser'
     >;
     registrations: readonly FlowRegistration[];
 } {
@@ -389,6 +441,25 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -65,
     });
+    // Filtro do sinal traçado da refração (T044a), com o antisserrilhado temporal: entre o traçado e a composição, que
+    // lê a cor filtrada.
+    const refractionDenoiseRegistration = flows.register((ctx) => new RefractionDenoiseFlow(ctx), {
+        type: 'refractionDenoise',
+        phase: 'forward',
+        priority: -66,
+    });
+    // Composição da refração traçada (T045) logo depois do traçado, antes da água: a água e a resolução veem a cor e a
+    // profundidade dos transmissivos.
+    const refractionCompositeRegistration = flows.register(
+        (ctx) => new RefractionCompositeFlow(ctx),
+        { type: 'refractionComposite', phase: 'forward', priority: -67 },
+    );
+    // Movimento do que a refração mostra (T044a), antes da água (que mistura o movimento dela sobre o do fundo).
+    const refractionMotionRegistration = flows.register((ctx) => new RefractionMotionFlow(ctx), {
+        type: 'refractionMotion',
+        phase: 'forward',
+        priority: -68,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -457,6 +528,9 @@ function createPresentationDefaults(flows: FlowRegistry): {
             causticsRegistration,
             fluidRegistration,
             refractionRegistration,
+            refractionDenoiseRegistration,
+            refractionCompositeRegistration,
+            refractionMotionRegistration,
             waterRegistration,
             postRegistration,
             debugRegistration,

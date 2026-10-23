@@ -7,9 +7,7 @@ import type {
     IndirectBufferSpec,
     RenderPass,
     RenderTarget,
-    SamplerSpec,
     StorageBufferSpec,
-    TextureSpec,
     TextureViewSpec,
     UniformBufferSpec,
     VertexBufferSpec,
@@ -67,7 +65,6 @@ import {
     forwardCameraAdapter,
     forwardCameraClip,
     forwardRefractionRequest,
-    forwardTransmission,
     transmissionResources,
 } from '../../elements/material/shaders';
 import {
@@ -75,14 +72,7 @@ import {
     REFRACTION_REQUEST_FORMAT,
 } from '../../elements/lighting/refraction/Refraction';
 import { LOBES } from '../../elements/material/pbr/lobes';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../scene/flows/createComputeKernel';
-import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import { LIGHT_FORMAT, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
-import { sceneCopyMips, sceneMipResources } from './shaders';
+import { LIGHT_FORMAT } from '../app/FrameTargets';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
     forwardMaterial,
@@ -144,7 +134,7 @@ export interface ForwardSlots extends SlotMap {
     readonly cameraFunctions: EntitiesSlot;
     /** Relógio da cena (tempo das funções `material`; opcional). */
     readonly time: SingletonSlot<true>;
-    /** Os alvos da cena (a cópia com mips e a espessura dos transmissivos, spec 011; opcional). */
+    /** Os alvos da cena (o passe de profundidade, spec 033; opcional). */
     readonly targets: SingletonSlot<true>;
     /** Vetores de movimento (`FrameTargets.motion`, spec 034; sem MSAA). */
     readonly motion: TextureSlot<true>;
@@ -152,7 +142,10 @@ export interface ForwardSlots extends SlotMap {
     readonly light: TextureSlot<true>;
     /** Antisserrilhado da cena: o passe de movimento vale com o modo temporal. */
     readonly antialiasing: SingletonSlot<true>;
-    /** Refração traçada (spec 034): com ela, os transmissivos marcam o pedido por pixel depois dos opacos. */
+    /**
+     * Refração traçada (spec 034): com ela, os transmissivos marcam o pedido por pixel depois dos opacos (o traçado e a
+     * composição desenham a cor deles); sem ela, não desenham.
+     */
     readonly refraction: SingletonSlot<true>;
 }
 
@@ -181,11 +174,11 @@ interface MaterialFnVariant extends PipelineVariant {
     readonly base: { readonly ccw: string; readonly cw: string };
     readonly ccw: string;
     readonly cw: string;
-    /** Transmissivos (spec 011): os pipelines das faces de trás e da frente, por orientação. */
+    /**
+     * Transmissivos (spec 011): fora do passe principal; com a `Refraction` na cena, os pipelines do pedido da refração
+     * (spec 034), por orientação.
+     */
     readonly transmission?: {
-        readonly back: { readonly ccw: string; readonly cw: string };
-        readonly front: { readonly ccw: string; readonly cw: string };
-        /** O pedido da refração (spec 034), com a `Refraction` na cena. */
         readonly request?: { readonly ccw: string; readonly cw: string };
     };
 }
@@ -193,16 +186,6 @@ interface MaterialFnVariant extends PipelineVariant {
 /** A função `material` faz da entidade um transmissivo (spec 011): lobo de transmissão, parede fina ou opacidade. */
 function isTransmissive(fn: MaterialFunction | undefined): boolean {
     return fn !== undefined && (fn.lobeMask & TRANSMISSIVE_LOBES) !== 0;
-}
-
-/** Cópia da cena com mips e os kernels da redução, por textura (recriados quando ela muda). */
-interface SceneCopyState {
-    readonly texture: TextureSpec;
-    readonly view: TextureViewSpec;
-    readonly levelViews: readonly TextureViewSpec[];
-    readonly storageViews: readonly TextureViewSpec[];
-    readonly kernels: readonly ComputeKernel[];
-    readonly sizes: readonly number[];
 }
 
 /** A `MaterialFunction` da entidade, se tem. */
@@ -308,7 +291,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly depthPipelines = new Map<string, string>();
     /** Pipeline de movimento de cada pipeline base de opaco (o mesmo vértice, o fragmento `fs_motion`; spec 034). */
     private readonly motionPipelines = new Map<string, string>();
-    /** O mesmo para a face da frente dos transmissivos, escrevendo só rg (ba fica com o movimento do que está atrás). */
+    /**
+     * O mesmo para a interface mais próxima dos transmissivos (as duas faces, na profundidade do pedido da refração),
+     * escrevendo só rg (ba fica com o movimento do que está atrás).
+     */
     private readonly surfaceMotionPipelines = new Map<string, string>();
     private readonly frameParams: UniformBufferSpec;
     /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
@@ -394,36 +380,24 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const name = fn.module.name;
             const ccw = `${base.ccw}|material:${name}`;
             const cw = `${base.cw}|material:${name}`;
-            const transmissive = isTransmissive(fn) && this.ensureTransmission(ctx);
+            const transmissive = isTransmissive(fn);
             const request = transmissive && this.ensureRefractionRequest(ctx);
             const transmission = transmissive
-                ? {
-                      back: { ccw: `${ccw}|back`, cw: `${cw}|back` },
-                      front: { ccw: `${ccw}|front`, cw: `${cw}|front` },
-                      ...(request
-                          ? { request: { ccw: `${ccw}|request`, cw: `${cw}|request` } }
-                          : {}),
-                  }
+                ? request
+                    ? { request: { ccw: `${ccw}|request`, cw: `${cw}|request` } }
+                    : {}
                 : undefined;
             const next: MaterialFnVariant = {
                 key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}${request ? '|request' : ''}`,
                 // A variante passa a valer quando o pipeline `id` compila: o do pedido, quando há (a entrada da
-                // refração troca a variante de uma entidade cujas camadas já compilaram).
-                id: transmission?.request?.ccw ?? transmission?.front.ccw ?? ccw,
+                // refração troca a variante de uma entidade cuja função já compilou).
+                id: transmission?.request?.ccw ?? ccw,
                 ids: [
                     ccw,
                     cw,
-                    ...(transmission === undefined
+                    ...(transmission?.request === undefined
                         ? []
-                        : [
-                              transmission.back.ccw,
-                              transmission.back.cw,
-                              transmission.front.ccw,
-                              transmission.front.cw,
-                              ...(transmission.request === undefined
-                                  ? []
-                                  : [transmission.request.ccw, transmission.request.cw]),
-                          ]),
+                        : [transmission.request.ccw, transmission.request.cw]),
                 ],
                 base,
                 ccw,
@@ -453,40 +427,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 };
                 const ready = variant(base.ccw, ccw);
                 variant(base.cw, cw);
-                if (transmission === undefined) return ready;
-                // Transmissivos: as duas camadas sobre a variante da função (o mesmo adaptador e os mesmos lobos).
-                const layer = (fromId: string, id: string, side: 'back' | 'front'): boolean => {
-                    const f = this.baseDescriptors.get(fromId)!;
-                    return ctx.prepare({
-                        ...f,
-                        id,
-                        shader: bindPoints(
-                            ctx.bound.slots.target.sampleCount > 1
-                                ? forwardTransmission.multisampled
-                                : forwardTransmission.single,
-                            new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
-                        ),
-                        entryPoints: [
-                            'vs_main',
-                            side === 'back' ? 'fs_transmission_back' : 'fs_transmission_front',
-                        ],
-                        cullMode: side === 'back' ? 'front' : 'back',
-                        colorTargets:
-                            side === 'back'
-                                ? [{ format: SCENE_COLOR_FORMAT }, { format: 'r16float' }]
-                                : [{ format: SCENE_COLOR_FORMAT }],
-                        // Trás: a mais distante por pixel na profundidade própria (descasque); frente: a da cena.
-                        depth: {
-                            format: 'depth24plus',
-                            depthWriteEnabled: true,
-                            depthCompare: side === 'back' ? 'greater' : 'less',
-                        },
-                    }).ready;
-                };
-                layer(ccw, transmission.back.ccw, 'back');
-                layer(cw, transmission.back.cw, 'back');
-                const frontReady = layer(ccw, transmission.front.ccw, 'front');
-                layer(cw, transmission.front.cw, 'front');
+                if (transmission?.request === undefined) return ready;
                 // Pedido da refração (spec 034): as duas faces, sem amostras, na profundidade própria.
                 const requestLayer = (fromId: string, id: string): boolean => {
                     const f = this.baseDescriptors.get(fromId)!;
@@ -510,12 +451,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         multisample: { count: 1 },
                     }).ready;
                 };
-                let requestReady = true;
-                if (transmission.request !== undefined) {
-                    requestReady = requestLayer(ccw, transmission.request.ccw);
-                    requestLayer(cw, transmission.request.cw);
-                }
-                return ready && frontReady && requestReady;
+                const requestReady = requestLayer(ccw, transmission.request.ccw);
+                requestLayer(cw, transmission.request.cw);
+                return ready && requestReady;
             });
         }
         this.materialFns.retain(ctx, present);
@@ -570,12 +508,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     );
     /** As funções `material` (conjunto ou código) mudaram desde a última sincronização. */
     private materialFnDirty = true;
-    /** Amostrador linear com mips da cópia da cena (transmissivos, spec 011). */
-    private copySampler: SamplerSpec | undefined;
-    /** Cópia da cena com mips e os kernels da redução. */
-    private sceneCopy: SceneCopyState | undefined;
-    /** Views ligadas às variáveis dos transmissivos (religadas quando mudam). */
-    private transmissionBound: readonly unknown[] = [];
+    /** A profundidade dos opacos ligada ao pedido da refração (religada quando muda). */
+    private sceneDepthBound: TextureViewSpec | undefined;
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
         super();
@@ -675,7 +609,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
                         this.syncMaterialFunctions(c);
-                        this.syncSceneCopy(c);
+                        this.bindSceneDepth(c);
                         this.syncProjection(c);
                         this.prepareBackground(c);
                         this.prepareIndirect(c);
@@ -689,9 +623,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /**
      * Grava o passe principal: um desenho por grupo de instâncias; grupos de bind compartilhados uma vez; pipeline e
-     * grupo do material só quando o pipeline muda. Com transmissivos (spec 011), eles saem do passe principal e vão a
-     * duas camadas depois dele: a cor resolvida é copiada para a cópia com mips, as faces de trás desenham (com a
-     * distância delas), a cópia é refeita e as faces da frente desenham sobre ela.
+     * grupo do material só quando o pipeline muda. Os transmissivos (spec 011) saem do passe principal: depois dele, com
+     * a `Refraction`, marcam o pedido da refração (spec 034) — a cor deles vem do traçado e da composição, depois deste
+     * estágio — e, com o antisserrilhado temporal, o movimento da superfície na profundidade do pedido.
      */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
@@ -750,17 +684,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         });
         this.recordMotion(frame, bound, opaque, 'clear');
         this.recordRefractionRequest(frame, bound, transmissive);
-        if (transmissive.length > 0) {
-            this.recordTransmission(frame, bound, transmissive);
-            this.recordMotion(frame, bound, transmissive, 'load');
-        }
+        if (transmissive.length > 0) this.recordMotion(frame, bound, transmissive, 'load');
     }
 
     /**
      * Passe de movimento (spec 034): com o antisserrilhado temporal e o alvo de movimento, os opacos de novo só no vértice
      * (a profundidade do passe principal, teste igual) escrevendo o deslocamento de cada pixel desde o quadro anterior
-     * (`clear`); depois da transmissão, a face da frente dos transmissivos (a profundidade dela) reescreve só o da
-     * superfície (`load`), e o do que está atrás fica — a resolução o usa para o que o transmissivo mostra. O fundo
+     * (`clear`); depois do pedido da refração, a interface mais próxima dos transmissivos (as duas faces, teste igual na
+     * profundidade do pedido) reescreve só o da superfície (`load`), e o do que está atrás fica — a resolução o usa para o
+     * que o transmissivo mostra. O fundo
      * (nenhuma geometria) fica com zero: a resolução usa a reprojeção pela câmera onde a profundidade é a do plano
      * distante.
      */
@@ -772,7 +704,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     ): void {
         const motion = bound.slots.motion;
         const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
-        const depth = bound.slots.target.depth;
+        const depth =
+            load === 'clear'
+                ? bound.slots.target.depth
+                : bound.slots.refraction?.textureViewOf('requestDepth');
         if (motion === undefined || depth === undefined || aa?.mode !== 'temporal') return;
         const target: RenderTarget = {
             colorAttachments: [
@@ -891,88 +826,22 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     }
 
     /**
-     * Aloca o pedido da refração e a profundidade dele (spec 034) quando a cena tem a `Refraction`: `false` sem ela (os
-     * transmissivos ficam só com as duas camadas).
+     * Aloca o pedido da refração e a profundidade dele (spec 034) quando a cena tem a `Refraction` e liga a profundidade
+     * dos opacos ao pedido: `false` sem ela (os transmissivos não desenham).
      */
     private ensureRefractionRequest(ctx: Ctx): boolean {
         const refraction = ctx.bound.slots.refraction?.resource;
         if (refraction === undefined) return false;
         this.resources.ensureAllocated(refraction, 'request');
         this.resources.ensureAllocated(refraction, 'requestDepth');
+        this.bindSceneDepth(ctx);
         return true;
     }
 
-    /** Pipelines de transmissivo da entidade (as duas camadas), se a função dela os tem e estão prontos. */
+    /** Pipelines de transmissivo da entidade (o pedido, com a `Refraction`), se a função dela os tem. */
     private transmissionOf(entry: EntityEntry): MaterialFnVariant['transmission'] {
         if (!isTransmissive(materialFunctionOf(entry))) return undefined;
         return this.materialFns.active(entry.entityId)?.transmission;
-    }
-
-    /**
-     * As duas camadas dos transmissivos (spec 011, R6). Sem a cópia da cena ou com os pipelines compilando, os
-     * transmissivos esperam (não desenham pela metade).
-     */
-    private recordTransmission(
-        frame: Frame,
-        bound: BoundFlow<ForwardSlots>,
-        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
-    ): void {
-        const target = bound.slots.target;
-        const targets = bound.slots.targets?.resource;
-        const colorView = this.colorView(frame, target);
-        if (targets === undefined || colorView === undefined || target.depth === undefined) return;
-        const colorTexture = colorView.source;
-        const depthResolved = this.resources.textureViewOf(targets, 'transmissionDepth');
-        const depthSamples = this.resources.textureViewOf(targets, 'transmissionSamples');
-        const backZ = this.resources.textureViewOf(targets, 'transmissionZ');
-        if (this.sceneCopy === undefined || depthResolved === undefined || backZ === undefined)
-            return;
-        const color = this.colorAttachment(frame, target, { loadOp: 'load' })!;
-        const distance =
-            target.samples !== undefined && depthSamples !== undefined
-                ? { view: depthSamples, resolveTarget: depthResolved }
-                : { view: depthResolved };
-        const depth = {
-            view: target.depth,
-            depthLoadOp: 'load' as const,
-            depthStoreOp: 'store' as const,
-        };
-        const pick =
-            (side: 'back' | 'front') =>
-            (entry: EntityEntry, id: string): string | undefined => {
-                const t = this.transmissionOf(entry);
-                if (t === undefined) return undefined;
-                const v = this.materialFns.active(entry.entityId)!;
-                return id === v.base.cw ? t[side].cw : t[side].ccw;
-            };
-        this.recordSceneCopy(frame, colorTexture);
-        frame.render(
-            {
-                colorAttachments: [
-                    color,
-                    { ...distance, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
-                ],
-                // Profundidade própria limpa em 0: o teste `greater` guarda a face de trás mais distante.
-                depthStencilAttachment: {
-                    view: backZ,
-                    depthClearValue: 0,
-                    depthLoadOp: 'clear',
-                    depthStoreOp: 'store',
-                },
-            },
-            'ForwardFlow.transmissionBack',
-            (pass) => {
-                this.recordGroups(pass, bound, groups, pick('back'));
-            },
-        );
-        this.recordSceneCopy(frame, colorTexture);
-        frame.render(
-            { colorAttachments: [color], depthStencilAttachment: depth },
-            'ForwardFlow.transmissionFront',
-            (pass) => {
-                this.recordGroups(pass, bound, groups, pick('front'));
-            },
-        );
     }
 
     /**
@@ -1102,130 +971,25 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         }
     }
 
-    /**
-     * Prepara os recursos dos transmissivos (spec 011): aloca a cópia da cena com mips e a espessura nos alvos, cria o
-     * amostrador e liga as três variáveis privadas — antes de preparar o primeiro pipeline de transmissivo. `false` sem
-     * os alvos da cena (desenho direto no canvas: sem transmissivos).
-     */
-    private ensureTransmission(ctx: Ctx): boolean {
-        const targets = ctx.bound.slots.targets?.resource;
-        if (targets === undefined) return false;
-        for (const id of ['sceneCopy', 'transmissionDepth', 'transmissionSamples', 'transmissionZ'])
-            if (targets.getDescriptors().some((d) => d.id === id))
-                this.resources.ensureAllocated(targets, id);
-        this.copySampler ??= this.core.create<SamplerSpec>({
-            kind: 'sampler',
-            discriminator: 'forward_scene_copy_sampler',
-            desc: {
-                magFilter: 'linear',
-                minFilter: 'linear',
-                mipmapFilter: 'linear',
-                addressModeU: 'clamp-to-edge',
-                addressModeV: 'clamp-to-edge',
-            },
-        });
-        this.syncSceneCopy(ctx);
-        return this.sceneCopy !== undefined;
-    }
-
-    /**
-     * Cópia da cena com mips (spec 011): com transmissivos, views por nível e um kernel de redução por nível, refeitos
-     * quando a textura muda (redimensionamento); as variáveis dos transmissivos religadas quando as views mudam.
-     */
-    private syncSceneCopy(ctx: Ctx): void {
-        const targets = ctx.bound.slots.targets?.resource;
-        if (targets === undefined || this.copySampler === undefined) return;
-        const texture = this.resources.textureOf(targets, 'sceneCopy');
-        const depthView = this.resources.textureViewOf(targets, 'transmissionDepth');
-        if (texture === undefined || depthView === undefined) return;
-        if (this.sceneCopy?.texture !== texture) {
-            this.releaseSceneCopy();
-            const levels = texture.mipLevelCount ?? 1;
-            const view = (base: number, count: number | undefined, tag: string): TextureViewSpec =>
-                this.core.create<TextureViewSpec>({
-                    kind: 'textureview',
-                    discriminator: `forward_scene_copy_${tag}:${texture.width}x${texture.height}`,
-                    source: texture,
-                    baseMipLevel: base,
-                    ...(count !== undefined ? { mipLevelCount: count } : {}),
-                });
-            const levelViews = Array.from({ length: levels }, (_, l) => view(l, 1, `l${l}`));
-            const storageViews = levelViews;
-            const sampler = this.copySampler;
-            const kernels = Array.from({ length: Math.max(levels - 1, 0) }, (_, k) =>
-                createComputeKernel(this.core, {
-                    discriminator: `forward_scene_mip_${k + 1}:${texture.width}x${texture.height}`,
-                    shader: sceneCopyMips,
-                    entryPoint: 'scene_copy_down',
-                    bindings: new Map<WgslResource, BindingSource>([
-                        [sceneMipResources.src, levelViews[k]!],
-                        [sceneMipResources.dst, storageViews[k + 1]!],
-                        [sceneMipResources.sampler, sampler],
-                    ]),
-                }),
-            );
-            const sizes = Array.from(
-                { length: levels },
-                (_, l) => Math.max(texture.width >> l, 1) * Math.max(texture.height >> l, 1),
-            );
-            this.sceneCopy = {
-                texture,
-                view: view(0, undefined, 'all'),
-                levelViews,
-                storageViews,
-                kernels,
-                sizes,
-            };
-        }
+    /** A profundidade dos opacos (com ou sem amostras) ligada ao pedido da refração, religada quando muda. */
+    private bindSceneDepth(ctx: Ctx): void {
         const sceneDepth = ctx.bound.slots.target.depth;
-        if (sceneDepth === undefined) return;
-        const sources = [this.sceneCopy.view, this.copySampler, depthView, sceneDepth];
-        if (sources.some((v, k) => v !== this.transmissionBound[k])) {
-            ctx.bind(
-                new Map<BindingKey, BindingSource>([
-                    [transmissionResources.sceneCopy, this.sceneCopy.view],
-                    [transmissionResources.sampler, this.copySampler],
-                    [transmissionResources.depth, depthView],
-                    [
-                        ctx.bound.slots.target.sampleCount > 1
-                            ? transmissionResources.sceneDepthMs
-                            : transmissionResources.sceneDepth,
-                        sceneDepth,
-                    ],
-                ]),
-            );
-            this.transmissionBound = sources;
-        }
-    }
-
-    private releaseSceneCopy(): void {
-        const copy = this.sceneCopy;
-        if (copy === undefined) return;
-        for (const k of copy.kernels) destroyComputeKernel(this.core, k);
-        for (const v of copy.levelViews) this.core.destroy(v);
-        this.core.destroy(copy.view);
-        this.sceneCopy = undefined;
-    }
-
-    /** Copia a cor resolvida da cena para a cópia e reduz os mips (compute). */
-    private recordSceneCopy(frame: Frame, color: TextureSpec): void {
-        const copy = this.sceneCopy;
-        if (copy === undefined) return;
-        frame.copyTextureToTexture(color, copy.texture, [copy.texture.width, copy.texture.height]);
-        if (copy.kernels.length === 0) return;
-        frame.compute('ForwardFlow.sceneCopy', (pass) => {
-            copy.kernels.forEach((kernel, k) => {
-                pass.bind.setPipeline(kernel.pipeline);
-                kernel.bindTo(pass.bind);
-                pass.dispatch.invocations(copy.sizes[k + 1]!, WORKGROUP_SIZE.value);
-            });
-        });
+        if (sceneDepth === undefined || sceneDepth === this.sceneDepthBound) return;
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [
+                    ctx.bound.slots.target.sampleCount > 1
+                        ? transmissionResources.sceneDepthMs
+                        : transmissionResources.sceneDepth,
+                    sceneDepth,
+                ],
+            ]),
+        );
+        this.sceneDepthBound = sceneDepth;
     }
 
     /** Libera os recursos privados. */
     override dispose(): void {
-        this.releaseSceneCopy();
-        if (this.copySampler !== undefined) this.core.destroy(this.copySampler);
         for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
         this.indirectArgs.clear();
         for (const spec of [this.frameParams, this.dummyDiff]) this.core.destroy(spec);
@@ -1336,6 +1100,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     const motionOf = (surface: boolean): PipelineDescriptor => ({
                         ...descriptor,
                         id: `${descriptor.id}:${surface ? 'surfaceMotion' : 'motion'}`,
+                        // A superfície dos transmissivos: as duas faces, como o pedido (a mais próxima passa no igual).
+                        ...(surface ? { cullMode: 'none' as const } : {}),
                         entryPoints: [
                             ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
                             'fs_motion',

@@ -5,6 +5,7 @@ import {
     closureAdd,
     closureDiffuse,
     closureMediumPriority,
+    closureThinWalled,
     closureMix,
     closureTransmission,
     flattenClosure,
@@ -66,5 +67,16 @@ describe('base do OpenPBR — referência de CPU', () => {
         const flat = flattenClosure(glass);
         expect(flat).toHaveLength(CLOSURE_SIZE);
         expect(unflattenClosure(flat)).toEqual(glass);
+    });
+
+    it('parede fina (spec 034): padrão 0; só a marca muda; soma, mistura e achatamento a mantêm', () => {
+        const glass = closureTransmission(1.5, [0.5, 0.6, 0.7], 2, 30, 0.2);
+        const pane = closureThinWalled(glass);
+        expect(glass.transmission_thin).toBe(0);
+        expect(pane).toEqual({ ...glass, transmission_thin: 1 });
+        expect(closureAdd(glass, pane).transmission_thin).toBe(1);
+        expect(closureAdd(closureDiffuse([1, 1, 1], 0), pane).transmission_thin).toBe(1);
+        expect(closureMix(glass, pane, 0.3).transmission_thin).toBe(1);
+        expect(unflattenClosure(flattenClosure(pane))).toEqual(pane);
     });
 });

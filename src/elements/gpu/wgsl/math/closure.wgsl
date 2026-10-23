@@ -66,6 +66,9 @@ struct Closure {
     // Prioridade do meio na sobreposição de volumes transmissivos (a maior vale dentro da interseção; empate: o último
     // em que o raio entrou). Padrão 0.
     transmission_priority: f32,
+    // Parede fina (0 ou 1): a superfície é uma placa de espessura zero, sem interior — a luz atravessa sem desviar, com
+    // as reflexões entre as duas faces; nenhum meio entra na pilha. Padrão 0 (a superfície fecha um volume).
+    transmission_thin: f32,
     // Parede fina: transmissão difusa sem refração.
     translucent_weight: f32,
     translucent_color: vec3f,
@@ -151,6 +154,15 @@ fn closure_transmission(ior: f32, color: vec3f, depth: f32, abbe: f32, roughness
 fn closure_medium_priority(c: Closure, priority: f32) -> Closure {
     var o = c;
     o.transmission_priority = priority;
+    return o;
+}
+
+// Transmissão de `c` como parede fina (o `thin_walled` do OpenPBR): placa de espessura zero, sem interior — vidraça,
+// bolha, folha de plástico modeladas por uma superfície só. A luz atravessa sem desviar e reflete com as reflexões
+// múltiplas entre as duas faces (2R/(1 + R)); a absorção e a rugosidade da transmissão não valem nela.
+fn closure_thin_walled(c: Closure) -> Closure {
+    var o = c;
+    o.transmission_thin = 1.0;
     return o;
 }
 
@@ -269,6 +281,7 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.transmission_abbe = closure_merge1(a.transmission_abbe, wta, b.transmission_abbe, wtb);
     o.transmission_roughness = closure_merge_roughness(a.transmission_roughness, wta, b.transmission_roughness, wtb);
     o.transmission_priority = max(a.transmission_priority, b.transmission_priority);
+    o.transmission_thin = max(a.transmission_thin, b.transmission_thin);
     o.translucent_weight = a.translucent_weight + b.translucent_weight;
     o.translucent_color = closure_merge3(a.translucent_color, a.translucent_weight, b.translucent_color, b.translucent_weight);
     o.emission = a.emission + b.emission;
@@ -378,10 +391,11 @@ fn closure_sanitize(c: Closure) -> Closure {
     o.sheen_weight = select(0.0, max(c.sheen_weight, 0.0), ok_sh);
     let ok_t = finite3(vec3f(c.transmission_weight, c.transmission_depth, c.transmission_ior))
         && finite3(vec3f(c.transmission_abbe, c.transmission_roughness, c.transmission_priority))
-        && finite3(c.transmission_color);
+        && finite3(c.transmission_color) && finite3(vec3f(c.transmission_thin, 0.0, 0.0));
     o.transmission_weight = select(0.0, max(c.transmission_weight, 0.0), ok_t);
     o.transmission_ior = select(1.5, max(c.transmission_ior, 1.0), ok_t);
     o.transmission_priority = select(0.0, c.transmission_priority, ok_t);
+    o.transmission_thin = select(0.0, 1.0, ok_t && c.transmission_thin > 0.5);
     let ok_tl = finite3(vec3f(c.translucent_weight, 0.0, 0.0)) && finite3(c.translucent_color);
     o.translucent_weight = select(0.0, max(c.translucent_weight, 0.0), ok_tl);
     o.emission = select(vec3f(0.0), clamp(c.emission, vec3f(0.0), vec3f(65000.0)), finite3(c.emission));

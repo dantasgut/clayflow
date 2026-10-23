@@ -10,6 +10,8 @@ import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
+import { Refraction } from './lighting/refraction/Refraction';
+import { TracedDenoiser } from './lighting/denoise/TracedDenoiser';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
@@ -59,6 +61,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     ...(['params', 'data', 'counts'] as const).map(
         (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
     ),
+    // A refração traçada (spec 034): o uniform (limite de interfaces, câmera, luzes, quadro, tempo).
+    new SingletonResolver(Refraction.schema, 'params', { name: 'Refraction.params' }),
+    // O filtro de sinal traçado (spec 034): o uniform (ligado, quadros da média).
+    new SingletonResolver(TracedDenoiser.schema, 'params', { name: 'TracedDenoiser.params' }),
     // Os froxels dos meios participantes (spec 033, R12): parâmetros, o buffer dos meios, a névoa integrada, os
     // históricos, a luz ambiente e o amostrador.
     ...(['params', 'media', 'scatter', 'history0', 'history1', 'ambient', 'sampler'] as const).map(

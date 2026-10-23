@@ -33,8 +33,7 @@ export const LIGHT_FORMAT: GPUTextureFormat = 'rg16float';
  * Alvos da cena do quadro (Camada 4): a cor (`color`, HDR em `rgba16float`, lida pelo pós e pela apresentação) e a
  * profundidade (`depth`, `depth24plus`), do tamanho do canvas e recriadas pela C2 quando ele muda. Com MSAA (spec 008,
  * `samples: 4`, o padrão), também a cor multiamostrada (`samples`): os passes da cena desenham nela e resolvem na
- * `color`; a profundidade tem as mesmas amostras. A cópia da cena com mips (`sceneCopy`, spec 011) é alocada sob
- * demanda, por quem a lê (refração da água e dos transmissivos). Um por cena, inserido pela aplicação.
+ * `color`; a profundidade tem as mesmas amostras. Um por cena, inserido pela aplicação.
  */
 export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
     /** Identidade dos alvos na cena (o World indexa pelo schema da classe); sem dados de GPU próprios. */
@@ -68,6 +67,14 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                           role: 'texture' as const,
                           textureShape: { format: 'rgba16float' as const, sizeFromCanvas: true },
                       },
+                      // Máscara reativa (spec 034, T044a): 1 onde o que o pixel mostra mudou de um quadro para o outro sem
+                      // que o vetor de movimento o leve até lá (o conteúdo visto pelo vidro) — a resolução temporal
+                      // recomeça o histórico ali. Escrita por quem sabe da mudança (a refração), lida pela resolução.
+                      {
+                          id: 'reactive',
+                          role: 'texture' as const,
+                          textureShape: { format: 'r8unorm' as const, sizeFromCanvas: true },
+                      },
                       // A luz que chega ao ponto de cada pixel (spec 034), sem a textura (a radiância refletida sobre a
                       // refletância do fechamento): r a direta, g toda (a direta mais a rebatida). Escrita pelo passe
                       // principal do forward e lida pela resolução temporal: a direta separa a sombra ou a luz que passa
@@ -79,36 +86,6 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                       },
                   ]
                 : []),
-            {
-                // Cópia da cor resolvida com a cadeia de mips (borrada por nível): o que está atrás, para refratar.
-                id: 'sceneCopy',
-                role: 'storage-texture',
-                allocation: 'onDemand',
-                textureShape: {
-                    format: SCENE_COLOR_FORMAT,
-                    sizeFromCanvas: true,
-                    mipLevelCount: 'full',
-                    access: 'write-only',
-                },
-            },
-            {
-                // Distância às faces de trás dos transmissivos (spec 011): a espessura da camada da frente.
-                id: 'transmissionDepth',
-                role: 'texture',
-                allocation: 'onDemand',
-                textureShape: { format: 'r16float', sizeFromCanvas: true },
-            },
-            {
-                // Profundidade própria da camada de trás dos transmissivos (spec 011): a face mais distante por pixel.
-                id: 'transmissionZ',
-                role: 'texture',
-                allocation: 'onDemand',
-                textureShape: {
-                    format: 'depth24plus',
-                    sizeFromCanvas: true,
-                    ...(samples > 1 ? { sampleCount: samples } : {}),
-                },
-            },
             {
                 id: 'depth',
                 role: 'texture',
@@ -125,17 +102,6 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                           role: 'texture' as const,
                           textureShape: {
                               format: SCENE_COLOR_FORMAT,
-                              sizeFromCanvas: true,
-                              sampleCount: samples,
-                          },
-                      },
-                      {
-                          // A distância das faces de trás com as amostras do passe (resolvida em `transmissionDepth`).
-                          id: 'transmissionSamples',
-                          role: 'texture' as const,
-                          allocation: 'onDemand' as const,
-                          textureShape: {
-                              format: 'r16float' as const,
                               sizeFromCanvas: true,
                               sampleCount: samples,
                           },
