@@ -38,8 +38,11 @@ export interface RefractionDenoiseSlots extends SlotMap {
     readonly refraction: SingletonSlot<false>;
     /** O filtro de sinal traçado da cena (os alvos e os parâmetros); sem ele, a composição usa a amostra crua. */
     readonly denoiser: SingletonSlot<true>;
-    /** Vetores de movimento (`FrameTargets.motion`, só sem MSAA): o rg é o da superfície dos transmissivos. */
-    readonly motion: TextureSlot<false>;
+    /**
+     * Vetores de movimento (`FrameTargets.motion`; o rg é o da superfície dos transmissivos): só existem sem MSAA.
+     * Opcional — sem eles o filtro não roda (um slot obrigatório deixaria o motor pendente em toda cena com MSAA).
+     */
+    readonly motion: TextureSlot<true>;
     /** O antisserrilhado da cena: só com o temporal (o movimento existe e a imagem acumula). */
     readonly antialiasing: SingletonSlot<true>;
 }
@@ -101,7 +104,7 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
     readonly slots: RefractionDenoiseSlots = {
         refraction: slot.singleton(Refraction.schema),
         denoiser: slot.singleton(TracedDenoiser.schema, { optional: true }),
-        motion: slot.texture(FrameTargets.schema, 'motion'),
+        motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
@@ -205,7 +208,8 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
             view(refraction, id),
         );
         const targets = TARGETS.map((id) => view(denoiser, id));
-        const motion = c.bound.slots.motion.view;
+        const motion = c.bound.slots.motion?.view;
+        if (motion === undefined) return false;
         const sources = [...signal, ...targets, motion];
         if (sources.some((s) => s === undefined)) return false;
         if (sources.some((s, k) => s !== this.bound[k])) {
