@@ -3,14 +3,8 @@ import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory'
 import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
-import { RenderFlow } from '../../scene/flows/RenderFlow';
-import {
-    slot,
-    type SingletonSlot,
-    type SlotMap,
-    type TargetSlot,
-    type TextureSlot,
-} from '../../scene/flows/slots';
+import { Flow } from '../../scene/flows/Flow';
+import { slot, type SingletonSlot, type SlotMap, type TextureSlot } from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import {
@@ -24,10 +18,13 @@ import { FrameTargets } from '../app/FrameTargets';
 export interface RefractionMotionSlots extends SlotMap {
     /** A refração da cena (o pedido e o ponto que cada pixel com pedido mostra). */
     readonly refraction: SingletonSlot<false>;
-    /** Vetores de movimento (`FrameTargets.motion`, só sem MSAA): sem eles o estágio fica pendente. */
-    readonly target: TargetSlot;
-    /** A máscara reativa (`FrameTargets.reactive`): onde o histórico recomeça. */
-    readonly reactive: TextureSlot<false>;
+    /**
+     * Vetores de movimento (`FrameTargets.motion`): só existem sem MSAA. Opcional — sem eles o estágio não roda (um
+     * slot obrigatório deixaria o motor pendente, e `whenReady` sem resposta, em toda cena com MSAA).
+     */
+    readonly motion: TextureSlot<true>;
+    /** A máscara reativa (`FrameTargets.reactive`, também só sem MSAA): onde o histórico recomeça. */
+    readonly reactive: TextureSlot<true>;
     /** O antisserrilhado da cena: só o temporal lê os vetores. */
     readonly antialiasing: SingletonSlot<true>;
 }
@@ -50,12 +47,12 @@ const BEHIND_ONLY = 0x4 | 0x8;
  * antisserrilhado temporal; no quadro em que o traçado não produziu, só limpa a máscara. O traçado não sabe de
  * movimento.
  */
-export class RefractionMotionFlow extends RenderFlow<RefractionMotionSlots, 'idle'> {
+export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
     readonly type = 'RefractionMotionFlow';
     readonly slots: RefractionMotionSlots = {
         refraction: slot.singleton(Refraction.schema),
-        target: slot.target({ color: { schema: FrameTargets.schema, descId: 'motion' } }),
-        reactive: slot.texture(FrameTargets.schema, 'reactive'),
+        motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+        reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
@@ -94,20 +91,27 @@ export class RefractionMotionFlow extends RenderFlow<RefractionMotionSlots, 'idl
     dispatch(frame: Frame, bound: BoundFlow<RefractionMotionSlots>): void {
         const refraction = bound.slots.refraction.resource;
         const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
-        if (this.pipeline === undefined || aa?.mode !== 'temporal') return;
+        const motion = bound.slots.motion;
+        const mask = bound.slots.reactive;
+        if (
+            this.pipeline === undefined
+            || aa?.mode !== 'temporal'
+            || motion === undefined
+            || mask === undefined
+        )
+            return;
         const reactive = {
-            view: bound.slots.reactive.view,
+            view: mask.view,
             loadOp: 'clear' as const,
             clearValue: [0, 0, 0, 0] as const,
             storeOp: 'store' as const,
         };
         const prepared = bound.pipelines.get(this.pipeline);
-        const color = this.colorAttachment(frame, bound.slots.target, { loadOp: 'load' });
+        const color = { view: motion.view, loadOp: 'load' as const, storeOp: 'store' as const };
         if (
             !this.resources.isProduced(refraction, 'radiance')
             || prepared?.role !== 'render'
             || !prepared.ready
-            || color === undefined
         ) {
             // Nada traçado neste quadro: nenhum pixel recomeça por aqui.
             frame.render({ colorAttachments: [reactive] }, 'RefractionMotionFlow.clear', () => {});

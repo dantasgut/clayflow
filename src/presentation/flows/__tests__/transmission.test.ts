@@ -223,6 +223,31 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
     );
 
     it.each([
+        [4, 'temporal'],
+        [4, 'msaa'],
+        [1, 'off'],
+    ] as const)(
+        'sem o alvo de movimento (%i amostra(s), %s): o movimento e o filtro da refração não deixam o motor pendente',
+        async (samples, mode) => {
+            const s = await scene(true, { samples, composite: true, motion: mode });
+            s.scene.world.insert(new TracedDenoiser());
+            s.scene.flows.register((ctx) => new RefractionDenoiseFlow(ctx), {
+                type: 'refractionDenoise',
+                phase: 'forward',
+                priority: -66,
+            });
+            for (let k = 0; k < 3; k++) {
+                s.step();
+                for (let i = 0; i < 30; i++) await Promise.resolve();
+            }
+            const pending = s.scene.resourceSystem.readiness.pending.map((p) => p.flow);
+            expect(pending).not.toContain('RefractionMotionFlow');
+            expect(pending).not.toContain('RefractionDenoiseFlow');
+            expect(s.computes()).not.toContain('RefractionDenoiseFlow.temporal');
+        },
+    );
+
+    it.each([
         ['temporal', true],
         ['accumulate', false],
     ] as const)(
