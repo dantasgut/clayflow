@@ -901,9 +901,13 @@ function channelAt(channel: number, dispersive: boolean, pick: number): number {
     return dispersive && channel < 0 ? Math.min(2, Math.floor(pick * 3)) : channel;
 }
 
-/** Saída de uma interface: refletida volta para o lado de chegada (`nf`), atravessada segue para o outro. */
-function leave(p: Vec3, nf: Vec3, reflected: boolean, rest: Omit<Crossing, 'origin'>): Crossing {
-    return { ...rest, origin: add(p, scale(nf, (reflected ? 1 : -1) * EPS * 10)) };
+/**
+ * Saída de uma interface: o raio seguinte parte do próprio ponto (a interseção ignora acertos a menos de `EPS`). Nada
+ * de afastar a origem pela normal: o deslocamento lateral muda onde o raio cai, e numa lupa (ampliação forte perto das
+ * dobras da cáustica) 1 mm no ponto de saída cria ou apaga traços inteiros da imagem.
+ */
+function leave(p: Vec3, rest: Omit<Crossing, 'origin'>): Crossing {
+    return { ...rest, origin: p };
 }
 
 /**
@@ -932,7 +936,7 @@ function crossThinWall(
     const nf = dot(hit.normal, d) < 0 ? hit.normal : scale(hit.normal, -1);
     const reflected = u < (2 * r) / (1 + r);
     const dir = reflected ? sub(d, scale(nf, 2 * dot(d, nf))) : d;
-    return leave(p, nf, reflected, { stack: [...stack], channel, dir, weight: 1 });
+    return leave(p, { stack: [...stack], channel, dir, weight: 1 });
 }
 
 /** A pilha depois de cruzar as bordas dadas: sai de quem a normal aponta para fora no sentido do raio, entra nos outros. */
@@ -977,10 +981,9 @@ function crossDielectric(
     const after = stackAfter(stack, d, crossings);
     const before = currentMedium(stack);
     const next = currentMedium(after);
-    const nf = dot(hit.normal, d) < 0 ? hit.normal : scale(hit.normal, -1);
     // A borda de um meio que não é o corrente nem passa a ser: não é interface, o raio segue.
     if (before?.object === next?.object) {
-        return leave(p, nf, false, { stack: after, channel: channel0, dir: d, weight: 1 });
+        return leave(p, { stack: after, channel: channel0, dir: d, weight: 1 });
     }
     const dispersive = (before?.medium.abbe ?? 0) > 0 || (next?.medium.abbe ?? 0) > 0;
     const channel = channelAt(channel0, dispersive, pick);
@@ -997,7 +1000,7 @@ function crossDielectric(
         u,
     );
     if (sample === null) return null;
-    return leave(p, nf, !sample.transmitted, {
+    return leave(p, {
         stack: sample.transmitted ? after : [...stack],
         channel,
         dir: sample.dir,
