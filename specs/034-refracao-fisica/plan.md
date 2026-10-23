@@ -98,6 +98,8 @@ src/scene/readiness/EngineReadiness.ts (NOVO); scene/events/EventMap.ts
 src/elements/raytrace/hitMaterial.ts (NOVO), shaders.ts, RaySceneFlow.ts   # material e footprint nos acertos (R2)
 src/elements/lighting/refraction/Refraction.ts, RefractionFlow.ts (NOVOS)  # (R1)
 src/elements/gpu/wgsl/refraction/*.wgsl (NOVOS)                            # fila, pilha, interface, traçado
+src/elements/lighting/denoise/TracedDenoiser.ts, shaders.ts; gpu/wgsl/denoise/*.wgsl (NOVOS)  # filtro do sinal traçado (R3a, em avaliação)
+src/presentation/flows/RefractionCompositeFlow.ts, RefractionDenoiseFlow.ts, RefractionMotionFlow.ts (NOVOS)  # composição, filtro, movimento
 src/elements/scene/Camera.ts, flows/CameraFlow.ts, gpu/wgsl/kernels/camera_compose*.wgsl  # jitter, anteriores (R3)
 src/elements/scene/Transform.ts, flows/TransformFlow.ts             # worldsPrevious
 src/elements/geometry/SurfaceFlow.ts, physics/flows/SoftSurfaceFlow.ts, scene/graph/GraphFlow.ts  # vértices anteriores

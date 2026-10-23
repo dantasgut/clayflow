@@ -95,6 +95,26 @@ mais a medida das manchas (spec, Contexto). Das tentativas anteriores entram só
 - **Referência**: o próprio motor com 64 posições de jitter, acúmulo uniforme sem rejeição, cena parada; em movimento,
   64 sub-quadros por quadro com o tempo fracionado (desfoque de movimento real) como referência do rastro.
 
+### R3a — Filtro do sinal traçado (em avaliação, 2026-10-23; decisão do usuário pendente)
+
+- **Contexto**: R1 rejeitou uma média temporal própria da refração (o acúmulo seria só o global de R3). Medido na T044a:
+  com uma amostra por quadro, o vidro recomeçado pela máscara reativa mostra o ruído da roleta de Fresnel (cena parada
+  e rastro de SC-004/SC-005 fora do limite); sem recomeçar, fica o rastro de caminhos secundários (a reflexão interna
+  que via a bola), que nenhuma regra sobre o caminho principal do pixel detecta.
+- **Em avaliação**: o padrão dos traçadores em tempo real (SVGF, A-SVGF, NRD/ReLAX): `TracedDenoiser` (Resource da C3,
+  genérico) — média temporal reprojetada e validada pelo ponto mostrado, histórico encurtado pelo gradiente temporal
+  (a amostra do quadro anterior refeita na cena de agora, por bloco 3 × 3: detecta a mudança por qualquer caminho e
+  nunca o ruído nem a câmera) e cinco passadas à-trous guiadas pelo ponto mostrado; o histórico guarda a média sem o
+  filtro espacial (ReLAX). A fonte do sinal é um ponto de extensão (`traced_denoise_source`): a refração implementa;
+  reflexos traçados e a luz global podem reaproveitar. O gradiente é da refração e só roda quando alguém o aloca.
+- **Medido (smoke `antialiasing`)**: cena parada 1,05 % aos 16 quadros e 2,99 % nas bordas aos 64; rastro 3,5–16,9 %
+  conforme o ajuste — o borrão do filtro espacial no que o vidro mostra logo depois de recomeçar; custo do filtro
+  ~0,4 ms e do gradiente ~1,3 ms.
+- **Próximo passo proposto**: filtrar a radiância dividida pelo albedo da superfície vista (como o SVGF e a
+  substituição da superfície primária do RTX Remix), para o recomeço não borrar a textura vista pelo vidro.
+- **Pendente do usuário**: manter o filtro (e então esta seção vira decisão, revendo R1) e os critérios do vidro traçado
+  e o orçamento (o filtro no orçamento da refração, não no do antisserrilhado).
+
 ### R4 — Luz global sem manchas
 
 - **Coleta de tela**: (1) amostragem por importância mista — metade dos raios em cosseno, metade guiada pela
