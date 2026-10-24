@@ -35,6 +35,27 @@ export const worldsResource = wgslResource({
     provider: { pool: Transform.worldSchema.name },
 });
 
+/** Inversas das matrizes de mundo (pool `WorldInverse`, spec 037, sob demanda), escrita — o estágio de transformação. */
+export const worldInversesWriteResource = wgslResource({
+    name: 'world_inverses',
+    binding: { storage: 'read_write' },
+    type: { schema: Transform.worldInverseSchema, array: true },
+    frequency: 'stage',
+    provider: { pool: Transform.worldInverseSchema.name },
+});
+
+/**
+ * Inversas das matrizes de mundo (pool `WorldInverse`), leitura. Quem lê pede o pool (`ensurePoolAllocated`) numa
+ * transição; o estágio de transformação passa a escrevê-lo.
+ */
+export const worldInversesResource = wgslResource({
+    name: 'world_inverses',
+    binding: { storage: 'read' },
+    type: { schema: Transform.worldInverseSchema, array: true },
+    frequency: 'stage',
+    provider: { pool: Transform.worldInverseSchema.name },
+});
+
 /** Parâmetros das câmeras (pool `Camera`), leitura. */
 export const cameraParamsResource = wgslResource({
     name: 'camera_params',

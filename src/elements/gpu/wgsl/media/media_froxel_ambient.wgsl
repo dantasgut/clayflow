@@ -14,7 +14,7 @@ fn froxel_ambient_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     // média na célula — sem o moiré entre a grade e o campo das sondas.
     let uvw = (vec3f(cell) + fract(froxels.frame.xyz + froxel_rotation(cell + vec3u(7u)))) / vec3f(dims);
     let cam = cameras[froxels.grid.w];
-    let ndc = vec2f(uvw.x * 2.0 - 1.0, 1.0 - uvw.y * 2.0);
+    let ndc = uv_to_ndc(uvw.xy);
     let z = froxel_slice_depth(uvw.z * f32(froxels.grid.z));
     let p = froxel_world(cam, froxel_view_point(ndc, z, froxel_projection(cam)));
     textureStore(froxel_ambient_out, cell, vec4f(scene_ambient(p), 1.0));

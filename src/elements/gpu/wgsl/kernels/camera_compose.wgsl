@@ -3,8 +3,10 @@
 // antisserrilhado temporal (spec 034), `projection` e `viewProjection` levam o deslocamento da amostra dentro do pixel
 // (translação em clip proporcional a w: vale para perspectiva e ortográfica, e raster e sprites o herdam); sem ele, a
 // `unjitteredViewProjection`; a do quadro anterior fica em `previousViewProjection` (a atual no primeiro quadro e no
-// corte, `history.x` = 1).
-// Requer: structs Camera, CameraMatrices, WorldTransform, CameraRecord, CameraInstance, CameraComposeParams; camera.
+// corte, `history.x` = 1). As inversas (vista, vista-projeção sem deslocamento) e a vista anterior são calculadas aqui,
+// uma vez por quadro (spec 037).
+// Requer: structs Camera, CameraMatrices, WorldTransform, CameraRecord, CameraInstance, CameraComposeParams; camera,
+// xform_rigid, xform_projective.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn camera_compose_main(
@@ -17,12 +19,7 @@ fn camera_compose_main(
     let p = camera_params[r.cameraSlot];
     let world = worlds[r.transformSlot].world;
     let aspect = select(p.aspect, compose.canvas_aspect, p.aspectMode == 0u);
-    var projection: mat4x4f;
-    if (p.projection == 1u) {
-        projection = camera_orthographic(p.orthoHeight, aspect, p.near, p.far);
-    } else {
-        projection = camera_perspective(p.fov, aspect, p.near, p.far);
-    }
+    let projection = camera_projection(p.projection, p.fov, p.orthoHeight, aspect, p.near, p.far);
     let view = camera_view(world);
     camera_publish(r.cameraSlot, p.cut, view, projection, world[3].xyz, compose.jitter);
 }
@@ -33,14 +30,13 @@ fn camera_publish(slot: u32, cut: u32, view: mat4x4f, projection: mat4x4f, posit
     let unjittered = projection * view;
     let previous = camera_matrices[slot].unjitteredViewProjection;
     let fresh = cut != 0u || (all(previous[3] == vec4f(0.0)) && all(previous[2] == vec4f(0.0)));
-    let shift = mat4x4f(
-        vec4f(1.0, 0.0, 0.0, 0.0),
-        vec4f(0.0, 1.0, 0.0, 0.0),
-        vec4f(0.0, 0.0, 1.0, 0.0),
-        vec4f(jitter.x, jitter.y, 0.0, 1.0),
-    );
-    let jittered = shift * projection;
+    let jittered = camera_shift(projection, jitter.xy);
+    var before_view = camera_matrices[slot].view;
+    if (fresh) { before_view = view; }
+    camera_matrices[slot].previousView = before_view;
     camera_matrices[slot].view = view;
+    camera_matrices[slot].inverseView = rigid_inverse(view);
+    camera_matrices[slot].inverseUnjitteredViewProjection = projective_inverse(unjittered);
     camera_matrices[slot].projection = jittered;
     camera_matrices[slot].viewProjection = jittered * view;
     camera_matrices[slot].position = vec4f(position, 1.0);

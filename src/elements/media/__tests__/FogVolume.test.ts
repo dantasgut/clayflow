@@ -84,8 +84,7 @@ describe('FogVolume (spec 033, T055)', () => {
             'params',
             'media',
             'scatter',
-            'history0',
-            'history1',
+            'history',
             'ambient',
             'sampler',
         ]);
@@ -123,11 +122,11 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(withFn).toContain(`case 1u: { return ${fn.composite!.functionName}(`);
     });
 
-    it('kernels: injeção (as duas paridades), integração e a leitura montam', () => {
-        for (const m of [froxelAmbient, ...froxelInject, ...froxelIntegrate, mediaLookup]) {
+    it('kernels: injeção, integração e a leitura montam (o histórico é um canal: sem paridade)', () => {
+        for (const m of [froxelAmbient, froxelInject, froxelIntegrate, mediaLookup]) {
             expect(() => composeWgsl(m)).not.toThrow();
         }
-        const inject = composeWgsl(froxelInject[0]).spec.source;
+        const inject = composeWgsl(froxelInject).spec.source;
         expect(inject).toContain('fn froxel_inject_main(');
         expect(inject).toContain('light_visibility(l, p, vec3f(0.0))');
         // A luz ambiente vem da grade grossa (o kernel dela consulta `scene_ambient`).

@@ -27,7 +27,8 @@ import {
     wireframeMaterialsResource,
     wireVerticesResource,
 } from './renderResources';
-import { bsdf, camera } from '../gpu/shaders/math';
+import { bsdf, camera, color, hashAddress, random, viewSpace } from '../gpu/shaders/math';
+import { cameraSpace } from '../scene/flows/shaders';
 import { cameraPointTypes } from '../scene/flows/shaders';
 import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
@@ -92,6 +93,7 @@ export const forward = wgslModule({
     source: forwardSource,
     requires: [
         camera,
+        color,
         bsdf,
         NONE.module,
         forwardCameraReady,
@@ -129,7 +131,14 @@ export const forward = wgslModule({
 export const forwardBackground = wgslModule({
     name: 'forward_background',
     source: forwardBackgroundSource,
-    requires: [sceneBackgroundReady, sceneFogReady, camerasResource, forwardFrameResource],
+    requires: [
+        cameraSpace,
+        viewSpace,
+        sceneBackgroundReady,
+        sceneFogReady,
+        camerasResource,
+        forwardFrameResource,
+    ],
     structs: [Camera.matricesSchema, ForwardFrameParamsSchema],
 });
 
@@ -196,6 +205,8 @@ export const diffuseSprite = wgslModule({
     name: 'diffuse_sprite',
     source: diffuseSpriteSource,
     requires: [
+        random,
+        hashAddress,
         camera,
         materialPointTypes,
         closure,

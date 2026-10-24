@@ -65,16 +65,13 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
 @fragment
 fn fs_motion(in: DiffuseOut) -> @location(0) vec4f {
     if (dot(in.corner, in.corner) > 1.0) { discard; }
-    return camera_motion(in.motion_previous, in.motion_current);
+    return motion_from_clips(in.motion_previous, in.motion_current);
 }
 
 
 // Hash do pixel e da partícula → [0, 1) (descarte pontilhado da espuma).
 fn diffuse_dither(p: vec2f, id: u32) -> f32 {
-    var v = (u32(p.x) * 73856093u) ^ (u32(p.y) * 19349663u) ^ (id * 83492791u);
-    v = v * 747796405u + 2891336453u;
-    v = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
-    return f32((v >> 22u) ^ v) / 4294967296.0;
+    return random_unit(pcg_hash(hash_cell(vec3u(u32(p.x), u32(p.y), id))));
 }
 
 @fragment
@@ -84,7 +81,7 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
     let material = materials[in.material_slot];
     let camera = cameras[forward_frame.cameraSlot];
     let n_view = vec3f(in.corner, sqrt(1.0 - r2));
-    let n = normalize(transpose(mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz)) * n_view);
+    let n = normalize(mat3x3f(camera.inverseView[0].xyz, camera.inverseView[1].xyz, camera.inverseView[2].xyz) * n_view);
     let radius = material.radii[u32(clamp(in.kind, 0.0, 2.0))];
     let p = in.center + n * radius;
     let v = normalize(camera.position.xyz - p);

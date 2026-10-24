@@ -66,6 +66,15 @@ export class Transform extends Entity<TransformData> implements Resource {
         normal: FieldType.mat3x3f,
     });
 
+    /**
+     * A inversa afim da matriz de mundo (spec 037, pool `WorldInverse`, mesmo slot): calculada uma vez pelo estágio de
+     * transformação para quem leva pontos de volta ao espaço do objeto (a refração, a estrutura de raios, o colisor).
+     * Sob demanda: só ocupa memória depois que um estágio a pede (`ResourceDirectory.ensurePoolAllocated`).
+     */
+    static readonly worldInverseSchema = new StructSchema('WorldInverse', {
+        inverse: FieldType.mat4x4f,
+    });
+
     state: ResourceState = ResourceState.Uninitialized;
 
     constructor(values: TransformValues = {}) {
@@ -110,6 +119,14 @@ export class Transform extends Entity<TransformData> implements Resource {
                 storage: 'pool',
                 schema: Transform.previousWorldSchema,
                 upload: 'never',
+            },
+            {
+                id: 'worldInverse',
+                role: 'storage-rw',
+                storage: 'pool',
+                schema: Transform.worldInverseSchema,
+                upload: 'never',
+                allocation: 'onDemand',
             },
         ];
     }

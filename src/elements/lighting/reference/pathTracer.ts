@@ -14,6 +14,8 @@
 // razão dos índices ao atravessar (L/n² se conserva). As luzes pontuais e direcionais não atravessam dielétricos (só
 // chegam por um caminho que as atinja, o que um delta não permite): a sombra de vidro e água é a física sem cáusticas.
 
+import { pcgHash } from '../../math/reference/random';
+
 export type Vec3 = readonly [number, number, number];
 
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -235,12 +237,9 @@ interface Hit {
     readonly object: PtObject;
 }
 
-/** Gerador determinístico por (pixel, amostra, dimensão): hash PCG. */
+/** Gerador determinístico por (pixel, amostra, dimensão): hash PCG da mistura dos três. */
 function hash(a: number, b: number, c: number): number {
-    let s = (Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca77) ^ Math.imul(c, 0xc2b2ae3d)) >>> 0;
-    s = (Math.imul(s, 747796405) + 2891336453) >>> 0;
-    const w = Math.imul((s >>> ((s >>> 28) + 4)) ^ s, 277803737) >>> 0;
-    return ((w >>> 22) ^ w) >>> 0;
+    return pcgHash(Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca77) ^ Math.imul(c, 0xc2b2ae3d));
 }
 
 class Rng {

@@ -63,7 +63,7 @@ fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance
 @fragment
 fn fs_motion(in: SpriteOut) -> @location(0) vec4f {
     if (dot(in.corner, in.corner) > 1.0) { discard; }
-    return camera_motion(in.motion_previous, in.motion_current);
+    return motion_from_clips(in.motion_previous, in.motion_current);
 }
 
 @fragment
@@ -74,7 +74,7 @@ fn fs_main(in: SpriteOut) -> @location(0) vec4f {
     let camera = cameras[particle_frame.cameraSlot];
     // Normal da esfera impostora (espaço da câmera → mundo) e o ponto na superfície dela.
     let n_view = vec3f(in.corner, sqrt(1.0 - r2));
-    let n = normalize(transpose(mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz)) * n_view);
+    let n = normalize(mat3x3f(camera.inverseView[0].xyz, camera.inverseView[1].xyz, camera.inverseView[2].xyz) * n_view);
     let p = in.center + n * material.radius;
     let v = normalize(camera.position.xyz - p);
     let c = closure_from_params(SurfaceParams(material.color, 0.5, 0.0, vec3f(0.0)));

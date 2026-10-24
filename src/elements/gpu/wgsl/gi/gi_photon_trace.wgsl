@@ -20,15 +20,12 @@ const GI_PHOTON_TARGET_LIGHTS: u32 = 8u;
 const GI_PHOTON_AREAS: u32 = 520u;
 
 fn gi_photon_random(state: ptr<function, u32>) -> f32 {
-    *state = gi_hash(*state + 0x9e3779b9u);
-    return f32(*state & 0xFFFFFFu) / 16777216.0;
+    return f32(random_next(state) & 0xFFFFFFu) / 16777216.0;
 }
 
-/** Base ortonormal em volta de `d`. */
+/** Base ortonormal em volta de `d` (o eixo auxiliar y, ou x perto dele). */
 fn gi_photon_basis(d: vec3f) -> mat3x3f {
-    let up = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(d.y) > 0.9);
-    let u = normalize(cross(up, d));
-    return mat3x3f(u, cross(d, u), d);
+    return basis_cross(d, select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(d.y) > 0.9));
 }
 
 /** Retângulo da caixa da cena projetada no plano perpendicular a `d`: (min u, min v, max u, max v) e o recuo. */
@@ -52,7 +49,7 @@ fn gi_photon_power(i: u32) -> f32 {
         if (count == 0u || i >= GI_PHOTON_TARGET_LIGHTS) { return 0.0; }
         return e * gi_photon_targets[GI_PHOTON_AREAS + i * GI_PHOTON_TARGETS + count - 1u];
     }
-    return e * 4.0 * GI_PI;
+    return e * 4.0 * PI;
 }
 
 fn gi_photon_target_box(k: u32) -> array<vec3f, 2> {
@@ -170,7 +167,7 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         atomicStore(&gi_caustics_atomic[2], 0u);
     }
     if (i >= count || gi.bounces.w == 0u || total <= 0.0 || ray_scene_info.instanceCount == 0u) { return; }
-    var state = gi_hash(i * 1973u + gi.rays.y * 9277u + 26699u);
+    var state = random_seed(RANDOM_STREAM_GI_PHOTON, i, gi.rays.y);
     // A fonte pela potência.
     let pick = gi_photon_random(&state) * total;
     var light = 0u;
@@ -210,11 +207,8 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         let back = length(box[1] - box[0]) + 1.0;
         o = b[0] * uv.x + b[1] * uv.y + d * (dot(0.5 * (box[0] + box[1]), d) - back);
     } else {
-        let z = 2.0 * gi_photon_random(&state) - 1.0;
-        let a = 2.0 * GI_PI * gi_photon_random(&state);
-        let s = sqrt(max(0.0, 1.0 - z * z));
         o = src.position.xyz;
-        d = vec3f(s * cos(a), s * sin(a), z);
+        d = sample_sphere(vec2f(gi_photon_random(&state), gi_photon_random(&state)));
     }
     let color = src.color.rgb / max(max(src.color.r, src.color.g), max(src.color.b, 1e-6));
     var throughput = color * weight;

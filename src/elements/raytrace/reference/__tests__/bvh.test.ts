@@ -12,11 +12,10 @@ import {
     spherePrimitive,
     traverse,
     trianglePrimitive,
-    transformPoint,
-    type Mat4,
     type Primitive,
     type Vec3,
 } from '../bvh';
+import { affinePoint, type Mat4 } from '../../../math/reference/xform';
 
 /** Gerador determinístico (LCG) em [0, 1). */
 function rng(seed: number): () => number {
@@ -171,7 +170,7 @@ describe('referência da estrutura de raios (spec 033, R1)', () => {
         const scene = buildScene(worlds.map((world) => ({ blas, prims, world })));
         const worldTris = worlds.flatMap((w) =>
             tris.map(([a, b, c]) =>
-                trianglePrimitive(transformPoint(w, a), transformPoint(w, b), transformPoint(w, c)),
+                trianglePrimitive(affinePoint(w, a), affinePoint(w, b), affinePoint(w, c)),
             ),
         );
         const r = rng(13);

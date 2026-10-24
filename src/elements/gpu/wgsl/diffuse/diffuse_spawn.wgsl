@@ -77,9 +77,9 @@ fn diffuse_potential_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
 
 // Base ortonormal perpendicular a d (unitário).
 fn diffuse_basis(d: vec3f) -> mat2x3f {
-    let a = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(d.x) > 0.9);
-    let e1 = normalize(cross(d, a));
-    return mat2x3f(e1, cross(d, e1));
+    // d × a = (−a) × d exatamente (a é um eixo: os produtos são exatos).
+    let b = basis_cross(d, -select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(d.x) > 0.9));
+    return mat2x3f(b[0], b[1]);
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -102,7 +102,7 @@ fn diffuse_spawn_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
         let xh = diffuse_rand(i, p.frame, 3u + 3u * k);
         // Cilindro em volta da partícula ao longo da velocidade (raio r_V, altura |v| Δt).
         let r = p.spawn_radius * sqrt(xr);
-        let theta = 6.2831853 * xt;
+        let theta = TAU * xt;
         let radial = cos(theta) * e[0] + sin(theta) * e[1];
         var d: DiffuseParticle;
         d.pos = vec4f(xi + r * radial + xh * speed * p.dt * dir, DIFFUSE_SPRAY);

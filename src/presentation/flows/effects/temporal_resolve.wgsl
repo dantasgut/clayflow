@@ -42,46 +42,6 @@ const TAA_LIGHT_CHANGE: f32 = 0.1;
 /** Quadros máximos do histórico no modo de acumulação. */
 const TAA_MAX_FRAMES: f32 = 4096.0;
 
-fn taa_ycocg(c: vec3f) -> vec3f {
-    return vec3f(
-        0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
-        0.5 * c.r - 0.5 * c.b,
-        -0.25 * c.r + 0.5 * c.g - 0.25 * c.b,
-    );
-}
-
-fn taa_rgb(y: vec3f) -> vec3f {
-    return vec3f(y.x + y.y - y.z, y.x + y.z, y.x - y.y - y.z);
-}
-
-/** Inversa geral 4 × 4 (cofatores). */
-fn taa_inverse(m: mat4x4f) -> mat4x4f {
-    let a00 = m[0][0]; let a01 = m[0][1]; let a02 = m[0][2]; let a03 = m[0][3];
-    let a10 = m[1][0]; let a11 = m[1][1]; let a12 = m[1][2]; let a13 = m[1][3];
-    let a20 = m[2][0]; let a21 = m[2][1]; let a22 = m[2][2]; let a23 = m[2][3];
-    let a30 = m[3][0]; let a31 = m[3][1]; let a32 = m[3][2]; let a33 = m[3][3];
-    let b00 = a00 * a11 - a01 * a10;
-    let b01 = a00 * a12 - a02 * a10;
-    let b02 = a00 * a13 - a03 * a10;
-    let b03 = a01 * a12 - a02 * a11;
-    let b04 = a01 * a13 - a03 * a11;
-    let b05 = a02 * a13 - a03 * a12;
-    let b06 = a20 * a31 - a21 * a30;
-    let b07 = a20 * a32 - a22 * a30;
-    let b08 = a20 * a33 - a23 * a30;
-    let b09 = a21 * a32 - a22 * a31;
-    let b10 = a21 * a33 - a23 * a31;
-    let b11 = a22 * a33 - a23 * a32;
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    let inv = 1.0 / det;
-    return mat4x4f(
-        vec4f(a11 * b11 - a12 * b10 + a13 * b09, a02 * b10 - a01 * b11 - a03 * b09, a31 * b05 - a32 * b04 + a33 * b03, a22 * b04 - a21 * b05 - a23 * b03) * inv,
-        vec4f(a12 * b08 - a10 * b11 - a13 * b07, a00 * b11 - a02 * b08 + a03 * b07, a32 * b02 - a30 * b05 - a33 * b01, a20 * b05 - a22 * b02 + a23 * b01) * inv,
-        vec4f(a10 * b10 - a11 * b08 + a13 * b06, a01 * b08 - a00 * b10 - a03 * b06, a30 * b04 - a31 * b02 + a33 * b00, a21 * b02 - a20 * b04 - a23 * b00) * inv,
-        vec4f(a11 * b07 - a10 * b09 - a12 * b06, a00 * b09 - a01 * b07 + a02 * b06, a31 * b01 - a30 * b03 - a32 * b00, a20 * b03 - a21 * b01 + a22 * b00) * inv,
-    );
-}
-
 /** Histórico em `uv` por Catmull–Rom com 5 leituras bilineares (Jimenez 2016). */
 fn taa_history_catmull(uv: vec2f, size: vec2f) -> vec4f {
     let pos = uv * size;
@@ -119,14 +79,14 @@ struct TaaReprojection {
 fn taa_reproject(pixel: vec2i, uv: vec2f) -> TaaReprojection {
     let cam = cameras[taa_params.cameraSlot];
     let depth = textureLoad(taa_depth, pixel, 0);
-    let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    let world_h = taa_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
+    let ndc = uv_to_ndc(uv);
+    let world_h = projective_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
     let world = world_h.xyz / world_h.w;
     let motion = textureLoad(taa_motion, pixel, 0);
     var prev_uv = uv + motion.xy;
     if (depth >= 1.0) {
         let prev = cam.previousViewProjection * vec4f(world, 1.0);
-        prev_uv = vec2f(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
+        prev_uv = ndc_to_uv(prev.xy / prev.w);
     }
     return TaaReprojection(prev_uv, world, depth, uv + motion.zw);
 }
@@ -151,16 +111,13 @@ fn taa_moving(r: TaaReprojection, pixel: vec2i, uv: vec2f, size: vec2f) -> f32 {
     return smoothstep(0.01, 0.1, m);
 }
 
-/** Profundidade de vista (positiva) da profundidade do alvo pela projeção: perspectiva ou ortográfica. */
-fn taa_view_depth(depth: f32, projection: mat4x4f) -> f32 {
-    if (projection[3].w == 1.0) { return abs((depth - projection[3].z) / projection[2].z); }
-    return projection[3].z / (depth + projection[2].z);
-}
-
 struct TaaOut {
     @location(0) color: vec4f,
-    /** Distância da câmera ao ponto do pixel e quanto ele se movia (a desoclusão do quadro seguinte). */
-    @location(1) state: vec2f,
+    /**
+     * Distância da câmera ao ponto do pixel, quanto ele se movia (a desoclusão do quadro seguinte) e os quadros do
+     * histórico (em 32 bits: exatos até `TAA_MAX_FRAMES`; spec 037).
+     */
+    @location(1) state: vec4f,
     /**
      * A luz que chega ao ponto do pixel (direta, total), acumulada com os pesos da cor (a mudança de iluminação do quadro
      * seguinte).
@@ -205,13 +162,15 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     }
     // O conteúdo traçado mudou (máscara reativa): como uma desoclusão. Na acumulação ninguém a escreve.
     let reacted = taa_params.mode != TAA_ACCUMULATE && textureLoad(taa_reactive, pixel, 0).r > 0.5;
-    let frames = select(0.0, history.a, inside && !occluded && !reacted && cam.history.x == 0.0);
+    let prev_frames = textureLoad(taa_history_distance, prev_pixel, 0).b;
+    let frames = select(0.0, prev_frames, inside && !occluded && !reacted && !temporal_cut(cam.history));
     var out: TaaOut;
-    out.state = vec2f(distance, moving);
+    out.state = vec4f(distance, moving, 0.0, 0.0);
     if (taa_params.mode == TAA_ACCUMULATE) {
         out.light = light;
         let n = min(frames, TAA_MAX_FRAMES - 1.0);
-        out.color = vec4f(select(current, mix(history.rgb, current, 1.0 / (n + 1.0)), n > 0.0), n + 1.0);
+        out.color = vec4f(select(current, mix(history.rgb, current, temporal_weight_count(n, TAA_MAX_FRAMES)), n > 0.0), 1.0);
+        out.state.z = n + 1.0;
         return out;
     }
     // Em movimento (perto de algo que se move), a caixa da variância da vizinhança 3 × 3 em YCoCg (Salvi) recorta o
@@ -219,7 +178,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     // converge para a integral do pixel. A caixa e a reconstrução só com as amostras da mesma superfície do centro (a
     // profundidade de vista a até 5 %, o critério da desoclusão): a amostra de um objeto vizinho (um sprite, a borda de
     // outro objeto) não entra na cor do fundo nem alarga a caixa que recorta o que ele deixou.
-    let center_depth = taa_view_depth(depth, cam.projection);
+    let center_depth = view_depth(depth, cam.projection);
     var m1 = vec3f(0.0);
     var m2 = vec3f(0.0);
     var count = 0.0;
@@ -238,10 +197,10 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             light_hi = max(light_hi, direct);
             // Só em movimento a caixa e a reconstrução valem: parado, sem as leituras da profundidade.
             if (stirred > 0.0) {
-                let near = taa_view_depth(textureLoad(taa_depth, q, 0), cam.projection);
+                let near = view_depth(textureLoad(taa_depth, q, 0), cam.projection);
                 if (abs(near - center_depth) > 0.05 * center_depth) { continue; }
             }
-            let c = taa_ycocg(rgb);
+            let c = ycocg(rgb);
             m1 += c;
             m2 += c * c;
             count += 1.0;
@@ -268,12 +227,13 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let sigma = sqrt(max(m2 / count - mean * mean, vec3f(0.0)));
     let floor_extent = vec3f(TAA_CLIP_FLOOR * max(mean.x, 1e-4));
     let extent = max(TAA_GAMMA_MOVING * sigma, floor_extent);
-    let d = taa_ycocg(relighted) - mean;
+    let d = ycocg(relighted) - mean;
     let scale = max(abs(d) / extent, vec3f(1.0));
-    let clipped = mix(relighted, taa_rgb(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
+    let clipped = mix(relighted, ycocg_inverse(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
     // Média exponencial na radiância linear (sem peso por luminância: a média fica sem viés).
     let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, stirred));
-    out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
+    out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), 1.0);
+    out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);
     // A luz acumulada como a cor: reiluminada, ela é a de agora.
     out.light = select(light, mix(mix(prev_light, light, relit), light, alpha), frames > 0.0);
     return out;

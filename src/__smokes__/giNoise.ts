@@ -28,6 +28,7 @@ import {
 } from './support/giScenes';
 import { hdrAt, hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[giNoise] ${msg}`);
@@ -44,7 +45,7 @@ function check(ok: boolean, msg: string): void {
     if (!ok) failures.push(msg);
 }
 
-const lum = (c: readonly number[]): number => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+const lum = luminanceLinear;
 const pct = (v: number): string => `${(v * 100).toFixed(2)} %`;
 
 const W = 320;

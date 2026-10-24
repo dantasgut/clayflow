@@ -1,27 +1,8 @@
-// Ruído determinístico (spec 005, R7): hash PCG de 32 bits e ruído de valor e de gradiente (Perlin) em 2D e 3D com
+// Ruído determinístico (spec 005, R7): ruído de valor e de gradiente (Perlin) em 2D e 3D com
 // interpolação quíntica. Saída em [-1, 1]. Gradientes por direções fixas escolhidas pelo hash (sem trigonometria), para
 // que a referência em CPU reproduza os valores da GPU. Cada ruído tem a forma por célula (`*_cell(c, f)`: a célula
 // inteira da rede e a posição dentro dela), que os nós de ruído (spec 031) usam com a célula deslocada pela semente.
-
-// PCG (O'Neill), variante RXS-M-XS de 32 bits.
-fn pcg_hash(v: u32) -> u32 {
-    let state = v * 747796405u + 2891336453u;
-    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
-
-fn hash2(p: vec2u) -> u32 {
-    return pcg_hash(p.x ^ pcg_hash(p.y));
-}
-
-fn hash3(p: vec3u) -> u32 {
-    return pcg_hash(p.x ^ pcg_hash(p.y ^ pcg_hash(p.z)));
-}
-
-// Hash → [-1, 1].
-fn hash_signed(h: u32) -> f32 {
-    return f32(h >> 8u) * (2.0 / 16777215.0) - 1.0;
-}
+// Requer: random (o hash PCG).
 
 // Interpolação quíntica 6t⁵ − 15t⁴ + 10t³.
 fn noise_fade(t: f32) -> f32 {

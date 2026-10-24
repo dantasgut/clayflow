@@ -1,0 +1,122 @@
+--- a/src/elements/gpu/wgsl/refraction/refraction_path.wgsl
++++ b/src/elements/gpu/wgsl/refraction/refraction_path.wgsl
+@@ -30,7 +30,7 @@
+ 
+ /** Estado aleatório da amostra do pixel `pixel` (índice linear) no quadro `frame`. */
+ fn refraction_seed(pixel: u32, frame: u32) -> u32 {
+-    return pcg_hash(pixel * 9781u + frame * 6271u + 1u);
++    return random_seed(RANDOM_STREAM_REFRACTION, pixel, frame);
+ }
+ 
+ /** Número uniforme em [0, 1) do estado do caminho. */
+--- a/src/elements/gpu/wgsl/gi/gi_screen_trace.wgsl
++++ b/src/elements/gpu/wgsl/gi/gi_screen_trace.wgsl
+@@ -12,7 +12,7 @@
+ 
+ /** Direção `k` da sonda `i` no quadro: R2 deslocada, por cosseno em volta de `n`. */
+ fn gi_screen_ray_dir(i: u32, k: u32, n: vec3f) -> vec3f {
+-    let h = pcg_hash(i * 1973u + gi.rays.y * 9277u);
++    let h = random_seed(RANDOM_STREAM_GI_SCREEN_RAYS, i, gi.rays.y);
+     let shift = vec2f(f32(h & 0xFFFFu), f32(h >> 16u)) / 65536.0;
+     let u = fract(vec2f(0.7548776662, 0.5698402910) * f32(k + 1u) + shift);
+     return normalize(basis_duff(n) * sample_cosine(u));
+@@ -68,7 +68,7 @@
+         } else if (hit.face >= 0.0) {
+             let v = -dir;
+             let c = ray_hit_closure(hit, gi.extra.w, 0.0);
+-            let direct = gi_shade_direct(c, hit.position, hit.normal, v, j * 7919u + gi.rays.y * 104729u);
++            let direct = gi_shade_direct(c, hit.position, hit.normal, v, random_seed(RANDOM_STREAM_GI_SCREEN_LIGHT, j, gi.rays.y));
+             sums[0] = direct * through;
+             if (bounces > 1u) {
+                 let taps = gi_screen_history_taps(hit.position, hit.normal);
+--- a/src/elements/gpu/wgsl/gi/gi_photon_trace.wgsl
++++ b/src/elements/gpu/wgsl/gi/gi_photon_trace.wgsl
+@@ -167,7 +167,7 @@
+         atomicStore(&gi_caustics_atomic[2], 0u);
+     }
+     if (i >= count || gi.bounces.w == 0u || total <= 0.0 || ray_scene_info.instanceCount == 0u) { return; }
+-    var state = pcg_hash(i * 1973u + gi.rays.y * 9277u + 26699u);
++    var state = random_seed(RANDOM_STREAM_GI_PHOTON, i, gi.rays.y);
+     // A fonte pela potência.
+     let pick = gi_photon_random(&state) * total;
+     var light = 0u;
+--- a/src/elements/gpu/wgsl/gi/gi_probe_trace.wgsl
++++ b/src/elements/gpu/wgsl/gi/gi_probe_trace.wgsl
+@@ -48,7 +48,7 @@
+     let c = ray_hit_closure(hit, gi.extra.w, 0.0);
+     let p = hit.position;
+     let n = hit.normal;
+-    let direct = gi_shade_direct(c, p, n, v, i * 9781u + gi.rays.y * 6271u);
++    let direct = gi_shade_direct(c, p, n, v, random_seed(RANDOM_STREAM_GI_WORLD, i, gi.rays.y));
+     gi_rays[out_base] = vec4f(direct * through, hit.t);
+     if (bounces < 2u) { return; }
+     // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
+--- a/src/elements/gpu/wgsl/diffuse/diffuse_common.wgsl
++++ b/src/elements/gpu/wgsl/diffuse/diffuse_common.wgsl
+@@ -23,7 +23,7 @@
+ }
+ 
+ fn diffuse_rand(a: u32, b: u32, k: u32) -> f32 {
+-    return f32(pcg_hash(a ^ pcg_hash(b * 1664525u + k * 1013904223u))) / 4294967296.0;
++    return f32(random_seed(RANDOM_STREAM_DIFFUSE, a, b * 1664525u + k * 1013904223u)) / 4294967296.0;
+ }
+ 
+ // Φ(I, τmin, τmax): potencial normalizado em [0, 1].
+--- a/src/elements/gpu/wgsl/math/random.wgsl
++++ b/src/elements/gpu/wgsl/math/random.wgsl
+@@ -37,6 +37,23 @@
+     return f32(h >> 8u) / 16777216.0;
+ }
+ 
++// Fluxos nomeados (spec 037): cada uso tem o seu, para que efeitos diferentes no mesmo índice e quadro não tirem os
++// mesmos números (correlação entre a refração e a luz global num pixel, por exemplo). Uma extensão usa
++// RANDOM_STREAM_USER + n.
++const RANDOM_STREAM_REFRACTION: u32 = 1u;
++const RANDOM_STREAM_GI_WORLD: u32 = 2u;
++const RANDOM_STREAM_GI_SCREEN_RAYS: u32 = 3u;
++const RANDOM_STREAM_GI_SCREEN_LIGHT: u32 = 4u;
++const RANDOM_STREAM_GI_PHOTON: u32 = 5u;
++const RANDOM_STREAM_DIFFUSE: u32 = 6u;
++const RANDOM_STREAM_FROXEL: u32 = 7u;
++const RANDOM_STREAM_USER: u32 = 64u;
++
++// A semente do fluxo `stream` no índice `index` (pixel, sonda, partícula) e no quadro `frame`.
++fn random_seed(stream: u32, index: u32, frame: u32) -> u32 {
++    return hash3(vec3u(index, frame, stream));
++}
++
+ // Gerador com estado: avança pela razão áurea e devolve o hash do estado (o novo estado).
+ fn random_next(state: ptr<function, u32>) -> u32 {
+     *state = pcg_hash(*state + 0x9e3779b9u);
+--- a/src/elements/gpu/wgsl/media/media_common.wgsl
++++ b/src/elements/gpu/wgsl/media/media_common.wgsl
+@@ -46,7 +46,7 @@
+ 
+ /** Deslocamento fixo por célula em [0, 1)³ (hash PCG): decorrelaciona o jitter entre as vizinhas. */
+ fn froxel_rotation(cell: vec3u) -> vec3f {
+-    var h = hash_cell(cell);
++    var h = random_seed(RANDOM_STREAM_FROXEL, hash_cell(cell), 0u);
+     var out = vec3f(0.0);
+     for (var k = 0u; k < 3u; k++) {
+         h = pcg_step(h);
+--- a/src/elements/math/reference/random.ts
++++ b/src/elements/math/reference/random.ts
+@@ -33,6 +33,18 @@
+     return pcgHash(state.value);
+ }
+ 
++/** Fluxos nomeados (os `RANDOM_STREAM_*` do WGSL). */
++export const RANDOM_STREAM = {
++    refraction: 1,
++    giWorld: 2,
++    giScreenRays: 3,
++    giScreenLight: 4,
++    giPhoton: 5,
++    diffuse: 6,
++    froxel: 7,
++    user: 64,
++} as const;
++
+ /** `random_seed(fluxo, índice, quadro)`: a semente de um fluxo nomeado. */
+ export const randomSeed = (stream: number, index: number, frame: number): number =>
+     hash3(index, frame, stream);

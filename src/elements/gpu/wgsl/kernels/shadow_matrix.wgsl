@@ -20,10 +20,6 @@ fn shadow_matrix_main(
     let projection = camera_orthographic_box(-10.0, 10.0, -10.0, 10.0, 0.1, 50.0);
     // Deslocamento em NDC (2 / tamanho por texel), aplicado depois da projeção: x' = x + o·w.
     let o = shadow_params.texelJitter * 2.0 / max(shadow_maps[r.shadowSlot].size, vec2f(1.0));
-    var m = projection * view;
-    for (var c = 0; c < 4; c++) {
-        m[c] = vec4f(m[c].xy + o * m[c].w, m[c].zw);
-    }
-    shadow_matrices[r.shadowSlot].lightViewProj = m;
+    shadow_matrices[r.shadowSlot].lightViewProj = camera_shift(projection * view, o);
     shadow_matrices[r.shadowSlot].kernelRotation = shadow_params.kernelRotation;
 }

@@ -3,7 +3,7 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { linalg, noise } from '../../gpu/shaders/math';
+import { linalg, noise, xformAffine } from '../../gpu/shaders/math';
 import surfaceColliderBuildSource from '../../gpu/wgsl/kernels/surface_collider_build.wgsl?raw';
 import surfaceColliderCommonSource from '../../gpu/wgsl/kernels/surface_collider_common.wgsl?raw';
 import surfaceColliderPointsSource from '../../gpu/wgsl/kernels/surface_collider_points.wgsl?raw';
@@ -117,6 +117,7 @@ export const surfaceColliderBuild = wgslModule({
     source: surfaceColliderBuildSource,
     requires: [
         linalg,
+        xformAffine,
         surfaceColliderCommon,
         WORKGROUP_SIZE.module,
         B.points,

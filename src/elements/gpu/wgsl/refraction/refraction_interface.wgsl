@@ -6,14 +6,6 @@
 // nas seguintes um, pela roleta de Fresnel.
 // Requer: bsdf.
 
-/** Base ortonormal em volta de `n` (Duff et al. 2017): as colunas t, b, n. */
-fn refraction_basis(n: vec3f) -> mat3x3f {
-    let s = select(-1.0, 1.0, n.z >= 0.0);
-    let a = -1.0 / (s + n.z);
-    let b = n.x * n.y * a;
-    return mat3x3f(vec3f(1.0 + s * n.x * n.x * a, s * b, -s * n.x), vec3f(b, s + n.y * n.y * a, -n.y), n);
-}
-
 /** Mascaramento de Smith do GGX para a direção de cosseno `cos_t` com a normal da macro-superfície. */
 fn refraction_g1(cos_t: f32, alpha: f32) -> f32 {
     let c = min(1.0, abs(cos_t));
@@ -29,7 +21,7 @@ fn refraction_vndf(wo: vec3f, alpha: f32, u: vec2f) -> vec3f {
     let t1 = select(vec3f(1.0, 0.0, 0.0), vec3f(-vh.y, vh.x, 0.0) / sqrt(lensq), lensq > 0.0);
     let t2 = cross(vh, t1);
     let r = sqrt(u.x);
-    let phi = 6.283185307179586 * u.y;
+    let phi = TAU * u.y;
     let p1 = r * cos(phi);
     let sv = 0.5 * (1.0 + vh.z);
     let p2 = (1.0 - sv) * sqrt(max(0.0, 1.0 - p1 * p1)) + sv * r * sin(phi);
@@ -40,7 +32,7 @@ fn refraction_vndf(wo: vec3f, alpha: f32, u: vec2f) -> vec3f {
 /** A normal que o raio `d` vê na face `nf` (voltada para ele): a da microfaceta amostrada, ou a própria com α ≈ 0. */
 fn refraction_microfacet(d: vec3f, nf: vec3f, alpha: f32, u: vec2f) -> vec3f {
     if (alpha <= 1e-4) { return nf; }
-    let tbn = refraction_basis(nf);
+    let tbn = basis_duff(nf);
     let wo = -d;
     let local = vec3f(dot(wo, tbn[0]), dot(wo, tbn[1]), dot(wo, nf));
     return normalize(tbn * refraction_vndf(local, alpha, u));

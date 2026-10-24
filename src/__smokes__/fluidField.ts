@@ -68,6 +68,8 @@ import {
     type Rect,
 } from './support/spectralMeasures';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
+import { lumaSrgb8 } from './support/images';
+import { lcg } from './support/random';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -86,21 +88,12 @@ function check(ok: boolean, msg: string): void {
     if (!ok) failures.push(msg);
 }
 
-/** Gerador determinístico em [0, 1). */
-function rng(seed: number): () => number {
-    let s = seed >>> 0;
-    return () => {
-        s = (s * 1664525 + 1013904223) >>> 0;
-        return s / 2 ** 32;
-    };
-}
-
 /**
  * Partículas numa bola de raio `r` em volta de `c` (rede cúbica do espaçamento, perturbada de ±10%: sem vizinhos
  * exatamente no raio do núcleo, onde a contagem dependeria do arredondamento).
  */
 function ball(c: Vec3, r: number, seed = 7): number[] {
-    const jitter = rng(seed);
+    const jitter = lcg(seed);
     const out: number[] = [];
     const n = Math.ceil(r / SPACING);
     for (let z = -n; z <= n; z++)
@@ -116,7 +109,7 @@ function ball(c: Vec3, r: number, seed = 7): number[] {
 
 /** Placa de partículas (nx × ny × nz) a partir do canto `lo`, no espaçamento `s`, perturbada de ±5 %. */
 function slab(lo: Vec3, n: readonly [number, number, number], s: number, seed = 11): number[] {
-    const jitter = rng(seed);
+    const jitter = lcg(seed);
     const out: number[] = [];
     for (let z = 0; z < n[2]; z++)
         for (let y = 0; y < n[1]; y++)
@@ -549,7 +542,7 @@ async function caseRays(): Promise<void> {
     staticBody(s.app, positions, SPACING, { rippleStrength: 0 });
     // Raios para a bola grande, de fora, em direções variadas.
     const count = 256;
-    const r = rng(29);
+    const r = lcg(29);
     const rays: { o: Vec3; d: Vec3 }[] = [];
     for (let i = 0; i < count; i++) {
         const u = 2 * r() - 1;
@@ -772,10 +765,7 @@ async function caseNormal(): Promise<void> {
         const row: number[] = [];
         for (let x = rect.x; x < rect.x + rect.w; x++) {
             const i = (y * W + x) * 4;
-            row.push(
-                (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!)
-                    / 255,
-            );
+            row.push(lumaSrgb8(img.data, i));
         }
         lum += bandAmplitude(row, 0.5 * p, 2 * p);
         lumN++;
@@ -830,11 +820,7 @@ async function caseEdge(): Promise<void> {
     for (let y = rect.y; y < rect.y + rect.h; y++)
         for (let x = rect.x; x < rect.x + rect.w; x++) {
             const i = (y * W + x) * 4;
-            max = Math.max(
-                max,
-                (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!)
-                    / 255,
-            );
+            max = Math.max(max, lumaSrgb8(img.data, i));
         }
     const isolated = isolatedHighlights(img, rect, 0.85 * max);
     log(

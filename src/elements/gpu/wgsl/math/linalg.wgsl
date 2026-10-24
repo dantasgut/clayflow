@@ -1,6 +1,12 @@
 // Álgebra linear 3×3 (spec 005, R6/R11): determinante, inversa, transposta, produto, norma de Frobenius.
 // WGSL `mat3x3f` é column-major: m[col][row].
 
+// Adjunta (a transposta dos cofatores) de mat3x3f: a inversa vezes o determinante — sem dividir, para quem já tem o
+// determinante (ou o guarda) à mão.
+fn mat3_adjugate(m: mat3x3f) -> mat3x3f {
+    return transpose(mat3x3f(cross(m[1], m[2]), cross(m[2], m[0]), cross(m[0], m[1])));
+}
+
 // Transposta de mat3x3f (column-major: m[col][row]).
 fn mat3_transpose(m: mat3x3f) -> mat3x3f {
     return mat3x3f(

@@ -25,6 +25,9 @@ export const GI_PHOTON_BUFFER_WORDS = 8 + GI_PHOTON_SLOTS * 8;
 /** Palavra de 32 bits (o tamanho do descritor do hash das cáusticas). */
 export const GiWordSchema = new StructSchema('GiWord', { value: FieldType.u32 });
 
+/** Um vec4f do histórico das sondas de tela (o canal temporal `GlobalIllumination.screenHistory`, spec 037). */
+export const GiScreenRecordSchema = new StructSchema('GiScreenRecord', { value: FieldType.vec4f });
+
 /**
  * Parâmetros da iluminação global (uniform, spec 033, R2/R5/R6): a grade (sondas por eixo, cascatas), o canto de cada
  * cascata em mundo com o espaçamento em `w`, os raios (por sonda, quadro, primeira sonda e sondas atualizadas), o
@@ -51,7 +54,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         counts: FieldType.vec4u,
         /** Coleta final na tela (R2 adendo): (ladrilhos em x, em y, raios por sonda de tela, slot da câmera ativa). */
         screen: FieldType.vec4u,
-        /** (período do rodízio das sondas de tela, metade do histórico escrita no quadro, ligada, 0). */
+        /** (período do rodízio das sondas de tela, 0, ligada, 0). */
         screen1: FieldType.vec4u,
         /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
         screenSize: FieldType.vec4f,

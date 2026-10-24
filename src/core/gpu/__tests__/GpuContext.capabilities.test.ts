@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createGpuContext } from '../GpuContext';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createGpuContext, ENGINE_PORTABLE_LIMITS } from '../GpuContext';
 
 const originalGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
 
@@ -85,18 +88,18 @@ describe('createGpuContext — capacidades', () => {
             isFallbackAdapter: false,
         });
         expect(capabilities.powerPreference).toBe('default');
-        expect(capabilities.features).toEqual(['timestamp-query']);
+        expect(capabilities.features).toEqual(['timestamp-query', 'float32-filterable']);
         expect(capabilities.missingFeatures).toEqual([]);
         expect(capabilities.limits.minUniformBufferOffsetAlignment).toBe(256);
         expect(capabilities.clampedLimits).toEqual([]);
     });
 
-    it('timestamp-query é pedido só se disponível; ausente vira missingFeatures', async () => {
+    it('timestamp-query e float32-filterable pedidos só se disponíveis; ausentes viram missingFeatures', async () => {
         const { requestDevice } = installGpu({ features: [] });
         const { capabilities } = await createGpuContext();
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredFeatures).toEqual([]);
-        expect(capabilities.missingFeatures).toEqual(['timestamp-query']);
+        expect(capabilities.missingFeatures).toEqual(['timestamp-query', 'float32-filterable']);
     });
 
     it('isFallbackAdapter vem do adaptador', async () => {
@@ -152,19 +155,52 @@ describe('createGpuContext — DeviceOptions', () => {
         expect(capabilities.missingFeatures).toEqual(['float32-filterable']);
     });
 
-    it('limites de escala do motor são pedidos no máximo do adaptador', async () => {
+    it('limites de escala no máximo do adaptador; os portáteis no mínimo comum (spec 037), nunca o máximo', async () => {
         const { requestDevice } = installGpu();
         const { capabilities } = await createGpuContext();
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredLimits).toEqual({
             maxBufferSize: ADAPTER_LIMITS.maxBufferSize,
             maxStorageBufferBindingSize: ADAPTER_LIMITS.maxStorageBufferBindingSize,
-            maxStorageBuffersPerShaderStage: ADAPTER_LIMITS.maxStorageBuffersPerShaderStage,
+            // O adaptador tem 31: o motor pede o portátil.
+            maxStorageBuffersPerShaderStage: ENGINE_PORTABLE_LIMITS.maxStorageBuffersPerShaderStage,
             maxBindGroups: ADAPTER_LIMITS.maxBindGroups,
             maxComputeWorkgroupStorageSize: ADAPTER_LIMITS.maxComputeWorkgroupStorageSize,
             maxComputeInvocationsPerWorkgroup: ADAPTER_LIMITS.maxComputeInvocationsPerWorkgroup,
         });
         expect(capabilities.limits.maxBufferSize).toBe(ADAPTER_LIMITS.maxBufferSize);
+    });
+
+    it('adaptador abaixo de um limite portátil: fica com o que tem (o pipeline que precisar de mais falha na montagem)', async () => {
+        const { requestDevice } = installGpu({
+            limits: { ...ADAPTER_LIMITS, maxStorageBuffersPerShaderStage: 8 },
+        });
+        await createGpuContext();
+        const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
+        expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(8);
+    });
+
+    it('o usuário pode pedir acima do portátil (até o adaptador)', async () => {
+        const { requestDevice } = installGpu();
+        await createGpuContext({ requiredLimits: { maxStorageBuffersPerShaderStage: 16 } });
+        const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
+        expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(16);
+    });
+
+    it('ENGINE_PORTABLE_LIMITS é o mínimo comum das fixtures dos adaptadores de referência', () => {
+        const dir = join(dirname(fileURLToPath(import.meta.url)), '../../../__smokes__/fixtures');
+        const fixtures = readdirSync(dir)
+            .filter((f) => f.startsWith('adapter-limits-') && f.endsWith('.json'))
+            .map(
+                (f) =>
+                    JSON.parse(readFileSync(join(dir, f), 'utf8')) as {
+                        limits: Record<string, number>;
+                    },
+            );
+        expect(fixtures.length).toBeGreaterThan(0);
+        for (const [name, value] of Object.entries(ENGINE_PORTABLE_LIMITS)) {
+            expect(value, name).toBe(Math.min(...fixtures.map((f) => f.limits[name]!)));
+        }
     });
 
     it('requiredLimits acima do máximo usa o máximo e registra em clampedLimits', async () => {

@@ -12,6 +12,7 @@ import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { rayVolumeTransmittancePoint } from '../raytrace/points';
 import { lightTransmissionPoint } from '../scene/points/lighting';
 import { sceneFogPoint } from '../scene/points/media';
+import type { HistoryPrecision } from '../scene/TemporalAntialiasing';
 import { FROXEL_AMBIENT_GRID, FROXEL_GRID, FroxelsSchema } from './schemas';
 import { composeDensityFunctions } from './composeDensity';
 import {
@@ -35,6 +36,8 @@ export interface FroxelsData {
     active: number;
     /** Revisão da composição das funções de densidade (sobe a cada mudança do conjunto). */
     revision: number;
+    /** Precisão dos históricos da névoa (spec 037, R6): 0 half, 1 full. */
+    historyPrecision: number;
 }
 
 function grow(current: number, needed: number): number {
@@ -66,20 +69,37 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             capacity: 64,
             active: 0,
             revision: 0,
+            historyPrecision: 0,
         };
+    }
+
+    /**
+     * Precisão do histórico da névoa (`half`, o padrão, ou `full`: 32 bits, dobra a banda das duas fatias). `full`
+     * exige `float32-filterable` (o histórico é lido filtrado); sem ela, a C2 o mantém em `half` com aviso (spec 037:
+     * a precisão de um canal temporal). Mudar realoca o histórico (recomeça).
+     */
+    get historyPrecision(): HistoryPrecision {
+        return this.data.historyPrecision === 1 ? 'full' : 'half';
+    }
+
+    set historyPrecision(precision: HistoryPrecision) {
+        const value = precision === 'full' ? 1 : 0;
+        if (value === this.rawData.historyPrecision) return;
+        this.redescribe(this.getDescriptors(), { ...this.rawData, historyPrecision: value });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
         const volume = (
             id: string,
             grid: readonly [number, number, number] = FROXEL_GRID,
+            format: GPUTextureFormat = 'rgba16float',
         ): GPUDescriptor => ({
             id,
             role: 'storage-texture',
             // Só com névoa na cena (o `FroxelFlow` pede): sem ela, as ~45 MB das grades não existem.
             allocation: 'onDemand',
             textureShape: {
-                format: 'rgba16float',
+                format,
                 dimension: '3d',
                 width: grid[0],
                 height: grid[1],
@@ -97,8 +117,12 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
                 upload: 'never',
             },
             volume('scatter'),
-            volume('history0'),
-            volume('history1'),
+            // O histórico: um canal temporal da C2 (spec 037) — a fatia do quadro anterior, lida filtrada na injeção,
+            // e a do quadro, escrita por ela e lida na integração.
+            {
+                ...volume('history'),
+                history: { depth: 2, precision: this.historyPrecision, filtered: true },
+            },
             // A luz ambiente (o hemisfério, a luz rebatida) numa grade mais grossa, lida na injeção.
             volume('ambient', FROXEL_AMBIENT_GRID),
             {

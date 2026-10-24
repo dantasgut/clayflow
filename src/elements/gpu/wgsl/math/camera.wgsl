@@ -33,7 +33,7 @@ fn camera_view(world: mat4x4f) -> mat4x4f {
         vec4f(normalize(world[2].xyz), 0.0),
         world[3],
     );
-    return rigid_mat4_inverse(rigid);
+    return rigid_inverse(rigid);
 }
 
 // Vista de um olho `eye` mirando `center` com o "para cima" `up` (sem eixo lateral definido — `up` paralelo à
@@ -54,6 +54,23 @@ fn camera_look_at(eye: vec3f, center: vec3f, up: vec3f) -> mat4x4f {
     );
 }
 
+// A projeção de uma câmera: ortográfica (`kind` 1, altura visível `ortho_height`) ou perspectiva (campo de visão
+// vertical `fov`).
+fn camera_projection(kind: u32, fov: f32, ortho_height: f32, aspect: f32, near: f32, far: f32) -> mat4x4f {
+    if (kind == 1u) { return camera_orthographic(ortho_height, aspect, near, far); }
+    return camera_perspective(fov, aspect, near, far);
+}
+
+// Desloca a projeção `m` em NDC por `offset` depois da projeção (translação em clip proporcional a w: x' = x + o·w),
+// coluna a coluna — o deslocamento da amostra dentro do pixel (spec 034) e a sua retirada (`offset` negativo).
+fn camera_shift(m: mat4x4f, offset: vec2f) -> mat4x4f {
+    var out = m;
+    for (var c = 0; c < 4; c++) {
+        out[c] = vec4f(m[c].xy + offset * m[c].w, m[c].zw);
+    }
+    return out;
+}
+
 // Ortográfica de caixa `[l, r] × [b, t]`, planos `n`/`f`, clip z em [0, 1] (a do mapa de sombra).
 fn camera_orthographic_box(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> mat4x4f {
     return mat4x4f(
@@ -62,12 +79,4 @@ fn camera_orthographic_box(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> ma
         vec4f(0.0, 0.0, 1.0 / (n - f), 0.0),
         vec4f((r + l) / (l - r), (t + b) / (b - t), n / (n - f), 1.0),
     );
-}
-
-// Vetor de movimento (spec 034): o deslocamento do ponto na tela desde o quadro anterior, em uv (anterior − atual), a
-// partir dele em clip no quadro anterior e neste (sem o deslocamento da amostra); repetido em rg e ba (o da superfície e
-// o do que está atrás dela — iguais fora de um transmissivo).
-fn camera_motion(previous: vec4f, current: vec4f) -> vec4f {
-    let m = (previous.xy / previous.w - current.xy / current.w) * vec2f(0.5, -0.5);
-    return vec4f(m, m);
 }

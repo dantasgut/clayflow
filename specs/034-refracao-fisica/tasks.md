@@ -30,6 +30,16 @@ direto para o `develop`) e a 034 é retomada.
   ou no do antisserrilhado (1,5 ms); (4) controle dos degraus da lente (A: referências com 1024 amostras; B: filtro de
   borda a 40 %; C: tolerar ≤ 0,1 %).
 - **Pendências de API**: `api-pendencias.md`.
+- **Retomada (2026-10-24, merge da 037 neste branch)**: a 037 renomeou e moveu peças desta spec — `TracedDenoiser` →
+  `TemporalFilter` (`src/elements/lighting/temporal/`), `traced_denoise_*` → `temporal_*`, ponto `temporal_source`,
+  `defaults.temporalFilter`; o histórico do filtro, do antisserrilhado, da névoa e da luz global de tela é agora o canal
+  temporal da C2 (`GPUDescriptor.history`, `contracts/temporal-channel.md` da 037), sem cópias de paridade; reprojeção,
+  validação e pesos vêm das peças `temporal/`; a sequência aleatória da refração e da GI passou aos fluxos
+  `random_seed` (T014 da 037). Pendências achadas na 037 que voltam para cá (`specs/037-padronizacao-matematica/baseline-smokes.md`):
+  `fog` vidro dentro 65,8 %; `materials` com três transmissões lendo zero, `transmission-dispersion` frágil e
+  Beer-Lambert lendo a amostra crua sob MSAA; rastro escuro do `antialiasing` (13,73 %) todo dentro do vidro; `lente`
+  48,9–49,3 dB no vídeo; regressão de `instances/100k` (GPU 0,68 → 1,85 ms) e `10k-functions`. As quatro decisões
+  acima continuam pendentes.
 
 ## Format: `[ID] [P?] [Story] Description`
 

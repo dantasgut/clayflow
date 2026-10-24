@@ -40,20 +40,22 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'predicado da compactação (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
     compact_value:
         'valor compactado (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
-    traced_denoise_source_size:
+    temporal_filter_source_size:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
-    traced_denoise_source_valid:
+    temporal_filter_source_valid:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
-    traced_denoise_source_signal:
+    temporal_filter_source_signal:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
-    traced_denoise_source_guide:
+    temporal_filter_source_guide:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
-    traced_denoise_source_previous_point:
+    temporal_filter_source_previous_point:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
-    traced_denoise_source_footprint:
+    temporal_filter_source_footprint:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
-    traced_denoise_source_change:
+    temporal_filter_source_change:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    soft_energy_source_terms:
+        'fonte da energia dos corpos moles (spec 037): a pronta (sem partículas) ou a de cada algoritmo (XPBD com as arestas, nós, MPM) — bindPoints troca uma pela outra',
     surface_jet:
         'lugar do jato da superfície (spec 010): numérico (pronto), analítico, das prontas ou do mapa com o espaço — bindPoints troca um pelo outro',
 };

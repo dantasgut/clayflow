@@ -13,14 +13,14 @@
 fn water_composite_vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
     let x = f32((vi << 1u) & 2u);
     let y = f32(vi & 2u);
-    return vec4f(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    return vec4f(uv_to_ndc(vec2f(x, y)), 0.0, 1.0);
 }
 
 // Ponto da vista no pixel com profundidade linear `z` (projeção simétrica; perspectiva ou ortográfica).
 fn composite_view_pos(pixel: vec2f, z: f32, p: mat4x4f, size: vec2f, jitter: vec2f) -> vec3f {
     // Perspectiva: o deslocamento da amostra do quadro (spec 034) está em p[2].xy, que a reconstrução não lê.
-    let ndc = vec2f(pixel.x / size.x * 2.0 - 1.0, 1.0 - pixel.y / size.y * 2.0) - select(vec2f(0.0), jitter, abs(p[2].w) > 0.5);
-    if (abs(p[2].w) > 0.5) {
+    let ndc = pixel_to_ndc(pixel, size) - select(vec2f(0.0), jitter, !is_orthographic(p));
+    if (!is_orthographic(p)) {
         return vec3f(ndc.x * z / p[0].x, ndc.y * z / p[1].y, -z);
     }
     return vec3f((ndc.x - p[3].x) / p[0].x, (ndc.y - p[3].y) / p[1].y, -z);
@@ -92,12 +92,10 @@ fn water_composite_fs(@builtin(position) frag: vec4f) -> CompositeOut {
     // Movimento (spec 034): o do que domina a cor do pixel. A superfície é a de nível do campo, refeita a cada quadro —
     // o ponto dela se move com a câmera (o que a forma muda a resolução rejeita pela vizinhança); a cor do fundo
     // atravessado se move com ele, cujo movimento já está no alvo.
-    let luma = vec3f(0.25, 0.5, 0.25);
-    let through = dot(tau * background, luma);
-    let own = dot(max(color, vec3f(0.0)), luma) - through;
-    let p = vec4f(pw, 1.0);
-    let moved = camera_motion(cam.previousViewProjection * p, cam.unjitteredViewProjection * p);
+    let through = ycocg(tau * background).x;
+    let own = ycocg(max(color, vec3f(0.0))).x - through;
+    let moved = motion_vector(pw, pw, water_composite.cameraSlot);
     out.motion = vec4f(moved.xy, 0.0, select(0.0, 1.0, own > through));
-    out.depth = clamp(water_ndc_depth(pv, proj), 0.0, 1.0);
+    out.depth = clamp(clip_divide(proj * vec4f(pv, 1.0)).z, 0.0, 1.0);
     return out;
 }

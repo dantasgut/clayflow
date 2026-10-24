@@ -23,9 +23,9 @@ fn gi_shade_direct(c: Closure, p: vec3f, n: vec3f, v: vec3f, seed: u32) -> vec3f
  * frequência); o verso só quando há translúcido.
  */
 fn gi_shade_indirect_weighted(c: Closure, p: vec3f, n: vec3f, v: vec3f, w: GiGenerationWeights, k: u32) -> vec3f {
-    let e = gi_generation_at(w, k) / GI_PI;
+    let e = gi_generation_at(w, k) / PI;
     var back = e;
-    if (c.translucent_weight > 0.0) { back = gi_generation_irradiance(k, p, -n, v) / GI_PI; }
+    if (c.translucent_weight > 0.0) { back = gi_generation_irradiance(k, p, -n, v) / PI; }
     return closure_indirect(c, n, v, IndirectLight(e, back, e, e, e));
 }
 

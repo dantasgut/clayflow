@@ -2,18 +2,10 @@
 // gravidade, chão, tanque e blocos de partículas com jitter — a mesma disposição gravada nas fixtures.
 import { GravityField, ParticleMaterial, RigidBody } from 'clayflow';
 import type { Application } from 'clayflow';
+import { mulberry32 } from './random';
 
-/** Gerador determinístico (mulberry32). */
-export function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
+/** Gerador determinístico das cenas (mulberry32: a sequência de `trajectories`). */
+export const rng = mulberry32;
 
 /** Espaçamento das partículas (material padrão). */
 export const SPACING = ParticleMaterial.defaults.particleSpacing;

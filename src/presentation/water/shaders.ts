@@ -17,7 +17,7 @@ import {
 import { closure, closureEval } from '../../elements/material/pbr/shaders';
 import { WATER_DEPTH_LIMIT, WATER_NO_DEPTH } from './constants';
 import { fields } from '../../elements/fields/shaders';
-import { camera } from '../../elements/gpu/shaders/math';
+import { camera, color, constants, viewSpace } from '../../elements/gpu/shaders/math';
 import {
     CausticParamsSchema,
     WaterCompositeParamsSchema,
@@ -33,6 +33,7 @@ import waterLightSource from './wgsl/water_light.wgsl?raw';
 import waterRippleSource from './wgsl/water_ripple.wgsl?raw';
 import waterCompositeSource from './wgsl/water_composite.wgsl?raw';
 import waterTransmissionSource from './wgsl/water_transmission.wgsl?raw';
+import { cameraSpace } from '../../elements/scene/flows/shaders';
 
 // Shaders da água e das cáusticas (spec 017) com recursos declarados (spec 031). Uniforms de parâmetros, texturas e
 // rascunhos são do estágio que os cria (`private`, frequência `stage`). Câmeras e matrizes de sombra são os recursos de
@@ -163,20 +164,21 @@ export const waterView = wgslModule({ name: 'water_view_fns', source: waterViewS
 const waterSceneSingle = wgslModule({
     name: 'water_scene',
     source: waterSceneSource,
-    requires: [waterView, WATER_NO_DEPTH.module, R.sceneDepth],
+    requires: [viewSpace, waterView, WATER_NO_DEPTH.module, R.sceneDepth],
 });
 
 /** A mesma, com a profundidade da cena multiamostrada (MSAA): a amostra 0 do pixel. */
 const waterSceneMs = wgslModule({
     name: 'water_scene_ms',
     source: waterSceneSource,
-    requires: [waterView, WATER_NO_DEPTH.module, R.sceneDepthMs],
+    requires: [viewSpace, waterView, WATER_NO_DEPTH.module, R.sceneDepthMs],
 });
 
 /** Ondulações capilares procedurais do material de água (inclinação somada à normal; spec 017). */
 const waterRipple = wgslModule({
     name: 'water_ripple',
     source: waterRippleSource,
+    requires: [constants],
     structs: [FluidSurfaceMaterialSchema],
 });
 
@@ -185,6 +187,7 @@ export const caustics = wgslModule({
     name: 'caustics',
     source: causticsSource,
     requires: [
+        viewSpace,
         closure,
         waterView,
         waterRipple,
@@ -212,6 +215,7 @@ function waterFieldModule(name: string, scene: WgslModule): WgslModule {
         name,
         source: waterFieldSource,
         requires: [
+            viewSpace,
             waterView,
             scene,
             fields,
@@ -244,6 +248,9 @@ function waterCompositeModule(name: string, scene: WgslModule): WgslModule {
         name,
         source: waterCompositeSource,
         requires: [
+            cameraSpace,
+            color,
+            viewSpace,
             waterView,
             scene,
             closure,
@@ -282,6 +289,7 @@ export const waterTransmission = wgslModule({
     name: 'water_transmission',
     source: waterTransmissionSource,
     requires: [
+        viewSpace,
         waterTransmissionResources.state,
         waterTransmissionResources.causticMap,
         waterTransmissionResources.lightDepth,

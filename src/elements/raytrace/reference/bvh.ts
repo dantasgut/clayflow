@@ -3,6 +3,14 @@
 // caixas de baixo para cima, travessia de dois níveis com pilha curta e as interseções raio–caixa (lâminas),
 // raio–triângulo (Möller–Trumbore) e raio–esfera. Só para os testes e os smokes compararem com a GPU.
 
+import {
+    affineBox,
+    affineDirection,
+    affineInverse,
+    affinePoint,
+    type Mat4,
+} from '../../math/reference/xform';
+
 export type Vec3 = readonly [number, number, number];
 
 /** Caixa alinhada aos eixos. */
@@ -350,71 +358,6 @@ export function spherePrimitive(center: Vec3, radius: number): Primitive {
     };
 }
 
-/** Matriz afim 4×4 por colunas (como o `WorldTransform`). */
-export type Mat4 = readonly number[];
-
-/** Ponto transformado por uma matriz afim por colunas. */
-export function transformPoint(m: Mat4, p: Vec3): Vec3 {
-    return [
-        m[0]! * p[0] + m[4]! * p[1] + m[8]! * p[2] + m[12]!,
-        m[1]! * p[0] + m[5]! * p[1] + m[9]! * p[2] + m[13]!,
-        m[2]! * p[0] + m[6]! * p[1] + m[10]! * p[2] + m[14]!,
-    ];
-}
-
-/** Direção transformada (sem translação). */
-export function transformDir(m: Mat4, d: Vec3): Vec3 {
-    return [
-        m[0]! * d[0] + m[4]! * d[1] + m[8]! * d[2],
-        m[1]! * d[0] + m[5]! * d[1] + m[9]! * d[2],
-        m[2]! * d[0] + m[6]! * d[1] + m[10]! * d[2],
-    ];
-}
-
-/** Inversa de uma matriz afim por colunas. */
-export function invertAffine(m: Mat4): number[] {
-    const [a, b, c, , d, e, f, , g, h, i] = m as number[];
-    const det = a! * (e! * i! - f! * h!) - d! * (b! * i! - c! * h!) + g! * (b! * f! - c! * e!);
-    const s = 1 / det;
-    const r = [
-        (e! * i! - f! * h!) * s,
-        (c! * h! - b! * i!) * s,
-        (b! * f! - c! * e!) * s,
-        0,
-        (f! * g! - d! * i!) * s,
-        (a! * i! - c! * g!) * s,
-        (c! * d! - a! * f!) * s,
-        0,
-        (d! * h! - e! * g!) * s,
-        (b! * g! - a! * h!) * s,
-        (a! * e! - b! * d!) * s,
-        0,
-        0,
-        0,
-        0,
-        1,
-    ];
-    const t = transformDir(r, [m[12]!, m[13]!, m[14]!]);
-    r[12] = -t[0];
-    r[13] = -t[1];
-    r[14] = -t[2];
-    return r;
-}
-
-/** Caixa de mundo de uma caixa de objeto pela matriz (os 8 cantos). */
-export function transformBox(m: Mat4, box: Aabb): Aabb {
-    const corners: Aabb[] = [];
-    for (let k = 0; k < 8; k++) {
-        const p = transformPoint(m, [
-            k & 1 ? box.max[0] : box.min[0],
-            k & 2 ? box.max[1] : box.min[1],
-            k & 4 ? box.max[2] : box.min[2],
-        ]);
-        corners.push({ min: p, max: p });
-    }
-    return boundsOf(corners);
-}
-
 /** Instância da cena: uma hierarquia de baixo (BLAS) com as suas primitivas e a matriz de mundo. */
 export interface RayInstance {
     readonly blas: Bvh;
@@ -430,7 +373,7 @@ export interface RaySceneRef {
 
 /** TLAS por LBVH sobre as caixas de mundo das instâncias. */
 export function buildScene(instances: readonly RayInstance[]): RaySceneRef {
-    const boxes = instances.map((inst) => transformBox(inst.world, inst.blas.nodes[0]!));
+    const boxes = instances.map((inst) => affineBox(inst.world, inst.blas.nodes[0]!));
     return { tlas: buildLbvh(boxes), instances };
 }
 
@@ -445,23 +388,23 @@ export function sceneHit(
     tMax: number,
 ): { t: number; instance: number; primitive: number } | null {
     const instPrims: Primitive[] = scene.instances.map((inst) => {
-        const inv = invertAffine(inst.world);
+        const inv = affineInverse(inst.world);
         return {
-            bounds: transformBox(inst.world, inst.blas.nodes[0]!),
+            bounds: affineBox(inst.world, inst.blas.nodes[0]!),
             intersect: (o: Vec3, d: Vec3, t: number): number =>
-                traverse(inst.blas, inst.prims, transformPoint(inv, o), transformDir(inv, d), t)?.t
+                traverse(inst.blas, inst.prims, affinePoint(inv, o), affineDirection(inv, d), t)?.t
                 ?? Infinity,
         };
     });
     const top = traverse(scene.tlas, instPrims, origin, dir, tMax);
     if (top === null) return null;
     const inst = scene.instances[top.primitive]!;
-    const inv = invertAffine(inst.world);
+    const inv = affineInverse(inst.world);
     const low = traverse(
         inst.blas,
         inst.prims,
-        transformPoint(inv, origin),
-        transformDir(inv, dir),
+        affinePoint(inv, origin),
+        affineDirection(inv, dir),
         tMax,
     );
     return low === null ? null : { t: low.t, instance: top.primitive, primitive: low.primitive };

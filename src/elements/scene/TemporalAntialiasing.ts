@@ -5,6 +5,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
+import type { HistoryPrecision } from '../../scene/descriptors/HistoryShape';
 
 /**
  * Modo do antisserrilhado: `temporal` (amostra deslocada dentro do pixel a cada quadro, histórico reprojetado com
@@ -15,12 +16,35 @@ export type AntialiasingMode = 'off' | 'temporal' | 'msaa' | 'accumulate';
 
 const MODES: readonly AntialiasingMode[] = ['off', 'temporal', 'msaa', 'accumulate'];
 
+/**
+ * Precisão de um histórico temporal (spec 037, R6): `half` (16 bits por canal, o padrão) ou `full` (32 bits — dobra a
+ * banda; para a acumulação longa ou onde o erro de 16 bits aparece).
+ */
+export type { HistoryPrecision };
+
+/**
+ * Formatos das séries do antisserrilhado (spec 037: canais temporais da C2): a cor no formato da cena (o
+ * `SCENE_COLOR_FORMAT` da apresentação; 32 bits com `historyPrecision: 'full'`), o estado por pixel (distância à
+ * câmera, movimento, quadros: rgba32float) e a luz que chegava ao pixel (o `LIGHT_FORMAT` da apresentação).
+ */
+export const TAA_HISTORY_FORMAT: GPUTextureFormat = 'rgba16float';
+export const TAA_STATE_FORMAT: GPUTextureFormat = 'rgba32float';
+export const TAA_LIGHT_FORMAT: GPUTextureFormat = 'rg16float';
+
+const PRECISIONS: readonly HistoryPrecision[] = ['half', 'full'];
+
 /** Opções de `TemporalAntialiasing`. */
 export interface TemporalAntialiasingOptions {
     /** Modo. Padrão `'temporal'`. */
     readonly mode?: AntialiasingMode;
     /** Posições da sequência de Halton (2, 3) antes de repetir. Padrão 64 (a memória do que está parado cobre a sequência inteira; `accumulate` usa até 1024). */
     readonly sequence?: number;
+    /**
+     * Precisão do histórico de cor. Padrão `'full'` (spec 037, R6: o erro de 16 bits aparece na imagem parada — medido no
+     * smoke `antialiasing`, sem custo mensurável no M4). `'full'` exige a feature `float32-filterable` (o histórico é lido
+     * filtrado); sem ela, o histórico fica em `'half'` com aviso.
+     */
+    readonly historyPrecision?: HistoryPrecision;
 }
 
 /** Dado de `TemporalAntialiasing` (layout de `TemporalAntialiasing.schema`). */
@@ -29,8 +53,9 @@ export interface TemporalAntialiasingData {
     mode: number;
     /** Posições da sequência antes de repetir. */
     sequence: number;
+    /** Precisão do histórico de cor: 0 half, 1 full. */
+    historyPrecision: number;
     /** Preenchimento. */
-    _pad0: number;
     _pad1: number;
 }
 
@@ -69,7 +94,7 @@ export class TemporalAntialiasing extends Entity<TemporalAntialiasingData> imple
         {
             mode: FieldType.u32,
             sequence: FieldType.u32,
-            _pad0: FieldType.u32,
+            historyPrecision: FieldType.u32,
             _pad1: FieldType.u32,
         },
         { addressSpace: 'uniform' },
@@ -82,7 +107,7 @@ export class TemporalAntialiasing extends Entity<TemporalAntialiasingData> imple
         this.data = {
             mode: MODES.indexOf(options.mode ?? 'temporal'),
             sequence: Math.max(1, Math.min(1024, Math.round(options.sequence ?? 64))),
-            _pad0: 0,
+            historyPrecision: Math.max(0, PRECISIONS.indexOf(options.historyPrecision ?? 'full')),
             _pad1: 0,
         };
     }
@@ -96,13 +121,50 @@ export class TemporalAntialiasing extends Entity<TemporalAntialiasingData> imple
         this.data.mode = MODES.indexOf(mode);
     }
 
+    /** A precisão do histórico de cor. */
+    get historyPrecision(): HistoryPrecision {
+        return PRECISIONS[this.data.historyPrecision] ?? 'half';
+    }
+
+    /** Mudar realoca a série da cor no formato novo (o histórico recomeça). */
+    set historyPrecision(precision: HistoryPrecision) {
+        const value = Math.max(0, PRECISIONS.indexOf(precision));
+        if (value === this.rawData.historyPrecision) return;
+        this.redescribe(this.getDescriptors(), { ...this.rawData, historyPrecision: value });
+    }
+
     /** O deslocamento da amostra vale neste modo (temporal ou acumulação). */
     get jitters(): boolean {
         return this.mode === 'temporal' || this.mode === 'accumulate';
     }
 
+    /**
+     * Os parâmetros e as séries da resolução temporal (spec 037): a cor, o estado e a luz de cada pixel como canais
+     * temporais da C2 — a fatia do quadro anterior e a do quadro —, do tamanho do canvas e alocados sob demanda por quem
+     * resolve (alvos de render e lidos como textura).
+     */
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'params', role: 'uniform', schema: TemporalAntialiasing.schema }];
+        const series = (
+            id: string,
+            format: GPUTextureFormat,
+            history: NonNullable<GPUDescriptor['history']>,
+        ): GPUDescriptor => ({
+            id,
+            role: 'texture',
+            allocation: 'onDemand',
+            textureShape: { format, sizeFromCanvas: true },
+            history,
+        });
+        return [
+            { id: 'params', role: 'uniform', schema: TemporalAntialiasing.schema },
+            series('history', TAA_HISTORY_FORMAT, {
+                depth: 2,
+                precision: this.historyPrecision,
+                filtered: true,
+            }),
+            series('state', TAA_STATE_FORMAT, { depth: 2 }),
+            series('light', TAA_LIGHT_FORMAT, { depth: 2 }),
+        ];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {

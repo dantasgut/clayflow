@@ -3,7 +3,7 @@
 // (xyz) com a distância ao longo do raio (w, 0 = sem superfície) e a normal voltada para a câmera, e depois a
 // irradiância do quadro de cada geração de rebatimento. O raio da câmera sai da câmera ativa como no fundo da cena:
 // perspectiva pelos fatores da projeção, ortográfica pela origem deslocada.
-// Requer: gi, ray_camera.
+// Requer: gi, camera_space.
 
 /** Pixels por lado do ladrilho de uma sonda de tela (a qualidade: 4, 8 ou 16). */
 fn gi_screen_tile() -> f32 {
@@ -46,5 +46,5 @@ fn gi_screen_tile_pixel(tile: vec2u) -> vec2f {
 
 /** Raio da câmera ativa pelo pixel `px` (origem e direção unitária). */
 fn gi_camera_ray(px: vec2f) -> RayCamera {
-    return ray_camera(gi.screen.w, px, gi.screenSize.xy);
+    return camera_ray(gi.screen.w, px, gi.screenSize.xy);
 }

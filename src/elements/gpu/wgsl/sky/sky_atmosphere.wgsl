@@ -4,7 +4,6 @@
 // `elements/scene/reference/atmosphere.ts`.
 // Requer: sky.
 
-const SKY_PI: f32 = 3.14159265358979;
 
 /** Coeficientes do meio a uma altura `h` (km acima do chão). */
 struct SkyMedium {
@@ -26,13 +25,13 @@ fn sky_medium(h: f32) -> SkyMedium {
 }
 
 fn sky_rayleigh_phase(c: f32) -> f32 {
-    return 3.0 / (16.0 * SKY_PI) * (1.0 + c * c);
+    return 3.0 / (16.0 * PI) * (1.0 + c * c);
 }
 
 /** Fase de Mie de Cornette-Shanks. */
 fn sky_mie_phase(c: f32) -> f32 {
     let g = sky.mie.w;
-    let k = 3.0 / (8.0 * SKY_PI) * (1.0 - g * g) / (2.0 + g * g);
+    let k = 3.0 / (8.0 * PI) * (1.0 - g * g) / (2.0 + g * g);
     return k * (1.0 + c * c) / pow(1.0 + g * g - 2.0 * g * c, 1.5);
 }
 
@@ -86,7 +85,7 @@ fn sky_transmittance_params(uv: vec2f) -> vec2f {
 /** Ângulos da vista do céu (Hillaire 2020, §5.3): uv → (zênite da vista, azimute em relação ao sol). */
 fn sky_view_angles(uv: vec2f, r: f32) -> vec2f {
     let beta = acos(clamp(sqrt(max(r * r - sky_bottom() * sky_bottom(), 0.0)) / r, -1.0, 1.0));
-    let zenith_horizon = SKY_PI - beta;
+    let zenith_horizon = PI - beta;
     var zenith: f32;
     if (uv.y < 0.5) {
         var c = 1.0 - 2.0 * uv.y;
@@ -96,13 +95,13 @@ fn sky_view_angles(uv: vec2f, r: f32) -> vec2f {
         let c = uv.y * 2.0 - 1.0;
         zenith = zenith_horizon + beta * c * c;
     }
-    return vec2f(zenith, uv.x * uv.x * SKY_PI);
+    return vec2f(zenith, uv.x * uv.x * PI);
 }
 
 /** Inverso de `sky_view_angles`. */
 fn sky_view_uv(zenith: f32, azimuth: f32, r: f32) -> vec2f {
     let beta = acos(clamp(sqrt(max(r * r - sky_bottom() * sky_bottom(), 0.0)) / r, -1.0, 1.0));
-    let zenith_horizon = SKY_PI - beta;
+    let zenith_horizon = PI - beta;
     var v: f32;
     if (zenith < zenith_horizon) {
         let c = sqrt(max(1.0 - zenith / zenith_horizon, 0.0));
@@ -110,7 +109,7 @@ fn sky_view_uv(zenith: f32, azimuth: f32, r: f32) -> vec2f {
     } else {
         v = sqrt(clamp((zenith - zenith_horizon) / beta, 0.0, 1.0)) * 0.5 + 0.5;
     }
-    return vec2f(sqrt(clamp(azimuth / SKY_PI, 0.0, 1.0)), v);
+    return vec2f(sqrt(clamp(azimuth / PI, 0.0, 1.0)), v);
 }
 
 /** Raio do observador (km do centro do planeta) para um ponto da cena em metros. */

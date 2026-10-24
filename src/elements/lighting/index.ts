@@ -20,9 +20,9 @@ export {
     type RefractionValues,
 } from './refraction/Refraction';
 export {
-    TracedDenoiser,
-    TRACED_DENOISE_DEFAULT_HISTORY,
-    TRACED_DENOISE_MAX_HISTORY,
-    type TracedDenoiserData,
-    type TracedDenoiserValues,
-} from './denoise/TracedDenoiser';
+    TemporalFilter,
+    TEMPORAL_FILTER_DEFAULT_HISTORY,
+    TEMPORAL_FILTER_MAX_HISTORY,
+    type TemporalFilterData,
+    type TemporalFilterValues,
+} from './temporal/TemporalFilter';

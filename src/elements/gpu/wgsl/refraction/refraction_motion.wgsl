@@ -29,9 +29,7 @@ fn refraction_motion_fs(@builtin(position) frag: vec4f) -> RefractionMotionOut {
     if ((request.y & REFRACTION_REQUEST_VALID) == 0u) { discard; }
     let hit = textureLoad(refraction_hit, px, 0);
     let before = refraction_previous_point(hit);
-    let cam = cameras[refraction.camera_slot];
-    let m = camera_motion(cam.previousViewProjection * vec4f(before, 1.0),
-        cam.unjitteredViewProjection * vec4f(hit.xyz, 1.0));
+    let m = motion_vector(before, hit.xyz, refraction.camera_slot);
     var out: RefractionMotionOut;
     out.motion = vec4f(0.0, 0.0, m.zw);
     out.reactive = select(0.0, 1.0, refraction_change(px) > REFRACTION_REACTIVE_CHANGE);

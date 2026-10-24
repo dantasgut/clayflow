@@ -165,7 +165,7 @@ fn ray_scene_resolve(hit_in: RayHit, origin: vec3f, dir: vec3f) -> RayHit {
     hit.renderable = inst.ids.y;
     hit.position = origin + dir * hit.t;
     // Normais em mundo pela transposta da inversa (as colunas de `toObject`).
-    let n3 = transpose(mat3x3f(inst.toObject[0].xyz, inst.toObject[1].xyz, inst.toObject[2].xyz));
+    let n3 = affine_normal_of_inverse(inst.toObject);
     var geometric: vec3f;
     if (blas.w == RAY_KIND_SPHERES) {
         let s = ray_sphere_at(ray_scene_info.sphereFirst + (blas.y + hit.primitive) * RAY_SPHERE_WORDS);

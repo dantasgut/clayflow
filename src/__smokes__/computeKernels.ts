@@ -24,6 +24,7 @@ import { AtomicAllocCounterSchema } from '../elements/gpu/compute/schemas';
 import { fixedPoint } from '../elements/gpu/compute/shaders';
 import type { ReduceOpName, ReduceType } from '../elements/gpu/compute/shaders';
 import { FIXED_LIMIT, fixedFromF32 } from './support/fixedPointReference';
+import { mulberry32 } from './support/random';
 
 function log(msg: string): void {
     console.log(`[computeKernels] ${msg}`);
@@ -71,18 +72,6 @@ async function read(src: StorageBufferSpec, byteSize: number): Promise<ArrayBuff
     return data.slice(0, byteSize);
 }
 
-/** Gerador determinístico (mulberry32). */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
 const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
 /** Mede (mediana de 5, depois de um aquecimento) o tempo de gravar, enviar e concluir `body`. */
@@ -102,7 +91,7 @@ async function timeIt(body: () => void, sync: StorageBufferSpec): Promise<number
 async function prefixSum(): Promise<void> {
     const sizes = [0, 1, 255, 256, 257, 65_537, 70_000 * 256, 4_194_304];
     const scan = new PrefixSum(app.core, { discriminator: 'ck_scan', capacity: 70_000 * 256 });
-    const r = rng(1);
+    const r = mulberry32(1);
     for (const n of sizes) {
         const input = Uint32Array.from({ length: n }, () => Math.floor(r() * 4));
         for (const mode of ['exclusive', 'inclusive'] as const) {
@@ -158,7 +147,7 @@ async function radixSort(): Promise<void> {
         capacity: 4_194_304,
         withValues: true,
     });
-    const r = rng(2);
+    const r = mulberry32(2);
     const kinds: Record<string, (n: number, i: number) => number> = {
         aleatórias: () => Math.floor(r() * 4294967296),
         iguais: () => 77,
@@ -244,7 +233,7 @@ fn compact_value(i: u32) -> u32 { return i; }`,
 async function compaction(): Promise<void> {
     const n = 100_000;
     const SENTINEL = 0xdeadbeef;
-    const r = rng(3);
+    const r = mulberry32(3);
     const values = Uint32Array.from({ length: n }, () => Math.floor(r() * 1000));
     const valuesBuf = upload(values);
     const cases = [
@@ -315,7 +304,7 @@ async function compaction(): Promise<void> {
 // ── Reduce ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async function reduce(): Promise<void> {
-    const r = rng(4);
+    const r = mulberry32(4);
     let cases = 0;
     for (const type of ['u32', 'i32', 'f32'] as ReduceType[]) {
         for (const op of ['sum', 'min', 'max'] as ReduceOpName[]) {
@@ -420,7 +409,7 @@ function tetraEdges(n: number): Uint32Array {
 }
 
 function randomEdges(count: number, vertices: number): Uint32Array {
-    const r = rng(5);
+    const r = mulberry32(5);
     const out = new Uint32Array(count * 2);
     for (let e = 0; e < count; e++) {
         const a = Math.floor(r() * vertices);
@@ -508,7 +497,7 @@ async function graphColoring(): Promise<void> {
 async function fixedPointSum(): Promise<void> {
     const n = 1_000_000;
     const scale = 1048576;
-    const r = rng(6);
+    const r = mulberry32(6);
     const values = Float32Array.from({ length: n }, () => (r() * 2 - 1) * 1e-3);
     // Empates exatos de arredondamento (k + 0,5) / scale e valores fora da faixa.
     values.set([0.5 / scale, 1.5 / scale, -2.5 / scale, 4096, -4096], 0);

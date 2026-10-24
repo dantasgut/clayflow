@@ -1,11 +1,5 @@
 import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
-import type {
-    AnyBufferSpec,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-    TextureViewSpec,
-} from '../../scene/contracts/gpu';
+import type { AnyBufferSpec, EngineCore, Frame, TextureViewSpec } from '../../scene/contracts/gpu';
 import type { CompositeFunction } from '../../scene/contracts/ExtensionFunction';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
@@ -14,6 +8,7 @@ import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
     slot,
+    type ChannelSlot,
     type EntitiesSlot,
     type EntityEntry,
     type PoolSlot,
@@ -27,11 +22,18 @@ import { Time } from '../../scene/time/Time';
 import type { World } from '../../scene/world/World';
 import { Camera } from '../scene/Camera';
 import { Light } from '../scene/Light';
+import { halton } from '../scene/TemporalAntialiasing';
 import { Transform } from '../scene/Transform';
 import { FogVolume } from './FogVolume';
 import { Froxels } from './Froxels';
 import { FROXEL_AMBIENT_GRID, FROXEL_GRID, FROXEL_NEAR } from './schemas';
-import { froxelAmbient, froxelInject, froxelIntegrate, mediaResources as R } from './shaders';
+import {
+    froxelAmbient,
+    froxelHistorySlot,
+    froxelInjectFor,
+    froxelIntegrate,
+    mediaResources as R,
+} from './shaders';
 
 /** Slots do estágio dos froxels. */
 export interface FroxelSlots extends SlotMap {
@@ -45,6 +47,8 @@ export interface FroxelSlots extends SlotMap {
     readonly cameras: PoolSlot<true>;
     /** O tempo simulado (as funções de densidade). */
     readonly time: SingletonSlot<true>;
+    /** O histórico dos froxels: um canal temporal (spec 037), alocado com a primeira névoa. */
+    readonly froxelHistory: ChannelSlot<false>;
 }
 
 const slots: FroxelSlots = {
@@ -53,6 +57,7 @@ const slots: FroxelSlots = {
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
+    ...froxelHistorySlot,
 };
 
 type Ctx = TransitionContext<FroxelSlots>;
@@ -65,30 +70,13 @@ const compute = (id: string, shader: WgslModule, entry: string): PipelineDescrip
 });
 
 const AMBIENT = compute('froxel_ambient', froxelAmbient, 'froxel_ambient_main');
-const INTEGRATE = [
-    compute('froxel_integrate_0', froxelIntegrate[0], 'froxel_integrate_main'),
-    compute('froxel_integrate_1', froxelIntegrate[1], 'froxel_integrate_main'),
-] as const;
-/** Ids das injeções compostas com as funções de densidade de uma revisão (uma por paridade). */
-const injectIds = (revision: number): readonly [string, string] => [
-    `froxel_inject_0:${revision}`,
-    `froxel_inject_1:${revision}`,
-];
+const INTEGRATE = compute('froxel_integrate', froxelIntegrate, 'froxel_integrate_main');
+/** Id da injeção composta com as funções de densidade de uma revisão. */
+const injectId = (revision: number): string => `froxel_inject:${revision}`;
 /** vec4f de um registro de volume no buffer dos meios. */
 const RECORD_VEC4 = 8;
 /** Passo (razão) em que a distância da última fatia é arredondada: mudanças menores não invalidam o histórico. */
 const FAR_STEP = 1.25;
-
-/** Sequência de Halton na base `b` (o jitter dos froxels). */
-function halton(i: number, b: number): number {
-    let f = 1;
-    let r = 0;
-    for (let n = i; n > 0; n = Math.floor(n / b)) {
-        f /= b;
-        r += f * (n % b);
-    }
-    return r;
-}
 
 /** Cópia de uma grade de densidade para o buffer dos meios (no início do quadro). */
 interface GridCopy {
@@ -115,8 +103,6 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
     private readonly core: EngineCore;
     private readonly world: World;
     private readonly resources: ResourceDirectory;
-    /** A vista e a vista-projeção do quadro anterior (a reprojeção). */
-    private readonly cameraBuffer: StorageBufferSpec;
     private views: readonly (TextureViewSpec | undefined)[] = [];
     private prepared = false;
     private revision = 0;
@@ -128,8 +114,8 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
     private grids: GridCopy[] = [];
     private frame = 0;
     private farStep: number | undefined;
-    /** O quadro anterior despachou (o histórico vale). */
-    private ran = false;
+    /** O formato do histórico resolvido pela C2 (spec 037: a precisão do canal, com o recuo sem `float32-filterable`). */
+    private historyFormat: GPUTextureFormat | undefined;
     private active = false;
 
     constructor(ctx: FlowContext) {
@@ -137,12 +123,6 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         this.core = ctx.core;
         this.world = ctx.world;
         this.resources = ctx.resources;
-        this.cameraBuffer = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'froxel_camera',
-            byteSize: 128,
-        });
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -165,15 +145,10 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
 
     /** As grades no buffer dos meios, a luz ambiente, a injeção com o acúmulo e a integração, num passe. */
     dispatch(frame: Frame, bound: BoundFlow<FroxelSlots>): void {
-        if (!this.active) {
-            this.ran = false;
-            return;
-        }
+        if (!this.active) return;
         const revision = this.readyInject(bound);
-        const parity = this.frame & 1;
-        const inject =
-            revision === undefined ? undefined : bound.pipelines.get(injectIds(revision)[parity]!);
-        const integrate = bound.pipelines.get(INTEGRATE[parity]!.id);
+        const inject = revision === undefined ? undefined : bound.pipelines.get(injectId(revision));
+        const integrate = bound.pipelines.get(INTEGRATE.id);
         const ambient = bound.pipelines.get(AMBIENT.id);
         if (
             ambient?.role !== 'compute'
@@ -183,10 +158,8 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             || integrate?.role !== 'compute'
             || !integrate.ready
             || this.mediaBuffer === undefined
-        ) {
-            this.ran = false;
+        )
             return;
-        }
         for (const g of this.grids) frame.copy(g.buffer, this.mediaBuffer, g.bytes, 0, g.offset);
         const W = WORKGROUP_SIZE.value;
         frame.compute('FroxelFlow', (pass) => {
@@ -203,14 +176,13 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             integrate.bindTo(pass.bind);
             pass.dispatch.invocations(FROXEL_GRID[0] * FROXEL_GRID[1], W);
         });
-        this.ran = true;
+        // A fatia do quadro do histórico foi escrita: o quadro seguinte a lê como a anterior (o canal gira).
+        bound.slots.froxelHistory.written();
         this.frame++;
     }
 
     /** Libera o buffer da câmera guardada. */
-    override dispose(): void {
-        this.core.destroy(this.cameraBuffer);
-    }
+    override dispose(): void {}
 
     private prepare(c: Ctx): void {
         const froxels = c.bound.slots.froxels.resource as Froxels;
@@ -219,12 +191,18 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         this.active = fogs.length > 0 && cameraSlot !== undefined;
         // As grades sob demanda: alocadas com a primeira névoa, antes de as contribuições lerem.
         if (fogs.length > 0)
-            for (const id of ['scatter', 'history0', 'history1', 'ambient'])
+            for (const id of ['scatter', 'history', 'ambient'])
                 this.resources.ensureAllocated(froxels, id);
         froxels.setActive(fogs.length > 0);
         if (fogs.length === 0) return;
+        const format = c.bound.slots.froxelHistory.format;
+        if (format !== this.historyFormat) {
+            // Outro formato do histórico (a precisão, realocada pela C2): as injeções são recompostas com ele.
+            this.historyFormat = format;
+            this.functionModules = [];
+        }
         this.resources.ensurePool(Light.schema);
-        const views = (['history0', 'history1', 'scatter', 'ambient'] as const).map((id) =>
+        const views = (['scatter', 'ambient'] as const).map((id) =>
             c.bound.slots.froxels.textureViewOf(id),
         );
         if (views.some((v) => v === undefined)) {
@@ -235,17 +213,12 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             this.views = views;
             c.bind(
                 new Map<WgslResource, BindingSource>([
-                    [R.historyOut0, views[0]!],
-                    [R.historyOut1, views[1]!],
-                    [R.scatterOut, views[2]!],
-                    [R.ambientOut, views[3]!],
-                    [R.camera, this.cameraBuffer],
-                    [R.cameraWrite, this.cameraBuffer],
+                    [R.scatterOut, views[0]!],
+                    [R.ambientOut, views[1]!],
                 ]),
             );
-            this.ran = false;
             if (!this.prepared) {
-                for (const p of [AMBIENT, ...INTEGRATE]) c.prepare(p);
+                for (const p of [AMBIENT, INTEGRATE]) c.prepare(p);
                 this.prepared = true;
             }
         }
@@ -267,10 +240,8 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
     /** As funções de densidade dos volumes (uma por código), publicadas nos `Froxels`, e as injeções compostas com elas. */
     private syncFunctions(c: Ctx, froxels: Froxels, fogs: readonly FogVolume[]): void {
         if (this.nextInjectRevision !== undefined) {
-            const next = injectIds(this.nextInjectRevision).map((id) => c.bound.pipelines.get(id));
-            if (next.every((p) => p?.ready === true)) {
-                if (this.injectRevision !== undefined)
-                    for (const id of injectIds(this.injectRevision)) c.release(id);
+            if (c.bound.pipelines.get(injectId(this.nextInjectRevision))?.ready === true) {
+                if (this.injectRevision !== undefined) c.release(injectId(this.injectRevision));
                 this.injectRevision = this.nextInjectRevision;
                 this.nextInjectRevision = undefined;
             }
@@ -290,11 +261,9 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         this.functionModules = modules;
         froxels.setDensityFunctions(list);
         const revision = ++this.revision;
-        if (this.nextInjectRevision !== undefined)
-            for (const id of injectIds(this.nextInjectRevision)) c.release(id);
-        const [id0, id1] = injectIds(revision);
-        c.prepare(compute(id0, froxels.withDensity(froxelInject[0]), 'froxel_inject_main'));
-        c.prepare(compute(id1, froxels.withDensity(froxelInject[1]), 'froxel_inject_main'));
+        if (this.nextInjectRevision !== undefined) c.release(injectId(this.nextInjectRevision));
+        const inject = froxelInjectFor(this.historyFormat ?? 'rgba16float');
+        c.prepare(compute(injectId(revision), froxels.withDensity(inject), 'froxel_inject_main'));
         if (this.injectRevision === undefined) this.injectRevision = revision;
         else this.nextInjectRevision = revision;
     }
@@ -303,10 +272,10 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
     private readyInject(bound: BoundFlow<FroxelSlots>): number | undefined {
         const ready = (revision: number | undefined): boolean =>
             revision !== undefined
-            && injectIds(revision).every((id) => {
-                const p = bound.pipelines.get(id);
+            && (() => {
+                const p = bound.pipelines.get(injectId(revision));
                 return p?.role === 'compute' && p.ready;
-            });
+            })();
         if (ready(this.nextInjectRevision)) return this.nextInjectRevision;
         return ready(this.injectRevision) ? this.injectRevision : undefined;
     }
@@ -394,7 +363,9 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         // Arredondada para cima em passos de 25 %: a câmera andando não muda as fatias a cada quadro.
         const step = Math.ceil(Math.log(far / FROXEL_NEAR) / Math.log(FAR_STEP));
         far = FROXEL_NEAR * FAR_STEP ** step;
-        const valid = this.ran && step === this.farStep;
+        // O histórico vale se a fatia anterior foi escrita no quadro imediatamente anterior (a reprojeção usa a câmera
+        // desse quadro) e as fatias da grade não mudaram.
+        const valid = c.bound.slots.froxelHistory.age(1) === 1 && step === this.farStep;
         this.farStep = step;
         const n = this.frame + 1;
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;

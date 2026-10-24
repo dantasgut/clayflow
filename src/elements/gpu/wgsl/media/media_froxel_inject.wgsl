@@ -6,15 +6,14 @@
 // (espalhado rgb, extinção), vai ao histórico do quadro. O ponto sorteado segue a sequência de Halton do quadro
 // deslocada por froxel.
 // Requer: WORKGROUP_SIZE, FROXEL_HISTORY, froxels, cameras, media_common, media_volumes, lights, light_incoming,
-// light_visibility, light_transmission, froxel_ambient, froxel_camera (leitura), froxel_sampler, froxel_history,
+// light_visibility, light_transmission, froxel_ambient, froxel_sampler, froxel_history,
 // froxel_history_out.
 
-const FROXEL_PI: f32 = 3.14159265358979;
 
 /** Fase de Henyey-Greenstein (cosseno entre a direção para a luz e a do raio da câmera). */
 fn froxel_phase(cos_theta: f32, g: f32) -> f32 {
     let d = 1.0 + g * g - 2.0 * g * cos_theta;
-    return (1.0 - g * g) / (4.0 * FROXEL_PI * d * sqrt(max(d, 1e-8)));
+    return (1.0 - g * g) / (4.0 * PI * d * sqrt(max(d, 1e-8)));
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -28,7 +27,7 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     // que a grade inteira deslize junto de um quadro para o outro.
     let jitter = fract(froxels.frame.xyz + froxel_rotation(cell));
     let uv = (vec2f(cell.xy) + jitter.xy) / vec2f(dims.xy);
-    let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    let ndc = uv_to_ndc(uv);
     let z = froxel_slice_depth(f32(cell.z) + jitter.z);
     let p = froxel_world(cam, froxel_view_point(ndc, z, froxel_projection(cam)));
     let ray = normalize(p - cam.position.xyz);
@@ -75,15 +74,16 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     }
     // O centro do froxel no quadro anterior (a vista e a vista-projeção guardadas): o histórico onde ele estava — com a
     // câmera parada, o próprio texel.
-    if (froxels.counts.w == 1u) {
+    // Sem histórico no corte de câmera (`history.x`, spec 037).
+    if (froxels.counts.w == 1u && !temporal_cut(cam.history)) {
         let uv_c = (vec2f(cell.xy) + 0.5) / vec2f(dims.xy);
-        let ndc_c = vec2f(uv_c.x * 2.0 - 1.0, 1.0 - uv_c.y * 2.0);
+        let ndc_c = uv_to_ndc(uv_c);
         let center = froxel_world(cam, froxel_view_point(ndc_c, froxel_slice_depth(f32(cell.z) + 0.5), froxel_projection(cam)));
-        let f = froxel_locate(froxel_camera[0], froxel_camera[1], center);
+        let f = froxel_locate(cam.previousView, cam.previousViewProjection, center);
         let w = f.z / f32(dims.z);
         if (all(f.xy >= vec2f(0.0)) && all(f.xy <= vec2f(1.0)) && w >= 0.0 && w <= 1.0) {
             let history = textureSampleLevel(froxel_history, froxel_sampler, vec3f(f.xy, w), 0.0);
-            current = mix(current, history, FROXEL_HISTORY);
+            current = temporal_hysteresis(current, history, FROXEL_HISTORY);
         }
     }
     textureStore(froxel_history_out, cell, current);

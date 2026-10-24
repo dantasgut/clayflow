@@ -48,7 +48,7 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let c = ray_hit_closure(hit, gi.extra.w, 0.0);
     let p = hit.position;
     let n = hit.normal;
-    let direct = gi_shade_direct(c, p, n, v, i * 9781u + gi.rays.y * 6271u);
+    let direct = gi_shade_direct(c, p, n, v, random_seed(RANDOM_STREAM_GI_WORLD, i, gi.rays.y));
     gi_rays[out_base] = vec4f(direct * through, hit.t);
     if (bounces < 2u) { return; }
     // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
@@ -60,7 +60,7 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     for (var b = 1u; b < bounces; b++) {
         var indirect = vec3f(0.0);
         if (screen) {
-            let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / GI_PI;
+            let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / PI;
             indirect = closure_indirect(c, n, v, IndirectLight(e, e, e, e, e));
         } else {
             indirect = gi_shade_indirect_weighted(c, p, n, v, w, b - 1u);

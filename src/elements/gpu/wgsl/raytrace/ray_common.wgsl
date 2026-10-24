@@ -103,25 +103,3 @@ fn ray_sphere(origin: vec3f, dir: vec3f, center: vec3f, radius: f32, t_max: f32)
     if (t1 > 0.0 && t1 < t_max) { return t1; }
     return RAY_MISS;
 }
-
-/** Inversa de uma matriz afim (última linha 0, 0, 0, 1). */
-fn ray_inverse_affine(m: mat4x4f) -> mat4x4f {
-    let a = m[0].xyz;
-    let b = m[1].xyz;
-    let c = m[2].xyz;
-    let r0 = cross(b, c);
-    let r1 = cross(c, a);
-    let r2 = cross(a, b);
-    let inv_det = 1.0 / dot(a, r0);
-    // Linhas da inversa de [a b c] são os produtos vetoriais / det.
-    let i0 = r0 * inv_det;
-    let i1 = r1 * inv_det;
-    let i2 = r2 * inv_det;
-    let t = m[3].xyz;
-    return mat4x4f(
-        vec4f(i0.x, i1.x, i2.x, 0.0),
-        vec4f(i0.y, i1.y, i2.y, 0.0),
-        vec4f(i0.z, i1.z, i2.z, 0.0),
-        vec4f(-dot(i0, t), -dot(i1, t), -dot(i2, t), 1.0),
-    );
-}

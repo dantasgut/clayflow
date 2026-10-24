@@ -44,6 +44,7 @@ import {
 } from 'clayflow';
 import type { BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec, WgslModule } from 'clayflow';
 import { readPool, settle } from './support/extensionScenes';
+import { lcg } from './support/random';
 
 function log(msg: string): void {
     console.log(`[rayScene] ${msg}`);
@@ -268,15 +269,6 @@ function dispose(app: Application, canvas: HTMLCanvasElement): void {
     canvas.remove();
 }
 
-/** Gerador determinístico em [0, 1). */
-function rng(seed: number): () => number {
-    let s = seed >>> 0;
-    return () => {
-        s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-        return s / 2 ** 32;
-    };
-}
-
 /** Interseção analítica raio–esfera. */
 function sphereHit(o: V3, d: V3, c: V3, r: number): { t: number; n: V3 } | null {
     const oc = sub(o, c);
@@ -363,7 +355,7 @@ async function caseAnalytic(): Promise<void> {
             .add(new Transform({ position: [planeX, 0, 0, 1] })),
     );
     await settle(app, 600);
-    const r = rng(7);
+    const r = lcg(7);
     const probes: Probe[] = [];
     const expected: ({ t: number; n: V3; size: number } | null)[] = [];
     for (let i = 0; i < 900; i++) {
@@ -833,7 +825,7 @@ async function caseContract(): Promise<void> {
     await settle(app, 1200);
 
     type Kind = 'mesh' | 'surface' | 'graph' | 'cloth' | 'sprites' | 'water';
-    const r = rng(11);
+    const r = lcg(11);
     const probes: Probe[] = [];
     const expected: { kind: Kind; t: number; n: V3 | null; size: number }[] = [];
     const add = (kind: Kind, origin: V3, target: V3): void => {

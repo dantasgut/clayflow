@@ -184,6 +184,71 @@ console.log(pose?.position); // a do último quadro enviado
 const poses = await app.resources.readAll(transforms); // um lote: uma cópia por faixa contígua e uma leitura
 ```
 
+## Energia dos corpos rígidos (spec 037)
+
+Com um `EnergyMeter` na cena, o `EnergyFlow` (fase `physics`, depois dos solvers) grava a cada passo de física a energia
+de cada corpo rígido do LCP numa **série temporal** — o canal `BodyEnergy` (8 fatias, no slot do corpo; ver
+[Flows — séries temporais](./flows.md)):
+
+| Campo       | O quê                                                                                  |
+| ----------- | -------------------------------------------------------------------------------------- |
+| `kinetic`   | ½·m·\|v\|² + ½·ω_cᵀ·I·ω_c (ω no mundo levado ao corpo; I a diagonal; eixo travado: 0) |
+| `potential` | −m·g·x no campo uniforme do `GravityField` (sem ele, 0, −9,81, 0)                       |
+| `power`     | (E do passo anterior − E)/dt: a potência dissipada no passo (W)                         |
+| `window`    | E de 7 passos atrás − E: a energia dissipada na janela (J)                              |
+
+`power` e `window` valem 0 enquanto a série não tem a fatia de que precisam. O anel gira só nos quadros com passo de
+física: a série segue o tempo simulado. Leitura na CPU: `await app.resources.read(corpo, 'energy')` (a fatia mais
+recente). Sem o medidor, nada é alocado nem calculado. A referência f64 está em `physics/reference/energy.ts`; o smoke
+`energy` confere a conta contra ela (48u) e a potência e a janela contra a solução analítica do amortecimento do LCP
+(v ← v·(1 − k·dt) por passo).
+
+```ts
+app.world.insert(new EnergyMeter());
+const ball = new RigidBody({ shape: 'sphere', radius: 0.5, mass: 2, position: [0, 4, 0] });
+app.world.insert(ball);
+app.step(1 / 60, 60);
+const { kinetic, potential, power, window } = (await app.resources.read(ball, 'energy'))!;
+```
+
+## Energia dos corpos moles (spec 037)
+
+O mesmo `EnergyMeter` liga a série dos corpos moles: o `SoftEnergyFlow` (fase `physics`, depois de todos os solvers)
+grava a cada passo de física a energia de cada `SoftBody` no canal `SoftBodyEnergy` (8 fatias, um registro por corpo):
+
+| Campo       | O quê                                                                                                      |
+| ----------- | ---------------------------------------------------------------------------------------------------------- |
+| `kinetic`   | Σ ½·m·\|v\|² das partículas (partícula fixa, de massa 0, fica fora)                                         |
+| `potential` | Σ −m·g·x no campo uniforme do `GravityField` (os demais campos de força não entram)                          |
+| `elastic`   | XPBD: Σ ½·C²/α das arestas do corpo com α > 0; MPM: Σ V₀·ψ(F), Neo-Hookean do `ParticleMaterial`; FEM: 0     |
+| `power`     | (E do passo anterior − E)/dt, E = cinética + potencial + elástica (W)                                      |
+| `window`    | E de 7 passos atrás − E (J)                                                                                |
+
+- **XPBD**: C = |pⱼ − pᵢ| − repouso; ½·C²/α é a energia de que o XPBD com complacência α é a minimização. Aresta com
+  α = 0 é restrição rígida, sem energia definida: não entra. Restrições entre corpos (`DistanceConstraint` à parte) não
+  entram na energia de nenhum corpo.
+- **MPM**: ψ = μ/2·(tr FᵀF − 3) − μ·ln J + λ/2·(ln J)², o mesmo modelo do P2G, com a massa, o volume de repouso e μ, λ
+  do `ParticleMaterial` da cena.
+- **FEM**: o motor ainda não tem o modelo elástico do FEM (o `FEMFlow` só integra a gravidade); a elástica vale 0 até
+  ele existir.
+
+Cada corpo declara a sua faixa (`SoftBodyRange`: as partículas, as arestas, o algoritmo e os blocos, com os inícios
+resolvidos pela C2) e blocos de 1024 elementos. A conta tem duas passadas: um grupo por bloco soma o bloco, pela fonte
+do algoritmo no ponto `soft_energy_source` (em paralelo mesmo num corpo grande), e um grupo por corpo soma os blocos e
+grava a fatia — em ordem fixa, sem atômicos de float. Custo no M4: 0,05 ms com 65 536 partículas (um corpo ou 1024),
+abaixo de 1 % do quadro de 60 Hz. Leitura na CPU: `await app.resources.read(corpo, 'energy')`. O smoke `softEnergy`
+confere os três termos contra a referência f64 do estado lido (`physics/reference/energy.ts`; limites pelo
+arredondamento f32 de cada termo e das duas somas), a potência e a janela contra as fatias guardadas e, no XPBD e no
+FEM, contra a lei discreta do amortecimento de cada solver.
+
+```ts
+app.world.insert(new EnergyMeter());
+const cloth = new SoftBody({ algorithm: 'XPBD', position, mass, edges: { a, b, compliance: 1e-4 } });
+app.world.insert(cloth);
+app.step(1 / 60, 60);
+const { kinetic, potential, elastic, power, window } = (await app.resources.read(cloth, 'energy'))!;
+```
+
 ## Campos de força e emissores (spec 009)
 
 Todo solver (rígido, XPBD, FEM, MPM, SPH, PBF) e todo emissor somam, a cada passo, a gravidade uniforme do

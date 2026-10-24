@@ -1,0 +1,135 @@
+--- a/src/presentation/flows/shaders.ts
++++ b/src/presentation/flows/shaders.ts
+@@ -172,7 +172,10 @@
+         frequency: 'draw',
+         provider: 'private',
+     }),
+-    /** A distância à câmera e o movimento de cada pixel no quadro anterior (rg32float), para a desoclusão. */
++    /**
++     * A distância à câmera, o movimento e os quadros do histórico de cada pixel no quadro anterior (rgba32float): a
++     * desoclusão e a contagem exata (spec 037).
++     */
+     historyDistance: wgslResource({
+         name: 'taa_history_distance',
+         binding: { texture: { sample: 'f32' } },
+--- a/src/presentation/flows/__tests__/present.test.ts
++++ b/src/presentation/flows/__tests__/present.test.ts
+@@ -96,6 +96,34 @@
+         },
+     );
+ 
++    it('temporal: os quadros do histórico ficam no estado de 32 bits, exatos além de 2048 (spec 037, T041)', async () => {
++        const { s } = await temporalScene();
++        s.step();
++        const resolve = pipelines(s.creates()).find(
++            (p) => p.fragment?.entryPoint === 'fs_temporal_resolve',
++        )!;
++        // Cor, estado (distância, movimento, quadros) e luz.
++        expect(resolve.fragment!.targets[1]!.format).toBe('rgba32float');
++        const source = resolve.fragment!.shader.source;
++        expect(source).toContain('out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);');
++        expect(source).toContain('out.state.z = n + 1.0;');
++        expect(source).not.toContain('history.a');
++        // Em 16 bits (o alfa de antes), 2048 é o último inteiro exato: 2049 arredonda para 2048 e o contador para.
++        const f16 = new Float32Array(1);
++        const half = (x: number): number => {
++            f16[0] = x;
++            const bits = new Uint32Array(f16.buffer)[0]!;
++            const mantissa = bits & 0x7fffff;
++            const keep = mantissa & ~0x1fff;
++            const round = mantissa & 0x1fff;
++            const up = round > 0x1000 || (round === 0x1000 && (keep & 0x2000) !== 0);
++            new Uint32Array(f16.buffer)[0] = (bits & ~0x7fffff) + keep + (up ? 0x2000 : 0);
++            return f16[0]!;
++        };
++        expect(half(2048 + 1)).toBe(2048);
++        expect(Math.fround(2048 + 1)).toBe(2049);
++    });
++
+     it('temporal com efeitos: a nitidez fica no HDR e a apresentação lê o último efeito', async () => {
+         const { s, post } = await temporalScene();
+         post.addEffect(new Bloom());
+--- a/src/presentation/flows/PostFlow.ts
++++ b/src/presentation/flows/PostFlow.ts
+@@ -387,7 +387,7 @@
+         const a = texture('a');
+         const b = texture('b');
+         this.pingpong = { textures: [a, b], views: [view(a, 'a'), view(b, 'b')] };
+-        // Históricos da resolução temporal: recomeçam vazios no redimensionamento (o alfa 0 = nenhum quadro), no formato
++        // Históricos da resolução temporal: recomeçam vazios no redimensionamento (os quadros do estado em 0), no formato
+         // da precisão pedida (spec 037).
+         const historyTexture = (name: string): TextureSpec =>
+             this.core.create<TextureSpec>({
+@@ -413,7 +413,7 @@
+                 discriminator: `post_taa_${name}:${width}x${height}`,
+                 width,
+                 height,
+-                format: 'rg32float',
++                format: 'rgba32float',
+                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+             });
+         const distanceView = (source: TextureSpec, name: string): TextureViewSpec =>
+@@ -421,7 +421,7 @@
+                 kind: 'textureview',
+                 discriminator: `post_taa_${name}_v:${width}x${height}`,
+                 source,
+-                format: 'rg32float',
++                format: 'rgba32float',
+             });
+         // Estado por pixel (distância à câmera, quanto se movia) para a desoclusão do quadro seguinte.
+         const d0 = distance('s0');
+@@ -601,7 +601,7 @@
+                 topology: 'triangle-list',
+                 colorTargets: [
+                     { format: this.historyFormat },
+-                    { format: 'rg32float' },
++                    { format: 'rgba32float' },
+                     { format: LIGHT_FORMAT },
+                 ],
+             });
+--- a/src/presentation/flows/effects/temporal_resolve.wgsl
++++ b/src/presentation/flows/effects/temporal_resolve.wgsl
+@@ -113,9 +113,12 @@
+ 
+ struct TaaOut {
+     @location(0) color: vec4f,
+-    /** Distância da câmera ao ponto do pixel e quanto ele se movia (a desoclusão do quadro seguinte). */
+-    @location(1) state: vec2f,
+     /**
++     * Distância da câmera ao ponto do pixel, quanto ele se movia (a desoclusão do quadro seguinte) e os quadros do
++     * histórico (em 32 bits: exatos até `TAA_MAX_FRAMES`; spec 037).
++     */
++    @location(1) state: vec4f,
++    /**
+      * A luz que chega ao ponto do pixel (direta, total), acumulada com os pesos da cor (a mudança de iluminação do quadro
+      * seguinte).
+      */
+@@ -159,13 +162,15 @@
+     }
+     // O conteúdo traçado mudou (máscara reativa): como uma desoclusão. Na acumulação ninguém a escreve.
+     let reacted = taa_params.mode != TAA_ACCUMULATE && textureLoad(taa_reactive, pixel, 0).r > 0.5;
+-    let frames = select(0.0, history.a, inside && !occluded && !reacted && !temporal_cut(cam.history));
++    let prev_frames = textureLoad(taa_history_distance, prev_pixel, 0).b;
++    let frames = select(0.0, prev_frames, inside && !occluded && !reacted && !temporal_cut(cam.history));
+     var out: TaaOut;
+-    out.state = vec2f(distance, moving);
++    out.state = vec4f(distance, moving, 0.0, 0.0);
+     if (taa_params.mode == TAA_ACCUMULATE) {
+         out.light = light;
+         let n = min(frames, TAA_MAX_FRAMES - 1.0);
+-        out.color = vec4f(select(current, mix(history.rgb, current, temporal_weight_count(n, TAA_MAX_FRAMES)), n > 0.0), n + 1.0);
++        out.color = vec4f(select(current, mix(history.rgb, current, temporal_weight_count(n, TAA_MAX_FRAMES)), n > 0.0), 1.0);
++        out.state.z = n + 1.0;
+         return out;
+     }
+     // Em movimento (perto de algo que se move), a caixa da variância da vizinhança 3 × 3 em YCoCg (Salvi) recorta o
+@@ -227,7 +232,8 @@
+     let clipped = mix(relighted, ycocg_inverse(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
+     // Média exponencial na radiância linear (sem peso por luminância: a média fica sem viés).
+     let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, stirred));
+-    out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), min(frames + 1.0, TAA_MAX_FRAMES));
++    out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), 1.0);
++    out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);
+     // A luz acumulada como a cor: reiluminada, ela é a de agora.
+     out.light = select(light, mix(mix(prev_light, light, relit), light, alpha), frames > 0.0);
+     return out;

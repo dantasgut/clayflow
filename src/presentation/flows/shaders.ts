@@ -1,5 +1,7 @@
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
+import { slot } from '../../scene/flows/slots';
+import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
 import effectsSource from './effects/effects.wgsl?raw';
 import fullscreenSource from './effects/fullscreen.wgsl?raw';
@@ -9,7 +11,13 @@ import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
 import temporalResolveSource from './effects/temporal_resolve.wgsl?raw';
 import temporalPresentSource from './effects/temporal_present.wgsl?raw';
-import { color, present } from '../../elements/gpu/shaders/math';
+import {
+    color,
+    present,
+    temporal as temporalPieces,
+    viewSpace,
+    xformProjective,
+} from '../../elements/gpu/shaders/math';
 import {
     camerasResource,
     shadowMatricesResource,
@@ -87,7 +95,11 @@ export const effectResources = {
 } as const;
 
 /** Triângulo de tela cheia (`VsOut`, `vs_fullscreen`) dos passes de tela. */
-export const fullscreen = wgslModule({ name: 'fullscreen', source: fullscreenSource });
+export const fullscreen = wgslModule({
+    name: 'fullscreen',
+    source: fullscreenSource,
+    requires: [viewSpace],
+});
 
 /**
  * Base do pós-processamento: recursos da textura de origem, do amostrador e dos parâmetros, `vs_fullscreen` e os
@@ -155,30 +167,9 @@ export const temporalResources = {
         frequency: 'draw',
         provider: 'private',
     }),
-    /** O histórico do quadro anterior (a saída da resolução de lá). */
-    history: wgslResource({
-        name: 'taa_history',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'draw',
-        provider: 'private',
-    }),
-    /** A distância à câmera e o movimento de cada pixel no quadro anterior (rg32float), para a desoclusão. */
-    historyDistance: wgslResource({
-        name: 'taa_history_distance',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'draw',
-        provider: 'private',
-    }),
     /** A luz que chega a cada pixel neste quadro (`FrameTargets.light`: r direta, g total). */
     light: wgslResource({
         name: 'taa_light',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'draw',
-        provider: 'private',
-    }),
-    /** A luz que chegava a cada pixel no quadro anterior (rg16float: direta, total), para a mudança de iluminação. */
-    historyLight: wgslResource({
-        name: 'taa_history_light',
         binding: { texture: { sample: 'f32' } },
         frequency: 'draw',
         provider: 'private',
@@ -206,19 +197,51 @@ export const temporalResources = {
     }),
 } as const;
 
+/**
+ * Os slots das séries da resolução temporal (spec 037): os canais temporais do `TemporalAntialiasing` — a cor, o estado
+ * (distância à câmera, movimento e quadros: a desoclusão e a contagem exata) e a luz que chegava a cada pixel.
+ */
+export const temporalSlots = Object.freeze({
+    taaHistory: slot.channel(TemporalAntialiasing.schema, 'history', { optional: true }),
+    taaState: slot.channel(TemporalAntialiasing.schema, 'state', { optional: true }),
+    taaLight: slot.channel(TemporalAntialiasing.schema, 'light', { optional: true }),
+});
+
+/** As séries lidas pela resolução (atraso 1: o quadro anterior) ou pela nitidez (0: o quadro, recém-resolvido). */
+const taaSeries = (lag: 0 | 1) => {
+    const read = (name: string, channel: keyof typeof temporalSlots) =>
+        wgslResource({
+            name,
+            binding: { texture: { sample: 'f32' } },
+            frequency: 'draw',
+            provider: { slot: channel, lag },
+        });
+    return Object.freeze({
+        history: read('taa_history', 'taaHistory'),
+        historyDistance: read('taa_history_distance', 'taaState'),
+        historyLight: read('taa_history_light', 'taaLight'),
+    });
+};
+const taaPrevious = taaSeries(1);
+const taaCurrent = taaSeries(0);
+
 /** Resolução temporal: a cor deslocada do quadro mais o histórico reprojetado e recortado (spec 034, R3). */
 export const temporalResolve = wgslModule({
     name: 'temporal_resolve',
     source: temporalResolveSource,
     requires: [
         fullscreen,
+        color,
+        viewSpace,
+        xformProjective,
+        temporalPieces,
         camerasResource,
         temporalResources.params,
         effectResources.source,
-        temporalResources.history,
-        temporalResources.historyDistance,
+        taaPrevious.history,
+        taaPrevious.historyDistance,
         temporalResources.light,
-        temporalResources.historyLight,
+        taaPrevious.historyLight,
         temporalResources.depth,
         temporalResources.motion,
         temporalResources.reactive,
@@ -232,13 +255,17 @@ export const temporalSharpen = wgslModule({
     source: temporalResolveSource,
     requires: [
         fullscreen,
+        color,
+        viewSpace,
+        xformProjective,
+        temporalPieces,
         camerasResource,
         temporalResources.params,
         effectResources.source,
-        temporalResources.history,
-        temporalResources.historyDistance,
+        taaCurrent.history,
+        taaCurrent.historyDistance,
         temporalResources.light,
-        temporalResources.historyLight,
+        taaCurrent.historyLight,
         temporalResources.depth,
         temporalResources.motion,
         temporalResources.reactive,
@@ -291,5 +318,11 @@ export const uiResources = {
 export const ui = wgslModule({
     name: 'ui',
     source: uiSource,
-    requires: [uiResources.screen, uiResources.quads, uiResources.atlas, uiResources.sampler],
+    requires: [
+        viewSpace,
+        uiResources.screen,
+        uiResources.quads,
+        uiResources.atlas,
+        uiResources.sampler,
+    ],
 });

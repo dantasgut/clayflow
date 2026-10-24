@@ -11,7 +11,7 @@
 // desviar. Sai também o ponto em que termina o caminho que mais contribui para a cor, com o registro do objeto.
 // Determinística: o mesmo raio, o mesmo estado aleatório e a mesma cena dão a mesma amostra (o gradiente temporal
 // refaz a do quadro anterior).
-// Requer: NONE, refraction, refraction_interface, refraction_media, ray_scene, ray_hit, ray_camera, ray_direct,
+// Requer: NONE, refraction, refraction_interface, refraction_media, ray_scene, ray_hit, camera_space, ray_direct,
 // closure_eval, scene_environment, scene_indirect_lighting, refraction_frame.
 
 /** Distância máxima dos raios. */
@@ -30,17 +30,12 @@ fn refraction_departure(p: vec3f, nf: vec3f, dir: vec3f) -> vec3f {
 
 /** Estado aleatório da amostra do pixel `pixel` (índice linear) no quadro `frame`. */
 fn refraction_seed(pixel: u32, frame: u32) -> u32 {
-    return ray_direct_hash(pixel * 9781u + frame * 6271u + 1u);
+    return random_seed(RANDOM_STREAM_REFRACTION, pixel, frame);
 }
 
 /** Número uniforme em [0, 1) do estado do caminho. */
 fn refraction_random(state: ptr<function, u32>) -> f32 {
-    *state = ray_direct_hash(*state + 0x9e3779b9u);
-    return f32(*state >> 8u) * (1.0 / 16777216.0);
-}
-
-fn refraction_luminance(c: vec3f) -> f32 {
-    return ray_direct_luminance(c);
+    return random_unit(random_next(state));
 }
 
 /** A pilha de meios da câmera no quadro. */
@@ -264,7 +259,7 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
             // Borda em que o raio e o raster discordam, ou a parte opaca de um transmissivo parcial.
             radiance = through * refraction_shade(c, hit, -ray.dir, *state);
             end = refraction_end(hit.position, hit.renderable);
-            end_weight = refraction_luminance(radiance);
+            end_weight = luminance(radiance);
         } else if (c.transmission_thin > 0.0) {
             // Parede fina na primeira interface: o reflexo e a passagem direta traçados, a pilha da câmera nos dois.
             let d = ray.dir;
@@ -275,10 +270,10 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
             reflection = through * f * pr.radiance;
             let pt = refraction_path(refraction_departure(hit.position, nf, d), d, stack, -1, 1u, state);
             radiance = through * (vec3f(1.0) - f) * pt.radiance;
-            let reflected = refraction_luminance(reflection) > refraction_luminance(radiance);
+            let reflected = luminance(reflection) > luminance(radiance);
             end = select(pt.end, pr.end, reflected);
-            end_weight = max(refraction_luminance(reflection), refraction_luminance(radiance));
-            truncated = refraction_luminance(through * (f * pr.truncated + (vec3f(1.0) - f) * pt.truncated));
+            end_weight = max(luminance(reflection), luminance(radiance));
+            truncated = luminance(through * (f * pr.truncated + (vec3f(1.0) - f) * pt.truncated));
         } else {
             let d = ray.dir;
             let x = refraction_crossing(start, d, hit, c, stack);
@@ -286,8 +281,8 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
                 let r = refraction_path(refraction_departure(x.p, x.nf, d), d, x.after, -1, 1u, state);
                 radiance = through * r.radiance;
                 end = r.end;
-                end_weight = refraction_luminance(radiance);
-                truncated = refraction_luminance(through * r.truncated);
+                end_weight = luminance(radiance);
+                truncated = luminance(through * r.truncated);
             } else {
                 // Primeira interface: a mesma microfaceta para os dois lobos; o Fresnel por canal.
                 let u = vec2f(refraction_random(state), refraction_random(state));
@@ -303,8 +298,8 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
                     let pr = refraction_path(refraction_departure(x.p, x.nf, r.dir), r.dir, stack, -1, 1u, state);
                     reflection = through * f * r.weight * pr.radiance;
                     end = pr.end;
-                    end_weight = refraction_luminance(reflection);
-                    truncated += refraction_luminance(through * f * r.weight * pr.truncated);
+                    end_weight = luminance(reflection);
+                    truncated += luminance(through * f * r.weight * pr.truncated);
                 }
                 if (refraction_dispersive(x.before) || refraction_dispersive(x.next)) {
                     for (var k = 0; k < 3; k++) {
@@ -316,13 +311,13 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
                         // Por canal, a luminância do que ele soma: o caminho do canal mais forte.
                         var only = vec3f(0.0);
                         only[k] = radiance[k];
-                        if (refraction_luminance(only) > end_weight) {
+                        if (luminance(only) > end_weight) {
                             end = pt.end;
-                            end_weight = refraction_luminance(only);
+                            end_weight = luminance(only);
                         }
                         var lost = vec3f(0.0);
                         lost[k] = w * pt.truncated[k];
-                        truncated += refraction_luminance(lost);
+                        truncated += luminance(lost);
                     }
                 } else {
                     let t = refraction_transmit(d, m, x.nf, x.before.ior.y, x.next.ior.y, x.alpha);
@@ -330,11 +325,11 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
                         let pt = refraction_path(refraction_departure(x.p, x.nf, t.dir), t.dir, x.after, -1, 1u, state);
                         let w = through * (1.0 - f.y) * t.weight;
                         radiance = w * pt.radiance;
-                        if (refraction_luminance(radiance) > end_weight) {
+                        if (luminance(radiance) > end_weight) {
                             end = pt.end;
-                            end_weight = refraction_luminance(radiance);
+                            end_weight = luminance(radiance);
                         }
-                        truncated += refraction_luminance(w * pt.truncated);
+                        truncated += luminance(w * pt.truncated);
                     }
                 }
             }

@@ -69,6 +69,61 @@ describe('PostFlow — apresentação', () => {
         expect(fragments.map((p) => p.fragment?.entryPoint)).not.toContain('fs_present');
     });
 
+    it.each([
+        ['half', [], 'rgba16float', false],
+        ['full', ['float32-filterable'], 'rgba32float', false],
+        ['full', [], 'rgba16float', true],
+    ] as const)(
+        "historyPrecision '%s' (features %j): histórico de cor %s; aviso %s (spec 037, T040)",
+        async (precision, features, format, warns) => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            const s = await renderScene({ features: [...features] });
+            s.scene.world.insert(
+                new TemporalAntialiasing({ mode: 'temporal', historyPrecision: precision }),
+            );
+            s.scene.world.insert(new Camera().add(new Transform({ position: [0, 0, 5, 1] })));
+            registerStages(s.scene, { forward: 'scene', post: true, samples: 1 });
+            s.step();
+            s.step();
+            const resolve = pipelines(s.creates()).find(
+                (p) => p.fragment?.entryPoint === 'fs_temporal_resolve',
+            )!;
+            expect(resolve.fragment!.targets[0]!.format).toBe(format);
+            expect(warn.mock.calls.some((c) => String(c[0]).includes('float32-filterable'))).toBe(
+                warns,
+            );
+            warn.mockRestore();
+        },
+    );
+
+    it('temporal: os quadros do histórico ficam no estado de 32 bits, exatos além de 2048 (spec 037, T041)', async () => {
+        const { s } = await temporalScene();
+        s.step();
+        const resolve = pipelines(s.creates()).find(
+            (p) => p.fragment?.entryPoint === 'fs_temporal_resolve',
+        )!;
+        // Cor, estado (distância, movimento, quadros) e luz.
+        expect(resolve.fragment!.targets[1]!.format).toBe('rgba32float');
+        const source = resolve.fragment!.shader.source;
+        expect(source).toContain('out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);');
+        expect(source).toContain('out.state.z = n + 1.0;');
+        expect(source).not.toContain('history.a');
+        // Em 16 bits (o alfa de antes), 2048 é o último inteiro exato: 2049 arredonda para 2048 e o contador para.
+        const f16 = new Float32Array(1);
+        const half = (x: number): number => {
+            f16[0] = x;
+            const bits = new Uint32Array(f16.buffer)[0]!;
+            const mantissa = bits & 0x7fffff;
+            const keep = mantissa & ~0x1fff;
+            const round = mantissa & 0x1fff;
+            const up = round > 0x1000 || (round === 0x1000 && (keep & 0x2000) !== 0);
+            new Uint32Array(f16.buffer)[0] = (bits & ~0x7fffff) + keep + (up ? 0x2000 : 0);
+            return f16[0];
+        };
+        expect(half(2048 + 1)).toBe(2048);
+        expect(Math.fround(2048 + 1)).toBe(2049);
+    });
+
     it('temporal com efeitos: a nitidez fica no HDR e a apresentação lê o último efeito', async () => {
         const { s, post } = await temporalScene();
         post.addEffect(new Bloom());
@@ -101,11 +156,9 @@ describe('PostFlow — apresentação', () => {
                     === true,
             )
             .filter((c) => (c as { kind: string }).kind === 'texture');
-        // Pingue-pongue dos efeitos, os dois históricos da resolução temporal e a imagem resolvida com a nitidez (spec
-        // 034), todos HDR.
+        // Pingue-pongue dos efeitos e a imagem resolvida com a nitidez (spec 034), todos HDR; as séries da resolução
+        // temporal são canais temporais da C2 (`TemporalAntialiasing`, spec 037), não texturas do estágio.
         expect(ping.map((t) => (t as { format: string }).format)).toEqual([
-            'rgba16float',
-            'rgba16float',
             'rgba16float',
             'rgba16float',
             'rgba16float',

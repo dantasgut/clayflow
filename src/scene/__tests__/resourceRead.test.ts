@@ -86,6 +86,50 @@ describe('leitura sob demanda (spec 007)', () => {
         expect(await s.resources.read(own)).toEqual({ m: [7, 8, 9, 10] });
     });
 
+    it('série temporal de pool (spec 037): lê a fatia mais recente gravada — a de agora, ou a anterior', async () => {
+        const s = setup();
+        const Series = new StructSchema('ReadSeries', { e: FieldType.vec4f });
+        class Body extends Entity implements Resource {
+            state = ResourceState.Uninitialized;
+            constructor() {
+                super();
+                this.data = {};
+            }
+            getDescriptors(): readonly GPUDescriptor[] {
+                return [
+                    {
+                        id: 'e',
+                        role: 'storage-rw',
+                        storage: 'pool',
+                        schema: Series,
+                        upload: 'never',
+                        allocation: 'onDemand',
+                        history: { depth: 3 },
+                    },
+                ];
+            }
+            getPipelineDescriptors() {
+                return [];
+            }
+        }
+        const body = new Body();
+        s.world.insert(body);
+        s.resources.ensurePoolAllocated('ReadSeries');
+        const ch = s.resources.channelOfPool('ReadSeries')!;
+        // O kernel grava a fatia de agora (simulado aqui).
+        const gpuWrite = (v: number): void => {
+            s.core.write(ch.buffer(0)!, new Float32Array([v, v, v, v]));
+            s.resources.markPoolWritten('ReadSeries');
+        };
+        gpuWrite(5);
+        expect(await s.resources.read(body)).toEqual({ e: [5, 5, 5, 5] });
+        // Quadro seguinte sem gravação: a gravada virou a anterior, e é ela que se lê.
+        s.frame();
+        expect(await s.resources.read(body)).toEqual({ e: [5, 5, 5, 5] });
+        gpuWrite(9);
+        expect(await s.resources.read(body)).toEqual({ e: [9, 9, 9, 9] });
+    });
+
     it('fora da cena, ou removido antes da resposta: undefined; sem pedido, nenhuma leitura', async () => {
         const s = setup();
         s.frame();

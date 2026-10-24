@@ -14,17 +14,28 @@ import refractionCompositeSource from '../../gpu/wgsl/refraction/refraction_comp
 import refractionCompositeDenoisedSource from '../../gpu/wgsl/refraction/refraction_composite_denoised.wgsl?raw';
 import refractionScreenSource from '../../gpu/wgsl/refraction/refraction_screen.wgsl?raw';
 import refractionMotionSource from '../../gpu/wgsl/refraction/refraction_motion.wgsl?raw';
-import { bsdf, camera } from '../../gpu/shaders/math';
-import { tracedDenoiseResources } from '../denoise/shaders';
+import {
+    basis,
+    bsdf,
+    camera,
+    color,
+    constants,
+    hashAddress,
+    random,
+    viewSpace,
+    xformAffine,
+} from '../../gpu/shaders/math';
+import { temporalFilterResources } from '../temporal/shaders';
 import { closure, closureEval } from '../../material/pbr/shaders';
-import { rayCamera, rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
+import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
+import { cameraSpace } from '../../scene/flows/shaders';
 import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
 import { sceneFogReady } from '../../scene/points/media';
 import {
     camerasResource,
     previousWorldsResource,
     renderablesResource,
-    worldsResource,
+    worldInversesResource,
 } from '../../scene/resources';
 import { RenderableSchema } from '../../scene/Renderable';
 import {
@@ -129,7 +140,7 @@ export const refractionQueue = wgslModule({
 export const refractionInterface = wgslModule({
     name: 'refraction_interface',
     source: refractionInterfaceSource,
-    requires: [bsdf],
+    requires: [bsdf, basis, constants],
 });
 
 /** Pilha de meios (prioridade, índice por canal, absorção). */
@@ -160,6 +171,8 @@ export const refractionPath = wgslModule({
     name: 'refraction_path',
     source: refractionPathSource,
     requires: [
+        random,
+        color,
         NONE.module,
         REFRACTION_MAX_MEDIA.module,
         refractionParamsResource,
@@ -167,7 +180,7 @@ export const refractionPath = wgslModule({
         refractionMedia,
         rayScene,
         rayHit,
-        rayCamera,
+        cameraSpace,
         rayDirect,
         closureEval,
         sceneEnvironmentReady,
@@ -197,12 +210,15 @@ export const refractionGradient = wgslModule({
     name: 'refraction_gradient',
     source: refractionGradientSource,
     requires: [
+        random,
+        hashAddress,
+        color,
         WORKGROUP_SIZE.module,
         REFRACTION_STRATUM.module,
         REFRACTION_REQUEST_VALID.module,
         refractionParamsResource,
         refractionPath,
-        rayCamera,
+        cameraSpace,
         R.request,
         R.frame,
         R.radiance,
@@ -222,12 +238,15 @@ export const refractionHistory = wgslModule({
     name: 'refraction_history',
     source: refractionHistorySource,
     requires: [
+        xformAffine,
+        cameraSpace,
+        viewSpace,
         NONE.module,
         REFRACTION_STRATUM.module,
         refractionParamsResource,
         camerasResource,
         renderablesResource,
-        worldsResource,
+        worldInversesResource,
         previousWorldsResource,
         R.hit,
         R.gradient,
@@ -236,7 +255,7 @@ export const refractionHistory = wgslModule({
 });
 
 /**
- * A refração como sinal do filtro de sinal traçado (a implementação do ponto `traced_denoise_source`): os pixels com
+ * A refração como sinal do filtro de sinal traçado (a implementação do ponto `temporal_filter_source`): os pixels com
  * pedido, a radiância e, como guia, o ponto mostrado.
  */
 export const refractionDenoiseSource = wgslModule({
@@ -249,6 +268,7 @@ export const refractionDenoiseSource = wgslModule({
 export const refractionScreen = wgslModule({
     name: 'refraction_screen',
     source: refractionScreenSource,
+    requires: [viewSpace],
 });
 
 /** A composição do traçado nos alvos da cena: a cor e a profundidade dos pixels com pedido. */
@@ -259,7 +279,7 @@ export const refractionComposite = wgslModule({
         refractionScreen,
         REFRACTION_REQUEST_VALID.module,
         refractionParamsResource,
-        rayCamera,
+        cameraSpace,
         sceneFogReady,
         R.request,
         R.radiance,
@@ -275,7 +295,7 @@ export const refractionCompositeDenoised = wgslModule({
         refractionComposite,
         REFRACTION_REQUEST_VALID.module,
         R.request,
-        tracedDenoiseResources.output,
+        temporalFilterResources.output,
     ],
 });
 
@@ -288,6 +308,7 @@ export const refractionMotion = wgslModule({
     name: 'refraction_motion',
     source: refractionMotionSource,
     requires: [
+        cameraSpace,
         refractionScreen,
         REFRACTION_REQUEST_VALID.module,
         refractionParamsResource,

@@ -43,6 +43,7 @@ import {
     materialGraph,
     renderHdr,
 } from './support/materialScenes';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[materials] ${msg}`);
@@ -57,7 +58,7 @@ function check(ok: boolean, msg: string): void {
     if (!ok) failures.push(msg);
 }
 
-const lum = (c: readonly number[]): number => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+const lum = luminanceLinear;
 
 /** Sem a luz ambiente: só as luzes da cena (e a emissão) iluminam. */
 function noAmbient(app: Application): void {

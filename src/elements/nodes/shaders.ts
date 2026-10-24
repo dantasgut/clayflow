@@ -7,7 +7,7 @@ import {
     NODE_COMPARE_LESS_EQUAL,
     NODE_COMPARE_NOT_EQUAL,
 } from '../gpu/shaders/constants';
-import { linalg, noise } from '../gpu/shaders/math';
+import { basis, color, noise, xformAffine, xformProjective, xformRigid } from '../gpu/shaders/math';
 import { materialPointTypes } from '../material/point/shaders';
 import { fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import mathSource from '../gpu/wgsl/nodes/math.wgsl?raw';
@@ -34,7 +34,7 @@ export const nodeMap = wgslModule({ name: 'node_map', source: mapSource });
 export const nodeNoise = wgslModule({ name: 'node_noise', source: noiseSource, requires: [noise] });
 
 /** Nós de rampa de cor (spec 031). */
-export const nodeColor = wgslModule({ name: 'node_color', source: colorSource });
+export const nodeColor = wgslModule({ name: 'node_color', source: colorSource, requires: [color] });
 
 /** Nós de condição (spec 031): comparação (operações das constantes `NODE_COMPARE_*`) e escolha. */
 export const nodeCondition = wgslModule({
@@ -54,7 +54,7 @@ export const nodeCondition = wgslModule({
 export const nodeSpace = wgslModule({
     name: 'node_space',
     source: spaceSource,
-    requires: [linalg],
+    requires: [xformRigid, xformAffine, xformProjective],
 });
 
 /**
@@ -88,4 +88,8 @@ export const nodeClosure = wgslModule({
 });
 
 /** Nó de tangente pelo uv (spec 011): referencial cotangente das derivadas de tela (só `fragment`). */
-export const nodeGeometry = wgslModule({ name: 'node_geometry', source: geometrySource });
+export const nodeGeometry = wgslModule({
+    name: 'node_geometry',
+    source: geometrySource,
+    requires: [basis],
+});

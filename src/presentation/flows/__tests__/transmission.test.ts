@@ -9,7 +9,7 @@ import { Refraction } from '../../../elements/lighting/refraction/Refraction';
 import { RefractionFlow } from '../../../elements/lighting/refraction/RefractionFlow';
 import { RefractionCompositeFlow } from '../RefractionCompositeFlow';
 import { RefractionDenoiseFlow } from '../RefractionDenoiseFlow';
-import { TracedDenoiser } from '../../../elements/lighting/denoise/TracedDenoiser';
+import { TemporalFilter } from '../../../elements/lighting/temporal/TemporalFilter';
 import { RefractionMotionFlow } from '../RefractionMotionFlow';
 import {
     TemporalAntialiasing,
@@ -230,7 +230,7 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
         'sem o alvo de movimento (%i amostra(s), %s): o movimento e o filtro da refração não deixam o motor pendente',
         async (samples, mode) => {
             const s = await scene(true, { samples, composite: true, motion: mode });
-            s.scene.world.insert(new TracedDenoiser());
+            s.scene.world.insert(new TemporalFilter());
             s.scene.flows.register((ctx) => new RefractionDenoiseFlow(ctx), {
                 type: 'refractionDenoise',
                 phase: 'forward',
@@ -254,7 +254,7 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
         'filtro do traçado (T044a), %s: entre o traçado e a composição, que lê a cor filtrada (%s)',
         async (mode, filtered) => {
             const s = await scene(true, { samples: 1, composite: true, motion: mode });
-            const denoiser = new TracedDenoiser();
+            const denoiser = new TemporalFilter();
             s.scene.world.insert(denoiser);
             s.scene.flows.register((ctx) => new RefractionDenoiseFlow(ctx), {
                 type: 'refractionDenoise',

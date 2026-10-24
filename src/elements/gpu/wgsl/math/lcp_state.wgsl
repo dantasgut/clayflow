@@ -11,7 +11,7 @@ fn rb_warm_key(pair: u32, feature: u32) -> u32 {
 
 // Slot inicial da chave numa região (capacidade potência de 2).
 fn rb_warm_home(key: u32, capacity: u32) -> u32 {
-    return (key * 2654435761u) & (capacity - 1u);
+    return hash_knuth(key) & (capacity - 1u);
 }
 
 // Início da região da tabela do substep com o carimbo dado.

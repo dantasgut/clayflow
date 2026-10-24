@@ -15,7 +15,7 @@ fn light_transmission(light: u32, p: vec3f) -> vec3f {
 fn water_caustic_factor(world_pos: vec3f, light_view_proj: mat4x4f) -> vec3f {
     let lp = light_view_proj * vec4f(world_pos, 1.0);
     let ndc = lp.xyz / max(lp.w, 1e-6);
-    let uv = vec2f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let uv = ndc_to_uv(ndc.xy);
     if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { return vec3f(1.0); }
     let dims = vec2i(textureDimensions(water_light_depth));
     let sz = length(vec3f(light_view_proj[0].z, light_view_proj[1].z, light_view_proj[2].z));

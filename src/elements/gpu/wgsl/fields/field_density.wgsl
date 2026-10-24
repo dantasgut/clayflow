@@ -27,7 +27,7 @@ fn field_density_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     // G⁻¹ (simétrica; a inversa pelos cofatores, det G = k0.w). Os núcleos achatados da superfície cobrem bem menos
     // voxels que a caixa do alcance.
     let g = mat3x3f(vec3f(k1.x, k1.y, k1.z), vec3f(k1.y, k1.w, k2.x), vec3f(k1.z, k2.x, k2.y));
-    let inv = transpose(mat3x3f(cross(g[1], g[2]), cross(g[2], g[0]), cross(g[0], g[1]))) * (1.0 / max(k0.w, 1e-20));
+    let inv = mat3_adjugate(g) * (1.0 / max(k0.w, 1e-20));
     let extent = min(vec3f(length(inv[0]), length(inv[1]), length(inv[2])), vec3f(reach));
     // Voxels cujo centro ((v + ½) · voxel) cai na caixa.
     let lo = vec3i(ceil((c - extent) / voxel - 0.5));

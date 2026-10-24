@@ -24,6 +24,7 @@ import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmitta
 import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
 import { rayVolumeTypes } from '../raytrace/points';
 import { FieldGatherSchema, FluidFieldSchema } from './schemas';
+import { hashAddress, linalg } from '../gpu/shaders/math';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
 // marcação dos blocos, vizinhança, densidade, redistanciamento, borda) e a consulta (φ, normal, marcha). Os buffers que
@@ -132,7 +133,7 @@ const R = fieldResources;
 export const fieldCommon = wgslModule({
     name: 'field_common',
     source: fieldCommonSource,
-    requires: [R.params],
+    requires: [R.params, hashAddress],
 });
 
 /** Leitura do buffer das consultas: a busca de um bloco, o bloco, um voxel, os limites. */
@@ -226,6 +227,7 @@ export const fieldDensity = wgslModule({
     name: 'field_density_kernel',
     source: fieldDensitySource,
     requires: [
+        linalg,
         WORKGROUP_SIZE.module,
         NONE.module,
         R.params,

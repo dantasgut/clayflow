@@ -28,11 +28,13 @@ import type {
 import type { RegisterOptions } from '../../flows/FlowRegistry';
 import type { FlowEvent } from '../../flows/FlowTransitions';
 import type {
+    BoundChannel,
     BoundEntities,
     BoundPool,
     BoundSingleton,
     BoundTarget,
     BoundTexture,
+    ChannelSlot,
     EntitiesSlot,
     EntityEntry,
     EntityRecordDeclaration,
@@ -49,6 +51,7 @@ import type { PendingWork } from '../../events/EventMap';
 import { PipelineState } from './PipelineState';
 import type { ScenePoints } from './ScenePoints';
 import { normalizeSource } from './sources';
+import { boundChannelOf, channelSourceOf } from './channelBinding';
 
 /** O que o runtime de um Flow usa da C2 (implementado pelo `ResourceSystem`). */
 export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
@@ -118,6 +121,10 @@ export class FlowRuntime {
     private readonly nextStates = new Map<string, PipelineState>();
     private readonly swapQueue: string[] = [];
     private readonly nextRejected: string[] = [];
+    /** `epoch` de cada canal dos slots na última resolução (spec 037). */
+    private readonly channelEpochs = new Map<BoundChannel, number>();
+    /** Visão de cada canal resolvido (estável: a identidade do slot). */
+    private readonly channelViews = new WeakMap<object, BoundChannel>();
     /** Identidade dos slots opcionais na última resolução. */
     private readonly slotIdentity = new Map<string, unknown>();
     /** Slots opcionais que mudaram na última resolução. */
@@ -144,6 +151,7 @@ export class FlowRuntime {
             if (decl.kind === 'pool') pools.add(decl.poolKey);
             else if (decl.kind === 'bodies') pools.add(this.bodyType());
             else if (decl.kind === 'pools') for (const k of decl.poolKeys) pools.add(k);
+            else if (decl.kind === 'channel' && decl.poolKey !== undefined) pools.add(decl.poolKey);
         }
         this.slotPools = pools;
         const decls = Object.values(flow.slots);
@@ -219,7 +227,9 @@ export class FlowRuntime {
      * Resolve slots, prepara e atualiza pipelines e muda o ciclo de vida. Idempotente; trabalha só quando `dirty`.
      */
     reconcile(force = false): void {
-        if (this.flow.lifecycle === 'disposed' || (!this.dirty && !force)) return;
+        if (this.flow.lifecycle === 'disposed') return;
+        // Fatias de canal recriadas (redimensionamento, `redescribe`, crescimento): as fontes mudam (spec 037).
+        if (!this.dirty && !force && !this.channelsMoved()) return;
         this.dirty = false;
         const missing = this.resolveSlots();
         this.missingSlot = missing;
@@ -306,6 +316,12 @@ export class FlowRuntime {
         } else if (this.flow.lifecycle === 'ready' && !declaredReady) {
             this.leave('preparing');
         }
+    }
+
+    /** Algum canal ligado trocou de fatias (o `epoch` mudou) desde a última resolução? */
+    private channelsMoved(): boolean {
+        for (const [channel, epoch] of this.channelEpochs) if (channel.epoch !== epoch) return true;
+        return false;
     }
 
     /** Quadro prestes a ser gravado: entrega `framePrepare` ao Flow pronto que declara o evento. */
@@ -781,7 +797,12 @@ export class FlowRuntime {
 
     /** Fonte de um recurso fornecido por um slot do Flow (spec 031). */
     private slotSource(
-        provider: { readonly slot: string; readonly part?: string; readonly descriptor?: string },
+        provider: {
+            readonly slot: string;
+            readonly part?: string;
+            readonly descriptor?: string;
+            readonly lag?: number;
+        },
         entry: InferredEntry,
         state: PipelineState,
     ): ResolvedSource | undefined {
@@ -824,6 +845,17 @@ export class FlowRuntime {
             }
             case 'texture':
                 return normalizeSource((value as BoundTexture).view);
+            case 'channel': {
+                const channel = value as BoundChannel;
+                // Fatias ainda não pedidas (`ensureAllocated`): o pipeline espera.
+                if (!channel.allocated) return undefined;
+                return {
+                    kind: 'channel',
+                    channel: channelSourceOf(channel, `${this.flow.type}.${provider.slot}`),
+                    lag: provider.lag ?? 0,
+                    epoch: channel.epoch,
+                };
+            }
             default:
                 throw new FlowBindingError(
                     `recurso '${entry.name}' do Flow '${this.flow.type}': o slot '${provider.slot}' (${decl.kind}) não fornece dado de shader.`,
@@ -912,6 +944,8 @@ export class FlowRuntime {
                 return has(decl.schema.name);
             case 'texture':
                 return has(decl.schema.name);
+            case 'channel':
+                return has(decl.poolKey ?? decl.schema!.name);
             case 'target':
                 return true;
             case 'pools':
@@ -925,6 +959,7 @@ export class FlowRuntime {
             case 'pool':
             case 'singleton':
             case 'texture':
+            case 'channel':
                 return !decl.optional;
             case 'bodies':
             case 'target':
@@ -951,6 +986,8 @@ export class FlowRuntime {
                 return this.entitiesView(name);
             case 'texture':
                 return this.textureOf(decl);
+            case 'channel':
+                return this.channelOf(decl);
             case 'target':
                 return this.targetOf(decl.color, decl.depth, decl.samples);
         }
@@ -1042,6 +1079,47 @@ export class FlowRuntime {
             };
             this.entityViews.set(name, view);
         }
+        return view;
+    }
+
+    /**
+     * O canal do slot (spec 037): existe desde a inserção do recurso (ou do pool); as fatias de um descritor sob demanda
+     * nascem no pedido de quem o usa (`ensureAllocated`, `ensurePoolAllocated`) — os pipelines que ligam o canal esperam
+     * até lá, e o `epoch` novo refaz a resolução.
+     */
+    private channelOf(decl: ChannelSlot): BoundChannel | undefined {
+        const resources = this.host.resources;
+        let info;
+        let written: () => void;
+        let invalidate: () => void;
+        if (decl.poolKey !== undefined) {
+            const key = decl.poolKey;
+            info = resources.channelOfPool(key);
+            written = () => {
+                resources.markPoolWritten(key);
+            };
+            invalidate = () => {
+                resources.invalidatePoolChannel(key);
+            };
+        } else {
+            const descId = decl.descId!;
+            const resource = this.firstWithSchema(decl.schema!, descId, decl.select);
+            if (resource === undefined) return undefined;
+            info = resources.channelOf(resource, descId);
+            written = () => {
+                resources.markWritten(resource, descId);
+            };
+            invalidate = () => {
+                resources.invalidateChannel(resource, descId);
+            };
+        }
+        if (info === undefined) return undefined;
+        let view = this.channelViews.get(info);
+        if (view === undefined) {
+            view = boundChannelOf(info, written, invalidate);
+            this.channelViews.set(info, view);
+        }
+        this.channelEpochs.set(view, view.epoch);
         return view;
     }
 

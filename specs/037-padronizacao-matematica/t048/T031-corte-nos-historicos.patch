@@ -1,0 +1,61 @@
+--- a/src/elements/gpu/wgsl/refraction/refraction_denoise_source.wgsl
++++ b/src/elements/gpu/wgsl/refraction/refraction_denoise_source.wgsl
+@@ -29,5 +29,6 @@
+ }
+ 
+ fn traced_denoise_source_change(q: vec2u) -> f32 {
+-    return refraction_change(q);
++    // No corte de câmera (`history.x`, spec 037) a cena mudou toda: o filtro recomeça o histórico.
++    return max(refraction_change(q), cameras[refraction.camera_slot].history.x);
+ }
+--- a/src/elements/gpu/wgsl/gi/gi_screen_reproject.wgsl
++++ b/src/elements/gpu/wgsl/gi/gi_screen_reproject.wgsl
+@@ -5,7 +5,7 @@
+ // As sondas do quadro anterior em volta de um ponto (no mesmo plano e com a mesma normal, pesadas pela posição) dão o
+ // histórico no ponto exato — o acúmulo das sondas e os rebatimentos seguintes nos acertos dos raios (a luz das
+ // superfícies visíveis, exata de perto, em vez das sondas do mundo).
+-// Requer: NONE, gi, gi_screen_common, gi_screen_history, temporal.
++// Requer: NONE, gi, gi_screen_common, gi_screen_history, temporal, cameras.
+ 
+ const GI_SCREEN_HISTORY_HEADER: u32 = 5u;
+ /** Deslocamento da primeira geração na entrada de uma sonda. */
+@@ -40,6 +40,8 @@
+  */
+ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
+     var taps = GiScreenTaps(vec4u(NONE), vec4f(0.0));
++    // Sem histórico no corte de câmera (`history.x`, spec 037).
++    if (temporal_cut(cameras[gi.screen.w].history)) { return taps; }
+     let vp = mat4x4f(gi_screen_history[0], gi_screen_history[1], gi_screen_history[2], gi_screen_history[3]);
+     let previous = temporal_reproject_point(vp, p);
+     if (previous.z == 0.0) { return taps; }
+--- a/src/elements/gpu/wgsl/media/media_froxel_inject.wgsl
++++ b/src/elements/gpu/wgsl/media/media_froxel_inject.wgsl
+@@ -74,7 +74,8 @@
+     }
+     // O centro do froxel no quadro anterior (a vista e a vista-projeção guardadas): o histórico onde ele estava — com a
+     // câmera parada, o próprio texel.
+-    if (froxels.counts.w == 1u) {
++    // Sem histórico no corte de câmera (`history.x`, spec 037).
++    if (froxels.counts.w == 1u && !temporal_cut(cam.history)) {
+         let uv_c = (vec2f(cell.xy) + 0.5) / vec2f(dims.xy);
+         let ndc_c = uv_to_ndc(uv_c);
+         let center = froxel_world(cam, froxel_view_point(ndc_c, froxel_slice_depth(f32(cell.z) + 0.5), froxel_projection(cam)));
+--- a/src/elements/lighting/shaders.ts
++++ b/src/elements/lighting/shaders.ts
+@@ -203,7 +203,15 @@
+ const giScreenReproject = wgslModule({
+     name: 'gi_screen_reproject',
+     source: giScreenReprojectSource,
+-    requires: [temporalPieces, viewSpace, NONE.module, R.params, giScreenCommon, R.screenHistory],
++    requires: [
++        temporalPieces,
++        viewSpace,
++        NONE.module,
++        R.params,
++        giScreenCommon,
++        R.screenHistory,
++        camerasResource,
++    ],
+ });
+ 
+ /** Raios das sondas atualizadas no quadro. */

@@ -124,7 +124,12 @@ export function createComputeKernel(core: EngineCore, opts: ComputeKernelOptions
             }
             used.add(entry.declared);
             const source = normalizeSource(raw);
-            const layoutEntry = layoutEntryOf(entry, source, undefined);
+            const layoutEntry = layoutEntryOf(
+                entry,
+                source,
+                undefined,
+                core.capabilities().features.includes('float32-filterable'),
+            );
             if (typeof layoutEntry === 'string') {
                 throw new Error(
                     `createComputeKernel("${opts.discriminator}"): binding '${entry.name}' incompatível — ${layoutEntry}.`,

@@ -28,11 +28,24 @@ import giPhotonTraceSource from '../gpu/wgsl/gi/gi_photon_trace.wgsl?raw';
 import giPhotonResolveSource from '../gpu/wgsl/gi/gi_photon_resolve.wgsl?raw';
 import { rayVolumeHitReady } from '../raytrace/points';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { rayCamera, rayDirect, rayHit, rayScene } from '../raytrace/shaders';
+import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
+import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
 import { camerasResource } from '../scene/resources';
 import { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
+import { slot } from '../../scene/flows/slots';
+import {
+    basis,
+    color,
+    constants,
+    hashAddress,
+    random,
+    sampling,
+    temporal as temporalPieces,
+    viewSpace,
+    xformRigid,
+} from '../gpu/shaders/math';
 
 // Módulos da iluminação global (spec 033, R2/R5/R6/R7): as sondas (endereçamento, pesos, leitura dos atlas e dos
 // rebatimentos), o material e a luz direta nos acertos, os kernels das sondas (raios, acúmulo, estado, atlas) e a leitura
@@ -109,15 +122,29 @@ export const giResources = Object.freeze({
     radianceMapRead: priv('gi_radiance_map', 'read', { wgsl: 'vec2u', array: true }),
     visibilityMap: priv('gi_visibility_map', 'read_write', { wgsl: 'u32', array: true }),
     visibilityMapRead: priv('gi_visibility_map', 'read', { wgsl: 'u32', array: true }),
-    // Coleta final na tela (R2 adendo): as texturas das sondas de tela que o desenho lê, as saídas, o trabalho do
-    // quadro (sondas e raios) e o histórico do acúmulo (privados do `ProbeFlow`).
+    // Coleta final na tela (R2 adendo): as texturas das sondas de tela que o desenho lê, as saídas e o trabalho do
+    // quadro (sondas e raios; privados do `ProbeFlow`).
     screenProbe: atlas('gi_screen_probe_texture', 'GlobalIllumination.screenProbe'),
     screenIrradiance: atlas('gi_screen_irradiance_texture', 'GlobalIllumination.screenIrradiance'),
     screenProbeOut: out('gi_screen_probe_out', 'rgba32float'),
     screenIrradianceOut: out('gi_screen_irradiance_out'),
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
-    screenHistory: priv('gi_screen_history', 'read_write', { wgsl: 'vec4f', array: true }),
+    /** O histórico do acúmulo (canal temporal, spec 037): a fatia do quadro (escrita) e a do anterior (lida). */
+    screenHistory: wgslResource({
+        name: 'gi_screen_history',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'vec4f', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giScreenHistory', lag: 0 },
+    }),
+    screenHistoryPrevious: wgslResource({
+        name: 'gi_screen_history_previous',
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec4f', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giScreenHistory', lag: 1 },
+    }),
     // As instâncias capazes de cáustica e as áreas das projeções delas (privado do `ProbeFlow`; US5).
     photonTargets: priv('gi_photon_targets', 'read_write', { wgsl: 'f32', array: true }),
     // Cáusticas por fótons (US5): o hash em mundo — leitura no desenho, atômicos nos fótons e no acúmulo.
@@ -143,7 +170,7 @@ const R = giResources;
 export const giCommon = wgslModule({
     name: 'gi_common',
     source: giCommonSource,
-    requires: [R.params],
+    requires: [R.params, constants],
 });
 
 /** Pesos das sondas num ponto (trilinear, voltada para a normal, Chebyshev) e as cascatas. */
@@ -164,14 +191,14 @@ export const giSample = wgslModule({
 const giGeneration = wgslModule({
     name: 'gi_generation',
     source: giGenerationSource,
-    requires: [giCommon, giWeights, R.params, R.generationsRead],
+    requires: [color, giCommon, giWeights, R.params, R.generationsRead],
 });
 
 /** Luz direta no ponto atingido (sombra pela estrutura de raios). */
 const giDirect = wgslModule({
     name: 'gi_direct',
     source: giDirectSource,
-    requires: [R.params, closure, rayDirect],
+    requires: [random, R.params, closure, rayDirect],
 });
 
 /** Luz que sai de um ponto atingido: a direta, a emissão e o rebatimento anterior das sondas do mundo. */
@@ -181,18 +208,32 @@ const giShade = wgslModule({
     requires: [giDirect, giGeneration, closure, closureEval],
 });
 
+/** O slot do canal do histórico das sondas de tela no estágio das sondas (spec 037). */
+export const giScreenHistorySlot = Object.freeze({
+    giScreenHistory: slot.channel(GlobalIlluminationSchema, 'screenHistory'),
+});
+
 /** Sondas de tela: ladrilhos, buffer de trabalho e o raio da câmera ativa. */
 const giScreenCommon = wgslModule({
     name: 'gi_screen_common',
     source: giScreenCommonSource,
-    requires: [R.params, rayCamera],
+    requires: [R.params, cameraSpace],
 });
 
 /** Histórico das sondas de tela: o layout e a busca da sonda do quadro anterior num ponto. */
 const giScreenReproject = wgslModule({
     name: 'gi_screen_reproject',
     source: giScreenReprojectSource,
-    requires: [NONE.module, R.params, giScreenCommon, R.screenHistory],
+    requires: [
+        temporalPieces,
+        viewSpace,
+        xformRigid,
+        NONE.module,
+        R.params,
+        giScreenCommon,
+        R.screenHistoryPrevious,
+        camerasResource,
+    ],
 });
 
 /** Raios das sondas atualizadas no quadro. */
@@ -216,13 +257,14 @@ export const giProbeTrace = wgslModule({
 });
 
 /** Histerese adaptativa das sondas (a regra de `reference/response.ts`). */
-const giResponse = wgslModule({ name: 'gi_response', source: giResponseSource });
+const giResponse = wgslModule({ name: 'gi_response', source: giResponseSource, requires: [color] });
 
 /** Acúmulo dos raios nos mapas das sondas. */
 export const giProbeBlend = wgslModule({
     name: 'gi_probe_blend',
     source: giProbeBlendSource,
     requires: [
+        color,
         WORKGROUP_SIZE.module,
         giCommon,
         giResponse,
@@ -247,6 +289,7 @@ export const giProbeAtlas = wgslModule({
     name: 'gi_probe_atlas',
     source: giProbeAtlasSource,
     requires: [
+        color,
         WORKGROUP_SIZE.module,
         giCommon,
         R.params,
@@ -273,6 +316,9 @@ export const giScreenTrace = wgslModule({
     name: 'gi_screen_trace',
     source: giScreenTraceSource,
     requires: [
+        random,
+        basis,
+        sampling,
         WORKGROUP_SIZE.module,
         NONE.module,
         R.params,
@@ -302,6 +348,7 @@ export const giScreenResolve = wgslModule({
         giScreenReproject,
         giResponse,
         camerasResource,
+        R.screenHistory,
         R.screenWorkRead,
         giCommon,
         R.screenProbeOut,
@@ -313,14 +360,14 @@ export const giScreenResolve = wgslModule({
 export const giScreenSample = wgslModule({
     name: 'gi_screen_sample',
     source: giScreenSampleSource,
-    requires: [R.params, giCommon, camerasResource, R.screenProbe, R.screenIrradiance],
+    requires: [viewSpace, R.params, giCommon, camerasResource, R.screenProbe, R.screenIrradiance],
 });
 
 /** Chave, balde e endereços do hash das cáusticas por fótons (US5). */
 const giPhotonCommon = wgslModule({
     name: 'gi_photon_common',
     source: giPhotonCommonSource,
-    requires: [R.params],
+    requires: [R.params, hashAddress],
 });
 
 /** Irradiância das cáusticas num ponto (o desenho). */
@@ -335,6 +382,9 @@ export const giPhotonTrace = wgslModule({
     name: 'gi_photon_trace',
     source: giPhotonTraceSource,
     requires: [
+        random,
+        basis,
+        sampling,
         WORKGROUP_SIZE.module,
         NONE.module,
         giCommon,

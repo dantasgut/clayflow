@@ -49,25 +49,13 @@ fn tonemap_neutral(c: vec3f) -> vec3f {
     let x = min(c.r, min(c.g, c.b));
     let offset = select(0.04, x - 6.25 * x * x, x < 0.08);
     var color = c - offset;
-    let peak = max(color.r, max(color.g, color.b));
+    let peak = max_channel(color);
     if (peak < start) { return color; }
     let d = 1.0 - start;
     let new_peak = 1.0 - d * d / (peak + d - start);
     color = color * (new_peak / peak);
     let g = 1.0 - 1.0 / (desaturation * (peak - new_peak) + 1.0);
     return mix(color, vec3f(new_peak), g);
-}
-
-// Codificação sRGB (IEC 61966-2-1) em [0, 1].
-fn srgb_encode(c: vec3f) -> vec3f {
-    let x = clamp(c, vec3f(0.0), vec3f(1.0));
-    return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, 12.92 * x, x <= vec3f(0.0031308));
-}
-
-// Codificação sRGB estendida (saída HDR): a mesma curva, sem corte acima do branco de referência (1).
-fn srgb_encode_extended(c: vec3f) -> vec3f {
-    let x = max(c, vec3f(0.0));
-    return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, 12.92 * x, x <= vec3f(0.0031308));
 }
 
 // Pontilhamento triangular de ±1 nível de código (8 bits) por ruído de gradiente intercalado (Jimenez 2014), aplicado

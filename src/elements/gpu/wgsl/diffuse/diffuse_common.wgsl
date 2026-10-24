@@ -22,15 +22,8 @@ fn diffuse_weight(r: f32) -> f32 {
     return select(0.0, 1.0 - r / diffuse_params.h, r < diffuse_params.h);
 }
 
-// Hash PCG de 32 bits → [0, 1).
-fn diffuse_hash(x: u32) -> u32 {
-    var v = x * 747796405u + 2891336453u;
-    let w = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
-    return (w >> 22u) ^ w;
-}
-
 fn diffuse_rand(a: u32, b: u32, k: u32) -> f32 {
-    return f32(diffuse_hash(a ^ diffuse_hash(b * 1664525u + k * 1013904223u))) / 4294967296.0;
+    return random_unit(random_seed(RANDOM_STREAM_DIFFUSE, a, b * 1664525u + k * 1013904223u));
 }
 
 // Φ(I, τmin, τmax): potencial normalizado em [0, 1].
