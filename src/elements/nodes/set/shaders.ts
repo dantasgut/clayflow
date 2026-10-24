@@ -14,7 +14,7 @@ import {
     setCountResources,
 } from '../../gpu/compute/shaders';
 import { SCAN_GROUP } from '../../gpu/shaders/constants';
-import { noise } from '../../gpu/shaders/math';
+import { noise, sampling } from '../../gpu/shaders/math';
 import commonSource from '../../gpu/wgsl/nodes/set/set_common.wgsl?raw';
 import gridSource from '../../gpu/wgsl/nodes/set/set_grid.wgsl?raw';
 import displaceReadySource from '../../gpu/wgsl/nodes/set/set_displace_ready.wgsl?raw';
@@ -203,7 +203,7 @@ export const distributeDensityTarget = vertexFieldTarget(
 export const setDistributeSample = wgslModule({
     name: 'set_distribute_sample',
     source: distributeSampleSource,
-    requires: [setCommon, noise, R.distribute, R.verticesIn, R.trianglesIn],
+    requires: [setCommon, noise, sampling, R.distribute, R.verticesIn, R.trianglesIn],
     structs: [DistributeParamsSchema, MeshVertexSchema, MeshTriangleSchema],
 });
 

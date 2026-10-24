@@ -34,7 +34,12 @@ fn ray_instance_update(i: u32) -> array<vec3f, 2> {
     let src = source.ids;
     var world = mat4x4f(vec4f(1.0, 0.0, 0.0, 0.0), vec4f(0.0, 1.0, 0.0, 0.0), vec4f(0.0, 0.0, 1.0, 0.0),
         vec4f(0.0, 0.0, 0.0, 1.0));
-    if (src.z != NONE) { world = worlds[src.z].world; }
+    var inverse = affine_inverse(world);
+    // A inversa de mundo calculada uma vez pelo estágio de transformação (spec 037).
+    if (src.z != NONE) {
+        world = worlds[src.z].world;
+        inverse = world_inverses[src.z].inverse;
+    }
     // `build.first`: palavra em que começa a região das hierarquias de baixo.
     let blas = ray_bvh_out[build.first + src.x * RAY_BLAS_WORDS].word;
     let rw = build.nodeFirst + blas.x * RAY_NODE_WORDS;
@@ -71,7 +76,7 @@ fn ray_instance_update(i: u32) -> array<vec3f, 2> {
         }
     }
     let w = build.primFirst + i * RAY_INSTANCE_WORDS;
-    ray_store_matrix(w, ray_inverse_affine(world));
+    ray_store_matrix(w, inverse);
     ray_store_matrix(w + 4u, world);
     ray_bvh_out[w + 8u].word = vec4u(src.x, src.y, src.w, flags);
     ray_bvh_out[w + 9u].word = bitcast<vec4u>(vec4f(albedo.rgb, roughness));

@@ -31,6 +31,9 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
 
 - **Hoje**: `defaults.denoiser` é o filtro do sinal traçado da refração; o nome não diz o que filtra.
 - **Proposta**: `defaults.refractionDenoiser`, deixando espaço para outros filtros (reflexos traçados, luz global).
+- **Resolvido na 037 (T034)**: o filtro virou o acumulador temporal de pixel genérico, `TemporalFilter`
+  (`defaults.temporalFilter`, ponto `temporal_filter_source`): o nome diz o que ele é, e outro sinal traçado usa o mesmo
+  recurso pelo ponto da fonte.
 
 ## Terminologia nas mensagens e na documentação
 

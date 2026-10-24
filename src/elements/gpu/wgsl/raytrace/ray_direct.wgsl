@@ -10,16 +10,6 @@
 const RAY_EXACT_LIGHTS: u32 = 8u;
 const RAY_LIGHT_CANDIDATES: u32 = 8u;
 
-fn ray_direct_hash(x: u32) -> u32 {
-    var s = x * 747796405u + 2891336453u;
-    let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
-    return (w >> 22u) ^ w;
-}
-
-fn ray_direct_luminance(c: vec3f) -> f32 {
-    return dot(c, vec3f(0.2126, 0.7152, 0.0722));
-}
-
 /** Resposta do fechamento à luz `i` no ponto, sem a sombra (`shadow = false`) ou com ela. */
 fn ray_light_response(c: Closure, i: u32, p: vec3f, n: vec3f, v: vec3f, shadow: bool) -> vec3f {
     let inc = light_incoming(lights[i], p);
@@ -41,13 +31,13 @@ fn ray_direct(c: Closure, p: vec3f, n: vec3f, v: vec3f, used: u32, seed: u32) ->
     var chosen = NONE;
     var chosen_w = 0.0;
     var total = 0.0;
-    var h = ray_direct_hash(seed);
+    var h = pcg_hash(seed);
     for (var k = 0u; k < RAY_LIGHT_CANDIDATES; k++) {
-        h = ray_direct_hash(h + k);
+        h = pcg_hash(h + k);
         let i = h % count;
-        let w = ray_direct_luminance(ray_light_response(c, i, p, n, v, false)) * f32(count);
+        let w = luminance(ray_light_response(c, i, p, n, v, false)) * f32(count);
         total += w;
-        h = ray_direct_hash(h);
+        h = pcg_hash(h);
         if (w > 0.0 && f32(h & 0xFFFFu) / 65536.0 * total < w) {
             chosen = i;
             chosen_w = w / f32(count);

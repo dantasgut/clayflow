@@ -98,6 +98,15 @@ export class Camera extends Entity<CameraData> implements Resource {
         jitter: FieldType.vec4f,
         /** x = 1 quando o quadro não continua o anterior (primeiro quadro ou corte): históricos recomeçam. */
         history: FieldType.vec4f,
+        /**
+         * Inversa da vista (spec 037): vista → mundo. Rígida na câmera padrão; afim numa `CameraFunction` (a vista dela
+         * não é garantidamente rígida).
+         */
+        inverseView: FieldType.mat4x4f,
+        /** Inversa da `unjitteredViewProjection` (spec 037): clip → mundo sem o deslocamento da amostra. */
+        inverseUnjitteredViewProjection: FieldType.mat4x4f,
+        /** A `view` do quadro anterior (igual à atual no primeiro quadro e no corte), spec 037. */
+        previousView: FieldType.mat4x4f,
     });
 
     state: ResourceState = ResourceState.Uninitialized;

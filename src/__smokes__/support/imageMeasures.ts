@@ -3,6 +3,7 @@
 // teste, no fim do caso.
 import type { Application, StagingBufferSpec, TextureSpec } from 'clayflow';
 import type { HdrImage, Rect } from './spectralMeasures';
+import { lumaSrgb, luminanceLinear } from './images';
 
 /** Decodifica um meio-float IEEE 754 (16 bits). */
 export function halfToFloat(h: number): number {
@@ -24,8 +25,7 @@ export function hdrAt(img: HdrImage, x: number, y: number): [number, number, num
 
 /** Luminância linear (Rec. 709) do pixel HDR. */
 export function hdrLuminance(img: HdrImage, x: number, y: number): number {
-    const [r, g, b] = hdrAt(img, x, y);
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return luminanceLinear(hdrAt(img, x, y));
 }
 
 /** Lê uma textura `rgba16float` (sem amostras) de volta como floats. */
@@ -122,9 +122,7 @@ export function temporalVariance(frames: readonly ImageData[], rect: Rect): numb
             let sum = 0;
             let sum2 = 0;
             for (const f of frames) {
-                const i = (y * f.width + x) * 4;
-                const l =
-                    (0.2126 * f.data[i]! + 0.7152 * f.data[i + 1]! + 0.0722 * f.data[i + 2]!) / 255;
+                const l = lumaSrgb(f, x, y);
                 sum += l;
                 sum2 += l * l;
             }
@@ -141,12 +139,7 @@ export function temporalVariance(frames: readonly ImageData[], rect: Rect): numb
  * `edge` (as silhuetas de alto contraste). Serrilhado de borda aumenta essa energia.
  */
 export function edgeEnergy(img: ImageData, rect: Rect, edge = 0.25): number {
-    const lum = (x: number, y: number): number => {
-        const i = (y * img.width + x) * 4;
-        return (
-            (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!) / 255
-        );
-    };
+    const lum = (x: number, y: number): number => lumaSrgb(img, x, y);
     let total = 0;
     let n = 0;
     for (let y = rect.y + 1; y < rect.y + rect.h - 1; y++) {

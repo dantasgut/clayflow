@@ -24,11 +24,11 @@ afterEach(() => {
 });
 
 describe('createGpuContext', () => {
-    it('solicita timestamp-query quando o adaptador oferece', async () => {
+    it('solicita timestamp-query e float32-filterable quando o adaptador oferece', async () => {
         const requestDevice = installGpu(['timestamp-query', 'float32-filterable']);
         await createGpuContext();
         expect(requestDevice).toHaveBeenCalledWith({
-            requiredFeatures: ['timestamp-query'],
+            requiredFeatures: ['timestamp-query', 'float32-filterable'],
             requiredLimits: {},
         });
     });

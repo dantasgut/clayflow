@@ -34,7 +34,7 @@ fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     if (clip.w <= 0.0) { return vec4f(0.0); }
     let ndc = clip.xy / clip.w;
     if (any(abs(ndc) > vec2f(1.0))) { return vec4f(0.0); }
-    let px = vec2f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * gi.screenSize.xy;
+    let px = ndc_to_uv(ndc) * gi.screenSize.xy;
     let g = px / gi.screenSize.z - 0.5;
     let base = vec2i(floor(g));
     let f = g - vec2f(base);

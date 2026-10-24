@@ -55,6 +55,7 @@ import { hdrAt, hdrLuminance, readHdrTexture, type HdrImage } from './support/im
 import { closureFn } from './support/materialScenes';
 import { waterScene } from './support/waterScene';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[globalIllumination] ${msg}`);
@@ -69,7 +70,7 @@ function check(ok: boolean, msg: string): void {
     if (!ok) failures.push(msg);
 }
 
-const lum = (c: readonly number[]): number => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+const lum = luminanceLinear;
 
 /** Rebatimentos das medidas (o motor e a referência). */
 const BOUNCES = 3;

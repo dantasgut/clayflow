@@ -45,8 +45,7 @@ fn field_key(b: vec3i) -> u32 {
 
 /** Balde inicial de uma chave na tabela. */
 fn field_bucket(b: vec3i) -> u32 {
-    let h = (bitcast<u32>(b.x) * 73856093u) ^ (bitcast<u32>(b.y) * 19349663u) ^ (bitcast<u32>(b.z) * 83492791u);
-    return h & fluid_field.sizes.z;
+    return hash_cell(bitcast<vec3u>(b)) & fluid_field.sizes.z;
 }
 
 /** Bloco que contém o ponto de mundo `p`. */
@@ -88,8 +87,7 @@ fn field_super_word(slot: u32) -> u32 {
 
 /** Balde inicial de um superbloco. */
 fn field_super_bucket(s: vec3i) -> u32 {
-    let h = (bitcast<u32>(s.x) * 73856093u) ^ (bitcast<u32>(s.y) * 19349663u) ^ (bitcast<u32>(s.z) * 83492791u);
-    return h & field_super_mask();
+    return hash_cell(bitcast<vec3u>(s)) & field_super_mask();
 }
 
 /** Primeira palavra do bloco `brick` (x, y, z, material). */

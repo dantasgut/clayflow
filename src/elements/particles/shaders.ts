@@ -1,4 +1,4 @@
-import { colliderSet, finite, noise } from '../gpu/shaders/math';
+import { basis, colliderSet, finite, noise, sampling } from '../gpu/shaders/math';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
@@ -54,7 +54,7 @@ export const emitPointTypes = wgslModule({
 export const emitFnReady = wgslModule({
     name: 'emit_fn_ready',
     source: emitFnReadySource,
-    requires: [emitPointTypes, R.params],
+    requires: [emitPointTypes, R.params, basis, sampling],
     structs: [EmitterParamsSchema],
 });
 

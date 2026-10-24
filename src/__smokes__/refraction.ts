@@ -52,6 +52,7 @@ import { readHdrTexture } from './support/imageMeasures';
 import { closureFn } from './support/materialScenes';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { writeFixture } from './support/fixtures';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[refraction] ${msg}`);
@@ -499,7 +500,7 @@ async function renderEngine(
     const traced = new Float32Array(W * H);
     const truncated = new Float32Array(W * H);
     const lum = (d: Float32Array, i: number): number =>
-        0.2126 * d[i * 4]! + 0.7152 * d[i * 4 + 1]! + 0.0722 * d[i * 4 + 2]!;
+        luminanceLinear(d.subarray(i * 4, i * 4 + 3));
     for (let f = 0; f < SAMPLES; f++) {
         app.step(1 / 60);
         const img = await readHdrTexture(app, texture);
@@ -627,7 +628,7 @@ const meanOf = (rgb: Float32Array, pixels: readonly number[]): Vec3 => {
 
 /** Erro relativo por canal (o piso: 5 % da luminância, para canais quase pretos). */
 function relError(a: Vec3, ref: Vec3): number {
-    const lum = 0.2126 * ref[0] + 0.7152 * ref[1] + 0.0722 * ref[2];
+    const lum = luminanceLinear(ref);
     let worst = 0;
     for (let k = 0; k < 3; k++)
         worst = Math.max(worst, Math.abs(a[k]! - ref[k]!) / Math.max(ref[k]!, 0.05 * lum, 1e-6));
@@ -676,7 +677,7 @@ function lineOf(rgb: Float32Array, v: number, transpose: boolean): Float32Array 
     const out = new Float32Array(n);
     for (let u = 0; u < n; u++) {
         const i = (transpose ? u * W + v : v * W + u) * 3;
-        out[u] = 0.2126 * rgb[i]! + 0.7152 * rgb[i + 1]! + 0.0722 * rgb[i + 2]!;
+        out[u] = luminanceLinear(rgb.subarray(i, i + 3));
     }
     return out;
 }

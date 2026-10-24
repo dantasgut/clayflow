@@ -3,7 +3,7 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
-import { TracedDenoiser } from '../../elements/lighting/denoise/TracedDenoiser';
+import { TemporalFilter } from '../../elements/lighting/temporal/TemporalFilter';
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import { RefractionFlow } from '../../elements/lighting/refraction/RefractionFlow';
 import { RefractionCompositeFlow } from './RefractionCompositeFlow';
@@ -44,6 +44,8 @@ import { FluidField } from '../../elements/fields/FluidField';
 import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
 import { Froxels } from '../../elements/media/Froxels';
 import { FroxelFlow } from '../../elements/media/FroxelFlow';
+import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
+import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
 import {
     TemporalAntialiasing,
@@ -114,10 +116,11 @@ export interface PresentationDefaults {
     /** Refração traçada (spec 034): ligada e o limite de interfaces por caminho. */
     readonly refraction: Refraction;
     /**
-     * Filtro do sinal traçado da refração (spec 034), com o antisserrilhado temporal: ligado e os quadros da média
-     * temporal (`defaults.denoiser.enabled = false` mostra a amostra crua).
+     * Acumulador temporal de pixel (spec 037; o filtro do sinal traçado da refração, spec 034), com o antisserrilhado
+     * temporal: ligado, os quadros da média e a precisão (`defaults.temporalFilter.enabled = false` mostra a amostra
+     * crua).
      */
-    readonly denoiser: TracedDenoiser;
+    readonly temporalFilter: TemporalFilter;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -131,7 +134,7 @@ interface RegisteredDefaults {
     readonly presentation: ToneMapping;
     readonly antialiasing: TemporalAntialiasing;
     readonly refraction: Refraction;
-    readonly denoiser: TracedDenoiser;
+    readonly temporalFilter: TemporalFilter;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
@@ -186,8 +189,8 @@ export function registerPresentationDefaults(
     const refraction = new Refraction();
     options.world.insert(refraction);
     // O filtro do sinal traçado da refração (spec 034): os alvos só são alocados por quem filtra (com o temporal).
-    const denoiser = new TracedDenoiser();
-    options.world.insert(denoiser);
+    const temporalFilter = new TemporalFilter();
+    options.world.insert(temporalFilter);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -215,7 +218,7 @@ export function registerPresentationDefaults(
         targets: frameTargets,
         antialiasing,
         refraction,
-        denoiser,
+        temporalFilter,
     };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
@@ -227,7 +230,7 @@ export function registerPresentationDefaults(
         presentation,
         antialiasing,
         refraction,
-        denoiser,
+        temporalFilter,
         pbrTables,
         ambient,
         world: options.world,
@@ -255,7 +258,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.presentation);
     entry.world.remove(entry.antialiasing);
     entry.world.remove(entry.refraction);
-    entry.world.remove(entry.denoiser);
+    entry.world.remove(entry.temporalFilter);
     entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
@@ -320,7 +323,7 @@ function swapAmbientForGi(
 function createPresentationDefaults(flows: FlowRegistry): {
     flows: Omit<
         PresentationDefaults,
-        'presentation' | 'ambient' | 'targets' | 'antialiasing' | 'refraction' | 'denoiser'
+        'presentation' | 'ambient' | 'targets' | 'antialiasing' | 'refraction' | 'temporalFilter'
     >;
     registrations: readonly FlowRegistration[];
 } {
@@ -488,6 +491,18 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'motionHistory',
         phase: 'physics',
         priority: 1000,
+    });
+    // A energia dos corpos rígidos (spec 037) depois dos solvers: só com um `EnergyMeter` na cena.
+    flows.register((ctx) => new EnergyFlow(ctx), {
+        type: 'energy',
+        phase: 'physics',
+        priority: 0,
+    });
+    // A dos corpos moles (spec 037) depois de todos os solvers (os de prioridade 0 se registram depois): idem.
+    flows.register((ctx) => new SoftEnergyFlow(ctx), {
+        type: 'softEnergy',
+        phase: 'physics',
+        priority: -10,
     });
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));

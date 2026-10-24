@@ -2,7 +2,7 @@ import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { poolLive } from '../../gpu/compute/shaders';
-import { colliderSet } from '../../gpu/shaders/math';
+import { basis, colliderSet, constants, random } from '../../gpu/shaders/math';
 import { neighborResources } from '../../gpu/shaders/neighborSearch';
 import diffuseCommonSource from '../../gpu/wgsl/diffuse/diffuse_common.wgsl?raw';
 import diffuseSpawnSource from '../../gpu/wgsl/diffuse/diffuse_spawn.wgsl?raw';
@@ -60,7 +60,7 @@ const R = diffuseResources;
 export const diffuseCommon = wgslModule({
     name: 'diffuse_common',
     source: diffuseCommonSource,
-    requires: [R.params, R.fluid],
+    requires: [random, R.params, R.fluid],
     structs: [DiffuseParamsSchema],
 });
 
@@ -69,6 +69,8 @@ export const diffuseSpawn = wgslModule({
     name: 'diffuse_spawn',
     source: diffuseSpawnSource,
     requires: [
+        basis,
+        constants,
         poolLive,
         diffuseCommon,
         WORKGROUP_SIZE.module,

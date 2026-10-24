@@ -14,7 +14,7 @@ fn water_ripple_slope(xz: vec2f, time: f32, material: FluidSurfaceMaterial) -> v
         let angle = f32(i) * 2.3999632 + 0.4;
         let d = vec2f(cos(angle), sin(angle));
         let scale = 1.0 / (1.0 + 0.27 * f32(i));
-        let k = 6.2831853 / (material.rippleSize * scale);
+        let k = TAU / (material.rippleSize * scale);
         let omega = sqrt(9.81 * k) * material.rippleSpeed;
         let phase = k * dot(d, xz) - omega * time + f32(i) * 2.17;
         slope = slope + d * cos(phase);

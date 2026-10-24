@@ -29,7 +29,7 @@ fn gi_irradiance(p: vec3f, n: vec3f, v: vec3f) -> vec3f {
         remaining -= w;
     }
     // O mapa guarda a média da radiância ponderada pelo cosseno (E/π).
-    return total * GI_PI;
+    return total * PI;
 }
 
 /** Radiância especular das sondas vinda da direção `dir` (refletida) no ponto `p`. */

@@ -60,7 +60,7 @@ import {
     rayReorder,
     raySceneResources,
 } from './shaders';
-import { renderablesResource, worldsResource } from '../scene/resources';
+import { renderablesResource, worldInversesResource, worldsResource } from '../scene/resources';
 import { standardMaterialsResource } from '../material/renderResources';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
@@ -267,6 +267,8 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     private shared: SharedKernels | undefined;
     /** Buffers dos pools ligados aos kernels (outro buffer = kernels refeitos). */
     private pools: readonly (StorageBufferSpec | undefined)[] = [];
+    /** O pool das inversas de mundo (spec 037), pedido por este estágio; trocado, os kernels religam. */
+    private inverses: StorageBufferSpec | undefined;
     private scene: RayScene | undefined;
     /** O conjunto mudou: refaz o leiaute, os registros e as origens das instâncias. */
     private layoutDirty = true;
@@ -897,6 +899,14 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         // Ordenações por quadro: uma por hierarquia construída mais a de cima.
         this.sort!.prepare(scratch.keys, scratch.values, this.order.length + 1);
         if (this.params.reserve(this.order.length + 1)) this.releaseShared();
+        // As inversas de mundo vêm do estágio de transformação (spec 037): pedidas aqui, fora da gravação.
+        const inverses = this.resources.ensurePoolAllocated(Transform.worldInverseSchema.name) as
+            | StorageBufferSpec
+            | undefined;
+        if (inverses !== this.inverses) {
+            this.inverses = inverses;
+            this.releaseShared();
+        }
         const build = this.params.source();
         if (this.shared === undefined) {
             const worlds = this.resources.poolBufferSpec(Transform.worldSchema.name);
@@ -974,6 +984,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 instances: kernel('instances', rayInstances, 'ray_instances_main', [
                     [B.instanceSources, scratch.sources],
                     [worldsResource, worlds ?? scratch.sources],
+                    [worldInversesResource, inverses ?? scratch.sources],
                     [renderablesResource, renderables ?? scratch.sources],
                     [standardMaterialsResource, materials ?? scratch.sources],
                     [B.bvhOut, bvh!],

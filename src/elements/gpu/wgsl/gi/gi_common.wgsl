@@ -4,7 +4,6 @@
 // coordenadas no atlas dos mapas e a espiral de Fibonacci dos raios.
 // Requer: gi (os parâmetros).
 
-const GI_PI: f32 = 3.14159265358979;
 /** Texels por lado dos mapas de irradiância/radiância e de visibilidade (sem a borda). */
 const GI_IRRADIANCE_TEXELS: u32 = 8u;
 const GI_VISIBILITY_TEXELS: u32 = 16u;

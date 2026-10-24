@@ -1,0 +1,22 @@
+--- a/src/elements/gpu/wgsl/diffuse/diffuse_common.wgsl
++++ b/src/elements/gpu/wgsl/diffuse/diffuse_common.wgsl
+@@ -23,7 +23,7 @@
+ }
+ 
+ fn diffuse_rand(a: u32, b: u32, k: u32) -> f32 {
+-    return f32(pcg_hash(a ^ pcg_hash(b * 1664525u + k * 1013904223u))) / 4294967296.0;
++    return random_unit(pcg_hash(a ^ pcg_hash(b * 1664525u + k * 1013904223u)));
+ }
+ 
+ // Φ(I, τmin, τmax): potencial normalizado em [0, 1].
+--- a/src/elements/gpu/wgsl/diffuse/diffuse_sprite.wgsl
++++ b/src/elements/gpu/wgsl/diffuse/diffuse_sprite.wgsl
+@@ -71,7 +71,7 @@
+ 
+ // Hash do pixel e da partícula → [0, 1) (descarte pontilhado da espuma).
+ fn diffuse_dither(p: vec2f, id: u32) -> f32 {
+-    return f32(pcg_hash(hash_cell(vec3u(u32(p.x), u32(p.y), id)))) / 4294967296.0;
++    return random_unit(pcg_hash(hash_cell(vec3u(u32(p.x), u32(p.y), id))));
+ }
+ 
+ @fragment

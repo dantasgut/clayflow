@@ -99,6 +99,8 @@ export type ResourceProvider =
           readonly part?: 'live' | 'records' | 'instances';
           /** Descritor do Resource de um slot `singleton`. */
           readonly descriptor?: string;
+          /** Atraso da fatia de um slot `channel` (spec 037; 0 = a atual). Default 0. */
+          readonly lag?: number;
       }
     | 'private';
 

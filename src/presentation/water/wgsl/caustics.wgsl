@@ -59,7 +59,7 @@ fn caustic_receiver(xy: vec2f, m: mat4x4f, scale: vec3f) -> f32 {
     let q = caustic_to_world(vec3f(xy, 0.0), m, scale);
     let s = shadow_matrices[caustic_params.shadowSlot].lightViewProj;
     let c = s * vec4f(q, 1.0);
-    let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
+    let uv = ndc_to_uv(c.xy);
     if (any(uv < vec2f(0.0)) || any(uv >= vec2f(1.0))) { return 2.0 * WATER_DEPTH_LIMIT; }
     // Bilinear: o mapa de sombra da cena é grosso (centímetros) e, lido no texel mais próximo, um fundo inclinado em
     // relação à luz vira degraus — que a refração transforma em estrias.
@@ -107,7 +107,7 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
     let scale = water_affine_scale(lvp);
     // Centro do texel no espaço métrico da luz.
     let uv = (vec2f(t) + 0.5) / vec2f(dims);
-    let xy0 = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0) / scale.xy;
+    let xy0 = uv_to_ndc(uv) / scale.xy;
     // Um objeto entre a luz e a água: a água está na sombra, nenhum fóton.
     let zr0 = caustic_receiver(xy0, lvp, scale);
     if (zr0 < z0 || zr0 >= WATER_DEPTH_LIMIT) { return; }
@@ -153,7 +153,7 @@ fn caustic_splat(@builtin(global_invocation_id) gid: vec3u) {
         // Ponto de chegada em texels (contínuo) e depósito B-spline quadrático 3×3 (partição da unidade e suave: sem o
         // batimento do depósito bilinear quando a densidade de fótons varia devagar).
         let hit_ndc = hit * scale.xy;
-        let hit_uv = vec2f(hit_ndc.x * 0.5 + 0.5, 0.5 - hit_ndc.y * 0.5);
+        let hit_uv = ndc_to_uv(hit_ndc.xy);
         let f = hit_uv * vec2f(dims);
         let center = vec2i(floor(f));
         let d = f - floor(f) - 0.5;

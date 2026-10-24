@@ -6,6 +6,15 @@ import { XPBDSoftSchema } from './schemas/XPBDSoftSchema';
 import { FEMSchema } from './schemas/FEMSchema';
 import { MPM_REST_DEFORMATION, MPMSoftSchema } from './schemas/MPMSoftSchema';
 import {
+    BODY_ENERGY_HISTORY,
+    SOFT_ENERGY_ALGORITHM,
+    SoftBodyChunkSchema,
+    SoftBodyEnergySchema,
+    SoftBodyPartialSchema,
+    SoftBodyRangeSchema,
+    softEnergyChunks,
+} from '../energy/schemas';
+import {
     ParticleBody,
     particleCount,
     repeated,
@@ -25,6 +34,13 @@ const SOFT_SCHEMAS: Record<SoftBodyAlgorithm, StructSchema> = {
     FEM: FEMSchema,
     MPM: MPMSoftSchema,
 };
+
+/** O algoritmo pelo schema das partículas (o corpo cru também tem série de energia se o schema é de um dos três). */
+function algorithmOf(schema: StructSchema): SoftBodyAlgorithm | undefined {
+    return (Object.keys(SOFT_SCHEMAS) as SoftBodyAlgorithm[]).find(
+        (a) => SOFT_SCHEMAS[a] === schema,
+    );
+}
 
 /** Restrições de distância internas de um corpo XPBD: pares de índices locais de partícula. */
 export interface SoftBodyEdges {
@@ -80,6 +96,10 @@ export type SoftBodyOptions = SoftBodyDomainOptions | SoftBodyRawOptions;
 export interface SoftBodyData extends ParticleBodyData {
     /** Arestas no layout de `DistanceConstraint` (`i`/`j` locais, resolvidos pela C2 na faixa do corpo). */
     edges?: ParticleFields;
+    /** A faixa do corpo para a série de energia (`SoftBodyRange`; inícios locais, resolvidos pela C2). */
+    range?: ParticleFields;
+    /** Os blocos da energia (`SoftBodyChunk`: a faixa, resolvida pela C2, e o índice de cada um). */
+    chunks?: ParticleFields;
 }
 
 function isRaw(o: SoftBodyOptions): o is SoftBodyRawOptions {
@@ -100,12 +120,15 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
     readonly edgeCount: number;
     /** Superfície desenhada como malha, se declarada (parte do corpo). */
     readonly surface: SurfaceGeometry | undefined = undefined;
+    /** Algoritmo do corpo (pelo schema das partículas), ou `undefined` num corpo cru de outro schema. */
+    readonly algorithm: SoftBodyAlgorithm | undefined;
 
     constructor(options: SoftBodyOptions) {
         if (isRaw(options)) {
             super('SoftBody', options.schema, options.count);
             this.edgeCount = 0;
-            this.data = { body: { ...options.data } };
+            this.algorithm = algorithmOf(options.schema);
+            this.data = { body: { ...options.data }, ...this.rangeData() };
             return;
         }
         const schema = SOFT_SCHEMAS[options.algorithm] as StructSchema | undefined;
@@ -114,6 +137,7 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
         }
         const count = particleCount('SoftBody', options.position);
         super('SoftBody', schema, count);
+        this.algorithm = options.algorithm;
         const mass = options.mass ?? 0;
         if (typeof mass !== 'number') requireLength('SoftBody', 'mass', mass, count, 1);
         const massOf = (i: number): number => (typeof mass === 'number' ? mass : (mass[i] ?? 0));
@@ -159,17 +183,49 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
         }
         this.data =
             edges === undefined
-                ? { body }
-                : { body, edges: edgeFields(edges, options.position, count) };
+                ? { body, ...this.rangeData() }
+                : { body, edges: edgeFields(edges, options.position, count), ...this.rangeData() };
     }
 
-    /** Partículas e, com arestas, a faixa de restrições de distância (enviadas só na inserção). */
+    /** Blocos da energia do corpo (um grupo da GPU por bloco). */
+    get energyChunks(): number {
+        return softEnergyChunks(this.count, this.edgeCount);
+    }
+
+    /**
+     * O registro da faixa (`SoftBodyRange`) e os blocos (`SoftBodyChunk`), com os inícios locais — a C2 soma o primeiro
+     * slot de cada faixa.
+     */
+    private rangeData(): Pick<SoftBodyData, 'range' | 'chunks'> {
+        if (this.algorithm === undefined) return {};
+        const chunks = this.energyChunks;
+        return {
+            range: {
+                first: [0],
+                count: [this.count],
+                first_edge: [0],
+                edge_count: [this.edgeCount],
+                algorithm: [SOFT_ENERGY_ALGORITHM[this.algorithm]],
+                first_chunk: [0],
+                chunk_count: [chunks],
+            },
+            chunks: {
+                range: new Uint32Array(chunks),
+                chunk: Uint32Array.from({ length: chunks }, (_, k) => k),
+            },
+        };
+    }
+
+    /**
+     * Partículas e, com arestas, a faixa de restrições de distância (enviadas só na inserção); num corpo de um dos três
+     * algoritmos, a faixa do corpo (`SoftBodyRange`) e os blocos da energia (`SoftBodyChunk`), enviados na inserção, a
+     * soma de cada bloco (`SoftBodyPartial`) e a série temporal da energia (spec 037: o canal `SoftBodyEnergy`, de 8
+     * fatias, no mesmo slot da faixa) — as duas últimas alocadas só quando um `EnergyMeter` as pede.
+     */
     override getDescriptors(): readonly GPUDescriptor[] {
-        const body = this.bodyDescriptor();
-        if (this.edgeCount === 0) return [body];
-        return [
-            body,
-            {
+        const out: GPUDescriptor[] = [this.bodyDescriptor()];
+        if (this.edgeCount > 0)
+            out.push({
                 id: 'edges',
                 role: 'storage-ro',
                 schema: DistanceConstraint.schema,
@@ -177,8 +233,57 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
                 upload: 'initial',
                 count: this.edgeCount,
                 slotRefs: { i: 'self:body', j: 'self:body' },
+            });
+        if (this.algorithm === undefined) return out;
+        const chunks = this.energyChunks;
+        out.push(
+            {
+                id: 'range',
+                role: 'storage-ro',
+                schema: SoftBodyRangeSchema,
+                storage: 'pool',
+                upload: 'initial',
+                count: 1,
+                slotRefs:
+                    this.edgeCount > 0
+                        ? {
+                              first: 'self:body',
+                              first_edge: 'self:edges',
+                              first_chunk: 'self:chunks',
+                          }
+                        : { first: 'self:body', first_chunk: 'self:chunks' },
             },
-        ];
+            {
+                id: 'chunks',
+                role: 'storage-ro',
+                schema: SoftBodyChunkSchema,
+                storage: 'pool',
+                upload: 'initial',
+                count: chunks,
+                slotRefs: { range: 'self:range' },
+            },
+            {
+                id: 'partials',
+                role: 'storage-rw',
+                schema: SoftBodyPartialSchema,
+                storage: 'pool',
+                upload: 'never',
+                allocation: 'onDemand',
+                count: chunks,
+            },
+            {
+                id: 'energy',
+                role: 'storage-rw',
+                schema: SoftBodyEnergySchema,
+                storage: 'pool',
+                upload: 'never',
+                allocation: 'onDemand',
+                // Um registro (sem `count`: a C2 o conta como 1, no grupo e no slot da faixa); lido como o do
+                // `RigidBody`, campo a campo.
+                history: { depth: BODY_ENERGY_HISTORY },
+            },
+        );
+        return out;
     }
 }
 

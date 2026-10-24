@@ -3,10 +3,6 @@
 // filtrado guarda só o último rebatimento, o do desenho).
 // Requer: gi_common, gi_weights, gi, gi_generations_read.
 
-fn gi_unpack_generation(p: vec2u) -> vec3f {
-    return vec3f(unpack2x16float(p.x), unpack2x16float(p.y).x);
-}
-
 /**
  * Os pesos das sondas para um ponto (normal `n`, vista `v`), já com a mistura das cascatas (até duas: a mais fina que o
  * contém e a seguinte na borda dela), e o texel do mapa octaédrico na normal — calculados uma vez e lidos para cada
@@ -44,9 +40,9 @@ fn gi_generation_at(w: GiGenerationWeights, k: u32) -> vec3f {
     var e = vec3f(0.0);
     for (var j = 0u; j < 16u; j++) {
         if (w.taps[j].weight <= 0.0) { continue; }
-        e += gi_unpack_generation(gi_generations[(k * probes + w.taps[j].index) * texels + w.texel]) * w.taps[j].weight;
+        e += unpack_half_rgb(gi_generations[(k * probes + w.taps[j].index) * texels + w.texel]) * w.taps[j].weight;
     }
-    return e * GI_PI;
+    return e * PI;
 }
 
 /** Irradiância (E) do rebatimento `k` no ponto `p` com normal `n`, vista `v`. */

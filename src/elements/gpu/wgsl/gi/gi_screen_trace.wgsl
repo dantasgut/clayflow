@@ -10,22 +10,12 @@
 /** Gerações no máximo (os rebatimentos da `GlobalIllumination`). */
 const GI_SCREEN_MAX_BOUNCES: u32 = 8u;
 
-/** Base ortonormal em volta de `n` (Duff et al. 2017). */
-fn gi_screen_basis(n: vec3f) -> mat3x3f {
-    let s = select(-1.0, 1.0, n.z >= 0.0);
-    let a = -1.0 / (s + n.z);
-    let b = n.x * n.y * a;
-    return mat3x3f(vec3f(1.0 + s * n.x * n.x * a, s * b, -s * n.x), vec3f(b, s + n.y * n.y * a, -n.y), n);
-}
-
 /** Direção `k` da sonda `i` no quadro: R2 deslocada, por cosseno em volta de `n`. */
 fn gi_screen_ray_dir(i: u32, k: u32, n: vec3f) -> vec3f {
-    let h = gi_hash(i * 1973u + gi.rays.y * 9277u);
+    let h = random_seed(RANDOM_STREAM_GI_SCREEN_RAYS, i, gi.rays.y);
     let shift = vec2f(f32(h & 0xFFFFu), f32(h >> 16u)) / 65536.0;
     let u = fract(vec2f(0.7548776662, 0.5698402910) * f32(k + 1u) + shift);
-    let r = sqrt(u.x);
-    let phi = 2.0 * GI_PI * u.y;
-    return normalize(gi_screen_basis(n) * vec3f(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - u.x))));
+    return normalize(basis_duff(n) * sample_cosine(u));
 }
 
 /**
@@ -34,7 +24,7 @@ fn gi_screen_ray_dir(i: u32, k: u32, n: vec3f) -> vec3f {
  */
 fn gi_screen_bounce(c: Closure, p: vec3f, n: vec3f, v: vec3f, k: u32, taps: GiScreenTaps, screen: bool, w: GiGenerationWeights) -> vec3f {
     if (!screen) { return gi_shade_indirect_weighted(c, p, n, v, w, k); }
-    let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / GI_PI;
+    let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / PI;
     return closure_indirect(c, n, v, IndirectLight(e, e, e, e, e));
 }
 
@@ -78,7 +68,7 @@ fn gi_screen_trace_main(
         } else if (hit.face >= 0.0) {
             let v = -dir;
             let c = ray_hit_closure(hit, gi.extra.w, 0.0);
-            let direct = gi_shade_direct(c, hit.position, hit.normal, v, j * 7919u + gi.rays.y * 104729u);
+            let direct = gi_shade_direct(c, hit.position, hit.normal, v, random_seed(RANDOM_STREAM_GI_SCREEN_LIGHT, j, gi.rays.y));
             sums[0] = direct * through;
             if (bounces > 1u) {
                 let taps = gi_screen_history_taps(hit.position, hit.normal);
@@ -104,6 +94,6 @@ fn gi_screen_trace_main(
     for (var g = 0u; g < bounces; g++) {
         var total = vec3f(0.0);
         for (var q = 0u; q < rays; q++) { total += gi_screen_partial[(lid + q) * GI_SCREEN_MAX_BOUNCES + g].rgb; }
-        gi_screen_work[gi_screen_fresh_at(i, g)] = vec4f(total * (GI_PI / f32(rays)), 0.0);
+        gi_screen_work[gi_screen_fresh_at(i, g)] = vec4f(total * (PI / f32(rays)), 0.0);
     }
 }

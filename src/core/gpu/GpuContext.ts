@@ -11,13 +11,16 @@ export interface GpuContext {
 }
 
 /** Features opcionais que o motor usa quando o adaptador oferece (profiling de GPU). */
-const ENGINE_OPTIONAL_FEATURES: readonly GPUFeatureName[] = ['timestamp-query'];
+/** Features opcionais do motor: medida de tempo da GPU e a filtragem de float32 (os históricos `full`, spec 037). */
+const ENGINE_OPTIONAL_FEATURES: readonly GPUFeatureName[] = [
+    'timestamp-query',
+    'float32-filterable',
+];
 
 /** Limites com que as cenas do motor escalam: pedidos no máximo do adaptador. */
 const ENGINE_SCALE_LIMITS = [
     'maxBufferSize',
     'maxStorageBufferBindingSize',
-    'maxStorageBuffersPerShaderStage',
     'maxBindGroups',
     'maxComputeWorkgroupStorageSize',
     'maxComputeInvocationsPerWorkgroup',
@@ -27,7 +30,7 @@ const ENGINE_SCALE_LIMITS = [
  * Nomes dos limites do WebGPU. `GPUSupportedLimits` expõe os valores como getters do protótipo (não
  * enumeráveis), então o relatório os lê por nome.
  */
-const LIMIT_NAMES = [
+export const WEBGPU_LIMIT_NAMES = [
     'maxTextureDimension1D',
     'maxTextureDimension2D',
     'maxTextureDimension3D',
@@ -61,6 +64,20 @@ const LIMIT_NAMES = [
     'maxComputeWorkgroupsPerDimension',
 ] as const;
 
+/**
+ * Limites que o desenho do motor usa além dos de escala (spec 037, R7): pedidos no mínimo comum aos perfis de
+ * referência (as fixtures `src/__smokes__/fixtures/adapter-limits-*.json`, gravadas pelo smoke `adapterLimits`), nunca o
+ * máximo de um adaptador — o que cabe num perfil cabe no outro. Um adaptador abaixo deles fica com o que tem, e o
+ * pipeline que precisar de mais falha na montagem (`limit-exceeded`), como antes.
+ */
+export const ENGINE_PORTABLE_LIMITS: Readonly<Record<string, number>> = Object.freeze({
+    // `adapter-limits-apple-metal-3.json` (2026-10-23); a RTX 4090 (`nvidia-lovelace`) entra no mínimo quando gravada.
+    maxStorageBuffersPerShaderStage: 10,
+    maxStorageTexturesPerShaderStage: 8,
+    maxColorAttachments: 8,
+    maxColorAttachmentBytesPerSample: 128,
+});
+
 /** Resultado da criação do device: objetos de GPU e o relatório de capacidades. */
 export interface CreatedGpuContext {
     readonly device: GPUDevice;
@@ -76,7 +93,7 @@ function readLimit(limits: GPUSupportedLimits, name: string): number | undefined
 
 function readAllLimits(limits: GPUSupportedLimits): Record<string, number> {
     const out: Record<string, number> = {};
-    for (const name of LIMIT_NAMES) {
+    for (const name of WEBGPU_LIMIT_NAMES) {
         const v = readLimit(limits, name);
         if (v !== undefined) out[name] = v;
     }
@@ -84,8 +101,9 @@ function readAllLimits(limits: GPUSupportedLimits): Record<string, number> {
 }
 
 /**
- * Limites pedidos ao device: os de escala do motor no máximo do adaptador e os do usuário ajustados ao que o
- * adaptador permite (`min*` = quanto menor, mais capaz; os demais = quanto maior, mais capaz).
+ * Limites pedidos ao device: os de escala do motor no máximo do adaptador, os portáteis no mínimo comum
+ * (`ENGINE_PORTABLE_LIMITS`, até o que o adaptador tem) e os do usuário ajustados ao que o adaptador permite (`min*` =
+ * quanto menor, mais capaz; os demais = quanto maior, mais capaz).
  */
 function resolveLimits(
     adapterLimits: GPUSupportedLimits,
@@ -98,6 +116,7 @@ function resolveLimits(
         const max = readLimit(adapterLimits, name);
         if (max !== undefined) required[name] = max;
     }
+    requirePortable(adapterLimits, required);
     for (const [name, value] of Object.entries(requested ?? {})) {
         const best = readLimit(adapterLimits, name);
         if (best === undefined) {
@@ -132,6 +151,17 @@ function resolveLimits(
         if (current !== undefined) required[name] = Math.min(current, cap);
     }
     return { required, clamped };
+}
+
+/** Os limites portáteis no mínimo comum, até o que o adaptador tem (spec 037, R7). */
+function requirePortable(
+    adapterLimits: GPUSupportedLimits,
+    required: Record<string, number>,
+): void {
+    for (const [name, portable] of Object.entries(ENGINE_PORTABLE_LIMITS)) {
+        const max = readLimit(adapterLimits, name);
+        if (max !== undefined) required[name] = Math.min(max, portable);
+    }
 }
 
 function describeAdapter(adapter: GPUAdapter): DeviceCapabilities['adapter'] {

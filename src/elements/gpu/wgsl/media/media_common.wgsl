@@ -24,20 +24,16 @@ fn froxel_view_point(ndc: vec2f, z: f32, proj: mat4x4f) -> vec3f {
 /**
  * A projeção da câmera sem o deslocamento da amostra dentro do pixel (spec 034): a grade dos froxels tem as próprias
  * amostras (Halton por quadro) e não acompanha o deslocamento do antisserrilhado — senão o histórico dela veria um
- * movimento que não existe. `(T·P)[c].xy = P[c].xy + jitter.xy · P[c].w`.
+ * movimento que não existe.
  */
 fn froxel_projection(cam: CameraMatrices) -> mat4x4f {
-    var p = cam.projection;
-    for (var c = 0; c < 4; c++) {
-        p[c] = vec4f(p[c].xy - cam.jitter.xy * p[c].w, p[c].zw);
-    }
-    return p;
+    return camera_shift(cam.projection, -cam.jitter.xy);
 }
 
-/** Vista → mundo (vista rígida). */
+/** Vista → mundo (vista rígida): a rotação inversa guardada da câmera. */
 fn froxel_world(cam: CameraMatrices, pv: vec3f) -> vec3f {
-    let r = mat3x3f(cam.view[0].xyz, cam.view[1].xyz, cam.view[2].xyz);
-    return transpose(r) * (pv - cam.view[3].xyz);
+    let r = mat3x3f(cam.inverseView[0].xyz, cam.inverseView[1].xyz, cam.inverseView[2].xyz);
+    return r * (pv - cam.view[3].xyz);
 }
 
 /** Tela (uv em [0, 1], y para baixo) e fatia contínua do ponto de mundo `p` pela vista e projeção dadas. */
@@ -45,17 +41,16 @@ fn froxel_locate(view: mat4x4f, view_proj: mat4x4f, p: vec3f) -> vec3f {
     let z = -(view * vec4f(p, 1.0)).z;
     let clip = view_proj * vec4f(p, 1.0);
     let ndc = clip.xy / max(abs(clip.w), 1e-6) * sign(clip.w);
-    return vec3f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, froxel_slice_of(z));
+    return vec3f(ndc_to_uv(ndc), froxel_slice_of(z));
 }
 
 /** Deslocamento fixo por célula em [0, 1)³ (hash PCG): decorrelaciona o jitter entre as vizinhas. */
 fn froxel_rotation(cell: vec3u) -> vec3f {
-    var h = (cell.x * 73856093u) ^ (cell.y * 19349663u) ^ (cell.z * 83492791u);
+    var h = random_seed(RANDOM_STREAM_FROXEL, hash_cell(cell), 0u);
     var out = vec3f(0.0);
     for (var k = 0u; k < 3u; k++) {
-        h = h * 747796405u + 2891336453u;
-        let w = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
-        out[k] = f32(((w >> 22u) ^ w) & 0xFFFFFFu) / 16777216.0;
+        h = pcg_step(h);
+        out[k] = f32(pcg_output(h) & 0xFFFFFFu) / 16777216.0;
     }
     return out;
 }

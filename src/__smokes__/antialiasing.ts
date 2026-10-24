@@ -55,6 +55,8 @@ import {
 import { closureFn } from './support/materialScenes';
 import { waterScene } from './support/waterScene';
 import { writeFixture } from './support/fixtures';
+import { lumaSrgb8 } from './support/images';
+import { projectiveInverse, rigidInverse } from '../elements/math/reference/xform';
 
 function log(msg: string): void {
     console.log(`[antialiasing] ${msg}`);
@@ -291,10 +293,7 @@ function lum(px: CanvasPixels): Float32Array {
     const out = new Float32Array(px.width * px.height);
     const bgra = px.format === 'bgra8unorm';
     for (let i = 0; i < out.length; i++) {
-        const r = px.data[i * 4 + (bgra ? 2 : 0)]! / 255;
-        const g = px.data[i * 4 + 1]! / 255;
-        const b = px.data[i * 4 + (bgra ? 0 : 2)]! / 255;
-        out[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        out[i] = lumaSrgb8(px.data, i * 4, bgra);
     }
     return out;
 }
@@ -1136,7 +1135,15 @@ async function readMatrices(
         previous: field('previousViewProjection', 16),
         jitter: field('jitter', 4),
         history: field('history', 4),
+        inverseView: field('inverseView', 16),
+        inverseUnjittered: field('inverseUnjitteredViewProjection', 16),
+        previousView: field('previousView', 16),
     };
+}
+
+/** Maior diferença relativa à maior componente esperada (as inversas, spec 037: tolerância projetiva de R3). */
+function maxRelative(a: readonly number[], b: readonly number[]): number {
+    return maxDiff(a, b) / Math.max(...b.map(Math.abs));
 }
 
 /** Maior diferença absoluta entre dois vetores. */
@@ -1171,6 +1178,22 @@ async function matrices(): Promise<void> {
             const d = maxDiff(got, want);
             check(d <= tol, `matrices: ${label}: ${name} difere ${d.toExponential(2)} (≤ ${tol})`);
         }
+        // As inversas calculadas uma vez pelo estágio (spec 037): contra as da referência f64.
+        const inverses: [string, number[], number[]][] = [
+            ['inversa da vista', m.inverseView!, rigidInverse(view)],
+            [
+                'inversa sem deslocamento',
+                m.inverseUnjittered!,
+                projectiveInverse(mat4Mul(projection, view)),
+            ],
+        ];
+        for (const [name, got, want] of inverses) {
+            const d = maxRelative(got, want);
+            check(
+                d <= 1e-5,
+                `matrices: ${label}: ${name} difere ${d.toExponential(2)} relativo (≤ 1e-5)`,
+            );
+        }
         check(
             m.history![0] === (fresh ? 1 : 0),
             `matrices: ${label}: histórico ${m.history![0]} (esperado ${fresh ? 1 : 0})`,
@@ -1182,6 +1205,10 @@ async function matrices(): Promise<void> {
     const m0 = await readMatrices(s.app, s.camera);
     verify('corte', m0, eye0, 0, true);
     check(maxDiff(m0.previous!, m0.unjittered!) === 0, 'matrices: corte: a anterior não é a atual');
+    check(
+        maxDiff(m0.previousView!, m0.view!) === 0,
+        'matrices: corte: a vista anterior não é a atual',
+    );
     // Câmera movida: a posição 2; a anterior é a sem deslocamento do quadro de antes, bit a bit.
     const eye1 = [0.3, 1.1, 2.9];
     s.look(eye1 as [number, number, number]);
@@ -1191,6 +1218,10 @@ async function matrices(): Promise<void> {
     check(
         maxDiff(m1.previous!, m0.unjittered!) === 0,
         'matrices: movida: a anterior não é a do quadro de antes',
+    );
+    check(
+        maxDiff(m1.previousView!, m0.view!) === 0,
+        'matrices: movida: a vista anterior não é a do quadro de antes',
     );
     // Novo corte com a câmera em outro lugar: a sequência recomeça e a anterior é a atual.
     const eye2 = [-0.4, 0.9, 3.1];

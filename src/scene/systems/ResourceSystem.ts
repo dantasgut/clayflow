@@ -15,6 +15,7 @@ import { DATA_HOOK, Entity, type DataHook } from '../contracts/Entity';
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
+import { fullPrecisionOf } from '../descriptors/HistoryShape';
 import type { PoolBufferSpec, PoolInfo } from '../contracts/PoolDirectory';
 import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
 import type { Schema } from '../descriptors/Schema';
@@ -35,6 +36,7 @@ import { FlowBinder } from './flowBinding/FlowBinder';
 import type { EngineReadiness } from '../readiness/EngineReadiness';
 import { LayoutInferencer } from './LayoutInferencer';
 import { FreeRanges } from './FreeRanges';
+import { TemporalChannel, type ChannelSlice } from './TemporalChannel';
 
 type UploadPolicy = NonNullable<GPUDescriptor['upload']>;
 
@@ -70,6 +72,13 @@ interface PoolEntry {
     liveLo: number;
     liveHi: number;
     generation: number;
+    /**
+     * Pool `allocation: 'onDemand'` (spec 037): até alguém pedir (`ensurePoolAllocated`), o buffer tem um elemento só
+     * — os slots são contados normalmente e crescem sem realocar. `true` nos demais pools.
+     */
+    demanded: boolean;
+    /** Canal temporal do pool (descritor com `history`, spec 037): as fatias; `bufferSpec` é a fatia física 0. */
+    readonly channel: TemporalChannel | undefined;
     /** Slots com dado da CPU a enviar no próximo envio (bitset de `capacity` bits). */
     dirtyBits: Uint32Array;
     /** Campos de topo mudados nos slots marcados desde o último envio (`undefined` = todos ou desconhecidos). */
@@ -243,6 +252,8 @@ interface Allocation {
     texture?: TextureSpec;
     view?: TextureViewSpec;
     sampler?: SamplerSpec;
+    /** Canal temporal (descritor com `history`, spec 037): as fatias; `texture`/`view` são a fatia física 0. */
+    channel?: TemporalChannel;
 }
 
 /** Forma de um buffer de geometria derivada do conteúdo. */
@@ -363,6 +374,15 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     /** Conjuntos de registros de entidade, pela chave do pool (`schema.name` do registro). */
     private readonly recordSets = new Map<string, RecordSet>();
     private anonCounter = 0;
+    /** Canais temporais (spec 037): girados no início de cada quadro. */
+    private readonly channels = new Set<TemporalChannel>();
+    /** Canais de descritores sob demanda ainda sem fatias (até o `ensureAllocated`). */
+    private readonly pendingChannels = new Map<Resource, Map<string, TemporalChannel>>();
+    /** Quadros gravados (o `frame` dos carimbos dos canais) e o tempo da cena no quadro corrente. */
+    private recordings = 0;
+    private recordingElapsed = 0;
+    /** Descritores cujo recuo de precisão já foi avisado (`Schema.descId`). */
+    private readonly warnedPrecision = new Set<string>();
 
     /**
      * @param consumers Registro dos fornecedores da cena: cada pool criado registra o seu `PoolResolver` (sem substituir
@@ -399,7 +419,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                         this.addRecord(set, id);
                     }
             }),
-            this.events.on('frameRecording', () => {
+            this.events.on('frameRecording', (e) => {
+                // Os canais gravados no quadro anterior giram antes de qualquer Flow ver o quadro (spec 037).
+                this.recordings++;
+                this.recordingElapsed = e.elapsed;
+                for (const channel of this.channels) channel.advance(this.recordings);
                 this.flushDirty();
                 this.binder.prepareFrame();
                 // Escritas de `framePrepare` em recursos da cena (ex.: matriz da luz no ShadowMap) entram no quadro.
@@ -492,6 +516,22 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         for (const created of this.createdPools.splice(0)) {
             this.events.emit('poolCreated', { poolKey: created.poolKey, schema: created.schema });
         }
+    }
+
+    ensurePoolAllocated(poolKey: string): PoolBufferSpec | undefined {
+        const entry = this.pools.get(poolKey);
+        if (entry === undefined) return undefined;
+        if (entry.demanded) return entry.bufferSpec;
+        entry.demanded = true;
+        const oldSpec = entry.bufferSpec;
+        ++entry.generation;
+        this.allocatePoolStorage(entry);
+        this.events.emit('poolReallocated', {
+            poolKey,
+            oldByteSize: oldSpec.byteSize,
+            newByteSize: entry.bufferSpec.byteSize,
+        });
+        return entry.bufferSpec;
     }
 
     ensurePool(schema: Schema): void {
@@ -819,7 +859,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             const slot = firstIn(tracked, entry);
             if (entry.occupants[slot] !== resource) return undefined;
             return {
-                source: entry.bufferSpec,
+                source: entry.channel !== undefined ? latestSlice(entry.channel) : entry.bufferSpec,
                 stride: entry.stride,
                 slot,
                 span: spanIn(tracked, entry),
@@ -868,7 +908,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (existing !== undefined) return existing.buffer;
         const desc = resource.getDescriptors().find((d) => d.id === descId && d.storage !== 'pool');
         if (desc === undefined) return undefined;
-        const allocation = this.allocateDescriptor(resource, desc);
+        const allocation = this.allocateDescriptor(
+            resource,
+            desc,
+            this.takePending(resource, descId),
+        );
         const own = this.ownForWrite(resource);
         if (own === undefined) this.allocations.set(resource, new Map([[desc.id, allocation]]));
         else own.set(desc.id, allocation);
@@ -885,6 +929,71 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     samplerOf(resource: Resource, descId: string): SamplerSpec | undefined {
         return this.allocations.get(resource)?.get(descId)?.sampler;
+    }
+
+    channelOf(resource: Resource, descId: string): TemporalChannel | undefined {
+        return (
+            this.allocations.get(resource)?.get(descId)?.channel
+            ?? this.pendingChannels.get(resource)?.get(descId)
+        );
+    }
+
+    channelOfPool(poolKey: string): TemporalChannel | undefined {
+        return this.pools.get(poolKey)?.channel;
+    }
+
+    markWritten(resource: Resource, descId: string): void {
+        this.channelOf(resource, descId)?.markWritten(this.stamp());
+    }
+
+    markPoolWritten(poolKey: string): void {
+        this.channelOfPool(poolKey)?.markWritten(this.stamp());
+    }
+
+    invalidateChannel(resource: Resource, descId: string): void {
+        this.channelOf(resource, descId)?.invalidate();
+    }
+
+    invalidatePoolChannel(poolKey: string): void {
+        this.channelOfPool(poolKey)?.invalidate();
+    }
+
+    private stamp(): { readonly frame: number; readonly elapsed: number } {
+        return { frame: this.recordings, elapsed: this.recordingElapsed };
+    }
+
+    /** Canal novo registrado para girar a cada quadro. */
+    private openChannel(name: string, depth: number): TemporalChannel {
+        const channel = new TemporalChannel(name, depth);
+        this.channels.add(channel);
+        return channel;
+    }
+
+    /** O canal de um descritor sob demanda, sem fatias até o pedido. */
+    private pendChannel(resource: Resource, desc: GPUDescriptor): void {
+        let pending = this.pendingChannels.get(resource);
+        if (pending === undefined) this.pendingChannels.set(resource, (pending = new Map()));
+        if (!pending.has(desc.id))
+            pending.set(
+                desc.id,
+                this.openChannel(`${desc.id}:${this.identityOf(resource)}`, desc.history!.depth),
+            );
+    }
+
+    /** Tira o canal pendente do descritor (as fatias vão nascer). */
+    private takePending(resource: Resource, descId: string): TemporalChannel | undefined {
+        const pending = this.pendingChannels.get(resource);
+        const channel = pending?.get(descId);
+        pending?.delete(descId);
+        return channel;
+    }
+
+    /** O Resource saiu: os canais pendentes dele param de girar. */
+    private closePending(resource: Resource): void {
+        const pending = this.pendingChannels.get(resource);
+        if (pending === undefined) return;
+        for (const channel of pending.values()) this.channels.delete(channel);
+        this.pendingChannels.delete(resource);
     }
 
     /** Número de slots ocupáveis no pool (maior slot já usado + 1). 0 se o pool não existe. */
@@ -975,6 +1084,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             capacity: entry.capacity,
             generation: entry.generation,
             gpuOwned: entry.owners.size,
+            allocated: entry.demanded,
         };
     }
 
@@ -1450,7 +1560,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (pooled.length > 0) this.allocatePooled(resource, pooled);
         const own = new Map<string, Allocation>();
         for (const desc of descs) {
-            if (desc.storage === 'pool' || desc.allocation === 'onDemand') continue;
+            if (desc.storage === 'pool') continue;
+            if (desc.allocation === 'onDemand') {
+                // A série existe desde já; as fatias, no pedido (spec 037).
+                if (desc.history !== undefined) this.pendChannel(resource, desc);
+                continue;
+            }
             own.set(desc.id, this.allocateDescriptor(resource, desc));
         }
         if (own.size > 0) this.allocations.set(resource, this.shareOwn(own));
@@ -1496,8 +1611,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     /** Aloca os objetos de GPU de um descritor individual conforme o papel (research R9). */
-    private allocateDescriptor(resource: Resource, desc: GPUDescriptor): Allocation {
-        const allocation: Allocation = { desc };
+    private allocateDescriptor(
+        resource: Resource,
+        desc: GPUDescriptor,
+        channel?: TemporalChannel,
+    ): Allocation {
+        const allocation: Allocation = { desc, ...(channel !== undefined ? { channel } : {}) };
+        if (
+            desc.history !== undefined
+            && desc.role !== 'texture'
+            && desc.role !== 'storage-texture'
+            && desc.role !== 'storage-rw'
+            && desc.role !== 'storage-ro'
+        ) {
+            throw new Error(
+                `ResourceSystem: '${desc.id}' com history em '${desc.role}' — a série temporal é de texturas `
+                    + "('texture', 'storage-texture'), de buffers de storage ou de pools ('storage: pool').",
+            );
+        }
         const disc = `${desc.id}:${this.identityOf(resource)}`;
         switch (desc.role) {
             case 'uniform':
@@ -1505,6 +1636,21 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             case 'storage-rw': {
                 if (desc.schema === undefined) break;
                 const byteSize = alignUp(desc.schema.stride * (desc.count ?? 1), 16);
+                if (desc.history !== undefined) {
+                    // Série de buffer (spec 037): as fatias, produzidas pela GPU (sem conteúdo da CPU).
+                    const slices = Array.from({ length: desc.history.depth }, (_, k) => ({
+                        buffer: this.core.create<StorageBufferSpec>({
+                            kind: 'buffer',
+                            subkind: 'storage',
+                            discriminator: `${disc}:h${k}`,
+                            byteSize,
+                        }),
+                    }));
+                    allocation.channel ??= this.openChannel(disc, desc.history.depth);
+                    allocation.channel.replaceSlices(slices);
+                    allocation.buffer = slices[0]!.buffer;
+                    break;
+                }
                 allocation.buffer =
                     desc.role === 'uniform'
                         ? this.core.create<UniformBufferSpec>({
@@ -1690,7 +1836,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         });
     }
 
-    /** Textura (+ view) do descritor; tamanho do `textureShape` ou do canvas (`sizeFromCanvas`). */
+    /**
+     * Textura (+ view) do descritor; tamanho do `textureShape` ou do canvas (`sizeFromCanvas`). Com `history` (spec
+     * 037), as `depth` fatias do canal (`:h<k>` no discriminador), com o formato da precisão resolvida; `texture`/`view`
+     * da alocação ficam com a fatia física 0 e a série recomeça.
+     */
     private createTexture(
         allocation: Allocation,
         disc: string,
@@ -1720,33 +1870,83 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 `ResourceSystem: textura '${desc.id}' sem tamanho (width/height ou sizeFromCanvas com canvas).`,
             );
         }
-        const format = shape.format === 'canvas' ? this.core.canvasFormat : shape.format;
-        const texture = this.core.create<TextureSpec>({
-            kind: 'texture',
-            discriminator: `${disc}:${size.width}x${size.height}`,
-            width: size.width,
-            height: size.height,
-            format,
-            usage: textureUsage(desc.role, format, shape.sampleCount ?? 1),
-            ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
-            ...(shape.depthOrArrayLayers !== undefined
-                ? { depthOrArrayLayers: shape.depthOrArrayLayers }
-                : {}),
-            ...(shape.mipLevelCount === 'full'
-                ? { mipLevelCount: fullMipCount(size.width, size.height) }
-                : shape.mipLevelCount !== undefined
-                  ? { mipLevelCount: shape.mipLevelCount }
-                  : {}),
-            ...(shape.sampleCount !== undefined ? { sampleCount: shape.sampleCount } : {}),
-        });
-        allocation.texture = texture;
-        allocation.view = this.core.create<TextureViewSpec>({
-            kind: 'textureview',
-            discriminator: `${disc}:view:${size.width}x${size.height}`,
-            source: texture,
-            format,
-            ...(shape.viewDimension !== undefined ? { dimension: shape.viewDimension } : {}),
-        });
+        const format = this.textureFormatOf(desc, disc);
+        const make = (
+            d: string,
+        ): ChannelSlice & { texture: TextureSpec; view: TextureViewSpec } => {
+            const texture = this.core.create<TextureSpec>({
+                kind: 'texture',
+                discriminator: `${d}:${size.width}x${size.height}`,
+                width: size.width,
+                height: size.height,
+                format,
+                usage: textureUsage(desc.role, format, shape.sampleCount ?? 1),
+                ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
+                ...(shape.depthOrArrayLayers !== undefined
+                    ? { depthOrArrayLayers: shape.depthOrArrayLayers }
+                    : {}),
+                ...(shape.mipLevelCount === 'full'
+                    ? { mipLevelCount: fullMipCount(size.width, size.height) }
+                    : shape.mipLevelCount !== undefined
+                      ? { mipLevelCount: shape.mipLevelCount }
+                      : {}),
+                ...(shape.sampleCount !== undefined ? { sampleCount: shape.sampleCount } : {}),
+            });
+            const view = this.core.create<TextureViewSpec>({
+                kind: 'textureview',
+                discriminator: `${d}:view:${size.width}x${size.height}`,
+                source: texture,
+                format,
+                ...(shape.viewDimension !== undefined ? { dimension: shape.viewDimension } : {}),
+            });
+            return { texture, view };
+        };
+        const history = desc.history;
+        if (history === undefined) {
+            const { texture, view } = make(disc);
+            allocation.texture = texture;
+            allocation.view = view;
+            return;
+        }
+        const slices = Array.from({ length: history.depth }, (_, k) => make(`${disc}:h${k}`));
+        allocation.channel ??= this.openChannel(disc, history.depth);
+        allocation.channel.format = format;
+        allocation.channel.replaceSlices(slices);
+        allocation.texture = slices[0]!.texture;
+        allocation.view = slices[0]!.view;
+    }
+
+    /**
+     * Formato da textura do descritor: o do canvas (`'canvas'`), o declarado, ou — com `history.precision: 'full'` — o
+     * de 32 bits do mesmo float de 16 (spec 037), que recua para 16 bits com um aviso quando a série é lida filtrada e o
+     * device não tem `float32-filterable`.
+     */
+    private textureFormatOf(desc: GPUDescriptor, name: string): GPUTextureFormat {
+        const declared = desc.textureShape!.format;
+        const base = declared === 'canvas' ? this.core.canvasFormat : declared;
+        const history = desc.history;
+        if (history?.precision !== 'full') return base;
+        const full = fullPrecisionOf(base);
+        if (full === undefined) {
+            throw new Error(
+                `ResourceSystem: '${desc.id}' com history.precision 'full' declarado em ${base} — a precisão troca um `
+                    + 'float de 16 bits (r16float, rg16float, rgba16float) pelo de 32.',
+            );
+        }
+        if (
+            history.filtered === true
+            && !this.core.capabilities().features.includes('float32-filterable')
+        ) {
+            if (!this.warnedPrecision.has(name)) {
+                this.warnedPrecision.add(name);
+                console.warn(
+                    `[ResourceSystem] '${name}': history.precision 'full' lido filtrado exige a feature `
+                        + `'float32-filterable', que o device não tem — a série fica em ${base}.`,
+                );
+            }
+            return base;
+        }
+        return full;
     }
 
     /** Recria as texturas `sizeFromCanvas` com o tamanho novo, destruindo as anteriores. */
@@ -1867,6 +2067,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
         this.markLive(entry, first, end);
         if (entityId !== undefined) entry.slotByEntity.set(entityId, first);
+        // Entidade nova no pool de uma série: o slot pode ter sido de outra (spec 037).
+        entry.channel?.invalidate();
     }
 
     /** Empacota o dado de `upload: 'initial'` da faixa (o do momento da inserção), por slot. */
@@ -1973,12 +2175,30 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         // O stride do `array<T>` do WGSL, que é o do struct gerado do schema.
         const stride = schema.stride;
         const capacity = INITIAL_POOL_CAPACITY;
+        const demanded = desc.allocation !== 'onDemand';
+        if (desc.history !== undefined && policyOf(desc) !== 'never') {
+            throw new Error(
+                `ResourceSystem: pool '${poolKey}' com history e envio da CPU — a série de um pool é produzida pela GPU `
+                    + "(upload: 'never').",
+            );
+        }
+        if (!demanded && policyOf(desc) !== 'never') {
+            throw new Error(
+                `ResourceSystem: pool '${poolKey}' sob demanda com envio da CPU — só pools 'upload: never' (produzidos `
+                    + 'pela GPU) são alocados sob demanda.',
+            );
+        }
         const entry: PoolEntry = {
             poolKey,
             stride,
             schema,
             upload: policyOf(desc),
-            bufferSpec: this.createPoolBuffer(poolKey, stride * capacity, 0),
+            // Série de pool: um elemento até as fatias (logo abaixo, ou no pedido).
+            bufferSpec: this.createPoolBuffer(
+                poolKey,
+                stride * (demanded && desc.history === undefined ? capacity : 1),
+                0,
+            ),
             capacity,
             count: 0,
             slotByEntity: new Map(),
@@ -1993,13 +2213,19 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             liveLo: 1,
             liveHi: 0,
             generation: 0,
+            demanded,
             dirtyBits: new Uint32Array(Math.ceil(capacity / 32)),
             changedFields: undefined,
             queued: false,
             writtenBits: new Uint32Array(Math.ceil(capacity / 32)),
             ownedBits: new Uint32Array(Math.ceil(capacity / 32)),
             owners: new Map(),
+            channel:
+                desc.history !== undefined
+                    ? this.openChannel(poolKey, desc.history.depth)
+                    : undefined,
         };
+        if (demanded && entry.channel !== undefined) this.allocatePoolStorage(entry);
         this.pools.set(poolKey, entry);
         this.consumers.registerDefault(new PoolResolver(poolKey, schema));
         this.consumers.registerDefault(new PoolLiveResolver(poolKey));
@@ -2007,13 +2233,39 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return entry;
     }
 
+    /**
+     * O buffer do pool com a capacidade inteira — ou, num pool com canal temporal (spec 037), as `depth` fatias (o
+     * `bufferSpec` fica com a física 0 e a série recomeça). O anterior é destruído.
+     */
+    private allocatePoolStorage(entry: PoolEntry): void {
+        const byteSize = entry.stride * entry.capacity;
+        const channel = entry.channel;
+        if (channel === undefined) {
+            const old = entry.bufferSpec;
+            entry.bufferSpec = this.createPoolBuffer(entry.poolKey, byteSize, entry.generation);
+            if (old !== entry.bufferSpec) this.core.destroy(old);
+            return;
+        }
+        const previous = channel.allSlices();
+        const placeholder = entry.bufferSpec;
+        const slices = Array.from({ length: channel.depth }, (_, k) => ({
+            buffer: this.createPoolBuffer(entry.poolKey, byteSize, entry.generation, `:h${k}`),
+        }));
+        channel.replaceSlices(slices);
+        entry.bufferSpec = slices[0]!.buffer;
+        for (const slice of previous)
+            if (slice.buffer !== undefined) this.core.destroy(slice.buffer);
+        if (!previous.some((slice) => slice.buffer === placeholder)) this.core.destroy(placeholder);
+    }
+
     private createPoolBuffer(
         poolKey: string,
         byteSize: number,
         generation: number,
+        slice = '',
     ): PoolBufferSpec {
         const discriminator =
-            generation === 0 ? `pool:${poolKey}` : `pool:${poolKey}:gen${generation}`;
+            (generation === 0 ? `pool:${poolKey}` : `pool:${poolKey}:gen${generation}`) + slice;
         return this.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -2023,9 +2275,27 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     private growPool(entry: PoolEntry): void {
+        if (!entry.demanded) {
+            // Sob demanda e ainda não pedido: só a contagem cresce (o buffer é alocado no pedido, já do tamanho certo).
+            entry.capacity *= 2;
+            this.growBookkeeping(entry);
+            return;
+        }
         const oldByteSize = entry.bufferSpec.byteSize;
         const oldSpec = entry.bufferSpec;
         entry.capacity *= 2;
+        if (entry.channel !== undefined) {
+            // Série de pool ('never'): as fatias são recriadas com a capacidade nova e a série recomeça.
+            ++entry.generation;
+            this.allocatePoolStorage(entry);
+            this.growBookkeeping(entry);
+            this.events.emit('poolReallocated', {
+                poolKey: entry.poolKey,
+                oldByteSize,
+                newByteSize: entry.bufferSpec.byteSize,
+            });
+            return;
+        }
         entry.bufferSpec = this.createPoolBuffer(
             entry.poolKey,
             entry.stride * entry.capacity,
@@ -2042,6 +2312,17 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             });
             this.core.submit();
         }
+        this.growBookkeeping(entry);
+        this.core.destroy(oldSpec);
+        this.events.emit('poolReallocated', {
+            poolKey: entry.poolKey,
+            oldByteSize,
+            newByteSize: entry.bufferSpec.byteSize,
+        });
+    }
+
+    /** Os espelhos da CPU (bitsets, slot → entidade, registros) acompanham a capacidade nova. */
+    private growBookkeeping(entry: PoolEntry): void {
         entry.dirtyBits = grownBits(entry.dirtyBits, entry.capacity);
         entry.writtenBits = grownBits(entry.writtenBits, entry.capacity);
         entry.ownedBits = grownBits(entry.ownedBits, entry.capacity);
@@ -2058,12 +2339,6 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             data.set(entry.records.data);
             entry.records.data = data;
         }
-        this.core.destroy(oldSpec);
-        this.events.emit('poolReallocated', {
-            poolKey: entry.poolKey,
-            oldByteSize,
-            newByteSize: entry.bufferSpec.byteSize,
-        });
     }
 
     // ── Registros de entidade ────────────────────────────────────────────────
@@ -2148,6 +2423,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const tracked = trackedOf(resource);
         if (tracked !== undefined) tracked.allocated = false;
         this.dirty.delete(resource);
+        this.closePending(resource);
         const own = this.allocations.get(resource);
         if (own !== undefined) {
             for (const allocation of own.values()) {
@@ -2155,8 +2431,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     this.releaseSharedGeometry(allocation.sharedKey);
                     continue;
                 }
-                if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+                this.releaseBuffer(allocation);
                 this.releaseTexture(allocation);
+                this.closeChannel(allocation);
                 if (allocation.sampler !== undefined) this.core.destroy(allocation.sampler);
             }
             this.allocations.delete(resource);
@@ -2195,12 +2472,18 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }
             entry.free.release(first, span);
             this.markLive(entry, first, first + span);
-            if (desc.clearOnRelease === true)
-                this.core.write(
+            entry.channel?.invalidate();
+            if (desc.clearOnRelease === true && entry.demanded) {
+                const buffers = entry.channel?.allSlices().map((slice) => slice.buffer!) ?? [
                     entry.bufferSpec,
-                    new Uint8Array(span * entry.stride),
-                    first * entry.stride,
-                );
+                ];
+                for (const buffer of buffers)
+                    this.core.write(
+                        buffer,
+                        new Uint8Array(span * entry.stride),
+                        first * entry.stride,
+                    );
+            }
         }
         tracked.slot = -1;
         tracked.span = 1;
@@ -2259,24 +2542,68 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const removed = [...before.keys()].filter((id) => !after.some((d) => d.id === id));
         if (changed.length === 0 && removed.length === 0) return;
         const own = this.ownForWrite(resource)!;
+        // O canal de um descritor que mudou de forma continua o mesmo objeto (as fatias trocam, a série recomeça):
+        // quem o liga vê o `epoch` novo e refaz os bind groups (spec 037).
+        const kept = new Map<string, TemporalChannel>();
         for (const id of [...removed, ...changed.map((d) => d.id)]) {
             const allocation = own.get(id);
             if (allocation === undefined) continue;
             if (allocation.sharedKey !== undefined)
                 this.releaseSharedGeometry(allocation.sharedKey);
-            else if (allocation.buffer !== undefined) this.core.destroy(allocation.buffer);
+            else this.releaseBuffer(allocation);
             this.releaseTexture(allocation);
+            if (allocation.channel !== undefined && !removed.includes(id))
+                kept.set(id, allocation.channel);
+            else this.closeChannel(allocation);
             if (allocation.sampler !== undefined) this.core.destroy(allocation.sampler);
             own.delete(id);
         }
-        for (const desc of changed) own.set(desc.id, this.allocateDescriptor(resource, desc));
+        for (const desc of changed) {
+            const channel = kept.get(desc.id);
+            if (channel !== undefined && desc.history?.depth !== channel.depth) {
+                this.channels.delete(channel);
+                kept.delete(desc.id);
+            }
+            own.set(
+                desc.id,
+                this.allocateDescriptor(
+                    resource,
+                    desc,
+                    kept.get(desc.id) ?? this.takePending(resource, desc.id),
+                ),
+            );
+        }
+    }
+
+    /** O buffer da alocação — ou, numa série de buffer (spec 037), as fatias. */
+    private releaseBuffer(allocation: Allocation): void {
+        if (allocation.buffer === undefined) return;
+        const slices = allocation.channel?.allSlices() ?? [];
+        if (slices.some((slice) => slice.buffer !== undefined)) {
+            for (const slice of slices)
+                if (slice.buffer !== undefined) this.core.destroy(slice.buffer);
+        } else this.core.destroy(allocation.buffer);
+        delete allocation.buffer;
     }
 
     private releaseTexture(allocation: Allocation): void {
-        if (allocation.view !== undefined) this.core.destroy(allocation.view);
-        if (allocation.texture !== undefined) this.core.destroy(allocation.texture);
+        const channel = allocation.channel;
+        if (channel !== undefined) {
+            for (const slice of channel.allSlices()) {
+                if (slice.view !== undefined) this.core.destroy(slice.view);
+                if (slice.texture !== undefined) this.core.destroy(slice.texture);
+            }
+        } else {
+            if (allocation.view !== undefined) this.core.destroy(allocation.view);
+            if (allocation.texture !== undefined) this.core.destroy(allocation.texture);
+        }
         delete allocation.view;
         delete allocation.texture;
+    }
+
+    /** A alocação saiu (o Resource ou o descritor): o canal dela para de girar. */
+    private closeChannel(allocation: Allocation): void {
+        if (allocation.channel !== undefined) this.channels.delete(allocation.channel);
     }
 
     // ── Envio ────────────────────────────────────────────────────────────────
@@ -2449,6 +2776,7 @@ function sameShape(a: GPUDescriptor, b: GPUDescriptor): boolean {
         && a.indexFormat === b.indexFormat
         && JSON.stringify(a.textureShape) === JSON.stringify(b.textureShape)
         && JSON.stringify(a.samplerShape) === JSON.stringify(b.samplerShape)
+        && JSON.stringify(a.history) === JSON.stringify(b.history)
     );
 }
 
@@ -2511,4 +2839,10 @@ function sameRecordDeclaration(
                 b[k]?.[0] === t && b[k][1] === d && b[k][2]?.optional === o?.optional,
         )
     );
+}
+
+/** A fatia mais recente de um canal de pool: a atual se gravada no quadro, senão a anterior (se vale). */
+function latestSlice(channel: TemporalChannel): AnyBufferSpec {
+    const lag = channel.writtenThisFrame || channel.frames === 0 ? 0 : 1;
+    return channel.buffer(lag)!;
 }

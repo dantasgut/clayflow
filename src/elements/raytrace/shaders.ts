@@ -21,14 +21,13 @@ import rayBvhReadSource from '../gpu/wgsl/raytrace/ray_bvh_read.wgsl?raw';
 import rayHitSource from '../gpu/wgsl/raytrace/ray_hit.wgsl?raw';
 import rayHitMaterialReadySource from '../gpu/wgsl/raytrace/ray_hit_material_ready.wgsl?raw';
 import rayDirectSource from '../gpu/wgsl/raytrace/ray_direct.wgsl?raw';
-import rayCameraSource from '../gpu/wgsl/raytrace/ray_camera.wgsl?raw';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady } from '../scene/points/lighting';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
-import { camerasResource, lightsResource, worldsResource } from '../scene/resources';
+import { lightsResource, worldInversesResource, worldsResource } from '../scene/resources';
 import {
     RayBuildParamsSchema,
     RayBvhSchema,
@@ -40,6 +39,7 @@ import { renderablesResource } from '../scene/resources';
 import { standardMaterialsResource } from '../material/renderResources';
 import { RenderableSchema } from '../scene/Renderable';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
+import { color, random, xformAffine } from '../gpu/shaders/math';
 
 // Módulos da estrutura de raios (spec 033, R1): as funções comuns, os kernels da construção (privados do
 // `RaySceneFlow`) e a consulta `ray_scene`, que qualquer estágio requer — os pools da `RayScene` e o uniform dela são
@@ -102,7 +102,7 @@ const rayBvhRead = wgslModule({
 export const rayScene = wgslModule({
     name: 'ray_scene',
     source: raySceneSource,
-    requires: [rayCommon, rayGeometryRead, rayBvhRead, raySceneInfoResource],
+    requires: [rayCommon, rayGeometryRead, rayBvhRead, raySceneInfoResource, xformAffine],
 });
 
 /** Leitura das instâncias (o material copiado nelas), para quem sombreia os acertos. */
@@ -267,7 +267,9 @@ export const rayInstances = wgslModule({
         NONE.module,
         rayCommon,
         rayReduce,
+        xformAffine,
         B.build,
+        worldInversesResource,
         B.instanceSources,
         worldsResource,
         renderablesResource,
@@ -305,13 +307,6 @@ export const rayHit = wgslModule({
     structs: [StandardMaterialSchema],
 });
 
-/** Raio da câmera por um ponto da tela (spec 033 R2, comum na spec 034): `ray_camera(slot, px, size)`. */
-export const rayCamera = wgslModule({
-    name: 'ray_camera',
-    source: rayCameraSource,
-    requires: [camerasResource],
-});
-
 /**
  * Luz direta num ponto atingido (spec 033 R2, comum na spec 034): `ray_direct(c, p, n, v, slots, seed)` — as luzes do
  * pool com raio de sombra pela estrutura; a iluminação global e a refração passam a contagem de slots usados.
@@ -320,6 +315,8 @@ export const rayDirect = wgslModule({
     name: 'ray_direct',
     source: rayDirectSource,
     requires: [
+        random,
+        color,
         NONE.module,
         closure,
         closureEval,

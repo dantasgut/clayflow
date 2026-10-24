@@ -33,7 +33,7 @@ import {
     writeFixture,
     writeJsonFixture,
 } from './support/fixtures';
-import { luminance, toPng } from './support/images';
+import { lumaSrgb, toPng } from './support/images';
 import { hashBytes } from './support/fluidMeasures';
 import { block, rng } from './support/particleScenes';
 import {
@@ -741,8 +741,8 @@ const CASES: Record<string, Case> = {
                         differs = true;
                 if (!differs) continue;
                 water++;
-                const a = luminance(wet.image, x, y);
-                const b = luminance(plain.image, x, y);
+                const a = lumaSrgb(wet.image, x, y);
+                const b = lumaSrgb(plain.image, x, y);
                 if (a > b * 1.15 + 0.01) brighter++;
                 if (a < b * 0.9 - 0.01) darker++;
             }

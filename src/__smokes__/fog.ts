@@ -46,6 +46,7 @@ import {
 import { hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { closureFn } from './support/materialScenes';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[fog] ${msg}`);
@@ -185,7 +186,7 @@ async function read3d(
 }
 
 /** Luminância de um rgb. */
-const lum = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+const lum = (r: number, g: number, b: number): number => luminanceLinear([r, g, b]);
 
 /**
  * Beer-Lambert: uma parede branca acesa de lado pelo sol, a câmera de frente, e entre elas uma caixa de névoa só

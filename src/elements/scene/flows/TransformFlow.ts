@@ -29,7 +29,13 @@ import { TransformFunction } from '../../extension/TransformFunction';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { Parent } from '../Parent';
 import { Transform } from '../Transform';
-import { transformCompose, transformComposeFn, transformLink, transformPoint } from './shaders';
+import {
+    transformCompose,
+    transformComposeFn,
+    transformInverse,
+    transformLink,
+    transformPoint,
+} from './shaders';
 import { transformResources as R } from './shaders';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import {
@@ -48,6 +54,8 @@ export interface TransformSlots extends SlotMap {
     readonly transforms: PoolSlot<false>;
     /** Pool das matrizes de mundo `WorldTransform` (saída). */
     readonly worlds: PoolSlot<false>;
+    /** Pool das inversas `WorldInverse` (saída sob demanda, spec 037: escrito só depois que um leitor o pede). */
+    readonly inverses: PoolSlot<false>;
     /** Entidades com `Transform` (remoções recompõem). */
     readonly entities: EntitiesSlot;
     /** Entidades com `Transform` e `Parent` (a hierarquia opcional). */
@@ -61,6 +69,7 @@ export interface TransformSlots extends SlotMap {
 const slots: TransformSlots = {
     transforms: slot.pool(Transform.schema.name),
     worlds: slot.pool(Transform.worldSchema.name),
+    inverses: slot.pool(Transform.worldInverseSchema.name),
     entities: slot.entities({ all: [Transform] }),
     children: slot.entities({ all: [Transform, Parent] }),
     functions: slot.entities({ all: [Transform, TransformFunction] }),
@@ -125,6 +134,12 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
             role: 'compute',
             shader: transformLink,
             entryPoints: ['transform_link_main'],
+        },
+        {
+            id: 'transform_inverse',
+            role: 'compute',
+            shader: transformInverse,
+            entryPoints: ['transform_inverse_main'],
         },
     ];
     /**
@@ -306,15 +321,24 @@ export class TransformFlow extends Flow<TransformSlots, TransformState> {
                 pass.dispatch.invocations(group.count, WORKGROUP_SIZE);
             });
         });
-        if (this.levelCounts.length === 0) return;
-        // Um passe por nível, em ordem: cada nível lê as matrizes do anterior já compostas.
-        const link = bound.compute('transform_link');
-        this.levelCounts.forEach((links, k) => {
-            frame.compute('TransformFlow.level', (pass) => {
-                pass.bind.setPipeline(link.spec);
-                link.bindTo(pass.bind, { draw: [this.levels.offset(k)] });
-                pass.dispatch.invocations(links, WORKGROUP_SIZE);
+        if (this.levelCounts.length > 0) {
+            // Um passe por nível, em ordem: cada nível lê as matrizes do anterior já compostas.
+            const link = bound.compute('transform_link');
+            this.levelCounts.forEach((links, k) => {
+                frame.compute('TransformFlow.level', (pass) => {
+                    pass.bind.setPipeline(link.spec);
+                    link.bindTo(pass.bind, { draw: [this.levels.offset(k)] });
+                    pass.dispatch.invocations(links, WORKGROUP_SIZE);
+                });
             });
+        }
+        // As inversas, depois de todas as matrizes de mundo — só com o pool pedido por algum leitor (spec 037).
+        if (this.pools.poolInfo(Transform.worldInverseSchema.name)?.allocated !== true) return;
+        const inverse = bound.compute('transform_inverse');
+        frame.compute('TransformFlow.inverse', (pass) => {
+            pass.bind.setPipeline(inverse.spec);
+            inverse.bindTo(pass.bind);
+            pass.dispatch.invocations(count, WORKGROUP_SIZE);
         });
     }
 

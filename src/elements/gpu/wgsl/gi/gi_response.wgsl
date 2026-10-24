@@ -44,5 +44,5 @@ fn gi_response(state: vec4f, x: f32, hysteresis: f32) -> GiResponse {
  * aparece nele, enquanto a luminância quase não muda).
  */
 fn gi_response_value(c: vec3f) -> f32 {
-    return max(max(c.r, c.g), c.b);
+    return max_channel(c);
 }

@@ -16,7 +16,7 @@ fn refraction_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let pixel = textureLoad(refraction_queue_in, vec2u(q % size.x, q / size.x), 0).x;
     let px = vec2u(pixel % size.x, pixel / size.x);
     var state = refraction_seed(pixel, refraction.frame);
-    let ray = ray_camera(refraction.camera_slot, vec2f(px) + 0.5, vec2f(size));
+    let ray = camera_ray(refraction.camera_slot, vec2f(px) + 0.5, vec2f(size));
     let s = refraction_sample(ray, refraction_camera_stack(), &state);
     textureStore(refraction_radiance_out, px, vec4f(s.radiance, s.truncated));
     textureStore(refraction_hit_out, px, s.end);

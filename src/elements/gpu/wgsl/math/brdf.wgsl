@@ -31,7 +31,7 @@ fn sample_shadow_pcf(
     let offset = normal * (normal_texels * texel_world * (0.5 + sin_l));
     let lp = light_view_proj * vec4<f32>(world_pos + offset, 1.0);
     let ndc = lp.xyz / max(lp.w, 1e-6);
-    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let uv = ndc_to_uv(ndc.xy);
     let ref_depth = ndc.z - bias_texels * texel_world * per_metre_z;
     let texel = vec2<f32>(1.0) / size;
     let turn = mat2x2<f32>(rotation.x, rotation.y, -rotation.y, rotation.x);

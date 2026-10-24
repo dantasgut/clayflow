@@ -107,15 +107,15 @@ fn scb_header_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_work
         world = bake_worlds[bake.transform_slot].world;
         normal_m = bake_worlds[bake.transform_slot].normal;
     }
-    var m3 = mat3x3f(world[0].xyz, world[1].xyz, world[2].xyz);
-    if (abs(mat3_det(m3)) <= 1e-20) {
+    if (abs(mat3_det(affine_linear(world))) <= AFFINE_SINGULAR_DET) {
         // Mundo ainda não calculado (primeiro quadro) ou singular: identidade.
         world = mat4x4f(vec4f(1.0, 0.0, 0.0, 0.0), vec4f(0.0, 1.0, 0.0, 0.0), vec4f(0.0, 0.0, 1.0, 0.0), vec4f(0.0, 0.0, 0.0, 1.0));
-        m3 = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0));
-        normal_m = m3;
+        normal_m = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0));
     }
-    let inv3 = mat3_inverse(m3);
-    let t = -(inv3 * world[3].xyz);
+    let m3 = affine_linear(world);
+    let inv = affine_inverse(world);
+    let inv3 = affine_linear(inv);
+    let t = inv[3].xyz;
     let base = scb_base(k);
     bake_field[base] = lo.x;
     bake_field[base + 1u] = lo.y;

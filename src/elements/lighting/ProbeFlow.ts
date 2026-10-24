@@ -10,7 +10,13 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { Flow } from '../../scene/flows/Flow';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
-import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../scene/flows/slots';
+import {
+    slot,
+    type ChannelSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../scene/flows/slots';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
@@ -23,6 +29,7 @@ import { Camera } from '../scene/Camera';
 import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Transform } from '../scene/Transform';
+import { pcgHash } from '../math/reference/random';
 import { GlobalIllumination } from './GlobalIllumination';
 import {
     GI_GRID,
@@ -41,6 +48,7 @@ import {
     giScreenPlace,
     giScreenResolve,
     giScreenTrace,
+    giScreenHistorySlot,
     giPhotonResolve,
     giPhotonTrace,
 } from './shaders';
@@ -57,6 +65,8 @@ export interface ProbeSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** As matrizes das câmeras (o slot da câmera ativa, para a coleta final na tela). */
     readonly cameras: PoolSlot<true>;
+    /** O histórico das sondas de tela: um canal temporal (spec 037), reservado pelo estágio para o alvo. */
+    readonly giScreenHistory: ChannelSlot<false>;
 }
 
 const slots: ProbeSlots = {
@@ -65,6 +75,7 @@ const slots: ProbeSlots = {
     camera: slot.singleton(Camera.schema, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+    ...giScreenHistorySlot,
 };
 
 type Ctx = TransitionContext<ProbeSlots>;
@@ -84,7 +95,6 @@ const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_
 const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_main');
 const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_main');
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
-const SCREEN_FINISH = compute('gi_screen_finish', giScreenResolve, 'gi_screen_finish_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
 const PHOTON_RESOLVE = compute('gi_photon_resolve', giPhotonResolve, 'gi_photon_resolve_main');
 const FIXED = [
@@ -96,12 +106,9 @@ const FIXED = [
     ATLAS_PROBES,
     SCREEN_PLACE,
     SCREEN_RESOLVE,
-    SCREEN_FINISH,
     SCREEN_FILTER,
     PHOTON_RESOLVE,
 ];
-/** vec4f do começo do histórico da tela: a vista-projeção e a câmera anteriores (`GI_SCREEN_HISTORY_HEADER`). */
-const SCREEN_HISTORY_HEADER = 5;
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
 /** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela, alvos e fótons) de uma revisão. */
@@ -146,7 +153,6 @@ interface Buffers {
     readonly radiance: StorageBufferSpec;
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
-    readonly screenHistory: StorageBufferSpec;
     readonly photonTargets: StorageBufferSpec;
 }
 
@@ -160,11 +166,7 @@ export function screenTile(authored: number, height: number): number {
 }
 
 /** Gerador determinístico (hash PCG) em [0, 1). */
-function random(seed: number): number {
-    let s = (Math.imul(seed >>> 0, 747796405) + 2891336453) >>> 0;
-    s = Math.imul((s >>> ((s >>> 28) + 4)) ^ s, 277803737) >>> 0;
-    return (((s >>> 22) ^ s) >>> 0) / 4294967296;
-}
+const random = (seed: number): number => pcgHash(seed >>> 0) / 4294967296;
 
 /** Rotação aleatória (uniforme, de um quatérnio de Shoemake) do quadro `n`: as três linhas. */
 function frameRotation(n: number): number[][] {
@@ -277,14 +279,15 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 6, tiles, W);
             run(pass, -2, tiles * screenRays, W);
             run(pass, 7, tiles, W);
-            run(pass, 9, tiles, W);
-            run(pass, 8, tiles > 0 ? 1 : 0, 1);
+            run(pass, 8, tiles, W);
         });
+        // O acúmulo escreveu a fatia do quadro do histórico: o quadro seguinte a lê como a anterior (o canal gira).
+        if (tiles > 0) bound.slots.giScreenHistory.written();
         // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
         frame.compute('ProbeFlow.photons', (pass) => {
             run(pass, -4, this.photons > 0 ? W : 0, W);
             run(pass, -3, Math.max(this.photons, 1), W);
-            run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
+            run(pass, 9, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
         });
         this.frame++;
     }
@@ -355,6 +358,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             tile,
             screenRays: d.screenRays,
         };
+        // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por ladrilho; os raios das sondas do
+        // mundo também o leem (a luz das superfícies visíveis), com ou sem a coleta final.
+        gi.reserveScreenHistory(
+            sizes.tilesX * sizes.tilesY * (SCREEN_HISTORY_FIXED + sizes.bounces),
+        );
+        this.resources.ensureAllocated(gi, 'screenHistory');
         const sameSizes =
             this.buffers !== undefined
             && (Object.keys(sizes) as (keyof Sizes)[]).every(
@@ -398,17 +407,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'visibility',
                 GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
             ),
-            // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração; o
-            // histórico com a câmera anterior e as duas metades (quadro anterior e atual) de 3 + gerações vec4f.
+            // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração (o
+            // histórico, de 3 + gerações vec4f por sonda, é o canal temporal `GlobalIllumination.screenHistory`).
             screenWork: storage(
                 'screenWork',
                 sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
-            ),
-            screenHistory: storage(
-                'screenHistory',
-                (SCREEN_HISTORY_HEADER
-                    + sizes.tilesX * sizes.tilesY * (SCREEN_HISTORY_FIXED + sizes.bounces) * 2)
-                    * 16,
             ),
             photonTargets: storage('photonTargets', PHOTON_TARGET_WORDS * 4),
         };
@@ -435,7 +438,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenIrradianceOut, views[5]!],
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
-                [R.screenHistory, b.screenHistory],
                 [R.photonTargets, b.photonTargets],
             ]),
         );
@@ -522,12 +524,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 extra: [1, d.probeSpacing / 16, this.photons, time],
                 counts: [this.resources.poolCount(Light.schema.name), GI_PHOTON_SLOTS, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
-                screen1: [
-                    Math.round(1 / d.screenFraction),
-                    this.frame & 1,
-                    this.screenActive ? 1 : 0,
-                    0,
-                ],
+                screen1: [Math.round(1 / d.screenFraction), 0, this.screenActive ? 1 : 0, 0],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
             },
         ];
@@ -560,7 +557,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             b.radiance,
             b.visibility,
             b.screenWork,
-            b.screenHistory,
             b.photonTargets,
         ])
             this.core.destroy(buf);

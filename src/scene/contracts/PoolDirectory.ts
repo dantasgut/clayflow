@@ -24,6 +24,11 @@ export interface PoolInfo {
     readonly generation: number;
     /** Slots de posse da GPU (`slot.entities({ owns })`): escritos por um estágio, não pela CPU. */
     readonly gpuOwned: number;
+    /**
+     * O buffer tem a capacidade inteira. `false` só num pool `allocation: 'onDemand'` ainda não pedido
+     * (`ResourceDirectory.ensurePoolAllocated`, spec 037): quem o produz não precisa escrever nele.
+     */
+    readonly allocated: boolean;
 }
 
 /**

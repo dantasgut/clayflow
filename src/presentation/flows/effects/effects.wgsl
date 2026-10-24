@@ -19,7 +19,7 @@ fn fs_bloom(in: VsOut) -> @location(0) vec4<f32> {
     for (var dy: i32 = -r; dy <= r; dy = dy + 1) {
         for (var dx: i32 = -r; dx <= r; dx = dx + 1) {
             let s = textureSample(src_tex, src_smp, in.uv + vec2<f32>(f32(dx), f32(dy)) * texel).rgb;
-            let bright = max(0.0, max(s.r, max(s.g, s.b)) - params.p0.y);
+            let bright = max(0.0, max_channel(s) - params.p0.y);
             sum = sum + s * bright;
             w = w + bright;
         }
@@ -61,6 +61,6 @@ fn fs_color_grading(in: VsOut) -> @location(0) vec4<f32> {
     let lift = params.p0.y;
     let gain = params.p0.z;
     let gamma = max(params.p0.w, 0.01);
-    let graded = gamma_encode(max((c - lift) * gain, vec3<f32>(0.0)), gamma);
+    let graded = grade_gamma(max((c - lift) * gain, vec3<f32>(0.0)), gamma);
     return vec4<f32>(mix(c, graded, params.p0.x), 1.0);
 }

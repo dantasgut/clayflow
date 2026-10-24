@@ -13,8 +13,8 @@ import {
     refractionCompositeDenoised,
     refractionResources as R,
 } from '../../elements/lighting/refraction/shaders';
-import { TracedDenoiser } from '../../elements/lighting/denoise/TracedDenoiser';
-import { tracedDenoiseResources } from '../../elements/lighting/denoise/shaders';
+import { TemporalFilter } from '../../elements/lighting/temporal/TemporalFilter';
+import { temporalFilterResources } from '../../elements/lighting/temporal/shaders';
 import { FrameTargets } from '../app/FrameTargets';
 
 /** Slots da composição da refração. */
@@ -37,13 +37,13 @@ type Ctx = TransitionContext<RefractionCompositeSlots>;
  * pixel, com a névoa até a primeira interface, e a profundidade dessa interface (a água, os sprites seguintes e a
  * resolução temporal a veem). Não lê a cor da cena: o que está atrás do transmissivo vem só do raio. Só desenha no
  * quadro em que o traçado produziu a radiância; quando o filtro de sinal traçado produziu a cor filtrada
- * (`TracedDenoiser.output`, com o antisserrilhado temporal), compõe ela.
+ * (`TemporalFilter.output`, com o antisserrilhado temporal), compõe ela.
  */
 export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots, 'idle'> {
     readonly type = 'RefractionCompositeFlow';
     readonly slots: RefractionCompositeSlots = {
         refraction: slot.singleton(Refraction.schema),
-        denoiser: slot.singleton(TracedDenoiser.schema, { optional: true }),
+        denoiser: slot.singleton(TemporalFilter.schema, { optional: true }),
         target: slot.target({
             color: { schema: FrameTargets.schema, descId: 'color' },
             depth: { schema: FrameTargets.schema, descId: 'depth' },
@@ -142,7 +142,7 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
                     [R.requestDepth, requestDepth],
                     ...(denoised === undefined
                         ? []
-                        : [[tracedDenoiseResources.output, denoised] as const]),
+                        : [[temporalFilterResources.output, denoised] as const]),
                 ]),
             );
             this.bound = [...views, denoised];

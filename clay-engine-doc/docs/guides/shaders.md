@@ -101,29 +101,100 @@ confere cada `offsetOf` dos schemas do motor.
 
 ## Biblioteca `wgslLib`
 
-| Módulo        | Conteúdo                                                                                                     |
-| ------------- | ------------------------------------------------------------------------------------------------------------ |
-| `quat`        | produto, rotação de vetor (e inversa), normalização, integração, Δ de velocidade angular                    |
-| `linalg`      | `mat3_det`, `mat3_inverse`, `mat3_transpose`, `mat3_mul`, `mat3_frobenius_norm`                              |
-| `mat`         | matrizes de quaternion/colunas, TRS, inversa rígida, `polar_decomp_quaternion` (iterativa, partida a quente) |
-| `sdf`         | esfera, caixa, plano, avaliação e gradiente                                                                  |
-| `sphKernels`  | `W_cubic`, `grad_W_cubic`, `laplacian_W_visc`, `W_poly6`, `grad_W_spiky`                                     |
-| `mpmWeights`  | pesos B-spline quadráticos e gradientes                                                                      |
-| `xpbd`        | Δλ com compliance, massa generalizada de corpo rígido                                                        |
-| `lcp`         | Delassus, viés, passos PGS (normal e atrito), `coulomb_clamp`, `combine_mu`                                  |
-| `fem`         | `compute_Ds`, `compute_F`, `compute_J`, gradientes hidrostático/desviador, Δλ                                |
-| `noise`       | `pcg_hash`, `hash2/3`, ruído de valor e de gradiente 2D/3D (e as variantes por célula `*_cell`, base dos nós `noise.*` com semente) |
-| `color`       | `tonemap_exposure`, `gamma_encode`, `luminance` (BT.601)                                                     |
-| `brdf`        | `lambert_diffuse`, `lambert_lit`, `sample_shadow_pcf`                                                        |
-| `fixedPoint`  | `fixed_from_f32`, `fixed_to_f32`, `fixed_saturated` — somas atômicas de valores reais                        |
-| `atomicAlloc` | `atomic_alloc` e `ATOMIC_ALLOC_FULL` — posição numa lista compactada, com excedente contado                  |
-| `camera`      | `camera_perspective`, `camera_orthographic`, `camera_view` (da matriz de mundo), `camera_look_at`          |
-| `finite`      | `finite3`, `finite4`, `finite_mat4` — o teste único de não finitos das saídas de funções e grafos          |
-| `poolLive`    | `pool_live(word, slot)` — teste do bitset de slots vivos de um pool                                          |
+| Módulo            | Conteúdo                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `constants`       | `PI`, `TAU`, `INV_PI` (spec 037)                                                                             |
+| `random`          | `pcg_hash`, `hash2`, `hash3`, `hash_signed` (bit a bit), `random_next`, `random_unit` em [0, 1) (spec 037)   |
+| `hashAddress`     | `hash_cell` (Teschner), `hash_knuth` — endereçamento de tabelas, sem a redução (spec 037)                    |
+| `color`           | `luminance` (Rec.709, luz linear), `max_channel`, `ycocg`/`ycocg_inverse`, `srgb_encode`/`srgb_encode_extended`/`srgb_decode`, `grade_gamma`, `unpack_half_rgb` |
+| `basis`           | `basis_duff`, `basis_cross(n, eixo auxiliar)` (spec 037)                                                     |
+| `sampling`        | `sample_cosine`, `sample_sphere`, `sample_cone`, `sample_triangle` (spec 037)                                |
+| `xformRigid`      | `rigid_compose`, `rigid_inverse`, `rigid_rotation_inverse`, `rigid_point`, `rigid_direction` (spec 037)      |
+| `xformAffine`     | `affine_compose`, `affine_inverse` (singular → identidade), `affine_point`, `affine_direction`, `affine_normal`, `affine_normal_of_inverse` |
+| `xformProjective` | `projective_inverse`, `projective_point` (spec 037)                                                          |
+| `xformTrs`        | `trs_world` (T·R·S), `trs_normal` (R·S⁻¹) (spec 037)                                                         |
+| `viewSpace`       | `ndc_to_uv`, `uv_to_ndc`, `pixel_to_ndc`, `clip_divide`, `is_orthographic`, `view_depth`, `motion_from_clips` (spec 037) |
+| `temporal`        | peças dos acumuladores: `temporal_reproject_point`, `temporal_cut`, `temporal_validate_object`/`_plane`, `temporal_weight_count`/`_change`, `temporal_hysteresis`, `temporal_moments`, `temporal_variance`, `temporal_mean_variance` (spec 037) |
+| `quat`            | produto, rotação de vetor (e inversa), normalização, integração, Δ de velocidade angular                    |
+| `linalg`          | `mat3_det`, `mat3_inverse`, `mat3_adjugate`, `mat3_transpose`, `mat3_mul`, `mat3_frobenius_norm`             |
+| `mat`             | matrizes de quaternion/colunas, `polar_decomp_quaternion` (iterativa, partida a quente)                      |
+| `sdf`             | esfera, caixa, plano, avaliação e gradiente                                                                  |
+| `sphKernels`      | `W_cubic`, `grad_W_cubic`, `laplacian_W_visc`, `W_poly6`, `grad_W_spiky`                                     |
+| `mpmWeights`      | pesos B-spline quadráticos e gradientes                                                                      |
+| `xpbd`            | Δλ com compliance, massa generalizada de corpo rígido                                                        |
+| `lcp`             | Delassus, viés, passos PGS (normal e atrito), `coulomb_clamp`, `combine_mu`                                  |
+| `fem`             | `compute_Ds`, `compute_F`, `compute_J`, gradientes hidrostático/desviador, Δλ                                |
+| `noise`           | ruído de valor e de gradiente 2D/3D (e as variantes por célula `*_cell`, base dos nós `noise.*` com semente) |
+| `brdf`            | `lambert_diffuse`, `lambert_lit`, `sample_shadow_pcf`                                                        |
+| `fixedPoint`      | `fixed_from_f32`, `fixed_to_f32`, `fixed_saturated` — somas atômicas de valores reais                        |
+| `atomicAlloc`     | `atomic_alloc` e `ATOMIC_ALLOC_FULL` — posição numa lista compactada, com excedente contado                  |
+| `camera`          | `camera_perspective`, `camera_orthographic`, `camera_projection`, `camera_shift`, `camera_view`, `camera_look_at`, `camera_orthographic_box` |
+| `finite`          | `finite3`, `finite4`, `finite_mat4` — o teste único de não finitos das saídas de funções e grafos          |
+| `poolLive`        | `pool_live(word, slot)` — teste do bitset de slots vivos de um pool                                          |
 
 Cada função existe em um único módulo (o gate falha se um `fn`/`struct`/`const` aparece em dois `.wgsl`), e todo
 `.wgsl` é fonte de exatamente um módulo (sem órfãos). O smoke `shaderLibrary` compara valores de cada módulo na GPU com
 referências em CPU.
+
+## Matemática canônica (spec 037)
+
+Cada conta tem uma definição; o nome diz a classe ou o domínio. As transformações têm a mesma lista de operações em
+cada classe — `rigid_*` (rotação + translação), `affine_*` (3×3 + translação), `projective_*` (4×4), `trs_*` —, e quem
+escreve o kernel escolhe a classe pelo nome: nunca há ramo por classe em execução. Nos nós de grafo, a classe é o nó
+(`space.inverse` afim, `space.inverseRigid`, `space.inverseProjective`). A referência f64 única está em
+`elements/math/reference` (`xform`, `random`, `color`, `temporal`); o smoke `shaderLibrary` compara a GPU com ela
+(rígida e TRS até 4 ulp).
+
+Dados já calculados, para ler em vez de recalcular:
+
+- `cameras[slot].inverseView`, `.inverseUnjitteredViewProjection`, `.previousView` (além de `view`, `projection`,
+  `viewProjection`, `unjitteredViewProjection`, `previousViewProjection`, `jitter`, `history`) — o `CameraFlow` os
+  calcula uma vez por quadro;
+- `world_inverses[slot].inverse` (pool `WorldInverse`, recurso `worldInversesResource`): a inversa afim da matriz de
+  mundo, sob demanda — quem lê pede o pool (`ResourceDirectory.ensurePoolAllocated('WorldInverse')`) numa transição, e
+  o `TransformFlow` passa a escrevê-lo.
+
+O módulo `cameraSpace` (de `elements/scene/flows/shaders`) junta o que lê a câmera: `camera_ray(slot, pixel, tamanho)`
+(e `camera_ray_ndc`), `motion_vector(ponto anterior, ponto, slot)` e `pixel_footprint(slot, tamanho, ponto)`.
+
+**Fluxos nomeados.** A semente de cada uso é `random_seed(RANDOM_STREAM_*, índice, quadro)`: refração, sondas do mundo,
+sondas de tela (raios e luz), fótons, partículas difusas e froxels têm fluxos próprios (efeitos diferentes no mesmo
+pixel não tiram os mesmos números); uma extensão usa `RANDOM_STREAM_USER + n`.
+
+**Aleatoriedade e endereçamento são famílias separadas.** `random` dá números aleatórios (`pcg_hash` e companhia são
+bit a bit: as sementes dos nós e a sequência dos emissores dependem deles); `hashAddress` leva chaves a baldes de
+tabela (a ordem dos vizinhos da física depende dele). `random_unit` está em [0, 1) e nunca dá 1; `hash_signed` em [−1, 1]
+fechado.
+
+**Luminância é Rec.709 de luz linear** (`luminance`). Nos smokes, `support/images.ts` distingue a luma dos valores sRGB
+de 8 bits (`lumaSrgb`) da luminância de luz linear (`luminanceLinear`).
+
+A guarda `canonicalSignatures.test.ts` falha se uma assinatura numérica (multiplicadores do PCG, de Teschner e de
+Knuth, pesos de luminância, curva sRGB, π e 2π literais, base de Duff, passagens NDC ↔ uv, inversa da rotação por
+transposta) aparecer fora do módulo dono; a lista de pendências dela só encolhe.
+
+### Migração
+
+| Antes                                                                                  | Depois                                            |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `diffuse_hash`, `ray_direct_hash`, `gi_hash`, `set_hash_unit`                          | `pcg_hash`, `random_unit`                         |
+| `ray_direct_luminance`, `refraction_luminance`, `gi_luminance`, `node_color_luminance` | `luminance`                                       |
+| `gamma_encode`                                                                         | `grade_gamma`                                     |
+| `GI_PI`, `SKY_PI`, `BSDF_PI`, `FROXEL_PI`, `3.14159…`, `6.28318…`                      | `PI`, `TAU`                                       |
+| `taa_ycocg`, `taa_rgb`                                                                 | `ycocg`, `ycocg_inverse`                          |
+| `gi_unpack`, `gi_unpack_rgb`, `gi_unpack_generation`                                   | `unpack_half_rgb`                                 |
+| `refraction_basis`, `gi_screen_basis`                                                  | `basis_duff`                                      |
+| `rigid_mat4_inverse`                                                                   | `rigid_inverse`                                   |
+| `ray_inverse_affine`, `node_space_inverse`                                             | `affine_inverse`                                  |
+| `taa_inverse`                                                                          | `projective_inverse`                              |
+| `ray_camera`                                                                           | `camera_ray` (`cameraSpace`)                      |
+| `camera_motion`                                                                        | `motion_from_clips` (`viewSpace`)                 |
+| `taa_view_depth`, `water_linear_depth`                                                 | `view_depth`                                      |
+| `quat_to_mat4`, `mat4_upper3x3_transform`, `water_pixels_per_meter`                    | removidos (`trs_world` para o TRS)                |
+| `TracedDenoiser`, `traced_denoise_*`, `defaults.denoiser`                              | `TemporalFilter`, `temporal_filter_*`, `defaults.temporalFilter` |
+
+`transform_local(t)` continua à mão das funções `transform` (agora sobre `trs_world`/`trs_normal`); os nós mantêm os
+nomes públicos.
 
 ## Kernels genéricos
 

@@ -74,13 +74,12 @@ fn fs_depth() {}
 // o que o transmissivo mostra.
 @fragment
 fn fs_motion(in: VsOut) -> @location(0) vec4<f32> {
-    return camera_motion(in.motion_previous, in.motion_current);
+    return motion_from_clips(in.motion_previous, in.motion_current);
 }
 
 // Direção para o observador no ponto `p`: da posição da câmera (perspectiva) ou o eixo da vista (ortográfica).
 fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {
-    let axis = vec3f(cam.view[0].z, cam.view[1].z, cam.view[2].z);
-    return select(normalize(cam.position.xyz - p), normalize(axis), cam.projection[3].w == 1.0);
+    return select(normalize(cam.position.xyz - p), normalize(cam.inverseView[2].xyz), is_orthographic(cam.projection));
 }
 
 // Saída do fragmento do forward: a cor e a luz que chega ao ponto (spec 034; o alvo `light` só existe sem MSAA — sem
@@ -125,8 +124,7 @@ fn fs_main(in: VsOut) -> ForwardOut {
     // A luz que chega ao ponto (spec 034): o brilho refletido sobre o da refletância, a textura se cancela. A direta
     // separa na resolução temporal a sombra ou a luz que muda sobre a superfície parada (a rebatida fica fora: o ruído
     // dela, em manchas maiores que a vizinhança, pareceria luz mudando); a razão das totais reilumina o histórico.
-    let luma = vec3<f32>(0.25, 0.5, 0.25);
-    let albedo = max(dot(closure_albedo(c), luma), 1e-3);
-    out.light = min(vec2<f32>(dot(direct, luma), dot(lit, luma)) / albedo, vec2<f32>(60000.0));
+    let albedo = max(ycocg(closure_albedo(c)).x, 1e-3);
+    out.light = min(vec2<f32>(ycocg(direct).x, ycocg(lit).x) / albedo, vec2<f32>(60000.0));
     return out;
 }

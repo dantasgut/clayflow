@@ -35,15 +35,15 @@ const GI_GLOSSY: f32 = 0.5;
 /** Irradiância (E/π) no ponto com a normal \`nl\`: das sondas de tela se alguma vale, senão das do mundo. */
 fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
     let screen = gi_screen_irradiance(p, nl);
-    if (screen.a > 0.0) { return screen.rgb / GI_PI; }
-    return gi_irradiance(p, nl, v) / GI_PI;
+    if (screen.a > 0.0) { return screen.rgb / PI; }
+    return gi_irradiance(p, nl, v) / PI;
 }
 
 fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
     // A irradiância das sondas mais a das cáusticas por fótons (a luz focada por vidro e metal).
-    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p) / GI_PI;
+    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p) / PI;
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_lighting_irradiance(p, -nb, v); }
     var spec = e;
@@ -102,7 +102,7 @@ const giAmbient = wgslModule({
         let q = select(p + offset, p, ray_scene_occluded(p, s * 0.57735, r * 0.57735 * 1.7320508));
         e += gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
     }
-    return e / (8.0 * GI_PI) * light_transmission(NONE, p_in);
+    return e / (8.0 * PI) * light_transmission(NONE, p_in);
 }`,
 });
 

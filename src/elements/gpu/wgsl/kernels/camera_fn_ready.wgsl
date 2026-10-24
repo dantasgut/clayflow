@@ -17,11 +17,7 @@ fn camera_fn_params(slot: u32) -> CameraFnParams {
 
 fn camera_fn(c: Camera, world: mat4x4f, aspect: f32, data: CameraFnParams, time: f32) -> CameraOut {
     var out: CameraOut;
-    if (c.projection == 1u) {
-        out.projection = camera_orthographic(c.orthoHeight, aspect, c.near, c.far);
-    } else {
-        out.projection = camera_perspective(c.fov, aspect, c.near, c.far);
-    }
+    out.projection = camera_projection(c.projection, c.fov, c.orthoHeight, aspect, c.near, c.far);
     out.view = camera_view(world);
     return out;
 }

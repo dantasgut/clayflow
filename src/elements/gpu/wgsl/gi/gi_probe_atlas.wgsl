@@ -35,10 +35,6 @@ fn gi_atlas_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
 }
 
-fn gi_unpack(p: vec2u) -> vec3f {
-    return vec3f(unpack2x16float(p.x), unpack2x16float(p.y).x);
-}
-
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_atlas_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gi_atlas_index(gid3, nwg);
@@ -52,8 +48,8 @@ fn gi_atlas_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let src = gi_border_source(xy, n);
     let texel = src.x + src.y * n;
     let last = gi.bounces.x - 1u;
-    let e = gi_unpack(gi_generations[(last * gi_probe_count() + index) * n * n + texel]);
-    let s = gi_unpack(gi_radiance_map[index * n * n + texel]);
+    let e = unpack_half_rgb(gi_generations[(last * gi_probe_count() + index) * n * n + texel]);
+    let s = unpack_half_rgb(gi_radiance_map[index * n * n + texel]);
     let at = gi_atlas_tile(index, n) + xy;
     textureStore(gi_irradiance_out, at, vec4f(e, 1.0));
     textureStore(gi_radiance_out, at, vec4f(s, 1.0));

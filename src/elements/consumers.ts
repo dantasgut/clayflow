@@ -11,7 +11,8 @@ import { GlobalIlluminationSchema } from './lighting/schemas';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
 import { Refraction } from './lighting/refraction/Refraction';
-import { TracedDenoiser } from './lighting/denoise/TracedDenoiser';
+import { TemporalFilter } from './lighting/temporal/TemporalFilter';
+import { EnergyMeter } from './physics/energy/EnergyMeter';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
@@ -63,11 +64,13 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     ),
     // A refração traçada (spec 034): o uniform (limite de interfaces, câmera, luzes, quadro, tempo).
     new SingletonResolver(Refraction.schema, 'params', { name: 'Refraction.params' }),
+    // O medidor de energia dos corpos rígidos (spec 037): o uniform do kernel.
+    new SingletonResolver(EnergyMeter.schema, 'params', { name: 'EnergyMeter.params' }),
     // O filtro de sinal traçado (spec 034): o uniform (ligado, quadros da média).
-    new SingletonResolver(TracedDenoiser.schema, 'params', { name: 'TracedDenoiser.params' }),
-    // Os froxels dos meios participantes (spec 033, R12): parâmetros, o buffer dos meios, a névoa integrada, os
-    // históricos, a luz ambiente e o amostrador.
-    ...(['params', 'media', 'scatter', 'history0', 'history1', 'ambient', 'sampler'] as const).map(
+    new SingletonResolver(TemporalFilter.schema, 'params', { name: 'TemporalFilter.params' }),
+    // Os froxels dos meios participantes (spec 033, R12): parâmetros, o buffer dos meios, a névoa integrada, a luz
+    // ambiente e o amostrador (o histórico é um canal temporal, ligado pelo slot do estágio; spec 037).
+    ...(['params', 'media', 'scatter', 'ambient', 'sampler'] as const).map(
         (id) => new SingletonResolver(FroxelsSchema, id, { name: `Froxels.${id}` }),
     ),
 ];

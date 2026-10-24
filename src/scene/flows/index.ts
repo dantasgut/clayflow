@@ -17,6 +17,7 @@ export type {
     EntityGroupsDeclaration,
     DrawGroup,
     TextureSlot,
+    ChannelSlot,
     TargetSlot,
     TextureRef,
     ResourceType,
@@ -27,6 +28,7 @@ export type {
     BoundEntities,
     EntityEntry,
     BoundTexture,
+    BoundChannel,
     BoundTarget,
 } from './slots';
 export { FlowTransitionError } from './FlowTransitions';

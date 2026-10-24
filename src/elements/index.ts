@@ -30,6 +30,7 @@ export * from './physics/materials/index';
 export { wgslLib } from './gpu/shaders/index';
 export { ELEMENT_CONSUMERS } from './consumers';
 export * from './physics/flows/index';
+export * from './physics/energy/index';
 export * from './extension/index';
 export {
     nodes,

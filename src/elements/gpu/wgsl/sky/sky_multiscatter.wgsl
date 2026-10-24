@@ -17,12 +17,12 @@ fn sky_multiscatter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let sun = vec3f(sqrt(max(0.0, 1.0 - mu_s * mu_s)), mu_s, 0.0);
     let dirs = 64.0;
     let steps = 20.0;
-    let isotropic = 1.0 / (4.0 * SKY_PI);
+    let isotropic = 1.0 / (4.0 * PI);
     var l2 = vec3f(0.0);
     var fms = vec3f(0.0);
     for (var k = 0.0; k < dirs; k += 1.0) {
         let z = 1.0 - 2.0 * (k + 0.5) / dirs;
-        let phi = k * SKY_PI * (3.0 - sqrt(5.0));
+        let phi = k * PI * (3.0 - sqrt(5.0));
         let s = sqrt(1.0 - z * z);
         let dir = vec3f(s * cos(phi), z, s * sin(phi));
         let mu = dir.y;
@@ -48,10 +48,10 @@ fn sky_multiscatter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
             let x = pos + dir * seg;
             let n = normalize(x);
             let nl = max(0.0, dot(n, sun));
-            lum += throughput * sky_transmittance(sky_bottom(), dot(n, sun)) * sky.ground.rgb * nl / SKY_PI;
+            lum += throughput * sky_transmittance(sky_bottom(), dot(n, sun)) * sky.ground.rgb * nl / PI;
         }
-        l2 += lum * (4.0 * SKY_PI / dirs);
-        fms += fms_dir * (4.0 * SKY_PI / dirs);
+        l2 += lum * (4.0 * PI / dirs);
+        fms += fms_dir * (4.0 * PI / dirs);
     }
     l2 *= isotropic;
     fms *= isotropic;

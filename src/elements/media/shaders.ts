@@ -1,4 +1,5 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import { slot } from '../../scene/flows/slots';
 import { wgslResource, type WgslResource } from '../../scene/shaders/WgslResource';
 import { POINT_PARAMS, wgslPoint } from '../../scene/shaders/WgslPoint';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
@@ -17,6 +18,14 @@ import mediaLookupSource from '../gpu/wgsl/media/media_lookup.wgsl?raw';
 import froxelInjectSource from '../gpu/wgsl/media/media_froxel_inject.wgsl?raw';
 import froxelIntegrateSource from '../gpu/wgsl/media/media_froxel_integrate.wgsl?raw';
 import froxelAmbientSource from '../gpu/wgsl/media/media_froxel_ambient.wgsl?raw';
+import {
+    camera as cameraMath,
+    constants,
+    hashAddress,
+    random,
+    temporal as temporalPieces,
+    viewSpace,
+} from '../gpu/shaders/math';
 
 // Meios participantes (spec 033, R12): os recursos dos froxels e dos volumes, o ponto `fog_density` das funções de
 // densidade, a leitura da névoa no desenho (`scene_fog`), a transmitância nos raios e na luz que chega, e os kernels
@@ -51,21 +60,35 @@ const texture3d = (name: string, consumer: string): WgslResource =>
         provider: { consumer },
     });
 
-const out3d = (name: string): WgslResource =>
+const out3d = (name: string, format: GPUTextureFormat = 'rgba16float'): WgslResource =>
     wgslResource({
         name,
-        binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
+        binding: { storageTexture: { format, access: 'write', dimension: '3d' } },
         frequency: 'stage',
         provider: 'private',
     });
 
-const camera = (access: 'read' | 'read_write'): WgslResource =>
+/** O slot do canal do histórico no estágio dos froxels (spec 037). */
+export const froxelHistorySlot = Object.freeze({
+    froxelHistory: slot.channel(FroxelsSchema, 'history'),
+});
+
+/** Fatia do histórico lida: a do quadro anterior (1, na injeção) ou a do quadro (0, na integração). */
+const history3d = (lag: 0 | 1): WgslResource =>
     wgslResource({
-        name: 'froxel_camera',
-        binding: { storage: access },
-        type: { wgsl: 'mat4x4f', array: true },
+        name: 'froxel_history',
+        binding: { texture: { sample: 'f32', dimension: '3d' } },
         frequency: 'stage',
-        provider: 'private',
+        provider: { slot: 'froxelHistory', lag },
+    });
+
+/** A fatia do quadro escrita pela injeção, no formato resolvido do canal. */
+const historyOut = (format: GPUTextureFormat): WgslResource =>
+    wgslResource({
+        name: 'froxel_history_out',
+        binding: { storageTexture: { format, access: 'write', dimension: '3d' } },
+        frequency: 'stage',
+        provider: { slot: 'froxelHistory', lag: 0 },
     });
 
 /** Recursos dos meios. */
@@ -79,18 +102,13 @@ export const mediaResources = Object.freeze({
         frequency: 'frame',
         provider: { consumer: 'Froxels.sampler' },
     }),
-    /** O histórico do quadro anterior (lido na injeção) e o do quadro (escrito), alternando entre as duas texturas. */
-    history0: texture3d('froxel_history', 'Froxels.history0'),
-    history1: texture3d('froxel_history', 'Froxels.history1'),
+    /** O histórico: a fatia do quadro anterior (lida na injeção) e a do quadro (lida na integração). */
+    historyPrevious: history3d(1),
+    historyCurrent: history3d(0),
     /** A luz ambiente na grade grossa (lida na injeção) e a saída do kernel que a escreve. */
     ambient: texture3d('froxel_ambient', 'Froxels.ambient'),
     ambientOut: out3d('froxel_ambient_out'),
-    historyOut0: out3d('froxel_history_out'),
-    historyOut1: out3d('froxel_history_out'),
     scatterOut: out3d('froxel_scatter_out'),
-    /** A vista e a vista-projeção do quadro anterior (a reprojeção). */
-    camera: camera('read'),
-    cameraWrite: camera('read_write'),
 });
 
 const R = mediaResources;
@@ -155,7 +173,7 @@ export const fogDensityAtPoint: BindablePoint = {
 const mediaCommon = wgslModule({
     name: 'media_common',
     source: mediaCommonSource,
-    requires: [params, camerasResource],
+    requires: [cameraMath, viewSpace, random, hashAddress, params, camerasResource],
 });
 
 /** Volumes no buffer dos meios: forma, borda, densidade, trecho do raio e transmitância. */
@@ -201,12 +219,17 @@ export const mediaLightTransmission = wgslModule({
     requires: [NONE.module, mediaVolumes, lightsResource, lightIncoming],
 });
 
-/** Injeção nos froxels com o acúmulo reprojetado; uma variante por paridade do histórico. */
-function inject(parity: 0 | 1): WgslModule {
+/**
+ * Injeção nos froxels com o acúmulo reprojetado: lê a fatia do quadro anterior do canal do histórico e escreve a do
+ * quadro, no formato resolvido do canal (spec 037: a precisão é da C2; o formato escrito é parte do WGSL).
+ */
+function inject(format: GPUTextureFormat): WgslModule {
     return wgslModule({
-        name: `media_froxel_inject_${parity}`,
+        name: `media_froxel_inject${format === 'rgba32float' ? '_full' : ''}`,
         source: froxelInjectSource,
         requires: [
+            temporalPieces,
+            constants,
             WORKGROUP_SIZE.module,
             HISTORY.module,
             mediaCommon,
@@ -216,28 +239,19 @@ function inject(parity: 0 | 1): WgslModule {
             lightVisibilityReady,
             lightTransmissionReady,
             R.ambient,
-            R.camera,
             R.sampler,
-            parity === 0 ? R.history0 : R.history1,
-            parity === 0 ? R.historyOut1 : R.historyOut0,
+            R.historyPrevious,
+            historyOut(format),
         ],
     });
 }
 
-/** Integração da frente para trás por coluna (lê o histórico escrito no quadro) e a câmera guardada para o seguinte. */
-function integrate(parity: 0 | 1): WgslModule {
-    return wgslModule({
-        name: `media_froxel_integrate_${parity}`,
-        source: froxelIntegrateSource,
-        requires: [
-            WORKGROUP_SIZE.module,
-            mediaCommon,
-            R.cameraWrite,
-            parity === 0 ? R.history1 : R.history0,
-            R.scatterOut,
-        ],
-    });
-}
+/** Integração da frente para trás por coluna (lê a fatia do histórico escrita no quadro). */
+export const froxelIntegrate = wgslModule({
+    name: 'media_froxel_integrate',
+    source: froxelIntegrateSource,
+    requires: [WORKGROUP_SIZE.module, mediaCommon, R.historyCurrent, R.scatterOut],
+});
 
 /** A luz ambiente na grade grossa (antes da injeção). */
 export const froxelAmbient = wgslModule({
@@ -246,6 +260,14 @@ export const froxelAmbient = wgslModule({
     requires: [WORKGROUP_SIZE.module, mediaCommon, sceneAmbientReady, R.ambientOut],
 });
 
-/** Kernels dos froxels pela paridade do quadro: 0 lê o histórico 0 e escreve o 1; 1, o contrário. */
-export const froxelInject = [inject(0), inject(1)] as const;
-export const froxelIntegrate = [integrate(0), integrate(1)] as const;
+const injects = new Map<GPUTextureFormat, WgslModule>();
+
+/** A injeção que escreve o histórico no formato dado (o `format` do canal; criada uma vez por formato). */
+export function froxelInjectFor(format: GPUTextureFormat): WgslModule {
+    let made = injects.get(format);
+    if (made === undefined) injects.set(format, (made = inject(format)));
+    return made;
+}
+
+/** A injeção na precisão padrão (`half`). */
+export const froxelInject = froxelInjectFor('rgba16float');

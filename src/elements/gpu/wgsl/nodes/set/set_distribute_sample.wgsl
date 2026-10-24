@@ -17,10 +17,9 @@ fn distribute_sample(i: u32) -> DistributeSample {
     let a = mesh_vertices_in[tri.a];
     let b = mesh_vertices_in[tri.b];
     let c = mesh_vertices_in[tri.c];
-    let r1 = set_hash_unit(hash3(vec3u(distribute.seed, t, 3u * k)));
-    let r2 = set_hash_unit(hash3(vec3u(distribute.seed, t, 3u * k + 1u)));
-    let s = sqrt(r1);
-    let w = vec3f(1.0 - s, s * (1.0 - r2), s * r2);
+    let r1 = random_unit(hash3(vec3u(distribute.seed, t, 3u * k)));
+    let r2 = random_unit(hash3(vec3u(distribute.seed, t, 3u * k + 1u)));
+    let w = sample_triangle(vec2f(r1, r2));
     let p = w.x * vec3f(a.px, a.py, a.pz) + w.y * vec3f(b.px, b.py, b.pz) + w.z * vec3f(c.px, c.py, c.pz);
     let m = w.x * vec3f(a.nx, a.ny, a.nz) + w.y * vec3f(b.nx, b.ny, b.nz) + w.z * vec3f(c.nx, c.ny, c.nz);
     let len = length(m);

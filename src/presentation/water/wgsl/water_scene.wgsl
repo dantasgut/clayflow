@@ -11,5 +11,5 @@ fn water_scene_ndc(pixel: vec2f) -> f32 {
 fn water_scene_linear(pixel: vec2f, p: mat4x4f) -> f32 {
     let ndc = water_scene_ndc(pixel);
     if (ndc >= 1.0) { return WATER_NO_DEPTH; }
-    return water_linear_depth(ndc, p);
+    return view_depth(ndc, p);
 }

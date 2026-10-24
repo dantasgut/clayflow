@@ -25,7 +25,14 @@ import { composeWgsl, type ComposedShader } from '../../shaders/composeWgsl';
 import type { InferredEntry, InferredLayout, LayoutInferencer } from '../LayoutInferencer';
 import { checkLayoutLimits } from './limits';
 import { WgslCompositionError } from '../../shaders/WgslCompositionError';
-import { bindingEntryOf, layoutEntryOf, sameLayoutEntry, sameSource } from './sources';
+import {
+    bindingEntryOf,
+    concreteSource,
+    layoutEntryOf,
+    sameLayoutEntry,
+    sameSource,
+} from './sources';
+import type { ChannelSource } from '../../consumers/ResolvedSource';
 
 /** Resolução da fonte de um binding: a fonte, `undefined` (ainda ausente na cena) ou erro estrutural (lança). */
 export type SourceLookup = (
@@ -33,6 +40,9 @@ export type SourceLookup = (
     group: number,
     state: PipelineState,
 ) => ResolvedSource | undefined;
+
+/** Fases de bind group por grupo com canais temporais (spec 037): o produto das profundidades dos canais do grupo. */
+const MAX_PHASES = 64;
 
 /** Notificação de bind group substituído. */
 export type ReplacedListener = (
@@ -79,6 +89,12 @@ export class PipelineState {
     private sources: ResolvedSource[][] = [];
     private pipelineSpec: ComputePipelineSpec | RenderPipelineSpec | null = null;
     private bindGroups: BindGroupSpec[] = [];
+    /**
+     * Grupos com fonte de canal temporal (spec 037): os canais do grupo e um bind group por fase (as cabeças dos
+     * canais), criado uma vez e escolhido no quadro. `bindGroups[g]` é a fase da criação.
+     */
+    private phaseChannels: (readonly ChannelSource[] | undefined)[] = [];
+    private phases: (Map<string, BindGroupSpec> | undefined)[] = [];
     private dynamicGroups: boolean[] = [];
     private compiled = false;
     /** Layouts e bind groups criados (o pipeline pode ainda estar sendo conferido ou compilado, ou ter sido rejeitado). */
@@ -130,7 +146,17 @@ export class PipelineState {
     }
 
     get groups(): readonly BindGroupSpec[] {
-        return this.bindGroups;
+        return this.bindGroups.map((_, g) => this.currentGroup(g)!);
+    }
+
+    /**
+     * O bind group do grupo `g` no quadro: a fase das cabeças atuais dos canais temporais do grupo, ou o único bind group
+     * de um grupo sem canal.
+     */
+    private currentGroup(g: number): BindGroupSpec | undefined {
+        const channels = this.phaseChannels[g];
+        if (channels === undefined) return this.bindGroups[g];
+        return this.phases[g]!.get(channels.map((c) => c.head).join(','));
     }
 
     get dynamic(): readonly boolean[] {
@@ -142,7 +168,7 @@ export class PipelineState {
         const out: PreparedGroup[] = [];
         for (const g of this.layout.groups) {
             if (g.frequency !== frequency) continue;
-            const spec = this.bindGroups[g.group];
+            const spec = this.currentGroup(g.group);
             if (spec === undefined) continue;
             out.push({ index: g.group, spec, dynamic: this.dynamicGroups[g.group] === true });
         }
@@ -154,7 +180,7 @@ export class PipelineState {
         bindGroupsTo(
             binder,
             this.layout.groups.flatMap((g) => {
-                const spec = this.bindGroups[g.group];
+                const spec = this.currentGroup(g.group);
                 return spec === undefined
                     ? []
                     : [
@@ -232,9 +258,9 @@ export class PipelineState {
                 && next[g]!.every((s, i) => sameSource(s, this.sources[g]![i]!));
             if (same) continue;
             const old = this.bindGroups[g];
-            const fresh = this.createBindGroup(g, next[g]!);
-            this.bindGroups[g] = fresh;
+            this.destroyPhases(g);
             this.sources[g] = next[g]!;
+            const fresh = this.openGroup(g);
             changed = true;
             if (old !== undefined) {
                 this.core.destroy(old);
@@ -270,8 +296,64 @@ export class PipelineState {
     }
 
     private destroyBindGroups(): void {
+        for (let g = 0; g < this.bindGroups.length; g++) this.destroyPhases(g);
         for (const bg of this.bindGroups) this.core.destroy(bg);
         this.bindGroups = [];
+        this.phaseChannels = [];
+        this.phases = [];
+    }
+
+    /** Libera as fases de canal do grupo `g` (o bind group da criação é liberado por quem o troca). */
+    private destroyPhases(g: number): void {
+        const phases = this.phases[g];
+        if (phases === undefined) return;
+        for (const spec of phases.values())
+            if (spec !== this.bindGroups[g]) this.core.destroy(spec);
+        phases.clear();
+        this.phases[g] = undefined;
+        this.phaseChannels[g] = undefined;
+    }
+
+    /**
+     * Cria o bind group do grupo `g` com as fontes atuais (`sources[g]`): sem canal, um só; com canal temporal (spec
+     * 037), um por fase — cada combinação das cabeças dos canais do grupo —, todos aqui, fora da gravação (o quadro só
+     * escolhe). `bindGroups[g]` fica com a fase de agora.
+     */
+    private openGroup(g: number): BindGroupSpec {
+        const channels: ChannelSource[] = [];
+        for (const s of this.sources[g]!)
+            if (s.kind === 'channel' && !channels.includes(s.channel)) channels.push(s.channel);
+        if (channels.length === 0) {
+            const spec = this.createBindGroup(g, this.sources[g]!);
+            this.bindGroups[g] = spec;
+            this.phaseChannels[g] = undefined;
+            this.phases[g] = undefined;
+            return spec;
+        }
+        const combos = channels.reduce((n, c) => n * c.depth, 1);
+        if (combos > MAX_PHASES) {
+            throw new FlowBindingError(
+                `Flow '${this.flowType}', pipeline '${this.id}': o grupo ${g} liga ${channels.length} canais temporais `
+                    + `(${channels.map((c) => `${c.name}×${c.depth}`).join(', ')}) — ${combos} fases, acima de `
+                    + `${MAX_PHASES}: separe os canais em grupos de frequências diferentes.`,
+                { flow: this.flowType, pipeline: this.id, group: g },
+            );
+        }
+        const phases = new Map<string, BindGroupSpec>();
+        const heads = channels.map(() => 0);
+        for (let k = 0; k < combos; k++) {
+            let rest = k;
+            for (let c = 0; c < channels.length; c++) {
+                heads[c] = rest % channels[c]!.depth;
+                rest = Math.floor(rest / channels[c]!.depth);
+            }
+            phases.set(heads.join(','), this.createBindGroup(g, this.sources[g]!, channels, heads));
+        }
+        this.phaseChannels[g] = channels;
+        this.phases[g] = phases;
+        const spec = phases.get(channels.map((c) => c.head).join(','))!;
+        this.bindGroups[g] = spec;
+        return spec;
     }
 
     private layoutEntry(
@@ -280,7 +362,12 @@ export class PipelineState {
         source: ResolvedSource,
     ): BindingLayoutEntry {
         const explicit = this.descriptor.bindings?.[entry.name]?.visibility;
-        const result = layoutEntryOf(entry, source, explicit);
+        const result = layoutEntryOf(
+            entry,
+            source,
+            explicit,
+            this.core.capabilities().features.includes('float32-filterable'),
+        );
         if (typeof result === 'string') {
             throw new FlowBindingError(
                 `Flow '${this.flowType}', pipeline '${this.id}': binding '${entry.name}' (@group(${group}) @binding(${entry.binding})) incompatível — ${result}.`,
@@ -386,7 +473,7 @@ export class PipelineState {
                 );
             }
         } else this.createPipeline(token, this.descriptor.preferAsync === true);
-        this.bindGroups = sources.map((list, g) => this.createBindGroup(g, list));
+        for (let g = 0; g < sources.length; g++) this.openGroup(g);
     }
 
     /**
@@ -436,13 +523,20 @@ export class PipelineState {
         this.onFailed(this, this.failed);
     }
 
-    private createBindGroup(group: number, sources: readonly ResolvedSource[]): BindGroupSpec {
+    private createBindGroup(
+        group: number,
+        sources: readonly ResolvedSource[],
+        channels: readonly ChannelSource[] = [],
+        heads: readonly number[] = [],
+    ): BindGroupSpec {
         const entries = this.layout.groups[group]!.entries;
+        const at = (s: ResolvedSource): ResolvedSource =>
+            s.kind === 'channel' ? concreteSource(s, heads[channels.indexOf(s.channel)]) : s;
         // Sem label nem discriminator: layouts e bind groups de mesmo conteúdo são o mesmo objeto de GPU (hash da 004).
         return this.core.create<BindGroupSpec>({
             kind: 'bindgroup',
             layout: this.layoutSpecs[group]!,
-            bindings: sources.map((s, i) => bindingEntryOf(entries[i]!.binding, s)),
+            bindings: sources.map((s, i) => bindingEntryOf(entries[i]!.binding, at(s))),
         });
     }
 

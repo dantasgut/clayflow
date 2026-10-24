@@ -18,6 +18,7 @@ import { RayScene } from '../../raytrace/RayScene';
 import { rayHitMaterialPoint } from '../../raytrace/shaders';
 import { Camera } from '../../scene/Camera';
 import { Light } from '../../scene/Light';
+import { Transform } from '../../scene/Transform';
 import { Refraction } from './Refraction';
 import {
     refractionCamera,
@@ -283,6 +284,8 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 : []),
         ] as const;
         for (const [id] of textures.slice(1)) this.resources.ensureAllocated(refraction, id);
+        // As inversas de mundo (spec 037): o histórico leva o ponto atingido ao espaço do objeto por elas.
+        this.resources.ensurePoolAllocated(Transform.worldInverseSchema.name);
         const count = this.resources.ensureAllocated(refraction, 'queueCount');
         const views = textures.map(([id]) => this.resources.textureViewOf(refraction, id));
         if (count?.subkind !== 'indirect' || views.some((v) => v === undefined)) {

@@ -6,6 +6,5 @@ fn sh_cell(p: vec3f, cell_size: f32) -> vec3i {
 }
 
 fn sh_hash(c: vec3i, mask: u32) -> u32 {
-    let h = (bitcast<u32>(c.x) * 73856093u) ^ (bitcast<u32>(c.y) * 19349663u) ^ (bitcast<u32>(c.z) * 83492791u);
-    return h & mask;
+    return hash_cell(bitcast<vec3u>(c)) & mask;
 }

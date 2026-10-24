@@ -116,6 +116,63 @@ recurso que tem fornecedor é erro. No `dispatch`, grave os grupos sem índices:
 frequência: offsets })`, ou `prepared.groupsOf(frequência)` para regravar só o que mudou. Detalhes em
 [Arquitetura — Contrato de shader estruturado](./architecture_resource_loaders.md).
 
+## Séries temporais: o canal temporal (spec 037)
+
+Todo "valor do quadro anterior" — o histórico do antisserrilhado, o acúmulo da luz global, a névoa, o filtro temporal,
+a energia de um corpo — é a mesma coisa: uma **série** de um recurso no tempo. A C2 mantém a série; o Flow só grava a
+fatia de agora e lê os atrasos de que precisa. Nada de pipeline por paridade, metade de buffer por paridade ou cópia
+por quadro.
+
+**Declarar.** Um descritor de textura (`texture`, `storage-texture`), de buffer de storage ou de pool ganha `history`:
+
+```ts
+{
+    id: 'history',
+    role: 'texture',
+    allocation: 'onDemand',
+    textureShape: { format: 'rgba16float', sizeFromCanvas: true },
+    // 2 fatias (a de agora e a anterior); 32 bits com 'full' — sem `float32-filterable` e lida filtrada, a C2 fica em
+    // 16 bits com um aviso.
+    history: { depth: 2, precision: 'full', filtered: true },
+}
+```
+
+A C2 aloca `depth` fatias (texturas do mesmo `textureShape`, buffers do mesmo tamanho, ou buffers do pool crescendo
+com ele — pool só com `upload: 'never'`). O canal existe desde a inserção do recurso; as fatias de um descritor
+`onDemand`, desde o `ensureAllocated` / `ensurePoolAllocated` de quem usa.
+
+**O anel.** No começo de cada quadro (`frameRecording`), todo canal cuja fatia de agora foi gravada no quadro anterior
+gira: a gravada vira o atraso 1, a mais antiga é reaproveitada como a de agora. Canal não gravado não gira — o atraso 1
+continua sendo a última gravação, e o carimbo (`stamp(lag)`: o quadro e o tempo) e a idade (`age(lag)`: quadros desde
+a gravação) dizem quanto tempo passou. `frames` conta as gravações seguidas desde a última invalidação; o atraso `k`
+vale com `frames ≥ k`. A série recomeça (`frames = 0`) quando as fatias são recriadas (redimensionamento, `redescribe`,
+crescimento do pool), quando entra ou sai entidade do pool da série, ou quando o produtor pede (`invalidate()`). O
+corte de câmera continua na GPU (`CameraMatrices.history.x`, `temporal_cut`): é por câmera, não por recurso.
+
+**Ligar.** O slot `slot.channel(Schema, 'descId')` (ou `slot.poolChannel('Pool')`) dá o `BoundChannel` (vivo: `depth`,
+`head`, `frames`, `format`, `view(lag)`, `buffer(lag)`, `stamp(lag)`, `age(lag)`, `written()`, `invalidate()`). Os
+recursos de shader de cada fatia declaram o atraso no fornecedor:
+
+```ts
+const previous = wgslResource({
+    name: 'taa_history',
+    binding: { texture: { sample: 'f32' } },
+    frequency: 'draw',
+    provider: { slot: 'taaHistory', lag: 1 },
+});
+```
+
+A C2 cria um bind group por **fase** do anel (cada combinação das cabeças dos canais do grupo, até 64), todos fora da
+gravação, e escolhe o do quadro em `bindTo` / `groupsOf`. Alvos de render usam `view(0)`. O `dispatch` que gravou a
+fatia de agora chama `written()` — não o `framePrepare`: um quadro pulado pela prontidão não gira o anel.
+
+**Quem já usa.** O antisserrilhado (`TemporalAntialiasing.history|state|light`), a luz global de tela
+(`GlobalIllumination.screenHistory`, um buffer), a névoa (`Froxels.history`, 3D, lida filtrada), o filtro temporal
+(`TemporalFilter.accumulated|accumulatedMoments|guide`) e a energia dos corpos rígidos e moles (`RigidBody.energy`: o pool
+`BodyEnergy`; `SoftBody.energy`: o pool `SoftBodyEnergy`, um registro por corpo; 8 fatias, com o `EnergyMeter` na
+cena — ver [Física](./physics_flows.md)). Contrato:
+`specs/037-padronizacao-matematica/contracts/temporal-channel.md`.
+
 ## Transições e eventos
 
 O Flow tem dois estados, ambos mudados por eventos:

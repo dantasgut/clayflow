@@ -7,6 +7,7 @@ import type {
     SamplerSpec,
 } from '../../core/contracts/index';
 import type { Resource } from '../contracts/Resource';
+import type { ChannelInfo } from '../contracts/ResourceDirectory';
 import type { Schema } from '../descriptors/Schema';
 import type { StructSchema } from '../descriptors/StructSchema';
 import type { EntityId } from '../world/EntityId';
@@ -175,6 +176,7 @@ export type SlotDeclaration =
     | SingletonSlot
     | EntitiesSlot
     | TextureSlot
+    | ChannelSlot
     | TargetSlot;
 
 /** Slots de um Flow, por nome. */
@@ -218,6 +220,36 @@ export interface BoundPool {
     ownedByGpu(slot: number): boolean;
     /** Entidade que ocupa o slot, ou `undefined`. */
     entityAt(slot: number): EntityId | undefined;
+}
+
+/**
+ * Canal temporal (spec 037): o descritor `descId` com `history` do primeiro Resource com `schema`, ou o pool `poolKey`
+ * (descritor em pool com `history`).
+ */
+export interface ChannelSlot<O extends boolean = boolean> {
+    /** Tipo do slot. */
+    readonly kind: 'channel';
+    /** Schema do Resource dono do canal (canal de descritor individual). */
+    readonly schema?: Schema;
+    /** Id do descritor no Resource (canal de descritor individual). */
+    readonly descId?: string;
+    /** Chave do pool (canal de pool). */
+    readonly poolKey?: string;
+    /** Opcional: o Flow fica pronto sem o canal (resolvido como `undefined`). */
+    readonly optional: O;
+    /** Filtro do Resource (padrão: o primeiro com o schema). */
+    readonly select?: (resource: Resource) => boolean;
+}
+
+/**
+ * Canal temporal resolvido (visão viva: cabeça, quadros e carimbos acompanham a C2). O `dispatch` que grava a fatia
+ * atual chama `written()`; os bindings do canal vêm do provedor `{ slot, lag }`, e alvos de render usam `view(0)`.
+ */
+export interface BoundChannel extends ChannelInfo {
+    /** O dispatch gravou a fatia atual: o anel gira no próximo quadro. */
+    written(): void;
+    /** A continuidade quebrou (motivo do produtor): nenhuma fatia anterior vale. */
+    invalidate(): void;
 }
 
 /** Resource único resolvido e o que a C2 alocou para ele. */
@@ -305,9 +337,13 @@ export type BoundSlot<D extends SlotDeclaration> =
                   ? O extends true
                       ? BoundTexture | undefined
                       : BoundTexture
-                  : D extends TargetSlot
-                    ? BoundTarget
-                    : never;
+                  : D extends ChannelSlot<infer O>
+                    ? O extends true
+                        ? BoundChannel | undefined
+                        : BoundChannel
+                    : D extends TargetSlot
+                      ? BoundTarget
+                      : never;
 
 /** Slots resolvidos de um Flow. */
 export type BoundSlots<TSlots extends SlotMap> = {
@@ -377,6 +413,34 @@ export const slot = {
             descId,
             optional: (opts?.optional ?? false) as O,
             ...(opts?.select !== undefined ? { select: opts.select } : {}),
+        });
+    },
+    /**
+     * Canal temporal do descritor `descId` (com `history`) do primeiro Resource com `schema` (spec 037). Os bindings
+     * das fatias declaram o provedor `{ slot: '<nome>', lag }`.
+     */
+    channel<O extends boolean = false>(
+        schema: Schema,
+        descId: string,
+        opts?: { readonly optional?: O; readonly select?: (resource: Resource) => boolean },
+    ): ChannelSlot<O> {
+        return Object.freeze({
+            kind: 'channel',
+            schema,
+            descId,
+            optional: (opts?.optional ?? false) as O,
+            ...(opts?.select !== undefined ? { select: opts.select } : {}),
+        });
+    },
+    /** Canal temporal do pool `poolKey` (descritor em pool com `history`; spec 037). */
+    poolChannel<O extends boolean = false>(
+        poolKey: string,
+        opts?: { readonly optional?: O },
+    ): ChannelSlot<O> {
+        return Object.freeze({
+            kind: 'channel',
+            poolKey,
+            optional: (opts?.optional ?? false) as O,
         });
     },
     /**

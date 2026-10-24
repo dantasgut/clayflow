@@ -2,23 +2,12 @@
 // (chão e quatro paredes) e colunas de esferas e caixas em camadas, com ruído determinístico.
 import { GravityField, RigidBody } from 'clayflow';
 import type { Application } from 'clayflow';
+import { mulberry32 } from './random';
 
 export const RADIUS = 0.25;
 export const BOX_HALF = 0.2;
 export const GROUND_HALF = 20;
 export const WALL_HEIGHT = 4;
-
-/** Gerador determinístico (mulberry32) — mesmo arranjo a cada execução. */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 /** Insere gravidade, recinto e `count` corpos (esferas e caixas alternadas) em `app`. */
 export function buildRigidPile(app: Application, count: number): void {
@@ -48,7 +37,7 @@ export function buildRigidPile(app: Application, count: number): void {
     }
     // Pilhas: colunas numa grade com espaçamento maior que um diâmetro e camadas sucessivas (sem sobreposição inicial),
     // com ruído pequeno para quebrar a simetria.
-    const random = rng(1337);
+    const random = mulberry32(1337);
     const spacing = 0.6;
     const perRow = Math.floor((GROUND_HALF * 1.5) / spacing);
     const perLayer = perRow * perRow;

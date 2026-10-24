@@ -9,7 +9,7 @@ fn compact_keep(i: u32) -> bool {
     let k = i % distribute.per_triangle;
     let s = distribute_sample(i);
     let d = clamp(distribute_density(s.position, s.normal, s.uv), 0.0, 1.0);
-    return set_hash_unit(hash3(vec3u(distribute.seed, t, 3u * k + 2u))) < d;
+    return random_unit(hash3(vec3u(distribute.seed, t, 3u * k + 2u))) < d;
 }
 
 fn compact_value(i: u32) -> u32 {

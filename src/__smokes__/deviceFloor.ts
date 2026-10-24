@@ -1,7 +1,9 @@
 // Spec 034 — Smoke do piso de limites do dispositivo (T003; FR-034, SC-003).
 //
-// Abre as cenas que mais ligam recursos com o teto dos limites do Apple M4 (`limitsCeiling`: 10 buffers de storage por
-// estágio) — numa GPU maior o resultado é o mesmo do M4, então o que não cabe falha também na RTX 4090:
+// Abre as cenas que mais ligam recursos com o teto nos limites portáteis do motor (`limitsCeiling` =
+// `ENGINE_PORTABLE_LIMITS`, o mínimo comum dos perfis de referência, spec 037: buffers e texturas de storage por
+// estágio, anexos de cor e bytes por amostra) — numa GPU maior o resultado é o do piso, então o que não cabe falha em
+// todas:
 //   - giGlassFog: cômodo com janela, iluminação global `medium`, uma placa de vidro (dielétrico + transmissão) e névoa;
 //   - giWater: o tanque de água por campo de distância com a iluminação global `medium`.
 // Falha com qualquer erro de limite (`limit-exceeded`), `globalIlluminationUnsupported`, `extensionRejected`, erro do
@@ -15,6 +17,7 @@ import {
     Transform,
     type Application,
 } from 'clayflow';
+import { ENGINE_PORTABLE_LIMITS } from '../core/gpu/GpuContext';
 import { settle } from './support/extensionScenes';
 import { buildGiScene, giApp, windowRoom } from './support/giScenes';
 import { closureFn } from './support/materialScenes';
@@ -28,8 +31,8 @@ function log(msg: string): void {
 `;
 }
 
-/** O piso validado: o do Apple M4. */
-const M4_FLOOR = { maxStorageBuffersPerShaderStage: 10 } as const;
+/** O piso validado: os limites portáteis do motor. */
+const FLOOR = ENGINE_PORTABLE_LIMITS;
 
 const failures: string[] = [];
 
@@ -65,7 +68,7 @@ async function exercise(name: string, app: Application, errors: string[]): Promi
 
 async function giGlassFog(): Promise<void> {
     const errors: string[] = [];
-    const { app, canvas } = await giApp(480, 300, errors, { limitsCeiling: M4_FLOOR });
+    const { app, canvas } = await giApp(480, 300, errors, { limitsCeiling: FLOOR });
     const scene = windowRoom();
     buildGiScene(app, scene, 480 / 300);
     app.world.insert(
@@ -102,7 +105,7 @@ async function giGlassFog(): Promise<void> {
 
 async function giWater(): Promise<void> {
     const errors: string[] = [];
-    const { app, canvas } = await giApp(480, 300, errors, { limitsCeiling: M4_FLOOR });
+    const { app, canvas } = await giApp(480, 300, errors, { limitsCeiling: FLOOR });
     waterScene(app, { width: 480, height: 300 });
     app.world.insert(new GlobalIllumination({ quality: 'medium', center: [0, 0.3, 0] }));
     await exercise('giWater', app, errors);

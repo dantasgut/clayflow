@@ -1,13 +1,13 @@
 // O que o histórico de um pixel com pedido precisa (spec 034, R3, T044a), comum ao movimento do que a refração mostra e
 // ao filtro do traçado: onde estava no quadro anterior o ponto que o traçado achou (`refraction_hit`), a largura do
 // pixel nesse ponto e quanto a cena mudou em volta do pixel pelo gradiente temporal (`refraction_gradient`).
-// Requer: NONE, REFRACTION_STRATUM, refraction, cameras, renderables, worlds, previous_worlds, refraction_hit,
+// Requer: NONE, REFRACTION_STRATUM, refraction, cameras, renderables, world_inverses, previous_worlds, refraction_hit,
 // refraction_gradient.
 
 /**
  * Onde estava, no quadro anterior, o ponto mostrado `hit` (xyz, registro em bits no w): no espaço do objeto atingido
- * pela inversa da matriz de mundo (a transposta da matriz de normais, a inversa transposta), de volta pela matriz de
- * mundo anterior. Sem objeto (o céu, as esferas das partículas) ou sem histórico, o mesmo ponto.
+ * pela inversa da matriz de mundo (a guardada pelo estágio de transformação, spec 037), de volta pela matriz de mundo
+ * anterior. Sem objeto (o céu, as esferas das partículas) ou sem histórico, o mesmo ponto.
  */
 fn refraction_previous_point(hit: vec4f) -> vec3f {
     let record = bitcast<u32>(hit.w);
@@ -15,8 +15,7 @@ fn refraction_previous_point(hit: vec4f) -> vec3f {
     let slot = renderables[record].transformSlot;
     let previous = previous_worlds[slot].world;
     if (previous[3].w == 0.0) { return hit.xyz; }
-    let w = worlds[slot];
-    let object = transpose(w.normal) * (hit.xyz - w.world[3].xyz);
+    let object = affine_point(world_inverses[slot].inverse, hit.xyz);
     return (previous * vec4f(object, 1.0)).xyz;
 }
 
@@ -31,10 +30,8 @@ fn refraction_neighbor_gap(hit: vec4f, q: vec2u) -> f32 {
  * mesmo objeto) — o que a lente amplia —, no mínimo a da vista direta àquela distância da câmera.
  */
 fn refraction_footprint(px: vec2u, hit: vec4f) -> f32 {
-    let cam = cameras[refraction.camera_slot];
     let last = vec2u(textureDimensions(refraction_hit)) - 1u;
-    var footprint = 2.0 / (cam.projection[1][1] * f32(last.y + 1u));
-    if (cam.projection[3][3] != 1.0) { footprint *= length(hit.xyz - cam.position.xyz); }
+    let footprint = pixel_footprint(refraction.camera_slot, vec2f(last + 1u), hit.xyz);
     return max(footprint, max(refraction_neighbor_gap(hit, min(px + vec2u(1u, 0u), last)),
         refraction_neighbor_gap(hit, min(px + vec2u(0u, 1u), last))));
 }

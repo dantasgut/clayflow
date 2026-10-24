@@ -16,10 +16,6 @@ fn gi_pack_rgb(c: vec3f) -> vec2u {
     return vec2u(pack2x16float(v.rg), pack2x16float(vec2f(v.b, 1.0)));
 }
 
-fn gi_unpack_rgb(p: vec2u) -> vec3f {
-    return vec3f(unpack2x16float(p.x), unpack2x16float(p.y).x);
-}
-
 /** A sonda recomeça o histórico (nova, ou outra célula de mundo pelo endereçamento circular)? */
 fn gi_probe_reset(index: u32) -> bool {
     let s = gi_probes[index];
@@ -80,12 +76,12 @@ fn gi_blend_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let probes = gi_probe_count();
     for (var b = 0u; b < bounces; b++) {
         let at = (b * probes + index) * texels + t;
-        let old = gi_unpack_rgb(gi_generations[at]);
+        let old = unpack_half_rgb(gi_generations[at]);
         let fresh = select(old, sums[b] / wsum, wsum > 0.0);
         gi_generations[at] = gi_pack_rgb(mix(fresh, old, h));
     }
     let sat = index * texels + t;
-    let sold = gi_unpack_rgb(gi_radiance_map[sat]);
+    let sold = unpack_half_rgb(gi_radiance_map[sat]);
     let svalue = select(sold, spec / ssum, ssum > 0.0);
     gi_radiance_map[sat] = gi_pack_rgb(mix(svalue, sold, h));
 }

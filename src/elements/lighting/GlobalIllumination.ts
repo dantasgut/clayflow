@@ -5,6 +5,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import {
+    GiScreenRecordSchema,
     GI_GRID,
     GI_IRRADIANCE_TEXELS,
     GI_MAX_CASCADES,
@@ -133,6 +134,11 @@ export interface GlobalIlluminationData {
     /** Centro fixo do volume de sondas, ou vazio (as cascatas acompanham a câmera). */
     center: number[];
     /**
+     * vec4f de uma fatia do histórico das sondas de tela (ladrilhos × (3 + gerações)), reservados pelo estágio das
+     * sondas para o tamanho do alvo (`reserveScreenHistory`); 1 até lá.
+     */
+    screenRecords: number;
+    /**
      * O uniform, num registro (escrito pelo estágio das sondas a cada quadro: cascatas, raios, rotação) — separado dos
      * valores de autoria, cujos nomes não são os do layout.
      */
@@ -154,7 +160,7 @@ export function giAtlasSize(texels: number): readonly [number, number] {
  * Valida os valores de autoria.
  * @throws RangeError fora dos intervalos documentados.
  */
-function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
+function validate(d: Omit<GlobalIlluminationData, 'params' | 'screenRecords'>): void {
     const check = (ok: boolean, what: string): void => {
         if (!ok) throw new RangeError(`GlobalIllumination: ${what}.`);
     };
@@ -239,6 +245,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         validate(data);
         this.data = {
             ...data,
+            screenRecords: 1,
             params: [GlobalIlluminationSchema.applyDefaults({}) as Record<string, number[]>],
         };
     }
@@ -257,6 +264,16 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
     /** Valida os valores atuais (o estágio chama antes de usá-los; um valor inválido mantém o anterior). */
     validate(): void {
         validate(this.rawData);
+    }
+
+    /**
+     * Reserva o histórico das sondas de tela para `records` vec4f por fatia (o estágio das sondas, quando o alvo ou as
+     * gerações mudam): realoca as duas fatias do canal (o histórico recomeça).
+     */
+    reserveScreenHistory(records: number): void {
+        const n = Math.max(1, Math.ceil(records));
+        if (n === this.rawData.screenRecords) return;
+        this.redescribe(this.getDescriptors(), { ...this.rawData, screenRecords: n });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
@@ -305,6 +322,17 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             // Sondas de tela (R2 adendo), um texel por ladrilho (o menor): posição (xyz, w = válida), normal e irradiância.
             screen('screenProbe', 'rgba32float'),
             screen('screenIrradiance', 'rgba16float'),
+            // O histórico do acúmulo das sondas de tela: um canal temporal (spec 037) — a fatia do quadro anterior (as
+            // sondas em volta de um ponto) e a do quadro (o acúmulo), sob demanda da coleta final na tela.
+            {
+                id: 'screenHistory',
+                role: 'storage-rw',
+                schema: GiScreenRecordSchema,
+                count: this.rawData.screenRecords,
+                upload: 'never',
+                allocation: 'onDemand',
+                history: { depth: 2 },
+            },
             // Cáusticas por fótons (US5): o hash em mundo (cabeçalho e baldes), escrito e lido só na GPU.
             {
                 id: 'caustics',

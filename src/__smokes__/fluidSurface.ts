@@ -22,7 +22,7 @@
 import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
 import { nextGpuFrame } from './support/extensionScenes';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
-import { diff, fromPng, luminance, toPng } from './support/images';
+import { diff, fromPng, lumaSrgb, toPng } from './support/images';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
 
 const WIDTH = 320;
@@ -185,9 +185,9 @@ function ratios(a: ImageData, b: ImageData, region: (x: number, y: number) => bo
     for (let y = 0; y < a.height; y++) {
         for (let x = 0; x < a.width; x++) {
             if (!region(x, y)) continue;
-            const lb = luminance(b, x, y);
+            const lb = lumaSrgb(b, x, y);
             if (lb < 0.4) continue;
-            out.push(luminance(a, x, y) / lb);
+            out.push(lumaSrgb(a, x, y) / lb);
         }
     }
     return out.sort((p, q) => p - q);
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
             for (let y = 0; y < HEIGHT; y++)
                 for (let x = 0; x < WIDTH; x++)
                     if (centralFloor(x, y)) {
-                        const l = luminance(img, x, y);
+                        const l = lumaSrgb(img, x, y);
                         sum += l;
                         n++;
                         values.push(l);
@@ -457,7 +457,7 @@ async function main(): Promise<void> {
         let sum = 0;
         for (let y = 0; y < HEIGHT; y++)
             for (let x = 0; x < WIDTH; x++) {
-                const l = luminance(img, x, y);
+                const l = lumaSrgb(img, x, y);
                 sum += l;
                 if (l < 0.01) black++;
             }

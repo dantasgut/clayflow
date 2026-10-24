@@ -31,10 +31,7 @@ fn closure_lobe_normal(own: vec3f, n: vec3f, v: vec3f) -> vec3f {
 
 // Referencial tangente estável a partir da normal (Duff et al. 2017) — a tangente padrão sem ligação.
 fn closure_default_tangent(n: vec3f) -> vec3f {
-    let s = select(-1.0, 1.0, n.z >= 0.0);
-    let a = -1.0 / (s + n.z);
-    let b = n.x * n.y * a;
-    return vec3f(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
+    return basis_duff(n)[0];
 }
 
 // F90 do dielétrico: 1 nas interfaces reais, indo a 0 com o F0 (IOR → 1 não reflete nada, nem rasante).
@@ -164,7 +161,7 @@ fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> ve
         under += c.subsurface_weight * bsdf_burley_wrap(c.subsurface_color, c.subsurface_radius, nl_raw);
     }
     if (closure_has(CLOSURE_TRANSLUCENT) && c.translucent_weight > 0.0) {
-        under += c.translucent_weight * c.translucent_color / BSDF_PI * max(-nl_raw, 0.0);
+        under += c.translucent_weight * c.translucent_color / PI * max(-nl_raw, 0.0);
     }
     let base = spec + closure_under_dielectric(c, nv) * under;
 

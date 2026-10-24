@@ -2,14 +2,26 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../../scene/shaders/WgslPoint';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { camera, finite, linalg, mat, quat } from '../../gpu/shaders/math';
+import {
+    camera,
+    finite,
+    linalg,
+    mat,
+    quat,
+    xformAffine,
+    xformProjective,
+    viewSpace,
+    xformTrs,
+} from '../../gpu/shaders/math';
 import {
     cameraMatricesWriteResource,
     cameraParamsResource,
+    camerasResource,
     lightsResource,
     shadowMapsResource,
     shadowMatricesWriteResource,
     transformsResource,
+    worldInversesWriteResource,
     worldsResource,
     worldsWriteResource,
 } from '../resources';
@@ -18,6 +30,8 @@ import transformLinkSource from '../../gpu/wgsl/kernels/transform_link.wgsl?raw'
 import transformLocalSource from '../../gpu/wgsl/kernels/transform_local.wgsl?raw';
 import transformFnReadySource from '../../gpu/wgsl/kernels/transform_fn_ready.wgsl?raw';
 import transformComposeFnSource from '../../gpu/wgsl/kernels/transform_compose_fn.wgsl?raw';
+import transformInverseSource from '../../gpu/wgsl/kernels/transform_inverse.wgsl?raw';
+import cameraSpaceSource from '../../gpu/wgsl/math/camera_space.wgsl?raw';
 import cameraComposeSource from '../../gpu/wgsl/kernels/camera_compose.wgsl?raw';
 import cameraPointTypesSource from '../../gpu/wgsl/kernels/camera_point_types.wgsl?raw';
 import cameraFnReadySource from '../../gpu/wgsl/kernels/camera_fn_ready.wgsl?raw';
@@ -122,7 +136,7 @@ export const shadowMatrixResources = Object.freeze({
 export const transformLocal = wgslModule({
     name: 'transform_local',
     source: transformLocalSource,
-    requires: [quat, mat],
+    requires: [quat, mat, xformTrs],
     structs: [Transform.schema, Transform.worldSchema],
 });
 
@@ -138,6 +152,30 @@ export const transformCompose = wgslModule({
         transformResources.params,
     ],
     structs: [Transform.schema, Transform.worldSchema, TransformParamsSchema],
+});
+
+/** Inversa afim de cada matriz de mundo, no pool `WorldInverse` (spec 037; só com o pool pedido). */
+export const transformInverse = wgslModule({
+    name: 'transform_inverse',
+    source: transformInverseSource,
+    requires: [
+        xformAffine,
+        WORKGROUP_SIZE.module,
+        worldsResource,
+        worldInversesWriteResource,
+        transformResources.params,
+    ],
+    structs: [Transform.worldSchema, Transform.worldInverseSchema, TransformParamsSchema],
+});
+
+/**
+ * Espaços pela câmera (spec 037, R4): `camera_ray(slot, px, size)` (o raio de um pixel), `motion_vector(anterior,
+ * atual, slot)` e `pixel_footprint(slot, size, ponto)`, das matrizes guardadas da câmera.
+ */
+export const cameraSpace = wgslModule({
+    name: 'camera_space',
+    source: cameraSpaceSource,
+    requires: [camerasResource, viewSpace],
 });
 
 /** Um nível da hierarquia: `world = world[pai] · M` para cada elo do nível (spec 007). */
@@ -211,6 +249,7 @@ export const cameraCompose = wgslModule({
     source: cameraComposeSource,
     requires: [
         camera,
+        xformProjective,
         WORKGROUP_SIZE.module,
         cameraParamsResource,
         cameraMatricesWriteResource,
@@ -251,6 +290,8 @@ export const cameraComposeFn = wgslModule({
     requires: [
         cameraPointTypes,
         camera,
+        xformAffine,
+        xformProjective,
         finite,
         cameraFnReady,
         WORKGROUP_SIZE.module,

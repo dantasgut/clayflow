@@ -21,7 +21,7 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     corners[5] = vec2<f32>(0.0, 1.0);
     let local = corners[cornerIdx];
     let pixel = vec2<f32>(q.rect.x + local.x * q.rect.z, q.rect.y + local.y * q.rect.w);
-    let ndc = vec2<f32>((pixel.x / screen.size.x) * 2.0 - 1.0, 1.0 - (pixel.y / screen.size.y) * 2.0);
+    let ndc = pixel_to_ndc(pixel, screen.size.xy);
     let u = mix(q.uv.x, q.uv.z, local.x);
     let v = mix(q.uv.y, q.uv.w, local.y);
     var out: VsOut;

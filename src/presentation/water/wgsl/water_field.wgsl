@@ -22,24 +22,24 @@ fn water_field_camera(
     let cam = cameras[water_view.cameraSlot];
     let proj = cam.projection;
     let pixel = vec2f(min(gid.xy, size - 1u)) + 0.5;
-    let ndc = vec2f(pixel.x / f32(size.x) * 2.0 - 1.0, 1.0 - pixel.y / f32(size.y) * 2.0);
+    let ndc = pixel_to_ndc(pixel, vec2f(size));
     // Raio do pixel na vista (perspectiva: da origem; ortográfica: paralelo a −z) e em mundo (vista rígida).
     var ov = vec3f(0.0);
     var dv = vec3f(0.0, 0.0, -1.0);
-    if (abs(proj[2].w) > 0.5) {
+    if (!is_orthographic(proj)) {
         // O deslocamento da amostra do quadro (spec 034) está em proj[2].xy: tirado do NDC do raio.
         let q = ndc - cam.jitter.xy;
         dv = normalize(vec3f(q.x / proj[0].x, q.y / proj[1].y, -1.0));
     } else {
         ov = vec3f((ndc.x - proj[3].x) / proj[0].x, (ndc.y - proj[3].y) / proj[1].y, 0.0);
     }
-    let rt = transpose(mat3x3f(cam.view[0].xyz, cam.view[1].xyz, cam.view[2].xyz));
+    let rt = mat3x3f(cam.inverseView[0].xyz, cam.inverseView[1].xyz, cam.inverseView[2].xyz);
     let o = rt * (ov - cam.view[3].xyz);
     let d = rt * dv;
     let t_scene = water_scene_linear(pixel, proj) / max(-dv.z, 1e-6);
     // Do plano próximo (como a geometria: um borrifo colado na câmera é cortado, não enche a tela de água).
     var near = 0.0;
-    if (abs(proj[2].w) > 0.5 && abs(proj[2].z) > 1e-12) { near = proj[3].z / proj[2].z; }
+    if (!is_orthographic(proj) && abs(proj[2].z) > 1e-12) { near = proj[3].z / proj[2].z; }
     let span = field_clip(o, d, max(near, 0.0) / max(-dv.z, 1e-6), t_scene);
     var hit = FieldHit(span.y, o, -d, 0u, false);
     if (inside && span.x < span.y) { hit = field_march(o, d, span.x, span.y, false, true); }
@@ -73,7 +73,7 @@ fn water_field_light(@builtin(global_invocation_id) gid: vec3u) {
     let texel = vec2i(gid.xy);
     let m = water_light_matrix.viewProj;
     let uv = (vec2f(gid.xy) + 0.5) / vec2f(size);
-    let ndc = vec2f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    let ndc = uv_to_ndc(uv);
     // As linhas da parte 3×3 são ortogonais: p = Σ linhaᵢ (ndcᵢ − tᵢ) / |linhaᵢ|², com o topo da caixa em z = 0.
     let r0 = vec3f(m[0].x, m[1].x, m[2].x);
     let r1 = vec3f(m[0].y, m[1].y, m[2].y);

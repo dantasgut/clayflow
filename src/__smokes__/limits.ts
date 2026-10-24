@@ -22,6 +22,7 @@ import type {
     UniformBufferSpec,
     Application as App,
 } from 'clayflow';
+import { mulberry32 } from './support/random';
 
 function log(msg: string): void {
     console.log(`[limits] ${msg}`);
@@ -148,18 +149,6 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
     if (total !== count) failures.push(`(a) contador ${total} ≠ ${count}`);
 }
 
-/** Gerador determinístico (mulberry32). */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
 /** (b) Busca de vizinhança em grade de 262 144 células × referência na CPU. */
 async function checkNeighbors(app: App, failures: string[]): Promise<void> {
     const dim = 64;
@@ -167,7 +156,7 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
     const n = 60_000;
     const maxNeighbors = 48;
     const stride = 4;
-    const random = rng(2026);
+    const random = mulberry32(2026);
     const data = new Float32Array(n * stride);
     for (let i = 0; i < n; i++) {
         // Concentra metade das partículas nas camadas z altas: células de índice > 65 536.

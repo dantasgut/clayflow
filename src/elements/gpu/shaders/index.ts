@@ -14,6 +14,11 @@ import {
     quat,
     sdf,
     sphKernels,
+    viewSpace,
+    xformAffine,
+    xformProjective,
+    xformRigid,
+    xformTrs,
     xpbd,
 } from './math';
 import { atomicAlloc, fixedPoint, poolLive } from '../compute/shaders';
@@ -26,6 +31,11 @@ export const wgslLib = Object.freeze({
     quat,
     linalg,
     mat,
+    xformRigid,
+    xformAffine,
+    xformProjective,
+    xformTrs,
+    viewSpace,
     camera,
     sdf,
     sphKernels,

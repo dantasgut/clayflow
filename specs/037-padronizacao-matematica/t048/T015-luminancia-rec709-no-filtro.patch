@@ -1,0 +1,99 @@
+--- a/src/__smokes__/shaderLibrary.ts
++++ b/src/__smokes__/shaderLibrary.ts
+@@ -54,6 +54,7 @@
+ import * as Render from '../presentation/flows/renderSchemas';
+ import * as bsdfRef from '../elements/material/reference/bsdf';
+ import * as xf from '../elements/math/reference/xform';
++import { luminance as luminanceRec709 } from '../elements/math/reference/color';
+ import {
+     srgbEncode,
+     tonemapAces,
+@@ -304,17 +305,12 @@
+     {
+         name: 'color (gama, luminância)',
+         requires: [wgslLib.color],
+-        body: 'return vec4f(grade_gamma(a.xyz, 2.2).x, grade_gamma(a.xyz, 2.2).y, luminance_bt601(a.xyz), 0.0);',
++        body: 'return vec4f(grade_gamma(a.xyz, 2.2).x, grade_gamma(a.xyz, 2.2).y, luminance(a.xyz), 0.0);',
+         input: (r) => [
+             [r() * 2, r(), r(), 0],
+             [0, 0, 0, 0],
+         ],
+-        cpu: (a) => [
+-            a[0] ** (1 / 2.2),
+-            a[1] ** (1 / 2.2),
+-            0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2],
+-            0,
+-        ],
++        cpu: (a) => [a[0] ** (1 / 2.2), a[1] ** (1 / 2.2), luminanceRec709([a[0], a[1], a[2]]), 0],
+         tol: 2e-5,
+     },
+     {
+--- a/src/elements/gpu/wgsl/denoise/traced_denoise_atrous.wgsl
++++ b/src/elements/gpu/wgsl/denoise/traced_denoise_atrous.wgsl
+@@ -36,7 +36,7 @@
+         }
+     }
+     let sigma = TRACED_DENOISE_SIGMA_LUMINANCE * sqrt(variance / vw) + 1e-6;
+-    let lp = luminance_bt601(center.rgb);
++    let lp = luminance(center.rgb);
+     let h = array<f32, 3>(0.375, 0.25, 0.0625);
+     var color = vec3f(0.0);
+     var var_sum = 0.0;
+@@ -50,7 +50,7 @@
+             let s = textureLoad(traced_denoise_filter_in, vec2u(q), 0);
+             let reach = TRACED_DENOISE_SIGMA_POINT * footprint * length(vec2f(vec2i(i, j) * step)) + 1e-6;
+             let w = h[abs(i)] * h[abs(j)]
+-                * exp(-abs(luminance_bt601(s.rgb) - lp) / sigma)
++                * exp(-abs(luminance(s.rgb) - lp) / sigma)
+                 * exp(-length(other.xyz - guide.xyz) / reach);
+             color += w * s.rgb;
+             var_sum += w * w * s.a;
+--- a/src/elements/gpu/wgsl/denoise/traced_denoise_temporal.wgsl
++++ b/src/elements/gpu/wgsl/denoise/traced_denoise_temporal.wgsl
+@@ -44,7 +44,7 @@
+         return;
+     }
+     let c = traced_denoise_source_signal(px);
+-    let l = luminance_bt601(c);
++    let l = luminance(c);
+     let guide = traced_denoise_source_guide(px);
+     let id = bitcast<u32>(guide.w);
+     let before = traced_denoise_source_previous_point(guide);
+@@ -102,7 +102,7 @@
+                 let q = vec2i(px) + vec2i(dx, dy);
+                 if (!traced_denoise_inside(q)) { continue; }
+                 if (bitcast<u32>(traced_denoise_source_guide(vec2u(q)).w) != id) { continue; }
+-                let lq = luminance_bt601(traced_denoise_source_signal(vec2u(q)));
++                let lq = luminance(traced_denoise_source_signal(vec2u(q)));
+                 s += vec2f(lq, lq * lq);
+                 n += 1.0;
+             }
+--- a/src/elements/gpu/wgsl/math/color.wgsl
++++ b/src/elements/gpu/wgsl/math/color.wgsl
+@@ -8,12 +8,6 @@
+     return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+ }
+ 
+-// Pesos BT.601 — provisória (spec 037, T011): só o filtro do sinal traçado e o espelho do smoke `shaderLibrary` a usam
+-// até a decisão da troca para Rec.709 (T048). Não tem uso correto em luz linear.
+-fn luminance_bt601(c: vec3f) -> f32 {
+-    return dot(c, vec3<f32>(0.299, 0.587, 0.114));
+-}
+-
+ // O maior canal.
+ fn max_channel(c: vec3f) -> f32 {
+     return max(c.r, max(c.g, c.b));
+--- a/src/elements/__tests__/canonicalSignatures.test.ts
++++ b/src/elements/__tests__/canonicalSignatures.test.ts
+@@ -102,10 +102,7 @@
+     pcg: {},
+     teschner: {},
+     rec709: {},
+-    // Sai com a troca da T015 (decisão do usuário, pacote da T048): o espelho BT.601 do smoke `shaderLibrary`.
+-    bt601: {
+-        '__smokes__/shaderLibrary.ts': 1,
+-    },
++    bt601: {},
+     srgb: {},
+     // Justificadas (T049): o código de usuário de exemplo dos smokes (funções `transform` e `surface`), escrito como o
+     // desenvolvedor escreve — o módulo `constants` não é parte do contrato dessas funções.
