@@ -1,14 +1,29 @@
 // Passadas à-trous do filtro de sinal traçado (spec 034, R3, T044a; o SVGF de Schied et al. 2017):
-// `temporal_filter_atrous_<passo>_main`, passos 1, 2, 4, 8 e 16, uma invocação por pixel do sinal (sem sinal, zero). O
+// `temporal_filter_atrous_<passo>_main`, passos 1, 2, 4, 8 e 16 (o estágio usa os de `TEMPORAL_FILTER_ATROUS_STEPS`),
+// uma invocação por pixel do sinal (sem sinal, zero). O
 // núcleo B3 5 × 5, com os pesos do guia (o mesmo objeto; a distância entre os pontos em larguras de pixel no ponto,
-// por pixel de distância na tela) e da luminância (pela variância da média filtrada em 3 × 3), de
+// por pixel de distância na tela), do albedo da superfície mostrada (a textura vista: as casas de um xadrez não se
+// misturam) e da luminância (pela variância da média filtrada em 3 × 3), de
 // `temporal_filter_filter_in` para `temporal_filter_filter_out` (cor e variância); a variância com os pesos ao quadrado.
+// Um centro já convergido (o desvio da média abaixo de
+// `TEMPORAL_FILTER_SETTLED` do brilho dele) passa sem filtrar: o resultado seria ele mesmo dentro da precisão da tela.
 // Requer: color, temporal_filter_common, temporal_filter_source, temporal_filter_filter_in, temporal_filter_filter_out.
 
 /** Escala do peso da luminância, em desvios padrão (σ_l do SVGF). */
 const TEMPORAL_FILTER_SIGMA_LUMINANCE: f32 = 4.0;
 /** Escala do peso do guia, em larguras de pixel no ponto por pixel de distância (o σ_z = 1 do SVGF, no espaço). */
 const TEMPORAL_FILTER_SIGMA_POINT: f32 = 1.0;
+/**
+ * Escala do peso do albedo (distância entre as refletâncias RGB): 0,1 dá peso e⁻¹ a 10 % de diferença — a variação da
+ * textura filtrada dentro de uma mesma região fica, a borda entre regiões (dezenas de por cento) não passa.
+ */
+const TEMPORAL_FILTER_SIGMA_ALBEDO: f32 = 0.1;
+/**
+ * Desvio padrão da média, relativo ao brilho, abaixo do qual o filtro espacial não muda o pixel na tela: meio nível de 8
+ * bits (1/510) — os vizinhos só puxariam o valor dentro do ruído que já não se vê. Poupa as 25 leituras onde a média
+ * convergiu (o vidro parado).
+ */
+const TEMPORAL_FILTER_SETTLED: f32 = 1.0 / 510.0;
 
 /** Uma passada do à-trous com o passo `step`. */
 fn temporal_filter_atrous(gid3: vec3u, nwg: vec3u, step: i32) {
@@ -20,9 +35,14 @@ fn temporal_filter_atrous(gid3: vec3u, nwg: vec3u, step: i32) {
         return;
     }
     let center = textureLoad(temporal_filter_filter_in, px, 0);
+    if (sqrt(center.a) <= TEMPORAL_FILTER_SETTLED * luminance(center.rgb)) {
+        textureStore(temporal_filter_filter_out, px, center);
+        return;
+    }
     let guide = temporal_filter_source_guide(px);
     let id = bitcast<u32>(guide.w);
     let footprint = temporal_filter_source_footprint(px, guide);
+    let albedo = temporal_filter_source_albedo(px);
     // A variância filtrada em 3 × 3 (gaussiana) guia o peso da luminância.
     var variance = 0.0;
     var vw = 0.0;
@@ -51,7 +71,8 @@ fn temporal_filter_atrous(gid3: vec3u, nwg: vec3u, step: i32) {
             let reach = TEMPORAL_FILTER_SIGMA_POINT * footprint * length(vec2f(vec2i(i, j) * step)) + 1e-6;
             let w = h[abs(i)] * h[abs(j)]
                 * exp(-abs(luminance(s.rgb) - lp) / sigma)
-                * exp(-length(other.xyz - guide.xyz) / reach);
+                * exp(-length(other.xyz - guide.xyz) / reach)
+                * exp(-length(temporal_filter_source_albedo(vec2u(q)) - albedo) / TEMPORAL_FILTER_SIGMA_ALBEDO);
             color += w * s.rgb;
             var_sum += w * w * s.a;
             weight += w;

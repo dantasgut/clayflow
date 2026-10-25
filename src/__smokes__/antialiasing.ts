@@ -8,8 +8,10 @@
 //     médio da imagem; bordas = os 5 % de pixels de maior gradiente da referência; decisão do usuário, 2026-10-20: o
 //     resto das bordas é o número de posições da amostra, não o tempo).
 //   - trail: uma bola clara atravessa a cena; nos pixels por onde ela passou há 4 quadros ou mais (e não está agora), o
-//     excesso sobre a imagem sem a bola (o modo temporal em passo, sem a bola) fica ≤ 1 % do brilho da bola (sem
-//     rastro). A pegada da bola: onde o quadro sem antisserrilhado com a bola difere do sem a bola; contam os pixels de
+//     desvio coerente sobre a imagem sem a bola (o modo temporal em passo, sem a bola) — a média, a cada quadro, da
+//     diferença nos pixels contados, nos dois sentidos — fica ≤ 1 % do brilho da bola (sem rastro; decisão do usuário,
+//     2026-10-25: um rastro tem a forma da bola e desloca muitos pixels para o mesmo lado, e o pior pixel isolado, que
+//     antes era o critério, é o ruído simétrico da reconvergência — fica no registro). A pegada da bola: onde o quadro sem antisserrilhado com a bola difere do sem a bola; contam os pixels de
 //     fundo liso (numa aresta, o pixel recomeçado tem outra média das amostras — ruído, não rastro) e sem detalhe menor
 //     que o pixel (faixa < 0,02 do fundo temporal entre as 8 primeiras posições da amostra; decisão de 2026-10-21).
 //   - deform: o mesmo, com a bola como superfície paramétrica deslocada pelos vértices (o `Transform` parado; os
@@ -38,7 +40,9 @@
 //     a sem deslocamento do quadro de antes; num novo corte, a sequência recomeça (T025).
 //   - cost: a 1280 × 720 em órbita, com profiling por passe, a duração do quadro na GPU (mediana de 120 quadros, do
 //     primeiro início ao último fim) com o temporal menos a sem antisserrilhado ≤ 1,5 ms (SC-011, 9 % do quadro de 60 Hz
-//     no M4). Não a soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
+//     no M4), com a refração traçada desligada nas duas: o filtro do sinal traçado e a marca de movimento são do
+//     orçamento da refração (3 ms, medido no smoke `refraction`), não do antisserrilhado — decisão de 2026-10-24. Não a
+//     soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
 // Para rodar: `npm run smoke -- antialiasing [--query case=still]`. Resultado: `ANTIALIASING SMOKE PASSED` ou `FAIL: …`.
 import * as clayflow from 'clayflow';
 import {
@@ -109,6 +113,8 @@ async function scene(
         bare?: boolean;
         size?: readonly [number, number];
         profiling?: boolean;
+        /** Sem o filtro do sinal traçado: a composição mostra a amostra crua da refração. */
+        rawTraced?: boolean;
     } = {},
 ): Promise<Scene> {
     const [width, height] = options.size ?? [W, H];
@@ -127,6 +133,7 @@ async function scene(
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
+    if (options.rawTraced === true) app.defaults.temporalFilter.enabled = false;
     const view = new Transform({ position: [0, 1, 3, 1] });
     const camera = new clayflow.Camera({
         fov: 0.8,
@@ -181,8 +188,11 @@ async function scene(
                 .add(ball)
                 .add(emissive),
         );
+        // Diagnóstico: `--query freeze=<quadro>` deixa a bola parada na posição daquele quadro (parada, não deixa rastro:
+        // o que sobra contra a cena sem ela é o efeito dela agora — a luz e a sombra que o vidro mostra).
+        const freeze = new URLSearchParams(location.search).get('freeze');
         move = (i) => {
-            ball.data.position = ballAt(i);
+            ball.data.position = ballAt(freeze === null ? i : Number(freeze));
         };
     } else if (options.ball === 'surface') {
         const fn = new clayflow.SurfaceFunction({
@@ -449,14 +459,23 @@ async function trailOf(
     // entre os dois é só a bola.
     const tmp = await scene('temporal', options);
     const bg = await scene('temporal', bare);
+    // O fundo sem o filtro do sinal traçado, para a faixa do detalhe menor que o pixel: o filtro suaviza os primeiros
+    // quadros do que o vidro mostra, e a faixa medida nele não veria o detalhe (fora do traçado, a mesma imagem).
+    const raw = await scene('temporal', { ...bare, rawTraced: true });
     let worst = 0;
     let lowest = 0;
     let lowAt = '';
+    // O desvio coerente: a média da diferença nos pixels contados de cada quadro (o maior para cada lado).
+    let bias = 0;
+    let biasAt = '';
+    let darkBias = 0;
+    let darkBiasAt = '';
     let counted = 0;
     let at = '';
     // Faixa do fundo temporal nos 8 primeiros quadros desde o corte (cada um com outra posição da amostra): detalhe
-    // menor que o pixel (o xadrez ao longe) varia entre as posições, e o pixel recomeçado depois que a bola passa
-    // reconverge com esse ruído (simétrico, não rastro) — decisão do usuário, 2026-10-21: fora da medida, como as arestas.
+    // menor que o pixel (o xadrez ao longe, também o visto pelo vidro) varia entre as posições, e o pixel recomeçado
+    // depois que a bola passa reconverge com esse ruído (simétrico, não rastro) — decisão do usuário, 2026-10-21: fora
+    // da medida, como as arestas. Medida sem o filtro do sinal traçado (`raw`).
     const lo = new Float32Array(W * H).fill(Infinity);
     const hi = new Float32Array(W * H).fill(-Infinity);
     for (let i = 0; i < 120; i++) {
@@ -465,11 +484,15 @@ async function trailOf(
         const img = lum(await tmp.app.core.readCanvas());
         bg.app.step(1 / 60);
         const background = lum(await bg.app.core.readCanvas());
-        if (i < 8)
-            for (let k = 0; k < background.length; k++) {
-                lo[k] = Math.min(lo[k]!, background[k]!);
-                hi[k] = Math.max(hi[k]!, background[k]!);
+        if (i < 8) {
+            raw.app.step(1 / 60);
+            const unfiltered = lum(await raw.app.core.readCanvas());
+            for (let k = 0; k < unfiltered.length; k++) {
+                lo[k] = Math.min(lo[k]!, unfiltered[k]!);
+                hi[k] = Math.max(hi[k]!, unfiltered[k]!);
             }
+            if (i === 7) close(raw);
+        }
         if (
             i === Number(new URLSearchParams(location.search).get('dumpi') ?? 119)
             && new URLSearchParams(location.search).get('dump') === '1'
@@ -486,6 +509,8 @@ async function trailOf(
             );
         }
         if (i < 8) continue;
+        let sum = 0;
+        let n = 0;
         // Pixels cobertos pela bola há 4 a 8 quadros e livres desde então.
         for (let k = 0; k < img.length; k++) {
             if (
@@ -506,23 +531,30 @@ async function trailOf(
             if (img[k]! - background[k]! < lowest)
                 lowAt = `quadro ${i}, pixel (${k % W}, ${Math.floor(k / W)})`;
             lowest = Math.min(lowest, img[k]! - background[k]!);
+            sum += img[k]! - background[k]!;
+            n++;
             counted++;
         }
+        if (n === 0) continue;
+        if (sum / n > bias) biasAt = `quadro ${i}, ${n} pixels`;
+        bias = Math.max(bias, sum / n);
+        if (sum / n < darkBias) darkBiasAt = `quadro ${i}, ${n} pixels`;
+        darkBias = Math.min(darkBias, sum / n);
     }
     close(tmp);
     close(bg);
     log(
-        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — maior excesso ${pct(worst)} do brilho da bola (${at}); maior falta ${pct(-lowest)} (${lowAt})`,
+        `${label}: ${counted} pixels por onde a bola passou há ≥ 4 quadros — desvio coerente ${pct(bias)} do brilho da bola para mais (${biasAt}), ${pct(-darkBias)} para menos (${darkBiasAt}); pior pixel isolado ${pct(worst)} (${at}), ${pct(-lowest)} (${lowAt})`,
     );
     check(counted > 0, `${label}: a bola não foi vista`);
     check(
-        worst <= 0.01,
-        `${label}: rastro de ${pct(worst)} do brilho da bola após 4 quadros (≤ 1 %)`,
+        bias <= 0.01,
+        `${label}: rastro de ${pct(bias)} do brilho da bola após 4 quadros (≤ 1 %)`,
     );
     // O rastro escuro (a sombra da bola guardada no chão parado) — decisão do usuário, 2026-10-21: os dois sentidos.
     check(
-        -lowest <= 0.01,
-        `${label}: rastro escuro de ${pct(-lowest)} do brilho da bola após 4 quadros (≤ 1 %)`,
+        -darkBias <= 0.01,
+        `${label}: rastro escuro de ${pct(-darkBias)} do brilho da bola após 4 quadros (≤ 1 %)`,
     );
 }
 
@@ -752,6 +784,8 @@ async function gpuTimes(
     mode: AntialiasingMode,
 ): Promise<{ span: number; passes: Record<string, number> }> {
     const s = await scene(mode, { size: [1280, 720], profiling: true });
+    // O custo do antisserrilhado sem o da refração traçada (o orçamento dela é outro).
+    s.app.defaults.refraction.enabled = false;
     const timings: GpuFrameTimedPayload[] = [];
     const off = s.app.events.on('gpuFrameTimed', (e) => timings.push(e));
     for (let i = 0; i < 180; i++) {

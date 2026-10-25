@@ -56,8 +56,9 @@ function validate(history: number): void {
 /**
  * Acumulador temporal de pixel (Camada 3; o filtro de sinal traçado da spec 034, R3, generalizado na spec 037): o que
  * limpa um sinal com uma amostra por pixel e por quadro
- * — a média temporal reprojetada com o histórico recomeçado onde a cena mudou (o gradiente temporal do A-SVGF) e cinco
- * passadas à-trous guiadas pelo ponto que o pixel mostra (o SVGF). Quem produz o sinal o descreve pelo ponto
+ * — a média temporal reprojetada com o histórico recomeçado onde a cena mudou (o gradiente temporal do A-SVGF) e
+ * passadas à-trous guiadas pelo ponto que o pixel mostra e pelo albedo dele (o SVGF); pixels sem amostra no quadro (o
+ * entrelaçamento de quem não traça todos) ficam com o histórico, e sem ele com os vizinhos. Quem produz o sinal o descreve pelo ponto
  * `temporal_filter_source` (o sinal, o guia, a mudança); o estágio que filtra liga os dois. Guarda os alvos do filtro,
  * do tamanho do canvas e alocados sob demanda por quem filtra: a média, os momentos e o guia como canais temporais da
  * C2 (spec 037: a fatia de agora e a do quadro anterior, sem cópia) e o par das passadas à-trous (`work` e a cor

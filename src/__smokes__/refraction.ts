@@ -17,10 +17,15 @@
 //   - lit: parede do fundo difusa em xadrez, iluminada por uma luz pontual, vista pela esfera (a luz direta recalculada
 //     no acerto) — ≤ 3 %.
 //   - lens: esfera de vidro como lupa de 4× sobre o xadrez de 2 cm (US1-1): ≤ 3 % e nenhum degrau de pixel na borda do
-//     xadrez vista pela lente (por linha e por coluna, a posição subpixel de cada cruzamento da borda contra a da
-//     referência: nenhum deslocado ≥ 1 px; controles da medida: a referência em blocos de 4 px tem degraus, outra
-//     referência de amostras independentes não tem); a fração da energia contada como absorvida
-//     no limite de interfaces ≤ 0,1 % (o alfa da radiância traçada do `Refraction`).
+//     xadrez vista pela lente (por linha e por coluna, a posição subpixel de cada cruzamento da borda contra a de uma
+//     referência de 1024 amostras: nenhum deslocado ≥ 1 px; controles da medida: a referência em blocos de 4 px tem
+//     degraus, outra referência de 1024 amostras independentes não tem — com 256, o ruído dela desloca 1 cruzamento em
+//     3401); a fração da energia contada como absorvida no limite de interfaces ≤ 0,1 % (o alfa da radiância traçada).
+//   - cost: a cena `lens` a 1280 × 720 no modo temporal (o traçado de todo pixel do vidro, o filtro do sinal traçado e
+//     a marca de movimento): o tempo de parede de um quadro (blocos de 40 quadros seguidos com a fila da GPU esvaziada no fim; a
+//     mediana de três blocos) com a refração ligada menos a desligada ≤ 3 ms (SC-011, 18 % do quadro de 60 Hz no M4; o filtro e a
+//     marca são da refração, não do antisserrilhado — decisão de 2026-10-24). Não os carimbos por passe: no M4 os
+//     passes se sobrepõem e o intervalo de um conta o fim do outro.
 //   - gi: a cena `sphere` sem a iluminação global, com ela desligada e com ela ligada: as médias por região iguais a
 //     ≤ 0,5 % (SC-002; albedo 0, nenhuma luz indireta a descontar) (US1-6).
 // Em todas: nenhum quadro com o passe de cópia da tela (`sceneCopy`): 0 leituras dela pelos transmissivos (SC-001).
@@ -38,7 +43,10 @@ import {
     StandardMaterial,
     Transform,
     type GpuFrameTimedPayload,
-    type LobeName,
+    nodes,
+    type GraphArgument,
+    type MaterialFunction,
+    type NodeUse,
     type StagingBufferSpec,
 } from 'clayflow';
 import type {
@@ -49,7 +57,7 @@ import type {
     PtScene,
 } from '../elements/lighting/reference/pathTracer';
 import { readHdrTexture } from './support/imageMeasures';
-import { closureFn } from './support/materialScenes';
+import { materialGraph } from './support/materialScenes';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { writeFixture } from './support/fixtures';
 import { luminanceLinear } from './support/images';
@@ -305,7 +313,6 @@ const LENS: RefractionScene = {
 
 // ── O motor ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const fmt = (v: Vec3): string => `vec3f(${v.map((x) => x.toFixed(6)).join(', ')})`;
 const AXES = ['x', 'y', 'z'] as const;
 
 /** Quatérnio (x, y, z, w) de `angle` em torno de `axis`. */
@@ -320,55 +327,121 @@ const quatMul = (a: readonly number[], b: readonly number[]): [number, number, n
     a[3]! * b[3]! - a[0]! * b[0]! - a[1]! * b[1]! - a[2]! * b[2]!,
 ];
 
-/** A função `material` do sólido: o mesmo material da referência. */
-function materialOf(s: Solid): ReturnType<typeof closureFn> {
+/** Constante escalar e de cor como nós. */
+const scalarNode = (value: number) => nodes.math.value.with({ value });
+const colorNode = (value: Vec3) => nodes.math.value3.with({ value: [...value] });
+
+/**
+ * A função `material` do sólido montada pelo grafo de nós (o caminho de autoria do desenvolvedor): o mesmo material da
+ * referência — o vidro por `bsdf.dielectric` + `bsdf.transmission`, com a prioridade do meio e a parede fina pelos nós
+ * de fechamento; o opaco por `bsdf.diffuse` e `bsdf.emission`, o xadrez pela posição de mundo.
+ */
+function materialOf(s: Solid): MaterialFunction {
     const g = s.glass;
     if (g !== undefined) {
-        const rough = (g.roughness ?? 0).toFixed(4);
-        const ior = g.ior.toFixed(4);
-        const body = `closure_add(closure_dielectric(${ior}, vec3f(1.0), ${rough}, 0.0, vec3f(0.0)), closure_transmission(${ior}, ${fmt(g.color ?? [1, 1, 1])}, ${(g.depth ?? 0).toFixed(4)}, ${(g.abbe ?? 0).toFixed(2)}, ${rough}))`;
-        const withPriority =
-            g.priority === undefined
-                ? body
-                : `closure_medium_priority(${body}, ${g.priority.toFixed(1)})`;
+        const roughness = g.roughness ?? 0;
+        const graph: Record<string, NodeUse | GraphArgument> = {
+            reflect: nodes.bsdf.dielectric.with({
+                ior: g.ior,
+                tint: [1, 1, 1],
+                roughness,
+                anisotropy: 0,
+                tangent: [0, 0, 0],
+            }),
+            transmit: nodes.bsdf.transmission.with({
+                ior: g.ior,
+                color: [...(g.color ?? [1, 1, 1])],
+                depth: g.depth ?? 0,
+                abbe: g.abbe ?? 0,
+                roughness,
+            }),
+            glass: nodes.closure.add,
+        };
+        const links: [string, string][] = [
+            ['reflect.value', 'glass.a'],
+            ['transmit.value', 'glass.b'],
+        ];
+        let out = 'glass.value';
+        if (g.priority !== undefined) {
+            graph.priority = nodes.closure.mediumPriority.with({ priority: g.priority });
+            links.push([out, 'priority.c']);
+            out = 'priority.value';
+        }
         // O plano de vidro é placa de espessura zero, como o quadrilátero da referência.
-        const thin =
-            s.shape.kind === 'pane' ? `closure_thin_walled(${withPriority})` : withPriority;
-        return closureFn(`    return ${thin};`, ['specular', 'transmission']);
+        if (s.shape.kind === 'pane') {
+            graph.thin = nodes.closure.thinWalled;
+            links.push([out, 'thin.c']);
+            out = 'thin.value';
+        }
+        return materialGraph(graph, links, out);
     }
-    const lobes: LobeName[] = [];
-    const lines: string[] = [];
-    let albedo = fmt(s.albedo ?? [0, 0, 0]);
-    let emission = fmt(s.emission ?? [0, 0, 0]);
+    const graph: Record<string, NodeUse | GraphArgument> = {
+        diffuse: nodes.bsdf.diffuse.with({ color: [...(s.albedo ?? [0, 0, 0])], roughness: 0 }),
+    };
+    const links: [string, string][] = [];
     const c = s.checker;
     if (c !== undefined) {
+        // A casa: floor(a / tamanho) + floor(b / tamanho); ímpar com 2 · fract(casa / 2) = 1.
         const [a, b] = c.axes;
-        lines.push(
-            `    let q = floor(s.world_position.${AXES[a]} / ${c.size.toFixed(4)}) + floor(s.world_position.${AXES[b]} / ${c.size.toFixed(4)});`,
-            '    let odd = q - 2.0 * floor(q * 0.5) > 0.5;',
+        Object.assign(graph, {
+            p: nodes.input.worldPosition(),
+            axes: nodes.math.split3,
+            size: scalarNode(c.size),
+            da: nodes.math.div,
+            db: nodes.math.div,
+            fa: nodes.math.floor,
+            fb: nodes.math.floor,
+            cell: nodes.math.add,
+            half: scalarNode(0.5),
+            two: scalarNode(2),
+            halfCell: nodes.math.mul,
+            parity: nodes.math.fract,
+            odd: nodes.math.mul,
+        });
+        links.push(
+            ['p.world_position', 'axes.v'],
+            [`axes.${AXES[a]}`, 'da.a'],
+            ['size.value', 'da.b'],
+            [`axes.${AXES[b]}`, 'db.a'],
+            ['size.value', 'db.b'],
+            ['da.value', 'fa.x'],
+            ['db.value', 'fb.x'],
+            ['fa.value', 'cell.a'],
+            ['fb.value', 'cell.b'],
+            ['cell.value', 'halfCell.a'],
+            ['half.value', 'halfCell.b'],
+            ['halfCell.value', 'parity.x'],
+            ['parity.value', 'odd.a'],
+            ['two.value', 'odd.b'],
         );
-        if (c.albedo !== undefined)
-            albedo = `select(${fmt(c.albedo[0])}, ${fmt(c.albedo[1])}, odd)`;
-        if (c.emission !== undefined)
-            emission = `select(${fmt(c.emission[0])}, ${fmt(c.emission[1])}, odd)`;
+        const pick = (name: string, pair: readonly [Vec3, Vec3], into: string): void => {
+            graph[`${name}Even`] = colorNode(pair[0]);
+            graph[`${name}Odd`] = colorNode(pair[1]);
+            graph[name] = nodes.condition.select3;
+            links.push(
+                [`${name}Even.value`, `${name}.if_false`],
+                [`${name}Odd.value`, `${name}.if_true`],
+                ['odd.value', `${name}.condition`],
+                [`${name}.value`, into],
+            );
+        };
+        if (c.albedo !== undefined) pick('albedo', c.albedo, 'diffuse.color');
+        if (c.emission !== undefined) pick('emission', c.emission, 'emit.color');
     }
-    const emits = s.emission !== undefined || c?.emission !== undefined;
-    const reflects = s.albedo !== undefined || c?.albedo !== undefined;
-    if (reflects) lobes.push('diffuse');
-    if (emits) lobes.push('emission');
-    const parts = [
-        reflects ? `closure_diffuse(${albedo}, 0.0)` : 'closure_diffuse(vec3f(0.0), 0.0)',
-        ...(emits ? [`closure_emission(${emission}, 1.0)`] : []),
-    ];
-    const closure = parts.length === 1 ? parts[0]! : `closure_add(${parts.join(', ')})`;
-    return closureFn(
-        [...lines, `    return ${closure};`].join('\n'),
-        lobes.length > 0 ? lobes : ['diffuse'],
-    );
+    if (s.emission !== undefined || c?.emission !== undefined) {
+        graph.emit = nodes.bsdf.emission.with({
+            color: [...(s.emission ?? [0, 0, 0])],
+            luminance: 1,
+        });
+        graph.surface = nodes.closure.add;
+        links.push(['diffuse.value', 'surface.a'], ['emit.value', 'surface.b']);
+        return materialGraph(graph, links, 'surface.value');
+    }
+    return materialGraph(graph, links, 'diffuse.value');
 }
 
 /** Monta a cena no motor; devolve a câmera. */
-function buildEngine(app: Application, scene: RefractionScene): Camera {
+function buildEngine(app: Application, scene: RefractionScene, aspect = W / H): Camera {
     for (const s of scene.solids) {
         const sh = s.shape;
         let entity;
@@ -407,7 +480,7 @@ function buildEngine(app: Application, scene: RefractionScene): Camera {
     const c = scene.camera;
     const camera = new Camera({
         fov: c.fovY,
-        aspect: W / H,
+        aspect,
         aspectMode: 'fixed',
         near: 0.02,
         far: 30,
@@ -585,12 +658,16 @@ function referenceScene(scene: RefractionScene): { scene: PtScene; camera: PtCam
 }
 
 /** A referência de `SAMPLES` amostras por pixel (`firstSample`: outra sequência, independente). */
-async function renderReference(scene: RefractionScene, firstSample = 0): Promise<PtImage> {
+async function renderReference(
+    scene: RefractionScene,
+    firstSample = 0,
+    samples = SAMPLES,
+): Promise<PtImage> {
     const { scene: pt, camera } = referenceScene(scene);
     return renderPathTracedParallel(pt, camera, {
         width: W,
         height: H,
-        samples: SAMPLES,
+        samples,
         bounces: 0,
         firstSample,
     });
@@ -891,10 +968,18 @@ async function compareScene(
     return { ref, regions, engine };
 }
 
+/**
+ * Amostras das referências da medida dos degraus: a posição de cada cruzamento da borda é medida contra a referência, e o
+ * controle (outra referência, de amostras independentes) tem de dar 0 degraus — com 256 amostras o ruído da própria
+ * referência desloca 1 cruzamento em 3401 além de 1 px; com 1024 o desvio padrão cai à metade.
+ */
+const STEP_SAMPLES = 1024;
+
 async function caseLens(): Promise<void> {
-    const { ref, regions, engine } = await compareScene(LENS);
+    const { regions, engine } = await compareScene(LENS);
     try {
         const lens = regions.get(10) ?? [];
+        const ref = await renderReference(LENS, 0, STEP_SAMPLES);
         // Controle da medida: a referência em blocos de 4 px (a imagem ampliada 4× sem filtro) tem degraus.
         const blocky = new Float32Array(ref.rgb.length);
         for (let y = 0; y < H; y++)
@@ -908,7 +993,11 @@ async function caseLens(): Promise<void> {
             }
         const b = edgeSteps(blocky, ref.rgb, lens);
         // E não acusa o ruído: outra referência, de amostras independentes, não tem degrau.
-        const other = edgeSteps((await renderReference(LENS, SAMPLES)).rgb, ref.rgb, lens);
+        const other = edgeSteps(
+            (await renderReference(LENS, STEP_SAMPLES, STEP_SAMPLES)).rgb,
+            ref.rgb,
+            lens,
+        );
         log(
             `lens: controle — outra referência (amostras independentes): ${other.steps} degraus em ${other.crossings} cruzamentos (p99 ${other.p99.toFixed(3)} px)`,
         );
@@ -954,6 +1043,60 @@ async function caseLens(): Promise<void> {
     }
 }
 
+/**
+ * Tempo de um quadro na cena da lente a 1280 × 720 com a refração `on`: blocos de 40 quadros seguidos, sem esperar entre
+ * eles, e uma leitura no fim (a fila da GPU termina) — o tempo de parede dividido pelos quadros, a mediana de três blocos. Os
+ * carimbos de tempo por passe não servem aqui: no M4 os passes se sobrepõem e o intervalo de um conta o fim do outro.
+ */
+async function lensFrameMs(on: boolean): Promise<number> {
+    const [width, height] = [1280, 720];
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    document.body.appendChild(canvas);
+    const app = await Application.create({
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+        captureErrors: true,
+        antialias: 'temporal',
+    });
+    app.events.on('engineError', (e) => engineErrors.push(`cost: ${e.stage}: ${e.message}`));
+    app.defaults.ambient.data.intensity = 0;
+    app.defaults.refraction.enabled = on;
+    buildEngine(app, LENS, width / height);
+    await app.whenReady({ timeoutMs: 60_000 });
+    const color = app.resources.textureOf(app.defaults.targets, 'color');
+    if (color === undefined) throw new Error('alvo HDR não alocado');
+    // A fila da GPU termina: uma leitura do alvo de cor.
+    const drain = async (): Promise<void> => {
+        await readHdrTexture(app, color);
+    };
+    for (let i = 0; i < 30; i++) app.step(1 / 60);
+    await drain();
+    const blocks: number[] = [];
+    for (let b = 0; b < 3; b++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 40; i++) app.step(1 / 60);
+        await drain();
+        blocks.push((performance.now() - t0) / 40);
+    }
+    app.dispose();
+    canvas.remove();
+    blocks.sort((a, b) => a - b);
+    return blocks[1]!;
+}
+
+/** SC-011: a refração na cena da lente ≤ 3 ms a 1280 × 720 no modo temporal. */
+async function caseCost(): Promise<void> {
+    const on = await lensFrameMs(true);
+    const off = await lensFrameMs(false);
+    log(
+        `cost: lente a 1280 × 720, quadro ${on.toFixed(3)} ms com a refração, ${off.toFixed(3)} ms sem — refração ${(on - off).toFixed(3)} ms`,
+    );
+    check(on - off <= 3, `cost: refração ${(on - off).toFixed(3)} ms na lente (≤ 3 ms)`);
+}
+
 async function caseGi(): Promise<void> {
     const scene = SCENES[0]!;
     const ref = await renderReference(scene);
@@ -995,6 +1138,10 @@ async function main(): Promise<void> {
     if (only === null || only === 'gi') {
         log('── gi');
         await caseGi();
+    }
+    if (only === null || only === 'cost') {
+        log('── cost');
+        await caseCost();
     }
     check(engineErrors.length === 0, `erros do motor: ${engineErrors.slice(0, 5).join(' | ')}`);
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);

@@ -1,6 +1,6 @@
 // Cenas de partículas compartilhadas pelos smokes de física (`trajectories`, `particles`): gerador determinístico,
 // gravidade, chão, tanque e blocos de partículas com jitter — a mesma disposição gravada nas fixtures.
-import { GravityField, ParticleMaterial, RigidBody } from 'clayflow';
+import { GravityField, ParticlePhysics, RigidBody } from 'clayflow';
 import type { Application } from 'clayflow';
 import { mulberry32 } from './random';
 
@@ -8,7 +8,7 @@ import { mulberry32 } from './random';
 export const rng = mulberry32;
 
 /** Espaçamento das partículas (material padrão). */
-export const SPACING = ParticleMaterial.defaults.particleSpacing;
+export const SPACING = ParticlePhysics.defaults.particleSpacing;
 /** Meia largura interna do tanque dos fluidos (m). */
 export const TANK = 0.5;
 

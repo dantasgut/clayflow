@@ -130,7 +130,7 @@ export interface TemporalFilterVariant {
     };
     /** A passada temporal (SVGF com o gradiente do A-SVGF). */
     readonly temporal: ReturnType<typeof wgslModule>;
-    /** As passadas à-trous (passos 1, 2, 4, 8 e 16: `temporal_filter_atrous_<passo>_main`). */
+    /** As passadas à-trous (os passos de `TEMPORAL_FILTER_ATROUS_STEPS`: `temporal_filter_atrous_<passo>_main`). */
     readonly atrous: ReturnType<typeof wgslModule>;
 }
 
@@ -204,5 +204,10 @@ export const temporalFilterTemporal = temporalFilterVariant('half').temporal;
 /** As passadas à-trous na precisão padrão. */
 export const temporalFilterAtrous = temporalFilterVariant('half').atrous;
 
-/** Passos das passadas à-trous, na ordem. */
-export const TEMPORAL_FILTER_ATROUS_STEPS = [1, 2, 4, 8, 16] as const;
+/**
+ * Passos das passadas à-trous, na ordem (número ímpar: elas alternam entre o par de trabalho e a saída, e a última grava
+ * a saída). Três, raio de 14 pixels: o sinal da refração tem a reflexão interna em toda amostra (pouco ruído) e, com o
+ * entrelaçamento, o vizinho amostrado mais longe está a 3 pixels. Com cinco (raio de 62) a qualidade medida é a mesma
+ * (smoke `antialiasing`: parado 0,82 contra 0,85 %, rastro e órbita iguais) e o filtro custa 0,5 ms a mais na lente.
+ */
+export const TEMPORAL_FILTER_ATROUS_STEPS = [1, 2, 4] as const;

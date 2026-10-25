@@ -35,8 +35,18 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
   (`defaults.temporalFilter`, ponto `temporal_filter_source`): o nome diz o que ele é, e outro sinal traçado usa o mesmo
   recurso pelo ponto da fonte.
 
+## 5. `ParticleMaterial` não é material
+
+- **Hoje (até 2026-10-25)**: o recurso com densidade de repouso, viscosidade, restituição, coesão, adesão e o domínio
+  dos corpos de partículas chamava-se `ParticleMaterial` — nome de material de render para parâmetros de física.
+- **Resolvido em 2026-10-25 (decisão do usuário)**: `ParticlePhysics` (`src/elements/physics/ParticlePhysics.ts`), como
+  o painel Physics das configurações de partículas do Blender; slot `physics` nos Flows de física (`SPHFlow`, `PBFFlow`,
+  `MPMFlow`, `DiffuseFlow`, `SoftEnergyFlow`; `particlePhysics` no `FluidFieldFlow`) e consumidor `physics`. Continua Resource: o dado que os Flows da
+  simulação leem. Sem apelido do nome antigo: a troca quebra a compatibilidade da API (quem usa o motor troca o nome).
+
 ## Terminologia nas mensagens e na documentação
 
-"Textura" fica reservada para imagem aplicada em superfície (um bitmap). Os resultados de cálculo guardados por pixel
+"Material" fica reservado para a aparência (o grafo de fechamentos: cor, reflexo, rugosidade, transmissão,
+translucidez, deslocamento); atrito, restituição, viscosidade e coesão são parâmetros de física. "Textura" fica reservada para imagem aplicada em superfície (um bitmap). Os resultados de cálculo guardados por pixel
 a cada quadro (`radiance`, `hit`, `gradient`, os alvos do filtro) são "alvos por pixel" ou "resultados por pixel":
 estado físico recalculado a cada quadro, nunca imagem pronta.

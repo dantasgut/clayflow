@@ -10,7 +10,7 @@ import { startServer } from './server';
  * Grava vídeos das cenas de `src/__smokes__/videoScenes.ts` com a imagem lida direto da GPU (spec 034, US6):
  *
  *   npm run video -- <cena>[,<cena>…] [--frames N] [--out pasta] [--lossless] [--10bit] [--size 1280x720]
- *                     [--timeout s]
+ *                     [--timeout s] [--aa off|temporal|msaa|accumulate]
  *
  * A página monta a cena, espera o motor pronto e, quadro a quadro com passo fixo de 1/60 s, lê o quadro apresentado
  * (`readCanvas`, sem canvas 2D nem JPEG) e o entrega por função exposta; o runner escreve os pixels no `stdin` do
@@ -33,6 +33,7 @@ interface VideoArgs {
     readonly width: number;
     readonly height: number;
     readonly timeoutMs: number;
+    readonly aa: string | undefined;
 }
 
 const PORT = 5184;
@@ -53,6 +54,7 @@ function parse(argv: readonly string[]): VideoArgs {
     let width = 1280;
     let height = 720;
     let timeoutMs = 900_000;
+    let aa: string | undefined;
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i] ?? '';
         if (a === '--frames') {
@@ -71,12 +73,13 @@ function parse(argv: readonly string[]): VideoArgs {
             const v = Number(argv[++i]);
             if (!Number.isFinite(v) || v <= 0) throw new Error('--timeout espera segundos > 0');
             timeoutMs = v * 1000;
-        } else if (a.startsWith('--')) throw new Error(`opção desconhecida: ${a}`);
+        } else if (a === '--aa') aa = argv[++i];
+        else if (a.startsWith('--')) throw new Error(`opção desconhecida: ${a}`);
         else scenes.push(...a.split(',').filter((n) => n.length > 0));
     }
     if (scenes.length === 0)
         throw new Error('informe ao menos uma cena (ex.: npm run video -- lente)');
-    return { scenes, frames, out, lossless, tenBit, width, height, timeoutMs };
+    return { scenes, frames, out, lossless, tenBit, width, height, timeoutMs, aa };
 }
 
 function requireFfmpeg(): void {
@@ -298,6 +301,7 @@ async function record(
         h: String(args.height),
         ...(args.tenBit ? { bits: '16' } : {}),
         ...(args.frames !== undefined ? { frames: String(args.frames) } : {}),
+        ...(args.aa !== undefined ? { aa: args.aa } : {}),
     });
     const server = `http://localhost:${PORT}/`;
     await page.goto(`${server}smoke.html?${query.toString()}`);

@@ -24,11 +24,11 @@ direto para o `develop`) e a 034 é retomada.
 - **Onde parou**: Fases 1–4 fechadas; Fase 5 com T031, T032 e T034 implementadas e as caixas abertas; Fase 6 com
   T042–T045 implementadas e medidas (smoke `refraction`: todas as cenas 0,06–0,39 %), T044a em avaliação (research R3a),
   T046 e T047 por fazer; Fases 7–10 não começadas. 41 tarefas fechadas, 42 abertas.
-- **Decisões do usuário pendentes**: (1) manter o filtro do sinal traçado (R3a, revendo R1); (2) critérios do vidro
-  traçado, da cena parada e da órbita com referência (rastro acima do ruído de recomeço; parada ≤ 1,1× o acúmulo com os
-  mesmos quadros; órbita ≤ 0,6× o erro sem antisserrilhado); (3) o filtro e o gradiente no orçamento da refração (3 ms)
-  ou no do antisserrilhado (1,5 ms); (4) controle dos degraus da lente (A: referências com 1024 amostras; B: filtro de
-  borda a 40 %; C: tolerar ≤ 0,1 %).
+- **Decisões (2026-10-24, na retomada; o usuário: critérios e escolhas técnicas com racional são de quem implementa)**:
+  (1) o filtro do sinal traçado fica (R3a vira decisão, revendo R1); (2) os critérios do vidro seguem os de SC-004/005,
+  com o detalhe menor que o pixel medido no sinal antes do filtro (a regra de 2026-10-21 aplicada ao vidro); (3) o filtro
+  e a marca de movimento no orçamento da refração (3 ms), não no do antisserrilhado; (4) controle dos degraus da lente
+  pela opção A (referência de 1024 amostras).
 - **Pendências de API**: `api-pendencias.md`.
 - **Retomada (2026-10-24, merge da 037 neste branch)**: a 037 renomeou e moveu peças desta spec — `TracedDenoiser` →
   `TemporalFilter` (`src/elements/lighting/temporal/`), `traced_denoise_*` → `temporal_*`, ponto `temporal_source`,
@@ -140,6 +140,16 @@ direto para o `develop`) e a 034 é retomada.
 - [ ] T043 [US1] Pilha de meios em `refraction_media.wgsl` (≤ 4, meio inicial pela câmera, empilhar/desempilhar por entidade, interfaces coincidentes) e Beer–Lambert por meio
 - [ ] T044 [US1] `RefractionFlow` (`src/elements/lighting/refraction/RefractionFlow.ts`, `refraction_trace.wgsl`): caminho até 16 interfaces, dispersão em três caminhos com o índice do canal em cada interface, luz direta com sombra e `closure_indirect` no acerto opaco, céu no escape; divisão por grupo de formas de material quando passar de 10 storage
 - [ ] T044a [US1] Movimento do que o raio secundário mostra: a refração (e o reflexo traçado) grava no canal ba do alvo `motion` a posição anterior na tela do ponto atingido (`previousViewProjection` × mundo anterior do objeto atingido), para a resolução temporal recortar e reprojetar o conteúdo refratado/refletido — o rastro de SC-005 no vidro e na esfera lisa (7,45 % hoje) depende disso
+  - Retomada (2026-10-24), medido no M4 (research R3a): divisão na segunda interface, guia de albedo pesado pela luz,
+    marca de movimento pelo próprio traçado no lugar do gradiente refeito, entrelaçamento com orçamento de pixels
+    traçados (`Refraction.maxTracedPixels`) e três passadas à-trous. Oito cenas 0,07–0,38 %; lente 0 degraus (controle
+    de 1024 amostras); antisserrilhado parado 0,82 %; custo do antisserrilhado 1,145 ms; refração na lente 5,24 ms (era
+    46). Em aberto: rastro claro 1,18 % e escuro 2,7 % (≤ 1 %), órbita 3,28 % (≤ 3 %), custo da lente (≤ 3 ms).
+  - 2026-10-25: entrelaçamento retirado (o vídeo da lente mostrou o quadriculado dos pixels não traçados; research
+    R3a); recorte do histórico pela vizinhança 3 × 3 no filtro; a sombra marca o movimento. Oito cenas 0,07–0,38 %,
+    lente 0 degraus, parado 0,83 %, custo do antisserrilhado 1,18 ms; órbita pose 3 3,23 %; rastro claro 1,18 % e
+    escuro ~2–2,75 % (ruído de reconvergência, research R3a); refração na lente 32,3 ms. Vídeo `lente` com a cena nova
+    (céu, sol, piso, colunas, esfera opaca rolando atrás do vidro).
   - Estado (2026-10-23): vetor ba do que o traçado mostra (`RefractionMotionFlow`, pelo ponto mostrado `Refraction.hit`) e máscara reativa pelo gradiente temporal da refração (a amostra do quadro anterior refeita na cena de agora). Em avaliação (research R3a, decisão do usuário pendente): o filtro do sinal traçado (`TracedDenoiser`, `RefractionDenoiseFlow`). Tentado e desfeito: 4 amostras onde o histórico recomeçou (custo 4,4 ms em órbita), a regra da luz direta no ponto mostrado, a comparação do ponto mostrado no mesmo pixel (recomeçava o vidro inteiro com a câmera em movimento). A radiância transmitida e a refletida passaram a uma saída só (`radiance`). Smoke `antialiasing`: ver R3a.
 - [ ] T045 [US1] Composição dos transmissivos lendo a saída do próprio pixel (`forward_transmission.wgsl`); remover `transmission_background`/`scene_copy` dos transmissivos, inclusive a parede fina; `recordSceneCopy` só se outro consumidor existir
 - [ ] T046 [US1] Estágio em `src/presentation/flows/defaults.ts` (depois dos opacos e da superfície da água, antes da composição) e evento de não suportado quando a estrutura de raios faltar

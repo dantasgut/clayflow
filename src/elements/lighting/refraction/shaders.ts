@@ -20,7 +20,6 @@ import {
     camera,
     color,
     constants,
-    hashAddress,
     random,
     viewSpace,
     xformAffine,
@@ -40,15 +39,14 @@ import {
 import { RenderableSchema } from '../../scene/Renderable';
 import {
     Refraction,
+    REFRACTION_ALBEDO_FORMAT,
     REFRACTION_FRAME_COUNT,
     REFRACTION_HIT_FORMAT,
     REFRACTION_GRADIENT_FORMAT,
-    REFRACTION_GRADIENT_RAY_FORMAT,
     REFRACTION_MAX_MEDIA,
     REFRACTION_QUEUE_FORMAT,
     REFRACTION_RADIANCE_FORMAT,
     REFRACTION_REQUEST_VALID,
-    REFRACTION_STRATUM,
 } from './Refraction';
 
 // Módulos da refração traçada (spec 034, R1): o uniform do `Refraction` (resolver `Refraction.params`), os alvos dele
@@ -104,18 +102,10 @@ export const refractionResources = Object.freeze({
     radiance: texture('refraction_radiance', 'f32'),
     hitOut: storageTexture('refraction_hit_out', REFRACTION_HIT_FORMAT),
     hit: texture('refraction_hit', 'f32'),
+    albedoOut: storageTexture('refraction_albedo_out', REFRACTION_ALBEDO_FORMAT),
+    albedo: texture('refraction_albedo', 'f32'),
     gradientOut: storageTexture('refraction_gradient_out', REFRACTION_GRADIENT_FORMAT),
     gradient: texture('refraction_gradient', 'f32'),
-    gradientOrigin: texture('refraction_gradient_origin', 'f32'),
-    gradientDirection: texture('refraction_gradient_dir', 'f32'),
-    gradientOriginOut: storageTexture(
-        'refraction_gradient_origin_out',
-        REFRACTION_GRADIENT_RAY_FORMAT,
-    ),
-    gradientDirectionOut: storageTexture(
-        'refraction_gradient_dir_out',
-        REFRACTION_GRADIENT_RAY_FORMAT,
-    ),
     requestDepth: texture('refraction_request_depth', 'depth'),
 });
 
@@ -202,31 +192,22 @@ export const refractionTrace = wgslModule({
         R.frame,
         R.radianceOut,
         R.hitOut,
+        R.albedoOut,
     ],
 });
 
-/** O gradiente temporal (spec 034, T044a): a amostra do quadro anterior refeita na cena de agora, por bloco. */
+/**
+ * A marca de movimento do quadro anterior por pixel (spec 034, T044a), copiada do alfa do albedo antes do traçado.
+ */
 export const refractionGradient = wgslModule({
     name: 'refraction_gradient',
     source: refractionGradientSource,
     requires: [
-        random,
-        hashAddress,
-        color,
         WORKGROUP_SIZE.module,
-        REFRACTION_STRATUM.module,
         REFRACTION_REQUEST_VALID.module,
-        refractionParamsResource,
-        refractionPath,
-        cameraSpace,
         R.request,
-        R.frame,
-        R.radiance,
-        R.gradientOrigin,
-        R.gradientDirection,
+        R.albedo,
         R.gradientOut,
-        R.gradientOriginOut,
-        R.gradientDirectionOut,
     ],
 });
 
@@ -242,13 +223,13 @@ export const refractionHistory = wgslModule({
         cameraSpace,
         viewSpace,
         NONE.module,
-        REFRACTION_STRATUM.module,
         refractionParamsResource,
         camerasResource,
         renderablesResource,
         worldInversesResource,
         previousWorldsResource,
         R.hit,
+        R.albedo,
         R.gradient,
     ],
     structs: [RenderableSchema],
@@ -256,7 +237,7 @@ export const refractionHistory = wgslModule({
 
 /**
  * A refração como sinal do filtro de sinal traçado (a implementação do ponto `temporal_filter_source`): os pixels com
- * pedido, a radiância e, como guia, o ponto mostrado.
+ * pedido, a radiância e, como guias, o ponto mostrado e o albedo dele.
  */
 export const refractionDenoiseSource = wgslModule({
     name: 'refraction_denoise_source',

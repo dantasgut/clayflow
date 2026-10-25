@@ -54,7 +54,7 @@ Entity é abstrata — não pode ser instanciada diretamente.
 - [`ForceField`](ForceField.md)
 - [`Collider`](Collider.md)
 - [`Constraint`](Constraint.md)
-- [`ParticleMaterial`](ParticleMaterial.md)
+- [`ParticlePhysics`](ParticlePhysics.md)
 - [`ParticleEmitter`](ParticleEmitter.md)
 - [`DiffuseParticles`](DiffuseParticles.md)
 - [`NeighborSearchGrid`](NeighborSearchGrid.md)

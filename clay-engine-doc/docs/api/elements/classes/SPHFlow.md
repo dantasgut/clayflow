@@ -9,7 +9,7 @@
 Defined in: [elements/physics/flows/SPHFlow.ts:87](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L87)
 
 SPHFlow — fluidos por Smoothed Particle Hydrodynamics fracamente compressível (Tait). O quadro executa
-`time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticleMaterial` (CFL 0,4 h/c); cada
+`time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticlePhysics` (CFL 0,4 h/c); cada
 uma reconstrói a vizinhança (raio = suporte 2h) e roda densidade → pressão → forças → integração → colisão com a
 sua região de `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico. Massa,
 suavização, rigidez, viscosidade, restituição e domínio vêm do material.

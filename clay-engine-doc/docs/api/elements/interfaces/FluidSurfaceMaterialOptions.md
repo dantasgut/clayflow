@@ -104,7 +104,7 @@ Defined in: [elements/material/FluidSurfaceMaterial.ts:15](https://github.com/da
 
 Defined in: [elements/material/FluidSurfaceMaterial.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/FluidSurfaceMaterial.ts#L21)
 
-Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento do `ParticleMaterial`).
+Raio da esfera de cada partícula em mundo; 0 = automático (0,6 × espaçamento do `ParticlePhysics`).
 
 #### Inherited from
 

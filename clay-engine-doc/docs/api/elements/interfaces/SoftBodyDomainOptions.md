@@ -20,7 +20,7 @@ internas. `pos.w` carrega o inverso da massa.
 Defined in: [elements/physics/bodies/SoftBody.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/SoftBody.ts#L50)
 
 Seleciona o schema e o estágio que simula: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
-`ParticleMaterial` da cena).
+`ParticlePhysics` da cena).
 
 ***
 

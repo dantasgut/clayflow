@@ -26,7 +26,7 @@ import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { SpatialHashGrid } from '../gpu/compute/SpatialHashGrid';
 import { FluidSurfaceMaterial } from '../material/FluidSurfaceMaterial';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
-import { ParticleMaterial } from '../physics/materials/ParticleMaterial';
+import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
@@ -50,8 +50,8 @@ export interface FluidFieldSlots extends SlotMap {
     readonly field: SingletonSlot<false>;
     /** Os corpos de partículas com superfície de fluido. */
     readonly bodies: EntitiesSlot;
-    /** O material das partículas (o espaçamento). */
-    readonly particleMaterial: SingletonSlot<true>;
+    /** A física das partículas (o espaçamento). */
+    readonly particlePhysics: SingletonSlot<true>;
     /** O tempo da cena: o nível da superfície só se ajusta nos quadros em que a simulação avança. */
     readonly time: SingletonSlot<true>;
 }
@@ -59,7 +59,7 @@ export interface FluidFieldSlots extends SlotMap {
 const slots: FluidFieldSlots = {
     field: slot.singleton(FluidField.schema),
     bodies: slot.entities({ all: [ParticleBody, FluidSurfaceMaterial] }),
-    particleMaterial: slot.singleton(ParticleMaterial.schema, { optional: true }),
+    particlePhysics: slot.singleton(ParticlePhysics.schema, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
 };
 
@@ -109,7 +109,7 @@ interface Kernels {
     readonly apron: ComputeKernel;
 }
 
-/** Espaçamento padrão das partículas quando a cena não tem `ParticleMaterial`. */
+/** Espaçamento padrão das partículas quando a cena não tem `ParticlePhysics`. */
 const DEFAULT_SPACING = 0.05;
 
 /**
@@ -315,7 +315,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         }
         const work = this.ensureWork(this.particles, capacity);
         const spacing =
-            (ctx.bound.slots.particleMaterial?.resource as ParticleMaterial | undefined)?.data
+            (ctx.bound.slots.particlePhysics?.resource as ParticlePhysics | undefined)?.data
                 .particleSpacing ?? DEFAULT_SPACING;
         const radius = FIELD.radius * spacing;
         const gridRebuilt = this.grid.prepare(work.items, this.particles, radius);

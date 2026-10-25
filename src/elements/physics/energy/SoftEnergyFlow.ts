@@ -23,7 +23,7 @@ import { FEMSchema } from '../bodies/schemas/FEMSchema';
 import { MPMSoftSchema } from '../bodies/schemas/MPMSoftSchema';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { GravityField } from '../forcefields/GravityField';
-import { ParticleMaterial } from '../materials/ParticleMaterial';
+import { ParticlePhysics } from '../ParticlePhysics';
 import { EnergyMeter } from './EnergyMeter';
 import {
     BODY_ENERGY_HISTORY,
@@ -54,8 +54,8 @@ export interface SoftEnergySlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** A gravidade uniforme (sem ela, a padrão dos solvers: 0, −9,81, 0). */
     readonly gravity: SingletonSlot<true>;
-    /** O material das partículas (a massa, o volume e a rigidez do MPM; sem ele, o padrão). */
-    readonly material: SingletonSlot<true>;
+    /** A física das partículas (a massa, o volume e a rigidez do MPM; sem ele, o padrão). */
+    readonly physics: SingletonSlot<true>;
     /** As partículas de cada algoritmo e as arestas do XPBD (cada pipeline existe com o pool dele). */
     readonly xpbd: PoolSlot<true>;
     readonly fem: PoolSlot<true>;
@@ -101,7 +101,7 @@ const PIPELINES = Object.freeze({
  * SoftEnergyFlow — a série temporal da energia dos corpos moles (spec 037, o canal temporal da C2). Na fase `physics`,
  * depois dos solvers, só com um `EnergyMeter` na cena: pede o pool `SoftBodyEnergy` (8 fatias, um registro por corpo, no
  * slot da faixa dele) e as somas dos blocos, escreve uma região de parâmetros por algoritmo e uma da soma (a gravidade,
- * o tempo simulado do quadro, os passos já gravados e, no MPM, o material) e despacha em duas passadas: a dos blocos
+ * o tempo simulado do quadro, os passos já gravados e, no MPM, a física) e despacha em duas passadas: a dos blocos
  * (um grupo por bloco de 1024 elementos, uma vez por algoritmo presente, com a fonte dele no ponto
  * `soft_energy_source` — XPBD com as arestas, ou sem se não há restrições na cena, FEM, MPM), em paralelo mesmo num
  * corpo grande, e a dos corpos (um grupo por corpo: a soma dos blocos e a fatia da série). O anel gira só nos quadros
@@ -115,7 +115,7 @@ export class SoftEnergyFlow extends Flow<SoftEnergySlots, 'idle'> {
         chunks: slot.pool(SoftBodyChunkSchema.name),
         time: slot.singleton(Time.schema),
         gravity: slot.singleton(GravityField.schema, { optional: true }),
-        material: slot.singleton(ParticleMaterial.schema, { optional: true }),
+        physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
         xpbd: slot.pool(XPBDSoftSchema.name, { optional: true }),
         fem: slot.pool(FEMSchema.name, { optional: true }),
         mpm: slot.pool(MPMSoftSchema.name, { optional: true }),
@@ -235,13 +235,13 @@ export class SoftEnergyFlow extends Flow<SoftEnergySlots, 'idle'> {
         const g = (s.gravity?.resource as GravityField | undefined)?.uniformAcceleration() ?? [
             0, -9.81, 0, 0,
         ];
-        const material =
-            (s.material?.resource as ParticleMaterial | undefined) ?? ParticleMaterial.defaults;
-        const { mu, lambda } = material.lame;
+        const physics =
+            (s.physics?.resource as ParticlePhysics | undefined) ?? ParticlePhysics.defaults;
+        const { mu, lambda } = physics.lame;
         const region = (records: number, algorithm: number) => ({
             gravity: [g[0] ?? 0, g[1] ?? 0, g[2] ?? 0, time.data.stepDt * time.data.steps],
             counts: [records, s.softEnergy.frames, BODY_ENERGY_HISTORY, algorithm],
-            material: [material.particleMass, material.particleVolume, mu, lambda],
+            material: [physics.particleMass, physics.particleVolume, mu, lambda],
         });
         // Passada 1: os blocos, filtrados pelo algoritmo; passada 2: as faixas.
         for (const algorithm of ALGORITHMS)

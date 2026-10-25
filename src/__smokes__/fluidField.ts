@@ -33,7 +33,7 @@ import {
     FluidField,
     fieldDataLayout,
     FluidSurfaceMaterial,
-    ParticleMaterial,
+    ParticlePhysics,
     PlaneGeometry,
     rayVolumeHitReady,
     slot,
@@ -202,7 +202,7 @@ function staticBody(
     spacing: number,
     material: FluidSurfaceMaterialOptions = {},
 ): void {
-    app.world.insert(new ParticleMaterial({ particleSpacing: spacing }));
+    app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     const body = new FluidBody({ algorithm: 'SPH', position: [...positions] });
     body.add(new FluidSurfaceMaterial(material));
     app.world.insert(body);

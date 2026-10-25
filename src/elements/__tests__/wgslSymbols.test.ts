@@ -48,6 +48,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
     temporal_filter_source_guide:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_albedo:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
     temporal_filter_source_previous_point:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
     temporal_filter_source_footprint:

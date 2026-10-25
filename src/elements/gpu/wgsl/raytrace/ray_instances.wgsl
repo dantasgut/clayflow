@@ -3,7 +3,9 @@
 // hierarquia de baixo (os oito cantos da caixa da raiz dela) — guardada em `ray_aabbs` e reduzida na caixa do conjunto
 // para os códigos de Morton da hierarquia de cima — e o material copiado do registro da entidade (as constantes do
 // `StandardMaterial` e o slot da função, ou a cor constante das esferas dos sprites): quem sombreia os acertos não liga
-// os pools de material.
+// os pools de material. E se a instância se moveu desde o quadro anterior (a matriz de mundo nova contra a do próprio
+// registro, antes de sobrescrever; `material1.z`, spec 034): quem acumula o que os raios veem recomeça onde um caminho
+// tocou algo em movimento.
 // Requer: WORKGROUP_SIZE, NONE, ray_common, ray_reduce, build, ray_instance_sources, worlds, renderables, materials,
 // ray_bvh_out, ray_aabbs.
 
@@ -76,11 +78,15 @@ fn ray_instance_update(i: u32) -> array<vec3f, 2> {
         }
     }
     let w = build.primFirst + i * RAY_INSTANCE_WORDS;
+    var moved = false;
+    for (var c = 0u; c < 4u; c++) {
+        moved = moved || any(bitcast<vec4u>(world[c]) != ray_bvh_out[w + 4u + c].word);
+    }
     ray_store_matrix(w, inverse);
     ray_store_matrix(w + 4u, world);
     ray_bvh_out[w + 8u].word = vec4u(src.x, src.y, src.w, flags);
     ray_bvh_out[w + 9u].word = bitcast<vec4u>(vec4f(albedo.rgb, roughness));
-    ray_bvh_out[w + 10u].word = vec4u(bitcast<u32>(metallic), fn_slot, 0u, 0u);
+    ray_bvh_out[w + 10u].word = vec4u(bitcast<u32>(metallic), fn_slot, select(0u, 1u, moved), 0u);
     ray_aabbs[i * 2u] = vec4f(lo, 0.0);
     ray_aabbs[i * 2u + 1u] = vec4f(hi, 0.0);
     return array<vec3f, 2>(lo, hi);

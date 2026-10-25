@@ -3,8 +3,9 @@
 // runner (`__videoFrame`), que o escreve no ffmpeg. Nada passa pelo canvas 2D nem por JPEG. `?bits=16` usa o canvas em
 // `rgba16float` (mapeamento de tons sem quantizar em 8 bits) para o vídeo de 10 bits.
 //
-// Cenas: lente (esfera de vidro sobre um xadrez emissor, a bola laranja passando atrás), dispersao (esfera de Abbe 20,
-// câmera orbitando), agua (barragem no tanque, câmera parada), causticas (água agitada vista de cima, fundo de areia), cornell (caixa de
+// Cenas: lente (esfera de vidro num palco ao ar livre — céu físico, sol, piso quadriculado e colunas —, uma esfera
+// branca opaca rolando atrás dela e a câmera se aproximando), dispersao (o mesmo palco, esfera de Abbe 20, câmera
+// orbitando), agua (barragem no tanque, câmera parada), causticas (água agitada vista de cima, fundo de areia), cornell (caixa de
 // Cornell com a luz global), dia (cômodo com janela, o sol andando), nevoa (o mesmo cômodo com névoa e a luz global,
 // o feixe do sol), pano (tecido XPBD caindo sob o sol, com a sombra), sprites (partículas atravessando a cena e os
 // vértices de uma esfera como sprites girando, sobre o xadrez). A refração dos vidros é a do motor no momento da
@@ -22,15 +23,12 @@ import {
 import {
     buildGiScene,
     cornellBox,
-    diffuseFunction,
     insertCloth,
     sunFrom,
     windowRoom,
-    type GiScene,
-    type Slab,
     type Vec3,
 } from './support/giScenes';
-import { closureFn } from './support/materialScenes';
+import { materialGraph } from './support/materialScenes';
 import { waterScene } from './support/waterScene';
 
 declare global {
@@ -51,6 +49,8 @@ const q = new URLSearchParams(location.search);
 const W = Number(q.get('w') ?? 1280);
 const H = Number(q.get('h') ?? 720);
 const BITS = q.get('bits') === '16' ? 16 : 8;
+/** Diagnóstico: `?aa=off|temporal|msaa|accumulate` troca o antisserrilhado (padrão: o do motor). */
+const AA = q.get('aa');
 
 function log(msg: string): void {
     console.log(`[videoScenes] ${msg}`);
@@ -92,24 +92,7 @@ function camera(
     };
 }
 
-/** Painel emissor quadriculado 2 × 2 m em z = −2. */
-function checker(): Slab[] {
-    const out: Slab[] = [];
-    const n = 8;
-    const side = 2 / n;
-    for (let i = 0; i < n; i++)
-        for (let j = 0; j < n; j++)
-            out.push({
-                id: 1,
-                min: [-1 + i * side, -1 + j * side, -2.05],
-                max: [-1 + (i + 1) * side, -1 + (j + 1) * side, -2],
-                color: [0, 0, 0],
-                emission: (i + j) % 2 === 0 ? [4, 4, 4] : [0.5, 0.5, 0.5],
-            });
-    return out;
-}
-
-/** Esfera de vidro (dielétrico + transmissão; índice e número de Abbe). */
+/** Esfera de vidro pelo grafo de nós (`bsdf.dielectric` + `bsdf.transmission`; índice e número de Abbe). */
 function glassSphere(
     app: Application,
     center: Vec3,
@@ -122,60 +105,104 @@ function glassSphere(
             .add(new StandardMaterial())
             .add(new Transform({ position: [...center, 1] }))
             .add(
-                closureFn(
-                    `return closure_add(closure_dielectric(${ior.toFixed(3)}, vec3f(1.0), 0.0, 0.0, vec3f(0.0)), closure_transmission(${ior.toFixed(3)}, vec3f(1.0), 0.0, ${abbe.toFixed(1)}, 0.0));`,
-                    ['specular', 'transmission'],
+                materialGraph(
+                    {
+                        reflect: clayflow.nodes.bsdf.dielectric.with({ ior, roughness: 0 }),
+                        transmit: clayflow.nodes.bsdf.transmission.with({ ior, abbe }),
+                        glass: clayflow.nodes.closure.add,
+                    },
+                    [
+                        ['reflect.value', 'glass.a'],
+                        ['transmit.value', 'glass.b'],
+                    ],
+                    'glass.value',
                 ),
             ),
     );
 }
 
-function checkerScene(app: Application): GiScene {
-    const scene: GiScene = {
-        slabs: checker(),
-        camera: { position: [0, 0, 1.5], target: [0, 0, -1], fovY: (40 * Math.PI) / 180 },
-        probeCenter: [0, 0, -0.5],
-        regions: new Map(),
-    };
-    buildGiScene(app, scene, W / H);
-    return scene;
+/**
+ * Palco das cenas de vidro: o céu físico com o sol a 40° vindo da frente e da direita da câmera, a luz global, um piso quadriculado de 12 × 12 m (ladrilhos de 0,25 m),
+ * quatro colunas coloridas ao fundo e a esfera de vidro de raio 0,45 apoiada no piso (índice e número de Abbe). O
+ * raio que escapa do vidro vê o céu; o que acerta o piso ou as colunas, a luz do sol com sombra.
+ */
+function glassStage(app: Application, ior: number, abbe: number): void {
+    const sun = new clayflow.DirectionalLight({
+        direction: [...sunFrom(40, 60), 0],
+        intensity: 100000,
+        castShadow: true,
+        shadow: { size: [2048, 2048] },
+    });
+    app.world.insert(sun);
+    app.world.insert(new clayflow.Sky({ sun, sunDisk: false, night: [0, 0, 0] }));
+    // A luz do céu e a rebatida nas faces e sombras do raster (o traçado do vidro já as tem): cena aberta, as cascatas
+    // acompanham a câmera.
+    app.world.insert(new GlobalIllumination({ quality: 'medium', probeSpacing: 0.5 }));
+    // Ar livre ao sol (EV100 ≈ 14–15, a regra do "sunny 16"), contra o −10 do cômodo com janela.
+    app.defaults.presentation.data.exposure = -14;
+    app.world.insert(
+        new clayflow.PlaneGeometry({ size: [12, 12] })
+            .add(new StandardMaterial({ albedo: [0.7, 0.7, 0.7, 1], roughness: 0.9 }))
+            .add(new Transform())
+            .add(
+                new clayflow.MaterialFunction({
+                    code: 'fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {\n    let c = (floor(s.world_position.x * 4.0) + floor(s.world_position.z * 4.0)) % 2.0;\n    return closure_diffuse(mix(vec3f(0.12), vec3f(0.75), abs(c)), 0.0);\n}',
+                }),
+            ),
+    );
+    const columns: readonly [number, readonly [number, number, number]][] = [
+        [-1.5, [0.63, 0.065, 0.05]],
+        [-0.5, [0.14, 0.45, 0.091]],
+        [0.5, [0.1, 0.2, 0.6]],
+        [1.5, [0.8, 0.6, 0.1]],
+    ];
+    for (const [x, color] of columns)
+        app.world.insert(
+            new clayflow.BoxGeometry({ size: [0.4, 1.4, 0.4] })
+                .add(new StandardMaterial({ albedo: [...color, 1], roughness: 0.8 }))
+                .add(new Transform({ position: [x, 0.7, -2.2, 1] })),
+        );
+    glassSphere(app, [0, 0.45, 0], 0.45, ior, abbe);
 }
 
 const SHOTS: Record<string, Shot> = {
     lente: {
         frames: 360,
         build(app) {
-            checkerScene(app);
-            const look = camera(app, (40 * Math.PI) / 180, [0, 0, 1.6], [0, 0, -1]);
-            glassSphere(app, [0, 0, 0.2], 0.45, 1.5, 0);
-            const ball = new Transform({ position: [-0.8, 0, -1, 1] });
+            const look = camera(app, (40 * Math.PI) / 180, [0, 0.9, 2.4], [0, 0.45, 0]);
+            glassStage(app, 1.5, 0);
+            const ball = new Transform({ position: [-1.4, 0.18, -1.1, 1] });
             app.world.insert(
-                new SphereGeometry({ radius: 0.12, latSegments: 48, lonSegments: 96 })
-                    .add(new StandardMaterial({ albedo: [1, 0.5, 0.1, 1], roughness: 1 }))
-                    .add(diffuseFunction([3, 1.2, 0.2]))
+                new SphereGeometry({ radius: 0.18, latSegments: 48, lonSegments: 96 })
+                    .add(new StandardMaterial({ albedo: [0.85, 0.85, 0.85, 1], roughness: 0.6 }))
                     .add(ball),
             );
             return (i) => {
                 const t = i / 359;
                 ball.data.position = [
-                    -0.8 + 1.6 * (0.5 - 0.5 * Math.cos(2 * Math.PI * t)),
-                    0,
-                    -1,
+                    -1.4 + 2.8 * (0.5 - 0.5 * Math.cos(2 * Math.PI * t)),
+                    0.18,
+                    -1.1,
                     1,
                 ];
-                look([0, 0, 1.6 - 0.6 * Math.sin(Math.PI * t)], [0, 0, -1]);
+                look(
+                    [0, 0.9 - 0.2 * Math.sin(Math.PI * t), 2.4 - 0.8 * Math.sin(Math.PI * t)],
+                    [0, 0.45, 0],
+                );
             };
         },
     },
     dispersao: {
         frames: 300,
         build(app) {
-            checkerScene(app);
-            const look = camera(app, (40 * Math.PI) / 180, [0, 0, 1.5], [0, 0, -1]);
-            glassSphere(app, [0, 0, 0.2], 0.45, 1.7, 20);
+            const look = camera(app, (40 * Math.PI) / 180, [0, 0.9, 2.2], [0, 0.45, 0]);
+            glassStage(app, 1.7, 20);
             return (i) => {
                 const a = (2 * Math.PI * i) / 300;
-                look([0.5 * Math.sin(a), 0.25 * Math.cos(a), 1.5], [0, 0, -1]);
+                look(
+                    [2.2 * Math.sin(0.5 * a), 0.9 + 0.2 * Math.cos(a), 2.2 * Math.cos(0.5 * a)],
+                    [0, 0.45, 0],
+                );
             };
         },
     },
@@ -363,6 +390,7 @@ async function main(): Promise<void> {
         canvas,
         scene: createScene(),
         autoResize: false,
+        ...(AA !== null ? { antialias: AA as clayflow.AntialiasingMode } : {}),
         canvasOptions: {
             capture: true,
             ...(BITS === 16 ? { format: 'rgba16float' as const } : {}),

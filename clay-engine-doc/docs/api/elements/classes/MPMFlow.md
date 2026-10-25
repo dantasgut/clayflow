@@ -11,11 +11,11 @@ Defined in: [elements/physics/flows/MPMFlow.ts:83](https://github.com/dantasgut/
 MPMFlow — corpos por Material Point Method (MLS-MPM: limpa grade → P2G → atualização da grade → G2P → colisão):
 fluido fracamente compressível (`MPMFluidSchema`) ou sólido neo-Hookean (`MPMSoftSchema`), conforme o `bodyType` do
 registro. O quadro executa `time.steps × substeps` iterações, com `substeps` pelo passo estável do
-`ParticleMaterial`, cada uma com a sua região de `MPMSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`)
+`ParticlePhysics`, cada uma com a sua região de `MPMSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`)
 ligada por offset dinâmico. Massa, volume, grade (célula 2s sobre o domínio), módulo volumétrico e Lamé vêm do
 material.
 
-Slots: pool de partículas, `Time`, `GravityField` e `ParticleMaterial` (opcionais), pools de collider e as
+Slots: pool de partículas, `Time`, `GravityField` e `ParticlePhysics` (opcionais), pools de collider e as
 entidades com collider. Recursos privados — grade, parâmetros por iteração e o `ColliderSet` — são recriados e
 religados em transições (`framePrepare` para grade e parâmetros; entidades/pools para os colliders), nunca no
 `dispatch`.

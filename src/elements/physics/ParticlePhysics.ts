@@ -1,14 +1,14 @@
-import { Entity } from '../../../scene/contracts/Entity';
-import { ResourceState } from '../../../scene/contracts/ResourceState';
-import type { Resource } from '../../../scene/contracts/Resource';
-import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
-import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
-import { FieldType } from '../../../scene/descriptors/FieldType';
-import { StructSchema } from '../../../scene/descriptors/StructSchema';
-import type { World } from '../../../scene/world/World';
+import { Entity } from '../../scene/contracts/Entity';
+import { ResourceState } from '../../scene/contracts/ResourceState';
+import type { Resource } from '../../scene/contracts/Resource';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import { FieldType } from '../../scene/descriptors/FieldType';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import type { World } from '../../scene/world/World';
 
-/** Opções de domínio do material de partículas (fluidos SPH/PBF/MPM e sólidos MPM). */
-export interface ParticleMaterialOptions {
+/** Opções de domínio da física das partículas (fluidos SPH/PBF/MPM e sólidos MPM). */
+export interface ParticlePhysicsOptions {
     /** Densidade de repouso em kg/m³ (default 1000, água). */
     readonly restDensity?: number;
     /** Espaçamento entre partículas em repouso, em metros (default 0.05). Define massa, suavização e grade. */
@@ -35,12 +35,12 @@ export interface ParticleMaterialOptions {
     readonly bounds?: 'walls' | 'open';
     /**
      * Coesão — tensão superficial de Akinci et al. 2013 (SPH e PBF), adimensional (default 0, desligada): 1 dá à
-     * partícula de borda uma aceleração de coesão da ordem de g. Referência de água: `ParticleMaterial.WATER_COHESION`.
+     * partícula de borda uma aceleração de coesão da ordem de g. Referência de água: `ParticlePhysics.WATER_COHESION`.
      */
     readonly cohesion?: number;
     /**
      * Adesão às fronteiras sólidas (limites do domínio e colliders), adimensional (default 0, desligada): 1 dá à
-     * partícula em contato uma aceleração de adesão da ordem de g. Referência de água: `ParticleMaterial.WATER_ADHESION`.
+     * partícula em contato uma aceleração de adesão da ordem de g. Referência de água: `ParticlePhysics.WATER_ADHESION`.
      */
     readonly adhesion?: number;
     /** Suavização de velocidade XSPH do SPH e do PBF (default 0.05). */
@@ -49,7 +49,7 @@ export interface ParticleMaterialOptions {
      * Tensão superficial física γ em N/m (spec 010; água: 0,072). Com ela, coesão e adesão vêm da física na escala do
      * espaçamento — a coesão é γ/(ρ₀ s²) em múltiplos de g, a adesão a coesão × (1 + cos θ) (Young–Dupré) e o arrasto
      * tangencial na parede o viscoso μ/(ρ₀ s²) — em vez dos valores adimensionais `cohesion`/`adhesion`, que ignoram a
-     * escala (exclusivos com ela). Ver `ParticleMaterial.WATER`.
+     * escala (exclusivos com ela). Ver `ParticlePhysics.WATER`.
      */
     readonly surfaceTension?: number;
     /** Ângulo de contato θ com as fronteiras sólidas, em graus (spec 010; default 90 — nem molha nem repele). */
@@ -91,19 +91,19 @@ const ADHESION_HALF_SPACE = simpson(
     1,
 );
 
-/** Coesão e adesão efetivas de um quadro e os substeps que elas exigem (`ParticleMaterial.surfaceStep`). */
+/** Coesão e adesão efetivas de um quadro e os substeps que elas exigem (`ParticlePhysics.surfaceStep`). */
 export interface SurfaceStep {
     /** Substeps do quadro (os do passo estável do solver, ou mais pela coesão/adesão, até o teto). */
     readonly substeps: number;
-    /** Coesão efetiva (a do material, ou grampeada). */
+    /** Coesão efetiva (a da física, ou grampeada). */
     readonly cohesion: number;
-    /** Adesão efetiva (a do material, ou grampeada). */
+    /** Adesão efetiva (a da física, ou grampeada). */
     readonly adhesion: number;
     /** `true` quando coesão ou adesão foram grampeadas pelo teto de substeps. */
     readonly clamped: boolean;
 }
 
-/** Passo da calibração do PBF (s) e o raio de kernel em que ele vale (m): ver `ParticleMaterial.pbfStableDt`. */
+/** Passo da calibração do PBF (s) e o raio de kernel em que ele vale (m): ver `ParticlePhysics.pbfStableDt`. */
 const PBF_CALIBRATION_DT = 1 / 60;
 const PBF_CALIBRATION_H = 0.1;
 
@@ -130,20 +130,20 @@ export interface ParticleGrid {
 
 function nonNegative(name: string, value: number): number {
     if (!(value >= 0) || !Number.isFinite(value)) {
-        throw new RangeError(`ParticleMaterial: ${name} deve ser ≥ 0 (recebeu ${value})`);
+        throw new RangeError(`ParticlePhysics: ${name} deve ser ≥ 0 (recebeu ${value})`);
     }
     return value;
 }
 
 function positive(name: string, value: number): number {
     if (!(value > 0) || !Number.isFinite(value)) {
-        throw new RangeError(`ParticleMaterial: ${name} deve ser > 0 (recebeu ${value})`);
+        throw new RangeError(`ParticlePhysics: ${name} deve ser > 0 (recebeu ${value})`);
     }
     return value;
 }
 
-/** Dado de um `ParticleMaterial` (layout de `ParticleMaterial.schema`). */
-export interface ParticleMaterialData {
+/** Dado de um `ParticlePhysics` (layout de `ParticlePhysics.schema`). */
+export interface ParticlePhysicsData {
     /** Densidade de repouso ρ₀ (kg/m³). */
     restDensity: number;
     /** Espaçamento das partículas (m). */
@@ -175,17 +175,17 @@ export interface ParticleMaterialData {
 }
 
 /**
- * ParticleMaterial — material dos corpos de partículas (fluidos SPH, PBF e MPM; sólidos MPM), em vocabulário de
- * domínio. Recurso único por cena, lido pelos estágios de física como o `GravityField`; sem material no World, os
- * estágios usam os padrões (`ParticleMaterial.of(world)`).
+ * ParticlePhysics — física dos corpos de partículas (fluidos SPH, PBF e MPM; sólidos MPM), em vocabulário de
+ * domínio. Recurso único por cena, lido pelos estágios de física como o `GravityField`; sem `ParticlePhysics` no World, os
+ * estágios usam os padrões (`ParticlePhysics.of(world)`).
  *
  * As grandezas numéricas dos solvers derivam dele: massa da partícula ρ₀s³, raio de suavização do SPH (1,3 s; spline
  * cúbica com suporte 2h) e do PBF (2 s; poly6/spiky com suporte h), célula da grade MPM (2 s), módulo volumétrico
  * ρ₀c², parâmetros de Lamé de E/ν e o passo estável de cada algoritmo (o do PBF escalado da calibração, spec 017).
  */
-export class ParticleMaterial extends Entity<ParticleMaterialData> implements Resource {
-    /** Schema do uniform do material (dado do World; os estágios copiam os derivados para os seus parâmetros). */
-    static readonly schema = new StructSchema('ParticleMaterial', {
+export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Resource {
+    /** Schema do uniform da física (dado do World; os estágios copiam os derivados para os seus parâmetros). */
+    static readonly schema = new StructSchema('ParticlePhysics', {
         restDensity: FieldType.f32,
         particleSpacing: FieldType.f32,
         viscosity: FieldType.f32,
@@ -212,13 +212,13 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     /** Adesão de referência da água (calibrada pelo smoke `fluidBehavior`: menisco junto à parede). */
     static readonly WATER_ADHESION = 8;
 
-    /** Material padrão (usado quando o World não tem um). */
-    static readonly defaults = new ParticleMaterial();
+    /** Comportamento padrão (usado quando o World não tem um). */
+    static readonly defaults = new ParticlePhysics();
 
     /**
      * Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m e
      * ângulo de contato de 30° (molha). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
-     * a milímetros, dominam. Uso: `new ParticleMaterial({ ...ParticleMaterial.WATER, particleSpacing })`.
+     * a milímetros, dominam. Uso: `new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing })`.
      */
     static readonly WATER = {
         restDensity: 1000,
@@ -230,40 +230,39 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     /** Arrasto tangencial físico na parede (1/s), com `surfaceTension`; `undefined` no modo adimensional. */
     private readonly wallDrag: number | undefined;
 
-    /** Material do World, ou o padrão. */
-    static of(world: World): ParticleMaterial {
+    /** Comportamento do World, ou o padrão. */
+    static of(world: World): ParticlePhysics {
         return (
-            world.findResource(ParticleMaterial.schema, ParticleMaterial)
-            ?? ParticleMaterial.defaults
+            world.findResource(ParticlePhysics.schema, ParticlePhysics) ?? ParticlePhysics.defaults
         );
     }
 
     state: ResourceState = ResourceState.Uninitialized;
 
-    constructor(options: ParticleMaterialOptions = {}) {
+    constructor(options: ParticlePhysicsOptions = {}) {
         super();
         const min = options.domainMin ?? [-2, -2, -2];
         const max = options.domainMax ?? [2, 2, 2];
         if (!min.every((v, i) => v < max[i]!)) {
             throw new RangeError(
-                'ParticleMaterial: domainMin deve ser menor que domainMax em todos os eixos',
+                'ParticlePhysics: domainMin deve ser menor que domainMax em todos os eixos',
             );
         }
         const poisson = options.poissonRatio ?? 0.3;
         if (!(poisson >= 0 && poisson < 0.5)) {
             throw new RangeError(
-                `ParticleMaterial: poissonRatio deve estar em [0, 0.5) (recebeu ${poisson})`,
+                `ParticlePhysics: poissonRatio deve estar em [0, 0.5) (recebeu ${poisson})`,
             );
         }
         const restitution = options.restitution ?? 0.2;
         if (!(restitution >= 0 && restitution <= 1)) {
             throw new RangeError(
-                `ParticleMaterial: restitution deve estar em [0, 1] (recebeu ${restitution})`,
+                `ParticlePhysics: restitution deve estar em [0, 1] (recebeu ${restitution})`,
             );
         }
         const viscosity = options.viscosity ?? 0.01;
         if (!(viscosity >= 0)) {
-            throw new RangeError(`ParticleMaterial: viscosity deve ser ≥ 0 (recebeu ${viscosity})`);
+            throw new RangeError(`ParticlePhysics: viscosity deve ser ≥ 0 (recebeu ${viscosity})`);
         }
         const restDensity = positive('restDensity', options.restDensity ?? 1000);
         const spacing = positive('particleSpacing', options.particleSpacing ?? 0.05);
@@ -273,14 +272,14 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
         if (options.surfaceTension !== undefined) {
             if (options.cohesion !== undefined || options.adhesion !== undefined) {
                 throw new RangeError(
-                    'ParticleMaterial: surfaceTension (física) e cohesion/adhesion (adimensionais) são exclusivas',
+                    'ParticlePhysics: surfaceTension (física) e cohesion/adhesion (adimensionais) são exclusivas',
                 );
             }
             const gamma = nonNegative('surfaceTension', options.surfaceTension);
             const theta = options.contactAngle ?? 90;
             if (!(theta >= 0 && theta <= 180)) {
                 throw new RangeError(
-                    `ParticleMaterial: contactAngle deve estar em [0, 180] graus (recebeu ${theta})`,
+                    `ParticlePhysics: contactAngle deve estar em [0, 180] graus (recebeu ${theta})`,
                 );
             }
             // Coesão física por massa na escala do espaçamento, em múltiplos de g; adesão por Young–Dupré.
@@ -288,7 +287,7 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
             adhesion = cohesion * (1 + Math.cos((theta * Math.PI) / 180));
             this.wallDrag = viscosity / (restDensity * spacing * spacing);
         } else if (options.contactAngle !== undefined) {
-            throw new RangeError('ParticleMaterial: contactAngle só vale com surfaceTension');
+            throw new RangeError('ParticlePhysics: contactAngle só vale com surfaceTension');
         }
         this.data = {
             cohesion,
@@ -438,7 +437,7 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
 
     /**
      * γ de Akinci et al. 2013 em unidades do solver, para o suporte `support` (H) da vizinhança e a coesão dada (padrão
-     * a do material): a partícula na borda de um meio-espaço de fluido sente `coesão · g`.
+     * a da física): a partícula na borda de um meio-espaço de fluido sente `coesão · g`.
      */
     cohesionGamma(cohesion = this.cohesion): number {
         return (cohesion * G0) / (32 * this.restDensity * COHESION_HALF_SPACE);
@@ -468,7 +467,7 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
      * exatamente `substepsFor(stepDt, solverStableDt, minimum)`.
      */
     surfaceStep(stepDt: number, solverStableDt: number, minimum = 1): SurfaceStep {
-        const base = ParticleMaterial.substepsFor(stepDt, solverStableDt, minimum);
+        const base = ParticlePhysics.substepsFor(stepDt, solverStableDt, minimum);
         const strongest = Math.max(this.cohesion, this.adhesion);
         if (strongest <= 0 || base === 0) {
             return {
@@ -480,7 +479,7 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
         }
         const s = this.particleSpacing;
         const surfaceDt = SURFACE_CFL * Math.sqrt(s / (strongest * G0));
-        const needed = ParticleMaterial.substepsFor(
+        const needed = ParticlePhysics.substepsFor(
             stepDt,
             Math.min(solverStableDt, surfaceDt),
             minimum,
@@ -523,7 +522,7 @@ export class ParticleMaterial extends Entity<ParticleMaterialData> implements Re
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
-        return [{ id: 'material', role: 'uniform', schema: ParticleMaterial.schema }];
+        return [{ id: 'physics', role: 'uniform', schema: ParticlePhysics.schema }];
     }
 
     getPipelineDescriptors(): readonly PipelineDescriptor[] {

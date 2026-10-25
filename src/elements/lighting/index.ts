@@ -15,7 +15,6 @@ export {
     REFRACTION_MAX_MEDIA,
     REFRACTION_REQUEST_BACK_FACE,
     REFRACTION_REQUEST_VALID,
-    REFRACTION_STRATUM,
     type RefractionData,
     type RefractionValues,
 } from './refraction/Refraction';

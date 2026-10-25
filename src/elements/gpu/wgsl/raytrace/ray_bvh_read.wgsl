@@ -10,7 +10,7 @@ struct RayInstance {
     ids: vec4u,
     /** (albedo, rugosidade). */
     material0: vec4f,
-    /** (metalicidade em bits, slot da função, 0, 0). */
+    /** (metalicidade em bits, slot da função, 1 se a instância se moveu desde o quadro anterior, 0). */
     material1: vec4u,
 }
 
@@ -40,6 +40,11 @@ fn ray_instance_at(word: u32) -> RayInstance {
 /** Só os ids de uma instância (a travessia não precisa do resto). */
 fn ray_instance_ids_at(word: u32) -> vec4u {
     return ray_bvh[word + 8u].word;
+}
+
+/** A instância se moveu desde o quadro anterior? */
+fn ray_instance_moved_at(word: u32) -> bool {
+    return ray_bvh[word + 10u].word.z != 0u;
 }
 
 /** Só a matriz mundo → objeto de uma instância. */

@@ -41,20 +41,16 @@ export const REFRACTION_RADIANCE_FORMAT: GPUTextureFormat = 'rgba16float';
  */
 export const REFRACTION_HIT_FORMAT: GPUTextureFormat = 'rgba32float';
 /**
- * Lado do bloco de pixels do gradiente temporal (spec 034, T044a): em cada bloco, a amostra de um pixel do quadro
- * anterior é refeita na cena de agora.
+ * Formato do albedo do ponto que o pixel mostra (`albedo`): a refletância (`closure_albedo`) da superfície em que termina
+ * o caminho que mais contribui para a cor; 1 no céu e sem superfície — o guia de textura do filtro do sinal traçado
+ * (casas de albedo diferente não se misturam). No alfa, 1 se algum caminho do pixel tocou uma instância que se moveu.
  */
-export const REFRACTION_STRATUM = sharedConstant('REFRACTION_STRATUM', 3, 'u32');
+export const REFRACTION_ALBEDO_FORMAT: GPUTextureFormat = 'rgba16float';
 /**
- * Formato do gradiente temporal (`gradient`, um texel por bloco): x |Δ| da luminância da amostra refeita, y a maior das
- * duas.
+ * Formato da marca de movimento do quadro anterior (`gradient`, por pixel): x a parte da luz do pixel que veio por
+ * caminhos que tocaram algo em movimento (a do alfa de `albedo`, copiada antes do traçado a reescrever).
  */
 export const REFRACTION_GRADIENT_FORMAT: GPUTextureFormat = 'rgba16float';
-/**
- * Formato do raio guardado por bloco para o gradiente do quadro seguinte (`gradientOrigin`: a origem e o plano
- * próximo + 1, 0 sem amostra; `gradientDirection`: a direção e o pixel em bits).
- */
-export const REFRACTION_GRADIENT_RAY_FORMAT: GPUTextureFormat = 'rgba32float';
 /** Formato da fila de pixels: o índice linear do pixel (`x + y · largura`), um por texel. */
 export const REFRACTION_QUEUE_FORMAT: GPUTextureFormat = 'r32uint';
 
@@ -110,9 +106,10 @@ function validate(d: RefractionData): void {
  * de até `REFRACTION_MAX_MEDIA` meios, absorção de Beer–Lambert e dispersão por canal — escrevendo a radiância (a
  * transmitida mais a refletida na primeira interface, em `radiance`), lida pela composição no próprio pixel, e o ponto
  * que o pixel mostra (`hit`). Quem recomeça históricos (o filtro do sinal traçado, a máscara reativa) aloca o gradiente
- * temporal (`gradient`, pelos raios guardados em `gradientOrigin` e `gradientDirection`), e o traçado passa a medi-lo.
+ * temporal (`gradient`: a mudança da cena por bloco, pelas marcas de movimento que o traçado deixa no alfa de
+ * `albedo`), e o estágio passa a medi-lo.
  * O raster só escolhe os pixels: o valor traçado é o do raio do pixel, também na borda. Os alvos têm o tamanho do
- * canvas (os do gradiente, um texel por bloco de `REFRACTION_STRATUM` pixels de lado) e são alocados sob demanda, por
+ * canvas e são alocados sob demanda, por
  * quem desenha um transmissivo ou por quem os lê. Desligada, os transmissivos usam só a reflexão traçada e a opacidade.
  * Um por cena; mudar valores vale no quadro seguinte, sem recompilar.
  */
@@ -187,7 +184,6 @@ export class Refraction extends Entity<RefractionData> implements Resource {
                 ...(canvasDivisor === 1 ? {} : { canvasDivisor }),
             },
         });
-        const stratum = REFRACTION_STRATUM.value;
         return [
             { id: 'params', role: 'uniform', schema: Refraction.schema },
             // Pedido por pixel (alvo de render do desenho dos transmissivos, sem amostras): x a distância da câmera à
@@ -206,13 +202,10 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             },
             target('radiance', REFRACTION_RADIANCE_FORMAT),
             target('hit', REFRACTION_HIT_FORMAT),
-            // O gradiente temporal, um texel por bloco (sob demanda, por quem recomeça históricos: com ele alocado, o
-            // traçado o mede); os raios do quadro anterior e os deste (copiados para aqueles depois do gradiente).
-            target('gradient', REFRACTION_GRADIENT_FORMAT, stratum),
-            target('gradientOrigin', REFRACTION_GRADIENT_RAY_FORMAT, stratum),
-            target('gradientDirection', REFRACTION_GRADIENT_RAY_FORMAT, stratum),
-            target('gradientOriginNext', REFRACTION_GRADIENT_RAY_FORMAT, stratum),
-            target('gradientDirectionNext', REFRACTION_GRADIENT_RAY_FORMAT, stratum),
+            target('albedo', REFRACTION_ALBEDO_FORMAT),
+            // A mudança da cena por bloco (sob demanda, por quem recomeça históricos: com ela alocada, o estágio a
+            // mede pelas marcas de movimento que o traçado deixa no alfa de `albedo`).
+            target('gradient', REFRACTION_GRADIENT_FORMAT),
             // A fila compacta: o texel i guarda o pixel do i-ésimo pedido (a largura do canvas linha a linha).
             target('queue', REFRACTION_QUEUE_FORMAT),
             {

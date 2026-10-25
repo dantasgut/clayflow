@@ -26,7 +26,7 @@ const FLUID_SCHEMAS: Record<FluidAlgorithm, StructSchema> = {
 
 /**
  * Opções de domínio do FluidBody — o fluido inteiro: N partículas em arrays. O algoritmo seleciona o schema. `pos.w` é
- * do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticleMaterial` da cena.
+ * do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticlePhysics` da cena.
  */
 export interface FluidBodyDomainOptions {
     /** Seleciona o schema e o estágio que simula (SPH, PBF ou MPM). */
@@ -78,7 +78,7 @@ export class FluidBody extends ParticleBody {
             vel: vec4Of(options.velocity, count),
         };
         if (options.algorithm === 'MPM') {
-            // Gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticleMaterial`.
+            // Gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticlePhysics`.
             for (const [field, value] of Object.entries(MPM_REST_DEFORMATION))
                 body[field] = repeated(value, count);
         }

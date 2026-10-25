@@ -14,6 +14,10 @@
 // agora dos canais temporais (spec 037), que o quadro seguinte lê como histórico —, o guia de agora
 // (`temporal_filter_guide_out`, idem) e a média de novo no par das passadas à-trous (`temporal_filter_work_out`: o
 // filtro espacial não toca o histórico).
+// O histórico reprojetado fica dentro da caixa mínimo–máximo das amostras de agora do mesmo objeto em 3 × 3 (o recorte
+// da vizinhança de Karis 2014): o que mudou sem acusar mudança (a imagem que a lente leva de um objeto que se move, o
+// xadrez visto pelo vidro com a câmera andando) não fica para trás como rastro ou borrão. Com menos de duas amostras do
+// objeto a caixa não vale (seria a própria amostra, com o ruído dela).
 // Requer: color, temporal, temporal_filter, temporal_filter_common, temporal_filter_source, temporal_filter_surface_motion,
 // temporal_filter_guide_previous, temporal_filter_history_color, temporal_filter_history_moments,
 // temporal_filter_accumulated_out, temporal_filter_moments_out, temporal_filter_guide_out, temporal_filter_work_out.
@@ -36,6 +40,28 @@ fn temporal_filter_history_matches(q: vec2i, id: u32, before: vec3f, footprint: 
         && temporal_validate_object(bitcast<u32>(shown.w), id, shown.xyz, before, footprint, TEMPORAL_FILTER_HISTORY_GAP);
 }
 
+/** O histórico `color` dentro da caixa das amostras de agora do objeto `id` em volta de `px`. */
+fn temporal_filter_clamp_history(px: vec2u, id: u32, color: vec3f) -> vec3f {
+    var lo = vec3f(3.0e38);
+    var hi = vec3f(-3.0e38);
+    var n = 0u;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let q = vec2i(px) + vec2i(dx, dy);
+            if (!temporal_filter_inside(q)) { continue; }
+            let u = vec2u(q);
+            if (!temporal_filter_source_valid(u)) { continue; }
+            if (bitcast<u32>(temporal_filter_source_guide(u).w) != id) { continue; }
+            let c = temporal_filter_source_signal(u);
+            lo = min(lo, c);
+            hi = max(hi, c);
+            n += 1u;
+        }
+    }
+    if (n < 2u) { return color; }
+    return clamp(color, lo, hi);
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let pixel = temporal_filter_pixel(gid3, nwg);
@@ -49,8 +75,6 @@ fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @bu
         textureStore(temporal_filter_work_out, px, vec4f(0.0));
         return;
     }
-    let c = temporal_filter_source_signal(px);
-    let l = luminance(c);
     let guide = temporal_filter_source_guide(px);
     let id = bitcast<u32>(guide.w);
     let before = temporal_filter_source_previous_point(guide);
@@ -88,9 +112,11 @@ fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @bu
             }
         }
     }
+    let c = temporal_filter_source_signal(px);
+    let l = luminance(c);
     var alpha = 1.0;
     if (weight > 0.0) {
-        color /= weight;
+        color = temporal_filter_clamp_history(px, id, color / weight);
         moments /= weight;
         alpha = temporal_weight_change(temporal_weight_count(moments.z, temporal_filter.history_max), temporal_filter_source_change(px));
     }

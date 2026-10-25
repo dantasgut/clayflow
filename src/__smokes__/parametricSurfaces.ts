@@ -249,9 +249,9 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     );
     app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
     app.world.insert(
-        new clayflow.ParticleMaterial({
+        new clayflow.ParticlePhysics({
             // Água física (spec 010): tensão superficial, ângulo de contato e viscosidade reais na escala do espaçamento.
-            ...clayflow.ParticleMaterial.WATER,
+            ...clayflow.ParticlePhysics.WATER,
             particleSpacing: LAKE_SPACING,
             // Domínio aberto (spec 010): sem paredes; a caixa só limita o cálculo, e o que sai do terreno é retirado.
             bounds: 'open',
@@ -598,7 +598,7 @@ const CASES: Record<string, Case> = {
                     );
                 }
             else {
-                app.world.insert(new clayflow.ParticleMaterial(OPEN_DOMAIN));
+                app.world.insert(new clayflow.ParticlePhysics(OPEN_DOMAIN));
                 app.world.insert(
                     new clayflow.FluidBody({
                         algorithm: 'PBF',
@@ -623,7 +623,7 @@ const CASES: Record<string, Case> = {
             app.dispose();
             return { points, built: field.built, lift };
         };
-        const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
+        const spacing = clayflow.ParticlePhysics.defaults.particleSpacing;
         for (const rate of [30, 60, 144]) {
             const b = await scene(rate, 'bodies');
             const f = await scene(rate, 'fluid');
@@ -883,12 +883,12 @@ const CASES: Record<string, Case> = {
     async sphereFluid() {
         const c = collector();
         const results: Record<string, number> = {};
-        for (const adhesion of [0, clayflow.ParticleMaterial.WATER_ADHESION]) {
+        for (const adhesion of [0, clayflow.ParticlePhysics.WATER_ADHESION]) {
             const app = await createApp();
             view(app);
             app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-            const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
-            app.world.insert(new clayflow.ParticleMaterial({ ...OPEN_DOMAIN, adhesion }));
+            const spacing = clayflow.ParticlePhysics.defaults.particleSpacing;
+            app.world.insert(new clayflow.ParticlePhysics({ ...OPEN_DOMAIN, adhesion }));
             const R = 0.45;
             insertDistanceSurface(app, 'sphere', [R]);
             app.world.insert(
@@ -1320,8 +1320,8 @@ const CASES: Record<string, Case> = {
             view(app);
             app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
             insertValley(app, clayflow);
-            app.world.insert(new clayflow.ParticleMaterial(OPEN_DOMAIN));
-            const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
+            app.world.insert(new clayflow.ParticlePhysics(OPEN_DOMAIN));
+            const spacing = clayflow.ParticlePhysics.defaults.particleSpacing;
             const start = block(512, spacing, [0.5, -0.2, -0.2], 7);
             app.world.insert(
                 new clayflow.FluidBody({ algorithm, position: start.flat() }).add(

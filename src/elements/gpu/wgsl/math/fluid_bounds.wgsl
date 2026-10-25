@@ -1,4 +1,4 @@
-// Limites do domínio dos fluidos de partículas (spec 010). Com o domínio aberto (`ParticleMaterial.bounds: 'open'`), os
+// Limites do domínio dos fluidos de partículas (spec 010). Com o domínio aberto (`ParticlePhysics.bounds: 'open'`), os
 // planos do domínio não são paredes: a partícula que sai da caixa por baixo ou pelos lados é retirada — parada muito
 // abaixo da cena (fora da grade de vizinhos, do enquadramento da água e da imagem). Acima do topo ela segue (volta a
 // cair).

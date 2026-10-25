@@ -27,9 +27,9 @@ async function app(consumers?: (r: ConsumerResolverRegistry) => void) {
 }
 
 describe('Application — resolvers de consumes', () => {
-    it('registra os resolvers padrão da C3 (GravityField, ParticleMaterial); a câmera é pool (spec 007)', async () => {
+    it('registra os resolvers padrão da C3 (GravityField, ParticlePhysics); a câmera é pool (spec 007)', async () => {
         const { scene } = await app();
-        for (const name of ['GravityField', 'ParticleMaterial']) {
+        for (const name of ['GravityField', 'ParticlePhysics']) {
             expect(scene.consumers.get(name)).toBeInstanceOf(SingletonResolver);
         }
         scene.world.insert(new Camera().add(new Transform()));

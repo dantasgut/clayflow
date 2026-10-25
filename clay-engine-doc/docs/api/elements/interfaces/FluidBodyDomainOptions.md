@@ -9,7 +9,7 @@
 Defined in: [elements/physics/bodies/FluidBody.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/FluidBody.ts#L31)
 
 Opções de domínio do FluidBody — o fluido inteiro: N partículas em arrays. O algoritmo seleciona o schema. `pos.w` é
-do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticleMaterial` da cena.
+do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticlePhysics` da cena.
 
 ## Properties
 

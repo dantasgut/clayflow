@@ -7,7 +7,6 @@ import {
     REFRACTION_FRAME_COUNT,
     REFRACTION_MAX_MEDIA,
     REFRACTION_MAX_INTERFACES,
-    REFRACTION_STRATUM,
 } from '../Refraction';
 
 // Refração traçada (spec 034, T040): valores e validação, e os alvos do tamanho do canvas alocados só sob demanda.
@@ -17,16 +16,11 @@ const TARGETS = [
     ['radiance', 'rgba16float'],
     // O ponto que o pixel mostra e o registro do objeto (T044a).
     ['hit', 'rgba32float'],
-    ['queue', 'r32uint'],
-] as const;
-
-// O gradiente temporal (T044a): um texel por bloco de REFRACTION_STRATUM × REFRACTION_STRATUM pixels.
-const STRATA = [
+    // O albedo do ponto mostrado (o guia de textura do filtro) e, no alfa, a marca de movimento.
+    ['albedo', 'rgba16float'],
+    // A marca de movimento do quadro anterior (T044a).
     ['gradient', 'rgba16float'],
-    ['gradientOrigin', 'rgba32float'],
-    ['gradientDirection', 'rgba32float'],
-    ['gradientOriginNext', 'rgba32float'],
-    ['gradientDirectionNext', 'rgba32float'],
+    ['queue', 'r32uint'],
 ] as const;
 
 describe('Refraction (spec 034, T040)', () => {
@@ -78,19 +72,6 @@ describe('Refraction (spec 034, T040)', () => {
             allocation: 'onDemand',
             textureShape: { format: 'rg32uint', sizeFromCanvas: true },
         });
-        expect(REFRACTION_STRATUM.value).toBe(3);
-        for (const [id, format] of STRATA)
-            expect(byId.get(id)).toEqual({
-                id,
-                role: 'storage-texture',
-                allocation: 'onDemand',
-                textureShape: {
-                    format,
-                    sizeFromCanvas: true,
-                    access: 'write-only',
-                    canvasDivisor: REFRACTION_STRATUM.value,
-                },
-            });
         expect(byId.get('requestDepth')).toEqual({
             id: 'requestDepth',
             role: 'texture',
@@ -117,7 +98,7 @@ describe('Refraction (spec 034, T040)', () => {
                 access: 'write-only',
             },
         });
-        expect(byId.size).toBe(13);
+        expect(byId.size).toBe(10);
     });
 
     it('a C2 aloca só os parâmetros na inserção; os alvos quando pedidos, no tamanho do canvas, e recriados quando ele muda', async () => {
@@ -127,12 +108,12 @@ describe('Refraction (spec 034, T040)', () => {
         s.step();
         const rs = s.scene.resourceSystem;
         expect(rs.bufferOf(r, 'params')).toBeDefined();
-        for (const id of [...[...TARGETS, ...STRATA].map(([t]) => t), 'request', 'requestDepth'])
+        for (const id of [...TARGETS.map(([t]) => t), 'request', 'requestDepth'])
             expect(rs.textureOf(r, id)).toBeUndefined();
         expect(rs.bufferOf(r, 'queueCount')).toBeUndefined();
         expect(rs.textureOf(r, 'frame')).toBeUndefined();
 
-        for (const [id] of [...TARGETS, ...STRATA]) rs.ensureAllocated(r, id);
+        for (const [id] of TARGETS) rs.ensureAllocated(r, id);
         rs.ensureAllocated(r, 'request');
         const request = rs.textureOf(r, 'request')!;
         // O pedido é alvo de render do desenho e lido como textura pela fila.
@@ -148,11 +129,6 @@ describe('Refraction (spec 034, T040)', () => {
             // Escrita como storage, lida pelos consumidores como textura.
             expect(t.usage & GPUTextureUsage.STORAGE_BINDING).toBeTruthy();
             expect(t.usage & GPUTextureUsage.TEXTURE_BINDING).toBeTruthy();
-        }
-        // Os blocos cobrem o canvas (arredondado para cima).
-        for (const [id, format] of STRATA) {
-            const t = rs.textureOf(r, id)!;
-            expect([t.width, t.height, t.format]).toEqual([267, 200, format]);
         }
         expect([count.subkind, count.byteSize]).toEqual(['indirect', SetCountSchema.stride]);
         expect([frame.width, frame.height, frame.format]).toEqual([
@@ -173,9 +149,6 @@ describe('Refraction (spec 034, T040)', () => {
         expect(
             TARGETS.map(([id]) => [rs.textureOf(r, id)!.width, rs.textureOf(r, id)!.height]),
         ).toEqual(TARGETS.map(() => [320, 200]));
-        expect(
-            STRATA.map(([id]) => [rs.textureOf(r, id)!.width, rs.textureOf(r, id)!.height]),
-        ).toEqual(STRATA.map(() => [107, 67]));
         // O estado do quadro tem tamanho fixo: não acompanha o canvas.
         expect(rs.textureOf(r, 'frame')).toBe(frame);
         expect(s.destroys()).toEqual(expect.arrayContaining(old));

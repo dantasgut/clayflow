@@ -95,25 +95,58 @@ mais a medida das manchas (spec, Contexto). Das tentativas anteriores entram só
 - **Referência**: o próprio motor com 64 posições de jitter, acúmulo uniforme sem rejeição, cena parada; em movimento,
   64 sub-quadros por quadro com o tempo fracionado (desfoque de movimento real) como referência do rastro.
 
-### R3a — Filtro do sinal traçado (em avaliação, 2026-10-23; decisão do usuário pendente)
+### R3a — Filtro do sinal traçado (decisão, 2026-10-24; revê R1)
 
 - **Contexto**: R1 rejeitou uma média temporal própria da refração (o acúmulo seria só o global de R3). Medido na T044a:
-  com uma amostra por quadro, o vidro recomeçado pela máscara reativa mostra o ruído da roleta de Fresnel (cena parada
-  e rastro de SC-004/SC-005 fora do limite); sem recomeçar, fica o rastro de caminhos secundários (a reflexão interna
-  que via a bola), que nenhuma regra sobre o caminho principal do pixel detecta.
-- **Em avaliação**: o padrão dos traçadores em tempo real (SVGF, A-SVGF, NRD/ReLAX): `TracedDenoiser` (Resource da C3,
-  genérico) — média temporal reprojetada e validada pelo ponto mostrado, histórico encurtado pelo gradiente temporal
-  (a amostra do quadro anterior refeita na cena de agora, por bloco 3 × 3: detecta a mudança por qualquer caminho e
-  nunca o ruído nem a câmera) e cinco passadas à-trous guiadas pelo ponto mostrado; o histórico guarda a média sem o
-  filtro espacial (ReLAX). A fonte do sinal é um ponto de extensão (`traced_denoise_source`): a refração implementa;
-  reflexos traçados e a luz global podem reaproveitar. O gradiente é da refração e só roda quando alguém o aloca.
-- **Medido (smoke `antialiasing`)**: cena parada 1,05 % aos 16 quadros e 2,99 % nas bordas aos 64; rastro 3,5–16,9 %
-  conforme o ajuste — o borrão do filtro espacial no que o vidro mostra logo depois de recomeçar; custo do filtro
-  ~0,4 ms e do gradiente ~1,3 ms.
-- **Próximo passo proposto**: filtrar a radiância dividida pelo albedo da superfície vista (como o SVGF e a
-  substituição da superfície primária do RTX Remix), para o recomeço não borrar a textura vista pelo vidro.
-- **Pendente do usuário**: manter o filtro (e então esta seção vira decisão, revendo R1) e os critérios do vidro traçado
-  e o orçamento (o filtro no orçamento da refração, não no do antisserrilhado).
+  com uma amostra por quadro, o vidro recomeçado pela máscara reativa mostra o ruído da roleta de Fresnel; sem
+  recomeçar, fica o rastro de caminhos secundários (a reflexão interna que via a bola).
+- **Decisão**: o filtro do sinal traçado fica — o `TemporalFilter` genérico da 037 (canais temporais da C2, ponto
+  `temporal_filter_source`), com a refração como fonte. O custo dele e o da marca de movimento contam no orçamento da
+  refração (3 ms na lente), não no do antisserrilhado (1,5 ms; o smoke `antialiasing` mede o custo com a refração
+  desligada).
+- **O que mudou na T044a retomada (medido)**:
+  - _Divisão na segunda interface_ (`refraction_path_split`): os dois lobos também na segunda interface de cada ramo da
+    primeira, sem roleta. A reflexão interna de 4 % entra em toda amostra com o peso dela (não numa a cada 25): o
+    rastro claro de 14–50 % que ela deixava some (smoke `antialiasing`).
+  - _Guia de albedo_ no à-trous (`temporal_filter_source_albedo`; casas de albedo diferente não se misturam), pesado
+    pela luz de cada ramo (com o refletido dominando num ângulo rasante, a textura vista pelo transmitido ainda guia o
+    filtro). Dividir a radiância pelo albedo (o SVGF) foi medido e descartado: o emissor tem albedo 0 (a divisão passa
+    de 300×) e a soma dos lobos não se divide por um albedo só.
+  - _Marca de movimento no lugar do gradiente refeito_: a amostra refeita do A-SVGF (e depois uma sonda determinística
+    com a divisão) custava mais que o próprio traçado na lente. Agora o próprio traçado mede, sem raio a mais, a parte
+    da luz do pixel que veio por caminhos que tocaram uma instância que se moveu (o registro da instância na estrutura
+    de raios marca o movimento, `material1.z`; o caminho soma a radiância "em movimento"); o histórico encurta na
+    proporção dela, no pixel e nos vizinhos 3 × 3, pela marca de agora e a do quadro anterior (o objeto que acabou de
+    sair).
+  - _Entrelaçamento com orçamento — tentado e retirado (2026-10-25)_: traçar um pixel de cada ladrilho s × s por
+    quadro (s até 4) e reconstruir os outros pelo histórico e pelos vizinhos baixava a lente de 46 para 5,24 ms, mas o
+    vídeo (cena `lente`, apontado pelo usuário) mostrou o quadriculado dos pixels não traçados e uma sombra escura onde
+    algo se movia atrás do vidro: um pixel sem amostra não sabe que a imagem dele mudou. Com o recorte do histórico
+    pelos vizinhos (abaixo) com janela do tamanho do ladrilho, ficaram pontos pretos e bordas serrilhadas com a câmera
+    andando. Reconstruir 1 amostra em 16 com movimento ao nível do traçado completo é um reescalonamento temporal (um
+    projeto à parte), não um ajuste do filtro: todo pixel do vidro é traçado em todo quadro.
+  - _Recorte do histórico pela vizinhança_ (Karis 2014): o histórico reprojetado fica dentro da caixa mínimo–máximo das
+    amostras de agora do mesmo objeto em 3 × 3 (com menos de duas, sem recorte — a caixa seria a própria amostra
+    ruidosa). Mínimo–máximo e não média ± γσ: com uma amostra por pixel e poucas na janela, o σ estimado varia muito, e
+    a caixa não pede um γ calibrado. No vídeo da lente com a câmera andando, o xadrez visto pelo vidro, que o histórico
+    arrastava em borrão, fica nítido.
+  - _Três passadas à-trous_ (raio de 14 px) no lugar de cinco: a mesma qualidade medida, 0,5 ms a menos.
+- **Medido no fim da retomada (M4)**: as oito cenas da refração a 0,07–0,38 % da referência (limites 3–5 %), lente com
+  0 degraus contra uma referência de 1024 amostras; antisserrilhado parado 0,82 % (≤ 1 %); custo do antisserrilhado
+  1,145 ms (≤ 1,5); refração na lente a 1280 × 720 (o vidro na altura toda da tela) 5,24 ms por tempo de parede — de
+  46 ms antes do entrelaçamento e da marca; o traçado completo da lente custa ~29 ms, a parte fixa (filtro, movimento,
+  composição, fila) ~3,4 ms. Em aberto: rastro claro 1,18 % e escuro 2,7 % (≤ 1 %), órbita 3,28 % (≤ 3 %; o grosso nas
+  bordas do xadrez em movimento, a base sem o vidro traçado dava 2,98 %), custo da lente (≤ 3 ms).
+- **Depois da retirada do entrelaçamento (2026-10-25, M4)**: as oito cenas a 0,07–0,38 %; lente 0 degraus; parado
+  0,83 %; custo do antisserrilhado 1,18 ms; órbita 2,86 / 2,72 / 3,23 %; rastro claro 1,18 %, escuro 1,96–2,75 % (varia
+  entre execuções); refração na lente 32,3 ms (todo pixel do vidro na altura toda da tela). A sombra também marca o
+  movimento (`ray_direct_marked`: o raio de sombra parado numa instância que se moveu) — com a bola parada, a sombra
+  dela vista pelo vidro é efeito atual, não rastro; com ela andando, a marca não mudou a medida.
+  O rastro restante no vidro (imagens do caso `trail`, quadros 67–72, ampliadas 10×) é um chuvisco de pixels isolados
+  claros e escuros, sem forma, e o pior pixel muda entre execuções: a reconvergência legítima, a uma amostra por
+  quadro, de pixels cujo histórico a bola recomeçou. O máximo de um pixel entre ~2000 em 112 quadros pega esse ruído;
+  separar rastro (coerente, de um lado) de ruído (simétrico) pede outra estatística — proposta ao usuário, sem mudar o
+  critério.
 
 ### R4 — Luz global sem manchas
 

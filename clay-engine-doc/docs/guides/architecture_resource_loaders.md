@@ -1884,7 +1884,7 @@ class ConsumerResolverRegistry {
 |---|---|---|
 | `PoolResolver(poolKey, schema)` | buffer atual do pool (`array<T>`) | `ResourceSystem`, ao criar o pool — é o que atende `{ pool: chave }` |
 | `PoolLiveResolver(poolKey)` | bitset de slots vivos do pool (`<pool>.live`, spec 008) | `ResourceSystem`, com o pool |
-| `SingletonResolver(schema, descId, { name?, select? })` | descritor do primeiro Resource do schema na cena | cena (`Time`), elementos (`GravityField`, `ParticleMaterial`) |
+| `SingletonResolver(schema, descId, { name?, select? })` | descritor do primeiro Resource do schema na cena | cena (`Time`), elementos (`GravityField`, `ParticlePhysics`) |
 | `TextureResolver(name, typeName, schema, descId, select?)` | view de textura alocada pela C2 | quem precisar |
 
 Os elementos registram os seus por padrão em `Application.create` (`ELEMENT_CONSUMERS`: gravidade, material de
@@ -2043,7 +2043,7 @@ A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescript
 | `DistanceConstraint` | distância entre partículas | `XPBDFlow` | atual |
 | `SpringConstraint`, `JointConstraint` | mola, junta | — | schemas sem Flow (F5) |
 | `PlaneCollider`, `BoxCollider`, `SphereCollider`, `MeshCollider` | colliders tipados | `ColliderSet` (LCP e fluidos) | atual |
-| `ParticleMaterial` | material das partículas (um por World) | fluidos | atual |
+| `ParticlePhysics` | física das partículas (um por World) | fluidos | atual |
 | `DiffuseParticleSchema` | partícula secundária (posição e tipo; velocidade e vida), só GPU | `DiffuseFlow` | atual |
 | `Light` | luz unificada (kind discriminado) | pontos de cena (spec 031): `scene_light_direction` (luz que projeta sombra), `scene_any_light_direction` (primeira luz viva: sprites de partículas); `ShadowMatrixFlow` (`lights[r.lightSlot]`, do registro `ShadowRecord`) | atual (cor e intensidade no sombreamento: F4) |
 
@@ -2205,7 +2205,7 @@ pós, e os pipelines usam `multisample.count` do alvo.
 **Busca de vizinhança.** Contagem por célula, soma de prefixos, espalhamento, `ns_sort_cells` (cada célula ordenada por
 índice, com as posições copiadas na mesma ordem) e `ns_find` (9 faixas de células contíguas em x, numa ordem fixa,
 gravando direto numa lista intercalada `k * stride + i`, lida assim pelos kernels de SPH e PBF): lista determinística
-sem vetor local por partícula. Cada busca recriada (o `ParticleMaterial` mudou a grade) tem discriminador com geração.
+sem vetor local por partícula. Cada busca recriada (o `ParticlePhysics` mudou a grade) tem discriminador com geração.
 
 **Fronteira genérica dos fluidos (spec 030).** O que um fluido de partículas enxerga de um sólido é uma distância com
 sinal e uma normal — `ColliderHit { dist, normal }` em `math/collider_set.wgsl`. A colisão (empurrão para fora) e a
@@ -2217,7 +2217,7 @@ mudar a adesão. A tensão superficial (coesão + curvatura, com a correção K�
 solver: o SPH grava as normais num passe próprio (`sph_normals`, buffer privado `sph_normal`, só com coesão > 0); o PBF
 as grava no passe de vorticidade (`pbf_normal`, com a densidade) e soma a aceleração no Δv do XSPH. A adesão entra uma
 vez por iteração: na colisão do SPH e na predição do PBF (que liga o grupo de colliders; a colisão do PBF roda N vezes).
-Os parâmetros (`cohesion_gamma`, `adhesion_accel`, `adhesion_tangential`, `support`) vêm do `ParticleMaterial` pelos
+Os parâmetros (`cohesion_gamma`, `adhesion_accel`, `adhesion_tangential`, `support`) vêm do `ParticlePhysics` pelos
 `*SimParams` de cada iteração; com coesão e adesão zero, os kernels não leem nem somam nada.
 
 ### Contrato de shader estruturado (spec 031)

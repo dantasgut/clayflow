@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
+import { ParticlePhysics, TAIT_GAMMA } from '../ParticlePhysics';
 import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
 import { World } from '../../../scene/world/World';
 
-describe('ParticleMaterial — padrões e validação', () => {
+describe('ParticlePhysics — padrões e validação', () => {
     it('padrões de água com espaçamento de 5 cm e domínio ±2 m', () => {
-        const m = new ParticleMaterial();
+        const m = new ParticlePhysics();
         expect(m.restDensity).toBe(1000);
         expect(m.particleSpacing).toBe(0.05);
         expect(m.viscosity).toBe(0.01);
@@ -34,12 +34,12 @@ describe('ParticleMaterial — padrões e validação', () => {
         [{ xsph: -0.05 }, /xsph/],
         [{ domainMin: [0, 0, 0] as const, domainMax: [1, 0, 1] as const }, /domainMin/],
     ])('rejeita %o', (options, message) => {
-        expect(() => new ParticleMaterial(options)).toThrow(message);
+        expect(() => new ParticlePhysics(options)).toThrow(message);
     });
 });
 
-describe('ParticleMaterial — grandezas derivadas', () => {
-    const m = new ParticleMaterial({
+describe('ParticlePhysics — grandezas derivadas', () => {
+    const m = new ParticlePhysics({
         restDensity: 1000,
         particleSpacing: 0.02,
         speedOfSound: 20,
@@ -69,25 +69,25 @@ describe('ParticleMaterial — grandezas derivadas', () => {
         expect(m.sphStableDt).toBeCloseTo((0.4 * 0.026) / 20);
         const elastic = Math.sqrt((m.lame.lambda + 2 * m.lame.mu) / 1000);
         expect(m.mpmStableDt).toBeCloseTo((0.3 * 0.04) / Math.max(20, elastic));
-        expect(ParticleMaterial.substepsFor(1 / 60, 1 / 240)).toBe(4);
-        expect(ParticleMaterial.substepsFor(1 / 60, 1 / 200)).toBe(4);
-        expect(ParticleMaterial.substepsFor(1 / 60, 1)).toBe(1);
-        expect(ParticleMaterial.substepsFor(1 / 60, 1, 3)).toBe(3);
+        expect(ParticlePhysics.substepsFor(1 / 60, 1 / 240)).toBe(4);
+        expect(ParticlePhysics.substepsFor(1 / 60, 1 / 200)).toBe(4);
+        expect(ParticlePhysics.substepsFor(1 / 60, 1)).toBe(1);
+        expect(ParticlePhysics.substepsFor(1 / 60, 1, 3)).toBe(3);
     });
 
     it('passo estável do PBF: a calibração de 5 cm a 60 Hz (1 substep) escalada por h² (spec 017)', () => {
-        const at = (s: number) => new ParticleMaterial({ particleSpacing: s });
+        const at = (s: number) => new ParticlePhysics({ particleSpacing: s });
         expect(at(0.05).pbfStableDt).toBeCloseTo(1 / 60, 12);
-        expect(ParticleMaterial.substepsFor(1 / 60, at(0.05).pbfStableDt)).toBe(1);
-        expect(ParticleMaterial.substepsFor(1 / 60, at(0.025).pbfStableDt)).toBe(4);
-        expect(ParticleMaterial.substepsFor(1 / 60, at(0.1).pbfStableDt)).toBe(1);
-        expect(ParticleMaterial.substepsFor(1 / 30, at(0.05).pbfStableDt)).toBe(2);
+        expect(ParticlePhysics.substepsFor(1 / 60, at(0.05).pbfStableDt)).toBe(1);
+        expect(ParticlePhysics.substepsFor(1 / 60, at(0.025).pbfStableDt)).toBe(4);
+        expect(ParticlePhysics.substepsFor(1 / 60, at(0.1).pbfStableDt)).toBe(1);
+        expect(ParticlePhysics.substepsFor(1 / 30, at(0.05).pbfStableDt)).toBe(2);
     });
 });
 
-describe('ParticleMaterial — coesão, adesão e viscosidade (spec 030)', () => {
+describe('ParticlePhysics — coesão, adesão e viscosidade (spec 030)', () => {
     it('γ de Akinci: a partícula na borda de um meio-espaço sente coesão · g (∫ C cos θ dV ≈ soma dos vizinhos)', () => {
-        const m = new ParticleMaterial({ cohesion: 1 });
+        const m = new ParticlePhysics({ cohesion: 1 });
         const H = 2 * m.sphSmoothingLength;
         const gamma = m.cohesionGamma();
         // Meio-espaço discretizado numa grade fina: aceleração normal γ ρ₀ Σ C(r) cos θ dV.
@@ -113,18 +113,18 @@ describe('ParticleMaterial — coesão, adesão e viscosidade (spec 030)', () =>
     });
 
     it('adesão: escala linear no valor; arrasto tangencial √(g/s)', () => {
-        const m = new ParticleMaterial({ adhesion: 2, particleSpacing: 0.04 });
+        const m = new ParticlePhysics({ adhesion: 2, particleSpacing: 0.04 });
         expect(m.adhesionAccel()).toBeCloseTo(2 * m.adhesionAccel(1), 9);
         expect(m.adhesionAccel(0)).toBe(0);
         expect(m.adhesionTangential()).toBeCloseTo(2 * Math.sqrt(9.81 / 0.04), 9);
     });
 
     it('surfaceStep: com coesão e adesão zero, exatamente os substeps do solver', () => {
-        const m = new ParticleMaterial({ particleSpacing: 0.025 });
+        const m = new ParticlePhysics({ particleSpacing: 0.025 });
         for (const dt of [1 / 30, 1 / 60, 1 / 144]) {
             const step = m.surfaceStep(dt, m.sphStableDt, 2);
             expect(step).toEqual({
-                substeps: ParticleMaterial.substepsFor(dt, m.sphStableDt, 2),
+                substeps: ParticlePhysics.substepsFor(dt, m.sphStableDt, 2),
                 cohesion: 0,
                 adhesion: 0,
                 clamped: false,
@@ -133,14 +133,14 @@ describe('ParticleMaterial — coesão, adesão e viscosidade (spec 030)', () =>
     });
 
     it('surfaceStep: coesão moderada não muda os substeps; forte pede mais, até 4× com grampeamento', () => {
-        const base = ParticleMaterial.substepsFor(1 / 60, 1);
-        const mild = new ParticleMaterial({ cohesion: 1 }).surfaceStep(1 / 60, 1);
+        const base = ParticlePhysics.substepsFor(1 / 60, 1);
+        const mild = new ParticlePhysics({ cohesion: 1 }).surfaceStep(1 / 60, 1);
         expect(mild).toEqual({ substeps: base, cohesion: 1, adhesion: 0, clamped: false });
-        const strong = new ParticleMaterial({ cohesion: 20 }).surfaceStep(1 / 60, 1);
+        const strong = new ParticlePhysics({ cohesion: 20 }).surfaceStep(1 / 60, 1);
         expect(strong.substeps).toBeGreaterThan(base);
         expect(strong.substeps).toBeLessThanOrEqual(4 * base);
         expect(strong.clamped).toBe(false);
-        const extreme = new ParticleMaterial({ cohesion: 1e4, adhesion: 1e4 }).surfaceStep(
+        const extreme = new ParticlePhysics({ cohesion: 1e4, adhesion: 1e4 }).surfaceStep(
             1 / 60,
             1,
         );
@@ -149,26 +149,26 @@ describe('ParticleMaterial — coesão, adesão e viscosidade (spec 030)', () =>
         expect(extreme.cohesion).toBeLessThan(1e4);
         expect(extreme.adhesion).toBe(extreme.cohesion);
         // O valor grampeado cabe exatamente no teto.
-        const refit = new ParticleMaterial({ cohesion: extreme.cohesion }).surfaceStep(1 / 60, 1);
+        const refit = new ParticlePhysics({ cohesion: extreme.cohesion }).surfaceStep(1 / 60, 1);
         expect(refit.substeps).toBeLessThanOrEqual(4 * base);
     });
 
     it('MPM: a viscosidade só limita o passo quando a difusão é mais restritiva que a onda', () => {
-        const water = new ParticleMaterial();
-        const inviscid = new ParticleMaterial({ viscosity: 0 });
+        const water = new ParticlePhysics();
+        const inviscid = new ParticlePhysics({ viscosity: 0 });
         expect(water.mpmStableDt).toBe(inviscid.mpmStableDt);
-        const honey = new ParticleMaterial({ viscosity: 1e3 });
+        const honey = new ParticlePhysics({ viscosity: 1e3 });
         expect(honey.mpmStableDt).toBeCloseTo((honey.mpmCellSize ** 2 * 1000) / (6 * 1e3), 12);
         expect(honey.mpmStableDt).toBeLessThan(inviscid.mpmStableDt);
     });
 });
 
-describe('ParticleMaterial.of', () => {
+describe('ParticlePhysics.of', () => {
     it('devolve o material do World, ou o padrão', () => {
         const world = new World(new DefaultEventBus());
-        expect(ParticleMaterial.of(world)).toBe(ParticleMaterial.defaults);
-        const custom = new ParticleMaterial({ particleSpacing: 0.03 });
+        expect(ParticlePhysics.of(world)).toBe(ParticlePhysics.defaults);
+        const custom = new ParticlePhysics({ particleSpacing: 0.03 });
         world.insert(custom);
-        expect(ParticleMaterial.of(world)).toBe(custom);
+        expect(ParticlePhysics.of(world)).toBe(custom);
     });
 });

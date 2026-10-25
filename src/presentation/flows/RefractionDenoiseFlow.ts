@@ -127,7 +127,7 @@ const TARGETS = ['work', 'output'] as const;
  * filtro ligado: a refração é a fonte do sinal (`refraction_denoise_source`: os pixels com pedido, a radiância, o
  * ponto mostrado e o gradiente temporal — que este estágio aloca, e o traçado passa a medir); o movimento da superfície
  * vem do rg de `FrameTargets.motion`. A passada temporal grava a média, os momentos e o guia nas fatias de agora dos
- * canais temporais do filtro (o quadro seguinte os lê pelo atraso 1, sem cópia; spec 037) e as cinco à-trous; a cor
+ * canais temporais do filtro (o quadro seguinte os lê pelo atraso 1, sem cópia; spec 037) e as à-trous; a cor
  * filtrada fica em `TemporalFilter.output`.
  * Declara a cada quadro se a produziu (a composição usa a amostra crua quando não).
  */
@@ -186,7 +186,7 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
         };
     }
 
-    /** A passada temporal (as fatias de agora dos canais) e as cinco à-trous. */
+    /** A passada temporal (as fatias de agora dos canais) e as à-trous. */
     dispatch(frame: Frame, bound: BoundFlow<RefractionDenoiseSlots>): void {
         const denoiser = bound.slots.denoiser?.resource;
         if (denoiser === undefined || !this.resources.isProduced(denoiser, 'output')) return;
@@ -233,7 +233,7 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
             this.resources.ensureAllocated(denoiser, id);
         const view = (r: Resource, id: string): BindingSource | undefined =>
             this.resources.textureViewOf(r, id);
-        const signal = (['request', 'radiance', 'hit', 'gradient'] as const).map((id) =>
+        const signal = (['request', 'radiance', 'hit', 'albedo', 'gradient'] as const).map((id) =>
             view(refraction, id),
         );
         const targets = TARGETS.map((id) => view(denoiser, id));
@@ -244,11 +244,12 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
         if (sources.some((s, k) => s !== this.bound[k]) || this.bound.at(-1) !== this.current) {
             const of = (id: (typeof TARGETS)[number]): BindingSource =>
                 targets[TARGETS.indexOf(id)]!;
-            const [request, radiance, hit, gradient] = signal;
+            const [request, radiance, hit, albedo, gradient] = signal;
             const binds = new Map<BindingKey, BindingSource>([
                 [R.request, request!],
                 [R.radiance, radiance!],
                 [R.hit, hit!],
+                [R.albedo, albedo!],
                 [R.gradient, gradient!],
                 [D.surfaceMotion, motion],
                 [D.workOut, of('work')],

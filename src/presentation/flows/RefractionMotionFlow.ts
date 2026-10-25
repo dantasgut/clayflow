@@ -139,17 +139,25 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             return;
         // A máscara lê a mudança da cena: com o gradiente alocado, o traçado o mede.
         this.resources.ensureAllocated(refraction, 'gradient');
-        const views = (['request', 'hit', 'gradient'] as const).map((id) =>
+        const views = (['request', 'hit', 'gradient', 'albedo'] as const).map((id) =>
             this.resources.textureViewOf(refraction, id),
         );
-        const [request, hit, gradient] = views;
-        if (request === undefined || hit === undefined || gradient === undefined) return;
+        const [request, hit, gradient, albedo] = views;
+        if (
+            request === undefined
+            || hit === undefined
+            || gradient === undefined
+            || albedo === undefined
+        )
+            return;
         if (views.some((v, k) => v !== this.bound[k])) {
             c.bind(
                 new Map<WgslResource, BindingSource>([
                     [R.request, request],
                     [R.hit, hit],
                     [R.gradient, gradient],
+                    // A marca de movimento de agora (alfa do albedo).
+                    [R.albedo, albedo],
                 ]),
             );
             this.bound = views;

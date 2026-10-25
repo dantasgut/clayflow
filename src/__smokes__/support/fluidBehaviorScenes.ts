@@ -1,8 +1,8 @@
 // Cenas do smoke de comportamento de fluido (spec 030): gota e filete sem gravidade, barragem, menisco no tanque, placa
-// inclinada, gota pousada e barragem MPM — cada uma com o seu `ParticleMaterial` (coesão, adesão, XSPH, viscosidade).
+// inclinada, gota pousada e barragem MPM — cada uma com o seu `ParticlePhysics` (coesão, adesão, XSPH, viscosidade).
 // Determinísticas (jitter por semente). `decorate` permite desenhar o corpo (vídeos) sem mudar a simulação.
-import { FluidBody, GravityField, ParticleMaterial, RigidBody } from 'clayflow';
-import type { Application, ParticleMaterialOptions } from 'clayflow';
+import { FluidBody, GravityField, ParticlePhysics, RigidBody } from 'clayflow';
+import type { Application, ParticlePhysicsOptions } from 'clayflow';
 import { rng } from './particleScenes';
 
 /** Espaçamento das cenas (m). */
@@ -21,7 +21,7 @@ export type Algorithm = 'SPH' | 'PBF' | 'MPM';
 /** Uma cena: material, gravidade, partículas e sólidos. */
 export interface BehaviorScene {
     readonly algorithm: Algorithm;
-    readonly material: ParticleMaterialOptions;
+    readonly material: ParticlePhysicsOptions;
     readonly gravity: readonly [number, number, number];
     readonly position: readonly number[];
     /** Velocidades iniciais (x, y, z por partícula); padrão zero. */
@@ -166,7 +166,7 @@ export function filament(
 /** Barragem (14³) encostada na parede −x do tanque. */
 export function dam(
     algorithm: Algorithm,
-    material: ParticleMaterialOptions,
+    material: ParticlePhysicsOptions,
     n: readonly [number, number, number] = [14, 14, 14],
 ): BehaviorScene {
     const s = material.particleSpacing ?? S;
@@ -219,9 +219,9 @@ export function buildBehavior(
     app: Application,
     scene: BehaviorScene,
     decorate?: (body: FluidBody) => void,
-): { material: ParticleMaterial; body: FluidBody } {
+): { material: ParticlePhysics; body: FluidBody } {
     app.world.insert(new GravityField({ acceleration: [...scene.gravity, 0] }));
-    const material = new ParticleMaterial(scene.material);
+    const material = new ParticlePhysics(scene.material);
     app.world.insert(material);
     scene.solids?.(app);
     const body = new FluidBody({

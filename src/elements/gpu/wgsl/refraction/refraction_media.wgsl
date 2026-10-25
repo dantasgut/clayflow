@@ -90,6 +90,18 @@ fn refraction_leave(s: RefractionStack, instance: u32) -> RefractionStack {
     return out;
 }
 
+/** Cruzar a borda de uma instância: sair dela (`leaving`) ou entrar no meio `medium` (o dela). */
+struct RefractionCross {
+    medium: RefractionMedium,
+    leaving: bool,
+}
+
+/** A pilha `s` depois do cruzamento `x`. */
+fn refraction_applied(s: RefractionStack, x: RefractionCross) -> RefractionStack {
+    if (x.leaving) { return refraction_leave(s, x.medium.instance); }
+    return refraction_enter(s, x.medium);
+}
+
 /** Índice do meio no canal (−1: o da linha d). */
 fn refraction_ior(m: RefractionMedium, channel: i32) -> f32 {
     if (channel < 0) { return m.ior.y; }

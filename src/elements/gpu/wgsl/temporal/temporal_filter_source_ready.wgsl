@@ -6,6 +6,8 @@
 //   - `temporal_filter_source_signal(q)`: a amostra (radiância);
 //   - `temporal_filter_source_guide(q)`: o guia — o ponto de mundo que o pixel mostra (xyz) e, em bits, o id do objeto
 //     (w): pixels com o mesmo objeto e pontos próximos se misturam;
+//   - `temporal_filter_source_albedo(q)`: a refletância da superfície que o pixel mostra — o guia de textura: pixels de
+//     albedo diferente (as casas de um xadrez visto pelo vidro) não se misturam no filtro espacial;
 //   - `temporal_filter_source_previous_point(guide)`: onde estava esse ponto no quadro anterior (o objeto se move);
 //   - `temporal_filter_source_footprint(q, guide)`: a largura do pixel no ponto (a escala das distâncias do guia);
 //   - `temporal_filter_source_change(q)`: quanto a cena mudou em volta do pixel desde o quadro anterior, em 0–1 (o
@@ -26,6 +28,10 @@ fn temporal_filter_source_signal(q: vec2u) -> vec3f {
 
 fn temporal_filter_source_guide(q: vec2u) -> vec4f {
     return vec4f(0.0);
+}
+
+fn temporal_filter_source_albedo(q: vec2u) -> vec3f {
+    return vec3f(0.0);
 }
 
 fn temporal_filter_source_previous_point(guide: vec4f) -> vec3f {

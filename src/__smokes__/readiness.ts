@@ -157,8 +157,8 @@ async function damHash(delayMs: number): Promise<{ hash: number; frames: number;
     );
     app.world.insert(new clayflow.GravityField({ acceleration: [0, -9.81, 0, 0] }));
     app.world.insert(
-        new clayflow.ParticleMaterial({
-            ...clayflow.ParticleMaterial.WATER,
+        new clayflow.ParticlePhysics({
+            ...clayflow.ParticlePhysics.WATER,
             particleSpacing: 0.025,
             bounds: 'open',
             domainMin: [-1.5, -0.8, -1.5],

@@ -7,7 +7,7 @@ import {
     FluidBody,
     FluidSurfaceMaterial,
     GravityField,
-    ParticleMaterial,
+    ParticlePhysics,
     PlaneGeometry,
     PointSpriteMaterial,
     StandardMaterial,
@@ -44,12 +44,12 @@ const impl: SceneImplementation<ClayflowHandle> = {
         world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
         const cohesion = variant.params.cohesion === true;
         world.insert(
-            new ParticleMaterial({
+            new ParticlePhysics({
                 particleSpacing: spacing,
                 ...(cohesion
                     ? {
-                          cohesion: ParticleMaterial.WATER_COHESION,
-                          adhesion: ParticleMaterial.WATER_ADHESION,
+                          cohesion: ParticlePhysics.WATER_COHESION,
+                          adhesion: ParticlePhysics.WATER_ADHESION,
                       }
                     : {}),
             }),

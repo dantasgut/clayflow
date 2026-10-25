@@ -60,7 +60,7 @@ export const FEMSimParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
-/** MLS-MPM (fluido e sólido). Massa, volume, K e Lamé vêm do `ParticleMaterial`. */
+/** MLS-MPM (fluido e sólido). Massa, volume, K e Lamé vêm do `ParticlePhysics`. */
 export const MPMSimParamsSchema = new StructSchema(
     'MPMSimParams',
     {

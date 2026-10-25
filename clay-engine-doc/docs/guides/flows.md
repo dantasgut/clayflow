@@ -109,7 +109,7 @@ C2 resolve a fonte pelo **fornecedor declarado**:
 5. `{ pool: chave }` / `{ consumer: nome }` — o `ConsumerResolver` registrado com esse nome.
 
 Fonte ainda inexistente na cena faz o pipeline esperar. Cada pool criado registra o seu `PoolResolver`
-automaticamente; fornecedores da C3/C4 (`Time`, `GravityField`, `ParticleMaterial`, `ShadowCaster.*`,
+automaticamente; fornecedores da C3/C4 (`Time`, `GravityField`, `ParticlePhysics`, `ShadowCaster.*`,
 `WaterSurface.*`) já têm resolver, e `Application.create({ consumers })` registra os seus (`SingletonResolver`,
 `PoolResolver`, `TextureResolver` ou uma implementação própria de `ConsumerResolver`). Uma fonte privada para um
 recurso que tem fornecedor é erro. No `dispatch`, grave os grupos sem índices: `prepared.bindTo(pass.bind, {

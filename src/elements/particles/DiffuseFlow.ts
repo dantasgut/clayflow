@@ -34,7 +34,7 @@ import { LCPSchema } from '../physics/bodies/schemas/LCPSchema';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
 import { GravityField } from '../physics/forcefields/GravityField';
-import { ParticleMaterial } from '../physics/materials/ParticleMaterial';
+import { ParticlePhysics } from '../physics/ParticlePhysics';
 import {
     diffuseCollide,
     diffuseResources as R,
@@ -55,8 +55,8 @@ export interface DiffuseSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Gravidade uniforme (opcional; padrão −9,81 em y). */
     readonly gravity: SingletonSlot<true>;
-    /** Material das partículas do fluido (espaçamento, domínio). */
-    readonly material: SingletonSlot<true>;
+    /** Comportamento das partículas do fluido (espaçamento, domínio). */
+    readonly physics: SingletonSlot<true>;
     /** Pools dos colliders e dos corpos donos (o spray colide com os sólidos da cena). */
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider. */
@@ -70,7 +70,7 @@ const slots: DiffuseSlots = {
     }),
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
-    material: slot.singleton(ParticleMaterial.schema, { optional: true }),
+    physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
     colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
     colliders: slot.entities({ all: [Collider] }),
 };
@@ -90,7 +90,7 @@ interface DiffuseState {
     readonly counts: StorageBufferSpec;
     readonly offsets: StorageBufferSpec;
     readonly state: StorageBufferSpec;
-    /** Grade da busca (recriada quando o material muda). */
+    /** Grade da busca (recriada quando a física muda). */
     gridKey: string;
     /** Pool do fluido ligado (detecta realocação). */
     pool: StorageBufferSpec | undefined;
@@ -224,11 +224,11 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const material =
-            (ctx.bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
-        const h = 2 * material.particleSpacing;
-        const grid = material.gridFor(h);
+        const physics =
+            (ctx.bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
+        const h = 2 * physics.particleSpacing;
+        const grid = physics.gridFor(h);
         const gridKey = `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
         const present = new Set<EntityId>();
         for (const entry of ctx.bound.slots.diffuse.entries) {
@@ -307,7 +307,7 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     private createState(
         id: EntityId,
         strideF32: number,
-        grid: ReturnType<ParticleMaterial['gridFor']>,
+        grid: ReturnType<ParticlePhysics['gridFor']>,
         gridKey: string,
     ): DiffuseState {
         const storage = (name: string, bytes: number): StorageBufferSpec =>
@@ -359,9 +359,9 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     private writeParams(ctx: Ctx): void {
         const { diffuse, time, gravity } = ctx.bound.slots;
         const clock = time.resource as Time;
-        const material =
-            (ctx.bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
+        const physics =
+            (ctx.bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
         const g = (gravity?.resource as GravityField | undefined)?.uniformAcceleration() ?? [
             0, -9.81, 0, 0,
         ];
@@ -383,7 +383,7 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             if (st.params.reserve(1 + st.steps)) this.dirty = true;
             const grid = st.search.grid!;
             const data = d.data;
-            const s = material.particleSpacing;
+            const s = physics.particleSpacing;
             const base = {
                 fluid_count: st.fluidCount,
                 fluid_stride: schema.stride / 4,
@@ -401,9 +401,9 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
                 cell_size: grid.cellSize,
                 gravity: [g[0] ?? 0, g[1] ?? -9.81, g[2] ?? 0],
                 dt: clock.stepDt * st.steps,
-                bound_min: material.domainMin,
+                bound_min: physics.domainMin,
                 h: 2 * s,
-                bound_max: material.domainMax,
+                bound_max: physics.domainMax,
                 bubble_min: data.bubbleNeighbors,
                 ta_min: data.trappedAir[0],
                 ta_max: data.trappedAir[1],

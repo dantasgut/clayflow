@@ -26,7 +26,12 @@ export * from './physics/bodies/index';
 export * from './physics/forcefields/index';
 export * from './physics/colliders/index';
 export * from './physics/constraints/index';
-export * from './physics/materials/index';
+export { ParticlePhysics, TAIT_GAMMA, type ParticlePhysicsData } from './physics/ParticlePhysics';
+export type {
+    ParticlePhysicsOptions,
+    LameParameters,
+    ParticleGrid,
+} from './physics/ParticlePhysics';
 export { wgslLib } from './gpu/shaders/index';
 export { ELEMENT_CONSUMERS } from './consumers';
 export * from './physics/flows/index';

@@ -9,7 +9,7 @@ import {
     FluidBody,
     FluidSurfaceMaterial,
     GravityField,
-    ParticleMaterial,
+    ParticlePhysics,
     PlaneGeometry,
     PointSpriteMaterial,
     StandardMaterial,
@@ -79,7 +79,7 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
         }),
     );
     world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-    world.insert(new ParticleMaterial({ particleSpacing: WATER_SPACING }));
+    world.insert(new ParticlePhysics({ particleSpacing: WATER_SPACING }));
     floor(app, options.floor ?? 'checker');
     walls(app);
     if (options.box === true) {

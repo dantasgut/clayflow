@@ -61,7 +61,7 @@ export interface SoftBodyEdges {
 export interface SoftBodyDomainOptions {
     /**
      * Seleciona o schema e o estágio que simula: XPBD, FEM ou MPM (sólido elástico; massa, volume e rigidez vêm do
-     * `ParticleMaterial` da cena).
+     * `ParticlePhysics` da cena).
      */
     readonly algorithm: SoftBodyAlgorithm;
     /** Posições iniciais (mundo): `x, y, z` por partícula; o tamanho define N. */

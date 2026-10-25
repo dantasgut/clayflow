@@ -126,7 +126,7 @@ export function solverBodies(
     lib: ClayflowLib,
 ): StructSchema {
     const { FluidBody, RigidBody, SoftBody } = lib;
-    const spacing = lib.ParticleMaterial.defaults.particleSpacing;
+    const spacing = lib.ParticlePhysics.defaults.particleSpacing;
     const cube = (n: number, s: number, c: readonly [number, number, number]): number[] => {
         const side = Math.round(Math.cbrt(n));
         const out: number[] = [];

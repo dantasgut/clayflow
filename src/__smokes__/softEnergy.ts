@@ -44,7 +44,7 @@ import {
     createScene,
     EnergyMeter,
     GravityField,
-    ParticleMaterial,
+    ParticlePhysics,
     SoftBody,
 } from 'clayflow';
 import type { AnyBufferSpec, GpuFrameTimedPayload, StagingBufferSpec } from 'clayflow';
@@ -502,7 +502,7 @@ async function caseMpm(): Promise<void> {
     await app.whenReady();
     // Cai (0,15 m: ~10 passos), bate no chão e deforma.
     app.step(DT, 40);
-    const material = ParticleMaterial.defaults;
+    const material = ParticlePhysics.defaults;
     const { mu, lambda } = material.lame;
     const f32 = [material.particleMass, material.particleVolume, mu, lambda].map(Math.fround) as [
         number,
@@ -559,7 +559,7 @@ async function caseMixed(): Promise<void> {
     app.world.insert(new SoftBody({ algorithm: 'MPM', position: mpm }));
     await app.whenReady();
     app.step(DT, 30);
-    const material = ParticleMaterial.defaults;
+    const material = ParticlePhysics.defaults;
     const { mu, lambda } = material.lame;
     const f32 = [material.particleMass, material.particleVolume, mu, lambda].map(Math.fround) as [
         number,

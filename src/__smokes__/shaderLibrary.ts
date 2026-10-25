@@ -50,7 +50,7 @@ import { Camera } from '../elements/scene/Camera';
 import { StandardMaterialSchema } from '../elements/material/StandardMaterialSchema';
 import { ForwardFrameParamsSchema } from '../elements/material/forwardSchemas';
 import { ShadowMap } from '../elements/scene/ShadowMap';
-import { ParticleMaterial } from '../elements/physics/materials/ParticleMaterial';
+import { ParticlePhysics } from '../elements/physics/ParticlePhysics';
 import * as Render from '../presentation/flows/renderSchemas';
 import * as bsdfRef from '../elements/material/reference/bsdf';
 import * as xf from '../elements/math/reference/xform';
@@ -900,7 +900,7 @@ const SCHEMAS: readonly StructSchema[] = [
     ForwardFrameParamsSchema,
     ShadowMap.schema,
     ShadowMap.matrixSchema,
-    ParticleMaterial.schema,
+    ParticlePhysics.schema,
     ...Object.values(Render),
 ];
 

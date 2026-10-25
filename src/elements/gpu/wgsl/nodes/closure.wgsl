@@ -1,5 +1,5 @@
-// Nós de composição de fechamentos (spec 011, R5): mistura, soma, camada, filme fino, opacidade e normal própria. A
-// regra de fusão dos lobos do mesmo tipo é a de `closure_add`.
+// Nós de composição de fechamentos (spec 011, R5; spec 034): mistura, soma, camada, filme fino, opacidade, normal
+// própria, prioridade do meio e parede fina. A regra de fusão dos lobos do mesmo tipo é a de `closure_add`.
 // Requer: closure.
 
 fn node_closure_mix(a: Closure, b: Closure, t: f32) -> Closure {
@@ -24,4 +24,12 @@ fn node_closure_opacity(c: Closure, alpha: f32) -> Closure {
 
 fn node_closure_normal(c: Closure, normal: vec3f) -> Closure {
     return closure_normal(c, normal);
+}
+
+fn node_closure_medium_priority(c: Closure, priority: f32) -> Closure {
+    return closure_medium_priority(c, priority);
+}
+
+fn node_closure_thin_walled(c: Closure) -> Closure {
+    return closure_thin_walled(c);
 }

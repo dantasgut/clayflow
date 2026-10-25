@@ -28,7 +28,7 @@ import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
-import { ParticleMaterial, TAIT_GAMMA, type SurfaceStep } from '../materials/ParticleMaterial';
+import { ParticlePhysics, TAIT_GAMMA, type SurfaceStep } from '../ParticlePhysics';
 import { SPHSimParamsSchema } from '../schemas/simParams';
 import {
     sphCollision,
@@ -43,7 +43,7 @@ import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Opções do `SPHFlow`. */
 export interface SPHFlowOptions {
-    /** Mínimo de substeps por passo (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais. */
+    /** Mínimo de substeps por passo (padrão 1); o passo estável do `ParticlePhysics` pode exigir mais. */
     readonly substeps?: number;
     /** Vizinhos guardados por partícula (padrão 128; o suporte 2h tem ~73 vizinhos em repouso). */
     readonly maxNeighbors?: number;
@@ -57,8 +57,8 @@ export interface SPHSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
     readonly gravity: SingletonSlot<true>;
-    /** Material das partículas (opcional; padrões do solver). */
-    readonly material: SingletonSlot<true>;
+    /** Comportamento das partículas (opcional; padrões do solver). */
+    readonly physics: SingletonSlot<true>;
     /** Pools de colliders e de corpos rígidos (cada um presente ou não). */
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
@@ -69,7 +69,7 @@ const slots: SPHSlots = {
     bodies: slot.bodies(),
     time: slot.singleton(Time.schema),
     gravity: slot.singleton(GravityField.schema, { optional: true }),
-    material: slot.singleton(ParticleMaterial.schema, { optional: true }),
+    physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
     colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
     colliders: slot.entities({ all: [Collider] }),
 };
@@ -78,12 +78,12 @@ type Ctx = TransitionContext<SPHSlots>;
 
 /**
  * SPHFlow — fluidos por Smoothed Particle Hydrodynamics fracamente compressível (Tait). O quadro executa
- * `time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticleMaterial` (CFL 0,4 h/c); cada
+ * `time.steps × substeps` iterações, com `substeps` pelo passo estável do `ParticlePhysics` (CFL 0,4 h/c); cada
  * uma reconstrói a vizinhança (raio = suporte 2h) e roda densidade → pressão → forças → integração → colisão com a
  * sua região de `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico. Massa,
- * suavização, rigidez, viscosidade, restituição e domínio vêm do material.
+ * suavização, rigidez, viscosidade, restituição e domínio vêm da física.
  *
- * Recursos privados — parâmetros por iteração, busca de vizinhança (recriada quando a grade do material muda) e
+ * Recursos privados — parâmetros por iteração, busca de vizinhança (recriada quando a grade da física muda) e
  * `ColliderSet` — são preparados e religados em transições (`framePrepare`, entidades e pools de collider), nunca no
  * `dispatch`.
  */
@@ -105,7 +105,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     /** Coesão > 0 no quadro corrente: grava o passe de normais (decidido em `framePrepare`). */
     private cohesionOn = false;
     /** Materiais já avisados de coesão/adesão grampeadas. */
-    private readonly warnedClamp = new WeakSet<ParticleMaterial>();
+    private readonly warnedClamp = new WeakSet<ParticlePhysics>();
     private neighborSearch: NeighborSearchPipeline;
     /** Grade com que a vizinhança foi criada. */
     private neighborKey: string;
@@ -133,7 +133,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             discriminator: 'sph_normal',
             byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
-        const grid = gridOf(ParticleMaterial.defaults);
+        const grid = gridOf(ParticlePhysics.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
         this.bindings = new Map<WgslResource, BindingSource>([
@@ -231,10 +231,10 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     }
 
     private createNeighborSearch(
-        grid: ReturnType<ParticleMaterial['gridFor']>,
+        grid: ReturnType<ParticlePhysics['gridFor']>,
     ): NeighborSearchPipeline {
         const ns = new NeighborSearchPipeline(this.core, {
-            // Uma geração por grade: a busca recriada (material mudou) não pode repetir as specs da anterior — a C1
+            // Uma geração por grade: a busca recriada (a física mudou) não pode repetir as specs da anterior — a C1
             // devolveria os bind groups antigos, ligados aos buffers destruídos.
             discriminator: `sph:gen${this.neighborGeneration++}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
@@ -267,17 +267,17 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     }
 
     /**
-     * Antes da gravação: vizinhança pela grade do material (recriada e religada quando muda) e preparada para as
+     * Antes da gravação: vizinhança pela grade da física (recriada e religada quando muda) e preparada para as
      * iterações do quadro, substeps pelo passo estável e uma região de `SPHSimParams` por iteração.
      */
     private prepareFrame(ctx: Ctx): void {
         const bound = ctx.bound;
         NeighborSearchPipeline.requireCapacity('SPHFlow', bound.slots.bodies);
         const time = bound.slots.time.resource as Time;
-        const material =
-            (bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
-        const grid = gridOf(material);
+        const physics =
+            (bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
+        const grid = gridOf(physics);
         const key = gridKeyOf(grid);
         if (key !== this.neighborKey) {
             this.neighborSearch.dispose();
@@ -285,8 +285,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             this.neighborKey = key;
             ctx.bind(this.neighborSources());
         }
-        const surface = material.surfaceStep(time.stepDt, material.sphStableDt, this.minSubsteps);
-        if (surface.clamped) this.warnClamp(material, surface);
+        const surface = physics.surfaceStep(time.stepDt, physics.sphStableDt, this.minSubsteps);
+        if (surface.clamped) this.warnClamp(physics, surface);
         const substeps = surface.substeps;
         this.cohesionOn = surface.cohesion > 0;
         this.iterations = time.steps * substeps;
@@ -306,53 +306,53 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             this.params.write(i, {
                 gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
                 dt: time.stepDt / substeps,
-                rest_density: material.restDensity,
-                h: material.sphSmoothingLength,
-                stiffness: material.taitStiffness,
+                rest_density: physics.restDensity,
+                h: physics.sphSmoothingLength,
+                stiffness: physics.taitStiffness,
                 gamma: TAIT_GAMMA,
-                viscosity: material.viscosity,
-                xsph_c: material.xsph,
+                viscosity: physics.viscosity,
+                xsph_c: physics.xsph,
                 dt_frame: time.stepDt,
-                collision_radius: material.particleSpacing / 2,
+                collision_radius: physics.particleSpacing / 2,
                 particle_count: count,
                 max_neighbors: this.maxNeighbors,
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
-                restitution: material.restitution,
-                bound_min: material.domainMin,
-                bound_max: material.domainMax,
-                open_bounds: material.openBounds ? 1 : 0,
-                particle_mass: material.particleMass,
-                inv_particle_mass: 1 / material.particleMass,
-                cohesion_gamma: material.cohesionGamma(surface.cohesion),
-                adhesion_accel: material.adhesionAccel(surface.adhesion),
-                adhesion_tangential: material.adhesionTangential(surface.adhesion),
-                support: 2 * material.sphSmoothingLength,
+                restitution: physics.restitution,
+                bound_min: physics.domainMin,
+                bound_max: physics.domainMax,
+                open_bounds: physics.openBounds ? 1 : 0,
+                particle_mass: physics.particleMass,
+                inv_particle_mass: 1 / physics.particleMass,
+                cohesion_gamma: physics.cohesionGamma(surface.cohesion),
+                adhesion_accel: physics.adhesionAccel(surface.adhesion),
+                adhesion_tangential: physics.adhesionTangential(surface.adhesion),
+                support: 2 * physics.sphSmoothingLength,
                 // Fim da iteração i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
                 field_time:
                     time.stepTime(Math.floor(i / substeps))
                     + ((i % substeps) + 1) * (time.stepDt / substeps),
-                field_density: material.restDensity,
+                field_density: physics.restDensity,
             });
         }
         this.params.flush(this.iterations);
     }
 
-    /** Aviso único por material: coesão/adesão acima do teto de substeps foram grampeadas. */
-    private warnClamp(material: ParticleMaterial, surface: SurfaceStep): void {
-        if (this.warnedClamp.has(material)) return;
-        this.warnedClamp.add(material);
+    /** Aviso único por `ParticlePhysics`: coesão/adesão acima do teto de substeps foram grampeadas. */
+    private warnClamp(physics: ParticlePhysics, surface: SurfaceStep): void {
+        if (this.warnedClamp.has(physics)) return;
+        this.warnedClamp.add(physics);
         console.warn(
-            `SPHFlow: coesão ${material.cohesion} / adesão ${material.adhesion} exigem mais que o teto de substeps; `
+            `SPHFlow: coesão ${physics.cohesion} / adesão ${physics.adhesion} exigem mais que o teto de substeps; `
                 + `usando ${surface.cohesion.toPrecision(3)} / ${surface.adhesion.toPrecision(3)}`,
         );
     }
 }
 
 /** Vizinhança com raio = suporte do núcleo (2h) e grade pelo domínio. */
-function gridOf(material: ParticleMaterial): ReturnType<ParticleMaterial['gridFor']> {
-    return material.gridFor(2 * material.sphSmoothingLength);
+function gridOf(physics: ParticlePhysics): ReturnType<ParticlePhysics['gridFor']> {
+    return physics.gridFor(2 * physics.sphSmoothingLength);
 }
 
-function gridKeyOf(grid: ReturnType<ParticleMaterial['gridFor']>): string {
+function gridKeyOf(grid: ReturnType<ParticlePhysics['gridFor']>): string {
     return `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
 }

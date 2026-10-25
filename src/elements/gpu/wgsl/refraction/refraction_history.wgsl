@@ -1,7 +1,8 @@
 // O que o histórico de um pixel com pedido precisa (spec 034, R3, T044a), comum ao movimento do que a refração mostra e
 // ao filtro do traçado: onde estava no quadro anterior o ponto que o traçado achou (`refraction_hit`), a largura do
-// pixel nesse ponto e quanto a cena mudou em volta do pixel pelo gradiente temporal (`refraction_gradient`).
-// Requer: NONE, REFRACTION_STRATUM, refraction, cameras, renderables, world_inverses, previous_worlds, refraction_hit,
+// pixel nesse ponto e quanto a cena mudou em volta do pixel pelas marcas de movimento do traçado (a de agora e a
+// anterior).
+// Requer: NONE, refraction, cameras, renderables, world_inverses, previous_worlds, refraction_hit, refraction_albedo,
 // refraction_gradient.
 
 /**
@@ -37,18 +38,17 @@ fn refraction_footprint(px: vec2u, hit: vec4f) -> f32 {
 }
 
 /**
- * Quanto a cena mudou em volta do pixel `px`, em 0–1: a maior mudança relativa da luminância (|Δ| / a maior das duas)
- * entre os blocos do gradiente temporal vizinhos (3 × 3 blocos). Zero onde nada mudou, também com a câmera em
- * movimento.
+ * Quanto a cena mudou em volta do pixel `px`, em 0–1: a maior parte da luz que veio por caminhos que tocaram algo em
+ * movimento, neste quadro (`refraction_albedo`, alfa) ou no anterior (`refraction_gradient`), nos pixels 3 × 3 em volta
+ * (a amostra se desloca dentro do pixel). Zero onde nada se moveu, também com a câmera em movimento.
  */
 fn refraction_change(px: vec2u) -> f32 {
     let last = vec2i(textureDimensions(refraction_gradient)) - 1;
-    let s = vec2i(px / REFRACTION_STRATUM);
     var change = 0.0;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
-            let g = textureLoad(refraction_gradient, clamp(s + vec2i(dx, dy), vec2i(0), last), 0);
-            change = max(change, select(0.0, g.x / g.y, g.y > 1e-6));
+            let q = vec2u(clamp(vec2i(px) + vec2i(dx, dy), vec2i(0), last));
+            change = max(change, max(textureLoad(refraction_gradient, q, 0).x, textureLoad(refraction_albedo, q, 0).a));
         }
     }
     return clamp(change, 0.0, 1.0);

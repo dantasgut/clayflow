@@ -4,9 +4,11 @@
 // (`refraction_seed`). A radiância (a transmitida mais a refletida na primeira interface) vai para
 // `refraction_radiance_out` (no alfa, a luminância da energia truncada no limite de interfaces: o smoke soma a fração);
 // o ponto em que termina o caminho que mais contribui para a cor, com o registro do objeto, para `refraction_hit_out`
-// (quem calcula o movimento do que o pixel mostra o lê; o traçado não sabe de movimento).
+// (quem calcula o movimento do que o pixel mostra o lê; o traçado não sabe de movimento), e o albedo da superfície nele
+// para `refraction_albedo_out` (o guia de textura do filtro), com, no alfa, a parte da luz do pixel que veio por
+// caminhos que tocaram uma instância que se moveu desde o quadro anterior (0–1; o gradiente temporal lê).
 // Requer: WORKGROUP_SIZE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in, refraction_frame,
-// refraction_radiance_out, refraction_hit_out.
+// refraction_radiance_out, refraction_hit_out, refraction_albedo_out.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn refraction_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -20,4 +22,7 @@ fn refraction_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let s = refraction_sample(ray, refraction_camera_stack(), &state);
     textureStore(refraction_radiance_out, px, vec4f(s.radiance, s.truncated));
     textureStore(refraction_hit_out, px, s.end);
+    // A parte da luz do pixel que veio por caminhos que tocaram algo em movimento.
+    let moving = clamp(luminance(s.moving) / max(luminance(s.radiance), 1e-6), 0.0, 1.0);
+    textureStore(refraction_albedo_out, px, vec4f(s.albedo, moving));
 }

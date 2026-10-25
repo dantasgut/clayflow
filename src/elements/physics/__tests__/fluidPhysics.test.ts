@@ -4,7 +4,7 @@ import { PBFFlow } from '../flows/PBFFlow';
 import { MPMFlow } from '../flows/MPMFlow';
 import { FluidBody } from '../bodies/FluidBody';
 import { SoftBody } from '../bodies/SoftBody';
-import { ParticleMaterial, TAIT_GAMMA } from '../materials/ParticleMaterial';
+import { ParticlePhysics, TAIT_GAMMA } from '../ParticlePhysics';
 import type { WriteCall } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { countPasses } from './helpers/recordingFrame';
 import { solverScene } from './helpers/solverScene';
@@ -34,9 +34,9 @@ const OPTIONS = {
     domainMax: [1, 1.5, 1],
 } as const;
 /** Referência para as expectativas; cada cena recebe a sua instância (reuso de instância é proibido). */
-const material = new ParticleMaterial(OPTIONS);
+const material = new ParticlePhysics(OPTIONS);
 
-describe('SPHFlow — parâmetros do ParticleMaterial', () => {
+describe('SPHFlow — parâmetros do ParticlePhysics', () => {
     async function sph(withMaterial = true) {
         const s = await solverScene();
         s.scene.flows.register((ctx) => new SPHFlow(ctx), {
@@ -44,7 +44,7 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
             phase: 'physics',
             bodyType: 'SPHSchema',
         });
-        if (withMaterial) s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        if (withMaterial) s.scene.world.insert(new ParticlePhysics(OPTIONS));
         s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         return s;
     }
@@ -67,7 +67,7 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
     it('substeps pelo passo estável (CFL 0,4 h/c)', async () => {
         const s = await sph();
         const passes = s.step(1 / 60);
-        const expected = ParticleMaterial.substepsFor(1 / 60, material.sphStableDt);
+        const expected = ParticlePhysics.substepsFor(1 / 60, material.sphStableDt);
         expect(expected).toBeGreaterThan(1);
         expect(countPasses(passes, 'SPHFlow.density')).toBe(expected);
     });
@@ -101,7 +101,7 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
             phase: 'physics',
             bodyType: 'SPHSchema',
         });
-        const m = new ParticleMaterial({ ...OPTIONS, xsph: 0.1, cohesion: 0.5, adhesion: 0.25 });
+        const m = new ParticlePhysics({ ...OPTIONS, xsph: 0.1, cohesion: 0.5, adhesion: 0.25 });
         s.scene.world.insert(m);
         s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         const passes = s.step(1 / 60);
@@ -145,7 +145,7 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
             phase: 'physics',
             bodyType: 'SPHSchema',
         });
-        const m = new ParticleMaterial({ ...OPTIONS, cohesion: 1e6 });
+        const m = new ParticlePhysics({ ...OPTIONS, cohesion: 1e6 });
         s.scene.world.insert(m);
         s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         s.step(1 / 60);
@@ -164,13 +164,13 @@ describe('SPHFlow — parâmetros do ParticleMaterial', () => {
         s.step(1 / 60);
         const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
         expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(
-            ParticleMaterial.defaults.particleMass,
+            ParticlePhysics.defaults.particleMass,
             6,
         );
     });
 });
 
-describe('PBFFlow — parâmetros do ParticleMaterial', () => {
+describe('PBFFlow — parâmetros do ParticlePhysics', () => {
     async function pbf() {
         const s = await solverScene();
         s.scene.flows.register((ctx) => new PBFFlow(ctx), {
@@ -178,7 +178,7 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
             phase: 'physics',
             bodyType: 'PBFSchema',
         });
-        s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(new ParticlePhysics(OPTIONS));
         s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
         return s;
     }
@@ -204,7 +204,7 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
             phase: 'physics',
             bodyType: 'PBFSchema',
         });
-        const m = new ParticleMaterial({ ...OPTIONS, xsph: 0.02, cohesion: 0.5, adhesion: 0.5 });
+        const m = new ParticlePhysics({ ...OPTIONS, xsph: 0.02, cohesion: 0.5, adhesion: 0.5 });
         s.scene.world.insert(m);
         s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
         s.step(1 / 60);
@@ -222,7 +222,7 @@ describe('PBFFlow — parâmetros do ParticleMaterial', () => {
     });
 });
 
-describe('MPMFlow — parâmetros do ParticleMaterial', () => {
+describe('MPMFlow — parâmetros do ParticlePhysics', () => {
     async function mpm(body: () => FluidBody | SoftBody, bodyType: string) {
         const s = await solverScene();
         s.scene.flows.register((ctx) => new MPMFlow(ctx), {
@@ -230,7 +230,7 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
             phase: 'physics',
             bodyType,
         });
-        s.scene.world.insert(new ParticleMaterial(OPTIONS));
+        s.scene.world.insert(new ParticlePhysics(OPTIONS));
         s.scene.world.insert(body());
         return s;
     }
@@ -249,7 +249,7 @@ describe('MPMFlow — parâmetros do ParticleMaterial', () => {
         expect(f32[16]).toBe(-1);
         expect(f32[19]).toBeCloseTo(0.08, 6);
         expect(u32[21]).toBe(2);
-        const substeps = ParticleMaterial.substepsFor(1 / 60, material.mpmStableDt);
+        const substeps = ParticlePhysics.substepsFor(1 / 60, material.mpmStableDt);
         expect(u32[22]).toBe(substeps);
         expect(countPasses(passes, 'MPMFlow.p2g')).toBe(substeps);
     });

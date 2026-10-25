@@ -41,10 +41,10 @@ posições direto do pool (sem cópia nem leitura de volta). Um `SoftBody({ surf
 espessura, reflexão com Fresnel e cáusticas sob a luz que projeta sombra — sem mudar a simulação. Para trocar o
 material de um corpo vivo: `world.detach(corpo, materialAntigo)` e `world.attach(corpo, materialNovo)`.
 
-O PBF calcula os substeps pelo passo estável do material (`ParticleMaterial.pbfStableDt`: a calibração de 5 cm a 60 Hz
+O PBF calcula os substeps pelo passo estável da física (`ParticlePhysics.pbfStableDt`: a calibração de 5 cm a 60 Hz
 escalada por (h / 0,1)²): 1 substep a 5 cm, 4 a 2,5 cm.
 
-**Coesão, adesão e viscosidade (spec 030).** O comportamento do líquido é declarado no `ParticleMaterial` (um por cena):
+**Coesão, adesão e viscosidade (spec 030).** A física do líquido é declarada no `ParticlePhysics` (um por cena):
 
 | Campo       | Padrão | Efeito                                                                                                                            |
 | ----------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,17 +54,17 @@ escalada por (h / 0,1)²): 1 substep a 5 cm, 4 a 2,5 cm.
 | `viscosity` | 0,01   | Viscosidade dinâmica (Pa·s) — agora também no MPM fluido (tensão `J μ (C + Cᵀ)` pela matriz afim do APIC)                       |
 
 `cohesion` e `adhesion` são adimensionais: 1 dá à partícula de borda (ou encostada na fronteira) uma aceleração da ordem
-de g. As referências calibradas para água em cenas de 2–5 cm são `ParticleMaterial.WATER_COHESION` (3) e
-`ParticleMaterial.WATER_ADHESION` (8). Com os dois em zero, nada muda: as trajetórias são as mesmas, bit a bit. Os
+de g. As referências calibradas para água em cenas de 2–5 cm são `ParticlePhysics.WATER_COHESION` (3) e
+`ParticlePhysics.WATER_ADHESION` (8). Com os dois em zero, nada muda: as trajetórias são as mesmas, bit a bit. Os
 valores podem mudar em execução (`material.data.cohesion = …`), com efeito no passo seguinte. Coesão e adesão fortes
 pedem mais substeps (oscilação 0,4 √(s / (valor · g))), até 4× os do solver; acima disso, são grampeadas com um aviso
 único por material.
 
 ```typescript
-app.world.insert(new ParticleMaterial({
+app.world.insert(new ParticlePhysics({
     particleSpacing: 0.025,
-    cohesion: ParticleMaterial.WATER_COHESION,
-    adhesion: ParticleMaterial.WATER_ADHESION,
+    cohesion: ParticlePhysics.WATER_COHESION,
+    adhesion: ParticlePhysics.WATER_ADHESION,
 }));
 ```
 
@@ -143,14 +143,14 @@ app.start();
 ## Receita: snow material com MPM
 
 ```typescript
-import { Application, FluidBody, GravityField, ParticleMaterial, PointSpriteMaterial } from 'webgpu-engine';
+import { Application, FluidBody, GravityField, ParticlePhysics, PointSpriteMaterial } from 'webgpu-engine';
 
 const app = await Application.create({ canvas });
 app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
 
-// A grade do MPM vem do material das partículas (slot opcional do MPMFlow): domínio e
+// A grade do MPM vem da física das partículas (slot opcional do MPMFlow): domínio e
 // espaçamento definem origem, células por eixo e aresta da célula (2 × espaçamento).
-app.world.insert(new ParticleMaterial({
+app.world.insert(new ParticlePhysics({
     particleSpacing: 0.05,
     domainMin: [-1.6, -1.6, -1.6],
     domainMax: [1.6, 1.6, 1.6],
@@ -220,7 +220,7 @@ grava a cada passo de física a energia de cada `SoftBody` no canal `SoftBodyEne
 | ----------- | ---------------------------------------------------------------------------------------------------------- |
 | `kinetic`   | Σ ½·m·\|v\|² das partículas (partícula fixa, de massa 0, fica fora)                                         |
 | `potential` | Σ −m·g·x no campo uniforme do `GravityField` (os demais campos de força não entram)                          |
-| `elastic`   | XPBD: Σ ½·C²/α das arestas do corpo com α > 0; MPM: Σ V₀·ψ(F), Neo-Hookean do `ParticleMaterial`; FEM: 0     |
+| `elastic`   | XPBD: Σ ½·C²/α das arestas do corpo com α > 0; MPM: Σ V₀·ψ(F), Neo-Hookean do `ParticlePhysics`; FEM: 0     |
 | `power`     | (E do passo anterior − E)/dt, E = cinética + potencial + elástica (W)                                      |
 | `window`    | E de 7 passos atrás − E (J)                                                                                |
 
@@ -228,7 +228,7 @@ grava a cada passo de física a energia de cada `SoftBody` no canal `SoftBodyEne
   α = 0 é restrição rígida, sem energia definida: não entra. Restrições entre corpos (`DistanceConstraint` à parte) não
   entram na energia de nenhum corpo.
 - **MPM**: ψ = μ/2·(tr FᵀF − 3) − μ·ln J + λ/2·(ln J)², o mesmo modelo do P2G, com a massa, o volume de repouso e μ, λ
-  do `ParticleMaterial` da cena.
+  do `ParticlePhysics` da cena.
 - **FEM**: o motor ainda não tem o modelo elástico do FEM (o `FEMFlow` só integra a gravidade); a elástica vale 0 até
   ele existir.
 
@@ -308,17 +308,17 @@ rápidos que a espessura da grade podem atravessar, como com paredes finas. A fo
 folga maior que a dos contatos entre corpos desestabiliza pilhas.
 
 Fluidos sobre terreno ou superfícies abertas usam o domínio aberto do material, sem paredes:
-`new ParticleMaterial({ bounds: 'open', domainMin, domainMax })` — a caixa do domínio só limita o cálculo (a grade de
+`new ParticlePhysics({ bounds: 'open', domainMin, domainMax })` — a caixa do domínio só limita o cálculo (a grade de
 vizinhos); o fluido colide só com os colliders da cena, e a partícula que sai da caixa por baixo ou pelos lados é
 retirada. O padrão (`'walls'`) mantém o chão e as paredes do domínio, com adesão.
 
 **Água com parâmetros físicos (spec 010).** Em vez de `cohesion`/`adhesion` adimensionais, o material aceita a tensão
 superficial e o ângulo de contato reais: `surfaceTension` (N/m) e `contactAngle` (graus, padrão 90). A coesão vira
 γ/(ρ s² g), a adesão coesão·(1 + cos θ) e a parede ganha o arrasto tangencial μ/(ρ s²) da viscosidade. As duas formas são
-exclusivas. `ParticleMaterial.WATER` traz a água (ρ 1000, μ 0,001 Pa·s, γ 0,072 N/m, θ 30°):
+exclusivas. `ParticlePhysics.WATER` traz a água (ρ 1000, μ 0,001 Pa·s, γ 0,072 N/m, θ 30°):
 
 ```typescript
-app.world.insert(new ParticleMaterial({ ...ParticleMaterial.WATER, particleSpacing: 0.0125, bounds: 'open', domainMin, domainMax }));
+app.world.insert(new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing: 0.0125, bounds: 'open', domainMin, domainMax }));
 ```
 
 **Partículas secundárias (spray, espuma, bolhas).** `DiffuseParticles` (Ihmsen et al. 2012) gera, onde o fluido

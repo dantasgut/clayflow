@@ -72,5 +72,40 @@ const normal = defineNode({
     fn: 'node_closure_normal',
 });
 
+/**
+ * Prioridade do meio na sobreposição de volumes transmissivos (o vidro mergulhado na água: o de maior prioridade vale
+ * dentro dele, e a borda do outro que passa por dentro não é interface). Empate: o último em que o raio entrou.
+ */
+const mediumPriority = defineNode({
+    name: 'closure.mediumPriority',
+    inputs: { c: 'Closure', priority: 'f32' },
+    outputs: { value: 'Closure' },
+    params: { priority: { type: 'f32', default: 0 } },
+    code: nodeClosure,
+    fn: 'node_closure_medium_priority',
+});
+
+/**
+ * Transmissão como parede fina (o `thin_walled` do OpenPBR): placa de espessura zero — vidraça, bolha. A luz atravessa
+ * sem desviar e reflete com as reflexões múltiplas entre as faces (2R/(1 + R)); absorção e rugosidade da transmissão
+ * não valem nela.
+ */
+const thinWalled = defineNode({
+    name: 'closure.thinWalled',
+    inputs: { c: 'Closure' },
+    outputs: { value: 'Closure' },
+    code: nodeClosure,
+    fn: 'node_closure_thin_walled',
+});
+
 /** Nós de composição de fechamentos. */
-export const closure = { mix, add, layer, thinFilm, opacity, normal } as const;
+export const closure = {
+    mix,
+    add,
+    layer,
+    thinFilm,
+    opacity,
+    normal,
+    mediumPriority,
+    thinWalled,
+} as const;

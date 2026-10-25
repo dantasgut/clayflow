@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FluidBody } from '../../physics/bodies/FluidBody';
 import { FluidSurfaceMaterial } from '../../material/FluidSurfaceMaterial';
 import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
-import { ParticleMaterial } from '../../physics/materials/ParticleMaterial';
+import { ParticlePhysics } from '../../physics/ParticlePhysics';
 import { Camera } from '../../scene/Camera';
 import { Transform } from '../../scene/Transform';
 import { SetCountSchema } from '../../../scene/graph/SetCountSchema';
@@ -105,7 +105,7 @@ describe('FluidFieldFlow (spec 033, R11)', () => {
         const s = await renderScene();
         registerStages(s.scene, { forward: 'scene', particles: true, water: true });
         s.scene.world.insert(new Camera().add(new Transform()));
-        s.scene.world.insert(new ParticleMaterial({ particleSpacing: 0.05 }));
+        s.scene.world.insert(new ParticlePhysics({ particleSpacing: 0.05 }));
         return s;
     }
 

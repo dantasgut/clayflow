@@ -27,7 +27,7 @@ import {
     NodeGraph,
     nodes,
     ParametricSurface,
-    ParticleMaterial,
+    ParticlePhysics,
     PointSpriteMaterial,
     RayScene,
     rayScene,
@@ -766,7 +766,7 @@ async function caseContract(): Promise<void> {
     const spacing = 0.05;
     const waterC: V3 = [0, 0, 5];
     const waterR = 0.3;
-    app.world.insert(new ParticleMaterial({ particleSpacing: spacing }));
+    app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     app.world.insert(
         new FluidBody({ algorithm: 'SPH', position: particleBall(waterC, waterR, spacing) }).add(
             new FluidSurfaceMaterial(),

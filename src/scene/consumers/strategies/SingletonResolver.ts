@@ -15,7 +15,7 @@ export interface SingletonResolverOptions {
 
 /**
  * Fonte de um Resource único da cena: o descritor `descId` do **primeiro recurso inserido que continua na cena** com
- * `schema` (ex.: a câmera ativa, o `Time`, o `ParticleMaterial`). Trocar o recurso (remover o primeiro) muda a fonte.
+ * `schema` (ex.: a câmera ativa, o `Time`, o `ParticlePhysics`). Trocar o recurso (remover o primeiro) muda a fonte.
  */
 export class SingletonResolver implements ConsumerResolver {
     /** Nome do resolver (`options.name`, ou `schema.name`). */

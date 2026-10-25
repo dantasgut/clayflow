@@ -78,14 +78,8 @@ function composed(scene: RayScene, shader: WgslModule): WgslModule {
         : bindPoints(shader, new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]));
 }
 
-/** O kernel do gradiente temporal (também lê materiais nos acertos), por revisão. */
-const gradientId = (revision: number): string => `refraction_gradient:${revision}`;
-
-/** Os raios guardados para o gradiente do quadro seguinte e onde o próximo gradiente os lê. */
-const GRADIENT_RAYS = [
-    ['gradientOriginNext', 'gradientOrigin'],
-    ['gradientDirectionNext', 'gradientDirection'],
-] as const;
+/** O kernel da mudança da cena por bloco (só lê as marcas de movimento do traçado anterior). */
+const GRADIENT = compute('refraction_gradient', refractionGradient, 'refraction_gradient_main');
 
 /**
  * Estágio da refração traçada (Camada 3, spec 034, R1): depois do pedido por pixel (o desenho dos transmissivos no
@@ -96,7 +90,8 @@ const GRADIENT_RAYS = [
  * antes da composição dos transmissivos e da água. Sem o pedido alocado (nenhum transmissivo desenhado com a refração),
  * sem a estrutura de raios ou desligada, não traça. Declara a cada quadro se produziu a `radiance` (a composição só
  * desenha quando sim). Com o gradiente temporal alocado (por quem filtra o traçado ou recomeça históricos), antes do
- * traçado, mede-o: em cada bloco de pixels, a amostra do quadro anterior refeita na cena de agora.
+ * traçado, mede-o: a mudança da cena em cada bloco de pixels, pelas marcas de movimento que o traçado do quadro anterior
+ * deixou (um caminho que tocou uma instância que se moveu), sem raio a mais.
  */
 export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     readonly type = 'RefractionFlow';
@@ -121,9 +116,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private traceRevision: number | undefined;
     private nextTraceRevision: number | undefined;
     private frame = 0;
-    /** Invocações do gradiente temporal (o despacho dele: os blocos em ladrilhos de 8 × 8). */
+    /** Invocações do gradiente temporal (uma por bloco). */
     private strata = 0;
-    /** O kernel do gradiente temporal em uso (alocado por um consumidor) e a revisão dos materiais dele. */
+    /** O kernel do gradiente temporal, depois que um consumidor o alocou. */
     private gradient: string | undefined;
 
     constructor(ctx: FlowContext) {
@@ -200,7 +195,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             pass.bind.setPipeline(camera.spec);
             camera.bindTo(pass.bind);
             pass.dispatch.workgroups(1);
-            // O gradiente lê a amostra do quadro anterior (as radiâncias ainda dele) e os meios da câmera de agora.
+            // A mudança por bloco lê as marcas do traçado anterior, antes que este as reescreva.
             if (measures) {
                 pass.bind.setPipeline(gradient.spec);
                 gradient.bindTo(pass.bind);
@@ -213,17 +208,6 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 CountToArgs.dispatchOffset({ counts: count, index: 0 }),
             );
         });
-        if (measures) {
-            const refraction = bound.slots.refraction.resource;
-            for (const [from, to] of GRADIENT_RAYS) {
-                const src = this.resources.textureOf(refraction, from)!;
-                frame.copyTextureToTexture(src, this.resources.textureOf(refraction, to)!, [
-                    src.width,
-                    src.height,
-                    1,
-                ]);
-            }
-        }
         this.frame++;
     }
 
@@ -263,25 +247,17 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             return;
         }
         const R = refractionResources;
-        // O gradiente temporal só quando um consumidor o alocou: então os raios dele também.
+        // O gradiente temporal só quando um consumidor o alocou.
         const measures = this.resources.textureOf(refraction, 'gradient') !== undefined;
-        // As texturas e onde cada uma é ligada: o gradiente lê a amostra do quadro anterior (a radiância como textura)
-        // e grava os raios do quadro seguinte.
+        // As texturas e onde cada uma é ligada (o gradiente lê as marcas de movimento no alfa do albedo).
         const textures = [
             ['request', [R.request]],
             ['queue', [R.queueOut, R.queueIn]],
             ['frame', [R.frameOut, R.frame]],
-            ['radiance', [R.radianceOut, R.radiance]],
+            ['radiance', [R.radianceOut]],
             ['hit', [R.hitOut]],
-            ...(measures
-                ? ([
-                      ['gradient', [R.gradientOut]],
-                      ['gradientOrigin', [R.gradientOrigin]],
-                      ['gradientDirection', [R.gradientDirection]],
-                      ['gradientOriginNext', [R.gradientOriginOut]],
-                      ['gradientDirectionNext', [R.gradientDirectionOut]],
-                  ] as const)
-                : []),
+            ['albedo', [R.albedoOut, R.albedo]],
+            ...(measures ? ([['gradient', [R.gradientOut]]] as const) : []),
         ] as const;
         for (const [id] of textures.slice(1)) this.resources.ensureAllocated(refraction, id);
         // As inversas de mundo (spec 037): o histórico leva o ponto atingido ao espaço do objeto por elas.
@@ -311,10 +287,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.pixels = texture.width * texture.height;
         const strata = this.resources.textureOf(refraction, 'gradient');
         // Em ladrilhos de 8 × 8 blocos (um grupo de 64 por ladrilho).
-        this.strata =
-            strata === undefined
-                ? 0
-                : Math.ceil(strata.width / 8) * Math.ceil(strata.height / 8) * 64;
+        this.strata = strata === undefined ? 0 : strata.width * strata.height;
         const rays = c.bound.slots.rays?.resource as RayScene | undefined;
         const cameraSlot = this.cameraSlot(c);
         this.tracing = refraction.enabled && rays !== undefined && cameraSlot !== undefined;
@@ -322,7 +295,10 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             // As luzes nos acertos: o pool existe mesmo sem nenhuma luz na cena (só emissores ou só o céu).
             this.resources.ensurePool(Light.schema);
             this.syncTrace(c, rays);
-            this.syncGradient(c, rays, measures);
+        }
+        if (measures && this.gradient === undefined) {
+            this.gradient = GRADIENT.id;
+            c.prepare(GRADIENT);
         }
         this.writeParams(c, refraction, cameraSlot ?? 0);
     }
@@ -347,19 +323,6 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         c.prepare(compute(traceId, composed(scene, refractionTrace), 'refraction_trace_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;
-    }
-
-    /**
-     * O kernel do gradiente temporal: preparado quando um consumidor aloca o gradiente, refeito quando o conjunto de
-     * funções `material` muda, liberado quando ninguém mais o lê (o novo vale quando compila; até lá, não mede).
-     */
-    private syncGradient(c: Ctx, scene: RayScene, measures: boolean): void {
-        const id = measures ? gradientId(scene.materialRevision) : undefined;
-        if (id === this.gradient) return;
-        if (this.gradient !== undefined) c.release(this.gradient);
-        this.gradient = id;
-        if (id === undefined) return;
-        c.prepare(compute(id, composed(scene, refractionGradient), 'refraction_gradient_main'));
     }
 
     /** O uniform do quadro: a câmera, as luzes, o quadro e o tempo (só quando mudam). */
