@@ -1114,9 +1114,31 @@ async function checkRequest(
             interior++;
             if ((marked[i] === 1) !== glass.has(id)) wrong++;
         }
+    // A luz que chega (`FrameTargets.light`, T065h): no pixel com pedido a cor é a do traçado, não a do opaco de trás —
+    // a luz guardada dele não pode reiluminar o histórico da resolução temporal (a aresta de trás vista em linha reta
+    // virava uma linha de pontos escuros sob o vidro). A composição escreve "sem luz medida" (zero, como o fundo).
+    const light = engine.app.resources.textureOf(engine.app.defaults.targets, 'light');
+    let lit = 0;
+    if (light !== undefined) {
+        const read = await readBack(engine.app, {
+            kind: 'texture',
+            spec: light,
+            rowBytes: light.width * 4,
+        });
+        const halves = new Uint16Array(read.data);
+        for (let y = 0; y < H; y++)
+            for (let x = 0; x < W; x++) {
+                if (marked[y * W + x] !== 1) continue;
+                const k = (y * read.bytesPerRow) / 2 + x * 2;
+                // Meia precisão: zero (com ou sem sinal) só com expoente e mantissa nulos.
+                if ((halves[k]! & 0x7fff) !== 0 || (halves[k + 1]! & 0x7fff) !== 0) lit++;
+            }
+    }
     log(
-        `${scene.name}: pedido em ${total} pixels, fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência`,
+        `${scene.name}: pedido em ${total} pixels, fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência; ${lit} pixels com pedido guardam a luz de trás`,
     );
+    check(light !== undefined, `${scene.name}: alvo da luz que chega não alocado`);
+    check(lit === 0, `${scene.name}: ${lit} pixels com pedido guardam a luz do opaco de trás`);
     check(queued === total, `${scene.name}: fila com ${queued} pixels, pedido em ${total}`);
     check(
         wrong === 0 && interior > 0,

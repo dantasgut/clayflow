@@ -1,10 +1,16 @@
-import type { EngineCore, Frame, RenderTarget } from '../../scene/contracts/gpu';
+import type { EngineCore, Frame, RenderTarget, TextureViewSpec } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot, type SingletonSlot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
+import {
+    slot,
+    type SingletonSlot,
+    type SlotMap,
+    type TargetSlot,
+    type TextureSlot,
+} from '../../scene/flows/slots';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
@@ -15,7 +21,7 @@ import {
 } from '../../elements/lighting/refraction/shaders';
 import { TemporalFilter } from '../../elements/lighting/temporal/TemporalFilter';
 import { temporalFilterResources } from '../../elements/lighting/temporal/shaders';
-import { FrameTargets } from '../app/FrameTargets';
+import { FrameTargets, LIGHT_FORMAT } from '../app/FrameTargets';
 
 /** Slots da composição da refração. */
 export interface RefractionCompositeSlots extends SlotMap {
@@ -25,6 +31,11 @@ export interface RefractionCompositeSlots extends SlotMap {
     readonly denoiser: SingletonSlot<true>;
     /** Cor e profundidade da cena (a composição escreve as duas nos pixels com pedido). */
     readonly target: TargetSlot;
+    /**
+     * A luz que chega (`FrameTargets.light`, sem MSAA): nos pixels com pedido, "sem luz medida" — a luz do opaco de trás
+     * não reilumina o histórico da resolução temporal (T065h).
+     */
+    readonly light: TextureSlot<true>;
 }
 
 type Ctx = TransitionContext<RefractionCompositeSlots>;
@@ -49,6 +60,7 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
             depth: { schema: FrameTargets.schema, descId: 'depth' },
             samples: { schema: FrameTargets.schema, descId: 'samples' },
         }),
+        light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -106,7 +118,14 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
         const color = this.colorAttachment(frame, target, { loadOp: 'load' });
         if (color === undefined || target.depth === undefined) return;
         const renderTarget: RenderTarget = {
-            colorAttachments: [color],
+            colorAttachments: [
+                color,
+                ...this.lightOf(bound.slots).map((view) => ({
+                    view,
+                    loadOp: 'load' as const,
+                    storeOp: 'store' as const,
+                })),
+            ],
             depthStencilAttachment: {
                 view: target.depth,
                 depthLoadOp: 'load',
@@ -150,6 +169,9 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
         const target = c.bound.slots.target;
         const format = target.format ?? this.core.canvasFormat;
         const samples = target.sampleCount;
+        // Com o alvo da luz (sem MSAA), outro pipeline: o anexo a mais.
+        const light = this.lightOf(c.bound.slots).map(() => ({ format: LIGHT_FORMAT }));
+        const lit = light.map(() => ':light').join('');
         const pipeline = (id: string, shader: WgslModule, entry: string): void => {
             c.prepare({
                 id,
@@ -158,13 +180,13 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
                 entryPoints: ['refraction_screen_vs', entry],
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format }],
+                colorTargets: [{ format }, ...light],
                 // O pedido já é só o que está à frente dos opacos: a profundidade dele substitui a da cena.
                 depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'always' },
                 multisample: { count: samples },
             });
         };
-        const id = `refraction_composite:${format}:${samples}`;
+        const id = `refraction_composite:${format}:${samples}${lit}`;
         if (id !== this.pipeline) {
             if (this.pipeline !== undefined) c.release(this.pipeline);
             this.pipeline = id;
@@ -173,11 +195,16 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
         const filteredId =
             denoised === undefined
                 ? undefined
-                : `refraction_composite_denoised:${format}:${samples}`;
+                : `refraction_composite_denoised:${format}:${samples}${lit}`;
         if (filteredId === this.denoisedPipeline) return;
         if (this.denoisedPipeline !== undefined) c.release(this.denoisedPipeline);
         this.denoisedPipeline = filteredId;
         if (filteredId !== undefined)
             pipeline(filteredId, refractionCompositeDenoised, 'refraction_composite_denoised_fs');
+    }
+
+    /** A vista do alvo da luz que chega, quando há (sem MSAA): zero ou um anexo. */
+    private lightOf(slots: BoundFlow<RefractionCompositeSlots>['slots']): TextureViewSpec[] {
+        return slots.light === undefined ? [] : [slots.light.view];
     }
 }
