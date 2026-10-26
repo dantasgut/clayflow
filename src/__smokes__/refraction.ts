@@ -355,6 +355,33 @@ const RIPPLE: RefractionScene = {
     camera: { position: [0, 1.3, 1.2], target: [0, 0.2, 0], fovY: 0.7 },
 };
 
+/**
+ * T065g: a esfera de vidro sem dispersão (prioridade 1) meio dentro da água com a dispersão dela (Abbe 55,7) — a
+ * primeira interface dispersiva do caminho é a segunda ou a terceira, não a primeira. O ruído do sinal traçado (variância
+ * entre quadros sobre o quadrado da média, na região da esfera) contra o da mesma cena com a água sem dispersão:
+ * ≤ 1,25× (antes da T065g, 16×).
+ */
+const DISPERSED_WATER: PtDielectric = { ior: 1.33, abbe: 55.7 };
+const DISPERSED: RefractionScene = {
+    name: 'dispersed',
+    solids: [
+        ...room(0.1),
+        {
+            id: 20,
+            shape: { kind: 'box', min: [-1, -0.01, -0.8], max: [1, 0.5, 0.8] },
+            glass: DISPERSED_WATER,
+        },
+        {
+            id: 10,
+            shape: { kind: 'sphere', center: [0, 0.5, 0], radius: 0.35 },
+            glass: { ior: 1.5, priority: 1 },
+        },
+    ],
+    // Câmera baixa, como no vídeo `ondulacao`: pela metade de cima da esfera o raio sai para o ar e só a terceira
+    // interface (a superfície da água atrás) é dispersiva; pela de baixo, a segunda (a saída do vidro na água).
+    camera: { position: [0, 0.8, 1.7], target: [0, 0.5, 0], fovY: 0.75 },
+};
+
 // ── O motor ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const AXES = ['x', 'y', 'z'] as const;
@@ -634,6 +661,13 @@ interface EngineImage {
     readonly sceneCopyFrames: number;
     readonly traced: Float32Array;
     readonly truncated: Float32Array;
+    /**
+     * Por pixel, a variância do sinal traçado (`radiance`, uma amostra por quadro, antes do filtro) entre os quadros,
+     * somada nos três canais, e o quadrado da média dele, somado nos canais (o ruído relativo de uma região é a razão
+     * das médias dos dois).
+     */
+    readonly tracedVariance: Float32Array;
+    readonly tracedMean2: Float32Array;
     readonly app: Application;
     close(): void;
 }
@@ -702,6 +736,8 @@ async function renderEngine(
     const rgb = new Float32Array(W * H * 3);
     const traced = new Float32Array(W * H);
     const truncated = new Float32Array(W * H);
+    const sum = new Float64Array(W * H * 3);
+    const sq = new Float64Array(W * H * 3);
     const lum = (d: Float32Array, i: number): number =>
         luminanceLinear(d.subarray(i * 4, i * 4 + 3));
     for (let f = 0; f < SAMPLES; f++) {
@@ -716,8 +752,21 @@ async function renderEngine(
         for (let i = 0; i < W * H; i++) {
             traced[i]! += lum(t, i) / SAMPLES;
             truncated[i]! += t[i * 4 + 3]! / SAMPLES;
+            for (let k = 0; k < 3; k++) {
+                const v = t[i * 4 + k]!;
+                sum[i * 3 + k]! += v;
+                sq[i * 3 + k]! += v * v;
+            }
         }
     }
+    const tracedVariance = new Float32Array(W * H);
+    const tracedMean2 = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++)
+        for (let k = 0; k < 3; k++) {
+            const m = sum[i * 3 + k]! / SAMPLES;
+            tracedMean2[i]! += m * m;
+            tracedVariance[i]! += Math.max(0, sq[i * 3 + k]! / SAMPLES - m * m);
+        }
     // Os tempos chegam alguns quadros depois.
     await new Promise((r) => setTimeout(r, 300));
     off();
@@ -726,6 +775,8 @@ async function renderEngine(
         sceneCopyFrames,
         traced,
         truncated,
+        tracedVariance,
+        tracedMean2,
         app,
         close() {
             app.dispose();
@@ -1296,6 +1347,51 @@ async function caseBumped(scene: RefractionScene, id: number): Promise<void> {
     }
 }
 
+/** Ruído relativo do sinal traçado na região: a média da variância por pixel sobre a média do quadrado da média. */
+function relativeNoise(e: EngineImage, pixels: readonly number[]): number {
+    let v = 0;
+    let m = 0;
+    for (const i of pixels) {
+        v += e.tracedVariance[i]!;
+        m += e.tracedMean2[i]!;
+    }
+    return m > 0 ? v / m : 0;
+}
+
+/**
+ * T065g: o erro por região da cena `dispersed` e o ruído do sinal traçado na esfera contra o da mesma cena sem a
+ * dispersão da água.
+ */
+async function caseDispersed(): Promise<void> {
+    const { regions, engine } = await compareScene(DISPERSED);
+    const plain: RefractionScene = {
+        ...DISPERSED,
+        solids: DISPERSED.solids.map((x) =>
+            x.glass === DISPERSED_WATER ? { ...x, glass: { ior: DISPERSED_WATER.ior } } : x,
+        ),
+    };
+    const control = await renderEngine(plain);
+    try {
+        const sphere = regions.get(10) ?? [];
+        const noisy = relativeNoise(engine, sphere);
+        const clean = relativeNoise(control, sphere);
+        log(
+            `dispersed: ruído relativo do sinal traçado na esfera ${noisy.toExponential(3)} com a dispersão da água, ${clean.toExponential(3)} sem — razão ${(noisy / clean).toFixed(2)}`,
+        );
+        // O canal sorteado com o triplo do peso soma 2 ao ruído relativo (E[X²] = 3m²): antes da T065g, 16× o da cena
+        // sem dispersão nesta câmera (45× com a esfera vista de cima). Com um caminho por canal onde a dispersão começa
+        // sobra o ruído da cena sem dispersão; os 25 % cobrem a roleta entre reflexão e transmissão pela soma dos canais
+        // (o Fresnel de cada canal difere do único da cena sem dispersão) — medido 1,07×.
+        check(
+            noisy <= 1.25 * clean,
+            `dispersed: ruído do sinal traçado na esfera ${(noisy / clean).toFixed(2)}× o da cena sem dispersão (≤ 1,25×)`,
+        );
+    } finally {
+        engine.close();
+        control.close();
+    }
+}
+
 async function caseGi(): Promise<void> {
     const scene = SCENES[0]!;
     const ref = await renderReference(scene);
@@ -1333,6 +1429,10 @@ async function main(): Promise<void> {
     if (only === null || only === 'lens') {
         log('── lens');
         await caseLens();
+    }
+    if (only === null || only === 'dispersed') {
+        log('── dispersed');
+        await caseDispersed();
     }
     for (const [scene, id] of [
         [RELIEF, 10],
