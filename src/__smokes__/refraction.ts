@@ -26,6 +26,9 @@
 //     mediana de três blocos) com a refração ligada menos a desligada ≤ 3 ms (SC-011, 18 % do quadro de 60 Hz no M4; o filtro e a
 //     marca são da refração, não do antisserrilhado — decisão de 2026-10-24). Não os carimbos por passe: no M4 os
 //     passes se sobrepõem e o intervalo de um conta o fim do outro.
+//   - glint: a cena `dispersed` com o teto 10× mais claro (o céu de dia contra o chão visto pela água) — ≤ 3 %; e os
+//     vagalumes do sinal traçado na esfera (T065i): sem o antisserrilhado (a amostra no centro do pixel, a única
+//     aleatoriedade é a do caminho), as amostras acima de 4× a média do pixel ≤ 0,05 % das amostras.
 //   - gi: a cena `sphere` sem a iluminação global, com ela desligada e com ela ligada: as médias por região iguais a
 //     ≤ 0,5 % (SC-002; albedo 0, nenhuma luz indireta a descontar) (US1-6).
 // Em todas: nenhum quadro com o passe de cópia da tela (`sceneCopy`): 0 leituras dela pelos transmissivos (SC-001).
@@ -48,6 +51,7 @@ import {
     type MaterialFunction,
     type NodeUse,
     type StagingBufferSpec,
+    type AntialiasingMode,
 } from 'clayflow';
 import type {
     PtCamera,
@@ -125,8 +129,11 @@ interface RefractionScene {
     readonly limit?: number;
 }
 
-/** Cômodo de 4 × 3 × 4 m de paredes emissoras (albedo 0); chão em xadrez emissor de lado `floorCell`. */
-function room(floorCell = 0.1, back: 'emissive' | 'diffuse' = 'emissive'): Solid[] {
+/**
+ * Cômodo de 4 × 3 × 4 m de paredes emissoras (albedo 0); chão em xadrez emissor de lado `floorCell`; o teto com a
+ * emissão `ceiling`.
+ */
+function room(floorCell = 0.1, back: 'emissive' | 'diffuse' = 'emissive', ceiling = 0.6): Solid[] {
     const t = 0.1;
     return [
         {
@@ -144,7 +151,7 @@ function room(floorCell = 0.1, back: 'emissive' | 'diffuse' = 'emissive'): Solid
         {
             id: 2,
             shape: { kind: 'box', min: [-2 - t, 3, -2 - t], max: [2 + t, 3 + t, 2 + t] },
-            emission: [0.6, 0.6, 0.6],
+            emission: [ceiling, ceiling, ceiling],
         },
         {
             id: 3,
@@ -380,6 +387,17 @@ const DISPERSED: RefractionScene = {
     // Câmera baixa, como no vídeo `ondulacao`: pela metade de cima da esfera o raio sai para o ar e só a terceira
     // interface (a superfície da água atrás) é dispersiva; pela de baixo, a segunda (a saída do vidro na água).
     camera: { position: [0, 0.8, 1.7], target: [0, 0.5, 0], fovY: 0.75 },
+};
+
+/**
+ * T065i: a cena `dispersed` com o teto 10× mais claro — o céu de dia contra o chão visto pela água, como no vídeo
+ * `ondulacao`. Da terceira interface em diante o caminho escolhe um lobo pela roleta de Fresnel; o raro (a reflexão de
+ * 2–4 % na água vista de cima) leva o peso 1/F e vê o teto: o vagalume.
+ */
+const GLINT: RefractionScene = {
+    ...DISPERSED,
+    name: 'glint',
+    solids: [...room(0.1, 'emissive', 6), ...DISPERSED.solids.filter((x) => x.id >= 10)],
 };
 
 // ── O motor ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -668,14 +686,21 @@ interface EngineImage {
      */
     readonly tracedVariance: Float32Array;
     readonly tracedMean2: Float32Array;
+    /** A luminância do sinal traçado de cada quadro nos pixels `watch` (quadro a quadro, `watch.length` por quadro). */
+    readonly watched: Float32Array;
     readonly app: Application;
     close(): void;
 }
 
-/** Desenha a cena no motor (`gi`: sem a iluminação global, com ela desligada ou ligada) e devolve a média. */
+/**
+ * Desenha a cena no motor (`gi`: sem a iluminação global, com ela desligada ou ligada; `aa`: o antisserrilhado, o
+ * acúmulo por padrão; `watch`: os pixels de que guardar o sinal traçado de cada quadro) e devolve a média.
+ */
 async function renderEngine(
     scene: RefractionScene,
     gi: 'absent' | 'off' | 'on' = 'absent',
+    aa: AntialiasingMode = 'accumulate',
+    watch: readonly number[] = [],
 ): Promise<EngineImage> {
     const canvas = document.createElement('canvas');
     canvas.width = W;
@@ -686,7 +711,7 @@ async function renderEngine(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        antialias: 'accumulate',
+        antialias: aa,
         profiling: 'passes',
     });
     app.events.on('engineError', (e) =>
@@ -738,6 +763,7 @@ async function renderEngine(
     const truncated = new Float32Array(W * H);
     const sum = new Float64Array(W * H * 3);
     const sq = new Float64Array(W * H * 3);
+    const watched = new Float32Array(SAMPLES * watch.length);
     const lum = (d: Float32Array, i: number): number =>
         luminanceLinear(d.subarray(i * 4, i * 4 + 3));
     for (let f = 0; f < SAMPLES; f++) {
@@ -758,6 +784,7 @@ async function renderEngine(
                 sq[i * 3 + k]! += v * v;
             }
         }
+        watch.forEach((i, j) => (watched[f * watch.length + j] = lum(t, i)));
     }
     const tracedVariance = new Float32Array(W * H);
     const tracedMean2 = new Float32Array(W * H);
@@ -777,6 +804,7 @@ async function renderEngine(
         truncated,
         tracedVariance,
         tracedMean2,
+        watched,
         app,
         close() {
             app.dispose();
@@ -1414,6 +1442,65 @@ async function caseDispersed(): Promise<void> {
     }
 }
 
+/**
+ * Os vagalumes do sinal traçado nos pixels `pixels` (`samples`: quadro a quadro, `pixels` por quadro) — as amostras
+ * acima de `FIREFLY` vezes a média do próprio pixel: a fração das amostras e a parte da energia.
+ */
+function fireflies(samples: Float32Array, pixels: number): { count: number; energy: number } {
+    const frames = samples.length / pixels;
+    let total = 0;
+    let energy = 0;
+    let count = 0;
+    for (let j = 0; j < pixels; j++) {
+        let mean = 0;
+        for (let f = 0; f < frames; f++) mean += samples[f * pixels + j]! / frames;
+        for (let f = 0; f < frames; f++) {
+            const v = samples[f * pixels + j]!;
+            total += v;
+            if (v > FIREFLY * mean) {
+                count++;
+                energy += v;
+            }
+        }
+    }
+    return { count: count / samples.length, energy: total > 0 ? energy / total : 0 };
+}
+
+/**
+ * Vagalume: a amostra de um quadro acima de 4× a média do pixel. Com o histórico curto da câmera andando (a resolução
+ * temporal e o filtro do sinal traçado guardam da ordem de 8 quadros), uma amostra assim desloca o pixel em mais de um
+ * terço da média — um ponto à vista, que a caixa de vizinhança só recorta quando os vizinhos não o têm.
+ */
+const FIREFLY = 4;
+
+/**
+ * T065i: a cena `glint` contra a referência (sem viés) e os vagalumes do sinal traçado na esfera — sem o antisserrilhado,
+ * a amostra fica no centro do pixel e a variação entre quadros é só a do caminho (a roleta de Fresnel; sem luzes nem a
+ * luz global, nada mais é sorteado nesta cena). O que se vê é a densidade deles, não a energia (que é a certa: a média
+ * converge para a referência): ≤ 0,05 % das amostras — um vagalume quase nunca tem outro nos 3 × 3 em volta (≈ 0,4 %
+ * das vezes) e entra no histórico só com o peso de um quadro. Medido antes da T065i: 0,31 % nesta cena e 0,43 % na
+ * esfera do vídeo `ondulacao` (câmera parada no quadro 60, sem o antisserrilhado) — a mesma ordem: a cena representa o
+ * vídeo.
+ */
+async function caseGlint(): Promise<void> {
+    const { regions, engine } = await compareScene(GLINT);
+    engine.close();
+    const sphere = regions.get(10) ?? [];
+    const still = await renderEngine(GLINT, 'absent', 'off', sphere);
+    try {
+        const f = fireflies(still.watched, sphere.length);
+        log(
+            `glint: vagalumes do sinal traçado na esfera (amostras > ${FIREFLY}× a média do pixel) — ${(f.count * 100).toFixed(3)} % das amostras de ${sphere.length} pixels (limite 0,050 %), ${pct(f.energy)} da energia; ruído relativo ${relativeNoise(still, sphere).toExponential(3)}`,
+        );
+        check(
+            f.count <= 0.0005,
+            `glint: ${(f.count * 100).toFixed(3)} % das amostras do sinal traçado na esfera são vagalumes (> ${FIREFLY}× a média do pixel) > 0,05 %`,
+        );
+    } finally {
+        still.close();
+    }
+}
+
 async function caseGi(): Promise<void> {
     const scene = SCENES[0]!;
     const ref = await renderReference(scene);
@@ -1455,6 +1542,10 @@ async function main(): Promise<void> {
     if (only === null || only === 'dispersed') {
         log('── dispersed');
         await caseDispersed();
+    }
+    if (only === null || only === 'glint') {
+        log('── glint');
+        await caseGlint();
     }
     for (const [scene, id] of [
         [RELIEF, 10],

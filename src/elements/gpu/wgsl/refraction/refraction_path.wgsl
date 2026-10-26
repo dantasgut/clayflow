@@ -4,7 +4,9 @@
 // dispersão, a transmissão é um caminho por canal, com o índice do canal em toda interface seguinte. Na segunda
 // interface de cada um os dois lobos de novo (`refraction_path_split`: a reflexão interna de 4 % entra em toda amostra
 // com o peso dela, não numa a cada 25 — o histórico vê a mudança dela no quadro em que acontece), e um caminho por
-// canal se a dispersão começa nela. Nas seguintes um lobo, pela roleta de Fresnel (sem viés: o acúmulo converge); onde
+// canal se a dispersão começa nela. Nas seguintes um lobo: o raro é olhado antes e, se termina no acerto seguinte, entra
+// com o peso exato e o caminho segue pelo outro (T065i: sem os vagalumes da roleta); senão a roleta de Fresnel (sem
+// viés: o acúmulo converge); onde
 // a dispersão começa e a roleta escolhe a transmissão, um caminho por canal dali em diante (T065g: o vidro meio dentro
 // da água; sortear o canal com o triplo do peso somava 2 ao ruído relativo). Cada trecho é absorvido no meio corrente
 // (Beer–Lambert). No acerto opaco: a emissão, a luz direta com raio de sombra (`ray_direct`) e a luz rebatida da cena
@@ -28,6 +30,14 @@ const REFRACTION_FAR: f32 = 1.0e6;
  * 32, `REFRACTION_MAX_INTERFACES`), então o caminho acaba antes; o teto só garante que nenhum laço prenda a GPU.
  */
 const REFRACTION_STEP_LIMIT: u32 = 34u;
+
+/**
+ * Peso mínimo do caminho (por canal, desde a câmera) para olhar o lobo raro antes da roleta (T065i). Abaixo dele — os
+ * ramos da reflexão de Fresnel das duas primeiras interfaces, de 4 % no vidro fora do rasante — o lobo raro só faria
+ * vagalume (4× a média do pixel) vendo algo 40× mais claro que o pixel, e olhar custa um traçado a mais em toda
+ * interface: na lente, a reflexão interna acha o próprio vidro de novo (+10 ms em 33).
+ */
+const REFRACTION_LOOK_WEIGHT: f32 = 0.1;
 
 /**
  * Origem do raio que sai da interface no ponto `p` (face `nf`) na direção `dir`: andando sobre a própria linha do raio
@@ -425,20 +435,52 @@ struct RefractionWalk {
     pending: bool,
 }
 
-/** Caminho perdido (sem luz) que termina em `end`. */
-fn refraction_lost(end: vec4f, pending: bool) -> RefractionWalk {
-    return RefractionWalk(RefractionPath(vec3f(0.0), vec3f(0.0), end, vec3f(1.0), vec3f(0.0)), pending);
+/**
+ * A luz já somada de um caminho pelos lobos raros resolvidos de antemão (T065i): a radiância, a parte dela que veio
+ * por algo em movimento e a energia que restava no limite de interfaces.
+ */
+struct RefractionGathered {
+    radiance: vec3f,
+    moving: vec3f,
+    truncated: vec3f,
+}
+
+/** Caminho perdido (sem luz além da já somada `g`) que termina em `end`. */
+fn refraction_lost(end: vec4f, pending: bool, g: RefractionGathered) -> RefractionWalk {
+    return RefractionWalk(RefractionPath(g.radiance, g.truncated, end, vec3f(1.0), g.moving), pending);
+}
+
+/** O caminho `p` com a luz já somada `g`. */
+fn refraction_with(p: RefractionPath, g: RefractionGathered) -> RefractionPath {
+    return RefractionPath(p.radiance + g.radiance, p.truncated + g.truncated, p.end, p.albedo, p.moving + g.moving);
+}
+
+/**
+ * `g` com a luz do nó terminal `n` (o acerto seguinte de um lobo resolvido de antemão) pelo peso `weight` (o do
+ * caminho até a interface vezes o do lobo); `moved`: o caminho até a interface tocou algo em movimento.
+ */
+fn refraction_gather(g: RefractionGathered, n: RefractionNode, weight: vec3f, moved: bool) -> RefractionGathered {
+    let w = weight * n.through;
+    let radiance = w * n.radiance;
+    return RefractionGathered(g.radiance + radiance, g.moving + select(vec3f(0.0), radiance, moved || n.moved),
+        g.truncated + w * n.truncated);
 }
 
 /**
  * Caminho a partir de (o0, d0) com a pilha `stack0` no canal `channel0` (−1 = os três), depois de `interfaces0`: um
- * lobo por interface pela roleta de Fresnel até um opaco, o escape ou o limite. Na interface em que a dispersão começa
- * a roleta escolhe entre a reflexão (segue nos três canais) e a transmissão: com `forced` −1 o caminho para ali
- * (`pending`); com `forced` = k — a repetição do mesmo caminho com o mesmo estado aleatório, que chega à mesma
- * interface pelas mesmas escolhas — a transmissão segue no canal k (T065g).
+ * lobo por interface até um opaco, o escape ou o limite. Em cada interface o lobo raro (a probabilidade de Fresnel
+ * menor que 1/2) é olhado antes (T065i): se o acerto seguinte dele termina o caminho dele (um opaco, o céu, o limite),
+ * a luz dele entra com o peso exato e o caminho segue pelo outro, sem roleta — a roleta mandava o lobo raro com o peso
+ * 1/F numa amostra em 1/F (2–4 % na água e no vidro vistos de fora): um vagalume onde ele vê algo mais claro. Se o lobo
+ * raro segue adiante, a roleta de Fresnel como antes (sem viés: o acúmulo converge), e o acerto já traçado é o passo
+ * seguinte quando ela escolhe o raro. Na interface em que a dispersão começa, o mesmo com a reflexão (os três canais
+ * juntos) quando ela é a rara; a roleta escolhe entre ela e a transmissão: com `forced` −1 o caminho para ali
+ * (`pending`, com a luz já somada); com `forced` = k — a repetição do mesmo caminho com o mesmo estado aleatório, que
+ * chega à mesma interface pelas mesmas escolhas — a transmissão segue no canal k (T065g), e só a luz somada dali em
+ * diante conta (a de antes já está no caminho que parou).
  */
 fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32, interfaces0: u32, forced: i32,
-    state: ptr<function, u32>) -> RefractionWalk {
+    weight0: vec3f, state: ptr<function, u32>) -> RefractionWalk {
     var o = o0;
     var d = d0;
     var stack = stack0;
@@ -446,10 +488,14 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
     var interfaces = interfaces0;
     var throughput = vec3f(1.0);
     var moved = false;
+    var gathered = RefractionGathered(vec3f(0.0), vec3f(0.0), vec3f(0.0));
+    var counting = forced < 0;
     for (var step = 0u; step < REFRACTION_STEP_LIMIT; step++) {
         let n = refraction_advance(o, d, stack, channel, interfaces, state);
         throughput *= n.through;
-        if (n.done) { return RefractionWalk(refraction_finish(n, throughput, moved), false); }
+        if (n.done) {
+            return RefractionWalk(refraction_with(refraction_finish(n, throughput, moved), gathered), false);
+        }
         moved = moved || n.moved;
         channel = n.channel;
         interfaces = n.interfaces;
@@ -458,46 +504,69 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
             o = refraction_departure(n.p, n.nf, d);
             continue;
         }
-        var dir: vec3f;
-        var weight: vec3f;
-        var crossed: bool;
+        // A interface: a reflexão e a transmissão, a probabilidade da reflexão na roleta e qual lobo é o raro. Onde a
+        // dispersão começa, a roleta é pela média do Fresnel dos canais e a transmissão é um caminho por canal (os
+        // pesos divididos pela probabilidade: sem viés para qualquer escolha dela).
+        var f = n.reflect_weight;
+        var p_reflect = n.p_reflect;
+        var reflect_dir = n.reflect_dir;
+        var reflect_weight = n.reflect_weight;
         if (n.disperse) {
-            // A roleta entre a reflexão (os três canais juntos) e a transmissão (um caminho por canal), pela média do
-            // Fresnel dos canais (os pesos divididos pela probabilidade: sem viés para qualquer escolha dela).
             let cos_m = dot(-d, n.m);
-            let f = vec3f(
+            f = vec3f(
                 refraction_fresnel(cos_m, n.ior_before.x, n.ior_next.x),
                 refraction_fresnel(cos_m, n.ior_before.y, n.ior_next.y),
                 refraction_fresnel(cos_m, n.ior_before.z, n.ior_next.z),
             );
-            let p_reflect = clamp((f.x + f.y + f.z) / 3.0, 1e-4, 1.0 - 1e-4);
-            crossed = refraction_random(state) >= p_reflect;
-            if (crossed && forced < 0) { return refraction_lost(n.end, true); }
-            if (crossed) {
-                let t = refraction_transmit(d, n.m, n.ns, n.nf, n.ior_before[forced], n.ior_next[forced], n.alpha);
-                dir = t.dir;
-                weight = vec3f(0.0);
-                weight[forced] = (1.0 - f[forced]) * t.weight / (1.0 - p_reflect);
-                channel = forced;
-            } else {
-                let r = refraction_reflect(d, n.m, n.ns, n.nf, n.alpha);
-                dir = r.dir;
-                weight = f * (r.weight / p_reflect);
-            }
-        } else {
-            crossed = refraction_random(state) >= n.p_reflect;
-            weight = select(n.reflect_weight / n.p_reflect, n.transmit_weight / (1.0 - n.p_reflect), crossed);
-            dir = select(n.reflect_dir, n.transmit_dir, crossed);
+            p_reflect = clamp((f.x + f.y + f.z) / 3.0, 1e-4, 1.0 - 1e-4);
+            let r = refraction_reflect(d, n.m, n.ns, n.nf, n.alpha);
+            reflect_dir = r.dir;
+            reflect_weight = f * r.weight;
         }
-        if (all(weight <= vec3f(0.0))) { return refraction_lost(n.end, false); }
+        // O lobo raro (na dispersão, só a reflexão: a transmissão é um caminho por canal).
+        let rare_reflect = p_reflect <= 0.5;
+        let rare_weight = select(n.transmit_weight, reflect_weight, rare_reflect);
+        var resolved = (rare_reflect || !n.disperse) && all(rare_weight <= vec3f(0.0));
+        // A roleta sorteada antes de olhar o lobo raro, e o estado de antes de olhar: se ela escolhe o raro, o passo
+        // seguinte retraça o mesmo acerto com os mesmos números (guardar o nó olhado entre os passos custava
+        // registradores e tempo).
+        let u = refraction_random(state);
+        let rewind = *state;
+        var looked = false;
+        if (!resolved && (rare_reflect || !n.disperse) && any(weight0 * throughput >= vec3f(REFRACTION_LOOK_WEIGHT))) {
+            let rare_dir = select(n.transmit_dir, reflect_dir, rare_reflect);
+            var rare_stack = stack;
+            if (!rare_reflect) { rare_stack = refraction_after_node(stack, n); }
+            let ahead = refraction_advance(refraction_departure(n.p, n.nf, rare_dir), rare_dir, rare_stack, channel,
+                interfaces, state);
+            resolved = ahead.done;
+            looked = true;
+            if (resolved && counting) { gathered = refraction_gather(gathered, ahead, throughput * rare_weight, moved); }
+        }
+        // Resolvido o raro, o outro lobo sem roleta; senão a roleta.
+        let crossed = select(u >= p_reflect, rare_reflect, resolved);
+        var dir = select(reflect_dir, n.transmit_dir, crossed);
+        var weight = select(reflect_weight, n.transmit_weight, crossed)
+            / select(select(p_reflect, 1.0 - p_reflect, crossed), 1.0, resolved);
+        if (looked && !resolved && crossed != rare_reflect) { *state = rewind; }
+        if (n.disperse && crossed) {
+            if (forced < 0) { return refraction_lost(n.end, true, gathered); }
+            let t = refraction_transmit(d, n.m, n.ns, n.nf, n.ior_before[forced], n.ior_next[forced], n.alpha);
+            dir = t.dir;
+            weight = vec3f(0.0);
+            weight[forced] = (1.0 - f[forced]) * t.weight / select(1.0 - p_reflect, 1.0, resolved);
+            channel = forced;
+            counting = true;
+        }
+        if (all(weight <= vec3f(0.0))) { return refraction_lost(n.end, false, gathered); }
         throughput *= weight;
         d = dir;
         if (crossed) { stack = refraction_after_node(stack, n); }
         o = refraction_departure(n.p, n.nf, d);
     }
     // O teto de passos: a energia que resta conta como no limite de interfaces.
-    return RefractionWalk(RefractionPath(vec3f(0.0), throughput, refraction_end(o, NONE), vec3f(1.0), vec3f(0.0)),
-        false);
+    return RefractionWalk(refraction_with(RefractionPath(vec3f(0.0), throughput, refraction_end(o, NONE), vec3f(1.0),
+        vec3f(0.0)), gathered), false);
 }
 
 /**
@@ -505,7 +574,7 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
  * soma pesada pelo Fresnel, sem roleta nessa interface. O fim é o do lobo que mais contribui para a cor.
  */
 fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0: i32, interfaces0: u32,
-    state: ptr<function, u32>) -> RefractionPath {
+    weight0: vec3f, state: ptr<function, u32>) -> RefractionPath {
     var o = o0;
     var stack = stack0;
     var channel = channel0;
@@ -570,10 +639,17 @@ fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0:
         var lobe = stack;
         if (b.crossed[k]) { lobe = refraction_after_node(stack, n); }
         let walk = refraction_path(refraction_departure(n.p, n.nf, dir), dir, lobe, b.channels[k], interfaces, forced,
-            state);
+            weight0 * through * w, state);
         if (forced < 0) {
             pending = walk.pending;
-            if (pending) { continue; }
+            if (pending) {
+                // A luz dos lobos raros resolvidos antes da interface em que a dispersão começa (as repetições por
+                // canal só somam a de depois dela).
+                out.radiance += through * w * walk.path.radiance;
+                out.moving += through * w * select(walk.path.moving, walk.path.radiance, moved || n.moved);
+                out.truncated += through * w * walk.path.truncated;
+                continue;
+            }
         }
         let r = walk.path;
         let radiance = through * w * r.radiance;
@@ -683,7 +759,7 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
         var lobe = stack;
         if (b.crossed[i]) { lobe = after; }
         let r = refraction_path_split(refraction_departure(p, nf, b.dirs[i]), b.dirs[i], lobe, b.channels[i], 1u,
-            state);
+            through * b.weights[i], state);
         // Por canal, a luminância do que ele soma: o caminho do ramo mais forte.
         let radiance = through * b.weights[i] * r.radiance;
         out.radiance += radiance;
