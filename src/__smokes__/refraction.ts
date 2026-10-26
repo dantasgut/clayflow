@@ -29,6 +29,12 @@
 //   - glint: a cena `dispersed` com o teto 10× mais claro (o céu de dia contra o chão visto pela água) — ≤ 3 %; e os
 //     vagalumes do sinal traçado na esfera (T065i): sem o antisserrilhado (a amostra no centro do pixel, a única
 //     aleatoriedade é a do caminho), as amostras acima de 4× a média do pixel ≤ 0,05 % das amostras.
+//   - fieldImmersed / fieldUnder (T065e): a água das partículas pelo traçado — uma lâmina de partículas paradas (um
+//     `FluidBody` com o material pelo grafo; a superfície é a do campo dos fluidos) que entra nas paredes, a esfera de
+//     vidro meio mergulhada nela vista de cima, e submersa vista de dentro da água (a pilha inicial da câmera); contra
+//     o próprio motor com a água de malha no nível médio que os raios veem (o caminho conferido contra a referência nas
+//     outras cenas; a referência da CPU não tem a superfície do campo) — ≤ 3 % na região da esfera (a água ainda não
+//     pede refração por si: a da câmera é a T065f).
 //   - gi: a cena `sphere` sem a iluminação global, com ela desligada e com ela ligada: as médias por região iguais a
 //     ≤ 0,5 % (SC-002; albedo 0, nenhuma luz indireta a descontar) (US1-6).
 // Em todas: nenhum quadro com o passe de cópia da tela (`sceneCopy`): 0 leituras dela pelos transmissivos (SC-001).
@@ -42,6 +48,8 @@ import {
     GlobalIllumination,
     PlaneGeometry,
     PointLight,
+    FluidBody,
+    ParticlePhysics,
     SphereGeometry,
     StandardMaterial,
     Transform,
@@ -65,6 +73,7 @@ import { materialGraph } from './support/materialScenes';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { writeFixture } from './support/fixtures';
 import { luminanceLinear } from './support/images';
+import { queryVolumeHits } from './support/volumeQuery';
 
 function log(msg: string): void {
     console.log(`[refraction] ${msg}`);
@@ -117,6 +126,11 @@ interface Solid {
     readonly emission?: Vec3;
     readonly albedo?: Vec3;
     readonly checker?: Checker;
+    /**
+     * No motor, um corpo de fluido com estas partículas (o material do sólido pelo grafo; a superfície é a do campo dos
+     * fluidos) no lugar da caixa, que é a da referência; o espaçamento delas.
+     */
+    readonly particles?: { readonly positions: readonly number[]; readonly spacing: number };
 }
 
 interface RefractionScene {
@@ -127,6 +141,10 @@ interface RefractionScene {
     readonly points?: readonly { readonly position: Vec3; readonly intensity: number }[];
     /** Limite do erro por região (padrão 3 %). */
     readonly limit?: number;
+    /** As regiões comparadas (padrão: todas). */
+    readonly compare?: readonly number[];
+    /** Quadros de duração 0 (a física parada: as partículas da água não se movem). */
+    readonly still?: boolean;
 }
 
 /**
@@ -400,6 +418,78 @@ const GLINT: RefractionScene = {
     solids: [...room(0.1, 'emissive', 6), ...DISPERSED.solids.filter((x) => x.id >= 10)],
 };
 
+/**
+ * T065e: lâmina de água de partículas paradas na rede cúbica do espaçamento `spacing` (sem perturbação: a superfície do
+ * campo sai plana — medido, 1e-7 m —, a mesma geometria da água de malha com que o motor a compara) de `lo` a `hi` (os
+ * cantos das células), do vidro `glass`. O topo da caixa é provisório: a comparação usa o nível medido no motor
+ * (`meshWater`).
+ */
+function fieldWater(id: number, glass: PtDielectric, lo: Vec3, hi: Vec3, spacing: number): Solid {
+    const n = [0, 1, 2].map((k) => Math.round((hi[k]! - lo[k]!) / spacing));
+    const positions: number[] = [];
+    for (let z = 0; z < n[2]!; z++)
+        for (let y = 0; y < n[1]!; y++)
+            for (let x = 0; x < n[0]!; x++)
+                positions.push(
+                    lo[0] + (x + 0.5) * spacing,
+                    lo[1] + (y + 0.5) * spacing,
+                    lo[2] + (z + 0.5) * spacing,
+                );
+    return {
+        id,
+        shape: { kind: 'box', min: lo, max: hi },
+        glass,
+        particles: { positions, spacing },
+    };
+}
+
+/** A água das cenas do campo: a mesma do `immersed`, de partículas de 5 cm até o nível de ~0,43 m. */
+const FIELD_GLASS: PtDielectric = { ior: 1.33, color: [0.6, 0.85, 0.9], depth: 2 };
+const FIELD_SPACING = 0.05;
+// 84 × 9 × 84 = 63 504 partículas (o teto da vizinhança do SPH é 65 536): a água entra 10 cm nas paredes (a partir de
+// x, z = ±2) e no chão (a camada de baixo em y = 0) — nas duas, nenhuma interface água–ar encostada numa parede (na
+// referência, a face da caixa coincidente com a parede refletia o raio de volta).
+const FIELD_WATER = fieldWater(
+    20,
+    FIELD_GLASS,
+    [-2.1, -0.025, -2.1],
+    [2.1, 0.425, 2.1],
+    FIELD_SPACING,
+);
+
+const FIELD_SCENES: readonly RefractionScene[] = [
+    {
+        name: 'fieldImmersed',
+        solids: [
+            ...room(0.1),
+            FIELD_WATER,
+            {
+                id: 10,
+                shape: { kind: 'sphere', center: [0, 0.5, 0], radius: 0.35 },
+                glass: { ior: 1.5, priority: 1 },
+            },
+        ],
+        camera: { position: [0, 1.4, 1.7], target: [0, 0.35, 0], fovY: 0.75 },
+        compare: [10],
+        still: true,
+    },
+    {
+        name: 'fieldUnder',
+        solids: [
+            ...room(0.1),
+            FIELD_WATER,
+            {
+                id: 10,
+                shape: { kind: 'sphere', center: [0, 0.2, -0.4], radius: 0.16 },
+                glass: { ior: 1.5, priority: 1 },
+            },
+        ],
+        camera: { position: [0, 0.22, 1.0], target: [0, 0.2, -0.4], fovY: 0.9 },
+        compare: [10],
+        still: true,
+    },
+];
+
 // ── O motor ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const AXES = ['x', 'y', 'z'] as const;
@@ -618,6 +708,15 @@ function materialOf(s: Solid): MaterialFunction {
 /** Monta a cena no motor; devolve a câmera. */
 function buildEngine(app: Application, scene: RefractionScene, aspect = W / H): Camera {
     for (const s of scene.solids) {
+        if (s.particles !== undefined) {
+            app.world.insert(new ParticlePhysics({ particleSpacing: s.particles.spacing }));
+            app.world.insert(
+                new FluidBody({ algorithm: 'SPH', position: [...s.particles.positions] }).add(
+                    materialOf(s),
+                ),
+            );
+            continue;
+        }
         const sh = s.shape;
         let entity;
         if (sh.kind === 'box') {
@@ -767,7 +866,7 @@ async function renderEngine(
     const lum = (d: Float32Array, i: number): number =>
         luminanceLinear(d.subarray(i * 4, i * 4 + 3));
     for (let f = 0; f < SAMPLES; f++) {
-        app.step(1 / 60);
+        app.step(scene.still === true ? 0 : 1 / 60);
         const img = await readHdrTexture(app, texture);
         for (let i = 0; i < W * H; i++)
             for (let k = 0; k < 3; k++) rgb[i * 3 + k]! += img.data[i * 4 + k]! / SAMPLES;
@@ -1174,16 +1273,80 @@ async function checkRequest(
     );
 }
 
+/**
+ * T065e: a mesma cena com a água de malha — a caixa no nível médio da superfície da água de partículas que os raios do
+ * motor veem (raios verticais pelo ponto `ray_volume_hit` em oito pontos a 0,6–1 m do centro; a esfera é malha, não
+ * entra na consulta). A água de malha é o caminho do traçado já conferido contra a referência nas outras cenas; a
+ * diferença entre as duas imagens do motor mede o que é novo — o acerto do volume, o meio dele pelo grafo na pilha e a
+ * câmera dentro dele —, sem a referência da CPU, que não tem a mesma superfície (o campo dos fluidos, com o relevo da
+ * escala das partículas).
+ */
+async function meshWater(app: Application, scene: RefractionScene): Promise<RefractionScene> {
+    const top = 1.5;
+    const points: readonly [number, number][] = [
+        [1, 1],
+        [-1, 1],
+        [1, -1],
+        [-1, -1],
+        [0.6, 0],
+        [-0.6, 0],
+        [0, 0.6],
+        [0, -0.6],
+    ];
+    const hits = await queryVolumeHits(
+        app,
+        points.map(([x, z]) => ({ o: [x, top, z] as Vec3, d: [0, -1, 0] as Vec3 })),
+    );
+    const levels = points.map((_, i) => (hits[i * 8 + 1]! > 0.5 ? top - hits[i * 8]! : NaN));
+    if (levels.some((l) => !Number.isFinite(l)))
+        throw new Error(
+            `${scene.name}: a consulta não achou a superfície da água (${levels.join(', ')})`,
+        );
+    const level = levels.reduce((a, b) => a + b, 0) / levels.length;
+    const spread = Math.max(...levels) - Math.min(...levels);
+    log(
+        `${scene.name}: nível da água de partículas ${level.toFixed(4)} m (variação ${(spread * 1000).toFixed(2)} mm em 8 pontos); a água de malha nele`,
+    );
+    return {
+        ...scene,
+        solids: scene.solids.map((x) => {
+            if (x.particles === undefined || x.shape.kind !== 'box') return x;
+            const shape = { ...x.shape, max: [x.shape.max[0], level, x.shape.max[2]] as Vec3 };
+            return { id: x.id, shape, ...(x.glass !== undefined ? { glass: x.glass } : {}) };
+        }),
+    };
+}
+
 async function compareScene(
-    scene: RefractionScene,
+    input: RefractionScene,
 ): Promise<{ ref: PtImage; regions: Map<number, number[]>; engine: EngineImage }> {
-    const ref = await renderReference(scene);
-    const engine = await renderEngine(scene);
-    const regions = interiorRegions(ref.ids);
+    // Com a água de partículas, o alvo é o motor com a água de malha no nível que ele vê (T065e); a referência da CPU
+    // só dá o objeto visto por pixel (as regiões).
+    const field = input.solids.some((x) => x.particles !== undefined);
+    const engine = await renderEngine(input);
+    let scene = input;
+    let ref: PtImage;
+    let target: Float32Array;
+    if (field) {
+        scene = await meshWater(engine.app, input);
+        ref = await renderReference(scene, 0, 1);
+        const mesh = await renderEngine(scene);
+        target = mesh.rgb;
+        mesh.close();
+    } else {
+        ref = await renderReference(scene);
+        target = ref.rgb;
+    }
+    const compare = scene.compare;
+    const regions = new Map(
+        [...interiorRegions(ref.ids)].filter(
+            ([id]) => compare === undefined || compare.includes(id),
+        ),
+    );
     await checkRequest(scene, engine, regions);
     const limit = scene.limit ?? 0.03;
-    const { worst, where, lines } = regionErrors(engine.rgb, ref.rgb, regions);
-    await dump(scene.name, ref.rgb, engine.rgb);
+    const { worst, where, lines } = regionErrors(engine.rgb, target, regions);
+    await dump(scene.name, target, engine.rgb);
     for (const l of lines) log(`  ${scene.name}: ${l}`);
     log(
         `${scene.name}: pior erro por região ${pct(worst)} (${where}; limite ${pct(limit)}); quadros com a cópia da tela ${engine.sceneCopyFrames}`,
@@ -1535,6 +1698,12 @@ async function main(): Promise<void> {
         const { engine } = await compareScene(scene);
         engine.close();
     }
+    for (const scene of FIELD_SCENES) {
+        if (only !== null && only !== scene.name) continue;
+        log(`── ${scene.name}`);
+        const { engine } = await compareScene(scene);
+        engine.close();
+    }
     if (only === null || only === 'lens') {
         log('── lens');
         await caseLens();
@@ -1569,5 +1738,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-    log(`FAIL: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+    // Os erros do motor guardados até a falha (um pipeline que não compila deixa o motor sem ficar pronto).
+    const errors =
+        engineErrors.length > 0 ? ` | erros do motor: ${engineErrors.slice(0, 5).join(' | ')}` : '';
+    log(`FAIL: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}${errors}`);
 });

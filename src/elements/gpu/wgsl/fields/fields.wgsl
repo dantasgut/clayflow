@@ -119,8 +119,10 @@ fn field_brick_exit(b: vec3i, p: vec3f, dir: vec3f) -> f32 {
 /** Distância ao longo de `dir` até a saída do cubo [lo, lo + size] a partir de `p`. */
 fn field_cell_exit(lo: vec3f, size: f32, p: vec3f, dir: vec3f) -> f32 {
     let hi = lo + vec3f(size);
-    let inv = 1.0 / select(dir, vec3f(1e-12), abs(dir) < vec3f(1e-12));
-    let t = select((lo - p) * inv, (hi - p) * inv, dir > vec3f(0.0));
+    // A componente nula vira +1e-12, e o lado da célula sai do sinal dela (não do da original): pelo da original, a
+    // distância daquele eixo saía negativa e cortada em 0 — o raio alinhado a um eixo andava 1e-4 por passo.
+    let safe = select(dir, vec3f(1e-12), abs(dir) < vec3f(1e-12));
+    let t = select((lo - p) / safe, (hi - p) / safe, safe > vec3f(0.0));
     return max(min(min(t.x, t.y), t.z), 0.0);
 }
 
@@ -138,9 +140,10 @@ fn field_phi_cached(p: vec3f, cache: ptr<function, vec4i>) -> f32 {
  * até sair do fluido (de dentro para fora, `inside` verdadeiro). Pelos blocos: os vazios pulados até a saída deles (a
  * busca na tabela só quando o raio muda de bloco), nos ocupados passos de distância em φ trilinear. O cruzamento:
  * secante na trilinear e, com `refine`, um passo de Newton na tricúbica, que dá também a normal (contínua); sem `refine`
- * (só a distância, como a espessura), a secante basta.
+ * (só a distância, como a espessura), a secante basta. Com `departing`, a origem está numa superfície com o lado
+ * conhecido (`inside`): o cruzamento só conta depois de o raio estar desse lado.
  */
-fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine: bool) -> FieldHit {
+fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine: bool, departing: bool) -> FieldHit {
     let miss = FieldHit(t1, origin + dir * t1, vec3f(0.0, 1.0, 0.0), 0u, false);
     let voxel = field_voxel();
     let sgn = select(1.0, -1.0, inside);
@@ -151,7 +154,19 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
     var t = t0;
     var t_prev = t0;
     var f_prev = 1e9;
-    for (var steps = 0u; steps < 512u && t < t1; steps++) {
+    // Partindo de uma superfície com o lado conhecido (`departing`: logo depois de cruzá-la ou de refletir nela), a
+    // trilinear dos passos pode estar do outro lado da tricúbica que deu o ponto: o cruzamento só conta depois de o raio
+    // estar do lado de partida — sem isso ele reacertava a superfície de onde saiu.
+    var armed = !departing;
+    // O último passo pararia além de `t1` sem amostrar o fim: a superfície nos últimos milímetros antes dele (o raio que
+    // cruza a água logo antes de sair do vidro, quando `t1` é a malha seguinte) se perdia. O fim é sempre amostrado.
+    var last = false;
+    for (var steps = 0u; steps < 512u; steps++) {
+        if (t >= t1) {
+            if (last || t_prev >= t1) { break; }
+            t = t1;
+            last = true;
+        }
         let p = origin + dir * t;
         let b = field_brick_of(p);
         // Superbloco vazio: 4 blocos de uma vez (a busca na tabela pequena só quando o raio muda de superbloco).
@@ -174,6 +189,14 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
             continue;
         }
         let f = sgn * field_phi_linear(brick, b, p);
+        if (!armed) {
+            if (f <= 0.0) {
+                t_prev = t;
+                t += min(min_step, exit);
+                continue;
+            }
+            armed = true;
+        }
         if (f <= 0.0) {
             // Cruzou: secante na trilinear entre o último passo do lado de partida e este.
             var a = t_prev;

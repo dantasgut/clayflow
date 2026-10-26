@@ -20,8 +20,9 @@
 // Determinística: o mesmo raio, o mesmo estado aleatório e a mesma cena dão a mesma amostra. Sai também se o caminho
 // a parte da radiância que veio por caminhos que tocaram uma instância que se moveu desde o quadro anterior
 // (`moving`: quem acumula o sinal encurta o histórico na proporção dela).
-// Requer: NONE, refraction, refraction_interface, refraction_media, ray_scene, ray_hit, camera_space, ray_direct,
-// closure_eval, scene_environment, scene_indirect_lighting, refraction_frame.
+// Os acertos são os de `refraction_scene` (a malha ou a superfície de um volume, a água das partículas: T065e).
+// Requer: NONE, refraction, refraction_interface, refraction_media, refraction_scene, ray_scene, ray_hit, camera_space,
+// ray_direct, closure_eval, scene_environment, scene_indirect_lighting, refraction_frame.
 
 /** Distância máxima dos raios. */
 const REFRACTION_FAR: f32 = 1.0e6;
@@ -78,11 +79,6 @@ fn refraction_camera_stack() -> RefractionStack {
 fn refraction_takes_interface(c: Closure, state: ptr<function, u32>) -> bool {
     if (c.transmission_weight <= 0.0) { return false; }
     return c.transmission_weight >= 1.0 || refraction_random(state) < c.transmission_weight;
-}
-
-/** A instância do acerto se moveu desde o quadro anterior? */
-fn refraction_hit_moved(hit: RayHit) -> bool {
-    return ray_instance_moved_at(ray_scene_info.instanceFirst + hit.instance * RAY_INSTANCE_WORDS);
 }
 
 /**
@@ -182,7 +178,11 @@ fn refraction_crossing(o: vec3f, d: vec3f, hit: RayHit, c: Closure, s: Refractio
     // profundidade dela, não outra travessia inteira).
     let tol = 1e-5 * (1.0 + hit.t);
     let start = max(hit.t - tol, 0.0);
-    let other = ray_scene_hit_excluding(o + d * start, d, hit.t + tol - start, hit.instance);
+    // A superfície de um volume não tem malha coincidente a procurar.
+    var other = ray_miss();
+    if (!refraction_is_volume(hit.instance)) {
+        other = ray_scene_hit_excluding(o + d * start, d, hit.t + tol - start, hit.instance);
+    }
     if (other.instance != NONE) {
         let c2 = ray_hit_closure(other, refraction.time, 0.0);
         if (c2.transmission_weight > 0.0) {
@@ -254,6 +254,9 @@ struct RefractionNode {
      * a microfaceta `m`, as normais e α dela e os índices dos dois lados, por canal, para `refraction_branches`.
      */
     disperse: bool,
+    /** O acerto é a superfície de um volume (a água das partículas): a normal dele para fora, para o lado seguinte. */
+    vol: bool,
+    vol_n: vec3f,
     m: vec3f,
     ns: vec3f,
     alpha: f32,
@@ -333,14 +336,26 @@ fn refraction_after_node(s: RefractionStack, n: RefractionNode) -> RefractionSta
 }
 
 /**
- * O acerto seguinte do raio (o, d) na pilha `stack` no canal `channel` (−1 = os três), depois de `interfaces`. Na
+ * O lado, quanto aos volumes, do raio que parte do nó `n` na direção `dir`: depois da superfície de um volume, fora (0)
+ * quando a direção aponta para fora dele, dentro (1) quando para dentro — a refração, a reflexão, a parede fina e a
+ * passagem —; depois de uma malha, desconhecido (−1). O acerto seguinte não reacerta a superfície de partida.
+ */
+fn refraction_side_after(n: RefractionNode, dir: vec3f) -> i32 {
+    if (!n.vol) { return -1; }
+    return select(1, 0, dot(dir, n.vol_n) > 0.0);
+}
+
+/**
+ * O acerto seguinte do raio (o, d) na pilha `stack` no canal `channel` (−1 = os três), depois de `interfaces`; `side`:
+ * o lado da origem quanto aos volumes, quando ela está na superfície de um (`refraction_side_after`), ou −1. Na
  * interface em que a dispersão começa volta `disperse`, para quem segue abrir um caminho por canal.
  */
-fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, interfaces: u32,
+fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, interfaces: u32, side: i32,
     state: ptr<function, u32>) -> RefractionNode {
     var n: RefractionNode;
     n.done = true;
     n.disperse = false;
+    n.vol = false;
     n.moved = false;
     n.passes = false;
     n.radiance = vec3f(0.0);
@@ -349,14 +364,16 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
     n.channel = channel;
     n.interfaces = interfaces;
     n.count = 0u;
-    let hit = ray_scene_hit(o, d, REFRACTION_FAR);
+    let hit = refraction_scene_hit(o, d, REFRACTION_FAR, side);
+    n.vol = refraction_is_volume(hit.instance);
+    n.vol_n = hit.normal;
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
     if (hit.instance == NONE) {
         n.radiance = scene_environment(d);
         n.end = refraction_end(o + d * REFRACTION_FAR, NONE);
         return n;
     }
-    let c = ray_hit_closure(hit, refraction.time, 0.0);
+    let c = refraction_hit_closure(hit, refraction.time);
     n.end = refraction_end(hit.position, hit.renderable);
     n.moved = refraction_hit_moved(hit);
     if (!refraction_takes_interface(c, state)) {
@@ -480,9 +497,10 @@ fn refraction_gather(g: RefractionGathered, n: RefractionNode, weight: vec3f, mo
  * diante conta (a de antes já está no caminho que parou).
  */
 fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32, interfaces0: u32, forced: i32,
-    weight0: vec3f, state: ptr<function, u32>) -> RefractionWalk {
+    weight0: vec3f, side0: i32, state: ptr<function, u32>) -> RefractionWalk {
     var o = o0;
     var d = d0;
+    var side = side0;
     var stack = stack0;
     var channel = channel0;
     var interfaces = interfaces0;
@@ -491,7 +509,7 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
     var gathered = RefractionGathered(vec3f(0.0), vec3f(0.0), vec3f(0.0));
     var counting = forced < 0;
     for (var step = 0u; step < REFRACTION_STEP_LIMIT; step++) {
-        let n = refraction_advance(o, d, stack, channel, interfaces, state);
+        let n = refraction_advance(o, d, stack, channel, interfaces, side, state);
         throughput *= n.through;
         if (n.done) {
             return RefractionWalk(refraction_with(refraction_finish(n, throughput, moved), gathered), false);
@@ -502,6 +520,7 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
         if (n.passes) {
             stack = refraction_after_node(stack, n);
             o = refraction_departure(n.p, n.nf, d);
+            side = refraction_side_after(n, d);
             continue;
         }
         // A interface: a reflexão e a transmissão, a probabilidade da reflexão na roleta e qual lobo é o raro. Onde a
@@ -538,7 +557,7 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
             var rare_stack = stack;
             if (!rare_reflect) { rare_stack = refraction_after_node(stack, n); }
             let ahead = refraction_advance(refraction_departure(n.p, n.nf, rare_dir), rare_dir, rare_stack, channel,
-                interfaces, state);
+                interfaces, refraction_side_after(n, rare_dir), state);
             resolved = ahead.done;
             looked = true;
             if (resolved && counting) { gathered = refraction_gather(gathered, ahead, throughput * rare_weight, moved); }
@@ -563,6 +582,7 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
         d = dir;
         if (crossed) { stack = refraction_after_node(stack, n); }
         o = refraction_departure(n.p, n.nf, d);
+        side = refraction_side_after(n, d);
     }
     // O teto de passos: a energia que resta conta como no limite de interfaces.
     return RefractionWalk(refraction_with(RefractionPath(vec3f(0.0), throughput, refraction_end(o, NONE), vec3f(1.0),
@@ -574,8 +594,9 @@ fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32,
  * soma pesada pelo Fresnel, sem roleta nessa interface. O fim é o do lobo que mais contribui para a cor.
  */
 fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0: i32, interfaces0: u32,
-    weight0: vec3f, state: ptr<function, u32>) -> RefractionPath {
+    weight0: vec3f, side0: i32, state: ptr<function, u32>) -> RefractionPath {
     var o = o0;
+    var side = side0;
     var stack = stack0;
     var channel = channel0;
     var interfaces = interfaces0;
@@ -587,7 +608,7 @@ fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0:
         if (step == REFRACTION_STEP_LIMIT) {
             return RefractionPath(vec3f(0.0), through, refraction_end(o, NONE), vec3f(1.0), vec3f(0.0));
         }
-        n = refraction_advance(o, d, stack, channel, interfaces, state);
+        n = refraction_advance(o, d, stack, channel, interfaces, side, state);
         through *= n.through;
         if (n.done) { return refraction_finish(n, through, moved); }
         moved = moved || n.moved;
@@ -596,6 +617,7 @@ fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0:
         if (!n.passes) { break; }
         stack = refraction_after_node(stack, n);
         o = refraction_departure(n.p, n.nf, d);
+        side = refraction_side_after(n, d);
     }
     var out = RefractionPath(vec3f(0.0), vec3f(0.0), n.end, vec3f(1.0), vec3f(0.0));
     var best = -1.0;
@@ -639,7 +661,7 @@ fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0:
         var lobe = stack;
         if (b.crossed[k]) { lobe = refraction_after_node(stack, n); }
         let walk = refraction_path(refraction_departure(n.p, n.nf, dir), dir, lobe, b.channels[k], interfaces, forced,
-            weight0 * through * w, state);
+            weight0 * through * w, refraction_side_after(n, dir), state);
         if (forced < 0) {
             pending = walk.pending;
             if (pending) {
@@ -696,13 +718,14 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
     // ela.
     let start = ray.origin + ray.dir * ray.near;
     let d = ray.dir;
-    let hit = ray_scene_hit(start, d, REFRACTION_FAR);
+    let hit = refraction_scene_hit(start, d, REFRACTION_FAR, -1);
     let through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t + ray.near, REFRACTION_FAR));
+    let volume = refraction_is_volume(hit.instance);
     if (hit.instance == NONE) {
         out.radiance = through * scene_environment(d);
         return out;
     }
-    let c = ray_hit_closure(hit, refraction.time, 0.0);
+    let c = refraction_hit_closure(hit, refraction.time);
     let first_moved = refraction_hit_moved(hit);
     if (!refraction_takes_interface(c, state)) {
         // Borda em que o raio e o raster discordam, ou a parte opaca de um transmissivo parcial.
@@ -758,8 +781,10 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
     for (var i = 0u; i < b.count; i++) {
         var lobe = stack;
         if (b.crossed[i]) { lobe = after; }
+        // O lado quanto aos volumes, depois da superfície de um: pela direção do ramo contra a normal para fora dele.
+        let side = select(-1, select(1, 0, dot(b.dirs[i], hit.normal) > 0.0), volume);
         let r = refraction_path_split(refraction_departure(p, nf, b.dirs[i]), b.dirs[i], lobe, b.channels[i], 1u,
-            through * b.weights[i], state);
+            through * b.weights[i], side, state);
         // Por canal, a luminância do que ele soma: o caminho do ramo mais forte.
         let radiance = through * b.weights[i] * r.radiance;
         out.radiance += radiance;

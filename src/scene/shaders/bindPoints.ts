@@ -45,6 +45,14 @@ export function bindPoints(
     const swap = new Map<WgslModule, WgslModule>(pairs.map(([p, m]) => [p.ready, m]));
     const found = new Set<WgslModule>();
     const rewritten = new Map<WgslModule, WgslModule>();
+    // Reescritas iguais (o mesmo nome, a mesma fonte e as mesmas dependências) são um módulo só: o mesmo módulo pode
+    // chegar por dois caminhos já reescritos de formas diferentes (o shader de quem desenha, já trocado, e uma
+    // contribuição da cena com o original) e sair igual dos dois.
+    const canonical = new Map<string, WgslModule[]>();
+    const same = (a: WgslModule, b: WgslModule): boolean =>
+        a.source === b.source
+        && a.requires.length === b.requires.length
+        && a.requires.every((r, k) => r === b.requires[k]);
     const visit = (m: WgslModule): WgslModule => {
         const direct = swap.get(m);
         if (direct !== undefined) {
@@ -56,8 +64,8 @@ export function bindPoints(
         const done = rewritten.get(m);
         if (done !== undefined) return done;
         const requires = m.requires.map(visit);
-        const same = requires.every((r, k) => r === m.requires[k]);
-        const out = same
+        const unchanged = requires.every((r, k) => r === m.requires[k]);
+        let out = unchanged
             ? m
             : wgslModule({
                   name:
@@ -66,6 +74,10 @@ export function bindPoints(
                   requires,
                   structs: m.structs,
               });
+        const twins = canonical.get(out.name) ?? [];
+        const twin = twins.find((t) => same(t, out));
+        if (twin !== undefined) out = twin;
+        else canonical.set(out.name, [...twins, out]);
         rewritten.set(m, out);
         return out;
     };

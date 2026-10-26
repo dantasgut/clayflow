@@ -115,7 +115,7 @@ fn smoke_ray_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let o = smoke_rays[i * 2u].xyz;
     let d = smoke_rays[i * 2u + 1u].xyz;
     let h = ray_scene_hit(o, d, 1e30);
-    let v = ray_volume_hit(o, d, min(h.t, 1e6));
+    let v = ray_volume_hit(o, d, min(h.t, 1e6), -1);
     if (v.hit) {
         smoke_hits[i * 2u] = vec4f(v.position, v.t);
         smoke_hits[i * 2u + 1u] = vec4f(v.normal, -2.0);

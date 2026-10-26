@@ -44,13 +44,13 @@ fn water_field_camera(
     if (!is_orthographic(proj) && abs(proj[2].z) > 1e-12) { near = proj[3].z / proj[2].z; }
     let span = field_clip(o, d, max(near, 0.0) / max(-dv.z, 1e-6), t_scene);
     var hit = FieldHit(span.y, o, -d, 0u, false);
-    if (inside && span.x < span.y) { hit = field_march(o, d, span.x, span.y, false, true); }
+    if (inside && span.x < span.y) { hit = field_march(o, d, span.x, span.y, false, true, false); }
     let surface = field_body(hit.body).z;
     let wet = hit.hit && surface > 0u;
     // Corda até a saída do fluido (sem saída antes da cena ou da caixa, até ela), nos representantes.
     let representative = (lid.x & 1u) == 0u && (lid.y & 1u) == 0u;
     var chord = -1.0;
-    if (representative && wet) { chord = max(field_march(o, d, hit.t + field_voxel(), span.y, true, false).t - hit.t, 0.0); }
+    if (representative && wet) { chord = max(field_march(o, d, hit.t + field_voxel(), span.y, true, false, false).t - hit.t, 0.0); }
     if (representative) { water_field_thickness[(lid.x >> 1u) + 4u * (lid.y >> 1u)] = chord; }
     workgroupBarrier();
     if (!inside) { return; }
@@ -61,7 +61,7 @@ fn water_field_camera(
         depth = hit.t * -dv.z;
         material = surface;
         var length = water_field_thickness[(lid.x >> 1u) + 4u * (lid.y >> 1u)];
-        if (length < 0.0) { length = max(field_march(o, d, hit.t + field_voxel(), span.y, true, false).t - hit.t, 0.0); }
+        if (length < 0.0) { length = max(field_march(o, d, hit.t + field_voxel(), span.y, true, false, false).t - hit.t, 0.0); }
         normal = vec4f(hit.n, length * water_materials[material - 1u].thicknessScale);
     }
     textureStore(field_out_depth, texel, vec4f(depth, 0.0, 0.0, 0.0));
@@ -89,7 +89,7 @@ fn water_field_light(@builtin(global_invocation_id) gid: vec3u) {
     var material = 0u;
     var normal = vec4f(0.0);
     if (span.x < span.y) {
-        let hit = field_march(o, d, span.x, span.y, false, true);
+        let hit = field_march(o, d, span.x, span.y, false, true, false);
         let surface = field_body(hit.body).z;
         if (hit.hit && surface > 0u) {
             depth = hit.t;

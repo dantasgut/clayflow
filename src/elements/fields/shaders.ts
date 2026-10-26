@@ -1,4 +1,4 @@
-import { wgslModule } from '../../scene/shaders/WgslModule';
+import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import {
     wgslResource,
     type WgslResource,
@@ -21,14 +21,13 @@ import fieldApronSource from '../gpu/wgsl/fields/field_apron.wgsl?raw';
 import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
-import fieldClosureSource from '../gpu/wgsl/fields/field_closure.wgsl?raw';
-import fieldRayClosureSource from '../gpu/wgsl/fields/field_ray_closure.wgsl?raw';
+import fieldSurfaceSource from '../gpu/wgsl/fields/field_surface.wgsl?raw';
+import fieldSurfaceFluidSource from '../gpu/wgsl/fields/field_surface_fluid.wgsl?raw';
+import fieldSurfaceFallbackReadySource from '../gpu/wgsl/fields/field_surface_fallback_ready.wgsl?raw';
+import fieldRaySurfaceSource from '../gpu/wgsl/fields/field_ray_surface.wgsl?raw';
 import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
-import { rayVolumeTypes } from '../raytrace/points';
-import { rayHitMaterialReady } from '../raytrace/shaders';
+import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
 import { closure } from '../material/pbr/shaders';
-import { materialPointTypes } from '../material/point/types/shaders';
-import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 import { FieldGatherSchema, FluidFieldSchema } from './schemas';
 import { hashAddress, linalg } from '../gpu/shaders/math';
 
@@ -296,34 +295,59 @@ export const fieldRayHit = wgslModule({
     requires: [rayVolumeTypes, fields],
 });
 
-/**
- * O fechamento da água num acerto do campo: a função `material` do corpo pela composição dos acertos dos raios (o
- * `ray_hit_material` pronto, trocado pela composição de quem traça com `bindPoints`), ou o `FluidSurfaceMaterial`.
- */
-export const fieldClosure = wgslModule({
-    name: 'field_closure',
-    source: fieldClosureSource,
-    requires: [
-        rayVolumeTypes,
-        fields,
-        R.materials,
-        materialPointTypes,
-        closure,
-        rayHitMaterialReady,
-    ],
-    structs: [StandardMaterialSchema],
+/** O material de um corpo sem função `material`, sem corpos de `FluidSurfaceMaterial` na cena: nenhum. */
+const fieldSurfaceFallbackReady = wgslModule({
+    name: 'field_surface_fallback_ready',
+    source: fieldSurfaceFallbackReadySource,
+    requires: [rayVolumeTypes, closure],
 });
 
-/** Contribuição do campo ao ponto `ray_volume_closure`: o fechamento da água no acerto. */
-export const fieldRayClosure = wgslModule({
-    name: 'field_ray_closure',
-    source: fieldRayClosureSource,
-    requires: [rayVolumeTypes, fieldClosure],
+/**
+ * O mesmo com corpos de `FluidSurfaceMaterial` na cena: o fechamento dele (lê o pool, que só existe com eles — sem eles a
+ * ligação não se resolveria e o kernel não comporia).
+ */
+const fieldSurfaceFluid = wgslModule({
+    name: 'field_surface_fluid',
+    source: fieldSurfaceFluidSource,
+    requires: [rayVolumeTypes, R.materials, closure],
 });
+
+/** As duas variantes de um módulo do campo que lê o material: sem e com o `FluidSurfaceMaterial`. */
+export interface FieldSurfaceVariants {
+    readonly graph: WgslModule;
+    readonly fluid: WgslModule;
+}
+
+function variants(
+    name: string,
+    source: string,
+    requires: (surface: WgslModule) => readonly WgslModule[],
+): FieldSurfaceVariants {
+    const make = (fallback: WgslModule): WgslModule =>
+        wgslModule({
+            name: `${name}:${fallback.name}`,
+            source,
+            requires: requires(surface[fallback.name]!),
+        });
+    const surface: Record<string, WgslModule> = {};
+    for (const fallback of [fieldSurfaceFallbackReady, fieldSurfaceFluid])
+        surface[fallback.name] = wgslModule({
+            name: `field_surface:${fallback.name}`,
+            source: fieldSurfaceSource,
+            requires: [rayVolumeTypes, fields, closure, fallback],
+        });
+    return { graph: make(fieldSurfaceFallbackReady), fluid: make(fieldSurfaceFluid) };
+}
+
+/** Contribuição do campo ao ponto `ray_volume_surface`: o material da água no acerto. */
+export const fieldRaySurface = variants('field_ray_surface', fieldRaySurfaceSource, (surface) => [
+    rayVolumeTypes,
+    surface,
+]);
 
 /** Contribuição do campo ao ponto `ray_volume_transmittance`: a absorção pelos trechos dentro da água. */
-export const fieldRayTransmittance = wgslModule({
-    name: 'field_ray_transmittance',
-    source: fieldRayTransmittanceSource,
-    requires: [fields, rayVolumeTypes, fieldClosure],
-});
+export const fieldRayTransmittance = variants(
+    'field_ray_transmittance',
+    fieldRayTransmittanceSource,
+    (surface) => [fields, rayVolumeTypes, rayVolumeMaterial, surface],
+);

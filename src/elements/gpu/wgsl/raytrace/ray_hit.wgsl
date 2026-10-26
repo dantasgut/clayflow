@@ -8,7 +8,21 @@
 // Entidade sem `StandardMaterial`: cinza médio fosco. Quem consome: a iluminação global, os fótons e a refração.
 // Requer: ray_scene, ray_bvh_read, material_point_types, closure, ray_hit_material.
 
-fn ray_hit_closure(hit: RayHit, time: f32, width: f32) -> Closure {
+/**
+ * O material no acerto antes de avaliado: o índice da função `material` na composição (0 = as constantes), o slot dos
+ * parâmetros dela, a amostra de superfície e as constantes do `StandardMaterial` — quem acha acertos de mais de um tipo
+ * (a refração: malhas e volumes) junta as referências e avalia `ray_hit_material` uma vez só (cada chamada é expandida
+ * pelo compilador com todas as funções da cena).
+ */
+struct RayHitSurface {
+    index: u32,
+    slot: u32,
+    sample: SurfaceSample,
+    material: StandardMaterial,
+}
+
+/** A referência do material no acerto de malha `hit` (tempo simulado `time`, largura do cone `width`). */
+fn ray_hit_surface(hit: RayHit, time: f32, width: f32) -> RayHitSurface {
     let inst = ray_instance_at(ray_scene_info.instanceFirst + hit.instance * RAY_INSTANCE_WORDS);
     let m = StandardMaterial(vec4f(inst.material0.rgb, 1.0), inst.material0.w, bitcast<f32>(inst.material1.x), 0.0, 0.0);
     let duv = select(0.0, width * ray_scene_uv_density(hit), width > 0.0);
@@ -24,5 +38,10 @@ fn ray_hit_closure(hit: RayHit, time: f32, width: f32) -> Closure {
         vec2f(duv, 0.0),
         vec2f(0.0, duv),
     );
-    return ray_hit_material(inst.ids.w & 0xFFFFu, s, m, inst.material1.y);
+    return RayHitSurface(inst.ids.w & 0xFFFFu, inst.material1.y, s, m);
+}
+
+fn ray_hit_closure(hit: RayHit, time: f32, width: f32) -> Closure {
+    let s = ray_hit_surface(hit, time, width);
+    return ray_hit_material(s.index, s.sample, s.material, s.slot);
 }

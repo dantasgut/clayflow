@@ -20,7 +20,7 @@
 //   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água em ≥ 95 % dos pixels;
 //   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — um `FluidBody` com a função `material` (o
 //     dielétrico de IOR 1,4 e a transmissão com a cor 0,5 + 0,25·n pela normal do ponto, a 2 m) e outro com o
-//     `FluidSurfaceMaterial` padrão; por raios contra cada um, o ponto `ray_volume_closure` (composto pela C2 com as
+//     `FluidSurfaceMaterial` padrão; por raios contra cada um, o fechamento `ray_volume_closure` (o ponto `ray_volume_surface` composto pela C2 com as
 //     funções `material` dos acertos) dá o fechamento do grafo no ponto e na normal do acerto e o do material de água
 //     (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m), a 1e-5 (a precisão de f32 das contas); o
 //     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do fechamento na corda — |Δ ln T| ≤ σ · 1 voxel
@@ -42,7 +42,7 @@ import {
     FluidSurfaceMaterial,
     ParticlePhysics,
     PlaneGeometry,
-    rayVolumeClosureReady,
+    rayVolumeMaterial,
     rayVolumeHitReady,
     rayVolumeTransmittanceReady,
     RayScene,
@@ -86,6 +86,7 @@ import {
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
 import { lumaSrgb8 } from './support/images';
 import { lcg } from './support/random';
+import { queryRays, queryVolumeHits } from './support/volumeQuery';
 import { materialGraph } from './support/materialScenes';
 import {
     composeHitMaterial,
@@ -477,84 +478,6 @@ async function caseDrops(): Promise<void> {
     s.dispose();
 }
 
-/** Raios de consulta (origem, direção) → (t, acertou) pelo ponto `ray_volume_hit`. */
-const queryRays = wgslResource({
-    name: 'smoke_rays',
-    binding: { storage: 'read' },
-    type: { wgsl: 'vec4f', array: true },
-    frequency: 'stage',
-    provider: 'private',
-});
-const queryHits = wgslResource({
-    name: 'smoke_hits',
-    binding: { storage: 'read_write' },
-    type: { wgsl: 'vec4f', array: true },
-    frequency: 'stage',
-    provider: 'private',
-});
-const volumeQuery = wgslModule({
-    name: 'smoke_volume_query',
-    requires: [rayVolumeHitReady, queryRays, queryHits],
-    source: /* wgsl */ `
-@compute @workgroup_size(64)
-fn smoke_volume_query_main(@builtin(global_invocation_id) gid: vec3u) {
-    let i = gid.x;
-    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
-    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0);
-    smoke_hits[i] = vec4f(h.t, select(0.0, 1.0, h.hit), f32(h.material), 0.0);
-}`,
-});
-
-/** Estágio de consulta: o ponto `ray_volume_hit` composto pela C2 com a contribuição do campo. */
-class VolumeQueryFlow extends Flow<{ readonly field: ReturnType<typeof slot.singleton> }, 'idle'> {
-    readonly type = 'smokeVolumeQuery';
-    readonly slots = { field: slot.singleton(FluidField.schema) };
-    override readonly pipelines = [
-        {
-            id: 'query',
-            role: 'compute' as const,
-            shader: volumeQuery,
-            entryPoints: ['smoke_volume_query_main'],
-        },
-    ];
-    override readonly bindings: ReadonlyMap<typeof queryRays, StorageBufferSpec>;
-    protected readonly initialState = 'idle' as const;
-    protected readonly transitions = {
-        '*': {
-            slotsResolved: 'ignore',
-            slotChanged: 'ignore',
-            slotLost: 'ignore',
-            pipelinesCompiled: 'ignore',
-            bindGroupReplaced: 'ignore',
-        },
-    } as const;
-    pending = 0;
-
-    constructor(
-        rays: StorageBufferSpec,
-        hits: StorageBufferSpec,
-        private readonly count: number,
-    ) {
-        super();
-        this.bindings = new Map([
-            [queryRays, rays],
-            [queryHits, hits],
-        ]);
-    }
-
-    dispatch(frame: Frame, bound: BoundFlow): void {
-        if (this.pending === 0) return;
-        const p = bound.pipelines.get('query');
-        if (p?.role !== 'compute' || !p.ready) return;
-        frame.compute('smokeVolumeQuery', (pass) => {
-            pass.bind.setPipeline(p.spec);
-            p.bindTo(pass.bind);
-            pass.dispatch.workgroups(Math.ceil(this.count / 64));
-        });
-        this.pending--;
-    }
-}
-
 async function caseRays(): Promise<void> {
     const positions = BALLS();
     const W = 640;
@@ -580,35 +503,9 @@ async function caseRays(): Promise<void> {
         const len = Math.hypot(d[0]!, d[1]!, d[2]!);
         rays.push({ o, d: [d[0]! / len, d[1]! / len, d[2]! / len] });
     }
-    const storage = (name: string, bytes: number): StorageBufferSpec =>
-        s.app.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `smoke_volume_${name}`,
-            byteSize: bytes,
-        });
-    const raysBuf = storage('rays', count * 32);
-    const hitsBuf = storage('hits', count * 16);
-    const data = new Float32Array(count * 8);
-    rays.forEach((ray, i) => {
-        data.set([...ray.o, 0, ...ray.d, 0], i * 8);
-    });
-    s.app.core.write(raysBuf, data);
-    const query = new VolumeQueryFlow(raysBuf, hitsBuf, count);
-    s.app.flows.register(() => query, {
-        type: 'smokeVolumeQuery',
-        phase: 'transform',
-        priority: -100,
-    });
     await settle(s.app, 1500);
     // A consulta roda quando o pipeline (recomposto com a contribuição do campo) estiver pronto.
-    let hits = new Float32Array(count * 4);
-    for (let attempt = 0; attempt < 40 && !hits.some((v, i) => i % 4 === 1 && v > 0.5); attempt++) {
-        query.pending = 1;
-        s.app.step(0);
-        hits = new Float32Array(await readSpec(s.app, hitsBuf, 'hits'));
-        await new Promise((r) => setTimeout(r, 100));
-    }
+    const hits = await queryVolumeHits(s.app, rays);
     const f = await gpuField(s.app, SPACING);
     const grid = buildField(toPoints(positions), { spacing: SPACING, iso: f.iso });
     const half = 0.5 * SPACING;
@@ -616,12 +513,12 @@ async function caseRays(): Promise<void> {
     let missed = 0;
     rays.forEach((ray, i) => {
         const ref = marchField(grid, ray.o, ray.d, 3);
-        const hit = hits[i * 4 + 1]! > 0.5;
+        const hit = hits[i * 8 + 1]! > 0.5;
         if (ref === null || !hit) {
             if ((ref === null) !== !hit) missed++;
             return;
         }
-        errors.push(Math.abs(hits[i * 4]! - ref.t));
+        errors.push(Math.abs(hits[i * 8]! - ref.t));
     });
     errors.sort((a, b) => a - b);
     const p99 = errors[Math.floor(0.99 * (errors.length - 1))] ?? Infinity;
@@ -681,8 +578,6 @@ async function caseRays(): Promise<void> {
         depthErrors.length > 200 && dp99 <= half,
         `rays: profundidade da câmera a ${(dp99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
     );
-    s.app.core.destroy(raysBuf);
-    s.app.core.destroy(hitsBuf);
     s.dispose();
 }
 
@@ -1067,7 +962,7 @@ const closureQuery = wgslModule({
     requires: [
         rayHitMaterialReady,
         rayVolumeHitReady,
-        rayVolumeClosureReady,
+        rayVolumeMaterial,
         rayVolumeTransmittanceReady,
         queryRays,
         closureOut,
@@ -1079,12 +974,12 @@ fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
     if (i >= arrayLength(&smoke_rays) / 2u) { return; }
     let o = smoke_rays[i * 2u].xyz;
     let d = smoke_rays[i * 2u + 1u].xyz;
-    let h = ray_volume_hit(o, d, 10.0);
+    let h = ray_volume_hit(o, d, 10.0, -1);
     let c = ray_volume_closure(h, 0.0);
     // A saída do corpo: o acerto de dentro, a partir de 1 cm depois da entrada (perto da superfície o sinal de φ ainda
     // é o da faixa dela). A transmitância só até 2 cm depois da saída: o raio não chega ao outro corpo (a 30 cm).
     let start = h.position + d * 0.01;
-    let out = ray_volume_hit(start, d, 10.0);
+    let out = ray_volume_hit(start, d, 10.0, -1);
     let exit = h.t + 0.01 + out.t;
     let tr = ray_volume_transmittance(o, d, exit + 0.02, 0.0);
     let b = i * 6u;

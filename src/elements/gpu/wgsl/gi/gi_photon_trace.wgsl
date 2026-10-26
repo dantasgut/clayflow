@@ -217,7 +217,7 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     var channel = 3u;
     for (var bounce = 0u; bounce < GI_PHOTON_BOUNCES; bounce++) {
         let hit = ray_scene_hit(o, d, 1e6);
-        let water = ray_volume_hit(o, d, min(hit.t, 1e6));
+        let water = ray_volume_hit(o, d, min(hit.t, 1e6), -1);
         if (water.hit) { return; }
         if (hit.t >= 1e6 || hit.instance == NONE) { return; }
         // Os meios atravessados no trecho (a névoa) atenuam o fóton.

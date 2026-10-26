@@ -132,7 +132,7 @@ const DEFAULT_SPACING = 0.05;
  * com a borda — os quatro por despacho indireto, um grupo por bloco. Nenhuma leitura de volta. Sem água, nada. Por
  * corpo (até `FIELD_MAX_BODIES`; a palavra dos blocos é o índice + 1), a tabela `bodies` do uniform do campo: o índice
  * da função `material` dele na composição dos acertos dos raios (`RayScene.materialFunctions`), o slot dos parâmetros
- * dela e o slot do `FluidSurfaceMaterial` — quem traça avalia o fechamento da água no acerto (`ray_volume_closure`).
+ * dela e o slot do `FluidSurfaceMaterial` — quem traça avalia o fechamento da água no acerto (`ray_volume_surface`).
  */
 export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     readonly type = 'FluidFieldFlow';
@@ -331,6 +331,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.particles = this.order.reduce((n, b) => n + b.body.count, 0);
         this.active = this.particles > 0;
         field.setVolume(this.active);
+        field.setSurfaces(this.order.some((b) => b.material !== undefined));
         if (!this.active) return;
         const bricks = Math.max(64, Math.ceil(this.particles / FIELD_PARTICLES_PER_BRICK));
         field.reserve({ bricks, table: bricks * 4 });

@@ -6,6 +6,7 @@ import refractionInterfaceSource from '../../gpu/wgsl/refraction/refraction_inte
 import refractionMediaSource from '../../gpu/wgsl/refraction/refraction_media.wgsl?raw';
 import refractionCameraSource from '../../gpu/wgsl/refraction/refraction_camera.wgsl?raw';
 import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl?raw';
+import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
 import refractionTraceSource from '../../gpu/wgsl/refraction/refraction_trace.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
 import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
@@ -27,6 +28,12 @@ import {
 import { temporalFilterResources } from '../temporal/shaders';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
+import {
+    rayVolumeHitReady,
+    rayVolumeMaterial,
+    rayVolumeSurfaceReady,
+    rayVolumeTypes,
+} from '../../raytrace/points';
 import { cameraSpace } from '../../scene/flows/shaders';
 import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
 import { sceneFogReady } from '../../scene/points/media';
@@ -140,6 +147,24 @@ export const refractionMedia = wgslModule({
     requires: [NONE.module, closure, REFRACTION_MAX_MEDIA.module],
 });
 
+/**
+ * O acerto do raio da refração: a malha ou a superfície de um volume (os pontos `ray_volume_hit` e `ray_volume_surface`:
+ * a água das partículas, T065e), com o fechamento e a marca de movimento de cada um.
+ */
+export const refractionScene = wgslModule({
+    name: 'refraction_scene',
+    source: refractionSceneSource,
+    requires: [
+        NONE.module,
+        rayScene,
+        rayHit,
+        rayVolumeTypes,
+        rayVolumeHitReady,
+        rayVolumeSurfaceReady,
+        rayVolumeMaterial,
+    ],
+});
+
 /** Os meios em que a câmera está, no estado do quadro. */
 export const refractionCamera = wgslModule({
     name: 'refraction_camera',
@@ -149,6 +174,7 @@ export const refractionCamera = wgslModule({
         REFRACTION_MAX_MEDIA.module,
         refractionParamsResource,
         refractionMedia,
+        refractionScene,
         camerasResource,
         rayScene,
         rayHit,
@@ -168,6 +194,7 @@ export const refractionPath = wgslModule({
         refractionParamsResource,
         refractionInterface,
         refractionMedia,
+        refractionScene,
         rayScene,
         rayHit,
         cameraSpace,

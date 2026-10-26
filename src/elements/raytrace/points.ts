@@ -1,17 +1,23 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import type { ContributionPoint } from '../../scene/shaders/WgslPoint';
 import { closure } from '../material/pbr/shaders';
+import { materialPointTypes } from '../material/point/types/shaders';
+import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
+import { rayHitMaterialReady } from './shaders';
 
 // Pontos de cena dos volumes atravessados por raios (spec 033, R11): quem traça raios (as sondas e a tela da luz
 // rebatida, a refração recalculada, os fótons) chama estas funções sem conhecer quem as implementa — hoje o campo dos
 // fluidos (`FluidField`); sem contribuinte, fica o pronto (nenhum volume). As superfícies opacas continuam na estrutura
-// de raios (`ray_scene_hit`); os volumes são transmissivos: o raio os atravessa. O fechamento no acerto
-// (`ray_volume_closure`, spec 034 T065d) é do contribuinte que acertou (`source`), pela composição das funções
-// `material` dos acertos (`ray_hit_material`, a mesma das malhas: quem traça a liga com `bindPoints`).
+// de raios (`ray_scene_hit`); os volumes são transmissivos: o raio os atravessa. O material no acerto
+// (`ray_volume_surface`, spec 034 T065d) é do contribuinte que acertou (`source`): a referência da função `material`
+// na composição dos acertos (`ray_hit_material`, a mesma das malhas: quem traça a liga com `bindPoints`), ou um
+// fechamento pronto; `ray_volume_closure` (módulo `rayVolumeMaterial`) a avalia.
 
 /**
  * Acerto de um raio na superfície de um volume: distância, ponto, normal (para fora), o material no contribuinte, lado
- * da origem e o contribuinte (`source`, a ordem dele no ponto: escrito pela combinação).
+ * da origem, o contribuinte (`source`, a ordem dele no ponto: escrito pela combinação) e se a superfície mudou desde o
+ * quadro anterior (`moved`: quem acumula o que os raios veem encurta o histórico por ela, como pelas instâncias que se
+ * moveram).
  */
 export const rayVolumeTypes = wgslModule({
     name: 'ray_volume_types',
@@ -24,19 +30,32 @@ struct RayVolumeHit {
     hit: bool,
     inside: bool,
     source: u32,
+    moved: bool,
+}
+
+/**
+ * O material num acerto de volume: o índice da função \`material\` na composição dos acertos (0 = nenhuma: vale
+ * \`closure\`), o slot dos parâmetros dela e o fechamento pronto do contribuinte quando não há função.
+ */
+struct RayVolumeSurface {
+    index: u32,
+    slot: u32,
+    closure: Closure,
 }`,
+    requires: [closure],
 });
 
 /**
- * `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit` — o cruzamento mais próximo do raio
- * (direção unitária) com a superfície de um volume até `t_max` (entrando, ou saindo quando a origem está dentro); pronto:
- * sem acerto.
+ * `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit` — o cruzamento mais próximo do
+ * raio (direção unitária) com a superfície de um volume até `t_max` (entrando, ou saindo quando a origem está dentro);
+ * `side`: o lado da origem quando quem chama o sabe (0 fora, 1 dentro: a partida de uma superfície que ele acabou de
+ * cruzar ou em que refletiu — a superfície de partida não é reacertada), −1 quando não; pronto: sem acerto.
  */
 export const rayVolumeHitReady = wgslModule({
     name: 'ray_volume_hit_ready',
     requires: [rayVolumeTypes],
-    source: `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
-    return RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u);
+    source: `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit {
+    return RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false);
 }`,
 });
 
@@ -53,14 +72,14 @@ export const rayVolumeTransmittanceReady = wgslModule({
 });
 
 /**
- * `fn ray_volume_closure(hit: RayVolumeHit, time: f32) -> Closure` — o fechamento da superfície do volume no acerto
- * `hit` (no tempo simulado `time`); pronto: nenhum (sem volume não há acerto).
+ * `fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface` — o material da superfície do volume no acerto `hit`;
+ * pronto: nenhum (sem volume não há acerto).
  */
-export const rayVolumeClosureReady = wgslModule({
-    name: 'ray_volume_closure_ready',
+export const rayVolumeSurfaceReady = wgslModule({
+    name: 'ray_volume_surface_ready',
     requires: [rayVolumeTypes, closure],
-    source: `fn ray_volume_closure(hit: RayVolumeHit, time: f32) -> Closure {
-    return closure_zero();
+    source: `fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface {
+    return RayVolumeSurface(0u, 0u, closure_zero());
 }`,
 });
 
@@ -82,11 +101,11 @@ export const rayVolumeHitPoint: ContributionPoint = {
             wgslModule({
                 name: `ray_volume_hit:${modules.map((m) => m.name).join('+')}`,
                 requires: [rayVolumeTypes, ...modules],
-                source: `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit {
-    var best = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u);
+                source: `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit {
+    var best = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false);
 ${modules
     .map(
-        (_, k) => `    let h${k} = ray_volume_hit_${k}(origin, dir, best.t);
+        (_, k) => `    let h${k} = ray_volume_hit_${k}(origin, dir, best.t, side);
     if (h${k}.hit && h${k}.t < best.t) {
         best = h${k};
         best.source = ${k}u;
@@ -117,24 +136,63 @@ export const rayVolumeTransmittancePoint: ContributionPoint = {
 };
 
 /**
- * Fechamento no acerto de um volume: o do contribuinte que acertou (`hit.source`, a mesma ordem da combinação do
+ * Material no acerto de um volume: o do contribuinte que acertou (`hit.source`, a mesma ordem da combinação do
  * `ray_volume_hit` — os dois pontos recebem os contribuintes na ordem deles).
  */
-export const rayVolumeClosurePoint: ContributionPoint = {
-    name: 'ray_volume_closure',
-    ready: rayVolumeClosureReady,
-    functionName: 'ray_volume_closure',
+export const rayVolumeSurfacePoint: ContributionPoint = {
+    name: 'ray_volume_surface',
+    ready: rayVolumeSurfaceReady,
+    functionName: 'ray_volume_surface',
     combine: (modules) =>
-        memo(`rvc:${modules.map((m) => m.name).join('+')}`, () =>
+        memo(`rvs:${modules.map((m) => m.name).join('+')}`, () =>
             wgslModule({
-                name: `ray_volume_closure:${modules.map((m) => m.name).join('+')}`,
+                name: `ray_volume_surface:${modules.map((m) => m.name).join('+')}`,
                 requires: [rayVolumeTypes, closure, ...modules],
-                source: `fn ray_volume_closure(hit: RayVolumeHit, time: f32) -> Closure {
+                source: `fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface {
     switch (hit.source) {
-${modules.map((_, k) => `        case ${k}u: { return ray_volume_closure_${k}(hit, time); }`).join('\n')}
-        default: { return closure_zero(); }
+${modules.map((_, k) => `        case ${k}u: { return ray_volume_surface_${k}(hit); }`).join('\n')}
+        default: { return RayVolumeSurface(0u, 0u, closure_zero()); }
     }
 }`,
             }),
         ),
 };
+
+/**
+ * O material de um acerto de volume avaliado: a amostra de superfície do acerto (\`ray_volume_sample\`: o ponto, a
+ * normal e o tempo; sem uv nem geometria diferencial), as constantes padrão do \`StandardMaterial\` (o volume não tem
+ * material de desenho, \`ray_volume_standard\`) e \`ray_volume_closure(hit, time)\` — a função pela composição dos
+ * acertos ou o fechamento pronto do contribuinte.
+ */
+export const rayVolumeMaterial = wgslModule({
+    name: 'ray_volume_material',
+    requires: [
+        rayVolumeTypes,
+        rayVolumeSurfaceReady,
+        materialPointTypes,
+        closure,
+        rayHitMaterialReady,
+    ],
+    structs: [StandardMaterialSchema],
+    source: `/** A amostra de superfície no acerto de volume \`hit\` no tempo simulado \`time\`. */
+fn ray_volume_sample(hit: RayVolumeHit, time: f32) -> SurfaceSample {
+    return SurfaceSample(hit.position, hit.normal, vec2f(0.0), time, vec3f(0.0), vec4f(0.0), vec3f(0.0), 0.0,
+        vec2f(0.0), vec2f(0.0));
+}
+
+/** As constantes do material de um volume: as padrão do \`StandardMaterial\`. */
+fn ray_volume_standard() -> StandardMaterial {
+    return StandardMaterial(vec4f(1.0), 0.5, 0.0, 0.0, 0.0);
+}
+
+/** O fechamento no acerto de volume \`hit\` com o material \`s\` dele. */
+fn ray_volume_surface_closure(hit: RayVolumeHit, s: RayVolumeSurface, time: f32) -> Closure {
+    if (s.index == 0u) { return s.closure; }
+    return ray_hit_material(s.index, ray_volume_sample(hit, time), ray_volume_standard(), s.slot);
+}
+
+/** O fechamento no acerto de volume \`hit\` no tempo simulado \`time\`. */
+fn ray_volume_closure(hit: RayVolumeHit, time: f32) -> Closure {
+    return ray_volume_surface_closure(hit, ray_volume_surface(hit), time);
+}`,
+});

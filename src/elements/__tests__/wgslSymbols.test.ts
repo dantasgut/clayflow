@@ -36,6 +36,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'contagem da compactação (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
     reduce_count:
         'contagem da redução (spec 031): do uniform (pronto) ou do registro SetCount — bindPoints troca uma pela outra',
+    field_surface_fallback:
+        'material de um corpo do campo sem função `material` (spec 034, T065d): nenhum (pronto) ou o do `FluidSurfaceMaterial`, só com corpos dele na cena (o pool só existe então) — um por kernel montado',
     compact_keep:
         'predicado da compactação (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
     compact_value:

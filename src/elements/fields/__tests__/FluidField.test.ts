@@ -12,7 +12,7 @@ import {
     renderScene,
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import {
-    rayVolumeClosurePoint,
+    rayVolumeSurfacePoint,
     rayVolumeHitPoint,
     rayVolumeTransmittancePoint,
 } from '../../raytrace/points';
@@ -77,12 +77,12 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios só com fluido: ray_volume_hit, ray_volume_closure e ray_volume_transmittance', () => {
+    it('contribuição aos raios só com fluido: ray_volume_hit, ray_volume_surface e ray_volume_transmittance', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
             rayVolumeHitPoint,
-            rayVolumeClosurePoint,
+            rayVolumeSurfacePoint,
             rayVolumeTransmittancePoint,
         ]);
         // A mesma ordem nos três: o `source` do acerto é a posição do contribuinte no ponto.
@@ -98,22 +98,32 @@ describe('FluidField (spec 033, R11)', () => {
         expect(modules.every((m) => m !== undefined)).toBe(true);
         const hit = composeWgsl(modules[0]!).spec.source;
         expect(hit).toContain(
-            'fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit',
+            'fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit',
         );
         expect(hit).toContain('field_march(');
-        // O fechamento: a função `material` do corpo pela composição dos acertos, ou o `FluidSurfaceMaterial`.
-        const closure = composeWgsl(modules[1]!).spec.source;
-        expect(closure).toContain('fn ray_volume_closure(hit: RayVolumeHit, time: f32) -> Closure');
-        expect(closure).toContain('ray_hit_material(body.x, s, m, body.y)');
-        expect(closure).toContain('field_materials[body.z - 1u]');
+        // O material: o índice da função `material` do corpo e o slot dos parâmetros; sem corpo de
+        // `FluidSurfaceMaterial`, sem ler o pool dele (que não existiria: o kernel não comporia).
+        const graph = composeWgsl(modules[1]!).spec.source;
+        expect(graph).toContain('fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface');
+        expect(graph).toContain('RayVolumeSurface(body.x, body.y, closure_zero())');
+        expect(graph).not.toContain('field_materials');
+        // Sem avaliar a função: quem traça a avalia junto com a das malhas (uma expansão de `ray_hit_material`).
+        expect(graph).not.toContain('ray_hit_material(');
         const transmittance = composeWgsl(modules[2]!).spec.source;
         expect(transmittance).toContain(
             'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );
-        expect(transmittance).toContain('closure_absorption(field_closure(at, time))');
-        // Cada símbolo uma vez: a transmitância usa o fechamento do campo, não o do ponto.
-        expect(transmittance.match(/fn field_closure\(/g)).toHaveLength(1);
-        expect(transmittance).not.toContain('fn ray_volume_closure(');
+        expect(transmittance).toContain(
+            'closure_absorption(ray_volume_surface_closure(at, field_surface(at), time))',
+        );
+        expect(transmittance).not.toContain('field_materials');
+        // Cada símbolo uma vez.
+        expect(transmittance.match(/fn field_surface\(/g)).toHaveLength(1);
+        // Com corpos de `FluidSurfaceMaterial`: o fechamento dele quando o corpo não tem função.
+        field.setSurfaces(true);
+        const fluid = contributions.map((c) => c.build(slotOf)!);
+        expect(composeWgsl(fluid[1]!).spec.source).toContain('field_materials[body.z - 1u]');
+        expect(composeWgsl(fluid[2]!).spec.source).toContain('field_materials[body.z - 1u]');
         field.setVolume(false);
         expect(contributions.map((c) => c.build(slotOf))).toEqual([
             undefined,

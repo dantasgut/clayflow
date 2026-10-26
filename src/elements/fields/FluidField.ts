@@ -3,11 +3,17 @@ import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import {
-    rayVolumeClosurePoint,
+    rayVolumeSurfacePoint,
     rayVolumeHitPoint,
     rayVolumeTransmittancePoint,
 } from '../raytrace/points';
-import { fieldRayClosure, fieldRayHit, fieldRayTransmittance } from './shaders';
+import {
+    fieldRayHit,
+    fieldRaySurface,
+    fieldRayTransmittance,
+    type FieldSurfaceVariants,
+} from './shaders';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
@@ -24,6 +30,11 @@ export interface FluidFieldData extends FluidFieldCapacity {
     params: [Record<string, number[] | number[][]>];
     /** 1 com corpos de fluido na cena (o campo contribui para os raios); 0 sem. Escrito só quando muda. */
     volume: number;
+    /**
+     * 1 com algum corpo de `FluidSurfaceMaterial` (o material dos raios lê o pool dele, que só existe então); 0 sem.
+     * Escrito só quando muda.
+     */
+    surfaces: number;
 }
 
 /** Palavras do cabeçalho do buffer das consultas (os limites). */
@@ -75,6 +86,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             table: 256,
             params: [FluidFieldSchema.applyDefaults({}) as Record<string, number[] | number[][]>],
             volume: 0,
+            surfaces: 0,
         };
     }
 
@@ -97,12 +109,18 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
     }
 
     /**
-     * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`), o fechamento nele
-     * (`ray_volume_closure`, spec 034 T065d) e a absorção pelos trechos dentro dele (`ray_volume_transmittance`) — só
+     * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`), o material nele
+     * (`ray_volume_surface`, spec 034 T065d) e a absorção pelos trechos dentro dele (`ray_volume_transmittance`) — só
      * com fluido na cena (`volume` = 1). Os três com a mesma ordem: o `source` do acerto é a posição no ponto.
      */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
+    }
+
+    /** Há corpos de `FluidSurfaceMaterial` no campo (estado `surfaces`, escrito só quando muda). */
+    setSurfaces(on: boolean): void {
+        const surfaces = on ? 1 : 0;
+        if (this.rawData.surfaces !== surfaces) this.data.surfaces = surfaces;
     }
 
     /** Liga ou desliga a contribuição aos raios (estado `volume`, escrito só quando muda). */
@@ -119,18 +137,24 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             build: () => (this.rawData.volume === 1 ? fieldRayHit : undefined),
         },
         {
-            point: rayVolumeClosurePoint,
+            point: rayVolumeSurfacePoint,
             order: 0,
             pools: [],
-            build: () => (this.rawData.volume === 1 ? fieldRayClosure : undefined),
+            build: () => this.variant(fieldRaySurface),
         },
         {
             point: rayVolumeTransmittancePoint,
             order: 0,
             pools: [],
-            build: () => (this.rawData.volume === 1 ? fieldRayTransmittance : undefined),
+            build: () => this.variant(fieldRayTransmittance),
         },
     ];
+
+    /** A variante do módulo pelos corpos da cena, só com fluido. */
+    private variant(v: FieldSurfaceVariants): WgslModule | undefined {
+        if (this.rawData.volume !== 1) return undefined;
+        return this.rawData.surfaces === 1 ? v.fluid : v.graph;
+    }
 
     /** Capacidades atuais (blocos e baldes da tabela). */
     get capacity(): FluidFieldCapacity {

@@ -2,8 +2,10 @@
 // (fora dos eixos) e percorre os acertos até escapar; o primeiro acerto de cada instância dielétrica pela face de trás
 // diz que a câmera está dentro dela (o raio sai antes de entrar); paredes finas não têm interior e não contam. Os meios achados, por prioridade crescente, vão para o
 // estado do quadro (`refraction_frame_out`, dois texels por meio: instância, prioridade e índice; o resto do índice e a
-// absorção; instância `NONE` nos vazios) — a pilha inicial de todo caminho do quadro, como a da referência da CPU.
-// Requer: NONE, REFRACTION_MAX_MEDIA, refraction, refraction_media, ray_scene, ray_hit, refraction_frame_out.
+// absorção; instância `NONE` nos vazios) — a pilha inicial de todo caminho do quadro, como a da referência da CPU. A
+// câmera dentro de um volume (a água das partículas, T065e) também: pelo lado do acerto do volume na mesma direção.
+// Requer: NONE, REFRACTION_MAX_MEDIA, refraction, refraction_media, refraction_scene, ray_scene, ray_hit,
+// refraction_frame_out.
 
 /** Acertos percorridos no máximo (a câmera dentro de muitas camadas para no teto). */
 const REFRACTION_CAMERA_STEPS: u32 = 64u;
@@ -33,12 +35,20 @@ fn refraction_camera_main() {
         if (!known && seen_count < REFRACTION_CAMERA_SEEN) {
             seen[seen_count] = hit.instance;
             seen_count += 1u;
-            let c = ray_hit_closure(hit, refraction.time, 0.0);
+            let c = refraction_hit_closure(hit, refraction.time);
             if (c.transmission_weight > 0.0 && c.transmission_thin == 0.0 && hit.face < 0.0) {
                 inside = refraction_enter(inside, refraction_medium(c, hit.instance));
             }
         }
         o = hit.position + dir * (1e-4 * (1.0 + length(hit.position)));
+    }
+    // Os volumes (a água das partículas): a câmera está dentro quando a superfície mais próxima é vista por dentro.
+    let v = ray_volume_hit(origin, dir, RAY_MISS, -1);
+    if (v.hit && v.inside) {
+        let c = refraction_hit_closure(refraction_volume_as_hit(v), refraction.time);
+        if (c.transmission_weight > 0.0 && c.transmission_thin == 0.0) {
+            inside = refraction_enter(inside, refraction_medium(c, refraction_volume_id(v)));
+        }
     }
     // Prioridade crescente: no empate, o corrente é o último (como a referência ordena).
     for (var i = 1u; i < inside.count; i++) {
