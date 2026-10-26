@@ -318,7 +318,7 @@ const LENS: RefractionScene = {
  */
 const RELIEF_GLASS: PtDielectric = {
     ior: 1.5,
-    bump: { amplitude: 0.01, wavenumber: (2 * Math.PI) / 0.2 },
+    bump: { kind: 'sines', amplitude: 0.01, wavenumber: (2 * Math.PI) / 0.2 },
 };
 const RELIEF: RefractionScene = {
     name: 'relief',
@@ -331,6 +331,28 @@ const RELIEF: RefractionScene = {
         },
     ],
     camera: { position: [0, 1.3, 1.2], target: [0, 0.25, 0], fovY: 0.7 },
+};
+
+/**
+ * T065b: tanque de água (IOR 1,33) com as ondulações do nó `surface.ripple` (paradas, `speed` 0: o motor acumula
+ * quadros e a referência é um instante) sobre o xadrez; as paredes do tanque ficam lisas (o peso das ondulações é 0 nas
+ * faces de lado).
+ */
+const RIPPLE_WATER: PtDielectric = {
+    ior: 1.33,
+    bump: { kind: 'ripple', strength: 0.3, size: 0.15, speed: 0, time: 0, up: [0, 1, 0] },
+};
+const RIPPLE: RefractionScene = {
+    name: 'ripple',
+    solids: [
+        ...room(0.1),
+        {
+            id: 20,
+            shape: { kind: 'box', min: [-0.8, -0.01, -0.6], max: [0.8, 0.3, 0.6] },
+            glass: RIPPLE_WATER,
+        },
+    ],
+    camera: { position: [0, 1.3, 1.2], target: [0, 0.2, 0], fovY: 0.7 },
 };
 
 // ── O motor ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -384,7 +406,7 @@ function materialOf(s: Solid): MaterialFunction {
             ['transmit.value', 'glass.b'],
         ];
         let out = 'glass.value';
-        if (g.bump !== undefined) {
+        if (g.bump?.kind === 'sines') {
             // O relevo (T065a): h = A · sen(k·x) · sen(k·z); a normal de sombreamento n − (∇h − (∇h·n) n), normalizada,
             // pelo nó `closure.normal` — a mesma conta de `bumpNormal` da referência.
             const k = g.bump.wavenumber;
@@ -444,6 +466,29 @@ function materialOf(s: Solid): MaterialFunction {
                 ['bent.value', 'shading.v'],
                 [out, 'bump.c'],
                 ['shading.value', 'bump.normal'],
+            );
+            out = 'bump.value';
+        }
+        if (g.bump?.kind === 'ripple') {
+            // As ondulações (T065b): o nó `surface.ripple` na posição, na normal e no tempo da amostra, até
+            // `closure.normal`.
+            const r = g.bump;
+            Object.assign(graph, {
+                s: nodes.input.surfaceSample(),
+                ripple: nodes.surface.ripple.with({
+                    strength: r.strength,
+                    size: r.size,
+                    speed: r.speed,
+                    up: [...r.up],
+                }),
+                bump: nodes.closure.normal,
+            });
+            links.push(
+                ['s.world_position', 'ripple.position'],
+                ['s.normal', 'ripple.normal'],
+                ['s.time', 'ripple.time'],
+                [out, 'bump.c'],
+                ['ripple.value', 'bump.normal'],
             );
             out = 'bump.value';
         }
@@ -1183,27 +1228,28 @@ async function caseCost(): Promise<void> {
 }
 
 /**
- * T065a: a placa com relevo. Além do erro por região, os degraus da borda do xadrez vista pela placa contra a referência
- * de 1024 amostras (0, como na lente), com três controles: outra referência independente dá 0 (a medida não acusa o
- * ruído), a referência em blocos de 4 px dá degraus (a medida vê o pixel) e a placa lisa dá degraus contra a com relevo
- * (a medida vê o relevo — sem ele no motor, a cena falharia).
+ * T065a/T065b: o dielétrico `id` com relevo da cena. Além do erro por região, os degraus da borda do xadrez vista por
+ * ele contra a referência de 1024 amostras (0, como na lente), com três controles: outra referência independente dá 0
+ * (a medida não acusa o ruído), a referência em blocos de 4 px dá degraus (a medida vê o pixel) e o mesmo dielétrico liso
+ * dá degraus contra o com relevo (a medida vê o relevo — sem ele no motor, a cena falharia).
  */
-async function caseRelief(): Promise<void> {
-    const { regions, engine } = await compareScene(RELIEF);
+async function caseBumped(scene: RefractionScene, id: number): Promise<void> {
+    const name = scene.name;
+    const { regions, engine } = await compareScene(scene);
     try {
-        const slab = regions.get(10) ?? [];
-        const ref = await renderReference(RELIEF, 0, STEP_SAMPLES);
+        const slab = regions.get(id) ?? [];
+        const ref = await renderReference(scene, 0, STEP_SAMPLES);
         const other = edgeSteps(
-            (await renderReference(RELIEF, STEP_SAMPLES, STEP_SAMPLES)).rgb,
+            (await renderReference(scene, STEP_SAMPLES, STEP_SAMPLES)).rgb,
             ref.rgb,
             slab,
         );
         log(
-            `relief: controle — outra referência (amostras independentes): ${other.steps} degraus em ${other.crossings} cruzamentos (p99 ${other.p99.toFixed(3)} px)`,
+            `${name}: controle — outra referência (amostras independentes): ${other.steps} degraus em ${other.crossings} cruzamentos (p99 ${other.p99.toFixed(3)} px)`,
         );
         check(
             other.steps === 0,
-            `relief: a medida dos degraus acusa o ruído da referência (${other.steps} de ${other.crossings})`,
+            `${name}: a medida dos degraus acusa o ruído da referência (${other.steps} de ${other.crossings})`,
         );
         const blocky = new Float32Array(ref.rgb.length);
         for (let y = 0; y < H; y++)
@@ -1217,34 +1263,33 @@ async function caseRelief(): Promise<void> {
             }
         const b = edgeSteps(blocky, ref.rgb, slab);
         log(
-            `relief: controle — a referência em blocos de 4 px: ${b.steps} degraus em ${b.crossings} cruzamentos (p99 ${b.p99.toFixed(3)} px)`,
+            `${name}: controle — a referência em blocos de 4 px: ${b.steps} degraus em ${b.crossings} cruzamentos (p99 ${b.p99.toFixed(3)} px)`,
         );
         check(
             b.steps > b.crossings / 10,
-            `relief: a medida dos degraus não acusa a imagem em blocos (${b.steps} de ${b.crossings})`,
+            `${name}: a medida dos degraus não acusa a imagem em blocos (${b.steps} de ${b.crossings})`,
         );
-        const flatGlass: PtDielectric = { ior: RELIEF_GLASS.ior };
         const flat: RefractionScene = {
-            ...RELIEF,
-            solids: RELIEF.solids.map((x) =>
-                x.glass === RELIEF_GLASS ? { ...x, glass: flatGlass } : x,
+            ...scene,
+            solids: scene.solids.map((x) =>
+                x.id === id && x.glass !== undefined ? { ...x, glass: { ior: x.glass.ior } } : x,
             ),
         };
         const f = edgeSteps((await renderReference(flat, 0, STEP_SAMPLES)).rgb, ref.rgb, slab);
         log(
-            `relief: controle — a placa lisa: ${f.steps} degraus em ${f.crossings} cruzamentos (p99 ${f.p99.toFixed(3)} px)`,
+            `${name}: controle — o dielétrico liso: ${f.steps} degraus em ${f.crossings} cruzamentos (p99 ${f.p99.toFixed(3)} px)`,
         );
         check(
             f.steps > f.crossings / 10,
-            `relief: a medida dos degraus não distingue a placa lisa da com relevo (${f.steps} de ${f.crossings})`,
+            `${name}: a medida dos degraus não distingue o dielétrico liso da com relevo (${f.steps} de ${f.crossings})`,
         );
         const e = edgeSteps(engine.rgb, ref.rgb, slab);
         log(
-            `relief: degraus da borda do xadrez vista pela placa — ${e.steps} em ${e.crossings} cruzamentos (p99 ${e.p99.toFixed(3)} px)`,
+            `${name}: degraus da borda do xadrez vista pelo dielétrico — ${e.steps} em ${e.crossings} cruzamentos (p99 ${e.p99.toFixed(3)} px)`,
         );
         check(
             e.crossings > 200 && e.steps === 0,
-            `relief: ${e.steps} degraus de pixel na borda vista pela placa (de ${e.crossings} cruzamentos)`,
+            `${name}: ${e.steps} degraus de pixel na borda vista pelo dielétrico (de ${e.crossings} cruzamentos)`,
         );
     } finally {
         engine.close();
@@ -1289,9 +1334,13 @@ async function main(): Promise<void> {
         log('── lens');
         await caseLens();
     }
-    if (only === null || only === 'relief') {
-        log('── relief');
-        await caseRelief();
+    for (const [scene, id] of [
+        [RELIEF, 10],
+        [RIPPLE, 20],
+    ] as const) {
+        if (only !== null && only !== scene.name) continue;
+        log(`── ${scene.name}`);
+        await caseBumped(scene, id);
     }
     if (only === null || only === 'gi') {
         log('── gi');

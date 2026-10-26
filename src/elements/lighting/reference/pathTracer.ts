@@ -14,6 +14,7 @@
 // razão dos índices ao atravessar (L/n² se conserva). As luzes pontuais e direcionais não atravessam dielétricos (só
 // chegam por um caminho que as atinja, o que um delta não permite): a sombra de vidro e água é a física sem cáusticas.
 
+import { surfaceRipple } from '../../nodes/reference/surface';
 import { pcgHash } from '../../math/reference/random';
 
 export type Vec3 = readonly [number, number, number];
@@ -88,18 +89,36 @@ export interface PtDielectric {
     readonly bump?: PtBump;
 }
 
+/** Relevo da normal: senoidal ou ondulações. */
+export type PtBump = PtSines | PtRipple;
+
 /**
  * Relevo senoidal: a altura h(p) = amplitude · sen(k·x) · sen(k·z) inclina a normal pelo gradiente dela projetado no
  * plano tangente, n_s = normalize(n − (∇h − (∇h·n) n)) — a conta que o grafo do smoke monta com nós de math.
  */
-export interface PtBump {
+export interface PtSines {
+    readonly kind: 'sines';
     readonly amplitude: number;
     /** k, em rad/m. */
     readonly wavenumber: number;
 }
 
+/** Ondulações do nó `surface.ripple` (a mesma referência, `surfaceRipple`) no instante `time`. */
+export interface PtRipple {
+    readonly kind: 'ripple';
+    readonly strength: number;
+    readonly size: number;
+    readonly speed: number;
+    readonly time: number;
+    readonly up: Vec3;
+}
+
 /** A normal de sombreamento do relevo `bump` no ponto `p` com a normal geométrica `n` (no sentido dela). */
 export function bumpNormal(bump: PtBump, p: Vec3, n: Vec3): Vec3 {
+    if (bump.kind === 'ripple') {
+        const r = surfaceRipple(p, n, bump.time, bump.strength, bump.size, bump.speed, bump.up);
+        return [r[0]!, r[1]!, r[2]!];
+    }
     const k = bump.wavenumber;
     const a = bump.amplitude * k;
     const g: Vec3 = [

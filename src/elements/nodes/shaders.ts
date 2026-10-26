@@ -7,7 +7,15 @@ import {
     NODE_COMPARE_LESS_EQUAL,
     NODE_COMPARE_NOT_EQUAL,
 } from '../gpu/shaders/constants';
-import { basis, color, noise, xformAffine, xformProjective, xformRigid } from '../gpu/shaders/math';
+import {
+    basis,
+    color,
+    constants,
+    noise,
+    xformAffine,
+    xformProjective,
+    xformRigid,
+} from '../gpu/shaders/math';
 import { materialPointTypes } from '../material/point/shaders';
 import { fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import mathSource from '../gpu/wgsl/nodes/math.wgsl?raw';
@@ -67,8 +75,15 @@ export const nodeField = wgslModule({
     requires: [fieldPointTypes, fieldAccelReady],
 });
 
-/** Nós de geometria diferencial (spec 031): métrica, curvaturas, direções principais da amostra de superfície. */
-export const nodeSurface = wgslModule({ name: 'node_surface', source: surfaceSource });
+/**
+ * Nós de superfície (spec 031): métrica, curvaturas, direções principais da amostra de superfície; as ondulações (spec
+ * 034).
+ */
+export const nodeSurface = wgslModule({
+    name: 'node_surface',
+    source: surfaceSource,
+    requires: [constants],
+});
 
 /** Nós de saída do ponto `material` (spec 031; o de fechamento, spec 011). */
 export const nodeOutput = wgslModule({

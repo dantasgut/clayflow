@@ -8,7 +8,8 @@
 // orbitando), agua (barragem no tanque, câmera parada), causticas (água agitada vista de cima, fundo de areia), cornell (caixa de
 // Cornell com a luz global), dia (cômodo com janela, o sol andando), nevoa (o mesmo cômodo com névoa e a luz global,
 // o feixe do sol), pano (tecido XPBD caindo sob o sol, com a sombra), sprites (partículas atravessando a cena e os
-// vértices de uma esfera como sprites girando, sobre o xadrez). A refração dos vidros é a do motor no momento da
+// vértices de uma esfera como sprites girando, sobre o xadrez), ondulacao (o palco da lente com uma lâmina de água de
+// ondulações pelo grafo e a esfera de vidro meio mergulhada). A refração dos vidros é a do motor no momento da
 // gravação — o título não promete mais do que isso.
 import * as clayflow from 'clayflow';
 import {
@@ -92,32 +93,38 @@ function camera(
     };
 }
 
-/** Esfera de vidro pelo grafo de nós (`bsdf.dielectric` + `bsdf.transmission`; índice e número de Abbe). */
+/**
+ * Esfera de vidro pelo grafo de nós (`bsdf.dielectric` + `bsdf.transmission`; índice e número de Abbe; a prioridade do
+ * meio por `closure.mediumPriority`, quando dada).
+ */
 function glassSphere(
     app: Application,
     center: Vec3,
     radius: number,
     ior: number,
     abbe: number,
+    priority?: number,
 ): void {
+    const graph: Parameters<typeof materialGraph>[0] = {
+        reflect: clayflow.nodes.bsdf.dielectric.with({ ior, roughness: 0 }),
+        transmit: clayflow.nodes.bsdf.transmission.with({ ior, abbe }),
+        glass: clayflow.nodes.closure.add,
+    };
+    const links: [string, string][] = [
+        ['reflect.value', 'glass.a'],
+        ['transmit.value', 'glass.b'],
+    ];
+    let out = 'glass.value';
+    if (priority !== undefined) {
+        graph.priority = clayflow.nodes.closure.mediumPriority.with({ priority });
+        links.push([out, 'priority.c']);
+        out = 'priority.value';
+    }
     app.world.insert(
         new SphereGeometry({ radius, latSegments: 96, lonSegments: 192 })
             .add(new StandardMaterial())
             .add(new Transform({ position: [...center, 1] }))
-            .add(
-                materialGraph(
-                    {
-                        reflect: clayflow.nodes.bsdf.dielectric.with({ ior, roughness: 0 }),
-                        transmit: clayflow.nodes.bsdf.transmission.with({ ior, abbe }),
-                        glass: clayflow.nodes.closure.add,
-                    },
-                    [
-                        ['reflect.value', 'glass.a'],
-                        ['transmit.value', 'glass.b'],
-                    ],
-                    'glass.value',
-                ),
-            ),
+            .add(materialGraph(graph, links, out)),
     );
 }
 
@@ -126,7 +133,7 @@ function glassSphere(
  * quatro colunas coloridas ao fundo e a esfera de vidro de raio 0,45 apoiada no piso (índice e número de Abbe). O
  * raio que escapa do vidro vê o céu; o que acerta o piso ou as colunas, a luz do sol com sombra.
  */
-function glassStage(app: Application, ior: number, abbe: number): void {
+function glassStage(app: Application, ior: number, abbe: number, priority?: number): void {
     const sun = new clayflow.DirectionalLight({
         direction: [...sunFrom(40, 60), 0],
         intensity: 100000,
@@ -162,7 +169,51 @@ function glassStage(app: Application, ior: number, abbe: number): void {
                 .add(new StandardMaterial({ albedo: [...color, 1], roughness: 0.8 }))
                 .add(new Transform({ position: [x, 0.7, -2.2, 1] })),
         );
-    glassSphere(app, [0, 0.45, 0], 0.45, ior, abbe);
+    glassSphere(app, [0, 0.45, 0], 0.45, ior, abbe, priority);
+}
+
+/**
+ * Lâmina de água pelo grafo (spec 034, T065b): o dielétrico de índice 1,33 com a absorção do meio (`bsdf.transmission`:
+ * a cor atingida a 2 m) e as ondulações (`surface.ripple` na posição, normal e tempo simulado da amostra, até
+ * `closure.normal`) — uma caixa de malha, ainda sem a simulação (a água das partículas pelo traçado é a T065d–f).
+ */
+function rippledWater(app: Application, size: Vec3, center: Vec3): void {
+    app.world.insert(
+        new clayflow.BoxGeometry({ size: [...size] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [...center, 1] }))
+            .add(
+                materialGraph(
+                    {
+                        s: clayflow.nodes.input.surfaceSample(),
+                        reflect: clayflow.nodes.bsdf.dielectric.with({ ior: 1.33, roughness: 0 }),
+                        transmit: clayflow.nodes.bsdf.transmission.with({
+                            ior: 1.33,
+                            abbe: 55.7,
+                            color: [0.55, 0.8, 0.85],
+                            depth: 2,
+                        }),
+                        water: clayflow.nodes.closure.add,
+                        ripple: clayflow.nodes.surface.ripple.with({
+                            strength: 0.25,
+                            size: 0.3,
+                            speed: 1,
+                        }),
+                        bump: clayflow.nodes.closure.normal,
+                    },
+                    [
+                        ['reflect.value', 'water.a'],
+                        ['transmit.value', 'water.b'],
+                        ['s.world_position', 'ripple.position'],
+                        ['s.normal', 'ripple.normal'],
+                        ['s.time', 'ripple.time'],
+                        ['water.value', 'bump.c'],
+                        ['ripple.value', 'bump.normal'],
+                    ],
+                    'bump.value',
+                ),
+            ),
+    );
 }
 
 const SHOTS: Record<string, Shot> = {
@@ -203,6 +254,20 @@ const SHOTS: Record<string, Shot> = {
                     [2.2 * Math.sin(0.5 * a), 0.9 + 0.2 * Math.cos(a), 2.2 * Math.cos(0.5 * a)],
                     [0, 0.45, 0],
                 );
+            };
+        },
+    },
+    ondulacao: {
+        frames: 360,
+        build(app) {
+            // A esfera de vidro (prioridade 1: dentro dela a borda da água não é interface) apoiada no piso, quase metade
+            // dentro de uma lâmina de água de 0,4 m com ondulações; a câmera gira devagar.
+            const look = camera(app, (40 * Math.PI) / 180, [0, 1.1, 2.6], [0, 0.3, 0]);
+            glassStage(app, 1.5, 0, 1);
+            rippledWater(app, [4, 0.4, 3], [0, 0.19, 0]);
+            return (i) => {
+                const a = (0.6 * Math.PI * i) / 359;
+                look([2.6 * Math.sin(a - 0.3), 1.1, 2.6 * Math.cos(a - 0.3)], [0, 0.3, 0]);
             };
         },
     },
