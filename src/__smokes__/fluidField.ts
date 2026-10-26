@@ -18,6 +18,13 @@
 //   - caustics: a placa de água parada sobre o fundo: a borda da sombra e das cáusticas no fundo sem ondulação na
 //     escala das partículas (RMS ≤ 0,05 p) e o padrão sem blocos (≤ 2 % de degraus entre vizinhos acima de 0,06);
 //   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água em ≥ 95 % dos pixels;
+//   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — um `FluidBody` com a função `material` (o
+//     dielétrico de IOR 1,4 e a transmissão com a cor 0,5 + 0,25·n pela normal do ponto, a 2 m) e outro com o
+//     `FluidSurfaceMaterial` padrão; por raios contra cada um, o ponto `ray_volume_closure` (composto pela C2 com as
+//     funções `material` dos acertos) dá o fechamento do grafo no ponto e na normal do acerto e o do material de água
+//     (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m), a 1e-5 (a precisão de f32 das contas); o
+//     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do fechamento na corda — |Δ ln T| ≤ σ · 1 voxel
+//     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
 //   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
 //     marcha ≤ 1 ms: medidos juntos pela diferença do tempo de GPU por quadro (perfil por quadro: o por passo não é
 //     confiável no Apple) entre a mesma barragem com a água e com sprites, ≤ 2,5 ms.
@@ -35,7 +42,12 @@ import {
     FluidSurfaceMaterial,
     ParticlePhysics,
     PlaneGeometry,
+    rayVolumeClosureReady,
     rayVolumeHitReady,
+    rayVolumeTransmittanceReady,
+    RayScene,
+    nodes,
+    bindPoints,
     slot,
     StandardMaterial,
     Transform,
@@ -46,7 +58,11 @@ import {
 import type {
     BoundFlow,
     FluidSurfaceMaterialOptions,
+    FlowTransitions,
     Frame,
+    PipelineDescriptor,
+    TransitionContext,
+    WgslModule,
     StagingBufferSpec,
     StorageBufferSpec,
     TextureSpec,
@@ -70,6 +86,12 @@ import {
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
 import { lumaSrgb8 } from './support/images';
 import { lcg } from './support/random';
+import { materialGraph } from './support/materialScenes';
+import {
+    composeHitMaterial,
+    rayHitMaterialPoint,
+    rayHitMaterialReady,
+} from '../elements/raytrace/hitMaterial';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -1030,6 +1052,312 @@ async function caseTiming(): Promise<void> {
     );
 }
 
+/** Fechamento no acerto dos raios: o acerto, o fechamento, a saída do corpo e a transmitância (6 `vec4f` por raio). */
+const closureOut = wgslResource({
+    name: 'smoke_closures',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'vec4f', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+const closureQuery = wgslModule({
+    name: 'smoke_closure_query',
+    // O `ray_hit_material` na árvore, como em quem traça (sombreia os acertos das malhas): a composição das funções da
+    // cena vale também dentro da contribuição do campo.
+    requires: [
+        rayHitMaterialReady,
+        rayVolumeHitReady,
+        rayVolumeClosureReady,
+        rayVolumeTransmittanceReady,
+        queryRays,
+        closureOut,
+    ],
+    source: /* wgsl */ `
+@compute @workgroup_size(64)
+fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
+    let o = smoke_rays[i * 2u].xyz;
+    let d = smoke_rays[i * 2u + 1u].xyz;
+    let h = ray_volume_hit(o, d, 10.0);
+    let c = ray_volume_closure(h, 0.0);
+    // A saída do corpo: o acerto de dentro, a partir de 1 cm depois da entrada (perto da superfície o sinal de φ ainda
+    // é o da faixa dela). A transmitância só até 2 cm depois da saída: o raio não chega ao outro corpo (a 30 cm).
+    let start = h.position + d * 0.01;
+    let out = ray_volume_hit(start, d, 10.0);
+    let exit = h.t + 0.01 + out.t;
+    let tr = ray_volume_transmittance(o, d, exit + 0.02, 0.0);
+    let b = i * 6u;
+    smoke_closures[b] = vec4f(h.t, select(0.0, 1.0, h.hit), f32(h.material), c.transmission_ior);
+    smoke_closures[b + 1u] = vec4f(c.transmission_color, c.transmission_depth);
+    smoke_closures[b + 2u] = vec4f(c.dielectric_ior, c.transmission_weight, c.dielectric_weight, c.transmission_abbe);
+    smoke_closures[b + 3u] = vec4f(h.position, exit);
+    smoke_closures[b + 4u] = vec4f(h.normal, select(0.0, 1.0, out.hit && out.inside));
+    smoke_closures[b + 5u] = vec4f(tr, 0.0);
+}`,
+});
+
+interface ClosureQuerySlots {
+    readonly field: ReturnType<typeof slot.singleton>;
+    readonly rays: ReturnType<typeof slot.singleton>;
+}
+
+/**
+ * Estágio de consulta do fechamento: o kernel com as funções `material` dos acertos da cena (a composição da estrutura
+ * de raios, refeita quando ela muda, como fazem a luz global e a refração); os pontos dos volumes compostos pela C2.
+ */
+class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
+    readonly type = 'smokeClosureQuery';
+    readonly slots = {
+        field: slot.singleton(FluidField.schema),
+        rays: slot.singleton(RayScene.schema),
+    };
+    override readonly bindings: ReadonlyMap<typeof queryRays, StorageBufferSpec>;
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<ClosureQuerySlots>>;
+    pending = 0;
+    revision = -1;
+    functions = 0;
+
+    constructor(
+        rays: StorageBufferSpec,
+        out: StorageBufferSpec,
+        private readonly count: number,
+    ) {
+        super();
+        this.bindings = new Map([
+            [queryRays, rays],
+            [closureOut, out],
+        ]);
+        this.transitions = {
+            '*': {
+                slotsResolved: 'ignore',
+                slotChanged: 'ignore',
+                slotLost: 'ignore',
+                pipelinesCompiled: 'ignore',
+                bindGroupReplaced: 'ignore',
+                framePrepare: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        const scene = c.bound.slots.rays.resource as RayScene;
+                        if (scene.materialRevision === this.revision) return;
+                        this.revision = scene.materialRevision;
+                        const fns = scene.materialFunctions;
+                        this.functions = fns.length;
+                        const shader: WgslModule =
+                            fns.length === 0
+                                ? closureQuery
+                                : bindPoints(
+                                      closureQuery,
+                                      new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]),
+                                  );
+                        const descriptor: PipelineDescriptor = {
+                            id: `closure:${this.revision}`,
+                            role: 'compute',
+                            shader,
+                            entryPoints: ['smoke_closure_query_main'],
+                        };
+                        c.prepare(descriptor);
+                    },
+                },
+            },
+        };
+    }
+
+    dispatch(frame: Frame, bound: BoundFlow): void {
+        if (this.pending === 0) return;
+        const p = bound.pipelines.get(`closure:${this.revision}`);
+        if (p?.role !== 'compute' || !p.ready) return;
+        frame.compute('smokeClosureQuery', (pass) => {
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
+            pass.dispatch.workgroups(Math.ceil(this.count / 64));
+        });
+        this.pending--;
+    }
+}
+
+/** Fechamento esperado do grafo do corpo A na normal `n`: cor 0,5 + 0,25·n a 2 m, IOR 1,4. */
+const GRAPH_IOR = 1.4;
+const GRAPH_DEPTH = 2;
+
+async function caseClosure(): Promise<void> {
+    const W = 320;
+    const H = 240;
+    const s = await session(W, H);
+    staticStage(s.app, W, H, BALL_EYE, BALL_TARGET);
+    s.app.world.insert(new ParticlePhysics({ particleSpacing: SPACING }));
+    const centers: readonly Vec3[] = [
+        [-0.4, 0.5, 0],
+        [0.4, 0.5, 0],
+    ];
+    const radius = 0.25;
+    // A: a aparência pelo grafo (o caminho de autoria: nós até `closure`).
+    s.app.world.insert(
+        new FluidBody({ algorithm: 'SPH', position: ball(centers[0]!, radius, 3) }).add(
+            materialGraph(
+                {
+                    s: nodes.input.surfaceSample(),
+                    half: nodes.math.value3.with({ value: [0.5, 0.5, 0.5] }),
+                    tilt: nodes.math.scale3,
+                    tint: nodes.math.add3,
+                    quarter: nodes.math.value.with({ value: 0.25 }),
+                    reflect: nodes.bsdf.dielectric.with({ ior: GRAPH_IOR, roughness: 0 }),
+                    transmit: nodes.bsdf.transmission.with({ ior: GRAPH_IOR, depth: GRAPH_DEPTH }),
+                    water: nodes.closure.add,
+                },
+                [
+                    ['s.normal', 'tilt.v'],
+                    ['quarter.value', 'tilt.s'],
+                    ['tilt.value', 'tint.a'],
+                    ['half.value', 'tint.b'],
+                    ['tint.value', 'transmit.color'],
+                    ['reflect.value', 'water.a'],
+                    ['transmit.value', 'water.b'],
+                ],
+                'water.value',
+            ),
+        ),
+    );
+    // B: só o material de água (spec 017).
+    const fluid = new FluidSurfaceMaterial();
+    s.app.world.insert(
+        new FluidBody({ algorithm: 'SPH', position: ball(centers[1]!, radius, 5) }).add(fluid),
+    );
+    // Raios de fora para o centro de cada corpo, em direções variadas.
+    const perBody = 64;
+    const r = lcg(41);
+    const rays: { o: Vec3; d: Vec3; body: number }[] = [];
+    for (let body = 0; body < 2; body++)
+        for (let i = 0; i < perBody; i++) {
+            const u = 2 * r() - 1;
+            const a = 2 * Math.PI * r();
+            const dir: Vec3 = [
+                Math.sqrt(1 - u * u) * Math.cos(a),
+                u,
+                Math.sqrt(1 - u * u) * Math.sin(a),
+            ];
+            const c = centers[body]!;
+            const o: Vec3 = [c[0] + dir[0] * 0.38, c[1] + dir[1] * 0.38, c[2] + dir[2] * 0.38];
+            const aim: Vec3 = [
+                c[0] + (r() - 0.5) * 0.1,
+                c[1] + (r() - 0.5) * 0.1,
+                c[2] + (r() - 0.5) * 0.1,
+            ];
+            const d = [aim[0] - o[0], aim[1] - o[1], aim[2] - o[2]];
+            const len = Math.hypot(d[0]!, d[1]!, d[2]!);
+            rays.push({ o, d: [d[0]! / len, d[1]! / len, d[2]! / len], body });
+        }
+    const count = rays.length;
+    const storage = (name: string, bytes: number): StorageBufferSpec =>
+        s.app.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: `smoke_closure_${name}`,
+            byteSize: bytes,
+        });
+    const raysBuf = storage('rays', count * 32);
+    const outBuf = storage('out', count * 96);
+    const data = new Float32Array(count * 8);
+    rays.forEach((ray, i) => {
+        data.set([...ray.o, 0, ...ray.d, 0], i * 8);
+    });
+    s.app.core.write(raysBuf, data);
+    const query = new ClosureQueryFlow(raysBuf, outBuf, count);
+    s.app.flows.register(() => query, {
+        type: 'smokeClosureQuery',
+        phase: 'transform',
+        priority: -100,
+    });
+    await settle(s.app, 1500);
+    // A consulta roda quando o kernel (com a função do corpo A e a contribuição do campo) estiver pronto.
+    let out = new Float32Array(count * 24);
+    const ready = (): boolean => out.some((v, i) => i % 24 === 1 && v > 0.5) && query.functions > 0;
+    for (let attempt = 0; attempt < 60 && !ready(); attempt++) {
+        query.pending = 1;
+        s.app.step(0);
+        out = new Float32Array(await readSpec(s.app, outBuf, 'closures'));
+        await new Promise((res) => setTimeout(res, 100));
+    }
+    const voxel = FIELD.voxel * SPACING;
+    const absorption = fluid.data.absorption;
+    let hits = 0;
+    let missed = 0;
+    let worstClosure = 0;
+    // A maior razão entre |Δ ln T| e o limite σ · voxel, por canal.
+    let worstRatio = 0;
+    let crossed = 0;
+    const ids = new Set<number>();
+    rays.forEach((ray, i) => {
+        const v = (k: number): number => out[i * 24 + k]!;
+        if (v(1) < 0.5) {
+            missed++;
+            return;
+        }
+        hits++;
+        ids.add(v(2) * 10 + ray.body);
+        const n: Vec3 = [v(16), v(17), v(18)];
+        let expected: { ior: number; color: Vec3; depth: number; abbe: number };
+        if (ray.body === 0)
+            expected = {
+                ior: GRAPH_IOR,
+                color: [0.5 + 0.25 * n[0], 0.5 + 0.25 * n[1], 0.5 + 0.25 * n[2]],
+                depth: GRAPH_DEPTH,
+                abbe: 0,
+            };
+        else
+            expected = {
+                ior: fluid.data.ior,
+                color: [
+                    Math.exp(-absorption[0]! * fluid.data.thicknessScale),
+                    Math.exp(-absorption[1]! * fluid.data.thicknessScale),
+                    Math.exp(-absorption[2]! * fluid.data.thicknessScale),
+                ],
+                depth: 1,
+                abbe: fluid.data.abbe,
+            };
+        const got = [v(3), v(4), v(5), v(6), v(7), v(8), v(9), v(10), v(11)];
+        const want = [
+            expected.ior,
+            ...expected.color,
+            expected.depth,
+            expected.ior,
+            1,
+            1,
+            expected.abbe,
+        ];
+        for (let k = 0; k < got.length; k++)
+            worstClosure = Math.max(worstClosure, Math.abs(got[k]! - want[k]!));
+        // Beer–Lambert pela absorção do fechamento na corda (a entrada e a saída refinadas).
+        if (v(19) > 0.5) {
+            crossed++;
+            const chord = v(15) - v(0);
+            const sigma = expected.color.map((col) => -Math.log(col) / expected.depth);
+            for (let k = 0; k < 3; k++) {
+                const err = Math.abs(Math.log(Math.max(v(20 + k), 1e-30)) + sigma[k]! * chord);
+                worstRatio = Math.max(worstRatio, err / (sigma[k]! * voxel));
+            }
+        }
+    });
+    log(
+        `closure: ${hits} acertos de ${count} (${query.functions} função material na composição); maior diferença do fechamento ${worstClosure.toExponential(2)}; transmitância em ${crossed} cordas: |Δ ln T| até ${worstRatio.toFixed(3)} × σ·voxel (limite 1)`,
+    );
+    check(hits === count && missed === 0, `closure: ${hits} de ${count} raios acertam os corpos`);
+    check(
+        ids.size === 2,
+        `closure: cada corpo com o seu índice na tabela (${[...ids].join(', ')})`,
+    );
+    check(
+        worstClosure <= 1e-5,
+        `closure: o fechamento no acerto a ${worstClosure.toExponential(2)} ≤ 1e-5`,
+    );
+    check(
+        crossed === count && worstRatio <= 1,
+        `closure: a transmitância pelo corpo (${crossed} cordas) a ${worstRatio.toFixed(3)} × σ · 1 voxel em ln T ≤ 1`,
+    );
+    s.dispose();
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     gpu: caseGpu,
     drops: caseDrops,
@@ -1040,6 +1368,7 @@ const CASES: Record<string, () => Promise<void>> = {
     volume: caseVolume,
     caustics: caseCaustics,
     contact: caseContact,
+    closure: caseClosure,
     timing: caseTiming,
 };
 

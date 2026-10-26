@@ -2,7 +2,7 @@
 // partícula, os blocos que o suporte do núcleo dela cobre (até 2 × 2 × 2: o suporte de 2 espaçamentos cabe num bloco de
 // 4) entram na tabela por sondagem linear com troca atômica da chave; quem insere a chave aloca o índice do bloco pelo
 // contador (o registro 0 de `field_counts`, até a capacidade — além dela, o bloco fica de fora) e grava as coordenadas e
-// o material. Cada partícula também amplia os limites do campo (em voxels, o suporte do núcleo: a caixa justa da água,
+// o corpo. Cada partícula também amplia os limites do campo (em voxels, o suporte do núcleo: a caixa justa da água,
 // reduzida no grupo antes dos atômicos globais) — a caixa da marcha e o enquadramento da vista da luz. Blocos,
 // contagem e limites nunca voltam à CPU. A limpeza também fixa o nível da superfície do quadro: o do anterior corrigido
 // pelo volume que ele deu contra o das partículas (N · espaçamento³) — o campo conserva o volume em movimento, onde a
@@ -52,7 +52,7 @@ fn field_insert_super(s: vec3i) {
     }
 }
 
-/** Insere o bloco `b` (com o material `m`) na tabela; devolve o índice dele ou `NONE`. */
+/** Insere o bloco `b` (com o corpo `m`) na tabela; devolve o índice dele ou `NONE`. */
 fn field_insert(b: vec3i, m: u32) -> u32 {
     let key = field_key(b);
     if (key == FIELD_EMPTY) { return NONE; }

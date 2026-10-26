@@ -4,7 +4,7 @@
 // 0 é o balde vazio). Os voxels do interior (`field_interior_at`) e os com 2 de borda de cada lado (`field_apron_at`,
 // 12³: a amostra tricúbica cabe num bloco só). O que as consultas leem fica num buffer só de palavras de 32 bits
 // (`FluidField.data`, uma ligação de storage): os limites (8 palavras, em ordem sem sinal), a tabela (chave e índice do
-// bloco por balde), os blocos (coordenadas e material, 4 palavras) e os voxels com a borda (f32), nos deslocamentos de
+// bloco por balde), os blocos (coordenadas e corpo, 4 palavras) e os voxels com a borda (f32), nos deslocamentos de
 // `fluid_field.limits.zw`.
 // Requer: fluid_field (os parâmetros).
 
@@ -90,7 +90,7 @@ fn field_super_bucket(s: vec3i) -> u32 {
     return hash_cell(bitcast<vec3u>(s)) & field_super_mask();
 }
 
-/** Primeira palavra do bloco `brick` (x, y, z, material). */
+/** Primeira palavra do bloco `brick` (x, y, z, corpo). */
 fn field_brick_word(brick: u32) -> u32 {
     return fluid_field.limits.z + 4u * brick;
 }

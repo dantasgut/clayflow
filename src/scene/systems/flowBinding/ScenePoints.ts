@@ -3,7 +3,7 @@ import type { ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ExtensionFunction } from '../../contracts/ExtensionFunction';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
-import { bindPoints, type BindablePoint } from '../../shaders/bindPoints';
+import { bindPoints, boundImplementations, type BindablePoint } from '../../shaders/bindPoints';
 import { composeWgsl } from '../../shaders/composeWgsl';
 import type { WgslModule } from '../../shaders/WgslModule';
 import type { Schema } from '../../descriptors/Schema';
@@ -156,9 +156,14 @@ export class ScenePoints {
                 added = true;
             }
         }
-        return impls.size === 0
-            ? { shader, extensions }
-            : { shader: bindPoints(shader, impls), extensions };
+        if (impls.size === 0) return { shader, extensions };
+        // As trocas que quem desenha já fez no shader (a composição das funções `material` dos acertos, por exemplo)
+        // valem também dentro das contribuições que chamam o mesmo ponto: senão o pronto dele entraria ao lado da
+        // implementação, o mesmo símbolo duas vezes.
+        for (const [point, module] of boundImplementations(shader))
+            if (!impls.has(point) && [...impls.values()].some((m) => contains(m, point.ready)))
+                impls.set(point, module);
+        return { shader: bindPoints(shader, impls), extensions };
     }
 
     /**

@@ -25,13 +25,21 @@ import { CountToArgs } from '../gpu/compute/CountToArgs';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { SpatialHashGrid } from '../gpu/compute/SpatialHashGrid';
 import { FluidSurfaceMaterial } from '../material/FluidSurfaceMaterial';
+import { MaterialFunction } from '../extension/MaterialFunction';
+import { RayScene } from '../raytrace/RayScene';
+import { isFieldBody } from './fieldBody';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
 import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
 import { FluidField, fieldDataLayout } from './FluidField';
-import { FIELD_BRICK_VOXELS, FIELD_PARTICLES_PER_BRICK, FieldGatherSchema } from './schemas';
+import {
+    FIELD_BRICK_VOXELS,
+    FIELD_MAX_BODIES,
+    FIELD_PARTICLES_PER_BRICK,
+    FieldGatherSchema,
+} from './schemas';
 import {
     fieldApron,
     fieldDensity,
@@ -48,8 +56,10 @@ import {
 export interface FluidFieldSlots extends SlotMap {
     /** O campo da cena (inserido pelos estágios padrão). */
     readonly field: SingletonSlot<false>;
-    /** Os corpos de partículas com superfície de fluido. */
+    /** Os corpos de partículas (os de superfície de fluido, `isFieldBody`, entram no campo). */
     readonly bodies: EntitiesSlot;
+    /** A estrutura de raios: a composição das funções `material` dos acertos, onde a do corpo tem o seu índice. */
+    readonly rays: SingletonSlot<true>;
     /** A física das partículas (o espaçamento). */
     readonly particlePhysics: SingletonSlot<true>;
     /** O tempo da cena: o nível da superfície só se ajusta nos quadros em que a simulação avança. */
@@ -58,18 +68,20 @@ export interface FluidFieldSlots extends SlotMap {
 
 const slots: FluidFieldSlots = {
     field: slot.singleton(FluidField.schema),
-    bodies: slot.entities({ all: [ParticleBody, FluidSurfaceMaterial] }),
+    bodies: slot.entities({ all: [ParticleBody] }),
+    rays: slot.singleton(RayScene.schema, { optional: true }),
     particlePhysics: slot.singleton(ParticlePhysics.schema, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
 };
 
 type Ctx = TransitionContext<FluidFieldSlots>;
 
-/** Corpo de água acompanhado. */
+/** Corpo de água acompanhado: a aparência pela função `material` (o grafo) ou, sem ela, pelo `FluidSurfaceMaterial`. */
 interface FieldBody {
     readonly entity: EntityId;
     readonly body: ParticleBody;
-    readonly material: FluidSurfaceMaterial;
+    readonly material: FluidSurfaceMaterial | undefined;
+    readonly fn: MaterialFunction | undefined;
     readonly poolKey: string;
 }
 
@@ -114,10 +126,13 @@ const DEFAULT_SPACING = 0.05;
 
 /**
  * FluidFieldFlow — o campo dos fluidos na GPU a cada quadro (spec 033, R11), depois da física e antes da estrutura de
- * raios. As partículas dos corpos com `FluidSurfaceMaterial` vão a um array compacto; a grade hash dá os vizinhos; os
+ * raios. As partículas dos corpos de fluido (`isFieldBody`) vão a um array compacto; a grade hash dá os vizinhos; os
  * núcleos anisotrópicos (Yu & Turk) saem da covariância; os blocos de 8³ cobertos pelos núcleos entram na tabela do
  * `FluidField` (contagem só na GPU); a densidade nos voxels, o φ inicial, as iterações do redistanciamento e os voxels
- * com a borda — os quatro por despacho indireto, um grupo por bloco. Nenhuma leitura de volta. Sem água, nada.
+ * com a borda — os quatro por despacho indireto, um grupo por bloco. Nenhuma leitura de volta. Sem água, nada. Por
+ * corpo (até `FIELD_MAX_BODIES`; a palavra dos blocos é o índice + 1), a tabela `bodies` do uniform do campo: o índice
+ * da função `material` dele na composição dos acertos dos raios (`RayScene.materialFunctions`), o slot dos parâmetros
+ * dela e o slot do `FluidSurfaceMaterial` — quem traça avalia o fechamento da água no acerto (`ray_volume_closure`).
  */
 export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     readonly type = 'FluidFieldFlow';
@@ -144,6 +159,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private active = false;
     private readonly ids = new WeakMap<object, number>();
     private nextId = 0;
+    private overflowWarned = false;
 
     constructor(ctx: FlowContext) {
         super();
@@ -275,12 +291,17 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         const entries = ctx.bound.slots.bodies;
         for (const id of added) {
             const entry = entries.entry(id);
-            if (entry === undefined) continue;
+            if (entry === undefined || !isFieldBody(entry.resources)) continue;
             const body = entry.get(ParticleBody);
-            const material = entry.get(FluidSurfaceMaterial);
+            const material = entry.resources.find(
+                (r): r is FluidSurfaceMaterial => r instanceof FluidSurfaceMaterial,
+            );
+            const fn = entry.resources.find(
+                (r): r is MaterialFunction => r instanceof MaterialFunction,
+            );
             const poolKey = this.resources.poolKeyForResource(body);
             if (poolKey === undefined) continue;
-            this.bodies.set(id, { entity: id, body, material, poolKey });
+            this.bodies.set(id, { entity: id, body, material, fn, poolKey });
         }
     }
 
@@ -299,7 +320,14 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private prepare(ctx: Ctx): void {
         const field = ctx.bound.slots.field.resource as FluidField;
         this.field = field;
-        this.order = [...this.bodies.values()].filter((b) => b.body.count > 0);
+        const live = [...this.bodies.values()].filter((b) => b.body.count > 0);
+        if (live.length > FIELD_MAX_BODIES && !this.overflowWarned) {
+            this.overflowWarned = true;
+            console.error(
+                `[FluidFieldFlow] ${live.length} corpos de fluido; o campo tem ${FIELD_MAX_BODIES}: os demais ficam de fora`,
+            );
+        }
+        this.order = live.slice(0, FIELD_MAX_BODIES);
         this.particles = this.order.reduce((n, b) => n + b.body.count, 0);
         this.active = this.particles > 0;
         field.setVolume(this.active);
@@ -322,7 +350,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.args.prepare(counts);
         this.writeDraws();
         const layout = fieldDataLayout(field.capacity);
-        const params: [Record<string, number[]>] = [
+        const params: [Record<string, number[] | number[][]>] = [
             {
                 sizes: [this.particles, capacity, field.capacity.table - 1, FIELD.iterations],
                 grid: [spacing, FIELD.voxel * spacing, radius, FIELD.band * FIELD.voxel * spacing],
@@ -331,6 +359,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
+                bodies: this.bodyTable(ctx),
             },
         ];
         const paramsKey = JSON.stringify(params);
@@ -339,6 +368,32 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             field.data.params = params;
         }
         this.ensureKernels(field, work, counts, data, gridRebuilt);
+    }
+
+    /**
+     * A tabela dos corpos (na ordem da junção): o índice + 1 da função `material` na composição dos acertos dos raios
+     * (0 sem ela, ou enquanto a estrutura de raios ainda não a reuniu), o slot dos parâmetros dela e o slot + 1 do
+     * `FluidSurfaceMaterial` (0 sem).
+     */
+    private bodyTable(ctx: Ctx): number[][] {
+        const functions =
+            (ctx.bound.slots.rays?.resource as RayScene | undefined)?.materialFunctions ?? [];
+        return this.order.map((b) => {
+            const module = b.fn?.composite?.module;
+            const index =
+                module === undefined ? -1 : functions.findIndex((f) => f.module === module);
+            const params = b.fn?.getDescriptors()[0]?.schema?.name;
+            const fnSlot =
+                index < 0 || params === undefined
+                    ? 0
+                    : (this.resources.poolSlotOf(params, b.entity) ?? 0);
+            const surface =
+                b.material === undefined
+                    ? 0
+                    : (this.resources.poolSlotOf(FluidSurfaceMaterial.schema.name, b.entity) ?? -1)
+                      + 1;
+            return [index + 1, fnSlot, surface, 0];
+        });
     }
 
     /** A simulação avançou neste quadro (sem o `Time` na cena, sempre). */
@@ -351,18 +406,16 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private writeDraws(): void {
         const grown = this.draws.reserve(Math.max(1, this.order.length));
         let base = 0;
-        const regions = this.order.map((b) => {
+        const regions = this.order.map((b, i) => {
             const range = this.resources.poolRangeOf(b.poolKey, b.entity);
             const schema = b.body.particleSchema;
-            const materialSlot =
-                this.resources.poolSlotOf(FluidSurfaceMaterial.schema.name, b.entity) ?? 0;
             const region = {
                 first: range?.first ?? 0,
                 strideVec4: schema.stride / 16,
                 posOffsetVec4: schema.offsetOf('pos') / 16,
                 count: b.body.count,
                 base,
-                materialSlot: materialSlot + 1,
+                body: i + 1,
             };
             base += b.body.count;
             return region;

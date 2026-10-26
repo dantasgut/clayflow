@@ -31,7 +31,7 @@ fn field_super_present(s: vec3i) -> bool {
     return true;
 }
 
-/** Coordenadas (xyz) e material (w) do bloco `brick`. */
+/** Coordenadas (xyz) e corpo (w) do bloco `brick`. */
 fn field_brick_at(brick: u32) -> vec4i {
     let w = field_brick_word(brick);
     return vec4i(bitcast<i32>(field_data[w]), bitcast<i32>(field_data[w + 1u]), bitcast<i32>(field_data[w + 2u]),

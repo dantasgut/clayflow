@@ -6,12 +6,12 @@
 // raios da estrutura e a luz rebatida.
 // Requer: NONE, fluid_field, field_common, field_lookup.
 
-/** Acerto da marcha: distância, ponto, normal (para fora), material e se acertou. */
+/** Acerto da marcha: distância, ponto, normal (para fora), corpo (índice + 1 na tabela `bodies`) e se acertou. */
 struct FieldHit {
     t: f32,
     p: vec3f,
     n: vec3f,
-    material: u32,
+    body: u32,
     hit: bool,
 }
 
@@ -94,11 +94,21 @@ fn field_clip(o: vec3f, d: vec3f, t0: f32, t1: f32) -> vec2f {
     return vec2f(max(max(max(near.x, near.y), near.z), t0), min(min(min(far.x, far.y), far.z), t1));
 }
 
-/** Material (slot + 1 no pool `FluidSurfaceMaterial`) do bloco que contém `p`; 0 fora dos blocos. */
-fn field_material_at(p: vec3f) -> u32 {
+/** Corpo (índice + 1 na tabela `bodies`) do bloco que contém `p`; 0 fora dos blocos. */
+fn field_body_at(p: vec3f) -> u32 {
     let brick = field_find(field_brick_of(p));
     if (brick == NONE) { return 0u; }
     return u32(field_brick_at(brick).w);
+}
+
+/**
+ * O registro do corpo `body` (índice + 1, a palavra dos blocos; 0 = nenhum) na tabela do campo: (índice + 1 da função
+ * `material` na composição dos acertos dos raios, 0 sem; slot dos parâmetros dela; slot + 1 do `FluidSurfaceMaterial`,
+ * 0 sem; 0).
+ */
+fn field_body(body: u32) -> vec4u {
+    if (body == 0u) { return vec4u(0u); }
+    return fluid_field.bodies[body - 1u];
 }
 
 /** Distância ao longo de `dir` até a saída do bloco `b` a partir de `p`. */
@@ -179,8 +189,8 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
                 if (fm > 0.0) { a = m; fa = fm; } else { c = m; fc = fm; }
             }
             var tc = select(a + (c - a) * (fa / (fa - fc)), c, fa - fc == 0.0);
-            var material = field_brick_at(brick).w;
-            if (!refine) { return FieldHit(tc, origin + dir * tc, -dir * sgn, u32(material), true); }
+            var body = field_brick_at(brick).w;
+            if (!refine) { return FieldHit(tc, origin + dir * tc, -dir * sgn, u32(body), true); }
             // Newton na tricúbica (a superfície lisa): o ponto e a normal dela.
             var n = -dir * sgn;
             var pc = origin + dir * tc;
@@ -192,9 +202,9 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
                 if (abs(slope) > 1e-6) { tc = clamp(tc - g.w / slope, a, c); }
                 pc = origin + dir * tc;
                 n = select(g.xyz / length(g.xyz), n, length(g.xyz) < 1e-8);
-                material = field_brick_at(bi).w;
+                body = field_brick_at(bi).w;
             }
-            return FieldHit(tc, pc, n, u32(material), true);
+            return FieldHit(tc, pc, n, u32(body), true);
         }
         t_prev = t;
         f_prev = f;

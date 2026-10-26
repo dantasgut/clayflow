@@ -1,5 +1,5 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
-import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { fieldArray, StructSchema } from '../../scene/descriptors/StructSchema';
 
 /** Voxels por lado de um bloco do campo (o interior). */
 export const FIELD_BRICK = 8;
@@ -13,6 +13,11 @@ export const FIELD_BRICK_VOXELS = FIELD_BRICK ** 3;
 export const FIELD_BRICK_APRON_VOXELS = FIELD_BRICK_STRIDE ** 3;
 /** Partículas por bloco na capacidade de blocos (a capacidade é as partículas divididas por isto). */
 export const FIELD_PARTICLES_PER_BRICK = 8;
+/**
+ * Corpos de fluido no campo (a tabela `bodies` do uniform: 1 KiB). Um uniform, não um storage: as consultas ao campo
+ * já ocupam ligações de storage nos estágios que traçam raios, e o teto delas por estágio é o limite apertado.
+ */
+export const FIELD_MAX_BODIES = 64;
 
 /**
  * Parâmetros do campo dos fluidos (uniform, spec 033, R11): `sizes` = (partículas, capacidade de blocos, máscara da
@@ -29,13 +34,20 @@ export const FluidFieldSchema = new StructSchema(
         limits: FieldType.vec4u,
         /** x: 1 quando a simulação avançou no quadro (o nível da superfície se ajusta só então). */
         motion: FieldType.vec4u,
+        /**
+         * Por corpo (a palavra dos blocos é o índice + 1, spec 034 T065d): (índice + 1 da função `material` na
+         * composição dos acertos dos raios — `RayScene.materialFunctions` —, 0 sem; slot dos parâmetros dela; slot + 1
+         * do `FluidSurfaceMaterial`, 0 sem; 0).
+         */
+        bodies: fieldArray(FieldType.vec4u, FIELD_MAX_BODIES),
     },
     { addressSpace: 'uniform' },
 );
 
 /**
  * Corpo de partículas na junção (uma região por corpo, offset dinâmico): o primeiro slot no pool, o stride do registro e
- * o deslocamento de `pos` em `vec4f`, as partículas, o início no array compacto e o slot do material.
+ * o deslocamento de `pos` em `vec4f`, as partículas, o início no array compacto e o corpo (índice + 1 na tabela
+ * `bodies` do campo: a palavra dos blocos).
  */
 export const FieldGatherSchema = new StructSchema(
     'FieldGather',
@@ -45,7 +57,7 @@ export const FieldGatherSchema = new StructSchema(
         posOffsetVec4: FieldType.u32,
         count: FieldType.u32,
         base: FieldType.u32,
-        materialSlot: FieldType.u32,
+        body: FieldType.u32,
         _pad0: FieldType.u32,
         _pad1: FieldType.u32,
     },

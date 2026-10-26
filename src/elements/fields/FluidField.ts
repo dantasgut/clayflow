@@ -2,8 +2,12 @@ import { Entity } from '../../scene/contracts/Entity';
 import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../raytrace/points';
-import { fieldRayHit, fieldRayTransmittance } from './shaders';
+import {
+    rayVolumeClosurePoint,
+    rayVolumeHitPoint,
+    rayVolumeTransmittancePoint,
+} from '../raytrace/points';
+import { fieldRayClosure, fieldRayHit, fieldRayTransmittance } from './shaders';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
@@ -17,7 +21,7 @@ export interface FluidFieldCapacity {
 
 /** Dado de um `FluidField`: as capacidades, o uniform (escrito pelo estágio quando muda) e se há fluido na cena. */
 export interface FluidFieldData extends FluidFieldCapacity {
-    params: [Record<string, number[]>];
+    params: [Record<string, number[] | number[][]>];
     /** 1 com corpos de fluido na cena (o campo contribui para os raios); 0 sem. Escrito só quando muda. */
     volume: number;
 }
@@ -49,9 +53,10 @@ function grow(current: number, needed: number): number {
 }
 
 /**
- * Campo dos fluidos (Camada 3, spec 033, R11): a superfície contínua dos corpos de partículas com `FluidSurfaceMaterial`
- * como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem mudança de autoria: o
- * material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
+ * Campo dos fluidos (Camada 3, spec 033, R11): a superfície contínua dos corpos de fluido (`isFieldBody`: o `FluidBody`
+ * com a função `material` — a aparência pelo grafo, spec 034 T065d —, ou o corpo de partículas com
+ * `FluidSurfaceMaterial`) como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem
+ * mudança de autoria: o material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
  * partículas, por núcleos anisotrópicos e redistanciamento — superfícies planas ficam planas, gotas separadas não se
  * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos, os blocos e os voxels
  * com a borda) fica num buffer só (`data`, uma ligação de storage: cabe ao lado dos da luz rebatida), mais a contagem:
@@ -68,7 +73,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
         this.data = {
             bricks: 64,
             table: 256,
-            params: [FluidFieldSchema.applyDefaults({}) as Record<string, number[]>],
+            params: [FluidFieldSchema.applyDefaults({}) as Record<string, number[] | number[][]>],
             volume: 0,
         };
     }
@@ -92,8 +97,9 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
     }
 
     /**
-     * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`) e a absorção pelos trechos
-     * dentro dele (`ray_volume_transmittance`) — só com fluido na cena (`volume` = 1).
+     * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`), o fechamento nele
+     * (`ray_volume_closure`, spec 034 T065d) e a absorção pelos trechos dentro dele (`ray_volume_transmittance`) — só
+     * com fluido na cena (`volume` = 1). Os três com a mesma ordem: o `source` do acerto é a posição no ponto.
      */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
@@ -111,6 +117,12 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldRayHit : undefined),
+        },
+        {
+            point: rayVolumeClosurePoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayClosure : undefined),
         },
         {
             point: rayVolumeTransmittancePoint,

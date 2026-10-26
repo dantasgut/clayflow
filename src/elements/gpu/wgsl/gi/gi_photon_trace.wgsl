@@ -221,7 +221,7 @@ fn gi_photon_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         if (water.hit) { return; }
         if (hit.t >= 1e6 || hit.instance == NONE) { return; }
         // Os meios atravessados no trecho (a névoa) atenuam o fóton.
-        throughput *= ray_volume_transmittance(o, d, hit.t);
+        throughput *= ray_volume_transmittance(o, d, hit.t, gi.extra.w);
         let c = ray_hit_closure(hit, gi.extra.w, 0.0);
         let n = hit.normal;
         let outside = hit.face >= 0.0;

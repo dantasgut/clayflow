@@ -34,18 +34,11 @@ fn refraction_empty_stack() -> RefractionStack {
 
 /** O meio do fechamento `c` da instância `instance`. */
 fn refraction_medium(c: Closure, instance: u32) -> RefractionMedium {
-    var sigma = vec3f(0.0);
-    if (c.transmission_depth > 0.0) {
-        for (var k = 0; k < 3; k++) {
-            let color = c.transmission_color[k];
-            if (color < 1.0) { sigma[k] = -log(max(color, 1e-9)) / c.transmission_depth; }
-        }
-    }
     return RefractionMedium(
         instance,
         c.transmission_priority,
         closure_dispersion_iors(c.transmission_ior, c.transmission_abbe),
-        sigma,
+        closure_absorption(c),
     );
 }
 

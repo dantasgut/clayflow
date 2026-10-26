@@ -148,6 +148,19 @@ fn closure_transmission(ior: f32, color: vec3f, depth: f32, abbe: f32, roughness
     return c;
 }
 
+// Coeficiente de absorção por unidade de percurso do meio da transmissão de `c`, por canal (Beer–Lambert): a cor
+// atingida a `depth` de percurso dá −ln(cor)/depth; 0 sem absorção (`depth` 0, ou a cor 1 no canal).
+fn closure_absorption(c: Closure) -> vec3f {
+    var sigma = vec3f(0.0);
+    if (c.transmission_depth > 0.0) {
+        for (var k = 0; k < 3; k++) {
+            let color = c.transmission_color[k];
+            if (color < 1.0) { sigma[k] = -log(max(color, 1e-9)) / c.transmission_depth; }
+        }
+    }
+    return sigma;
+}
+
 // Prioridade do meio de `c` na sobreposição de volumes transmissivos (o vidro mergulhado na água: o vidro com a maior
 // vale dentro dele, e a borda da água que passa por dentro do vidro não é interface). Empate: o último em que o raio
 // entrou. Padrão 0.

@@ -33,7 +33,7 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let dir = gi_ray_dir(k);
     let hit = ray_scene_hit(origin, dir, max_dist);
     // Os volumes atravessados (a água) atenuam o que o raio traz.
-    let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist));
+    let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
     if (hit.t >= max_dist) {
         let env = scene_environment(dir) * through;
         for (var b = 0u; b < bounces; b++) { gi_rays[out_base + b] = vec4f(env, max_dist); }

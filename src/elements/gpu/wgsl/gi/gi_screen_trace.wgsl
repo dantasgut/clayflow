@@ -61,7 +61,7 @@ fn gi_screen_trace_main(
         let dir = gi_screen_ray_dir(i, k, n0);
         let hit = ray_scene_hit(origin, dir, max_dist);
         // Os volumes atravessados (a água) atenuam o que o raio traz.
-        let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist));
+        let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
         if (hit.t >= max_dist) {
             let env = scene_environment(dir) * through;
             for (var g = 0u; g < bounces; g++) { sums[g] = env; }

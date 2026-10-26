@@ -21,8 +21,14 @@ import fieldApronSource from '../gpu/wgsl/fields/field_apron.wgsl?raw';
 import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
+import fieldClosureSource from '../gpu/wgsl/fields/field_closure.wgsl?raw';
+import fieldRayClosureSource from '../gpu/wgsl/fields/field_ray_closure.wgsl?raw';
 import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
 import { rayVolumeTypes } from '../raytrace/points';
+import { rayHitMaterialReady } from '../raytrace/shaders';
+import { closure } from '../material/pbr/shaders';
+import { materialPointTypes } from '../material/point/types/shaders';
+import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 import { FieldGatherSchema, FluidFieldSchema } from './schemas';
 import { hashAddress, linalg } from '../gpu/shaders/math';
 
@@ -117,7 +123,7 @@ export const fieldResources = Object.freeze({
     cellStart: priv('cell_start', 'read', u32s),
     cellCount: priv('cell_count', 'read', u32s),
     cellItems: priv('cell_items', 'read', u32s),
-    /** Materiais de água (pool `FluidSurfaceMaterial`): a absorção nos raios que atravessam o fluido. */
+    /** Materiais de água (pool `FluidSurfaceMaterial`): o fechamento dos corpos sem função `material`. */
     materials: wgslResource({
         name: 'field_materials',
         binding: { storage: 'read' },
@@ -290,9 +296,34 @@ export const fieldRayHit = wgslModule({
     requires: [rayVolumeTypes, fields],
 });
 
+/**
+ * O fechamento da água num acerto do campo: a função `material` do corpo pela composição dos acertos dos raios (o
+ * `ray_hit_material` pronto, trocado pela composição de quem traça com `bindPoints`), ou o `FluidSurfaceMaterial`.
+ */
+export const fieldClosure = wgslModule({
+    name: 'field_closure',
+    source: fieldClosureSource,
+    requires: [
+        rayVolumeTypes,
+        fields,
+        R.materials,
+        materialPointTypes,
+        closure,
+        rayHitMaterialReady,
+    ],
+    structs: [StandardMaterialSchema],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_closure`: o fechamento da água no acerto. */
+export const fieldRayClosure = wgslModule({
+    name: 'field_ray_closure',
+    source: fieldRayClosureSource,
+    requires: [rayVolumeTypes, fieldClosure],
+});
+
 /** Contribuição do campo ao ponto `ray_volume_transmittance`: a absorção pelos trechos dentro da água. */
 export const fieldRayTransmittance = wgslModule({
     name: 'field_ray_transmittance',
     source: fieldRayTransmittanceSource,
-    requires: [fields, R.materials],
+    requires: [fields, rayVolumeTypes, fieldClosure],
 });

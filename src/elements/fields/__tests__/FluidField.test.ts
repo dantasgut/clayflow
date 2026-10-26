@@ -11,7 +11,11 @@ import {
     registerStages,
     renderScene,
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
-import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../../raytrace/points';
+import {
+    rayVolumeClosurePoint,
+    rayVolumeHitPoint,
+    rayVolumeTransmittancePoint,
+} from '../../raytrace/points';
 import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout } from '../FluidField';
 import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS } from '../schemas';
 import { FIELD } from '../reference/field';
@@ -73,15 +77,22 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios só com fluido: ray_volume_hit e ray_volume_transmittance', () => {
+    it('contribuição aos raios só com fluido: ray_volume_hit, ray_volume_closure e ray_volume_transmittance', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
             rayVolumeHitPoint,
+            rayVolumeClosurePoint,
             rayVolumeTransmittancePoint,
         ]);
+        // A mesma ordem nos três: o `source` do acerto é a posição do contribuinte no ponto.
+        expect(new Set(contributions.map((c) => c.order)).size).toBe(1);
         const slotOf = (): undefined => undefined;
-        expect(contributions.map((c) => c.build(slotOf))).toEqual([undefined, undefined]);
+        expect(contributions.map((c) => c.build(slotOf))).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ]);
         field.setVolume(true);
         const modules = contributions.map((c) => c.build(slotOf)!);
         expect(modules.every((m) => m !== undefined)).toBe(true);
@@ -90,13 +101,25 @@ describe('FluidField (spec 033, R11)', () => {
             'fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayVolumeHit',
         );
         expect(hit).toContain('field_march(');
-        const transmittance = composeWgsl(modules[1]!).spec.source;
+        // O fechamento: a função `material` do corpo pela composição dos acertos, ou o `FluidSurfaceMaterial`.
+        const closure = composeWgsl(modules[1]!).spec.source;
+        expect(closure).toContain('fn ray_volume_closure(hit: RayVolumeHit, time: f32) -> Closure');
+        expect(closure).toContain('ray_hit_material(body.x, s, m, body.y)');
+        expect(closure).toContain('field_materials[body.z - 1u]');
+        const transmittance = composeWgsl(modules[2]!).spec.source;
         expect(transmittance).toContain(
-            'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f',
+            'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );
-        expect(transmittance).toContain('field_materials');
+        expect(transmittance).toContain('closure_absorption(field_closure(at, time))');
+        // Cada símbolo uma vez: a transmitância usa o fechamento do campo, não o do ponto.
+        expect(transmittance.match(/fn field_closure\(/g)).toHaveLength(1);
+        expect(transmittance).not.toContain('fn ray_volume_closure(');
         field.setVolume(false);
-        expect(contributions.map((c) => c.build(slotOf))).toEqual([undefined, undefined]);
+        expect(contributions.map((c) => c.build(slotOf))).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ]);
     });
 });
 

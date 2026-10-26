@@ -31,10 +31,11 @@ import type { EntityId } from '../../scene/world/EntityId';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { RadixSort } from '../gpu/compute/RadixSort';
 import { Geometry } from '../geometry/Geometry';
-import { FluidSurfaceMaterial } from '../material/FluidSurfaceMaterial';
 import { Material } from '../material/Material';
 import { PointSpriteMaterial } from '../material/PointSpriteMaterial';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
+import { FluidBody } from '../physics/bodies/FluidBody';
+import { isFieldBody } from '../fields/fieldBody';
 import { StandardMaterial } from '../material/StandardMaterial';
 import { MaterialFunction } from '../extension/MaterialFunction';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
@@ -89,6 +90,11 @@ export interface RaySceneSlots extends SlotMap {
     readonly renderables: EntitiesSlot;
     /** Corpos de partículas desenhados como sprites: esferas na estrutura (a posição lida do pool do corpo). */
     readonly particles: EntitiesSlot;
+    /**
+     * Corpos de fluido com a função `material` (spec 034 T065d): entram como volume pelo campo dos fluidos, e a função
+     * deles entra na composição dos acertos (o campo guarda o índice dela por corpo).
+     */
+    readonly fluids: EntitiesSlot;
 }
 
 const slots: RaySceneSlots = {
@@ -98,6 +104,7 @@ const slots: RaySceneSlots = {
         record: renderableRecord,
     }),
     particles: slot.entities({ all: [ParticleBody, PointSpriteMaterial] }),
+    fluids: slot.entities({ all: [FluidBody, MaterialFunction] }),
 };
 
 type Ctx = TransitionContext<RaySceneSlots>;
@@ -257,6 +264,8 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     /** Hierarquia de esferas de cada corpo de sprites. */
     private readonly sphereOf = new Map<EntityId, Blas>();
     private readonly materialOf = new Map<EntityId, EntityMaterial>();
+    /** A função `material` dos corpos de fluido (volume pelo campo). */
+    private readonly fluidFunctions = new Map<EntityId, MaterialFunction>();
     /** Módulos das funções na ordem dos índices gravados (outros módulos = refaz). */
     private functionModules: readonly WgslModule[] = [];
     private instances: Instance[] = [];
@@ -294,18 +303,24 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                     run: (_e, c) => {
                         this.track(c.bound.slots.renderables.entries, []);
                         this.trackParticles(c.bound.slots.particles.entries, []);
+                        this.trackFluids(c.bound.slots.fluids.entries, []);
                     },
                 },
                 entitiesChanged: {
                     to: 'idle',
                     run: (e, c) => {
                         if (e.type !== 'entitiesChanged') return;
-                        const particles = e.slot === 'particles';
-                        const set = particles ? c.bound.slots.particles : c.bound.slots.renderables;
+                        const set =
+                            e.slot === 'particles'
+                                ? c.bound.slots.particles
+                                : e.slot === 'fluids'
+                                  ? c.bound.slots.fluids
+                                  : c.bound.slots.renderables;
                         const added = e.added
                             .map((id) => set.entry(id))
                             .filter((x) => x !== undefined);
-                        if (particles) this.trackParticles(added, e.removed);
+                        if (e.slot === 'particles') this.trackParticles(added, e.removed);
+                        else if (e.slot === 'fluids') this.trackFluids(added, e.removed);
                         else this.track(added, e.removed);
                     },
                 },
@@ -548,11 +563,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         }
         for (const entry of added) {
             const id = entry.entityId;
-            if (
-                this.sphereOf.has(id)
-                || entry.resources.some((r) => r instanceof FluidSurfaceMaterial)
-            )
-                continue;
+            if (this.sphereOf.has(id) || isFieldBody(entry.resources)) continue;
             const body = entry.get(ParticleBody);
             const poolKey = this.resources.poolKeyForResource(body);
             if (poolKey === undefined) continue;
@@ -585,6 +596,25 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             this.sphereOf.set(id, b);
         }
         this.layoutDirty = true;
+    }
+
+    /** Corpos de fluido com a função `material` que entraram e saíram (a função entra na composição dos acertos). */
+    private trackFluids(added: readonly EntityEntry[], removed: readonly EntityId[]): void {
+        for (const id of removed) this.fluidFunctions.delete(id);
+        for (const entry of added) {
+            if (!isFieldBody(entry.resources)) continue;
+            const fn = entry.resources.find(
+                (r): r is MaterialFunction => r instanceof MaterialFunction,
+            );
+            if (fn !== undefined) this.fluidFunctions.set(entry.entityId, fn);
+        }
+        this.layoutDirty = true;
+    }
+
+    /** As funções `material` da cena: as das entidades desenhadas e as dos corpos de fluido. */
+    private *sceneFunctions(): Iterable<MaterialFunction> {
+        for (const m of this.materialOf.values()) if (m.fn !== undefined) yield m.fn;
+        yield* this.fluidFunctions.values();
     }
 
     /** Instâncias comportadas: as entidades desenhadas e os corpos de sprites. */
@@ -736,12 +766,11 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
      */
     private composeFunctions(scene: RayScene): readonly WgslModule[] {
         const list: { module: WgslModule; fn: MaterialFunction }[] = [];
-        for (const m of this.materialOf.values()) {
-            const composite = m.fn?.composite;
-            if (composite === undefined || m.fn === undefined || FRAGMENT_ONLY.test(m.fn.code))
-                continue;
+        for (const fn of this.sceneFunctions()) {
+            const composite = fn.composite;
+            if (composite === undefined || FRAGMENT_ONLY.test(fn.code)) continue;
             if (!list.some((e) => e.module === composite.module))
-                list.push({ module: composite.module, fn: m.fn });
+                list.push({ module: composite.module, fn });
         }
         const modules = list.map((e) => e.module);
         if (
@@ -762,14 +791,9 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     private functionsChanged(): boolean {
         let k = 0;
         const seen = new Set<WgslModule>();
-        for (const m of this.materialOf.values()) {
-            const composite = m.fn?.composite?.module;
-            if (
-                composite === undefined
-                || m.fn === undefined
-                || FRAGMENT_ONLY.test(m.fn.code)
-                || seen.has(composite)
-            )
+        for (const fn of this.sceneFunctions()) {
+            const composite = fn.composite?.module;
+            if (composite === undefined || FRAGMENT_ONLY.test(fn.code) || seen.has(composite))
                 continue;
             seen.add(composite);
             if (this.functionModules[k++] !== composite) return true;

@@ -10,6 +10,17 @@ export interface BindablePoint {
 }
 
 const memo = new WeakMap<WgslModule, Map<string, WgslModule>>();
+/** As trocas aplicadas em cada módulo devolvido (as do módulo de entrada, se ele mesmo já vinha trocado, e as novas). */
+const applied = new WeakMap<WgslModule, ReadonlyMap<BindablePoint, WgslModule>>();
+
+/**
+ * As trocas que `bindPoints` aplicou no módulo `m` (vazio se ele não saiu de `bindPoints`): ponto → implementação. Quem
+ * troca outros pontos depois no mesmo shader (a C2, com as contribuições da cena) as aplica também dentro dos módulos
+ * que acrescenta — uma contribuição que chama o ponto usa a implementação que o shader já tem, não o pronto.
+ */
+export function boundImplementations(m: WgslModule): ReadonlyMap<BindablePoint, WgslModule> {
+    return applied.get(m) ?? new Map();
+}
 
 /**
  * Módulo de entrada com a implementação de cada ponto trocada (spec 009): a árvore de `requires` de `entry` é
@@ -68,6 +79,7 @@ export function bindPoints(
         );
     }
     byKey.set(key, result);
+    applied.set(result, new Map([...boundImplementations(entry), ...pairs]));
     return result;
 }
 

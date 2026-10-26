@@ -4,6 +4,8 @@
 // qualquer resolução. Vista da câmera: o raio do pixel até a profundidade da cena (a água atrás de um objeto não entra);
 // a espessura é a corda até a saída do fluido (ou até a cena). Vista da luz: raios paralelos à luz no enquadramento
 // ajustado à caixa do campo (`water_field_fit`), a profundidade métrica desde o topo da caixa. A normal sai em mundo.
+// O material escrito é o slot + 1 do `FluidSurfaceMaterial` do corpo atingido (pela tabela dos corpos do campo); os
+// corpos sem ele (a aparência pelo grafo, spec 034 T065d) não são desenhados por aqui.
 // Structs `CameraMatrices`, `ShadowMatrix`, `WaterLightMatrix`, `FluidSurfaceMaterial` e `WaterViewParams` gerados dos
 // schemas; recursos declarados em `water/shaders.ts`; o campo em `fields/shaders.ts`.
 
@@ -43,7 +45,8 @@ fn water_field_camera(
     let span = field_clip(o, d, max(near, 0.0) / max(-dv.z, 1e-6), t_scene);
     var hit = FieldHit(span.y, o, -d, 0u, false);
     if (inside && span.x < span.y) { hit = field_march(o, d, span.x, span.y, false, true); }
-    let wet = hit.hit && hit.material > 0u;
+    let surface = field_body(hit.body).z;
+    let wet = hit.hit && surface > 0u;
     // Corda até a saída do fluido (sem saída antes da cena ou da caixa, até ela), nos representantes.
     let representative = (lid.x & 1u) == 0u && (lid.y & 1u) == 0u;
     var chord = -1.0;
@@ -56,7 +59,7 @@ fn water_field_camera(
     var normal = vec4f(0.0);
     if (wet) {
         depth = hit.t * -dv.z;
-        material = hit.material;
+        material = surface;
         var length = water_field_thickness[(lid.x >> 1u) + 4u * (lid.y >> 1u)];
         if (length < 0.0) { length = max(field_march(o, d, hit.t + field_voxel(), span.y, true, false).t - hit.t, 0.0); }
         normal = vec4f(hit.n, length * water_materials[material - 1u].thicknessScale);
@@ -87,9 +90,10 @@ fn water_field_light(@builtin(global_invocation_id) gid: vec3u) {
     var normal = vec4f(0.0);
     if (span.x < span.y) {
         let hit = field_march(o, d, span.x, span.y, false, true);
-        if (hit.hit && hit.material > 0u) {
+        let surface = field_body(hit.body).z;
+        if (hit.hit && surface > 0u) {
             depth = hit.t;
-            material = hit.material;
+            material = surface;
             normal = vec4f(hit.n, 1.0);
         }
     }
