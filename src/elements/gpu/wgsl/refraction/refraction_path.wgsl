@@ -10,7 +10,8 @@
 // `max_interfaces` interfaces (ou de um meio além do teto da pilha) a energia restante conta como absorvida (a
 // luminância dela sai à parte). O fechamento com transmissão parcial é dielétrico com a probabilidade do peso dela,
 // opaco no resto. A parede fina (`closure_thin_walled`) não muda a pilha: reflete com 2R/(1 + R) ou atravessa sem
-// desviar. Sai também o ponto em que termina o caminho que mais contribui para a cor, com o registro do objeto, e o
+// desviar. Com a normal do material, as interfaces refletem e refratam por ela (`refraction_shading_normal`); a
+// geométrica decide o lado e a pilha. Sai também o ponto em que termina o caminho que mais contribui para a cor, com o registro do objeto, e o
 // albedo da superfície nele (`closure_albedo`; 1 no céu e sem superfície).
 // Determinística: o mesmo raio, o mesmo estado aleatório e a mesma cena dão a mesma amostra. Sai também se o caminho
 // a parte da radiância que veio por caminhos que tocaram uma instância que se moveu desde o quadro anterior
@@ -102,6 +103,25 @@ fn refraction_mirror(d: vec3f, nf: vec3f) -> vec3f {
 }
 
 /**
+ * Os lobos da parede fina no acerto `hit` (fechamento `c`) para o raio `d` no meio `outside`: o reflexo pela normal de
+ * sombreamento (0 se cai atrás da face) e a passagem sem desvio, com a refletância 2R/(1 + R) pelo cosseno nela.
+ */
+struct RefractionThin {
+    nf: vec3f,
+    reflect_dir: vec3f,
+    reflect_weight: vec3f,
+    transmit_weight: vec3f,
+}
+
+fn refraction_thin(c: Closure, hit: RayHit, d: vec3f, outside: RefractionMedium) -> RefractionThin {
+    let nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
+    let ns = refraction_shading_normal(c.normal, hit.normal, nf, d);
+    let f = refraction_thin_reflectance(c, outside, abs(dot(d, ns)));
+    let r = refraction_mirror(d, ns);
+    return RefractionThin(nf, r, select(f, vec3f(0.0), dot(r, nf) <= 0.0), vec3f(1.0) - f);
+}
+
+/**
  * O que a interface atingida faz com a pilha: os cruzamentos (o da instância atingida e, se houver, o da dielétrica
  * coincidente — `count` 1 ou 2), os meios antes e depois, a face voltada para o raio e a rugosidade. Os cruzamentos, não
  * a pilha de depois: quem segue o caminho os aplica à própria pilha (pilhas inteiras em cada passo esgotam os
@@ -110,6 +130,8 @@ fn refraction_mirror(d: vec3f, nf: vec3f) -> vec3f {
 struct RefractionCrossing {
     p: vec3f,
     nf: vec3f,
+    /** A normal de sombreamento (a do material no sentido de `nf`; sem ela, `nf`). */
+    ns: vec3f,
     first: RefractionCross,
     second: RefractionCross,
     count: u32,
@@ -140,6 +162,7 @@ fn refraction_crossing(o: vec3f, d: vec3f, hit: RayHit, c: Closure, s: Refractio
     var out: RefractionCrossing;
     out.p = hit.position;
     out.nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
+    out.ns = refraction_shading_normal(c.normal, hit.normal, out.nf, d);
     out.first = refraction_cross_of(hit, c);
     out.count = 1u;
     var rough = c.transmission_roughness;
@@ -263,15 +286,15 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
     if (c.transmission_thin > 0.0) {
         // Parede fina: a pilha não muda; reflete pela refletância (a roleta pela do canal seguido, ou pela do verde) ou
         // atravessa sem desviar.
-        let nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
-        let f = refraction_thin_reflectance(c, refraction_current(stack), abs(dot(d, hit.normal)));
+        let thin = refraction_thin(c, hit, d, refraction_current(stack));
+        let f = thin.reflect_weight;
         n.p = hit.position;
-        n.nf = nf;
+        n.nf = thin.nf;
         n.p_reflect = clamp(select(f.y, f[max(n.channel, 0)], n.channel >= 0), 1e-4, 1.0 - 1e-4);
-        n.reflect_dir = refraction_mirror(d, nf);
+        n.reflect_dir = thin.reflect_dir;
         n.reflect_weight = f;
         n.transmit_dir = d;
-        n.transmit_weight = vec3f(1.0) - f;
+        n.transmit_weight = thin.transmit_weight;
         return n;
     }
     let x = refraction_crossing(o, d, hit, c, stack);
@@ -295,10 +318,10 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
     let n2 = refraction_ior(x.next, n.channel);
     let alpha = x.alpha;
     let u = vec2f(refraction_random(state), refraction_random(state));
-    let m = refraction_microfacet(d, x.nf, alpha, u);
+    let m = refraction_microfacet(d, x.ns, alpha, u);
     let f = refraction_fresnel(dot(-d, m), n1, n2);
-    let r = refraction_reflect(d, m, x.nf, alpha);
-    let t = refraction_transmit(d, m, x.nf, n1, n2, alpha);
+    let r = refraction_reflect(d, m, x.ns, x.nf, alpha);
+    let t = refraction_transmit(d, m, x.ns, x.nf, n1, n2, alpha);
     n.p_reflect = f;
     n.reflect_dir = r.dir;
     n.reflect_weight = vec3f(f * r.weight);
@@ -472,13 +495,13 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
     var after = stack;
     if (c.transmission_thin > 0.0) {
         // Parede fina na primeira interface: o reflexo e a passagem direta, a pilha da câmera nos dois.
-        let f = refraction_thin_reflectance(c, refraction_current(stack), abs(dot(d, hit.normal)));
-        dirs[0] = refraction_mirror(d, nf);
-        weights[0] = f;
+        let thin = refraction_thin(c, hit, d, refraction_current(stack));
+        dirs[0] = thin.reflect_dir;
+        weights[0] = thin.reflect_weight;
         channels[0] = -1;
         crossed[0] = false;
         dirs[1] = d;
-        weights[1] = vec3f(1.0) - f;
+        weights[1] = thin.transmit_weight;
         channels[1] = -1;
         crossed[1] = false;
         count = 2u;
@@ -498,14 +521,14 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
             // Primeira interface: a mesma microfaceta para os dois lobos; o Fresnel por canal.
             let alpha = x.alpha;
             let u = vec2f(refraction_random(state), refraction_random(state));
-            let m = refraction_microfacet(d, x.nf, alpha, u);
+            let m = refraction_microfacet(d, x.ns, alpha, u);
             let cos_m = dot(-d, m);
             let f = vec3f(
                 refraction_fresnel(cos_m, x.before.ior.x, x.next.ior.x),
                 refraction_fresnel(cos_m, x.before.ior.y, x.next.ior.y),
                 refraction_fresnel(cos_m, x.before.ior.z, x.next.ior.z),
             );
-            let r = refraction_reflect(d, m, x.nf, alpha);
+            let r = refraction_reflect(d, m, x.ns, x.nf, alpha);
             if (r.weight > 0.0) {
                 dirs[count] = r.dir;
                 weights[count] = f * r.weight;
@@ -516,7 +539,7 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
             if ((refraction_dispersive(x.before) || refraction_dispersive(x.next))) {
                 // A dispersão: um caminho por canal, com o índice do canal em toda interface seguinte.
                 for (var k = 0; k < 3; k++) {
-                    let t = refraction_transmit(d, m, x.nf, x.before.ior[k], x.next.ior[k], alpha);
+                    let t = refraction_transmit(d, m, x.ns, x.nf, x.before.ior[k], x.next.ior[k], alpha);
                     if (t.weight <= 0.0) { continue; }
                     var only = vec3f(0.0);
                     only[k] = (1.0 - f[k]) * t.weight;
@@ -527,7 +550,7 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
                     count += 1u;
                 }
             } else {
-                let t = refraction_transmit(d, m, x.nf, x.before.ior.y, x.next.ior.y, alpha);
+                let t = refraction_transmit(d, m, x.ns, x.nf, x.before.ior.y, x.next.ior.y, alpha);
                 if (t.weight > 0.0) {
                     dirs[count] = t.dir;
                     weights[count] = vec3f((1.0 - f.y) * t.weight);

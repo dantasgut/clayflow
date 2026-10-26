@@ -3,7 +3,8 @@
  * traçador como oráculo: Fresnel pelas leis do seno e da tangente, placa paralela pela soma das reflexões múltiplas,
  * Snell na esfera pelo desvio 2(i − r), ângulo crítico, Beer–Lambert, pilha de meios (encaixados, sobrepostos com
  * prioridade e coincidentes) pelo método da adição de camadas, dispersão por canal, parede fina, a água por tabela de
- * alturas e a amostra GGX contra a integral numérica da BSDF de Walter et al. (2007).
+ * alturas e a amostra GGX contra a integral numérica da BSDF de Walter et al. (2007). A normal de sombreamento (T065a)
+ * pela rotação do plano de incidência: o reflexo gira 2a e a refração segue Snell em volta da normal inclinada a.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -487,5 +488,59 @@ describe('referência da CPU — dielétricos (spec 034, R10)', { timeout: 30_00
         expect(r.transmitted).toBe(false);
         expect(r.weight).toBe(1);
         expect(r.dir[2]).toBeCloseTo(Math.cos(40 * DEG), 12);
+    });
+
+    describe('normal de sombreamento (T065a)', () => {
+        // A normal inclinada `a` em torno de y; o raio desce reto (−z) sobre a face z = 0.
+        const a = 12 * DEG;
+        const ns: Vec3 = [Math.sin(a), 0, Math.cos(a)];
+        const down: Vec3 = [0, 0, -1];
+
+        it('sem a de sombreamento, ou com ela igual à geométrica, a mesma amostra', () => {
+            const d = norm([Math.sin(35 * DEG), 0.2, -Math.cos(35 * DEG)]);
+            for (const u of [
+                [0.3, 0.7, 0.99],
+                [0.3, 0.7, 0],
+            ] as const) {
+                const plain = sampleDielectricInterface(d, [0, 0, 1], 1, 1.5, 0.09, u)!;
+                const same = sampleDielectricInterface(d, [0, 0, 1], 1, 1.5, 0.09, u, [0, 0, 1])!;
+                expect(same).toEqual(plain);
+            }
+        });
+
+        it('liso: o reflexo gira 2a (espelho na normal inclinada)', () => {
+            const r = sampleDielectricInterface(down, [0, 0, 1], 1, 1.5, 0, [0.5, 0.5, 0], ns)!;
+            expect(r.transmitted).toBe(false);
+            expect(r.dir[0]).toBeCloseTo(Math.sin(2 * a), 12);
+            expect(r.dir[1]).toBeCloseTo(0, 12);
+            expect(r.dir[2]).toBeCloseTo(Math.cos(2 * a), 12);
+        });
+
+        it('liso: a refração segue Snell em volta da normal inclinada', () => {
+            const t = sampleDielectricInterface(down, [0, 0, 1], 1, 1.5, 0, [0.5, 0.5, 0.99], ns)!;
+            expect(t.transmitted).toBe(true);
+            expect(t.weight).toBeCloseTo(1 / 2.25, 12);
+            // O ângulo com −n_s é o de Snell, no plano de incidência (y = 0).
+            const r = Math.asin(Math.sin(a) / 1.5);
+            expect(-(t.dir[0] * ns[0] + t.dir[2] * ns[2])).toBeCloseTo(Math.cos(r), 12);
+            expect(t.dir[1]).toBeCloseTo(0, 12);
+        });
+
+        it('de dentro: a normal de sombreamento acompanha a face vista (sai pelo ângulo de Snell)', () => {
+            const up: Vec3 = [0, 0, 1];
+            const t = sampleDielectricInterface(up, [0, 0, 1], 1.5, 1, 0, [0.5, 0.5, 0.99], ns)!;
+            expect(t.transmitted).toBe(true);
+            const out = Math.asin(1.5 * Math.sin(a));
+            expect(t.dir[0] * ns[0] + t.dir[2] * ns[2]).toBeCloseTo(Math.cos(out), 12);
+        });
+
+        it('vista por trás: inclinada até o raio a ver de frente; o reflexo que cairia atrás da face se perde', () => {
+            // O raio a 60° da geométrica, a de sombreamento inclinada 40° para o outro lado: cos(100°) < 0.
+            const d = norm([Math.sin(60 * DEG), 0, -Math.cos(60 * DEG)]);
+            const back: Vec3 = [Math.sin(40 * DEG), 0, Math.cos(40 * DEG)];
+            expect(
+                sampleDielectricInterface(d, [0, 0, 1], 1, 1.5, 0, [0.5, 0.5, 0], back),
+            ).toBeNull();
+        });
     });
 });

@@ -3,7 +3,8 @@
 // Fresnel dielétrico exato não polarizado nela (`bsdf_f_dielectric`, reflexão interna total → 1) e o peso G1 de Smith
 // da direção de saída (0 quando ela cai do lado errado da macro-superfície); ao atravessar, (n1/n2)² — a radiância vista
 // do lado de chegada. Quem traça decide os lobos: na primeira interface do caminho os dois (cada um com o seu Fresnel),
-// nas seguintes um, pela roleta de Fresnel.
+// nas seguintes um, pela roleta de Fresnel. Com a normal do material (`closure_normal`: relevo, ondulações), a
+// microfaceta e o G1 são os da normal de sombreamento e a geométrica decide o lado (T065a).
 // Requer: bsdf.
 
 /** Mascaramento de Smith do GGX para a direção de cosseno `cos_t` com a normal da macro-superfície. */
@@ -38,6 +39,18 @@ fn refraction_microfacet(d: vec3f, nf: vec3f, alpha: f32, u: vec2f) -> vec3f {
     return normalize(tbn * refraction_vndf(local, alpha, u));
 }
 
+/**
+ * A normal de sombreamento na face `nf` (a geométrica voltada para o raio `d`; `ng` a de fora): a do material `own`
+ * (0 = sem, a geométrica) no sentido de `nf`; se o raio a vê por trás, inclinada até ele vê-la de frente (a mesma
+ * correção de `closure_lobe_normal`).
+ */
+fn refraction_shading_normal(own: vec3f, ng: vec3f, nf: vec3f, d: vec3f) -> vec3f {
+    if (dot(own, own) <= 1e-12) { return nf; }
+    let ns = normalize(own) * select(1.0, -1.0, dot(ng, nf) < 0.0);
+    let v = -d;
+    return select(ns, normalize(ns - v * (dot(ns, v) - 1e-3)), dot(ns, v) <= 0.0);
+}
+
 /** Fresnel exato da interface n1 → n2 para o cosseno de chegada `cos_i` na microfaceta. */
 fn refraction_fresnel(cos_i: f32, n1: f32, n2: f32) -> f32 {
     return bsdf_f_dielectric(cos_i, n2 / n1);
@@ -49,17 +62,23 @@ struct RefractionLobe {
     weight: f32,
 }
 
-/** Reflexão de `d` na microfaceta `m` da face `nf`, com o peso G1 da saída. */
-fn refraction_reflect(d: vec3f, m: vec3f, nf: vec3f, alpha: f32) -> RefractionLobe {
+/**
+ * Reflexão de `d` na microfaceta `m` (amostrada em volta da normal de sombreamento `ns`) da face geométrica `nf`, com o
+ * peso G1 da saída; 0 quando a saída cai atrás da face.
+ */
+fn refraction_reflect(d: vec3f, m: vec3f, ns: vec3f, nf: vec3f, alpha: f32) -> RefractionLobe {
     let wo = -d;
     let c = dot(wo, m);
     let dir = m * (2.0 * c) - wo;
     if (c <= 0.0 || dot(dir, nf) <= 0.0) { return RefractionLobe(dir, 0.0); }
-    return RefractionLobe(dir, select(1.0, refraction_g1(dot(dir, nf), alpha), alpha > 1e-4));
+    return RefractionLobe(dir, select(1.0, refraction_g1(dot(dir, ns), alpha), alpha > 1e-4));
 }
 
-/** Refração de `d` de n1 para n2 na microfaceta `m` da face `nf`, com G1 e (n1/n2)²; 0 na reflexão interna total. */
-fn refraction_transmit(d: vec3f, m: vec3f, nf: vec3f, n1: f32, n2: f32, alpha: f32) -> RefractionLobe {
+/**
+ * Refração de `d` de n1 para n2 na microfaceta `m` (em volta de `ns`) da face geométrica `nf`, com G1 e (n1/n2)²; 0 na
+ * reflexão interna total ou quando a saída não atravessa a face.
+ */
+fn refraction_transmit(d: vec3f, m: vec3f, ns: vec3f, nf: vec3f, n1: f32, n2: f32, alpha: f32) -> RefractionLobe {
     let wo = -d;
     let c = dot(wo, m);
     let eta = n1 / n2;
@@ -67,6 +86,6 @@ fn refraction_transmit(d: vec3f, m: vec3f, nf: vec3f, n1: f32, n2: f32, alpha: f
     if (c <= 0.0 || sin2t >= 1.0) { return RefractionLobe(d, 0.0); }
     let dir = normalize(d * eta + m * (eta * c - sqrt(1.0 - sin2t)));
     if (dot(dir, nf) >= 0.0) { return RefractionLobe(dir, 0.0); }
-    let g = select(1.0, refraction_g1(dot(dir, nf), alpha), alpha > 1e-4);
+    let g = select(1.0, refraction_g1(dot(dir, ns), alpha), alpha > 1e-4);
     return RefractionLobe(dir, g * eta * eta);
 }

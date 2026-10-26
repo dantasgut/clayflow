@@ -84,6 +84,31 @@ export interface PtDielectric {
     readonly roughness?: number;
     /** Na sobreposição de volumes vale o meio de maior prioridade (padrão 0; empate: o último em que se entrou). */
     readonly priority?: number;
+    /** Relevo da normal (a normal de sombreamento do `closure_normal` do motor); ausente = a geométrica. */
+    readonly bump?: PtBump;
+}
+
+/**
+ * Relevo senoidal: a altura h(p) = amplitude · sen(k·x) · sen(k·z) inclina a normal pelo gradiente dela projetado no
+ * plano tangente, n_s = normalize(n − (∇h − (∇h·n) n)) — a conta que o grafo do smoke monta com nós de math.
+ */
+export interface PtBump {
+    readonly amplitude: number;
+    /** k, em rad/m. */
+    readonly wavenumber: number;
+}
+
+/** A normal de sombreamento do relevo `bump` no ponto `p` com a normal geométrica `n` (no sentido dela). */
+export function bumpNormal(bump: PtBump, p: Vec3, n: Vec3): Vec3 {
+    const k = bump.wavenumber;
+    const a = bump.amplitude * k;
+    const g: Vec3 = [
+        a * Math.cos(k * p[0]) * Math.sin(k * p[2]),
+        0,
+        a * Math.sin(k * p[0]) * Math.cos(k * p[2]),
+    ];
+    const tangent = sub(g, scale(n, dot(g, n)));
+    return normalize(sub(n, tangent));
 }
 
 /** Caixa (opcionalmente girada em torno do eixo y pelo centro). */
@@ -638,10 +663,24 @@ export interface PtInterfaceSample {
 }
 
 /**
- * Interface dielétrica n1 (lado de onde o raio `d` vem) → n2 com a normal geométrica `normal` (qualquer sentido) e o α
- * do GGX (0 = lisa). A microfaceta vem da distribuição visível; reflete com a probabilidade de Fresnel na microfaceta,
- * senão refrata por Snell. Peso: G1 da direção de saída (0 se ela cai do lado errado da macro-superfície) e, ao
- * atravessar, (n1/n2)² — a radiância vista do lado n1. `u` em [0, 1)³. `null`: caminho perdido.
+ * A normal de sombreamento na face `nf` (a geométrica `normal` voltada para o raio `d`): `shading` (no sentido de
+ * `normal`; ausente = a geométrica) no sentido de `nf` e, se o raio a vê por trás, inclinada até vê-la de frente — a
+ * regra de `refraction_shading_normal` do motor.
+ */
+function shadingFace(shading: Vec3 | undefined, normal: Vec3, nf: Vec3, d: Vec3): Vec3 {
+    if (shading === undefined) return nf;
+    const ns = dot(normal, nf) < 0 ? scale(shading, -1) : shading;
+    const v = scale(d, -1);
+    const c = dot(ns, v);
+    return c <= 0 ? normalize(sub(ns, scale(v, c - 1e-3))) : ns;
+}
+
+/**
+ * Interface dielétrica n1 (lado de onde o raio `d` vem) → n2 com a normal geométrica `normal` (qualquer sentido), a de
+ * sombreamento `shading` (no sentido de `normal`; ausente = a geométrica) e o α do GGX (0 = lisa). A microfaceta vem da
+ * distribuição visível em volta da normal de sombreamento; reflete com a probabilidade de Fresnel na microfaceta, senão
+ * refrata por Snell. Peso: G1 da direção de saída na normal de sombreamento (0 se a saída cai do lado errado da face
+ * geométrica) e, ao atravessar, (n1/n2)² — a radiância vista do lado n1. `u` em [0, 1)³. `null`: caminho perdido.
  */
 export function sampleDielectricInterface(
     d: Vec3,
@@ -650,15 +689,17 @@ export function sampleDielectricInterface(
     n2: number,
     alpha: number,
     u: readonly [number, number, number],
+    shading?: Vec3,
 ): PtInterfaceSample | null {
     const nf = dot(normal, d) < 0 ? normal : scale(normal, -1);
+    const ns = shadingFace(shading, normal, nf, d);
     const wo = scale(d, -1);
-    let m = nf;
+    let m = ns;
     if (alpha > 1e-4) {
-        const [t, b] = basis(nf);
-        const local: Vec3 = [dot(wo, t), dot(wo, b), dot(wo, nf)];
+        const [t, b] = basis(ns);
+        const local: Vec3 = [dot(wo, t), dot(wo, b), dot(wo, ns)];
         const ml = sampleVndf(local, alpha, u[0], u[1]);
-        m = normalize(add(add(scale(t, ml[0]), scale(b, ml[1])), scale(nf, ml[2])));
+        m = normalize(add(add(scale(t, ml[0]), scale(b, ml[1])), scale(ns, ml[2])));
     }
     const c = dot(wo, m);
     if (c <= 0) return null;
@@ -676,7 +717,7 @@ export function sampleDielectricInterface(
         transmitted = true;
         if (dot(dir, nf) >= 0) return null;
     }
-    let weight = alpha > 1e-4 ? smithG1(dot(dir, nf), alpha) : 1;
+    let weight = alpha > 1e-4 ? smithG1(dot(dir, ns), alpha) : 1;
     if (transmitted) weight *= eta * eta;
     return { dir, weight, transmitted };
 }
@@ -922,7 +963,7 @@ function crossThinWall(
     channel0: number,
     u: number,
     pick: number,
-): Crossing {
+): Crossing | null {
     const slab = hit.object.material.dielectric!;
     const before = currentMedium(stack);
     const channel = channelAt(
@@ -931,10 +972,14 @@ function crossThinWall(
         pick,
     );
     const nIn = channel < 0 ? slab.ior : dispersionIors(slab)[channel]!;
-    const r = fresnelDielectric(dot(d, hit.normal), iorOf(before, channel), nIn);
     const nf = dot(hit.normal, d) < 0 ? hit.normal : scale(hit.normal, -1);
+    const shading = slab.bump === undefined ? undefined : bumpNormal(slab.bump, p, hit.normal);
+    const ns = shadingFace(shading, hit.normal, nf, d);
+    const r = fresnelDielectric(Math.abs(dot(d, ns)), iorOf(before, channel), nIn);
     const reflected = u < (2 * r) / (1 + r);
-    const dir = reflected ? sub(d, scale(nf, 2 * dot(d, nf))) : d;
+    const dir = reflected ? sub(d, scale(ns, 2 * dot(d, ns))) : d;
+    // O reflexo pela normal de sombreamento que cai atrás da face: caminho perdido (como o motor).
+    if (reflected && dot(dir, nf) <= 0) return null;
     return leave(p, { stack: [...stack], channel, dir, weight: 1 });
 }
 
@@ -990,6 +1035,8 @@ function crossDielectric(
     const roughness = Math.max(
         ...crossings.map((c) => c.object.material.dielectric!.roughness ?? 0),
     );
+    // A normal de sombreamento: a do relevo da superfície atingida (as coincidentes cruzam pela dela, como o motor).
+    const bump = hit.object.material.dielectric!.bump;
     const sample = sampleDielectricInterface(
         d,
         hit.normal,
@@ -997,6 +1044,7 @@ function crossDielectric(
         iorOf(next, channel),
         roughness * roughness,
         u,
+        bump === undefined ? undefined : bumpNormal(bump, p, hit.normal),
     );
     if (sample === null) return null;
     return leave(p, {

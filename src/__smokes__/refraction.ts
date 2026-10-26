@@ -311,6 +311,28 @@ const LENS: RefractionScene = {
     camera: { position: [0, 1.5, 0.3], target: [0, LENS_CENTER_Y, 0], fovY: 0.5 },
 };
 
+/**
+ * T065a: placa de vidro com relevo (a normal do material pelo nó `closure.normal`) sobre o xadrez — o relevo entorta as
+ * casas vistas por ela. A média por região quase não vê o relevo (ele só redistribui a luz dentro da placa); a medida
+ * dele é a dos degraus da borda, como na lente.
+ */
+const RELIEF_GLASS: PtDielectric = {
+    ior: 1.5,
+    bump: { amplitude: 0.01, wavenumber: (2 * Math.PI) / 0.2 },
+};
+const RELIEF: RefractionScene = {
+    name: 'relief',
+    solids: [
+        ...room(0.1),
+        {
+            id: 10,
+            shape: { kind: 'box', min: [-0.6, 0.2, -0.4], max: [0.6, 0.35, 0.4] },
+            glass: RELIEF_GLASS,
+        },
+    ],
+    camera: { position: [0, 1.3, 1.2], target: [0, 0.25, 0], fovY: 0.7 },
+};
+
 // ── O motor ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const AXES = ['x', 'y', 'z'] as const;
@@ -362,6 +384,69 @@ function materialOf(s: Solid): MaterialFunction {
             ['transmit.value', 'glass.b'],
         ];
         let out = 'glass.value';
+        if (g.bump !== undefined) {
+            // O relevo (T065a): h = A · sen(k·x) · sen(k·z); a normal de sombreamento n − (∇h − (∇h·n) n), normalizada,
+            // pelo nó `closure.normal` — a mesma conta de `bumpNormal` da referência.
+            const k = g.bump.wavenumber;
+            Object.assign(graph, {
+                s: nodes.input.surfaceSample(),
+                xyz: nodes.math.split3,
+                k: scalarNode(k),
+                ak: scalarNode(g.bump.amplitude * k),
+                zero: scalarNode(0),
+                kx: nodes.math.mul,
+                kz: nodes.math.mul,
+                sx: nodes.math.sin,
+                cx: nodes.math.cos,
+                sz: nodes.math.sin,
+                cz: nodes.math.cos,
+                cxsz: nodes.math.mul,
+                sxcz: nodes.math.mul,
+                gx: nodes.math.mul,
+                gz: nodes.math.mul,
+                grad: nodes.math.combine3,
+                gn: nodes.math.dot,
+                along: nodes.math.scale3,
+                tangent: nodes.math.sub3,
+                bent: nodes.math.sub3,
+                shading: nodes.math.normalize,
+                bump: nodes.closure.normal,
+            });
+            links.push(
+                ['s.world_position', 'xyz.v'],
+                ['xyz.x', 'kx.a'],
+                ['k.value', 'kx.b'],
+                ['xyz.z', 'kz.a'],
+                ['k.value', 'kz.b'],
+                ['kx.value', 'sx.x'],
+                ['kx.value', 'cx.x'],
+                ['kz.value', 'sz.x'],
+                ['kz.value', 'cz.x'],
+                ['cx.value', 'cxsz.a'],
+                ['sz.value', 'cxsz.b'],
+                ['sx.value', 'sxcz.a'],
+                ['cz.value', 'sxcz.b'],
+                ['cxsz.value', 'gx.a'],
+                ['ak.value', 'gx.b'],
+                ['sxcz.value', 'gz.a'],
+                ['ak.value', 'gz.b'],
+                ['gx.value', 'grad.x'],
+                ['zero.value', 'grad.y'],
+                ['gz.value', 'grad.z'],
+                ['grad.value', 'gn.a'],
+                ['s.normal', 'gn.b'],
+                ['s.normal', 'along.v'],
+                ['gn.value', 'along.s'],
+                ['grad.value', 'tangent.a'],
+                ['along.value', 'tangent.b'],
+                ['s.normal', 'bent.a'],
+                ['tangent.value', 'bent.b'],
+                ['bent.value', 'shading.v'],
+                [out, 'bump.c'],
+                ['shading.value', 'bump.normal'],
+            );
+            out = 'bump.value';
+        }
         if (g.priority !== undefined) {
             graph.priority = nodes.closure.mediumPriority.with({ priority: g.priority });
             links.push([out, 'priority.c']);
@@ -1097,6 +1182,75 @@ async function caseCost(): Promise<void> {
     check(on - off <= 3, `cost: refração ${(on - off).toFixed(3)} ms na lente (≤ 3 ms)`);
 }
 
+/**
+ * T065a: a placa com relevo. Além do erro por região, os degraus da borda do xadrez vista pela placa contra a referência
+ * de 1024 amostras (0, como na lente), com três controles: outra referência independente dá 0 (a medida não acusa o
+ * ruído), a referência em blocos de 4 px dá degraus (a medida vê o pixel) e a placa lisa dá degraus contra a com relevo
+ * (a medida vê o relevo — sem ele no motor, a cena falharia).
+ */
+async function caseRelief(): Promise<void> {
+    const { regions, engine } = await compareScene(RELIEF);
+    try {
+        const slab = regions.get(10) ?? [];
+        const ref = await renderReference(RELIEF, 0, STEP_SAMPLES);
+        const other = edgeSteps(
+            (await renderReference(RELIEF, STEP_SAMPLES, STEP_SAMPLES)).rgb,
+            ref.rgb,
+            slab,
+        );
+        log(
+            `relief: controle — outra referência (amostras independentes): ${other.steps} degraus em ${other.crossings} cruzamentos (p99 ${other.p99.toFixed(3)} px)`,
+        );
+        check(
+            other.steps === 0,
+            `relief: a medida dos degraus acusa o ruído da referência (${other.steps} de ${other.crossings})`,
+        );
+        const blocky = new Float32Array(ref.rgb.length);
+        for (let y = 0; y < H; y++)
+            for (let x = 0; x < W; x++) {
+                const sy = Math.min(H - 1, 4 * Math.floor(y / 4) + 2);
+                const sx = Math.min(W - 1, 4 * Math.floor(x / 4) + 2);
+                blocky.set(
+                    ref.rgb.subarray((sy * W + sx) * 3, (sy * W + sx) * 3 + 3),
+                    (y * W + x) * 3,
+                );
+            }
+        const b = edgeSteps(blocky, ref.rgb, slab);
+        log(
+            `relief: controle — a referência em blocos de 4 px: ${b.steps} degraus em ${b.crossings} cruzamentos (p99 ${b.p99.toFixed(3)} px)`,
+        );
+        check(
+            b.steps > b.crossings / 10,
+            `relief: a medida dos degraus não acusa a imagem em blocos (${b.steps} de ${b.crossings})`,
+        );
+        const flatGlass: PtDielectric = { ior: RELIEF_GLASS.ior };
+        const flat: RefractionScene = {
+            ...RELIEF,
+            solids: RELIEF.solids.map((x) =>
+                x.glass === RELIEF_GLASS ? { ...x, glass: flatGlass } : x,
+            ),
+        };
+        const f = edgeSteps((await renderReference(flat, 0, STEP_SAMPLES)).rgb, ref.rgb, slab);
+        log(
+            `relief: controle — a placa lisa: ${f.steps} degraus em ${f.crossings} cruzamentos (p99 ${f.p99.toFixed(3)} px)`,
+        );
+        check(
+            f.steps > f.crossings / 10,
+            `relief: a medida dos degraus não distingue a placa lisa da com relevo (${f.steps} de ${f.crossings})`,
+        );
+        const e = edgeSteps(engine.rgb, ref.rgb, slab);
+        log(
+            `relief: degraus da borda do xadrez vista pela placa — ${e.steps} em ${e.crossings} cruzamentos (p99 ${e.p99.toFixed(3)} px)`,
+        );
+        check(
+            e.crossings > 200 && e.steps === 0,
+            `relief: ${e.steps} degraus de pixel na borda vista pela placa (de ${e.crossings} cruzamentos)`,
+        );
+    } finally {
+        engine.close();
+    }
+}
+
 async function caseGi(): Promise<void> {
     const scene = SCENES[0]!;
     const ref = await renderReference(scene);
@@ -1134,6 +1288,10 @@ async function main(): Promise<void> {
     if (only === null || only === 'lens') {
         log('── lens');
         await caseLens();
+    }
+    if (only === null || only === 'relief') {
+        log('── relief');
+        await caseRelief();
     }
     if (only === null || only === 'gi') {
         log('── gi');
