@@ -1,23 +1,20 @@
 /**
- * webgpu-engine — Clay Engine public API.
+ * clayflow — o núcleo do motor (spec 038: sem ambiente). O motor num ambiente vem dos pontos de entrada:
+ * `clayflow/web` (o `Application` sobre um `<canvas>`) e `clayflow/deno` (a textura ou a janela).
  *
  * 4 camadas:
  *   - C1 Hardware (`./core`)         — EngineCore facade sobre WebGPU
  *   - C2 Sync     (`./scene`)        — World, EventBus, Flows, ResourceSystem
  *   - C3 Elements (`./elements`)     — Geometries, materials, physics, particles
- *   - C4 Presentation (`./presentation`) — Application, controllers, post effects
+ *   - C4 Presentation (`./presentation`) — Engine, controllers, post effects
  *
  * Uso típico:
  * ```typescript
- * import { Application, BoxGeometry, Camera } from 'webgpu-engine';
+ * import { Application, BoxGeometry, Camera } from 'clayflow/web';
  * const app = await Application.create({ canvas });
  * ```
  *
- * Para low-level customization, importe diretamente das subpastas:
- * ```typescript
- * import type { EngineCore, Frame } from 'webgpu-engine/core';
- * import { Flow } from 'webgpu-engine/scene';
- * ```
+ * Os tipos de C1 e C2 úteis para escrever Resources e Flows próprios saem daqui mesmo (abaixo).
  *
  * @packageDocumentation
  */
@@ -54,7 +51,13 @@ export type {
     DeviceCapabilities,
     AdapterDescription,
     ClampedLimit,
+    PlatformAdapter,
+    PresentationContext,
+    PresentationSurface,
 } from './scene/contracts/gpu';
+
+/** A superfície de apresentação sobre uma textura (spec 038): o motor sem tela, lido de volta, em qualquer ambiente. */
+export { TextureSurface } from './core/gpu/surfaces/TextureSurface';
 
 export {
     Flow,

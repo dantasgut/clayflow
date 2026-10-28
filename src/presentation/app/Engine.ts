@@ -10,7 +10,11 @@ import type {
     World,
 } from '../../scene/index';
 import type { ConsumerResolverRegistry } from '../../scene/consumers/ConsumerResolverRegistry';
-import type { FrameProfilingGranularity } from '../../scene/contracts/gpu';
+import type {
+    FrameProfilingGranularity,
+    PlatformAdapter,
+    PresentationSurface,
+} from '../../scene/contracts/gpu';
 import type { ResourceSystem } from '../../scene/systems/ResourceSystem';
 import type { LayoutInferencer } from '../../scene/systems/LayoutInferencer';
 import type { ExecutionSystem } from '../../scene/systems/ExecutionSystem';
@@ -24,27 +28,28 @@ import {
 import type { EnginePlugin } from '../plugins/EnginePlugin';
 import type { Input } from '../input/Input';
 import type { InteractionSystem } from '../input/InteractionSystem';
-import { acquireSceneInteraction, releaseSceneInteraction } from './sceneInteraction';
+import {
+    acquireSceneInteraction,
+    releaseSceneInteraction,
+    type InputDevicesFactory,
+} from './sceneInteraction';
+import type { FrameScheduler } from './FrameScheduler';
 import { ELEMENT_CONSUMERS } from '../../elements/consumers';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /**
- * Opções de inicialização do `Application`. Apenas `canvas` é obrigatório;
- * defaults sensíveis para o resto. Use `scene` para multi-Application,
- * `captureErrors`/`memoryBudgetMB` para resiliência em produção.
+ * Opções do motor (spec 038) comuns aos ambientes: o que o ponto de entrada (`clayflow/web`, `clayflow/deno`) não traz
+ * por conta própria. Use `scene` para várias aplicações na mesma cena, `captureErrors`/`memoryBudgetMB` para
+ * resiliência em produção.
  */
-export interface ApplicationOptions {
-    /** HTMLCanvasElement onde a engine renderiza. Deve estar attachado ao DOM. */
-    canvas: HTMLCanvasElement;
-    /** Configuração do swapchain (alphaMode, colorSpace). Default: opaque/srgb. */
+export interface EngineCommonOptions {
+    /** Configuração da superfície de apresentação (alphaMode, colorSpace, formato, captura). Default: opaque/srgb. */
     canvasOptions?: CanvasOptions;
     /**
      * Preferências do device GPU: potência, features exigidas/desejadas e limites. Reaplicadas em
      * `requestNewDevice()`. O que foi obtido aparece em `app.capabilities`.
      */
     device?: DeviceOptions;
-    /** Auto-attach window.resize listener (default true em ambiente browser). */
-    autoResize?: boolean;
     /**
      * Antisserrilhado da cena (spec 034): `'temporal'` (padrão: a amostra deslocada dentro do pixel a cada quadro em
      * todos os passes, histórico reprojetado com rejeição), `'accumulate'` (média uniforme dos quadros desde o último
@@ -53,8 +58,6 @@ export interface ApplicationOptions {
      * muda depois por `defaults.antialiasing.mode` entre `temporal`, `accumulate` e `off` (o `msaa` só na criação).
      */
     antialias?: boolean | AntialiasingMode;
-    /** Debounce em ms para o handler de resize (default 100). */
-    resizeDebounceMs?: number;
     /**
      * Quando true, cada frame abre um WebGPU error scope `validation`. Erros viram
      * eventos `engineError` (stage='frame') em vez de exceptions — o GameLoop
@@ -96,25 +99,47 @@ export interface ApplicationOptions {
 }
 
 /**
- * Application — bootstrap das 4 camadas da engine sobre um `<canvas>`.
+ * Opções do `Engine` (spec 038): as comuns mais o que o ponto de entrada dá — o adaptador de plataforma (o adaptador da
+ * GPU e o contexto), a superfície de apresentação, o agendador do laço e os dispositivos de entrada.
+ */
+export interface EngineOptions extends EngineCommonOptions {
+    /** O adaptador de plataforma do ambiente (sem ele a criação falha, nomeando os pontos de entrada). */
+    platform?: PlatformAdapter;
+    /** A superfície de apresentação (sem ela, o motor roda sem tela: só computação e leituras). */
+    surface?: PresentationSurface;
+    /** O agendador do laço (`start`); sem ele, o motor avança só por `step()`. */
+    scheduler?: FrameScheduler;
+    /** Os dispositivos de entrada do ambiente (sem eles, o `Input` existe mas nada o alimenta). */
+    inputDevices?: InputDevicesFactory;
+}
+
+/** O que a criação assíncrona prepara para o construtor. */
+export interface PreparedEngine {
+    readonly defaults: PresentationDefaults;
+    readonly scene: SceneContext;
+    readonly ownsScene: boolean;
+}
+
+/**
+ * Engine — bootstrap das 4 camadas do motor sobre uma superfície de apresentação qualquer (spec 038: o núcleo, sem
+ * ambiente). Os pontos de entrada a estendem: o `Application` do `clayflow/web` (o canvas, o redimensionamento, o DOM)
+ * e o do `clayflow/deno` (a textura ou a janela).
  *
  * Ciclo de vida:
- *   1. `await Application.create({ canvas })` adquire device/queue, configura
- *      swapchain, instancia `World`/`EventBus`/`ResourceSystem`/`FlowRegistry`,
- *      e registra por factory os estágios padrão (`TransformFlow`, `ShadowFlow`, `ForwardFlow`, `PostFlow`,
- *      `DebugFlow`, `UIFlow` e os solvers), inserindo os alvos do quadro (`FrameTargets`).
- *   2. `app.world.insert(entity)` para cada entidade da cena. Resources
- *      indexados disparam alocação de buffers/binds reativamente.
- *   3. `app.start()` inicia o `GameLoop` (RAF), que emite `frameTick`; cada Flow pronto (`flowReady`) grava os seus
- *      passes dentro de `core.record(...)` + `submit()`.
- *   4. `app.stop()` pausa o RAF; `app.dispose()` desfaz event listeners.
+ *   1. `await Engine.create({ platform, surface })` (ou o `Application.create` do ponto de entrada) adquire o device,
+ *      configura a superfície, instancia `World`/`EventBus`/`ResourceSystem`/`FlowRegistry` e registra por factory os
+ *      estágios padrão (`TransformFlow`, `ShadowFlow`, `ForwardFlow`, `PostFlow`, `DebugFlow`, `UIFlow` e os solvers),
+ *      inserindo os alvos do quadro (`FrameTargets`).
+ *   2. `app.world.insert(entity)` para cada entidade da cena. Resources indexados disparam alocação de buffers/binds
+ *      reativamente.
+ *   3. `app.start()` inicia o `GameLoop` (pelo agendador do ambiente), que emite `frameTick`; cada Flow pronto
+ *      (`flowReady`) grava os seus passes dentro de `core.record(...)` + `submit()`. Sem agendador, `step()`.
+ *   4. `app.stop()` pausa o laço; `app.dispose()` desfaz o que foi ligado.
  *
- * Resize: por padrão (`autoResize: true` em browser) o tamanho do canvas segue o tamanho exibido × DPR — sincronizado
- * na criação e acompanhado por `ResizeObserver` no próprio canvas (o layout pode mudar sem a janela mudar; sem o
- * observador, `window.resize`), debounced 100ms — reconfigura o canvas + emite `canvasReconfigured`: a C2 recria as
- * texturas do tamanho do canvas e os Flows recriam os seus recursos privados dependentes do tamanho numa transição.
+ * Tamanho: quem muda a superfície (o ponto de entrada) chama `surfaceResized()`, que reconfigura a apresentação e emite
+ * `canvasReconfigured`: a C2 recria as texturas do tamanho dela e os Flows os seus recursos privados.
  */
-export class Application {
+export class Engine {
     /** World ECS-like — query/insert/remove de Resources. Atalho para `scene.world`. */
     readonly world: World;
     /** FlowRegistry — registro de Flows ativos. Atalho para `scene.flows`. */
@@ -129,8 +154,8 @@ export class Application {
      * para customizar (e.g. `app.defaults.post.addEffect(new Bloom(...))`).
      */
     readonly defaults: PresentationDefaults;
-    /** Canvas HTML attachado. Mesmo objeto passado em `create({canvas})`. */
-    readonly canvas: HTMLCanvasElement;
+    /** A superfície de apresentação (o canvas, a janela ou a textura; `undefined` sem tela). */
+    readonly surface: PresentationSurface | undefined;
     /**
      * Entrada da cena (spec 007): Resource singleton no World — consulta (`isKeyDown`, `pointerDelta`, …) e eventos no
      * barramento (`keyDown`, `pointerMove`, `wheel`, …). Compartilhado pelas aplicações da mesma cena.
@@ -138,56 +163,35 @@ export class Application {
     readonly input: Input;
     /** Liga os dispositivos ao `input` e tica os controllers da cena (componentes da entidade da câmera). */
     readonly interaction: InteractionSystem;
-    private readonly scene: SceneContext;
+    protected readonly scene: SceneContext;
     private readonly ownsScene: boolean;
     private readonly loop: GameLoop;
     private readonly maxFramesInFlight: number;
-    private readonly resizeDebounceMs: number;
-    private resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    private resizeListener: (() => void) | null = null;
-    private resizeObserver: ResizeObserver | null = null;
 
     private readonly memoryBudgetBytes: number | null = null;
     private memoryWarningEmitted = false;
     private memoryUnsubscribe: (() => void) | null = null;
     private readonly plugins: EnginePlugin[] = [];
 
-    private constructor(
-        options: ApplicationOptions,
-        defaults: PresentationDefaults,
-        scene: SceneContext,
-        ownsScene: boolean,
-    ) {
-        this.canvas = options.canvas;
+    protected constructor(options: EngineOptions, prepared: PreparedEngine) {
+        const { defaults, scene, ownsScene } = prepared;
+        this.surface = options.surface;
         this.scene = scene;
         this.ownsScene = ownsScene;
         this.world = scene.world;
         this.flows = scene.flows;
         this.time = scene.time;
         this.defaults = defaults;
-        const interaction = acquireSceneInteraction(scene, options.canvas);
+        const interaction = acquireSceneInteraction(scene, options.inputDevices ?? (() => []));
         this.input = interaction.input;
         this.interaction = interaction.system;
         this.maxFramesInFlight = options.maxFramesInFlight ?? 2;
-        this.loop = new GameLoop(scene.events, this.time, () => this.readyForFrame());
-        this.resizeDebounceMs = options.resizeDebounceMs ?? 100;
-
-        const autoResize = options.autoResize ?? typeof window !== 'undefined';
-        if (autoResize && typeof window !== 'undefined') {
-            if (typeof ResizeObserver !== 'undefined') {
-                this.resizeObserver = new ResizeObserver(() => {
-                    this.scheduleResize();
-                });
-                this.resizeObserver.observe(this.canvas);
-            } else {
-                this.resizeListener = () => {
-                    this.scheduleResize();
-                };
-                window.addEventListener('resize', this.resizeListener);
-            }
-            // Tamanho exibido desde o primeiro quadro (o canvas nasce com 300×150 até alguém o ajustar).
-            this.handleResize();
-        }
+        this.loop = new GameLoop(
+            scene.events,
+            this.time,
+            () => this.readyForFrame(),
+            options.scheduler,
+        );
 
         if (options.memoryBudgetMB !== undefined) {
             this.memoryBudgetBytes = options.memoryBudgetMB * 1024 * 1024;
@@ -219,12 +223,16 @@ export class Application {
     }
 
     /**
-     * Construtor async — inicializa GPU device + canvas, registra os Flows
-     * default + plugins (`options.plugins`), e retorna a `Application` pronta
-     * para `start()`. Se `options.scene` é fornecido usa contexto isolado
-     * (multi-Application); caso contrário usa o singleton default.
+     * Construtor async — inicializa o device pelo adaptador de plataforma e a superfície, registra os Flows padrão e
+     * devolve o motor pronto para `start()`/`step()`. Se `options.scene` é fornecido usa contexto isolado (várias
+     * aplicações); caso contrário usa o singleton default.
      */
-    static async create(options: ApplicationOptions): Promise<Application> {
+    static async create(options: EngineOptions): Promise<Engine> {
+        return new Engine(options, await Engine.prepareFor(options));
+    }
+
+    /** A parte assíncrona da criação (os pontos de entrada a usam antes de construir a subclasse). */
+    protected static async prepareFor(options: EngineOptions): Promise<PreparedEngine> {
         const max = options.maxFramesInFlight;
         if (max !== undefined && (!Number.isInteger(max) || max < 1)) {
             throw new RangeError(`maxFramesInFlight deve ser inteiro ≥ 1 (recebido ${max}).`);
@@ -240,7 +248,7 @@ export class Application {
                 'indirect-first-instance',
             ],
         };
-        await scene.initialize(options.canvas, options.canvasOptions, device);
+        await scene.initialize(options.surface, options.canvasOptions, device, options.platform);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
         const defaults = registerPresentationDefaults(scene.flows, {
@@ -255,7 +263,7 @@ export class Application {
             const granularity = options.profiling === true ? 'passes' : options.profiling;
             scene.core.setFrameProfiling(true, options.profilingCapacity, granularity);
         }
-        return new Application(options, defaults, scene, ownsScene);
+        return { defaults, scene, ownsScene };
     }
 
     /**
@@ -295,11 +303,13 @@ export class Application {
      */
     step(dt: number = this.time.fixedDt ?? 1 / 60, frames = 1): void {
         if (this.loop.isRunning()) {
-            throw new Error('Application.step(): o laço está rodando — chame stop() antes.');
+            throw new Error(
+                `${this.constructor.name}.step(): o laço está rodando — chame stop() antes.`,
+            );
         }
         if (!Number.isInteger(frames) || frames < 1) {
             throw new RangeError(
-                `Application.step(): frames deve ser inteiro ≥ 1 (recebido ${frames}).`,
+                `${this.constructor.name}.step(): frames deve ser inteiro ≥ 1 (recebido ${frames}).`,
             );
         }
         for (let i = 0; i < frames; i++) this.loop.advance(dt);
@@ -327,7 +337,7 @@ export class Application {
                     )
                     .join(', ');
                 throw new Error(
-                    `Application.whenReady(): o motor não ficou pronto no prazo — pendente: ${list || 'nenhum quadro gravado'}`,
+                    `${this.constructor.name}.whenReady(): o motor não ficou pronto no prazo — pendente: ${list || 'nenhum quadro gravado'}`,
                 );
             }
             if (this.loop.isRunning()) {
@@ -362,8 +372,8 @@ export class Application {
     }
 
     /**
-     * Recupera após `deviceLost`. Re-cria GPUDevice (via navigator.gpu) e
-     * re-attacha o canvas. Ao final, emite `deviceRecovered` para que
+     * Recupera após `deviceLost`. Re-cria o GPUDevice (pelo adaptador de plataforma) e
+     * re-attacha a superfície. Ao final, emite `deviceRecovered` para que
      * sistemas reativos (ResourceSystem, Flows) reconstruam buffers/pipelines.
      *
      * Recomendado consumir via `app.events.on('deviceLost', () => app.requestNewDevice())`
@@ -371,43 +381,32 @@ export class Application {
      */
     async requestNewDevice(): Promise<void> {
         const reasonBefore: GPUDeviceLostReason = 'unknown';
-        await this.scene.core.requestRecover(this.canvas);
+        await this.scene.core.requestRecover(this.surface);
         this.scene.events.emit('deviceRecovered', { reason: reasonBefore });
     }
 
     /**
-     * Re-sincroniza canvas.width/height com clientWidth/clientHeight × DPR,
-     * reconfigura o swapchain do core, e emite `canvasReconfigured` para
-     * que Flows recriem suas textures size-dependent.
+     * A superfície mudou de tamanho (spec 038: o ponto de entrada avisa — o canvas redimensionado, a janela, a textura):
+     * reconfigura a apresentação no core e emite `canvasReconfigured` para que os Flows recriem as texturas do tamanho
+     * dela.
      */
-    handleResize(): void {
-        // Fora do layout (sem tamanho exibido): mantém o tamanho atual.
-        if (this.canvas.clientWidth === 0 || this.canvas.clientHeight === 0) return;
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const newW = Math.max(1, Math.floor(this.canvas.clientWidth * dpr));
-        const newH = Math.max(1, Math.floor(this.canvas.clientHeight * dpr));
-        if (this.canvas.width === newW && this.canvas.height === newH) return;
-        this.canvas.width = newW;
-        this.canvas.height = newH;
+    surfaceResized(): void {
+        const size = this.scene.core.canvasSize();
+        if (size === undefined) return;
         this.scene.core.reconfigureCanvas();
         this.scene.events.emit('canvasReconfigured', {
-            width: newW,
-            height: newH,
+            width: size.width,
+            height: size.height,
             format: this.scene.core.canvasFormat,
         });
     }
 
-    private scheduleResize(): void {
-        if (this.resizeTimer !== null) clearTimeout(this.resizeTimer);
-        this.resizeTimer = setTimeout(() => {
-            this.resizeTimer = null;
-            this.handleResize();
-        }, this.resizeDebounceMs);
-    }
+    /** O que o ponto de entrada desfaz no descarte (os ouvintes do ambiente), antes da cena. */
+    protected disposeEnvironment(): void {}
 
     /**
-     * Para o loop, dispõe plugins (ordem reversa de instalação), remove
-     * event listeners (resize, memory) e — se foi criada com `scene` próprio
+     * Para o loop, dispõe plugins (ordem reversa de instalação), desfaz o que o ponto de entrada ligou (o
+     * redimensionamento, os ouvintes do ambiente) e o aviso de memória e — se foi criada com `scene` próprio
      * — chama `scene.dispose()` para liberar GPU device.
      */
     dispose(): void {
@@ -417,16 +416,7 @@ export class Application {
             this.plugins[i]?.dispose?.(this);
         }
         this.plugins.length = 0;
-        if (this.resizeTimer !== null) {
-            clearTimeout(this.resizeTimer);
-            this.resizeTimer = null;
-        }
-        this.resizeObserver?.disconnect();
-        this.resizeObserver = null;
-        if (this.resizeListener !== null && typeof window !== 'undefined') {
-            window.removeEventListener('resize', this.resizeListener);
-            this.resizeListener = null;
-        }
+        this.disposeEnvironment();
         if (this.memoryUnsubscribe !== null) {
             this.memoryUnsubscribe();
             this.memoryUnsubscribe = null;

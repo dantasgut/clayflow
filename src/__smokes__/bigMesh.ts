@@ -12,7 +12,7 @@ import {
     ParametricGeometry,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 
 type Vec3 = [number, number, number];
 type Mat4 = number[];

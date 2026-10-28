@@ -44,7 +44,7 @@
 //     orçamento da refração (3 ms, medido no smoke `refraction`), não do antisserrilhado — decisão de 2026-10-24. Não a
 //     soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
 // Para rodar: `npm run smoke -- antialiasing [--query case=still]`. Resultado: `ANTIALIASING SMOKE PASSED` ou `FAIL: …`.
-import * as clayflow from 'clayflow';
+import * as clayflow from 'clayflow/web';
 import {
     Application,
     BoxGeometry,
@@ -55,7 +55,7 @@ import {
     type AntialiasingMode,
     type CanvasPixels,
     type GpuFrameTimedPayload,
-} from 'clayflow';
+} from 'clayflow/web';
 import { closureFn } from './support/materialScenes';
 import { waterScene } from './support/waterScene';
 import { writeFixture } from './support/fixtures';

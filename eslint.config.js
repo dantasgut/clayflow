@@ -27,6 +27,7 @@ export default tseslint.config(
             '.typedoc-cov-trash/**',
             'bench/results/**',
             'bench/vite.config.ts',
+            'vite.config.ts',
         ],
     },
 
@@ -176,9 +177,9 @@ export default tseslint.config(
     },
 
     // Fronteira de importação (decisão D4): as Camadas 3 e 4 importam contratos de GPU só por `scene/`
-    // (`scene/contracts/gpu`), nunca de `core/`.
+    // (`scene/contracts/gpu`), nunca de `core/`. Os pontos de entrada (`src/platform/**`, spec 038) seguem a mesma regra.
     {
-        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts'],
+        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts', 'src/platform/**/*.ts'],
         rules: {
             '@typescript-eslint/no-restricted-imports': [
                 'error',
@@ -201,6 +202,40 @@ export default tseslint.config(
                     message:
                         'Grupos de depuração por fase e por Flow são da C2 (spec 034): nomeie o passe no rótulo de `frame.compute`/`frame.render`.',
                 },
+            ],
+        },
+    },
+
+    // Núcleo puro (spec 038): nada do navegador nem do Deno fora dos pontos de entrada (`src/platform/web`,
+    // `src/platform/deno`); testes, smokes e a página antiga ficam de fora.
+    {
+        files: ['src/**/*.ts'],
+        ignores: [
+            'src/platform/**',
+            'src/**/__tests__/**',
+            'src/**/*.test.ts',
+            'src/__smokes__/**',
+            'src/main.ts',
+        ],
+        rules: {
+            'no-restricted-globals': [
+                'error',
+                ...[
+                    'document',
+                    'window',
+                    'HTMLCanvasElement',
+                    'OffscreenCanvas',
+                    'ResizeObserver',
+                    'requestAnimationFrame',
+                    'cancelAnimationFrame',
+                    'Image',
+                    'FontFace',
+                    'navigator',
+                    'Deno',
+                ].map((name) => ({
+                    name,
+                    message: `\`${name}\` é do ambiente: só nos pontos de entrada (\`src/platform/web\`, \`src/platform/deno\`) — spec 038.`,
+                })),
             ],
         },
     },

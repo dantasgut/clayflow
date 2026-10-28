@@ -10,8 +10,8 @@
 // Registra os tempos de PrefixSum e RadixSort com 4 M elementos.
 //
 // Para rodar: `npm run smoke -- computeKernels`. Resultado: `COMPUTEKERNELS SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene } from 'clayflow';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
+import { Application, createScene } from 'clayflow/web';
+import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
 import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
 import { wgslModule } from '../scene/shaders/WgslModule';
 import { wgslResource } from '../scene/shaders/WgslResource';

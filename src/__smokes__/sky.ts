@@ -17,7 +17,7 @@ import {
     Sky,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import { settle } from './support/extensionScenes';
 import { hdrAt, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import {

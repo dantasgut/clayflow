@@ -1,5 +1,5 @@
-import type { EventBus } from '../../scene/events/EventBus';
-import type { Input } from './Input';
+import type { EventBus } from '../../../scene/events/EventBus';
+import type { Input } from '../../../presentation/input/Input';
 
 /**
  * Device de teclado — captura keydown/keyup no target (window/element), popula `Input.current.keys` (Set de

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DebugFlow } from '../flows/DebugFlow';
 import { InteractionSystem } from '../input/InteractionSystem';
-import { FpsController } from '../input/controllers/FpsController';
-import { Application } from '../app/Application';
+import { FpsController } from '../../platform/web/input/FpsController';
+import { Application } from '../../platform/web/Application';
 import { Camera } from '../../elements/scene/Camera';
 import { Transform } from '../../elements/scene/Transform';
 import { Input } from '../input/Input';
@@ -16,24 +16,26 @@ afterEach(() => {
 });
 
 describe('liberação de ouvintes (R14)', () => {
-    it('DebugFlow.dispose remove frameTick, frameComplete e keydown', () => {
+    it('DebugFlow.dispose remove frameTick, frameComplete e a tecla (keyDown do barramento, sem o DOM — spec 038)', () => {
         const events = new DefaultEventBus();
         const add = vi.spyOn(window, 'addEventListener');
-        const remove = vi.spyOn(window, 'removeEventListener');
         const debug = new DebugFlow({ events });
         expect(events.listenerCount('frameTick')).toBe(1);
         expect(events.listenerCount('frameComplete')).toBe(1);
-        const keydown = add.mock.calls.find((c) => c[0] === 'keydown')?.[1];
+        expect(events.listenerCount('keyDown')).toBe(1);
+        expect(add).not.toHaveBeenCalled();
+        expect(debug.isEnabled()).toBe(false);
+        events.emit('keyDown', { code: 'F1' });
+        expect(debug.isEnabled()).toBe(true);
         debug.dispose();
         expect(events.listenerCount()).toBe(0);
-        expect(remove).toHaveBeenCalledWith('keydown', keydown);
     });
 
     it('DebugFlow se inscreve uma vez, na construção', () => {
         const events = new DefaultEventBus();
         const debug = new DebugFlow({ events });
-        // frameTick, frameComplete e gpuFrameTimed (spec 034).
-        expect(events.listenerCount()).toBe(3);
+        // frameTick, frameComplete, gpuFrameTimed (spec 034) e keyDown (spec 038).
+        expect(events.listenerCount()).toBe(4);
         debug.dispose();
         expect(events.listenerCount()).toBe(0);
     });
@@ -44,7 +46,7 @@ describe('liberação de ouvintes (R14)', () => {
         const canvas = document.createElement('canvas');
         const input = new Input();
         world.insert(input);
-        const system = new InteractionSystem({ canvas, window }, events, world, input);
+        const system = new InteractionSystem([], events, world, input);
         system.attach();
         expect(events.listenerCount('frameTick')).toBe(1);
         system.detach();

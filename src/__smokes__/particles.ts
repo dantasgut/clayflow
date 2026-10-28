@@ -21,7 +21,7 @@ import {
     SoftBody,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 import { block, SPACING, tank } from './support/particleScenes';
 

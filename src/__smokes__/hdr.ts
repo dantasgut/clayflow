@@ -22,8 +22,8 @@ import {
     StandardMaterial,
     Transform,
     Vignette,
-} from 'clayflow';
-import type { ToneOperator } from 'clayflow';
+} from 'clayflow/web';
+import type { ToneOperator } from 'clayflow/web';
 import { capture, settle } from './support/extensionScenes';
 import { banding, edgeEnergy, readHdrTexture, rowLevels, hdrAt } from './support/imageMeasures';
 import { present, srgbDecode } from '../elements/material/reference/tonemap';

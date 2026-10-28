@@ -15,7 +15,7 @@ import {
     StandardMaterial,
     Transform,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 
 /** Entidades (`--query count=N` para diagnóstico em escala menor; o critério vale para 1 milhão). */
 const COUNT = Number(new URLSearchParams(location.search).get('count') ?? 1_000_000);

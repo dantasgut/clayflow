@@ -55,7 +55,7 @@ import {
     Transform,
     wgslModule,
     wgslResource,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     BoundFlow,
     FlowTransitions,
@@ -67,7 +67,7 @@ import type {
     WgslModule,
     StagingBufferSpec,
     StorageBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import {
     buildField,
     FIELD,

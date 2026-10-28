@@ -24,8 +24,8 @@ import {
     SoftBody,
     SPHSchema,
     XPBDSoftSchema,
-} from 'clayflow';
-import type { StagingBufferSpec, StructSchema } from 'clayflow';
+} from 'clayflow/web';
+import type { StagingBufferSpec, StructSchema } from 'clayflow/web';
 import {
     gpuProfile,
     readFixture,

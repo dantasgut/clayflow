@@ -16,7 +16,7 @@ import {
     StandardMaterial,
     Transform,
     type Application,
-} from 'clayflow';
+} from 'clayflow/web';
 import { ENGINE_PORTABLE_LIMITS } from '../core/gpu/GpuContext';
 import { settle } from './support/extensionScenes';
 import { buildGiScene, giApp, windowRoom } from './support/giScenes';

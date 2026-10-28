@@ -27,7 +27,7 @@ import {
     UiPanel,
     Vignette,
     WireframeMaterial,
-} from 'clayflow';
+} from 'clayflow/web';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 
 const WIDTH = 256;

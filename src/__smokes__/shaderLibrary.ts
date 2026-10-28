@@ -9,8 +9,8 @@
 //       campo está exatamente no `offsetOf` do schema (layout TS ≡ layout WGSL).
 //
 // Para rodar: `npm run smoke -- shaderLibrary`. Resultado: `SHADERLIBRARY SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene } from 'clayflow';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
+import { Application, createScene } from 'clayflow/web';
+import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
 import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
 import { wgslModule, type WgslModule } from '../scene/shaders/WgslModule';
 import { wgslResource } from '../scene/shaders/WgslResource';

@@ -1,43 +1,4 @@
-/**
- * Posição e dimensões de um glyph dentro do atlas. UIFlow usa estes
- * valores para gerar UV coordinates dos quads texturados.
- */
-export interface FontGlyph {
-    /** Caractere representado (e.g. 'A'). */
-    readonly char: string;
-    /** X do canto superior esquerdo no atlas (pixels). */
-    readonly x: number;
-    /** Y do canto superior esquerdo no atlas. */
-    readonly y: number;
-    /** Largura visual do glyph (em pixels). */
-    readonly width: number;
-    /** Altura do glyph (geralmente igual ao fontSize). */
-    readonly height: number;
-    /** Quanto avançar o cursor para o próximo glyph (kerning simplificado). */
-    readonly advance: number;
-}
-
-/**
- * Font carregada pelo `FontLoader`. Inclui ImageBitmap atlas + glyph
- * metadata para text layout. `atlas` é null em ambientes sem
- * OffscreenCanvas (Node-side, alguns mobile browsers).
- */
-export interface LoadedFont {
-    /** Nome da font family (e.g. 'Inter', 'monospace'). */
-    readonly family: string;
-    /** URL do arquivo .woff/.ttf/.otf. */
-    readonly url: string;
-    /** ImageBitmap renderizado com todos os glyphs (RGBA). */
-    readonly atlas: ImageBitmap | null;
-    /** Largura do atlas em pixels. */
-    readonly atlasWidth: number;
-    /** Altura do atlas em pixels. */
-    readonly atlasHeight: number;
-    /** Map char → glyph metadata (UV + advance). */
-    readonly glyphs: ReadonlyMap<string, FontGlyph>;
-    /** Pixel size usado para renderizar o atlas. */
-    readonly fontSize: number;
-}
+import type { FontGlyph, LoadedFont } from '../../../presentation/ui/font';
 
 /**
  * Opções de carregamento. `chars` permite limitar o atlas aos caracteres
@@ -59,7 +20,7 @@ const DEFAULT_CHARS =
 
 /**
  * FontLoader carrega arquivos de font (woff, ttf, otf) e gera um atlas
- * de glyphs em ImageBitmap. UIFlow usa o atlas + glyph metadata para
+ * de glyphs (pixels RGBA). UIFlow usa o atlas + glyph metadata para
  * renderizar texto via quads texturados.
  *
  * Implementação: usa FontFace API (browser) para registrar a font e
@@ -90,7 +51,7 @@ export class FontLoader {
         return {
             family,
             url,
-            atlas: atlas?.bitmap ?? null,
+            atlas: atlas?.pixels ?? null,
             atlasWidth: atlas?.width ?? 0,
             atlasHeight: atlas?.height ?? 0,
             glyphs: atlas?.glyphs ?? new Map(),
@@ -104,7 +65,7 @@ export class FontLoader {
         chars: string,
         padding: number,
     ): {
-        bitmap: ImageBitmap | null;
+        pixels: Uint8Array;
         width: number;
         height: number;
         glyphs: Map<string, FontGlyph>;
@@ -148,7 +109,12 @@ export class FontLoader {
                 advance: metrics.width,
             });
         }
-        const bitmap = canvas.transferToImageBitmap();
-        return { bitmap, width, height, glyphs };
+        const data = ctx.getImageData(0, 0, width, height).data;
+        return {
+            pixels: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+            width,
+            height,
+            glyphs,
+        };
     }
 }

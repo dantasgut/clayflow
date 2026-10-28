@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GpuEngineCore } from '../GpuEngineCore';
+import { WebPlatformAdapter } from '../../../platform/web/WebPlatformAdapter';
+
+const web = new WebPlatformAdapter();
 
 const originalGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
 
@@ -57,7 +60,12 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         installGpu();
         const { canvas, configure } = fakeCanvas();
         const core = new GpuEngineCore();
-        await core.initialize(canvas, { alphaMode: 'premultiplied', colorSpace: 'display-p3' });
+        await core.initialize(
+            web.getContext(canvas),
+            { alphaMode: 'premultiplied', colorSpace: 'display-p3' },
+            undefined,
+            web,
+        );
         core.reconfigureCanvas();
         expect(configure).toHaveBeenCalledTimes(2);
         expect(configure.mock.calls[1]![0]).toMatchObject({
@@ -71,9 +79,10 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         const { canvas, configure } = fakeCanvas();
         const core = new GpuEngineCore();
         await core.initialize(
-            canvas,
+            web.getContext(canvas),
             { alphaMode: 'premultiplied' },
             { powerPreference: 'low-power' },
+            web,
         );
         await core.requestRecover();
         expect(requestAdapter).toHaveBeenCalledTimes(2);
@@ -86,7 +95,7 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         installGpu();
         const { canvas, configure } = fakeCanvas();
         const core = new GpuEngineCore();
-        await core.initialize(canvas);
+        await core.initialize(web.getContext(canvas), undefined, undefined, web);
         core.reconfigureCanvas({ alphaMode: 'premultiplied' });
         core.reconfigureCanvas();
         expect(configure.mock.calls.at(-1)![0]).toMatchObject({ alphaMode: 'premultiplied' });
@@ -96,7 +105,12 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         installGpu();
         const { canvas, configure } = fakeCanvas(true);
         const core = new GpuEngineCore();
-        await core.initialize(canvas, { toneMapping: 'extended', format: 'rgba16float' });
+        await core.initialize(
+            web.getContext(canvas),
+            { toneMapping: 'extended', format: 'rgba16float' },
+            undefined,
+            web,
+        );
         expect(configure.mock.calls.at(-1)![0]).toMatchObject({
             format: 'rgba16float',
             toneMapping: { mode: 'extended' },
@@ -109,7 +123,12 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         installGpu();
         const { canvas, configure } = fakeCanvas(false);
         const core = new GpuEngineCore();
-        await core.initialize(canvas, { toneMapping: 'extended', format: 'rgba16float' });
+        await core.initialize(
+            web.getContext(canvas),
+            { toneMapping: 'extended', format: 'rgba16float' },
+            undefined,
+            web,
+        );
         expect(configure).toHaveBeenCalledTimes(2);
         expect(configure.mock.calls[1]![0]).toMatchObject({ format: 'bgra8unorm' });
         expect(configure.mock.calls[1]![0]).not.toHaveProperty('toneMapping');
@@ -120,7 +139,12 @@ describe('GpuEngineCore — opções de canvas e de device preservadas', () => {
         installGpu();
         const { canvas } = fakeCanvas(true);
         const core = new GpuEngineCore();
-        await core.initialize(canvas, { toneMapping: 'extended', format: 'rgba16float' });
+        await core.initialize(
+            web.getContext(canvas),
+            { toneMapping: 'extended', format: 'rgba16float' },
+            undefined,
+            web,
+        );
         core.reconfigureCanvas({});
         expect(core.canvasOutput).toEqual({ format: 'bgra8unorm', toneMapping: 'standard' });
     });

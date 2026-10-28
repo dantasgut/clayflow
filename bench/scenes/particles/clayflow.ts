@@ -14,7 +14,7 @@ import {
     StandardMaterial,
     Transform,
     nodes,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
 import { blockOf, blockPositions, TANK_HALF } from './scene';

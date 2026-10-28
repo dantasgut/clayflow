@@ -8,8 +8,8 @@
 // testados pela narrowphase contra N·M (SC-006: ≤ 1% em 10 000 corpos).
 //
 // Para rodar: `npm run smoke -- contactSet [--record]`. Resultado: `CONTACTSET SMOKE PASSED` ou `FAIL`.
-import { Application, createScene, LCPFlow } from 'clayflow';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
+import { Application, createScene, LCPFlow } from 'clayflow/web';
+import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
 import { buildRigidPile } from './support/rigidPile';
 import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
 

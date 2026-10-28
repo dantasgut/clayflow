@@ -28,7 +28,7 @@ import {
     StandardMaterial,
     SurfaceFunction,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import { capture, settle } from './support/extensionScenes';
 import { hdrAt, readHdrTexture, temporalVariance, type HdrImage } from './support/imageMeasures';
 import { ambientParamsUniform, evalParams } from '../elements/material/reference/closure';

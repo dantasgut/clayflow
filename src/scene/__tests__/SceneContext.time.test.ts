@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { PlatformAdapter, PresentationSurface } from '../contracts/gpu';
 import { createScene } from '../SceneContext';
 import { Time } from '../time/Time';
 import { fakeSceneCore } from './helpers/fakeSceneCore';
@@ -21,19 +22,22 @@ describe('SceneContext — Time da cena', () => {
         expect(found[0]).toBe(scene.world.entityIdOf(scene.time));
     });
 
-    it('initialize repassa canvas, opções de canvas e de device ao core', async () => {
+    it('initialize repassa a superfície, as opções e o adaptador de plataforma ao core', async () => {
         const { core } = fakeSceneCore();
         const scene = createScene({ core });
-        const canvas = document.createElement('canvas');
+        const surface = { width: 1, height: 1, context: {} } as unknown as PresentationSurface;
+        const platform = { name: 'teste' } as unknown as PlatformAdapter;
         await scene.initialize(
-            canvas,
+            surface,
             { alphaMode: 'premultiplied' },
             { powerPreference: 'low-power' },
+            platform,
         );
         expect(core.initialize).toHaveBeenCalledWith(
-            canvas,
+            surface,
             { alphaMode: 'premultiplied' },
             { powerPreference: 'low-power' },
+            platform,
         );
     });
 

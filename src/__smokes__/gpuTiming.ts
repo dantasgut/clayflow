@@ -7,7 +7,12 @@
 //   - off: sem profiling, nenhuma leitura chega e os passes do quadro são os mesmos (os grupos de depuração não abrem
 //     passes).
 // Para rodar: `npm run smoke -- gpuTiming`. Resultado: `GPUTIMING SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, GlobalIllumination, type GpuFrameTimedPayload } from 'clayflow';
+import {
+    Application,
+    createScene,
+    GlobalIllumination,
+    type GpuFrameTimedPayload,
+} from 'clayflow/web';
 import { buildGiScene, windowRoom } from './support/giScenes';
 
 function log(msg: string): void {

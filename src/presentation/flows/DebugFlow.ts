@@ -67,9 +67,8 @@ export class DebugFlow extends Flow<DebugSlots, 'idle'> {
     private lastEmit = -Infinity;
     private stagesNs: Readonly<Record<string, number>> = {};
     private gpu: GpuFrameTimedPayload | undefined;
-    /** Inscrições no EventBus e o ouvinte de teclado — desfeitos em `dispose`. */
+    /** Inscrições no EventBus (a tecla de alternância inclusive) — desfeitas em `dispose`. */
     private subscriptions: Unsubscribe[] = [];
-    private keydownListener: ((ev: KeyboardEvent) => void) | null = null;
 
     constructor(ctx: Pick<FlowContext, 'events'>, options: DebugFlowOptions = {}) {
         super();
@@ -92,16 +91,14 @@ export class DebugFlow extends Flow<DebugSlots, 'idle'> {
             events.on('gpuFrameTimed', (e) => {
                 if (this.gpu === undefined || e.gpuFrame > this.gpu.gpuFrame) this.gpu = e;
             }),
+            // A tecla pelo evento de entrada da cena (spec 038: o teclado vem do dispositivo do ambiente, não do DOM).
+            events.on('keyDown', (e) => {
+                if (e.code === this.toggleKey) this.enabled = !this.enabled;
+            }),
         ];
-        if (typeof window !== 'undefined') {
-            this.keydownListener = (ev: KeyboardEvent) => {
-                if (ev.code === this.toggleKey) this.enabled = !this.enabled;
-            };
-            window.addEventListener('keydown', this.keydownListener);
-        }
     }
 
-    /** Descarte do estágio: remove as inscrições no EventBus e o ouvinte de teclado. */
+    /** Descarte do estágio: remove as inscrições no EventBus. */
     override dispose(): void {
         this.unbind();
         this.events = null;
@@ -110,10 +107,6 @@ export class DebugFlow extends Flow<DebugSlots, 'idle'> {
     private unbind(): void {
         for (const off of this.subscriptions) off();
         this.subscriptions = [];
-        if (this.keydownListener !== null && typeof window !== 'undefined') {
-            window.removeEventListener('keydown', this.keydownListener);
-        }
-        this.keydownListener = null;
     }
 
     /** Habilita/desabilita emissão de profilerStats event a cada frame. */

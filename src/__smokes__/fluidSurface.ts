@@ -19,7 +19,7 @@
 //     (profiling) ≤ 16,7 ms.
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
-import { Application, Caustics, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
+import { Application, Caustics, createScene, FluidBody, PointSpriteMaterial } from 'clayflow/web';
 import { nextGpuFrame } from './support/extensionScenes';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 import { diff, fromPng, lumaSrgb, toPng } from './support/images';

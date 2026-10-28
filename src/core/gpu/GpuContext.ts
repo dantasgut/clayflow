@@ -1,10 +1,16 @@
 import type { ClampedLimit, DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
+import type {
+    PlatformAdapter,
+    PresentationContext,
+    PresentationSurface,
+} from '../contracts/PlatformAdapter';
 
 export interface GpuContext {
     readonly device: GPUDevice;
     readonly queue: GPUQueue;
-    canvas: HTMLCanvasElement | null;
-    canvasContext: GPUCanvasContext | null;
+    /** A superfície de apresentação (spec 038: o canvas, a janela ou a textura, pelo adaptador de plataforma). */
+    surface: PresentationSurface | null;
+    canvasContext: PresentationContext | null;
     canvasFormat: GPUTextureFormat;
     /** Relatório do device deste contexto (recriado junto com o device). */
     readonly capabilities: DeviceCapabilities;
@@ -178,16 +184,17 @@ function describeAdapter(adapter: GPUAdapter): DeviceCapabilities['adapter'] {
 }
 
 /**
- * Cria adaptador e device aplicando `DeviceOptions` (potência, features, limites) e devolve o relatório de
- * capacidades efetivas. Rejeita se WebGPU não existe, se não há adaptador ou se uma feature obrigatória falta.
+ * Cria adaptador e device pelo adaptador de plataforma (spec 038) aplicando `DeviceOptions` (potência, features,
+ * limites) e devolve o relatório de capacidades efetivas. Rejeita se o ambiente não tem adaptador ou se uma feature
+ * obrigatória falta.
  */
-export async function createGpuContext(options: DeviceOptions = {}): Promise<CreatedGpuContext> {
-    if (!('gpu' in navigator)) {
-        throw new Error('WebGPU not supported in this browser.');
-    }
+export async function createGpuContext(
+    platform: PlatformAdapter,
+    options: DeviceOptions = {},
+): Promise<CreatedGpuContext> {
     const adapterOptions: GPURequestAdapterOptions =
         options.powerPreference !== undefined ? { powerPreference: options.powerPreference } : {};
-    const adapter = await navigator.gpu.requestAdapter(adapterOptions);
+    const adapter = await platform.requestAdapter(adapterOptions);
     if (!adapter) throw new Error('Failed to acquire GPUAdapter.');
 
     const missingRequired = (options.requiredFeatures ?? []).filter(
@@ -213,7 +220,7 @@ export async function createGpuContext(options: DeviceOptions = {}): Promise<Cre
     );
     const device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
     const queue = device.queue;
-    const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+    const canvasFormat = platform.preferredFormat();
     const capabilities: DeviceCapabilities = Object.freeze({
         adapter: describeAdapter(adapter),
         powerPreference: options.powerPreference ?? 'default',

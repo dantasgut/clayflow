@@ -1,9 +1,8 @@
 /**
  * Camada 4 — Presentation API pública.
  *
- * Esta é a "fronteira" recomendada para apps que consomem a engine. O default
- * é importar tudo aqui (`Application`, `Camera`, `BoxGeometry`, controllers,
- * effects, etc.) e usar `Application.create({ canvas })` como bootstrap.
+ * O que não depende do ambiente (spec 038): o `Engine`, os controllers, os efeitos, a UI. O `Application` sobre um
+ * canvas e o que é do navegador (entrada do DOM, carregadores) estão no `clayflow/web`; o do Deno, no `clayflow/deno`.
  *
  * Para implementar Resources/Flows customizados, importe diretamente de
  * `webgpu-engine` (que re-exporta este barrel + `core/`+`scene/` types).
@@ -13,7 +12,6 @@
 export * from './app/index';
 export * from './flows/index';
 export * from './input/index';
-export * from './assets/index';
 export * from './ui/index';
 export type * from './plugins/index';
 export { PostProcessEffect } from './resources/PostProcessEffect';

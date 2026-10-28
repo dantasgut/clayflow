@@ -59,7 +59,7 @@ import {
     type MaterialFunction,
     type StagingBufferSpec,
     type AntialiasingMode,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     PtCamera,
     PtDielectric,

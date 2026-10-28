@@ -1,4 +1,4 @@
-import type { Input } from './Input';
+import type { Input } from '../../../presentation/input/Input';
 
 /**
  * Touch input → reflexo no `Input.current`. Suporta:

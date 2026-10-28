@@ -17,8 +17,8 @@ import {
     SphereGeometry,
     StandardMaterial,
     Transform,
-} from 'clayflow';
-import type { Entity } from 'clayflow';
+} from 'clayflow/web';
+import type { Entity } from 'clayflow/web';
 
 const CYCLES = 100;
 const OBJECTS = 1000;

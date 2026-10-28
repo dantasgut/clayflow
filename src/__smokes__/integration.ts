@@ -21,7 +21,7 @@ import {
     Camera,
     DirectionalLight,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 
 const log = (m: string): void => {
     console.log(`[integration] ${m}`);

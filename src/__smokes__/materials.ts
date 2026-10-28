@@ -30,8 +30,8 @@ import {
     SphereGeometry,
     StandardMaterial,
     Transform,
-} from 'clayflow';
-import type { Application, LobeName } from 'clayflow';
+} from 'clayflow/web';
+import type { Application, LobeName } from 'clayflow/web';
 import { capture, nextGpuFrame } from './support/extensionScenes';
 import { hdrAt, type HdrImage } from './support/imageMeasures';
 import {

@@ -29,7 +29,7 @@ import {
     GlobalIllumination,
     Transform,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { PtMedium } from '../elements/lighting/reference/pathTracer';
 import { halfToFloat } from './support/imageMeasures';
 import { settle } from './support/extensionScenes';

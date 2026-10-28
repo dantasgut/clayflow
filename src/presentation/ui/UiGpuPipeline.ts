@@ -8,7 +8,7 @@ import type {
 } from '../../scene/contracts/gpu';
 import type { BindingSource } from '../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
-import type { LoadedFont } from '../assets/FontLoader';
+import type { LoadedFont } from './font';
 import type { UiQuadCpu } from './flatten/UiQuadCpu';
 import { ScreenParamsSchema, UiQuadSchema } from '../flows/renderSchemas';
 import { uiResources } from '../flows/shaders';
@@ -175,16 +175,11 @@ export class UiGpuPipeline {
         }
     }
 
-    private uploadAtlas(bitmap: ImageBitmap, width: number, height: number): void {
-        if (typeof OffscreenCanvas === 'undefined' || this.atlasTexture === null) return;
-        const oc = new OffscreenCanvas(width, height);
-        const ctx = oc.getContext('2d');
-        if (ctx === null) return;
-        ctx.drawImage(bitmap, 0, 0);
-        const imgData = ctx.getImageData(0, 0, width, height);
+    private uploadAtlas(pixels: Uint8Array, width: number, height: number): void {
+        if (this.atlasTexture === null) return;
         this.core.writeTexture(
             this.atlasTexture,
-            new Uint8Array(imgData.data.buffer),
+            pixels,
             { bytesPerRow: width * 4, rowsPerImage: height },
             { width, height, depthOrArrayLayers: 1 },
         );

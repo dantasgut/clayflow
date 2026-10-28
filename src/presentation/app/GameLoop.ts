@@ -1,12 +1,14 @@
 import type { EventBus, Unsubscribe } from '../../scene/events/EventBus';
 import type { Time } from '../../scene/time/Time';
+import type { FrameScheduler } from './FrameScheduler';
 
 function now(): number {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
 /**
- * Laço de quadros sobre `requestAnimationFrame`. Cada quadro mede o tempo real decorrido e chama `advance`, a
+ * Laço de quadros sobre o agendador do ambiente (`FrameScheduler`, spec 038: o `requestAnimationFrame` no navegador,
+ * o laço do Deno). Cada quadro mede o tempo real decorrido e chama `advance`, a
  * única definição de "avançar um quadro" — a mesma que `Application.step()` usa sem laço: `time.advance(realDt)`
  * e, em seguida, `frameTick { dt, realDt, elapsed, frame }`. Não há teto de `dt` aqui: o `Time` limita o quadro a
  * `maxFrameDt` e a física a `maxStepsPerFrame`.
@@ -18,7 +20,7 @@ function now(): number {
  * e o acumulador do `Time` compensa até o teto.
  */
 export class GameLoop {
-    private rafId: number | null = null;
+    private rafId: unknown = null;
     private last = 0;
     private running = false;
     /** Tick recusado por falta de espaço na GPU; o próximo RAF sai no `frameRetired`. */
@@ -29,6 +31,8 @@ export class GameLoop {
         private readonly events: EventBus,
         private readonly time: Time,
         private readonly canAdvance: () => boolean = () => true,
+        /** O agendador do próximo quadro (spec 038: do ponto de entrada do ambiente). */
+        private readonly scheduler?: FrameScheduler,
     ) {}
 
     /** Avança um quadro de duração real `realDt` (s): move o relógio e emite `frameTick` (síncrono). */
@@ -64,7 +68,7 @@ export class GameLoop {
         this.waitingForGpu = false;
         this.unsubscribeRetired?.();
         this.unsubscribeRetired = null;
-        if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+        if (this.rafId !== null) this.scheduler?.cancel(this.rafId);
         this.rafId = null;
     }
 
@@ -74,7 +78,12 @@ export class GameLoop {
     }
 
     private schedule(): void {
-        this.rafId = requestAnimationFrame(this.tick);
+        if (this.scheduler === undefined) {
+            throw new Error(
+                'GameLoop: sem agendador de quadros — o laço vem do ponto de entrada do ambiente (`clayflow/web`, `clayflow/deno`); sem ele, avance por `step()`.',
+            );
+        }
+        this.rafId = this.scheduler.request(this.tick);
     }
 
     private readonly tick = (): void => {

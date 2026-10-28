@@ -3,22 +3,8 @@ import type { World } from '../../scene/world/World';
 import type { EntityId } from '../../scene/world/EntityId';
 import { Transform } from '../../elements/scene/Transform';
 import type { Input } from './Input';
-import { KeyboardDevice } from './KeyboardDevice';
-import { PointerDevice } from './PointerDevice';
-import { TouchDevice } from './TouchDevice';
-import { GamepadDevice } from './GamepadDevice';
+import type { InputDevice } from './InputDevice';
 import { InputDrivenController } from './InputDrivenController';
-
-/**
- * Configuração do InteractionSystem. `window` permite injeção em tests
- * (jsdom) ou para múltiplos canvases compartilharem o mesmo Window.
- */
-export interface InteractionSystemOptions {
-    /** Canvas onde pointer/touch events são capturados. */
-    readonly canvas: HTMLCanvasElement;
-    /** Window onde keyboard events são capturados. Null = fallback para canvas. */
-    readonly window: Window | null;
-}
 
 /** Controller na cena e o `Transform` da mesma entidade, que ele muta. */
 interface Driven {
@@ -27,7 +13,8 @@ interface Driven {
 }
 
 /**
- * InteractionSystem (spec 007) — liga os dispositivos (teclado, ponteiro, toque, gamepad) ao `Input` da cena e, a cada
+ * InteractionSystem (spec 007) — liga os dispositivos de entrada do ambiente (spec 038: os do DOM no navegador, os da
+ * janela no Deno) ao `Input` da cena e, a cada
  * `frameTick`, chama `tick(input, dt, transform)` de cada controller do World (componente da entidade da câmera) com o
  * `Transform` da mesma entidade; depois zera os deltas do quadro. Os controllers são mantidos por eventos do World
  * (`entitiesInserted`/`entitiesRemoved`) — o quadro não percorre a cena. Um controller sem `Transform` na entidade é
@@ -36,29 +23,19 @@ interface Driven {
  * Criado pela `Application` (um por cena).
  */
 export class InteractionSystem {
-    /** KeyboardDevice — captura keydown/keyup no `window`. */
-    readonly keyboard: KeyboardDevice;
-    /** PointerDevice — captura pointer events no canvas (mouse, pen). */
-    readonly pointer: PointerDevice;
-    /** TouchDevice — captura touch events (multi-touch + pinch). */
-    readonly touch: TouchDevice;
-    /** GamepadDevice — polling-based (Gamepad API não dispatch events). */
-    readonly gamepad: GamepadDevice;
+    /** Os dispositivos de entrada do ambiente (o ponto de entrada os dá). */
+    readonly devices: readonly InputDevice[];
     private readonly driven = new Map<EntityId, Driven[]>();
     private subscriptions: Unsubscribe[] = [];
 
     constructor(
-        private readonly options: InteractionSystemOptions,
+        devices: readonly InputDevice[],
         private readonly events: EventBus,
         private readonly world: World,
         /** `Input` da cena (inserido no World pela `Application`). */
         readonly input: Input,
     ) {
-        const w = options.window ?? (typeof window !== 'undefined' ? window : null);
-        this.keyboard = new KeyboardDevice(w ?? options.canvas, input, events);
-        this.pointer = new PointerDevice(options.canvas, input, events);
-        this.touch = new TouchDevice(options.canvas, input);
-        this.gamepad = new GamepadDevice();
+        this.devices = devices;
         for (const record of world.allRecords()) this.track(record.id);
         this.subscribe();
     }
@@ -84,21 +61,17 @@ export class InteractionSystem {
         ];
     }
 
-    /** Registra DOM event listeners (e reativa a atualização por quadro depois de um `detach`). */
+    /** Liga os dispositivos (e reativa a atualização por quadro depois de um `detach`). */
     attach(): void {
         this.subscribe();
-        this.keyboard.attach();
-        this.pointer.attach();
-        this.touch.attach();
+        for (const d of this.devices) d.attach();
     }
 
-    /** Remove os ouvintes de DOM e as inscrições no barramento. Chamar antes de descartar o InteractionSystem. */
+    /** Desliga os dispositivos e as inscrições no barramento. Chamar antes de descartar o InteractionSystem. */
     detach(): void {
         for (const off of this.subscriptions) off();
         this.subscriptions = [];
-        this.keyboard.detach();
-        this.pointer.detach();
-        this.touch.detach();
+        for (const d of this.devices) d.detach();
     }
 
     /** Descarte: `detach` e descarte dos controllers da cena (ouvintes de DOM deles). */

@@ -9,6 +9,7 @@ import type {
     ShaderMessage,
 } from '../contracts/EngineCore';
 import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
+import type { PlatformAdapter, PresentationSurface } from '../contracts/PlatformAdapter';
 import type { Frame } from '../contracts/Frame';
 import type { FrameGpuTiming, FrameStats } from '../contracts/FrameStats';
 import type { Profiler } from '../contracts/Profiler';
@@ -144,7 +145,9 @@ export class GpuEngineCore implements EngineCore {
     /** Opções da última inicialização — reaplicadas em recuperação e reconfiguração. */
     private storedCanvasOptions: CanvasOptions | undefined;
     private deviceOptions: DeviceOptions | undefined;
-    private lastCanvas: HTMLCanvasElement | null = null;
+    private lastSurface: PresentationSurface | null = null;
+    /** O adaptador de plataforma da inicialização (spec 038): reusado na recuperação. */
+    private platform: PlatformAdapter | undefined;
     private shuttingDown = false;
     /** Compilações assíncronas em andamento por hash: specs iguais concorrentes compilam uma vez. */
     private readonly pendingPipelines = new Map<string, Promise<void>>();
@@ -172,30 +175,37 @@ export class GpuEngineCore implements EngineCore {
     }
 
     async initialize(
-        canvas?: HTMLCanvasElement,
+        surface?: PresentationSurface,
         canvasOptions?: CanvasOptions,
         device?: DeviceOptions,
+        platform?: PlatformAdapter,
     ): Promise<void> {
         if (canvasOptions !== undefined) this.storedCanvasOptions = canvasOptions;
         if (device !== undefined) this.deviceOptions = device;
-        if (canvas !== undefined) this.lastCanvas = canvas;
+        if (platform !== undefined) this.platform = platform;
+        if (surface !== undefined) this.lastSurface = surface;
         if (this.context !== null) {
-            this.applyCanvas(this.context, canvas ?? null, this.storedCanvasOptions);
+            this.applyCanvas(this.context, surface ?? null, this.storedCanvasOptions);
             return;
         }
+        if (this.platform === undefined) {
+            throw new Error(
+                'GpuEngineCore: sem adaptador de plataforma — use o ponto de entrada do ambiente (`clayflow/web`, `clayflow/deno`).',
+            );
+        }
         this.shuttingDown = false;
-        const created = await createGpuContext(this.deviceOptions);
+        const created = await createGpuContext(this.platform, this.deviceOptions);
         const { queue, canvasFormat, capabilities } = created;
         this.preferredFormat = canvasFormat;
         const ctx: GpuContext = {
             device: created.device,
             queue,
-            canvas: null,
+            surface: null,
             canvasContext: null,
             canvasFormat,
             capabilities,
         };
-        this.applyCanvas(ctx, canvas ?? null, this.storedCanvasOptions);
+        this.applyCanvas(ctx, surface ?? null, this.storedCanvasOptions);
         this.context = ctx;
         this.profilerSystem.attach(created.device);
         this.warnIfProfilingUnsupported();
@@ -209,7 +219,7 @@ export class GpuEngineCore implements EngineCore {
         };
     }
 
-    async requestRecover(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void> {
+    async requestRecover(surface?: PresentationSurface, options?: CanvasOptions): Promise<void> {
         if (this.context !== null) {
             // Caller wants fresh device — simulate lost path para limpar tudo.
             this.handleDeviceLost(this.context.device, {
@@ -217,7 +227,7 @@ export class GpuEngineCore implements EngineCore {
                 message: 'manual reset',
             });
         }
-        await this.initialize(canvas ?? this.lastCanvas ?? undefined, options);
+        await this.initialize(surface ?? this.lastSurface ?? undefined, options);
     }
 
     private watchDeviceLost(device: GPUDevice): void {
@@ -245,8 +255,8 @@ export class GpuEngineCore implements EngineCore {
     }
 
     canvasSize(): { readonly width: number; readonly height: number } | undefined {
-        const canvas = this.context?.canvas ?? null;
-        return canvas === null ? undefined : { width: canvas.width, height: canvas.height };
+        const surface = this.context?.surface ?? null;
+        return surface === null ? undefined : { width: surface.width, height: surface.height };
     }
 
     capabilities(): DeviceCapabilities {
@@ -255,7 +265,7 @@ export class GpuEngineCore implements EngineCore {
 
     reconfigureCanvas(options?: CanvasOptions): void {
         const ctx = this.requireContext();
-        if (ctx.canvas === null || ctx.canvasContext === null) {
+        if (ctx.surface === null || ctx.canvasContext === null) {
             throw new Error('GpuEngineCore: no canvas attached to reconfigure.');
         }
         if (options !== undefined) this.storedCanvasOptions = options;
@@ -590,21 +600,16 @@ export class GpuEngineCore implements EngineCore {
 
     private applyCanvas(
         ctx: GpuContext,
-        canvas: HTMLCanvasElement | null,
+        surface: PresentationSurface | null,
         options: CanvasOptions | undefined,
     ): void {
-        if (canvas === null) {
-            ctx.canvas = null;
+        if (surface === null) {
+            ctx.surface = null;
             ctx.canvasContext = null;
             return;
         }
-        if (ctx.canvas !== canvas) {
-            const cctx = canvas.getContext('webgpu');
-            if (cctx === null)
-                throw new Error('GpuEngineCore: failed to get webgpu canvas context.');
-            ctx.canvas = canvas;
-            ctx.canvasContext = cctx;
-        }
+        ctx.surface = surface;
+        ctx.canvasContext = surface.context;
         this.configureCanvasContext(ctx, options);
     }
 

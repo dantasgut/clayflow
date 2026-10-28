@@ -1,7 +1,7 @@
 // Medidas de imagem dos smokes da 011 (spec 011, T002): faixas, degraus de texel, cintilação, serrilhado de borda e a
 // leitura dos valores lineares do alvo HDR da cena (`FrameTargets.color`, `rgba16float`). A leitura de volta é só do
 // teste, no fim do caso.
-import type { Application, StagingBufferSpec, TextureSpec } from 'clayflow';
+import type { Application, StagingBufferSpec, TextureSpec } from 'clayflow/web';
 import type { HdrImage, Rect } from './spectralMeasures';
 import { lumaSrgb, luminanceLinear } from './images';
 

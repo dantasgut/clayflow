@@ -6,6 +6,7 @@ export type * from './passes/index';
 
 export type { Frame, TextureDataLayout, Extent3D, TextureCopyOptions } from './Frame';
 export type { Profiler, ProfilerTimestampWrites } from './Profiler';
+export type { PlatformAdapter, PresentationContext, PresentationSurface } from './PlatformAdapter';
 export type { FrameGpuTiming, FrameStats } from './FrameStats';
 export type {
     DeviceOptions,

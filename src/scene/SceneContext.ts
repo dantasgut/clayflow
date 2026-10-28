@@ -1,5 +1,11 @@
 import { GpuEngineCore } from '../core/gpu/GpuEngineCore';
-import type { CanvasOptions, DeviceOptions, EngineCore } from '../core/contracts/index';
+import type {
+    CanvasOptions,
+    DeviceOptions,
+    EngineCore,
+    PlatformAdapter,
+    PresentationSurface,
+} from '../core/contracts/index';
 import { ConsumerResolverRegistry } from './consumers/ConsumerResolverRegistry';
 import { SingletonResolver } from './consumers/strategies/SingletonResolver';
 import type { EventBus } from './events/EventBus';
@@ -46,9 +52,10 @@ export interface SceneContext {
      * seguintes só reaplicam canvas/opções no core.
      */
     initialize(
-        canvas?: HTMLCanvasElement,
+        surface?: PresentationSurface,
         canvasOptions?: CanvasOptions,
         device?: DeviceOptions,
+        platform?: PlatformAdapter,
     ): Promise<void>;
     /**
      * Descarta a cena: desregistra (e descarta) todos os estágios, desfaz as inscrições do `ExecutionSystem` e do
@@ -105,8 +112,8 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
         layoutInferencer,
         consumers,
         time,
-        async initialize(canvas, canvasOptions, device) {
-            await core.initialize(canvas, canvasOptions, device);
+        async initialize(surface, canvasOptions, device, platform) {
+            await core.initialize(surface, canvasOptions, device, platform);
             if (world.entityIdOf(time) === undefined) world.insert(time);
         },
         dispose() {

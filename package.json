@@ -1,5 +1,5 @@
 {
-  "name": "webgpu-engine",
+  "name": "clayflow",
   "version": "0.1.0",
   "description": "WebGPU engine with Clean Architecture — ECS, physics, particles and forward rendering.",
   "type": "module",
@@ -15,6 +15,14 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./web": {
+      "import": "./dist/web.js",
+      "types": "./dist/platform/web/index.d.ts"
+    },
+    "./deno": {
+      "import": "./dist/deno.js",
+      "types": "./dist/platform/deno/index.d.ts"
     }
   },
   "main": "./dist/index.js",

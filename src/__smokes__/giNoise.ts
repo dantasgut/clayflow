@@ -13,7 +13,7 @@
 //     sem, no mesmo percurso) — a cintilação (diferença de cada quadro para a média dos vizinhos) ≤ 1 % no p99, e a
 //     periodicidade na escala do froxel (perfil de fase do resíduo) no máximo 3× a de um ruído sem estrutura.
 // Para rodar: `npm run smoke -- giNoise [--query case=cornell-medium]`. Resultado: `GINOISE SMOKE PASSED` ou `FAIL: …`.
-import { FogVolume, GlobalIllumination, Transform, type Application } from 'clayflow';
+import { FogVolume, GlobalIllumination, Transform, type Application } from 'clayflow/web';
 import type { PtImage } from '../elements/lighting/reference/pathTracer';
 import { settle } from './support/extensionScenes';
 import {

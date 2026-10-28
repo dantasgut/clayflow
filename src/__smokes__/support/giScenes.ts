@@ -25,7 +25,7 @@ import {
     Transform,
     type AntialiasingMode,
     type DeviceOptions,
-} from 'clayflow';
+} from 'clayflow/web';
 
 const aaQuery = new URLSearchParams(location.search).get('aa');
 import {

@@ -15,13 +15,13 @@ import {
     createScene,
     NeighborSearchPipeline,
     wgslModule,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     StagingBufferSpec,
     StorageBufferSpec,
     UniformBufferSpec,
     Application as App,
-} from 'clayflow';
+} from 'clayflow/web';
 import { mulberry32 } from './support/random';
 
 function log(msg: string): void {

@@ -1,6 +1,7 @@
 import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
 import type { FrameGpuTiming, FrameStats } from './FrameStats';
+import type { PlatformAdapter, PresentationSurface } from './PlatformAdapter';
 import type { Profiler } from './Profiler';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
 import type { ShaderModuleSpec } from './specs/ShaderModuleSpec';
@@ -141,16 +142,18 @@ export interface EngineCore {
     readonly canvasOptions: CanvasOptions;
 
     /**
-     * Adquire GPUAdapter + GPUDevice (assíncrono) aplicando `device` (potência, features, limites) e configura o
-     * canvas swapchain com `canvasOptions`. As opções ficam guardadas e são reaplicadas em `requestRecover` e
+     * Adquire GPUAdapter + GPUDevice (assíncrono) pelo adaptador de plataforma (`platform`, spec 038: obrigatório na
+     * primeira vez, guardado para a recuperação) aplicando `device` (potência, features, limites) e configura a
+     * superfície de apresentação (`surface`: o canvas, a janela ou a textura) com `canvasOptions`. As opções ficam guardadas e são reaplicadas em `requestRecover` e
      * `reconfigureCanvas`. Idempotente quando o device já existe — apenas reaplica canvas/opções de canvas.
      * Rejeita se WebGPU não está disponível ou se uma feature de `device.requiredFeatures` falta no adaptador
      * (a mensagem nomeia a feature).
      */
     initialize(
-        canvas?: HTMLCanvasElement,
+        surface?: PresentationSurface,
         canvasOptions?: CanvasOptions,
         device?: DeviceOptions,
+        platform?: PlatformAdapter,
     ): Promise<void>;
     /**
      * Re-configura o canvas swapchain (chamado após resize). Não recria o device. Sem `options`, reaplica as
@@ -191,7 +194,7 @@ export interface EngineCore {
      * o canvas (o informado ou o anterior) com as `CanvasOptions` guardadas — ou com `options`, que passam a ser
      * as guardadas. Resources cacheados precisam ser recriados pelos sistemas consumidores.
      */
-    requestRecover(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void>;
+    requestRecover(surface?: PresentationSurface, options?: CanvasOptions): Promise<void>;
 
     /**
      * Bytes alocados em GPU memory neste momento. `top` lista as N maiores

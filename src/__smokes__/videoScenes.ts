@@ -11,7 +11,7 @@
 // vértices de uma esfera como sprites girando, sobre o xadrez), ondulacao (o palco da lente com uma lâmina de água de
 // ondulações pelo grafo e a esfera de vidro meio mergulhada). A refração dos vidros é a do motor no momento da
 // gravação — o título não promete mais do que isso.
-import * as clayflow from 'clayflow';
+import * as clayflow from 'clayflow/web';
 import {
     Application,
     createScene,
@@ -20,7 +20,7 @@ import {
     SphereGeometry,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import {
     buildGiScene,
     cornellBox,

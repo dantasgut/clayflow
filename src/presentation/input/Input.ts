@@ -45,6 +45,7 @@ const BUTTONS = { left: 0, middle: 1, right: 2 } as const;
  * câmera, componentes da entidade da câmera, o leem a cada quadro e mutam o `Transform`.
  */
 export class Input extends Entity<Record<string, never>> implements Resource {
+    private gamepads: GamepadSource = noGamepads;
     /** Marcador do Resource (não vai para a GPU). */
     static readonly schema = new StructSchema('Input', {});
 
@@ -104,12 +105,20 @@ export class Input extends Entity<Record<string, never>> implements Resource {
 
     /** Eixo de um gamepad (−1..1), ou 0 sem gamepad. */
     gamepadAxis(pad: number, axis: number): number {
-        return connectedGamepad(pad)?.axes[axis] ?? 0;
+        return this.gamepads(pad)?.axes[axis] ?? 0;
     }
 
     /** Botão de um gamepad pressionado. */
     gamepadButton(pad: number, button: number): boolean {
-        return connectedGamepad(pad)?.buttons[button]?.pressed ?? false;
+        return this.gamepads(pad)?.buttons[button]?.pressed ?? false;
+    }
+
+    /**
+     * Quem lê os gamepads do ambiente (spec 038): o dispositivo de gamepad do ponto de entrada o registra ao ligar e
+     * o tira ao desligar (`undefined`); sem ele, nenhum gamepad.
+     */
+    setGamepadSource(source: GamepadSource | undefined): void {
+        this.gamepads = source ?? noGamepads;
     }
 
     /** Zera os deltas do quadro (chamado pelo `InteractionSystem` depois dos controllers). */
@@ -129,8 +138,13 @@ export class Input extends Entity<Record<string, never>> implements Resource {
     }
 }
 
-function connectedGamepad(pad: number): Gamepad | null {
-    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function')
-        return null;
-    return navigator.getGamepads()[pad] ?? null;
+/** O estado de um gamepad que o `Input` consulta (os eixos e os botões). */
+export interface GamepadState {
+    readonly axes: readonly number[];
+    readonly buttons: readonly { readonly pressed: boolean }[];
 }
+
+/** Lê o gamepad `pad` do ambiente (`null` sem ele). */
+export type GamepadSource = (pad: number) => GamepadState | null;
+
+const noGamepads: GamepadSource = () => null;

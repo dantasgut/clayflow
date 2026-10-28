@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '../../../scene/contracts/gpu';
 import { createScene, type SceneContext } from '../../../scene/SceneContext';
 import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
-import { Application } from '../Application';
+import { Application } from '../../../platform/web/Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),

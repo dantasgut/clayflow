@@ -25,9 +25,9 @@ import {
     StandardMaterial,
     Transform,
     TransformFunction,
-} from 'clayflow';
-import * as clayflow from 'clayflow';
-import type { EntityId } from 'clayflow';
+} from 'clayflow/web';
+import * as clayflow from 'clayflow/web';
+import type { EntityId } from 'clayflow/web';
 import {
     capture,
     CHECKER_CODE,

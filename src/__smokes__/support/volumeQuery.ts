@@ -1,8 +1,14 @@
 // Consulta de raios aos volumes atravessados por raios (spec 033 R11, spec 034 T065e): um estágio que lança raios pelo
 // ponto `ray_volume_hit` composto pela C2 com as contribuições da cena (o campo dos fluidos) — a superfície que os
 // estágios que traçam raios veem, refinada como eles a veem. Comum aos smokes `fluidField` e `refraction`.
-import { Flow, FluidField, rayVolumeHitReady, slot, wgslModule, wgslResource } from 'clayflow';
-import type { Application, BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec } from 'clayflow';
+import { Flow, FluidField, rayVolumeHitReady, slot, wgslModule, wgslResource } from 'clayflow/web';
+import type {
+    Application,
+    BoundFlow,
+    Frame,
+    StagingBufferSpec,
+    StorageBufferSpec,
+} from 'clayflow/web';
 
 type Vec3 = readonly [number, number, number];
 

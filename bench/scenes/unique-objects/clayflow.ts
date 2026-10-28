@@ -1,4 +1,4 @@
-import { BoxGeometry, SphereGeometry, StandardMaterial, Transform } from 'clayflow';
+import { BoxGeometry, SphereGeometry, StandardMaterial, Transform } from 'clayflow/web';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
 import { uniqueObjects } from './scene';

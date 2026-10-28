@@ -46,8 +46,8 @@ import {
     GravityField,
     ParticlePhysics,
     SoftBody,
-} from 'clayflow';
-import type { AnyBufferSpec, GpuFrameTimedPayload, StagingBufferSpec } from 'clayflow';
+} from 'clayflow/web';
+import type { AnyBufferSpec, GpuFrameTimedPayload, StagingBufferSpec } from 'clayflow/web';
 import {
     det3,
     edgeElasticEnergy,

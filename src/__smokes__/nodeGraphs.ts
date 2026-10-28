@@ -50,7 +50,7 @@ import {
     wgslLib,
     wgslModule,
     wgslResource,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     EntityId,
     GraphJSON,
@@ -58,7 +58,7 @@ import type {
     StorageBufferSpec,
     WgslModule,
     WgslResource,
-} from 'clayflow';
+} from 'clayflow/web';
 
 /** Spec de recurso do núcleo (o que `create` recebe). */
 type ResourceSpec = Parameters<Application['core']['create']>[0];

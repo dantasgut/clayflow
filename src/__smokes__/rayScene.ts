@@ -40,8 +40,14 @@ import {
     Transform,
     wgslModule,
     wgslResource,
-} from 'clayflow';
-import type { BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec, WgslModule } from 'clayflow';
+} from 'clayflow/web';
+import type {
+    BoundFlow,
+    Frame,
+    StagingBufferSpec,
+    StorageBufferSpec,
+    WgslModule,
+} from 'clayflow/web';
 import { readPool, settle } from './support/extensionScenes';
 import { lcg } from './support/random';
 import { waterLook } from './support/waterScene';

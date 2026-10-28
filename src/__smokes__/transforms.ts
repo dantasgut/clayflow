@@ -24,8 +24,8 @@ import {
     Parent,
     GravityField,
     RigidBody,
-} from 'clayflow';
-import type { StagingBufferSpec, EntityId } from 'clayflow';
+} from 'clayflow/web';
+import type { StagingBufferSpec, EntityId } from 'clayflow/web';
 
 type Vec3 = [number, number, number];
 type Vec4 = [number, number, number, number];

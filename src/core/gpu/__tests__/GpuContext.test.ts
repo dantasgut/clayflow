@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGpuContext } from '../GpuContext';
+import { WebPlatformAdapter } from '../../../platform/web/WebPlatformAdapter';
+
+const web = new WebPlatformAdapter();
 
 const originalGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
 
@@ -26,7 +29,7 @@ afterEach(() => {
 describe('createGpuContext', () => {
     it('solicita timestamp-query e float32-filterable quando o adaptador oferece', async () => {
         const requestDevice = installGpu(['timestamp-query', 'float32-filterable']);
-        await createGpuContext();
+        await createGpuContext(web);
         expect(requestDevice).toHaveBeenCalledWith({
             requiredFeatures: ['timestamp-query', 'float32-filterable'],
             requiredLimits: {},
@@ -35,12 +38,14 @@ describe('createGpuContext', () => {
 
     it('sem a feature, não pede nada além do padrão', async () => {
         const requestDevice = installGpu([]);
-        await createGpuContext();
+        await createGpuContext(web);
         expect(requestDevice).toHaveBeenCalledWith({ requiredFeatures: [], requiredLimits: {} });
     });
 
     it('sem navigator.gpu, mantém o erro atual', async () => {
         Reflect.deleteProperty(navigator, 'gpu');
-        await expect(createGpuContext()).rejects.toThrow('WebGPU not supported in this browser.');
+        await expect(createGpuContext(web)).rejects.toThrow(
+            'WebGPU not supported in this browser.',
+        );
     });
 });

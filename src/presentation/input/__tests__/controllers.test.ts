@@ -13,7 +13,7 @@ import { World } from '../../../scene/world/World';
 import { Input } from '../Input';
 import { InteractionSystem } from '../InteractionSystem';
 import { FlyController } from '../controllers/FlyController';
-import { FpsController } from '../controllers/FpsController';
+import { FpsController } from '../../../platform/web/input/FpsController';
 import { OrbitController } from '../controllers/OrbitController';
 
 function setup() {
@@ -21,12 +21,7 @@ function setup() {
     const world = new World(events);
     const input = new Input();
     world.insert(input);
-    const system = new InteractionSystem(
-        { canvas: document.createElement('canvas'), window: null },
-        events,
-        world,
-        input,
-    );
+    const system = new InteractionSystem([], events, world, input);
     const frame = () => {
         events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
     };

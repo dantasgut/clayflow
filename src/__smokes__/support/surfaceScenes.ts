@@ -1,7 +1,7 @@
 // Apoio do smoke das superfícies paramétricas (spec 010): o vale de teste (função do usuário com fórmula conhecida na
 // CPU), leitura das partículas e do campo de um colisor de volta (só no smoke).
-import type * as Clayflow from 'clayflow';
-import type { Application, EntityId, StructSchema } from 'clayflow';
+import type * as Clayflow from 'clayflow/web';
+import type { Application, EntityId, StructSchema } from 'clayflow/web';
 import { readPool } from './extensionScenes';
 
 type ClayflowLib = typeof Clayflow;

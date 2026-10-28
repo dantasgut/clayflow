@@ -1,15 +1,23 @@
 import { createScene, type SceneContext } from './SceneContext';
-import type { CanvasOptions } from '../core/contracts/index';
+import type { CanvasOptions, PlatformAdapter, PresentationSurface } from '../core/contracts/index';
 
 const defaultScene: SceneContext = createScene();
 
 export interface SceneBootstrapOptions {
-    canvas?: HTMLCanvasElement;
+    /** O adaptador de plataforma (spec 038). */
+    platform: PlatformAdapter;
+    /** A superfície de apresentação. */
+    surface?: PresentationSurface;
     canvasOptions?: CanvasOptions;
 }
 
-export async function bootstrap(options: SceneBootstrapOptions = {}): Promise<void> {
-    await defaultScene.initialize(options.canvas, options.canvasOptions);
+export async function bootstrap(options: SceneBootstrapOptions): Promise<void> {
+    await defaultScene.initialize(
+        options.surface,
+        options.canvasOptions,
+        undefined,
+        options.platform,
+    );
 }
 
 // Singletons da scene default — backwards-compat. Para multi-Application,

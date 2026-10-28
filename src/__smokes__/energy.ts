@@ -18,8 +18,8 @@
 // esperada menos 1.
 //
 // Para rodar: `npm run smoke -- energy`. Resultado: `ENERGY SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, EnergyMeter, GravityField, RigidBody } from 'clayflow';
-import type { StagingBufferSpec } from 'clayflow';
+import { Application, createScene, EnergyMeter, GravityField, RigidBody } from 'clayflow/web';
+import type { StagingBufferSpec } from 'clayflow/web';
 import {
     bodyEnergy,
     dampedEnergyRatio,

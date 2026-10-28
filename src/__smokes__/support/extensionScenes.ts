@@ -1,8 +1,8 @@
 // Apoio do smoke dos pontos de extensão (spec 009): leitura de pools de volta (só no smoke), espera das compilações
 // assíncronas (quadros de duração 0: a cena reconcilia sem avançar o tempo), captura de pixels e as funções WGSL dos
 // exemplos.
-import type * as Clayflow from 'clayflow';
-import type { Application, EntityId, StagingBufferSpec, StructSchema } from 'clayflow';
+import type * as Clayflow from 'clayflow/web';
+import type { Application, EntityId, StagingBufferSpec, StructSchema } from 'clayflow/web';
 
 /** O módulo `clayflow` (os smokes importam o barril público). */
 type ClayflowLib = typeof Clayflow;

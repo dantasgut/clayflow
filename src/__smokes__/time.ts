@@ -9,8 +9,8 @@
 //
 // As poses são lidas direto do pool de corpos na GPU (`LCPSchema`), sem depender do readback assíncrono.
 // Para rodar: `npm run smoke -- time` (servidor do bench). Resultado: `TIME SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, GravityField, RigidBody } from 'clayflow';
-import type { StagingBufferSpec } from 'clayflow';
+import { Application, createScene, GravityField, RigidBody } from 'clayflow/web';
+import type { StagingBufferSpec } from 'clayflow/web';
 
 const BODY_STRIDE_F32 = 40;
 const TOLERANCE_M = 1e-5;

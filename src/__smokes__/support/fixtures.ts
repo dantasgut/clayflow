@@ -1,6 +1,6 @@
 // Fixtures dos smokes: leitura e gravação de arquivos em `src/__smokes__/fixtures/` pelo runner do bench
 // (`npm run smoke -- <nome> [--record]`). O runner expõe `__smokeFixtureRead`/`__smokeFixtureWrite` (base64) à página.
-import type { Application } from 'clayflow';
+import type { Application } from 'clayflow/web';
 
 declare global {
     interface Window {

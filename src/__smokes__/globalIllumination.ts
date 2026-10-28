@@ -28,7 +28,7 @@ import {
     Transform,
     type Application,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { PtImage } from '../elements/lighting/reference/pathTracer';
 import { settle } from './support/extensionScenes';
 import {
@@ -751,7 +751,7 @@ async function softGraphScene(): Promise<void> {
  * referência é o do bench (aquecimento e janela de medida); aqui, a conferência.
  */
 async function budgetScene(): Promise<void> {
-    const lib = await import('clayflow');
+    const lib = await import('clayflow/web');
     /** A cena do orçamento (1 milhão de triângulos animados, sol com sombra e céu) pronta, com ou sem a GI. */
     const open = async (
         gi: boolean,

@@ -1,8 +1,8 @@
 import { Transform } from '../../../elements/scene/Transform';
-import type { Input } from '../Input';
-import { InputDrivenController } from '../InputDrivenController';
-import { startPosition } from './FlyController';
-import { forwardOf, rightOf } from './lookAngles';
+import type { Input } from '../../../presentation/input/Input';
+import { InputDrivenController } from '../../../presentation/input/InputDrivenController';
+import { startPosition } from '../../../presentation/input/controllers/FlyController';
+import { forwardOf, rightOf } from '../../../presentation/input/controllers/lookAngles';
 
 /** Opções do FpsController. */
 export interface FpsControllerOptions {

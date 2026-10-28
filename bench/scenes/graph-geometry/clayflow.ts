@@ -8,7 +8,7 @@ import {
     SetGraph,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
 import { GRAPH_GRID, GRAPH_SIZE } from './scene';

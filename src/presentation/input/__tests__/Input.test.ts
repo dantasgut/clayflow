@@ -3,13 +3,13 @@
  * eventos no barramento (`keyDown`, `pointerMove`, `wheel`, …) e acesso por slot de estágio.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { Application } from '../../app/Application';
+import { Application } from '../../../platform/web/Application';
 import { Input } from '../Input';
 import { createScene } from '../../../scene/SceneContext';
 import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
 import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { KeyboardDevice } from '../KeyboardDevice';
-import { PointerDevice } from '../PointerDevice';
+import { KeyboardDevice } from '../../../platform/web/input/KeyboardDevice';
+import { PointerDevice } from '../../../platform/web/input/PointerDevice';
 
 describe('Input (spec 007)', () => {
     it('a aplicação insere um Input por cena no World; aplicações da mesma cena compartilham', async () => {

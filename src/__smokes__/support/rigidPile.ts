@@ -1,7 +1,7 @@
 // Pilha de corpos rígidos dos smokes de contato (spec 004, `rigidContacts`; spec 007, `contactSet`): recinto estático
 // (chão e quatro paredes) e colunas de esferas e caixas em camadas, com ruído determinístico.
-import { GravityField, RigidBody } from 'clayflow';
-import type { Application } from 'clayflow';
+import { GravityField, RigidBody } from 'clayflow/web';
+import type { Application } from 'clayflow/web';
 import { mulberry32 } from './random';
 
 export const RADIUS = 0.25;

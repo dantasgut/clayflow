@@ -1,5 +1,5 @@
-import type { EventBus } from '../../scene/events/EventBus';
-import type { Input } from './Input';
+import type { EventBus } from '../../../scene/events/EventBus';
+import type { Input } from '../../../presentation/input/Input';
 
 /**
  * Device de mouse/touch unificado (Pointer Events API). Popula `Input.current.pointerX/Y/Buttons/DeltaX/DeltaY/wheel`

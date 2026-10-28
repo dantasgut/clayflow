@@ -20,4 +20,3 @@ export type { Heightmap } from './HeightmapLoader';
 export { AudioLoader } from './AudioLoader';
 export type { LoadedAudio } from './AudioLoader';
 export { FontLoader } from './FontLoader';
-export type { LoadedFont } from './FontLoader';

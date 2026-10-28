@@ -18,13 +18,13 @@ import {
     Transform,
     nodes,
     SurfacePhysics,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     Application,
     MaterialFunction,
     ParticlePhysicsOptions,
     SurfacePhysicsOptions,
-} from 'clayflow';
+} from 'clayflow/web';
 import { materialGraph } from './materialScenes';
 import { rng } from './particleScenes';
 

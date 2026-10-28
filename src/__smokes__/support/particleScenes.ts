@@ -1,7 +1,7 @@
 // Cenas de partículas compartilhadas pelos smokes de física (`trajectories`, `particles`): gerador determinístico,
 // gravidade, chão, tanque e blocos de partículas com jitter — a mesma disposição gravada nas fixtures.
-import { GravityField, ParticlePhysics, RigidBody } from 'clayflow';
-import type { Application } from 'clayflow';
+import { GravityField, ParticlePhysics, RigidBody } from 'clayflow/web';
+import type { Application } from 'clayflow/web';
 import { mulberry32 } from './random';
 
 /** Gerador determinístico das cenas (mulberry32: a sequência de `trajectories`). */

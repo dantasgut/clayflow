@@ -1,8 +1,8 @@
 // Cenas do smoke de comportamento de fluido (spec 030): gota e filete sem gravidade, barragem, menisco no tanque, placa
 // inclinada, gota pousada e barragem MPM — cada uma com o seu `ParticlePhysics` (coesão, adesão, XSPH, viscosidade).
 // Determinísticas (jitter por semente). `decorate` permite desenhar o corpo (vídeos) sem mudar a simulação.
-import { FluidBody, GravityField, ParticlePhysics, RigidBody } from 'clayflow';
-import type { Application, ParticlePhysicsOptions } from 'clayflow';
+import { FluidBody, GravityField, ParticlePhysics, RigidBody } from 'clayflow/web';
+import type { Application, ParticlePhysicsOptions } from 'clayflow/web';
 import { rng } from './particleScenes';
 
 /** Espaçamento das cenas (m). */

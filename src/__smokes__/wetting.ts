@@ -16,8 +16,14 @@
 //     nenhuma célula da parede passa da residual (nada escorre) —, e o tijolo absorve.
 //
 // Para rodar: `npm run smoke -- wetting`. Resultado: `WETTING SMOKE PASSED` ou `FAIL: …`.
-import { Application, Atmosphere, createScene, ParticlePhysics, SurfacePhysics } from 'clayflow';
-import type { StagingBufferSpec, SurfacePhysicsOptions } from 'clayflow';
+import {
+    Application,
+    Atmosphere,
+    createScene,
+    ParticlePhysics,
+    SurfacePhysics,
+} from 'clayflow/web';
+import type { StagingBufferSpec, SurfacePhysicsOptions } from 'clayflow/web';
 import { FluidField, fieldFilmOffset } from '../elements/fields/FluidField';
 import { FIELD_FILM_CELLS, FIELD_FILM_WORDS } from '../elements/fields/schemas';
 import { filmSurfaceTerms, pinnedThickness } from '../elements/physics/wetting/wetting';

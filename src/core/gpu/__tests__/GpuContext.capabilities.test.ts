@@ -3,6 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGpuContext, ENGINE_PORTABLE_LIMITS } from '../GpuContext';
+import { WebPlatformAdapter } from '../../../platform/web/WebPlatformAdapter';
+
+const web = new WebPlatformAdapter();
 
 const originalGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
 
@@ -79,7 +82,7 @@ afterEach(() => {
 describe('createGpuContext — capacidades', () => {
     it('devolve adaptador, features obtidas e limites efetivos do device', async () => {
         installGpu({ features: ['timestamp-query', 'float32-filterable'] });
-        const { capabilities } = await createGpuContext();
+        const { capabilities } = await createGpuContext(web);
         expect(capabilities.adapter).toEqual({
             vendor: 'apple',
             architecture: 'metal-3',
@@ -96,7 +99,7 @@ describe('createGpuContext — capacidades', () => {
 
     it('timestamp-query e float32-filterable pedidos só se disponíveis; ausentes viram missingFeatures', async () => {
         const { requestDevice } = installGpu({ features: [] });
-        const { capabilities } = await createGpuContext();
+        const { capabilities } = await createGpuContext(web);
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredFeatures).toEqual([]);
         expect(capabilities.missingFeatures).toEqual(['timestamp-query', 'float32-filterable']);
@@ -104,13 +107,13 @@ describe('createGpuContext — capacidades', () => {
 
     it('isFallbackAdapter vem do adaptador', async () => {
         installGpu({ isFallbackAdapter: true });
-        const { capabilities } = await createGpuContext();
+        const { capabilities } = await createGpuContext(web);
         expect(capabilities.adapter.isFallbackAdapter).toBe(true);
     });
 
     it('capacidades são congeladas (só dados)', async () => {
         installGpu();
-        const { capabilities } = await createGpuContext();
+        const { capabilities } = await createGpuContext(web);
         expect(Object.isFrozen(capabilities)).toBe(true);
         expect(Object.isFrozen(capabilities.limits)).toBe(true);
     });
@@ -119,27 +122,29 @@ describe('createGpuContext — capacidades', () => {
 describe('createGpuContext — DeviceOptions', () => {
     it('powerPreference é repassada a requestAdapter e ao relatório', async () => {
         const { requestAdapter } = installGpu();
-        const { capabilities } = await createGpuContext({ powerPreference: 'high-performance' });
+        const { capabilities } = await createGpuContext(web, {
+            powerPreference: 'high-performance',
+        });
         expect(requestAdapter).toHaveBeenCalledWith({ powerPreference: 'high-performance' });
         expect(capabilities.powerPreference).toBe('high-performance');
     });
 
     it('sem powerPreference, requestAdapter recebe descritor vazio', async () => {
         const { requestAdapter } = installGpu();
-        await createGpuContext();
+        await createGpuContext(web);
         expect(requestAdapter).toHaveBeenCalledWith({});
     });
 
     it('requiredFeatures indisponível rejeita nomeando a feature', async () => {
         installGpu({ features: ['timestamp-query'] });
-        await expect(createGpuContext({ requiredFeatures: ['shader-f16'] })).rejects.toThrow(
+        await expect(createGpuContext(web, { requiredFeatures: ['shader-f16'] })).rejects.toThrow(
             /shader-f16/,
         );
     });
 
     it('requiredFeatures disponível é pedida', async () => {
         const { requestDevice } = installGpu({ features: ['shader-f16'] });
-        const { capabilities } = await createGpuContext({ requiredFeatures: ['shader-f16'] });
+        const { capabilities } = await createGpuContext(web, { requiredFeatures: ['shader-f16'] });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredFeatures).toContain('shader-f16');
         expect(capabilities.features).toContain('shader-f16');
@@ -147,7 +152,7 @@ describe('createGpuContext — DeviceOptions', () => {
 
     it('optionalFeatures indisponível só aparece em missingFeatures', async () => {
         const { requestDevice } = installGpu({ features: ['timestamp-query'] });
-        const { capabilities } = await createGpuContext({
+        const { capabilities } = await createGpuContext(web, {
             optionalFeatures: ['float32-filterable'],
         });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
@@ -157,7 +162,7 @@ describe('createGpuContext — DeviceOptions', () => {
 
     it('limites de escala no máximo do adaptador; os portáteis no mínimo comum (spec 037), nunca o máximo', async () => {
         const { requestDevice } = installGpu();
-        const { capabilities } = await createGpuContext();
+        const { capabilities } = await createGpuContext(web);
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredLimits).toEqual({
             maxBufferSize: ADAPTER_LIMITS.maxBufferSize,
@@ -175,14 +180,14 @@ describe('createGpuContext — DeviceOptions', () => {
         const { requestDevice } = installGpu({
             limits: { ...ADAPTER_LIMITS, maxStorageBuffersPerShaderStage: 8 },
         });
-        await createGpuContext();
+        await createGpuContext(web);
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(8);
     });
 
     it('o usuário pode pedir acima do portátil (até o adaptador)', async () => {
         const { requestDevice } = installGpu();
-        await createGpuContext({ requiredLimits: { maxStorageBuffersPerShaderStage: 16 } });
+        await createGpuContext(web, { requiredLimits: { maxStorageBuffersPerShaderStage: 16 } });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
         expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(16);
     });
@@ -205,7 +210,7 @@ describe('createGpuContext — DeviceOptions', () => {
 
     it('requiredLimits acima do máximo usa o máximo e registra em clampedLimits', async () => {
         const { requestDevice } = installGpu();
-        const { capabilities } = await createGpuContext({
+        const { capabilities } = await createGpuContext(web, {
             requiredLimits: { maxUniformBufferBindingSize: 1_000_000, maxBindGroups: 4 },
         });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
@@ -219,7 +224,7 @@ describe('createGpuContext — DeviceOptions', () => {
 
     it('limite `min*` pedido abaixo do mínimo do adaptador é ajustado ao adaptador', async () => {
         const { requestDevice } = installGpu();
-        const { capabilities } = await createGpuContext({
+        const { capabilities } = await createGpuContext(web, {
             requiredLimits: { minUniformBufferOffsetAlignment: 64 },
         });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
@@ -231,14 +236,14 @@ describe('createGpuContext — DeviceOptions', () => {
 
     it('limite desconhecido do adaptador lança', async () => {
         installGpu();
-        await expect(createGpuContext({ requiredLimits: { maxNada: 1 } })).rejects.toThrow(
+        await expect(createGpuContext(web, { requiredLimits: { maxNada: 1 } })).rejects.toThrow(
             /maxNada/,
         );
     });
 
     it('limitsCeiling baixa o limite de escala ao piso pedido (validar o piso de outra GPU)', async () => {
         const { requestDevice } = installGpu();
-        const { capabilities } = await createGpuContext({
+        const { capabilities } = await createGpuContext(web, {
             limitsCeiling: { maxStorageBuffersPerShaderStage: 10 },
         });
         const desc = requestDevice.mock.calls[0]![0] as GPUDeviceDescriptor;
@@ -249,7 +254,7 @@ describe('createGpuContext — DeviceOptions', () => {
 
     it('limitsCeiling vence o requiredLimits maior e rejeita limite mínimo ou desconhecido', async () => {
         const { requestDevice } = installGpu();
-        await createGpuContext({
+        await createGpuContext(web, {
             requiredLimits: { maxStorageBuffersPerShaderStage: 20 },
             limitsCeiling: { maxStorageBuffersPerShaderStage: 10 },
         });
@@ -257,9 +262,9 @@ describe('createGpuContext — DeviceOptions', () => {
         expect(desc.requiredLimits?.maxStorageBuffersPerShaderStage).toBe(10);
         installGpu();
         await expect(
-            createGpuContext({ limitsCeiling: { minUniformBufferOffsetAlignment: 512 } }),
+            createGpuContext(web, { limitsCeiling: { minUniformBufferOffsetAlignment: 512 } }),
         ).rejects.toThrow(/mínimo/);
-        await expect(createGpuContext({ limitsCeiling: { maxNada: 1 } })).rejects.toThrow(
+        await expect(createGpuContext(web, { limitsCeiling: { maxNada: 1 } })).rejects.toThrow(
             /maxNada/,
         );
     });

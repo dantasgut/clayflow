@@ -8,7 +8,7 @@ import type { ConsumerResolverRegistry } from '../../../scene/consumers/Consumer
 import { Camera } from '../../../elements/scene/Camera';
 import { Transform } from '../../../elements/scene/Transform';
 import { GravityField } from '../../../elements/physics/forcefields/GravityField';
-import { Application } from '../Application';
+import { Application } from '../../../platform/web/Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),

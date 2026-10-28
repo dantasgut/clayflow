@@ -1,7 +1,7 @@
-import type { UiElement, UiBounds } from './UiElement';
-import { UiButton } from './UiButton';
-import { UiSlider } from './UiSlider';
-import type { UiTree } from './UiTree';
+import type { UiElement, UiBounds } from '../../../presentation/ui/UiElement';
+import { UiButton } from '../../../presentation/ui/UiButton';
+import { UiSlider } from '../../../presentation/ui/UiSlider';
+import type { UiTree } from '../../../presentation/ui/UiTree';
 
 /**
  * Acopla pointer events de um canvas a um UiTree, suportando hover, click, e

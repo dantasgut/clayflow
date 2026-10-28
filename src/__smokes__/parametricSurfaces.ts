@@ -22,9 +22,9 @@ import {
     GravityField,
     Camera,
     Transform,
-} from 'clayflow';
-import * as clayflow from 'clayflow';
-import type { EntityId } from 'clayflow';
+} from 'clayflow/web';
+import * as clayflow from 'clayflow/web';
+import type { EntityId } from 'clayflow/web';
 import { capture, readBuffer, readPool, settle } from './support/extensionScenes';
 import {
     gpuProfile,

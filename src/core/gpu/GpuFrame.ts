@@ -32,8 +32,8 @@ export class GpuFrame implements Frame {
         const surfaceTexture: TextureSpec = {
             kind: CANVAS_TEXTURE_KIND,
             discriminator: CANVAS_TEXTURE_DISCRIMINATOR,
-            width: ctx.canvas?.width ?? 0,
-            height: ctx.canvas?.height ?? 0,
+            width: ctx.surface?.width ?? 0,
+            height: ctx.surface?.height ?? 0,
             format: ctx.canvasFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         };

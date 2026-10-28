@@ -9,8 +9,8 @@
 //   - timeout: um pipeline que nunca compila (a compilação presa à força): `whenReady({ timeoutMs })` rejeita no
 //     prazo, nomeando o Flow, o pipeline e o motivo, sem travar a página.
 // Para rodar: `npm run smoke -- readiness [--query case=lateFog]`. Resultado: `READINESS SMOKE PASSED` ou `FAIL: …`.
-import * as clayflow from 'clayflow';
-import { FogVolume, type Application } from 'clayflow';
+import * as clayflow from 'clayflow/web';
+import { FogVolume, type Application } from 'clayflow/web';
 import { readBuffer } from './support/extensionScenes';
 import { buildGiScene, giApp, windowRoom, type GiScene, type Vec3 } from './support/giScenes';
 import { hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';

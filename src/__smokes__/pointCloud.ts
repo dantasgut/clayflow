@@ -24,7 +24,7 @@ import {
     StructSchema,
     Transform,
     wgslModule,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     ComputeKernel,
     EngineCore,
@@ -35,7 +35,7 @@ import type {
     SlotMap,
     TransitionContext,
     UniformBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 
 const WIDTH = 256;

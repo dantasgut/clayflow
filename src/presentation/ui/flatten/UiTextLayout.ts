@@ -1,4 +1,4 @@
-import type { LoadedFont } from '../../assets/FontLoader';
+import type { LoadedFont } from '../font';
 import type { UiText } from '../UiText';
 import type { UiQuadCpu } from './UiQuadCpu';
 

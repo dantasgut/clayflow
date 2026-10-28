@@ -24,8 +24,8 @@ import {
     ParticlePhysics,
     PBFSchema,
     SPHSchema,
-} from 'clayflow';
-import type { StagingBufferSpec, StructSchema } from 'clayflow';
+} from 'clayflow/web';
+import type { StagingBufferSpec, StructSchema } from 'clayflow/web';
 import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
 import {
     axisRatio,

@@ -27,7 +27,7 @@ import {
     Transform,
     type Application,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import { CAUSTIC_CASES, CAUSTIC_SPHERE, CAUSTIC_SUN, CAUSTIC_WATER } from './support/causticScenes';
 import { settle } from './support/extensionScenes';
 import { readFixture, readJsonFixture, writeFixture } from './support/fixtures';

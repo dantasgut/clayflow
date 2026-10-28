@@ -8,8 +8,8 @@ import {
     NodeGraph,
     nodes,
     Transform,
-} from 'clayflow';
-import type { LobeName } from 'clayflow';
+} from 'clayflow/web';
+import type { LobeName } from 'clayflow/web';
 import { settle } from './extensionScenes';
 import { readHdrTexture, type HdrImage } from './imageMeasures';
 

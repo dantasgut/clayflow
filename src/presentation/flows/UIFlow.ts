@@ -7,7 +7,7 @@ import { RenderFlow } from '../../scene/flows/RenderFlow';
 import { slot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { UiTree } from '../ui/UiTree';
-import type { LoadedFont } from '../assets/FontLoader';
+import type { LoadedFont } from '../ui/font';
 import { UiFlattener } from '../ui/flatten/UiFlattener';
 import { UiTextLayout } from '../ui/flatten/UiTextLayout';
 import { UiGpuPipeline } from '../ui/UiGpuPipeline';
