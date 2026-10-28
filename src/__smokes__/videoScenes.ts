@@ -29,7 +29,8 @@ import {
     windowRoom,
     type Vec3,
 } from './support/giScenes';
-import { materialGraph } from './support/materialScenes';
+import { closureFn, materialGraph } from './support/materialScenes';
+import { CAUSTIC_SPHERE, CAUSTIC_SUN } from './support/causticScenes';
 import { waterScene } from './support/waterScene';
 
 declare global {
@@ -296,6 +297,63 @@ const SHOTS: Record<string, Shot> = {
                 },
             });
             return () => undefined;
+        },
+    },
+    causticasvidro: {
+        frames: 360,
+        build(app) {
+            // As cáusticas da esfera de vidro pelos fótons da GI (spec 034, T067b: o estado medido antes da T067c): a
+            // esfera da US5 sobe e desce de 0,8 a 1,2 vez a distância focal sobre o chão claro, sol a pino.
+            const { radius, ior, focal } = CAUSTIC_SPHERE;
+            buildGiScene(
+                app,
+                {
+                    slabs: [
+                        { id: 1, min: [-2, -0.05, -2], max: [2, 0, 2], color: [0.8, 0.8, 0.8] },
+                    ],
+                    // A cena é linear: o sol mais fraco que o da medida (100 lx) só para caber na exposição padrão.
+                    sun: { direction: [0, -1, 0], illuminance: CAUSTIC_SUN / 40 },
+                    camera: {
+                        position: [0, 0.75, 0.95],
+                        target: [0, 0.05, 0],
+                        fovY: (40 * Math.PI) / 180,
+                    },
+                    probeCenter: [0, 0.5, 0],
+                    probeSpacing: 0.16,
+                    regions: new Map([[1, 'chão']]),
+                },
+                W / H,
+            );
+            const place = new clayflow.Transform({ position: [0, focal, 0, 1] });
+            app.world.insert(
+                new clayflow.SphereGeometry({ radius, latSegments: 96, lonSegments: 192 })
+                    .add(new clayflow.StandardMaterial())
+                    .add(place)
+                    .add(
+                        closureFn(
+                            `return closure_add(
+        closure_dielectric(data.ior, vec3f(1.0), 0.0, 0.0, vec3f(0.0)),
+        closure_transmission(data.ior, vec3f(1.0), 0.0, 0.0, 0.0),
+    );`,
+                            ['specular', 'transmission'],
+                            { ior: 'f32' },
+                            { ior },
+                        ),
+                    ),
+            );
+            app.world.insert(
+                new GlobalIllumination({
+                    quality: 'high',
+                    bounces: 1,
+                    probeSpacing: 0.16,
+                    cascades: 1,
+                    center: [0, 0.5, 0],
+                }),
+            );
+            return (i) => {
+                const h = focal * (1 + 0.2 * Math.sin((2 * Math.PI * i) / 360));
+                place.data.position = [0, h, 0, 1];
+            };
         },
     },
     causticas: {

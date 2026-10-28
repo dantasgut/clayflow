@@ -272,3 +272,31 @@ mais a medida das manchas (spec, Contexto). Das tentativas anteriores entram só
   despacho do traçado pelos argumentos indiretos (`CountToArgs`).
 - **Composição**: um passe depois do `RefractionFlow` escreve a radiância e a profundidade da primeira interface (os
   passes seguintes, como a água, veem o vidro à frente); a água pelo traçado é a T065.
+
+### R14 — Cáusticas: o caminho escolhido (T067b, 2026-10-27)
+
+- **Decisão**: fótons traçados a partir da luz — o traçador dos fótons da GI (`gi_photon_*`) como base, refeito na
+  T067c pelo modelo da referência da CPU (`lightTrace`, T067a). O splat pela vista da luz (`CausticsFlow`, retirado na
+  T066) não volta.
+- **Medido contra a referência** (smoke `caustics`, caso `gi`; esfera de vidro da US5, sol a pino, 100 lx; a
+  referência com 16 milhões de estratos por cena, ruído ≤ 0,6 % por célula):
+  - fótons da GI, sondas a 0,16 m (células de 1 cm), esfera a 0,8/1/1,2 f: o fluxo dentro da sombra da esfera a
+    0,53/0,52/0,52 × o da referência, o pico a 56,6/41,6/8,5 × o chão aceso contra 103,6/85,6/18,1 ×, o erro do
+    padrão na sombra (L1 relativo) 48 %, a variação em 10 quadros 0,1–0,3 %, o custo 12 ms por quadro (22 ms com a
+    esfera de 96 × 192 segmentos — a mesma medida: não é a facetagem); o hash guarda 94 % do fluxo que entra na esfera,
+    então metade do que deveria cair na sombra cai fora dela (a causa fica para a T067c, com este caso como porta);
+  - fótons da GI com células de 5 mm (sondas a 0,08 m): os reflexos da esfera espalhados pelo chão de 4 × 4 m ocupam
+    mais de ¾ dos 524 288 baldes, o hash recomeça a cada ciclo e a cáustica fica em 6,7 % — a resolução fina não cabe
+    no hash em mundo;
+  - fótons da GI na água: param nela (`if (water.hit) return`) — nenhuma cáustica;
+  - splat pela vista da luz (no `ce8a67a6`, smoke `fluidSurface`): só água; a água parada varia 4,2 % com ele e 4,4 %
+    sem ele (não faz padrão), a agitada 1,29× / 0,78× (abaixo do próprio critério de 1,3×), 12,7 ms com a barragem;
+    não serve o vidro.
+- **Por quê**: só o traçado a partir da luz serve vidro e água no mesmo transporte, com o mesmo fechamento do grafo
+  (Fresnel, IOR, Abbe, absorção) — é o que a referência faz e o que ela confere. O splat dependia da superfície da água
+  vista pela luz e de uma interface só.
+- **O que a T067c corrige, com a referência como porta**: o fluxo na sombra e o pico (≤ 5 % no fluxo, SC-007); o
+  Fresnel exato no lugar do de Schlick; a dispersão por fótons de um canal cada, sem sorteio (o da referência); a
+  travessia da água pela superfície do campo e o fechamento do corpo (Beer–Lambert, o espalhamento no meio); a
+  guarda dos fótons sem o colapso do hash na resolução fina; o custo (hoje 12–22 ms contra o orçamento da GI de
+  3,67 ms).

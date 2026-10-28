@@ -260,9 +260,10 @@ export default tseslint.config(
         },
     },
 
-    // Smokes de navegador: compilados com o projeto do bench (importam o barrel público `clayflow`).
+    // Smokes de navegador: compilados com o projeto do bench (importam o barrel público `clayflow`); os scripts de
+    // desenvolvimento (`scripts/`, Node) pelo mesmo projeto.
     {
-        files: ['src/__smokes__/**/*.ts'],
+        files: ['src/__smokes__/**/*.ts', 'scripts/**/*.ts'],
         languageOptions: {
             parserOptions: {
                 project: './bench/tsconfig.json',
