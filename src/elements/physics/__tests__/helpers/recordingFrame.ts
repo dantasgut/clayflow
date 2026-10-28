@@ -1,6 +1,9 @@
 import type { Frame } from '../../../../scene/contracts/gpu';
 
-/** Passe de computação gravado: rótulo, offsets dinâmicos de cada `setBindGroup` e despachos. */
+/**
+ * Trecho de computação gravado: um passe, ou dentro dele cada trecho aberto por `marker` (os despachos de um passe
+ * com vários kernels) — rótulo, offsets dinâmicos de cada `setBindGroup` e despachos.
+ */
 export interface RecordedPass {
     readonly label: string;
     readonly offsets: readonly (readonly number[] | undefined)[];
@@ -22,32 +25,44 @@ export function recordingFrame(): {
     const state = { copies: 0 };
     const frame = {
         compute: (label: string, body: (pass: unknown) => void) => {
-            const offsets: (readonly number[] | undefined)[] = [];
-            const dispatches: (readonly number[])[] = [];
+            let current = {
+                label,
+                offsets: [] as (readonly number[] | undefined)[],
+                dispatches: [] as (readonly number[])[],
+            };
+            const segments = [current];
             const bind = {
                 setPipeline: () => bind,
                 setBindGroup: (_i: number, _bg: unknown, dyn?: readonly number[]) => {
-                    offsets.push(dyn);
+                    current.offsets.push(dyn);
                     return bind;
                 },
             };
             const dispatch = {
                 workgroups: (...args: number[]) => {
-                    dispatches.push(args);
+                    current.dispatches.push(args);
                     return dispatch;
                 },
                 invocations: (...args: number[]) => {
-                    dispatches.push(args);
+                    current.dispatches.push(args);
                     return dispatch;
                 },
                 workgroupsIndirect: (_spec: unknown, offset?: number) => {
-                    dispatches.push([-1, offset ?? 0]);
+                    current.dispatches.push([-1, offset ?? 0]);
                     return dispatch;
                 },
             };
-            body({ bind, dispatch });
-            passes.push({ label, offsets, dispatches });
-            sequence.push(`pass:${label}`);
+            const marker = (name: string): void => {
+                current = { label: name, offsets: [], dispatches: [] };
+                segments.push(current);
+            };
+            body({ bind, dispatch, marker });
+            // O passe só conta pelo próprio rótulo quando despacha antes do primeiro marcador.
+            for (const [k, seg] of segments.entries()) {
+                if (k === 0 && segments.length > 1 && seg.dispatches.length === 0) continue;
+                passes.push(seg);
+                sequence.push(`pass:${seg.label}`);
+            }
         },
         copy: () => {
             state.copies++;

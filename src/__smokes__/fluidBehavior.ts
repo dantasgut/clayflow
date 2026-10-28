@@ -295,7 +295,9 @@ const CASES: Record<string, Case> = {
                     r.p.pos[3 * i + 1]!,
                     r.p.pos[3 * i + 2]!,
                 ];
-                if (plateDistance(q) < H_SPH && Math.abs(plateCoordinate(q)) < 0.9) stuck++;
+                // Sobre a face da placa (distância ≥ 0): o que caiu no chão embaixo dela não está aderido.
+                const d = plateDistance(q);
+                if (d >= 0 && d < H_SPH && Math.abs(plateCoordinate(q)) < 0.9) stuck++;
             }
             return { arrival, stuck };
         };

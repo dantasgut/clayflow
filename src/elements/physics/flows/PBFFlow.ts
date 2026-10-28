@@ -1,4 +1,9 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type {
+    ComputePass,
+    EngineCore,
+    Frame,
+    StorageBufferSpec,
+} from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
@@ -32,6 +37,7 @@ import { ParticlePhysics, type SurfaceStep } from '../ParticlePhysics';
 import { PBFSimParamsSchema } from '../schemas/simParams';
 import {
     pbfApply,
+    pbfBoundary,
     pbfCollision,
     pbfDensityLambda,
     pbfPositionCorrect,
@@ -41,6 +47,8 @@ import {
     pbfXsph,
     pbfResources,
 } from '../shaders/pbf';
+import { FLUID_BOUNDARY_POLY6 } from '../../gpu/shaders/math';
+import { PBFSchema } from '../bodies/schemas/PBFSchema';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Expoente n do `s_corr`. */
@@ -121,6 +129,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     private readonly delta: StorageBufferSpec;
     /** (nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (vec4f; spec 030). */
     private readonly normals: StorageBufferSpec;
+    /** Fronteira sólida por partícula (vec4f: Σ −B' n, Σ B; spec 034). */
+    private readonly boundary: StorageBufferSpec;
     /** Materiais já avisados de coesão/adesão grampeadas. */
     private readonly warnedClamp = new WeakSet<ParticlePhysics>();
     private neighborSearch: NeighborSearchPipeline;
@@ -157,6 +167,12 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             discriminator: 'pbf_normal',
             byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
+        this.boundary = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'pbf_boundary',
+            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
+        });
         const grid = gridOf(ParticlePhysics.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
@@ -166,6 +182,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             [pbfResources.deltaRead, this.delta],
             [pbfResources.normal, this.normals],
             [pbfResources.normalRead, this.normals],
+            [pbfResources.boundary, this.boundary],
+            [pbfResources.boundaryRead, this.boundary],
             ...this.neighborSources(),
         ]);
         const compute = (
@@ -180,6 +198,10 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         });
         this.pipelines = [
             compute('pbf_predict', pbfPredict, 'pbf_predict_main'),
+            {
+                ...compute('pbf_boundary', pbfBoundary, 'pbf_boundary_main'),
+                constants: FLUID_BOUNDARY_POLY6,
+            },
             compute('pbf_density_lambda', pbfDensityLambda, 'pbf_density_lambda_main'),
             compute('pbf_position_correct', pbfPositionCorrect, 'pbf_position_correct_main'),
             compute('pbf_apply_position', pbfApply, 'pbf_apply_position_main'),
@@ -227,6 +249,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         if (this.iterations === 0 || count === 0) return;
         const p = (id: string): PreparedCompute => bound.compute(id);
         const predict = p('pbf_predict');
+        const boundary = p('pbf_boundary');
         const densityLambda = p('pbf_density_lambda');
         const positionCorrect = p('pbf_position_correct');
         const applyPosition = p('pbf_apply_position');
@@ -235,29 +258,37 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         const vorticity = p('pbf_vorticity');
         const xsph = p('pbf_xsph');
         const applyVelocity = p('pbf_apply_velocity');
-        const run = (label: string, k: PreparedCompute, offset: number[]): void => {
-            frame.compute(label, (pass) => {
-                pass.bind.setPipeline(k.spec);
-                k.bindTo(pass.bind, { draw: offset });
-                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
-            });
+        // Cada passe aberto custa mais que um despacho destas partículas: a iteração inteira vai no passe da busca de
+        // vizinhos (dentro do passe, cada despacho vê o que o anterior escreveu).
+        const run = (
+            pass: ComputePass,
+            k: PreparedCompute,
+            offset: number[],
+            label: string,
+        ): void => {
+            pass.marker(label);
+            pass.bind.setPipeline(k.spec);
+            k.bindTo(pass.bind, { draw: offset });
+            pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
         };
         for (let i = 0; i < this.iterations; i++) {
             const offset = [this.params.offset(i)];
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
-            this.neighborSearch.rebuild(frame, count);
-            run('PBFFlow.predict', predict, offset);
-            // Colisão dentro do laço do solver: cada projeção de densidade é seguida da projeção nos colliders.
-            for (let it = 0; it < this.solverIters; it++) {
-                run('PBFFlow.density_lambda', densityLambda, offset);
-                run('PBFFlow.position_correct', positionCorrect, offset);
-                run('PBFFlow.apply_position', applyPosition, offset);
-                run('PBFFlow.collision', collision, offset);
-            }
-            run('PBFFlow.velocity_update', velocityUpdate, offset);
-            run('PBFFlow.vorticity', vorticity, offset);
-            run('PBFFlow.xsph', xsph, offset);
-            run('PBFFlow.apply_velocity', applyVelocity, offset);
+            this.neighborSearch.rebuild(frame, count, (pass) => {
+                run(pass, predict, offset, 'PBFFlow.predict');
+                // Colisão dentro do laço do solver: cada projeção de densidade é seguida da projeção nos colliders.
+                for (let it = 0; it < this.solverIters; it++) {
+                    run(pass, boundary, offset, 'PBFFlow.boundary');
+                    run(pass, densityLambda, offset, 'PBFFlow.density_lambda');
+                    run(pass, positionCorrect, offset, 'PBFFlow.position_correct');
+                    run(pass, applyPosition, offset, 'PBFFlow.apply_position');
+                    run(pass, collision, offset, 'PBFFlow.collision');
+                }
+                run(pass, velocityUpdate, offset, 'PBFFlow.velocity_update');
+                run(pass, vorticity, offset, 'PBFFlow.vorticity');
+                run(pass, xsph, offset, 'PBFFlow.xsph');
+                run(pass, applyVelocity, offset, 'PBFFlow.apply_velocity');
+            });
         }
     }
 
@@ -266,6 +297,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         this.params.dispose();
         this.core.destroy(this.delta);
         this.core.destroy(this.normals);
+        this.core.destroy(this.boundary);
         this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
@@ -279,10 +311,11 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             discriminator: `pbf:gen${this.neighborGeneration++}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: this.maxNeighbors,
-            particleStrideF32: 16,
+            particleStrideF32: PBFSchema.stride / 4,
             cellSize: grid.cellSize,
             gridDim: grid.gridDim,
             origin: grid.origin,
+            byRank: true,
         });
         ns.allocate();
         return ns;
@@ -292,6 +325,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         return new Map<WgslResource, BindingSource>([
             [pbfResources.neighborList, this.neighborSearch.neighborList!],
             [pbfResources.neighborCount, this.neighborSearch.neighborCount!],
+            [pbfResources.neighborOrder, this.neighborSearch.neighborOrder!],
         ]);
     }
 
@@ -360,6 +394,13 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 max_neighbors: this.maxNeighbors,
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: physics.restitution,
+                wet_neighbors:
+                    physics.contactAngle < 90 && physics.slidingAngle > 0
+                        ? ParticlePhysics.WET_NEIGHBORS
+                        : 0,
+                wet_pinning:
+                    Math.hypot(accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0)
+                    * Math.sin((physics.slidingAngle * Math.PI) / 180),
                 collision_radius: physics.particleSpacing / 2,
                 bound_min: physics.domainMin,
                 bound_max: physics.domainMax,

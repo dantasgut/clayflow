@@ -110,8 +110,9 @@ interface DrawnBody {
  *
  * Desenha depois do forward, na cor e na profundidade da cena (`loadOp: 'load'`), com teste e escrita de profundidade:
  * partículas e geometrias se ocultam. Os parâmetros são escritos quando um corpo entra ou sai; os pools são religados
- * quando crescem (detectado em `framePrepare`). Corpos com `FluidSurfaceMaterial` são da superfície de água (spec 017);
- * com outro material ficam fora, com aviso único.
+ * quando crescem (detectado em `framePrepare`). Corpos de fluido sem material de desenho (a aparência pela função
+ * `material`, spec 034) são da superfície do campo dos fluidos e não entram aqui; com outro material ficam fora, com
+ * aviso único.
  */
 export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     readonly type = 'ParticleFlow';

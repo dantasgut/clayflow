@@ -6,13 +6,14 @@ fn pbf_vorticity_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
-    let i = gid.x;
-    if (i >= pbf_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
+    // Na ordem por célula: o posto `t` (a lista e a contagem de vizinhos) e a partícula `i` dele.
+    let t = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let i = neighbor_particle(t, pbf_params.particle_count);
+    if (i == NONE) { return; }
 
     let h        = pbf_params.h;
     let max_nb   = pbf_params.max_neighbors;
-    let nb_count = neighbor_count[i];
+    let nb_count = neighbor_count[t];
     let xi  = particles[i].pos.xyz;
     let vi  = particles[i].vel.xyz;
 
@@ -20,7 +21,7 @@ fn pbf_vorticity_main(
     var omega = vec3f(0.0);
 
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-        let j  = neighbor_list[k * pbf_params.neighbor_stride + i];
+        let j  = neighbor_list[k * pbf_params.neighbor_stride + t];
         let xj = particles[j].pos.xyz;
         let vj = particles[j].vel.xyz;
         let dv = xi - xj;
@@ -40,7 +41,7 @@ fn pbf_vorticity_main(
         var n   = vec3f(0.0);
         var rho = pbf_params.particle_mass * W_poly6(0.0, h);
         for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-            let j  = neighbor_list[k * pbf_params.neighbor_stride + i];
+            let j  = neighbor_list[k * pbf_params.neighbor_stride + t];
             let dv = xi - particles[j].pos.xyz;
             let r  = length(dv);
             n   += pbf_params.mass_over_density * grad_W_spiky(dv, r, h);

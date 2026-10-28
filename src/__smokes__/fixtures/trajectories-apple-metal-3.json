@@ -71,7 +71,7 @@
       "name": "sph",
       "pool": "SPHSchema",
       "count": 1000,
-      "stride": 64,
+      "stride": 80,
       "offset": 205984,
       "fields": {
         "pos": 0,
@@ -84,8 +84,8 @@
       "name": "pbf",
       "pool": "PBFSchema",
       "count": 1000,
-      "stride": 64,
-      "offset": 269984,
+      "stride": 80,
+      "offset": 285984,
       "fields": {
         "pos": 0,
         "vel": 16

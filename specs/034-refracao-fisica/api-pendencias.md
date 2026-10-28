@@ -44,6 +44,25 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
   `MPMFlow`, `DiffuseFlow`, `SoftEnergyFlow`; `particlePhysics` no `FluidFieldFlow`) e consumidor `physics`. Continua Resource: o dado que os Flows da
   simulação leem. Sem apelido do nome antigo: a troca quebra a compatibilidade da API (quem usa o motor troca o nome).
 
+## 6. Retirada do `FluidSurfaceMaterial` (T066)
+
+- **Até 2026-10-27**: a água dos corpos de partículas era o `FluidSurfaceMaterial` (spec 017), um material próprio com
+  parâmetros paralelos aos do dielétrico, desenhado por estágios próprios (a composição na tela e as cáusticas da 017).
+- **Resolvido em 2026-10-27 (decisão do usuário de 2026-10-25: água e vidro são o mesmo tipo de material)**: a água é
+  um `FluidBody` com uma função `material` (o grafo) e sem material de desenho; o campo dos fluidos dá a superfície e a
+  refração a traça como o vidro. Sem apelido — quebra a compatibilidade da API. Saíram: `FluidSurfaceMaterial`
+  (`FluidSurfaceMaterialData`, `FluidSurfaceMaterialOptions`), `WaterSurface` (`WaterSurfaceOptions`), `WaterFlow`,
+  `FluidFieldPassFlow`, `CausticsFlow` (e os tipos de slots e opções deles) e `defaults.flows.fluidSurface`,
+  `fluidLightSurface`, `caustics` e `water`.
+- **Correspondência dos parâmetros** (o grafo: `bsdf.dielectric` + `bsdf.transmission` somados por `closure.add`):
+  `ior` → o `ior` dos dois nós; `abbe` → `bsdf.transmission.abbe`; `absorption` (por metro) →
+  `bsdf.transmission.color` = exp(−absorção) com `depth` 1; `roughness` → `bsdf.dielectric.roughness`;
+  `rippleStrength`/`rippleSize`/`rippleSpeed` → o nó `surface.ripple` (`strength`, `size`, `speed`) ligado ao
+  `closure.normal`; `caustics`/`causticIntensity` → a chave e a intensidade das cáusticas unificadas no recurso de
+  transporte de luz (T067c, ainda não existe: até lá a água não tem cáusticas); `color` (o espalhamento interno) → o
+  meio do grafo com espalhamento (T067c). Sem sucessor (a física e o traçado dão o efeito): `thicknessScale`,
+  `refraction`, `particleRadius`, `smoothingRadius`, `depthThreshold`, `ambient`, `reflectivity`, `shininess`.
+
 ## Terminologia nas mensagens e na documentação
 
 "Material" fica reservado para a aparência (o grafo de fechamentos: cor, reflexo, rugosidade, transmissão,

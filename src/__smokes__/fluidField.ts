@@ -1,28 +1,31 @@
 // Spec 033 — Smoke do campo dos fluidos (US7, R11; SC-013).
 //
-// A superfície dos corpos de partículas com `FluidSurfaceMaterial` é um campo de distância com sinal construído na GPU
+// A superfície dos corpos de fluido (a aparência pelo grafo, spec 034 T066) é um campo de distância com sinal construído na GPU
 // a cada quadro e desenhado por marcha. Casos (limiares documentados aqui e nas notas do US7 em `tasks.md`; `p` é o
 // espaçamento das partículas em pixels na distância medida):
 //   - gpu: o campo da GPU (blocos esparsos, voxels com a borda) igual ao da referência de CPU (`fields/reference/field`)
 //     nas mesmas partículas paradas: φ nos voxels da faixa (|φ| < 2 voxels) com erro ≤ ¼ voxel no percentil 95 e
 //     ≤ 1 voxel no máximo; nenhum NaN; blocos dentro da capacidade;
 //   - drops: gotas separadas por 2 e 4 espaçamentos não se fundem (φ > 0 em todo o vão);
-//   - rays: os raios atingem a mesma superfície — a profundidade da câmera e o ponto `ray_volume_hit` (composto pela C2
-//     num estágio de consulta) contra a marcha da referência: erro ≤ ½ espaçamento em 99 % dos raios;
+//   - rays: os raios atingem a mesma superfície — a distância que a câmera pede à refração (spec 034, T065f: a água vista
+//     pela câmera é achada pelos raios) e o ponto `ray_volume_hit` (composto pela C2 num estágio de consulta) contra a
+//     marcha da referência: erro ≤ ½ espaçamento em 99 % dos raios;
 //   - close: o tanque com água parada de perto (p ≥ 20 px): a silhueta da borda contra a parede tem ondulação RMS na
 //     escala das partículas (períodos de ½p a 2p) ≤ 0,008 p (sem semicírculos; a versão da 017 dá 0,018 p); com a resolução dobrada, igual (em p);
-//   - normal: a água parada vista de cima de perto: a normal da superfície tem amplitude RMS na escala das partículas
-//     ≤ 0,01 (sem favo de mel); a luminância da imagem, ≤ 0,004;
+//   - normal: a água parada vista de cima de perto: a normal da superfície que os raios da câmera acham (o ponto
+//     `ray_volume_hit`, o mesmo do traçado) tem amplitude RMS na escala das partículas ≤ 0,01 (sem favo de mel); a
+//     luminância da imagem, ≤ 0,004;
 //   - edge: o realce da borda da frente é contínuo (≤ 5 % dos pixels de brilho isolados);
 //   - volume: a barragem em movimento: o volume do campo a ±5 % do das partículas (N · espaçamento³) em 4 quadros;
 //   - caustics: a placa de água parada sobre o fundo: a borda da sombra e das cáusticas no fundo sem ondulação na
 //     escala das partículas (RMS ≤ 0,05 p) e o padrão sem blocos (≤ 2 % de degraus entre vizinhos acima de 0,06);
-//   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água em ≥ 95 % dos pixels;
-//   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — um `FluidBody` com a função `material` (o
-//     dielétrico de IOR 1,4 e a transmissão com a cor 0,5 + 0,25·n pela normal do ponto, a 2 m) e outro com o
-//     `FluidSurfaceMaterial` padrão; por raios contra cada um, o fechamento `ray_volume_closure` (o ponto `ray_volume_surface` composto pela C2 com as
-//     funções `material` dos acertos) dá o fechamento do grafo no ponto e na normal do acerto e o do material de água
-//     (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m), a 1e-5 (a precisão de f32 das contas); o
+//   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água (o pedido da refração
+//     pela superfície dela) em ≥ 95 % dos pixels;
+//   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — dois `FluidBody` com a função `material`:
+//     o dielétrico de IOR 1,4 com a transmissão de cor 0,5 + 0,25·n pela normal do ponto, a 2 m, e a água da cena dos
+//     smokes (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m); por raios contra cada um, o fechamento
+//     `ray_volume_closure` (o ponto `ray_volume_surface` composto pela C2 com as funções `material` dos acertos) dá o
+//     fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
 //     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do fechamento na corda — |Δ ln T| ≤ σ · 1 voxel
 //     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
 //   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
@@ -39,7 +42,6 @@ import {
     FluidBody,
     FluidField,
     fieldDataLayout,
-    FluidSurfaceMaterial,
     ParticlePhysics,
     PlaneGeometry,
     rayVolumeMaterial,
@@ -51,13 +53,11 @@ import {
     slot,
     StandardMaterial,
     Transform,
-    WaterSurface,
     wgslModule,
     wgslResource,
 } from 'clayflow';
 import type {
     BoundFlow,
-    FluidSurfaceMaterialOptions,
     FlowTransitions,
     Frame,
     PipelineDescriptor,
@@ -65,7 +65,6 @@ import type {
     WgslModule,
     StagingBufferSpec,
     StorageBufferSpec,
-    TextureSpec,
 } from 'clayflow';
 import {
     buildField,
@@ -75,7 +74,6 @@ import {
     type Vec3,
 } from '../elements/fields/reference/field';
 import { nextGpuFrame } from './support/extensionScenes';
-import { readHdrTexture } from './support/imageMeasures';
 import {
     bandAmplitude,
     isolatedHighlights,
@@ -83,7 +81,13 @@ import {
     silhouetteRows,
     type Rect,
 } from './support/spectralMeasures';
-import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
+import {
+    WATER_SPACING,
+    waterLook,
+    waterScene,
+    type WaterLook,
+    type WaterSceneOptions,
+} from './support/waterScene';
 import { lumaSrgb8 } from './support/images';
 import { lcg } from './support/random';
 import { queryRays, queryVolumeHits } from './support/volumeQuery';
@@ -223,11 +227,11 @@ function staticBody(
     app: Application,
     positions: readonly number[],
     spacing: number,
-    material: FluidSurfaceMaterialOptions = {},
+    look: WaterLook = {},
 ): void {
     app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     const body = new FluidBody({ algorithm: 'SPH', position: [...positions] });
-    body.add(new FluidSurfaceMaterial(material));
+    body.add(waterLook(look));
     app.world.insert(body);
 }
 
@@ -257,12 +261,6 @@ function fieldOf(app: Application): FluidField {
     return field;
 }
 
-function waterOf(app: Application): WaterSurface {
-    const water = app.world.findResource(WaterSurface.schema, WaterSurface);
-    if (water === undefined) throw new Error('sem WaterSurface na cena');
-    return water;
-}
-
 async function readSpec(
     app: Application,
     spec: { readonly byteSize: number },
@@ -290,19 +288,23 @@ async function read(app: Application, descId: string): Promise<ArrayBuffer> {
 }
 
 /** Lê uma textura de 32 bits por texel (`r32float`/`r32uint`) de volta. */
-async function readR32(
-    app: Application,
-    texture: TextureSpec,
-): Promise<{ data: ArrayBuffer; stride: number }> {
+/**
+ * O pedido da refração do último quadro (spec 034, T065f): por pixel, a distância da câmera até a interface mais
+ * próxima (a superfície da água, sem vidro nestas cenas) e as marcas (bit 0: há pedido) — o que a câmera vê da água,
+ * achado pelo ponto `ray_volume_hit` como os raios do traçado.
+ */
+async function readRequest(app: Application): Promise<{ words: Uint32Array; stride: number }> {
+    const texture = app.resources.textureOf(app.defaults.refraction, 'request');
+    if (texture === undefined) throw new Error('pedido da refração não alocado');
     const { width, height } = texture;
-    const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+    const bytesPerRow = Math.ceil((width * 8) / 256) * 256;
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
         subkind: 'staging',
-        discriminator: `fluid_field_r32_${width}x${height}`,
+        discriminator: `fluid_field_request_${width}x${height}`,
         byteSize: bytesPerRow * height,
     });
-    app.core.record('fluid-field-texture', (frame) => {
+    app.core.record('fluid-field-request', (frame) => {
         frame.copyTextureToBuffer(texture, staging, { bytesPerRow, rowsPerImage: height }, [
             width,
             height,
@@ -311,7 +313,36 @@ async function readR32(
     app.core.submit();
     const data = await app.core.readback(staging);
     app.core.destroy(staging);
-    return { data, stride: bytesPerRow / 4 };
+    return { words: new Uint32Array(data), stride: bytesPerRow / 4 };
+}
+
+/** O raio (unitário) do centro do pixel (px, py) da câmera de 45° em `eye` olhando `target`, com o y para cima. */
+function pixelRay(
+    eye: Vec3,
+    target: Vec3,
+    width: number,
+    height: number,
+): (px: number, py: number) => Vec3 {
+    const tanY = Math.tan(Math.PI / 8);
+    const tanX = tanY * (width / height);
+    const fwd = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+    const fl = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
+    const ahead: Vec3 = [fwd[0]! / fl, fwd[1]! / fl, fwd[2]! / fl];
+    const rr = [-ahead[2], 0, ahead[0]];
+    const rl = Math.hypot(rr[0]!, rr[2]!);
+    const right: Vec3 = [rr[0]! / rl, 0, rr[2]! / rl];
+    const up: Vec3 = [
+        right[1] * ahead[2] - right[2] * ahead[1],
+        right[2] * ahead[0] - right[0] * ahead[2],
+        right[0] * ahead[1] - right[1] * ahead[0],
+    ];
+    return (px, py) => {
+        const nx = ((px + 0.5) / width) * 2 - 1;
+        const ny = 1 - ((py + 0.5) / height) * 2;
+        const d = [0, 1, 2].map((k) => ahead[k]! + right[k]! * nx * tanX + up[k]! * ny * tanY);
+        const dl = Math.hypot(d[0]!, d[1]!, d[2]!);
+        return [d[0]! / dl, d[1]! / dl, d[2]! / dl];
+    };
 }
 
 /** O campo da GPU lido de volta: blocos e voxels, com φ trilinear num ponto de mundo. */
@@ -484,7 +515,7 @@ async function caseRays(): Promise<void> {
     const H = 400;
     const s = await session(W, H);
     staticStage(s.app, W, H, BALL_EYE, BALL_TARGET);
-    staticBody(s.app, positions, SPACING, { rippleStrength: 0 });
+    staticBody(s.app, positions, SPACING, { ripple: false });
     // Raios para a bola grande, de fora, em direções variadas.
     const count = 256;
     const r = lcg(29);
@@ -533,61 +564,34 @@ async function caseRays(): Promise<void> {
         p99 <= half,
         `rays: ray_volume_hit a ${(p99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
     );
-    // A profundidade que a câmera escreveu na superfície da água contra a marcha da referência pelo mesmo pixel.
-    const depth = await readR32(s.app, s.app.resources.textureOf(waterOf(s.app), 'depth')!);
-    const z = new Float32Array(depth.data);
-    const tanY = Math.tan(Math.PI / 8);
-    const tanX = tanY * (W / H);
-    const fwd = [
-        BALL_TARGET[0] - BALL_EYE[0],
-        BALL_TARGET[1] - BALL_EYE[1],
-        BALL_TARGET[2] - BALL_EYE[2],
-    ];
-    const fl = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
-    const ahead: Vec3 = [fwd[0]! / fl, fwd[1]! / fl, fwd[2]! / fl];
-    const right: Vec3 = (() => {
-        const rr = [-ahead[2], 0, ahead[0]];
-        const l = Math.hypot(rr[0]!, rr[2]!);
-        return [rr[0]! / l, 0, rr[2]! / l];
-    })();
-    const up: Vec3 = [
-        right[1] * ahead[2] - right[2] * ahead[1],
-        right[2] * ahead[0] - right[0] * ahead[2],
-        right[0] * ahead[1] - right[1] * ahead[0],
-    ];
+    // A distância que a câmera pede à refração (a superfície achada pelos raios dela) contra a marcha da referência
+    // pelo mesmo pixel.
+    const request = await readRequest(s.app);
+    const distance = new Float32Array(request.words.buffer);
+    const ray = pixelRay(BALL_EYE, BALL_TARGET, W, H);
     const depthErrors: number[] = [];
     for (let py = 4; py < H; py += 8)
         for (let px = 4; px < W; px += 8) {
-            const zg = z[py * depth.stride + px]!;
-            if (!(zg < 1e5)) continue;
-            const nx = ((px + 0.5) / W) * 2 - 1;
-            const ny = 1 - ((py + 0.5) / H) * 2;
-            const d = [0, 1, 2].map((k) => ahead[k]! + right[k]! * nx * tanX + up[k]! * ny * tanY);
-            const dl = Math.hypot(d[0]!, d[1]!, d[2]!);
-            const dir: Vec3 = [d[0]! / dl, d[1]! / dl, d[2]! / dl];
-            const ref = marchField(grid, BALL_EYE, dir, 5);
+            const k = py * request.stride + 2 * px;
+            if ((request.words[k + 1]! & 1) === 0) continue;
+            const ref = marchField(grid, BALL_EYE, ray(px, py), 5);
             if (ref === null) continue;
-            depthErrors.push(Math.abs(zg - ref.t / dl));
+            depthErrors.push(Math.abs(distance[k]! - ref.t));
         }
     depthErrors.sort((a, b) => a - b);
     const dp99 = depthErrors[Math.floor(0.99 * (depthErrors.length - 1))] ?? Infinity;
     log(
-        `rays: profundidade da câmera em ${depthErrors.length} pixels, erro p99 ${(dp99 / SPACING).toFixed(3)} espaçamento`,
+        `rays: distância pedida pela câmera em ${depthErrors.length} pixels, erro p99 ${(dp99 / SPACING).toFixed(3)} espaçamento`,
     );
     check(
         depthErrors.length > 200 && dp99 <= half,
-        `rays: profundidade da câmera a ${(dp99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
+        `rays: distância pedida pela câmera a ${(dp99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
     );
     s.dispose();
 }
 
 /** Água opaca e escura (a silhueta contra o fundo claro). */
-const OPAQUE: FluidSurfaceMaterialOptions = {
-    color: [0.02, 0.03, 0.05, 1],
-    absorption: [40, 40, 40, 0],
-    rippleStrength: 0,
-    refraction: 0,
-};
+const OPAQUE: WaterLook = { absorption: [40, 40, 40], ripple: false };
 /** Camada parada de 6 partículas (15 cm) depois de assentar. */
 const SETTLE_FRAMES = 240;
 
@@ -662,7 +666,7 @@ async function caseNormal(): Promise<void> {
     const s = await tank(W, H, {
         layer: 6,
         floor: 'sand',
-        material: { rippleStrength: 0 },
+        material: { ripple: false },
         eye,
         target: [0.05, 0.15, 0],
     });
@@ -688,21 +692,37 @@ async function caseNormal(): Promise<void> {
         lumN++;
         lumRows.push(row.length);
     }
-    const normal = await readHdrTexture(
+    // A normal da superfície que os raios da câmera acham (o ponto `ray_volume_hit`, o mesmo do traçado), nas fileiras
+    // e colunas da região.
+    const ray = pixelRay(eye, [0.05, 0.15, 0], W, H);
+    const rowPixels: [number, number][] = [];
+    for (let y = rect.y; y < rect.y + rect.h; y += 4)
+        for (let x = rect.x; x < rect.x + rect.w; x++) rowPixels.push([x, y]);
+    const colPixels: [number, number][] = [];
+    for (let x = rect.x; x < rect.x + rect.w; x += 4)
+        for (let y = rect.y; y < rect.y + rect.h; y++) colPixels.push([x, y]);
+    const pixels = [...rowPixels, ...colPixels];
+    const hits = await queryVolumeHits(
         s.app,
-        s.app.resources.textureOf(waterOf(s.app), 'normal')!,
+        pixels.map(([x, y]) => ({ o: eye, d: ray(x, y) })),
     );
+    // A normal de um raio sem acerto conta como a vertical (a região é toda água; um furo aparece na amplitude).
+    const normalOf = (i: number, axis: number): number =>
+        hits[i * 8 + 1]! > 0.5 ? hits[i * 8 + 4 + axis]! : axis === 1 ? 1 : 0;
     let amp = 0;
     let n = 0;
-    for (let y = rect.y; y < rect.y + rect.h; y += 4) {
+    const rowLength = rect.w;
+    for (let r = 0; r * rowLength < rowPixels.length; r++) {
         const row: number[] = [];
-        for (let x = rect.x; x < rect.x + rect.w; x++) row.push(normal.data[(y * W + x) * 4]!);
+        for (let x = 0; x < rowLength; x++) row.push(normalOf(r * rowLength + x, 0));
         amp += bandAmplitude(row, 0.5 * p, 2 * p);
         n++;
     }
-    for (let x = rect.x; x < rect.x + rect.w; x += 4) {
+    const colLength = rect.h;
+    for (let c = 0; c * colLength < colPixels.length; c++) {
         const col: number[] = [];
-        for (let y = rect.y; y < rect.y + rect.h; y++) col.push(normal.data[(y * W + x) * 4 + 2]!);
+        for (let y = 0; y < colLength; y++)
+            col.push(normalOf(rowPixels.length + c * colLength + y, 2));
         amp += bandAmplitude(col, 0.5 * p, 2 * p);
         n++;
     }
@@ -722,7 +742,7 @@ async function caseEdge(): Promise<void> {
     const eye: Vec3 = [0.05, 0.22, 1.05];
     const s = await tank(W, H, {
         layer: 6,
-        material: { rippleStrength: 0 },
+        material: { ripple: false },
         eye,
         target: [0.05, 0.16, 0.4],
     });
@@ -797,8 +817,8 @@ async function caseCaustics(): Promise<void> {
     s.app.world.insert(floor);
     const s0 = WATER_SPACING;
     staticBody(s.app, slab([-0.2, 0, -0.15], [16, 3, 12], s0), s0, {
-        absorption: [6, 3, 1.5, 0],
-        rippleStrength: 0,
+        absorption: [6, 3, 1.5],
+        ripple: false,
     });
     await settle(s.app, 1200);
     const img = s.capture();
@@ -844,12 +864,12 @@ async function caseContact(): Promise<void> {
     const s = await tank(W, H, {
         layer: 6,
         box: true,
-        material: { rippleStrength: 0 },
+        material: { ripple: false },
         eye,
         target: [0.15, 0, 0],
     });
-    const material = await readR32(s.app, s.app.resources.textureOf(waterOf(s.app), 'material')!);
-    const m = new Uint32Array(material.data);
+    // A água no pixel: a câmera pede a refração da superfície dela (o vidro não está nesta cena).
+    const request = await readRequest(s.app);
     // A caixa (centro x = 0,15, z = 0, meio lado 0,12; topo a 0,24) vista de cima: o quadrado na tela pela câmera.
     const ppm = pxPerMeter(0.9 - 0.24, H);
     const cx = W / 2;
@@ -866,7 +886,7 @@ async function caseContact(): Promise<void> {
             const d = Math.hypot(dx, dy);
             if (d === 0 || !ring(d)) continue;
             inRing++;
-            if (m[y * material.stride + x]! > 0) wet++;
+            if ((request.words[y * request.stride + 2 * x + 1]! & 1) !== 0) wet++;
         }
     log(
         `contact: anel em volta da caixa ${inRing} px, com água ${((wet / Math.max(1, inRing)) * 100).toFixed(1)} %`,
@@ -1114,10 +1134,12 @@ async function caseClosure(): Promise<void> {
             ),
         ),
     );
-    // B: só o material de água (spec 017).
-    const fluid = new FluidSurfaceMaterial();
+    // B: a água pelo grafo da cena dos smokes (a absorção da água por metro, o Abbe; sem ondulações).
+    const WATER_ABSORPTION = [0.45, 0.09, 0.06] as const;
     s.app.world.insert(
-        new FluidBody({ algorithm: 'SPH', position: ball(centers[1]!, radius, 5) }).add(fluid),
+        new FluidBody({ algorithm: 'SPH', position: ball(centers[1]!, radius, 5) }).add(
+            waterLook({ absorption: WATER_ABSORPTION, ripple: false }),
+        ),
     );
     // Raios de fora para o centro de cada corpo, em direções variadas.
     const perBody = 64;
@@ -1175,7 +1197,6 @@ async function caseClosure(): Promise<void> {
         await new Promise((res) => setTimeout(res, 100));
     }
     const voxel = FIELD.voxel * SPACING;
-    const absorption = fluid.data.absorption;
     let hits = 0;
     let missed = 0;
     let worstClosure = 0;
@@ -1202,14 +1223,14 @@ async function caseClosure(): Promise<void> {
             };
         else
             expected = {
-                ior: fluid.data.ior,
+                ior: 1.333,
                 color: [
-                    Math.exp(-absorption[0]! * fluid.data.thicknessScale),
-                    Math.exp(-absorption[1]! * fluid.data.thicknessScale),
-                    Math.exp(-absorption[2]! * fluid.data.thicknessScale),
+                    Math.exp(-WATER_ABSORPTION[0]),
+                    Math.exp(-WATER_ABSORPTION[1]),
+                    Math.exp(-WATER_ABSORPTION[2]),
                 ],
                 depth: 1,
-                abbe: fluid.data.abbe,
+                abbe: 55.7,
             };
         const got = [v(3), v(4), v(5), v(6), v(7), v(8), v(9), v(10), v(11)];
         const want = [

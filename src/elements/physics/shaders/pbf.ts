@@ -1,10 +1,10 @@
 import { poolLive } from '../../gpu/compute/shaders';
 import { fieldAccelReady, fieldPointTypes } from './fields';
-import { sphResources } from './sph';
+import { neighborParticle, sphResources } from './sph';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { colliderSet, sphKernels } from '../../gpu/shaders/math';
+import { colliderSet, fluidBoundary, fluidBounds, sphKernels } from '../../gpu/shaders/math';
 import pbfPredictSource from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
 import pbfDensityLambdaSource from '../../gpu/wgsl/kernels/pbf_density_lambda.wgsl?raw';
 import pbfPositionCorrectSource from '../../gpu/wgsl/kernels/pbf_position_correct.wgsl?raw';
@@ -13,6 +13,7 @@ import pbfCollisionSource from '../../gpu/wgsl/kernels/pbf_collision.wgsl?raw';
 import pbfVelocityUpdateSource from '../../gpu/wgsl/kernels/pbf_velocity_update.wgsl?raw';
 import pbfVorticitySource from '../../gpu/wgsl/kernels/pbf_vorticity.wgsl?raw';
 import pbfXsphSource from '../../gpu/wgsl/kernels/pbf_xsph.wgsl?raw';
+import pbfBoundarySource from '../../gpu/wgsl/kernels/pbf_boundary.wgsl?raw';
 import { PBFSchema } from '../../physics/bodies/schemas/PBFSchema';
 import { PBFSimParamsSchema } from '../../physics/schemas/simParams';
 
@@ -53,14 +54,18 @@ export const pbfResources = Object.freeze({
     live: sphResources.live,
     neighborList: sphResources.neighborList,
     neighborCount: sphResources.neighborCount,
+    neighborOrder: sphResources.neighborOrder,
     delta: privateStorage('pbf_delta', 'read_write', vec4s),
     deltaRead: privateStorage('pbf_delta', 'read', vec4s),
     normal: privateStorage('pbf_normal', 'read_write', vec4s),
     normalRead: privateStorage('pbf_normal', 'read', vec4s),
+    /** Fronteira sólida por partícula (Σ −B' n, Σ B), escrita a cada iteração do solver (spec 034). */
+    boundary: privateStorage('pbf_boundary', 'read_write', vec4s),
+    boundaryRead: privateStorage('pbf_boundary', 'read', vec4s),
 });
 const R = pbfResources;
 const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;
-const neighbors = [R.neighborList, R.neighborCount] as const;
+const neighbors = [neighborParticle, R.neighborList, R.neighborCount] as const;
 
 /** Predição. */
 export const pbfPredict = wgslModule({
@@ -70,11 +75,19 @@ export const pbfPredict = wgslModule({
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
-/** Densidade e λ (restrição unilateral). */
+/** Fronteira sólida por partícula (Akinci et al. 2012; spec 034): o volume do núcleo nos sólidos e o gradiente dele. */
+export const pbfBoundary = wgslModule({
+    name: 'pbf_boundary_pass',
+    source: pbfBoundarySource,
+    requires: [poolLive, fluidBoundary, ...own, R.boundary],
+    structs: [PBFSimParamsSchema, PBFSchema],
+});
+
+/** Densidade e λ (restrição unilateral), com a fronteira sólida. */
 export const pbfDensityLambda = wgslModule({
     name: 'pbf_density_lambda',
     source: pbfDensityLambdaSource,
-    requires: [poolLive, sphKernels, ...own, ...neighbors],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.boundaryRead],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -82,7 +95,7 @@ export const pbfDensityLambda = wgslModule({
 export const pbfPositionCorrect = wgslModule({
     name: 'pbf_position_correct',
     source: pbfPositionCorrectSource,
-    requires: [poolLive, sphKernels, ...own, ...neighbors, R.delta],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.delta, R.boundaryRead],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
@@ -102,11 +115,11 @@ export const pbfCollision = wgslModule({
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 
-/** Velocidade a partir das posições. */
+/** Velocidade a partir das posições, com o ancoramento da gota solta (spec 034). */
 export const pbfVelocityUpdate = wgslModule({
     name: 'pbf_velocity_update',
     source: pbfVelocityUpdateSource,
-    requires: [poolLive, ...own],
+    requires: [poolLive, fluidBounds, ...own, neighborParticle, R.neighborCount],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 

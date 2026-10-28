@@ -40,7 +40,9 @@ fn pbf_collision_main(
     }
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
-    // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).
+    // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento). Colisão contínua desde o início do passo
+    // (`posOld`): o passo do PBF é longo, e a partícula rápida atravessaria um sólido fino (spec 034).
+    pos = collider_set_sweep(particles[i].posOld.xyz, pos, pbf_params.collision_radius);
     collider_set_push_out(&pos, &vel, pbf_params.collision_radius, restitution);
 
     particles[i].pos = vec4f(pos, particles[i].pos.w);

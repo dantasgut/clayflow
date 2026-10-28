@@ -113,4 +113,39 @@ describe('campo dos fluidos — referência (spec 033, US7)', () => {
             expect(Math.hypot(...g)).toBeLessThan(1.15);
         }
     });
+
+    it('gota pousada num sólido: esfera sem molhar (90°), calota achatada e mais larga que molha (30°)', () => {
+        // Uma partícula isolada encostada no chão (y = 0) pelo raio de colisão (½ espaçamento).
+        const p: Vec3[] = [[0, H / 2, 0]];
+        const contacts = [[0, 1, 0, H / 2] as const];
+        const sphere = buildField(p, { spacing: H, contacts, contactAngle: 90 });
+        const free = buildField(p, { spacing: H });
+        const cap = buildField(p, { spacing: H, contacts, contactAngle: 30 });
+        /** Onde φ cruza zero de `from` para fora ao longo de `dir` (bissecção). */
+        const crossing = (grid: ReturnType<typeof buildField>, from: Vec3, dir: Vec3): number => {
+            let lo = 0;
+            let hi = 4 * H;
+            for (let k = 0; k < 40; k++) {
+                const m = (lo + hi) / 2;
+                const x: Vec3 = [from[0] + dir[0] * m, from[1] + dir[1] * m, from[2] + dir[2] * m];
+                if (sampleField(grid, x).phi < 0) lo = m;
+                else hi = m;
+            }
+            return lo;
+        };
+        const up: Vec3 = [0, 1, 0];
+        const side: Vec3 = [1, 0, 0];
+        // Sem molhar, o mesmo campo da partícula livre.
+        expect(crossing(sphere, [0, H / 2, 0], up)).toBeCloseTo(
+            crossing(free, [0, H / 2, 0], up),
+            6,
+        );
+        // A calota: o topo bem mais baixo que o da esfera e, rente ao chão, mais larga que a esfera no equador.
+        const capTop = crossing(cap, [0, 0.01 * H, 0], up) + 0.01 * H;
+        const sphereTop = crossing(sphere, [0, H / 2, 0], up) + H / 2;
+        expect(capTop).toBeLessThan(0.6 * sphereTop);
+        expect(crossing(cap, [0, 0.05 * H, 0], side)).toBeGreaterThan(
+            crossing(sphere, [0, H / 2, 0], side),
+        );
+    });
 });

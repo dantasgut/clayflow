@@ -26,14 +26,11 @@ import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
 import { MotionHistoryFlow } from '../../elements/scene/flows/MotionHistoryFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
-import { WaterSurface } from '../app/WaterSurface';
 import { ToneMapping } from '../resources/ToneMapping';
 import { PbrTables } from '../../elements/material/pbr/PbrTables';
 import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
 import { HemisphereLight } from '../../elements/scene/HemisphereLight';
-import { FluidFieldPassFlow } from './FluidFieldPassFlow';
-import { CausticsFlow } from './CausticsFlow';
-import { WaterFlow } from './WaterFlow';
+import { RefractionVolumeRequestFlow } from './RefractionVolumeRequestFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
@@ -83,14 +80,6 @@ export interface PresentationDefaults {
     readonly forward: ForwardFlow;
     /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
     readonly particles: ParticleFlow;
-    /** Superfície de água vista pela câmera, pela marcha no campo dos fluidos (fase `forward`, depois dos sprites). */
-    readonly fluidSurface: FluidFieldPassFlow;
-    /** Superfície de água vista pela luz que projeta sombra, pela marcha no campo (fase `shadow`, depois do mapa). */
-    readonly fluidLightSurface: FluidFieldPassFlow;
-    /** Cáusticas da água em espaço da luz (fase `shadow`, depois da superfície vista pela luz). */
-    readonly caustics: CausticsFlow;
-    /** Composição óptica da água nos alvos da cena (fase `forward`, depois da superfície). */
-    readonly water: WaterFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
     /** Post-processing chain (Bloom/Vignette/etc. em ping-pong). */
@@ -128,7 +117,6 @@ interface RegisteredDefaults {
     readonly defaults: PresentationDefaults;
     readonly registrations: readonly FlowRegistration[];
     readonly frameTargets: FrameTargets;
-    readonly waterSurface: WaterSurface;
     readonly fluidField: FluidField;
     readonly froxels: Froxels;
     readonly presentation: ToneMapping;
@@ -170,10 +158,7 @@ export function registerPresentationDefaults(
     }
     const frameTargets = new FrameTargets({ samples: options.samples ?? 4 });
     options.world.insert(frameTargets);
-    // Superfície de água (spec 017): texturas sob demanda, alocadas só quando entra água.
-    const waterSurface = new WaterSurface();
-    options.world.insert(waterSurface);
-    // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos com `FluidSurfaceMaterial`, na GPU.
+    // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos de fluido (a aparência pelo grafo), na GPU.
     const fluidField = new FluidField();
     options.world.insert(fluidField);
     // Froxels dos meios participantes (spec 033, R12): a névoa dos `FogVolume`, sem nada a fazer enquanto não há.
@@ -224,7 +209,6 @@ export function registerPresentationDefaults(
         defaults,
         registrations,
         frameTargets,
-        waterSurface,
         fluidField,
         froxels,
         presentation,
@@ -259,7 +243,6 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.antialiasing);
     entry.world.remove(entry.refraction);
     entry.world.remove(entry.temporalFilter);
-    entry.world.remove(entry.waterSurface);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
@@ -271,14 +254,15 @@ const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucen
 
 /**
  * Estrutura de raios para a refração (spec 034, R1) por evento: o que um transmissivo mostra vem do traçado, que consulta
- * a `RayScene` — com a GI desligada também. A entrada de uma função `material` transmissiva (ou uma já na cena) insere a
- * `RayScene`, se a cena não tem. Devolve o cancelamento.
+ * a `RayScene` — com a GI desligada também. A entrada de uma função `material` transmissiva (o vidro, a água) — ou uma
+ * já na cena — insere a `RayScene`, se a cena não tem. Devolve o cancelamento.
  */
 function raySceneForTransmissives(world: World, events: EventBus): () => void {
     const ensure = (resources: Iterable<Resource>): void => {
         for (const r of resources) {
-            if (!(r instanceof MaterialFunction) || (r.lobeMask & TRANSMISSIVE_LOBES) === 0)
-                continue;
+            const transmissive =
+                r instanceof MaterialFunction && (r.lobeMask & TRANSMISSIVE_LOBES) !== 0;
+            if (!transmissive) continue;
             if (world.queryBySchemaName(RayScene.schema.name).length === 0)
                 world.insert(new RayScene());
             return;
@@ -416,29 +400,18 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -50,
     });
-    // Água (spec 017; superfície pelo campo dos fluidos, spec 033): superfície vista pela luz e cáusticas depois do mapa
-    // de sombra; superfície vista pela câmera e composição depois dos opacos e dos sprites (lê a profundidade da cena),
-    // antes da depuração.
-    const fluidLightRegistration = flows.register(
-        (ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }),
-        { type: 'fluidLightSurface', phase: 'shadow', priority: -10 },
+    // Pedido da refração pelos volumes (spec 034, T065f): a superfície da água à frente dos opacos (ou todo pixel com a
+    // câmera dentro dela) no pedido, depois do dos transmissivos (forward) e dos sprites, antes do traçado.
+    const volumeRequestRegistration = flows.register(
+        (ctx) => new RefractionVolumeRequestFlow(ctx),
+        {
+            type: 'refractionVolumeRequest',
+            phase: 'forward',
+            priority: -61,
+        },
     );
-    const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
-        type: 'caustics',
-        phase: 'shadow',
-        priority: -20,
-    });
-    const fluidRegistration = flows.register(
-        (ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }),
-        { type: 'fluidSurface', phase: 'forward', priority: -60 },
-    );
-    const waterRegistration = flows.register((ctx) => new WaterFlow(ctx), {
-        type: 'water',
-        phase: 'forward',
-        priority: -70,
-    });
-    // Refração traçada (spec 034, R1): depois do pedido dos transmissivos (forward), dos sprites e da superfície da água
-    // vista pela câmera; antes da composição da água.
+    // Refração traçada (spec 034, R1): depois do pedido dos transmissivos (forward), dos sprites e do pedido pelos
+    // volumes.
     const refractionRegistration = flows.register((ctx) => new RefractionFlow(ctx), {
         type: 'refraction',
         phase: 'forward',
@@ -514,10 +487,6 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
             particles: particleRegistration.flow!,
-            fluidSurface: fluidRegistration.flow!,
-            fluidLightSurface: fluidLightRegistration.flow!,
-            caustics: causticsRegistration.flow!,
-            water: waterRegistration.flow!,
             post: postRegistration.flow!,
             ui: uiRegistration.flow!,
             debug: debugRegistration.flow!,
@@ -539,14 +508,11 @@ function createPresentationDefaults(flows: FlowRegistry): {
             froxelRegistration,
             forwardRegistration,
             particleRegistration,
-            fluidLightRegistration,
-            causticsRegistration,
-            fluidRegistration,
+            volumeRequestRegistration,
             refractionRegistration,
             refractionDenoiseRegistration,
             refractionCompositeRegistration,
             refractionMotionRegistration,
-            waterRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

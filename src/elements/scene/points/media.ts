@@ -4,7 +4,8 @@ import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
 // Pontos de cena dos meios participantes (spec 033, R12): quem desenha uma superfície chama `scene_fog` no ponto dela
 // (a névoa entre a câmera e o ponto) sem conhecer quem a implementa — hoje os froxels dos `FogVolume`; quem ilumina um
 // ponto do meio (os froxels) chama `scene_ambient` (a radiância média que chega de todas as direções) sem conhecer a
-// luz ambiente — o hemisfério ou as sondas da iluminação global. Sem contribuinte, fica o pronto.
+// luz ambiente — o hemisfério ou as sondas da iluminação global; quem sombreia uma superfície sólida chama
+// `scene_wetness` (a película de água nela e a água nos poros dela, spec 034) sem conhecer quem a simula. Sem contribuinte, fica o pronto.
 
 /**
  * `fn scene_fog(p: vec3f) -> vec4f` — a névoa entre a câmera ativa e o ponto `p` (mundo): a luz espalhada para a câmera
@@ -23,6 +24,16 @@ export const sceneFogReady = wgslModule({
 export const sceneAmbientReady = wgslModule({
     name: 'scene_ambient_ready',
     source: 'fn scene_ambient(p: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * `fn scene_wetness(p: vec3f, n: vec3f) -> vec2f` — a água no ponto `p` de uma superfície sólida de normal `n` (spec
+ * 034): a espessura da película livre (x, m) e a saturação dos poros (y, em [0, 1]); quem sombreia a superfície a molha
+ * (`closure_wet`); pronto: seca (0, 0).
+ */
+export const sceneWetnessReady = wgslModule({
+    name: 'scene_wetness_ready',
+    source: 'fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return vec2f(0.0);\n}',
 });
 
 const combined = new Map<string, WgslModule>();
@@ -73,6 +84,23 @@ export const sceneAmbientPoint: ContributionPoint = {
                 source: `fn scene_ambient(p: vec3f) -> vec3f {\n    return ${modules
                     .map((_, k) => `scene_ambient_${k}(p)`)
                     .join(' + ')};\n}`,
+            }),
+        ),
+};
+
+/** Água na superfície: a maior película e a maior saturação dos contribuintes. */
+export const sceneWetnessPoint: ContributionPoint = {
+    name: 'scene_wetness',
+    ready: sceneWetnessReady,
+    functionName: 'scene_wetness',
+    combine: (modules) =>
+        memo(`wetness:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_wetness:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return max(${modules
+                    .map((_, k) => `scene_wetness_${k}(p, n)`)
+                    .reduce((a, b) => `max(${a}, ${b})`)}, vec2f(0.0));\n}`,
             }),
         ),
 };

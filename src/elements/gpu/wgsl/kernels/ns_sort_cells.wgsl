@@ -10,7 +10,9 @@ fn ns_sort_cells_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     let cell = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (cell >= ns_params.cell_count) { return; }
+    // A célula extra (a última: as partículas fora da grade) não é visitada pela busca: sem ordenar (podem ser
+    // milhares, e a inserção aqui é de um thread por célula).
+    if (cell + 1u >= ns_params.cell_count) { return; }
     let start = cell_start[cell];
     let count = cell_count_buf[cell];
     for (var a = 1u; a < count; a++) {
@@ -24,7 +26,10 @@ fn ns_sort_cells_main(
     }
     let stride = ns_params.particle_stride;
     for (var a = 0u; a < count; a++) {
-        let p = sorted_particles[start + a] * stride;
+        let i = sorted_particles[start + a];
+        let p = i * stride;
         sorted_positions[start + a] = vec4f(particle_data[p], particle_data[p + 1u], particle_data[p + 2u], 0.0);
+        // A ordem por célula para quem roda nela (+ 1: o resto, zerado a cada reconstrução, é posto vazio).
+        ns_order[start + a] = i + 1u;
     }
 }

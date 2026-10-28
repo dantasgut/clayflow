@@ -35,6 +35,7 @@ import {
 } from './support/fixtures';
 import { lumaSrgb, toPng } from './support/images';
 import { hashBytes } from './support/fluidMeasures';
+import { waterLook } from './support/waterScene';
 import { block, rng } from './support/particleScenes';
 import {
     insertValley,
@@ -205,8 +206,9 @@ const LAKE_W = 320;
 const LAKE_H = 200;
 
 /**
- * Cena do lago: o vale colidível (areia), luz com sombra, câmera de cima em ângulo e uma barragem de água (PBF com
- * `FluidSurfaceMaterial`: refração, absorção e cáusticas) solta na encosta. `water: 'none'` monta o vale seco.
+ * Cena do lago: o vale colidível (areia), luz com sombra, câmera de cima em ângulo e uma barragem de água (PBF com a
+ * aparência pelo grafo: refração e absorção) solta na encosta. `water: 'none'` monta o vale seco; `caustics` e `plain`
+ * são a mesma água até as cáusticas unificadas (spec 034, T067c: a chave no transporte de luz, não no material).
  */
 async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     let diffuse: clayflow.DiffuseParticles | undefined;
@@ -271,9 +273,7 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
                         0.02 + LAKE_SPACING * (y + 0.5),
                         -0.2 + LAKE_SPACING * (z + 0.5) + (r() - 0.5) * LAKE_SPACING * 0.1,
                     );
-        const body = new clayflow.FluidBody({ algorithm: 'PBF', position }).add(
-            new clayflow.FluidSurfaceMaterial({ caustics: water === 'caustics' }),
-        );
+        const body = new clayflow.FluidBody({ algorithm: 'PBF', position }).add(waterLook());
         app.world.insert(body);
         // Spray, espuma e bolhas do respingo (spec 010).
         diffuse = new clayflow.DiffuseParticles({ source: body, maxParticles: 32_768 });

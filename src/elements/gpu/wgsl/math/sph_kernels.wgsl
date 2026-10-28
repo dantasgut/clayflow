@@ -110,3 +110,51 @@ fn akinci_adhesion_half_space(delta: f32) -> f32 {
     }
     return sum * half;
 }
+
+// ── Fronteira sólida no SPH (Akinci et al. 2012; a fronteira como meio-espaço, Koschier e Bender 2017) ─────────────
+// Integral da spline cúbica sobre o sólido além de um plano a distância com sinal `d` (> 0: a partícula fora) e a
+// derivada dela em `d`: B(d) = 2π ∫_{|d|}^{2h} W(r) r (r − |d|) dr (½ em d = 0; 1 − B(−d) dentro do sólido) e
+// B'(d) = −2π ∫_{|d|}^{2h} W(r) r dr. Em q = r/h, com σh³ = 1/π: B = 2 ∫ f(q) q (q − δ) dq e B' = −(2/h) ∫ f(q) q dq —
+// polinômios de grau ≤ 5 em cada trecho da spline ([δ, 1] e [1, 2]), exatos com Gauss-Legendre de 4 pontos.
+// Devolve (B, B').
+fn cubic_half_space(d: f32, h: f32) -> vec2f {
+    let delta = abs(d) / h;
+    if (delta >= 2.0) { return vec2f(select(1.0, 0.0, d >= 0.0), 0.0); }
+    let x = array<f32, 4>(-0.8611363115940526, -0.3399810435848563, 0.3399810435848563, 0.8611363115940526);
+    let w = array<f32, 4>(0.3478548451374538, 0.6521451548625461, 0.6521451548625461, 0.3478548451374538);
+    var vol = 0.0;
+    var grad = 0.0;
+    // Trecho interno da spline, [δ, 1] (só com δ < 1), e externo, [max(δ, 1), 2].
+    for (var seg = 0u; seg < 2u; seg++) {
+        let a = select(max(delta, 1.0), delta, seg == 0u);
+        let b = select(2.0, 1.0, seg == 0u);
+        if (a >= b) { continue; }
+        let half = 0.5 * (b - a);
+        let mid = 0.5 * (a + b);
+        for (var k = 0u; k < 4u; k++) {
+            let q = mid + half * x[k];
+            let e = 2.0 - q;
+            let f = select(0.25 * e * e * e, 1.0 - 1.5 * q * q + 0.75 * q * q * q, seg == 0u);
+            vol += w[k] * half * f * q * (q - delta);
+            grad += w[k] * half * f * q;
+        }
+    }
+    let inside = 2.0 * vol;
+    let slope = -2.0 * grad / h;
+    // Dentro do sólido: B(d) = 1 − B(−d); a derivada é a mesma.
+    return vec2f(select(1.0 - inside, inside, d >= 0.0), slope);
+}
+
+// O mesmo para o poly6 (suporte h; W = 315/(64π h³) (1 − q²)³), em forma fechada: B = (315/32) ∫_δ^1 (1 − q²)³ q (q − δ) dq
+// = (315/32) [16/315 − F(δ) − δ (1 − δ²)⁴ / 8], F(q) = q³/3 − 3q⁵/5 + 3q⁷/7 − q⁹/9, e B' = −(315/256h) (1 − δ²)⁴.
+// Devolve (B, B').
+fn poly6_half_space(d: f32, h: f32) -> vec2f {
+    let delta = abs(d) / h;
+    if (delta >= 1.0) { return vec2f(select(1.0, 0.0, d >= 0.0), 0.0); }
+    let q2 = delta * delta;
+    let f = delta * q2 * (1.0 / 3.0 - q2 * (3.0 / 5.0 - q2 * (3.0 / 7.0 - q2 / 9.0)));
+    let e = (1.0 - q2) * (1.0 - q2);
+    let inside = (315.0 / 32.0) * (16.0 / 315.0 - f - delta * e * e / 8.0);
+    let slope = -(315.0 / 256.0) * e * e / h;
+    return vec2f(select(1.0 - inside, inside, d >= 0.0), slope);
+}

@@ -8,6 +8,8 @@ import mpmWeightsSource from '../wgsl/math/mpm_weights.wgsl?raw';
 import xpbdSource from '../wgsl/math/xpbd.wgsl?raw';
 import lcpSource from '../wgsl/math/lcp.wgsl?raw';
 import colliderSetSource from '../wgsl/math/collider_set.wgsl?raw';
+import colliderSurfaceSource from '../wgsl/math/collider_surface.wgsl?raw';
+import fluidBoundarySource from '../wgsl/math/fluid_boundary.wgsl?raw';
 import surfaceColliderHitSource from '../wgsl/math/surface_collider_hit.wgsl?raw';
 import colliderHitSource from '../wgsl/math/collider_hit.wgsl?raw';
 import fluidBoundsSource from '../wgsl/math/fluid_bounds.wgsl?raw';
@@ -211,6 +213,29 @@ export const colliderSet = wgslModule({
         MeshCollider.schema,
         LCPSchema,
     ],
+});
+
+/** A superfície física (`SurfacePhysics`, spec 034) do collider mais próximo de um ponto. */
+export const colliderSurface = wgslModule({
+    name: 'collider_surface',
+    source: colliderSurfaceSource,
+    requires: [colliderSet, colliderResources.surfaces],
+});
+
+/**
+ * Fronteira sólida dos fluidos de partículas (Akinci et al. 2012; spec 034): o volume do núcleo nos colliders e o
+ * gradiente dele e o sólido mais próximo. O núcleo do solver é a constante de pipeline `FLUID_BOUNDARY_KERNEL`
+ * (`FLUID_BOUNDARY_POLY6` no PBF).
+ */
+export const fluidBoundary = wgslModule({
+    name: 'fluid_boundary',
+    source: fluidBoundarySource,
+    requires: [colliderSet],
+});
+
+/** Constante de pipeline do núcleo poly6 na fronteira sólida (PBF). */
+export const FLUID_BOUNDARY_POLY6: Readonly<Record<string, number>> = Object.freeze({
+    FLUID_BOUNDARY_KERNEL: 1,
 });
 
 /** FEM por XPBD: cinemática do tetraedro (D_s, F, J) e restrições hidrostática e desviadora. */

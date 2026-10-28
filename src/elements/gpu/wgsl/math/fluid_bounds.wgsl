@@ -13,3 +13,19 @@ fn fluid_outside(p: vec3f, lo: vec3f, hi: vec3f) -> bool {
 fn fluid_adhesion_min(lo: vec3f, open: u32) -> vec3f {
     return select(lo, vec3f(-3.0e38), open != 0u);
 }
+
+// ── Gota solta (spec 034): a borda ancorada num sólido que a água molha ─────────────────────────────────────────────
+// A partícula com poucas vizinhas representa gotas menores que a resolução, em que a borda da gota domina: ao longo do
+// sólido mais próximo (`contact`, a normal e a distância), a velocidade é freada pelo ancoramento (`pinning`, m/s²,
+// independente do aperto contra o sólido) e fica parada enquanto a gravidade ao longo dele for menor — no chão, depois
+// do choque, espalha e para; na parede vertical, a gravidade rompe a borda e ela escorre. `contact_reach`: distância
+// abaixo da qual a partícula está encostada.
+fn fluid_wet_pinning(v: vec3f, contact: vec4f, contact_reach: f32, pinning: f32, dt: f32) -> vec3f {
+    if (dot(contact.xyz, contact.xyz) <= 0.25 || contact.w >= contact_reach) { return v; }
+    let n = normalize(contact.xyz);
+    let vn = dot(v, n) * n;
+    let vt = v - vn;
+    let speed = length(vt);
+    if (speed <= 0.0) { return v; }
+    return vn + vt * (max(0.0, speed - pinning * dt) / speed);
+}

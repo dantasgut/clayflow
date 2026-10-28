@@ -21,6 +21,9 @@ import {
 } from '../lighting';
 import {
     hemisphereAmbientContribution,
+    hemisphereEnvironmentContribution,
+    hemisphereBackground,
+    hemisphereBackgroundContribution,
     hemisphereContribution,
     LIGHT_LIMIT,
     poolLightContribution,
@@ -122,8 +125,34 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
 
     it('o hemisfério contribui depois das luzes, pela transmissão da luz ambiente (NONE)', () => {
         const contributions = new HemisphereLight().getSceneContributions();
-        // No desenho e, para os meios participantes (spec 033, R12), como radiância média.
-        expect(contributions).toEqual([hemisphereContribution, hemisphereAmbientContribution]);
+        // No desenho, para os meios participantes (spec 033, R12) como radiância média e, para quem traça raios, como o
+        // ambiente visto ao escapar (spec 034, T065f) e, quando pedido, o fundo visível (T066), o mesmo: o céu acima do
+        // horizonte, o chão abaixo.
+        expect(contributions.slice(0, 3)).toEqual([
+            hemisphereContribution,
+            hemisphereAmbientContribution,
+            hemisphereEnvironmentContribution,
+        ]);
+        expect(contributions[3]!.point).toBe(hemisphereBackgroundContribution(() => true).point);
+        // O fundo só com `background` (padrão desligado: a cor da limpeza); trocável depois de criado.
+        expect(contributions[3]!.build(() => undefined)).toBeUndefined();
+        const sky = new HemisphereLight({ background: true });
+        expect(sky.background).toBe(true);
+        expect(sky.getSceneContributions()[3]!.build(() => undefined)).toBe(hemisphereBackground);
+        sky.background = false;
+        expect(sky.getSceneContributions()[3]!.build(() => undefined)).toBeUndefined();
+        const environment = hemisphereEnvironmentContribution.build(() => undefined)!;
+        const background = hemisphereBackground;
+        expect(environment.source).toContain('fn scene_environment(dir: vec3f) -> vec3f');
+        expect(environment.source).toContain('return hemisphere_radiance(dir);');
+        expect(background.source).toContain('fn scene_background(dir: vec3f) -> vec3f');
+        expect(background.source).toContain('return hemisphere_radiance(dir);');
+        expect(environment.requires).toEqual(background.requires);
+        expect(environment.requires[0]!.source).toContain(
+            'select(hemisphere.groundColor.rgb, hemisphere.skyColor.rgb, dot(dir, up) >= 0.0) * hemisphere.intensity',
+        );
+        expect(() => composeWgsl(environment)).not.toThrow();
+        expect(() => composeWgsl(background)).not.toThrow();
         expect(hemisphereAmbientContribution.build(() => undefined)!.source).toContain(
             'fn scene_ambient(p: vec3f) -> vec3f',
         );

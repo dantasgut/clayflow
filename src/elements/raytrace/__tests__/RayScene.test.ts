@@ -3,12 +3,14 @@ import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { SphereGeometry } from '../../geometry/SphereGeometry';
 import { StandardMaterial } from '../../material/StandardMaterial';
 import { Transform } from '../../scene/Transform';
-import { renderScene } from '../../../presentation/flows/__tests__/helpers/renderHarness';
+import {
+    renderScene,
+    waterMaterial,
+} from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import { RayScene } from '../RayScene';
 import { RaySceneFlow } from '../RaySceneFlow';
 import { RAY_WORDS } from '../schemas';
 import { MaterialFunction } from '../../extension/MaterialFunction';
-import { FluidSurfaceMaterial } from '../../material/FluidSurfaceMaterial';
 import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
 import { FluidBody } from '../../physics/bodies/FluidBody';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
@@ -136,9 +138,7 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         }).add(new PointSpriteMaterial({ radius: 0.05, color: [1, 0.5, 0.25, 1] }));
         s.scene.world.insert(sprites);
         s.scene.world.insert(
-            new FluidBody({ algorithm: 'SPH', position: [5, 0, 0] }).add(
-                new FluidSurfaceMaterial(),
-            ),
+            new FluidBody({ algorithm: 'SPH', position: [5, 0, 0] }).add(waterMaterial()),
         );
         s.step();
         // A caixa e as esferas construídas; a água não entra.

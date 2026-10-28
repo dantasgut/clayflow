@@ -312,15 +312,12 @@ Só acréscimos, sem mudança incompatível na API pública:
 
 | Antes | Agora |
 | --- | --- |
-| Fluido só como sprites (`PointSpriteMaterial`) | `FluidSurfaceMaterial` desenha o corpo como água contínua com cáusticas |
+| Fluido só como sprites (`PointSpriteMaterial`) | Um `FluidBody` com uma função `material` (o grafo: o dielétrico com transmissão) e sem material de desenho vira água contínua, traçada com refração e absorção (spec 034; o `FluidSurfaceMaterial` da 017 saiu na T066) |
 | Composição de uma entidade fixa na inserção | `world.attach(entidade, componente)` / `world.detach(entidade, componente)` (evento `entitiesRecomposed`) |
 | `ensureAllocated` só para buffers | Aloca também descritores de textura sob demanda (o retorno é `undefined` para eles; leia por `textureViewOf`) |
 | PBF com 1 substep fixo | Substeps pelo passo estável do material (`pbfStableDt`); 5 cm continua com 1 |
 | `ForwardFrameParams { …, viewport }` | + `causticsEnabled` (0 = caminho de antes) |
 | Viscosidade do SPH ~1000× a do material (sem ÷ρ) | Viscosidade física: o mesmo `viscosity` deixa o fluido bem menos viscoso — trajetórias de SPH mudam |
-
-Estágios próprios que substituem o forward padrão e queiram cáusticas leem `caustic_map`, `water_light_depth` e
-`water_light_matrix` do `WaterSurface` (ver o documento de arquitetura).
 
 ## Convivência durante a transição
 

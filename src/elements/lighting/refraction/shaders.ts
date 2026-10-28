@@ -1,4 +1,4 @@
-import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import refractionQueueSource from '../../gpu/wgsl/refraction/refraction_queue.wgsl?raw';
@@ -7,6 +7,8 @@ import refractionMediaSource from '../../gpu/wgsl/refraction/refraction_media.wg
 import refractionCameraSource from '../../gpu/wgsl/refraction/refraction_camera.wgsl?raw';
 import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl?raw';
 import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
+import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
+import { transmissionResources } from '../../material/shaders';
 import refractionTraceSource from '../../gpu/wgsl/refraction/refraction_trace.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
 import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
@@ -53,6 +55,7 @@ import {
     REFRACTION_MAX_MEDIA,
     REFRACTION_QUEUE_FORMAT,
     REFRACTION_RADIANCE_FORMAT,
+    REFRACTION_REQUEST_BACK_FACE,
     REFRACTION_REQUEST_VALID,
 } from './Refraction';
 
@@ -278,6 +281,33 @@ export const refractionScreen = wgslModule({
     source: refractionScreenSource,
     requires: [viewSpace],
 });
+
+/**
+ * O pedido pelos volumes (T065f): o triângulo de tela cheia que marca no pedido a superfície de um volume à frente dos
+ * opacos, ou todo pixel com a câmera dentro de um — sem e com amostras na profundidade dos opacos.
+ */
+export const refractionVolumeRequest = {
+    single: volumeRequestModule(false),
+    multisampled: volumeRequestModule(true),
+} as const;
+
+function volumeRequestModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'refraction_volume_request_ms' : 'refraction_volume_request',
+        source: refractionVolumeRequestSource,
+        requires: [
+            refractionScreen,
+            refractionParamsResource,
+            camerasResource,
+            cameraSpace,
+            viewSpace,
+            rayVolumeHitReady,
+            REFRACTION_REQUEST_VALID.module,
+            REFRACTION_REQUEST_BACK_FACE.module,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}
 
 /** A composição do traçado nos alvos da cena: a cor e a profundidade dos pixels com pedido. */
 export const refractionComposite = wgslModule({

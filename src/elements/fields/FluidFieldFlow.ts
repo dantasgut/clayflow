@@ -9,10 +9,17 @@ import type {
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { EntityId } from '../../scene/world/EntityId';
+import type { World } from '../../scene/world/World';
 import { Flow } from '../../scene/flows/Flow';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
-import { slot, type EntitiesSlot, type SingletonSlot, type SlotMap } from '../../scene/flows/slots';
+import {
+    slot,
+    type EntitiesSlot,
+    type PoolsSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../scene/flows/slots';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -20,11 +27,10 @@ import {
 } from '../../scene/flows/createComputeKernel';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
-import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { CountToArgs } from '../gpu/compute/CountToArgs';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { SpatialHashGrid } from '../gpu/compute/SpatialHashGrid';
-import { FluidSurfaceMaterial } from '../material/FluidSurfaceMaterial';
 import { MaterialFunction } from '../extension/MaterialFunction';
 import { RayScene } from '../raytrace/RayScene';
 import { isFieldBody } from './fieldBody';
@@ -33,15 +39,28 @@ import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
-import { FluidField, fieldDataLayout } from './FluidField';
+import { FluidField, fieldDataLayout, fieldFilmOffset } from './FluidField';
+import { GravityField } from '../physics/forcefields/GravityField';
+import { Collider } from '../physics/colliders/Collider';
+import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
+import { colliderResources } from '../physics/colliders/colliderResources';
+import { LCPSchema } from '../physics/bodies/schemas/LCPSchema';
+import { SurfacePhysics } from '../physics/wetting/SurfacePhysics';
+import { Atmosphere } from '../physics/wetting/Atmosphere';
+import { filmSurfaceTerms, type WettingLiquid } from '../physics/wetting/wetting';
 import {
     FIELD_BRICK_VOXELS,
+    FIELD_FILM_CELLS,
+    FIELD_FILM_SURFACES,
     FIELD_MAX_BODIES,
     FIELD_PARTICLES_PER_BRICK,
     FieldGatherSchema,
+    fieldContactShape,
 } from './schemas';
 import {
     fieldApron,
+    fieldFilmDeposit,
+    fieldFilmStep,
     fieldDensity,
     fieldGather,
     fieldSort,
@@ -64,6 +83,16 @@ export interface FluidFieldSlots extends SlotMap {
     readonly particlePhysics: SingletonSlot<true>;
     /** O tempo da cena: o nível da superfície só se ajusta nos quadros em que a simulação avança. */
     readonly time: SingletonSlot<true>;
+    /** A gravidade: o escoamento da película de água nos sólidos (spec 034; sem ela, −9,81 em y). */
+    readonly gravity: SingletonSlot<true>;
+    /** Pools de colliders e de corpos rígidos: a superfície dos sólidos, por onde a película escorre (spec 034). */
+    readonly colliderPools: PoolsSlot;
+    /** Entidades com collider. */
+    readonly colliders: EntitiesSlot;
+    /** A física da superfície dos sólidos (spec 034): rugosidade, histerese, poros, temperatura. */
+    readonly surfaces: EntitiesSlot;
+    /** O ar da cena: a evaporação da película (sem ele, `Atmosphere.defaults`). */
+    readonly atmosphere: SingletonSlot<true>;
 }
 
 const slots: FluidFieldSlots = {
@@ -72,15 +101,40 @@ const slots: FluidFieldSlots = {
     rays: slot.singleton(RayScene.schema, { optional: true }),
     particlePhysics: slot.singleton(ParticlePhysics.schema, { optional: true }),
     time: slot.singleton(Time.schema, { optional: true }),
+    gravity: slot.singleton(GravityField.schema, { optional: true }),
+    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+    colliders: slot.entities({ all: [Collider] }),
+    surfaces: slot.entities({ all: [SurfacePhysics] }),
+    atmosphere: slot.singleton(Atmosphere.schema, { optional: true }),
 };
+
+/**
+ * O líquido da película sem a física de superfície no `ParticlePhysics` (`surfaceTension`): a água (0,072 N/m, 30°) —
+ * a película é a água que as partículas deixam.
+ */
+const WATER_FILM = { surfaceTension: 0.072, contactAngle: 30 };
+
+/** Água que os poros guardam no máximo (m): o alcance do ponto fixo da película (`FIELD_FILM_UNIT`). */
+const FILM_MAX_CAPACITY = 0.04;
+
+/** Recursos do conjunto de colliders que o passo da película lê (a distância e a superfície, sem a malha). */
+const FILM_COLLIDER_RESOURCES = new Set([
+    colliderResources.counts,
+    colliderResources.planes,
+    colliderResources.boxes,
+    colliderResources.spheres,
+    colliderResources.owners,
+    colliderResources.bodies,
+    colliderResources.surfaceField,
+    colliderResources.surfaces,
+]);
 
 type Ctx = TransitionContext<FluidFieldSlots>;
 
-/** Corpo de água acompanhado: a aparência pela função `material` (o grafo) ou, sem ela, pelo `FluidSurfaceMaterial`. */
+/** Corpo de água acompanhado: a aparência pela função `material` (o grafo). */
 interface FieldBody {
     readonly entity: EntityId;
     readonly body: ParticleBody;
-    readonly material: FluidSurfaceMaterial | undefined;
     readonly fn: MaterialFunction | undefined;
     readonly poolKey: string;
 }
@@ -91,6 +145,9 @@ interface Work {
     readonly bricks: number;
     readonly items: StorageBufferSpec;
     readonly sorted: StorageBufferSpec;
+    /** O contato de cada partícula na junção e na ordem da grade (spec 034). */
+    readonly contacts: StorageBufferSpec;
+    readonly sortedContacts: StorageBufferSpec;
     readonly kernel: StorageBufferSpec;
     readonly links: StorageBufferSpec;
     readonly density: StorageBufferSpec;
@@ -107,6 +164,9 @@ interface Kernels {
     readonly kernels: ComputeKernel;
     readonly clear: ComputeKernel;
     readonly mark: ComputeKernel;
+    /** A película de água nos sólidos (spec 034): o passo por célula (absorção, evaporação, escoamento), deposição. */
+    readonly filmStep: ComputeKernel;
+    readonly filmDeposit: ComputeKernel;
     readonly links: ComputeKernel;
     readonly density: ComputeKernel;
     /** Filtro separável da densidade: B (ponto fixo) → A → P → A. */
@@ -131,8 +191,8 @@ const DEFAULT_SPACING = 0.05;
  * `FluidField` (contagem só na GPU); a densidade nos voxels, o φ inicial, as iterações do redistanciamento e os voxels
  * com a borda — os quatro por despacho indireto, um grupo por bloco. Nenhuma leitura de volta. Sem água, nada. Por
  * corpo (até `FIELD_MAX_BODIES`; a palavra dos blocos é o índice + 1), a tabela `bodies` do uniform do campo: o índice
- * da função `material` dele na composição dos acertos dos raios (`RayScene.materialFunctions`), o slot dos parâmetros
- * dela e o slot do `FluidSurfaceMaterial` — quem traça avalia o fechamento da água no acerto (`ray_volume_surface`).
+ * da função `material` dele na composição dos acertos dos raios (`RayScene.materialFunctions`) e o slot dos parâmetros
+ * dela — quem traça avalia o fechamento da água no acerto (`ray_volume_surface`).
  */
 export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     readonly type = 'FluidFieldFlow';
@@ -142,18 +202,23 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
 
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
+    private readonly world: World;
     private readonly bodies = new Map<EntityId, FieldBody>();
     private readonly draws: PerStepUniforms;
     private readonly grid: SpatialHashGrid;
     /** Volume do campo somado no quadro (lido pela limpeza do seguinte: o nível que conserva o volume). */
     private readonly volume: StorageBufferSpec;
     private readonly args: CountToArgs;
+    /** Os sólidos, para a película (spec 034): a superfície por onde ela escorre e a física de cada um. */
+    private readonly colliderSet: ColliderSet;
     private order: FieldBody[] = [];
     /** Conteúdo escrito nas regiões da junção e no uniform do campo (escritos quando mudam, não por quadro). */
     private drawsWritten = '';
     private paramsWritten = '';
     private work: Work | undefined;
     private kernels: Kernels | undefined;
+    /** A simulação avançou no quadro: a película de água escoa e recebe a deposição (spec 034). */
+    private filmAdvances = false;
     private field: FluidField | undefined;
     private particles = 0;
     private active = false;
@@ -165,6 +230,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         super();
         this.core = ctx.core;
         this.resources = ctx.resources;
+        this.world = ctx.world;
         this.draws = new PerStepUniforms(ctx.core, {
             discriminator: 'field_gather',
             schema: FieldGatherSchema,
@@ -175,6 +241,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             label: 'FluidFieldFlow.grid',
         });
         this.args = new CountToArgs(ctx.core, { discriminator: 'field_args' });
+        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+            discriminator: 'field_colliders',
+        });
         this.volume = ctx.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -198,13 +267,25 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     run: (e, c) => {
                         if (e.type !== 'entitiesChanged') return;
                         this.track(c, e.added, e.removed);
+                        this.colliderSet.markDirty();
                     },
                 },
-                slotChanged: 'ignore',
+                slotChanged: {
+                    to: 'idle',
+                    run: () => {
+                        this.colliderSet.markDirty();
+                    },
+                },
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
-                poolReallocated: 'ignore',
+                poolReallocated: {
+                    to: 'idle',
+                    run: (e) => {
+                        if (e.type === 'poolReallocated')
+                            this.colliderSet.onPoolReallocated(e.poolKey);
+                    },
+                },
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
@@ -243,6 +324,13 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             this.run(pass, k.mark, this.particles, W);
             this.run(pass, k.links, work.bricks, W);
         });
+        // A película de água nos sólidos (spec 034): só nos quadros em que a simulação avança (parada, fica).
+        if (this.filmAdvances) {
+            frame.compute('FluidFieldFlow.film', (pass) => {
+                this.run(pass, k.filmStep, FIELD_FILM_CELLS, W);
+                this.run(pass, k.filmDeposit, this.particles, W);
+            });
+        }
         this.args.record(frame, { counts, index: 0, workgroupSize: 1 });
         // A densidade é somada em ponto fixo: o buffer (também o segundo do redistanciamento) começa zerado.
         frame.clear(work.density);
@@ -274,6 +362,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.releaseKernels();
         this.releaseWork();
         this.grid.destroy();
+        this.colliderSet.destroy();
         this.core.destroy(this.volume);
         this.draws.dispose();
     }
@@ -293,15 +382,12 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             const entry = entries.entry(id);
             if (entry === undefined || !isFieldBody(entry.resources)) continue;
             const body = entry.get(ParticleBody);
-            const material = entry.resources.find(
-                (r): r is FluidSurfaceMaterial => r instanceof FluidSurfaceMaterial,
-            );
             const fn = entry.resources.find(
                 (r): r is MaterialFunction => r instanceof MaterialFunction,
             );
             const poolKey = this.resources.poolKeyForResource(body);
             if (poolKey === undefined) continue;
-            this.bodies.set(id, { entity: id, body, material, fn, poolKey });
+            this.bodies.set(id, { entity: id, body, fn, poolKey });
         }
     }
 
@@ -331,7 +417,6 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.particles = this.order.reduce((n, b) => n + b.body.count, 0);
         this.active = this.particles > 0;
         field.setVolume(this.active);
-        field.setSurfaces(this.order.some((b) => b.material !== undefined));
         if (!this.active) return;
         const bricks = Math.max(64, Math.ceil(this.particles / FIELD_PARTICLES_PER_BRICK));
         field.reserve({ bricks, table: bricks * 4 });
@@ -343,9 +428,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             return;
         }
         const work = this.ensureWork(this.particles, capacity);
-        const spacing =
-            (ctx.bound.slots.particlePhysics?.resource as ParticlePhysics | undefined)?.data
-                .particleSpacing ?? DEFAULT_SPACING;
+        const physics = ctx.bound.slots.particlePhysics?.resource as ParticlePhysics | undefined;
+        const spacing = physics?.data.particleSpacing ?? DEFAULT_SPACING;
         const radius = FIELD.radius * spacing;
         const gridRebuilt = this.grid.prepare(work.items, this.particles, radius);
         this.args.prepare(counts);
@@ -360,21 +444,83 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
+                contact: [
+                    ...fieldContactShape(physics?.contactAngle ?? 90),
+                    this.advancedTime(ctx),
+                    0,
+                ],
+                film: [fieldFilmOffset(field.capacity), FIELD_FILM_CELLS - 1, 0, 0],
+                filmFlow: [
+                    ...this.gravity(ctx),
+                    (physics?.viscosity ?? 0.001) / (physics?.restDensity ?? 1000),
+                ],
+                filmBoundsMin: [
+                    ...(physics?.domainMin ?? [-2, -2, -2]),
+                    physics?.openBounds === true ? 0 : 1,
+                ],
+                filmBoundsMax: [...(physics?.domainMax ?? [2, 2, 2]), 0],
+                filmSurfaces: this.surfaceTable(ctx, physics),
                 bodies: this.bodyTable(ctx),
             },
         ];
+        this.filmAdvances = this.advanced(ctx);
         const paramsKey = JSON.stringify(params);
         if (paramsKey !== this.paramsWritten) {
             this.paramsWritten = paramsKey;
             field.data.params = params;
         }
+        this.colliderSet.refresh();
         this.ensureKernels(field, work, counts, data, gridRebuilt);
     }
 
     /**
+     * A tabela das superfícies da película (`FIELD_FILM_SURFACES` entradas, duas linhas cada): a padrão
+     * (`SurfacePhysics.defaults`) e as `SurfacePhysics` da cena na ordem da consulta — a mesma do mapa dos colliders
+     * (`ColliderSet`) —, com o líquido (o `ParticlePhysics`) e o ar (`Atmosphere`).
+     */
+    private surfaceTable(ctx: Ctx, physics: ParticlePhysics | undefined): number[][] {
+        const air =
+            (ctx.bound.slots.atmosphere?.resource as Atmosphere | undefined) ?? Atmosphere.defaults;
+        const physical = physics !== undefined && physics.surfaceTension > 0;
+        const liquid: WettingLiquid = {
+            surfaceTension: physical ? physics.surfaceTension : WATER_FILM.surfaceTension,
+            contactAngle: physical ? physics.contactAngle : WATER_FILM.contactAngle,
+            viscosity: physics?.viscosity ?? 0.001,
+            density: physics?.restDensity ?? 1000,
+        };
+        const surfaces = this.world
+            .queryBySchemaName(SurfacePhysics.schema.name)
+            .slice(0, SurfacePhysics.MAX)
+            .map(
+                (id) =>
+                    this.world
+                        .resourcesOf(id)
+                        .find((r): r is SurfacePhysics => r instanceof SurfacePhysics)
+                    ?? SurfacePhysics.defaults,
+            );
+        const rows: number[][] = [];
+        for (let k = 0; k < FIELD_FILM_SURFACES.value; k++) {
+            const t = filmSurfaceTerms(
+                k === 0 ? SurfacePhysics.defaults : (surfaces[k - 1] ?? SurfacePhysics.defaults),
+                liquid,
+                air,
+            );
+            rows.push(
+                [
+                    t.retentionPerDensity,
+                    t.mobility,
+                    t.washburn,
+                    Math.min(t.capacity, FILM_MAX_CAPACITY),
+                ],
+                [t.evaporation, 0, 0, 0],
+            );
+        }
+        return rows;
+    }
+
+    /**
      * A tabela dos corpos (na ordem da junção): o índice + 1 da função `material` na composição dos acertos dos raios
-     * (0 sem ela, ou enquanto a estrutura de raios ainda não a reuniu), o slot dos parâmetros dela e o slot + 1 do
-     * `FluidSurfaceMaterial` (0 sem).
+     * (0 sem ela, ou enquanto a estrutura de raios ainda não a reuniu) e o slot dos parâmetros dela.
      */
     private bodyTable(ctx: Ctx): number[][] {
         const functions =
@@ -388,13 +534,22 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 index < 0 || params === undefined
                     ? 0
                     : (this.resources.poolSlotOf(params, b.entity) ?? 0);
-            const surface =
-                b.material === undefined
-                    ? 0
-                    : (this.resources.poolSlotOf(FluidSurfaceMaterial.schema.name, b.entity) ?? -1)
-                      + 1;
-            return [index + 1, fnSlot, surface, 0];
+            return [index + 1, fnSlot, 0, 0];
         });
+    }
+
+    /** A gravidade uniforme da cena (sem `GravityField`, −9,81 em y). */
+    private gravity(ctx: Ctx): [number, number, number] {
+        const a = (
+            ctx.bound.slots.gravity?.resource as GravityField | undefined
+        )?.uniformAcceleration();
+        return [a?.[0] ?? 0, a?.[1] ?? -9.81, a?.[2] ?? 0];
+    }
+
+    /** O tempo simulado que o quadro avançou (s): o escoamento da película (sem o `Time`, um passo de 60 Hz). */
+    private advancedTime(ctx: Ctx): number {
+        const time = ctx.bound.slots.time?.resource as Time | undefined;
+        return time === undefined ? 1 / 60 : time.data.steps * time.stepDt;
     }
 
     /** A simulação avançou neste quadro (sem o `Time` na cena, sempre). */
@@ -417,6 +572,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 count: b.body.count,
                 base,
                 body: i + 1,
+                contactOffsetVec4: schema.fields.has('contact')
+                    ? schema.offsetOf('contact') / 16
+                    : NONE.value,
             };
             base += b.body.count;
             return region;
@@ -449,6 +607,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             bricks,
             items: storage('items', cap * 16),
             sorted: storage('sorted', cap * 16),
+            contacts: storage('contacts', cap * 16),
+            sortedContacts: storage('sorted_contacts', cap * 16),
             kernel: storage('kernel', cap * 48),
             links: storage('links', bricks * 28 * 4),
             density: storage('density', bricks * FIELD_BRICK_VOXELS * 4),
@@ -471,7 +631,11 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         );
         const key = [work.items, data, counts]
             .map((b) => String(this.identity(b)))
-            .concat([String(this.draws.generation), ...pools])
+            .concat([
+                String(this.draws.generation),
+                `colliders:${this.colliderSet.generation}`,
+                ...pools,
+            ])
             .join('|');
         if (this.kernels?.key === key && !gridRebuilt) return;
         this.releaseKernels();
@@ -510,6 +674,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                         [R.particles, pool],
                         [R.live, live],
                         [R.itemsWrite, work.items],
+                        [R.contactsWrite, work.contacts],
                     ]),
                 }),
             );
@@ -534,11 +699,14 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 [R.cellItems, this.grid.cellItems],
                 [R.items, work.items],
                 [R.sortedWrite, work.sorted],
+                [R.contacts, work.contacts],
+                [R.sortedContactsWrite, work.sortedContacts],
             ]),
             kernels: make('kernels', fieldKernels, 'field_kernels_main', [
                 ...gridSources,
                 [R.sorted, work.sorted],
                 [R.kernelWrite, work.kernel],
+                [R.sortedContacts, work.sortedContacts],
             ]),
             clear: make('clear', fieldMark, 'field_clear_main', [
                 [R.dataAtomic, data],
@@ -550,6 +718,16 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 [R.kernel, work.kernel],
                 [R.dataAtomic, data],
                 [R.countsWrite, counts],
+            ]),
+            filmStep: make('film_step', fieldFilmStep, 'field_film_step_main', [
+                [R.dataAtomic, data],
+                ...[...this.colliderSet.sources()].filter(([r]) => FILM_COLLIDER_RESOURCES.has(r)),
+            ]),
+            filmDeposit: make('film_deposit', fieldFilmDeposit, 'field_film_deposit_main', [
+                [R.sorted, work.sorted],
+                [R.sortedContacts, work.sortedContacts],
+                [R.kernel, work.kernel],
+                [R.dataAtomic, data],
             ]),
             links: make('links', fieldLinks, 'field_links_main', [
                 [R.data, data],
@@ -625,6 +803,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             k.kernels,
             k.clear,
             k.mark,
+            k.filmStep,
+            k.filmDeposit,
             k.links,
             k.density,
             ...k.smooth,
@@ -641,7 +821,17 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private releaseWork(): void {
         const w = this.work;
         if (w === undefined) return;
-        for (const b of [w.items, w.sorted, w.kernel, w.links, w.density, w.phi0, w.phiA])
+        for (const b of [
+            w.items,
+            w.sorted,
+            w.contacts,
+            w.sortedContacts,
+            w.kernel,
+            w.links,
+            w.density,
+            w.phi0,
+            w.phiA,
+        ])
             this.core.destroy(b);
         this.work = undefined;
     }

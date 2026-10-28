@@ -22,7 +22,6 @@ import {
     createScene,
     Flow,
     FluidBody,
-    FluidSurfaceMaterial,
     GraphGeometry,
     NodeGraph,
     nodes,
@@ -45,6 +44,7 @@ import {
 import type { BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec, WgslModule } from 'clayflow';
 import { readPool, settle } from './support/extensionScenes';
 import { lcg } from './support/random';
+import { waterLook } from './support/waterScene';
 
 function log(msg: string): void {
     console.log(`[rayScene] ${msg}`);
@@ -769,7 +769,7 @@ async function caseContract(): Promise<void> {
     app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     app.world.insert(
         new FluidBody({ algorithm: 'SPH', position: particleBall(waterC, waterR, spacing) }).add(
-            new FluidSurfaceMaterial(),
+            waterLook(),
         ),
     );
     // Corpo mole (XPBD, a superfície escrita na GPU a cada quadro): pano 16 × 16 plano em y = 1,3 em volta de

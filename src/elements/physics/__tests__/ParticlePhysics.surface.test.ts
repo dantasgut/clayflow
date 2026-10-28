@@ -30,4 +30,17 @@ describe('ParticlePhysics — água física (spec 010)', () => {
             /contactAngle/,
         );
     });
+
+    it('água que molha (spec 034): ângulo de contato guardado, restituição 0 e ângulo de deslize no perfil WATER', () => {
+        const water = new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing: 0.025 });
+        expect(water.contactAngle).toBe(30);
+        expect(water.restitution).toBe(0);
+        expect(water.slidingAngle).toBe(25);
+        // Sem tensão superficial: nem molha nem repele, sem ancoramento.
+        const plain = new ParticlePhysics({ particleSpacing: 0.025 });
+        expect(plain.contactAngle).toBe(90);
+        expect(plain.slidingAngle).toBe(0);
+        expect(() => new ParticlePhysics({ slidingAngle: -1 })).toThrow(RangeError);
+        expect(() => new ParticlePhysics({ slidingAngle: 91 })).toThrow(RangeError);
+    });
 });

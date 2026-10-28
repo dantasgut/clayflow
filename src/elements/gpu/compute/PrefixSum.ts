@@ -394,8 +394,10 @@ export class PrefixSum {
                     CountToArgs.dispatchOffset(dispatch),
                 );
         };
-        if (open !== undefined) body(open);
-        else frame.compute(label, body);
+        if (open !== undefined) {
+            open.marker(label);
+            body(open);
+        } else frame.compute(label, body);
     }
 
     private releaseKernels(): void {

@@ -42,20 +42,25 @@ fn refraction_medium(c: Closure, instance: u32) -> RefractionMedium {
     );
 }
 
+// Os laços da pilha vão até o teto constante, com os índices fixos (o compilador os desenrola): indexada pela
+// contagem, a pilha saía dos registradores para a memória da invocação, e cada cópia dela (a cada entrada e saída de
+// meio, em cada nível do caminho) custava acessos à memória — o traçado da água ficava várias vezes mais lento.
+
 /** O meio corrente (o de maior prioridade; no empate, o último em que se entrou), ou o ar. */
 fn refraction_current(s: RefractionStack) -> RefractionMedium {
     var best = refraction_air();
-    for (var i = 0u; i < s.count; i++) {
-        if (best.instance == NONE || s.media[i].priority >= best.priority) { best = s.media[i]; }
+    for (var i = 0u; i < REFRACTION_MAX_MEDIA; i++) {
+        if (i < s.count && (best.instance == NONE || s.media[i].priority >= best.priority)) { best = s.media[i]; }
     }
     return best;
 }
 
 fn refraction_contains(s: RefractionStack, instance: u32) -> bool {
-    for (var i = 0u; i < s.count; i++) {
-        if (s.media[i].instance == instance) { return true; }
+    var found = false;
+    for (var i = 0u; i < REFRACTION_MAX_MEDIA; i++) {
+        found = found || (i < s.count && s.media[i].instance == instance);
     }
-    return false;
+    return found;
 }
 
 /** Entra no meio `m` (se ainda não está nele; além do teto, marca `overflow`). */
@@ -66,20 +71,25 @@ fn refraction_enter(s: RefractionStack, m: RefractionMedium) -> RefractionStack 
         out.overflow = 1u;
         return out;
     }
-    out.media[out.count] = m;
+    for (var i = 0u; i < REFRACTION_MAX_MEDIA; i++) {
+        if (i == s.count) { out.media[i] = m; }
+    }
     out.count += 1u;
     return out;
 }
 
-/** Sai do meio da instância `instance` (a ordem dos outros fica). */
+/** Sai do meio da instância `instance` (a ordem dos outros fica: os de depois descem uma posição). */
 fn refraction_leave(s: RefractionStack, instance: u32) -> RefractionStack {
-    var out = refraction_empty_stack();
-    out.overflow = s.overflow;
-    for (var i = 0u; i < s.count; i++) {
-        if (s.media[i].instance == instance) { continue; }
-        out.media[out.count] = s.media[i];
-        out.count += 1u;
+    var at = REFRACTION_MAX_MEDIA;
+    for (var i = 0u; i < REFRACTION_MAX_MEDIA; i++) {
+        if (at == REFRACTION_MAX_MEDIA && i < s.count && s.media[i].instance == instance) { at = i; }
     }
+    var out = s;
+    if (at == REFRACTION_MAX_MEDIA) { return out; }
+    for (var i = 0u; i + 1u < REFRACTION_MAX_MEDIA; i++) {
+        if (i >= at) { out.media[i] = s.media[i + 1u]; }
+    }
+    out.count -= 1u;
     return out;
 }
 

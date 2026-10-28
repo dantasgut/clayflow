@@ -8,10 +8,5 @@ export {
     type DiffuseMaterialOptions,
 } from './DiffuseMaterial';
 export { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
-export {
-    FluidSurfaceMaterial,
-    type FluidSurfaceMaterialData,
-    type FluidSurfaceMaterialOptions,
-} from './FluidSurfaceMaterial';
 export { PbrTables } from './pbr/PbrTables';
 export { LOBES, type LobeName } from './pbr/lobes';

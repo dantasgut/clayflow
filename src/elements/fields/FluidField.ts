@@ -7,17 +7,18 @@ import {
     rayVolumeHitPoint,
     rayVolumeTransmittancePoint,
 } from '../raytrace/points';
-import {
-    fieldRayHit,
-    fieldRaySurface,
-    fieldRayTransmittance,
-    type FieldSurfaceVariants,
-} from './shaders';
-import type { WgslModule } from '../../scene/shaders/WgslModule';
+import { fieldRayHit, fieldRaySurface, fieldRayTransmittance, fieldWetness } from './shaders';
+import { sceneWetnessPoint } from '../scene/points/media';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
-import { FIELD_BRICK_APRON_VOXELS, FieldWordSchema, FluidFieldSchema } from './schemas';
+import {
+    FIELD_BRICK_APRON_VOXELS,
+    FIELD_FILM_CELLS,
+    FIELD_FILM_WORDS,
+    FieldWordSchema,
+    FluidFieldSchema,
+} from './schemas';
 
 /** Capacidades do campo: blocos e baldes da tabela (potências de dois). */
 export interface FluidFieldCapacity {
@@ -30,11 +31,6 @@ export interface FluidFieldData extends FluidFieldCapacity {
     params: [Record<string, number[] | number[][]>];
     /** 1 com corpos de fluido na cena (o campo contribui para os raios); 0 sem. Escrito só quando muda. */
     volume: number;
-    /**
-     * 1 com algum corpo de `FluidSurfaceMaterial` (o material dos raios lê o pool dele, que só existe então); 0 sem.
-     * Escrito só quando muda.
-     */
-    surfaces: number;
 }
 
 /** Palavras do cabeçalho do buffer das consultas (os limites). */
@@ -52,9 +48,14 @@ export function fieldDataLayout(c: FluidFieldCapacity): {
     return { table, bricks, voxels: bricks + 4 * c.bricks };
 }
 
-/** Palavras do buffer das consultas para as capacidades `c`. */
-function fieldDataWords(c: FluidFieldCapacity): number {
+/** Primeira palavra da película de água nos sólidos (spec 034), depois dos voxels com a borda. */
+export function fieldFilmOffset(c: FluidFieldCapacity): number {
     return fieldDataLayout(c).voxels + c.bricks * FIELD_BRICK_APRON_VOXELS;
+}
+
+/** Palavras do buffer das consultas para as capacidades `c` (com a película: `FIELD_FILM_WORDS` por célula). */
+function fieldDataWords(c: FluidFieldCapacity): number {
+    return fieldFilmOffset(c) + FIELD_FILM_WORDS.value * FIELD_FILM_CELLS;
 }
 
 function grow(current: number, needed: number): number {
@@ -65,8 +66,7 @@ function grow(current: number, needed: number): number {
 
 /**
  * Campo dos fluidos (Camada 3, spec 033, R11): a superfície contínua dos corpos de fluido (`isFieldBody`: o `FluidBody`
- * com a função `material` — a aparência pelo grafo, spec 034 T065d —, ou o corpo de partículas com
- * `FluidSurfaceMaterial`) como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem
+ * com a função `material` — a aparência pelo grafo, spec 034 T065d) como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem
  * mudança de autoria: o material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
  * partículas, por núcleos anisotrópicos e redistanciamento — superfícies planas ficam planas, gotas separadas não se
  * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos, os blocos e os voxels
@@ -86,7 +86,6 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             table: 256,
             params: [FluidFieldSchema.applyDefaults({}) as Record<string, number[] | number[][]>],
             volume: 0,
-            surfaces: 0,
         };
     }
 
@@ -111,16 +110,16 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
     /**
      * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`), o material nele
      * (`ray_volume_surface`, spec 034 T065d) e a absorção pelos trechos dentro dele (`ray_volume_transmittance`) — só
-     * com fluido na cena (`volume` = 1). Os três com a mesma ordem: o `source` do acerto é a posição no ponto.
+     * com fluido na cena (`volume` = 1). Os três com a mesma ordem: o `source` do acerto é a posição no ponto. E a
+     * película de água que o fluido deixa nos sólidos (`scene_wetness`, spec 034), que quem sombreia uma superfície lê.
      */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
     }
 
-    /** Há corpos de `FluidSurfaceMaterial` no campo (estado `surfaces`, escrito só quando muda). */
-    setSurfaces(on: boolean): void {
-        const surfaces = on ? 1 : 0;
-        if (this.rawData.surfaces !== surfaces) this.data.surfaces = surfaces;
+    /** O campo contribui para os raios (há corpos de fluido com partículas na cena)? */
+    get volume(): boolean {
+        return this.rawData.volume === 1;
     }
 
     /** Liga ou desliga a contribuição aos raios (estado `volume`, escrito só quando muda). */
@@ -140,21 +139,21 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             point: rayVolumeSurfacePoint,
             order: 0,
             pools: [],
-            build: () => this.variant(fieldRaySurface),
+            build: () => (this.rawData.volume === 1 ? fieldRaySurface : undefined),
         },
         {
             point: rayVolumeTransmittancePoint,
             order: 0,
             pools: [],
-            build: () => this.variant(fieldRayTransmittance),
+            build: () => (this.rawData.volume === 1 ? fieldRayTransmittance : undefined),
+        },
+        {
+            point: sceneWetnessPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldWetness : undefined),
         },
     ];
-
-    /** A variante do módulo pelos corpos da cena, só com fluido. */
-    private variant(v: FieldSurfaceVariants): WgslModule | undefined {
-        if (this.rawData.volume !== 1) return undefined;
-        return this.rawData.surfaces === 1 ? v.fluid : v.graph;
-    }
 
     /** Capacidades atuais (blocos e baldes da tabela). */
     get capacity(): FluidFieldCapacity {

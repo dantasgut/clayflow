@@ -1865,7 +1865,7 @@ descritor do pipeline: não há lista de nomes por pipeline, e o casamento é pe
 
 ```typescript
 interface ConsumerResolver {
-  readonly name: string;       // nome do fornecedor: chave do pool, 'Time', 'ShadowCaster.depth', 'WaterSurface.caustics'…
+  readonly name: string;       // nome do fornecedor: chave do pool, 'Time', 'ShadowCaster.depth', 'Light.live'…
   readonly typeName: string;   // tipo WGSL que a fonte preenche (struct do elemento, texture_depth_2d, sampler_comparison…)
   resolve(ctx: ResolveContext): ResolvedSource | undefined;   // undefined: o dado ainda não existe — o pipeline espera
 }
@@ -1888,8 +1888,7 @@ class ConsumerResolverRegistry {
 | `TextureResolver(name, typeName, schema, descId, select?)` | view de textura alocada pela C2 | quem precisar |
 
 Os elementos registram os seus por padrão em `Application.create` (`ELEMENT_CONSUMERS`: gravidade, material de
-partículas, `ShadowCaster.depth`/`ShadowCaster.sampler` — o mapa da luz que projeta sombra; `WATER_CONSUMERS`:
-`WaterSurface.state`, `.caustics`, `.lightDepth`, `.lightMatrix`).
+partículas, `ShadowCaster.depth`/`ShadowCaster.sampler` — o mapa da luz que projeta sombra).
 
 **Extensão:** dev registra um resolver novo e declara o recurso que ele fornece:
 
@@ -2131,7 +2130,7 @@ sai antes de quem o referencia gera aviso (os slots ficam com o bit de vivo zera
 schema precisa de `pos: vec4f`. `SoftBody({ edges })` (XPBD) declara as restrições de distância internas como um segundo
 descritor em pool (`DistanceConstraint.schema`, `slotRefs` `self:body`); `DistanceConstraint({ a: { body, index }, b })`
 liga partículas de corpos diferentes do mesmo pool. O teto da busca de vizinhança (`NEIGHBOR_SEARCH_MAX_PARTICLES`,
-65 536) é validado pelos estágios de SPH e PBF.
+131 072) é validado pelos estágios de SPH e PBF.
 
 **Desenho de partículas.** O `ParticleFlow` (C4, fase `forward`, depois do forward) desenha cada corpo com
 `PointSpriteMaterial` num `draw.vertices(6, N)`: o vertex shader lê a posição direto do pool do corpo pelo índice da
@@ -2140,45 +2139,18 @@ dinâmico) — sem cópia para vertex buffer nem leitura de volta —, esfera im
 cena (ponto de cena `scene_any_light_direction`, spec 031 — o estágio não tem slot de luzes), na cor e na profundidade
 da cena (`loadOp: 'load'`).
 
-**Superfície de água (spec 017).** Um corpo de partículas com `FluidSurfaceMaterial` (C3, struct próprio: cor de
-dispersão, absorção por canal, cor refletida, índice de refração, refletividade, brilho, raio e suavização, cáusticas) é
-desenhado como água contínua, não como sprites (o `ParticleFlow` o ignora). A cadeia é dividida entre **produtor** e
-**consumidores** por uma superfície genérica — profundidade linear suavizada, espessura e slot do material por pixel —
-guardada no Resource `WaterSurface` da cena (C4, inserido com `FrameTargets`; todos os descritores
-`allocation: 'onDemand'`, alocados por `ensureAllocated` — que também aloca texturas — só quando entra água). O
-produtor marca cada vista como produzida no quadro pelo estado genérico da C2 (`ctx.produced`, descritores
-`WaterSurface.producedDescriptor`: `depth` na vista da câmera, `lightDepth` na da luz) e os consumidores (`WaterFlow`,
-`CausticsFlow`) consultam `isProduced` — o `WaterSurface` não tem estado próprio de produção:
-
-- `FluidSurfaceFlow` (produtor de partículas, uma classe em duas vistas). Vista da câmera (fase `forward`, −60): esferas
-  lidas do pool (um `draw.vertices(6, N)` por corpo), profundidade e material da mais próxima, espessura aditiva cortada
-  pela profundidade da cena, filtro separável de faixa estreita (limiar de silhueta que acompanha a inclinação local;
-  materiais diferentes não se misturam). Vista da luz (fase `shadow`, −10): a caixa envolvente das partículas na base da
-  luz que projeta sombra é acumulada por atômicos e uma matriz ortográfica ajustada à água (`lightMatrix`, só GPU) dá
-  texels de milímetros — o mapa de sombra da cena (±10 m) daria centímetros.
-- `CausticsFlow` (fase `shadow`, −20): um fóton por texel da superfície vista pela luz, refratado pela normal, até o
-  receptor (mapa de sombra da cena, lido bilinear) por iteração de ponto fixo; energia de Fresnel × absorção no
-  percurso depositada com B-spline quadrático em ponto fixo (`atomicAdd`: soma independente da ordem, imagem
-  determinística); resolução no mapa `caustics` (fator de transmissão rgb).
-- Transmissão da luz (spec 031): o `ForwardFlow` não conhece a água. Com a superfície da luz produzida
-  (`ctx.produced(water, WaterSurface.producedDescriptor.light, true)` e `water.setCaustics(true)` → estado
-  `caustics = 1` do `WaterSurface`), a água contribui para o ponto de cena
-  `light_transmission` (módulo `water_transmission`, recursos `{ consumer: 'WaterSurface.*' }`) e a luz direta passa
-  a ser multiplicada pelo mapa abaixo da água vista pela luz em todo desenho que chama o ponto (forward, sprites de
-  vértice, partículas secundárias); sem água, o pronto `vec3f(ambient + direct)` (imagens idênticas).
-- `WaterFlow` (fase `forward`, −70): copia a cor da cena para `background` e compõe num triângulo de tela cheia (MSAA:
-  nas amostras, resolvidas na cor; profundidade da cena só leitura, teste por `frag_depth`): normal da profundidade,
-  refração (nunca do que está na frente), absorção de Beer-Lambert, dispersão, Fresnel com a cor refletida, brilho e a
-  sombra da cena.
-
-As **ondulações capilares** do material (`rippleStrength`, `rippleSize`, `rippleSpeed`: oito trens de onda com
-dispersão de águas profundas e o tempo da cena) somam à normal da superfície, na composição e nas cáusticas, o detalhe
-que as partículas não resolvem — é delas que vem a rede fina das cáusticas. A suavização alterna direções dos eixos e
-diagonais entre iterações (só os eixos deixavam filetes em lâminas finas).
-
-Os consumidores não sabem de partículas: a água por altura (spec 029) escreve a mesma superfície. A troca de material
-de um corpo vivo usa `World.attach`/`detach` (evento `entitiesRecomposed`; a C2 refaz os registros e os slots de
-entidades da entidade).
+**Água (spec 033; spec 034, T065–T066).** Um `FluidBody` com uma função `material` (a aparência pelo grafo: o mesmo
+dielétrico com transmissão do vidro) e sem material de desenho é água contínua, não sprites (o `ParticleFlow` não o
+recebe: o slot dele pede um `Material`). O `FluidFieldFlow` (fase `transform`) constrói na GPU o campo de distância com
+sinal dos corpos (o `FluidField`, um por cena), com a tabela dos corpos — por corpo, o índice da função `material` na
+composição dos acertos dos raios e o slot dos parâmetros dela. O campo contribui para os pontos dos volumes
+(`ray_volume_hit`, `ray_volume_surface`, `ray_volume_transmittance`), e quem traça raios vê a água por eles: a
+refração (o `RefractionVolumeRequestFlow` pede os pixels em que a superfície da água está à frente dos opacos — todos,
+com a câmera dentro dela —, o `RefractionFlow` traça e a composição põe a cor; os raios de sombra dele atravessam a
+água com a absorção dela) e a luz rebatida. Nenhum
+pixel da água vem de uma cópia da tela. A troca de aparência de um corpo vivo usa `World.attach`/`detach` (evento
+`entitiesRecomposed`; a C2 refaz os registros e os slots de entidades da entidade). As cáusticas da água voltam
+unificadas com as do vidro no transporte de luz (T067); as da 017 saíram com o `FluidSurfaceMaterial` (T066).
 
 **Geometria escrita pela GPU.** Descritores `vertex`/`index` com `upload: 'never'` (índice exige `indexFormat`) ficam
 fora da deduplicação; `slot.entities({ owns: [[Geometry, 'vertices']] })` aceita descritor individual e registra o
@@ -2274,7 +2246,7 @@ export const forward = wgslModule({ name: 'forward', source, requires: [camerasR
 | `binding` | `{ storage: 'read' \| 'read_write' }`, `{ uniform: true }`, `{ texture: { sample: 'f32' \| 'i32' \| 'u32' \| 'depth', dimension?, multisampled? } }`, `{ storageTexture: { format, access, dimension? } }`, `{ sampler: 'filtering' \| 'comparison' }` |
 | `type` (buffers; obrigatório) | `{ schema: StructSchema, array? }` (o struct entra nos `structs` do módulo) ou `{ wgsl: 'u32' \| 'vec4f' \| 'atomic<u32>' …, array? }` |
 | `frequency` | `frame` (igual para todos os pipelines e passes do quadro: câmeras, luzes, sombra, cáusticas), `stage` (igual para os pipelines de um estágio: matrizes de mundo, registros e instâncias de desenho, parâmetros do estágio), `batch` (muda entre grupos de desenho: pool de material, registros de função), `draw` (do pipeline ou da chamada: vértices de um pipeline, parâmetros por despacho com offset dinâmico) |
-| `provider` | `{ pool: chave }` (pool da C2), `{ consumer: nome }` (resolver da cena: `Time`, `ShadowCaster.depth`, `WaterSurface.caustics`, `<pool>.live`…), `{ slot: nome, part?, descriptor? }` (o que o slot do Flow resolveu: o buffer do pool ou `part: 'live'`; `records`/`instances` de um `slot.entities`; a view de um `slot.texture`; o descritor `descriptor` de um `slot.singleton`), `{ scene: ponto }` (global de ponto de cena), `'private'` (o estágio liga pelo objeto do recurso) |
+| `provider` | `{ pool: chave }` (pool da C2), `{ consumer: nome }` (resolver da cena: `Time`, `ShadowCaster.depth`, `<pool>.live`…), `{ slot: nome, part?, descriptor? }` (o que o slot do Flow resolveu: o buffer do pool ou `part: 'live'`; `records`/`instances` de um `slot.entities`; a view de um `slot.texture`; o descritor `descriptor` de um `slot.singleton`), `{ scene: ponto }` (global de ponto de cena), `'private'` (o estágio liga pelo objeto do recurso) |
 
 Recursos compartilhados são declarados **uma vez**, em módulo próprio, e incluídos por dependência: os de cena em
 `elements/scene/resources.ts` (`transforms`, `worlds`, `camera_params`, `camera_matrices`, `cameras`, `lights`,
@@ -2437,10 +2409,9 @@ uma entram no pipeline pelos `requires` do módulo dela.
 |---|---|---|
 | Toda `DirectionalLight` e `PointLight` (`anyLightContribution`, `points/anyLightContribution.ts`) | `scene_any_light_direction` (`scene_any_light_direction_pool`: a primeira luz viva do pool `Light`, lida na GPU pelo bitset `{ consumer: 'Light.live' }`; sem luz viva, a direção padrão) | sempre, com ou sem sombra |
 | `DirectionalLight` com `ShadowMap` (`shadowCasterContributions`) | `scene_light_direction` (`lights[slot].direction`) e `light_visibility` (PCF 3×3 do mapa: `shadow_maps`, `shadow_matrices`, `shadow_map`, `shadow_sampler`) | `castShadow = 1` e slots nos pools `Light` e `ShadowMap` |
-| `WaterSurface` (C4) | `light_transmission` (`water_transmission`: cáusticas abaixo da água vista pela luz; recursos `{ consumer: 'WaterSurface.*' }`) | estado `caustics = 1` (`setCaustics`, chamado pelo produtor da vista da luz junto com `produced`) |
 
 Chamam os pontos: o `forward` (superfícies), os sprites de vértice (`point_sprite`), as partículas secundárias
-(`diffuse_sprite`) e a composição da água (`water_composite`); os sprites dos corpos de partículas (`particle_sprite`,
+(`diffuse_sprite`) e o traçado da refração; os sprites dos corpos de partículas (`particle_sprite`,
 do `ParticleFlow`) chamam `scene_any_light_direction()` — o `ParticleFlow` não tem slot de luzes (os parâmetros do
 quadro, `ParticleFrameParams`, só têm `cameraSlot`). Cada ponto recebe o valor que o desenho já calculava,
 para a conta ser a mesma de antes (imagens das fixtures bit a bit). Na F4, outra luz ou o céu entram como
@@ -2452,7 +2423,7 @@ sequenceDiagram
   participant SP as ScenePoints (C2)
   participant FR as FlowRuntime (forward)
   participant PS as PipelineState
-  W->>SP: resourcesChanged (DirectionalLight, WaterSurface)
+  W->>SP: resourcesChanged (DirectionalLight, ShadowMap)
   SP->>SP: build(slotOf) de cada contribuição → módulo por ponto (instanciado _k, combine)
   SP-->>FR: version++ → sceneChanged()
   FR->>FR: withScene: bindPoints(shader, {ponto → módulo})

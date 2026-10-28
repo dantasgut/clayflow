@@ -5,13 +5,15 @@ import {
     SurfaceFunction,
     DirectionalLight,
     FluidBody,
-    FluidSurfaceMaterial,
     GravityField,
+    MaterialFunction,
+    NodeGraph,
     ParticlePhysics,
     PlaneGeometry,
     PointSpriteMaterial,
     StandardMaterial,
     Transform,
+    nodes,
 } from 'clayflow';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
@@ -26,10 +28,35 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
 /**
  * Um `FluidBody` SPH (um corpo, N partículas numa faixa do pool) num tanque de colisores estáticos (sem corpo rígido:
  * o solver de corpos rígidos não entra na cena), desenhado pelo `ParticleFlow` em sprites que leem a posição direto do
- * pool — sem leitura de volta nem cópia por quadro (spec 008). Nas variantes `*-water`, o mesmo corpo com
- * `FluidSurfaceMaterial` (água contínua: superfície, refração, absorção e cáusticas) sob uma luz direcional com sombra,
- * sobre um fundo visível (receptor das cáusticas) — spec 017.
+ * pool — sem leitura de volta nem cópia por quadro (spec 008). Nas variantes `*-water`, o mesmo corpo com a aparência
+ * de água pelo grafo (spec 034, T066: superfície contínua pelo campo dos fluidos, traçada com refração e absorção) sob
+ * uma luz direcional com sombra, sobre um fundo visível — spec 017.
  */
+/** A água pelo grafo: o dielétrico de índice 1,333 com a transmissão e a absorção da água por metro (a cor a 1 m). */
+function waterAppearance(): MaterialFunction {
+    return new MaterialFunction({
+        graph: new NodeGraph({
+            nodes: {
+                reflect: nodes.bsdf.dielectric.with({ ior: 1.333, roughness: 0.02 }),
+                transmit: nodes.bsdf.transmission.with({
+                    ior: 1.333,
+                    abbe: 55.7,
+                    color: [Math.exp(-0.45), Math.exp(-0.09), Math.exp(-0.06)],
+                    depth: 1,
+                }),
+                water: nodes.closure.add,
+                out: nodes.output.closure,
+            },
+            links: [
+                ['reflect.value', 'water.a'],
+                ['transmit.value', 'water.b'],
+                ['water.value', 'out.closure'],
+            ],
+            output: 'out.value',
+        }),
+    });
+}
+
 const impl: SceneImplementation<ClayflowHandle> = {
     limitations: [
         'render LDR 8 bits (HDR na F4); MSAA desligado na comparação (o Three roda sem antialias)',
@@ -97,7 +124,7 @@ const impl: SceneImplementation<ClayflowHandle> = {
         world.insert(
             new FluidBody({ algorithm: 'SPH', position: blockPositions(rng, count) }).add(
                 water
-                    ? new FluidSurfaceMaterial()
+                    ? waterAppearance()
                     : new PointSpriteMaterial({ color: [0.2, 0.5, 1, 1], radius: spacing * 0.5 }),
             ),
         );

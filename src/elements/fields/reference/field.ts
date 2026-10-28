@@ -11,6 +11,8 @@
 //   4. a amostragem por B-spline tricúbica (contínua até a segunda derivada: ponto e normal lisos de perto) e a marcha
 //      do raio com refinamento por secante.
 
+import { fieldContactShape } from '../schemas';
+
 export type Vec3 = readonly [number, number, number];
 
 /** Parâmetros do campo. */
@@ -19,6 +21,13 @@ export interface FieldParams {
     readonly spacing: number;
     /** Nível da superfície na densidade (padrão `FIELD.iso`; a GPU o ajusta para conservar o volume). */
     readonly iso?: number;
+    /** Ângulo de contato com os sólidos em graus (padrão 90: a gota pousada não molha e fica a esfera). */
+    readonly contactAngle?: number;
+    /**
+     * O sólido mais próximo de cada partícula (normal para fora dele, distância), como o solver o escreve; sem ele (ou
+     * normal zero), nenhum.
+     */
+    readonly contacts?: readonly (readonly [number, number, number, number] | undefined)[];
 }
 
 /** Constantes do campo (as mesmas do WGSL). */
@@ -166,7 +175,33 @@ export function anisotropicKernels(positions: readonly Vec3[], params: FieldPara
             (k) => (1 - lambda) * p[k]! + lambda * xw[k]!,
         ) as unknown as Vec3;
         if (lists[i]!.length < FIELD.neighbors) {
-            const s = 1 / (FIELD.sparse * r);
+            const rs = FIELD.sparse * r;
+            const [fa, fc] = fieldContactShape(params.contactAngle ?? 90);
+            const contact = params.contacts?.[i];
+            if (
+                fa > 0
+                && contact !== undefined
+                && dot(contact as unknown as Vec3, contact as unknown as Vec3) > 0.25
+                && contact[3] < rs
+            ) {
+                // A calota pousada (a regra do WGSL): achatada contra o sólido, centrada nele, com o volume do núcleo.
+                const len = Math.hypot(contact[0], contact[1], contact[2]);
+                const n: Vec3 = [contact[0] / len, contact[1] / len, contact[2] / len];
+                const a = rs * fa;
+                const c = rs * fc;
+                const g = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+                for (let x = 0; x < 3; x++)
+                    for (let y = 0; y < 3; y++)
+                        g[x * 3 + y] = (x === y ? 1 / a : 0) + (1 / c - 1 / a) * n[x]! * n[y]!;
+                return {
+                    center: [0, 1, 2].map(
+                        (k) => center[k]! - n[k]! * contact[3],
+                    ) as unknown as Vec3,
+                    g,
+                    det: 1 / (a * a * c),
+                };
+            }
+            const s = 1 / rs;
             return { center, g: [s, 0, 0, 0, s, 0, 0, 0, s], det: s * s * s };
         }
         const c = [0, 0, 0, 0, 0, 0, 0, 0, 0];

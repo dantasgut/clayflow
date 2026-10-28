@@ -26,6 +26,7 @@ export * from './physics/bodies/index';
 export * from './physics/forcefields/index';
 export * from './physics/colliders/index';
 export * from './physics/constraints/index';
+export * from './physics/wetting/index';
 export { ParticlePhysics, TAIT_GAMMA, type ParticlePhysicsData } from './physics/ParticlePhysics';
 export type {
     ParticlePhysicsOptions,

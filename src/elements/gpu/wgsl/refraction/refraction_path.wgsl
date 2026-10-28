@@ -779,6 +779,9 @@ fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function
     var albedo = vec3f(0.0);
     var light = 0.0;
     for (var i = 0u; i < b.count; i++) {
+        // O ramo sem peso (a transmissão de um canal além do ângulo crítico, o reflexo atrás da face) não tem direção: o
+        // caminho dele daria NaN, e 0 vezes NaN contamina o pixel (como em `refraction_path_split`, que já o pula).
+        if (all(b.weights[i] <= vec3f(0.0))) { continue; }
         var lobe = stack;
         if (b.crossed[i]) { lobe = after; }
         // O lado quanto aos volumes, depois da superfície de um: pela direção do ramo contra a normal para fora dele.

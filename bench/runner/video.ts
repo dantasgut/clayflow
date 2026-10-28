@@ -318,6 +318,9 @@ async function record(
                 text.includes('FAIL:') ? text.slice(text.indexOf('FAIL:')) : 'prazo esgotado',
             );
         for (const e of encoders) await closeWithin(e, FFMPEG_CLOSE_MS);
+        // O que a página mediu (o tempo de GPU por quadro).
+        for (const line of text.split('\n'))
+            if (line.includes('GPU por quadro')) console.log(`  ${line}`);
     } finally {
         for (const e of encoders) if (e.proc.exitCode === null) e.proc.kill('SIGKILL');
     }

@@ -1,27 +1,97 @@
-// Cena de água dos smokes da superfície de fluido (spec 017): tanque com fundo quadriculado (ladrilhos claros e
-// escuros: a refração e a absorção aparecem no padrão), paredes só de colisão, luz direcional com sombra, câmera e uma
-// barragem de partículas. Determinística: as fixtures dependem só do código.
+// Cena de água dos smokes da superfície de fluido (spec 017): tanque sobre chão quadriculado (ladrilhos claros e
+// escuros: a refração e a absorção aparecem no padrão), paredes opacas de 0,5 m (desenhadas onde colidem), luz direcional com sombra,
+// câmera e uma barragem de partículas. A aparência da água é um material do grafo (spec 034, T066: o mesmo dielétrico do vidro).
+// Determinística: as fixtures dependem só do código.
 import {
     BoxCollider,
     BoxGeometry,
     Camera,
     DirectionalLight,
     FluidBody,
-    FluidSurfaceMaterial,
     GravityField,
     ParticlePhysics,
     PlaneGeometry,
     PointSpriteMaterial,
     StandardMaterial,
     Transform,
+    nodes,
+    SurfacePhysics,
 } from 'clayflow';
-import type { Application, FluidSurfaceMaterialOptions } from 'clayflow';
+import type {
+    Application,
+    MaterialFunction,
+    ParticlePhysicsOptions,
+    SurfacePhysicsOptions,
+} from 'clayflow';
+import { materialGraph } from './materialScenes';
 import { rng } from './particleScenes';
 
 /** Meia largura interna do tanque em x e z (m). */
 export const WATER_TANK: readonly [number, number] = [0.8, 0.4];
 /** Espaçamento das partículas da água (m). */
 export const WATER_SPACING = 0.025;
+
+/** A aparência da água pelo grafo (spec 034, T066). */
+export interface WaterLook {
+    /** Índice de refração (padrão 1,333). */
+    readonly ior?: number;
+    /** Número de Abbe da dispersão (padrão 55,7; 0 sem dispersão). */
+    readonly abbe?: number;
+    /** Absorção por metro por canal (padrão a da água: 0,45; 0,09; 0,06). */
+    readonly absorption?: readonly [number, number, number];
+    /** Rugosidade da superfície (padrão 0,02). */
+    readonly roughness?: number;
+    /** Ondulações da superfície (nó `surface.ripple`; padrão inclinação 0,3, 6 cm, velocidade 1); `false` sem. */
+    readonly ripple?:
+        | { readonly strength?: number; readonly size?: number; readonly speed?: number }
+        | false;
+}
+
+/**
+ * O material da água pelo grafo: o dielétrico de índice `ior` com a transmissão (a absorção por metro como a cor a 1 m,
+ * `exp(−absorção)`, e o Abbe) e as ondulações na normal da superfície (`surface.ripple` na posição, normal e tempo
+ * simulado da amostra, até `closure.normal`).
+ */
+export function waterLook(look: WaterLook = {}): MaterialFunction {
+    const ior = look.ior ?? 1.333;
+    const absorption = look.absorption ?? [0.45, 0.09, 0.06];
+    const graph = {
+        reflect: nodes.bsdf.dielectric.with({ ior, roughness: look.roughness ?? 0.02 }),
+        transmit: nodes.bsdf.transmission.with({
+            ior,
+            abbe: look.abbe ?? 55.7,
+            color: absorption.map((a) => Math.exp(-a)),
+            depth: 1,
+        }),
+        water: nodes.closure.add,
+    };
+    const links: [string, string][] = [
+        ['reflect.value', 'water.a'],
+        ['transmit.value', 'water.b'],
+    ];
+    if (look.ripple === false) return materialGraph(graph, links, 'water.value');
+    return materialGraph(
+        {
+            ...graph,
+            s: nodes.input.surfaceSample(),
+            ripple: nodes.surface.ripple.with({
+                strength: look.ripple?.strength ?? 0.3,
+                size: look.ripple?.size ?? 0.06,
+                speed: look.ripple?.speed ?? 1,
+            }),
+            bump: nodes.closure.normal,
+        },
+        [
+            ...links,
+            ['s.world_position', 'ripple.position'],
+            ['s.normal', 'ripple.normal'],
+            ['s.time', 'ripple.time'],
+            ['water.value', 'bump.c'],
+            ['ripple.value', 'bump.normal'],
+        ],
+        'bump.value',
+    );
+}
 
 /** Opções da cena. */
 export interface WaterSceneOptions {
@@ -32,10 +102,10 @@ export interface WaterSceneOptions {
     readonly dam?: readonly [number, number, number];
     /** Camada parada no fundo em vez da barragem: altura em partículas (água plana). */
     readonly layer?: number;
-    /** Algoritmo do fluido. */
+    /** Algoritmo do fluido (padrão PBF: incompressível, com o confinamento de vorticidade; spec 034). */
     readonly algorithm?: 'SPH' | 'PBF' | 'MPM';
-    /** Material do corpo: água (opções) ou sprites. */
-    readonly material?: FluidSurfaceMaterialOptions | 'sprites' | 'none';
+    /** Aparência do corpo: água pelo grafo (opções) ou sprites. */
+    readonly material?: WaterLook | 'sprites' | 'none';
     /** Caixa submersa no centro do tanque. */
     readonly box?: boolean;
     /** Fundo: quadriculado (padrão; mostra a refração) ou areia clara (mostra as cáusticas). */
@@ -47,11 +117,29 @@ export interface WaterSceneOptions {
     readonly target?: readonly [number, number, number];
     /** A câmera, já com o `Transform` que quem chama move; sem ela, uma parada em `eye` olhando `target`. */
     readonly camera?: Camera;
+    /** Física das partículas (padrão: a da água, `ParticlePhysics.WATER`, no espaçamento da cena). */
+    readonly physics?: ParticlePhysicsOptions;
+    /** Espaçamento das partículas (m; padrão `WATER_SPACING`): a barragem e a camada mantêm o volume. */
+    readonly spacing?: number;
+    /** A física da superfície dos sólidos diante da água (spec 034; sem ela, a padrão: lisa e impermeável). */
+    readonly surfaces?: {
+        readonly floor?: SurfacePhysicsOptions;
+        readonly walls?: SurfacePhysicsOptions;
+        readonly box?: SurfacePhysicsOptions;
+    };
+}
+
+/** O collider com a física da superfície, se dada. */
+function solid(collider: BoxCollider, surface: SurfacePhysicsOptions | undefined): BoxCollider {
+    return surface === undefined ? collider : collider.add(new SurfacePhysics(surface));
 }
 
 /** Monta a cena; devolve o corpo (ou `undefined` sem água). */
 export function waterScene(app: Application, options: WaterSceneOptions): FluidBody | undefined {
     const world = app.world;
+    // O fundo é o hemisfério (spec 034): o mundo que a água reflete e refrata é o que se vê atrás da cena.
+    app.defaults.ambient.background = true;
+    const spacing = options.spacing ?? WATER_SPACING;
     const eye = options.eye ?? [0, 1.25, 1.55];
     const target = options.target ?? [0, 0.1, 0];
     world.insert(
@@ -79,9 +167,13 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
         }),
     );
     world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-    world.insert(new ParticlePhysics({ particleSpacing: WATER_SPACING }));
-    floor(app, options.floor ?? 'checker');
-    walls(app);
+    world.insert(
+        new ParticlePhysics(
+            options.physics ?? { ...ParticlePhysics.WATER, particleSpacing: spacing },
+        ),
+    );
+    floor(app, options.floor ?? 'checker', options.surfaces?.floor);
+    walls(app, options.surfaces?.walls);
     if (options.box === true) {
         const box = new BoxGeometry({ size: [2 * BOX_HALF, 2 * BOX_HALF, 2 * BOX_HALF] });
         box.add(
@@ -90,28 +182,37 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
         box.add(new Transform({ position: [...BOX_CENTER, 1] }));
         world.insert(box);
         world.insert(
-            new BoxCollider({
-                halfExtents: [BOX_HALF, BOX_HALF, BOX_HALF, 0],
-                center: [...BOX_CENTER, 1],
-            }),
+            solid(
+                new BoxCollider({
+                    halfExtents: [BOX_HALF, BOX_HALF, BOX_HALF, 0],
+                    center: [...BOX_CENTER, 1],
+                }),
+                options.surfaces?.box,
+            ),
         );
     }
     if (options.material === 'none') return undefined;
     const position =
-        options.layer !== undefined ? layer(options.layer, options.box === true) : dam(options.dam);
-    const body = new FluidBody({ algorithm: options.algorithm ?? 'SPH', position });
+        options.layer !== undefined
+            ? layer(options.layer, options.box === true, spacing)
+            : dam(options.dam, spacing);
+    const body = new FluidBody({ algorithm: options.algorithm ?? 'PBF', position });
     body.add(
         options.material === 'sprites'
-            ? new PointSpriteMaterial({ color: [0.2, 0.5, 1, 1], radius: WATER_SPACING * 0.5 })
-            : new FluidSurfaceMaterial(options.material ?? {}),
+            ? new PointSpriteMaterial({ color: [0.2, 0.5, 1, 1], radius: spacing * 0.5 })
+            : waterLook(options.material ?? {}),
     );
     world.insert(body);
     return body;
 }
 
-/** Fundo quadriculado: ladrilhos de 10 cm claros e escuros sobre o tanque. */
-function floor(app: Application, kind: 'checker' | 'sand'): void {
-    const [hx, hz] = WATER_TANK;
+/** Meia largura do chão (m): o desenhado é o de colisão, para o que respinga fora do tanque cair num chão visível. */
+const FLOOR_HALF = 2;
+
+/** Chão quadriculado: ladrilhos de 10 cm claros e escuros (o padrão do tanque continua fora dele). */
+function floor(app: Application, kind: 'checker' | 'sand', surface?: SurfacePhysicsOptions): void {
+    const hx = FLOOR_HALF;
+    const hz = FLOOR_HALF;
     const tile = 0.1;
     for (let i = 0; i < Math.round((2 * hx) / tile); i++) {
         for (let k = 0; k < Math.round((2 * hz) / tile); k++) {
@@ -138,17 +239,29 @@ function floor(app: Application, kind: 'checker' | 'sand'): void {
         }
     }
     // Chão de colisão (o topo em y = 0).
-    app.world.insert(new BoxCollider({ halfExtents: [2, 0.5, 2, 0], center: [0, -0.5, 0, 1] }));
+    app.world.insert(
+        solid(
+            new BoxCollider({
+                halfExtents: [FLOOR_HALF, 0.5, FLOOR_HALF, 0],
+                center: [0, -0.5, 0, 1],
+            }),
+            surface,
+        ),
+    );
 }
 
-/** Altura da borda visível do tanque (m). */
-const RIM = 0.1;
+/** Altura das paredes do tanque (m). */
+const WALL = 0.5;
 
-/** Paredes do tanque: colisão e uma borda baixa visível (não esconde a água). */
-function walls(app: Application): void {
+/**
+ * Paredes do tanque: opacas, desenhadas até onde colidem (0,5 m: a água que bate nelas, molha e escorre fica à
+ * vista; a da barragem que passa da borda transborda — spec 034). Vidro espera a luz através dos dielétricos (T067):
+ * hoje o raio de sombra para no vidro e o tanque ficaria escuro. A colisão desce 10 cm abaixo do chão.
+ */
+function walls(app: Application, surface?: SurfacePhysicsOptions): void {
     const [hx, hz] = WATER_TANK;
     const t = 0.05;
-    const h = 0.8;
+    const h = (WALL + 0.1) / 2;
     for (const [x, z, ex, ez] of [
         [hx + t, 0, t, hz + 2 * t],
         [-(hx + t), 0, t, hz + 2 * t],
@@ -156,23 +269,32 @@ function walls(app: Application): void {
         [0, -(hz + t), hx, t],
     ] as const) {
         app.world.insert(
-            new BoxCollider({ halfExtents: [ex, h, ez, 0], center: [x, h - 0.1, z, 1] }),
+            solid(
+                new BoxCollider({ halfExtents: [ex, h, ez, 0], center: [x, WALL - h, z, 1] }),
+                surface,
+            ),
         );
-        const rim = new BoxGeometry({ size: [2 * ex, RIM, 2 * ez] });
-        rim.add(
-            new StandardMaterial({ albedo: [0.55, 0.57, 0.6, 1], roughness: 0.8, metallic: 0 }),
+        const wall = new BoxGeometry({ size: [2 * ex, WALL, 2 * ez] });
+        wall.add(
+            new StandardMaterial({ albedo: [0.62, 0.64, 0.68, 1], roughness: 0.7, metallic: 0 }),
         );
-        rim.add(new Transform({ position: [x, RIM / 2, z, 1] }));
-        app.world.insert(rim);
+        wall.add(new Transform({ position: [x, WALL / 2, z, 1] }));
+        app.world.insert(wall);
     }
 }
 
-/** Barragem encostada na parede −x (x, y, z por partícula, com jitter determinístico). */
-function dam(size: readonly [number, number, number] = [24, 48, 32]): number[] {
-    const [nx, ny, nz] = size;
+/**
+ * Barragem encostada na parede −x (x, y, z por partícula, com jitter determinístico); `size` em partículas do
+ * espaçamento padrão, escalado para manter o volume no espaçamento `s`.
+ */
+function dam(size: readonly [number, number, number] = [24, 48, 32], s: number): number[] {
+    const [nx, ny, nz] = size.map((n) => Math.round((n * WATER_SPACING) / s)) as [
+        number,
+        number,
+        number,
+    ];
     const [hx, hz] = WATER_TANK;
     const r = rng(17);
-    const s = WATER_SPACING;
     const out: number[] = [];
     const z0 = -hz + s * 0.5 + (2 * hz - nz * s) / 2;
     for (let y = 0; y < ny; y++)
@@ -191,9 +313,8 @@ const BOX_CENTER: readonly [number, number, number] = [0.15, 0.12, 0];
 const BOX_HALF = 0.12;
 
 /** Camada no fundo cobrindo o tanque (água parada depois de assentar), fora da caixa quando há caixa. */
-function layer(height: number, box: boolean): number[] {
+function layer(height: number, box: boolean, s: number): number[] {
     const [hx, hz] = WATER_TANK;
-    const s = WATER_SPACING;
     const nx = Math.floor((2 * hx) / s);
     const nz = Math.floor((2 * hz) / s);
     const r = rng(23);

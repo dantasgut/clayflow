@@ -1,10 +1,13 @@
 // Núcleos anisotrópicos das partículas (spec 033, R11; Yu & Turk 2013 — a regra de `fields/reference/field.ts`): os
 // vizinhos dentro do raio do núcleo pela grade hash; a média ponderada (peso 1 − (d/r)³) suaviza a posição; a covariância
 // em volta dela dá, pelos autovalores (Jacobi), os raios do núcleo ao longo dos eixos próprios — o maior vale o raio, os
-// outros até 1/k_r dele. Com poucos vizinhos, um núcleo isotrópico menor (gotas separadas não se fundem). Grava por
-// partícula três `vec4f`: (centro, det G), (G₀₀, G₀₁, G₀₂, G₁₁), (G₁₂, G₂₂, maior raio, 0).
+// outros até 1/k_r dele. Com poucos vizinhos, um núcleo isotrópico menor (gotas separadas não se fundem); encostado num
+// sólido (`field_sorted_contacts`, spec 034) e com água que molha (`fluid_field.contact`), achatado contra ele no
+// lugar do contato — a calota do ângulo de contato, com o mesmo volume. Grava por
+// partícula três `vec4f`: (centro, det G), (G₀₀, G₀₁, G₀₂, G₁₁), (G₁₂, G₂₂, maior raio, 1 no núcleo esparso — a gota
+// solta, spec 034 — e 0 no do volume).
 // Requer: WORKGROUP_SIZE, fluid_field, spatial_hash, grid, cell_start, cell_count, field_sorted (leitura),
-// field_kernel.
+// field_kernel, field_sorted_contacts.
 
 /** Autovalores (decrescentes) e autovetores (colunas) de uma simétrica 3 × 3 (Jacobi cíclico). */
 struct FieldEigen {
@@ -124,10 +127,23 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let center = p + lambda * xw;
     if (n < fluid_field.limits.x) {
         let rs = fluid_field.tuning.z * r;
+        let contact = field_sorted_contacts[t];
+        if (fluid_field.contact.x > 0.0 && dot(contact.xyz, contact.xyz) > 0.25 && contact.w < rs) {
+            // A calota: raio lateral a e normal c (a² c = rs³: o volume do núcleo esparso), centrada no sólido.
+            let nrm = normalize(contact.xyz);
+            let a = rs * fluid_field.contact.x;
+            let cn = rs * fluid_field.contact.y;
+            let g = (1.0 / a) * mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0))
+                + (1.0 / cn - 1.0 / a) * mat3x3f(nrm * nrm.x, nrm * nrm.y, nrm * nrm.z);
+            field_kernel[i * 3u] = vec4f(center - nrm * contact.w, 1.0 / (a * a * cn));
+            field_kernel[i * 3u + 1u] = vec4f(g[0][0], g[1][0], g[2][0], g[1][1]);
+            field_kernel[i * 3u + 2u] = vec4f(g[2][1], g[2][2], max(a, cn), 1.0);
+            return;
+        }
         let s = 1.0 / rs;
         field_kernel[i * 3u] = vec4f(center, s * s * s);
         field_kernel[i * 3u + 1u] = vec4f(s, 0.0, 0.0, s);
-        field_kernel[i * 3u + 2u] = vec4f(0.0, s, rs, 0.0);
+        field_kernel[i * 3u + 2u] = vec4f(0.0, s, rs, 1.0);
         return;
     }
     // Covariância em volta da média ponderada (em coordenadas relativas a p).

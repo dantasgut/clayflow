@@ -1,9 +1,9 @@
 // Contribuição do campo dos fluidos ao ponto `ray_volume_transmittance` (spec 033, R11): ao longo do segmento, cada
 // trecho dentro da água (até 4: entrar pela marcha de fora, com a normal refinada; sair pela de dentro, sem ela) atenua
-// por Beer-Lambert com a absorção do corpo daquele trecho — a do fechamento dele no ponto de entrada (`field_closure`: a
-// função `material` do corpo, ou o `FluidSurfaceMaterial`, cuja absorção vem escalada como a espessura na composição);
-// no trecho que começa dentro da água não há superfície: o fechamento na origem, com a normal contra o raio.
-// Requer: fields, ray_volume_types, ray_volume_material, field_surface (ou field_surface_fluid).
+// por Beer-Lambert com a absorção do corpo daquele trecho — a do fechamento dele no ponto de entrada (a função
+// `material` do corpo, `field_surface`); no trecho que começa dentro da água não há superfície: o fechamento na origem,
+// com a normal contra o raio.
+// Requer: fields, ray_volume_types, ray_volume_material, field_surface.
 
 fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f {
     let span = field_clip(origin, dir, 0.0, t_max);

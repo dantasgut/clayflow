@@ -109,8 +109,8 @@ C2 resolve a fonte pelo **fornecedor declarado**:
 5. `{ pool: chave }` / `{ consumer: nome }` — o `ConsumerResolver` registrado com esse nome.
 
 Fonte ainda inexistente na cena faz o pipeline esperar. Cada pool criado registra o seu `PoolResolver`
-automaticamente; fornecedores da C3/C4 (`Time`, `GravityField`, `ParticlePhysics`, `ShadowCaster.*`,
-`WaterSurface.*`) já têm resolver, e `Application.create({ consumers })` registra os seus (`SingletonResolver`,
+automaticamente; fornecedores da C3/C4 (`Time`, `GravityField`, `ParticlePhysics`, `ShadowCaster.*`) já têm
+resolver, e `Application.create({ consumers })` registra os seus (`SingletonResolver`,
 `PoolResolver`, `TextureResolver` ou uma implementação própria de `ConsumerResolver`). Uma fonte privada para um
 recurso que tem fornecedor é erro. No `dispatch`, grave os grupos sem índices: `prepared.bindTo(pass.bind, {
 frequência: offsets })`, ou `prepared.groupsOf(frequência)` para regravar só o que mudou. Detalhes em
@@ -190,8 +190,8 @@ bind groups afetados antes da próxima gravação.
 Um Flow que escreve um dado só em alguns quadros declara em `framePrepare` se o produziu:
 `ctx.produced(resource, descId, produced)` (spec 031). Quem lê consulta `resources.isProduced(resource, descId)`
 (`ResourceDirectory`) e só grava com o dado produzido. Um descritor tem um produtor só (o primeiro Flow que o marca); um
-segundo produtor é erro. É assim que a água liga produtor (`FluidSurfaceFlow`) e consumidores (`WaterFlow`,
-`CausticsFlow`) pelos descritores `WaterSurface.producedDescriptor`.
+segundo produtor é erro. É assim que a geometria escrita na GPU (`SurfaceFlow`, `produced('vertices')`) avisa a
+estrutura de raios de que precisa reajustar as caixas.
 
 | Evento | Quando a C2 entrega |
 |---|---|
@@ -379,10 +379,9 @@ Resource de que precisa.
 | `transform` | `RaySceneFlow` (−60) | a estrutura de raios, depois de toda a geometria do quadro |
 | `shadow` | `ShadowFlow` (0) | mapas de sombra |
 | `shadow` | `ProbeFlow` (−5) | sondas de tela e do mundo, fótons |
-| `shadow` | `FluidFieldPassFlow` luz (−10), `CausticsFlow` (−20) | a água vista da luz, as cáusticas dela |
 | `shadow` | `FroxelFlow` (−30) | a névoa: injeção, acúmulo, integração (lê sombra e sondas) |
 | `forward` | `ForwardFlow` (0) | passe de profundidade, opacos, céu ao fundo, transmissivos |
-| `forward` | `ParticleFlow` (−50), `FluidFieldPassFlow` câmera (−60), `WaterFlow` (−70) | sprites, a água marchada e a composição dela |
+| `forward` | `ParticleFlow` (−50), `RefractionVolumeRequestFlow` (−61), `RefractionFlow` (−65) | sprites; o vidro e a água traçados (o pedido pelas superfícies dos volumes e o traçado) |
 | `post`, `ui` | `PostFlow`, `UIFlow` | pós-processamento, interface |
 
 Os estágios conversam por Resources e pontos de cena, não por chamadas: a GI entra no desenho pelo `scene_lighting`, a

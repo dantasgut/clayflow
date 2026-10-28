@@ -75,7 +75,8 @@ fn bsdf_f_dielectric(cos_i: f32, eta: f32) -> f32 {
     let g2 = eta * eta - 1.0 + c * c;
     if (g2 < 0.0) { return 1.0; }
     let g = sqrt(g2);
-    let a = (g - c) / (g + c);
+    // Mesmo índice dos dois lados (η = 1) no rasante (c = 0): g = c = 0 e o termo seria 0/0; a refletância é 0.
+    let a = (g - c) / max(g + c, 1e-12);
     let b = (c * (g + c) - 1.0) / (c * (g - c) + 1.0);
     return 0.5 * a * a * (1.0 + b * b);
 }

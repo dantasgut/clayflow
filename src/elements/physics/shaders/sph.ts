@@ -2,14 +2,16 @@ import { poolLive } from '../../gpu/compute/shaders';
 import { fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
-import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { colliderSet, sphKernels } from '../../gpu/shaders/math';
+import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import { colliderSet, fluidBoundary, fluidBounds, sphKernels } from '../../gpu/shaders/math';
 import sphDensitySource from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
 import sphPressureSource from '../../gpu/wgsl/kernels/sph_pressure.wgsl?raw';
 import sphNormalsSource from '../../gpu/wgsl/kernels/sph_normals.wgsl?raw';
 import sphForcesSource from '../../gpu/wgsl/kernels/sph_forces.wgsl?raw';
 import sphIntegrateSource from '../../gpu/wgsl/kernels/sph_integrate.wgsl?raw';
 import sphCollisionSource from '../../gpu/wgsl/kernels/sph_collision.wgsl?raw';
+import sphBoundarySource from '../../gpu/wgsl/kernels/sph_boundary.wgsl?raw';
+import neighborParticleSource from '../../gpu/wgsl/kernels/neighbor_particle.wgsl?raw';
 import { SPHSchema } from '../../physics/bodies/schemas/SPHSchema';
 import { SPHSimParamsSchema } from '../../physics/schemas/simParams';
 
@@ -57,18 +59,39 @@ export const sphResources = Object.freeze({
     }),
     neighborList: privateStorage('neighbor_list', 'read', u32s),
     neighborCount: privateStorage('neighbor_count', 'read', u32s),
+    /** A ordem por célula da busca (`NeighborSearchPipeline.neighborOrder`): no posto, a partícula + 1. */
+    neighborOrder: privateStorage('neighbor_order', 'read', u32s),
     normal: privateStorage('sph_normal', 'read_write', vec4s),
     normalRead: privateStorage('sph_normal', 'read', vec4s),
+    /** Fronteira sólida por partícula (Σ −B' n, Σ B), escrita antes da densidade. */
+    boundary: privateStorage('sph_boundary', 'read_write', vec4s),
+    boundaryRead: privateStorage('sph_boundary', 'read', vec4s),
 });
 const R = sphResources;
 const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;
-const neighbors = [R.neighborList, R.neighborCount] as const;
 
-/** Densidade por soma dos vizinhos. */
+/** A partícula de um posto da ordem por célula: os kernels que leem vizinhos rodam nessa ordem (SPH e PBF). */
+export const neighborParticle = wgslModule({
+    name: 'neighbor_particle',
+    source: neighborParticleSource,
+    requires: [NONE.module, poolLive, R.neighborOrder, R.live],
+});
+
+const neighbors = [neighborParticle, R.neighborList, R.neighborCount] as const;
+
+/** Fronteira sólida por partícula (Akinci et al. 2012): o volume do núcleo nos sólidos e o gradiente dele. */
+export const sphBoundary = wgslModule({
+    name: 'sph_boundary_pass',
+    source: sphBoundarySource,
+    requires: [poolLive, fluidBoundary, ...own, R.boundary],
+    structs: [SPHSimParamsSchema, SPHSchema],
+});
+
+/** Densidade por soma dos vizinhos e da fronteira sólida. */
 export const sphDensity = wgslModule({
     name: 'sph_density',
     source: sphDensitySource,
-    requires: [poolLive, sphKernels, ...own, ...neighbors],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.boundaryRead],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
@@ -100,6 +123,7 @@ export const sphForces = wgslModule({
         ...own,
         ...neighbors,
         R.normalRead,
+        R.boundaryRead,
     ],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
@@ -116,6 +140,6 @@ export const sphIntegrate = wgslModule({
 export const sphCollision = wgslModule({
     name: 'sph_collision',
     source: sphCollisionSource,
-    requires: [poolLive, colliderSet, ...own],
+    requires: [poolLive, colliderSet, fluidBounds, ...own, neighborParticle, R.neighborCount],
     structs: [SPHSimParamsSchema, SPHSchema],
 });

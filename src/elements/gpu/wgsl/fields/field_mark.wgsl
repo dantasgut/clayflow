@@ -145,3 +145,4 @@ fn field_mark_main(
         atomicMax(&field_data_atomic[lid + 3u], field_ordered(atomicLoad(&field_wg_bounds[lid + 3u])));
     }
 }
+

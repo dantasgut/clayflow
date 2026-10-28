@@ -21,6 +21,7 @@ import { MeshCollider } from './MeshCollider';
 import { PlaneCollider } from './PlaneCollider';
 import { SphereCollider } from './SphereCollider';
 import { SurfaceCollider } from './SurfaceCollider';
+import { SurfacePhysics } from '../wetting/SurfacePhysics';
 
 /** Pools de collider da Camada 3, na ordem em que os estágios os percorrem. */
 export const COLLIDER_POOLS = [
@@ -112,6 +113,8 @@ export class ColliderSet {
     private countsBuffer: UniformBufferSpec | null = null;
     /** Donos das caixas e das esferas num só mapa (`collider_owners`): um binding de storage a menos por estágio. */
     private sharedOwners: OwnerBuffer | null = null;
+    /** A superfície física de cada collider (`collider_surfaces`: planos, caixas, esferas, superfícies). */
+    private surfaceMap: OwnerBuffer | null = null;
     private warnedSurfaces = false;
     /** Raio envolvente de cada collider de caixa e de esfera, por slot (para a broadphase). */
     private readonly radii = new Map<string, Float32Array>();
@@ -175,6 +178,7 @@ export class ColliderSet {
         if (!this.dirty && this.countsBuffer !== null) return this.gen !== before;
         for (const schema of COLLIDER_POOLS) this.rebuildOwners(schema.name);
         this.rebuildSharedOwners();
+        this.rebuildSurfaces();
         this.writeCounts();
         this.rebuildBroadphase();
         this.dirty = false;
@@ -199,6 +203,7 @@ export class ColliderSet {
             [C.meshOwners, mesh.owners],
             [C.bodies, this.bodiesBuffer()],
             [C.surfaceField, this.fieldBuffer()],
+            [C.surfaces, this.surfaceMap!.spec],
         ]);
     }
 
@@ -241,6 +246,8 @@ export class ColliderSet {
         if (this.countsBuffer !== null) this.core.destroy(this.countsBuffer);
         if (this.sharedOwners !== null) this.core.destroy(this.sharedOwners.spec);
         this.sharedOwners = null;
+        if (this.surfaceMap !== null) this.core.destroy(this.surfaceMap.spec);
+        this.surfaceMap = null;
         if (this.largeBuffer !== null) this.core.destroy(this.largeBuffer.spec);
         this.largeBuffer = null;
         this.shape = null;
@@ -382,6 +389,46 @@ export class ColliderSet {
             boxCount,
         );
         this.core.write(this.sharedOwners.spec, new Uint8Array(all.buffer));
+    }
+
+    /**
+     * A superfície física de cada collider (spec 034): a posição da entidade dele entre as que têm `SurfacePhysics` + 1
+     * (a ordem da consulta, a mesma de quem monta a tabela delas), 0 sem ela ou além de `SurfacePhysics.MAX`.
+     */
+    private rebuildSurfaces(): void {
+        const pools = [PlaneCollider, BoxCollider, SphereCollider, SurfaceCollider].map(
+            (c) => c.schema.name,
+        );
+        const total = pools.reduce((n, key) => n + (this.counts.get(key) ?? 0), 0);
+        const capacity = Math.max(4, total);
+        if (this.surfaceMap === null || this.surfaceMap.capacity < capacity) {
+            if (this.surfaceMap !== null) this.core.destroy(this.surfaceMap.spec);
+            this.surfaceMap = {
+                spec: this.core.create<StorageBufferSpec>({
+                    kind: 'buffer',
+                    subkind: 'storage',
+                    discriminator: `${this.options.discriminator}_surfaces_${capacity}`,
+                    byteSize: capacity * 4,
+                }),
+                capacity,
+            };
+            this.gen++;
+        }
+        const surfaces = this.world.queryBySchemaName(SurfacePhysics.schema.name);
+        const all = new Uint32Array(this.surfaceMap.capacity);
+        let base = 0;
+        for (const key of pools) {
+            const count = this.counts.get(key) ?? 0;
+            for (const id of this.world.queryBySchemaName(key)) {
+                const slot = this.resources.poolSlotOf(key, id);
+                const k = surfaces.indexOf(id);
+                if (slot === undefined || slot >= count || k < 0 || k >= SurfacePhysics.MAX)
+                    continue;
+                all[base + slot] = k + 1;
+            }
+            base += count;
+        }
+        this.core.write(this.surfaceMap.spec, new Uint8Array(all.buffer));
     }
 
     /** Raio da esfera envolvente do collider (caixa: meia-diagonal; esfera: o raio); 0 para outras formas. */

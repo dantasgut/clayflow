@@ -31,15 +31,15 @@ const water = new FluidBody({ algorithm: 'SPH', position: blockOfPositions });
 numa faixa contígua do pool do algoritmo (a ordem das partículas é a dos arrays); `mass` e `velocity` vêm por partícula
 ou como valor único. O estado é da simulação depois da inserção: para lê-lo na CPU,
 `app.resources.read(corpo, 'body')` devolve o dado por campo. Um corpo removido libera a faixa inteira (os slots ficam
-fora da simulação e da busca de vizinhança). SPH e PBF aceitam até `NEIGHBOR_SEARCH_MAX_PARTICLES` (65 536) partículas
+fora da simulação e da busca de vizinhança). SPH e PBF aceitam até `NEIGHBOR_SEARCH_MAX_PARTICLES` (131 072) partículas
 por pool; acima disso, erro com o teto.
 
 **Desenho.** Com `PointSpriteMaterial` na entidade, o corpo é desenhado como esferas pelo `ParticleFlow`, que lê as
 posições direto do pool (sem cópia nem leitura de volta). Um `SoftBody({ surface: { triangles } })` vira malha: a
 `SurfaceGeometry` dele é recalculada na GPU a cada quadro e desenhada com o material de superfície da entidade (e um
-`Transform`), com sombra. Com `FluidSurfaceMaterial` (spec 017), o fluido vira água contínua — refração, absorção pela
-espessura, reflexão com Fresnel e cáusticas sob a luz que projeta sombra — sem mudar a simulação. Para trocar o
-material de um corpo vivo: `world.detach(corpo, materialAntigo)` e `world.attach(corpo, materialNovo)`.
+`Transform`), com sombra. Com uma função `material` e sem material de desenho (spec 034: o dielétrico do grafo, o
+mesmo do vidro), o fluido vira água contínua — superfície pelo campo dos fluidos, traçada com refração, absorção por
+metro e reflexão com Fresnel — sem mudar a simulação. Para trocar a aparência de um corpo vivo: `world.detach(corpo, materialAntigo)` e `world.attach(corpo, materialNovo)`.
 
 O PBF calcula os substeps pelo passo estável da física (`ParticlePhysics.pbfStableDt`: a calibração de 5 cm a 60 Hz
 escalada por (h / 0,1)²): 1 substep a 5 cm, 4 a 2,5 cm.
@@ -336,13 +336,41 @@ app.world.insert(new DiffuseParticles({ source: agua, maxParticles: 32_768 }));
 A geração lê o fluido no fim de cada quadro: a quantidade de spray varia um pouco com a taxa de quadros; a dinâmica do
 fluido continua a mesma a 30/60/144 Hz.
 
+## A água que molha os sólidos (spec 034)
+
+A água dos corpos de fluido deixa nos sólidos uma película mais fina que as partículas (`FluidFieldFlow`, `field_film_*.wgsl`). O que ela faz em cada sólido vem da física da superfície, um componente da entidade do collider — não do material, que é só a aparência:
+
+```ts
+world.insert(new BoxCollider({ … }).add(new SurfacePhysics(SurfacePhysics.CONCRETE)));
+world.insert(new BoxCollider({ … }).add(new SurfacePhysics({ roughness: 1.2, hysteresis: 20, temperature: 35 })));
+world.insert(new Atmosphere({ temperature: 28, relativeHumidity: 0.3, windSpeed: 2 }));
+```
+
+- **Rugosidade e histerese** (`roughness`, `hysteresis`, `contactAngle`): a borda da película segura parada a espessura f / (ρ g_t ℓ), com f = γ (cos θ_r* − cos θ_a*) de Furmidge e os ângulos aparentes de Wenzel (cos θ* = r cos θ). Acima disso o excesso rompe a borda e desce na velocidade da película fina de Nusselt (g_t h² / 3ν, freada por 1/r), molhando o seco à frente sobre a superfície dos sólidos e deixando atrás a espessura presa; películas que se encontram somam.
+- **Porosidade** (`porosity`, `poreRadius`, `thickness`): a água livre entra nos poros por Lucas–Washburn, A² = W t com W = φ² γ r cos θ / (2μ), até φ × espessura. O raio é o efetivo, que reproduz a sortividade medida (os presets: concreto ~0,1 mm/√s, tijolo ~0,3 mm/√s).
+- **Evaporação** (`Atmosphere` e `temperature` da superfície): a taxa de Carrier, (0,089 + 0,0782 V)(p_w − p_a)/Y, com as pressões de vapor de Magnus; primeiro a água livre, depois a dos poros, na taxa vezes a saturação.
+
+Sem `SurfacePhysics`, o sólido (e as paredes do domínio) é o padrão: liso, impermeável, histerese de 10°. Quem sombreia lê a película e a saturação dos poros pelo ponto `scene_wetness` (`closure_wet`: a película dá o brilho da água; a película e os poros escurecem a base). As fórmulas estão em `physics/wetting/wetting.ts`; o smoke `wetting` as confere na GPU.
+
 ## Busca de vizinhança (SPH, PBF)
 
 Reconstruída a cada substep: célula de cada partícula viva, soma de prefixos, espalhamento, ordenação por índice dentro
 de cada célula (com as posições copiadas na mesma ordem) e busca em 9 faixas de células contíguas numa ordem fixa,
 gravando a lista intercalada (`k * stride + i`). A lista é determinística (trajetórias bit a bit entre execuções e nas
-taxas de 30/60/144 Hz) sem vetor local por partícula. Com 64 000 partículas SPH, o bench `particles/64k` roda a 74 fps
-(13 ms de GPU por quadro, desenho incluído).
+taxas de 30/60/144 Hz) sem vetor local por partícula. As partículas vivas fora da grade ficam numa célula extra no fim
+(na ordem, nunca vizinhas de ninguém). Com 64 000 partículas SPH, o bench `particles/64k` roda a 74 fps (13 ms de GPU
+por quadro, desenho incluído).
+
+**Ordem por célula (`byRank`, ligada no SPH e no PBF).** A busca grava também a ordem por célula (`neighborOrder`: no
+posto `t`, a partícula + 1) e roda nela; a lista e a contagem ficam pelo posto (`k * stride + t`). Os kernels que leem
+vizinhos rodam na mesma ordem (`neighbor_particle(t, n)`): threads vizinhos tratam partículas vizinhas no espaço e leem
+os mesmos vizinhos, e o cache da GPU os reaproveita. Cada partícula faz as mesmas contas na mesma ordem de vizinhos —
+o estado sai idêntico bit a bit. Medido no M4 (cena do tanque, PBF): igual com 37 mil partículas (os dados cabem no
+cache), 18 → 14,4 ms por passo com 72 mil.
+
+**Passes de computação.** Cada iteração do solver grava os seus despachos no passe da busca de vizinhos
+(`rebuild(frame, n, then)`: três passes por iteração, um marcador de depuração por despacho). Abrir um passe custa mais
+que um despacho de dezenas de milhares de partículas; dentro do passe, cada despacho já vê o que o anterior escreveu.
 
 ## Convenções dos Flows
 

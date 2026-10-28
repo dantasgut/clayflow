@@ -4,6 +4,7 @@ import { BoxCollider } from '../colliders/BoxCollider';
 import { PlaneCollider } from '../colliders/PlaneCollider';
 import { SphereCollider } from '../colliders/SphereCollider';
 import { SurfaceCollider } from '../colliders/SurfaceCollider';
+import { SurfacePhysics } from '../wetting/SurfacePhysics';
 import { RigidBody } from '../bodies/RigidBody';
 import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
 import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
@@ -148,6 +149,22 @@ describe('ColliderSet', () => {
         ]);
     });
 
+    it('superfície física de cada collider (spec 034): a entrada da SurfacePhysics da entidade, 0 sem ela', () => {
+        const s = setup();
+        s.world.insert(new PlaneCollider());
+        s.world.insert(new BoxCollider().add(new SurfacePhysics(SurfacePhysics.CONCRETE)));
+        s.world.insert(
+            new SphereCollider({ radius: 1 }).add(new SurfacePhysics(SurfacePhysics.GLASS)),
+        );
+        s.world.insert(new SphereCollider({ radius: 2 }));
+        s.set.refresh();
+        const src = byName(s.set.sources());
+        // Planos, caixas, esferas: o plano sem, a caixa a 1ª superfície da cena, as esferas a 2ª e sem.
+        expect(lastU32(s.writes, src.collider_surfaces as StorageBufferSpec).slice(0, 4)).toEqual([
+            0, 1, 2, 0,
+        ]);
+    });
+
     it('destroy libera mapas, buffers mínimos e contagens', () => {
         const s = setup();
         s.set.refresh();
@@ -172,6 +189,7 @@ describe('ColliderSet', () => {
             'collider_planes',
             'collider_spheres',
             'collider_surface_field',
+            'collider_surfaces',
         ]);
         expect(src.collider_meshes).toBe(s.set.pool('MeshCollider').buffer);
     });

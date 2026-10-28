@@ -9,8 +9,10 @@ fn pbf_xsph_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= pbf_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
+    // Na ordem por célula: o posto `t` (a lista e a contagem de vizinhos) e a partícula `i` dele.
+    let t = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let i = neighbor_particle(t, pbf_params.particle_count);
+    if (i == NONE) { return; }
 
     let h        = pbf_params.h;
     let eps_v    = pbf_params.vorticity_eps;  // vorticity_eps
@@ -18,7 +20,7 @@ fn pbf_xsph_main(
     let dt       = pbf_params.dt;
     let m_rho0   = pbf_params.mass_over_density;     // m / ρ₀
     let max_nb   = pbf_params.max_neighbors;
-    let nb_count = neighbor_count[i];
+    let nb_count = neighbor_count[t];
 
     let xi      = particles[i].pos.xyz;
     let vi      = particles[i].vel.xyz;
@@ -33,7 +35,7 @@ fn pbf_xsph_main(
     var self_n  = vec4f(0.0);
     if (surface) { self_n = pbf_normal[i]; }
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
-        let j    = neighbor_list[k * pbf_params.neighbor_stride + i];
+        let j    = neighbor_list[k * pbf_params.neighbor_stride + t];
         let dv   = xi - particles[j].pos.xyz;
         let r_sq = dot(dv, dv);
         xsph += (particles[j].vel.xyz - vi) * W_poly6(r_sq, h);

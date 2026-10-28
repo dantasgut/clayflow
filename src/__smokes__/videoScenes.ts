@@ -279,6 +279,25 @@ const SHOTS: Record<string, Shot> = {
             return () => undefined;
         },
     },
+    molhar: {
+        frames: 360,
+        build(app) {
+            // A barragem no tanque com a física das superfícies (spec 034): o chão de concreto absorve e escurece, as
+            // paredes de vidro deixam a película romper a borda e escorrer, a caixa de tijolo segura e absorve.
+            waterScene(app, {
+                width: W,
+                height: H,
+                box: true,
+                eye: [1.3, 1.25, 1.9],
+                surfaces: {
+                    floor: clayflow.SurfacePhysics.CONCRETE,
+                    walls: clayflow.SurfacePhysics.GLASS,
+                    box: clayflow.SurfacePhysics.BRICK,
+                },
+            });
+            return () => undefined;
+        },
+    },
     causticas: {
         frames: 360,
         build(app) {
@@ -455,6 +474,7 @@ async function main(): Promise<void> {
         canvas,
         scene: createScene(),
         autoResize: false,
+        profiling: 'frame',
         ...(AA !== null ? { antialias: AA as clayflow.AntialiasingMode } : {}),
         canvasOptions: {
             capture: true,
@@ -463,6 +483,9 @@ async function main(): Promise<void> {
     });
     const errors: string[] = [];
     app.events.on('engineError', (e) => errors.push(`${e.stage}: ${e.message}`));
+    // Tempo de GPU por quadro (profiling do quadro): quantos quadros por segundo o motor gera nesta cena.
+    const gpuMs: number[] = [];
+    app.events.on('gpuFrameTimed', (e) => gpuMs.push(e.totalMs));
     const update = shot.build(app);
     update(0);
     await app.whenReady({ timeoutMs: 120_000 });
@@ -479,6 +502,15 @@ async function main(): Promise<void> {
     app.dispose();
     canvas.remove();
     log(`${name}: ${frames} quadros ${W}×${H} lidos da GPU (${BITS} bits)`);
+    if (gpuMs.length > 0) {
+        const s = [...gpuMs].sort((a, b) => a - b);
+        const at = (f: number): number => s[Math.min(s.length - 1, Math.floor(f * s.length))]!;
+        const mean = gpuMs.reduce((a, b) => a + b, 0) / gpuMs.length;
+        const fps = (ms: number): string => (1000 / ms).toFixed(1);
+        log(
+            `${name}: GPU por quadro média ${mean.toFixed(2)} ms (${fps(mean)} FPS), mediana ${at(0.5).toFixed(2)} ms (${fps(at(0.5))} FPS), p95 ${at(0.95).toFixed(2)} ms (${fps(at(0.95))} FPS), pior ${s.at(-1)!.toFixed(2)} ms — ${gpuMs.length} quadros medidos`,
+        );
+    }
     log('VIDEO DONE');
 }
 

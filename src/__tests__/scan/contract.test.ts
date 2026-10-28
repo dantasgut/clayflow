@@ -86,10 +86,6 @@ describe('contrato de shader estruturado (spec 031)', () => {
             ...wgsl
                 .flatMap((f) => matches(f, read(f), /0xFFFFFFFF|@workgroup_size\(\s*64\s*\)/i))
                 .filter((m) => !/atomicStore\([^)]*0xffffffffu\)/i.test(m)),
-            // "Sem profundidade de água": só as constantes `WATER_NO_DEPTH`/`WATER_DEPTH_LIMIT` nos shaders da água.
-            ...wgsl
-                .filter((f) => f.startsWith('presentation/water/'))
-                .flatMap((f) => matches(f, read(f), /\b1e9\b|\b1e8\b/)),
             ...wgsl.flatMap((f) =>
                 matches(f, read(f), /vec3f\(\s*0\.4\s*,\s*-1\.0\s*,\s*0\.6\s*\)/),
             ),

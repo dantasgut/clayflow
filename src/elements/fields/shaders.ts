@@ -1,4 +1,4 @@
-import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import { wgslModule } from '../../scene/shaders/WgslModule';
 import {
     wgslResource,
     type WgslResource,
@@ -22,14 +22,20 @@ import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
 import fieldSurfaceSource from '../gpu/wgsl/fields/field_surface.wgsl?raw';
-import fieldSurfaceFluidSource from '../gpu/wgsl/fields/field_surface_fluid.wgsl?raw';
-import fieldSurfaceFallbackReadySource from '../gpu/wgsl/fields/field_surface_fallback_ready.wgsl?raw';
 import fieldRaySurfaceSource from '../gpu/wgsl/fields/field_ray_surface.wgsl?raw';
-import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
+import fieldFilmSource from '../gpu/wgsl/fields/field_film.wgsl?raw';
+import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw';
+import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?raw';
+import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
 import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
 import { closure } from '../material/pbr/shaders';
-import { FieldGatherSchema, FluidFieldSchema } from './schemas';
-import { hashAddress, linalg } from '../gpu/shaders/math';
+import {
+    FIELD_FILM_SURFACES,
+    FIELD_FILM_WORDS,
+    FieldGatherSchema,
+    FluidFieldSchema,
+} from './schemas';
+import { colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
 // marcação dos blocos, vizinhança, densidade, redistanciamento, borda) e a consulta (φ, normal, marcha). Os buffers que
@@ -99,6 +105,11 @@ export const fieldResources = Object.freeze({
     /** As partículas na ordem das células da grade (cópia depois dela). */
     sorted: priv('field_sorted', 'read', vec4fs),
     sortedWrite: priv('field_sorted', 'read_write', vec4fs),
+    /** O sólido mais próximo de cada partícula (normal, distância; normal zero sem), na junção e na ordem da grade. */
+    contacts: priv('field_contacts', 'read', vec4fs),
+    contactsWrite: priv('field_contacts', 'read_write', vec4fs),
+    sortedContacts: priv('field_sorted_contacts', 'read', vec4fs),
+    sortedContactsWrite: priv('field_sorted_contacts', 'read_write', vec4fs),
     kernel: priv('field_kernel', 'read', vec4fs),
     kernelWrite: priv('field_kernel', 'read_write', vec4fs),
     links: priv('field_links', 'read', u32s),
@@ -122,14 +133,6 @@ export const fieldResources = Object.freeze({
     cellStart: priv('cell_start', 'read', u32s),
     cellCount: priv('cell_count', 'read', u32s),
     cellItems: priv('cell_items', 'read', u32s),
-    /** Materiais de água (pool `FluidSurfaceMaterial`): o fechamento dos corpos sem função `material`. */
-    materials: wgslResource({
-        name: 'field_materials',
-        binding: { storage: 'read' },
-        type: { schema: FluidSurfaceMaterialSchema, array: true },
-        frequency: 'frame',
-        provider: { pool: FluidSurfaceMaterialSchema.name },
-    }),
 });
 
 const R = fieldResources;
@@ -154,12 +157,14 @@ export const fieldGather = wgslModule({
     source: fieldGatherSource,
     requires: [
         WORKGROUP_SIZE.module,
+        NONE.module,
         R.params,
         R.gather,
         R.particles,
         R.live,
         poolLive,
         R.itemsWrite,
+        R.contactsWrite,
     ],
 });
 
@@ -176,6 +181,8 @@ export const fieldSort = wgslModule({
         R.cellItems,
         R.items,
         R.sortedWrite,
+        R.contacts,
+        R.sortedContactsWrite,
     ],
 });
 
@@ -192,6 +199,7 @@ export const fieldKernels = wgslModule({
         R.cellCount,
         R.sorted,
         R.kernelWrite,
+        R.sortedContacts,
     ],
 });
 
@@ -281,11 +289,72 @@ export const fieldApron = wgslModule({
     ],
 });
 
-/** Consulta ao campo: φ, normal e a marcha de um raio. */
+/** A película de água nos sólidos (spec 034): a tabela, as chaves, as células e a tabela das superfícies. */
+const fieldFilm = wgslModule({
+    name: 'field_film',
+    source: fieldFilmSource,
+    requires: [
+        R.params,
+        fieldCommon,
+        hashAddress,
+        FIELD_FILM_WORDS.module,
+        FIELD_FILM_SURFACES.module,
+    ],
+});
+
+/** A tabela da película escrita com atômicos: a busca e a inserção de uma célula. */
+const fieldFilmUpdate = wgslModule({
+    name: 'field_film_update',
+    source: fieldFilmUpdateSource,
+    requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.dataAtomic],
+});
+
+/** Deposição da película por partícula encostada num sólido. */
+export const fieldFilmDeposit = wgslModule({
+    name: 'field_film_deposit',
+    source: fieldFilmDepositSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        R.sorted,
+        R.sortedContacts,
+        R.kernel,
+    ],
+});
+
+/**
+ * Um passo da película por célula: a superfície física dela, a absorção, a evaporação e o escoamento sobre a superfície
+ * dos sólidos (o conjunto de colliders).
+ */
+export const fieldFilmStep = wgslModule({
+    name: 'field_film_step',
+    source: fieldFilmStepSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        colliderSurface,
+    ],
+});
+
+/** Consulta ao campo: φ, normal, a marcha de um raio e a película nos sólidos. */
 export const fields = wgslModule({
     name: 'fields',
     source: fieldsSource,
-    requires: [NONE.module, R.params, fieldCommon, fieldLookup],
+    requires: [NONE.module, R.params, fieldCommon, fieldLookup, fieldFilm],
+});
+
+/** Contribuição do campo ao ponto `scene_wetness`: a película livre e a saturação dos poros no ponto do sólido. */
+export const fieldWetness = wgslModule({
+    name: 'field_wetness',
+    source: 'fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return field_film_at(p, n);\n}',
+    requires: [fields],
 });
 
 /** Contribuição do campo ao ponto `ray_volume_hit`: o cruzamento com a superfície da água. */
@@ -295,59 +364,23 @@ export const fieldRayHit = wgslModule({
     requires: [rayVolumeTypes, fields],
 });
 
-/** O material de um corpo sem função `material`, sem corpos de `FluidSurfaceMaterial` na cena: nenhum. */
-const fieldSurfaceFallbackReady = wgslModule({
-    name: 'field_surface_fallback_ready',
-    source: fieldSurfaceFallbackReadySource,
-    requires: [rayVolumeTypes, closure],
+/** O material da água num acerto do campo: a função `material` do corpo (o grafo). */
+const fieldSurface = wgslModule({
+    name: 'field_surface',
+    source: fieldSurfaceSource,
+    requires: [rayVolumeTypes, fields, closure],
 });
-
-/**
- * O mesmo com corpos de `FluidSurfaceMaterial` na cena: o fechamento dele (lê o pool, que só existe com eles — sem eles a
- * ligação não se resolveria e o kernel não comporia).
- */
-const fieldSurfaceFluid = wgslModule({
-    name: 'field_surface_fluid',
-    source: fieldSurfaceFluidSource,
-    requires: [rayVolumeTypes, R.materials, closure],
-});
-
-/** As duas variantes de um módulo do campo que lê o material: sem e com o `FluidSurfaceMaterial`. */
-export interface FieldSurfaceVariants {
-    readonly graph: WgslModule;
-    readonly fluid: WgslModule;
-}
-
-function variants(
-    name: string,
-    source: string,
-    requires: (surface: WgslModule) => readonly WgslModule[],
-): FieldSurfaceVariants {
-    const make = (fallback: WgslModule): WgslModule =>
-        wgslModule({
-            name: `${name}:${fallback.name}`,
-            source,
-            requires: requires(surface[fallback.name]!),
-        });
-    const surface: Record<string, WgslModule> = {};
-    for (const fallback of [fieldSurfaceFallbackReady, fieldSurfaceFluid])
-        surface[fallback.name] = wgslModule({
-            name: `field_surface:${fallback.name}`,
-            source: fieldSurfaceSource,
-            requires: [rayVolumeTypes, fields, closure, fallback],
-        });
-    return { graph: make(fieldSurfaceFallbackReady), fluid: make(fieldSurfaceFluid) };
-}
 
 /** Contribuição do campo ao ponto `ray_volume_surface`: o material da água no acerto. */
-export const fieldRaySurface = variants('field_ray_surface', fieldRaySurfaceSource, (surface) => [
-    rayVolumeTypes,
-    surface,
-]);
+export const fieldRaySurface = wgslModule({
+    name: 'field_ray_surface',
+    source: fieldRaySurfaceSource,
+    requires: [rayVolumeTypes, fieldSurface],
+});
 
 /** Contribuição do campo ao ponto `ray_volume_transmittance`: a absorção pelos trechos dentro da água. */
-export const fieldRayTransmittance = variants(
-    'field_ray_transmittance',
-    fieldRayTransmittanceSource,
-    (surface) => [fields, rayVolumeTypes, rayVolumeMaterial, surface],
-);
+export const fieldRayTransmittance = wgslModule({
+    name: 'field_ray_transmittance',
+    source: fieldRayTransmittanceSource,
+    requires: [fields, rayVolumeTypes, rayVolumeMaterial, fieldSurface],
+});

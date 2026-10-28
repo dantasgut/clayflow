@@ -9,9 +9,10 @@ fn sph_collision_main(
     // Tempo da iteração: escolhe a cópia do passo nos colliders de superfície (spec 010).
     collider_time = sph_params.field_time;
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
-    let i = gid.x;
-    if (i >= sph_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
+    // Na ordem por célula: o posto `t` (a lista e a contagem de vizinhos) e a partícula `i` dele.
+    let t = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let i = neighbor_particle(t, sph_params.particle_count);
+    if (i == NONE) { return; }
 
     let restitution    = sph_params.restitution;
     let bound_min      = sph_params.bound_min;
@@ -43,6 +44,14 @@ fn sph_collision_main(
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
     // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).
     collider_set_push_out(&pos, &vel, sph_params.collision_radius, restitution);
+
+    // ── Gota solta (spec 034): a borda ancorada num sólido que a água molha (`fluid_wet_pinning`); com outra água por
+    // perto (vizinhas), volta à dinâmica do volume. O contato é o sólido mais próximo do início do passo.
+    if (sph_params.wet_neighbors > 0u && neighbor_count[t] < sph_params.wet_neighbors) {
+        vel = fluid_wet_pinning(
+            vel, particles[i].contact, 1.5 * sph_params.collision_radius, sph_params.wet_pinning, sph_params.dt,
+        );
+    }
 
     particles[i].pos = vec4f(pos, particles[i].pos.w);
     particles[i].vel = vec4f(vel, particles[i].vel.w);

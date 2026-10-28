@@ -103,8 +103,7 @@ fn field_body_at(p: vec3f) -> u32 {
 
 /**
  * O registro do corpo `body` (índice + 1, a palavra dos blocos; 0 = nenhum) na tabela do campo: (índice + 1 da função
- * `material` na composição dos acertos dos raios, 0 sem; slot dos parâmetros dela; slot + 1 do `FluidSurfaceMaterial`,
- * 0 sem; 0).
+ * `material` na composição dos acertos dos raios, 0 sem; slot dos parâmetros dela; 0; 0).
  */
 fn field_body(body: u32) -> vec4u {
     if (body == 0u) { return vec4u(0u); }
@@ -135,6 +134,20 @@ fn field_phi_cached(p: vec3f, cache: ptr<function, vec4i>) -> f32 {
     return field_phi_linear(brick, b, p);
 }
 
+/** A saída de dentro pela borda de um bloco vazio, em `t`, com o corpo `body` do último bloco com campo. */
+fn field_edge_exit(origin: vec3f, dir: vec3f, t: f32, sgn: f32, body: u32) -> FieldHit {
+    return FieldHit(t, origin + dir * t, -dir * sgn, body, true);
+}
+
+/**
+ * Passos de marcha por invocação, somados em todas as marchas dela (spec 034, T065f): o teto do trabalho de um pixel,
+ * qualquer que seja o aninhamento de quem consulta (o caminho da refração, a olhada à frente, os raios de sombra). O
+ * caso comum usa poucas centenas; o teto de 2048 deixa o pior caso de uma tela 1280×720 em dezenas de ms, nunca um
+ * kernel preso (que trava a tela: a GPU é a mesma). Esgotado, a marcha não acha mais nada.
+ */
+const FIELD_STEP_BUDGET: u32 = 2048u;
+var<private> field_steps_left: u32 = FIELD_STEP_BUDGET;
+
 /**
  * Marcha de `origin` na direção unitária `dir` de `t0` a `t1` até a superfície (de fora para dentro, `inside` falso) ou
  * até sair do fluido (de dentro para fora, `inside` verdadeiro). Pelos blocos: os vazios pulados até a saída deles (a
@@ -161,7 +174,13 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
     // O último passo pararia além de `t1` sem amostrar o fim: a superfície nos últimos milímetros antes dele (o raio que
     // cruza a água logo antes de sair do vidro, quando `t1` é a malha seguinte) se perdia. O fim é sempre amostrado.
     var last = false;
+    // Vindo de dentro, a saída por um bloco vazio é a superfície do último bloco com campo: o corpo dele e o ponto na
+    // borda, do lado dele (o passo que entrou no vazio passou 1e-4 dela; de lá, quem reflete partia sem campo e sem
+    // corpo).
+    var body_seen = 0u;
     for (var steps = 0u; steps < 512u; steps++) {
+        if (field_steps_left == 0u) { return miss; }
+        field_steps_left -= 1u;
         if (t >= t1) {
             if (last || t_prev >= t1) { break; }
             t = t1;
@@ -173,7 +192,7 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
         let sb = field_super_of(b);
         if (any(sb != super_cache.xyz)) { super_cache = vec4i(sb, select(0, 1, field_super_present(sb))); }
         if (super_cache.w == 0) {
-            if (inside) { return FieldHit(t, p, -dir, 0u, true); }
+            if (inside) { return field_edge_exit(origin, dir, max(t - 2e-4, t0), sgn, body_seen); }
             t += field_cell_exit(vec3f(sb) * super_size, super_size, p, dir) + 1e-4;
             f_prev = 1e9;
             continue;
@@ -183,11 +202,12 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
         let exit = field_brick_exit(b, p, dir) + 1e-4;
         if (brick == NONE) {
             // Bloco vazio: fora do fluido (vindo de dentro, a saída é aqui).
-            if (inside) { return FieldHit(t, p, -dir, 0u, true); }
+            if (inside) { return field_edge_exit(origin, dir, max(t - 2e-4, t0), sgn, body_seen); }
             t += exit;
             f_prev = 1e9;
             continue;
         }
+        body_seen = u32(field_brick_at(brick).w);
         let f = sgn * field_phi_linear(brick, b, p);
         if (!armed) {
             if (f <= 0.0) {
@@ -212,6 +232,10 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
                 if (fm > 0.0) { a = m; fa = fm; } else { c = m; fc = fm; }
             }
             var tc = select(a + (c - a) * (fa / (fa - fc)), c, fa - fc == 0.0);
+            // Vindo de um bloco vazio (pulado inteiro), o começo da secante fica nele, sem campo, e o cruzamento pode cair
+            // ali: o ponto fica então na amostra deste bloco — quem parte da superfície parte de onde há campo (senão a
+            // consulta seguinte, de "dentro", saía na hora pelo bloco vazio).
+            if (field_find(field_brick_of(origin + dir * tc)) == NONE) { tc = t; }
             var body = field_brick_at(brick).w;
             if (!refine) { return FieldHit(tc, origin + dir * tc, -dir * sgn, u32(body), true); }
             // Newton na tricúbica (a superfície lisa): o ponto e a normal dela.
@@ -222,7 +246,11 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
             if (bi != NONE) {
                 let g = field_cubic(bi, bc, pc);
                 let slope = dot(g.xyz, dir);
-                if (abs(slope) > 1e-6) { tc = clamp(tc - g.w / slope, a, c); }
+                // O passo de Newton fica no trecho com campo (ele podia voltar até `a`, no bloco vazio de antes).
+                if (abs(slope) > 1e-6) {
+                    let tn = clamp(tc - g.w / slope, a, c);
+                    if (field_find(field_brick_of(origin + dir * tn)) != NONE) { tc = tn; }
+                }
                 pc = origin + dir * tc;
                 n = select(g.xyz / length(g.xyz), n, length(g.xyz) < 1e-8);
                 body = field_brick_at(bi).w;
@@ -234,4 +262,32 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
         t += min(max(f * 0.9, min_step), exit);
     }
     return miss;
+}
+
+/**
+ * A película de água no ponto `p` da superfície de um sólido de normal `n` (spec 034; `field_film.wgsl`): a espessura
+ * da água livre (m) e a saturação dos poros (a absorvida sobre a capacidade, em [0, 1]). Zero sem película ou onde a
+ * água do volume está (submersa — ali é a própria água).
+ */
+fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
+    let c = field_film_cell(p, n);
+    let key = field_film_key(c);
+    if (key == 0u) { return vec2f(0.0); }
+    var slot = field_film_bucket(c);
+    for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
+        let w = field_film_word(slot);
+        let found = field_data[w];
+        if (found == key) {
+            if (field_data[w + 3u] != 0u) { return vec2f(0.0); }
+            let capacity = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 0u).w;
+            let absorbed = f32(field_data[w + 4u]) * FIELD_FILM_UNIT;
+            return vec2f(
+                f32(field_data[w + 1u]) * FIELD_FILM_UNIT,
+                select(0.0, min(absorbed / capacity, 1.0), capacity > 0.0),
+            );
+        }
+        if (found == 0u) { return vec2f(0.0); }
+        slot = (slot + 1u) & fluid_field.film.y;
+    }
+    return vec2f(0.0);
 }

@@ -8,7 +8,16 @@ fn ns_find_main(
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
     let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
-    let i = gid.x;
+    // Na ordem por célula (`by_rank`), o thread `t` busca a partícula do posto `t` e grava no posto: threads vizinhos
+    // varrem as mesmas células.
+    var i = gid.x;
+    var slot = gid.x;
+    if (ns_params.by_rank != 0u) {
+        if (slot >= ns_params.particle_count) { return; }
+        let ranked = ns_order[slot];
+        if (ranked == 0u) { return; }
+        i = ranked - 1u;
+    }
     if (i >= ns_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
 
     let stride    = ns_params.particle_stride;
@@ -56,12 +65,12 @@ fn ns_find_main(
                 let q = sorted_positions[k].xyz - vec3f(px, py, pz);
                 let dist_sq = q.x * q.x + q.y * q.y + q.z * q.z;
                 if (dist_sq < h_sq && nb_count < max_nb) {
-                    neighbor_list[nb_count * list_stride + i] = j;
+                    neighbor_list[nb_count * list_stride + slot] = j;
                     nb_count++;
                 }
             }
         }}
     }
 
-    neighbor_count[i] = nb_count;
+    neighbor_count[slot] = nb_count;
 }

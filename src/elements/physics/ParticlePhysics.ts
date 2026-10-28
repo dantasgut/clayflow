@@ -54,6 +54,14 @@ export interface ParticlePhysicsOptions {
     readonly surfaceTension?: number;
     /** Ângulo de contato θ com as fronteiras sólidas, em graus (spec 010; default 90 — nem molha nem repele). */
     readonly contactAngle?: number;
+    /**
+     * Ângulo de deslize das gotas soltas num sólido que a água molha, em graus (spec 034; default 0, sem ancoramento):
+     * a borda da gota fica ancorada no sólido com a gravidade vezes o seno dele, qualquer que seja o aperto contra o
+     * sólido — a gota escorre quando a gravidade ao longo da superfície passa disso (parede vertical, rampa mais
+     * íngreme que o ângulo) e, no chão, depois do choque espalha, é freada e para. O volume do fluido não tem esse
+     * ancoramento. Só com `contactAngle` < 90°.
+     */
+    readonly slidingAngle?: number;
 }
 
 /** Aceleração de referência das escalas de coesão e adesão (m/s²). */
@@ -216,8 +224,9 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
     static readonly defaults = new ParticlePhysics();
 
     /**
-     * Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m e
-     * ângulo de contato de 30° (molha). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
+     * Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m,
+     * ângulo de contato de 30° (molha), restituição zero no choque com sólidos (a gota que molha espalha, não volta) e
+     * ângulo de deslize de 25° das gotas soltas (spec 034). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
      * a milímetros, dominam. Uso: `new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing })`.
      */
     static readonly WATER = {
@@ -225,10 +234,31 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
         viscosity: 0.001,
         surfaceTension: 0.072,
         contactAngle: 30,
+        restitution: 0,
+        slidingAngle: 25,
     } as const;
+
+    /**
+     * Vizinhas abaixo das quais a partícula é uma gota solta (spec 034): encostada num sólido que a água molha, ela
+     * representa gotas menores que a resolução, em que a borda ancorada domina (`slidingAngle`) — a mesma contagem que
+     * faz o campo dos fluidos desenhá-la como gota isolada. Com outra água por perto, volta ao volume.
+     */
+    static readonly WET_NEIGHBORS = 8;
 
     /** Arrasto tangencial físico na parede (1/s), com `surfaceTension`; `undefined` no modo adimensional. */
     private readonly wallDrag: number | undefined;
+
+    /**
+     * Ângulo de contato θ com as fronteiras sólidas, em graus (90 sem `surfaceTension`: nem molha nem repele). Além da
+     * adesão, dá a forma da gota pousada num sólido no campo dos fluidos (a calota que molha).
+     */
+    readonly contactAngle: number;
+
+    /** Ângulo de deslize das gotas soltas, em graus (0 sem ancoramento). */
+    readonly slidingAngle: number;
+
+    /** Tensão superficial física γ (N/m); 0 no modo adimensional (`cohesion`/`adhesion`). */
+    readonly surfaceTension: number;
 
     /** Comportamento do World, ou o padrão. */
     static of(world: World): ParticlePhysics {
@@ -269,6 +299,8 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
         let cohesion = nonNegative('cohesion', options.cohesion ?? 0);
         let adhesion = nonNegative('adhesion', options.adhesion ?? 0);
         this.wallDrag = undefined;
+        let contactAngle = 90;
+        this.surfaceTension = 0;
         if (options.surfaceTension !== undefined) {
             if (options.cohesion !== undefined || options.adhesion !== undefined) {
                 throw new RangeError(
@@ -286,9 +318,19 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
             cohesion = gamma / (restDensity * spacing * spacing * G0);
             adhesion = cohesion * (1 + Math.cos((theta * Math.PI) / 180));
             this.wallDrag = viscosity / (restDensity * spacing * spacing);
+            contactAngle = theta;
+            this.surfaceTension = gamma;
         } else if (options.contactAngle !== undefined) {
             throw new RangeError('ParticlePhysics: contactAngle só vale com surfaceTension');
         }
+        this.contactAngle = contactAngle;
+        const sliding = options.slidingAngle ?? 0;
+        if (!(sliding >= 0 && sliding <= 90)) {
+            throw new RangeError(
+                `ParticlePhysics: slidingAngle deve estar em [0, 90] graus (recebeu ${sliding})`,
+            );
+        }
+        this.slidingAngle = sliding;
         this.data = {
             cohesion,
             adhesion,

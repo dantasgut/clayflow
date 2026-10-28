@@ -6,7 +6,7 @@ import type { Application, BoundFlow, Frame, StagingBufferSpec, StorageBufferSpe
 
 type Vec3 = readonly [number, number, number];
 
-/** Raios de consulta: origem e direção (`vec4f` cada), dois por raio. */
+/** Raios de consulta: origem (com o lado da origem em w: −1 desconhecido, 0 fora, 1 dentro) e direção, dois por raio. */
 export const queryRays = wgslResource({
     name: 'smoke_rays',
     binding: { storage: 'read' },
@@ -32,7 +32,7 @@ const volumeQuery = wgslModule({
 fn smoke_volume_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
     if (i >= arrayLength(&smoke_rays) / 2u) { return; }
-    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0, -1);
+    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0, i32(round(smoke_rays[i * 2u].w)));
     smoke_hits[i * 2u] = vec4f(h.t, select(0.0, 1.0, h.hit), f32(h.material), 0.0);
     smoke_hits[i * 2u + 1u] = vec4f(h.normal, 0.0);
 }`,
@@ -110,13 +110,14 @@ async function readSpec(
 }
 
 /**
- * Os acertos dos raios `rays` (direções unitárias) nos volumes da cena de `app`, até 10 m: por raio (t, acertou,
+ * Os acertos dos raios `rays` (direções unitárias; `side`, o lado da origem quando ela está na superfície de um volume,
+ * padrão −1) nos volumes da cena de `app`, até 10 m: por raio (t, acertou,
  * material no contribuinte, 0, a normal xyz, 0). Os quadros da espera têm duração 0 (a simulação não avança). Sem acerto nenhum depois
  * de `attempts` tentativas (o pipeline recomposto com a contribuição do campo não ficou pronto), devolve os zeros.
  */
 export async function queryVolumeHits(
     app: Application,
-    rays: readonly { readonly o: Vec3; readonly d: Vec3 }[],
+    rays: readonly { readonly o: Vec3; readonly d: Vec3; readonly side?: -1 | 0 | 1 }[],
     attempts = 40,
 ): Promise<Float32Array> {
     const count = rays.length;
@@ -131,7 +132,7 @@ export async function queryVolumeHits(
     const hitsBuf = storage('hits', count * 32);
     const data = new Float32Array(count * 8);
     rays.forEach((ray, i) => {
-        data.set([...ray.o, 0, ...ray.d, 0], i * 8);
+        data.set([...ray.o, ray.side ?? -1, ...ray.d, 0], i * 8);
     });
     app.core.write(raysBuf, data);
     const query = new VolumeQueryFlow(raysBuf, hitsBuf, count);

@@ -1,4 +1,9 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type {
+    ComputePass,
+    EngineCore,
+    Frame,
+    StorageBufferSpec,
+} from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
@@ -29,8 +34,10 @@ import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { ParticlePhysics, TAIT_GAMMA, type SurfaceStep } from '../ParticlePhysics';
+import { SPHSchema } from '../bodies/schemas/SPHSchema';
 import { SPHSimParamsSchema } from '../schemas/simParams';
 import {
+    sphBoundary,
     sphCollision,
     sphDensity,
     sphForces,
@@ -102,6 +109,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     private readonly colliderSet: ColliderSet;
     /** Normais de superfície por partícula (vec4f), da tensão superficial de Akinci (spec 030). */
     private readonly normals: StorageBufferSpec;
+    /** Fronteira sólida por partícula (vec4f: Σ −B' n, Σ B; Akinci et al. 2012). */
+    private readonly boundary: StorageBufferSpec;
     /** Coesão > 0 no quadro corrente: grava o passe de normais (decidido em `framePrepare`). */
     private cohesionOn = false;
     /** Materiais já avisados de coesão/adesão grampeadas. */
@@ -133,6 +142,12 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             discriminator: 'sph_normal',
             byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
+        this.boundary = ctx.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: 'sph_boundary',
+            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
+        });
         const grid = gridOf(ParticlePhysics.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
@@ -140,6 +155,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             [sphResources.params, this.params.source()],
             [sphResources.normal, this.normals],
             [sphResources.normalRead, this.normals],
+            [sphResources.boundary, this.boundary],
+            [sphResources.boundaryRead, this.boundary],
             ...this.neighborSources(),
         ]);
         const compute = (
@@ -153,6 +170,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             entryPoints: [entry],
         });
         this.pipelines = [
+            compute('sph_boundary', sphBoundary, 'sph_boundary_main'),
             compute('sph_density', sphDensity, 'sph_density_main'),
             compute('sph_normals', sphNormals, 'sph_normals_main'),
             compute('sph_pressure', sphPressure, 'sph_pressure_main'),
@@ -196,29 +214,38 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     dispatch(frame: Frame, bound: BoundFlow<SPHSlots>): void {
         const count = bound.slots.bodies.count;
         if (this.iterations === 0 || count === 0) return;
+        const boundary = bound.compute('sph_boundary');
         const density = bound.compute('sph_density');
         const normals = bound.compute('sph_normals');
         const pressure = bound.compute('sph_pressure');
         const forces = bound.compute('sph_forces');
         const integrate = bound.compute('sph_integrate');
         const collision = bound.compute('sph_collision');
-        const run = (label: string, p: PreparedCompute, offset: number[]): void => {
-            frame.compute(label, (pass) => {
-                pass.bind.setPipeline(p.spec);
-                p.bindTo(pass.bind, { draw: offset });
-                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
-            });
+        // A iteração inteira no passe da busca de vizinhos: cada passe aberto custa mais que um despacho destas
+        // partículas, e dentro do passe cada despacho vê o que o anterior escreveu.
+        const run = (
+            pass: ComputePass,
+            p: PreparedCompute,
+            offset: number[],
+            label: string,
+        ): void => {
+            pass.marker(label);
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind, { draw: offset });
+            pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
         };
         for (let i = 0; i < this.iterations; i++) {
             const offset = [this.params.offset(i)];
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
-            this.neighborSearch.rebuild(frame, count);
-            run('SPHFlow.density', density, offset);
-            if (this.cohesionOn) run('SPHFlow.normals', normals, offset);
-            run('SPHFlow.pressure', pressure, offset);
-            run('SPHFlow.forces', forces, offset);
-            run('SPHFlow.integrate', integrate, offset);
-            run('SPHFlow.collision', collision, offset);
+            this.neighborSearch.rebuild(frame, count, (pass) => {
+                run(pass, boundary, offset, 'SPHFlow.boundary');
+                run(pass, density, offset, 'SPHFlow.density');
+                if (this.cohesionOn) run(pass, normals, offset, 'SPHFlow.normals');
+                run(pass, pressure, offset, 'SPHFlow.pressure');
+                run(pass, forces, offset, 'SPHFlow.forces');
+                run(pass, integrate, offset, 'SPHFlow.integrate');
+                run(pass, collision, offset, 'SPHFlow.collision');
+            });
         }
     }
 
@@ -226,6 +253,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
     override dispose(): void {
         this.params.dispose();
         this.core.destroy(this.normals);
+        this.core.destroy(this.boundary);
         this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
@@ -239,10 +267,11 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             discriminator: `sph:gen${this.neighborGeneration++}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: this.maxNeighbors,
-            particleStrideF32: 16,
+            particleStrideF32: SPHSchema.stride / 4,
             cellSize: grid.cellSize,
             gridDim: grid.gridDim,
             origin: grid.origin,
+            byRank: true,
         });
         ns.allocate();
         return ns;
@@ -252,6 +281,7 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         return new Map<WgslResource, BindingSource>([
             [sphResources.neighborList, this.neighborSearch.neighborList!],
             [sphResources.neighborCount, this.neighborSearch.neighborCount!],
+            [sphResources.neighborOrder, this.neighborSearch.neighborOrder!],
         ]);
     }
 
@@ -318,6 +348,13 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 max_neighbors: this.maxNeighbors,
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: physics.restitution,
+                wet_neighbors:
+                    physics.contactAngle < 90 && physics.slidingAngle > 0
+                        ? ParticlePhysics.WET_NEIGHBORS
+                        : 0,
+                wet_pinning:
+                    Math.hypot(accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0)
+                    * Math.sin((physics.slidingAngle * Math.PI) / 180),
                 bound_min: physics.domainMin,
                 bound_max: physics.domainMax,
                 open_bounds: physics.openBounds ? 1 : 0,

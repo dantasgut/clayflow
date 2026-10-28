@@ -132,8 +132,13 @@ export const SPHSimParamsSchema = new StructSchema(
         field_time: FieldType.f32,
         /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
         field_density: FieldType.f32,
-        _field_pad0: FieldType.f32,
-        _field_pad1: FieldType.f32,
+        /**
+         * Gota solta (spec 034): a partícula com menos vizinhas que isto (0 = desligado) encostada num sólido que a
+         * água molha tem a borda ancorada nele, com a aceleração `wet_pinning`.
+         */
+        wet_neighbors: FieldType.u32,
+        /** Ancoramento da borda da gota solta ao longo do sólido (m/s²): |g| · sen(ângulo de deslize). */
+        wet_pinning: FieldType.f32,
         /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
         bound_max: FieldType.vec3f,
         /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
@@ -177,8 +182,13 @@ export const PBFSimParamsSchema = new StructSchema(
         field_time: FieldType.f32,
         /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
         field_density: FieldType.f32,
-        _field_pad0: FieldType.f32,
-        _field_pad1: FieldType.f32,
+        /**
+         * Gota solta (spec 034): a partícula com menos vizinhas que isto (0 = desligado) encostada num sólido que a
+         * água molha tem a borda ancorada nele, com a aceleração `wet_pinning`.
+         */
+        wet_neighbors: FieldType.u32,
+        /** Ancoramento da borda da gota solta ao longo do sólido (m/s²): |g| · sen(ângulo de deslize). */
+        wet_pinning: FieldType.f32,
         /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
         bound_max: FieldType.vec3f,
         /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */

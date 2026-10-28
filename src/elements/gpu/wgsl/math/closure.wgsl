@@ -416,3 +416,31 @@ fn closure_sanitize(c: Closure) -> Closure {
     o.normal = select(vec3f(0.0), c.normal, finite3(c.normal));
     return o;
 }
+
+// ── Superfície molhada (spec 034) ───────────────────────────────────────────────────────────────────────────────────
+// A água numa superfície (`wet`): uma película livre de espessura `wet.x` (m) sobre o fechamento e a saturação `wet.y`
+// dos poros dele. A cobertura da película cresce com a espessura até cobrir a microgeometria (`CLOSURE_WET_FULL`) e o
+// brilho passa a ser o da água: o especular dielétrico com o índice dela, quase liso. A base escurece pela película e
+// pela água nos poros, pelo mesmo mecanismo — a luz que volta dela fica presa pela reflexão interna da superfície
+// água–ar (Lekner e Dorf 1988: a' = a (1 − rₑ)(1 − rᵢ) / (1 − rᵢ a), rₑ e rᵢ as refletâncias difusas de fora e de dentro
+// para n = 1,333); nos poros, a água troca o ar entre os grãos, sem película por cima: escurece sem o brilho.
+const CLOSURE_WET_FULL: f32 = 5.0e-5;
+const CLOSURE_WET_IOR: f32 = 1.333;
+const CLOSURE_WET_R_OUT: f32 = 0.066;
+const CLOSURE_WET_R_IN: f32 = 0.474;
+const CLOSURE_WET_ROUGHNESS: f32 = 0.03;
+
+fn closure_wet(c: Closure, wet: vec2f) -> Closure {
+    let w = clamp(wet.x / CLOSURE_WET_FULL, 0.0, 1.0);
+    let dark = max(w, clamp(wet.y, 0.0, 1.0));
+    if (dark <= 0.0) { return c; }
+    var o = c;
+    let a = c.diffuse_color;
+    let soaked = a * ((1.0 - CLOSURE_WET_R_OUT) * (1.0 - CLOSURE_WET_R_IN)) / (vec3f(1.0) - CLOSURE_WET_R_IN * a);
+    o.diffuse_color = mix(a, soaked, dark);
+    o.dielectric_weight = mix(c.dielectric_weight, 1.0, w);
+    o.dielectric_ior = mix(c.dielectric_ior, CLOSURE_WET_IOR, w);
+    o.dielectric_tint = mix(c.dielectric_tint, vec3f(1.0), w);
+    o.specular_roughness = mix(c.specular_roughness, CLOSURE_WET_ROUGHNESS, w);
+    return o;
+}

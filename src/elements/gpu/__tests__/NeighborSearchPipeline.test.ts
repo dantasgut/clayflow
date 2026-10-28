@@ -48,14 +48,15 @@ describe('NeighborSearchPipeline', () => {
         ns.prepare(particles, live);
         ns.rebuild(rec.frame, 100);
         expect(rec.passes.map((p) => [p.label, p.dispatches[0]])).toEqual([
+            // As 64³ células da grade e a extra das partículas fora dela.
             ['NS.assign_count', [100, 64]],
-            ['PrefixSum.scan_local', [262_144, 256]],
-            ['PrefixSum.scan_local', [1024, 256]],
+            ['PrefixSum.scan_local', [262_145, 256]],
+            ['PrefixSum.scan_local', [1025, 256]],
             ['PrefixSum.scan_top', [1]],
-            ['PrefixSum.scan_combine', [1024, 256]],
-            ['PrefixSum.scan_combine', [262_144, 256]],
+            ['PrefixSum.scan_combine', [1025, 256]],
+            ['PrefixSum.scan_combine', [262_145, 256]],
             ['NS.scatter', [100, 64]],
-            ['NS.sort_cells', [262_144, 64]],
+            ['NS.sort_cells', [262_145, 64]],
             ['NS.find', [100, 64]],
         ]);
         // cellCount → cellStart (o scan roda no lugar em cellStart) e cellStart → cellCursor.
@@ -71,8 +72,10 @@ describe('NeighborSearchPipeline', () => {
         expect(rec.sequence.filter((s) => s.startsWith('clear:'))).toEqual([
             'clear:ns_cell_count:test@0',
             'clear:ns_ncount:test@0',
+            'clear:ns_order:test@0',
             'clear:ns_cell_count:test@0',
             'clear:ns_ncount:test@0',
+            'clear:ns_order:test@0',
         ]);
     });
 

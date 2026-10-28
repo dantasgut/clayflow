@@ -48,6 +48,9 @@ export const neighborResources = Object.freeze({
     sortedPositionsRead: stage('sorted_positions', 'read', { wgsl: 'vec4f', array: true }),
     neighborList: stage('neighbor_list', 'read_write', u32s),
     neighborCount: stage('neighbor_count', 'read_write', u32s),
+    /** A ordem por célula: no posto `t`, a partícula + 1 (0: posto vazio). */
+    order: stage('ns_order', 'read_write', u32s),
+    orderRead: stage('ns_order', 'read', u32s),
 });
 const R = neighborResources;
 
@@ -79,6 +82,7 @@ export const nsScatter = wgslModule({
         R.cellIdsRead,
         R.cellCursor,
         R.sortedParticles,
+        R.order,
     ],
     structs: [NsSimParamsSchema],
 });
@@ -95,6 +99,7 @@ export const nsSortCells = wgslModule({
         R.sortedParticles,
         R.particles,
         R.sortedPositions,
+        R.order,
     ],
     structs: [NsSimParamsSchema],
 });
@@ -115,6 +120,7 @@ export const nsFind = wgslModule({
         R.neighborCount,
         R.live,
         R.sortedPositionsRead,
+        R.orderRead,
     ],
     structs: [NsSimParamsSchema],
 });

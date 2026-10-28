@@ -8,18 +8,19 @@ fn sph_normals_main(
     @builtin(num_workgroups) nwg: vec3u,
 ) {
     // Índice linear: despacho distribuído em x/y dentro do limite por dimensão (Dispatcher.invocations).
-    let gid = vec3u(gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE, 0u, 0u);
-    let i = gid.x;
-    if (i >= sph_params.particle_count || !pool_live(live[i >> 5u], i)) { return; }
+    // Na ordem por célula: o posto `t` (a lista e a contagem de vizinhos) e a partícula `i` dele.
+    let t = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let i = neighbor_particle(t, sph_params.particle_count);
+    if (i == NONE) { return; }
 
     let h    = sph_params.h;
     let volume = sph_params.particle_mass / sph_params.rest_density;
     let xi   = particles[i].pos.xyz;
-    let nb_n = neighbor_count[i];
+    let nb_n = neighbor_count[t];
 
     var n = vec3f(0.0);
     for (var k: u32 = 0u; k < nb_n && k < sph_params.max_neighbors; k++) {
-        let j     = neighbor_list[k * sph_params.neighbor_stride + i];
+        let j     = neighbor_list[k * sph_params.neighbor_stride + t];
         let r_vec = xi - particles[j].pos.xyz;
         n += grad_W_cubic(r_vec, length(r_vec), h);
     }

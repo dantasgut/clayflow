@@ -10,7 +10,6 @@ import type {
 import { createScene, type SceneContext } from '../../../../scene/SceneContext';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
-import { WATER_CONSUMERS } from '../../../water/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
@@ -20,13 +19,12 @@ import { ParticleFlow } from '../../ParticleFlow';
 import { SoftSurfaceFlow } from '../../../../elements/physics/flows/SoftSurfaceFlow';
 import { PostFlow } from '../../PostFlow';
 import { ShadowFlow } from '../../ShadowFlow';
-import { WaterSurface } from '../../../app/WaterSurface';
-import { FluidFieldPassFlow } from '../../FluidFieldPassFlow';
 import { FluidField } from '../../../../elements/fields/FluidField';
 import { FluidFieldFlow } from '../../../../elements/fields/FluidFieldFlow';
-import { CausticsFlow } from '../../CausticsFlow';
-import { WaterFlow } from '../../WaterFlow';
 import { PbrTables } from '../../../../elements/material/pbr/PbrTables';
+import { MaterialFunction } from '../../../../elements/extension/MaterialFunction';
+import { NodeGraph } from '../../../../scene/graph/NodeGraph';
+import { nodes } from '../../../../elements/nodes';
 
 /** Bind group ligado num desenho, com os offsets dinâmicos. */
 export interface BoundGroup {
@@ -231,6 +229,7 @@ export async function renderScene(
                         invocations: () => pass.dispatch,
                         workgroupsIndirect: () => pass.dispatch,
                     },
+                    marker: () => undefined,
                 };
                 body(pass);
             },
@@ -296,7 +295,6 @@ export async function renderScene(
     const scene = createScene({ core });
     await scene.initialize();
     for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
-    for (const resolver of WATER_CONSUMERS) scene.consumers.registerDefault(resolver);
     let frame = 0;
     return {
         scene,
@@ -339,10 +337,7 @@ export interface StageOptions {
     readonly particles?: boolean;
     /** Vértices das superfícies de corpos moles (`SoftSurfaceFlow`, fase `transform`). */
     readonly softSurface?: boolean;
-    /**
-     * Estágios da água (spec 017): superfície vista pela luz e cáusticas (fase `shadow`), superfície vista pela câmera
-     * e composição (fase `forward`), com o `WaterSurface` da cena.
-     */
+    /** O campo dos fluidos (spec 033): a superfície dos corpos de fluido pelo grafo (o que a câmera vê é da refração). */
     readonly water?: boolean;
     /**
      * Passe de profundidade dos opacos no forward (padrão desligado aqui: os testes de grupos contam os desenhos de
@@ -420,32 +415,11 @@ export function registerStages(
             priority: -50,
         });
     if (options.water === true) {
-        scene.world.insert(new WaterSurface());
         scene.world.insert(new FluidField());
         scene.flows.register((ctx) => new FluidFieldFlow(ctx), {
             type: 'fluidField',
             phase: 'transform',
             priority: -50,
-        });
-        scene.flows.register((ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }), {
-            type: 'fluidLightSurface',
-            phase: 'shadow',
-            priority: -10,
-        });
-        scene.flows.register((ctx) => new CausticsFlow(ctx), {
-            type: 'caustics',
-            phase: 'shadow',
-            priority: -20,
-        });
-        scene.flows.register((ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }), {
-            type: 'fluidSurface',
-            phase: 'forward',
-            priority: -60,
-        });
-        scene.flows.register((ctx) => new WaterFlow(ctx), {
-            type: 'water',
-            phase: 'forward',
-            priority: -70,
         });
     }
     const post =
@@ -453,4 +427,27 @@ export function registerStages(
             ? scene.flows.register((ctx) => new PostFlow(ctx), { type: 'post', phase: 'post' }).flow
             : undefined;
     return { forward, shadow, post, frameTargets };
+}
+
+/**
+ * A aparência de água pelo grafo (spec 034): o dielétrico de índice 1,333 com a transmissão — a função `material` que faz
+ * de um `FluidBody` um corpo do campo dos fluidos.
+ */
+export function waterMaterial(): MaterialFunction {
+    return new MaterialFunction({
+        graph: new NodeGraph({
+            nodes: {
+                reflect: nodes.bsdf.dielectric.with({ ior: 1.333, roughness: 0 }),
+                transmit: nodes.bsdf.transmission.with({ ior: 1.333 }),
+                water: nodes.closure.add,
+                out: nodes.output.closure,
+            },
+            links: [
+                ['reflect.value', 'water.a'],
+                ['transmit.value', 'water.b'],
+                ['water.value', 'out.closure'],
+            ],
+            output: 'out.value',
+        }),
+    });
 }

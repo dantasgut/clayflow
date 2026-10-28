@@ -5,7 +5,12 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { HemisphereLightSchema } from './HemisphereLightSchema';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { hemisphereAmbientContribution, hemisphereContribution } from './points/lightContributions';
+import {
+    hemisphereAmbientContribution,
+    hemisphereBackgroundContribution,
+    hemisphereContribution,
+    hemisphereEnvironmentContribution,
+} from './points/lightContributions';
 
 /** Valores de uma `HemisphereLight`. */
 export interface HemisphereLightValues {
@@ -17,6 +22,11 @@ export interface HemisphereLightValues {
     readonly intensity?: number;
     /** Eixo "para cima" do hemisfério. Default `[0, 1, 0, 0]`. */
     readonly up?: readonly number[];
+    /**
+     * O hemisfério também é o fundo visível (spec 034): a câmera vê atrás da cena o céu e o chão que a água e o vidro
+     * refletem e refratam. Default `false` (o fundo é a cor da limpeza, ou o `Sky`).
+     */
+    readonly background?: boolean;
 }
 
 /** Dado de uma `HemisphereLight` (layout de `HemisphereLight.schema`). */
@@ -44,14 +54,29 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
 
     state: ResourceState = ResourceState.Uninitialized;
 
+    private showBackground: boolean;
+
     constructor(values: HemisphereLightValues = {}) {
         super();
+        this.showBackground = values.background ?? false;
         this.data = {
             skyColor: [...(values.skyColor ?? [0.8, 0.9, 1, 1])],
             groundColor: [...(values.groundColor ?? [0.35, 0.3, 0.25, 1])],
             up: [...(values.up ?? [0, 1, 0, 0])],
             intensity: values.intensity ?? 0.3,
         };
+    }
+
+    /** O hemisfério é o fundo visível? */
+    get background(): boolean {
+        return this.showBackground;
+    }
+
+    /** Liga ou desliga o hemisfério como fundo visível (a composição dos pontos de cena se refaz no envio). */
+    set background(on: boolean) {
+        if (on === this.showBackground) return;
+        this.showBackground = on;
+        this.data = { ...this.rawData };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
@@ -62,8 +87,21 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
         return [];
     }
 
-    /** O hemisfério no ponto `scene_direct_lighting` e, para os meios participantes, em `scene_ambient` (spec 033). */
+    /**
+     * O hemisfério no ponto `scene_direct_lighting`, para os meios participantes em `scene_ambient` (spec 033) e, para
+     * quem traça raios, em `scene_environment` (o ambiente visto ao escapar, spec 034 T065f) e, o mesmo céu e chão, em
+     * `scene_background` (o fundo visível, T066) quando `background` está ligado.
+     */
     getSceneContributions(): readonly SceneContribution[] {
-        return [hemisphereContribution, hemisphereAmbientContribution];
+        return [
+            hemisphereContribution,
+            hemisphereAmbientContribution,
+            hemisphereEnvironmentContribution,
+            this.backgroundContribution,
+        ];
     }
+
+    private readonly backgroundContribution = hemisphereBackgroundContribution(
+        () => this.showBackground,
+    );
 }

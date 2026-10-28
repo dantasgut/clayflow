@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { FluidBody } from '../../physics/bodies/FluidBody';
-import { FluidSurfaceMaterial } from '../../material/FluidSurfaceMaterial';
 import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
 import { ParticlePhysics } from '../../physics/ParticlePhysics';
 import { Camera } from '../../scene/Camera';
@@ -10,20 +9,22 @@ import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import {
     registerStages,
     renderScene,
+    waterMaterial,
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import {
     rayVolumeSurfacePoint,
     rayVolumeHitPoint,
     rayVolumeTransmittancePoint,
 } from '../../raytrace/points';
-import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout } from '../FluidField';
-import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS } from '../schemas';
+import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout, fieldFilmOffset } from '../FluidField';
+import { sceneWetnessPoint } from '../../scene/points/media';
+import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS, FIELD_FILM_CELLS } from '../schemas';
 import { FIELD } from '../reference/field';
 import { fieldSort } from '../shaders';
 
 // Campo dos fluidos (spec 033, T042): o recurso (descritores, capacidades que crescem, o buffer único das consultas) e
-// a contribuição aos raios (só com fluido), e o estágio criando o campo para os corpos com `FluidSurfaceMaterial` sem
-// mudança de autoria — blocos de 8³ voxels de ½ espaçamento, construído a cada quadro, nada lido de volta.
+// a contribuição aos raios (só com fluido), e o estágio criando o campo para os corpos de fluido com a aparência pelo
+// grafo sem mudança de autoria — blocos de 8³ voxels de ½ espaçamento, construído a cada quadro, nada lido de volta.
 
 const line = (n: number, s = 0.05): number[] =>
     Array.from({ length: n }, (_, i) => [i * s, 0.3, 0]).flat();
@@ -43,8 +44,16 @@ describe('FluidField (spec 033, R11)', () => {
             id: 'data',
             role: 'storage-rw',
             upload: 'never',
-            count: layout.voxels + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS,
+            // Depois dos voxels com a borda, a película de água nos sólidos (spec 034): 6 palavras por célula (a chave,
+            // a água livre, a normal, a marca de submersa, a água absorvida e a superfície).
+            count:
+                layout.voxels
+                + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS
+                + 6 * FIELD_FILM_CELLS,
         });
+        expect(fieldFilmOffset(field.capacity)).toBe(
+            layout.voxels + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS,
+        );
         expect(counts).toMatchObject({
             id: 'counts',
             role: 'indirect',
@@ -72,23 +81,27 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.capacity).toEqual({ bricks: 128, table: 512 });
         const data = field.getDescriptors()[1]!;
         expect(data.count).toBe(
-            fieldDataLayout({ bricks: 128, table: 512 }).voxels + 128 * FIELD_BRICK_APRON_VOXELS,
+            fieldDataLayout({ bricks: 128, table: 512 }).voxels
+                + 128 * FIELD_BRICK_APRON_VOXELS
+                + 6 * FIELD_FILM_CELLS,
         );
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios só com fluido: ray_volume_hit, ray_volume_surface e ray_volume_transmittance', () => {
+    it('contribuição aos raios e à película só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance e scene_wetness', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
             rayVolumeHitPoint,
             rayVolumeSurfacePoint,
             rayVolumeTransmittancePoint,
+            sceneWetnessPoint,
         ]);
         // A mesma ordem nos três: o `source` do acerto é a posição do contribuinte no ponto.
         expect(new Set(contributions.map((c) => c.order)).size).toBe(1);
         const slotOf = (): undefined => undefined;
         expect(contributions.map((c) => c.build(slotOf))).toEqual([
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -101,8 +114,7 @@ describe('FluidField (spec 033, R11)', () => {
             'fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit',
         );
         expect(hit).toContain('field_march(');
-        // O material: o índice da função `material` do corpo e o slot dos parâmetros; sem corpo de
-        // `FluidSurfaceMaterial`, sem ler o pool dele (que não existiria: o kernel não comporia).
+        // O material: o índice da função `material` do corpo e o slot dos parâmetros.
         const graph = composeWgsl(modules[1]!).spec.source;
         expect(graph).toContain('fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface');
         expect(graph).toContain('RayVolumeSurface(body.x, body.y, closure_zero())');
@@ -119,13 +131,13 @@ describe('FluidField (spec 033, R11)', () => {
         expect(transmittance).not.toContain('field_materials');
         // Cada símbolo uma vez.
         expect(transmittance.match(/fn field_surface\(/g)).toHaveLength(1);
-        // Com corpos de `FluidSurfaceMaterial`: o fechamento dele quando o corpo não tem função.
-        field.setSurfaces(true);
-        const fluid = contributions.map((c) => c.build(slotOf)!);
-        expect(composeWgsl(fluid[1]!).spec.source).toContain('field_materials[body.z - 1u]');
-        expect(composeWgsl(fluid[2]!).spec.source).toContain('field_materials[body.z - 1u]');
+        // A água nos sólidos: a película livre e a saturação dos poros no ponto da superfície (spec 034).
+        const wetness = composeWgsl(modules[3]!).spec.source;
+        expect(wetness).toContain('fn scene_wetness(p: vec3f, n: vec3f) -> vec2f');
+        expect(wetness).toContain('return field_film_at(p, n);');
         field.setVolume(false);
         expect(contributions.map((c) => c.build(slotOf))).toEqual([
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -145,7 +157,7 @@ describe('FluidFieldFlow (spec 033, R11)', () => {
     const fieldOf = (s: Awaited<ReturnType<typeof scene>>): FluidField =>
         s.scene.world.findResource(FluidField.schema, FluidField)!;
 
-    it('sem corpo com FluidSurfaceMaterial: nada construído, sem contribuição aos raios', async () => {
+    it('sem corpo de fluido com a aparência pelo grafo: nada construído, sem contribuição aos raios', async () => {
         const s = await scene();
         s.scene.world.insert(
             new FluidBody({ algorithm: 'SPH', position: line(20) }).add(new PointSpriteMaterial()),
@@ -159,9 +171,7 @@ describe('FluidFieldFlow (spec 033, R11)', () => {
     it('com o material da água: o campo a cada quadro (junção, grade, núcleos, marcação, densidade, distância, borda), sem leitura de volta', async () => {
         const s = await scene();
         s.scene.world.insert(
-            new FluidBody({ algorithm: 'SPH', position: line(300) }).add(
-                new FluidSurfaceMaterial(),
-            ),
+            new FluidBody({ algorithm: 'SPH', position: line(300) }).add(waterMaterial()),
         );
         s.step();
         for (let frame = 0; frame < 2; frame++) {
@@ -192,9 +202,7 @@ describe('FluidFieldFlow (spec 033, R11)', () => {
 
     it('o corpo sai: o campo para e a contribuição aos raios desliga', async () => {
         const s = await scene();
-        const body = new FluidBody({ algorithm: 'SPH', position: line(50) }).add(
-            new FluidSurfaceMaterial(),
-        );
+        const body = new FluidBody({ algorithm: 'SPH', position: line(50) }).add(waterMaterial());
         s.scene.world.insert(body);
         s.step();
         s.step();

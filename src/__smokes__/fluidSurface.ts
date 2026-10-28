@@ -31,14 +31,11 @@ const HEIGHT = 200;
 const AGITATED_FRAME = 80;
 /** Câmera de cima (cáusticas): o fundo ocupa a imagem. */
 const TOP_EYE: readonly [number, number, number] = [0, 2.1, 0.01];
-/** Água invisível: sem refração, absorção, reflexão nem brilho — o fundo mostra só a luz que a atravessa. */
-const CLEAR = {
-    refraction: 0,
-    absorption: [0, 0, 0, 0],
-    reflectivity: 0,
-    shininess: 0,
-    ior: 1.333,
-} as const;
+/**
+ * Água sem absorção nem dispersão (o fundo mostra a luz que a atravessa). A reflexão e a refração são as do dielétrico
+ * (spec 034, T066: sem os ajustes `reflectivity`/`refraction` do material antigo).
+ */
+const CLEAR = { absorption: [0, 0, 0], abbe: 0 } as const;
 
 function log(msg: string): void {
     console.log(`[fluidSurface] ${msg}`);
@@ -207,7 +204,7 @@ async function main(): Promise<void> {
 
     // Continuidade: água opaca (absorção alta) sobre a área dos sprites do mesmo corpo, parado no primeiro quadro.
     {
-        const opaque = { absorption: [80, 80, 80, 0], color: [0.9, 0.1, 0.1, 1] } as const;
+        const opaque = { absorption: [80, 80, 80] } as const;
         const water = await run('continuidade', { material: opaque, box: true }, [2]);
         const sprites = await run('continuidade-sprites', { material: 'sprites', box: true }, [2]);
         const mask = erode(changed(sprites.frames[0]!, empty.frames[0]!), WIDTH, HEIGHT, 3);
@@ -261,7 +258,7 @@ async function main(): Promise<void> {
         const lum: number[] = [];
         let contrast = 0;
         for (const layer of [2, 6, 12]) {
-            const material = { absorption: [1.2, 0.5, 0.3, 0], refraction: 0, reflectivity: 0 };
+            const material = { absorption: [1.2, 0.5, 0.3] } as const;
             const r = await run(`camada-${layer}`, { layer, material, eye: TOP_EYE }, [90]);
             const img = r.frames[0]!;
             let sum = 0;
@@ -309,14 +306,14 @@ async function main(): Promise<void> {
         // Parada: sem as ondulações do material e depois de assentar (mede a planura da superfície simulada).
         const flat = await run(
             'parada',
-            { layer: 6, material: { ...CLEAR, rippleStrength: 0 }, eye: TOP_EYE },
+            { layer: 6, material: { ...CLEAR, ripple: false }, eye: TOP_EYE },
             [300],
         );
-        const off = await run(
-            'agitada-sem',
-            { dam: [24, 24, 32], material: { ...CLEAR, caustics: false }, eye: TOP_EYE },
-            [AGITATED_FRAME],
-        );
+        // Sem cáusticas: até a T067c (a chave no recurso de transporte de luz), a mesma água — as cáusticas da água
+        // saíram com o material antigo (T066).
+        const off = await run('agitada-sem', { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE }, [
+            AGITATED_FRAME,
+        ]);
         const base = ratios(flat.frames[0]!, emptyTop.frames[0]!, centralFloor);
         const median = quantile(base, 0.5);
         const spread = (quantile(base, 0.95) - quantile(base, 0.05)) / median;
