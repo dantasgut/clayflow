@@ -10,11 +10,9 @@ import {
     GI_IRRADIANCE_TEXELS,
     GI_MAX_CASCADES,
     GI_MAX_PROBES,
-    GI_PHOTON_BUFFER_WORDS,
     GI_PROBE_TEXTURE_SIZE,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
-    GiWordSchema,
     GlobalIlluminationSchema,
     ProbeStateSchema,
 } from './schemas';
@@ -30,7 +28,6 @@ export const GI_QUALITY: Readonly<
         {
             raysPerProbe: number;
             probeFraction: number;
-            photons: number;
             screenRays: number;
             screenTile: number;
             screenFraction: number;
@@ -40,7 +37,6 @@ export const GI_QUALITY: Readonly<
     low: {
         raysPerProbe: 64,
         probeFraction: 0.0625,
-        photons: 65536,
         screenRays: 8,
         screenTile: 16,
         screenFraction: 0.25,
@@ -48,7 +44,6 @@ export const GI_QUALITY: Readonly<
     medium: {
         raysPerProbe: 64,
         probeFraction: 0.125,
-        photons: 262144,
         screenRays: 8,
         screenTile: 8,
         screenFraction: 0.5,
@@ -56,7 +51,6 @@ export const GI_QUALITY: Readonly<
     high: {
         raysPerProbe: 256,
         probeFraction: 0.5,
-        photons: 1048576,
         screenRays: 32,
         screenTile: 4,
         screenFraction: 1,
@@ -67,7 +61,7 @@ export const GI_QUALITY: Readonly<
 export interface GlobalIlluminationValues {
     /** Liga a iluminação global. Default `true`. */
     readonly enabled?: boolean;
-    /** Qualidade (raios por sonda, fração por quadro, fótons). Default `'medium'`. */
+    /** Qualidade (raios por sonda, fração por quadro, sondas de tela). Default `'medium'`. */
     readonly quality?: GlobalIlluminationQuality;
     /** Rebatimentos da luz indireta, em 1–8. Default 3. */
     readonly bounces?: number;
@@ -75,8 +69,6 @@ export interface GlobalIlluminationValues {
     readonly raysPerProbe?: number;
     /** Fração das sondas atualizadas por quadro, em (0, 1] (substitui a da qualidade). */
     readonly probeFraction?: number;
-    /** Fótons por quadro para as cáusticas (substitui o da qualidade). */
-    readonly photons?: number;
     /** Histerese do acúmulo nas sondas, em [0,8; 0,995]. Default 0,97. */
     readonly hysteresis?: number;
     /** Cascatas de sondas, em 1–4. Default 3. */
@@ -89,8 +81,6 @@ export interface GlobalIlluminationValues {
      * vazamento nas quinas.
      */
     readonly probeSpacing?: number;
-    /** Cáusticas por fótons (spec 033, US5). Default `true`. */
-    readonly caustics?: boolean;
     /**
      * Coleta final na tela (R2 adendo): sondas de tela a cada 8 × 8 pixels lançam raios das superfícies visíveis — a
      * luz rebatida de perto (cantos, sombras da luz rebatida) exata; as sondas do mundo dão o resto. Default `true`.
@@ -122,11 +112,9 @@ export interface GlobalIlluminationData {
     bounces: number;
     raysPerProbe: number;
     probeFraction: number;
-    photons: number;
     hysteresis: number;
     cascades: number;
     probeSpacing: number;
-    caustics: boolean;
     screenGather: boolean;
     screenRays: number;
     screenTile: number;
@@ -197,10 +185,6 @@ function validate(d: Omit<GlobalIlluminationData, 'params' | 'screenRecords'>): 
         (SCREEN_FRACTIONS as readonly number[]).includes(d.screenFraction),
         `screenFraction ${d.screenFraction} fora de {1, 0,5, 0,25}`,
     );
-    check(
-        Number.isInteger(d.photons) && d.photons >= 0,
-        `photons ${d.photons} deve ser inteiro ≥ 0`,
-    );
 }
 
 /**
@@ -213,7 +197,7 @@ function validate(d: Omit<GlobalIlluminationData, 'params' | 'screenRecords'>): 
  * rebatimento exato de perto; os seguintes pelas sondas de tela do quadro anterior e, fora da tela, pelas do mundo) e são
  * filtradas pelo ruído estimado. O acúmulo das duas tem histerese adaptativa: parado, converge e fica estável; quando a
  * luz muda de verdade (uma luz acende, a geometria muda), responde em poucos quadros sem rastro.
- * Fótons das fontes pelos caminhos especulares dão as cáusticas de toda superfície. A luz indireta chega ao desenho pelo
+ * As cáusticas (a luz pelos caminhos especulares) são do recurso `Caustics` (spec 034). A luz indireta chega ao desenho pelo
  * ponto `scene_indirect_lighting` (`closure_indirect`); com ela na cena, os estágios padrão retiram o hemisfério. Mudar valores
  * vale no quadro seguinte, sem recompilar.
  */
@@ -231,11 +215,9 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             bounces: values.bounces ?? 3,
             raysPerProbe: values.raysPerProbe ?? q.raysPerProbe,
             probeFraction: values.probeFraction ?? q.probeFraction,
-            photons: values.photons ?? q.photons,
             hysteresis: values.hysteresis ?? 0.97,
             cascades: values.cascades ?? 3,
             probeSpacing: values.probeSpacing ?? 1,
-            caustics: values.caustics ?? true,
             screenGather: values.screenGather ?? true,
             screenRays: values.screenRays ?? q.screenRays,
             screenTile: values.screenTile ?? q.screenTile,
@@ -250,12 +232,11 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         };
     }
 
-    /** Aplica uma qualidade (raios por sonda, fração por quadro, fótons). */
+    /** Aplica uma qualidade (raios por sonda, fração por quadro, sondas de tela). */
     set quality(q: GlobalIlluminationQuality) {
         const v = GI_QUALITY[q];
         this.data.raysPerProbe = v.raysPerProbe;
         this.data.probeFraction = v.probeFraction;
-        this.data.photons = v.photons;
         this.data.screenRays = v.screenRays;
         this.data.screenTile = v.screenTile;
         this.data.screenFraction = v.screenFraction;
@@ -332,14 +313,6 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
                 upload: 'never',
                 allocation: 'onDemand',
                 history: { depth: 2 },
-            },
-            // Cáusticas por fótons (US5): o hash em mundo (cabeçalho e baldes), escrito e lido só na GPU.
-            {
-                id: 'caustics',
-                role: 'storage-rw',
-                schema: GiWordSchema,
-                count: GI_PHOTON_BUFFER_WORDS,
-                upload: 'never',
             },
             {
                 id: 'sampler',

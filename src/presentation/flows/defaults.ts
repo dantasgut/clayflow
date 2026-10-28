@@ -3,6 +3,8 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
+import { Caustics } from '../../elements/lighting/caustics/Caustics';
+import { CausticsFlow } from '../../elements/lighting/caustics/CausticsFlow';
 import { TemporalFilter } from '../../elements/lighting/temporal/TemporalFilter';
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import { RefractionFlow } from '../../elements/lighting/refraction/RefractionFlow';
@@ -253,9 +255,11 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
 const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
 
 /**
- * Estrutura de raios para a refração (spec 034, R1) por evento: o que um transmissivo mostra vem do traçado, que consulta
- * a `RayScene` — com a GI desligada também. A entrada de uma função `material` transmissiva (o vidro, a água) — ou uma
- * já na cena — insere a `RayScene`, se a cena não tem. Devolve o cancelamento.
+ * Estrutura de raios para a refração (spec 034, R1) e o transporte das cáusticas (T067c) por evento: o que um
+ * transmissivo mostra vem do traçado, que consulta a `RayScene` — com a GI desligada também —, e a luz que passa por ele
+ * chega pelas cáusticas. A entrada de uma função `material` transmissiva (o vidro, a água) — ou uma já na cena — insere
+ * a `RayScene` e o `Caustics`, se a cena não tem (removido pela aplicação, não volta enquanto a cena não recebe outro
+ * transmissivo). Devolve o cancelamento.
  */
 function raySceneForTransmissives(world: World, events: EventBus): () => void {
     const ensure = (resources: Iterable<Resource>): void => {
@@ -265,6 +269,8 @@ function raySceneForTransmissives(world: World, events: EventBus): () => void {
             if (!transmissive) continue;
             if (world.queryBySchemaName(RayScene.schema.name).length === 0)
                 world.insert(new RayScene());
+            if (world.queryBySchemaName(Caustics.schema.name).length === 0)
+                world.insert(new Caustics());
             return;
         }
     };
@@ -383,6 +389,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'globalIllumination',
         phase: 'shadow',
         priority: -5,
+    });
+    // Cáusticas (spec 034, T067c) depois das sondas: os fótons pela estrutura de raios e pela superfície da água.
+    const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
+        type: 'caustics',
+        phase: 'shadow',
+        priority: -10,
     });
     // Névoa (spec 033, R12) depois das sondas e da vista da luz da água (a luz rebatida e o meio até as luzes prontos).
     const froxelRegistration = flows.register((ctx) => new FroxelFlow(ctx), {
@@ -505,6 +517,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             raySceneRegistration,
             shadowRegistration,
             probeRegistration,
+            causticsRegistration,
             froxelRegistration,
             forwardRegistration,
             particleRegistration,

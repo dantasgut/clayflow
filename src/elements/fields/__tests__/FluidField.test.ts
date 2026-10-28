@@ -13,11 +13,14 @@ import {
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import {
     rayVolumeSurfacePoint,
+    rayVolumeBoundsPoint,
     rayVolumeHitPoint,
+    rayVolumeOccupiedPoint,
     rayVolumeTransmittancePoint,
 } from '../../raytrace/points';
 import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout, fieldFilmOffset } from '../FluidField';
 import { sceneWetnessPoint } from '../../scene/points/media';
+import { lightTransmissionPoint } from '../../scene/points/lighting';
 import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS, FIELD_FILM_CELLS } from '../schemas';
 import { FIELD } from '../reference/field';
 import { fieldSort } from '../shaders';
@@ -88,7 +91,7 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios e à película só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance e scene_wetness', () => {
+    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, ray_volume_bounds, ray_volume_occupied e light_transmission', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
@@ -96,16 +99,16 @@ describe('FluidField (spec 033, R11)', () => {
             rayVolumeSurfacePoint,
             rayVolumeTransmittancePoint,
             sceneWetnessPoint,
+            rayVolumeBoundsPoint,
+            rayVolumeOccupiedPoint,
+            lightTransmissionPoint,
         ]);
         // A mesma ordem nos três: o `source` do acerto é a posição do contribuinte no ponto.
         expect(new Set(contributions.map((c) => c.order)).size).toBe(1);
         const slotOf = (): undefined => undefined;
-        expect(contributions.map((c) => c.build(slotOf))).toEqual([
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-        ]);
+        expect(contributions.map((c) => c.build(slotOf))).toEqual(
+            contributions.map(() => undefined),
+        );
         field.setVolume(true);
         const modules = contributions.map((c) => c.build(slotOf)!);
         expect(modules.every((m) => m !== undefined)).toBe(true);
@@ -135,13 +138,30 @@ describe('FluidField (spec 033, R11)', () => {
         const wetness = composeWgsl(modules[3]!).spec.source;
         expect(wetness).toContain('fn scene_wetness(p: vec3f, n: vec3f) -> vec2f');
         expect(wetness).toContain('return field_film_at(p, n);');
+        // A caixa do campo, alvo dos fótons das cáusticas (spec 034, T067c).
+        expect(composeWgsl(modules[4]!).spec.source).toContain('return field_box();');
+        // Os raios que passam por algum bloco do campo (a emissão dos fótons só onde há água), sem amostrar φ.
+        const occupied = composeWgsl(modules[5]!).spec.source;
+        expect(occupied).toContain(
+            'fn ray_volume_occupied(origin: vec3f, dir: vec3f, t_max: f32) -> bool',
+        );
+        expect(occupied).toContain('if (field_find(b) != NONE) { return true; }');
+        // A luz das fontes que atravessa a água em linha reta (as cáusticas a corrigem): Fresnel exato na primeira
+        // superfície e Beer–Lambert pelos trechos, numa marcha só (sem o acerto e a transmitância marchando o mesmo trecho).
+        const light = composeWgsl(modules[6]!).spec.source;
+        expect(light).toContain('fn light_transmission(light: u32, p: vec3f) -> vec3f');
+        expect(light).toContain(
+            'transmittance *= 1.0 - bsdf_f_dielectric(abs(dot(dir, at.normal)), select(ior, 1.0 / ior, start_inside));',
+        );
+        expect(light).toContain(
+            'transmittance *= exp(-closure_absorption(c) * max(exit.t - enter, 0.0));',
+        );
+        expect(light).not.toContain('ray_volume_hit(');
+        expect(light).not.toContain('ray_volume_transmittance(');
         field.setVolume(false);
-        expect(contributions.map((c) => c.build(slotOf))).toEqual([
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-        ]);
+        expect(contributions.map((c) => c.build(slotOf))).toEqual(
+            contributions.map(() => undefined),
+        );
     });
 });
 

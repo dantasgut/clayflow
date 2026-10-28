@@ -1,7 +1,7 @@
 // Luz que sai de um ponto atingido por um raio da iluminação global (spec 033, R2): a direta (as luzes com raio de
 // sombra pela estrutura de raios) mais a emissão e, para os rebatimentos seguintes, a irradiância de um rebatimento das
 // sondas do mundo lida no ponto. Usada pelos raios das sondas do mundo e pelos da coleta final na tela.
-// Requer: gi, gi_direct (gi_photon_caustic_capable), gi_generation, closure, closure_eval.
+// Requer: gi, gi_direct, caustics_capable, gi_generation, closure, closure_eval.
 
 /**
  * A luz direta e a emissão que saem do ponto para quem vê na direção `v`. Com as cáusticas por fótons, o especular
@@ -10,7 +10,7 @@
  */
 fn gi_shade_direct(c: Closure, p: vec3f, n: vec3f, v: vec3f, seed: u32) -> vec3f {
     var lit = c;
-    if (gi.bounces.w != 0u && gi_photon_caustic_capable(c)) {
+    if (gi.bounces.w != 0u && caustics_capable(c)) {
         lit.dielectric_weight = 0.0;
         lit.conductor_weight = 0.0;
     }

@@ -637,7 +637,7 @@ const WATER_SETTLE = 300;
 /** Uma água da órbita: a altura da camada (em partículas) e a absorção (padrão a do material). */
 interface Water {
     readonly layer: number;
-    readonly absorption?: readonly number[];
+    readonly absorption?: readonly [number, number, number];
 }
 
 /** O tanque com a camada de água parada (física e ondulações congeladas depois de assentar), no modo pedido. */
@@ -676,7 +676,7 @@ async function waterTank(mode: AntialiasingMode, water: Water): Promise<Scene> {
         height: H,
         layer: water.layer,
         material: {
-            rippleSpeed: 0,
+            ripple: { speed: 0 },
             ...(water.absorption !== undefined ? { absorption: water.absorption } : {}),
         },
         camera,
@@ -693,7 +693,7 @@ async function waterTank(mode: AntialiasingMode, water: Water): Promise<Scene> {
 /** As duas águas da órbita: clara e rasa (o fundo atravessado domina a cor) e turva e funda (a superfície domina). */
 const WATERS: Record<string, Water> = {
     clara: { layer: 6 },
-    turva: { layer: 20, absorption: [12, 10, 9, 0] },
+    turva: { layer: 20, absorption: [12, 10, 9] },
 };
 
 async function waterOrbit(): Promise<void> {

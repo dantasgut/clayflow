@@ -23,7 +23,7 @@ import rayHitMaterialReadySource from '../gpu/wgsl/raytrace/ray_hit_material_rea
 import rayDirectSource from '../gpu/wgsl/raytrace/ray_direct.wgsl?raw';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { lightTransmissionReady } from '../scene/points/lighting';
+import { lightTransmissionReady, sceneCausticLightingReady } from '../scene/points/lighting';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
@@ -327,5 +327,6 @@ export const rayDirect = wgslModule({
         LIGHT_LIMIT.module,
         lightIncoming,
         lightTransmissionReady,
+        sceneCausticLightingReady,
     ],
 });

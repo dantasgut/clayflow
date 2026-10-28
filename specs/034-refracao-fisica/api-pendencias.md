@@ -58,10 +58,18 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
   `ior` → o `ior` dos dois nós; `abbe` → `bsdf.transmission.abbe`; `absorption` (por metro) →
   `bsdf.transmission.color` = exp(−absorção) com `depth` 1; `roughness` → `bsdf.dielectric.roughness`;
   `rippleStrength`/`rippleSize`/`rippleSpeed` → o nó `surface.ripple` (`strength`, `size`, `speed`) ligado ao
-  `closure.normal`; `caustics`/`causticIntensity` → a chave e a intensidade das cáusticas unificadas no recurso de
-  transporte de luz (T067c, ainda não existe: até lá a água não tem cáusticas); `color` (o espalhamento interno) → o
+  `closure.normal`; `caustics`/`causticIntensity` → o recurso `Caustics` (T067c: `enabled`, `photons`,
+  `cellSize`; entra sozinho com o primeiro material transmissivo; a intensidade não tem sucessor — a física dá); `color` (o espalhamento interno) → o
   meio do grafo com espalhamento (T067c). Sem sucessor (a física e o traçado dão o efeito): `thicknessScale`,
   `refraction`, `particleRadius`, `smoothingRadius`, `depthThreshold`, `ambient`, `reflectivity`, `shininess`.
+
+## Cáusticas fora da luz global (T067c)
+
+- **Quebra**: `GlobalIllumination` perdeu as opções `caustics` e `photons` (e o descritor `caustics`); as cáusticas
+  são o recurso próprio `Caustics` (`enabled`, padrão ligado; `photons`, padrão 65 536 por quadro; `cellSize`, padrão
+  1 cm), inserido pelos estágios padrão com o primeiro material transmissivo (vidro, água), com ou sem a luz global.
+  Para desligar: `world.findResource(Caustics.schema, Caustics).enabled = false` (ou inserir `new Caustics({ enabled:
+false })` antes da água). Falta no guia.
 
 ## Terminologia nas mensagens e na documentação
 

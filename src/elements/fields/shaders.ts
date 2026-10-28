@@ -15,6 +15,7 @@ import fieldSortSource from '../gpu/wgsl/fields/field_sort.wgsl?raw';
 import fieldKernelsSource from '../gpu/wgsl/fields/field_kernels.wgsl?raw';
 import fieldMarkSource from '../gpu/wgsl/fields/field_mark.wgsl?raw';
 import fieldLinksSource from '../gpu/wgsl/fields/field_links.wgsl?raw';
+import fieldRayOccupiedSource from '../gpu/wgsl/fields/field_ray_occupied.wgsl?raw';
 import fieldDensitySource from '../gpu/wgsl/fields/field_density.wgsl?raw';
 import fieldRedistanceSource from '../gpu/wgsl/fields/field_redistance.wgsl?raw';
 import fieldApronSource from '../gpu/wgsl/fields/field_apron.wgsl?raw';
@@ -27,7 +28,10 @@ import fieldFilmSource from '../gpu/wgsl/fields/field_film.wgsl?raw';
 import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw';
 import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?raw';
 import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
+import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
 import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
+import { lightIncoming } from '../scene/points/lightContributions';
+import { lightsResource } from '../scene/resources';
 import { closure } from '../material/pbr/shaders';
 import {
     FIELD_FILM_SURFACES,
@@ -35,7 +39,7 @@ import {
     FieldGatherSchema,
     FluidFieldSchema,
 } from './schemas';
-import { colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
+import { bsdf, colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
 // marcação dos blocos, vizinhança, densidade, redistanciamento, borda) e a consulta (φ, normal, marcha). Os buffers que
@@ -383,4 +387,40 @@ export const fieldRayTransmittance = wgslModule({
     name: 'field_ray_transmittance',
     source: fieldRayTransmittanceSource,
     requires: [fields, rayVolumeTypes, rayVolumeMaterial, fieldSurface],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_bounds`: a caixa dele (spec 034, T067c: um alvo dos fótons). */
+export const fieldRayBounds = wgslModule({
+    name: 'field_ray_bounds',
+    source: 'fn ray_volume_bounds() -> array<vec3f, 2> {\n    return field_box();\n}',
+    requires: [fields],
+});
+
+/**
+ * Contribuição do campo ao ponto `ray_volume_occupied`: o raio passa por algum bloco do campo (spec 034, T067c: a
+ * emissão dos fótons só onde há água).
+ */
+export const fieldRayOccupied = wgslModule({
+    name: 'field_ray_occupied',
+    source: fieldRayOccupiedSource,
+    requires: [fields],
+});
+
+/**
+ * Contribuição do campo ao ponto `light_transmission`: a luz das fontes que atravessa a superfície da água até o ponto
+ * em linha reta, com o Fresnel e Beer–Lambert, numa marcha só (spec 034, T067c; as cáusticas corrigem para o caminho
+ * refratado).
+ */
+export const fieldLightTransmission = wgslModule({
+    name: 'field_light_transmission',
+    source: fieldLightTransmissionSource,
+    requires: [
+        fields,
+        rayVolumeTypes,
+        rayVolumeMaterial,
+        fieldSurface,
+        bsdf,
+        lightIncoming,
+        lightsResource,
+    ],
 });

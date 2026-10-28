@@ -18,13 +18,6 @@ export const GI_VISIBILITY_TEXELS = 16;
  * tamanho; ladrilhos maiores usam o canto delas.
  */
 export const GI_SCREEN_TILE_MIN = 4;
-/** Baldes do hash das cáusticas por fótons (US5): 2¹⁹ células (um chão de 4 × 4 m todo aceso em células de 1,25 cm ocupa ~40 %), 8 palavras cada, mais o cabeçalho. */
-export const GI_PHOTON_SLOTS = 1 << 19;
-/** Palavras do buffer das cáusticas. */
-export const GI_PHOTON_BUFFER_WORDS = 8 + GI_PHOTON_SLOTS * 8;
-/** Palavra de 32 bits (o tamanho do descritor do hash das cáusticas). */
-export const GiWordSchema = new StructSchema('GiWord', { value: FieldType.u32 });
-
 /** Um vec4f do histórico das sondas de tela (o canal temporal `GlobalIllumination.screenHistory`, spec 037). */
 export const GiScreenRecordSchema = new StructSchema('GiScreenRecord', { value: FieldType.vec4f });
 
@@ -43,12 +36,12 @@ export const GlobalIlluminationSchema = new StructSchema(
         cascade3: FieldType.vec4f,
         rays: FieldType.vec4u,
         tuning: FieldType.vec4f,
-        /** (rebatimentos, ligado, 0, cáusticas). */
+        /** (rebatimentos, ligado, 0, as cáusticas ativas na cena: as sondas não leem o especular direto de vidro e metal liso). */
         bounces: FieldType.vec4u,
         rotation0: FieldType.vec4f,
         rotation1: FieldType.vec4f,
         rotation2: FieldType.vec4f,
-        /** (intensidade das cáusticas, raio do hash, fótons, tempo simulado). */
+        /** (1, 0, 0, tempo simulado). */
         extra: FieldType.vec4f,
         /** (slots usados do pool `Light`, 0, 0, 0). */
         counts: FieldType.vec4u,

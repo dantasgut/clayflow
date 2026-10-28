@@ -19,7 +19,7 @@
 //     (profiling) ≤ 16,7 ms.
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
+import { Application, Caustics, createScene, FluidBody, PointSpriteMaterial } from 'clayflow';
 import { nextGpuFrame } from './support/extensionScenes';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 import { diff, fromPng, lumaSrgb, toPng } from './support/images';
@@ -309,11 +309,17 @@ async function main(): Promise<void> {
             { layer: 6, material: { ...CLEAR, ripple: false }, eye: TOP_EYE },
             [300],
         );
-        // Sem cáusticas: até a T067c (a chave no recurso de transporte de luz), a mesma água — as cáusticas da água
-        // saíram com o material antigo (T066).
-        const off = await run('agitada-sem', { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE }, [
-            AGITATED_FRAME,
-        ]);
+        // Sem cáusticas: a mesma água com o transporte desligado (o recurso que a água inseriu).
+        const off = await run(
+            'agitada-sem',
+            { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE },
+            [AGITATED_FRAME],
+            (app) => {
+                const caustics = app.world.findResource(Caustics.schema, Caustics);
+                if (caustics === undefined) throw new Error('a água não inseriu o Caustics');
+                caustics.enabled = false;
+            },
+        );
         const base = ratios(flat.frames[0]!, emptyTop.frames[0]!, centralFloor);
         const median = quantile(base, 0.5);
         const spread = (quantile(base, 0.95) - quantile(base, 0.05)) / median;

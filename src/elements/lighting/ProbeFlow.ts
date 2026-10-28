@@ -31,13 +31,13 @@ import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory'
 import { Transform } from '../scene/Transform';
 import { pcgHash } from '../math/reference/random';
 import { GlobalIllumination } from './GlobalIllumination';
+import { Caustics } from './caustics/Caustics';
 import {
     GI_GRID,
     GI_IRRADIANCE_TEXELS,
     GI_MAX_PROBES,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
-    GI_PHOTON_SLOTS,
 } from './schemas';
 import {
     giProbeAtlas,
@@ -49,8 +49,6 @@ import {
     giScreenResolve,
     giScreenTrace,
     giScreenHistorySlot,
-    giPhotonResolve,
-    giPhotonTrace,
 } from './shaders';
 
 /** Slots do estágio das sondas. */
@@ -67,6 +65,8 @@ export interface ProbeSlots extends SlotMap {
     readonly cameras: PoolSlot<true>;
     /** O histórico das sondas de tela: um canal temporal (spec 037), reservado pelo estágio para o alvo. */
     readonly giScreenHistory: ChannelSlot<false>;
+    /** As cáusticas (spec 034): com elas ativas, as sondas não leem o especular direto de vidro e metal liso. */
+    readonly caustics: SingletonSlot<true>;
 }
 
 const slots: ProbeSlots = {
@@ -76,6 +76,7 @@ const slots: ProbeSlots = {
     time: slot.singleton(Time.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
     ...giScreenHistorySlot,
+    caustics: slot.singleton(Caustics.schema, { optional: true }),
 };
 
 type Ctx = TransitionContext<ProbeSlots>;
@@ -96,7 +97,6 @@ const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_m
 const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_main');
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
-const PHOTON_RESOLVE = compute('gi_photon_resolve', giPhotonResolve, 'gi_photon_resolve_main');
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -107,19 +107,14 @@ const FIXED = [
     SCREEN_PLACE,
     SCREEN_RESOLVE,
     SCREEN_FILTER,
-    PHOTON_RESOLVE,
 ];
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
-/** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela, alvos e fótons) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string, string, string] => [
+/** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela) de uma revisão. */
+const traceIds = (revision: number): readonly [string, string] => [
     `gi_trace:${revision}`,
     `gi_screen_trace:${revision}`,
-    `gi_photon_trace:${revision}`,
-    `gi_photon_targets:${revision}`,
 ];
-/** f32 da lista dos alvos dos fótons (`gi_photon_trace.wgsl`: cabeçalho, 64 caixas, áreas de 8 luzes × 64). */
-const PHOTON_TARGET_WORDS = 8 + 8 * 64 + 8 * 64;
 
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
@@ -153,7 +148,6 @@ interface Buffers {
     readonly radiance: StorageBufferSpec;
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
-    readonly photonTargets: StorageBufferSpec;
 }
 
 /**
@@ -213,8 +207,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
     private frame = 0;
-    /** Fótons do quadro (0 sem cáusticas). */
-    private photons = 0;
     private active = false;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
@@ -283,12 +275,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         });
         // O acúmulo escreveu a fatia do quadro do histórico: o quadro seguinte a lê como a anterior (o canal gira).
         if (tiles > 0) bound.slots.giScreenHistory.written();
-        // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
-        frame.compute('ProbeFlow.photons', (pass) => {
-            run(pass, -4, this.photons > 0 ? W : 0, W);
-            run(pass, -3, Math.max(this.photons, 1), W);
-            run(pass, 9, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
-        });
         this.frame++;
     }
 
@@ -413,7 +399,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'screenWork',
                 sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
             ),
-            photonTargets: storage('photonTargets', PHOTON_TARGET_WORDS * 4),
         };
     }
 
@@ -438,7 +423,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenIrradianceOut, views[5]!],
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
-                [R.photonTargets, b.photonTargets],
             ]),
         );
     }
@@ -462,13 +446,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             fns.length === 0
                 ? shader
                 : bindPoints(shader, new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]));
-        const [probeId, screenId, photonId, targetsId] = traceIds(this.materialRevision);
+        const [probeId, screenId] = traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
         c.prepare(compute(probeId, compose(giProbeTrace), 'gi_probe_trace_main'));
         c.prepare(compute(screenId, compose(giScreenTrace), 'gi_screen_trace_main'));
-        c.prepare(compute(photonId, compose(giPhotonTrace), 'gi_photon_trace_main'));
-        c.prepare(compute(targetsId, compose(giPhotonTrace), 'gi_photon_targets_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;
     }
@@ -499,7 +481,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             ]);
         }
         const coarsest = d.probeSpacing * 2 ** (d.cascades - 1);
-        this.photons = d.caustics ? d.photons : 0;
+        // As cáusticas ativas na cena (o `Caustics` ligado): as sondas não leem o especular direto de vidro e metal liso.
+        const caustics =
+            (c.bound.slots.caustics?.resource as Caustics | undefined)?.enabled === true;
         const rotation = frameRotation(this.frame);
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         d.params = [
@@ -516,13 +500,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, this.photons > 0 ? 1 : 0],
+                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, caustics ? 1 : 0],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
-                // Cáusticas: a célula do hash (1/16 do espaçamento das sondas), os fótons do quadro e o tempo.
-                extra: [1, d.probeSpacing / 16, this.photons, time],
-                counts: [this.resources.poolCount(Light.schema.name), GI_PHOTON_SLOTS, 0, 0],
+                extra: [1, 0, 0, time],
+                counts: [this.resources.poolCount(Light.schema.name), 0, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
                 screen1: [Math.round(1 / d.screenFraction), 0, this.screenActive ? 1 : 0, 0],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
@@ -551,14 +534,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     private releaseBuffers(): void {
         const b = this.buffers;
         if (b === undefined) return;
-        for (const buf of [
-            b.rays,
-            b.generations,
-            b.radiance,
-            b.visibility,
-            b.screenWork,
-            b.photonTargets,
-        ])
+        for (const buf of [b.rays, b.generations, b.radiance, b.visibility, b.screenWork])
             this.core.destroy(buf);
         this.buffers = undefined;
     }

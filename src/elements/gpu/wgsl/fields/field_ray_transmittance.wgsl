@@ -23,7 +23,7 @@ fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) ->
         }
         let exit = field_march(origin, dir, enter + field_voxel(), span.y, true, false, false);
         if (body > 0u) {
-            let at = RayVolumeHit(enter, origin + dir * enter, normal, body, true, false, 0u, false);
+            let at = RayVolumeHit(enter, origin + dir * enter, normal, body, true, false, 0u, false, 0.0);
             transmittance *= exp(-closure_absorption(ray_volume_surface_closure(at, field_surface(at), time)) * max(exit.t - enter, 0.0));
         }
         t = exit.t + field_voxel();

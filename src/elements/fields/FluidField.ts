@@ -3,11 +3,22 @@ import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import {
+    rayVolumeBoundsPoint,
+    rayVolumeOccupiedPoint,
     rayVolumeSurfacePoint,
     rayVolumeHitPoint,
     rayVolumeTransmittancePoint,
 } from '../raytrace/points';
-import { fieldRayHit, fieldRaySurface, fieldRayTransmittance, fieldWetness } from './shaders';
+import {
+    fieldLightTransmission,
+    fieldRayBounds,
+    fieldRayHit,
+    fieldRayOccupied,
+    fieldRaySurface,
+    fieldRayTransmittance,
+    fieldWetness,
+} from './shaders';
+import { lightTransmissionPoint } from '../scene/points/lighting';
 import { sceneWetnessPoint } from '../scene/points/media';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
@@ -152,6 +163,24 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldWetness : undefined),
+        },
+        {
+            point: rayVolumeBoundsPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayBounds : undefined),
+        },
+        {
+            point: rayVolumeOccupiedPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayOccupied : undefined),
+        },
+        {
+            point: lightTransmissionPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldLightTransmission : undefined),
         },
     ];
 

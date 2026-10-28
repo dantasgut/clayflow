@@ -1,11 +1,13 @@
 // Cena de água dos smokes da superfície de fluido (spec 017): tanque sobre chão quadriculado (ladrilhos claros e
-// escuros: a refração e a absorção aparecem no padrão), paredes opacas de 0,5 m (desenhadas onde colidem), luz direcional com sombra,
+// escuros: a refração e a absorção aparecem no padrão), paredes de vidro de 0,5 m (desenhadas onde colidem, com a física da
+// superfície do vidro), luz direcional com sombra,
 // câmera e uma barragem de partículas. A aparência da água é um material do grafo (spec 034, T066: o mesmo dielétrico do vidro).
 // Determinística: as fixtures dependem só do código.
 import {
     BoxCollider,
     BoxGeometry,
     Camera,
+    DiffuseParticles,
     DirectionalLight,
     FluidBody,
     GravityField,
@@ -121,6 +123,8 @@ export interface WaterSceneOptions {
     readonly physics?: ParticlePhysicsOptions;
     /** Espaçamento das partículas (m; padrão `WATER_SPACING`): a barragem e a camada mantêm o volume. */
     readonly spacing?: number;
+    /** Partículas secundárias do corpo (spray, espuma e bolhas; padrão ligadas com a água pelo grafo). */
+    readonly diffuse?: boolean;
     /** A física da superfície dos sólidos diante da água (spec 034; sem ela, a padrão: lisa e impermeável). */
     readonly surfaces?: {
         readonly floor?: SurfacePhysicsOptions;
@@ -203,11 +207,17 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
             : waterLook(options.material ?? {}),
     );
     world.insert(body);
+    if (options.material !== 'sprites' && options.diffuse !== false)
+        world.insert(new DiffuseParticles({ source: body }));
     return body;
 }
 
-/** Meia largura do chão (m): o desenhado é o de colisão, para o que respinga fora do tanque cair num chão visível. */
-const FLOOR_HALF = 2;
+/**
+ * Meia largura do chão (m): o desenhado é o de colisão, para o que respinga fora do tanque cair num chão visível; largo o
+ * bastante para o que a água e o vidro refratam para baixo cair nele (com 2 m, os raios que a coluna da barragem
+ * desviava para baixo passavam da borda e o pé da coluna ficava escuro).
+ */
+const FLOOR_HALF = 6;
 
 /** Chão quadriculado: ladrilhos de 10 cm claros e escuros (o padrão do tanque continua fora dele). */
 function floor(app: Application, kind: 'checker' | 'sand', surface?: SurfacePhysicsOptions): void {
@@ -250,17 +260,38 @@ function floor(app: Application, kind: 'checker' | 'sand', surface?: SurfacePhys
     );
 }
 
+/** O vidro das paredes pelo grafo: dielétrico liso e transmissão de índice 1,5, prioridade de meio 1. */
+function glassLook(): MaterialFunction {
+    const ior = 1.5;
+    return materialGraph(
+        {
+            reflect: nodes.bsdf.dielectric.with({ ior, roughness: 0 }),
+            transmit: nodes.bsdf.transmission.with({ ior, abbe: 0 }),
+            glass: nodes.closure.add,
+            priority: nodes.closure.mediumPriority.with({ priority: 1 }),
+        },
+        [
+            ['reflect.value', 'glass.a'],
+            ['transmit.value', 'glass.b'],
+            ['glass.value', 'priority.c'],
+        ],
+        'priority.value',
+    );
+}
+
 /** Altura das paredes do tanque (m). */
 const WALL = 0.5;
 
 /**
- * Paredes do tanque: opacas, desenhadas até onde colidem (0,5 m: a água que bate nelas, molha e escorre fica à
- * vista; a da barragem que passa da borda transborda — spec 034). Vidro espera a luz através dos dielétricos (T067):
- * hoje o raio de sombra para no vidro e o tanque ficaria escuro. A colisão desce 10 cm abaixo do chão.
+ * Paredes do tanque: vidro de 1 cm de espessura (o dielétrico com a transmissão, índice 1,5; prioridade de meio 1:
+ * dentro do vidro a borda da água não é interface) com a física da superfície do vidro (`SurfacePhysics.GLASS`, salvo
+ * outra pedida), desenhadas até onde colidem (0,5 m: a água que bate nelas, molha e escorre fica à vista; a da barragem
+ * que passa da borda transborda — spec 034). A luz que as atravessa chega ao tanque pelas cáusticas (T067c). A colisão
+ * desce 10 cm abaixo do chão.
  */
 function walls(app: Application, surface?: SurfacePhysicsOptions): void {
     const [hx, hz] = WATER_TANK;
-    const t = 0.05;
+    const t = 0.005;
     const h = (WALL + 0.1) / 2;
     for (const [x, z, ex, ez] of [
         [hx + t, 0, t, hz + 2 * t],
@@ -271,13 +302,11 @@ function walls(app: Application, surface?: SurfacePhysicsOptions): void {
         app.world.insert(
             solid(
                 new BoxCollider({ halfExtents: [ex, h, ez, 0], center: [x, WALL - h, z, 1] }),
-                surface,
+                surface ?? SurfacePhysics.GLASS,
             ),
         );
         const wall = new BoxGeometry({ size: [2 * ex, WALL, 2 * ez] });
-        wall.add(
-            new StandardMaterial({ albedo: [0.62, 0.64, 0.68, 1], roughness: 0.7, metallic: 0 }),
-        );
+        wall.add(new StandardMaterial()).add(glassLook());
         wall.add(new Transform({ position: [x, WALL / 2, z, 1] }));
         app.world.insert(wall);
     }

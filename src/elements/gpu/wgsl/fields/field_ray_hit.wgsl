@@ -9,7 +9,7 @@
 // Requer: ray_volume_types, fields.
 
 fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit {
-    let none = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false);
+    let none = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false, 0.0);
     let span = field_clip(origin, dir, 0.0, t_max);
     if (span.x >= span.y) { return none; }
     let start = span.x <= 0.0;
@@ -24,5 +24,5 @@ fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolume
         let at = field_body_at(origin);
         if (at != 0u) { body = at; }
     }
-    return RayVolumeHit(h.t, h.p, h.n, body, true, inside, 0u, false);
+    return RayVolumeHit(h.t, h.p, h.n, body, true, inside, 0u, false, fluid_field.grid.x);
 }

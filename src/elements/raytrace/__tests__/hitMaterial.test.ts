@@ -6,7 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
-import { giPhotonTrace, giProbeTrace, giScreenTrace } from '../../lighting/shaders';
+import { giProbeTrace, giScreenTrace } from '../../lighting/shaders';
+import { causticsTrace } from '../../lighting/caustics/shaders';
 import { composeHitMaterial, rayHitMaterialPoint } from '../hitMaterial';
 
 const count = (source: string, needle: string): number => source.split(needle).length - 1;
@@ -15,7 +16,7 @@ describe('material nos acertos (módulo comum)', () => {
     for (const [name, kernel] of [
         ['sondas do mundo', giProbeTrace],
         ['sondas de tela', giScreenTrace],
-        ['fótons', giPhotonTrace],
+        ['fótons', causticsTrace],
     ] as const) {
         it(`${name}: um ray_hit_material e um ray_hit_closure, com o pronto e com a composição`, () => {
             for (const shader of [

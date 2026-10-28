@@ -21,6 +21,7 @@
 // `GLOBALILLUMINATION SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
+    Caustics,
     GlobalIllumination,
     SphereGeometry,
     StandardMaterial,
@@ -965,13 +966,14 @@ function peakNear(
 }
 
 /**
- * A irradiância das cáusticas por célula do chão (y = 0 entre as duas camadas de células em volta), lida de volta do
- * hash (só no teste): chave `x,z` em células.
+ * A irradiância das cáusticas por célula do chão (a camada da tenda 2D acima de y = 0; spec 034, o hash do `Caustics`),
+ * lida de volta do hash (só no teste): chave `x,z` em células, a média dos três canais.
  */
 async function floorCaustics(
     s: Awaited<ReturnType<typeof openEngine>>,
 ): Promise<Map<string, number>> {
-    const spec = s.app.resources.bufferOf(s.gi, 'caustics')!;
+    const caustics = s.app.world.findResource(Caustics.schema, Caustics)!;
+    const spec = s.app.resources.bufferOf(caustics, 'hash')!;
     const staging = s.app.core.create<StagingBufferSpec>({
         kind: 'buffer',
         subkind: 'staging',
@@ -986,13 +988,14 @@ async function floorCaustics(
     const floats = new Float32Array(words.buffer);
     s.app.core.destroy(staging);
     const cells = new Map<string, number>();
-    for (let w = 8; w + 8 <= words.length; w += 8) {
+    // Baldes de 10 palavras; a chave com o nível nos 2 bits de cima (`caustics_common.wgsl`): só o nível fino.
+    for (let w = 8; w + 10 <= words.length; w += 10) {
         const key = words[w]!;
-        if (key === 0) continue;
+        if (key === 0 || (key - 1) >>> 30 !== 0) continue;
         const y = (((key - 1) >> 10) & 1023) - 512;
-        if (y !== 0 && y !== -1) continue;
+        if (y !== 0) continue;
         const k = `${((key - 1) & 1023) - 512},${(((key - 1) >> 20) & 1023) - 512}`;
-        cells.set(k, (cells.get(k) ?? 0) + (floats[w + 4]! + floats[w + 5]! + floats[w + 6]!) / 2);
+        cells.set(k, (floats[w + 4]! + floats[w + 5]! + floats[w + 6]!) / 3);
     }
     return cells;
 }
@@ -1002,8 +1005,7 @@ async function floorCaustics(
  * 1,2 vezes a distância focal da lente esférica (f = nR / 2(n − 1), do centro): o pico de luz no chão sob ela é o mais
  * concentrado a ≤ 10 % de f e mais claro que o chão aceso em volta; (b) um anel de metal polido sob sol rasante: a
  * cáustica que os fótons somam no chão (no hash) tem o máximo perto da cúspide, a meio raio do centro do
- * lado de onde a luz vai; (c) a água: com a iluminação global, ligar as cáusticas por fótons não muda o fundo sob a
- * água (a dela continua pela vista da luz, sem duplicar).
+ * lado de onde a luz vai. A água com a iluminação global: `causticsWater`.
  */
 async function causticsScene(): Promise<void> {
     const size = { width: 640, height: 400 };
@@ -1019,6 +1021,7 @@ async function causticsScene(): Promise<void> {
     {
         const scene = causticFloor(camera, [0, -1, 0]);
         const s = await openEngine(scene, size, true, (app) => {
+            app.world.insert(new Caustics());
             app.world.insert(
                 new SphereGeometry({ radius: R })
                     .add(new StandardMaterial())
@@ -1039,10 +1042,11 @@ async function causticsScene(): Promise<void> {
     // A distância focal (paraxial): um diafragma de 12 cm sobre a esfera, a altura dela de 0,8 a 1,2 f.
     const peaks: { factor: number; value: number }[] = [];
     for (const factor of [0.8, 0.9, 1, 1.1, 1.2]) {
-        // Sondas a 8 cm: a célula das cáusticas (1/16 do espaçamento) de 5 mm separa o foco.
-        const scene = { ...causticFloor(camera, [0, -1, 0]), probeSpacing: 0.08 };
+        // A célula das cáusticas de 5 mm separa o foco.
+        const scene = causticFloor(camera, [0, -1, 0]);
         const h = factor * focal;
         const s = await openEngine(scene, size, true, (app) => {
+            app.world.insert(new Caustics({ cellSize: 0.005 }));
             app.world.insert(
                 new SphereGeometry({ radius: R })
                     .add(new StandardMaterial())
@@ -1107,14 +1111,17 @@ async function causticsScene(): Promise<void> {
             );
         }
     };
-    // A cáustica no hash (as sondas a 0,3 m: células de 1,875 cm), média num disco de 3 cm, no interior longe da parede.
+    // A cáustica no hash (células de 1,875 cm), média num disco de 3 cm, no interior longe da parede.
     let peak = { value: 0, x: 0, z: 0 };
     {
-        const s = await openEngine(causticFloor(top, sun), size, true, ring);
+        const cell = 0.3 / 16;
+        const s = await openEngine(causticFloor(top, sun), size, true, (app) => {
+            app.world.insert(new Caustics({ cellSize: cell }));
+            ring(app);
+        });
         await s.step(150);
         const cells = await floorCaustics(s);
         s.close();
-        const cell = 0.3 / 16;
         const reach = Math.ceil(0.03 / cell);
         for (let i = -30; i <= 30; i++)
             for (let j = -30; j <= 30; j++) {
@@ -1143,9 +1150,14 @@ async function causticsScene(): Promise<void> {
             && Math.abs(Math.hypot(peak.x, peak.z) - ringR / 2) <= 0.25 * ringR,
         'caustics: a cáustica do anel com a cúspide perto de meio raio',
     );
+}
 
-    // (c) A água com a iluminação global: as cáusticas por fótons ligadas ou não, o fundo sob a água igual (a luz que a
-    // atravessa vem pelas cáusticas dela, na vista da luz — os fótons param na água).
+/**
+ * Cáusticas na água com a iluminação global (spec 034, T067c): a água parada a pino, o fundo sob ela com as cáusticas (a
+ * direta em linha reta e a correção dos fótons) e sem elas (só a linha reta, exata na água plana a pino) igual na média.
+ */
+async function causticsWaterScene(): Promise<void> {
+    const size = { width: 640, height: 400 };
     {
         const { app, canvas } = await giApp(size.width, size.height, engineErrors);
         waterScene(app, {
@@ -1175,14 +1187,14 @@ async function causticsScene(): Promise<void> {
             return sum / n;
         };
         const on = await floorMean();
-        gi.data.caustics = false;
+        app.world.findResource(Caustics.schema, Caustics)!.enabled = false;
         const off = await floorMean();
         log(
-            `caustics: água com a GI — fundo sob a água com as cáusticas por fótons ${on.toFixed(4)}, sem ${off.toFixed(4)}`,
+            `caustics: água parada com a GI — fundo sob a água com as cáusticas ${on.toFixed(4)}, em linha reta ${off.toFixed(4)}`,
         );
         check(
             Math.abs(on / off - 1) <= 0.02,
-            `caustics: a água sem luz duplicada (${((on / off - 1) * 100).toFixed(2)} %)`,
+            `caustics: a água com as cáusticas e em linha reta (${((on / off - 1) * 100).toFixed(2)} %)`,
         );
         app.dispose();
         canvas.remove();
@@ -1191,6 +1203,7 @@ async function causticsScene(): Promise<void> {
 
 const CASES: Record<string, () => Promise<void>> = {
     caustics: causticsScene,
+    causticsWater: causticsWaterScene,
     cornell: () =>
         compareScene(
             'cornell',

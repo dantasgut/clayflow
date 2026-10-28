@@ -31,7 +31,7 @@ import {
 } from './support/giScenes';
 import { closureFn, materialGraph } from './support/materialScenes';
 import { CAUSTIC_SPHERE, CAUSTIC_SUN } from './support/causticScenes';
-import { waterScene } from './support/waterScene';
+import { WATER_SPACING, waterLook, waterScene } from './support/waterScene';
 
 declare global {
     interface Window {
@@ -106,7 +106,7 @@ function glassSphere(
     abbe: number,
     priority?: number,
 ): void {
-    const graph: Parameters<typeof materialGraph>[0] = {
+    const graph: Record<string, clayflow.GraphNode> = {
         reflect: clayflow.nodes.bsdf.dielectric.with({ ior, roughness: 0 }),
         transmit: clayflow.nodes.bsdf.transmission.with({ ior, abbe }),
         glass: clayflow.nodes.closure.add,
@@ -367,6 +367,168 @@ const SHOTS: Record<string, Shot> = {
                 eye: [0, 2.1, 0.01],
             });
             return () => undefined;
+        },
+    },
+    // As pendências do smoke `fluidSurface` (T067c), nas mesmas cenas dele: a água límpida vista de cima.
+    pendparada: {
+        frames: 360,
+        build(app) {
+            // A camada parada (sem ondulação do material): o smoke mede a variação do fundo no quadro 300.
+            waterScene(app, {
+                width: W,
+                height: H,
+                layer: 6,
+                material: { absorption: [0, 0, 0], abbe: 0, ripple: false },
+                eye: [0, 2.1, 0.01],
+            });
+            return () => undefined;
+        },
+    },
+    pendagitada: {
+        frames: 240,
+        build(app) {
+            waterScene(app, {
+                width: W,
+                height: H,
+                dam: [24, 24, 32],
+                material: { absorption: [0, 0, 0], abbe: 0 },
+                eye: [0, 2.1, 0.01],
+            });
+            return () => undefined;
+        },
+    },
+    pendagitadasem: {
+        frames: 240,
+        build(app) {
+            // A mesma barragem com as cáusticas desligadas (o recurso inserido antes da água, a padrão não entra).
+            app.world.insert(new clayflow.Caustics({ enabled: false }));
+            waterScene(app, {
+                width: W,
+                height: H,
+                dam: [24, 24, 32],
+                material: { absorption: [0, 0, 0], abbe: 0 },
+                eye: [0, 2.1, 0.01],
+            });
+            return () => undefined;
+        },
+    },
+    pendcoexistencia: {
+        frames: 240,
+        build(app) {
+            waterScene(app, { width: W, height: H, dam: [16, 24, 20], box: true });
+            const position: number[] = [];
+            for (let i = 0; i < 400; i++)
+                position.push(
+                    0.4 + (i % 8) * WATER_SPACING,
+                    0.3 + Math.floor(i / 64) * WATER_SPACING,
+                    ((i >> 3) % 8) * WATER_SPACING,
+                );
+            app.world.insert(
+                new clayflow.FluidBody({ algorithm: 'PBF', position }).add(
+                    new clayflow.PointSpriteMaterial({
+                        color: [1, 0.2, 0.1, 1],
+                        radius: WATER_SPACING * 0.5,
+                    }),
+                ),
+            );
+            return () => undefined;
+        },
+    },
+    penddentro: {
+        frames: 240,
+        build(app) {
+            waterScene(app, {
+                width: W,
+                height: H,
+                eye: [-0.55, 0.4, 0.05],
+                target: [0.5, 0.2, 0],
+            });
+            return () => undefined;
+        },
+    },
+    natureza: {
+        frames: 480,
+        build(app) {
+            // Um vale natural ao sol (spec 034): o terreno com relevo pela função de superfície (uma bacia com ondulações
+            // de várias escalas), areia no fundo, grama nas encostas e rocha onde é íngreme; o céu físico com o sol a 35°
+            // e a luz global; um bloco de água (PBF, 2,5 cm) que cai no vale e forma o lago, com o spray, a espuma e as
+            // bolhas (spec 010) e as cáusticas. A câmera gira devagar em volta do vale.
+            const sun = new clayflow.DirectionalLight({
+                direction: [...sunFrom(35, 40), 0],
+                intensity: 100000,
+                castShadow: true,
+                shadow: { size: [4096, 4096] },
+            });
+            app.world.insert(sun);
+            app.world.insert(new clayflow.Sky({ sun, sunDisk: true }));
+            app.world.insert(new GlobalIllumination({ quality: 'medium', probeSpacing: 0.4 }));
+            app.defaults.presentation.data.exposure = -14;
+            const half = 3;
+            app.world.insert(
+                new clayflow.ParametricSurface({
+                    resolution: [256, 256],
+                    domain: [-half, half, -half, half],
+                })
+                    .add(
+                        new clayflow.SurfaceFunction({
+                            code: `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    let r2 = u * u + v * v;
+    var h = 0.5 * r2 / (2.2 * 2.2) - 0.5;
+    h += 0.07 * sin(2.1 * v + 0.3) * cos(1.7 * u + 1.1);
+    h += 0.035 * sin(4.3 * v - 3.1 * u + 0.7);
+    h += 0.015 * sin(9.7 * v + 7.3 * u) * sin(8.1 * u - 2.9 * v);
+    h += 0.006 * sin(23.0 * v + 3.0) * sin(19.0 * u + 1.0);
+    return vec3f(v, h, u);
+}`,
+                        }),
+                    )
+                    .add(new clayflow.SurfaceCollider({ mode: 'height', resolution: 256 }))
+                    .add(new StandardMaterial({ albedo: [0.7, 0.65, 0.5, 1], roughness: 0.9 }))
+                    .add(
+                        new clayflow.MaterialFunction({
+                            code: `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {
+    let y = s.world_position.y;
+    let slope = 1.0 - clamp(s.normal.y, 0.0, 1.0);
+    let grain = fract(sin(dot(floor(s.world_position.xz * 60.0), vec2f(12.9898, 78.233))) * 43758.5453);
+    let sand = vec3f(0.74, 0.67, 0.5) * (0.92 + 0.08 * grain);
+    let grass = vec3f(0.22, 0.34, 0.12) * (0.85 + 0.15 * grain);
+    let rock = vec3f(0.42, 0.4, 0.38) * (0.9 + 0.1 * grain);
+    var c = mix(sand, grass, smoothstep(-0.25, -0.05, y));
+    c = mix(c, rock, smoothstep(0.25, 0.45, slope));
+    return closure_diffuse(c, 0.0);
+}`,
+                        }),
+                    )
+                    .add(new Transform()),
+            );
+            app.world.insert(new clayflow.GravityField({ acceleration: [0, -9.81, 0, 0] }));
+            app.world.insert(
+                new clayflow.ParticlePhysics({
+                    ...clayflow.ParticlePhysics.WATER,
+                    particleSpacing: WATER_SPACING,
+                    bounds: 'open',
+                    domainMin: [-1.6, -0.7, -1.6],
+                    domainMax: [1.6, 1.0, 1.6],
+                }),
+            );
+            const position: number[] = [];
+            const s = WATER_SPACING;
+            for (let y = 0; y < 28; y++)
+                for (let z = 0; z < 22; z++)
+                    for (let x = 0; x < 22; x++)
+                        position.push(
+                            -0.55 + s * (x + 0.5) + ((x * 7 + y * 3 + z * 5) % 11) * s * 0.01,
+                            -0.25 + s * (y + 0.5),
+                            -0.35 + s * (z + 0.5) + ((x * 3 + y * 5 + z * 7) % 13) * s * 0.01,
+                        );
+            const body = new clayflow.FluidBody({ algorithm: 'PBF', position }).add(waterLook());
+            app.world.insert(body);
+            app.world.insert(new clayflow.DiffuseParticles({ source: body, maxParticles: 65_536 }));
+            const look = camera(app, (45 * Math.PI) / 180, [2.55, 1.6, 2.55], [0, -0.35, 0]);
+            return (i) => {
+                const a = Math.PI / 4 + (0.5 * Math.PI * i) / 479;
+                look([3.6 * Math.cos(a), 1.6, 3.6 * Math.sin(a)], [0, -0.35, 0]);
+            };
         },
     },
     cornell: {

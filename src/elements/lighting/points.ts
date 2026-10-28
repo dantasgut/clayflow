@@ -6,7 +6,7 @@ import { lightTransmissionReady, sceneIndirectLightingPoint } from '../scene/poi
 import { sceneAmbientPoint } from '../scene/points/media';
 import { camerasResource } from '../scene/resources';
 import { rayScene } from '../raytrace/shaders';
-import { giParamsResource, giPhoton, giSample, giScreenSample } from './shaders';
+import { giParamsResource, giSample, giScreenSample } from './shaders';
 
 /**
  * A luz indireta das sondas no ponto (spec 033, R7): a irradiância na normal dos lobos — a das sondas de tela onde
@@ -26,7 +26,6 @@ const giLighting = wgslModule({
         giParamsResource,
         giSample,
         giScreenSample,
-        giPhoton,
         lightTransmissionReady,
     ],
     source: `/** Rugosidade abaixo da qual a especular indireta vem da radiância das sondas do mundo. */
@@ -42,8 +41,7 @@ fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
 fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
-    // A irradiância das sondas mais a das cáusticas por fótons (a luz focada por vidro e metal).
-    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p) / PI;
+    let e = gi_lighting_irradiance(p, nb, v);
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_lighting_irradiance(p, -nb, v); }
     var spec = e;

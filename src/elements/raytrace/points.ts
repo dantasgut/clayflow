@@ -31,6 +31,11 @@ struct RayVolumeHit {
     inside: bool,
     source: u32,
     moved: bool,
+    /**
+     * Alcance do contato com os sólidos (m): o volume não resolve a superfície dele encostada num sólido abaixo disso
+     * (o campo dos fluidos: o espaçamento das partículas) — a saída dele a menos disso antes de uma malha é o contato.
+     */
+    contact: f32,
 }
 
 /**
@@ -55,7 +60,7 @@ export const rayVolumeHitReady = wgslModule({
     name: 'ray_volume_hit_ready',
     requires: [rayVolumeTypes],
     source: `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit {
-    return RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false);
+    return RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false, 0.0);
 }`,
 });
 
@@ -83,6 +88,29 @@ export const rayVolumeSurfaceReady = wgslModule({
 }`,
 });
 
+/**
+ * `fn ray_volume_bounds() -> array<vec3f, 2>` — a caixa em mundo que contém os volumes atravessados por raios (spec 034,
+ * T067c: os alvos dos fótons das cáusticas); pronto: vazia (lo ≥ hi).
+ */
+export const rayVolumeBoundsReady = wgslModule({
+    name: 'ray_volume_bounds_ready',
+    source: `fn ray_volume_bounds() -> array<vec3f, 2> {
+    return array<vec3f, 2>(vec3f(1.0), vec3f(-1.0));
+}`,
+});
+
+/**
+ * `fn ray_volume_occupied(origin: vec3f, dir: vec3f, t_max: f32) -> bool` — o raio passa por onde um volume pode ter
+ * superfície (spec 034, T067c: a emissão dos fótons das cáusticas descarta os que não passam por nenhum; conservador —
+ * verdadeiro na dúvida); pronto: falso (sem volume).
+ */
+export const rayVolumeOccupiedReady = wgslModule({
+    name: 'ray_volume_occupied_ready',
+    source: `fn ray_volume_occupied(origin: vec3f, dir: vec3f, t_max: f32) -> bool {
+    return false;
+}`,
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -102,7 +130,7 @@ export const rayVolumeHitPoint: ContributionPoint = {
                 name: `ray_volume_hit:${modules.map((m) => m.name).join('+')}`,
                 requires: [rayVolumeTypes, ...modules],
                 source: `fn ray_volume_hit(origin: vec3f, dir: vec3f, t_max: f32, side: i32) -> RayVolumeHit {
-    var best = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false);
+    var best = RayVolumeHit(t_max, origin + dir * t_max, -dir, 0u, false, false, 0u, false, 0.0);
 ${modules
     .map(
         (_, k) => `    let h${k} = ray_volume_hit_${k}(origin, dir, best.t, side);
@@ -113,6 +141,51 @@ ${modules
     )
     .join('\n')}
     return best;
+}`,
+            }),
+        ),
+};
+
+/** Caixa dos volumes: a que contém as dos contribuintes (as vazias de fora). */
+export const rayVolumeBoundsPoint: ContributionPoint = {
+    name: 'ray_volume_bounds',
+    ready: rayVolumeBoundsReady,
+    functionName: 'ray_volume_bounds',
+    combine: (modules) =>
+        memo(`rvb:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_bounds:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_volume_bounds() -> array<vec3f, 2> {
+    var lo = vec3f(1e30);
+    var hi = vec3f(-1e30);
+${modules
+    .map(
+        (_, k) => `    let b${k} = ray_volume_bounds_${k}();
+    if (all(b${k}[0] < b${k}[1])) {
+        lo = min(lo, b${k}[0]);
+        hi = max(hi, b${k}[1]);
+    }`,
+    )
+    .join('\n')}
+    return array<vec3f, 2>(lo, hi);
+}`,
+            }),
+        ),
+};
+
+/** Ocupação dos volumes ao longo do raio: a de algum contribuinte. */
+export const rayVolumeOccupiedPoint: ContributionPoint = {
+    name: 'ray_volume_occupied',
+    ready: rayVolumeOccupiedReady,
+    functionName: 'ray_volume_occupied',
+    combine: (modules) =>
+        memo(`rvo:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_occupied:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_volume_occupied(origin: vec3f, dir: vec3f, t_max: f32) -> bool {
+    return ${modules.map((_, k) => `ray_volume_occupied_${k}(origin, dir, t_max)`).join(' || ')};
 }`,
             }),
         ),

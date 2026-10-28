@@ -30,19 +30,23 @@ fn refraction_volume_as_hit(v: RayVolumeHit) -> RayHit {
 
 /**
  * O acerto mais próximo do raio (o, d) até `t_max`: a malha ou a superfície de um volume (`side`: o lado da origem
- * quanto aos volumes quando ela está na superfície de um, ou −1).
+ * quanto aos volumes quando ela está na superfície de um, ou −1). O fluido encostado num sólido (spec 034, T067c): a
+ * saída de um volume a menos do alcance de contato dele antes de uma malha não é interface com o ar — o volume não
+ * resolve o contato abaixo da resolução dele (a água sobre o chão: a superfície do campo fica um pouco acima dele) —, o
+ * acerto é o da malha.
  */
 fn refraction_scene_hit(o: vec3f, d: vec3f, t_max: f32, side: i32) -> RayHit {
     let mesh = ray_scene_hit(o, d, t_max);
     let v = ray_volume_hit(o, d, min(mesh.t, t_max), side);
     if (!v.hit || v.t >= mesh.t) { return mesh; }
+    if (v.inside && mesh.instance != NONE && mesh.t - v.t < v.contact) { return mesh; }
     return refraction_volume_as_hit(v);
 }
 
 /** O acerto de volume `hit` no ponto dos volumes. */
 fn refraction_volume_hit_of(hit: RayHit) -> RayVolumeHit {
     return RayVolumeHit(hit.t, hit.position, hit.normal, hit.instance & 0xFFFFu, true, hit.face < 0.0,
-        (hit.instance >> 16u) & 0xFFu, hit.primitive != 0u);
+        (hit.instance >> 16u) & 0xFFu, hit.primitive != 0u, 0.0);
 }
 
 /** O fechamento no acerto `hit` (malha ou volume) no tempo simulado `time`. */

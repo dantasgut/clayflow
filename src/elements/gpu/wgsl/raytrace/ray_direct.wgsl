@@ -38,6 +38,12 @@ fn ray_direct(c: Closure, p: vec3f, n: vec3f, v: vec3f, used: u32, seed: u32) ->
 
 /** A luz direta (rgb) e, no w, 1 quando um raio de sombra parou numa instância que se moveu. */
 fn ray_direct_marked(c: Closure, p: vec3f, n: vec3f, v: vec3f, used: u32, seed: u32) -> vec4f {
+    // A luz das fontes mais a que chegou por caminhos especulares (as cáusticas, spec 034 T067c).
+    return ray_direct_lights(c, p, n, v, used, seed) + vec4f(scene_caustic_lighting(c, p, n, v), 0.0);
+}
+
+/** A luz direta das fontes do pool (rgb) e, no w, 1 quando um raio de sombra parou numa instância que se moveu. */
+fn ray_direct_lights(c: Closure, p: vec3f, n: vec3f, v: vec3f, used: u32, seed: u32) -> vec4f {
     // Os slots usados do pool (não a capacidade do buffer, que tem a folga do crescimento).
     let count = min(min(used, arrayLength(&lights)), LIGHT_LIMIT);
     if (count <= RAY_EXACT_LIGHTS) {

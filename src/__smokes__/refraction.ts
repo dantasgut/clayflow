@@ -55,9 +55,8 @@ import {
     Transform,
     type GpuFrameTimedPayload,
     nodes,
-    type GraphArgument,
+    type GraphNode,
     type MaterialFunction,
-    type NodeUse,
     type StagingBufferSpec,
     type AntialiasingMode,
 } from 'clayflow';
@@ -519,7 +518,7 @@ function materialOf(s: Solid): MaterialFunction {
     const g = s.glass;
     if (g !== undefined) {
         const roughness = g.roughness ?? 0;
-        const graph: Record<string, NodeUse | GraphArgument> = {
+        const graph: Record<string, GraphNode> = {
             reflect: nodes.bsdf.dielectric.with({
                 ior: g.ior,
                 tint: [1, 1, 1],
@@ -640,7 +639,7 @@ function materialOf(s: Solid): MaterialFunction {
         }
         return materialGraph(graph, links, out);
     }
-    const graph: Record<string, NodeUse | GraphArgument> = {
+    const graph: Record<string, GraphNode> = {
         diffuse: nodes.bsdf.diffuse.with({ color: [...(s.albedo ?? [0, 0, 0])], roughness: 0 }),
     };
     const links: [string, string][] = [];

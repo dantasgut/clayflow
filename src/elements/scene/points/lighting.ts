@@ -29,6 +29,17 @@ export const sceneIndirectLightingReady = wgslModule({
 });
 
 /**
+ * `fn scene_caustic_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` pela
+ * luz que chegou ao ponto por caminhos especulares (spec 034, T067c: as cáusticas) — a que os acertos dos raios (a
+ * refração, a luz rebatida) somam à luz direta das fontes (o desenho a recebe em `scene_direct_lighting`); pronto: 0.
+ */
+export const sceneCausticLightingReady = wgslModule({
+    name: 'scene_caustic_lighting_ready',
+    requires: [closure],
+    source: 'fn scene_caustic_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
  * `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` sob toda a
  * luz da cena: a direta mais a rebatida. O desenho com o antisserrilhado temporal lê as duas em separado (spec 034: a
  * luz que muda sobre a superfície parada é a direta; o ruído da rebatida tem o acúmulo próprio).
@@ -114,6 +125,12 @@ export const sceneDirectLightingPoint = lightingPoint(
 export const sceneIndirectLightingPoint = lightingPoint(
     'scene_indirect_lighting',
     sceneIndirectLightingReady,
+);
+
+/** Luz das cáusticas nos acertos dos raios: a soma das contribuições. */
+export const sceneCausticLightingPoint = lightingPoint(
+    'scene_caustic_lighting',
+    sceneCausticLightingReady,
 );
 
 /** Visibilidade da luz: o produto dos contribuintes, em ordem. */

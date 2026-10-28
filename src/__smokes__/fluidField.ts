@@ -61,6 +61,8 @@ import type {
     FlowTransitions,
     Frame,
     PipelineDescriptor,
+    SingletonSlot,
+    SlotMap,
     TransitionContext,
     WgslModule,
     StagingBufferSpec,
@@ -1012,9 +1014,9 @@ fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
 }`,
 });
 
-interface ClosureQuerySlots {
-    readonly field: ReturnType<typeof slot.singleton>;
-    readonly rays: ReturnType<typeof slot.singleton>;
+interface ClosureQuerySlots extends SlotMap {
+    readonly field: SingletonSlot<false>;
+    readonly rays: SingletonSlot<false>;
 }
 
 /**
@@ -1023,7 +1025,7 @@ interface ClosureQuerySlots {
  */
 class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
     readonly type = 'smokeClosureQuery';
-    readonly slots = {
+    readonly slots: ClosureQuerySlots = {
         field: slot.singleton(FluidField.schema),
         rays: slot.singleton(RayScene.schema),
     };

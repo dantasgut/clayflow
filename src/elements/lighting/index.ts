@@ -6,6 +6,7 @@ export {
     type GlobalIlluminationValues,
 } from './GlobalIllumination';
 export { ProbeFlow, type ProbeSlots } from './ProbeFlow';
+export * from './caustics/index';
 export { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
 export {
     Refraction,

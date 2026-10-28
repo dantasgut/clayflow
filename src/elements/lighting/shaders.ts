@@ -22,12 +22,8 @@ import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
-import giPhotonCommonSource from '../gpu/wgsl/gi/gi_photon_common.wgsl?raw';
-import giPhotonSource from '../gpu/wgsl/gi/gi_photon.wgsl?raw';
-import giPhotonTraceSource from '../gpu/wgsl/gi/gi_photon_trace.wgsl?raw';
-import giPhotonResolveSource from '../gpu/wgsl/gi/gi_photon_resolve.wgsl?raw';
-import { rayVolumeHitReady } from '../raytrace/points';
 import { closure, closureEval } from '../material/pbr/shaders';
+import { causticsCapable } from './caustics/shaders';
 import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
 import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
@@ -39,7 +35,6 @@ import {
     basis,
     color,
     constants,
-    hashAddress,
     random,
     sampling,
     temporal as temporalPieces,
@@ -145,23 +140,6 @@ export const giResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'giScreenHistory', lag: 1 },
     }),
-    // As instâncias capazes de cáustica e as áreas das projeções delas (privado do `ProbeFlow`; US5).
-    photonTargets: priv('gi_photon_targets', 'read_write', { wgsl: 'f32', array: true }),
-    // Cáusticas por fótons (US5): o hash em mundo — leitura no desenho, atômicos nos fótons e no acúmulo.
-    caustics: wgslResource({
-        name: 'gi_caustics',
-        binding: { storage: 'read' },
-        type: { wgsl: 'u32', array: true },
-        frequency: 'frame',
-        provider: { consumer: 'GlobalIllumination.caustics' },
-    }),
-    causticsWrite: wgslResource({
-        name: 'gi_caustics_atomic',
-        binding: { storage: 'read_write' },
-        type: { wgsl: 'atomic<u32>', array: true },
-        frequency: 'frame',
-        provider: { consumer: 'GlobalIllumination.caustics' },
-    }),
 });
 
 const R = giResources;
@@ -205,7 +183,7 @@ const giDirect = wgslModule({
 const giShade = wgslModule({
     name: 'gi_shade',
     source: giShadeSource,
-    requires: [giDirect, giGeneration, closure, closureEval],
+    requires: [giDirect, causticsCapable, giGeneration, closure, closureEval],
 });
 
 /** O slot do canal do histórico das sondas de tela no estágio das sondas (spec 037). */
@@ -361,48 +339,4 @@ export const giScreenSample = wgslModule({
     name: 'gi_screen_sample',
     source: giScreenSampleSource,
     requires: [viewSpace, R.params, giCommon, camerasResource, R.screenProbe, R.screenIrradiance],
-});
-
-/** Chave, balde e endereços do hash das cáusticas por fótons (US5). */
-const giPhotonCommon = wgslModule({
-    name: 'gi_photon_common',
-    source: giPhotonCommonSource,
-    requires: [R.params, hashAddress],
-});
-
-/** Irradiância das cáusticas num ponto (o desenho). */
-export const giPhoton = wgslModule({
-    name: 'gi_photon',
-    source: giPhotonSource,
-    requires: [R.params, giPhotonCommon, R.caustics],
-});
-
-/** Fótons das fontes pelos caminhos especulares até a primeira difusa (com a composição das funções `material`). */
-export const giPhotonTrace = wgslModule({
-    name: 'gi_photon_trace',
-    source: giPhotonTraceSource,
-    requires: [
-        random,
-        basis,
-        sampling,
-        WORKGROUP_SIZE.module,
-        NONE.module,
-        giCommon,
-        R.params,
-        giPhotonCommon,
-        R.causticsWrite,
-        R.photonTargets,
-        rayScene,
-        rayHit,
-        giDirect,
-        rayVolumeHitReady,
-        rayVolumeTransmittanceReady,
-    ],
-});
-
-/** Acúmulo das cáusticas no hash. */
-export const giPhotonResolve = wgslModule({
-    name: 'gi_photon_resolve',
-    source: giPhotonResolveSource,
-    requires: [WORKGROUP_SIZE.module, R.params, giPhotonCommon, R.causticsWrite],
 });

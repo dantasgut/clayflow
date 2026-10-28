@@ -8,6 +8,7 @@ import { HemisphereLightSchema } from './scene/HemisphereLightSchema';
 import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
+import { CausticsSchema } from './lighting/caustics/schemas';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
 import { Refraction } from './lighting/refraction/Refraction';
@@ -49,13 +50,16 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'sampler',
             'screenProbe',
             'screenIrradiance',
-            'caustics',
         ] as const
     ).map(
         (id) =>
             new SingletonResolver(GlobalIlluminationSchema, id, {
                 name: `GlobalIllumination.${id}`,
             }),
+    ),
+    // As cáusticas (spec 034, T067c): os parâmetros e o hash dos fótons.
+    ...(['params', 'hash'] as const).map(
+        (id) => new SingletonResolver(CausticsSchema, id, { name: `Caustics.${id}` }),
     ),
     // O campo dos fluidos (spec 033, R11): parâmetros, o buffer das consultas (limites, tabela, blocos, voxels) e a
     // contagem.
