@@ -93,6 +93,31 @@ fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
 }
 
 /**
+ * O brilho das luzes de disco (as direcionais com raio angular, `cones.z`: o sol) refletido por uma interface dielétrica
+ * (a água, o vidro) para quem vê de `v`, no ponto `p` de normal de face `nf` (rgb; no w, 1 quando a sombra vem de uma
+ * instância que se moveu): a luz direta pelo lobo refletido do fechamento `c` (a transmissão não entra: só a luz do
+ * lado de quem vê), com sombra, a rugosidade somada à do disco (as larguras em quadratura) — o reflexo de uma luz de
+ * tamanho real. A luz sem disco (uma direção, um ponto) não tem reflexo visível na superfície lisa, como na referência;
+ * o caminho refletido nunca acerta a luz: este é o único termo dela ali, sem contagem dupla.
+ */
+fn refraction_glint(c: Closure, p: vec3f, nf: vec3f, v: vec3f) -> vec4f {
+    let n = select(nf, -nf, dot(nf, v) < 0.0);
+    let count = min(min(refraction.light_count, arrayLength(&lights)), LIGHT_LIMIT);
+    let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
+    var sum = vec4f(0.0);
+    for (var i = 0u; i < count; i++) {
+        let light = lights[i];
+        let disc = light.cones.z;
+        if (light.kind != 0u || disc <= 0.0) { continue; }
+        var g = c;
+        g.specular_roughness = sqrt(sqrt(r * r * r * r + disc * disc));
+        let response = ray_light_response(g, i, p, n, v, true);
+        sum = vec4f(sum.xyz + response.xyz, max(sum.w, response.w));
+    }
+    return sum;
+}
+
+/**
  * Refletância da parede fina (`closure_thin_walled`) por canal: a placa de espessura zero no meio `outside`, com as
  * reflexões múltiplas entre as duas faces somadas, R + T²R/(1 − R²) = 2R/(1 + R), R o Fresnel da face (a referência).
  */

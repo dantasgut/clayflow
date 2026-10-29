@@ -22,7 +22,10 @@ export interface LightData {
     direction: number[];
     /** Cor RGBA linear. */
     color: number[];
-    /** Cones da spot em radianos (`[interno, externo, 0, 0]`); zeros nas outras. */
+    /**
+     * Cones da spot em radianos (`[interno, externo, 0, 0]`); na direcional, `[0, 0, raio angular do disco, 0]` (o sol:
+     * 0,00466 rad); zeros nas outras.
+     */
     cones: number[];
 }
 

@@ -243,3 +243,27 @@ da lente (18,1 ms) não vem dos blocos — a investigar por passe.
 - Tentativa descartada: a pilha da travessia com o conteúdo do nó (filhos e distância de entrada, 3 palavras) para não
   reler o nó ao desempilhar — traçado do tanque 11,2 → 13,0 ms e cáusticas 4,0 → 5,1 ms (a memória privada da pilha
   triplica; pesa mais que a leitura poupada).
+
+## 039 refeita — as correções da imagem reportadas pelo usuário (2026-10-29)
+
+- Meia resolução: o representante grava num registro por bloco 2×2 (`RefractionBlock`) e a reconstrução
+  (`refraction_chain_upsample_main`) preenche cada pixel pedido — o próprio quando foi o representante (com o carimbo:
+  quadro e distância do pedido); com a mesma superfície na volta corrente (a distância variou menos que a de um pixel
+  com o antisserrilhado temporal; nada, sem ele) fica o valor exato dele; senão a média dos representantes dos 3 × 3
+  blocos em volta com o peso da distância, só os da mesma superfície. O filtro temporal ganha o ponto
+  `temporal_filter_source_fresh`: a amostra reconstruída não entra no histórico válido. Com a câmera girando, os blocos
+  2×2 somem.
+- Dispersão: os três canais com o mesmo sorteio (as mesmas escolhas de lobo): as cores só onde as direções se separam.
+- O brilho das luzes de disco: `DirectionalLight.angularRadius` (padrão 0; o sol 0,00466 rad, em `cones.z`) e
+  `refraction_glint` em cada interface dielétrica (o lobo refletido com a rugosidade somada à do disco, com sombra). A
+  luz sem disco não brilha na superfície lisa, como na referência.
+- A película no chão interpolada entre as quatro células vizinhas no plano da superfície (sem os blocos de um voxel).
+- Smoke `refraction` contra o `HEAD` anterior: regiões ≤ 1,62 % (immersed 0,52, lit 0,30); degraus da borda lente
+  266 → 1, relief 104 → 2, ripple 207 → 1; vagalumes 0,379 → 0,647 % (o sorteio comum aos canais junta as cores num
+  pico; sem ele 0,477 % — a falha do critério é anterior: a roleta de Fresnel divide o peso por ~4 %); gi off/on
+  0,52/0,54 % (limite 0,5; antes 0,36/0,54). Smoke `fluidField`: `close` e `normal` já falhavam no `HEAD`; `edge`
+  passava no `HEAD` e falha agora (40 % de realces isolados numa captura crua, sem filtro temporal: a cópia do
+  representante para o bloco 2×2 inteiro agrupava os pixels claros de uma amostra; com cada pixel com a sua amostra eles
+  aparecem isolados) — pendente.
+- A espuma (a faixa escura e ruidosa onde a água encosta no vidro): a superfície do campo para a ~1 voxel do vidro e
+  sobra uma fresta de ar; o contato só é tratado no sentido da água para o vidro — pendente.

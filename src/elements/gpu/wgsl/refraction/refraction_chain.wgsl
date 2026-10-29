@@ -13,7 +13,7 @@
 // lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
 // refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
-// refraction_hit_out, refraction_albedo_out.
+// refraction_hit_out, refraction_albedo_out, refraction_blocks, refraction_stamps.
 
 /** Vagas por pixel. */
 const REFRACTION_CHAIN_SLOTS: u32 = 4u;
@@ -260,7 +260,9 @@ fn refraction_chain_disperse(p: RefractionChainState, s: u32, n: RefractionNode,
         c.radiance = vec3f(0.0);
         c.moving = vec3f(0.0);
         c.truncated = vec3f(0.0);
-        c.state = pcg_hash(p.state ^ (0x9e3779b9u * u32(k + 1)));
+        // O mesmo sorteio nos três canais: as mesmas escolhas de lobo (a fração refletida quase não muda com a cor) — a
+        // cor só aparece onde as direções se separam, não como ruído de escolhas independentes. Cada canal segue sem viés.
+        c.state = p.state;
         c.alive = select(0u, 1u, t.weight > 0.0);
         // O canal sem transmissão não ocupa a vaga dele (a vaga vazia não disputa o fim do pixel).
         if (k != 0 && c.alive == 0u) { continue; }
@@ -324,7 +326,8 @@ fn refraction_chain_settle(p0: RefractionChainState, s: u32, ends: bool) -> Refr
         c.radiance = vec3f(0.0);
         c.moving = vec3f(0.0);
         c.truncated = vec3f(0.0);
-        c.state = pcg_hash(p.state ^ (0x9e3779b9u * u32(c.channel + 1)));
+        // O mesmo sorteio do verde (as mesmas escolhas de lobo nos três canais).
+        c.state = p.state;
         c.alive = 1u;
         c.flags &= ~REFRACTION_CHAIN_CAMERA;
         let at = first + 2u + u32(k);
@@ -365,6 +368,12 @@ fn refraction_chain_follow_one(j: u32) {
     }
     p.interfaces = n.interfaces;
     p.steps += 1u;
+    if (!n.passes) {
+        // O brilho das luzes refletido pela interface (o realce do sol na água e no vidro), antes da escolha do lobo.
+        let glint = refraction_glint(ray_wave_entries[2u * j].closure, n.p, n.nf, -p.dir);
+        p.radiance += p.weight * glint.xyz;
+        if (glint.w > 0.0) { p.moving += p.weight * glint.xyz; }
+    }
     if (n.passes) {
         let camera = p.flags & REFRACTION_CHAIN_CAMERA;
         p = refraction_chain_continue(p, n, p.dir, refraction_after_node(p.stack, n), vec3f(1.0));
@@ -523,14 +532,116 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         let px = vec2u(pixel % size.x, pixel / size.x);
         let a = select(albedo_best, albedo / light, light > 0.0);
         let moved = clamp(luminance(moving) / max(luminance(radiance), 1e-6), 0.0, 1.0);
-        // O representante do bloco 2×2 (meia resolução): o resultado vai aos pixels pedidos do bloco na mesma superfície.
-        let corner = px & vec2u(~1u);
-        for (var k = 0u; k < 4u; k++) {
-            let q = corner + vec2u(k & 1u, k >> 1u);
-            if (any(q != px) && !refraction_block_shares(q, px, size)) { continue; }
-            textureStore(refraction_radiance_out, q, vec4f(radiance, truncated));
-            textureStore(refraction_hit_out, q, end);
-            textureStore(refraction_albedo_out, q, vec4f(a, moved));
+        // O representante do bloco 2×2 (meia resolução): o resultado vai ao registro do bloco; a reconstrução
+        // (`refraction_chain_upsample_main`) o leva aos pixels pedidos.
+        let request = textureLoad(refraction_request, px, 0);
+        refraction_blocks[refraction_blocks_index(px, size)] = RefractionBlock(vec4f(radiance, truncated), end,
+            vec4f(a, moved), vec4u(refraction.frame, px.x | (px.y << 16u), request.x, request.y));
+    }
+}
+
+// ---- A reconstrução da meia resolução ----
+
+/** Desvio (pixels) do peso espacial da reconstrução: os representantes ficam a 1–3 pixels. */
+const REFRACTION_UPSAMPLE_SIGMA: f32 = 1.2;
+
+/** O índice do bloco 2×2 do pixel `p` numa tela `size`. */
+fn refraction_blocks_index(p: vec2u, size: vec2u) -> u32 {
+    let blocks = (size + vec2u(1u)) / 2u;
+    let b = p / 2u;
+    return b.x + b.y * blocks.x;
+}
+
+/**
+ * A variação da distância do pedido em um pixel em volta de `q` (marcas `flags`, distância `d`): a maior diferença para
+ * os vizinhos pedidos da mesma superfície (as mesmas marcas).
+ */
+fn refraction_pixel_depth_step(q: vec2u, size: vec2u, flags: u32, d: f32) -> f32 {
+    var step = 0.0;
+    for (var k = 0u; k < 4u; k++) {
+        let o = array<vec2i, 4>(vec2i(1, 0), vec2i(-1, 0), vec2i(0, 1), vec2i(0, -1))[k];
+        let n = vec2i(q) + o;
+        if (any(n < vec2i(0)) || any(n >= vec2i(size))) { continue; }
+        let r = textureLoad(refraction_request, vec2u(n), 0);
+        if (r.y != flags) { continue; }
+        step = max(step, abs(bitcast<f32>(r.x) - d));
+    }
+    return step;
+}
+
+/** Quadros em que o valor exato de um pixel vale (a volta do representante pelo bloco). */
+const REFRACTION_STAMP_FRAMES: u32 = 4u;
+
+/**
+ * Cada pixel pedido pelos representantes traçados neste quadro nos blocos em volta (3 × 3 blocos): o próprio, quando foi
+ * o representante (o valor exato, com o carimbo: o quadro e a distância do pedido, `refraction_stamps`); senão, com a
+ * mesma superfície de quando foi traçado (a mesma distância do pedido, carimbo da volta corrente), o valor exato dele
+ * fica — a imagem parada é a de resolução cheia; senão (a superfície mudou: a câmera ou a água se moveram) a média com o
+ * peso da distância em pixels, só dos que mostram a mesma superfície do pedido (as marcas e a distância dele, como no
+ * bloco), com o fim (o guia) do mais próximo. Sem nenhum, o pixel fica com o valor anterior. O filtro temporal sabe
+ * quais são reconstruídos (`temporal_filter_source_fresh`): neles guarda o histórico válido.
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let size = textureDimensions(refraction_request);
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (i >= size.x * size.y) { return; }
+    let q = vec2u(i % size.x, i / size.x);
+    let own = textureLoad(refraction_request, q, 0);
+    if ((own.y & REFRACTION_REQUEST_VALID) == 0u) { return; }
+    let d = bitcast<f32>(own.x);
+    let stamp = refraction_stamps[i];
+    let blocks = vec2i((size + vec2u(1u)) / 2u);
+    let center = vec2i(q / 2u);
+    var sum = vec4f(0.0);
+    var albedo = vec4f(0.0);
+    var weight = 0.0;
+    var end = vec4f(0.0);
+    var nearest = 1e9;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let c = center + vec2i(dx, dy);
+            if (any(c < vec2i(0)) || any(c >= blocks)) { continue; }
+            let block = refraction_blocks[u32(c.x + c.y * blocks.x)];
+            let tag = block.tag;
+            if (tag.x != refraction.frame || tag.w != own.y) { continue; }
+            let dr = bitcast<f32>(tag.z);
+            if (abs(dr - d) > 0.02 * d + 1e-3) { continue; }
+            let r = vec2u(tag.y & 0xFFFFu, tag.y >> 16u);
+            let radiance = block.radiance;
+            let hit = block.end;
+            let alb = block.albedo;
+            if (all(r == q)) {
+                textureStore(refraction_radiance_out, q, radiance);
+                textureStore(refraction_hit_out, q, hit);
+                textureStore(refraction_albedo_out, q, alb);
+                refraction_stamps[i] = vec2u(refraction.frame + 1u, own.x);
+                return;
+            }
+            let dist2 = dot(vec2f(r) - vec2f(q), vec2f(r) - vec2f(q));
+            let w = exp(-dist2 / (2.0 * REFRACTION_UPSAMPLE_SIGMA * REFRACTION_UPSAMPLE_SIGMA));
+            sum += w * radiance;
+            albedo += w * alb;
+            weight += w;
+            if (dist2 < nearest) {
+                nearest = dist2;
+                end = hit;
+            }
         }
     }
+    // A mesma superfície de quando foi traçado (na volta corrente, a distância do pedido não mudou): o valor exato fica.
+    // Com o antisserrilhado temporal a amostra se desloca dentro do pixel a cada quadro: a tolerância é a variação da
+    // distância em um pixel (a câmera que se move anda vários por quadro); sem ele, qualquer mudança é movimento (a água
+    // que ondula muda a distância sem andar um pixel).
+    let ds = bitcast<f32>(stamp.y);
+    let jittered = any(cameras[refraction.camera_slot].jitter.zw != vec2f(0.0));
+    let tolerance = select(0.0, refraction_pixel_depth_step(q, size, own.y, d), jittered) + 1e-4 * d;
+    if (stamp.x != 0u && refraction.frame + 1u - stamp.x < REFRACTION_STAMP_FRAMES && abs(ds - d) <= tolerance) {
+        return;
+    }
+    if (weight <= 0.0) { return; }
+    refraction_stamps[i] = vec2u(0u);
+    textureStore(refraction_radiance_out, q, sum / weight);
+    textureStore(refraction_hit_out, q, end);
+    textureStore(refraction_albedo_out, q, albedo / weight);
 }

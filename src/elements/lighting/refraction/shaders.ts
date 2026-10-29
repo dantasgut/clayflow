@@ -39,7 +39,12 @@ import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
 import { rayWave } from '../../raytrace/wave/shaders';
 import { fieldResources } from '../../fields/shaders';
-import { RefractionMediumSchema, RefractionChainSchema, RefractionStackSchema } from './schemas';
+import {
+    RefractionBlockSchema,
+    RefractionMediumSchema,
+    RefractionChainSchema,
+    RefractionStackSchema,
+} from './schemas';
 import {
     rayVolumeBeginReady,
     rayVolumeHitReady,
@@ -142,6 +147,10 @@ export const refractionResources = Object.freeze({
     pathQueue: priv('refraction_path_queue', 'read_write', { wgsl: 'atomic<u32>', array: true }),
     /** Os argumentos do despacho indireto da rodada (grupos x, y, z). */
     pathArgs: priv('refraction_path_args', 'read_write', { wgsl: 'u32', array: true }),
+    /** O registro de cada bloco 2×2 traçado no quadro (o representante), para a reconstrução. */
+    blocks: priv('refraction_blocks', 'read_write', { schema: RefractionBlockSchema, array: true }),
+    /** Por pixel: o quadro (+ 1; 0 = nenhum) e a distância do pedido do último valor exato dele. */
+    stamps: priv('refraction_stamps', 'read_write', { wgsl: 'vec2u', array: true }),
 });
 
 const R = refractionResources;
@@ -270,6 +279,8 @@ export const refractionChain = wgslModule({
         R.albedoOut,
         R.paths,
         R.pathQueue,
+        R.blocks,
+        R.stamps,
     ],
 });
 
@@ -326,7 +337,14 @@ export const refractionHistory = wgslModule({
 export const refractionDenoiseSource = wgslModule({
     name: 'refraction_denoise_source',
     source: refractionDenoiseSourceSource,
-    requires: [REFRACTION_REQUEST_VALID.module, refractionHistory, R.request, R.radiance, R.hit],
+    requires: [
+        REFRACTION_REQUEST_VALID.module,
+        refractionHistory,
+        refractionBlock,
+        R.request,
+        R.radiance,
+        R.hit,
+    ],
 });
 
 /** O triângulo de tela cheia dos passes da refração (`refraction_screen_vs`). */

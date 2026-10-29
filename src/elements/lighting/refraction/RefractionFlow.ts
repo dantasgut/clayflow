@@ -34,7 +34,7 @@ import {
     refractionChain,
     refractionChainArgs,
 } from './shaders';
-import { RefractionChainSchema } from './schemas';
+import { RefractionBlockSchema, RefractionChainSchema } from './schemas';
 
 /** Slots do estágio da refração. */
 export interface RefractionSlots extends SlotMap {
@@ -91,7 +91,16 @@ const CHAIN_ARGS: PipelineDescriptor = {
 /** A refração com trabalho fixo por pixel (spec 039 refeita, D1): o quadro, o bloco, as vagas, a rodada e o fechamento. */
 const CHAIN_FIXED = [CAMERA_HITS, CAMERA, CHAIN_ARGS];
 /** Os kernels da cadeia (com o tamanho do bloco: `REFRACTION_CHAIN_PIXELS`). */
-const CHAIN_KERNELS = ['reset', 'chunk', 'roots', 'hit', 'follow', 'swap', 'resolve'] as const;
+const CHAIN_KERNELS = [
+    'reset',
+    'chunk',
+    'roots',
+    'hit',
+    'follow',
+    'swap',
+    'resolve',
+    'upsample',
+] as const;
 type ChainKernel = (typeof CHAIN_KERNELS)[number];
 
 /**
@@ -161,6 +170,10 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private pixels = 0;
     /** Blocos 2×2 do pedido: o teto da fila (um representante por bloco no quadro). */
     private blocks = 0;
+    /** O registro dos blocos 2×2 (o representante traçado no quadro), lido pela reconstrução. */
+    private blockRecords: StorageBufferSpec | undefined;
+    /** O carimbo de cada pixel (o último valor exato), lido pela reconstrução. */
+    private stamps: StorageBufferSpec | undefined;
     /** Há o que traçar neste quadro (estrutura de raios, câmera, ligada). */
     private tracing = false;
     /** Revisão das funções `material` dos kernels de material da onda. */
@@ -292,6 +305,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 bind(pass, kernel('resolve'));
                 pass.dispatch.invocations(grid, W);
             }
+            // A meia resolução: cada pixel pedido pelos representantes do quadro em volta.
+            bind(pass, kernel('upsample'));
+            pass.dispatch.invocations(this.pixels, W);
         });
         this.frame++;
     }
@@ -346,6 +362,10 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.countToArgs.destroy();
         this.wave.destroy();
         this.releasePaths();
+        if (this.blockRecords !== undefined) this.core.destroy(this.blockRecords);
+        if (this.stamps !== undefined) this.core.destroy(this.stamps);
+        this.blockRecords = undefined;
+        this.stamps = undefined;
         if (this.queueStaging !== undefined) this.core.destroy(this.queueStaging);
         this.queueStaging = undefined;
     }
@@ -423,6 +443,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         const texture = this.resources.textureOf(refraction, 'request')!;
         this.pixels = texture.width * texture.height;
         this.blocks = Math.ceil(texture.width / 2) * Math.ceil(texture.height / 2);
+        this.syncBlocks(c);
         const strata = this.resources.textureOf(refraction, 'gradient');
         // Em ladrilhos de 8 × 8 blocos (um grupo de 64 por ladrilho).
         this.strata = strata === undefined ? 0 : strata.width * strata.height;
@@ -503,6 +524,35 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         if (previous !== undefined)
             for (const k of CHAIN_KERNELS) c.release(this.chainId(previous, k));
         this.chainPending = true;
+    }
+
+    /**
+     * O registro dos blocos 2×2 da tela e o carimbo de cada pixel (o quadro e a distância do último valor exato: dois
+     * u32), refeitos quando a tela muda de tamanho.
+     */
+    private syncBlocks(c: Ctx): void {
+        const bytes = Math.max(1, this.blocks) * RefractionBlockSchema.stride;
+        if (this.blockRecords?.byteSize === bytes) return;
+        if (this.blockRecords !== undefined) this.core.destroy(this.blockRecords);
+        if (this.stamps !== undefined) this.core.destroy(this.stamps);
+        const storage = (name: string, byteSize: number): StorageBufferSpec =>
+            this.core.create<StorageBufferSpec>({
+                kind: 'buffer',
+                subkind: 'storage',
+                discriminator: `refraction_${name}:${this.pixels}`,
+                byteSize,
+            });
+        this.blockRecords = storage('blocks', bytes);
+        this.stamps = storage(
+            'stamps',
+            Math.max(1, this.pixels) * 2 * Uint32Array.BYTES_PER_ELEMENT,
+        );
+        c.bind(
+            new Map<WgslResource, BindingSource>([
+                [refractionResources.blocks, this.blockRecords],
+                [refractionResources.stamps, this.stamps],
+            ]),
+        );
     }
 
     /** Os kernels da cadeia do tamanho de bloco atual, depois que a onda está ligada (eles a leem). */

@@ -28,6 +28,18 @@ export const RefractionStackSchema = new StructSchema('RefractionStack', {
  * câmera; a dispersão adiada (o ponto e o lado da interface, as direções do vermelho e do azul e o peso dos canais ali);
  * e a pilha de meios.
  */
+/**
+ * O registro de um bloco 2×2 da meia resolução (spec 039 refeita): o resultado do representante traçado no quadro — a
+ * radiância e a energia truncada, o fim (o guia), o albedo e a marca de movimento — e (o quadro, o pixel em 16 + 16
+ * bits, a distância e as marcas do pedido nele), lidos pela reconstrução.
+ */
+export const RefractionBlockSchema = new StructSchema('RefractionBlock', {
+    radiance: FieldType.vec4f,
+    end: FieldType.vec4f,
+    albedo: FieldType.vec4f,
+    tag: FieldType.vec4u,
+});
+
 export const RefractionChainSchema = new StructSchema('RefractionChainState', {
     pixel: FieldType.u32,
     alive: FieldType.u32,
