@@ -5,6 +5,7 @@ import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import {
     rayVolumeBoundsPoint,
     rayVolumeBeginPoint,
+    rayVolumeLightPoint,
     rayVolumeOccupiedPoint,
     rayVolumeSurfacePoint,
     rayVolumeHitPoint,
@@ -15,6 +16,7 @@ import {
     fieldRayBounds,
     fieldRayHit,
     fieldRayBegin,
+    fieldRayLight,
     fieldRayOccupied,
     fieldRaySurface,
     fieldRayTransmittance,
@@ -225,6 +227,12 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldLightTransmission : undefined),
+        },
+        {
+            point: rayVolumeLightPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayLight : undefined),
         },
         {
             point: rayVolumeBeginPoint,

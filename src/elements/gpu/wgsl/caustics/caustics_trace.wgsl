@@ -230,7 +230,10 @@ fn caustics_photon_start(slot: u32, seed: u32, o: vec3f, d: vec3f, rgb: vec3f) {
  */
 fn caustics_straight(light: u32, o: vec3f, d: vec3f, light_rgb: vec3f) {
     let straight = ray_scene_hit(o, d, 1e6);
-    if (straight.instance != NONE && straight.face >= 0.0 && ray_volume_hit(o, d, straight.t, -1).hit) {
+    if (straight.instance == NONE || straight.face < 0.0) { return; }
+    // A reta cruzou um volume quando a luz pelos volumes até o receptor é menor que 1 (o Fresnel da entrada já a reduz):
+    // a pergunta da marcha, pelo ponto `ray_volume_light` (o mapa da luz, sem marcha, nas direcionais com mapa).
+    if (any(ray_volume_light(light, straight.position) < vec3f(1.0))) {
         caustics_deposit(straight.position, straight.normal, -light_rgb * light_transmission(light, straight.position), 1.0);
     }
 }

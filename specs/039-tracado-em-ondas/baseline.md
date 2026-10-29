@@ -168,3 +168,14 @@ de antes some), com poucos pontos coloridos ali (a investigar).
 Nota (usuário, 2026-10-29): a faixa escura logo abaixo da superfície vista rente à água pelo vidro (igual no motor
 anterior à 039) são os raios da reflexão interna total que escapam para o horizonte além do chão em xadrez (12 m) —
 o ambiente abaixo do horizonte; não é defeito do traçado.
+
+## 039 refeita — as lições aplicadas ao que é só nosso (2026-10-29)
+
+- Orçamento de passos da marcha por raio nos laços em passo de grade (ponto `ray_volume_begin`): correção de uma falha
+  latente (o tempo não mudou no tanque).
+- Cáusticas: a emissão 2,54 ms e as rodadas 2,22 ms. A correção da linha reta pergunta se a reta cruzou água pelo
+  ponto `ray_volume_light` (o mapa da luz) em vez de marchar: **cáusticas 4,8 → 4,0 ms** no tanque. Smokes:
+  `caustics case=water` 0°: −0,09/−0,13/−0,16 %, 30°: 0,36/0,33/0,30 % (iguais à linha de base); `engine` fluxo
+  1,0000×, sombra 1,000×, pico 83,0×, padrão 2,4 %; `shadow` borda −0,194 m, faixa 0,998. Custo dos fótons no caso
+  `engine` (1 M fótons): 49,6 ms com outra aba do tanque possivelmente renderizando — a medir com a GPU só para ele
+  (linha de base 25,2; 039 v1 38,8).

@@ -122,6 +122,18 @@ export const rayVolumeBeginReady = wgslModule({
 }`,
 });
 
+/**
+ * `fn ray_volume_light(light: u32, p: vec3f) -> vec3f` — a fração da luz `light` que atravessa os volumes (só eles, sem a
+ * atmosfera nem os meios) em linha reta até `p` (spec 039 refeita: as cáusticas sabem se a reta da luz cruzou água sem
+ * marchar); pronto: 1.
+ */
+export const rayVolumeLightReady = wgslModule({
+    name: 'ray_volume_light_ready',
+    source: `fn ray_volume_light(light: u32, p: vec3f) -> vec3f {
+    return vec3f(1.0);
+}`,
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -180,6 +192,23 @@ ${modules
     )
     .join('\n')}
     return array<vec3f, 2>(lo, hi);
+}`,
+            }),
+        ),
+};
+
+/** A luz pelos volumes: o produto dos contribuintes. */
+export const rayVolumeLightPoint: ContributionPoint = {
+    name: 'ray_volume_light',
+    ready: rayVolumeLightReady,
+    functionName: 'ray_volume_light',
+    combine: (modules) =>
+        memo(`rvl:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_light:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_volume_light(light: u32, p: vec3f) -> vec3f {
+    return ${modules.map((_, k) => `ray_volume_light_${k}(light, p)`).join(' * ')};
 }`,
             }),
         ),

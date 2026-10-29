@@ -479,8 +479,8 @@ export const fieldLightMap = wgslModule({
  * em linha reta, com o Fresnel e Beer–Lambert, numa marcha só (spec 034, T067c; as cáusticas corrigem para o caminho
  * refratado).
  */
-export const fieldLightTransmission = wgslModule({
-    name: 'field_light_transmission',
+const fieldLightThrough = wgslModule({
+    name: 'field_light_through',
     source: fieldLightTransmissionSource,
     requires: [
         fields,
@@ -493,4 +493,18 @@ export const fieldLightTransmission = wgslModule({
         lightsResource,
         R.lightMap,
     ],
+});
+
+/** Contribuição do campo ao ponto `light_transmission`: a luz pela água até o ponto. */
+export const fieldLightTransmission = wgslModule({
+    name: 'field_light_transmission',
+    source: 'fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
+    requires: [fieldLightThrough],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_light`: a mesma luz pela água (só a dos volumes). */
+export const fieldRayLight = wgslModule({
+    name: 'field_ray_light',
+    source: 'fn ray_volume_light(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
+    requires: [fieldLightThrough],
 });

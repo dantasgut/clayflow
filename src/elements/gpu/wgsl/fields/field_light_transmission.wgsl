@@ -1,4 +1,4 @@
-// Contribuição do campo dos fluidos ao ponto `light_transmission` (spec 034, T067c): a luz das fontes que atravessa a
+// A luz pela água do campo dos fluidos (spec 034, T067c; os pontos `light_transmission` e `ray_volume_light`): a luz das fontes que atravessa a
 // superfície da água até o ponto chega em linha reta — o Fresnel exato na primeira superfície no caminho da luz (o índice
 // do fechamento do corpo ali; acima do ângulo crítico, nada) e Beer–Lambert pelos trechos dentro da água (até 4), sem o
 // foco: a parcela que as cáusticas corrigem (os fótons guardam a diferença para o caminho refratado). Uma marcha só ao
@@ -44,7 +44,8 @@ fn field_light_mapped(k: u32, direction: vec3f, p: vec3f) -> vec3f {
     return mix(a, b, s.y);
 }
 
-fn light_transmission(light: u32, p: vec3f) -> vec3f {
+/** A transmitância da luz `light` pela água até o ponto `p` (o mapa, ou a marcha). */
+fn field_light_through(light: u32, p: vec3f) -> vec3f {
     if (light >= arrayLength(&lights)) { return vec3f(1.0); }
     let map = field_light_map_of(light);
     if (map != NONE) { return field_light_mapped(map, lights[light].direction.xyz, p); }

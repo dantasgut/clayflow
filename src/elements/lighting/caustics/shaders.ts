@@ -8,6 +8,7 @@ import { rayWave } from '../../raytrace/wave/shaders';
 import {
     rayVolumeBeginReady,
     rayVolumeBoundsReady,
+    rayVolumeLightReady,
     rayVolumeOccupiedReady,
     rayVolumeTransmittanceReady,
 } from '../../raytrace/points';
@@ -174,6 +175,7 @@ export const causticsTrace = wgslModule({
         rayVolumeTransmittanceReady,
         rayVolumeBoundsReady,
         rayVolumeBeginReady,
+        rayVolumeLightReady,
         rayVolumeOccupiedReady,
     ],
 });
