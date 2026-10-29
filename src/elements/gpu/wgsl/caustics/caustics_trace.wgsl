@@ -399,9 +399,7 @@ fn caustics_chunk_photon(j: u32) -> u32 {
  * Um rebote: o acerto de cada fóton do bloco (o da refração: a malha ou a superfície de um volume) na onda, com a carga
  * (o lado da face, se é volume); a vazão atenuada pelos volumes do trecho. O que escapa sai da fila.
  */
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn caustics_photon_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+fn caustics_photon_hit_one(j: u32) {
     let slot = caustics_chunk_photon(j);
     if (slot == NONE) { return; }
     let ph = caustics_photons[slot];
@@ -413,6 +411,13 @@ fn caustics_photon_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     caustics_photons[slot].throughput = ph.throughput * ray_volume_transmittance(ph.origin, ph.dir, hit.t, caustics.extra.y);
     refraction_wave_put(j, hit, caustics.extra.y,
         vec4f(hit.face, select(0.0, 1.0, refraction_is_volume(hit.instance)), 0.0, 1.0));
+}
+
+/** O acerto dos fótons do bloco — os grupos do despacho percorrem os do bloco em passo de grade. */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn caustics_photon_hit_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let n = caustics_args[3];
+    for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { caustics_photon_hit_one(j); }
 }
 
 /**
@@ -474,9 +479,7 @@ const CAUSTICS_STOPPED: u32 = 4u;
  * o mesmo estado do sorteio — o que a repetição desde a fonte daria, os três só se separam onde os índices diferem): o
  * canal 0 fica no fóton e os outros dois em extras alocados na fila.
  */
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn caustics_photon_follow_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+fn caustics_photon_follow_one(j: u32) {
     let slot = caustics_chunk_photon(j);
     if (slot == NONE) { return; }
     let e = ray_wave_entries[j];
@@ -518,4 +521,11 @@ fn caustics_photon_follow_main(@builtin(global_invocation_id) gid3: vec3u, @buil
     let moved = caustics_photon_step(ph, c, e.hit.position, e.hit.normal, outside, volume, ior, u);
     caustics_photons[slot] = moved;
     if (moved.channel != CAUSTICS_STOPPED) { caustics_queue_push(next, slot); }
+}
+
+/** A continuação dos fótons do bloco — os grupos do despacho percorrem os do bloco em passo de grade. */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn caustics_photon_follow_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let n = caustics_args[3];
+    for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { caustics_photon_follow_one(j); }
 }

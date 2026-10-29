@@ -129,7 +129,7 @@ const WAVE_ROUNDS = 1 + (STEP_LIMIT + 1) + 2 * STEP_LIMIT;
 const PATHS_PER_PIXEL = 4;
 /** Caminhos na fila no máximo (o orçamento de memória dela) e por bloco da onda (duas entradas por caminho). */
 const WAVE_PATHS = 1 << 19;
-const WAVE_CHUNK = 1 << 17;
+const WAVE_CHUNK = 1 << 19;
 
 /** Os buffers dos caminhos. */
 interface PathBuffers {
@@ -302,10 +302,10 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                     }
                     this.wave.reset(pass, bound);
                     bind(pass, at(WAVE_HIT));
-                    pass.dispatch.invocations(b.chunk, W);
+                    pass.dispatch.invocations(this.wave.gridInvocations(), W);
                     this.wave.shade(pass, bound);
                     bind(pass, at(WAVE_FOLLOW));
-                    pass.dispatch.invocations(b.chunk, W);
+                    pass.dispatch.invocations(this.wave.gridInvocations(), W);
                 }
                 bind(pass, at(WAVE_SWAP));
                 pass.dispatch.workgroups(1);

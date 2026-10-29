@@ -207,10 +207,10 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
                     }
                     this.wave.reset(pass, bound);
                     bind(pass, at(PHOTON_HIT));
-                    pass.dispatch.invocations(b.chunk, W);
+                    pass.dispatch.invocations(this.wave.gridInvocations(), W);
                     this.wave.shade(pass, bound);
                     bind(pass, at(PHOTON_FOLLOW));
-                    pass.dispatch.invocations(b.chunk, W);
+                    pass.dispatch.invocations(this.wave.gridInvocations(), W);
                 }
                 bind(pass, at(SWAP));
                 pass.dispatch.workgroups(1);

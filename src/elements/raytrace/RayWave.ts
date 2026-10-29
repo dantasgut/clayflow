@@ -22,6 +22,9 @@ interface WaveBuffers {
 
 type Compute = ReturnType<BoundFlow['compute']>;
 
+/** Grupos no máximo de um despacho em passo de grade (o bastante para ocupar a GPU; o vazio custa ~2 µs). */
+export const RAY_WAVE_GRID_GROUPS = 512;
+
 /**
  * A onda dos acertos de quem traça (spec 039, R1–R5): os registros, os fechamentos, as contagens, as faixas, a ordem e
  * os argumentos indiretos de `capacity` raios e `classes` classes (as funções `material` da estrutura de raios), e os
@@ -194,7 +197,6 @@ export class RayWave {
      * das constantes).
      */
     shade(pass: ComputePass, bound: BoundFlow): void {
-        const W = WORKGROUP_SIZE.value;
         const scan = bound.pipelines.get(this.scanId) as Compute;
         pass.bind.setPipeline(scan.spec);
         scan.bindTo(pass.bind);
@@ -202,7 +204,7 @@ export class RayWave {
         const scatter = bound.pipelines.get(this.scatterId) as Compute;
         pass.bind.setPipeline(scatter.spec);
         scatter.bindTo(pass.bind);
-        pass.dispatch.invocations(this.capacityValue, W);
+        pass.dispatch.invocations(this.gridInvocations(), WORKGROUP_SIZE.value);
         for (let k = 0; k < this.functions.length; k++) {
             const own = bound.pipelines.get(this.shadeId(k));
             const kernel =
@@ -212,8 +214,18 @@ export class RayWave {
             if (kernel?.role !== 'compute' || !kernel.ready) continue;
             pass.bind.setPipeline(kernel.spec);
             kernel.bindTo(pass.bind);
-            pass.dispatch.invocations(this.capacityValue, W);
+            pass.dispatch.invocations(this.gridInvocations(), WORKGROUP_SIZE.value);
         }
+    }
+
+    /**
+     * Invocações dos despachos em passo de grade (a separação, o material por classe e quem traça pela onda): as da
+     * capacidade, em no máximo `RAY_WAVE_GRID_GROUPS` grupos — os que bastam para ocupar a GPU; a rodada vazia custa só o
+     * despacho deles.
+     */
+    gridInvocations(): number {
+        const W = WORKGROUP_SIZE.value;
+        return W * Math.max(1, Math.min(Math.ceil(this.capacityValue / W), RAY_WAVE_GRID_GROUPS));
     }
 
     /** Libera os buffers. */

@@ -27,14 +27,16 @@ const fn = (body: string): RayMaterialFunction => {
 const count = (source: string, pattern: RegExp): number => source.match(pattern)?.length ?? 0;
 
 describe('onda dos acertos (spec 039)', () => {
-    it('o kernel de material de uma função: só ela, uma vez, sem laço; a classe por constante', () => {
+    it('o kernel de material de uma função: só ela, uma vez, num laço só (o passo de grade); a classe por constante', () => {
         const f = fn('closure_diffuse(m.albedo.rgb, 0.0)');
         const source = composeWgsl(hitShade(f)).spec.source;
         expect(count(source, /\bmaterial_fn_[0-9a-f]+\(s, m,/g)).toBe(1);
         expect(source).toContain(`fn ${HIT_SHADE_ENTRY}(`);
         expect(source).toContain(`override ${RAY_WAVE_CLASS}: u32`);
         const entry = source.slice(source.indexOf(`fn ${HIT_SHADE_ENTRY}(`));
-        expect(entry).not.toMatch(/\b(for|loop|while|switch)\b/);
+        expect(entry).not.toMatch(/\b(loop|while|switch)\b/);
+        expect(entry.match(/\bfor\b/g)).toHaveLength(1);
+        expect(entry).not.toMatch(/ray_scene_hit|refraction_scene_hit/);
         expect(entry).toContain('ray_wave_entries[i].closure = closure_sanitize(');
     });
 

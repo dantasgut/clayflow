@@ -85,3 +85,10 @@ rough 0,27 %, prism 0,30 %, underwater 0,09 %, pane 0,12 %, lit 0,45 %, fieldImm
 lens 0,07 % (0 degraus em 3407), dispersed 0,58 %, glint 0,69 % (vagalumes 0,037 %), relief 0,17 % (0 degraus), ripple
 0,17 % (0 degraus); gi ≤ 0,00 %. **Custo: 92,691 ms** na lente a 1280×720 (antes 32,577; limite 3): 104 rodadas × 4
 blocos de 2¹⁷ caminhos, com despachos do tamanho da capacidade — a otimizar.
+
+Com o passo de grade (512 grupos no máximo) e um bloco só quando a ligação de storage comporta: **refração 56,5 ms**
+na lente 720p (antes da spec: 32,6; limite 3). Medidas do que pesa: com 24 rodadas em vez de 104, 52,4 ms (as rodadas
+vazias custam ~4 ms); sem a ordenação das folhas, 55,5 ms (~1 ms). O peso é o trabalho das rodadas ativas: os caminhos-folha
+em paralelo (até 4 por pixel depois das duas primeiras interfaces, onde o original percorria os ramos em série nos
+registradores) e o estado de 768 B por caminho lido e regravado a cada rodada. Otimização pendente (não afrouxar o
+critério): estado menor (as pilhas), os ramos do segundo nível em série por caminho.

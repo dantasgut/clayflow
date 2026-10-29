@@ -23,7 +23,8 @@ export const HIT_SHADE_ENTRY = 'hit_shade_main';
 /**
  * O kernel de material nos acertos de uma classe: para cada registro da faixa da classe (`RAY_WAVE_CLASS`), o fechamento
  * de `evaluate` (uma expressão WGSL sobre `s: SurfaceSample`, `m: StandardMaterial` e `h: RayWaveHit`) gravado no índice
- * do registro. Sem laço.
+ * do registro — os grupos do despacho percorrem a faixa em passo de grade (o laço sobre os registros, limitado pela
+ * capacidade da onda; nenhum traçado).
  */
 function hitShadeKernel(
     name: string,
@@ -49,14 +50,15 @@ function hitShadeKernel(
             '',
             '@compute @workgroup_size(WORKGROUP_SIZE)',
             `fn ${HIT_SHADE_ENTRY}(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {`,
-            '    let k = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;',
             `    let range = ray_wave_ranges[${RAY_WAVE_CLASS}];`,
-            '    if (k >= range.y) { return; }',
-            '    let i = ray_wave_order[range.x + k];',
-            '    let h = ray_wave_entries[i].hit;',
-            '    let s = ray_wave_sample(h);',
-            '    let m = ray_wave_standard(h);',
-            `    ray_wave_entries[i].closure = closure_sanitize(${evaluate});`,
+            '    // Passo de grade: os grupos do despacho percorrem a faixa (até a capacidade da onda).',
+            '    for (var k = gid.x; k < range.y; k += nwg.x * WORKGROUP_SIZE) {',
+            '        let i = ray_wave_order[range.x + k];',
+            '        let h = ray_wave_entries[i].hit;',
+            '        let s = ray_wave_sample(h);',
+            '        let m = ray_wave_standard(h);',
+            `        ray_wave_entries[i].closure = closure_sanitize(${evaluate});`,
+            '    }',
             '}',
         ].join('\n'),
     });

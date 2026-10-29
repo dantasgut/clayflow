@@ -267,13 +267,13 @@ fn refraction_wave_chunk_args(list: u32, start: u32) {
  * O acerto seguinte de cada caminho do bloco (o da refração: a malha ou a superfície de um volume) e a dielétrica
  * coincidente na onda (as entradas 2j e 2j + 1), guardados no estado; o escape, sem entrada.
  */
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn refraction_wave_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+fn refraction_wave_hit_one(j: u32) {
     let slot = refraction_wave_chunk_path(j);
     if (slot == NONE) { return; }
-    let p = refraction_paths[slot];
-    let hit = refraction_scene_hit(p.origin, p.dir, REFRACTION_FAR, p.side);
+    // Só os campos do raio (o estado inteiro tem centenas de bytes).
+    let origin = refraction_paths[slot].origin;
+    let dir = refraction_paths[slot].dir;
+    let hit = refraction_scene_hit(origin, dir, REFRACTION_FAR, refraction_paths[slot].side);
     refraction_paths[slot].hit_t = hit.t;
     refraction_paths[slot].hit_instance = hit.instance;
     refraction_paths[slot].hit_face = hit.face;
@@ -288,7 +288,7 @@ fn refraction_wave_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
         return;
     }
     refraction_wave_put(2u * j, hit, refraction.time, vec4f(1.0));
-    let other = refraction_coincident(p.origin, p.dir, hit);
+    let other = refraction_coincident(origin, dir, hit);
     refraction_paths[slot].other_instance = other.instance;
     refraction_paths[slot].other_face = other.face;
     if (other.instance == NONE) {
@@ -298,10 +298,20 @@ fn refraction_wave_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     }
 }
 
+/** O acerto dos caminhos do bloco — os grupos do despacho percorrem os do bloco em passo de grade. */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn refraction_wave_hit_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let n = atomicLoad(&refraction_path_queue[6]);
+    for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { refraction_wave_hit_one(j); }
+}
+
 /** O nó do acerto do caminho `p` (bloco `j`) pelos fechamentos avaliados na onda. */
 fn refraction_wave_node(p: RefractionPathState, j: u32, state: ptr<function, u32>) -> RefractionNode {
+    // O fechamento da dielétrica coincidente só quando ela existe (a maioria dos acertos não tem).
+    var c2 = closure_zero();
+    if (p.other_instance != NONE) { c2 = ray_wave_entries[2u * j + 1u].closure; }
     return refraction_node_at(p.origin, p.dir, refraction_wave_hit_of(p), ray_wave_entries[2u * j].closure,
-        refraction_wave_other_of(p), ray_wave_entries[2u * j + 1u].closure, p.stack, p.channel, p.interfaces, state);
+        refraction_wave_other_of(p), c2, p.stack, p.channel, p.interfaces, state);
 }
 
 /**
@@ -619,9 +629,7 @@ fn refraction_wave_look(p0: RefractionPathState, slot: u32, ahead: RefractionNod
 }
 
 /** A continuação de uma rodada: o passo de cada caminho do bloco pelo estágio dele. */
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn refraction_wave_follow_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+fn refraction_wave_follow_one(j: u32) {
     let slot = refraction_wave_chunk_path(j);
     if (slot == NONE) { return; }
     let p = refraction_paths[slot];
@@ -639,6 +647,13 @@ fn refraction_wave_follow_main(@builtin(global_invocation_id) gid3: vec3u, @buil
     } else {
         refraction_wave_step(p, slot, n, next, &state);
     }
+}
+
+/** A continuação dos caminhos do bloco — os grupos do despacho percorrem os do bloco em passo de grade. */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn refraction_wave_follow_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let n = atomicLoad(&refraction_path_queue[6]);
+    for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { refraction_wave_follow_one(j); }
 }
 
 /** Depois da última rodada: o que resta vivo conta como truncado (o teto de passos). */
