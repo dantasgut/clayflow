@@ -164,3 +164,7 @@ bloco na mesma superfície (distância e face do pedido), os outros com o valor 
 temporal acumula. Tanque: 340 mil → 90 mil pixels traçados por quadro; **traçado 55,0 → 16,3 ms**; cáusticas 4,8 ms;
 física 4,6 ms. A imagem na mesma vista do motor anterior à 039: mais limpa na junção da água com o vidro (o pontilhado
 de antes some), com poucos pontos coloridos ali (a investigar).
+
+Nota (usuário, 2026-10-29): a faixa escura logo abaixo da superfície vista rente à água pelo vidro (igual no motor
+anterior à 039) são os raios da reflexão interna total que escapam para o horizonte além do chão em xadrez (12 m) —
+o ambiente abaixo do horizonte; não é defeito do traçado.
