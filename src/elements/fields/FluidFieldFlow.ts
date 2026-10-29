@@ -41,6 +41,7 @@ import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
+import { Light } from '../scene/Light';
 import { FluidField, fieldDataLayout, fieldFilmOffset, fieldMediaOffset } from './FluidField';
 import { GravityField } from '../physics/forcefields/GravityField';
 import { Collider } from '../physics/colliders/Collider';
@@ -54,6 +55,8 @@ import {
     FIELD_BRICK_VOXELS,
     FIELD_FILM_CELLS,
     FIELD_FILM_SURFACES,
+    FIELD_LIGHT_MAPS,
+    FIELD_LIGHT_RES,
     FIELD_MAX_BODIES,
     FIELD_PARTICLES_PER_BRICK,
     FieldGatherSchema,
@@ -62,6 +65,7 @@ import {
 import {
     fieldApron,
     fieldBodyClosures,
+    fieldLightMap,
     fieldFilmDeposit,
     fieldFilmStep,
     fieldDensity,
@@ -146,6 +150,14 @@ const BODY_CLOSURE: PipelineDescriptor = {
     role: 'compute',
     shader: fieldBodyClosures,
     entryPoints: ['field_body_closure_main'],
+};
+
+/** O mapa da luz pela água (spec 039 refeita): uma marcha por texel de cada luz direcional com mapa. */
+const LIGHT_MAP: PipelineDescriptor = {
+    id: 'field_light_map',
+    role: 'compute',
+    shader: fieldLightMap,
+    entryPoints: ['field_light_map_main'],
 };
 
 /** Corpo de água acompanhado: a aparência pela função `material` (o grafo). */
@@ -378,6 +390,21 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         );
         indirect('FluidFieldFlow.apron', [k.apron]);
         this.dispatchClosures(frame, bound);
+        this.dispatchLightMap(frame, bound);
+    }
+
+    /** O mapa da luz pela água (depois do meio dos corpos, que ele lê). */
+    private dispatchLightMap(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
+        const map = bound.pipelines.get(LIGHT_MAP.id);
+        if (map?.role !== 'compute' || !map.ready) return;
+        frame.compute('FluidFieldFlow.lightMap', (pass) => {
+            pass.bind.setPipeline(map.spec);
+            map.bindTo(pass.bind);
+            pass.dispatch.invocations(
+                FIELD_LIGHT_MAPS * FIELD_LIGHT_RES * FIELD_LIGHT_RES,
+                WORKGROUP_SIZE.value,
+            );
+        });
     }
 
     /**
@@ -424,6 +451,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         if (!this.closuresPrepared) {
             ctx.prepare(BODY_RECORD);
             ctx.prepare(BODY_CLOSURE);
+            this.resources.ensurePool(Light.schema);
+            ctx.prepare(LIGHT_MAP);
             this.closuresPrepared = true;
         }
     }
@@ -523,6 +552,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     0,
                 ],
                 media: [fieldMediaOffset(field.capacity), FIELD_MAX_BODIES, 0, 0],
+                lights: [0, FIELD_LIGHT_RES, FIELD_LIGHT_MAPS, 0],
                 contact: [
                     ...fieldContactShape(physics?.contactAngle ?? 90),
                     this.advancedTime(ctx),

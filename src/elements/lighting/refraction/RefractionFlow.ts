@@ -21,8 +21,6 @@ import { CountToArgs } from '../../gpu/compute/CountToArgs';
 import { RayScene } from '../../raytrace/RayScene';
 import { RayWave } from '../../raytrace/RayWave';
 import { RayWaveEntrySchema } from '../../raytrace/wave/shaders';
-import { RadixSort } from '../../gpu/compute/RadixSort';
-import { SetCountSchema } from '../../../scene/graph/SetCountSchema';
 import { Camera } from '../../scene/Camera';
 import { Light } from '../../scene/Light';
 import { Transform } from '../../scene/Transform';
@@ -32,9 +30,9 @@ import {
     refractionGradient,
     refractionQueue,
     refractionResources,
-    refractionWave,
+    refractionChain,
 } from './shaders';
-import { RefractionLeafSchema, RefractionPathSchema } from './schemas';
+import { RefractionChainSchema } from './schemas';
 
 /** Slots do estágio da refração. */
 export interface RefractionSlots extends SlotMap {
@@ -83,65 +81,29 @@ const CAMERA = compute('refraction_camera', refractionCamera, 'refraction_camera
 /** Entradas da onda da câmera: as instâncias distintas da reta e o volume (`REFRACTION_CAMERA_SEEN` + 1). */
 const CAMERA_WAVE = 33;
 
-/** A refração em ondas (spec 039, R17): a fila, as raízes, a rodada, as folhas e o fechamento por pixel. */
-const WAVE_RESET = compute('refraction_wave_reset', refractionWave, 'refraction_wave_reset_main');
-const WAVE_ROOTS = compute('refraction_wave_roots', refractionWave, 'refraction_wave_roots_main');
-const WAVE_SWAP = compute('refraction_wave_swap', refractionWave, 'refraction_wave_swap_main');
-const WAVE_HIT = compute('refraction_wave_hit', refractionWave, 'refraction_wave_hit_main');
-const WAVE_FOLLOW = compute(
-    'refraction_wave_follow',
-    refractionWave,
-    'refraction_wave_follow_main',
-);
-const WAVE_TRUNCATE = compute(
-    'refraction_wave_truncate',
-    refractionWave,
-    'refraction_wave_truncate_main',
-);
-const WAVE_KEYS = compute('refraction_wave_keys', refractionWave, 'refraction_wave_keys_main');
-const WAVE_RESOLVE = compute(
-    'refraction_wave_resolve',
-    refractionWave,
-    'refraction_wave_resolve_main',
-);
-const WAVE_FIXED = [
-    CAMERA_HITS,
-    CAMERA,
-    WAVE_RESET,
-    WAVE_ROOTS,
-    WAVE_SWAP,
-    WAVE_HIT,
-    WAVE_FOLLOW,
-    WAVE_TRUNCATE,
-    WAVE_KEYS,
-    WAVE_RESOLVE,
-];
+/** A refração com trabalho fixo por pixel (spec 039 refeita, D1): o quadro, o bloco, as vagas, a rodada e o fechamento. */
+const CHAIN_FIXED = [CAMERA_HITS, CAMERA];
+/** Os kernels da cadeia (com o tamanho do bloco: `REFRACTION_CHAIN_PIXELS`). */
+const CHAIN_KERNELS = ['reset', 'chunk', 'roots', 'hit', 'follow', 'swap', 'resolve'] as const;
+type ChainKernel = (typeof CHAIN_KERNELS)[number];
 
-/** Passos de um caminho no máximo (`REFRACTION_STEP_LIMIT` de `refraction_path.wgsl`). */
-const STEP_LIMIT = 34;
 /**
- * Rodadas da onda por quadro: o acerto da câmera, o caminho até a segunda interface (até o teto de passos e a interface)
- * e o caminho de um lobo (cada passo, e o lobo raro olhado antes dele numa rodada a mais) — o que resta vivo depois conta
- * como truncado, como o teto de passos do caminho.
+ * Rodadas por bloco: um acerto por vaga em cada uma — a câmera e as interfaces seguintes até o teto padrão de interfaces
+ * (`Refraction.max_interfaces`, 16); a vaga que ainda segue depois conta como truncada.
  */
-const WAVE_ROUNDS = 1 + (STEP_LIMIT + 1) + 2 * STEP_LIMIT;
-/** Caminhos por pixel do pedido na fila (os ramos das duas primeiras interfaces); além do teto do dispositivo, menos. */
-const PATHS_PER_PIXEL = 4;
-/** Caminhos na fila no máximo (o orçamento de memória dela) e por bloco da onda (duas entradas por caminho). */
-const WAVE_PATHS = 1 << 19;
-const WAVE_CHUNK = 1 << 19;
+const CHAIN_ROUNDS = 17;
+/** Palavras do cabeçalho da cadeia (`REFRACTION_CHAIN_HEADER`). */
+const CHAIN_HEADER = 8;
+/** Vagas por pixel (`REFRACTION_CHAIN_SLOTS`). */
+const CHAIN_SLOTS = 4;
+/** Pixels por bloco no máximo (a memória das vagas e da onda: duas entradas por vaga). */
+const CHAIN_PIXELS = 1 << 16;
 
-/** Os buffers dos caminhos. */
-interface PathBuffers {
-    readonly slots: number;
-    readonly chunk: number;
-    readonly bits: number;
+/** Os buffers de um bloco. */
+interface ChainBuffers {
+    readonly pixels: number;
     readonly paths: StorageBufferSpec;
     readonly queue: StorageBufferSpec;
-    readonly leaves: StorageBufferSpec;
-    readonly keys: StorageBufferSpec;
-    readonly values: StorageBufferSpec;
-    readonly count: IndirectBufferSpec;
 }
 
 /** O kernel da mudança da cena por bloco (só lê as marcas de movimento do traçado anterior). */
@@ -172,8 +134,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     /** A onda dos acertos (spec 039): os da reta da câmera e os dos caminhos. */
     private readonly wave: RayWave;
     private readonly core: EngineCore;
-    private sorter: RadixSort | undefined;
-    private paths: PathBuffers | undefined;
+    private paths: ChainBuffers | undefined;
+    /** Os kernels da cadeia a preparar (o bloco mudou). */
+    private chainPending = false;
     private prepared = false;
     /** Fontes ligadas (outras = religa). */
     private bound: readonly unknown[] = [];
@@ -255,13 +218,11 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             workgroupSize: WORKGROUP_SIZE.value,
         });
         const b = this.paths;
-        const sorter = this.sorter;
-        if (!this.tracing || b === undefined || sorter === undefined || !this.waveReady(bound))
-            return;
+        if (!this.tracing || b === undefined || !this.waveReady(bound)) return;
         type Compute = ReturnType<BoundFlow['compute']>;
         const at = (d: PipelineDescriptor): Compute => bound.pipelines.get(d.id) as Compute;
-        const round = bound.pipelines.get(this.roundId(b)) as Compute;
-        const chunk = bound.pipelines.get(this.chunkId(b)) as Compute;
+        const kernel = (k: ChainKernel): Compute =>
+            bound.pipelines.get(this.chainId(b, k)) as Compute;
         const W = WORKGROUP_SIZE.value;
         const bind = (pass: ComputePass, k: Compute): void => {
             pass.bind.setPipeline(k.spec);
@@ -270,7 +231,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         const gradient =
             this.gradient === undefined ? undefined : bound.pipelines.get(this.gradient);
         const measures = gradient?.role === 'compute' && gradient.ready;
-        const chunks = Math.ceil(b.slots / b.chunk);
+        const chunks = Math.ceil(this.pixels / b.pixels);
         frame.compute('RefractionFlow.trace', (pass) => {
             this.wave.reset(pass, bound);
             bind(pass, at(CAMERA_HITS));
@@ -284,48 +245,29 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 gradient.bindTo(pass.bind);
                 pass.dispatch.invocations(this.strata, W);
             }
-            // As raízes (um caminho por pixel da fila) e as rodadas da onda.
-            bind(pass, at(WAVE_RESET));
+            // Os blocos de pixels da fila: as vagas, as rodadas fixas (um acerto por vaga, o material por classe e a
+            // continuação) e o fechamento por pixel. O bloco além da fila do quadro só passa pelos laços vazios.
+            bind(pass, kernel('reset'));
             pass.dispatch.workgroups(1);
-            bind(pass, at(WAVE_ROOTS));
-            pass.dispatch.workgroupsIndirect(
-                count,
-                CountToArgs.dispatchOffset({ counts: count, index: 0 }),
-            );
-            for (let r = 0; r < WAVE_ROUNDS; r++) {
-                bind(pass, round);
+            const grid = this.wave.gridInvocations();
+            for (let k = 0; k < chunks; k++) {
+                bind(pass, kernel('chunk'));
                 pass.dispatch.workgroups(1);
-                for (let k = 0; k < chunks; k++) {
-                    if (k > 0) {
-                        bind(pass, chunk);
-                        pass.dispatch.workgroups(1);
-                    }
+                bind(pass, kernel('roots'));
+                pass.dispatch.invocations(grid, W);
+                for (let r = 0; r < CHAIN_ROUNDS; r++) {
                     this.wave.reset(pass, bound);
-                    bind(pass, at(WAVE_HIT));
-                    pass.dispatch.invocations(this.wave.gridInvocations(), W);
+                    bind(pass, kernel('hit'));
+                    pass.dispatch.invocations(grid, W);
                     this.wave.shade(pass, bound);
-                    bind(pass, at(WAVE_FOLLOW));
-                    pass.dispatch.invocations(this.wave.gridInvocations(), W);
+                    bind(pass, kernel('follow'));
+                    pass.dispatch.invocations(grid, W);
+                    bind(pass, kernel('swap'));
+                    pass.dispatch.workgroups(1);
                 }
-                bind(pass, at(WAVE_SWAP));
-                pass.dispatch.workgroups(1);
+                bind(pass, kernel('resolve'));
+                pass.dispatch.invocations(grid, W);
             }
-            bind(pass, at(WAVE_TRUNCATE));
-            pass.dispatch.invocations(b.slots, W);
-            bind(pass, at(WAVE_KEYS));
-            pass.dispatch.invocations(2 * b.slots, W);
-        });
-        // As folhas por pixel: a ordem pelas chaves (a contagem lida na GPU) e o fechamento.
-        this.countToArgs.record(frame, { counts: b.count, index: 0, workgroupSize: 256 });
-        sorter.record(frame, {
-            keys: b.keys,
-            values: b.values,
-            count: { counts: b.count, index: 0 },
-            bits: b.bits,
-        });
-        frame.compute('RefractionFlow.resolve', (pass) => {
-            bind(pass, at(WAVE_RESOLVE));
-            pass.dispatch.invocations(2 * b.slots, W);
         });
         this.frame++;
     }
@@ -346,20 +288,18 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private waveReady(bound: BoundFlow<RefractionSlots>): boolean {
         const b = this.paths;
         if (b === undefined || !this.wave.ready(bound)) return false;
-        return [...WAVE_FIXED.map((d) => d.id), this.roundId(b), this.chunkId(b)].every((id) => {
+        return [
+            ...CHAIN_FIXED.map((d) => d.id),
+            ...CHAIN_KERNELS.map((k) => this.chainId(b, k)),
+        ].every((id) => {
             const p = bound.pipelines.get(id);
             return p?.role === 'compute' && p.ready;
         });
     }
 
-    /** O começo de uma rodada para o tamanho de bloco de `b`. */
-    private roundId(b: PathBuffers): string {
-        return `refraction_wave_round:${b.chunk}`;
-    }
-
-    /** O bloco seguinte para o tamanho de bloco de `b`. */
-    private chunkId(b: PathBuffers): string {
-        return `refraction_wave_chunk:${b.chunk}`;
+    /** O kernel `k` da cadeia para o tamanho de bloco de `b`. */
+    private chainId(b: ChainBuffers, k: ChainKernel): string {
+        return `refraction_chain_${k}:${b.pixels}`;
     }
 
     /**
@@ -405,8 +345,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 c.prepare(QUEUE);
                 c.prepare(QUEUE_COUNT);
             }
-            // Duas gravações por quadro: a contagem da fila e a das folhas.
-            this.countToArgs.prepare(count, 2);
+            this.countToArgs.prepare(count, 1);
             this.bound = sources;
         }
         this.queueCount = count;
@@ -423,6 +362,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             this.resources.ensurePool(Light.schema);
             this.syncPaths(c);
             this.syncWave(c, rays);
+            this.prepareChain(c);
         }
         if (measures && this.gradient === undefined) {
             this.gradient = GRADIENT.id;
@@ -432,55 +372,39 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     }
 
     /**
-     * Os caminhos da onda para os pixels do pedido (refeitos quando crescem): a fila de `PATHS_PER_PIXEL` caminhos por
-     * pixel, no máximo `WAVE_PATHS` e o que uma ligação de storage comporta; o bloco da onda (duas entradas por caminho)
-     * no máximo `WAVE_CHUNK`; as folhas, as chaves e a ordenação delas.
+     * As vagas de um bloco de pixels da fila (`CHAIN_SLOTS` por pixel; refeitas quando o bloco cresce): no máximo
+     * `CHAIN_PIXELS` pixels, o que uma ligação de storage comporta das vagas e da onda (duas entradas por vaga); os
+     * kernels da cadeia com esse tamanho.
      */
     private syncPaths(c: Ctx): void {
         const limits = this.core.capabilities().limits;
         const binding =
-            limits.maxStorageBufferBindingSize ?? WAVE_CHUNK * RayWaveEntrySchema.stride;
-        const slots = Math.max(
+            limits.maxStorageBufferBindingSize
+            ?? CHAIN_PIXELS * CHAIN_SLOTS * 2 * RayWaveEntrySchema.stride;
+        const pixels = Math.max(
             1,
             Math.min(
-                this.pixels * PATHS_PER_PIXEL,
-                WAVE_PATHS,
-                Math.floor(binding / RefractionPathSchema.stride),
-                Math.floor(binding / (2 * RefractionLeafSchema.stride)),
+                this.pixels,
+                CHAIN_PIXELS,
+                Math.floor(binding / (CHAIN_SLOTS * RefractionChainSchema.stride)),
+                Math.floor(binding / (CHAIN_SLOTS * 2 * RayWaveEntrySchema.stride)),
             ),
         );
-        if (this.paths !== undefined && this.paths.slots >= slots) return;
+        if (this.paths !== undefined && this.paths.pixels >= pixels) return;
         const previous = this.paths;
         this.releasePaths();
-        const chunk = Math.max(
-            1,
-            Math.min(slots, WAVE_CHUNK, Math.floor(binding / (2 * RayWaveEntrySchema.stride))),
-        );
-        let bits = 4;
-        while (bits < 32 && 2 ** bits < this.pixels * 64) bits += 4;
         const storage = (name: string, byteSize: number): StorageBufferSpec =>
             this.core.create<StorageBufferSpec>({
                 kind: 'buffer',
                 subkind: 'storage',
-                discriminator: `refraction_${name}:${slots}`,
+                discriminator: `refraction_${name}:${pixels}`,
                 byteSize,
             });
-        const b: PathBuffers = {
-            slots,
-            chunk,
-            bits,
-            paths: storage('paths', slots * RefractionPathSchema.stride),
-            queue: storage('path_queue', (8 + 2 * slots) * 4),
-            // Uma folha por caminho que termina; a que parou na dispersão divide a vaga com os canais: até o dobro.
-            leaves: storage('leaves', 2 * slots * RefractionLeafSchema.stride),
-            keys: storage('leaf_keys', 2 * slots * 4),
-            values: storage('leaf_values', 2 * slots * 4),
-            count: this.core.create<IndirectBufferSpec>({
-                kind: 'buffer',
-                subkind: 'indirect',
-                discriminator: `refraction_leaf_count:${slots}`,
-                byteSize: SetCountSchema.stride,
-            }),
+        const b: ChainBuffers = {
+            pixels,
+            paths: storage('chain', pixels * CHAIN_SLOTS * RefractionChainSchema.stride),
+            // O cabeçalho e as duas listas das vagas vivas.
+            queue: storage('chain_header', (CHAIN_HEADER + 2 * CHAIN_SLOTS * pixels) * 4),
         };
         this.paths = b;
         const R = refractionResources;
@@ -488,42 +412,33 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             new Map<WgslResource, BindingSource>([
                 [R.paths, b.paths],
                 [R.pathQueue, b.queue],
-                [R.leaves, b.leaves],
-                [R.leafKeys, b.keys],
-                [R.leafValues, b.values],
-                [R.leafCount, b.count],
             ]),
         );
-        this.sorter = new RadixSort(this.core, {
-            discriminator: `refraction_leaves:${slots}`,
-            capacity: 2 * slots,
-            withValues: true,
-        });
-        this.sorter.prepare(b.keys, b.values, 1, b.count);
-        this.countToArgs.prepare(b.count, 2);
-        if (previous?.chunk !== chunk) {
-            if (previous !== undefined) {
-                c.release(this.roundId(previous));
-                c.release(this.chunkId(previous));
-            }
-            const constants = { REFRACTION_WAVE: chunk };
+        if (previous !== undefined)
+            for (const k of CHAIN_KERNELS) c.release(this.chainId(previous, k));
+        this.chainPending = true;
+    }
+
+    /** Os kernels da cadeia do tamanho de bloco atual, depois que a onda está ligada (eles a leem). */
+    private prepareChain(c: Ctx): void {
+        const b = this.paths;
+        if (!this.chainPending || b === undefined) return;
+        this.chainPending = false;
+        const constants = { REFRACTION_CHAIN_PIXELS: b.pixels };
+        for (const k of CHAIN_KERNELS) {
             c.prepare({
-                ...compute(this.roundId(b), refractionWave, 'refraction_wave_round_main'),
-                constants,
-            });
-            c.prepare({
-                ...compute(this.chunkId(b), refractionWave, 'refraction_wave_chunk_main'),
+                ...compute(this.chainId(b, k), refractionChain, `refraction_chain_${k}_main`),
                 constants,
             });
         }
     }
 
     /**
-     * A onda (a reta da câmera e um bloco de caminhos, duas entradas cada) e os kernels de material por classe da revisão
-     * das funções `material` da estrutura de raios; os kernels da onda da refração na primeira vez.
+     * A onda (a reta da câmera e as vagas de um bloco, duas entradas cada) e os kernels de material por classe da revisão
+     * das funções `material` da estrutura de raios; os kernels da câmera na primeira vez.
      */
     private syncWave(c: Ctx, scene: RayScene): void {
-        const capacity = Math.max(CAMERA_WAVE, 2 * (this.paths?.chunk ?? 1));
+        const capacity = Math.max(CAMERA_WAVE, 2 * CHAIN_SLOTS * (this.paths?.pixels ?? 1));
         if (this.wave.capacity >= capacity && scene.materialRevision === this.materialRevision)
             return;
         this.materialRevision = scene.materialRevision;
@@ -532,7 +447,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         for (const id of w.released) c.release(id);
         for (const p of w.pipelines) c.prepare(p);
         if (!this.prepared) {
-            for (const d of WAVE_FIXED) c.prepare(d);
+            for (const d of CHAIN_FIXED) c.prepare(d);
             this.prepared = true;
         }
     }
@@ -540,10 +455,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private releasePaths(): void {
         const b = this.paths;
         if (b === undefined) return;
-        for (const s of [b.paths, b.queue, b.leaves, b.keys, b.values, b.count])
-            this.core.destroy(s);
-        this.sorter?.destroy();
-        this.sorter = undefined;
+        for (const s of [b.paths, b.queue]) this.core.destroy(s);
         this.paths = undefined;
     }
 

@@ -31,6 +31,9 @@ import {
     FluidFieldSchema,
     FIELD_MAX_BODIES,
     FIELD_MEDIUM_WORDS,
+    FIELD_LIGHT_MAPS,
+    FIELD_LIGHT_RES,
+    FIELD_LIGHT_WORDS,
 } from './schemas';
 
 /** Capacidades do campo: blocos e baldes da tabela (potências de dois). */
@@ -122,6 +125,13 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 upload: 'never',
             },
             { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
+            {
+                id: 'lightMap',
+                role: 'storage-rw',
+                schema: FieldWordSchema,
+                count: FIELD_LIGHT_MAPS * FIELD_LIGHT_RES * FIELD_LIGHT_RES * FIELD_LIGHT_WORDS,
+                upload: 'never',
+            },
         ];
     }
 

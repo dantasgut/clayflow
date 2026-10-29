@@ -4,10 +4,50 @@
 // foco: a parcela que as cáusticas corrigem (os fótons guardam a diferença para o caminho refratado). Uma marcha só ao
 // longo do raio da luz — a que acha a primeira superfície é a do primeiro trecho de água (antes, o acerto e a
 // transmitância marchavam o mesmo trecho duas vezes; a luz direta de cada acerto da refração pagava as duas).
-// Requer: fields, ray_volume_types, ray_volume_material, field_surface, bsdf, light_incoming, lights.
+// As luzes direcionais com mapa (`field_light_map.wgsl`, até `fluid_field.lights.z`) leem a transmitância do mapa (as
+// duas primeiras camadas de água no raio da luz, interpolada entre os quatro texels vizinhos); as outras marcham.
+// Requer: fields, ray_volume_types, ray_volume_material, field_surface, field_light_frame, bsdf, light_incoming, lights,
+// field_light_map.
+
+/** A transmitância até o ponto à distância `t` (desde o plano da luz) pelo texel `texel` do mapa `k`. */
+fn field_light_texel(k: u32, texel: vec2i, t: f32) -> vec3f {
+    let res = i32(fluid_field.lights.y);
+    if (any(texel < vec2i(0)) || any(texel >= vec2i(res))) { return vec3f(1.0); }
+    let w = (k * u32(res * res) + u32(texel.y * res + texel.x)) * FIELD_LIGHT_WORDS;
+    let enter1 = field_light_map[w];
+    if (t <= enter1) { return vec3f(1.0); }
+    let exit1 = field_light_map[w + 1u];
+    let enter2 = field_light_map[w + 2u];
+    let exit2 = field_light_map[w + 3u];
+    var out = vec3f(field_light_map[w + 4u]);
+    out *= exp(-closure_absorption(field_medium(bitcast<u32>(field_light_map[w + 5u])))
+        * max(min(t, exit1) - enter1, 0.0));
+    if (t > enter2) {
+        out *= exp(-closure_absorption(field_medium(bitcast<u32>(field_light_map[w + 6u])))
+            * max(min(t, exit2) - enter2, 0.0));
+    }
+    return out;
+}
+
+/** A transmitância da luz direcional do mapa `k` (direção `direction`) até `p`, entre os quatro texels vizinhos. */
+fn field_light_mapped(k: u32, direction: vec3f, p: vec3f) -> vec3f {
+    let f = field_light_frame(direction);
+    if (f.size.x <= 0.0) { return vec3f(1.0); }
+    let rel = p - f.origin;
+    let res = f32(fluid_field.lights.y);
+    let x = vec2f(dot(rel, f.u) / f.size.x, dot(rel, f.v) / f.size.y) * res - 0.5;
+    let t = dot(rel, f.dir);
+    let base = vec2i(floor(x));
+    let s = x - floor(x);
+    let a = mix(field_light_texel(k, base, t), field_light_texel(k, base + vec2i(1, 0), t), s.x);
+    let b = mix(field_light_texel(k, base + vec2i(0, 1), t), field_light_texel(k, base + vec2i(1, 1), t), s.x);
+    return mix(a, b, s.y);
+}
 
 fn light_transmission(light: u32, p: vec3f) -> vec3f {
     if (light >= arrayLength(&lights)) { return vec3f(1.0); }
+    let map = field_light_map_of(light);
+    if (map != NONE) { return field_light_mapped(map, lights[light].direction.xyz, p); }
     let to = light_incoming(lights[light], p);
     let dir = to.l;
     let span = field_clip(p, dir, 0.0, min(to.dist, 1e6));

@@ -30,9 +30,11 @@ import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw
 import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?raw';
 import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
 import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
+import fieldLightMapSource from '../gpu/wgsl/fields/field_light_map.wgsl?raw';
+import fieldLightFrameSource from '../gpu/wgsl/fields/field_light_frame.wgsl?raw';
 import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
 import { rayWave } from '../raytrace/wave/shaders';
-import { lightIncoming } from '../scene/points/lightContributions';
+import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { lightsResource } from '../scene/resources';
 import { closure } from '../material/pbr/shaders';
 import {
@@ -92,6 +94,9 @@ export const fieldResources = Object.freeze({
     }),
     /** O mesmo buffer na escrita dos voxels com a borda. */
     dataVoxels: consumer('field_data_voxels', 'data', 'read_write', f32s),
+    /** O mapa da luz pela água (spec 039 refeita): o que `light_transmission` lê, e a escrita dele. */
+    lightMap: consumer('field_light_map', 'lightMap', 'read', f32s),
+    lightMapOut: consumer('field_light_map_out', 'lightMap', 'read_write', f32s),
     counts: consumer('field_counts', 'counts', 'read', { schema: SetCountSchema, array: true }),
     countsWrite: consumer('field_counts', 'counts', 'read_write', {
         wgsl: 'atomic<u32>',
@@ -418,6 +423,23 @@ export const fieldRayOccupied = wgslModule({
     requires: [fields],
 });
 
+/** O referencial de cada luz direcional sobre a caixa do campo e o mapa de cada luz (spec 039 refeita). */
+const fieldLightFrame = wgslModule({
+    name: 'field_light_frame',
+    source: fieldLightFrameSource,
+    requires: [NONE.module, LIGHT_LIMIT.module, fields, lightsResource],
+});
+
+/**
+ * O mapa da luz pela água (spec 039 refeita): por luz direcional, um texel por raio paralelo a ela sobre a caixa do
+ * campo, com as duas primeiras camadas de água, o Fresnel da entrada e os corpos — uma marcha por texel por quadro.
+ */
+export const fieldLightMap = wgslModule({
+    name: 'field_light_map_write',
+    source: fieldLightMapSource,
+    requires: [WORKGROUP_SIZE.module, fields, fieldLightFrame, fieldSurface, bsdf, R.lightMapOut],
+});
+
 /**
  * Contribuição do campo ao ponto `light_transmission`: a luz das fontes que atravessa a superfície da água até o ponto
  * em linha reta, com o Fresnel e Beer–Lambert, numa marcha só (spec 034, T067c; as cáusticas corrigem para o caminho
@@ -431,8 +453,10 @@ export const fieldLightTransmission = wgslModule({
         rayVolumeTypes,
         rayVolumeMaterial,
         fieldSurface,
+        fieldLightFrame,
         bsdf,
         lightIncoming,
         lightsResource,
+        R.lightMap,
     ],
 });

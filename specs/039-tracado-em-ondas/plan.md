@@ -1,178 +1,83 @@
-# Implementation Plan: Traçado em ondas — material fora dos laços de traçado
+# Implementation Plan: 039 refeita — água em tempo real com trabalho fixo por pixel
 
-**Branch**: `feature/039-tracado-em-ondas` (de `feature/038-motor-puro-web`, volta por merge) | **Date**: 2026-10-29 |
-**Spec**: [spec.md](spec.md)
-
-**Input**: Feature specification from `/specs/039-tracado-em-ondas/spec.md`; proposta aprovada em [proposta.md](proposta.md)
+**Branch**: `feature/039-tracado-em-ondas` | **Date**: 2026-10-29 | **Spec**: [spec.md](spec.md)
 
 ## Summary
 
-O material nos acertos dos raios sai dos kernels de traçado. Cada rodada de um consumidor (GI, cáusticas, refração)
-tem três estágios:
-
-1. **Avanço e traçado**, independente de material: grava os acertos numa onda compartilhada e conta por classe.
-2. **Separação na GPU** por classe de material.
-3. **Um kernel por material distinto**, gerado do mesmo módulo `composite` do raster: grava o fechamento empacotado de cada acerto.
-
-A continuação de cada efeito roda no avanço da rodada seguinte. O número de rodadas é o orçamento atual de cada efeito.
-
-A refração achata a árvore de ramos em folhas por pixel, reduzidas por ordenação. A pilha da câmera vira uma rodada,
-com os acertos enumerados. A compilação passa a ser assíncrona e declarada antes do quadro, e o `engineReady` existente passa a cobrir tudo o que a cena usa.
-O seletor composto (`composeHitMaterial`) é removido. Decisões em [research.md](research.md) (R1–R15).
+Refazer o caminho da luz dos transmissivos (água e vidro) com trabalho fixo por pixel, o primeiro acerto da água pela
+rasterização de uma malha extraída na GPU, e as otimizações do Particles4All que se aplicam ao motor (vizinhança por
+intervalos contíguos, malha compacta com desenho indireto, medição por passe). O material continua fora dos kernels de
+traçado, numa onda de tamanho fixo por estágio. A ordem segue o custo medido no tanque (`baseline.md`): refração
+92,5 ms → cáusticas 22,8 ms → primeiro acerto e campo → física.
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.9 estrito; WGSL
+- **Language/Version**: TypeScript 5 (strict), WGSL; WebGPU (Chrome/Dawn, Deno/wgpu).
+- **Testing**: vitest (composição de kernels e unidade); smokes de GPU no Chrome headless; a cena do tanque no app.
+- **Target**: M4 (piso) e RTX 4090; 1280×720 a 60 Hz no tanque (SC-001).
+- **Constraints**: regra dura da GPU (todo laço com teto); nada na CPU; adaptativo pelo adaptador; Resource + evento +
+  Flow; critérios e fixtures sem afrouxar.
 
-**Primary Dependencies**:
+## Decisões técnicas
 
-- WebGPU: Dawn no Chrome, wgpu/naga no Deno 2.7.9.
-- Ferramentas de compute do motor: `Compaction`, `PrefixSum`, `RadixSort` e `CountToArgs`.
+### D1 — A cadeia fixa por pixel (substitui a árvore de caminhos)
 
-**Storage**: N/A
+Cada pixel da fila de refração percorre estágios fixos; cada estágio é: o acerto de um raio por pixel (BVH + marcha do
+campo, sem material) → a onda (uma entrada por pixel: tamanho fixo = pixels pedidos) → o material por classe → a
+continuação. Estágios:
 
-**Testing**:
+1. **Câmera**: o acerto da câmera (para a água, a entrada vem do raster quando D3 estiver pronta).
+2. **Reflexão da 1ª interface**: um raio refletido, traçado até o primeiro opaco ou o ambiente (o acerto sombreado
+   como hoje: luz direta, cáusticas, indireta).
+3. **Transmissão**: até `REFRACTION_CHAIN` interfaces (8) em linha: em cada interface o lobo pela roleta de Fresnel
+   (sem viés; o filtro temporal já existe), a pilha de meios e a absorção analítica pelo comprimento; reflexão interna
+   total segue a reflexão. A borda que não muda o meio segue reto.
+4. **Dispersão**: na saída de um meio que dispersa, o caminho abre três canais (três raios finais fixos); antes dela, o
+   caminho é de um canal só.
+5. **Fim**: o opaco ou o ambiente.
 
-- Vitest: unidade e composição de WGSL.
-- Smokes do Chrome pelo runner (headless): `nodeGraphs`, `caustics`, `globalIllumination`, `refraction`, `fluidSurface` e `readiness`.
-- Smoke de compilação no Deno, sem submeter trabalho.
+Por pixel: no máximo 1 + 1 + 8 + 3 acertos, cada um um despacho de tela; o estado por pixel é pequeno (a origem, a
+direção, o peso, a pilha de meios, a radiância somada). Nenhuma fila, nenhuma vaga, nenhuma folha, nenhuma ordenação. O
+número de despachos por quadro é fixo.
 
-**Target Platform**: navegadores com WebGPU e Deno com WebGPU; Mac, Windows e Linux
+### D2 — A onda por estágio
 
-**Project Type**: biblioteca (motor)
+`RayWave` com capacidade = pixels da fila (cresce pelo pedido); um estágio usa a onda inteira. Os kernels de material por
+classe e o substituto das constantes como hoje.
 
-**Performance Goals**:
+### D3 — A malha da superfície e o raster
 
-- Os critérios de custo atuais. O da refração é ≤ 3 ms na lente a 1280×720, ligada menos desligada, no M4.
-- Os kernels de traçado não crescem com o número de materiais.
+`FluidSurfaceMesh` (Resource): tetraedros marchantes por voxel dos blocos ocupados do campo atual; vértice em 8 bytes
+(posição de 16 bits por eixo na caixa do campo, normal octaédrica de 8+8 bits); contagem atômica e argumentos do desenho
+indireto escritos na GPU; estouro sinalizado num contador lido de forma assíncrona → evento → a capacidade cresce.
+Desenhada no alvo da água (profundidade e normal) no lugar do pedido por marcha; a câmera dentro da água pelo verso.
 
-**Constraints**:
+### D4 — Cáusticas
 
-- Nenhum laço de GPU atravessa material, e todo laço tem orçamento total.
-- Kernel com compilação errada comprovada não vai à GPU.
-- Os tamanhos vêm dos limites do adaptador.
-- Nada por nome de ambiente.
-- Fixtures e critérios sem mudança.
+Medir por kernel; aplicar a mesma regra: nenhum fóton paga a marcha mais de uma vez por rebote; a transmitância pelo
+meio homogêneo é analítica pelo comprimento.
 
-**Scale/Scope**:
+### D5 — Física
 
-- 7 kernels de traçado migrados, 3 Flows consumidores e 1 Flow novo (`RayHitShadingFlow`).
-- Recursos novos: `RayWave` e `RayHitShading`. A prontidão reusa a `EngineReadiness`.
-- Cerca de 806 linhas de `refraction_path.wgsl` reorganizadas em avanço, continuação e folhas.
+A busca de vizinhos do PBF por 9 intervalos contíguos sobre as partículas reordenadas pela célula a cada subpasso.
+
+### D6 — Medição
+
+O profiling por passe que já existe (`setFrameProfiling`, `takeFrameTimings`) ligado pelo app; os tempos dos passes de
+compute por estágio no `baseline.md` a cada passo. No Apple, os passes de render se sobrepõem: o quadro inteiro pelo
+intervalo do primeiro início ao último fim.
 
 ## Constitution Check
 
-_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
-
-| Princípio                | Como o plano cumpre                                                                                                                                                                                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I. Camadas e importação  | A onda, o material nos acertos e os consumidores ficam na C3 (`elements/raytrace`, `elements/lighting`). O `PipelineState` e a prontidão existente (`EngineReadiness`) ficam na C2; o cache opcional, no contrato da C1 reexportado pela C2. Nenhum import novo da C1 em C3/C4. |
-| II. Vocabulário na borda | A API de autoria não muda: os mesmos grafos, `StandardMaterial` e opções de GI, cáusticas e refração. A onda é interna. `engineReady` e `whenReady()` já existem.                                                                                                               |
-| III. Resource            | `RayWave` e `RayHitShading` são `Resource` com descriptors; nenhum dado solto.                                                                                                                                                                                                  |
-| IV. ECS e Flows          | O Flow novo é `RayHitShadingFlow`. A ordem é declarada: material depois da `RayScene`; consumidores depois do material. As rodadas são passes do consumidor, na ordem atual dos Flows.                                                                                          |
-| V. Testes                | Unidade: empacotamento, separação, geração dos kernels, contagem de recursos e prontidão. Os smokes de GPU com os critérios atuais; o de compilação roda no Deno.                                                                                                               |
-| VI. Documentação         | JSDoc em todo export novo. O guia de materiais nos raios e o de carga de cena são atualizados.                                                                                                                                                                                  |
-| Backend substituível     | Sem mudança.                                                                                                                                                                                                                                                                    |
-
-Sem violações. Re-check depois do desenho: igual. A aleatoriedade por raio (R7) muda o padrão do ruído, não a
-distribuição; os critérios são estatísticos.
+- Resource + evento + Flow: a malha é Resource, o estouro é evento, cada estágio é Flow ou passe de um Flow.
+- Nada na CPU: a malha, a contagem e os argumentos na GPU.
+- Regra dura: os laços da cadeia têm teto (`REFRACTION_CHAIN`, os passos da marcha, o laço da BVH).
+- Sem afrouxar: os critérios atuais; a cena que o orçamento fixo não cobre vai ao usuário com a medida.
 
 ## Project Structure
 
-### Documentation (this feature)
-
-```text
-specs/039-tracado-em-ondas/
-├── proposta.md          # a proposta aprovada
-├── spec.md
-├── plan.md
-├── research.md          # R1–R15
-├── data-model.md        # RayWave, RayHitRecord/Surface, RayHitShading, estados de caminho, folhas, prontidão
-├── contracts/
-│   ├── ray-wave.md
-│   └── scene-readiness.md
-├── quickstart.md
-└── tasks.md             # /speckit-tasks
-```
-
-### Source Code (repository root)
-
-```text
-src/
-├── core/contracts/PlatformAdapter.ts            # pipelineCache? (R12)
-├── scene/
-│   ├── systems/flowBinding/PipelineState.ts     # assíncrono por padrão (R11)
-│   └── readiness/EngineReadiness.ts             # existente: engineReady cobre os pipelines declarados antes
-├── elements/
-│   ├── raytrace/
-│   │   ├── RayWave.ts, RayHitShading.ts         # Resources (novos)
-│   │   ├── RayHitShadingFlow.ts                 # kernels de material por classe (novo)
-│   │   ├── hitShade.ts                          # geração do hit_shade_<hash> (substitui hitMaterial.ts)
-│   │   └── shaders.ts                           # módulos da onda
-│   ├── gpu/wgsl/
-│   │   ├── math/closure.wgsl                    # closure_pack / closure_unpack
-│   │   ├── raytrace/ray_wave_*.wgsl             # registro, separação, espalhamento (novos)
-│   │   ├── raytrace/ray_hit.wgsl                # o registro do acerto (sem material)
-│   │   ├── gi/gi_*_trace.wgsl                   # traçado e continuação separados
-│   │   ├── caustics/caustics_trace.wgsl         # instâncias, fótons em rodadas
-│   │   └── refraction/refraction_*.wgsl         # câmera enumerada; caminho em avanço e continuação; folhas
-│   └── lighting/
-│       ├── ProbeFlow.ts                         # rodada da GI
-│       ├── caustics/CausticsFlow.ts             # rodadas dos fótons
-│       └── refraction/RefractionFlow.ts         # rodadas, folhas e fechamento por pixel
-├── __smokes__/
-│   ├── readiness.ts                             # engineReady e nenhum quadro compilando depois
-│   └── … (os existentes, sem mudar critério)
-bench/deno/compile.ts                            # smoke de compilação sem submeter (R14)
-```
-
-**Structure Decision**: biblioteca única. Os novos módulos seguem as pastas existentes: a onda e o material nos acertos em `elements/raytrace`, os consumidores em `elements/lighting`, a prontidão na C2.
-
-## Fases de implementação (ordem da proposta)
-
-1. **Medição (R13):**
-   - micro-benchmark do custo dos despachos indiretos (kernels sem laço) no Chrome;
-   - registro dos tempos atuais de GI, cáusticas e refração (a linha de base).
-2. **Fundação:**
-   - `closure_pack`/`unpack`;
-   - `RayWave` com a separação;
-   - `RayHitShading` e o `RayHitShadingFlow`, com a geração dos kernels;
-   - testes de composição e unidade.
-3. **Cáusticas por instância** na onda. É o primeiro consumidor e valida a fundação no smoke `caustics`.
-4. **GI:** sondas e tela, uma rodada. Smoke `globalIllumination`.
-5. **Cáusticas, fótons:** em rodadas. Smoke `caustics`.
-6. **Refração:**
-   - a câmera, com os acertos enumerados;
-   - os pixels: avanço e continuação, os ramos achatados em folhas, o lobo raro em par e o fechamento por pixel.
-   - Smoke `refraction`, incluindo o custo.
-7. **Remoção do seletor composto** e dos pontos de chamada antigos. Os testes são atualizados.
-8. **Fase de carga:**
-   - `PipelineState` assíncrono;
-   - declaração antecipada;
-   - `engineReady` cobrindo os pipelines declarados antes;
-   - o substituto das classes não prontas;
-   - `pipelineCache?`.
-   - Smoke `readiness`.
-9. **Deno:**
-   - o smoke de compilação;
-   - o MSL nativo fora do repositório;
-   - com aprovação, a execução do tanque e o vídeo.
-10. **Escala (US4):**
-    - cena de teste com 1, 3 e 16 grafos: os mesmos kernels de traçado, e o tempo de compilação medido;
-    - trocar um grafo recompila só o kernel dele.
-
-Cada fase termina com o gate (lint, tsc, testes) e os smokes afetados, uma execução de GPU por vez.
-
-## Riscos
-
-| Risco                                                                           | Mitigação                                                                                                                    |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Custo dos despachos (refração: cerca de 34 × (3 + M) por quadro) passar de 3 ms | Medir primeiro (fase 1). Reduções em R13. Nunca afrouxar o critério nem cortar o orçamento; se não fechar, levar ao usuário. |
-| Memória da onda (registro 64 B + superfície 136 B por raio vivo)                | Capacidade pelos limites do adaptador; processamento em blocos acima dela (R5).                                              |
-| Equivalência da refração com a árvore achatada                                  | Os mesmos critérios estatísticos contra a CPU. A diferença do fim e do albedo (máximo achatado) fica documentada.            |
-| Precisão f16 do fechamento                                                      | Teste de ida e volta. Se um critério cair por precisão, o fechamento volta a f32 (R2).                                       |
-| Compilador da Apple com os kernels novos                                        | O smoke de compilação e o MSL nativo antes de qualquer execução no Deno; kernel com compilação errada não vai à GPU.         |
-
-## Complexity Tracking
-
-Sem violações da constituição.
+- `src/elements/lighting/refraction/` — `RefractionFlow.ts` (a cadeia fixa), `refraction_chain.wgsl` (novo), o que
+  sai: `refraction_wave.wgsl`, a fila de caminhos, a ordenação das folhas.
+- `src/elements/fields/` — `FluidSurfaceMesh.ts`, `FluidSurfaceMeshFlow.ts`, `field_mesh.wgsl` (novos).
+- `src/presentation/flows/RefractionVolumeRequestFlow.ts` — pelo raster da malha.
+- `src/elements/physics/` — a busca de vizinhos.

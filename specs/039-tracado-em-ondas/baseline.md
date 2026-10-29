@@ -110,3 +110,32 @@ continuação da refração em ondas 3,53 s, a emissão dos fótons 0,95 s (ante
 `makeComputePipelineState`, sem despachar): `refraction_wave_follow_main` 2,77 s, `caustics_trace_main` 0,72 s,
 `caustics_photon_hit_main` 0,27 s, `hit_shade_main` 0,05 s — nenhuma queda. `globalIllumination` passa no Chrome
 (3,94 ms).
+
+## 039 refeita — o tanque por estágio, antes de mudar (2026-10-29)
+
+Motor anterior à 039 (`b32ccaee`, servido pelo app em 5173), a cena `agua` do app (36 864 partículas, 1280×720, câmera
+orbital), Chrome no M4, medição por passe (`setFrameProfiling(true, 1024, 'passes')`), média de 237 quadros. Outra
+aba com a mesma cena podia estar dividindo a GPU.
+
+- Quadro de GPU (do primeiro início ao último fim): **133,6 ms** — meta 16,7 ms.
+- Passes de compute (confiáveis): traçado da refração **92,5 ms**; cáusticas **22,8 ms**; física ~5 ms (busca de
+  vizinhos 4,3 ms); campo ~1,5 ms (redistanciamento 0,73 ms).
+- Passes de render: no Apple (ladrilhos) os intervalos se sobrepõem (o resolve temporal aparece com 123 ms) — não somam;
+  o pedido por volume (que marcha o campo por pixel) não dá para separar por esse caminho.
+
+## 039 refeita — a cadeia fixa e o mapa da luz (2026-10-29)
+
+Mesmo tanque e medição (passes de compute; a cadeia separada em passes só para medir, com 6 blocos de 65 536 pixels):
+
+| Etapa                               | Antes (árvore) | Cadeia fixa | + mapa da luz | + raízes leves |
+| ----------------------------------- | -------------- | ----------- | ------------- | -------------- |
+| Traçado da refração (total)         | 92,5           | 70,7        | —             | —              |
+| Continuação (nó + sombreamento)     | —              | 32,3        | 20,9          | 22,2           |
+| Acerto (BVH + marcha + coincidente) | —              | 20,9        | 20,8          | 20,8           |
+| Material por classe                 | —              | 7,9         | 7,8           | 7,8            |
+| Raízes                              | —              | 3,4         | 3,4           | 0,8            |
+| Cáusticas                           | 22,8           | 6,2         | 1,8           | 1,8            |
+
+Ablações: sem a dielétrica coincidente, o acerto −1,7 ms; sem a marcha do campo, o acerto 4,7 ms e a continuação
+7,7 ms — **a marcha no campo é o custo dominante** (D3: a superfície como malha). Os blocos além da fila do quadro
+ainda pagam os despachos vazios (15 blocos para a tela inteira).
