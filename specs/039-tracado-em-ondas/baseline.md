@@ -291,3 +291,14 @@ com uma amostra por canal. Smoke `refraction`: dispersed 1,25 → 2,27 %, glint 
 - Amostragem defensiva da roleta de Fresnel (o smoke documenta a causa: da terceira interface em diante a reflexão rara
   leva 1/F e vê o teto claro): probabilidade em [1/4, 3/4] → vagalumes 0,066 %, mas glint 10,56 % e ruído 6×; com piso
   de 1/10 → `edge` passa (3,4 %), vagalumes 0,380 %, mas glint 5,65 % (> 3 %).
+
+## 039 refeita — sem sorteio nas interfaces lisas: as medidas (2026-10-29, descartado até decisão do usuário)
+
+Smoke `refraction` (limite 3 % por região), contra o estado atual (roleta de Fresnel da segunda interface em diante):
+
+| variante                                                   | ruído glint | vagalumes | `edge` | custo lente | regiões fora do limite                                                                                                       |
+| ---------------------------------------------------------- | ----------- | --------- | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| roleta (atual)                                             | 0,096       | 0,548 %   | 40,6 % | 20,0 ms     | nenhuma                                                                                                                      |
+| lobo maior + menor na vaga livre (4 vagas, corta sem vaga) | 0,005       | 0,012 %   | 1,6 %  | 25,6 ms     | prism 9,5, dispersed 11,0, glint 7,6, immersed 5,9; truncada 0,72 %                                                          |
+| 6 vagas (lobos em 4–5), roleta sem vaga                    | 0,071       | 0,302 %   | 31,6 % | 33,6 ms     | prism 8,4 (contagem dupla quando a dispersão abre)                                                                           |
+| só o lobo maior (Whitted), sem vaga extra                  | 0,003       | 0,000 %   | 1,4 %  | 18,7 ms     | lit 28,5, prism 18,1, dispersed 18,2, glint 12,4, rough 10,2, sphere 9,0, relief 8,5, lens 8,4, immersed 7,6; truncada 6,4 % |
