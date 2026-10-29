@@ -1,5 +1,9 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
-import { wgslResource } from '../../../scene/shaders/WgslResource';
+import {
+    wgslResource,
+    type WgslResource,
+    type WgslResourceType,
+} from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import refractionQueueSource from '../../gpu/wgsl/refraction/refraction_queue.wgsl?raw';
 import refractionInterfaceSource from '../../gpu/wgsl/refraction/refraction_interface.wgsl?raw';
@@ -9,6 +13,7 @@ import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl
 import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
 import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
+import refractionWaveSource from '../../gpu/wgsl/refraction/refraction_wave.wgsl?raw';
 import refractionTraceSource from '../../gpu/wgsl/refraction/refraction_trace.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
 import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
@@ -31,6 +36,12 @@ import { temporalFilterResources } from '../temporal/shaders';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
 import { rayWave } from '../../raytrace/wave/shaders';
+import {
+    RefractionLeafSchema,
+    RefractionMediumSchema,
+    RefractionPathSchema,
+    RefractionStackSchema,
+} from './schemas';
 import {
     rayVolumeHitReady,
     rayVolumeMaterial,
@@ -91,6 +102,15 @@ const storageTexture = (name: string, format: GPUTextureFormat): ReturnType<type
         provider: 'private',
     });
 
+const priv = (name: string, access: 'read' | 'read_write', type: WgslResourceType): WgslResource =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type,
+        frequency: 'stage',
+        provider: 'private',
+    });
+
 /**
  * Recursos privados do estágio: o pedido por pixel, a fila (escrita na compactação, lida no traçado) e a contagem dela,
  * o estado do quadro (os meios da câmera e a contagem; escrito e lido), a radiância traçada, o ponto que o pixel mostra
@@ -118,6 +138,14 @@ export const refractionResources = Object.freeze({
     gradientOut: storageTexture('refraction_gradient_out', REFRACTION_GRADIENT_FORMAT),
     gradient: texture('refraction_gradient', 'f32'),
     requestDepth: texture('refraction_request_depth', 'depth'),
+    /** A refração em ondas (spec 039): os caminhos, a fila dos vivos, o tamanho do bloco e as folhas. */
+    paths: priv('refraction_paths', 'read_write', { schema: RefractionPathSchema, array: true }),
+    pathQueue: priv('refraction_path_queue', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    leaves: priv('refraction_leaves', 'read_write', { schema: RefractionLeafSchema, array: true }),
+    leafKeys: priv('refraction_leaf_keys', 'read_write', { wgsl: 'u32', array: true }),
+    leafValues: priv('refraction_leaf_values', 'read_write', { wgsl: 'u32', array: true }),
+    /** A contagem das folhas no registro `SetCount` da ordenação (a contagem lida na GPU pelo `RadixSort`). */
+    leafCount: priv('refraction_leaf_count', 'read_write', { wgsl: 'u32', array: true }),
 });
 
 const R = refractionResources;
@@ -149,6 +177,7 @@ export const refractionMedia = wgslModule({
     name: 'refraction_media',
     source: refractionMediaSource,
     requires: [NONE.module, closure, REFRACTION_MAX_MEDIA.module],
+    structs: [RefractionMediumSchema, RefractionStackSchema],
 });
 
 /**
@@ -226,6 +255,34 @@ export const refractionTrace = wgslModule({
         R.radianceOut,
         R.hitOut,
         R.albedoOut,
+    ],
+});
+
+/**
+ * A refração traçada em ondas (spec 039, R17): as raízes da fila de pixels, as rodadas (o acerto de cada caminho na onda
+ * e a continuação pelo fechamento avaliado fora), as folhas e o fechamento por pixel. Nenhuma função `material`.
+ */
+export const refractionWave = wgslModule({
+    name: 'refraction_wave',
+    source: refractionWaveSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        REFRACTION_FRAME_COUNT.module,
+        refractionParamsResource,
+        refractionPath,
+        rayWave,
+        R.queueIn,
+        R.frame,
+        R.radianceOut,
+        R.hitOut,
+        R.albedoOut,
+        R.paths,
+        R.pathQueue,
+        R.leaves,
+        R.leafKeys,
+        R.leafValues,
+        R.leafCount,
     ],
 });
 

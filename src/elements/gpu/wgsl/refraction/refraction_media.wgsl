@@ -6,20 +6,7 @@
 // por canal vem do número de Abbe (`closure_dispersion_iors`): o canal −1 (os três juntos) usa o da linha d (verde).
 // Requer: NONE, closure, REFRACTION_MAX_MEDIA.
 
-/** Um meio da pilha: a instância, a prioridade, o índice por canal e a absorção por canal. */
-struct RefractionMedium {
-    instance: u32,
-    priority: f32,
-    ior: vec3f,
-    sigma: vec3f,
-}
-
-/** Pilha de meios: em ordem de entrada; `overflow` 1 quando um meio além do teto não coube. */
-struct RefractionStack {
-    media: array<RefractionMedium, REFRACTION_MAX_MEDIA>,
-    count: u32,
-    overflow: u32,
-}
+// Os structs `RefractionMedium` e `RefractionStack` vêm dos schemas (`RefractionMediumSchema`, `RefractionStackSchema`).
 
 fn refraction_air() -> RefractionMedium {
     return RefractionMedium(NONE, -1e30, vec3f(1.0), vec3f(0.0));

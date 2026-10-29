@@ -77,3 +77,11 @@ Com os despachos diretos do tamanho da capacidade: `caustics case=engine&factor=
 custo dos fótons 38,77 ms/quadro — o peso está nos blocos (12 por rodada: a fila reserva 3 vagas por fóton para a
 dispersão, e o bloco é de 2¹⁸) e no tráfego da onda (464 B por fóton e rebote). Otimização pendente: a reserva da
 dispersão e o tamanho do bloco pela memória do dispositivo.
+
+## Depois da T020–T021 (os pixels da refração em ondas: caminhos-folha, folhas ordenadas por pixel)
+
+`refraction`: todas as cenas dentro dos critérios, com os números da linha de base — sphere 0,11 %, immersed 0,34 %,
+rough 0,27 %, prism 0,30 %, underwater 0,09 %, pane 0,12 %, lit 0,45 %, fieldImmersed 0,02 %, fieldUnder 0,04 %,
+lens 0,07 % (0 degraus em 3407), dispersed 0,58 %, glint 0,69 % (vagalumes 0,037 %), relief 0,17 % (0 degraus), ripple
+0,17 % (0 degraus); gi ≤ 0,00 %. **Custo: 92,691 ms** na lente a 1280×720 (antes 32,577; limite 3): 104 rodadas × 4
+blocos de 2¹⁷ caminhos, com despachos do tamanho da capacidade — a otimizar.

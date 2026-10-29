@@ -167,6 +167,30 @@ fn refraction_crossed(s: RefractionStack, x: RefractionCrossing) -> RefractionSt
  * menos de 1e-5·(1 + t)), cruzadas juntas, como a referência.
  */
 fn refraction_crossing(o: vec3f, d: vec3f, hit: RayHit, c: Closure, s: RefractionStack) -> RefractionCrossing {
+    let other = refraction_coincident(o, d, hit);
+    var c2 = closure_zero();
+    if (other.instance != NONE) { c2 = ray_hit_closure(other, refraction.time, 0.0); }
+    return refraction_crossing_at(d, hit, c, other, c2, s);
+}
+
+/**
+ * A dielétrica coincidente com o acerto `hit` do raio (o, d): outra instância a menos de 1e-5·(1 + t) — só o trecho
+ * [t − tol, t + tol] em volta do acerto: a hierarquia desce só pelos nós que contêm o ponto (o custo é a profundidade
+ * dela, não outra travessia inteira). A superfície de um volume não tem malha coincidente a procurar.
+ */
+fn refraction_coincident(o: vec3f, d: vec3f, hit: RayHit) -> RayHit {
+    if (refraction_is_volume(hit.instance)) { return ray_miss(); }
+    let tol = 1e-5 * (1.0 + hit.t);
+    let start = max(hit.t - tol, 0.0);
+    return ray_scene_hit_excluding(o + d * start, d, hit.t + tol - start, hit.instance);
+}
+
+/**
+ * A interface no acerto `hit` (fechamento `c`) do raio de direção `d`, com a dielétrica coincidente `other` (fechamento
+ * `c2`; `NONE` sem ela) cruzada junto, como a referência — os fechamentos já avaliados (spec 039: fora do traçado).
+ */
+fn refraction_crossing_at(d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: Closure, s: RefractionStack)
+    -> RefractionCrossing {
     var out: RefractionCrossing;
     out.p = hit.position;
     out.nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
@@ -174,22 +198,10 @@ fn refraction_crossing(o: vec3f, d: vec3f, hit: RayHit, c: Closure, s: Refractio
     out.first = refraction_cross_of(hit, c);
     out.count = 1u;
     var rough = c.transmission_roughness;
-    // Só o trecho [t − tol, t + tol] em volta do acerto: a hierarquia desce só pelos nós que contêm o ponto (o custo é a
-    // profundidade dela, não outra travessia inteira).
-    let tol = 1e-5 * (1.0 + hit.t);
-    let start = max(hit.t - tol, 0.0);
-    // A superfície de um volume não tem malha coincidente a procurar.
-    var other = ray_miss();
-    if (!refraction_is_volume(hit.instance)) {
-        other = ray_scene_hit_excluding(o + d * start, d, hit.t + tol - start, hit.instance);
-    }
-    if (other.instance != NONE) {
-        let c2 = ray_hit_closure(other, refraction.time, 0.0);
-        if (c2.transmission_weight > 0.0) {
-            out.second = refraction_cross_of(other, c2);
-            out.count = 2u;
-            rough = max(rough, c2.transmission_roughness);
-        }
+    if (other.instance != NONE && c2.transmission_weight > 0.0) {
+        out.second = refraction_cross_of(other, c2);
+        out.count = 2u;
+        rough = max(rough, c2.transmission_roughness);
     }
     out.before = refraction_current(s);
     out.next = refraction_current(refraction_crossed(s, out));
@@ -352,6 +364,31 @@ fn refraction_side_after(n: RefractionNode, dir: vec3f) -> i32 {
  */
 fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, interfaces: u32, side: i32,
     state: ptr<function, u32>) -> RefractionNode {
+    let hit = refraction_scene_hit(o, d, REFRACTION_FAR, side);
+    var c = closure_zero();
+    var other = ray_miss();
+    var c2 = closure_zero();
+    if (hit.instance != NONE) {
+        c = refraction_hit_closure(hit, refraction.time);
+        if (refraction_takes_interface_maybe(c)) {
+            other = refraction_coincident(o, d, hit);
+            if (other.instance != NONE) { c2 = ray_hit_closure(other, refraction.time, 0.0); }
+        }
+    }
+    return refraction_node_at(o, d, hit, c, other, c2, stack, channel, interfaces, state);
+}
+
+/** O fechamento pode ser interface (a transmissão positiva): só então a dielétrica coincidente importa. */
+fn refraction_takes_interface_maybe(c: Closure) -> bool {
+    return c.transmission_weight > 0.0;
+}
+
+/**
+ * O nó do acerto `hit` do raio (o, d) com o fechamento `c` dele e o da dielétrica coincidente `c2` (`other`; `NONE` sem
+ * ela) já avaliados — o que `refraction_advance` faz depois do traçado (spec 039: os fechamentos vêm da onda).
+ */
+fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: Closure, stack: RefractionStack,
+    channel: i32, interfaces: u32, state: ptr<function, u32>) -> RefractionNode {
     var n: RefractionNode;
     n.done = true;
     n.disperse = false;
@@ -364,7 +401,6 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
     n.channel = channel;
     n.interfaces = interfaces;
     n.count = 0u;
-    let hit = refraction_scene_hit(o, d, REFRACTION_FAR, side);
     n.vol = refraction_is_volume(hit.instance);
     n.vol_n = hit.normal;
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
@@ -373,7 +409,6 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
         n.end = refraction_end(o + d * REFRACTION_FAR, NONE);
         return n;
     }
-    let c = refraction_hit_closure(hit, refraction.time);
     n.end = refraction_end(hit.position, hit.renderable);
     n.moved = refraction_hit_moved(hit);
     if (!refraction_takes_interface(c, state)) {
@@ -403,7 +438,7 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
         n.transmit_weight = thin.transmit_weight;
         return n;
     }
-    let x = refraction_crossing(o, d, hit, c, stack);
+    let x = refraction_crossing_at(d, hit, c, other, c2, stack);
     n.p = x.p;
     n.nf = x.nf;
     n.first = x.first;
