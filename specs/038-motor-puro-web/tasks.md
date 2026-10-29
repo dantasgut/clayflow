@@ -14,8 +14,8 @@ novos, smokes de imagem iguais, testes no Deno.
 **Organization**: por história. A fundação (contratos, ponto de entrada web, pacote) bloqueia todas; o app (US2) vem
 antes da limpeza do motor (US1), porque as cenas precisam chegar ao app antes de sair do motor.
 
-Caminhos: `clayflow/` é o motor (este repositório); `clayflow-web/` é o app (`geom-diff-calc/clayflow-web`, hoje
-`claflow-web`).
+Caminhos: `clayflow/` é o motor (este repositório); `claflow-web/` é o app (`geom-diff-calc/claflow-web`, sem
+renomear).
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -30,7 +30,7 @@ Caminhos: `clayflow/` é o motor (este repositório); `clayflow-web/` é o app (
 
 - [x] T001 Anotar a referência de regressão em `specs/038-motor-puro-web/baseline.md`: contagem dos testes (`npm test`), `tsc`, lint, e para cada smoke a situação e os números no início (rodar todos com `--headless`, timeout generoso; os que já falhavam anotados como falhando, com as mesmas mensagens)
 - [x] T002 Gravar pelo motor, duas vezes, os 60 primeiros quadros de cada cena de `src/__smokes__/videoScenes.ts` em FFV1 sem perda (`npm run video -- <cena> --frames 60 --lossless`), guardar os vídeos fora do repositório e, em `specs/038-motor-puro-web/baseline/`, o `framemd5` e o PSNR por quadro entre as duas gravações (a variação da linha de base, R9); `ondulacao`, `nevoa` e `natureza` não montam hoje (limite da GI e a névoa com as cáusticas, da 034) e ficam sem linha de base
-- [x] T003 [P] Registrar no `clayflow-web` (`claflow-web`) o estado de partida: `git status`, branch `master` limpa, criar a branch `feature/038-motor-puro-web` nele
+- [x] T003 [P] Registrar no `claflow-web` o estado de partida: `git status`, branch `master` limpa, criar a branch `feature/038-motor-puro-web` nele
 
 ---
 
@@ -70,16 +70,16 @@ Caminhos: `clayflow/` é o motor (este repositório); `clayflow-web/` é o app (
 
 **Independent Test**: no app, cada cena migrada abre e grava os mesmos 60 quadros da linha de base (T002)
 
-- [ ] T020 [US2] Renomear a pasta `geom-diff-calc/claflow-web` → `geom-diff-calc/clayflow-web` e o pacote para `clayflow-web` (`package.json`); o repositório no GitHub (`dantasgut/claflow-web`) só com confirmação do usuário
-- [ ] T021 [US2] Tirar as cenas antigas e o componente delas (`src/components/WebGPUCanvas.tsx`, o conteúdo de demonstração de `App.tsx`, os assets do modelo do Vite) em `clayflow-web/src/`
-- [ ] T022 [US2] Dependência do motor: `clayflow` por `file:../clayflow` em `clayflow-web/package.json`; `vite.config.ts` com o alias de `clayflow` e `clayflow/web` às fontes do motor (HMR) e o `?raw` dos shaders; `tsconfig` com os caminhos
-- [ ] T023 [P] [US2] O apoio de cena das cenas de vídeo no app, pela API pública: `clayflow-web/src/scenes/support/` com as partes de `giScenes`, `materialScenes`, `causticScenes`, `waterScene`, `surfaceScenes` que as cenas usam (sem importar o apoio dos smokes do motor)
-- [ ] T024 [US2] As cenas em `clayflow-web/src/scenes/` (uma por arquivo: lente, dispersão, ondulação, agua, molhar, causticasvidro, causticas, natureza, cornell, dia, névoa, sprites, pano e as de pendência) e o catálogo `clayflow-web/src/scenes/index.ts`
-- [ ] T025 [US2] A página da cena no app: `App.tsx` com o catálogo e `?scene=<nome>` (o canvas pelo `clayflow/web`, a câmera orbital, pausa), e a página do gravador `clayflow-web/src/recorder/page.ts` (a leitura direta da GPU e a entrega dos quadros de hoje)
-- [ ] T026 [US2] O gravador pelo Chrome movido para `clayflow-web/runner/video.ts` (com `browser.ts`/`server.ts` do que ele usa), script `npm run video` com as mesmas opções (`--frames`, `--lossless`, `--10bit`, `--size`, `--timeout`, `--aa`)
+- [x] T020 [US2] Sem renomeação (decisão do usuário de 2026-10-28: nada é renomeado — a pasta, o pacote e o repositório continuam `claflow-web`)
+- [ ] T021 [US2] Tirar as cenas antigas e o componente delas (`src/components/WebGPUCanvas.tsx`, o conteúdo de demonstração de `App.tsx`, os assets do modelo do Vite) em `claflow-web/src/`
+- [ ] T022 [US2] Dependência do motor: `clayflow` por `file:../clayflow` em `claflow-web/package.json`; `vite.config.ts` com o alias de `clayflow` e `clayflow/web` às fontes do motor (HMR) e o `?raw` dos shaders; `tsconfig` com os caminhos
+- [ ] T023 [P] [US2] O apoio de cena das cenas de vídeo no app, pela API pública: `claflow-web/src/scenes/support/` com as partes de `giScenes`, `materialScenes`, `causticScenes`, `waterScene`, `surfaceScenes` que as cenas usam (sem importar o apoio dos smokes do motor)
+- [ ] T024 [US2] As cenas em `claflow-web/src/scenes/` (uma por arquivo: lente, dispersão, ondulação, agua, molhar, causticasvidro, causticas, natureza, cornell, dia, névoa, sprites, pano e as de pendência) e o catálogo `claflow-web/src/scenes/index.ts`
+- [ ] T025 [US2] A página da cena no app: `App.tsx` com o catálogo e `?scene=<nome>` (o canvas pelo `clayflow/web`, a câmera orbital, pausa), e a página do gravador `claflow-web/src/recorder/page.ts` (a leitura direta da GPU e a entrega dos quadros de hoje)
+- [ ] T026 [US2] O gravador pelo Chrome movido para `claflow-web/runner/video.ts` (com `browser.ts`/`server.ts` do que ele usa), script `npm run video` com as mesmas opções (`--frames`, `--lossless`, `--10bit`, `--size`, `--timeout`, `--aa`)
 - [ ] T027 [US2] A página `agua` interativa do bench (`bench/agua.html`, `bench/page/agua.ts`, hoje fora do commit) como a cena interativa `agua` do app, com os controles dela (girar, aproximar, pausar, recomeçar, `?res`, `?look`, `?s`)
-- [ ] T028 [US2] Conferir a migração: gravar os 60 quadros de cada cena pelo app (`--lossless`) e, por quadro, o PSNR app × linha de base não abaixo do PSNR linha de base × segunda gravação (SC-003, R9) — quadro abaixo é investigado até a causa, sem regravar a linha de base
-- [ ] T029 [US2] `clayflow-web/README.md`: o que é o app, como rodar, as cenas, os dois gravadores
+- [x] T028 [US2] Sem comparação de quadros (decisão do usuário de 2026-10-28: "o código das cenas é o mesmo" — a conferência é pelos vídeos gravados pelo app). Antes: conferir a migração: gravar os 60 quadros de cada cena pelo app (`--lossless`) e, por quadro, o PSNR app × linha de base não abaixo do PSNR linha de base × segunda gravação (SC-003, R9) — quadro abaixo é investigado até a causa, sem regravar a linha de base
+- [ ] T029 [US2] `claflow-web/README.md`: o que é o app, como rodar, as cenas, os dois gravadores
 
 **Checkpoint**: o app tem todas as cenas e grava os mesmos quadros.
 
@@ -122,18 +122,18 @@ Caminhos: `clayflow/` é o motor (este repositório); `clayflow-web/` é o app (
 
 ### Testes primeiro
 
-- [ ] T037 [P] [US4] Teste no Deno `bench/deno/limits.test.ts`: o ponto de entrada Deno pede ao dispositivo os limites portáteis nas ligações (o teto do navegador) e o máximo do adaptador nos de escala (R5, FR-009)
-- [ ] T038 [P] [US4] Smoke do naga `bench/deno/naga.ts` (R4): com o `dist/`, as cenas mínimas dos smokes que não usam o DOM, em `TextureSurface`, com `pushErrorScope('validation')` em volta da criação dos pipelines e os `engineError`; relatório por pipeline (compila / erro e mensagem) em `specs/038-motor-puro-web/naga.md`
+- [ ] T037 [P] [US4] Teste no Deno `bench/deno/limits.test.ts`: o ponto de entrada Deno pede ao dispositivo o máximo do adaptador nos limites de ligação e nos de escala, sem o teto do navegador (R5, FR-009)
+- [ ] T038 [P] [US4] Smoke do naga `bench/deno/naga.ts` (R4): com o `dist/`, as cenas mínimas dos smokes que não usam o DOM, em `TextureSurface`, com `pushErrorScope('validation')` em volta da criação dos pipelines, um `setPipeline` sem despacho de cada um (o wgpu cria sem erro o pipeline que o compilador da plataforma recusou; ver R4) e os `engineError`; relatório por pipeline (compila / erro e mensagem) em `specs/038-motor-puro-web/naga.md`
 
 ### Implementação
 
-- [ ] T039 [US4] O `Application` do Deno em `src/platform/deno/Application.ts` (contracts/entry-points.md): `target` (textura, `step`, `read`) e `window`; `LoopClock` em `src/platform/deno/LoopClock.ts`
-- [ ] T040 [US4] A janela SDL2 por FFI em `src/platform/deno/sdl.ts` (só as funções usadas: criar e fechar a janela, os eventos, o tamanho) e o `DenoPlatformAdapter` em `src/platform/deno/DenoPlatformAdapter.ts` (o `navigator.gpu` do Deno; a janela sobre `Deno.UnsafeWindowSurface`; a textura pela `TextureSurface` do núcleo); `SdlInputSource` em `src/platform/deno/SdlInputSource.ts` (ponteiro, teclado, redimensionar, fechar); SDL ausente = `engineError` com o nome da biblioteca (sem falha silenciosa)
-- [ ] T041 [US4] `src/platform/deno/index.ts` completo (núcleo + `Application`, superfícies, relógio, entrada SDL) e a entrada no build
+- [x] T039 [US4] O `Application` do Deno em `src/platform/deno/Application.ts` (contracts/entry-points.md): `target` (textura, `step`, `read`) e `window`; `LoopClock` em `src/platform/deno/LoopClock.ts`
+- [x] T040 [US4] A janela SDL2 por FFI em `src/platform/deno/sdl.ts` (só as funções usadas: criar e fechar a janela, os eventos, o tamanho) e o `DenoPlatformAdapter` em `src/platform/deno/DenoPlatformAdapter.ts` (o `navigator.gpu` do Deno; a janela sobre `Deno.UnsafeWindowSurface`, criada no primeiro uso do contexto — o Deno a exige depois do pedido do adaptador —, com a `NSWindow` no `windowHandle` e a view Metal da SDL no `displayHandle` no Mac; a textura pela `TextureSurface` do núcleo); `SdlInputSource` em `src/platform/deno/SdlInputSource.ts` (ponteiro, teclado, redimensionar, fechar); SDL ausente = `engineError` com o nome da biblioteca (sem falha silenciosa)
+- [x] T041 [US4] `src/platform/deno/index.ts` completo (núcleo + `Application`, superfícies, relógio, entrada SDL) e a entrada no build
 - [ ] T042 [US4] Rodar o naga (T038) e corrigir no WGSL do motor o que ele recusar, um por vez, cada correção conferida pelos smokes de imagem no Chrome (as fixtures bit a bit iguais) e pelo orçamento de passos dos laços (regra contra travamento); 100 % compilando (SC-005)
-- [ ] T043 [US4] O gravador pelo Deno no app: `clayflow-web/deno/video.ts` (as cenas do catálogo em `TextureSurface`, os quadros no `stdin` do ffmpeg, as mesmas saídas e a conferência do gravador do Chrome) e `clayflow-web/deno.json` com a task `video`
+- [ ] T043 [US4] O gravador pelo Deno no app: `claflow-web/deno/video.ts` (as cenas do catálogo em `TextureSurface`, os quadros no `stdin` do ffmpeg, as mesmas saídas e a conferência do gravador do Chrome) e `claflow-web/deno.json` com a task `video`
 - [ ] T044 [US4] Gravar pelo Deno uma cena com água, vidro e luz (a `agua`) e enviar o vídeo ao usuário (SC-006); comparar com a gravação do Chrome (a diferença entre os dois compiladores medida, não exigida igual)
-- [ ] T045 [US4] Uma cena na janela nativa (`deno run … clayflow-web/deno/window.ts agua`) aberta e fechada sem processo órfão
+- [ ] T045 [US4] Uma cena na janela nativa (`deno run … claflow-web/deno/window.ts agua`) aberta e fechada sem processo órfão
 
 **Checkpoint**: o motor roda no Deno; o gravador funciona nos dois ambientes.
 
@@ -141,7 +141,7 @@ Caminhos: `clayflow/` é o motor (este repositório); `clayflow-web/` é o app (
 
 ## Phase 7: Polish
 
-- [ ] T046 [P] Guia do Deno em `clay-engine-doc`: o `clayflow/deno`, a textura e a janela, os limites (o teto portátil), a SDL2 como requisito da janela
+- [ ] T046 [P] Guia do Deno em `clay-engine-doc`: o `clayflow/deno`, a textura e a janela, os limites (no Deno, o máximo do adaptador; o teto de 10 buffers de storage é do navegador), a SDL2 como requisito da janela
 - [ ] T047 [P] JSDoc em todos os exports novos (`npm run doc:coverage`)
 - [ ] T048 Gate completo do motor (`npm run ci`) e do app (`npm run build`, lint); a suíte contra `baseline.md` (SC-004) e o relatório final da spec em `specs/038-motor-puro-web/tasks.md` (os números de cada critério)
 

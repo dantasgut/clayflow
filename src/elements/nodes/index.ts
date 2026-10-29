@@ -11,6 +11,7 @@ import { geometry } from './geometry';
 import { material } from './material';
 import { math } from './math';
 import { noise } from './noise';
+import { pattern } from './pattern';
 import { output } from './output';
 import {
     compact,
@@ -61,6 +62,7 @@ export const nodes = {
     map,
     color,
     noise,
+    pattern,
     condition,
     space,
     field,
@@ -80,6 +82,7 @@ export const pointNodes: readonly NodeDefinition[] = Object.freeze(
         map,
         color,
         noise,
+        pattern,
         condition,
         space,
         field,

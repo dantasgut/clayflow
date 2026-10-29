@@ -1,7 +1,7 @@
 // Fótons das cáusticas (spec 034, T067c; antes na GI, spec 033 US5): cada invocação lança um fóton de uma fonte
 // escolhida pela potência (todos levam a mesma potência: a vazão é a fração dela que segue) — das direcionais só sobre a
 // projeção das caixas dos alvos (`caustics_targets_main`, a cada quadro: as instâncias de vidro e metal liso pelo próprio
-// material no centro delas e a caixa dos volumes atravessados por raios, a água), escolhidas pela área, a potência
+// material no centro delas, avaliado por `caustics_instances_main` e a caixa dos volumes atravessados por raios, a água), escolhidas pela área, a potência
 // dividida pelo número de projeções que cobrem o ponto; das pontuais em direções uniformes. O fóton segue pelo mesmo
 // acerto da refração (`refraction_scene_hit`: a malha ou a superfície de um volume) e o fechamento do grafo nele
 // (`refraction_hit_closure`): numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está
@@ -12,7 +12,8 @@
 // luz direta que não passou por nada especular é a das luzes, e a que atravessa a água chega nelas em linha reta: o
 // fóton cuja linha reta cruza a água subtrai essa parcela onde ela chegaria (`caustics_emit`, a variável de controle).
 // O meio da atmosfera (`light_transmission`) entra no ponto de onde o fóton sai. A invocação 0 guarda no cabeçalho a potência por fóton do quadro e a contagem do anterior.
-// Requer: WORKGROUP_SIZE, NONE, caustics, caustics_common, caustics_hash_atomic, caustics_targets, bsdf, random, basis,
+// Requer: WORKGROUP_SIZE, NONE, caustics, caustics_common, caustics_hash_atomic, caustics_targets,
+// caustics_instance_capable, bsdf, random, basis,
 // sampling, lights, light_transmission, ray_scene, ray_hit, refraction_scene, ray_volume_hit, ray_volume_transmittance, ray_volume_bounds,
 // ray_volume_occupied.
 
@@ -69,24 +70,39 @@ fn caustics_target_box(k: u32) -> array<vec3f, 2> {
     );
 }
 
+/**
+ * Uma invocação por instância: ela faz cáustica (o material composto no centro dela)? Grava 1 ou 0 em
+ * `caustics_instance_capable` — o material avaliado sem laço sobre as instâncias, em paralelo, e o kernel dos alvos só
+ * lê o resultado. (Com a avaliação dentro do laço do grupo que percorre as instâncias, o compilador da Apple gerava a
+ * escolha do material errada a partir do Metal do naga, no Deno — medido no M4 —, e um laço gerado errado pode não
+ * terminar: sem laço sobre as instâncias, o kernel termina qualquer que seja o compilador.)
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn caustics_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let k = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (k >= arrayLength(&caustics_instance_capable)) { return; }
+    if (k >= ray_scene_info.instanceCount) { caustics_instance_capable[k] = 0u; return; }
+    let inst = ray_instance_at(ray_scene_info.instanceFirst + k * RAY_INSTANCE_WORDS);
+    if (inst.ids.z == RAY_KIND_VOLUME) { caustics_instance_capable[k] = 0u; return; }
+    let root = ray_node(ray_blas_a(ray_scene_info.blasFirst + inst.ids.x * RAY_BLAS_WORDS).x, 0u);
+    let center = (inst.toWorld * vec4f(0.5 * (root.lo + root.hi), 1.0)).xyz;
+    let m = StandardMaterial(vec4f(inst.material0.rgb, 1.0), inst.material0.w, bitcast<f32>(inst.material1.x), 0.0, 0.0);
+    let sample = SurfaceSample(center, vec3f(0.0, 1.0, 0.0), vec2f(0.5), caustics.extra.y, vec3f(0.0), vec4f(0.0), vec3f(0.0), 0.0, vec2f(0.0), vec2f(0.0));
+    // O material composto no centro da instância.
+    caustics_instance_capable[k] = select(0u, 1u, caustics_capable(ray_hit_material(inst.ids.w & 0xFFFFu, sample, m, inst.material1.y)));
+}
+
 var<workgroup> caustics_wg_count: atomic<u32>;
 var<workgroup> caustics_wg_list: array<u32, CAUSTICS_TARGETS>;
 
-/** Um grupo: as instâncias capazes de cáustica, as caixas em mundo e as áreas das projeções por luz direcional. */
+/** Um grupo: as instâncias capazes de cáustica (de `caustics_instances_main`), as caixas em mundo e as áreas das projeções por luz direcional. */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn caustics_targets_main(@builtin(local_invocation_index) lid: u32) {
     if (lid == 0u) { atomicStore(&caustics_wg_count, 0u); }
     workgroupBarrier();
-    let instances = ray_scene_info.instanceCount;
+    let instances = min(ray_scene_info.instanceCount, arrayLength(&caustics_instance_capable));
     for (var k = lid; k < instances; k += WORKGROUP_SIZE) {
-        let inst = ray_instance_at(ray_scene_info.instanceFirst + k * RAY_INSTANCE_WORDS);
-        if (inst.ids.z == RAY_KIND_VOLUME) { continue; }
-        let root = ray_node(ray_blas_a(ray_scene_info.blasFirst + inst.ids.x * RAY_BLAS_WORDS).x, 0u);
-        let center = (inst.toWorld * vec4f(0.5 * (root.lo + root.hi), 1.0)).xyz;
-        let m = StandardMaterial(vec4f(inst.material0.rgb, 1.0), inst.material0.w, bitcast<f32>(inst.material1.x), 0.0, 0.0);
-        let sample = SurfaceSample(center, vec3f(0.0, 1.0, 0.0), vec2f(0.5), caustics.extra.y, vec3f(0.0), vec4f(0.0), vec3f(0.0), 0.0, vec2f(0.0), vec2f(0.0));
-        // O material composto no centro da instância.
-        if (!caustics_capable(ray_hit_material(inst.ids.w & 0xFFFFu, sample, m, inst.material1.y))) { continue; }
+        if (caustics_instance_capable[k] == 0u) { continue; }
         let slot = atomicAdd(&caustics_wg_count, 1u);
         if (slot < CAUSTICS_TARGETS) { caustics_wg_list[slot] = k; }
     }

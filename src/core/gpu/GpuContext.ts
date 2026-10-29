@@ -71,18 +71,18 @@ export const WEBGPU_LIMIT_NAMES = [
 ] as const;
 
 /**
- * Limites que o desenho do motor usa além dos de escala (spec 037, R7): pedidos no mínimo comum aos perfis de
- * referência (as fixtures `src/__smokes__/fixtures/adapter-limits-*.json`, gravadas pelo smoke `adapterLimits`), nunca o
- * máximo de um adaptador — o que cabe num perfil cabe no outro. Um adaptador abaixo deles fica com o que tem, e o
- * pipeline que precisar de mais falha na montagem (`limit-exceeded`), como antes.
+ * Limites que o desenho do motor usa além dos de escala (spec 037 R7, spec 038): pedidos, como os de escala, no máximo
+ * que o adaptador informa — o ambiente se declara pelo próprio adaptador (no M4, o Chrome informa 10 buffers de
+ * storage por estágio e o wgpu do Deno 31), sem teto escrito no motor. Um pipeline que pede mais do que o dispositivo
+ * tem falha na montagem (`limit-exceeded`); um teto menor, para emular um dispositivo modesto, vem de
+ * `DeviceOptions.limitsCeiling`.
  */
-export const ENGINE_PORTABLE_LIMITS: Readonly<Record<string, number>> = Object.freeze({
-    // `adapter-limits-apple-metal-3.json` (2026-10-23); a RTX 4090 (`nvidia-lovelace`) entra no mínimo quando gravada.
-    maxStorageBuffersPerShaderStage: 10,
-    maxStorageTexturesPerShaderStage: 8,
-    maxColorAttachments: 8,
-    maxColorAttachmentBytesPerSample: 128,
-});
+export const ENGINE_DRAWING_LIMITS = [
+    'maxStorageBuffersPerShaderStage',
+    'maxStorageTexturesPerShaderStage',
+    'maxColorAttachments',
+    'maxColorAttachmentBytesPerSample',
+] as const;
 
 /** Resultado da criação do device: objetos de GPU e o relatório de capacidades. */
 export interface CreatedGpuContext {
@@ -107,14 +107,14 @@ function readAllLimits(limits: GPUSupportedLimits): Record<string, number> {
 }
 
 /**
- * Limites pedidos ao device: os de escala do motor no máximo do adaptador, os portáteis no mínimo comum
- * (`ENGINE_PORTABLE_LIMITS`, até o que o adaptador tem) e os do usuário ajustados ao que o adaptador permite (`min*` =
+ * Limites pedidos ao device: os de escala do motor no máximo do adaptador, os de desenho (`ENGINE_DRAWING_LIMITS`) também
+ * e os do usuário ajustados ao que o adaptador permite (`min*` =
  * quanto menor, mais capaz; os demais = quanto maior, mais capaz).
  */
 function resolveLimits(
     adapterLimits: GPUSupportedLimits,
     requested: Readonly<Record<string, number>> | undefined,
-    ceiling?: Readonly<Record<string, number>>,
+    ceiling: Readonly<Record<string, number>> | undefined,
 ): { required: Record<string, number>; clamped: ClampedLimit[] } {
     const required: Record<string, number> = {};
     const clamped: ClampedLimit[] = [];
@@ -122,7 +122,7 @@ function resolveLimits(
         const max = readLimit(adapterLimits, name);
         if (max !== undefined) required[name] = max;
     }
-    requirePortable(adapterLimits, required);
+    requireDrawing(adapterLimits, required);
     for (const [name, value] of Object.entries(requested ?? {})) {
         const best = readLimit(adapterLimits, name);
         if (best === undefined) {
@@ -159,14 +159,11 @@ function resolveLimits(
     return { required, clamped };
 }
 
-/** Os limites portáteis no mínimo comum, até o que o adaptador tem (spec 037, R7). */
-function requirePortable(
-    adapterLimits: GPUSupportedLimits,
-    required: Record<string, number>,
-): void {
-    for (const [name, portable] of Object.entries(ENGINE_PORTABLE_LIMITS)) {
+/** Os limites de desenho no máximo do adaptador (spec 037 R7, spec 038). */
+function requireDrawing(adapterLimits: GPUSupportedLimits, required: Record<string, number>): void {
+    for (const name of ENGINE_DRAWING_LIMITS) {
         const max = readLimit(adapterLimits, name);
-        if (max !== undefined) required[name] = Math.min(max, portable);
+        if (max !== undefined) required[name] = max;
     }
 }
 

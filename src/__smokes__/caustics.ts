@@ -480,6 +480,8 @@ async function waterCells(
         layer: layers,
         light: [Math.sin(theta), -Math.cos(theta), 0],
         material: { ripple: false },
+        // Paredes opacas: a conta exata não tem a luz que atravessa o vidro (nem a sombra dele).
+        walls: 'opaque',
         eye: [0, 1.6, 0.4],
         target: [0, 0, 0],
     });

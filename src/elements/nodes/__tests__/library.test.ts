@@ -36,6 +36,7 @@ import {
     type NodeValue,
 } from '../reference/index';
 import { hash3, hashSigned, valueNoise3 } from '../reference/noise';
+import { patternChecker2, patternChecker3 } from '../reference/pattern';
 import { FIELD_BUOYANCY, FIELD_DRAG, FIELD_GRAVITY_POINT } from '../../gpu/shaders/constants';
 import { CLOSURE_SIZE } from '../../material/reference/closureNodes';
 
@@ -192,6 +193,21 @@ describe('biblioteca base de nós (spec 031, T085–T091)', () => {
         expect(c.f2).toBe(1);
         // fBm de uma oitava = o ruído de gradiente da mesma semente.
         expect(noiseFbm3(p, 2, [0, 0, 0], 4, 1, 2, 0.5)).toBe(noiseGradient3(p, 2, [0, 0, 0], 4));
+    });
+
+    it('padrão: xadrez exato alternado, o filtro igual ao exato no centro da casa e a média 0,5 ao longe', () => {
+        // Casas de 0,1 (scale 10): (0,05; 0,05) par, a vizinha em x ímpar, a diagonal par.
+        expect(patternChecker2([0.05, 0.05], 0, 10, [0, 0])).toBe(0);
+        expect(patternChecker2([0.15, 0.05], 0, 10, [0, 0])).toBe(1);
+        expect(patternChecker2([0.15, 0.15], 0, 10, [0, 0])).toBe(0);
+        expect(patternChecker2([-0.05, 0.05], 0, 10, [0, 0])).toBe(1);
+        expect(patternChecker3([0.05, 0.05, 0.15], 0, 10, [0, 0, 0])).toBe(1);
+        // Pixel bem menor que a casa, no centro dela: o filtro dá o exato.
+        expect(patternChecker2([0.05, 0.05], 0.01, 10, [0, 0])).toBeCloseTo(0, 12);
+        expect(patternChecker2([0.15, 0.05], 0.01, 10, [0, 0])).toBeCloseTo(1, 12);
+        // Pixel do tamanho de um número par de casas: a média.
+        expect(patternChecker2([0.03, 0.07], 0.2, 10, [0, 0])).toBeCloseTo(0.5, 12);
+        expect(patternChecker3([0.03, 0.07, 0.01], 0.4, 10, [0, 0, 0])).toBeCloseTo(0.5, 12);
     });
 
     it('espaço: identidade, inversa afim, normal sob escala, projeção nos planos', () => {

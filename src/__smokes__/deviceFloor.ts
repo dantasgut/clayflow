@@ -1,7 +1,7 @@
 // Spec 034 — Smoke do piso de limites do dispositivo (T003; FR-034, SC-003).
 //
 // Abre as cenas que mais ligam recursos com o teto nos limites portáteis do motor (`limitsCeiling` =
-// `ENGINE_PORTABLE_LIMITS`, o mínimo comum dos perfis de referência, spec 037: buffers e texturas de storage por
+// `REFERENCE_FLOOR`, o mínimo comum dos perfis de referência, spec 037: buffers e texturas de storage por
 // estágio, anexos de cor e bytes por amostra) — numa GPU maior o resultado é o do piso, então o que não cabe falha em
 // todas:
 //   - giGlassFog: cômodo com janela, iluminação global `medium`, uma placa de vidro (dielétrico + transmissão) e névoa;
@@ -17,7 +17,7 @@ import {
     Transform,
     type Application,
 } from 'clayflow/web';
-import { ENGINE_PORTABLE_LIMITS } from '../core/gpu/GpuContext';
+import { REFERENCE_FLOOR } from './support/referenceFloor';
 import { settle } from './support/extensionScenes';
 import { buildGiScene, giApp, windowRoom } from './support/giScenes';
 import { closureFn } from './support/materialScenes';
@@ -32,7 +32,7 @@ function log(msg: string): void {
 }
 
 /** O piso validado: os limites portáteis do motor. */
-const FLOOR = ENGINE_PORTABLE_LIMITS;
+const FLOOR = REFERENCE_FLOOR;
 
 const failures: string[] = [];
 

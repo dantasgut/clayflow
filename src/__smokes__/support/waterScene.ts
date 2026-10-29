@@ -126,6 +126,11 @@ export interface WaterSceneOptions {
     /** Partículas secundárias do corpo (spray, espuma e bolhas; padrão ligadas com a água pelo grafo). */
     readonly diffuse?: boolean;
     /** A física da superfície dos sólidos diante da água (spec 034; sem ela, a padrão: lisa e impermeável). */
+    /**
+     * As paredes do tanque: vidro (padrão: a luz as atravessa) ou opacas (as cenas analíticas, que medem a sombra delas e
+     * o fundo sem a luz que passa pelo vidro).
+     */
+    readonly walls?: 'glass' | 'opaque';
     readonly surfaces?: {
         readonly floor?: SurfacePhysicsOptions;
         readonly walls?: SurfacePhysicsOptions;
@@ -177,7 +182,7 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
         ),
     );
     floor(app, options.floor ?? 'checker', options.surfaces?.floor);
-    walls(app, options.surfaces?.walls);
+    walls(app, options.walls ?? 'glass', options.surfaces?.walls);
     if (options.box === true) {
         const box = new BoxGeometry({ size: [2 * BOX_HALF, 2 * BOX_HALF, 2 * BOX_HALF] });
         box.add(
@@ -219,35 +224,61 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
  */
 const FLOOR_HALF = 6;
 
-/** Chão quadriculado: ladrilhos de 10 cm claros e escuros (o padrão do tanque continua fora dele). */
+/** Cores das casas do chão: a clara e a escura de cada fundo. */
+const FLOOR_COLORS = {
+    checker: [
+        [0.92, 0.92, 0.88],
+        [0.25, 0.27, 0.3],
+    ],
+    sand: [
+        [0.86, 0.82, 0.7],
+        [0.82, 0.78, 0.66],
+    ],
+} as const;
+
+/** Lado da casa do chão (m). */
+const FLOOR_TILE = 0.1;
+
+/**
+ * O material do chão pelo grafo: o xadrez de casas de `FLOOR_TILE` no plano xz da posição de mundo (`pattern.checker2`,
+ * filtrado pela largura do pixel ou do cone do raio na amostra), a cor pela rampa (a clara nas casas pares) e o mesmo
+ * fechamento do `StandardMaterial` fosco (difuso mais o dielétrico 1,5 de rugosidade 0,9). O padrão é material,
+ * calculado por pixel: o chão é um plano só.
+ */
+function floorLook(kind: 'checker' | 'sand'): MaterialFunction {
+    const [light, dark] = FLOOR_COLORS[kind];
+    return materialGraph(
+        {
+            s: nodes.input.surfaceSample(),
+            split: nodes.math.split3,
+            xz: nodes.math.combine2,
+            tiles: nodes.pattern.checker2.with({ scale: 1 / FLOOR_TILE }),
+            paint: nodes.color.ramp.with({ color_a: [...light], color_b: [...dark] }),
+            diffuse: nodes.bsdf.diffuse,
+            specular: nodes.bsdf.dielectric.with({ ior: 1.5, roughness: 0.9 }),
+            surface: nodes.closure.add,
+        },
+        [
+            ['s.world_position', 'split.v'],
+            ['split.x', 'xz.x'],
+            ['split.z', 'xz.y'],
+            ['xz.value', 'tiles.p'],
+            ['s.footprint', 'tiles.width'],
+            ['tiles.value', 'paint.t'],
+            ['paint.color', 'diffuse.color'],
+            ['diffuse.value', 'surface.a'],
+            ['specular.value', 'surface.b'],
+        ],
+        'surface.value',
+    );
+}
+
+/** Chão quadriculado: um plano com o xadrez no material (o padrão do tanque continua fora dele). */
 function floor(app: Application, kind: 'checker' | 'sand', surface?: SurfacePhysicsOptions): void {
-    const hx = FLOOR_HALF;
-    const hz = FLOOR_HALF;
-    const tile = 0.1;
-    for (let i = 0; i < Math.round((2 * hx) / tile); i++) {
-        for (let k = 0; k < Math.round((2 * hz) / tile); k++) {
-            const light = (i + k) % 2 === 0;
-            const plane = new PlaneGeometry({ size: [tile, tile] });
-            plane.add(
-                new StandardMaterial({
-                    albedo:
-                        kind === 'sand'
-                            ? light
-                                ? [0.86, 0.82, 0.7, 1]
-                                : [0.82, 0.78, 0.66, 1]
-                            : light
-                              ? [0.92, 0.92, 0.88, 1]
-                              : [0.25, 0.27, 0.3, 1],
-                    roughness: 0.9,
-                    metallic: 0,
-                }),
-            );
-            plane.add(
-                new Transform({ position: [-hx + (i + 0.5) * tile, 0, -hz + (k + 0.5) * tile, 1] }),
-            );
-            app.world.insert(plane);
-        }
-    }
+    const plane = new PlaneGeometry({ size: [2 * FLOOR_HALF, 2 * FLOOR_HALF] });
+    plane.add(new StandardMaterial({ roughness: 0.9, metallic: 0 })).add(floorLook(kind));
+    plane.add(new Transform({ position: [0, 0, 0, 1] }));
+    app.world.insert(plane);
     // Chão de colisão (o topo em y = 0).
     app.world.insert(
         solid(
@@ -285,13 +316,14 @@ const WALL = 0.5;
 /**
  * Paredes do tanque: vidro de 1 cm de espessura (o dielétrico com a transmissão, índice 1,5; prioridade de meio 1:
  * dentro do vidro a borda da água não é interface) com a física da superfície do vidro (`SurfacePhysics.GLASS`, salvo
- * outra pedida), desenhadas até onde colidem (0,5 m: a água que bate nelas, molha e escorre fica à vista; a da barragem
+ * outra pedida) — ou opacas (`walls: 'opaque'`, as cenas analíticas: a superfície dada ou a padrão) —, desenhadas até onde colidem (0,5 m: a água que bate nelas, molha e escorre fica à vista; a da barragem
  * que passa da borda transborda — spec 034). A luz que as atravessa chega ao tanque pelas cáusticas (T067c). A colisão
  * desce 10 cm abaixo do chão.
  */
-function walls(app: Application, surface?: SurfacePhysicsOptions): void {
+function walls(app: Application, kind: 'glass' | 'opaque', surface?: SurfacePhysicsOptions): void {
     const [hx, hz] = WATER_TANK;
-    const t = 0.005;
+    // Meia espessura: o vidro de 1 cm; a parede opaca, a de 10 cm de antes do vidro.
+    const t = kind === 'glass' ? 0.005 : 0.05;
     const h = (WALL + 0.1) / 2;
     for (const [x, z, ex, ez] of [
         [hx + t, 0, t, hz + 2 * t],
@@ -302,11 +334,19 @@ function walls(app: Application, surface?: SurfacePhysicsOptions): void {
         app.world.insert(
             solid(
                 new BoxCollider({ halfExtents: [ex, h, ez, 0], center: [x, WALL - h, z, 1] }),
-                surface ?? SurfacePhysics.GLASS,
+                kind === 'glass' ? (surface ?? SurfacePhysics.GLASS) : surface,
             ),
         );
         const wall = new BoxGeometry({ size: [2 * ex, WALL, 2 * ez] });
-        wall.add(new StandardMaterial()).add(glassLook());
+        if (kind === 'glass') wall.add(new StandardMaterial()).add(glassLook());
+        else
+            wall.add(
+                new StandardMaterial({
+                    albedo: [0.62, 0.64, 0.68, 1],
+                    roughness: 0.7,
+                    metallic: 0,
+                }),
+            );
         wall.add(new Transform({ position: [x, WALL / 2, z, 1] }));
         app.world.insert(wall);
     }

@@ -37,7 +37,7 @@ const win = await Application.create({
 win.run(); // o laço até a janela fechar
 ```
 
-- Os limites pedidos ao dispositivo são os mesmos do web (o teto portátil nas ligações).
+- Os limites de ligação no máximo do adaptador (o teto de 10 buffers de storage é do navegador, não do hardware).
 - Sem janela, o laço é manual (`step`); com janela, `run` usa o relógio do Deno.
 
 ## Erros

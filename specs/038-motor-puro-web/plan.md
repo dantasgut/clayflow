@@ -11,7 +11,7 @@ Separar o motor (capacidades) das cenas (conteúdo) e do ambiente (navegador ou 
 depender do DOM: a superfície de apresentação vira contrato da C1 (`PresentationSurface`: canvas, textura com leitura
 de volta, janela do Deno), obtida com o adaptador da GPU por um `PlatformAdapter` (padrão adapter, decisão do usuário), o laço de quadros e a entrada viram contratos da C4 (`FrameClock`, `InputSource`), e dois
 pontos de entrada montam o motor para cada ambiente (`clayflow/web`, `clayflow/deno`). As cenas de vídeo, o gravador e
-as páginas de demonstração saem para o app `clayflow-web` (o `claflow-web` renomeado, sem as cenas antigas). O Deno
+as páginas de demonstração saem para o app `claflow-web` (sem renomear, sem as cenas antigas). O Deno
 consome o motor construído; um smoke mede a compilação dos shaders no naga. Os smokes e o benchmark ficam no motor.
 
 ## Technical Context
@@ -26,7 +26,7 @@ o núcleo sem DOM e o naga
 **Project Type**: biblioteca (motor) + app web (clayflow-web)
 **Performance Goals**: sem regressão: os mesmos tempos do bench e dos smokes; o Deno não entra nas medidas de
 desempenho do motor nesta spec
-**Constraints**: os pipelines no teto portátil do navegador nos dois ambientes (R5); quadros iguais antes e depois da
+**Constraints**: os limites de ligação no teto do ambiente — o do navegador no web, o máximo do adaptador no Deno (R5); quadros iguais antes e depois da
 migração (R9); nenhum laço de shader sem orçamento total de passos
 **Scale/Scope**: 18 arquivos do núcleo com dependência do navegador (R1); ~16 cenas de vídeo; 308 importações de
 shader inalteradas (R3)
@@ -86,7 +86,7 @@ clayflow/                                  # o motor
 └── src/__smokes__/                        # ficam, sem videoScenes.ts
     (saem: videoScenes.ts, bench/runner/video.ts, bench/agua.html, bench/page/agua.ts, index.html, src/main.ts)
 
-clayflow-web/                              # o app (o claflow-web renomeado)
+claflow-web/                               # o app (sem renomear)
 ├── src/
 │   ├── App.tsx                            # catálogo e página da cena (?scene=)
 │   ├── scenes/                            # as cenas migradas (uma por arquivo) + o apoio de cena delas
@@ -110,7 +110,7 @@ clayflow-web/                              # o app (o claflow-web renomeado)
    com `exports` (`.`, `./web`, `./deno`); lint de pureza (R2); os smokes e o bench passam a importar `clayflow/web`.
 4. **Deno**: o `Application` do Deno (textura e janela SDL), o teste do núcleo sem DOM, o smoke do naga e as correções
    de WGSL que ele pedir (cada uma conferida pelos smokes de imagem no Chrome).
-5. **clayflow-web**: renomear a pasta e o pacote (o repositório no GitHub só com confirmação do usuário), tirar as cenas
+5. **claflow-web** (sem renomear (decisão do usuário de 2026-10-28: nada é renomeado — a pasta, o pacote e o repositório continuam `claflow-web`)): tirar as cenas
    antigas, depender do motor, trazer as cenas e o gravador, o gravador pelo Deno; comparar os hashes com a linha de
    base.
 6. **Limpeza do motor**: tirar `videoScenes.ts`, o gravador, as páginas `agua` e `index.html`/`src/main.ts` (esta vira

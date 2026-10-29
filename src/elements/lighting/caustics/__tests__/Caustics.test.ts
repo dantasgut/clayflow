@@ -42,7 +42,19 @@ describe('Caustics (spec 034, T067c)', () => {
     it('os fótons: alvos pelo material e pela caixa dos volumes, o acerto da refração, Fresnel exato, os canais pelo mesmo caminho, tenda 2D', () => {
         const trace = composeWgsl(causticsTrace).spec.source;
         expect(trace).toContain('fn caustics_targets_main(');
-        expect(trace).toContain('caustics_capable(ray_hit_material(');
+        // O material das instâncias numa invocação por instância, sem laço sobre elas; os alvos só leem o resultado.
+        const instances = trace.slice(
+            trace.indexOf('fn caustics_instances_main('),
+            trace.indexOf('fn caustics_targets_main('),
+        );
+        expect(instances).toContain('caustics_capable(ray_hit_material(');
+        expect(instances).not.toMatch(/\b(for|loop|while)\b/);
+        const targets = trace.slice(
+            trace.indexOf('fn caustics_targets_main('),
+            trace.indexOf('fn caustics_deposit('),
+        );
+        expect(targets).not.toContain('ray_hit_material(');
+        expect(targets).toContain('if (caustics_instance_capable[k] == 0u) { continue; }');
         // A água entra nos alvos pela caixa dos volumes (sem saber quem é o volume).
         expect(trace).toContain('let vb = ray_volume_bounds();');
         // O mesmo acerto e fechamento da refração (a malha ou a superfície do volume).

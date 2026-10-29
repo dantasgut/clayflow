@@ -6,6 +6,7 @@ import { fieldCases } from './field';
 import { mapCases } from './map';
 import { mathCases } from './math';
 import { noiseCases } from './noiseNodes';
+import { patternCases } from './pattern';
 import { outputCases } from './output';
 import { spaceCases } from './space';
 import { surfaceCases } from './surface';
@@ -16,6 +17,7 @@ export const nodeCases: readonly NodeCase[] = [
     ...mathCases,
     ...mapCases,
     ...noiseCases,
+    ...patternCases,
     ...conditionCases,
     ...spaceCases,
     ...fieldCases,

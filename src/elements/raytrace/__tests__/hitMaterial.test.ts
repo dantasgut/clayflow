@@ -31,9 +31,12 @@ describe('material nos acertos (módulo comum)', () => {
         });
     }
 
-    it('composição sem funções: o caso padrão é o das constantes do material', () => {
+    it('composição sem funções: o fechamento das constantes do material', () => {
         const source = composeHitMaterial([]).source;
         expect(source).toContain('fn ray_hit_material(index: u32');
-        expect(source).toContain('default: { c = closure_from_params(SurfaceParams(m.albedo');
+        expect(source).toContain(
+            'return closure_sanitize(closure_from_params(SurfaceParams(m.albedo',
+        );
+        expect(source).not.toContain('switch');
     });
 });

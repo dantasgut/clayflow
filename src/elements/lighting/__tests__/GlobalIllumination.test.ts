@@ -53,9 +53,11 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(screenTile(8, 4320)).toBe(32);
     });
 
-    it('composição das funções `material` nos acertos: um caso por função, um único retorno depois do switch', () => {
+    it('composição das funções `material` nos acertos: as funções no switch, um único retorno depois dele', () => {
         // O retorno do fechamento (struct grande) de dentro de cada caso, com invocações em casos diferentes, saía
-        // errado no Metal (a emissão do painel sumia nos acertos): os casos atribuem e a função retorna uma vez.
+        // errado no Metal (a emissão do painel sumia nos acertos): os casos atribuem e a função retorna uma vez. O
+        // caminho sem função (as constantes) sai antes do switch — como terceiro caso dele, o compilador de GPU da Apple
+        // caía no kernel da emissão das cáusticas gerado pelo naga (spec 038).
         const fns = [
             'closure_diffuse(m.albedo.rgb, 0.0)',
             'closure_add(closure_diffuse(m.albedo.rgb, 0.0), closure_emission(vec3f(4.0), 1.0))',
@@ -66,8 +68,13 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             return { ...f.composite!, returnsClosure: f.returnsClosure };
         });
         const source = composeHitMaterial(fns).source;
-        expect(source.match(/case \d+u:/g)).toHaveLength(2);
-        expect(source.match(/\breturn\b/g)).toHaveLength(1);
+        expect(source.match(/case \d+u:/g)).toHaveLength(1);
+        expect(source.match(/default: \{ c = /g)).toHaveLength(1);
+        // O das constantes, antes do switch, e o único depois dele.
+        expect(source.match(/\breturn\b/g)).toHaveLength(2);
+        expect(source).toContain(
+            'if (index == 0u || index > 2u) { return closure_sanitize(closure_from_params(',
+        );
     });
 
     it('descritores: parâmetros, estado das sondas (só GPU), três atlas e o amostrador; contribui a scene_lighting', () => {

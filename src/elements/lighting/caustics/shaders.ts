@@ -57,6 +57,14 @@ export const causticsResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
+    /** Por instância da estrutura de raios: 1 se faz cáustica (`caustics_instances_main`), 0 se não (privado do `CausticsFlow`). */
+    instanceCapable: wgslResource({
+        name: 'caustics_instance_capable',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
 });
 
 const R = causticsResources;
@@ -99,6 +107,7 @@ export const causticsTrace = wgslModule({
         causticsCapable,
         R.hashAtomic,
         R.targets,
+        R.instanceCapable,
         LIGHT_LIMIT.module,
         lightsResource,
         lightTransmissionReady,

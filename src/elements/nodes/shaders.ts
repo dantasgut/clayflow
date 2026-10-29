@@ -21,6 +21,7 @@ import { fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import mathSource from '../gpu/wgsl/nodes/math.wgsl?raw';
 import mapSource from '../gpu/wgsl/nodes/map.wgsl?raw';
 import noiseSource from '../gpu/wgsl/nodes/noise.wgsl?raw';
+import patternSource from '../gpu/wgsl/nodes/pattern.wgsl?raw';
 import colorSource from '../gpu/wgsl/nodes/color.wgsl?raw';
 import conditionSource from '../gpu/wgsl/nodes/condition.wgsl?raw';
 import spaceSource from '../gpu/wgsl/nodes/space.wgsl?raw';
@@ -40,6 +41,9 @@ export const nodeMap = wgslModule({ name: 'node_map', source: mapSource });
 
 /** Nós de ruído (spec 031): valor, gradiente, celular e fBm com semente, sobre a `wgslLib.noise`. */
 export const nodeNoise = wgslModule({ name: 'node_noise', source: noiseSource, requires: [noise] });
+
+/** Nós de padrão procedural (spec 038): o xadrez em 2D e 3D, filtrado pela largura do pixel. */
+export const nodePattern = wgslModule({ name: 'node_pattern', source: patternSource });
 
 /** Nós de rampa de cor (spec 031). */
 export const nodeColor = wgslModule({ name: 'node_color', source: colorSource, requires: [color] });

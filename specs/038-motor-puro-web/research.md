@@ -62,21 +62,37 @@ um arquivo gerado a manter.
 
 **Decision**: smoke Deno `nagaShaders`: com o motor construído, roda as cenas mínimas dos smokes (as do apoio que não
 usam o DOM) desenhando em textura e coleta todo erro de validação de pipeline (`device.pushErrorScope('validation')` em
-volta da criação, mais os `engineError` do motor); lista por pipeline o que compila e o que não, com a mensagem. Os que
+volta da criação e de um `setPipeline` sem despacho de cada pipeline, mais os `engineError` do motor); lista por pipeline o que compila e o que não, com a mensagem. Os que
 falham são corrigidos no WGSL sem mudar o resultado no Chrome (os smokes de imagem iguais, bit a bit nas fixtures).
 **Rationale**: as pipelines reais só existem com as composições da cena (pontos, contribuições); compilar os módulos
 soltos não cobre o que roda.
 **Alternatives considered**: compilar cada `.wgsl` solto — rejeitado: a maioria só é válida composta.
+
+**Achado (2026-10-28)**: o pipeline que o wgpu cria sem erro e recusa no `setPipeline` ("ComputePipeline … is invalid",
+sem mensagem nos escopos `validation`, `internal` e `out-of-memory`) é o compilador de GPU da Apple caindo: o MSL que o
+naga gera para o kernel, compilado direto no Metal (`MTLDevice.makeLibrary` + `makeComputePipelineState`), devolve
+`AGXMetalG16X Code=2 … XPC_ERROR_CONNECTION_INTERRUPTED`, e o `MTLCompilerService` deixa um relatório de falha de
+segmentação no backend LLVM da AGX (`MachineFunctionPass`). Medido no M4 Max (macOS 26.6) com o Deno 2.7.9 e o 2.9.8
+e com o naga-cli 30; o modo de matemática, a versão da linguagem, os laços limitados do naga e a política de limites
+dos índices não mudam nada. No kernel da emissão das cáusticas, o gatilho era a junção de três caminhos do fechamento
+(`Closure`) no `switch` da composição dos materiais nos acertos (`ray_hit_material`: duas funções e o caso das
+constantes) inlinada na transmissão da luz pela água: com dois caminhos compila, e a forma da composição que o evita —
+o caminho sem função sai antes, o `switch` só entre as funções — é a mesma no resultado (o Chrome, com o Tint, não passa
+por ali). Quebrar o kernel em dois não era necessário. O teste é o `setPipeline` sem despacho: nada roda na GPU.
 
 ## R5. Limites do Deno contra os do navegador
 
 **Medido**: Deno (wgpu, M4 Max) 31 buffers de storage por estágio, 128 texturas de storage, 4 GB por ligação de
 storage; Chrome (Dawn, mesmo Mac) 10 e 8.
 
-**Decision**: o motor pede, nos dois ambientes, no máximo os limites portáteis (`ENGINE_PORTABLE_LIMITS`, o mínimo
-comum entre o M4 no Chrome e a RTX 4090) para os limites de ligação; os de escala (tamanho de buffer, invocações) seguem
-o máximo do adaptador. Um teste confere que o ponto de entrada Deno pede o teto portátil (FR-009).
-**Rationale**: um pipeline que só compila no Deno quebraria no navegador; o Deno não é desculpa para passar do teto.
+**Decision** (revista pelo usuário em 2026-10-28): adaptativo — o motor pede, em qualquer ambiente, o máximo que o
+adaptador informa nos limites de desenho (`ENGINE_DRAWING_LIMITS`), como já pedia nos de escala; nenhum teto por
+ambiente escrito no motor (o Chrome no M4 informa 10 sozinho; o Deno, 31). O piso dos perfis de referência virou dado
+de teste (`src/__smokes__/support/referenceFloor.ts`), aplicado pelo `deviceFloor` por `DeviceOptions.limitsCeiling`
+(FR-009).
+**Rationale**: o 10 é um corte do Dawn do Chrome, não do Metal (o M4 tem 31, que o wgpu expõe) — rodar no Deno é
+justamente para não ficar preso a ele. O traçado das sondas da GI (11 buffers de storage) roda no Deno.
+**Alternatives considered**: o teto do navegador nos dois ambientes (a decisão anterior) — rejeitado pelo usuário.
 
 ## R6. O pacote e os pontos de entrada
 
@@ -105,11 +121,10 @@ das partes de cena de que precisa, pela API pública (sem importar o apoio dos s
 **Medido**: React 19 + Vite 8; `src/components/WebGPUCanvas.tsx` monta as cenas antigas; o `vite.config.ts` aponta
 `webgpu-engine` para `../engine/src/index.ts` (caminho que não existe mais); remoto `github.com/dantasgut/claflow-web`.
 
-**Decision**: a pasta passa a `geom-diff-calc/clayflow-web`; o pacote, a `clayflow-web`; a dependência, `clayflow` por
+**Decision** (decisão do usuário de 2026-10-28: nada é renomeado — a pasta, o pacote e o repositório continuam `claflow-web`): a dependência, `clayflow` por
 `file:../clayflow` com o alias do Vite para as fontes (HMR) e o `clayflow/web` como ponto de entrada; as cenas antigas e
 o componente saem; entram um catálogo de cenas, a página de cena (escolha pela URL), o gravador de vídeo pelo navegador
-(o runner atual, movido) e o gravador pelo Deno (`deno task video`). Renomear o repositório no GitHub é ação externa:
-pede confirmação do usuário na implementação.
+(o runner atual, movido) e o gravador pelo Deno (`deno task video`).
 **Rationale**: mantém o histórico do app; o alias às fontes evita rebuild a cada mudança do motor.
 
 ## R9. Quadros antes e depois da migração (SC-003)
