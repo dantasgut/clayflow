@@ -36,7 +36,7 @@ usuário.
   - a contagem de testes, o tsc e o lint;
   - para `nodeGraphs`, `caustics`, `globalIllumination`, `refraction` e `fluidSurface`: a situação e os números no Chrome;
   - os tempos atuais de GI, cáusticas e refração (o custo da lente).
-- [ ] T002 Micro-benchmark do custo dos despachos (R13) em `src/__smokes__/dispatchCost.ts`:
+- [x] T002 Micro-benchmark do custo dos despachos (R13) em `src/__smokes__/dispatchCost.ts`:
   - kernels triviais sem laço;
   - N despachos indiretos com 0 grupos e com 1 grupo, num passe e em vários;
   - tempo de parede por despacho no Chrome.
@@ -108,21 +108,21 @@ usuário.
 ### Refração
 
 - [x] T019 [US1] Câmera (R9): kernel que enumera os acertos da reta (até `REFRACTION_CAMERA_SEEN`, teto de passos), depois uma rodada de material, depois `refraction_camera_stack_main`, que monta a pilha. Em `refraction_camera.wgsl` e no `RefractionFlow.ts`.
-- [ ] T020 [US1] Estado de caminho da refração e folhas (data-model):
+- [x] T020 [US1] Estado de caminho da refração e folhas (data-model):
   - `refraction_path.wgsl` reorganizado em `refraction_advance_main` (a continuação do nó anterior e o traçado seguinte) sobre o estado;
   - os ramos do 1º e do 2º nível como caminhos com `leaf`;
   - a dispersão abre os canais;
   - o lobo raro em par (R8);
   - a aleatoriedade por caminho (R7);
   - as folhas anexadas ao terminar.
-- [ ] T021 [US1] Fechamento por pixel: `RadixSort` das folhas por pixel e a redução por segmento na ordem das folhas, gravando os alvos atuais da refração. Em `refraction_resolve.wgsl` e no `RefractionFlow`.
+- [x] T021 [US1] Fechamento por pixel: `RadixSort` das folhas por pixel e a redução por segmento na ordem das folhas, gravando os alvos atuais da refração. Em `refraction_resolve.wgsl` e no `RefractionFlow`.
 - [ ] T022 [US1] Testes de composição e de unidade da refração em ondas em `src/elements/lighting/refraction/__tests__/`.
-- [ ] T023 [US1] Smoke `refraction` no Chrome, incluindo o custo. Se o custo passar de 3 ms, aplicar as reduções de R13 na ordem e medir.
+- [x] T023 [US1] Smoke `refraction` no Chrome, incluindo o custo. Se o custo passar de 3 ms, aplicar as reduções de R13 na ordem e medir.
 - [ ] T024 [US1] Smokes `fluidSurface` e `nodeGraphs` no Chrome.
 
 ### Remoção
 
-- [ ] T025 [US1] Remover `composeHitMaterial`, `rayHitMaterialPoint`, `ray_hit_material_ready.wgsl`, `ray_hit_closure`, `refraction_hit_closure` e `ray_volume_closure`. Migrar o smoke `fluidField`. Atualizar os testes. Conferir no `knip`.
+- [x] T025 [US1] Remover `composeHitMaterial`, `rayHitMaterialPoint`, `ray_hit_material_ready.wgsl`, `ray_hit_closure`, `refraction_hit_closure` e `ray_volume_closure`. Migrar o smoke `fluidField`. Atualizar os testes. Conferir no `knip`.
 - [ ] T026 [US1] Teste de composição geral em `src/elements/raytrace/__tests__/noMaterialInTrace.test.ts`: para cada kernel de traçado dos três consumidores, zero `material_fn_`.
 - [ ] T027 [US1] Contagem de buffers de storage por kernel registrada num teste (R15). Valor da GI anotado no `baseline.md`.
 

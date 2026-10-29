@@ -92,3 +92,11 @@ vazias custam ~4 ms); sem a ordenação das folhas, 55,5 ms (~1 ms). O peso é o
 em paralelo (até 4 por pixel depois das duas primeiras interfaces, onde o original percorria os ramos em série nos
 registradores) e o estado de 768 B por caminho lido e regravado a cada rodada. Otimização pendente (não afrouxar o
 critério): estado menor (as pilhas), os ramos do segundo nível em série por caminho.
+
+## Depois da T025 (o seletor composto removido)
+
+`refraction` igual (custo 56,6 ms); `caustics` engine e water iguais. `fluidField case=closure`: o fechamento por acerto
+pela onda a 7,63e-7 (limite 1e-5); **a transmitância pelo corpo falha (25,96 × σ·voxel; limite 1)**: o grafo do teste
+faz a absorção depender da normal do ponto de entrada, e o meio do corpo agora é avaliado uma vez por quadro (homogêneo
+por corpo). Decisão do usuário pendente: o meio homogêneo por corpo (e a comparação do critério contra ele) ou a absorção
+por trecho avaliada na onda.

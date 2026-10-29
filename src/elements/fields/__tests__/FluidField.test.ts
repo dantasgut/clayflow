@@ -132,7 +132,7 @@ describe('FluidField (spec 033, R11)', () => {
         // O fechamento do corpo, avaliado uma vez por quadro na onda dos acertos (spec 039): o meio da absorção.
         expect(graph).toContain('RayVolumeSurface(body.x, body.y, field_medium(hit.material))');
         expect(graph).not.toContain('field_materials');
-        // Sem avaliar a função: quem traça a avalia junto com a das malhas (uma expansão de `ray_hit_material`).
+        // Sem avaliar a função: quem traça grava a referência na onda dos acertos e o kernel da classe a avalia (spec 039).
         expect(graph).not.toContain('ray_hit_material(');
         const transmittance = composeWgsl(modules[2]!).spec.source;
         expect(transmittance).toContain(

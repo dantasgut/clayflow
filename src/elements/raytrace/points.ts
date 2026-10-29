@@ -9,8 +9,9 @@ import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 // fluidos (`FluidField`); sem contribuinte, fica o pronto (nenhum volume). As superfícies opacas continuam na estrutura
 // de raios (`ray_scene_hit`); os volumes são transmissivos: o raio os atravessa. O material no acerto
 // (`ray_volume_surface`, spec 034 T065d) é do contribuinte que acertou (`source`): a referência da função `material`
-// na composição dos acertos (`ray_hit_material`, a mesma das malhas: quem traça a liga com `bindPoints`), ou um
-// fechamento pronto; `ray_volume_closure` (módulo `rayVolumeMaterial`) a avalia.
+// nas funções da estrutura de raios (a mesma das malhas: quem traça a grava na onda dos acertos e o kernel da classe a
+// avalia, spec 039) e o meio do corpo (o fechamento dele avaliado uma vez por quadro, que a absorção dos trechos lê:
+// `ray_volume_closure`, módulo `rayVolumeMaterial`).
 
 /**
  * Acerto de um raio na superfície de um volume: distância, ponto, normal (para fora), o material no contribuinte, lado

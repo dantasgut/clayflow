@@ -14,9 +14,8 @@ import { MaterialFunction } from '../../extension/MaterialFunction';
 import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
 import { FluidBody } from '../../physics/bodies/FluidBody';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
-import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { giProbeTrace } from '../../lighting/shaders';
-import { composeHitMaterial, rayHitMaterialPoint } from '../hitMaterial';
+import { hitShade } from '../hitShade';
 
 // Estrutura de raios (spec 033, T007): descritores, uma hierarquia de baixo por conteúdo de geometria, construção uma
 // vez, hierarquia de cima a cada quadro, crescimento das capacidades.
@@ -220,11 +219,12 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         expect(fns).toHaveLength(2);
         expect(new Set(fns.map((f) => f.functionName)).size).toBe(2);
         expect(fns.every((f) => /^material_fn_[0-9a-f]+$/.test(f.functionName))).toBe(true);
-        // As duas compõem juntas no kernel dos raios das sondas, sem símbolos repetidos.
-        const source = composeWgsl(
-            bindPoints(giProbeTrace, new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]])),
-        ).spec.source;
-        for (const f of fns) expect(source).toContain(`fn ${f.functionName}(`);
-        expect(source).not.toContain('fwidth');
+        // Cada uma num kernel de material próprio (spec 039: fora do traçado); o dos raios das sondas, sem nenhuma.
+        for (const f of fns) {
+            const source = composeWgsl(hitShade(f)).spec.source;
+            expect(source).toContain(`fn ${f.functionName}(`);
+            expect(source).not.toContain('fwidth');
+        }
+        expect(composeWgsl(giProbeTrace).spec.source).not.toMatch(/\bmaterial_fn_/);
     });
 });

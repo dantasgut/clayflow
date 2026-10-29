@@ -24,8 +24,8 @@
 //   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — dois `FluidBody` com a função `material`:
 //     o dielétrico de IOR 1,4 com a transmissão de cor 0,5 + 0,25·n pela normal do ponto, a 2 m, e a água da cena dos
 //     smokes (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m); por raios contra cada um, o fechamento
-//     `ray_volume_closure` (o ponto `ray_volume_surface` composto pela C2 com as funções `material` dos acertos) dá o
-//     fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
+//     do acerto na onda dos acertos (a referência do ponto `ray_volume_surface`, avaliada pelo kernel da classe, spec 039)
+//     dá o fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
 //     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do fechamento na corda — |Δ ln T| ≤ σ · 1 voxel
 //     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
 //   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
@@ -49,7 +49,6 @@ import {
     rayVolumeTransmittanceReady,
     RayScene,
     nodes,
-    bindPoints,
     slot,
     StandardMaterial,
     Transform,
@@ -60,11 +59,9 @@ import type {
     BoundFlow,
     FlowTransitions,
     Frame,
-    PipelineDescriptor,
     SingletonSlot,
     SlotMap,
     TransitionContext,
-    WgslModule,
     StagingBufferSpec,
     StorageBufferSpec,
 } from 'clayflow/web';
@@ -94,11 +91,8 @@ import { lumaSrgb8 } from './support/images';
 import { lcg } from './support/random';
 import { queryRays, queryVolumeHits } from './support/volumeQuery';
 import { materialGraph } from './support/materialScenes';
-import {
-    composeHitMaterial,
-    rayHitMaterialPoint,
-    rayHitMaterialReady,
-} from '../elements/raytrace/hitMaterial';
+import { RayWave } from '../elements/raytrace/RayWave';
+import { rayWave } from '../elements/raytrace/wave/shaders';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -979,17 +973,33 @@ const closureOut = wgslResource({
 });
 const closureQuery = wgslModule({
     name: 'smoke_closure_query',
-    // O `ray_hit_material` na árvore, como em quem traça (sombreia os acertos das malhas): a composição das funções da
-    // cena vale também dentro da contribuição do campo.
+    // O material no acerto do volume pela onda dos acertos, como em quem traça (spec 039): o acerto e a referência do
+    // material dele (`ray_volume_surface`) gravados na onda, o material avaliado por classe, a leitura depois.
     requires: [
-        rayHitMaterialReady,
         rayVolumeHitReady,
         rayVolumeMaterial,
         rayVolumeTransmittanceReady,
         queryRays,
         closureOut,
+        rayWave,
     ],
     source: /* wgsl */ `
+@compute @workgroup_size(64)
+fn smoke_closure_hits_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
+    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0, -1);
+    let surface = ray_volume_surface(h);
+    let m = ray_volume_standard();
+    if (!h.hit || surface.index == 0u) {
+        ray_wave_put_shaded(i, ray_wave_hit(h.position, h.normal, vec2f(0.0), 0.0, 0.0, 0.0, m, 0u, RAY_WAVE_SHADED, i,
+            vec4f(0.0)), surface.closure);
+        return;
+    }
+    ray_wave_put_surface(i, surface.index, surface.slot, h.position, h.normal, vec2f(0.0), 0.0, 0.0, 0.0, m,
+        vec4f(0.0));
+}
+
 @compute @workgroup_size(64)
 fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
@@ -997,7 +1007,7 @@ fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let o = smoke_rays[i * 2u].xyz;
     let d = smoke_rays[i * 2u + 1u].xyz;
     let h = ray_volume_hit(o, d, 10.0, -1);
-    let c = ray_volume_closure(h, 0.0);
+    let c = ray_wave_entries[i].closure;
     // A saída do corpo: o acerto de dentro, a partir de 1 cm depois da entrada (perto da superfície o sinal de φ ainda
     // é o da faixa dela). A transmitância só até 2 cm depois da saída: o raio não chega ao outro corpo (a 30 cm).
     let start = h.position + d * 0.01;
@@ -1035,13 +1045,16 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
     pending = 0;
     revision = -1;
     functions = 0;
+    private readonly wave: RayWave;
 
     constructor(
+        core: Application['core'],
         rays: StorageBufferSpec,
         out: StorageBufferSpec,
         private readonly count: number,
     ) {
         super();
+        this.wave = new RayWave(core, 'smoke_closure');
         this.bindings = new Map([
             [queryRays, rays],
             [closureOut, out],
@@ -1058,23 +1071,29 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
                     run: (_e, c) => {
                         const scene = c.bound.slots.rays.resource as RayScene;
                         if (scene.materialRevision === this.revision) return;
+                        const first = this.revision < 0;
                         this.revision = scene.materialRevision;
-                        const fns = scene.materialFunctions;
-                        this.functions = fns.length;
-                        const shader: WgslModule =
-                            fns.length === 0
-                                ? closureQuery
-                                : bindPoints(
-                                      closureQuery,
-                                      new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]),
-                                  );
-                        const descriptor: PipelineDescriptor = {
-                            id: `closure:${this.revision}`,
-                            role: 'compute',
-                            shader,
-                            entryPoints: ['smoke_closure_query_main'],
-                        };
-                        c.prepare(descriptor);
+                        this.functions = scene.materialFunctions.length;
+                        const w = this.wave.ensure(
+                            this.count,
+                            scene.materialFunctions,
+                            scene.materialRevision,
+                        );
+                        if (w.bindings !== undefined) c.bind(w.bindings);
+                        for (const id of w.released) c.release(id);
+                        for (const d of w.pipelines) c.prepare(d);
+                        if (first) {
+                            for (const entry of [
+                                'smoke_closure_hits_main',
+                                'smoke_closure_query_main',
+                            ])
+                                c.prepare({
+                                    id: entry,
+                                    role: 'compute',
+                                    shader: closureQuery,
+                                    entryPoints: [entry],
+                                });
+                        }
                     },
                 },
             },
@@ -1083,17 +1102,30 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
 
     dispatch(frame: Frame, bound: BoundFlow): void {
         if (this.pending === 0) return;
-        const p = bound.pipelines.get(`closure:${this.revision}`);
-        if (p?.role !== 'compute' || !p.ready) return;
+        const hits = bound.pipelines.get('smoke_closure_hits_main');
+        const p = bound.pipelines.get('smoke_closure_query_main');
+        if (
+            hits?.role !== 'compute'
+            || !hits.ready
+            || p?.role !== 'compute'
+            || !p.ready
+            || !this.wave.ready(bound)
+            || !this.wave.shadeReady(bound)
+        )
+            return;
         frame.compute('smokeClosureQuery', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(hits.spec);
+            hits.bindTo(pass.bind);
+            pass.dispatch.invocations(this.count, 64);
+            this.wave.shade(pass, bound);
             pass.bind.setPipeline(p.spec);
             p.bindTo(pass.bind);
-            pass.dispatch.workgroups(Math.ceil(this.count / 64));
+            pass.dispatch.invocations(this.count, 64);
         });
         this.pending--;
     }
 }
-
 /** Fechamento esperado do grafo do corpo A na normal `n`: cor 0,5 + 0,25·n a 2 m, IOR 1,4. */
 const GRAPH_IOR = 1.4;
 const GRAPH_DEPTH = 2;
@@ -1182,7 +1214,7 @@ async function caseClosure(): Promise<void> {
         data.set([...ray.o, 0, ...ray.d, 0], i * 8);
     });
     s.app.core.write(raysBuf, data);
-    const query = new ClosureQueryFlow(raysBuf, outBuf, count);
+    const query = new ClosureQueryFlow(s.app.core, raysBuf, outBuf, count);
     s.app.flows.register(() => query, {
         type: 'smokeClosureQuery',
         phase: 'transform',

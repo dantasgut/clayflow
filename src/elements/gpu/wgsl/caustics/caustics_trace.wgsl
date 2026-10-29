@@ -4,7 +4,7 @@
 // material no centro delas, avaliado na onda dos acertos por `caustics_instances_main` e a caixa dos volumes atravessados por raios, a água), escolhidas pela área, a potência
 // dividida pelo número de projeções que cobrem o ponto; das pontuais em direções uniformes. O fóton segue pelo mesmo
 // acerto da refração (`refraction_scene_hit`: a malha ou a superfície de um volume) e o fechamento do grafo nele
-// (`refraction_hit_closure`): numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está
+// (avaliado na onda dos acertos): numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está
 // (o ar, ou a água) e o do outro lado — os três canais pelo mesmo caminho; numa interface com dispersão, um passe por
 // canal desde a fonte com o mesmo sorteio, o índice de cada um (sem ruído de cor: os três só se separam onde os índices
 // diferem); no metal liso reflete com a cor dele; os trechos atenuam pelos volumes (`ray_volume_transmittance`: a absorção dentro

@@ -14,7 +14,6 @@ import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wg
 import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
 import refractionWaveSource from '../../gpu/wgsl/refraction/refraction_wave.wgsl?raw';
-import refractionTraceSource from '../../gpu/wgsl/refraction/refraction_trace.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
 import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
 import refractionDenoiseSourceSource from '../../gpu/wgsl/refraction/refraction_denoise_source.wgsl?raw';
@@ -238,23 +237,6 @@ export const refractionPath = wgslModule({
         sceneEnvironmentReady,
         sceneIndirectLightingReady,
         R.frame,
-    ],
-});
-
-/** O traçado por pixel da fila. */
-export const refractionTrace = wgslModule({
-    name: 'refraction_trace',
-    source: refractionTraceSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        REFRACTION_FRAME_COUNT.module,
-        refractionParamsResource,
-        refractionPath,
-        R.queueIn,
-        R.frame,
-        R.radianceOut,
-        R.hitOut,
-        R.albedoOut,
     ],
 });
 
