@@ -215,3 +215,12 @@ os canais fechados): traçado 16,9 → 12,5 ms. **Com o critério: traçado 16,9
 glint 0,74 % (0,70 %), vagalumes 0,388 % (0,379 %); as demais regiões iguais ou dentro do ruído. As falhas do smoke
 (fila contra pedido, degraus da borda, custo da lente 23,3 ms, vagalumes, gi on 0,54 %) já estavam no `HEAD` (meia
 resolução, T106 pendente).
+
+## 039 refeita — um bloco da cadeia pela fila medida (2026-10-29)
+
+Rodada vazia: ~0,11 ms (acerto 0,03, sombreamento da onda 0,05, continuação 0,03); a cauda (rodadas 7–16) ~0,4–0,6 ms
+cada, a latência dos últimos caminhos. Cada bloco paga as 17 rodadas: o bloco fixo de 65 536 pixels dava 3 blocos no
+tanque (fila ~88 mil, mais um bloco vazio de folga). O bloco agora segue a fila medida (1,25 × a maior contagem, na
+potência de 2 acima; teto: a ligação de storage do adaptador) e sem bloco vazio: **traçado 13,9 → 12,6 ms** no tanque
+(um bloco de 131 072 pixels, 243 MB de vagas); smoke `refraction`: custo da lente 23,3 → 17,8 ms, as medidas de
+imagem iguais.

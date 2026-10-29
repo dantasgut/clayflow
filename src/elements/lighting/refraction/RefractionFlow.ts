@@ -99,8 +99,8 @@ const QUEUE_HISTORY = 30;
 const CHAIN_HEADER = 8;
 /** Vagas por pixel (`REFRACTION_CHAIN_SLOTS`). */
 const CHAIN_SLOTS = 4;
-/** Pixels por bloco no máximo (a memória das vagas e da onda: duas entradas por vaga). */
-const CHAIN_PIXELS = 1 << 16;
+/** Pixels do bloco antes de a fila ser lida (depois, o bloco segue a fila medida). */
+const CHAIN_PIXELS_FIRST = 1 << 16;
 
 /** Os buffers de um bloco. */
 interface ChainBuffers {
@@ -282,14 +282,14 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
 
     /**
      * Blocos do quadro: os que cobrem os pixels da fila medidos nos últimos quadros (a maior contagem lida, com folga de
-     * um quarto e mais um bloco: a fila cresce entre a leitura e o uso), no máximo os da tela inteira. Sem leitura ainda,
-     * a tela inteira. Os blocos vazios só pagam os despachos.
+     * um quarto: a fila cresce entre a leitura e o uso), no máximo os da tela inteira. Sem leitura ainda, a tela inteira.
+     * Um bloco vazio pagaria as rodadas inteiras (o custo fixo delas): nenhum além da folga.
      */
     private chunks(b: ChainBuffers): number {
         const all = Math.ceil(this.pixels / b.pixels);
         const seen = Math.max(0, ...this.queueSeen);
         if (this.queueSeen.length === 0) return all;
-        return Math.min(all, Math.ceil((1.25 * seen) / b.pixels) + 1);
+        return Math.max(1, Math.min(all, Math.ceil((1.25 * seen) / b.pixels)));
     }
 
     /**
@@ -426,20 +426,27 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     }
 
     /**
-     * As vagas de um bloco de pixels da fila (`CHAIN_SLOTS` por pixel; refeitas quando o bloco cresce): no máximo
-     * `CHAIN_PIXELS` pixels, o que uma ligação de storage comporta das vagas e da onda (duas entradas por vaga); os
-     * kernels da cadeia com esse tamanho.
+     * As vagas de um bloco de pixels da fila (`CHAIN_SLOTS` por pixel; refeitas quando o bloco cresce): a fila inteira
+     * num bloco só quando cabe — a maior contagem lida com folga de um quarto, na potência de 2 acima (cresce raramente)
+     * —, no máximo o que uma ligação de storage do adaptador comporta das vagas e da onda (duas entradas por vaga). Cada
+     * bloco paga as rodadas inteiras (o custo fixo delas e a latência dos últimos caminhos): um bloco por quadro paga uma
+     * vez só. Os kernels da cadeia com esse tamanho.
      */
     private syncPaths(c: Ctx): void {
         const limits = this.core.capabilities().limits;
         const binding =
             limits.maxStorageBufferBindingSize
-            ?? CHAIN_PIXELS * CHAIN_SLOTS * 2 * RayWaveEntrySchema.stride;
+            ?? CHAIN_PIXELS_FIRST * CHAIN_SLOTS * 2 * RayWaveEntrySchema.stride;
+        const seen = Math.max(0, ...this.queueSeen);
+        const wanted =
+            this.queueSeen.length === 0
+                ? CHAIN_PIXELS_FIRST
+                : 2 ** Math.ceil(Math.log2(Math.max(1, Math.ceil(1.25 * seen))));
         const pixels = Math.max(
             1,
             Math.min(
                 this.pixels,
-                CHAIN_PIXELS,
+                wanted,
                 Math.floor(binding / (CHAIN_SLOTS * RefractionChainSchema.stride)),
                 Math.floor(binding / (CHAIN_SLOTS * 2 * RayWaveEntrySchema.stride)),
             ),
