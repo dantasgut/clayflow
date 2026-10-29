@@ -5,6 +5,7 @@ import type {
     EngineCore,
     Frame,
     IndirectBufferSpec,
+    StagingBufferSpec,
     StorageBufferSpec,
 } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
@@ -92,6 +93,8 @@ type ChainKernel = (typeof CHAIN_KERNELS)[number];
  * (`Refraction.max_interfaces`, 16); a vaga que ainda segue depois conta como truncada.
  */
 const CHAIN_ROUNDS = 17;
+/** Contagens da fila lidas guardadas (a maior delas dimensiona os blocos). */
+const QUEUE_HISTORY = 30;
 /** Palavras do cabeçalho da cadeia (`REFRACTION_CHAIN_HEADER`). */
 const CHAIN_HEADER = 8;
 /** Vagas por pixel (`REFRACTION_CHAIN_SLOTS`). */
@@ -135,6 +138,10 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private readonly wave: RayWave;
     private readonly core: EngineCore;
     private paths: ChainBuffers | undefined;
+    /** As contagens da fila lidas de volta (as últimas) e a leitura em voo. */
+    private readonly queueSeen: number[] = [];
+    private queueReading = false;
+    private queueStaging: StagingBufferSpec | undefined;
     /** Os kernels da cadeia a preparar (o bloco mudou). */
     private chainPending = false;
     private prepared = false;
@@ -217,6 +224,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             index: 0,
             workgroupSize: WORKGROUP_SIZE.value,
         });
+        this.measureQueue(frame, count);
         const b = this.paths;
         if (!this.tracing || b === undefined || !this.waveReady(bound)) return;
         type Compute = ReturnType<BoundFlow['compute']>;
@@ -231,7 +239,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         const gradient =
             this.gradient === undefined ? undefined : bound.pipelines.get(this.gradient);
         const measures = gradient?.role === 'compute' && gradient.ready;
-        const chunks = Math.ceil(this.pixels / b.pixels);
+        const chunks = this.chunks(b);
         frame.compute('RefractionFlow.trace', (pass) => {
             this.wave.reset(pass, bound);
             bind(pass, at(CAMERA_HITS));
@@ -272,11 +280,57 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.frame++;
     }
 
+    /**
+     * Blocos do quadro: os que cobrem os pixels da fila medidos nos últimos quadros (a maior contagem lida, com folga de
+     * um quarto e mais um bloco: a fila cresce entre a leitura e o uso), no máximo os da tela inteira. Sem leitura ainda,
+     * a tela inteira. Os blocos vazios só pagam os despachos.
+     */
+    private chunks(b: ChainBuffers): number {
+        const all = Math.ceil(this.pixels / b.pixels);
+        const seen = Math.max(0, ...this.queueSeen);
+        if (this.queueSeen.length === 0) return all;
+        return Math.min(all, Math.ceil((1.25 * seen) / b.pixels) + 1);
+    }
+
+    /**
+     * Copia a contagem da fila do quadro para a leitura de volta (uma em voo por vez) e a lê depois do envio, sem
+     * bloquear o quadro; guarda as últimas `QUEUE_HISTORY`.
+     */
+    private measureQueue(frame: Frame, count: IndirectBufferSpec): void {
+        if (this.queueReading) return;
+        this.queueStaging ??= this.core.create<StagingBufferSpec>({
+            kind: 'buffer',
+            subkind: 'staging',
+            discriminator: 'refraction_queue_count_staging',
+            byteSize: 4,
+        });
+        const staging = this.queueStaging;
+        frame.copy(count, staging, 4);
+        this.queueReading = true;
+        // Depois do envio do quadro (a cópia precisa estar na fila antes do mapeamento).
+        setTimeout(() => {
+            this.core
+                .readback(staging)
+                .then((data) => {
+                    this.queueSeen.push(new Uint32Array(data)[0] ?? 0);
+                    if (this.queueSeen.length > QUEUE_HISTORY) this.queueSeen.shift();
+                })
+                .catch(() => {
+                    /* device perdido ou cena descartada: a leitura é descartada */
+                })
+                .finally(() => {
+                    this.queueReading = false;
+                });
+        }, 0);
+    }
+
     /** Libera os kernels da contagem. */
     override dispose(): void {
         this.countToArgs.destroy();
         this.wave.destroy();
         this.releasePaths();
+        if (this.queueStaging !== undefined) this.core.destroy(this.queueStaging);
+        this.queueStaging = undefined;
     }
 
     /** Os kernels da fila prontos. */
