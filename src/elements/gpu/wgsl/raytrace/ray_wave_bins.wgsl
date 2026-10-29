@@ -5,7 +5,7 @@
 // classe (a ordem dentro da classe não importa: cada kernel de material grava no índice do próprio registro); e
 // `ray_wave_reset_main` zera as contagens antes da rodada. Os despachos dividem os grupos em x/y como
 // `Dispatcher.invocations` (`RAY_WAVE_MAX_X` grupos por dimensão).
-// Requer: WORKGROUP_SIZE, RayWaveHit, ray_wave_hits_in, ray_wave_counts, ray_wave_ranges, ray_wave_ranges_out,
+// Requer: WORKGROUP_SIZE, RayWaveHit, RayWaveEntry, ray_wave_entries_in, ray_wave_counts, ray_wave_ranges, ray_wave_ranges_out,
 // ray_wave_order_out, ray_wave_args.
 
 /** Grupos por dimensão do despacho (o limite do dispositivo). */
@@ -51,9 +51,11 @@ fn ray_wave_scan_main() {
 fn ray_wave_scatter_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (i >= atomicLoad(&ray_wave_counts[0])) { return; }
-    let cls = ray_wave_hits_in[i].cls;
+    let cls = ray_wave_entries_in[i].hit.cls;
     let classes = arrayLength(&ray_wave_ranges);
     if (cls >= classes) { return; }
     let k = atomicAdd(&ray_wave_counts[1u + classes + cls], 1u);
-    ray_wave_order_out[ray_wave_ranges[cls].x + k] = i;
+    let range = ray_wave_ranges[cls];
+    if (k >= range.y) { return; }
+    ray_wave_order_out[range.x + k] = i;
 }

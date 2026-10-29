@@ -32,7 +32,7 @@ usuário.
 
 ## Phase 1: Setup — a linha de base
 
-- [ ] T001 Registrar em `specs/039-tracado-em-ondas/baseline.md`:
+- [x] T001 Registrar em `specs/039-tracado-em-ondas/baseline.md`:
   - a contagem de testes, o tsc e o lint;
   - para `nodeGraphs`, `caustics`, `globalIllumination`, `refraction` e `fluidSurface`: a situação e os números no Chrome;
   - os tempos atuais de GI, cáusticas e refração (o custo da lente).
@@ -48,34 +48,34 @@ usuário.
 
 ### Testes primeiro
 
-- [ ] T003 [P] Teste de ida e volta do `closure_pack`/`closure_unpack` em `src/elements/material/pbr/__tests__/closurePack.test.ts`: a ordem dos 67 campos contra o struct `Closure` e o arredondamento f16 contra a referência da CPU.
-- [ ] T004 [P] Testes de composição do material nos acertos em `src/elements/raytrace/__tests__/hitShade.test.ts`:
+- [x] T003 [P] Teste de ida e volta do `closure_pack`/`closure_unpack` em `src/elements/material/pbr/__tests__/closurePack.test.ts`: a ordem dos 67 campos contra o struct `Closure` e o arredondamento f16 contra a referência da CPU.
+- [x] T004 [P] Testes de composição do material nos acertos em `src/elements/raytrace/__tests__/hitShade.test.ts`:
   - um kernel por módulo `composite`, com exatamente um `material_fn_`;
   - as constantes;
   - os volumes;
   - sem laço;
   - a classe por uniforme no das constantes.
-- [ ] T005 [P] Testes da `RayWave` em `src/elements/raytrace/__tests__/RayWave.test.ts`: capacidade pelos limites, número de classes, realocação e evento.
+- [x] T005 [P] Testes da `RayWave` em `src/elements/raytrace/__tests__/RayWave.test.ts`: capacidade pelos limites, número de classes, realocação e evento.
 
 ### Implementação
 
-- [ ] T006 `closure_pack`/`closure_unpack` em `src/elements/gpu/wgsl/math/closure.wgsl` (R2), com a referência da CPU em `src/elements/material/pbr/reference/`.
-- [ ] T007 Schemas `RayHitRecord` e `RayHitSurface` e o Resource `RayWave` em `src/elements/raytrace/RayWave.ts` (data-model), mais os módulos WGSL em `src/elements/gpu/wgsl/raytrace/ray_wave.wgsl`:
+- [x] T006 `closure_pack`/`closure_unpack` em `src/elements/gpu/wgsl/math/closure.wgsl` (R2), com a referência da CPU em `src/elements/material/pbr/reference/`.
+- [x] T007 Schemas `RayHitRecord` e `RayHitSurface` e o Resource `RayWave` em `src/elements/raytrace/RayWave.ts` (data-model), mais os módulos WGSL em `src/elements/gpu/wgsl/raytrace/ray_wave.wgsl`:
   - leitura e escrita do registro;
   - contagem por classe;
   - `ray_wave_record` a partir do acerto (a montagem que saía de `ray_hit_surface`).
-- [ ] T008 Separação em `src/elements/gpu/wgsl/raytrace/ray_wave_bins.wgsl`:
+- [x] T008 Separação em `src/elements/gpu/wgsl/raytrace/ray_wave_bins.wgsl`:
   - `ray_wave_scan_main`: um grupo, offsets e argumentos indiretos no formato do `CountToArgs`;
   - `ray_wave_scatter_main`: cursor atômico por classe;
   - `ray_wave_reset_main`.
-- [ ] T009 Geração dos kernels de material em `src/elements/raytrace/hitShade.ts`: `hit_shade_<hash>_main` por `RayMaterialFunction`, o das constantes e o dos volumes (contracts/ray-wave.md).
+- [x] T009 Geração dos kernels de material em `src/elements/raytrace/hitShade.ts`: `hit_shade_<hash>_main` por `RayMaterialFunction`, o das constantes e o dos volumes (contracts/ray-wave.md).
 - [ ] T010 Resource `RayHitShading` e `RayHitShadingFlow` em `src/elements/raytrace/RayHitShadingFlow.ts`:
   - escuta a `materialRevision`;
   - declara os pipelines de forma assíncrona;
   - publica os prontos e emite `rayHitShadingChanged`.
   - Registro no barrel e na ordem dos Flows.
-- [ ] T011 A sequência de uma rodada como descriptor reutilizável pelos consumidores (reset, avanço do consumidor, separação, material por classe com o substituto) em `src/elements/raytrace/RayWave.ts`. São passes declarados, não helper.
-- [ ] T012 Gate: lint, tsc e testes.
+- [x] T011 A sequência de uma rodada como descriptor reutilizável pelos consumidores (reset, avanço do consumidor, separação, material por classe com o substituto) em `src/elements/raytrace/RayWave.ts`. São passes declarados, não helper.
+- [x] T012 Gate: lint, tsc e testes.
 
 ---
 
@@ -88,17 +88,17 @@ usuário.
 
 ### Cáusticas por instância (primeiro consumidor)
 
-- [ ] T013 [US1] `caustics_instances_main` em `src/elements/gpu/wgsl/caustics/caustics_trace.wgsl` vira três kernels:
+- [x] T013 [US1] `caustics_instances_main` em `src/elements/gpu/wgsl/caustics/caustics_trace.wgsl` vira três kernels:
   - o registro sintético do centro da BLAS;
   - o material na onda;
   - `caustics_instances_flag_main`, que aplica `caustics_capable` sobre `closure_unpack`.
   - `CausticsFlow` com a rodada. Teste em `Caustics.test.ts`.
-- [ ] T014 [US1] Smoke `caustics` no Chrome (uma execução).
+- [x] T014 [US1] Smoke `caustics` no Chrome (uma execução).
 
 ### GI
 
-- [ ] T015 [US1] `gi_probe_trace_main` e `gi_screen_trace_main` divididos em traçado (grava o registro) e continuação (`gi_shade_direct` + rebotes com `closure_indirect` sobre o fechamento desempacotado), em `src/elements/gpu/wgsl/gi/`. Rodada no `ProbeFlow.ts`; testes em `GlobalIllumination.test.ts`.
-- [ ] T016 [US1] Smoke `globalIllumination` no Chrome.
+- [x] T015 [US1] `gi_probe_trace_main` e `gi_screen_trace_main` divididos em traçado (grava o registro) e continuação (`gi_shade_direct` + rebotes com `closure_indirect` sobre o fechamento desempacotado), em `src/elements/gpu/wgsl/gi/`. Rodada no `ProbeFlow.ts`; testes em `GlobalIllumination.test.ts`.
+- [x] T016 [US1] Smoke `globalIllumination` no Chrome.
 
 ### Cáusticas, fótons
 

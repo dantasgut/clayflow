@@ -4,7 +4,12 @@ import { closure } from '../material/pbr/shaders';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
 import type { RayMaterialFunction } from './RayScene';
-import { RayWaveHitSchema, rayWaveRead, rayWaveResources as W } from './wave/shaders';
+import {
+    RayWaveEntrySchema,
+    RayWaveHitSchema,
+    rayWaveRead,
+    rayWaveResources as W,
+} from './wave/shaders';
 
 // O material nos acertos fora do traçado (spec 039, R4): um kernel por função `material` da estrutura de raios — gerado
 // do mesmo módulo `composite` que o desenho usa, uma só função por kernel — e o das constantes do `StandardMaterial`.
@@ -32,13 +37,12 @@ function hitShadeKernel(
             materialPointTypes,
             closure,
             rayWaveRead,
-            W.hitsIn,
+            W.entries,
             W.ranges,
             W.order,
-            W.surfaces,
             ...requires,
         ],
-        structs: [StandardMaterialSchema, RayWaveHitSchema],
+        structs: [StandardMaterialSchema, RayWaveHitSchema, RayWaveEntrySchema],
         source: [
             `// Material nos acertos de uma classe da onda (gerado; spec 039, R4).`,
             `override ${RAY_WAVE_CLASS}: u32 = 0u;`,
@@ -49,10 +53,10 @@ function hitShadeKernel(
             `    let range = ray_wave_ranges[${RAY_WAVE_CLASS}];`,
             '    if (k >= range.y) { return; }',
             '    let i = ray_wave_order[range.x + k];',
-            '    let h = ray_wave_hits_in[i];',
+            '    let h = ray_wave_entries[i].hit;',
             '    let s = ray_wave_sample(h);',
             '    let m = ray_wave_standard(h);',
-            `    ray_wave_surfaces[i] = closure_sanitize(${evaluate});`,
+            `    ray_wave_entries[i].closure = closure_sanitize(${evaluate});`,
             '}',
         ].join('\n'),
     });

@@ -8,11 +8,10 @@ import type {
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
-import { ClosureSchema } from '../material/pbr/ClosureSchema';
 import type { RayMaterialFunction } from './RayScene';
 import { HIT_SHADE_ENTRY, RAY_WAVE_CLASS, hitShade, hitShadeConstants } from './hitShade';
 import {
-    RayWaveHitSchema,
+    RayWaveEntrySchema,
     rayWaveArgsWords,
     rayWaveBins,
     rayWaveClassArgsOffset,
@@ -23,8 +22,7 @@ import {
 
 /** Os buffers de uma onda. */
 interface WaveBuffers {
-    readonly hits: StorageBufferSpec;
-    readonly surfaces: StorageBufferSpec;
+    readonly entries: StorageBufferSpec;
     readonly counts: StorageBufferSpec;
     readonly ranges: StorageBufferSpec;
     readonly order: StorageBufferSpec;
@@ -119,9 +117,8 @@ export class RayWave {
             this.buffers = this.allocate(this.capacityValue, this.classesValue);
             const b = this.buffers;
             bindings = new Map<WgslResource, BindingSource>([
-                [R.hits, b.hits],
-                [R.hitsIn, b.hits],
-                [R.surfaces, b.surfaces],
+                [R.entries, b.entries],
+                [R.entriesIn, b.entries],
                 [R.counts, b.counts],
                 [R.ranges, b.ranges],
                 [R.rangesOut, b.ranges],
@@ -188,6 +185,15 @@ export class RayWave {
         });
     }
 
+    /** Os kernels de material de todas as classes prontos (nenhuma no substituto das constantes). */
+    shadeReady(bound: BoundFlow): boolean {
+        for (let k = 0; k < this.functions.length; k++) {
+            const p = bound.pipelines.get(this.shadeId(k));
+            if (p?.role !== 'compute' || !p.ready) return false;
+        }
+        return true;
+    }
+
     /** Zera as contagens (antes do traçado da rodada). */
     reset(pass: ComputePass, bound: BoundFlow): void {
         const p = bound.pipelines.get(this.resetId) as Compute;
@@ -227,8 +233,7 @@ export class RayWave {
     destroy(): void {
         const b = this.buffers;
         if (b === undefined) return;
-        for (const s of [b.hits, b.surfaces, b.counts, b.ranges, b.order, b.args])
-            this.core.destroy(s);
+        for (const s of [b.entries, b.counts, b.ranges, b.order, b.args]) this.core.destroy(s);
         this.buffers = undefined;
     }
 
@@ -241,8 +246,7 @@ export class RayWave {
                 byteSize,
             });
         return {
-            hits: storage('ray_wave_hits', capacity * RayWaveHitSchema.stride),
-            surfaces: storage('ray_wave_surfaces', capacity * ClosureSchema.stride),
+            entries: storage('ray_wave', capacity * RayWaveEntrySchema.stride),
             counts: storage('ray_wave_counts', rayWaveCountWords(classes) * 4),
             ranges: storage('ray_wave_ranges', classes * 8),
             order: storage('ray_wave_order', capacity * 4),

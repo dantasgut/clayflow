@@ -53,7 +53,7 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(trace).not.toContain('fn caustics_instances_main(');
         const instances = composeWgsl(causticsInstances).spec.source;
         expect(instances).toContain('ray_wave_put_surface(k, inst.ids.w & 0xFFFFu');
-        expect(instances).toContain('caustics_capable(ray_wave_surfaces[k])');
+        expect(instances).toContain('caustics_capable(ray_wave_entries[k].closure)');
         expect(instances).not.toMatch(/\bray_hit_material\(|\bmaterial_fn_/);
         expect(instances.slice(instances.indexOf('fn caustics_instances_main('))).not.toMatch(
             /\b(for|loop|while)\b/,

@@ -10,6 +10,7 @@ import { ClosureSchema } from '../../material/pbr/ClosureSchema';
 import type { RayMaterialFunction } from '../RayScene';
 import { HIT_SHADE_ENTRY, RAY_WAVE_CLASS, hitShade, hitShadeConstants } from '../hitShade';
 import {
+    RayWaveEntrySchema,
     RayWaveHitSchema,
     rayWave,
     rayWaveArgsWords,
@@ -37,7 +38,7 @@ describe('onda dos acertos (spec 039)', () => {
         expect(source).toContain(`override ${RAY_WAVE_CLASS}: u32`);
         const entry = source.slice(source.indexOf(`fn ${HIT_SHADE_ENTRY}(`));
         expect(entry).not.toMatch(/\b(for|loop|while|switch)\b/);
-        expect(entry).toContain('ray_wave_surfaces[i] = closure_sanitize(');
+        expect(entry).toContain('ray_wave_entries[i].closure = closure_sanitize(');
     });
 
     it('funções diferentes: kernels diferentes; a mesma função: o mesmo kernel', () => {
@@ -73,9 +74,10 @@ describe('onda dos acertos (spec 039)', () => {
         expect(rayWaveScatterArgsOffset(3)).toBe(36);
     });
 
-    it('layout: o registro em 80 B e o fechamento pelo schema', () => {
-        expect(RayWaveHitSchema.stride).toBe(80);
+    it('layout: o registro em 96 B e o fechamento pelo schema', () => {
+        expect(RayWaveHitSchema.stride).toBe(96);
         // O fechamento em storage: 67 floats com o alinhamento de 16 B dos vec3f.
         expect(ClosureSchema.stride).toBe(368);
+        expect(RayWaveEntrySchema.stride).toBe(464);
     });
 });

@@ -90,7 +90,9 @@ async function giReady(app: Application, ready: { revision: number; at: number }
     const limit = performance.now() + 120000;
     while (ready.revision < 0 || performance.now() - ready.at < 1000) {
         if (performance.now() > limit)
-            throw new Error('a iluminação global não ficou pronta em 120 s');
+            throw new Error(
+                `a iluminação global não ficou pronta em 120 s${engineErrors.length > 0 ? ` (${engineErrors.join(' | ')})` : ''}`,
+            );
         await settle(app, 100);
     }
 }

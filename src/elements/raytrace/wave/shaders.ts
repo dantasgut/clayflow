@@ -1,5 +1,5 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
-import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { StructSchema, fieldStruct } from '../../../scene/descriptors/StructSchema';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
@@ -17,9 +17,10 @@ import rayWaveBinsSource from '../../gpu/wgsl/raytrace/ray_wave_bins.wgsl?raw';
 // fechamento no mesmo índice; quem traça segue o raio pela superfície na rodada seguinte.
 
 /**
- * O registro de um acerto na onda (80 B): o que o material precisa no ponto atingido — a amostra de superfície (ponto,
+ * O registro de um acerto na onda (96 B): o que o material precisa no ponto atingido — a amostra de superfície (ponto,
  * normal, uv, tempo simulado, largura do cone e a derivada isotrópica do uv), as constantes do `StandardMaterial`, o slot
- * dos parâmetros da função, a classe e o índice do raio de quem traça.
+ * dos parâmetros da função, a classe e o índice do raio de quem traça — e a carga de quem traça (`payload`: o que ele
+ * guarda do raio entre o traçado e a continuação, também nos índices sem acerto).
  */
 export const RayWaveHitSchema = new StructSchema('RayWaveHit', {
     position: FieldType.vec3f,
@@ -34,6 +35,7 @@ export const RayWaveHitSchema = new StructSchema('RayWaveHit', {
     slot: FieldType.u32,
     cls: FieldType.u32,
     ray: FieldType.u32,
+    payload: FieldType.vec4f,
 });
 
 /** Palavras de contagem da onda para `classes` classes: os registros, a contagem e o cursor de cada classe. */
@@ -56,28 +58,30 @@ export function rayWaveScatterArgsOffset(classes: number): number {
     return classes * 12;
 }
 
+/**
+ * Uma entrada da onda: o registro do acerto e o fechamento avaliado nele, no mesmo índice (um buffer só: cada kernel de
+ * quem traça liga uma ligação de storage, não duas).
+ */
+export const RayWaveEntrySchema = new StructSchema('RayWaveEntry', {
+    hit: fieldStruct(RayWaveHitSchema),
+    closure: fieldStruct(ClosureSchema),
+});
+
 /** Recursos da onda (privados de quem traça: cada Flow liga os seus buffers). */
 export const rayWaveResources = Object.freeze({
-    /** Os registros (quem traça grava; a separação e os kernels de material leem por `hitsIn`). */
-    hits: wgslResource({
-        name: 'ray_wave_hits',
+    /** As entradas (quem traça grava o registro; os kernels de material, o fechamento; quem traça os lê). */
+    entries: wgslResource({
+        name: 'ray_wave_entries',
         binding: { storage: 'read_write' },
-        type: { schema: RayWaveHitSchema, array: true },
+        type: { schema: RayWaveEntrySchema, array: true },
         frequency: 'stage',
         provider: 'private',
     }),
-    hitsIn: wgslResource({
-        name: 'ray_wave_hits_in',
+    /** As entradas em leitura (o espalhamento). */
+    entriesIn: wgslResource({
+        name: 'ray_wave_entries_in',
         binding: { storage: 'read' },
-        type: { schema: RayWaveHitSchema, array: true },
-        frequency: 'stage',
-        provider: 'private',
-    }),
-    /** O fechamento de cada registro (os kernels de material gravam; quem traça lê e grava as constantes). */
-    surfaces: wgslResource({
-        name: 'ray_wave_surfaces',
-        binding: { storage: 'read_write' },
-        type: { schema: ClosureSchema, array: true },
+        type: { schema: RayWaveEntrySchema, array: true },
         frequency: 'stage',
         provider: 'private',
     }),
@@ -135,8 +139,8 @@ const W = rayWaveResources;
 export const rayWave = wgslModule({
     name: 'ray_wave',
     source: rayWaveSource,
-    requires: [NONE.module, materialPointTypes, closure, W.hits, W.surfaces, W.counts],
-    structs: [StandardMaterialSchema, RayWaveHitSchema],
+    requires: [NONE.module, materialPointTypes, closure, W.entries, W.counts],
+    structs: [StandardMaterialSchema, RayWaveHitSchema, RayWaveEntrySchema],
 });
 
 /** Ler um registro como amostra de superfície e constantes (os kernels de material). */
@@ -153,12 +157,12 @@ export const rayWaveBins = wgslModule({
     source: rayWaveBinsSource,
     requires: [
         WORKGROUP_SIZE.module,
-        W.hitsIn,
+        W.entriesIn,
         W.counts,
         W.ranges,
         W.rangesOut,
         W.orderOut,
         W.args,
     ],
-    structs: [RayWaveHitSchema],
+    structs: [RayWaveHitSchema, RayWaveEntrySchema],
 });
