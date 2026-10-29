@@ -111,6 +111,17 @@ export const rayVolumeOccupiedReady = wgslModule({
 }`,
 });
 
+/**
+ * `fn ray_volume_begin()` — o começo do trabalho de um raio (spec 039 refeita): quem traça o chama antes de cada raio de
+ * um laço em passo de grade (uma invocação traça vários), e cada volume renova o próprio orçamento de passos — o teto é
+ * por raio, não dividido entre os raios da invocação; pronto: nada.
+ */
+export const rayVolumeBeginReady = wgslModule({
+    name: 'ray_volume_begin_ready',
+    source: `fn ray_volume_begin() {
+}`,
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -169,6 +180,23 @@ ${modules
     )
     .join('\n')}
     return array<vec3f, 2>(lo, hi);
+}`,
+            }),
+        ),
+};
+
+/** O começo do trabalho de um raio: o de cada contribuinte. */
+export const rayVolumeBeginPoint: ContributionPoint = {
+    name: 'ray_volume_begin',
+    ready: rayVolumeBeginReady,
+    functionName: 'ray_volume_begin',
+    combine: (modules) =>
+        memo(`rvbg:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_begin:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_volume_begin() {
+${modules.map((_, k) => `    ray_volume_begin_${k}();`).join('\n')}
 }`,
             }),
         ),

@@ -12,7 +12,7 @@
 // Cabeçalho (`refraction_path_queue`): [0] os pixels da fila no quadro; [1] o primeiro pixel do bloco corrente; [2] a
 // lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
-// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
+// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
 // refraction_hit_out, refraction_albedo_out.
 
 /** Vagas por pixel. */
@@ -201,6 +201,7 @@ fn refraction_chain_roots_main(@builtin(global_invocation_id) gid: vec3u, @built
 
 /** O acerto seguinte da vaga da posição `j` da lista e a dielétrica coincidente, na onda (entradas 2j e 2j + 1). */
 fn refraction_chain_hit_one(j: u32) {
+    ray_volume_begin();
     let s = refraction_chain_at(j);
     let origin = refraction_paths[s].origin;
     let dir = refraction_paths[s].dir;
@@ -270,6 +271,7 @@ fn refraction_chain_disperse(p: RefractionChainState, s: u32, n: RefractionNode,
 
 /** A continuação da vaga da posição `j` da lista: o nó do acerto pelos fechamentos da onda e o passo. */
 fn refraction_chain_follow_one(j: u32) {
+    ray_volume_begin();
     let s = refraction_chain_at(j);
     var p = refraction_paths[s];
     var state = p.state;

@@ -15,6 +15,7 @@ import {
     rayVolumeSurfacePoint,
     rayVolumeBoundsPoint,
     rayVolumeHitPoint,
+    rayVolumeBeginPoint,
     rayVolumeOccupiedPoint,
     rayVolumeTransmittancePoint,
 } from '../../raytrace/points';
@@ -100,7 +101,7 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, ray_volume_bounds, ray_volume_occupied e light_transmission', () => {
+    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, ray_volume_bounds, ray_volume_occupied, light_transmission e ray_volume_begin', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
@@ -111,6 +112,7 @@ describe('FluidField (spec 033, R11)', () => {
             rayVolumeBoundsPoint,
             rayVolumeOccupiedPoint,
             lightTransmissionPoint,
+            rayVolumeBeginPoint,
         ]);
         // A mesma ordem nos três: o `source` do acerto é a posição do contribuinte no ponto.
         expect(new Set(contributions.map((c) => c.order)).size).toBe(1);

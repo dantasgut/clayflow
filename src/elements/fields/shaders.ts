@@ -414,6 +414,13 @@ export const fieldRayTransmittance = wgslModule({
     requires: [fields, rayVolumeTypes, rayVolumeMaterial, fieldSurface],
 });
 
+/** Contribuição do campo ao ponto `ray_volume_begin`: o orçamento de passos da marcha renovado a cada raio. */
+export const fieldRayBegin = wgslModule({
+    name: 'field_ray_begin',
+    source: 'fn ray_volume_begin() {\n    field_steps_left = FIELD_STEP_BUDGET;\n}',
+    requires: [fields],
+});
+
 /** Contribuição do campo ao ponto `ray_volume_bounds`: a caixa dele (spec 034, T067c: um alvo dos fótons). */
 export const fieldRayBounds = wgslModule({
     name: 'field_ray_bounds',

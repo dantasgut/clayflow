@@ -40,6 +40,7 @@ import { rayWave } from '../../raytrace/wave/shaders';
 import { fieldResources } from '../../fields/shaders';
 import { RefractionMediumSchema, RefractionChainSchema, RefractionStackSchema } from './schemas';
 import {
+    rayVolumeBeginReady,
     rayVolumeHitReady,
     rayVolumeMaterial,
     rayVolumeSurfaceReady,
@@ -253,6 +254,7 @@ export const refractionChain = wgslModule({
         REFRACTION_REQUEST_VALID.module,
         R.request,
         refractionBlock,
+        rayVolumeBeginReady,
         NONE.module,
         REFRACTION_FRAME_COUNT.module,
         refractionParamsResource,

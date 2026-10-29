@@ -6,6 +6,7 @@ import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayHit, rayScene } from '../../raytrace/shaders';
 import { rayWave } from '../../raytrace/wave/shaders';
 import {
+    rayVolumeBeginReady,
     rayVolumeBoundsReady,
     rayVolumeOccupiedReady,
     rayVolumeTransmittanceReady,
@@ -172,6 +173,7 @@ export const causticsTrace = wgslModule({
         refractionScene,
         rayVolumeTransmittanceReady,
         rayVolumeBoundsReady,
+        rayVolumeBeginReady,
         rayVolumeOccupiedReady,
     ],
 });

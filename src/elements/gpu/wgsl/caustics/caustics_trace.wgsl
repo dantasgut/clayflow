@@ -400,6 +400,7 @@ fn caustics_chunk_photon(j: u32) -> u32 {
  * (o lado da face, se é volume); a vazão atenuada pelos volumes do trecho. O que escapa sai da fila.
  */
 fn caustics_photon_hit_one(j: u32) {
+    ray_volume_begin();
     let slot = caustics_chunk_photon(j);
     if (slot == NONE) { return; }
     let ph = caustics_photons[slot];
@@ -480,6 +481,7 @@ const CAUSTICS_STOPPED: u32 = 4u;
  * canal 0 fica no fóton e os outros dois em extras alocados na fila.
  */
 fn caustics_photon_follow_one(j: u32) {
+    ray_volume_begin();
     let slot = caustics_chunk_photon(j);
     if (slot == NONE) { return; }
     let e = ray_wave_entries[j];
