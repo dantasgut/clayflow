@@ -24,7 +24,9 @@ export const RefractionStackSchema = new StructSchema('RefractionStack', {
  * O estado de uma vaga da refração com trabalho fixo por pixel (spec 039 refeita, D1): o pixel (`NONE` vaga vazia), se
  * segue viva, o canal (−1 os três), o lado quanto aos volumes, o raio seguinte, as interfaces, o peso desde a câmera, o
  * estado do sorteio, as marcas e os passos; a luz somada, a energia truncada, a parte em movimento, o fim e o albedo
- * nele; o acerto traçado na rodada (e a dielétrica coincidente) e a pilha de meios.
+ * nele; o acerto traçado na rodada (e a dielétrica coincidente); o ângulo do pixel e a distância percorrida desde a
+ * câmera; a dispersão adiada (o ponto e o lado da interface, as direções do vermelho e do azul e o peso dos canais ali);
+ * e a pilha de meios.
  */
 export const RefractionChainSchema = new StructSchema('RefractionChainState', {
     pixel: FieldType.u32,
@@ -52,7 +54,15 @@ export const RefractionChainSchema = new StructSchema('RefractionChainState', {
     hit_primitive: FieldType.u32,
     other_instance: FieldType.u32,
     other_face: FieldType.f32,
-    pad0: FieldType.u32,
-    pad1: FieldType.u32,
+    spread: FieldType.f32,
+    travelled: FieldType.f32,
+    split_origin: FieldType.vec3f,
+    split_side: FieldType.i32,
+    split_red: FieldType.vec3f,
+    split_pad0: FieldType.u32,
+    split_blue: FieldType.vec3f,
+    split_pad1: FieldType.u32,
+    split_weight: FieldType.vec3f,
+    split_pad2: FieldType.u32,
     stack: fieldStruct(RefractionStackSchema),
 });

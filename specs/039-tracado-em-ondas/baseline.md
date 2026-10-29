@@ -203,3 +203,15 @@ Correção da conclusão acima: a marcha **não** domina. A marcha da água roda
   1 919 → … → ~100–800 nas rodadas 10–16. A dispersão da água abre os 3 canais em quase todo pixel na primeira
   interface (3,8 vagas por pixel na rodada 1); a cauda são poucas centenas de caminhos (reflexão interna total na água),
   e cada rodada custa a latência do raio mais longo (~0,3 ms), não o número de caminhos.
+
+## 039 refeita — a dispersão adiada (2026-10-29)
+
+Na interface dispersiva, a vaga da transmissão segue com os três canais na direção do verde; no acerto seguinte, se
+ele é o fim do caminho e a separação do vermelho ao azul (o ângulo entre eles vezes a distância) fica abaixo do pixel
+(o ângulo do pixel vezes a distância desde a câmera), o caminho único vale; senão (separação maior, ou outra interface
+adiante, que amplificaria a divergência) o vermelho e o azul partem da interface nas vagas deles. Teto medido (todos
+os canais fechados): traçado 16,9 → 12,5 ms. **Com o critério: traçado 16,9 → 13,9 ms** no tanque. Smoke
+`refraction` contra o `HEAD` anterior, com a GPU só para ele: dispersed 0,90 % (0,86 %), prism 0,30 % (0,30 %),
+glint 0,74 % (0,70 %), vagalumes 0,388 % (0,379 %); as demais regiões iguais ou dentro do ruído. As falhas do smoke
+(fila contra pedido, degraus da borda, custo da lente 23,3 ms, vagalumes, gi on 0,54 %) já estavam no `HEAD` (meia
+resolução, T106 pendente).

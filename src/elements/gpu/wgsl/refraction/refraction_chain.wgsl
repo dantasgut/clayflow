@@ -23,6 +23,8 @@ const REFRACTION_SLOT_MAIN: u32 = 1u;
 /** Marcas do estado: o caminho tocou algo em movimento; o caminho ainda está na primeira interface (a da câmera). */
 const REFRACTION_CHAIN_MOVED: u32 = 1u;
 const REFRACTION_CHAIN_CAMERA: u32 = 2u;
+/** A dispersão adiada: os canais seguem juntos no verde desde a última interface, até o acerto dizer se se separaram. */
+const REFRACTION_CHAIN_SPLIT: u32 = 4u;
 
 /** Pixels por bloco (as vagas e a onda de um bloco). */
 override REFRACTION_CHAIN_PIXELS: u32 = 65536u;
@@ -111,9 +113,10 @@ fn refraction_chain_continue(p0: RefractionChainState, n: RefractionNode, dir: v
     p.weight *= w;
     p.dir = dir;
     p.stack = stack;
+    p.travelled += distance(p0.origin, n.p);
     p.origin = refraction_departure(n.p, n.nf, dir);
     p.side = refraction_side_after(n, dir);
-    p.flags &= ~REFRACTION_CHAIN_CAMERA;
+    p.flags &= ~(REFRACTION_CHAIN_CAMERA | REFRACTION_CHAIN_SPLIT);
     return p;
 }
 
@@ -184,6 +187,10 @@ fn refraction_chain_roots_main(@builtin(global_invocation_id) gid: vec3u, @built
         }
         p.pixel = pixel;
         p.alive = 1u;
+        // O ângulo do pixel (entre os raios dele e do vizinho): a medida da separação dos canais da dispersão.
+        let side = camera_ray(refraction.camera_slot, vec2f(px) + vec2f(1.5, 0.5), vec2f(size));
+        p.spread = length(side.dir - ray.dir);
+        p.travelled = start;
         p.origin = ray.origin + ray.dir * start;
         p.dir = ray.dir;
         p.side = -1;
@@ -269,6 +276,66 @@ fn refraction_chain_disperse(p: RefractionChainState, s: u32, n: RefractionNode,
     }
 }
 
+/**
+ * Marca a continuação `c` (a transmissão do verde com os três canais) como dispersão adiada, quando `on`: o ponto de
+ * partida, o lado, as direções do vermelho e do azul e o peso dos canais na interface.
+ */
+fn refraction_chain_split(c0: RefractionChainState, on: bool, red: vec3f, blue: vec3f) -> RefractionChainState {
+    var c = c0;
+    if (!on) { return c; }
+    c.flags |= REFRACTION_CHAIN_SPLIT;
+    c.split_origin = c.origin;
+    c.split_side = c.side;
+    c.split_red = red;
+    c.split_blue = blue;
+    c.split_weight = c.weight;
+    return c;
+}
+
+/**
+ * A dispersão adiada no acerto seguinte (a vaga `s` da transmissão; `ends`: o caminho termina nele): a separação do
+ * vermelho ao azul no acerto (o ângulo entre eles vezes a distância; sem acerto, só o ângulo) contra o pixel ali (o
+ * ângulo do pixel vezes a distância desde a câmera). Num fim abaixo dele os canais caem no mesmo pixel e o
+ * caminho único vale; acima, ou com outra interface adiante (que amplificaria a divergência), o vermelho e o azul partem
+ * da interface nas vagas dos canais, e esta segue só com o verde.
+ */
+fn refraction_chain_settle(p0: RefractionChainState, s: u32, ends: bool) -> RefractionChainState {
+    var p = p0;
+    p.flags &= ~REFRACTION_CHAIN_SPLIT;
+    let apart = length(p.split_red - p.split_blue);
+    let t = p.hit_t;
+    let reach = p.travelled + t;
+    var open = apart >= p.spread;
+    if (p.hit_instance != NONE) { open = apart * t >= p.spread * reach; }
+    // Outra interface adiante amplificaria a divergência: os canais se abrem.
+    open = open || !ends;
+    if (!open) { return p; }
+    let first = s - (s % REFRACTION_CHAIN_SLOTS);
+    for (var k = 0; k < 2; k++) {
+        var c = p;
+        c.channel = select(2, 0, k == 0);
+        c.origin = p.split_origin;
+        c.side = p.split_side;
+        c.dir = select(p.split_blue, p.split_red, k == 0);
+        c.travelled = p.travelled;
+        var w = vec3f(0.0);
+        w[c.channel] = p.split_weight[c.channel];
+        c.weight = w;
+        c.radiance = vec3f(0.0);
+        c.moving = vec3f(0.0);
+        c.truncated = vec3f(0.0);
+        c.state = pcg_hash(p.state ^ (0x9e3779b9u * u32(c.channel + 1)));
+        c.alive = 1u;
+        c.flags &= ~REFRACTION_CHAIN_CAMERA;
+        let at = first + 2u + u32(k);
+        refraction_paths[at] = c;
+        refraction_chain_keep(at);
+    }
+    p.channel = 1;
+    p.weight = vec3f(0.0, p.weight.y, 0.0);
+    return p;
+}
+
 /** A continuação da vaga da posição `j` da lista: o nó do acerto pelos fechamentos da onda e o passo. */
 fn refraction_chain_follow_one(j: u32) {
     ray_volume_begin();
@@ -277,8 +344,17 @@ fn refraction_chain_follow_one(j: u32) {
     var state = p.state;
     var c2 = closure_zero();
     if (p.other_instance != NONE) { c2 = ray_wave_entries[2u * j + 1u].closure; }
-    let n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
+    var n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
         refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state);
+    if ((p.flags & REFRACTION_CHAIN_SPLIT) != 0u) {
+        p = refraction_chain_settle(p, s, n.done);
+        if (p.channel >= 0) {
+            // Os canais se abriram: o nó de novo, agora só no verde.
+            state = p.state;
+            n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
+                refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state);
+        }
+    }
     p.weight *= n.through;
     p.state = state;
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }
@@ -303,7 +379,14 @@ fn refraction_chain_follow_one(j: u32) {
     var f = vec3f(n.p_reflect);
     var reflect_dir = n.reflect_dir;
     var reflect_weight = n.reflect_weight;
-    if (n.disperse) {
+    var transmit_dir = n.transmit_dir;
+    var transmit_weight = n.transmit_weight;
+    var disperse = n.disperse;
+    var p_single = n.p_reflect;
+    var split = false;
+    var split_red = vec3f(0.0);
+    var split_blue = vec3f(0.0);
+    if (disperse) {
         let cos_m = dot(-p.dir, n.m);
         f = vec3f(
             refraction_fresnel(cos_m, n.ior_before.x, n.ior_next.x),
@@ -313,6 +396,21 @@ fn refraction_chain_follow_one(j: u32) {
         let r = refraction_reflect(p.dir, n.m, n.ns, n.nf, n.alpha);
         reflect_dir = r.dir;
         reflect_weight = f * r.weight;
+        // A dispersão adiada (na vaga da transmissão): os três canais seguem juntos na direção do verde, com o peso de
+        // cada um, e o acerto seguinte decide (`refraction_chain_settle`) se eles se separam mais que o pixel — então o
+        // vermelho e o azul partem daqui nas vagas deles.
+        let tr = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.x, n.ior_next.x, n.alpha);
+        let tg = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.y, n.ior_next.y, n.alpha);
+        let tb = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.z, n.ior_next.z, n.alpha);
+        if (s % REFRACTION_CHAIN_SLOTS == REFRACTION_SLOT_MAIN && tr.weight > 0.0 && tg.weight > 0.0 && tb.weight > 0.0) {
+            disperse = false;
+            split = true;
+            split_red = tr.dir;
+            split_blue = tb.dir;
+            transmit_dir = tg.dir;
+            transmit_weight = (vec3f(1.0) - f) * vec3f(tr.weight, tg.weight, tb.weight);
+            p_single = (f.x + f.y + f.z) / 3.0;
+        }
     }
     let reflection_slot = s - (s % REFRACTION_CHAIN_SLOTS) + REFRACTION_SLOT_REFLECT;
     if (camera && s % REFRACTION_CHAIN_SLOTS == REFRACTION_SLOT_MAIN) {
@@ -327,30 +425,31 @@ fn refraction_chain_follow_one(j: u32) {
             refraction_paths[reflection_slot] = r;
             refraction_chain_keep(reflection_slot);
         }
-        if (n.disperse) {
+        if (disperse) {
             refraction_chain_disperse(p, s, n, f, 1.0);
             return;
         }
-        if (all(n.transmit_weight <= vec3f(0.0))) {
+        if (all(transmit_weight <= vec3f(0.0))) {
             refraction_paths[s] = refraction_chain_end(p, vec3f(0.0), n.end, vec3f(1.0), false);
             return;
         }
-        refraction_paths[s] = refraction_chain_continue(p, n, n.transmit_dir, after, n.transmit_weight);
+        refraction_paths[s] = refraction_chain_split(refraction_chain_continue(p, n, transmit_dir, after, transmit_weight),
+            split, split_red, split_blue);
         refraction_chain_keep(s);
         return;
     }
     // Depois da primeira interface: um lobo pela roleta de Fresnel (sem viés).
-    let p_reflect = clamp(select(n.p_reflect, (f.x + f.y + f.z) / 3.0, n.disperse), 1e-4, 1.0 - 1e-4);
+    let p_reflect = clamp(select(p_single, (f.x + f.y + f.z) / 3.0, disperse), 1e-4, 1.0 - 1e-4);
     let u = refraction_random(&state);
     p.state = state;
     let reflects = u < p_reflect;
-    if (n.disperse && !reflects && s % REFRACTION_CHAIN_SLOTS == REFRACTION_SLOT_MAIN) {
+    if (disperse && !reflects && s % REFRACTION_CHAIN_SLOTS == REFRACTION_SLOT_MAIN) {
         refraction_chain_disperse(p, s, n, f, 1.0 - p_reflect);
         return;
     }
-    var dir = select(n.transmit_dir, reflect_dir, reflects);
-    var weight = select(n.transmit_weight, reflect_weight, reflects) / select(1.0 - p_reflect, p_reflect, reflects);
-    if (n.disperse && !reflects) {
+    var dir = select(transmit_dir, reflect_dir, reflects);
+    var weight = select(transmit_weight, reflect_weight, reflects) / select(1.0 - p_reflect, p_reflect, reflects);
+    if (disperse && !reflects) {
         // A vaga da reflexão num meio que dispersa: o índice do verde (limite medido, sem abrir canais).
         let t = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.y, n.ior_next.y, n.alpha);
         dir = t.dir;
@@ -360,8 +459,9 @@ fn refraction_chain_follow_one(j: u32) {
         refraction_paths[s] = refraction_chain_end(p, vec3f(0.0), n.end, vec3f(1.0), false);
         return;
     }
-    refraction_paths[s] = refraction_chain_continue(p, n, dir, refraction_stack_pick(p.stack, after, !reflects),
-        weight);
+    refraction_paths[s] = refraction_chain_split(
+        refraction_chain_continue(p, n, dir, refraction_stack_pick(p.stack, after, !reflects), weight),
+        split && !reflects, split_red, split_blue);
     refraction_chain_keep(s);
 }
 
