@@ -187,3 +187,19 @@ pixel; menos de 0,1 % a menos de 2 mm da origem — não é autointerseção), e
 acerto); nenhuma vaga truncada nas 17 rodadas. O chão coberto de gotas e poças finas: o raio refletido rasante cruza
 várias, cada uma com entrada e saída. Ablações: passo mínimo 4× maior → 16,3 → 15,6 ms; menos grupos na cauda → igual;
 10 rodadas → 14,3 ms. O custo é o de cada acerto (a marcha), não o número de rodadas nem os despachos.
+
+## 039 refeita — onde está o custo do traçado, por rodada (2026-10-29, passes rotulados temporários)
+
+Correção da conclusão acima: a marcha **não** domina. A marcha da água rodada duas vezes leva o traçado de 16,9 a
+19,8 ms (a marcha inteira, com o Newton tricúbico, custa ~3 ms); φ com 1 leitura por passo em vez de 8 → 16,2 ms.
+
+- A malha da água no tanque tem ~1,04 M triângulos por quadro (capacidade 2,1 M, 100 MB). A reconstrução da BLAS por
+  quadro custa 1,95 ms com 0,5 M de capacidade e 7,5 ms com 2 M (smoke descartável, malha adaptativa com contagem só na
+  GPU; o caminho atual despacha pela capacidade). Com a marcha em ~3 ms, a BVH da água não compensa: rota descartada.
+- Por etapa: acerto 7,0 ms, continuação 6,7 (a luz direta com sombra 2,4; a indireta ~0), sombreamento da onda 2,3.
+- Por rodada (acerto + sombreamento + continuação): rodada 0 2,1 ms; **rodada 1 5,3 ms**; rodadas 2–3 ~1,1 ms cada;
+  rodadas 4–16 ~0,3–0,6 ms cada (**~5 ms no total**).
+- Vagas vivas por rodada no primeiro bloco (65 536 pixels): 65 536 → **249 750** → 25 457 → 18 690 → 8 630 → 2 950 →
+  1 919 → … → ~100–800 nas rodadas 10–16. A dispersão da água abre os 3 canais em quase todo pixel na primeira
+  interface (3,8 vagas por pixel na rodada 1); a cauda são poucas centenas de caminhos (reflexão interna total na água),
+  e cada rodada custa a latência do raio mais longo (~0,3 ms), não o número de caminhos.
