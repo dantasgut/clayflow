@@ -26,7 +26,8 @@
 //     smokes (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m); por raios contra cada um, o fechamento
 //     do acerto na onda dos acertos (a referência do ponto `ray_volume_surface`, avaliada pelo kernel da classe, spec 039)
 //     dá o fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
-//     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do fechamento na corda — |Δ ln T| ≤ σ · 1 voxel
+//     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do meio do corpo na corda (homogêneo: o
+//     fechamento do corpo avaliado uma vez por quadro, spec 039) — |Δ ln T| ≤ σ · 1 voxel
 //     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
 //   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
 //     marcha ≤ 1 ms: medidos juntos pela diferença do tempo de GPU por quadro (perfil por quadro: o por passo não é
@@ -1278,11 +1279,14 @@ async function caseClosure(): Promise<void> {
         ];
         for (let k = 0; k < got.length; k++)
             worstClosure = Math.max(worstClosure, Math.abs(got[k]! - want[k]!));
-        // Beer–Lambert pela absorção do fechamento na corda (a entrada e a saída refinadas).
+        // Beer–Lambert pela absorção do meio do corpo na corda (a entrada e a saída refinadas). O meio é homogêneo por
+        // corpo (spec 039, decisão do usuário de 2026-10-29): o fechamento do corpo avaliado uma vez por quadro, na
+        // amostra do meio (o centro da caixa do campo, a normal para cima) — no corpo A, a cor do grafo na normal +y.
         if (v(19) > 0.5) {
             crossed++;
             const chord = v(15) - v(0);
-            const sigma = expected.color.map((col) => -Math.log(col) / expected.depth);
+            const medium: Vec3 = ray.body === 0 ? [0.5, 0.75, 0.5] : expected.color;
+            const sigma = medium.map((col) => -Math.log(col) / expected.depth);
             for (let k = 0; k < 3; k++) {
                 const err = Math.abs(Math.log(Math.max(v(20 + k), 1e-30)) + sigma[k]! * chord);
                 worstRatio = Math.max(worstRatio, err / (sigma[k]! * voxel));
