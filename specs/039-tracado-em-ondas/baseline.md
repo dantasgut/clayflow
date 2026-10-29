@@ -100,3 +100,13 @@ pela onda a 7,63e-7 (limite 1e-5); **a transmitância pelo corpo falha (25,96 ×
 faz a absorção depender da normal do ponto de entrada, e o meio do corpo agora é avaliado uma vez por quadro (homogêneo
 por corpo). Decisão do usuário pendente: o meio homogêneo por corpo (e a comparação do critério contra ele) ou a absorção
 por trecho avaliada na onda.
+
+## T028–T029 — o tanque no Deno, só compilação (2026-10-29)
+
+Deno 2.7.9, a cena do tanque (vidro, água, chão em xadrez pelo grafo, caixa), o envio à GPU desligado: **222 pipelines
+compilados, nenhum erro**, os 5 quadros passaram. Mais lentos: os kernels de material (`hit_shade_main`) até 4,54 s, a
+continuação da refração em ondas 3,53 s, a emissão dos fótons 0,95 s (antes da spec: `refraction_trace_main` 7,13 s e
+`caustics_trace_main` 3,08 s, com o seletor composto). O MSL do naga no compilador nativo da Apple (`makeLibrary` +
+`makeComputePipelineState`, sem despachar): `refraction_wave_follow_main` 2,77 s, `caustics_trace_main` 0,72 s,
+`caustics_photon_hit_main` 0,27 s, `hit_shade_main` 0,05 s — nenhuma queda. `globalIllumination` passa no Chrome
+(3,94 ms).

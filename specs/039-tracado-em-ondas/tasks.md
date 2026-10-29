@@ -137,7 +137,7 @@ usuário.
   - não submete;
   - falha em erro ou em mais de 120 s por pipeline.
   - Roda também no Chrome.
-- [ ] T029 [US2] Compilar no Deno. MSL nativo pelo harness do scratchpad (fora do repositório) para os kernels novos.
+- [x] T029 [US2] Compilar no Deno. MSL nativo pelo harness do scratchpad (fora do repositório) para os kernels novos.
 - [ ] T030 [US2] Com a aprovação do usuário: execução do tanque no Deno e gravação do vídeo no `claflow-web`. Conferir os processos depois.
 
 ---
