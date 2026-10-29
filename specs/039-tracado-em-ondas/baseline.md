@@ -47,5 +47,8 @@ vazamento 0,069 %; resposta 100 % em 0,25 s.
 | `caustics case=shadow`          | borda −0,194 m; faixa 0,999; sombra 0,000; depois da linha reta 1,022                                                                                                                      |
 
 A absorção dos trechos dentro da água e a luz que atravessa a água (`ray_volume_transmittance`, `light_transmission`)
-avaliavam o material da água na marcha pelo seletor composto: agora leem o fechamento de cada corpo, avaliado uma vez
-por quadro na onda pelo `FluidFieldFlow` (`FluidField.closures`) — o meio homogêneo por corpo.
+avaliavam o material da água na marcha pelo seletor composto: agora leem o meio de cada corpo (a transmissão do
+fechamento dele: cor e profundidade da absorção, índice, Abbe, peso), avaliado uma vez por quadro na onda pelo
+`FluidFieldFlow` e guardado no buffer das consultas do campo (`fieldMediaOffset`: nenhum buffer a mais nos kernels que
+traçam) — o meio homogêneo por corpo. Depois disso: `caustics case=water` −0,13/−0,16/−0,19 % (0°), 0,36/0,34/0,30 %
+(30°); `shadow` faixa 0,997; `globalIllumination` passa (custo 3,92 ms; Cornell 0,5–2,1 %; fornalha 0,2 %).

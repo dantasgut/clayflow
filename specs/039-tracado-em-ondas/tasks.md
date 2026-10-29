@@ -102,8 +102,8 @@ usuário.
 
 ### Cáusticas, fótons
 
-- [ ] T017 [US1] Estado do fóton em pingue-pongue e `caustics_follow` dividido em avanço+traçado e continuação, com `CAUSTICS_BOUNCES` + 1 rodadas, em `caustics_trace.wgsl`. A dispersão abre os fótons por canal na hora; aleatoriedade por fóton (R7). `CausticsFlow` com as rodadas; testes.
-- [ ] T018 [US1] Smoke `caustics` no Chrome.
+- [x] T017 [US1] Estado do fóton em pingue-pongue e `caustics_follow` dividido em avanço+traçado e continuação, com `CAUSTICS_BOUNCES` + 1 rodadas, em `caustics_trace.wgsl`. A dispersão abre os fótons por canal na hora; aleatoriedade por fóton (R7). `CausticsFlow` com as rodadas; testes.
+- [x] T018 [US1] Smoke `caustics` no Chrome.
 
 ### Refração
 

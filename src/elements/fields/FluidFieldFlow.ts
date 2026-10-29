@@ -41,7 +41,7 @@ import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
-import { FluidField, fieldDataLayout, fieldFilmOffset } from './FluidField';
+import { FluidField, fieldDataLayout, fieldFilmOffset, fieldMediaOffset } from './FluidField';
 import { GravityField } from '../physics/forcefields/GravityField';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
@@ -522,6 +522,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     0,
                     0,
                 ],
+                media: [fieldMediaOffset(field.capacity), FIELD_MAX_BODIES, 0, 0],
                 contact: [
                     ...fieldContactShape(physics?.contactAngle ?? 90),
                     this.advancedTime(ctx),

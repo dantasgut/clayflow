@@ -63,7 +63,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     ),
     // O campo dos fluidos (spec 033, R11): parâmetros, o buffer das consultas (limites, tabela, blocos, voxels) e a
     // contagem.
-    ...(['params', 'data', 'counts', 'closures'] as const).map(
+    ...(['params', 'data', 'counts'] as const).map(
         (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
     ),
     // A refração traçada (spec 034): o uniform (limite de interfaces, câmera, luzes, quadro, tempo).

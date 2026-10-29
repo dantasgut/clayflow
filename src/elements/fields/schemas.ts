@@ -21,6 +21,9 @@ export const FIELD_PARTICLES_PER_BRICK = 8;
  */
 export const FIELD_MAX_BODIES = 64;
 
+/** Palavras do meio de um corpo no buffer das consultas (`fieldMediaOffset`, spec 039). */
+export const FIELD_MEDIUM_WORDS = 8;
+
 /** Entradas da tabela das superfícies da película (spec 034): o padrão (0) e as `SurfacePhysics` da cena (1…). */
 export const FIELD_FILM_SURFACES = sharedConstant(
     'FIELD_FILM_SURFACES',
@@ -46,6 +49,8 @@ export const FluidFieldSchema = new StructSchema(
         motion: FieldType.vec4u,
         /** x: o tempo simulado do quadro (s) — a amostra do material de cada corpo (spec 039). */
         time: FieldType.vec4f,
+        /** x: a primeira palavra do meio dos corpos em `data`; y: os corpos da tabela (spec 039). */
+        media: FieldType.vec4u,
         /**
          * A gota que molha (spec 034): a partícula isolada encostada num sólido vira uma calota achatada contra ele,
          * com o volume do núcleo esparso e a forma do ângulo de contato de `ParticlePhysics` (`fieldContactShape`) —

@@ -1,5 +1,4 @@
 import { Entity } from '../../scene/contracts/Entity';
-import { ClosureSchema } from '../material/pbr/ClosureSchema';
 import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
@@ -31,6 +30,7 @@ import {
     FieldWordSchema,
     FluidFieldSchema,
     FIELD_MAX_BODIES,
+    FIELD_MEDIUM_WORDS,
 } from './schemas';
 
 /** Capacidades do campo: blocos e baldes da tabela (potências de dois). */
@@ -66,9 +66,18 @@ export function fieldFilmOffset(c: FluidFieldCapacity): number {
     return fieldDataLayout(c).voxels + c.bricks * FIELD_BRICK_APRON_VOXELS;
 }
 
-/** Palavras do buffer das consultas para as capacidades `c` (com a película: `FIELD_FILM_WORDS` por célula). */
-function fieldDataWords(c: FluidFieldCapacity): number {
+/**
+ * Primeira palavra do meio dos corpos (spec 039), depois da película: por corpo, `FIELD_MEDIUM_WORDS` palavras — a cor e
+ * a profundidade da absorção, o índice de refração, o número de Abbe e o peso da transmissão do fechamento do corpo,
+ * avaliado uma vez por quadro na onda dos acertos.
+ */
+export function fieldMediaOffset(c: FluidFieldCapacity): number {
     return fieldFilmOffset(c) + FIELD_FILM_WORDS.value * FIELD_FILM_CELLS;
+}
+
+/** Palavras do buffer das consultas para as capacidades `c` (com a película e o meio dos corpos). */
+function fieldDataWords(c: FluidFieldCapacity): number {
+    return fieldMediaOffset(c) + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS;
 }
 
 function grow(current: number, needed: number): number {
@@ -113,15 +122,6 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 upload: 'never',
             },
             { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
-            // O fechamento de cada corpo, avaliado uma vez por quadro na onda dos acertos (spec 039): o meio que a
-            // absorção dos trechos dentro da água lê, sem avaliar material na marcha.
-            {
-                id: 'closures',
-                role: 'storage-rw',
-                schema: ClosureSchema,
-                count: FIELD_MAX_BODIES,
-                upload: 'never',
-            },
         ];
     }
 

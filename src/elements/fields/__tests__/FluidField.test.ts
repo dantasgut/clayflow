@@ -21,7 +21,13 @@ import {
 import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout, fieldFilmOffset } from '../FluidField';
 import { sceneWetnessPoint } from '../../scene/points/media';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
-import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS, FIELD_FILM_CELLS } from '../schemas';
+import {
+    FIELD_BRICK,
+    FIELD_BRICK_APRON_VOXELS,
+    FIELD_FILM_CELLS,
+    FIELD_MAX_BODIES,
+    FIELD_MEDIUM_WORDS,
+} from '../schemas';
 import { FIELD } from '../reference/field';
 import { fieldSort } from '../shaders';
 
@@ -48,11 +54,13 @@ describe('FluidField (spec 033, R11)', () => {
             role: 'storage-rw',
             upload: 'never',
             // Depois dos voxels com a borda, a película de água nos sólidos (spec 034): 6 palavras por célula (a chave,
-            // a água livre, a normal, a marca de submersa, a água absorvida e a superfície).
+            // a água livre, a normal, a marca de submersa, a água absorvida e a superfície); depois, o meio de cada
+            // corpo (spec 039).
             count:
                 layout.voxels
                 + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS
-                + 6 * FIELD_FILM_CELLS,
+                + 6 * FIELD_FILM_CELLS
+                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
         });
         expect(fieldFilmOffset(field.capacity)).toBe(
             layout.voxels + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS,
@@ -86,7 +94,8 @@ describe('FluidField (spec 033, R11)', () => {
         expect(data.count).toBe(
             fieldDataLayout({ bricks: 128, table: 512 }).voxels
                 + 128 * FIELD_BRICK_APRON_VOXELS
-                + 6 * FIELD_FILM_CELLS,
+                + 6 * FIELD_FILM_CELLS
+                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
         );
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
@@ -121,9 +130,7 @@ describe('FluidField (spec 033, R11)', () => {
         const graph = composeWgsl(modules[1]!).spec.source;
         expect(graph).toContain('fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface');
         // O fechamento do corpo, avaliado uma vez por quadro na onda dos acertos (spec 039): o meio da absorção.
-        expect(graph).toContain(
-            'RayVolumeSurface(body.x, body.y, field_body_closures[hit.material - 1u])',
-        );
+        expect(graph).toContain('RayVolumeSurface(body.x, body.y, field_medium(hit.material))');
         expect(graph).not.toContain('field_materials');
         // Sem avaliar a função: quem traça a avalia junto com a das malhas (uma expansão de `ray_hit_material`).
         expect(graph).not.toContain('ray_hit_material(');

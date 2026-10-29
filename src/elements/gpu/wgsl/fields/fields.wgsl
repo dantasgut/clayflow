@@ -105,6 +105,9 @@ fn field_body_at(p: vec3f) -> u32 {
  * O registro do corpo `body` (índice + 1, a palavra dos blocos; 0 = nenhum) na tabela do campo: (índice + 1 da função
  * `material` na composição dos acertos dos raios, 0 sem; slot dos parâmetros dela; 0; 0).
  */
+/** Palavras do meio de um corpo no buffer das consultas (`FIELD_MEDIUM_WORDS` no TypeScript; spec 039). */
+const FIELD_MEDIUM_WORDS: u32 = 8u;
+
 fn field_body(body: u32) -> vec4u {
     if (body == 0u) { return vec4u(0u); }
     return fluid_field.bodies[body - 1u];
