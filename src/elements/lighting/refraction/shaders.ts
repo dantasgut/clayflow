@@ -12,6 +12,7 @@ import refractionCameraSource from '../../gpu/wgsl/refraction/refraction_camera.
 import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl?raw';
 import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
 import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
+import refractionVolumeMeshSource from '../../gpu/wgsl/refraction/refraction_volume_mesh.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
 import refractionChainSource from '../../gpu/wgsl/refraction/refraction_chain.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
@@ -35,6 +36,7 @@ import { temporalFilterResources } from '../temporal/shaders';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
 import { rayWave } from '../../raytrace/wave/shaders';
+import { fieldResources } from '../../fields/shaders';
 import { RefractionMediumSchema, RefractionChainSchema, RefractionStackSchema } from './schemas';
 import {
     rayVolumeHitReady,
@@ -239,6 +241,8 @@ export const refractionChain = wgslModule({
     source: refractionChainSource,
     requires: [
         WORKGROUP_SIZE.module,
+        REFRACTION_REQUEST_VALID.module,
+        R.request,
         NONE.module,
         REFRACTION_FRAME_COUNT.module,
         refractionParamsResource,
@@ -324,6 +328,9 @@ function volumeRequestModule(multisampled: boolean): WgslModule {
         name: multisampled ? 'refraction_volume_request_ms' : 'refraction_volume_request',
         source: refractionVolumeRequestSource,
         requires: [
+            NONE.module,
+            REFRACTION_MAX_MEDIA.module,
+            R.frame,
             refractionScreen,
             refractionParamsResource,
             camerasResource,
@@ -333,6 +340,30 @@ function volumeRequestModule(multisampled: boolean): WgslModule {
             REFRACTION_REQUEST_VALID.module,
             REFRACTION_REQUEST_BACK_FACE.module,
             multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}
+
+/**
+ * O pedido pela malha da superfície dos volumes (spec 039 refeita, D3): os triângulos que o campo extrai, nas duas faces
+ * — sem e com amostras na profundidade dos opacos.
+ */
+export const refractionVolumeMesh = {
+    single: volumeMeshModule(false),
+    multisampled: volumeMeshModule(true),
+} as const;
+
+function volumeMeshModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'refraction_volume_mesh_ms' : 'refraction_volume_mesh',
+        source: refractionVolumeMeshSource,
+        requires: [
+            refractionParamsResource,
+            camerasResource,
+            REFRACTION_REQUEST_VALID.module,
+            REFRACTION_REQUEST_BACK_FACE.module,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+            fieldResources.mesh,
         ],
     });
 }

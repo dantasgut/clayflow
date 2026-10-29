@@ -62,8 +62,8 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
         (id) => new SingletonResolver(CausticsSchema, id, { name: `Caustics.${id}` }),
     ),
     // O campo dos fluidos (spec 033, R11): parâmetros, o buffer das consultas (limites, tabela, blocos, voxels) e a
-    // contagem.
-    ...(['params', 'data', 'counts'] as const).map(
+    // contagem; o mapa da luz pela água e a malha da superfície com os argumentos do desenho (spec 039 refeita).
+    ...(['params', 'data', 'counts', 'lightMap', 'mesh', 'meshArgs'] as const).map(
         (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
     ),
     // A refração traçada (spec 034): o uniform (limite de interfaces, câmera, luzes, quadro, tempo).

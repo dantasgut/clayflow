@@ -66,6 +66,7 @@ import {
     fieldApron,
     fieldBodyClosures,
     fieldLightMap,
+    fieldMesh,
     fieldFilmDeposit,
     fieldFilmStep,
     fieldDensity,
@@ -208,6 +209,9 @@ interface Kernels {
     readonly forward: ComputeKernel;
     readonly backward: ComputeKernel;
     readonly apron: ComputeKernel;
+    /** A malha da superfície (spec 039 refeita): a extração por bloco e os argumentos do desenho. */
+    readonly mesh: ComputeKernel;
+    readonly meshArgs: ComputeKernel;
 }
 
 /** Espaçamento padrão das partículas quando a cena não tem `ParticlePhysics`. */
@@ -389,6 +393,15 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             ),
         );
         indirect('FluidFieldFlow.apron', [k.apron]);
+        // A malha da superfície: a contagem zerada, um grupo por bloco, os argumentos do desenho.
+        const meshArgs = this.counts(field!, 'meshArgs');
+        if (meshArgs !== undefined) frame.clear(meshArgs, 16, 4);
+        frame.compute('FluidFieldFlow.mesh', (pass) => {
+            pass.bind.setPipeline(k.mesh.pipeline);
+            k.mesh.bindTo(pass.bind);
+            pass.dispatch.workgroupsIndirect(counts, SET_COUNT_DISPATCH_OFFSET);
+            this.run(pass, k.meshArgs, 1, 1);
+        });
         this.dispatchClosures(frame, bound);
         this.dispatchLightMap(frame, bound);
     }
@@ -493,8 +506,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     }
 
     /** O registro da contagem dos blocos (descritor indireto do campo). */
-    private counts(field: FluidField): IndirectBufferSpec | undefined {
-        const buffer = this.resources.bufferOf(field, 'counts');
+    private counts(field: FluidField, id = 'counts'): IndirectBufferSpec | undefined {
+        const buffer = this.resources.bufferOf(field, id);
         return buffer?.subkind === 'indirect' ? buffer : undefined;
     }
 
@@ -736,10 +749,13 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         data: StorageBufferSpec,
         gridRebuilt: boolean,
     ): void {
+        const mesh = this.buffer(field, 'mesh');
+        const meshArgs = this.counts(field, 'meshArgs');
+        if (mesh === undefined || meshArgs === undefined) return;
         const pools = this.order.map(
             (b) => `${b.poolKey}:${this.identity(this.resources.poolBufferSpec(b.poolKey))}`,
         );
-        const key = [work.items, data, counts]
+        const key = [work.items, data, counts, mesh, meshArgs]
             .map((b) => String(this.identity(b)))
             .concat([
                 String(this.draws.generation),
@@ -893,6 +909,21 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 [R.dataVoxels, data],
                 [R.volumeWrite, this.volume],
             ]),
+            mesh: make('mesh', fieldMesh, 'field_mesh_main', [
+                [R.data, data],
+                [R.counts, counts],
+                [R.meshOut, mesh],
+                [R.meshArgs, meshArgs],
+            ]),
+            meshArgs: createComputeKernel(this.core, {
+                discriminator: 'field:mesh_args',
+                shader: fieldMesh,
+                entryPoint: 'field_mesh_args_main',
+                bindings: new Map<WgslResource, BindingSource>([
+                    [R.meshOut, mesh],
+                    [R.meshArgs, meshArgs],
+                ]),
+            }),
         };
     }
 
@@ -923,6 +954,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             k.forward,
             k.backward,
             k.apron,
+            k.mesh,
+            k.meshArgs,
         ])
             destroyComputeKernel(this.core, kernel);
         this.kernels = undefined;

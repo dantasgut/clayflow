@@ -139,3 +139,20 @@ Mesmo tanque e medição (passes de compute; a cadeia separada em passes só par
 Ablações: sem a dielétrica coincidente, o acerto −1,7 ms; sem a marcha do campo, o acerto 4,7 ms e a continuação
 7,7 ms — **a marcha no campo é o custo dominante** (D3: a superfície como malha). Os blocos além da fila do quadro
 ainda pagam os despachos vazios (15 blocos para a tela inteira).
+
+## 039 refeita — a malha da superfície no pedido (2026-10-29)
+
+Correção: nas medições anteriores o mapa da luz não estava ligado (faltava o resolvedor `FluidField.lightMap`: os
+kernels que o leem esperavam sem erro). Com os resolvedores do mapa e da malha, a imagem do tanque bate com a do motor
+anterior à 039 na mesma vista, e (passes de compute; o traçado num passe só):
+
+| Etapa                          | ms   |
+| ------------------------------ | ---- |
+| Traçado da refração            | 63,9 |
+| Cáusticas                      | 5,7  |
+| Pedido (malha + tela cheia)    | 1,4  |
+| Malha da superfície (1,07 M △) | 1,1  |
+| Mapa da luz (2 × 512²)         | 0,7  |
+| Busca de vizinhos (física)     | 5,3  |
+
+Pendente no traçado: a marcha no campo dos raios secundários e os blocos vazios (15 blocos para a tela inteira).

@@ -34,6 +34,9 @@ import {
     FIELD_LIGHT_MAPS,
     FIELD_LIGHT_RES,
     FIELD_LIGHT_WORDS,
+    FIELD_MESH_ARGS_WORDS,
+    FIELD_MESH_TRIANGLES_PER_BRICK,
+    FIELD_MESH_VERTEX_WORDS,
 } from './schemas';
 
 /** Capacidades do campo: blocos e baldes da tabela (potências de dois). */
@@ -125,6 +128,24 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 upload: 'never',
             },
             { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
+            {
+                id: 'mesh',
+                role: 'storage-rw',
+                schema: FieldWordSchema,
+                count:
+                    this.rawData.bricks
+                    * FIELD_MESH_TRIANGLES_PER_BRICK
+                    * 3
+                    * FIELD_MESH_VERTEX_WORDS,
+                upload: 'never',
+            },
+            {
+                id: 'meshArgs',
+                role: 'indirect',
+                schema: FieldWordSchema,
+                count: FIELD_MESH_ARGS_WORDS,
+                upload: 'never',
+            },
             {
                 id: 'lightMap',
                 role: 'storage-rw',

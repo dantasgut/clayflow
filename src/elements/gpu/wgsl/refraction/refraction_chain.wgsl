@@ -12,7 +12,7 @@
 // Cabeçalho (`refraction_path_queue`): [0] os pixels da fila no quadro; [1] o primeiro pixel do bloco corrente; [2] a
 // lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
-// refraction_frame, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
+// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
 // refraction_hit_out, refraction_albedo_out.
 
 /** Vagas por pixel. */
@@ -174,16 +174,24 @@ fn refraction_chain_roots_main(@builtin(global_invocation_id) gid: vec3u, @built
         let pixel = textureLoad(refraction_queue_in, vec2u(q % size.x, q / size.x), 0).x;
         let px = vec2u(pixel % size.x, pixel / size.x);
         let ray = camera_ray(refraction.camera_slot, vec2f(px) + 0.5, vec2f(size));
+        // O raio começa pouco antes da interface pedida no pixel (a distância dela no pedido; a margem cobre a diferença
+        // entre a malha desenhada e a superfície que a marcha acha): o espaço vazio até ela não é atravessado.
+        let request = textureLoad(refraction_request, px, 0);
+        var start = ray.near;
+        if ((request.y & REFRACTION_REQUEST_VALID) != 0u) {
+            let d = bitcast<f32>(request.x);
+            start = max(ray.near, d - max(0.01, 0.02 * d));
+        }
         p.pixel = pixel;
         p.alive = 1u;
-        p.origin = ray.origin + ray.dir * ray.near;
+        p.origin = ray.origin + ray.dir * start;
         p.dir = ray.dir;
         p.side = -1;
         p.state = refraction_seed(pixel, refraction.frame);
         p.flags = REFRACTION_CHAIN_CAMERA;
         p.stack = refraction_camera_stack();
-        // A absorção desde o plano próximo da câmera (dentro de um meio, ela conta desde ali).
-        p.weight = refraction_absorb(vec3f(1.0), refraction_current(p.stack), ray.near);
+        // A absorção desde o plano próximo da câmera (dentro de um meio, ela conta desde ali) até o começo do raio.
+        p.weight = refraction_absorb(vec3f(1.0), refraction_current(p.stack), start);
         refraction_paths[REFRACTION_CHAIN_SLOTS * i + REFRACTION_SLOT_MAIN] = p;
         refraction_chain_push(0u, REFRACTION_CHAIN_SLOTS * i + REFRACTION_SLOT_MAIN);
     }

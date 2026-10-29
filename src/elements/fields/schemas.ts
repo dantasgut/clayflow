@@ -32,6 +32,15 @@ export const FIELD_LIGHT_MAPS = 2;
 export const FIELD_LIGHT_RES = 512;
 export const FIELD_LIGHT_WORDS = 8;
 
+/**
+ * A malha da superfície (spec 039 refeita, `field_mesh.wgsl`): triângulos por bloco da capacidade (a superfície que
+ * corta um bloco dá até ~5 por célula cortada; os blocos do interior, nenhum), palavras por vértice e os argumentos (o
+ * desenho indireto e a contagem).
+ */
+export const FIELD_MESH_TRIANGLES_PER_BRICK = 256;
+export const FIELD_MESH_VERTEX_WORDS = 4;
+export const FIELD_MESH_ARGS_WORDS = 8;
+
 /** Entradas da tabela das superfícies da película (spec 034): o padrão (0) e as `SurfacePhysics` da cena (1…). */
 export const FIELD_FILM_SURFACES = sharedConstant(
     'FIELD_FILM_SURFACES',

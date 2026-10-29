@@ -32,6 +32,7 @@ import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
 import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
 import fieldLightMapSource from '../gpu/wgsl/fields/field_light_map.wgsl?raw';
 import fieldLightFrameSource from '../gpu/wgsl/fields/field_light_frame.wgsl?raw';
+import fieldMeshSource from '../gpu/wgsl/fields/field_mesh.wgsl?raw';
 import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
 import { rayWave } from '../raytrace/wave/shaders';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
@@ -97,6 +98,13 @@ export const fieldResources = Object.freeze({
     /** O mapa da luz pela água (spec 039 refeita): o que `light_transmission` lê, e a escrita dele. */
     lightMap: consumer('field_light_map', 'lightMap', 'read', f32s),
     lightMapOut: consumer('field_light_map_out', 'lightMap', 'read_write', f32s),
+    /** A malha da superfície (spec 039 refeita): a escrita, os argumentos e a leitura de quem a desenha. */
+    meshOut: consumer('field_mesh', 'mesh', 'read_write', u32s),
+    meshArgs: consumer('field_mesh_args', 'meshArgs', 'read_write', {
+        wgsl: 'atomic<u32>',
+        array: true,
+    }),
+    mesh: consumer('field_mesh_vertices', 'mesh', 'read', u32s),
     counts: consumer('field_counts', 'counts', 'read', { schema: SetCountSchema, array: true }),
     countsWrite: consumer('field_counts', 'counts', 'read_write', {
         wgsl: 'atomic<u32>',
@@ -421,6 +429,25 @@ export const fieldRayOccupied = wgslModule({
     name: 'field_ray_occupied',
     source: fieldRayOccupiedSource,
     requires: [fields],
+});
+
+/**
+ * A malha da superfície da água (spec 039 refeita, D3): tetraedros marchantes por bloco ocupado, os triângulos com a
+ * normal pelo gradiente, a contagem e os argumentos do desenho indireto.
+ */
+export const fieldMesh = wgslModule({
+    name: 'field_mesh_extract',
+    source: fieldMeshSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        fieldCommon,
+        R.counts,
+        fieldLookup,
+        R.meshOut,
+        R.meshArgs,
+    ],
 });
 
 /** O referencial de cada luz direcional sobre a caixa do campo e o mapa de cada luz (spec 039 refeita). */
