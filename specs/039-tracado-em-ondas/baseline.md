@@ -52,3 +52,10 @@ fechamento dele: cor e profundidade da absorção, índice, Abbe, peso), avaliad
 `FluidFieldFlow` e guardado no buffer das consultas do campo (`fieldMediaOffset`: nenhum buffer a mais nos kernels que
 traçam) — o meio homogêneo por corpo. Depois disso: `caustics case=water` −0,13/−0,16/−0,19 % (0°), 0,36/0,34/0,30 %
 (30°); `shadow` faixa 0,997; `globalIllumination` passa (custo 3,92 ms; Cornell 0,5–2,1 %; fornalha 0,2 %).
+
+## Depois da T019 (a câmera da refração na onda)
+
+`refraction`: todas as cenas com os mesmos piores erros da linha de base (sphere 0,11 %, immersed 0,34 %, rough 0,30 %,
+prism 0,29 %, underwater 0,09 %, pane 0,12 %, lit 0,45 %, fieldImmersed 0,02 %, fieldUnder 0,04 %, lens 0,07 % com 0
+degraus, dispersed 0,55 %, glint 0,70 % com vagalumes 0,037 %, relief 0,20 %, ripple 0,17 %); o caso `gi` agora PASSA
+(off/on contra absent ≤ 0,01 %; antes: 11 > 10 buffers); só o custo falha, como antes (32,638 ms; limite 3 ms).

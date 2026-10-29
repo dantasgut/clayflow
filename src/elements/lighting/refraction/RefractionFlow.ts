@@ -15,6 +15,7 @@ import type { World } from '../../../scene/world/World';
 import { CountToArgs } from '../../gpu/compute/CountToArgs';
 import { composeHitMaterial } from '../../raytrace/hitMaterial';
 import { RayScene } from '../../raytrace/RayScene';
+import { RayWave } from '../../raytrace/RayWave';
 import { rayHitMaterialPoint } from '../../raytrace/shaders';
 import { Camera } from '../../scene/Camera';
 import { Light } from '../../scene/Light';
@@ -66,9 +67,19 @@ const QUEUE_COUNT = compute(
 );
 
 /** Os kernels que leem materiais nos acertos, por revisão do conjunto de funções `material` da cena. */
-function traceIds(revision: number): readonly [string, string] {
-    return [`refraction_camera:${revision}`, `refraction_trace:${revision}`];
+function traceIds(revision: number): readonly [string] {
+    return [`refraction_trace:${revision}`];
 }
+
+/** Os acertos da reta da câmera na onda e os meios dela pelos fechamentos avaliados (spec 039). */
+const CAMERA_HITS = compute(
+    'refraction_camera_hits',
+    refractionCamera,
+    'refraction_camera_hits_main',
+);
+const CAMERA = compute('refraction_camera', refractionCamera, 'refraction_camera_main');
+/** Entradas da onda da câmera: as instâncias distintas da reta e o volume (`REFRACTION_CAMERA_SEEN` + 1). */
+const CAMERA_WAVE = 33;
 
 /** O kernel `shader` com as funções `material` da cena nos acertos (a composição da estrutura de raios). */
 function composed(scene: RayScene, shader: WgslModule): WgslModule {
@@ -103,6 +114,8 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private readonly resources: ResourceDirectory;
     private readonly world: World;
     private readonly countToArgs: CountToArgs;
+    /** A onda dos acertos (spec 039): os da reta da câmera. */
+    private readonly wave: RayWave;
     /** Fontes ligadas (outras = religa). */
     private bound: readonly unknown[] = [];
     /** A contagem da fila, quando ligada. */
@@ -126,6 +139,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.resources = ctx.resources;
         this.world = ctx.world;
         this.countToArgs = new CountToArgs(ctx.core, { discriminator: 'refraction_queue' });
+        this.wave = new RayWave(ctx.core, 'refraction');
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -183,15 +197,27 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             workgroupSize: WORKGROUP_SIZE.value,
         });
         const kernels = this.tracing ? this.readyTraces(bound) : undefined;
-        if (kernels === undefined) return;
-        const [camera, trace] = kernels as [
-            ReturnType<BoundFlow['compute']>,
-            ReturnType<BoundFlow['compute']>,
-        ];
+        const camera = bound.pipelines.get(CAMERA.id);
+        const cameraHits = bound.pipelines.get(CAMERA_HITS.id);
+        if (
+            kernels === undefined
+            || camera?.role !== 'compute'
+            || !camera.ready
+            || cameraHits?.role !== 'compute'
+            || !cameraHits.ready
+            || !this.wave.ready(bound)
+        )
+            return;
+        const [trace] = kernels as [ReturnType<BoundFlow['compute']>];
         const gradient =
             this.gradient === undefined ? undefined : bound.pipelines.get(this.gradient);
         const measures = gradient?.role === 'compute' && gradient.ready;
         frame.compute('RefractionFlow.trace', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(cameraHits.spec);
+            cameraHits.bindTo(pass.bind);
+            pass.dispatch.workgroups(1);
+            this.wave.shade(pass, bound);
             pass.bind.setPipeline(camera.spec);
             camera.bindTo(pass.bind);
             pass.dispatch.workgroups(1);
@@ -214,6 +240,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     /** Libera os kernels da contagem. */
     override dispose(): void {
         this.countToArgs.destroy();
+        this.wave.destroy();
     }
 
     /** Os kernels da fila prontos. */
@@ -315,11 +342,20 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             }
         }
         if (scene.materialRevision === this.materialRevision) return;
+        const first = this.materialRevision < 0;
         this.materialRevision = scene.materialRevision;
-        const [cameraId, traceId] = traceIds(this.materialRevision);
+        // A onda da câmera e os kernels de material por classe; os da câmera na primeira vez.
+        const w = this.wave.ensure(CAMERA_WAVE, scene.materialFunctions, scene.materialRevision);
+        if (w.bindings !== undefined) c.bind(w.bindings);
+        for (const id of w.released) c.release(id);
+        for (const p of w.pipelines) c.prepare(p);
+        if (first) {
+            c.prepare(CAMERA_HITS);
+            c.prepare(CAMERA);
+        }
+        const [traceId] = traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
-        c.prepare(compute(cameraId, composed(scene, refractionCamera), 'refraction_camera_main'));
         c.prepare(compute(traceId, composed(scene, refractionTrace), 'refraction_trace_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
         else this.nextTraceRevision = this.materialRevision;

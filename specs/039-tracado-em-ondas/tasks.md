@@ -107,7 +107,7 @@ usuário.
 
 ### Refração
 
-- [ ] T019 [US1] Câmera (R9): kernel que enumera os acertos da reta (até `REFRACTION_CAMERA_SEEN`, teto de passos), depois uma rodada de material, depois `refraction_camera_stack_main`, que monta a pilha. Em `refraction_camera.wgsl` e no `RefractionFlow.ts`.
+- [x] T019 [US1] Câmera (R9): kernel que enumera os acertos da reta (até `REFRACTION_CAMERA_SEEN`, teto de passos), depois uma rodada de material, depois `refraction_camera_stack_main`, que monta a pilha. Em `refraction_camera.wgsl` e no `RefractionFlow.ts`.
 - [ ] T020 [US1] Estado de caminho da refração e folhas (data-model):
   - `refraction_path.wgsl` reorganizado em `refraction_advance_main` (a continuação do nó anterior e o traçado seguinte) sobre o estado;
   - os ramos do 1º e do 2º nível como caminhos com `leaf`;

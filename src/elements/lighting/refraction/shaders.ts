@@ -183,6 +183,7 @@ export const refractionCamera = wgslModule({
         camerasResource,
         rayScene,
         rayHit,
+        rayWave,
         R.frameOut,
     ],
 });

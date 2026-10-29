@@ -25,6 +25,11 @@ fn ray_wave_put_empty(i: u32, payload: vec4f) {
     ray_wave_cover(i);
 }
 
+/** A etiqueta inteira de quem traça no registro `i` (`ray`: o índice do raio, ou o que quem traça quiser guardar). */
+fn ray_wave_tag(i: u32, tag: u32) {
+    ray_wave_entries[i].hit.ray = tag;
+}
+
 /** O acerto `h` no índice `i`, para a classe `h.cls` avaliar (fora do traçado). */
 fn ray_wave_put(i: u32, h: RayWaveHit) {
     ray_wave_entries[i].hit = h;
