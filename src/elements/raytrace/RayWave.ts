@@ -1,5 +1,10 @@
 import type { BindingSource, BoundFlow } from '../../scene/flows/FlowBinding';
-import type { ComputePass, EngineCore, StorageBufferSpec } from '../../scene/contracts/gpu';
+import type {
+    ComputePass,
+    EngineCore,
+    IndirectBufferSpec,
+    StorageBufferSpec,
+} from '../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
@@ -194,9 +199,15 @@ export class RayWave {
 
     /**
      * Depois do traçado da rodada: as faixas, o espalhamento e o material de cada classe (o kernel dela pronto, senão o
-     * das constantes).
+     * das constantes). Com `groups`, o espalhamento e o material despacham os grupos lidos dele (argumentos indiretos que
+     * quem traça gravou na GPU pelos raios da rodada; nenhum, sem raio) em vez da grade inteira.
      */
-    shade(pass: ComputePass, bound: BoundFlow): void {
+    shade(pass: ComputePass, bound: BoundFlow, groups?: IndirectBufferSpec): void {
+        const grid = (): void => {
+            if (groups === undefined)
+                pass.dispatch.invocations(this.gridInvocations(), WORKGROUP_SIZE.value);
+            else pass.dispatch.workgroupsIndirect(groups, 0);
+        };
         const scan = bound.pipelines.get(this.scanId) as Compute;
         pass.bind.setPipeline(scan.spec);
         scan.bindTo(pass.bind);
@@ -204,7 +215,7 @@ export class RayWave {
         const scatter = bound.pipelines.get(this.scatterId) as Compute;
         pass.bind.setPipeline(scatter.spec);
         scatter.bindTo(pass.bind);
-        pass.dispatch.invocations(this.gridInvocations(), WORKGROUP_SIZE.value);
+        grid();
         for (let k = 0; k < this.functions.length; k++) {
             const own = bound.pipelines.get(this.shadeId(k));
             const kernel =
@@ -214,7 +225,7 @@ export class RayWave {
             if (kernel?.role !== 'compute' || !kernel.ready) continue;
             pass.bind.setPipeline(kernel.spec);
             kernel.bindTo(pass.bind);
-            pass.dispatch.invocations(this.gridInvocations(), WORKGROUP_SIZE.value);
+            grid();
         }
     }
 

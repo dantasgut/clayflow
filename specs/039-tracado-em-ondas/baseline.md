@@ -224,3 +224,11 @@ tanque (fila ~88 mil, mais um bloco vazio de folga). O bloco agora segue a fila 
 potência de 2 acima; teto: a ligação de storage do adaptador) e sem bloco vazio: **traçado 13,9 → 12,6 ms** no tanque
 (um bloco de 131 072 pixels, 243 MB de vagas); smoke `refraction`: custo da lente 23,3 → 17,8 ms, as medidas de
 imagem iguais.
+
+## 039 refeita — rodadas por despacho indireto (2026-10-29)
+
+Cada rodada despacha os grupos das vagas vivas (argumentos gravados na GPU pela contagem da lista corrente, no máximo
+os da grade da onda), no acerto, no material da onda e na continuação; sem leitura de volta, os blocos se limitam aos
+que cobrem um representante por bloco 2×2 da tela. **Traçado 12,6 → 11,1 ms** no tanque (fila ~89 mil, a mesma
+vista); quadro inteiro 27,3 ms. Smoke `refraction`: imagem igual (immersed 1,46 → 0,69 %, lit 1,10 → 1,31 %); o custo
+da lente (18,1 ms) não vem dos blocos — a investigar por passe.

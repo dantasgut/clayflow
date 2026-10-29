@@ -16,6 +16,7 @@ import refractionVolumeMeshSource from '../../gpu/wgsl/refraction/refraction_vol
 import refractionBlockSource from '../../gpu/wgsl/refraction/refraction_block.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
 import refractionChainSource from '../../gpu/wgsl/refraction/refraction_chain.wgsl?raw';
+import refractionChainArgsSource from '../../gpu/wgsl/refraction/refraction_chain_args.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
 import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
 import refractionDenoiseSourceSource from '../../gpu/wgsl/refraction/refraction_denoise_source.wgsl?raw';
@@ -139,6 +140,8 @@ export const refractionResources = Object.freeze({
     /** A refração com trabalho fixo por pixel (spec 039 refeita): as vagas de um bloco e o cabeçalho do quadro. */
     paths: priv('refraction_paths', 'read_write', { schema: RefractionChainSchema, array: true }),
     pathQueue: priv('refraction_path_queue', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    /** Os argumentos do despacho indireto da rodada (grupos x, y, z). */
+    pathArgs: priv('refraction_path_args', 'read_write', { wgsl: 'u32', array: true }),
 });
 
 const R = refractionResources;
@@ -268,6 +271,13 @@ export const refractionChain = wgslModule({
         R.paths,
         R.pathQueue,
     ],
+});
+
+/** Os argumentos do despacho indireto de cada rodada da cadeia, pelas vagas vivas da lista corrente. */
+export const refractionChainArgs = wgslModule({
+    name: 'refraction_chain_args',
+    source: refractionChainArgsSource,
+    requires: [WORKGROUP_SIZE.module, R.pathQueue, R.pathArgs],
 });
 
 /**

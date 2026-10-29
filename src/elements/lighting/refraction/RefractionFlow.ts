@@ -20,7 +20,7 @@ import { Time } from '../../../scene/time/Time';
 import type { World } from '../../../scene/world/World';
 import { CountToArgs } from '../../gpu/compute/CountToArgs';
 import { RayScene } from '../../raytrace/RayScene';
-import { RayWave } from '../../raytrace/RayWave';
+import { RAY_WAVE_GRID_GROUPS, RayWave } from '../../raytrace/RayWave';
 import { RayWaveEntrySchema } from '../../raytrace/wave/shaders';
 import { Camera } from '../../scene/Camera';
 import { Light } from '../../scene/Light';
@@ -32,6 +32,7 @@ import {
     refractionQueue,
     refractionResources,
     refractionChain,
+    refractionChainArgs,
 } from './shaders';
 import { RefractionChainSchema } from './schemas';
 
@@ -82,8 +83,13 @@ const CAMERA = compute('refraction_camera', refractionCamera, 'refraction_camera
 /** Entradas da onda da câmera: as instâncias distintas da reta e o volume (`REFRACTION_CAMERA_SEEN` + 1). */
 const CAMERA_WAVE = 33;
 
+/** Os argumentos indiretos de cada rodada (os grupos pelas vagas vivas, no máximo os da grade da onda). */
+const CHAIN_ARGS: PipelineDescriptor = {
+    ...compute('refraction_chain_args', refractionChainArgs, 'refraction_chain_args_main'),
+    constants: { REFRACTION_CHAIN_GROUPS: RAY_WAVE_GRID_GROUPS },
+};
 /** A refração com trabalho fixo por pixel (spec 039 refeita, D1): o quadro, o bloco, as vagas, a rodada e o fechamento. */
-const CHAIN_FIXED = [CAMERA_HITS, CAMERA];
+const CHAIN_FIXED = [CAMERA_HITS, CAMERA, CHAIN_ARGS];
 /** Os kernels da cadeia (com o tamanho do bloco: `REFRACTION_CHAIN_PIXELS`). */
 const CHAIN_KERNELS = ['reset', 'chunk', 'roots', 'hit', 'follow', 'swap', 'resolve'] as const;
 type ChainKernel = (typeof CHAIN_KERNELS)[number];
@@ -107,6 +113,8 @@ interface ChainBuffers {
     readonly pixels: number;
     readonly paths: StorageBufferSpec;
     readonly queue: StorageBufferSpec;
+    /** Os argumentos indiretos da rodada (os grupos pelas vagas vivas). */
+    readonly args: IndirectBufferSpec;
 }
 
 /** O kernel da mudança da cena por bloco (só lê as marcas de movimento do traçado anterior). */
@@ -151,6 +159,8 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private queueCount: IndirectBufferSpec | undefined;
     /** Pixels do pedido (o despacho da fila). */
     private pixels = 0;
+    /** Blocos 2×2 do pedido: o teto da fila (um representante por bloco no quadro). */
+    private blocks = 0;
     /** Há o que traçar neste quadro (estrutura de raios, câmera, ligada). */
     private tracing = false;
     /** Revisão das funções `material` dos kernels de material da onda. */
@@ -263,14 +273,20 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 pass.dispatch.workgroups(1);
                 bind(pass, kernel('roots'));
                 pass.dispatch.invocations(grid, W);
+                bind(pass, at(CHAIN_ARGS));
+                pass.dispatch.workgroups(1);
+                // Cada rodada despacha os grupos das vagas vivas (argumentos gravados na GPU): a rodada vazia não custa a
+                // grade.
                 for (let r = 0; r < CHAIN_ROUNDS; r++) {
                     this.wave.reset(pass, bound);
                     bind(pass, kernel('hit'));
-                    pass.dispatch.invocations(grid, W);
-                    this.wave.shade(pass, bound);
+                    pass.dispatch.workgroupsIndirect(b.args, 0);
+                    this.wave.shade(pass, bound, b.args);
                     bind(pass, kernel('follow'));
-                    pass.dispatch.invocations(grid, W);
+                    pass.dispatch.workgroupsIndirect(b.args, 0);
                     bind(pass, kernel('swap'));
+                    pass.dispatch.workgroups(1);
+                    bind(pass, at(CHAIN_ARGS));
                     pass.dispatch.workgroups(1);
                 }
                 bind(pass, kernel('resolve'));
@@ -282,11 +298,12 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
 
     /**
      * Blocos do quadro: os que cobrem os pixels da fila medidos nos últimos quadros (a maior contagem lida, com folga de
-     * um quarto: a fila cresce entre a leitura e o uso), no máximo os da tela inteira. Sem leitura ainda, a tela inteira.
-     * Um bloco vazio pagaria as rodadas inteiras (o custo fixo delas): nenhum além da folga.
+     * um quarto: a fila cresce entre a leitura e o uso), no máximo os que cobrem a fila mais longa (um representante por
+     * bloco 2×2 da tela). Sem leitura ainda, esses. O bloco vazio paga só os despachos pequenos (as rodadas despacham os
+     * grupos das vagas vivas).
      */
     private chunks(b: ChainBuffers): number {
-        const all = Math.ceil(this.pixels / b.pixels);
+        const all = Math.ceil(this.blocks / b.pixels);
         const seen = Math.max(0, ...this.queueSeen);
         if (this.queueSeen.length === 0) return all;
         return Math.max(1, Math.min(all, Math.ceil((1.25 * seen) / b.pixels)));
@@ -405,6 +422,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.queueCount = count;
         const texture = this.resources.textureOf(refraction, 'request')!;
         this.pixels = texture.width * texture.height;
+        this.blocks = Math.ceil(texture.width / 2) * Math.ceil(texture.height / 2);
         const strata = this.resources.textureOf(refraction, 'gradient');
         // Em ladrilhos de 8 × 8 blocos (um grupo de 64 por ladrilho).
         this.strata = strata === undefined ? 0 : strata.width * strata.height;
@@ -445,7 +463,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         const pixels = Math.max(
             1,
             Math.min(
-                this.pixels,
+                this.blocks,
                 wanted,
                 Math.floor(binding / (CHAIN_SLOTS * RefractionChainSchema.stride)),
                 Math.floor(binding / (CHAIN_SLOTS * 2 * RayWaveEntrySchema.stride)),
@@ -466,6 +484,12 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             paths: storage('chain', pixels * CHAIN_SLOTS * RefractionChainSchema.stride),
             // O cabeçalho e as duas listas das vagas vivas.
             queue: storage('chain_header', (CHAIN_HEADER + 2 * CHAIN_SLOTS * pixels) * 4),
+            args: this.core.create<IndirectBufferSpec>({
+                kind: 'buffer',
+                subkind: 'indirect',
+                discriminator: `refraction_chain_args:${pixels}`,
+                byteSize: 16,
+            }),
         };
         this.paths = b;
         const R = refractionResources;
@@ -473,6 +497,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             new Map<WgslResource, BindingSource>([
                 [R.paths, b.paths],
                 [R.pathQueue, b.queue],
+                [R.pathArgs, b.args],
             ]),
         );
         if (previous !== undefined)
@@ -516,7 +541,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private releasePaths(): void {
         const b = this.paths;
         if (b === undefined) return;
-        for (const s of [b.paths, b.queue]) this.core.destroy(s);
+        for (const s of [b.paths, b.queue, b.args]) this.core.destroy(s);
         this.paths = undefined;
     }
 
