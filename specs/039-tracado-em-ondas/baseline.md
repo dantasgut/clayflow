@@ -232,3 +232,14 @@ os da grade da onda), no acerto, no material da onda e na continuação; sem lei
 que cobrem um representante por bloco 2×2 da tela. **Traçado 12,6 → 11,1 ms** no tanque (fila ~89 mil, a mesma
 vista); quadro inteiro 27,3 ms. Smoke `refraction`: imagem igual (immersed 1,46 → 0,69 %, lit 1,10 → 1,31 %); o custo
 da lente (18,1 ms) não vem dos blocos — a investigar por passe.
+
+## 039 refeita — a cauda da cadeia e o custo da lente (2026-10-29)
+
+- Lente do smoke `refraction` a 1280 × 720 (caso `cost`): a fila tem 104 mil pixels (mais que o tanque); vagas vivas
+  104 148 → 208 296 → 104 145 → 9 974 → 2 208 → … → 61 na rodada 16 (os caminhos da galeria sussurrante: entrando rente
+  à borda da esfera, a reflexão interna fica perto do ângulo crítico, com Fresnel perto de 1). Acerto por rodada: 1,1 /
+  3,1 / 1,4 ms nas três primeiras; ~0,3 ms em cada uma das 14 seguintes com dezenas a centenas de caminhos — a latência
+  de uma travessia da estrutura de raios (o piso da rodada com caminho vivo). Traçado 16,2 ms; o resto da refração ~2 ms.
+- Tentativa descartada: a pilha da travessia com o conteúdo do nó (filhos e distância de entrada, 3 palavras) para não
+  reler o nó ao desempilhar — traçado do tanque 11,2 → 13,0 ms e cáusticas 4,0 → 5,1 ms (a memória privada da pilha
+  triplica; pesa mais que a leitura poupada).
