@@ -280,7 +280,8 @@ fn refraction_chain_disperse(p: RefractionChainState, s: u32, n: RefractionNode,
 
 /**
  * Marca a continuação `c` (a transmissão do verde com os três canais) como dispersão adiada, quando `on`: o ponto de
- * partida, o lado, as direções do vermelho e do azul e o peso dos canais na interface.
+ * partida, o lado, as direções do vermelho e do azul e o peso dos canais na interface; o ângulo entre os canais e o
+ * afastamento deles (ainda nenhum).
  */
 fn refraction_chain_split(c0: RefractionChainState, on: bool, red: vec3f, blue: vec3f) -> RefractionChainState {
     var c = c0;
@@ -291,27 +292,44 @@ fn refraction_chain_split(c0: RefractionChainState, on: bool, red: vec3f, blue: 
     c.split_red = red;
     c.split_blue = blue;
     c.split_weight = c.weight;
+    c.split_angle = length(red - blue);
+    c.split_offset = 0.0;
+    c.split_stack = c.stack;
     return c;
 }
 
 /**
- * A dispersão adiada no acerto seguinte (a vaga `s` da transmissão; `ends`: o caminho termina nele): a separação do
- * vermelho ao azul no acerto (o ângulo entre eles vezes a distância; sem acerto, só o ângulo) contra o pixel ali (o
- * ângulo do pixel vezes a distância desde a câmera). Num fim abaixo dele os canais caem no mesmo pixel e o
- * caminho único vale; acima, ou com outra interface adiante (que amplificaria a divergência), o vermelho e o azul partem
- * da interface nas vagas dos canais, e esta segue só com o verde.
+ * A dispersão adiada segue na continuação `c` por uma interface sem se abrir: o ângulo entre os canais é o de antes
+ * vezes o ganho da interface (`gain`) mais o que ela própria separa (`extra`).
  */
-fn refraction_chain_settle(p0: RefractionChainState, s: u32, ends: bool) -> RefractionChainState {
+fn refraction_chain_carry(c0: RefractionChainState, angle: f32, gain: f32, extra: f32) -> RefractionChainState {
+    var c = c0;
+    c.flags |= REFRACTION_CHAIN_SPLIT;
+    c.split_angle = angle * gain + extra;
+    return c;
+}
+
+/**
+ * O quanto uma interface amplia o ângulo entre dois raios vizinhos, da direção `d_in` à `d_out` pela normal `nf`: na
+ * refração, a derivada da lei de Snell (tan θt / tan θi); rente à superfície, a saída abre o ângulo (o teto 10).
+ */
+fn refraction_spread_gain(d_in: vec3f, d_out: vec3f, nf: vec3f) -> f32 {
+    let ci = abs(dot(d_in, nf));
+    let co = abs(dot(d_out, nf));
+    let si = sqrt(max(1.0 - ci * ci, 0.0));
+    let so = sqrt(max(1.0 - co * co, 0.0));
+    if (co < 1e-3) { return 10.0; }
+    if (si < 1e-3) { return 1.5; }
+    return clamp((so * ci) / (si * co), 0.0, 10.0);
+}
+
+/**
+ * A dispersão adiada se abre (a vaga `s` da transmissão): o vermelho e o azul partem da interface em que ela começou, nas
+ * vagas dos canais, e esta segue só com o verde.
+ */
+fn refraction_chain_open(p0: RefractionChainState, s: u32) -> RefractionChainState {
     var p = p0;
     p.flags &= ~REFRACTION_CHAIN_SPLIT;
-    let apart = length(p.split_red - p.split_blue);
-    let t = p.hit_t;
-    let reach = p.travelled + t;
-    var open = apart >= p.spread;
-    if (p.hit_instance != NONE) { open = apart * t >= p.spread * reach; }
-    // Outra interface adiante amplificaria a divergência: os canais se abrem.
-    open = open || !ends;
-    if (!open) { return p; }
     let first = s - (s % REFRACTION_CHAIN_SLOTS);
     for (var k = 0; k < 2; k++) {
         var c = p;
@@ -319,6 +337,7 @@ fn refraction_chain_settle(p0: RefractionChainState, s: u32, ends: bool) -> Refr
         c.origin = p.split_origin;
         c.side = p.split_side;
         c.dir = select(p.split_blue, p.split_red, k == 0);
+        c.stack = p.split_stack;
         c.travelled = p.travelled;
         var w = vec3f(0.0);
         w[c.channel] = p.split_weight[c.channel];
@@ -349,15 +368,33 @@ fn refraction_chain_follow_one(j: u32) {
     if (p.other_instance != NONE) { c2 = ray_wave_entries[2u * j + 1u].closure; }
     var n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
         refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state);
+    // A dispersão adiada: no fim do caminho, os canais se abrem se o afastamento deles (o acumulado mais o ângulo vezes
+    // este trecho; sem acerto, só o ângulo) passa do pixel (o ângulo do pixel vezes a distância desde a câmera) — numa
+    // gota eles caem no mesmo pixel (branca), num prisma não; numa interface em que um canal não passa (a reflexão
+    // total dele), também. Senão, o trecho soma ao afastamento e ela segue.
     if ((p.flags & REFRACTION_CHAIN_SPLIT) != 0u) {
-        p = refraction_chain_settle(p, s, n.done);
-        if (p.channel >= 0) {
+        var open = false;
+        if (n.done) {
+            let t = p.hit_t;
+            open = p.split_angle >= p.spread;
+            if (p.hit_instance != NONE) {
+                open = p.split_offset + p.split_angle * t >= p.spread * (p.travelled + t);
+            }
+        } else if (n.disperse) {
+            open = !refraction_chain_passes_all(p, n);
+        }
+        if (open) {
+            p = refraction_chain_open(p, s);
             // Os canais se abriram: o nó de novo, agora só no verde.
             state = p.state;
             n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
                 refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state);
+        } else if (!n.done) {
+            p.split_offset += p.split_angle * p.hit_t;
         }
     }
+    let carry = (p.flags & REFRACTION_CHAIN_SPLIT) != 0u;
+    var extra = 0.0;
     p.weight *= n.through;
     p.state = state;
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }
@@ -378,6 +415,7 @@ fn refraction_chain_follow_one(j: u32) {
         let camera = p.flags & REFRACTION_CHAIN_CAMERA;
         p = refraction_chain_continue(p, n, p.dir, refraction_after_node(p.stack, n), vec3f(1.0));
         p.flags |= camera;
+        if (carry) { p.flags |= REFRACTION_CHAIN_SPLIT; }
         refraction_paths[s] = p;
         refraction_chain_keep(s);
         return;
@@ -406,16 +444,21 @@ fn refraction_chain_follow_one(j: u32) {
         reflect_dir = r.dir;
         reflect_weight = f * r.weight;
         // A dispersão adiada (na vaga da transmissão): os três canais seguem juntos na direção do verde, com o peso de
-        // cada um, e o acerto seguinte decide (`refraction_chain_settle`) se eles se separam mais que o pixel — então o
-        // vermelho e o azul partem daqui nas vagas deles.
+        // cada um, até o fim do caminho, que decide se eles se separaram mais que o pixel — então o vermelho e o azul
+        // partem da interface em que ela começou, nas vagas deles (`refraction_chain_open`).
         let tr = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.x, n.ior_next.x, n.alpha);
         let tg = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.y, n.ior_next.y, n.alpha);
         let tb = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before.z, n.ior_next.z, n.alpha);
         if (s % REFRACTION_CHAIN_SLOTS == REFRACTION_SLOT_MAIN && tr.weight > 0.0 && tg.weight > 0.0 && tb.weight > 0.0) {
             disperse = false;
-            split = true;
-            split_red = tr.dir;
-            split_blue = tb.dir;
+            // Já adiada desde uma interface anterior: esta só soma ao ângulo entre os canais.
+            if (carry) {
+                extra = length(tr.dir - tb.dir);
+            } else {
+                split = true;
+                split_red = tr.dir;
+                split_blue = tb.dir;
+            }
             transmit_dir = tg.dir;
             transmit_weight = (vec3f(1.0) - f) * vec3f(tr.weight, tg.weight, tb.weight);
             p_single = (f.x + f.y + f.z) / 3.0;
@@ -468,10 +511,25 @@ fn refraction_chain_follow_one(j: u32) {
         refraction_paths[s] = refraction_chain_end(p, vec3f(0.0), n.end, vec3f(1.0), false);
         return;
     }
-    refraction_paths[s] = refraction_chain_split(
+    var c = refraction_chain_split(
         refraction_chain_continue(p, n, dir, refraction_stack_pick(p.stack, after, !reflects), weight),
         split && !reflects, split_red, split_blue);
+    if (carry) {
+        // A reflexão não separa as cores nem amplia o ângulo.
+        let gain = select(refraction_spread_gain(p.dir, dir, n.nf), 1.0, reflects);
+        c = refraction_chain_carry(c, p.split_angle, gain, select(extra, 0.0, reflects));
+    }
+    refraction_paths[s] = c;
     refraction_chain_keep(s);
+}
+
+/** Os três canais atravessam a interface dispersiva do nó `n` (nenhum na reflexão total), pela microfaceta dela. */
+fn refraction_chain_passes_all(p: RefractionChainState, n: RefractionNode) -> bool {
+    for (var k = 0; k < 3; k++) {
+        let t = refraction_transmit(p.dir, n.m, n.ns, n.nf, n.ior_before[k], n.ior_next[k], n.alpha);
+        if (t.weight <= 0.0) { return false; }
+    }
+    return true;
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -598,6 +656,10 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     var weight = 0.0;
     var end = vec4f(0.0);
     var nearest = 1e9;
+    // O representante mais próximo com as mesmas marcas, em qualquer distância: o recurso quando nenhum mostra a mesma
+    // superfície (a borda de um objeto que se move) — melhor que o valor de quadros atrás.
+    var near_any = 1e9;
+    var fallback = RefractionBlock(vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4u(0u));
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let c = center + vec2i(dx, dy);
@@ -605,9 +667,14 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             let block = refraction_blocks[u32(c.x + c.y * blocks.x)];
             let tag = block.tag;
             if (tag.x != refraction.frame || tag.w != own.y) { continue; }
+            let r = vec2u(tag.y & 0xFFFFu, tag.y >> 16u);
+            let to_rep = dot(vec2f(r) - vec2f(q), vec2f(r) - vec2f(q));
+            if (to_rep < near_any) {
+                near_any = to_rep;
+                fallback = block;
+            }
             let dr = bitcast<f32>(tag.z);
             if (abs(dr - d) > 0.02 * d + 1e-3) { continue; }
-            let r = vec2u(tag.y & 0xFFFFu, tag.y >> 16u);
             let radiance = block.radiance;
             let hit = block.end;
             let alb = block.albedo;
@@ -639,8 +706,15 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     if (stamp.x != 0u && refraction.frame + 1u - stamp.x < REFRACTION_STAMP_FRAMES && abs(ds - d) <= tolerance) {
         return;
     }
-    if (weight <= 0.0) { return; }
     refraction_stamps[i] = vec2u(0u);
+    if (weight <= 0.0) {
+        if (near_any < 1e9) {
+            textureStore(refraction_radiance_out, q, fallback.radiance);
+            textureStore(refraction_hit_out, q, fallback.end);
+            textureStore(refraction_albedo_out, q, fallback.albedo);
+        }
+        return;
+    }
     textureStore(refraction_radiance_out, q, sum / weight);
     textureStore(refraction_hit_out, q, end);
     textureStore(refraction_albedo_out, q, albedo / weight);

@@ -267,3 +267,17 @@ da lente (18,1 ms) não vem dos blocos — a investigar por passe.
   aparecem isolados) — pendente.
 - A espuma (a faixa escura e ruidosa onde a água encosta no vidro): a superfície do campo para a ~1 voxel do vidro e
   sobra uma fresta de ar; o contato só é tratado no sentido da água para o vidro — pendente.
+
+## 039 refeita — a espuma colorida (2026-10-29)
+
+As gotas e o respingo (a água do campo, traçada) saíam salpicados de cor: a dispersão abria os três canais sempre que
+havia outra interface adiante (a gota tem entrada e saída), e cada pixel mostrava uma cor por vez. Agora a dispersão
+adiada atravessa as interfaces seguintes: o ângulo entre os canais é ampliado pela refração de cada uma (tan θt / tan θi;
+a reflexão não amplia) e soma o que ela separa, o afastamento soma ângulo × trecho, e só no fim do caminho os canais se
+abrem — da interface em que ela começou, com a pilha de meios de lá — se o afastamento passa do pixel; uma interface em
+que um canal não passa (reflexão total) também os abre. A reconstrução da meia resolução, sem vizinho da mesma
+superfície, usa o representante mais próximo com as mesmas marcas (sem os quadrados escuros de valor antigo). Estado:
++208 B por vaga (a pilha de meios da dispersão). A espuma sai quase branca; com a dispersão da água desligada (Abbe 0,
+só no teste) nenhuma cor sobra — as que restam são caminhos que se separam mais que o pixel (rasantes dentro das gotas),
+com uma amostra por canal. Smoke `refraction`: dispersed 1,25 → 2,27 %, glint 1,19 → 2,22 %, prism 0,35 → 0,52 %
+(a estimativa da separação fecha alguns caminhos que a referência abre; abaixo de 3 %); vagalumes 0,647 → 0,548 %.

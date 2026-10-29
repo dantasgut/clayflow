@@ -25,7 +25,8 @@ export const RefractionStackSchema = new StructSchema('RefractionStack', {
  * segue viva, o canal (−1 os três), o lado quanto aos volumes, o raio seguinte, as interfaces, o peso desde a câmera, o
  * estado do sorteio, as marcas e os passos; a luz somada, a energia truncada, a parte em movimento, o fim e o albedo
  * nele; o acerto traçado na rodada (e a dielétrica coincidente); o ângulo do pixel e a distância percorrida desde a
- * câmera; a dispersão adiada (o ponto e o lado da interface, as direções do vermelho e do azul e o peso dos canais ali);
+ * câmera; a dispersão adiada (o ponto e o lado da interface, as direções do vermelho e do azul e o peso dos canais ali;
+ * o ângulo entre os canais agora e o afastamento acumulado deles; a pilha de meios ali, de onde os canais recomeçam);
  * e a pilha de meios.
  */
 /**
@@ -71,10 +72,11 @@ export const RefractionChainSchema = new StructSchema('RefractionChainState', {
     split_origin: FieldType.vec3f,
     split_side: FieldType.i32,
     split_red: FieldType.vec3f,
-    split_pad0: FieldType.u32,
+    split_angle: FieldType.f32,
     split_blue: FieldType.vec3f,
-    split_pad1: FieldType.u32,
+    split_offset: FieldType.f32,
     split_weight: FieldType.vec3f,
     split_pad2: FieldType.u32,
     stack: fieldStruct(RefractionStackSchema),
+    split_stack: fieldStruct(RefractionStackSchema),
 });
