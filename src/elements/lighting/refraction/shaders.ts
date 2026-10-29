@@ -30,6 +30,7 @@ import {
 import { temporalFilterResources } from '../temporal/shaders';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
+import { rayWave } from '../../raytrace/wave/shaders';
 import {
     rayVolumeHitReady,
     rayVolumeMaterial,
@@ -165,6 +166,7 @@ export const refractionScene = wgslModule({
         rayVolumeHitReady,
         rayVolumeSurfaceReady,
         rayVolumeMaterial,
+        rayWave,
     ],
 });
 

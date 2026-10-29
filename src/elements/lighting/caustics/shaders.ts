@@ -21,7 +21,7 @@ import causticsGatherSource from '../../gpu/wgsl/caustics/caustics_gather.wgsl?r
 import causticsTraceSource from '../../gpu/wgsl/caustics/caustics_trace.wgsl?raw';
 import causticsResolveSource from '../../gpu/wgsl/caustics/caustics_resolve.wgsl?raw';
 import causticsLightSource from '../../gpu/wgsl/caustics/caustics_light.wgsl?raw';
-import { CausticsSchema } from './schemas';
+import { CausticsPhotonSchema, CausticsSchema } from './schemas';
 
 // Módulos das cáusticas (spec 034, T067c): o hash dos fótons (do recurso `Caustics`), os fótons, o acúmulo e as
 // contribuições ao desenho.
@@ -63,6 +63,37 @@ export const causticsResources = Object.freeze({
     instanceCapable: wgslResource({
         name: 'caustics_instance_capable',
         binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** Os fótons entre as rodadas (privado do `CausticsFlow`). */
+    photons: wgslResource({
+        name: 'caustics_photons',
+        binding: { storage: 'read_write' },
+        type: { schema: CausticsPhotonSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** A fila dos fótons vivos: o cabeçalho e as duas listas (privado do `CausticsFlow`). */
+    queue: wgslResource({
+        name: 'caustics_queue',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** O despacho do bloco de fótons e quantos ele tem: escrito no começo do bloco, lido pelos kernels do bloco. */
+    argsOut: wgslResource({
+        name: 'caustics_args_out',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    args: wgslResource({
+        name: 'caustics_args',
+        binding: { storage: 'read' },
         type: { wgsl: 'u32', array: true },
         frequency: 'stage',
         provider: 'private',
@@ -128,6 +159,11 @@ export const causticsTrace = wgslModule({
         R.hashAtomic,
         R.targets,
         R.instanceCapable,
+        R.photons,
+        R.queue,
+        R.argsOut,
+        R.args,
+        rayWave,
         LIGHT_LIMIT.module,
         lightsResource,
         lightTransmissionReady,

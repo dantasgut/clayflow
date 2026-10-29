@@ -120,7 +120,10 @@ describe('FluidField (spec 033, R11)', () => {
         // O material: o índice da função `material` do corpo e o slot dos parâmetros.
         const graph = composeWgsl(modules[1]!).spec.source;
         expect(graph).toContain('fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface');
-        expect(graph).toContain('RayVolumeSurface(body.x, body.y, closure_zero())');
+        // O fechamento do corpo, avaliado uma vez por quadro na onda dos acertos (spec 039): o meio da absorção.
+        expect(graph).toContain(
+            'RayVolumeSurface(body.x, body.y, field_body_closures[hit.material - 1u])',
+        );
         expect(graph).not.toContain('field_materials');
         // Sem avaliar a função: quem traça a avalia junto com a das malhas (uma expansão de `ray_hit_material`).
         expect(graph).not.toContain('ray_hit_material(');

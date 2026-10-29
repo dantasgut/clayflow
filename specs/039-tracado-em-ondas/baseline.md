@@ -37,3 +37,15 @@ sondas liga 9 buffers mais os da cena (a onda leva o registro e o fechamento num
 registro). Cornell: luz indireta por região a 0,4–2,0 % (bloco baixo 6,6 %); 4K 0,1–0,6 %; emissive pior 5,6 %
 (teto); window pior 8,8 % (chão); fornalha 0,2 % da série analítica; custo 3,94 ms/quadro a 1280×720 (orçamento 4 ms);
 vazamento 0,069 %; resposta 100 % em 0,25 s.
+
+## Depois da T017 (fótons das cáusticas em rodadas; o material de cada corpo de fluido na onda)
+
+| Smoke                           | Números                                                                                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `caustics case=engine&factor=1` | fluxo 1,0000×, sombra 1,000×; pico 83,0×; padrão 2,4 %; variação 0,20 %; **custo dos fótons 36,37 ms/quadro** (antes 25,15: 12 blocos de 2¹⁸ por rodada com 1 048 576 fótons — a otimizar) |
+| `caustics case=water`           | 0°: −0,08/−0,12/−0,15 %; 30°: 0,36/0,34/0,30 % (igual à linha de base)                                                                                                                     |
+| `caustics case=shadow`          | borda −0,194 m; faixa 0,999; sombra 0,000; depois da linha reta 1,022                                                                                                                      |
+
+A absorção dos trechos dentro da água e a luz que atravessa a água (`ray_volume_transmittance`, `light_transmission`)
+avaliavam o material da água na marcha pelo seletor composto: agora leem o fechamento de cada corpo, avaliado uma vez
+por quadro na onda pelo `FluidFieldFlow` (`FluidField.closures`) — o meio homogêneo por corpo.

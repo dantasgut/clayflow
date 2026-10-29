@@ -44,6 +44,8 @@ export const FluidFieldSchema = new StructSchema(
         limits: FieldType.vec4u,
         /** x: 1 quando a simulação avançou no quadro (o nível da superfície se ajusta só então). */
         motion: FieldType.vec4u,
+        /** x: o tempo simulado do quadro (s) — a amostra do material de cada corpo (spec 039). */
+        time: FieldType.vec4f,
         /**
          * A gota que molha (spec 034): a partícula isolada encostada num sólido vira uma calota achatada contra ele,
          * com o volume do núcleo esparso e a forma do ângulo de contato de `ParticlePhysics` (`fieldContactShape`) —

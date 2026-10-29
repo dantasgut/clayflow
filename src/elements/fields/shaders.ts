@@ -23,6 +23,7 @@ import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
 import fieldSurfaceSource from '../gpu/wgsl/fields/field_surface.wgsl?raw';
+import fieldBodyClosuresSource from '../gpu/wgsl/fields/field_body_closures.wgsl?raw';
 import fieldRaySurfaceSource from '../gpu/wgsl/fields/field_ray_surface.wgsl?raw';
 import fieldFilmSource from '../gpu/wgsl/fields/field_film.wgsl?raw';
 import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw';
@@ -30,6 +31,8 @@ import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?r
 import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
 import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
 import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
+import { rayWave } from '../raytrace/wave/shaders';
+import { ClosureSchema } from '../material/pbr/ClosureSchema';
 import { lightIncoming } from '../scene/points/lightContributions';
 import { lightsResource } from '../scene/resources';
 import { closure } from '../material/pbr/shaders';
@@ -91,6 +94,15 @@ export const fieldResources = Object.freeze({
     /** O mesmo buffer na escrita dos voxels com a borda. */
     dataVoxels: consumer('field_data_voxels', 'data', 'read_write', f32s),
     counts: consumer('field_counts', 'counts', 'read', { schema: SetCountSchema, array: true }),
+    /** O fechamento de cada corpo (spec 039): lido pela absorção dos trechos; escrito pelo `FluidFieldFlow` na onda. */
+    bodyClosures: consumer('field_body_closures', 'closures', 'read', {
+        schema: ClosureSchema,
+        array: true,
+    }),
+    bodyClosuresOut: consumer('field_body_closures_out', 'closures', 'read_write', {
+        schema: ClosureSchema,
+        array: true,
+    }),
     countsWrite: consumer('field_counts', 'counts', 'read_write', {
         wgsl: 'atomic<u32>',
         array: true,
@@ -372,7 +384,24 @@ export const fieldRayHit = wgslModule({
 const fieldSurface = wgslModule({
     name: 'field_surface',
     source: fieldSurfaceSource,
-    requires: [rayVolumeTypes, fields, closure],
+    requires: [rayVolumeTypes, fields, closure, R.bodyClosures],
+});
+
+/**
+ * O material de cada corpo na onda dos acertos (spec 039): o acerto sintético no centro da caixa do campo por corpo e,
+ * depois do material avaliado por classe, a cópia do fechamento para `field_body_closures`.
+ */
+export const fieldBodyClosures = wgslModule({
+    name: 'field_body_material',
+    source: fieldBodyClosuresSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        fields,
+        closure,
+        rayVolumeMaterial,
+        rayWave,
+        R.bodyClosuresOut,
+    ],
 });
 
 /** Contribuição do campo ao ponto `ray_volume_surface`: o material da água no acerto. */

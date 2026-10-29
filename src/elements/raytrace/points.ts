@@ -3,7 +3,6 @@ import type { ContributionPoint } from '../../scene/shaders/WgslPoint';
 import { closure } from '../material/pbr/shaders';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
-import { rayHitMaterialReady } from './shaders';
 
 // Pontos de cena dos volumes atravessados por raios (spec 033, R11): quem traça raios (as sondas e a tela da luz
 // rebatida, a refração recalculada, os fótons) chama estas funções sem conhecer quem as implementa — hoje o campo dos
@@ -239,13 +238,7 @@ ${modules.map((_, k) => `        case ${k}u: { return ray_volume_surface_${k}(hi
  */
 export const rayVolumeMaterial = wgslModule({
     name: 'ray_volume_material',
-    requires: [
-        rayVolumeTypes,
-        rayVolumeSurfaceReady,
-        materialPointTypes,
-        closure,
-        rayHitMaterialReady,
-    ],
+    requires: [rayVolumeTypes, rayVolumeSurfaceReady, materialPointTypes, closure],
     structs: [StandardMaterialSchema],
     source: `/** A amostra de superfície no acerto de volume \`hit\` no tempo simulado \`time\`. */
 fn ray_volume_sample(hit: RayVolumeHit, time: f32) -> SurfaceSample {
@@ -258,10 +251,12 @@ fn ray_volume_standard() -> StandardMaterial {
     return StandardMaterial(vec4f(1.0), 0.5, 0.0, 0.0, 0.0);
 }
 
-/** O fechamento no acerto de volume \`hit\` com o material \`s\` dele. */
+/**
+ * O fechamento do meio no acerto de volume \`hit\` com o material \`s\` dele: o do contribuinte (o do corpo, avaliado
+ * fora da marcha pela onda dos acertos, spec 039) — sem avaliar material aqui.
+ */
 fn ray_volume_surface_closure(hit: RayVolumeHit, s: RayVolumeSurface, time: f32) -> Closure {
-    if (s.index == 0u) { return s.closure; }
-    return ray_hit_material(s.index, ray_volume_sample(hit, time), ray_volume_standard(), s.slot);
+    return s.closure;
 }
 
 /** O fechamento no acerto de volume \`hit\` no tempo simulado \`time\`. */

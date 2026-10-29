@@ -26,6 +26,7 @@ import {
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
+import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { CountToArgs } from '../gpu/compute/CountToArgs';
@@ -33,6 +34,7 @@ import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { SpatialHashGrid } from '../gpu/compute/SpatialHashGrid';
 import { MaterialFunction } from '../extension/MaterialFunction';
 import { RayScene } from '../raytrace/RayScene';
+import { RayWave } from '../raytrace/RayWave';
 import { isFieldBody } from './fieldBody';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
 import { ParticlePhysics } from '../physics/ParticlePhysics';
@@ -59,6 +61,7 @@ import {
 } from './schemas';
 import {
     fieldApron,
+    fieldBodyClosures,
     fieldFilmDeposit,
     fieldFilmStep,
     fieldDensity,
@@ -130,6 +133,20 @@ const FILM_COLLIDER_RESOURCES = new Set([
 ]);
 
 type Ctx = TransitionContext<FluidFieldSlots>;
+
+/** O acerto sintético de cada corpo na onda e a cópia do fechamento avaliado (spec 039). */
+const BODY_RECORD: PipelineDescriptor = {
+    id: 'field_body_record',
+    role: 'compute',
+    shader: fieldBodyClosures,
+    entryPoints: ['field_body_record_main'],
+};
+const BODY_CLOSURE: PipelineDescriptor = {
+    id: 'field_body_closure',
+    role: 'compute',
+    shader: fieldBodyClosures,
+    entryPoints: ['field_body_closure_main'],
+};
 
 /** Corpo de água acompanhado: a aparência pela função `material` (o grafo). */
 interface FieldBody {
@@ -211,6 +228,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private readonly args: CountToArgs;
     /** Os sólidos, para a película (spec 034): a superfície por onde ela escorre e a física de cada um. */
     private readonly colliderSet: ColliderSet;
+    /** A onda dos acertos do material de cada corpo (spec 039): o meio que a absorção dos trechos lê. */
+    private readonly wave: RayWave;
+    private waveRevision = -1;
+    private closuresPrepared = false;
     private order: FieldBody[] = [];
     /** Conteúdo escrito nas regiões da junção e no uniform do campo (escritos quando mudam, não por quadro). */
     private drawsWritten = '';
@@ -228,6 +249,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
+        this.wave = new RayWave(ctx.core, 'field');
         this.core = ctx.core;
         this.resources = ctx.resources;
         this.world = ctx.world;
@@ -296,8 +318,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         };
     }
 
-    /** Grava a construção do campo. */
-    dispatch(frame: Frame, _bound: BoundFlow<FluidFieldSlots>): void {
+    /** Grava a construção do campo e o material de cada corpo. */
+    dispatch(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
         const k = this.kernels;
         const work = this.work;
         const field = this.field;
@@ -355,6 +377,55 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             ),
         );
         indirect('FluidFieldFlow.apron', [k.apron]);
+        this.dispatchClosures(frame, bound);
+    }
+
+    /**
+     * O material de cada corpo na onda (spec 039): o acerto sintético de cada um, o material por classe e a cópia do
+     * fechamento para `field_body_closures` (o meio que a absorção dos trechos dentro da água lê).
+     */
+    private dispatchClosures(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
+        const record = bound.pipelines.get(BODY_RECORD.id);
+        const close = bound.pipelines.get(BODY_CLOSURE.id);
+        if (
+            record?.role !== 'compute'
+            || !record.ready
+            || close?.role !== 'compute'
+            || !close.ready
+            || !this.wave.ready(bound)
+        )
+            return;
+        const W = WORKGROUP_SIZE.value;
+        frame.compute('FluidFieldFlow.closures', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(record.spec);
+            record.bindTo(pass.bind);
+            pass.dispatch.invocations(FIELD_MAX_BODIES, W);
+            this.wave.shade(pass, bound);
+            pass.bind.setPipeline(close.spec);
+            close.bindTo(pass.bind);
+            pass.dispatch.invocations(FIELD_MAX_BODIES, W);
+        });
+    }
+
+    /**
+     * A onda do material dos corpos (um raio por corpo da tabela) e os kernels de material por classe da revisão das
+     * funções `material` da estrutura de raios; os kernels dos corpos na primeira vez.
+     */
+    private syncClosures(ctx: Ctx): void {
+        const scene = ctx.bound.slots.rays?.resource as RayScene | undefined;
+        const revision = scene?.materialRevision ?? 0;
+        if (this.closuresPrepared && this.waveRevision === revision) return;
+        this.waveRevision = revision;
+        const w = this.wave.ensure(FIELD_MAX_BODIES, scene?.materialFunctions ?? [], revision);
+        if (w.bindings !== undefined) ctx.bind(w.bindings);
+        for (const id of w.released) ctx.release(id);
+        for (const p of w.pipelines) ctx.prepare(p);
+        if (!this.closuresPrepared) {
+            ctx.prepare(BODY_RECORD);
+            ctx.prepare(BODY_CLOSURE);
+            this.closuresPrepared = true;
+        }
     }
 
     /** Libera buffers e kernels. */
@@ -365,6 +436,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.colliderSet.destroy();
         this.core.destroy(this.volume);
         this.draws.dispose();
+        this.wave.destroy();
     }
 
     private run(pass: ComputePass, kernel: ComputeKernel, count: number, size: number): void {
@@ -444,6 +516,12 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
+                time: [
+                    (ctx.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0,
+                    0,
+                    0,
+                    0,
+                ],
                 contact: [
                     ...fieldContactShape(physics?.contactAngle ?? 90),
                     this.advancedTime(ctx),
@@ -471,6 +549,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         }
         this.colliderSet.refresh();
         this.ensureKernels(field, work, counts, data, gridRebuilt);
+        this.syncClosures(ctx);
     }
 
     /**

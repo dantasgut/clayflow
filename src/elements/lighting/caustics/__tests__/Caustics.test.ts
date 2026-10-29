@@ -66,22 +66,33 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(targets).toContain('if (caustics_instance_capable[k] == 0u) { continue; }');
         // A água entra nos alvos pela caixa dos volumes (sem saber quem é o volume).
         expect(trace).toContain('let vb = ray_volume_bounds();');
-        // O mesmo acerto e fechamento da refração (a malha ou a superfície do volume).
-        expect(trace).toContain('let hit = refraction_scene_hit(o, d, 1e6, side);');
-        expect(trace).toContain('let c = refraction_hit_closure(hit, caustics.extra.y);');
+        // O mesmo acerto da refração (a malha ou a superfície do volume), gravado na onda; o fechamento avaliado fora
+        // (spec 039): nenhum kernel dos fótons leva função `material` nem o seletor composto.
+        expect(trace).toContain('let hit = refraction_scene_hit(ph.origin, ph.dir, 1e6, ph.side);');
+        expect(trace).toContain('refraction_wave_put(j, hit, caustics.extra.y,');
+        for (const entry of [
+            'caustics_photon_hit_main',
+            'caustics_photon_follow_main',
+            'caustics_trace_main',
+        ]) {
+            const body = trace.slice(trace.indexOf(`fn ${entry}(`));
+            expect(body.slice(0, body.indexOf('\n}\n'))).not.toMatch(
+                /\bray_hit_material\(|\bmaterial_fn_|refraction_hit_closure\(/,
+            );
+        }
         expect(trace).not.toContain('if (water.hit) { return; }');
-        // Fresnel exato entre os dois meios; os três canais pelo mesmo caminho, um passe por canal só na dispersão.
+        // Fresnel exato entre os dois meios; os três canais pelo mesmo caminho, um fóton por canal só na dispersão (a
+        // partir da interface, com o mesmo estado do sorteio).
         expect(trace).toContain('bsdf_f_dielectric(cosi, n2 / n1)');
-        expect(trace).toContain('if (channel == 3u) { return true; }');
-        expect(trace).toContain('let split = caustics_follow(seed, o, d, rgb, channel);');
-        expect(trace.match(/= caustics_follow\(seed/g)).toHaveLength(1);
+        expect(trace).toContain('if (dispersive && ph.channel == 3u) {');
+        expect(trace).toContain('channel.state = state;');
         // Na caixa dos volumes, as amostras que não passam pela água (e que só ela cobre) não seguem.
         expect(trace).toContain(
             'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { continue; }',
         );
         // Os trechos atenuam pelos volumes; o depósito pela tenda 2D no plano tangente.
         expect(trace).toContain(
-            'throughput *= ray_volume_transmittance(o, d, hit.t, caustics.extra.y);',
+            'caustics_photons[slot].throughput = ph.throughput * ray_volume_transmittance(ph.origin, ph.dir, hit.t, caustics.extra.y);',
         );
         // Em todos os níveis de células, com o peso da tenda como a contagem do fóton.
         expect(trace).toContain('let t = caustics_tent(p, n, level);');

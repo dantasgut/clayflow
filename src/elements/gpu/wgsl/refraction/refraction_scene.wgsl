@@ -7,7 +7,7 @@
 // `ray_hit_material` — cada chamada é expandida com todas as funções da cena, e duas no passo do caminho travavam a
 // compilação do traçado.
 // Requer: NONE, ray_scene, ray_hit, ray_volume_types, ray_volume_hit, ray_volume_surface, ray_volume_material,
-// ray_bvh_read.
+// ray_bvh_read, ray_wave.
 
 /** Bit das identidades de meio dos volumes (as instâncias da estrutura de raios ficam abaixo). */
 const REFRACTION_VOLUME: u32 = 0x40000000u;
@@ -61,6 +61,30 @@ fn refraction_hit_closure(hit: RayHit, time: f32) -> Closure {
         s = ray_hit_surface(hit, time, 0.0);
     }
     return ray_hit_material(s.index, s.sample, s.material, s.slot);
+}
+
+/**
+ * O acerto `hit` (malha ou volume) no índice `i` da onda (spec 039), no tempo simulado `time`, com a carga `payload` de
+ * quem traça: o material do volume sem função (o fechamento pronto dele) e as constantes da malha sem função gravados
+ * já avaliados; com função, o registro para a classe dela.
+ */
+fn refraction_wave_put(i: u32, hit: RayHit, time: f32, payload: vec4f) {
+    if (refraction_is_volume(hit.instance)) {
+        let v = refraction_volume_hit_of(hit);
+        let surface = ray_volume_surface(v);
+        let m = ray_volume_standard();
+        if (surface.index == 0u) {
+            ray_wave_put_shaded(i, ray_wave_hit(hit.position, hit.normal, vec2f(0.0), time, 0.0, 0.0, m, surface.slot,
+                RAY_WAVE_SHADED, i, payload), surface.closure);
+            return;
+        }
+        ray_wave_put_surface(i, surface.index, surface.slot, hit.position, hit.normal, vec2f(0.0), time, 0.0, 0.0, m,
+            payload);
+        return;
+    }
+    let s = ray_hit_surface(hit, time, 0.0);
+    ray_wave_put_surface(i, s.index, s.slot, s.sample.world_position, s.sample.normal, s.sample.uv, time, 0.0, 0.0,
+        s.material, payload);
 }
 
 /** O que o acerto `hit` mostra se moveu desde o quadro anterior (a instância, ou a superfície do volume)? */
