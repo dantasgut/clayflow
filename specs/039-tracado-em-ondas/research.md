@@ -213,3 +213,42 @@ A continuação de um consumidor fica junto do traçado da rodada seguinte, num 
 - **Traçado:** deixa de ligar os pools de parâmetros de material (um por forma) e a geometria de uv.
 - **Kernel de material:** liga os registros, as superfícies, os índices da classe, as instâncias e a geometria da estrutura de raios, e os pools de parâmetros do seu grafo.
 - **Registro:** a contagem de cada kernel fica num teste de composição. O traçado das sondas da GI deve descer de 11; o valor medido é registrado, não prometido.
+
+## R16 — Ajustes medidos na implementação (2026-10-29)
+
+- **Fechamento em f32, não f16** (substitui R2): em f16 a cor de absorção perto de 1 (vidro e água claros) arredonda em
+  passos de 5e-4 e a absorção derivada (−ln(cor)/profundidade) erra até 50 %. O `Closure` passou a ser o
+  `ClosureSchema` (o struct gerado do schema; 368 B em storage).
+- **A onda num buffer só**: `RayWaveEntry` = o registro (96 B, com a carga `payload` de quem traça, vec4f) e o fechamento
+  (368 B), 464 B por entrada — uma ligação de storage nos kernels de quem traça, não duas. A GI coube em 10 (8 mais os da
+  cena).
+- **Capacidade por blocos**: a onda tem a capacidade de um bloco; quem traça mais raios que isso processa a fila de vivos
+  em blocos (o despacho de cada bloco é escrito na GPU: `caustics_round_main`/`caustics_chunk_main`).
+- **Meio por corpo de fluido**: a absorção dos trechos e a luz que atravessa a água liam o material do corpo dentro da
+  marcha pelo seletor composto; agora leem o meio do corpo (a transmissão do fechamento dele), avaliado uma vez por
+  quadro na onda pelo `FluidFieldFlow` e guardado no buffer das consultas do campo (o meio homogêneo por corpo).
+- **Fótons**: uma tentativa aceita por invocação, sorteada por igual e pesada pelo número delas (sem viés; a fila tem um
+  fóton por invocação); na dispersão o fóton vira três na interface (o mesmo estado do sorteio: o que a repetição desde
+  a fonte daria).
+
+## R17 — A refração em ondas (decisões da implementação)
+
+- **Câmera**: um kernel enumera os acertos da reta da câmera (até `REFRACTION_CAMERA_SEEN` instâncias distintas, teto de
+  passos) na onda; uma rodada de material; um kernel monta a pilha (a mesma regra). O volume dentro do qual a câmera
+  está: o acerto do volume na mesma reta, mais uma entrada.
+- **Pixels**: caminhos-folha em paralelo, cada um com o seu estado (pixel, folha, estágio, origem, direção, lado, canal,
+  interfaces, peso acumulado desde a câmera, estado do sorteio, a pilha de meios, o que já somou). Estágios: o acerto
+  da câmera (abre até 4 ramos), o caminho até a segunda interface (`path_split`: abre até 4 ramos) e o caminho de um lobo
+  (`refraction_path`). Identidade da folha: ramo do 1º nível × 16 + ramo do 2º nível × 4 + canal da dispersão + 1.
+- **Lobo raro olhado antes**: o caminho emite o lobo raro como um raio parceiro e traça o outro lobo na mesma rodada; a
+  continuação da rodada seguinte decide (o raro terminou → a luz dele entra com o peso exato e segue o outro; senão a
+  roleta de Fresnel escolhe e o caminho adota o acerto do escolhido). Na interface com dispersão, o outro lobo é um
+  caminho por canal: abertos depois da decisão.
+- **Dielétrica coincidente**: o traçado acha a outra instância a menos da tolerância (sem material) e grava o acerto
+  dela numa segunda entrada da onda (duas entradas por caminho).
+- **Folhas**: ao terminar, cada caminho anexa um registro (chave pixel × 64 + folha, radiância, truncada, movimento,
+  fim, albedo, luminância); o fechamento por pixel ordena pela chave (`RadixSort`) e soma cada segmento na ordem das
+  folhas (determinístico); o fim e o albedo pela luminância das folhas (o máximo achatado — muda só o guia do filtro e do
+  movimento).
+- **Rodadas**: 1 (câmera) + 35 (até a segunda interface) + 34 (o caminho) no pior caso, com despacho indireto pelos
+  vivos; o que resta vivo no fim conta como truncado (como o teto de passos de hoje).
