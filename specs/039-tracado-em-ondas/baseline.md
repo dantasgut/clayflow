@@ -313,3 +313,12 @@ immersed 5,90 % (limite 7 %), dispersed 8,29 % e glint 5,39 % (limite 10 %), ene
 1 %), razão do ruído da dispersão 1,78× (limite 2×) — critérios ajustados com a decisão; custo da lente 25,9 ms
 (+5,9). `fluidField edge` 1,6 % (passa). Vagas: 5 por pixel (+25 % de memória). Tanque: a espuma sem cor, a imagem
 sem salpicos; 28–32 FPS.
+
+## 039 refeita — os fótons pela normal do material (2026-10-29)
+
+Os fótons das cáusticas cruzavam a água e o vidro pela normal geométrica (a superfície do campo, plana com a água
+assentada), e a câmera os vê pela normal do fechamento (a ondulação do material): agora os dois pela mesma (a do
+fechamento, do lado da face; rente à superfície, a geométrica). Smoke `caustics` inteiro passa. Comparação do tanque
+quadro a quadro pelo gravador, o motor anterior à 039 contra o atual (quadro 400, RGB): chão fora 90/96/104 contra
+86/92/99, fundo sob a água 107/121/120 contra 109/124/123 e 73/87/92 contra 73/88/92 — o aspecto do fundo sob a água é
+o mesmo de antes da 039; o vídeo de referência do usuário é de uma cena anterior (a bandeja rasa de bordas opacas).

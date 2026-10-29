@@ -425,6 +425,17 @@ fn caustics_photon_hit_main(@builtin(global_invocation_id) gid: vec3u, @builtin(
 }
 
 /**
+ * A normal com que o fóton de direção `d` cruza a interface de face `nf` (a geométrica, do lado de onde ele chega): a do
+ * fechamento `c` (a ondulação do material da água, o relevo do vidro — a mesma superfície que a câmera vê pela refração),
+ * do lado de `nf`; sem ela, ou se ela deixasse o fóton do lado errado (rente à superfície), a geométrica.
+ */
+fn caustics_shading_normal(c: Closure, nf: vec3f, d: vec3f) -> vec3f {
+    if (dot(c.normal, c.normal) <= 1e-12) { return nf; }
+    let ns = normalize(c.normal) * select(1.0, -1.0, dot(c.normal, nf) < 0.0);
+    return select(nf, ns, dot(d, ns) < 0.0);
+}
+
+/**
  * Segue o fóton `ph` na interface do acerto (o ponto `p`, a normal `n`, o lado `outside`, se é volume) com o fechamento
  * `c` dele: numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está (o ar, ou a água) e o
  * do outro lado; no metal liso reflete com a cor dele; na difusa deposita se chegou por um caminho especular (a direta
@@ -433,12 +444,13 @@ fn caustics_photon_hit_main(@builtin(global_invocation_id) gid: vec3u, @builtin(
 fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, outside: bool, volume: bool, ior: f32,
     u: f32) -> CausticsPhoton {
     var ph = ph0;
+    let ns = caustics_shading_normal(c, select(-n, n, outside), ph.dir);
     if (c.transmission_weight > 0.5 && c.transmission_roughness < CAUSTICS_ROUGH) {
         // Os dois lados: o volume (a água) faz fronteira com o ar; a malha, com o meio em que o fóton está.
         let around = select(ph.medium, 1.0, volume);
         let n1 = select(ior, around, outside);
         let n2 = select(around, ior, outside);
-        let nn = select(-n, n, outside);
+        let nn = ns;
         let cosi = clamp(-dot(ph.dir, nn), 0.0, 1.0);
         let t = refract(ph.dir, nn, n1 / n2);
         if (dot(t, t) < 1e-8 || u < bsdf_f_dielectric(cosi, n2 / n1)) {
@@ -457,7 +469,7 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         return ph;
     }
     if (c.conductor_weight > 0.5 && c.specular_roughness < CAUSTICS_ROUGH) {
-        let nn = select(-n, n, outside);
+        let nn = ns;
         let cosi = clamp(-dot(ph.dir, nn), 0.0, 1.0);
         let x = 1.0 - cosi;
         ph.throughput *= c.conductor_f0 + (vec3f(1.0) - c.conductor_f0) * x * x * x * x * x;
