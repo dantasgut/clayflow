@@ -113,7 +113,7 @@ const QUEUE_HISTORY = 30;
 /** Palavras do cabeçalho da cadeia (`REFRACTION_CHAIN_HEADER`). */
 const CHAIN_HEADER = 8;
 /** Vagas por pixel (`REFRACTION_CHAIN_SLOTS`). */
-const CHAIN_SLOTS = 4;
+const CHAIN_SLOTS = 5;
 /** Pixels do bloco antes de a fila ser lida (depois, o bloco segue a fila medida). */
 const CHAIN_PIXELS_FIRST = 1 << 16;
 

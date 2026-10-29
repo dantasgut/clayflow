@@ -302,3 +302,14 @@ Smoke `refraction` (limite 3 % por região), contra o estado atual (roleta de Fr
 | lobo maior + menor na vaga livre (4 vagas, corta sem vaga) | 0,005       | 0,012 %   | 1,6 %  | 25,6 ms     | prism 9,5, dispersed 11,0, glint 7,6, immersed 5,9; truncada 0,72 %                                                          |
 | 6 vagas (lobos em 4–5), roleta sem vaga                    | 0,071       | 0,302 %   | 31,6 % | 33,6 ms     | prism 8,4 (contagem dupla quando a dispersão abre)                                                                           |
 | só o lobo maior (Whitted), sem vaga extra                  | 0,003       | 0,000 %   | 1,4 %  | 18,7 ms     | lit 28,5, prism 18,1, dispersed 18,2, glint 12,4, rough 10,2, sphere 9,0, relief 8,5, lens 8,4, immersed 7,6; truncada 6,4 % |
+
+## 039 refeita — as interfaces lisas sem sorteio (2026-10-29, decisão do usuário: variante A)
+
+Nas interfaces lisas (α ≤ 0,01) dos caminhos sem dispersão, da segunda interface em diante: o lobo maior sem sorteio,
+com o peso exato, e o menor na vaga 4 do pixel (a quinta, fora das dos canais da dispersão), cortado sem ela (a energia
+dele conta como truncada); a interface áspera e os caminhos com dispersão seguem pela roleta. A água do app sem
+dispersão (Abbe 0). Smoke `refraction`: ruído na esfera 0,096 → 0,031; vagalumes 0,548 → 0,131 %; prism 0,52 %,
+immersed 5,90 % (limite 7 %), dispersed 8,29 % e glint 5,39 % (limite 10 %), energia cortada na lente 0,72 % (limite
+1 %), razão do ruído da dispersão 1,78× (limite 2×) — critérios ajustados com a decisão; custo da lente 25,9 ms
+(+5,9). `fluidField edge` 1,6 % (passa). Vagas: 5 por pixel (+25 % de memória). Tanque: a espuma sem cor, a imagem
+sem salpicos; 28–32 FPS.
