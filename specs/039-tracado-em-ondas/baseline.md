@@ -179,3 +179,11 @@ o ambiente abaixo do horizonte; não é defeito do traçado.
   1,0000×, sombra 1,000×, pico 83,0×, padrão 2,4 %; `shadow` borda −0,194 m, faixa 0,998. Custo dos fótons no caso
   `engine` (1 M fótons): 49,6 ms com outra aba do tanque possivelmente renderizando — a medir com a GPU só para ele
   (linha de base 25,2; 039 v1 38,8).
+
+## 039 refeita — o que custa na refração em meia resolução (2026-10-29, contadores temporários)
+
+Tanque, ~89 mil pixels traçados por quadro: ~906 mil acertos (10 por pixel), dos quais ~565 mil na água (6,3 por
+pixel; menos de 0,1 % a menos de 2 mm da origem — não é autointerseção), e ~16,4 milhões de passos de marcha (18 por
+acerto); nenhuma vaga truncada nas 17 rodadas. O chão coberto de gotas e poças finas: o raio refletido rasante cruza
+várias, cada uma com entrada e saída. Ablações: passo mínimo 4× maior → 16,3 → 15,6 ms; menos grupos na cauda → igual;
+10 rodadas → 14,3 ms. O custo é o de cada acerto (a marcha), não o número de rodadas nem os despachos.
