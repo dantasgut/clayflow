@@ -156,3 +156,11 @@ anterior à 039 na mesma vista, e (passes de compute; o traçado num passe só):
 | Busca de vizinhos (física)     | 5,3  |
 
 Pendente no traçado: a marcha no campo dos raios secundários e os blocos vazios (15 blocos para a tela inteira).
+
+## 039 refeita — a refração em meia resolução (2026-10-29, decisão do usuário: opção 1)
+
+Um raio por bloco 2×2 por quadro (o representante gira entre os pixels pedidos do bloco), o resultado nos pixels do
+bloco na mesma superfície (distância e face do pedido), os outros com o valor anterior até a vez deles; o filtro
+temporal acumula. Tanque: 340 mil → 90 mil pixels traçados por quadro; **traçado 55,0 → 16,3 ms**; cáusticas 4,8 ms;
+física 4,6 ms. A imagem na mesma vista do motor anterior à 039: mais limpa na junção da água com o vidro (o pontilhado
+de antes some), com poucos pontos coloridos ali (a investigar).

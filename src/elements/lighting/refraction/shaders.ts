@@ -13,6 +13,7 @@ import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl
 import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
 import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
 import refractionVolumeMeshSource from '../../gpu/wgsl/refraction/refraction_volume_mesh.wgsl?raw';
+import refractionBlockSource from '../../gpu/wgsl/refraction/refraction_block.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
 import refractionChainSource from '../../gpu/wgsl/refraction/refraction_chain.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
@@ -141,6 +142,13 @@ export const refractionResources = Object.freeze({
 
 const R = refractionResources;
 
+/** A meia resolução da refração (spec 039 refeita): o representante de cada bloco 2×2 no quadro. */
+const refractionBlock = wgslModule({
+    name: 'refraction_block',
+    source: refractionBlockSource,
+    requires: [REFRACTION_REQUEST_VALID.module, refractionParamsResource, R.request],
+});
+
 /** Kernels da fila compacta dos pixels com pedido e da contagem no estado do quadro. */
 export const refractionQueue = wgslModule({
     name: 'refraction_queue',
@@ -149,6 +157,7 @@ export const refractionQueue = wgslModule({
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
         REFRACTION_FRAME_COUNT.module,
+        refractionBlock,
         R.request,
         R.queueOut,
         R.queueCount,
@@ -243,6 +252,7 @@ export const refractionChain = wgslModule({
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
         R.request,
+        refractionBlock,
         NONE.module,
         REFRACTION_FRAME_COUNT.module,
         refractionParamsResource,

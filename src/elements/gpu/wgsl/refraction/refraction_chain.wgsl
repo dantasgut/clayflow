@@ -12,7 +12,7 @@
 // Cabeçalho (`refraction_path_queue`): [0] os pixels da fila no quadro; [1] o primeiro pixel do bloco corrente; [2] a
 // lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
-// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
+// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
 // refraction_hit_out, refraction_albedo_out.
 
 /** Vagas por pixel. */
@@ -420,9 +420,15 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         if (pixel == NONE) { continue; }
         let px = vec2u(pixel % size.x, pixel / size.x);
         let a = select(albedo_best, albedo / light, light > 0.0);
-        textureStore(refraction_radiance_out, px, vec4f(radiance, truncated));
-        textureStore(refraction_hit_out, px, end);
         let moved = clamp(luminance(moving) / max(luminance(radiance), 1e-6), 0.0, 1.0);
-        textureStore(refraction_albedo_out, px, vec4f(a, moved));
+        // O representante do bloco 2×2 (meia resolução): o resultado vai aos pixels pedidos do bloco na mesma superfície.
+        let corner = px & vec2u(~1u);
+        for (var k = 0u; k < 4u; k++) {
+            let q = corner + vec2u(k & 1u, k >> 1u);
+            if (any(q != px) && !refraction_block_shares(q, px, size)) { continue; }
+            textureStore(refraction_radiance_out, q, vec4f(radiance, truncated));
+            textureStore(refraction_hit_out, q, end);
+            textureStore(refraction_albedo_out, q, vec4f(a, moved));
+        }
     }
 }
