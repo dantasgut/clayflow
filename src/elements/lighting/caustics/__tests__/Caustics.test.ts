@@ -11,7 +11,13 @@ import { GlobalIllumination } from '../../GlobalIllumination';
 import { giProbeTrace } from '../../shaders';
 import { Caustics } from '../Caustics';
 import { CAUSTICS_BUFFER_WORDS, CAUSTICS_SLOTS } from '../schemas';
-import { causticsLight, causticsRayLight, causticsResolve, causticsTrace } from '../shaders';
+import {
+    causticsInstances,
+    causticsLight,
+    causticsRayLight,
+    causticsResolve,
+    causticsTrace,
+} from '../shaders';
 
 // O transporte das cáusticas (spec 034, T067c; antes dentro da GI, spec 033 T051): o recurso (o hash, as opções, as
 // contribuições ao desenho só ligado; a direta pela água em linha reta, os fótons a corrigem), os fótons (os alvos pelo material e pela caixa dos volumes, o acerto e o
@@ -43,12 +49,15 @@ describe('Caustics (spec 034, T067c)', () => {
         const trace = composeWgsl(causticsTrace).spec.source;
         expect(trace).toContain('fn caustics_targets_main(');
         // O material das instâncias numa invocação por instância, sem laço sobre elas; os alvos só leem o resultado.
-        const instances = trace.slice(
-            trace.indexOf('fn caustics_instances_main('),
-            trace.indexOf('fn caustics_targets_main('),
+        // As instâncias pela onda dos acertos (spec 039): o material fora do kernel, nenhuma função `material` nele.
+        expect(trace).not.toContain('fn caustics_instances_main(');
+        const instances = composeWgsl(causticsInstances).spec.source;
+        expect(instances).toContain('ray_wave_put_surface(k, inst.ids.w & 0xFFFFu');
+        expect(instances).toContain('caustics_capable(ray_wave_surfaces[k])');
+        expect(instances).not.toMatch(/\bray_hit_material\(|\bmaterial_fn_/);
+        expect(instances.slice(instances.indexOf('fn caustics_instances_main('))).not.toMatch(
+            /\b(for|loop|while)\b/,
         );
-        expect(instances).toContain('caustics_capable(ray_hit_material(');
-        expect(instances).not.toMatch(/\b(for|loop|while)\b/);
         const targets = trace.slice(
             trace.indexOf('fn caustics_targets_main('),
             trace.indexOf('fn caustics_deposit('),

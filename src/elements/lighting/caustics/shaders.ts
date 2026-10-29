@@ -4,6 +4,7 @@ import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { basis, bsdf, constants, hashAddress, random, sampling } from '../../gpu/shaders/math';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayHit, rayScene } from '../../raytrace/shaders';
+import { rayWave } from '../../raytrace/wave/shaders';
 import {
     rayVolumeBoundsReady,
     rayVolumeOccupiedReady,
@@ -14,6 +15,7 @@ import { LIGHT_LIMIT } from '../../scene/points/lightContributions';
 import { lightsResource } from '../../scene/resources';
 import { refractionScene } from '../refraction/shaders';
 import causticsCapableSource from '../../gpu/wgsl/caustics/caustics_capable.wgsl?raw';
+import causticsInstancesSource from '../../gpu/wgsl/caustics/caustics_instances.wgsl?raw';
 import causticsCommonSource from '../../gpu/wgsl/caustics/caustics_common.wgsl?raw';
 import causticsGatherSource from '../../gpu/wgsl/caustics/caustics_gather.wgsl?raw';
 import causticsTraceSource from '../../gpu/wgsl/caustics/caustics_trace.wgsl?raw';
@@ -88,6 +90,24 @@ const causticsGather = wgslModule({
     name: 'caustics_gather',
     source: causticsGatherSource,
     requires: [R.params, causticsCommon, R.hash],
+});
+
+/**
+ * As instâncias que fazem cáustica pela onda dos acertos (spec 039): o acerto sintético do centro de cada uma e, depois
+ * do material avaliado por classe, a marca de cada instância. Sem a composição das funções `material`.
+ */
+export const causticsInstances = wgslModule({
+    name: 'caustics_instances',
+    source: causticsInstancesSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        causticsCapable,
+        R.instanceCapable,
+        rayScene,
+        rayWave,
+    ],
 });
 
 /** Fótons das fontes pelos caminhos especulares até a primeira difusa (com a composição das funções `material`). */

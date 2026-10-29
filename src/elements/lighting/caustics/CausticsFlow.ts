@@ -12,11 +12,17 @@ import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { Time } from '../../../scene/time/Time';
 import { RayScene } from '../../raytrace/RayScene';
+import { RayWave } from '../../raytrace/RayWave';
 import { composeHitMaterial, rayHitMaterialPoint } from '../../raytrace/hitMaterial';
 import { Light } from '../../scene/Light';
 import { Caustics } from './Caustics';
 import { CAUSTICS_SLOTS, CAUSTICS_TARGET_WORDS } from './schemas';
-import { causticsResolve, causticsResources as R, causticsTrace } from './shaders';
+import {
+    causticsInstances,
+    causticsResolve,
+    causticsResources as R,
+    causticsTrace,
+} from './shaders';
 
 /** Slots do estágio das cáusticas. */
 export interface CausticsSlots extends SlotMap {
@@ -44,9 +50,12 @@ const compute = (id: string, shader: WgslModule, entry: string): PipelineDescrip
 });
 
 const RESOLVE = compute('caustics_resolve', causticsResolve, 'caustics_resolve_main');
-/** Ids dos kernels compostos com as funções `material` (as instâncias, os alvos e os fótons) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string, string] => [
-    `caustics_instances:${revision}`,
+/** O acerto sintético do centro de cada instância na onda (spec 039). */
+const INSTANCES = compute('caustics_instances', causticsInstances, 'caustics_instances_main');
+/** A marca de cada instância pelo fechamento avaliado na onda. */
+const FLAG = compute('caustics_instances_flag', causticsInstances, 'caustics_instances_flag_main');
+/** Ids dos kernels compostos com as funções `material` (os alvos e os fótons) de uma revisão. */
+const traceIds = (revision: number): readonly [string, string] => [
     `caustics_targets:${revision}`,
     `caustics_trace:${revision}`,
 ];
@@ -71,6 +80,9 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     /** Uma palavra por instância da capacidade da estrutura de raios: faz cáustica? */
     private capable: StorageBufferSpec | undefined;
     private capableCount = 0;
+    /** A onda dos acertos das instâncias (o material no centro de cada uma, fora do traçado). */
+    private readonly wave: RayWave;
+    private waveRevision = -1;
     private prepared = false;
     private traceRevision: number | undefined;
     private nextTraceRevision: number | undefined;
@@ -82,6 +94,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         super();
         this.core = ctx.core;
         this.resources = ctx.resources;
+        this.wave = new RayWave(ctx.core, 'caustics_instances');
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -100,18 +113,38 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         };
     }
 
-    /** As instâncias que fazem cáustica, os alvos (um grupo), os fótons e o acúmulo no hash, num passe. */
+    /**
+     * As instâncias que fazem cáustica (o acerto do centro de cada uma na onda, o material por classe e a marca), os
+     * alvos (um grupo), os fótons e o acúmulo no hash, num passe.
+     */
     dispatch(frame: Frame, bound: BoundFlow<CausticsSlots>): void {
         if (this.photons === 0) return;
         const traces = this.readyTraces(bound);
         const resolve = bound.pipelines.get(RESOLVE.id);
-        if (traces === undefined || resolve?.role !== 'compute' || !resolve.ready) return;
+        const instances = bound.pipelines.get(INSTANCES.id);
+        const flag = bound.pipelines.get(FLAG.id);
+        if (
+            traces === undefined
+            || resolve?.role !== 'compute'
+            || !resolve.ready
+            || instances?.role !== 'compute'
+            || !instances.ready
+            || flag?.role !== 'compute'
+            || !flag.ready
+            || !this.wave.ready(bound)
+        )
+            return;
         const W = WORKGROUP_SIZE.value;
         frame.compute('CausticsFlow', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(instances.spec);
+            instances.bindTo(pass.bind);
+            pass.dispatch.invocations(this.capableCount, W);
+            this.wave.shade(pass, bound);
             for (const [p, count] of [
-                [traces[0]!, this.capableCount],
-                [traces[1]!, W],
-                [traces[2]!, this.photons],
+                [flag, this.capableCount],
+                [traces[0]!, W],
+                [traces[1]!, this.photons],
                 [resolve, CAUSTICS_SLOTS],
             ] as const) {
                 pass.bind.setPipeline(p.spec);
@@ -128,6 +161,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         if (this.capable !== undefined) this.core.destroy(this.capable);
         this.capable = undefined;
         this.capableCount = 0;
+        this.wave.destroy();
     }
 
     /** Os kernels dos fótons prontos: os novos assim que compilam (os anteriores são liberados), senão os atuais. */
@@ -164,6 +198,7 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         }
         const scene = c.bound.slots.rays.resource as RayScene;
         this.syncCapable(c, scene);
+        this.syncWave(c, scene);
         this.syncTrace(c, scene);
         this.photons = caustics.enabled ? caustics.photons : 0;
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
@@ -196,6 +231,29 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         c.bind(new Map<WgslResource, BindingSource>([[R.instanceCapable, this.capable]]));
     }
 
+    /**
+     * A onda das instâncias (um raio por instância da capacidade) e os kernels de material por classe da revisão das
+     * funções `material` da estrutura de raios; os kernels das instâncias na primeira vez.
+     */
+    private syncWave(c: Ctx, scene: RayScene): void {
+        if (this.wave.capacity >= this.capableCount && this.waveRevision === scene.materialRevision)
+            return;
+        const first = this.waveRevision < 0;
+        this.waveRevision = scene.materialRevision;
+        const w = this.wave.ensure(
+            this.capableCount,
+            scene.materialFunctions,
+            scene.materialRevision,
+        );
+        if (w.bindings !== undefined) c.bind(w.bindings);
+        for (const id of w.released) c.release(id);
+        for (const p of w.pipelines) c.prepare(p);
+        if (first) {
+            c.prepare(INSTANCES);
+            c.prepare(FLAG);
+        }
+    }
+
     /** Os kernels dos fótons com a composição das funções `material` da cena (novos quando o conjunto muda). */
     private syncTrace(c: Ctx, scene: RayScene): void {
         if (this.nextTraceRevision !== undefined) {
@@ -217,10 +275,9 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
                       causticsTrace,
                       new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]),
                   );
-        const [instancesId, targetsId, traceId] = traceIds(this.materialRevision);
+        const [targetsId, traceId] = traceIds(this.materialRevision);
         if (this.nextTraceRevision !== undefined)
             for (const id of traceIds(this.nextTraceRevision)) c.release(id);
-        c.prepare(compute(instancesId, composed, 'caustics_instances_main'));
         c.prepare(compute(targetsId, composed, 'caustics_targets_main'));
         c.prepare(compute(traceId, composed, 'caustics_trace_main'));
         if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
