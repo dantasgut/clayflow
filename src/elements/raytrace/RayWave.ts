@@ -1,10 +1,5 @@
 import type { BindingSource, BoundFlow } from '../../scene/flows/FlowBinding';
-import type {
-    ComputePass,
-    EngineCore,
-    IndirectBufferSpec,
-    StorageBufferSpec,
-} from '../../scene/contracts/gpu';
+import type { ComputePass, EngineCore, StorageBufferSpec } from '../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
@@ -12,12 +7,9 @@ import type { RayMaterialFunction } from './RayScene';
 import { HIT_SHADE_ENTRY, RAY_WAVE_CLASS, hitShade, hitShadeConstants } from './hitShade';
 import {
     RayWaveEntrySchema,
-    rayWaveArgsWords,
     rayWaveBins,
-    rayWaveClassArgsOffset,
     rayWaveCountWords,
     rayWaveResources as R,
-    rayWaveScatterArgsOffset,
 } from './wave/shaders';
 
 /** Os buffers de uma onda. */
@@ -26,7 +18,6 @@ interface WaveBuffers {
     readonly counts: StorageBufferSpec;
     readonly ranges: StorageBufferSpec;
     readonly order: StorageBufferSpec;
-    readonly args: IndirectBufferSpec;
 }
 
 type Compute = ReturnType<BoundFlow['compute']>;
@@ -124,11 +115,8 @@ export class RayWave {
                 [R.rangesOut, b.ranges],
                 [R.order, b.order],
                 [R.orderOut, b.order],
-                [R.args, b.args],
             ]);
             if (first) {
-                const maxX =
-                    this.core.capabilities().limits.maxComputeWorkgroupsPerDimension ?? 65_535;
                 pipelines.push(
                     {
                         id: this.resetId,
@@ -141,7 +129,6 @@ export class RayWave {
                         role: 'compute',
                         shader: rayWaveBins,
                         entryPoints: ['ray_wave_scan_main'],
-                        constants: { RAY_WAVE_MAX_X: maxX },
                     },
                     {
                         id: this.scatterId,
@@ -207,7 +194,7 @@ export class RayWave {
      * das constantes).
      */
     shade(pass: ComputePass, bound: BoundFlow): void {
-        const args = this.buffers!.args;
+        const W = WORKGROUP_SIZE.value;
         const scan = bound.pipelines.get(this.scanId) as Compute;
         pass.bind.setPipeline(scan.spec);
         scan.bindTo(pass.bind);
@@ -215,7 +202,7 @@ export class RayWave {
         const scatter = bound.pipelines.get(this.scatterId) as Compute;
         pass.bind.setPipeline(scatter.spec);
         scatter.bindTo(pass.bind);
-        pass.dispatch.workgroupsIndirect(args, rayWaveScatterArgsOffset(this.classesValue));
+        pass.dispatch.invocations(this.capacityValue, W);
         for (let k = 0; k < this.functions.length; k++) {
             const own = bound.pipelines.get(this.shadeId(k));
             const kernel =
@@ -225,7 +212,7 @@ export class RayWave {
             if (kernel?.role !== 'compute' || !kernel.ready) continue;
             pass.bind.setPipeline(kernel.spec);
             kernel.bindTo(pass.bind);
-            pass.dispatch.workgroupsIndirect(args, rayWaveClassArgsOffset(k));
+            pass.dispatch.invocations(this.capacityValue, W);
         }
     }
 
@@ -233,7 +220,7 @@ export class RayWave {
     destroy(): void {
         const b = this.buffers;
         if (b === undefined) return;
-        for (const s of [b.entries, b.counts, b.ranges, b.order, b.args]) this.core.destroy(s);
+        for (const s of [b.entries, b.counts, b.ranges, b.order]) this.core.destroy(s);
         this.buffers = undefined;
     }
 
@@ -250,12 +237,6 @@ export class RayWave {
             counts: storage('ray_wave_counts', rayWaveCountWords(classes) * 4),
             ranges: storage('ray_wave_ranges', classes * 8),
             order: storage('ray_wave_order', capacity * 4),
-            args: this.core.create<IndirectBufferSpec>({
-                kind: 'buffer',
-                subkind: 'indirect',
-                discriminator: `${this.prefix}:ray_wave_args:${classes}`,
-                byteSize: rayWaveArgsWords(classes) * 4,
-            }),
         };
     }
 }

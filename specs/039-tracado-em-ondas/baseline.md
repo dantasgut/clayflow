@@ -59,3 +59,21 @@ traçam) — o meio homogêneo por corpo. Depois disso: `caustics case=water` �
 prism 0,29 %, underwater 0,09 %, pane 0,12 %, lit 0,45 %, fieldImmersed 0,02 %, fieldUnder 0,04 %, lens 0,07 % com 0
 degraus, dispersed 0,55 %, glint 0,70 % com vagalumes 0,037 %, relief 0,20 %, ripple 0,17 %); o caso `gi` agora PASSA
 (off/on contra absent ≤ 0,01 %; antes: 11 > 10 buffers); só o custo falha, como antes (32,638 ms; limite 3 ms).
+
+## T002 — o custo dos despachos (Chrome, M4, `dispatchCost`)
+
+| Modo                                 | Por despacho |
+| ------------------------------------ | ------------ |
+| indireto com 0 grupos                | 11,58 µs     |
+| indireto com 1 grupo                 | 12,06 µs     |
+| direto com 1 grupo                   | 1,12 µs      |
+| direto com 4096 grupos que saem logo | 7,76 µs      |
+
+O despacho indireto custa ~10× o direto no Chrome (o Dawn valida os argumentos indiretos com um passe próprio): as
+rodadas da onda passam a usar despacho direto com laço de passo de grade (um número fixo de grupos percorre a faixa,
+limitado pela capacidade).
+
+Com os despachos diretos do tamanho da capacidade: `caustics case=engine&factor=1` igual (fluxo 1,0000×, padrão 2,4 %),
+custo dos fótons 38,77 ms/quadro — o peso está nos blocos (12 por rodada: a fila reserva 3 vagas por fóton para a
+dispersão, e o bloco é de 2¹⁸) e no tráfego da onda (464 B por fóton e rebote). Otimização pendente: a reserva da
+dispersão e o tamanho do bloco pela memória do dispositivo.

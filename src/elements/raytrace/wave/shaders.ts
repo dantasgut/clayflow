@@ -43,21 +43,6 @@ export function rayWaveCountWords(classes: number): number {
     return 1 + 2 * classes;
 }
 
-/** Palavras dos argumentos indiretos da onda para `classes` classes: um despacho por classe e o do espalhamento. */
-export function rayWaveArgsWords(classes: number): number {
-    return 3 * (classes + 1);
-}
-
-/** Byte, nos argumentos da onda, do despacho do kernel de material da classe `cls`. */
-export function rayWaveClassArgsOffset(cls: number): number {
-    return cls * 12;
-}
-
-/** Byte, nos argumentos da onda de `classes` classes, do despacho do espalhamento. */
-export function rayWaveScatterArgsOffset(classes: number): number {
-    return classes * 12;
-}
-
 /**
  * Uma entrada da onda: o registro do acerto e o fechamento avaliado nele, no mesmo índice (um buffer só: cada kernel de
  * quem traça liga uma ligação de storage, não duas).
@@ -123,14 +108,6 @@ export const rayWaveResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
-    /** Os argumentos indiretos (`rayWaveArgsWords`). */
-    args: wgslResource({
-        name: 'ray_wave_args',
-        binding: { storage: 'read_write' },
-        type: { wgsl: 'u32', array: true },
-        frequency: 'stage',
-        provider: 'private',
-    }),
 });
 
 const W = rayWaveResources;
@@ -155,14 +132,6 @@ export const rayWaveRead = wgslModule({
 export const rayWaveBins = wgslModule({
     name: 'ray_wave_bins',
     source: rayWaveBinsSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        W.entriesIn,
-        W.counts,
-        W.ranges,
-        W.rangesOut,
-        W.orderOut,
-        W.args,
-    ],
+    requires: [WORKGROUP_SIZE.module, W.entriesIn, W.counts, W.ranges, W.rangesOut, W.orderOut],
     structs: [RayWaveHitSchema, RayWaveEntrySchema],
 });

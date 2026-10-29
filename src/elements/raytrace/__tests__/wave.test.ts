@@ -13,11 +13,8 @@ import {
     RayWaveEntrySchema,
     RayWaveHitSchema,
     rayWave,
-    rayWaveArgsWords,
     rayWaveBins,
-    rayWaveClassArgsOffset,
     rayWaveCountWords,
-    rayWaveScatterArgsOffset,
 } from '../wave/shaders';
 
 const fn = (body: string): RayMaterialFunction => {
@@ -64,14 +61,11 @@ describe('onda dos acertos (spec 039)', () => {
         expect(source).toContain('fn ray_wave_put_surface(');
     });
 
-    it('a separação: zerar, faixas e argumentos numa invocação, espalhar por classe', () => {
+    it('a separação: zerar, faixas numa invocação, espalhar por classe', () => {
         const source = composeWgsl(rayWaveBins).spec.source;
         for (const entry of ['ray_wave_reset_main', 'ray_wave_scan_main', 'ray_wave_scatter_main'])
             expect(source).toContain(`fn ${entry}(`);
         expect(rayWaveCountWords(3)).toBe(7);
-        expect(rayWaveArgsWords(3)).toBe(12);
-        expect(rayWaveClassArgsOffset(2)).toBe(24);
-        expect(rayWaveScatterArgsOffset(3)).toBe(36);
     });
 
     it('layout: o registro em 96 B e o fechamento pelo schema', () => {
