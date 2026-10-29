@@ -281,3 +281,13 @@ superfície, usa o representante mais próximo com as mesmas marcas (sem os quad
 só no teste) nenhuma cor sobra — as que restam são caminhos que se separam mais que o pixel (rasantes dentro das gotas),
 com uma amostra por canal. Smoke `refraction`: dispersed 1,25 → 2,27 %, glint 1,19 → 2,22 %, prism 0,35 → 0,52 %
 (a estimativa da separação fecha alguns caminhos que a referência abre; abaixo de 3 %); vagalumes 0,647 → 0,548 %.
+
+## 039 refeita — tentativas descartadas contra os vagalumes (2026-10-29)
+
+- Os dois lobos sem sorteio na vaga livre do pixel (a transmissão divide na vaga 2 da segunda interface em diante):
+  vagalumes 0,548 → 0,434 %, `fluidField edge` 40,6 → 31,5 % isolados, dispersed 2,27 → 2,86 %, custo da lente
+  20,0 → 26,4 ms. Ganho pequeno, custo grande.
+- Sem o termo das cáusticas no ponto opaco visto pela refração: vagalumes iguais (0,548 %) — não vêm delas.
+- Amostragem defensiva da roleta de Fresnel (o smoke documenta a causa: da terceira interface em diante a reflexão rara
+  leva 1/F e vê o teto claro): probabilidade em [1/4, 3/4] → vagalumes 0,066 %, mas glint 10,56 % e ruído 6×; com piso
+  de 1/10 → `edge` passa (3,4 %), vagalumes 0,380 %, mas glint 5,65 % (> 3 %).
