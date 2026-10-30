@@ -330,3 +330,21 @@ XSPH 0,05 (o padrão) 0,020 m/s; XSPH 0,01 0,034; sem XSPH 0,042; sem XSPH e sem
 gotas soltas que não assentam: a tensão fica). O preset da água (`ParticlePhysics.WATER`) passa a XSPH 0,01. A escala
 do XSPH por substep não muda nada nesta cena (já são 4 substeps, o passo do Particles4All). `fluidBehavior` falha igual
 no `HEAD` (puddle: a área não cresce com a adesão; estados ≠ fixtures); `wetting` passa.
+
+## 039 refeita — rumo aos 100 FPS: medidas de parede e a referência (2026-10-30)
+
+Medidas pelo tempo de parede (Chrome headless no M4, 1280 × 720, a página `bench/agua.html`, 240 quadros depois de 6 s,
+sem o cronômetro de GPU — o cronômetro do quadro custa ~20 ms no tanque; os tempos por passe de render se sobrepõem no
+Apple e não somam):
+
+- Tanque completo: **43,7 ms (23 FPS)**; CPU de gravação 1,4 ms (o limite é a GPU); com 3 quadros em voo 39,7 ms.
+- Sem a água (só o aquário de vidro e o chão): 11,8 ms. A água (física, campo, malha, traçado, cáusticas) custa ~32 ms.
+- A física já tem passo fixo de 60 Hz (`Time`): ~8,5 ms por quadro a 23 FPS (1–3 passos), ~2,5 ms a 100 FPS.
+- Teto de interfaces (as rodadas agora o seguem): 16 → 44,5 ms; 8 → 40,0 ms (imagem igual: 5,9 % dos pixels acima
+  de 8/255 contra 5,6 % entre duas capturas de 16); 5 → 36,9 ms (16 %, os reflexos nas gotas do chão). O tanque usa 8.
+
+Referência, Particles4All (preset médio, mesmo Chrome, 1280 × 720): 100 000 partículas de água + 41 mil de parede,
+**189 FPS (~5,3 ms)**. Física com passo fixo (4 subpassos a cada 1/60 s, grade ordenada a cada subpasso, sem listas
+de vizinhos); superfície por elipsoides anisotrópicos na tela com filtro de faixa estreita; composição com custo fixo
+por pixel (uma refração traçada contra os sólidos analíticos, uma reflexão, absorção pela espessura). Sem vidro,
+cáusticas, GI nem dispersão.
