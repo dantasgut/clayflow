@@ -131,7 +131,8 @@ fn refraction_chain_continue(p0: RefractionChainState, n: RefractionNode, dir: v
 @compute @workgroup_size(1)
 fn refraction_chain_reset_main() {
     atomicStore(&refraction_path_queue[0], textureLoad(refraction_frame, vec2u(REFRACTION_FRAME_COUNT, 0u), 0).x);
-    atomicStore(&refraction_path_queue[1], 0u - REFRACTION_CHAIN_PIXELS);
+    // O complemento de dois (−N em u32) sem a subtração, que o avaliador de constantes do naga recusa por transbordar.
+    atomicStore(&refraction_path_queue[1], ~REFRACTION_CHAIN_PIXELS + 1u);
 }
 
 /** O bloco seguinte, com as listas vazias. */
