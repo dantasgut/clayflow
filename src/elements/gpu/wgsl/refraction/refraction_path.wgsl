@@ -69,7 +69,7 @@ fn refraction_camera_stack() -> RefractionStack {
         let a = textureLoad(refraction_frame, vec2u(2u * k, 0u), 0);
         let b = textureLoad(refraction_frame, vec2u(2u * k + 1u, 0u), 0);
         if (a.x == NONE) { continue; }
-        s.media[s.count] = RefractionMedium(a.x, bitcast<f32>(a.y), bitcast<vec3f>(vec3u(a.zw, b.x)),
+        s.media[s.count] = refraction_medium_of(a.x, bitcast<f32>(a.y), bitcast<vec3f>(vec3u(a.zw, b.x)),
             bitcast<vec3f>(b.yzw));
         s.count += 1u;
     }
@@ -125,7 +125,7 @@ fn refraction_thin_reflectance(c: Closure, outside: RefractionMedium, cos_i: f32
     let slab = closure_dispersion_iors(c.transmission_ior, c.transmission_abbe);
     var out: vec3f;
     for (var k = 0; k < 3; k++) {
-        let r = refraction_fresnel(cos_i, outside.ior[k], slab[k]);
+        let r = refraction_fresnel(cos_i, refraction_medium_ior(outside)[k], slab[k]);
         out[k] = 2.0 * r / (1.0 + r);
     }
     return out;
@@ -442,8 +442,8 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
         n.disperse = true;
         n.alpha = x.alpha;
         n.ns = x.ns;
-        n.ior_before = x.before.ior;
-        n.ior_next = x.next.ior;
+        n.ior_before = refraction_medium_ior(x.before);
+        n.ior_next = refraction_medium_ior(x.next);
         n.m = refraction_microfacet(d, x.ns, x.alpha, vec2f(refraction_random(state), refraction_random(state)));
         return n;
     }

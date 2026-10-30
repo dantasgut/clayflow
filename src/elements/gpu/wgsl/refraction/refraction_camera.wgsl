@@ -16,9 +16,9 @@ const REFRACTION_CAMERA_SEEN: u32 = 32u;
 
 fn refraction_store_medium(k: u32, m: RefractionMedium) {
     textureStore(refraction_frame_out, vec2u(2u * k, 0u),
-        vec4u(m.instance, bitcast<u32>(m.priority), bitcast<u32>(m.ior.x), bitcast<u32>(m.ior.y)));
+        vec4u(m.instance, bitcast<u32>(m.priority), bitcast<u32>(m.ior_r), bitcast<u32>(m.ior_g)));
     textureStore(refraction_frame_out, vec2u(2u * k + 1u, 0u),
-        vec4u(bitcast<u32>(m.ior.z), bitcast<vec3u>(m.sigma)));
+        vec4u(bitcast<u32>(m.ior_b), bitcast<vec3u>(refraction_medium_sigma(m))));
 }
 
 /** Índice da onda do acerto do volume em que a câmera está (depois dos das instâncias). */

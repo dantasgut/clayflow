@@ -2,12 +2,20 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema, fieldArray, fieldStruct } from '../../../scene/descriptors/StructSchema';
 import { REFRACTION_MAX_MEDIA } from './Refraction';
 
-/** Um meio da pilha de um caminho (spec 034, R1): a instância, a prioridade, o índice por canal e a absorção por canal. */
+/**
+ * Um meio da pilha de um caminho (spec 034, R1): a instância, a prioridade, o índice por canal e a absorção por canal —
+ * em escalares (32 bytes; com `vec3f` o alinhamento dava 48): as pilhas vão em cada vaga do traçado, lidas e gravadas
+ * em cada rodada. O WGSL os lê por `refraction_medium_ior` e `refraction_medium_sigma`.
+ */
 export const RefractionMediumSchema = new StructSchema('RefractionMedium', {
     instance: FieldType.u32,
     priority: FieldType.f32,
-    ior: FieldType.vec3f,
-    sigma: FieldType.vec3f,
+    ior_r: FieldType.f32,
+    ior_g: FieldType.f32,
+    ior_b: FieldType.f32,
+    sigma_r: FieldType.f32,
+    sigma_g: FieldType.f32,
+    sigma_b: FieldType.f32,
 });
 
 /**
