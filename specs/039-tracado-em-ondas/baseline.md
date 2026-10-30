@@ -399,3 +399,16 @@ somam ~5,8 ms. Rodada quase vazia: 0,15–0,2 ms fixos (teto 8 → 12 → 16: 22
 Cáusticas por etapa: emissão 1,75 ms (as tentativas por rejeição na caixa da água, até 32 marchas de ocupação por
 fóton, ~0,6; o raio reto da correção, ~0,8), rebotes ~1,9 (o acerto domina), preparação 0,3, resolução 0,1. Despachar
 os rebotes pelos fótons vivos (argumentos indiretos) não muda nada (4,74 ms antes e depois): descartado.
+
+Os dois cortes sem perda de qualidade que restavam, medidos antes de escrever (tanque congelado, mesma sessão):
+
+- Despachos por rodada do traçado: 6 e 12 despachos vazios a mais por rodada (54 e 108 no quadro) custam +0,1 e +0,7
+  ms (~6 µs cada). Fundir os 2–3 despachos pequenos de cada rodada daria ~0,1 ms: descartado. O custo fixo das rodadas
+  finais é a latência dos poucos raios que ainda marcham, não o número de despachos.
+- As marchas de ocupação da emissão das cáusticas: dobrá-las leva as cáusticas de 4,74 a 5,10 ms — elas custam ~0,4
+  ms. Emitir pelos blocos ocupados pede uma marcha de contagem inteira por fóton (o peso pelo comprimento dentro dos
+  blocos): o ganho líquido ≤ 0,3 ms, com um estimador novo. Descartado.
+
+Sem baixar a qualidade, o quadro do tanque fica em ~22 ms congelado e ~33 ms com a física; os 100 FPS pedem os perfis
+de qualidade (teto de interfaces, resolução do traçado, fótons e frequência das cáusticas) — a configuração do
+renderizador, decisão do usuário.
