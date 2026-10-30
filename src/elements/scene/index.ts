@@ -9,6 +9,8 @@ export { PointLight } from './PointLight';
 export { SpotLight } from './SpotLight';
 export type { SpotLightValues } from './SpotLight';
 export { HemisphereLight } from './HemisphereLight';
+export { EnvironmentMap } from './environment/EnvironmentMap';
+export type { EnvironmentMapData, EnvironmentMapValues } from './environment/EnvironmentMap';
 export type { HemisphereLightData, HemisphereLightValues } from './HemisphereLight';
 export { ShadowMap, type ShadowMapData } from './ShadowMap';
 export {

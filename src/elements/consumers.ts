@@ -9,6 +9,7 @@ import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
 import { CausticsSchema } from './lighting/caustics/schemas';
+import { EnvironmentMapSchema } from './scene/environment/schema';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
 import { Refraction } from './lighting/refraction/Refraction';
@@ -37,6 +38,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     // O céu físico (spec 033): parâmetros, tabelas e amostrador.
     ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
         (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),
+    ),
+    // A imagem do mundo (spec 039 refeita): parâmetros, a imagem e o amostrador.
+    ...(['params', 'image', 'sampler'] as const).map(
+        (id) => new SingletonResolver(EnvironmentMapSchema, id, { name: `EnvironmentMap.${id}` }),
     ),
     // A iluminação global (spec 033): parâmetros, estado das sondas, atlas, amostrador e as sondas de tela.
     ...(
