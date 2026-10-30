@@ -322,3 +322,11 @@ fechamento, do lado da face; rente à superfície, a geométrica). Smoke `causti
 quadro a quadro pelo gravador, o motor anterior à 039 contra o atual (quadro 400, RGB): chão fora 90/96/104 contra
 86/92/99, fundo sob a água 107/121/120 contra 109/124/123 e 73/87/92 contra 73/88/92 — o aspecto do fundo sob a água é
 o mesmo de antes da 039; o vídeo de referência do usuário é de uma cena anterior (a bandeja rasa de bordas opacas).
+
+## 039 refeita — a água parava cedo: a dissipação do PBF (2026-10-29)
+
+Velocidade das partículas da barragem no tanque (PBF, espaçamento 2,5 cm, 4 substeps a 60 Hz), mediana aos 7,5 s:
+XSPH 0,05 (o padrão) 0,020 m/s; XSPH 0,01 0,034; sem XSPH 0,042; sem XSPH e sem tensão superficial 0,079 (mas com
+gotas soltas que não assentam: a tensão fica). O preset da água (`ParticlePhysics.WATER`) passa a XSPH 0,01. A escala
+do XSPH por substep não muda nada nesta cena (já são 4 substeps, o passo do Particles4All). `fluidBehavior` falha igual
+no `HEAD` (puddle: a área não cresce com a adesão; estados ≠ fixtures); `wetting` passa.
