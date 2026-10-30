@@ -412,3 +412,44 @@ Os dois cortes sem perda de qualidade que restavam, medidos antes de escrever (t
 Sem baixar a qualidade, o quadro do tanque fica em ~22 ms congelado e ~33 ms com a física; os 100 FPS pedem os perfis
 de qualidade (teto de interfaces, resolução do traçado, fótons e frequência das cáusticas) — a configuração do
 renderizador, decisão do usuário.
+
+### Os botões de qualidade (2026-10-30)
+
+Tanque congelado, 1280 × 720, mesma sessão, sem captura durante a medida (a captura do canvas deixa os quadros
+seguintes ~6 ms mais lentos). Imagem contra a referência (teto 16 para o teto; 262 144 fótons para os fótons), depois
+de 150 quadros; o piso é a diferença entre duas capturas da mesma configuração (0,33–0,55 % dos pixels > 8/255, média
+~1/255).
+
+| Teto de interfaces | Quadro (ms) | Pixels > 8/255 | Média | Onde muda                        |
+| ------------------ | ----------- | -------------- | ----- | -------------------------------- |
+| 16                 | 25,1        | referência     |       |                                  |
+| 8 (atual)          | 23,1        | 0,84 %         | 1,09  | quase nada                       |
+| 5                  | 22,3        | 1,86 %         | 1,49  | reflexos nas gotas               |
+| 4                  | 21,6        | 2,00 %         | 1,67  |                                  |
+| 3                  | 20,2        | 2,89 %         | 2,02  | bordas do vidro e a linha d'água |
+| 2                  | 19,1        | 7,10 %         | 5,13  | as paredes do aquário pretas     |
+| 1                  | 16,9        | 7,87 %         | 6,78  |                                  |
+
+| Fótons das cáusticas | Quadro (ms) | Pixels > 8/255 | Média |
+| -------------------- | ----------- | -------------- | ----- |
+| 262 144              | 28,2        | referência     |       |
+| 65 536 (atual)       | 23,1        | 9,35 %         | 2,53  |
+| 32 768               | 21,2        | 14,33 %        | 3,42  |
+| 16 384               | 20,7        | 18,50 %        | 4,27  |
+| 8 192                | 20,3        | 20,59 %        | 4,70  |
+| desligadas           | ~18,4       | —              | —     |
+
+A diferença dos fótons fica no desenho fino das cáusticas no chão e nas poças (a média móvel do hash converge para um
+padrão estável em cada contagem); à vista, 65 536 e 262 144 se confundem.
+
+Escala de render (sessões separadas): 960 × 540 ~19,6 ms; 640 × 360 entre 15,4 e 11,9 ms (a GPU baixa o clock com
+pouca carga: as medidas nessa escala variam entre ciclos). A 640 × 360 as cáusticas (~3,7 ms, independentes da
+resolução) e o traçado (~4,2 ms, a latência das rodadas finais) seguem dominando: ~12 ms não escalam com os pixels.
+
+Perfis combinados com a física rodando (mesma sessão): atual 32,2 ms (31 FPS); teto 4 29,9; teto 3 29,3; 16 384
+fótons 29,3; teto 4 + 16 384 27,7; teto 3 + 16 384 26,7; teto 3 sem cáusticas 24,0 ms (42 FPS).
+
+Defeitos achados nas cáusticas (o código é meu): os buffers dos fótons só crescem — depois de 262 144 fótons, 65 536
+custam 31 ms em vez de 22,5 (os rebotes despacham os blocos da capacidade, vazios); e desligar os fótons (0) e
+religá-los deixa as cáusticas ~7 ms mais caras daí em diante. Os dois buffers são `core.create` no Flow: entram na
+migração do renderizador.
