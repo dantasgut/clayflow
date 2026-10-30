@@ -43,6 +43,7 @@ import {
     RefractionBlockSchema,
     RefractionMediumSchema,
     RefractionChainSchema,
+    RefractionSplitSchema,
     RefractionStackSchema,
 } from './schemas';
 import {
@@ -144,6 +145,8 @@ export const refractionResources = Object.freeze({
     requestDepth: texture('refraction_request_depth', 'depth'),
     /** A refração com trabalho fixo por pixel (spec 039 refeita): as vagas de um bloco e o cabeçalho do quadro. */
     paths: priv('refraction_paths', 'read_write', { schema: RefractionChainSchema, array: true }),
+    /** A dispersão adiada de cada vaga (o mesmo índice das vagas), à parte do estado lido em cada rodada. */
+    splits: priv('refraction_splits', 'read_write', { schema: RefractionSplitSchema, array: true }),
     pathQueue: priv('refraction_path_queue', 'read_write', { wgsl: 'atomic<u32>', array: true }),
     /** Os argumentos do despacho indireto da rodada (grupos x, y, z). */
     pathArgs: priv('refraction_path_args', 'read_write', { wgsl: 'u32', array: true }),
@@ -278,6 +281,7 @@ export const refractionChain = wgslModule({
         R.hitOut,
         R.albedoOut,
         R.paths,
+        R.splits,
         R.pathQueue,
         R.blocks,
         R.stamps,

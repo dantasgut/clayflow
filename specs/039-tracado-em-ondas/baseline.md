@@ -373,3 +373,8 @@ falhas (anteriores) e as medidas de imagem dentro da variação entre rodadas.
 
 Tanque inteiro com a física (três rodadas de 240 quadros): **44,5 → 33,4 ms (22,5 → 30 FPS)** com o teto de 8
 interfaces, o campo refeito só com passo da física e o meio compacto.
+
+A dispersão adiada fora do registro da vaga (`RefractionSplit`, o mesmo índice, ~200 bytes com a terceira pilha):
+traçado 18,2 → 15,7 ms no tanque congelado; a lente do smoke `refraction` 23,1 → 21,6 ms, as mesmas falhas. O caso
+`ripple` sozinho dá 1–3 degraus de borda em 5670 cruzamentos com o código de antes e com o de agora (p99 0,77–0,79 px):
+pré-existente, não aparece na rodada completa.

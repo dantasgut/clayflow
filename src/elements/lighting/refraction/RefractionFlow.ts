@@ -34,7 +34,7 @@ import {
     refractionChain,
     refractionChainArgs,
 } from './shaders';
-import { RefractionBlockSchema, RefractionChainSchema } from './schemas';
+import { RefractionBlockSchema, RefractionChainSchema, RefractionSplitSchema } from './schemas';
 
 /** Slots do estágio da refração. */
 export interface RefractionSlots extends SlotMap {
@@ -116,6 +116,8 @@ const CHAIN_PIXELS_FIRST = 1 << 16;
 interface ChainBuffers {
     readonly pixels: number;
     readonly paths: StorageBufferSpec;
+    /** A dispersão adiada de cada vaga. */
+    readonly splits: StorageBufferSpec;
     readonly queue: StorageBufferSpec;
     /** Os argumentos indiretos da rodada (os grupos pelas vagas vivas). */
     readonly args: IndirectBufferSpec;
@@ -501,6 +503,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         const b: ChainBuffers = {
             pixels,
             paths: storage('chain', pixels * CHAIN_SLOTS * RefractionChainSchema.stride),
+            splits: storage('chain_splits', pixels * CHAIN_SLOTS * RefractionSplitSchema.stride),
             // O cabeçalho e as duas listas das vagas vivas.
             queue: storage('chain_header', (CHAIN_HEADER + 2 * CHAIN_SLOTS * pixels) * 4),
             args: this.core.create<IndirectBufferSpec>({
@@ -515,6 +518,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         c.bind(
             new Map<WgslResource, BindingSource>([
                 [R.paths, b.paths],
+                [R.splits, b.splits],
                 [R.pathQueue, b.queue],
                 [R.pathArgs, b.args],
             ]),
@@ -589,7 +593,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private releasePaths(): void {
         const b = this.paths;
         if (b === undefined) return;
-        for (const s of [b.paths, b.queue, b.args]) this.core.destroy(s);
+        for (const s of [b.paths, b.splits, b.queue, b.args]) this.core.destroy(s);
         this.paths = undefined;
     }
 
