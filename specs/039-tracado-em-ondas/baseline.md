@@ -378,3 +378,24 @@ A dispersão adiada fora do registro da vaga (`RefractionSplit`, o mesmo índice
 traçado 18,2 → 15,7 ms no tanque congelado; a lente do smoke `refraction` 23,1 → 21,6 ms, as mesmas falhas. O caso
 `ripple` sozinho dá 1–3 degraus de borda em 5670 cruzamentos com o código de antes e com o de agora (p99 0,77–0,79 px):
 pré-existente, não aparece na rodada completa.
+
+### O mapa do quadro inteiro e o que falta para 100 FPS (2026-10-30)
+
+Ablação no tanque congelado (mesma sessão, 3 ciclos): quadro 22,2 ms. Economia ao desligar: traçado 11,5; pedido de
+volume 6,9 (sobreposto ao traçado); cáusticas 4,7; forward 1,9; filtro da refração 1,7; mapa da luz da água 0,9; o
+resto (TLAS, sombras, froxels, partículas, composição, movimento, resolução temporal, superfícies, transformações) ≤ 0,2
+cada.
+
+Com a física rodando (passes rotulados temporários, ~3,6 passos por quadro sob o cronômetro): a física soma ~8,3 ms por
+quadro, ~2,1 ms por passo de 60 Hz (36 864 partículas, 4 subpassos × 4 iterações); as listas de vizinhos ~27 % disso
+(soma de prefixos das células, ordenação nas células, busca). O campo refeito ~4 ms por passo (redistância 0,9, malha
+0,9, mapa da luz 0,7, densidade/suavização/início/apron ~0,9). A 100 FPS (0,6 passo por quadro): física ~1,3 ms e campo
+~2,4 ms por quadro — cabem; o que não cabe é o desenho fixo (22 ms).
+
+Traçado por rodada (fila de 88 mil representantes, meia resolução, teto 8): acertos 3,6 ms, material 1,3, continuação
+4,2, o resto 0,7; as rodadas 0 e 1 (a câmera até a primeira interface; a reflexão e a transmissão dentro da água)
+somam ~5,8 ms. Rodada quase vazia: 0,15–0,2 ms fixos (teto 8 → 12 → 16: 22,6 → 23,1 → 23,9 ms).
+
+Cáusticas por etapa: emissão 1,75 ms (as tentativas por rejeição na caixa da água, até 32 marchas de ocupação por
+fóton, ~0,6; o raio reto da correção, ~0,8), rebotes ~1,9 (o acerto domina), preparação 0,3, resolução 0,1. Despachar
+os rebotes pelos fótons vivos (argumentos indiretos) não muda nada (4,74 ms antes e depois): descartado.
