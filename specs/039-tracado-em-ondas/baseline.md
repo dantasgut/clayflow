@@ -365,3 +365,11 @@ rodada a mais 2,6 / 1,8 / 0,9 / ~0,5 ms.
 
 O campo refeito só quando a simulação avança (ou mudam os parâmetros, as capacidades, a grade): congelado 32,2 → 26,4
 ms; a imagem igual (0,54 % dos pixels acima de 8/255 contra 1,06 % entre duas capturas iguais, na mesma sessão).
+
+O tamanho do registro da vaga pesa: 256 bytes sem uso acrescentados ao registro levam o traçado de 21,6 a 27,6 ms (a
+continuação lê e grava o registro inteiro). O meio da pilha em escalares (48 → 32 bytes; as duas pilhas de uma vaga
+416 → 272): traçado 21,6 → 18,2 ms no tanque congelado; a lente do smoke `refraction` 26,0 → 23,1 ms, as mesmas
+falhas (anteriores) e as medidas de imagem dentro da variação entre rodadas.
+
+Tanque inteiro com a física (três rodadas de 240 quadros): **44,5 → 33,4 ms (22,5 → 30 FPS)** com o teto de 8
+interfaces, o campo refeito só com passo da física e o meio compacto.
