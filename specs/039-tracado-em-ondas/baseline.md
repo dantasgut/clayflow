@@ -348,3 +348,20 @@ Referência, Particles4All (preset médio, mesmo Chrome, 1280 × 720): 100 000 p
 de vizinhos); superfície por elipsoides anisotrópicos na tela com filtro de faixa estreita; composição com custo fixo
 por pixel (uma refração traçada contra os sólidos analíticos, uma reflexão, absorção pela espessura). Sem vidro,
 cáusticas, GI nem dispersão.
+
+### Ablação no tanque congelado (2026-10-30)
+
+O estado da água muda de uma rodada para outra (45–53 ms em rodadas iguais): as medidas valem só numa sessão, com a
+física parada aos 3 s simulados e as configurações alternadas em ciclos (mediana de 3 ciclos de 90 quadros; repetem
+dentro de ~0,5 ms). Quadro sem física: 32,2 ms. Economia ao desligar: traçado 15,6; pedido de volume da água 9,5
+(sobreposto ao traçado: sem pedido, não há água a traçar); campo 5,6; cáusticas 4,6; filtro da refração 1,9; os passes
+de raster (pedido, movimento, composição, resolução temporal) ~0 cada.
+
+Traçado por rodada e por etapa (passes rotulados temporários, cronômetro de compute; teto 8): acerto 4,2 ms, material
+1,3, continuação 8,3 (rodada 1: 1,4 / 0,45 / 3,2). Na continuação, a luz direta com sombra no opaco 1,9 ms, o brilho do
+sol nas interfaces 0,8, a indireta 0; o resto (~5,6 ms) é o nó e os registros de cada vaga (~400–500 B, 5 vagas por
+pixel, dois fechamentos por acerto) lidos e regravados em cada rodada. Por teto: 1 interface já custa 8,7 ms; cada
+rodada a mais 2,6 / 1,8 / 0,9 / ~0,5 ms.
+
+O campo refeito só quando a simulação avança (ou mudam os parâmetros, as capacidades, a grade): congelado 32,2 → 26,4
+ms; a imagem igual (0,54 % dos pixels acima de 8/255 contra 1,06 % entre duas capturas iguais, na mesma sessão).
