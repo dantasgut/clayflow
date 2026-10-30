@@ -103,11 +103,6 @@ const CHAIN_KERNELS = [
 ] as const;
 type ChainKernel = (typeof CHAIN_KERNELS)[number];
 
-/**
- * Rodadas por bloco: um acerto por vaga em cada uma — a câmera e as interfaces seguintes até o teto padrão de interfaces
- * (`Refraction.max_interfaces`, 16); a vaga que ainda segue depois conta como truncada.
- */
-const CHAIN_ROUNDS = 17;
 /** Contagens da fila lidas guardadas (a maior delas dimensiona os blocos). */
 const QUEUE_HISTORY = 30;
 /** Palavras do cabeçalho da cadeia (`REFRACTION_CHAIN_HEADER`). */
@@ -263,6 +258,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             this.gradient === undefined ? undefined : bound.pipelines.get(this.gradient);
         const measures = gradient?.role === 'compute' && gradient.ready;
         const chunks = this.chunks(b);
+        // Rodadas por bloco: um acerto por vaga em cada uma — a câmera e as interfaces seguintes até o teto da cena
+        // (`Refraction.maxInterfaces`); a vaga que ainda segue depois conta como truncada.
+        const rounds = (bound.slots.refraction.resource as Refraction).maxInterfaces + 1;
         frame.compute('RefractionFlow.trace', (pass) => {
             this.wave.reset(pass, bound);
             bind(pass, at(CAMERA_HITS));
@@ -290,7 +288,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 pass.dispatch.workgroups(1);
                 // Cada rodada despacha os grupos das vagas vivas (argumentos gravados na GPU): a rodada vazia não custa a
                 // grade.
-                for (let r = 0; r < CHAIN_ROUNDS; r++) {
+                for (let r = 0; r < rounds; r++) {
                     this.wave.reset(pass, bound);
                     bind(pass, kernel('hit'));
                     pass.dispatch.workgroupsIndirect(b.args, 0);
