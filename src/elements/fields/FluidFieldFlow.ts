@@ -256,6 +256,12 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private kernels: Kernels | undefined;
     /** A simulação avançou no quadro: a película de água escoa e recebe a deposição (spec 034). */
     private filmAdvances = false;
+    /**
+     * O campo é refeito neste quadro: a simulação avançou ou mudou o que ele lê (os parâmetros, as capacidades, a grade).
+     * Com as partículas paradas o campo refeito é o mesmo (o nível fica, `motion` 0): a GPU não o refaz em cada quadro
+     * desenhado entre dois passos da física.
+     */
+    private rebuilds = true;
     private field: FluidField | undefined;
     private particles = 0;
     private active = false;
@@ -341,6 +347,20 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         const field = this.field;
         const counts = field === undefined ? undefined : this.counts(field);
         if (!this.active || k === undefined || work === undefined || counts === undefined) return;
+        if (this.rebuilds) this.rebuild(frame, k, work, field!, counts);
+        this.rebuilds = false;
+        this.dispatchClosures(frame, bound);
+        this.dispatchLightMap(frame, bound);
+    }
+
+    /** A construção do campo pelas partículas: a junção, a grade, os núcleos, os blocos, a distância e a malha. */
+    private rebuild(
+        frame: Frame,
+        k: Kernels,
+        work: Work,
+        field: FluidField,
+        counts: IndirectBufferSpec,
+    ): void {
         const W = WORKGROUP_SIZE.value;
         frame.compute('FluidFieldFlow.gather', (pass) => {
             this.order.forEach((b, i) => {
@@ -352,7 +372,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             });
         });
         this.grid.record(frame);
-        const table = field!.capacity.table;
+        const table = field.capacity.table;
         frame.compute('FluidFieldFlow.kernels', (pass) => {
             this.run(pass, k.sort, this.particles, W);
             this.run(pass, k.kernels, this.particles, W);
@@ -394,7 +414,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         );
         indirect('FluidFieldFlow.apron', [k.apron]);
         // A malha da superfície: a contagem zerada, um grupo por bloco, os argumentos do desenho.
-        const meshArgs = this.counts(field!, 'meshArgs');
+        const meshArgs = this.counts(field, 'meshArgs');
         if (meshArgs !== undefined) frame.clear(meshArgs, 16, 4);
         frame.compute('FluidFieldFlow.mesh', (pass) => {
             pass.bind.setPipeline(k.mesh.pipeline);
@@ -402,8 +422,6 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             pass.dispatch.workgroupsIndirect(counts, SET_COUNT_DISPATCH_OFFSET);
             this.run(pass, k.meshArgs, 1, 1);
         });
-        this.dispatchClosures(frame, bound);
-        this.dispatchLightMap(frame, bound);
     }
 
     /** O mapa da luz pela água (depois do meio dos corpos, que ele lê). */
@@ -587,6 +605,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         ];
         this.filmAdvances = this.advanced(ctx);
         const paramsKey = JSON.stringify(params);
+        this.rebuilds ||= this.filmAdvances || gridRebuilt || paramsKey !== this.paramsWritten;
         if (paramsKey !== this.paramsWritten) {
             this.paramsWritten = paramsKey;
             field.data.params = params;
