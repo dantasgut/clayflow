@@ -139,6 +139,13 @@ versão desta emenda inventava peças que já existem):
   o `FlowContext.core` fica só para consultas (capacidades, canvas). Documentação: `clay-engine-doc/docs/guides/flows.md`
   ("Espaço de trabalho") e `architecture_resource_loaders.md` ("Espaço de trabalho dos Flows").
 
+- **O que a migração acrescentou à C2 (2026-10-31, medido nos Flows reais):** `writeNow` (envio imediato de um valor
+  conhecido só na gravação, também na faixa de um descritor em pool) e `writeRegions` (as regiões de um uniforme por
+  região, válidas durante a gravação); conteúdo da CPU em textura (`data[id]`, na alocação e na mudança); envio só dos
+  descritores próprios cujo campo mudou (antes, qualquer mudança reenviava todos os do Resource); a posse da GPU
+  (`GpuManaged`) reavaliada na redescrição; o mapa dos próprios criado quando um Resource ganha o primeiro descritor;
+  `FlowWork.drop`. O `EnvironmentMapFlow` saiu (só enviava a imagem, agora a C2 envia).
+
 ### D9 — Os auxiliares como provedores de descritores
 
 Cada auxiliar ganha `static descriptors(prefix, capacidade…)` (os `GPUDescriptor` de que precisa) e `attach(slot ou

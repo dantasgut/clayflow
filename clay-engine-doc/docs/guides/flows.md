@@ -150,6 +150,15 @@ const slots = {
 - **Capacidade — `reserve`.** O Resource de trabalho expõe `reserve(...)` (como o `FluidField`): quando a capacidade
   muda, ele se redescreve; a C2 realoca o que mudou de forma, nos dois sentidos, e refaz os bind groups. Nada fica preso
   a um valor anterior.
+- **Valores da CPU — três caminhos, todos da C2.** O conteúdo que muda entre quadros e já é conhecido no `framePrepare`
+  vai em `work.data[id]` (descritor `upload: 'always'`; a C2 envia só os descritores cujo campo mudou, antes da
+  gravação). O valor conhecido só na gravação (a contagem de uma reconstrução, os parâmetros de uma chamada) vai por
+  `resources.writeNow(work, id, bytes, offset?)` — também na faixa de um descritor em pool, relativo ao início dela — ou,
+  num uniforme por região, por `resources.writeRegions(work, id, registros, primeira?)`. Uma textura com conteúdo da CPU
+  (o atlas de uma fonte, uma imagem do mundo) é um descritor `texture` com os bytes em `data[id]`: a C2 os envia na
+  alocação e a cada mudança.
+- **Partes que saem.** `work.drop(parte)` tira os descritores de uma parte (uma busca recriada com outra grade, o trabalho
+  de uma entidade que saiu); a C2 libera os buffers. Os auxiliares fazem isso no `destroy()`.
 - **Contadores — `read`.** Um contador escrito na GPU (contatos, a fila da refração) é um descritor do Resource de
   trabalho lido por `resources.read(work, 'counter')` (a leitura sob demanda da spec 007: lote por tarefa, desempacotada
   pelo schema) — sem staging nem `mapAsync` no Flow.

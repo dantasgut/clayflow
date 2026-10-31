@@ -79,15 +79,15 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 
 ### Phase 7: os auxiliares como provedores de descritores
 
-- [ ] T119 [US8] `PerStepUniforms` e `FrameUniforms` sobre as regiões da T115 em `src/elements/gpu/compute/`.
-- [ ] T120 [P] [US8] `RayWave` (`src/elements/raytrace/RayWave.ts`): `descriptors(prefix, capacidade, classes)` e
+- [x] T119 [US8] `PerStepUniforms` e `FrameUniforms` sobre as regiões da T115 em `src/elements/gpu/compute/`.
+- [x] T120 [P] [US8] `RayWave` (`src/elements/raytrace/RayWave.ts`): `descriptors(prefix, capacidade, classes)` e
       `attach`; sem `core.create`.
-- [ ] T121 [P] [US8] `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `CountToArgs`, `SpatialHashGrid`, `GraphColorer`
+- [x] T121 [P] [US8] `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `CountToArgs`, `SpatialHashGrid`, `GraphColorer`
       em `src/elements/gpu/compute/`.
-- [ ] T122 [P] [US8] `ColliderSet` (`src/elements/physics/colliders/ColliderSet.ts`: os donos como descritores de pool
+- [x] T122 [P] [US8] `ColliderSet` (`src/elements/physics/colliders/ColliderSet.ts`: os donos como descritores de pool
       dos colisores) e `NeighborSearchPipeline` (`src/elements/gpu/NeighborSearchPipeline.ts`: os arrays por partícula
       como descritores de pool do corpo, as células como descritores próprios do `ParticlePhysics`).
-- [ ] T123 [P] [US8] `UiGpuPipeline` (`src/presentation/ui/`) e `SetNodeKernels` (`src/elements/nodes/set/`).
+- [x] T123 [P] [US8] `UiGpuPipeline` (`src/presentation/ui/`) e `SetNodeKernels` (`src/elements/nodes/set/`).
 
 ### Phase 8: o `Renderer` (US7)
 
@@ -102,13 +102,13 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 
 ### Phase 9: o espaço de trabalho do desenho (US8)
 
-- [ ] T128 [US8] `RefractionFlow` → `RefractionWork`: cadeia, dispersão adiada, cabeçalho, argumentos, blocos,
-      carimbos (`reserve` pelo alvo), a onda; a contagem da fila por `read` (sai o `measureQueue` com staging próprio).
-- [ ] T129 [US8] `CausticsFlow` → `CausticsWork`: alvos, capazes, fótons, fila, argumentos, a onda; a capacidade pela
-      configuração nos dois sentidos (os dois defeitos medidos somem: teste do custo depois de 262 144 e de 0 → 65 536).
-- [ ] T130 [US8] `ProbeFlow` → `GlobalIllumination` (o trabalho de tela por `reserve` pelo alvo).
-- [ ] T131 [US8] `FluidFieldFlow` → `FluidField` e `RaySceneFlow` → `RayScene`.
-- [ ] T132 [US8] `PostFlow` → `FrameTargets`; `ForwardFlow`, `ShadowFlow`, `ParticleFlow`, `UIFlow` → os donos da D10.
+- [x] T128 [US8] `RefractionFlow` → `RefractionWork`: cadeia, dispersão adiada, cabeçalho, argumentos, blocos,
+      carimbos (`reserve` pelo alvo), a onda; a contagem da fila por `read` (sai o `measureQueue` com staging próprio). Feito no `RefractionWork` do Flow (b34bd5f4); a fila lida pelo `read` da C2.
+- [x] T129 [US8] `CausticsFlow` → `CausticsWork`: alvos, capazes, fótons, fila, argumentos, a onda; a capacidade pela
+      configuração nos dois sentidos (os dois defeitos medidos somem: teste do custo depois de 262 144 e de 0 → 65 536). Feito no `CausticsWork` do Flow (b34bd5f4): os fótons realocam nos dois sentidos; a medida dos dois defeitos fica para a Phase 10.
+- [x] T130 [US8] `ProbeFlow` → `GlobalIllumination` (o trabalho de tela por `reserve` pelo alvo). Feito no `ProbeWork` do Flow, não no `GlobalIllumination`: o trabalho é da instância do estágio (b34bd5f4).
+- [x] T131 [US8] `FluidFieldFlow` → `FluidField` e `RaySceneFlow` → `RayScene`. Feito no `FieldWork` e no `RaySceneWork` dos Flows; os cabeçalhos das hierarquias vão à faixa do `RayScene` por `writeNow` (b34bd5f4).
+- [x] T132 [US8] `PostFlow` → `FrameTargets`; `ForwardFlow`, `ShadowFlow`, `ParticleFlow`, `UIFlow` → os donos da D10. Feito nos Resources de trabalho dos Flows (`PostWork`, `ForwardWork`, `ShadowWork`, `ParticleWork`, `UIWork`); o atlas da fonte é textura com conteúdo da CPU pela C2 (b34bd5f4).
 - [ ] T133 [US8] Smokes do desenho com os critérios atuais; o tanque no perfil alto contra as capturas atuais.
 
 ### Phase 10: a Opção B e os perfis (US9)
@@ -124,15 +124,15 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 
 Pelos pools dos corpos e pelos descritores próprios com `reserve` (plan D12), sem peça nova.
 
-- [ ] T138 [P] [US8] `LCPFlow`: os proxies no pool do corpo; pares, contatos, contadores e argumentos como descritores
-      próprios com `reserve`; os contadores por `read`.
-- [ ] T139 [P] [US8] `PBFFlow`, `SPHFlow`: `delta`, `normal`, `boundary` como descritores de pool do `ParticleBody`
+- [x] T138 [P] [US8] `LCPFlow`: os proxies no pool do corpo; pares, contatos, contadores e argumentos como descritores
+      próprios com `reserve`; os contadores por `read`. Os proxies ficaram no `LCPWork` pela capacidade: indexam caixas seguidas de esferas (dois pools de colisor), não as entidades de um pool; contadores pelo `read` (b34bd5f4).
+- [x] T139 [P] [US8] `PBFFlow`, `SPHFlow`: `delta`, `normal`, `boundary` como descritores de pool do `ParticleBody`
       (saem os tamanhos fixos de `NEIGHBOR_SEARCH_MAX_PARTICLES`); `DiffuseFlow` (com a `NeighborSearchPipeline` da
       T122); `MPMFlow` com a grade no Resource do domínio.
-- [ ] T140 [P] [US8] `EmitterFlow`, `SurfaceColliderFlow`, `SoftSurfaceFlow` (faces e SDF no Resource do corpo ou do
-      colisor, `onDemand`), os Flows de FEM e XPBD.
-- [ ] T141 [P] [US8] `TransformFlow`, `CameraFlow` (elos e listas no pool do `Transform` e da câmera),
-      `ShadowMatrixFlow`, `SurfaceFlow`, `GraphFlow`/nós de conjunto.
+- [x] T140 [P] [US8] `EmitterFlow`, `SurfaceColliderFlow`, `SoftSurfaceFlow` (faces e SDF no Resource do corpo ou do
+      colisor, `onDemand`), os Flows de FEM e XPBD. O trabalho por entidade das superfícies macias e dos colisores de superfície ficou como parte do trabalho do Flow, uma por entidade, tirada com `drop` quando ela sai (b34bd5f4).
+- [x] T141 [P] [US8] `TransformFlow`, `CameraFlow` (elos e listas no pool do `Transform` e da câmera),
+      `ShadowMatrixFlow`, `SurfaceFlow`, `GraphFlow`/nós de conjunto. Os elos, pares e listas por função são listas globais compactadas montadas na CPU: descritores do trabalho pela capacidade, não pools por `Transform`/câmera (b34bd5f4).
 - [ ] T142 [US8] Smokes de física com os critérios atuais.
 
 ### Phase 12: fechamento da emenda
