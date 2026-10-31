@@ -44,7 +44,7 @@ de ~2 min.
 
 ## Phase 5: Fechamento
 
-- [ ] T112 O tanque por estágio no `baseline.md` (SC-001) e a comparação de imagem com o motor anterior (SC-003).
+- [x] T112 O tanque por estágio no `baseline.md` (SC-001) e a comparação de imagem com o motor anterior (SC-003). (2026-10-31: o mapa por estágio no `baseline.md` (o tanque inteiro e o médio com xadrez). SC-003 pelos quadros determinísticos de passo fixo: o `fluidSurface` contra as fixtures dá os mesmos números antes e depois da migração — dam-opaque 63 788/63 788, PBF 63 886/63 886, SPH 63 870/63 875, MPM 63 839/63 838 — e os hashes de estado dos outros smokes batem. A captura do tanque ao vivo não serve: duas do próprio HEAD diferem 12,7 % pelo instante da pausa da física.)
       (2026-10-30: o mapa por estágio e a SC-003 no quadro 400 registrados; o SC-001 substituído pela SC-009.)
 - [x] T113 Vídeo do tanque no Chrome; no Deno com aprovação (SC-006). (Ver T144.)
 - [x] T114 Gate completo: lint, tsc, testes, smokes. (2026-10-31: tsc, lint, bench, 1902 testes; smokes sem regressão contra o código de antes da migração — `baseline.md`, "O gate da 039".)
