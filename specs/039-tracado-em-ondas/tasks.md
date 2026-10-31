@@ -54,27 +54,31 @@ de ~2 min.
 Ver a emenda na spec (US7–US9) e no plano (D7–D13). Cada fase termina com tsc, lint, testes e os smokes que ela toca;
 a imagem do tanque no perfil alto contra as capturas atuais (piso de ruído).
 
-### Phase 6: as peças da C2 (bloqueia o resto)
+### Phase 6: a peça da C2 e o que falta expor (bloqueia o resto)
 
-- [ ] T115 [US8] `GPUDescriptor.bufferShape` (buffer pela tela) e a recriação em `resizeCanvasTextures` em
-      `src/scene/descriptors/GPUDescriptor.ts` e `src/scene/systems/ResourceSystem.ts`; testes de alocação e de
-      redimensionamento.
-- [ ] T116 [US8] `GPUDescriptor.readback` e o evento `bufferRead` (staging interno em anel, uma leitura em voo, entrega
-      aos Flows com slot) em `ResourceSystem.ts`, `src/scene/flows/FlowTransitions.ts` e `FlowRuntime.ts`; testes.
-- [ ] T117 [US8] `GPUDescriptor.regions` (uniforme por região com offset dinâmico, alinhamento do adaptador, envio só
-      das regiões alteradas, reserva por redescrição) em `ResourceSystem.ts`; testes.
-- [ ] T118 [US8] Redescrição que encolhe: liberar e realocar no tamanho menor sem estado preso; teste de vazamento
-      (crescer, encolher, crescer de novo — o mesmo tamanho e o mesmo custo).
+Revisão de 2026-10-31: o pool do corpo com descritores de trabalho, os descritores próprios com `reserve`, a
+redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o uniforme por região é peça nova.
+
+- [ ] T115 [US8] `GPUDescriptor.regions` (uniforme por região com offset dinâmico, alinhamento do adaptador, envio só
+      das regiões alteradas, reserva por redescrição, fonte com `dynamic: { stride }`) em
+      `src/scene/descriptors/GPUDescriptor.ts` e `src/scene/systems/ResourceSystem.ts`; testes.
+- [ ] T116 [US8] `read` no `ResourceDirectory` (`src/scene/contracts/ResourceDirectory.ts`) para os Flows; medir a
+      leitura a cada quadro e, se o staging por leitura pesar, reaproveitá-lo dentro do `read`; testes.
+- [ ] T117 [US8] Teste do trabalho por entidade: descritor de pool `upload: 'never'`, `allocation: 'onDemand'` no mesmo
+      slot do `body`, crescendo com o pool e reaproveitando faixas (o caso que o PBF vai usar).
+- [ ] T118 [US8] Teste de vazamento da redescrição: crescer, encolher, crescer de novo um descritor próprio com `count`
+      — o mesmo tamanho e as ligações refeitas (`reallocateOwn`).
 
 ### Phase 7: os auxiliares como provedores de descritores
 
-- [ ] T119 [US8] `PerStepUniforms` e `FrameUniforms` sobre as regiões da T117 em `src/elements/gpu/compute/`.
+- [ ] T119 [US8] `PerStepUniforms` e `FrameUniforms` sobre as regiões da T115 em `src/elements/gpu/compute/`.
 - [ ] T120 [P] [US8] `RayWave` (`src/elements/raytrace/RayWave.ts`): `descriptors(prefix, capacidade, classes)` e
       `attach`; sem `core.create`.
 - [ ] T121 [P] [US8] `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `CountToArgs`, `SpatialHashGrid`, `GraphColorer`
       em `src/elements/gpu/compute/`.
-- [ ] T122 [P] [US8] `ColliderSet` (`src/elements/physics/colliders/ColliderSet.ts`) e `NeighborSearchPipeline`
-      (`src/elements/gpu/NeighborSearchPipeline.ts`).
+- [ ] T122 [P] [US8] `ColliderSet` (`src/elements/physics/colliders/ColliderSet.ts`: os donos como descritores de pool
+      dos colisores) e `NeighborSearchPipeline` (`src/elements/gpu/NeighborSearchPipeline.ts`: os arrays por partícula
+      como descritores de pool do corpo, as células como descritores próprios do `ParticlePhysics`).
 - [ ] T123 [P] [US8] `UiGpuPipeline` (`src/presentation/ui/`) e `SetNodeKernels` (`src/elements/nodes/set/`).
 
 ### Phase 8: o `Renderer` (US7)
@@ -91,10 +95,10 @@ a imagem do tanque no perfil alto contra as capturas atuais (piso de ruído).
 ### Phase 9: o espaço de trabalho do desenho (US8)
 
 - [ ] T128 [US8] `RefractionFlow` → `RefractionWork`: cadeia, dispersão adiada, cabeçalho, argumentos, blocos,
-      carimbos, a onda; a contagem da fila por `bufferRead` (sai o `measureQueue` com staging próprio).
+      carimbos (`reserve` pelo alvo), a onda; a contagem da fila por `read` (sai o `measureQueue` com staging próprio).
 - [ ] T129 [US8] `CausticsFlow` → `CausticsWork`: alvos, capazes, fótons, fila, argumentos, a onda; a capacidade pela
       configuração nos dois sentidos (os dois defeitos medidos somem: teste do custo depois de 262 144 e de 0 → 65 536).
-- [ ] T130 [US8] `ProbeFlow` → `GlobalIllumination` (o trabalho de tela pelo `bufferShape`).
+- [ ] T130 [US8] `ProbeFlow` → `GlobalIllumination` (o trabalho de tela por `reserve` pelo alvo).
 - [ ] T131 [US8] `FluidFieldFlow` → `FluidField` e `RaySceneFlow` → `RayScene`.
 - [ ] T132 [US8] `PostFlow` → `FrameTargets`; `ForwardFlow`, `ShadowFlow`, `ParticleFlow`, `UIFlow` → os donos da D10.
 - [ ] T133 [US8] Smokes do desenho com os critérios atuais; o tanque no perfil alto contra as capturas atuais.
@@ -110,10 +114,17 @@ a imagem do tanque no perfil alto contra as capturas atuais (piso de ruído).
 
 ### Phase 11: o espaço de trabalho da simulação e da cena (US8)
 
-- [ ] T138 [P] [US8] `LCPFlow` (contatos, pares, proxies; os contadores por `bufferRead`).
-- [ ] T139 [P] [US8] `PBFFlow`, `SPHFlow`, `DiffuseFlow` (com a `NeighborSearchPipeline` da T122) e `MPMFlow`.
-- [ ] T140 [P] [US8] `EmitterFlow`, `SurfaceColliderFlow`, `SoftSurfaceFlow`, os Flows de FEM e XPBD.
-- [ ] T141 [P] [US8] `TransformFlow`, `CameraFlow`, `ShadowMatrixFlow`, `SurfaceFlow`, `GraphFlow`/nós de conjunto.
+Pelos pools dos corpos e pelos descritores próprios com `reserve` (plan D12), sem peça nova.
+
+- [ ] T138 [P] [US8] `LCPFlow`: os proxies no pool do corpo; pares, contatos, contadores e argumentos como descritores
+      próprios com `reserve`; os contadores por `read`.
+- [ ] T139 [P] [US8] `PBFFlow`, `SPHFlow`: `delta`, `normal`, `boundary` como descritores de pool do `ParticleBody`
+      (saem os tamanhos fixos de `NEIGHBOR_SEARCH_MAX_PARTICLES`); `DiffuseFlow` (com a `NeighborSearchPipeline` da
+      T122); `MPMFlow` com a grade no Resource do domínio.
+- [ ] T140 [P] [US8] `EmitterFlow`, `SurfaceColliderFlow`, `SoftSurfaceFlow` (faces e SDF no Resource do corpo ou do
+      colisor, `onDemand`), os Flows de FEM e XPBD.
+- [ ] T141 [P] [US8] `TransformFlow`, `CameraFlow` (elos e listas no pool do `Transform` e da câmera),
+      `ShadowMatrixFlow`, `SurfaceFlow`, `GraphFlow`/nós de conjunto.
 - [ ] T142 [US8] Smokes de física com os critérios atuais.
 
 ### Phase 12: fechamento da emenda

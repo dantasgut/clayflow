@@ -106,38 +106,51 @@ espaço de trabalho da simulação e da cena.
 - Por cena (um singleton). O renderizador por alvo de render (014) reaproveita a forma: um `Renderer` por alvo, com os
   componentes de trabalho dele.
 
-### D8 — As peças da C2
+### D8 — O que a C2 já tem e a única peça nova
 
-- **Buffer pela tela (FR-012)**: `GPUDescriptor.bufferShape = { bytesPerElement, canvasDivisor?, padTo? }` para
-  `storage-rw`/`storage-ro`/`indirect`: `byteSize = ⌈w/d⌉·⌈h/d⌉·bytesPerElement`, alocado e recriado em
-  `resizeCanvasTextures` (que passa a tratar buffers) antes do `FlowBinder`; as ligações refeitas como as das texturas.
-- **Leitura de volta (FR-013)**: `GPUDescriptor.readback = { every: 'frame' }` num descritor de buffer: depois do envio
-  do quadro, a C2 copia a faixa para um staging interno (anel de dois), mapeia sem bloquear e emite `bufferRead
-{ resource, id, bytes }`, entregue aos Flows com slot no Resource (nova transição em `FlowTransitions`); uma leitura em
-  voo por descritor.
-- **Uniformes por região (FR-014)**: `GPUDescriptor.regions = { count, dynamic: true }` num `uniform`: a C2 aloca
-  `count × stride` (alinhado ao `minUniformBufferOffsetAlignment`), envia o dado de cada região alterada e liga com
-  offset dinâmico; a reserva é a redescrição com `count` maior (dobra) ou menor.
+Revisão de 2026-10-31 (o usuário apontou que a arquitetura já previa os Flows sobre os pools dos corpos; a primeira
+versão desta emenda inventava peças que já existem):
+
+- **Por entidade — o pool do corpo (existe).** Os Flows de física recebem os pools pelos slots (`bodies`, `pool`,
+  `pools`; `bodyType` e `FlowDescriptor` roteiam o algoritmo). Um Resource com vários descritores em pool ocupa o mesmo
+  slot em todos (`ResourceSystem`), então o trabalho por partícula ou por corpo é um descritor de pool a mais do Resource
+  do corpo: `role: 'storage-rw'`, `upload: 'never'`, `allocation: 'onDemand'` (alocado quando o Flow pede por
+  `ensurePoolAllocated`), crescendo 2× com cópia na GPU e `poolReallocated`, as faixas livres reaproveitadas
+  (`FreeRanges`). Precedente: `partials` e `energy` do `SoftBody`.
+- **Por domínio, configuração ou tela — descritores próprios com `reserve` (existe).** O Resource dono declara os
+  descritores com `count`; o Flow pede a capacidade (`reserve`) e a redescrição realoca o que mudou de forma, nos dois
+  sentidos (`reallocateOwn` libera e aloca no tamanho novo), emitindo `bindGroupReplaced`. Precedente: `FluidField`. Os
+  buffers pela tela seguem o tamanho do alvo pelo mesmo `reserve` (o Flow já reage ao `canvasReconfigured`); as texturas,
+  por `sizeFromCanvas`.
+- **Leitura — `ResourceSystem.read` (existe).** A leitura sob demanda da spec 007 (lote por tarefa, uma cópia por faixa,
+  desempacotada pelo schema). Falta só expô-la no `ResourceDirectory` que os Flows recebem e medir o custo a cada quadro;
+  se o staging criado por leitura pesar, ele passa a ser reaproveitado dentro do próprio `read`.
+- **A peça nova — uniforme por região (FR-014).** `GPUDescriptor.regions = { count }` num `uniform` próprio: a C2 aloca
+  `count × stride` (alinhado ao `minUniformBufferOffsetAlignment` do adaptador), envia as regiões alteradas e entrega a
+  fonte com `dynamic: { stride }` (o `ResolvedSource` já aceita); a reserva é a redescrição. É a lacuna real: o pool
+  recusa `uniform`, e hoje o `PerStepUniforms` e o `FrameUniforms` criam o buffer fora da C2.
 
 ### D9 — Os auxiliares como provedores de descritores
 
 Cada auxiliar ganha `static descriptors(prefix, capacidade…)` (os `GPUDescriptor` de que precisa) e `attach(slot ou
 diretório, resource)` (as fontes alocadas pela C2), e perde o `core.create`. O Resource dono inclui os descritores em
-`getDescriptors()` e se redescreve quando a capacidade muda. `PerStepUniforms`/`FrameUniforms` viram usuários da peça
-de uniformes por região.
+`getDescriptors()` e se redescreve quando a capacidade muda — o mecanismo da D8, sem peça nova. O que o auxiliar faz
+por elemento do pool (os arrays por partícula da `NeighborSearchPipeline`, os donos do `ColliderSet`) vai como
+descritor de pool do corpo; o que é do domínio (as células da vizinhança, os níveis do `PrefixSum`), como descritor
+próprio com `count`. `PerStepUniforms`/`FrameUniforms` viram usuários da peça de uniformes por região.
 
 ### D10 — O espaço de trabalho do desenho
 
-| Flow                       | Dono                              | O que migra                                                                                                                                             |
-| -------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RefractionFlow`           | `RefractionWork`                  | cadeia, dispersão adiada, cabeçalho, argumentos (capacidade pela fila lida); blocos e carimbos (pela tela); a onda; a contagem da fila por `bufferRead` |
-| `CausticsFlow`             | `CausticsWork`                    | alvos, instâncias capazes, fótons, fila, argumentos, a onda (pela configuração, nos dois sentidos)                                                      |
-| `ProbeFlow`                | `GlobalIllumination`              | raios, gerações, radiância, visibilidade, trabalho de tela (pela tela), a onda                                                                          |
-| `FluidFieldFlow`           | `FluidField`                      | o trabalho por partícula e por bloco (já tem `reserve`), a grade, a onda, o volume, os colisores                                                        |
-| `RaySceneFlow`             | `RayScene`                        | o rascunho da BVH e a ordenação (já tem `reserve`)                                                                                                      |
-| `PostFlow`                 | `FrameTargets`                    | as texturas de ida e volta (`sizeFromCanvas`) e os parâmetros                                                                                           |
-| `ForwardFlow`/`ShadowFlow` | `Renderer` (grupos de desenho)    | os argumentos indiretos por grupo (contagem de grupos por redescrição)                                                                                  |
-| `ParticleFlow`/`UIFlow`    | `Renderer` / a fonte da interface | parâmetros, regiões por desenho, o atlas da fonte                                                                                                       |
+| Flow                       | Dono                              | O que migra                                                                                                                                                 |
+| -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RefractionFlow`           | `RefractionWork`                  | cadeia, dispersão adiada, cabeçalho, argumentos (capacidade pela fila lida); blocos e carimbos (`reserve` pelo alvo); a onda; a contagem da fila por `read` |
+| `CausticsFlow`             | `CausticsWork`                    | alvos, instâncias capazes, fótons, fila, argumentos, a onda (pela configuração, nos dois sentidos)                                                          |
+| `ProbeFlow`                | `GlobalIllumination`              | raios, gerações, radiância, visibilidade, trabalho de tela (`reserve` pelo alvo), a onda                                                                    |
+| `FluidFieldFlow`           | `FluidField`                      | o trabalho por partícula e por bloco (já tem `reserve`), a grade, a onda, o volume, os colisores                                                            |
+| `RaySceneFlow`             | `RayScene`                        | o rascunho da BVH e a ordenação (já tem `reserve`)                                                                                                          |
+| `PostFlow`                 | `FrameTargets`                    | as texturas de ida e volta (`sizeFromCanvas`) e os parâmetros                                                                                               |
+| `ForwardFlow`/`ShadowFlow` | `Renderer` (grupos de desenho)    | os argumentos indiretos por grupo (contagem de grupos por redescrição)                                                                                      |
+| `ParticleFlow`/`UIFlow`    | `Renderer` / a fonte da interface | parâmetros, regiões por desenho, o atlas da fonte                                                                                                           |
 
 ### D11 — A Opção B
 
@@ -152,11 +165,22 @@ de uniformes por região.
 
 ### D12 — O espaço de trabalho da simulação e da cena
 
-LCP (contatos, pares, proxies, contadores lidos por `bufferRead`), PBF/SPH/difusas (`NeighborSearchPipeline` e os
-buffers por partícula), MPM (grade), FEM/XPBD/superfícies macias, emissores, colisores de superfície (SDF assado),
-transformações e câmeras (listas por função), matriz de sombra, superfícies adaptativas, nós de conjunto do grafo: o
-espaço de trabalho no Resource da física de cada corpo ou do componente da cena, pelas peças da D8 e os auxiliares da
-D9.
+Pelo mecanismo que a arquitetura já tinha para os Flows de física (D8), sem peça nova:
+
+| Flow                                                 | Por entidade (pool do corpo, mesmo slot)                                                        | Por domínio (descritor próprio com `reserve`)                                       |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `PBFFlow` / `SPHFlow`                                | `delta`, `normal`, `boundary` no `ParticleBody` (hoje fixos em `NEIGHBOR_SEARCH_MAX_PARTICLES`) | —                                                                                   |
+| `NeighborSearchPipeline`                             | ids de célula, ordem, posições ordenadas, contagem e lista de vizinhos por partícula            | contagem, início e cursor das células, pelo `ParticlePhysics` da grade              |
+| `DiffuseFlow`                                        | o trabalho por partícula difusa no pool dela                                                    | a grade                                                                             |
+| `MPMFlow`                                            | —                                                                                               | a grade, no Resource do domínio do MPM (como o `FluidField`)                        |
+| `LCPFlow`                                            | os proxies por corpo                                                                            | pares candidatos, contatos, contadores e argumentos; os contadores lidos por `read` |
+| `ColliderSet`                                        | os donos por colisor, nos pools dos colisores                                                   | as contagens (região uniforme)                                                      |
+| `SoftSurfaceFlow` / `SurfaceColliderFlow`            | as faces e o SDF assado no Resource do corpo ou do colisor (`onDemand`)                         | —                                                                                   |
+| `TransformFlow` / `CameraFlow`                       | os elos e as listas por função no pool do `Transform` e da câmera                               | —                                                                                   |
+| `ShadowMatrixFlow` / `SurfaceFlow` / nós de conjunto | o trabalho por superfície no Resource dela                                                      | os parâmetros (regiões uniformes)                                                   |
+
+Os parâmetros por passo de todos esses Flows vão pela peça de uniformes por região, no Resource do slot que o Flow
+atende.
 
 ### D13 — A regra
 
@@ -165,7 +189,8 @@ D9.
 
 ### Constitution Check da emenda
 
-- Princípio III: a emenda é a correção — toda alocação pelo `ResourceSystem`.
+- Princípio III: a emenda é a correção — toda alocação pelo `ResourceSystem`, pelos pools e descritores que ele já
+  tem; uma peça nova (uniforme por região).
 - Princípio I: o `Renderer` na C3; a C4 o compõe com o `FrameTargets`; nenhuma importação nova da C1.
 - Princípio II: a fachada do `Renderer` fala em caminhos de luz, fótons e perfis; o layout fica nos descritores.
 - Sem afrouxar: os critérios atuais; o SC-001/SC-002 substituídos pela medida por perfil por decisão do usuário.
