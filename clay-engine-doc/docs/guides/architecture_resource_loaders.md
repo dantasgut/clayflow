@@ -1498,6 +1498,10 @@ classDiagram
             +schema?: Schema
             +count?: number
             +storage?: 'individual'|'pool'
+            +upload?: 'always'|'initial'|'never'
+            +allocation?: 'eager'|'onDemand'
+            +history?: HistoryShape
+            +regions?: UniformRegions
             +textureShape?: TextureShape
             +samplerShape?: SamplerShape
         }
@@ -1568,7 +1572,7 @@ classDiagram
             <<enum nomeado — physics, transform, shadow, forward, post, ui>>
         }
     }
-    note for Flow "Classe abstrata PÚBLICA agnóstica entre compute e render. Engine fornece defaults\nfísicos (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, PBFFlow, SPHFlow), TransformFlow e de render\n(ShadowFlow, ForwardFlow, PostFlow, UIFlow, DebugFlow). Dev escreve subclasses adicionais\n(nível N3) e as registra por factory no FlowRegistry.\n\nDeclara slots (slot.*), pipelines, privados pelo recurso declarado (Map<BindingKey, BindingSource>) e a tabela de transições.\nA C2 resolve os slots, infere os layouts, liga os bind groups e controla o ciclo de vida\npending → preparing → ready → disposed. O estado do algoritmo (S) só muda por transições;\nevento sem entrada na tabela lança FlowTransitionError.\n\ndispatch(frame, bound) é o único ponto de gravação e só grava: recursos privados são\nrecriados e religados em transições (ctx.bind / ctx.prepare / ctx.release)."
+    note for Flow "Classe abstrata PÚBLICA agnóstica entre compute e render. Engine fornece defaults\nfísicos (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, PBFFlow, SPHFlow), TransformFlow e de render\n(ShadowFlow, ForwardFlow, PostFlow, UIFlow, DebugFlow). Dev escreve subclasses adicionais\n(nível N3) e as registra por factory no FlowRegistry.\n\nDeclara slots (slot.*, inclusive slot.work: o Resource de trabalho da instância, criado e removido pela C2 com o Flow),\npipelines, fontes privadas (sempre objetos alocados pela C2) e a tabela de transições.\nNão cria objetos de GPU (spec 039; lint): o trabalho por entidade é descritor de pool do corpo, o da instância\né descritor do Resource de trabalho.\nA C2 resolve os slots, infere os layouts, liga os bind groups e controla o ciclo de vida\npending → preparing → ready → disposed. O estado do algoritmo (S) só muda por transições;\nevento sem entrada na tabela lança FlowTransitionError.\n\ndispatch(frame, bound) é o único ponto de gravação e só grava: o espaço de trabalho muda\nem transições (work.reserve, work.data, ctx.bind / ctx.prepare / ctx.release)."
     note for FlowRegistry "Registro por factory: register(factory, { type, phase, bodyType?, priority? }).\nSem bodyType, a factory é instanciada no registro; com bodyType, quando o pool do tipo passa\na existir (poolCreated) e o registro vence a seleção.\noverride(bodyType, factory, options) vence a prioridade; unregister(registration) descarta a instância\n(objetos de GPU, inscrições) e instancia o próximo vencedor.\n\nExecutionSystem itera fases na ordem fixa physics → transform → shadow → forward → post → ui.\nDentro da fase: priority decrescente, empate pela ordem de registro (sem before/after/at).\nresolve(bodyType): override, senão maior priority (empate: o último registrado).\n\nOs Flows padrão (solvers, Transform, Shadow, Forward, Post, Debug, UI) são registrados por\nfactory em registerPresentationDefaults (Application.create)."
     note for RenderFlow "Subclasse abstrata de Flow para estágios que renderizam — Shadow/Forward/Post/UI.\nO alvo é um slot como os demais: slot.target('canvas') ou { color, depth } com texturas de Resources\n(FrameTargets.color/depth, ShadowMap.depth), resolvido pela C2 e recriado com o canvas.\ndispatch(frame, bound) abre frame.render(...) com a view de bound.slots.target (colorView)."
 
@@ -1579,6 +1583,8 @@ classDiagram
             +onResourcesChanged(event: ChangedEvent~Resource~) void
             +ensureFlowAllocated(flow: Flow, options: RegisterOptions) void
             +releaseFlow(flow: Flow) void
+            +read(resource, descId?) Promise
+            +regionStrideOf(resource, descId) number
         }
         class ExecutionSystem {
             <<Reativo — abre core.record por frame e itera Flows por fase>>
@@ -1592,7 +1598,7 @@ classDiagram
         }
     }
     note for LayoutInferencer "Os bindings vêm só de ComposedShader.bindings — as declarações wgslResource com grupo e ligação\natribuídos por composeWgsl (spec 031); nenhuma regex sobre @group/@binding. Do fonte montado só\nvarre as funções, para a visibilidade: a união dos estágios das entradas que alcançam (chamadas\ntransitivas contam) uma função que cita a variável. Cada entrada inferida carrega o recurso declarado.\n\nA ligação de Flows (C2, flowBinding) dá a cada binding a fonte pelo fornecedor da declaração:\npools do descritor (troca por pipeline) → 'private' (fonte do Flow pela identidade do recurso,\n{ pipeline, resource } vence o recurso) → { scene } → { slot } → { pool } / { consumer } (ConsumerResolver).\nPrivado sem fonte → FlowBindingError. Fonte ainda inexistente → o pipeline espera.\n\nLayouts e bind groups são criados pela C2; nenhum estágio os cria (verificado no gate).\nOverride: a visibilidade explícita do descritor (bindings[variável].visibility) vence a inferida."
-    note for ResourceSystem "Reage a eventos do World (resourcesChanged, resourceDirty).\nRoteia por descriptor.storage:\n- 'individual' → core.create(spec) próprio por instância.\n- 'pool' → poolKey = schema.name (+ algoritmo se getFlowDescriptors presente).\n  Pool aloca buffer global de storage (array<T>, stride do struct) com capacity inicial,\n  realoca 2× ao exceder. Registros de entidade (slot.entities com record, ex.: Renderable)\n  são pools mantidos pela C2 com os slots referidos. Slots seguem POLÍTICA FREE-LIST:\n  remoção marca slot como livre; próxima inserção reusa slot livre antes de crescer.\n  Slots NUNCA migram.\n\nPrimeiro recurso de um schema → poolCreated(poolKey); realocação → poolReallocated(poolKey).\nA ligação de Flows (ensureFlowAllocated) recria os bind groups que usavam o buffer e emite\nbindGroupReplaced { flow, pipeline, group, oldSpec, newSpec }.\n\nPipelines com preferAsync=true → core.createAsync; o Flow só fica ready (flowReady)\ndepois de compilar. Enquanto compila, o ExecutionSystem não o grava."
+    note for ResourceSystem "Reage a eventos do World (resourcesChanged, resourceDirty).\nRoteia por descriptor.storage:\n- 'individual' → core.create(spec) próprio por instância.\n- 'pool' → poolKey = schema.name (+ algoritmo se getFlowDescriptors presente).\n  Pool aloca buffer global de storage (array<T>, stride do struct) com capacity inicial,\n  realoca 2× ao exceder. Registros de entidade (slot.entities com record, ex.: Renderable)\n  são pools mantidos pela C2 com os slots referidos. Slots seguem POLÍTICA FREE-LIST:\n  remoção marca slot como livre; próxima inserção reusa slot livre antes de crescer.\n  Slots NUNCA migram.\n\nPrimeiro recurso de um schema → poolCreated(poolKey); realocação → poolReallocated(poolKey).\nA ligação de Flows (ensureFlowAllocated) recria os bind groups que usavam o buffer e emite\nbindGroupReplaced { flow, pipeline, group, oldSpec, newSpec }.\nensureFlowAllocated insere o Resource de trabalho de cada slot.work no World; releaseFlow o remove.\nregions: uniforme por região (stride alinhado ao adaptador, fonte com offset dinâmico).\nRedescrição (reserve) realoca os descritores próprios que mudaram de forma, nos dois sentidos.\n\nPipelines com preferAsync=true → core.createAsync; o Flow só fica ready (flowReady)\ndepois de compilar. Enquanto compila, o ExecutionSystem não o grava."
     note for ExecutionSystem "Não tem loop imperativo. Reage a eventos:\n- flowReady / flowSuspended: mantém os Flows ativos (com o BoundFlow de cada um).\n- frameTick: emite frameRecording (a C2 envia os dados sujos, reconcilia os Flows e entrega\n  framePrepare), abre core.record('frame', frame => { ... }) UMA vez por frame.\n\nDentro do record, itera os Flows ativos pelas fases na ordem fixa\nphysics → transform → shadow → forward → post → ui (dentro da fase: priority decrescente,\nempate pelo registro). Cada flow.dispatch(frame, bound) grava os seus passes.\n\nAo sair do callback, chama core.submit() e emite frameComplete { timestamp, dt, elapsed }.\nBarreiras inter-pass são automáticas (WebGPU). Submit único, encoder único, sem micro-requests."
 
     %% ── FENÔMENOS GLOBAIS ────────────────────────────────────────────────────
@@ -1968,6 +1974,53 @@ World.insert(rigid bodies)
 - Dependências explícitas — Flow só avança quando eventos upstream chegam (não há lock implícito)
 - Testabilidade — cada Flow é stateless do lado do orquestrador (estado interno parametrizado por S); testável em isolamento com mocks de slot e Frame
 - Extensibilidade — novo solver = nova subclasse de Flow; zero modificação no ExecutionSystem
+
+### Espaço de trabalho dos Flows (spec 039)
+
+Nenhum Flow nem auxiliar de C3/C4 cria objeto de GPU (Princípio III; regra de lint em `src/elements` e
+`src/presentation`). O espaço de trabalho de um algoritmo é descritor de Resource, em um de três lugares:
+
+1. **Por entidade → pool do próprio corpo.** Um Resource com vários descritores em pool ocupa o mesmo slot em todos; o
+   trabalho por partícula ou por corpo é um descritor a mais (`upload: 'never'`, `allocation: 'onDemand'`), que cresce
+   com o pool e reaproveita as faixas livres.
+2. **Da instância do Flow → Resource de trabalho (`slot.work`).** O Flow declara a fábrica; a C2 insere o Resource no
+   World em `ensureFlowAllocated` e o remove em `releaseFlow` — um por instância (por `bodyType`). Parâmetros por passo
+   são um uniforme por região (`regions`, offset dinâmico); capacidades vêm de `reserve` (redescrição que cresce e
+   encolhe); contadores são lidos por `read`.
+3. **De um Resource com um por cena → esse Resource** (o `FluidField`, a `RayScene`, o renderizador), inserido pelos
+   estágios padrão e dimensionado pelo mesmo `reserve`.
+
+```mermaid
+sequenceDiagram
+    participant FR as FlowRegistry
+    participant RS as ResourceSystem (C2)
+    participant W as World
+    participant F as Flow (C3)
+    FR->>RS: ensureFlowAllocated(flow)
+    RS->>W: insert(slot.work → new Trabalho())
+    W-->>RS: resourcesChanged → aloca os descritores
+    RS->>F: slotsResolved (bound.slots.work)
+    F->>F: framePrepare: work.reserve(n), work.data.params[i] = …
+    F-->>RS: redescribe → realoca o que mudou de forma
+    RS->>F: bindGroupReplaced
+    RS->>RS: flushDirty (envia as regiões no mesmo quadro)
+    F->>F: dispatch: bindTo(..., { draw: [i × regionStride] })
+    FR->>RS: releaseFlow(flow)
+    RS->>W: remove(trabalho) → libera os objetos
+```
+
+| Flow | Por entidade (pool do corpo) | Resource de trabalho da instância |
+|---|---|---|
+| `PBFFlow` / `SPHFlow` | `delta`, `normal`, `boundary` do `ParticleBody`; os vetores por partícula da vizinhança | parâmetros por passo (regiões); as células da vizinhança |
+| `DiffuseFlow` | o trabalho por partícula difusa | a grade |
+| `MPMFlow` | — | a grade do domínio; parâmetros por passo |
+| `LCPFlow` | os proxies por corpo | pares, contatos, contadores (lidos por `read`), argumentos; parâmetros |
+| `XPBDFlow` / `FEMFlow` | — | cores e parâmetros por passo |
+| `ColliderSet` (auxiliar) | os donos, nos pools dos colisores | as contagens (região) |
+| `SoftSurfaceFlow` / `SurfaceColliderFlow` | as faces e o SDF no Resource do corpo ou do colisor (`onDemand`) | parâmetros |
+| `TransformFlow` / `CameraFlow` | os elos e as listas por função, nos pools do `Transform` e da câmera | parâmetros por nível (regiões) |
+| `RefractionFlow` / `CausticsFlow` / `ProbeFlow` | — | os Resources de trabalho do renderizador (cadeia e fila pelo alvo, fótons pela configuração, raios da GI) |
+| `PostFlow` / `ForwardFlow` / `ShadowFlow` | — | `FrameTargets` (texturas `sizeFromCanvas`); argumentos indiretos por grupo |
 
 ### Política de envio por descritor (`upload`) e `GpuManaged`
 

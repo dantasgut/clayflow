@@ -379,12 +379,17 @@ que um despacho de dezenas de milhares de partículas; dentro do passe, cada des
   slot de cada entidade, sempre atuais.
 - **Bind groups da C2**: layouts das declarações de recursos (`wgslResource`, spec 031) e bind groups criados pela C2 (fontes pelo fornecedor de cada recurso: slots, pools, resolvers ou privados pela identidade do recurso).
   Quando um pool dobra de capacidade, a C2 recria os grupos afetados (`bindGroupReplaced`) antes da próxima gravação;
-  o solver só religa os seus recursos privados que dependem do tamanho (numa transição, com `ctx.bind`).
-- **Parâmetros fora da gravação**: uniforms por passo são escritos em `framePrepare`; o `dispatch` só grava.
+  o solver não cria nem religa buffers próprios.
+- **Espaço de trabalho pela C2** (spec 039): o trabalho por partícula ou por corpo é descritor de pool do próprio corpo
+  (mesmo slot do `body`, `upload: 'never'`, `allocation: 'onDemand'`); o trabalho da instância (parâmetros, pares,
+  contadores, grades) é descritor do Resource de trabalho do solver (`slot.work`), criado e removido pela C2 com o Flow,
+  dimensionado por `reserve` e lido por `resources.read`. Ver [Flows — Espaço de trabalho](./flows.md#espaço-de-trabalho-spec-039).
+- **Parâmetros fora da gravação**: os parâmetros por passo são escritos em `framePrepare` no Resource de trabalho; o
+  `dispatch` só grava.
 - **Remoção**: a C2 libera os slots dos pools e entrega `slotChanged`/`poolReallocated` quando aplicável; a posse da
   GPU do slot é devolvida.
-- **Uniforms por iteração**: `PerStepUniforms` (`elements/gpu/compute`) dá uma região por passo/substep com offset
-  dinâmico.
+- **Uniforms por iteração**: um descritor `uniform` com `regions: { count }` no Resource de trabalho — uma região por
+  passo/substep, alinhada ao adaptador, escolhida por offset dinâmico no `bindTo`.
 - **Substituição**: `app.flows.override(bodyType, factory, opções)` troca o solver de um tipo de corpo.
 
 ---

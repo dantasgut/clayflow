@@ -130,6 +130,15 @@ versão desta emenda inventava peças que já existem):
   fonte com `dynamic: { stride }` (o `ResolvedSource` já aceita); a reserva é a redescrição. É a lacuna real: o pool
   recusa `uniform`, e hoje o `PerStepUniforms` e o `FrameUniforms` criam o buffer fora da C2.
 
+- **A segunda peça — o Resource de trabalho do Flow (aprovada pelo usuário em 2026-10-31).** Parte do trabalho não é
+  de nenhum corpo nem de um Resource com um por cena: é da instância do Flow (parâmetros por passo do PBF, pares e
+  contadores do LCP, listas do `TransformFlow`), e os solvers são instanciados por `bodyType`. O Flow declara
+  `slot.work(() => new Trabalho())`; a C2 insere o Resource no World em `ensureFlowAllocated` e o remove em
+  `releaseFlow`, e o entrega como singleton pela identidade (`BoundWork`: o `BoundSingleton` com `regionStride`). O
+  fornecedor de shader é `{ slot: 'work', descriptor }`. `Flow.bindings` passa a aceitar só objetos alocados pela C2, e
+  o `FlowContext.core` fica só para consultas (capacidades, canvas). Documentação: `clay-engine-doc/docs/guides/flows.md`
+  ("Espaço de trabalho") e `architecture_resource_loaders.md` ("Espaço de trabalho dos Flows").
+
 ### D9 — Os auxiliares como provedores de descritores
 
 Cada auxiliar ganha `static descriptors(prefix, capacidade…)` (os `GPUDescriptor` de que precisa) e `attach(slot ou

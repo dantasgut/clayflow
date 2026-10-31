@@ -70,6 +70,13 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 - [x] T118 [US8] Teste de vazamento da redescrição: crescer, encolher, crescer de novo um descritor próprio com `count`
       — o mesmo tamanho e as ligações refeitas (`reallocateOwn`).
 
+- [ ] T118a [US8] O Resource de trabalho do Flow: `slot.work(fábrica)` e `BoundWork` em `src/scene/flows/slots.ts`; a
+      inserção em `ensureFlowAllocated` e a remoção em `releaseFlow` (`src/scene/systems/flowBinding/`); a resolução pela
+      identidade e o fornecedor `{ slot: 'work', descriptor }` (com `regions`, a fonte com offset dinâmico); testes
+      (uma instância por `bodyType`, remoção sem vazamento, redescrição religando o Flow).
+- [x] T118b A documentação e os diagramas de arquitetura (`clay-engine-doc/docs/guides/flows.md`,
+      `architecture_resource_loaders.md`, `physics_flows.md`, `dev_workflow.md`, `node-graphs.md`).
+
 ### Phase 7: os auxiliares como provedores de descritores
 
 - [ ] T119 [US8] `PerStepUniforms` e `FrameUniforms` sobre as regiões da T115 em `src/elements/gpu/compute/`.
