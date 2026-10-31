@@ -24,8 +24,8 @@ de ~2 min.
 - [x] T104 [US3] `RefractionFlow`: os estágios com a onda de tamanho fixo (pixels da fila); sai a fila de caminhos, as
       folhas, a ordenação e `refraction_wave.wgsl`.
 - [ ] T105 [US3] Testes de composição (despachos fixos, nenhuma função `material` no traçado, teto dos laços).
-- [ ] T106 [US3] Smoke `refraction` com os critérios atuais e o custo da lente (≤ 3 ms); o tanque no app sem verde.
-      (Emenda: o custo da lente vai à medida por perfil, SC-009; a lente está em 21,6 ms.)
+- [x] T106 [US3] Smoke `refraction` com os critérios atuais e o custo da lente (≤ 3 ms); o tanque no app sem verde.
+      (Emenda: o custo da lente vai à medida por perfil, SC-009; a lente está em 21,6 ms.) (2026-10-31: o custo da lente por perfil — alto 26,6, médio 10,9, baixo 11,0 ms; o limite de 3 ms substituído pela medida por perfil, decisão do usuário.)
 
 ## Phase 3: US2 — a malha da superfície (P1)
 

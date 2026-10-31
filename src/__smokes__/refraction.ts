@@ -24,9 +24,10 @@
 //     lobo menor das interfaces lisas cortado além da vaga do pixel — decisão do usuário, 2026-10-29).
 //   - cost: a cena `lens` a 1280 × 720 no modo temporal (o traçado de todo pixel do vidro, o filtro do sinal traçado e
 //     a marca de movimento): o tempo de parede de um quadro (blocos de 40 quadros seguidos com a fila da GPU esvaziada no fim; a
-//     mediana de três blocos) com a refração ligada menos a desligada ≤ 3 ms (SC-011, 18 % do quadro de 60 Hz no M4; o filtro e a
-//     marca são da refração, não do antisserrilhado — decisão de 2026-10-24). Não os carimbos por passe: no M4 os
-//     passes se sobrepõem e o intervalo de um conta o fim do outro.
+//     mediana de três blocos) com a refração ligada menos a desligada, em cada perfil do renderizador — registrado (spec
+//     039: o limite de 3 ms foi substituído pela medida por perfil, decisão do usuário 2026-10-31; o filtro e a marca são da
+//     refração, não do antisserrilhado — decisão de 2026-10-24). Não os carimbos por passe: no M4 os passes se sobrepõem
+//     e o intervalo de um conta o fim do outro.
 //   - glint: a cena `dispersed` com o teto 10× mais claro (o céu de dia contra o chão visto pela água) — ≤ 3 %; e os
 //     vagalumes do sinal traçado na esfera (T065i): sem o antisserrilhado (a amostra no centro do pixel, a única
 //     aleatoriedade é a do caminho), as amostras acima de 4× a média do pixel ≤ 0,05 % das amostras.
@@ -60,6 +61,7 @@ import {
     type MaterialFunction,
     type StagingBufferSpec,
     type AntialiasingMode,
+    type RenderProfile,
 } from 'clayflow/web';
 import type {
     PtCamera,
@@ -1450,7 +1452,7 @@ async function caseLens(): Promise<void> {
  * eles, e uma leitura no fim (a fila da GPU termina) — o tempo de parede dividido pelos quadros, a mediana de três blocos. Os
  * carimbos de tempo por passe não servem aqui: no M4 os passes se sobrepõem e o intervalo de um conta o fim do outro.
  */
-async function lensFrameMs(on: boolean): Promise<number> {
+async function lensFrameMs(on: boolean, profile: RenderProfile): Promise<number> {
     const [width, height] = [1280, 720];
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -1465,6 +1467,7 @@ async function lensFrameMs(on: boolean): Promise<number> {
     });
     app.events.on('engineError', (e) => engineErrors.push(`cost: ${e.stage}: ${e.message}`));
     app.defaults.ambient.data.intensity = 0;
+    app.defaults.renderer.profile = profile;
     app.defaults.renderer.lightPaths.refraction = on;
     buildEngine(app, LENS, width / height);
     await app.whenReady({ timeoutMs: 60_000 });
@@ -1489,14 +1492,15 @@ async function lensFrameMs(on: boolean): Promise<number> {
     return blocks[1]!;
 }
 
-/** SC-011: a refração na cena da lente ≤ 3 ms a 1280 × 720 no modo temporal. */
+/** O custo da refração na cena da lente a 1280 × 720 no modo temporal, por perfil do renderizador (spec 039, T106). */
 async function caseCost(): Promise<void> {
-    const on = await lensFrameMs(true);
-    const off = await lensFrameMs(false);
-    log(
-        `cost: lente a 1280 × 720, quadro ${on.toFixed(3)} ms com a refração, ${off.toFixed(3)} ms sem — refração ${(on - off).toFixed(3)} ms`,
-    );
-    check(on - off <= 3, `cost: refração ${(on - off).toFixed(3)} ms na lente (≤ 3 ms)`);
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        const on = await lensFrameMs(true, profile);
+        const off = await lensFrameMs(false, profile);
+        log(
+            `cost ${profile}: lente a 1280 × 720, quadro ${on.toFixed(3)} ms com a refração, ${off.toFixed(3)} ms sem — refração ${(on - off).toFixed(3)} ms`,
+        );
+    }
 }
 
 /**

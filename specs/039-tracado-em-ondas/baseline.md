@@ -574,3 +574,9 @@ padrão 2,4 %; water 0,53/0,36 % (antes 0,54/0,38 %); shadow borda −0,199 m co
 Custo das cáusticas por ablação (congelado, 3 ciclos): médio 2,45 ms, baixo (8 192 fótons) 2,39 ms, alto (teto 16)
 3,75 ms. A meta de ≤ 2 ms não fecha: com metade dos fótons o custo quase não muda — o que sobra são as partes fixas
 (as instâncias na onda, os alvos, as rodadas e a resolução), não os fótons.
+
+### O custo da lente por perfil (T106, 2026-10-31)
+
+Smoke `refraction case=cost` (a cena `lens` a 1280 × 720, modo temporal, mediana de três blocos de 40 quadros, com a
+refração ligada menos a desligada): alto (teto 16) 26,6 ms; médio (teto 4, xadrez) 10,9 ms; baixo 11,0 ms. O limite de
+3 ms foi substituído por esta medida por perfil (decisão do usuário).
