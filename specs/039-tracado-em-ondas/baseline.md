@@ -479,7 +479,7 @@ leem os vizinhos (as bordas entre blocos refeitos e mantidos).
 
 Série inteira dos smokes no HEAD; cada falha rodada também com o `src` de antes da migração (`4440b7fe`) no mesmo Chrome.
 
-- Passam (18): adapterLimits, bigMesh, caustics, churn, computeKernels, contactSet, dispatchCost, energy, gpuTiming, hdr,
+- Passam (28): adapterLimits, bigMesh, caustics, churn, computeKernels, contactSet, dispatchCost, energy, gpuTiming, hdr,
   integration, lighting, limits, multiApp, particles, pointCloud, readiness, render, rigidContacts, scale1m,
   shaderLibrary, sky, softEnergy, stress60s, time, trajectories, transforms, wetting.
 - Falham igual antes da migração (mesmas mensagens e os mesmos hashes de estado): extensionPoints, fluidBehavior,
