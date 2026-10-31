@@ -13,8 +13,8 @@ de ~2 min.
 ## Phase 1: Medição
 
 - [x] T101 Tanque do motor anterior à 039 por estágio no `baseline.md` (133,6 ms; refração 92,5; cáusticas 22,8).
-- [ ] T102 [US6] O app liga a medição por passe (`profiling`) e mostra a tabela por estágio; o mesmo no smoke do tanque.
-      (2026-10-30: existe no bench `?p=passes` e no gravador; falta o painel do app.)
+- [x] T102 [US6] O app liga a medição por passe (`profiling`) e mostra a tabela por estágio; o mesmo no smoke do tanque.
+      (2026-10-30: existe no bench `?p=passes` e no gravador; falta o painel do app.) (2026-10-31: `Engine.setProfiling` liga a medida com a aplicação rodando; o painel do app tem a seção Desempenho com o perfil do renderizador e a tabela por estágio — com a cena da água, é o tanque. A página do tanque do bench fica fora do motor: páginas de demonstração são do app, spec 038.)
 
 ## Phase 2: US3 — a cadeia fixa por pixel (P1)
 

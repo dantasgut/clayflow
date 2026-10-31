@@ -441,6 +441,24 @@ export class Engine {
     get events(): EventBus {
         return this.scene.events;
     }
+    /**
+     * Liga, troca ou desliga o profiling de GPU com a aplicação rodando (spec 039, T102), com o mesmo significado da
+     * opção `profiling` da criação: `'passes'` dá o tempo de cada estágio (`gpuFrameTimed.flowsMs`) — no Apple os
+     * carimbos por passe deixam os passes de desenho mais lentos, então esse modo é para a tabela por estágio, não para
+     * o tempo do quadro; `'frame'`, só o total; `false` desliga.
+     */
+    setProfiling(profiling: boolean | FrameProfilingGranularity, capacity?: number): void {
+        if (profiling === false) {
+            this.scene.core.setFrameProfiling(false);
+            return;
+        }
+        this.scene.core.setFrameProfiling(
+            true,
+            capacity,
+            profiling === true ? 'passes' : profiling,
+        );
+    }
+
     /** ResourceSystem — gerencia lifecycle de Resources e pools GPU. */
     get resources(): ResourceSystem {
         return this.scene.resourceSystem;
