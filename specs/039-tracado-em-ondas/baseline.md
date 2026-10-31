@@ -590,3 +590,12 @@ giNoise, refraction); fluidField derruba o adaptador no caso `normal`, como ante
 `parametricSurfaces`, "cáusticas: N px mais claros/escuros na água" caiu de 26/23 para 1/5 com o renderizador
 (`bf467ff7`) — o critério compara o lago `caustics` com o `plain`, que o smoke monta idênticos (as cáusticas nos dois):
 mede o ruído entre duas rodadas, já falhava, e as duas rodadas ficaram mais parecidas.
+
+### A vizinhança do PBF por intervalos contíguos (T111, 2026-10-31): sem ganho, não feita
+
+Hoje a vizinhança é varrida uma vez por reconstrução (`ns_find`: as 27 células, a lista gravada) e 10 kernels leem a
+lista (densidade e correção em cada uma das 4 iterações do solver, vorticidade, XSPH). Por intervalos, cada um desses
+kernels varreria as células. Medido no tanque com a física, perfil médio, 5 ciclos (o `ns_find` repetido de propósito,
+temporário): 24,23 ms sem repetição, 24,92 com +1 varredura, 26,12 com +3 — ~0,63 ms por varredura por quadro. Com 9
+varreduras a mais por reconstrução a física ficaria vários ms mais lenta, mesmo sem a gravação da lista; pela decisão
+do usuário (manter só com ganho), a T111 não entra.

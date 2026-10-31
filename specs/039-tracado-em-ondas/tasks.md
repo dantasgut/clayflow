@@ -40,7 +40,7 @@ de ~2 min.
 - [x] T110 Cáusticas por kernel medidas; a transmitância analítica pelo meio homogêneo; meta ≤ 2 ms no tanque.
       (2026-10-30: medidas por kernel no `baseline.md`, 4,7 ms; a correção da linha reta pelo mapa da luz feita; a meta
       vai à medida por perfil, SC-009.) (2026-10-31: a transmitância analítica feita; as cáusticas por perfil 2,4–3,8 ms — a meta de 2 ms não fecha, as partes fixas dominam; `baseline.md`.)
-- [ ] T111 [US5] Vizinhança do PBF por intervalos contíguos com reordenação; física ≤ 4 ms.
+- [x] ~~T111 [US5] Vizinhança do PBF por intervalos contíguos com reordenação; física ≤ 4 ms.~~ (2026-10-31: medida sem ganho — ~0,63 ms por varredura das células por quadro, e os intervalos pediriam 9 varreduras a mais por reconstrução; não feita, decisão do usuário: manter só com ganho. A física já está em ~2,1 ms por passo.)
 
 ## Phase 5: Fechamento
 
