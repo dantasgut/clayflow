@@ -5,6 +5,7 @@ export type { RenderSlotMap } from './RenderFlow';
 export type { Phase } from './Phase';
 export { PHASE_ORDER } from './Phase';
 export { slot, RECORD_NONE } from './slots';
+export { FlowWork, type WorkPart, type WorkContext } from './FlowWork';
 export type {
     SlotDeclaration,
     SlotMap,

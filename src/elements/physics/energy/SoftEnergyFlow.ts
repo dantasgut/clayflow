@@ -1,8 +1,10 @@
 import type { Frame } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
-import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
+import { FlowWork } from '../../../scene/flows/FlowWork';
+import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
@@ -11,11 +13,11 @@ import {
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { Time } from '../../../scene/time/Time';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { XPBDSoftSchema } from '../bodies/schemas/XPBDSoftSchema';
@@ -36,7 +38,6 @@ import {
 } from './schemas';
 import {
     softEnergyPartialKernel,
-    softEnergyResources,
     softEnergySeriesKernel,
     softEnergySlots,
     softEnergySourcePoint,
@@ -63,9 +64,16 @@ export interface SoftEnergySlots extends SlotMap {
     readonly edges: PoolSlot<true>;
     /** A série da energia (o canal do pool `SoftBodyEnergy`). */
     readonly softEnergy: ChannelSlot<false>;
+    /** O espaço de trabalho: as regiões de parâmetros por algoritmo e a da soma (spec 039). */
+    readonly work: WorkSlot<SoftEnergyWork>;
 }
 
 type Ctx = TransitionContext<SoftEnergySlots>;
+
+/** Resource de trabalho do `SoftEnergyFlow` (spec 039). */
+class SoftEnergyWork extends FlowWork {
+    static readonly schema = new StructSchema('SoftEnergyWork', {});
+}
 
 type Algorithm = keyof typeof SOFT_ENERGY_ALGORITHM;
 
@@ -109,6 +117,7 @@ const PIPELINES = Object.freeze({
  */
 export class SoftEnergyFlow extends Flow<SoftEnergySlots, 'idle'> {
     readonly type = 'SoftEnergyFlow';
+    private readonly work = new SoftEnergyWork();
     readonly slots: SoftEnergySlots = {
         meter: slot.singleton(EnergyMeter.schema),
         ranges: slot.pool(SoftBodyRangeSchema.name),
@@ -121,9 +130,9 @@ export class SoftEnergyFlow extends Flow<SoftEnergySlots, 'idle'> {
         mpm: slot.pool(MPMSoftSchema.name, { optional: true }),
         edges: slot.pool(DistanceConstraint.schema.name, { optional: true }),
         ...softEnergySlots,
+        work: slot.work(() => this.work),
     };
     override readonly pipelines: readonly PipelineDescriptor[] = [SERIES];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
@@ -137,14 +146,11 @@ export class SoftEnergyFlow extends Flow<SoftEnergySlots, 'idle'> {
     constructor(ctx: FlowContext) {
         super();
         this.resources = ctx.resources;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'soft_energy_params',
-            schema: SoftEnergyParamsSchema,
-        });
+        this.params = new PerStepUniforms(
+            { core: ctx.core, resources: ctx.resources, work: this.work },
+            { id: 'soft_energy_params', schema: SoftEnergyParamsSchema },
+        );
         this.params.reserve(ALGORITHMS.length + 1);
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [softEnergyResources.params, this.params.source()],
-        ]);
         const reconcile = {
             to: 'idle' as const,
             run: (_e: unknown, c: Ctx) => {
@@ -201,11 +207,6 @@ export class SoftEnergyFlow extends Flow<SoftEnergySlots, 'idle'> {
             pass.dispatch.invocations(bodies * wg, wg);
         });
         bound.slots.softEnergy.written();
-    }
-
-    /** Libera os parâmetros. */
-    override dispose(): void {
-        this.params.dispose();
     }
 
     /** Um pipeline por algoritmo com o pool das partículas na cena; o do XPBD com as arestas se o pool delas existe. */

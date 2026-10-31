@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { SpatialHashGrid, hashTableSize } from '../compute/SpatialHashGrid';
 import { HashGridParamsSchema } from '../compute/schemas';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { workHarness } from './helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
@@ -15,14 +15,10 @@ const items: StorageBufferSpec = {
     discriminator: 'proxies',
     byteSize: 1 << 16,
 };
-const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
-
 function setup() {
-    const { core, writes } = fakeResourceCore();
-    const grid = new SpatialHashGrid(core, { discriminator: 'g' });
-    const created = () =>
-        (core.create as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => c[0]);
-    return { core, writes, grid, created };
+    const h = workHarness();
+    const grid = new SpatialHashGrid(h.ctx, { discriminator: 'g' });
+    return { ...h, grid };
 }
 
 /** Referência na CPU de `sh_cell`/`sh_hash` (spatial_hash.wgsl). */
@@ -43,20 +39,28 @@ describe('SpatialHashGrid (spec 007)', () => {
         expect(hashTableSize(10_000)).toBe(32_768);
     });
 
-    it('prepare cria buffers da tabela e dos itens, escreve os parâmetros e só recria quando muda', () => {
+    it('prepare declara tabela e itens no trabalho, envia os parâmetros e só realoca o que muda', () => {
         const s = setup();
         expect(s.grid.prepare(items, 100, 0.5)).toBe(true);
+        expect(s.grid.cellStart.byteSize).toBe(1024 * 4);
+        expect(s.grid.cellItems.byteSize).toBe(100 * 4);
         const firstStart = s.grid.cellStart;
-        const params = s.writes.find((w) => disc(w.spec) === 'g:params')!;
-        const u32 = new Uint32Array(params.bytes.buffer, params.bytes.byteOffset, 4);
-        const f32 = new Float32Array(params.bytes.buffer, params.bytes.byteOffset, 4);
+        const firstItems = s.grid.cellItems;
+        s.frame(); // os parâmetros vão no envio dos sujos
+        const bytes = s.bytesOf(s.grid.params);
+        const u32 = new Uint32Array(bytes.buffer, bytes.byteOffset, 4);
+        const f32 = new Float32Array(bytes.buffer, bytes.byteOffset, 4);
         expect(u32[HashGridParamsSchema.offsetOf('count') / 4]).toBe(100);
         expect(u32[HashGridParamsSchema.offsetOf('table_mask') / 4]).toBe(1023);
         expect(f32[HashGridParamsSchema.offsetOf('cell_size') / 4]).toBe(0.5);
         expect(s.grid.prepare(items, 200, 0.5)).toBe(true); // capacidade dos itens cresce (200 > 100)
-        expect(s.grid.cellStart).not.toBe(firstStart);
+        expect(s.grid.cellItems).not.toBe(firstItems);
+        expect(s.core.destroy).toHaveBeenCalledWith(firstItems);
+        expect(s.grid.cellStart).toBe(firstStart); // a tabela não mudou: a C2 mantém o buffer
         expect(s.grid.prepare(items, 150, 0.7)).toBe(false);
         expect(s.grid.prepare(items, 600, 0.7)).toBe(true); // tabela 2048
+        expect(s.grid.cellStart.byteSize).toBe(2048 * 4);
+        expect(s.core.destroy).toHaveBeenCalledWith(firstStart);
     });
 
     it('record grava: zera contagens, conta, soma prefixos, copia cursores e espalha; sem itens, nada', () => {
@@ -86,14 +90,14 @@ describe('SpatialHashGrid (spec 007)', () => {
         expect(hashOf([0.9, 0.2, 0.3], 1, mask)).toBe(a); // mesma célula
     });
 
-    it('destroy libera tudo o que criou', () => {
+    it('destroy solta tabela, itens e níveis da soma (a C2 os libera)', () => {
         const s = setup();
         s.grid.prepare(items, 10, 1);
+        const own = [s.grid.cellCount, s.grid.cellStart, s.grid.cellItems];
+        const level = s.resources.bufferOf(s.work, 'g:scan:scan_level:1');
         s.grid.destroy();
-        const destroyed = (
-            s.core.destroy as unknown as { mock: { calls: unknown[][] } }
-        ).mock.calls.map((c) => c[0]);
-        const own = s.created().filter((c) => disc(c).startsWith('g:'));
-        for (const spec of own) expect(destroyed).toContain(spec);
+        for (const spec of [...own, level]) expect(s.core.destroy).toHaveBeenCalledWith(spec);
+        expect(s.resources.bufferOf(s.work, 'g:counts')).toBeUndefined();
+        expect(() => s.grid.cellStart).toThrow(/prepare/);
     });
 });

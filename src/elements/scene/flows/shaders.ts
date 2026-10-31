@@ -61,24 +61,33 @@ import {
     TransformParamsSchema,
 } from './TransformParams';
 
-// Recursos privados dos estágios de transformação, câmera e matriz de sombra (spec 031): parâmetros do estágio e listas
-// em `stage`; regiões por grupo ou nível (offset dinâmico) em `draw`. Registros e listas mantidos pela C2 vêm do pool.
+// Recursos dos estágios de transformação, câmera e matriz de sombra (spec 031): parâmetros do estágio e listas em
+// `stage`; regiões por grupo ou nível (offset dinâmico) em `draw` — descritores do Resource de trabalho de cada estágio
+// (spec 039, fornecedor `{ slot: 'work', descriptor }`). Registros e listas mantidos pela C2 vêm do pool.
 
-const stageUniform = (name: string, type: WgslResourceType): ReturnType<typeof wgslResource> =>
+const stageUniform = (
+    name: string,
+    type: WgslResourceType,
+    descriptor: string,
+): ReturnType<typeof wgslResource> =>
     wgslResource({
         name,
         binding: { uniform: true },
         type,
         frequency: 'stage',
-        provider: 'private',
+        provider: { slot: 'work', descriptor },
     });
-const stepUniform = (name: string, type: WgslResourceType): ReturnType<typeof wgslResource> =>
+const stepUniform = (
+    name: string,
+    type: WgslResourceType,
+    descriptor: string,
+): ReturnType<typeof wgslResource> =>
     wgslResource({
         name,
         binding: { uniform: true },
         type,
         frequency: 'draw',
-        provider: 'private',
+        provider: { slot: 'work', descriptor },
     });
 const poolRead = (name: string, type: WgslResourceType & { readonly schema: { name: string } }) =>
     wgslResource({
@@ -91,28 +100,32 @@ const poolRead = (name: string, type: WgslResourceType & { readonly schema: { na
 
 /** Recursos do estágio de transformação. */
 export const transformResources = Object.freeze({
-    params: stageUniform('params', { schema: TransformParamsSchema }),
+    params: stageUniform('params', { schema: TransformParamsSchema }, 'transform_params'),
     links: wgslResource({
         name: 'links',
         binding: { storage: 'read' },
         type: { schema: TransformLinkSchema, array: true },
         frequency: 'stage',
-        provider: 'private',
+        provider: { slot: 'work', descriptor: 'transform_links' },
     }),
-    level: stepUniform('level', { schema: TransformLevelSchema }),
+    level: stepUniform('level', { schema: TransformLevelSchema }, 'transform_level'),
     fnPairs: wgslResource({
         name: 'transform_fn_pairs',
         binding: { storage: 'read' },
         type: { schema: TransformFnPairSchema, array: true },
         frequency: 'stage',
-        provider: 'private',
+        provider: { slot: 'work', descriptor: 'transform_fn_pairs' },
     }),
-    fnGroup: stepUniform('transform_fn_group', { schema: TransformFnGroupSchema }),
+    fnGroup: stepUniform(
+        'transform_fn_group',
+        { schema: TransformFnGroupSchema },
+        'transform_fn_group',
+    ),
 });
 
 /** Recursos do estágio de câmera. */
 export const cameraResources = Object.freeze({
-    compose: stageUniform('compose', { schema: CameraComposeParamsSchema }),
+    compose: stageUniform('compose', { schema: CameraComposeParamsSchema }, 'camera_compose'),
     records: poolRead('camera_records', { schema: CameraRecordSchema, array: true }),
     list: poolRead('camera_list', { schema: CameraInstanceSchema, array: true }),
     fnList: wgslResource({
@@ -120,14 +133,18 @@ export const cameraResources = Object.freeze({
         binding: { storage: 'read' },
         type: { schema: CameraFnEntrySchema, array: true },
         frequency: 'stage',
-        provider: 'private',
+        provider: { slot: 'work', descriptor: 'camera_fn_list' },
     }),
-    fnGroup: stepUniform('camera_fn_group', { schema: CameraFnGroupSchema }),
+    fnGroup: stepUniform('camera_fn_group', { schema: CameraFnGroupSchema }, 'camera_fn_group'),
 });
 
 /** Recursos do estágio da matriz de sombra. */
 export const shadowMatrixResources = Object.freeze({
-    params: stageUniform('shadow_params', { schema: ShadowMatrixParamsSchema }),
+    params: stageUniform(
+        'shadow_params',
+        { schema: ShadowMatrixParamsSchema },
+        'shadow_matrix_params',
+    ),
     records: poolRead('shadow_records', { schema: ShadowRecordSchema, array: true }),
     list: poolRead('shadow_list', { schema: ShadowMatrixInstanceSchema, array: true }),
 });

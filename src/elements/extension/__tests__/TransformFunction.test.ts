@@ -124,7 +124,7 @@ describe('TransformFunction (spec 009)', () => {
         const recordOf = (id: EntityId) => s.scene.resourceSystem.poolSlotOf(fa.record.name, id)!;
         expect([...u]).toEqual([slotOf(a), recordOf(a), slotOf(b), recordOf(b)]);
         expect(recordOf(a)).not.toBe(recordOf(b));
-        const groups = s.lastWrite('transform_fn_groups');
+        const groups = s.lastWrite('transform_fn_group:');
         expect(groups).toBeDefined();
         const g = new DataView(groups!.buffer, groups!.byteOffset, groups!.byteLength);
         expect(g.getUint32(0, true)).toBe(0);

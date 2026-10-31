@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ColliderSet, NO_OWNER } from '../colliders/ColliderSet';
 import { BoxCollider } from '../colliders/BoxCollider';
 import { PlaneCollider } from '../colliders/PlaneCollider';
@@ -6,11 +6,8 @@ import { SphereCollider } from '../colliders/SphereCollider';
 import { SurfaceCollider } from '../colliders/SurfaceCollider';
 import { SurfacePhysics } from '../wetting/SurfacePhysics';
 import { RigidBody } from '../bodies/RigidBody';
-import { DefaultEventBus } from '../../../scene/events/DefaultEventBus';
-import { ResourceSystem } from '../../../scene/systems/ResourceSystem';
-import { World } from '../../../scene/world/World';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
+import { workHarness } from '../../gpu/__tests__/helpers/workHarness';
 
 /** Fontes do conjunto de colliders pelo nome da variável (para conferir). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,22 +16,17 @@ function byName(m: ReadonlyMap<{ readonly name: string }, unknown>): Record<stri
 }
 
 function setup() {
-    const events = new DefaultEventBus();
-    const world = new World(events);
-    const fake = fakeResourceCore();
-    const resources = new ResourceSystem(fake.core, events, world);
-    const set = new ColliderSet(fake.core, world, resources, { discriminator: 'test_colliders' });
-    return { ...fake, world, resources, set };
+    const h = workHarness();
+    const set = new ColliderSet(h.ctx, h.world, { discriminator: 'test_colliders' });
+    const writes = (): number => vi.mocked(h.core.write).mock.calls.length;
+    return { ...h, set, writes };
 }
 
-/** Último conteúdo escrito num buffer, como u32. */
-function lastU32(
-    writes: ReturnType<typeof fakeResourceCore>['writes'],
-    spec: StorageBufferSpec,
-): number[] {
-    const w = [...writes].reverse().find((x) => x.spec === spec);
-    if (w === undefined) throw new Error('buffer nunca escrito');
-    return Array.from(new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, w.bytes.byteLength / 4));
+/** Conteúdo de um buffer na GPU depois do envio do quadro (a C2 envia os dados do trabalho), como u32. */
+function lastU32(s: ReturnType<typeof setup>, spec: StorageBufferSpec): number[] {
+    s.frame();
+    const bytes = s.bytesOf(spec);
+    return Array.from(new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4));
 }
 
 describe('ColliderSet', () => {
@@ -49,11 +41,11 @@ describe('ColliderSet', () => {
 
         const box = s.set.pool('BoxCollider');
         expect(box.count).toBe(1);
-        expect(lastU32(s.writes, box.owners)[0]).toBe(0); // corpo do chão no slot 0 do LCPSchema
+        expect(lastU32(s, box.owners)[0]).toBe(0); // corpo do chão no slot 0 do LCPSchema
 
         const sphere = s.set.pool('SphereCollider');
         expect(sphere.count).toBe(2);
-        const owners = lastU32(s.writes, sphere.owners);
+        const owners = lastU32(s, sphere.owners);
         expect(owners[0]).toBe(1); // esfera dinâmica (slot 1 do LCPSchema)
         expect(owners[1]).toBe(NO_OWNER); // collider solto, estático
         expect(s.set.totalCount).toBe(3);
@@ -73,7 +65,9 @@ describe('ColliderSet', () => {
         expect(s.set.pool('PlaneCollider').buffer.byteSize).toBeGreaterThanOrEqual(
             PlaneCollider.schema.stride,
         );
-        expect(s.set.bodiesBuffer().discriminator).toBe('test_colliders_empty_LCPSchema');
+        expect(s.set.bodiesBuffer()).toBe(
+            s.resources.bufferOf(s.work, 'test_colliders:empty:LCPSchema'),
+        );
     });
 
     it('contagens escritas pelo schema ColliderSetCounts', () => {
@@ -83,7 +77,7 @@ describe('ColliderSet', () => {
         s.world.insert(new SphereCollider({ radius: 2 }));
         s.set.refresh();
         const counts = byName(s.set.sources()).collider_counts;
-        expect(lastU32(s.writes, counts as StorageBufferSpec).slice(0, 8)).toEqual([
+        expect(lastU32(s, counts as StorageBufferSpec).slice(0, 8)).toEqual([
             1, 0, 2, 0, 0, 0, 0, 0,
         ]);
     });
@@ -92,10 +86,12 @@ describe('ColliderSet', () => {
         const s = setup();
         s.world.insert(new SphereCollider({ radius: 1 }));
         s.set.refresh();
+        s.frame();
         const g0 = s.set.generation;
-        const writesBefore = s.writes.length;
+        const writesBefore = s.writes();
         s.set.refresh();
-        expect(s.writes.length).toBe(writesBefore); // nada sujo: sem reescrita
+        s.frame();
+        expect(s.writes()).toBe(writesBefore); // nada sujo: sem reescrita
         expect(s.set.generation).toBe(g0);
 
         // Inserir mais colliders além da capacidade do mapa (4) recria o buffer de dono.
@@ -110,13 +106,16 @@ describe('ColliderSet', () => {
         const s = setup();
         s.world.insert(new SphereCollider({ radius: 1 }));
         s.set.refresh();
-        const writes = s.writes.length;
+        s.frame();
+        const writes = s.writes();
         s.set.onPoolReallocated('XPBDSoftSchema');
         s.set.refresh();
-        expect(s.writes.length).toBe(writes);
+        s.frame();
+        expect(s.writes()).toBe(writes);
         s.set.onPoolReallocated('SphereCollider');
         s.set.refresh();
-        expect(s.writes.length).toBeGreaterThan(writes);
+        s.frame();
+        expect(s.writes()).toBeGreaterThan(writes);
     });
 
     it('superfícies (spec 010): contagem e campo pelo pool ou substituto', () => {
@@ -125,7 +124,7 @@ describe('ColliderSet', () => {
         s.set.refresh();
         expect(s.set.surfaceCount).toBe(1);
         const counts = byName(s.set.sources()).collider_counts;
-        const words = lastU32(s.writes, counts as StorageBufferSpec);
+        const words = lastU32(s, counts as StorageBufferSpec);
         expect(words.slice(0, 8)).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
         // Início do campo do colisor 0 (slot do pool de campo).
         expect(words[8]).toBe(0);
@@ -139,10 +138,10 @@ describe('ColliderSet', () => {
         s.world.insert(new SphereCollider({ radius: 2 }));
         s.set.refresh();
         const src = byName(s.set.sources());
-        expect(lastU32(s.writes, src.collider_counts as StorageBufferSpec).slice(0, 8)).toEqual([
+        expect(lastU32(s, src.collider_counts as StorageBufferSpec).slice(0, 8)).toEqual([
             0, 1, 2, 0, 0, 1, 0, 0,
         ]);
-        expect(lastU32(s.writes, src.collider_owners as StorageBufferSpec).slice(0, 3)).toEqual([
+        expect(lastU32(s, src.collider_owners as StorageBufferSpec).slice(0, 3)).toEqual([
             NO_OWNER,
             NO_OWNER,
             NO_OWNER,
@@ -160,19 +159,19 @@ describe('ColliderSet', () => {
         s.set.refresh();
         const src = byName(s.set.sources());
         // Planos, caixas, esferas: o plano sem, a caixa a 1ª superfície da cena, as esferas a 2ª e sem.
-        expect(lastU32(s.writes, src.collider_surfaces as StorageBufferSpec).slice(0, 4)).toEqual([
+        expect(lastU32(s, src.collider_surfaces as StorageBufferSpec).slice(0, 4)).toEqual([
             0, 1, 2, 0,
         ]);
     });
 
-    it('destroy libera mapas, buffers mínimos e contagens', () => {
+    it('os mapas, os buffers mínimos e as contagens são do trabalho: a C2 os libera quando ele sai da cena', () => {
         const s = setup();
         s.set.refresh();
-        const created = Object.values(byName(s.set.sources())) as StorageBufferSpec[];
-        s.set.destroy();
-        for (const spec of created.filter((b) => b.discriminator?.startsWith('test_colliders'))) {
-            expect(s.core.destroy).toHaveBeenCalledWith(spec);
-        }
+        const own = Object.values(byName(s.set.sources())).filter(
+            (b) => b !== s.set.pool('MeshCollider').buffer && b !== s.set.fieldBuffer(),
+        ) as StorageBufferSpec[];
+        s.world.remove(s.work);
+        for (const spec of own) expect(s.core.destroy).toHaveBeenCalledWith(spec);
     });
 
     it('sources(): nomes do collider_set.wgsl, inclusive a malha (A6), com buffers mínimos para pools ausentes', () => {

@@ -4,7 +4,7 @@
  * reaproveitando faixas; o trabalho de domínio como descritor próprio com `count`, que a redescrição cresce, encolhe e
  * cresce de novo sem estado preso; e a leitura sob demanda pelo `ResourceDirectory` que os Flows recebem.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Entity } from '../contracts/Entity';
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
@@ -169,5 +169,71 @@ describe('leitura pelo ResourceDirectory dos Flows (spec 039)', () => {
         const dir: ResourceDirectory = s.resources;
         const value = await dir.read(domain, 'cells');
         expect(value).toBeDefined();
+    });
+});
+
+const Word = new StructSchema('WsWord', { w: FieldType.u32 });
+
+/** Um Resource de trabalho cujas partes chegam depois (descritores trocados por `setParts`). */
+class Parts extends Entity implements Resource {
+    state = ResourceState.Uninitialized;
+    constructor(private descs: readonly GPUDescriptor[]) {
+        super();
+        this.data = {};
+    }
+    getDescriptors(): readonly GPUDescriptor[] {
+        return this.descs;
+    }
+    getPipelineDescriptors() {
+        return [];
+    }
+    setParts(parts: readonly GPUDescriptor[]): void {
+        const previous = this.descs;
+        this.descs = parts;
+        this.redescribe(previous, { ...this.data });
+    }
+}
+
+describe('envio dos próprios e posse da GPU de um Resource de trabalho (spec 039)', () => {
+    it('entrou só com dado da GPU (GpuManaged) e ganhou dado da CPU: a mutação passa a valer', () => {
+        const s = setup();
+        const gpu: GPUDescriptor = {
+            id: 'scratch',
+            role: 'storage-rw',
+            schema: Word,
+            upload: 'never',
+            count: 4,
+        };
+        const work = new Parts([gpu]);
+        s.world.insert(work);
+        s.frame();
+        expect(work.state).toBe(ResourceState.GpuManaged);
+        work.setParts([gpu, { id: 'map', role: 'storage-ro', schema: Word, count: 4 }]);
+        expect(work.state).toBe(ResourceState.Ready);
+        work.data.map = new Uint32Array([1, 2, 3, 4]);
+        s.frame();
+        const map = s.resources.bufferOf(work, 'map')!;
+        const writes = vi.mocked(s.core.write).mock.calls.filter(([spec]) => spec === map);
+        expect(writes.length).toBeGreaterThan(0);
+    });
+
+    it('mudar o conteúdo de um descritor não reenvia os outros do mesmo Resource', () => {
+        const s = setup();
+        const work = new Parts([
+            { id: 'a', role: 'storage-ro', schema: Word, count: 4 },
+            { id: 'b', role: 'storage-ro', schema: Word, count: 4 },
+        ]);
+        work.data.a = new Uint32Array(4);
+        work.data.b = new Uint32Array(4);
+        s.world.insert(work);
+        s.frame();
+        const a = s.resources.bufferOf(work, 'a')!;
+        const b = s.resources.bufferOf(work, 'b')!;
+        vi.mocked(s.core.write).mockClear();
+        work.data.a = new Uint32Array([9, 9, 9, 9]);
+        s.frame();
+        const written = vi.mocked(s.core.write).mock.calls.map(([spec]) => spec);
+        expect(written).toContain(a);
+        expect(written).not.toContain(b);
     });
 });

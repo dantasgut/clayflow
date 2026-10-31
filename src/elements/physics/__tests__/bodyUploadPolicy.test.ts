@@ -23,11 +23,14 @@ describe('política de envio dos corpos simulados', () => {
     ])("%s declara upload 'initial' no pool do corpo", (_name, make) => {
         // A série da energia (spec 037) e as somas dos blocos dela são produzidas pela GPU: fora desta política
         // (conferidas abaixo).
-        const descs = pooled(make().getDescriptors()).filter(
-            (d) => d.history === undefined && d.id !== 'partials',
-        );
+        // O trabalho por partícula dos solvers de fluido (spec 039: normais, fronteira, correções) também é da GPU.
+        const gpuWork = new Set(['partials', 'normal', 'boundary', 'delta']);
+        const all = pooled(make().getDescriptors());
+        const descs = all.filter((d) => d.history === undefined && !gpuWork.has(d.id));
         expect(descs.length).toBeGreaterThan(0);
         for (const d of descs) expect(d.upload).toBe('initial');
+        for (const d of all.filter((x) => gpuWork.has(x.id) && x.id !== 'partials'))
+            expect(d.upload).toBe('never');
     });
 
     it("RigidBody: a série da energia (canal temporal, spec 037) é da GPU — 'never', sob demanda, 8 fatias", () => {

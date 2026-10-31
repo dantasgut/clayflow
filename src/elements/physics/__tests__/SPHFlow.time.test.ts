@@ -48,7 +48,7 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         writes.length = 0;
         step(1 / 60);
         const w = writes.filter((x) =>
-            (x.spec as { discriminator: string }).discriminator.includes('sph_params:per_step'),
+            (x.spec as { discriminator: string }).discriminator.includes('sph_params:'),
         );
         expect(w).toHaveLength(1);
         const f32 = new Float32Array(

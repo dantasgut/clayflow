@@ -28,6 +28,7 @@ export function fakeResourceCore(): {
             writes.push({ spec, bytes, offset: offset ?? 0 });
         }),
         destroy: vi.fn(),
+        writeTexture: vi.fn(),
         record: vi.fn((label: unknown, body?: unknown) => {
             const fn = (typeof label === 'function' ? label : body) as (frame: unknown) => void;
             fn({

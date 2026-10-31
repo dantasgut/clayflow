@@ -32,13 +32,15 @@ export interface EnvironmentMapData {
     yaw: number;
     background: number;
     _pad0: number;
+    /** A imagem em meia precisão (RGBA), conteúdo do descritor `image`. */
+    image: Uint16Array;
 }
 
 /**
  * Imagem do mundo (spec 039 refeita): uma panorâmica equirretangular em volta da cena — o que a água, o vidro e os metais
  * refletem e o que os raios que escapam veem (contribuição a `scene_environment`) e, com `background`, o fundo visível
  * (`scene_background`). A textura (`rgba16float`, amostrada com filtro, repetida na horizontal) recebe os pixels da
- * aplicação uma vez, pelo `EnvironmentMapFlow`. Um `Sky` faz o mesmo papel calculado; numa cena, um dos dois.
+ * aplicação uma vez, pela C2 (o conteúdo do descritor `image`, spec 039). Um `Sky` faz o mesmo papel calculado; numa cena, um dos dois.
  */
 export class EnvironmentMap extends Entity<EnvironmentMapData> implements Resource {
     static readonly schema = EnvironmentMapSchema;
@@ -68,6 +70,8 @@ export class EnvironmentMap extends Entity<EnvironmentMapData> implements Resour
             yaw: values.yaw ?? 0,
             background: values.background === false ? 0 : 1,
             _pad0: 0,
+            // A imagem em meia precisão: a C2 a envia à textura na alocação (spec 039).
+            image: this.halfPixels,
         };
     }
 

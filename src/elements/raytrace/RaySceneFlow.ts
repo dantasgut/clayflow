@@ -15,6 +15,9 @@ import {
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
 import { Flow } from '../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
 import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
@@ -24,12 +27,14 @@ import {
     type EntityEntry,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { World } from '../../scene/world/World';
 import type { EntityId } from '../../scene/world/EntityId';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { RadixSort } from '../gpu/compute/RadixSort';
+import { GpuWordSchema, wordBuffer } from '../gpu/compute/schemas';
 import { Geometry } from '../geometry/Geometry';
 import { Material } from '../material/Material';
 import { PointSpriteMaterial } from '../material/PointSpriteMaterial';
@@ -95,17 +100,26 @@ export interface RaySceneSlots extends SlotMap {
      * deles entra na composição dos acertos (o campo guarda o índice dela por corpo).
      */
     readonly fluids: EntitiesSlot;
+    /** O espaço de trabalho da construção: temporários, a ordenação e os parâmetros por hierarquia (spec 039). */
+    readonly work: WorkSlot<RaySceneWork>;
 }
 
-const slots: RaySceneSlots = {
-    scene: slot.singleton(RayScene.schema),
-    renderables: slot.entities({
-        all: [Geometry, Material, Transform],
-        record: renderableRecord,
-    }),
-    particles: slot.entities({ all: [ParticleBody, PointSpriteMaterial] }),
-    fluids: slot.entities({ all: [FluidBody, MaterialFunction] }),
-};
+/** Resource de trabalho do `RaySceneFlow` (spec 039). */
+class RaySceneWork extends FlowWork {
+    static readonly schema = new StructSchema('RaySceneWork', {});
+}
+
+/** Capacidades dos temporários da construção (crescem por dobra). */
+interface ScratchSize {
+    /** Primitivas comportadas (caixas, chaves, valores, contadores). */
+    readonly prims: number;
+    /** Hierarquias comportadas (caixa do conjunto). */
+    readonly slots: number;
+    /** Nós comportados (pais). */
+    readonly nodes: number;
+    /** Instâncias comportadas (origens). */
+    readonly instances: number;
+}
 
 type Ctx = TransitionContext<RaySceneSlots>;
 
@@ -250,11 +264,11 @@ const BOUNDS_WORDS = 8;
  */
 export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     readonly type = 'RaySceneFlow';
-    readonly slots = slots;
+    readonly slots: RaySceneSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly resources: ResourceDirectory;
     private readonly world: World;
     private readonly events: EventBus;
@@ -270,7 +284,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     private functionModules: readonly WgslModule[] = [];
     private instances: Instance[] = [];
     private order: Blas[] = [];
-    private scratch: Scratch | undefined;
+    private scratchSize: ScratchSize | undefined;
     private sort: RadixSort | undefined;
     private sortCapacity = 0;
     private shared: SharedKernels | undefined;
@@ -287,12 +301,24 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new RaySceneWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            scene: slot.singleton(RayScene.schema),
+            renderables: slot.entities({
+                all: [Geometry, Material, Transform],
+                record: renderableRecord,
+            }),
+            particles: slot.entities({ all: [ParticleBody, PointSpriteMaterial] }),
+            fluids: slot.entities({ all: [FluidBody, MaterialFunction] }),
+            work: slot.work(() => work),
+        };
         this.resources = ctx.resources;
         this.world = ctx.world;
         this.events = ctx.events;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'ray_build_params',
+        work.use({ descriptors: () => this.scratchDescriptors() });
+        this.params = new PerStepUniforms(this.work, {
+            id: 'ray_build_params',
             schema: RayBuildParamsSchema,
         });
         this.params.reserve(2);
@@ -434,9 +460,55 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         this.blasOf.clear();
         this.sphereOf.clear();
         this.releaseShared();
-        this.releaseScratch();
         this.sort?.destroy();
-        this.params.dispose();
+    }
+
+    private get core(): EngineCore {
+        return this.work.core;
+    }
+
+    /** Os temporários no Resource de trabalho, pelas capacidades atuais (spec 039). */
+    private scratchDescriptors(): readonly GPUDescriptor[] {
+        const n = this.scratchSize;
+        if (n === undefined) return [];
+        const id = (name: string): string => `ray_scene:${name}`;
+        return [
+            wordBuffer(id('aabbs'), n.prims * RayAabbSchema.stride),
+            wordBuffer(id('bounds'), n.slots * BOUNDS_WORDS * 4),
+            wordBuffer(id('keys'), n.prims * 4),
+            wordBuffer(id('values'), n.prims * 4),
+            wordBuffer(id('parents'), n.nodes * 4),
+            wordBuffer(id('counters'), n.prims * 2 * 4),
+            wordBuffer(id('boxes'), n.prims * 2 * 6 * 4),
+            wordBuffer(id('tris'), n.prims * RAY_WORDS.triangle * RayGeometrySchema.stride),
+            // As origens das instâncias vêm da CPU (enviadas pela C2 antes da gravação).
+            {
+                id: id('sources'),
+                role: 'storage-ro',
+                schema: GpuWordSchema,
+                count: Math.max(4, (n.instances * RayInstanceSourceSchema.stride) / 4),
+            },
+        ];
+    }
+
+    /** Os temporários que a C2 alocou (ou `undefined` antes do primeiro dimensionamento). */
+    private get scratch(): Scratch | undefined {
+        const n = this.scratchSize;
+        if (n === undefined) return undefined;
+        const of = (name: string): StorageBufferSpec =>
+            this.resources.bufferOf(this.work.work, `ray_scene:${name}`) as StorageBufferSpec;
+        return {
+            ...n,
+            aabbs: of('aabbs'),
+            bounds: of('bounds'),
+            keys: of('keys'),
+            values: of('values'),
+            parents: of('parents'),
+            counters: of('counters'),
+            boxes: of('boxes'),
+            tris: of('tris'),
+            sources: of('sources'),
+        };
     }
 
     /**
@@ -826,10 +898,16 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                     i * 8,
                 );
             });
-            this.core.write(blasPool, words, scene.data.blasFirst * RayBvhSchema.stride);
+            // Na faixa da cena no pool das hierarquias, depois dos nós (pela C2: o pool é do `RayScene`).
+            this.resources.writeNow(
+                scene,
+                'bvh',
+                words,
+                (scene.data.blasFirst - scene.data.nodeFirst) * RayBvhSchema.stride,
+            );
         }
         this.ensureScratch();
-        if (this.scratch !== undefined && this.instances.length > 0) {
+        if (this.scratchSize !== undefined && this.instances.length > 0) {
             const words = new Uint32Array(this.instances.length * 8);
             const floats = new Float32Array(words.buffer);
             this.instances.forEach((inst, i) => {
@@ -839,7 +917,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 );
                 floats.set(inst.color, i * 8 + 5);
             });
-            this.core.write(this.scratch.sources, words);
+            this.work.work.data['ray_scene:sources'] = words;
         }
     }
 
@@ -851,7 +929,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         const slotCount = this.order.length + 1;
         const nodes = scene.data.nodes;
         const instances = Math.max(1, this.instanceCount);
-        const s = this.scratch;
+        const s = this.scratchSize;
         if (
             s !== undefined
             && s.prims >= prims
@@ -883,29 +961,12 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             return;
         }
         this.releaseShared();
-        this.releaseScratch();
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ray_scene:${name}`,
-                byteSize: Math.max(16, bytes),
-            });
-        this.scratch = {
-            ...next,
-            aabbs: storage('aabbs', next.prims * RayAabbSchema.stride),
-            bounds: storage('bounds', next.slots * BOUNDS_WORDS * 4),
-            keys: storage('keys', next.prims * 4),
-            values: storage('values', next.prims * 4),
-            parents: storage('parents', next.nodes * 4),
-            counters: storage('counters', next.prims * 2 * 4),
-            boxes: storage('boxes', next.prims * 2 * 6 * 4),
-            tris: storage('tris', next.prims * RAY_WORDS.triangle * RayGeometrySchema.stride),
-            sources: storage('sources', next.instances * RayInstanceSourceSchema.stride),
-        };
+        // A C2 realoca os temporários no tamanho novo (o Resource de trabalho se redescreve).
+        this.scratchSize = next;
+        this.work.work.refresh();
         if (this.sortCapacity < next.prims) {
             this.sort?.destroy();
-            this.sort = new RadixSort(this.core, {
+            this.sort = new RadixSort(this.work, {
                 discriminator: 'ray_scene_sort',
                 capacity: next.prims,
                 withValues: true,
@@ -1186,23 +1247,5 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         ])
             destroyComputeKernel(this.core, k);
         this.shared = undefined;
-    }
-
-    private releaseScratch(): void {
-        const s = this.scratch;
-        if (s === undefined) return;
-        for (const b of [
-            s.aabbs,
-            s.bounds,
-            s.keys,
-            s.values,
-            s.parents,
-            s.counters,
-            s.boxes,
-            s.tris,
-            s.sources,
-        ])
-            this.core.destroy(b);
-        this.scratch = undefined;
     }
 }

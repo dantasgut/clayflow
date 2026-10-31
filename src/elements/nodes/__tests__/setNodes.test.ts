@@ -16,7 +16,7 @@ import type {
     SetNodeDefinition,
     SetNodeInstance,
 } from '../../../scene/graph/SetNode';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { workHarness } from '../../gpu/__tests__/helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import { MeshVertexSchema } from '../../geometry/MeshVertexSchema';
 import { defaultNodeRegistry, nodes } from '../index';
@@ -48,7 +48,7 @@ interface FakeSet {
 
 /** Contexto falso de um nó: conjuntos por `porta.conjunto`, valores, grafos de ponto e alvo. */
 function context(
-    core: EngineCore,
+    h: ReturnType<typeof workHarness>,
     sets: {
         inputs?: Record<string, FakeSet>;
         outputs?: Record<string, FakeSet>;
@@ -74,7 +74,8 @@ function context(
         return cache.get(key)!;
     };
     return {
-        core,
+        core: h.core,
+        work: h.ctx,
         id: 'n',
         counts,
         input: (port, set) => memo('inputs', port, set),
@@ -95,6 +96,15 @@ interface Created {
     readonly discriminator?: string;
     readonly shader?: { readonly source: string };
 }
+
+/** Escritas no core (a C2 escreve os uniforms e as tabelas dos nós), na ordem. */
+const writesOf = (core: EngineCore) =>
+    (core.write as unknown as { mock: { calls: [unknown, ArrayBufferView][] } }).mock.calls.map(
+        ([spec, data]) => ({
+            spec,
+            bytes: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+        }),
+    );
 
 const created = (core: EngineCore): Created[] =>
     (core.create as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
@@ -122,15 +132,16 @@ const passes = (rec: ReturnType<typeof recordingFrame>) =>
 
 describe('nós de conjunto — kernels e passes', () => {
     it('set.grid: um despacho direto por vértice; parâmetros no uniform', () => {
-        const { core, writes } = fakeResourceCore();
-        const ctx = context(core, {
+        const h = workHarness();
+        const { core } = h;
+        const ctx = context(h, {
             outputs: mesh(12, 0, 12, 1),
             values: { resolution: [4, 3], size: [2, 1] },
         });
         const rec = run(nodes.set.grid, ctx);
         expect(passes(rec)).toEqual([['set.grid', [12, 256]]]);
-        const params = writes.find(
-            (w) => (w.spec as { discriminator?: string }).discriminator === 'n:params',
+        const params = writesOf(core).find((w) =>
+            ((w.spec as { discriminator?: string }).discriminator ?? '').startsWith('n:params:'),
         )!;
         expect([...new Uint32Array(params.bytes.buffer, params.bytes.byteOffset, 2)]).toEqual([
             4, 3,
@@ -147,10 +158,11 @@ describe('nós de conjunto — kernels e passes', () => {
     });
 
     it('set.displace: despacho indireto pelo registro dos vértices e cópia dos triângulos; pronto = 0', () => {
-        const { core } = fakeResourceCore();
+        const h = workHarness();
+        const { core } = h;
         const rec = run(
             nodes.set.displace,
-            context(core, { inputs: mesh(100, 2, 50, 3), outputs: mesh(100, 2, 50, 3) }),
+            context(h, { inputs: mesh(100, 2, 50, 3), outputs: mesh(100, 2, 50, 3) }),
         );
         expect(passes(rec)).toEqual([['set.displace', [-1, setDispatchOffset(2)]]]);
         expect(rec.copies).toBe(1);
@@ -162,12 +174,14 @@ describe('nós de conjunto — kernels e passes', () => {
     });
 
     it('set.recomputeNormals: zera o acumulador, soma por triângulo, normaliza por vértice', () => {
-        const { core } = fakeResourceCore();
+        const h = workHarness();
+        const { core } = h;
         const rec = run(
             nodes.set.recomputeNormals,
-            context(core, { inputs: mesh(100, 0, 50, 1), outputs: mesh(100, 0, 50, 1) }),
+            context(h, { inputs: mesh(100, 0, 50, 1), outputs: mesh(100, 0, 50, 1) }),
         );
-        expect(rec.sequence).toEqual([
+        // O acumulador é um descritor do trabalho do grafo (a C2 sufixa o discriminador com o dono).
+        expect(rec.sequence.map((e) => e.replace(/^(clear:n:accum):.*$/, '$1'))).toEqual([
             'clear:n:accum',
             'pass:set.recomputeNormals.accumulate',
             'pass:set.recomputeNormals.write',
@@ -181,10 +195,11 @@ describe('nós de conjunto — kernels e passes', () => {
     });
 
     it('set.distributeOnMesh: candidatos, compactação estável com contagem da GPU, aceitos, pontos (sem atômicos de ordem)', () => {
-        const { core } = fakeResourceCore();
+        const h = workHarness();
+        const { core } = h;
         const rec = run(
             nodes.set.distributeOnMesh,
-            context(core, {
+            context(h, {
                 inputs: mesh(100, 0, 50, 1),
                 outputs: {
                     'points.points': { capacity: 150, slot: 2, stride: SetPointSchema.stride },
@@ -214,10 +229,11 @@ describe('nós de conjunto — kernels e passes', () => {
     });
 
     it('set.realizeInstances: contagens derivadas na GPU, CountToArgs dos dois registros, vértices e triângulos indiretos', () => {
-        const { core, writes } = fakeResourceCore();
+        const h = workHarness();
+        const { core } = h;
         const rec = run(
             nodes.set.realizeInstances,
-            context(core, {
+            context(h, {
                 inputs: { 'points.points': { capacity: 10, slot: 0, stride: 24 } },
                 outputs: mesh(10 * 9 * 7, 1, 10 * 96, 2),
                 values: { radius: 0.1, segments: 8, rings: 6 },
@@ -230,8 +246,8 @@ describe('nós de conjunto — kernels e passes', () => {
             ['set.realizeInstances.vertices', [-1, setDispatchOffset(1)]],
             ['set.realizeInstances.triangles', [-1, setDispatchOffset(2)]],
         ]);
-        const table = writes.find(
-            (w) => (w.spec as { discriminator?: string }).discriminator === 'n:table',
+        const table = writesOf(core).find((w) =>
+            ((w.spec as { discriminator?: string }).discriminator ?? '').startsWith('n:table:'),
         )!;
         const t = new Float32Array(
             table.bytes.buffer,
@@ -249,10 +265,10 @@ describe('nós de conjunto — kernels e passes', () => {
             ...new Set(rec.passes.map((p) => p.label.split('.')[0])),
         ];
         {
-            const { core } = fakeResourceCore();
+            const h = workHarness();
             const rec = run(
                 nodes.set.prefixSum,
-                context(core, {
+                context(h, {
                     inputs: { 'values.values': u(1000, 3) },
                     outputs: { 'values.values': u(1000, 3) },
                 }),
@@ -261,10 +277,10 @@ describe('nós de conjunto — kernels e passes', () => {
             expect(rec.copies).toBe(1);
         }
         {
-            const { core } = fakeResourceCore();
+            const h = workHarness();
             const rec = run(
                 nodes.set.sort,
-                context(core, {
+                context(h, {
                     inputs: { 'values.values': u(1000, 3) },
                     outputs: { 'values.values': u(1000, 3) },
                     values: { bits: 7 },
@@ -274,10 +290,10 @@ describe('nós de conjunto — kernels e passes', () => {
             expect(rec.passes.filter((p) => p.label === 'RadixSort.scatter')).toHaveLength(2);
         }
         {
-            const { core } = fakeResourceCore();
+            const h = workHarness();
             const rec = run(
                 nodes.set.compact,
-                context(core, {
+                context(h, {
                     inputs: { 'values.values': u(1000, 3) },
                     outputs: { 'values.values': u(1000, 4) },
                 }),
@@ -288,10 +304,10 @@ describe('nós de conjunto — kernels e passes', () => {
             ]);
         }
         {
-            const { core } = fakeResourceCore();
+            const h = workHarness();
             const rec = run(
                 nodes.set.reduce,
-                context(core, {
+                context(h, {
                     inputs: { 'values.values': u(1000, 3) },
                     outputs: { 'value.values': u(1, 4) },
                     values: { op: 2 },
@@ -304,17 +320,15 @@ describe('nós de conjunto — kernels e passes', () => {
     });
 
     it('set.meshOutput: copia os vértices e escreve índices, arestas e indireto pela capacidade do alvo', () => {
-        const { core } = fakeResourceCore();
+        const h = workHarness();
+        const { core } = h;
         const target = {
             vertices: storage('t:vertices', 50 * 32),
             indices: storage('t:indices', 30 * 12),
             wireEdges: storage('t:edges', 40 * 8),
             indirect: storage('t:indirect', 40),
         };
-        const rec = run(
-            nodes.set.meshOutput,
-            context(core, { inputs: mesh(100, 0, 60, 1), target }),
-        );
+        const rec = run(nodes.set.meshOutput, context(h, { inputs: mesh(100, 0, 60, 1), target }));
         expect(rec.copies).toBe(1);
         expect(passes(rec)).toEqual([['set.meshOutput', [30, 256]]]);
         const source = sourceOf(core, 'n:output_pipeline');
@@ -322,14 +336,14 @@ describe('nós de conjunto — kernels e passes', () => {
     });
 
     it('set.meshOutput sem alvo não grava nada', () => {
-        const { core } = fakeResourceCore();
-        const rec = run(nodes.set.meshOutput, context(core, { inputs: mesh(100, 0, 60, 1) }));
+        const h = workHarness();
+        const rec = run(nodes.set.meshOutput, context(h, { inputs: mesh(100, 0, 60, 1) }));
         expect(rec.passes).toHaveLength(0);
         expect(rec.copies).toBe(0);
     });
 
     it('set.pointsOutput: vértices e índices da capacidade do alvo', () => {
-        const { core } = fakeResourceCore();
+        const h = workHarness();
         const target = {
             vertices: storage('t:vertices', 50 * 32),
             indices: storage('t:indices', 30 * 4),
@@ -337,7 +351,7 @@ describe('nós de conjunto — kernels e passes', () => {
         };
         const rec = run(
             nodes.set.pointsOutput,
-            context(core, {
+            context(h, {
                 inputs: { 'points.points': { capacity: 80, slot: 0, stride: 24 } },
                 target,
             }),
@@ -412,10 +426,11 @@ describe('nós de conjunto — grafo', () => {
             discriminator: 'fused',
             byteSize: 32,
         };
-        const { core } = fakeResourceCore();
+        const h = workHarness();
+        const { core } = h;
         run(
             nodes.set.displace,
-            context(core, {
+            context(h, {
                 inputs: mesh(48, 0, 70, 1),
                 outputs: mesh(48, 0, 70, 1),
                 points: { height: { module: fused.module, resource: fused.resource, params } },

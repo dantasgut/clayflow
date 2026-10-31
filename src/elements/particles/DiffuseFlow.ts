@@ -1,6 +1,8 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
+import type { Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Flow } from '../../scene/flows/Flow';
+import { FlowWork, type WorkContext, type WorkPart } from '../../scene/flows/FlowWork';
 import type {
     BindingKey,
     BindingSource,
@@ -16,6 +18,7 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
@@ -24,6 +27,7 @@ import { Time } from '../../scene/time/Time';
 import type { EntityId } from '../../scene/world/EntityId';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { PrefixSum } from '../gpu/compute/PrefixSum';
+import { wordBuffer } from '../gpu/compute/schemas';
 import {
     NEIGHBOR_SEARCH_MAX_PARTICLES,
     NeighborSearchPipeline,
@@ -61,19 +65,19 @@ export interface DiffuseSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider. */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do estágio: o de cada entidade de secundárias e os colliders (spec 039). */
+    readonly work: WorkSlot<DiffuseWork>;
 }
 
-const slots: DiffuseSlots = {
-    diffuse: slot.entities({
-        all: [DiffuseParticles, PointCloudGeometry],
-        owns: [[PointCloudGeometry, 'vertices']],
-    }),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/**
+ * Resource de trabalho do `DiffuseFlow` (spec 039). O trabalho de cada entidade (parâmetros, busca de vizinhos, soma de
+ * prefixos, normais, contagens e posições de geração, estado) é uma parte dele, tirada quando a entidade sai ou a grade
+ * muda. As normais, contagens e posições são indexadas pela partícula do fluido de origem em todo o pool dele (não por
+ * entidade de secundárias), então ficam no trabalho pela capacidade da busca, não num pool de corpo.
+ */
+class DiffuseWork extends FlowWork {
+    static readonly schema = new StructSchema('DiffuseWork', {});
+}
 
 type Ctx = TransitionContext<DiffuseSlots>;
 
@@ -86,6 +90,8 @@ interface DiffuseState {
     readonly params: PerStepUniforms;
     readonly search: NeighborSearchPipeline;
     readonly scan: PrefixSum;
+    /** Os buffers próprios da entidade no trabalho (normais, contagens, posições, estado). */
+    readonly part: WorkPart;
     readonly normals: StorageBufferSpec;
     readonly counts: StorageBufferSpec;
     readonly offsets: StorageBufferSpec;
@@ -112,11 +118,11 @@ interface DiffuseState {
  */
 export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     readonly type = 'DiffuseFlow';
-    readonly slots = slots;
+    readonly slots: DiffuseSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, DiffuseState>();
     private readonly colliderSet: ColliderSet;
@@ -125,9 +131,22 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new DiffuseWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            diffuse: slot.entities({
+                all: [DiffuseParticles, PointCloudGeometry],
+                owns: [[PointCloudGeometry, 'vertices']],
+            }),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            work: slot.work(() => work),
+        };
         this.resources = ctx.resources;
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'diffuse_colliders',
         });
         const changed = {
@@ -206,18 +225,20 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
         }
     }
 
-    /** Libera os recursos de cada entidade e o conjunto de colliders. */
+    /** Libera os kernels de cada entidade (os buffers são do `DiffuseWork` e saem da cena com ele). */
     override dispose(): void {
         for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.colliderSet.destroy();
     }
 
+    /** Libera os kernels da entidade e tira o trabalho dela do `DiffuseWork` (a C2 libera os buffers). */
     private destroyState(st: DiffuseState): void {
-        st.params.dispose();
         st.search.dispose();
         st.scan.destroy();
-        for (const b of [st.normals, st.counts, st.offsets, st.state]) this.core.destroy(b);
+        const work = this.work.work;
+        work.drop(st.scan);
+        work.drop(st.params);
+        work.drop(st.part);
     }
 
     /** Entidades presentes: estado, busca de vizinhos sobre o pool do fluido, bindings e pipelines. */
@@ -310,14 +331,20 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
         grid: ReturnType<ParticlePhysics['gridFor']>,
         gridKey: string,
     ): DiffuseState {
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `diffuse_${name}:${id}:${gridKey}`,
-                byteSize: bytes,
-            });
-        const search = new NeighborSearchPipeline(this.core, {
+        // Normais, contagens e posições de geração por partícula do fluido, e o estado da entidade (spec 039).
+        const own = (name: string): string => `diffuse_${name}:${id}:${gridKey}`;
+        const part: WorkPart = {
+            descriptors: () => [
+                wordBuffer(own('normals'), NEIGHBOR_SEARCH_MAX_PARTICLES * 16),
+                wordBuffer(own('counts'), NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
+                wordBuffer(own('offsets'), NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
+                wordBuffer(own('state'), 16),
+            ],
+        };
+        this.work.work.use(part);
+        const storage = (name: string): StorageBufferSpec =>
+            this.resources.bufferOf(this.work.work, own(name)) as StorageBufferSpec;
+        const search = new NeighborSearchPipeline(this.work, {
             discriminator: `diffuse:${id}:${gridKey}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: MAX_NEIGHBORS,
@@ -327,8 +354,8 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             origin: grid.origin,
         });
         search.allocate();
-        const params = new PerStepUniforms(this.core, {
-            discriminator: `diffuse_params:${id}:${gridKey}`,
+        const params = new PerStepUniforms(this.work, {
+            id: `diffuse_params:${id}:${gridKey}`,
             schema: DiffuseParamsSchema,
         });
         params.reserve(1 + 4);
@@ -336,14 +363,15 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             id,
             params,
             search,
-            scan: new PrefixSum(this.core, {
+            scan: new PrefixSum(this.work, {
                 discriminator: `diffuse_scan:${id}:${gridKey}`,
                 capacity: NEIGHBOR_SEARCH_MAX_PARTICLES,
             }),
-            normals: storage('normals', NEIGHBOR_SEARCH_MAX_PARTICLES * 16),
-            counts: storage('counts', NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
-            offsets: storage('offsets', NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
-            state: storage('state', 16),
+            part,
+            normals: storage('normals'),
+            counts: storage('counts'),
+            offsets: storage('offsets'),
+            state: storage('state'),
             gridKey,
             pool: undefined,
             steps: 0,

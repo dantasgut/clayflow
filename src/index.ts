@@ -61,6 +61,7 @@ export { TextureSurface } from './core/gpu/surfaces/TextureSurface';
 
 export {
     Flow,
+    FlowWork,
     RenderFlow,
     slot,
     FlowRegistry,
@@ -189,6 +190,8 @@ export type {
     BoundSingleton,
     BoundWork,
     WorkSlot,
+    WorkPart,
+    WorkContext,
     BoundEntities,
     EntityEntry,
     BoundTexture,

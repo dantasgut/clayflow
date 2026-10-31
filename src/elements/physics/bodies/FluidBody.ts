@@ -3,6 +3,8 @@ import { SPHSchema } from './schemas/SPHSchema';
 import { PBFSchema } from './schemas/PBFSchema';
 import { MPMFluidSchema } from './schemas/MPMFluidSchema';
 import { MPM_REST_DEFORMATION } from './schemas/MPMSoftSchema';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import { fluidWorkDescriptors } from './schemas/fluidWork';
 import {
     ParticleBody,
     particleCount,
@@ -83,5 +85,10 @@ export class FluidBody extends ParticleBody {
                 body[field] = repeated(value, count);
         }
         this.data = { body };
+    }
+
+    /** As partículas e o trabalho por partícula do solver no mesmo slot (spec 039: o pool do próprio corpo). */
+    override getDescriptors(): readonly GPUDescriptor[] {
+        return [this.bodyDescriptor(), ...fluidWorkDescriptors(this.particleSchema, this.count)];
     }
 }

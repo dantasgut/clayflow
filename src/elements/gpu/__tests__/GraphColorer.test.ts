@@ -10,7 +10,7 @@ import {
     type GraphColorStatus,
 } from '../compute/GraphColorer';
 import { ColorRangeSchema, GraphColorStatusSchema } from '../compute/schemas';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { workHarness } from './helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
@@ -21,8 +21,9 @@ const status = (fields: Partial<Record<string, number>>): ArrayBuffer => {
     return bytes;
 };
 
-const ranges = (list: readonly [number, number][]): ArrayBuffer => {
-    const u32 = new Uint32Array((list.length * ColorRangeSchema.stride) / 4);
+/** Intervalos lidos de volta: a C2 lê a faixa inteira do descritor (`capacity` registros). */
+const ranges = (list: readonly [number, number][], capacity = 100): ArrayBuffer => {
+    const u32 = new Uint32Array((Math.max(list.length, capacity) * ColorRangeSchema.stride) / 4);
     list.forEach(([offset, count], c) => {
         u32[(c * ColorRangeSchema.stride + ColorRangeSchema.offsetOf('offset')) / 4] = offset;
         u32[(c * ColorRangeSchema.stride + ColorRangeSchema.offsetOf('count')) / 4] = count;
@@ -37,9 +38,13 @@ const edges: StorageBufferSpec = {
     byteSize: 1 << 16,
 };
 
-/** Core falso com envios gravados (rótulo → passes) e leituras roteirizadas. */
+/**
+ * C2 real com envios gravados (rótulo → passes) e leituras roteirizadas: as leituras do estado e dos intervalos saem
+ * pela leitura sob demanda da C2 (`resource_read`).
+ */
 function scriptedCore(readbacks: ArrayBuffer[]) {
-    const { core } = fakeResourceCore();
+    const h = workHarness();
+    const core = h.core;
     const submits: { label: string; passes: string[] }[] = [];
     const scripted = core as unknown as Record<string, unknown>;
     scripted.record = vi.fn((label: string, body: (frame: unknown) => void) => {
@@ -52,7 +57,7 @@ function scriptedCore(readbacks: ArrayBuffer[]) {
         if (next === undefined) throw new Error('leitura não roteirizada');
         return next;
     });
-    return { core, submits };
+    return { ...h, submits };
 }
 
 describe('GraphColorer — funções puras', () => {
@@ -123,9 +128,28 @@ describe('GraphColorer — funções puras', () => {
     });
 });
 
+describe('GraphColorer — espaço de trabalho', () => {
+    it('buffers por aresta no trabalho; por vértice crescem na coloração; destroy os solta', async () => {
+        const { ctx, resources, work, core } = scriptedCore([
+            status({ max_degree: 1 }),
+            status({}),
+            ranges([[0, 1]], 10),
+        ]);
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 10 });
+        expect(resources.bufferOf(work, 'gc:gc_colors')?.byteSize).toBe(48); // 10 palavras, alinhadas a 16 B
+        expect(resources.bufferOf(work, 'gc:gc_degree')).toBeUndefined();
+        await colorer.color(edges, 1, 2);
+        expect(resources.bufferOf(work, 'gc:gc_degree')?.byteSize).toBe(16);
+        const colors = resources.bufferOf(work, 'gc:gc_colors');
+        colorer.destroy();
+        expect(core.destroy).toHaveBeenCalledWith(colors);
+        expect(resources.bufferOf(work, 'gc:gc_colors')).toBeUndefined();
+    });
+});
+
 describe('GraphColorer — orquestração', () => {
     it('valida, roda lotes de subpassos até não restar aresta sem cor e agrupa por cor', async () => {
-        const { core, submits } = scriptedCore([
+        const { ctx, submits } = scriptedCore([
             status({ max_degree: 2 }),
             status({ uncolored: 3, color: 1 }),
             status({ uncolored: 0, color: 3, color_count: 3 }),
@@ -135,16 +159,17 @@ describe('GraphColorer — orquestração', () => {
                 [3, 1],
             ]),
         ]);
-        const colorer = new GraphColorer(core, { discriminator: 'gc', capacity: 100 });
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 100 });
         const result = await colorer.color(edges, 4, 4);
         expect(submits.map((s) => s.label)).toEqual([
             'GraphColorer.init',
-            'GraphColorer.status',
+            'resource_read',
             'GraphColorer.rounds',
-            'GraphColorer.status',
+            'resource_read',
             'GraphColorer.rounds',
-            'GraphColorer.status',
+            'resource_read',
             'GraphColorer.group',
+            'resource_read',
         ]);
         expect(submits[0]!.passes).toEqual(['GraphColorer.init', 'Reduce']);
         const rounds = submits[2]!.passes;
@@ -167,29 +192,29 @@ describe('GraphColorer — orquestração', () => {
     });
 
     it('laço rejeitado na validação', async () => {
-        const { core } = scriptedCore([status({ loops: 1, max_degree: 2 })]);
-        const colorer = new GraphColorer(core, { discriminator: 'gc', capacity: 10 });
+        const { ctx } = scriptedCore([status({ loops: 1, max_degree: 2 })]);
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 10 });
         await expect(colorer.color(edges, 3, 3)).rejects.toThrow(/laço/);
     });
 
     it('índice de vértice inválido rejeitado', async () => {
-        const { core } = scriptedCore([status({ invalid: 2 })]);
-        const colorer = new GraphColorer(core, { discriminator: 'gc', capacity: 10 });
+        const { ctx } = scriptedCore([status({ invalid: 2 })]);
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 10 });
         await expect(colorer.color(edges, 3, 3)).rejects.toThrow(RangeError);
     });
 
     it('passar de maxColors (padrão 2Δ) é erro', async () => {
-        const { core } = scriptedCore([
+        const { ctx } = scriptedCore([
             status({ max_degree: 1 }),
             status({ uncolored: 1, color: 2 }),
         ]);
-        const colorer = new GraphColorer(core, { discriminator: 'gc', capacity: 10 });
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 10 });
         await expect(colorer.color(edges, 3, 3)).rejects.toThrow(/maxColors = 2/);
     });
 
     it('nenhuma aresta: resultado vazio sem envio', async () => {
-        const { core, submits } = scriptedCore([]);
-        const colorer = new GraphColorer(core, { discriminator: 'gc', capacity: 10 });
+        const { ctx, submits } = scriptedCore([]);
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 10 });
         const result = await colorer.color(edges, 0, 5);
         expect(result.colorCount).toBe(0);
         expect(result.rangesCpu).toEqual([]);
@@ -197,8 +222,8 @@ describe('GraphColorer — orquestração', () => {
     });
 
     it('uma coloração por vez; validação de count e vertexCount', async () => {
-        const { core } = scriptedCore([status({ max_degree: 1 }), status({}), ranges([])]);
-        const colorer = new GraphColorer(core, { discriminator: 'gc', capacity: 10 });
+        const { ctx } = scriptedCore([status({ max_degree: 1 }), status({}), ranges([], 10)]);
+        const colorer = new GraphColorer(ctx, { discriminator: 'gc', capacity: 10 });
         await expect(colorer.color(edges, 11, 3)).rejects.toThrow(RangeError);
         await expect(colorer.color(edges, 1, -1)).rejects.toThrow(RangeError);
         const first = colorer.color(edges, 1, 2);

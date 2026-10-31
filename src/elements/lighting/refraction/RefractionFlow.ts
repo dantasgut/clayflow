@@ -5,20 +5,29 @@ import type {
     EngineCore,
     Frame,
     IndirectBufferSpec,
-    StagingBufferSpec,
     StorageBufferSpec,
 } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../../scene/flows/slots';
+import {
+    slot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type WorkSlot,
+} from '../../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import { Time } from '../../../scene/time/Time';
 import type { World } from '../../../scene/world/World';
 import { CountToArgs } from '../../gpu/compute/CountToArgs';
+import { wordBuffer } from '../../gpu/compute/schemas';
 import { RayScene } from '../../raytrace/RayScene';
 import { RAY_WAVE_GRID_GROUPS, RayWave } from '../../raytrace/RayWave';
 import { RayWaveEntrySchema } from '../../raytrace/wave/shaders';
@@ -47,15 +56,14 @@ export interface RefractionSlots extends SlotMap {
     readonly cameras: PoolSlot<true>;
     /** Relógio da cena (as funções `material` nos acertos). */
     readonly time: SingletonSlot<true>;
+    /** O espaço de trabalho do traçado: a cadeia, os blocos, os carimbos, a onda e a fila (spec 039). */
+    readonly work: WorkSlot<RefractionWork>;
 }
 
-const slots: RefractionSlots = {
-    refraction: slot.singleton(Refraction.schema),
-    rays: slot.singleton(RayScene.schema, { optional: true }),
-    camera: slot.singleton(Camera.schema, { optional: true }),
-    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
-    time: slot.singleton(Time.schema, { optional: true }),
-};
+/** Resource de trabalho do `RefractionFlow` (spec 039). */
+class RefractionWork extends FlowWork {
+    static readonly schema = new StructSchema('RefractionWork', {});
+}
 
 type Ctx = TransitionContext<RefractionSlots>;
 
@@ -140,7 +148,7 @@ const GRADIENT = compute('refraction_gradient', refractionGradient, 'refraction_
  */
 export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     readonly type = 'RefractionFlow';
-    readonly slots = slots;
+    readonly slots: RefractionSlots;
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
@@ -150,12 +158,12 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private readonly countToArgs: CountToArgs;
     /** A onda dos acertos (spec 039): os da reta da câmera e os dos caminhos. */
     private readonly wave: RayWave;
-    private readonly core: EngineCore;
-    private paths: ChainBuffers | undefined;
+    private readonly work: WorkContext;
+    /** Pixels da cadeia alocada (0 = nenhuma). */
+    private chainPixels = 0;
     /** As contagens da fila lidas de volta (as últimas) e a leitura em voo. */
     private readonly queueSeen: number[] = [];
     private queueReading = false;
-    private queueStaging: StagingBufferSpec | undefined;
     /** Os kernels da cadeia a preparar (o bloco mudou). */
     private chainPending = false;
     private prepared = false;
@@ -167,10 +175,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     private pixels = 0;
     /** Blocos 2×2 do pedido: o teto da fila (um representante por bloco no quadro). */
     private blocks = 0;
-    /** O registro dos blocos 2×2 (o representante traçado no quadro), lido pela reconstrução. */
-    private blockRecords: StorageBufferSpec | undefined;
-    /** O carimbo de cada pixel (o último valor exato), lido pela reconstrução. */
-    private stamps: StorageBufferSpec | undefined;
+    /** Blocos e pixels com que o registro dos blocos e os carimbos foram alocados (0 = nenhum). */
+    private blocksAllocated = 0;
+    private pixelsAllocated = 0;
     /** Há o que traçar neste quadro (estrutura de raios, câmera, ligada). */
     private tracing = false;
     /** Revisão das funções `material` dos kernels de material da onda. */
@@ -183,11 +190,21 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
+        const work = new RefractionWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            refraction: slot.singleton(Refraction.schema),
+            rays: slot.singleton(RayScene.schema, { optional: true }),
+            camera: slot.singleton(Camera.schema, { optional: true }),
+            cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
         this.resources = ctx.resources;
         this.world = ctx.world;
-        this.countToArgs = new CountToArgs(ctx.core, { discriminator: 'refraction_queue' });
-        this.wave = new RayWave(ctx.core, 'refraction');
-        this.core = ctx.core;
+        work.use({ descriptors: () => this.ownDescriptors() });
+        this.countToArgs = new CountToArgs(this.work, { discriminator: 'refraction_queue' });
+        this.wave = new RayWave(this.work, 'refraction');
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -244,7 +261,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             index: 0,
             workgroupSize: WORKGROUP_SIZE.value,
         });
-        this.measureQueue(frame, count);
+        this.measureQueue(bound.slots.refraction.resource as Refraction);
         const b = this.paths;
         if (!this.tracing || b === undefined || !this.waveReady(bound)) return;
         type Compute = ReturnType<BoundFlow['compute']>;
@@ -326,48 +343,99 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     }
 
     /**
-     * Copia a contagem da fila do quadro para a leitura de volta (uma em voo por vez) e a lê depois do envio, sem
-     * bloquear o quadro; guarda as últimas `QUEUE_HISTORY`.
+     * Lê de volta a contagem da fila (uma leitura em voo por vez) pela C2 (`read`, spec 007): o lote sai depois do envio
+     * do quadro, sem bloquear; guarda as últimas `QUEUE_HISTORY`.
      */
-    private measureQueue(frame: Frame, count: IndirectBufferSpec): void {
+    private measureQueue(refraction: Refraction): void {
         if (this.queueReading) return;
-        this.queueStaging ??= this.core.create<StagingBufferSpec>({
-            kind: 'buffer',
-            subkind: 'staging',
-            discriminator: 'refraction_queue_count_staging',
-            byteSize: 4,
-        });
-        const staging = this.queueStaging;
-        frame.copy(count, staging, 4);
         this.queueReading = true;
-        // Depois do envio do quadro (a cópia precisa estar na fila antes do mapeamento).
-        setTimeout(() => {
-            this.core
-                .readback(staging)
-                .then((data) => {
-                    this.queueSeen.push(new Uint32Array(data)[0] ?? 0);
-                    if (this.queueSeen.length > QUEUE_HISTORY) this.queueSeen.shift();
-                })
-                .catch(() => {
-                    /* device perdido ou cena descartada: a leitura é descartada */
-                })
-                .finally(() => {
-                    this.queueReading = false;
-                });
-        }, 0);
+        this.resources
+            .read(refraction, 'queueCount')
+            .then((record) => {
+                if (record === undefined) return;
+                this.queueSeen.push(Number(record.count ?? 0));
+                if (this.queueSeen.length > QUEUE_HISTORY) this.queueSeen.shift();
+            })
+            .catch(() => {
+                /* device perdido ou cena descartada: a leitura é descartada */
+            })
+            .finally(() => {
+                this.queueReading = false;
+            });
     }
 
-    /** Libera os kernels da contagem. */
+    /** Libera os kernels da contagem (os buffers são do `RefractionWork` e saem da cena com ele). */
     override dispose(): void {
         this.countToArgs.destroy();
-        this.wave.destroy();
-        this.releasePaths();
-        if (this.blockRecords !== undefined) this.core.destroy(this.blockRecords);
-        if (this.stamps !== undefined) this.core.destroy(this.stamps);
-        this.blockRecords = undefined;
-        this.stamps = undefined;
-        if (this.queueStaging !== undefined) this.core.destroy(this.queueStaging);
-        this.queueStaging = undefined;
+    }
+
+    private get core(): EngineCore {
+        return this.work.core;
+    }
+
+    /** A cadeia pelos pixels de um bloco, o registro dos blocos e os carimbos pela tela (spec 039). */
+    private ownDescriptors(): readonly GPUDescriptor[] {
+        const out: GPUDescriptor[] = [];
+        const px = this.chainPixels;
+        if (px > 0)
+            out.push(
+                {
+                    id: 'refraction_chain',
+                    role: 'storage-rw',
+                    schema: RefractionChainSchema,
+                    upload: 'never',
+                    count: px * CHAIN_SLOTS,
+                },
+                {
+                    id: 'refraction_chain_splits',
+                    role: 'storage-rw',
+                    schema: RefractionSplitSchema,
+                    upload: 'never',
+                    count: px * CHAIN_SLOTS,
+                },
+                // O cabeçalho e as duas listas das vagas vivas.
+                wordBuffer('refraction_chain_header', (CHAIN_HEADER + 2 * CHAIN_SLOTS * px) * 4),
+                wordBuffer('refraction_chain_args', 16, 'indirect'),
+            );
+        if (this.blocksAllocated > 0)
+            out.push(
+                {
+                    id: 'refraction_blocks',
+                    role: 'storage-rw',
+                    schema: RefractionBlockSchema,
+                    upload: 'never',
+                    count: this.blocksAllocated,
+                },
+                wordBuffer(
+                    'refraction_stamps',
+                    this.pixelsAllocated * 2 * Uint32Array.BYTES_PER_ELEMENT,
+                ),
+            );
+        return out;
+    }
+
+    private own<B>(id: string): B {
+        return this.resources.bufferOf(this.work.work, id) as B;
+    }
+
+    /** A cadeia que a C2 alocou (ou `undefined` antes do primeiro dimensionamento). */
+    private get paths(): ChainBuffers | undefined {
+        if (this.chainPixels === 0) return undefined;
+        return {
+            pixels: this.chainPixels,
+            paths: this.own('refraction_chain'),
+            splits: this.own('refraction_chain_splits'),
+            queue: this.own('refraction_chain_header'),
+            args: this.own('refraction_chain_args'),
+        };
+    }
+
+    private get blockRecords(): StorageBufferSpec | undefined {
+        return this.blocksAllocated > 0 ? this.own('refraction_blocks') : undefined;
+    }
+
+    private get stamps(): StorageBufferSpec | undefined {
+        return this.blocksAllocated > 0 ? this.own('refraction_stamps') : undefined;
     }
 
     /** Os kernels da fila prontos. */
@@ -492,28 +560,10 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         );
         if (this.paths !== undefined && this.paths.pixels >= pixels) return;
         const previous = this.paths;
-        this.releasePaths();
-        const storage = (name: string, byteSize: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `refraction_${name}:${pixels}`,
-                byteSize,
-            });
-        const b: ChainBuffers = {
-            pixels,
-            paths: storage('chain', pixels * CHAIN_SLOTS * RefractionChainSchema.stride),
-            splits: storage('chain_splits', pixels * CHAIN_SLOTS * RefractionSplitSchema.stride),
-            // O cabeçalho e as duas listas das vagas vivas.
-            queue: storage('chain_header', (CHAIN_HEADER + 2 * CHAIN_SLOTS * pixels) * 4),
-            args: this.core.create<IndirectBufferSpec>({
-                kind: 'buffer',
-                subkind: 'indirect',
-                discriminator: `refraction_chain_args:${pixels}`,
-                byteSize: 16,
-            }),
-        };
-        this.paths = b;
+        // A C2 realoca a cadeia no tamanho novo (o Resource de trabalho se redescreve).
+        this.chainPixels = pixels;
+        this.work.work.refresh();
+        const b = this.paths!;
         const R = refractionResources;
         c.bind(
             new Map<WgslResource, BindingSource>([
@@ -533,26 +583,17 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
      * u32), refeitos quando a tela muda de tamanho.
      */
     private syncBlocks(c: Ctx): void {
-        const bytes = Math.max(1, this.blocks) * RefractionBlockSchema.stride;
-        if (this.blockRecords?.byteSize === bytes) return;
-        if (this.blockRecords !== undefined) this.core.destroy(this.blockRecords);
-        if (this.stamps !== undefined) this.core.destroy(this.stamps);
-        const storage = (name: string, byteSize: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `refraction_${name}:${this.pixels}`,
-                byteSize,
-            });
-        this.blockRecords = storage('blocks', bytes);
-        this.stamps = storage(
-            'stamps',
-            Math.max(1, this.pixels) * 2 * Uint32Array.BYTES_PER_ELEMENT,
-        );
+        const blocks = Math.max(1, this.blocks);
+        const pixels = Math.max(1, this.pixels);
+        if (this.blocksAllocated === blocks && this.pixelsAllocated === pixels) return;
+        // Pela tela nos dois sentidos: a C2 realoca no tamanho novo (o Resource de trabalho se redescreve).
+        this.blocksAllocated = blocks;
+        this.pixelsAllocated = pixels;
+        this.work.work.refresh();
         c.bind(
             new Map<WgslResource, BindingSource>([
-                [refractionResources.blocks, this.blockRecords],
-                [refractionResources.stamps, this.stamps],
+                [refractionResources.blocks, this.blockRecords!],
+                [refractionResources.stamps, this.stamps!],
             ]),
         );
     }
@@ -588,13 +629,6 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             for (const d of CHAIN_FIXED) c.prepare(d);
             this.prepared = true;
         }
-    }
-
-    private releasePaths(): void {
-        const b = this.paths;
-        if (b === undefined) return;
-        for (const s of [b.paths, b.splits, b.queue, b.args]) this.core.destroy(s);
-        this.paths = undefined;
     }
 
     /** O uniform do quadro: a câmera, as luzes, o quadro e o tempo (só quando mudam). */

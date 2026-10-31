@@ -1,11 +1,8 @@
-import type {
-    ComputePass,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../scene/contracts/gpu';
+import type { ComputePass, Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
 import type {
     BindingSource,
     BoundFlow,
@@ -18,9 +15,11 @@ import {
     slot,
     type BodiesSlot,
     type EntitiesSlot,
+    type PoolSlot,
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
@@ -35,6 +34,7 @@ import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { ParticlePhysics, TAIT_GAMMA, type SurfaceStep } from '../ParticlePhysics';
 import { SPHSchema } from '../bodies/schemas/SPHSchema';
+import { SPHBoundarySchema, SPHNormalSchema } from '../bodies/schemas/fluidWork';
 import { SPHSimParamsSchema } from '../schemas/simParams';
 import {
     sphBoundary,
@@ -70,16 +70,18 @@ export interface SPHSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
     readonly colliders: EntitiesSlot;
+    /** Normais de superfície por partícula (pool do corpo, mesmo slot; tensão superficial de Akinci, spec 030). */
+    readonly normals: PoolSlot<false>;
+    /** Fronteira sólida por partícula (pool do corpo, mesmo slot; Σ −B' n, Σ B; Akinci et al. 2012). */
+    readonly boundary: PoolSlot<false>;
+    /** O espaço de trabalho do solver: parâmetros por iteração, vizinhança, colliders (spec 039). */
+    readonly work: WorkSlot<SPHWork>;
 }
 
-const slots: SPHSlots = {
-    bodies: slot.bodies(),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/** Resource de trabalho do `SPHFlow` (spec 039). */
+class SPHWork extends FlowWork {
+    static readonly schema = new StructSchema('SPHWork', {});
+}
 
 type Ctx = TransitionContext<SPHSlots>;
 
@@ -90,27 +92,23 @@ type Ctx = TransitionContext<SPHSlots>;
  * sua região de `SPHSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por offset dinâmico. Massa,
  * suavização, rigidez, viscosidade, restituição e domínio vêm da física.
  *
- * Recursos privados — parâmetros por iteração, busca de vizinhança (recriada quando a grade da física muda) e
- * `ColliderSet` — são preparados e religados em transições (`framePrepare`, entidades e pools de collider), nunca no
+ * O espaço de trabalho — parâmetros por iteração, busca de vizinhança (recriada quando a grade da física muda) e
+ * `ColliderSet` — é do Resource de trabalho (`SPHWork`); as normais e a fronteira por partícula são pools do próprio
+ * corpo (spec 039). Tudo é preparado e religado em transições (`framePrepare`, entidades e pools de collider), nunca no
  * `dispatch`.
  */
 export class SPHFlow extends Flow<SPHSlots, 'running'> {
     readonly type = 'SPHFlow';
-    readonly slots = slots;
+    readonly slots: SPHSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<SPHSlots>>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly minSubsteps: number;
     private readonly maxNeighbors: number;
     private readonly params: PerStepUniforms;
     private readonly colliderSet: ColliderSet;
-    /** Normais de superfície por partícula (vec4f), da tensão superficial de Akinci (spec 030). */
-    private readonly normals: StorageBufferSpec;
-    /** Fronteira sólida por partícula (vec4f: Σ −B' n, Σ B; Akinci et al. 2012). */
-    private readonly boundary: StorageBufferSpec;
     /** Coesão > 0 no quadro corrente: grava o passe de normais (decidido em `framePrepare`). */
     private cohesionOn = false;
     /** Materiais já avisados de coesão/adesão grampeadas. */
@@ -125,40 +123,32 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
 
     constructor(ctx: FlowContext, options: SPHFlowOptions = {}) {
         super();
-        this.core = ctx.core;
+        const work = new SPHWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            bodies: slot.bodies(),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            normals: slot.pool(SPHNormalSchema.name),
+            boundary: slot.pool(SPHBoundarySchema.name),
+            work: slot.work(() => work),
+        };
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
         this.maxNeighbors = options.maxNeighbors ?? 128;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'sph_params',
+        this.params = new PerStepUniforms(this.work, {
+            id: 'sph_params',
             schema: SPHSimParamsSchema,
         });
         this.params.reserve(1);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'sph_colliders',
-        });
-        this.normals = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'sph_normal',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
-        });
-        this.boundary = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'sph_boundary',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
         const grid = gridOf(ParticlePhysics.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [sphResources.params, this.params.source()],
-            [sphResources.normal, this.normals],
-            [sphResources.normalRead, this.normals],
-            [sphResources.boundary, this.boundary],
-            [sphResources.boundaryRead, this.boundary],
-            ...this.neighborSources(),
-        ]);
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -186,7 +176,14 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         };
         this.transitions = {
             '*': {
-                slotsResolved: colliders,
+                // O trabalho já está na cena: a vizinhança (fonte privada) liga ao que a C2 alocou.
+                slotsResolved: {
+                    to: 'running',
+                    run: (_e, c) => {
+                        c.bind(this.neighborSources());
+                        this.refreshColliders(c);
+                    },
+                },
                 slotChanged: colliders,
                 // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro (framePrepare).
                 entitiesChanged: {
@@ -249,19 +246,15 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
         }
     }
 
-    /** Libera parâmetros, colliders e a busca de vizinhança. */
+    /** Libera os kernels da busca de vizinhança (os buffers são do `SPHWork` e saem da cena com ele). */
     override dispose(): void {
-        this.params.dispose();
-        this.core.destroy(this.normals);
-        this.core.destroy(this.boundary);
-        this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
 
     private createNeighborSearch(
         grid: ReturnType<ParticlePhysics['gridFor']>,
     ): NeighborSearchPipeline {
-        const ns = new NeighborSearchPipeline(this.core, {
+        const ns = new NeighborSearchPipeline(this.work, {
             // Uma geração por grade: a busca recriada (a física mudou) não pode repetir as specs da anterior — a C1
             // devolveria os bind groups antigos, ligados aos buffers destruídos.
             discriminator: `sph:gen${this.neighborGeneration++}`,
@@ -326,8 +319,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             bound.slots.bodies.live,
             this.iterations,
         );
-        if (this.params.reserve(this.iterations))
-            ctx.bind(new Map([[sphResources.params, this.params.source()]]));
+        // Uma região por iteração (a C2 realoca e religa o fornecedor do trabalho quando cresce).
+        this.params.reserve(this.iterations);
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];

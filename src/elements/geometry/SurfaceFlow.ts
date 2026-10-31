@@ -8,6 +8,9 @@ import type {
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { FlowWork, type WorkPart } from '../../scene/flows/FlowWork';
+import { wordBuffer } from '../gpu/compute/schemas';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../scene/flows/Flow';
@@ -26,6 +29,7 @@ import {
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import { bindPoints, type BindablePoint } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
@@ -86,21 +90,19 @@ export interface SurfaceSlots extends SlotMap {
     readonly cameras: PoolSlot<true>;
     /** Matrizes de mundo (malha adaptativa: a superfície na cena). */
     readonly worlds: PoolSlot<true>;
+    /** O espaço de trabalho do estágio: o substituto dos pools ausentes da malha adaptativa (spec 039). */
+    readonly work: WorkSlot<SurfaceWork>;
 }
 
-const slots: SurfaceSlots = {
-    surfaces: slot.entities({
-        all: [ParametricSurface],
-        owns: [[ParametricSurface, 'vertices']],
-    }),
-    functions: slot.entities({ all: [ParametricSurface, SurfaceFunction] }),
-    spaces: slot.entities({ all: [SpaceFunction] }),
-    time: slot.singleton(Time.schema, { optional: true }),
-    diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
-    camera: slot.singleton(Camera.schema, { optional: true }),
-    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
-    worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
-};
+/**
+ * Resource de trabalho do `SurfaceFlow` (spec 039): o substituto dos pools ausentes e o trabalho de cada superfície
+ * (parâmetros, retalhos, histograma) como uma parte por superfície, tirada quando ela sai. Na própria
+ * `ParametricSurface` esses descritores (todos escritos pela GPU ou pelo estágio) fariam a C2 tratá-la como dado da GPU
+ * e ignorar as mudanças de `data`.
+ */
+class SurfaceWork extends FlowWork {
+    static readonly schema = new StructSchema('SurfaceWork', {});
+}
 
 /** Passadas da malha adaptativa (entradas do `surface_adapt.wgsl`), na ordem. */
 const ADAPT_ENTRIES = ['level', 'budget', 'scan', 'emit'] as const;
@@ -115,6 +117,8 @@ type Ctx = TransitionContext<SurfaceSlots>;
 /** Estado de uma superfície: parâmetros, avaliação pendente e a malha adaptativa (o pipeline fica em `pipelines`). */
 interface SurfaceState {
     readonly id: EntityId;
+    /** O trabalho da superfície no `SurfaceWork` (parâmetros e, na malha adaptativa, os da passada e os rascunhos). */
+    readonly part: WorkPart;
     readonly params: UniformBufferSpec;
     /** Avaliar no próximo quadro. */
     stale: boolean;
@@ -140,16 +144,17 @@ interface SurfaceState {
  */
 export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
     readonly type = 'SurfaceFlow';
-    readonly slots = slots;
+    readonly slots: SurfaceSlots;
     /** Os registros de todas as formas das funções `surface` (spec 031, R8) e os vértices das superfícies. */
     override readonly listens = [surfacePoint, ParametricSurface.vertexStruct];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
+    /** O core só para consultas (as funcionalidades do adaptador). */
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, SurfaceState>();
-    private readonly dummyPool: StorageBufferSpec;
+    private readonly work: SurfaceWork;
     private readonly world: World;
     private readonly events: EventBus;
     private readonly warnedAdaptive = new Set<EntityId>();
@@ -166,12 +171,23 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         this.resources = ctx.resources;
         this.world = ctx.world;
         this.events = ctx.events;
-        this.dummyPool = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'surface_adapt_pool_dummy',
-            byteSize: 256,
-        });
+        const work = new SurfaceWork();
+        this.work = work;
+        work.use({ descriptors: () => [wordBuffer('surface_adapt_pool_dummy', 256)] });
+        this.slots = {
+            surfaces: slot.entities({
+                all: [ParametricSurface],
+                owns: [[ParametricSurface, 'vertices']],
+            }),
+            functions: slot.entities({ all: [ParametricSurface, SurfaceFunction] }),
+            spaces: slot.entities({ all: [SpaceFunction] }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            diffs: slot.pool(SurfaceDiffSchema.name, { optional: true }),
+            camera: slot.singleton(Camera.schema, { optional: true }),
+            cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+            worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
+            work: slot.work(() => work),
+        };
         const changed = {
             to: 'idle' as const,
             run: (): void => {
@@ -278,18 +294,47 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         st.stale = false;
     }
 
-    /** Libera os parâmetros, os rascunhos e os substitutos. */
+    /** Esquece os estados (os objetos de GPU são do `SurfaceWork`; a C2 os libera com ele). */
     override dispose(): void {
-        for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.core.destroy(this.dummyPool);
     }
 
-    private destroyState(st: SurfaceState): void {
-        this.core.destroy(st.params);
-        if (st.adapt !== undefined)
-            for (const b of [st.adapt.params, st.adapt.patches, st.adapt.hist])
-                this.core.destroy(b);
+    /**
+     * O trabalho de uma superfície: os parâmetros (`SurfaceParams`) e, na malha adaptativa, os da passada
+     * (`SurfaceAdaptParams`), os retalhos (um vec4 por retalho) e o histograma dos níveis — escritos pela GPU ou pelo
+     * estágio (`writeNow`).
+     */
+    private surfacePart(id: EntityId, a: AdaptiveConfig | undefined): WorkPart {
+        return {
+            descriptors: () => [
+                {
+                    id: `surface_params:${id}`,
+                    role: 'uniform',
+                    schema: SurfaceParamsSchema,
+                    upload: 'never',
+                },
+                ...(a === undefined
+                    ? []
+                    : [
+                          {
+                              id: `surface_adapt_params:${id}`,
+                              role: 'uniform' as const,
+                              schema: SurfaceAdaptParamsSchema,
+                              upload: 'never' as const,
+                          },
+                          wordBuffer(
+                              `surface_adapt_patches:${id}`,
+                              a.patches[0] * a.patches[1] * 16,
+                          ),
+                          wordBuffer(`surface_adapt_hist:${id}`, 64),
+                      ]),
+            ],
+        };
+    }
+
+    /** O substituto dos pools ausentes (descritor do `SurfaceWork`). */
+    private get dummyPool(): StorageBufferSpec {
+        return this.resources.bufferOf(this.work, 'surface_adapt_pool_dummy') as StorageBufferSpec;
     }
 
     /** Superfícies presentes: estado, bindings e pipeline (pela função, ou pela pronta). */
@@ -306,36 +351,26 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             if (vertices?.subkind !== 'vertex') continue;
             let st = this.states.get(id);
             if (st === undefined) {
+                // O trabalho da avaliação: uma parte do `SurfaceWork` (spec 039), alocada agora pela C2.
+                const owner = entry.get(ParametricSurface);
+                const a = owner.adaptive;
+                const part = this.surfacePart(id, a);
+                this.work.use(part);
+                const own = <T>(name: string): T =>
+                    this.resources.bufferOf(this.work, `${name}:${id}`) as T;
                 st = {
                     id,
-                    params: this.core.create<UniformBufferSpec>({
-                        kind: 'buffer',
-                        subkind: 'uniform',
-                        discriminator: `surface_params:${id}`,
-                        byteSize: SurfaceParamsSchema.stride,
-                    }),
+                    part,
+                    params: own<UniformBufferSpec>('surface_params'),
                     stale: true,
                     evaluate: false,
                     adapt: undefined,
                 };
-                const a = entry.get(ParametricSurface).adaptive;
                 if (a !== undefined) {
-                    const storage = (name: string, bytes: number): StorageBufferSpec =>
-                        this.core.create<StorageBufferSpec>({
-                            kind: 'buffer',
-                            subkind: 'storage',
-                            discriminator: `surface_adapt_${name}:${id}`,
-                            byteSize: bytes,
-                        });
                     st.adapt = {
-                        params: this.core.create<UniformBufferSpec>({
-                            kind: 'buffer',
-                            subkind: 'uniform',
-                            discriminator: `surface_adapt_params:${id}`,
-                            byteSize: SurfaceAdaptParamsSchema.stride,
-                        }),
-                        patches: storage('patches', a.patches[0] * a.patches[1] * 16),
-                        hist: storage('hist', 64),
+                        params: own<UniformBufferSpec>('surface_adapt_params'),
+                        patches: own<StorageBufferSpec>('surface_adapt_patches'),
+                        hist: own<StorageBufferSpec>('surface_adapt_hist'),
                         camera: undefined,
                     };
                 }
@@ -419,7 +454,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
-            this.destroyState(st);
+            this.work.drop(st.part);
             this.states.delete(id);
         }
         this.evalPipelines.retain(ctx, present);
@@ -523,8 +558,9 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     });
                 }
                 const [pu, pv] = a.patches;
-                this.core.write(
-                    st.adapt.params,
+                this.resources.writeNow(
+                    this.work,
+                    `surface_adapt_params:${st.id}`,
                     SurfaceAdaptParamsSchema.pack({
                         patches_u: pu,
                         patches_v: pv,
@@ -547,8 +583,9 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             const record =
                 fn === undefined ? undefined : this.resources.poolSlotOf(fn.record.name, st.id);
             const [u0, u1, v0, v1] = d.domain;
-            this.core.write(
-                st.params,
+            this.resources.writeNow(
+                this.work,
+                `surface_params:${st.id}`,
                 SurfaceParamsSchema.pack({
                     nu: d.resolution[0],
                     nv: d.resolution[1],

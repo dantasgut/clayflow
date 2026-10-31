@@ -69,7 +69,7 @@ export const prefixSum = defineSetNode({
     create: (c) => {
         const src = c.input('values', 'values');
         const dst = c.output('values', 'values');
-        const scan = new PrefixSum(c.core, {
+        const scan = new PrefixSum(c.work, {
             discriminator: `${c.id}:scan`,
             capacity: src.capacity,
         });
@@ -109,7 +109,7 @@ export const sort = defineSetNode({
     create: (c) => {
         const src = c.input('values', 'values');
         const dst = c.output('values', 'values');
-        const radix = new RadixSort(c.core, {
+        const radix = new RadixSort(c.work, {
             discriminator: `${c.id}:sort`,
             capacity: src.capacity,
         });
@@ -150,7 +150,7 @@ export const compact = defineSetNode({
         const src = c.input('values', 'values');
         const dst = c.output('values', 'values');
         const counter = k.storage('accepted', AtomicAllocCounterSchema.stride);
-        const compaction = new Compaction(c.core, {
+        const compaction = new Compaction(c.work, {
             discriminator: `${c.id}:compact`,
             predicate: setCompactPredicate,
             capacity: dst.capacity,
@@ -159,7 +159,7 @@ export const compact = defineSetNode({
             bindings: new Map([[R.u32In, src.buffer]]),
         });
         compaction.prepare(dst.buffer, counter, 1, c.counts);
-        const args = new CountToArgs(c.core, { discriminator: `${c.id}:args` });
+        const args = new CountToArgs(c.work, { discriminator: `${c.id}:args` });
         args.prepare(c.counts, 1);
         k.kernel('accepted', setAccepted, 'set_accepted_main', [
             [R.acceptedParams, k.params],
@@ -213,7 +213,7 @@ export const reduce = defineSetNode({
                 if (next === op) return;
                 kernel?.destroy();
                 op = next;
-                kernel = new Reduce(c.core, {
+                kernel = new Reduce(c.work, {
                     discriminator: `${c.id}:reduce_${op}`,
                     capacity: src.capacity,
                     op,

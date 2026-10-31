@@ -6,7 +6,9 @@ import type {
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
+import type { WorkPart } from '../../../scene/flows/FlowWork';
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import {
     createComputeKernel,
@@ -17,16 +19,27 @@ import { setDispatchOffset, SET_GROUP } from '../../../scene/graph/GraphFlow';
 import type { SetNodeContext } from '../../../scene/graph/SetNode';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
+import { GpuWordSchema, wordBuffer } from '../../gpu/compute/schemas';
 
 /**
  * O que uma instância de nó de conjunto possui na GPU (spec 031, R10): o uniform dos parâmetros (escrito pela CPU em
  * `update`), buffers próprios e os kernels, todos com o prefixo da instância e liberados juntos em `dispose`. Os
  * despachos sobre um conjunto vão pelo argumento indireto do registro `SetCount` dele (da CPU ou derivado na GPU por
  * `CountToArgs`), em grupos de `SET_GROUP`.
+ *
+ * Uniforms e buffers são descritores do Resource de trabalho do grafo (spec 039, `ctx.work`): cada pedido redescreve o
+ * trabalho e a C2 aloca na hora; os uniforms são de uma região, escritos na hora pela C2 (`writeRegions`); `dispose`
+ * solta os descritores e a C2 libera os buffers.
  */
-export class SetNodeKernels {
+export class SetNodeKernels implements WorkPart {
     private readonly kernels = new Map<string, ComputeKernel>();
-    private readonly buffers: AnyBufferSpec[] = [];
+    /** Descritores próprios, na ordem dos pedidos. */
+    private readonly declared: GPUDescriptor[] = [];
+    /** Id e schema de cada uniform próprio, pelo buffer alocado. */
+    private readonly uniforms = new Map<
+        UniformBufferSpec,
+        { readonly id: string; readonly schema: StructSchema }
+    >();
     /** Uniform dos parâmetros da instância. */
     readonly params: UniformBufferSpec;
 
@@ -34,7 +47,12 @@ export class SetNodeKernels {
         private readonly ctx: SetNodeContext,
         private readonly schema: StructSchema,
     ) {
+        ctx.work.work.use(this);
         this.params = this.uniform('params', schema);
+    }
+
+    descriptors(): readonly GPUDescriptor[] {
+        return this.declared;
     }
 
     /** Escreve os parâmetros (fora da gravação: `update`). */
@@ -44,43 +62,52 @@ export class SetNodeKernels {
 
     /** Buffer de storage próprio de `byteSize` bytes (mínimo 16). */
     storage(name: string, byteSize: number): StorageBufferSpec {
-        const b = this.ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `${this.ctx.id}:${name}`,
-            byteSize: Math.max(16, Math.ceil(byteSize / 4) * 4),
-        });
-        this.buffers.push(b);
-        return b;
+        return this.declare(wordBuffer(`${this.ctx.id}:${name}`, byteSize)) as StorageBufferSpec;
+    }
+
+    /**
+     * Buffer de storage próprio só de leitura com o conteúdo `data` (palavras de 32 bits), enviado pela C2 na alocação
+     * (ex.: uma tabela de senos e cossenos fixa na criação do nó).
+     */
+    constant(name: string, data: Float32Array | Uint32Array): StorageBufferSpec {
+        const id = `${this.ctx.id}:${name}`;
+        this.ctx.work.work.data[id] = data;
+        return this.declare({
+            id,
+            role: 'storage-ro',
+            schema: GpuWordSchema,
+            count: data.length,
+        }) as StorageBufferSpec;
     }
 
     /** Uniform próprio adicional com o layout de `schema` (ex.: o da contagem aceita), escrito com `writeTo`. */
     uniform(name: string, schema: StructSchema): UniformBufferSpec {
-        const b = this.ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `${this.ctx.id}:${name}`,
-            byteSize: Math.max(16, Math.ceil(schema.stride / 16) * 16),
-        });
-        this.buffers.push(b);
-        return b;
+        const id = `${this.ctx.id}:${name}`;
+        const buffer = this.declare({
+            id,
+            role: 'uniform',
+            schema,
+            regions: { count: 1 },
+        }) as UniformBufferSpec;
+        this.uniforms.set(buffer, { id, schema });
+        return buffer;
     }
 
     /** Escreve `data` com o layout de `schema` num uniform próprio (fora da gravação). */
     writeTo(buffer: UniformBufferSpec, schema: StructSchema, data: Record<string, unknown>): void {
-        this.ctx.core.write(buffer, schema.pack(data));
+        const own = this.uniforms.get(buffer);
+        if (own?.schema !== schema)
+            throw new Error(
+                `${this.ctx.id}: writeTo num uniform que não é desta instância (ou com outro schema).`,
+            );
+        this.ctx.work.resources.writeRegions(this.ctx.work.work, own.id, [data]);
     }
 
     /** Registros `SetCount` próprios (descritor `indirect`). */
     records(name: string, byteSize: number): IndirectBufferSpec {
-        const b = this.ctx.core.create<IndirectBufferSpec>({
-            kind: 'buffer',
-            subkind: 'indirect',
-            discriminator: `${this.ctx.id}:${name}`,
-            byteSize,
-        });
-        this.buffers.push(b);
-        return b;
+        return this.declare(
+            wordBuffer(`${this.ctx.id}:${name}`, byteSize, 'indirect'),
+        ) as IndirectBufferSpec;
     }
 
     /** Cria (ou troca) o kernel `name`: a entrada `entry` de `shader` com as fontes pela identidade do recurso. */
@@ -120,12 +147,24 @@ export class SetNodeKernels {
         this.run(frame, label, name, (pass) => pass.dispatch.workgroups(1));
     }
 
-    /** Libera kernels, uniform e buffers próprios. */
+    /** Libera os kernels e solta uniforms e buffers próprios (a C2 os libera com a redescrição do trabalho). */
     dispose(): void {
         for (const k of this.kernels.values()) destroyComputeKernel(this.ctx.core, k);
         this.kernels.clear();
-        for (const b of this.buffers) this.ctx.core.destroy(b);
-        this.buffers.length = 0;
+        for (const desc of this.declared) this.ctx.work.work.data[desc.id] = undefined;
+        this.declared.length = 0;
+        this.uniforms.clear();
+        this.ctx.work.work.refresh();
+    }
+
+    /** Declara um descritor no trabalho (a C2 aloca na hora) e devolve o buffer. */
+    private declare(desc: GPUDescriptor): Exclude<AnyBufferSpec, { subkind: 'staging' }> {
+        this.declared.push(desc);
+        this.ctx.work.work.refresh();
+        const buffer = this.ctx.work.resources.bufferOf(this.ctx.work.work, desc.id);
+        if (buffer === undefined || buffer.subkind === 'staging')
+            throw new Error(`${this.ctx.id}: o trabalho do grafo não está na cena.`);
+        return buffer;
     }
 
     private run(

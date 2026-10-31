@@ -1,11 +1,12 @@
 import type { EngineCore, Frame, RenderTarget } from '../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import type { BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
+import { FlowWork } from '../../scene/flows/FlowWork';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
-import type { WgslResource } from '../../scene/shaders/WgslResource';
+import { slot, type SlotMap, type TargetSlot, type WorkSlot } from '../../scene/flows/slots';
 import { UiTree } from '../ui/UiTree';
 import type { LoadedFont } from '../ui/font';
 import { UiFlattener } from '../ui/flatten/UiFlattener';
@@ -17,11 +18,14 @@ import { ui, uiResources } from './shaders';
 export interface UISlots extends SlotMap {
     /** O canvas do quadro (a UI carrega o conteúdo e desenha por cima). */
     readonly target: TargetSlot;
+    /** O espaço de trabalho da UI: tela, quads e sampler (spec 039). */
+    readonly work: WorkSlot<UIWork>;
 }
 
-const slots: UISlots = {
-    target: slot.target('canvas'),
-};
+/** Resource de trabalho do `UIFlow` (spec 039). */
+class UIWork extends FlowWork {
+    static readonly schema = new StructSchema('UIWork', {});
+}
 
 type Ctx = TransitionContext<UISlots>;
 
@@ -31,13 +35,13 @@ const PIPELINE = 'ui:quads';
  * UIFlow — desenha a árvore de UI (`UiTree`) por cima do canvas (carrega o conteúdo, `loadOp: 'load'`).
  *
  * Coordenação: a árvore é achatada em quads (`UiFlattener`/`UiTextLayout`) e enviada em `framePrepare`; o atlas da
- * fonte, quando muda, é religado na mesma transição. Os recursos (tela, quads, atlas, sampler) são privados
- * (`UiGpuPipeline`), ligados pelos recursos declarados (`uiResources`); o pipeline e o bind group são da C2.
+ * fonte, quando muda, é religado na mesma transição. Tela, quads e sampler são do Resource de trabalho (`UIWork`,
+ * spec 039) e o atlas é do `UiGpuPipeline`, ligados pelos recursos declarados (`uiResources`); o pipeline e o bind
+ * group são da C2.
  */
 export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     readonly type = 'UIFlow';
-    readonly slots = slots;
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
+    readonly slots: UISlots;
     /** Pipeline preparado para o formato atual do canvas (muda com a saída HDR, spec 011). */
     private pipelineId = '';
     private readonly prepared = new Set<string>();
@@ -52,8 +56,9 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
     constructor(ctx: FlowContext) {
         super();
         this.core = ctx.core;
-        this.gpu = new UiGpuPipeline(ctx.core);
-        this.bindings = this.gpu.sources();
+        const work = new UIWork();
+        this.slots = { target: slot.target('canvas'), work: slot.work(() => work) };
+        this.gpu = new UiGpuPipeline({ core: ctx.core, resources: ctx.resources, work });
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -62,7 +67,13 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
                         this.prepare(c);
                     },
                 },
-                slotsResolved: 'ignore',
+                // O trabalho já está na cena: tela, quads, atlas e sampler (fontes privadas) ligam ao que foi alocado.
+                slotsResolved: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        c.bind(this.gpu.sources());
+                    },
+                },
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
@@ -101,11 +112,6 @@ export class UIFlow extends RenderFlow<UISlots, 'idle'> {
             prepared.bindTo(pass.bind);
             pass.draw.vertices(count * 6);
         });
-    }
-
-    /** Libera os objetos de GPU da UI. */
-    override dispose(): void {
-        this.gpu.dispose();
     }
 
     /** Quads de UI desenhados por cima no canvas, no formato atual dele. */

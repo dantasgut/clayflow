@@ -119,7 +119,8 @@ export const softEnergyResources = Object.freeze({
         binding: { uniform: true },
         type: { schema: SoftEnergyParamsSchema },
         frequency: 'draw',
-        provider: 'private',
+        // Uma região por algoritmo do uniforme por região do Resource de trabalho (offset dinâmico, spec 039).
+        provider: { slot: 'work', descriptor: 'soft_energy_params' },
     }),
     ranges: wgslResource({
         name: 'soft_ranges',

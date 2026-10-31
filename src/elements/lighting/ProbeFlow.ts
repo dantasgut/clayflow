@@ -8,6 +8,9 @@ import type {
 import type { EventBus } from '../../scene/events/EventBus';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
@@ -16,6 +19,7 @@ import {
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
@@ -23,6 +27,7 @@ import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Time } from '../../scene/time/Time';
 import type { World } from '../../scene/world/World';
 import { RayScene } from '../raytrace/RayScene';
+import { wordBuffer } from '../gpu/compute/schemas';
 import { RayWave } from '../raytrace/RayWave';
 import { Camera } from '../scene/Camera';
 import { Light } from '../scene/Light';
@@ -66,17 +71,14 @@ export interface ProbeSlots extends SlotMap {
     readonly giScreenHistory: ChannelSlot<false>;
     /** As cáusticas (spec 034): com elas ativas, as sondas não leem o especular direto de vidro e metal liso. */
     readonly caustics: SingletonSlot<true>;
+    /** O espaço de trabalho das sondas: raios, gerações, radiância, visibilidade, a coleta de tela, a onda (spec 039). */
+    readonly work: WorkSlot<ProbeWork>;
 }
 
-const slots: ProbeSlots = {
-    gi: slot.singleton(GlobalIllumination.schema),
-    rays: slot.singleton(RayScene.schema),
-    camera: slot.singleton(Camera.schema, { optional: true }),
-    time: slot.singleton(Time.schema, { optional: true }),
-    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
-    ...giScreenHistorySlot,
-    caustics: slot.singleton(Caustics.schema, { optional: true }),
-};
+/** Resource de trabalho do `ProbeFlow` (spec 039). */
+class ProbeWork extends FlowWork {
+    static readonly schema = new StructSchema('ProbeWork', {});
+}
 
 type Ctx = TransitionContext<ProbeSlots>;
 
@@ -191,16 +193,16 @@ function frameRotation(n: number): number[][] {
  */
 export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     readonly type = 'ProbeFlow';
-    readonly slots = slots;
+    readonly slots: ProbeSlots;
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly world: World;
     private readonly events: EventBus;
     private readonly resources: ResourceDirectory;
-    private buffers: Buffers | undefined;
+    private sizes: Sizes | undefined;
     private atlases: readonly (TextureViewSpec | undefined)[] = [];
     private prepared = false;
     /** A onda dos acertos dos raios (o material fora do traçado): das sondas do mundo, depois das de tela. */
@@ -216,11 +218,23 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new ProbeWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            gi: slot.singleton(GlobalIllumination.schema),
+            rays: slot.singleton(RayScene.schema),
+            camera: slot.singleton(Camera.schema, { optional: true }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+            ...giScreenHistorySlot,
+            caustics: slot.singleton(Caustics.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
         this.world = ctx.world;
         this.events = ctx.events;
         this.resources = ctx.resources;
-        this.wave = new RayWave(ctx.core, 'gi');
+        work.use({ descriptors: () => this.bufferDescriptors() });
+        this.wave = new RayWave(this.work, 'gi');
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -293,10 +307,46 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.frame++;
     }
 
-    /** Libera os buffers privados. */
-    override dispose(): void {
-        this.releaseBuffers();
-        this.wave.destroy();
+    private get core(): EngineCore {
+        return this.work.core;
+    }
+
+    /** Os buffers das sondas no Resource de trabalho, pelos tamanhos atuais (spec 039). */
+    private bufferDescriptors(): readonly GPUDescriptor[] {
+        const sizes = this.sizes;
+        if (sizes === undefined) return [];
+        const texels = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
+        return [
+            wordBuffer('gi_probes:rays', sizes.updated * sizes.rays * sizes.bounces * 16),
+            wordBuffer('gi_probes:generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
+            wordBuffer('gi_probes:radiance', GI_MAX_PROBES * texels * 8),
+            wordBuffer(
+                'gi_probes:visibility',
+                GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
+            ),
+            // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração (o
+            // histórico, de 3 + gerações vec4f por sonda, é o canal temporal `GlobalIllumination.screenHistory`).
+            wordBuffer(
+                'gi_probes:screenWork',
+                sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
+            ),
+        ];
+    }
+
+    /** Os buffers que a C2 alocou para as sondas (ou `undefined` antes do primeiro dimensionamento). */
+    private get buffers(): Buffers | undefined {
+        const sizes = this.sizes;
+        if (sizes === undefined) return undefined;
+        const of = (name: string): StorageBufferSpec =>
+            this.resources.bufferOf(this.work.work, `gi_probes:${name}`) as StorageBufferSpec;
+        return {
+            sizes,
+            rays: of('rays'),
+            generations: of('generations'),
+            radiance: of('radiance'),
+            visibility: of('visibility'),
+            screenWork: of('screenWork'),
+        };
     }
 
     private prepare(c: Ctx): void {
@@ -374,33 +424,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.active = d.enabled;
     }
 
-    /** Buffers privados nos tamanhos dados (o histórico das sondas recomeça). */
+    /** Os buffers nos tamanhos dados: a C2 os realoca (o histórico das sondas recomeça). */
     private allocate(sizes: Sizes): void {
-        this.releaseBuffers();
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `gi_probes:${name}`,
-                byteSize: Math.max(16, bytes),
-            });
-        const texels = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
-        this.buffers = {
-            sizes,
-            rays: storage('rays', sizes.updated * sizes.rays * sizes.bounces * 16),
-            generations: storage('generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
-            radiance: storage('radiance', GI_MAX_PROBES * texels * 8),
-            visibility: storage(
-                'visibility',
-                GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
-            ),
-            // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração (o
-            // histórico, de 3 + gerações vec4f por sonda, é o canal temporal `GlobalIllumination.screenHistory`).
-            screenWork: storage(
-                'screenWork',
-                sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
-            ),
-        };
+        this.sizes = sizes;
+        this.work.work.refresh();
     }
 
     /** Liga os buffers privados e as saídas dos atlas. */
@@ -530,13 +557,5 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 ? undefined
                 : this.world.resourcesOf(id).find((r): r is Transform => r instanceof Transform);
         return transform?.data.position ?? [0, 0, 0, 1];
-    }
-
-    private releaseBuffers(): void {
-        const b = this.buffers;
-        if (b === undefined) return;
-        for (const buf of [b.rays, b.generations, b.radiance, b.visibility, b.screenWork])
-            this.core.destroy(buf);
-        this.buffers = undefined;
     }
 }

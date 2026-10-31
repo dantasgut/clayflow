@@ -9,9 +9,13 @@ import type {
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type SingletonSlot, type SlotMap } from '../../../scene/flows/slots';
+import { slot, type SingletonSlot, type SlotMap, type WorkSlot } from '../../../scene/flows/slots';
+import { wordBuffer } from '../../gpu/compute/schemas';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
@@ -45,13 +49,20 @@ export interface CausticsSlots extends SlotMap {
     readonly rays: SingletonSlot<false>;
     /** O tempo simulado (as funções `material` nos acertos). */
     readonly time: SingletonSlot<true>;
+    /** O espaço de trabalho do transporte: alvos, instâncias capazes, fótons, fila, a onda (spec 039). */
+    readonly work: WorkSlot<CausticsWork>;
 }
 
-const slots: CausticsSlots = {
-    caustics: slot.singleton(Caustics.schema),
-    rays: slot.singleton(RayScene.schema),
-    time: slot.singleton(Time.schema, { optional: true }),
-};
+/** Resource de trabalho do `CausticsFlow` (spec 039). */
+class CausticsWork extends FlowWork {
+    static readonly schema = new StructSchema('CausticsWork', {});
+}
+
+/** Tamanho dos fótons: os da fila e o bloco da onda. */
+interface PhotonSize {
+    readonly slots: number;
+    readonly chunk: number;
+}
 
 type Ctx = TransitionContext<CausticsSlots>;
 type Compute = ReturnType<BoundFlow['compute']>;
@@ -120,30 +131,37 @@ interface PhotonBuffers {
  */
 export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     readonly type = 'CausticsFlow';
-    readonly slots = slots;
+    readonly slots: CausticsSlots;
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly resources: ResourceDirectory;
-    private targets: StorageBufferSpec | undefined;
-    /** Uma palavra por instância da capacidade da estrutura de raios: faz cáustica? */
-    private capable: StorageBufferSpec | undefined;
+    private targetsBound = false;
+    /** Instâncias da capacidade da estrutura de raios (uma palavra cada: faz cáustica?). */
     private capableCount = 0;
     /** A onda dos acertos: das instâncias, depois dos fótons (bloco a bloco). */
     private readonly wave: RayWave;
     private waveRevision = -1;
-    private buffers: PhotonBuffers | undefined;
+    private photonSize: PhotonSize | undefined;
     private prepared = false;
     private frame = 0;
     private photons = 0;
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new CausticsWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            caustics: slot.singleton(Caustics.schema),
+            rays: slot.singleton(RayScene.schema),
+            time: slot.singleton(Time.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
         this.resources = ctx.resources;
-        this.wave = new RayWave(ctx.core, 'caustics');
+        work.use({ descriptors: () => this.ownDescriptors() });
+        this.wave = new RayWave(this.work, 'caustics');
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -221,14 +239,45 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         this.frame++;
     }
 
-    override dispose(): void {
-        if (this.targets !== undefined) this.core.destroy(this.targets);
-        this.targets = undefined;
-        if (this.capable !== undefined) this.core.destroy(this.capable);
-        this.capable = undefined;
-        this.capableCount = 0;
-        this.releasePhotons();
-        this.wave.destroy();
+    private get core(): EngineCore {
+        return this.work.core;
+    }
+
+    /** Os alvos, as instâncias capazes e os fótons no Resource de trabalho, pelos tamanhos atuais (spec 039). */
+    private ownDescriptors(): readonly GPUDescriptor[] {
+        const out: GPUDescriptor[] = [wordBuffer('caustics_targets', CAUSTICS_TARGET_WORDS * 4)];
+        if (this.capableCount > 0)
+            out.push(wordBuffer('caustics_instance_capable', this.capableCount * 4));
+        const n = this.photonSize;
+        if (n !== undefined)
+            out.push(
+                {
+                    id: 'caustics_photons',
+                    role: 'storage-rw',
+                    schema: CausticsPhotonSchema,
+                    upload: 'never',
+                    count: n.slots,
+                },
+                wordBuffer('caustics_queue', (CAUSTICS_QUEUE_HEADER + 2 * n.slots) * 4),
+                wordBuffer('caustics_args', 16, 'indirect'),
+            );
+        return out;
+    }
+
+    private own<B>(id: string): B {
+        return this.resources.bufferOf(this.work.work, id) as B;
+    }
+
+    /** Os fótons que a C2 alocou (ou `undefined` antes do primeiro dimensionamento). */
+    private get buffers(): PhotonBuffers | undefined {
+        const n = this.photonSize;
+        if (n === undefined) return undefined;
+        return {
+            ...n,
+            photons: this.own('caustics_photons'),
+            queue: this.own('caustics_queue'),
+            args: this.own('caustics_args'),
+        };
     }
 
     /** O começo de uma rodada para a capacidade de bloco de `b`. */
@@ -245,14 +294,13 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         const caustics = c.bound.slots.caustics.resource as Caustics;
         // As luzes nos acertos: o pool existe mesmo sem nenhuma luz na cena.
         this.resources.ensurePool(Light.schema);
-        if (this.targets === undefined) {
-            this.targets = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: 'caustics_targets',
-                byteSize: CAUSTICS_TARGET_WORDS * 4,
-            });
-            c.bind(new Map<WgslResource, BindingSource>([[R.targets, this.targets]]));
+        if (!this.targetsBound) {
+            this.targetsBound = true;
+            c.bind(
+                new Map<WgslResource, BindingSource>([
+                    [R.targets, this.own<StorageBufferSpec>('caustics_targets')],
+                ]),
+            );
         }
         this.photons = caustics.enabled ? caustics.photons : 0;
         const scene = c.bound.slots.rays.resource as RayScene;
@@ -282,28 +330,26 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     /** Uma palavra por instância na capacidade da estrutura de raios (refeita quando ela cresce). */
     private syncCapable(c: Ctx, scene: RayScene): void {
         const count = Math.max(1, scene.data.instances);
-        if (this.capable !== undefined && count <= this.capableCount) return;
-        if (this.capable !== undefined) this.core.destroy(this.capable);
-        this.capable = this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'caustics_instance_capable',
-            byteSize: count * 4,
-        });
+        if (count <= this.capableCount) return;
         this.capableCount = count;
-        c.bind(new Map<WgslResource, BindingSource>([[R.instanceCapable, this.capable]]));
+        this.work.work.refresh();
+        c.bind(
+            new Map<WgslResource, BindingSource>([
+                [R.instanceCapable, this.own<StorageBufferSpec>('caustics_instance_capable')],
+            ]),
+        );
     }
 
     /**
-     * Os fótons, a fila e o despacho do bloco para os fótons do quadro (refeitos quando crescem): o bloco é a capacidade
+     * Os fótons, a fila e o despacho do bloco para os fótons do quadro — refeitos quando mudam, nos dois sentidos (spec
+     * 039: o custo segue os fótons pedidos, sem estado preso a um valor anterior): o bloco é a capacidade
      * da onda para os fótons — o menor entre os da fila, `CAUSTICS_WAVE_CHUNK` e o que uma ligação de storage do
      * dispositivo comporta —, e os kernels do começo da rodada e do bloco seguinte levam o tamanho dele.
      */
     private syncPhotons(c: Ctx): void {
         const slotCount = Math.max(1, this.photons) * CAUSTICS_PHOTON_SLOTS;
-        if (this.buffers !== undefined && this.buffers.slots >= slotCount) return;
-        const previous = this.buffers;
-        this.releasePhotons();
+        if (this.photonSize?.slots === slotCount) return;
+        const previous = this.photonSize;
         const limits = this.core.capabilities().limits;
         const binding =
             limits.maxStorageBufferBindingSize ?? CAUSTICS_WAVE_CHUNK * RayWaveEntrySchema.stride;
@@ -315,26 +361,10 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
                 Math.floor(binding / RayWaveEntrySchema.stride),
             ),
         );
-        const storage = (name: string, byteSize: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `caustics_${name}:${slotCount}`,
-                byteSize,
-            });
-        const b: PhotonBuffers = {
-            slots: slotCount,
-            chunk,
-            photons: storage('photons', slotCount * CausticsPhotonSchema.stride),
-            queue: storage('queue', (CAUSTICS_QUEUE_HEADER + 2 * slotCount) * 4),
-            args: this.core.create<IndirectBufferSpec>({
-                kind: 'buffer',
-                subkind: 'indirect',
-                discriminator: `caustics_args:${slotCount}`,
-                byteSize: 16,
-            }),
-        };
-        this.buffers = b;
+        // A C2 realoca os fótons no tamanho novo (o Resource de trabalho se redescreve).
+        this.photonSize = { slots: slotCount, chunk };
+        this.work.work.refresh();
+        const b = this.buffers!;
         c.bind(
             new Map<WgslResource, BindingSource>([
                 [R.photons, b.photons],
@@ -345,8 +375,8 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         );
         if (previous?.chunk !== chunk) {
             if (previous !== undefined) {
-                c.release(this.roundId(previous));
-                c.release(this.chunkId(previous));
+                c.release(`caustics_round:${previous.chunk}`);
+                c.release(`caustics_chunk:${previous.chunk}`);
             }
             const constants = {
                 CAUSTICS_WAVE: chunk,
@@ -369,12 +399,5 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
         if (w.bindings !== undefined) c.bind(w.bindings);
         for (const id of w.released) c.release(id);
         for (const p of w.pipelines) c.prepare(p);
-    }
-
-    private releasePhotons(): void {
-        const b = this.buffers;
-        if (b === undefined) return;
-        for (const s of [b.photons, b.queue, b.args]) this.core.destroy(s);
-        this.buffers = undefined;
     }
 }

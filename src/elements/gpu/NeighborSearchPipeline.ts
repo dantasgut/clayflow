@@ -5,11 +5,12 @@ import type { PoolBufferSpec } from '../../scene/contracts/PoolDirectory';
 import type { BoundPool } from '../../scene/flows/slots';
 import type {
     ComputePass,
-    EngineCore,
     Frame,
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../scene/flows/FlowWork';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -24,6 +25,7 @@ import {
 } from './shaders/neighborSearch';
 import { NsSimParamsSchema } from './schemas';
 import { PrefixSum } from './compute/PrefixSum';
+import { wordBuffer } from './compute/schemas';
 
 /** Teto de vizinhos por partícula (tamanho da região de cada partícula na lista de vizinhos). */
 const MAX_NEIGHBORS = 128;
@@ -48,7 +50,7 @@ export interface NeighborSearchOptions {
      * O kernel `assign_count` lê o particle.position desde esse offset.
      */
     readonly particleStrideF32: number;
-    /** Discriminador único para isolar buffers entre múltiplas instâncias. */
+    /** Prefixo único dos ids dos descritores no Resource de trabalho (várias instâncias no mesmo trabalho). */
     readonly discriminator: string;
     /**
      * A busca roda e grava na ordem por célula (`neighborOrder`): a lista e a contagem pelo posto `t` da partícula
@@ -78,7 +80,12 @@ export const NEIGHBOR_SEARCH_MAX_PARTICLES = 131072;
  *
  * Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
  */
-export class NeighborSearchPipeline {
+/**
+ * Busca de vizinhos por grade uniforme (contagem por célula, soma de prefixos, espalhamento, ordem por célula, busca).
+ * O espaço de trabalho — a grade, as listas por partícula, os parâmetros — é descritor do Resource de trabalho do Flow
+ * dono (spec 039): a C2 aloca e libera; a instância só liga os kernels ao que a C2 alocou.
+ */
+export class NeighborSearchPipeline implements WorkPart {
     /**
      * Confere que o pool cabe no teto da busca (`NEIGHBOR_SEARCH_MAX_PARTICLES`).
      * @throws RangeError nomeando o estágio, a entidade do corpo que passou do teto, a contagem e o teto.
@@ -101,19 +108,8 @@ export class NeighborSearchPipeline {
     private readonly particleStrideF32: number;
     private readonly cellCount: number;
 
-    private paramsBuffer: UniformBufferSpec | null = null;
-    private cellCountBuffer: StorageBufferSpec | null = null;
-    private cellStartBuffer: StorageBufferSpec | null = null;
-    private cellCursorBuffer: StorageBufferSpec | null = null;
-    private cellIdsBuffer: StorageBufferSpec | null = null;
     /** Soma de prefixos das contagens por célula. */
-    private scan: PrefixSum | null = null;
-    private sortedParticlesBuffer: StorageBufferSpec | null = null;
-    /** Posições na ordem de `sortedParticles` (vec4 por partícula), lidas em sequência pela busca. */
-    private sortedPositionsBuffer: StorageBufferSpec | null = null;
-    private neighborListBuffer: StorageBufferSpec | null = null;
-    private neighborCountBuffer: StorageBufferSpec | null = null;
-    private orderBuffer: StorageBufferSpec | null = null;
+    private readonly scan: PrefixSum;
     private readonly byRank: boolean;
 
     private assignKernel: ComputeKernel | null = null;
@@ -127,7 +123,7 @@ export class NeighborSearchPipeline {
     private currentLiveBuffer: StorageBufferSpec | null = null;
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: NeighborSearchOptions,
     ) {
         if (!(options.maxNeighbors >= 1 && options.maxNeighbors <= MAX_NEIGHBORS)) {
@@ -145,6 +141,77 @@ export class NeighborSearchPipeline {
         // A grade e a célula extra das partículas fora dela (na ordem por célula, nunca vizinhas de ninguém).
         this.cellCount = this.gridDim[0] * this.gridDim[1] * this.gridDim[2] + 1;
         this.byRank = options.byRank === true;
+        this.scan = new PrefixSum(ctx, {
+            discriminator: `ns_scan:${this.disc}`,
+            capacity: this.cellCount,
+        });
+        ctx.work.use(this);
+    }
+
+    descriptors(): readonly GPUDescriptor[] {
+        const cells = this.cellCount * 4;
+        const perParticle = this.maxParticles * 4;
+        return [
+            { id: this.id('params'), role: 'uniform', schema: NsSimParamsSchema, upload: 'never' },
+            wordBuffer(this.id('cell_count'), cells),
+            wordBuffer(this.id('cell_start'), cells),
+            wordBuffer(this.id('cell_cursor'), cells),
+            wordBuffer(this.id('cell_ids'), perParticle),
+            wordBuffer(this.id('sorted'), perParticle),
+            wordBuffer(this.id('sorted_pos'), this.maxParticles * 16),
+            wordBuffer(this.id('nlist'), perParticle * this.maxNeighbors),
+            wordBuffer(this.id('ncount'), perParticle),
+            wordBuffer(this.id('order'), perParticle),
+        ];
+    }
+
+    private id(name: string): string {
+        return `ns:${this.disc}:${name}`;
+    }
+
+    /** O buffer que a C2 alocou para o descritor `name` (ou `null` antes do trabalho entrar na cena). */
+    private buffer(name: string): StorageBufferSpec | null {
+        return (
+            (this.ctx.resources.bufferOf(this.ctx.work, this.id(name)) as
+                | StorageBufferSpec
+                | undefined) ?? null
+        );
+    }
+
+    private get core() {
+        return this.ctx.core;
+    }
+
+    private get paramsBuffer(): UniformBufferSpec | null {
+        return this.buffer('params') as UniformBufferSpec | null;
+    }
+    private get cellCountBuffer(): StorageBufferSpec | null {
+        return this.buffer('cell_count');
+    }
+    private get cellStartBuffer(): StorageBufferSpec | null {
+        return this.buffer('cell_start');
+    }
+    private get cellCursorBuffer(): StorageBufferSpec | null {
+        return this.buffer('cell_cursor');
+    }
+    private get cellIdsBuffer(): StorageBufferSpec | null {
+        return this.buffer('cell_ids');
+    }
+    private get sortedParticlesBuffer(): StorageBufferSpec | null {
+        return this.buffer('sorted');
+    }
+    /** Posições na ordem de `sortedParticles` (vec4 por partícula), lidas em sequência pela busca. */
+    private get sortedPositionsBuffer(): StorageBufferSpec | null {
+        return this.buffer('sorted_pos');
+    }
+    private get neighborListBuffer(): StorageBufferSpec | null {
+        return this.buffer('nlist');
+    }
+    private get neighborCountBuffer(): StorageBufferSpec | null {
+        return this.buffer('ncount');
+    }
+    private get orderBuffer(): StorageBufferSpec | null {
+        return this.buffer('order');
     }
 
     /** Libera os kernels que ligam o buffer de partículas (assign e find). */
@@ -158,126 +225,20 @@ export class NeighborSearchPipeline {
     }
 
     /**
-     * Aloca os buffers da busca (grade, contagens, lista de vizinhos). Idempotente. Os Flows chamam antes de montar
-     * os próprios kernels, que ligam `neighborList`/`neighborCount`.
+     * Compatibilidade da sequência dos Flows: o espaço de trabalho já é declarado na construção e alocado pela C2 com o
+     * Resource de trabalho (spec 039). Os Flows montam os próprios kernels depois, ligando `neighborList`/`neighborCount`.
      */
-    allocate(): void {
-        if (this.paramsBuffer === null) {
-            this.paramsBuffer = this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: `ns_params:${this.disc}`,
-                byteSize: NsSimParamsSchema.stride,
-            });
-        }
-        if (this.cellCountBuffer === null) {
-            this.cellCountBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_cell_count:${this.disc}`,
-                byteSize: this.cellCount * 4,
-            });
-        }
-        if (this.cellStartBuffer === null) {
-            this.cellStartBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_cell_start:${this.disc}`,
-                byteSize: this.cellCount * 4,
-            });
-        }
-        if (this.cellCursorBuffer === null) {
-            this.cellCursorBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_cell_cursor:${this.disc}`,
-                byteSize: this.cellCount * 4,
-            });
-        }
-        if (this.cellIdsBuffer === null) {
-            this.cellIdsBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_cell_ids:${this.disc}`,
-                byteSize: this.maxParticles * 4,
-            });
-        }
-        this.scan ??= new PrefixSum(this.core, {
-            discriminator: `ns_scan:${this.disc}`,
-            capacity: this.cellCount,
-        });
-        if (this.sortedParticlesBuffer === null) {
-            this.sortedParticlesBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_sorted:${this.disc}`,
-                byteSize: this.maxParticles * 4,
-            });
-        }
-        if (this.sortedPositionsBuffer === null) {
-            this.sortedPositionsBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_sorted_pos:${this.disc}`,
-                byteSize: this.maxParticles * 16,
-            });
-        }
-        if (this.neighborListBuffer === null) {
-            this.neighborListBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_nlist:${this.disc}`,
-                byteSize: this.maxParticles * this.maxNeighbors * 4,
-            });
-        }
-        if (this.neighborCountBuffer === null) {
-            this.neighborCountBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_ncount:${this.disc}`,
-                byteSize: this.maxParticles * 4,
-            });
-        }
-        if (this.orderBuffer === null) {
-            this.orderBuffer = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `ns_order:${this.disc}`,
-                byteSize: this.maxParticles * 4,
-            });
-        }
-    }
+    allocate(): void {}
 
-    /** Libera kernels, buffers e uniforms. A instância pode ser reutilizada (realoca no próximo uso). */
+    /** Libera os kernels e tira os descritores da busca do trabalho (a C2 libera os buffers). */
     dispose(): void {
         this.releaseParticleKernels();
         if (this.scatterKernel !== null) destroyComputeKernel(this.core, this.scatterKernel);
         this.scatterKernel = null;
-        this.scan?.destroy();
-        this.scan = null;
-        const buffers = [
-            this.paramsBuffer,
-            this.cellCountBuffer,
-            this.cellStartBuffer,
-            this.cellCursorBuffer,
-            this.cellIdsBuffer,
-            this.sortedParticlesBuffer,
-            this.sortedPositionsBuffer,
-            this.orderBuffer,
-            this.neighborListBuffer,
-            this.neighborCountBuffer,
-        ];
-        for (const b of buffers) if (b !== null) this.core.destroy(b);
-        this.paramsBuffer = null;
-        this.cellCountBuffer = null;
-        this.cellStartBuffer = null;
-        this.cellCursorBuffer = null;
-        this.cellIdsBuffer = null;
-        this.sortedParticlesBuffer = null;
-        this.sortedPositionsBuffer = null;
-        this.orderBuffer = null;
-        this.neighborListBuffer = null;
-        this.neighborCountBuffer = null;
+        this.scan.destroy();
+        // Os descritores da busca saem do trabalho (uma busca recriada com outra grade não deixa os antigos).
+        this.ctx.work.drop(this.scan);
+        this.ctx.work.drop(this);
         this.currentParticlesBuffer = null;
         this.currentLiveBuffer = null;
         this.uploadedParticleCount = -1;
@@ -293,8 +254,7 @@ export class NeighborSearchPipeline {
         liveBuffer: StorageBufferSpec,
         rebuildsPerFrame = 1,
     ): void {
-        this.allocate();
-        this.scan!.prepare(this.cellStartBuffer!, rebuildsPerFrame);
+        this.scan.prepare(this.cellStartBuffer!, rebuildsPerFrame);
         if (
             this.currentParticlesBuffer !== particlesBuffer
             || this.currentLiveBuffer !== liveBuffer
@@ -368,8 +328,9 @@ export class NeighborSearchPipeline {
     private uploadParams(particleCount: number): void {
         if (this.paramsBuffer === null || this.uploadedParticleCount === particleCount) return;
         this.uploadedParticleCount = particleCount;
-        this.core.write(
-            this.paramsBuffer,
+        this.ctx.resources.writeNow(
+            this.ctx.work,
+            this.id('params'),
             NsSimParamsSchema.pack({
                 origin: this.origin,
                 cell_size: this.cellSize,
@@ -456,13 +417,7 @@ export class NeighborSearchPipeline {
         const scatter = this.scatterKernel;
         const sortCells = this.sortCellsKernel;
         const find = this.findKernel;
-        if (
-            assign === null
-            || scan === null
-            || scatter === null
-            || sortCells === null
-            || find === null
-        ) {
+        if (assign === null || scatter === null || sortCells === null || find === null) {
             throw new Error(
                 `NeighborSearchPipeline(${this.disc}): prepare(partículas) antes de gravar.`,
             );

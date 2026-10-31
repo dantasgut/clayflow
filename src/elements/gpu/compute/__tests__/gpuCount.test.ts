@@ -6,10 +6,7 @@ import { RadixSort } from '../RadixSort';
 import { Reduce, reduceLevelCounts } from '../Reduce';
 import { wgslModule } from '../../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../../scene/shaders/WgslResource';
-import {
-    fakeResourceCore,
-    type WriteCall,
-} from '../../../../scene/__tests__/helpers/fakeResourceCore';
+import { workHarness } from '../../__tests__/helpers/workHarness';
 import { recordingFrame } from '../../../physics/__tests__/helpers/recordingFrame';
 import { SET_COUNT_DISPATCH_OFFSET, SetCountSchema } from '../../../../scene/graph/SetCountSchema';
 import type {
@@ -68,11 +65,15 @@ const bindGroupsWith = (core: EngineCore, buffer: unknown): string[] =>
         .filter((s) => s.kind === 'bindgroup' && s.bindings!.some((b) => b.buffer === buffer))
         .map(disc);
 
-/** u32 das escritas nas regiões de uniform cujo buffer tem `prefix`. */
-const uniformWrites = (writes: readonly WriteCall[], prefix: string, fields: number): number[][] =>
-    writes
-        .filter((w) => disc(w.spec).startsWith(`${prefix}:frame_uniforms:`))
-        .map((w) => [...new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, fields)]);
+/** u32 das escritas (pela C2) no uniforme por região `id` do trabalho, na ordem. */
+const uniformWrites = (core: EngineCore, id: string, fields: number): number[][] =>
+    (core.write as unknown as { mock: { calls: [unknown, ArrayBufferView][] } }).mock.calls
+        .filter(
+            ([spec]) =>
+                disc(spec).startsWith(`${id}:`)
+                && (spec as { subkind?: string }).subkind === 'uniform',
+        )
+        .map(([, bytes]) => [...new Uint32Array(bytes.buffer, bytes.byteOffset, fields)]);
 
 const dispatches = (rec: ReturnType<typeof recordingFrame>) =>
     rec.passes.map((p) => [p.label, p.dispatches[0]]);
@@ -95,8 +96,8 @@ describe('CountToArgs', () => {
     const counts = setCounts('sc');
 
     it('prepare cria um kernel por buffer de registros; gravar escreve o uniform e despacha um grupo', () => {
-        const { core, writes } = fakeResourceCore();
-        const c2a = new CountToArgs(core, { discriminator: 'c2a' });
+        const { core, ctx } = workHarness();
+        const c2a = new CountToArgs(ctx, { discriminator: 'c2a' });
         c2a.prepare(counts);
         c2a.prepare(counts);
         const made = [...pipelines(core).keys()];
@@ -112,12 +113,12 @@ describe('CountToArgs', () => {
         c2a.record(rec.frame, { counts, index: 3, workgroupSize: 256, perElement: 6 });
         expect(dispatches(rec)).toEqual([['CountToArgs', [1]]]);
         // index, group_size, per_element, instances, instanced, max_x
-        expect(uniformWrites(writes, 'c2a:count_to_args', 6)).toEqual([[3, 256, 6, 1, 0, 65_535]]);
+        expect(uniformWrites(core, 'c2a:count_to_args', 6)).toEqual([[3, 256, 6, 1, 0, 65_535]]);
     });
 
     it('desenho instanciado e sem desenho (perElement padrão 0)', () => {
-        const { core, writes } = fakeResourceCore();
-        const c2a = new CountToArgs(core, { discriminator: 'c2a' });
+        const { core, ctx } = workHarness();
+        const c2a = new CountToArgs(ctx, { discriminator: 'c2a' });
         c2a.prepare(counts, 2);
         const rec = recordingFrame();
         c2a.record(rec.frame, {
@@ -128,15 +129,15 @@ describe('CountToArgs', () => {
             instanced: true,
         });
         c2a.record(rec.frame, { counts, index: 1, workgroupSize: 128 });
-        expect(uniformWrites(writes, 'c2a:count_to_args', 5)).toEqual([
+        expect(uniformWrites(core, 'c2a:count_to_args', 5)).toEqual([
             [0, 64, 36, 1, 1],
             [1, 128, 0, 1, 0],
         ]);
     });
 
     it('o kernel converte contagem em despacho (x/y) e desenho no próprio registro', () => {
-        const { core } = fakeResourceCore();
-        const c2a = new CountToArgs(core, { discriminator: 'c2a' });
+        const { core, ctx } = workHarness();
+        const c2a = new CountToArgs(ctx, { discriminator: 'c2a' });
         c2a.prepare(counts);
         const source = pipelines(core).get('c2a:count_to_args:0_pipeline')!.shader!.source;
         expect(source).toContain('let n = set_counts[p.index].count;');
@@ -145,8 +146,8 @@ describe('CountToArgs', () => {
     });
 
     it('erros: gravar sem prepare, argumentos inválidos, registro fora do buffer', () => {
-        const { core } = fakeResourceCore();
-        const c2a = new CountToArgs(core, { discriminator: 'c2a' });
+        const { ctx } = workHarness();
+        const c2a = new CountToArgs(ctx, { discriminator: 'c2a' });
         const rec = recordingFrame();
         expect(() => {
             c2a.record(rec.frame, { counts, index: 0, workgroupSize: 256 });
@@ -187,9 +188,9 @@ describe('PrefixSum — contagem da GPU', () => {
     const gpu = (index: number): GpuCount => ({ counts, index });
 
     function setup() {
-        const { core, writes } = fakeResourceCore();
-        const scan = new PrefixSum(core, { discriminator: 'ps', capacity: 70_000 });
-        return { core, writes, scan };
+        const { core, ctx } = workHarness();
+        const scan = new PrefixSum(ctx, { discriminator: 'ps', capacity: 70_000 });
+        return { core, scan };
     }
 
     it('contagem da CPU: os mesmos despachos e shaders de antes, sem o registro', () => {
@@ -226,7 +227,7 @@ describe('PrefixSum — contagem da GPU', () => {
     });
 
     it('todos os níveis da capacidade: nível 0 indireto, os de cima pela capacidade; uniforms com profundidade e índice', () => {
-        const { scan, writes } = setup();
+        const { scan, core } = setup();
         const a = storage('a');
         scan.prepare(a, 1, counts);
         const rec = recordingFrame();
@@ -240,7 +241,7 @@ describe('PrefixSum — contagem da GPU', () => {
         ]);
         expect(rec.copies).toBe(0);
         // count (capacidade do nível, não lida), inclusive, depth, count_index
-        expect(uniformWrites(writes, 'ps:scan', 4)).toEqual([
+        expect(uniformWrites(core, 'ps:scan', 4)).toEqual([
             [70_000, 1, 0, 2],
             [274, 0, 1, 2],
             [2, 0, 2, 2],
@@ -285,10 +286,10 @@ describe('RadixSort — contagem da GPU', () => {
     const keys = storage('k');
 
     function setup() {
-        const { core, writes } = fakeResourceCore();
-        const sort = new RadixSort(core, { discriminator: 'rs', capacity: 1000 });
+        const { core, ctx } = workHarness();
+        const sort = new RadixSort(ctx, { discriminator: 'rs', capacity: 1000 });
         sort.prepare(keys, undefined, 1, counts);
-        return { core, writes, sort };
+        return { core, sort };
     }
 
     it('contagem da CPU: os mesmos despachos de antes', () => {
@@ -311,7 +312,7 @@ describe('RadixSort — contagem da GPU', () => {
     });
 
     it('variante da GPU: histograma pela capacidade, espalhamento indireto, grupos da capacidade', () => {
-        const { core, writes, sort } = setup();
+        const { core, sort } = setup();
         const rec = recordingFrame();
         sort.record(rec.frame, { keys, count: { counts, index: 1 }, bits: 8 });
         const pass = [
@@ -324,7 +325,7 @@ describe('RadixSort — contagem da GPU', () => {
         expect(dispatches(rec)).toEqual([...pass, ...pass]);
         expect(rec.copies).toBe(0);
         // count (não lido), shift, groups (da capacidade), count_index
-        expect(uniformWrites(writes, 'rs:radix', 4)).toEqual([
+        expect(uniformWrites(core, 'rs:radix', 4)).toEqual([
             [1000, 0, 4, 1],
             [1000, 4, 4, 1],
         ]);
@@ -348,8 +349,8 @@ describe('RadixSort — contagem da GPU', () => {
     });
 
     it('sem prepare com counts → erro', () => {
-        const { core } = fakeResourceCore();
-        const sort = new RadixSort(core, { discriminator: 'rs', capacity: 1000 });
+        const { ctx } = workHarness();
+        const sort = new RadixSort(ctx, { discriminator: 'rs', capacity: 1000 });
         sort.prepare(keys);
         expect(() => {
             sort.record(recordingFrame().frame, { keys, count: { counts, index: 0 } });
@@ -377,8 +378,8 @@ fn compact_value(i: u32) -> u32 { return i; }`,
     });
 
     function setup(stable: boolean) {
-        const { core, writes } = fakeResourceCore();
-        const compaction = new Compaction(core, {
+        const { core, ctx } = workHarness();
+        const compaction = new Compaction(ctx, {
             discriminator: 'cp',
             predicate,
             capacity: 100,
@@ -386,7 +387,7 @@ fn compact_value(i: u32) -> u32 { return i; }`,
             ...(stable ? { stable: true, inputCapacity: 70_000 } : {}),
         });
         compaction.prepare(out, ctr, 1, counts);
-        return { core, writes, compaction };
+        return { core, compaction };
     }
 
     it('contagem da CPU: o mesmo passe de antes', () => {
@@ -402,13 +403,13 @@ fn compact_value(i: u32) -> u32 { return i; }`,
     });
 
     it('modo atômico: contador zerado e passe indireto', () => {
-        const { core, writes, compaction } = setup(false);
+        const { core, compaction } = setup(false);
         const rec = recordingFrame();
         compaction.record(rec.frame, { count: { counts, index: 3 }, out, counter: ctr });
         expect(rec.sequence).toEqual(['clear:ctr', 'pass:Compaction.atomic']);
         expect(rec.passes[0]!.dispatches[0]).toEqual([-1, dispatchAt(3)]);
         // count (não lido), capacity, count_index
-        expect(uniformWrites(writes, 'cp:compact', 3)).toEqual([[0, 100, 3]]);
+        expect(uniformWrites(core, 'cp:compact', 3)).toEqual([[0, 100, 3]]);
         expectGpuShader(
             pipelines(core).get('cp:compact_atomic:gpu_pipeline')!.shader!.source,
             'compact',
@@ -440,8 +441,8 @@ fn compact_value(i: u32) -> u32 { return i; }`,
     });
 
     it('sem prepare com counts → erro', () => {
-        const { core } = fakeResourceCore();
-        const compaction = new Compaction(core, {
+        const { ctx } = workHarness();
+        const compaction = new Compaction(ctx, {
             discriminator: 'cp',
             predicate,
             capacity: 100,
@@ -465,15 +466,15 @@ describe('Reduce — contagem da GPU', () => {
     const out = storage('out');
 
     function setup() {
-        const { core, writes } = fakeResourceCore();
-        const reduce = new Reduce(core, {
+        const { core, ctx } = workHarness();
+        const reduce = new Reduce(ctx, {
             discriminator: 'rd',
             capacity: 70_000,
             op: 'sum',
             type: 'f32',
         });
         reduce.prepare(src, out, 1, counts);
-        return { core, writes, reduce };
+        return { core, reduce };
     }
 
     it('contagem da CPU: os mesmos passes de antes', () => {
@@ -488,7 +489,7 @@ describe('Reduce — contagem da GPU', () => {
     });
 
     it('variante da GPU: todos os passes da capacidade, o primeiro indireto; o último no outOffset', () => {
-        const { core, writes, reduce } = setup();
+        const { core, reduce } = setup();
         const rec = recordingFrame();
         reduce.record(rec.frame, { src, out, count: { counts, index: 2 }, outOffset: 5 });
         expect(dispatches(rec)).toEqual([
@@ -497,7 +498,7 @@ describe('Reduce — contagem da GPU', () => {
             ['Reduce', [2, 256]],
         ]);
         // count (capacidade do nível, não lida), out_index, depth, count_index
-        expect(uniformWrites(writes, 'rd:reduce', 4)).toEqual([
+        expect(uniformWrites(core, 'rd:reduce', 4)).toEqual([
             [70_000, 0, 0, 2],
             [274, 0, 1, 2],
             [2, 5, 2, 2],
@@ -510,8 +511,8 @@ describe('Reduce — contagem da GPU', () => {
     });
 
     it('sem prepare com counts → erro; registro fora do buffer → RangeError', () => {
-        const { core } = fakeResourceCore();
-        const reduce = new Reduce(core, {
+        const { ctx } = workHarness();
+        const reduce = new Reduce(ctx, {
             discriminator: 'rd',
             capacity: 10,
             op: 'max',

@@ -1,6 +1,7 @@
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
-import type { EngineCore, Frame, IndirectBufferSpec } from '../../../scene/contracts/gpu';
+import type { Frame, IndirectBufferSpec } from '../../../scene/contracts/gpu';
+import type { WorkContext } from '../../../scene/flows/FlowWork';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
@@ -48,7 +49,7 @@ export interface CountToArgsRecordArgs {
  * escrita na GPU por um nó, e escreve no mesmo registro o despacho linear (`workgroupsIndirect` no byte 4, dividido em
  * x/y como `Dispatcher.invocations`) e o desenho (byte 16). A contagem nunca volta à CPU.
  *
- * Duas fases (spec 006): `prepare(counts, gravaçõesPorQuadro)` cria o kernel e as regiões de uniform, fora da
+ * Duas fases (spec 006): `prepare(counts, gravaçõesPorQuadro)` cria o kernel e reserva as regiões de uniform (no Resource de trabalho, spec 039), fora da
  * gravação; `record` só grava.
  */
 export class CountToArgs {
@@ -80,12 +81,12 @@ export class CountToArgs {
     }
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: CountToArgsOptions,
     ) {
         this.disc = options.discriminator;
-        this.params = new FrameUniforms(core, {
-            discriminator: `${this.disc}:count_to_args`,
+        this.params = new FrameUniforms(ctx, {
+            id: `${this.disc}:count_to_args`,
             schema: CountToArgsParamsSchema,
         });
     }
@@ -97,7 +98,7 @@ export class CountToArgs {
         const r = countToArgsResources;
         this.kernels.set(
             counts,
-            createComputeKernel(this.core, {
+            createComputeKernel(this.ctx.core, {
                 discriminator: `${this.disc}:count_to_args:${this.kernels.size}`,
                 shader: countToArgs,
                 entryPoint: 'count_to_args_main',
@@ -135,7 +136,7 @@ export class CountToArgs {
             per_element: perElement,
             instances: 1,
             instanced: args.instanced === true ? 1 : 0,
-            max_x: this.core.capabilities().limits.maxComputeWorkgroupsPerDimension ?? 65_535,
+            max_x: this.ctx.core.capabilities().limits.maxComputeWorkgroupsPerDimension ?? 65_535,
         });
         frame.compute('CountToArgs', (pass) => {
             pass.bind.setPipeline(kernel.pipeline);
@@ -144,14 +145,14 @@ export class CountToArgs {
         });
     }
 
-    /** Libera kernels e uniforms. */
+    /** Libera os kernels (as regiões de uniform são do Resource de trabalho). */
     destroy(): void {
         this.releaseKernels();
-        this.params.destroy();
+        this.params.release();
     }
 
     private releaseKernels(): void {
-        for (const k of this.kernels.values()) destroyComputeKernel(this.core, k);
+        for (const k of this.kernels.values()) destroyComputeKernel(this.ctx.core, k);
         this.kernels.clear();
     }
 }

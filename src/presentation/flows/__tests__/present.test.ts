@@ -182,11 +182,13 @@ describe('PostFlow — apresentação', () => {
         presentation.data.exposure = 1;
         s.step();
         expect(pipelines(s.creates())).toHaveLength(0);
-        const written = vi
-            .mocked(s.core.write)
-            .mock.calls.filter(
-                (c) => (c[0] as { discriminator?: string }).discriminator === 'post_present_params',
-            );
+        const written = vi.mocked(s.core.write).mock.calls.filter(
+            // O uniform da apresentação é do trabalho do PostFlow (spec 039): `id:identidade` da C2.
+            (c) =>
+                (c[0] as { discriminator?: string }).discriminator?.startsWith(
+                    'post_present_params:',
+                ) === true,
+        );
         const bytes = written.at(-1)![1] as Uint8Array;
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         expect(view.getUint32(PresentationParamsSchema.offsetOf('toneOperator'), true)).toBe(1);

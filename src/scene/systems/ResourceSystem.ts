@@ -115,6 +115,11 @@ class Tracked extends ReactiveRoot implements DataHook {
     pools: readonly PoolRef[] = NO_POOLS;
     /** Tem descritores próprios (enviados inteiros). */
     own = false;
+    /**
+     * Campos de topo mudados desde o último envio dos próprios (spec 039): só os descritores com conteúdo em
+     * `data[id]` cujo `id` mudou são reenviados; `'all'` (mutação sem campo conhecido) reenvia todos.
+     */
+    ownChanged: Set<string> | 'all' | undefined = undefined;
 
     constructor(
         readonly owner: DataChangeSink,
@@ -869,12 +874,13 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }
         const buffer = this.allocations.get(resource)?.get(desc.id)?.buffer;
         if (buffer === undefined) return undefined;
+        // Descritor próprio com `count` (spec 039: ex.: os intervalos de cor do `GraphColorer`): a faixa inteira, por campo.
         return {
             source: buffer,
             stride: alignUp(schema.stride, 4),
             slot: 0,
-            span: 1,
-            counted: false,
+            span: desc.count ?? 1,
+            counted: desc.count !== undefined,
             schema,
         };
     }
@@ -1150,9 +1156,16 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             }
         }
         // Só objetos próprios passam pela fila (e pelo estado Dirty); dado em pool vai pelo slot marcado abaixo.
-        if (tracked.own && state !== ResourceState.Dirty) {
-            this.transition(resource, ResourceState.Dirty);
-            this.dirty.add(resource);
+        if (tracked.own) {
+            if (field === undefined) tracked.ownChanged = 'all';
+            else if (tracked.ownChanged !== 'all') {
+                tracked.ownChanged ??= new Set<string>();
+                tracked.ownChanged.add(field);
+            }
+            if (state !== ResourceState.Dirty) {
+                this.transition(resource, ResourceState.Dirty);
+                this.dirty.add(resource);
+            }
         }
         for (const { entry, descId } of tracked.pools) {
             const first = firstIn(tracked, entry);
@@ -1639,6 +1652,61 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return count;
     }
 
+    writeNow(resource: Resource, descId: string, bytes: ArrayBufferView, offset = 0): void {
+        const located = this.poolSlotOfDescriptor(resource, descId);
+        if (located !== undefined) {
+            // Em pool: relativo à faixa do Resource, sem passar dela.
+            const { entry, slot, span } = located;
+            if (offset < 0 || offset + bytes.byteLength > span * entry.stride) {
+                throw new RangeError(
+                    `ResourceSystem: writeNow em '${descId}' de '${this.schemaNameOf(resource)}' — [${offset}, `
+                        + `${offset + bytes.byteLength}) fora da faixa de ${span * entry.stride} bytes.`,
+                );
+            }
+            this.core.write(entry.bufferSpec, padTo4(bytes), slot * entry.stride + offset);
+            return;
+        }
+        const buffer = this.allocations.get(resource)?.get(descId)?.buffer;
+        if (buffer === undefined || buffer.subkind === 'staging') {
+            throw new Error(
+                `ResourceSystem: writeNow em '${descId}' de '${this.schemaNameOf(resource)}' — buffer próprio não alocado.`,
+            );
+        }
+        this.core.write(buffer, padTo4(bytes), offset);
+    }
+
+    writeRegions(
+        resource: Resource,
+        descId: string,
+        records: readonly Record<string, unknown>[],
+        first = 0,
+    ): void {
+        if (records.length === 0) return;
+        const allocation = this.allocations.get(resource)?.get(descId);
+        const desc = allocation?.desc;
+        if (
+            allocation?.buffer === undefined
+            || desc?.regions === undefined
+            || desc.schema === undefined
+        ) {
+            throw new Error(
+                `ResourceSystem: writeRegions em '${descId}' de '${this.schemaNameOf(resource)}' — descritor com regions não alocado.`,
+            );
+        }
+        if (!Number.isInteger(first) || first < 0 || first + records.length > desc.regions.count) {
+            throw new RangeError(
+                `ResourceSystem: writeRegions [${first}, ${first + records.length}) fora das ${desc.regions.count} regiões de '${descId}'.`,
+            );
+        }
+        const schema = desc.schema as StructSchema;
+        const stride = this.regionStride(schema);
+        const bytes = new ArrayBuffer(stride * (records.length - 1) + alignUp(schema.stride, 4));
+        records.forEach((record, i) => {
+            schema.packInto(bytes, i * stride, record);
+        });
+        this.core.write(allocation.buffer, new Uint8Array(bytes), first * stride);
+    }
+
     regionStrideOf(resource: Resource, descId: string): number | undefined {
         const desc = resource.getDescriptors().find((d) => d.id === descId);
         if (desc?.regions === undefined || desc.schema === undefined) return undefined;
@@ -1731,6 +1799,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             case 'texture':
             case 'storage-texture':
                 this.createTexture(allocation, disc, this.core.canvasSize());
+                if (policyOf(desc) !== 'never') this.writeTextureContent(resource, allocation);
                 break;
             case 'sampler':
                 allocation.sampler = this.core.create<SamplerSpec>({
@@ -2000,6 +2069,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 );
             }
         }
+    }
+
+    /**
+     * Conteúdo da CPU de uma textura (spec 039): `data[desc.id]` em bytes (linhas justas, `width × texel`), escrito na
+     * alocação e, com `upload: 'always'`, a cada mutação — como os buffers. Sem conteúdo em `data`, nada.
+     */
+    private writeTextureContent(resource: Resource, allocation: Allocation): void {
+        const texture = allocation.texture;
+        if (texture === undefined) return;
+        const content = rawContent(resource, allocation.desc);
+        if (content === undefined) return;
+        const texel = bytesPerTexel(texture.format);
+        this.core.writeTexture(
+            texture,
+            content,
+            { bytesPerRow: texture.width * texel, rowsPerImage: texture.height },
+            { width: texture.width, height: texture.height },
+        );
     }
 
     /** Escreve o conteúdo de um descritor de buffer (ver documentação da classe). */
@@ -2563,6 +2650,13 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const pooled = current.filter((d) => d.storage === 'pool' && d.schema !== undefined);
         if (pooled.length > 0) this.allocatePooled(resource, pooled);
         this.reallocateOwn(resource, previous, current);
+        // Os descritores mudaram: a posse da GPU do Resource inteiro é reavaliada (ex.: um Resource de trabalho que
+        // entrou só com dado da GPU e ganhou dado da CPU volta a aceitar mutações; spec 039).
+        const managed = this.isGpuOwned(current);
+        if (resource.state === ResourceState.GpuManaged && !managed)
+            this.transition(resource, ResourceState.Ready);
+        else if (resource.state === ResourceState.Ready && managed)
+            this.transition(resource, ResourceState.GpuManaged);
         for (const entry of this.createdPools.splice(0)) {
             this.events.emit('poolCreated', { poolKey: entry.poolKey, schema: entry.schema });
         }
@@ -2581,7 +2675,13 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         previous: readonly GPUDescriptor[],
         current: readonly GPUDescriptor[],
     ): void {
-        if (this.allocations.get(resource) === undefined) return;
+        if (this.allocations.get(resource) === undefined) {
+            // Entrou na cena sem objetos próprios e ganhou descritores (ex.: um Resource de trabalho cujas partes se
+            // registram depois da inserção, spec 039): passa a ter o mapa e o envio dos próprios.
+            if (!current.some((d) => d.storage !== 'pool')) return;
+            this.allocations.set(resource, new Map());
+            trackedOf(resource)!.own = true;
+        }
         const before = new Map(previous.filter((d) => d.storage !== 'pool').map((d) => [d.id, d]));
         const after = current.filter((d) => d.storage !== 'pool');
         const changed = after.filter((d) => {
@@ -2659,11 +2759,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     /** Envia inteiros os descritores próprios `'always'` do recurso (os de pool são marcados na mutação). */
     private uploadOwn(resource: Resource): void {
-        if (trackedOf(resource)?.own !== true) return;
+        const tracked = trackedOf(resource);
+        if (tracked?.own !== true) return;
+        const changed = tracked.ownChanged;
+        tracked.ownChanged = undefined;
+        const raw = tracked.raw;
         const own = this.ownForWrite(resource);
         for (const desc of resource.getDescriptors()) {
             if (policyOf(desc) !== 'always' || desc.storage === 'pool') continue;
+            // Conteúdo próprio em `data[id]` que não mudou: não reenvia (o dos outros descritores do Resource mudou).
+            if (changed instanceof Set && desc.id in raw && !changed.has(desc.id)) continue;
             const allocation = own?.get(desc.id);
+            if (
+                allocation?.texture !== undefined
+                && (desc.role === 'texture' || desc.role === 'storage-texture')
+            ) {
+                this.writeTextureContent(resource, allocation);
+                continue;
+            }
             if (allocation?.buffer === undefined) continue;
             if (desc.role === 'vertex' || desc.role === 'index' || desc.role === 'indirect') {
                 this.refreshGeometryBuffer(resource, allocation);
@@ -2851,6 +2964,41 @@ function regionsContent(
         out.set(new Uint8Array(packed.buffer, packed.byteOffset, packed.byteLength), i * stride);
     }
     return out;
+}
+
+/**
+ * Bytes por texel dos formatos com conteúdo da CPU (`writeTextureContent`).
+ * @throws Error para um formato sem tamanho conhecido (comprimido, profundidade).
+ */
+function bytesPerTexel(format: GPUTextureFormat): number {
+    switch (format) {
+        case 'r8unorm':
+        case 'r8uint':
+            return 1;
+        case 'rg8unorm':
+        case 'r16float':
+        case 'r16uint':
+            return 2;
+        case 'rgba8unorm':
+        case 'rgba8unorm-srgb':
+        case 'bgra8unorm':
+        case 'bgra8unorm-srgb':
+        case 'rg16float':
+        case 'r32float':
+        case 'r32uint':
+            return 4;
+        case 'rgba16float':
+        case 'rgba16uint':
+        case 'rg32float':
+            return 8;
+        case 'rgba32float':
+        case 'rgba32uint':
+            return 16;
+        default:
+            throw new Error(
+                `ResourceSystem: conteúdo da CPU numa textura '${format}' (sem tamanho de texel conhecido).`,
+            );
+    }
 }
 
 /** `writeBuffer` exige tamanho múltiplo de 4: completa com zeros quando necessário. */

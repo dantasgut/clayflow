@@ -1,11 +1,8 @@
-import type {
-    ComputePass,
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-} from '../../../scene/contracts/gpu';
+import type { ComputePass, Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
 import type {
     BindingSource,
     BoundFlow,
@@ -18,9 +15,11 @@ import {
     slot,
     type BodiesSlot,
     type EntitiesSlot,
+    type PoolSlot,
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
@@ -49,6 +48,7 @@ import {
 } from '../shaders/pbf';
 import { FLUID_BOUNDARY_POLY6 } from '../../gpu/shaders/math';
 import { PBFSchema } from '../bodies/schemas/PBFSchema';
+import { PBFBoundarySchema, PBFDeltaSchema, PBFNormalSchema } from '../bodies/schemas/fluidWork';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Expoente n do `s_corr`. */
@@ -87,16 +87,20 @@ export interface PBFSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
     readonly colliders: EntitiesSlot;
+    /** Correções Δp/Δv por partícula (pool do corpo, mesmo slot), separadas das posições lidas pelos vizinhos. */
+    readonly delta: PoolSlot<false>;
+    /** (nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (pool do corpo, mesmo slot; spec 030). */
+    readonly normals: PoolSlot<false>;
+    /** Fronteira sólida por partícula (pool do corpo, mesmo slot; Σ −B' n, Σ B; spec 034). */
+    readonly boundary: PoolSlot<false>;
+    /** O espaço de trabalho do solver: parâmetros por iteração, vizinhança, colliders (spec 039). */
+    readonly work: WorkSlot<PBFWork>;
 }
 
-const slots: PBFSlots = {
-    bodies: slot.bodies(),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/** Resource de trabalho do `PBFFlow` (spec 039). */
+class PBFWork extends FlowWork {
+    static readonly schema = new StructSchema('PBFWork', {});
+}
 
 type Ctx = TransitionContext<PBFSlots>;
 
@@ -106,18 +110,18 @@ type Ctx = TransitionContext<PBFSlots>;
  * vorticidade → XSPH com a sua região de `PBFSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por
  * offset dinâmico.
  *
- * Recursos privados — parâmetros por iteração, correções `pbf_delta`, busca de vizinhança (recriada quando a grade da
- * física muda) e `ColliderSet` — são preparados e religados em transições, nunca no `dispatch`.
+ * O espaço de trabalho — parâmetros por iteração, busca de vizinhança (recriada quando a grade da física muda) e
+ * `ColliderSet` — é do Resource de trabalho (`PBFWork`); as correções, as normais e a fronteira por partícula são pools
+ * do próprio corpo (spec 039). Tudo é preparado e religado em transições, nunca no `dispatch`.
  */
 export class PBFFlow extends Flow<PBFSlots, 'running'> {
     readonly type = 'PBFFlow';
-    readonly slots = slots;
+    readonly slots: PBFSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<PBFSlots>>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly minSubsteps: number;
     /** Substeps do quadro corrente (pelo passo estável da física). */
     private substeps = 1;
@@ -125,12 +129,6 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     private readonly maxNeighbors: number;
     private readonly params: PerStepUniforms;
     private readonly colliderSet: ColliderSet;
-    /** Correções Δp/Δv por partícula (vec4f), separadas das posições/velocidades lidas pelos vizinhos. */
-    private readonly delta: StorageBufferSpec;
-    /** (nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (vec4f; spec 030). */
-    private readonly normals: StorageBufferSpec;
-    /** Fronteira sólida por partícula (vec4f: Σ −B' n, Σ B; spec 034). */
-    private readonly boundary: StorageBufferSpec;
     /** Materiais já avisados de coesão/adesão grampeadas. */
     private readonly warnedClamp = new WeakSet<ParticlePhysics>();
     private neighborSearch: NeighborSearchPipeline;
@@ -143,49 +141,34 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
 
     constructor(ctx: FlowContext, options: PBFFlowOptions = {}) {
         super();
-        this.core = ctx.core;
+        const work = new PBFWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            bodies: slot.bodies(),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            delta: slot.pool(PBFDeltaSchema.name),
+            normals: slot.pool(PBFNormalSchema.name),
+            boundary: slot.pool(PBFBoundarySchema.name),
+            work: slot.work(() => work),
+        };
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
         this.solverIters = Math.max(1, options.solverIters ?? 4);
         this.maxNeighbors = options.maxNeighbors ?? 64;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'pbf_params',
+        this.params = new PerStepUniforms(this.work, {
+            id: 'pbf_params',
             schema: PBFSimParamsSchema,
         });
         this.params.reserve(1);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'pbf_colliders',
-        });
-        this.delta = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'pbf_delta',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
-        });
-        this.normals = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'pbf_normal',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
-        });
-        this.boundary = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'pbf_boundary',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
         });
         const grid = gridOf(ParticlePhysics.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [pbfResources.params, this.params.source()],
-            [pbfResources.delta, this.delta],
-            [pbfResources.deltaRead, this.delta],
-            [pbfResources.normal, this.normals],
-            [pbfResources.normalRead, this.normals],
-            [pbfResources.boundary, this.boundary],
-            [pbfResources.boundaryRead, this.boundary],
-            ...this.neighborSources(),
-        ]);
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -219,7 +202,14 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         };
         this.transitions = {
             '*': {
-                slotsResolved: colliders,
+                // O trabalho já está na cena: a vizinhança (fonte privada) liga ao que a C2 alocou.
+                slotsResolved: {
+                    to: 'running',
+                    run: (_e, c) => {
+                        c.bind(this.neighborSources());
+                        this.refreshColliders(c);
+                    },
+                },
                 slotChanged: colliders,
                 // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro (framePrepare).
                 entitiesChanged: {
@@ -292,20 +282,15 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         }
     }
 
-    /** Libera parâmetros, correções, colliders e a busca de vizinhança. */
+    /** Libera os kernels da busca de vizinhança (os buffers são do `PBFWork` e saem da cena com ele). */
     override dispose(): void {
-        this.params.dispose();
-        this.core.destroy(this.delta);
-        this.core.destroy(this.normals);
-        this.core.destroy(this.boundary);
-        this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
 
     private createNeighborSearch(
         grid: ReturnType<ParticlePhysics['gridFor']>,
     ): NeighborSearchPipeline {
-        const ns = new NeighborSearchPipeline(this.core, {
+        const ns = new NeighborSearchPipeline(this.work, {
             // Uma geração por grade: a busca recriada (a física mudou) não pode repetir as specs da anterior — a C1
             // devolveria os bind groups antigos, ligados aos buffers destruídos.
             discriminator: `pbf:gen${this.neighborGeneration++}`,
@@ -371,8 +356,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             bound.slots.bodies.live,
             this.iterations,
         );
-        if (this.params.reserve(this.iterations))
-            ctx.bind(new Map([[pbfResources.params, this.params.source()]]));
+        // Uma região por iteração (a C2 realoca e religa o fornecedor do trabalho quando cresce).
+        this.params.reserve(this.iterations);
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];

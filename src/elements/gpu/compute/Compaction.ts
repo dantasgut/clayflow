@@ -1,9 +1,6 @@
-import type {
-    EngineCore,
-    Frame,
-    IndirectBufferSpec,
-    StorageBufferSpec,
-} from '../../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
+import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
@@ -15,7 +12,7 @@ import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
-import { CompactParamsSchema } from './schemas';
+import { CompactParamsSchema, wordBuffer } from './schemas';
 import {
     compactCountGpu,
     compactCountPoint,
@@ -77,9 +74,10 @@ interface BoundKernels {
  * mesma contagem. O total vai para o contador como no caminho da CPU (quem o consome copia para um `SetCount` na GPU).
  * No modo `stable`, a contagem do registro deve ser ≤ `inputCapacity`.
  *
- * Duas fases (spec 006): `prepare(out, counter, gravaçõesPorQuadro, counts?)` fora da gravação; `record` só grava.
+ * Duas fases (spec 006): `prepare(out, counter, gravaçõesPorQuadro, counts?)` fora da gravação; `record` só grava. As
+ * flags do modo `stable` são um descritor do Resource de trabalho (spec 039).
  */
-export class Compaction {
+export class Compaction implements WorkPart {
     private readonly disc: string;
     private readonly capacity: number;
     private readonly stable: boolean;
@@ -87,8 +85,9 @@ export class Compaction {
     private readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     private readonly modules: ReturnType<typeof compactionModules>;
     private readonly params: FrameUniforms;
+    /** `destroy()` soltou os descritores (a C2 libera os buffers); o próximo `prepare` os declara de novo. */
+    private released = false;
     private readonly scan: PrefixSum | null;
-    private flagsBuffer: StorageBufferSpec | null = null;
     /** Kernels por origem da contagem (`null` = CPU; um buffer `SetCount` = variante da GPU) e saída. */
     private readonly bound = new Map<
         IndirectBufferSpec | null,
@@ -96,7 +95,7 @@ export class Compaction {
     >();
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: CompactionOptions,
     ) {
         if (!Number.isInteger(options.capacity) || options.capacity < 1) {
@@ -116,16 +115,32 @@ export class Compaction {
         this.inputCapacity = inputCapacity;
         this.bindings = options.bindings ?? new Map();
         this.modules = compactionModules(options.predicate);
-        this.params = new FrameUniforms(core, {
-            discriminator: `${this.disc}:compact`,
+        this.params = new FrameUniforms(ctx, {
+            id: `${this.disc}:compact`,
             schema: CompactParamsSchema,
         });
         this.scan = this.stable
-            ? new PrefixSum(core, {
+            ? new PrefixSum(ctx, {
                   discriminator: `${this.disc}:compact_scan`,
                   capacity: inputCapacity,
               })
             : null;
+        ctx.work.use(this);
+    }
+
+    /** As flags do modo `stable` (u32 por elemento de entrada). */
+    descriptors(): readonly GPUDescriptor[] {
+        return this.stable && !this.released
+            ? [wordBuffer(`${this.disc}:compact_flags`, this.inputCapacity * 4)]
+            : [];
+    }
+
+    /** Flags do modo `stable` (alocadas pela C2). */
+    private get flagsBuffer(): StorageBufferSpec {
+        const buffer = this.ctx.resources.bufferOf(this.ctx.work, `${this.disc}:compact_flags`);
+        if (buffer === undefined)
+            throw new Error(`Compaction(${this.disc}): trabalho fora da cena.`);
+        return buffer as StorageBufferSpec;
     }
 
     /**
@@ -139,14 +154,12 @@ export class Compaction {
         recordsPerFrame = 1,
         counts?: IndirectBufferSpec,
     ): void {
+        if (this.released) {
+            this.released = false;
+            this.ctx.work.refresh();
+        }
         if (this.params.reserve(recordsPerFrame)) this.releaseKernels();
         if (this.stable) {
-            this.flagsBuffer ??= this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:compact_flags`,
-                byteSize: Math.max(16, this.inputCapacity * 4),
-            });
             this.scan!.prepare(this.flagsBuffer, recordsPerFrame, counts);
         }
         for (const source of counts === undefined ? [null] : [null, counts]) {
@@ -218,17 +231,17 @@ export class Compaction {
             return;
         }
         this.run(frame, 'Compaction.flags', kernels.flags!, offset, count);
-        this.scan!.record(frame, { src: this.flagsBuffer!, dst: this.flagsBuffer!, count });
+        this.scan!.record(frame, { src: this.flagsBuffer, dst: this.flagsBuffer, count });
         this.run(frame, 'Compaction.scatter', kernels.scatter!, offset, count);
     }
 
-    /** Libera kernels, flags, soma de prefixos e uniforms. */
+    /** Libera os kernels e solta as flags e a soma de prefixos (a C2 libera os buffers); `prepare` os declara de novo. */
     destroy(): void {
         this.releaseKernels();
-        if (this.flagsBuffer !== null) this.core.destroy(this.flagsBuffer);
-        this.flagsBuffer = null;
         this.scan?.destroy();
-        this.params.destroy();
+        this.released = true;
+        this.params.release();
+        this.ctx.work.refresh();
     }
 
     private createKernels(
@@ -248,7 +261,7 @@ export class Compaction {
         if (!this.stable) {
             return {
                 counter,
-                atomic: createComputeKernel(this.core, {
+                atomic: createComputeKernel(this.ctx.core, {
                     discriminator: `${this.disc}:compact_atomic${gpu}`,
                     shader: variant(this.modules.atomic),
                     entryPoint: 'compact_atomic_main',
@@ -262,10 +275,10 @@ export class Compaction {
                 }),
             };
         }
-        const flags = this.flagsBuffer!;
+        const flags = this.flagsBuffer;
         return {
             counter,
-            flags: createComputeKernel(this.core, {
+            flags: createComputeKernel(this.ctx.core, {
                 discriminator: `${this.disc}:compact_flags${gpu}`,
                 shader: variant(this.modules.flags),
                 entryPoint: 'compact_flags_main',
@@ -276,7 +289,7 @@ export class Compaction {
                     [r.flags, flags],
                 ]),
             }),
-            scatter: createComputeKernel(this.core, {
+            scatter: createComputeKernel(this.ctx.core, {
                 discriminator: `${this.disc}:compact_scatter${gpu}`,
                 shader: variant(this.modules.scatter),
                 entryPoint: 'compact_scatter_main',
@@ -310,7 +323,7 @@ export class Compaction {
 
     private destroyBound(entry: BoundKernels): void {
         for (const k of [entry.atomic, entry.flags, entry.scatter]) {
-            if (k !== undefined) destroyComputeKernel(this.core, k);
+            if (k !== undefined) destroyComputeKernel(this.ctx.core, k);
         }
     }
 

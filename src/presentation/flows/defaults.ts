@@ -46,7 +46,6 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
-import { EnvironmentMapFlow } from '../../elements/scene/environment/EnvironmentMapFlow';
 import {
     TemporalAntialiasing,
     type AntialiasingMode,
@@ -368,12 +367,6 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'transform',
         priority: -55,
     });
-    // A imagem do mundo (spec 039 refeita): a textura escrita uma vez, antes de quem a amostra.
-    const environmentRegistration = flows.register((ctx) => new EnvironmentMapFlow(ctx), {
-        type: 'environmentMap',
-        phase: 'transform',
-        priority: -55,
-    });
     // Estrutura de raios (spec 033) depois de toda geometria escrita na GPU: registrada depois dos estágios que a
     // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
     // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
@@ -520,7 +513,6 @@ function createPresentationDefaults(flows: FlowRegistry): {
             surfaceRegistration,
             graphRegistration,
             skyRegistration,
-            environmentRegistration,
             fluidFieldRegistration,
             raySceneRegistration,
             shadowRegistration,

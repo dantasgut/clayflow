@@ -1,19 +1,16 @@
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import type {
-    EngineCore,
-    Frame,
-    StorageBufferSpec,
-    UniformBufferSpec,
-} from '../../../scene/contracts/gpu';
+import type { Frame, StorageBufferSpec, UniformBufferSpec } from '../../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import {
     createComputeKernel,
     destroyComputeKernel,
 } from '../../../scene/flows/createComputeKernel';
 import { PrefixSum } from './PrefixSum';
-import { HashGridParamsSchema } from './schemas';
+import { HashGridParamsSchema, wordBuffer } from './schemas';
 import { shCount, shScatter, hashGridResources } from './shaders';
 
 /** Opções de `SpatialHashGrid`. */
@@ -43,61 +40,69 @@ export function hashTableSize(count: number): number {
  *
  * Duas fases (spec 006): `prepare` (fora da gravação, numa transição do Flow) dimensiona buffers e kernels e escreve os
  * parâmetros; `record` só grava. A ordem dos índices dentro de um balde não é determinística (atômicos); a consulta não
- * deve depender dela.
+ * deve depender dela. Os buffers e os parâmetros são descritores do Resource de trabalho (spec 039): a tabela e a
+ * capacidade novas redescrevem o trabalho, e a C2 realoca.
  */
-export class SpatialHashGrid {
+export class SpatialHashGrid implements WorkPart {
     private readonly disc: string;
     private readonly label: string;
     private readonly scan: PrefixSum;
-    private readonly paramsBuffer: UniformBufferSpec;
     private items: StorageBufferSpec | null = null;
     private table = 0;
     private capacity = 0;
-    private starts: StorageBufferSpec | null = null;
-    private counts: StorageBufferSpec | null = null;
-    private cursors: StorageBufferSpec | null = null;
-    private itemsOut: StorageBufferSpec | null = null;
     private countKernel: ComputeKernel | null = null;
     private scatterKernel: ComputeKernel | null = null;
     private count = 0;
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: SpatialHashGridOptions,
     ) {
         this.disc = options.discriminator;
         this.label = options.label ?? 'SpatialHashGrid';
-        this.paramsBuffer = core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `${this.disc}:params`,
-            byteSize: HashGridParamsSchema.stride,
-        });
-        this.scan = new PrefixSum(core, {
+        this.scan = new PrefixSum(ctx, {
             discriminator: `${this.disc}:scan`,
             capacity: 1 << 24,
             ...(options.label !== undefined ? { label: `${options.label}.scan` } : {}),
         });
+        ctx.work.use(this);
+    }
+
+    /** Parâmetros (sempre) e, depois do primeiro `prepare`, contagens, inícios e cursores da tabela e os itens. */
+    descriptors(): readonly GPUDescriptor[] {
+        const params: GPUDescriptor = {
+            id: `${this.disc}:params`,
+            role: 'uniform',
+            schema: HashGridParamsSchema,
+        };
+        if (this.table === 0) return [params];
+        return [
+            params,
+            wordBuffer(`${this.disc}:counts`, this.table * 4),
+            wordBuffer(`${this.disc}:starts`, this.table * 4),
+            wordBuffer(`${this.disc}:cursors`, this.table * 4),
+            wordBuffer(`${this.disc}:items`, this.capacity * 4),
+        ];
     }
 
     /** Parâmetros da grade (uniform `HashGridParams`), para quem consulta. */
     get params(): UniformBufferSpec {
-        return this.paramsBuffer;
+        return this.buffer('params') as UniformBufferSpec;
     }
 
     /** Início de cada balde em `cellItems` (soma de prefixos exclusiva). */
     get cellStart(): StorageBufferSpec {
-        return this.require(this.starts);
+        return this.storage('starts');
     }
 
     /** Itens de cada balde. */
     get cellCount(): StorageBufferSpec {
-        return this.require(this.counts);
+        return this.storage('counts');
     }
 
     /** Índices dos itens, agrupados por balde. */
     get cellItems(): StorageBufferSpec {
-        return this.require(this.itemsOut);
+        return this.storage('items');
     }
 
     /**
@@ -114,73 +119,68 @@ export class SpatialHashGrid {
         const table = hashTableSize(count);
         const capacity = Math.max(64, count);
         let changed = false;
-        if (this.starts === null || table !== this.table || capacity > this.capacity) {
-            this.releaseBuffers();
+        if (this.table === 0 || table !== this.table || capacity > this.capacity) {
             this.table = table;
             this.capacity = Math.max(capacity, this.capacity);
-            const storage = (name: string, byteSize: number): StorageBufferSpec =>
-                this.core.create<StorageBufferSpec>({
-                    kind: 'buffer',
-                    subkind: 'storage',
-                    discriminator: `${this.disc}:${name}:${table}:${this.capacity}`,
-                    byteSize,
-                });
-            this.counts = storage('counts', table * 4);
-            this.starts = storage('starts', table * 4);
-            this.cursors = storage('cursors', table * 4);
-            this.itemsOut = storage('items', this.capacity * 4);
+            this.ctx.work.refresh();
             changed = true;
         }
-        this.scan.prepare(this.starts, recordsPerFrame);
+        this.scan.prepare(this.cellStart, recordsPerFrame);
         if (changed || items !== this.items) {
             this.items = items;
             this.releaseKernels();
-            this.countKernel = createComputeKernel(this.core, {
+            this.countKernel = createComputeKernel(this.ctx.core, {
                 discriminator: `${this.disc}:count`,
                 shader: shCount,
                 entryPoint: 'sh_count_main',
                 bindings: new Map<WgslResource, BindingSource>([
-                    [hashGridResources.grid, this.paramsBuffer],
+                    [hashGridResources.grid, this.params],
                     [hashGridResources.items, items],
-                    [hashGridResources.counts, this.counts!],
+                    [hashGridResources.counts, this.cellCount],
                 ]),
             });
-            this.scatterKernel = createComputeKernel(this.core, {
+            this.scatterKernel = createComputeKernel(this.ctx.core, {
                 discriminator: `${this.disc}:scatter`,
                 shader: shScatter,
                 entryPoint: 'sh_scatter_main',
                 bindings: new Map<WgslResource, BindingSource>([
-                    [hashGridResources.grid, this.paramsBuffer],
+                    [hashGridResources.grid, this.params],
                     [hashGridResources.items, items],
-                    [hashGridResources.cursors, this.cursors!],
-                    [hashGridResources.cellItems, this.itemsOut!],
+                    [hashGridResources.cursors, this.storage('cursors')],
+                    [hashGridResources.cellItems, this.cellItems],
                 ]),
             });
         }
         this.count = count;
-        this.core.write(
-            this.paramsBuffer,
-            HashGridParamsSchema.pack({ count, table_mask: table - 1, cell_size: cellSize }),
-        );
+        // Enviado pela C2 no próximo envio dos sujos (antes da gravação do quadro).
+        this.ctx.work.data[`${this.disc}:params`] = [
+            { count, table_mask: table - 1, cell_size: cellSize },
+        ];
         return changed;
     }
 
     /** Grava a construção da grade: zera as contagens, conta, soma os prefixos, copia os cursores e espalha. */
     record(frame: Frame): void {
         if (this.count === 0 || this.countKernel === null || this.scatterKernel === null) return;
-        frame.clear(this.counts!);
+        const counts = this.cellCount;
+        const starts = this.cellStart;
+        frame.clear(counts);
         this.run(frame, `${this.label}.count`, this.countKernel);
-        this.scan.record(frame, { src: this.counts!, dst: this.starts!, count: this.table });
-        frame.copy(this.starts!, this.cursors!, this.table * 4);
+        this.scan.record(frame, { src: counts, dst: starts, count: this.table });
+        frame.copy(starts, this.storage('cursors'), this.table * 4);
         this.run(frame, `${this.label}.scatter`, this.scatterKernel);
     }
 
-    /** Libera buffers, kernels e uniforms. */
+    /**
+     * Libera os kernels e solta a tabela e os itens (a C2 libera os buffers); o próximo `prepare` os declara de novo.
+     */
     destroy(): void {
         this.releaseKernels();
-        this.releaseBuffers();
         this.scan.destroy();
-        this.core.destroy(this.paramsBuffer);
+        this.items = null;
+        this.table = 0;
+        this.capacity = 0;
+        this.ctx.work.refresh();
     }
 
     private run(frame: Frame, label: string, kernel: ComputeKernel): void {
@@ -191,22 +191,23 @@ export class SpatialHashGrid {
         });
     }
 
-    private require(spec: StorageBufferSpec | null): StorageBufferSpec {
-        if (spec === null)
+    private buffer(name: string): StorageBufferSpec | UniformBufferSpec {
+        const buffer = this.ctx.resources.bufferOf(this.ctx.work, `${this.disc}:${name}`);
+        if (buffer === undefined)
             throw new Error(`SpatialHashGrid(${this.disc}): prepare() antes do uso.`);
-        return spec;
+        return buffer as StorageBufferSpec | UniformBufferSpec;
+    }
+
+    private storage(name: string): StorageBufferSpec {
+        if (this.table === 0)
+            throw new Error(`SpatialHashGrid(${this.disc}): prepare() antes do uso.`);
+        return this.buffer(name) as StorageBufferSpec;
     }
 
     private releaseKernels(): void {
         for (const k of [this.countKernel, this.scatterKernel])
-            if (k !== null) destroyComputeKernel(this.core, k);
+            if (k !== null) destroyComputeKernel(this.ctx.core, k);
         this.countKernel = null;
         this.scatterKernel = null;
-    }
-
-    private releaseBuffers(): void {
-        for (const b of [this.counts, this.starts, this.cursors, this.itemsOut])
-            if (b !== null) this.core.destroy(b);
-        this.counts = this.starts = this.cursors = this.itemsOut = null;
     }
 }
