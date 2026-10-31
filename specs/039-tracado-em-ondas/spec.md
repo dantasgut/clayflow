@@ -326,8 +326,11 @@ contra a referência e contra o piso de ruído; os smokes de refração e cáust
 - **SC-007**: Zero `core.create` em `src/elements` e `src/presentation` (lint + teste).
 - **SC-008**: Os smokes e testes que passam hoje continuam passando; as falhas anteriores registradas no
   `baseline.md` não pioram; o custo de cada perfil não depende dos usados antes (teste de vazamento).
-- **SC-009**: O tanque com a física a 1280×720 no M4 (Chrome): alto ≤ 33 ms (o atual, sem regressão); médio ≤ 22 ms;
-  baixo ≤ 17 ms — com a Opção B nos perfis em que ela passa a SC-010.
+- **SC-009 (revista, decisão do usuário 2026-10-31)**: o tanque com a física a 1280×720 no M4 (Chrome) a 60 FPS
+  (≤ 16,7 ms por quadro), com a Opção B nos perfis em que ela passa a SC-010; o alto sem regressão contra o código de
+  antes da migração na mesma sessão. Os alvos por perfil anteriores (33/22/17 ms) saíram: as medidas de 2026-10-31
+  (`baseline.md`, "Os perfis do renderizador no tanque") mostraram que o tempo ao vivo depende do estado da água e da
+  carga na GPU, e o usuário fixou a meta em 60 FPS.
 - **SC-010**: Cada peça da Opção B com a câmera parada converge para a imagem sem ela (diferença no piso de ruído:
   ≤ 0,6 % dos pixels > 8/255); com a câmera girando e a água agitada, o atraso e o rastro medidos e registrados.
 - **SC-011**: O vídeo do tanque em cada perfil no Chrome.

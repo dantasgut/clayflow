@@ -18,13 +18,15 @@ interface ProfileValues {
 }
 
 /**
- * Os perfis (medidos em 2026-10-30 no tanque, `baseline.md`, "Os botões de qualidade"): o alto é o padrão de hoje (a
- * imagem e o tempo atuais); o médio corta o teto de interfaces e os fótons; o baixo desliga as cáusticas.
+ * Os perfis (medidos no tanque, `baseline.md`, "Os botões de qualidade" e "Os perfis do renderizador no tanque"): o alto
+ * é o padrão de antes da 039 (a mesma imagem); o médio corta o teto de interfaces e os fótons; o baixo desliga também as
+ * cáusticas.
  */
 export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
     high: { transmission: 16, caustics: true, photons: 65_536 },
     medium: { transmission: 4, caustics: true, photons: 16_384 },
-    low: { transmission: 3, caustics: false, photons: 16_384 },
+    // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque).
+    low: { transmission: 4, caustics: false, photons: 16_384 },
 };
 
 /** Opções de um `Renderer`. */
