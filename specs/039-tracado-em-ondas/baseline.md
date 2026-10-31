@@ -545,3 +545,12 @@ Tempo (1280×720, M4; congelado 2 ciclos; com a física, duas rodadas na mesma s
   amostra a cada quadro — as bordas resolvem diferente. Pela SC-010, a B2 fica desligada nos perfis (decisão do usuário).
 - 60 FPS (SC-009 revista) não fecham: o melhor com a física é ~28 ms (médio ou baixo + B2). Com a física rodando o quadro
   faz ~1,7 passo de 60 Hz (cada um ~6 ms: PBF 2,1, campo 4), e congelado o melhor desenho é ~15,5 ms.
+
+### O mapa do médio com xadrez (2026-10-31)
+
+Ablação no tanque congelado, perfil médio (com a B2), `zzAbl.ts`, 3 ciclos. O primeiro ciclo saiu 4 ms mais rápido
+que os outros dois (15,5 contra 19,7 ms: a GPU baixando o clock depois de horas de medidas); valem as economias dos
+dois últimos. Economia ao desligar: traçado ~9 ms; pedido de volume ~6,6 (sobreposto ao traçado); cáusticas ~2,9;
+filtro da refração ~2,75; forward ~2,2; composição e movimento ~0,3; sombras, névoa, GI e céu ~0. O traçado continua
+sendo a maior parte: a B1 (os caminhos que continuam no quadro seguinte) ataca as rodadas finais, que custam pela
+latência dos poucos raios que ainda marcham.
