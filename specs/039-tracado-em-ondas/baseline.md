@@ -492,3 +492,28 @@ Série inteira dos smokes no HEAD; cada falha rodada também com o `src` de ante
 - Ajustados à API nova (sem mudar critério): computeKernels e limits (os primitivos recebem o Resource de trabalho),
   fluidField (a onda do estágio de consulta), shaderLibrary (só schemas na lista), nodeGraphs (o nome do buffer termina
   com a identidade do Resource de trabalho).
+
+## Os perfis do renderizador no tanque (SC-009, 2026-10-31)
+
+Tanque da página `bench/agua.html` a 1280×720 no M4, Chrome headless, `bench/runner/zzProfiles.ts` (aplica o perfil,
+assenta 150 quadros, mede 90 pelo intervalo entre quadros; tempos sem capturas, imagem numa rodada à parte). O "alto"
+é o do tanque como roda hoje: o perfil alto com o teto de 8 interfaces que a cena pede por cima dele.
+
+| Perfil            | Congelado (2 ciclos) | Com a física (2 rodadas, ordens opostas) | Alvo SC-009 | Imagem contra o alto (> 8/255) | Piso de ruído |
+| ----------------- | -------------------- | ---------------------------------------- | ----------- | ------------------------------ | ------------- |
+| alto (teto 8)     | 24,7 / 26,1 ms       | 34,4–40,5 / 40,3–40,5 ms                 | ≤ 33 ms     | —                              | 0,45 %        |
+| médio (4, 16 384) | 19,2 / 19,7 ms       | 29,2–29,6 / 29,3–29,7 ms                 | ≤ 22 ms     | 8,9 % (média 2,8)              | 0,37 %        |
+| baixo (3, sem)    | 14,6 / 14,9 ms       | 23,8–31,3 / 23,4–23,6 ms                 | ≤ 17 ms     | 22,3 % (média 6,9)             | 0,21 %        |
+
+- Nenhum perfil fecha a SC-009 com a física; congelados, o médio e o baixo ficam perto (19 e 15 ms). O que falta é o
+  passo da física e o traçado por quadro — a Opção B (T134–T136).
+- Médio: o padrão das cáusticas no fundo quase some (16 384 fótons) e as paredes de vidro ganham bordas verdes (os
+  caminhos que esgotam as 4 interfaces).
+- Baixo: regiões pretas grandes — com 3 interfaces o caminho vidro → água → vidro não fecha e a energia restante conta
+  como absorvida. Como definido, o perfil baixo não serve ao tanque; o teto mínimo que fecha a cena é 4 (o do médio).
+- Os dois defeitos das cáusticas (T129, SC-008): depois de 262 144 fótons a volta ao alto custa 32,8–33,4 ms contra
+  30,5–32,6 antes deles (era +8,5 ms antes da migração); depois de desligar e religar, 32,8–33,1 (era +7 ms) — o que
+  sobra (≤ 1 ms) está dentro da variação entre ciclos. Teto 16 nessas medidas (o perfil alto sem o ajuste da cena).
+- A medida de 33 ms "com a física" anterior não se reproduz hoje nem no código de antes da migração (45–63 ms com o
+  Chrome do usuário e os servidores do app abertos; 34–40 ms depois): o tempo ao vivo depende do estado da água e da
+  carga na GPU, e as comparações valem só na mesma sessão.
