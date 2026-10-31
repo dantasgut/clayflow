@@ -7,8 +7,8 @@
 // (avaliado na onda dos acertos): numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está
 // (o ar, ou a água) e o do outro lado — os três canais pelo mesmo caminho; numa interface com dispersão, um passe por
 // canal desde a fonte com o mesmo sorteio, o índice de cada um (sem ruído de cor: os três só se separam onde os índices
-// diferem); no metal liso reflete com a cor dele; os trechos atenuam pelos volumes (`ray_volume_transmittance`: a absorção dentro
-// da água, a névoa). Na primeira superfície difusa depois de ao menos uma especular deposita a vazão no hash e para — a
+// diferem); no metal liso reflete com a cor dele; os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico
+// pelo comprimento (a absorção guardada ao entrar pela superfície; spec 039, T110). Na primeira superfície difusa depois de ao menos uma especular deposita a vazão no hash e para — a
 // luz direta que não passou por nada especular é a das luzes, e a que atravessa a água chega nelas em linha reta: o
 // fóton cuja linha reta cruza a água subtrai essa parcela onde ela chegaria (`caustics_emit`, a variável de controle).
 // O meio da atmosfera (`light_transmission`) entra no ponto de onde o fóton sai. A invocação 0 guarda no cabeçalho a potência por fóton do quadro e a contagem do anterior.
@@ -17,7 +17,7 @@
 // (`caustics_photon_follow_main`), até as rodadas do `CausticsFlow` (`CAUSTICS_BOUNCES`).
 // Requer: WORKGROUP_SIZE, NONE, caustics, caustics_common, caustics_hash_atomic, caustics_targets,
 // caustics_instance_capable, caustics_photons, caustics_queue, caustics_args_out, caustics_args, CausticsPhoton, bsdf, random, basis,
-// sampling, lights, light_transmission, ray_scene, refraction_scene, ray_wave, ray_volume_hit, ray_volume_transmittance,
+// sampling, lights, light_transmission, ray_scene, refraction_scene, ray_wave, ray_volume_hit,
 // ray_volume_bounds, ray_volume_occupied.
 
 /** Instâncias-alvo dos fótons (no máximo) e luzes com áreas acumuladas. */
@@ -216,6 +216,8 @@ fn caustics_photon_start(slot: u32, seed: u32, o: vec3f, d: vec3f, rgb: vec3f) {
     ph.side = -1;
     ph.throughput = rgb;
     ph.channel = 3u;
+    ph.absorption = vec3f(0.0);
+    ph.glass = 0u;
     ph.state = seed;
     ph.specular = 0u;
     caustics_photons[slot] = ph;
@@ -412,7 +414,9 @@ fn caustics_photon_hit_one(j: u32) {
         ray_wave_put_empty(j, vec4f(0.0));
         return;
     }
-    caustics_photons[slot].throughput = ph.throughput * ray_volume_transmittance(ph.origin, ph.dir, hit.t, caustics.extra.y);
+    // O trecho dentro da água (fora de um vidro mergulhado) atenua pelo meio homogêneo do corpo, analítico pelo
+    // comprimento (T110): o fóton entrou pela superfície e guardou a absorção do fechamento dela — sem marcha.
+    if (ph.glass == 0u) { caustics_photons[slot].throughput = ph.throughput * exp(-ph.absorption * hit.t); }
     refraction_wave_put(j, hit, caustics.extra.y,
         vec4f(hit.face, select(0.0, 1.0, refraction_is_volume(hit.instance)), 0.0, 1.0));
 }
@@ -460,9 +464,14 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         } else {
             ph.dir = normalize(t);
             ph.origin = p - nn * 1e-4;
-            // O vidro absorve pela cor da transmissão ao sair; a água, pelos trechos (`ray_volume_transmittance`).
+            // O vidro absorve pela cor da transmissão ao sair; a água, pelos trechos (a absorção do meio homogêneo do
+            // corpo, guardada ao entrar pela superfície e zerada ao sair).
             if (!outside && !volume) { ph.throughput *= c.transmission_color; }
-            if (volume) { ph.medium = select(1.0, ior, outside); }
+            if (!volume) { ph.glass = select(0u, 1u, outside); }
+            if (volume) {
+                ph.medium = select(1.0, ior, outside);
+                ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);
+            }
             ph.side = select(-1, select(0, 1, outside), volume);
         }
         ph.specular++;

@@ -41,7 +41,9 @@ export const CAUSTICS_QUEUE_HEADER = 8;
 /**
  * Um fóton entre as rodadas (spec 039): a origem do próximo trecho e o índice do meio em que está, a direção e o lado da
  * origem quanto aos volumes (−1 sem saber; 0 fora e 1 dentro ao partir da superfície de um), a vazão e o canal (3 = os
- * três; 0–2 depois da dispersão; 4 = parou), o estado do sorteio e os rebotes especulares até aqui.
+ * três; 0–2 depois da dispersão; 4 = parou), a absorção do meio homogêneo da água em que está (0 no ar; a transmitância de
+ * cada trecho é analítica pelo comprimento, spec 039 T110) e se está dentro de uma malha (o vidro, onde a água não
+ * absorve), o estado do sorteio e os rebotes especulares até aqui.
  */
 export const CausticsPhotonSchema = new StructSchema('CausticsPhoton', {
     origin: FieldType.vec3f,
@@ -50,6 +52,8 @@ export const CausticsPhotonSchema = new StructSchema('CausticsPhoton', {
     side: FieldType.i32,
     throughput: FieldType.vec3f,
     channel: FieldType.u32,
+    absorption: FieldType.vec3f,
+    glass: FieldType.u32,
     state: FieldType.u32,
     specular: FieldType.u32,
 });

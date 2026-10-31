@@ -10,7 +10,6 @@ import {
     rayVolumeBoundsReady,
     rayVolumeLightReady,
     rayVolumeOccupiedReady,
-    rayVolumeTransmittanceReady,
 } from '../../raytrace/points';
 import { lightTransmissionReady } from '../../scene/points/lighting';
 import { LIGHT_LIMIT } from '../../scene/points/lightContributions';
@@ -172,7 +171,6 @@ export const causticsTrace = wgslModule({
         rayScene,
         rayHit,
         refractionScene,
-        rayVolumeTransmittanceReady,
         rayVolumeBoundsReady,
         rayVolumeBeginReady,
         rayVolumeLightReady,

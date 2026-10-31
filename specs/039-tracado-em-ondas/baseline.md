@@ -562,3 +562,15 @@ com xadrez, congelado: 19,9 → 18,5 ms com N = 2 (−1,4 ms; a GPU nesta sessã
 física, 31,4/24,8 → 29,6/23,6 ms. Imagem parada (600 quadros): o piso entre dois ciclos da mesma configuração sobe de
 0,47 % para 1,05 % (as cáusticas mais ruidosas) e a diferença contra N = 1 fica em 0,72–0,83 % (limite 0,6 %). Pela
 SC-010, N = 1 em todos os perfis; o ajuste fica disponível.
+
+### A transmitância analítica das cáusticas (T110, 2026-10-31)
+
+Os trechos dos fótons dentro da água atenuam pelo meio homogêneo do corpo, analítico pelo comprimento: o fóton guarda
+a absorção do fechamento da superfície ao entrar (zera ao sair; dentro de um vidro mergulhado a água não absorve) — sem
+a marcha de `ray_volume_transmittance` por rebote. `caustics`: engine fluxo 1,0000×, sombra 1,000×, pico 83,0×,
+padrão 2,4 %; water 0,53/0,36 % (antes 0,54/0,38 %); shadow borda −0,199 m contra −0,197. Tempo na mesma sessão
+(congelado, novo/antigo/novo): alto (teto 8) 25,0–25,3 contra 25,9 ms; médio 15,1–15,4 contra 15,4–15,7.
+
+Custo das cáusticas por ablação (congelado, 3 ciclos): médio 2,45 ms, baixo (8 192 fótons) 2,39 ms, alto (teto 16)
+3,75 ms. A meta de ≤ 2 ms não fecha: com metade dos fótons o custo quase não muda — o que sobra são as partes fixas
+(as instâncias na onda, os alvos, as rodadas e a resolução), não os fótons.

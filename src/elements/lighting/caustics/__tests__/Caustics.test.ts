@@ -90,10 +90,16 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(trace).toContain(
             'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { continue; }',
         );
-        // Os trechos atenuam pelos volumes; o depósito pela tenda 2D no plano tangente.
+        // Os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico pelo comprimento (T110: a absorção
+        // guardada ao entrar pela superfície, zerada ao sair; dentro de um vidro mergulhado a água não absorve); o
+        // depósito pela tenda 2D no plano tangente.
         expect(trace).toContain(
-            'caustics_photons[slot].throughput = ph.throughput * ray_volume_transmittance(ph.origin, ph.dir, hit.t, caustics.extra.y);',
+            'if (ph.glass == 0u) { caustics_photons[slot].throughput = ph.throughput * exp(-ph.absorption * hit.t); }',
         );
+        expect(trace).toContain(
+            'ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);',
+        );
+        expect(trace).not.toContain('ray_volume_transmittance(');
         // Em todos os níveis de células, com o peso da tenda como a contagem do fóton.
         expect(trace).toContain('let t = caustics_tent(p, n, level);');
         expect(trace).toContain(

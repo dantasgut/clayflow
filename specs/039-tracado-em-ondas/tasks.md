@@ -37,9 +37,9 @@ de ~2 min.
 
 ## Phase 4: cáusticas e física
 
-- [ ] T110 Cáusticas por kernel medidas; a transmitância analítica pelo meio homogêneo; meta ≤ 2 ms no tanque.
+- [x] T110 Cáusticas por kernel medidas; a transmitância analítica pelo meio homogêneo; meta ≤ 2 ms no tanque.
       (2026-10-30: medidas por kernel no `baseline.md`, 4,7 ms; a correção da linha reta pelo mapa da luz feita; a meta
-      vai à medida por perfil, SC-009.)
+      vai à medida por perfil, SC-009.) (2026-10-31: a transmitância analítica feita; as cáusticas por perfil 2,4–3,8 ms — a meta de 2 ms não fecha, as partes fixas dominam; `baseline.md`.)
 - [ ] T111 [US5] Vizinhança do PBF por intervalos contíguos com reordenação; física ≤ 4 ms.
 
 ## Phase 5: Fechamento
@@ -109,16 +109,16 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 - [x] T130 [US8] `ProbeFlow` → `GlobalIllumination` (o trabalho de tela por `reserve` pelo alvo). Feito no `ProbeWork` do Flow, não no `GlobalIllumination`: o trabalho é da instância do estágio (b34bd5f4).
 - [x] T131 [US8] `FluidFieldFlow` → `FluidField` e `RaySceneFlow` → `RayScene`. Feito no `FieldWork` e no `RaySceneWork` dos Flows; os cabeçalhos das hierarquias vão à faixa do `RayScene` por `writeNow` (b34bd5f4).
 - [x] T132 [US8] `PostFlow` → `FrameTargets`; `ForwardFlow`, `ShadowFlow`, `ParticleFlow`, `UIFlow` → os donos da D10. Feito nos Resources de trabalho dos Flows (`PostWork`, `ForwardWork`, `ShadowWork`, `ParticleWork`, `UIWork`); o atlas da fonte é textura com conteúdo da CPU pela C2 (b34bd5f4).
-- [ ] T133 [US8] Smokes do desenho com os critérios atuais; o tanque no perfil alto contra as capturas atuais.
+- [x] T133 [US8] Smokes do desenho com os critérios atuais; o tanque no perfil alto contra as capturas atuais. (2026-10-31: a série inteira no HEAD e no código de antes da migração, sem regressão; `baseline.md`.)
 
 ### Phase 10: a Opção B e os perfis (US9)
 
-- [ ] T134 [US9] B3 no `CausticsFlow` (no passo da física ou na mudança da cena; a média pelo perfil); medido.
-- [ ] T135 [US9] B1 no `RefractionFlow` e no `refraction_chain.wgsl` (rodadas por quadro, vagas que continuam, carimbo
-      de nascimento); medido com a câmera parada e girando.
-- [ ] T136 [US9] B2 no `RefractionFlow` (xadrez pelos carimbos, rejeição do histórico); medido.
-- [ ] T137 [US9] Os perfis com as peças que passam a SC-010; a tabela por perfil no `baseline.md` (SC-009); o que não
-      fechar vai ao usuário com a medida.
+- [x] T134 [US9] B3 no `CausticsFlow` (no passo da física ou na mudança da cena; a média pelo perfil); medido. (Feita como as cáusticas a cada N quadros, `renderer.caustics.interval`; N = 1 nos perfis pela SC-010.)
+- [x] ~~T135~~ [US9] B1 no `RefractionFlow` e no `refraction_chain.wgsl` (rodadas por quadro, vagas que continuam, carimbo
+      de nascimento); medido com a câmera parada e girando. (Retirada por decisão do usuário, 2026-10-31.)
+- [x] T136 [US9] B2 no `RefractionFlow` (xadrez pelos carimbos, rejeição do histórico); medido. (Feita; ligada no médio e no baixo com a exceção à SC-010 do usuário.)
+- [x] T137 [US9] Os perfis com as peças que passam a SC-010; a tabela por perfil no `baseline.md` (SC-009); o que não
+      fechar vai ao usuário com a medida. (A tabela por perfil no `baseline.md`; os 60 FPS não fecham, ~23–30 ms com a física no médio.)
 
 ### Phase 11: o espaço de trabalho da simulação e da cena (US8)
 
@@ -133,7 +133,7 @@ Pelos pools dos corpos e pelos descritores próprios com `reserve` (plan D12), s
       colisor, `onDemand`), os Flows de FEM e XPBD. O trabalho por entidade das superfícies macias e dos colisores de superfície ficou como parte do trabalho do Flow, uma por entidade, tirada com `drop` quando ela sai (b34bd5f4).
 - [x] T141 [P] [US8] `TransformFlow`, `CameraFlow` (elos e listas no pool do `Transform` e da câmera),
       `ShadowMatrixFlow`, `SurfaceFlow`, `GraphFlow`/nós de conjunto. Os elos, pares e listas por função são listas globais compactadas montadas na CPU: descritores do trabalho pela capacidade, não pools por `Transform`/câmera (b34bd5f4).
-- [ ] T142 [US8] Smokes de física com os critérios atuais.
+- [x] T142 [US8] Smokes de física com os critérios atuais. (2026-10-31: na mesma série da T133.)
 
 ### Phase 12: fechamento da emenda
 
