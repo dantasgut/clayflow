@@ -20,6 +20,11 @@ export interface CausticsOptions {
     readonly photons?: number;
     /** Lado da célula do hash em m (padrão 0,01): a resolução da cáustica na superfície. */
     readonly cellSize?: number;
+    /**
+     * Quadros entre duas emissões de fótons (padrão 1; spec 039, Opção B3): nos outros a média móvel do hash fica — a
+     * imagem parada é a mesma; em movimento a cáustica acompanha com o atraso do intervalo.
+     */
+    readonly interval?: number;
 }
 
 /** Dado de um `Caustics`. */
@@ -27,6 +32,8 @@ export interface CausticsData {
     enabled: boolean;
     photons: number;
     cellSize: number;
+    /** Quadros entre duas emissões (≥ 1). */
+    interval: number;
     params: [Record<string, number[]>];
 }
 
@@ -56,6 +63,7 @@ export class Caustics extends Entity<CausticsData> implements Resource {
             enabled: options.enabled ?? true,
             photons,
             cellSize,
+            interval: options.interval ?? 1,
             params: [CausticsSchema.applyDefaults({}) as Record<string, number[]>],
         };
     }
@@ -94,6 +102,18 @@ export class Caustics extends Entity<CausticsData> implements Resource {
     set cellSize(m: number) {
         if (!(m > 0)) throw new RangeError(`Caustics: cellSize > 0 (recebeu ${m})`);
         if (m !== this.rawData.cellSize) this.data.cellSize = m;
+    }
+
+    /** Quadros entre duas emissões de fótons. */
+    get interval(): number {
+        return this.rawData.interval;
+    }
+
+    /** @throws RangeError fora de inteiro ≥ 1 (o valor anterior fica). */
+    set interval(n: number) {
+        if (!Number.isInteger(n) || n < 1)
+            throw new RangeError(`Caustics: interval inteiro ≥ 1 (recebeu ${n})`);
+        if (n !== this.rawData.interval) this.data.interval = n;
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

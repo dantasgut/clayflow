@@ -17,6 +17,8 @@ interface ProfileValues {
     readonly photons: number;
     /** Traçado em xadrez (Opção B2). */
     readonly checkerboard: boolean;
+    /** Quadros entre duas emissões de fótons (Opção B3). */
+    readonly causticsInterval: number;
 }
 
 /**
@@ -25,13 +27,31 @@ interface ProfileValues {
  * cáusticas ficam ligadas em todos.
  */
 export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
-    high: { transmission: 16, caustics: true, photons: 65_536, checkerboard: false },
+    high: {
+        transmission: 16,
+        caustics: true,
+        photons: 65_536,
+        checkerboard: false,
+        causticsInterval: 1,
+    },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
     // SC-010 — aceito pelo usuário em 2026-10-31 pelos 4–5 ms.
-    medium: { transmission: 4, caustics: true, photons: 16_384, checkerboard: true },
+    medium: {
+        transmission: 4,
+        caustics: true,
+        photons: 16_384,
+        checkerboard: true,
+        causticsInterval: 1,
+    },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
     // cáusticas ficam em todo perfil (decisão do usuário): o baixo só tem menos fótons.
-    low: { transmission: 4, caustics: true, photons: 8_192, checkerboard: true },
+    low: {
+        transmission: 4,
+        caustics: true,
+        photons: 8_192,
+        checkerboard: true,
+        causticsInterval: 1,
+    },
 };
 
 /** Opções de um `Renderer`. */
@@ -64,6 +84,8 @@ export interface CausticsSettings {
     photons: number;
     /** Lado da célula do hash em m (> 0). */
     cellSize: number;
+    /** Quadros entre duas emissões de fótons (≥ 1; parado, a mesma imagem; em movimento, o atraso do intervalo). */
+    interval: number;
 }
 
 /**
@@ -144,6 +166,12 @@ export class Renderer extends Entity {
             set cellSize(m: number) {
                 caustics.cellSize = m;
             },
+            get interval() {
+                return caustics.interval;
+            },
+            set interval(n: number) {
+                caustics.interval = n;
+            },
         };
         this.#profile = options.profile ?? 'high';
         this.apply(RENDER_PROFILES[this.#profile]);
@@ -172,5 +200,6 @@ export class Renderer extends Entity {
         this.caustics.enabled = values.caustics;
         this.caustics.photons = values.photons;
         this.tracing.checkerboard = values.checkerboard;
+        this.caustics.interval = values.causticsInterval;
     }
 }

@@ -554,3 +554,11 @@ dois últimos. Economia ao desligar: traçado ~9 ms; pedido de volume ~6,6 (sobr
 filtro da refração ~2,75; forward ~2,2; composição e movimento ~0,3; sombras, névoa, GI e céu ~0. O traçado continua
 sendo a maior parte: a B1 (os caminhos que continuam no quadro seguinte) ataca as rodadas finais, que custam pela
 latência dos poucos raios que ainda marcham.
+
+### As cáusticas a cada N quadros (Opção B3, 2026-10-31)
+
+`renderer.caustics.interval`: uma emissão de fótons a cada N quadros; nos outros a média móvel do hash fica. Médio
+com xadrez, congelado: 19,9 → 18,5 ms com N = 2 (−1,4 ms; a GPU nesta sessão ~4 ms mais lenta que de manhã); com a
+física, 31,4/24,8 → 29,6/23,6 ms. Imagem parada (600 quadros): o piso entre dois ciclos da mesma configuração sobe de
+0,47 % para 1,05 % (as cáusticas mais ruidosas) e a diferença contra N = 1 fica em 0,72–0,83 % (limite 0,6 %). Pela
+SC-010, N = 1 em todos os perfis; o ajuste fica disponível.

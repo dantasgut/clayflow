@@ -147,6 +147,8 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     private photonSize: PhotonSize | undefined;
     private prepared = false;
     private frame = 0;
+    /** Quadros desde a criação (o intervalo das emissões). */
+    private tick = 0;
     private photons = 0;
 
     constructor(ctx: FlowContext) {
@@ -187,6 +189,9 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<CausticsSlots>): void {
         const b = this.buffers;
         if (this.photons === 0 || b === undefined) return;
+        // Uma emissão a cada `interval` quadros (Opção B3): nos outros o hash guarda a média móvel.
+        const interval = (bound.slots.caustics.resource as Caustics).interval;
+        if (this.tick++ % interval !== 0) return;
         const fixed = new Map(FIXED.map((d) => [d.id, bound.pipelines.get(d.id)]));
         const round = bound.pipelines.get(this.roundId(b));
         const chunk = bound.pipelines.get(this.chunkId(b));
