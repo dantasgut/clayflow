@@ -25,6 +25,8 @@ export type {
     BoundSlots,
     BoundPool,
     BoundSingleton,
+    BoundWork,
+    WorkSlot,
     BoundEntities,
     EntityEntry,
     BoundTexture,

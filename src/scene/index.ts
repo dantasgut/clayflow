@@ -122,6 +122,7 @@ export type {
 
 export type {
     GPUDescriptor,
+    UniformRegions,
     GPUDescriptorRole,
     SlotRef,
     SlotRefTarget,
@@ -210,6 +211,8 @@ export type {
     BoundSlots,
     BoundPool,
     BoundSingleton,
+    BoundWork,
+    WorkSlot,
     BoundEntities,
     EntityEntry,
     BoundTexture,
