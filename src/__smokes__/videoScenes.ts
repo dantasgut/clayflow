@@ -147,7 +147,7 @@ function glassStage(app: Application, ior: number, abbe: number, priority?: numb
     // acompanham a câmera.
     app.world.insert(new GlobalIllumination({ quality: 'medium', probeSpacing: 0.5 }));
     // Ar livre ao sol (EV100 ≈ 14–15, a regra do "sunny 16"), contra o −10 do cômodo com janela.
-    app.defaults.presentation.data.exposure = -14;
+    app.defaults.renderer.output.data.exposure = -14;
     app.world.insert(
         new clayflow.PlaneGeometry({ size: [12, 12] })
             .add(new StandardMaterial({ albedo: [0.7, 0.7, 0.7, 1], roughness: 0.9 }))
@@ -400,8 +400,8 @@ const SHOTS: Record<string, Shot> = {
     pendagitadasem: {
         frames: 240,
         build(app) {
-            // A mesma barragem com as cáusticas desligadas (o recurso inserido antes da água, a padrão não entra).
-            app.world.insert(new clayflow.Caustics({ enabled: false }));
+            // A mesma barragem com as cáusticas desligadas pelo renderizador.
+            app.defaults.renderer.caustics.enabled = false;
             waterScene(app, {
                 width: W,
                 height: H,
@@ -462,7 +462,7 @@ const SHOTS: Record<string, Shot> = {
             app.world.insert(sun);
             app.world.insert(new clayflow.Sky({ sun, sunDisk: true }));
             app.world.insert(new GlobalIllumination({ quality: 'medium', probeSpacing: 0.4 }));
-            app.defaults.presentation.data.exposure = -14;
+            app.defaults.renderer.output.data.exposure = -14;
             const half = 3;
             app.world.insert(
                 new clayflow.ParametricSurface({
@@ -558,7 +558,7 @@ const SHOTS: Record<string, Shot> = {
                     center: scene.probeCenter,
                 }),
             );
-            app.defaults.presentation.data.exposure = -10;
+            app.defaults.renderer.output.data.exposure = -10;
             return (i) => {
                 const d = sunFrom(20 + 30 * (i / 479), -25 + 50 * (i / 479));
                 if (built.sun !== undefined) built.sun.data.direction = [...d, 0];
@@ -588,7 +588,7 @@ const SHOTS: Record<string, Shot> = {
                     anisotropy: 0.3,
                 }),
             );
-            app.defaults.presentation.data.exposure = -10;
+            app.defaults.renderer.output.data.exposure = -10;
             return (i) => {
                 const d = sunFrom(20 + 30 * (i / 479), -25 + 50 * (i / 479));
                 if (built.sun !== undefined) built.sun.data.direction = [...d, 0];

@@ -91,14 +91,14 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 
 ### Phase 8: o `Renderer` (US7)
 
-- [ ] T124 [US7] `src/elements/render/Renderer.ts` (fachada, perfis, validação, o dado `settings`), testes de unidade.
-- [ ] T125 [US7] `RefractionWork` e `CausticsWork` no lugar de `Refraction` e `Caustics` (sem autoria; o dado vem do
-      `Renderer`); os Flows e os shaders leem o mesmo layout.
-- [ ] T126 [US7] Os estágios padrão (`src/presentation/flows/defaults.ts`): `app.defaults.renderer` com os componentes
+- [x] T124 [US7] `src/elements/render/Renderer.ts` (fachada, perfis, validação, o dado `settings`), testes de unidade. Feito: `src/elements/render/Renderer.ts` (perfis, caminhos de luz, cáusticas, antisserrilhado, filtro temporal) e `SceneRenderer` na C4 com a saída.
+- [x] T125 [US7] `RefractionWork` e `CausticsWork` no lugar de `Refraction` e `Caustics` (sem autoria; o dado vem do
+      `Renderer`); os Flows e os shaders leem o mesmo layout. Feito de outro modo: o trabalho já é dos Resources de trabalho dos Flows (Phase 9), então `Refraction` e `Caustics` ficaram como os Resources que os estágios leem, mantidos pelo renderizador e fora da API pública.
+- [x] T126 [US7] Os estágios padrão (`src/presentation/flows/defaults.ts`): `app.defaults.renderer` com os componentes
       (`ToneMapping`, `TemporalAntialiasing`, `TemporalFilter`, `RefractionWork`, `CausticsWork`, `FrameTargets`); a
-      inserção das cáusticas pela presença de transmissivo pelo renderizador.
-- [ ] T127 [US7] O app (`../claflow-web`): as cenas e o painel pelo `Renderer` e pelo perfil (`waterScene.ts` dos dois
-      repositórios: o teto de 8 vira o perfil alto).
+      inserção das cáusticas pela presença de transmissivo pelo renderizador. Feito: `app.defaults.renderer` no lugar de `presentation`, `antialiasing`, `refraction` e `temporalFilter`; as cáusticas do renderizador entram com o primeiro transmissivo.
+- [x] T127 [US7] O app (`../claflow-web`): as cenas e o painel pelo `Renderer` e pelo perfil (`waterScene.ts` dos dois
+      repositórios: o teto de 8 vira o perfil alto). Feito no app (`3abdbdf`, `a557d20`): o perfil alto é o padrão de hoje (16 interfaces), e a cena da água mantém o teto de 8 por cima dele — sem mudar imagem de fixture.
 
 ### Phase 9: o espaço de trabalho do desenho (US8)
 

@@ -75,9 +75,25 @@ export class Caustics extends Entity<CausticsData> implements Resource {
         return this.rawData.photons;
     }
 
+    /**
+     * Troca os fótons por quadro; o espaço de trabalho do estágio segue nos dois sentidos (spec 039).
+     * @throws RangeError fora de inteiro ≥ 0 (o valor anterior fica).
+     */
+    set photons(n: number) {
+        if (!Number.isInteger(n) || n < 0)
+            throw new RangeError(`Caustics: photons inteiro ≥ 0 (recebeu ${n})`);
+        if (n !== this.rawData.photons) this.data.photons = n;
+    }
+
     /** Lado da célula do hash (m). */
     get cellSize(): number {
         return this.rawData.cellSize;
+    }
+
+    /** @throws RangeError fora de > 0 (o valor anterior fica). */
+    set cellSize(m: number) {
+        if (!(m > 0)) throw new RangeError(`Caustics: cellSize > 0 (recebeu ${m})`);
+        if (m !== this.rawData.cellSize) this.data.cellSize = m;
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

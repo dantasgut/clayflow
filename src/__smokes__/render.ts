@@ -119,8 +119,8 @@ const SCENES: readonly RenderScene[] = [
         name: 'post-tone-mapping',
         build: (app) => {
             baseScene(app);
-            app.defaults.presentation.data.operator = 'aces';
-            app.defaults.presentation.data.exposure = 1;
+            app.defaults.renderer.output.data.operator = 'aces';
+            app.defaults.renderer.output.data.exposure = 1;
         },
     },
     {

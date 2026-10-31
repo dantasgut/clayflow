@@ -825,7 +825,7 @@ async function renderEngine(
     app.events.on('extensionRejected', (e) =>
         engineErrors.push(`${scene.name}: extensionRejected ${e.point}:${e.line}: ${e.message}`),
     );
-    app.defaults.antialiasing.data.sequence = SAMPLES;
+    app.defaults.renderer.antialiasing.data.sequence = SAMPLES;
     app.defaults.ambient.data.intensity = 0;
     const camera = buildEngine(app, scene);
     const ready = { revision: -1, at: 0 };
@@ -876,7 +876,7 @@ async function renderEngine(
         const img = await readHdrTexture(app, texture);
         for (let i = 0; i < W * H; i++)
             for (let k = 0; k < 3; k++) rgb[i * 3 + k]! += img.data[i * 4 + k]! / SAMPLES;
-        const refraction = app.defaults.refraction;
+        const refraction = app.defaults.renderer.refractionResource;
         const radiance = app.resources.textureOf(refraction, 'radiance');
         if (radiance === undefined) continue;
         const t = (await readHdrTexture(app, radiance)).data;
@@ -1215,7 +1215,7 @@ async function checkRequest(
     engine: EngineImage,
     regions: Map<number, number[]>,
 ): Promise<void> {
-    const refraction = engine.app.defaults.refraction;
+    const refraction = engine.app.defaults.renderer.refractionResource;
     const request = engine.app.resources.textureOf(refraction, 'request');
     const count = engine.app.resources.bufferOf(refraction, 'queueCount');
     if (request === undefined || count === undefined) {
@@ -1465,7 +1465,7 @@ async function lensFrameMs(on: boolean): Promise<number> {
     });
     app.events.on('engineError', (e) => engineErrors.push(`cost: ${e.stage}: ${e.message}`));
     app.defaults.ambient.data.intensity = 0;
-    app.defaults.refraction.enabled = on;
+    app.defaults.renderer.lightPaths.refraction = on;
     buildEngine(app, LENS, width / height);
     await app.whenReady({ timeoutMs: 60_000 });
     const color = app.resources.textureOf(app.defaults.targets, 'color');

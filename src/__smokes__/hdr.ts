@@ -200,8 +200,8 @@ async function caseRamp(): Promise<void> {
     };
     for (const dither of [false, true]) {
         const { app, canvas } = await createApp();
-        app.defaults.presentation.data.operator = 'neutral';
-        app.defaults.presentation.data.dither = dither;
+        app.defaults.renderer.output.data.operator = 'neutral';
+        app.defaults.renderer.output.data.dither = dither;
         emissivePlane(app, { mode: 1, a: 0.05, b: 0.7 });
         const img = await frame(app, canvas);
         dispose(app, canvas);
@@ -228,8 +228,8 @@ async function caseExposure(): Promise<void> {
     const linear: number[] = [];
     for (const ev of [0, 1]) {
         const { app, canvas } = await createApp();
-        app.defaults.presentation.data.operator = 'linear';
-        app.defaults.presentation.data.exposure = ev;
+        app.defaults.renderer.output.data.operator = 'linear';
+        app.defaults.renderer.output.data.exposure = ev;
         emissivePlane(app, { mode: 0, a: 0.1, b: 0.1 });
         const img = await frame(app, canvas);
         dispose(app, canvas);
@@ -248,8 +248,8 @@ async function caseOperators(): Promise<void> {
         'linear',
     ] as const satisfies readonly ToneOperator[]) {
         const { app, canvas } = await createApp();
-        app.defaults.presentation.data.operator = operator;
-        app.defaults.presentation.data.dither = false;
+        app.defaults.renderer.output.data.operator = operator;
+        app.defaults.renderer.output.data.dither = false;
         emissivePlane(app, { mode: 2, a: 0.05, b: 1 });
         const img = await frame(app, canvas);
         dispose(app, canvas);
@@ -277,7 +277,7 @@ async function caseOutput(): Promise<void> {
     const { app, canvas } = await createApp();
     let fallbacks = 0;
     app.events.on('presentationFallback', () => fallbacks++);
-    app.defaults.presentation.data.output = 'hdr';
+    app.defaults.renderer.output.data.output = 'hdr';
     emissivePlane(app, { mode: 1, a: 0.05, b: 3 });
     const img = await frame(app, canvas);
     const output = app.core.canvasOutput;

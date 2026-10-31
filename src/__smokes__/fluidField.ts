@@ -294,7 +294,7 @@ async function read(app: Application, descId: string): Promise<ArrayBuffer> {
  * achado pelo ponto `ray_volume_hit` como os raios do traçado.
  */
 async function readRequest(app: Application): Promise<{ words: Uint32Array; stride: number }> {
-    const texture = app.resources.textureOf(app.defaults.refraction, 'request');
+    const texture = app.resources.textureOf(app.defaults.renderer.refractionResource, 'request');
     if (texture === undefined) throw new Error('pedido da refração não alocado');
     const { width, height } = texture;
     const bytesPerRow = Math.ceil((width * 8) / 256) * 256;

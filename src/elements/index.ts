@@ -47,3 +47,11 @@ export {
 } from './nodes/index';
 export * from './particles/index';
 export * from './gpu/index';
+export {
+    Renderer,
+    RENDER_PROFILES,
+    type CausticsSettings,
+    type LightPaths,
+    type RenderProfile,
+    type RendererOptions,
+} from './render/Renderer';

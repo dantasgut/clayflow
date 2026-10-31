@@ -34,7 +34,7 @@ const impl: SceneImplementation<ClayflowHandle> = {
         });
         world.insert(sun);
         world.insert(new Sky({ sun }));
-        engine.app.defaults.presentation.data.exposure = -11;
+        engine.app.defaults.renderer.output.data.exposure = -11;
         const h = GI_SURFACE_HALF;
         world.insert(
             new ParametricSurface({
