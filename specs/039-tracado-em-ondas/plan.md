@@ -81,3 +81,91 @@ intervalo do primeiro início ao último fim.
 - `src/elements/fields/` — `FluidSurfaceMesh.ts`, `FluidSurfaceMeshFlow.ts`, `field_mesh.wgsl` (novos).
 - `src/presentation/flows/RefractionVolumeRequestFlow.ts` — pelo raster da malha.
 - `src/elements/physics/` — a busca de vizinhos.
+
+## Emenda 2026-10-30 — o renderizador e o espaço de trabalho gerenciado
+
+Ver a emenda na [spec](spec.md) (US7–US9, FR-010–FR-019, SC-007–SC-011). Ordem: as peças da C2 primeiro (sem elas a
+migração repetiria o desvio), depois o `Renderer`, o espaço de trabalho do desenho, a Opção B e os perfis, e por fim o
+espaço de trabalho da simulação e da cena.
+
+### D7 — O `Renderer` (C3)
+
+- `src/elements/render/Renderer.ts`: uma `Entity` com o dado da configuração (descritor uniforme `settings`) e os
+  Resources de trabalho do desenho como componentes (`.add`): `ToneMapping`, `TemporalAntialiasing`, `TemporalFilter`
+  (os de hoje, mesmos schemas), `RefractionWork` (o `Refraction` sem a autoria) e `CausticsWork` (o `Caustics` sem a
+  autoria). A C4 acrescenta o `FrameTargets` na composição dos estágios padrão (a C3 não importa a C4; a C4 já importa
+  a C3).
+- Fachada: `quality: 'high' | 'medium' | 'low'` e os valores por grupo — `lightPaths.transmission` (o `maxInterfaces`),
+  `caustics.{photons, cellSize, rate: 'frame' | 'step', average}`, `tracing.{continuation, checkerboard}`, e o
+  antisserrilhado, o filtro temporal e a saída que hoje vivem nos Resources avulsos. Os perfis preenchem os valores
+  (alto = o atual; médio = teto 4 e 16 384 fótons; baixo = teto 3, sem cáusticas) e o valor explícito vence o perfil.
+- A troca de um valor muda o dado do `Renderer`; os componentes de trabalho se redescrevem (crescem e encolhem) no
+  `framePrepare` do Flow dono, pela C2.
+- `app.defaults.renderer` substitui `refraction`, `antialiasing`, `temporalFilter` e `presentation`; o `Caustics`
+  inserido pela presença de transmissivo passa a ser o `CausticsWork` do renderizador.
+- Por cena (um singleton). O renderizador por alvo de render (014) reaproveita a forma: um `Renderer` por alvo, com os
+  componentes de trabalho dele.
+
+### D8 — As peças da C2
+
+- **Buffer pela tela (FR-012)**: `GPUDescriptor.bufferShape = { bytesPerElement, canvasDivisor?, padTo? }` para
+  `storage-rw`/`storage-ro`/`indirect`: `byteSize = ⌈w/d⌉·⌈h/d⌉·bytesPerElement`, alocado e recriado em
+  `resizeCanvasTextures` (que passa a tratar buffers) antes do `FlowBinder`; as ligações refeitas como as das texturas.
+- **Leitura de volta (FR-013)**: `GPUDescriptor.readback = { every: 'frame' }` num descritor de buffer: depois do envio
+  do quadro, a C2 copia a faixa para um staging interno (anel de dois), mapeia sem bloquear e emite `bufferRead
+{ resource, id, bytes }`, entregue aos Flows com slot no Resource (nova transição em `FlowTransitions`); uma leitura em
+  voo por descritor.
+- **Uniformes por região (FR-014)**: `GPUDescriptor.regions = { count, dynamic: true }` num `uniform`: a C2 aloca
+  `count × stride` (alinhado ao `minUniformBufferOffsetAlignment`), envia o dado de cada região alterada e liga com
+  offset dinâmico; a reserva é a redescrição com `count` maior (dobra) ou menor.
+
+### D9 — Os auxiliares como provedores de descritores
+
+Cada auxiliar ganha `static descriptors(prefix, capacidade…)` (os `GPUDescriptor` de que precisa) e `attach(slot ou
+diretório, resource)` (as fontes alocadas pela C2), e perde o `core.create`. O Resource dono inclui os descritores em
+`getDescriptors()` e se redescreve quando a capacidade muda. `PerStepUniforms`/`FrameUniforms` viram usuários da peça
+de uniformes por região.
+
+### D10 — O espaço de trabalho do desenho
+
+| Flow                       | Dono                              | O que migra                                                                                                                                             |
+| -------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RefractionFlow`           | `RefractionWork`                  | cadeia, dispersão adiada, cabeçalho, argumentos (capacidade pela fila lida); blocos e carimbos (pela tela); a onda; a contagem da fila por `bufferRead` |
+| `CausticsFlow`             | `CausticsWork`                    | alvos, instâncias capazes, fótons, fila, argumentos, a onda (pela configuração, nos dois sentidos)                                                      |
+| `ProbeFlow`                | `GlobalIllumination`              | raios, gerações, radiância, visibilidade, trabalho de tela (pela tela), a onda                                                                          |
+| `FluidFieldFlow`           | `FluidField`                      | o trabalho por partícula e por bloco (já tem `reserve`), a grade, a onda, o volume, os colisores                                                        |
+| `RaySceneFlow`             | `RayScene`                        | o rascunho da BVH e a ordenação (já tem `reserve`)                                                                                                      |
+| `PostFlow`                 | `FrameTargets`                    | as texturas de ida e volta (`sizeFromCanvas`) e os parâmetros                                                                                           |
+| `ForwardFlow`/`ShadowFlow` | `Renderer` (grupos de desenho)    | os argumentos indiretos por grupo (contagem de grupos por redescrição)                                                                                  |
+| `ParticleFlow`/`UIFlow`    | `Renderer` / a fonte da interface | parâmetros, regiões por desenho, o atlas da fonte                                                                                                       |
+
+### D11 — A Opção B
+
+- **B3 (cáusticas)**: o `CausticsFlow` refaz os fótons só no quadro com passo da física ou com mudança da cena (luzes,
+  instâncias, configuração — eventos e dado do `Renderer`); a média móvel do hash pelo `caustics.average` do perfil.
+- **B1 (continuação)**: `tracing.continuation` limita as rodadas por quadro (3); as vagas vivas no fim do quadro
+  seguem no seguinte (a raiz de um pixel só nasce quando a cadeia dele terminou); o resultado de um caminho que termina
+  depois sai com o carimbo do quadro em que nasceu e o filtro temporal o reprojeta como já faz com os blocos.
+- **B2 (xadrez)**: `tracing.checkerboard` traça os blocos 2×2 de uma paridade por quadro; a reconstrução usa os
+  carimbos dos blocos (já existem) e a reprojeção pelo movimento, com a rejeição do histórico onde a superfície mudou.
+- Cada peça medida sozinha (tanque congelado e com a física; câmera parada e girando) antes de entrar num perfil.
+
+### D12 — O espaço de trabalho da simulação e da cena
+
+LCP (contatos, pares, proxies, contadores lidos por `bufferRead`), PBF/SPH/difusas (`NeighborSearchPipeline` e os
+buffers por partícula), MPM (grade), FEM/XPBD/superfícies macias, emissores, colisores de superfície (SDF assado),
+transformações e câmeras (listas por função), matriz de sombra, superfícies adaptativas, nós de conjunto do grafo: o
+espaço de trabalho no Resource da física de cada corpo ou do componente da cena, pelas peças da D8 e os auxiliares da
+D9.
+
+### D13 — A regra
+
+`no-restricted-syntax` no ESLint contra `core.create` (e `ctx.core.create`) em `src/elements/**` e
+`src/presentation/**`, com um teste que conta os sites (zero); a constituição já exige (Princípio III).
+
+### Constitution Check da emenda
+
+- Princípio III: a emenda é a correção — toda alocação pelo `ResourceSystem`.
+- Princípio I: o `Renderer` na C3; a C4 o compõe com o `FrameTargets`; nenhuma importação nova da C1.
+- Princípio II: a fachada do `Renderer` fala em caminhos de luz, fótons e perfis; o layout fica nos descritores.
+- Sem afrouxar: os critérios atuais; o SC-001/SC-002 substituídos pela medida por perfil por decisão do usuário.

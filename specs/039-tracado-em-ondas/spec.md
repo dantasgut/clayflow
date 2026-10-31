@@ -174,3 +174,153 @@ ela, nada quebra.
 - A ondulação vem do material na normal da entrada (pelo raster) e da saída.
 - As cáusticas mantêm 65 536 fótons por quadro por padrão.
 - O orçamento fixo cobre uma entrada e uma saída da água por pixel; o que passa disso é medido e levado ao usuário.
+
+---
+
+## Emenda 2026-10-30 — o renderizador e o espaço de trabalho gerenciado
+
+**Input**: decisões do usuário em 2026-10-30: "Refraction é uma propriedade de material, não é um resource por si
+próprio, vide o Blender"; "O 3 [o espaço de trabalho por quadro] também cabe em um renderizador"; "Siga com
+desempenho, depois unificamos o renderizador, incluindo estes flows que você escreveu"; e, depois do mapa dos custos e
+dos botões de qualidade (`baseline.md`), "Façamos uma emenda na 39 e façamos aqui o render".
+
+### Contexto da emenda
+
+1. **Não há configuração de renderização.** Ela está espalhada em Resources avulsos inseridos pelos estágios padrão
+   (`ToneMapping`, `FrameTargets`, `TemporalAntialiasing`, `TemporalFilter`, `Refraction`, `Caustics`); o `Refraction`
+   mistura um limite de caminho de luz com o espaço de trabalho do traçado, e a refração em si já é do material (o
+   fechamento do grafo: transmissão, IOR, Abbe, absorção).
+2. **O espaço de trabalho fica fora da arquitetura.** Quase todos os Flows e os auxiliares deles (`RayWave`,
+   `PerStepUniforms`, `FrameUniforms`, `PrefixSum`, `RadixSort`, `SpatialHashGrid`, `CountToArgs`, `ColliderSet`,
+   `NeighborSearchPipeline`…) criam buffers e texturas por `core.create`, contra o Princípio III da constituição
+   (alocação só pelo `ResourceSystem`). Consequências medidas: os buffers das cáusticas só crescem (depois de 262 144
+   fótons, 65 536 custam 31 ms em vez de 22,5) e desligar e religar os fótons deixa as cáusticas ~7 ms mais caras.
+   Faltam na C2 as peças que tornariam isso desnecessário: buffer dimensionado pela tela (só texturas têm
+   `sizeFromCanvas`), leitura de volta entregue por evento e uniformes por região com offset dinâmico.
+3. **O orçamento de 16,7 ms (SC-001) não fecha na fidelidade atual.** Medido: 33 ms com a física (22 ms congelado); os
+   botões de qualidade dão no máximo 1,3–1,6× (`baseline.md`, "Os botões de qualidade"); o trabalho distribuído entre
+   quadros (Opção B) leva a ~60 FPS a 1280×720.
+
+### User Story 7 - Um renderizador com a configuração do desenho (Priority: P1)
+
+Quem monta uma cena configura o desenho num lugar só — os limites dos caminhos de luz (como o Light Paths do Cycles), as
+cáusticas, o antisserrilhado, o filtro temporal, a saída — e escolhe um perfil de qualidade; a refração de cada objeto
+vem do material dele.
+
+**Independent Test**: a cena do tanque com cada perfil no app e no smoke; os testes de unidade do `Renderer` (valores,
+validação, perfis); nenhum `Refraction` nem `Caustics` na API de autoria.
+
+**Acceptance Scenarios**:
+
+1. **Given** uma cena com material transmissivo, **When** ela é montada sem configurar nada, **Then** o renderizador
+   padrão entra com o perfil alto (a imagem e o tempo de hoje).
+2. **Given** o perfil médio ou baixo, **When** escolhido em tempo de execução, **Then** o quadro seguinte usa os
+   limites dele e o espaço de trabalho se ajusta (cresce e encolhe) sem vazamento: o custo de um perfil não depende
+   dos perfis usados antes.
+3. **Given** o teto de interfaces de transmissão, **When** alterado, **Then** o traçado o segue (o mesmo efeito do
+   `maxInterfaces` de hoje) e a refração de cada objeto continua vindo do material.
+
+### User Story 8 - Todo espaço de trabalho gerenciado pela C2 (Priority: P1)
+
+Nenhum Flow nem auxiliar de C3/C4 cria buffer ou textura: o espaço de trabalho é declarado como descritor do Resource
+dono (o renderizador, o campo, a estrutura de raios, a física de cada corpo), dimensionado pela tela, pela capacidade
+pedida ou pela configuração, alocado, religado e liberado pela C2 com eventos.
+
+**Independent Test**: uma regra de lint (e um teste que a confere) sem `core.create` em `src/elements` e
+`src/presentation`; os smokes com os critérios atuais; o teste de crescer, encolher e redimensionar sem vazamento.
+
+**Acceptance Scenarios**:
+
+1. **Given** o canvas redimensionado, **When** o quadro seguinte roda, **Then** os buffers e texturas dimensionados
+   pela tela já têm o tamanho novo e as ligações foram refeitas pela C2.
+2. **Given** um contador da GPU que precisa ser lido (a fila da refração, os contatos do LCP), **When** a leitura fica
+   pronta, **Then** o Flow a recebe por evento, sem `mapAsync` nem buffer de leitura próprio.
+3. **Given** uma capacidade que muda para baixo (menos fótons, perfil menor), **When** o Resource se redescreve, **Then**
+   a memória e o custo voltam aos do tamanho novo.
+
+### User Story 9 - Perfis e trabalho distribuído entre quadros (Priority: P1)
+
+O tanque roda mais rápido sem quebrar as regras do motor (nada de imagem no lugar de raio): perfis de qualidade e o
+trabalho caro distribuído entre quadros — cáusticas acumuladas e refeitas no passo da física, caminhos de luz que
+continuam no quadro seguinte, metade dos representantes traçada por quadro em xadrez.
+
+**Independent Test**: a ablação do tanque congelado e com a física (`baseline.md`) por perfil e por peça; a imagem
+contra a referência e contra o piso de ruído; os smokes de refração e cáusticas com os critérios atuais.
+
+**Acceptance Scenarios**:
+
+1. **Given** o tanque com a física a 1280×720 no M4, **When** medido por perfil, **Then** os tempos ficam nos alvos da
+   SC-009 e a diferença de imagem de cada perfil contra o alto fica registrada.
+2. **Given** a câmera parada e a água assentada, **When** a peça distribuída está ligada, **Then** a imagem converge
+   para a mesma do perfil sem ela (diferença no piso de ruído).
+3. **Given** a câmera girando ou a água agitada, **When** a peça distribuída está ligada, **Then** o atraso e o rastro
+   medidos ficam registrados; a peça que passar dos limites da SC-010 fica desligada no perfil e vai ao usuário.
+
+### Edge Cases da emenda
+
+- Perfil trocado no meio da simulação: o espaço de trabalho se redescreve; os históricos temporais que dependem do
+  tamanho são invalidados pela C2 (como os canais temporais).
+- Leitura de volta mais lenta que o quadro: uma em voo por descritor; o Flow usa a última recebida (como a fila da
+  refração já faz).
+- Sem consulta de tempo ou sem leitura de volta: os perfis funcionam; a fila da refração usa a capacidade inteira.
+- A Opção A (a água pela tela, como o Particles4All: profundidade suavizada na tela e espessura no lugar do caminho) fica
+  fora: quebra as regras "sem desfoque de tela" e "sem imagem no lugar de física"; só entra como perfil com exceção
+  decidida pelo usuário.
+
+### Functional Requirements da emenda
+
+- **FR-010**: Um `Renderer` (C3, `src/elements/render/`): fachada de autoria com os limites dos caminhos de luz
+  (transmissão, reflexão), as cáusticas (fótons, célula, frequência), o traçado (resolução, xadrez, continuação), o
+  antisserrilhado, o filtro temporal e a saída; perfis `high`/`medium`/`low` que preenchem os valores; inserido pelos
+  estágios padrão; um por cena (o renderizador por alvo de render fica para a 014, com a mesma forma).
+- **FR-011**: `Refraction` e `Caustics` deixam de ser Resources de autoria: a configuração vai ao `Renderer`, o espaço
+  de trabalho aos Resources de trabalho dele; a refração de cada objeto continua no material.
+- **FR-012**: C2 — buffer dimensionado pela tela: um descritor de buffer declara bytes por elemento da tela (com
+  divisor), alocado e recriado pela C2 no `canvasReconfigured`, como as texturas `sizeFromCanvas`.
+- **FR-013**: C2 — leitura de volta por descritor: o Resource declara que um descritor é lido de volta; a C2 copia,
+  mapeia (uma em voo por descritor) e entrega os bytes por evento aos Flows com slot no Resource.
+- **FR-014**: C2 — uniformes por região: um descritor uniforme com N regiões e offset dinâmico, com o dado de cada
+  região no Resource e a reserva por redescrição (o que o `PerStepUniforms` e o `FrameUniforms` fazem hoje).
+- **FR-015**: Os auxiliares de compute e de raios (`RayWave`, `PrefixSum`, `RadixSort`, `Compaction`, `Reduce`,
+  `SpatialHashGrid`, `CountToArgs`, `ColliderSet`, `NeighborSearchPipeline`, `GraphColorer`, `UiGpuPipeline`,
+  `SetNodeKernels`) passam a declarar os descritores de que precisam (para o Resource dono incluir) e a ligar o que a C2
+  alocou; nenhum cria objeto de GPU.
+- **FR-016**: Os Flows de desenho (refração, cáusticas, GI, campo, estrutura de raios, forward, sombras, partículas,
+  pós, interface) e os de simulação e cena (LCP, PBF, SPH, MPM, FEM, XPBD, difusas, emissores, colisores de superfície,
+  superfícies macias, transformações, câmeras, matriz de sombra, superfícies) sem `core.create`: o espaço de trabalho
+  nos Resources donos.
+- **FR-017**: A capacidade segue a configuração nos dois sentidos (cresce e encolhe), sem estado preso a valores
+  anteriores (corrige os dois defeitos das cáusticas).
+- **FR-018**: Opção B: cáusticas com fótons e média móvel pela configuração e refeitas só no passo da física (B3);
+  caminhos que continuam no quadro seguinte, com as vagas vivas preservadas e a reprojeção pelo filtro temporal (B1);
+  metade dos representantes por quadro em xadrez (B2); cada peça ligada por perfil.
+- **FR-019**: Uma regra de lint proíbe `core.create` em `src/elements/**` e `src/presentation/**` (testes e smokes
+  fora), como a regra de importação da constituição.
+
+### Key Entities da emenda
+
+- **Renderer**: a configuração do desenho e o perfil; dono dos Resources de trabalho do desenho.
+- **RenderWorkspace** (por estágio: refração, cáusticas, GI, pós, desenho por grupo): os descritores do espaço de
+  trabalho, dimensionados pela tela, pela capacidade ou pela configuração.
+- **ReadbackDescriptor** / evento `bufferRead`: a leitura de volta gerenciada.
+- **UniformRegions**: o descritor uniforme por região com offset dinâmico.
+
+### Success Criteria da emenda
+
+- **SC-001 e SC-002 (substituídos, decisão do usuário 2026-10-30)**: o orçamento de 16,7 ms do tanque e os 3 ms da
+  lente não fecham na fidelidade atual (medido em `baseline.md`); passam a ser medidos por perfil pela SC-009. As
+  medidas de antes e depois ficam registradas.
+- **SC-007**: Zero `core.create` em `src/elements` e `src/presentation` (lint + teste).
+- **SC-008**: Os smokes e testes que passam hoje continuam passando; as falhas anteriores registradas no
+  `baseline.md` não pioram; o custo de cada perfil não depende dos usados antes (teste de vazamento).
+- **SC-009**: O tanque com a física a 1280×720 no M4 (Chrome): alto ≤ 33 ms (o atual, sem regressão); médio ≤ 22 ms;
+  baixo ≤ 17 ms — com a Opção B nos perfis em que ela passa a SC-010.
+- **SC-010**: Cada peça da Opção B com a câmera parada converge para a imagem sem ela (diferença no piso de ruído:
+  ≤ 0,6 % dos pixels > 8/255); com a câmera girando e a água agitada, o atraso e o rastro medidos e registrados.
+- **SC-011**: O vídeo do tanque em cada perfil no Chrome.
+
+### Assumptions da emenda
+
+- A migração não muda a imagem: com o perfil alto e a Opção B desligada, as capturas ficam no piso de ruído das
+  atuais.
+- Os perfis e os alvos da SC-009 vêm das medidas de 2026-10-30; um alvo que não fechar vai ao usuário com a medida.
