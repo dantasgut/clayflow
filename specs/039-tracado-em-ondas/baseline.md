@@ -580,3 +580,13 @@ Custo das cáusticas por ablação (congelado, 3 ciclos): médio 2,45 ms, baixo 
 Smoke `refraction case=cost` (a cena `lens` a 1280 × 720, modo temporal, mediana de três blocos de 40 quadros, com a
 refração ligada menos a desligada): alto (teto 16) 26,6 ms; médio (teto 4, xadrez) 10,9 ms; baixo 11,0 ms. O limite de
 3 ms foi substituído por esta medida por perfil (decisão do usuário).
+
+## O gate da 039 (2026-10-31)
+
+tsc, lint (0 erros fora dos descartáveis), `typecheck:bench`, 1902 testes. Smokes: os mesmos 28 passam; as mesmas falhas
+de antes da migração (extensionPoints, fluidBehavior, deviceFloor e globalIllumination com `gi_trace` 11 > 10,
+materials, nodeGraphs, parametricSurfaces, rayScene, softSurface, fluidSurface) e os mesmos timeouts (antialiasing, fog,
+giNoise, refraction); fluidField derruba o adaptador no caso `normal`, como antes. Única mudança de número: no
+`parametricSurfaces`, "cáusticas: N px mais claros/escuros na água" caiu de 26/23 para 1/5 com o renderizador
+(`bf467ff7`) — o critério compara o lago `caustics` com o `plain`, que o smoke monta idênticos (as cáusticas nos dois):
+mede o ruído entre duas rodadas, já falhava, e as duas rodadas ficaram mais parecidas.
