@@ -46,7 +46,7 @@ de ~2 min.
 
 - [ ] T112 O tanque por estágio no `baseline.md` (SC-001) e a comparação de imagem com o motor anterior (SC-003).
       (2026-10-30: o mapa por estágio e a SC-003 no quadro 400 registrados; o SC-001 substituído pela SC-009.)
-- [ ] T113 Vídeo do tanque no Chrome; no Deno com aprovação (SC-006).
+- [x] T113 Vídeo do tanque no Chrome; no Deno com aprovação (SC-006). (Ver T144.)
 - [ ] T114 Gate completo: lint, tsc, testes, smokes.
 
 ## Emenda 2026-10-30 — o renderizador e o espaço de trabalho gerenciado
@@ -139,5 +139,5 @@ Pelos pools dos corpos e pelos descritores próprios com `reserve` (plan D12), s
 
 - [x] T143 [US8] A regra de lint contra `core.create` em `src/elements/**` e `src/presentation/**` e o teste que conta
       os sites (SC-007). Feito: `no-restricted-syntax` contra `core.create/createAsync/write/writeTexture/destroy/readback` em `src/elements`, `src/presentation` e `src/platform`, e `src/elements/__tests__/noCoreAllocation.test.ts` (zero sites).
-- [ ] T144 Vídeo do tanque em cada perfil no Chrome (SC-011).
+- [x] T144 Vídeo do tanque em cada perfil no Chrome (SC-011). (2026-10-31: `npm run video -- agua --profile high|medium|low` no app — GPU por quadro média 35,9 / 29,1 / 28,8 ms; a conferência do H.264 contra os quadros exatos dá 44,4 dB de brilho nos três, abaixo dos 50 do gravador. No Deno não gravado: precisa da aprovação do usuário.)
 - [ ] T145 Gate completo (lint, tsc, testes, smokes) — junto com a T114.
