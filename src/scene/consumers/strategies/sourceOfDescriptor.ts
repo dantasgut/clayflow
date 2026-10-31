@@ -12,6 +12,17 @@ export function sourceOfDescriptor(
     const visibility = desc?.visibility !== undefined ? { visibility: desc.visibility } : {};
     const buffer = resources.bufferOf(resource, descId);
     if (buffer !== undefined && buffer.subkind !== 'staging') {
+        const stride =
+            desc?.regions !== undefined ? resources.regionStrideOf(resource, descId) : undefined;
+        if (stride !== undefined && desc?.schema !== undefined) {
+            return {
+                kind: 'buffer',
+                buffer,
+                size: desc.schema.stride,
+                dynamic: { stride },
+                ...visibility,
+            };
+        }
         return { kind: 'buffer', buffer, ...visibility };
     }
     const view = resources.textureViewOf(resource, descId);

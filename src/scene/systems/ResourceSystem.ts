@@ -1610,6 +1610,41 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return materialized.length > 0 && materialized.every((d) => policyOf(d) !== 'always');
     }
 
+    /** Stride das regiões de um uniforme por região: o do schema alinhado ao offset dinâmico do adaptador. */
+    private regionStride(schema: Schema): number {
+        const alignment = this.core.capabilities().limits.minUniformBufferOffsetAlignment ?? 256;
+        return alignUp(schema.stride, alignment);
+    }
+
+    /**
+     * Número de regiões de um uniforme por região, validado.
+     * @throws Error fora de `role: 'uniform'` individual, com `count` ou `history`, ou com `count` de regiões inválido.
+     */
+    private checkedRegions(resource: Resource, desc: GPUDescriptor): number {
+        const count = desc.regions!.count;
+        if (
+            desc.role !== 'uniform'
+            || desc.storage === 'pool'
+            || desc.count !== undefined
+            || desc.history !== undefined
+        )
+            throw new Error(
+                `ResourceSystem: '${desc.id}' de '${this.schemaNameOf(resource)}' com regions — só em 'uniform' individual, `
+                    + 'sem count nem history.',
+            );
+        if (!Number.isInteger(count) || count < 1)
+            throw new RangeError(
+                `ResourceSystem: '${desc.id}' de '${this.schemaNameOf(resource)}' com ${count} regiões (inteiro ≥ 1).`,
+            );
+        return count;
+    }
+
+    regionStrideOf(resource: Resource, descId: string): number | undefined {
+        const desc = resource.getDescriptors().find((d) => d.id === descId);
+        if (desc?.regions === undefined || desc.schema === undefined) return undefined;
+        return this.regionStride(desc.schema);
+    }
+
     /** Aloca os objetos de GPU de um descritor individual conforme o papel (research R9). */
     private allocateDescriptor(
         resource: Resource,
@@ -1635,7 +1670,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             case 'storage-ro':
             case 'storage-rw': {
                 if (desc.schema === undefined) break;
-                const byteSize = alignUp(desc.schema.stride * (desc.count ?? 1), 16);
+                const byteSize =
+                    desc.regions !== undefined
+                        ? this.regionStride(desc.schema) * this.checkedRegions(resource, desc)
+                        : alignUp(desc.schema.stride * (desc.count ?? 1), 16);
                 if (desc.history !== undefined) {
                     // Série de buffer (spec 037): as fatias, produzidas pela GPU (sem conteúdo da CPU).
                     const slices = Array.from({ length: desc.history.depth }, (_, k) => ({
@@ -1968,6 +2006,17 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private writeBufferContent(resource: Resource, allocation: Allocation): void {
         const buffer = allocation.buffer;
         if (buffer === undefined) return;
+        const desc = allocation.desc;
+        if (desc.regions !== undefined && desc.schema !== undefined) {
+            const content = regionsContent(
+                resource,
+                desc,
+                desc.schema,
+                this.regionStride(desc.schema),
+            );
+            if (content !== undefined) this.core.write(buffer, content);
+            return;
+        }
         const content = bufferContent(resource, allocation.desc);
         if (content === undefined) return;
         this.core.write(buffer, padTo4(content));
@@ -2777,7 +2826,31 @@ function sameShape(a: GPUDescriptor, b: GPUDescriptor): boolean {
         && JSON.stringify(a.textureShape) === JSON.stringify(b.textureShape)
         && JSON.stringify(a.samplerShape) === JSON.stringify(b.samplerShape)
         && JSON.stringify(a.history) === JSON.stringify(b.history)
+        && a.regions?.count === b.regions?.count
     );
+}
+
+/**
+ * Conteúdo de um uniforme por região: o registro `i` de `data[desc.id]` em `i × stride` (as regiões sem registro ficam
+ * zeradas); `undefined` sem registros.
+ */
+function regionsContent(
+    resource: Resource,
+    desc: GPUDescriptor,
+    schema: Schema,
+    stride: number,
+): Uint8Array | undefined {
+    const value = (resource.data as Record<string, unknown>)[desc.id];
+    if (!Array.isArray(value)) return undefined;
+    const count = Math.min(value.length, desc.regions!.count);
+    const out = new Uint8Array(stride * count);
+    for (let i = 0; i < count; i++) {
+        const record = value[i] as Record<string, unknown> | undefined;
+        if (record === undefined || record === null) continue;
+        const packed = schema.pack(record);
+        out.set(new Uint8Array(packed.buffer, packed.byteOffset, packed.byteLength), i * stride);
+    }
+    return out;
 }
 
 /** `writeBuffer` exige tamanho múltiplo de 4: completa com zeros quando necessário. */

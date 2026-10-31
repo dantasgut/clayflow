@@ -65,6 +65,18 @@ export interface ResourceDirectory extends PoolDirectory {
     /** Sampler alocado para o descritor `sampler`, ou `undefined`. */
     samplerOf(resource: Resource, descId: string): SamplerSpec | undefined;
     /**
+     * Distância em bytes entre as regiões do uniforme por região `descId` de `resource` (o stride do schema alinhado ao
+     * `minUniformBufferOffsetAlignment` do adaptador; spec 039), ou `undefined` se o descritor não tem `regions`.
+     */
+    regionStrideOf(resource: Resource, descId: string): number | undefined;
+    /**
+     * Lê da GPU o dado do descritor `descId` de `resource` (ou o primeiro com schema), desempacotado pelo schema — a
+     * leitura sob demanda da spec 007: os pedidos da mesma tarefa saem num lote, uma cópia por faixa contígua; o valor é
+     * o do último quadro enviado. Resource fora da cena (ou removido antes da resposta) resolve `undefined`. É o caminho
+     * de um Flow para um contador da GPU (a fila da refração, os contatos do LCP), sem staging próprio.
+     */
+    read(resource: Resource, descId?: string): Promise<Record<string, unknown> | undefined>;
+    /**
      * O descritor individual `descId` de `resource` tem um escritor na GPU (um conjunto com `owns`, spec 008)? Serve a
      * quem consome dado `upload: 'never'` (ex.: o forward avisa quando desenha uma geometria que ninguém escreve).
      */

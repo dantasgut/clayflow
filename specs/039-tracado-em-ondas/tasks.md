@@ -59,14 +59,15 @@ a imagem do tanque no perfil alto contra as capturas atuais (piso de ruído).
 Revisão de 2026-10-31: o pool do corpo com descritores de trabalho, os descritores próprios com `reserve`, a
 redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o uniforme por região é peça nova.
 
-- [ ] T115 [US8] `GPUDescriptor.regions` (uniforme por região com offset dinâmico, alinhamento do adaptador, envio só
+- [x] T115 [US8] `GPUDescriptor.regions` (uniforme por região com offset dinâmico, alinhamento do adaptador, envio só
       das regiões alteradas, reserva por redescrição, fonte com `dynamic: { stride }`) em
       `src/scene/descriptors/GPUDescriptor.ts` e `src/scene/systems/ResourceSystem.ts`; testes.
-- [ ] T116 [US8] `read` no `ResourceDirectory` (`src/scene/contracts/ResourceDirectory.ts`) para os Flows; medir a
-      leitura a cada quadro e, se o staging por leitura pesar, reaproveitá-lo dentro do `read`; testes.
-- [ ] T117 [US8] Teste do trabalho por entidade: descritor de pool `upload: 'never'`, `allocation: 'onDemand'` no mesmo
+- [x] T116 [US8] `read` no `ResourceDirectory` (`src/scene/contracts/ResourceDirectory.ts`) para os Flows; medir a
+      leitura a cada quadro e, se o staging por leitura pesar, reaproveitá-lo dentro do `read`; testes. (Exposto e testado; a medida por quadro sai na T128, com a fila da
+      refração como primeiro leitor.)
+- [x] T117 [US8] Teste do trabalho por entidade: descritor de pool `upload: 'never'`, `allocation: 'onDemand'` no mesmo
       slot do `body`, crescendo com o pool e reaproveitando faixas (o caso que o PBF vai usar).
-- [ ] T118 [US8] Teste de vazamento da redescrição: crescer, encolher, crescer de novo um descritor próprio com `count`
+- [x] T118 [US8] Teste de vazamento da redescrição: crescer, encolher, crescer de novo um descritor próprio com `count`
       — o mesmo tamanho e as ligações refeitas (`reallocateOwn`).
 
 ### Phase 7: os auxiliares como provedores de descritores
