@@ -38,7 +38,7 @@ fn temporal_filter_source_footprint(q: vec2u, guide: vec4f) -> f32 {
 
 fn temporal_filter_source_fresh(q: vec2u) -> bool {
     let rep = refraction_block_rep(q, textureDimensions(refraction_request));
-    return rep.z != 0u && all(rep.xy == q);
+    return rep.z != 0u && all(rep.xy == q) && refraction_block_turn(q);
 }
 
 fn temporal_filter_source_change(q: vec2u) -> f32 {

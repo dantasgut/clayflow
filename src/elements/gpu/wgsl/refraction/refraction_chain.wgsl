@@ -730,7 +730,10 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             if (any(c < vec2i(0)) || any(c >= blocks)) { continue; }
             let block = refraction_blocks[u32(c.x + c.y * blocks.x)];
             let tag = block.tag;
-            if (tag.x != refraction.frame || tag.w != own.y) { continue; }
+            // Em xadrez (Opção B2) a vizinhança tem os blocos deste quadro e os do anterior (a outra metade).
+            let fresh = tag.x == refraction.frame
+                || (refraction.checkerboard != 0u && tag.x + 1u == refraction.frame);
+            if (!fresh || tag.w != own.y) { continue; }
             let r = vec2u(tag.y & 0xFFFFu, tag.y >> 16u);
             let to_rep = dot(vec2f(r) - vec2f(q), vec2f(r) - vec2f(q));
             if (to_rep < near_any) {
@@ -767,7 +770,9 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     let ds = bitcast<f32>(stamp.y);
     let jittered = any(cameras[refraction.camera_slot].jitter.zw != vec2f(0.0));
     let tolerance = select(0.0, refraction_pixel_depth_step(q, size, own.y, d), jittered) + 1e-4 * d;
-    if (stamp.x != 0u && refraction.frame + 1u - stamp.x < REFRACTION_STAMP_FRAMES && abs(ds - d) <= tolerance) {
+    // Em xadrez (Opção B2) a volta do representante pelo bloco leva até 4× os quadros (a vez e a fase giram por ciclo).
+    let stamp_frames = select(REFRACTION_STAMP_FRAMES, 4u * REFRACTION_STAMP_FRAMES, refraction.checkerboard != 0u);
+    if (stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
         return;
     }
     refraction_stamps[i] = vec2u(0u);

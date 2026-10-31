@@ -29,7 +29,7 @@ são de autoria: são os Resources que os estágios leem, mantidos pelo renderiz
 | -------- | ---------- | ------------- |
 | `high`   | 16         | 65 536 fótons |
 | `medium` | 4          | 16 384 fótons |
-| `low`    | 4          | desligadas    |
+| `low`    | 4          | 8 192 fótons  |
 
 O alto é o padrão de antes da 039 (a mesma imagem); o médio e o baixo vêm dos botões medidos no tanque
 (`specs/039-tracado-em-ondas/baseline.md`, "Os botões de qualidade").

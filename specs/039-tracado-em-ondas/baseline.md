@@ -517,3 +517,31 @@ assenta 150 quadros, mede 90 pelo intervalo entre quadros; tempos sem capturas, 
 - A medida de 33 ms "com a física" anterior não se reproduz hoje nem no código de antes da migração (45–63 ms com o
   Chrome do usuário e os servidores do app abertos; 34–40 ms depois): o tempo ao vivo depende do estado da água e da
   carga na GPU, e as comparações valem só na mesma sessão.
+
+## A Opção B2 (xadrez) e o perfil baixo com cáusticas (2026-10-31)
+
+Perfil baixo corrigido (decisão do usuário: as cáusticas ficam em todo perfil): teto 4 e 8 192 fótons. B2
+(`renderer.tracing.checkerboard`): metade dos blocos 2×2 traçada por quadro, a vez no bloco avançando por traçado e por
+ciclo de 8 quadros e a fase do xadrez trocando a cada 4 ciclos (descorrelação com a sequência de 64 posições do
+antisserrilhado), carimbos por até 16 quadros e a reconstrução com os blocos do quadro e do anterior.
+
+Tempo (1280×720, M4; congelado 2 ciclos; com a física, duas rodadas na mesma sessão em ordens opostas):
+
+| Configuração     | Congelado      | Com a física             |
+| ---------------- | -------------- | ------------------------ |
+| alto (teto 8)    | 26,0 / 26,0 ms | 48,3–51,1 / 46,5–46,6 ms |
+| alto + B2        | 21,1 / 21,3 ms | 39,5–41,2 / 36,7–36,9 ms |
+| médio            | 19,5 / 19,6 ms | 33,4–36,3 / 33,5–34,7 ms |
+| médio + B2       | 15,5 / 15,5 ms | 27,9–28,7 / 28,6–29,4 ms |
+| baixo (4, 8 192) | 20,6 / 20,8 ms | 33,4 / 34,1–36,3 ms      |
+| baixo + B2       | 15,8 / 16,2 ms | 28,1–28,2 / 28,4–28,8 ms |
+
+- Imagem do baixo contra o alto: 11,7 % dos pixels > 8/255 (média 3,2); piso 0,46 %.
+- SC-010 da B2 (câmera parada, 600 quadros de espera, mesma sessão): **não passa**. Controle — duas configurações
+  idênticas com nomes diferentes: 0,39–0,41 %; médio contra médio + B2: 1,56–1,64 % (limite 0,6 %), com as diferenças
+  nas bordas (o xadrez do chão, o vidro, a superfície da água), e o mesmo com 150 ou 600 quadros (viés, não convergência
+  lenta). A descorrelação com o antisserrilhado e a vizinhança de dois quadros não mudaram o número. A leitura: o valor
+  exato de cada pixel é reaproveitado por até 14 quadros (4 sem a B2) enquanto o resto do quadro muda de posição de
+  amostra a cada quadro — as bordas resolvem diferente. Pela SC-010, a B2 fica desligada nos perfis (decisão do usuário).
+- 60 FPS (SC-009 revista) não fecham: o melhor com a física é ~28 ms (médio ou baixo + B2). Com a física rodando o quadro
+  faz ~1,7 passo de 60 Hz (cada um ~6 ms: PBF 2,1, campo 4), e congelado o melhor desenho é ~15,5 ms.

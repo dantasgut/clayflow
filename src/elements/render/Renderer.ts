@@ -19,14 +19,15 @@ interface ProfileValues {
 
 /**
  * Os perfis (medidos no tanque, `baseline.md`, "Os botões de qualidade" e "Os perfis do renderizador no tanque"): o alto
- * é o padrão de antes da 039 (a mesma imagem); o médio corta o teto de interfaces e os fótons; o baixo desliga também as
- * cáusticas.
+ * é o padrão de antes da 039 (a mesma imagem); o médio corta o teto de interfaces e os fótons; o baixo, mais fótons. As
+ * cáusticas ficam ligadas em todos.
  */
 export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
     high: { transmission: 16, caustics: true, photons: 65_536 },
     medium: { transmission: 4, caustics: true, photons: 16_384 },
-    // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque).
-    low: { transmission: 4, caustics: false, photons: 16_384 },
+    // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
+    // cáusticas ficam em todo perfil (decisão do usuário): o baixo só tem menos fótons.
+    low: { transmission: 4, caustics: true, photons: 8_192 },
 };
 
 /** Opções de um `Renderer`. */
@@ -43,6 +44,12 @@ export interface LightPaths {
     refraction: boolean;
     /** Interfaces de transmissão cruzadas por caminho, em 1–32. */
     transmission: number;
+}
+
+/** O traçado: como o trabalho dos caminhos se distribui pelos quadros (spec 039, Opção B). */
+export interface TracingSettings {
+    /** Metade dos blocos 2×2 traçada por quadro, em xadrez (B2): parado, converge à imagem sem ele. */
+    checkerboard: boolean;
 }
 
 /** O transporte das cáusticas: a luz que passa por vidro, água e metal liso até uma superfície difusa. */
@@ -74,6 +81,8 @@ export class Renderer extends Entity {
     readonly lightPaths: LightPaths;
     /** O transporte das cáusticas. */
     readonly caustics: CausticsSettings;
+    /** A distribuição do traçado pelos quadros. */
+    readonly tracing: TracingSettings;
     /** @internal O Resource que os estágios de refração leem. */
     readonly refractionResource: Refraction;
     /** @internal O Resource que os estágios de cáusticas leem (inserido com o primeiro transmissivo). */
@@ -102,6 +111,14 @@ export class Renderer extends Entity {
             },
             set transmission(n: number) {
                 refraction.maxInterfaces = n;
+            },
+        };
+        this.tracing = {
+            get checkerboard() {
+                return refraction.checkerboard;
+            },
+            set checkerboard(on: boolean) {
+                refraction.checkerboard = on;
             },
         };
         this.caustics = {

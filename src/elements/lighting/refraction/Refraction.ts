@@ -80,7 +80,8 @@ export interface RefractionData {
     /** Tempo simulado (as funções `material` nos acertos; escrito pelo estágio). */
     time: number;
     /** Preenchimento. */
-    _pad0: number;
+    /** 1: metade dos blocos 2×2 traçada por quadro, em xadrez (spec 039, Opção B2); 0: todos. */
+    checkerboard: number;
     _pad1: number;
 }
 
@@ -124,7 +125,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             light_count: FieldType.u32,
             frame: FieldType.u32,
             time: FieldType.f32,
-            _pad0: FieldType.u32,
+            checkerboard: FieldType.u32,
             _pad1: FieldType.u32,
         },
         { addressSpace: 'uniform' },
@@ -141,7 +142,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             light_count: 0,
             frame: 0,
             time: 0,
-            _pad0: 0,
+            checkerboard: 0,
             _pad1: 0,
         };
         validate(data);
@@ -166,6 +167,19 @@ export class Refraction extends Entity<RefractionData> implements Resource {
     set maxInterfaces(n: number) {
         validate({ ...this.rawData, max_interfaces: n });
         this.data.max_interfaces = n;
+    }
+
+    /**
+     * Metade dos blocos 2×2 traçada por quadro, em xadrez (spec 039, Opção B2): com a imagem parada cada pixel recebe o
+     * valor exato a cada 8 quadros (o filtro temporal guarda o histórico); em movimento, o bloco não traçado é
+     * reconstruído dos vizinhos traçados.
+     */
+    get checkerboard(): boolean {
+        return this.data.checkerboard === 1;
+    }
+
+    set checkerboard(on: boolean) {
+        this.data.checkerboard = on ? 1 : 0;
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

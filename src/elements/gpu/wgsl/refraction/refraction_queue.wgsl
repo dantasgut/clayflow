@@ -15,7 +15,7 @@ fn refraction_queue_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     if (i >= size.x * size.y) { return; }
     let pixel = vec2u(i % size.x, i / size.x);
     let rep = refraction_block_rep(pixel, size);
-    if (rep.z == 0u || any(rep.xy != pixel)) { return; }
+    if (rep.z == 0u || any(rep.xy != pixel) || !refraction_block_turn(pixel)) { return; }
     let k = atomicAdd(&refraction_queue_count[0], 1u);
     textureStore(refraction_queue_out, vec2u(k % size.x, k / size.x), vec4u(i, 0u, 0u, 0u));
 }

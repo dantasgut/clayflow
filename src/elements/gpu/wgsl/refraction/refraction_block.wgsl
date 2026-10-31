@@ -17,12 +17,28 @@ fn refraction_block_requested(p: vec2u, size: vec2u) -> bool {
 /** O representante do bloco do pixel `p` no quadro (xy; z = 1 quando o bloco tem pixel pedido). */
 fn refraction_block_rep(p: vec2u, size: vec2u) -> vec3u {
     let corner = p & vec2u(~1u);
-    let start = refraction.frame % 4u;
+    // Em xadrez (Opção B2) o bloco é traçado em quadros alternados: a vez avança a cada traçado dele e mais uma a cada
+    // ciclo de 8 quadros (`refraction_block_turn`).
+    let f = refraction.frame;
+    let start = select(f, f / 2u + f / 8u, refraction.checkerboard != 0u) % 4u;
     for (var k = 0u; k < 4u; k++) {
         let q = corner + REFRACTION_BLOCK_ORDER[(start + k) % 4u];
         if (refraction_block_requested(q, size)) { return vec3u(q, 1u); }
     }
     return vec3u(0u);
+}
+
+/**
+ * O bloco do pixel `p` é traçado neste quadro (sempre; em xadrez, os da paridade do quadro)? Descorrelação com o
+ * antisserrilhado temporal (a sequência de Halton das posições da amostra): traçado só em quadros de uma paridade e a cada
+ * 8 quadros, o pixel veria só 1/8 das posições — a imagem parada sairia com viés. A fase do xadrez troca a cada 4 ciclos
+ * de 8 quadros e a vez no bloco avança a cada ciclo: em 64 quadros cada pixel passa pelos 8 resíduos do quadro.
+ */
+fn refraction_block_turn(p: vec2u) -> bool {
+    if (refraction.checkerboard == 0u) { return true; }
+    let b = p / 2u;
+    let f = refraction.frame;
+    return ((b.x + b.y + f + f / 32u) & 1u) == 0u;
 }
 
 /** O pixel pedido `q` do bloco recebe o resultado do representante `rep` (a mesma superfície: distância e face)? */
