@@ -14,6 +14,7 @@ r.profile = 'medium';                 // perfil de qualidade: 'high' (padrão), 
 r.lightPaths.transmission = 8;        // por cima do perfil: interfaces de transmissão por caminho (1–32)
 r.lightPaths.refraction = true;       // a refração traçada ligada
 r.caustics.photons = 32_768;          // fótons por quadro; enabled, cellSize
+r.tracing.checkerboard = true;        // metade dos blocos 2×2 por quadro (−4 a −5 ms; 1,6 % nas bordas, parado)
 r.antialiasing.mode = 'temporal';     // 'temporal', 'accumulate', 'off'
 r.temporalFilter.enabled = true;      // o filtro do sinal traçado
 r.output.data.exposure = 1;           // a saída: exposição, mapeamento de tons, sdr/hdr
@@ -25,11 +26,11 @@ são de autoria: são os Resources que os estágios leem, mantidos pelo renderiz
 
 ## Perfis
 
-| Perfil   | Interfaces | Cáusticas     |
-| -------- | ---------- | ------------- |
-| `high`   | 16         | 65 536 fótons |
-| `medium` | 4          | 16 384 fótons |
-| `low`    | 4          | 8 192 fótons  |
+| Perfil   | Interfaces | Cáusticas     | Traçado em xadrez |
+| -------- | ---------- | ------------- | ----------------- |
+| `high`   | 16         | 65 536 fótons | não               |
+| `medium` | 4          | 16 384 fótons | sim               |
+| `low`    | 4          | 8 192 fótons  | sim               |
 
 O alto é o padrão de antes da 039 (a mesma imagem); o médio e o baixo vêm dos botões medidos no tanque
 (`specs/039-tracado-em-ondas/baseline.md`, "Os botões de qualidade").

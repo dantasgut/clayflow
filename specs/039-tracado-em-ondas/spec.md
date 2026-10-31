@@ -333,6 +333,8 @@ contra a referência e contra o piso de ruído; os smokes de refração e cáust
   carga na GPU, e o usuário fixou a meta em 60 FPS.
 - **SC-010**: Cada peça da Opção B com a câmera parada converge para a imagem sem ela (diferença no piso de ruído:
   ≤ 0,6 % dos pixels > 8/255); com a câmera girando e a água agitada, o atraso e o rastro medidos e registrados.
+- **Exceção à SC-010 (decisão do usuário, 2026-10-31)**: o traçado em xadrez (B2) entra no médio e no baixo com 1,6 %
+  dos pixels diferentes da imagem sem ele, parado (limite 0,6 %), pelos 4–5 ms (`baseline.md`, "A Opção B2").
 - **SC-011**: O vídeo do tanque em cada perfil no Chrome.
 
 ### Assumptions da emenda

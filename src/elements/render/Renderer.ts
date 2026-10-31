@@ -15,6 +15,8 @@ interface ProfileValues {
     readonly caustics: boolean;
     /** Fótons por quadro. */
     readonly photons: number;
+    /** Traçado em xadrez (Opção B2). */
+    readonly checkerboard: boolean;
 }
 
 /**
@@ -23,11 +25,13 @@ interface ProfileValues {
  * cáusticas ficam ligadas em todos.
  */
 export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
-    high: { transmission: 16, caustics: true, photons: 65_536 },
-    medium: { transmission: 4, caustics: true, photons: 16_384 },
+    high: { transmission: 16, caustics: true, photons: 65_536, checkerboard: false },
+    // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
+    // SC-010 — aceito pelo usuário em 2026-10-31 pelos 4–5 ms.
+    medium: { transmission: 4, caustics: true, photons: 16_384, checkerboard: true },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
     // cáusticas ficam em todo perfil (decisão do usuário): o baixo só tem menos fótons.
-    low: { transmission: 4, caustics: true, photons: 8_192 },
+    low: { transmission: 4, caustics: true, photons: 8_192, checkerboard: true },
 };
 
 /** Opções de um `Renderer`. */
@@ -167,5 +171,6 @@ export class Renderer extends Entity {
         this.lightPaths.transmission = values.transmission;
         this.caustics.enabled = values.caustics;
         this.caustics.photons = values.photons;
+        this.tracing.checkerboard = values.checkerboard;
     }
 }

@@ -20,11 +20,13 @@ describe('Renderer (spec 039, FR-010)', () => {
         const r = new Renderer({ profile: 'medium' });
         expect(r.refractionResource.maxInterfaces).toBe(RENDER_PROFILES.medium.transmission);
         expect(r.causticsResource.photons).toBe(RENDER_PROFILES.medium.photons);
+        expect(r.tracing.checkerboard).toBe(true);
         r.profile = 'low';
         expect(r.causticsResource.enabled).toBe(true);
         expect(r.causticsResource.photons).toBe(8_192);
         expect(r.refractionResource.maxInterfaces).toBe(4);
         r.profile = 'high';
+        expect(r.tracing.checkerboard).toBe(false);
         expect(r.causticsResource.enabled).toBe(true);
         expect(r.causticsResource.photons).toBe(65_536);
     });
