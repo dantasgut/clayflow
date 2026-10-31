@@ -453,3 +453,24 @@ Defeitos achados nas cáusticas (o código é meu): os buffers dos fótons só c
 custam 31 ms em vez de 22,5 (os rebotes despacham os blocos da capacidade, vazios); e desligar os fótons (0) e
 religá-los deixa as cáusticas ~7 ms mais caras daí em diante. Os dois buffers são `core.create` no Flow: entram na
 migração do renderizador.
+
+### Quantos blocos do campo mudam por passo (2026-10-30)
+
+Tanque com a física rodando, uma leitura do pool do PBF por instante (36 864 partículas): deslocamento por passo
+|v|·(1/60). Um bloco (10 cm, 8 voxels de 1,25 cm) muda quando alguma partícula a menos de R dele passa da tolerância τ
+no passo; "acumulado" soma a deriva (taxa por bloco = deslocamento máximo / τ, até 1). Blocos ocupados: ~6 900 com R =
+5 cm (o núcleo), ~12 600 com R = 10 cm (núcleo + faixa da redistância) — a maioria pelas gotas paradas no chão.
+
+| Simulado | Deslocamento p50 / p99 (mm) | τ 0,5 mm, R 5 cm      | τ 0,5 mm, R 10 cm    | τ 1 mm, R 10 cm      |
+| -------- | --------------------------- | --------------------- | -------------------- | -------------------- |
+| 3 s      | 2,26 / 7,24                 | 31 %                  | 32 %                 | 30 %                 |
+| 6 s      | 0,80 / 2,97                 | 14 % (acumulado 17 %) | 9 % (acumulado 12 %) | 9 % (acumulado 11 %) |
+| 10 s     | 0,19 / 0,86                 | 11 % (acumulado 14 %) | 8 % (acumulado 10 %) | 5 % (acumulado 8 %)  |
+| 20 s     | 0,05 / 0,35                 | 2 % (acumulado 8 %)   | 3 % (acumulado 7 %)  | 0 % (acumulado 4 %)  |
+
+O que escala com os blocos na reconstrução (densidade, suavização, início, redistância, apron, malha) soma ~2,8 dos ~4
+ms por passo; as etapas por partícula (junção, grade, núcleos, marcação, ~0,4 ms) e o mapa da luz (0,7) ficam. Com
+~15 % dos blocos refeitos: ~2,3 ms a menos por passo, menos a marcação dos blocos sujos — ~1,2–1,4 ms por quadro a 100
+FPS, na água assentada; na barragem (30–40 % dos blocos), pouco. Riscos: o nível que conserva o volume é global (muda
+todos os blocos a cada passo, a menos que vire um deslocamento aplicado na leitura) e a redistância e a suavização
+leem os vizinhos (as bordas entre blocos refeitos e mantidos).
