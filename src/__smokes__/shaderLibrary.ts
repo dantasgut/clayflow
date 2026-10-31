@@ -31,7 +31,7 @@ const caseOutput = wgslResource({
     provider: 'private',
 });
 import { FieldType } from '../scene/descriptors/FieldType';
-import type { StructSchema } from '../scene/descriptors/StructSchema';
+import { StructSchema } from '../scene/descriptors/StructSchema';
 import { wgslLib } from '../elements/gpu/shaders/index';
 import * as Bodies from '../elements/physics/bodies/schemas/index';
 import { PlaneCollider } from '../elements/physics/colliders/PlaneCollider';
@@ -891,7 +891,7 @@ const SCHEMAS: readonly StructSchema[] = [
     ...Object.values(Params),
     ...Object.values(State),
     NsSimParamsSchema,
-    ...Object.values(ComputeSchemas),
+    ...Object.values(ComputeSchemas).filter((s): s is StructSchema => s instanceof StructSchema),
     TransformParamsSchema,
     Transform.schema,
     Transform.worldSchema,

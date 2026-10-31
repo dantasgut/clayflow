@@ -94,6 +94,9 @@ import { queryRays, queryVolumeHits } from './support/volumeQuery';
 import { materialGraph } from './support/materialScenes';
 import { RayWave } from '../elements/raytrace/RayWave';
 import { rayWave } from '../elements/raytrace/wave/shaders';
+import { FlowWork } from '../scene/flows/FlowWork';
+import { StructSchema } from '../scene/descriptors/StructSchema';
+import type { WorkSlot } from '../scene/flows/slots';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -1025,9 +1028,15 @@ fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
 }`,
 });
 
+/** O Resource de trabalho do estágio de consulta (spec 039: a onda é da C2). */
+class ClosureQueryWork extends FlowWork {
+    static readonly schema = new StructSchema('SmokeClosureQueryWork', {});
+}
+
 interface ClosureQuerySlots extends SlotMap {
     readonly field: SingletonSlot<false>;
     readonly rays: SingletonSlot<false>;
+    readonly work: WorkSlot<ClosureQueryWork>;
 }
 
 /**
@@ -1036,9 +1045,11 @@ interface ClosureQuerySlots extends SlotMap {
  */
 class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
     readonly type = 'smokeClosureQuery';
+    private readonly owner = new ClosureQueryWork();
     readonly slots: ClosureQuerySlots = {
         field: slot.singleton(FluidField.schema),
         rays: slot.singleton(RayScene.schema),
+        work: slot.work(() => this.owner),
     };
     override readonly bindings: ReadonlyMap<typeof queryRays, StorageBufferSpec>;
     protected readonly initialState = 'idle' as const;
@@ -1050,12 +1061,13 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
 
     constructor(
         core: Application['core'],
+        resources: Application['resources'],
         rays: StorageBufferSpec,
         out: StorageBufferSpec,
         private readonly count: number,
     ) {
         super();
-        this.wave = new RayWave(core, 'smoke_closure');
+        this.wave = new RayWave({ core, resources, work: this.owner }, 'smoke_closure');
         this.bindings = new Map([
             [queryRays, rays],
             [closureOut, out],
@@ -1215,7 +1227,7 @@ async function caseClosure(): Promise<void> {
         data.set([...ray.o, 0, ...ray.d, 0], i * 8);
     });
     s.app.core.write(raysBuf, data);
-    const query = new ClosureQueryFlow(s.app.core, raysBuf, outBuf, count);
+    const query = new ClosureQueryFlow(s.app.core, s.app.resources, raysBuf, outBuf, count);
     s.app.flows.register(() => query, {
         type: 'smokeClosureQuery',
         phase: 'transform',

@@ -25,6 +25,13 @@ import { fixedPoint } from '../elements/gpu/compute/shaders';
 import type { ReduceOpName, ReduceType } from '../elements/gpu/compute/shaders';
 import { FIXED_LIMIT, fixedFromF32 } from './support/fixedPointReference';
 import { mulberry32 } from './support/random';
+import { FlowWork, type WorkContext } from '../scene/flows/FlowWork';
+import { StructSchema } from '../scene/descriptors/StructSchema';
+
+/** O Resource de trabalho dos kernels do smoke (spec 039: o espaço deles é da C2). */
+class SmokeWork extends FlowWork {
+    static readonly schema = new StructSchema('ComputeKernelsWork', {});
+}
 
 function log(msg: string): void {
     console.log(`[computeKernels] ${msg}`);
@@ -38,6 +45,7 @@ function check(ok: boolean, msg: string): void {
 }
 
 let app: Application;
+let work: WorkContext;
 let serial = 0;
 
 function storage(byteSize: number): StorageBufferSpec {
@@ -90,7 +98,7 @@ async function timeIt(body: () => void, sync: StorageBufferSpec): Promise<number
 
 async function prefixSum(): Promise<void> {
     const sizes = [0, 1, 255, 256, 257, 65_537, 70_000 * 256, 4_194_304];
-    const scan = new PrefixSum(app.core, { discriminator: 'ck_scan', capacity: 70_000 * 256 });
+    const scan = new PrefixSum(work, { discriminator: 'ck_scan', capacity: 70_000 * 256 });
     const r = mulberry32(1);
     for (const n of sizes) {
         const input = Uint32Array.from({ length: n }, () => Math.floor(r() * 4));
@@ -142,7 +150,7 @@ async function prefixSum(): Promise<void> {
 // ── RadixSort ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async function radixSort(): Promise<void> {
-    const sort = new RadixSort(app.core, {
+    const sort = new RadixSort(work, {
         discriminator: 'ck_sort',
         capacity: 4_194_304,
         withValues: true,
@@ -190,7 +198,7 @@ async function radixSort(): Promise<void> {
     log(`RadixSort: ${cases} casos ordenados e estáveis`);
 
     const n = 4_194_304;
-    const keysOnly = new RadixSort(app.core, { discriminator: 'ck_sort_keys', capacity: n });
+    const keysOnly = new RadixSort(work, { discriminator: 'ck_sort_keys', capacity: n });
     const kb = upload(Uint32Array.from({ length: n }, () => Math.floor(r() * 4294967296)));
     keysOnly.prepare(kb);
     const ms = await timeIt(() => {
@@ -245,7 +253,7 @@ async function compaction(): Promise<void> {
     ];
     for (const c of cases) {
         const threshold = upload(new Uint32Array([c.percent, 0, 0, 0]));
-        const compaction = new Compaction(app.core, {
+        const compaction = new Compaction(work, {
             discriminator: `ck_compact_${serial++}`,
             predicate: keepPredicate,
             capacity: c.capacity,
@@ -308,7 +316,7 @@ async function reduce(): Promise<void> {
     let cases = 0;
     for (const type of ['u32', 'i32', 'f32'] as ReduceType[]) {
         for (const op of ['sum', 'min', 'max'] as ReduceOpName[]) {
-            const reducer = new Reduce(app.core, {
+            const reducer = new Reduce(work, {
                 discriminator: `ck_reduce_${op}_${type}`,
                 capacity: 4_194_304,
                 op,
@@ -427,7 +435,7 @@ async function graphColoring(): Promise<void> {
         ['malha de tetraedros 16³', tetraEdges(16), 16 ** 3],
         ['grafo aleatório 1 M arestas', randomEdges(1_000_000, 100_000), 100_000],
     ];
-    const colorer = new GraphColorer(app.core, { discriminator: 'ck_gc', capacity: 1_000_000 });
+    const colorer = new GraphColorer(work, { discriminator: 'ck_gc', capacity: 1_000_000 });
     for (const [name, edges, vertexCount] of graphs) {
         const edgeCount = edges.length / 2;
         const degree = new Uint32Array(vertexCount);
@@ -593,6 +601,9 @@ async function main(): Promise<void> {
         autoResize: false,
         captureErrors: true,
     });
+    const owner = new SmokeWork();
+    app.world.insert(owner);
+    work = { core: app.core, resources: app.resources, work: owner };
     await prefixSum();
     await radixSort();
     await compaction();

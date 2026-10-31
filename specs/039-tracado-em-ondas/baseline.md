@@ -474,3 +474,21 @@ ms por passo; as etapas por partícula (junção, grade, núcleos, marcação, ~
 FPS, na água assentada; na barragem (30–40 % dos blocos), pouco. Riscos: o nível que conserva o volume é global (muda
 todos os blocos a cada passo, a menos que vire um deslocamento aplicado na leitura) e a redistância e a suavização
 leem os vizinhos (as bordas entre blocos refeitos e mantidos).
+
+## Depois da migração do espaço de trabalho (b34bd5f4, 2026-10-31)
+
+Série inteira dos smokes no HEAD; cada falha rodada também com o `src` de antes da migração (`4440b7fe`) no mesmo Chrome.
+
+- Passam (18): adapterLimits, bigMesh, caustics, churn, computeKernels, contactSet, dispatchCost, energy, gpuTiming, hdr,
+  integration, lighting, limits, multiApp, particles, pointCloud, readiness, render, rigidContacts, scale1m,
+  shaderLibrary, sky, softEnergy, stress60s, time, trajectories, transforms, wetting.
+- Falham igual antes da migração (mesmas mensagens e os mesmos hashes de estado): extensionPoints, fluidBehavior,
+  deviceFloor e globalIllumination (`gi_trace` 11 > 10 buffers de storage), materials, nodeGraphs, parametricSurfaces
+  (só o ruído dos fótons nas contagens de pixels das cáusticas), rayScene (`whenReady` no prazo), softSurface,
+  fluidSurface.
+- Timeout de 120 s igual antes: antialiasing, fog, giNoise, refraction.
+- fluidField: o caso `normal` não consegue mais adaptador da GPU depois dos casos `gpu`…`close`, igual antes; derruba o
+  adaptador para o resto da sessão do navegador, então roda por último ou sozinho.
+- Ajustados à API nova (sem mudar critério): computeKernels e limits (os primitivos recebem o Resource de trabalho),
+  fluidField (a onda do estágio de consulta), shaderLibrary (só schemas na lista), nodeGraphs (o nome do buffer termina
+  com a identidade do Resource de trabalho).
