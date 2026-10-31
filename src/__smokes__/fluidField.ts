@@ -6,6 +6,9 @@
 //   - gpu: o campo da GPU (blocos esparsos, voxels com a borda) igual ao da referência de CPU (`fields/reference/field`)
 //     nas mesmas partículas paradas: φ nos voxels da faixa (|φ| < 2 voxels) com erro ≤ ¼ voxel no percentil 95 e
 //     ≤ 1 voxel no máximo; nenhum NaN; blocos dentro da capacidade;
+//   - mesh (spec 039, T109): a malha da superfície (o raster da água) nas mesmas partículas paradas do `gpu` — os
+//     vértices no nível zero do campo da GPU (|φ| ≤ ¼ voxel no percentil 95, ≤ 1 voxel no máximo) e no da referência de
+//     CPU (os mesmos limites); a profundidade do raster contra a marcha da referência é o caso `rays`;
 //   - drops: gotas separadas por 2 e 4 espaçamentos não se fundem (φ > 0 em todo o vão);
 //   - rays: os raios atingem a mesma superfície — a distância que a câmera pede à refração (spec 034, T065f: a água vista
 //     pela câmera é achada pelos raios) e o ponto `ray_volume_hit` (composto pela C2 num estágio de consulta) contra a
@@ -97,6 +100,7 @@ import { rayWave } from '../elements/raytrace/wave/shaders';
 import { FlowWork } from '../scene/flows/FlowWork';
 import { StructSchema } from '../scene/descriptors/StructSchema';
 import type { WorkSlot } from '../scene/flows/slots';
+import { FIELD_MESH_VERTEX_WORDS } from '../elements/fields/schemas';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -1324,8 +1328,59 @@ async function caseClosure(): Promise<void> {
     s.dispose();
 }
 
+/** A malha da superfície (T109): os vértices no nível zero do campo da GPU e no da referência de CPU. */
+async function caseMesh(): Promise<void> {
+    const positions = BALLS();
+    const s = await session(320, 200);
+    staticStage(s.app, s.width, s.height, BALL_EYE, BALL_TARGET);
+    staticBody(s.app, positions, SPACING);
+    await settle(s.app);
+    const f = await gpuField(s.app, SPACING);
+    const args = new Uint32Array(await read(s.app, 'meshArgs'));
+    const words = new Float32Array(await read(s.app, 'mesh'));
+    const vertices = Math.min(args[0]!, words.length / FIELD_MESH_VERTEX_WORDS);
+    const grid = buildField(toPoints(positions), { spacing: SPACING, iso: f.iso });
+    const gpu: number[] = [];
+    const cpu: number[] = [];
+    let nans = 0;
+    for (let v = 0; v < vertices; v++) {
+        const p: Vec3 = [
+            words[v * FIELD_MESH_VERTEX_WORDS]!,
+            words[v * FIELD_MESH_VERTEX_WORDS + 1]!,
+            words[v * FIELD_MESH_VERTEX_WORDS + 2]!,
+        ];
+        if (!p.every(Number.isFinite)) {
+            nans++;
+            continue;
+        }
+        gpu.push(Math.abs(f.phi(p)) / f.voxel);
+        cpu.push(Math.abs(trilinear(grid, p)) / f.voxel);
+    }
+    const stats = (e: number[]): [number, number] => {
+        e.sort((a, b) => a - b);
+        return [e[Math.floor(0.95 * (e.length - 1))] ?? Infinity, e[e.length - 1] ?? Infinity];
+    };
+    const [g95, gmax] = stats(gpu);
+    const [c95, cmax] = stats(cpu);
+    log(
+        `mesh: ${vertices} vértices; |φ| no campo da GPU p95 ${g95.toFixed(3)}, máx ${gmax.toFixed(3)} voxel; na referência p95 ${c95.toFixed(3)}, máx ${cmax.toFixed(3)} voxel; ${nans} NaN`,
+    );
+    check(vertices > 1000, `mesh: ${vertices} vértices`);
+    check(nans === 0, `mesh: ${nans} vértices NaN`);
+    check(
+        g95 <= 0.25 && gmax <= 1,
+        `mesh: no campo da GPU p95 ${g95.toFixed(3)} ≤ 0,25 e máx ${gmax.toFixed(3)} ≤ 1 voxel`,
+    );
+    check(
+        c95 <= 0.25 && cmax <= 1,
+        `mesh: na referência p95 ${c95.toFixed(3)} ≤ 0,25 e máx ${cmax.toFixed(3)} ≤ 1 voxel`,
+    );
+    s.dispose();
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     gpu: caseGpu,
+    mesh: caseMesh,
     drops: caseDrops,
     rays: caseRays,
     close: caseClose,

@@ -33,7 +33,7 @@ de ~2 min.
       ocupados, vértice de 8 bytes, desenho indireto, estouro por evento). (Feita dentro do `FluidField`: a malha e os
       argumentos são descritores dele, `FluidFieldFlow.mesh`; sem Resource próprio.)
 - [x] T108 [US2] O pedido da água pelo raster da malha no lugar da marcha por pixel; a entrada da cadeia pelo alvo.
-- [ ] T109 [US2] Smoke da superfície: vértices contra o nível zero; profundidade contra a marcha de referência.
+- [x] T109 [US2] Smoke da superfície: vértices contra o nível zero; profundidade contra a marcha de referência. (2026-10-31: caso `mesh` do smoke `fluidField` — 53 088 vértices, |φ| no campo da GPU p95 0,030 / máx 0,146 voxel, na referência de CPU p95 0,098 / máx 0,332; a profundidade contra a marcha é o caso `rays`, p99 0,167 espaçamento.)
 
 ## Phase 4: cáusticas e física
 
