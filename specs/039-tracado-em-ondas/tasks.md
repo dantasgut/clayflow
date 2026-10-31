@@ -137,7 +137,7 @@ Pelos pools dos corpos e pelos descritores próprios com `reserve` (plan D12), s
 
 ### Phase 12: fechamento da emenda
 
-- [ ] T143 [US8] A regra de lint contra `core.create` em `src/elements/**` e `src/presentation/**` e o teste que conta
-      os sites (SC-007).
+- [x] T143 [US8] A regra de lint contra `core.create` em `src/elements/**` e `src/presentation/**` e o teste que conta
+      os sites (SC-007). Feito: `no-restricted-syntax` contra `core.create/createAsync/write/writeTexture/destroy/readback` em `src/elements`, `src/presentation` e `src/platform`, e `src/elements/__tests__/noCoreAllocation.test.ts` (zero sites).
 - [ ] T144 Vídeo do tanque em cada perfil no Chrome (SC-011).
 - [ ] T145 Gate completo (lint, tsc, testes, smokes) — junto com a T114.

@@ -202,6 +202,20 @@ export default tseslint.config(
                     message:
                         'Grupos de depuração por fase e por Flow são da C2 (spec 034): nomeie o passe no rótulo de `frame.compute`/`frame.render`.',
                 },
+                // Todo dado de GPU é descritor de um Resource, alocado e escrito pela C2 (Princípio III; spec 039): o
+                // espaço de trabalho de um Flow é o Resource de trabalho dele (`slot.work`).
+                {
+                    selector:
+                        "CallExpression[callee.property.name=/^(create|createAsync|write|writeTexture|destroy|readback)$/][callee.object.property.name='core']",
+                    message:
+                        'C3/C4 não criam, escrevem, destroem nem leem objetos de GPU (spec 039): declare um descritor no Resource de trabalho (`slot.work`) e use `writeNow`/`writeRegions`/`read` da C2.',
+                },
+                {
+                    selector:
+                        "CallExpression[callee.property.name=/^(create|createAsync|write|writeTexture|destroy|readback)$/][callee.object.name='core']",
+                    message:
+                        'C3/C4 não criam, escrevem, destroem nem leem objetos de GPU (spec 039): declare um descritor no Resource de trabalho (`slot.work`) e use `writeNow`/`writeRegions`/`read` da C2.',
+                },
             ],
         },
     },
