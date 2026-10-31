@@ -191,7 +191,7 @@ transposta) aparecer fora do módulo dono; a lista de pendências dela só encol
 | `camera_motion`                                                                        | `motion_from_clips` (`viewSpace`)                 |
 | `taa_view_depth`, `water_linear_depth`                                                 | `view_depth`                                      |
 | `quat_to_mat4`, `mat4_upper3x3_transform`, `water_pixels_per_meter`                    | removidos (`trs_world` para o TRS)                |
-| `TracedDenoiser`, `traced_denoise_*`, `defaults.denoiser`                              | `TemporalFilter`, `temporal_filter_*`, `defaults.temporalFilter` |
+| `TracedDenoiser`, `traced_denoise_*`, `defaults.denoiser`                              | `TemporalFilter`, `temporal_filter_*`, `defaults.renderer.temporalFilter` |
 
 `transform_local(t)` continua à mão das funções `transform` (agora sobre `trs_world`/`trs_normal`); os nós mantêm os
 nomes públicos.

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RigidBody } from '../bodies/RigidBody';
 import { paramsOffset, type RecordedPass } from './helpers/recordingFrame';
 import { lcpScene } from './helpers/lcpScene';
+import { RBSimParamsSchema } from '../schemas/simParams';
 
 async function setup(substeps = 4) {
     const s = await lcpScene({ substeps });
@@ -97,10 +98,13 @@ describe('LCPFlow — avanço governado pelo Time (slots)', () => {
             expect(substepOffsets.has(offsetOf(p))).toBe(true);
         }
         const paramWrites = writes.filter((w) =>
-            (w.spec as { discriminator: string }).discriminator.includes('lcp_sim_params:per_step'),
+            (w.spec as { discriminator: string }).discriminator.startsWith('lcp_sim_params:'),
         );
         expect(paramWrites).toHaveLength(1);
-        expect(paramWrites[0]!.bytes.byteLength).toBe(6 * 256);
+        // As 6 regiões numa escrita (a última até o fim do registro, spec 039: `writeRegions`).
+        expect(paramWrites[0]!.bytes.byteLength).toBe(
+            5 * 256 + Math.ceil(RBSimParamsSchema.stride / 4) * 4,
+        );
     });
 
     it('região de substep tem stepDt/substeps em gravity.w e stepDt em dt_frame', async () => {
@@ -108,7 +112,7 @@ describe('LCPFlow — avanço governado pelo Time (slots)', () => {
         writes.length = 0;
         step(1 / 60);
         const w = writes.find((x) =>
-            (x.spec as { discriminator: string }).discriminator.includes('lcp_sim_params:per_step'),
+            (x.spec as { discriminator: string }).discriminator.startsWith('lcp_sim_params:'),
         )!;
         const f32 = new Float32Array(w.bytes.buffer, w.bytes.byteOffset, w.bytes.byteLength / 4);
         expect(f32[3]).toBeCloseTo(1 / 60, 6);

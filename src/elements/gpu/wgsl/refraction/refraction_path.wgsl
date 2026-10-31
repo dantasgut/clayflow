@@ -1,5 +1,6 @@
-// O caminho traçado da refração (spec 034, R1, T044), uma amostra do raio de um pixel (`refraction_sample`): o raio
-// da câmera, a partir do plano próximo como o raster, parte da pilha de meios da câmera (`refraction_frame`). Na
+// As peças do caminho traçado da refração (spec 034, R1, T044) — o nó de um acerto pelos fechamentos já avaliados
+// (`refraction_node_at`), a interface, os ramos, a parede fina, a luz no opaco —, seguidas em ondas por `refraction_wave`
+// (spec 039: o material avaliado fora do traçado). Uma amostra do raio de um pixel: o raio da câmera, a partir do plano próximo como o raster, parte da pilha de meios da câmera (`refraction_frame`). Na
 // primeira interface os dois lobos são traçados — a reflexão e a transmissão, cada uma com o Fresnel por canal; com
 // dispersão, a transmissão é um caminho por canal, com o índice do canal em toda interface seguinte. Na segunda
 // interface de cada um os dois lobos de novo (`refraction_path_split`: a reflexão interna de 4 % entra em toda amostra
@@ -68,7 +69,7 @@ fn refraction_camera_stack() -> RefractionStack {
         let a = textureLoad(refraction_frame, vec2u(2u * k, 0u), 0);
         let b = textureLoad(refraction_frame, vec2u(2u * k + 1u, 0u), 0);
         if (a.x == NONE) { continue; }
-        s.media[s.count] = RefractionMedium(a.x, bitcast<f32>(a.y), bitcast<vec3f>(vec3u(a.zw, b.x)),
+        s.media[s.count] = refraction_medium_of(a.x, bitcast<f32>(a.y), bitcast<vec3f>(vec3u(a.zw, b.x)),
             bitcast<vec3f>(b.yzw));
         s.count += 1u;
     }
@@ -92,6 +93,31 @@ fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
 }
 
 /**
+ * O brilho das luzes de disco (as direcionais com raio angular, `cones.z`: o sol) refletido por uma interface dielétrica
+ * (a água, o vidro) para quem vê de `v`, no ponto `p` de normal de face `nf` (rgb; no w, 1 quando a sombra vem de uma
+ * instância que se moveu): a luz direta pelo lobo refletido do fechamento `c` (a transmissão não entra: só a luz do
+ * lado de quem vê), com sombra, a rugosidade somada à do disco (as larguras em quadratura) — o reflexo de uma luz de
+ * tamanho real. A luz sem disco (uma direção, um ponto) não tem reflexo visível na superfície lisa, como na referência;
+ * o caminho refletido nunca acerta a luz: este é o único termo dela ali, sem contagem dupla.
+ */
+fn refraction_glint(c: Closure, p: vec3f, nf: vec3f, v: vec3f) -> vec4f {
+    let n = select(nf, -nf, dot(nf, v) < 0.0);
+    let count = min(min(refraction.light_count, arrayLength(&lights)), LIGHT_LIMIT);
+    let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
+    var sum = vec4f(0.0);
+    for (var i = 0u; i < count; i++) {
+        let light = lights[i];
+        let disc = light.cones.z;
+        if (light.kind != 0u || disc <= 0.0) { continue; }
+        var g = c;
+        g.specular_roughness = sqrt(sqrt(r * r * r * r + disc * disc));
+        let response = ray_light_response(g, i, p, n, v, true);
+        sum = vec4f(sum.xyz + response.xyz, max(sum.w, response.w));
+    }
+    return sum;
+}
+
+/**
  * Refletância da parede fina (`closure_thin_walled`) por canal: a placa de espessura zero no meio `outside`, com as
  * reflexões múltiplas entre as duas faces somadas, R + T²R/(1 − R²) = 2R/(1 + R), R o Fresnel da face (a referência).
  */
@@ -99,7 +125,7 @@ fn refraction_thin_reflectance(c: Closure, outside: RefractionMedium, cos_i: f32
     let slab = closure_dispersion_iors(c.transmission_ior, c.transmission_abbe);
     var out: vec3f;
     for (var k = 0; k < 3; k++) {
-        let r = refraction_fresnel(cos_i, outside.ior[k], slab[k]);
+        let r = refraction_fresnel(cos_i, refraction_medium_ior(outside)[k], slab[k]);
         out[k] = 2.0 * r / (1.0 + r);
     }
     return out;
@@ -163,10 +189,23 @@ fn refraction_crossed(s: RefractionStack, x: RefractionCrossing) -> RefractionSt
 }
 
 /**
- * A interface no acerto `hit` (fechamento `c`) do raio (o, d) — e a dielétrica coincidente, se houver (outra instância a
- * menos de 1e-5·(1 + t)), cruzadas juntas, como a referência.
+ * A dielétrica coincidente com o acerto `hit` do raio (o, d): outra instância a menos de 1e-5·(1 + t) — só o trecho
+ * [t − tol, t + tol] em volta do acerto: a hierarquia desce só pelos nós que contêm o ponto (o custo é a profundidade
+ * dela, não outra travessia inteira). A superfície de um volume não tem malha coincidente a procurar.
  */
-fn refraction_crossing(o: vec3f, d: vec3f, hit: RayHit, c: Closure, s: RefractionStack) -> RefractionCrossing {
+fn refraction_coincident(o: vec3f, d: vec3f, hit: RayHit) -> RayHit {
+    if (refraction_is_volume(hit.instance)) { return ray_miss(); }
+    let tol = 1e-5 * (1.0 + hit.t);
+    let start = max(hit.t - tol, 0.0);
+    return ray_scene_hit_excluding(o + d * start, d, hit.t + tol - start, hit.instance);
+}
+
+/**
+ * A interface no acerto `hit` (fechamento `c`) do raio de direção `d`, com a dielétrica coincidente `other` (fechamento
+ * `c2`; `NONE` sem ela) cruzada junto, como a referência — os fechamentos já avaliados (spec 039: fora do traçado).
+ */
+fn refraction_crossing_at(d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: Closure, s: RefractionStack)
+    -> RefractionCrossing {
     var out: RefractionCrossing;
     out.p = hit.position;
     out.nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
@@ -174,22 +213,10 @@ fn refraction_crossing(o: vec3f, d: vec3f, hit: RayHit, c: Closure, s: Refractio
     out.first = refraction_cross_of(hit, c);
     out.count = 1u;
     var rough = c.transmission_roughness;
-    // Só o trecho [t − tol, t + tol] em volta do acerto: a hierarquia desce só pelos nós que contêm o ponto (o custo é a
-    // profundidade dela, não outra travessia inteira).
-    let tol = 1e-5 * (1.0 + hit.t);
-    let start = max(hit.t - tol, 0.0);
-    // A superfície de um volume não tem malha coincidente a procurar.
-    var other = ray_miss();
-    if (!refraction_is_volume(hit.instance)) {
-        other = ray_scene_hit_excluding(o + d * start, d, hit.t + tol - start, hit.instance);
-    }
-    if (other.instance != NONE) {
-        let c2 = ray_hit_closure(other, refraction.time, 0.0);
-        if (c2.transmission_weight > 0.0) {
-            out.second = refraction_cross_of(other, c2);
-            out.count = 2u;
-            rough = max(rough, c2.transmission_roughness);
-        }
+    if (other.instance != NONE && c2.transmission_weight > 0.0) {
+        out.second = refraction_cross_of(other, c2);
+        out.count = 2u;
+        rough = max(rough, c2.transmission_roughness);
     }
     out.before = refraction_current(s);
     out.next = refraction_current(refraction_crossed(s, out));
@@ -346,12 +373,11 @@ fn refraction_side_after(n: RefractionNode, dir: vec3f) -> i32 {
 }
 
 /**
- * O acerto seguinte do raio (o, d) na pilha `stack` no canal `channel` (−1 = os três), depois de `interfaces`; `side`:
- * o lado da origem quanto aos volumes, quando ela está na superfície de um (`refraction_side_after`), ou −1. Na
- * interface em que a dispersão começa volta `disperse`, para quem segue abrir um caminho por canal.
+ * O nó do acerto `hit` do raio (o, d) com o fechamento `c` dele e o da dielétrica coincidente `c2` (`other`; `NONE` sem
+ * ela) já avaliados — o que `refraction_advance` faz depois do traçado (spec 039: os fechamentos vêm da onda).
  */
-fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, interfaces: u32, side: i32,
-    state: ptr<function, u32>) -> RefractionNode {
+fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: Closure, stack: RefractionStack,
+    channel: i32, interfaces: u32, state: ptr<function, u32>) -> RefractionNode {
     var n: RefractionNode;
     n.done = true;
     n.disperse = false;
@@ -364,7 +390,6 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
     n.channel = channel;
     n.interfaces = interfaces;
     n.count = 0u;
-    let hit = refraction_scene_hit(o, d, REFRACTION_FAR, side);
     n.vol = refraction_is_volume(hit.instance);
     n.vol_n = hit.normal;
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
@@ -373,7 +398,6 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
         n.end = refraction_end(o + d * REFRACTION_FAR, NONE);
         return n;
     }
-    let c = refraction_hit_closure(hit, refraction.time);
     n.end = refraction_end(hit.position, hit.renderable);
     n.moved = refraction_hit_moved(hit);
     if (!refraction_takes_interface(c, state)) {
@@ -403,7 +427,7 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
         n.transmit_weight = thin.transmit_weight;
         return n;
     }
-    let x = refraction_crossing(o, d, hit, c, stack);
+    let x = refraction_crossing_at(d, hit, c, other, c2, stack);
     n.p = x.p;
     n.nf = x.nf;
     n.first = x.first;
@@ -418,8 +442,8 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
         n.disperse = true;
         n.alpha = x.alpha;
         n.ns = x.ns;
-        n.ior_before = x.before.ior;
-        n.ior_next = x.next.ior;
+        n.ior_before = refraction_medium_ior(x.before);
+        n.ior_next = refraction_medium_ior(x.next);
         n.m = refraction_microfacet(d, x.ns, x.alpha, vec2f(refraction_random(state), refraction_random(state)));
         return n;
     }
@@ -437,370 +461,4 @@ fn refraction_advance(o: vec3f, d: vec3f, stack: RefractionStack, channel: i32, 
     n.transmit_dir = t.dir;
     n.transmit_weight = vec3f((1.0 - f) * t.weight);
     return n;
-}
-
-/** O fim do nó terminal `n` com o peso acumulado `throughput` (já com a absorção do trecho). */
-fn refraction_finish(n: RefractionNode, throughput: vec3f, moved: bool) -> RefractionPath {
-    let radiance = throughput * n.radiance;
-    let moving = select(vec3f(0.0), radiance, moved || n.moved);
-    return RefractionPath(radiance, throughput * n.truncated, n.end, n.albedo, moving);
-}
-
-/** Um caminho e se ele parou na transmissão da interface em que a dispersão começa (`pending`). */
-struct RefractionWalk {
-    path: RefractionPath,
-    pending: bool,
-}
-
-/**
- * A luz já somada de um caminho pelos lobos raros resolvidos de antemão (T065i): a radiância, a parte dela que veio
- * por algo em movimento e a energia que restava no limite de interfaces.
- */
-struct RefractionGathered {
-    radiance: vec3f,
-    moving: vec3f,
-    truncated: vec3f,
-}
-
-/** Caminho perdido (sem luz além da já somada `g`) que termina em `end`. */
-fn refraction_lost(end: vec4f, pending: bool, g: RefractionGathered) -> RefractionWalk {
-    return RefractionWalk(RefractionPath(g.radiance, g.truncated, end, vec3f(1.0), g.moving), pending);
-}
-
-/** O caminho `p` com a luz já somada `g`. */
-fn refraction_with(p: RefractionPath, g: RefractionGathered) -> RefractionPath {
-    return RefractionPath(p.radiance + g.radiance, p.truncated + g.truncated, p.end, p.albedo, p.moving + g.moving);
-}
-
-/**
- * `g` com a luz do nó terminal `n` (o acerto seguinte de um lobo resolvido de antemão) pelo peso `weight` (o do
- * caminho até a interface vezes o do lobo); `moved`: o caminho até a interface tocou algo em movimento.
- */
-fn refraction_gather(g: RefractionGathered, n: RefractionNode, weight: vec3f, moved: bool) -> RefractionGathered {
-    let w = weight * n.through;
-    let radiance = w * n.radiance;
-    return RefractionGathered(g.radiance + radiance, g.moving + select(vec3f(0.0), radiance, moved || n.moved),
-        g.truncated + w * n.truncated);
-}
-
-/**
- * Caminho a partir de (o0, d0) com a pilha `stack0` no canal `channel0` (−1 = os três), depois de `interfaces0`: um
- * lobo por interface até um opaco, o escape ou o limite. Em cada interface o lobo raro (a probabilidade de Fresnel
- * menor que 1/2) é olhado antes (T065i): se o acerto seguinte dele termina o caminho dele (um opaco, o céu, o limite),
- * a luz dele entra com o peso exato e o caminho segue pelo outro, sem roleta — a roleta mandava o lobo raro com o peso
- * 1/F numa amostra em 1/F (2–4 % na água e no vidro vistos de fora): um vagalume onde ele vê algo mais claro. Se o lobo
- * raro segue adiante, a roleta de Fresnel como antes (sem viés: o acúmulo converge), e o acerto já traçado é o passo
- * seguinte quando ela escolhe o raro. Na interface em que a dispersão começa, o mesmo com a reflexão (os três canais
- * juntos) quando ela é a rara; a roleta escolhe entre ela e a transmissão: com `forced` −1 o caminho para ali
- * (`pending`, com a luz já somada); com `forced` = k — a repetição do mesmo caminho com o mesmo estado aleatório, que
- * chega à mesma interface pelas mesmas escolhas — a transmissão segue no canal k (T065g), e só a luz somada dali em
- * diante conta (a de antes já está no caminho que parou).
- */
-fn refraction_path(o0: vec3f, d0: vec3f, stack0: RefractionStack, channel0: i32, interfaces0: u32, forced: i32,
-    weight0: vec3f, side0: i32, state: ptr<function, u32>) -> RefractionWalk {
-    var o = o0;
-    var d = d0;
-    var side = side0;
-    var stack = stack0;
-    var channel = channel0;
-    var interfaces = interfaces0;
-    var throughput = vec3f(1.0);
-    var moved = false;
-    var gathered = RefractionGathered(vec3f(0.0), vec3f(0.0), vec3f(0.0));
-    var counting = forced < 0;
-    for (var step = 0u; step < REFRACTION_STEP_LIMIT; step++) {
-        let n = refraction_advance(o, d, stack, channel, interfaces, side, state);
-        throughput *= n.through;
-        if (n.done) {
-            return RefractionWalk(refraction_with(refraction_finish(n, throughput, moved), gathered), false);
-        }
-        moved = moved || n.moved;
-        channel = n.channel;
-        interfaces = n.interfaces;
-        if (n.passes) {
-            stack = refraction_after_node(stack, n);
-            o = refraction_departure(n.p, n.nf, d);
-            side = refraction_side_after(n, d);
-            continue;
-        }
-        // A interface: a reflexão e a transmissão, a probabilidade da reflexão na roleta e qual lobo é o raro. Onde a
-        // dispersão começa, a roleta é pela média do Fresnel dos canais e a transmissão é um caminho por canal (os
-        // pesos divididos pela probabilidade: sem viés para qualquer escolha dela).
-        var f = n.reflect_weight;
-        var p_reflect = n.p_reflect;
-        var reflect_dir = n.reflect_dir;
-        var reflect_weight = n.reflect_weight;
-        if (n.disperse) {
-            let cos_m = dot(-d, n.m);
-            f = vec3f(
-                refraction_fresnel(cos_m, n.ior_before.x, n.ior_next.x),
-                refraction_fresnel(cos_m, n.ior_before.y, n.ior_next.y),
-                refraction_fresnel(cos_m, n.ior_before.z, n.ior_next.z),
-            );
-            p_reflect = clamp((f.x + f.y + f.z) / 3.0, 1e-4, 1.0 - 1e-4);
-            let r = refraction_reflect(d, n.m, n.ns, n.nf, n.alpha);
-            reflect_dir = r.dir;
-            reflect_weight = f * r.weight;
-        }
-        // O lobo raro (na dispersão, só a reflexão: a transmissão é um caminho por canal).
-        let rare_reflect = p_reflect <= 0.5;
-        let rare_weight = select(n.transmit_weight, reflect_weight, rare_reflect);
-        var resolved = (rare_reflect || !n.disperse) && all(rare_weight <= vec3f(0.0));
-        // A roleta sorteada antes de olhar o lobo raro, e o estado de antes de olhar: se ela escolhe o raro, o passo
-        // seguinte retraça o mesmo acerto com os mesmos números (guardar o nó olhado entre os passos custava
-        // registradores e tempo).
-        let u = refraction_random(state);
-        let rewind = *state;
-        var looked = false;
-        if (!resolved && (rare_reflect || !n.disperse) && any(weight0 * throughput >= vec3f(REFRACTION_LOOK_WEIGHT))) {
-            let rare_dir = select(n.transmit_dir, reflect_dir, rare_reflect);
-            var rare_stack = stack;
-            if (!rare_reflect) { rare_stack = refraction_after_node(stack, n); }
-            let ahead = refraction_advance(refraction_departure(n.p, n.nf, rare_dir), rare_dir, rare_stack, channel,
-                interfaces, refraction_side_after(n, rare_dir), state);
-            resolved = ahead.done;
-            looked = true;
-            if (resolved && counting) { gathered = refraction_gather(gathered, ahead, throughput * rare_weight, moved); }
-        }
-        // Resolvido o raro, o outro lobo sem roleta; senão a roleta.
-        let crossed = select(u >= p_reflect, rare_reflect, resolved);
-        var dir = select(reflect_dir, n.transmit_dir, crossed);
-        var weight = select(reflect_weight, n.transmit_weight, crossed)
-            / select(select(p_reflect, 1.0 - p_reflect, crossed), 1.0, resolved);
-        if (looked && !resolved && crossed != rare_reflect) { *state = rewind; }
-        if (n.disperse && crossed) {
-            if (forced < 0) { return refraction_lost(n.end, true, gathered); }
-            let t = refraction_transmit(d, n.m, n.ns, n.nf, n.ior_before[forced], n.ior_next[forced], n.alpha);
-            dir = t.dir;
-            weight = vec3f(0.0);
-            weight[forced] = (1.0 - f[forced]) * t.weight / select(1.0 - p_reflect, 1.0, resolved);
-            channel = forced;
-            counting = true;
-        }
-        if (all(weight <= vec3f(0.0))) { return refraction_lost(n.end, false, gathered); }
-        throughput *= weight;
-        d = dir;
-        if (crossed) { stack = refraction_after_node(stack, n); }
-        o = refraction_departure(n.p, n.nf, d);
-        side = refraction_side_after(n, d);
-    }
-    // O teto de passos: a energia que resta conta como no limite de interfaces.
-    return RefractionWalk(refraction_with(RefractionPath(vec3f(0.0), throughput, refraction_end(o, NONE), vec3f(1.0),
-        vec3f(0.0)), gathered), false);
-}
-
-/**
- * Caminho a partir de (o, d) com os dois lobos na interface seguinte (cada um continuado por `refraction_path`): a
- * soma pesada pelo Fresnel, sem roleta nessa interface. O fim é o do lobo que mais contribui para a cor.
- */
-fn refraction_path_split(o0: vec3f, d: vec3f, stack0: RefractionStack, channel0: i32, interfaces0: u32,
-    weight0: vec3f, side0: i32, state: ptr<function, u32>) -> RefractionPath {
-    var o = o0;
-    var side = side0;
-    var stack = stack0;
-    var channel = channel0;
-    var interfaces = interfaces0;
-    var through = vec3f(1.0);
-    var moved = false;
-    var n: RefractionNode;
-    // Até a interface seguinte (as bordas que não mudam o meio são atravessadas).
-    for (var step = 0u; step <= REFRACTION_STEP_LIMIT; step++) {
-        if (step == REFRACTION_STEP_LIMIT) {
-            return RefractionPath(vec3f(0.0), through, refraction_end(o, NONE), vec3f(1.0), vec3f(0.0));
-        }
-        n = refraction_advance(o, d, stack, channel, interfaces, side, state);
-        through *= n.through;
-        if (n.done) { return refraction_finish(n, through, moved); }
-        moved = moved || n.moved;
-        channel = n.channel;
-        interfaces = n.interfaces;
-        if (!n.passes) { break; }
-        stack = refraction_after_node(stack, n);
-        o = refraction_departure(n.p, n.nf, d);
-        side = refraction_side_after(n, d);
-    }
-    var out = RefractionPath(vec3f(0.0), vec3f(0.0), n.end, vec3f(1.0), vec3f(0.0));
-    var best = -1.0;
-    // O albedo é a média dos lobos pesada pela luz de cada um (o guia de textura do filtro: com o refletido dominando
-    // num ângulo rasante, a textura vista pelo transmitido ainda aparece nele, na proporção da luz dela).
-    var albedo = vec3f(0.0);
-    var light = 0.0;
-    // Os ramos: os dois lobos, ou a reflexão e um caminho por canal onde a dispersão começa.
-    var b: RefractionBranches;
-    if (n.disperse) {
-        b = refraction_branches(d, n.m, n.ns, n.nf, n.alpha, n.ior_before, n.ior_next, true);
-    } else {
-        b.dirs[0] = n.reflect_dir;
-        b.weights[0] = n.reflect_weight;
-        b.channels[0] = channel;
-        b.crossed[0] = false;
-        b.dirs[1] = n.transmit_dir;
-        b.weights[1] = n.transmit_weight;
-        b.channels[1] = channel;
-        b.crossed[1] = true;
-        b.count = 2u;
-    }
-    // Num laço: uma chamada só de `refraction_path` (o compilador expande cada chamada; um laço em volta dela custava
-    // 7 % na lente). Por ramo, o caminho (`forced` −1) e, se ele parou onde a dispersão começa, a repetição dele em cada
-    // canal, com o estado aleatório do início do ramo.
-    var start = *state;
-    var pending = false;
-    for (var job = 0u; job < 4u * b.count; job++) {
-        let k = job / 4u;
-        let forced = i32(job % 4u) - 1;
-        let w = b.weights[k];
-        if (all(w <= vec3f(0.0))) { continue; }
-        if (forced < 0) {
-            start = *state;
-        } else if (!pending) {
-            continue;
-        } else {
-            *state = start;
-        }
-        let dir = b.dirs[k];
-        var lobe = stack;
-        if (b.crossed[k]) { lobe = refraction_after_node(stack, n); }
-        let walk = refraction_path(refraction_departure(n.p, n.nf, dir), dir, lobe, b.channels[k], interfaces, forced,
-            weight0 * through * w, refraction_side_after(n, dir), state);
-        if (forced < 0) {
-            pending = walk.pending;
-            if (pending) {
-                // A luz dos lobos raros resolvidos antes da interface em que a dispersão começa (as repetições por
-                // canal só somam a de depois dela).
-                out.radiance += through * w * walk.path.radiance;
-                out.moving += through * w * select(walk.path.moving, walk.path.radiance, moved || n.moved);
-                out.truncated += through * w * walk.path.truncated;
-                continue;
-            }
-        }
-        let r = walk.path;
-        let radiance = through * w * r.radiance;
-        out.radiance += radiance;
-        // Tudo o que o lobo traz se o trecho até a interface (ou ela) tocou algo em movimento.
-        out.moving += through * w * select(r.moving, r.radiance, moved || n.moved);
-        out.truncated += through * w * r.truncated;
-        albedo += luminance(radiance) * r.albedo;
-        light += luminance(radiance);
-        if (luminance(radiance) > best) {
-            best = luminance(radiance);
-            out.end = r.end;
-            out.albedo = r.albedo;
-        }
-    }
-    if (light > 0.0) { out.albedo = albedo / light; }
-    return out;
-}
-
-/**
- * Uma amostra do pixel: a radiância (a transmitida mais a refletida na primeira interface), a luminância da energia
- * truncada, o fim do caminho que mais contribui (e o peso dele), o albedo da superfície nesse fim e a parte da
- * radiância que veio por caminhos que tocaram uma instância que se moveu.
- */
-struct RefractionSample {
-    radiance: vec3f,
-    truncated: f32,
-    end: vec4f,
-    end_weight: f32,
-    albedo: vec3f,
-    moving: vec3f,
-}
-
-/**
- * Uma amostra do raio da câmera `ray` (a roleta, a microfaceta e as luzes pelo estado `state`). A primeira interface
- * monta os ramos (direção, peso por canal, canal seguido e se leva a pilha de depois dos cruzamentos) e cada um continua
- * por `refraction_path_split` num laço — uma chamada só.
- */
-fn refraction_sample(ray: RayCamera, stack: RefractionStack, state: ptr<function, u32>)
-    -> RefractionSample {
-    var out = RefractionSample(vec3f(0.0), 0.0, refraction_end(ray.origin + ray.dir * REFRACTION_FAR, NONE), -1.0,
-        vec3f(1.0), vec3f(0.0));
-    // O raio parte do plano próximo, como o raster (o que fica antes dele não é visto); o meio da câmera absorve desde
-    // ela.
-    let start = ray.origin + ray.dir * ray.near;
-    let d = ray.dir;
-    let hit = refraction_scene_hit(start, d, REFRACTION_FAR, -1);
-    let through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t + ray.near, REFRACTION_FAR));
-    let volume = refraction_is_volume(hit.instance);
-    if (hit.instance == NONE) {
-        out.radiance = through * scene_environment(d);
-        return out;
-    }
-    let c = refraction_hit_closure(hit, refraction.time);
-    let first_moved = refraction_hit_moved(hit);
-    if (!refraction_takes_interface(c, state)) {
-        // Borda em que o raio e o raster discordam, ou a parte opaca de um transmissivo parcial.
-        let shade = refraction_shade(c, hit, -d, *state);
-        out.radiance = through * shade.xyz;
-        out.moving = select(vec3f(0.0), out.radiance, first_moved || shade.w > 0.0);
-        out.end = refraction_end(hit.position, hit.renderable);
-        out.end_weight = luminance(out.radiance);
-        out.albedo = closure_albedo(c);
-        return out;
-    }
-    var b: RefractionBranches;
-    b.count = 0u;
-    var p = hit.position;
-    var nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
-    var after = stack;
-    if (c.transmission_thin > 0.0) {
-        // Parede fina na primeira interface: o reflexo e a passagem direta, a pilha da câmera nos dois.
-        let thin = refraction_thin(c, hit, d, refraction_current(stack));
-        b.dirs[0] = thin.reflect_dir;
-        b.weights[0] = thin.reflect_weight;
-        b.channels[0] = -1;
-        b.crossed[0] = false;
-        b.dirs[1] = d;
-        b.weights[1] = thin.transmit_weight;
-        b.channels[1] = -1;
-        b.crossed[1] = false;
-        b.count = 2u;
-    } else {
-        let x = refraction_crossing(start, d, hit, c, stack);
-        after = refraction_crossed(stack, x);
-        p = x.p;
-        nf = x.nf;
-        if (!x.crosses) {
-            // A borda não muda o meio: segue reto, na pilha de depois.
-            b.dirs[0] = d;
-            b.weights[0] = vec3f(1.0);
-            b.channels[0] = -1;
-            b.crossed[0] = true;
-            b.count = 1u;
-        } else {
-            // Primeira interface: a mesma microfaceta para os dois lobos; o Fresnel por canal; com dispersão, um
-            // caminho por canal.
-            let u = vec2f(refraction_random(state), refraction_random(state));
-            let m = refraction_microfacet(d, x.ns, x.alpha, u);
-            b = refraction_branches(d, m, x.ns, x.nf, x.alpha, x.before.ior, x.next.ior,
-                refraction_dispersive(x.before) || refraction_dispersive(x.next));
-        }
-    }
-    // O albedo: a média dos ramos pesada pela luz de cada um (como em `refraction_path_split`).
-    var albedo = vec3f(0.0);
-    var light = 0.0;
-    for (var i = 0u; i < b.count; i++) {
-        // O ramo sem peso (a transmissão de um canal além do ângulo crítico, o reflexo atrás da face) não tem direção: o
-        // caminho dele daria NaN, e 0 vezes NaN contamina o pixel (como em `refraction_path_split`, que já o pula).
-        if (all(b.weights[i] <= vec3f(0.0))) { continue; }
-        var lobe = stack;
-        if (b.crossed[i]) { lobe = after; }
-        // O lado quanto aos volumes, depois da superfície de um: pela direção do ramo contra a normal para fora dele.
-        let side = select(-1, select(1, 0, dot(b.dirs[i], hit.normal) > 0.0), volume);
-        let r = refraction_path_split(refraction_departure(p, nf, b.dirs[i]), b.dirs[i], lobe, b.channels[i], 1u,
-            through * b.weights[i], side, state);
-        // Por canal, a luminância do que ele soma: o caminho do ramo mais forte.
-        let radiance = through * b.weights[i] * r.radiance;
-        out.radiance += radiance;
-        out.truncated += luminance(through * b.weights[i] * r.truncated);
-        out.moving += through * b.weights[i] * select(r.moving, r.radiance, first_moved);
-        albedo += luminance(radiance) * r.albedo;
-        light += luminance(radiance);
-        if (luminance(radiance) > out.end_weight) {
-            out.end = r.end;
-            out.end_weight = luminance(radiance);
-            out.albedo = r.albedo;
-        }
-    }
-    if (light > 0.0) { out.albedo = albedo / light; }
-    return out;
 }

@@ -339,7 +339,7 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         this.mediaBuffer = buffer;
         if (!fresh && key === this.mediaWritten) return;
         this.mediaWritten = key;
-        this.core.write(buffer, f);
+        this.resources.writeNow(froxels, 'media', f);
     }
 
     /** O uniform do quadro: a grade e a câmera, as fatias até o volume mais distante, o jitter e as contagens. */

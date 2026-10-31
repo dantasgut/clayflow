@@ -56,6 +56,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
     temporal_filter_source_change:
         'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_fresh:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
     soft_energy_source_terms:
         'fonte da energia dos corpos moles (spec 037): a pronta (sem partículas) ou a de cada algoritmo (XPBD com as arestas, nós, MPM) — bindPoints troca uma pela outra',
     surface_jet:

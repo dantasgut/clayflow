@@ -33,6 +33,19 @@ const privateStorage = (
         frequency: 'stage',
         provider: 'private',
     });
+/** Pool de trabalho por partícula do corpo (spec 039), pelo slot do Flow que o declara. */
+const slotStorage = (
+    name: string,
+    access: 'read' | 'read_write',
+    slot: string,
+): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type: vec4s,
+        frequency: 'stage',
+        provider: { slot },
+    });
 
 /** Recursos dos kernels do SPH. */
 export const sphResources = Object.freeze({
@@ -41,7 +54,8 @@ export const sphResources = Object.freeze({
         binding: { uniform: true },
         type: { schema: SPHSimParamsSchema },
         frequency: 'draw',
-        provider: 'private',
+        // Uma região por iteração do uniforme por região do Resource de trabalho (offset dinâmico, spec 039).
+        provider: { slot: 'work', descriptor: 'sph_params' },
     }),
     particles: wgslResource({
         name: 'particles',
@@ -61,11 +75,11 @@ export const sphResources = Object.freeze({
     neighborCount: privateStorage('neighbor_count', 'read', u32s),
     /** A ordem por célula da busca (`NeighborSearchPipeline.neighborOrder`): no posto, a partícula + 1. */
     neighborOrder: privateStorage('neighbor_order', 'read', u32s),
-    normal: privateStorage('sph_normal', 'read_write', vec4s),
-    normalRead: privateStorage('sph_normal', 'read', vec4s),
+    normal: slotStorage('sph_normal', 'read_write', 'normals'),
+    normalRead: slotStorage('sph_normal', 'read', 'normals'),
     /** Fronteira sólida por partícula (Σ −B' n, Σ B), escrita antes da densidade. */
-    boundary: privateStorage('sph_boundary', 'read_write', vec4s),
-    boundaryRead: privateStorage('sph_boundary', 'read', vec4s),
+    boundary: slotStorage('sph_boundary', 'read_write', 'boundary'),
+    boundaryRead: slotStorage('sph_boundary', 'read', 'boundary'),
 });
 const R = sphResources;
 const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;

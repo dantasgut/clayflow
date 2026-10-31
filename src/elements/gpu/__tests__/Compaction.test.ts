@@ -4,9 +4,9 @@ import { compactionModules } from '../compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
+import { workHarness } from './helpers/workHarness';
 
 const buffer = (discriminator: string): StorageBufferSpec => ({
     kind: 'buffer',
@@ -35,15 +35,15 @@ const out = buffer('out');
 const ctr = buffer('ctr');
 
 function setup(options: { stable?: boolean; inputCapacity?: number } = {}) {
-    const { core } = fakeResourceCore();
-    const compaction = new Compaction(core, {
+    const h = workHarness();
+    const compaction = new Compaction(h.ctx, {
         discriminator: 'cp',
         predicate,
         capacity: 100,
         bindings: new Map([[testValues, buffer('values')]]),
         ...options,
     });
-    return { core, compaction };
+    return { ...h, compaction };
 }
 
 describe('Compaction', () => {
@@ -94,6 +94,16 @@ describe('Compaction', () => {
             'pass:PrefixSum.scan_combine',
             'pass:Compaction.scatter',
         ]);
+    });
+
+    it('modo estável: as flags são um descritor do trabalho (inputCapacity palavras); destroy as solta', () => {
+        const { compaction, resources, work, core } = setup({ stable: true, inputCapacity: 1000 });
+        compaction.prepare(out, ctr);
+        const flags = resources.bufferOf(work, 'cp:compact_flags');
+        expect(flags?.byteSize).toBe(1000 * 4);
+        compaction.destroy();
+        expect(core.destroy).toHaveBeenCalledWith(flags);
+        expect(resources.bufferOf(work, 'cp:compact_flags')).toBeUndefined();
     });
 
     it('count = 0 só zera o contador; count acima de inputCapacity → RangeError', () => {

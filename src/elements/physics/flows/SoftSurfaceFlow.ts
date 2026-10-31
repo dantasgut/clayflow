@@ -7,6 +7,8 @@ import type {
     StorageBufferSpec,
 } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
 import {
     createComputeKernel,
     destroyComputeKernel,
@@ -16,10 +18,11 @@ import { Flow } from '../../../scene/flows/Flow';
 import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type EntitiesSlot, type SlotMap } from '../../../scene/flows/slots';
+import { slot, type EntitiesSlot, type SlotMap, type WorkSlot } from '../../../scene/flows/slots';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { EntityId } from '../../../scene/world/EntityId';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
+import { wordBuffer } from '../../gpu/compute/schemas';
 import { SurfaceGeometry } from '../../geometry/SurfaceGeometry';
 import { SoftBody } from '../bodies/SoftBody';
 import { SoftSurfaceParamsSchema } from '../schemas/softSurface';
@@ -32,18 +35,21 @@ const R = softSurfaceResources;
 export interface SoftSurfaceSlots extends SlotMap {
     /** Corpos moles com superfície; o estágio é o escritor dos vértices dela. */
     readonly surfaces: EntitiesSlot;
+    /** O espaço de trabalho: as normais de face de cada corpo e as regiões de parâmetros (spec 039). */
+    readonly work: WorkSlot<SoftSurfaceWork>;
 }
 
-const slots: SoftSurfaceSlots = {
-    surfaces: slot.entities({
-        all: [SoftBody, SurfaceGeometry],
-        owns: [[SurfaceGeometry, 'vertices']],
-    }),
-};
+/** Resource de trabalho do `SoftSurfaceFlow` (spec 039). */
+class SoftSurfaceWork extends FlowWork {
+    static readonly schema = new StructSchema('SoftSurfaceWork', {});
+}
+
+/** Id do descritor das normais de face do corpo da entidade `id` no trabalho. */
+const facesId = (id: EntityId): string => `soft_surface_faces:${id}`;
 
 type Ctx = TransitionContext<SoftSurfaceSlots>;
 
-/** Superfície de um corpo: as normais de face (buffer do estágio) e os dois kernels ligados aos buffers dela. */
+/** Superfície de um corpo: as normais de face (descritor do trabalho) e os dois kernels ligados aos buffers dela. */
 interface Surface {
     readonly entity: EntityId;
     readonly body: SoftBody;
@@ -67,14 +73,17 @@ interface Surface {
  */
 export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
     readonly type = 'SoftSurfaceFlow';
-    readonly slots = slots;
+    readonly slots: SoftSurfaceSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
+    private readonly work: WorkContext;
     private readonly params: PerStepUniforms;
     private readonly surfaces = new Map<EntityId, Surface>();
+    /** Triângulos de cada corpo com normais de face no trabalho (o tamanho do descritor dele). */
+    private readonly faceCounts = new Map<EntityId, number>();
     private order: Surface[] = [];
     private paramsDirty = false;
 
@@ -82,8 +91,24 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
         super();
         this.core = ctx.core;
         this.resources = ctx.resources;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'soft_surface_params',
+        const work = new SoftSurfaceWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            surfaces: slot.entities({
+                all: [SoftBody, SurfaceGeometry],
+                owns: [[SurfaceGeometry, 'vertices']],
+            }),
+            work: slot.work(() => work),
+        };
+        // As normais de face: um descritor por corpo (vec4 por triângulo).
+        work.use({
+            descriptors: () =>
+                [...this.faceCounts].map(([id, triangles]) =>
+                    wordBuffer(facesId(id), triangles * 16),
+                ),
+        });
+        this.params = new PerStepUniforms(this.work, {
+            id: 'soft_surface_params',
             schema: SoftSurfaceParamsSchema,
         });
         this.params.reserve(1);
@@ -140,11 +165,10 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
         });
     }
 
-    /** Libera kernels, normais de face e parâmetros. */
+    /** Libera os kernels (as normais de face e os parâmetros são do trabalho e saem da cena com ele). */
     override dispose(): void {
         for (const surface of this.surfaces.values()) this.release(surface);
         this.surfaces.clear();
-        this.params.dispose();
     }
 
     /** Corpos que entraram (normais de face e kernels criados) e saíram (liberados). */
@@ -154,7 +178,14 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
             if (surface === undefined) continue;
             this.release(surface);
             this.surfaces.delete(id);
+            this.faceCounts.delete(id);
         }
+        const entering: {
+            id: EntityId;
+            body: SoftBody;
+            geometry: SurfaceGeometry;
+            particles: StorageBufferSpec;
+        }[] = [];
         for (const id of added) {
             const entry = ctx.bound.slots.surfaces.entry(id);
             if (entry === undefined || this.surfaces.has(id)) continue;
@@ -162,12 +193,13 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
             const geometry = entry.get(SurfaceGeometry);
             const particles = this.poolOf(body);
             if (particles === undefined) continue;
-            const faces = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `soft_surface_faces:${id}`,
-                byteSize: geometry.triangleCount * 16,
-            });
+            this.faceCounts.set(id, geometry.triangleCount);
+            entering.push({ id, body, geometry, particles });
+        }
+        // Uma redescrição para os que entraram e saíram: a C2 aloca as normais novas e libera as dos que saíram.
+        this.work.work.refresh();
+        for (const { id, body, geometry, particles } of entering) {
+            const faces = this.resources.bufferOf(this.work.work, facesId(id)) as StorageBufferSpec;
             this.surfaces.set(id, {
                 entity: id,
                 body,
@@ -281,6 +313,5 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
     private release(surface: Surface): void {
         destroyComputeKernel(this.core, surface.normals);
         destroyComputeKernel(this.core, surface.vertices);
-        this.core.destroy(surface.faces);
     }
 }

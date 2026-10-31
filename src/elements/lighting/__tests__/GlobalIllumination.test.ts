@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { renderScene } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import { registerPresentationDefaults } from '../../../presentation/flows/defaults';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
@@ -10,7 +11,8 @@ import { HemisphereLight } from '../../scene/HemisphereLight';
 import { Transform } from '../../scene/Transform';
 import { GI_QUALITY, GlobalIllumination } from '../GlobalIllumination';
 import { screenTile } from '../ProbeFlow';
-import { composeHitMaterial } from '../../raytrace/hitMaterial';
+import { giProbeTrace, giScreenTrace } from '../shaders';
+import { hitShade } from '../../raytrace/hitShade';
 import { MaterialFunction } from '../../extension/MaterialFunction';
 import { GI_SCREEN_TILE_MIN } from '../schemas';
 
@@ -53,11 +55,9 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(screenTile(8, 4320)).toBe(32);
     });
 
-    it('composição das funções `material` nos acertos: as funções no switch, um único retorno depois dele', () => {
-        // O retorno do fechamento (struct grande) de dentro de cada caso, com invocações em casos diferentes, saía
-        // errado no Metal (a emissão do painel sumia nos acertos): os casos atribuem e a função retorna uma vez. O
-        // caminho sem função (as constantes) sai antes do switch — como terceiro caso dele, o compilador de GPU da Apple
-        // caía no kernel da emissão das cáusticas gerado pelo naga (spec 038).
+    it('as funções `material` nos acertos fora dos raios das sondas: um kernel por função, nenhum seletor', () => {
+        // Spec 039: o seletor composto (um `switch` por função, expandido no traçado) quebrava o compilador da Apple pelo
+        // naga; cada função tem o kernel de material dela, e os kernels dos raios só gravam o acerto na onda.
         const fns = [
             'closure_diffuse(m.albedo.rgb, 0.0)',
             'closure_add(closure_diffuse(m.albedo.rgb, 0.0), closure_emission(vec3f(4.0), 1.0))',
@@ -67,14 +67,16 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             });
             return { ...f.composite!, returnsClosure: f.returnsClosure };
         });
-        const source = composeHitMaterial(fns).source;
-        expect(source.match(/case \d+u:/g)).toHaveLength(1);
-        expect(source.match(/default: \{ c = /g)).toHaveLength(1);
-        // O das constantes, antes do switch, e o único depois dele.
-        expect(source.match(/\breturn\b/g)).toHaveLength(2);
-        expect(source).toContain(
-            'if (index == 0u || index > 2u) { return closure_sanitize(closure_from_params(',
-        );
+        for (const f of fns) {
+            const source = composeWgsl(hitShade(f)).spec.source;
+            expect(source).not.toContain('switch');
+            expect(source.match(/\bmaterial_fn_[0-9a-f]+\(s, m,/g)).toHaveLength(1);
+        }
+        for (const kernel of [giProbeTrace, giScreenTrace]) {
+            const source = composeWgsl(kernel).spec.source;
+            expect(source).not.toMatch(/\bmaterial_fn_|\bray_hit_material\(|switch \(index\)/);
+            expect(source).toContain('ray_wave_put_surface(');
+        }
     });
 
     it('descritores: parâmetros, estado das sondas (só GPU), três atlas e o amostrador; contribui a scene_lighting', () => {

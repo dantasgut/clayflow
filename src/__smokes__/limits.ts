@@ -23,6 +23,13 @@ import type {
     Application as App,
 } from 'clayflow/web';
 import { mulberry32 } from './support/random';
+import { FlowWork } from '../scene/flows/FlowWork';
+import { StructSchema } from '../scene/descriptors/StructSchema';
+
+/** O Resource de trabalho da busca de vizinhos do smoke (spec 039: o espaço dela é da C2). */
+class LimitsWork extends FlowWork {
+    static readonly schema = new StructSchema('LimitsWork', {});
+}
 
 function log(msg: string): void {
     console.log(`[limits] ${msg}`);
@@ -171,15 +178,20 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
         byteSize: data.byteLength,
     });
     app.core.write(particles, data);
-    const ns = new NeighborSearchPipeline(app.core, {
-        discriminator: 'limits',
-        maxParticles: n,
-        maxNeighbors,
-        particleStrideF32: stride,
-        cellSize: h,
-        gridDim: [dim, dim, dim],
-        origin: [0, 0, 0],
-    });
+    const owner = new LimitsWork();
+    app.world.insert(owner);
+    const ns = new NeighborSearchPipeline(
+        { core: app.core, resources: app.resources, work: owner },
+        {
+            discriminator: 'limits',
+            maxParticles: n,
+            maxNeighbors,
+            particleStrideF32: stride,
+            cellSize: h,
+            gridDim: [dim, dim, dim],
+            origin: [0, 0, 0],
+        },
+    );
     // Todas as partículas vivas (bitset de ocupação com os n bits ligados).
     const liveBits = new Uint32Array(Math.ceil(n / 32)).fill(0xffffffff);
     const live = app.core.create<StorageBufferSpec>({

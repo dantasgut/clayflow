@@ -22,17 +22,18 @@ import { PBFSimParamsSchema } from '../../physics/schemas/simParams';
 // a vizinhança (mesmas declarações do SPH), as correções e as normais privadas do `PBFFlow` (`stage`).
 
 const vec4s: WgslResourceType = { wgsl: 'vec4f', array: true };
-const privateStorage = (
+/** Pool de trabalho por partícula do corpo (spec 039), pelo slot do Flow que o declara. */
+const slotStorage = (
     name: string,
     access: 'read' | 'read_write',
-    type: WgslResourceType,
+    slot: string,
 ): ReturnType<typeof wgslResource> =>
     wgslResource({
         name,
         binding: { storage: access },
-        type,
+        type: vec4s,
         frequency: 'stage',
-        provider: 'private',
+        provider: { slot },
     });
 
 /** Recursos dos kernels do PBF. */
@@ -42,7 +43,8 @@ export const pbfResources = Object.freeze({
         binding: { uniform: true },
         type: { schema: PBFSimParamsSchema },
         frequency: 'draw',
-        provider: 'private',
+        // Uma região por iteração do uniforme por região do Resource de trabalho (offset dinâmico, spec 039).
+        provider: { slot: 'work', descriptor: 'pbf_params' },
     }),
     particles: wgslResource({
         name: 'particles',
@@ -55,13 +57,13 @@ export const pbfResources = Object.freeze({
     neighborList: sphResources.neighborList,
     neighborCount: sphResources.neighborCount,
     neighborOrder: sphResources.neighborOrder,
-    delta: privateStorage('pbf_delta', 'read_write', vec4s),
-    deltaRead: privateStorage('pbf_delta', 'read', vec4s),
-    normal: privateStorage('pbf_normal', 'read_write', vec4s),
-    normalRead: privateStorage('pbf_normal', 'read', vec4s),
+    delta: slotStorage('pbf_delta', 'read_write', 'delta'),
+    deltaRead: slotStorage('pbf_delta', 'read', 'delta'),
+    normal: slotStorage('pbf_normal', 'read_write', 'normals'),
+    normalRead: slotStorage('pbf_normal', 'read', 'normals'),
     /** Fronteira sólida por partícula (Σ −B' n, Σ B), escrita a cada iteração do solver (spec 034). */
-    boundary: privateStorage('pbf_boundary', 'read_write', vec4s),
-    boundaryRead: privateStorage('pbf_boundary', 'read', vec4s),
+    boundary: slotStorage('pbf_boundary', 'read_write', 'boundary'),
+    boundaryRead: slotStorage('pbf_boundary', 'read', 'boundary'),
 });
 const R = pbfResources;
 const own = [WORKGROUP_SIZE.module, R.params, R.particles, R.live] as const;

@@ -33,7 +33,7 @@ describe('Refraction (spec 034, T040)', () => {
             light_count: 0,
             frame: 0,
             time: 0,
-            _pad0: 0,
+            checkerboard: 0,
             _pad1: 0,
         });
         expect([r.enabled, r.maxInterfaces]).toEqual([true, REFRACTION_DEFAULT_INTERFACES]);

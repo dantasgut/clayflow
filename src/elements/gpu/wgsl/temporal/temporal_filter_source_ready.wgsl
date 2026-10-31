@@ -11,7 +11,10 @@
 //   - `temporal_filter_source_previous_point(guide)`: onde estava esse ponto no quadro anterior (o objeto se move);
 //   - `temporal_filter_source_footprint(q, guide)`: a largura do pixel no ponto (a escala das distâncias do guia);
 //   - `temporal_filter_source_change(q)`: quanto a cena mudou em volta do pixel desde o quadro anterior, em 0–1 (o
-//     gradiente temporal do A-SVGF: 0 onde nada mudou, também com a câmera em movimento).
+//     gradiente temporal do A-SVGF: 0 onde nada mudou, também com a câmera em movimento);
+//   - `temporal_filter_source_fresh(q)`: a amostra do pixel é deste quadro (quem traça uma parte dos pixels por quadro —
+//     a refração em meia resolução — reconstrói os outros dos vizinhos traçados: o filtro guarda o histórico válido
+//     deles em vez de misturar a reconstrução, e usa a reconstrução onde não há histórico).
 // Requer: nada.
 
 fn temporal_filter_source_size() -> vec2u {
@@ -44,4 +47,8 @@ fn temporal_filter_source_footprint(q: vec2u, guide: vec4f) -> f32 {
 
 fn temporal_filter_source_change(q: vec2u) -> f32 {
     return 0.0;
+}
+
+fn temporal_filter_source_fresh(q: vec2u) -> bool {
+    return true;
 }

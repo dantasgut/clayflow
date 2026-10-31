@@ -234,6 +234,10 @@ fn scale_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups
 }`,
 });
 
+> **Em migração (spec 039, T141).** Os parâmetros e os kernels de um nó de conjunto passam a ser descritores do
+> Resource de trabalho do `GraphFlow` (o `SetGraph` declara o que cada nó pede); o `create` deixa de usar `c.core` para
+> criar, escrever e destruir. O exemplo abaixo mostra a forma atual e será refeito com a migração.
+
 export const scaleMesh = defineSetNode({
     name: 'my.scaleMesh',
     inputs: { mesh: MESH },

@@ -132,8 +132,8 @@ async function scene(
         ...(options.profiling === true ? { profiling: 'passes' as const } : {}),
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
-    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
-    if (options.rawTraced === true) app.defaults.temporalFilter.enabled = false;
+    if (mode === 'accumulate') app.defaults.renderer.antialiasing.data.sequence = REF_SAMPLES;
+    if (options.rawTraced === true) app.defaults.renderer.temporalFilter.enabled = false;
     const view = new Transform({ position: [0, 1, 3, 1] });
     const camera = new clayflow.Camera({
         fov: 0.8,
@@ -655,7 +655,7 @@ async function waterTank(mode: AntialiasingMode, water: Water): Promise<Scene> {
         canvasOptions: { capture: true },
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
-    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
+    if (mode === 'accumulate') app.defaults.renderer.antialiasing.data.sequence = REF_SAMPLES;
     const view = new Transform();
     const look: Look = (p) => {
         view.data.position = [...p, 1];
@@ -785,7 +785,7 @@ async function gpuTimes(
 ): Promise<{ span: number; passes: Record<string, number> }> {
     const s = await scene(mode, { size: [1280, 720], profiling: true });
     // O custo do antisserrilhado sem o da refração traçada (o orçamento dela é outro).
-    s.app.defaults.refraction.enabled = false;
+    s.app.defaults.renderer.lightPaths.refraction = false;
     const timings: GpuFrameTimedPayload[] = [];
     const off = s.app.events.on('gpuFrameTimed', (e) => timings.push(e));
     for (let i = 0; i < 180; i++) {
@@ -953,7 +953,7 @@ async function edgeFrames(
         canvasOptions: { capture: true },
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
-    if (mode === 'accumulate') app.defaults.antialiasing.data.sequence = REF_SAMPLES;
+    if (mode === 'accumulate') app.defaults.renderer.antialiasing.data.sequence = REF_SAMPLES;
     const camera = new clayflow.Camera({
         fov: 0.8,
         aspect: width / height,

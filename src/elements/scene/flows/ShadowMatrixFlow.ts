@@ -1,9 +1,10 @@
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
-import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import type { EngineCore, Frame, UniformBufferSpec } from '../../../scene/contracts/gpu';
+import type { Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork } from '../../../scene/flows/FlowWork';
+import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
@@ -13,6 +14,7 @@ import {
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
 import { DirectionalLight } from '../DirectionalLight';
 import { Light } from '../Light';
@@ -23,7 +25,7 @@ import {
     ShadowMatrixParamsSchema,
     shadowRecord,
 } from './ShadowMatrixSchemas';
-import { shadowMatrix, shadowMatrixResources } from './shaders';
+import { shadowMatrix } from './shaders';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 
@@ -39,19 +41,14 @@ export interface ShadowMatrixSlots extends SlotMap {
     readonly casters: EntitiesSlot;
     /** O antisserrilhado da cena (spec 034): com o deslocamento da amostra, a grade do mapa anda e o PCF gira. */
     readonly antialiasing: SingletonSlot<true>;
+    /** O espaço de trabalho do estágio: os parâmetros (`ShadowMatrixParams`, spec 039). */
+    readonly work: WorkSlot<ShadowMatrixWork>;
 }
 
-const slots: ShadowMatrixSlots = {
-    lights: slot.pool(Light.schema.name),
-    matrices: slot.pool(ShadowMap.matrixSchema.name),
-    maps: slot.pool(ShadowMap.schema.name),
-    casters: slot.entities({
-        all: [DirectionalLight, ShadowMap],
-        record: shadowRecord,
-        groups: { schema: ShadowMatrixInstanceSchema, key: () => 'casters', instance: 'record' },
-    }),
-    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
-};
+/** Resource de trabalho do `ShadowMatrixFlow` (spec 039): os parâmetros do estágio, escritos pela CPU. */
+class ShadowMatrixWork extends FlowWork {
+    static readonly schema = new StructSchema('ShadowMatrixWork', {});
+}
 
 type Ctx = TransitionContext<ShadowMatrixSlots>;
 
@@ -70,7 +67,7 @@ type Ctx = TransitionContext<ShadowMatrixSlots>;
  */
 export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
     readonly type = 'ShadowMatrixFlow';
-    readonly slots = slots;
+    readonly slots: ShadowMatrixSlots;
     override readonly pipelines: readonly PipelineDescriptor[] = [
         {
             id: 'shadow_matrix',
@@ -79,13 +76,11 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
             entryPoints: ['shadow_matrix_main'],
         },
     ];
-    /** Recurso privado: parâmetros do estágio (`ShadowMatrixParams`). */
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
-    private readonly params: UniformBufferSpec;
+    private readonly work: ShadowMatrixWork;
+    private readonly resources: ResourceDirectory;
     private count = 0;
     private written = '';
     /** Quadros com o deslocamento da amostra (índice da sequência da sombra). */
@@ -93,16 +88,36 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
-        this.params = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'shadow_matrix_params',
-            byteSize: ShadowMatrixParamsSchema.stride,
+        const work = new ShadowMatrixWork();
+        this.work = work;
+        this.resources = ctx.resources;
+        // Os parâmetros: escritos pela CPU quando mudam (`writeNow`, antes da gravação do quadro).
+        work.use({
+            descriptors: () => [
+                {
+                    id: 'shadow_matrix_params',
+                    role: 'uniform',
+                    schema: ShadowMatrixParamsSchema,
+                    upload: 'never',
+                },
+            ],
         });
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [shadowMatrixResources.params, this.params],
-        ]);
+        this.slots = {
+            lights: slot.pool(Light.schema.name),
+            matrices: slot.pool(ShadowMap.matrixSchema.name),
+            maps: slot.pool(ShadowMap.schema.name),
+            casters: slot.entities({
+                all: [DirectionalLight, ShadowMap],
+                record: shadowRecord,
+                groups: {
+                    schema: ShadowMatrixInstanceSchema,
+                    key: () => 'casters',
+                    instance: 'record',
+                },
+            }),
+            antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
         this.transitions = {
             '*': {
                 slotsResolved: 'ignore',
@@ -132,11 +147,6 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         });
     }
 
-    /** Libera o uniform de parâmetros. */
-    override dispose(): void {
-        this.core.destroy(this.params);
-    }
-
     /** Início e tamanho da lista e a posição da sequência no quadro, escritos quando mudam. */
     private writeParams(ctx: Ctx): void {
         const list = ctx.bound.slots.casters.groups[0];
@@ -145,8 +155,9 @@ export class ShadowMatrixFlow extends Flow<ShadowMatrixSlots, 'idle'> {
         const { kernelRotation, texelJitter } = this.sample(ctx);
         const key = `${first}:${this.count}:${kernelRotation.join(',')}:${texelJitter.join(',')}`;
         if (key === this.written) return;
-        this.core.write(
-            this.params,
+        this.resources.writeNow(
+            this.work,
+            'shadow_matrix_params',
             ShadowMatrixParamsSchema.pack({
                 first,
                 count: this.count,

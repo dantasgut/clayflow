@@ -1,18 +1,16 @@
-// Material no ponto atingido por um raio (spec 033 R3, módulo comum na spec 034): o mesmo fechamento do desenho — as
-// constantes do `StandardMaterial` da entidade (copiadas na instância pela estrutura de raios) e, quando ela tem uma
-// função `material`, a função (pelo índice dela na composição da cena, `ray_hit_material`, com os parâmetros do slot
-// da função). A amostra de superfície traz o ponto, a normal interpolada, o uv, o tempo simulado de quem traça e a
+// O material no ponto atingido por um raio, antes de avaliado (spec 033 R3; comum na spec 034; avaliado fora do traçado
+// na spec 039): as constantes do `StandardMaterial` da entidade (copiadas na instância pela estrutura de raios) e,
+// quando ela tem uma função `material`, o índice dela nas funções da estrutura de raios e o slot dos parâmetros — quem
+// traça grava a referência na onda dos acertos (`ray_wave_put_surface`), e o kernel da classe avalia a função. A amostra de superfície traz o ponto, a normal interpolada, o uv, o tempo simulado de quem traça e a
 // largura do cone do raio no ponto (`width`, metros; 0 = sem filtragem) com as derivadas do uv pela densidade do uv no
 // triângulo (isotrópicas) — os nós da biblioteca filtram por elas (spec 034, H6); a geometria diferencial fica zerada
 // (as funções que dependem dela ou das derivadas de tela cruas valem só no desenho).
 // Entidade sem `StandardMaterial`: cinza médio fosco. Quem consome: a iluminação global, os fótons e a refração.
-// Requer: ray_scene, ray_bvh_read, material_point_types, closure, ray_hit_material.
+// Requer: ray_scene, ray_bvh_read, material_point_types, closure.
 
 /**
  * O material no acerto antes de avaliado: o índice da função `material` na composição (0 = as constantes), o slot dos
- * parâmetros dela, a amostra de superfície e as constantes do `StandardMaterial` — quem acha acertos de mais de um tipo
- * (a refração: malhas e volumes) junta as referências e avalia `ray_hit_material` uma vez só (cada chamada é expandida
- * pelo compilador com todas as funções da cena).
+ * parâmetros dela, a amostra de superfície e as constantes do `StandardMaterial` — o que a onda dos acertos grava.
  */
 struct RayHitSurface {
     index: u32,
@@ -41,7 +39,3 @@ fn ray_hit_surface(hit: RayHit, time: f32, width: f32) -> RayHitSurface {
     return RayHitSurface(inst.ids.w & 0xFFFFu, inst.material1.y, s, m);
 }
 
-fn ray_hit_closure(hit: RayHit, time: f32, width: f32) -> Closure {
-    let s = ray_hit_surface(hit, time, width);
-    return ray_hit_material(s.index, s.sample, s.material, s.slot);
-}

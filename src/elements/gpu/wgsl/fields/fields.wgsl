@@ -105,6 +105,9 @@ fn field_body_at(p: vec3f) -> u32 {
  * O registro do corpo `body` (índice + 1, a palavra dos blocos; 0 = nenhum) na tabela do campo: (índice + 1 da função
  * `material` na composição dos acertos dos raios, 0 sem; slot dos parâmetros dela; 0; 0).
  */
+/** Palavras do meio de um corpo no buffer das consultas (`FIELD_MEDIUM_WORDS` no TypeScript; spec 039). */
+const FIELD_MEDIUM_WORDS: u32 = 8u;
+
 fn field_body(body: u32) -> vec4u {
     if (body == 0u) { return vec4u(0u); }
     return fluid_field.bodies[body - 1u];
@@ -265,12 +268,11 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
 }
 
 /**
- * A película de água no ponto `p` da superfície de um sólido de normal `n` (spec 034; `field_film.wgsl`): a espessura
- * da água livre (m) e a saturação dos poros (a absorvida sobre a capacidade, em [0, 1]). Zero sem película ou onde a
- * água do volume está (submersa — ali é a própria água).
+ * A película de água na célula `c` (spec 034; `field_film.wgsl`): a espessura da água livre (m) e a saturação dos poros
+ * (a absorvida sobre a capacidade, em [0, 1]). Zero sem película ou onde a água do volume está (submersa — ali é a
+ * própria água).
  */
-fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
-    let c = field_film_cell(p, n);
+fn field_film_cell_at(c: vec3i) -> vec2f {
     let key = field_film_key(c);
     if (key == 0u) { return vec2f(0.0); }
     var slot = field_film_bucket(c);
@@ -290,4 +292,33 @@ fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
         slot = (slot + 1u) & fluid_field.film.y;
     }
     return vec2f(0.0);
+}
+
+/**
+ * A película de água no ponto `p` da superfície de um sólido de normal `n`: a das células da camada junto ao sólido
+ * (`field_film_cell`) interpolada entre as quatro mais próximas no plano da superfície — os dois eixos de fora da normal
+ * dominante, pelos centros das células. A célula guarda um voxel do campo; lida sem interpolação, a mancha aparecia em
+ * blocos dele. A célula sem película conta como zero: a borda da mancha também fica contínua.
+ */
+fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
+    let voxel = field_voxel();
+    let layer = field_film_cell(p, n);
+    let a = abs(n);
+    // Os eixos tangentes: os dois que não são o da normal dominante.
+    var u = 0;
+    var v = 1;
+    if (a.x >= a.y && a.x >= a.z) { u = 1; v = 2; } else if (a.y >= a.z) { u = 0; v = 2; }
+    let g = p / voxel - 0.5;
+    let base = vec2i(i32(floor(g[u])), i32(floor(g[v])));
+    let f = vec2f(g[u] - floor(g[u]), g[v] - floor(g[v]));
+    var sum = vec2f(0.0);
+    for (var k = 0; k < 4; k++) {
+        let o = vec2i(k & 1, k >> 1);
+        var c = layer;
+        c[u] = base.x + o.x;
+        c[v] = base.y + o.y;
+        let w = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1);
+        sum += w * field_film_cell_at(c);
+    }
+    return sum;
 }

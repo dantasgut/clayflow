@@ -19,7 +19,7 @@
 //     (profiling) ≤ 16,7 ms.
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
-import { Application, Caustics, createScene, FluidBody, PointSpriteMaterial } from 'clayflow/web';
+import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow/web';
 import { nextGpuFrame } from './support/extensionScenes';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 import { diff, fromPng, lumaSrgb, toPng } from './support/images';
@@ -315,9 +315,12 @@ async function main(): Promise<void> {
             { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE },
             [AGITATED_FRAME],
             (app) => {
-                const caustics = app.world.findResource(Caustics.schema, Caustics);
-                if (caustics === undefined) throw new Error('a água não inseriu o Caustics');
-                caustics.enabled = false;
+                if (
+                    app.world.entityIdOfResource(app.defaults.renderer.causticsResource)
+                    === undefined
+                )
+                    throw new Error('a água não inseriu as cáusticas');
+                app.defaults.renderer.caustics.enabled = false;
             },
         );
         const base = ratios(flat.frames[0]!, emptyTop.frames[0]!, centralFloor);

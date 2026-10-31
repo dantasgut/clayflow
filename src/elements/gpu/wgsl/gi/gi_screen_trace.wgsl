@@ -4,7 +4,9 @@
 // de g ≥ 1, a luz rebatida pela irradiância da geração g − 1 no ponto atingido: a das sondas de tela do quadro anterior
 // quando o ponto é uma superfície visível (`gi_screen_history_taps`: exata de perto também), a das sondas do mundo
 // quando não. Raio que escapa: o ambiente da cena em todas as gerações. Face de trás: sem luz. Grava E_g = π · média.
-// Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, ray_hit,
+// O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_screen_hit_main` grava o acerto na onda e
+// `gi_screen_trace_main` lê o fechamento dela.
+// Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, ray_hit, ray_wave,
 // gi_shade, gi_direct, closure_eval, scene_environment, ray_volume_transmittance, gi_screen_work.
 
 /** Gerações no máximo (os rebatimentos da `GlobalIllumination`). */
@@ -31,9 +33,63 @@ fn gi_screen_bounce(c: Closure, p: vec3f, n: vec3f, v: vec3f, k: u32, taps: GiSc
 /** A radiância de cada geração que volta por um raio, por invocação (a soma por sonda é do grupo). */
 var<workgroup> gi_screen_partial: array<vec4f, WORKGROUP_SIZE * GI_SCREEN_MAX_BOUNCES>;
 
+/** A sonda de tela de um raio: o índice, o raio dela, a posição e a normal, e se ela lança no quadro. */
+struct GiScreenRay {
+    i: u32,
+    k: u32,
+    valid: bool,
+    update: bool,
+    probe: vec4f,
+    n0: vec3f,
+}
+
+fn gi_screen_ray(j: u32) -> GiScreenRay {
+    let rays = gi.screen.z;
+    let i = j / rays;
+    let valid = i < gi_screen_count();
+    let at = gi_screen_probe_at(min(i, gi_screen_count() - 1u));
+    let probe = gi_screen_work[at];
+    let n0 = gi_screen_work[at + 1u].xyz;
+    // Fora da vez no rodízio, só a sonda sem histórico (recém-descoberta) lança.
+    var update = valid && probe.w > 0.0;
+    if (update && !gi_screen_scheduled(i)) { update = !gi_screen_history_found(gi_screen_history_taps(probe.xyz, n0)); }
+    return GiScreenRay(i, j % rays, valid, update, probe, n0);
+}
+
 /**
- * Uma invocação por raio (o grupo cobre WORKGROUP_SIZE / raios sondas inteiras — os raios por sonda dividem o grupo); a
- * primeira invocação de cada sonda soma os raios dela na memória do grupo e grava E_g = π · média.
+ * O acerto de cada raio das sondas de tela que lançam (spec 039: o material fora do traçado): a transmitância dos
+ * volumes e a distância na carga da onda (a distância máxima no escape; negativa na face de trás ou sem lançar) e, na
+ * face da frente, o acerto na onda.
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn gi_screen_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (j >= gi_screen_count() * gi.screen.z) { return; }
+    let r = gi_screen_ray(j);
+    if (!r.update) {
+        ray_wave_put_empty(j, vec4f(0.0, 0.0, 0.0, -1.0));
+        return;
+    }
+    // Afasta a origem da superfície em proporção à distância (a precisão do acerto da câmera cai com ela).
+    let origin = r.probe.xyz + r.n0 * (1e-3 + r.probe.w * 1e-4);
+    let max_dist = gi.tuning.w;
+    let dir = gi_screen_ray_dir(r.i, r.k, r.n0);
+    let hit = ray_scene_hit(origin, dir, max_dist);
+    // Os volumes atravessados (a água) atenuam o que o raio traz.
+    let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
+    if (hit.t >= max_dist || hit.face < 0.0) {
+        ray_wave_put_empty(j, vec4f(through, select(-1.0, max_dist, hit.t >= max_dist)));
+        return;
+    }
+    let s = ray_hit_surface(hit, gi.extra.w, 0.0);
+    ray_wave_put_surface(j, s.index, s.slot, s.sample.world_position, s.sample.normal, s.sample.uv, gi.extra.w, 0.0,
+        0.0, s.material, vec4f(through, hit.t));
+}
+
+/**
+ * Uma invocação por raio (o grupo cobre WORKGROUP_SIZE / raios sondas inteiras — os raios por sonda dividem o grupo),
+ * pelo acerto e pelo fechamento avaliado na onda; a primeira invocação de cada sonda soma os raios dela na memória do
+ * grupo e grava E_g = π · média.
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_trace_main(
@@ -43,40 +99,35 @@ fn gi_screen_trace_main(
 ) {
     let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let rays = gi.screen.z;
-    let i = j / rays;
-    let k = j % rays;
+    let r = gi_screen_ray(j);
+    let i = r.i;
+    let k = r.k;
     let bounces = min(gi.bounces.x, GI_SCREEN_MAX_BOUNCES);
     var sums: array<vec3f, GI_SCREEN_MAX_BOUNCES>;
-    let valid_probe = i < gi_screen_count();
-    let at = gi_screen_probe_at(min(i, gi_screen_count() - 1u));
-    let probe = gi_screen_work[at];
-    let n0 = gi_screen_work[at + 1u].xyz;
-    // Fora da vez no rodízio, só a sonda sem histórico (recém-descoberta) lança.
-    var update = valid_probe && probe.w > 0.0;
-    if (update && !gi_screen_scheduled(i)) { update = !gi_screen_history_found(gi_screen_history_taps(probe.xyz, n0)); }
+    let valid_probe = r.valid;
+    let probe = r.probe;
+    let update = r.update;
     if (update) {
-        // Afasta a origem da superfície em proporção à distância (a precisão do acerto da câmera cai com ela).
-        let origin = probe.xyz + n0 * (1e-3 + probe.w * 1e-4);
         let max_dist = gi.tuning.w;
-        let dir = gi_screen_ray_dir(i, k, n0);
-        let hit = ray_scene_hit(origin, dir, max_dist);
-        // Os volumes atravessados (a água) atenuam o que o raio traz.
-        let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
-        if (hit.t >= max_dist) {
+        let dir = gi_screen_ray_dir(i, k, r.n0);
+        let traced = ray_wave_entries[j].hit.payload;
+        let through = traced.rgb;
+        if (traced.w >= max_dist) {
             let env = scene_environment(dir) * through;
             for (var g = 0u; g < bounces; g++) { sums[g] = env; }
-        } else if (hit.face >= 0.0) {
+        } else if (traced.w >= 0.0) {
             let v = -dir;
-            let c = ray_hit_closure(hit, gi.extra.w, 0.0);
-            let direct = gi_shade_direct(c, hit.position, hit.normal, v, random_seed(RANDOM_STREAM_GI_SCREEN_LIGHT, j, gi.rays.y));
+            let c = ray_wave_entries[j].closure;
+            let h = ray_wave_entries[j].hit;
+            let direct = gi_shade_direct(c, h.position, h.normal, v, random_seed(RANDOM_STREAM_GI_SCREEN_LIGHT, j, gi.rays.y));
             sums[0] = direct * through;
             if (bounces > 1u) {
-                let taps = gi_screen_history_taps(hit.position, hit.normal);
+                let taps = gi_screen_history_taps(h.position, h.normal);
                 let screen = gi_screen_history_found(taps) && c.translucent_weight <= 0.0;
                 var w: GiGenerationWeights;
-                if (!screen) { w = gi_generation_weights(hit.position, hit.normal, v); }
+                if (!screen) { w = gi_generation_weights(h.position, h.normal, v); }
                 for (var g = 1u; g < bounces; g++) {
-                    sums[g] = (direct + gi_screen_bounce(c, hit.position, hit.normal, v, g - 1u, taps, screen, w)) * through;
+                    sums[g] = (direct + gi_screen_bounce(c, h.position, h.normal, v, g - 1u, taps, screen, w)) * through;
                 }
             }
         }

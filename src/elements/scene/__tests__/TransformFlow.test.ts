@@ -26,8 +26,9 @@ function setup() {
 
 const composes = (trace: readonly string[]): number =>
     trace.filter((c) => c === 'compute:TransformFlow').length;
+/** Escritas do uniforme de parâmetros (descritor `transform_params` do Resource de trabalho; spec 039). */
 const paramWrites = (trace: readonly string[]): number =>
-    trace.filter((c) => c === 'write:transform_compose_params').length;
+    trace.filter((c) => c.startsWith('write:transform_params:')).length;
 
 describe('TransformFlow (slots)', () => {
     it('fica pronto quando os pools existem (reconciliado antes da gravação do quadro); antes não grava', () => {
@@ -155,18 +156,19 @@ describe('TransformFlow (slots)', () => {
         expect(composed.spec.source).toContain(Transform.worldSchema.toWGSL());
         // Os pools vêm dos fornecedores dos recursos declarados (spec 031).
         expect(composed.bindings.map((b) => [b.name, b.resource.resource.provider])).toEqual([
-            ['params', 'private'],
+            ['params', { slot: 'work', descriptor: 'transform_params' }],
             ['transforms', { pool: Transform.schema.name }],
             ['worlds', { pool: Transform.worldSchema.name }],
         ]);
     });
 
-    it('dispose libera o uniform de parâmetros', () => {
+    it('dispose libera o uniform de parâmetros (do Resource de trabalho, pela C2)', () => {
         const { scene, core } = setup();
         scene.dispose();
-        expect(core.destroy).toHaveBeenCalledWith(
-            expect.objectContaining({ discriminator: 'transform_compose_params' }),
-        );
+        const destroyed = (
+            core.destroy as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls.map(([spec]) => (spec as { discriminator?: string }).discriminator ?? '');
+        expect(destroyed.some((d) => d.startsWith('transform_params:'))).toBe(true);
     });
 });
 

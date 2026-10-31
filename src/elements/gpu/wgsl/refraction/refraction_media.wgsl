@@ -6,23 +6,25 @@
 // por canal vem do número de Abbe (`closure_dispersion_iors`): o canal −1 (os três juntos) usa o da linha d (verde).
 // Requer: NONE, closure, REFRACTION_MAX_MEDIA.
 
-/** Um meio da pilha: a instância, a prioridade, o índice por canal e a absorção por canal. */
-struct RefractionMedium {
-    instance: u32,
-    priority: f32,
-    ior: vec3f,
-    sigma: vec3f,
+// Os structs `RefractionMedium` e `RefractionStack` vêm dos schemas (`RefractionMediumSchema`, `RefractionStackSchema`).
+
+/** O meio da instância `instance` com a prioridade, o índice e a absorção por canal. */
+fn refraction_medium_of(instance: u32, priority: f32, ior: vec3f, sigma: vec3f) -> RefractionMedium {
+    return RefractionMedium(instance, priority, ior.x, ior.y, ior.z, sigma.x, sigma.y, sigma.z);
 }
 
-/** Pilha de meios: em ordem de entrada; `overflow` 1 quando um meio além do teto não coube. */
-struct RefractionStack {
-    media: array<RefractionMedium, REFRACTION_MAX_MEDIA>,
-    count: u32,
-    overflow: u32,
+/** O índice por canal do meio `m`. */
+fn refraction_medium_ior(m: RefractionMedium) -> vec3f {
+    return vec3f(m.ior_r, m.ior_g, m.ior_b);
+}
+
+/** A absorção por canal do meio `m`. */
+fn refraction_medium_sigma(m: RefractionMedium) -> vec3f {
+    return vec3f(m.sigma_r, m.sigma_g, m.sigma_b);
 }
 
 fn refraction_air() -> RefractionMedium {
-    return RefractionMedium(NONE, -1e30, vec3f(1.0), vec3f(0.0));
+    return refraction_medium_of(NONE, -1e30, vec3f(1.0), vec3f(0.0));
 }
 
 fn refraction_empty_stack() -> RefractionStack {
@@ -34,7 +36,7 @@ fn refraction_empty_stack() -> RefractionStack {
 
 /** O meio do fechamento `c` da instância `instance`. */
 fn refraction_medium(c: Closure, instance: u32) -> RefractionMedium {
-    return RefractionMedium(
+    return refraction_medium_of(
         instance,
         c.transmission_priority,
         closure_dispersion_iors(c.transmission_ior, c.transmission_abbe),
@@ -107,16 +109,17 @@ fn refraction_applied(s: RefractionStack, x: RefractionCross) -> RefractionStack
 
 /** Índice do meio no canal (−1: o da linha d). */
 fn refraction_ior(m: RefractionMedium, channel: i32) -> f32 {
-    if (channel < 0) { return m.ior.y; }
-    return m.ior[channel];
+    if (channel < 0) { return m.ior_g; }
+    return refraction_medium_ior(m)[channel];
 }
 
 /** O meio separa os canais (número de Abbe > 0)? */
 fn refraction_dispersive(m: RefractionMedium) -> bool {
-    return m.ior.x != m.ior.z;
+    return m.ior_r != m.ior_b;
 }
 
 /** A energia que resta depois de `t` de percurso no meio `m` (os canais sem absorção não mudam, mesmo com t infinito). */
 fn refraction_absorb(throughput: vec3f, m: RefractionMedium, t: f32) -> vec3f {
-    return select(throughput, throughput * exp(-m.sigma * t), m.sigma > vec3f(0.0));
+    let sigma = refraction_medium_sigma(m);
+    return select(throughput, throughput * exp(-sigma * t), sigma > vec3f(0.0));
 }

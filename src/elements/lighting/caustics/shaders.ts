@@ -4,22 +4,25 @@ import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { basis, bsdf, constants, hashAddress, random, sampling } from '../../gpu/shaders/math';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayHit, rayScene } from '../../raytrace/shaders';
+import { rayWave } from '../../raytrace/wave/shaders';
 import {
+    rayVolumeBeginReady,
     rayVolumeBoundsReady,
+    rayVolumeLightReady,
     rayVolumeOccupiedReady,
-    rayVolumeTransmittanceReady,
 } from '../../raytrace/points';
 import { lightTransmissionReady } from '../../scene/points/lighting';
 import { LIGHT_LIMIT } from '../../scene/points/lightContributions';
 import { lightsResource } from '../../scene/resources';
 import { refractionScene } from '../refraction/shaders';
 import causticsCapableSource from '../../gpu/wgsl/caustics/caustics_capable.wgsl?raw';
+import causticsInstancesSource from '../../gpu/wgsl/caustics/caustics_instances.wgsl?raw';
 import causticsCommonSource from '../../gpu/wgsl/caustics/caustics_common.wgsl?raw';
 import causticsGatherSource from '../../gpu/wgsl/caustics/caustics_gather.wgsl?raw';
 import causticsTraceSource from '../../gpu/wgsl/caustics/caustics_trace.wgsl?raw';
 import causticsResolveSource from '../../gpu/wgsl/caustics/caustics_resolve.wgsl?raw';
 import causticsLightSource from '../../gpu/wgsl/caustics/caustics_light.wgsl?raw';
-import { CausticsSchema } from './schemas';
+import { CausticsPhotonSchema, CausticsSchema } from './schemas';
 
 // Módulos das cáusticas (spec 034, T067c): o hash dos fótons (do recurso `Caustics`), os fótons, o acúmulo e as
 // contribuições ao desenho.
@@ -65,6 +68,37 @@ export const causticsResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
+    /** Os fótons entre as rodadas (privado do `CausticsFlow`). */
+    photons: wgslResource({
+        name: 'caustics_photons',
+        binding: { storage: 'read_write' },
+        type: { schema: CausticsPhotonSchema, array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** A fila dos fótons vivos: o cabeçalho e as duas listas (privado do `CausticsFlow`). */
+    queue: wgslResource({
+        name: 'caustics_queue',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** O despacho do bloco de fótons e quantos ele tem: escrito no começo do bloco, lido pelos kernels do bloco. */
+    argsOut: wgslResource({
+        name: 'caustics_args_out',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    args: wgslResource({
+        name: 'caustics_args',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
 });
 
 const R = causticsResources;
@@ -90,6 +124,24 @@ const causticsGather = wgslModule({
     requires: [R.params, causticsCommon, R.hash],
 });
 
+/**
+ * As instâncias que fazem cáustica pela onda dos acertos (spec 039): o acerto sintético do centro de cada uma e, depois
+ * do material avaliado por classe, a marca de cada instância. Sem a composição das funções `material`.
+ */
+export const causticsInstances = wgslModule({
+    name: 'caustics_instances',
+    source: causticsInstancesSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        causticsCapable,
+        R.instanceCapable,
+        rayScene,
+        rayWave,
+    ],
+});
+
 /** Fótons das fontes pelos caminhos especulares até a primeira difusa (com a composição das funções `material`). */
 export const causticsTrace = wgslModule({
     name: 'caustics_trace',
@@ -108,14 +160,20 @@ export const causticsTrace = wgslModule({
         R.hashAtomic,
         R.targets,
         R.instanceCapable,
+        R.photons,
+        R.queue,
+        R.argsOut,
+        R.args,
+        rayWave,
         LIGHT_LIMIT.module,
         lightsResource,
         lightTransmissionReady,
         rayScene,
         rayHit,
         refractionScene,
-        rayVolumeTransmittanceReady,
         rayVolumeBoundsReady,
+        rayVolumeBeginReady,
+        rayVolumeLightReady,
         rayVolumeOccupiedReady,
     ],
 });

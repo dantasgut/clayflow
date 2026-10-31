@@ -32,12 +32,12 @@ describe('Camera (spec 007)', () => {
         s.step();
         const rs = s.scene.resourceSystem;
         expect(rs.poolSlotOf('Camera', id)).toBe(rs.poolSlotOf('CameraMatrices', id));
-        const params = vi
-            .mocked(s.core.write)
-            .mock.calls.filter(
-                ([spec]) =>
-                    (spec as { discriminator?: string }).discriminator === 'camera_compose_params',
-            );
+        const params = vi.mocked(s.core.write).mock.calls.filter(([spec]) =>
+            // O uniforme do estágio é o descritor `camera_compose` do Resource de trabalho (spec 039).
+            ((spec as { discriminator?: string }).discriminator ?? '').startsWith(
+                'camera_compose:',
+            ),
+        );
         expect(params).toHaveLength(1);
         const [, data] = params[0]!;
         const f32 = new Float32Array(data.buffer, data.byteOffset, 4);

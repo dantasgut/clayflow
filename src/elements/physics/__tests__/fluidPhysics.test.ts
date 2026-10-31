@@ -52,7 +52,7 @@ describe('SPHFlow — parâmetros do ParticlePhysics', () => {
     it('massa, h, rigidez de Tait, viscosidade, restituição e domínio gravados nos parâmetros', async () => {
         const s = await sph();
         s.step(1 / 60);
-        const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
+        const { f32 } = lastWrite(s.writes, 'sph_params:');
         expect(f32[at(SPHSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
         expect(f32[at(SPHSimParamsSchema, 'h')]).toBeCloseTo(material.sphSmoothingLength, 6);
         expect(f32[at(SPHSimParamsSchema, 'stiffness')]).toBeCloseTo((900 * 144) / TAIT_GAMMA, 1);
@@ -75,7 +75,7 @@ describe('SPHFlow — parâmetros do ParticlePhysics', () => {
     it('vizinhança com raio = 2h e grade pelo domínio', async () => {
         const s = await sph();
         s.step(1 / 60);
-        const { f32, u32 } = lastWrite(s.writes, 'ns_params:sph');
+        const { f32, u32 } = lastWrite(s.writes, 'ns:sph:gen');
         const cell = 2 * material.sphSmoothingLength;
         expect(f32[0]).toBe(-1);
         expect(f32[3]).toBeCloseTo(cell, 6);
@@ -105,7 +105,7 @@ describe('SPHFlow — parâmetros do ParticlePhysics', () => {
         s.scene.world.insert(m);
         s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         const passes = s.step(1 / 60);
-        const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
+        const { f32 } = lastWrite(s.writes, 'sph_params:');
         expect(f32[at(SPHSimParamsSchema, 'xsph_c')]).toBeCloseTo(0.1);
         expect(f32[at(SPHSimParamsSchema, 'cohesion_gamma')]).toBeCloseTo(m.cohesionGamma(), 6);
         expect(f32[at(SPHSimParamsSchema, 'adhesion_accel')]).toBeCloseTo(m.adhesionAccel(), 4);
@@ -121,16 +121,14 @@ describe('SPHFlow — parâmetros do ParticlePhysics', () => {
         const after = s.step(1 / 60);
         expect(countPasses(after, 'SPHFlow.normals')).toBe(0);
         expect(
-            lastWrite(s.writes, 'sph_params:per_step').f32[
-                at(SPHSimParamsSchema, 'cohesion_gamma')
-            ],
+            lastWrite(s.writes, 'sph_params:').f32[at(SPHSimParamsSchema, 'cohesion_gamma')],
         ).toBe(0);
     });
 
     it('padrões: XSPH 0,05, sem coesão nem adesão e sem passe de normais', async () => {
         const s = await sph();
         const passes = s.step(1 / 60);
-        const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
+        const { f32 } = lastWrite(s.writes, 'sph_params:');
         expect(f32[at(SPHSimParamsSchema, 'xsph_c')]).toBeCloseTo(0.05);
         expect(f32[at(SPHSimParamsSchema, 'cohesion_gamma')]).toBe(0);
         expect(f32[at(SPHSimParamsSchema, 'adhesion_accel')]).toBe(0);
@@ -150,7 +148,7 @@ describe('SPHFlow — parâmetros do ParticlePhysics', () => {
         s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
         s.step(1 / 60);
         s.step(1 / 60);
-        const gamma = lastWrite(s.writes, 'sph_params:per_step').f32[
+        const gamma = lastWrite(s.writes, 'sph_params:').f32[
             at(SPHSimParamsSchema, 'cohesion_gamma')
         ]!;
         expect(gamma).toBeLessThan(m.cohesionGamma());
@@ -162,7 +160,7 @@ describe('SPHFlow — parâmetros do ParticlePhysics', () => {
     it('sem material no World usa os padrões', async () => {
         const s = await sph(false);
         s.step(1 / 60);
-        const { f32 } = lastWrite(s.writes, 'sph_params:per_step');
+        const { f32 } = lastWrite(s.writes, 'sph_params:');
         expect(f32[at(SPHSimParamsSchema, 'particle_mass')]).toBeCloseTo(
             ParticlePhysics.defaults.particleMass,
             6,
@@ -186,7 +184,7 @@ describe('PBFFlow — parâmetros do ParticlePhysics', () => {
     it('ρ₀, h = 2s, massa e m/ρ₀; s_corr escalado com s²', async () => {
         const s = await pbf();
         s.step(1 / 60);
-        const { f32 } = lastWrite(s.writes, 'pbf_params:per_step');
+        const { f32 } = lastWrite(s.writes, 'pbf_params:');
         expect(f32[at(PBFSimParamsSchema, 'rest_density')]).toBeCloseTo(900);
         expect(f32[at(PBFSimParamsSchema, 'h')]).toBeCloseTo(0.08, 6);
         expect(f32[at(PBFSimParamsSchema, 's_corr_k')]).toBeCloseTo(1e-4 * (0.04 / 0.05) ** 2, 9);
@@ -208,7 +206,7 @@ describe('PBFFlow — parâmetros do ParticlePhysics', () => {
         s.scene.world.insert(m);
         s.scene.world.insert(new FluidBody({ algorithm: 'PBF', position: [0, 0, 0] }));
         s.step(1 / 60);
-        const { f32 } = lastWrite(s.writes, 'pbf_params:per_step');
+        const { f32 } = lastWrite(s.writes, 'pbf_params:');
         expect(f32[at(PBFSimParamsSchema, 'xsph_c')]).toBeCloseTo(0.02);
         expect(f32[at(PBFSimParamsSchema, 'cohesion_gamma')]).toBeCloseTo(m.cohesionGamma(), 6);
         expect(f32[at(PBFSimParamsSchema, 'adhesion_accel')]).toBeCloseTo(m.adhesionAccel(), 4);
@@ -218,7 +216,7 @@ describe('PBFFlow — parâmetros do ParticlePhysics', () => {
     it('vizinhança com raio = h', async () => {
         const s = await pbf();
         s.step(1 / 60);
-        expect(lastWrite(s.writes, 'ns_params:pbf').f32[3]).toBeCloseTo(0.08, 6);
+        expect(lastWrite(s.writes, 'ns:pbf:gen').f32[3]).toBeCloseTo(0.08, 6);
     });
 });
 
@@ -241,7 +239,7 @@ describe('MPMFlow — parâmetros do ParticlePhysics', () => {
             'MPMFluidSchema',
         );
         const passes = s.step(1 / 60);
-        const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
+        const { f32, u32 } = lastWrite(s.writes, 'mpm_params:');
         expect(f32[7]).toBeCloseTo(material.particleMass, 6);
         expect(f32[8]).toBeCloseTo(material.particleVolume, 9);
         expect(f32[9]).toBeCloseTo(material.bulkModulus, 0);
@@ -260,7 +258,7 @@ describe('MPMFlow — parâmetros do ParticlePhysics', () => {
             'MPMSoftSchema',
         );
         s.step(1 / 60);
-        const { f32, u32 } = lastWrite(s.writes, 'mpm_params:per_step');
+        const { f32, u32 } = lastWrite(s.writes, 'mpm_params:');
         expect(u32[21]).toBe(0);
         expect(f32[4]).toBeCloseTo(material.lame.mu, 0);
         expect(f32[5]).toBeCloseTo(material.lame.lambda, 0);

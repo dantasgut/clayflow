@@ -22,62 +22,7 @@ const CLOSURE_ANISOTROPY: u32 = 256u;
 const CLOSURE_OPACITY: u32 = 512u;
 const CLOSURE_TRANSLUCENT: u32 = 1024u;
 
-struct Closure {
-    // Difuso (Oren-Nayar energético).
-    diffuse_weight: f32,
-    diffuse_color: vec3f,
-    diffuse_roughness: f32,
-    // Subsuperfície no modelo (difuso com "wrap" por canal).
-    subsurface_weight: f32,
-    subsurface_color: vec3f,
-    subsurface_radius: vec3f,
-    // Especular de base: parte dielétrica (F0 do IOR, tinta) e parte condutora (F0 e tinta F82), mesma microgeometria.
-    dielectric_weight: f32,
-    dielectric_ior: f32,
-    dielectric_tint: vec3f,
-    conductor_weight: f32,
-    conductor_f0: vec3f,
-    conductor_tint: vec3f,
-    specular_roughness: f32,
-    specular_anisotropy: f32,
-    // Tangente do especular anisotrópico (0 = a do referencial padrão).
-    tangent: vec3f,
-    // Filme fino sobre o especular de base.
-    film_weight: f32,
-    film_thickness: f32,
-    film_ior: f32,
-    // Verniz (camada de cima): dielétrico liso com cor de absorção e normal própria (0 = a geométrica).
-    coat_weight: f32,
-    coat_ior: f32,
-    coat_roughness: f32,
-    coat_color: vec3f,
-    coat_normal: vec3f,
-    // Brilho de fibra (Charlie), por cima de tudo.
-    sheen_weight: f32,
-    sheen_color: vec3f,
-    sheen_roughness: f32,
-    // Transmissão com refração: cor e distância de absorção (Beer-Lambert), IOR, número de Abbe (0 = sem dispersão).
-    transmission_weight: f32,
-    transmission_color: vec3f,
-    transmission_depth: f32,
-    transmission_ior: f32,
-    transmission_abbe: f32,
-    transmission_roughness: f32,
-    // Prioridade do meio na sobreposição de volumes transmissivos (a maior vale dentro da interseção; empate: o último
-    // em que o raio entrou). Padrão 0.
-    transmission_priority: f32,
-    // Parede fina (0 ou 1): a superfície é uma placa de espessura zero, sem interior — a luz atravessa sem desviar, com
-    // as reflexões entre as duas faces; nenhum meio entra na pilha. Padrão 0 (a superfície fecha um volume).
-    transmission_thin: f32,
-    // Parede fina: transmissão difusa sem refração.
-    translucent_weight: f32,
-    translucent_color: vec3f,
-    // Emissão (nits) e opacidade.
-    emission: vec3f,
-    opacity: f32,
-    // Normal de base própria (0 = a geométrica).
-    normal: vec3f,
-}
+// O struct `Closure` vem do `ClosureSchema` (gerado na montagem).
 
 // Fechamento vazio: nenhum lobo, opaco, IORs no padrão do vidro comum (1,5).
 fn closure_zero() -> Closure {

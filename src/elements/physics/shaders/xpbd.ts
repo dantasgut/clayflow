@@ -25,7 +25,8 @@ export const xpbdResources = Object.freeze({
         binding: { uniform: true },
         type: { schema: SimParamsSchema },
         frequency: 'draw',
-        provider: 'private',
+        // Uma região por iteração do uniforme por região do Resource de trabalho (offset dinâmico, spec 039).
+        provider: { slot: 'work', descriptor: 'xpbd_sim_params' },
     }),
     particles: wgslResource({
         name: 'particles',

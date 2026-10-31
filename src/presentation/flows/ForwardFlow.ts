@@ -13,7 +13,11 @@ import type {
     VertexBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { FlowWork } from '../../scene/flows/FlowWork';
+import { GpuWordSchema } from '../../elements/gpu/compute/schemas';
 import type {
     BindingKey,
     BindingSource,
@@ -37,6 +41,7 @@ import {
     type SlotMap,
     type TargetSlot,
     type TextureSlot,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import type { World } from '../../scene/world/World';
@@ -147,6 +152,55 @@ export interface ForwardSlots extends SlotMap {
      * composição desenham a cor deles); sem ela, não desenham.
      */
     readonly refraction: SingletonSlot<true>;
+    /** O espaço de trabalho do passe: parâmetros do quadro, substituto da geometria diferencial, argumentos (spec 039). */
+    readonly work: WorkSlot<ForwardWork>;
+}
+
+/** Id dos parâmetros do quadro no trabalho. */
+const FRAME_PARAMS = 'forward_frame_params';
+/** Id do substituto do pool `SurfaceDiff` no trabalho. */
+const DUMMY_DIFF = 'forward_surface_diff_dummy';
+/** Id dos argumentos indiretos por grupo no trabalho. */
+const INDIRECT = 'forward_indirect';
+/** Palavras por grupo: o registro indexado (5) e o do arame, não indexado (byte 20, 5 palavras com folga). */
+const INDIRECT_WORDS = 10;
+
+/**
+ * Resource de trabalho do `ForwardFlow` (spec 039): `ForwardFrameParams`, o substituto do pool `SurfaceDiff` (nenhuma
+ * superfície com geometria diferencial) e os argumentos indiretos dos grupos com registro indireto na geometria, um par
+ * de registros por grupo (capacidade em potências de 2).
+ */
+class ForwardWork extends FlowWork {
+    static readonly schema = new StructSchema('ForwardWork', {});
+    /** Grupos com argumentos indiretos reservados. */
+    indirectCapacity = 0;
+
+    constructor() {
+        super();
+        this.use({
+            descriptors: (): readonly GPUDescriptor[] => [
+                // Escritos da CPU só quando mudam (`writeNow`), cada um por si.
+                {
+                    id: FRAME_PARAMS,
+                    role: 'uniform',
+                    schema: ForwardFrameParamsSchema,
+                    upload: 'never',
+                },
+                { id: DUMMY_DIFF, role: 'storage-rw', schema: SurfaceDiffSchema, upload: 'never' },
+                ...(this.indirectCapacity === 0
+                    ? []
+                    : [
+                          {
+                              id: INDIRECT,
+                              role: 'indirect' as const,
+                              schema: GpuWordSchema,
+                              upload: 'never' as const,
+                              count: this.indirectCapacity * INDIRECT_WORDS,
+                          },
+                      ]),
+            ],
+        });
+    }
 }
 
 /**
@@ -193,7 +247,7 @@ function materialFunctionOf(entry: EntityEntry): MaterialFunction | undefined {
     return entry.resources.find((r): r is MaterialFunction => r instanceof MaterialFunction);
 }
 
-function slotsOf(output: ForwardOutput): ForwardSlots {
+function slotsOf(output: ForwardOutput, work: ForwardWork): ForwardSlots {
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
     // Cor multiamostrada dos alvos (MSAA, spec 008): o passe desenha nela e resolve na cor.
     const samples = { schema: FrameTargets.schema, descId: 'samples' };
@@ -225,6 +279,7 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
         light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
         refraction: slot.singleton(Refraction.schema, { optional: true }),
+        work: slot.work(() => work),
     };
 }
 
@@ -275,7 +330,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     readonly slots: ForwardSlots;
     /** Os registros de todas as formas das funções `material` (spec 031, R8). */
     override readonly listens = [materialPoint];
-    override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ForwardSlots>>;
 
@@ -296,9 +350,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      * escrevendo só rg (ba fica com o movimento do que está atrás).
      */
     private readonly surfaceMotionPipelines = new Map<string, string>();
-    private readonly frameParams: UniformBufferSpec;
-    /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
-    private readonly dummyDiff: StorageBufferSpec;
+    /** Parâmetros do quadro, substituto do pool `SurfaceDiff` e argumentos indiretos (spec 039). */
+    private readonly work: ForwardWork;
     /** Pool `SurfaceDiff` ligado (o real ou o substituto). */
     private boundDiff: StorageBufferSpec | undefined;
     /** Conteúdo escrito em `ForwardFrameParams` (comparado para escrever só quando muda). */
@@ -347,7 +400,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      */
     private readonly indirectArgs = new Map<
         string,
-        { readonly args: IndirectBufferSpec; readonly source: IndirectBufferSpec }
+        { readonly record: number; readonly source: IndirectBufferSpec }
     >();
     /** O device tem `indirect-first-instance` (sem ela, a malha adaptativa vem no nível máximo e desenha direto). */
     private indirectOn = false;
@@ -519,23 +572,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.preferAsync = options.preferAsync === true;
         this.depthPrepass = options.depthPrepass !== false;
         this.depthPrepassForced = options.depthPrepass;
-        this.slots = slotsOf(options.output ?? 'scene');
-        this.frameParams = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'forward_frame_params',
-            byteSize: ForwardFrameParamsSchema.stride,
-        });
-        this.dummyDiff = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'forward_surface_diff_dummy',
-            byteSize: SurfaceDiffSchema.stride,
-        });
-        this.bindings = new Map<BindingKey, BindingSource>([
-            [forwardFrameResource, this.frameParams],
-            [surfaceDiffReadResource, this.dummyDiff],
-        ]);
+        this.work = new ForwardWork();
+        this.slots = slotsOf(options.output ?? 'scene', this.work);
         const diffs = {
             to: 'idle' as const,
             run: (_e: unknown, c: Ctx) => {
@@ -547,6 +585,18 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
+                        // O trabalho já está na cena: os parâmetros do quadro (fonte privada) ligam ao que a C2 alocou.
+                        c.bind(
+                            new Map<BindingKey, BindingSource>([
+                                [
+                                    forwardFrameResource,
+                                    this.resources.bufferOf(
+                                        this.work,
+                                        FRAME_PARAMS,
+                                    ) as UniformBufferSpec,
+                                ],
+                            ]),
+                        );
                         this.bindDiff(c);
                         this.prepareMaterials(c);
                     },
@@ -661,10 +711,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         };
         const groups = bound.slots.renderables.groups;
         // Contagens da malha adaptativa (produzidas na GPU) nos argumentos deste passe.
-        for (const { args, source } of this.indirectArgs.values()) {
-            frame.copy(source, args, 4, 0, 0);
-            frame.copy(source, args, 4, 20, 20);
-        }
+        const args = this.indirectBuffer();
+        if (args !== undefined)
+            for (const { record, source } of this.indirectArgs.values()) {
+                const base = record * INDIRECT_WORDS * 4;
+                frame.copy(source, args, 4, 0, base);
+                frame.copy(source, args, 4, 20, base + 20);
+            }
         const transmissive = groups.filter(
             (g) => this.transmissionOf(g.representative) !== undefined,
         );
@@ -898,10 +951,13 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
                 continue;
             }
-            const indirect = this.indirectArgs.get(group.key)?.args;
+            const record = this.indirectArgs.get(group.key)?.record;
+            const args = record === undefined ? undefined : this.indirectBuffer();
+            const base = (record ?? 0) * INDIRECT_WORDS * 4;
+            const indirect = args;
             if (edges?.subkind === 'index') {
                 // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
-                if (indirect !== undefined) pass.draw.indirect(indirect, 20);
+                if (indirect !== undefined) pass.draw.indirect(indirect, base + 20);
                 else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
                 continue;
             }
@@ -911,7 +967,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const indices = this.resources.bufferOf(geometry, 'indices');
             if (indices?.subkind === 'index') {
                 pass.geometry.index(indices);
-                if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
+                if (indirect !== undefined) pass.draw.indexedIndirect(indirect, base);
                 else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
             } else {
                 // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
@@ -927,7 +983,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      */
     private prepareIndirect(ctx: Ctx): void {
         this.indirectOn = this.core.capabilities().features.includes('indirect-first-instance');
-        const used = new Set<string>();
+        const records: {
+            group: (typeof ctx.bound.slots.renderables.groups)[number];
+            source: IndirectBufferSpec;
+        }[] = [];
         if (this.indirectOn)
             for (const group of ctx.bound.slots.renderables.groups) {
                 const source = this.resources.bufferOf(
@@ -935,40 +994,32 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     'indirect',
                 );
                 if (source?.subkind !== 'indirect') continue;
-                used.add(group.key);
-                let entry = this.indirectArgs.get(group.key);
-                if (entry?.source !== source) {
-                    if (entry !== undefined) this.core.destroy(entry.args);
-                    entry = {
-                        args: this.core.create<IndirectBufferSpec>({
-                            kind: 'buffer',
-                            subkind: 'indirect',
-                            discriminator: `forward_indirect:${group.key}:${this.indirectArgs.size}`,
-                            byteSize: 40,
-                        }),
-                        source,
-                    };
-                    this.indirectArgs.set(group.key, entry);
-                }
-                const words = new Uint32Array([
-                    0,
-                    group.count,
-                    0,
-                    0,
-                    group.first,
-                    0,
-                    group.count,
-                    0,
-                    group.first,
-                    0,
-                ]);
-                this.core.write(entry.args, new Uint8Array(words.buffer));
+                records.push({ group, source });
             }
-        for (const [key, entry] of [...this.indirectArgs]) {
-            if (used.has(key)) continue;
-            this.core.destroy(entry.args);
-            this.indirectArgs.delete(key);
+        this.indirectArgs.clear();
+        if (records.length === 0) return;
+        let capacity = Math.max(1, this.work.indirectCapacity);
+        while (capacity < records.length) capacity *= 2;
+        // Um par de registros por grupo; as contagens (palavras 0 e 5) são copiadas da geometria antes do passe.
+        const words = new Uint32Array(capacity * INDIRECT_WORDS);
+        records.forEach(({ group, source }, record) => {
+            words.set(
+                [0, group.count, 0, 0, group.first, 0, group.count, 0, group.first, 0],
+                record * INDIRECT_WORDS,
+            );
+            this.indirectArgs.set(group.key, { record, source });
+        });
+        if (capacity !== this.work.indirectCapacity) {
+            // A C2 aloca o buffer na capacidade nova.
+            this.work.indirectCapacity = capacity;
+            this.work.refresh();
         }
+        this.resources.writeNow(this.work, INDIRECT, words);
+    }
+
+    /** O buffer dos argumentos indiretos que a C2 alocou (ou `undefined` sem grupo indireto). */
+    private indirectBuffer(): IndirectBufferSpec | undefined {
+        return this.resources.bufferOf(this.work, INDIRECT) as IndirectBufferSpec | undefined;
     }
 
     /** A profundidade dos opacos (com ou sem amostras) ligada ao pedido da refração, religada quando muda. */
@@ -988,16 +1039,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.sceneDepthBound = sceneDepth;
     }
 
-    /** Libera os recursos privados. */
+    /** Os parâmetros, o substituto e os argumentos são do `ForwardWork` (a C2 os libera com ele). */
     override dispose(): void {
-        for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
         this.indirectArgs.clear();
-        for (const spec of [this.frameParams, this.dummyDiff]) this.core.destroy(spec);
     }
 
     /** Pool da geometria diferencial das superfícies (ou o substituto), religado quando muda. */
     private bindDiff(ctx: Ctx): void {
-        const buffer = ctx.bound.slots.diffs?.buffer ?? this.dummyDiff;
+        const buffer =
+            ctx.bound.slots.diffs?.buffer
+            ?? (this.resources.bufferOf(this.work, DUMMY_DIFF) as StorageBufferSpec);
         if (buffer === this.boundDiff) return;
         this.boundDiff = buffer;
         ctx.bind(new Map([[surfaceDiffReadResource, buffer]]));
@@ -1397,8 +1448,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             : 0;
         const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}`;
         if (key === this.writtenFrame) return;
-        this.core.write(
-            this.frameParams,
+        this.resources.writeNow(
+            this.work,
+            FRAME_PARAMS,
             ForwardFrameParamsSchema.pack({
                 cameraSlot,
                 cameraFnSlot: this.cameraFnSlot,

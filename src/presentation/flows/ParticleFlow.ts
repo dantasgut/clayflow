@@ -9,6 +9,8 @@ import type {
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
 import type {
     BindingKey,
     BindingSource,
@@ -30,6 +32,7 @@ import {
     type SlotMap,
     type TargetSlot,
     type TextureSlot,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
@@ -69,9 +72,34 @@ export interface ParticleSlots extends SlotMap {
     readonly antialiasing: SingletonSlot<true>;
     /** Relógio da cena: o tempo simulado no quadro (o quanto a partícula andou). */
     readonly time: SingletonSlot<true>;
+    /** O espaço de trabalho do desenho: parâmetros do quadro e uma região por corpo (spec 039). */
+    readonly work: WorkSlot<ParticleWork>;
 }
 
-const slots: ParticleSlots = {
+/** Id dos parâmetros do quadro no trabalho. */
+const FRAME_PARAMS = 'particle_frame_params';
+
+/** Resource de trabalho do `ParticleFlow` (spec 039): `ParticleFrameParams` e as regiões `ParticleDrawParams`. */
+class ParticleWork extends FlowWork {
+    static readonly schema = new StructSchema('ParticleWork', {});
+
+    constructor() {
+        super();
+        this.use({
+            descriptors: () => [
+                // Escritos da CPU só quando mudam (`writeNow`).
+                {
+                    id: FRAME_PARAMS,
+                    role: 'uniform',
+                    schema: ParticleFrameParamsSchema,
+                    upload: 'never',
+                },
+            ],
+        });
+    }
+}
+
+const baseSlots = {
     camera: slot.singleton(Camera.schema),
     cameras: slot.pool(Camera.matricesSchema.name),
     bodies: slot.entities({ all: [ParticleBody, Material] }),
@@ -116,15 +144,14 @@ interface DrawnBody {
  */
 export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
     readonly type = 'ParticleFlow';
-    readonly slots = slots;
-    override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
+    readonly slots: ParticleSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
     private readonly world: World;
     private readonly resources: ResourceDirectory;
-    private readonly frameParams: UniformBufferSpec;
+    private readonly work: WorkContext;
     private readonly draws: PerStepUniforms;
     private readonly bodies = new Map<EntityId, DrawnBody>();
     /** Buffer ligado a cada pool de partícula (religado quando o pool cresce). */
@@ -140,26 +167,32 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         this.core = ctx.core;
         this.world = ctx.world;
         this.resources = ctx.resources;
-        this.frameParams = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'particle_frame_params',
-            byteSize: ParticleFrameParamsSchema.stride,
-        });
-        this.draws = new PerStepUniforms(ctx.core, {
-            discriminator: 'particle_draw_params',
+        const work = new ParticleWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = { ...baseSlots, work: slot.work(() => work) };
+        this.draws = new PerStepUniforms(this.work, {
+            id: 'particle_draw_params',
             schema: ParticleDrawParamsSchema,
         });
         this.draws.reserve(1);
-        this.bindings = new Map<BindingKey, BindingSource>([
-            [particleFrameResource, this.frameParams],
-            [particleDrawResource, this.draws.source()],
-        ]);
         this.transitions = {
             '*': {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
+                        // O trabalho já está na cena: as fontes privadas ligam ao que a C2 alocou.
+                        c.bind(
+                            new Map<BindingKey, BindingSource>([
+                                [
+                                    particleFrameResource,
+                                    this.resources.bufferOf(
+                                        work,
+                                        FRAME_PARAMS,
+                                    ) as UniformBufferSpec,
+                                ],
+                                [particleDrawResource, this.draws.source()],
+                            ]),
+                        );
                         this.track(
                             c,
                             c.bound.slots.bodies.entries.map((e) => e.entityId),
@@ -264,11 +297,8 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         });
     }
 
-    /** Libera os recursos privados. */
-    override dispose(): void {
-        this.draws.dispose();
-        this.core.destroy(this.frameParams);
-    }
+    /** Os parâmetros são do `ParticleWork` (a C2 os libera com ele). */
+    override dispose(): void {}
 
     /** Corpos que entraram (pipeline do pool preparado) e saíram do conjunto. */
     private track(ctx: Ctx, added: readonly EntityId[], removed: readonly EntityId[]): void {
@@ -407,7 +437,11 @@ export class ParticleFlow extends RenderFlow<ParticleSlots, 'idle'> {
         const dt = time === undefined ? 0 : time.steps * time.stepDt;
         const key = `${cameraSlot}:${dt}`;
         if (key === this.writtenFrame) return;
-        this.core.write(this.frameParams, ParticleFrameParamsSchema.pack({ cameraSlot, dt }));
+        this.resources.writeNow(
+            this.work.work,
+            FRAME_PARAMS,
+            ParticleFrameParamsSchema.pack({ cameraSlot, dt }),
+        );
         this.writtenFrame = key;
     }
 }

@@ -9,6 +9,7 @@ import { RaySceneSchema } from './raytrace/schemas';
 import { SkySchema } from './scene/sky/SkySchema';
 import { GlobalIlluminationSchema } from './lighting/schemas';
 import { CausticsSchema } from './lighting/caustics/schemas';
+import { EnvironmentMapSchema } from './scene/environment/schema';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
 import { Refraction } from './lighting/refraction/Refraction';
@@ -38,6 +39,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
         (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),
     ),
+    // A imagem do mundo (spec 039 refeita): parâmetros, a imagem e o amostrador.
+    ...(['params', 'image', 'sampler'] as const).map(
+        (id) => new SingletonResolver(EnvironmentMapSchema, id, { name: `EnvironmentMap.${id}` }),
+    ),
     // A iluminação global (spec 033): parâmetros, estado das sondas, atlas, amostrador e as sondas de tela.
     ...(
         [
@@ -62,8 +67,8 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
         (id) => new SingletonResolver(CausticsSchema, id, { name: `Caustics.${id}` }),
     ),
     // O campo dos fluidos (spec 033, R11): parâmetros, o buffer das consultas (limites, tabela, blocos, voxels) e a
-    // contagem.
-    ...(['params', 'data', 'counts'] as const).map(
+    // contagem; o mapa da luz pela água e a malha da superfície com os argumentos do desenho (spec 039 refeita).
+    ...(['params', 'data', 'counts', 'lightMap', 'mesh', 'meshArgs'] as const).map(
         (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
     ),
     // A refração traçada (spec 034): o uniform (limite de interfaces, câmera, luzes, quadro, tempo).

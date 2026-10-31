@@ -6,7 +6,7 @@ import { solverScene } from './solverScene';
 /** Expõe o aviso de excedente (protegido) para teste. */
 export class TestLCPFlow extends LCPFlow {
     overflow(count: number, overflow: number): void {
-        this.reportContactOverflow(new Uint32Array([count, overflow, 0, 0]).buffer);
+        this.reportContactOverflow(count, overflow);
     }
 }
 

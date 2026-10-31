@@ -3,15 +3,15 @@ import type { ContributionPoint } from '../../scene/shaders/WgslPoint';
 import { closure } from '../material/pbr/shaders';
 import { materialPointTypes } from '../material/point/types/shaders';
 import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
-import { rayHitMaterialReady } from './shaders';
 
 // Pontos de cena dos volumes atravessados por raios (spec 033, R11): quem traça raios (as sondas e a tela da luz
 // rebatida, a refração recalculada, os fótons) chama estas funções sem conhecer quem as implementa — hoje o campo dos
 // fluidos (`FluidField`); sem contribuinte, fica o pronto (nenhum volume). As superfícies opacas continuam na estrutura
 // de raios (`ray_scene_hit`); os volumes são transmissivos: o raio os atravessa. O material no acerto
 // (`ray_volume_surface`, spec 034 T065d) é do contribuinte que acertou (`source`): a referência da função `material`
-// na composição dos acertos (`ray_hit_material`, a mesma das malhas: quem traça a liga com `bindPoints`), ou um
-// fechamento pronto; `ray_volume_closure` (módulo `rayVolumeMaterial`) a avalia.
+// nas funções da estrutura de raios (a mesma das malhas: quem traça a grava na onda dos acertos e o kernel da classe a
+// avalia, spec 039) e o meio do corpo (o fechamento dele avaliado uma vez por quadro, que a absorção dos trechos lê:
+// `ray_volume_closure`, módulo `rayVolumeMaterial`).
 
 /**
  * Acerto de um raio na superfície de um volume: distância, ponto, normal (para fora), o material no contribuinte, lado
@@ -111,6 +111,29 @@ export const rayVolumeOccupiedReady = wgslModule({
 }`,
 });
 
+/**
+ * `fn ray_volume_begin()` — o começo do trabalho de um raio (spec 039 refeita): quem traça o chama antes de cada raio de
+ * um laço em passo de grade (uma invocação traça vários), e cada volume renova o próprio orçamento de passos — o teto é
+ * por raio, não dividido entre os raios da invocação; pronto: nada.
+ */
+export const rayVolumeBeginReady = wgslModule({
+    name: 'ray_volume_begin_ready',
+    source: `fn ray_volume_begin() {
+}`,
+});
+
+/**
+ * `fn ray_volume_light(light: u32, p: vec3f) -> vec3f` — a fração da luz `light` que atravessa os volumes (só eles, sem a
+ * atmosfera nem os meios) em linha reta até `p` (spec 039 refeita: as cáusticas sabem se a reta da luz cruzou água sem
+ * marchar); pronto: 1.
+ */
+export const rayVolumeLightReady = wgslModule({
+    name: 'ray_volume_light_ready',
+    source: `fn ray_volume_light(light: u32, p: vec3f) -> vec3f {
+    return vec3f(1.0);
+}`,
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -169,6 +192,40 @@ ${modules
     )
     .join('\n')}
     return array<vec3f, 2>(lo, hi);
+}`,
+            }),
+        ),
+};
+
+/** A luz pelos volumes: o produto dos contribuintes. */
+export const rayVolumeLightPoint: ContributionPoint = {
+    name: 'ray_volume_light',
+    ready: rayVolumeLightReady,
+    functionName: 'ray_volume_light',
+    combine: (modules) =>
+        memo(`rvl:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_light:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_volume_light(light: u32, p: vec3f) -> vec3f {
+    return ${modules.map((_, k) => `ray_volume_light_${k}(light, p)`).join(' * ')};
+}`,
+            }),
+        ),
+};
+
+/** O começo do trabalho de um raio: o de cada contribuinte. */
+export const rayVolumeBeginPoint: ContributionPoint = {
+    name: 'ray_volume_begin',
+    ready: rayVolumeBeginReady,
+    functionName: 'ray_volume_begin',
+    combine: (modules) =>
+        memo(`rvbg:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_begin:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_volume_begin() {
+${modules.map((_, k) => `    ray_volume_begin_${k}();`).join('\n')}
 }`,
             }),
         ),
@@ -239,13 +296,7 @@ ${modules.map((_, k) => `        case ${k}u: { return ray_volume_surface_${k}(hi
  */
 export const rayVolumeMaterial = wgslModule({
     name: 'ray_volume_material',
-    requires: [
-        rayVolumeTypes,
-        rayVolumeSurfaceReady,
-        materialPointTypes,
-        closure,
-        rayHitMaterialReady,
-    ],
+    requires: [rayVolumeTypes, rayVolumeSurfaceReady, materialPointTypes, closure],
     structs: [StandardMaterialSchema],
     source: `/** A amostra de superfície no acerto de volume \`hit\` no tempo simulado \`time\`. */
 fn ray_volume_sample(hit: RayVolumeHit, time: f32) -> SurfaceSample {
@@ -258,10 +309,12 @@ fn ray_volume_standard() -> StandardMaterial {
     return StandardMaterial(vec4f(1.0), 0.5, 0.0, 0.0, 0.0);
 }
 
-/** O fechamento no acerto de volume \`hit\` com o material \`s\` dele. */
+/**
+ * O fechamento do meio no acerto de volume \`hit\` com o material \`s\` dele: o do contribuinte (o do corpo, avaliado
+ * fora da marcha pela onda dos acertos, spec 039) — sem avaliar material aqui.
+ */
 fn ray_volume_surface_closure(hit: RayVolumeHit, s: RayVolumeSurface, time: f32) -> Closure {
-    if (s.index == 0u) { return s.closure; }
-    return ray_hit_material(s.index, ray_volume_sample(hit, time), ray_volume_standard(), s.slot);
+    return s.closure;
 }
 
 /** O fechamento no acerto de volume \`hit\` no tempo simulado \`time\`. */

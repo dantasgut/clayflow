@@ -21,6 +21,26 @@ export const FIELD_PARTICLES_PER_BRICK = 8;
  */
 export const FIELD_MAX_BODIES = 64;
 
+/** Palavras do meio de um corpo no buffer das consultas (`fieldMediaOffset`, spec 039). */
+export const FIELD_MEDIUM_WORDS = 8;
+
+/**
+ * O mapa da luz pela água (spec 039 refeita, `field_light_map.wgsl`): luzes direcionais com mapa, texels por lado e
+ * palavras por texel (`FIELD_LIGHT_WORDS`). As outras luzes marcham o campo em cada ponto.
+ */
+export const FIELD_LIGHT_MAPS = 2;
+export const FIELD_LIGHT_RES = 512;
+export const FIELD_LIGHT_WORDS = 8;
+
+/**
+ * A malha da superfície (spec 039 refeita, `field_mesh.wgsl`): triângulos por bloco da capacidade (a superfície que
+ * corta um bloco dá até ~5 por célula cortada; os blocos do interior, nenhum), palavras por vértice e os argumentos (o
+ * desenho indireto e a contagem).
+ */
+export const FIELD_MESH_TRIANGLES_PER_BRICK = 256;
+export const FIELD_MESH_VERTEX_WORDS = 4;
+export const FIELD_MESH_ARGS_WORDS = 8;
+
 /** Entradas da tabela das superfícies da película (spec 034): o padrão (0) e as `SurfacePhysics` da cena (1…). */
 export const FIELD_FILM_SURFACES = sharedConstant(
     'FIELD_FILM_SURFACES',
@@ -44,6 +64,12 @@ export const FluidFieldSchema = new StructSchema(
         limits: FieldType.vec4u,
         /** x: 1 quando a simulação avançou no quadro (o nível da superfície se ajusta só então). */
         motion: FieldType.vec4u,
+        /** x: o tempo simulado do quadro (s) — a amostra do material de cada corpo (spec 039). */
+        time: FieldType.vec4f,
+        /** x: a primeira palavra do meio dos corpos em `data`; y: os corpos da tabela (spec 039). */
+        media: FieldType.vec4u,
+        /** O mapa da luz pela água (spec 039 refeita): x 0; y texels por lado; z mapas (luzes direcionais com mapa). */
+        lights: FieldType.vec4u,
         /**
          * A gota que molha (spec 034): a partícula isolada encostada num sólido vira uma calota achatada contra ele,
          * com o volume do núcleo esparso e a forma do ângulo de contato de `ParticlePhysics` (`fieldContactShape`) —

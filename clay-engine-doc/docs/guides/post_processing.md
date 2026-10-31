@@ -20,10 +20,11 @@ A Clay Engine vem com 5 effects modulares aplicados em chain ping-pong sobre a c
 ## Encadeando
 
 ```typescript
-import { Bloom, ToneMapping, Vignette } from 'webgpu-engine';
+import { Bloom, Vignette } from 'webgpu-engine';
 
-// A apresentação não é efeito: é um Resource da cena, aplicado sempre por último.
-app.world.insert(new ToneMapping({ operator: 'agx', exposure: 0 }));
+// A apresentação não é efeito: é a saída do renderizador da cena, aplicada sempre por último.
+app.defaults.renderer.output.data.operator = 'agx';
+app.defaults.renderer.output.data.exposure = 0;
 // Ordem importa — os efeitos rodam em sequência, todos sobre o HDR.
 app.defaults.post.addEffect(new Bloom({ strength: 0.6, aux: [0.7, 0, 0] }));
 app.defaults.post.addEffect(new Vignette({ strength: 0.3 }));

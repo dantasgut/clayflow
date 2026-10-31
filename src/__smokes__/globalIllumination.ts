@@ -21,7 +21,6 @@
 // `GLOBALILLUMINATION SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
-    Caustics,
     GlobalIllumination,
     SphereGeometry,
     StandardMaterial,
@@ -90,7 +89,9 @@ async function giReady(app: Application, ready: { revision: number; at: number }
     const limit = performance.now() + 120000;
     while (ready.revision < 0 || performance.now() - ready.at < 1000) {
         if (performance.now() > limit)
-            throw new Error('a iluminação global não ficou pronta em 120 s');
+            throw new Error(
+                `a iluminação global não ficou pronta em 120 s${engineErrors.length > 0 ? ` (${engineErrors.join(' | ')})` : ''}`,
+            );
         await settle(app, 100);
     }
 }
@@ -972,7 +973,7 @@ function peakNear(
 async function floorCaustics(
     s: Awaited<ReturnType<typeof openEngine>>,
 ): Promise<Map<string, number>> {
-    const caustics = s.app.world.findResource(Caustics.schema, Caustics)!;
+    const caustics = s.app.defaults.renderer.causticsResource;
     const spec = s.app.resources.bufferOf(caustics, 'hash')!;
     const staging = s.app.core.create<StagingBufferSpec>({
         kind: 'buffer',
@@ -1021,7 +1022,7 @@ async function causticsScene(): Promise<void> {
     {
         const scene = causticFloor(camera, [0, -1, 0]);
         const s = await openEngine(scene, size, true, (app) => {
-            app.world.insert(new Caustics());
+            app.world.insert(app.defaults.renderer.causticsResource);
             app.world.insert(
                 new SphereGeometry({ radius: R })
                     .add(new StandardMaterial())
@@ -1046,7 +1047,8 @@ async function causticsScene(): Promise<void> {
         const scene = causticFloor(camera, [0, -1, 0]);
         const h = factor * focal;
         const s = await openEngine(scene, size, true, (app) => {
-            app.world.insert(new Caustics({ cellSize: 0.005 }));
+            app.defaults.renderer.caustics.cellSize = 0.005;
+            app.world.insert(app.defaults.renderer.causticsResource);
             app.world.insert(
                 new SphereGeometry({ radius: R })
                     .add(new StandardMaterial())
@@ -1116,7 +1118,8 @@ async function causticsScene(): Promise<void> {
     {
         const cell = 0.3 / 16;
         const s = await openEngine(causticFloor(top, sun), size, true, (app) => {
-            app.world.insert(new Caustics({ cellSize: cell }));
+            app.defaults.renderer.caustics.cellSize = cell;
+            app.world.insert(app.defaults.renderer.causticsResource);
             ring(app);
         });
         await s.step(150);
@@ -1187,7 +1190,7 @@ async function causticsWaterScene(): Promise<void> {
             return sum / n;
         };
         const on = await floorMean();
-        app.world.findResource(Caustics.schema, Caustics)!.enabled = false;
+        app.defaults.renderer.caustics.enabled = false;
         const off = await floorMean();
         log(
             `caustics: água parada com a GI — fundo sob a água com as cáusticas ${on.toFixed(4)}, em linha reta ${off.toFixed(4)}`,

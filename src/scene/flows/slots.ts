@@ -168,6 +168,18 @@ export interface TargetSlot {
     readonly samples?: TextureRef;
 }
 
+/**
+ * O Resource de trabalho da instância do Flow (spec 039): o espaço de trabalho que não é de nenhuma entidade nem de um
+ * Resource com um por cena (parâmetros por passo, pares, contadores, filas, a grade do domínio). A C2 chama `create`,
+ * insere o Resource no World quando aloca o Flow e o remove quando o libera — um por instância. Sempre resolvido.
+ */
+export interface WorkSlot<R extends Resource = Resource> {
+    /** Discriminante. */
+    readonly kind: 'work';
+    /** Fábrica do Resource de trabalho (chamada uma vez por instância do Flow). */
+    readonly create: () => R;
+}
+
 /** Declaração de um slot (valor imutável criado por `slot.*`). */
 export type SlotDeclaration =
     | PoolSlot
@@ -177,7 +189,8 @@ export type SlotDeclaration =
     | EntitiesSlot
     | TextureSlot
     | ChannelSlot
-    | TargetSlot;
+    | TargetSlot
+    | WorkSlot;
 
 /** Slots de um Flow, por nome. */
 export type SlotMap = Readonly<Record<string, SlotDeclaration>>;
@@ -264,6 +277,15 @@ export interface BoundSingleton<R extends Resource = Resource> {
     samplerOf(descId: string): SamplerSpec | undefined;
 }
 
+/** O Resource de trabalho do Flow resolvido (`slot.work`): o singleton dele e o stride das regiões. */
+export interface BoundWork<R extends Resource = Resource> extends BoundSingleton<R> {
+    /**
+     * Distância em bytes entre as regiões do uniforme por região `descId` (o offset da região `i` é `i × stride`).
+     * @throws Error se o descritor não tem `regions`.
+     */
+    regionStride(descId: string): number;
+}
+
 /** Entidade de um slot `entities`, com os Resources dos tipos pedidos. */
 export interface EntityEntry {
     /** Id da entidade. */
@@ -343,7 +365,9 @@ export type BoundSlot<D extends SlotDeclaration> =
                         : BoundChannel
                     : D extends TargetSlot
                       ? BoundTarget
-                      : never;
+                      : D extends WorkSlot<infer R>
+                        ? BoundWork<R>
+                        : never;
 
 /** Slots resolvidos de um Flow. */
 export type BoundSlots<TSlots extends SlotMap> = {
@@ -463,5 +487,13 @@ export const slot = {
             ...(target.depth !== undefined ? { depth: target.depth } : {}),
             ...(target.samples !== undefined ? { samples: target.samples } : {}),
         });
+    },
+    /**
+     * O Resource de trabalho da instância (spec 039): `create` é chamada uma vez quando a C2 aloca o Flow; o Resource
+     * entra no World com o Flow e sai com ele. Os descritores dele (regiões, capacidades por `reserve`, contadores
+     * lidos por `read`) são o espaço de trabalho; o shader os lê com o fornecedor `{ slot: nome, descriptor }`.
+     */
+    work<R extends Resource>(create: () => R): WorkSlot<R> {
+        return Object.freeze({ kind: 'work', create });
     },
 } as const;

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Reduce, reduceLevelCounts } from '../compute/Reduce';
 import { reduceKernel, reduceOp } from '../compute/shaders';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { workHarness } from './helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
@@ -53,8 +53,8 @@ describe('Reduce', () => {
     });
 
     it('passes por nível; o último escreve no outOffset do chamador', () => {
-        const { core, writes } = fakeResourceCore();
-        const reduce = new Reduce(core, {
+        const { core, ctx, resources, work } = workHarness();
+        const reduce = new Reduce(ctx, {
             discriminator: 'rd',
             capacity: 70_000,
             op: 'sum',
@@ -75,9 +75,11 @@ describe('Reduce', () => {
             [274, 256],
             [2, 256],
         ]);
-        const levels = writes.map((w) => [
-            ...new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, 2),
-        ]);
+        const params = resources.bufferOf(work, 'rd:reduce');
+        const levels = vi
+            .mocked(core.write)
+            .mock.calls.filter(([spec]) => spec === params)
+            .map(([, bytes]) => [...new Uint32Array(bytes.buffer, bytes.byteOffset, 2)]);
         expect(levels).toEqual([
             [70_000, 0],
             [274, 0],
@@ -86,8 +88,8 @@ describe('Reduce', () => {
     });
 
     it('validação: count > capacity, outOffset negativo; count = 0 não grava', () => {
-        const { core } = fakeResourceCore();
-        const reduce = new Reduce(core, {
+        const { ctx } = workHarness();
+        const reduce = new Reduce(ctx, {
             discriminator: 'rd',
             capacity: 10,
             op: 'min',
@@ -113,8 +115,8 @@ describe('Reduce', () => {
     });
 
     it('contagens com menos passes que a capacidade usam o kernel que escreve direto na saída', () => {
-        const { core } = fakeResourceCore();
-        const reduce = new Reduce(core, {
+        const { ctx } = workHarness();
+        const reduce = new Reduce(ctx, {
             discriminator: 'rd',
             capacity: 70_000,
             op: 'max',
@@ -124,5 +126,27 @@ describe('Reduce', () => {
         const rec = recordingFrame();
         reduce.record(rec.frame, { src: buffer('src'), count: 100, out: buffer('out') });
         expect(rec.passes.map((p) => p.dispatches[0])).toEqual([[100, 256]]);
+    });
+
+    it('parciais no Resource de trabalho pela capacidade; reserve cresce; destroy os solta', () => {
+        const { ctx, resources, work, core } = workHarness();
+        const reduce = new Reduce(ctx, {
+            discriminator: 'rd',
+            capacity: 70_000,
+            op: 'sum',
+            type: 'u32',
+        });
+        expect(resources.bufferOf(work, 'rd:reduce_level:1')?.byteSize).toBe(1104); // 274 palavras, alinhadas a 16 B
+        expect(resources.bufferOf(work, 'rd:reduce_level:2')?.byteSize).toBe(16);
+        expect(resources.bufferOf(work, 'rd:reduce_level:3')).toBeUndefined();
+        expect(reduce.reserve(1000)).toBe(false);
+        const first = resources.bufferOf(work, 'rd:reduce_level:1');
+        expect(reduce.reserve(4_194_304)).toBe(true);
+        expect(core.destroy).toHaveBeenCalledWith(first);
+        expect(resources.bufferOf(work, 'rd:reduce_level:2')?.byteSize).toBe(64 * 4);
+        const second = resources.bufferOf(work, 'rd:reduce_level:2');
+        reduce.destroy();
+        expect(core.destroy).toHaveBeenCalledWith(second);
+        expect(resources.bufferOf(work, 'rd:reduce_level:1')).toBeUndefined();
     });
 });

@@ -2,7 +2,7 @@
 
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/038-motor-puro-web/plan.md`
+`specs/039-tracado-em-ondas/plan.md`
 
 Project governance: `.specify/memory/constitution.md` (Clay Engine Constitution v1.1.0).
 

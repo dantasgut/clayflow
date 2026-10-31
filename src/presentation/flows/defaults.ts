@@ -5,8 +5,6 @@ import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
 import { Caustics } from '../../elements/lighting/caustics/Caustics';
 import { CausticsFlow } from '../../elements/lighting/caustics/CausticsFlow';
-import { TemporalFilter } from '../../elements/lighting/temporal/TemporalFilter';
-import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import { RefractionFlow } from '../../elements/lighting/refraction/RefractionFlow';
 import { RefractionCompositeFlow } from './RefractionCompositeFlow';
 import { RefractionDenoiseFlow } from './RefractionDenoiseFlow';
@@ -28,7 +26,7 @@ import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
 import { MotionHistoryFlow } from '../../elements/scene/flows/MotionHistoryFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
-import { ToneMapping } from '../resources/ToneMapping';
+import { SceneRenderer } from '../resources/SceneRenderer';
 import { PbrTables } from '../../elements/material/pbr/PbrTables';
 import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
 import { HemisphereLight } from '../../elements/scene/HemisphereLight';
@@ -46,10 +44,7 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
-import {
-    TemporalAntialiasing,
-    type AntialiasingMode,
-} from '../../elements/scene/TemporalAntialiasing';
+import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -91,10 +86,10 @@ export interface PresentationDefaults {
     /** Debug overlay — emite profilerStats event quando habilitado. */
     readonly debug: DebugFlow;
     /**
-     * Apresentação da cena (spec 011): exposição, mapeamento de tons e saída — ajuste em `data`
-     * (`defaults.presentation.data.exposure = 1`).
+     * O renderizador da cena (spec 039): o perfil de qualidade, os caminhos de luz, as cáusticas, o antisserrilhado, o
+     * filtro temporal e a saída (`defaults.renderer.profile = 'medium'`, `defaults.renderer.output.data.exposure = 1`).
      */
-    readonly presentation: ToneMapping;
+    readonly renderer: SceneRenderer;
     /**
      * Luz ambiente da cena (spec 011): o hemisfério céu/chão no lugar da constante escondida — ajuste em `data`
      * (`defaults.ambient.data.intensity = 0.5`) ou remova do World (só as luzes diretas iluminam).
@@ -102,16 +97,6 @@ export interface PresentationDefaults {
     readonly ambient: HemisphereLight;
     /** Alvos HDR da cena (cor, amostras, profundidade e a cópia com mips). */
     readonly targets: FrameTargets;
-    /** Antisserrilhado da cena (spec 034): o modo e a sequência das posições da amostra dentro do pixel. */
-    readonly antialiasing: TemporalAntialiasing;
-    /** Refração traçada (spec 034): ligada e o limite de interfaces por caminho. */
-    readonly refraction: Refraction;
-    /**
-     * Acumulador temporal de pixel (spec 037; o filtro do sinal traçado da refração, spec 034), com o antisserrilhado
-     * temporal: ligado, os quadros da média e a precisão (`defaults.temporalFilter.enabled = false` mostra a amostra
-     * crua).
-     */
-    readonly temporalFilter: TemporalFilter;
 }
 
 /** Estágios padrão de uma cena, os registros por factory, os alvos do quadro e quantas aplicações os usam. */
@@ -121,10 +106,7 @@ interface RegisteredDefaults {
     readonly frameTargets: FrameTargets;
     readonly fluidField: FluidField;
     readonly froxels: Froxels;
-    readonly presentation: ToneMapping;
-    readonly antialiasing: TemporalAntialiasing;
-    readonly refraction: Refraction;
-    readonly temporalFilter: TemporalFilter;
+    readonly renderer: SceneRenderer;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
@@ -166,18 +148,11 @@ export function registerPresentationDefaults(
     // Froxels dos meios participantes (spec 033, R12): a névoa dos `FogVolume`, sem nada a fazer enquanto não há.
     const froxels = new Froxels();
     options.world.insert(froxels);
-    // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
-    const presentation = new ToneMapping();
-    options.world.insert(presentation);
-    // Antisserrilhado (spec 034): o estágio de câmera desloca a amostra, o pós resolve o histórico.
-    const antialiasing = new TemporalAntialiasing({ mode: options.antialiasing ?? 'temporal' });
-    options.world.insert(antialiasing);
-    // Refração traçada (spec 034): os alvos só são alocados quando um transmissivo é desenhado.
-    const refraction = new Refraction();
-    options.world.insert(refraction);
-    // O filtro do sinal traçado da refração (spec 034): os alvos só são alocados por quem filtra (com o temporal).
-    const temporalFilter = new TemporalFilter();
-    options.world.insert(temporalFilter);
+    // O renderizador (spec 039): numa entidade, a saída (lida pelo pós), o antisserrilhado (o estágio de câmera desloca
+    // a amostra, o pós resolve o histórico), a refração traçada (os alvos só com um transmissivo desenhado) e o filtro
+    // do sinal traçado; as cáusticas entram com o primeiro transmissivo.
+    const renderer = new SceneRenderer({ antialiasing: options.antialiasing ?? 'temporal' });
+    options.world.insert(renderer);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -192,7 +167,7 @@ export function registerPresentationDefaults(
             : ((): (() => void) => {
                   const offs = [
                       swapAmbientForGi(options.world, events, ambient, frameTargets),
-                      raySceneForTransmissives(options.world, events),
+                      raySceneForTransmissives(options.world, events, renderer),
                   ];
                   return () => {
                       for (const off of offs) off();
@@ -200,12 +175,9 @@ export function registerPresentationDefaults(
               })();
     const defaults: PresentationDefaults = {
         ...stages,
-        presentation,
+        renderer,
         ambient,
         targets: frameTargets,
-        antialiasing,
-        refraction,
-        temporalFilter,
     };
     DEFAULTS_BY_SCENE.set(flows, {
         defaults,
@@ -213,10 +185,7 @@ export function registerPresentationDefaults(
         frameTargets,
         fluidField,
         froxels,
-        presentation,
-        antialiasing,
-        refraction,
-        temporalFilter,
+        renderer,
         pbrTables,
         ambient,
         world: options.world,
@@ -241,10 +210,9 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.world.entityIdOfResource(entry.ambient) !== undefined)
         entry.world.remove(entry.ambient);
     entry.world.remove(entry.pbrTables);
-    entry.world.remove(entry.presentation);
-    entry.world.remove(entry.antialiasing);
-    entry.world.remove(entry.refraction);
-    entry.world.remove(entry.temporalFilter);
+    entry.world.remove(entry.renderer);
+    const caustics = entry.renderer.causticsResource;
+    if (entry.world.entityIdOfResource(caustics) !== undefined) entry.world.remove(caustics);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
@@ -258,10 +226,14 @@ const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucen
  * Estrutura de raios para a refração (spec 034, R1) e o transporte das cáusticas (T067c) por evento: o que um
  * transmissivo mostra vem do traçado, que consulta a `RayScene` — com a GI desligada também —, e a luz que passa por ele
  * chega pelas cáusticas. A entrada de uma função `material` transmissiva (o vidro, a água) — ou uma já na cena — insere
- * a `RayScene` e o `Caustics`, se a cena não tem (removido pela aplicação, não volta enquanto a cena não recebe outro
- * transmissivo). Devolve o cancelamento.
+ * a `RayScene` e as cáusticas do renderizador, se a cena não tem (desligadas pelo renderizador, ficam desligadas).
+ * Devolve o cancelamento.
  */
-function raySceneForTransmissives(world: World, events: EventBus): () => void {
+function raySceneForTransmissives(
+    world: World,
+    events: EventBus,
+    renderer: SceneRenderer,
+): () => void {
     const ensure = (resources: Iterable<Resource>): void => {
         for (const r of resources) {
             const transmissive =
@@ -270,7 +242,7 @@ function raySceneForTransmissives(world: World, events: EventBus): () => void {
             if (world.queryBySchemaName(RayScene.schema.name).length === 0)
                 world.insert(new RayScene());
             if (world.queryBySchemaName(Caustics.schema.name).length === 0)
-                world.insert(new Caustics());
+                world.insert(renderer.causticsResource);
             return;
         }
     };
@@ -311,10 +283,7 @@ function swapAmbientForGi(
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
-    flows: Omit<
-        PresentationDefaults,
-        'presentation' | 'ambient' | 'targets' | 'antialiasing' | 'refraction' | 'temporalFilter'
-    >;
+    flows: Omit<PresentationDefaults, 'renderer' | 'ambient' | 'targets'>;
     registrations: readonly FlowRegistration[];
 } {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {

@@ -1,10 +1,6 @@
-import type {
-    EngineCore,
-    Frame,
-    StagingBufferSpec,
-    StorageBufferSpec,
-    UniformBufferSpec,
-} from '../../../scene/contracts/gpu';
+import type { Frame, StorageBufferSpec, UniformBufferSpec } from '../../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
@@ -15,7 +11,12 @@ import {
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { RadixSort } from './RadixSort';
 import { Reduce } from './Reduce';
-import { ColorRangeSchema, GraphColorParamsSchema, GraphColorStatusSchema } from './schemas';
+import {
+    ColorRangeSchema,
+    GraphColorParamsSchema,
+    GraphColorStatusSchema,
+    wordBuffer,
+} from './schemas';
 import { gcGroup, gcInit, gcRound, graphColorResources as R } from './shaders';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 
@@ -76,10 +77,15 @@ export interface GraphColorStatus {
     readonly maxDegree: number;
 }
 
-/** Decodifica o estado (`GraphColorStatusSchema`) lido da GPU. */
-export function readGraphColorStatus(bytes: ArrayBuffer): GraphColorStatus {
-    const u32 = new Uint32Array(bytes);
-    const at = (field: string): number => u32[GraphColorStatusSchema.offsetOf(field) / 4] ?? 0;
+/** Decodifica o estado (`GraphColorStatusSchema`): os bytes lidos da GPU ou o registro desempacotado pela C2. */
+export function readGraphColorStatus(
+    source: ArrayBuffer | Record<string, unknown>,
+): GraphColorStatus {
+    const at =
+        source instanceof ArrayBuffer
+            ? (field: string): number =>
+                  new Uint32Array(source)[GraphColorStatusSchema.offsetOf(field) / 4] ?? 0
+            : (field: string): number => Number(source[field] ?? 0);
     return {
         color: at('color'),
         step: at('step'),
@@ -156,17 +162,13 @@ interface EdgeBuffers {
     readonly counts: StorageBufferSpec;
     readonly offsets: StorageBufferSpec;
     readonly ranges: StorageBufferSpec;
-    readonly statusStaging: StagingBufferSpec;
-    readonly rangesStaging: StagingBufferSpec;
 }
 
 /** Buffers dimensionados por vértice (crescem sob demanda). */
 interface VertexBuffers {
-    readonly capacity: number;
     readonly degree: StorageBufferSpec;
     readonly vmax: StorageBufferSpec;
     readonly used: StorageBufferSpec;
-    readonly reduce: Reduce;
 }
 
 /**
@@ -177,21 +179,25 @@ interface VertexBuffers {
  *
  * Assíncrona e com envios próprios: chamada na criação ou mudança de topologia, fora de um quadro (`core.record`),
  * nunca por quadro — kernels e preparações internas são criados antes de cada envio. Substitui o `GraphColorSolver`
- * em CPU.
+ * em CPU. Os buffers são descritores do Resource de trabalho (spec 039); o estado e os intervalos voltam à CPU pela
+ * leitura sob demanda da C2 (`read`).
  */
-export class GraphColorer {
+export class GraphColorer implements WorkPart {
     private readonly disc: string;
     private readonly capacity: number;
     private readonly maxColorsOption: number | undefined;
     private readonly scan: PrefixSum;
     private readonly sort: RadixSort;
-    private buffers: EdgeBuffers | null = null;
-    private vertex: VertexBuffers | null = null;
+    private readonly reduce: Reduce;
+    /** Vértices que os buffers por vértice comportam (0 antes da primeira coloração). */
+    private vertexCapacity = 0;
     private kernels: ComputeKernel[] = [];
+    /** `destroy()` soltou os descritores (a C2 libera os buffers); a próxima coloração os declara de novo. */
+    private released = false;
     private busy = false;
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: GraphColorerOptions,
     ) {
         if (!Number.isInteger(options.capacity) || options.capacity < 1) {
@@ -211,15 +217,63 @@ export class GraphColorer {
         this.capacity = options.capacity;
         this.maxColorsOption = options.maxColors;
         // Contagens por cor: no máximo uma cor por aresta.
-        this.scan = new PrefixSum(core, {
+        this.scan = new PrefixSum(ctx, {
             discriminator: `${this.disc}:gc_scan`,
             capacity: options.capacity,
         });
-        this.sort = new RadixSort(core, {
+        this.sort = new RadixSort(ctx, {
             discriminator: `${this.disc}:gc_sort`,
             capacity: options.capacity,
             withValues: true,
         });
+        this.reduce = new Reduce(ctx, {
+            discriminator: `${this.disc}:gc_max_degree`,
+            capacity: 1,
+            op: 'max',
+            type: 'u32',
+        });
+        ctx.work.use(this);
+    }
+
+    /** Parâmetros, estado e buffers por aresta (pela capacidade) e, depois da primeira coloração, os por vértice. */
+    descriptors(): readonly GPUDescriptor[] {
+        if (this.released) return [];
+        const edges = this.capacity * 4;
+        const id = (name: string): string => `${this.disc}:${name}`;
+        return [
+            // Uma região: escrita na hora pela C2 (`writeRegions`), antes dos envios próprios da coloração.
+            {
+                id: id('gc_params'),
+                role: 'uniform',
+                schema: GraphColorParamsSchema,
+                regions: { count: 1 },
+            },
+            {
+                id: id('gc_status'),
+                role: 'storage-rw',
+                schema: GraphColorStatusSchema,
+                upload: 'never',
+            },
+            wordBuffer(id('gc_colors'), edges),
+            wordBuffer(id('gc_keys'), edges),
+            wordBuffer(id('gc_edges_by_color'), edges),
+            wordBuffer(id('gc_counts'), edges),
+            wordBuffer(id('gc_offsets'), edges),
+            {
+                id: id('gc_ranges'),
+                role: 'storage-rw',
+                schema: ColorRangeSchema,
+                upload: 'never',
+                count: this.capacity,
+            },
+            ...(this.vertexCapacity === 0
+                ? []
+                : [
+                      wordBuffer(id('gc_degree'), this.vertexCapacity * 4),
+                      wordBuffer(id('gc_vmax'), this.vertexCapacity * 4),
+                      wordBuffer(id('gc_used'), this.vertexCapacity * 4),
+                  ]),
+        ];
     }
 
     /**
@@ -252,16 +306,15 @@ export class GraphColorer {
         }
     }
 
-    /** Libera kernels, buffers, ordenação e soma de prefixos internas. */
+    /** Libera os kernels (e os da ordenação, da soma e da redução) e solta os buffers: a C2 os libera. */
     destroy(): void {
         this.releaseKernels();
-        if (this.buffers !== null) {
-            for (const b of Object.values(this.buffers)) this.core.destroy(b);
-        }
-        this.buffers = null;
-        this.releaseVertexBuffers();
+        this.reduce.destroy();
         this.scan.destroy();
         this.sort.destroy();
+        this.released = true;
+        this.vertexCapacity = 0;
+        this.ctx.work.refresh();
     }
 
     private async run(
@@ -269,8 +322,12 @@ export class GraphColorer {
         count: number,
         vertexCount: number,
     ): Promise<GraphColoring> {
-        const b = (this.buffers ??= this.allocate());
+        if (this.released) {
+            this.released = false;
+            this.ctx.work.refresh();
+        }
         const vertex = this.ensureVertexBuffers(Math.max(1, vertexCount));
+        const b = this.edgeBuffers();
         this.releaseKernels();
         const status = b.status;
         if (count === 0) {
@@ -284,14 +341,9 @@ export class GraphColorer {
         }
 
         // Preparação, validação e grau máximo.
-        this.core.write(
-            b.params,
-            GraphColorParamsSchema.pack({
-                edge_count: count,
-                vertex_count: vertexCount,
-                max_colors: 0,
-            }),
-        );
+        this.ctx.resources.writeRegions(this.ctx.work, `${this.disc}:gc_params`, [
+            { edge_count: count, vertex_count: vertexCount, max_colors: 0 },
+        ]);
         const init = this.kernel(
             'gc_init',
             gcInit,
@@ -304,14 +356,14 @@ export class GraphColorer {
                 [R.status, status],
             ]),
         );
-        if (vertexCount > 0) vertex.reduce.prepare(vertex.degree, status);
+        if (vertexCount > 0) this.reduce.prepare(vertex.degree, status);
         this.submit('GraphColorer.init', (frame) => {
             frame.clear(status);
             frame.clear(vertex.degree, 0, vertexCount * 4);
             frame.clear(vertex.used, 0, vertexCount * 4);
             this.dispatch(frame, 'GraphColorer.init', init, count);
             if (vertexCount > 0) {
-                vertex.reduce.record(frame, {
+                this.reduce.record(frame, {
                     src: vertex.degree,
                     count: vertexCount,
                     out: status,
@@ -319,7 +371,7 @@ export class GraphColorer {
                 });
             }
         });
-        const validated = await this.readStatus(b);
+        const validated = await this.readStatus();
         if (validated.invalid > 0) {
             throw new RangeError(
                 `GraphColorer(${this.disc}): ${validated.invalid} aresta(s) com vértice fora de [0, ${vertexCount}).`,
@@ -362,7 +414,7 @@ export class GraphColorer {
                     this.dispatch(frame, 'GraphColorer.advance', advance, null);
                 }
             });
-            state = await this.readStatus(b);
+            state = await this.readStatus();
             const action = nextColoringAction(state, maxColors);
             if (action === 'done') break;
             if (action === 'too-many-colors') {
@@ -408,7 +460,6 @@ export class GraphColorer {
         );
         this.sort.prepare(b.keys, b.values);
         this.scan.prepare(b.offsets);
-        const rangesBytes = colorCount * ColorRangeSchema.stride;
         this.submit('GraphColorer.group', (frame) => {
             this.dispatch(frame, 'GraphColorer.sort_init', sortInit, count);
             this.sort.record(frame, {
@@ -421,9 +472,14 @@ export class GraphColorer {
             this.dispatch(frame, 'GraphColorer.count', countColors, count);
             this.scan.record(frame, { src: b.counts, dst: b.offsets, count: colorCount });
             this.dispatch(frame, 'GraphColorer.ranges', buildRanges, colorCount);
-            frame.copy(b.ranges, b.rangesStaging, rangesBytes);
         });
-        const rangesCpu = readColorRanges(await this.core.readback(b.rangesStaging), colorCount);
+        const ranges = await this.ctx.resources.read(this.ctx.work, `${this.disc}:gc_ranges`);
+        const offsets = (ranges?.offset ?? []) as number[];
+        const sizes = (ranges?.count ?? []) as number[];
+        const rangesCpu: ColorRangeCpu[] = Array.from({ length: colorCount }, (_, c) => ({
+            offset: offsets[c] ?? 0,
+            count: sizes[c] ?? 0,
+        }));
         return {
             colorCount,
             edgeColors: b.colors,
@@ -433,73 +489,38 @@ export class GraphColorer {
         };
     }
 
-    private allocate(): EdgeBuffers {
-        const storage = (name: string, byteSize: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:${name}`,
-                byteSize: Math.max(16, byteSize),
-            });
-        const staging = (name: string, byteSize: number): StagingBufferSpec =>
-            this.core.create<StagingBufferSpec>({
-                kind: 'buffer',
-                subkind: 'staging',
-                discriminator: `${this.disc}:${name}`,
-                byteSize,
-            });
-        const edges = this.capacity * 4;
+    private buffer(name: string): StorageBufferSpec {
+        const buffer = this.ctx.resources.bufferOf(this.ctx.work, `${this.disc}:${name}`);
+        if (buffer === undefined)
+            throw new Error(`GraphColorer(${this.disc}): trabalho fora da cena.`);
+        return buffer as StorageBufferSpec;
+    }
+
+    private edgeBuffers(): EdgeBuffers {
         return {
-            params: this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: `${this.disc}:gc_params`,
-                byteSize: GraphColorParamsSchema.stride,
-            }),
-            status: storage('gc_status', GraphColorStatusSchema.stride),
-            colors: storage('gc_colors', edges),
-            keys: storage('gc_keys', edges),
-            values: storage('gc_edges_by_color', edges),
-            counts: storage('gc_counts', edges),
-            offsets: storage('gc_offsets', edges),
-            ranges: storage('gc_ranges', this.capacity * ColorRangeSchema.stride),
-            statusStaging: staging('gc_status_staging', GraphColorStatusSchema.stride),
-            rangesStaging: staging('gc_ranges_staging', this.capacity * ColorRangeSchema.stride),
+            params: this.buffer('gc_params') as unknown as UniformBufferSpec,
+            status: this.buffer('gc_status'),
+            colors: this.buffer('gc_colors'),
+            keys: this.buffer('gc_keys'),
+            values: this.buffer('gc_edges_by_color'),
+            counts: this.buffer('gc_counts'),
+            offsets: this.buffer('gc_offsets'),
+            ranges: this.buffer('gc_ranges'),
         };
     }
 
-    /** Buffers por vértice: recriados quando `vertexCount` passa da capacidade (nenhum envio anterior pendente). */
+    /** Buffers por vértice: crescem (o trabalho se redescreve) quando `vertexCount` passa da capacidade. */
     private ensureVertexBuffers(vertexCount: number): VertexBuffers {
-        if (this.vertex !== null && this.vertex.capacity >= vertexCount) return this.vertex;
-        this.releaseVertexBuffers();
-        const storage = (name: string): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:${name}:${vertexCount}`,
-                byteSize: Math.max(16, vertexCount * 4),
-            });
-        return (this.vertex = {
-            capacity: vertexCount,
-            degree: storage('gc_degree'),
-            vmax: storage('gc_vmax'),
-            used: storage('gc_used'),
-            reduce: new Reduce(this.core, {
-                discriminator: `${this.disc}:gc_max_degree`,
-                capacity: vertexCount,
-                op: 'max',
-                type: 'u32',
-            }),
-        });
-    }
-
-    private releaseVertexBuffers(): void {
-        if (this.vertex === null) return;
-        for (const b of [this.vertex.degree, this.vertex.vmax, this.vertex.used]) {
-            this.core.destroy(b);
+        if (vertexCount > this.vertexCapacity) {
+            this.vertexCapacity = vertexCount;
+            this.ctx.work.refresh();
         }
-        this.vertex.reduce.destroy();
-        this.vertex = null;
+        this.reduce.reserve(this.vertexCapacity);
+        return {
+            degree: this.buffer('gc_degree'),
+            vmax: this.buffer('gc_vmax'),
+            used: this.buffer('gc_used'),
+        };
     }
 
     private kernel(
@@ -508,7 +529,7 @@ export class GraphColorer {
         entryPoint: string,
         bindings: ReadonlyMap<WgslResource, BindingSource>,
     ): ComputeKernel {
-        const kernel = createComputeKernel(this.core, {
+        const kernel = createComputeKernel(this.ctx.core, {
             discriminator: `${this.disc}:${name}`,
             shader,
             entryPoint,
@@ -534,19 +555,20 @@ export class GraphColorer {
     }
 
     private submit(label: string, body: (frame: Frame) => void): void {
-        this.core.record(label, body);
-        this.core.submit();
+        this.ctx.core.record(label, body);
+        this.ctx.core.submit();
     }
 
-    private async readStatus(b: EdgeBuffers): Promise<GraphColorStatus> {
-        this.submit('GraphColorer.status', (frame) => {
-            frame.copy(b.status, b.statusStaging, GraphColorStatusSchema.stride);
-        });
-        return readGraphColorStatus(await this.core.readback(b.statusStaging));
+    /** O estado, pela leitura sob demanda da C2 (depois dos envios já feitos). */
+    private async readStatus(): Promise<GraphColorStatus> {
+        const status = await this.ctx.resources.read(this.ctx.work, `${this.disc}:gc_status`);
+        if (status === undefined)
+            throw new Error(`GraphColorer(${this.disc}): trabalho fora da cena.`);
+        return readGraphColorStatus(status);
     }
 
     private releaseKernels(): void {
-        for (const k of this.kernels) destroyComputeKernel(this.core, k);
+        for (const k of this.kernels) destroyComputeKernel(this.ctx.core, k);
         this.kernels = [];
     }
 }

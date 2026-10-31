@@ -17,11 +17,17 @@ Um Flow declara:
 | `type` | Nome do estágio (mensagens de erro, profiling, `flowReady`) — dado, não nome de classe. |
 | `slots` | Os dados da cena que o algoritmo lê, tipados, pelos construtores `slot.*`. |
 | `pipelines` | Os pipelines compilados antes de o Flow ficar pronto (`PipelineDescriptor`). |
-| `bindings` | Fontes dos recursos **privados** (uniforms por passo, temporários): `Map<BindingKey, BindingSource>`, pela identidade do recurso declarado. |
+| `bindings` | Fontes dos recursos **privados**: `Map<BindingKey, BindingSource>`, pela identidade do recurso declarado — sempre objetos que a C2 alocou (descritores do Resource de trabalho ou de outro slot), nunca criados pelo Flow. |
 | `listens` | Schemas cujos envios chegam ao Flow como evento: `poolWritten` (dado em pool, faixas de slots) ou `resourceReady` (Resource com objetos próprios). |
 | `initialState` / `transitions` | A máquina de estados do algoritmo: `estado → evento → destino`. |
 | `dispatch(frame, bound)` | A gravação do quadro. **Só grava**: nada é criado nem escrito aqui. |
-| `dispose()` | Libera os recursos privados (chamado no `unregister` ou no descarte da cena). |
+| `dispose()` | Desfaz o que o Flow guarda fora da C2 (inscrições, caches de CPU); os objetos de GPU são da C2 e saem com o Resource de trabalho. |
+
+**O Flow não cria objetos de GPU** (spec 039, Princípio III da constituição). Todo dado que vai à GPU é descritor de um
+Resource e é alocado, redimensionado, religado e liberado pelo `ResourceSystem`: o estado de cada corpo no pool dele, o
+trabalho por entidade como descritor de pool do mesmo corpo, e o trabalho da própria instância do Flow no **Resource de
+trabalho** (`slot.work`, abaixo). Uma regra de lint proíbe `core.create`, `core.write`, `core.destroy` e
+`core.readback` em `src/elements` e `src/presentation`.
 
 ## Slots
 
@@ -36,6 +42,7 @@ Cada slot é resolvido pela C2 e entregue ao `dispatch` em `bound.slots`, com ti
 | `slot.entities({ all: [A, B, …], record?, groups?, owns? })` | `BoundEntities` (entidades com um Resource de cada tipo; com `record`, `entry.recordSlot` e `records`; com `groups`, `groups` e `instances`) | renderizáveis, casters, corpos |
 | `slot.texture(schema, descId, { optional?, select? })` | `BoundTexture` (`texture`, `view`) | cor da cena, mapa de sombra |
 | `slot.target('canvas' \| { color, depth?, samples? })` | `BoundTarget` (só em `RenderFlow`; `samples`/`sampleCount` com MSAA) | alvo de render |
+| `slot.work(() => new MeuTrabalho())` | `BoundWork` (`resource`, `bufferOf(descId)`, `regionStride(descId)`…) | o espaço de trabalho da instância do Flow (spec 039) |
 
 Com `record`, a C2 mantém um registro de GPU por entidade do conjunto, num pool com chave `record.schema.name`: cada
 campo (`u32`) recebe o slot de pool do descritor nomeado de um Resource da entidade — ex.: `renderableRecord` =
@@ -90,6 +97,93 @@ recurso `array<u32>` com fornecedor `{ slot: 'bodies', part: 'live' }` ou `{ con
 
 Slot obrigatório não resolvido mantém o Flow `pending` (fora do quadro). Slots opcionais resolvem como `undefined`
 enquanto o dado não existe; quando aparecem, somem ou trocam de recurso, o Flow recebe `slotChanged`.
+
+## Espaço de trabalho (spec 039)
+
+Tudo que um algoritmo usa além do dado da cena — parâmetros por passo, listas de pares, contadores, filas, grades,
+histogramas — é dado de GPU e segue o Princípio III: é descritor de um Resource. Há três lugares, escolhidos pelo que
+dimensiona o dado:
+
+| O dado é… | Onde mora | Como cresce |
+|---|---|---|
+| **por entidade** (por partícula, por corpo, por colisor) | descritor de pool do **próprio Resource da entidade**, no mesmo slot do `body` (`upload: 'never'`, `allocation: 'onDemand'`) | com o pool (2×, cópia na GPU, `poolReallocated`); faixas livres reaproveitadas |
+| **da instância do Flow** (parâmetros, pares, contadores, filas, a grade do domínio) | descritores do **Resource de trabalho** (`slot.work`) | `reserve` → redescrição (cresce e encolhe; `entitiesRecomposed`, `bindGroupReplaced`) |
+| **de um Resource da cena com um por cena** (o campo dos fluidos, a estrutura de raios, o renderizador) | descritores desse Resource, inserido pelos estágios padrão | `reserve` → redescrição |
+
+### Trabalho por entidade: o pool do corpo
+
+Um Resource com vários descritores em pool ocupa o **mesmo slot** em todos eles. O trabalho por partícula é, portanto,
+um descritor a mais do corpo — o índice da partícula no `body` é o índice dela no trabalho:
+
+```ts
+getDescriptors(): readonly GPUDescriptor[] {
+  return [
+    { id: 'body', role: 'storage-rw', schema: PBFParticleSchema, storage: 'pool', upload: 'initial', count: this.count },
+    // Só existe na GPU, e só depois que o solver pede (`resources.ensurePoolAllocated('PBFDelta')`).
+    { id: 'delta', role: 'storage-rw', schema: PBFDeltaSchema, storage: 'pool', upload: 'never',
+      allocation: 'onDemand', count: this.count },
+  ];
+}
+```
+
+O shader lê pelo pool (`provider: { pool: 'PBFDelta' }`). Precedentes: os `partials` e a `energy` do `SoftBody`.
+
+### Trabalho da instância: o Resource de trabalho (`slot.work`)
+
+O Flow declara a fábrica do seu Resource de trabalho; a C2 o cria e o **insere no World quando aloca o Flow**
+(`ensureFlowAllocated`) e o **remove no `releaseFlow`** — um por instância (cada `bodyType` de um solver tem o seu). Ele é
+um Resource comum: descritores, `data`, `reserve`, redescrição, ciclo de vida, visível nas consultas do World.
+
+```ts
+const slots = {
+  bodies: slot.bodies(),
+  time: slot.singleton(Time.schema),
+  work: slot.work(() => new DriftWork()),
+};
+```
+
+- **Parâmetros por passo — uniforme por região.** Um descritor `uniform` com `regions: { count }` guarda N registros do
+  schema, cada um num múltiplo do `minUniformBufferOffsetAlignment` do adaptador; o recurso de shader é ligado com offset
+  dinâmico e o `dispatch` escolhe a região: `bindTo(pass.bind, { stage: [i * work.regionStride('params')] })`. O Flow
+  escreve `work.data.params[i] = { … }` no `framePrepare` — a C2 envia no mesmo quadro (o envio dos sujos roda depois do
+  `framePrepare`).
+- **Capacidade — `reserve`.** O Resource de trabalho expõe `reserve(...)` (como o `FluidField`): quando a capacidade
+  muda, ele se redescreve; a C2 realoca o que mudou de forma, nos dois sentidos, e refaz os bind groups. Nada fica preso
+  a um valor anterior.
+- **Valores da CPU — três caminhos, todos da C2.** O conteúdo que muda entre quadros e já é conhecido no `framePrepare`
+  vai em `work.data[id]` (descritor `upload: 'always'`; a C2 envia só os descritores cujo campo mudou, antes da
+  gravação). O valor conhecido só na gravação (a contagem de uma reconstrução, os parâmetros de uma chamada) vai por
+  `resources.writeNow(work, id, bytes, offset?)` — também na faixa de um descritor em pool, relativo ao início dela — ou,
+  num uniforme por região, por `resources.writeRegions(work, id, registros, primeira?)`. Uma textura com conteúdo da CPU
+  (o atlas de uma fonte, uma imagem do mundo) é um descritor `texture` com os bytes em `data[id]`: a C2 os envia na
+  alocação e a cada mudança.
+- **Partes que saem.** `work.drop(parte)` tira os descritores de uma parte (uma busca recriada com outra grade, o trabalho
+  de uma entidade que saiu); a C2 libera os buffers. Os auxiliares fazem isso no `destroy()`.
+- **Contadores — `read`.** Um contador escrito na GPU (contatos, a fila da refração) é um descritor do Resource de
+  trabalho lido por `resources.read(work, 'counter')` (a leitura sob demanda da spec 007: lote por tarefa, desempacotada
+  pelo schema) — sem staging nem `mapAsync` no Flow.
+- **Auxiliares de compute** (`PrefixSum`, `RadixSort`, `Compaction`, `Reduce`, `SpatialHashGrid`,
+  `NeighborSearchPipeline`, `RayWave`…) são provedores de descritores: `static descriptors(prefixo, capacidade)` devolve
+  os `GPUDescriptor` que o Resource dono inclui, e `attach(...)` liga o que a C2 alocou. O que é por entidade vai ao pool
+  do corpo; o que é do domínio, ao Resource de trabalho.
+
+```mermaid
+flowchart LR
+  subgraph C3["Camada 3 — o algoritmo"]
+    F["Flow (PBFFlow)\nslots: bodies · time · work"]
+    B["ParticleBody\nbody + delta (pool, mesmo slot)"]
+    W["PBFWork (Resource de trabalho)\nparams (regions) · células (count)"]
+  end
+  subgraph C2["Camada 2 — o ResourceSystem"]
+    RS["aloca · redescreve · religa · libera"]
+    FR["FlowRuntime\nensureFlowAllocated / releaseFlow"]
+  end
+  FR -- "insere/remove" --> W
+  B -- "getDescriptors" --> RS
+  W -- "getDescriptors" --> RS
+  F -- "reserve · data.params · read" --> W
+  RS -- "fontes, bind groups" --> F
+```
 
 ## Bindings: recursos declarados (spec 031)
 
@@ -183,7 +277,8 @@ O Flow tem dois estados, ambos mudados por eventos:
 - **Estado do algoritmo** (`flow.state`), só por transições. A tabela tem uma entrada por estado (e `'*'` para
   qualquer estado); cada entrada é `'ignore'` ou `{ to, run? }`. **Evento sem entrada lança `FlowTransitionError`.**
 
-No `run(event, ctx)` o Flow recria e religa recursos privados (`ctx.bind(new Map([[recurso, fonte]]))`), prepara pipelines que
+No `run(event, ctx)` o Flow ajusta o espaço de trabalho (`work.reserve(...)`, parâmetros em `work.data`), religa
+fontes privadas a objetos que a C2 alocou (`ctx.bind(new Map([[recurso, fonte]]))`), prepara pipelines que
 dependem da cena (`ctx.prepare(descriptor)`, idempotente por `id`) e os libera (`ctx.release(id)`). A C2 recria os
 bind groups afetados antes da próxima gravação.
 
@@ -205,20 +300,21 @@ estrutura de raios de que precisa reajustar as caixas.
 | `poolReallocated` | um pool dos slots cresceu |
 | `poolWritten` | a C2 enviou faixas de um pool de schema de `listens` (`poolKey`, `ranges`, `fields?`) — um por pool por envio |
 | `resourceReady` | um Resource de `listens` com objetos próprios (não em pool) foi alocado ou enviado |
-| `framePrepare` | **opt-in**: antes da gravação de cada quadro — escrever parâmetros, crescer buffers |
+| `framePrepare` | **opt-in**: antes da gravação de cada quadro — escrever parâmetros no Resource de trabalho, pedir capacidade (`reserve`) |
 | `frameRecorded` | **opt-in**: depois do envio do quadro — iniciar leituras |
 
 `framePrepare` e `frameRecorded` só chegam a quem os declara. Eventos de domínio só chegam em `preparing`/`ready`.
 
 ## Exemplo completo — um integrador simples
 
-Um Resource de partícula em pool e um Flow que avança `posição += velocidade × dt` uma vez por passo de física.
+Um Resource de partícula em pool, o Resource de trabalho do Flow com os parâmetros por passo, e um Flow que avança
+`posição += velocidade × dt` uma vez por passo de física.
 
 ```typescript
 import {
   Flow, slot, Time, StructSchema, FieldType, ResourceState, Entity, wgslModule, wgslResource, WORKGROUP_SIZE,
-  type BindingSources, type BoundFlow, type FlowContext, type FlowTransitions, type Frame,
-  type GPUDescriptor, type PipelineDescriptor, type Resource, type TransitionContext, type UniformBufferSpec,
+  type BoundFlow, type FlowTransitions, type Frame,
+  type GPUDescriptor, type PipelineDescriptor, type Resource, type TransitionContext,
 } from 'clayflow';
 
 // 1. O dado: um pool de storage (uma partícula por entidade).
@@ -243,26 +339,51 @@ export class Drifter extends Entity<{ position: number[]; velocity: number[] }> 
   }
 }
 
-// 2. O shader: recursos declarados e structs gerados dos schemas; nenhuma ligação nem offset à mão.
+// 2. O espaço de trabalho do Flow: um Resource comum, criado e liberado pela C2 junto com o Flow.
 const DriftParamsSchema = new StructSchema(
   'DriftParams',
   { dt: FieldType.f32, count: FieldType.u32 },
   { addressSpace: 'uniform' },
 );
 
+class DriftWork extends Entity<{ params: { dt: number; count: number }[] }> implements Resource {
+  static readonly schema = new StructSchema('DriftWork', {});
+  state: ResourceState = ResourceState.Uninitialized;
+  #steps = 1;
+  constructor() {
+    super();
+    this.data = { params: [] };
+  }
+  getDescriptors(): readonly GPUDescriptor[] {
+    // Uma região por passo do quadro, cada uma no alinhamento do adaptador, ligada por offset dinâmico.
+    return [{ id: 'params', role: 'uniform', schema: DriftParamsSchema, regions: { count: this.#steps } }];
+  }
+  getPipelineDescriptors(): readonly PipelineDescriptor[] {
+    return [];
+  }
+  /** Garante uma região por passo; a redescrição realoca (para mais ou para menos). */
+  reserve(steps: number): void {
+    if (steps === this.#steps) return;
+    const previous = this.getDescriptors();
+    this.#steps = steps;
+    this.redescribe(previous, { params: this.data.params.slice(0, steps) });
+  }
+}
+
+// 3. O shader: recursos declarados e structs gerados dos schemas; nenhuma ligação nem offset à mão.
 const driftBodies = wgslResource({
   name: 'bodies',
   binding: { storage: 'read_write' },
   type: { schema: DrifterSchema, array: true },
   frequency: 'stage',
-  provider: { slot: 'bodies' },          // o pool que o slot `bodies` resolveu
+  provider: { slot: 'bodies' },                         // o pool que o slot `bodies` resolveu
 });
 const driftParams = wgslResource({
   name: 'params',
   binding: { uniform: true },
   type: { schema: DriftParamsSchema },
-  frequency: 'stage',
-  provider: 'private',                   // o Flow liga pelo objeto do recurso
+  frequency: 'draw',
+  provider: { slot: 'work', descriptor: 'params' },     // o descritor do Resource de trabalho (offset dinâmico)
 });
 
 const drift = wgslModule({
@@ -275,10 +396,11 @@ const drift = wgslModule({
 }`,
 });
 
-// 3. O Flow.
+// 4. O Flow.
 const slots = {
-  bodies: slot.bodies(),                 // o pool do bodyType do registro ('Drifter')
-  time: slot.singleton(Time.schema),     // passos de física do quadro
+  bodies: slot.bodies(),                    // o pool do bodyType do registro ('Drifter')
+  time: slot.singleton(Time.schema),        // passos de física do quadro
+  work: slot.work(() => new DriftWork()),   // o espaço de trabalho desta instância
 };
 type DriftSlots = typeof slots;
 type Ctx = TransitionContext<DriftSlots>;
@@ -287,10 +409,8 @@ export class DriftFlow extends Flow<DriftSlots, 'running'> {
   readonly type = 'DriftFlow';
   readonly slots = slots;
   override readonly pipelines: readonly PipelineDescriptor[] = [
-    // `bodies` vem do slot (fornecedor { slot: 'bodies' }); `params` é privado.
     { id: 'drift', role: 'compute', shader: drift, entryPoints: ['drift_main'] },
   ];
-  override readonly bindings: BindingSources;
   protected readonly initialState = 'running' as const;
   protected readonly transitions: FlowTransitions<'running', Ctx> = {
     '*': {
@@ -303,51 +423,40 @@ export class DriftFlow extends Flow<DriftSlots, 'running'> {
     },
   };
 
-  private readonly ctx: FlowContext;
-  private readonly params: UniformBufferSpec;
-
-  constructor(ctx: FlowContext) {
-    super();
-    this.ctx = ctx;
-    this.params = ctx.core.create<UniformBufferSpec>({
-      kind: 'buffer', subkind: 'uniform', discriminator: 'drift_params', byteSize: DriftParamsSchema.stride,
-    });
-    this.bindings = new Map([[driftParams, this.params]]);
-  }
-
-  /** Antes da gravação: dt e contagem do quadro. */
+  /** Antes da gravação: uma região por passo; a C2 envia no mesmo quadro. */
   private writeParams(ctx: Ctx): void {
     const time = ctx.bound.slots.time.resource as Time;
-    this.ctx.core.write(
-      this.params,
-      DriftParamsSchema.pack({ dt: time.stepDt * time.steps, count: ctx.bound.slots.bodies.count }),
-    );
+    const work = ctx.bound.slots.work.resource as DriftWork;
+    work.reserve(Math.max(1, time.steps));
+    for (let i = 0; i < time.steps; i++)
+      work.data.params[i] = { dt: time.stepDt, count: ctx.bound.slots.bodies.count };
   }
 
   /** Só grava. */
   dispatch(frame: Frame, bound: BoundFlow<DriftSlots>): void {
     const count = bound.slots.bodies.count;
-    if (count === 0) return;
+    const steps = (bound.slots.time.resource as Time).steps;
+    if (count === 0 || steps === 0) return;
     const p = bound.compute('drift');
+    const stride = bound.slots.work.regionStride('params');
     frame.compute('DriftFlow', (pass) => {
       pass.bind.setPipeline(p.spec);
-      p.bindTo(pass.bind);                 // grupos pela frequência, sem índices escritos
-      pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
+      for (let i = 0; i < steps; i++) {
+        p.bindTo(pass.bind, { draw: [i * stride] });   // grupos pela frequência; a região do passo pelo offset
+        pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
+      }
     });
-  }
-
-  override dispose(): void {
-    this.ctx.core.destroy(this.params);
   }
 }
 
-// 4. O registro: instanciado quando o primeiro Drifter cria o pool.
-app.flows.register((ctx) => new DriftFlow(ctx), { type: 'DriftFlow', phase: 'physics', bodyType: 'Drifter' });
+// 5. O registro: instanciado quando o primeiro Drifter cria o pool.
+app.flows.register(() => new DriftFlow(), { type: 'DriftFlow', phase: 'physics', bodyType: 'Drifter' });
 app.world.insert(new Drifter({ velocity: [1, 0, 0, 0] }));
 ```
 
-Os grupos e a visibilidade vêm do WGSL; o `@binding(0)` recebe o buffer do pool e o `@binding(1)` o uniform
-privado. Se o pool crescer, a C2 recria o grupo 0 (`bindGroupReplaced`) e o próximo `dispatch` já o usa.
+Os grupos e a visibilidade vêm do WGSL; o pool entra pelo slot `bodies` e os parâmetros pelo descritor do Resource de
+trabalho, os dois alocados pela C2. Se o pool crescer ou o trabalho se redescrever, a C2 recria o grupo
+(`bindGroupReplaced`) e o próximo `dispatch` já o usa. O Flow não tem `dispose`: o `DriftWork` sai da cena com ele.
 
 ## Registro
 
@@ -361,7 +470,8 @@ app.flows.unregister(reg);                                                      
   (`poolCreated`) e o registro vence a seleção (override → maior `priority` → último registrado).
 - **Ordem do quadro**: fases fixas `physics → transform → shadow → forward → post → ui`; dentro da fase, `priority`
   decrescente, empate pela ordem de registro.
-- A factory recebe `FlowContext { core, world, resources, events, bodyType? }`.
+- A factory recebe `FlowContext { core, world, resources, events, bodyType? }`. Do `core` o Flow só consulta (capacidades
+  do adaptador, formato e tamanho do canvas); criar, escrever, destruir e ler objetos de GPU é da C2.
 - `FlowRegistrationError`: `type` repetido na fase, `bodyType` vazio, registro fora de uma cena.
 
 ### Ordem dos estágios padrão (com a iluminação global, spec 033)

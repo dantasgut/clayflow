@@ -4,10 +4,11 @@ import type {
     EngineCore,
     StorageBufferSpec,
 } from '../../../core/contracts/index';
-import type { ResolvedSource } from '../../consumers/ResolvedSource';
+import type { BindableBufferSpec, ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
+import type { Entity } from '../../contracts/Entity';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
 import type { PointImplementation } from '../../shaders/WgslPoint';
@@ -34,6 +35,7 @@ import type {
     BoundSingleton,
     BoundTarget,
     BoundTexture,
+    BoundWork,
     ChannelSlot,
     EntitiesSlot,
     EntityEntry,
@@ -98,6 +100,8 @@ export class FlowRuntime {
     private readonly pipelinePrivates = new Map<string, Map<WgslResource, BindingSource>>();
     private readonly pipelineStates = new Map<string, PipelineState>();
     private readonly entitySets = new Map<string, Map<EntityId, SetEntry>>();
+    /** O Resource de trabalho de cada slot `work`, inserido no World com o Flow (spec 039). */
+    private readonly works = new Map<string, Resource>();
     private readonly poolViews = new Map<string, BoundPool>();
     private readonly entityViews = new Map<string, BoundEntities>();
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
@@ -159,6 +163,13 @@ export class FlowRuntime {
         this.hasEntities = decls.some((d) => d.kind === 'entities');
         this.wantsFrameRecorded = flowHandles(flow, 'frameRecorded');
         this.wantsFramePrepare = flowHandles(flow, 'framePrepare');
+        // O Resource de trabalho de cada `slot.work` entra no World com o Flow (spec 039) e sai no `dispose`.
+        for (const [name, decl] of Object.entries(flow.slots)) {
+            if (decl.kind !== 'work') continue;
+            const resource = decl.create();
+            this.works.set(name, resource);
+            host.world.insert(resource as unknown as Entity);
+        }
         for (const [name, decl] of Object.entries(flow.slots)) {
             if (decl.kind !== 'entities') continue;
             if (decl.record !== undefined)
@@ -535,6 +546,9 @@ export class FlowRuntime {
         }
         setFlowLifecycle(this.flow, 'disposed');
         this.flow.dispose();
+        for (const resource of this.works.values())
+            this.host.world.remove(resource as unknown as Entity);
+        this.works.clear();
     }
 
     private leave(to: 'pending' | 'preparing'): void {
@@ -832,11 +846,25 @@ export class FlowRuntime {
                 const pool = provider.part === 'instances' ? set.instances : set.records;
                 return buffer(pool?.buffer);
             }
-            case 'singleton': {
+            case 'singleton':
+            case 'work': {
                 const single = value as BoundSingleton;
                 const d = provider.descriptor;
                 if (d === undefined) return undefined;
                 const b = single.bufferOf(d);
+                const stride = this.host.resources.regionStrideOf(single.resource, d);
+                if (b !== undefined && stride !== undefined) {
+                    // Uniforme por região (spec 039): uma região do schema por ligação, escolhida pelo offset dinâmico.
+                    const schema = single.resource
+                        .getDescriptors()
+                        .find((x) => x.id === d)!.schema!;
+                    return {
+                        kind: 'buffer',
+                        buffer: b as BindableBufferSpec,
+                        size: schema.stride,
+                        dynamic: { stride },
+                    };
+                }
                 if (b !== undefined) return buffer(b);
                 const view = single.textureViewOf(d);
                 if (view !== undefined) return normalizeSource(view);
@@ -947,6 +975,7 @@ export class FlowRuntime {
             case 'channel':
                 return has(decl.poolKey ?? decl.schema!.name);
             case 'target':
+            case 'work':
                 return true;
             case 'pools':
             case 'entities':
@@ -963,6 +992,7 @@ export class FlowRuntime {
                 return !decl.optional;
             case 'bodies':
             case 'target':
+            case 'work':
                 return true;
             case 'pools':
             case 'entities':
@@ -990,6 +1020,8 @@ export class FlowRuntime {
                 return this.channelOf(decl);
             case 'target':
                 return this.targetOf(decl.color, decl.depth, decl.samples);
+            case 'work':
+                return this.workView(name);
         }
     }
 
@@ -1033,6 +1065,24 @@ export class FlowRuntime {
             this.poolViews.set(poolKey, view);
         }
         return view;
+    }
+
+    /** O Resource de trabalho do slot `name` como singleton, com o stride das regiões (spec 039). */
+    private workView(name: string): BoundWork | undefined {
+        const resource = this.works.get(name);
+        if (resource === undefined) return undefined;
+        const r = this.host.resources;
+        return {
+            ...this.singletonView(resource),
+            regionStride: (descId) => {
+                const stride = r.regionStrideOf(resource, descId);
+                if (stride === undefined)
+                    throw new Error(
+                        `Flow '${this.flow.type}': o descritor '${descId}' do Resource de trabalho '${name}' não tem regions.`,
+                    );
+                return stride;
+            },
+        };
     }
 
     private singletonView(resource: Resource): BoundSingleton {

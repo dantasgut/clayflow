@@ -508,7 +508,8 @@ function instrument(app: Application): {
         const out = create(s);
         const d = (s as { discriminator?: string }).discriminator;
         if (s.kind === 'buffer' && d?.startsWith('graph:') === true)
-            buffers.set(d.split(':').slice(3).join(':'), out as { byteSize: number });
+            // `graph:<entidade>:<revisão>:<chave>:<identidade do Resource de trabalho>` (spec 039: a C2 aloca).
+            buffers.set(d.split(':').slice(3, -1).join(':'), out as { byteSize: number });
         return out;
     };
     core.readback = (s: unknown): Promise<ArrayBuffer> => {

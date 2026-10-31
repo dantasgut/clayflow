@@ -6,6 +6,9 @@
 //   - gpu: o campo da GPU (blocos esparsos, voxels com a borda) igual ao da referência de CPU (`fields/reference/field`)
 //     nas mesmas partículas paradas: φ nos voxels da faixa (|φ| < 2 voxels) com erro ≤ ¼ voxel no percentil 95 e
 //     ≤ 1 voxel no máximo; nenhum NaN; blocos dentro da capacidade;
+//   - mesh (spec 039, T109): a malha da superfície (o raster da água) nas mesmas partículas paradas do `gpu` — os
+//     vértices no nível zero do campo da GPU (|φ| ≤ ¼ voxel no percentil 95, ≤ 1 voxel no máximo) e no da referência de
+//     CPU (os mesmos limites); a profundidade do raster contra a marcha da referência é o caso `rays`;
 //   - drops: gotas separadas por 2 e 4 espaçamentos não se fundem (φ > 0 em todo o vão);
 //   - rays: os raios atingem a mesma superfície — a distância que a câmera pede à refração (spec 034, T065f: a água vista
 //     pela câmera é achada pelos raios) e o ponto `ray_volume_hit` (composto pela C2 num estágio de consulta) contra a
@@ -24,9 +27,10 @@
 //   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — dois `FluidBody` com a função `material`:
 //     o dielétrico de IOR 1,4 com a transmissão de cor 0,5 + 0,25·n pela normal do ponto, a 2 m, e a água da cena dos
 //     smokes (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m); por raios contra cada um, o fechamento
-//     `ray_volume_closure` (o ponto `ray_volume_surface` composto pela C2 com as funções `material` dos acertos) dá o
-//     fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
-//     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do fechamento na corda — |Δ ln T| ≤ σ · 1 voxel
+//     do acerto na onda dos acertos (a referência do ponto `ray_volume_surface`, avaliada pelo kernel da classe, spec 039)
+//     dá o fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
+//     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do meio do corpo na corda (homogêneo: o
+//     fechamento do corpo avaliado uma vez por quadro, spec 039) — |Δ ln T| ≤ σ · 1 voxel
 //     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
 //   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
 //     marcha ≤ 1 ms: medidos juntos pela diferença do tempo de GPU por quadro (perfil por quadro: o por passo não é
@@ -49,7 +53,6 @@ import {
     rayVolumeTransmittanceReady,
     RayScene,
     nodes,
-    bindPoints,
     slot,
     StandardMaterial,
     Transform,
@@ -60,11 +63,9 @@ import type {
     BoundFlow,
     FlowTransitions,
     Frame,
-    PipelineDescriptor,
     SingletonSlot,
     SlotMap,
     TransitionContext,
-    WgslModule,
     StagingBufferSpec,
     StorageBufferSpec,
 } from 'clayflow/web';
@@ -94,11 +95,12 @@ import { lumaSrgb8 } from './support/images';
 import { lcg } from './support/random';
 import { queryRays, queryVolumeHits } from './support/volumeQuery';
 import { materialGraph } from './support/materialScenes';
-import {
-    composeHitMaterial,
-    rayHitMaterialPoint,
-    rayHitMaterialReady,
-} from '../elements/raytrace/hitMaterial';
+import { RayWave } from '../elements/raytrace/RayWave';
+import { rayWave } from '../elements/raytrace/wave/shaders';
+import { FlowWork } from '../scene/flows/FlowWork';
+import { StructSchema } from '../scene/descriptors/StructSchema';
+import type { WorkSlot } from '../scene/flows/slots';
+import { FIELD_MESH_VERTEX_WORDS } from '../elements/fields/schemas';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -296,7 +298,7 @@ async function read(app: Application, descId: string): Promise<ArrayBuffer> {
  * achado pelo ponto `ray_volume_hit` como os raios do traçado.
  */
 async function readRequest(app: Application): Promise<{ words: Uint32Array; stride: number }> {
-    const texture = app.resources.textureOf(app.defaults.refraction, 'request');
+    const texture = app.resources.textureOf(app.defaults.renderer.refractionResource, 'request');
     if (texture === undefined) throw new Error('pedido da refração não alocado');
     const { width, height } = texture;
     const bytesPerRow = Math.ceil((width * 8) / 256) * 256;
@@ -979,17 +981,33 @@ const closureOut = wgslResource({
 });
 const closureQuery = wgslModule({
     name: 'smoke_closure_query',
-    // O `ray_hit_material` na árvore, como em quem traça (sombreia os acertos das malhas): a composição das funções da
-    // cena vale também dentro da contribuição do campo.
+    // O material no acerto do volume pela onda dos acertos, como em quem traça (spec 039): o acerto e a referência do
+    // material dele (`ray_volume_surface`) gravados na onda, o material avaliado por classe, a leitura depois.
     requires: [
-        rayHitMaterialReady,
         rayVolumeHitReady,
         rayVolumeMaterial,
         rayVolumeTransmittanceReady,
         queryRays,
         closureOut,
+        rayWave,
     ],
     source: /* wgsl */ `
+@compute @workgroup_size(64)
+fn smoke_closure_hits_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
+    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0, -1);
+    let surface = ray_volume_surface(h);
+    let m = ray_volume_standard();
+    if (!h.hit || surface.index == 0u) {
+        ray_wave_put_shaded(i, ray_wave_hit(h.position, h.normal, vec2f(0.0), 0.0, 0.0, 0.0, m, 0u, RAY_WAVE_SHADED, i,
+            vec4f(0.0)), surface.closure);
+        return;
+    }
+    ray_wave_put_surface(i, surface.index, surface.slot, h.position, h.normal, vec2f(0.0), 0.0, 0.0, 0.0, m,
+        vec4f(0.0));
+}
+
 @compute @workgroup_size(64)
 fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let i = gid.x;
@@ -997,7 +1015,7 @@ fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let o = smoke_rays[i * 2u].xyz;
     let d = smoke_rays[i * 2u + 1u].xyz;
     let h = ray_volume_hit(o, d, 10.0, -1);
-    let c = ray_volume_closure(h, 0.0);
+    let c = ray_wave_entries[i].closure;
     // A saída do corpo: o acerto de dentro, a partir de 1 cm depois da entrada (perto da superfície o sinal de φ ainda
     // é o da faixa dela). A transmitância só até 2 cm depois da saída: o raio não chega ao outro corpo (a 30 cm).
     let start = h.position + d * 0.01;
@@ -1014,9 +1032,15 @@ fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
 }`,
 });
 
+/** O Resource de trabalho do estágio de consulta (spec 039: a onda é da C2). */
+class ClosureQueryWork extends FlowWork {
+    static readonly schema = new StructSchema('SmokeClosureQueryWork', {});
+}
+
 interface ClosureQuerySlots extends SlotMap {
     readonly field: SingletonSlot<false>;
     readonly rays: SingletonSlot<false>;
+    readonly work: WorkSlot<ClosureQueryWork>;
 }
 
 /**
@@ -1025,9 +1049,11 @@ interface ClosureQuerySlots extends SlotMap {
  */
 class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
     readonly type = 'smokeClosureQuery';
+    private readonly owner = new ClosureQueryWork();
     readonly slots: ClosureQuerySlots = {
         field: slot.singleton(FluidField.schema),
         rays: slot.singleton(RayScene.schema),
+        work: slot.work(() => this.owner),
     };
     override readonly bindings: ReadonlyMap<typeof queryRays, StorageBufferSpec>;
     protected readonly initialState = 'idle' as const;
@@ -1035,13 +1061,17 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
     pending = 0;
     revision = -1;
     functions = 0;
+    private readonly wave: RayWave;
 
     constructor(
+        core: Application['core'],
+        resources: Application['resources'],
         rays: StorageBufferSpec,
         out: StorageBufferSpec,
         private readonly count: number,
     ) {
         super();
+        this.wave = new RayWave({ core, resources, work: this.owner }, 'smoke_closure');
         this.bindings = new Map([
             [queryRays, rays],
             [closureOut, out],
@@ -1058,23 +1088,29 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
                     run: (_e, c) => {
                         const scene = c.bound.slots.rays.resource as RayScene;
                         if (scene.materialRevision === this.revision) return;
+                        const first = this.revision < 0;
                         this.revision = scene.materialRevision;
-                        const fns = scene.materialFunctions;
-                        this.functions = fns.length;
-                        const shader: WgslModule =
-                            fns.length === 0
-                                ? closureQuery
-                                : bindPoints(
-                                      closureQuery,
-                                      new Map([[rayHitMaterialPoint, composeHitMaterial(fns)]]),
-                                  );
-                        const descriptor: PipelineDescriptor = {
-                            id: `closure:${this.revision}`,
-                            role: 'compute',
-                            shader,
-                            entryPoints: ['smoke_closure_query_main'],
-                        };
-                        c.prepare(descriptor);
+                        this.functions = scene.materialFunctions.length;
+                        const w = this.wave.ensure(
+                            this.count,
+                            scene.materialFunctions,
+                            scene.materialRevision,
+                        );
+                        if (w.bindings !== undefined) c.bind(w.bindings);
+                        for (const id of w.released) c.release(id);
+                        for (const d of w.pipelines) c.prepare(d);
+                        if (first) {
+                            for (const entry of [
+                                'smoke_closure_hits_main',
+                                'smoke_closure_query_main',
+                            ])
+                                c.prepare({
+                                    id: entry,
+                                    role: 'compute',
+                                    shader: closureQuery,
+                                    entryPoints: [entry],
+                                });
+                        }
                     },
                 },
             },
@@ -1083,17 +1119,30 @@ class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
 
     dispatch(frame: Frame, bound: BoundFlow): void {
         if (this.pending === 0) return;
-        const p = bound.pipelines.get(`closure:${this.revision}`);
-        if (p?.role !== 'compute' || !p.ready) return;
+        const hits = bound.pipelines.get('smoke_closure_hits_main');
+        const p = bound.pipelines.get('smoke_closure_query_main');
+        if (
+            hits?.role !== 'compute'
+            || !hits.ready
+            || p?.role !== 'compute'
+            || !p.ready
+            || !this.wave.ready(bound)
+            || !this.wave.shadeReady(bound)
+        )
+            return;
         frame.compute('smokeClosureQuery', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(hits.spec);
+            hits.bindTo(pass.bind);
+            pass.dispatch.invocations(this.count, 64);
+            this.wave.shade(pass, bound);
             pass.bind.setPipeline(p.spec);
             p.bindTo(pass.bind);
-            pass.dispatch.workgroups(Math.ceil(this.count / 64));
+            pass.dispatch.invocations(this.count, 64);
         });
         this.pending--;
     }
 }
-
 /** Fechamento esperado do grafo do corpo A na normal `n`: cor 0,5 + 0,25·n a 2 m, IOR 1,4. */
 const GRAPH_IOR = 1.4;
 const GRAPH_DEPTH = 2;
@@ -1182,7 +1231,7 @@ async function caseClosure(): Promise<void> {
         data.set([...ray.o, 0, ...ray.d, 0], i * 8);
     });
     s.app.core.write(raysBuf, data);
-    const query = new ClosureQueryFlow(raysBuf, outBuf, count);
+    const query = new ClosureQueryFlow(s.app.core, s.app.resources, raysBuf, outBuf, count);
     s.app.flows.register(() => query, {
         type: 'smokeClosureQuery',
         phase: 'transform',
@@ -1246,11 +1295,14 @@ async function caseClosure(): Promise<void> {
         ];
         for (let k = 0; k < got.length; k++)
             worstClosure = Math.max(worstClosure, Math.abs(got[k]! - want[k]!));
-        // Beer–Lambert pela absorção do fechamento na corda (a entrada e a saída refinadas).
+        // Beer–Lambert pela absorção do meio do corpo na corda (a entrada e a saída refinadas). O meio é homogêneo por
+        // corpo (spec 039, decisão do usuário de 2026-10-29): o fechamento do corpo avaliado uma vez por quadro, na
+        // amostra do meio (o centro da caixa do campo, a normal para cima) — no corpo A, a cor do grafo na normal +y.
         if (v(19) > 0.5) {
             crossed++;
             const chord = v(15) - v(0);
-            const sigma = expected.color.map((col) => -Math.log(col) / expected.depth);
+            const medium: Vec3 = ray.body === 0 ? [0.5, 0.75, 0.5] : expected.color;
+            const sigma = medium.map((col) => -Math.log(col) / expected.depth);
             for (let k = 0; k < 3; k++) {
                 const err = Math.abs(Math.log(Math.max(v(20 + k), 1e-30)) + sigma[k]! * chord);
                 worstRatio = Math.max(worstRatio, err / (sigma[k]! * voxel));
@@ -1276,8 +1328,59 @@ async function caseClosure(): Promise<void> {
     s.dispose();
 }
 
+/** A malha da superfície (T109): os vértices no nível zero do campo da GPU e no da referência de CPU. */
+async function caseMesh(): Promise<void> {
+    const positions = BALLS();
+    const s = await session(320, 200);
+    staticStage(s.app, s.width, s.height, BALL_EYE, BALL_TARGET);
+    staticBody(s.app, positions, SPACING);
+    await settle(s.app);
+    const f = await gpuField(s.app, SPACING);
+    const args = new Uint32Array(await read(s.app, 'meshArgs'));
+    const words = new Float32Array(await read(s.app, 'mesh'));
+    const vertices = Math.min(args[0]!, words.length / FIELD_MESH_VERTEX_WORDS);
+    const grid = buildField(toPoints(positions), { spacing: SPACING, iso: f.iso });
+    const gpu: number[] = [];
+    const cpu: number[] = [];
+    let nans = 0;
+    for (let v = 0; v < vertices; v++) {
+        const p: Vec3 = [
+            words[v * FIELD_MESH_VERTEX_WORDS]!,
+            words[v * FIELD_MESH_VERTEX_WORDS + 1]!,
+            words[v * FIELD_MESH_VERTEX_WORDS + 2]!,
+        ];
+        if (!p.every(Number.isFinite)) {
+            nans++;
+            continue;
+        }
+        gpu.push(Math.abs(f.phi(p)) / f.voxel);
+        cpu.push(Math.abs(trilinear(grid, p)) / f.voxel);
+    }
+    const stats = (e: number[]): [number, number] => {
+        e.sort((a, b) => a - b);
+        return [e[Math.floor(0.95 * (e.length - 1))] ?? Infinity, e[e.length - 1] ?? Infinity];
+    };
+    const [g95, gmax] = stats(gpu);
+    const [c95, cmax] = stats(cpu);
+    log(
+        `mesh: ${vertices} vértices; |φ| no campo da GPU p95 ${g95.toFixed(3)}, máx ${gmax.toFixed(3)} voxel; na referência p95 ${c95.toFixed(3)}, máx ${cmax.toFixed(3)} voxel; ${nans} NaN`,
+    );
+    check(vertices > 1000, `mesh: ${vertices} vértices`);
+    check(nans === 0, `mesh: ${nans} vértices NaN`);
+    check(
+        g95 <= 0.25 && gmax <= 1,
+        `mesh: no campo da GPU p95 ${g95.toFixed(3)} ≤ 0,25 e máx ${gmax.toFixed(3)} ≤ 1 voxel`,
+    );
+    check(
+        c95 <= 0.25 && cmax <= 1,
+        `mesh: na referência p95 ${c95.toFixed(3)} ≤ 0,25 e máx ${cmax.toFixed(3)} ≤ 1 voxel`,
+    );
+    s.dispose();
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     gpu: caseGpu,
+    mesh: caseMesh,
     drops: caseDrops,
     rays: caseRays,
     close: caseClose,

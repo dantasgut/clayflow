@@ -318,7 +318,8 @@ export class Engine {
     /**
      * Espera o motor ficar pronto (spec 034): nenhum Flow ativo com pipeline sem fonte, em conferência, compilando ou
      * trocando, avaliado num quadro gravado depois desta chamada (o que acabou de ser inserido entra na conta). Com o
-     * laço parado, avança quadros vazios (`step(0)`, sem tempo de simulação) cedendo ao navegador entre eles; com o
+     * laço parado, avança quadros vazios (`step(0)`, sem tempo de simulação) cedendo ao navegador entre eles e só com
+     * espaço na GPU (`readyForFrame`: os quadros em andamento abaixo do teto, como o laço); com o
      * laço rodando, só observa os quadros dele. O tempo da simulação nunca é tocado.
      *
      * @param options.timeoutMs Prazo (padrão 30 000 ms).
@@ -352,7 +353,10 @@ export class Engine {
                     }
                 });
             } else {
-                this.step(0);
+                // Só grava com espaço na GPU (`readyForFrame`, como o laço): sem isso, a CPU empilha quadros mais rápido
+                // que a GPU os termina — no Metal pelo wgpu (Deno), cada passe de compute ocupa buffers de comando e,
+                // passado o teto do Metal, a criação do seguinte bloqueia para sempre (gfx-rs/wgpu#8047).
+                if (this.readyForFrame()) this.step(0);
                 await new Promise((r) => setTimeout(r, 16));
             }
         }
@@ -437,6 +441,24 @@ export class Engine {
     get events(): EventBus {
         return this.scene.events;
     }
+    /**
+     * Liga, troca ou desliga o profiling de GPU com a aplicação rodando (spec 039, T102), com o mesmo significado da
+     * opção `profiling` da criação: `'passes'` dá o tempo de cada estágio (`gpuFrameTimed.flowsMs`) — no Apple os
+     * carimbos por passe deixam os passes de desenho mais lentos, então esse modo é para a tabela por estágio, não para
+     * o tempo do quadro; `'frame'`, só o total; `false` desliga.
+     */
+    setProfiling(profiling: boolean | FrameProfilingGranularity, capacity?: number): void {
+        if (profiling === false) {
+            this.scene.core.setFrameProfiling(false);
+            return;
+        }
+        this.scene.core.setFrameProfiling(
+            true,
+            capacity,
+            profiling === true ? 'passes' : profiling,
+        );
+    }
+
     /** ResourceSystem — gerencia lifecycle de Resources e pools GPU. */
     get resources(): ResourceSystem {
         return this.scene.resourceSystem;

@@ -25,6 +25,7 @@ import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw
 import { closure, closureEval } from '../material/pbr/shaders';
 import { causticsCapable } from './caustics/shaders';
 import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
+import { rayWave } from '../raytrace/wave/shaders';
 import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
@@ -230,6 +231,7 @@ export const giProbeTrace = wgslModule({
         closureEval,
         sceneEnvironmentReady,
         rayVolumeTransmittanceReady,
+        rayWave,
         R.rays,
     ],
 });
@@ -310,6 +312,7 @@ export const giScreenTrace = wgslModule({
         closureEval,
         sceneEnvironmentReady,
         rayVolumeTransmittanceReady,
+        rayWave,
         R.screenWork,
     ],
 });

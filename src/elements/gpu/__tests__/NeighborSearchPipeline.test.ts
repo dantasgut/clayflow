@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NeighborSearchPipeline } from '../NeighborSearchPipeline';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
+import { workHarness } from './helpers/workHarness';
 
 function setup(gridDim: [number, number, number]) {
-    const { core } = fakeResourceCore();
-    const ns = new NeighborSearchPipeline(core, {
+    const h = workHarness();
+    const { core } = h;
+    const ns = new NeighborSearchPipeline(h.ctx, {
         discriminator: 'test',
         maxParticles: 1024,
         maxNeighbors: 16,
@@ -25,19 +26,21 @@ function setup(gridDim: [number, number, number]) {
         discriminator: 'particles:live',
         byteSize: 128,
     };
-    return { core, ns, particles, live };
+    /** Discriminador do buffer que a C2 alocou para o descritor `name` da busca. */
+    const own = (name: string): string => disc(h.resources.bufferOf(h.work, `ns:test:${name}`));
+    return { ...h, core, ns, particles, live, own };
 }
 
 const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
 
 describe('NeighborSearchPipeline', () => {
     it('maxNeighbors fora de [1, 128] → RangeError', () => {
-        const { core } = fakeResourceCore();
+        const { ctx } = workHarness();
         const options = { discriminator: 'x', maxParticles: 8, particleStrideF32: 16 };
-        expect(() => new NeighborSearchPipeline(core, { ...options, maxNeighbors: 0 })).toThrow(
+        expect(() => new NeighborSearchPipeline(ctx, { ...options, maxNeighbors: 0 })).toThrow(
             RangeError,
         );
-        expect(() => new NeighborSearchPipeline(core, { ...options, maxNeighbors: 129 })).toThrow(
+        expect(() => new NeighborSearchPipeline(ctx, { ...options, maxNeighbors: 129 })).toThrow(
             RangeError,
         );
     });
@@ -64,19 +67,13 @@ describe('NeighborSearchPipeline', () => {
     });
 
     it('zera contagens no fluxo de comandos a cada reconstrução', () => {
-        const { ns, particles, live } = setup([16, 16, 16]);
+        const { ns, particles, live, own } = setup([16, 16, 16]);
         const rec = recordingFrame();
         ns.prepare(particles, live, 2);
         ns.rebuild(rec.frame, 10);
         ns.rebuild(rec.frame, 10);
-        expect(rec.sequence.filter((s) => s.startsWith('clear:'))).toEqual([
-            'clear:ns_cell_count:test@0',
-            'clear:ns_ncount:test@0',
-            'clear:ns_order:test@0',
-            'clear:ns_cell_count:test@0',
-            'clear:ns_ncount:test@0',
-            'clear:ns_order:test@0',
-        ]);
+        const once = ['cell_count', 'ncount', 'order'].map((n) => `clear:${own(n)}@0`);
+        expect(rec.sequence.filter((s) => s.startsWith('clear:'))).toEqual([...once, ...once]);
     });
 
     it('particleCount = 0 não grava nada', () => {
@@ -112,16 +109,19 @@ describe('NeighborSearchPipeline', () => {
         ]);
     });
 
-    it('dispose libera os buffers da busca e os da soma de prefixos', () => {
-        const { ns, core, particles, live } = setup([64, 64, 64]);
+    it('os buffers da busca e os da soma de prefixos são do trabalho: a C2 os libera quando ele sai da cena', () => {
+        const { ns, core, particles, live, own, world, work } = setup([64, 64, 64]);
         ns.prepare(particles, live);
         ns.rebuild(recordingFrame().frame, 100);
+        const cellStart = own('cell_start');
+        const nlist = own('nlist');
         ns.dispose();
+        world.remove(work);
         const destroyed = (
             core.destroy as unknown as { mock: { calls: unknown[][] } }
         ).mock.calls.map((c) => disc(c[0]));
         expect(destroyed.filter((d) => d.startsWith('ns_scan:test:scan_level:'))).toHaveLength(2);
-        expect(destroyed).toContain('ns_cell_start:test');
-        expect(destroyed).toContain('ns_nlist:test');
+        expect(destroyed).toContain(cellStart);
+        expect(destroyed).toContain(nlist);
     });
 });

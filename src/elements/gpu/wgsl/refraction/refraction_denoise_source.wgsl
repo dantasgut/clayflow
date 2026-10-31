@@ -3,8 +3,10 @@
 // cor com o registro do objeto (`refraction_hit`) e o albedo da superfície nele (`refraction_albedo`); o ponto
 // anterior, a largura do pixel e a mudança da cena pelo que o histórico de um pixel com pedido precisa
 // (`refraction_history`: o gradiente temporal).
-// Requer: REFRACTION_REQUEST_VALID, refraction_history, refraction_request, refraction_radiance, refraction_hit,
-// refraction_albedo.
+// Na meia resolução, a amostra é deste quadro só no representante do bloco 2×2 (`refraction_block`); os outros pixels
+// vêm da reconstrução.
+// Requer: REFRACTION_REQUEST_VALID, refraction_history, refraction_block, refraction_request, refraction_radiance,
+// refraction_hit, refraction_albedo.
 
 fn temporal_filter_source_size() -> vec2u {
     return textureDimensions(refraction_request);
@@ -32,6 +34,11 @@ fn temporal_filter_source_previous_point(guide: vec4f) -> vec3f {
 
 fn temporal_filter_source_footprint(q: vec2u, guide: vec4f) -> f32 {
     return refraction_footprint(q, guide);
+}
+
+fn temporal_filter_source_fresh(q: vec2u) -> bool {
+    let rep = refraction_block_rep(q, textureDimensions(refraction_request));
+    return rep.z != 0u && all(rep.xy == q) && refraction_block_turn(q);
 }
 
 fn temporal_filter_source_change(q: vec2u) -> f32 {

@@ -19,9 +19,7 @@ import raySceneSource from '../gpu/wgsl/raytrace/ray_scene.wgsl?raw';
 import rayGeometryReadSource from '../gpu/wgsl/raytrace/ray_geometry_read.wgsl?raw';
 import rayBvhReadSource from '../gpu/wgsl/raytrace/ray_bvh_read.wgsl?raw';
 import rayHitSource from '../gpu/wgsl/raytrace/ray_hit.wgsl?raw';
-import rayHitMaterialReadySource from '../gpu/wgsl/raytrace/ray_hit_material_ready.wgsl?raw';
 import rayDirectSource from '../gpu/wgsl/raytrace/ray_direct.wgsl?raw';
-import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady, sceneCausticLightingReady } from '../scene/points/lighting';
 import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
@@ -280,30 +278,11 @@ export const rayInstances = wgslModule({
     structs: [RenderableSchema, StandardMaterialSchema],
 });
 
-// Material nos acertos dos raios (spec 034, R2): comum a quem traça (iluminação global, fótons, refração).
-
-/** Composição pronta das funções `material` nos acertos: as constantes do material. */
-export const rayHitMaterialReady = wgslModule({
-    name: 'ray_hit_material_ready',
-    source: rayHitMaterialReadySource,
-    requires: [materialPointTypes, closure],
-    structs: [StandardMaterialSchema],
-});
-
-/**
- * Ponto da composição das funções `material` nos acertos: quem traça troca o pronto pelo `switch` das funções da cena
- * (`bindPoints` com `composeHitMaterial(RayScene.materialFunctions)`).
- */
-export const rayHitMaterialPoint: BindablePoint = {
-    name: 'ray_hit_material',
-    ready: rayHitMaterialReady,
-};
-
-/** `ray_hit_closure(hit, time)`: o fechamento do material no ponto atingido. */
+/** `ray_hit_surface(hit, time, width)`: a referência do material no ponto atingido (avaliado fora, na onda). */
 export const rayHit = wgslModule({
     name: 'ray_hit',
     source: rayHitSource,
-    requires: [rayScene, rayInstanceRead, materialPointTypes, closure, rayHitMaterialReady],
+    requires: [rayScene, rayInstanceRead, materialPointTypes, closure],
     structs: [StandardMaterialSchema],
 });
 

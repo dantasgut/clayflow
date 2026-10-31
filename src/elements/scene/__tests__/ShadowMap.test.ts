@@ -69,7 +69,7 @@ describe('ShadowMap', () => {
         expect(rs.poolSlotOf('ShadowMap', id)).toBe(rs.poolSlotOf('ShadowMatrix', id));
         const params = vi
             .mocked(s.core.write)
-            .mock.calls.filter(([spec]) => discOf(spec) === 'shadow_matrix_params');
+            .mock.calls.filter(([spec]) => discOf(spec).startsWith('shadow_matrix_params:'));
         expect(params).toHaveLength(1);
         const [, data] = params[0]!;
         const u32 = new Uint32Array(data.buffer, data.byteOffset, 4);
@@ -105,7 +105,7 @@ describe('ShadowMap', () => {
         for (let i = 0; i < frames; i++) s.step();
         return vi
             .mocked(s.core.write)
-            .mock.calls.filter(([spec]) => discOf(spec) === 'shadow_matrix_params')
+            .mock.calls.filter(([spec]) => discOf(spec).startsWith('shadow_matrix_params:'))
             .map(([, data]) => {
                 const f32 = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
                 const r = ShadowMatrixParamsSchema.offsetOf('kernelRotation') / 4;

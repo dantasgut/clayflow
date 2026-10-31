@@ -122,6 +122,7 @@ export type {
 
 export type {
     GPUDescriptor,
+    UniformRegions,
     GPUDescriptorRole,
     SlotRef,
     SlotRefTarget,
@@ -163,6 +164,7 @@ export type { EntityId } from './world/EntityId';
 
 export {
     Flow,
+    FlowWork,
     RenderFlow,
     FlowRegistry,
     FlowRegistrationError,
@@ -210,6 +212,10 @@ export type {
     BoundSlots,
     BoundPool,
     BoundSingleton,
+    BoundWork,
+    WorkSlot,
+    WorkPart,
+    WorkContext,
     BoundEntities,
     EntityEntry,
     BoundTexture,

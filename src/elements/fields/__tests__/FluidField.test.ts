@@ -15,13 +15,21 @@ import {
     rayVolumeSurfacePoint,
     rayVolumeBoundsPoint,
     rayVolumeHitPoint,
+    rayVolumeBeginPoint,
+    rayVolumeLightPoint,
     rayVolumeOccupiedPoint,
     rayVolumeTransmittancePoint,
 } from '../../raytrace/points';
 import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout, fieldFilmOffset } from '../FluidField';
 import { sceneWetnessPoint } from '../../scene/points/media';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
-import { FIELD_BRICK, FIELD_BRICK_APRON_VOXELS, FIELD_FILM_CELLS } from '../schemas';
+import {
+    FIELD_BRICK,
+    FIELD_BRICK_APRON_VOXELS,
+    FIELD_FILM_CELLS,
+    FIELD_MAX_BODIES,
+    FIELD_MEDIUM_WORDS,
+} from '../schemas';
 import { FIELD } from '../reference/field';
 import { fieldSort } from '../shaders';
 
@@ -48,11 +56,13 @@ describe('FluidField (spec 033, R11)', () => {
             role: 'storage-rw',
             upload: 'never',
             // Depois dos voxels com a borda, a película de água nos sólidos (spec 034): 6 palavras por célula (a chave,
-            // a água livre, a normal, a marca de submersa, a água absorvida e a superfície).
+            // a água livre, a normal, a marca de submersa, a água absorvida e a superfície); depois, o meio de cada
+            // corpo (spec 039).
             count:
                 layout.voxels
                 + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS
-                + 6 * FIELD_FILM_CELLS,
+                + 6 * FIELD_FILM_CELLS
+                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
         });
         expect(fieldFilmOffset(field.capacity)).toBe(
             layout.voxels + field.capacity.bricks * FIELD_BRICK_APRON_VOXELS,
@@ -86,12 +96,13 @@ describe('FluidField (spec 033, R11)', () => {
         expect(data.count).toBe(
             fieldDataLayout({ bricks: 128, table: 512 }).voxels
                 + 128 * FIELD_BRICK_APRON_VOXELS
-                + 6 * FIELD_FILM_CELLS,
+                + 6 * FIELD_FILM_CELLS
+                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
         );
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, ray_volume_bounds, ray_volume_occupied e light_transmission', () => {
+    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, ray_volume_bounds, ray_volume_occupied, light_transmission, ray_volume_light e ray_volume_begin', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
@@ -102,6 +113,8 @@ describe('FluidField (spec 033, R11)', () => {
             rayVolumeBoundsPoint,
             rayVolumeOccupiedPoint,
             lightTransmissionPoint,
+            rayVolumeLightPoint,
+            rayVolumeBeginPoint,
         ]);
         // A mesma ordem nos três: o `source` do acerto é a posição do contribuinte no ponto.
         expect(new Set(contributions.map((c) => c.order)).size).toBe(1);
@@ -120,9 +133,10 @@ describe('FluidField (spec 033, R11)', () => {
         // O material: o índice da função `material` do corpo e o slot dos parâmetros.
         const graph = composeWgsl(modules[1]!).spec.source;
         expect(graph).toContain('fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface');
-        expect(graph).toContain('RayVolumeSurface(body.x, body.y, closure_zero())');
+        // O fechamento do corpo, avaliado uma vez por quadro na onda dos acertos (spec 039): o meio da absorção.
+        expect(graph).toContain('RayVolumeSurface(body.x, body.y, field_medium(hit.material))');
         expect(graph).not.toContain('field_materials');
-        // Sem avaliar a função: quem traça a avalia junto com a das malhas (uma expansão de `ray_hit_material`).
+        // Sem avaliar a função: quem traça grava a referência na onda dos acertos e o kernel da classe a avalia (spec 039).
         expect(graph).not.toContain('ray_hit_material(');
         const transmittance = composeWgsl(modules[2]!).spec.source;
         expect(transmittance).toContain(

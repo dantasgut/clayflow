@@ -11,7 +11,13 @@ import { GlobalIllumination } from '../../GlobalIllumination';
 import { giProbeTrace } from '../../shaders';
 import { Caustics } from '../Caustics';
 import { CAUSTICS_BUFFER_WORDS, CAUSTICS_SLOTS } from '../schemas';
-import { causticsLight, causticsRayLight, causticsResolve, causticsTrace } from '../shaders';
+import {
+    causticsInstances,
+    causticsLight,
+    causticsRayLight,
+    causticsResolve,
+    causticsTrace,
+} from '../shaders';
 
 // O transporte das cáusticas (spec 034, T067c; antes dentro da GI, spec 033 T051): o recurso (o hash, as opções, as
 // contribuições ao desenho só ligado; a direta pela água em linha reta, os fótons a corrigem), os fótons (os alvos pelo material e pela caixa dos volumes, o acerto e o
@@ -43,12 +49,15 @@ describe('Caustics (spec 034, T067c)', () => {
         const trace = composeWgsl(causticsTrace).spec.source;
         expect(trace).toContain('fn caustics_targets_main(');
         // O material das instâncias numa invocação por instância, sem laço sobre elas; os alvos só leem o resultado.
-        const instances = trace.slice(
-            trace.indexOf('fn caustics_instances_main('),
-            trace.indexOf('fn caustics_targets_main('),
+        // As instâncias pela onda dos acertos (spec 039): o material fora do kernel, nenhuma função `material` nele.
+        expect(trace).not.toContain('fn caustics_instances_main(');
+        const instances = composeWgsl(causticsInstances).spec.source;
+        expect(instances).toContain('ray_wave_put_surface(k, inst.ids.w & 0xFFFFu');
+        expect(instances).toContain('caustics_capable(ray_wave_entries[k].closure)');
+        expect(instances).not.toMatch(/\bray_hit_material\(|\bmaterial_fn_/);
+        expect(instances.slice(instances.indexOf('fn caustics_instances_main('))).not.toMatch(
+            /\b(for|loop|while)\b/,
         );
-        expect(instances).toContain('caustics_capable(ray_hit_material(');
-        expect(instances).not.toMatch(/\b(for|loop|while)\b/);
         const targets = trace.slice(
             trace.indexOf('fn caustics_targets_main('),
             trace.indexOf('fn caustics_deposit('),
@@ -57,23 +66,40 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(targets).toContain('if (caustics_instance_capable[k] == 0u) { continue; }');
         // A água entra nos alvos pela caixa dos volumes (sem saber quem é o volume).
         expect(trace).toContain('let vb = ray_volume_bounds();');
-        // O mesmo acerto e fechamento da refração (a malha ou a superfície do volume).
-        expect(trace).toContain('let hit = refraction_scene_hit(o, d, 1e6, side);');
-        expect(trace).toContain('let c = refraction_hit_closure(hit, caustics.extra.y);');
+        // O mesmo acerto da refração (a malha ou a superfície do volume), gravado na onda; o fechamento avaliado fora
+        // (spec 039): nenhum kernel dos fótons leva função `material` nem o seletor composto.
+        expect(trace).toContain('let hit = refraction_scene_hit(ph.origin, ph.dir, 1e6, ph.side);');
+        expect(trace).toContain('refraction_wave_put(j, hit, caustics.extra.y,');
+        for (const entry of [
+            'caustics_photon_hit_main',
+            'caustics_photon_follow_main',
+            'caustics_trace_main',
+        ]) {
+            const body = trace.slice(trace.indexOf(`fn ${entry}(`));
+            expect(body.slice(0, body.indexOf('\n}\n'))).not.toMatch(
+                /\bray_hit_material\(|\bmaterial_fn_|refraction_hit_closure\(/,
+            );
+        }
         expect(trace).not.toContain('if (water.hit) { return; }');
-        // Fresnel exato entre os dois meios; os três canais pelo mesmo caminho, um passe por canal só na dispersão.
+        // Fresnel exato entre os dois meios; os três canais pelo mesmo caminho, um fóton por canal só na dispersão (a
+        // partir da interface, com o mesmo estado do sorteio).
         expect(trace).toContain('bsdf_f_dielectric(cosi, n2 / n1)');
-        expect(trace).toContain('if (channel == 3u) { return true; }');
-        expect(trace).toContain('let split = caustics_follow(seed, o, d, rgb, channel);');
-        expect(trace.match(/= caustics_follow\(seed/g)).toHaveLength(1);
+        expect(trace).toContain('if (dispersive && ph.channel == 3u) {');
+        expect(trace).toContain('channel.state = state;');
         // Na caixa dos volumes, as amostras que não passam pela água (e que só ela cobre) não seguem.
         expect(trace).toContain(
             'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { continue; }',
         );
-        // Os trechos atenuam pelos volumes; o depósito pela tenda 2D no plano tangente.
+        // Os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico pelo comprimento (T110: a absorção
+        // guardada ao entrar pela superfície, zerada ao sair; dentro de um vidro mergulhado a água não absorve); o
+        // depósito pela tenda 2D no plano tangente.
         expect(trace).toContain(
-            'throughput *= ray_volume_transmittance(o, d, hit.t, caustics.extra.y);',
+            'if (ph.glass == 0u) { caustics_photons[slot].throughput = ph.throughput * exp(-ph.absorption * hit.t); }',
         );
+        expect(trace).toContain(
+            'ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);',
+        );
+        expect(trace).not.toContain('ray_volume_transmittance(');
         // Em todos os níveis de células, com o peso da tenda como a contagem do fóton.
         expect(trace).toContain('let t = caustics_tent(p, n, level);');
         expect(trace).toContain(

@@ -120,6 +120,18 @@ fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @bu
         moments /= weight;
         alpha = temporal_weight_change(temporal_weight_count(moments.z, temporal_filter.history_max), temporal_filter_source_change(px));
     }
+    // A amostra reconstruída dos vizinhos (não traçada neste quadro) não entra no histórico válido: ele segue como está
+    // (a média, os momentos e a contagem); sem histórico, ou onde a cena mudou (o gradiente temporal), a reconstrução
+    // entra como amostra.
+    let fresh = temporal_filter_source_fresh(px);
+    if (!fresh && weight > 0.0 && temporal_filter_source_change(px) < 0.5) {
+        let frames_kept = max(moments.z, 1.0);
+        let kept = vec4f(color, temporal_mean_variance(temporal_variance(moments.xy), frames_kept));
+        textureStore(temporal_filter_accumulated_out, px, kept);
+        textureStore(temporal_filter_work_out, px, kept);
+        textureStore(temporal_filter_moments_out, px, vec4f(moments.xy, moments.z, 0.0));
+        return;
+    }
     let frames = 1.0 / alpha;
     let mixed = select(c, mix(color, c, alpha), weight > 0.0);
     var m = vec2f(l, l * l);

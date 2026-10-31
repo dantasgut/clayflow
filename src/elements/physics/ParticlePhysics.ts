@@ -227,7 +227,9 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
      * Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m,
      * ângulo de contato de 30° (molha), restituição zero no choque com sólidos (a gota que molha espalha, não volta) e
      * ângulo de deslize de 25° das gotas soltas (spec 034). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
-     * a milímetros, dominam. Uso: `new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing })`.
+     * a milímetros, dominam. A suavização XSPH é a da água pouco viscosa (0,01): com 0,05, o padrão, o balanço da
+     * barragem no tanque perdia ~70 % mais velocidade em 7,5 s e a água parava cedo (medido, 2026-10-29). Uso:
+     * `new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing })`.
      */
     static readonly WATER = {
         restDensity: 1000,
@@ -236,6 +238,7 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
         contactAngle: 30,
         restitution: 0,
         slidingAngle: 25,
+        xsph: 0.01,
     } as const;
 
     /**

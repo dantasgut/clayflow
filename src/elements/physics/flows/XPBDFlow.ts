@@ -1,7 +1,9 @@
-import type { EngineCore, Frame } from '../../../scene/contracts/gpu';
+import type { Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
-import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
+import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
@@ -12,20 +14,14 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { DistanceConstraint } from '../constraints/DistanceConstraint';
 import { GravityField } from '../forcefields/GravityField';
 import { SimParamsSchema } from '../schemas/simParams';
-import {
-    xpbdCollide,
-    xpbdDistanceSolve,
-    xpbdPredict,
-    xpbdResources,
-    xpbdVelocityUpdate,
-} from '../shaders/xpbd';
+import { xpbdCollide, xpbdDistanceSolve, xpbdPredict, xpbdVelocityUpdate } from '../shaders/xpbd';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -55,9 +51,16 @@ export interface XPBDSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider. */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do solver: parâmetros por iteração e colliders (spec 039). */
+    readonly work: WorkSlot<XPBDWork>;
 }
 
-function slotsOf(constraintPoolKey: string): XPBDSlots {
+/** Resource de trabalho do `XPBDFlow` (spec 039). */
+class XPBDWork extends FlowWork {
+    static readonly schema = new StructSchema('XPBDWork', {});
+}
+
+function slotsOf(constraintPoolKey: string, work: XPBDWork): XPBDSlots {
     return {
         bodies: slot.bodies(),
         time: slot.singleton(Time.schema),
@@ -65,6 +68,7 @@ function slotsOf(constraintPoolKey: string): XPBDSlots {
         gravity: slot.singleton(GravityField.schema, { optional: true }),
         colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
         colliders: slot.entities({ all: [Collider] }),
+        work: slot.work(() => work),
     };
 }
 
@@ -87,11 +91,9 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
     readonly type = 'XPBDFlow';
     readonly slots: XPBDSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<XPBDSlots>>;
 
-    private readonly core: EngineCore;
     private readonly substeps: number;
     private readonly solverIters: number;
     private readonly params: PerStepUniforms;
@@ -102,22 +104,15 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
 
     constructor(ctx: FlowContext, options: XPBDFlowOptions = {}) {
         super();
-        this.core = ctx.core;
+        const work = new XPBDWork();
+        const wctx: WorkContext = { core: ctx.core, resources: ctx.resources, work };
         const constraintPoolKey = options.constraintPoolKey ?? DistanceConstraint.schema.name;
         this.substeps = Math.max(1, options.substeps ?? 8);
         this.solverIters = Math.max(1, options.solverIters ?? 1);
-        this.slots = slotsOf(constraintPoolKey);
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'xpbd_sim_params',
-            schema: SimParamsSchema,
-        });
+        this.slots = slotsOf(constraintPoolKey, work);
+        this.params = new PerStepUniforms(wctx, { id: 'xpbd_sim_params', schema: SimParamsSchema });
         this.params.reserve(this.substeps);
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [xpbdResources.params, this.params.source()],
-        ]);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
-            discriminator: 'xpbd_colliders',
-        });
+        this.colliderSet = new ColliderSet(wctx, ctx.world, { discriminator: 'xpbd_colliders' });
         this.pipelines = [
             {
                 id: 'xpbd_predict',
@@ -228,12 +223,6 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         }
     }
 
-    /** Libera os parâmetros por iteração e o conjunto de colliders. */
-    override dispose(): void {
-        this.params.dispose();
-        this.colliderSet.destroy();
-    }
-
     /** Reconstrói os mapas de dono dos colliders se sujos e religa as fontes que mudaram. */
     private syncColliders(ctx: Ctx): void {
         if (this.colliderSet.refresh()) ctx.bind(this.colliderSet.sources());
@@ -257,8 +246,8 @@ export class XPBDFlow extends Flow<XPBDSlots, 'running'> {
         const bound = ctx.bound;
         const iterations = this.iterations(bound);
         if (iterations === 0) return;
-        if (this.params.reserve(iterations))
-            ctx.bind(new Map([[xpbdResources.params, this.params.source()]]));
+        // Uma região por iteração (a C2 realoca e religa o fornecedor do trabalho quando cresce).
+        this.params.reserve(iterations);
         const time = bound.slots.time.resource as Time;
         const dt = time.stepDt / this.substeps;
         const accel = (

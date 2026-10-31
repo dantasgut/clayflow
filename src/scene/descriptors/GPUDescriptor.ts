@@ -108,6 +108,20 @@ export interface GPUDescriptor {
      * (`ResourceDirectory.channelOf`, `slot.channel`, provedor `{ slot, lag }`).
      */
     readonly history?: HistoryShape;
+    /**
+     * Uniforme por região (spec 039, FR-014): `count` regiões do schema num buffer só, cada uma começando num múltiplo do
+     * `minUniformBufferOffsetAlignment` do adaptador, ligadas por offset dinâmico (a fonte sai com `dynamic`) — os
+     * parâmetros por passo, por substep ou por nível de um Flow. O dado é `data[id]`: um registro por região (as
+     * ausentes ficam zeradas). Só `role: 'uniform'` individual, sem `count` nem `history`; a capacidade muda por
+     * redescrição. Offset da região `i`: `i × ResourceDirectory.regionStrideOf(...)`.
+     */
+    readonly regions?: UniformRegions;
+}
+
+/** Forma de um uniforme por região (`GPUDescriptor.regions`). */
+export interface UniformRegions {
+    /** Número de regiões (inteiro ≥ 1). */
+    readonly count: number;
 }
 
 /** Alvo de uma referência de slot (`GPUDescriptor.slotRefs`). */

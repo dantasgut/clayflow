@@ -48,8 +48,12 @@ export class FlowBinder {
                     if (rt.hasEntities) rt.entitiesRemoved(e.entityIds);
             }),
             events.on('entitiesRecomposed', (e) => {
-                for (const rt of this.runtimes.values())
+                // Uma redescrição troca objetos de singletons e de Resources de trabalho (spec 039): todos reavaliam as
+                // fontes na próxima reconciliação (a fonte recriada vira bind group novo e `bindGroupReplaced`).
+                for (const rt of this.runtimes.values()) {
+                    rt.dirty = true;
                     if (rt.hasEntities) rt.entitiesRecomposed(e.entityIds);
+                }
             }),
             events.on('poolReallocated', (e) => {
                 for (const rt of this.runtimes.values()) {

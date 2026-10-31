@@ -1,6 +1,8 @@
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import type { EngineCore, Frame } from '../../scene/contracts/gpu';
+import type { Frame } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
 import { ExtensionPipelines, type PipelineVariant } from '../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../scene/flows/Flow';
 import type {
@@ -17,6 +19,7 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
@@ -49,19 +52,18 @@ export interface EmitterSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider. */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do estágio: os parâmetros por passo de cada emissor e os colliders (spec 039). */
+    readonly work: WorkSlot<EmitterWork>;
 }
 
-const slots: EmitterSlots = {
-    emitters: slot.entities({
-        all: [ComputeParticleEmitter, PointCloudGeometry],
-        owns: [[PointCloudGeometry, 'vertices']],
-    }),
-    functions: slot.entities({ all: [ComputeParticleEmitter, EmitFunction] }),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    time: slot.singleton(Time.schema),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/**
+ * Resource de trabalho do `EmitterFlow` (spec 039). Os parâmetros por passo de cada emissor são uma parte dele (um
+ * uniforme por região por emissor: regiões não cabem em pool, e o número delas é o dos passos do quadro), tirada quando
+ * o emissor sai.
+ */
+class EmitterWork extends FlowWork {
+    static readonly schema = new StructSchema('EmitterWork', {});
+}
 
 type Ctx = TransitionContext<EmitterSlots>;
 
@@ -89,13 +91,13 @@ interface EmitterState {
  */
 export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
     readonly type = 'EmitterFlow';
-    readonly slots = slots;
+    readonly slots: EmitterSlots;
     /** Os registros de todas as formas das funções `emit` (spec 031, R8). */
     override readonly listens = [emitPoint];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, EmitterState>();
     /** Pipeline de criação de cada emissor (pela forma ou pela `EmitFunction`), ativo ao compilar. */
@@ -107,9 +109,22 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new EmitterWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            emitters: slot.entities({
+                all: [ComputeParticleEmitter, PointCloudGeometry],
+                owns: [[PointCloudGeometry, 'vertices']],
+            }),
+            functions: slot.entities({ all: [ComputeParticleEmitter, EmitFunction] }),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            time: slot.singleton(Time.schema),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            work: slot.work(() => work),
+        };
         this.resources = ctx.resources;
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'emit_colliders',
         });
         const changed = {
@@ -193,11 +208,9 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         }
     }
 
-    /** Libera os parâmetros dos emissores. */
+    /** Esquece os emissores (os objetos de GPU são do `EmitterWork`; a C2 os libera com ele). */
     override dispose(): void {
-        for (const st of this.states.values()) st.params.dispose();
         this.states.clear();
-        this.colliderSet.destroy();
     }
 
     /**
@@ -220,8 +233,8 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
             if (st === undefined) {
                 st = {
                     id,
-                    params: new PerStepUniforms(this.core, {
-                        discriminator: `emitter_params:${id}`,
+                    params: new PerStepUniforms(this.work, {
+                        id: `emitter_params:${id}`,
                         schema: EmitterParamsSchema,
                     }),
                     spawn: [],
@@ -292,7 +305,8 @@ export class EmitterFlow extends Flow<EmitterSlots, 'idle'> {
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
             for (const pid of [st.updateId, st.collideId]) ctx.release(pid);
-            st.params.dispose();
+            // Os parâmetros do emissor saem do trabalho (a C2 libera o buffer).
+            this.work.work.drop(st.params);
             this.states.delete(id);
         }
         this.spawnPipelines.retain(ctx, present);

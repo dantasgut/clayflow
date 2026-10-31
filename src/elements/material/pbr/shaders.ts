@@ -6,6 +6,7 @@ import closureEvalSource from '../../gpu/wgsl/math/closure_eval.wgsl?raw';
 import pbrDfgBuildSource from '../../gpu/wgsl/kernels/pbr_dfg_build.wgsl?raw';
 import { basis, bsdf, finite } from '../../gpu/shaders/math';
 import { materialPointTypes } from '../point/types/shaders';
+import { ClosureSchema } from './ClosureSchema';
 
 /**
  * Fechamento de espalhamento (spec 011): o struct `Closure`, os construtores dos lobos, a composição (`closure_add`,
@@ -16,6 +17,7 @@ export const closure = wgslModule({
     name: 'closure',
     source: closureSource,
     requires: [materialPointTypes, finite],
+    structs: [ClosureSchema],
 });
 
 /** A tabela DFG do `PbrTables` (resolver `PbrTables.dfg`), lida pelo avaliador do fechamento. */

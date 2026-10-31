@@ -1,7 +1,9 @@
 import type { Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
-import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
+import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
@@ -11,13 +13,13 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { GravityField } from '../forcefields/GravityField';
 import { FEMSimParamsSchema } from '../schemas/simParams';
-import { femCollide, femPredict, femResources, femVelocityUpdate } from '../shaders/fem';
+import { femCollide, femPredict, femVelocityUpdate } from '../shaders/fem';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -47,15 +49,14 @@ export interface FEMSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider. */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do solver: parâmetros por iteração e colliders (spec 039). */
+    readonly work: WorkSlot<FEMWork>;
 }
 
-const slots: FEMSlots = {
-    bodies: slot.bodies(),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/** Resource de trabalho do `FEMFlow` (spec 039). */
+class FEMWork extends FlowWork {
+    static readonly schema = new StructSchema('FEMWork', {});
+}
 
 type Ctx = TransitionContext<FEMSlots>;
 
@@ -69,9 +70,8 @@ type Ctx = TransitionContext<FEMSlots>;
  */
 export class FEMFlow extends Flow<FEMSlots, 'running'> {
     readonly type = 'FEMFlow';
-    readonly slots = slots;
+    readonly slots: FEMSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<FEMSlots>> = {
         '*': {
@@ -127,21 +127,26 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
 
     constructor(ctx: FlowContext, options: FEMFlowOptions = {}) {
         super();
+        const work = new FEMWork();
+        const wctx: WorkContext = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            bodies: slot.bodies(),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            work: slot.work(() => work),
+        };
         this.substeps = Math.max(1, options.substeps ?? 1);
         this.mu = options.mu ?? 5e3;
         this.lambda = options.lambda ?? 5e3;
         this.damping = options.damping ?? 0.05;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'fem_sim_params',
+        this.params = new PerStepUniforms(wctx, {
+            id: 'fem_sim_params',
             schema: FEMSimParamsSchema,
         });
         this.params.reserve(this.substeps);
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [femResources.params, this.params.source()],
-        ]);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
-            discriminator: 'fem_colliders',
-        });
+        this.colliderSet = new ColliderSet(wctx, ctx.world, { discriminator: 'fem_colliders' });
         this.pipelines = [
             {
                 id: 'fem_predict',
@@ -193,12 +198,6 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         }
     }
 
-    /** Libera os parâmetros por iteração e o conjunto de colliders. */
-    override dispose(): void {
-        this.params.dispose();
-        this.colliderSet.destroy();
-    }
-
     /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders. */
     private refreshColliders(ctx: Ctx): void {
         this.colliderSet.markDirty();
@@ -219,8 +218,8 @@ export class FEMFlow extends Flow<FEMSlots, 'running'> {
         const bound = ctx.bound;
         const iterations = this.iterations(bound);
         if (iterations === 0) return;
-        if (this.params.reserve(iterations))
-            ctx.bind(new Map([[femResources.params, this.params.source()]]));
+        // Uma região por iteração (a C2 realoca e religa o fornecedor do trabalho quando cresce).
+        this.params.reserve(iterations);
         const time = bound.slots.time.resource as Time;
         const stepDt = time.stepDt;
         const accel = (

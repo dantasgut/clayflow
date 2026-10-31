@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PrefixSum, scanLevelCounts } from '../compute/PrefixSum';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
+import { workHarness } from './helpers/workHarness';
 
 /** Buffers de teste por nome — o mesmo objeto a cada chamada (a preparação reconhece o buffer pela identidade). */
 const buffers = new Map<string, StorageBufferSpec>();
@@ -18,25 +18,33 @@ const buffer = (discriminator: string): StorageBufferSpec => {
 const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
 
 function setup(capacity: number) {
-    const { core, writes } = fakeResourceCore();
-    const scan = new PrefixSum(core, { discriminator: 'ps', capacity });
-    const created = () =>
-        (core.create as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => c[0]);
+    const h = workHarness();
+    const scan = new PrefixSum(h.ctx, { discriminator: 'ps', capacity });
     const destroyed = () =>
-        (core.destroy as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) =>
+        (h.core.destroy as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) =>
             disc(c[0]),
         );
-    return { core, writes, scan, created, destroyed };
+    /** Escritas no uniforme por região dos níveis (`ps:scan`), na ordem. */
+    const writes = () => {
+        const params = h.resources.bufferOf(h.work, 'ps:scan');
+        return (
+            h.core.write as unknown as { mock: { calls: [unknown, ArrayBufferView, number?][] } }
+        ).mock.calls
+            .filter(([spec]) => params !== undefined && spec === params)
+            .map(([, bytes, offset]) => ({
+                offset: offset ?? 0,
+                bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+            }));
+    };
+    return { ...h, scan, destroyed, writes };
 }
 
 /** Pares (count, inclusive) gravados nas regiões de parâmetros, na ordem. */
-function levelWrites(writes: ReturnType<typeof fakeResourceCore>['writes']) {
-    return writes
-        .filter((w) => disc(w.spec).includes(':frame_uniforms:'))
-        .map((w) => {
-            const u = new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, 2);
-            return { offset: w.offset, count: u[0], inclusive: u[1] };
-        });
+function levelWrites(writes: readonly { offset: number; bytes: Uint8Array }[]) {
+    return writes.map((w) => {
+        const u = new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, 2);
+        return { offset: w.offset, count: u[0], inclusive: u[1] };
+    });
 }
 
 /**
@@ -83,27 +91,27 @@ describe('PrefixSum — níveis', () => {
         expect(scanLevelCounts(count)).toEqual(counts);
     });
 
-    it('buffers dos níveis acima do 0 dimensionados pela capacidade', () => {
-        const { scan, created } = setup(262_144);
+    it('buffers dos níveis acima do 0 dimensionados pela capacidade, no Resource de trabalho', () => {
+        const { scan, resources, work } = setup(262_144);
         scan.prepare(buffer('a'));
         scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
-        const levels = created()
-            .filter((s) => disc(s).startsWith('ps:scan_level:'))
-            .map((s) => [disc(s), (s as StorageBufferSpec).byteSize]);
+        const levels = ['ps:scan_level:1', 'ps:scan_level:2'].map((id) => [
+            id,
+            resources.bufferOf(work, id)?.byteSize,
+        ]);
         expect(levels).toEqual([
             ['ps:scan_level:1', 1024 * 4],
             ['ps:scan_level:2', 16],
         ]);
+        expect(resources.bufferOf(work, 'ps:scan_level:3')).toBeUndefined();
     });
 });
 
 describe('PrefixSum — validação', () => {
     it('capacity inválida → RangeError', () => {
-        const { core } = fakeResourceCore();
-        expect(() => new PrefixSum(core, { discriminator: 'x', capacity: 0 })).toThrow(RangeError);
-        expect(() => new PrefixSum(core, { discriminator: 'x', capacity: 1.5 })).toThrow(
-            RangeError,
-        );
+        const { ctx } = workHarness();
+        expect(() => new PrefixSum(ctx, { discriminator: 'x', capacity: 0 })).toThrow(RangeError);
+        expect(() => new PrefixSum(ctx, { discriminator: 'x', capacity: 1.5 })).toThrow(RangeError);
     });
 
     it('count > capacity → RangeError', () => {
@@ -119,7 +127,7 @@ describe('PrefixSum — validação', () => {
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('b'), count: 0 });
         expect(rec.passes).toHaveLength(0);
         expect(rec.copies).toBe(0);
-        expect(writes).toHaveLength(0);
+        expect(writes()).toHaveLength(0);
     });
 });
 
@@ -172,7 +180,7 @@ describe('PrefixSum — gravação', () => {
             count: 70_000,
             mode: 'inclusive',
         });
-        expect(levelWrites(writes)).toEqual([
+        expect(levelWrites(writes())).toEqual([
             { offset: 0, count: 70_000, inclusive: 1 },
             { offset: 256, count: 274, inclusive: 0 },
             { offset: 512, count: 2, inclusive: 0 },
@@ -194,7 +202,7 @@ describe('PrefixSum — gravação', () => {
         const rec = recordingFrame();
         scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 1000 });
         scan.record(rec.frame, { src: buffer('b'), dst: buffer('b'), count: 10 });
-        expect(levelWrites(writes).map((w) => [w.offset, w.count])).toEqual([
+        expect(levelWrites(writes()).map((w) => [w.offset, w.count])).toEqual([
             [0, 1000],
             [256, 4],
             [512, 10],
@@ -202,7 +210,7 @@ describe('PrefixSum — gravação', () => {
         ]);
         scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 7 });
         expect(
-            levelWrites(writes)
+            levelWrites(writes())
                 .slice(4)
                 .map((w) => [w.offset, w.count]),
         ).toEqual([
@@ -230,26 +238,32 @@ describe('PrefixSum — gravação', () => {
         }).toThrow(/reserve/);
     });
 
-    it('prepare com mais gravações por quadro recria o uniform e os kernels (fora da gravação)', () => {
-        const { scan, destroyed } = setup(10);
+    it('prepare com mais gravações por quadro realoca o uniform pela C2 e recria os kernels (fora da gravação)', () => {
+        const { scan, destroyed, core, resources, work } = setup(10);
         scan.prepare(buffer('a'), 1);
+        const first = resources.bufferOf(work, 'ps:scan');
         scan.prepare(buffer('a'), 4);
-        expect(destroyed().filter((d) => d.includes(':frame_uniforms:'))).toEqual([
-            'ps:scan:frame_uniforms:1',
-        ]);
+        expect(core.destroy).toHaveBeenCalledWith(first);
+        expect(resources.bufferOf(work, 'ps:scan')?.byteSize).toBe(8 * 256);
         expect(destroyed().filter((d) => d.endsWith('_pipeline')).length).toBeGreaterThan(0);
         const rec = recordingFrame();
         for (let i = 0; i < 4; i++)
             scan.record(rec.frame, { src: buffer('a'), dst: buffer('a'), count: 10 });
     });
 
-    it('destroy libera níveis e uniforms', () => {
-        const { scan, destroyed } = setup(262_144);
+    it('destroy libera os kernels e solta os níveis (a C2 os libera); prepare os declara de novo', () => {
+        const { scan, destroyed, core, resources, work } = setup(262_144);
         scan.prepare(buffer('a'));
         scan.record(recordingFrame().frame, { src: buffer('a'), dst: buffer('a'), count: 262_144 });
+        const levels = ['ps:scan_level:1', 'ps:scan_level:2'].map((id) =>
+            resources.bufferOf(work, id),
+        );
         scan.destroy();
-        expect(destroyed().filter((d) => d.startsWith('ps:scan_level:'))).toHaveLength(2);
-        expect(destroyed().filter((d) => d.includes(':frame_uniforms:'))).toHaveLength(1);
+        for (const level of levels) expect(core.destroy).toHaveBeenCalledWith(level);
+        expect(resources.bufferOf(work, 'ps:scan_level:1')).toBeUndefined();
+        expect(destroyed().filter((d) => d.endsWith('_pipeline')).length).toBeGreaterThan(0);
+        scan.prepare(buffer('a'));
+        expect(resources.bufferOf(work, 'ps:scan_level:1')?.byteSize).toBe(1024 * 4);
     });
 });
 

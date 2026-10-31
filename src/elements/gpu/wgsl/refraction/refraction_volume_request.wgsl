@@ -4,12 +4,26 @@
 // pelo campo dos fluidos): a superfície de um volume à frente dos opacos é uma interface — a distância da câmera até
 // ela e a marca do pedido; com a câmera dentro de um volume, todo pixel é pedido, com a face de trás (a pilha inicial da
 // câmera tem o meio), até a saída dele ou até o opaco, o que vier antes — o que se vê de dentro da água atravessa a
-// água. O estágio da refração refaz o raio da câmera desses pixels; este passe só os escolhe.
-// Requer: refraction, cameras, camera_space, view_space, ray_volume_hit, REFRACTION_REQUEST_VALID,
-// REFRACTION_REQUEST_BACK_FACE, scene_depth.
+// água. O estágio da refração refaz o raio da câmera desses pixels; este passe só os escolhe. Com a câmera fora dos
+// volumes (a pilha de meios dela no estado do quadro anterior), nada: a superfície vista de fora vem da malha
+// (`refraction_volume_mesh.wgsl`, spec 039 refeita).
+// Requer: NONE, REFRACTION_MAX_MEDIA, refraction, cameras, camera_space, view_space, ray_volume_hit,
+// REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_BACK_FACE, scene_depth, refraction_frame.
 
 /** Distância máxima do raio da câmera (sem opaco no pixel, o céu). */
 const REFRACTION_VOLUME_FAR: f32 = 1.0e6;
+
+/** A identidade de instância dos volumes na pilha de meios (`REFRACTION_VOLUME` de `refraction_scene.wgsl`). */
+const REFRACTION_VOLUME_MEDIUM: u32 = 0x40000000u;
+
+/** A câmera está dentro de um volume (a pilha de meios dela, gravada pelo traçado do quadro anterior)? */
+fn refraction_camera_in_volume() -> bool {
+    for (var k = 0u; k < REFRACTION_MAX_MEDIA; k++) {
+        let id = textureLoad(refraction_frame, vec2u(2u * k, 0u), 0).x;
+        if (id != NONE && (id & REFRACTION_VOLUME_MEDIUM) != 0u) { return true; }
+    }
+    return false;
+}
 
 struct RefractionVolumeRequestOut {
     @location(0) request: vec2u,
@@ -18,6 +32,7 @@ struct RefractionVolumeRequestOut {
 
 @fragment
 fn refraction_volume_request_fs(@builtin(position) frag: vec4f) -> RefractionVolumeRequestOut {
+    if (!refraction_camera_in_volume()) { discard; }
     let slot = refraction.camera_slot;
     let cam = cameras[slot];
     let ray = camera_ray(slot, frag.xy, vec2f(textureDimensions(scene_depth)));

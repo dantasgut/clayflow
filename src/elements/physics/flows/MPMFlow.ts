@@ -1,8 +1,9 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
 import type {
-    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -16,8 +17,8 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
@@ -27,14 +28,7 @@ import { GravityField } from '../forcefields/GravityField';
 import { ParticlePhysics } from '../ParticlePhysics';
 import { MPMSimParamsSchema } from '../schemas/simParams';
 import { MPMGridNodeSchema } from '../schemas/simState';
-import {
-    mpmClearGrid,
-    mpmG2P,
-    mpmGridUpdate,
-    mpmP2G,
-    mpmParticleCollision,
-    mpmResources as R,
-} from '../shaders/mpm';
+import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Escala do ponto fixo das somas atômicas da grade. */
@@ -63,16 +57,14 @@ export interface MPMSlots extends SlotMap {
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do solver: a grade do domínio, os parâmetros por iteração, os colliders (spec 039). */
+    readonly work: WorkSlot<MPMWork>;
 }
 
-const slots: MPMSlots = {
-    bodies: slot.bodies(),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/** Resource de trabalho do `MPMFlow` (spec 039). */
+class MPMWork extends FlowWork {
+    static readonly schema = new StructSchema('MPMWork', {});
+}
 
 type Ctx = TransitionContext<MPMSlots>;
 
@@ -85,50 +77,65 @@ type Ctx = TransitionContext<MPMSlots>;
  * `ParticlePhysics`.
  *
  * Slots: pool de partículas, `Time`, `GravityField` e `ParticlePhysics` (opcionais), pools de collider e as
- * entidades com collider. Recursos privados — grade, parâmetros por iteração e o `ColliderSet` — são recriados e
- * religados em transições (`framePrepare` para grade e parâmetros; entidades/pools para os colliders), nunca no
- * `dispatch`.
+ * entidades com collider. O espaço de trabalho — grade, parâmetros por iteração e o `ColliderSet` — é do Resource de
+ * trabalho (`MPMWork`, spec 039), redimensionado em transições (`framePrepare` para grade e parâmetros;
+ * entidades/pools para os colliders), nunca no `dispatch`.
  */
 export class MPMFlow extends Flow<MPMSlots, 'running'> {
     readonly type = 'MPMFlow';
-    readonly slots = slots;
+    readonly slots: MPMSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<MPMSlots>>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly bodyType: string;
     private readonly minSubsteps: number;
     private readonly params: PerStepUniforms;
     private readonly colliderSet: ColliderSet;
     private grid: ReturnType<ParticlePhysics['gridFor']>;
     private gridKey = '';
-    private gridBuffer: StorageBufferSpec;
     /** Iterações do quadro corrente (decididas em `framePrepare`). */
     private iterations = 0;
 
     constructor(ctx: FlowContext, options: MPMFlowOptions = {}) {
         super();
-        this.core = ctx.core;
+        const work = new MPMWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            bodies: slot.bodies(),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            work: slot.work(() => work),
+        };
         this.bodyType = ctx.bodyType ?? 'MPMFluidSchema';
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'mpm_params',
-            schema: MPMSimParamsSchema,
-        });
-        this.params.reserve(1);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
-            discriminator: 'mpm_colliders',
-        });
         const physics = ParticlePhysics.defaults;
         this.grid = physics.gridFor(physics.mpmCellSize);
         this.gridKey = gridKeyOf(this.grid);
-        this.gridBuffer = this.createGrid();
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [R.params, this.params.source()],
-            [R.grid, this.gridBuffer],
-        ]);
+        // A grade do domínio: uma célula por nó, pela grade atual da física.
+        work.use({
+            descriptors: () => [
+                {
+                    id: 'mpm_grid',
+                    role: 'storage-rw',
+                    schema: MPMGridNodeSchema,
+                    upload: 'never',
+                    count: this.gridCellCount(),
+                },
+            ],
+        });
+        this.params = new PerStepUniforms(this.work, {
+            id: 'mpm_params',
+            schema: MPMSimParamsSchema,
+        });
+        this.params.reserve(1);
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
+            discriminator: 'mpm_colliders',
+        });
         this.pipelines = [
             {
                 id: 'mpm_clear_grid',
@@ -226,24 +233,8 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         }
     }
 
-    /** Libera parâmetros, grade e colliders. */
-    override dispose(): void {
-        this.params.dispose();
-        this.core.destroy(this.gridBuffer);
-        this.colliderSet.destroy();
-    }
-
     private gridCellCount(): number {
         return this.grid.gridDim[0] * this.grid.gridDim[1] * this.grid.gridDim[2];
-    }
-
-    private createGrid(): StorageBufferSpec {
-        return this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'mpm_grid',
-            byteSize: this.gridCellCount() * MPMGridNodeSchema.stride,
-        });
     }
 
     /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders quando mudam. */
@@ -272,9 +263,8 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         if (key !== this.gridKey) {
             this.grid = grid;
             this.gridKey = key;
-            this.core.destroy(this.gridBuffer);
-            this.gridBuffer = this.createGrid();
-            ctx.bind(new Map([[R.grid, this.gridBuffer]]));
+            // A C2 realoca a grade e religa o fornecedor do trabalho.
+            this.work.work.refresh();
         }
         const substeps = ParticlePhysics.substepsFor(
             time.stepDt,
@@ -283,8 +273,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         );
         this.iterations = time.steps * substeps;
         if (this.iterations === 0) return;
-        if (this.params.reserve(this.iterations))
-            ctx.bind(new Map([[R.params, this.params.source()]]));
+        this.params.reserve(this.iterations);
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];

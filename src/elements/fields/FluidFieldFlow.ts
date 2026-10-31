@@ -11,6 +11,9 @@ import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory'
 import type { EntityId } from '../../scene/world/EntityId';
 import type { World } from '../../scene/world/World';
 import { Flow } from '../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
@@ -19,6 +22,7 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import {
     createComputeKernel,
@@ -26,20 +30,24 @@ import {
     type ComputeKernel,
 } from '../../scene/flows/createComputeKernel';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
+import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { CountToArgs } from '../gpu/compute/CountToArgs';
+import { wordBuffer } from '../gpu/compute/schemas';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { SpatialHashGrid } from '../gpu/compute/SpatialHashGrid';
 import { MaterialFunction } from '../extension/MaterialFunction';
 import { RayScene } from '../raytrace/RayScene';
+import { RayWave } from '../raytrace/RayWave';
 import { isFieldBody } from './fieldBody';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
 import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
-import { FluidField, fieldDataLayout, fieldFilmOffset } from './FluidField';
+import { Light } from '../scene/Light';
+import { FluidField, fieldDataLayout, fieldFilmOffset, fieldMediaOffset } from './FluidField';
 import { GravityField } from '../physics/forcefields/GravityField';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
@@ -52,6 +60,8 @@ import {
     FIELD_BRICK_VOXELS,
     FIELD_FILM_CELLS,
     FIELD_FILM_SURFACES,
+    FIELD_LIGHT_MAPS,
+    FIELD_LIGHT_RES,
     FIELD_MAX_BODIES,
     FIELD_PARTICLES_PER_BRICK,
     FieldGatherSchema,
@@ -59,6 +69,9 @@ import {
 } from './schemas';
 import {
     fieldApron,
+    fieldBodyClosures,
+    fieldLightMap,
+    fieldMesh,
     fieldFilmDeposit,
     fieldFilmStep,
     fieldDensity,
@@ -93,20 +106,20 @@ export interface FluidFieldSlots extends SlotMap {
     readonly surfaces: EntitiesSlot;
     /** O ar da cena: a evaporação da película (sem ele, `Atmosphere.defaults`). */
     readonly atmosphere: SingletonSlot<true>;
+    /** O espaço de trabalho da junção e da reconstrução: temporários, grade, regiões, a onda (spec 039). */
+    readonly work: WorkSlot<FieldWork>;
 }
 
-const slots: FluidFieldSlots = {
-    field: slot.singleton(FluidField.schema),
-    bodies: slot.entities({ all: [ParticleBody] }),
-    rays: slot.singleton(RayScene.schema, { optional: true }),
-    particlePhysics: slot.singleton(ParticlePhysics.schema, { optional: true }),
-    time: slot.singleton(Time.schema, { optional: true }),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-    surfaces: slot.entities({ all: [SurfacePhysics] }),
-    atmosphere: slot.singleton(Atmosphere.schema, { optional: true }),
-};
+/** Resource de trabalho do `FluidFieldFlow` (spec 039). */
+class FieldWork extends FlowWork {
+    static readonly schema = new StructSchema('FieldWork', {});
+}
+
+/** Capacidades dos temporários (partículas por dobra; blocos pela capacidade do campo). */
+interface ScratchSize {
+    readonly particles: number;
+    readonly bricks: number;
+}
 
 /**
  * O líquido da película sem a física de superfície no `ParticlePhysics` (`surfaceTension`): a água (0,072 N/m, 30°) —
@@ -130,6 +143,28 @@ const FILM_COLLIDER_RESOURCES = new Set([
 ]);
 
 type Ctx = TransitionContext<FluidFieldSlots>;
+
+/** O acerto sintético de cada corpo na onda e a cópia do fechamento avaliado (spec 039). */
+const BODY_RECORD: PipelineDescriptor = {
+    id: 'field_body_record',
+    role: 'compute',
+    shader: fieldBodyClosures,
+    entryPoints: ['field_body_record_main'],
+};
+const BODY_CLOSURE: PipelineDescriptor = {
+    id: 'field_body_closure',
+    role: 'compute',
+    shader: fieldBodyClosures,
+    entryPoints: ['field_body_closure_main'],
+};
+
+/** O mapa da luz pela água (spec 039 refeita): uma marcha por texel de cada luz direcional com mapa. */
+const LIGHT_MAP: PipelineDescriptor = {
+    id: 'field_light_map',
+    role: 'compute',
+    shader: fieldLightMap,
+    entryPoints: ['field_light_map_main'],
+};
 
 /** Corpo de água acompanhado: a aparência pela função `material` (o grafo). */
 interface FieldBody {
@@ -179,6 +214,9 @@ interface Kernels {
     readonly forward: ComputeKernel;
     readonly backward: ComputeKernel;
     readonly apron: ComputeKernel;
+    /** A malha da superfície (spec 039 refeita): a extração por bloco e os argumentos do desenho. */
+    readonly mesh: ComputeKernel;
+    readonly meshArgs: ComputeKernel;
 }
 
 /** Espaçamento padrão das partículas quando a cena não tem `ParticlePhysics`. */
@@ -196,29 +234,37 @@ const DEFAULT_SPACING = 0.05;
  */
 export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     readonly type = 'FluidFieldFlow';
-    readonly slots = slots;
+    readonly slots: FluidFieldSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly resources: ResourceDirectory;
     private readonly world: World;
     private readonly bodies = new Map<EntityId, FieldBody>();
     private readonly draws: PerStepUniforms;
     private readonly grid: SpatialHashGrid;
-    /** Volume do campo somado no quadro (lido pela limpeza do seguinte: o nível que conserva o volume). */
-    private readonly volume: StorageBufferSpec;
     private readonly args: CountToArgs;
     /** Os sólidos, para a película (spec 034): a superfície por onde ela escorre e a física de cada um. */
     private readonly colliderSet: ColliderSet;
+    /** A onda dos acertos do material de cada corpo (spec 039): o meio que a absorção dos trechos lê. */
+    private readonly wave: RayWave;
+    private waveRevision = -1;
+    private closuresPrepared = false;
     private order: FieldBody[] = [];
     /** Conteúdo escrito nas regiões da junção e no uniform do campo (escritos quando mudam, não por quadro). */
     private drawsWritten = '';
     private paramsWritten = '';
-    private work: Work | undefined;
+    private scratchSize: ScratchSize | undefined;
     private kernels: Kernels | undefined;
     /** A simulação avançou no quadro: a película de água escoa e recebe a deposição (spec 034). */
     private filmAdvances = false;
+    /**
+     * O campo é refeito neste quadro: a simulação avançou ou mudou o que ele lê (os parâmetros, as capacidades, a grade).
+     * Com as partículas paradas o campo refeito é o mesmo (o nível fica, `motion` 0): a GPU não o refaz em cada quadro
+     * desenhado entre dois passos da física.
+     */
+    private rebuilds = true;
     private field: FluidField | undefined;
     private particles = 0;
     private active = false;
@@ -228,27 +274,40 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new FieldWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            field: slot.singleton(FluidField.schema),
+            bodies: slot.entities({ all: [ParticleBody] }),
+            rays: slot.singleton(RayScene.schema, { optional: true }),
+            particlePhysics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            surfaces: slot.entities({ all: [SurfacePhysics] }),
+            atmosphere: slot.singleton(Atmosphere.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
+        // O volume do campo somado no quadro e os temporários da junção e da reconstrução.
+        work.use({
+            descriptors: () => [wordBuffer('field_volume', 16), ...this.scratchDescriptors()],
+        });
+        this.wave = new RayWave(this.work, 'field');
         this.resources = ctx.resources;
         this.world = ctx.world;
-        this.draws = new PerStepUniforms(ctx.core, {
-            discriminator: 'field_gather',
+        this.draws = new PerStepUniforms(this.work, {
+            id: 'field_gather',
             schema: FieldGatherSchema,
         });
         this.draws.reserve(1);
-        this.grid = new SpatialHashGrid(ctx.core, {
+        this.grid = new SpatialHashGrid(this.work, {
             discriminator: 'field_grid',
             label: 'FluidFieldFlow.grid',
         });
-        this.args = new CountToArgs(ctx.core, { discriminator: 'field_args' });
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.args = new CountToArgs(this.work, { discriminator: 'field_args' });
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'field_colliders',
-        });
-        this.volume = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'field_volume',
-            byteSize: 16,
         });
         this.transitions = {
             '*': {
@@ -296,13 +355,27 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         };
     }
 
-    /** Grava a construção do campo. */
-    dispatch(frame: Frame, _bound: BoundFlow<FluidFieldSlots>): void {
+    /** Grava a construção do campo e o material de cada corpo. */
+    dispatch(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
         const k = this.kernels;
-        const work = this.work;
+        const work = this.scratch;
         const field = this.field;
         const counts = field === undefined ? undefined : this.counts(field);
         if (!this.active || k === undefined || work === undefined || counts === undefined) return;
+        if (this.rebuilds) this.rebuild(frame, k, work, field!, counts);
+        this.rebuilds = false;
+        this.dispatchClosures(frame, bound);
+        this.dispatchLightMap(frame, bound);
+    }
+
+    /** A construção do campo pelas partículas: a junção, a grade, os núcleos, os blocos, a distância e a malha. */
+    private rebuild(
+        frame: Frame,
+        k: Kernels,
+        work: Work,
+        field: FluidField,
+        counts: IndirectBufferSpec,
+    ): void {
         const W = WORKGROUP_SIZE.value;
         frame.compute('FluidFieldFlow.gather', (pass) => {
             this.order.forEach((b, i) => {
@@ -314,7 +387,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             });
         });
         this.grid.record(frame);
-        const table = field!.capacity.table;
+        const table = field.capacity.table;
         frame.compute('FluidFieldFlow.kernels', (pass) => {
             this.run(pass, k.sort, this.particles, W);
             this.run(pass, k.kernels, this.particles, W);
@@ -355,16 +428,133 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             ),
         );
         indirect('FluidFieldFlow.apron', [k.apron]);
+        // A malha da superfície: a contagem zerada, um grupo por bloco, os argumentos do desenho.
+        const meshArgs = this.counts(field, 'meshArgs');
+        if (meshArgs !== undefined) frame.clear(meshArgs, 16, 4);
+        frame.compute('FluidFieldFlow.mesh', (pass) => {
+            pass.bind.setPipeline(k.mesh.pipeline);
+            k.mesh.bindTo(pass.bind);
+            pass.dispatch.workgroupsIndirect(counts, SET_COUNT_DISPATCH_OFFSET);
+            this.run(pass, k.meshArgs, 1, 1);
+        });
+    }
+
+    /** O mapa da luz pela água (depois do meio dos corpos, que ele lê). */
+    private dispatchLightMap(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
+        const map = bound.pipelines.get(LIGHT_MAP.id);
+        if (map?.role !== 'compute' || !map.ready) return;
+        frame.compute('FluidFieldFlow.lightMap', (pass) => {
+            pass.bind.setPipeline(map.spec);
+            map.bindTo(pass.bind);
+            pass.dispatch.invocations(
+                FIELD_LIGHT_MAPS * FIELD_LIGHT_RES * FIELD_LIGHT_RES,
+                WORKGROUP_SIZE.value,
+            );
+        });
+    }
+
+    /**
+     * O material de cada corpo na onda (spec 039): o acerto sintético de cada um, o material por classe e a cópia do
+     * fechamento para `field_body_closures` (o meio que a absorção dos trechos dentro da água lê).
+     */
+    private dispatchClosures(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
+        const record = bound.pipelines.get(BODY_RECORD.id);
+        const close = bound.pipelines.get(BODY_CLOSURE.id);
+        if (
+            record?.role !== 'compute'
+            || !record.ready
+            || close?.role !== 'compute'
+            || !close.ready
+            || !this.wave.ready(bound)
+        )
+            return;
+        const W = WORKGROUP_SIZE.value;
+        frame.compute('FluidFieldFlow.closures', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(record.spec);
+            record.bindTo(pass.bind);
+            pass.dispatch.invocations(FIELD_MAX_BODIES, W);
+            this.wave.shade(pass, bound);
+            pass.bind.setPipeline(close.spec);
+            close.bindTo(pass.bind);
+            pass.dispatch.invocations(FIELD_MAX_BODIES, W);
+        });
+    }
+
+    /**
+     * A onda do material dos corpos (um raio por corpo da tabela) e os kernels de material por classe da revisão das
+     * funções `material` da estrutura de raios; os kernels dos corpos na primeira vez.
+     */
+    private syncClosures(ctx: Ctx): void {
+        const scene = ctx.bound.slots.rays?.resource as RayScene | undefined;
+        const revision = scene?.materialRevision ?? 0;
+        if (this.closuresPrepared && this.waveRevision === revision) return;
+        this.waveRevision = revision;
+        const w = this.wave.ensure(FIELD_MAX_BODIES, scene?.materialFunctions ?? [], revision);
+        if (w.bindings !== undefined) ctx.bind(w.bindings);
+        for (const id of w.released) ctx.release(id);
+        for (const p of w.pipelines) ctx.prepare(p);
+        if (!this.closuresPrepared) {
+            ctx.prepare(BODY_RECORD);
+            ctx.prepare(BODY_CLOSURE);
+            this.resources.ensurePool(Light.schema);
+            ctx.prepare(LIGHT_MAP);
+            this.closuresPrepared = true;
+        }
     }
 
     /** Libera buffers e kernels. */
     override dispose(): void {
         this.releaseKernels();
-        this.releaseWork();
         this.grid.destroy();
-        this.colliderSet.destroy();
-        this.core.destroy(this.volume);
-        this.draws.dispose();
+        this.args.destroy();
+    }
+
+    private get core(): EngineCore {
+        return this.work.core;
+    }
+
+    /** Volume do campo somado no quadro (lido pela limpeza do seguinte: o nível que conserva o volume). */
+    private get volume(): StorageBufferSpec {
+        return this.resources.bufferOf(this.work.work, 'field_volume') as StorageBufferSpec;
+    }
+
+    /** Os temporários no Resource de trabalho, pelas capacidades atuais (spec 039). */
+    private scratchDescriptors(): readonly GPUDescriptor[] {
+        const n = this.scratchSize;
+        if (n === undefined) return [];
+        const voxels = n.bricks * FIELD_BRICK_VOXELS * 4;
+        return [
+            wordBuffer('field_items', n.particles * 16),
+            wordBuffer('field_sorted', n.particles * 16),
+            wordBuffer('field_contacts', n.particles * 16),
+            wordBuffer('field_sorted_contacts', n.particles * 16),
+            wordBuffer('field_kernel', n.particles * 48),
+            wordBuffer('field_links', n.bricks * 28 * 4),
+            wordBuffer('field_density', voxels),
+            wordBuffer('field_phi0', voxels),
+            wordBuffer('field_phi_a', voxels),
+        ];
+    }
+
+    /** Os temporários que a C2 alocou (ou `undefined` antes do primeiro dimensionamento). */
+    private get scratch(): Work | undefined {
+        const n = this.scratchSize;
+        if (n === undefined) return undefined;
+        const of = (name: string): StorageBufferSpec =>
+            this.resources.bufferOf(this.work.work, `field_${name}`) as StorageBufferSpec;
+        return {
+            ...n,
+            items: of('items'),
+            sorted: of('sorted'),
+            contacts: of('contacts'),
+            sortedContacts: of('sorted_contacts'),
+            kernel: of('kernel'),
+            links: of('links'),
+            density: of('density'),
+            phi0: of('phi0'),
+            phiA: of('phi_a'),
+        };
     }
 
     private run(pass: ComputePass, kernel: ComputeKernel, count: number, size: number): void {
@@ -392,8 +582,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     }
 
     /** O registro da contagem dos blocos (descritor indireto do campo). */
-    private counts(field: FluidField): IndirectBufferSpec | undefined {
-        const buffer = this.resources.bufferOf(field, 'counts');
+    private counts(field: FluidField, id = 'counts'): IndirectBufferSpec | undefined {
+        const buffer = this.resources.bufferOf(field, id);
         return buffer?.subkind === 'indirect' ? buffer : undefined;
     }
 
@@ -444,6 +634,14 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
+                time: [
+                    (ctx.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0,
+                    0,
+                    0,
+                    0,
+                ],
+                media: [fieldMediaOffset(field.capacity), FIELD_MAX_BODIES, 0, 0],
+                lights: [0, FIELD_LIGHT_RES, FIELD_LIGHT_MAPS, 0],
                 contact: [
                     ...fieldContactShape(physics?.contactAngle ?? 90),
                     this.advancedTime(ctx),
@@ -465,12 +663,14 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         ];
         this.filmAdvances = this.advanced(ctx);
         const paramsKey = JSON.stringify(params);
+        this.rebuilds ||= this.filmAdvances || gridRebuilt || paramsKey !== this.paramsWritten;
         if (paramsKey !== this.paramsWritten) {
             this.paramsWritten = paramsKey;
             field.data.params = params;
         }
         this.colliderSet.refresh();
         this.ensureKernels(field, work, counts, data, gridRebuilt);
+        this.syncClosures(ctx);
     }
 
     /**
@@ -589,33 +789,16 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     }
 
     private ensureWork(particles: number, bricks: number): Work {
-        const w = this.work;
-        if (w !== undefined && w.particles >= particles && w.bricks === bricks) return w;
+        const w = this.scratchSize;
+        if (w !== undefined && w.particles >= particles && w.bricks === bricks)
+            return this.scratch!;
         this.releaseKernels();
-        this.releaseWork();
         let cap = Math.max(256, w?.particles ?? 0);
         while (cap < particles) cap *= 2;
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `field_${name}`,
-                byteSize: Math.max(16, bytes),
-            });
-        this.work = {
-            particles: cap,
-            bricks,
-            items: storage('items', cap * 16),
-            sorted: storage('sorted', cap * 16),
-            contacts: storage('contacts', cap * 16),
-            sortedContacts: storage('sorted_contacts', cap * 16),
-            kernel: storage('kernel', cap * 48),
-            links: storage('links', bricks * 28 * 4),
-            density: storage('density', bricks * FIELD_BRICK_VOXELS * 4),
-            phi0: storage('phi0', bricks * FIELD_BRICK_VOXELS * 4),
-            phiA: storage('phi_a', bricks * FIELD_BRICK_VOXELS * 4),
-        };
-        return this.work;
+        // A C2 realoca os temporários no tamanho novo (o Resource de trabalho se redescreve).
+        this.scratchSize = { particles: cap, bricks };
+        this.work.work.refresh();
+        return this.scratch!;
     }
 
     /** Kernels com os buffers atuais (refeitos quando algum muda). */
@@ -626,10 +809,13 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         data: StorageBufferSpec,
         gridRebuilt: boolean,
     ): void {
+        const mesh = this.buffer(field, 'mesh');
+        const meshArgs = this.counts(field, 'meshArgs');
+        if (mesh === undefined || meshArgs === undefined) return;
         const pools = this.order.map(
             (b) => `${b.poolKey}:${this.identity(this.resources.poolBufferSpec(b.poolKey))}`,
         );
-        const key = [work.items, data, counts]
+        const key = [work.items, data, counts, mesh, meshArgs]
             .map((b) => String(this.identity(b)))
             .concat([
                 String(this.draws.generation),
@@ -783,6 +969,21 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 [R.dataVoxels, data],
                 [R.volumeWrite, this.volume],
             ]),
+            mesh: make('mesh', fieldMesh, 'field_mesh_main', [
+                [R.data, data],
+                [R.counts, counts],
+                [R.meshOut, mesh],
+                [R.meshArgs, meshArgs],
+            ]),
+            meshArgs: createComputeKernel(this.core, {
+                discriminator: 'field:mesh_args',
+                shader: fieldMesh,
+                entryPoint: 'field_mesh_args_main',
+                bindings: new Map<WgslResource, BindingSource>([
+                    [R.meshOut, mesh],
+                    [R.meshArgs, meshArgs],
+                ]),
+            }),
         };
     }
 
@@ -813,26 +1014,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             k.forward,
             k.backward,
             k.apron,
+            k.mesh,
+            k.meshArgs,
         ])
             destroyComputeKernel(this.core, kernel);
         this.kernels = undefined;
-    }
-
-    private releaseWork(): void {
-        const w = this.work;
-        if (w === undefined) return;
-        for (const b of [
-            w.items,
-            w.sorted,
-            w.contacts,
-            w.sortedContacts,
-            w.kernel,
-            w.links,
-            w.density,
-            w.phi0,
-            w.phiA,
-        ])
-            this.core.destroy(b);
-        this.work = undefined;
     }
 }

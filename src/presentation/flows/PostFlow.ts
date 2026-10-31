@@ -2,11 +2,12 @@ import type {
     EngineCore,
     Frame,
     RenderTarget,
-    SamplerSpec,
-    TextureSpec,
     TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { FlowWork } from '../../scene/flows/FlowWork';
 import type { EventBus } from '../../scene/events/EventBus';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type {
@@ -26,6 +27,7 @@ import {
     type SlotMap,
     type TargetSlot,
     type TextureSlot,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import type { World } from '../../scene/world/World';
 import { Camera } from '../../elements/scene/Camera';
@@ -84,9 +86,80 @@ export interface PostSlots extends SlotMap {
     readonly taaHistory: ChannelSlot<true>;
     readonly taaState: ChannelSlot<true>;
     readonly taaLight: ChannelSlot<true>;
+    /** O espaço de trabalho da cadeia: pingue-pongue, sampler, parâmetros (spec 039). */
+    readonly work: WorkSlot<PostWork>;
 }
 
-const slots: PostSlots = {
+/** Ids do trabalho. */
+const TAA_PARAMS = 'post_taa_params';
+const SAMPLER = 'post_sampler';
+const PRESENT_PARAMS = 'post_present_params';
+const PINGPONG = ['post_pp_a', 'post_pp_b'] as const;
+const TAA_OUT = 'post_pp_taa_out';
+const effectParamsId = (effect: PostProcessEffect): string => `post_params:${effect.name}`;
+
+/**
+ * Resource de trabalho do `PostFlow` (spec 039): os parâmetros da resolução temporal e da apresentação, o sampler, um
+ * uniform de parâmetros por efeito e — com o canvas dimensionado — as duas texturas de pingue-pongue HDR e a imagem
+ * resolvida, do tamanho do canvas (`sizeFromCanvas`: a C2 as recria no redimensionamento).
+ */
+class PostWork extends FlowWork {
+    static readonly schema = new StructSchema('PostWork', {});
+    /** O canvas tem tamanho: as texturas do tamanho dele entram no trabalho. */
+    sized = false;
+    /** Efeitos com uniform de parâmetros. */
+    readonly effects: PostProcessEffect[] = [];
+
+    constructor() {
+        super();
+        this.use({
+            descriptors: (): readonly GPUDescriptor[] => [
+                // Escritos da CPU (`writeNow`), cada um por si.
+                {
+                    id: TAA_PARAMS,
+                    role: 'uniform',
+                    schema: TemporalResolveParamsSchema,
+                    upload: 'never',
+                },
+                {
+                    id: SAMPLER,
+                    role: 'sampler',
+                    samplerShape: {
+                        magFilter: 'linear',
+                        minFilter: 'linear',
+                        addressModeU: 'clamp-to-edge',
+                        addressModeV: 'clamp-to-edge',
+                    },
+                },
+                {
+                    id: PRESENT_PARAMS,
+                    role: 'uniform',
+                    schema: PresentationParamsSchema,
+                    upload: 'never',
+                },
+                ...this.effects.map(
+                    (e): GPUDescriptor => ({
+                        id: effectParamsId(e),
+                        role: 'uniform',
+                        schema: EffectParamsSchema,
+                        upload: 'never',
+                    }),
+                ),
+                ...(this.sized
+                    ? [...PINGPONG, TAA_OUT].map(
+                          (id): GPUDescriptor => ({
+                              id,
+                              role: 'texture',
+                              textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
+                          }),
+                      )
+                    : []),
+            ],
+        });
+    }
+}
+
+const baseSlots = {
     scene: slot.texture(FrameTargets.schema, 'color'),
     samples: slot.texture(FrameTargets.schema, 'samples', { optional: true }),
     presentation: slot.singleton(ToneMapping.schema, { optional: true }),
@@ -99,15 +172,15 @@ const slots: PostSlots = {
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
     ...temporalSlots,
-};
+} as const;
 
 type Ctx = TransitionContext<PostSlots>;
 
-/** Pipeline e uniform de parâmetros de um efeito. */
+/** Pipeline e uniform de parâmetros de um efeito (o id do uniform no trabalho). */
 interface EffectPass {
     readonly pipeline: string;
     readonly descriptor: PipelineDescriptor;
-    readonly params: UniformBufferSpec;
+    readonly params: string;
     /** Já preparado pela C2 (depois de a origem ser ligada). */
     prepared: boolean;
 }
@@ -121,15 +194,14 @@ const DEFAULT_PRESENTATION = new ToneMapping();
  * canvas — exposição, mapeamento de tons, sRGB e pontilhamento (`ToneMapping` da cena). Sem efeitos e com MSAA, a
  * apresentação lê a cor multiamostrada e mapeia cada amostra antes da média; sem MSAA, lê a cor resolvida.
  *
- * Recursos privados — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas em `canvasReconfigured`), o
- * sampler, um pipeline e um uniform de parâmetros por efeito, o uniform e os pipelines da apresentação (um por formato
- * do canvas) — são preparados e religados em transições. A saída HDR (`output: 'hdr'`) reconfigura o canvas no
+ * O espaço de trabalho — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas pela C2 no
+ * redimensionamento), o sampler, um uniform de parâmetros por efeito e o da apresentação — é do `PostWork` (spec 039);
+ * os pipelines (um por efeito, os da apresentação por formato do canvas) são preparados e religados em transições. A saída HDR (`output: 'hdr'`) reconfigura o canvas no
  * `framePrepare` em que é pedida; sem suporte, cai no padrão e emite `presentationFallback` uma vez.
  */
 export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     readonly type = 'PostFlow';
-    readonly slots = slots;
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
+    readonly slots: PostSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<PostSlots>>;
 
@@ -137,14 +209,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private readonly events: EventBus;
     private readonly effects: PostProcessEffect[] = [];
     private readonly passes = new Map<PostProcessEffect, EffectPass>();
-    private readonly sampler: SamplerSpec;
-    private readonly presentParams: UniformBufferSpec;
+    private readonly work: PostWork;
     /** Pipelines de apresentação já preparados (por id: entrada + formato do canvas). */
     private readonly presentPrepared = new Set<string>();
-    private pingpong: {
-        textures: [TextureSpec, TextureSpec];
-        views: [TextureViewSpec, TextureViewSpec];
-    } | null = null;
+
     /** Efeitos ligados no último `framePrepare`, em ordem. */
     private chain: readonly EffectPass[] = [];
     /** Pipeline da apresentação do último `framePrepare`. */
@@ -154,10 +222,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private requestedOutput: 'sdr' | 'hdr' = 'sdr';
     private readonly world: World;
     private readonly resources: ResourceDirectory;
-    /** Parâmetros da resolução temporal (spec 034). */
-    private readonly taaParams: UniformBufferSpec;
-    /** A imagem resolvida com a nitidez adaptativa (o que a cadeia e a apresentação leem; do tamanho do canvas). */
-    private taaOut: { texture: TextureSpec; view: TextureViewSpec } | null = null;
+
     /**
      * O formato da série da cor neste quadro (o resolvido pela C2: `historyPrecision`, com o recuo sem
      * `float32-filterable`; spec 037) — o pipeline da resolução é um por formato.
@@ -178,38 +243,22 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         this.events = ctx.events;
         this.world = ctx.world;
         this.resources = ctx.resources;
-        this.taaParams = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'post_taa_params',
-            byteSize: TemporalResolveParamsSchema.stride,
-        });
-        this.sampler = ctx.core.create<SamplerSpec>({
-            kind: 'sampler',
-            discriminator: 'post_sampler',
-            desc: {
-                magFilter: 'linear',
-                minFilter: 'linear',
-                addressModeU: 'clamp-to-edge',
-                addressModeV: 'clamp-to-edge',
-            },
-        });
-        this.presentParams = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'post_present_params',
-            byteSize: PresentationParamsSchema.stride,
-        });
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [effectResources.sampler, this.sampler],
-            [presentResources.params, this.presentParams],
-            [temporalResources.params, this.taaParams],
-        ]);
+        const work = new PostWork();
+        this.work = work;
+        this.slots = { ...baseSlots, work: slot.work(() => work) };
         this.transitions = {
             '*': {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
+                        // O trabalho já está na cena: as fontes privadas ligam ao que a C2 alocou.
+                        c.bind(
+                            new Map<WgslResource, BindingSource>([
+                                [effectResources.sampler, this.resources.samplerOf(work, SAMPLER)!],
+                                [presentResources.params, this.uniform(PRESENT_PARAMS)],
+                                [temporalResources.params, this.uniform(TAA_PARAMS)],
+                            ]),
+                        );
                         this.resizePingPong(c);
                     },
                 },
@@ -329,59 +378,42 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         }
     }
 
-    /** Libera pingue-pongue, sampler e os uniforms dos efeitos e da apresentação. */
+    /** O pingue-pongue, o sampler e os uniforms são do `PostWork` (a C2 os libera com ele). */
     override dispose(): void {
-        this.releasePingPong();
-        this.core.destroy(this.sampler);
-        this.core.destroy(this.presentParams);
-        this.core.destroy(this.taaParams);
-        for (const pass of this.passes.values()) this.core.destroy(pass.params);
         this.passes.clear();
     }
 
-    /** Texturas de pingue-pongue HDR do tamanho do canvas (recriadas quando ele muda); a cadeia é religada. */
-    private resizePingPong(ctx: Ctx): void {
-        const size = this.core.canvasSize();
-        this.releasePingPong();
-        if (size === undefined || size.width === 0 || size.height === 0) return;
-        const { width, height } = size;
-        const format = SCENE_COLOR_FORMAT;
-        const texture = (name: string): TextureSpec =>
-            this.core.create<TextureSpec>({
-                kind: 'texture',
-                discriminator: `post_pp_${name}:${width}x${height}`,
-                width,
-                height,
-                format,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            });
-        const view = (source: TextureSpec, name: string): TextureViewSpec =>
-            this.core.create<TextureViewSpec>({
-                kind: 'textureview',
-                discriminator: `post_pp_${name}_v:${width}x${height}`,
-                source,
-                format,
-            });
-        const a = texture('a');
-        const b = texture('b');
-        this.pingpong = { textures: [a, b], views: [view(a, 'a'), view(b, 'b')] };
-        // A imagem resolvida (as séries da resolução são canais temporais da C2, recriados por ela no redimensionamento).
-        const out = texture('taa_out');
-        this.taaOut = { texture: out, view: view(out, 'taa_out') };
-        this.chainKey = '';
-        this.prepareChain(ctx);
+    /** O uniform do trabalho `id` alocado pela C2. */
+    private uniform(id: string): UniformBufferSpec {
+        return this.resources.bufferOf(this.work, id) as UniformBufferSpec;
     }
 
-    private releasePingPong(): void {
-        if (this.taaOut !== null) {
-            this.core.destroy(this.taaOut.view);
-            this.core.destroy(this.taaOut.texture);
-            this.taaOut = null;
+    /** As vistas do pingue-pongue HDR (do tamanho do canvas), ou `null` antes de o canvas ter tamanho. */
+    private get pingpong(): { readonly views: readonly [TextureViewSpec, TextureViewSpec] } | null {
+        const a = this.resources.textureViewOf(this.work, PINGPONG[0]);
+        const b = this.resources.textureViewOf(this.work, PINGPONG[1]);
+        return a === undefined || b === undefined ? null : { views: [a, b] };
+    }
+
+    /** A imagem resolvida com a nitidez adaptativa (o que a cadeia e a apresentação leem; do tamanho do canvas). */
+    private get taaOut(): { readonly view: TextureViewSpec } | null {
+        const view = this.resources.textureViewOf(this.work, TAA_OUT);
+        return view === undefined ? null : { view };
+    }
+
+    /**
+     * Texturas de pingue-pongue HDR do tamanho do canvas: declaradas no trabalho quando o canvas tem tamanho (a C2 as
+     * recria quando ele muda, antes de os Flows reagirem); a cadeia é religada às vistas novas.
+     */
+    private resizePingPong(ctx: Ctx): void {
+        const size = this.core.canvasSize();
+        if (size === undefined || size.width === 0 || size.height === 0) return;
+        if (!this.work.sized) {
+            this.work.sized = true;
+            this.work.refresh();
         }
-        if (this.pingpong === null) return;
-        for (const v of this.pingpong.views) this.core.destroy(v);
-        for (const t of this.pingpong.textures) this.core.destroy(t);
-        this.pingpong = null;
+        this.chainKey = '';
+        this.prepareChain(ctx);
     }
 
     /**
@@ -424,12 +456,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         }
         this.historyFormat = series.format;
         this.taaActive = true;
-        this.core.write(
-            this.taaParams,
-            TemporalResolveParamsSchema.pack({
-                cameraSlot,
-                mode: aa.data.mode,
-            }),
+        this.resources.writeNow(
+            this.work,
+            TAA_PARAMS,
+            TemporalResolveParamsSchema.pack({ cameraSlot, mode: aa.data.mode }),
         );
         const id = `post:taa:${this.historyFormat}`;
         // O que cada passe lê do quadro (as séries vêm dos slots: a resolução lê as anteriores, a nitidez as do quadro).
@@ -485,12 +515,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private passOf(effect: PostProcessEffect, ctx: Ctx): EffectPass {
         const cached = this.passes.get(effect);
         if (cached !== undefined) return cached;
-        const params = this.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `post_params:${effect.name}`,
-            byteSize: EffectParamsSchema.stride,
-        });
+        // O uniform do efeito entra no trabalho (a C2 o aloca na redescrição).
+        const params = effectParamsId(effect);
+        this.work.effects.push(effect);
+        this.work.refresh();
         const id = `post:${effect.name}`;
         // Efeito próprio (fragmentModule, com requires: [effectsBase]) → shader dele; padrão: o comum.
         const descriptor: PipelineDescriptor = {
@@ -503,7 +531,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         };
         ctx.bind(
             new Map<BindingKey, BindingSource>([
-                [{ pipeline: id, resource: effectResources.params }, params],
+                [{ pipeline: id, resource: effectResources.params }, this.uniform(params)],
             ]),
         );
         const pass = { pipeline: id, descriptor, params, prepared: false };
@@ -558,8 +586,9 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const data = presentation.data;
         this.applyOutput(data.output);
         const extended = this.core.canvasOutput.toneMapping === 'extended';
-        this.core.write(
-            this.presentParams,
+        this.resources.writeNow(
+            this.work,
+            PRESENT_PARAMS,
             PresentationParamsSchema.pack({
                 toneOperator: operatorIndex(data.operator),
                 exposure: Math.pow(2, data.exposure),
@@ -571,7 +600,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const enabled = this.effects.filter((e) => e.isEnabled);
         const chain = enabled.map((e) => this.passOf(e, ctx));
         for (let i = 0; i < enabled.length; i++)
-            this.core.write(chain[i]!.params, enabled[i]!.paramsBytes());
+            this.resources.writeNow(this.work, chain[i]!.params, enabled[i]!.paramsBytes());
         // Com a resolução temporal, a cadeia e a apresentação leem a imagem resolvida, não a cor crua da cena.
         const resolved = this.prepareTemporal(ctx, chain.length === 0);
         this.chain = chain;

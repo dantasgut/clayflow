@@ -21,7 +21,6 @@
 //
 // Para rodar: `npm run smoke -- caustics [--query case=reference]`. Resultado: `CAUSTICS SMOKE PASSED` ou `FAIL: …`.
 import {
-    Caustics,
     SphereGeometry,
     StandardMaterial,
     Transform,
@@ -198,7 +197,7 @@ const GLASS = `return closure_add(
 /** A irradiância das cáusticas por célula do hash (chave `x,y,z` em células; rgb). */
 async function hashCells(
     app: Application,
-    caustics: Caustics,
+    caustics: Application['defaults']['renderer']['causticsResource'],
 ): Promise<Map<string, [number, number, number]>> {
     const spec = app.resources.bufferOf(caustics, 'hash')!;
     const staging = app.core.create<StagingBufferSpec>({
@@ -287,8 +286,11 @@ async function caseEngine(): Promise<void> {
     const ref = all.subarray(entry.offset, entry.offset + entry.nx * entry.ny * 3);
     const errors: string[] = [];
     const { app, canvas } = await giApp(320, 200, errors);
-    // O transporte antes do vidro (o padrão dos estágios entraria com o vidro, com as opções padrão).
-    const caustics = new Caustics({ cellSize, photons });
+    // O transporte antes do vidro, pelo renderizador (os estágios padrão o inseririam com o vidro).
+    const renderer = app.defaults.renderer;
+    renderer.caustics.cellSize = cellSize;
+    renderer.caustics.photons = photons;
+    const caustics = renderer.causticsResource;
     app.world.insert(caustics);
     buildGiScene(
         app,
@@ -490,8 +492,8 @@ async function waterCells(
         app.step(1 / 60);
         if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
     }
-    const caustics = app.world.findResource(Caustics.schema, Caustics);
-    if (caustics === undefined) {
+    const caustics = app.defaults.renderer.causticsResource;
+    if (app.world.entityIdOfResource(caustics) === undefined) {
         failures.push(`${name}: sem o \`Caustics\` (os estágios padrão o inserem com a água)`);
         app.dispose();
         canvas.remove();

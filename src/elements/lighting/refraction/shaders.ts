@@ -1,5 +1,9 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
-import { wgslResource } from '../../../scene/shaders/WgslResource';
+import {
+    wgslResource,
+    type WgslResource,
+    type WgslResourceType,
+} from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import refractionQueueSource from '../../gpu/wgsl/refraction/refraction_queue.wgsl?raw';
 import refractionInterfaceSource from '../../gpu/wgsl/refraction/refraction_interface.wgsl?raw';
@@ -8,8 +12,11 @@ import refractionCameraSource from '../../gpu/wgsl/refraction/refraction_camera.
 import refractionPathSource from '../../gpu/wgsl/refraction/refraction_path.wgsl?raw';
 import refractionSceneSource from '../../gpu/wgsl/refraction/refraction_scene.wgsl?raw';
 import refractionVolumeRequestSource from '../../gpu/wgsl/refraction/refraction_volume_request.wgsl?raw';
+import refractionVolumeMeshSource from '../../gpu/wgsl/refraction/refraction_volume_mesh.wgsl?raw';
+import refractionBlockSource from '../../gpu/wgsl/refraction/refraction_block.wgsl?raw';
 import { transmissionResources } from '../../material/shaders';
-import refractionTraceSource from '../../gpu/wgsl/refraction/refraction_trace.wgsl?raw';
+import refractionChainSource from '../../gpu/wgsl/refraction/refraction_chain.wgsl?raw';
+import refractionChainArgsSource from '../../gpu/wgsl/refraction/refraction_chain_args.wgsl?raw';
 import refractionGradientSource from '../../gpu/wgsl/refraction/refraction_gradient.wgsl?raw';
 import refractionHistorySource from '../../gpu/wgsl/refraction/refraction_history.wgsl?raw';
 import refractionDenoiseSourceSource from '../../gpu/wgsl/refraction/refraction_denoise_source.wgsl?raw';
@@ -30,7 +37,17 @@ import {
 import { temporalFilterResources } from '../temporal/shaders';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { rayDirect, rayHit, rayScene } from '../../raytrace/shaders';
+import { rayWave } from '../../raytrace/wave/shaders';
+import { fieldResources } from '../../fields/shaders';
 import {
+    RefractionBlockSchema,
+    RefractionMediumSchema,
+    RefractionChainSchema,
+    RefractionSplitSchema,
+    RefractionStackSchema,
+} from './schemas';
+import {
+    rayVolumeBeginReady,
     rayVolumeHitReady,
     rayVolumeMaterial,
     rayVolumeSurfaceReady,
@@ -90,6 +107,15 @@ const storageTexture = (name: string, format: GPUTextureFormat): ReturnType<type
         provider: 'private',
     });
 
+const priv = (name: string, access: 'read' | 'read_write', type: WgslResourceType): WgslResource =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type,
+        frequency: 'stage',
+        provider: 'private',
+    });
+
 /**
  * Recursos privados do estágio: o pedido por pixel, a fila (escrita na compactação, lida no traçado) e a contagem dela,
  * o estado do quadro (os meios da câmera e a contagem; escrito e lido), a radiância traçada, o ponto que o pixel mostra
@@ -117,9 +143,27 @@ export const refractionResources = Object.freeze({
     gradientOut: storageTexture('refraction_gradient_out', REFRACTION_GRADIENT_FORMAT),
     gradient: texture('refraction_gradient', 'f32'),
     requestDepth: texture('refraction_request_depth', 'depth'),
+    /** A refração com trabalho fixo por pixel (spec 039 refeita): as vagas de um bloco e o cabeçalho do quadro. */
+    paths: priv('refraction_paths', 'read_write', { schema: RefractionChainSchema, array: true }),
+    /** A dispersão adiada de cada vaga (o mesmo índice das vagas), à parte do estado lido em cada rodada. */
+    splits: priv('refraction_splits', 'read_write', { schema: RefractionSplitSchema, array: true }),
+    pathQueue: priv('refraction_path_queue', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    /** Os argumentos do despacho indireto da rodada (grupos x, y, z). */
+    pathArgs: priv('refraction_path_args', 'read_write', { wgsl: 'u32', array: true }),
+    /** O registro de cada bloco 2×2 traçado no quadro (o representante), para a reconstrução. */
+    blocks: priv('refraction_blocks', 'read_write', { schema: RefractionBlockSchema, array: true }),
+    /** Por pixel: o quadro (+ 1; 0 = nenhum) e a distância do pedido do último valor exato dele. */
+    stamps: priv('refraction_stamps', 'read_write', { wgsl: 'vec2u', array: true }),
 });
 
 const R = refractionResources;
+
+/** A meia resolução da refração (spec 039 refeita): o representante de cada bloco 2×2 no quadro. */
+const refractionBlock = wgslModule({
+    name: 'refraction_block',
+    source: refractionBlockSource,
+    requires: [REFRACTION_REQUEST_VALID.module, refractionParamsResource, R.request],
+});
 
 /** Kernels da fila compacta dos pixels com pedido e da contagem no estado do quadro. */
 export const refractionQueue = wgslModule({
@@ -129,6 +173,7 @@ export const refractionQueue = wgslModule({
         WORKGROUP_SIZE.module,
         REFRACTION_REQUEST_VALID.module,
         REFRACTION_FRAME_COUNT.module,
+        refractionBlock,
         R.request,
         R.queueOut,
         R.queueCount,
@@ -148,6 +193,7 @@ export const refractionMedia = wgslModule({
     name: 'refraction_media',
     source: refractionMediaSource,
     requires: [NONE.module, closure, REFRACTION_MAX_MEDIA.module],
+    structs: [RefractionMediumSchema, RefractionStackSchema],
 });
 
 /**
@@ -165,6 +211,7 @@ export const refractionScene = wgslModule({
         rayVolumeHitReady,
         rayVolumeSurfaceReady,
         rayVolumeMaterial,
+        rayWave,
     ],
 });
 
@@ -181,6 +228,7 @@ export const refractionCamera = wgslModule({
         camerasResource,
         rayScene,
         rayHit,
+        rayWave,
         R.frameOut,
     ],
 });
@@ -209,21 +257,42 @@ export const refractionPath = wgslModule({
     ],
 });
 
-/** O traçado por pixel da fila. */
-export const refractionTrace = wgslModule({
-    name: 'refraction_trace',
-    source: refractionTraceSource,
+/**
+ * A refração com trabalho fixo por pixel (spec 039 refeita): as vagas de cada pixel da fila, as rodadas (o acerto de cada
+ * vaga na onda e a continuação pelo fechamento avaliado fora) e o fechamento por pixel. Nenhuma função `material`.
+ */
+export const refractionChain = wgslModule({
+    name: 'refraction_chain',
+    source: refractionChainSource,
     requires: [
         WORKGROUP_SIZE.module,
+        REFRACTION_REQUEST_VALID.module,
+        R.request,
+        refractionBlock,
+        rayVolumeBeginReady,
+        NONE.module,
         REFRACTION_FRAME_COUNT.module,
         refractionParamsResource,
         refractionPath,
+        rayWave,
         R.queueIn,
         R.frame,
         R.radianceOut,
         R.hitOut,
         R.albedoOut,
+        R.paths,
+        R.splits,
+        R.pathQueue,
+        R.blocks,
+        R.stamps,
     ],
+});
+
+/** Os argumentos do despacho indireto de cada rodada da cadeia, pelas vagas vivas da lista corrente. */
+export const refractionChainArgs = wgslModule({
+    name: 'refraction_chain_args',
+    source: refractionChainArgsSource,
+    requires: [WORKGROUP_SIZE.module, R.pathQueue, R.pathArgs],
 });
 
 /**
@@ -272,7 +341,14 @@ export const refractionHistory = wgslModule({
 export const refractionDenoiseSource = wgslModule({
     name: 'refraction_denoise_source',
     source: refractionDenoiseSourceSource,
-    requires: [REFRACTION_REQUEST_VALID.module, refractionHistory, R.request, R.radiance, R.hit],
+    requires: [
+        REFRACTION_REQUEST_VALID.module,
+        refractionHistory,
+        refractionBlock,
+        R.request,
+        R.radiance,
+        R.hit,
+    ],
 });
 
 /** O triângulo de tela cheia dos passes da refração (`refraction_screen_vs`). */
@@ -296,6 +372,9 @@ function volumeRequestModule(multisampled: boolean): WgslModule {
         name: multisampled ? 'refraction_volume_request_ms' : 'refraction_volume_request',
         source: refractionVolumeRequestSource,
         requires: [
+            NONE.module,
+            REFRACTION_MAX_MEDIA.module,
+            R.frame,
             refractionScreen,
             refractionParamsResource,
             camerasResource,
@@ -305,6 +384,30 @@ function volumeRequestModule(multisampled: boolean): WgslModule {
             REFRACTION_REQUEST_VALID.module,
             REFRACTION_REQUEST_BACK_FACE.module,
             multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}
+
+/**
+ * O pedido pela malha da superfície dos volumes (spec 039 refeita, D3): os triângulos que o campo extrai, nas duas faces
+ * — sem e com amostras na profundidade dos opacos.
+ */
+export const refractionVolumeMesh = {
+    single: volumeMeshModule(false),
+    multisampled: volumeMeshModule(true),
+} as const;
+
+function volumeMeshModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'refraction_volume_mesh_ms' : 'refraction_volume_mesh',
+        source: refractionVolumeMeshSource,
+        requires: [
+            refractionParamsResource,
+            camerasResource,
+            REFRACTION_REQUEST_VALID.module,
+            REFRACTION_REQUEST_BACK_FACE.module,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+            fieldResources.mesh,
         ],
     });
 }

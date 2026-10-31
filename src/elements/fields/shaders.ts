@@ -23,14 +23,19 @@ import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
 import fieldSurfaceSource from '../gpu/wgsl/fields/field_surface.wgsl?raw';
+import fieldBodyClosuresSource from '../gpu/wgsl/fields/field_body_closures.wgsl?raw';
 import fieldRaySurfaceSource from '../gpu/wgsl/fields/field_ray_surface.wgsl?raw';
 import fieldFilmSource from '../gpu/wgsl/fields/field_film.wgsl?raw';
 import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw';
 import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?raw';
 import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
 import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
+import fieldLightMapSource from '../gpu/wgsl/fields/field_light_map.wgsl?raw';
+import fieldLightFrameSource from '../gpu/wgsl/fields/field_light_frame.wgsl?raw';
+import fieldMeshSource from '../gpu/wgsl/fields/field_mesh.wgsl?raw';
 import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
-import { lightIncoming } from '../scene/points/lightContributions';
+import { rayWave } from '../raytrace/wave/shaders';
+import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { lightsResource } from '../scene/resources';
 import { closure } from '../material/pbr/shaders';
 import {
@@ -90,6 +95,16 @@ export const fieldResources = Object.freeze({
     }),
     /** O mesmo buffer na escrita dos voxels com a borda. */
     dataVoxels: consumer('field_data_voxels', 'data', 'read_write', f32s),
+    /** O mapa da luz pela água (spec 039 refeita): o que `light_transmission` lê, e a escrita dele. */
+    lightMap: consumer('field_light_map', 'lightMap', 'read', f32s),
+    lightMapOut: consumer('field_light_map_out', 'lightMap', 'read_write', f32s),
+    /** A malha da superfície (spec 039 refeita): a escrita, os argumentos e a leitura de quem a desenha. */
+    meshOut: consumer('field_mesh', 'mesh', 'read_write', u32s),
+    meshArgs: consumer('field_mesh_args', 'meshArgs', 'read_write', {
+        wgsl: 'atomic<u32>',
+        array: true,
+    }),
+    mesh: consumer('field_mesh_vertices', 'mesh', 'read', u32s),
     counts: consumer('field_counts', 'counts', 'read', { schema: SetCountSchema, array: true }),
     countsWrite: consumer('field_counts', 'counts', 'read_write', {
         wgsl: 'atomic<u32>',
@@ -372,7 +387,17 @@ export const fieldRayHit = wgslModule({
 const fieldSurface = wgslModule({
     name: 'field_surface',
     source: fieldSurfaceSource,
-    requires: [rayVolumeTypes, fields, closure],
+    requires: [rayVolumeTypes, fields, closure, R.data],
+});
+
+/**
+ * O material de cada corpo na onda dos acertos (spec 039): o acerto sintético no centro da caixa do campo por corpo e,
+ * depois do material avaliado por classe, o meio dele (a absorção, o índice, o Abbe) no buffer das consultas.
+ */
+export const fieldBodyClosures = wgslModule({
+    name: 'field_body_material',
+    source: fieldBodyClosuresSource,
+    requires: [WORKGROUP_SIZE.module, fields, closure, rayVolumeMaterial, rayWave, R.dataVoxels],
 });
 
 /** Contribuição do campo ao ponto `ray_volume_surface`: o material da água no acerto. */
@@ -387,6 +412,13 @@ export const fieldRayTransmittance = wgslModule({
     name: 'field_ray_transmittance',
     source: fieldRayTransmittanceSource,
     requires: [fields, rayVolumeTypes, rayVolumeMaterial, fieldSurface],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_begin`: o orçamento de passos da marcha renovado a cada raio. */
+export const fieldRayBegin = wgslModule({
+    name: 'field_ray_begin',
+    source: 'fn ray_volume_begin() {\n    field_steps_left = FIELD_STEP_BUDGET;\n}',
+    requires: [fields],
 });
 
 /** Contribuição do campo ao ponto `ray_volume_bounds`: a caixa dele (spec 034, T067c: um alvo dos fótons). */
@@ -407,20 +439,72 @@ export const fieldRayOccupied = wgslModule({
 });
 
 /**
+ * A malha da superfície da água (spec 039 refeita, D3): tetraedros marchantes por bloco ocupado, os triângulos com a
+ * normal pelo gradiente, a contagem e os argumentos do desenho indireto.
+ */
+export const fieldMesh = wgslModule({
+    name: 'field_mesh_extract',
+    source: fieldMeshSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        fieldCommon,
+        R.counts,
+        fieldLookup,
+        R.meshOut,
+        R.meshArgs,
+    ],
+});
+
+/** O referencial de cada luz direcional sobre a caixa do campo e o mapa de cada luz (spec 039 refeita). */
+const fieldLightFrame = wgslModule({
+    name: 'field_light_frame',
+    source: fieldLightFrameSource,
+    requires: [NONE.module, LIGHT_LIMIT.module, fields, lightsResource],
+});
+
+/**
+ * O mapa da luz pela água (spec 039 refeita): por luz direcional, um texel por raio paralelo a ela sobre a caixa do
+ * campo, com as duas primeiras camadas de água, o Fresnel da entrada e os corpos — uma marcha por texel por quadro.
+ */
+export const fieldLightMap = wgslModule({
+    name: 'field_light_map_write',
+    source: fieldLightMapSource,
+    requires: [WORKGROUP_SIZE.module, fields, fieldLightFrame, fieldSurface, bsdf, R.lightMapOut],
+});
+
+/**
  * Contribuição do campo ao ponto `light_transmission`: a luz das fontes que atravessa a superfície da água até o ponto
  * em linha reta, com o Fresnel e Beer–Lambert, numa marcha só (spec 034, T067c; as cáusticas corrigem para o caminho
  * refratado).
  */
-export const fieldLightTransmission = wgslModule({
-    name: 'field_light_transmission',
+const fieldLightThrough = wgslModule({
+    name: 'field_light_through',
     source: fieldLightTransmissionSource,
     requires: [
         fields,
         rayVolumeTypes,
         rayVolumeMaterial,
         fieldSurface,
+        fieldLightFrame,
         bsdf,
         lightIncoming,
         lightsResource,
+        R.lightMap,
     ],
+});
+
+/** Contribuição do campo ao ponto `light_transmission`: a luz pela água até o ponto. */
+export const fieldLightTransmission = wgslModule({
+    name: 'field_light_transmission',
+    source: 'fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
+    requires: [fieldLightThrough],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_light`: a mesma luz pela água (só a dos volumes). */
+export const fieldRayLight = wgslModule({
+    name: 'field_ray_light',
+    source: 'fn ray_volume_light(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
+    requires: [fieldLightThrough],
 });

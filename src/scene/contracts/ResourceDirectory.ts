@@ -65,6 +65,38 @@ export interface ResourceDirectory extends PoolDirectory {
     /** Sampler alocado para o descritor `sampler`, ou `undefined`. */
     samplerOf(resource: Resource, descId: string): SamplerSpec | undefined;
     /**
+     * Distância em bytes entre as regiões do uniforme por região `descId` de `resource` (o stride do schema alinhado ao
+     * `minUniformBufferOffsetAlignment` do adaptador; spec 039), ou `undefined` se o descritor não tem `regions`.
+     */
+    regionStrideOf(resource: Resource, descId: string): number | undefined;
+    /**
+     * Grava agora as regiões `[first, first + records.length)` do uniforme por região `descId` de `resource`, numa escrita
+     * (spec 039). Vale também durante a gravação do quadro: a escrita entra na fila antes do envio, então cada chamada
+     * gravada lê a sua região. O dado vai só à GPU (não a `data`).
+     * @throws Error se o descritor não tem `regions` ou não está alocado; RangeError fora das regiões.
+     */
+    writeRegions(
+        resource: Resource,
+        descId: string,
+        records: readonly Record<string, unknown>[],
+        first?: number,
+    ): void;
+    /**
+     * Grava agora `bytes` no buffer do descritor `descId` de `resource` — o próprio, ou, em pool, a faixa do Resource (o
+     * `offset` relativo ao início dela) —, a partir de `offset` (spec 039) — o
+     * envio de um valor conhecido só na gravação (a contagem de uma reconstrução, os parâmetros de um despacho). Vale
+     * durante a gravação: a escrita entra na fila antes do envio do quadro. O dado vai só à GPU (não a `data`).
+     * @throws Error se o descritor não tem buffer alocado; RangeError fora da faixa em pool.
+     */
+    writeNow(resource: Resource, descId: string, bytes: ArrayBufferView, offset?: number): void;
+    /**
+     * Lê da GPU o dado do descritor `descId` de `resource` (ou o primeiro com schema), desempacotado pelo schema — a
+     * leitura sob demanda da spec 007: os pedidos da mesma tarefa saem num lote, uma cópia por faixa contígua; o valor é
+     * o do último quadro enviado. Resource fora da cena (ou removido antes da resposta) resolve `undefined`. É o caminho
+     * de um Flow para um contador da GPU (a fila da refração, os contatos do LCP), sem staging próprio.
+     */
+    read(resource: Resource, descId?: string): Promise<Record<string, unknown> | undefined>;
+    /**
      * O descritor individual `descId` de `resource` tem um escritor na GPU (um conjunto com `owns`, spec 008)? Serve a
      * quem consome dado `upload: 'never'` (ex.: o forward avisa quando desenha uma geometria que ninguém escreve).
      */

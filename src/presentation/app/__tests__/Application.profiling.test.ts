@@ -48,4 +48,19 @@ describe('Application — opção profiling', () => {
         });
         expect(core.setFrameProfiling).not.toHaveBeenCalled();
     });
+
+    it('setProfiling liga, troca e desliga com a aplicação rodando (spec 039, T102)', async () => {
+        const { scene, core } = fakeScene();
+        const app = await Application.create({
+            canvas: document.createElement('canvas'),
+            scene,
+            autoResize: false,
+        });
+        app.setProfiling('passes', 512);
+        expect(core.setFrameProfiling).toHaveBeenLastCalledWith(true, 512, 'passes');
+        app.setProfiling('frame');
+        expect(core.setFrameProfiling).toHaveBeenLastCalledWith(true, undefined, 'frame');
+        app.setProfiling(false);
+        expect(core.setFrameProfiling).toHaveBeenLastCalledWith(false);
+    });
 });

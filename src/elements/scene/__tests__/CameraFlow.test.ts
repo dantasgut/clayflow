@@ -32,11 +32,11 @@ async function cameraScene(mode: AntialiasingMode | undefined) {
     return { s, camera };
 }
 
-/** O último deslocamento (NDC xy, pixels zw) escrito nos parâmetros do estágio. */
+/** O último deslocamento (NDC xy, pixels zw) escrito nos parâmetros do estágio (descritor do trabalho, spec 039). */
 function lastJitter(s: Awaited<ReturnType<typeof renderScene>>): number[] {
     const writes = vi
         .mocked(s.core.write)
-        .mock.calls.filter(([spec]) => discOf(spec) === 'camera_compose_params');
+        .mock.calls.filter(([spec]) => discOf(spec).startsWith('camera_compose:'));
     const [, data] = writes.at(-1)!;
     const f32 = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
     const at = CameraComposeParamsSchema.offsetOf('jitter') / 4;
