@@ -3,7 +3,8 @@
 // acerto, a luz direta com raio de sombra e a emissão (g = 0: o primeiro rebatimento, exato perto da superfície) mais,
 // de g ≥ 1, a luz rebatida pela irradiância da geração g − 1 no ponto atingido: a das sondas de tela do quadro anterior
 // quando o ponto é uma superfície visível (`gi_screen_history_taps`: exata de perto também), a das sondas do mundo
-// quando não. Raio que escapa: o ambiente da cena em todas as gerações. Face de trás: sem luz. Grava E_g = π · média.
+// quando não. Raio que escapa: o ambiente da cena em todas as gerações. Face de trás (a sonda colada a uma superfície que
+// a corta): fora da soma e da contagem (spec 034, T048) — a média é a dos raios que veem a cena. Grava E_g = π · média.
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_screen_hit_main` grava o acerto na onda e
 // `gi_screen_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, ray_hit, ray_wave,
@@ -108,6 +109,8 @@ fn gi_screen_trace_main(
     let k = r.k;
     let bounces = min(gi.bounces.x, GI_SCREEN_MAX_BOUNCES);
     var sums: array<vec3f, GI_SCREEN_MAX_BOUNCES>;
+    // 1 quando o raio entra na média (escape ou face da frente); a face de trás fica fora do numerador e do denominador.
+    var counted = 0.0;
     let valid_probe = r.valid;
     let probe = r.probe;
     let update = r.update;
@@ -118,6 +121,7 @@ fn gi_screen_trace_main(
         let wi = gi_wave_screen_first() + j;
         let traced = ray_wave_entries[wi].hit.payload;
         let through = traced.rgb;
+        if (traced.w >= 0.0) { counted = 1.0; }
         if (traced.w >= max_dist) {
             let env = scene_environment(dir) * through;
             for (var g = 0u; g < bounces; g++) { sums[g] = env; }
@@ -141,7 +145,7 @@ fn gi_screen_trace_main(
         }
     }
     for (var g = 0u; g < bounces; g++) {
-        gi_screen_partial[lid * GI_SCREEN_MAX_BOUNCES + g] = vec4f(sums[g], 0.0);
+        gi_screen_partial[lid * GI_SCREEN_MAX_BOUNCES + g] = vec4f(sums[g], counted);
     }
     workgroupBarrier();
     if (!valid_probe || k != 0u) { return; }
@@ -151,8 +155,9 @@ fn gi_screen_trace_main(
         return;
     }
     for (var g = 0u; g < bounces; g++) {
-        var total = vec3f(0.0);
-        for (var q = 0u; q < rays; q++) { total += gi_screen_partial[(lid + q) * GI_SCREEN_MAX_BOUNCES + g].rgb; }
-        gi_screen_work[gi_screen_fresh_at(i, g)] = vec4f(total * (PI / f32(rays)), 0.0);
+        var total = vec4f(0.0);
+        for (var q = 0u; q < rays; q++) { total += gi_screen_partial[(lid + q) * GI_SCREEN_MAX_BOUNCES + g]; }
+        // Todos pela face de trás (a sonda dentro da geometria): sem luz.
+        gi_screen_work[gi_screen_fresh_at(i, g)] = vec4f(total.rgb * (PI / max(total.w, 1.0)), 0.0);
     }
 }
