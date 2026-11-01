@@ -61,6 +61,11 @@ export const GlobalIlluminationSchema = new StructSchema(
         screen1: FieldType.vec4u,
         /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
         screenSize: FieldType.vec4f,
+        /**
+         * Deslocamento da grade das sondas de tela no ladrilho (em ladrilhos, [0, 1)): o do quadro (xy) e o do anterior
+         * (zw) — a mesma sequência de Halton (2, 3) para a grade inteira (spec 034, T055).
+         */
+        screenJitter: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );

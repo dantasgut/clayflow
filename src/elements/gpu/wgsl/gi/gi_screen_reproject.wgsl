@@ -41,7 +41,8 @@ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
     let previous = temporal_reproject_point(cam.previousViewProjection, p);
     if (previous.z == 0.0) { return taps; }
     let px = previous.xy * gi.screenSize.xy;
-    let g = px / gi_screen_tile() - 0.5;
+    // A grade das sondas do quadro anterior (deslocada por `gi.screenJitter.zw`) em ladrilhos.
+    let g = px / gi_screen_tile() - gi.screenJitter.zw;
     let base = vec2i(floor(g));
     let f = g - vec2f(base);
     let tolerance = 0.01 + length(p - rigid_inverse(cam.previousView)[3].xyz) * 0.01;
@@ -62,6 +63,28 @@ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
     }
     if (sum > 1e-4) { taps.w = taps.w / sum; } else { taps.w = vec4f(0.0); }
     return taps;
+}
+
+/**
+ * O histórico para o acúmulo da sonda em `p` (normal `n`, T055): a sonda do quadro anterior no ladrilho que contém a
+ * projeção de `p` — com a câmera parada, o mesmo ladrilho — quando no mesmo plano; senão as vizinhas pesadas
+ * (`gi_screen_history_taps`). A grade desliza a cada volta do rodízio: a bilinear repetida a cada quadro sobre o valor
+ * acumulado espalharia a luz por vários ladrilhos (a borda clara de uma face pequena para o meio dela); pelo próprio
+ * ladrilho, a média é a dos pontos sorteados dentro dele.
+ */
+fn gi_screen_history_own(p: vec3f, n: vec3f) -> GiScreenTaps {
+    let cam = cameras[gi.screen.w];
+    if (temporal_cut(cam.history)) { return GiScreenTaps(vec4u(NONE), vec4f(0.0)); }
+    let previous = temporal_reproject_point(cam.previousViewProjection, p);
+    if (previous.z == 0.0) { return GiScreenTaps(vec4u(NONE), vec4f(0.0)); }
+    let t = vec2u(min(previous.xy * gi.screenSize.xy / gi_screen_tile(), vec2f(gi.screen.xy) - 1.0));
+    let at = gi_screen_history_at(t.x + t.y * gi.screen.x);
+    let hp = gi_screen_history_previous[at];
+    let tolerance = 0.01 + length(p - rigid_inverse(cam.previousView)[3].xyz) * 0.01;
+    if (hp.w > 0.0 && temporal_validate_plane(hp.xyz, gi_screen_history_previous[at + 1u].xyz, p, n, tolerance, 0.95) > 0.5) {
+        return GiScreenTaps(vec4u(at, NONE, NONE, NONE), vec4f(1.0, 0.0, 0.0, 0.0));
+    }
+    return gi_screen_history_taps(p, n);
 }
 
 /** Há histórico no ponto? */

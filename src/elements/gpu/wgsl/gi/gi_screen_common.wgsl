@@ -50,10 +50,13 @@ fn gi_screen_ray_at(i: u32, k: u32) -> u32 {
     return (2u + gi.bounces.x) * gi_screen_count() + (i * gi.screen.z + k) / 2u;
 }
 
-/** Centro do ladrilho `tile` em pixels (dentro do alvo, no último ladrilho parcial). */
+/**
+ * O ponto da sonda do ladrilho `tile` em pixels: o canto mais o deslocamento da grade no quadro (`gi.screenJitter.xy`,
+ * T055), dentro do alvo no último ladrilho parcial.
+ */
 fn gi_screen_tile_pixel(tile: vec2u) -> vec2f {
     let size = gi.screenSize.xy;
-    return min((vec2f(tile) + 0.5) * gi_screen_tile(), size - 0.5);
+    return min((vec2f(tile) + gi.screenJitter.xy) * gi_screen_tile(), size - 0.5);
 }
 
 /** Raio da câmera ativa pelo pixel `px` (origem e direção unitária). */

@@ -28,7 +28,7 @@ import {
 } from './support/giScenes';
 import { hdrAt, hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
-import { luminanceLinear } from './support/images';
+import { luminanceLinear, toPng } from './support/images';
 
 function log(msg: string): void {
     console.log(`[giNoise] ${msg}`);
@@ -242,6 +242,33 @@ async function giCase(name: string, scene: GiScene, quality: Quality, spp: numbe
         const l = Math.max(1e-6, level.get(ref.ids[k]!)!);
         err[k] = (indirect(avg, k) - refLum(ref, k)) / l;
         noise[k] = (refLum(a, k) - refLum(b, k)) / 2 / l;
+    }
+    {
+        const img = new ImageData(W * 3, H);
+        const scale = Math.max(...[...level.values()]) * 1.5;
+        const tone = (v: number): number => Math.round(255 * Math.min(1, Math.max(0, v / scale)) ** (1 / 2.2));
+        for (let k = 0; k < W * H; k++) {
+            const x = k % W;
+            const y = Math.floor(k / W);
+            const put = (panel: number, r: number, g: number, b: number): void => {
+                const o = (y * W * 3 + panel * W + x) * 4;
+                img.data[o] = r;
+                img.data[o + 1] = g;
+                img.data[o + 2] = b;
+                img.data[o + 3] = 255;
+            };
+            const rv = tone(refLum(ref, k));
+            const ev = tone(indirect(avg, k));
+            put(0, rv, rv, rv);
+            put(1, ev, ev, ev);
+            const e = mask[k] === 0 ? 0 : err[k]!;
+            const m = Math.round(255 * Math.min(1, Math.abs(e) / 0.3));
+            put(2, e > 0 ? m : 0, mask[k] === 0 ? 40 : 0, e < 0 ? m : 0);
+        }
+        const png = await toPng(img);
+        let bin = '';
+        for (const c of png) bin += String.fromCharCode(c);
+        await (window as unknown as { __smokeFixtureWrite: (f: string, b: string) => Promise<void> }).__smokeFixtureWrite(`zzGiErr-${name}.png`, btoa(bin));
     }
     const bias = byRegion((k) => err[k]!, mask, ref.ids);
     const slow = boxBlur(err, mask, ref.ids, SLOW_RADIUS);

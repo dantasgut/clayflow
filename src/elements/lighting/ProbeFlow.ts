@@ -31,6 +31,7 @@ import { wordBuffer } from '../gpu/compute/schemas';
 import { RayWave } from '../raytrace/RayWave';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { Camera } from '../scene/Camera';
+import { halton } from '../scene/TemporalAntialiasing';
 import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Transform } from '../scene/Transform';
@@ -183,6 +184,22 @@ interface Buffers {
 export function screenTile(authored: number, height: number): number {
     const scale = 2 ** Math.max(0, Math.round(Math.log2(height / 1080)));
     return Math.max(GI_SCREEN_TILE_MIN, authored * scale);
+}
+
+/** Posições da grade das sondas de tela antes de repetir. */
+const SCREEN_JITTER_PERIOD = 16;
+
+/**
+ * Deslocamento da grade das sondas de tela no quadro `frame` (em ladrilhos, [0, 1)): Halton (2, 3) — a grade inteira
+ * desliza junto, então segue regular e a bilinear do desenho e do histórico continua exata (o T053 girava por ladrilho
+ * e quebrava a reconstrução). Com o tempo, as superfícies pequenas e as junto das quinas ganham sondas próprias. A
+ * sequência avança uma posição por volta do rodízio (`period` quadros): por quadro, cada cor do rodízio veria só os
+ * índices de uma paridade — a base 2 alterna as metades do ladrilho — e lançaria sempre da mesma metade.
+ */
+export function screenJitter(frame: number, period: number): [number, number] {
+    const turn = Math.floor(frame / Math.max(1, period));
+    const i = 1 + (((turn % SCREEN_JITTER_PERIOD) + SCREEN_JITTER_PERIOD) % SCREEN_JITTER_PERIOD);
+    return [halton(i, 2), halton(i, 3)];
 }
 
 /** Gerador determinístico (hash PCG) em [0, 1). */
@@ -580,6 +597,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const caustics =
             (c.bound.slots.caustics?.resource as Caustics | undefined)?.enabled === true;
         const rotation = frameRotation(this.frame);
+        // O período do rodízio das sondas de tela (1, 2 ou 4 quadros).
+        const period = Math.round(1 / d.screenFraction);
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         d.params = [
             {
@@ -602,8 +621,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 extra: [1, 0, 0, time],
                 counts: [this.resources.poolCount(Light.schema.name), 0, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
-                screen1: [Math.round(1 / d.screenFraction), 0, this.screenActive ? 1 : 0, 0],
+                screen1: [period, 0, this.screenActive ? 1 : 0, 0],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
+                screenJitter: [
+                    ...screenJitter(this.frame, period),
+                    ...screenJitter(this.frame - 1, period),
+                ],
             },
         ];
     }

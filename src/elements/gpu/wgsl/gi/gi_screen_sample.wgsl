@@ -26,7 +26,11 @@ fn gi_screen_tap(t: vec2i, p: vec3f, n: vec3f, tolerance: f32) -> GiScreenTap {
     return GiScreenTap(textureLoad(gi_screen_irradiance_texture, t, 0).rgb, w, true, facing);
 }
 
-/** Irradiância (rgb, E) e confiança (a: 1, 0,5 ou 0) das sondas de tela no ponto `p` com normal `n`. */
+/**
+ * Irradiância das sondas de tela no ponto `p` com normal `n` já pesada (rgb = Σ w E) e a cobertura (a = Σ w, de 0 a 1):
+ * os pesos bilineares das 2 × 2 vizinhas vezes os de plano e normal, sem renormalizar — a parte que as sondas de tela
+ * não cobrem (a quina, a borda, fora da tela) fica para as sondas do mundo.
+ */
 fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     if (gi.screen1.z == 0u) { return vec4f(0.0); }
     let cam = cameras[gi.screen.w];
@@ -35,45 +39,19 @@ fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     let ndc = clip.xy / clip.w;
     if (any(abs(ndc) > vec2f(1.0))) { return vec4f(0.0); }
     let px = ndc_to_uv(ndc) * gi.screenSize.xy;
-    let g = px / gi.screenSize.z - 0.5;
+    // A grade das sondas do quadro (deslocada por `gi.screenJitter.xy`) em ladrilhos.
+    let g = px / gi.screenSize.z - gi.screenJitter.xy;
     let base = vec2i(floor(g));
     let f = g - vec2f(base);
     let tolerance = 0.01 + length(p - cam.position.xyz) * 0.01;
-    var acc = vec3f(0.0);
-    var wsum = 0.0;
-    var nearest = vec3f(0.0);
-    var nearest_d = 1e9;
-    var nearest_facing = 1.0;
+    var acc = vec4f(0.0);
     for (var o = 0u; o < 4u; o++) {
         let d = vec2i(i32(o & 1u), i32(o >> 1u));
         let t = base + d;
         if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
         let tap = gi_screen_tap(t, p, n, tolerance);
         let b = mix(vec2f(1.0) - f, f, vec2f(d));
-        let w = tap.w * b.x * b.y;
-        acc += tap.e * w;
-        wsum += w;
-        let dist = length(g - vec2f(t));
-        if (tap.valid && dist < nearest_d) {
-            nearest_d = dist;
-            nearest = tap.e;
-            nearest_facing = tap.facing;
-        }
+        acc += vec4f(tap.e, 1.0) * (tap.w * b.x * b.y);
     }
-    if (wsum > 1e-4) { return vec4f(acc / wsum, 1.0); }
-    // A mais próxima de orientação parecida (fora do plano: borda, superfície curva, o encoberto) vale como está.
-    if (nearest_d < 1e8 && nearest_facing > 0.5) { return vec4f(nearest, 0.5); }
-    // Orientação diferente (a face fina): as compatíveis em volta (5 × 5 ladrilhos), pesadas pela distância na grade.
-    for (var o = 0u; o < 25u; o++) {
-        let t = base + vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
-        if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
-        let tap = gi_screen_tap(t, p, n, tolerance);
-        let d = g - vec2f(t);
-        let w = tap.w / (1.0 + dot(d, d));
-        acc += tap.e * w;
-        wsum += w;
-    }
-    if (wsum > 1e-4) { return vec4f(acc / wsum, 0.5); }
-    if (nearest_d < 1e8) { return vec4f(nearest, 0.5); }
-    return vec4f(0.0);
+    return acc;
 }

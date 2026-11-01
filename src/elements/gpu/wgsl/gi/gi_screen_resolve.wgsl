@@ -24,7 +24,8 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         return;
     }
     let n = gi_screen_work[gi_screen_probe_at(i) + 1u].xyz;
-    let taps = gi_screen_history_taps(probe.xyz, n);
+    // O histórico da própria sonda (o ladrilho dela no quadro anterior, T055).
+    let taps = gi_screen_history_own(probe.xyz, n);
     let found = gi_screen_history_found(taps);
     var state = vec4f(0.0);
     if (found) {
