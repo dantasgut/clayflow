@@ -31,7 +31,7 @@ import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
 import { camerasResource } from '../scene/resources';
-import { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
+import { GiScreenFilterStepSchema, GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
 import { slot } from '../../scene/flows/slots';
 import {
     basis,
@@ -125,6 +125,16 @@ export const giResources = Object.freeze({
     // quadro (sondas e raios; privados do `ProbeFlow`).
     screenProbe: atlas('gi_screen_probe_texture', 'GlobalIllumination.screenProbe'),
     screenIrradiance: atlas('gi_screen_irradiance_texture', 'GlobalIllumination.screenIrradiance'),
+    /** O filtro à-trous das sondas de tela (T054): duas metades de ida e volta, irradiância e variância por sonda. */
+    screenFilter: priv('gi_screen_filter', 'read_write', { wgsl: 'vec4f', array: true }),
+    /** O passe do filtro: uma região por passe, por offset dinâmico (spec 039). */
+    screenFilterStep: wgslResource({
+        name: 'gi_screen_filter_step',
+        binding: { uniform: true },
+        type: { schema: GiScreenFilterStepSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
     screenProbeOut: out('gi_screen_probe_out', 'rgba32float'),
     screenIrradianceOut: out('gi_screen_irradiance_out'),
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
@@ -365,6 +375,9 @@ export const giScreenResolve = wgslModule({
         giCommon,
         R.screenProbeOut,
         R.screenIrradianceOut,
+        R.screenFilter,
+        R.screenFilterStep,
+        color,
     ],
 });
 

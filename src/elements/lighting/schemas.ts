@@ -22,6 +22,16 @@ export const GI_SCREEN_TILE_MIN = 4;
 export const GiScreenRecordSchema = new StructSchema('GiScreenRecord', { value: FieldType.vec4f });
 
 /**
+ * Um passe do filtro à-trous das sondas de tela (spec 034, T054): (passo em ladrilhos, metade lida, metade escrita,
+ * 1 no último — escreve a textura do desenho). Uma região por passe, por offset dinâmico.
+ */
+export const GiScreenFilterStepSchema = new StructSchema(
+    'GiScreenFilterStep',
+    { step: FieldType.vec4u },
+    { addressSpace: 'uniform' },
+);
+
+/**
  * Parâmetros da iluminação global (uniform, spec 033, R2/R5/R6): a grade (sondas por eixo, cascatas), o canto de cada
  * cascata em mundo com o espaçamento em `w`, os raios (por sonda, quadro, primeira sonda e sondas atualizadas), o
  * ajuste (histerese, vieses de normal e de vista, distância máxima), os rebatimentos e a rotação dos raios do quadro.

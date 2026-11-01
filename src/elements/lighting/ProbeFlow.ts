@@ -29,6 +29,7 @@ import type { World } from '../../scene/world/World';
 import { RayScene } from '../raytrace/RayScene';
 import { wordBuffer } from '../gpu/compute/schemas';
 import { RayWave } from '../raytrace/RayWave';
+import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { Camera } from '../scene/Camera';
 import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
@@ -42,6 +43,7 @@ import {
     GI_MAX_PROBES,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
+    GiScreenFilterStepSchema,
 } from './schemas';
 import {
     giProbeAtlas,
@@ -131,6 +133,9 @@ const SCREEN_TRACE = compute('gi_screen_trace', giScreenTrace, 'gi_screen_trace_
 const WAVE_DIRECT = compute('gi_wave_direct', giWaveDirect, 'gi_wave_direct_main');
 const TRACES = [PROBE_HIT, PROBE_TRACE, SCREEN_HIT, SCREEN_TRACE, WAVE_DIRECT];
 
+/** Os passes do filtro à-trous das sondas de tela (T054): passo em ladrilhos; ida e volta entre as duas metades. */
+const FILTER_STEPS = [1, 2, 4] as const;
+
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
 const VIEW_BIAS = 0.3;
@@ -167,6 +172,7 @@ interface Buffers {
     readonly screenWork: StorageBufferSpec;
     readonly waveDirect: StorageBufferSpec;
     readonly hysteresis: StorageBufferSpec;
+    readonly screenFilter: StorageBufferSpec;
 }
 
 /**
@@ -221,6 +227,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     private prepared = false;
     /** A onda dos acertos dos raios (o material fora do traçado): os das sondas do mundo e, depois deles, os das de tela. */
     private readonly wave: RayWave;
+    /** Os passes do filtro à-trous das sondas de tela (T054): o passo e as metades por região, por offset dinâmico. */
+    private readonly filterSteps: PerStepUniforms;
     private materialRevision = -1;
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
@@ -249,6 +257,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.resources = ctx.resources;
         work.use({ descriptors: () => this.bufferDescriptors() });
         this.wave = new RayWave(this.work, 'gi');
+        this.filterSteps = new PerStepUniforms(this.work, {
+            id: 'gi_screen_filter_step',
+            schema: GiScreenFilterStepSchema,
+        });
+        this.filterSteps.reserve(FILTER_STEPS.length);
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -317,7 +330,15 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
             run(pass, -4, tiles * screenRays, W);
             run(pass, 7, tiles, W);
-            run(pass, 8, tiles, W);
+            // O filtro à-trous em três passes (passos 1, 2 e 4), cada um na sua região do uniforme (T054).
+            const filter = fixed[8];
+            if (filter?.role === 'compute' && tiles > 0) {
+                pass.bind.setPipeline(filter.spec);
+                FILTER_STEPS.forEach((_, k) => {
+                    filter.bindTo(pass.bind, { draw: [this.filterSteps.offset(k)] });
+                    pass.dispatch.invocations(tiles, W);
+                });
+            }
         });
         // O acúmulo escreveu a fatia do quadro do histórico: o quadro seguinte a lê como a anterior (o canal gira).
         if (tiles > 0) bound.slots.giScreenHistory.written();
@@ -351,6 +372,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 48),
             // A histerese de cada sonda atualizada no quadro (spec 034, T049).
             wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
+            // O filtro à-trous das sondas de tela: duas metades de ida e volta, vec4f por sonda (T054).
+            wordBuffer('gi_probes:screenFilter', Math.max(1, sizes.tilesX * sizes.tilesY) * 2 * 16),
         ];
     }
 
@@ -369,6 +392,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             screenWork: of('screenWork'),
             waveDirect: of('waveDirect'),
             hysteresis: of('hysteresis'),
+            screenFilter: of('screenFilter'),
         };
     }
 
@@ -470,6 +494,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.radianceMap, b.radiance],
                 [R.radianceMapRead, b.radiance],
                 [R.probeHysteresis, b.hysteresis],
+                [R.screenFilter, b.screenFilter],
+                [R.screenFilterStep, this.filterSteps.source()],
                 [R.visibilityMap, b.visibility],
                 [R.visibilityMapRead, b.visibility],
                 [R.irradianceOut, views[0]!],
@@ -526,6 +552,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** O uniform do quadro: cascatas na câmera, raios, ajuste, rebatimentos, rotação e tempo. */
     private writeParams(c: Ctx, gi: GlobalIllumination, sizes: Sizes, cameraSlot: number): void {
         const d = gi.data;
+        // Os passes do filtro à-trous: o passo, a metade lida, a escrita e o último (escreve a textura do desenho).
+        FILTER_STEPS.forEach((step, k) => {
+            this.filterSteps.write(k, {
+                step: [step, k % 2, (k + 1) % 2, k === FILTER_STEPS.length - 1 ? 1 : 0],
+            });
+        });
+        this.filterSteps.flush(FILTER_STEPS.length);
         const canvas = this.core.canvasSize();
         const eye = d.center.length >= 3 ? d.center : this.cameraPosition(c);
         const cascades: number[][] = [];
