@@ -50,11 +50,10 @@ fn gi_screen_ray(j: u32) -> GiScreenRay {
     let valid = i < gi_screen_count();
     let at = gi_screen_probe_at(min(i, gi_screen_count() - 1u));
     let probe = gi_screen_work[at];
-    let n0 = gi_screen_work[at + 1u].xyz;
-    // Fora da vez no rodízio, só a sonda sem histórico (recém-descoberta) lança.
-    var update = valid && probe.w > 0.0;
-    if (update && !gi_screen_scheduled(i)) { update = !gi_screen_history_found(gi_screen_history_taps(probe.xyz, n0)); }
-    return GiScreenRay(i, j % rays, valid, update, probe, n0);
+    let n0 = gi_screen_work[at + 1u];
+    // A decisão da colocação (`gi_screen_place`): na vez no rodízio ou sem histórico.
+    let update = valid && probe.w > 0.0 && n0.w > 0.75;
+    return GiScreenRay(i, j % rays, valid, update, probe, n0.xyz);
 }
 
 /**

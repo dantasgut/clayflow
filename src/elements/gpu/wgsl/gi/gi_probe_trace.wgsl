@@ -7,7 +7,7 @@
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_probe_hit_main` grava o acerto na onda e
 // `gi_probe_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, ray_hit, ray_wave, gi_shade, gi_screen_reproject,
-// closure_eval, scene_environment, ray_volume_transmittance, gi_rays, gi_wave_light_read.
+// gi_screen_place, closure_eval, scene_environment, ray_volume_transmittance, gi_rays, gi_wave_light_read.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -36,12 +36,17 @@ fn gi_probe_ray(i: u32) -> GiProbeRay {
 
 /**
  * O acerto de cada raio das sondas (spec 039: o material fora do traçado): a transmitância dos volumes e a distância na
- * carga da onda (negativa na face de trás; a distância máxima no escape) e, na face da frente, o acerto na onda.
+ * carga da onda (negativa na face de trás; a distância máxima no escape) e, na face da frente, o acerto na onda. As
+ * invocações depois dos raios colocam as sondas de tela (`gi_screen_place`).
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_probe_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gi_trace_index(gid3, nwg);
-    if (i >= gi.rays.w * gi.rays.x) { return; }
+    // Depois dos raios das sondas do mundo, a colocação das sondas de tela.
+    if (i >= gi.rays.w * gi.rays.x) {
+        gi_screen_place(i - gi.rays.w * gi.rays.x);
+        return;
+    }
     let r = gi_probe_ray(i);
     let max_dist = gi.tuning.w;
     let origin = gi_probe_world(r.index);

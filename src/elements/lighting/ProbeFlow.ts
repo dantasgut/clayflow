@@ -51,7 +51,6 @@ import {
     giProbeClassify,
     giProbeTrace,
     giResources as R,
-    giScreenPlace,
     giScreenResolve,
     giScreenTrace,
     giScreenHistorySlot,
@@ -100,7 +99,6 @@ const CLASSIFY = compute('gi_classify', giProbeClassify, 'gi_probe_classify_main
 const ATLAS_IRRADIANCE = compute('gi_atlas_irradiance', giProbeAtlas, 'gi_atlas_irradiance_main');
 const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_visibility_main');
 const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_main');
-const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_main');
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
 const FIXED = [
@@ -110,7 +108,6 @@ const FIXED = [
     ATLAS_IRRADIANCE,
     ATLAS_VISIBILITY,
     ATLAS_PROBES,
-    SCREEN_PLACE,
     SCREEN_RESOLVE,
     SCREEN_FILTER,
     BLEND_RESPONSE,
@@ -309,18 +306,18 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         };
         const W = WORKGROUP_SIZE.value;
         frame.compute('ProbeFlow', (pass) => {
-            // A colocação das sondas de tela (só a estrutura de raios e a câmera) antes da rodada única da onda: os
-            // acertos das sondas do mundo e, depois deles, os das de tela, o material por classe e a luz direta de todos.
-            run(pass, 6, tiles, W);
+            // A rodada única da onda: os acertos das sondas do mundo com a colocação das sondas de tela na mesma despacho
+            // (os raios longos da câmera, poucos, sozinhos deixariam a GPU ociosa), depois os acertos das de tela, o
+            // material por classe e a luz direta de todos.
             this.wave.reset(pass, bound);
-            run(pass, -1, updated * rays, W);
+            run(pass, -1, updated * rays + tiles, W);
             run(pass, -3, tiles * screenRays, W);
             this.wave.shade(pass, bound);
             // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo).
             run(pass, -5, updated * rays + tiles * screenRays, W);
             run(pass, -2, updated * rays, W);
             // A histerese por sonda antes do acúmulo: todos os texels da sonda leem a mesma (T049).
-            run(pass, 9, updated, W);
+            run(pass, 8, updated, W);
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
             run(pass, 2, updated, W);
@@ -329,9 +326,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 5, updated, W);
             // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
             run(pass, -4, tiles * screenRays, W);
-            run(pass, 7, tiles, W);
+            run(pass, 6, tiles, W);
             // O filtro à-trous em três passes (passos 1, 2 e 4), cada um na sua região do uniforme (T054).
-            const filter = fixed[8];
+            const filter = fixed[7];
             if (filter?.role === 'compute' && tiles > 0) {
                 pass.bind.setPipeline(filter.spec);
                 FILTER_STEPS.forEach((_, k) => {

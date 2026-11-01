@@ -28,7 +28,10 @@ fn gi_screen_scheduled(i: u32) -> bool {
     return phase == gi.rays.y % period;
 }
 
-/** Índice no buffer de trabalho da posição da sonda `i` (a normal vem logo depois). */
+/**
+ * Índice no buffer de trabalho da posição da sonda `i` (a normal vem logo depois, com `w` = 1 quando a sonda lança raios
+ * no quadro, 0,5 quando herda o histórico).
+ */
 fn gi_screen_probe_at(i: u32) -> u32 {
     return 2u * i;
 }

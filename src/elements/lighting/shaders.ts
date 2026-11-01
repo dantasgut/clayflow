@@ -231,6 +231,13 @@ const giScreenReproject = wgslModule({
     ],
 });
 
+/** Colocação das sondas de tela pelo raio da câmera (na despacho dos acertos das sondas do mundo). */
+const giScreenPlace = wgslModule({
+    name: 'gi_screen_place',
+    source: giScreenPlaceSource,
+    requires: [NONE.module, R.params, giScreenCommon, giScreenReproject, rayScene, R.screenWork],
+});
+
 /** Raios das sondas atualizadas no quadro. */
 export const giProbeTrace = wgslModule({
     name: 'gi_probe_trace',
@@ -244,6 +251,7 @@ export const giProbeTrace = wgslModule({
         rayHit,
         giShade,
         giScreenReproject,
+        giScreenPlace,
         closureEval,
         sceneEnvironmentReady,
         rayVolumeTransmittanceReady,
@@ -321,13 +329,6 @@ export const giProbeAtlas = wgslModule({
         R.visibilityOut,
         R.probeOut,
     ],
-});
-
-/** Colocação das sondas de tela pelo raio da câmera. */
-export const giScreenPlace = wgslModule({
-    name: 'gi_screen_place',
-    source: giScreenPlaceSource,
-    requires: [WORKGROUP_SIZE.module, R.params, giScreenCommon, rayScene, R.screenWork],
 });
 
 /** Raios das sondas de tela. */
