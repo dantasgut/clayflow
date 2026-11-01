@@ -109,6 +109,11 @@ export interface GlobalIlluminationValues {
 /** Dado de uma `GlobalIllumination`: os parâmetros de autoria. */
 export interface GlobalIlluminationData {
     enabled: boolean;
+    /**
+     * A luz global nos caminhos de luz do `Renderer` (`lightPaths.globalIllumination`): desligada lá, a GI não roda
+     * mesmo com `enabled`. Escrito pelo renderizador; `true` sem ele.
+     */
+    lightPath: boolean;
     bounces: number;
     raysPerProbe: number;
     probeFraction: number;
@@ -133,10 +138,34 @@ export interface GlobalIlluminationData {
     params: [Record<string, number[]>];
 }
 
-const RAYS = [32, 64, 128, 256] as const;
-const SCREEN_RAYS = [4, 8, 16, 32, 64] as const;
-const SCREEN_TILES = [4, 8, 16] as const;
-const SCREEN_FRACTIONS = [1, 0.5, 0.25] as const;
+/** Raios por sonda aceitos. */
+export const GI_RAYS_PER_PROBE = [32, 64, 128, 256] as const;
+/** Raios por sonda de tela aceitos. */
+export const GI_SCREEN_RAYS = [4, 8, 16, 32, 64] as const;
+/** Lados do ladrilho de uma sonda de tela aceitos (px num alvo de 1080 linhas). */
+export const GI_SCREEN_TILES = [4, 8, 16] as const;
+/** Frações das sondas de tela por quadro aceitas. */
+export const GI_SCREEN_FRACTIONS = [1, 0.5, 0.25] as const;
+const RAYS = GI_RAYS_PER_PROBE;
+const SCREEN_RAYS = GI_SCREEN_RAYS;
+const SCREEN_TILES = GI_SCREEN_TILES;
+const SCREEN_FRACTIONS = GI_SCREEN_FRACTIONS;
+
+/** Os valores da GI que o perfil do `Renderer` preenche (os da qualidade). */
+export type GlobalIlluminationProfileField =
+    | 'raysPerProbe'
+    | 'probeFraction'
+    | 'screenRays'
+    | 'screenTile'
+    | 'screenFraction';
+
+const PROFILE_FIELDS: readonly GlobalIlluminationProfileField[] = [
+    'raysPerProbe',
+    'probeFraction',
+    'screenRays',
+    'screenTile',
+    'screenFraction',
+];
 
 /** Lado do atlas de um mapa octaédrico de `texels` com borda de 1 texel. */
 export function giAtlasSize(texels: number): readonly [number, number] {
@@ -148,7 +177,7 @@ export function giAtlasSize(texels: number): readonly [number, number] {
  * Valida os valores de autoria.
  * @throws RangeError fora dos intervalos documentados.
  */
-function validate(d: Omit<GlobalIlluminationData, 'params' | 'screenRecords'>): void {
+function validate(d: Omit<GlobalIlluminationData, 'params' | 'screenRecords' | 'lightPath'>): void {
     const check = (ok: boolean, what: string): void => {
         if (!ok) throw new RangeError(`GlobalIllumination: ${what}.`);
     };
@@ -206,9 +235,19 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
     static readonly schema = GlobalIlluminationSchema;
 
     state: ResourceState = ResourceState.Uninitialized;
+    /**
+     * Os valores da qualidade fixados pela autoria (na construção, ou todos por `quality`): o perfil do `Renderer` não
+     * os muda; os outros vêm dele (spec 034, T079).
+     */
+    readonly authored: ReadonlySet<GlobalIlluminationProfileField>;
 
     constructor(values: GlobalIlluminationValues = {}) {
         super();
+        this.authored = new Set(
+            values.quality !== undefined
+                ? PROFILE_FIELDS
+                : PROFILE_FIELDS.filter((k) => values[k] !== undefined),
+        );
         const q = GI_QUALITY[values.quality ?? 'medium'];
         const data = {
             enabled: values.enabled ?? true,
@@ -227,19 +266,36 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         validate(data);
         this.data = {
             ...data,
+            lightPath: true,
             screenRecords: 1,
             params: [GlobalIlluminationSchema.applyDefaults({}) as Record<string, number[]>],
         };
     }
 
-    /** Aplica uma qualidade (raios por sonda, fração por quadro, sondas de tela). */
+    /** Aplica uma qualidade (raios por sonda, fração por quadro, sondas de tela), fixada pela autoria. */
     set quality(q: GlobalIlluminationQuality) {
         const v = GI_QUALITY[q];
+        for (const k of PROFILE_FIELDS)
+            (this.authored as Set<GlobalIlluminationProfileField>).add(k);
         this.data.raysPerProbe = v.raysPerProbe;
         this.data.probeFraction = v.probeFraction;
         this.data.screenRays = v.screenRays;
         this.data.screenTile = v.screenTile;
         this.data.screenFraction = v.screenFraction;
+    }
+
+    /**
+     * Os valores do `Renderer` (spec 034, T079): os da qualidade que a autoria não fixou e o caminho de luz. Só escreve
+     * o que muda.
+     */
+    fromRenderer(
+        values: Readonly<Record<GlobalIlluminationProfileField, number>>,
+        lightPath: boolean,
+    ): void {
+        const d = this.rawData;
+        for (const k of PROFILE_FIELDS)
+            if (!this.authored.has(k) && d[k] !== values[k]) this.data[k] = values[k];
+        if (d.lightPath !== lightPath) this.data.lightPath = lightPath;
     }
 
     /** Valida os valores atuais (o estágio chama antes de usá-los; um valor inválido mantém o anterior). */

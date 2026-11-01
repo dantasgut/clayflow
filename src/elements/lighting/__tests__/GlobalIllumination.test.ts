@@ -121,6 +121,35 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(world.queryBySchemaName(HemisphereLight.schema.name)).toHaveLength(1);
     });
 
+    it('a GI e a sombra da cena seguem o renderizador dos estágios padrão; desligada nos caminhos de luz, nada roda (T079)', async () => {
+        const s = await renderScene();
+        const defaults = registerPresentationDefaults(s.scene.flows, {
+            world: s.scene.world,
+            events: s.scene.events,
+        });
+        const world = s.scene.world;
+        const renderer = defaults.renderer;
+        renderer.profile = 'low';
+        world.insert(new Camera().add(new Transform({ position: [0, 1, 5, 1] })));
+        const light = new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true });
+        world.insert(light);
+        world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
+        const gi = new GlobalIllumination();
+        world.insert(gi);
+        expect(gi.data.raysPerProbe).toBe(GI_QUALITY.low.raysPerProbe);
+        expect(light.shadowMap?.data).toMatchObject({ size: [512, 512], penumbraSamples: 4 });
+        renderer.profile = 'medium';
+        expect(gi.data.screenTile).toBe(GI_QUALITY.medium.screenTile);
+        expect(light.shadowMap?.data.size).toEqual([1024, 1024]);
+        renderer.lightPaths.globalIllumination = false;
+        s.step();
+        s.step();
+        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(0);
+        renderer.lightPaths.globalIllumination = true;
+        s.step();
+        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(1);
+    });
+
     it('o estágio das sondas grava um passe por quadro (raios, acúmulo, estado e atlas)', async () => {
         const s = await renderScene();
         registerPresentationDefaults(s.scene.flows, {

@@ -44,6 +44,7 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { ShadowMap } from '../../elements/scene/ShadowMap';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
@@ -153,6 +154,9 @@ export function registerPresentationDefaults(
     // do sinal traçado; as cáusticas entram com o primeiro transmissivo.
     const renderer = new SceneRenderer({ antialiasing: options.antialiasing ?? 'temporal' });
     options.world.insert(renderer);
+    // A névoa segue o perfil do renderizador (a resolução dos froxels, spec 034 T079); a luz global e as sombras, por
+    // evento quando entram (`followRenderer`).
+    renderer.adopt(froxels);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -168,6 +172,7 @@ export function registerPresentationDefaults(
                   const offs = [
                       swapAmbientForGi(options.world, events, ambient, frameTargets),
                       raySceneForTransmissives(options.world, events, renderer),
+                      followRenderer(options.world, events, renderer),
                   ];
                   return () => {
                       for (const off of offs) off();
@@ -249,6 +254,22 @@ function raySceneForTransmissives(
     for (const record of world.allRecords()) ensure(record.resources);
     return events.on('resourcesChanged', (e) => {
         ensure(e.added);
+    });
+}
+
+/**
+ * A luz global e os mapas de sombra da cena seguem o renderizador por evento (spec 034, T079): os que entram — e os já
+ * na cena — recebem os valores do perfil e dos ajustes dele (o que a autoria fixou neles vale por cima); os que saem
+ * deixam de segui-lo. Devolve o cancelamento.
+ */
+function followRenderer(world: World, events: EventBus, renderer: SceneRenderer): () => void {
+    const follows = (r: Resource): r is GlobalIllumination | ShadowMap =>
+        r instanceof GlobalIllumination || r instanceof ShadowMap;
+    for (const record of world.allRecords())
+        for (const r of record.resources) if (follows(r)) renderer.adopt(r);
+    return events.on('resourcesChanged', (e) => {
+        for (const r of e.removed) if (follows(r)) renderer.release(r);
+        for (const r of e.added) if (follows(r)) renderer.adopt(r);
     });
 }
 

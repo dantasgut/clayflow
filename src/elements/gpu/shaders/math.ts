@@ -262,5 +262,5 @@ export const present = wgslModule({ name: 'present', source: presentSource, requ
  */
 export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource, requires: [constants] });
 
-/** Sombra por PCF 3×3 (o sombreamento físico está em `bsdf` e no fechamento, spec 011). */
+/** Sombra por PCF (até 3×3, as amostras da penumbra do mapa; o sombreamento físico está em `bsdf` e no fechamento, spec 011). */
 export const brdf = wgslModule({ name: 'brdf', source: brdfSource, requires: [viewSpace] });

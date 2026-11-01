@@ -15,6 +15,11 @@ r.lightPaths.transmission = 8;        // por cima do perfil: interfaces de trans
 r.lightPaths.refraction = true;       // a refração traçada ligada
 r.caustics.photons = 32_768;          // fótons por quadro; enabled, cellSize
 r.tracing.checkerboard = true;        // metade dos blocos 2×2 por quadro (−4 a −5 ms; 1,6 % nas bordas, parado)
+r.lightPaths.globalIllumination = false; // a luz global da cena desligada (a GlobalIllumination não roda)
+r.globalIllumination.raysPerProbe = 128; // raios por sonda; probeFraction, screenRays, screenTile, screenFraction
+r.fog.resolution = [160, 90, 128];    // froxels da névoa por eixo
+r.shadows.resolution = 2048;          // lado do mapa de sombra em texels
+r.shadows.penumbraSamples = 9;        // amostras da penumbra: 1, 4 ou 9
 r.antialiasing.mode = 'temporal';     // 'temporal', 'accumulate', 'off'
 r.temporalFilter.enabled = true;      // o filtro do sinal traçado
 r.output.data.exposure = 1;           // a saída: exposição, mapeamento de tons, sdr/hdr
@@ -26,14 +31,29 @@ são de autoria: são os Resources que os estágios leem, mantidos pelo renderiz
 
 ## Perfis
 
-| Perfil   | Interfaces | Cáusticas     | Traçado em xadrez |
-| -------- | ---------- | ------------- | ----------------- |
-| `high`   | 16         | 65 536 fótons | não               |
-| `medium` | 4          | 16 384 fótons | sim               |
-| `low`    | 4          | 8 192 fótons  | sim               |
+| Perfil   | Interfaces | Cáusticas     | Traçado em xadrez | Luz global (qualidade) | Froxels        | Mapa de sombra | Penumbra |
+| -------- | ---------- | ------------- | ----------------- | ---------------------- | -------------- | -------------- | -------- |
+| `high`   | 16         | 65 536 fótons | não               | alta                   | 160 × 90 × 128 | 1024²          | 9        |
+| `medium` | 4          | 16 384 fótons | sim               | média                  | 128 × 72 × 96  | 1024²          | 4        |
+| `low`    | 4          | 8 192 fótons  | sim               | baixa                  | 96 × 54 × 64   | 512²           | 4        |
 
-O alto é o padrão de antes da 039 (a mesma imagem); o médio e o baixo vêm dos botões medidos no tanque
-(`specs/039-tracado-em-ondas/baseline.md`, "Os botões de qualidade").
+O alto é o padrão de antes da 039 e da T079 da 034 (a mesma imagem); o médio e o baixo vêm dos botões medidos no tanque
+(`specs/039-tracado-em-ondas/baseline.md`, "Os botões de qualidade"). A qualidade da luz global é a da
+`GlobalIllumination` (raios por sonda, fração das sondas do mundo por quadro, raios, ladrilho e fração das sondas de
+tela).
+
+## Luz global, névoa e sombras (spec 034, T079)
+
+A `GlobalIllumination`, os `Froxels` da névoa e os `ShadowMap` das luzes continuam sendo recursos da cena; os estágios
+padrão fazem cada um que entra seguir o renderizador. Ele preenche os valores do perfil e os ajustes feitos depois. **O
+que a autoria fixou no recurso vale por cima**: `new GlobalIllumination({ quality: 'medium' })` fica na média em
+qualquer perfil, `new GlobalIllumination({ screenTile: 16 })` fixa só o ladrilho, `castShadow` com
+`shadow: { size: [2048, 2048] }` fixa a resolução daquele mapa. A troca de resolução realoca as grades e a textura pela
+C2 (o histórico da névoa recomeça).
+
+O espaçamento das sondas do mundo (`probeSpacing`) não entra no perfil: ele é limitado pela parede mais fina da cena, e
+maior que isso a luz vaza. `lightPaths.globalIllumination = false` desliga a GI da cena sem tirá-la (o `enabled` da
+autoria fica como está).
 
 Trocar o perfil vale no quadro seguinte. O espaço de trabalho dos estágios cresce e encolhe com os valores — a C2
 realoca nos dois sentidos ([Flows — Espaço de trabalho](./flows.md#espaço-de-trabalho-spec-039)). As medidas de tempo

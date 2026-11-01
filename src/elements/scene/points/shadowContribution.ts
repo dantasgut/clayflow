@@ -14,7 +14,7 @@ import { lightVisibilityPoint } from './lighting';
 
 const visibilities = new Map<string, WgslModule>();
 
-/** Visibilidade da luz no slot `lightSlot` pela sombra (PCF 3×3 girado no quadro) do mapa no slot `shadowSlot`; as outras luzes: 1. */
+/** Visibilidade da luz no slot `lightSlot` pela sombra (PCF com as amostras da penumbra do mapa, girado no quadro) do mapa no slot `shadowSlot`; as outras luzes: 1. */
 function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     const key = `${lightSlot}:${shadowSlot}`;
     let m = visibilities.get(key);
@@ -34,7 +34,7 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     let sm = shadow_maps[${shadowSlot}u];
     let matrix = shadow_matrices[${shadowSlot}u];
     let l = -normalize(lights[${lightSlot}u].direction.xyz);
-    return sample_shadow_pcf(shadow_map, shadow_sampler, matrix.lightViewProj, p, n, l, sm.bias, sm.normalBias, matrix.kernelRotation, 1.0);
+    return sample_shadow_pcf(shadow_map, shadow_sampler, matrix.lightViewProj, p, n, l, sm.bias, sm.normalBias, matrix.kernelRotation, sm.penumbraSamples, 1.0);
 }`,
         });
         visibilities.set(key, m);

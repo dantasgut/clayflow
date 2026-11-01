@@ -433,9 +433,14 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.syncTrace(c, c.bound.slots.rays.resource as RayScene);
         const cameraSlot = this.cameraSlot(c);
         this.screenActive =
-            d.enabled && d.screenGather && cameraSlot !== undefined && sizes.tilesX > 0;
+            d.enabled
+            && d.lightPath
+            && d.screenGather
+            && cameraSlot !== undefined
+            && sizes.tilesX > 0;
         this.writeParams(c, gi, sizes, cameraSlot ?? 0);
-        this.active = d.enabled;
+        // Desligada pela autoria ou nos caminhos de luz do `Renderer` (T079): nada roda.
+        this.active = d.enabled && d.lightPath;
     }
 
     /** Os buffers nos tamanhos dados: a C2 os realoca (o histórico das sondas recomeça). */
@@ -543,7 +548,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, caustics ? 1 : 0],
+                bounces: [sizes.bounces, d.enabled && d.lightPath ? 1 : 0, 0, caustics ? 1 : 0],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,

@@ -26,7 +26,7 @@ import { halton } from '../scene/TemporalAntialiasing';
 import { Transform } from '../scene/Transform';
 import { FogVolume } from './FogVolume';
 import { Froxels } from './Froxels';
-import { FROXEL_AMBIENT_GRID, FROXEL_GRID, FROXEL_NEAR } from './schemas';
+import { FROXEL_NEAR, froxelAmbientGrid } from './schemas';
 import {
     froxelAmbient,
     froxelHistorySlot,
@@ -114,6 +114,8 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
     private grids: GridCopy[] = [];
     private frame = 0;
     private farStep: number | undefined;
+    /** A resolução da grade do quadro anterior (o histórico só vale na mesma). */
+    private gridKey: string | undefined;
     /** O formato do histórico resolvido pela C2 (spec 037: a precisão do canal, com o recuo sem `float32-filterable`). */
     private historyFormat: GPUTextureFormat | undefined;
     private active = false;
@@ -162,19 +164,19 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             return;
         for (const g of this.grids) frame.copy(g.buffer, this.mediaBuffer, g.bytes, 0, g.offset);
         const W = WORKGROUP_SIZE.value;
+        // A grade do quadro (a dos `Froxels`, do perfil do `Renderer`) e a da luz ambiente que a acompanha.
+        const grid = (bound.slots.froxels.resource as Froxels).grid;
+        const am = froxelAmbientGrid(grid);
         frame.compute('FroxelFlow', (pass) => {
             pass.bind.setPipeline(ambient.spec);
             ambient.bindTo(pass.bind);
-            pass.dispatch.invocations(
-                FROXEL_AMBIENT_GRID[0] * FROXEL_AMBIENT_GRID[1] * FROXEL_AMBIENT_GRID[2],
-                W,
-            );
+            pass.dispatch.invocations(am[0] * am[1] * am[2], W);
             pass.bind.setPipeline(inject.spec);
             inject.bindTo(pass.bind);
-            pass.dispatch.invocations(FROXEL_GRID[0] * FROXEL_GRID[1] * FROXEL_GRID[2], W);
+            pass.dispatch.invocations(grid[0] * grid[1] * grid[2], W);
             pass.bind.setPipeline(integrate.spec);
             integrate.bindTo(pass.bind);
-            pass.dispatch.invocations(FROXEL_GRID[0] * FROXEL_GRID[1], W);
+            pass.dispatch.invocations(grid[0] * grid[1], W);
         });
         // A fatia do quadro do histórico foi escrita: o quadro seguinte a lê como a anterior (o canal gira).
         bound.slots.froxelHistory.written();
@@ -364,14 +366,20 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         const step = Math.ceil(Math.log(far / FROXEL_NEAR) / Math.log(FAR_STEP));
         far = FROXEL_NEAR * FAR_STEP ** step;
         // O histórico vale se a fatia anterior foi escrita no quadro imediatamente anterior (a reprojeção usa a câmera
-        // desse quadro) e as fatias da grade não mudaram.
-        const valid = c.bound.slots.froxelHistory.age(1) === 1 && step === this.farStep;
+        // desse quadro)
+        // e as fatias da grade não mudaram (nem a resolução dela: o perfil do `Renderer` realoca as grades).
+        const grid = froxels.grid.join(',');
+        const valid =
+            c.bound.slots.froxelHistory.age(1) === 1
+            && step === this.farStep
+            && grid === this.gridKey;
         this.farStep = step;
+        this.gridKey = grid;
         const n = this.frame + 1;
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         froxels.data.params = [
             {
-                grid: [FROXEL_GRID[0], FROXEL_GRID[1], FROXEL_GRID[2], cameraSlot],
+                grid: [froxels.grid[0], froxels.grid[1], froxels.grid[2], cameraSlot],
                 depth: [FROXEL_NEAR, far, Math.log(far / FROXEL_NEAR), this.active ? 1 : 0],
                 frame: [halton(n, 2), halton(n, 3), halton(n, 5), time],
                 counts: [
