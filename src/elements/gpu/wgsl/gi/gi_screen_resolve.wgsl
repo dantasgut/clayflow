@@ -19,6 +19,7 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     if (probe.w <= 0.0) {
         for (var k = 0u; k < gi_screen_history_stride(); k++) { gi_screen_history[out + k] = vec4f(0.0); }
         gi_screen_filter[i] = vec4f(0.0);
+        gi_screen_filter[2u * gi_screen_count() + i] = vec4f(0.0);
         textureStore(gi_screen_probe_out, tile, vec4f(0.0));
         textureStore(gi_screen_irradiance_out, tile, vec4f(0.0));
         return;
@@ -54,6 +55,8 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     // sonda na luminância dela).
     let sd = gi_screen_noise(response.state) * luminance(e);
     gi_screen_filter[i] = vec4f(e, sd * sd);
+    // A geometria da sonda para o filtro numa leitura: a posição e a normal empacotada (> 0: há superfície).
+    gi_screen_filter[2u * gi_screen_count() + i] = vec4f(probe.xyz, gi_normal_pack(n));
     // A posição e, no w, a normal empacotada (> 0: há superfície).
     textureStore(gi_screen_probe_out, tile, vec4f(probe.xyz, gi_normal_pack(n)));
 }
@@ -69,8 +72,8 @@ fn gi_screen_noise(state: vec4f) -> f32 {
     return sqrt(max(state.z * (1.0 - h) / (1.0 + h), 0.0));
 }
 
-/** Pesos do núcleo B3 do à-trous por distância em passos (0, 1, 2). */
-const GI_ATROUS_KERNEL = array<f32, 3>(0.375, 0.25, 0.0625);
+/** Pesos do núcleo do à-trous por distância em passos (0, 1): o B-spline 3 × 3. */
+const GI_ATROUS_KERNEL = array<f32, 2>(0.5, 0.25);
 /** Desvios da luminância (pela variância da sonda) acima dos quais a vizinha não pesa (SVGF). */
 const GI_ATROUS_LUMA: f32 = 4.0;
 /** Teto do desvio da luminância, como fração da luminância da sonda. */
@@ -94,36 +97,35 @@ fn gi_screen_filter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let src = gi_screen_filter_step.step.y * count;
     let dst = gi_screen_filter_step.step.z * count;
     let last = gi_screen_filter_step.step.w == 1u;
-    // A fatia do quadro do histórico (o acúmulo acabou de escrevê-la): a posição e a normal das sondas.
-    let at = gi_screen_history_at(i);
-    let probe = gi_screen_history[at];
+    // A geometria das sondas que o acúmulo acabou de gravar: a posição e a normal empacotada (0 sem superfície).
+    let geometry = 2u * count;
+    let probe = gi_screen_filter[geometry + i];
     if (probe.w <= 0.0) {
         gi_screen_filter[dst + i] = vec4f(0.0);
         if (last) { textureStore(gi_screen_irradiance_out, vec2u(tile), vec4f(0.0)); }
         return;
     }
-    let n = gi_screen_history[at + 1u].xyz;
+    let n = gi_normal_unpack(probe.w);
     let c = gi_screen_filter[src + i];
     let lc = luminance(c.rgb);
     let sigma = GI_ATROUS_LUMA * sqrt(max(c.w, 0.0)) + 1e-3 * lc + 1e-8;
     // O desvio limitado a uma fração da luminância da sonda: com a variância da média recém-recomeçada (a luz mudou),
     // sem o limite o filtro levaria a luz do lugar que mudou para os vizinhos que não mudaram e a resposta atrasaria.
     let pair = min(sigma, GI_ATROUS_RELATIVE * lc + 1e-8);
-    let tolerance = 0.01 + probe.w * 0.01;
+    let tolerance = 0.01 + gi_screen_history[gi_screen_history_at(i)].w * 0.01;
     let kc = GI_ATROUS_KERNEL[0] * GI_ATROUS_KERNEL[0];
     var sum = c.rgb * kc;
     var vsum = max(c.w, 0.0) * kc * kc;
     var wsum = kc;
-    for (var o = 0u; o < 25u; o++) {
-        let d = vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
+    for (var o = 0u; o < 9u; o++) {
+        let d = vec2i(i32(o % 3u) - 1, i32(o / 3u) - 1);
         if (all(d == vec2i(0))) { continue; }
         let t = tile + d * step;
         if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
         let j = u32(t.x) + u32(t.y) * gi.screen.x;
-        let hq = gi_screen_history_at(j);
-        let q = gi_screen_history[hq];
+        let q = gi_screen_filter[geometry + j];
         if (q.w <= 0.0) { continue; }
-        let qn = gi_screen_history[hq + 1u].xyz;
+        let qn = gi_normal_unpack(q.w);
         let s = gi_screen_filter[src + j];
         let plane = abs(dot(q.xyz - probe.xyz, n));
         let w = GI_ATROUS_KERNEL[abs(d.x)] * GI_ATROUS_KERNEL[abs(d.y)] * max(0.0, 1.0 - plane / tolerance)

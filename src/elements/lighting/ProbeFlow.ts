@@ -54,6 +54,7 @@ import {
     giScreenPlace,
     giScreenResolve,
     giScreenTrace,
+    giScreenGuide,
     giScreenHistorySlot,
     giWaveDirect,
 } from './shaders';
@@ -96,6 +97,8 @@ const BLEND_IRRADIANCE = compute('gi_blend_irradiance', giProbeBlend, 'gi_blend_
 const BLEND_VISIBILITY = compute('gi_blend_visibility', giProbeBlend, 'gi_blend_visibility_main');
 /** A histerese de cada sonda atualizada, antes do acúmulo (spec 034, T049: o estado da resposta lido e gravado uma vez). */
 const BLEND_RESPONSE = compute('gi_blend_response', giProbeBlend, 'gi_blend_response_main');
+/** As direções e os pesos MIS dos raios das sondas de tela (spec 034, T051). */
+const SCREEN_GUIDE = compute('gi_screen_guide', giScreenGuide, 'gi_screen_guide_main');
 const CLASSIFY = compute('gi_classify', giProbeClassify, 'gi_probe_classify_main');
 const ATLAS_IRRADIANCE = compute('gi_atlas_irradiance', giProbeAtlas, 'gi_atlas_irradiance_main');
 const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_visibility_main');
@@ -114,6 +117,7 @@ const FIXED = [
     SCREEN_RESOLVE,
     SCREEN_FILTER,
     BLEND_RESPONSE,
+    SCREEN_GUIDE,
 ];
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
@@ -312,6 +316,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             // A colocação das sondas de tela (só a estrutura de raios e a câmera) antes da rodada única da onda: os
             // acertos das sondas do mundo e, depois deles, os das de tela, o material por classe e a luz direta de todos.
             run(pass, 6, tiles, W);
+            // As direções da amostragem mista (cosseno + guia pela sonda do mundo) antes do acerto (T051).
+            run(pass, 10, tiles, W);
             this.wave.reset(pass, bound);
             run(pass, -1, updated * rays, W);
             run(pass, -3, tiles * screenRays, W);
@@ -362,18 +368,19 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'gi_probes:visibility',
                 GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
             ),
-            // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração (o
-            // histórico, de 3 + gerações vec4f por sonda, é o canal temporal `GlobalIllumination.screenHistory`).
+            // Coleta final na tela: por sonda de tela, posição e normal, a irradiância do quadro de cada geração e, por
+            // raio, a direção e o peso da amostragem mista (T051) — o histórico, de 3 + gerações vec4f por sonda, é o
+            // canal temporal `GlobalIllumination.screenHistory`.
             wordBuffer(
                 'gi_probes:screenWork',
-                sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
+                sizes.tilesX * sizes.tilesY * (2 + sizes.bounces + sizes.screenRays / 2) * 16,
             ),
             // A luz direta nos acertos da onda e os fatores do fechamento (três vec4f), por raio da rodada (spec 034 T078).
             wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 48),
             // A histerese de cada sonda atualizada no quadro (spec 034, T049).
             wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
-            // O filtro à-trous das sondas de tela: duas metades de ida e volta, vec4f por sonda (T054).
-            wordBuffer('gi_probes:screenFilter', Math.max(1, sizes.tilesX * sizes.tilesY) * 2 * 16),
+            // O filtro à-trous das sondas de tela: duas metades de ida e volta e a geometria, vec4f por sonda (T054).
+            wordBuffer('gi_probes:screenFilter', Math.max(1, sizes.tilesX * sizes.tilesY) * 3 * 16),
         ];
     }
 
