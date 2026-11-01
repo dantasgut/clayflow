@@ -31,11 +31,21 @@ const giLighting = wgslModule({
     source: `/** Rugosidade abaixo da qual a especular indireta vem da radiância das sondas do mundo. */
 const GI_GLOSSY: f32 = 0.5;
 
-/** Irradiância (E/π) no ponto com a normal \`nl\`: das sondas de tela se alguma vale, senão das do mundo. */
+/** Cobertura das sondas de tela a partir da qual valem sozinhas (abaixo, a mistura com as do mundo). */
+const GI_SCREEN_FULL: f32 = 0.5;
+
+/**
+ * Irradiância (E/π) no ponto com a normal \`nl\`: a das sondas de tela pela confiança delas — a cobertura (a soma dos
+ * pesos de posição, plano e normal) até \`GI_SCREEN_FULL\` — e, no que falta (quinas, bordas, fora da tela), a das sondas
+ * do mundo: a mistura contínua, sem escolha entre as duas e sem uma vizinha só valendo pelo ponto.
+ */
 fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
     let screen = gi_screen_irradiance(p, nl);
-    if (screen.a > 0.0) { return screen.rgb / PI; }
-    return gi_irradiance(p, nl, v) / PI;
+    let confidence = saturate(screen.a / GI_SCREEN_FULL);
+    var e = vec3f(0.0);
+    if (confidence > 0.0) { e = screen.rgb / screen.a * confidence; }
+    if (confidence < 1.0) { e += (1.0 - confidence) * gi_irradiance(p, nl, v); }
+    return e / PI;
 }
 
 fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
