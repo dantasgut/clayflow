@@ -92,6 +92,8 @@ const compute = (id: string, shader: WgslModule, entry: string): PipelineDescrip
 
 const BLEND_IRRADIANCE = compute('gi_blend_irradiance', giProbeBlend, 'gi_blend_irradiance_main');
 const BLEND_VISIBILITY = compute('gi_blend_visibility', giProbeBlend, 'gi_blend_visibility_main');
+/** A histerese de cada sonda atualizada, antes do acúmulo (spec 034, T049: o estado da resposta lido e gravado uma vez). */
+const BLEND_RESPONSE = compute('gi_blend_response', giProbeBlend, 'gi_blend_response_main');
 const CLASSIFY = compute('gi_classify', giProbeClassify, 'gi_probe_classify_main');
 const ATLAS_IRRADIANCE = compute('gi_atlas_irradiance', giProbeAtlas, 'gi_atlas_irradiance_main');
 const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_visibility_main');
@@ -109,6 +111,7 @@ const FIXED = [
     SCREEN_PLACE,
     SCREEN_RESOLVE,
     SCREEN_FILTER,
+    BLEND_RESPONSE,
 ];
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
@@ -163,6 +166,7 @@ interface Buffers {
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
     readonly waveDirect: StorageBufferSpec;
+    readonly hysteresis: StorageBufferSpec;
 }
 
 /**
@@ -302,6 +306,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo).
             run(pass, -5, updated * rays + tiles * screenRays, W);
             run(pass, -2, updated * rays, W);
+            // A histerese por sonda antes do acúmulo: todos os texels da sonda leem a mesma (T049).
+            run(pass, 9, updated, W);
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
             run(pass, 2, updated, W);
@@ -343,6 +349,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             ),
             // A luz direta nos acertos da onda e os fatores do fechamento (três vec4f), por raio da rodada (spec 034 T078).
             wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 48),
+            // A histerese de cada sonda atualizada no quadro (spec 034, T049).
+            wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
         ];
     }
 
@@ -360,6 +368,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             visibility: of('visibility'),
             screenWork: of('screenWork'),
             waveDirect: of('waveDirect'),
+            hysteresis: of('hysteresis'),
         };
     }
 
@@ -460,6 +469,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.generationsRead, b.generations],
                 [R.radianceMap, b.radiance],
                 [R.radianceMapRead, b.radiance],
+                [R.probeHysteresis, b.hysteresis],
                 [R.visibilityMap, b.visibility],
                 [R.visibilityMapRead, b.visibility],
                 [R.irradianceOut, views[0]!],

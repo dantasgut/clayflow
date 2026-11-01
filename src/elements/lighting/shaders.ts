@@ -116,6 +116,8 @@ export const giResources = Object.freeze({
     generations: priv('gi_generations', 'read_write', { wgsl: 'vec2u', array: true }),
     generationsRead: priv('gi_generations', 'read', { wgsl: 'vec2u', array: true }),
     radianceMap: priv('gi_radiance_map', 'read_write', { wgsl: 'vec2u', array: true }),
+    /** A histerese de cada sonda atualizada no quadro (spec 034, T049): o passe da resposta grava, o acúmulo lê. */
+    probeHysteresis: priv('gi_probe_hysteresis', 'read_write', { wgsl: 'f32', array: true }),
     radianceMapRead: priv('gi_radiance_map', 'read', { wgsl: 'vec2u', array: true }),
     visibilityMap: priv('gi_visibility_map', 'read_write', { wgsl: 'u32', array: true }),
     visibilityMapRead: priv('gi_visibility_map', 'read', { wgsl: 'u32', array: true }),
@@ -280,6 +282,7 @@ export const giProbeBlend = wgslModule({
         R.generations,
         R.radianceMap,
         R.visibilityMap,
+        R.probeHysteresis,
     ],
 });
 
