@@ -1,6 +1,7 @@
 // Irradiância de um rebatimento anterior no ponto atingido (spec 033, R2): as sondas das cascatas em volta, com os pesos
-// de `gi_weights`, lendo o texel mais próximo do mapa octaédrico do rebatimento `k` nos buffers das sondas (o atlas
-// filtrado guarda só o último rebatimento, o do desenho).
+// de `gi_weights`, lendo o mapa octaédrico do rebatimento `k` nos buffers das sondas pela bilinear dos 4 texels em volta
+// da normal (spec 034, L8; na borda, o texel vizinho pela dobra do octaedro) — o atlas filtrado guarda só o último
+// rebatimento, o do desenho.
 // Requer: gi_common, gi_weights, gi, gi_generations_read.
 
 /**
@@ -10,14 +11,30 @@
  */
 struct GiGenerationWeights {
     taps: array<GiTap, 16>,
-    texel: u32,
+    texels: vec4u,
+    bilinear: vec4f,
+}
+
+/** O texel `t` do mapa octaédrico (cada eixo em −1…N): fora da borda, o espelhado pela dobra do octaedro (DDGI). */
+fn gi_oct_texel(t: vec2i) -> u32 {
+    let last = i32(GI_IRRADIANCE_TEXELS) - 1;
+    var q = t;
+    if (q.x < 0 || q.x > last) { q = vec2i(clamp(q.x, 0, last), last - q.y); }
+    if (q.y < 0 || q.y > last) { q = vec2i(last - q.x, clamp(q.y, 0, last)); }
+    return u32(q.x) + u32(q.y) * GI_IRRADIANCE_TEXELS;
 }
 
 fn gi_generation_weights(p: vec3f, n: vec3f, v: vec3f) -> GiGenerationWeights {
     var out: GiGenerationWeights;
-    let o = gi_oct_encode(n) * 0.5 + 0.5;
-    let t = min(vec2u(o * f32(GI_IRRADIANCE_TEXELS)), vec2u(GI_IRRADIANCE_TEXELS - 1u));
-    out.texel = t.x + t.y * GI_IRRADIANCE_TEXELS;
+    let g = (gi_oct_encode(n) * 0.5 + 0.5) * f32(GI_IRRADIANCE_TEXELS) - 0.5;
+    let base = vec2i(floor(g));
+    let f = g - vec2f(base);
+    for (var k = 0u; k < 4u; k++) {
+        let d = vec2i(i32(k & 1u), i32(k >> 1u));
+        out.texels[k] = gi_oct_texel(base + d);
+        let b = mix(vec2f(1.0) - f, f, vec2f(d));
+        out.bilinear[k] = b.x * b.y;
+    }
     var remaining = 1.0;
     var used = 0u;
     for (var c = 0u; c < gi.grid.w && remaining > 0.0 && used < 2u; c++) {
@@ -40,7 +57,10 @@ fn gi_generation_at(w: GiGenerationWeights, k: u32) -> vec3f {
     var e = vec3f(0.0);
     for (var j = 0u; j < 16u; j++) {
         if (w.taps[j].weight <= 0.0) { continue; }
-        e += unpack_half_rgb(gi_generations[(k * probes + w.taps[j].index) * texels + w.texel]) * w.taps[j].weight;
+        let at = (k * probes + w.taps[j].index) * texels;
+        var texel = vec3f(0.0);
+        for (var q = 0u; q < 4u; q++) { texel += unpack_half_rgb(gi_generations[at + w.texels[q]]) * w.bilinear[q]; }
+        e += texel * w.taps[j].weight;
     }
     return e * PI;
 }

@@ -84,10 +84,13 @@ fn gi_tap(cell: GiCell, p: vec3f, n: vec3f, c: u32, k: u32) -> GiTap {
     let d = cell.biased - probe;
     let dist = length(d);
     w *= max(gi_chebyshev(index, select(n, d / dist, dist > 1e-6), dist), 0.0);
+    // Piso positivo (spec 034, L9; o DDGI de referência): com todas as sondas ligadas da célula ocultas pela visibilidade,
+    // a soma não zera e a célula não é descartada — o ponto fica com a média delas em vez de cair para outra cascata.
+    w = max(w, 1e-6);
     // Esmaga pesos muito pequenos (vazamento residual) como no DDGI.
     if (w < 0.2) { w = w * w * w * 25.0; }
     let t = mix(vec3f(1.0) - cell.f, cell.f, vec3f(o));
-    return GiTap(index, w * t.x * t.y * t.z);
+    return GiTap(index, w * (t.x * t.y * t.z + 0.001));
 }
 
 /**
