@@ -1,7 +1,8 @@
 // Histerese adaptativa das sondas (spec 033, R5, US4) — a regra de `reference/response.ts`. Estado por sonda: média
 // rápida e lenta do maior canal da radiância, ruído (variância relativa à rápida) e quadros desde o último recomeço. Quando a rápida se
-// afasta da lenta mais do que o ruído explica, a luz mudou de verdade: alguns quadros com a histerese de resposta (o estado
-// anterior some exponencialmente) e depois a contagem segue; parado, a histerese do acúmulo.
+// afasta da lenta mais do que o ruído explica, a luz mudou de verdade: alguns quadros com a histerese
+// de resposta (o estado anterior some exponencialmente) e depois a contagem segue; parado, a histerese do acúmulo — pela
+// variância (T052): a que leva o ruído da média acumulada ao alvo, entre a da autoria (o piso) e 0,995.
 
 const GI_RESPONSE_FAST: f32 = 0.65;
 const GI_RESPONSE_HYSTERESIS: f32 = 0.3;
@@ -9,6 +10,17 @@ const GI_RESPONSE_SIGMAS: f32 = 2.5;
 const GI_RESPONSE_RELATIVE: f32 = 0.03;
 const GI_RESPONSE_NOISE: f32 = 0.9;
 const GI_RESPONSE_RAMP: f32 = 3.0;
+const GI_RESPONSE_CEILING: f32 = 0.995;
+const GI_RESPONSE_TARGET: f32 = 0.005;
+
+/**
+ * A histerese do acúmulo parado pela variância relativa `noise` dos valores: a que deixa o ruído da média acumulada,
+ * σ √((1 − h)/(1 + h)), no alvo — (σ² − τ²)/(σ² + τ²) —, entre `floor` (a da autoria) e o teto.
+ */
+fn gi_response_cap(noise: f32, floor: f32) -> f32 {
+    let t2 = GI_RESPONSE_TARGET * GI_RESPONSE_TARGET;
+    return clamp((noise - t2) / (noise + t2), floor, max(floor, GI_RESPONSE_CEILING));
+}
 
 /** Um quadro da resposta: a histerese do quadro e o estado seguinte (rápida, lenta, ruído, quadros). */
 struct GiResponse {
@@ -27,7 +39,7 @@ fn gi_response(state: vec4f, x: f32, hysteresis: f32) -> GiResponse {
     let transient = abs(fast - state.y) > (GI_RESPONSE_SIGMAS * sigma_fast + GI_RESPONSE_RELATIVE) * scale;
     // Na mudança, `GI_RESPONSE_RAMP` quadros com a histerese de resposta (quadros negativos contam os que faltam) e
     // depois a contagem segue de `GI_RESPONSE_RAMP`.
-    var h = min(state.w / (state.w + 1.0), hysteresis);
+    var h = min(state.w / (state.w + 1.0), gi_response_cap(state.z, hysteresis));
     var frames = state.w + 1.0;
     if (transient) {
         h = GI_RESPONSE_HYSTERESIS;

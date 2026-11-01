@@ -358,6 +358,7 @@ export const giScreenResolve = wgslModule({
         giScreenCommon,
         giScreenReproject,
         giResponse,
+        temporalPieces,
         camerasResource,
         R.screenHistory,
         R.screenWorkRead,

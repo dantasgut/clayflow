@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { adaptiveHysteresis, GI_RESPONSE, RESPONSE_EMPTY, type ResponseState } from '../response';
+import {
+    adaptiveHysteresis,
+    GI_RESPONSE,
+    RESPONSE_EMPTY,
+    varianceHysteresis,
+    type ResponseState,
+} from '../response';
 
 // Histerese adaptativa das sondas (spec 033, T036): a mudança de verdade reduz a histerese; o ruído não; parado, volta à
 // do acúmulo.
@@ -71,12 +77,34 @@ describe('histerese adaptativa das sondas (spec 033, US4)', () => {
         expect(reached).toBeLessThanOrEqual(15);
     });
 
+    it('pela variância (spec 034, T052): a sonda ruidosa acumula até o teto, a limpa fica no piso da autoria', () => {
+        // σ = 60 %: o ruído da média em 0,5 % pede mais que o teto.
+        expect(varianceHysteresis(0.36, 0.97)).toBe(GI_RESPONSE.ceiling);
+        // σ = 2 %: 0,88 basta — fica o piso.
+        expect(varianceHysteresis(0.0004, 0.97)).toBe(0.97);
+        // σ = 5 %: (σ² − τ²)/(σ² + τ²).
+        const t2 = GI_RESPONSE.target ** 2;
+        expect(varianceHysteresis(0.0025, 0.97)).toBeCloseTo((0.0025 - t2) / (0.0025 + t2), 12);
+        // O ruído da média acumulada no ponto: σ √((1 − h)/(1 + h)) = τ.
+        const h = varianceHysteresis(0.0025, 0.97);
+        expect(0.05 * Math.sqrt((1 - h) / (1 + h))).toBeCloseTo(GI_RESPONSE.target, 12);
+        // Piso acima do teto (autoria 0,995): vale o piso.
+        expect(varianceHysteresis(0.36, 0.995)).toBe(0.995);
+        // Na sonda ruidosa, parada, a histerese chega acima de 0,97.
+        const r = rng(5);
+        const noisy = run(RESPONSE_EMPTY, 2000, () => 1 + 0.6 * (r() + r() + r() - 1.5) * 2);
+        expect(Math.max(...noisy.hs.slice(-200))).toBeGreaterThan(0.99);
+    });
+
     it('depois da mudança, parado, volta à histerese do acúmulo (sem rastro)', () => {
         const r = rng(11);
         let state = run(RESPONSE_EMPTY, 300, () => 0.1).state;
         state = run(state, 30, () => 10 * (0.95 + 0.1 * r())).state;
         const settled = run(state, 100, () => 10 * (0.95 + 0.1 * r()));
-        expect(settled.hs.slice(-50).every((h) => h === 0.97)).toBe(true);
+        // Fora da resposta: a histerese do acúmulo — o piso da autoria ou acima, pela variância (T052), até o teto.
+        expect(settled.hs.slice(-50).every((h) => h >= 0.97 && h <= GI_RESPONSE.ceiling)).toBe(
+            true,
+        );
         expect(Math.abs(settled.state.mean - 10)).toBeLessThan(0.2);
     });
 });

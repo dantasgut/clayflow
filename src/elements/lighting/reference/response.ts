@@ -10,7 +10,10 @@ export const GI_RESPONSE = Object.freeze({
     fast: 0.65,
     /** Histerese durante a mudança: o acúmulo alcança o valor novo em poucos quadros. */
     hysteresis: 0.3,
-    /** Desvios da média rápida acima dos quais a diferença é mudança, não ruído. */
+    /**
+     * Desvios da média rápida acima dos quais a diferença é mudança, não ruído. 4σ (spec 034, T052) perdia a luz que
+     * acende numa cena escura: perto de zero o ruído relativo estimado explode e o limiar passa da mudança.
+     */
     sigmas: 2.5,
     /**
      * Parte relativa do limiar (mudanças menores que isso não aceleram o acúmulo). 3 %: o reflexo de cor que some num
@@ -24,7 +27,23 @@ export const GI_RESPONSE = Object.freeze({
      * atrasam um quadro por geração: a média igual dos primeiros valores guardaria o resíduo do estado anterior).
      */
     ramp: 3,
+    /** Teto da histerese do acúmulo pela variância (spec 034, T052). */
+    ceiling: 0.995,
+    /** Ruído relativo alvo da média acumulada: a histerese pela variância é a que chega nele. */
+    target: 0.005,
 });
+
+/**
+ * A histerese do acúmulo parado pela variância relativa `noise` dos valores (spec 034, T052): a que deixa o ruído da
+ * média acumulada, σ √((1 − h)/(1 + h)), no alvo — (σ² − τ²)/(σ² + τ²) —, entre `floor` (a da autoria) e o teto.
+ */
+export function varianceHysteresis(noise: number, floor: number): number {
+    const t2 = GI_RESPONSE.target * GI_RESPONSE.target;
+    return Math.min(
+        Math.max((noise - t2) / (noise + t2), floor),
+        Math.max(floor, GI_RESPONSE.ceiling),
+    );
+}
 
 /** Estado da resposta de uma sonda. */
 export interface ResponseState {
@@ -71,7 +90,10 @@ export function adaptiveHysteresis(
     // Na mudança, `ramp` quadros com a histerese de resposta (quadros negativos contam os que faltam) e depois a
     // contagem segue de `ramp`.
     const R = GI_RESPONSE.ramp;
-    let h = Math.min(state.frames / (state.frames + 1), hysteresis);
+    let h = Math.min(
+        state.frames / (state.frames + 1),
+        varianceHysteresis(state.noise, hysteresis),
+    );
     let frames = state.frames + 1;
     if (transient) {
         h = GI_RESPONSE.hysteresis;

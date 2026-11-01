@@ -69,7 +69,11 @@ export interface GlobalIlluminationValues {
     readonly raysPerProbe?: number;
     /** Fração das sondas atualizadas por quadro, em (0, 1] (substitui a da qualidade). */
     readonly probeFraction?: number;
-    /** Histerese do acúmulo nas sondas, em [0,8; 0,995]. Default 0,97. */
+    /**
+     * Histerese do acúmulo nas sondas, em [0,8; 0,995]. Default 0,97. É o piso: as sondas com ruído sobem pela variância
+     * até 0,995, o bastante para o ruído da média ficar em 0,5 % (spec 034, T052); a mudança de luz cai para a de
+     * resposta.
+     */
     readonly hysteresis?: number;
     /** Cascatas de sondas, em 1–4. Default 3. */
     readonly cascades?: number;

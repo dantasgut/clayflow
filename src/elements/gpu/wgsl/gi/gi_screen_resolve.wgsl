@@ -42,7 +42,7 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         let fresh = gi_screen_work[gi_screen_fresh_at(i, g)].rgb;
         var history = fresh;
         if (found) { history = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + g).rgb; }
-        e = mix(fresh, history, response.h);
+        e = temporal_hysteresis(vec4f(fresh, 0.0), vec4f(history, 0.0), response.h).rgb;
         gi_screen_history[out + GI_SCREEN_HISTORY_GENERATIONS + g] = vec4f(e, 0.0);
     }
     gi_screen_history[out] = probe;
@@ -58,7 +58,8 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
  */
 fn gi_screen_noise(state: vec4f) -> f32 {
     // Nos quadros de resposta (contagem negativa), a histerese de resposta.
-    let h = select(min(state.w / (state.w + 1.0), gi.screenSize.w), GI_RESPONSE_HYSTERESIS, state.w < 0.0);
+    let h = select(min(state.w / (state.w + 1.0), gi_response_cap(state.z, gi.screenSize.w)), GI_RESPONSE_HYSTERESIS,
+        state.w < 0.0);
     return sqrt(max(state.z * (1.0 - h) / (1.0 + h), 0.0));
 }
 
