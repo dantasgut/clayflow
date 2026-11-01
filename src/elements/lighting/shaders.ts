@@ -19,6 +19,7 @@ import giResponseSource from '../gpu/wgsl/gi/gi_response.wgsl?raw';
 import giScreenCommonSource from '../gpu/wgsl/gi/gi_screen_common.wgsl?raw';
 import giScreenPlaceSource from '../gpu/wgsl/gi/gi_screen_place.wgsl?raw';
 import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
+import giScreenGuideSource from '../gpu/wgsl/gi/gi_screen_guide.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
@@ -320,14 +321,34 @@ export const giScreenPlace = wgslModule({
     requires: [WORKGROUP_SIZE.module, R.params, giScreenCommon, rayScene, R.screenWork],
 });
 
+/**
+ * As direções dos raios das sondas de tela (spec 034, T051): metade em cosseno, metade guiada pela radiância da sonda do
+ * mundo de maior peso, com o peso MIS de cada raio.
+ */
+export const giScreenGuide = wgslModule({
+    name: 'gi_screen_guide',
+    source: giScreenGuideSource,
+    requires: [
+        random,
+        basis,
+        sampling,
+        color,
+        WORKGROUP_SIZE.module,
+        R.params,
+        giCommon,
+        giWeights,
+        giScreenCommon,
+        R.radianceMapRead,
+        R.screenWork,
+    ],
+});
+
 /** Raios das sondas de tela. */
 export const giScreenTrace = wgslModule({
     name: 'gi_screen_trace',
     source: giScreenTraceSource,
     requires: [
         random,
-        basis,
-        sampling,
         WORKGROUP_SIZE.module,
         NONE.module,
         R.params,
