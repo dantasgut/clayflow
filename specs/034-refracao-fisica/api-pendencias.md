@@ -26,6 +26,10 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
 - **Falta explicar**: `Refraction` (`enabled`, `maxInterfaces`), `TracedDenoiser` (`enabled`, `maxHistory`),
   `TemporalAntialiasing` (modos), o significado e as unidades de `transmission_depth` e `abbe`, a prioridade de meio,
   a parede fina e o que muda com e sem a luz global.
+- **Retomada (2026-10-31)**: o `renderer.md` (039) cobre a configuração pelo `app.defaults.renderer` (perfil,
+  `lightPaths`, `caustics`, `tracing.checkerboard`, antisserrilhado, `temporalFilter`). Faltam as unidades de
+  `transmission_depth` e `abbe`, a prioridade de meio, a parede fina e o efeito com e sem a luz global; a autoria citada
+  acima (`Refraction`, `TracedDenoiser`, `TemporalAntialiasing`) passou ao `SceneRenderer` (quebra 8).
 
 ## 4. Nome `defaults.denoiser`
 
@@ -62,6 +66,8 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
   `cellSize`; entra sozinho com o primeiro material transmissivo; a intensidade não tem sucessor — a física dá); `color` (o espalhamento interno) → o
   meio do grafo com espalhamento (T067c). Sem sucessor (a física e o traçado dão o efeito): `thicknessScale`,
   `refraction`, `particleRadius`, `smoothingRadius`, `depthThreshold`, `ambient`, `reflectivity`, `shininess`.
+- **Retomada (2026-10-31)**: falta tirar a classe e os tipos da API gerada (`clay-engine-doc/docs/api/elements/`:
+  `classes/FluidSurfaceMaterial.md`, entradas no `README.md` e no `Material.md`) — T066.
 
 ## Cáusticas fora da luz global (T067c)
 
@@ -70,6 +76,25 @@ Levantadas em 2026-10-23, na revisão da T044a. Nenhuma foi implementada; cada u
   1 cm), inserido pelos estágios padrão com o primeiro material transmissivo (vidro, água), com ou sem a luz global.
   Para desligar: `world.findResource(Caustics.schema, Caustics).enabled = false` (ou inserir `new Caustics({ enabled:
 false })` antes da água). Falta no guia.
+- **Retomada (2026-10-31)**: desde a 039 o recurso entra pelo `Renderer` (`raySceneForTransmissives`) e se desliga por
+  `app.defaults.renderer.caustics.enabled = false` (também `photons`, `cellSize`, `interval`); o guia é a seção
+  Cáusticas do `renderer.md`.
+
+## 7. Pacote `clayflow` e o `Application` em `clayflow/web` (038)
+
+- **Quebra**: o pacote deixou de se chamar `webgpu-engine` e passou a `clayflow`, com três entradas: `clayflow` (o
+  núcleo puro, sem DOM nem APIs do Deno), `clayflow/web` (o `Application` sobre o canvas, o laço por
+  `requestAnimationFrame`, os dispositivos do DOM e os carregadores) e `clayflow/deno` (desenho em textura lida de volta
+  e janela nativa). Quem importava o `Application` da raiz importa de `clayflow/web`; o miolo sem ambiente é o
+  `Engine` do núcleo. Sem apelido. Falta o guia de migração (038 T036).
+
+## 8. `app.defaults.renderer` no lugar de `refraction`, `antialiasing` e `temporalFilter` (039)
+
+- **Quebra**: `defaults.refraction`, `defaults.antialiasing` e `defaults.temporalFilter` saíram; a configuração da
+  imagem é o `SceneRenderer` (`app.defaults.renderer`, C4, com a saída e o mapeamento de tons) sobre o `Renderer` (C3):
+  `profile` (`'high'`, `'medium'`, `'low'`), `lightPaths` (`refraction`, `transmission`), `caustics` (`enabled`,
+  `photons`, `cellSize`, `interval`), `tracing.checkerboard`, `antialiasing`, `temporalFilter` e `output`. Sem
+  apelido. Documentado em `clay-engine-doc/docs/guides/renderer.md`.
 
 ## Terminologia nas mensagens e na documentação
 
