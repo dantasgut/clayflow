@@ -2,7 +2,7 @@
 // fixas — 0 a reflexão da primeira interface, 1 a transmissão (o canal 0 depois que a dispersão começa), 2 e 3 os
 // canais 1 e 2 que a dispersão abre, 4 o lobo menor das interfaces lisas — e cada rodada traça um acerto por vaga viva (`refraction_chain_hit_main`, sem
 // material), avalia o material por classe na onda (duas entradas por vaga: o acerto e a dielétrica coincidente) e segue
-// (`refraction_chain_follow_main`): na primeira interface, os dois lobos (a reflexão na vaga 0); depois, na interface
+// (`refraction_chain_follow_main`, com a luz do ponto opaco da passada `refraction_chain_light_main`): na primeira interface, os dois lobos (a reflexão na vaga 0); depois, na interface
 // lisa sem dispersão, o lobo maior sem sorteio e o menor na vaga 4 livre (cortado sem ela), senão um lobo pela roleta
 // de Fresnel; a borda que não muda o meio segue reto. O caminho que termina guarda a luz na própria vaga; o
 // fechamento por pixel (`refraction_chain_resolve_main`) soma as vagas na ordem delas. Os pixels vão em blocos de
@@ -232,7 +232,9 @@ fn refraction_chain_hit_one(j: u32) {
         ray_wave_put_empty(2u * j + 1u, vec4f(0.0));
         return;
     }
-    refraction_wave_put(2u * j, hit, refraction.time, vec4f(1.0));
+    // A direção do raio na carga e o estado do sorteio na etiqueta: a luz do ponto opaco (`refraction_chain_light_main`).
+    refraction_wave_put(2u * j, hit, refraction.time, vec4f(dir, 0.0));
+    ray_wave_tag(2u * j, refraction_paths[s].state);
     let other = refraction_coincident(origin, dir, hit);
     refraction_paths[s].other_instance = other.instance;
     refraction_paths[s].other_face = other.face;
@@ -247,6 +249,35 @@ fn refraction_chain_hit_one(j: u32) {
 fn refraction_chain_hit_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let n = refraction_chain_live();
     for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { refraction_chain_hit_one(j); }
+}
+
+/**
+ * A luz do ponto opaco atingido por cada vaga da rodada (spec 034 T078), depois do material avaliado na onda e antes da
+ * continuação: a mesma escolha de `refraction_takes_interface` pelo mesmo sorteio (o estado na etiqueta do registro) e,
+ * no ponto opaco, `refraction_shade` gravada na carga do registro (rgb; w, a marca da sombra que se moveu). Só a onda e
+ * as luzes: a continuação não liga a estrutura para a luz indireta nem os contribuintes da luz (a GI, as cáusticas) —
+ * cada kernel cabe no que o adaptador concede por estágio.
+ */
+fn refraction_chain_light_one(i: u32) {
+    let h = ray_wave_entries[i].hit;
+    if (h.cls == NONE) { return; }
+    let c = ray_wave_entries[i].closure;
+    var state = h.ray;
+    var lit = vec4f(0.0);
+    if (!refraction_takes_interface(c, &state)) {
+        var hit = ray_miss();
+        hit.position = h.position;
+        hit.normal = h.normal;
+        lit = refraction_shade(c, hit, -h.payload.xyz, state);
+    }
+    ray_wave_entries[i].hit.payload = lit;
+}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn refraction_chain_light_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    // Os registros da rodada: o acerto de cada vaga no índice par (o ímpar é a dielétrica coincidente).
+    let n = (atomicLoad(&ray_wave_counts[0]) + 1u) / 2u;
+    for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { refraction_chain_light_one(2u * j); }
 }
 
 /**
@@ -367,7 +398,7 @@ fn refraction_chain_follow_one(j: u32) {
     var c2 = closure_zero();
     if (p.other_instance != NONE) { c2 = ray_wave_entries[2u * j + 1u].closure; }
     var n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
-        refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state);
+        refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state, ray_wave_entries[2u * j].hit.payload);
     // A dispersão adiada: no fim do caminho, os canais se abrem se o afastamento deles (o acumulado mais o ângulo vezes
     // este trecho; sem acerto, só o ângulo) passa do pixel (o ângulo do pixel vezes a distância desde a câmera) — numa
     // gota eles caem no mesmo pixel (branca), num prisma não; numa interface em que um canal não passa (a reflexão
@@ -391,7 +422,7 @@ fn refraction_chain_follow_one(j: u32) {
             // Os canais se abriram: o nó de novo, agora só no verde.
             state = p.state;
             n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
-                refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state);
+                refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state, ray_wave_entries[2u * j].hit.payload);
         } else if (!n.done) {
             refraction_splits[s].offset = offset + angle * p.hit_t;
         }

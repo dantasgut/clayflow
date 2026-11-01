@@ -69,3 +69,64 @@ Gravados pela ferramenta nova (`npm run video`, H.264 CRF 8, direto da GPU), 128
 dispersao, agua, causticas, cornell, dia, nevoa, pano. Fidelidade (SC-010) nas cenas mais difíceis: Cornell brilho
 52,79 dB e RGB contra o exato em 4:2:0 49,50 dB; água 53,04 / 48,69 dB; dispersão 61,05 / 56,97 dB; lente em 10 bits
 60,58 / 57,95 dB. Falha forçada (cena inexistente): mensagem nomeando a cena e 0 processos órfãos.
+
+## Depois da T078 (2026-10-31): a luz nos acertos da onda em kernel próprio
+
+**Causa.** Desde a 039, o `Renderer` insere o recurso de cáusticas junto com o primeiro transmissivo. A luz direta no
+acerto (`ray_direct` → `scene_caustic_lighting`) passou a ligar o hash das cáusticas, e a transmissão das sombras
+acrescenta mais duas ligações. Nas cenas com vidro e luz global, o kernel das sondas que somava a luz direta e os
+rebatimentos chegava a 11 buffers de storage (`gi_trace` 11 > 10). A falha escondia outra: a continuação da cadeia da
+refração também chegava a 11 (`refraction_chain_follow`).
+
+**Correção.** A luz nos acertos passou a ter um kernel próprio:
+
+- **GI.** O `gi_wave_direct_main` grava, por raio, a luz direta e os fatores da luz rebatida do fechamento.
+  `closure_indirect` é linear na luz de cada lobo, então a luz rebatida é `frente · e + verso · e_verso`. Os
+  rebatimentos não leem mais o fechamento (368 B por raio).
+- **Uma rodada da onda.** As sondas do mundo e as de tela passam numa rodada só, com as de tela nos índices seguintes.
+  A colocação vem antes; os rebatimentos de tela continuam depois do acúmulo das sondas do mundo.
+- **Refração.** O `refraction_chain_light_main` repete a escolha de `refraction_takes_interface` com o mesmo estado do
+  sorteio (guardado na etiqueta do registro) e grava a luz do ponto opaco na carga do registro. O brilho das luzes
+  (`refraction_glint`) continua na continuação.
+
+**Ligações de storage sem contribuintes** (`LayoutInferencer`):
+
+| Kernel                          | Antes | Depois |
+| ------------------------------- | ----- | ------ |
+| `gi_probe_trace`                | 9     | 6      |
+| `gi_screen_trace`               | 9     | 6      |
+| `gi_wave_direct` (novo)         | —     | 6      |
+| `refraction_chain_light` (novo) | —     | 5      |
+| `refraction_chain_follow`       | 7     | 7      |
+
+A diferença na continuação da refração é o que ela não alcança mais: a luz indireta da GI (+1) e as cáusticas (+1).
+
+**Achado no caminho.** O contribuinte da névoa a `ray_volume_transmittance` ainda tinha a assinatura de 3 argumentos.
+O ponto ganhou `time` na T065d, e o erro ficava escondido pelo limite de ligações. Corrigido.
+
+**Smokes** (Chrome, 10 buffers de storage por estágio):
+
+- **`globalIllumination`: PASSA** (antes falhava por 11 > 10).
+  - Cornell: 0,5–2,8 %, bloco baixo 7,6 %.
+  - 4K: ≤ 0,8 %.
+  - emissive: pior 5,5 %.
+  - window: pior 8,8 %.
+  - fornalha: 0,2 %.
+  - vazamento: 0,069 %.
+- **`deviceFloor`: PASSA** (`giGlassFog` e `giWater` sem erro).
+- **Custo da GI** (caso `budget`, intercalado com a HEAD na mesma sessão):
+  - antes: 3,82–3,95 ms;
+  - depois: 3,84–3,91 ms.
+  - Na primeira versão, a passada da luz direta despachava a grade da onda (512 grupos) e custava cerca de 0,1 ms a
+    mais. Com uma invocação por raio, os raios de sombra têm invocações em voo como antes.
+- **`caustics`** (`engine`, `water`, `shadow`): passam. O `water` a 0° dá 0,47–0,52 %, igual à HEAD (a diferença para
+  a linha de base antiga da 039 não vem desta mudança).
+- **`refraction`**: roda inteiro com 900 s de prazo (no gate da 039 estourava os 120 s). Falha nos mesmos critérios que
+  a HEAD, medida na mesma sessão:
+  - a fila tem um quarto do pedido (os representantes 2×2 da 039; o critério é de antes deles);
+  - vagalumes do `glint` em 0,131 % (limite 0,05 %);
+  - 1–2 degraus de borda;
+  - GI desligada e ausente diferem 0,54 % (limite 0,5 %).
+  - Os erros por região batem com a HEAD nas cenas estáticas; nas animadas variam com o quadro.
+- **`giNoise`**: viés 6,55–19,65 %, manchas até 19,73 % (T059, sem mudança).
+- **`fog`**: vidro dentro 65,9 % (pendência da 037, sem mudança).

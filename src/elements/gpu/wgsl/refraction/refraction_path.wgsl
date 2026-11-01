@@ -377,7 +377,7 @@ fn refraction_side_after(n: RefractionNode, dir: vec3f) -> i32 {
  * ela) já avaliados — o que `refraction_advance` faz depois do traçado (spec 039: os fechamentos vêm da onda).
  */
 fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: Closure, stack: RefractionStack,
-    channel: i32, interfaces: u32, state: ptr<function, u32>) -> RefractionNode {
+    channel: i32, interfaces: u32, state: ptr<function, u32>, shade: vec4f) -> RefractionNode {
     var n: RefractionNode;
     n.done = true;
     n.disperse = false;
@@ -401,7 +401,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.end = refraction_end(hit.position, hit.renderable);
     n.moved = refraction_hit_moved(hit);
     if (!refraction_takes_interface(c, state)) {
-        let shade = refraction_shade(c, hit, -d, *state);
+        // A luz do ponto opaco, da passada da onda (`refraction_chain_light_main`, spec 034 T078: o mesmo sorteio).
         n.radiance = shade.xyz;
         n.moved = n.moved || shade.w > 0.0;
         n.albedo = closure_albedo(c);

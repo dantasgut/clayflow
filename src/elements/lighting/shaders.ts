@@ -22,10 +22,11 @@ import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
+import giWaveDirectSource from '../gpu/wgsl/gi/gi_wave_direct.wgsl?raw';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { causticsCapable } from './caustics/shaders';
 import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
-import { rayWave } from '../raytrace/wave/shaders';
+import { RayWaveEntrySchema, rayWave, rayWaveResources } from '../raytrace/wave/shaders';
 import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeTransmittanceReady } from '../raytrace/points';
@@ -126,6 +127,9 @@ export const giResources = Object.freeze({
     screenIrradianceOut: out('gi_screen_irradiance_out'),
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
+    /** A luz direta nos acertos da onda por raio (spec 034 T078; privada do `ProbeFlow`). */
+    waveDirect: priv('gi_wave_light', 'read_write', { wgsl: 'vec4f', array: true }),
+    waveDirectRead: priv('gi_wave_light_read', 'read', { wgsl: 'vec4f', array: true }),
     /** O histórico do acúmulo (canal temporal, spec 037): a fatia do quadro (escrita) e a do anterior (lida). */
     screenHistory: wgslResource({
         name: 'gi_screen_history',
@@ -233,7 +237,29 @@ export const giProbeTrace = wgslModule({
         rayVolumeTransmittanceReady,
         rayWave,
         R.rays,
+        R.waveDirectRead,
     ],
+});
+
+/**
+ * A luz direta nos acertos da onda (spec 034 T078): o kernel que liga as luzes, a estrutura de raios e os contribuintes
+ * da luz, fora dos que somam os rebatimentos.
+ */
+export const giWaveDirect = wgslModule({
+    name: 'gi_wave_direct',
+    source: giWaveDirectSource,
+    requires: [
+        random,
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        giCommon,
+        giShade,
+        rayWaveResources.entriesIn,
+        rayWaveResources.counts,
+        R.waveDirect,
+    ],
+    structs: [RayWaveEntrySchema],
 });
 
 /** Histerese adaptativa das sondas (a regra de `reference/response.ts`). */
@@ -314,6 +340,7 @@ export const giScreenTrace = wgslModule({
         rayVolumeTransmittanceReady,
         rayWave,
         R.screenWork,
+        R.waveDirectRead,
     ],
 });
 

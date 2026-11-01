@@ -104,6 +104,7 @@ const CHAIN_KERNELS = [
     'chunk',
     'roots',
     'hit',
+    'light',
     'follow',
     'swap',
     'resolve',
@@ -312,6 +313,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                     bind(pass, kernel('hit'));
                     pass.dispatch.workgroupsIndirect(b.args, 0);
                     this.wave.shade(pass, bound, b.args);
+                    // A luz dos pontos opacos atingidos (spec 034 T078), fora da continuação.
+                    bind(pass, kernel('light'));
+                    pass.dispatch.workgroupsIndirect(b.args, 0);
                     bind(pass, kernel('follow'));
                     pass.dispatch.workgroupsIndirect(b.args, 0);
                     bind(pass, kernel('swap'));

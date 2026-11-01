@@ -43,3 +43,23 @@ e de imagem por perfil ficam em `specs/039-tracado-em-ondas/baseline.md` (SC-009
 
 As cáusticas entram na cena com o primeiro material transmissivo (a água, o vidro); sem transmissivo a luz global não
 muda. `r.caustics.enabled = false` as desliga: a água deixa a luz passar em linha reta, com Fresnel e absorção.
+
+## A onda dos acertos (para quem traça raios)
+
+Quem traça raios no motor (a refração, a luz global, os fótons das cáusticas) não avalia o material nem a luz dentro
+do laço de traçado. Cada rodada passa por estágios, cada um num kernel próprio:
+
+1. **Acerto**: quem traça grava o acerto de cada raio na onda (`RayWave`, `ray_wave_put_surface`), no índice do raio,
+   com o que precisar guardar dele (a carga `payload` e a etiqueta `ray_wave_tag`).
+2. **Material**: um kernel por função `material` da cena avalia o fechamento nos acertos daquela classe (`hitShade`).
+3. **Luz** (spec 034, T078): um kernel lê o fechamento e calcula a luz no acerto. São a luz direta com raio de sombra,
+   a emissão e os contribuintes da luz da cena (as cáusticas, a transmissão das sombras, a luz indireta da GI). Ele
+   grava o resultado num buffer do espaço de trabalho do Flow, ou na carga do registro. Na GI é o
+   `gi_wave_direct_main`, que grava a luz direta e os fatores da luz rebatida do fechamento. Na refração é o
+   `refraction_chain_light_main`, que grava a luz do ponto opaco, com o mesmo sorteio da continuação.
+4. **Continuação**: quem traça lê o que os estágios gravaram, soma os rebatimentos ou segue o caminho. Esse kernel não
+   liga as luzes, nem a estrutura de raios para a luz, nem os contribuintes, e a GI não lê nem o fechamento.
+
+A divisão mantém cada kernel dentro do que o adaptador concede por estágio, mesmo quando a cena acrescenta
+contribuintes. O teste `src/elements/lighting/__tests__/waveLight.test.ts` garante que a continuação não volte a ligar
+a luz. Quem escreve um traçado novo segue os mesmos estágios.

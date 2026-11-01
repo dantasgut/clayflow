@@ -5,9 +5,9 @@
 // (`gi_screen_history_taps`, exata de perto), a das sondas do mundo (`gi_generation_irradiance`) quando não. Raio que escapa: o ambiente da cena
 // (`scene_environment`, o céu). Face de trás: distância negativa (a sonda está dentro da geometria) e sem luz.
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_probe_hit_main` grava o acerto na onda e
-// `gi_probe_trace_main` lê o fechamento dela.
+// `gi_probe_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, ray_hit, ray_wave, gi_shade, gi_screen_reproject,
-// closure_eval, scene_environment, ray_volume_transmittance, gi_rays.
+// closure_eval, scene_environment, ray_volume_transmittance, gi_rays, gi_wave_light_read.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -60,6 +60,8 @@ fn gi_probe_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     let s = ray_hit_surface(hit, gi.extra.w, 0.0);
     ray_wave_put_surface(i, s.index, s.slot, s.sample.world_position, s.sample.normal, s.sample.uv, gi.extra.w, 0.0,
         0.0, s.material, vec4f(through, hit.t));
+    // A direção do raio para a luz direta no acerto (`gi_wave_direct_main`).
+    ray_wave_tag(i, pack2x16snorm(gi_oct_encode(dir)));
 }
 
 /** A radiância de cada rebatimento que volta por raio, pelo acerto e pelo fechamento avaliado na onda. */
@@ -85,16 +87,18 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         return;
     }
     let v = -dir;
-    let c = ray_wave_entries[i].closure;
     let h = ray_wave_entries[i].hit;
     let p = h.position;
     let n = h.normal;
-    let direct = gi_shade_direct(c, p, n, v, random_seed(RANDOM_STREAM_GI_WORLD, i, gi.rays.y));
+    // A luz direta e a emissão no acerto e os fatores do fechamento, da passada da onda (`gi_wave_direct_main`).
+    let lit = gi_wave_light_read[3u * i];
+    let direct = lit.rgb;
+    let f = GiShadeFactors(gi_wave_light_read[3u * i + 1u].rgb, gi_wave_light_read[3u * i + 2u].rgb, lit.w > 0.0);
     gi_rays[out_base] = vec4f(direct * through, traced.w);
     if (bounces < 2u) { return; }
     // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
     let taps = gi_screen_history_taps(p, n);
-    let screen = gi_screen_history_found(taps) && c.translucent_weight <= 0.0;
+    let screen = gi_screen_history_found(taps) && !f.translucent;
     // Os pesos das sondas do mundo uma vez para todas as gerações.
     var w: GiGenerationWeights;
     if (!screen) { w = gi_generation_weights(p, n, v); }
@@ -102,9 +106,9 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         var indirect = vec3f(0.0);
         if (screen) {
             let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / PI;
-            indirect = closure_indirect(c, n, v, IndirectLight(e, e, e, e, e));
+            indirect = (f.front + f.back) * e;
         } else {
-            indirect = gi_shade_indirect_weighted(c, p, n, v, w, b - 1u);
+            indirect = gi_shade_indirect_weighted(f, p, n, v, w, b - 1u);
         }
         gi_rays[out_base + b] = vec4f((direct + indirect) * through, traced.w);
     }

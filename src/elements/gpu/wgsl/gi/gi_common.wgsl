@@ -149,6 +149,14 @@ fn gi_fibonacci(k: u32, n: u32) -> vec3f {
     return vec3f(r * cos(phi), r * sin(phi), z);
 }
 
+/**
+ * Primeiro índice da onda dos raios das sondas de tela (spec 034 T078): uma rodada leva os raios das sondas do mundo do
+ * quadro e, depois deles, os das de tela.
+ */
+fn gi_wave_screen_first() -> u32 {
+    return gi.rays.w * gi.rays.x;
+}
+
 /** Direção do raio `k` da sonda neste quadro (a espiral girada pela rotação do quadro). */
 fn gi_ray_dir(k: u32) -> vec3f {
     let d = gi_fibonacci(k, gi.rays.x);

@@ -199,7 +199,7 @@ export const mediaLookup = wgslModule({
 /** Transmitância dos volumes nos raios (`ray_volume_transmittance`). */
 export const mediaRayTransmittance = wgslModule({
     name: 'media_ray_transmittance',
-    source: `fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f {
+    source: `fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f {
     return vec3f(fog_transmittance(origin, dir, t_max));
 }`,
     requires: [mediaVolumes],

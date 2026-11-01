@@ -53,6 +53,7 @@ import {
     giScreenResolve,
     giScreenTrace,
     giScreenHistorySlot,
+    giWaveDirect,
 } from './shaders';
 
 /** Slots do estágio das sondas. */
@@ -119,15 +120,23 @@ const PROBE_HIT = compute('gi_probe_hit', giProbeTrace, 'gi_probe_hit_main');
 const PROBE_TRACE = compute('gi_trace', giProbeTrace, 'gi_probe_trace_main');
 const SCREEN_HIT = compute('gi_screen_hit', giScreenTrace, 'gi_screen_hit_main');
 const SCREEN_TRACE = compute('gi_screen_trace', giScreenTrace, 'gi_screen_trace_main');
-const TRACES = [PROBE_HIT, PROBE_TRACE, SCREEN_HIT, SCREEN_TRACE];
+/**
+ * A luz direta nos acertos da onda e os fatores do fechamento (spec 034 T078), numa rodada com os raios das sondas do
+ * mundo e os de tela: os kernels que somam os rebatimentos não ligam as luzes, a estrutura de raios nem os contribuintes
+ * da luz, nem leem o fechamento.
+ */
+const WAVE_DIRECT = compute('gi_wave_direct', giWaveDirect, 'gi_wave_direct_main');
+const TRACES = [PROBE_HIT, PROBE_TRACE, SCREEN_HIT, SCREEN_TRACE, WAVE_DIRECT];
 
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
 const VIEW_BIAS = 0.3;
 /**
- * Ligações de storage que o kernel mais carregado usa sem funções `material` (os raios das sondas de tela: os dois pools
- * da estrutura, as luzes, os rebatimentos das sondas do mundo, o trabalho e o histórico da tela) mais uma forma de
- * função; cada forma a mais é mais uma (o limite do dispositivo é conferido pela C2 na preparação).
+ * Ligações de storage que o kernel mais carregado usa sem contribuintes (o acerto dos raios das sondas de tela: os dois
+ * pools da estrutura, as matrizes das câmeras, o trabalho e o histórico da tela, a onda e as contagens dela); a luz
+ * direta nos acertos é um kernel à parte (`gi_wave_direct_main`: as luzes, a estrutura, a onda e a saída, mais os
+ * contribuintes da luz), e os que somam os rebatimentos não ligam nenhum deles (spec 034 T078). Os contribuintes de
+ * cada cena (volumes, cáusticas) a C2 confere na preparação contra o que o adaptador concede.
  */
 const STORAGE_BINDINGS_NEEDED = 7;
 
@@ -153,6 +162,7 @@ interface Buffers {
     readonly radiance: StorageBufferSpec;
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
+    readonly waveDirect: StorageBufferSpec;
 }
 
 /**
@@ -205,7 +215,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     private sizes: Sizes | undefined;
     private atlases: readonly (TextureViewSpec | undefined)[] = [];
     private prepared = false;
-    /** A onda dos acertos dos raios (o material fora do traçado): das sondas do mundo, depois das de tela. */
+    /** A onda dos acertos dos raios (o material fora do traçado): os das sondas do mundo e, depois deles, os das de tela. */
     private readonly wave: RayWave;
     private materialRevision = -1;
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
@@ -282,9 +292,15 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         };
         const W = WORKGROUP_SIZE.value;
         frame.compute('ProbeFlow', (pass) => {
+            // A colocação das sondas de tela (só a estrutura de raios e a câmera) antes da rodada única da onda: os
+            // acertos das sondas do mundo e, depois deles, os das de tela, o material por classe e a luz direta de todos.
+            run(pass, 6, tiles, W);
             this.wave.reset(pass, bound);
             run(pass, -1, updated * rays, W);
+            run(pass, -3, tiles * screenRays, W);
             this.wave.shade(pass, bound);
+            // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo).
+            run(pass, -5, updated * rays + tiles * screenRays, W);
             run(pass, -2, updated * rays, W);
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
@@ -292,13 +308,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 3, updated * (GI_IRRADIANCE_TEXELS + 2) ** 2, W);
             run(pass, 4, updated * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
             run(pass, 5, updated, W);
-            run(pass, 6, tiles, W);
-            if (tiles > 0) {
-                this.wave.reset(pass, bound);
-                run(pass, -3, tiles * screenRays, W);
-                this.wave.shade(pass, bound);
-                run(pass, -4, tiles * screenRays, W);
-            }
+            // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
+            run(pass, -4, tiles * screenRays, W);
             run(pass, 7, tiles, W);
             run(pass, 8, tiles, W);
         });
@@ -330,6 +341,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'gi_probes:screenWork',
                 sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
             ),
+            // A luz direta nos acertos da onda e os fatores do fechamento (três vec4f), por raio da rodada (spec 034 T078).
+            wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 48),
         ];
     }
 
@@ -346,6 +359,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             radiance: of('radiance'),
             visibility: of('visibility'),
             screenWork: of('screenWork'),
+            waveDirect: of('waveDirect'),
         };
     }
 
@@ -451,16 +465,17 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenIrradianceOut, views[5]!],
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
+                [R.waveDirect, b.waveDirect],
+                [R.waveDirectRead, b.waveDirect],
             ]),
         );
     }
 
-    /** Raios da onda: o maior entre os das sondas do mundo e os das sondas de tela. */
+    /** Raios da onda: os das sondas do mundo e, depois deles, os das sondas de tela (uma rodada, spec 034 T078). */
     private waveRays(sizes: Sizes): number {
         return Math.max(
             1,
-            sizes.updated * sizes.rays,
-            sizes.tilesX * sizes.tilesY * sizes.screenRays,
+            sizes.updated * sizes.rays + sizes.tilesX * sizes.tilesY * sizes.screenRays,
         );
     }
 
