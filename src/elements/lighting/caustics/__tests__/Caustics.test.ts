@@ -100,11 +100,13 @@ describe('Caustics (spec 034, T067c)', () => {
             'ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);',
         );
         expect(trace).not.toContain('ray_volume_transmittance(');
-        // Em todos os níveis de células, com o peso da tenda como a contagem do fóton.
+        // Em todos os níveis de células, com o peso da tenda como a contagem do fóton e a vazão por área da superfície
+        // (T057: a área da célula é a projetada no plano das camadas); a camada de cada célula pelo plano tangente.
         expect(trace).toContain('let t = caustics_tent(p, n, level);');
         expect(trace).toContain(
-            'caustics_deposit_cell(caustics_tent_cell(t, k), level, rgb * w, w * share);',
+            'caustics_deposit_cell(caustics_tent_cell(t, k), level, rgb * (w * t.cosine), w * share);',
         );
+        expect(trace).toContain('let h = p[a] - (n[u] * (cu - p[u]) + n[v] * (cv - p[v])) / n[a];');
         // A variável de controle: a direta em linha reta subtraída onde a linha reta do fóton chega depois da água.
         expect(trace).toContain(
             'caustics_deposit(straight.position, straight.normal, -light_rgb * light_transmission(light, straight.position), 1.0);',
