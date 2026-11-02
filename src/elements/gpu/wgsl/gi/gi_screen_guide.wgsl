@@ -6,10 +6,14 @@
 // precisa ser exato: o cosseno cobre o hemisfério inteiro, então a estimativa segue sem viés com qualquer sonda.
 // Uma invocação por sonda de tela; grava por raio vec4f(direção, peso) no trabalho das sondas de tela
 // (`gi_screen_ray_at`), que o acerto e a soma dos rebatimentos leem.
+// Também zera o contador das vagas das sondas extras para o quadro seguinte (`gi_screen_adapt_main` já as ocupou).
 // Requer: WORKGROUP_SIZE, random, basis, sampling, color, gi, gi_common, gi_weights, gi_screen_common,
-// gi_radiance_map_read, gi_screen_work.
+// gi_radiance_map_read, gi_screen_work, gi_screen_adapt_count.
 
 const GI_GUIDE_TEXELS: u32 = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
+
+/** Fração dos raios das sondas de tela que as extras lançam (1 / este valor). */
+const GI_SCREEN_EXTRA_RAYS: u32 = 2u;
 
 /**
  * A sonda do mundo mais próxima de `p` (o maior peso trilinear entre as 8 da célula, sem as desligadas) na cascata mais
@@ -56,7 +60,8 @@ fn gi_guide_texel(d: vec3f) -> GiGuideTexel {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= gi_screen_count()) { return; }
+    if (i == 0u) { atomicStore(&gi_screen_adapt_count[0], 0u); }
+    if (i >= gi_screen_total()) { return; }
     let at = gi_screen_probe_at(i);
     let probe = gi_screen_work[at];
     let normal = gi_screen_work[at + 1u];
@@ -67,9 +72,11 @@ fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     // A distribuição do guia: radiância (o maior canal) × cosseno por texel, acumulada.
     var cdf: array<f32, GI_GUIDE_TEXELS>;
     var total = 0.0;
-    // Fora da vez no rodízio só lança a sonda recém-descoberta (sem histórico): em cosseno, sem montar o guia.
+    // Fora da vez no rodízio só lança a sonda recém-descoberta (sem histórico): em cosseno, sem montar o guia. As extras
+    // (poucas, na dobra) sempre com o guia.
     var tap = GiTap(0u, 0.0);
-    if (gi_screen_scheduled(i)) { tap = gi_guide_probe(probe.xyz, n); }
+    let scheduled = i >= gi_screen_count() || gi_screen_scheduled(vec2u(i % gi.screen.x, i / gi.screen.x));
+    if (scheduled) { tap = gi_guide_probe(probe.xyz, n); }
     if (tap.weight > 0.0) {
         for (var t = 0u; t < GI_GUIDE_TEXELS; t++) {
             let d = gi_texel_dir(vec2u(t % GI_IRRADIANCE_TEXELS, t / GI_IRRADIANCE_TEXELS), GI_IRRADIANCE_TEXELS);
@@ -86,6 +93,9 @@ fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     let shift = vec2f(f32(h & 0xFFFFu), f32(h >> 16u)) / 65536.0;
     let g = random_seed(RANDOM_STREAM_GI_SCREEN_GUIDE, i, gi.rays.y);
     let gshift = vec3f(f32(g & 0x3FFu), f32((g >> 10u) & 0x3FFu), f32(g >> 20u)) / vec3f(1024.0, 1024.0, 4096.0);
+    // As extras lançam metade dos raios (o acúmulo e o filtro na grade fina fazem o resto; com um quarto, contas claras
+    // e escuras ao longo da dobra); os outros ficam com peso −1: fora da média, sem traçar.
+    let used = select(rays, max(rays / GI_SCREEN_EXTRA_RAYS, 2u), i >= gi_screen_count());
     var pending = vec2f(0.0);
     for (var k = 0u; k < rays; k++) {
         var d: vec3f;
@@ -122,6 +132,7 @@ fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
             }
             weight = c / pdf;
         }
+        if (k >= used) { weight = -1.0; }
         // Dois raios por vec4f: o par vai inteiro no ímpar.
         let packed = gi_screen_ray_pack(d, weight);
         if ((k & 1u) == 1u) { gi_screen_work[gi_screen_ray_at(i, k)] = vec4f(pending, packed); }

@@ -20,6 +20,7 @@ import giScreenCommonSource from '../gpu/wgsl/gi/gi_screen_common.wgsl?raw';
 import giScreenPlaceSource from '../gpu/wgsl/gi/gi_screen_place.wgsl?raw';
 import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
 import giScreenGuideSource from '../gpu/wgsl/gi/gi_screen_guide.wgsl?raw';
+import giScreenAdaptSource from '../gpu/wgsl/gi/gi_screen_adapt.wgsl?raw';
 import giWaveScatterSource from '../gpu/wgsl/gi/gi_wave_scatter.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
@@ -140,6 +141,13 @@ export const giResources = Object.freeze({
     screenProbeOut: out('gi_screen_probe_out', 'rgba32float'),
     screenIrradianceOut: out('gi_screen_irradiance_out'),
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
+    /** O contador das vagas das sondas de tela extras ocupadas no quadro (spec 034, T058). */
+    screenAdaptCount: priv('gi_screen_adapt_count', 'read_write', {
+        wgsl: 'atomic<u32>',
+        array: true,
+    }),
+    /** Os argumentos dos despachos indiretos das sondas de tela pelas vagas ocupadas (T058). */
+    screenArgs: priv('gi_screen_args', 'read_write', { wgsl: 'u32', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
     /** A luz direta nos acertos da onda por raio (spec 034 T078; privada do `ProbeFlow`). */
     waveDirect: priv('gi_wave_light', 'read_write', { wgsl: 'vec4f', array: true }),
@@ -365,6 +373,29 @@ export const giScreenGuide = wgslModule({
         giScreenCommon,
         R.radianceMapRead,
         R.screenWork,
+        R.screenAdaptCount,
+        R.screenArgs,
+    ],
+});
+
+/**
+ * As sondas de tela extras (spec 034, T058): as posições a meio ladrilho que as sondas dos ladrilhos não cobrem (a dobra,
+ * a borda) ganham uma sonda numa vaga.
+ */
+export const giScreenAdapt = wgslModule({
+    name: 'gi_screen_adapt',
+    source: giScreenAdaptSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        giScreenCommon,
+        giScreenReproject,
+        rayScene,
+        camerasResource,
+        R.screenWork,
+        R.screenAdaptCount,
+        R.screenArgs,
     ],
 });
 

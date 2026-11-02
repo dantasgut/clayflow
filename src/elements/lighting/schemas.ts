@@ -57,7 +57,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         counts: FieldType.vec4u,
         /** Coleta final na tela (R2 adendo): (ladrilhos em x, em y, raios por sonda de tela, slot da câmera ativa). */
         screen: FieldType.vec4u,
-        /** (período do rodízio das sondas de tela, 0, ligada, 0). */
+        /** (período do rodízio das sondas de tela, refinamento — 2 com as sondas extras a meio ladrilho, 1 sem —, ligada, vagas das sondas extras). */
         screen1: FieldType.vec4u,
         /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
         screenSize: FieldType.vec4f,

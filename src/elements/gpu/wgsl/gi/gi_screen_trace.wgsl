@@ -48,8 +48,8 @@ struct GiScreenRay {
 fn gi_screen_ray(j: u32) -> GiScreenRay {
     let rays = gi.screen.z;
     let i = j / rays;
-    let valid = i < gi_screen_count();
-    let at = gi_screen_probe_at(min(i, gi_screen_count() - 1u));
+    let valid = i < gi_screen_total();
+    let at = gi_screen_probe_at(min(i, gi_screen_total() - 1u));
     let probe = gi_screen_work[at];
     let n0 = gi_screen_work[at + 1u];
     // A decisão da colocação (`gi_screen_place`): na vez no rodízio ou sem histórico.
@@ -65,7 +65,7 @@ fn gi_screen_ray(j: u32) -> GiScreenRay {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (j >= gi_screen_count() * gi.screen.z) { return; }
+    if (j >= gi_screen_total() * gi.screen.z) { return; }
     let r = gi_screen_ray(j);
     // O índice na onda: depois dos raios das sondas do mundo.
     let w = gi_wave_screen_first() + j;
@@ -78,6 +78,12 @@ fn gi_screen_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let origin = r.probe.xyz + r.n0 * (1e-3 + r.probe.w * 1e-4);
     let max_dist = gi.tuning.w;
     let ray = gi_screen_ray_record(r.i, r.k);
+    // Peso negativo (o raio que a sonda extra não lança): fora da média, sem traçar.
+    if (ray.w < 0.0) {
+        ray_wave_put_empty(w, vec4f(0.0, 0.0, 0.0, -1.0));
+        gi_wave_scatter_put(w, origin, ray.xyz, 0.0);
+        return;
+    }
     // Peso 0 (a direção do guia abaixo do horizonte): conta na média sem luz, sem traçar.
     if (ray.w <= 0.0) {
         ray_wave_put_empty(w, vec4f(0.0, 0.0, 0.0, max_dist));

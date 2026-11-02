@@ -2,22 +2,29 @@
 // as sondas de tela; as 2 × 2 vizinhas pesam pela posição (bilinear), pela distância ao plano delas e pela normal, sem
 // renormalizar para as que sobram (spec 034, T055): a soma dos pesos é a cobertura das sondas de tela no ponto, e o que
 // falta (a quina, a borda de um objeto, fora da tela, o que não está na estrutura de raios) vem das sondas do mundo na
-// mistura contínua de `gi_lighting_irradiance`.
+// mistura contínua de `gi_lighting_irradiance`. Onde as dos ladrilhos têm sondas extras (na dobra côncava), as 2 × 2 da
+// grade fina a meio ladrilho (as dos ladrilhos e as extras, spec 034 T058) pesam pela cobertura delas, e as
+// dos ladrilhos pelo que falta.
 // Requer: gi, gi_common (a normal empacotada), cameras, gi_screen_probe_texture, gi_screen_irradiance_texture.
 
-/** Uma sonda de tela para um ponto: irradiância e peso (0 = sem superfície, outro plano ou outra orientação). */
+/**
+ * Uma sonda de tela para um ponto: irradiância e peso (0 = sem superfície, outro plano ou outra orientação) e se o
+ * ladrilho dela tem sondas extras (o alfa da irradiância acima de 1,5).
+ */
 struct GiScreenTap {
     e: vec3f,
     w: f32,
+    extra: bool,
 }
 
 fn gi_screen_tap(t: vec2i, p: vec3f, n: vec3f, tolerance: f32) -> GiScreenTap {
     let probe = textureLoad(gi_screen_probe_texture, t, 0);
-    if (probe.w <= 0.0) { return GiScreenTap(vec3f(0.0), 0.0); }
+    if (probe.w <= 0.0) { return GiScreenTap(vec3f(0.0), 0.0, false); }
     let pn = gi_normal_unpack(probe.w);
     let plane = abs(dot(p - probe.xyz, pn));
     let w = max(0.0, 1.0 - plane / tolerance) * smoothstep(0.85, 0.97, dot(pn, n));
-    return GiScreenTap(textureLoad(gi_screen_irradiance_texture, t, 0).rgb, w);
+    let e = textureLoad(gi_screen_irradiance_texture, t, 0);
+    return GiScreenTap(e.rgb, w, e.a > 1.5);
 }
 
 /**
@@ -38,13 +45,30 @@ fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     let f = g - vec2f(base);
     let tolerance = 0.01 + length(p - cam.position.xyz) * 0.01;
     var acc = vec4f(0.0);
+    var extra = false;
     for (var o = 0u; o < 4u; o++) {
         let d = vec2i(i32(o & 1u), i32(o >> 1u));
         let t = base + d;
         if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
-        let tap = gi_screen_tap(t, p, n, tolerance);
+        let tap = gi_screen_tap(t * i32(gi.screen1.y), p, n, tolerance);
         let b = mix(vec2f(1.0) - f, f, vec2f(d));
         acc += vec4f(tap.e, 1.0) * (tap.w * b.x * b.y);
+        extra = extra || tap.extra;
     }
-    return acc;
+    // A grade fina só onde há sondas extras (na dobra): sem elas, a grade fina repete as dos ladrilhos.
+    if (!extra) { return acc; }
+    // A grade fina: o ponto fino k a (k + 1) meios ladrilhos.
+    let gf = px / (0.5 * gi.screenSize.z) - 1.0;
+    let fb = vec2i(floor(gf));
+    let ff = gf - vec2f(fb);
+    var fine = vec4f(0.0);
+    for (var o = 0u; o < 4u; o++) {
+        let d = vec2i(i32(o & 1u), i32(o >> 1u));
+        let t = fb + d;
+        if (any(t < vec2i(0)) || any((vec2f(t) + 1.0) * (0.5 * gi.screenSize.z) >= gi.screenSize.xy)) { continue; }
+        let tap = gi_screen_tap(t, p, n, tolerance);
+        let b = mix(vec2f(1.0) - ff, ff, vec2f(d));
+        fine += vec4f(tap.e, 1.0) * (tap.w * b.x * b.y);
+    }
+    return acc * (1.0 - min(fine.a, 1.0)) + fine;
 }

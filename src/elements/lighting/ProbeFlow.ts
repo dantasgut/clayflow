@@ -2,6 +2,7 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type {
     EngineCore,
     Frame,
+    IndirectBufferSpec,
     StorageBufferSpec,
     TextureViewSpec,
 } from '../../scene/contracts/gpu';
@@ -54,6 +55,7 @@ import {
     giScreenResolve,
     giScreenTrace,
     giScreenGuide,
+    giScreenAdapt,
     giScreenHistorySlot,
     giWaveDirect,
 } from './shaders';
@@ -98,6 +100,10 @@ const BLEND_VISIBILITY = compute('gi_blend_visibility', giProbeBlend, 'gi_blend_
 const BLEND_RESPONSE = compute('gi_blend_response', giProbeBlend, 'gi_blend_response_main');
 /** As direções e os pesos MIS dos raios das sondas de tela (spec 034, T051). */
 const SCREEN_GUIDE = compute('gi_screen_guide', giScreenGuide, 'gi_screen_guide_main');
+/** As sondas de tela extras onde as dos ladrilhos não cobrem (a dobra, a borda; spec 034, T058). */
+const SCREEN_ADAPT = compute('gi_screen_adapt', giScreenAdapt, 'gi_screen_adapt_main');
+/** Os argumentos dos despachos indiretos das sondas de tela pelas vagas ocupadas (T058). */
+const SCREEN_ARGS = compute('gi_screen_args', giScreenAdapt, 'gi_screen_args_main');
 const CLASSIFY = compute('gi_classify', giProbeClassify, 'gi_probe_classify_main');
 const ATLAS_IRRADIANCE = compute('gi_atlas_irradiance', giProbeAtlas, 'gi_atlas_irradiance_main');
 const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_visibility_main');
@@ -115,6 +121,8 @@ const FIXED = [
     SCREEN_FILTER,
     BLEND_RESPONSE,
     SCREEN_GUIDE,
+    SCREEN_ADAPT,
+    SCREEN_ARGS,
 ];
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
@@ -161,6 +169,9 @@ interface Sizes {
     readonly screenRays: number;
     /** Pixels por lado do ladrilho no alvo atual. */
     readonly tile: number;
+    /** Refinamento das texturas das sondas de tela (2 com as sondas extras a meio ladrilho, 1 sem) e vagas das extras. */
+    readonly refine: number;
+    readonly adaptive: number;
 }
 
 /** Buffers privados das sondas. */
@@ -175,6 +186,8 @@ interface Buffers {
     readonly waveScatter: StorageBufferSpec;
     readonly hysteresis: StorageBufferSpec;
     readonly screenFilter: StorageBufferSpec;
+    readonly screenAdaptCount: StorageBufferSpec;
+    readonly screenArgs: IndirectBufferSpec;
 }
 
 /**
@@ -295,8 +308,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             || !this.wave.ready(bound)
         )
             return;
-        const { updated, rays, tilesX, tilesY, screenRays } = this.buffers.sizes;
+        const { updated, rays, tilesX, tilesY, screenRays, adaptive } = this.buffers.sizes;
         const tiles = this.screenActive ? tilesX * tilesY : 0;
+        // As sondas de tela: as dos ladrilhos e as vagas das extras (T058).
+        const probes = tiles > 0 ? tiles + adaptive : 0;
+        const args = this.buffers.screenArgs;
         const run = (
             pass: Parameters<Parameters<Frame['compute']>[1]>[0],
             k: number,
@@ -309,18 +325,43 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             p.bindTo(pass.bind);
             pass.dispatch.invocations(count, size);
         };
+        // Com as sondas extras, os passes das sondas de tela despacham pelos argumentos que a GPU gravou (as dos
+        // ladrilhos e as extras ocupadas: `at` 0 por sonda, 16 por raio); sem elas, direto.
+        const screen = (
+            pass: Parameters<Parameters<Frame['compute']>[1]>[0],
+            k: number,
+            count: number,
+            at: 0 | 16,
+        ): void => {
+            if (adaptive === 0) {
+                run(pass, k, count, W);
+                return;
+            }
+            const p = k < 0 ? traces[-k - 1] : fixed[k];
+            if (p?.role !== 'compute' || count === 0) return;
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
+            pass.dispatch.workgroupsIndirect(args, at);
+        };
         const W = WORKGROUP_SIZE.value;
         frame.compute('ProbeFlow', (pass) => {
             // A rodada única da onda: os acertos das sondas do mundo com a colocação das sondas de tela na mesma despacho
             // (os raios longos da câmera, poucos, sozinhos deixariam a GPU ociosa), depois os acertos das de tela, o
             // material por classe e a luz direta de todos.
             this.wave.reset(pass, bound);
-            run(pass, -1, updated * rays + tiles, W);
+            // (As vagas das extras começam vazias: os grupos parciais dos despachos indiretos passam por elas.)
+            run(pass, -1, updated * rays + probes, W);
+            // As sondas extras nas posições a meio ladrilho das dobras côncavas e os argumentos dos despachos (T058).
+            if (adaptive > 0 && tiles > 0) {
+                run(pass, 10, 3 * tiles, W);
+                run(pass, 11, 1, W);
+            }
             // As direções da amostragem mista (cosseno + guia pela sonda do mundo) das sondas colocadas (T051).
-            run(pass, 9, tiles, W);
-            run(pass, -3, tiles * screenRays, W);
+            screen(pass, 9, probes, 0);
+            screen(pass, -3, probes * screenRays, 16);
             this.wave.shade(pass, bound);
-            // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo).
+            // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo;
+            // passo de grade até os registros gravados).
             run(pass, -5, updated * rays + tiles * screenRays, W);
             run(pass, -2, updated * rays, W);
             // A histerese por sonda antes do acúmulo: todos os texels da sonda leem a mesma (T049).
@@ -332,15 +373,16 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 4, updated * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
             run(pass, 5, updated, W);
             // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
-            run(pass, -4, tiles * screenRays, W);
-            run(pass, 6, tiles, W);
+            screen(pass, -4, probes * screenRays, 16);
+            screen(pass, 6, probes, 0);
             // O filtro à-trous em três passes (passos 1, 2 e 4), cada um na sua região do uniforme (T054).
             const filter = fixed[7];
             if (filter?.role === 'compute' && tiles > 0) {
                 pass.bind.setPipeline(filter.spec);
                 FILTER_STEPS.forEach((_, k) => {
                     filter.bindTo(pass.bind, { draw: [this.filterSteps.offset(k)] });
-                    pass.dispatch.invocations(tiles, W);
+                    if (adaptive === 0) pass.dispatch.invocations(probes, W);
+                    else pass.dispatch.workgroupsIndirect(args, 0);
                 });
             }
         });
@@ -367,12 +409,20 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
             ),
             // Coleta final na tela: por sonda de tela, posição e normal, a irradiância do quadro de cada geração e, por
-            // raio, a direção e o peso da amostragem mista (T051) — o histórico, de 3 + gerações vec4f por sonda, é o
-            // canal temporal `GlobalIllumination.screenHistory`.
+            // raio, a direção e o peso da amostragem mista (T051), depois o mapa fino de cada ladrilho e o texel fino de
+            // cada vaga das sondas extras (T058) — o histórico, de 3 + gerações vec4f por sonda, é o canal temporal
+            // `GlobalIllumination.screenHistory`.
             wordBuffer(
                 'gi_probes:screenWork',
-                sizes.tilesX * sizes.tilesY * (2 + sizes.bounces + sizes.screenRays / 2) * 16,
+                (this.screenProbes(sizes) * (2 + sizes.bounces + sizes.screenRays / 2)
+                    + 3 * sizes.tilesX * sizes.tilesY
+                    + sizes.adaptive)
+                    * 16,
             ),
+            // O contador das vagas das sondas extras ocupadas no quadro (T058).
+            wordBuffer('gi_probes:screenAdaptCount', 16),
+            // Os argumentos dos despachos indiretos das sondas de tela: por sonda e por raio (T058).
+            wordBuffer('gi_probes:screenArgs', 32, 'indirect'),
             // A luz direta nos acertos da onda, os fatores do fechamento e a luz espalhada pelos meios no trecho (quatro
             // vec4f), por raio da rodada (spec 034 T078, T058).
             wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 64),
@@ -381,7 +431,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             // A histerese de cada sonda atualizada no quadro (spec 034, T049).
             wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
             // O filtro à-trous das sondas de tela: duas metades de ida e volta, vec4f por sonda (T054).
-            wordBuffer('gi_probes:screenFilter', Math.max(1, sizes.tilesX * sizes.tilesY) * 2 * 16),
+            wordBuffer('gi_probes:screenFilter', Math.max(1, this.screenProbes(sizes)) * 2 * 16),
         ];
     }
 
@@ -402,6 +452,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             waveScatter: of('waveScatter'),
             hysteresis: of('hysteresis'),
             screenFilter: of('screenFilter'),
+            screenAdaptCount: of('screenAdaptCount'),
+            screenArgs: this.resources.bufferOf(
+                this.work.work,
+                'gi_probes:screenArgs',
+            ) as IndirectBufferSpec,
         };
     }
 
@@ -441,20 +496,29 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const probes = GI_GRID[0] * GI_GRID[1] * GI_GRID[2] * d.cascades;
         const canvas = this.core.canvasSize();
         const tile = screenTile(d.screenTile, canvas?.height ?? 1080);
+        const tilesX = canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.width / tile));
+        const tilesY = canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.height / tile));
+        // As sondas extras a meio ladrilho quando ele cabe nas texturas (meio ladrilho de pelo menos o menor): vagas
+        // para metade dos ladrilhos.
+        const refine = tile / 2 >= GI_SCREEN_TILE_MIN ? 2 : 1;
         const sizes: Sizes = {
             probes,
             updated: Math.min(probes, Math.max(1, Math.ceil(probes * d.probeFraction))),
             rays: d.raysPerProbe,
             bounces: d.bounces,
-            tilesX: canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.width / tile)),
-            tilesY: canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.height / tile)),
+            tilesX,
+            tilesY,
             tile,
             screenRays: d.screenRays,
+            refine,
+            adaptive: refine === 2 ? Math.ceil((tilesX * tilesY) / 2) : 0,
         };
-        // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por ladrilho; os raios das sondas do
-        // mundo também o leem (a luz das superfícies visíveis), com ou sem a coleta final.
+        // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por sonda (as dos ladrilhos e as vagas
+        // das extras) e o mapa fino de cada ladrilho; os raios das sondas do mundo também o leem (a luz das superfícies
+        // visíveis), com ou sem a coleta final.
         gi.reserveScreenHistory(
-            sizes.tilesX * sizes.tilesY * (SCREEN_HISTORY_FIXED + sizes.bounces),
+            this.screenProbes(sizes) * (SCREEN_HISTORY_FIXED + sizes.bounces)
+                + (refine === 2 ? sizes.tilesX * sizes.tilesY : 0),
         );
         this.resources.ensureAllocated(gi, 'screenHistory');
         const sameSizes =
@@ -515,6 +579,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenIrradianceOut, views[5]!],
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
+                [R.screenAdaptCount, b.screenAdaptCount],
+                [R.screenArgs, b.screenArgs],
                 [R.waveDirect, b.waveDirect],
                 [R.waveDirectRead, b.waveDirect],
                 [R.waveScatter, b.waveScatter],
@@ -523,11 +589,16 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         );
     }
 
+    /** Sondas de tela: as dos ladrilhos e as vagas das extras (T058). */
+    private screenProbes(sizes: Sizes): number {
+        return sizes.tilesX * sizes.tilesY + sizes.adaptive;
+    }
+
     /** Raios da onda: os das sondas do mundo e, depois deles, os das sondas de tela (uma rodada, spec 034 T078). */
     private waveRays(sizes: Sizes): number {
         return Math.max(
             1,
-            sizes.updated * sizes.rays + sizes.tilesX * sizes.tilesY * sizes.screenRays,
+            sizes.updated * sizes.rays + this.screenProbes(sizes) * sizes.screenRays,
         );
     }
 
@@ -609,7 +680,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 extra: [1, 0, 0, time],
                 counts: [this.resources.poolCount(Light.schema.name), 0, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
-                screen1: [Math.round(1 / d.screenFraction), 0, this.screenActive ? 1 : 0, 0],
+                screen1: [
+                    Math.round(1 / d.screenFraction),
+                    sizes.refine,
+                    this.screenActive ? 1 : 0,
+                    sizes.adaptive,
+                ],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
             },
         ];
