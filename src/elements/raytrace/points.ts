@@ -76,6 +76,35 @@ export const rayVolumeTransmittanceReady = wgslModule({
 }`,
 });
 
+/** O ponto sorteado no trecho de um raio dentro dos meios que espalham (`ray_volume_scatter`). */
+export const rayVolumeScatterTypes = wgslModule({
+    name: 'ray_volume_scatter_types',
+    source: `/**
+ * Uma amostra do espalhamento no trecho de um raio: o ponto, o peso (a transmitância da origem até ele × o coeficiente
+ * de espalhamento nele × o comprimento do trecho — a luz que chega ao ponto vezes a fase e o peso é a estimativa da luz
+ * espalhada para a origem ao longo do trecho), o albedo e a anisotropia do meio nele. Peso 0: nada espalha.
+ */
+struct RayVolumeScatter {
+    position: vec3f,
+    weight: vec3f,
+    albedo: f32,
+    anisotropy: f32,
+}`,
+});
+
+/**
+ * \`fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter\` — uma amostra do
+ * espalhamento dos meios participantes no segmento (spec 034, T058), no ponto \`u · t_max\` (\`u\` uniforme em [0, 1)):
+ * quem transporta luz por raios soma a das fontes que chega ao ponto e a luz que o meio devolve; pronto: peso 0.
+ */
+export const rayVolumeScatterReady = wgslModule({
+    name: 'ray_volume_scatter_ready',
+    requires: [rayVolumeScatterTypes],
+    source: `fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter {
+    return RayVolumeScatter(origin, vec3f(0.0), 0.0, 0.0);
+}`,
+});
+
 /**
  * `fn ray_volume_surface(hit: RayVolumeHit) -> RayVolumeSurface` — o material da superfície do volume no acerto `hit`;
  * pronto: nenhum (sem volume não há acerto).
@@ -260,6 +289,23 @@ export const rayVolumeTransmittancePoint: ContributionPoint = {
                 requires: modules,
                 source: `fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f {
     return ${modules.map((_, k) => `ray_volume_transmittance_${k}(origin, dir, t_max, time)`).join(' * ')};
+}`,
+            }),
+        ),
+};
+
+/** Espalhamento dos meios: o do primeiro contribuinte (os meios participantes são um recurso só, os `Froxels`). */
+export const rayVolumeScatterPoint: ContributionPoint = {
+    name: 'ray_volume_scatter',
+    ready: rayVolumeScatterReady,
+    functionName: 'ray_volume_scatter',
+    combine: (modules) =>
+        memo(`rvs:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_volume_scatter:${modules.map((m) => m.name).join('+')}`,
+                requires: [rayVolumeScatterTypes, ...modules],
+                source: `fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter {
+    return ray_volume_scatter_0(origin, dir, t_max, u);
 }`,
             }),
         ),

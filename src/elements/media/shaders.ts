@@ -8,6 +8,7 @@ import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { camerasResource, lightsResource } from '../scene/resources';
 import { lightIncoming } from '../scene/points/lightContributions';
 import { lightTransmissionReady, lightVisibilityReady } from '../scene/points/lighting';
+import { rayVolumeScatterTypes } from '../raytrace/points';
 import { sceneAmbientReady } from '../scene/points/media';
 import { FroxelsSchema, FROXEL_HISTORY, MEDIA_MARCH_STEPS } from './schemas';
 import densityFnReadySource from '../gpu/wgsl/media/media_density_fn_ready.wgsl?raw';
@@ -203,6 +204,37 @@ export const mediaRayTransmittance = wgslModule({
     return vec3f(fog_transmittance(origin, dir, t_max));
 }`,
     requires: [mediaVolumes],
+});
+
+/**
+ * Espalhamento dos volumes nos raios (\`ray_volume_scatter\`, spec 034 T058): no ponto sorteado do trecho, os
+ * coeficientes de todos os volumes (o de espalhamento pelo albedo de cada um, a anisotropia pesada pelo espalhamento) e
+ * a transmitância da origem até ele.
+ */
+export const mediaRayScatter = wgslModule({
+    name: 'media_ray_scatter',
+    source: `fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter {
+    let t = u * t_max;
+    let p = origin + dir * t;
+    var sigma_t = 0.0;
+    var sigma_s = vec3f(0.0);
+    var g_sum = 0.0;
+    let count = fog_count();
+    for (var k = 0u; k < count; k++) {
+        let v = fog_record(k);
+        if (v.albedo.a < 0.5) { continue; }
+        let d = fog_density(v, p);
+        if (d <= 0.0) { continue; }
+        sigma_t += d;
+        let s = v.albedo.rgb * d;
+        sigma_s += s;
+        g_sum += v.optics.y * (s.r + s.g + s.b);
+    }
+    if (sigma_t <= 0.0) { return RayVolumeScatter(p, vec3f(0.0), 0.0, 0.0); }
+    let s_sum = max(sigma_s.r + sigma_s.g + sigma_s.b, 1e-12);
+    return RayVolumeScatter(p, fog_transmittance(origin, dir, t) * sigma_s * t_max, s_sum / (3.0 * sigma_t), g_sum / s_sum);
+}`,
+    requires: [rayVolumeScatterTypes, mediaVolumes],
 });
 
 /**

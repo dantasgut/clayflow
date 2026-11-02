@@ -15,5 +15,8 @@ export {
     rayVolumeHitReady,
     rayVolumeTransmittancePoint,
     rayVolumeTransmittanceReady,
+    rayVolumeScatterPoint,
+    rayVolumeScatterReady,
+    rayVolumeScatterTypes,
     rayVolumeTypes,
 } from './points';

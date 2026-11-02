@@ -4,7 +4,7 @@ import { registerPresentationDefaults } from '../../../presentation/flows/defaul
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { StandardMaterial } from '../../material/StandardMaterial';
-import { rayVolumeTransmittancePoint } from '../../raytrace/points';
+import { rayVolumeScatterPoint, rayVolumeTransmittancePoint } from '../../raytrace/points';
 import { Camera } from '../../scene/Camera';
 import { DirectionalLight } from '../../scene/DirectionalLight';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
@@ -99,9 +99,11 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(contributions.map((c) => c.point)).toEqual([
             sceneFogPoint,
             rayVolumeTransmittancePoint,
+            rayVolumeScatterPoint,
             lightTransmissionPoint,
         ]);
         expect(contributions.map((c) => c.build(() => undefined))).toEqual([
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -112,7 +114,11 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(composeWgsl(modules[1]!).spec.source).toContain(
             'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );
+        // O espalhamento nos raios (T058): a amostra no trecho com o peso, o albedo e a anisotropia.
         expect(composeWgsl(modules[2]!).spec.source).toContain(
+            'fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter',
+        );
+        expect(composeWgsl(modules[3]!).spec.source).toContain(
             'fn light_transmission(light: u32, p: vec3f) -> vec3f',
         );
         // Com uma função de densidade: a composição troca a pronta pelo `switch`.

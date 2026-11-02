@@ -20,6 +20,7 @@ import giScreenCommonSource from '../gpu/wgsl/gi/gi_screen_common.wgsl?raw';
 import giScreenPlaceSource from '../gpu/wgsl/gi/gi_screen_place.wgsl?raw';
 import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
 import giScreenGuideSource from '../gpu/wgsl/gi/gi_screen_guide.wgsl?raw';
+import giWaveScatterSource from '../gpu/wgsl/gi/gi_wave_scatter.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
@@ -30,7 +31,7 @@ import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
 import { RayWaveEntrySchema, rayWave, rayWaveResources } from '../raytrace/wave/shaders';
 import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
-import { rayVolumeTransmittanceReady } from '../raytrace/points';
+import { rayVolumeScatterReady, rayVolumeTransmittanceReady } from '../raytrace/points';
 import { camerasResource } from '../scene/resources';
 import { GiScreenFilterStepSchema, GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
 import { slot } from '../../scene/flows/slots';
@@ -143,6 +144,9 @@ export const giResources = Object.freeze({
     /** A luz direta nos acertos da onda por raio (spec 034 T078; privada do `ProbeFlow`). */
     waveDirect: priv('gi_wave_light', 'read_write', { wgsl: 'vec4f', array: true }),
     waveDirectRead: priv('gi_wave_light_read', 'read', { wgsl: 'vec4f', array: true }),
+    /** A amostra do espalhamento dos meios no trecho de cada raio da onda (T058): escrita no acerto, lida na luz direta. */
+    waveScatter: priv('gi_wave_scatter', 'read_write', { wgsl: 'vec4f', array: true }),
+    waveScatterRead: priv('gi_wave_scatter_read', 'read', { wgsl: 'vec4f', array: true }),
     /** O histórico do acúmulo (canal temporal, spec 037): a fatia do quadro (escrita) e a do anterior (lida). */
     screenHistory: wgslResource({
         name: 'gi_screen_history',
@@ -239,11 +243,19 @@ const giScreenPlace = wgslModule({
     requires: [NONE.module, R.params, giScreenCommon, giScreenReproject, rayScene, R.screenWork],
 });
 
+/** A amostra do espalhamento dos meios nos raios das sondas e a luz que o meio devolve (T058). */
+const giWaveScatterSample = wgslModule({
+    name: 'gi_wave_scatter_sample',
+    source: giWaveScatterSource,
+    requires: [R.params, giCommon, R.waveScatter],
+});
+
 /** Raios das sondas atualizadas no quadro. */
 export const giProbeTrace = wgslModule({
     name: 'gi_probe_trace',
     source: giProbeTraceSource,
     requires: [
+        giWaveScatterSample,
         WORKGROUP_SIZE.module,
         giCommon,
         giWeights,
@@ -279,6 +291,8 @@ export const giWaveDirect = wgslModule({
         rayWaveResources.entriesIn,
         rayWaveResources.counts,
         R.waveDirect,
+        R.waveScatterRead,
+        rayVolumeScatterReady,
     ],
     structs: [RayWaveEntrySchema],
 });
@@ -360,6 +374,7 @@ export const giScreenTrace = wgslModule({
     source: giScreenTraceSource,
     requires: [
         random,
+        giWaveScatterSample,
         WORKGROUP_SIZE.module,
         NONE.module,
         R.params,

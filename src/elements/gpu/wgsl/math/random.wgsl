@@ -48,6 +48,7 @@ const RANDOM_STREAM_CAUSTICS: u32 = 5u;
 const RANDOM_STREAM_DIFFUSE: u32 = 6u;
 const RANDOM_STREAM_FROXEL: u32 = 7u;
 const RANDOM_STREAM_GI_SCREEN_GUIDE: u32 = 8u;
+const RANDOM_STREAM_GI_SCATTER: u32 = 9u;
 const RANDOM_STREAM_USER: u32 = 64u;
 
 // A semente do fluxo `stream` no índice `index` (pixel, sonda, partícula) e no quadro `frame`.

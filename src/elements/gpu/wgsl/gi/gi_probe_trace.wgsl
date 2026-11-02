@@ -7,7 +7,7 @@
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_probe_hit_main` grava o acerto na onda e
 // `gi_probe_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, ray_hit, ray_wave, gi_shade, gi_screen_reproject,
-// gi_screen_place, closure_eval, scene_environment, ray_volume_transmittance, gi_rays, gi_wave_light_read.
+// gi_screen_place, closure_eval, gi_wave_scatter_sample, scene_environment, ray_volume_transmittance, gi_rays, gi_wave_light_read.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -54,6 +54,8 @@ fn gi_probe_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     let hit = ray_scene_hit(origin, dir, max_dist);
     // Os volumes atravessados (a água) atenuam o que o raio traz.
     let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
+    // A amostra do espalhamento no trecho (a face de trás fica sem luz).
+    gi_wave_scatter_put(i, origin, dir, select(min(hit.t, max_dist), 0.0, hit.face < 0.0 && hit.t < max_dist));
     if (hit.t >= max_dist) {
         ray_wave_put_empty(i, vec4f(through, max_dist));
         return;
@@ -81,8 +83,10 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let dir = gi_ray_dir(r.k);
     let traced = ray_wave_entries[i].hit.payload;
     let through = traced.rgb;
+    // A luz das fontes espalhada no trecho e o albedo do meio (T058).
+    let scatter = gi_wave_light_read[4u * i + 3u];
     if (traced.w >= max_dist) {
-        let env = scene_environment(dir) * through;
+        let env = gi_through(scene_environment(dir), through, scatter);
         for (var b = 0u; b < bounces; b++) { gi_rays[out_base + b] = vec4f(env, max_dist); }
         return;
     }
@@ -96,10 +100,10 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let p = h.position;
     let n = h.normal;
     // A luz direta e a emissão no acerto e os fatores do fechamento, da passada da onda (`gi_wave_direct_main`).
-    let lit = gi_wave_light_read[3u * i];
+    let lit = gi_wave_light_read[4u * i];
     let direct = lit.rgb;
-    let f = GiShadeFactors(gi_wave_light_read[3u * i + 1u].rgb, gi_wave_light_read[3u * i + 2u].rgb, lit.w > 0.0);
-    gi_rays[out_base] = vec4f(direct * through, traced.w);
+    let f = GiShadeFactors(gi_wave_light_read[4u * i + 1u].rgb, gi_wave_light_read[4u * i + 2u].rgb, lit.w > 0.0);
+    gi_rays[out_base] = vec4f(gi_through(direct, through, scatter), traced.w);
     if (bounces < 2u) { return; }
     // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
     let taps = gi_screen_history_taps(p, n);
@@ -115,6 +119,6 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         } else {
             indirect = gi_shade_indirect_weighted(f, p, n, v, w, b - 1u);
         }
-        gi_rays[out_base + b] = vec4f((direct + indirect) * through, traced.w);
+        gi_rays[out_base + b] = vec4f(gi_through(direct + indirect, through, scatter), traced.w);
     }
 }

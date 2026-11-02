@@ -172,6 +172,7 @@ interface Buffers {
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
     readonly waveDirect: StorageBufferSpec;
+    readonly waveScatter: StorageBufferSpec;
     readonly hysteresis: StorageBufferSpec;
     readonly screenFilter: StorageBufferSpec;
 }
@@ -372,8 +373,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 'gi_probes:screenWork',
                 sizes.tilesX * sizes.tilesY * (2 + sizes.bounces + sizes.screenRays / 2) * 16,
             ),
-            // A luz direta nos acertos da onda e os fatores do fechamento (três vec4f), por raio da rodada (spec 034 T078).
-            wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 48),
+            // A luz direta nos acertos da onda, os fatores do fechamento e a luz espalhada pelos meios no trecho (quatro
+            // vec4f), por raio da rodada (spec 034 T078, T058).
+            wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 64),
+            // A amostra do espalhamento dos meios no trecho de cada raio (dois vec4f, T058).
+            wordBuffer('gi_probes:waveScatter', this.waveRays(sizes) * 32),
             // A histerese de cada sonda atualizada no quadro (spec 034, T049).
             wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
             // O filtro à-trous das sondas de tela: duas metades de ida e volta, vec4f por sonda (T054).
@@ -395,6 +399,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             visibility: of('visibility'),
             screenWork: of('screenWork'),
             waveDirect: of('waveDirect'),
+            waveScatter: of('waveScatter'),
             hysteresis: of('hysteresis'),
             screenFilter: of('screenFilter'),
         };
@@ -512,6 +517,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenWorkRead, b.screenWork],
                 [R.waveDirect, b.waveDirect],
                 [R.waveDirectRead, b.waveDirect],
+                [R.waveScatter, b.waveScatter],
+                [R.waveScatterRead, b.waveScatter],
             ]),
         );
     }

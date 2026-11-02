@@ -9,7 +9,8 @@
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_screen_hit_main` grava o acerto na onda e
 // `gi_screen_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, ray_hit, ray_wave,
-// gi_shade, closure_eval, scene_environment, ray_volume_transmittance, gi_screen_work, gi_wave_light_read.
+// gi_shade, closure_eval, scene_environment, ray_volume_transmittance, gi_screen_work, gi_wave_light_read, random,
+// gi_wave_scatter_sample.
 
 /** Direção (xyz) e peso (w: cos / pdf) do raio `k` da sonda `i` (o par gravado por `gi_screen_guide_main`). */
 fn gi_screen_ray_record(i: u32, k: u32) -> vec4f {
@@ -70,6 +71,7 @@ fn gi_screen_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let w = gi_wave_screen_first() + j;
     if (!r.update) {
         ray_wave_put_empty(w, vec4f(0.0, 0.0, 0.0, -1.0));
+        gi_wave_scatter_put(w, vec3f(0.0), vec3f(0.0, 1.0, 0.0), 0.0);
         return;
     }
     // Afasta a origem da superfície em proporção à distância (a precisão do acerto da câmera cai com ela).
@@ -79,12 +81,15 @@ fn gi_screen_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     // Peso 0 (a direção do guia abaixo do horizonte): conta na média sem luz, sem traçar.
     if (ray.w <= 0.0) {
         ray_wave_put_empty(w, vec4f(0.0, 0.0, 0.0, max_dist));
+        gi_wave_scatter_put(w, origin, ray.xyz, 0.0);
         return;
     }
     let dir = ray.xyz;
     let hit = ray_scene_hit(origin, dir, max_dist);
     // Os volumes atravessados (a água) atenuam o que o raio traz.
     let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
+    // A amostra do espalhamento no trecho (a face de trás fica fora da média).
+    gi_wave_scatter_put(w, origin, dir, select(min(hit.t, max_dist), 0.0, hit.face < 0.0 && hit.t < max_dist));
     if (hit.t >= max_dist || hit.face < 0.0) {
         ray_wave_put_empty(w, vec4f(through, select(-1.0, max_dist, hit.t >= max_dist)));
         return;
@@ -126,27 +131,31 @@ fn gi_screen_trace_main(
         // O índice na onda: depois dos raios das sondas do mundo.
         let wi = gi_wave_screen_first() + j;
         let traced = ray_wave_entries[wi].hit.payload;
-        // A transmitância dos volumes com o peso da amostragem (cos / pdf).
-        let through = traced.rgb * max(ray.w, 0.0);
+        // A luz das fontes espalhada no trecho e o albedo do meio (T058).
+        let scatter = gi_wave_light_read[4u * wi + 3u];
+        // A transmitância dos volumes e o peso da amostragem (cos / pdf), que multiplica toda a luz do raio.
+        let through = traced.rgb;
+        let weight = max(ray.w, 0.0);
         if (traced.w >= 0.0) { counted = 1.0; }
         if (traced.w >= max_dist) {
-            let env = scene_environment(dir) * through;
+            let env = gi_through(scene_environment(dir), through, scatter) * weight;
             for (var g = 0u; g < bounces; g++) { sums[g] = env; }
         } else if (traced.w >= 0.0) {
             let v = -dir;
             let h = ray_wave_entries[wi].hit;
             // A luz direta e a emissão no acerto e os fatores do fechamento, da passada da onda (`gi_wave_direct_main`).
-            let lit = gi_wave_light_read[3u * wi];
+            let lit = gi_wave_light_read[4u * wi];
             let direct = lit.rgb;
-            let f = GiShadeFactors(gi_wave_light_read[3u * wi + 1u].rgb, gi_wave_light_read[3u * wi + 2u].rgb, lit.w > 0.0);
-            sums[0] = direct * through;
+            let f = GiShadeFactors(gi_wave_light_read[4u * wi + 1u].rgb, gi_wave_light_read[4u * wi + 2u].rgb, lit.w > 0.0);
+            sums[0] = gi_through(direct, through, scatter) * weight;
             if (bounces > 1u) {
                 let taps = gi_screen_history_taps(h.position, h.normal);
                 let screen = gi_screen_history_found(taps) && !f.translucent;
                 var w: GiGenerationWeights;
                 if (!screen) { w = gi_generation_weights(h.position, h.normal, v); }
                 for (var g = 1u; g < bounces; g++) {
-                    sums[g] = (direct + gi_screen_bounce(f, h.position, h.normal, v, g - 1u, taps, screen, w)) * through;
+                    sums[g] = gi_through(direct + gi_screen_bounce(f, h.position, h.normal, v, g - 1u, taps, screen, w), through,
+                        scatter) * weight;
                 }
             }
         }
