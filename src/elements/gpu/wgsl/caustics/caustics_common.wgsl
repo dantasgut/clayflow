@@ -68,15 +68,21 @@ fn caustics_word(slot: u32) -> u32 {
 
 
 /**
- * A tenda 2D no plano tangente do ponto `p` de normal `n` no nível `level`: o eixo dominante da normal escolhe a camada (a célula meio
- * passo para fora da superfície, firme quando o ponto cai na fronteira entre duas) e, nos outros dois eixos (`u`, `v`),
- * a célula de base e as frações da interpolação bilinear.
+ * A tenda 2D no plano tangente do ponto `p` de normal `n` no nível `level`: o eixo dominante da normal (`a`) é o das
+ * camadas e, nos outros dois (`u`, `v`), a célula de base e as frações da interpolação bilinear. A camada de cada uma
+ * das 4 células sai do plano tangente no centro dela (meio passo para fora da superfície): no plano inclinado as
+ * vizinhas ficam em outras alturas, e a camada pelo ponto mandaria o depósito e a leitura para camadas diferentes (a 30°
+ * a leitura perdia um quarto da luz). `cosine` = |n_a| leva a área da célula, projetada no plano das camadas, à da
+ * superfície (spec 034, T057).
  */
 struct CausticsTent {
     base: vec3i,
     f: vec2f,
     u: u32,
     v: u32,
+    a: u32,
+    layers: vec4i,
+    cosine: f32,
 }
 
 fn caustics_tent(p: vec3f, n: vec3f, level: u32) -> CausticsTent {
@@ -86,9 +92,16 @@ fn caustics_tent(p: vec3f, n: vec3f, level: u32) -> CausticsTent {
     let v = (a + 2u) % 3u;
     let cell = caustics_cell_size(level);
     let g = p / cell - 0.5;
-    var base = vec3i(floor(g));
-    base[a] = i32(floor((p[a] + select(-0.5, 0.5, n[a] >= 0.0) * cell) / cell));
-    return CausticsTent(base, vec2f(g[u] - f32(base[u]), g[v] - f32(base[v])), u, v);
+    let base = vec3i(floor(g));
+    let outward = select(-0.5, 0.5, n[a] >= 0.0) * cell;
+    var layers: vec4i;
+    for (var k = 0u; k < 4u; k++) {
+        let cu = (f32(base[u] + i32(k & 1u)) + 0.5) * cell;
+        let cv = (f32(base[v] + i32((k >> 1u) & 1u)) + 0.5) * cell;
+        let h = p[a] - (n[u] * (cu - p[u]) + n[v] * (cv - p[v])) / n[a];
+        layers[k] = i32(floor((h + outward) / cell));
+    }
+    return CausticsTent(base, vec2f(g[u] - f32(base[u]), g[v] - f32(base[v])), u, v, a, layers, an[a]);
 }
 
 /** A célula `k` (0–3) da tenda e o peso bilinear dela. */
@@ -96,6 +109,7 @@ fn caustics_tent_cell(t: CausticsTent, k: u32) -> vec3i {
     var c = t.base;
     c[t.u] += i32(k & 1u);
     c[t.v] += i32((k >> 1u) & 1u);
+    c[t.a] = t.layers[k];
     return c;
 }
 

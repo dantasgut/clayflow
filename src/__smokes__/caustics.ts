@@ -14,6 +14,9 @@
 //     dentro da sombra a ≤ 5 % (SC-007), no receptor a ≤ 2 %, o erro do padrão (L1 relativo dentro da sombra) ≤ 10 %; e
 //     mede o pico, a variação entre quadros e o custo dos fótons (relógio de parede de 60 quadros ligado e desligado).
 //     Na T067b (com os fótons ainda na GI): fluxo na sombra a 52 %, pico à metade, padrão a 48 % (`research.md` R14).
+//     Com `tilt=30` (T057, SC-007): a esfera no foco sobre o receptor inclinado 30° em torno de x pelo ponto sob ela
+//     (`sphere-tilted-30` da referência), lido do hash pela tenda 2D do motor (a camada pelo eixo dominante da normal muda
+//     ao longo do plano), com as mesmas portas.
 //   - water (T067c): o fundo da camada parada a 0° e a 30° — a linha reta mais a correção dos fótons — contra Fresnel,
 //     Snell e Beer–Lambert por canal a ≤ 3 %.
 //   - shadow (T067c): a sombra da parede no fundo da camada parada com o sol a 60° — a borda na posição da refração
@@ -21,6 +24,7 @@
 //
 // Para rodar: `npm run smoke -- caustics [--query case=reference]`. Resultado: `CAUSTICS SMOKE PASSED` ou `FAIL: …`.
 import {
+    BoxGeometry,
     SphereGeometry,
     StandardMaterial,
     Transform,
@@ -30,7 +34,7 @@ import {
 import { CAUSTIC_CASES, CAUSTIC_SPHERE, CAUSTIC_SUN, CAUSTIC_WATER } from './support/causticScenes';
 import { settle } from './support/extensionScenes';
 import { readFixture, readJsonFixture, writeFixture } from './support/fixtures';
-import { buildGiScene, giApp } from './support/giScenes';
+import { buildGiScene, diffuseFunction, giApp } from './support/giScenes';
 import { waterScene, WATER_SPACING, WATER_TANK } from './support/waterScene';
 import { closureFn } from './support/materialScenes';
 
@@ -269,12 +273,89 @@ function engineGrid(
     return out;
 }
 
+/** Inclinação do receptor do caso `tilt` (graus, em torno de x) e o lado dele (m). */
+const TILT = 30;
+const TILT_SIZE = 0.6;
+
+/** O ponto do receptor inclinado nas frações (`a`, `b`) dos eixos u (x) e v (subindo para +z) — o da referência. */
+function tiltedPoint(a: number, b: number): [number, number, number] {
+    const c = Math.cos((TILT * Math.PI) / 180);
+    const s = Math.sin((TILT * Math.PI) / 180);
+    const t = (b - 0.5) * TILT_SIZE;
+    return [(a - 0.5) * TILT_SIZE, s * t, c * t];
+}
+
+/**
+ * A irradiância no receptor inclinado na grade da referência (`n` × `n`), por 4 × 4 subamostras: a luz direta do sol a
+ * pino (`open`, já com o cosseno) fora da sombra da esfera (x² + z² ≥ R²) mais a cáustica do nível fino do hash. Com
+ * `tent`, como o motor lê (`caustics_tent`: a bilinear das 4 células, a camada de cada uma pelo plano no centro dela —
+ * a imagem desenhada); sem, a célula que contém o ponto, na camada dela (a medida das células cruas, como a do chão em
+ * `engineGrid`).
+ */
+function engineGridTilted(
+    cells: Map<string, [number, number, number]>,
+    hashCell: number,
+    n: number,
+    open: number,
+    tent: boolean,
+): Float32Array {
+    const out = new Float32Array(n * n * 3);
+    const r = CAUSTIC_SPHERE.radius;
+    const sub = 4;
+    const slope = Math.tan((TILT * Math.PI) / 180);
+    // A célula (x, z) na camada pelo plano no centro dela (normal (0, cos, −sen)), meio passo acima.
+    const at = (
+        cx: number,
+        cz: number,
+        y: number,
+        z: number,
+    ): [number, number, number] | undefined => {
+        const h = y + slope * ((cz + 0.5) * hashCell - z);
+        return cells.get(`${cx},${Math.floor((h + 0.5 * hashCell) / hashCell)},${cz}`);
+    };
+    for (let j = 0; j < n; j++)
+        for (let i = 0; i < n; i++) {
+            const e = [0, 0, 0];
+            let lit = 0;
+            for (let b = 0; b < sub; b++)
+                for (let a = 0; a < sub; a++) {
+                    const [x, y, z] = tiltedPoint(
+                        (i + (a + 0.5) / sub) / n,
+                        (j + (b + 0.5) / sub) / n,
+                    );
+                    if (x * x + z * z >= r * r) lit++;
+                    if (!tent) {
+                        const v = at(Math.floor(x / hashCell), Math.floor(z / hashCell), y, z);
+                        if (v !== undefined)
+                            for (let q = 0; q < 3; q++) e[q]! += v[q]! / (sub * sub);
+                        continue;
+                    }
+                    const gx = x / hashCell - 0.5;
+                    const gz = z / hashCell - 0.5;
+                    const bx = Math.floor(gx);
+                    const bz = Math.floor(gz);
+                    for (let k = 0; k < 4; k++) {
+                        const dz = k & 1;
+                        const dx = k >> 1;
+                        const w = (dz ? gz - bz : 1 - (gz - bz)) * (dx ? gx - bx : 1 - (gx - bx));
+                        const v = at(bx + dx, bz + dz, y, z);
+                        if (v !== undefined)
+                            for (let q = 0; q < 3; q++) e[q]! += (v[q]! * w) / (sub * sub);
+                    }
+                }
+            for (let q = 0; q < 3; q++)
+                out[(j * n + i) * 3 + q] = e[q]! + (open * lit) / (sub * sub);
+        }
+    return out;
+}
+
 async function caseEngine(): Promise<void> {
     const query = new URLSearchParams(location.search);
-    const factor = Number(query.get('factor') ?? '1');
+    const tilted = query.get('tilt') !== null;
+    const factor = tilted ? 1 : Number(query.get('factor') ?? '1');
     const cellSize = Number(query.get('cell') ?? '0.01');
     const photons = Number(query.get('photons') ?? '1048576');
-    const name = `sphere-${factor.toFixed(1)}f`;
+    const name = tilted ? `sphere-tilted-${TILT}` : `sphere-${factor.toFixed(1)}f`;
     const manifest = await readJsonFixture<{ cases: ReferenceEntry[] }>('caustics-reference.json');
     const bytes = await readFixture('caustics-reference.bin');
     const entry = manifest?.cases.find((e) => e.name === name);
@@ -292,10 +373,29 @@ async function caseEngine(): Promise<void> {
     renderer.caustics.photons = photons;
     const caustics = renderer.causticsResource;
     app.world.insert(caustics);
+    if (tilted) {
+        // O quadrilátero difuso da referência: uma placa de 2 × 2 m com o topo pelo ponto sob a esfera, girada em x.
+        const half = (-TILT * Math.PI) / 360;
+        const c = Math.cos((TILT * Math.PI) / 180);
+        const s = Math.sin((TILT * Math.PI) / 180);
+        app.world.insert(
+            new BoxGeometry({ size: [2, 0.05, 2] })
+                .add(new StandardMaterial({ albedo: [0.8, 0.8, 0.8, 1], roughness: 1 }))
+                .add(diffuseFunction())
+                .add(
+                    new Transform({
+                        position: [0, -0.025 * c, 0.025 * s, 1],
+                        rotation: [Math.sin(half), 0, 0, Math.cos(half)],
+                    }),
+                ),
+        );
+    }
     buildGiScene(
         app,
         {
-            slabs: [{ id: 1, min: [-2, -0.05, -2], max: [2, 0, 2], color: [0.8, 0.8, 0.8] }],
+            slabs: tilted
+                ? []
+                : [{ id: 1, min: [-2, -0.05, -2], max: [2, 0, 2], color: [0.8, 0.8, 0.8] }],
             sun: { direction: [0, -1, 0], illuminance: CAUSTIC_SUN },
             camera: { position: [0, 0.12, 1.6], target: [0, 0.01, 0], fovY: Math.PI / 5 },
             probeCenter: [0, 0.5, 0],
@@ -353,9 +453,15 @@ async function caseEngine(): Promise<void> {
                 .join(', ')} (× o que entra na esfera)`,
         );
     }
-    const a = engineGrid(raw, hashCell, 0.6, entry.nx);
+    const grid = (cells: Map<string, [number, number, number]>): Float32Array =>
+        tilted
+            ? engineGridTilted(cells, hashCell, entry.nx, entry.open, false)
+            : engineGrid(cells, hashCell, 0.6, entry.nx);
+    const a = grid(raw);
+    // A leitura do motor (a bilinear da tenda) no receptor inclinado: o padrão como a imagem o mostra.
+    const read = tilted ? engineGridTilted(raw, hashCell, entry.nx, entry.open, true) : undefined;
     await step(10);
-    const b = engineGrid(await hashCells(app, caustics), hashCell, 0.6, entry.nx);
+    const b = grid(await hashCells(app, caustics));
     // Custo dos fótons: 60 quadros com as cáusticas ligadas e desligadas, pelo relógio de parede (o tempo de GPU por
     // passo não é confiável no Apple), esperando a GPU no fim de cada lote.
     const timed = async (): Promise<number> => {
@@ -400,8 +506,9 @@ async function caseEngine(): Promise<void> {
     for (let j = 0; j < n; j++)
         for (let i = 0; i < n; i++) {
             const k = (j * n + i) * 3 + 1;
-            const x = -0.3 + (i + 0.5) * cell;
-            const z = -0.3 + (j + 0.5) * cell;
+            const [x, , z] = tilted
+                ? tiltedPoint((i + 0.5) / n, (j + 0.5) / n)
+                : [-0.3 + (i + 0.5) * cell, 0, -0.3 + (j + 0.5) * cell];
             fluxE += a[k]! * cell * cell;
             fluxR += ref[k]! * cell * cell;
             peakE = Math.max(peakE, a[k]!);
@@ -421,12 +528,13 @@ async function caseEngine(): Promise<void> {
         const accR = rings.map(() => 0);
         for (let j = 0; j < n; j++)
             for (let i = 0; i < n; i++) {
-                const x = -0.3 + (i + 0.5) * cell;
-                const z = -0.3 + (j + 0.5) * cell;
+                const [x, , z] = tilted
+                    ? tiltedPoint((i + 0.5) / n, (j + 0.5) / n)
+                    : [-0.3 + (i + 0.5) * cell, 0, -0.3 + (j + 0.5) * cell];
                 const r = Math.hypot(x, z);
                 const k = rings.findIndex((q) => r < q);
                 if (k < 0) continue;
-                const direct = r >= radius ? CAUSTIC_SUN : 0;
+                const direct = r >= radius ? entry.open : 0;
                 accE[k]! += (a[(j * n + i) * 3 + 1]! - direct) * cell * cell;
                 accR[k]! += (ref[(j * n + i) * 3 + 1]! - direct) * cell * cell;
             }
@@ -438,6 +546,20 @@ async function caseEngine(): Promise<void> {
     log(
         `engine ${name}: fluxo no receptor ${(fluxE / fluxR).toFixed(4)}× a referência, dentro da sombra ${(diskE / diskR).toFixed(3)}×; pico ${(peakE / CAUSTIC_SUN).toFixed(1)}× o chão aceso (referência ${(peakR / CAUSTIC_SUN).toFixed(1)}×); erro do padrão na sombra ${((100 * l1) / diskSum).toFixed(1)} %; variação em 10 quadros ${((100 * change) / (diskE / (cell * cell))).toFixed(2)} %; custo dos fótons ${(on - off).toFixed(2)} ms/quadro (${on.toFixed(2)} contra ${off.toFixed(2)})`,
     );
+    if (read !== undefined) {
+        let l1Read = 0;
+        let peakRead = 0;
+        for (let j = 0; j < n; j++)
+            for (let i = 0; i < n; i++) {
+                const k = (j * n + i) * 3 + 1;
+                const [x, , z] = tiltedPoint((i + 0.5) / n, (j + 0.5) / n);
+                peakRead = Math.max(peakRead, read[k]!);
+                if (x * x + z * z < radius * radius) l1Read += Math.abs(read[k]! - ref[k]!);
+            }
+        log(
+            `engine ${name}: pela leitura do motor (a bilinear da tenda) — erro do padrão ${((100 * l1Read) / diskSum).toFixed(1)} %, pico ${(peakRead / CAUSTIC_SUN).toFixed(1)}× o chão aceso`,
+        );
+    }
     // A porta da T067c: o fluxo na sombra da esfera a ≤ 5 % (SC-007), no receptor a ≤ 2 %, o padrão a ≤ 10 % (L1).
     check(
         Math.abs(diskE / diskR - 1) <= 0.05,

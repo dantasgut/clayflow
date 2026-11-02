@@ -152,7 +152,8 @@ fn caustics_deposit(p: vec3f, n: vec3f, rgb: vec3f, share: f32) {
         let t = caustics_tent(p, n, level);
         for (var k = 0u; k < 4u; k++) {
             let w = caustics_tent_weight(t, k);
-            caustics_deposit_cell(caustics_tent_cell(t, k), level, rgb * w, w * share);
+            // A vazão por área da superfície (a da célula é a projetada no plano das camadas).
+            caustics_deposit_cell(caustics_tent_cell(t, k), level, rgb * (w * t.cosine), w * share);
         }
     }
 }
