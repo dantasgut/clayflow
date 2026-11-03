@@ -13,7 +13,7 @@ fn gi_irradiance(p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     for (var c = 0u; c < gi.grid.w && remaining > 0.0; c++) {
         let wc = select(gi_cascade_weight(p, c), 1.0, c + 1u == gi.grid.w);
         if (wc <= 0.0) { continue; }
-        let cell = gi_cell_of(p, n, v, c);
+        let cell = gi_cell_of(p, n, v, c, GI_REACH_FREE);
         var e = vec3f(0.0);
         var sum = 0.0;
         for (var k = 0u; k < 8u; k++) {
@@ -40,7 +40,7 @@ fn gi_radiance(p: vec3f, n: vec3f, v: vec3f, dir: vec3f) -> vec3f {
     for (var c = 0u; c < gi.grid.w && remaining > 0.0; c++) {
         let wc = select(gi_cascade_weight(p, c), 1.0, c + 1u == gi.grid.w);
         if (wc <= 0.0) { continue; }
-        let cell = gi_cell_of(p, n, v, c);
+        let cell = gi_cell_of(p, n, v, c, GI_REACH_FREE);
         var l = vec3f(0.0);
         var sum = 0.0;
         for (var k = 0u; k < 8u; k++) {

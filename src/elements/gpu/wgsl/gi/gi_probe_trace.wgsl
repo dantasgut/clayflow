@@ -110,14 +110,14 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let screen = gi_screen_history_found(taps) && !f.translucent;
     // Os pesos das sondas do mundo uma vez para todas as gerações.
     var w: GiGenerationWeights;
-    if (!screen) { w = gi_generation_weights(p, n, v); }
+    if (!screen) { w = gi_generation_weights(p, n, v, traced.w); }
     for (var b = 1u; b < bounces; b++) {
         var indirect = vec3f(0.0);
         if (screen) {
             let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / PI;
             indirect = (f.front + f.back) * e;
         } else {
-            indirect = gi_shade_indirect_weighted(f, p, n, v, w, b - 1u);
+            indirect = gi_shade_indirect_weighted(f, p, n, v, traced.w, w, b - 1u);
         }
         gi_rays[out_base + b] = vec4f(gi_through(direct + indirect, through, scatter), traced.w);
     }

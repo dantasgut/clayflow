@@ -24,7 +24,7 @@ fn gi_oct_texel(t: vec2i) -> u32 {
     return u32(q.x) + u32(q.y) * GI_IRRADIANCE_TEXELS;
 }
 
-fn gi_generation_weights(p: vec3f, n: vec3f, v: vec3f) -> GiGenerationWeights {
+fn gi_generation_weights(p: vec3f, n: vec3f, v: vec3f, reach: f32) -> GiGenerationWeights {
     var out: GiGenerationWeights;
     let g = (gi_oct_encode(n) * 0.5 + 0.5) * f32(GI_IRRADIANCE_TEXELS) - 0.5;
     let base = vec2i(floor(g));
@@ -41,7 +41,7 @@ fn gi_generation_weights(p: vec3f, n: vec3f, v: vec3f) -> GiGenerationWeights {
         let wc = select(gi_cascade_weight(p, c), 1.0, c + 1u == gi.grid.w);
         if (wc <= 0.0) { continue; }
         var taps: array<GiTap, 8>;
-        if (gi_taps(p, n, v, c, &taps) <= 0.0) { continue; }
+        if (gi_taps(p, n, v, c, reach, &taps) <= 0.0) { continue; }
         let w = select(remaining * wc, remaining, used == 1u);
         for (var j = 0u; j < 8u; j++) { out.taps[used * 8u + j] = GiTap(taps[j].index, taps[j].weight * w); }
         remaining -= w;
@@ -65,7 +65,7 @@ fn gi_generation_at(w: GiGenerationWeights, k: u32) -> vec3f {
     return e * PI;
 }
 
-/** Irradiância (E) do rebatimento `k` no ponto `p` com normal `n`, vista `v`. */
-fn gi_generation_irradiance(k: u32, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
-    return gi_generation_at(gi_generation_weights(p, n, v), k);
+/** Irradiância (E) do rebatimento `k` no ponto `p` com normal `n`, vista `v` e o trecho livre `reach` nela. */
+fn gi_generation_irradiance(k: u32, p: vec3f, n: vec3f, v: vec3f, reach: f32) -> vec3f {
+    return gi_generation_at(gi_generation_weights(p, n, v, reach), k);
 }

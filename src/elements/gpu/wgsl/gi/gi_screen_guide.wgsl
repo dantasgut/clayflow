@@ -22,7 +22,7 @@ const GI_SCREEN_EXTRA_RAYS: u32 = 2u;
 fn gi_guide_probe(p: vec3f, n: vec3f) -> GiTap {
     for (var c = 0u; c < gi.grid.w; c++) {
         if (c + 1u < gi.grid.w && gi_cascade_weight(p, c) <= 0.0) { continue; }
-        let cell = gi_cell_of(p, n, n, c);
+        let cell = gi_cell_of(p, n, n, c, GI_REACH_FREE);
         var best = GiTap(0u, 0.0);
         for (var k = 0u; k < 8u; k++) {
             let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32((k >> 2u) & 1u));

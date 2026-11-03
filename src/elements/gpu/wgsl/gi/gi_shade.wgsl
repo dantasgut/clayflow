@@ -41,11 +41,12 @@ fn gi_shade_factors(c: Closure, n: vec3f, v: vec3f) -> GiShadeFactors {
 
 /**
  * A luz rebatida que sai do ponto com a irradiância do rebatimento `k` das sondas do mundo pelos pesos `w` (os do ponto,
- * calculados uma vez para todas as gerações), pelos fatores `f` do fechamento; o verso só quando há translúcido.
+ * calculados uma vez para todas as gerações), pelos fatores `f` do fechamento; o verso só quando há translúcido (`reach`:
+ * o trecho livre na vista, o comprimento do raio).
  */
-fn gi_shade_indirect_weighted(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, w: GiGenerationWeights, k: u32) -> vec3f {
+fn gi_shade_indirect_weighted(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, reach: f32, w: GiGenerationWeights, k: u32) -> vec3f {
     let e = gi_generation_at(w, k) / PI;
     var back = e;
-    if (f.translucent) { back = gi_generation_irradiance(k, p, -n, v) / PI; }
+    if (f.translucent) { back = gi_generation_irradiance(k, p, -n, v, reach) / PI; }
     return f.front * e + f.back * back;
 }
