@@ -168,6 +168,35 @@ código: as feitas estão marcadas com a evidência, e as que as decisões poste
   - **Feita, ressignificada pela 039**: o traçado é a cadeia fixa (`refraction_chain.wgsl`, 039 T103/T104), até 16 interfaces com dispersão; a divisão por grupo de formas deu lugar ao material fora dos kernels (`RayWave` + `hitShade`, 039).
 - [ ] T044a [US1] Movimento do que o raio secundário mostra: a refração (e o reflexo traçado) grava no canal ba do alvo `motion` a posição anterior na tela do ponto atingido (`previousViewProjection` × mundo anterior do objeto atingido), para a resolução temporal recortar e reprojetar o conteúdo refratado/refletido — o rastro de SC-005 no vidro e na esfera lisa (7,45 % hoje) depende disso
   - **Retomada (2026-10-31)**: `RefractionMotionFlow` e máscara reativa existem; falta fechar os critérios — rastro 1,66 % (≤ 1 %), órbita 3,14 % (≤ 3 %), sprites 86,96 %, `waterOrbit` 3,3–4,2 % (≤ 3 %) (038 `baseline.md`).
+  - **2026-11-04** (smoke `antialiasing` no M4; base no início: rastro escuro 1,57 %, órbita pose 3 3,23 %, sprites
+    82,61 %, `waterOrbit` clara 4,31 / 4,22 / 4,94 % e turva 3,59 / 4,11 / 3,87 %):
+    - **Rastro (fechado)**: era a sombra da bola vista pelo vidro. A marca de movimento do raio de sombra valia 1 e
+      entrava na fração "movida" pesada pela luz que _sobra_ no ponto — na sombra, quase nada —, então a máscara
+      reativa nunca disparava: a sombra entrava no histórico aos poucos (−0,02 em vez de −0,54) e saía em 30+ quadros.
+      Agora `ray_light_response` devolve no w a luminância da luz que a instância que se moveu tapa
+      (`ray_direct_marked` soma; o reflexo do sol idem), e a cadeia a soma ao que mudou. A sombra aparece inteira pelo
+      vidro e some no quadro seguinte. Rastro escuro 1,57 % → 0,39 %, claro 0,08 %. Vídeo antes/depois enviado.
+    - **Sprites (fechado; a medida, não o critério)**: a cobertura contava pixels com luminância > 0,85, e os sprites
+      iluminados ficam em ≤ 0,85 — os 23 px contados eram todos o realce da esfera lisa (o temporal integra o realce: 19
+      px). A cobertura agora é a pegada dos sprites (onde a imagem difere da mesma cena sem eles no mesmo modo, > 0,05);
+      o critério (≥ 90 % da do modo sem antisserrilhado) é o mesmo: 99,5 %. Medido também: na integral parada de 256
+      amostras os sprites têm ainda menos pixels na faixa 0,80–0,85 (26) que o temporal em movimento (39) e o sem
+      antisserrilhado (216) — o histórico não os apaga.
+    - **Reprojeção do conteúdo refratado**: o filtro do sinal traçado buscava o histórico onde a _superfície_ estava e,
+      falhando, em 3 × 3 em volta — a lente e a água deslocam a imagem do que está atrás em vários pixels. Agora acha
+      no guia anterior onde o ponto mostrado aparecia (`temporal_filter_search`: até 4 passos de Newton, o jacobiano
+      pelas diferenças do guia na distância entre as amostras dele — 2 na meia resolução, ponto novo
+      `temporal_filter_source_guide_span` —, passo limitado a 8 px; abaixo de 1 px fica a posição da superfície, que é
+      a precisa com a amostra deslocada). `waterOrbit` clara 3,92 / 3,88 / 4,47 %, turva 3,44 / 3,82 / 3,80 %; parado
+      0,81 % / 0,33 % (sem mudança relevante); `refraction` com as mesmas falhas da HEAD.
+    - **Em aberto — órbita pose 3 3,22 % e `waterOrbit` (≤ 3 %)**. Medido: (a) na órbita, o vidro responde por 0,4
+      ponto; o resto é o xadrez fino do chão em movimento (mínimo do peso do quadro novo em 0,25: 0,125 dá 3,41 %, 0,4
+      dá 3,35 %); (b) na água, o tanque responde por 2,4–3,7 pontos e fora dele 0,7–1,0; o quadro sem antisserrilhado
+      (uma amostra, sem histórico) erra 1,5–2,6 no tanque, e o temporal 2,4–3,7 — o histórico ainda piora o conteúdo
+      refratado em movimento; (c) sem o filtro do sinal traçado a água cai cerca de 1 ponto (4,31 → 3,20 % na pose 1),
+      sem as passadas à-trous não muda, com o peso mínimo do quadro novo do filtro em 0,5 cai só 0,1; (d) o guia dos
+      pixels não traçados na meia resolução (039) é o do representante mais próximo — em degraus de 2 px —, o que
+      limita a busca. Em 2026-10-22, com a água fora do traçado e em resolução inteira, a `waterOrbit` dava 0,47–0,80 %.
   - Retomada (2026-10-24), medido no M4 (research R3a): divisão na segunda interface, guia de albedo pesado pela luz,
     marca de movimento pelo próprio traçado no lugar do gradiente refeito, entrelaçamento com orçamento de pixels
     traçados (`Refraction.maxTracedPixels`) e três passadas à-trous. Oito cenas 0,07–0,38 %; lente 0 degraus (controle
@@ -181,22 +210,16 @@ código: as feitas estão marcadas com a evidência, e as que as decisões poste
   - Estado (2026-10-23): vetor ba do que o traçado mostra (`RefractionMotionFlow`, pelo ponto mostrado `Refraction.hit`) e máscara reativa pelo gradiente temporal da refração (a amostra do quadro anterior refeita na cena de agora). Em avaliação (research R3a, decisão do usuário pendente): o filtro do sinal traçado (`TracedDenoiser`, `RefractionDenoiseFlow`). Tentado e desfeito: 4 amostras onde o histórico recomeçou (custo 4,4 ms em órbita), a regra da luz direta no ponto mostrado, a comparação do ponto mostrado no mesmo pixel (recomeçava o vidro inteiro com a câmera em movimento). A radiância transmitida e a refletida passaram a uma saída só (`radiance`). Smoke `antialiasing`: ver R3a.
 - [x] T045 [US1] Composição dos transmissivos lendo a saída do próprio pixel (`forward_transmission.wgsl`); remover `transmission_background`/`scene_copy` dos transmissivos, inclusive a parede fina; `recordSceneCopy` só se outro consumidor existir
   - **Retomada (2026-10-31)**: a cópia da cena saiu (`scene_copy`, `transmission_background`, `recordSceneCopy` não existem mais); falta o smoke `materials` (6 itens de transmissão/translucidez, 038 `baseline.md`).
-  - **Feita (2026-11-04)**: `materials` verde. Medido caso a caso:
-    - `translucent-backlit` (0 → 0,955; 0,764; 0,573 = cor × 3/π, exato): defeito do motor — a luz direta traçada
-      (`ray_light_response`, `ray_direct.wgsl`) descartava toda luz com n·l ≤ 0 e soltava o raio de sombra pela frente;
-      agora a luz de trás conta para os lobos que a recebem (translúcido, subsuperfície) e o raio parte do lado dela.
-    - Fresnel rasante (borda 0,146 × centro 0,077): com o reflexo traçado, o reflexo rasante da borda segue para trás e
-      acha a parede preta da cena (escuro certo). A cena passou a esfera de vidro absorvente sem a parede: centro 0,040
-      (o F0 exato), borda 0,294 a 0,97 do raio (a física dá ≈ 0,27). Critério igual (borda > 4× centro).
-    - Dispersão (Abbe 40: 0 px): as separações esperadas (0,26 e 0,57 px) ficam abaixo do bloco 2×2 do traçado em meia
-      resolução (decisão da 039). Vista de perto (400 px por unidade, esperado 1,0 e 2,3 px) na integral do pixel
-      (`accumulate`, 64 quadros, como o smoke `refraction`): 0 / 0,72 / 1,90 px. Critério igual.
-    - Vidro atrás de vidro (preto no ponto medido): a esfera da frente é lente — no pixel da sobreposição, o raio segue
-      para longe do vidro verde, que aparece invertido em outra parte do disco; com listras, o ponto caía numa preta.
-      Agora fundo branco uniforme e o verde em ≥ 5 % do disco da esfera da frente: 22,1 %. Sem buraco no ponto antigo.
-    - Achado, não corrigido aqui: no MSAA (sem jitter), pontos claros isolados na diagonal x = y da imagem quadrada da
-      esfera de vidro, em todo quadro; somem na integral do pixel. Fica para a T075.
-    - `refraction` com e sem a mudança da luz direta (A/B contra a HEAD): a mesma lista de falhas (`fila com N pixels,
+  - **Feita (2026-11-04)**: `materials` verde. Medido caso a caso: - `translucent-backlit` (0 → 0,955; 0,764; 0,573 = cor × 3/π, exato): defeito do motor — a luz direta traçada
+    (`ray_light_response`, `ray_direct.wgsl`) descartava toda luz com n·l ≤ 0 e soltava o raio de sombra pela frente;
+    agora a luz de trás conta para os lobos que a recebem (translúcido, subsuperfície) e o raio parte do lado dela. - Fresnel rasante (borda 0,146 × centro 0,077): com o reflexo traçado, o reflexo rasante da borda segue para trás e
+    acha a parede preta da cena (escuro certo). A cena passou a esfera de vidro absorvente sem a parede: centro 0,040
+    (o F0 exato), borda 0,294 a 0,97 do raio (a física dá ≈ 0,27). Critério igual (borda > 4× centro). - Dispersão (Abbe 40: 0 px): as separações esperadas (0,26 e 0,57 px) ficam abaixo do bloco 2×2 do traçado em meia
+    resolução (decisão da 039). Vista de perto (400 px por unidade, esperado 1,0 e 2,3 px) na integral do pixel
+    (`accumulate`, 64 quadros, como o smoke `refraction`): 0 / 0,72 / 1,90 px. Critério igual. - Vidro atrás de vidro (preto no ponto medido): a esfera da frente é lente — no pixel da sobreposição, o raio segue
+    para longe do vidro verde, que aparece invertido em outra parte do disco; com listras, o ponto caía numa preta.
+    Agora fundo branco uniforme e o verde em ≥ 5 % do disco da esfera da frente: 22,1 %. Sem buraco no ponto antigo. - Achado, não corrigido aqui: no MSAA (sem jitter), pontos claros isolados na diagonal x = y da imagem quadrada da
+    esfera de vidro, em todo quadro; somem na integral do pixel. Fica para a T075. - `refraction` com e sem a mudança da luz direta (A/B contra a HEAD): a mesma lista de falhas (`fila com N pixels,
 pedido em 4N` da meia resolução, `glint`, lente 1 degrau, GI região 10 0,56–0,73 % com ruído entre rodadas).
 - [x] T046 [US1] Estágio em `src/presentation/flows/defaults.ts` (depois dos opacos e da superfície da água, antes da composição) e evento de não suportado quando a estrutura de raios faltar
   - **Retomada (2026-10-31)**: o estágio existe (`defaults.ts`, pelo `Renderer` da 039); falta o evento próprio de refração não suportada — sem `RayScene` o `RefractionFlow` só não traça.

@@ -289,7 +289,7 @@ export const rayHit = wgslModule({
 /**
  * Luz direta num ponto atingido (spec 033 R2, comum na spec 034): `ray_direct(c, p, n, v, slots, seed)` — as luzes do
  * pool com raio de sombra pela estrutura; a iluminação global e a refração passam a contagem de slots usados.
- * `ray_direct_marked` dá também a marca de sombra por instância que se moveu.
+ * `ray_direct_marked` dá também a luz tapada por instâncias que se moveram (a marca da sombra que muda).
  */
 export const rayDirect = wgslModule({
     name: 'ray_direct',

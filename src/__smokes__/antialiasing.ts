@@ -19,8 +19,8 @@
 //   - orbit: a câmera gira a 30°/s em volta do vidro; em três poses o quadro do modo temporal contra a referência
 //     parada na mesma pose: a energia de gradiente da referência / a do temporal ≤ 1,5 (o borrão do movimento) e erro
 //     médio ≤ 3 %.
-//   - sprites: partículas em sprites caindo; a cobertura delas no modo temporal ≥ 90 % da do modo sem antisserrilhado
-//     (o histórico não as apaga).
+//   - sprites: partículas em sprites caindo; a cobertura delas (onde a imagem difere da cena sem elas no mesmo modo)
+//     no modo temporal ≥ 90 % da do modo sem antisserrilhado (o histórico não as apaga).
 //   - spriteTrail: partículas em sprites (raio 0,04 m) atravessando a cena de lado a 1 m/s, acima do chão, no lugar da
 //     bola: o rastro delas, nos dois sentidos, ≤ 1 % (T031).
 //   - pointTrail: os vértices de uma esfera como sprites (`PointSpriteMaterial`), movidos pelo `Transform` no caminho
@@ -750,15 +750,23 @@ async function waterOrbitOf(name: string, water: Water): Promise<void> {
     }
 }
 
-/** Cobertura (pixels claros) das partículas em sprites caindo, no modo pedido. */
+/**
+ * Cobertura das partículas em sprites caindo, no modo pedido: os pixels em que a imagem difere da mesma cena sem elas,
+ * no mesmo modo e no mesmo quadro (a mesma sequência de posições da amostra), em mais de 0,05. Não um limiar de
+ * brilho: os sprites iluminados ficam abaixo de 0,85 de luminância, e o limiar contava só o realce da esfera lisa.
+ */
 async function spriteCoverage(mode: AntialiasingMode): Promise<number> {
     const s = await scene(mode);
     insertSprites(s.app, 0.015, 'fall');
     await s.app.whenReady();
     const img = await frameAfter(s, 20);
     close(s);
+    const e = await scene(mode);
+    await e.app.whenReady();
+    const empty = await frameAfter(e, 20);
+    close(e);
     let n = 0;
-    for (const v of img) if (v > 0.85) n++;
+    for (let k = 0; k < img.length; k++) if (Math.abs(img[k]! - empty[k]!) > 0.05) n++;
     return n;
 }
 

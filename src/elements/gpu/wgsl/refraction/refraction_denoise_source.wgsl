@@ -45,3 +45,8 @@ fn temporal_filter_source_change(q: vec2u) -> f32 {
     // No corte de câmera (`history.x`, spec 037) a cena mudou toda: o filtro recomeça o histórico.
     return max(refraction_change(q), cameras[refraction.camera_slot].history.x);
 }
+
+fn temporal_filter_source_guide_span() -> i32 {
+    // Meia resolução: os pixels não traçados levam o ponto do representante mais próximo.
+    return 2;
+}

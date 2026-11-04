@@ -1,10 +1,11 @@
 // Passada temporal do filtro de sinal traçado (spec 034, R3, T044a; o SVGF de Schied et al. 2017 com o gradiente
 // temporal do A-SVGF de Schied et al. 2018): uma invocação por pixel do sinal (`temporal_filter_source`); sem sinal, zero
 // (sem histórico no quadro seguinte).
-// O histórico vem de onde a superfície do pixel estava no quadro anterior (`temporal_filter_surface_motion`, em UV),
-// nos vizinhos que mostravam o mesmo ponto (`temporal_filter_guide_previous`: o mesmo objeto, a menos de
-// `TEMPORAL_FILTER_HISTORY_GAP` larguras de pixel do ponto de agora levado ao quadro anterior) — bilinear, ou, se
-// nenhum dos quatro serve (uma lente desloca a imagem), a média dos que servem em 3 × 3. O peso da amostra nova vai de
+// O histórico vem de onde o ponto mostrado aparecia no quadro anterior — achado no guia anterior a partir de onde a
+// superfície do pixel estava (`temporal_filter_surface_motion`, em UV; `temporal_filter_search`: uma lente ou a água
+// deslocam e invertem a imagem do que está atrás) —, nos vizinhos que mostravam o mesmo ponto
+// (`temporal_filter_guide_previous`: o mesmo objeto, a menos de `TEMPORAL_FILTER_HISTORY_GAP` larguras de pixel do
+// ponto de agora levado ao quadro anterior) — bilinear, ou, se nenhum dos quatro serve, a média dos que servem em 3 × 3. O peso da amostra nova vai de
 // 1/quadros (até `temporal_filter.history_max`) a 1 com a mudança da cena (`temporal_filter_source_change`, o α do
 // A-SVGF): onde algo saiu, o histórico some, mesmo que só um caminho secundário o visse.
 // Os momentos da luminância dão a variância das amostras (com menos de 4 quadros, a dos vizinhos 5 × 5 do mesmo
@@ -38,6 +39,69 @@ fn temporal_filter_history_matches(q: vec2i, id: u32, before: vec3f, footprint: 
     let shown = bitcast<vec4f>(textureLoad(temporal_filter_guide_previous, vec2u(q), 0));
     return textureLoad(temporal_filter_history_moments, vec2u(q), 0).z > 0.0
         && temporal_validate_object(bitcast<u32>(shown.w), id, shown.xyz, before, footprint, TEMPORAL_FILTER_HISTORY_GAP);
+}
+
+/** Passos de Newton da busca do ponto na imagem anterior (orçamento fixo). */
+const TEMPORAL_FILTER_SEARCH_STEPS: u32 = 4u;
+/** Passo máximo da busca, em pixels (um passo maior sai da região em que o guia anterior é contínuo). */
+const TEMPORAL_FILTER_SEARCH_STEP: f32 = 8.0;
+
+/** O ponto mostrado pelo pixel `q` do quadro anterior, se for do objeto `id` (w = 1), ou w = 0. */
+fn temporal_filter_previous_shown(q: vec2i, id: u32) -> vec4f {
+    let size = vec2i(textureDimensions(temporal_filter_guide_previous));
+    if (any(q < vec2i(0)) || any(q >= size)) { return vec4f(0.0); }
+    let shown = bitcast<vec4f>(textureLoad(temporal_filter_guide_previous, vec2u(q), 0));
+    if (bitcast<u32>(shown.w) != id) { return vec4f(0.0); }
+    return vec4f(shown.xyz, 1.0);
+}
+
+/**
+ * Onde, na imagem do quadro anterior, aparecia o ponto `before` do objeto `id` (em pixels, com o centro do pixel `i` em
+ * `i`), a partir de `at` (onde a superfície estava): uma lente ou a superfície da água desloca e inverte a imagem do que
+ * está atrás, e o ponto não fica onde a superfície estava. Passos de Newton sobre o guia anterior (o ponto mostrado por
+ * pixel): o jacobiano pelas diferenças com os vizinhos da direita e de baixo (ou da esquerda e de cima), na distância
+ * entre as amostras do guia (`temporal_filter_source_guide_span`), o passo pelos mínimos quadrados no plano que eles
+ * geram, limitado a `TEMPORAL_FILTER_SEARCH_STEP`. Para onde o guia deixa de ser do objeto; fora do objeto logo no
+ * início, ou a menos de um pixel de `at`, fica `at`.
+ */
+fn temporal_filter_search(at: vec2f, id: u32, before: vec3f) -> vec2f {
+    let span = temporal_filter_source_guide_span();
+    var q = at;
+    for (var k = 0u; k < TEMPORAL_FILTER_SEARCH_STEPS; k++) {
+        let c = vec2i(round(q));
+        let p0 = temporal_filter_previous_shown(c, id);
+        if (p0.w == 0.0) { break; }
+        var px = temporal_filter_previous_shown(c + vec2i(span, 0), id);
+        var sx = 1.0 / f32(span);
+        if (px.w == 0.0) {
+            px = temporal_filter_previous_shown(c - vec2i(span, 0), id);
+            sx = -sx;
+        }
+        var py = temporal_filter_previous_shown(c + vec2i(0, span), id);
+        var sy = 1.0 / f32(span);
+        if (py.w == 0.0) {
+            py = temporal_filter_previous_shown(c - vec2i(0, span), id);
+            sy = -sy;
+        }
+        if (px.w == 0.0 || py.w == 0.0) { break; }
+        let jx = (px.xyz - p0.xyz) * sx;
+        let jy = (py.xyz - p0.xyz) * sy;
+        let r = before - p0.xyz;
+        let a = dot(jx, jx);
+        let b = dot(jx, jy);
+        let d = dot(jy, jy);
+        let det = a * d - b * b;
+        if (det <= 1e-6 * a * d) { break; }
+        let ex = dot(jx, r);
+        let ey = dot(jy, r);
+        let step = clamp(vec2f(d * ex - b * ey, a * ey - b * ex) / det, vec2f(-TEMPORAL_FILTER_SEARCH_STEP),
+            vec2f(TEMPORAL_FILTER_SEARCH_STEP));
+        q = vec2f(c) + step;
+        if (dot(step, step) < 0.01) { break; }
+    }
+    // Abaixo de um pixel, a diferença é a da amostra deslocada dentro do pixel (os pontos do guia andam com ela): a
+    // posição da superfície é a precisa.
+    return select(at, q, distance(q, at) >= 1.0);
 }
 
 /** O histórico `color` dentro da caixa das amostras de agora do objeto `id` em volta de `px`. */
@@ -79,9 +143,11 @@ fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @bu
     let id = bitcast<u32>(guide.w);
     let before = temporal_filter_source_previous_point(guide);
     let footprint = temporal_filter_source_footprint(px, guide);
-    // Onde a superfície estava, em pixels (centros em +0,5).
+    // Onde a superfície estava, em pixels (o centro do pixel `i` em `i`), e onde o ponto mostrado aparecia (o mesmo lugar
+    // sem lente).
     let size = vec2f(temporal_filter_source_size());
-    let at = vec2f(px) + textureLoad(temporal_filter_surface_motion, px, 0).xy * size;
+    let surface = vec2f(px) + textureLoad(temporal_filter_surface_motion, px, 0).xy * size;
+    let at = temporal_filter_search(surface, id, before);
     let base = vec2i(floor(at));
     let f = at - vec2f(base);
     var color = vec3f(0.0);
@@ -97,7 +163,7 @@ fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @bu
         weight += w;
     }
     if (weight < 1e-3) {
-        // Uma lente desloca a imagem: os vizinhos que mostravam o mesmo ponto.
+        // A busca não chegou (o guia descontínuo): os vizinhos que mostravam o mesmo ponto.
         color = vec3f(0.0);
         moments = vec3f(0.0);
         weight = 0.0;

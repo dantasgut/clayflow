@@ -434,6 +434,8 @@ fn refraction_chain_follow_one(j: u32) {
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }
     if (n.done) {
         p.truncated += p.weight * n.truncated;
+        // A luz que a sombra de quem se moveu tapa conta como mudança, além da que sobra no ponto.
+        p.moving += p.weight * n.blocked;
         refraction_paths[s] = refraction_chain_end(p, p.weight * n.radiance, n.end, n.albedo, false);
         return;
     }
@@ -443,7 +445,7 @@ fn refraction_chain_follow_one(j: u32) {
         // O brilho das luzes refletido pela interface (o realce do sol na água e no vidro), antes da escolha do lobo.
         let glint = refraction_glint(ray_wave_entries[2u * j].closure, n.p, n.nf, -p.dir);
         p.radiance += p.weight * glint.xyz;
-        if (glint.w > 0.0) { p.moving += p.weight * glint.xyz; }
+        p.moving += p.weight * glint.w;
     }
     if (n.passes) {
         let camera = p.flags & REFRACTION_CHAIN_CAMERA;

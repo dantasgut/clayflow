@@ -14,7 +14,10 @@
 //     gradiente temporal do A-SVGF: 0 onde nada mudou, também com a câmera em movimento);
 //   - `temporal_filter_source_fresh(q)`: a amostra do pixel é deste quadro (quem traça uma parte dos pixels por quadro —
 //     a refração em meia resolução — reconstrói os outros dos vizinhos traçados: o filtro guarda o histórico válido
-//     deles em vez de misturar a reconstrução, e usa a reconstrução onde não há histórico).
+//     deles em vez de misturar a reconstrução, e usa a reconstrução onde não há histórico);
+//   - `temporal_filter_source_guide_span()`: a distância, em pixels, entre as amostras de que o guia vem (1 com uma
+//     amostra por pixel; 2 na meia resolução, em que o guia é o do representante do bloco 2 × 2): a escala das diferenças
+//     com que o filtro acha, na imagem anterior, onde aparecia o ponto mostrado.
 // Requer: nada.
 
 fn temporal_filter_source_size() -> vec2u {
@@ -51,4 +54,8 @@ fn temporal_filter_source_change(q: vec2u) -> f32 {
 
 fn temporal_filter_source_fresh(q: vec2u) -> bool {
     return true;
+}
+
+fn temporal_filter_source_guide_span() -> i32 {
+    return 1;
 }

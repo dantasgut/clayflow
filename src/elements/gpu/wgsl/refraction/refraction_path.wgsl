@@ -83,8 +83,8 @@ fn refraction_takes_interface(c: Closure, state: ptr<function, u32>) -> bool {
 }
 
 /**
- * Luz que sai de um ponto opaco atingido para quem vê de `v` (rgb); no w, 1 quando a sombra dele vem de uma instância
- * que se moveu (a luz do ponto muda sem que o ponto mude: a marca de movimento vale para ele).
+ * Luz que sai de um ponto opaco atingido para quem vê de `v` (rgb); no w, a luminância da luz que instâncias que se
+ * moveram tapam nele (a luz do ponto muda sem que o ponto mude: a marca de movimento vale para ele, na medida dessa luz).
  */
 fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
     let n = select(hit.normal, -hit.normal, dot(hit.normal, v) < 0.0);
@@ -94,8 +94,8 @@ fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
 
 /**
  * O brilho das luzes de disco (as direcionais com raio angular, `cones.z`: o sol) refletido por uma interface dielétrica
- * (a água, o vidro) para quem vê de `v`, no ponto `p` de normal de face `nf` (rgb; no w, 1 quando a sombra vem de uma
- * instância que se moveu): a luz direta pelo lobo refletido do fechamento `c` (a transmissão não entra: só a luz do
+ * (a água, o vidro) para quem vê de `v`, no ponto `p` de normal de face `nf` (rgb; no w, a luminância do brilho tapado
+ * por instâncias que se moveram): a luz direta pelo lobo refletido do fechamento `c` (a transmissão não entra: só a luz do
  * lado de quem vê), com sombra, a rugosidade somada à do disco (as larguras em quadratura) — o reflexo de uma luz de
  * tamanho real. A luz sem disco (uma direção, um ponto) não tem reflexo visível na superfície lisa, como na referência;
  * o caminho refletido nunca acerta a luz: este é o único termo dela ali, sem contagem dupla.
@@ -112,7 +112,7 @@ fn refraction_glint(c: Closure, p: vec3f, nf: vec3f, v: vec3f) -> vec4f {
         var g = c;
         g.specular_roughness = sqrt(sqrt(r * r * r * r + disc * disc));
         let response = ray_light_response(g, i, p, n, v, true);
-        sum = vec4f(sum.xyz + response.xyz, max(sum.w, response.w));
+        sum += response;
     }
     return sum;
 }
@@ -228,8 +228,8 @@ fn refraction_crossing_at(d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: 
 /**
  * Resultado de um caminho: a radiância, a energia que restava no limite de interfaces (por canal), onde ele termina —
  * o ponto de mundo e, em bits, o registro `Renderable` do objeto (`NONE`: o céu, ou sem registro) — e o albedo da
- * superfície nesse ponto (1 no céu e sem superfície) — e a parte da radiância que veio por caminhos que tocaram uma
- * instância que se moveu (`moving`).
+ * superfície nesse ponto (1 no céu e sem superfície) — e a luz que mudou com instâncias que se moveram (`moving`): a
+ * radiância dos caminhos que tocaram uma delas e a luz que a sombra delas tapa.
  */
 struct RefractionPath {
     radiance: vec3f,
@@ -258,6 +258,8 @@ struct RefractionNode {
     done: bool,
     /** A instância do acerto se moveu desde o quadro anterior. */
     moved: bool,
+    /** A luminância da luz que instâncias que se moveram tapam no ponto opaco (`ray_direct_marked`). */
+    blocked: f32,
     passes: bool,
     radiance: vec3f,
     truncated: f32,
@@ -383,6 +385,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.disperse = false;
     n.vol = false;
     n.moved = false;
+    n.blocked = 0.0;
     n.passes = false;
     n.radiance = vec3f(0.0);
     n.truncated = 0.0;
@@ -404,6 +407,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
         // A luz do ponto opaco, da passada da onda (`refraction_chain_light_main`, spec 034 T078: o mesmo sorteio).
         n.radiance = shade.xyz;
         n.moved = n.moved || shade.w > 0.0;
+        n.blocked = shade.w;
         n.albedo = closure_albedo(c);
         return n;
     }
