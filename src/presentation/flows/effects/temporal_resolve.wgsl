@@ -42,6 +42,16 @@ const TAA_LIGHT_CHANGE: f32 = 0.1;
 /** Quadros máximos do histórico no modo de acumulação. */
 const TAA_MAX_FRAMES: f32 = 4096.0;
 
+/**
+ * A cor `c` com componentes finitas (sem NaN nem infinito, pelos bits: a comparação `x != x` o compilador pode
+ * eliminar); a componente inválida vira 0. Um valor inválido que entrasse no histórico se espalharia pelos vizinhos a
+ * cada quadro pela leitura Catmull–Rom — blocos pretos que crescem e só somem no recomeço.
+ */
+fn taa_finite(c: vec3f) -> vec3f {
+    let bits = bitcast<vec3u>(c) & vec3u(0x7FFFFFFFu);
+    return select(c, vec3f(0.0), bits >= vec3u(0x7F800000u));
+}
+
 /** Histórico em `uv` por Catmull–Rom com 5 leituras bilineares (Jimenez 2016). */
 fn taa_history_catmull(uv: vec2f, size: vec2f) -> vec4f {
     let pos = uv * size;
@@ -62,7 +72,7 @@ fn taa_history_catmull(uv: vec2f, size: vec2f) -> vec4f {
     sum += textureSampleLevel(taa_history, src_smp, vec2f(tc3.x, tc12.y), 0.0) * (w3.x * w12.y);
     sum += textureSampleLevel(taa_history, src_smp, vec2f(tc12.x, tc3.y), 0.0) * (w12.x * w3.y);
     let weight = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
-    return max(sum / weight, vec4f(0.0));
+    return vec4f(max(taa_finite(sum.rgb / weight), vec3f(0.0)), sum.a / weight);
 }
 
 /**
@@ -130,7 +140,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let dims = textureDimensions(src_tex, 0);
     let size = vec2f(dims);
     let pixel = vec2i(in.clip_position.xy);
-    let current = textureLoad(src_tex, pixel, 0).rgb;
+    let current = taa_finite(textureLoad(src_tex, pixel, 0).rgb);
     let light = textureLoad(taa_light, pixel, 0).rg;
     let cam = cameras[taa_params.cameraSlot];
     let r = taa_reproject(pixel, in.uv);
@@ -189,7 +199,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
-            let rgb = textureLoad(src_tex, q, 0).rgb;
+            let rgb = taa_finite(textureLoad(src_tex, q, 0).rgb);
             let direct = textureLoad(taa_light, q, 0).r;
             // A faixa da luz com todos os vizinhos: numa silhueta, a amostra deslocada cai ora numa superfície, ora na
             // outra, e a luz acumulada é a mistura das duas.
@@ -232,7 +242,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let clipped = mix(relighted, ycocg_inverse(mean + d / max(scale.x, max(scale.y, scale.z))), stirred);
     // Média exponencial na radiância linear (sem peso por luminância: a média fica sem viés).
     let alpha = max(1.0 / (frames + 1.0), mix(TAA_MIN_ALPHA_STILL, TAA_MIN_ALPHA_MOVING, stirred));
-    out.color = vec4f(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0), 1.0);
+    out.color = vec4f(taa_finite(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0)), 1.0);
     out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);
     // A luz acumulada como a cor: reiluminada, ela é a de agora.
     out.light = select(light, mix(mix(prev_light, light, relit), light, alpha), frames > 0.0);
