@@ -166,7 +166,14 @@ código: as feitas estão marcadas com a evidência, e as que as decisões poste
   - **Feita** (conferida em 2026-10-31): pilha em `refraction_media.wgsl` (`REFRACTION_MAX_MEDIA` = 4) e `refraction_absorb`; teto constante dos laços pela T066c.
 - [x] T044 [US1] `RefractionFlow` (`src/elements/lighting/refraction/RefractionFlow.ts`, `refraction_trace.wgsl`): caminho até 16 interfaces, dispersão em três caminhos com o índice do canal em cada interface, luz direta com sombra e `closure_indirect` no acerto opaco, céu no escape; divisão por grupo de formas de material quando passar de 10 storage
   - **Feita, ressignificada pela 039**: o traçado é a cadeia fixa (`refraction_chain.wgsl`, 039 T103/T104), até 16 interfaces com dispersão; a divisão por grupo de formas deu lugar ao material fora dos kernels (`RayWave` + `hitShade`, 039).
-- [ ] T044a [US1] Movimento do que o raio secundário mostra: a refração (e o reflexo traçado) grava no canal ba do alvo `motion` a posição anterior na tela do ponto atingido (`previousViewProjection` × mundo anterior do objeto atingido), para a resolução temporal recortar e reprojetar o conteúdo refratado/refletido — o rastro de SC-005 no vidro e na esfera lisa (7,45 % hoje) depende disso
+- [x] T044a [US1] Movimento do que o raio secundário mostra: a refração (e o reflexo traçado) grava no canal ba do alvo `motion` a posição anterior na tela do ponto atingido (`previousViewProjection` × mundo anterior do objeto atingido), para a resolução temporal recortar e reprojetar o conteúdo refratado/refletido — o rastro de SC-005 no vidro e na esfera lisa (7,45 % hoje) depende disso
+  - **Fechada por decisão do usuário (2026-11-04)**: a imagem da água e do vidro em movimento foi julgada satisfatória
+    no app em tempo real; a tarefa fecha com os valores medidos no `b50df4b7` (smoke `antialiasing`, M4): parado 0,36 %,
+    rastro 0,14 / 0,39 %, sprites 105,7 %, custo do temporal 0,19 ms (quadro 4,8 ms) — dentro dos critérios; `orbit`
+    2,65 / 2,69 / 3,16 % e `waterOrbit` água turva 2,83 / 2,91 / 3,26 %, clara 3,48 / 3,48 / 4,40 % — acima de 3 % na
+    pose 3 da órbita e na água clara, aceitos assim (a perda de detalhe fino em movimento visto pela água e pelo vidro:
+    a meia resolução com histórico curto). A tentativa de reprojetar pela mistura do movimento da superfície e do fundo
+    foi desfeita sem medir, a pedido.
   - **Retomada (2026-10-31)**: `RefractionMotionFlow` e máscara reativa existem; falta fechar os critérios — rastro 1,66 % (≤ 1 %), órbita 3,14 % (≤ 3 %), sprites 86,96 %, `waterOrbit` 3,3–4,2 % (≤ 3 %) (038 `baseline.md`).
   - **2026-11-04** (smoke `antialiasing` no M4; base no início: rastro escuro 1,57 %, órbita pose 3 3,23 %, sprites
     82,61 %, `waterOrbit` clara 4,31 / 4,22 / 4,94 % e turva 3,59 / 4,11 / 3,87 %):
