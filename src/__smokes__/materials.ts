@@ -42,6 +42,7 @@ import {
     materialApp,
     materialGraph,
     renderHdr,
+    renderIntegral,
 } from './support/materialScenes';
 import { luminanceLinear } from './support/images';
 
@@ -292,25 +293,16 @@ async function caseRefraction(): Promise<void> {
         `transmission-refraction: o padrão não se deslocou (${avg} px)`,
     );
 
-    // Fresnel rasante: esfera de vidro sobre fundo preto num hemisfério branco — a borda reflete mais que o centro.
+    // Fresnel rasante: esfera de vidro que absorve toda a luz que entra (a transmissão não volta) num hemisfério branco —
+    // só o reflexo da primeira face, e a borda reflete mais que o centro. (Com o reflexo traçado, um fundo preto atrás
+    // da esfera aparece no reflexo rasante da borda, que segue para trás: a esfera absorvente isola o Fresnel.)
     {
         const { app, canvas } = await materialApp(200, 200, engineErrors);
         frontCamera(app, 2.2);
         app.defaults.ambient.data.skyColor = [1, 1, 1, 1];
         app.defaults.ambient.data.groundColor = [1, 1, 1, 1];
         app.defaults.ambient.data.intensity = 1;
-        app.world.insert(
-            new PlaneGeometry({ size: [20, 20] })
-                .add(new StandardMaterial())
-                .add(
-                    new Transform({
-                        position: [0, 0, -3, 1],
-                        rotation: [Math.sin(Math.PI / 4), 0, 0, Math.cos(Math.PI / 4)],
-                    }),
-                )
-                .add(closureFn('return closure_emission(vec3f(0.0), 0.0);', ['emission'])),
-        );
-        sphere(app, 0, 0, 1, glassFn(1.5));
+        sphere(app, 0, 0, 1, glassFn(1.5, [0.001, 0.001, 0.001], 0.01));
         const img = await renderHdr(app);
         disposeApp(app, canvas);
         const center = lum(hdrAt(img, 100, 100));
@@ -362,15 +354,18 @@ async function caseRefraction(): Promise<void> {
 async function caseDispersion(): Promise<void> {
     const W = 600;
     const H = 200;
-    const height = 2;
+    // A vista de perto (400 px por unidade): a separação esperada entre o vermelho e o azul (1,0 px no Abbe 40, 2,3 px
+    // no 18, pela placa de 0,6 a 36°) passa do bloco 2×2 do traçado da refração (meia resolução, spec 039); na integral
+    // do pixel.
+    const height = 0.5;
     const separation: number[] = [];
     for (const abbe of [0, 40, 18]) {
-        const { app, canvas } = await materialApp(W, H, engineErrors);
+        const { app, canvas } = await materialApp(W, H, engineErrors, { antialias: 'accumulate' });
         noAmbient(app);
         frontCamera(app, height);
         stripes(app, 0.5);
         slab(app, 0, 0.6, Math.PI / 5, glassFn(1.7, [1, 1, 1], 0, abbe));
-        const img = await renderHdr(app);
+        const img = await renderIntegral(app);
         disposeApp(app, canvas);
         const [x0] = frontPixel(-0.3, 0, height, W, H);
         const [x1] = frontPixel(0.3, 0, height, W, H);
@@ -916,7 +911,19 @@ async function caseLayers(): Promise<void> {
         const { app, canvas } = await materialApp(W, H, engineErrors);
         noAmbient(app);
         frontCamera(app, height);
-        stripes(app, 0.2);
+        // Fundo branco uniforme (com listras, o ponto medido através dos dois vidros cai numa listra preta ou branca
+        // conforme a refração, e a cor do vidro de trás some na preta).
+        app.world.insert(
+            new PlaneGeometry({ size: [20, 20] })
+                .add(new StandardMaterial())
+                .add(
+                    new Transform({
+                        position: [0, 0, -2, 1],
+                        rotation: [Math.sin(Math.PI / 4), 0, 0, Math.cos(Math.PI / 4)],
+                    }),
+                )
+                .add(closureFn('return closure_emission(vec3f(1.0), 1.0);', ['emission'])),
+        );
         // Vidro verde atrás e vidro claro na frente, sobrepostos na vista.
         app.world.insert(
             new SphereGeometry({ radius: 0.55, latSegments: 64, lonSegments: 128 })
@@ -930,9 +937,22 @@ async function caseLayers(): Promise<void> {
         const [x, y] = frontPixel(0.05, 0, height, W, H);
         const c = hdrAt(img, x, y);
         const finite = c.every((v) => Number.isFinite(v));
-        const greenish = c[1] > c[0] * 1.2;
+        // A esfera da frente é uma lente: o vidro verde de trás aparece nela invertido e deslocado, não no ponto em que as
+        // duas se sobrepõem na vista — a fração do disco da esfera da frente que mostra o verde.
+        const [fx, fy] = frontPixel(-0.3, 0, height, W, H);
+        const fr = Math.floor((0.5 / height) * H);
+        let disc = 0;
+        let green = 0;
+        for (let dy = -fr; dy <= fr; dy++)
+            for (let dx = -fr; dx <= fr; dx++) {
+                if (dx * dx + dy * dy > fr * fr) continue;
+                const q = hdrAt(img, fx + dx, fy + dy);
+                disc++;
+                if (q[1] > q[0] * 1.2) green++;
+            }
+        const greenish = green / disc >= 0.05;
         log(
-            `transmission-layers: através dos dois vidros (${c.map((v) => v.toFixed(3)).join(', ')}) — ${greenish ? 'o de trás aparece (verde)' : 'o de trás NÃO aparece'}`,
+            `transmission-layers: através dos dois vidros (${c.map((v) => v.toFixed(3)).join(', ')}); o vidro verde em ${((100 * green) / disc).toFixed(1)} % do disco do vidro da frente — ${greenish ? 'o de trás aparece' : 'o de trás NÃO aparece'}`,
         );
         check(finite && lum(c) > 0.02, 'transmission-layers: buraco através dos dois vidros');
         check(greenish, 'transmission-layers: o vidro de trás não aparece através do da frente');

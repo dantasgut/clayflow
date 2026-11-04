@@ -9,7 +9,7 @@ import {
     nodes,
     Transform,
 } from 'clayflow/web';
-import type { LobeName } from 'clayflow/web';
+import type { AntialiasingMode, LobeName } from 'clayflow/web';
 import { settle } from './extensionScenes';
 import { readHdrTexture, type HdrImage } from './imageMeasures';
 
@@ -18,7 +18,7 @@ export async function materialApp(
     width: number,
     height: number,
     errors: string[],
-    options: { readonly profiling?: boolean } = {},
+    options: { readonly profiling?: boolean; readonly antialias?: AntialiasingMode } = {},
 ): Promise<{ app: Application; canvas: HTMLCanvasElement }> {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -26,8 +26,8 @@ export async function materialApp(
     document.body.appendChild(canvas);
     const app = await Application.create({
         // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
-        // temporal, padrão agora, tem o smoke `antialiasing`).
-        antialias: 'msaa',
+        // temporal, padrão agora, tem o smoke `antialiasing`); o acúmulo para a integral do pixel (`renderIntegral`).
+        antialias: options.antialias ?? 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -78,6 +78,28 @@ export async function renderHdr(app: Application, frames = 1, ms = 800): Promise
     const texture = app.resources.textureOf(app.defaults.targets, 'color');
     if (texture === undefined) throw new Error('alvo HDR não alocado');
     return readHdrTexture(app, texture);
+}
+
+/**
+ * A integral do pixel (a aplicação no modo `accumulate`): a média do alvo HDR nos `frames` quadros seguintes à
+ * compilação — as posições da amostra dentro do pixel, como a referência do smoke `refraction`. O sinal traçado (a
+ * refração) tem uma amostra por quadro no centro jitterado do pixel: medidas abaixo do pixel pedem a integral.
+ */
+export async function renderIntegral(app: Application, frames = 64, ms = 800): Promise<HdrImage> {
+    await settle(app, ms);
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    let sum: Float32Array | undefined;
+    let width = 0;
+    let height = 0;
+    for (let i = 0; i < frames; i++) {
+        app.step(1 / 60);
+        const img = await readHdrTexture(app, texture);
+        sum ??= new Float32Array(img.data.length);
+        ({ width, height } = img);
+        for (let k = 0; k < img.data.length; k++) sum[k]! += img.data[k]! / frames;
+    }
+    return { width, height, data: sum! };
 }
 
 /** Função `material` de fechamento escrita em WGSL, com os lobos declarados. */
