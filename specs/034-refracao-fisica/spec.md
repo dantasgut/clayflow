@@ -390,7 +390,9 @@ com estado e destino; smokes e bench das pendências fechadas.
 - **SC-005**: Em movimento: rastro de um objeto que sai do pixel ≤ 1 % da sua luminância após 4 quadros; com a câmera a
   30°/s, borrão ≤ 1,5× (energia de gradiente da referência parada na mesma pose / a do quadro em movimento) e erro
   médio ≤ 3 % contra essa referência (nitidez adaptativa ao movimento; decisão do usuário, 2026-10-20).
-- **SC-006**: GI parada em `medium` e `high` (cômodo com janela e Cornell): viés por face ≤ 5 %, manchas ≤ 2 %,
+- **SC-006**: GI parada em `medium` e `high` (cômodo com janela e Cornell): viés por face ≤ 5 %, manchas ≤ 3 % no `high`
+  e ≤ 7 % no `medium` (decisão do usuário, 2026-11-03: no lugar de ≤ 2 %, abaixo do limite da reconstrução pelas sondas
+  de tela — 2,7 % com o ladrilho de 4 px e 6,7 % com o de 8, medido com a referência só nos centros das sondas),
   cintilação por pixel ≤ 1 %; névoa com câmera andando: cintilação ≤ 1 % e o padrão na escala do froxel ≤ 0,5 % do pico
   da névoa (decisão do usuário, 2026-11-03: no lugar de "nenhuma periodicidade" medida contra o ruído entre quadros, que
   premiava o ruído).

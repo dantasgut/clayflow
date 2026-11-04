@@ -5,8 +5,10 @@
 //     interior das faces, relativa ao nível de cada face. O erro se separa em:
 //       * viés por face: a média do erro na face inteira (≤ 5 %);
 //       * manchas: o erro lento dentro da face (média em janela de 13 px, sem o viés da face), na média de 32 quadros —
-//         o que sobra de estrutura que não some com o tempo (≤ 2 %). O ruído lento da própria referência é medido pela
-//         diferença entre duas metades independentes dela e descontado em quadratura;
+//         o que sobra de estrutura que não some com o tempo (≤ 3 % no `high`, ≤ 7 % no `medium`: decisão do usuário,
+//         2026-11-03 — o limite da reconstrução pelas sondas de tela, medido com a própria referência só nos centros
+//         das sondas, é 2,7 % com o ladrilho de 4 px e 6,7 % com o de 8). O ruído lento da própria referência é medido
+//         pela diferença entre duas metades independentes dela e descontado em quadratura;
 //       * cintilação: o desvio temporal de cada pixel ao longo dos 32 quadros (≤ 1 %).
 //     Cenas: a caixa de Cornell e o cômodo com janela, nas qualidades `medium` e `high`.
 //   - fogWalk: a câmera andando pela névoa (paredes pretas, só o feixe do sol): a luz da névoa sozinha (com névoa menos
@@ -273,7 +275,8 @@ async function giCase(name: string, scene: GiScene, quality: Quality, spp: numbe
         `${name}: viés por face ${[...bias].map(([id, v]) => `${id}:${pct(v)}`).join(' ')}; manchas ${pct(blotches)} (ruído lento da referência ${pct(refSlow)}); cintilação ${pct(flick)}`,
     );
     check(worstBias <= 0.05, `${name}: viés por face ${pct(worstBias)} (≤ 5 %)`);
-    check(blotches <= 0.02, `${name}: manchas ${pct(blotches)} (≤ 2 %)`);
+    const blotchLimit = quality === 'high' ? 0.03 : 0.07;
+    check(blotches <= blotchLimit, `${name}: manchas ${pct(blotches)} (≤ ${pct(blotchLimit)})`);
     check(flick <= 0.01, `${name}: cintilação ${pct(flick)} (≤ 1 %)`);
 }
 
