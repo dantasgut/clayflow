@@ -228,6 +228,18 @@ código: as feitas estão marcadas com a evidência, e as que as decisões poste
       mas a câmera olha pela mesma superfície que concentra a luz e vê mais os pontos claros (reciprocidade; com as
       cáusticas nítidas, 3 %). Trocado pela energia no hash: a correção média dos fótons no fundo ≤ 2 % do sol (−0,4 %).
       O usuário autorizou (2026-11-04) ajustar critério quando a qualidade e o desempenho se cumprem.
+    - **A sombra que piscava no vídeo `causticas`** (medida por região, quadro a quadro): a faixa do fundo junto à parede
+      de baixo escurecia de 93 a 50 e voltava nos quadros 42, 48, 97 e 100 — os respingos mudavam a caixa da água, a
+      âncora do hash mudava e o hash recomeçava (sem a luz que chega pela água por quadros). Agora a âncora tem histerese
+      (só muda com o centro dos alvos a mais de 2 m; 1 m na vertical): 11 saltos → 0. A faixa da direita nos quadros
+      174–176 é a onda subindo pela parede e caindo — a imagem traçada sem antisserrilhado mostra o mesmo; o histórico
+      longo de antes a escondia borrando.
+    - **Série temporal pelo módulo da arquitetura** (spec 037): o ponto mostrado (`Refraction.hit`) é um canal de 2
+      fatias — o traçado grava o atraso 0 (o pixel que guarda o valor leva o do atraso 1 à fatia de agora), o movimento
+      lê os dois, o filtro o de agora; sai a cópia manual por quadro e o alvo `hitPrevious`. O mapa da luz pela água
+      (`field_light_frame`) com a grade presa ao mundo (texel em potências de 2 do voxel, canto em múltiplos dele): os
+      respingos não fazem a grade deslizar nem mudar de tamanho. Em aberto no mesmo sentido: a média móvel e a âncora
+      das cáusticas ainda vivem no próprio hash, fora do módulo.
   - Retomada (2026-10-24), medido no M4 (research R3a): divisão na segunda interface, guia de albedo pesado pela luz,
     marca de movimento pelo próprio traçado no lugar do gradiente refeito, entrelaçamento com orçamento de pixels
     traçados (`Refraction.maxTracedPixels`) e três passadas à-trous. Oito cenas 0,07–0,38 %; lente 0 degraus (controle

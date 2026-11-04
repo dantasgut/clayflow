@@ -9,9 +9,9 @@ struct FieldLightFrame {
     u: vec3f,
     v: vec3f,
     dir: vec3f,
-    /** O canto (u, v) mínimo da projeção da caixa, no plano mais perto da luz. */
+    /** O canto (u, v) da grade (preso a múltiplos do texel), no plano mais perto da luz. */
     origin: vec3f,
-    /** A extensão em u e em v e o comprimento ao longo da luz (x = 0: sem caixa). */
+    /** A extensão da grade em u e em v (o texel em potências de 2 do voxel) e o comprimento ao longo da luz (x = 0: sem caixa). */
     size: vec3f,
 }
 
@@ -38,8 +38,20 @@ fn field_light_frame(direction: vec3f) -> FieldLightFrame {
     let pad = 0.5 * field_voxel();
     lo -= vec3f(pad);
     hi += vec3f(pad);
-    f.origin = f.u * lo.x + f.v * lo.y + f.dir * lo.z;
-    f.size = hi - lo;
+    // A grade presa ao mundo (como nos mapas de sombra estáveis): o texel em potências de 2 do voxel e o canto em
+    // múltiplos dele no plano da luz. A caixa cresce e encolhe com os respingos; enquadrada a cada quadro, a grade
+    // deslizaria e mudaria de tamanho, e a sombra da água piscaria.
+    let res = f32(max(fluid_field.lights.y, 1u));
+    let extent = max(hi.x - lo.x, hi.y - lo.y);
+    var texel = field_voxel() * exp2(ceil(log2(max(extent / (res * field_voxel()), 1e-6))));
+    var corner = floor(lo.xy / texel) * texel;
+    // O canto preso pode deixar a caixa passar da grade: o texel seguinte a cobre.
+    if (any(corner + vec2f(res * texel) < hi.xy)) {
+        texel *= 2.0;
+        corner = floor(lo.xy / texel) * texel;
+    }
+    f.origin = f.u * corner.x + f.v * corner.y + f.dir * lo.z;
+    f.size = vec3f(vec2f(res * texel), hi.z - lo.z);
     return f;
 }
 

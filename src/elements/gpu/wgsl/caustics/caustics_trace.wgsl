@@ -40,6 +40,11 @@ const CAUSTICS_SEGMENT_COUNT: u32 = 1032u;
 const CAUSTICS_SEGMENTS: u32 = 1040u;
 /** Teto de segmentos: as direcionais com mapa de alvos (8 × 64) e 64 pontuais. */
 const CAUSTICS_MAX_SEGMENTS: u32 = 576u;
+/**
+ * O quanto o centro dos alvos pode se afastar da âncora sem que ela mude (m; x, y, z): metade do alcance do nível fino
+ * (±1023 células de 5 mm em x e z, ±511 em y).
+ */
+const CAUSTICS_ANCHOR_REACH: vec3f = vec3f(2.0, 1.0, 2.0);
 /** A âncora das células do hash em `caustics_targets` (xyz). */
 const CAUSTICS_TARGET_ANCHOR: u32 = 2u;
 /** Vagas por fóton principal: ele e os dois canais extras da dispersão (`i + count`, `i + 2·count`). */
@@ -164,7 +169,7 @@ fn caustics_targets_main(@builtin(local_invocation_index) lid: u32) {
 }
 
 /**
- * A âncora das células (o centro dos alvos em passos de meio metro) e os segmentos da grade dos fótons do quadro: por luz
+ * A âncora das células (o centro dos alvos em passos de meio metro, com histerese) e os segmentos da grade dos fótons do quadro: por luz
  * direcional e alvo (a projeção da caixa) e por luz pontual (a esfera de direções), os fótons pelo peso — a potência; na
  * caixa dos volumes, dividida pela fração da grade que passou pela água no quadro anterior —, a grade W × H com as
  * proporções da projeção e a vazão de cada célula como fração da potência por fóton do quadro.
@@ -177,7 +182,14 @@ fn caustics_segments_build(targets: u32, directional_lights: u32) {
         lo = min(lo, box[0]);
         hi = max(hi, box[1]);
     }
-    let anchor = select(vec3f(0.0), floor((lo + hi) + 0.5) * 0.5, targets > 0u);
+    // A âncora fica onde estava enquanto o centro dos alvos não se afasta dela mais que `CAUSTICS_ANCHOR_REACH`: a caixa
+    // da água cresce e encolhe com os respingos, e outra âncora recomeça o hash — a luz que chega pela água some por
+    // quadros e a sombra junto às paredes pisca.
+    let held = bitcast<vec3f>(vec3u(atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR]),
+        atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR + 1u]), atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR + 2u])));
+    let center = select(held, 0.5 * (lo + hi), targets > 0u);
+    var anchor = held;
+    if (any(abs(center - held) > CAUSTICS_ANCHOR_REACH)) { anchor = floor(center * 2.0 + 0.5) * 0.5; }
     caustics_targets[CAUSTICS_TARGET_ANCHOR] = anchor.x;
     caustics_targets[CAUSTICS_TARGET_ANCHOR + 1u] = anchor.y;
     caustics_targets[CAUSTICS_TARGET_ANCHOR + 2u] = anchor.z;

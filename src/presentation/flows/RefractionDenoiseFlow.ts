@@ -36,6 +36,7 @@ import {
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import {
     refractionDenoiseSource,
+    refractionHitSlots,
     refractionResources as R,
 } from '../../elements/lighting/refraction/shaders';
 import {
@@ -61,6 +62,8 @@ export interface RefractionDenoiseSlots extends SlotMap {
     readonly temporalFilterAccumulated: ChannelSlot<true>;
     readonly temporalFilterMoments: ChannelSlot<true>;
     readonly temporalFilterGuide: ChannelSlot<true>;
+    /** O ponto mostrado pela refração (o guia de agora), série temporal dela (spec 037). */
+    readonly refractionHit: ChannelSlot<true>;
 }
 
 type Ctx = TransitionContext<RefractionDenoiseSlots>;
@@ -139,6 +142,7 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
         motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
         ...temporalFilterSlots,
+        ...refractionHitSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -233,8 +237,9 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
             this.resources.ensureAllocated(denoiser, id);
         const view = (r: Resource, id: string): BindingSource | undefined =>
             this.resources.textureViewOf(r, id);
-        const signal = (['request', 'radiance', 'hit', 'albedo', 'gradient', 'noise'] as const).map(
-            (id) => view(refraction, id),
+        // O ponto mostrado vem pelo canal dele (spec 037).
+        const signal = (['request', 'radiance', 'albedo', 'gradient', 'noise'] as const).map((id) =>
+            view(refraction, id),
         );
         const targets = TARGETS.map((id) => view(denoiser, id));
         const motion = c.bound.slots.motion?.view;
@@ -244,11 +249,10 @@ export class RefractionDenoiseFlow extends Flow<RefractionDenoiseSlots, 'idle'> 
         if (sources.some((s, k) => s !== this.bound[k]) || this.bound.at(-1) !== this.current) {
             const of = (id: (typeof TARGETS)[number]): BindingSource =>
                 targets[TARGETS.indexOf(id)]!;
-            const [request, radiance, hit, albedo, gradient, noise] = signal;
+            const [request, radiance, albedo, gradient, noise] = signal;
             const binds = new Map<BindingKey, BindingSource>([
                 [R.request, request!],
                 [R.radiance, radiance!],
-                [R.hit, hit!],
                 [R.albedo, albedo!],
                 [R.gradient, gradient!],
                 [R.noise, noise!],

@@ -1,4 +1,5 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
+import { slot } from '../../../scene/flows/slots';
 import {
     wgslResource,
     type WgslResource,
@@ -107,6 +108,22 @@ const storageTexture = (name: string, format: GPUTextureFormat): ReturnType<type
         provider: 'private',
     });
 
+/** O canal temporal do ponto mostrado (spec 037): a fatia de agora e a do quadro anterior. */
+export const refractionHitSlots = Object.freeze({
+    refractionHit: slot.channel(Refraction.schema, 'hit', { optional: true }),
+});
+
+/** A fatia do ponto mostrado com atraso `lag` (0 agora, 1 o quadro anterior), lida ou (`write`) escrita. */
+const hitSeries = (name: string, lag: 0 | 1, write = false): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: write
+            ? { storageTexture: { format: REFRACTION_HIT_FORMAT, access: 'write' } }
+            : { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'refractionHit', lag },
+    });
+
 const priv = (name: string, access: 'read' | 'read_write', type: WgslResourceType): WgslResource =>
     wgslResource({
         name,
@@ -136,9 +153,9 @@ export const refractionResources = Object.freeze({
     frame: texture('refraction_frame'),
     radianceOut: storageTexture('refraction_radiance_out', REFRACTION_RADIANCE_FORMAT),
     radiance: texture('refraction_radiance', 'f32'),
-    hitOut: storageTexture('refraction_hit_out', REFRACTION_HIT_FORMAT),
-    hit: texture('refraction_hit', 'f32'),
-    hitPrevious: texture('refraction_hit_previous', 'f32'),
+    hitOut: hitSeries('refraction_hit_out', 0, true),
+    hit: hitSeries('refraction_hit', 0),
+    hitPrevious: hitSeries('refraction_hit_previous', 1),
     albedoOut: storageTexture('refraction_albedo_out', REFRACTION_ALBEDO_FORMAT),
     albedo: texture('refraction_albedo', 'f32'),
     noiseOut: storageTexture('refraction_noise_out', 'r32float'),
@@ -282,6 +299,7 @@ export const refractionChain = wgslModule({
         R.frame,
         R.radianceOut,
         R.hitOut,
+        R.hitPrevious,
         R.albedoOut,
         R.noiseOut,
         R.paths,

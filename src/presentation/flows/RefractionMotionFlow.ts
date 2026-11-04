@@ -4,10 +4,17 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { Flow } from '../../scene/flows/Flow';
-import { slot, type SingletonSlot, type SlotMap, type TextureSlot } from '../../scene/flows/slots';
+import {
+    slot,
+    type ChannelSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type TextureSlot,
+} from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import {
+    refractionHitSlots,
     refractionMotion,
     refractionResources as R,
 } from '../../elements/lighting/refraction/shaders';
@@ -27,6 +34,8 @@ export interface RefractionMotionSlots extends SlotMap {
     readonly reactive: TextureSlot<true>;
     /** O antisserrilhado da cena: só o temporal lê os vetores. */
     readonly antialiasing: SingletonSlot<true>;
+    /** O ponto mostrado, série temporal (spec 037): o de agora e o do quadro anterior. */
+    readonly refractionHit: ChannelSlot<true>;
 }
 
 type Ctx = TransitionContext<RefractionMotionSlots>;
@@ -54,6 +63,7 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
         motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
         reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+        ...refractionHitSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -123,11 +133,6 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             prepared.bindTo(pass.bind);
             pass.draw.vertices(3);
         });
-        // O ponto mostrado de agora vira o do quadro anterior do quadro seguinte.
-        const hit = this.resources.textureOf(refraction, 'hit');
-        const previous = this.resources.textureOf(refraction, 'hitPrevious');
-        if (hit !== undefined && previous !== undefined)
-            frame.copyTextureToTexture(hit, previous, [hit.width, hit.height, 1]);
     }
 
     /**
@@ -142,30 +147,21 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             || this.resources.textureOf(refraction, 'request') === undefined
         )
             return;
-        // A máscara lê a mudança da cena: com o gradiente alocado, o traçado o mede; o movimento lê o ponto anterior.
+        // A máscara lê a mudança da cena: com o gradiente alocado, o traçado o mede. O ponto mostrado, o de agora e o
+        // anterior, vem pelo canal dele.
         this.resources.ensureAllocated(refraction, 'gradient');
-        this.resources.ensureAllocated(refraction, 'hitPrevious');
-        const views = (['request', 'hit', 'gradient', 'albedo', 'hitPrevious'] as const).map((id) =>
+        const views = (['request', 'gradient', 'albedo'] as const).map((id) =>
             this.resources.textureViewOf(refraction, id),
         );
-        const [request, hit, gradient, albedo, hitPrevious] = views;
-        if (
-            request === undefined
-            || hit === undefined
-            || gradient === undefined
-            || albedo === undefined
-            || hitPrevious === undefined
-        )
-            return;
+        const [request, gradient, albedo] = views;
+        if (request === undefined || gradient === undefined || albedo === undefined) return;
         if (views.some((v, k) => v !== this.bound[k])) {
             c.bind(
                 new Map<WgslResource, BindingSource>([
                     [R.request, request],
-                    [R.hit, hit],
                     [R.gradient, gradient],
                     // A marca de movimento de agora (alfa do albedo).
                     [R.albedo, albedo],
-                    [R.hitPrevious, hitPrevious],
                 ]),
             );
             this.bound = views;

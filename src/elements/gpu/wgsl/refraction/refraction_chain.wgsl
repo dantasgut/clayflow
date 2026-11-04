@@ -14,8 +14,8 @@
 // lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
 // refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
-// refraction_hit_out, refraction_albedo_out, refraction_noise_out, refraction_blocks, refraction_stamps,
-// refraction_splits.
+// refraction_hit_out, refraction_hit_previous, refraction_albedo_out, refraction_noise_out, refraction_blocks,
+// refraction_stamps, refraction_splits.
 
 /** Vagas por pixel. */
 const REFRACTION_CHAIN_SLOTS: u32 = 5u;
@@ -827,11 +827,16 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     let tolerance = select(0.0, refraction_pixel_depth_step(q, size, own.y, d), jittered) + 1e-4 * d;
     // Em xadrez (Opção B2) a volta do representante pelo bloco leva até 4× os quadros (a vez e a fase giram por ciclo).
     let stamp_frames = select(REFRACTION_STAMP_FRAMES, 4u * REFRACTION_STAMP_FRAMES, refraction.checkerboard != 0u);
+    // O ponto mostrado é uma série temporal (spec 037): o pixel que guarda o valor leva o do quadro anterior à fatia de
+    // agora.
+    let kept = textureLoad(refraction_hit_previous, q, 0);
     if (stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
+        textureStore(refraction_hit_out, q, kept);
         return;
     }
     refraction_stamps[i] = vec2u(0u);
     if (weight <= 0.0) {
+        textureStore(refraction_hit_out, q, kept);
         if (near_any < 1e9) {
             textureStore(refraction_radiance_out, q, fallback.radiance);
             textureStore(refraction_hit_out, q, fallback.end);

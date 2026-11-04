@@ -17,6 +17,7 @@ import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
+    type ChannelSlot,
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
@@ -40,6 +41,7 @@ import {
     refractionGradient,
     refractionQueue,
     refractionResources,
+    refractionHitSlots,
     refractionChain,
     refractionChainArgs,
 } from './shaders';
@@ -58,6 +60,8 @@ export interface RefractionSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** O espaço de trabalho do traçado: a cadeia, os blocos, os carimbos, a onda e a fila (spec 039). */
     readonly work: WorkSlot<RefractionWork>;
+    /** O ponto mostrado, série temporal (spec 037): a fatia de agora, escrita, e a do quadro anterior. */
+    readonly refractionHit: ChannelSlot<true>;
 }
 
 /** Resource de trabalho do `RefractionFlow` (spec 039). */
@@ -200,6 +204,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
             time: slot.singleton(Time.schema, { optional: true }),
             work: slot.work(() => work),
+            ...refractionHitSlots,
         };
         this.resources = ctx.resources;
         this.world = ctx.world;
@@ -330,6 +335,8 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             bind(pass, kernel('upsample'));
             pass.dispatch.invocations(this.pixels, W);
         });
+        // O ponto mostrado de agora está na fatia corrente do canal: o quadro seguinte a lê como a anterior.
+        bound.slots.refractionHit?.written();
         this.frame++;
     }
 
@@ -484,12 +491,13 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             ['queue', [R.queueOut, R.queueIn]],
             ['frame', [R.frameOut, R.frame]],
             ['radiance', [R.radianceOut]],
-            ['hit', [R.hitOut]],
             ['albedo', [R.albedoOut, R.albedo]],
             ['noise', [R.noiseOut]],
             ...(measures ? ([['gradient', [R.gradientOut]]] as const) : []),
         ] as const;
         for (const [id] of textures.slice(1)) this.resources.ensureAllocated(refraction, id);
+        // O ponto mostrado: ligado pelo canal (a fatia de agora e a anterior giram a cada quadro).
+        this.resources.ensureAllocated(refraction, 'hit');
         // As inversas de mundo (spec 037): o histórico leva o ponto atingido ao espaço do objeto por elas.
         this.resources.ensurePoolAllocated(Transform.worldInverseSchema.name);
         const count = this.resources.ensureAllocated(refraction, 'queueCount');

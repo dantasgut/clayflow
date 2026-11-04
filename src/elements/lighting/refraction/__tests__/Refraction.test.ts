@@ -14,10 +14,6 @@ import {
 const TARGETS = [
     // A transmitida mais a refletida na primeira interface (no alfa, a energia truncada).
     ['radiance', 'rgba16float'],
-    // O ponto que o pixel mostra e o registro do objeto (T044a).
-    ['hit', 'rgba32float'],
-    // O do quadro anterior (o quanto a imagem que a água leva andou: o movimento da refração).
-    ['hitPrevious', 'rgba32float'],
     // O albedo do ponto mostrado (o guia de textura do filtro) e, no alfa, a marca de movimento.
     ['albedo', 'rgba16float'],
     // A fração da luz com ruído (a dos caminhos que passaram por um sorteio: o que o filtro do sinal limpa).
@@ -102,7 +98,16 @@ describe('Refraction (spec 034, T040)', () => {
                 access: 'write-only',
             },
         });
-        expect(byId.size).toBe(12);
+        // O ponto que o pixel mostra e o registro do objeto (T044a), série temporal (spec 037): o de agora e o do
+        // quadro anterior (o quanto a imagem que a água leva andou: o movimento da refração).
+        expect(byId.get('hit')).toEqual({
+            id: 'hit',
+            role: 'storage-texture',
+            allocation: 'onDemand',
+            textureShape: { format: 'rgba32float', sizeFromCanvas: true, access: 'write-only' },
+            history: { depth: 2 },
+        });
+        expect(byId.size).toBe(11);
     });
 
     it('a C2 aloca só os parâmetros na inserção; os alvos quando pedidos, no tamanho do canvas, e recriados quando ele muda', async () => {

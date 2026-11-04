@@ -215,10 +215,9 @@ export class Refraction extends Entity<RefractionData> implements Resource {
                 textureShape: { format: 'depth24plus', sizeFromCanvas: true },
             },
             target('radiance', REFRACTION_RADIANCE_FORMAT),
-            target('hit', REFRACTION_HIT_FORMAT),
-            // O ponto que cada pixel mostrava no quadro anterior (sob demanda, por quem mede o quanto a imagem que a
-            // água ou o vidro levam andou: o movimento da refração).
-            target('hitPrevious', REFRACTION_HIT_FORMAT),
+            // Série temporal (spec 037): o ponto de agora e o do quadro anterior (quem mede o quanto a imagem que a água
+            // ou o vidro levam andou: o movimento da refração).
+            { ...target('hit', REFRACTION_HIT_FORMAT), history: { depth: 2 } },
             target('albedo', REFRACTION_ALBEDO_FORMAT),
             // A fração da luz de cada pixel que veio por caminhos com sorteio (a de ruído, que o filtro do sinal limpa).
             target('noise', 'r32float'),
