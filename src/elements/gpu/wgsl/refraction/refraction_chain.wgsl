@@ -743,14 +743,29 @@ fn refraction_pixel_depth_step(q: vec2u, size: vec2u, flags: u32, d: f32) -> f32
     return step;
 }
 
+/** A câmera da refração não se moveu desde o quadro anterior (a vista-projeção sem o deslocamento da amostra igual)? */
+fn refraction_camera_still() -> bool {
+    let cam = cameras[refraction.camera_slot];
+    var change = 0.0;
+    var scale = 0.0;
+    for (var c = 0u; c < 4u; c++) {
+        change = max(change, max(max(abs(cam.unjitteredViewProjection[c].x - cam.previousViewProjection[c].x),
+            abs(cam.unjitteredViewProjection[c].y - cam.previousViewProjection[c].y)),
+            max(abs(cam.unjitteredViewProjection[c].z - cam.previousViewProjection[c].z),
+            abs(cam.unjitteredViewProjection[c].w - cam.previousViewProjection[c].w))));
+        scale = max(scale, length(cam.unjitteredViewProjection[c]));
+    }
+    return change <= 1e-6 * scale;
+}
+
 /** Quadros em que o valor exato de um pixel vale (a volta do representante pelo bloco). */
 const REFRACTION_STAMP_FRAMES: u32 = 4u;
 
 /**
  * Cada pixel pedido pelos representantes traçados neste quadro nos blocos em volta (3 × 3 blocos): o próprio, quando foi
  * o representante (o valor exato, com o carimbo: o quadro e a distância do pedido, `refraction_stamps`); senão, com a
- * mesma superfície de quando foi traçado (a mesma distância do pedido, carimbo da volta corrente), o valor exato dele
- * fica — a imagem parada é a de resolução cheia; senão (a superfície mudou: a câmera ou a água se moveram) a média com o
+ * câmera parada e a mesma superfície de quando foi traçado (a mesma distância do pedido, carimbo da volta corrente), o
+ * valor exato dele fica — a imagem parada é a de resolução cheia; senão (a superfície mudou: a câmera ou a água se moveram) a média com o
  * peso da distância em pixels, só dos que mostram a mesma superfície do pedido (as marcas e a distância dele, como no
  * bloco), com o fim (o guia) do mais próximo. Sem nenhum, o pixel fica com o valor anterior. O filtro temporal sabe
  * quais são reconstruídos (`temporal_filter_source_fresh`): neles guarda o histórico válido.
@@ -830,7 +845,11 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // O ponto mostrado é uma série temporal (spec 037): o pixel que guarda o valor leva o do quadro anterior à fatia de
     // agora.
     let kept = textureLoad(refraction_hit_previous, q, 0);
-    if (stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
+    // Com a câmera em movimento, nenhum valor fica: a tolerância da distância é a variação dela entre vizinhos, e vendo o
+    // vidro ou a água quase de lado ela é grande — a câmera girava e 3 de cada 4 pixels mostravam por até 4 quadros a
+    // imagem refratada antiga (a refração com retardo).
+    let still = refraction_camera_still();
+    if (still && stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
         textureStore(refraction_hit_out, q, kept);
         return;
     }
