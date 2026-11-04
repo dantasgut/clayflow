@@ -61,6 +61,19 @@ describe('EngineReadiness', () => {
         expect(missing).toEqual([{ flow: 'F', pipeline: 'p', name: 'lights' }]);
     });
 
+    it('holdsTime: compilando segura o tempo da cena; um binding sem fonte só até ser dado como ausente', () => {
+        const r = new EngineReadiness(new DefaultEventBus());
+        r.update([{ flow: 'F', pipeline: 'p', reason: 'compiling' as const }]);
+        expect(r.holdsTime).toBe(true);
+        r.update([]);
+        expect(r.holdsTime).toBe(false);
+        const waiting = [{ flow: 'F', pipeline: 'p', reason: 'waiting' as const, name: 'lights' }];
+        r.update(waiting);
+        expect(r.holdsTime).toBe(true);
+        for (let i = 0; i < CONSUMER_MISSING_FRAMES; i++) r.update(waiting);
+        expect(r.holdsTime).toBe(false);
+    });
+
     it('fonte que chega antes do prazo não avisa (a contagem recomeça)', () => {
         const events = new DefaultEventBus();
         const missing = vi.fn();

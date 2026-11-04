@@ -13,6 +13,10 @@ function now(): number {
  * e, em seguida, `frameTick { dt, realDt, elapsed, frame }`. Não há teto de `dt` aqui: o `Time` limita o quadro a
  * `maxFrameDt` e a física a `maxStepsPerFrame`.
  *
+ * Tempo da cena (spec 034): enquanto `holdsTime()` (o motor ainda preparando estágios), o quadro avança com tempo zero —
+ * desenha, mas a simulação e o movimento da cena não andam com estágios pela metade; a marca de tempo segue, sem
+ * recuperar depois o tempo da espera.
+ *
  * Ritmo (research R18): um tick só avança quando `canAdvance()` permite (há espaço para mais um quadro na GPU).
  * Sem espaço, o laço não pede outro RAF: espera o evento `frameRetired` (um quadro terminou na GPU) e só então pede
  * o RAF seguinte. Um RAF que não desenha faz o navegador espaçar o próximo (sem vsync, ~1/60 s), então esperar
@@ -33,6 +37,8 @@ export class GameLoop {
         private readonly canAdvance: () => boolean = () => true,
         /** O agendador do próximo quadro (spec 038: do ponto de entrada do ambiente). */
         private readonly scheduler?: FrameScheduler,
+        /** O tempo da cena espera (o motor preparando estágios): o quadro avança com tempo zero. */
+        private readonly holdsTime: () => boolean = () => false,
     ) {}
 
     /** Avança um quadro de duração real `realDt` (s): move o relógio e emite `frameTick` (síncrono). */
@@ -97,7 +103,7 @@ export class GameLoop {
         const t = now();
         const realDt = Math.max(0, (t - this.last) / 1000);
         this.last = t;
-        this.advance(realDt);
+        this.advance(this.holdsTime() ? 0 : realDt);
         // `stop()` chamado por um ouvinte do quadro encerra o laço.
         if (this.isRunning()) this.schedule();
     };

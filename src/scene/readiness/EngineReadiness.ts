@@ -14,8 +14,9 @@ export const CONSUMER_MISSING_FRAMES = 120;
  * Prontidão do motor (C2, spec 034): avaliada a cada quadro pela reconciliação dos Flows. `ready` quando nenhum Flow
  * ativo tem pipeline sem fonte, em conferência, compilando ou trocando; senão `preparing`, com a lista do que falta.
  * As transições saem como eventos (`enginePreparing`, `engineReady`); um binding sem fonte que persiste vira
- * `consumerMissing`, uma vez por Flow, pipeline e nome. A prontidão só informa: não bloqueia o quadro nem mexe no
- * tempo da simulação.
+ * `consumerMissing`, uma vez por Flow, pipeline e nome. A prontidão não bloqueia o quadro; o laço de quadros segura o
+ * tempo da cena enquanto ela `holdsTime` (a simulação não anda com estágios pela metade — a colisão ainda compilando
+ * deixaria a água atravessar as paredes); o `step()` manual não é afetado.
  */
 export class EngineReadiness {
     private current: ReadinessState = 'preparing';
@@ -41,6 +42,20 @@ export class EngineReadiness {
     /** Sobe a cada transição. */
     get revision(): number {
         return this.rev;
+    }
+
+    /**
+     * O tempo da cena deve esperar: há trabalho que termina sozinho (conferência, compilação, troca, a cena assentando)
+     * ou um binding sem fonte que ainda não foi dado como ausente (`consumerMissing`) — um consumidor sem resolvedor não
+     * congela a cena para sempre.
+     */
+    get holdsTime(): boolean {
+        return this.list.some(
+            (p) =>
+                p.reason !== 'waiting'
+                || p.name === undefined
+                || !this.warned.has(`${p.flow}/${p.pipeline}/${p.name}`),
+        );
     }
 
     /** Quantas vezes foi avaliada (um por quadro gravado). */

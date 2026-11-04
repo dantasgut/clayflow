@@ -191,6 +191,7 @@ export class Engine {
             this.time,
             () => this.readyForFrame(),
             options.scheduler,
+            () => this.scene.resourceSystem.readiness.holdsTime,
         );
 
         if (options.memoryBudgetMB !== undefined) {

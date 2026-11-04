@@ -43,6 +43,32 @@ describe('GameLoop — agendador do ambiente (spec 038)', () => {
         expect(pending.size).toBe(0);
     });
 
+    it('com o motor preparando (holdsTime), o quadro sai com tempo zero; pronto, o tempo anda', async () => {
+        const events = new DefaultEventBus();
+        const dts: number[] = [];
+        events.on('frameTick', (e) => dts.push(e.dt));
+        const { scheduler, flush } = manualScheduler();
+        let held = true;
+        const time = new Time();
+        const loop = new GameLoop(
+            events,
+            time,
+            () => true,
+            scheduler,
+            () => held,
+        );
+        loop.start();
+        await new Promise((r) => setTimeout(r, 20));
+        flush();
+        expect(dts).toEqual([0]);
+        expect(time.simulated).toBe(0);
+        held = false;
+        await new Promise((r) => setTimeout(r, 20));
+        flush();
+        expect(dts[1]).toBeGreaterThan(0);
+        loop.stop();
+    });
+
     it('sem agendador: start lança nomeando os pontos de entrada; advance (o step) funciona', () => {
         const events = new DefaultEventBus();
         const ticks = vi.fn();
