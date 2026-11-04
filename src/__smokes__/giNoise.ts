@@ -11,7 +11,9 @@
 //     Cenas: a caixa de Cornell e o cômodo com janela, nas qualidades `medium` e `high`.
 //   - fogWalk: a câmera andando pela névoa (paredes pretas, só o feixe do sol): a luz da névoa sozinha (com névoa menos
 //     sem, no mesmo percurso) — a cintilação (diferença de cada quadro para a média dos vizinhos) ≤ 1 % no p99, e a
-//     periodicidade na escala do froxel (perfil de fase do resíduo) no máximo 3× a de um ruído sem estrutura.
+//     amplitude do padrão na escala do froxel (perfil de fase do resíduo) ≤ 0,5 % do pico da névoa (decisão do usuário,
+//     2026-11-03: o índice relativo ao ruído, ≤ 3× o de um ruído sem estrutura, premiava o ruído — com a névoa estável,
+//     um padrão invisível dava centenas de vezes; ele segue no log).
 // Para rodar: `npm run smoke -- giNoise [--query case=cornell-medium]`. Resultado: `GINOISE SMOKE PASSED` ou `FAIL: …`.
 import { FogVolume, GlobalIllumination, Transform, type Application } from 'clayflow/web';
 import type { PtImage } from '../elements/lighting/reference/pathTracer';
@@ -378,7 +380,7 @@ async function fogWalk(): Promise<void> {
         `fogWalk: cintilação da névoa p99 ${pct(p99)} do pico, mediana ${pct(flicker[flicker.length >> 1]!)}; periodicidade no froxel ${periodicity.toFixed(2)}× a de ruído sem estrutura (amplitude ${(amplitude * 100).toFixed(4)} % do pico)`,
     );
     check(p99 <= 0.01, `fogWalk: cintilação ${pct(p99)} (≤ 1 %)`);
-    check(periodicity <= 3, `fogWalk: periodicidade no froxel ${periodicity.toFixed(2)}× (≤ 3×)`);
+    check(amplitude <= 0.005, `fogWalk: padrão no froxel ${pct(amplitude)} do pico (≤ 0,5 %)`);
 }
 
 const CASES: Record<string, () => Promise<void>> = {

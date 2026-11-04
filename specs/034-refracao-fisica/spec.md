@@ -391,7 +391,9 @@ com estado e destino; smokes e bench das pendências fechadas.
   30°/s, borrão ≤ 1,5× (energia de gradiente da referência parada na mesma pose / a do quadro em movimento) e erro
   médio ≤ 3 % contra essa referência (nitidez adaptativa ao movimento; decisão do usuário, 2026-10-20).
 - **SC-006**: GI parada em `medium` e `high` (cômodo com janela e Cornell): viés por face ≤ 5 %, manchas ≤ 2 %,
-  cintilação por pixel ≤ 1 %; névoa com câmera andando: cintilação ≤ 1 % e nenhuma periodicidade na escala do froxel.
+  cintilação por pixel ≤ 1 %; névoa com câmera andando: cintilação ≤ 1 % e o padrão na escala do froxel ≤ 0,5 % do pico
+  da névoa (decisão do usuário, 2026-11-03: no lugar de "nenhuma periodicidade" medida contra o ruído entre quadros, que
+  premiava o ruído).
 - **SC-007**: Fluxo da cáustica a ≤ 5 % da referência em três alturas e num plano a 30°.
 - **SC-008**: Prontidão: a medida da névoa após a prontidão é igual (≤ 0,5 %) com e sem espera extra; trajetórias
   idênticas bit a bit com compilação lenta forçada.
