@@ -18,6 +18,7 @@ import mediaVolumesSource from '../gpu/wgsl/media/media_volumes.wgsl?raw';
 import mediaLookupSource from '../gpu/wgsl/media/media_lookup.wgsl?raw';
 import froxelInjectSource from '../gpu/wgsl/media/media_froxel_inject.wgsl?raw';
 import froxelIntegrateSource from '../gpu/wgsl/media/media_froxel_integrate.wgsl?raw';
+import froxelResolveSource from '../gpu/wgsl/media/media_froxel_resolve.wgsl?raw';
 import froxelAmbientSource from '../gpu/wgsl/media/media_froxel_ambient.wgsl?raw';
 import {
     camera as cameraMath,
@@ -83,7 +84,7 @@ const history3d = (lag: 0 | 1): WgslResource =>
         provider: { slot: 'froxelHistory', lag },
     });
 
-/** A fatia do quadro escrita pela injeção, no formato resolvido do canal. */
+/** A fatia do quadro escrita pelo acúmulo, no formato resolvido do canal. */
 const historyOut = (format: GPUTextureFormat): WgslResource =>
     wgslResource({
         name: 'froxel_history_out',
@@ -110,6 +111,9 @@ export const mediaResources = Object.freeze({
     ambient: texture3d('froxel_ambient', 'Froxels.ambient'),
     ambientOut: out3d('froxel_ambient_out'),
     scatterOut: out3d('froxel_scatter_out'),
+    /** O quadro da injeção (antes do acúmulo): a saída dela e a leitura do acúmulo (T058). */
+    currentOut: out3d('froxel_current_out'),
+    current: texture3d('froxel_current', 'Froxels.current'),
 });
 
 const R = mediaResources;
@@ -251,26 +255,40 @@ export const mediaLightTransmission = wgslModule({
     requires: [NONE.module, mediaVolumes, lightsResource, lightIncoming],
 });
 
+/** Injeção nos froxels: o quadro, sem o acúmulo (o do `media_froxel_resolve`, T058). */
+export const froxelInject = wgslModule({
+    name: 'media_froxel_inject',
+    source: froxelInjectSource,
+    requires: [
+        constants,
+        WORKGROUP_SIZE.module,
+        mediaCommon,
+        mediaVolumes,
+        lightsResource,
+        lightIncoming,
+        lightVisibilityReady,
+        lightTransmissionReady,
+        R.ambient,
+        R.sampler,
+        R.currentOut,
+    ],
+});
+
 /**
- * Injeção nos froxels com o acúmulo reprojetado: lê a fatia do quadro anterior do canal do histórico e escreve a do
- * quadro, no formato resolvido do canal (spec 037: a precisão é da C2; o formato escrito é parte do WGSL).
+ * O acúmulo com o recorte do histórico pela vizinhança do quadro (T058): lê a fatia do quadro anterior do canal do
+ * histórico e escreve a do quadro, no formato resolvido do canal (spec 037: a precisão é da C2; o formato escrito é
+ * parte do WGSL).
  */
-function inject(format: GPUTextureFormat): WgslModule {
+function resolve(format: GPUTextureFormat): WgslModule {
     return wgslModule({
-        name: `media_froxel_inject${format === 'rgba32float' ? '_full' : ''}`,
-        source: froxelInjectSource,
+        name: `media_froxel_resolve${format === 'rgba32float' ? '_full' : ''}`,
+        source: froxelResolveSource,
         requires: [
             temporalPieces,
-            constants,
             WORKGROUP_SIZE.module,
             HISTORY.module,
             mediaCommon,
-            mediaVolumes,
-            lightsResource,
-            lightIncoming,
-            lightVisibilityReady,
-            lightTransmissionReady,
-            R.ambient,
+            R.current,
             R.sampler,
             R.historyPrevious,
             historyOut(format),
@@ -292,14 +310,14 @@ export const froxelAmbient = wgslModule({
     requires: [WORKGROUP_SIZE.module, mediaCommon, sceneAmbientReady, R.ambientOut],
 });
 
-const injects = new Map<GPUTextureFormat, WgslModule>();
+const resolves = new Map<GPUTextureFormat, WgslModule>();
 
-/** A injeção que escreve o histórico no formato dado (o `format` do canal; criada uma vez por formato). */
-export function froxelInjectFor(format: GPUTextureFormat): WgslModule {
-    let made = injects.get(format);
-    if (made === undefined) injects.set(format, (made = inject(format)));
+/** O acúmulo que escreve o histórico no formato dado (o `format` do canal; criado uma vez por formato). */
+export function froxelResolveFor(format: GPUTextureFormat): WgslModule {
+    let made = resolves.get(format);
+    if (made === undefined) resolves.set(format, (made = resolve(format)));
     return made;
 }
 
-/** A injeção na precisão padrão (`half`). */
-export const froxelInject = froxelInjectFor('rgba16float');
+/** O acúmulo na precisão padrão (`half`). */
+export const froxelResolve = froxelResolveFor('rgba16float');

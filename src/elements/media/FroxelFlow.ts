@@ -30,8 +30,9 @@ import { FROXEL_NEAR, froxelAmbientGrid } from './schemas';
 import {
     froxelAmbient,
     froxelHistorySlot,
-    froxelInjectFor,
+    froxelInject,
     froxelIntegrate,
+    froxelResolveFor,
     mediaResources as R,
 } from './shaders';
 
@@ -71,6 +72,8 @@ const compute = (id: string, shader: WgslModule, entry: string): PipelineDescrip
 
 const AMBIENT = compute('froxel_ambient', froxelAmbient, 'froxel_ambient_main');
 const INTEGRATE = compute('froxel_integrate', froxelIntegrate, 'froxel_integrate_main');
+/** Id do acúmulo no formato do histórico. */
+const resolveId = (format: GPUTextureFormat): string => `froxel_resolve:${format}`;
 /** Id da injeção composta com as funções de densidade de uma revisão. */
 const injectId = (revision: number): string => `froxel_inject:${revision}`;
 /** vec4f de um registro de volume no buffer dos meios. */
@@ -89,7 +92,8 @@ interface GridCopy {
  * FroxelFlow — a névoa dos `FogVolume` em froxels (spec 033, R12), depois do mapa de sombra e das sondas. A cada quadro:
  * os volumes e as grades no buffer dos meios (os registros só quando mudam; as grades copiadas, que a GPU pode
  * escrever), a injeção em cada froxel (a extinção e a luz espalhada: as luzes com a sombra e o meio até elas, o
- * ambiente e a luz rebatida, a emissão) acumulada no histórico reprojetado, e a integração da frente para trás que o
+ * ambiente e a luz rebatida, a emissão), o acúmulo no histórico reprojetado recortado pela vizinhança do quadro (T058),
+ * e a integração da frente para trás que o
  * desenho lê (`scene_fog`). As funções de densidade da cena são compostas na injeção; uma mudança no conjunto prepara
  * kernels novos, que entram quando compilam. Sem névoa ou sem câmera, nada.
  */
@@ -145,13 +149,17 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         };
     }
 
-    /** As grades no buffer dos meios, a luz ambiente, a injeção com o acúmulo e a integração, num passe. */
+    /** As grades no buffer dos meios, a luz ambiente, a injeção, o acúmulo e a integração, num passe. */
     dispatch(frame: Frame, bound: BoundFlow<FroxelSlots>): void {
         if (!this.active) return;
         const revision = this.readyInject(bound);
         const inject = revision === undefined ? undefined : bound.pipelines.get(injectId(revision));
         const integrate = bound.pipelines.get(INTEGRATE.id);
         const ambient = bound.pipelines.get(AMBIENT.id);
+        const resolve =
+            this.historyFormat === undefined
+                ? undefined
+                : bound.pipelines.get(resolveId(this.historyFormat));
         if (
             ambient?.role !== 'compute'
             || !ambient.ready
@@ -159,6 +167,8 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             || !inject.ready
             || integrate?.role !== 'compute'
             || !integrate.ready
+            || resolve?.role !== 'compute'
+            || !resolve.ready
             || this.mediaBuffer === undefined
         )
             return;
@@ -173,6 +183,10 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             pass.dispatch.invocations(am[0] * am[1] * am[2], W);
             pass.bind.setPipeline(inject.spec);
             inject.bindTo(pass.bind);
+            pass.dispatch.invocations(grid[0] * grid[1] * grid[2], W);
+            // O acúmulo com o recorte pela vizinhança do quadro (T058).
+            pass.bind.setPipeline(resolve.spec);
+            resolve.bindTo(pass.bind);
             pass.dispatch.invocations(grid[0] * grid[1] * grid[2], W);
             pass.bind.setPipeline(integrate.spec);
             integrate.bindTo(pass.bind);
@@ -193,18 +207,19 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         this.active = fogs.length > 0 && cameraSlot !== undefined;
         // As grades sob demanda: alocadas com a primeira névoa, antes de as contribuições lerem.
         if (fogs.length > 0)
-            for (const id of ['scatter', 'history', 'ambient'])
+            for (const id of ['scatter', 'current', 'history', 'ambient'])
                 this.resources.ensureAllocated(froxels, id);
         froxels.setActive(fogs.length > 0);
         if (fogs.length === 0) return;
-        const format = c.bound.slots.froxelHistory.format;
+        const format = c.bound.slots.froxelHistory.format ?? 'rgba16float';
         if (format !== this.historyFormat) {
-            // Outro formato do histórico (a precisão, realocada pela C2): as injeções são recompostas com ele.
+            // Outro formato do histórico (a precisão, realocada pela C2): o acúmulo que o escreve é outro.
+            if (this.historyFormat !== undefined) c.release(resolveId(this.historyFormat));
             this.historyFormat = format;
-            this.functionModules = [];
+            c.prepare(compute(resolveId(format), froxelResolveFor(format), 'froxel_resolve_main'));
         }
         this.resources.ensurePool(Light.schema);
-        const views = (['scatter', 'ambient'] as const).map((id) =>
+        const views = (['scatter', 'ambient', 'current'] as const).map((id) =>
             c.bound.slots.froxels.textureViewOf(id),
         );
         if (views.some((v) => v === undefined)) {
@@ -217,6 +232,7 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
                 new Map<WgslResource, BindingSource>([
                     [R.scatterOut, views[0]!],
                     [R.ambientOut, views[1]!],
+                    [R.currentOut, views[2]!],
                 ]),
             );
             if (!this.prepared) {
@@ -264,8 +280,9 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         froxels.setDensityFunctions(list);
         const revision = ++this.revision;
         if (this.nextInjectRevision !== undefined) c.release(injectId(this.nextInjectRevision));
-        const inject = froxelInjectFor(this.historyFormat ?? 'rgba16float');
-        c.prepare(compute(injectId(revision), froxels.withDensity(inject), 'froxel_inject_main'));
+        c.prepare(
+            compute(injectId(revision), froxels.withDensity(froxelInject), 'froxel_inject_main'),
+        );
         if (this.injectRevision === undefined) this.injectRevision = revision;
         else this.nextInjectRevision = revision;
     }

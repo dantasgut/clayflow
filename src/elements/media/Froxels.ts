@@ -142,6 +142,8 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
                 upload: 'never',
             },
             volume('scatter'),
+            // O quadro da injeção, antes do acúmulo (T058: o acúmulo recorta o histórico pela vizinhança dele).
+            volume('current'),
             // O histórico: um canal temporal da C2 (spec 037) — a fatia do quadro anterior, lida filtrada na injeção,
             // e a do quadro, escrita por ela e lida na integração.
             {

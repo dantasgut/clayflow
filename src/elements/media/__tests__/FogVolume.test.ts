@@ -14,7 +14,13 @@ import { DensityFunction } from '../../extension/DensityFunction';
 import { FogVolume } from '../FogVolume';
 import { Froxels } from '../Froxels';
 import { FOG_DENSITY, FOG_SHAPE, FROXEL_GRID } from '../schemas';
-import { froxelAmbient, froxelInject, froxelIntegrate, mediaLookup } from '../shaders';
+import {
+    froxelAmbient,
+    froxelInject,
+    froxelIntegrate,
+    froxelResolve,
+    mediaLookup,
+} from '../shaders';
 
 // Névoa volumétrica (spec 033, T055): a validação do `FogVolume` (forma, densidade constante, por função, por grafo ou
 // por grade, albedo, anisotropia, emissão), as contribuições dos `Froxels` só com névoa (`scene_fog`,
@@ -84,6 +90,7 @@ describe('FogVolume (spec 033, T055)', () => {
             'params',
             'media',
             'scatter',
+            'current',
             'history',
             'ambient',
             'sampler',
@@ -128,8 +135,14 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(withFn).toContain(`case 1u: { return ${fn.composite!.functionName}(`);
     });
 
-    it('kernels: injeção, integração e a leitura montam (o histórico é um canal: sem paridade)', () => {
-        for (const m of [froxelAmbient, froxelInject, froxelIntegrate, mediaLookup]) {
+    it('kernels: injeção, acúmulo, integração e a leitura montam (o histórico é um canal: sem paridade)', () => {
+        for (const m of [
+            froxelAmbient,
+            froxelInject,
+            froxelResolve,
+            froxelIntegrate,
+            mediaLookup,
+        ]) {
             expect(() => composeWgsl(m)).not.toThrow();
         }
         const inject = composeWgsl(froxelInject).spec.source;
@@ -138,6 +151,12 @@ describe('FogVolume (spec 033, T055)', () => {
         // A luz ambiente vem da grade grossa (o kernel dela consulta `scene_ambient`).
         expect(inject).toContain('textureSampleLevel(froxel_ambient');
         expect(composeWgsl(froxelAmbient).spec.source).toContain('scene_ambient(p)');
+        // O acúmulo recorta o histórico reprojetado pela vizinhança do quadro antes de misturar (T058).
+        const resolve = composeWgsl(froxelResolve).spec.source;
+        expect(resolve).toContain(
+            'let clipped = clamp(history, max(mean - FROXEL_CLIP * sd, vec4f(0.0)), mean + FROXEL_CLIP * sd);',
+        );
+        expect(resolve).toContain('textureStore(froxel_history_out, cell, out);');
     });
 
     it('o estágio: um passe por quadro com névoa, sem recompilar ao mudar valores; sem névoa, nada', async () => {

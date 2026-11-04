@@ -335,6 +335,7 @@ async function fogWalk(): Promise<void> {
     const px = size.width / 160;
     const py = size.height / 90;
     let periodicity = 0;
+    let amplitude = 0;
     for (let i = 1; i < withFog.length - 1; i++) {
         let diff = 0;
         let count = 0;
@@ -367,13 +368,14 @@ async function fogWalk(): Promise<void> {
             for (let k = 0; k < phase.length; k++) v += (phase[k]! / n[k]!) ** 2;
             v /= phase.length;
             index = Math.max(index, (v * (count / phase.length)) / Math.max(1e-12, sigma2));
+            amplitude = Math.max(amplitude, Math.sqrt(v) / peak);
         }
         periodicity = Math.max(periodicity, index);
     }
     flicker.sort((p, q) => p - q);
     const p99 = flicker[Math.floor(flicker.length * 0.99)]!;
     log(
-        `fogWalk: cintilação da névoa p99 ${pct(p99)} do pico, mediana ${pct(flicker[flicker.length >> 1]!)}; periodicidade no froxel ${periodicity.toFixed(2)}× a de ruído sem estrutura`,
+        `fogWalk: cintilação da névoa p99 ${pct(p99)} do pico, mediana ${pct(flicker[flicker.length >> 1]!)}; periodicidade no froxel ${periodicity.toFixed(2)}× a de ruído sem estrutura (amplitude ${(amplitude * 100).toFixed(4)} % do pico)`,
     );
     check(p99 <= 0.01, `fogWalk: cintilação ${pct(p99)} (≤ 1 %)`);
     check(periodicity <= 3, `fogWalk: periodicidade no froxel ${periodicity.toFixed(2)}× (≤ 3×)`);

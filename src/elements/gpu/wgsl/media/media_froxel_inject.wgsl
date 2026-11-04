@@ -1,14 +1,12 @@
 // Injeção nos froxels (spec 033, R12): por froxel, num ponto sorteado dentro dele (jitter do quadro), a extinção dos
 // volumes e a luz espalhada para a câmera — de cada luz do pool (a sombra pelo ponto `light_visibility`, o meio até a
 // fonte por `light_transmission`: a atmosfera, a água e a própria névoa) pela fase de Henyey-Greenstein, mais a luz
-// ambiente isotrópica (a grade grossa `froxel_ambient`: o hemisfério ou a luz rebatida das sondas) e a emissão. O quadro entra no
-// histórico reprojetado (o mesmo ponto de mundo no quadro anterior) com peso 1 − FROXEL_HISTORY; o resultado,
-// (espalhado rgb, extinção), vai ao histórico do quadro. O ponto sorteado segue a sequência de Halton do quadro
-// deslocada por froxel.
-// Requer: WORKGROUP_SIZE, FROXEL_HISTORY, froxels, cameras, media_common, media_volumes, lights, light_incoming,
-// light_visibility, light_transmission, froxel_ambient, froxel_sampler, froxel_history,
-// froxel_history_out.
-
+// ambiente isotrópica (a grade grossa `froxel_ambient`: o hemisfério ou a luz rebatida das sondas) e a emissão. O
+// resultado do quadro (espalhado rgb, extinção) vai a `froxel_current_out`; o acúmulo no histórico é do passe seguinte
+// (`media_froxel_resolve`, com o recorte pela vizinhança, spec 034 T058). O ponto sorteado segue a sequência de Halton
+// do quadro deslocada por froxel.
+// Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_volumes, lights, light_incoming, light_visibility,
+// light_transmission, froxel_ambient, froxel_sampler, froxel_current_out.
 
 /** Fase de Henyey-Greenstein (cosseno entre a direção para a luz e a do raio da câmera). */
 fn froxel_phase(cos_theta: f32, g: f32) -> f32 {
@@ -72,19 +70,5 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
         }
         current = vec4f(sigma_s * incoming + emission, sigma_t);
     }
-    // O centro do froxel no quadro anterior (a vista e a vista-projeção guardadas): o histórico onde ele estava — com a
-    // câmera parada, o próprio texel.
-    // Sem histórico no corte de câmera (`history.x`, spec 037).
-    if (froxels.counts.w == 1u && !temporal_cut(cam.history)) {
-        let uv_c = (vec2f(cell.xy) + 0.5) / vec2f(dims.xy);
-        let ndc_c = uv_to_ndc(uv_c);
-        let center = froxel_world(cam, froxel_view_point(ndc_c, froxel_slice_depth(f32(cell.z) + 0.5), froxel_projection(cam)));
-        let f = froxel_locate(cam.previousView, cam.previousViewProjection, center);
-        let w = f.z / f32(dims.z);
-        if (all(f.xy >= vec2f(0.0)) && all(f.xy <= vec2f(1.0)) && w >= 0.0 && w <= 1.0) {
-            let history = textureSampleLevel(froxel_history, froxel_sampler, vec3f(f.xy, w), 0.0);
-            current = temporal_hysteresis(current, history, FROXEL_HISTORY);
-        }
-    }
-    textureStore(froxel_history_out, cell, current);
+    textureStore(froxel_current_out, cell, current);
 }
