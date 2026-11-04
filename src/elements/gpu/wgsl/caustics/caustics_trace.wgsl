@@ -52,10 +52,12 @@ const CAUSTICS_SEGMENT_WORDS: u32 = 12u;
 const CAUSTICS_VOLUME_TILES: u32 = 16u;
 const CAUSTICS_TILE_PROBES: u32 = 3u;
 /**
- * O quanto o centro dos alvos pode se afastar da âncora sem que ela mude (m; x, y, z): metade do alcance do nível fino
- * (±1023 células de 5 mm em x e z, ±511 em y).
+ * O quanto o centro dos alvos pode se afastar da âncora sem que ela mude (m; x, y, z): perto do alcance do nível fino
+ * (±1023 células de 5 mm em x e z, ±511 em y; o que passa dele sobe de nível). Os respingos da barragem levam o centro
+ * da caixa da água a mais de 1 m de altura: com histerese menor a âncora mudava, o hash recomeçava e a sombra das
+ * paredes do tanque escurecia e voltava a cada ~20 quadros.
  */
-const CAUSTICS_ANCHOR_REACH: vec3f = vec3f(2.0, 1.0, 2.0);
+const CAUSTICS_ANCHOR_REACH: vec3f = vec3f(4.0, 2.0, 4.0);
 /** A âncora das células do hash em `caustics_targets` (xyz). */
 const CAUSTICS_TARGET_ANCHOR: u32 = 2u;
 /** Vagas por fóton principal: ele e os dois canais extras da dispersão (`i + count`, `i + 2·count`). */
@@ -229,22 +231,25 @@ fn caustics_tile_wet(light: u32, tile: u32) -> bool {
 }
 
 /**
- * A âncora das células (o centro dos alvos em passos de meio metro, com histerese) e os segmentos da grade dos fótons do quadro: por luz
+ * A âncora das células (o centro dos alvos sólidos em passos de meio metro, com histerese) e os segmentos da grade dos fótons do quadro: por luz
  * direcional e alvo (a projeção da caixa) e por luz pontual (a esfera de direções), os fótons pelo peso — a potência; na
  * caixa dos volumes, um segmento por ladrilho com água (`caustics_volume_tile_wet`) —, a grade W × H com as
  * proporções da projeção e a vazão de cada célula como fração da potência por fóton do quadro.
  */
 fn caustics_segments_build(targets: u32, directional_lights: u32) {
+    // O centro dos alvos sólidos (vidro, metal: as instâncias); só sem eles, o da caixa da água — os respingos a inflam
+    // por metros e levariam a âncora junto.
+    let volume_target = u32(caustics_targets[CAUSTICS_VOLUME_TARGET]);
     var lo = vec3f(1e30);
     var hi = vec3f(-1e30);
     for (var j = 0u; j < targets; j++) {
+        if (j + 1u == volume_target && targets > 1u) { continue; }
         let box = caustics_target_box(j);
         lo = min(lo, box[0]);
         hi = max(hi, box[1]);
     }
-    // A âncora fica onde estava enquanto o centro dos alvos não se afasta dela mais que `CAUSTICS_ANCHOR_REACH`: a caixa
-    // da água cresce e encolhe com os respingos, e outra âncora recomeça o hash — a luz que chega pela água some por
-    // quadros e a sombra junto às paredes pisca.
+    // A âncora fica onde estava enquanto esse centro não se afasta dela mais que `CAUSTICS_ANCHOR_REACH`: outra âncora
+    // recomeça o hash — a luz que chega pela água some por quadros e a sombra junto às paredes pisca.
     let held = bitcast<vec3f>(vec3u(atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR]),
         atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR + 1u]), atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR + 2u])));
     let center = select(held, 0.5 * (lo + hi), targets > 0u);
