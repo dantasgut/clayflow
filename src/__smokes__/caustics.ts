@@ -9,13 +9,13 @@
 //     metades) ≤ 1 % por célula na esfera e ≤ 2 % na água. Grava mapas de calor de cada caso (`zz-caustics-*.png`,
 //     fora do commit) para ver.
 //   - engine (T067c): o transporte do motor (`Caustics`) na esfera de vidro a `factor` vezes a distância focal
-//     (`factor=0.8|1|1.2`, uma por execução; `cell=` o lado da célula do hash, padrão 1 cm; `photons=`, padrão 1 048 576),
-//     lido do hash e somado à luz direta fora da sombra da esfera, contra a referência na grade dela (1 cm): o fluxo
+//     (`factor=0.8|1|1.2`, uma por execução; `cell=` o lado da célula fina do hash, padrão 5 mm; `photons=`, padrão 1 048 576),
+//     lido do hash como o motor o lê (`support/causticsHash.ts`) e somado à luz direta fora da sombra da esfera, contra a referência na grade dela (1 cm): o fluxo
 //     dentro da sombra a ≤ 5 % (SC-007), no receptor a ≤ 2 %, o erro do padrão (L1 relativo dentro da sombra) ≤ 10 %; e
 //     mede o pico, a variação entre quadros e o custo dos fótons (relógio de parede de 60 quadros ligado e desligado).
 //     Na T067b (com os fótons ainda na GI): fluxo na sombra a 52 %, pico à metade, padrão a 48 % (`research.md` R14).
 //     Com `tilt=30` (T057, SC-007): a esfera no foco sobre o receptor inclinado 30° em torno de x pelo ponto sob ela
-//     (`sphere-tilted-30` da referência), lido do hash pela tenda 2D do motor (a camada pelo eixo dominante da normal muda
+//     (`sphere-tilted-30` da referência), lido pela tenda 2D do motor (a camada pelo eixo dominante da normal muda
 //     ao longo do plano), com as mesmas portas.
 //   - water (T067c): o fundo da camada parada a 0° e a 30° — a linha reta mais a correção dos fótons — contra Fresnel,
 //     Snell e Beer–Lambert por canal a ≤ 3 %.
@@ -28,7 +28,6 @@ import {
     SphereGeometry,
     StandardMaterial,
     Transform,
-    type Application,
     type StagingBufferSpec,
 } from 'clayflow/web';
 import { CAUSTIC_CASES, CAUSTIC_SPHERE, CAUSTIC_SUN, CAUSTIC_WATER } from './support/causticScenes';
@@ -37,6 +36,7 @@ import { readFixture, readJsonFixture, writeFixture } from './support/fixtures';
 import { buildGiScene, diffuseFunction, giApp } from './support/giScenes';
 import { waterScene, WATER_SPACING, WATER_TANK } from './support/waterScene';
 import { closureFn } from './support/materialScenes';
+import { readCausticsHash, type CausticsHash } from './support/causticsHash';
 
 function log(msg: string): void {
     console.log(`[caustics] ${msg}`);
@@ -198,54 +198,15 @@ const GLASS = `return closure_add(
         closure_transmission(data.ior, vec3f(1.0), 0.0, 0.0, 0.0),
     );`;
 
-/** A irradiância das cáusticas por célula do hash (chave `x,y,z` em células; rgb). */
-async function hashCells(
-    app: Application,
-    caustics: Application['defaults']['renderer']['causticsResource'],
-): Promise<Map<string, [number, number, number]>> {
-    const spec = app.resources.bufferOf(caustics, 'hash')!;
-    const staging = app.core.create<StagingBufferSpec>({
-        kind: 'buffer',
-        subkind: 'staging',
-        discriminator: 'caustics_gi_readback',
-        byteSize: spec.byteSize,
-    });
-    app.core.record('caustics-gi-readback', (frame) => {
-        frame.copy(spec, staging, spec.byteSize);
-    });
-    app.core.submit();
-    const words = new Uint32Array(await app.core.readback(staging));
-    const floats = new Float32Array(words.buffer);
-    app.core.destroy(staging);
-    const cells = new Map<string, [number, number, number]>();
-    // Baldes de 10 palavras; a chave com o nível nos 2 bits de cima (`caustics_common.wgsl`): só o nível fino.
-    for (let w = 8; w + 10 <= words.length; w += 10) {
-        const key = words[w]!;
-        if (key === 0 || (key - 1) >>> 30 !== 0) continue;
-        const k = key - 1;
-        cells.set(`${(k & 1023) - 512},${((k >> 10) & 1023) - 512},${((k >> 20) & 1023) - 512}`, [
-            floats[w + 4]!,
-            floats[w + 5]!,
-            floats[w + 6]!,
-        ]);
-    }
-    return cells;
-}
-
 /**
- * A irradiância no chão (y = 0) pela GI na grade da referência (`n` × `n` células de lado `size`): a cáustica pela
- * camada do chão do hash (a da tenda 2D do motor), a média das células do hash dentro da célula da grade mais a luz direta do sol fora da sombra geométrica da esfera (a fração da célula fora do disco de
- * raio R, por 10 × 10 subamostras).
+ * A irradiância no chão (y = 0) na grade da referência (`n` × `n` células de lado `size`): a cáustica como o motor a lê
+ * (`readCausticsHash`, a média de 4 × 4 pontos na célula da grade) mais a luz direta do sol fora da sombra geométrica
+ * da esfera (a fração da célula fora do disco de raio R, por 10 × 10 subamostras).
  */
-function engineGrid(
-    cells: Map<string, [number, number, number]>,
-    hashCell: number,
-    size: number,
-    n: number,
-): Float32Array {
+function engineGrid(hash: CausticsHash, size: number, n: number): Float32Array {
     const out = new Float32Array(n * n * 3);
     const cell = size / n;
-    const sub = Math.max(1, Math.round(cell / hashCell));
+    const sub = 4;
     const r = CAUSTIC_SPHERE.radius;
     for (let j = 0; j < n; j++)
         for (let i = 0; i < n; i++) {
@@ -254,11 +215,11 @@ function engineGrid(
             const e = [0, 0, 0];
             for (let b = 0; b < sub; b++)
                 for (let a = 0; a < sub; a++) {
-                    const cx = Math.floor((x0 + (a + 0.5) * hashCell) / hashCell);
-                    const cz = Math.floor((z0 + (b + 0.5) * hashCell) / hashCell);
-                    // A camada do chão na tenda 2D do motor (`gi_photon_tent`): a célula meio passo acima de y = 0.
-                    const v = cells.get(`${cx},0,${cz}`);
-                    if (v !== undefined) for (let k = 0; k < 3; k++) e[k]! += v[k]! / (sub * sub);
+                    const v = hash.irradiance(
+                        [x0 + ((a + 0.5) / sub) * cell, 0, z0 + ((b + 0.5) / sub) * cell],
+                        [0, 1, 0],
+                    );
+                    for (let k = 0; k < 3; k++) e[k]! += v[k]! / (sub * sub);
                 }
             let lit = 0;
             for (let b = 0; b < 10; b++)
@@ -287,61 +248,28 @@ function tiltedPoint(a: number, b: number): [number, number, number] {
 
 /**
  * A irradiância no receptor inclinado na grade da referência (`n` × `n`), por 4 × 4 subamostras: a luz direta do sol a
- * pino (`open`, já com o cosseno) fora da sombra da esfera (x² + z² ≥ R²) mais a cáustica do nível fino do hash. Com
- * `tent`, como o motor lê (`caustics_tent`: a bilinear das 4 células, a camada de cada uma pelo plano no centro dela —
- * a imagem desenhada); sem, a célula que contém o ponto, na camada dela (a medida das células cruas, como a do chão em
- * `engineGrid`).
+ * pino (`open`, já com o cosseno) fora da sombra da esfera (x² + z² ≥ R²) mais a cáustica como o motor a lê (a normal
+ * do receptor, (0, cos, −sen)).
  */
-function engineGridTilted(
-    cells: Map<string, [number, number, number]>,
-    hashCell: number,
-    n: number,
-    open: number,
-    tent: boolean,
-): Float32Array {
+function engineGridTilted(hash: CausticsHash, n: number, open: number): Float32Array {
     const out = new Float32Array(n * n * 3);
     const r = CAUSTIC_SPHERE.radius;
     const sub = 4;
-    const slope = Math.tan((TILT * Math.PI) / 180);
-    // A célula (x, z) na camada pelo plano no centro dela (normal (0, cos, −sen)), meio passo acima.
-    const at = (
-        cx: number,
-        cz: number,
-        y: number,
-        z: number,
-    ): [number, number, number] | undefined => {
-        const h = y + slope * ((cz + 0.5) * hashCell - z);
-        return cells.get(`${cx},${Math.floor((h + 0.5 * hashCell) / hashCell)},${cz}`);
-    };
+    const normal = [
+        0,
+        Math.cos((TILT * Math.PI) / 180),
+        -Math.sin((TILT * Math.PI) / 180),
+    ] as const;
     for (let j = 0; j < n; j++)
         for (let i = 0; i < n; i++) {
             const e = [0, 0, 0];
             let lit = 0;
             for (let b = 0; b < sub; b++)
                 for (let a = 0; a < sub; a++) {
-                    const [x, y, z] = tiltedPoint(
-                        (i + (a + 0.5) / sub) / n,
-                        (j + (b + 0.5) / sub) / n,
-                    );
-                    if (x * x + z * z >= r * r) lit++;
-                    if (!tent) {
-                        const v = at(Math.floor(x / hashCell), Math.floor(z / hashCell), y, z);
-                        if (v !== undefined)
-                            for (let q = 0; q < 3; q++) e[q]! += v[q]! / (sub * sub);
-                        continue;
-                    }
-                    const gx = x / hashCell - 0.5;
-                    const gz = z / hashCell - 0.5;
-                    const bx = Math.floor(gx);
-                    const bz = Math.floor(gz);
-                    for (let k = 0; k < 4; k++) {
-                        const dz = k & 1;
-                        const dx = k >> 1;
-                        const w = (dz ? gz - bz : 1 - (gz - bz)) * (dx ? gx - bx : 1 - (gx - bx));
-                        const v = at(bx + dx, bz + dz, y, z);
-                        if (v !== undefined)
-                            for (let q = 0; q < 3; q++) e[q]! += (v[q]! * w) / (sub * sub);
-                    }
+                    const p = tiltedPoint((i + (a + 0.5) / sub) / n, (j + (b + 0.5) / sub) / n);
+                    if (p[0] * p[0] + p[2] * p[2] >= r * r) lit++;
+                    const v = hash.irradiance(p, normal);
+                    for (let q = 0; q < 3; q++) e[q]! += v[q]! / (sub * sub);
                 }
             for (let q = 0; q < 3; q++)
                 out[(j * n + i) * 3 + q] = e[q]! + (open * lit) / (sub * sub);
@@ -353,7 +281,7 @@ async function caseEngine(): Promise<void> {
     const query = new URLSearchParams(location.search);
     const tilted = query.get('tilt') !== null;
     const factor = tilted ? 1 : Number(query.get('factor') ?? '1');
-    const cellSize = Number(query.get('cell') ?? '0.01');
+    const cellSize = Number(query.get('cell') ?? '0.005');
     const photons = Number(query.get('photons') ?? '1048576');
     const name = tilted ? `sphere-tilted-${TILT}` : `sphere-${factor.toFixed(1)}f`;
     const manifest = await readJsonFixture<{ cases: ReferenceEntry[] }>('caustics-reference.json');
@@ -422,46 +350,37 @@ async function caseEngine(): Promise<void> {
         }
     };
     await step(150);
-    const hashCell = cellSize;
-    const raw = await hashCells(app, caustics);
+    const raw = await readCausticsHash(app, caustics);
     {
-        // Diagnóstico: o fluxo de todo o hash por camada y (irradiância × área da célula) contra o que entra na esfera.
-        const layers = new Map<number, number>();
-        for (const [k, v] of raw) {
-            const y = Number(k.split(',')[1]);
-            layers.set(y, (layers.get(y) ?? 0) + v[1] * hashCell * hashCell);
-        }
+        // Diagnóstico: o fluxo de todo o hash por nível e por distância do eixo (irradiância × área da célula) contra o
+        // que entra na esfera.
         const into = CAUSTIC_SUN * Math.PI * radius * radius;
+        const levels = new Map<number, number>();
         const far = [0.3, 0.5, 1, 1.5, 2, 3];
         const farAcc = far.map(() => 0);
-        for (const [k, v] of raw) {
-            const [x, y, z] = k.split(',').map(Number) as [number, number, number];
-            if (y !== 0) continue;
-            const r = Math.hypot((x + 0.5) * hashCell, (z + 0.5) * hashCell);
-            const at = far.findIndex((q) => r < q);
-            if (at >= 0) farAcc[at]! += v[1] * hashCell * hashCell;
+        for (const b of raw.buckets) {
+            const f = b.rgb[1] * b.size * b.size;
+            levels.set(b.level, (levels.get(b.level) ?? 0) + f);
+            const at = far.findIndex((q) => Math.hypot(b.center[0], b.center[2]) < q);
+            if (at >= 0) farAcc[at]! += f;
         }
         log(
             `engine ${name}: fluxo do hash por distância do eixo (× o que entra): ${far.map((q, k) => `<${q}: ${(farAcc[k]! / into).toFixed(3)}`).join('  ')}`,
         );
         log(
-            `engine ${name} (células de ${(1000 * hashCell).toFixed(1)} mm): ${raw.size} células; fluxo por camada y ${[
-                ...layers.entries(),
+            `engine ${name} (célula fina de ${(1000 * cellSize).toFixed(1)} mm): ${raw.buckets.length} células; fluxo por nível ${[
+                ...levels.entries(),
             ]
                 .sort((p, q) => p[0] - q[0])
-                .map(([y, f]) => `${y}: ${(f / into).toFixed(3)}`)
+                .map(([l, f]) => `${l}: ${(f / into).toFixed(3)}`)
                 .join(', ')} (× o que entra na esfera)`,
         );
     }
-    const grid = (cells: Map<string, [number, number, number]>): Float32Array =>
-        tilted
-            ? engineGridTilted(cells, hashCell, entry.nx, entry.open, false)
-            : engineGrid(cells, hashCell, 0.6, entry.nx);
+    const grid = (hash: CausticsHash): Float32Array =>
+        tilted ? engineGridTilted(hash, entry.nx, entry.open) : engineGrid(hash, 0.6, entry.nx);
     const a = grid(raw);
-    // A leitura do motor (a bilinear da tenda) no receptor inclinado: o padrão como a imagem o mostra.
-    const read = tilted ? engineGridTilted(raw, hashCell, entry.nx, entry.open, true) : undefined;
     await step(10);
-    const b = grid(await hashCells(app, caustics));
+    const b = grid(await readCausticsHash(app, caustics));
     // Custo dos fótons: 60 quadros com as cáusticas ligadas e desligadas, pelo relógio de parede (o tempo de GPU por
     // passo não é confiável no Apple), esperando a GPU no fim de cada lote.
     const timed = async (): Promise<number> => {
@@ -546,20 +465,6 @@ async function caseEngine(): Promise<void> {
     log(
         `engine ${name}: fluxo no receptor ${(fluxE / fluxR).toFixed(4)}× a referência, dentro da sombra ${(diskE / diskR).toFixed(3)}×; pico ${(peakE / CAUSTIC_SUN).toFixed(1)}× o chão aceso (referência ${(peakR / CAUSTIC_SUN).toFixed(1)}×); erro do padrão na sombra ${((100 * l1) / diskSum).toFixed(1)} %; variação em 10 quadros ${((100 * change) / (diskE / (cell * cell))).toFixed(2)} %; custo dos fótons ${(on - off).toFixed(2)} ms/quadro (${on.toFixed(2)} contra ${off.toFixed(2)})`,
     );
-    if (read !== undefined) {
-        let l1Read = 0;
-        let peakRead = 0;
-        for (let j = 0; j < n; j++)
-            for (let i = 0; i < n; i++) {
-                const k = (j * n + i) * 3 + 1;
-                const [x, , z] = tiltedPoint((i + 0.5) / n, (j + 0.5) / n);
-                peakRead = Math.max(peakRead, read[k]!);
-                if (x * x + z * z < radius * radius) l1Read += Math.abs(read[k]! - ref[k]!);
-            }
-        log(
-            `engine ${name}: pela leitura do motor (a bilinear da tenda) — erro do padrão ${((100 * l1Read) / diskSum).toFixed(1)} %, pico ${(peakRead / CAUSTIC_SUN).toFixed(1)}× o chão aceso`,
-        );
-    }
     // A porta da T067c: o fluxo na sombra da esfera a ≤ 5 % (SC-007), no receptor a ≤ 2 %, o padrão a ≤ 10 % (L1).
     check(
         Math.abs(diskE / diskR - 1) <= 0.05,
@@ -589,12 +494,12 @@ async function caseWater(): Promise<void> {
     for (const deg of [0, 30]) await waterAt(deg);
 }
 
-/** A água parada de `layers` camadas com o sol a `deg` graus no plano xy: as células do chão do hash (ou `undefined`). */
+/** A água parada de `layers` camadas com o sol a `deg` graus no plano xy: o hash lido (ou `undefined`). */
 async function waterCells(
     name: string,
     deg: number,
     layers: number,
-): Promise<{ cells: Map<string, [number, number, number]>; cell: number } | undefined> {
+): Promise<CausticsHash | undefined> {
     const theta = (deg * Math.PI) / 180;
     const errors: string[] = [];
     const { app, canvas } = await giApp(320, 200, errors);
@@ -621,11 +526,11 @@ async function waterCells(
         canvas.remove();
         return undefined;
     }
-    const cells = await hashCells(app, caustics);
+    const hash = await readCausticsHash(app, caustics);
     app.dispose();
     canvas.remove();
     if (errors.length > 0) failures.push(`${name}: erros do motor: ${errors.join(' | ')}`);
-    return { cells, cell: caustics.cellSize };
+    return hash;
 }
 
 /** A altura da camada parada de `layers` camadas de partículas (o volume delas na área do tanque). */
@@ -639,9 +544,10 @@ function layerHeight(layers: number): number {
 async function waterAt(deg: number): Promise<void> {
     const theta = (deg * Math.PI) / 180;
     const layers = 12;
-    const water = await waterCells(`water ${deg}°`, deg, layers);
-    if (water === undefined) return;
-    const { cells, cell } = water;
+    const hash = await waterCells(`water ${deg}°`, deg, layers);
+    if (hash === undefined) return;
+    /** A grade em que o fundo é lido (m). */
+    const cell = 0.01;
     const [hx, hz] = WATER_TANK;
     const h = layerHeight(layers);
     const ior = 1.333;
@@ -651,15 +557,12 @@ async function waterAt(deg: number): Promise<void> {
     const sun = 1.2;
     const sum = [0, 0, 0];
     let n = 0;
-    for (const [k, v] of cells) {
-        const [x, y, z] = k.split(',').map(Number) as [number, number, number];
-        if (y !== 0) continue;
-        const px = (x + 0.5) * cell;
-        const pz = (z + 0.5) * cell;
-        if (Math.abs(px) > 0.5 * hx || Math.abs(pz) > 0.5 * hz) continue;
-        for (let c = 0; c < 3; c++) sum[c]! += v[c]!;
-        n++;
-    }
+    for (let px = -0.5 * hx + cell / 2; px < 0.5 * hx; px += cell)
+        for (let pz = -0.5 * hz + cell / 2; pz < 0.5 * hz; pz += cell) {
+            const v = hash.irradiance([px, 0, pz], [0, 1, 0]);
+            for (let c = 0; c < 3; c++) sum[c]! += v[c]!;
+            n++;
+        }
     for (let c = 0; c < 3; c++) {
         const correction = sum[c]! / Math.max(1, n);
         const straight =
@@ -690,9 +593,10 @@ async function caseShadow(): Promise<void> {
     const deg = 60;
     const theta = (deg * Math.PI) / 180;
     const layers = 12;
-    const water = await waterCells('shadow', deg, layers);
-    if (water === undefined) return;
-    const { cells, cell } = water;
+    const hash = await waterCells('shadow', deg, layers);
+    if (hash === undefined) return;
+    /** As faixas ao longo de x (m). */
+    const cell = 0.01;
     const [hx, hz] = WATER_TANK;
     const h = layerHeight(layers);
     const wall = 0.5;
@@ -704,26 +608,22 @@ async function caseShadow(): Promise<void> {
     const straightLit = base * Math.exp((-sigma * h) / Math.cos(theta));
     const straightEdge = -hx + wall * Math.tan(theta);
     const refractedEdge = -hx + (wall - h) * Math.tan(theta) + h * Math.tan(thetaT);
-    const bins = new Map<number, { sum: number; n: number }>();
-    for (const [k, v] of cells) {
-        const [x, y, z] = k.split(',').map(Number) as [number, number, number];
-        if (y !== 0 || Math.abs((z + 0.5) * cell) > 0.5 * hz) continue;
-        const b = bins.get(x) ?? { sum: 0, n: 0 };
-        b.sum += v[1];
-        b.n++;
-        bins.set(x, b);
-    }
-    const total = (x: number): number | undefined => {
-        const b = bins.get(x);
+    const total = (x: number): number => {
         const px = (x + 0.5) * cell;
+        let sum = 0;
+        let n = 0;
+        for (let pz = -0.5 * hz + cell / 2; pz < 0.5 * hz; pz += cell) {
+            sum += hash.irradiance([px, 0, pz], [0, 1, 0])[1];
+            n++;
+        }
         const straight = px >= straightEdge ? straightLit : 0;
-        return straight + (b === undefined ? 0 : b.sum / b.n);
+        return straight + sum / Math.max(1, n);
     };
     let edge = Number.NaN;
     const first = Math.ceil(-hx / cell);
     let previous: number | undefined;
     for (let x = first; (x + 0.5) * cell < straightEdge + 0.1; x++) {
-        const t = total(x)!;
+        const t = total(x);
         if (previous !== undefined && previous < lit / 2 && t >= lit / 2) {
             edge = (x - 0.5 + (lit / 2 - previous) / (t - previous)) * cell;
             break;
@@ -734,7 +634,7 @@ async function caseShadow(): Promise<void> {
         let sum = 0;
         let n = 0;
         for (let x = Math.ceil(from / cell); (x + 0.5) * cell <= to; x++) {
-            sum += total(x)!;
+            sum += total(x);
             n++;
         }
         return sum / Math.max(1, n);

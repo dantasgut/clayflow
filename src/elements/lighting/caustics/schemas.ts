@@ -2,16 +2,19 @@ import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 
 /**
- * Baldes do hash das cáusticas: 2¹⁹ células (os quatro níveis de um chão de 4 × 4 m todo aceso em células de 1 cm
- * ocupam ~40 %).
+ * Baldes do hash das cáusticas: 2²¹, em seis faixas iguais, uma por nível (`caustics_common.wgsl`) — a faixa do nível fino
+ * (células de 5 mm) comporta ~2 m² de cáustica acesa.
  */
-export const CAUSTICS_SLOTS = 1 << 19;
-/** Palavras por balde (`caustics_common.wgsl`): a chave, a soma, a irradiância, os fótons do quadro e os acumulados. */
-export const CAUSTICS_BUCKET_WORDS = 10;
-/** Palavras do buffer das cáusticas: o cabeçalho (8) e os baldes. */
-export const CAUSTICS_BUFFER_WORDS = 8 + CAUSTICS_SLOTS * CAUSTICS_BUCKET_WORDS;
-/** f32 da lista dos alvos dos fótons (`caustics_trace.wgsl`: cabeçalho, 64 caixas, áreas de 8 luzes × 64). */
-export const CAUSTICS_TARGET_WORDS = 8 + 8 * 64 + 8 * 64;
+export const CAUSTICS_SLOTS = 1 << 21;
+/** Palavras por balde (`caustics_common.wgsl`): a chave, a soma do quadro e a irradiância. */
+export const CAUSTICS_BUCKET_WORDS = 7;
+/** Palavras do buffer das cáusticas: o cabeçalho (12) e os baldes. */
+export const CAUSTICS_BUFFER_WORDS = 12 + CAUSTICS_SLOTS * CAUSTICS_BUCKET_WORDS;
+/**
+ * f32 da lista dos alvos dos fótons (`caustics_trace.wgsl`: cabeçalho com a âncora, 64 caixas, áreas de 8 luzes × 64, a
+ * contagem dos segmentos da grade e 576 segmentos de 8 palavras).
+ */
+export const CAUSTICS_TARGET_WORDS = 1040 + 8 * 576;
 
 /**
  * Parâmetros das cáusticas (uniform, spec 034 T067c): `counts` = (slots usados do pool `Light`, baldes do hash, fótons
@@ -43,7 +46,9 @@ export const CAUSTICS_QUEUE_HEADER = 8;
  * origem quanto aos volumes (−1 sem saber; 0 fora e 1 dentro ao partir da superfície de um), a vazão e o canal (3 = os
  * três; 0–2 depois da dispersão; 4 = parou), a absorção do meio homogêneo da água em que está (0 no ar; a transmitância de
  * cada trecho é analítica pelo comprimento, spec 039 T110) e se está dentro de uma malha (o vidro, onde a água não
- * absorve), o estado do sorteio e os rebotes especulares até aqui.
+ * absorve), o estado do sorteio e os rebotes especulares até aqui; o pouso na difusa (o ponto, o último trecho, a
+ * normal), a assinatura do caminho (as interfaces e os lobos), o caminho percorrido e se pousou (spec 034: a malha de
+ * fótons).
  */
 export const CausticsPhotonSchema = new StructSchema('CausticsPhoton', {
     origin: FieldType.vec3f,
@@ -56,6 +61,12 @@ export const CausticsPhotonSchema = new StructSchema('CausticsPhoton', {
     glass: FieldType.u32,
     state: FieldType.u32,
     specular: FieldType.u32,
+    travel: FieldType.f32,
+    landed: FieldType.u32,
+    land: FieldType.vec3f,
+    land_t: FieldType.f32,
+    land_n: FieldType.vec3f,
+    sig: FieldType.u32,
 });
 
 /**

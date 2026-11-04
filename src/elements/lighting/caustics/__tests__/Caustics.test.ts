@@ -20,15 +20,17 @@ import {
 } from '../shaders';
 
 // O transporte das cáusticas (spec 034, T067c; antes dentro da GI, spec 033 T051): o recurso (o hash, as opções, as
-// contribuições ao desenho só ligado; a direta pela água em linha reta, os fótons a corrigem), os fótons (os alvos pelo material e pela caixa dos volumes, o acerto e o
-// fechamento da refração, o Fresnel exato, os três canais pelo mesmo caminho, a tenda 2D), o acúmulo e o estágio.
+// contribuições ao desenho só ligado; a direta pela água em linha reta, os fótons a corrigem), os fótons (os alvos pelo
+// material e pela caixa dos volumes, a grade de fótons por segmento, o acerto e o fechamento da refração, o Fresnel
+// exato, os três canais pelo mesmo caminho, o pouso e a pegada pelos vizinhos da grade, a tenda 2D), o acúmulo e o
+// estágio.
 
 describe('Caustics (spec 034, T067c)', () => {
     it('o recurso: o hash só da GPU, as opções validadas, as contribuições só ligado', () => {
         const caustics = new Caustics();
         expect(caustics.enabled).toBe(true);
         expect(caustics.photons).toBe(65_536);
-        expect(caustics.cellSize).toBe(0.01);
+        expect(caustics.cellSize).toBe(0.005);
         expect(caustics.getDescriptors().find((d) => d.id === 'hash')).toMatchObject({
             role: 'storage-rw',
             upload: 'never',
@@ -45,7 +47,7 @@ describe('Caustics (spec 034, T067c)', () => {
         ]);
     });
 
-    it('os fótons: alvos pelo material e pela caixa dos volumes, o acerto da refração, Fresnel exato, os canais pelo mesmo caminho, tenda 2D', () => {
+    it('os fótons: alvos pelo material e pela caixa dos volumes, grade, o acerto da refração, Fresnel exato, os canais pelo mesmo caminho, a pegada pela grade', () => {
         const trace = composeWgsl(causticsTrace).spec.source;
         expect(trace).toContain('fn caustics_targets_main(');
         // O material das instâncias numa invocação por instância, sem laço sobre elas; os alvos só leem o resultado.
@@ -60,7 +62,7 @@ describe('Caustics (spec 034, T067c)', () => {
         );
         const targets = trace.slice(
             trace.indexOf('fn caustics_targets_main('),
-            trace.indexOf('fn caustics_deposit('),
+            trace.indexOf('fn caustics_segments_build('),
         );
         expect(targets).not.toContain('ray_hit_material(');
         expect(targets).toContain('if (caustics_instance_capable[k] == 0u) { continue; }');
@@ -86,9 +88,14 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(trace).toContain('bsdf_f_dielectric(cosi, n2 / n1)');
         expect(trace).toContain('if (dispersive && ph.channel == 3u) {');
         expect(trace).toContain('channel.state = state;');
-        // Na caixa dos volumes, as amostras que não passam pela água (e que só ela cobre) não seguem.
+        // A grade dos fótons: segmentos por luz e alvo, a célula deslocada pelo mesmo sorteio do quadro em todo o
+        // segmento; na caixa dos volumes, a célula que não passa pela água (e que só ela cobre) não segue.
+        expect(trace).toContain('let segment = caustics_segment_of(i);');
         expect(trace).toContain(
-            'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { continue; }',
+            'let cell = vec2f(f32(local % seg.w), f32(local / seg.w)) + caustics_grid_jitter(segment);',
+        );
+        expect(trace).toContain(
+            'let accepted = !volume || cover > 1.0 || ray_volume_occupied(o, d, 2.0 * back);',
         );
         // Os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico pelo comprimento (T110: a absorção
         // guardada ao entrar pela superfície, zerada ao sair; dentro de um vidro mergulhado a água não absorve); o
@@ -100,17 +107,22 @@ describe('Caustics (spec 034, T067c)', () => {
             'ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);',
         );
         expect(trace).not.toContain('ray_volume_transmittance(');
-        // Em todos os níveis de células, com o peso da tenda como a contagem do fóton e a vazão por área da superfície
-        // (T057: a área da célula é a projetada no plano das camadas); a camada de cada célula pelo plano tangente.
-        expect(trace).toContain('let t = caustics_tent(p, n, level);');
+        // O pouso guarda o ponto e a assinatura do caminho; a pegada pelos vizinhos da grade de mesma assinatura, no
+        // mínimo o borrão do disco da luz pelo último trecho; o depósito no nível do tamanho dela, pela tenda 2D, com a
+        // vazão por área da superfície (T057: a área da célula é a projetada no plano das camadas).
+        expect(trace).toContain('ph.landed = 1u;');
+        expect(trace).toContain('if (o.landed == 0u || o.sig != ph.sig');
+        expect(trace).toContain('let blur = 2.0 * lights[seg.light].cones.z * ph.land_t;');
         expect(trace).toContain(
-            'caustics_deposit_cell(caustics_tent_cell(t, k), level, rgb * (w * t.cosine), w * share);',
+            'caustics_splat(ph.land, ph.land_n, e1.xyz, e2.xyz, ph.throughput, blur);',
+        );
+        expect(trace).toContain(
+            'caustics_deposit_cell(caustics_tent_cell(t, k), l, rgb * (w * t.cosine));',
         );
         expect(trace).toContain('let h = p[a] - (n[u] * (cu - p[u]) + n[v] * (cv - p[v])) / n[a];');
-        // A variável de controle: a direta em linha reta subtraída onde a linha reta do fóton chega depois da água.
-        expect(trace).toContain(
-            'caustics_deposit(straight.position, straight.normal, -light_rgb * light_transmission(light, straight.position), 1.0);',
-        );
+        // A variável de controle: a direta em linha reta subtraída onde a linha reta do fóton chega depois da água, na
+        // pegada exata da célula da grade.
+        expect(trace).toContain('-light_rgb * light_transmission(light, straight.position), 0.0);');
         expect(trace).toContain(
             'bitcast<vec3u>(vec3i(round(clamp(rgb, vec3f(-16.0), vec3f(16.0)) * CAUSTICS_ONE)))',
         );
@@ -119,16 +131,13 @@ describe('Caustics (spec 034, T067c)', () => {
         const resolve = composeWgsl(causticsResolve).spec.source;
         expect(resolve).toContain('mix(sum, old, CAUSTICS_HYSTERESIS)');
         expect(resolve).toContain('let sum = vec3f(bitcast<vec3i>(vec3u(');
-        // A área da célula do nível da chave.
-        expect(resolve).toContain('let cell = caustics_cell_size(caustics_key_level(key));');
+        // A área da célula do nível da faixa do balde.
+        expect(resolve).toContain('let cell = caustics_cell_size(slot / caustics_level_slots());');
         const light = composeWgsl(causticsLight).spec.source;
         expect(light).toContain('fn caustics_irradiance(p: vec3f, n: vec3f) -> vec3f');
-        // A leitura adaptativa: o nível mais fino com fótons acumulados bastantes, misturado com o de baixo pela fração deles.
-        expect(light).toContain('let t = caustics_tent(p, n, level);');
-        expect(light).toContain('e.a * (1.0 + CAUSTICS_HYSTERESIS) / (1.0 - CAUSTICS_HYSTERESIS)');
-        expect(light).toContain(
-            'mix(here.rgb, finer.rgb, clamp(finer.a / CAUSTICS_MIN_PHOTONS, 0.0, 1.0))',
-        );
+        // A leitura: a soma dos níveis, cada um pela tenda a partir da âncora.
+        expect(light).toContain('let t = caustics_tent(q, n, level);');
+        expect(light).toContain('let q = p - anchor;');
         // Com sinal: sob a água, a irradiância corrige a direta em linha reta.
         expect(light).toContain('if (all(e == vec3f(0.0))) { return vec3f(0.0); }');
     });

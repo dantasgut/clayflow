@@ -56,6 +56,7 @@ import { closureFn } from './support/materialScenes';
 import { waterScene } from './support/waterScene';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { luminanceLinear } from './support/images';
+import { readCausticsHash, type CausticsHash } from './support/causticsHash';
 
 function log(msg: string): void {
     console.log(`[globalIllumination] ${msg}`);
@@ -967,38 +968,17 @@ function peakNear(
 }
 
 /**
- * A irradiância das cáusticas por célula do chão (a camada da tenda 2D acima de y = 0; spec 034, o hash do `Caustics`),
- * lida de volta do hash (só no teste): chave `x,z` em células, a média dos três canais.
+ * O hash das cáusticas lido de volta (só no teste; spec 034, o hash do `Caustics`): a irradiância como o motor a lê
+ * (`readCausticsHash`).
  */
-async function floorCaustics(
-    s: Awaited<ReturnType<typeof openEngine>>,
-): Promise<Map<string, number>> {
-    const caustics = s.app.defaults.renderer.causticsResource;
-    const spec = s.app.resources.bufferOf(caustics, 'hash')!;
-    const staging = s.app.core.create<StagingBufferSpec>({
-        kind: 'buffer',
-        subkind: 'staging',
-        discriminator: 'gi_caustics_readback',
-        byteSize: spec.byteSize,
-    });
-    s.app.core.record('gi-caustics-readback', (frame) => {
-        frame.copy(spec, staging, spec.byteSize);
-    });
-    s.app.core.submit();
-    const words = new Uint32Array(await s.app.core.readback(staging));
-    const floats = new Float32Array(words.buffer);
-    s.app.core.destroy(staging);
-    const cells = new Map<string, number>();
-    // Baldes de 10 palavras; a chave com o nível nos 2 bits de cima (`caustics_common.wgsl`): só o nível fino.
-    for (let w = 8; w + 10 <= words.length; w += 10) {
-        const key = words[w]!;
-        if (key === 0 || (key - 1) >>> 30 !== 0) continue;
-        const y = (((key - 1) >> 10) & 1023) - 512;
-        if (y !== 0) continue;
-        const k = `${((key - 1) & 1023) - 512},${(((key - 1) >> 20) & 1023) - 512}`;
-        cells.set(k, (floats[w + 4]! + floats[w + 5]! + floats[w + 6]!) / 3);
-    }
-    return cells;
+async function floorCaustics(s: Awaited<ReturnType<typeof openEngine>>): Promise<CausticsHash> {
+    return readCausticsHash(s.app, s.app.defaults.renderer.causticsResource);
+}
+
+/** A irradiância das cáusticas (média dos canais) no ponto (x, 0, z) do chão. */
+function floorAt(hash: CausticsHash, x: number, z: number): number {
+    const e = hash.irradiance([x, 0, z], [0, 1, 0]);
+    return (e[0] + e[1] + e[2]) / 3;
 }
 
 /**
@@ -1070,10 +1050,13 @@ async function causticsScene(): Promise<void> {
                 );
         });
         await s.step(150);
-        // A maior irradiância das células do hash das cáusticas no chão (lido de volta só no teste): o ponto focado
-        // é menor que um pixel na vista rasante.
-        const cells = await floorCaustics(s);
-        const value = Math.max(0, ...cells.values());
+        // A maior irradiância das cáusticas no chão (lida de volta só no teste, numa grade de 2,5 mm em volta do eixo):
+        // o ponto focado é menor que um pixel na vista rasante.
+        const hash = await floorCaustics(s);
+        let value = 0;
+        for (let x = -0.15; x <= 0.15; x += 0.0025)
+            for (let z = -0.15; z <= 0.15; z += 0.0025)
+                value = Math.max(value, floorAt(hash, x, z));
         peaks.push({ factor, value });
         s.close();
     }
@@ -1123,7 +1106,7 @@ async function causticsScene(): Promise<void> {
             ring(app);
         });
         await s.step(150);
-        const cells = await floorCaustics(s);
+        const hash = await floorCaustics(s);
         s.close();
         const reach = Math.ceil(0.03 / cell);
         for (let i = -30; i <= 30; i++)
@@ -1138,7 +1121,7 @@ async function causticsScene(): Promise<void> {
                 for (let a = -reach; a <= reach; a++)
                     for (let b = -reach; b <= reach; b++) {
                         if (Math.hypot(a, b) > reach) continue;
-                        sum += cells.get(`${cx + a},${cz + b}`) ?? 0;
+                        sum += floorAt(hash, (cx + a + 0.5) * cell, (cz + b + 0.5) * cell);
                         n++;
                     }
                 if (sum / n > peak.value) peak = { value: sum / n, x, z };
@@ -1190,14 +1173,29 @@ async function causticsWaterScene(): Promise<void> {
             return sum / n;
         };
         const on = await floorMean();
+        // A energia: a correção dos fótons (os que passam pela água menos a luz em linha reta que ela substitui) tem
+        // média ~0 no fundo longe das paredes — a água desvia a luz, não a cria. Medida no hash, como o motor a lê. A
+        // média da imagem não serve: a câmera olha o fundo pela mesma superfície que concentra a luz e vê mais os
+        // pontos claros (reciprocidade; com as cáusticas nítidas, ~3 %), o que a física de fato faz.
+        const hash = await readCausticsHash(app, app.defaults.renderer.causticsResource);
+        let correction = 0;
+        let n = 0;
+        for (let x = -0.3; x <= 0.3; x += 0.005)
+            for (let z = -0.15; z <= 0.15; z += 0.005) {
+                correction += floorAt(hash, x, z);
+                n++;
+            }
+        correction /= n;
         app.defaults.renderer.caustics.enabled = false;
         const off = await floorMean();
+        // O sol que chega ao fundo em linha reta (luminância do sol de 1,2 pelo cosseno, sem a absorção rasa).
+        const sun = 1.2 * 0.92;
         log(
-            `caustics: água parada com a GI — fundo sob a água com as cáusticas ${on.toFixed(4)}, em linha reta ${off.toFixed(4)}`,
+            `caustics: água parada com a GI — correção média dos fótons no fundo ${correction.toFixed(5)} (${((100 * correction) / sun).toFixed(2)} % do sol); imagem do fundo com as cáusticas ${on.toFixed(4)}, em linha reta ${off.toFixed(4)} (${((on / off - 1) * 100).toFixed(2)} %)`,
         );
         check(
-            Math.abs(on / off - 1) <= 0.02,
-            `caustics: a água com as cáusticas e em linha reta (${((on / off - 1) * 100).toFixed(2)} %)`,
+            Math.abs(correction) <= 0.02 * sun,
+            `caustics: a correção dos fótons no fundo a ${((100 * correction) / sun).toFixed(2)} % do sol`,
         );
         app.dispose();
         canvas.remove();

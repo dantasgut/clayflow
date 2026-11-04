@@ -1,6 +1,6 @@
 // Acúmulo das cáusticas (spec 034, T067c; antes da GI): por balde do hash, a soma do quadro (ponto fixo) vira
 // irradiância — a potência por fóton (do cabeçalho) dividida pela área da célula do nível dela — e entra na acumulada por
-// média móvel, com os fótons do quadro; as somas zeram. A invocação 0 guarda a fração da emissão na caixa dos volumes.
+// média móvel; as somas zeram. A invocação 0 guarda a fração da emissão na caixa dos volumes.
 // Uma célula sem fótons decai para 0. Com o hash mais que ¾ ocupado no quadro anterior, tudo recomeça (as células
 // de luzes que se moveram não ficam ocupando baldes).
 // Requer: WORKGROUP_SIZE, caustics, caustics_common, caustics_hash_atomic.
@@ -25,7 +25,7 @@ fn caustics_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     if (key == CAUSTICS_EMPTY) { return; }
     let reset = atomicLoad(&caustics_hash_atomic[1]) * 4u > n * 3u;
     let power = bitcast<f32>(atomicLoad(&caustics_hash_atomic[0]));
-    let cell = caustics_cell_size(caustics_key_level(key));
+    let cell = caustics_cell_size(slot / caustics_level_slots());
     let area = cell * cell;
     // As somas com sinal (a variável de controle dos fótons): complemento de dois.
     let sum = vec3f(bitcast<vec3i>(vec3u(
@@ -39,12 +39,8 @@ fn caustics_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
         bitcast<f32>(atomicLoad(&caustics_hash_atomic[w + 6u])),
     );
     var irradiance = mix(sum, old, CAUSTICS_HYSTERESIS);
-    // Os fótons por quadro na mesma média móvel: quem lê escolhe o nível por eles.
-    var photons = mix(f32(atomicLoad(&caustics_hash_atomic[w + 7u])) / CAUSTICS_ONE,
-        bitcast<f32>(atomicLoad(&caustics_hash_atomic[w + 8u])), CAUSTICS_HYSTERESIS);
     if (reset) {
         irradiance = vec3f(0.0);
-        photons = 0.0;
         atomicStore(&caustics_hash_atomic[w], CAUSTICS_EMPTY);
     } else {
         atomicAdd(&caustics_hash_atomic[2], 1u);
@@ -55,6 +51,4 @@ fn caustics_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     atomicStore(&caustics_hash_atomic[w + 4u], bitcast<u32>(irradiance.r));
     atomicStore(&caustics_hash_atomic[w + 5u], bitcast<u32>(irradiance.g));
     atomicStore(&caustics_hash_atomic[w + 6u], bitcast<u32>(irradiance.b));
-    atomicStore(&caustics_hash_atomic[w + 7u], 0u);
-    atomicStore(&caustics_hash_atomic[w + 8u], bitcast<u32>(photons));
 }

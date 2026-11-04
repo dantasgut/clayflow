@@ -98,7 +98,10 @@ const PHOTON_FOLLOW = compute(
     causticsTrace,
     'caustics_photon_follow_main',
 );
+/** O depósito de cada fóton que pousou, na pegada medida pelos vizinhos da grade. */
+const SPLAT = compute('caustics_splat', causticsTrace, 'caustics_splat_main');
 const FIXED = [
+    SPLAT,
     RESOLVE,
     INSTANCES,
     FLAG,
@@ -238,6 +241,9 @@ export class CausticsFlow extends Flow<CausticsSlots, 'idle'> {
                 bind(pass, at(SWAP));
                 pass.dispatch.workgroups(1);
             }
+            // Os pousos: cada fóton deposita na pegada medida pelos vizinhos da grade.
+            bind(pass, at(SPLAT));
+            pass.dispatch.invocations(b.slots, W);
             bind(pass, at(RESOLVE));
             pass.dispatch.invocations(CAUSTICS_SLOTS, W);
         });

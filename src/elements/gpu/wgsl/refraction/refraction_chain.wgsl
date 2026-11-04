@@ -14,7 +14,8 @@
 // lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
 // refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
-// refraction_hit_out, refraction_albedo_out, refraction_blocks, refraction_stamps, refraction_splits.
+// refraction_hit_out, refraction_albedo_out, refraction_noise_out, refraction_blocks, refraction_stamps,
+// refraction_splits.
 
 /** Vagas por pixel. */
 const REFRACTION_CHAIN_SLOTS: u32 = 5u;
@@ -28,6 +29,11 @@ const REFRACTION_CHAIN_MOVED: u32 = 1u;
 const REFRACTION_CHAIN_CAMERA: u32 = 2u;
 /** A dispersão adiada: os canais seguem juntos no verde desde a última interface, até o acerto dizer se se separaram. */
 const REFRACTION_CHAIN_SPLIT: u32 = 4u;
+/**
+ * O caminho passou por um sorteio (a roleta de Fresnel, a microfaceta da interface áspera, a transmissão parcial, a luz
+ * escolhida entre muitas): só a luz dele tem ruído a filtrar.
+ */
+const REFRACTION_CHAIN_SAMPLED: u32 = 16u;
 /** α da microfaceta até o qual a interface é lisa (rugosidade 0,1): os lobos seguidos sem sorteio. */
 const REFRACTION_SMOOTH_ALPHA: f32 = 0.01;
 
@@ -429,6 +435,13 @@ fn refraction_chain_follow_one(j: u32) {
     }
     let carry = (p.flags & REFRACTION_CHAIN_SPLIT) != 0u;
     var extra = 0.0;
+    // Os sorteios do nó: a transmissão parcial (opaco ou interface), a microfaceta áspera e, no ponto opaco, a luz
+    // escolhida entre mais que as exatas.
+    let closure = ray_wave_entries[2u * j].closure;
+    let partial = closure.transmission_weight > 0.0 && closure.transmission_weight < 1.0;
+    let rough = !n.done && !n.passes && n.alpha > REFRACTION_SMOOTH_ALPHA;
+    let lights = n.done && p.hit_instance != NONE && refraction.light_count > RAY_EXACT_LIGHTS;
+    if (partial || rough || lights) { p.flags |= REFRACTION_CHAIN_SAMPLED; }
     p.weight *= n.through;
     p.state = state;
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }
@@ -573,6 +586,7 @@ fn refraction_chain_follow_one(j: u32) {
     let p_reflect = clamp(select(p_single, (f.x + f.y + f.z) / 3.0, disperse), 1e-4, 1.0 - 1e-4);
     let u = refraction_random(&state);
     p.state = state;
+    p.flags |= REFRACTION_CHAIN_SAMPLED;
     let reflects = u < p_reflect;
     if (disperse && !reflects && s % REFRACTION_CHAIN_SLOTS == REFRACTION_SLOT_MAIN && refraction_chain_channels_free(s)) {
         refraction_chain_disperse(p, s, n, f, 1.0 - p_reflect);
@@ -645,8 +659,9 @@ fn refraction_stack_pick(a: RefractionStack, b: RefractionStack, pick_b: bool) -
 
 /**
  * Depois da última rodada de um bloco: por pixel, a vaga que ainda segue conta a energia como truncada; as vagas somadas
- * na ordem delas — a luz, a energia truncada, a parte em movimento —, o fim pela vaga de maior luminância (a primeira no
- * empate), o albedo pela média pesada pela luz (sem luz: o da vaga do fim).
+ * na ordem delas — a luz, a energia truncada, a parte em movimento, a parte com ruído (a dos caminhos que passaram por
+ * um sorteio) —, o fim pela vaga de maior luminância (a primeira no empate), o albedo pela média pesada pela luz (sem
+ * luz: o da vaga do fim).
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -658,6 +673,7 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         var radiance = vec3f(0.0);
         var truncated = 0.0;
         var moving = vec3f(0.0);
+        var sampled = 0.0;
         var albedo = vec3f(0.0);
         var light = 0.0;
         var best = -1.0;
@@ -673,6 +689,7 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
             radiance += p.radiance;
             truncated += luminance(tr);
             moving += p.moving;
+            if ((p.flags & REFRACTION_CHAIN_SAMPLED) != 0u) { sampled += luminance(p.radiance); }
             if (p.alive != 0u) { continue; }
             let l = luminance(p.radiance);
             albedo += l * p.albedo;
@@ -687,11 +704,13 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         let px = vec2u(pixel % size.x, pixel / size.x);
         let a = select(albedo_best, albedo / light, light > 0.0);
         let moved = clamp(luminance(moving) / max(luminance(radiance), 1e-6), 0.0, 1.0);
+        // A fração da luz com ruído (sem luz, nenhuma).
+        let noisy = clamp(sampled / max(luminance(radiance), 1e-6), 0.0, 1.0);
         // O representante do bloco 2×2 (meia resolução): o resultado vai ao registro do bloco; a reconstrução
         // (`refraction_chain_upsample_main`) o leva aos pixels pedidos.
         let request = textureLoad(refraction_request, px, 0);
         refraction_blocks[refraction_blocks_index(px, size)] = RefractionBlock(vec4f(radiance, truncated), end,
-            vec4f(a, moved), vec4u(refraction.frame, px.x | (px.y << 16u), request.x, request.y));
+            vec4f(a, moved), vec4u(refraction.frame, px.x | (px.y << 16u), request.x, request.y), noisy);
     }
 }
 
@@ -750,13 +769,14 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     let center = vec2i(q / 2u);
     var sum = vec4f(0.0);
     var albedo = vec4f(0.0);
+    var noise = 0.0;
     var weight = 0.0;
     var end = vec4f(0.0);
     var nearest = 1e9;
     // O representante mais próximo com as mesmas marcas, em qualquer distância: o recurso quando nenhum mostra a mesma
     // superfície (a borda de um objeto que se move) — melhor que o valor de quadros atrás.
     var near_any = 1e9;
-    var fallback = RefractionBlock(vec4f(0.0), vec4f(0.0), vec4f(0.0), vec4u(0u));
+    var fallback: RefractionBlock;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let c = center + vec2i(dx, dy);
@@ -782,6 +802,7 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
                 textureStore(refraction_radiance_out, q, radiance);
                 textureStore(refraction_hit_out, q, hit);
                 textureStore(refraction_albedo_out, q, alb);
+                textureStore(refraction_noise_out, q, vec4f(block.noise));
                 refraction_stamps[i] = vec2u(refraction.frame + 1u, own.x);
                 return;
             }
@@ -789,6 +810,7 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             let w = exp(-dist2 / (2.0 * REFRACTION_UPSAMPLE_SIGMA * REFRACTION_UPSAMPLE_SIGMA));
             sum += w * radiance;
             albedo += w * alb;
+            noise += w * block.noise;
             weight += w;
             if (dist2 < nearest) {
                 nearest = dist2;
@@ -814,10 +836,12 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             textureStore(refraction_radiance_out, q, fallback.radiance);
             textureStore(refraction_hit_out, q, fallback.end);
             textureStore(refraction_albedo_out, q, fallback.albedo);
+            textureStore(refraction_noise_out, q, vec4f(fallback.noise));
         }
         return;
     }
     textureStore(refraction_radiance_out, q, sum / weight);
     textureStore(refraction_hit_out, q, end);
     textureStore(refraction_albedo_out, q, albedo / weight);
+    textureStore(refraction_noise_out, q, vec4f(noise / weight));
 }

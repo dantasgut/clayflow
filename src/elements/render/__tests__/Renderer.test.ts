@@ -16,7 +16,7 @@ describe('Renderer (spec 039, FR-010)', () => {
         expect(r.profile).toBe('high');
         expect(r.lightPaths.transmission).toBe(16);
         expect(r.lightPaths.refraction).toBe(true);
-        expect(r.caustics).toMatchObject({ enabled: true, photons: 65_536, cellSize: 0.01 });
+        expect(r.caustics).toMatchObject({ enabled: true, photons: 65_536, cellSize: 0.005 });
         expect(r.antialiasing.mode).toBe('temporal');
     });
 

@@ -16,8 +16,12 @@ const TARGETS = [
     ['radiance', 'rgba16float'],
     // O ponto que o pixel mostra e o registro do objeto (T044a).
     ['hit', 'rgba32float'],
+    // O do quadro anterior (o quanto a imagem que a água leva andou: o movimento da refração).
+    ['hitPrevious', 'rgba32float'],
     // O albedo do ponto mostrado (o guia de textura do filtro) e, no alfa, a marca de movimento.
     ['albedo', 'rgba16float'],
+    // A fração da luz com ruído (a dos caminhos que passaram por um sorteio: o que o filtro do sinal limpa).
+    ['noise', 'r32float'],
     // A marca de movimento do quadro anterior (T044a).
     ['gradient', 'rgba16float'],
     ['queue', 'r32uint'],
@@ -98,7 +102,7 @@ describe('Refraction (spec 034, T040)', () => {
                 access: 'write-only',
             },
         });
-        expect(byId.size).toBe(10);
+        expect(byId.size).toBe(12);
     });
 
     it('a C2 aloca só os parâmetros na inserção; os alvos quando pedidos, no tamanho do canvas, e recriados quando ele muda', async () => {

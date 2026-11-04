@@ -7,7 +7,9 @@
 // (`temporal_filter_guide_previous`: o mesmo objeto, a menos de `TEMPORAL_FILTER_HISTORY_GAP` larguras de pixel do
 // ponto de agora levado ao quadro anterior) — bilinear, ou, se nenhum dos quatro serve, a média dos que servem em 3 × 3. O peso da amostra nova vai de
 // 1/quadros (até `temporal_filter.history_max`) a 1 com a mudança da cena (`temporal_filter_source_change`, o α do
-// A-SVGF): onde algo saiu, o histórico some, mesmo que só um caminho secundário o visse.
+// A-SVGF): onde algo saiu, o histórico some, mesmo que só um caminho secundário o visse. A parte do sinal sem ruído
+// (`temporal_filter_source_noise`: a luz de caminhos sem sorteio, a água e o vidro lisos) entra como amostra, sem
+// histórico — reaproveitá-lo só atrasaria e amaciaria a imagem; a resolução temporal integra o resto.
 // Os momentos da luminância dão a variância das amostras (com menos de 4 quadros, a dos vizinhos 5 × 5 do mesmo
 // objeto); a da média — dividida pelos quadros, e multiplicada por 4/quadros com menos de 4 (como o SVGF) — guia o
 // filtro espacial: o pixel convergido quase não é filtrado, o recomeçado é bem filtrado. Sai a média com a variância da
@@ -186,20 +188,21 @@ fn temporal_filter_temporal_main(@builtin(global_invocation_id) gid3: vec3u, @bu
         moments /= weight;
         alpha = temporal_weight_change(temporal_weight_count(moments.z, temporal_filter.history_max), temporal_filter_source_change(px));
     }
+    let noise = clamp(temporal_filter_source_noise(px), 0.0, 1.0);
     // A amostra reconstruída dos vizinhos (não traçada neste quadro) não entra no histórico válido: ele segue como está
     // (a média, os momentos e a contagem); sem histórico, ou onde a cena mudou (o gradiente temporal), a reconstrução
     // entra como amostra.
     let fresh = temporal_filter_source_fresh(px);
     if (!fresh && weight > 0.0 && temporal_filter_source_change(px) < 0.5) {
         let frames_kept = max(moments.z, 1.0);
-        let kept = vec4f(color, temporal_mean_variance(temporal_variance(moments.xy), frames_kept));
+        let kept = vec4f(mix(c, color, noise), temporal_mean_variance(temporal_variance(moments.xy), frames_kept));
         textureStore(temporal_filter_accumulated_out, px, kept);
         textureStore(temporal_filter_work_out, px, kept);
         textureStore(temporal_filter_moments_out, px, vec4f(moments.xy, moments.z, 0.0));
         return;
     }
     let frames = 1.0 / alpha;
-    let mixed = select(c, mix(color, c, alpha), weight > 0.0);
+    let mixed = select(c, mix(color, c, mix(1.0, alpha, noise)), weight > 0.0);
     var m = vec2f(l, l * l);
     if (weight > 0.0) { m = temporal_moments(moments.xy, l, alpha, TEMPORAL_FILTER_MOMENTS_ALPHA); }
     var variance = temporal_variance(m);

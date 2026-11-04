@@ -5,8 +5,9 @@
 // (`refraction_history`: o gradiente temporal).
 // Na meia resolução, a amostra é deste quadro só no representante do bloco 2×2 (`refraction_block`); os outros pixels
 // vêm da reconstrução.
+// A fração com ruído é a da luz dos caminhos que passaram por um sorteio (`refraction_noise`).
 // Requer: REFRACTION_REQUEST_VALID, refraction_history, refraction_block, refraction_request, refraction_radiance,
-// refraction_hit, refraction_albedo.
+// refraction_hit, refraction_albedo, refraction_noise.
 
 fn temporal_filter_source_size() -> vec2u {
     return textureDimensions(refraction_request);
@@ -44,6 +45,10 @@ fn temporal_filter_source_fresh(q: vec2u) -> bool {
 fn temporal_filter_source_change(q: vec2u) -> f32 {
     // No corte de câmera (`history.x`, spec 037) a cena mudou toda: o filtro recomeça o histórico.
     return max(refraction_change(q), cameras[refraction.camera_slot].history.x);
+}
+
+fn temporal_filter_source_noise(q: vec2u) -> f32 {
+    return textureLoad(refraction_noise, q, 0).r;
 }
 
 fn temporal_filter_source_guide_span() -> i32 {

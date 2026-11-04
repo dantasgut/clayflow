@@ -18,7 +18,10 @@ export interface CausticsOptions {
      * (262 144: 2,5 %, 0,4 %, 6,4 ms; smoke `caustics`).
      */
     readonly photons?: number;
-    /** Lado da célula do hash em m (padrão 0,01): a resolução da cáustica na superfície. */
+    /**
+     * Lado da célula fina do hash em m (padrão 0,005): a resolução da cáustica onde a luz se concentra (cada depósito vai
+     * ao nível do tamanho da pegada dele).
+     */
     readonly cellSize?: number;
     /**
      * Quadros entre duas emissões de fótons (padrão 1; spec 039, Opção B3): nos outros a média móvel do hash fica — a
@@ -55,7 +58,7 @@ export class Caustics extends Entity<CausticsData> implements Resource {
     constructor(options: CausticsOptions = {}) {
         super();
         const photons = options.photons ?? 65_536;
-        const cellSize = options.cellSize ?? 0.01;
+        const cellSize = options.cellSize ?? 0.005;
         if (!Number.isInteger(photons) || photons < 0)
             throw new RangeError(`Caustics: photons inteiro ≥ 0 (recebeu ${photons})`);
         if (!(cellSize > 0)) throw new RangeError(`Caustics: cellSize > 0 (recebeu ${cellSize})`);

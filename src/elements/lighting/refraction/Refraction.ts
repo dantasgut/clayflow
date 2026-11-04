@@ -216,7 +216,12 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             },
             target('radiance', REFRACTION_RADIANCE_FORMAT),
             target('hit', REFRACTION_HIT_FORMAT),
+            // O ponto que cada pixel mostrava no quadro anterior (sob demanda, por quem mede o quanto a imagem que a
+            // água ou o vidro levam andou: o movimento da refração).
+            target('hitPrevious', REFRACTION_HIT_FORMAT),
             target('albedo', REFRACTION_ALBEDO_FORMAT),
+            // A fração da luz de cada pixel que veio por caminhos com sorteio (a de ruído, que o filtro do sinal limpa).
+            target('noise', 'r32float'),
             // A mudança da cena por bloco (sob demanda, por quem recomeça históricos: com ela alocada, o estágio a
             // mede pelas marcas de movimento que o traçado deixa no alfa de `albedo`).
             target('gradient', REFRACTION_GRADIENT_FORMAT),

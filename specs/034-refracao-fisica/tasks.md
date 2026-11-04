@@ -197,6 +197,37 @@ código: as feitas estão marcadas com a evidência, e as que as decisões poste
       sem as passadas à-trous não muda, com o peso mínimo do quadro novo do filtro em 0,5 cai só 0,1; (d) o guia dos
       pixels não traçados na meia resolução (039) é o do representante mais próximo — em degraus de 2 px —, o que
       limita a busca. Em 2026-10-22, com a água fora do traçado e em resolução inteira, a `waterOrbit` dava 0,47–0,80 %.
+  - **2026-11-04 (segunda rodada; o usuário: "cáustica desfocada nem parece cáustica", "a água fica rugosa", "suspeito
+    do antialiase, falta equilíbrio nos parâmetros")**:
+    - **Cáusticas pela malha de fótons** (Shah et al. 2007; diferenciais de fóton, Schjøth et al. 2007): os fótons saem
+      em grade por segmento (luz × alvo, a grade deslocada por um sorteio por quadro) e cada um deposita a vazão na área
+      em que a célula dele chegou, medida pelos pousos dos vizinhos da grade de mesma assinatura de caminho, no mínimo o
+      borrão do disco da luz pelo último trecho; o depósito vai ao nível do tamanho da pegada (6 níveis de 5 mm a 16 cm,
+      faixas do hash por nível, chave a partir de uma âncora no centro dos alvos) e a leitura soma os níveis. A linha
+      reta subtraída na pegada exata da célula; os canais da dispersão em vagas fixas. Antes: cada fóton em todos os
+      níveis e a leitura no mais fino com 64 fótons — na água, células de 4–8 cm. Smoke `caustics` (contra a
+      referência): esfera 0,8 / 1,0 / 1,2 f e inclinada — fluxo 0,999–1,000×, pico 105 / 83 / 17,5 / 83× (referência
+      104 / 86 / 18,1 / 89×), erro do padrão 7,9 / 2,6 / 0,9 / 3,4 % (≤ 10 %); água 0° e 30° a 0,5–0,8 %; sombra a 1 mm.
+      O smoke lê o hash como o motor (`support/causticsHash.ts`, também no `globalIllumination`). Mesmo custo por quadro.
+    - **Resolução temporal na água**: a superfície da água não se move na tela, então a resolução a acumulava como
+      parada (64 quadros sem recorte) enquanto a imagem do fundo ondulava — o borrão. O passe do movimento mede quanto o
+      ponto mostrado andou desde o quadro anterior (`hitPrevious`, em larguras de pixel no ponto, menos a da amostra
+      deslocada) e põe no vetor de "o que está atrás"; parada de fato, a imagem segue acumulando. Na `agua` o fundo
+      sob a água fica tão nítido quanto sem antisserrilhado. Medido antes: não eram o molhado (sem ele, igual), as
+      partículas secundárias, a meia resolução nem o λ de Yu & Turk.
+    - **O filtro do sinal só onde há ruído**: o traçado marca o caminho que passou por um sorteio (roleta de Fresnel,
+      microfaceta áspera, transmissão parcial, luz entre mais que 8) e grava por pixel a fração da luz dele (`noise`;
+      ponto novo `temporal_filter_source_noise`); o temporal e o à-trous do filtro agem só nessa fração — a água e o
+      vidro lisos passam sem borrão (antes o filtro apagava as cáusticas vistas pela água, mesmo parado).
+    - **App**: a água das partículas sem a ondulação procedural por padrão (as ondas são as da simulação).
+    - Smoke `antialiasing`: parado 0,49 %, rastro 0,10 % (fechado), sprites 106,7 %; `waterOrbit` turva 2,85 / 3,05 /
+      3,26 %, clara 3,58 / 3,63 / 4,32 %; órbita pose 3 3,20 %. **Em aberto**: o detalhe fino em movimento visto pela
+      água e pelo vidro (o xadrez distante através das duas paredes do tanque sai lavado) — meia resolução com
+      histórico curto.
+    - `globalIllumination/causticsWater`: o critério media a média da imagem do fundo com e sem as cáusticas (≤ 2 %),
+      mas a câmera olha pela mesma superfície que concentra a luz e vê mais os pontos claros (reciprocidade; com as
+      cáusticas nítidas, 3 %). Trocado pela energia no hash: a correção média dos fótons no fundo ≤ 2 % do sol (−0,4 %).
+      O usuário autorizou (2026-11-04) ajustar critério quando a qualidade e o desempenho se cumprem.
   - Retomada (2026-10-24), medido no M4 (research R3a): divisão na segunda interface, guia de albedo pesado pela luz,
     marca de movimento pelo próprio traçado no lugar do gradiente refeito, entrelaçamento com orçamento de pixels
     traçados (`Refraction.maxTracedPixels`) e três passadas à-trous. Oito cenas 0,07–0,38 %; lente 0 degraus (controle

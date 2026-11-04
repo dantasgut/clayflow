@@ -1,33 +1,33 @@
 // Cáusticas por fótons (spec 034, T067c; antes da GI, spec 033 US5): o hash espacial em mundo onde os fótons que
 // passaram por superfícies especulares ou transmissivas (vidro, água, metal polido) depositam a luz na primeira difusa.
-// Em níveis de células (`CAUSTICS_LEVELS`): o nível l tem lado `caustics.extra.x` × 2^l, e cada fóton deposita em
-// todos — quem lê usa o mais fino com fótons bastantes (`CAUSTICS_MIN_PHOTONS` acumulados na média móvel), a estimativa de
-// densidade adaptativa: onde chegam poucos fótons (a água espalhada por uma área grande) a cáustica fica mais suave em
-// vez de manchas e pontos de fótons soltos, e afina quando chegam mais. Cada balde: a chave (as coordenadas da célula,
-// 10 bits cada, deslocadas de 512, e o nível nos 2 bits de cima, +1 — 0 vazio), a soma do quadro em ponto fixo com sinal (rgb, a
-// vazão de cada fóton, negativa na parcela da variável de controle: todos levam a mesma potência, as fontes escolhidas pela potência), a irradiância acumulada (rgb,
-// f32), os fótons do quadro (ponto fixo, os pesos da tenda) e os acumulados (f32). O cabeçalho: a potência por fóton do quadro (f32), os
-// baldes ocupados no quadro anterior e a soma do quadro, e as amostras da emissão na caixa dos volumes. Depósito e leitura pela tenda 2D no plano tangente
-// (`caustics_tent`, spec 034 T057): uma camada de células ao longo da normal e a interpolação bilinear nos dois eixos
-// tangentes — a irradiância é por área da superfície (a trilinear em 3D repartia o fóton entre as duas camadas em volta
-// do chão e a leitura devolvia a metade).
+// Os fótons saem em grade e cada um deposita a vazão na área em que a célula dele chegou (a malha de fótons, a razão de
+// áreas das cáusticas de Shah et al. 2007 e das diferenciais de fóton de Schjøth et al. 2007: `caustics_splat`): onde a
+// água ou o vidro concentram a luz a pegada encolhe — a cáustica fica nítida e mais clara na medida exata. Em níveis de
+// células (`CAUSTICS_LEVELS`, o nível l com lado `caustics.extra.x` × 2^l): cada depósito vai ao nível do tamanho da
+// pegada dele, e quem lê soma os níveis. Cada balde: a chave (as coordenadas da célula, 10 bits cada, deslocadas de 512,
+// e o nível nos 3 bits de cima, +1 — 0 vazio), a soma do quadro em ponto fixo com sinal (rgb, a vazão de cada fóton,
+// negativa na parcela da variável de controle) e a irradiância acumulada (rgb, f32). O cabeçalho: a potência por fóton
+// do quadro (f32), os baldes ocupados no quadro anterior e a soma do quadro, e a fração da grade dos volumes que passa
+// pela água. Depósito e leitura pela tenda 2D no plano tangente (`caustics_tent`, spec 034 T057): uma camada de células
+// ao longo da normal e a interpolação bilinear nos dois eixos tangentes — a irradiância é por área da superfície.
 // Requer: caustics (os baldes em `caustics.counts.y`), hash_cell.
 
-const CAUSTICS_HEADER: u32 = 8u;
+const CAUSTICS_HEADER: u32 = 12u;
+/** Palavras do cabeçalho com a âncora das células (xyz, f32): o centro dos alvos dos fótons, em passos de meio metro. */
+const CAUSTICS_ANCHOR: u32 = 8u;
 // Palavras do cabeçalho com as amostras na caixa dos volumes no quadro e as aceitas (u32), e a fração aceita (f32).
 const CAUSTICS_TRIES: u32 = 3u;
 const CAUSTICS_ACCEPTED: u32 = 4u;
 const CAUSTICS_ACCEPTED_RATIO: u32 = 5u;
-const CAUSTICS_WORDS: u32 = 10u;
-/** Níveis de células (lados de 1, 2, 4 e 8 vezes o da célula fina). */
-const CAUSTICS_LEVELS: u32 = 4u;
-/** Peso do acumulado na média móvel de cada quadro (~39 quadros efetivos: (1 + h) / (1 − h)). */
-const CAUSTICS_HYSTERESIS: f32 = 0.95;
+const CAUSTICS_WORDS: u32 = 7u;
+/** Níveis de células (lados de 1 a 32 vezes o da célula fina). */
+const CAUSTICS_LEVELS: u32 = 6u;
 /**
- * Fótons acumulados a partir dos quais um nível vale na leitura (cada fóton leva os três canais): os do quadro na média
- * móvel vezes os quadros efetivos dela — ~12 % de ruído na célula.
+ * Peso do acumulado na média móvel de cada quadro (~4 quadros efetivos: (1 + h) / (1 − h)): a grade de fótons dá a
+ * imagem quase sem ruído a cada quadro, e a média só integra o deslocamento da grade — a cáustica acompanha a água que
+ * se move.
  */
-const CAUSTICS_MIN_PHOTONS: f32 = 64.0;
+const CAUSTICS_HYSTERESIS: f32 = 0.6;
 // Unidade do ponto fixo das somas (com sinal): até 2²⁰ fótons inteiros numa célula sem estourar o i32 (o foco do vidro concentra
 // boa parte dos fótons do quadro em poucas células).
 const CAUSTICS_ONE: f32 = 2048.0;
@@ -39,21 +39,31 @@ fn caustics_slots() -> u32 {
     return max(caustics.counts.y, 1u);
 }
 
-/** Chave da célula `c` do nível `level` (0 fora do alcance). */
-fn caustics_key(c: vec3i, level: u32) -> u32 {
-    if (any(abs(c) > vec3i(511))) { return CAUSTICS_EMPTY; }
-    let u = vec3u(c + vec3i(512));
-    return (u.x | (u.y << 10u) | (u.z << 20u) | (level << 30u)) + 1u;
+/** Baldes de cada nível: o hash em faixas iguais, uma por nível. */
+fn caustics_level_slots() -> u32 {
+    return max(caustics_slots() / CAUSTICS_LEVELS, 1u);
 }
 
-/** O nível da chave `key` (≠ 0). */
-fn caustics_key_level(key: u32) -> u32 {
-    return (key - 1u) >> 30u;
+/**
+ * Chave da célula `c` (as coordenadas a partir da âncora, `caustics_cell_of`): x e z em 11 bits, y em 10 — 0 fora do
+ * alcance (quem deposita sobe de nível).
+ */
+fn caustics_key(c: vec3i) -> u32 {
+    if (abs(c.x) > 1023 || abs(c.z) > 1023 || abs(c.y) > 511) { return CAUSTICS_EMPTY; }
+    let u = vec3u(c + vec3i(1024, 512, 1024));
+    return (u.x | (u.z << 11u) | (u.y << 22u)) + 1u;
 }
 
-/** Balde inicial da célula `c` do nível `level`. */
+/** Balde inicial da célula `c` na faixa do nível `level`. */
 fn caustics_bucket(c: vec3i, level: u32) -> u32 {
-    return hash_cell(bitcast<vec3u>(c) ^ vec3u(level * 0x9E3779B9u)) % caustics_slots();
+    let n = caustics_level_slots();
+    return level * n + hash_cell(bitcast<vec3u>(c)) % n;
+}
+
+/** O balde depois de `slot` na faixa do nível `level` (a sondagem linear dá a volta na faixa). */
+fn caustics_probe_next(slot: u32, level: u32) -> u32 {
+    let n = caustics_level_slots();
+    return level * n + (slot - level * n + 1u) % n;
 }
 
 /** Lado das células do nível `level` (m). */

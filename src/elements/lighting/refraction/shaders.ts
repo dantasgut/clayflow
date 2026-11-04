@@ -138,8 +138,11 @@ export const refractionResources = Object.freeze({
     radiance: texture('refraction_radiance', 'f32'),
     hitOut: storageTexture('refraction_hit_out', REFRACTION_HIT_FORMAT),
     hit: texture('refraction_hit', 'f32'),
+    hitPrevious: texture('refraction_hit_previous', 'f32'),
     albedoOut: storageTexture('refraction_albedo_out', REFRACTION_ALBEDO_FORMAT),
     albedo: texture('refraction_albedo', 'f32'),
+    noiseOut: storageTexture('refraction_noise_out', 'r32float'),
+    noise: texture('refraction_noise', 'f32'),
     gradientOut: storageTexture('refraction_gradient_out', REFRACTION_GRADIENT_FORMAT),
     gradient: texture('refraction_gradient', 'f32'),
     requestDepth: texture('refraction_request_depth', 'depth'),
@@ -280,6 +283,7 @@ export const refractionChain = wgslModule({
         R.radianceOut,
         R.hitOut,
         R.albedoOut,
+        R.noiseOut,
         R.paths,
         R.splits,
         R.pathQueue,
@@ -348,6 +352,7 @@ export const refractionDenoiseSource = wgslModule({
         R.request,
         R.radiance,
         R.hit,
+        R.noise,
     ],
 });
 
@@ -458,5 +463,6 @@ export const refractionMotion = wgslModule({
         refractionHistory,
         R.request,
         R.hit,
+        R.hitPrevious,
     ],
 });

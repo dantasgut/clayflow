@@ -15,6 +15,8 @@
 //   - `temporal_filter_source_fresh(q)`: a amostra do pixel é deste quadro (quem traça uma parte dos pixels por quadro —
 //     a refração em meia resolução — reconstrói os outros dos vizinhos traçados: o filtro guarda o histórico válido
 //     deles em vez de misturar a reconstrução, e usa a reconstrução onde não há histórico);
+//   - `temporal_filter_source_noise(q)`: a fração do sinal do pixel com ruído, em 0–1 (quem traça sem sortear — a água e
+//     o vidro lisos — não tem o que limpar: o filtro reaproveita o histórico e mistura os vizinhos só nessa medida);
 //   - `temporal_filter_source_guide_span()`: a distância, em pixels, entre as amostras de que o guia vem (1 com uma
 //     amostra por pixel; 2 na meia resolução, em que o guia é o do representante do bloco 2 × 2): a escala das diferenças
 //     com que o filtro acha, na imagem anterior, onde aparecia o ponto mostrado.
@@ -54,6 +56,10 @@ fn temporal_filter_source_change(q: vec2u) -> f32 {
 
 fn temporal_filter_source_fresh(q: vec2u) -> bool {
     return true;
+}
+
+fn temporal_filter_source_noise(q: vec2u) -> f32 {
+    return 1.0;
 }
 
 fn temporal_filter_source_guide_span() -> i32 {

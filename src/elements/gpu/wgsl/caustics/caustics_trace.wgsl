@@ -1,8 +1,11 @@
-// Fótons das cáusticas (spec 034, T067c; antes na GI, spec 033 US5): cada invocação lança um fóton de uma fonte
-// escolhida pela potência (todos levam a mesma potência: a vazão é a fração dela que segue) — das direcionais só sobre a
-// projeção das caixas dos alvos (`caustics_targets_main`, a cada quadro: as instâncias de vidro e metal liso pelo próprio
-// material no centro delas, avaliado na onda dos acertos por `caustics_instances_main` e a caixa dos volumes atravessados por raios, a água), escolhidas pela área, a potência
-// dividida pelo número de projeções que cobrem o ponto; das pontuais em direções uniformes. O fóton segue pelo mesmo
+// Fótons das cáusticas (spec 034, T067c; antes na GI, spec 033 US5): os fótons saem em grade (a malha de fótons, Shah et
+// al. 2007; Schjøth et al. 2007): o passe dos alvos (`caustics_targets_main`, a cada quadro: as instâncias de vidro e
+// metal liso pelo próprio material no centro delas, avaliado na onda dos acertos por `caustics_instances_main`, e a caixa
+// dos volumes atravessados por raios, a água) reparte os fótons do quadro em segmentos — um por luz direcional e alvo,
+// a grade sobre a projeção da caixa dele, e um por luz pontual, a grade de ângulos sólidos iguais — pela potência (na
+// caixa dos volumes, dividida pela fração da grade que passa pela água: os fótons ficam onde há água); cada fóton leva a
+// vazão da célula dele (dividida pelo número de projeções que cobrem o ponto), a grade deslocada por um sorteio por
+// quadro. O fóton segue pelo mesmo
 // acerto da refração (`refraction_scene_hit`: a malha ou a superfície de um volume) e o fechamento do grafo nele
 // (avaliado na onda dos acertos): numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está
 // (o ar, ou a água) e o do outro lado — os três canais pelo mesmo caminho; numa interface com dispersão, um passe por
@@ -10,7 +13,11 @@
 // diferem); no metal liso reflete com a cor dele; os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico
 // pelo comprimento (a absorção guardada ao entrar pela superfície; spec 039, T110). Na primeira superfície difusa depois de ao menos uma especular deposita a vazão no hash e para — a
 // luz direta que não passou por nada especular é a das luzes, e a que atravessa a água chega nelas em linha reta: o
-// fóton cuja linha reta cruza a água subtrai essa parcela onde ela chegaria (`caustics_emit`, a variável de controle).
+// fóton cuja linha reta cruza a água subtrai essa parcela onde ela chegaria (a variável de controle, com a pegada exata
+// da célula). O fóton que chega à difusa guarda o pouso (o ponto, a normal, o último trecho e a assinatura do caminho: as
+// instâncias e os lobos); depois dos rebotes, `caustics_splat_main` mede a área da célula dele pelos pousos dos vizinhos
+// da grade com a mesma assinatura e deposita a vazão nela (`caustics_splat`), no mínimo o borrão do disco da luz pelo
+// último trecho (o sol de 0,27° a 30 cm: 3 mm).
 // O meio da atmosfera (`light_transmission`) entra no ponto de onde o fóton sai. A invocação 0 guarda no cabeçalho a potência por fóton do quadro e a contagem do anterior.
 // Os rebotes em rodadas pela onda dos acertos (spec 039): a emissão põe os fótons na fila; cada rodada traça os fótons
 // vivos em blocos do tamanho da onda (`caustics_photon_hit_main`), avalia o material por classe fora do traçado e segue
@@ -28,8 +35,19 @@ const CAUSTICS_TARGET_LIGHTS: u32 = 8u;
 const CAUSTICS_AREAS: u32 = 520u;
 /** Palavra de `caustics_targets` com o alvo da caixa dos volumes (índice + 1; 0 sem volumes). */
 const CAUSTICS_VOLUME_TARGET: u32 = 1u;
-/** Teto das amostras por fóton na caixa dos volumes. */
-const CAUSTICS_VOLUME_TRIES: u32 = 32u;
+/** Os segmentos da grade dos fótons em `caustics_targets`: a contagem e, a partir de `CAUSTICS_SEGMENTS`, 8 palavras cada. */
+const CAUSTICS_SEGMENT_COUNT: u32 = 1032u;
+const CAUSTICS_SEGMENTS: u32 = 1040u;
+/** Teto de segmentos: as direcionais com mapa de alvos (8 × 64) e 64 pontuais. */
+const CAUSTICS_MAX_SEGMENTS: u32 = 576u;
+/** A âncora das células do hash em `caustics_targets` (xyz). */
+const CAUSTICS_TARGET_ANCHOR: u32 = 2u;
+/** Vagas por fóton principal: ele e os dois canais extras da dispersão (`i + count`, `i + 2·count`). */
+const CAUSTICS_PHOTON_SLOTS_PER: u32 = 3u;
+/** Taps no máximo por eixo da pegada de um depósito (mais que isso, o nível de cima). */
+const CAUSTICS_SPLAT_TAPS: u32 = 8u;
+/** Normais de dois pousos vizinhos na mesma superfície (cosseno mínimo). */
+const CAUSTICS_SAME_SURFACE: f32 = 0.9;
 
 fn caustics_random(state: ptr<function, u32>) -> f32 {
     return f32(random_next(state) & 0xFFFFFFu) / 16777216.0;
@@ -141,28 +159,219 @@ fn caustics_targets_main(@builtin(local_invocation_index) lid: u32) {
         }
     }
     if (lid == 0u) { caustics_targets[0] = f32(targets); }
+    workgroupBarrier();
+    if (lid == 0u) { caustics_segments_build(targets, lightCount); }
 }
 
 /**
- * Deposita a vazão `rgb` (frações da potência por fóton, com sinal) no ponto `p` de normal `n`, pela tenda 2D no plano tangente,
- * em todos os níveis de células (com o peso da tenda vezes `share` como a contagem do fóton: 1, ou ⅓ por canal).
+ * A âncora das células (o centro dos alvos em passos de meio metro) e os segmentos da grade dos fótons do quadro: por luz
+ * direcional e alvo (a projeção da caixa) e por luz pontual (a esfera de direções), os fótons pelo peso — a potência; na
+ * caixa dos volumes, dividida pela fração da grade que passou pela água no quadro anterior —, a grade W × H com as
+ * proporções da projeção e a vazão de cada célula como fração da potência por fóton do quadro.
  */
-fn caustics_deposit(p: vec3f, n: vec3f, rgb: vec3f, share: f32) {
-    for (var level = 0u; level < CAUSTICS_LEVELS; level++) {
-        let t = caustics_tent(p, n, level);
+fn caustics_segments_build(targets: u32, directional_lights: u32) {
+    var lo = vec3f(1e30);
+    var hi = vec3f(-1e30);
+    for (var j = 0u; j < targets; j++) {
+        let box = caustics_target_box(j);
+        lo = min(lo, box[0]);
+        hi = max(hi, box[1]);
+    }
+    let anchor = select(vec3f(0.0), floor((lo + hi) + 0.5) * 0.5, targets > 0u);
+    caustics_targets[CAUSTICS_TARGET_ANCHOR] = anchor.x;
+    caustics_targets[CAUSTICS_TARGET_ANCHOR + 1u] = anchor.y;
+    caustics_targets[CAUSTICS_TARGET_ANCHOR + 2u] = anchor.z;
+    let count = caustics_photon_count();
+    let lightCount = min(min(caustics.counts.x, arrayLength(&lights)), LIGHT_LIMIT);
+    var total = 0.0;
+    for (var l = 0u; l < lightCount; l++) { total += caustics_power(l); }
+    let per_photon = total / max(f32(count), 1.0);
+    let ratio = bitcast<f32>(atomicLoad(&caustics_hash_atomic[CAUSTICS_ACCEPTED_RATIO]));
+    let volume = u32(caustics_targets[CAUSTICS_VOLUME_TARGET]);
+    // Os pesos (duas passadas: a soma e os segmentos).
+    var weights = 0.0;
+    for (var l = 0u; l < lightCount; l++) {
+        let e = caustics_light_irradiance(l);
+        if (e <= 0.0) { continue; }
+        if (lights[l].kind != 0u) {
+            weights += e * 4.0 * PI;
+            continue;
+        }
+        if (l >= directional_lights) { continue; }
+        let d = normalize(lights[l].direction.xyz);
+        for (var j = 0u; j < targets; j++) {
+            weights += caustics_segment_weight(d, j, e, volume, ratio);
+        }
+    }
+    var n = 0u;
+    var start = 0u;
+    for (var l = 0u; l < lightCount; l++) {
+        let e = caustics_light_irradiance(l);
+        if (e <= 0.0 || weights <= 0.0) { continue; }
+        if (lights[l].kind != 0u) {
+            if (n >= CAUSTICS_MAX_SEGMENTS) { break; }
+            let photons = u32(floor(f32(count) * e * 4.0 * PI / weights));
+            let w = max(1u, u32(round(sqrt(f32(photons) * 0.5))));
+            let h = photons / w;
+            if (h == 0u) { continue; }
+            caustics_segment_put(n, start, w, h, l, NONE, e * 4.0 * PI / f32(w * h) / per_photon, vec2f(0.0));
+            start += photons;
+            n++;
+            continue;
+        }
+        if (l >= directional_lights) { continue; }
+        let d = normalize(lights[l].direction.xyz);
+        for (var j = 0u; j < targets; j++) {
+            if (n >= CAUSTICS_MAX_SEGMENTS) { break; }
+            let photons = u32(floor(f32(count) * caustics_segment_weight(d, j, e, volume, ratio) / weights));
+            let box = caustics_target_box(j);
+            let r = caustics_footprint(d, box[0], box[1]);
+            let size = max(r.zw - r.xy, vec2f(1e-6));
+            let w = max(1u, u32(round(sqrt(f32(photons) * size.x / size.y))));
+            let h = photons / w;
+            if (h == 0u) { continue; }
+            let cell = size / vec2f(f32(w), f32(h));
+            caustics_segment_put(n, start, w, h, l, j, e * cell.x * cell.y / per_photon, cell);
+            start += photons;
+            n++;
+        }
+    }
+    caustics_targets[CAUSTICS_SEGMENT_COUNT] = f32(n);
+}
+
+/** A irradiância (direcional) ou intensidade (pontual) da luz `i` no canal mais forte. */
+fn caustics_light_irradiance(i: u32) -> f32 {
+    let light = lights[i];
+    return light.intensity * max(max(light.color.r, light.color.g), light.color.b);
+}
+
+/** O peso dos fótons da luz direcional de direção `d` e irradiância `e` no alvo `j`. */
+fn caustics_segment_weight(d: vec3f, j: u32, e: f32, volume: u32, ratio: f32) -> f32 {
+    let box = caustics_target_box(j);
+    let r = caustics_footprint(d, box[0], box[1]);
+    let area = max((r.z - r.x) * (r.w - r.y), 0.0);
+    let accepted = select(1.0, clamp(select(1.0, ratio, ratio > 0.0), 1.0 / 32.0, 1.0), j + 1u == volume);
+    return e * area / accepted;
+}
+
+/** Grava o segmento `k`: o primeiro fóton, a grade, a luz, o alvo, a vazão por célula e o tamanho da célula. */
+fn caustics_segment_put(k: u32, start: u32, w: u32, h: u32, light: u32, aim: u32, flux: f32, cell: vec2f) {
+    let at = CAUSTICS_SEGMENTS + 8u * k;
+    caustics_targets[at] = bitcast<f32>(start);
+    caustics_targets[at + 1u] = bitcast<f32>(w);
+    caustics_targets[at + 2u] = bitcast<f32>(h);
+    caustics_targets[at + 3u] = bitcast<f32>(light);
+    caustics_targets[at + 4u] = bitcast<f32>(aim);
+    caustics_targets[at + 5u] = flux;
+    caustics_targets[at + 6u] = cell.x;
+    caustics_targets[at + 7u] = cell.y;
+}
+
+/** Um segmento da grade dos fótons. */
+struct CausticsSegment {
+    start: u32,
+    w: u32,
+    h: u32,
+    light: u32,
+    aim: u32,
+    flux: f32,
+    cell: vec2f,
+}
+
+fn caustics_segment(k: u32) -> CausticsSegment {
+    let at = CAUSTICS_SEGMENTS + 8u * k;
+    return CausticsSegment(bitcast<u32>(caustics_targets[at]), bitcast<u32>(caustics_targets[at + 1u]),
+        bitcast<u32>(caustics_targets[at + 2u]), bitcast<u32>(caustics_targets[at + 3u]),
+        bitcast<u32>(caustics_targets[at + 4u]), caustics_targets[at + 5u],
+        vec2f(caustics_targets[at + 6u], caustics_targets[at + 7u]));
+}
+
+/** O segmento do fóton principal `g` (o último que começa nele ou antes; busca binária), ou `NONE`. */
+fn caustics_segment_of(g: u32) -> u32 {
+    let n = u32(caustics_targets[CAUSTICS_SEGMENT_COUNT]);
+    if (n == 0u) { return NONE; }
+    var lo = 0u;
+    var hi = n - 1u;
+    // log2(576) < 10 passos.
+    for (var k = 0u; k < 10u && lo < hi; k++) {
+        let mid = (lo + hi + 1u) / 2u;
+        if (bitcast<u32>(caustics_targets[CAUSTICS_SEGMENTS + 8u * mid]) <= g) { lo = mid; } else { hi = mid - 1u; }
+    }
+    let seg = caustics_segment(lo);
+    if (g < seg.start || g >= seg.start + seg.w * seg.h) { return NONE; }
+    return lo;
+}
+
+/** A âncora das células do hash (a do quadro, do passe dos alvos). */
+fn caustics_target_anchor() -> vec3f {
+    return vec3f(caustics_targets[CAUSTICS_TARGET_ANCHOR], caustics_targets[CAUSTICS_TARGET_ANCHOR + 1u],
+        caustics_targets[CAUSTICS_TARGET_ANCHOR + 2u]);
+}
+
+/**
+ * Deposita a vazão `rgb` (frações da potência por fóton, com sinal) no ponto `q` (a partir da âncora) de normal `n`,
+ * pela tenda 2D no plano tangente, no nível `level` — ou no primeiro acima em que a célula cabe na chave.
+ */
+fn caustics_deposit(q: vec3f, n: vec3f, rgb: vec3f, level: u32) {
+    for (var l = level; l < CAUSTICS_LEVELS; l++) {
+        let t = caustics_tent(q, n, l);
+        if (caustics_key(t.base) == CAUSTICS_EMPTY) { continue; }
         for (var k = 0u; k < 4u; k++) {
             let w = caustics_tent_weight(t, k);
             // A vazão por área da superfície (a da célula é a projetada no plano das camadas).
-            caustics_deposit_cell(caustics_tent_cell(t, k), level, rgb * (w * t.cosine), w * share);
+            caustics_deposit_cell(caustics_tent_cell(t, k), l, rgb * (w * t.cosine));
+        }
+        return;
+    }
+}
+
+/**
+ * Deposita a vazão `rgb` na pegada do fóton no ponto `p` de normal `n`: o paralelogramo dos lados `e1` e `e2` (levados
+ * ao plano tangente) centrado nele, cada lado no mínimo `blur`. Em retângulo de mesma área (o lado maior e a altura sobre
+ * ele), no nível em que a célula cobre o lado menor, em até `CAUSTICS_SPLAT_TAPS` taps por eixo (mais que isso, o nível de
+ * cima): a vazão repartida pelos taps, cada um pela tenda — a irradiância é a vazão pela área da pegada.
+ */
+fn caustics_splat(p: vec3f, n: vec3f, e1in: vec3f, e2in: vec3f, rgb: vec3f, blur: f32) {
+    var e1 = e1in - n * dot(e1in, n);
+    var e2 = e2in - n * dot(e2in, n);
+    if (dot(e2, e2) > dot(e1, e1)) {
+        let t = e1;
+        e1 = e2;
+        e2 = t;
+    }
+    let a = length(e1);
+    let fallback = caustics_basis(n);
+    let t1 = select(fallback[0], e1 / a, a > 1e-9);
+    let e2p = e2 - t1 * dot(e2, t1);
+    let b = length(e2p);
+    let t2 = select(normalize(cross(n, t1)), e2p / b, b > 1e-9);
+    let la = max(a, blur);
+    let lb = max(b, blur);
+    let cell0 = caustics_cell_size(0u);
+    var level = u32(clamp(ceil(log2(max(lb / cell0, 1.0))), 0.0, f32(CAUSTICS_LEVELS - 1u)));
+    for (var k = 0u; k < CAUSTICS_LEVELS && level + 1u < CAUSTICS_LEVELS
+        && la > f32(CAUSTICS_SPLAT_TAPS) * caustics_cell_size(level); k++) {
+        level++;
+    }
+    let cell = caustics_cell_size(level);
+    let nu = u32(clamp(ceil(la / cell), 1.0, f32(CAUSTICS_SPLAT_TAPS)));
+    let nv = u32(clamp(ceil(lb / cell), 1.0, f32(CAUSTICS_SPLAT_TAPS)));
+    let share = rgb / f32(nu * nv);
+    let q = p - caustics_target_anchor();
+    for (var i = 0u; i < CAUSTICS_SPLAT_TAPS; i++) {
+        if (i >= nu) { break; }
+        for (var j = 0u; j < CAUSTICS_SPLAT_TAPS; j++) {
+            if (j >= nv) { break; }
+            let o = t1 * (la * ((f32(i) + 0.5) / f32(nu) - 0.5)) + t2 * (lb * ((f32(j) + 0.5) / f32(nv) - 0.5));
+            caustics_deposit(q + o, n, share, level);
         }
     }
 }
 
-/** Soma `rgb` e a contagem `count` na célula `c` do nível `level`. */
-fn caustics_deposit_cell(c: vec3i, level: u32, rgb: vec3f, count: f32) {
-    let key = caustics_key(c, level);
-    if (key == CAUSTICS_EMPTY || count <= 0.0) { return; }
-    let n = caustics_slots();
+/** Soma `rgb` na célula `c` do nível `level`. */
+fn caustics_deposit_cell(c: vec3i, level: u32, rgb: vec3f) {
+    let key = caustics_key(c);
+    if (key == CAUSTICS_EMPTY || all(rgb == vec3f(0.0))) { return; }
     var slot = caustics_bucket(c, level);
     for (var k = 0u; k < 4u * CAUSTICS_PROBES; k++) {
         let w = caustics_word(slot);
@@ -174,19 +383,18 @@ fn caustics_deposit_cell(c: vec3i, level: u32, rgb: vec3f, count: f32) {
             atomicAdd(&caustics_hash_atomic[w + 1u], q.r);
             atomicAdd(&caustics_hash_atomic[w + 2u], q.g);
             atomicAdd(&caustics_hash_atomic[w + 3u], q.b);
-            atomicAdd(&caustics_hash_atomic[w + 7u], u32(round(count * CAUSTICS_ONE)));
             return;
         }
-        slot = (slot + 1u) % n;
+        slot = caustics_probe_next(slot, level);
     }
 }
 
 // A fila dos fótons vivos (spec 039): `caustics_queue` (atômicos) — [0] a lista corrente (0 ou 1), [1] e [2] as contagens
-// das duas listas, [3] o início do bloco corrente, [4] os fótons extras já alocados (os canais da dispersão); as listas
-// (os índices dos fótons) a partir de `CAUSTICS_QUEUE_LISTS`, cada uma com `caustics_photon_slots()` entradas.
+// das duas listas, [3] o início do bloco corrente; as listas (os índices dos fótons) a partir de `CAUSTICS_QUEUE_LISTS`,
+// cada uma com `caustics_photon_slots()` entradas.
 const CAUSTICS_QUEUE_LISTS: u32 = 8u;
 
-/** Fótons que a fila comporta: os das invocações e, para a dispersão, dois a mais por invocação. */
+/** Fótons que a fila comporta: os das invocações e, para a dispersão, dois a mais por invocação (vagas fixas). */
 fn caustics_photon_slots() -> u32 {
     return arrayLength(&caustics_photons);
 }
@@ -208,7 +416,7 @@ fn caustics_queue_at(list: u32, k: u32) -> u32 {
     return atomicLoad(&caustics_queue[CAUSTICS_QUEUE_LISTS + list * caustics_photon_slots() + k]);
 }
 
-/** Um fóton novo na fonte: a posição, a direção, a vazão e o estado do sorteio, nos três canais. */
+/** Um fóton novo na fonte: a posição, a direção, a vazão e o estado do sorteio, nos três canais, sem pouso. */
 fn caustics_photon_start(slot: u32, seed: u32, o: vec3f, d: vec3f, rgb: vec3f) {
     var ph: CausticsPhoton;
     ph.origin = o;
@@ -221,41 +429,50 @@ fn caustics_photon_start(slot: u32, seed: u32, o: vec3f, d: vec3f, rgb: vec3f) {
     ph.glass = 0u;
     ph.state = seed;
     ph.specular = 0u;
+    ph.sig = 0u;
+    ph.travel = 0.0;
+    ph.landed = 0u;
     caustics_photons[slot] = ph;
     caustics_queue_push(0u, slot);
 }
 
 /**
- * Um fóton da luz `light` em (o, d) com a vazão `light_rgb` (o estado do sorteio `seed`): a correção da luz direta que
- * atravessa a água (a variável de controle: a linha reta subtrai onde a direta já leva, sem material) e o fóton na fila
- * (`slot`) — o meio da atmosfera (`light_transmission`) no ponto de onde ele sai, acima de tudo (na primeira superfície,
- * a consulta de "a luz atravessou a água até aqui" acertaria a própria superfície).
+ * A correção da luz direta que atravessa a água (a variável de controle) para a célula da luz `light` em (o, d) com a
+ * vazão `light_rgb`: onde a linha reta chega, se cruzou um volume, a vazão sai com sinal negativo na pegada exata da
+ * célula — os lados `pu` + `du`·t e `pv` + `dv`·t no plano perpendicular ao raio (a posição e a direção da célula, na
+ * distância t), levados à superfície ao longo do raio. O meio da atmosfera (`light_transmission`) no ponto de chegada.
  */
-fn caustics_straight(light: u32, o: vec3f, d: vec3f, light_rgb: vec3f) {
+fn caustics_straight(light: u32, o: vec3f, d: vec3f, light_rgb: vec3f, pu: vec3f, pv: vec3f, du: vec3f, dv: vec3f) {
     let straight = ray_scene_hit(o, d, 1e6);
     if (straight.instance == NONE || straight.face < 0.0) { return; }
     // A reta cruzou um volume quando a luz pelos volumes até o receptor é menor que 1 (o Fresnel da entrada já a reduz):
     // a pergunta da marcha, pelo ponto `ray_volume_light` (o mapa da luz, sem marcha, nas direcionais com mapa).
-    if (any(ray_volume_light(light, straight.position) < vec3f(1.0))) {
-        caustics_deposit(straight.position, straight.normal, -light_rgb * light_transmission(light, straight.position), 1.0);
-    }
+    if (all(ray_volume_light(light, straight.position) >= vec3f(1.0))) { return; }
+    let n = straight.normal;
+    let along = d / select(dot(d, n), -1e-6, abs(dot(d, n)) < 1e-6);
+    let e1 = pu + du * straight.t;
+    let e2 = pv + dv * straight.t;
+    caustics_splat(straight.position, n, e1 - along * dot(e1, n), e2 - along * dot(e2, n),
+        -light_rgb * light_transmission(light, straight.position), 0.0);
+}
+
+/** A direção da célula (u, v) ∈ [0, 1]² da grade de uma luz pontual: ângulos sólidos iguais (z e φ uniformes). */
+fn caustics_point_dir(uv: vec2f) -> vec3f {
+    return sample_sphere(vec2f(clamp(uv.x, 0.0, 1.0), uv.y));
+}
+
+/** O deslocamento da grade do segmento `seg` no quadro (o mesmo para todos os fótons dele: a vizinhança fica). */
+fn caustics_grid_jitter(seg: u32) -> vec2f {
+    let h = pcg_hash((caustics.counts.w * 0x9E3779B9u) ^ (seg * 0x85EBCA6Bu + 0x2545F491u));
+    return vec2f(f32(h & 0xFFFFu), f32(h >> 16u)) / 65536.0;
 }
 
 /**
- * Amostras por fóton na caixa dos volumes: o inverso da fração delas que passou pela água no quadro anterior (1 antes
- * da primeira medida).
- */
-fn caustics_volume_tries() -> u32 {
-    let ratio = bitcast<f32>(atomicLoad(&caustics_hash_atomic[CAUSTICS_ACCEPTED_RATIO]));
-    if (ratio <= 0.0) { return 1u; }
-    return u32(clamp(ceil(1.0 / ratio), 1.0, f32(CAUSTICS_VOLUME_TRIES)));
-}
-
-/**
- * Uma invocação por fóton principal: a fonte pela potência, o ponto e a direção, a correção da linha reta e o fóton na
- * fila. Na caixa dos volumes, das tentativas aceitas a correção vale para todas e segue uma, sorteada por igual com o peso
- * do número delas (sem viés: a fila tem um fóton por invocação). A invocação 0 guarda no cabeçalho do hash a potência
- * por fóton do quadro e a contagem do anterior.
+ * Uma invocação por fóton principal: o segmento da grade dele, a célula (deslocada pelo sorteio do quadro), a vazão da
+ * célula, a correção da linha reta e o fóton na fila; sem célula, sem fóton (e sem pouso nos canais da dispersão). Na
+ * caixa dos volumes, a célula que só ela cobre e que não passa por nenhuma água (`ray_volume_occupied`) não segue — iria
+ * direto a uma difusa, sem nada especular — e conta na fração aceita. A invocação 0 guarda no cabeçalho do hash a
+ * potência por fóton do quadro, a contagem do anterior e a âncora (outra âncora: o hash recomeça).
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn caustics_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -268,81 +485,66 @@ fn caustics_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
         atomicStore(&caustics_hash_atomic[0], bitcast<u32>(total / max(f32(count), 1.0)));
         atomicStore(&caustics_hash_atomic[1], atomicLoad(&caustics_hash_atomic[2]));
         atomicStore(&caustics_hash_atomic[2], 0u);
+        let anchor = bitcast<vec3u>(caustics_target_anchor());
+        var moved = false;
+        for (var k = 0u; k < 3u; k++) {
+            moved = moved || atomicLoad(&caustics_hash_atomic[CAUSTICS_ANCHOR + k]) != anchor[k];
+            atomicStore(&caustics_hash_atomic[CAUSTICS_ANCHOR + k], anchor[k]);
+        }
+        // Com outra âncora as células antigas mudaram de lugar: tudo recomeça (`caustics_resolve_main`).
+        if (moved) { atomicStore(&caustics_hash_atomic[1], caustics_slots()); }
     }
-    if (i >= count || total <= 0.0 || ray_scene_info.instanceCount == 0u) { return; }
-    var state = random_seed(RANDOM_STREAM_CAUSTICS, i, caustics.counts.w);
-    // A fonte pela potência.
-    let pick = caustics_random(&state) * total;
-    var light = 0u;
-    var acc = 0.0;
-    for (var l = 0u; l < lightCount; l++) {
-        acc += caustics_power(l);
-        light = l;
-        if (pick < acc) { break; }
+    if (i >= count) { return; }
+    // Sem pouso até prova em contrário (os canais da dispersão vão às vagas `i + count` e `i + 2·count`).
+    for (var k = 0u; k < CAUSTICS_PHOTON_SLOTS_PER; k++) {
+        if (i + k * count < caustics_photon_slots()) { caustics_photons[i + k * count].landed = 0u; }
     }
-    let src = lights[light];
+    if (total <= 0.0 || ray_scene_info.instanceCount == 0u) { return; }
+    let segment = caustics_segment_of(i);
+    if (segment == NONE) { return; }
+    let seg = caustics_segment(segment);
+    let local = i - seg.start;
+    let cell = vec2f(f32(local % seg.w), f32(local / seg.w)) + caustics_grid_jitter(segment);
+    let src = lights[seg.light];
     let color = src.color.rgb / max(max(src.color.r, src.color.g), max(src.color.b, 1e-6));
+    let seed = random_seed(RANDOM_STREAM_CAUSTICS, i, caustics.counts.w);
     if (src.kind != 0u) {
-        let d = sample_sphere(vec2f(caustics_random(&state), caustics_random(&state)));
-        let seed = random_next(&state);
+        let size = vec2f(f32(seg.w), f32(seg.h));
+        let uv = cell / size;
+        let d = caustics_point_dir(uv);
         let o = src.position.xyz;
-        caustics_straight(light, o, d, color);
-        caustics_photon_start(i, seed, o, d, color * light_transmission(light, o));
+        let rgb = color * seg.flux;
+        caustics_straight(seg.light, o, d, rgb, vec3f(0.0), vec3f(0.0),
+            caustics_point_dir(uv + vec2f(1.0 / size.x, 0.0)) - d, caustics_point_dir(uv + vec2f(0.0, 1.0 / size.y)) - d);
+        caustics_photon_start(i, seed, o, d, rgb * light_transmission(seg.light, o));
         return;
     }
-    // Direcional: um alvo pela área da projeção da caixa dele, um ponto nela, recuado para fora; a potência dividida
-    // pelas projeções que cobrem o ponto (onde elas se sobrepõem, os fótons vêm de mais de uma).
+    // Direcional: a célula na projeção da caixa do alvo, recuada para fora; a vazão dividida pelas projeções que cobrem o
+    // ponto (onde elas se sobrepõem, os fótons vêm de mais de uma).
     let d = normalize(src.direction.xyz);
     let b = caustics_basis(d);
     let targets = u32(caustics_targets[0]);
-    let areas = CAUSTICS_AREAS + light * CAUSTICS_TARGETS;
-    let pickArea = caustics_random(&state) * caustics_targets[areas + targets - 1u];
-    var chosen = 0u;
-    for (var j = 0u; j < targets; j++) {
-        chosen = j;
-        if (pickArea < caustics_targets[areas + j]) { break; }
-    }
-    let box = caustics_target_box(chosen);
+    let box = caustics_target_box(seg.aim);
     let r = caustics_footprint(d, box[0], box[1]);
     let back = length(box[1] - box[0]) + 1.0;
-    // Na caixa dos volumes, várias amostras de vazão dividida: as que só ela cobre e que não passam por nenhuma água
-    // (`ray_volume_occupied`) não seguem — iriam direto a uma difusa, sem nada especular —, e o fóton fica onde há água
-    // (as gotas soltas num chão grande recebem fótons bastantes). As tentativas acompanham a fração aceita no quadro
-    // anterior: ~1 fóton seguido por invocação.
-    let volume = chosen + 1u == u32(caustics_targets[CAUSTICS_VOLUME_TARGET]);
-    let tries = select(1u, caustics_volume_tries(), volume);
-    var accepted = 0u;
-    var keep_seed = 0u;
-    var keep_o = vec3f(0.0);
-    var keep_rgb = vec3f(0.0);
-    for (var k = 0u; k < tries; k++) {
-        let uv = mix(r.xy, r.zw, vec2f(caustics_random(&state), caustics_random(&state)));
-        var cover = 0.0;
-        for (var j = 0u; j < targets; j++) {
-            let bj = caustics_target_box(j);
-            let rj = caustics_footprint(d, bj[0], bj[1]);
-            if (all(uv >= rj.xy) && all(uv <= rj.zw)) { cover += 1.0; }
-        }
-        let o = b[0] * uv.x + b[1] * uv.y + d * (dot(0.5 * (box[0] + box[1]), d) - back);
-        if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { continue; }
-        accepted++;
-        let rgb = color / (max(cover, 1.0) * f32(tries));
-        let seed = random_next(&state);
-        caustics_straight(light, o, d, rgb);
-        // Uma das aceitas, por igual (reservatório de uma), por um número independente do sorteio do fóton (o estado
-        // seguinte ao da semente seria o primeiro número dele).
-        let pick_one = f32(pcg_hash(seed ^ 0x68bc21ebu) & 0xFFFFFFu) / 16777216.0;
-        if (pick_one * f32(accepted) < 1.0) {
-            keep_seed = seed;
-            keep_o = o;
-            keep_rgb = rgb * light_transmission(light, o);
-        }
+    let uv = r.xy + cell * seg.cell;
+    var cover = 0.0;
+    for (var j = 0u; j < targets; j++) {
+        let bj = caustics_target_box(j);
+        let rj = caustics_footprint(d, bj[0], bj[1]);
+        if (all(uv >= rj.xy) && all(uv <= rj.zw)) { cover += 1.0; }
     }
-    if (accepted > 0u) { caustics_photon_start(i, keep_seed, keep_o, d, keep_rgb * f32(accepted)); }
+    let o = b[0] * uv.x + b[1] * uv.y + d * (dot(0.5 * (box[0] + box[1]), d) - back);
+    let volume = seg.aim + 1u == u32(caustics_targets[CAUSTICS_VOLUME_TARGET]);
+    let accepted = !volume || cover > 1.0 || ray_volume_occupied(o, d, 2.0 * back);
     if (volume) {
-        atomicAdd(&caustics_hash_atomic[CAUSTICS_TRIES], tries);
-        atomicAdd(&caustics_hash_atomic[CAUSTICS_ACCEPTED], accepted);
+        atomicAdd(&caustics_hash_atomic[CAUSTICS_TRIES], 1u);
+        if (accepted) { atomicAdd(&caustics_hash_atomic[CAUSTICS_ACCEPTED], 1u); }
     }
+    if (!accepted) { return; }
+    let rgb = color * seg.flux / max(cover, 1.0);
+    caustics_straight(seg.light, o, d, rgb, b[0] * seg.cell.x, b[1] * seg.cell.y, vec3f(0.0), vec3f(0.0));
+    caustics_photon_start(i, seed, o, d, rgb * light_transmission(seg.light, o));
 }
 
 /** Zera a fila antes da emissão: a lista 0 corrente, as contagens, o bloco e os extras. */
@@ -418,8 +620,10 @@ fn caustics_photon_hit_one(j: u32) {
     // O trecho dentro da água (fora de um vidro mergulhado) atenua pelo meio homogêneo do corpo, analítico pelo
     // comprimento (T110): o fóton entrou pela superfície e guardou a absorção do fechamento dela — sem marcha.
     if (ph.glass == 0u) { caustics_photons[slot].throughput = ph.throughput * exp(-ph.absorption * hit.t); }
+    caustics_photons[slot].travel = ph.travel + hit.t;
+    // A instância na carga: a assinatura do caminho (`caustics_photon_step`).
     refraction_wave_put(j, hit, caustics.extra.y,
-        vec4f(hit.face, select(0.0, 1.0, refraction_is_volume(hit.instance)), 0.0, 1.0));
+        vec4f(hit.face, select(0.0, 1.0, refraction_is_volume(hit.instance)), bitcast<f32>(hit.instance), 1.0));
 }
 
 /** O acerto dos fótons do bloco — os grupos do despacho percorrem os do bloco em passo de grade. */
@@ -443,11 +647,13 @@ fn caustics_shading_normal(c: Closure, nf: vec3f, d: vec3f) -> vec3f {
 /**
  * Segue o fóton `ph` na interface do acerto (o ponto `p`, a normal `n`, o lado `outside`, se é volume) com o fechamento
  * `c` dele: numa interface dielétrica reflete ou refrata pelo Fresnel exato entre o meio em que está (o ar, ou a água) e o
- * do outro lado; no metal liso reflete com a cor dele; na difusa deposita se chegou por um caminho especular (a direta
- * sem nada especular é a das luzes) e para. Devolve o fóton seguido (`CAUSTICS_STOPPED` no canal: parou).
+ * do outro lado; no metal liso reflete com a cor dele; na difusa guarda o pouso se chegou por um caminho especular (a
+ * direta sem nada especular é a das luzes) e para. Cada interface e o lobo dela, e a instância do pouso, entram na
+ * assinatura do caminho (`sig`, da instância `inst`): os vizinhos da grade que a repetem formam a pegada dele. Devolve o
+ * fóton seguido (`CAUSTICS_STOPPED` no canal: parou).
  */
 fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, outside: bool, volume: bool, ior: f32,
-    u: f32) -> CausticsPhoton {
+    u: f32, inst: u32) -> CausticsPhoton {
     var ph = ph0;
     let ns = caustics_shading_normal(c, select(-n, n, outside), ph.dir);
     if (c.transmission_weight > 0.5 && c.transmission_roughness < CAUSTICS_ROUGH) {
@@ -458,7 +664,9 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         let nn = ns;
         let cosi = clamp(-dot(ph.dir, nn), 0.0, 1.0);
         let t = refract(ph.dir, nn, n1 / n2);
-        if (dot(t, t) < 1e-8 || u < bsdf_f_dielectric(cosi, n2 / n1)) {
+        let reflects = dot(t, t) < 1e-8 || u < bsdf_f_dielectric(cosi, n2 / n1);
+        ph.sig = pcg_hash(ph.sig ^ (inst * 2u + select(0u, 1u, reflects)));
+        if (reflects) {
             ph.dir = reflect(ph.dir, nn);
             ph.origin = p + nn * 1e-4;
             ph.side = select(-1, select(1, 0, outside), volume);
@@ -483,6 +691,7 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         let cosi = clamp(-dot(ph.dir, nn), 0.0, 1.0);
         let x = 1.0 - cosi;
         ph.throughput *= c.conductor_f0 + (vec3f(1.0) - c.conductor_f0) * x * x * x * x * x;
+        ph.sig = pcg_hash(ph.sig ^ (inst * 2u + 1u));
         ph.dir = reflect(ph.dir, nn);
         ph.origin = p + nn * 1e-4;
         ph.side = -1;
@@ -490,7 +699,12 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         return ph;
     }
     if (ph.specular > 0u && outside) {
-        caustics_deposit(p, n, ph.throughput, select(1.0 / 3.0, 1.0, ph.channel == 3u));
+        ph.landed = 1u;
+        ph.land = p;
+        ph.land_n = n;
+        // O último trecho: da interface de onde o fóton saiu ao pouso (o borrão do disco da luz cresce com ele).
+        ph.land_t = distance(p, ph.origin);
+        ph.sig = pcg_hash(ph.sig ^ inst ^ 0x5bd1e995u);
     }
     ph.channel = CAUSTICS_STOPPED;
     return ph;
@@ -503,7 +717,8 @@ const CAUSTICS_STOPPED: u32 = 4u;
  * A continuação de um rebote: o fechamento avaliado na onda e o passo do fóton; o que segue vai para a lista seguinte.
  * Numa interface com dispersão nos três canais, o fóton vira três (um por canal: o índice de cada um, a vazão do canal e
  * o mesmo estado do sorteio — o que a repetição desde a fonte daria, os três só se separam onde os índices diferem): o
- * canal 0 fica no fóton e os outros dois em extras alocados na fila.
+ * canal 0 fica no fóton e os outros dois nas vagas fixas dele (`slot + k·count`: os canais dos vizinhos da grade ficam
+ * vizinhos).
  */
 fn caustics_photon_follow_one(j: u32) {
     ray_volume_begin();
@@ -514,6 +729,7 @@ fn caustics_photon_follow_one(j: u32) {
     let c = e.closure;
     let outside = e.hit.payload.x >= 0.0;
     let volume = e.hit.payload.y > 0.5;
+    let inst = bitcast<u32>(e.hit.payload.z);
     var ph = caustics_photons[slot];
     let next = 1u - atomicLoad(&caustics_queue[0]);
     var state = ph.state;
@@ -526,13 +742,10 @@ fn caustics_photon_follow_one(j: u32) {
             channel.channel = k;
             channel.state = state;
             channel.throughput *= vec3f(f32(k == 0u), f32(k == 1u), f32(k == 2u));
-            let moved = caustics_photon_step(channel, c, e.hit.position, e.hit.normal, outside, volume, iors[k], u);
-            var at = slot;
-            if (k > 0u) {
-                let extra = atomicAdd(&caustics_queue[4], 1u);
-                at = caustics_photon_count() + extra;
-                if (at >= caustics_photon_slots()) { continue; }
-            }
+            let moved = caustics_photon_step(channel, c, e.hit.position, e.hit.normal, outside, volume, iors[k], u,
+                inst);
+            let at = slot + k * caustics_photon_count();
+            if (at >= caustics_photon_slots()) { continue; }
             caustics_photons[at] = moved;
             if (moved.channel != CAUSTICS_STOPPED) { caustics_queue_push(next, at); }
         }
@@ -545,7 +758,7 @@ fn caustics_photon_follow_one(j: u32) {
     let transmissive = c.transmission_weight > 0.5 && c.transmission_roughness < CAUSTICS_ROUGH;
     let u = select(0.0, caustics_random(&state), transmissive);
     ph.state = state;
-    let moved = caustics_photon_step(ph, c, e.hit.position, e.hit.normal, outside, volume, ior, u);
+    let moved = caustics_photon_step(ph, c, e.hit.position, e.hit.normal, outside, volume, ior, u, inst);
     caustics_photons[slot] = moved;
     if (moved.channel != CAUSTICS_STOPPED) { caustics_queue_push(next, slot); }
 }
@@ -555,4 +768,75 @@ fn caustics_photon_follow_one(j: u32) {
 fn caustics_photon_follow_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let n = caustics_args[3];
     for (var j = gid.x; j < n; j += nwg.x * WORKGROUP_SIZE) { caustics_photon_follow_one(j); }
+}
+
+/**
+ * O pouso do fóton da vaga `slot` (na camada `layer` da grade: o principal ou um canal da dispersão) que serve de vizinho
+ * ao pouso `ph`: o mesmo caminho (a assinatura) na mesma superfície. w = 0 sem ele.
+ */
+fn caustics_neighbor(slot: u32, ph: CausticsPhoton) -> vec4f {
+    if (slot >= caustics_photon_slots()) { return vec4f(0.0); }
+    let o = caustics_photons[slot];
+    if (o.landed == 0u || o.sig != ph.sig || dot(o.land_n, ph.land_n) < CAUSTICS_SAME_SURFACE) { return vec4f(0.0); }
+    return vec4f(o.land, 1.0);
+}
+
+/**
+ * O lado da pegada de `ph` num eixo da grade, pelos pousos dos vizinhos `prev` e `next` (a diferença central, ou a de um
+ * lado); w = 0 sem nenhum.
+ */
+fn caustics_side(ph: CausticsPhoton, prev: vec4f, next: vec4f) -> vec4f {
+    if (prev.w > 0.0 && next.w > 0.0) { return vec4f(0.5 * (next.xyz - prev.xyz), 1.0); }
+    if (next.w > 0.0) { return vec4f(next.xyz - ph.land, 1.0); }
+    if (prev.w > 0.0) { return vec4f(ph.land - prev.xyz, 1.0); }
+    return vec4f(0.0);
+}
+
+/**
+ * O depósito de cada fóton que pousou (uma invocação por vaga): a pegada pelos pousos dos vizinhos da grade (a área em
+ * que a célula dele chegou — a luz que a água ou o vidro concentram, numa pegada menor); o eixo sem vizinho de mesmo
+ * caminho (o lobo raro da roleta de Fresnel, a borda da grade) leva o espaçamento da célula na fonte, o dobro. No mínimo
+ * o borrão do disco da luz: o diâmetro angular dele pelo último trecho.
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn caustics_splat_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let slot = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let count = caustics_photon_count();
+    if (slot >= min(caustics_photon_slots(), count * CAUSTICS_PHOTON_SLOTS_PER) || count == 0u) { return; }
+    let ph = caustics_photons[slot];
+    if (ph.landed == 0u) { return; }
+    let g = slot % count;
+    let layer = slot - g;
+    let segment = caustics_segment_of(g);
+    if (segment == NONE) { return; }
+    let seg = caustics_segment(segment);
+    let local = g - seg.start;
+    let x = local % seg.w;
+    let y = local / seg.w;
+    let point = lights[seg.light].kind != 0u;
+    let at = layer + seg.start;
+    var left = vec4f(0.0);
+    var right = vec4f(0.0);
+    var down = vec4f(0.0);
+    var up = vec4f(0.0);
+    if (x > 0u) { left = caustics_neighbor(at + y * seg.w + x - 1u, ph); }
+    if (x + 1u < seg.w) { right = caustics_neighbor(at + y * seg.w + x + 1u, ph); }
+    // Na luz pontual, φ dá a volta.
+    if (y > 0u || point) { down = caustics_neighbor(at + ((y + seg.h - 1u) % seg.h) * seg.w + x, ph); }
+    if (y + 1u < seg.h || point) { up = caustics_neighbor(at + ((y + 1u) % seg.h) * seg.w + x, ph); }
+    var e1 = caustics_side(ph, left, right);
+    var e2 = caustics_side(ph, down, up);
+    // O espaçamento da célula na fonte, levado ao pouso (na pontual, o ângulo dela pelo caminho todo), o dobro.
+    let spacing = select(sqrt(seg.cell.x * seg.cell.y), sqrt(4.0 * PI / f32(seg.w * seg.h)) * ph.travel, point);
+    let t = caustics_basis(ph.land_n);
+    if (e1.w == 0.0 && e2.w == 0.0) {
+        e1 = vec4f(t[0] * 2.0 * spacing, 1.0);
+        e2 = vec4f(t[1] * 2.0 * spacing, 1.0);
+    } else if (e1.w == 0.0) {
+        e1 = vec4f(normalize(cross(ph.land_n, e2.xyz + t[0] * 1e-9)) * 2.0 * spacing, 1.0);
+    } else if (e2.w == 0.0) {
+        e2 = vec4f(normalize(cross(ph.land_n, e1.xyz + t[0] * 1e-9)) * 2.0 * spacing, 1.0);
+    }
+    let blur = 2.0 * lights[seg.light].cones.z * ph.land_t;
+    caustics_splat(ph.land, ph.land_n, e1.xyz, e2.xyz, ph.throughput, blur);
 }

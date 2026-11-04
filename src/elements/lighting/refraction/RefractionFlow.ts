@@ -486,6 +486,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             ['radiance', [R.radianceOut]],
             ['hit', [R.hitOut]],
             ['albedo', [R.albedoOut, R.albedo]],
+            ['noise', [R.noiseOut]],
             ...(measures ? ([['gradient', [R.gradientOut]]] as const) : []),
         ] as const;
         for (const [id] of textures.slice(1)) this.resources.ensureAllocated(refraction, id);

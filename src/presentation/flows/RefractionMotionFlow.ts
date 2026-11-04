@@ -123,6 +123,11 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             prepared.bindTo(pass.bind);
             pass.draw.vertices(3);
         });
+        // O ponto mostrado de agora vira o do quadro anterior do quadro seguinte.
+        const hit = this.resources.textureOf(refraction, 'hit');
+        const previous = this.resources.textureOf(refraction, 'hitPrevious');
+        if (hit !== undefined && previous !== undefined)
+            frame.copyTextureToTexture(hit, previous, [hit.width, hit.height, 1]);
     }
 
     /**
@@ -137,17 +142,19 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
             || this.resources.textureOf(refraction, 'request') === undefined
         )
             return;
-        // A máscara lê a mudança da cena: com o gradiente alocado, o traçado o mede.
+        // A máscara lê a mudança da cena: com o gradiente alocado, o traçado o mede; o movimento lê o ponto anterior.
         this.resources.ensureAllocated(refraction, 'gradient');
-        const views = (['request', 'hit', 'gradient', 'albedo'] as const).map((id) =>
+        this.resources.ensureAllocated(refraction, 'hitPrevious');
+        const views = (['request', 'hit', 'gradient', 'albedo', 'hitPrevious'] as const).map((id) =>
             this.resources.textureViewOf(refraction, id),
         );
-        const [request, hit, gradient, albedo] = views;
+        const [request, hit, gradient, albedo, hitPrevious] = views;
         if (
             request === undefined
             || hit === undefined
             || gradient === undefined
             || albedo === undefined
+            || hitPrevious === undefined
         )
             return;
         if (views.some((v, k) => v !== this.bound[k])) {
@@ -158,6 +165,7 @@ export class RefractionMotionFlow extends Flow<RefractionMotionSlots, 'idle'> {
                     [R.gradient, gradient],
                     // A marca de movimento de agora (alfa do albedo).
                     [R.albedo, albedo],
+                    [R.hitPrevious, hitPrevious],
                 ]),
             );
             this.bound = views;

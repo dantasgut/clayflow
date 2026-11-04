@@ -5,7 +5,7 @@
 // por pixel de distância na tela), do albedo da superfície mostrada (a textura vista: as casas de um xadrez não se
 // misturam) e da luminância (pela variância da média filtrada em 3 × 3), de
 // `temporal_filter_filter_in` para `temporal_filter_filter_out` (cor e variância); a variância com os pesos ao quadrado.
-// Um centro já convergido (o desvio da média abaixo de
+// Mistura os vizinhos só na fração do sinal com ruído (`temporal_filter_source_noise`); um centro já convergido (o desvio da média abaixo de
 // `TEMPORAL_FILTER_SETTLED` do brilho dele) passa sem filtrar: o resultado seria ele mesmo dentro da precisão da tela.
 // Requer: color, temporal_filter_common, temporal_filter_source, temporal_filter_filter_in, temporal_filter_filter_out.
 
@@ -78,7 +78,10 @@ fn temporal_filter_atrous(gid3: vec3u, nwg: vec3u, step: i32) {
             weight += w;
         }
     }
-    textureStore(temporal_filter_filter_out, px, vec4f(color / weight, var_sum / (weight * weight)));
+    // Só a parte com ruído do sinal é filtrada: a sem ruído fica a do centro.
+    let noise = clamp(temporal_filter_source_noise(px), 0.0, 1.0);
+    textureStore(temporal_filter_filter_out, px,
+        vec4f(mix(center.rgb, color / weight, noise), mix(center.a, var_sum / (weight * weight), noise * noise)));
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
