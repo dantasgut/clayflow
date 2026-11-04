@@ -53,6 +53,21 @@ describe('controllers de câmera (spec 007)', () => {
         expect(transform.data.scale).toEqual([2, 2, 2, 1]);
     });
 
+    it('orbit com `eye`: começa na posição dada (a distância e os ângulos dela em torno do alvo)', () => {
+        const s = setup();
+        const transform = new Transform();
+        s.world.insert(
+            new Camera()
+                .add(transform)
+                .add(new OrbitController({ target: [0, 0.5, 0], eye: [1, 2, -3] })),
+        );
+        s.frame();
+        const p = transform.data.position;
+        [1, 2, -3].forEach((v, i) => {
+            expect(p[i]).toBeCloseTo(v, 5);
+        });
+    });
+
     it('arrasto gira a órbita; deltas do quadro são consumidos', () => {
         const s = setup();
         const transform = new Transform();

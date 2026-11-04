@@ -1,25 +1,20 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0
-- Bump rationale: MINOR — o Princípio I passa a exigir a fronteira de importação da decisão D4 (spec 006): C3/C4
-  deixam de importar `core/contracts`/`core/interfaces` e recebem os tipos da C1 pelos reexports da C2
-  (`scene/contracts/gpu`); a regra passa a ser verificada no lint. Expansão material da orientação, sem remover
-  princípio.
-- Modified principles:
-    I. Arquitetura em Camadas e Regra de Importação — lista de imports permitidos a C3/C4 trocada; verificação no
-       lint (`@typescript-eslint/no-restricted-imports` em `src/elements/**` e `src/presentation/**`).
-- Added sections: nenhuma. Removed sections: nenhuma.
+- Version change: 1.1.0 → 1.2.0
+- Bump rationale: MINOR — novo princípio VII (Série Temporal como Referência da Evolução dos Quadros), regra dura,
+  decisão do mantenedor em 2026-11-04 depois de três estados temporais feitos fora do módulo da spec 037 (a cópia
+  manual do ponto mostrado da refração, a média móvel e a âncora das cáusticas no próprio hash, o mapa da luz pela
+  água reenquadrado a cada quadro) — o último fez a sombra junto às paredes piscar.
+- Modified principles: nenhum. Added sections: Princípio VII. Removed sections: nenhuma.
 - Templates status:
-    ✅ .specify/templates/plan-template.md — "Constitution Check" já cita os Princípios I–VI; sem mudança
-    ✅ .specify/templates/spec-template.md — sem mudança
-    ✅ .specify/templates/tasks-template.md — sem mudança
-    ✅ CLAUDE.md — menção de versão atualizada para 1.1.0
-    ✅ eslint.config.js — regra da fronteira (T059 da spec 006)
+    ✅ .specify/templates/plan-template.md — o "Constitution Check" lê os princípios da constituição (sem lista fixa)
+    ✅ CLAUDE.md — menção de versão atualizada para 1.2.0
 - Deferred / needs ratification:
-    RATIFICATION(1.1.0): esta emenda é ratificada pelo mantenedor no PR da spec 006.
     TODO(TESTING_C3_C4): nível de obrigatoriedade dos testes para C3/C4 (ver Princípio V).
     TODO(VERSIONING): política de versionamento/release e changelog (ver Restrições Técnicas e de Release).
     TODO(RATIFICATION_DATE): confirmar 2026-06-09 como data de adoção.
+    TODO(TEMPORAL_DEBT): levar ao módulo os estados temporais que ainda vivem fora dele (a média móvel e a âncora das
+    cáusticas no hash).
 -->
 
 # Clay Engine Constitution
@@ -108,6 +103,23 @@ legado vive em guia de migração, nunca apresentado como corrente.
 
 **Rationale**: documentação divergente do código é pior que ausência. Fonte única + gates evitam a deriva.
 
+### VII. Série Temporal como Referência da Evolução dos Quadros (REGRA DURA)
+
+Todo estado que evolui de um quadro para o seguinte — histórico, média móvel, acumulação, valor do quadro
+anterior, referencial ou enquadramento que persiste, estado de simulação lido no passo seguinte — DEVE ser
+uma série temporal do módulo da spec 037 (o descritor com `history`, o canal temporal da C2: as fatias, o
+giro quando o produtor grava, o carimbo, a invalidação na recriação e no corte, a leitura por atraso pelo
+slot do canal). É PROIBIDO guardar o quadro anterior por conta própria: cópia manual de textura ou buffer,
+pingue-pongue privado, acumulação dentro do próprio buffer de dados, contador de quadros ou referencial
+recalculado por quadro a partir de dados que oscilam (a caixa de um fluido, por exemplo) sem passar pela
+série. Quem lê o passado lê pelo atraso; quem recomeça a série é a invalidação do canal, nunca um "reset"
+privado. Exceção só com justificativa registrada no plano da spec e aprovação do mantenedor.
+
+**Rationale**: a evolução no tempo com um só dono é o que mantém a imagem coerente entre quadros (o corte,
+a pausa, a navegação no tempo e a reprojeção sabem onde está o passado). Estado temporal fora do módulo
+diverge dele: em 2026-11-04 o hash das cáusticas recomeçava sozinho quando a caixa da água mudava com os
+respingos, e a sombra junto às paredes piscava.
+
 ## Restrições Técnicas e de Release
 
 - **Stack**: TypeScript estrito + WebGPU. Sem fallback CPU para simulação. `gl-matrix`/`uuid` como deps de
@@ -139,8 +151,8 @@ e por quê), versionadas e revisadas em PR. O versionamento desta constituição
 - **MINOR**: novo princípio/seção ou expansão material de orientação.
 - **PATCH**: clarificações e ajustes não-semânticos.
 
-Toda revisão de PR DEVE verificar conformidade com os Princípios I–VI; complexidade adicional DEVE ser
+Toda revisão de PR DEVE verificar conformidade com os Princípios I–VII (o VII é regra dura: violação reprova); complexidade adicional DEVE ser
 justificada. Itens marcados `TODO(...)` exigem ratificação explícita do mantenedor antes de virarem regra
 plenamente exigível.
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-09 | **Last Amended**: 2026-10-12
+**Version**: 1.2.0 | **Ratified**: 2026-06-09 | **Last Amended**: 2026-11-04
