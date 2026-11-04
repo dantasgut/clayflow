@@ -21,6 +21,8 @@
 //     Snell e Beer–Lambert por canal a ≤ 3 %.
 //   - shadow (T067c): a sombra da parede no fundo da camada parada com o sol a 60° — a borda na posição da refração
 //     (≤ 1,5 cm), não na da linha reta, a faixa entre as duas acesa e a sombra escura (≤ 5 % do nível aceso).
+//   - ripple (T067c item 2; SC-017 `caustics-smooth` e `caustics-temporal`): a água agitada contra a referência
+//     `water-ripple` (`angle=0|30`) — fluxo, padrão, contraste, platôs e variação entre quadros (`caseRipple`).
 //
 // Para rodar: `npm run smoke -- caustics [--query case=reference]`. Resultado: `CAUSTICS SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -34,7 +36,7 @@ import { CAUSTIC_CASES, CAUSTIC_SPHERE, CAUSTIC_SUN, CAUSTIC_WATER } from './sup
 import { settle } from './support/extensionScenes';
 import { readFixture, readJsonFixture, writeFixture } from './support/fixtures';
 import { buildGiScene, diffuseFunction, giApp } from './support/giScenes';
-import { waterScene, WATER_SPACING, WATER_TANK } from './support/waterScene';
+import { waterLook, waterScene, WATER_SPACING, WATER_TANK } from './support/waterScene';
 import { closureFn } from './support/materialScenes';
 import { readCausticsHash, type CausticsHash } from './support/causticsHash';
 
@@ -656,11 +658,170 @@ async function caseShadow(): Promise<void> {
     check(dark / lit <= 0.05, `shadow: sombra a ${(dark / lit).toFixed(3)} do nível aceso`);
 }
 
+/**
+ * A água agitada (T067c item 2, SC-017 `caustics-smooth`/`caustics-temporal`): a mesma representação da referência
+ * `water-ripple` — uma caixa de água de 30 cm (malha, o dielétrico da água pelo grafo com as ondulações paradas do smoke
+ * `refraction`: inclinação 0,3, 15 cm; 2 × 1,2 m, a densidade de fótons do tanque) sobre o chão claro, o sol a `angle` graus (0 ou 30) — lida do hash na grade da
+ * referência (1 cm, 60 × 60): o fluxo no receptor a ≤ 3 %, o erro do padrão (L1 relativo) ≤ 15 %, o contraste (desvio
+ * padrão relativo) a ≥ 0,85 do da referência, os platôs (blocos 2 × 2 iguais a 1 % onde a referência varia > 10 %)
+ * ≤ 2 % e a variação em 10 quadros, com a superfície parada, ≤ 4 % (o ruído da grade deslocada a cada quadro na
+ * densidade do tanque: 2,9 % a 0° e 3,1 % a 30°, onde a própria referência tem 1,7× o ruído; fixado depois da medida).
+ */
+async function caseRipple(): Promise<void> {
+    const deg = Number(new URLSearchParams(location.search).get('angle') ?? '0');
+    const theta = (deg * Math.PI) / 180;
+    const name = deg === 0 ? 'water-ripple' : `water-ripple-${deg}`;
+    const manifest = await readJsonFixture<{ cases: ReferenceEntry[] }>('caustics-reference.json');
+    const bytes = await readFixture('caustics-reference.bin');
+    const entry = manifest?.cases.find((e) => e.name === name);
+    if (entry === undefined || bytes === null) {
+        failures.push(`ripple: sem a referência de ${name}`);
+        return;
+    }
+    const all = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    const ref = all.subarray(entry.offset, entry.offset + entry.nx * entry.ny * 3);
+    const errors: string[] = [];
+    const { app, canvas } = await giApp(320, 200, errors);
+    const caustics = app.defaults.renderer.causticsResource;
+    const photons = new URLSearchParams(location.search).get('photons');
+    if (photons !== null) caustics.photons = Number(photons);
+    app.world.insert(caustics);
+    buildGiScene(
+        app,
+        {
+            slabs: [{ id: 1, min: [-2, -0.05, -2], max: [2, 0, 2], color: [0.8, 0.8, 0.8] }],
+            sun: { direction: [Math.sin(theta), -Math.cos(theta), 0], illuminance: CAUSTIC_SUN },
+            camera: { position: [0, 0.6, 1.6], target: [0, 0, 0], fovY: Math.PI / 5 },
+            probeCenter: [0, 0.5, 0],
+            regions: new Map([[1, 'chão']]),
+        },
+        320 / 200,
+    );
+    const depth = 0.3;
+    app.world.insert(
+        // A caixa de 2 × 1,2 m (a da referência, de 4 m, é infinita para o receptor de 0,6 m): a densidade de fótons do
+        // tanque dos smokes (os ladrilhos com água, ~1,3 m²); em x, a luz do sol a 30° que entra pela face lateral pousa
+        // fora do receptor.
+        new BoxGeometry({ size: [2, depth + 0.01, 1.2] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, (depth - 0.01) / 2, 0, 1] }))
+            .add(
+                waterLook({
+                    ior: CAUSTIC_WATER.ior,
+                    abbe: CAUSTIC_WATER.abbe,
+                    absorption: CAUSTIC_WATER.color.map((c) => -Math.log(c)) as [
+                        number,
+                        number,
+                        number,
+                    ],
+                    roughness: 0,
+                    ripple: { strength: 0.3, size: 0.15, speed: 0 },
+                }),
+            ),
+    );
+    await settle(app, 4000);
+    const step = async (frames: number): Promise<void> => {
+        for (let i = 0; i < frames; i++) {
+            app.step(1 / 60);
+            if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
+        }
+    };
+    const n = entry.nx;
+    const grid = (hash: CausticsHash): Float32Array => {
+        const out = new Float32Array(n * n * 3);
+        const cell = 0.6 / n;
+        const sub = 4;
+        for (let j = 0; j < n; j++)
+            for (let i = 0; i < n; i++)
+                for (let b = 0; b < sub; b++)
+                    for (let a = 0; a < sub; a++) {
+                        const v = hash.irradiance(
+                            [
+                                -0.3 + (i + (a + 0.5) / sub) * cell,
+                                0,
+                                -0.3 + (j + (b + 0.5) / sub) * cell,
+                            ],
+                            [0, 1, 0],
+                        );
+                        for (let k = 0; k < 3; k++)
+                            out[(j * n + i) * 3 + k]! += v[k]! / (sub * sub);
+                    }
+        return out;
+    };
+    await step(150);
+    const a = grid(await readCausticsHash(app, caustics));
+    await step(10);
+    const b = grid(await readCausticsHash(app, caustics));
+    app.dispose();
+    canvas.remove();
+    if (errors.length > 0) failures.push(`ripple: erros do motor: ${errors.join(' | ')}`);
+    for (let c = 0; c < 3; c++) {
+        let sumE = 0;
+        let sumR = 0;
+        let l1 = 0;
+        let change = 0;
+        for (let k = c; k < a.length; k += 3) {
+            sumE += a[k]!;
+            sumR += ref[k]!;
+            l1 += Math.abs(a[k]! - ref[k]!);
+            change += Math.abs(b[k]! - a[k]!);
+        }
+        const meanE = sumE / (n * n);
+        const meanR = sumR / (n * n);
+        let varE = 0;
+        let varR = 0;
+        for (let k = c; k < a.length; k += 3) {
+            varE += (a[k]! - meanE) ** 2;
+            varR += (ref[k]! - meanR) ** 2;
+        }
+        const contrast = Math.sqrt(varE) / meanE / (Math.sqrt(varR) / meanR);
+        let plateaus = 0;
+        let blocks = 0;
+        for (let j = 0; j + 1 < n; j++)
+            for (let i = 0; i + 1 < n; i++) {
+                const at = (q: Float32Array, di: number, dj: number): number =>
+                    q[((j + dj) * n + i + di) * 3 + c]!;
+                const quad = (q: Float32Array): number[] => [
+                    at(q, 0, 0),
+                    at(q, 1, 0),
+                    at(q, 0, 1),
+                    at(q, 1, 1),
+                ];
+                const e = quad(a);
+                const r = quad(ref);
+                if (Math.max(...r) - Math.min(...r) <= 0.1 * meanR) continue;
+                blocks++;
+                if (Math.max(...e) - Math.min(...e) <= 0.01 * meanE) plateaus++;
+            }
+        const peakE = Math.max(...Array.from({ length: n * n }, (_, i) => a[i * 3 + c]!));
+        const peakR = Math.max(...Array.from({ length: n * n }, (_, i) => ref[i * 3 + c]!));
+        log(
+            `ripple ${deg}°: canal ${c} — fluxo ${(sumE / sumR).toFixed(4)}× a referência; erro do padrão ${((100 * l1) / sumR).toFixed(1)} %; contraste ${contrast.toFixed(3)}× (pico ${(peakE / meanE).toFixed(2)}× a média contra ${(peakR / meanR).toFixed(2)}×); platôs ${blocks > 0 ? ((100 * plateaus) / blocks).toFixed(2) : '0'} % de ${blocks} blocos; variação em 10 quadros ${((100 * change) / sumE).toFixed(2)} %`,
+        );
+        check(
+            Math.abs(sumE / sumR - 1) <= 0.03,
+            `ripple ${deg}°: canal ${c} fluxo ${(sumE / sumR).toFixed(4)}×`,
+        );
+        check(
+            l1 / sumR <= 0.15,
+            `ripple ${deg}°: canal ${c} padrão ${((100 * l1) / sumR).toFixed(1)} %`,
+        );
+        check(contrast >= 0.85, `ripple ${deg}°: canal ${c} contraste ${contrast.toFixed(3)}×`);
+        check(plateaus <= 0.02 * blocks, `ripple ${deg}°: canal ${c} platôs ${plateaus}/${blocks}`);
+        check(
+            change / sumE <= 0.04,
+            `ripple ${deg}°: canal ${c} variação ${((100 * change) / sumE).toFixed(2)} %`,
+        );
+    }
+    await writeFixture(`zz-caustics-ripple-${deg}.png`, await heatmap(a, n, n, entry.open));
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     reference: caseReference,
     engine: caseEngine,
     water: caseWater,
     shadow: caseShadow,
+    ripple: caseRipple,
 };
 
 async function main(): Promise<void> {

@@ -101,12 +101,20 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(trace).toContain(
             'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { return; }',
         );
-        // Os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico pelo comprimento (T110: a absorção
-        // guardada ao entrar pela superfície, zerada ao sair; dentro de um vidro mergulhado a água não absorve); o
-        // depósito pela tenda 2D no plano tangente.
+        // Os trechos atenuam pelo meio em que o fóton está, analítico pelo comprimento (T110: a absorção guardada ao
+        // entrar pela superfície, zerada ao sair): dentro de uma malha a dela, por Beer–Lambert como a refração (a malha
+        // sem a cor só ao sair: o pouso dentro dela ficava sem absorção); fora, a da água; o depósito pela tenda 2D no
+        // plano tangente.
         expect(trace).toContain(
-            'if (ph.glass == 0u) { caustics_photons[slot].throughput = ph.throughput * exp(-ph.absorption * hit.t); }',
+            'let sigma = select(ph.absorption, ph.glass_absorption, ph.glass != 0u);',
         );
+        expect(trace).toContain(
+            'caustics_photons[slot].throughput = ph.throughput * exp(-sigma * hit.t);',
+        );
+        expect(trace).toContain(
+            'ph.glass_absorption = select(vec3f(0.0), closure_absorption(c), outside);',
+        );
+        expect(trace).not.toContain('ph.throughput *= c.transmission_color;');
         expect(trace).toContain(
             'ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);',
         );
@@ -120,8 +128,9 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(trace).toContain(
             'caustics_splat(ph.land, ph.land_n, e1.xyz, e2.xyz, ph.throughput, blur);',
         );
+        // A parte que não achou balde na faixa cheia do nível sobe ao de cima (o fluxo se conserva).
         expect(trace).toContain(
-            'caustics_deposit_cell(caustics_tent_cell(t, k), l, rgb * (w * t.cosine));',
+            'if (!caustics_deposit_cell(caustics_tent_cell(t, k), l, part * t.cosine)) { lost += part; }',
         );
         expect(trace).toContain('let h = p[a] - (n[u] * (cu - p[u]) + n[v] * (cv - p[v])) / n[a];');
         // A variável de controle: a direta em linha reta subtraída onde a linha reta do fóton chega depois da água, na

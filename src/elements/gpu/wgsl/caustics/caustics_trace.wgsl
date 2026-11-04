@@ -415,18 +415,22 @@ fn caustics_target_anchor() -> vec3f {
 
 /**
  * Deposita a vazão `rgb` (frações da potência por fóton, com sinal) no ponto `q` (a partir da âncora) de normal `n`,
- * pela tenda 2D no plano tangente, no nível `level` — ou no primeiro acima em que a célula cabe na chave.
+ * pela tenda 2D no plano tangente, no nível `level` — ou no primeiro acima em que a célula cabe na chave. A parte que não
+ * achou balde na faixa do nível (cheia) sobe ao nível de cima: o fluxo se conserva com a cáustica mais larga que a faixa.
  */
 fn caustics_deposit(q: vec3f, n: vec3f, rgb: vec3f, level: u32) {
+    var left = rgb;
     for (var l = level; l < CAUSTICS_LEVELS; l++) {
         let t = caustics_tent(q, n, l);
         if (caustics_key(t.base) == CAUSTICS_EMPTY) { continue; }
+        var lost = vec3f(0.0);
         for (var k = 0u; k < 4u; k++) {
-            let w = caustics_tent_weight(t, k);
+            let part = left * caustics_tent_weight(t, k);
             // A vazão por área da superfície (a da célula é a projetada no plano das camadas).
-            caustics_deposit_cell(caustics_tent_cell(t, k), l, rgb * (w * t.cosine));
+            if (!caustics_deposit_cell(caustics_tent_cell(t, k), l, part * t.cosine)) { lost += part; }
         }
-        return;
+        if (all(lost == vec3f(0.0))) { return; }
+        left = lost;
     }
 }
 
@@ -473,10 +477,11 @@ fn caustics_splat(p: vec3f, n: vec3f, e1in: vec3f, e2in: vec3f, rgb: vec3f, blur
     }
 }
 
-/** Soma `rgb` na célula `c` do nível `level`. */
-fn caustics_deposit_cell(c: vec3i, level: u32, rgb: vec3f) {
+/** Soma `rgb` na célula `c` do nível `level`; falso se a faixa do nível não tem balde para ela. */
+fn caustics_deposit_cell(c: vec3i, level: u32, rgb: vec3f) -> bool {
     let key = caustics_key(c);
-    if (key == CAUSTICS_EMPTY || all(rgb == vec3f(0.0))) { return; }
+    if (all(rgb == vec3f(0.0))) { return true; }
+    if (key == CAUSTICS_EMPTY) { return false; }
     var slot = caustics_bucket(c, level);
     for (var k = 0u; k < 4u * CAUSTICS_PROBES; k++) {
         let w = caustics_word(slot);
@@ -488,10 +493,11 @@ fn caustics_deposit_cell(c: vec3i, level: u32, rgb: vec3f) {
             atomicAdd(&caustics_hash_atomic[w + 1u], q.r);
             atomicAdd(&caustics_hash_atomic[w + 2u], q.g);
             atomicAdd(&caustics_hash_atomic[w + 3u], q.b);
-            return;
+            return true;
         }
         slot = caustics_probe_next(slot, level);
     }
+    return false;
 }
 
 // A fila dos fótons vivos (spec 039): `caustics_queue` (atômicos) — [0] a lista corrente (0 ou 1), [1] e [2] as contagens
@@ -532,6 +538,7 @@ fn caustics_photon_start(slot: u32, seed: u32, o: vec3f, d: vec3f, rgb: vec3f) {
     ph.channel = 3u;
     ph.absorption = vec3f(0.0);
     ph.glass = 0u;
+    ph.glass_absorption = vec3f(0.0);
     ph.state = seed;
     ph.specular = 0u;
     ph.sig = 0u;
@@ -718,9 +725,10 @@ fn caustics_photon_hit_one(j: u32) {
         ray_wave_put_empty(j, vec4f(0.0));
         return;
     }
-    // O trecho dentro da água (fora de um vidro mergulhado) atenua pelo meio homogêneo do corpo, analítico pelo
-    // comprimento (T110): o fóton entrou pela superfície e guardou a absorção do fechamento dela — sem marcha.
-    if (ph.glass == 0u) { caustics_photons[slot].throughput = ph.throughput * exp(-ph.absorption * hit.t); }
+    // O trecho atenua pelo meio em que o fóton está, analítico pelo comprimento (T110): dentro de uma malha, pela absorção
+    // dela; fora, pela do meio homogêneo da água (zero no ar) — as duas guardadas ao entrar pela superfície, sem marcha.
+    let sigma = select(ph.absorption, ph.glass_absorption, ph.glass != 0u);
+    caustics_photons[slot].throughput = ph.throughput * exp(-sigma * hit.t);
     caustics_photons[slot].travel = ph.travel + hit.t;
     // A instância na carga: a assinatura do caminho (`caustics_photon_step`).
     refraction_wave_put(j, hit, caustics.extra.y,
@@ -774,10 +782,12 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         } else {
             ph.dir = normalize(t);
             ph.origin = p - nn * 1e-4;
-            // O vidro absorve pela cor da transmissão ao sair; a água, pelos trechos (a absorção do meio homogêneo do
-            // corpo, guardada ao entrar pela superfície e zerada ao sair).
-            if (!outside && !volume) { ph.throughput *= c.transmission_color; }
-            if (!volume) { ph.glass = select(0u, 1u, outside); }
+            // A malha e a água absorvem pelos trechos, por Beer–Lambert como a refração (`closure_absorption`: a cor a
+            // `transmission_depth`), guardada ao entrar pela superfície e zerada ao sair.
+            if (!volume) {
+                ph.glass = select(0u, 1u, outside);
+                ph.glass_absorption = select(vec3f(0.0), closure_absorption(c), outside);
+            }
             if (volume) {
                 ph.medium = select(1.0, ior, outside);
                 ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);
