@@ -89,13 +89,17 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(trace).toContain('if (dispersive && ph.channel == 3u) {');
         expect(trace).toContain('channel.state = state;');
         // A grade dos fótons: segmentos por luz e alvo, a célula deslocada pelo mesmo sorteio do quadro em todo o
-        // segmento; na caixa dos volumes, a célula que não passa pela água (e que só ela cobre) não segue.
+        // segmento; na caixa dos volumes, só os ladrilhos com água recebem fótons, e a célula que não passa pela água
+        // (e que só ela cobre) não segue.
         expect(trace).toContain('let segment = caustics_segment_of(i);');
         expect(trace).toContain(
             'let cell = vec2f(f32(local % seg.w), f32(local / seg.w)) + caustics_grid_jitter(segment);',
         );
         expect(trace).toContain(
-            'let accepted = !volume || cover > 1.0 || ray_volume_occupied(o, d, 2.0 * back);',
+            'if (caustics_volume_tile_wet(normalize(lights[l].direction.xyz), volume - 1u, k % tiles)) {',
+        );
+        expect(trace).toContain(
+            'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { return; }',
         );
         // Os trechos dentro da água atenuam pelo meio homogêneo do corpo, analítico pelo comprimento (T110: a absorção
         // guardada ao entrar pela superfície, zerada ao sair; dentro de um vidro mergulhado a água não absorve); o

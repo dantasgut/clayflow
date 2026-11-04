@@ -1,6 +1,6 @@
 // Acúmulo das cáusticas (spec 034, T067c; antes da GI): por balde do hash, a soma do quadro (ponto fixo) vira
 // irradiância — a potência por fóton (do cabeçalho) dividida pela área da célula do nível dela — e entra na acumulada por
-// média móvel; as somas zeram. A invocação 0 guarda a fração da emissão na caixa dos volumes.
+// média móvel; as somas zeram.
 // Uma célula sem fótons decai para 0. Com o hash mais que ¾ ocupado no quadro anterior, tudo recomeça (as células
 // de luzes que se moveram não ficam ocupando baldes).
 // Requer: WORKGROUP_SIZE, caustics, caustics_common, caustics_hash_atomic.
@@ -8,16 +8,6 @@
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn caustics_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let slot = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (slot == 0u) {
-        // A fração das amostras na caixa dos volumes que passou pela água (a emissão do quadro seguinte).
-        let tries = atomicLoad(&caustics_hash_atomic[CAUSTICS_TRIES]);
-        if (tries > 0u) {
-            let ratio = max(f32(atomicLoad(&caustics_hash_atomic[CAUSTICS_ACCEPTED])) / f32(tries), 1e-6);
-            atomicStore(&caustics_hash_atomic[CAUSTICS_ACCEPTED_RATIO], bitcast<u32>(ratio));
-        }
-        atomicStore(&caustics_hash_atomic[CAUSTICS_TRIES], 0u);
-        atomicStore(&caustics_hash_atomic[CAUSTICS_ACCEPTED], 0u);
-    }
     let n = caustics_slots();
     if (slot >= n) { return; }
     let w = caustics_word(slot);

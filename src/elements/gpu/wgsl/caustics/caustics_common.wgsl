@@ -7,18 +7,13 @@
 // pegada dele, e quem lê soma os níveis. Cada balde: a chave (as coordenadas da célula, 10 bits cada, deslocadas de 512,
 // e o nível nos 3 bits de cima, +1 — 0 vazio), a soma do quadro em ponto fixo com sinal (rgb, a vazão de cada fóton,
 // negativa na parcela da variável de controle) e a irradiância acumulada (rgb, f32). O cabeçalho: a potência por fóton
-// do quadro (f32), os baldes ocupados no quadro anterior e a soma do quadro, e a fração da grade dos volumes que passa
-// pela água. Depósito e leitura pela tenda 2D no plano tangente (`caustics_tent`, spec 034 T057): uma camada de células
+// do quadro (f32), os baldes ocupados no quadro anterior e a soma do quadro, e a âncora. Depósito e leitura pela tenda 2D no plano tangente (`caustics_tent`, spec 034 T057): uma camada de células
 // ao longo da normal e a interpolação bilinear nos dois eixos tangentes — a irradiância é por área da superfície.
 // Requer: caustics (os baldes em `caustics.counts.y`), hash_cell.
 
 const CAUSTICS_HEADER: u32 = 12u;
 /** Palavras do cabeçalho com a âncora das células (xyz, f32): o centro dos alvos dos fótons, em passos de meio metro. */
 const CAUSTICS_ANCHOR: u32 = 8u;
-// Palavras do cabeçalho com as amostras na caixa dos volumes no quadro e as aceitas (u32), e a fração aceita (f32).
-const CAUSTICS_TRIES: u32 = 3u;
-const CAUSTICS_ACCEPTED: u32 = 4u;
-const CAUSTICS_ACCEPTED_RATIO: u32 = 5u;
 const CAUSTICS_WORDS: u32 = 7u;
 /** Níveis de células (lados de 1 a 32 vezes o da célula fina). */
 const CAUSTICS_LEVELS: u32 = 6u;

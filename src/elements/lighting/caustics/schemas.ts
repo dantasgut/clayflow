@@ -12,9 +12,9 @@ export const CAUSTICS_BUCKET_WORDS = 7;
 export const CAUSTICS_BUFFER_WORDS = 12 + CAUSTICS_SLOTS * CAUSTICS_BUCKET_WORDS;
 /**
  * f32 da lista dos alvos dos fótons (`caustics_trace.wgsl`: cabeçalho com a âncora, 64 caixas, áreas de 8 luzes × 64, a
- * contagem dos segmentos da grade e 576 segmentos de 8 palavras).
+ * contagem dos segmentos da grade e 576 segmentos de 12 palavras).
  */
-export const CAUSTICS_TARGET_WORDS = 1040 + 8 * 576;
+export const CAUSTICS_TARGET_WORDS = 1040 + 12 * 576;
 
 /**
  * Parâmetros das cáusticas (uniform, spec 034 T067c): `counts` = (slots usados do pool `Light`, baldes do hash, fótons
