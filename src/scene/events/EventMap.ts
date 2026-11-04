@@ -153,6 +153,24 @@ export interface GlobalIlluminationUnsupportedPayload {
 }
 
 /**
+ * Payload do evento `raySceneUnsupported` (spec 034, T046): a estrutura de raios da cena não coube no dispositivo; ela
+ * para de ser montada, e quem traça raios nela (a iluminação global, a refração) não roda.
+ */
+export interface RaySceneUnsupportedPayload {
+    /** Motivo (o limite do dispositivo que faltou). */
+    readonly reason: string;
+}
+
+/**
+ * Payload do evento `refractionUnsupported` (spec 034, T046): a refração traçada não roda no dispositivo (a estrutura
+ * de raios faltou); os transmissivos não mostram o que está atrás deles.
+ */
+export interface RefractionUnsupportedPayload {
+    /** Motivo (o limite do dispositivo que faltou). */
+    readonly reason: string;
+}
+
+/**
  * Payload do evento `globalIlluminationReady` (spec 033): os kernels da iluminação global da composição atual das
  * funções `material` da cena compilaram e o estágio passou a acumular luz (emitido a cada composição nova que fica
  * pronta). Antes dele, a cena não tem luz rebatida — quem mede espera por ele.
@@ -372,8 +390,18 @@ export interface EventMap {
     memoryWarning: MemoryWarningPayload;
     /** A apresentação emite (uma vez) quando a saída pedida não é suportada e cai no padrão (spec 011). */
     presentationFallback: PresentationFallbackPayload;
-    /** A estrutura de raios ou a iluminação global emite (uma vez) quando o dispositivo não a comporta (spec 033). */
+    /**
+     * As sondas da iluminação global emitem (uma vez) quando o dispositivo não as comporta (spec 033); o estágio padrão,
+     * quando a estrutura de raios não coube e há uma `GlobalIllumination` na cena (spec 034, T046).
+     */
     globalIlluminationUnsupported: GlobalIlluminationUnsupportedPayload;
+    /** A estrutura de raios emite (uma vez) quando não cabe no dispositivo (spec 034, T046). */
+    raySceneUnsupported: RaySceneUnsupportedPayload;
+    /**
+     * O estágio padrão emite (uma vez) quando a estrutura de raios não coube e a cena tem um transmissivo com a refração
+     * ligada no renderizador (spec 034, T046).
+     */
+    refractionUnsupported: RefractionUnsupportedPayload;
     /** As sondas da iluminação global emitem quando os kernels da composição atual ficam prontos (spec 033). */
     globalIlluminationReady: GlobalIlluminationReadyPayload;
     /** A C2 emite quando o motor passa a ter trabalho pendente (compilação, conferência, troca, fonte ausente). */

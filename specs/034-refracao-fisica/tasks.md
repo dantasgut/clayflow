@@ -179,10 +179,32 @@ código: as feitas estão marcadas com a evidência, e as que as decisões poste
     escuro ~2–2,75 % (ruído de reconvergência, research R3a); refração na lente 32,3 ms. Vídeo `lente` com a cena nova
     (céu, sol, piso, colunas, esfera opaca rolando atrás do vidro).
   - Estado (2026-10-23): vetor ba do que o traçado mostra (`RefractionMotionFlow`, pelo ponto mostrado `Refraction.hit`) e máscara reativa pelo gradiente temporal da refração (a amostra do quadro anterior refeita na cena de agora). Em avaliação (research R3a, decisão do usuário pendente): o filtro do sinal traçado (`TracedDenoiser`, `RefractionDenoiseFlow`). Tentado e desfeito: 4 amostras onde o histórico recomeçou (custo 4,4 ms em órbita), a regra da luz direta no ponto mostrado, a comparação do ponto mostrado no mesmo pixel (recomeçava o vidro inteiro com a câmera em movimento). A radiância transmitida e a refletida passaram a uma saída só (`radiance`). Smoke `antialiasing`: ver R3a.
-- [ ] T045 [US1] Composição dos transmissivos lendo a saída do próprio pixel (`forward_transmission.wgsl`); remover `transmission_background`/`scene_copy` dos transmissivos, inclusive a parede fina; `recordSceneCopy` só se outro consumidor existir
+- [x] T045 [US1] Composição dos transmissivos lendo a saída do próprio pixel (`forward_transmission.wgsl`); remover `transmission_background`/`scene_copy` dos transmissivos, inclusive a parede fina; `recordSceneCopy` só se outro consumidor existir
   - **Retomada (2026-10-31)**: a cópia da cena saiu (`scene_copy`, `transmission_background`, `recordSceneCopy` não existem mais); falta o smoke `materials` (6 itens de transmissão/translucidez, 038 `baseline.md`).
-- [ ] T046 [US1] Estágio em `src/presentation/flows/defaults.ts` (depois dos opacos e da superfície da água, antes da composição) e evento de não suportado quando a estrutura de raios faltar
+  - **Feita (2026-11-04)**: `materials` verde. Medido caso a caso:
+    - `translucent-backlit` (0 → 0,955; 0,764; 0,573 = cor × 3/π, exato): defeito do motor — a luz direta traçada
+      (`ray_light_response`, `ray_direct.wgsl`) descartava toda luz com n·l ≤ 0 e soltava o raio de sombra pela frente;
+      agora a luz de trás conta para os lobos que a recebem (translúcido, subsuperfície) e o raio parte do lado dela.
+    - Fresnel rasante (borda 0,146 × centro 0,077): com o reflexo traçado, o reflexo rasante da borda segue para trás e
+      acha a parede preta da cena (escuro certo). A cena passou a esfera de vidro absorvente sem a parede: centro 0,040
+      (o F0 exato), borda 0,294 a 0,97 do raio (a física dá ≈ 0,27). Critério igual (borda > 4× centro).
+    - Dispersão (Abbe 40: 0 px): as separações esperadas (0,26 e 0,57 px) ficam abaixo do bloco 2×2 do traçado em meia
+      resolução (decisão da 039). Vista de perto (400 px por unidade, esperado 1,0 e 2,3 px) na integral do pixel
+      (`accumulate`, 64 quadros, como o smoke `refraction`): 0 / 0,72 / 1,90 px. Critério igual.
+    - Vidro atrás de vidro (preto no ponto medido): a esfera da frente é lente — no pixel da sobreposição, o raio segue
+      para longe do vidro verde, que aparece invertido em outra parte do disco; com listras, o ponto caía numa preta.
+      Agora fundo branco uniforme e o verde em ≥ 5 % do disco da esfera da frente: 22,1 %. Sem buraco no ponto antigo.
+    - Achado, não corrigido aqui: no MSAA (sem jitter), pontos claros isolados na diagonal x = y da imagem quadrada da
+      esfera de vidro, em todo quadro; somem na integral do pixel. Fica para a T075.
+    - `refraction` com e sem a mudança da luz direta (A/B contra a HEAD): a mesma lista de falhas (`fila com N pixels,
+pedido em 4N` da meia resolução, `glint`, lente 1 degrau, GI região 10 0,56–0,73 % com ruído entre rodadas).
+- [x] T046 [US1] Estágio em `src/presentation/flows/defaults.ts` (depois dos opacos e da superfície da água, antes da composição) e evento de não suportado quando a estrutura de raios faltar
   - **Retomada (2026-10-31)**: o estágio existe (`defaults.ts`, pelo `Renderer` da 039); falta o evento próprio de refração não suportada — sem `RayScene` o `RefractionFlow` só não traça.
+  - **Feita (2026-11-04)**: a estrutura de raios emite `raySceneUnsupported` quando não cabe no dispositivo (antes
+    emitia o da GI, mesmo sem GI); o estágio padrão (`warnRaySceneUnsupported`) avisa por evento quem depende dela —
+    `refractionUnsupported` com um transmissivo e a refração ligada no renderizador, `globalIlluminationUnsupported` com
+    uma `GlobalIllumination` —, uma vez cada, também para o que entra depois. Teste
+    `presentation/flows/__tests__/raySceneUnsupported.test.ts`; o smoke `rayScene` escuta o evento novo.
 - [x] T047 [US1] Fechar SC-001–SC-003 e o orçamento de 3 ms na lente (SC-011); vídeo da lente e da dispersão pela ferramenta nova
   - **Fechada, ressignificada pela 039**: o orçamento de 3 ms da lente deu lugar à medida por perfil (039 SC-009 e T106: alto 26,6 / médio 10,9 / baixo 11,0 ms); vídeos `lente` e `ondulacao` gravados. O smoke `refraction` inteiro dentro do tempo fica na T075.
 

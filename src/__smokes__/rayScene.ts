@@ -223,9 +223,7 @@ async function rayApp(
         ...(profiling ? { profiling: 'passes' as const, profilingCapacity: 1024 } : {}),
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
-    app.events.on('globalIlluminationUnsupported', (e) =>
-        engineErrors.push(`unsupported: ${e.reason}`),
-    );
+    app.events.on('raySceneUnsupported', (e) => engineErrors.push(`unsupported: ${e.reason}`));
     app.world.insert(new RayScene());
     const bytes = capacity * 32;
     const storage = (name: string): StorageBufferSpec =>

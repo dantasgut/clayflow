@@ -172,6 +172,7 @@ export function registerPresentationDefaults(
                   const offs = [
                       swapAmbientForGi(options.world, events, ambient, frameTargets),
                       raySceneForTransmissives(options.world, events, renderer),
+                      warnRaySceneUnsupported(options.world, events, renderer),
                       followRenderer(options.world, events, renderer),
                   ];
                   return () => {
@@ -255,6 +256,49 @@ function raySceneForTransmissives(
     return events.on('resourcesChanged', (e) => {
         ensure(e.added);
     });
+}
+
+/**
+ * A estrutura de raios que não coube no dispositivo (`raySceneUnsupported`, spec 034 T046) avisa, por evento, o que
+ * depende dela na cena: a refração (`refractionUnsupported`), com um transmissivo e a refração ligada no renderizador,
+ * e a luz global (`globalIlluminationUnsupported`), com uma `GlobalIllumination` — cada aviso uma vez, também para o que
+ * entra depois. Devolve o cancelamento.
+ */
+function warnRaySceneUnsupported(
+    world: World,
+    events: EventBus,
+    renderer: SceneRenderer,
+): () => void {
+    let reason: string | undefined;
+    let refraction = false;
+    let gi = false;
+    const warn = (resources: Iterable<Resource>): void => {
+        if (reason === undefined) return;
+        for (const r of resources) {
+            const transmissive =
+                r instanceof MaterialFunction && (r.lobeMask & TRANSMISSIVE_LOBES) !== 0;
+            if (!refraction && transmissive && renderer.lightPaths.refraction) {
+                refraction = true;
+                events.emit('refractionUnsupported', { reason });
+            }
+            if (!gi && r instanceof GlobalIllumination) {
+                gi = true;
+                events.emit('globalIlluminationUnsupported', { reason });
+            }
+        }
+    };
+    const offs = [
+        events.on('raySceneUnsupported', (e) => {
+            reason = e.reason;
+            for (const record of world.allRecords()) warn(record.resources);
+        }),
+        events.on('resourcesChanged', (e) => {
+            warn(e.added);
+        }),
+    ];
+    return () => {
+        for (const off of offs) off();
+    };
 }
 
 /**

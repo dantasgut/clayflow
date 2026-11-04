@@ -955,7 +955,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             || next.nodes * RAY_WORDS.node * RayBvhSchema.stride > limit
         ) {
             this.unsupported = true;
-            this.events.emit('globalIlluminationUnsupported', {
+            this.events.emit('raySceneUnsupported', {
                 reason: `estrutura de raios acima do limite de binding do dispositivo (${limit} bytes)`,
             });
             return;
