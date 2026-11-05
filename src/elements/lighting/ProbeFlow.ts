@@ -360,7 +360,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const W = WORKGROUP_SIZE.value;
         // As vagas das sondas extras ocupadas contam do zero a cada quadro (estado do quadro, não entre quadros).
         frame.clear(this.buffers.screenAdaptCount);
-        frame.compute('ProbeFlow', (pass) => {
+        // Um passe por etapa (os tempos por etapa na tabela da C2: o traçado, o sombreamento dos acertos, a luz direta,
+        // o acúmulo, os atlas e as sondas de tela).
+        frame.compute('ProbeFlow.trace', (pass) => {
             // A rodada única da onda: os acertos das sondas do mundo com a colocação das sondas de tela na mesma despacho
             // (os raios longos da câmera, poucos, sozinhos deixariam a GPU ociosa), depois os acertos das de tela, o
             // material por classe e a luz direta de todos.
@@ -375,20 +377,30 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             // As direções da amostragem mista (cosseno + guia pela sonda do mundo) das sondas colocadas (T051).
             screen(pass, 9, probes, 0);
             screen(pass, -3, probes * screenRays, 16);
+        });
+        frame.compute('ProbeFlow.shade', (pass) => {
             this.wave.shade(pass, bound);
+        });
+        frame.compute('ProbeFlow.direct', (pass) => {
             // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo;
             // passo de grade até os registros gravados).
             run(pass, -5, updated * rays + tiles * screenRays, W);
             run(pass, -2, updated * rays, W);
+        });
+        frame.compute('ProbeFlow.blend', (pass) => {
             // A histerese por sonda antes do acúmulo: todos os texels da sonda leem a mesma (T049).
             run(pass, 8, updated, W);
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
             run(pass, 2, updated, W);
+        });
+        frame.compute('ProbeFlow.atlas', (pass) => {
             // Os atlas de todas as sondas, a cada quadro (o produto do quadro; o estado é a série das sondas).
             run(pass, 3, all * (GI_IRRADIANCE_TEXELS + 2) ** 2, W);
             run(pass, 4, all * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
             run(pass, 5, all, W);
+        });
+        frame.compute('ProbeFlow.screen', (pass) => {
             // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
             screen(pass, -4, probes * screenRays, 16);
             screen(pass, 6, probes, 0);

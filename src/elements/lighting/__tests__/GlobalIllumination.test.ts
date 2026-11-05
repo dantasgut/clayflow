@@ -155,13 +155,13 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         renderer.lightPaths.globalIllumination = false;
         s.step();
         s.step();
-        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(0);
+        expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(0);
         renderer.lightPaths.globalIllumination = true;
         s.step();
-        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(1);
+        expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(1);
     });
 
-    it('o estágio das sondas grava um passe por quadro (raios, acúmulo, estado e atlas)', async () => {
+    it('o estágio das sondas grava os passes das etapas uma vez por quadro (traçado, sombreamento, luz direta, acúmulo, atlas, tela)', async () => {
         const s = await renderScene();
         registerPresentationDefaults(s.scene.flows, {
             world: s.scene.world,
@@ -174,7 +174,14 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         world.insert(new GlobalIllumination());
         s.step();
         s.step();
-        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(1);
+        expect(s.computes().filter((c) => c.startsWith('ProbeFlow.'))).toEqual([
+            'ProbeFlow.trace',
+            'ProbeFlow.shade',
+            'ProbeFlow.direct',
+            'ProbeFlow.blend',
+            'ProbeFlow.atlas',
+            'ProbeFlow.screen',
+        ]);
         expect(s.createdWhileRecording()).toBe(0);
         const gi = world
             .queryBySchemaName(GlobalIllumination.schema.name)
@@ -184,6 +191,6 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(gi.data.params[0].cascade0).toEqual([-8, -3, -3, 1]);
         gi.data.enabled = false;
         s.step();
-        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(0);
+        expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(0);
     });
 });
