@@ -802,6 +802,8 @@ interface EngineImage {
     readonly tracedMean2: Float32Array;
     /** A luminância do sinal traçado de cada quadro nos pixels `watch` (quadro a quadro, `watch.length` por quadro). */
     readonly watched: Float32Array;
+    /** O quadro da refração (`Refraction.frame`) de cada quadro do acúmulo: a vez do bloco 2×2 da meia resolução. */
+    readonly refractionFrames: Uint32Array;
     readonly app: Application;
     close(): void;
 }
@@ -878,6 +880,7 @@ async function renderEngine(
     const sum = new Float64Array(W * H * 3);
     const sq = new Float64Array(W * H * 3);
     const watched = new Float32Array(SAMPLES * watch.length);
+    const refractionFrames = new Uint32Array(SAMPLES);
     const lum = (d: Float32Array, i: number): number =>
         luminanceLinear(d.subarray(i * 4, i * 4 + 3));
     for (let f = 0; f < SAMPLES; f++) {
@@ -886,6 +889,7 @@ async function renderEngine(
         for (let i = 0; i < W * H; i++)
             for (let k = 0; k < 3; k++) rgb[i * 3 + k]! += img.data[i * 4 + k]! / SAMPLES;
         const refraction = app.defaults.renderer.refractionResource;
+        refractionFrames[f] = refraction.data.frame;
         const radiance = app.resources.textureOf(refraction, 'radiance');
         if (radiance === undefined) continue;
         const t = (await readHdrTexture(app, radiance)).data;
@@ -919,6 +923,7 @@ async function renderEngine(
         tracedVariance,
         tracedMean2,
         watched,
+        refractionFrames,
         app,
         close() {
             app.dispose();
@@ -1645,24 +1650,63 @@ async function caseDispersed(): Promise<void> {
  * Os vagalumes do sinal traçado nos pixels `pixels` (`samples`: quadro a quadro, `pixels` por quadro) — as amostras
  * acima de `FIREFLY` vezes a média do próprio pixel: a fração das amostras e a parte da energia.
  */
-function fireflies(samples: Float32Array, pixels: number): { count: number; energy: number } {
+function fireflies(
+    samples: Float32Array,
+    pixels: number,
+    own?: (f: number, j: number) => boolean,
+): { count: number; energy: number } {
     const frames = samples.length / pixels;
     let total = 0;
     let energy = 0;
     let count = 0;
+    let n = 0;
     for (let j = 0; j < pixels; j++) {
         let mean = 0;
-        for (let f = 0; f < frames; f++) mean += samples[f * pixels + j]! / frames;
+        let m = 0;
         for (let f = 0; f < frames; f++) {
+            if (own !== undefined && !own(f, j)) continue;
+            mean += samples[f * pixels + j]!;
+            m++;
+        }
+        if (m === 0) continue;
+        mean /= m;
+        for (let f = 0; f < frames; f++) {
+            if (own !== undefined && !own(f, j)) continue;
             const v = samples[f * pixels + j]!;
             total += v;
+            n++;
             if (v > FIREFLY * mean) {
                 count++;
                 energy += v;
             }
         }
     }
-    return { count: count / samples.length, energy: total > 0 ? energy / total : 0 };
+    return { count: n > 0 ? count / n : 0, energy: total > 0 ? energy / total : 0 };
+}
+
+/** A ordem da vez no bloco 2×2 (`REFRACTION_BLOCK_ORDER`, `refraction_block.wgsl`). */
+const BLOCK_ORDER: readonly (readonly [number, number])[] = [
+    [0, 0],
+    [1, 1],
+    [1, 0],
+    [0, 1],
+];
+
+/**
+ * O pixel `i` é o representante do bloco 2×2 dele no quadro `frame` da refração (`refraction_block_rep`, sem o xadrez),
+ * com os quatro pixels do bloco pedidos (`requested`)? Só aí a amostra dele é o próprio caminho; nos outros quadros ele
+ * recebe a do representante (outro pixel, outro caminho).
+ */
+function ownSample(i: number, frame: number, requested: ReadonlySet<number>): boolean {
+    const x = i % W;
+    const y = Math.floor(i / W);
+    const cx = x & ~1;
+    const cy = y & ~1;
+    for (const [dx, dy] of BLOCK_ORDER) if (!requested.has((cy + dy) * W + cx + dx)) return false;
+    let digits = 0;
+    for (let d = 1; d <= 1024; d *= 4) digits += Math.floor(frame / d);
+    const [ox, oy] = BLOCK_ORDER[digits % 4]!;
+    return cx + ox === x && cy + oy === y;
 }
 
 /**
@@ -1687,9 +1731,16 @@ async function caseGlint(): Promise<void> {
     const sphere = regions.get(10) ?? [];
     const still = await renderEngine(GLINT, 'absent', 'off', sphere);
     try {
-        const f = fireflies(still.watched, sphere.length);
+        // Na meia resolução (spec 039), o pixel só traça o próprio caminho quando é o representante do bloco; nos outros
+        // quadros recebe o do vizinho — a diferença entre os caminhos de pixels vizinhos (as bordas do teto 10× mais
+        // claro vistas pela esfera) não é vagalume. Conta só as amostras próprias; todas, para registro.
+        const inSphere = new Set(sphere);
+        const f = fireflies(still.watched, sphere.length, (k, j) =>
+            ownSample(sphere[j]!, still.refractionFrames[k]!, inSphere),
+        );
+        const all = fireflies(still.watched, sphere.length);
         log(
-            `glint: vagalumes do sinal traçado na esfera (amostras > ${FIREFLY}× a média do pixel) — ${(f.count * 100).toFixed(3)} % das amostras de ${sphere.length} pixels (limite 0,050 %), ${pct(f.energy)} da energia; ruído relativo ${relativeNoise(still, sphere).toExponential(3)}`,
+            `glint: vagalumes do sinal traçado na esfera (amostras próprias > ${FIREFLY}× a média do pixel) — ${(f.count * 100).toFixed(3)} % das amostras de ${sphere.length} pixels (limite 0,050 %), ${pct(f.energy)} da energia; com as recebidas do representante ${(all.count * 100).toFixed(3)} %; ruído relativo ${relativeNoise(still, sphere).toExponential(3)}`,
         );
         check(
             f.count <= 0.0005,
