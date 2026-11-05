@@ -16,8 +16,10 @@ export const ShadowMatrixInstanceSchema = new StructSchema('ShadowMatrixInstance
 });
 
 /**
- * Parâmetros do estágio: início e tamanho da lista, a rotação do padrão do PCF neste quadro (cosseno, seno) e o
- * deslocamento da grade do mapa dentro do texel (em texels; spec 034).
+ * Parâmetros do estágio: início e tamanho da lista, a rotação do padrão da penumbra neste quadro (cosseno, seno), o
+ * deslocamento das amostras dentro do texel (em texels; spec 034), o slot da câmera ativa no pool das matrizes
+ * (`hasCamera` 0 sem câmera: o referencial na origem), o plano distante dela e se o referencial do quadro anterior vale
+ * (a série temporal contínua).
  */
 export const ShadowMatrixParamsSchema = new StructSchema(
     'ShadowMatrixParams',
@@ -26,6 +28,10 @@ export const ShadowMatrixParamsSchema = new StructSchema(
         count: FieldType.u32,
         kernelRotation: FieldType.vec2f,
         texelJitter: FieldType.vec2f,
+        cameraSlot: FieldType.u32,
+        hasCamera: FieldType.u32,
+        far: FieldType.f32,
+        previousValid: FieldType.u32,
         _pad0: FieldType.vec2f,
     },
     { addressSpace: 'uniform' },

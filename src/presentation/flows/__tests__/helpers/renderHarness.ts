@@ -98,6 +98,28 @@ export async function renderScene(
     let creates: ResourceSpec[] = [];
     let writes: ResourceSpec[] = [];
     let destroys: ResourceSpec[] = [];
+    /** O último dado escrito em cada buffer (palavras). */
+    const written = new Map<ResourceSpec, Uint32Array>();
+    /**
+     * Desenho indireto das páginas da sombra virtual (spec 034, T060): a contagem de índices (ou vértices) do registro e,
+     * no lugar dos pares instância × página (só a GPU os conhece), as entidades do grupo — da tabela de grupos escrita
+     * pela CPU. Fora dos grupos (o transporte e o fundo das páginas), 0 entidades.
+     */
+    const shadowArgs = (
+        buffer: ResourceSpec,
+        offset: number,
+    ): { indexCount: number; instanceCount: number } | undefined => {
+        if (!discOf(buffer).startsWith('shadow_pages_args')) return undefined;
+        const args = written.get(buffer);
+        // O último buffer de grupos escrito (o trabalho realoca por dobra).
+        const groups = [...written]
+            .filter(([spec]) => discOf(spec).startsWith('shadow_pages_groups'))
+            .at(-1)?.[1];
+        const record = offset / 20;
+        const count = groups?.[record * 4 + 1] ?? 0;
+        const own = groups?.[record * 4 + 3] === record;
+        return { indexCount: args?.[record * 5] ?? -1, instanceCount: own ? count : 0 };
+    };
     let recording = false;
     let createdWhileRecording = 0;
     let passes: RenderPassRecord[] = [];
@@ -149,28 +171,32 @@ export async function renderScene(
                     },
                     draw: {
                         indexedIndirect: (buffer: ResourceSpec, offset = 0) => {
+                            const shadow = shadowArgs(buffer, offset);
                             draws.push({
                                 pass: label,
                                 pipeline: pipeline!,
                                 bindGroups: new Map(bound),
                                 vertex,
                                 index,
-                                indexCount: -1,
-                                instanceCount: -1,
+                                indexCount: shadow?.indexCount ?? -1,
+                                instanceCount: shadow?.instanceCount ?? -1,
                                 firstInstance: undefined,
                                 indirect: { buffer, offset },
                             });
                             return pass.draw;
                         },
                         indirect: (buffer: ResourceSpec, offset = 0) => {
+                            const shadow = shadowArgs(buffer, offset);
+                            // O transporte e o fundo das páginas não desenham entidades.
+                            if (shadow?.instanceCount === 0) return pass.draw;
                             vertexDraws.push({
                                 pass: label,
                                 pipeline: pipeline!,
                                 bindGroups: new Map(bound),
                                 vertex,
                                 index: undefined,
-                                indexCount: -1,
-                                instanceCount: -1,
+                                indexCount: shadow?.indexCount ?? -1,
+                                instanceCount: shadow?.instanceCount ?? -1,
                                 firstInstance: undefined,
                                 indirect: { buffer, offset },
                             });
@@ -250,8 +276,16 @@ export async function renderScene(
         shaderMessages: vi.fn(() => Promise.resolve([])),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(created(spec))),
         writeTexture: vi.fn(),
-        write: vi.fn((spec: ResourceSpec) => {
+        write: vi.fn((spec: ResourceSpec, data?: ArrayBufferView) => {
             writes.push(spec);
+            written.delete(spec);
+            if (data !== undefined)
+                written.set(
+                    spec,
+                    new Uint32Array(
+                        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+                    ),
+                );
         }),
         destroy: vi.fn((spec: ResourceSpec) => {
             destroys.push(spec);

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { DirectionalLight } from '../DirectionalLight';
-import { ShadowMap } from '../ShadowMap';
+import { SHADOW_MAX_LEVELS, SHADOW_PAGE_STRIDE, ShadowMap } from '../ShadowMap';
 import { halton, TemporalAntialiasing, type AntialiasingMode } from '../TemporalAntialiasing';
 import { Transform } from '../Transform';
 import { ShadowMatrixParamsSchema } from '../flows/ShadowMatrixSchemas';
@@ -12,16 +12,24 @@ import {
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 
 describe('ShadowMap', () => {
-    it('padrões: bias 1 texel, normalBias 1,5 texel, size 1024×1024', () => {
+    it('padrões: bias 1 texel, normalBias 1,5 texel, níveis de 4096² (32 × 32 páginas), o primeiro com 1 m de meio lado', () => {
         const map = new ShadowMap();
         expect(map.data.bias).toBe(1);
         expect(map.data.normalBias).toBe(1.5);
-        expect(map.data.size).toEqual([1024, 1024]);
+        expect(map.data.size).toEqual([4096, 4096]);
+        expect(map.data.pagesPerLevel).toBe(32);
+        expect(map.data.atlasPages).toBe(32);
+        expect(map.data.firstLevelRadius).toBe(1);
+        expect(() => new ShadowMap({ firstLevelRadius: 0 })).toThrow(RangeError);
     });
 
-    it('descritores: parâmetros em pool, matriz só na GPU (mesmo slot), textura depth32float do tamanho do mapa e o amostrador de comparação', () => {
+    it('descritores: parâmetros em pool, o referencial só na GPU (mesmo slot), o atlas, a tabela e os pedidos como séries temporais e o amostrador de comparação', () => {
+        // O maior lado vale: 512 → 4 páginas por nível; o atlas com o mínimo de 16 × 16 páginas físicas.
         const map = new ShadowMap({ size: [512, 256] });
         expect(map.data).not.toHaveProperty('lightViewProj');
+        expect(map.data.pagesPerLevel).toBe(4);
+        const atlas = 16 * SHADOW_PAGE_STRIDE;
+        const table = { width: 4, height: 4 * SHADOW_MAX_LEVELS };
         expect(map.getDescriptors()).toEqual([
             { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {
@@ -30,11 +38,25 @@ describe('ShadowMap', () => {
                 storage: 'pool',
                 schema: ShadowMap.matrixSchema,
                 upload: 'never',
+                history: { depth: 2 },
             },
             {
                 id: 'depth',
                 role: 'texture',
-                textureShape: { format: 'depth32float', width: 512, height: 256 },
+                textureShape: { format: 'depth32float', width: atlas, height: atlas },
+                history: { depth: 2 },
+            },
+            {
+                id: 'pages',
+                role: 'storage-texture',
+                textureShape: { format: 'rgba32uint', ...table, access: 'write-only' },
+                history: { depth: 2 },
+            },
+            {
+                id: 'requests',
+                role: 'storage-texture',
+                textureShape: { format: 'r32uint', ...table, access: 'write-only' },
+                history: { depth: 2 },
             },
             {
                 id: 'compare',
@@ -65,7 +87,14 @@ describe('ShadowMap', () => {
         s.step();
         const rs = s.scene.resourceSystem;
         const depth = rs.textureOf(light.shadowMap!, 'depth')!;
-        expect([depth.width, depth.height, depth.format]).toEqual([256, 256, 'depth32float']);
+        const atlas = 16 * SHADOW_PAGE_STRIDE;
+        expect([depth.width, depth.height, depth.format]).toEqual([atlas, atlas, 'depth32float']);
+        const pages = rs.textureOf(light.shadowMap!, 'pages')!;
+        expect([pages.width, pages.height, pages.format]).toEqual([
+            4,
+            4 * SHADOW_MAX_LEVELS,
+            'rgba32uint',
+        ]);
         expect(rs.poolSlotOf('ShadowMap', id)).toBe(rs.poolSlotOf('ShadowMatrix', id));
         const params = vi
             .mocked(s.core.write)
@@ -129,7 +158,10 @@ describe('ShadowMap', () => {
         expect(sent[8]).toEqual(sent[0]);
     });
 
-    it('sem o deslocamento da amostra (msaa), a grade e o padrão parados, enviados uma vez', async () => {
-        expect(await samples('msaa', 5)).toEqual([[1, 0, 0, 0]]);
+    it('sem o deslocamento da amostra (msaa), a grade e o padrão parados, enviados só quando a série muda', async () => {
+        // O primeiro quadro e o seguinte (a série do referencial passa a valer); depois, nada.
+        const sent = await samples('msaa', 5);
+        expect(sent.length).toBeLessThanOrEqual(2);
+        for (const v of sent) expect(v).toEqual([1, 0, 0, 0]);
     });
 });

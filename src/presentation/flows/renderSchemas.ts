@@ -1,10 +1,65 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-/** Passe de profundidade da sombra: slot, no pool `ShadowMap`, do mapa da luz que projeta. */
-export const ShadowDepthParamsSchema = new StructSchema(
-    'ShadowDepthParams',
-    { casterSlot: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
+/**
+ * Parâmetros das páginas do mapa de sombra virtual no quadro (spec 034, T060): o slot do mapa que projeta (no pool
+ * `ShadowMap`), os grupos e as instâncias dos desenhos, o orçamento de páginas desenhadas por quadro, o recomeço do
+ * cache (`reset`: a série da tabela ou dos retângulos interrompida, os grupos mudados), se os pedidos do quadro anterior
+ * valem (senão, a reserva grossa no frustum da câmera do referencial) e as seções do espaço de trabalho (`sp_scratch`, em
+ * palavras): as páginas físicas em uso e livres, as filas por nível, as sujas, as dinâmicas, as caixas e os retângulos;
+ * as páginas que seguem, os trechos dos pares por grupo (contagem, início, preenchimento) e as necessidades das páginas virtuais; em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
+ * páginas sujas (e, no seguinte, o do transporte das que seguem).
+ */
+export const ShadowPagesParamsSchema = new StructSchema(
+    'ShadowPagesParams',
+    {
+        casterSlot: FieldType.u32,
+        groupCount: FieldType.u32,
+        instanceCount: FieldType.u32,
+        budget: FieldType.u32,
+        reset: FieldType.u32,
+        requestsValid: FieldType.u32,
+        keepBase: FieldType.u32,
+        freeBase: FieldType.u32,
+        workBase: FieldType.u32,
+        dirtyBase: FieldType.u32,
+        dynamicBase: FieldType.u32,
+        dynamicCap: FieldType.u32,
+        boundsBase: FieldType.u32,
+        rectsBase: FieldType.u32,
+        rectsWidth: FieldType.u32,
+        instanceGroupBase: FieldType.u32,
+        clearRecord: FieldType.u32,
+        carryBase: FieldType.u32,
+        groupPairsBase: FieldType.u32,
+        needBase: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/** Por desenho de um grupo das páginas: o grupo (o trecho dos pares dele em `sp_pairs` vem da GPU). */
+export const ShadowGroupDrawSchema = new StructSchema(
+    'ShadowGroupDraw',
+    { group: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
+    { addressSpace: 'uniform' },
+);
+
+/** Por despacho da caixa de uma geometria: o grupo dela. */
+export const ShadowBoundsGeometrySchema = new StructSchema(
+    'ShadowBoundsGeometry',
+    { group: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
+    { addressSpace: 'uniform' },
+);
+
+/** Pedidos de páginas: o slot do mapa que projeta e o da câmera no pool das matrizes. */
+export const ShadowRequestParamsSchema = new StructSchema(
+    'ShadowRequestParams',
+    {
+        casterSlot: FieldType.u32,
+        cameraSlot: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+    },
     { addressSpace: 'uniform' },
 );
 

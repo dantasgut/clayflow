@@ -12,6 +12,7 @@ import {
     xformProjective,
     viewSpace,
     xformTrs,
+    shadowVirtual,
 } from '../../gpu/shaders/math';
 import {
     cameraMatricesWriteResource,
@@ -19,7 +20,6 @@ import {
     camerasResource,
     lightsResource,
     shadowMapsResource,
-    shadowMatricesWriteResource,
     transformsResource,
     worldInversesWriteResource,
     worldsResource,
@@ -37,6 +37,8 @@ import cameraPointTypesSource from '../../gpu/wgsl/kernels/camera_point_types.wg
 import cameraFnReadySource from '../../gpu/wgsl/kernels/camera_fn_ready.wgsl?raw';
 import cameraComposeFnSource from '../../gpu/wgsl/kernels/camera_compose_fn.wgsl?raw';
 import shadowMatrixSource from '../../gpu/wgsl/kernels/shadow_matrix.wgsl?raw';
+import shadowMatrixEyeSource from '../../gpu/wgsl/kernels/shadow_matrix_eye.wgsl?raw';
+import shadowMatrixOriginSource from '../../gpu/wgsl/kernels/shadow_matrix_origin.wgsl?raw';
 import { Camera } from '../Camera';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
@@ -147,6 +149,24 @@ export const shadowMatrixResources = Object.freeze({
     ),
     records: poolRead('shadow_records', { schema: ShadowRecordSchema, array: true }),
     list: poolRead('shadow_list', { schema: ShadowMatrixInstanceSchema, array: true }),
+    /** O referencial do quadro (a fatia de agora da série `ShadowMatrix`), escrito. */
+    current: wgslResource({
+        name: 'shadow_matrices',
+        binding: { storage: 'read_write' },
+        type: { schema: ShadowMap.matrixSchema, array: true },
+        frequency: 'stage',
+        provider: { slot: 'matrices', lag: 0 },
+    }),
+    /** O referencial do quadro anterior (atraso 1). */
+    previous: wgslResource({
+        name: 'shadow_matrices_previous',
+        binding: { storage: 'read' },
+        type: { schema: ShadowMap.matrixSchema, array: true },
+        frequency: 'stage',
+        provider: { slot: 'matrices', lag: 1 },
+    }),
+    /** As matrizes das câmeras (a posição da ativa). */
+    cameras: poolRead('shadow_cameras', { schema: Camera.matricesSchema, array: true }),
 });
 
 /** Matriz local `M = T · R · S` e matriz de normais de um `Transform` (raízes e níveis da hierarquia). */
@@ -348,16 +368,17 @@ export const cameraPoint = wgslPoint({
     hosts: () => [cameraComposeFn],
 });
 
-/** Matriz luz-vista-projeção de cada luz direcional que projeta sombra, a partir da direção dela (spec 007). */
-export const shadowMatrix = wgslModule({
+/** O referencial do mapa de sombra virtual de cada luz direcional que projeta sombra (spec 007; spec 034, T060). */
+const shadowMatrixCommon = wgslModule({
     name: 'shadow_matrix',
     source: shadowMatrixSource,
     requires: [
-        camera,
+        shadowVirtual,
         WORKGROUP_SIZE.module,
         lightsResource,
         shadowMapsResource,
-        shadowMatricesWriteResource,
+        shadowMatrixResources.current,
+        shadowMatrixResources.previous,
         shadowMatrixResources.records,
         shadowMatrixResources.list,
         shadowMatrixResources.params,
@@ -371,3 +392,21 @@ export const shadowMatrix = wgslModule({
         ShadowMatrixParamsSchema,
     ],
 });
+
+/**
+ * As entradas do referencial: com a câmera ativa (`camera`, pelo pool das matrizes) e sem câmera (`origin`, os níveis em
+ * volta da origem).
+ */
+export const shadowMatrix = {
+    camera: wgslModule({
+        name: 'shadow_matrix_eye',
+        source: shadowMatrixEyeSource,
+        requires: [shadowMatrixCommon, shadowMatrixResources.cameras],
+        structs: [Camera.matricesSchema],
+    }),
+    origin: wgslModule({
+        name: 'shadow_matrix_origin',
+        source: shadowMatrixOriginSource,
+        requires: [shadowMatrixCommon],
+    }),
+} as const;

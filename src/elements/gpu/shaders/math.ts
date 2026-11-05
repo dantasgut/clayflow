@@ -29,7 +29,7 @@ import temporalSource from '../wgsl/temporal/temporal.wgsl?raw';
 import colorSource from '../wgsl/math/color.wgsl?raw';
 import presentSource from '../wgsl/math/present.wgsl?raw';
 import bsdfSource from '../wgsl/math/bsdf.wgsl?raw';
-import brdfSource from '../wgsl/math/brdf.wgsl?raw';
+import shadowVirtualSource from '../wgsl/math/shadow_virtual.wgsl?raw';
 import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
 import cameraSource from '../wgsl/math/camera.wgsl?raw';
 import finiteSource from '../wgsl/math/finite.wgsl?raw';
@@ -44,6 +44,7 @@ import {
     colliderResources,
 } from '../../physics/colliders/colliderResources';
 import { NONE } from '../../../scene/shaders/engineConstants';
+import { ShadowMap } from '../../scene/ShadowMap';
 import { RBSimParamsSchema } from '../../physics/schemas/simParams';
 import {
     RBBodyCorrectionSchema,
@@ -262,5 +263,9 @@ export const present = wgslModule({ name: 'present', source: presentSource, requ
  */
 export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource, requires: [constants] });
 
-/** Sombra por PCF (até 3×3, as amostras da penumbra do mapa; o sombreamento físico está em `bsdf` e no fechamento, spec 011). */
-export const brdf = wgslModule({ name: 'brdf', source: brdfSource, requires: [viewSpace] });
+/** Mapa de sombra virtual (spec 034, T060): níveis, páginas, a tabela e a visibilidade com penumbra. */
+export const shadowVirtual = wgslModule({
+    name: 'shadow_virtual',
+    source: shadowVirtualSource,
+    structs: [ShadowMap.matrixSchema],
+});

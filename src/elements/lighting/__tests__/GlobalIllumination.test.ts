@@ -148,10 +148,10 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         const gi = new GlobalIllumination();
         world.insert(gi);
         expect(gi.data.raysPerProbe).toBe(GI_QUALITY.low.raysPerProbe);
-        expect(light.shadowMap?.data).toMatchObject({ size: [512, 512], penumbraSamples: 4 });
+        expect(light.shadowMap?.data).toMatchObject({ size: [1024, 1024], penumbraSamples: 4 });
         renderer.profile = 'medium';
         expect(gi.data.screenTile).toBe(GI_QUALITY.medium.screenTile);
-        expect(light.shadowMap?.data.size).toEqual([1024, 1024]);
+        expect(light.shadowMap?.data.size).toEqual([2048, 2048]);
         renderer.lightPaths.globalIllumination = false;
         s.step();
         s.step();

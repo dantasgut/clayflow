@@ -3,6 +3,12 @@ import { wgslResource } from '../../scene/shaders/WgslResource';
 import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
+import shadowDepthClipSource from './shadow_depth_clip.wgsl?raw';
+import shadowPagesSource from './shadow_pages.wgsl?raw';
+import shadowPagesConstantsSource from './shadow_pages_constants.wgsl?raw';
+import shadowRequestSource from './shadow_request.wgsl?raw';
+import shadowRequestSingleSource from './shadow_request_single.wgsl?raw';
+import shadowRequestMsSource from './shadow_request_ms.wgsl?raw';
 import effectsSource from './effects/effects.wgsl?raw';
 import fullscreenSource from './effects/fullscreen.wgsl?raw';
 import presentSource from './effects/present.wgsl?raw';
@@ -11,8 +17,13 @@ import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
 import temporalResolveSource from './effects/temporal_resolve.wgsl?raw';
 import temporalPresentSource from './effects/temporal_present.wgsl?raw';
+import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { Camera } from '../../elements/scene/Camera';
+import { ShadowMap } from '../../elements/scene/ShadowMap';
 import {
     color,
+    shadowVirtual,
+    xformRigid,
     present,
     temporal as temporalPieces,
     viewSpace,
@@ -27,21 +38,111 @@ import {
     EffectParamsSchema,
     PresentationParamsSchema,
     ScreenParamsSchema,
-    ShadowDepthParamsSchema,
+    ShadowBoundsGeometrySchema,
+    ShadowGroupDrawSchema,
     ShadowInstanceSchema,
+    ShadowPagesParamsSchema,
+    ShadowRequestParamsSchema,
     TemporalResolveParamsSchema,
     UiQuadSchema,
 } from './renderSchemas';
 
-/** Recursos do passe de profundidade da sombra (spec 031, R1). */
-export const shadowResources = {
-    /** Parâmetros do passe (`ShadowDepthParams`: slot do caster), privado do `ShadowFlow`. */
-    params: wgslResource({
-        name: 'shadow',
-        binding: { uniform: true },
-        type: { schema: ShadowDepthParamsSchema },
-        frequency: 'stage',
+const privateStorage = (
+    name: string,
+    access: 'read' | 'read_write',
+    wgsl: 'u32' | 'atomic<u32>' | 'f32',
+    frequency: 'stage' | 'draw' = 'stage',
+) =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type: { wgsl, array: true },
+        frequency,
         provider: 'private',
+    });
+
+const privateUniform = (
+    name: string,
+    schema: typeof ShadowPagesParamsSchema,
+    frequency: 'stage' | 'draw',
+) =>
+    wgslResource({
+        name,
+        binding: { uniform: true },
+        type: { schema },
+        frequency,
+        provider: 'private',
+    });
+
+/** Slots das séries do mapa virtual no estágio de sombra (spec 037): a tabela, os pedidos, o atlas, os retângulos. */
+export const shadowPageChannels = Object.freeze({
+    pages: 'pages',
+    requests: 'requests',
+    atlas: 'atlas',
+    rects: 'rects',
+});
+
+/** Recursos das páginas do mapa de sombra virtual (spec 034, T060), privados do `ShadowFlow` salvo as séries. */
+export const shadowResources = {
+    /** Parâmetros do quadro (`ShadowPagesParams`). */
+    params: privateUniform('sp', ShadowPagesParamsSchema, 'stage'),
+    /** O espaço de trabalho do quadro, em palavras (contadores, filas, sujas, dinâmicas, caixas, retângulos). */
+    scratch: privateStorage('sp_scratch', 'read_write', 'atomic<u32>'),
+    /** O mesmo, lido no desenho. */
+    scratchRead: privateStorage('sp_scratch_read', 'read', 'u32'),
+    /** Os grupos (primeira instância, contagem, deformação, registro dos argumentos) e o grupo de cada instância. */
+    groups: privateStorage('sp_groups', 'read', 'u32'),
+    /** Os argumentos dos desenhos indiretos (5 palavras por registro; a contagem de instâncias por atômico). */
+    args: privateStorage('sp_args', 'read_write', 'atomic<u32>'),
+    /** Os pares instância × página suja, por grupo. */
+    pairs: privateStorage('sp_pairs', 'read_write', 'u32'),
+    /** Os pares, lidos no desenho. */
+    pairsRead: privateStorage('sp_pairs_read', 'read', 'u32'),
+    /** Os vértices de uma geometria (a caixa; 8 palavras por vértice, a posição nas 3 primeiras). */
+    vertices: privateStorage('sp_vertices', 'read', 'f32', 'draw'),
+    /** O grupo da geometria da caixa (por despacho). */
+    geometry: privateUniform('sp_geometry', ShadowBoundsGeometrySchema, 'draw'),
+    /** O início dos pares do grupo (por desenho). */
+    group: privateUniform('shadow_group', ShadowGroupDrawSchema, 'draw'),
+    /** A tabela de agora (escrita) e a do quadro anterior. */
+    pages: wgslResource({
+        name: 'sp_pages',
+        binding: { storageTexture: { format: 'rgba32uint', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.pages, lag: 0 },
+    }),
+    pagesPrevious: wgslResource({
+        name: 'sp_pages_previous',
+        binding: { texture: { sample: 'u32' } },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.pages, lag: 1 },
+    }),
+    /** Os pedidos do quadro anterior. */
+    requestsPrevious: wgslResource({
+        name: 'sp_requests_previous',
+        binding: { texture: { sample: 'u32' } },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.requests, lag: 1 },
+    }),
+    /** Os retângulos das instâncias: os de agora (escritos) e os do quadro anterior. */
+    rects: wgslResource({
+        name: 'sp_rects_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.rects, lag: 0 },
+    }),
+    rectsPrevious: wgslResource({
+        name: 'sp_rects_previous',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.rects, lag: 1 },
+    }),
+    /** O atlas do quadro anterior (o transporte das páginas que seguem). */
+    atlasPrevious: wgslResource({
+        name: 'shadow_atlas_previous',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.atlas, lag: 1 },
     }),
     /** Lista de instâncias dos grupos de profundidade (slot `casters`). */
     instances: wgslResource({
@@ -53,17 +154,125 @@ export const shadowResources = {
     }),
 } as const;
 
-/** Profundidade do mapa de sombra (só vértice). */
+const shadowPagesConstants = wgslModule({
+    name: 'shadow_pages_constants',
+    source: shadowPagesConstantsSource,
+});
+
+/** Os kernels das páginas (uma entrada por etapa; a caixa por geometria em `sp_bounds_main`). */
+export const shadowPages = wgslModule({
+    name: 'shadow_pages',
+    source: shadowPagesSource,
+    requires: [
+        shadowVirtual,
+        shadowPagesConstants,
+        xformRigid,
+        WORKGROUP_SIZE.module,
+        shadowMatricesResource,
+        worldsResource,
+        shadowResources.params,
+        shadowResources.scratch,
+        shadowResources.groups,
+        shadowResources.args,
+        shadowResources.pairs,
+        shadowResources.vertices,
+        shadowResources.geometry,
+        shadowResources.pages,
+        shadowResources.pagesPrevious,
+        shadowResources.requestsPrevious,
+        shadowResources.rects,
+        shadowResources.rectsPrevious,
+        shadowResources.instances,
+    ],
+    structs: [ShadowMap.matrixSchema, ShadowInstanceSchema],
+});
+
+/** Profundidade das páginas sujas (vértice, fragmento que descarta fora da página e o fundo). */
 export const shadowDepth = wgslModule({
     name: 'shadow_depth',
     source: shadowDepthSource,
     requires: [
-        shadowResources.params,
+        shadowVirtual,
+        shadowPagesConstants,
+        viewSpace,
         shadowMatricesResource,
         worldsResource,
+        shadowResources.params,
+        shadowResources.scratchRead,
+        shadowResources.pairsRead,
+        shadowResources.group,
         shadowResources.instances,
+        shadowResources.atlasPrevious,
     ],
 });
+
+/** O vértice das páginas recortado pelo hardware (a feature `clip-distances`). */
+export const shadowDepthClip = wgslModule({
+    name: 'shadow_depth_clip',
+    source: shadowDepthClipSource,
+    requires: [shadowDepth],
+});
+
+/** Recursos dos pedidos de páginas (o `ShadowRequestFlow`). */
+export const shadowRequestResources = {
+    params: privateUniform('sr', ShadowRequestParamsSchema, 'stage'),
+    /** Os pedidos de agora (escritos). */
+    requests: wgslResource({
+        name: 'sr_requests',
+        binding: { storageTexture: { format: 'r32uint', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'requests', lag: 0 },
+    }),
+    cameras: wgslResource({
+        name: 'sr_cameras',
+        binding: { storage: 'read' },
+        type: { schema: Camera.matricesSchema, array: true },
+        frequency: 'stage',
+        provider: { pool: Camera.matricesSchema.name },
+    }),
+    /** A profundidade da cena (sem amostras e com amostras). */
+    depth: wgslResource({
+        name: 'scene_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    depthMs: wgslResource({
+        name: 'scene_depth',
+        binding: { texture: { sample: 'depth', multisampled: true } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+} as const;
+
+const shadowRequestCommon = wgslModule({
+    name: 'shadow_request',
+    source: shadowRequestSource,
+    requires: [
+        shadowVirtual,
+        viewSpace,
+        WORKGROUP_SIZE.module,
+        shadowMatricesResource,
+        shadowRequestResources.params,
+        shadowRequestResources.requests,
+        shadowRequestResources.cameras,
+    ],
+    structs: [ShadowMap.matrixSchema, Camera.matricesSchema],
+});
+
+/** Pedidos de páginas pela profundidade da cena (sem e com amostras); `shadow_request_clear_main` zera. */
+export const shadowRequest = {
+    single: wgslModule({
+        name: 'shadow_request_single',
+        source: shadowRequestSingleSource,
+        requires: [shadowRequestCommon, shadowRequestResources.depth],
+    }),
+    multisampled: wgslModule({
+        name: 'shadow_request_ms',
+        source: shadowRequestMsSource,
+        requires: [shadowRequestCommon, shadowRequestResources.depthMs],
+    }),
+} as const;
 
 /**
  * Recursos do pós-processamento (spec 031, R1), todos privados do `PostFlow`: a textura de origem e os parâmetros por

@@ -43,8 +43,17 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         s.step();
         // Nada escala com o número de entidades: a geometria é uma cópia por conteúdo (spec 007), e o resto — pools
         // que crescem e os bind groups religados — é por pool.
-        expect(s.creates().length).toBeLessThan(100);
-        expect(s.creates().filter((c) => /^(forward|shadow)_/.test(discOf(c)))).toEqual([]);
+        // A sombra virtual (spec 034, T060) realoca o seu trabalho por dobra da capacidade de instâncias (as seções dos
+        // retângulos e dos grupos) e religa a caixa da geometria: uma vez por dobra, não por entidade. As etapas das
+        // páginas também religam os pools que crescem (a C2 refaz os bind groups delas): por pool, não por entidade.
+        const growth = /^(shadow_pages_|shadow_bounds:|rects:|wgsl:shadow_pages)/;
+        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(110);
+        expect(s.creates().filter((c) => growth.test(discOf(c))).length).toBeLessThan(20);
+        expect(
+            s
+                .creates()
+                .filter((c) => /^(forward|shadow)_/.test(discOf(c)) && !growth.test(discOf(c))),
+        ).toEqual([]);
         expect(s.createdWhileRecording()).toBe(0);
         // Um desenho por grupo (mesma caixa, mesmo material, mesma orientação) com as 10 010 instâncias.
         expect(s.draws('ForwardFlow').map((d) => d.instanceCount)).toEqual([10_010]);
@@ -69,6 +78,10 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
     it('nenhuma criação nem escrita em quadros estáveis além do relógio', async () => {
         const s = await scene();
         s.add(50);
+        // Os primeiros quadros firmam as séries temporais da sombra virtual (o referencial e a tabela passam a valer:
+        // os parâmetros mudam uma vez); daí em diante, estáveis.
+        s.step();
+        s.step();
         s.step();
         s.resetCounts();
         s.step();

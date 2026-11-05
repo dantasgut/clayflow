@@ -104,16 +104,7 @@ export const lightsResource = wgslResource({
     provider: { pool: Light.schema.name },
 });
 
-/** Matrizes luz-vista-projeção (pool `ShadowMatrix`), escrita — o estágio das matrizes de sombra. */
-export const shadowMatricesWriteResource = wgslResource({
-    name: 'shadow_matrices',
-    binding: { storage: 'read_write' },
-    type: { schema: ShadowMap.matrixSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: ShadowMap.matrixSchema.name },
-});
-
-/** Matrizes luz-vista-projeção (pool `ShadowMatrix`), leitura. */
+/** Referencial do mapa de sombra virtual no quadro (pool `ShadowMatrix`, a fatia do quadro), leitura. */
 export const shadowMatricesResource = wgslResource({
     name: 'shadow_matrices',
     binding: { storage: 'read' },
@@ -150,14 +141,24 @@ export const instancesResource = wgslResource({
 });
 
 /**
- * Profundidade do mapa de sombra da luz que projeta (resolver `ShadowCaster.depth`, registrado pelos elementos). Lido só
- * pela contribuição de sombra (`light_visibility`).
+ * O atlas das páginas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.depth`, registrado pelos
+ * elementos; a fatia do quadro da série temporal). Lido só pela contribuição de sombra (`light_visibility`).
  */
 export const shadowCasterDepthResource = wgslResource({
     name: 'shadow_map',
     binding: { texture: { sample: 'depth' } },
     frequency: 'frame',
     provider: { consumer: 'ShadowCaster.depth' },
+});
+
+/**
+ * A tabela de páginas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.pages`; a fatia do quadro).
+ */
+export const shadowCasterPagesResource = wgslResource({
+    name: 'shadow_pages',
+    binding: { texture: { sample: 'u32' } },
+    frequency: 'frame',
+    provider: { consumer: 'ShadowCaster.pages' },
 });
 
 /** Amostrador de comparação do mapa de sombra da luz que projeta (resolver `ShadowCaster.sampler`). */

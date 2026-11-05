@@ -12,17 +12,17 @@ async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
         new Transform({ position: [2, 0, 0, 1], scale }),
     );
     const id = s.scene.world.insert(box);
-    const worldSlot = () => s.scene.resourceSystem.poolSlotOf('WorldTransform', id);
-    return { ...s, id, box, worldSlot };
+    return { ...s, id, box };
 }
 
 /**
- * Ligação `worlds` do desenho de sombra: grupo `stage` (o 1, depois do `frame` com `shadow_matrices`), na posição do
- * nome entre os recursos do grupo (`instances`, `shadow`, `worlds`).
+ * Ligação `worlds` do desenho das páginas da sombra: no grupo `stage` (o 1, depois do `frame` com `shadow_matrices`), a
+ * entrada ligada ao buffer `pool` (as demais do grupo: `instances`, `sp`, o espaço de trabalho e os pares).
  */
-function worldsOf(draw: DrawCall | undefined) {
+function worldsOf(draw: DrawCall | undefined, pool: unknown) {
     const group = draw!.bindGroups.get(1)!.group;
-    return { layout: group.layout.entries[2], binding: group.bindings[2] };
+    const k = group.bindings.findIndex((b) => (b as { buffer?: unknown }).buffer === pool);
+    return { layout: group.layout.entries[k], binding: group.bindings[k] };
 }
 
 describe('ShadowFlow — matriz de mundo por slot', () => {
@@ -30,25 +30,26 @@ describe('ShadowFlow — matriz de mundo por slot', () => {
         const s = await scene();
         s.step();
         const [draw] = s.draws('ShadowFlow');
-        const worlds = worldsOf(draw);
+        const pool = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
+        const worlds = worldsOf(draw, pool);
         expect(worlds.layout).toMatchObject({
-            binding: 2,
             kind: 'buffer',
             type: 'read-only-storage',
             visibility: GPUShaderStage.VERTEX,
         });
-        expect(worlds.binding).toMatchObject({
-            binding: 2,
-            buffer: s.scene.resourceSystem.poolBufferSpec('WorldTransform'),
-        });
+        expect(worlds.binding).toMatchObject({ buffer: pool });
     });
 
-    it('desenha com firstInstance = slot e sem criar nem escrever transform por objeto', async () => {
+    it('desenha pelos argumentos das páginas (a instância pelo par) e sem criar nem escrever transform por objeto', async () => {
         const s = await scene();
         s.step();
         s.resetCounts();
         s.step();
-        expect(s.draws('ShadowFlow').map((d) => d.firstInstance)).toEqual([s.worldSlot()]);
+        // A instância do desenho é um par (entidade × página suja), escrito na GPU; a entidade acha o seu slot no pool
+        // pela lista de instâncias.
+        const draws = s.draws('ShadowFlow');
+        expect(draws.map((d) => [d.instanceCount, d.firstInstance])).toEqual([[1, undefined]]);
+        expect(draws[0]!.indirect?.buffer).toBeDefined();
         expect(s.creates()).toHaveLength(0);
         expect(s.writes().some((w) => discOf(w).startsWith('shadow_transform'))).toBe(false);
     });
@@ -74,7 +75,7 @@ describe('ShadowFlow — matriz de mundo por slot', () => {
         s.step();
         const after = s.scene.resourceSystem.poolBufferSpec('WorldTransform');
         expect(after).not.toBe(before);
-        expect(worldsOf(s.draws('ShadowFlow')[0]).binding).toMatchObject({ buffer: after });
+        expect(worldsOf(s.draws('ShadowFlow')[0], after).binding).toMatchObject({ buffer: after });
     });
 
     it('sem luz que projeta sombra o estágio não grava', async () => {

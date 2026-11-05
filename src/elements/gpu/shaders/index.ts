@@ -1,5 +1,5 @@
 import {
-    brdf,
+    shadowVirtual,
     bsdf,
     camera,
     color,
@@ -47,7 +47,7 @@ export const wgslLib = Object.freeze({
     color,
     present,
     bsdf,
-    brdf,
+    shadowVirtual,
     finite,
     fixedPoint,
     atomicAlloc,

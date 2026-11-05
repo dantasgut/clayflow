@@ -59,6 +59,9 @@ const composed = new WeakMap<WgslModule, ComposedShader>();
  * `wgslName` e layouts diferentes, e chamada a função não definida. Memorizado por módulo de entrada — roda na criação
  * dos recursos de GPU, nunca por quadro.
  */
+/** Uma diretiva `enable` numa linha própria. */
+const ENABLE_DIRECTIVE = /^[ \t]*enable[ \t]+[A-Za-z0-9_, \t]+;[ \t]*$/gm;
+
 export function composeWgsl(entry: WgslModule): ComposedShader {
     const cached = composed.get(entry);
     if (cached !== undefined) return cached;
@@ -91,6 +94,19 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
         // Cada parte é seguida de uma linha em branco (`\n\n` na junção).
         line += text.split('\n').length + 1;
     };
+    // Diretivas `enable` dos módulos (ex.: `clip_distances`) vão para o topo, uma vez cada: o WGSL as exige antes de
+    // qualquer declaração. No módulo, a linha vira comentário (as faixas de linhas seguem as mesmas).
+    const texts = new Map<WgslModule, string>();
+    const directives = new Set<string>();
+    for (const m of order) {
+        if (isWgslResource(m)) continue;
+        const text = resolveMarkers(m, entry.name).replace(ENABLE_DIRECTIVE, (d: string) => {
+            directives.add(d.trim());
+            return `// ${d.trim()} (no topo)`;
+        });
+        texts.set(m, text);
+    }
+    if (directives.size > 0) push([...directives].join('\n'));
     if (schemas.length > 0) push(schemas.map((s) => s.toWGSL()).join('\n\n'));
     if (bindings.length > 0) {
         push(
@@ -103,7 +119,7 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
     }
     for (const m of order) {
         if (isWgslResource(m)) continue;
-        const text = resolveMarkers(m, entry.name);
+        const text = texts.get(m)!;
         ranges.set(m.name, { first: line, last: line + text.split('\n').length - 1 });
         push(text);
     }

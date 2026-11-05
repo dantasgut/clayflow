@@ -8,7 +8,7 @@ import { World } from '../../../scene/world/World';
 import { GI_QUALITY, GlobalIllumination } from '../../lighting/GlobalIllumination';
 import { Froxels } from '../../media/Froxels';
 import { FROXEL_GRID } from '../../media/schemas';
-import { ShadowMap } from '../../scene/ShadowMap';
+import { SHADOW_MAX_LEVELS, ShadowMap } from '../../scene/ShadowMap';
 
 describe('Renderer (spec 039, FR-010)', () => {
     it('padrão: perfil alto com os valores de hoje (16 interfaces, 65 536 fótons, cáusticas ligadas)', () => {
@@ -65,7 +65,7 @@ describe('Renderer (spec 039, FR-010)', () => {
         expect(world.queryBySchemaName('Caustics')).toHaveLength(0);
     });
 
-    it('perfil alto: a luz global, a névoa e a sombra com os valores de antes (a mesma imagem)', () => {
+    it('perfil alto: a luz global e a névoa com os valores de antes (a mesma imagem); a sombra virtual em níveis de 4096²', () => {
         const r = new Renderer();
         expect(r.lightPaths.globalIllumination).toBe(true);
         expect(r.globalIllumination).toMatchObject({
@@ -76,7 +76,7 @@ describe('Renderer (spec 039, FR-010)', () => {
             screenFraction: GI_QUALITY.high.screenFraction,
         });
         expect(r.fog.resolution).toEqual(FROXEL_GRID);
-        expect(r.shadows).toMatchObject({ resolution: 1024, penumbraSamples: 9 });
+        expect(r.shadows).toMatchObject({ resolution: 4096, penumbraSamples: 9 });
     });
 
     it('os recursos adotados seguem o perfil e os ajustes; o que a autoria fixou vale por cima (T079)', () => {
@@ -94,7 +94,8 @@ describe('Renderer (spec 039, FR-010)', () => {
         expect(one.data.screenTile).toBe(16);
         expect(one.data.screenRays).toBe(GI_QUALITY.low.screenRays);
         expect(froxels.grid).toEqual(RENDER_PROFILES.low.froxels);
-        expect(map.data.size).toEqual([512, 512]);
+        expect(map.data.size).toEqual([1024, 1024]);
+        expect(map.data.pagesPerLevel).toBe(8);
         expect(map.data.penumbraSamples).toBe(4);
         expect(sized.data.size).toEqual([2048, 2048]);
         expect(sized.data.penumbraSamples).toBe(4);
@@ -102,7 +103,11 @@ describe('Renderer (spec 039, FR-010)', () => {
         r.profile = 'high';
         expect(free.data.raysPerProbe).toBe(GI_QUALITY.high.raysPerProbe);
         expect(froxels.grid).toEqual(FROXEL_GRID);
-        expect(map.data).toMatchObject({ size: [1024, 1024], penumbraSamples: 9 });
+        expect(map.data).toMatchObject({
+            size: [4096, 4096],
+            pagesPerLevel: 32,
+            penumbraSamples: 9,
+        });
 
         // Ajustes depois do perfil valem por cima dele.
         r.globalIllumination.raysPerProbe = 128;
@@ -145,7 +150,7 @@ describe('Renderer (spec 039, FR-010)', () => {
         }).toThrow(RangeError);
         expect(r.globalIllumination.raysPerProbe).toBe(GI_QUALITY.high.raysPerProbe);
         expect(r.fog.resolution).toEqual(FROXEL_GRID);
-        expect(r.shadows).toMatchObject({ resolution: 1024, penumbraSamples: 9 });
+        expect(r.shadows).toMatchObject({ resolution: 4096, penumbraSamples: 9 });
         expect(() => new ShadowMap({ penumbraSamples: 2 })).toThrow(RangeError);
     });
 
@@ -159,8 +164,9 @@ describe('Renderer (spec 039, FR-010)', () => {
         r.adopt(map);
         r.adopt(froxels);
         r.profile = 'low';
-        const depth = map.getDescriptors().find((d) => d.id === 'depth');
-        expect(depth?.textureShape).toMatchObject({ width: 512, height: 512 });
+        // O perfil baixo: 8 páginas por nível; a tabela acompanha (o atlas no mínimo de 16 × 16 páginas).
+        const pages = map.getDescriptors().find((d) => d.id === 'pages');
+        expect(pages?.textureShape).toMatchObject({ width: 8, height: 8 * SHADOW_MAX_LEVELS });
         const scatter = froxels.getDescriptors().find((d) => d.id === 'scatter');
         expect(scatter?.textureShape).toMatchObject({
             width: 96,

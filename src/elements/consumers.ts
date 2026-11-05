@@ -27,6 +27,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     new SingletonResolver(GravityField.schema, 'gravity'),
     new SingletonResolver(ParticlePhysics.schema, 'physics'),
     new ShadowCasterResolver('depth', 'texture_depth_2d'),
+    new ShadowCasterResolver('pages', 'texture_2d<u32>'),
     new ShadowCasterResolver('compare', 'sampler_comparison'),
     // Tabelas do sombreamento físico (spec 011): a DFG e o seu amostrador, lidos pelo avaliador do fechamento.
     new PbrTablesResolver('dfg', 'texture_2d<f32>'),

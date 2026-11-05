@@ -1,11 +1,12 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
-import { brdf } from '../../gpu/shaders/math';
+import { shadowVirtual } from '../../gpu/shaders/math';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
 import {
     lightsResource,
     shadowCasterDepthResource,
+    shadowCasterPagesResource,
     shadowCasterSamplerResource,
     shadowMapsResource,
     shadowMatricesResource,
@@ -14,7 +15,10 @@ import { lightVisibilityPoint } from './lighting';
 
 const visibilities = new Map<string, WgslModule>();
 
-/** Visibilidade da luz no slot `lightSlot` pela sombra (PCF com as amostras da penumbra do mapa, girado no quadro) do mapa no slot `shadowSlot`; as outras luzes: 1. */
+/**
+ * Visibilidade da luz no slot `lightSlot` pelo mapa de sombra virtual no slot `shadowSlot` (a penumbra com as amostras
+ * do mapa, girada no quadro); as outras luzes: 1.
+ */
 function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     const key = `${lightSlot}:${shadowSlot}`;
     let m = visibilities.get(key);
@@ -22,11 +26,12 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
         m = wgslModule({
             name: `light_visibility_shadow_${lightSlot}_${shadowSlot}`,
             requires: [
-                brdf,
+                shadowVirtual,
                 lightsResource,
                 shadowMapsResource,
                 shadowMatricesResource,
                 shadowCasterDepthResource,
+                shadowCasterPagesResource,
                 shadowCasterSamplerResource,
             ],
             source: `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {
@@ -34,7 +39,7 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     let sm = shadow_maps[${shadowSlot}u];
     let matrix = shadow_matrices[${shadowSlot}u];
     let l = -normalize(lights[${lightSlot}u].direction.xyz);
-    return sample_shadow_pcf(shadow_map, shadow_sampler, matrix.lightViewProj, p, n, l, sm.bias, sm.normalBias, matrix.kernelRotation, sm.penumbraSamples, 1.0);
+    return shadow_virtual_visibility(matrix, shadow_pages, shadow_map, shadow_sampler, p, n, l, sm.bias, sm.normalBias, sm.penumbraSamples);
 }`,
         });
         visibilities.set(key, m);

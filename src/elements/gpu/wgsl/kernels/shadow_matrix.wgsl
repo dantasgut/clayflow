@@ -1,25 +1,49 @@
-// Estágio da matriz de sombra (spec 007, research R11): para cada luz direcional que projeta, a matriz
-// luz-vista-projeção do seu mapa — ortográfica ±10 (clip z em [0, 1]) com o olho a 10 m contra a direção da luz,
-// mirando a origem (com o "para cima" trocado na luz vertical). Com o deslocamento da amostra (spec 034), a grade do
-// mapa anda dentro do texel a cada quadro (o acúmulo integra o mapa supersamplado: a borda sem o degrau dos texels) e o
-// padrão do PCF gira; a matriz deslocada é a mesma no desenho do mapa e na leitura.
-// Requer: structs Light, ShadowMap, ShadowMatrix, ShadowRecord, ShadowMatrixInstance, ShadowMatrixParams; camera.
+// Referencial do mapa de sombra virtual no quadro (spec 034, T060): para cada luz direcional que projeta, a base do
+// espaço da luz (x e y no plano da luz; z na direção dela, com o "para cima" trocado na luz vertical), a câmera nesse
+// espaço, os níveis ativos (do primeiro, de meio lado `firstLevelRadius`, até cobrir o plano distante da câmera), a meia
+// faixa de profundidade de uma página (o plano distante) e a sequência do antisserrilhado (a rotação da penumbra e o
+// deslocamento das amostras dentro do texel). O referencial do quadro anterior (atraso 1 da série) diz se o cache das
+// páginas vale: a luz, o primeiro nível, as páginas por nível e o atlas iguais, e a série contínua — senão `direction.w`
+// = 1 e o estágio de sombra recomeça as páginas.
+// As entradas estão em `shadow_matrix_eye.wgsl` (a câmera ativa, pelo pool das matrizes) e `shadow_matrix_origin.wgsl`
+// (sem câmera: os níveis em volta da origem e a vista-projeção zero).
+// Requer: structs Light, ShadowMap, ShadowMatrix, ShadowRecord, ShadowMatrixInstance, ShadowMatrixParams.
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn shadow_matrix_main(
-    @builtin(global_invocation_id) gid3: vec3u,
-    @builtin(num_workgroups) nwg: vec3u,
-) {
-    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+/** O referencial da luz `i` da lista com a câmera em `eye` e a vista-projeção `view_projection`. */
+fn shadow_matrix_write(i: u32, eye: vec3f, view_projection: mat4x4f) {
     if (i >= shadow_params.count) { return; }
     let r = shadow_records[shadow_list[shadow_params.first + i].record];
-    let dir = lights[r.lightSlot].direction.xyz;
-    // "Para cima" da vista da luz: o eixo y, ou o z quando a luz é (quase) vertical — senão a base degenera.
-    let up = select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(normalize(dir).y) > 0.99);
-    let view = camera_look_at(-dir * 10.0, vec3f(0.0), up);
-    let projection = camera_orthographic_box(-10.0, 10.0, -10.0, 10.0, 0.1, 50.0);
-    // Deslocamento em NDC (2 / tamanho por texel), aplicado depois da projeção: x' = x + o·w.
-    let o = shadow_params.texelJitter * 2.0 / max(shadow_maps[r.shadowSlot].size, vec2f(1.0));
-    shadow_matrices[r.shadowSlot].lightViewProj = camera_shift(projection * view, o);
-    shadow_matrices[r.shadowSlot].kernelRotation = shadow_params.kernelRotation;
+    let map = shadow_maps[r.shadowSlot];
+    let dir = normalize(lights[r.lightSlot].direction.xyz);
+    let up = select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(dir.y) > 0.99);
+    let x = normalize(cross(up, dir));
+    let y = cross(dir, x);
+    // Mundo → luz: as linhas são x, y e a direção (rotação pura; a âncora das páginas é a origem do mundo).
+    let view = mat4x4f(
+        vec4f(x.x, y.x, dir.x, 0.0),
+        vec4f(x.y, y.y, dir.y, 0.0),
+        vec4f(x.z, y.z, dir.z, 0.0),
+        vec4f(0.0, 0.0, 0.0, 1.0),
+    );
+    let camera = (view * vec4f(eye, 1.0)).xyz;
+    let far = max(shadow_params.far, map.firstLevelRadius);
+    let levels = u32(clamp(ceil(log2(far / map.firstLevelRadius)) + 1.0, 1.0, f32(SV_MAX_LEVELS)));
+    let previous = shadow_matrices_previous[r.shadowSlot];
+    let same = shadow_params.previousValid != 0u
+        && dot(previous.direction.xyz, dir) > 0.999999
+        && previous.firstLevelRadius == map.firstLevelRadius
+        && previous.pagesPerLevel == map.pagesPerLevel
+        && previous.atlasPages == map.atlasPages;
+    var m: ShadowMatrix;
+    m.lightView = view;
+    m.viewProjection = view_projection;
+    m.camera = vec4f(camera, f32(levels));
+    m.direction = vec4f(dir, select(1.0, 0.0, same));
+    m.kernelRotation = shadow_params.kernelRotation;
+    m.texelJitter = shadow_params.texelJitter;
+    m.firstLevelRadius = map.firstLevelRadius;
+    m.depthRange = far;
+    m.pagesPerLevel = map.pagesPerLevel;
+    m.atlasPages = map.atlasPages;
+    shadow_matrices[r.shadowSlot] = m;
 }

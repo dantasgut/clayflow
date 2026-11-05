@@ -44,7 +44,9 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
             `if (light != ${rs.poolSlotOf('Light', s.lightId)}u) { return 1.0; }`,
         );
         expect(src).toContain(`let sm = shadow_maps[${rs.poolSlotOf('ShadowMap', s.lightId)}u];`);
-        expect(src).toContain('sample_shadow_pcf(shadow_map, shadow_sampler');
+        expect(src).toContain(
+            'shadow_virtual_visibility(matrix, shadow_pages, shadow_map, shadow_sampler',
+        );
         expect(src).not.toContain('scene_light_direction');
     });
 
@@ -56,7 +58,7 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
         expect(src).toMatch(
             /fn light_visibility\(light: u32, p: vec3f, n: vec3f\) -> f32 \{\s*return 1\.0;/,
         );
-        expect(src).not.toMatch(/var shadow_map|shadow_maps\[/);
+        expect(src).not.toMatch(/var shadow_map|var shadow_pages|shadow_maps\[/);
     });
 
     it('nenhuma escrita dos parâmetros do quadro sem mudança — nem quando a direção da luz muda', async () => {

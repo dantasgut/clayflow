@@ -34,7 +34,7 @@ interface ProfileValues {
     readonly globalIllumination: Readonly<Record<GlobalIlluminationProfileField, number>>;
     /** Froxels da névoa por eixo. */
     readonly froxels: readonly [number, number, number];
-    /** Lado do mapa de sombra em texels. */
+    /** Lado de cada nível do mapa de sombra virtual em texels (páginas de 128²; spec 034, T060). */
     readonly shadowResolution: number;
     /** Amostras da penumbra. */
     readonly penumbraSamples: number;
@@ -67,7 +67,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         causticsInterval: 1,
         globalIllumination: giOf('high'),
         froxels: [160, 90, 128],
-        shadowResolution: 1024,
+        shadowResolution: 4096,
         penumbraSamples: 9,
     },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
@@ -80,7 +80,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         causticsInterval: 1,
         globalIllumination: giOf('medium'),
         froxels: [128, 72, 96],
-        shadowResolution: 1024,
+        shadowResolution: 2048,
         penumbraSamples: 4,
     },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
@@ -93,7 +93,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         causticsInterval: 1,
         globalIllumination: giOf('low'),
         froxels: [96, 54, 64],
-        shadowResolution: 512,
+        shadowResolution: 1024,
         penumbraSamples: 4,
     },
 };

@@ -33,6 +33,7 @@ import { HemisphereLight } from '../../elements/scene/HemisphereLight';
 import { Sky } from '../../elements/scene/sky/Sky';
 import { EnvironmentMap } from '../../elements/scene/environment/EnvironmentMap';
 import { RefractionVolumeRequestFlow } from './RefractionVolumeRequestFlow';
+import { ShadowRequestFlow } from './ShadowRequestFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
@@ -470,6 +471,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -50,
     });
+    // Pedidos de páginas do mapa de sombra virtual (spec 034, T060): a profundidade da cena deste quadro, depois do
+    // desenho dos opacos e dos sprites, para o estágio de sombra do quadro seguinte.
+    const shadowRequestRegistration = flows.register((ctx) => new ShadowRequestFlow(ctx), {
+        type: 'shadowRequest',
+        phase: 'forward',
+        priority: -55,
+    });
     // Pedido da refração pelos volumes (spec 034, T065f): a superfície da água à frente dos opacos (ou todo pixel com a
     // câmera dentro dela) no pedido, depois do dos transmissivos (forward) e dos sprites, antes do traçado.
     const volumeRequestRegistration = flows.register(
@@ -580,6 +588,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             forwardRegistration,
             particleRegistration,
             volumeRequestRegistration,
+            shadowRequestRegistration,
             refractionRegistration,
             refractionDenoiseRegistration,
             refractionCompositeRegistration,

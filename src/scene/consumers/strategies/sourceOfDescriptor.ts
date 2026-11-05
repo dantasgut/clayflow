@@ -1,8 +1,13 @@
 import type { Resource } from '../../contracts/Resource';
 import type { ResourceDirectory } from '../../contracts/ResourceDirectory';
 import type { ResolvedSource } from '../ResolvedSource';
+import { channelSourceOf } from '../../systems/flowBinding/channelBinding';
 
-/** Fonte do que a C2 alocou para o descritor `descId` de `resource` (buffer, view ou sampler), com a visibilidade explícita do descritor. */
+/**
+ * Fonte do que a C2 alocou para o descritor `descId` de `resource` (buffer, view ou sampler), com a visibilidade
+ * explícita do descritor. Descritor de textura com série temporal (spec 037): a fatia atual (atraso 0) pelo anel — o
+ * bind group acompanha o giro.
+ */
 export function sourceOfDescriptor(
     resources: ResourceDirectory,
     resource: Resource,
@@ -24,6 +29,16 @@ export function sourceOfDescriptor(
             };
         }
         return { kind: 'buffer', buffer, ...visibility };
+    }
+    const channel = desc?.history !== undefined ? resources.channelOf(resource, descId) : undefined;
+    if (channel?.allocated === true && buffer === undefined) {
+        return {
+            kind: 'channel',
+            channel: channelSourceOf(channel, `${resource.constructor.name}.${descId}`),
+            lag: 0,
+            epoch: channel.epoch,
+            ...visibility,
+        };
     }
     const view = resources.textureViewOf(resource, descId);
     if (view !== undefined) {
