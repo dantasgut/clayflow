@@ -99,15 +99,19 @@ class ShadowWork extends FlowWork {
 const NO_SHADOW = 'no-shadow|';
 
 /**
- * Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces. A entidade cujo material não
- * projeta sombra (spec 008: linhas e sprites, salvo opção do material) vai para um grupo `no-shadow`, não desenhado;
- * sem material, projeta.
+ * Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces — `two` para o material de dois
+ * lados (as duas faces projetam sombra; T061a). A entidade cujo material não projeta sombra (spec 008: linhas e
+ * sprites, salvo opção do material) vai para um grupo `no-shadow`, não desenhado; sem material, projeta.
  */
 export function shadowGroupKey(entry: EntityEntry, world: World): string {
     const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
-    const material = world.resourcesOf(entry.entityId).find((r) => r instanceof Material);
-    const casts = material === undefined || (material as Material).castsShadow;
-    return `${casts ? '' : NO_SHADOW}${geometry}|${entry.get(Transform).mirrored ? 'cw' : 'ccw'}`;
+    const material = world.resourcesOf(entry.entityId).find((r) => r instanceof Material) as
+        | Material
+        | undefined;
+    const casts = material === undefined || material.castsShadow;
+    const faces =
+        material?.doubleSided === true ? 'two' : entry.get(Transform).mirrored ? 'cw' : 'ccw';
+    return `${casts ? '' : NO_SHADOW}${geometry}|${faces}`;
 }
 
 function slotsOf(world: World, work: ShadowWork): ShadowSlots {
@@ -143,15 +147,16 @@ const VERTEX_LAYOUT = [
     },
 ];
 
-function depthPipeline(frontFace: GPUFrontFace, preferAsync: boolean): PipelineDescriptor {
+function depthPipeline(faces: GPUFrontFace | 'two', preferAsync: boolean): PipelineDescriptor {
     return {
-        id: `shadow_depth:${frontFace}`,
+        id: `shadow_depth:${faces}`,
         role: 'render',
         shader: shadowDepth,
         entryPoints: ['vs_main'],
         topology: 'triangle-list',
-        cullMode: 'back',
-        frontFace,
+        // As duas faces do material de dois lados (T061a).
+        cullMode: faces === 'two' ? 'none' : 'back',
+        frontFace: faces === 'two' ? 'ccw' : faces,
         vertexBuffers: VERTEX_LAYOUT,
         depth: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
         ...(preferAsync ? { preferAsync: true } : {}),
@@ -205,7 +210,11 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         this.work = new ShadowWork();
         this.slots = slotsOf(ctx.world, this.work);
         const async = options.preferAsync === true;
-        this.pipelines = [depthPipeline('ccw', async), depthPipeline('cw', async)];
+        this.pipelines = [
+            depthPipeline('ccw', async),
+            depthPipeline('cw', async),
+            depthPipeline('two', async),
+        ];
         const caster = {
             to: 'idle' as const,
             run: (_e: unknown, c: Ctx) => {
@@ -261,6 +270,7 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
         };
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
+        const two = bound.render('shadow_depth:two');
         const groups = bound.slots.casters.groups;
         const args = this.resources.bufferOf(this.work, INDIRECT) as IndirectBufferSpec | undefined;
         if (args !== undefined)
@@ -278,7 +288,11 @@ export class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 if (vertices?.subkind !== 'vertex') continue;
-                const pipeline = entry.get(Transform).mirrored ? cw : ccw;
+                const pipeline = group.key.endsWith('|two')
+                    ? two
+                    : entry.get(Transform).mirrored
+                      ? cw
+                      : ccw;
                 if (!pipeline.ready) continue;
                 if (pipeline !== current) {
                     pass.bind.setPipeline(pipeline.spec);

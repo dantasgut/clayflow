@@ -27,8 +27,9 @@ export class StandardMaterial extends Material<StandardMaterialData> {
     /** StructSchema do StandardMaterial (albedo + roughness + metallic). */
     static readonly schema = StandardMaterialSchema;
 
-    constructor(values: Partial<StandardMaterialData> = {}) {
+    constructor(values: Partial<StandardMaterialData> & { readonly doubleSided?: boolean } = {}) {
         super();
+        this.doubleSided = values.doubleSided ?? false;
         this.data = {
             albedo: values.albedo ?? [1, 1, 1, 1],
             roughness: values.roughness ?? 0.5,
@@ -52,7 +53,8 @@ export class StandardMaterial extends Material<StandardMaterialData> {
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [
             {
-                id: 'pipeline_standard',
+                // Os de dois lados num pipeline próprio (o estágio agrupa os desenhos pelo descritor).
+                id: this.doubleSided ? 'pipeline_standard:double' : 'pipeline_standard',
                 // Lobos do fechamento deste desenho (spec 011): o avaliador é especializado só com eles.
                 constants: { CLOSURE_LOBES: PARAMS_LOBES },
                 role: 'render',
@@ -60,7 +62,7 @@ export class StandardMaterial extends Material<StandardMaterialData> {
                 entryPoints: ['vs_main', 'fs_main'],
                 family: 'surface',
                 topology: 'triangle-list',
-                cullMode: 'back',
+                cullMode: this.doubleSided ? 'none' : 'back',
             },
         ];
     }

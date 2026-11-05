@@ -90,9 +90,10 @@ struct ForwardOut {
 }
 
 @fragment
-fn fs_main(in: VsOut) -> ForwardOut {
+fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
     let material = materials[in.material_slot];
-    let n = normalize(in.world_normal);
+    // A face de trás (só a do material de dois lados chega aqui; spec 034, T061a): a normal voltada para quem vê.
+    let n = normalize(in.world_normal) * select(-1.0, 1.0, front);
     // Variância da normal na tela (controle de serrilhado especular) e a largura do pixel no ponto (filtragem na origem,
     // spec 034) em fluxo uniforme, antes de qualquer ramo.
     let variance = bsdf_normal_variance(n);

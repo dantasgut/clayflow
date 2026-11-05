@@ -14,6 +14,7 @@ export abstract class Material<TData extends object = Record<string, unknown>>
 {
     state: ResourceState = ResourceState.Uninitialized;
     private castsShadowOverride: boolean | undefined = undefined;
+    private twoSided = false;
 
     abstract getDescriptors(): readonly GPUDescriptor[];
     abstract getPipelineDescriptors(): readonly PipelineDescriptor[];
@@ -50,5 +51,19 @@ export abstract class Material<TData extends object = Record<string, unknown>>
     /** Define se o material projeta sombra (vale sobre o padrão da topologia). */
     set castsShadow(value: boolean) {
         this.castsShadowOverride = value;
+    }
+
+    /**
+     * Superfície de dois lados (tecido, folhas, paredes de espessura zero; spec 034, T061a): as faces de trás são
+     * desenhadas (com a normal voltada para quem vê) e projetam sombra. Padrão: um lado só (as de trás descartadas).
+     * Atribuir antes de inserir na cena: a escolha entra nos pipelines e nos grupos de desenho na inserção.
+     */
+    get doubleSided(): boolean {
+        return this.twoSided;
+    }
+
+    /** Define se o material é de dois lados. */
+    set doubleSided(value: boolean) {
+        this.twoSided = value;
     }
 }

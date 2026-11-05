@@ -1108,7 +1108,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ...desc,
                     id: `forward:${desc.id}:${frontFace}`,
                     topology,
-                    cullMode: topology === 'triangle-list' ? 'back' : 'none',
+                    // As faces de trás pelo material (dois lados: `cullMode` 'none' no descritor dele; T061a).
+                    cullMode: topology === 'triangle-list' ? (desc.cullMode ?? 'back') : 'none',
                     frontFace,
                     vertexBuffers: SURFACE_VERTEX_LAYOUT,
                     colorTargets: [{ format }, ...this.lightTargets(ctx, true)],

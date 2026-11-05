@@ -114,7 +114,15 @@ function cloth(app: Application): void {
             edges: { a, b },
             surface: { triangles, uvs },
         })
-            .add(new StandardMaterial({ albedo: [0.8, 0.25, 0.2, 1], roughness: 0.7, metallic: 0 }))
+            .add(
+                // O tecido é de dois lados (T061a): a face de trás desenhada e com sombra.
+                new StandardMaterial({
+                    albedo: [0.8, 0.25, 0.2, 1],
+                    roughness: 0.7,
+                    metallic: 0,
+                    doubleSided: true,
+                }),
+            )
             .add(new Transform()),
     );
 }
@@ -128,12 +136,16 @@ interface Scene {
     readonly frames: readonly [number, number];
 }
 
-/** Pixels avermelhados (o tecido e os sprites são vermelhos; o resto é cinza ou azulado). */
+/**
+ * Pixels avermelhados (o tecido e os sprites são vermelhos; o resto é cinza ou azulado). A razão 1,3: com a curva de tom
+ * (AgX, spec 011) o vermelho do tecido aceso sai rosado (vermelho ~1,5× o verde); o chão cinza fica perto de 1 e o
+ * fundo azulado abaixo.
+ */
 function reddish(img: ImageData): number {
     let n = 0;
     for (let i = 0; i < img.data.length; i += 4) {
         const r = img.data[i]!;
-        if (r > 40 && r > 1.8 * img.data[i + 1]! && r > 1.8 * img.data[i + 2]!) n++;
+        if (r > 40 && r > 1.3 * img.data[i + 1]! && r > 1.3 * img.data[i + 2]!) n++;
     }
     return n;
 }
