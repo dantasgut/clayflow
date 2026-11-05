@@ -63,6 +63,15 @@ const engineErrors: string[] = [];
 /** Um caso de erro esperado está rodando (rejeições não reprovam). */
 let expectRejections = false;
 
+/**
+ * A apresentação sem a curva de tom nem o pontilhado (a saída linear na codificação sRGB): os casos que medem a cor da
+ * imagem (o xadrez, o laranja da fileira) foram calibrados antes do AgX da 011, que clareia e dessatura.
+ */
+function linearOutput(app: Application): void {
+    app.defaults.renderer.output.data.operator = 'linear';
+    app.defaults.renderer.output.data.dither = false;
+}
+
 async function createApp(size = 64): Promise<Application> {
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -706,6 +715,7 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
         const shots: ImageData[] = [];
         for (const checker of [false, true]) {
             const app = await createApp(128);
+            linearOutput(app);
             app.world.insert(
                 new Camera({ fov: Math.PI / 3, near: 0.1, far: 50 }).add(
                     new Transform({
@@ -740,11 +750,14 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
         // não muda).
         const lum = (img: ImageData, x: number, y: number): number =>
             img.data[(y * img.width + x) * 4]!;
+        // Claro: acima de 0,75 do vermelho do plano sem função (o fundo e as casas escuras ficam abaixo).
+        let top = 0;
+        for (let k = 20; k < 108; k++) top = Math.max(top, lum(shots[0]!, k, 61));
         const changes = (img: ImageData): number => {
             let n = 0;
             let prev = -1;
             for (let k = 20; k < 108; k++) {
-                const bright = lum(img, k, 61) > 60 ? 1 : 0;
+                const bright = lum(img, k, 61) > 0.75 * top ? 1 : 0;
                 if (prev >= 0 && bright !== prev) n++;
                 prev = bright;
             }
@@ -1003,6 +1016,7 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle 
         const shots: ImageData[] = [];
         for (const fisheye of [false, true]) {
             const app = await createApp(256);
+            linearOutput(app);
             const camera = new Camera({ fov: Math.PI / 3, near: 0.1, far: 50 }).add(
                 new Transform({ position: [0, 0, 6, 1] }),
             );
