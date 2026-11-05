@@ -22,6 +22,7 @@
 //       função do nó) contra a referência da CPU (`elements/nodes/reference/library.ts`) com a tolerância do nó.
 //
 // Para rodar: `npm run smoke -- nodeGraphs [--query part=a.b.c.d.e.f]`. Resultado: `NODEGRAPHS SMOKE PASSED` ou `FAIL: …`.
+import { srgbEncode } from '../elements/math/reference/color';
 import {
     Application,
     BoxGeometry,
@@ -927,9 +928,7 @@ async function partC(failures: string[]): Promise<void> {
         const o = ((rz * PX + PX / 2) * image.width + cx * PX + PX / 2) * 4;
         const color = entities[i]!.color;
         for (let k = 0; k < 3; k++) {
-            const c = color[k]!;
-            const srgb = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
-            const d = Math.abs(image.data[o + k]! - srgb * 255);
+            const d = Math.abs(image.data[o + k]! - srgbEncode(color[k]!) * 255);
             if (d > worst) {
                 worst = d;
                 worstAt = i;

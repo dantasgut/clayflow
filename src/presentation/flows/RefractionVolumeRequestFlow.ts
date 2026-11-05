@@ -18,6 +18,7 @@ import {
 } from '../../elements/lighting/refraction/shaders';
 import { transmissionResources } from '../../elements/material/shaders';
 import { FrameTargets } from '../app/FrameTargets';
+import { Camera } from '../../elements/scene/Camera';
 
 /** Slots do pedido da refração pelos volumes. */
 export interface RefractionVolumeRequestSlots extends SlotMap {
@@ -27,6 +28,8 @@ export interface RefractionVolumeRequestSlots extends SlotMap {
     readonly field: SingletonSlot<true>;
     /** A profundidade dos opacos (a superfície atrás de um opaco não é pedida). */
     readonly sceneDepth: TextureSlot<true>;
+    /** A câmera (obrigatória: sem câmera não há pedido, e o estágio fica fora da prontidão). */
+    readonly camera: SingletonSlot<false>;
 }
 
 type Ctx = TransitionContext<RefractionVolumeRequestSlots>;
@@ -46,6 +49,7 @@ export class RefractionVolumeRequestFlow extends Flow<RefractionVolumeRequestSlo
         refraction: slot.singleton(Refraction.schema),
         field: slot.singleton(FluidField.schema, { optional: true }),
         sceneDepth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
+        camera: slot.singleton(Camera.schema),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;

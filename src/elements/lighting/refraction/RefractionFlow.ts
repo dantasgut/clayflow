@@ -53,8 +53,11 @@ export interface RefractionSlots extends SlotMap {
     readonly refraction: SingletonSlot<false>;
     /** A estrutura de raios (sem ela, o estágio não traça). */
     readonly rays: SingletonSlot<true>;
-    /** A câmera ativa e o pool das matrizes (o slot dela). */
-    readonly camera: SingletonSlot<true>;
+    /**
+     * A câmera ativa (obrigatória: sem câmera não há o que traçar, e o estágio fica fora da prontidão) e o pool das
+     * matrizes (o slot dela).
+     */
+    readonly camera: SingletonSlot<false>;
     readonly cameras: PoolSlot<true>;
     /** Relógio da cena (as funções `material` nos acertos). */
     readonly time: SingletonSlot<true>;
@@ -200,7 +203,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         this.slots = {
             refraction: slot.singleton(Refraction.schema),
             rays: slot.singleton(RayScene.schema, { optional: true }),
-            camera: slot.singleton(Camera.schema, { optional: true }),
+            camera: slot.singleton(Camera.schema),
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
             time: slot.singleton(Time.schema, { optional: true }),
             work: slot.work(() => work),
