@@ -1,6 +1,6 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
-import { DistanceConstraint } from '../constraints/DistanceConstraint';
+import { DistanceConstraint, XPBD_SERIAL_COLOR } from '../constraints/DistanceConstraint';
 import { SurfaceGeometry } from '../../geometry/SurfaceGeometry';
 import { XPBDSoftSchema } from './schemas/XPBDSoftSchema';
 import { FEMSchema } from './schemas/FEMSchema';
@@ -122,6 +122,8 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
     readonly surface: SurfaceGeometry | undefined = undefined;
     /** Algoritmo do corpo (pelo schema das partículas), ou `undefined` num corpo cru de outro schema. */
     readonly algorithm: SoftBodyAlgorithm | undefined;
+    /** Cores das arestas (spec 034, T061b): os despachos de cor que o solver precisa para este corpo (0 sem arestas). */
+    readonly edgeColors: number = 0;
 
     constructor(options: SoftBodyOptions) {
         if (isRaw(options)) {
@@ -181,10 +183,12 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
             );
             this.add(this.surface);
         }
+        const fields = edges === undefined ? undefined : edgeFields(edges, options.position, count);
+        if (fields !== undefined) this.edgeColors = 1 + Math.max(...(fields.color as Uint32Array));
         this.data =
-            edges === undefined
+            fields === undefined
                 ? { body, ...this.rangeData() }
-                : { body, edges: edgeFields(edges, options.position, count), ...this.rangeData() };
+                : { body, edges: fields, ...this.rangeData() };
     }
 
     /** Blocos da energia do corpo (um grupo da GPU por bloco). */
@@ -208,6 +212,7 @@ export class SoftBody extends ParticleBody<SoftBodyData> {
                 algorithm: [SOFT_ENERGY_ALGORITHM[this.algorithm]],
                 first_chunk: [0],
                 chunk_count: [chunks],
+                edge_colors: [this.edgeColors],
             },
             chunks: {
                 range: new Uint32Array(chunks),
@@ -329,5 +334,47 @@ function edgeFields(
             );
         comp[k] = typeof compliance === 'number' ? compliance : compliance[k]!;
     }
-    return { i, j, rest_length: rest, compliance: comp };
+    const color = edgeColors(i, j, count);
+    // As arestas em ordem de cor (estável): cada cor é um trecho contíguo, que o grupo de trabalho do corpo percorre
+    // sozinho (sem passar pelas das outras cores).
+    const order = Array.from({ length: e }, (_, k) => k).sort(
+        (x, y) => color[x]! - color[y]! || x - y,
+    );
+    const pick = <T extends Uint32Array | Float32Array>(src: T): T => {
+        const out = new (src.constructor as new (n: number) => T)(e);
+        for (let k = 0; k < e; k++) out[k] = src[order[k]!]!;
+        return out;
+    };
+    return {
+        i: pick(i),
+        j: pick(j),
+        rest_length: pick(rest),
+        compliance: pick(comp),
+        color: pick(color),
+    };
+}
+
+/**
+ * Coloração gulosa das arestas (spec 034, T061b): cada aresta recebe a menor cor que nenhuma aresta dos seus dois nós
+ * já usa — as da mesma cor não compartilham nó, e o solver as resolve em paralelo sem corrida, uma cor depois da outra
+ * (Gauss-Seidel por cor). Com grau máximo d, no máximo 2d − 1 cores; acima de `XPBD_SERIAL_COLOR`, o corpo é recusado.
+ * Feita uma vez na criação do corpo, com o resto da montagem das arestas.
+ */
+function edgeColors(i: Uint32Array, j: Uint32Array, count: number): Uint32Array {
+    const used = new Uint32Array(count);
+    const color = new Uint32Array(i.length);
+    for (let k = 0; k < i.length; k++) {
+        const busy = used[i[k]!]! | used[j[k]!]!;
+        let c = 0;
+        while (c < XPBD_SERIAL_COLOR && (busy & (1 << c)) !== 0) c++;
+        if (c >= XPBD_SERIAL_COLOR) {
+            throw new RangeError(
+                `SoftBody: as arestas pedem mais de ${XPBD_SERIAL_COLOR} cores (nó de grau alto demais para o solver).`,
+            );
+        }
+        color[k] = c;
+        used[i[k]!]! |= 1 << c;
+        used[j[k]!]! |= 1 << c;
+    }
+    return color;
 }

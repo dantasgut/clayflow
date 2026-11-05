@@ -62,7 +62,8 @@ export const SoftBodyRangeSchema = new StructSchema('SoftBodyRange', {
     algorithm: FieldType.u32,
     first_chunk: FieldType.u32,
     chunk_count: FieldType.u32,
-    _pad0: FieldType.u32,
+    /** Cores das arestas do corpo (spec 034, T061b): o solver XPBD resolve uma cor depois da outra no grupo do corpo. */
+    edge_colors: FieldType.u32,
 });
 
 /** Um bloco de um corpo mole (enviado na inserção): o slot da faixa do corpo (`slotRefs` `self:range`) e o índice. */

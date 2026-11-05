@@ -16,6 +16,8 @@
 //     que a GPU tira das fatias anteriores do canal, valem E·(f^(−2·substeps) − 1)/dt e E·(f^(−14·substeps) − 1) — a
 //     solução analítica da lei discreta; antes de a série ter as fatias, zero; quadros sem passo de física não giram o
 //     anel. No XPBD sem restrições na cena roda a fonte sem arestas;
+//   - pinned (spec 034, T061b): o pano do `softSurface` preso pelos dois cantos de cima, 5 s sob a gravidade: a energia
+//     mecânica não sobe (a alta acima da inicial ≤ 1 % da queda, a subida entre amostras de 10 quadros ≤ 1 % da inicial);
 //   - cost: com profiling por passe, a mediana de 80 quadros do tempo de GPU das duas passadas com 65 536 partículas
 //     XPBD num corpo só e em 1024 corpos de 64, e com 32 768 partículas MPM num corpo. Limite: 1 % do quadro de 60 Hz
 //     no M4 (0,167 ms) — a energia é um canal de diagnóstico e não pode pesar no orçamento de nenhum quadro.
@@ -77,7 +79,7 @@ const HISTORY = 8;
 const NODE_F32 = 12;
 const MPM_F32 = 32;
 const RANGE_U32 = 8;
-const EDGE_U32 = 4;
+const EDGE_U32 = 5;
 const ENERGY_F32 = 8;
 const ALGORITHM = { XPBD: 1, FEM: 2, MPM: 3 } as const;
 
@@ -764,6 +766,79 @@ async function caseCost(): Promise<void> {
     });
 }
 
+/**
+ * O pano do `softSurface` (e da cena `pano`) preso pelos dois cantos de cima (T061b): 32 × 32 nós a 5 cm, 0,01 kg por
+ * nó, as arestas no comprimento inicial, sob a gravidade. A energia mecânica (cinética + potencial + elástica, a da série
+ * da GPU) ao longo de 5 s, lida a cada 10 quadros: a gravidade é conservativa e o amortecimento dissipa, então a energia
+ * não sobe — a alta acima da inicial ≤ 1 % da queda até o mínimo, e a subida entre duas amostras ≤ 1 % da inicial (o
+ * ganho de energia girava o pano por cima dos pinos no vídeo `pano`).
+ */
+async function casePinned(): Promise<void> {
+    const app = await open();
+    app.world.insert(new EnergyMeter());
+    app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+    const side = 32;
+    const h = 0.05;
+    const position: number[] = [];
+    const mass: number[] = [];
+    for (let j = 0; j < side; j++)
+        for (let i = 0; i < side; i++) {
+            position.push((i - (side - 1) / 2) * h, 1.4, (j - (side - 1) / 2) * h);
+            mass.push(j === 0 && (i === 0 || i === side - 1) ? 0 : 0.01);
+        }
+    const a: number[] = [];
+    const b: number[] = [];
+    const at = (i: number, j: number): number => j * side + i;
+    for (let j = 0; j < side; j++)
+        for (let i = 0; i < side; i++) {
+            if (i + 1 < side) {
+                a.push(at(i, j));
+                b.push(at(i + 1, j));
+            }
+            if (j + 1 < side) {
+                a.push(at(i, j));
+                b.push(at(i, j + 1));
+            }
+            if (i + 1 < side && j + 1 < side) {
+                a.push(at(i, j), at(i + 1, j));
+                b.push(at(i + 1, j + 1), at(i, j + 1));
+            }
+        }
+    app.world.insert(new SoftBody({ algorithm: 'XPBD', position, mass, edges: { a, b } }));
+    await app.whenReady();
+    const series: number[] = [];
+    for (let f = 0; f <= 300; f += 10) {
+        if (f > 0) app.step(DT, 10);
+        const [ranges, ...slices] = await readAll(app, [
+            app.resources.poolBufferSpec('SoftBodyRange')!,
+            ...seriesSpecs(app),
+        ]);
+        const r = rangesOf(ranges!, app.resources.poolCount('SoftBodyRange'))[0]!;
+        const now = new Float32Array(slices[0]!);
+        const o = r.slot * ENERGY_F32;
+        series.push(now[o]! + now[o + 1]! + now[o + 2]!);
+    }
+    app.dispose();
+    const e0 = series[1]!;
+    const low = Math.min(...series.slice(1));
+    const high = Math.max(...series.slice(1));
+    const drop = e0 - low;
+    // A maior subida entre amostras seguidas (10 quadros): com a gravidade conservativa e o amortecimento, nenhuma.
+    let rise = 0;
+    for (let k = 2; k < series.length; k++) rise = Math.max(rise, series[k]! - series[k - 1]!);
+    log(
+        `pinned: energia mecânica (J) a cada 10 quadros: ${series.map((e) => e.toFixed(2)).join(' ')}; inicial ${e0.toFixed(3)}, mínimo ${low.toFixed(3)}, máximo ${high.toFixed(3)}; maior subida em 10 quadros ${rise.toFixed(3)} J (${((100 * rise) / e0).toFixed(2)} % da inicial)`,
+    );
+    check(
+        high - e0 <= 0.01 * Math.max(drop, 1e-6),
+        `pinned: a energia sobe ${(high - e0).toFixed(4)} J acima da inicial (> 1 % da queda ${drop.toFixed(4)} J)`,
+    );
+    check(
+        rise <= 0.01 * e0,
+        `pinned: a energia sobe ${rise.toFixed(3)} J em 10 quadros (> 1 % da inicial, ${e0.toFixed(3)} J)`,
+    );
+}
+
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     const cases: Record<string, () => Promise<void>> = {
@@ -782,6 +857,7 @@ async function main(): Promise<void> {
         'fem-damping': () =>
             caseDamping('fem-damping', 'FEM', FEM_SUBSTEPS, femDampingFactor(DAMPING), 7),
         cost: caseCost,
+        pinned: casePinned,
     };
     for (const [name, run] of Object.entries(cases)) {
         if (only !== null && only !== name) continue;

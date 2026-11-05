@@ -1,6 +1,7 @@
 import { poolLive } from '../../gpu/compute/shaders';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
+import { SoftBodyRangeSchema } from '../energy/schemas';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { colliderSet, xpbd } from '../../gpu/shaders/math';
 import predictSource from '../../gpu/wgsl/kernels/predict.wgsl?raw';
@@ -50,6 +51,14 @@ export const xpbdResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'constraints' },
     }),
+    /** As faixas dos corpos moles (spec 034, T061b): um grupo de trabalho por corpo nas restrições, com as cores dele. */
+    ranges: wgslResource({
+        name: 'xpbd_ranges',
+        binding: { storage: 'read' },
+        type: { schema: SoftBodyRangeSchema, array: true },
+        frequency: 'stage',
+        provider: { slot: 'ranges' },
+    }),
     /** Slots vivos do pool de restrições. */
     constraintLive: wgslResource({
         name: 'constraint_live',
@@ -91,9 +100,23 @@ export const xpbdVelocityUpdate = wgslModule({
     requires: [poolLive, WORKGROUP_SIZE.module, R.params, R.particles, R.live],
 });
 
-/** Restrições de distância (Gauss-Seidel serial). */
+/**
+ * Restrições de distância por cor (spec 034 T061b): um grupo de trabalho por corpo, as cores em sequência com barreira
+ * (Gauss-Seidel por cor, em paralelo dentro da cor); as avulsas por uma invocação.
+ */
 export const xpbdDistanceSolve = wgslModule({
     name: 'xpbd_distance_solve',
     source: distanceSolveSource,
-    requires: [poolLive, xpbd, R.params, R.particles, R.constraints, R.live, R.constraintLive],
+    requires: [
+        poolLive,
+        xpbd,
+        WORKGROUP_SIZE.module,
+        R.params,
+        R.particles,
+        R.constraints,
+        R.live,
+        R.constraintLive,
+        R.ranges,
+    ],
+    structs: [SoftBodyRangeSchema],
 });

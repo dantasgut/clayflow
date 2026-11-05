@@ -22,8 +22,13 @@ export const SimParamsSchema = new StructSchema(
         field_time: FieldType.f32,
         /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
         field_density: FieldType.f32,
-        _field_pad0: FieldType.f32,
-        _field_pad1: FieldType.f32,
+        /**
+         * A cor das restrições de distância deste despacho (XPBD, spec 034 T061b): as da cor resolvidas em paralelo; a cor
+         * `XPBD_SERIAL_COLOR`, as avulsas, por uma invocação só. Os outros solvers não a usam (0).
+         */
+        constraint_color: FieldType.u32,
+        /** Iterações das restrições por substep (XPBD; spec 034, T061b). */
+        constraint_iterations: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
