@@ -84,8 +84,8 @@ export function shadowAtlasPages(pagesPerLevel: number): number {
  * ancoradas no espaço da luz. Só as páginas que a imagem usa existem: a profundidade da cena de um quadro marca as
  * páginas pedidas (`requests`), o estágio de sombra do quadro seguinte as aloca num atlas de páginas físicas (`depth`),
  * guardado na tabela de páginas (`pages`), e desenha só as novas e as tocadas por quem se moveu ou se deformou — as
- * demais seguem do quadro anterior. As três são séries temporais (spec 037): a tabela e o atlas do quadro anterior são
- * lidos pelo atraso 1.
+ * demais seguem do quadro anterior. As três são séries temporais (spec 037): a tabela e os pedidos do quadro anterior
+ * pelo atraso 1; o atlas, série por páginas (um alvo só, com o carimbo de cada página e a época da C2).
  *
  * Os vieses, o tamanho e o primeiro nível em pool (`array<ShadowMap>`); o referencial do quadro (a base da luz, a
  * câmera no espaço dela, a faixa de profundidade) num segundo descritor do mesmo slot (pool `ShadowMatrix`, produzido
@@ -202,8 +202,9 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
                 id: 'depth',
                 role: 'texture',
                 textureShape: { format: 'depth32float', width: atlas, height: atlas },
-                // O atlas do quadro anterior (atraso 1) segue no de agora; só as páginas sujas são redesenhadas.
-                history: { depth: 2 },
+                // Série por páginas (T060a): um alvo só, o tempo guardado por página (o carimbo e a época da C2); só
+                // as páginas sujas são redesenhadas, as demais seguem onde estão.
+                history: { depth: 1, pages: { tile: [SHADOW_PAGE_STRIDE, SHADOW_PAGE_STRIDE] } },
             },
             {
                 id: 'pages',

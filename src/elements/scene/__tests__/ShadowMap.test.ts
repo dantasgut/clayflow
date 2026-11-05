@@ -23,7 +23,7 @@ describe('ShadowMap', () => {
         expect(() => new ShadowMap({ firstLevelRadius: 0 })).toThrow(RangeError);
     });
 
-    it('descritores: parâmetros em pool, o referencial só na GPU (mesmo slot), o atlas, a tabela e os pedidos como séries temporais e o amostrador de comparação', () => {
+    it('descritores: parâmetros em pool, o referencial só na GPU (mesmo slot), o atlas como série por páginas, a tabela e os pedidos como séries temporais e o amostrador de comparação', () => {
         // O maior lado vale: 512 → 4 páginas por nível; o atlas com o mínimo de 16 × 16 páginas físicas.
         const map = new ShadowMap({ size: [512, 256] });
         expect(map.data).not.toHaveProperty('lightViewProj');
@@ -44,7 +44,7 @@ describe('ShadowMap', () => {
                 id: 'depth',
                 role: 'texture',
                 textureShape: { format: 'depth32float', width: atlas, height: atlas },
-                history: { depth: 2 },
+                history: { depth: 1, pages: { tile: [SHADOW_PAGE_STRIDE, SHADOW_PAGE_STRIDE] } },
             },
             {
                 id: 'pages',

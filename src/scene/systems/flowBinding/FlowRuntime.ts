@@ -877,6 +877,13 @@ export class FlowRuntime {
                 const channel = value as BoundChannel;
                 // Fatias ainda não pedidas (`ensureAllocated`): o pipeline espera.
                 if (!channel.allocated) return undefined;
+                // A série por páginas (spec 034, T060a): os carimbos e o relógio pelas partes do slot.
+                if (provider.part === 'stamps' || provider.part === 'clock') {
+                    const buffer =
+                        provider.part === 'stamps' ? channel.paged?.stamps : channel.paged?.clock;
+                    if (buffer === undefined || buffer.subkind === 'staging') return undefined;
+                    return { kind: 'buffer', buffer };
+                }
                 return {
                     kind: 'channel',
                     channel: channelSourceOf(channel, `${this.flow.type}.${provider.slot}`),

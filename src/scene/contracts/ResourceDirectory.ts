@@ -42,6 +42,22 @@ export interface ChannelInfo {
      * imediatamente anterior), ou `undefined` se ela não vale. Quem reprojeta pela câmera do quadro anterior exige 1.
      */
     age(lag: number): number | undefined;
+    /** Série por páginas (`HistoryShape.pages`): o carimbo por página e o relógio; `undefined` nas de fatias. */
+    readonly paged: PagedChannelInfo | undefined;
+}
+
+/**
+ * O estado de uma série por páginas (spec 034, T060a): o buffer dos carimbos (um `u32` por página: a época em que foi
+ * escrita; 0 = nunca), o uniforme do relógio (`vec4u`: a época — sobe a cada invalidação, a partir de 1 —, 0, 0, 0;
+ * escrito só na alocação e na invalidação) e as páginas por eixo. Página válida: carimbo = época. A idade de cada
+ * página é de quem a usa (o produtor guarda a sua, ex.: a tabela da sombra virtual).
+ */
+export interface PagedChannelInfo {
+    readonly tiles: readonly [number, number];
+    readonly stamps: AnyBufferSpec | undefined;
+    readonly clock: AnyBufferSpec | undefined;
+    /** A época: sobe a cada invalidação (as páginas carimbadas com outra não valem). */
+    readonly epoch: number;
 }
 
 /**

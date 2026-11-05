@@ -957,7 +957,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     invalidateChannel(resource: Resource, descId: string): void {
-        this.channelOf(resource, descId)?.invalidate();
+        const channel = this.channelOf(resource, descId);
+        channel?.invalidate();
+        if (channel !== undefined) this.writeClock(channel);
     }
 
     invalidatePoolChannel(poolKey: string): void {
@@ -968,11 +970,38 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return { frame: this.recordings, elapsed: this.recordingElapsed };
     }
 
-    /** Canal novo registrado para girar a cada quadro. */
-    private openChannel(name: string, depth: number): TemporalChannel {
-        const channel = new TemporalChannel(name, depth);
+    /** Canal novo registrado para girar a cada quadro (`tiles`: a série por páginas, spec 034 T060a). */
+    private openChannel(
+        name: string,
+        depth: number,
+        tiles?: readonly [number, number],
+    ): TemporalChannel {
+        const channel = new TemporalChannel(name, depth, undefined, tiles);
         this.channels.add(channel);
         return channel;
+    }
+
+    /** As páginas por eixo de uma série por páginas de `width` × `height` texels. */
+    private static tilesOf(
+        desc: GPUDescriptor,
+        width: number,
+        height: number,
+    ): readonly [number, number] | undefined {
+        const tile = desc.history?.pages?.tile;
+        if (tile === undefined) return undefined;
+        if (width % tile[0] !== 0 || height % tile[1] !== 0) {
+            throw new RangeError(
+                `ResourceSystem: série por páginas '${desc.id}' — ${width}×${height} não se divide em páginas de ${tile[0]}×${tile[1]}.`,
+            );
+        }
+        return [width / tile[0], height / tile[1]];
+    }
+
+    /** O relógio da série por páginas (a época) na GPU: na alocação e na invalidação. */
+    private writeClock(channel: TemporalChannel): void {
+        const clock = channel.paged?.clock;
+        if (clock === undefined) return;
+        this.core.write(clock, new Uint32Array([channel.paged!.epoch, 0, 0, 0]));
     }
 
     /** O canal de um descritor sob demanda, sem fatias até o pedido. */
@@ -982,7 +1011,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (!pending.has(desc.id))
             pending.set(
                 desc.id,
-                this.openChannel(`${desc.id}:${this.identityOf(resource)}`, desc.history!.depth),
+                this.openChannel(
+                    `${desc.id}:${this.identityOf(resource)}`,
+                    desc.history!.depth,
+                    desc.history!.pages === undefined ? undefined : [1, 1],
+                ),
             );
     }
 
@@ -2016,9 +2049,30 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             return;
         }
         const slices = Array.from({ length: history.depth }, (_, k) => make(`${disc}:h${k}`));
-        allocation.channel ??= this.openChannel(disc, history.depth);
+        const tiles = ResourceSystem.tilesOf(desc, size.width, size.height);
+        allocation.channel ??= this.openChannel(disc, history.depth, tiles);
         allocation.channel.format = format;
+        const paged = allocation.channel.paged;
+        if (paged !== undefined && tiles !== undefined) {
+            // Os carimbos (zerados: nenhuma página escrita) e o relógio, recriados com o alvo.
+            paged.tiles = tiles;
+            if (paged.stamps !== undefined) this.core.destroy(paged.stamps);
+            if (paged.clock !== undefined) this.core.destroy(paged.clock);
+            paged.stamps = this.core.create<StorageBufferSpec>({
+                kind: 'buffer',
+                subkind: 'storage',
+                discriminator: `${disc}:stamps:${tiles[0]}x${tiles[1]}`,
+                byteSize: Math.max(16, tiles[0] * tiles[1] * 4),
+            });
+            paged.clock = this.core.create<UniformBufferSpec>({
+                kind: 'buffer',
+                subkind: 'uniform',
+                discriminator: `${disc}:clock`,
+                byteSize: 16,
+            });
+        }
         allocation.channel.replaceSlices(slices);
+        this.writeClock(allocation.channel);
         allocation.texture = slices[0]!.texture;
         allocation.view = slices[0]!.view;
     }
@@ -2737,6 +2791,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     private releaseTexture(allocation: Allocation): void {
         const channel = allocation.channel;
+        if (channel?.paged !== undefined) {
+            if (channel.paged.stamps !== undefined) this.core.destroy(channel.paged.stamps);
+            if (channel.paged.clock !== undefined) this.core.destroy(channel.paged.clock);
+            channel.paged.stamps = undefined;
+            channel.paged.clock = undefined;
+        }
         if (channel !== undefined) {
             for (const slice of channel.allSlices()) {
                 if (slice.view !== undefined) this.core.destroy(slice.view);

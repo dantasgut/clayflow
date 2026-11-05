@@ -5,8 +5,8 @@
 //      de mundo); a instância que se moveu ou se deformou desde o quadro anterior (a série dos retângulos, atraso 1)
 //      entra na lista das dinâmicas com o retângulo de antes e o de agora;
 //   4. `sp_update_main` (uma por página virtual): a página do quadro anterior (a série da tabela) segue quando ainda é a
-//      mesma página global, foi pedida há poucos quadros e nenhuma dinâmica a tocou — e entra na lista do transporte
-//      (o desenho a copia do atlas anterior, atraso 1, para o de agora); a pedida (os pedidos do quadro anterior, a
+//      mesma página global, foi pedida há poucos quadros, a série do atlas a tem carimbada na época atual e
+//      nenhuma dinâmica a tocou; a pedida (os pedidos do quadro anterior, a
 //      série dos pedidos) sem página física precisa de alocação; a tocada, de redesenho — e `sp_rank_main` monta as filas
 //      de cada nível na ordem do índice;
 //   5. `sp_free_main` (um grupo): as páginas físicas que nenhuma página virtual segura, em ordem;
@@ -87,13 +87,16 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
     let physical = sp_atlas_pages_total();
     if (i < physical) { atomicStore(&sp_scratch[sp.keepBase + i], 0u); }
     if (i < sp.groupCount) {
+        // A caixa vazia até o kernel da geometria escrever a do quadro.
+        let b = sp.boundsBase + i * 6u;
+        for (var c = 0u; c < 3u; c++) {
+            sp_set_f(b + c, 3.0e38);
+            sp_set_f(b + 3u + c, -3.0e38);
+        }
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 3u], 0u);
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 3u + 2u], 0u);
     }
-    if (i == 0u) {
-        atomicStore(&sp_args[sp.clearRecord * 5u + 1u], 0u);
-        atomicStore(&sp_args[(sp.clearRecord + 1u) * 5u + 1u], 0u);
-    }
+    if (i == 0u) { atomicStore(&sp_args[sp.clearRecord * 5u + 1u], 0u); }
 }
 
 fn sp_atlas_pages_total() -> u32 {
@@ -224,19 +227,15 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     if (valid && age <= SP_MAX_AGE) {
         let phys = old.z & SV_PHYS_MASK;
         atomicStore(&sp_scratch[sp.keepBase + phys], 1u);
-        let rendered = (old.z & SV_RENDERED) != 0u && !sp_touched(rect);
+        // A série do atlas diz se o conteúdo da página ainda vale (carimbada na época atual).
+        let stamped = sp_atlas_stamps[phys] == sp_atlas_clock.x;
+        let rendered = (old.z & SV_RENDERED) != 0u && stamped && !sp_touched(rect);
         textureStore(
             sp_pages,
             texel,
             vec4u(gx, gy, SV_ALLOCATED | select(0u, SV_RENDERED, rendered) | (age << SV_AGE_SHIFT) | phys, old.w),
         );
-        if (!rendered) {
-            sp_need(i, SP_NEED_RENDER, phys);
-        } else {
-            // Segue do quadro anterior: o transporte a lê do atlas anterior (atraso 1) para o de agora.
-            let c = atomicAdd(&sp_args[(sp.clearRecord + 1u) * 5u + 1u], 1u);
-            atomicStore(&sp_scratch[sp.carryBase + c], phys);
-        }
+        if (!rendered) { sp_need(i, SP_NEED_RENDER, phys); }
         return;
     }
     textureStore(sp_pages, texel, vec4u(gx, gy, 0u, 0u));
@@ -376,6 +375,8 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
         vec2u(s.x, s.y + k * n),
         vec4u(bitcast<u32>(g.x), bitcast<u32>(g.y), SV_ALLOCATED | SV_RENDERED | phys, z0),
     );
+    // O carimbo da série do atlas: a página escrita na época atual.
+    sp_atlas_stamps[phys] = sp_atlas_clock.x;
     let r = sp.dirtyBase + d * 4u;
     atomicStore(&sp_scratch[r], phys | (k << 16u));
     atomicStore(&sp_scratch[r + 1u], bitcast<u32>(g.x));

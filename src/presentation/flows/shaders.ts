@@ -137,12 +137,21 @@ export const shadowResources = {
         frequency: 'stage',
         provider: { slot: shadowPageChannels.rects, lag: 1 },
     }),
-    /** O atlas do quadro anterior (o transporte das páginas que seguem). */
-    atlasPrevious: wgslResource({
-        name: 'shadow_atlas_previous',
-        binding: { texture: { sample: 'depth' } },
+    /** Os carimbos das páginas do atlas (a série por páginas: a época em que cada uma foi escrita). */
+    atlasStamps: wgslResource({
+        name: 'sp_atlas_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
         frequency: 'stage',
-        provider: { slot: shadowPageChannels.atlas, lag: 1 },
+        provider: { slot: shadowPageChannels.atlas, part: 'stamps' },
+    }),
+    /** O relógio da série do atlas (`vec4u`: a época). */
+    atlasClock: wgslResource({
+        name: 'sp_atlas_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.atlas, part: 'clock' },
     }),
     /** Lista de instâncias dos grupos de profundidade (slot `casters`). */
     instances: wgslResource({
@@ -182,6 +191,8 @@ export const shadowPages = wgslModule({
         shadowResources.requestsPrevious,
         shadowResources.rects,
         shadowResources.rectsPrevious,
+        shadowResources.atlasStamps,
+        shadowResources.atlasClock,
         shadowResources.instances,
     ],
     structs: [ShadowMap.matrixSchema, ShadowInstanceSchema],
@@ -202,7 +213,6 @@ export const shadowDepth = wgslModule({
         shadowResources.pairsRead,
         shadowResources.group,
         shadowResources.instances,
-        shadowResources.atlasPrevious,
     ],
 });
 

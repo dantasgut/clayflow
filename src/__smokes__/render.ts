@@ -161,7 +161,9 @@ async function render(scene: RenderScene): Promise<{ pixels: ImageData; profile:
         engineErrors.push(`${scene.name}: ${e.stage}: ${e.message}`),
     );
     scene.build(app);
-    // Dois quadros: o primeiro aloca e compila; o segundo desenha com tudo pronto. Leitura na mesma tarefa.
+    // Três quadros: o primeiro aloca e compila; o segundo desenha e pede as páginas da sombra virtual pela profundidade
+    // dele (spec 034, T060); o terceiro desenha com elas. Leitura na mesma tarefa.
+    app.step(1 / 60);
     app.step(1 / 60);
     app.step(1 / 60);
     const ctx = new OffscreenCanvas(WIDTH, HEIGHT).getContext('2d');

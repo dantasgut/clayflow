@@ -96,7 +96,7 @@ export type ResourceProvider =
            */
           readonly slot: string;
           /** Parte do slot (padrão: o buffer do pool, ou a view da textura). */
-          readonly part?: 'live' | 'records' | 'instances';
+          readonly part?: 'live' | 'records' | 'instances' | 'stamps' | 'clock';
           /** Descritor do Resource de um slot `singleton`. */
           readonly descriptor?: string;
           /** Atraso da fatia de um slot `channel` (spec 037; 0 = a atual). Default 0. */

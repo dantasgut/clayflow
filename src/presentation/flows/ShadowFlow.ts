@@ -110,7 +110,6 @@ function layoutOf(c: Capacity): {
     dynamicBase: number;
     boundsBase: number;
     rectsBase: number;
-    carryBase: number;
     groupPairsBase: number;
     needBase: number;
     words: number;
@@ -123,8 +122,7 @@ function layoutOf(c: Capacity): {
     const dynamicBase = dirtyBase + SHADOW_PAGE_BUDGET * 4;
     const boundsBase = dynamicBase + DYNAMIC_CAP * 4;
     const rectsBase = boundsBase + c.groups * 6;
-    const carryBase = rectsBase + c.instances * 4;
-    const groupPairsBase = carryBase + physical;
+    const groupPairsBase = rectsBase + c.instances * 4;
     const needBase = groupPairsBase + c.groups * 3;
     return {
         keepBase,
@@ -134,7 +132,6 @@ function layoutOf(c: Capacity): {
         dynamicBase,
         boundsBase,
         rectsBase,
-        carryBase,
         groupPairsBase,
         needBase,
         words: needBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel,
@@ -164,7 +161,7 @@ class ShadowWork extends FlowWork {
                     },
                     wordBuffer(SCRATCH, layoutOf(c).words * 4),
                     wordBuffer(GROUPS, (c.groups * 4 + c.instances) * 4),
-                    wordBuffer(ARGS, (c.groups + 2) * INDIRECT_WORDS * 4, 'indirect'),
+                    wordBuffer(ARGS, (c.groups + 1) * INDIRECT_WORDS * 4, 'indirect'),
                     wordBuffer(PAIRS, PAIR_CAPACITY * 4),
                     {
                         id: RECTS,
@@ -285,16 +282,16 @@ interface BoundsKernel {
 /**
  * ShadowFlow — o mapa de sombra virtual da primeira `DirectionalLight` que projeta sombra (spec 034, T060): as páginas
  * que a imagem pediu no quadro anterior (a série dos pedidos) são alocadas no atlas e só as novas e as tocadas por quem
- * se moveu ou se deformou são desenhadas; as demais seguem do quadro anterior (o atlas e a tabela são séries temporais:
- * as páginas que seguem são lidas do atlas anterior pelo atraso 1 e escritas na fatia de agora, e a tabela de agora é
- * refeita da anterior).
+ * se moveu ou se deformou são desenhadas; as demais seguem do quadro anterior (a tabela é série temporal de fatias,
+ * refeita da anterior a cada quadro; o atlas é série por páginas — um alvo só, com o carimbo de cada página e a época da
+ * C2, T060a).
  *
  * No quadro: a caixa de cada geometria (um despacho por geometria, ligado aos vértices dela), as etapas das páginas
  * (`shadow_pages.wgsl`: os retângulos das instâncias no plano da luz e quem se moveu, a tabela, as páginas livres, a
- * alocação do mais grosso ao mais fino até o orçamento do quadro e os pares instância × página suja) e o desenho — o
- * transporte das páginas que seguem, o fundo das sujas e um desenho indireto por grupo de instâncias (geometria,
- * orientação) com uma instância por par, recortado à página. A CPU não acompanha a luz nem as páginas: escreve só os grupos quando mudam e os
- * parâmetros do quadro.
+ * alocação do mais grosso ao mais fino até o orçamento do quadro, com o carimbo das páginas escritas, e os pares
+ * instância × página suja) e o desenho — o fundo das sujas e um desenho indireto por grupo de instâncias (geometria,
+ * orientação) com uma instância por par, recortado à página. A CPU não acompanha a luz nem as páginas: escreve só os
+ * grupos quando mudam e os parâmetros do quadro.
  */
 export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     readonly type = 'ShadowFlow';
@@ -370,17 +367,6 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 depth: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'always' },
                 ...(async ? { preferAsync: true } : {}),
             },
-            {
-                id: 'shadow_carry',
-                role: 'render',
-                shader: shadowDepth,
-                entryPoints: ['shadow_carry_vs', 'shadow_carry_fs'],
-                colorTargets: [],
-                topology: 'triangle-list',
-                cullMode: 'none',
-                depth: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'always' },
-                ...(async ? { preferAsync: true } : {}),
-            },
             depthPipeline('ccw', clip, async),
             depthPipeline('cw', clip, async),
             depthPipeline('two', clip, async),
@@ -422,17 +408,16 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         };
     }
 
-    /** As caixas, as etapas das páginas e o desenho: o transporte das que seguem e as sujas. */
+    /** As caixas, as etapas das páginas e o desenho das páginas sujas. */
     dispatch(frame: Frame, bound: BoundFlow<ShadowSlots>): void {
         if (!this.active) return;
         const steps = PAGE_STEPS.map((id) => bound.compute(id));
         if (steps.some((s) => !s.ready)) return;
         const clear = bound.render('shadow_clear');
-        const carry = bound.render('shadow_carry');
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
         const two = bound.render('shadow_depth:two');
-        if (!clear.ready || !carry.ready) return;
+        if (!clear.ready) return;
         const atlas = bound.slots.atlas;
         const view = atlas.view(0);
         const args = this.resources.bufferOf(this.work, ARGS);
@@ -449,7 +434,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 step.bindTo(pass.bind);
                 pass.dispatch.invocations(Math.max(1, invocations), WORKGROUP_SIZE);
             };
-            // As caixas das geometrias, cada uma no seu grupo.
+            // O início do quadro (os contadores, as caixas vazias) e as caixas das geometrias, cada uma no seu grupo.
+            run(0, Math.max(STATE_WORDS, physical, this.groupCount));
             for (const b of this.boundsGroupsOf) {
                 pass.bind.setPipeline(b.kernel.pipeline);
                 b.kernel.bindTo(pass.bind, { draw: [this.boundsGroups.offset(b.group)] });
@@ -461,7 +447,6 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 step.bindTo(pass.bind);
                 pass.dispatch.workgroups(workgroups);
             };
-            run(0, Math.max(STATE_WORDS, physical, this.groupCount));
             run(1, this.instanceCount);
             run(2, entries);
             // As filas: um grupo de trabalho por nível.
@@ -482,10 +467,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         };
         const groups = bound.slots.casters.groups;
         frame.render(target, 'ShadowFlow', (pass) => {
-            // As páginas que seguem, do atlas anterior; o fundo das sujas; os grupos nas sujas.
-            pass.bind.setPipeline(carry.spec);
-            carry.bindTo(pass.bind);
-            pass.draw.indirect(args, (this.groupCount + 1) * INDIRECT_WORDS * 4);
+            // O fundo das páginas sujas e os grupos nelas; as demais seguem no atlas (a série por páginas).
             pass.bind.setPipeline(clear.spec);
             clear.bindTo(pass.bind);
             pass.draw.indirect(args, this.groupCount * INDIRECT_WORDS * 4);
@@ -588,7 +570,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
      */
     private writeGroups(ctx: Ctx, instances: number): void {
         const groups = ctx.bound.slots.casters.groups;
-        // Os buffers fazem parte da chave: realocados (capacidade nova), voltam vazios e os grupos são reescritos.
+        // As regiões por grupo antes da chave (crescer as realoca).
+        this.groupDraws.reserve(groups.length);
+        this.boundsGroups.reserve(groups.length);
+        // Os grupos (o conteúdo: muda o que é desenhado — o cache recomeça) e os buffers (realocados voltam vazios: os
+        // grupos são reescritos, as páginas seguem valendo).
+        const content = groups.map((g) => `${g.key}:${g.first}:${g.count}`).join(';');
         const target = this.resources.bufferOf(this.work, GROUPS);
         const argsBuffer = this.resources.bufferOf(this.work, ARGS);
         const key = [
@@ -596,7 +583,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             argsBuffer === undefined ? 0 : this.idOf(argsBuffer),
             this.groupDraws.generation,
             this.boundsGroups.generation,
-            ...groups.map((g) => `${g.key}:${g.first}:${g.count}`),
+            content,
         ].join(';');
         this.indirectSources.clear();
         // Sem 'indirect-first-instance' a malha adaptativa fica no nível máximo: a contagem é a da capacidade.
@@ -613,13 +600,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const words = new Uint32Array(c.groups * 4 + c.instances);
         // As posições da lista sem instância de grupo (a lista da C2 tem buracos) ficam fora do desenho.
         words.fill(SKIP, c.groups * 4);
-        const args = new Uint32Array((c.groups + 2) * INDIRECT_WORDS);
-        this.groupDraws.reserve(groups.length);
-        this.boundsGroups.reserve(groups.length);
+        const args = new Uint32Array((c.groups + 1) * INDIRECT_WORDS);
         groups.forEach((group, index) => {
             const geometry = group.representative.get(Geometry);
-            const vertices = this.resources.bufferOf(geometry, 'vertices');
-            const skip = group.key.startsWith(NO_SHADOW) || vertices?.subkind !== 'vertex';
+            // Fora do desenho só o que não projeta; a geometria ainda sem vértices fica com a caixa vazia (zerada a cada
+            // quadro) até o kernel dela rodar.
+            const skip = group.key.startsWith(NO_SHADOW);
             const deforming = this.resources.hasGpuWriter(geometry, 'vertices');
             words.set([group.first, group.count, 0, index], index * 4);
             const word = index | (skip ? SKIP : 0) | (deforming ? DEFORMING : 0);
@@ -631,9 +617,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             this.groupDraws.write(index, { group: index });
             this.boundsGroups.write(index, { group: index });
         });
-        // O fundo das páginas sujas e o transporte das que seguem: 6 vértices por página.
+        // O fundo das páginas sujas: 6 vértices por página.
         args.set([6, 0, 0, 0], groups.length * INDIRECT_WORDS);
-        args.set([6, 0, 0, 0], (groups.length + 1) * INDIRECT_WORDS);
         this.resources.writeNow(this.work, GROUPS, words);
         this.resources.writeNow(this.work, ARGS, args);
         this.groupDraws.flush(groups.length);
@@ -642,8 +627,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.groupCount = groups.length;
         this.instanceCount = instances;
         this.boundsDirty = true;
-        this.reset = true;
+        if (content !== this.groupsContent) this.reset = true;
+        this.groupsContent = content;
     }
+
+    /** O conteúdo dos grupos escrito (as chaves, primeiras instâncias e contagens). */
+    private groupsContent = '';
 
     /** As caixas das geometrias precisam de kernels novos (grupos ou buffers mudados). */
     private boundsDirty = true;
@@ -731,7 +720,11 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 group.representative.get(Geometry),
                 'vertices',
             );
-            if (vertices === undefined || vertices.subkind === 'staging') return;
+            if (vertices === undefined || vertices.subkind === 'staging') {
+                // A geometria ainda sem buffer (alocado no envio do quadro): tenta de novo no próximo.
+                if (!group.key.startsWith(NO_SHADOW)) this.boundsDirty = true;
+                return;
+            }
             used.add(vertices);
             let b = this.bounds.get(vertices);
             if (b?.generation !== generation) {
@@ -760,11 +753,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     private writeParams(ctx: Ctx, casterSlot: number): void {
         const s = ctx.bound.slots;
         const continuous = (lag1: number | undefined): boolean => lag1 === 1;
-        this.reset =
-            this.reset
-            || !continuous(s.pages.age(1))
-            || !continuous(s.atlas.age(1))
-            || !continuous(s.rects?.age(1));
+        this.reset = this.reset || !continuous(s.pages.age(1)) || !continuous(s.rects?.age(1));
         const layout = layoutOf(this.work.capacity);
         const values = {
             casterSlot,
@@ -784,7 +773,6 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             rectsWidth: RECTS_WIDTH,
             instanceGroupBase: this.work.capacity.groups * 4,
             clearRecord: this.groupCount,
-            carryBase: layout.carryBase,
             groupPairsBase: layout.groupPairsBase,
             needBase: layout.needBase,
         };

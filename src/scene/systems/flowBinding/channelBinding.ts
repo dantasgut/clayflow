@@ -74,6 +74,9 @@ export function boundChannelOf(
         get format() {
             return channel.format;
         },
+        get paged() {
+            return channel.paged;
+        },
         texture: (lag) => channel.texture(lag),
         view: (lag) => channel.view(lag),
         buffer: (lag) => channel.buffer(lag),

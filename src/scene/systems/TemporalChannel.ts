@@ -1,5 +1,5 @@
 import type { AnyBufferSpec, TextureSpec, TextureViewSpec } from '../../core/contracts/index';
-import type { ChannelInfo, ChannelStamp } from '../contracts/ResourceDirectory';
+import type { ChannelInfo, ChannelStamp, PagedChannelInfo } from '../contracts/ResourceDirectory';
 
 /** Uma fatia do anel: a textura e a vista, ou o buffer do pool. */
 export interface ChannelSlice {
@@ -26,17 +26,27 @@ export class TemporalChannel implements ChannelInfo {
     private readonly stamps: (ChannelStamp | undefined)[];
     /** Formato resolvido das fatias de textura (`undefined` num canal de buffer). */
     format: GPUTextureFormat | undefined;
+    /** Série por páginas (spec 034, T060a): os carimbos, o relógio e a época; `undefined` nas de fatias. */
+    readonly paged: PagedState | undefined;
 
     constructor(
         /** Nome para mensagens (`Schema.descId` ou a chave do pool). */
         readonly name: string,
         readonly depth: number,
         format?: GPUTextureFormat,
+        /** Páginas por eixo da série por páginas (`depth` 1). */
+        tiles?: readonly [number, number],
     ) {
         this.format = format;
-        if (!Number.isInteger(depth) || depth < 2) {
+        this.paged =
+            tiles === undefined
+                ? undefined
+                : { tiles, stamps: undefined, clock: undefined, epoch: 1 };
+        if (tiles !== undefined ? depth !== 1 : !Number.isInteger(depth) || depth < 2) {
             throw new RangeError(
-                `canal temporal '${name}': depth ${depth} (a série tem ao menos a fatia atual e a anterior: inteiro ≥ 2).`,
+                tiles !== undefined
+                    ? `canal temporal '${name}': a série por páginas tem um alvo só (depth 1, recebido ${depth}).`
+                    : `canal temporal '${name}': depth ${depth} (a série tem ao menos a fatia atual e a anterior: inteiro ≥ 2).`,
             );
         }
         this.stamps = new Array<ChannelStamp | undefined>(depth).fill(undefined);
@@ -135,10 +145,22 @@ export class TemporalChannel implements ChannelInfo {
         return true;
     }
 
-    /** A continuidade quebrou: nenhuma fatia anterior vale. */
+    /**
+     * A continuidade quebrou: nenhuma fatia anterior vale. Na série por páginas, a época avança — as páginas carimbadas
+     * com a época anterior não valem; as escritas daqui em diante (com a nova), sim.
+     */
     invalidate(): void {
+        if (this.paged !== undefined) this.paged.epoch++;
         this.frames = 0;
         this.written = false;
         this.stamps.fill(undefined);
     }
+}
+
+/** O estado mutável de uma série por páginas (os buffers vêm da C2 na alocação). */
+export interface PagedState extends PagedChannelInfo {
+    tiles: readonly [number, number];
+    stamps: AnyBufferSpec | undefined;
+    clock: AnyBufferSpec | undefined;
+    epoch: number;
 }
