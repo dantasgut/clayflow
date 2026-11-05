@@ -1398,6 +1398,9 @@ async function main(): Promise<void> {
     for (const [name, run] of Object.entries(CASES)) {
         if (only !== null && !only.split('-').includes(name)) continue;
         await run();
+        // O Chrome recupera os dispositivos destruídos com atraso: em sequência rápida, depois da sessão de 2560 × 1440
+        // do `close`, o pedido de adaptador seguinte falhava ("Failed to acquire GPUAdapter"); com a pausa, não.
+        await new Promise((r) => setTimeout(r, 2000));
     }
     failures.push(...new Set(engineErrors));
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);
