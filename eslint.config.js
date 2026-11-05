@@ -10,8 +10,61 @@
 //
 // Type-aware rules requerem `parserOptions.project` apontando para o tsconfig real.
 
+import path from 'node:path';
 import tseslint from 'typescript-eslint';
 import prettierConfig from 'eslint-config-prettier';
+
+/**
+ * Os contratos da C2 que C3 e C4 importam (constituição, Princípio I): as pastas de `src/scene` permitidas. O bootstrap
+ * da C4 (`presentation/app`, `platform`) compõe a cena também pelo `SceneContext`, pelos sistemas e pelo índice; os
+ * testes, também pelos auxiliares de teste da C2.
+ */
+const C2_CONTRACTS = [
+    'contracts',
+    'descriptors',
+    'world',
+    'events',
+    'flows',
+    'shaders',
+    'consumers',
+    'time',
+    'graph',
+];
+const C2_BOOTSTRAP = ['SceneContext', 'SceneContext.ts', 'systems', 'index', 'index.ts'];
+const SCENE_DIR = path.resolve('src/scene');
+
+/** Regra local: a importação relativa que entra em `src/scene` fora dos contratos é recusada (resolve o caminho). */
+const c2Contracts = {
+    meta: { type: 'problem', schema: [] },
+    create(context) {
+        const file = context.filename;
+        const test = /[\\/]__tests__[\\/]/.test(file);
+        const bootstrap = /src[\\/](presentation[\\/]app|platform)[\\/]/.test(file);
+        const allowed = new Set([
+            ...C2_CONTRACTS,
+            ...(bootstrap || test ? C2_BOOTSTRAP : []),
+            ...(test ? ['__tests__'] : []),
+        ]);
+        const check = (node, spec) => {
+            if (typeof spec !== 'string' || !spec.startsWith('.')) return;
+            const target = path.resolve(path.dirname(file), spec);
+            if (target !== SCENE_DIR && !target.startsWith(SCENE_DIR + path.sep)) return;
+            const first = path.relative(SCENE_DIR, target).split(path.sep)[0] || 'index';
+            if (allowed.has(first)) return;
+            context.report({
+                node,
+                message: `C3/C4 importam só os contratos da C2 (${C2_CONTRACTS.join(', ')}): \`scene/${first}\` não é contrato (constituição, Princípio I).`,
+            });
+        };
+        return {
+            ImportDeclaration: (node) => check(node, node.source.value),
+            ExportNamedDeclaration: (node) => node.source && check(node, node.source.value),
+            ExportAllDeclaration: (node) => check(node, node.source.value),
+            ImportExpression: (node) =>
+                node.source.type === 'Literal' && check(node, node.source.value),
+        };
+    },
+};
 
 export default tseslint.config(
     {
@@ -174,6 +227,13 @@ export default tseslint.config(
             // Cast de `as never` foi removido no PR #27 mas confirmar:
             '@typescript-eslint/no-explicit-any': 'error',
         },
+    },
+
+    // Os contratos da C2 (spec 034, FR-035/T063): C3 e C4 só importam de `src/scene` as pastas da lista.
+    {
+        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts', 'src/platform/**/*.ts'],
+        plugins: { clay: { rules: { 'c2-contracts': c2Contracts } } },
+        rules: { 'clay/c2-contracts': 'error' },
     },
 
     // Fronteira de importação (decisão D4): as Camadas 3 e 4 importam contratos de GPU só por `scene/`

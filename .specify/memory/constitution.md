@@ -1,14 +1,14 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.2.0
-- Bump rationale: MINOR — novo princípio VII (Série Temporal como Referência da Evolução dos Quadros), regra dura,
-  decisão do mantenedor em 2026-11-04 depois de três estados temporais feitos fora do módulo da spec 037 (a cópia
-  manual do ponto mostrado da refração, a média móvel e a âncora das cáusticas no próprio hash, o mapa da luz pela
-  água reenquadrado a cada quadro) — o último fez a sombra junto às paredes piscar.
-- Modified principles: nenhum. Added sections: Princípio VII. Removed sections: nenhuma.
+- Version change: 1.2.0 → 1.2.1
+- Bump rationale: PATCH — clarificação do Princípio I (spec 034, FR-035/T063): `scene/graph` (os grafos de nós da
+  spec 031) entra na lista de contratos da C2 que C3/C4 importam; o bootstrap da C4 e os testes têm a lista ampliada já
+  descrita; a regra é verificada no lint por uma regra local que resolve o caminho da importação (`clay/c2-contracts`).
+  Registra também a regra da spec 039 contra a alocação de GPU fora da C2 e as peças da C2 que ela criou.
+- Modified principles: I (lista de contratos e verificação). Added sections: nenhuma. Removed sections: nenhuma.
 - Templates status:
     ✅ .specify/templates/plan-template.md — o "Constitution Check" lê os princípios da constituição (sem lista fixa)
-    ✅ CLAUDE.md — menção de versão atualizada para 1.2.0
+    ✅ CLAUDE.md — menção de versão atualizada para 1.2.1
 - Deferred / needs ratification:
     TODO(TESTING_C3_C4): nível de obrigatoriedade dos testes para C3/C4 (ver Princípio V).
     TODO(VERSIONING): política de versionamento/release e changelog (ver Restrições Técnicas e de Release).
@@ -36,12 +36,18 @@ As quatro camadas têm fronteiras estritas e direção de dependência única (d
 - **C3 Elementos** (`src/elements`) e **C4 Apresentação** (`src/presentation`).
 
 Regra MUST: C3 e C4 importam **apenas** a C2 — os contratos públicos (`scene/contracts`, `scene/descriptors`,
-`scene/world`, `scene/events`, `scene/flows`, `scene/shaders`, `scene/consumers`, `scene/time`) e, para os tipos de
-GPU da C1, os reexports de tipos de `scene/contracts/gpu` (nenhum valor da C1 atravessa). É PROIBIDO importar
-`core/` (contratos, interfaces ou a implementação WebGPU) fora de C1 e C2; a regra é verificada no lint
-(`no-restricted-imports` em `src/elements/**` e `src/presentation/**`, testes inclusive). O bootstrap da C4
-(`Application`) compõe a cena pelo `SceneContext` e pelos tipos dos sistemas da C2. Dependências circulares são
-proibidas (validadas em CI por `madge`).
+`scene/world`, `scene/events`, `scene/flows`, `scene/shaders`, `scene/consumers`, `scene/time`, `scene/graph`) e, para
+os tipos de GPU da C1, os reexports de tipos de `scene/contracts/gpu` (nenhum valor da C1 atravessa). É PROIBIDO
+importar `core/` (contratos, interfaces ou a implementação WebGPU) fora de C1 e C2; as duas regras são verificadas no
+lint em `src/elements/**`, `src/presentation/**` e `src/platform/**`, testes inclusive (`no-restricted-imports` para
+`core/`; `clay/c2-contracts`, que resolve o caminho da importação, para a lista de contratos). O bootstrap da C4
+(`presentation/app`, `platform`: o `Application`) compõe a cena também pelo `SceneContext`, pelos sistemas da C2
+(`scene/systems`) e pelo índice; os testes, também pelos auxiliares de teste da C2 (`scene/__tests__`). Nenhum Flow
+nem auxiliar de C3/C4 cria, escreve, destrói ou lê objetos de GPU pelo `core` (spec 039: regra de lint e o teste
+`noCoreAllocation.test.ts`): todo dado é descritor de um Resource — o espaço de trabalho de um Flow é o Resource de
+trabalho dele (`FlowWork`/`WorkPart`, `slot.work`), com as regiões do descritor (`GPUDescriptor.regions`) escritas pela
+C2 (`writeRegions`, `writeNow`) e lidas por `read`. Dependências circulares são proibidas (validadas em CI por
+`madge`).
 
 **Rationale**: a fronteira tipada mantém o backend WebGPU substituível e impede o vazamento de hardware
 para o domínio. Com a C2 como única porta, uma troca na C1 se resolve nos reexports da C2 sem tocar C3/C4. Sem
@@ -155,4 +161,4 @@ Toda revisão de PR DEVE verificar conformidade com os Princípios I–VII (o VI
 justificada. Itens marcados `TODO(...)` exigem ratificação explícita do mantenedor antes de virarem regra
 plenamente exigível.
 
-**Version**: 1.2.0 | **Ratified**: 2026-06-09 | **Last Amended**: 2026-11-04
+**Version**: 1.2.1 | **Ratified**: 2026-06-09 | **Last Amended**: 2026-11-05
