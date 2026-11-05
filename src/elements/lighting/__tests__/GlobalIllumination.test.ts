@@ -123,6 +123,13 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         world.remove(gi);
         expect(defaults.ambient.lighting).toBe(true);
         expect(world.queryBySchemaName(HemisphereLight.schema.name)).toHaveLength(1);
+        // O hemisfério que a cena retirou fica fora: a entrada e a saída da GI não o devolvem.
+        world.remove(defaults.ambient);
+        const again = new GlobalIllumination();
+        world.insert(again);
+        expect(inWorld(defaults.ambient)).toBe(false);
+        world.remove(again);
+        expect(inWorld(defaults.ambient)).toBe(false);
     });
 
     it('a GI e a sombra da cena seguem o renderizador dos estágios padrão; desligada nos caminhos de luz, nada roda (T079)', async () => {

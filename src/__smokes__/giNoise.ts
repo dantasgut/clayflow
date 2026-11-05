@@ -76,9 +76,10 @@ async function open(
     opts: { gi?: { quality: Quality; enabled: boolean }; fog?: FogVolume; ambient?: number },
 ): Promise<Session> {
     const { app, canvas } = await giApp(size.width, size.height, engineErrors);
+    const built = buildGiScene(app, scene, size.width / size.height);
+    // Depois da cena (que deixa o ambiente preto sem o céu, como a referência): o ambiente pedido.
     if (opts.ambient === undefined) app.world.remove(app.defaults.ambient);
     else app.defaults.ambient.data.intensity = opts.ambient;
-    const built = buildGiScene(app, scene, size.width / size.height);
     if (opts.fog !== undefined) app.world.insert(opts.fog);
     const ready = { revision: -1, at: 0 };
     app.events.on('globalIlluminationReady', (e) => {

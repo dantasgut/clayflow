@@ -337,6 +337,8 @@ function swapAmbientForGi(
 ): () => void {
     const prepass = targets.data.depthPrepass;
     const count = (name: string): number => world.queryBySchemaName(name).length;
+    // O hemisfério retirado por esta troca (a cena com o próprio ambiente) — só ele volta; o que a cena retirou fica fora.
+    let removed = false;
     return events.on('resourcesChanged', (e) => {
         const touched = [...e.added, ...e.removed].some(
             (r) =>
@@ -348,13 +350,22 @@ function swapAmbientForGi(
         const inWorld = world.entityIdOfResource(ambient) !== undefined;
         if (gi) {
             ambient.lighting = false;
-            if (environment && inWorld) world.remove(ambient);
-            if (!environment && !inWorld) world.insert(ambient);
+            if (environment && inWorld) {
+                world.remove(ambient);
+                removed = true;
+            }
+            if (!environment && removed) {
+                removed = false;
+                world.insert(ambient);
+            }
             if (count(RayScene.schema.name) === 0) world.insert(new RayScene());
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
         } else if (e.removed.some((r) => r instanceof GlobalIllumination)) {
             ambient.lighting = true;
-            if (!inWorld) world.insert(ambient);
+            if (removed) {
+                removed = false;
+                world.insert(ambient);
+            }
             if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
         }
     });

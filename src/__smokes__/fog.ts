@@ -91,9 +91,10 @@ async function open(
 ): Promise<Session> {
     const { app, canvas } = await giApp(size.width, size.height, engineErrors);
     app.events.on('deviceLost', (e) => engineErrors.push(`deviceLost: ${JSON.stringify(e)}`));
+    const built = buildGiScene(app, scene, size.width / size.height);
+    // Depois da cena (que deixa o ambiente preto sem o céu, como a referência): o ambiente pedido.
     if (options.ambient === undefined) app.world.remove(app.defaults.ambient);
     else app.defaults.ambient.data.intensity = options.ambient;
-    const built = buildGiScene(app, scene, size.width / size.height);
     for (const f of fogs) app.world.insert(f);
     extra?.(app);
     const ready = { revision: -1, at: 0 };

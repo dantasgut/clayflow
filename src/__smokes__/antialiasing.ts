@@ -754,6 +754,9 @@ async function waterOrbitOf(name: string, water: Water): Promise<void> {
  * Cobertura das partículas em sprites caindo, no modo pedido: os pixels em que a imagem difere da mesma cena sem elas,
  * no mesmo modo e no mesmo quadro (a mesma sequência de posições da amostra), em mais de 0,05. Não um limiar de
  * brilho: os sprites iluminados ficam abaixo de 0,85 de luminância, e o limiar contava só o realce da esfera lisa.
+ * Fora os pixels em que a cena vazia já muda nos 8 quadros seguintes (o piso de ruído): sem antisserrilhado, o sinal
+ * traçado da esfera de vidro tem uma amostra por quadro e muda conforme a fase do contador, que a cena com partículas
+ * alcança em outro quadro — a esfera inteira entrava como "partícula" (3578 a 4123 px, conforme os casos de antes).
  */
 async function spriteCoverage(mode: AntialiasingMode): Promise<number> {
     const s = await scene(mode);
@@ -764,9 +767,18 @@ async function spriteCoverage(mode: AntialiasingMode): Promise<number> {
     const e = await scene(mode);
     await e.app.whenReady();
     const empty = await frameAfter(e, 20);
+    // Os 8 quadros seguintes da cena vazia (parada): o que muda neles é o ruído da refração e o jitter, nas quatro fases do
+    // bloco 2×2 da meia resolução.
+    const noisy = new Uint8Array(empty.length);
+    for (let f = 0; f < 8; f++) {
+        const other = await frameAfter(e, 1);
+        for (let k = 0; k < empty.length; k++)
+            if (Math.abs(other[k]! - empty[k]!) > 0.05) noisy[k] = 1;
+    }
     close(e);
     let n = 0;
-    for (let k = 0; k < img.length; k++) if (Math.abs(img[k]! - empty[k]!) > 0.05) n++;
+    for (let k = 0; k < img.length; k++)
+        if (Math.abs(img[k]! - empty[k]!) > 0.05 && noisy[k] === 0) n++;
     return n;
 }
 
