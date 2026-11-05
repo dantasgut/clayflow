@@ -344,6 +344,9 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
                 schema: ProbeStateSchema,
                 count: GI_MAX_PROBES,
                 upload: 'never',
+                // Série por páginas (spec 034, T060b): uma página por sonda — o carimbo diz se o estado e os acúmulos
+                // dela valem (a média recomeça na sonda sem carimbo da época atual).
+                history: { depth: 1, pages: { record: ProbeStateSchema.stride } },
             },
             // O estado das sondas para quem lê (o desenho, os raios): deslocamento e estado; a célula (módulo 2048).
             {

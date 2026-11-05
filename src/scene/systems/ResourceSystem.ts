@@ -997,6 +997,31 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return [width / tile[0], height / tile[1]];
     }
 
+    /** Os carimbos (zerados: nenhuma página escrita) e o relógio de uma série por páginas, recriados com o alvo. */
+    private pagedBuffers(
+        channel: TemporalChannel,
+        disc: string,
+        tiles: readonly [number, number],
+    ): void {
+        const paged = channel.paged;
+        if (paged === undefined) return;
+        paged.tiles = tiles;
+        if (paged.stamps !== undefined) this.core.destroy(paged.stamps);
+        if (paged.clock !== undefined) this.core.destroy(paged.clock);
+        paged.stamps = this.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: `${disc}:stamps:${tiles[0]}x${tiles[1]}`,
+            byteSize: Math.max(16, tiles[0] * tiles[1] * 4),
+        });
+        paged.clock = this.core.create<UniformBufferSpec>({
+            kind: 'buffer',
+            subkind: 'uniform',
+            discriminator: `${disc}:clock`,
+            byteSize: 16,
+        });
+    }
+
     /** O relógio da série por páginas (a época) na GPU: na alocação e na invalidação. */
     private writeClock(channel: TemporalChannel): void {
         const clock = channel.paged?.clock;
@@ -1775,6 +1800,34 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     desc.regions !== undefined
                         ? this.regionStride(desc.schema) * this.checkedRegions(resource, desc)
                         : alignUp(desc.schema.stride * (desc.count ?? 1), 16);
+                const record = desc.history?.pages?.record;
+                if (desc.history !== undefined && record !== undefined) {
+                    // Série por páginas de buffer (T060b): um buffer só, um registro por página.
+                    if (
+                        byteSize % record !== 0
+                        && (desc.schema.stride * (desc.count ?? 1)) % record !== 0
+                    ) {
+                        throw new RangeError(
+                            `ResourceSystem: série por páginas '${desc.id}' — ${byteSize} bytes não se dividem em registros de ${record}.`,
+                        );
+                    }
+                    const pages: readonly [number, number] = [
+                        Math.floor((desc.schema.stride * (desc.count ?? 1)) / record),
+                        1,
+                    ];
+                    const buffer = this.core.create<StorageBufferSpec>({
+                        kind: 'buffer',
+                        subkind: 'storage',
+                        discriminator: `${disc}:h0`,
+                        byteSize,
+                    });
+                    allocation.channel ??= this.openChannel(disc, 1, pages);
+                    this.pagedBuffers(allocation.channel, disc, pages);
+                    allocation.channel.replaceSlices([{ buffer }]);
+                    this.writeClock(allocation.channel);
+                    allocation.buffer = buffer;
+                    break;
+                }
                 if (desc.history !== undefined) {
                     // Série de buffer (spec 037): as fatias, produzidas pela GPU (sem conteúdo da CPU).
                     const slices = Array.from({ length: desc.history.depth }, (_, k) => ({
@@ -2052,25 +2105,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const tiles = ResourceSystem.tilesOf(desc, size.width, size.height);
         allocation.channel ??= this.openChannel(disc, history.depth, tiles);
         allocation.channel.format = format;
-        const paged = allocation.channel.paged;
-        if (paged !== undefined && tiles !== undefined) {
-            // Os carimbos (zerados: nenhuma página escrita) e o relógio, recriados com o alvo.
-            paged.tiles = tiles;
-            if (paged.stamps !== undefined) this.core.destroy(paged.stamps);
-            if (paged.clock !== undefined) this.core.destroy(paged.clock);
-            paged.stamps = this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${disc}:stamps:${tiles[0]}x${tiles[1]}`,
-                byteSize: Math.max(16, tiles[0] * tiles[1] * 4),
-            });
-            paged.clock = this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: `${disc}:clock`,
-                byteSize: 16,
-            });
-        }
+        if (tiles !== undefined) this.pagedBuffers(allocation.channel, disc, tiles);
         allocation.channel.replaceSlices(slices);
         this.writeClock(allocation.channel);
         allocation.texture = slices[0]!.texture;
@@ -2781,6 +2816,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     /** O buffer da alocação — ou, numa série de buffer (spec 037), as fatias. */
     private releaseBuffer(allocation: Allocation): void {
         if (allocation.buffer === undefined) return;
+        this.releasePaged(allocation.channel);
         const slices = allocation.channel?.allSlices() ?? [];
         if (slices.some((slice) => slice.buffer !== undefined)) {
             for (const slice of slices)
@@ -2789,14 +2825,18 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         delete allocation.buffer;
     }
 
+    /** Os carimbos e o relógio de uma série por páginas saem com o alvo. */
+    private releasePaged(channel: TemporalChannel | undefined): void {
+        if (channel?.paged === undefined) return;
+        if (channel.paged.stamps !== undefined) this.core.destroy(channel.paged.stamps);
+        if (channel.paged.clock !== undefined) this.core.destroy(channel.paged.clock);
+        channel.paged.stamps = undefined;
+        channel.paged.clock = undefined;
+    }
+
     private releaseTexture(allocation: Allocation): void {
         const channel = allocation.channel;
-        if (channel?.paged !== undefined) {
-            if (channel.paged.stamps !== undefined) this.core.destroy(channel.paged.stamps);
-            if (channel.paged.clock !== undefined) this.core.destroy(channel.paged.clock);
-            channel.paged.stamps = undefined;
-            channel.paged.clock = undefined;
-        }
+        this.releasePaged(channel);
         if (channel !== undefined) {
             for (const slice of channel.allSlices()) {
                 if (slice.view !== undefined) this.core.destroy(slice.view);

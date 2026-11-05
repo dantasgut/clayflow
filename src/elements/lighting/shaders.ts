@@ -221,6 +221,29 @@ export const giScreenHistorySlot = Object.freeze({
     giScreenHistory: slot.channel(GlobalIlluminationSchema, 'screenHistory'),
 });
 
+/** O slot da série por páginas das sondas (spec 034, T060b): os carimbos, a época e a contagem de quadros. */
+export const giProbesSlot = Object.freeze({
+    giProbes: slot.channel(GlobalIlluminationSchema, 'probes'),
+});
+
+/** Os carimbos das sondas (a época em que cada uma foi escrita) e o relógio da série (`vec4u`: a época). */
+export const giProbeSeries = Object.freeze({
+    stamps: wgslResource({
+        name: 'gi_probe_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giProbes', part: 'stamps' },
+    }),
+    clock: wgslResource({
+        name: 'gi_probe_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'giProbes', part: 'clock' },
+    }),
+});
+
 /** Sondas de tela: ladrilhos, buffer de trabalho e o raio da câmera ativa. */
 const giScreenCommon = wgslModule({
     name: 'gi_screen_common',
@@ -324,6 +347,8 @@ export const giProbeBlend = wgslModule({
         R.radianceMap,
         R.visibilityMap,
         R.probeHysteresis,
+        giProbeSeries.stamps,
+        giProbeSeries.clock,
     ],
 });
 
@@ -331,7 +356,15 @@ export const giProbeBlend = wgslModule({
 export const giProbeClassify = wgslModule({
     name: 'gi_probe_classify',
     source: giProbeClassifySource,
-    requires: [WORKGROUP_SIZE.module, giCommon, R.params, R.probesWrite, R.raysRead],
+    requires: [
+        WORKGROUP_SIZE.module,
+        giCommon,
+        R.params,
+        R.probesWrite,
+        R.raysRead,
+        giProbeSeries.stamps,
+        giProbeSeries.clock,
+    ],
 });
 
 /** Cópia dos mapas para os atlas filtrados. */
@@ -351,6 +384,8 @@ export const giProbeAtlas = wgslModule({
         R.radianceOut,
         R.visibilityOut,
         R.probeOut,
+        giProbeSeries.stamps,
+        giProbeSeries.clock,
     ],
 });
 
@@ -373,7 +408,6 @@ export const giScreenGuide = wgslModule({
         giScreenCommon,
         R.radianceMapRead,
         R.screenWork,
-        R.screenAdaptCount,
         R.screenArgs,
     ],
 });

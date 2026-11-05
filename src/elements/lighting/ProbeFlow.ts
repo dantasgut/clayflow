@@ -57,6 +57,7 @@ import {
     giScreenGuide,
     giScreenAdapt,
     giScreenHistorySlot,
+    giProbesSlot,
     giWaveDirect,
 } from './shaders';
 
@@ -74,6 +75,11 @@ export interface ProbeSlots extends SlotMap {
     readonly cameras: PoolSlot<true>;
     /** O histórico das sondas de tela: um canal temporal (spec 037), reservado pelo estágio para o alvo. */
     readonly giScreenHistory: ChannelSlot<false>;
+    /**
+     * A série por páginas das sondas (spec 034, T060b): os carimbos e a época (o histórico de cada sonda vale?) e a
+     * contagem de quadros (as sementes e a rotação das sondas atualizadas).
+     */
+    readonly giProbes: ChannelSlot<false>;
     /** As cáusticas (spec 034): com elas ativas, as sondas não leem o especular direto de vidro e metal liso. */
     readonly caustics: SingletonSlot<true>;
     /** O espaço de trabalho das sondas: raios, gerações, radiância, visibilidade, a coleta de tela, a onda (spec 039). */
@@ -247,7 +253,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     private materialRevision = -1;
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
-    private frame = 0;
     private active = false;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
@@ -264,6 +269,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             time: slot.singleton(Time.schema, { optional: true }),
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
             ...giScreenHistorySlot,
+            ...giProbesSlot,
             caustics: slot.singleton(Caustics.schema, { optional: true }),
             work: slot.work(() => work),
         };
@@ -308,7 +314,15 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             || !this.wave.ready(bound)
         )
             return;
-        const { updated, rays, tilesX, tilesY, screenRays, adaptive } = this.buffers.sizes;
+        const {
+            updated,
+            rays,
+            tilesX,
+            tilesY,
+            screenRays,
+            adaptive,
+            probes: all,
+        } = this.buffers.sizes;
         const tiles = this.screenActive ? tilesX * tilesY : 0;
         // As sondas de tela: as dos ladrilhos e as vagas das extras (T058).
         const probes = tiles > 0 ? tiles + adaptive : 0;
@@ -344,6 +358,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             pass.dispatch.workgroupsIndirect(args, at);
         };
         const W = WORKGROUP_SIZE.value;
+        // As vagas das sondas extras ocupadas contam do zero a cada quadro (estado do quadro, não entre quadros).
+        frame.clear(this.buffers.screenAdaptCount);
         frame.compute('ProbeFlow', (pass) => {
             // A rodada única da onda: os acertos das sondas do mundo com a colocação das sondas de tela na mesma despacho
             // (os raios longos da câmera, poucos, sozinhos deixariam a GPU ociosa), depois os acertos das de tela, o
@@ -369,9 +385,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
             run(pass, 2, updated, W);
-            run(pass, 3, updated * (GI_IRRADIANCE_TEXELS + 2) ** 2, W);
-            run(pass, 4, updated * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
-            run(pass, 5, updated, W);
+            // Os atlas de todas as sondas, a cada quadro (o produto do quadro; o estado é a série das sondas).
+            run(pass, 3, all * (GI_IRRADIANCE_TEXELS + 2) ** 2, W);
+            run(pass, 4, all * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
+            run(pass, 5, all, W);
             // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
             screen(pass, -4, probes * screenRays, 16);
             screen(pass, 6, probes, 0);
@@ -388,7 +405,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         });
         // O acúmulo escreveu a fatia do quadro do histórico: o quadro seguinte a lê como a anterior (o canal gira).
         if (tiles > 0) bound.slots.giScreenHistory.written();
-        this.frame++;
+        bound.slots.giProbes.written();
     }
 
     private get core(): EngineCore {
@@ -402,11 +419,19 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const texels = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
         return [
             wordBuffer('gi_probes:rays', sizes.updated * sizes.rays * sizes.bounces * 16),
-            wordBuffer('gi_probes:generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
-            wordBuffer('gi_probes:radiance', GI_MAX_PROBES * texels * 8),
-            wordBuffer(
-                'gi_probes:visibility',
-                GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
+            // Os acúmulos das sondas (spec 034, T060b): séries por páginas, uma página por sonda (a validade de cada uma
+            // é a da série das sondas, `GlobalIllumination.probes`, escrita junto).
+            paged(
+                wordBuffer('gi_probes:generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
+                texels * sizes.bounces * 8,
+            ),
+            paged(wordBuffer('gi_probes:radiance', GI_MAX_PROBES * texels * 8), texels * 8),
+            paged(
+                wordBuffer(
+                    'gi_probes:visibility',
+                    GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
+                ),
+                GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
             ),
             // Coleta final na tela: por sonda de tela, posição e normal, a irradiância do quadro de cada geração e, por
             // raio, a direção e o peso da amostragem mista (T051), depois o mapa fino de cada ladrilho e o texel fino de
@@ -528,7 +553,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             );
         const sameViews = views.every((v, k) => v === this.atlases[k]);
         if (!sameSizes || !sameViews) {
-            if (!sameSizes) this.allocate(sizes);
+            if (!sameSizes) {
+                this.allocate(sizes);
+                // Os acúmulos realocados (zerados): o histórico de toda sonda recomeça pela série.
+                c.bound.slots.giProbes.invalidate();
+            }
             this.atlases = views;
             this.bind(c, views as TextureViewSpec[]);
             if (!this.prepared) {
@@ -657,7 +686,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         // As cáusticas ativas na cena (o `Caustics` ligado): as sondas não leem o especular direto de vidro e metal liso.
         const caustics =
             (c.bound.slots.caustics?.resource as Caustics | undefined)?.enabled === true;
-        const rotation = frameRotation(this.frame);
+        // A contagem de quadros da série das sondas (recomeça com ela): as sementes e a rotação.
+        const frameIndex = c.bound.slots.giProbes.frames;
+        const rotation = frameRotation(frameIndex);
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         d.params = [
             {
@@ -668,8 +699,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 cascade3: cascades[3]!,
                 rays: [
                     sizes.rays,
-                    this.frame,
-                    (this.frame * sizes.updated) % sizes.probes,
+                    frameIndex,
+                    (frameIndex * sizes.updated) % sizes.probes,
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
@@ -708,4 +739,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 : this.world.resourcesOf(id).find((r): r is Transform => r instanceof Transform);
         return transform?.data.position ?? [0, 0, 0, 1];
     }
+}
+
+/** O buffer como série por páginas de `record` bytes por página. */
+function paged(desc: GPUDescriptor, record: number): GPUDescriptor {
+    return { ...desc, history: { depth: 1, pages: { record } } };
 }

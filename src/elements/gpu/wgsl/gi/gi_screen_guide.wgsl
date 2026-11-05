@@ -6,9 +6,8 @@
 // precisa ser exato: o cosseno cobre o hemisfério inteiro, então a estimativa segue sem viés com qualquer sonda.
 // Uma invocação por sonda de tela; grava por raio vec4f(direção, peso) no trabalho das sondas de tela
 // (`gi_screen_ray_at`), que o acerto e a soma dos rebatimentos leem.
-// Também zera o contador das vagas das sondas extras para o quadro seguinte (`gi_screen_adapt_main` já as ocupou).
 // Requer: WORKGROUP_SIZE, random, basis, sampling, color, gi, gi_common, gi_weights, gi_screen_common,
-// gi_radiance_map_read, gi_screen_work, gi_screen_adapt_count.
+// gi_radiance_map_read, gi_screen_work.
 
 const GI_GUIDE_TEXELS: u32 = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
 
@@ -60,7 +59,6 @@ fn gi_guide_texel(d: vec3f) -> GiGuideTexel {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i == 0u) { atomicStore(&gi_screen_adapt_count[0], 0u); }
     if (i >= gi_screen_total()) { return; }
     let at = gi_screen_probe_at(i);
     let probe = gi_screen_work[at];

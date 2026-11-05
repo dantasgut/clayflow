@@ -2,7 +2,7 @@
 // está dentro da geometria e é desligada (não pesa nos pontos sombreados); perto de uma parede, é deslocada para fora
 // (relocação: afasta-se da face de trás mais próxima e da face da frente que fica a menos de um quarto do espaçamento),
 // limitada a 45 % do espaçamento. Marca a célula de mundo atual (o histórico vale para ela).
-// Requer: WORKGROUP_SIZE, gi_common, gi, gi_probes_write, gi_rays_read.
+// Requer: WORKGROUP_SIZE, gi_common, gi, gi_probes_write, gi_rays_read, gi_probe_stamps, gi_probe_clock.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_probe_classify_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -14,8 +14,9 @@ fn gi_probe_classify_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let spacing = gi_cascade(gi_probe_local(index).w).w;
     let cell = gi_probe_cell(index);
     var state = gi_probes[index];
-    if (any(state.coord.xyz != cell)) {
-        // Célula nova: o deslocamento da célula anterior não vale.
+    if (any(state.coord.xyz != cell) || gi_probe_stamps[index] != gi_probe_clock.x) {
+        // Célula nova, ou a sonda sem carimbo da época atual (spec 034, T060b): o deslocamento anterior não vale (a
+        // resposta já recomeçou no acúmulo deste quadro, que roda antes).
         state.offset = vec4f(0.0, 0.0, 0.0, GI_PROBE_NEW);
     }
     var back = 0u;
@@ -49,4 +50,6 @@ fn gi_probe_classify_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     state.offset = vec4f(offset, select(GI_PROBE_ACTIVE, GI_PROBE_INSIDE, inside));
     state.coord = vec4i(cell, state.coord.w);
     gi_probes[index] = state;
+    // A página da sonda escrita na época atual.
+    gi_probe_stamps[index] = gi_probe_clock.x;
 }

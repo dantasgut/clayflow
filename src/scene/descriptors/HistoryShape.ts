@@ -10,7 +10,7 @@ export interface HistoryShape {
      */
     readonly depth: number;
     /**
-     * Série por páginas (spec 034, T060a; só textura): o alvo é um só e a continuidade é guardada por página — a C2
+     * Série por páginas (spec 034, T060a; textura ou buffer de storage próprio): o alvo é um só e a continuidade é guardada por página — a C2
      * mantém o carimbo de cada página (a época em que foi escrita, num buffer que o produtor atualiza na GPU) e o
      * relógio da série (a época, que sobe a cada invalidação). Página com carimbo de outra época não vale. Para o
      * cache que muda pouco a cada quadro (o atlas da sombra virtual), sem carregar o que não mudou de uma fatia à outra.
@@ -25,9 +25,13 @@ export interface HistoryShape {
     readonly filtered?: boolean;
 }
 
-/** As páginas de uma série por páginas: o lado de cada uma em texels (a textura é dividida em páginas inteiras). */
+/**
+ * As páginas de uma série por páginas: numa textura, o lado de cada uma em texels (`tile`; a textura é dividida em
+ * páginas inteiras); num buffer de storage próprio, os bytes de cada uma (`record`; o buffer é dividido em registros).
+ */
 export interface HistoryPages {
-    readonly tile: readonly [number, number];
+    readonly tile?: readonly [number, number];
+    readonly record?: number;
 }
 
 /** Precisão de uma série temporal. */

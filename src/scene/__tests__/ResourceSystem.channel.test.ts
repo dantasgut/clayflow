@@ -269,3 +269,57 @@ describe('ResourceSystem — canal temporal de pool', () => {
         ).toThrow(/upload: 'never'/);
     });
 });
+
+describe('ResourceSystem — série por páginas (spec 034, T060a/T060b)', () => {
+    const pagedTexture: GPUDescriptor = {
+        id: 'atlas',
+        role: 'texture',
+        textureShape: { format: 'depth32float', width: 260, height: 130 },
+        history: { depth: 1, pages: { tile: [130, 130] } },
+    };
+    const pagedBuffer: GPUDescriptor = {
+        id: 'records',
+        role: 'storage-rw',
+        schema: Energy,
+        count: 64,
+        upload: 'never',
+        history: { depth: 1, pages: { record: 16 } },
+    };
+
+    it('textura: um alvo só, os carimbos por página e o relógio; a época sobe na invalidação', () => {
+        const { world, system, frame, core } = setup();
+        const r = new BagResource([pagedTexture]);
+        world.insert(r);
+        const ch = system.channelOf(r, 'atlas')!;
+        expect(ch.depth).toBe(1);
+        expect(ch.paged?.tiles).toEqual([2, 1]);
+        expect(ch.paged?.stamps).toBeDefined();
+        expect(ch.paged?.clock).toBeDefined();
+        const epoch = ch.paged!.epoch;
+        vi.mocked(core.write).mockClear();
+        frame(0);
+        frame(1 / 60);
+        // O relógio não é escrito por quadro.
+        expect(vi.mocked(core.write).mock.calls.filter(([s]) => s === ch.paged!.clock)).toEqual([]);
+        system.invalidateChannel(r, 'atlas');
+        expect(ch.paged!.epoch).toBe(epoch + 1);
+        const clocks = vi.mocked(core.write).mock.calls.filter(([s]) => s === ch.paged!.clock);
+        expect(clocks).toHaveLength(1);
+        expect([...new Uint32Array((clocks[0]![1] as Uint32Array).buffer)][0]).toBe(epoch + 1);
+    });
+
+    it('buffer: um registro por página', () => {
+        const { world, system } = setup();
+        const r = new BagResource([pagedBuffer]);
+        world.insert(r);
+        const ch = system.channelOf(r, 'records')!;
+        expect(ch.depth).toBe(1);
+        // 64 registros de 4 bytes (stride 16 no storage) = 1024 bytes → 64 páginas de 16 bytes.
+        expect(ch.paged?.tiles[0]).toBe((Energy.stride * 64) / 16);
+        expect(ch.buffer(0)).toBe(system.bufferOf(r, 'records'));
+    });
+
+    it('a série por páginas exige um alvo só', () => {
+        expect(() => new TemporalChannel('x', 2, undefined, [1, 1])).toThrow(/depth 1/);
+    });
+});

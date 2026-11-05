@@ -53,11 +53,11 @@ fn gi_generation_weights(p: vec3f, n: vec3f, v: vec3f, reach: f32) -> GiGenerati
 /** Irradiância (E) do rebatimento `k` pelos pesos dados. */
 fn gi_generation_at(w: GiGenerationWeights, k: u32) -> vec3f {
     let texels = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
-    let probes = gi_probe_count();
     var e = vec3f(0.0);
     for (var j = 0u; j < 16u; j++) {
         if (w.taps[j].weight <= 0.0) { continue; }
-        let at = (k * probes + w.taps[j].index) * texels;
+        // Por sonda (a página da série): os rebatimentos dela juntos.
+        let at = (w.taps[j].index * gi.bounces.x + k) * texels;
         var texel = vec3f(0.0);
         for (var q = 0u; q < 4u; q++) { texel += unpack_half_rgb(gi_generations[at + w.texels[q]]) * w.bilinear[q]; }
         e += texel * w.taps[j].weight;

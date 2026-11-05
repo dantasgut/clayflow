@@ -1,10 +1,12 @@
-// Cópia dos mapas das sondas atualizadas para os atlas filtrados (spec 033, R2): cada ladrilho com a borda de um texel
+// Cópia dos mapas de todas as sondas para os atlas filtrados (spec 033, R2; spec 034, T060b: todas a cada quadro — os
+// atlas são o produto do quadro, sem estado entre quadros; o estado é a série por páginas das sondas): cada ladrilho com a borda de um texel
 // que repete o octaedro do outro lado (a filtragem bilinear do hardware atravessa as dobras sem costura). O atlas de
 // irradiância recebe o último rebatimento (o que o desenho lê), o de radiância o mapa especular e o de visibilidade a
 // distância média e a média do quadrado.
-// Também o estado das sondas atualizadas na textura das sondas (o que o desenho e os raios leem).
+// Também o estado das sondas na textura das sondas (o que o desenho e os raios leem); a sonda sem carimbo da época
+// atual sai como dentro da geometria (não pesa).
 // Requer: WORKGROUP_SIZE, gi_common, gi, gi_probes, gi_generations_read, gi_radiance_map_read, gi_visibility_map_read,
-// gi_irradiance_out, gi_radiance_out, gi_visibility_out, gi_probe_out.
+// gi_irradiance_out, gi_radiance_out, gi_visibility_out, gi_probe_out, gi_probe_stamps, gi_probe_clock.
 
 /** Texel interior que alimenta o texel (x, y) de um ladrilho de `n` + 2 (a borda espelha o lado oposto). */
 fn gi_border_source(xy: vec2u, n: u32) -> vec2u {
@@ -40,15 +42,14 @@ fn gi_atlas_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let i = gi_atlas_index(gid3, nwg);
     let n = GI_IRRADIANCE_TEXELS;
     let tile = n + 2u;
-    if (i >= gi.rays.w * tile * tile) { return; }
-    let slot = i / (tile * tile);
+    if (i >= gi_probe_count() * tile * tile) { return; }
+    let index = i / (tile * tile);
     let t = i % (tile * tile);
     let xy = vec2u(t % tile, t / tile);
-    let index = (gi.rays.z + slot) % gi_probe_count();
     let src = gi_border_source(xy, n);
     let texel = src.x + src.y * n;
     let last = gi.bounces.x - 1u;
-    let e = unpack_half_rgb(gi_generations[(last * gi_probe_count() + index) * n * n + texel]);
+    let e = unpack_half_rgb(gi_generations[(index * gi.bounces.x + last) * n * n + texel]);
     let s = unpack_half_rgb(gi_radiance_map[index * n * n + texel]);
     let at = gi_atlas_tile(index, n) + xy;
     textureStore(gi_irradiance_out, at, vec4f(e, 1.0));
@@ -60,11 +61,10 @@ fn gi_atlas_visibility_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let i = gi_atlas_index(gid3, nwg);
     let n = GI_VISIBILITY_TEXELS;
     let tile = n + 2u;
-    if (i >= gi.rays.w * tile * tile) { return; }
-    let slot = i / (tile * tile);
+    if (i >= gi_probe_count() * tile * tile) { return; }
+    let index = i / (tile * tile);
     let t = i % (tile * tile);
     let xy = vec2u(t % tile, t / tile);
-    let index = (gi.rays.z + slot) % gi_probe_count();
     let src = gi_border_source(xy, n);
     let m = unpack2x16float(gi_visibility_map[index * n * n + src.x + src.y * n]);
     textureStore(gi_visibility_out, gi_atlas_tile(index, n) + xy, vec4f(m, 0.0, 1.0));
@@ -72,12 +72,12 @@ fn gi_atlas_visibility_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_atlas_probes_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let slot = gi_atlas_index(gid3, nwg);
-    if (slot >= gi.rays.w) { return; }
-    let index = (gi.rays.z + slot) % gi_probe_count();
+    let index = gi_atlas_index(gid3, nwg);
+    if (index >= gi_probe_count()) { return; }
     let s = gi_probes[index];
     let x = (index % GI_PROBE_TEXTURE_ROW) * 2u;
     let y = index / GI_PROBE_TEXTURE_ROW;
-    textureStore(gi_probe_out, vec2u(x, y), s.offset);
+    let valid = gi_probe_stamps[index] == gi_probe_clock.x;
+    textureStore(gi_probe_out, vec2u(x, y), vec4f(s.offset.xyz, select(GI_PROBE_INSIDE, s.offset.w, valid)));
     textureStore(gi_probe_out, vec2u(x + 1u, y), vec4f(vec3f(gi_cell_wrap(s.coord.xyz)), 1.0));
 }

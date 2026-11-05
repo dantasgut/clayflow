@@ -8,7 +8,7 @@
 // o estado enquanto os outros texels o liam no mesmo despacho). Os mapas vivem em buffers (half empacotado); a cópia
 // para os atlas filtrados é `gi_probe_atlas`.
 // Requer: WORKGROUP_SIZE, gi_common, gi_response, gi, gi_probes (escrita), gi_rays_read, gi_generations, gi_radiance_map,
-// gi_visibility_map, gi_probe_hysteresis.
+// gi_visibility_map, gi_probe_hysteresis, gi_probe_stamps, gi_probe_clock.
 
 fn gi_blend_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -19,10 +19,12 @@ fn gi_pack_rgb(c: vec3f) -> vec2u {
     return vec2u(pack2x16float(v.rg), pack2x16float(vec2f(v.b, 1.0)));
 }
 
-/** A sonda recomeça o histórico (nova, ou outra célula de mundo pelo endereçamento circular)? */
+/**
+ * A sonda recomeça o histórico? Sem o carimbo da época atual na série das sondas (spec 034, T060b: a primeira vez, ou
+ * depois de uma invalidação — os buffers realocados) ou noutra célula de mundo (o endereçamento circular).
+ */
 fn gi_probe_reset(index: u32) -> bool {
-    let s = gi_probes[index];
-    return s.offset.w == GI_PROBE_NEW || any(s.coord.xyz != gi_probe_cell(index));
+    return gi_probe_stamps[index] != gi_probe_clock.x || any(gi_probes[index].coord.xyz != gi_probe_cell(index));
 }
 
 /** Rebatimentos no máximo (os da `GlobalIllumination`). */
@@ -86,8 +88,9 @@ fn gi_blend_irradiance_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     }
     let h = gi_probe_hysteresis[slot];
     let probes = gi_probe_count();
+    // Por sonda (uma página da série): os rebatimentos dela juntos.
     for (var b = 0u; b < bounces; b++) {
-        let at = (b * probes + index) * texels + t;
+        let at = (index * gi.bounces.x + b) * texels + t;
         let old = unpack_half_rgb(gi_generations[at]);
         let fresh = select(old, sums[b] / wsum, wsum > 0.0);
         gi_generations[at] = gi_pack_rgb(mix(fresh, old, h));
