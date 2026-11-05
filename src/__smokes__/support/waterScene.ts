@@ -1,6 +1,6 @@
 // Cena de água dos smokes da superfície de fluido (spec 017): tanque sobre chão quadriculado (ladrilhos claros e
 // escuros: a refração e a absorção aparecem no padrão), paredes de vidro de 0,5 m (desenhadas onde colidem, com a física da
-// superfície do vidro), luz direcional com sombra,
+// superfície do vidro), luz direcional com sombra (com o disco do sol) e a luz global, como a cena do app,
 // câmera e uma barragem de partículas. A aparência da água é um material do grafo (spec 034, T066: o mesmo dielétrico do vidro).
 // Determinística: as fixtures dependem só do código.
 import {
@@ -10,6 +10,7 @@ import {
     DiffuseParticles,
     DirectionalLight,
     FluidBody,
+    GlobalIllumination,
     GravityField,
     ParticlePhysics,
     PlaneGeometry,
@@ -18,6 +19,7 @@ import {
     Transform,
     nodes,
     SurfacePhysics,
+    Sky,
 } from 'clayflow/web';
 import type {
     Application,
@@ -37,13 +39,20 @@ export const WATER_SPACING = 0.025;
 export interface WaterLook {
     /** Índice de refração (padrão 1,333). */
     readonly ior?: number;
-    /** Número de Abbe da dispersão (padrão 55,7; 0 sem dispersão). */
+    /**
+     * Número de Abbe da dispersão (padrão 0, sem dispersão, como a cena do app — escolha do agente, 2026-10-29, aceita pelo
+     * usuário porque com 55,7 a água ficava descaracterizada: o exagero é do motor, não da física; a água real é 55,7).
+     */
     readonly abbe?: number;
     /** Absorção por metro por canal (padrão a da água: 0,45; 0,09; 0,06). */
     readonly absorption?: readonly [number, number, number];
     /** Rugosidade da superfície (padrão 0,02). */
     readonly roughness?: number;
-    /** Ondulações da superfície (nó `surface.ripple`; padrão inclinação 0,3, 6 cm, velocidade 1); `false` sem. */
+    /**
+     * Ondulações procedurais na normal da superfície (nó `surface.ripple`: inclinação 0,3, 6 cm e velocidade 1 por padrão
+     * quando pedidas). Padrão sem, como a cena do app: as ondas da água das partículas são as da simulação — um relevo fixo
+     * por cima deixaria a água parada fosca, como ondulação congelada.
+     */
     readonly ripple?:
         | { readonly strength?: number; readonly size?: number; readonly speed?: number }
         | false;
@@ -61,7 +70,7 @@ export function waterLook(look: WaterLook = {}): MaterialFunction {
         reflect: nodes.bsdf.dielectric.with({ ior, roughness: look.roughness ?? 0.02 }),
         transmit: nodes.bsdf.transmission.with({
             ior,
-            abbe: look.abbe ?? 55.7,
+            abbe: look.abbe ?? 0,
             color: absorption.map((a) => Math.exp(-a)),
             depth: 1,
         }),
@@ -71,7 +80,8 @@ export function waterLook(look: WaterLook = {}): MaterialFunction {
         ['reflect.value', 'water.a'],
         ['transmit.value', 'water.b'],
     ];
-    if (look.ripple === false) return materialGraph(graph, links, 'water.value');
+    if (look.ripple === undefined || look.ripple === false)
+        return materialGraph(graph, links, 'water.value');
     return materialGraph(
         {
             ...graph,
@@ -125,12 +135,22 @@ export interface WaterSceneOptions {
     readonly spacing?: number;
     /** Partículas secundárias do corpo (spray, espuma e bolhas; padrão ligadas com a água pelo grafo). */
     readonly diffuse?: boolean;
-    /** A física da superfície dos sólidos diante da água (spec 034; sem ela, a padrão: lisa e impermeável). */
+    /**
+     * O céu físico (`Sky`, com o disco do sol) como fundo e ambiente — o que a água e o vidro refletem —, em unidades reais:
+     * o sol a 100 000 lux e a exposição e o ambiente na mesma escala (o brilho da cena fica o de sem ele). Padrão sem.
+     */
+    readonly sky?: boolean;
+    /**
+     * A luz rebatida da cena (`GlobalIllumination`, como a cena do app; padrão ligada). As cenas de conta exata que não a
+     * têm na referência a desligam.
+     */
+    readonly gi?: boolean;
     /**
      * As paredes do tanque: vidro (padrão: a luz as atravessa) ou opacas (as cenas analíticas, que medem a sombra delas e
      * o fundo sem a luz que passa pelo vidro).
      */
     readonly walls?: 'glass' | 'opaque';
+    /** A física da superfície dos sólidos diante da água (spec 034; sem ela, a padrão: lisa e impermeável). */
     readonly surfaces?: {
         readonly floor?: SurfacePhysicsOptions;
         readonly walls?: SurfacePhysicsOptions;
@@ -142,6 +162,11 @@ export interface WaterSceneOptions {
 function solid(collider: BoxCollider, surface: SurfacePhysicsOptions | undefined): BoxCollider {
     return surface === undefined ? collider : collider.add(new SurfacePhysics(surface));
 }
+
+/** A intensidade do sol da cena (unidades relativas, sem o céu físico). */
+const SUN_INTENSITY = 1.2;
+/** O sol com o céu físico (lux ao nível do chão, dia claro). */
+const SKY_SUN_LUX = 100000;
 
 /** Monta a cena; devolve o corpo (ou `undefined` sem água). */
 export function waterScene(app: Application, options: WaterSceneOptions): FluidBody | undefined {
@@ -170,14 +195,29 @@ export function waterScene(app: Application, options: WaterSceneOptions): FluidB
             ),
     );
     const dir = options.light ?? [-0.25, -1, -0.35];
-    world.insert(
-        new DirectionalLight({
-            direction: [...dir, 0],
-            color: [1, 1, 1, 1],
-            intensity: 1.2,
-            castShadow: true,
-        }),
-    );
+    // Com o céu físico, o sol em lux reais; a exposição e o ambiente sobem na mesma razão.
+    const scale = options.sky === true ? SKY_SUN_LUX / SUN_INTENSITY : 1;
+    const sun = new DirectionalLight({
+        direction: [...dir, 0],
+        color: [1, 1, 1, 1],
+        intensity: SUN_INTENSITY * scale,
+        castShadow: true,
+        // O disco do sol (raio angular de 0,267°): o brilho dele na água e no vidro.
+        angularRadius: 0.00466,
+    });
+    world.insert(sun);
+    if (options.sky === true) {
+        world.insert(new Sky({ sun, sunDisk: true }));
+        app.defaults.renderer.output.data.exposure = -Math.log2(scale);
+        app.defaults.ambient.data.intensity *= scale;
+    }
+    // A luz rebatida da cena (spec 033), como a do app: o chão, o fundo do tanque e a caixa sob a água com a luz que volta
+    // do céu, do chão e da água — no lugar da luz ambiente constante do hemisfério (os estágios padrão a desligam com ela).
+    // 16 × 8 × 16 sondas a 0,1 m cobrem o tanque inteiro (1,6 × 0,8 m), as cascatas de 0,2 e 0,4 m o chão em volta.
+    if (options.gi !== false)
+        world.insert(
+            new GlobalIllumination({ probeSpacing: 0.1, cascades: 3, center: [0, 0.3, 0] }),
+        );
     world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
     world.insert(
         new ParticlePhysics(

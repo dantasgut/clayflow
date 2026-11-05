@@ -773,7 +773,7 @@ async function caseContract(): Promise<void> {
     app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     app.world.insert(
         new FluidBody({ algorithm: 'SPH', position: particleBall(waterC, waterR, spacing) }).add(
-            waterLook(),
+            waterLook({ abbe: 55.7, ripple: { strength: 0.3, size: 0.06, speed: 1 } }),
         ),
     );
     // Corpo mole (XPBD, a superfície escrita na GPU a cada quadro): pano 16 × 16 plano em y = 1,3 em volta de

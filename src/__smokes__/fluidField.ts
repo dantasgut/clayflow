@@ -628,6 +628,9 @@ async function closeSilhouette(
         material: OPAQUE,
         eye,
         target: [0.05, 0.12, 0.4],
+        // Só a silhueta do material opaco: sem a luz rebatida. Com ela, a sessão de 2560 × 1440 depois das outras do
+        // smoke esgotava a GPU da página (o pedido de adaptador seguinte falhava) e a silhueta não era achada.
+        gi: false,
     });
     const img = s.capture();
     const p = WATER_SPACING * pxPerMeter(0.7, height);
@@ -656,6 +659,10 @@ async function caseClose(): Promise<void> {
     const b = await closeSilhouette(2560, 1440);
     log(
         `close: resolução dobrada, p = ${b.p.toFixed(1)} px, ondulação ${b.ripple.toFixed(3)} px (${(b.ripple / b.p).toFixed(4)} p)`,
+    );
+    check(
+        b.rows > 0.9 * 2560 * 0.7,
+        `close: resolução dobrada, silhueta contínua (${b.rows} colunas)`,
     );
     check(
         b.ripple / b.p <= 0.008,
@@ -1189,7 +1196,7 @@ async function caseClosure(): Promise<void> {
     const WATER_ABSORPTION = [0.45, 0.09, 0.06] as const;
     s.app.world.insert(
         new FluidBody({ algorithm: 'SPH', position: ball(centers[1]!, radius, 5) }).add(
-            waterLook({ absorption: WATER_ABSORPTION, ripple: false }),
+            waterLook({ absorption: WATER_ABSORPTION, abbe: 55.7, ripple: false }),
         ),
     );
     // Raios de fora para o centro de cada corpo, em direções variadas.
