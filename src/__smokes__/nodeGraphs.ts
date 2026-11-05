@@ -774,6 +774,12 @@ function tintSubgraph(): ReturnType<typeof Subgraph.point> {
 
 async function partC(failures: string[]): Promise<void> {
     const app = await createApp(false, GRID_X * PX, GRID_Z * PX);
+    // Só a emissão chega à tela: sem luz nem ambiente (a base preta ainda reflete pelo especular do dielétrico, F0 0,04)
+    // e a apresentação sem curva de tom (o AgX da 011 mudaria a cor); a imagem é a emissão na codificação sRGB.
+    app.defaults.renderer.output.data.operator = 'linear';
+    // Sem o pontilhado da quantização (soma até ±1 nível de propósito).
+    app.defaults.renderer.output.data.dither = false;
+    app.world.remove(app.defaults.ambient);
     app.world.insert(
         // Câmera ortográfica a 40 m, de cima.
         new Camera({ projection: 'orthographic', orthoHeight: GRID_Z, near: 0.1, far: 50 }).add(
@@ -783,7 +789,6 @@ async function partC(failures: string[]): Promise<void> {
             }),
         ),
     );
-    app.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], intensity: 1 }));
     const tint = tintSubgraph();
     // Contagem a partir de agora: shaders e pipelines com a função do sub-grafo.
     const shaderSources = new Set<string>();
@@ -912,7 +917,7 @@ async function partC(failures: string[]): Promise<void> {
         if (wrong > 0) failures.push(`(c) ${wrong} valores do pool diferentes dos das entidades`);
     }
 
-    // Cor de cada caixa no centro dela (emissão = a cor; cor base preta).
+    // Cor de cada caixa no centro dela: a emissão (a cor) na codificação sRGB.
     let checked = 0;
     let worst = 0;
     let worstAt = -1;
@@ -922,7 +927,9 @@ async function partC(failures: string[]): Promise<void> {
         const o = ((rz * PX + PX / 2) * image.width + cx * PX + PX / 2) * 4;
         const color = entities[i]!.color;
         for (let k = 0; k < 3; k++) {
-            const d = Math.abs(image.data[o + k]! - color[k]! * 255);
+            const c = color[k]!;
+            const srgb = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+            const d = Math.abs(image.data[o + k]! - srgb * 255);
             if (d > worst) {
                 worst = d;
                 worstAt = i;
@@ -1061,7 +1068,11 @@ function structOf(module: WgslModule, name: string): [string, string][] | undefi
     const walk = (m: WgslModule): [string, string][] | undefined => {
         if (seen.has(m)) return undefined;
         seen.add(m);
-        const match = new RegExp(`struct\\s+${name}\\s*\\{([^}]*)\\}`).exec(m.source);
+        // O struct escrito no fonte ou gerado de um schema do módulo (`structs`: o `Closure` vem do `ClosureSchema`).
+        const generated = m.structs.find((x) => x.wgslName === name)?.toWGSL() ?? '';
+        const match = new RegExp(`struct\\s+${name}\\s*\\{([^}]*)\\}`).exec(
+            `${m.source}\n${generated}`,
+        );
         if (match !== null)
             return match[1]!
                 .replace(/\/\/[^\n]*/g, '')
