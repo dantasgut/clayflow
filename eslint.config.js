@@ -79,6 +79,9 @@ export default tseslint.config(
             'eslint.config.js',
             '.typedoc-cov-trash/**',
             'bench/results/**',
+            // Descartáveis locais (fora dos commits, por convenção): os diagnósticos `zz*` e a página da água do bench.
+            '**/zz*.ts',
+            'bench/page/agua.ts',
             'bench/vite.config.ts',
             'vite.config.ts',
         ],

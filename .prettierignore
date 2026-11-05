@@ -8,3 +8,8 @@ coverage/
 **/__fixtures__/
 **/*.wgsl
 package-lock.json
+
+# Descartáveis locais (fora dos commits, por convenção): os diagnósticos zz* e a página da água do bench.
+**/zz*.ts
+bench/page/agua.ts
+bench/agua.html
