@@ -5,9 +5,20 @@
 // Em fluxo (cada sonda pesada e lida na hora, normalizada no fim): sem o vetor das 8, poucos registradores — estas
 // leituras ficam no shader do desenho (o fallback fora das sondas de tela) e pesariam na ocupação de todo pixel.
 
-/** Irradiância (E, W/m² na escala da cena) no ponto `p` com normal `n`, vista `v`. */
-fn gi_irradiance(p: vec3f, n: vec3f, v: vec3f) -> vec3f {
-    var total = vec3f(0.0);
+/** A luz das sondas do mundo num ponto: a irradiância (E) e a radiância especular numa direção. */
+struct GiWorldLight {
+    e: vec3f,
+    l: vec3f,
+}
+
+/**
+ * Irradiância (E, W/m² na escala da cena; `want_e`) no ponto `p` com normal `n`, vista `v`, e radiância especular vinda
+ * da direção `dir` (refletida; `want_l`), numa passada pelas sondas: os pesos de cada sonda (o estado, a visibilidade)
+ * calculados uma vez para as duas leituras (spec 034, T060e; antes, uma passada para cada).
+ */
+fn gi_world_light(p: vec3f, n: vec3f, v: vec3f, dir: vec3f, want_e: bool, want_l: bool) -> GiWorldLight {
+    var total_e = vec3f(0.0);
+    var total_l = vec3f(0.0);
     var remaining = 1.0;
     let size = vec2f(textureDimensions(gi_irradiance_atlas));
     for (var c = 0u; c < gi.grid.w && remaining > 0.0; c++) {
@@ -15,45 +26,37 @@ fn gi_irradiance(p: vec3f, n: vec3f, v: vec3f) -> vec3f {
         if (wc <= 0.0) { continue; }
         let cell = gi_cell_of(p, n, v, c, GI_REACH_FREE);
         var e = vec3f(0.0);
-        var sum = 0.0;
-        for (var k = 0u; k < 8u; k++) {
-            let t = gi_tap(cell, p, n, c, k);
-            if (t.weight <= 0.0) { continue; }
-            let uv = gi_atlas_uv(t.index, n, GI_IRRADIANCE_TEXELS, size);
-            e += textureSampleLevel(gi_irradiance_atlas, gi_sampler, uv, 0.0).rgb * t.weight;
-            sum += t.weight;
-        }
-        if (sum <= 0.0) { continue; }
-        let w = remaining * wc;
-        total += e / sum * w;
-        remaining -= w;
-    }
-    // O mapa guarda a média da radiância ponderada pelo cosseno (E/π).
-    return total * PI;
-}
-
-/** Radiância especular das sondas vinda da direção `dir` (refletida) no ponto `p`. */
-fn gi_radiance(p: vec3f, n: vec3f, v: vec3f, dir: vec3f) -> vec3f {
-    var total = vec3f(0.0);
-    var remaining = 1.0;
-    let size = vec2f(textureDimensions(gi_radiance_atlas));
-    for (var c = 0u; c < gi.grid.w && remaining > 0.0; c++) {
-        let wc = select(gi_cascade_weight(p, c), 1.0, c + 1u == gi.grid.w);
-        if (wc <= 0.0) { continue; }
-        let cell = gi_cell_of(p, n, v, c, GI_REACH_FREE);
         var l = vec3f(0.0);
         var sum = 0.0;
         for (var k = 0u; k < 8u; k++) {
             let t = gi_tap(cell, p, n, c, k);
             if (t.weight <= 0.0) { continue; }
-            let uv = gi_atlas_uv(t.index, dir, GI_IRRADIANCE_TEXELS, size);
-            l += textureSampleLevel(gi_radiance_atlas, gi_sampler, uv, 0.0).rgb * t.weight;
+            if (want_e) {
+                let uv = gi_atlas_uv(t.index, n, GI_IRRADIANCE_TEXELS, size);
+                e += textureSampleLevel(gi_irradiance_atlas, gi_sampler, uv, 0.0).rgb * t.weight;
+            }
+            if (want_l) {
+                let uv = gi_atlas_uv(t.index, dir, GI_IRRADIANCE_TEXELS, size);
+                l += textureSampleLevel(gi_radiance_atlas, gi_sampler, uv, 0.0).rgb * t.weight;
+            }
             sum += t.weight;
         }
         if (sum <= 0.0) { continue; }
         let w = remaining * wc;
-        total += l / sum * w;
+        total_e += e / sum * w;
+        total_l += l / sum * w;
         remaining -= w;
     }
-    return total;
+    // O mapa de irradiância guarda a média da radiância ponderada pelo cosseno (E/π).
+    return GiWorldLight(total_e * PI, total_l);
+}
+
+/** Irradiância (E, W/m² na escala da cena) no ponto `p` com normal `n`, vista `v`. */
+fn gi_irradiance(p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return gi_world_light(p, n, v, n, true, false).e;
+}
+
+/** Radiância especular das sondas vinda da direção `dir` (refletida) no ponto `p`. */
+fn gi_radiance(p: vec3f, n: vec3f, v: vec3f, dir: vec3f) -> vec3f {
+    return gi_world_light(p, n, v, dir, false, true).l;
 }

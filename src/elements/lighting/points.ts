@@ -51,13 +51,23 @@ fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
 fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
-    let e = gi_lighting_irradiance(p, nb, v);
+    // A irradiância das sondas de tela pela confiança delas e, no que falta e na especular brilhante, as do mundo numa
+    // passada só (os pesos das sondas uma vez para as duas leituras; spec 034, T060e).
+    let screen = gi_screen_irradiance(p, nb);
+    let confidence = saturate(screen.a / GI_SCREEN_FULL);
+    let glossy = c.dielectric_weight + c.conductor_weight > 0.0 && c.specular_roughness < GI_GLOSSY;
+    var world = GiWorldLight(vec3f(0.0), vec3f(0.0));
+    if (confidence < 1.0 || glossy) {
+        world = gi_world_light(p, nb, v, closure_specular_dir(c, n, v), confidence < 1.0, glossy);
+    }
+    var e = vec3f(0.0);
+    if (confidence > 0.0) { e = screen.rgb / screen.a * confidence; }
+    if (confidence < 1.0) { e += (1.0 - confidence) * world.e; }
+    e = e / PI;
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_lighting_irradiance(p, -nb, v); }
     var spec = e;
-    if (c.dielectric_weight + c.conductor_weight > 0.0 && c.specular_roughness < GI_GLOSSY) {
-        spec = gi_radiance(p, nb, v, closure_specular_dir(c, n, v));
-    }
+    if (glossy) { spec = world.l; }
     var coat = spec;
     var coat_e = e;
     if (c.coat_weight > 0.0) {
