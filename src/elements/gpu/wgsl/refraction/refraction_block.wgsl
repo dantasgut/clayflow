@@ -17,10 +17,16 @@ fn refraction_block_requested(p: vec2u, size: vec2u) -> bool {
 /** O representante do bloco do pixel `p` no quadro (xy; z = 1 quando o bloco tem pixel pedido). */
 fn refraction_block_rep(p: vec2u, size: vec2u) -> vec3u {
     let corner = p & vec2u(~1u);
+    // A vez pela soma dos dígitos do quadro na base 4, não pelo quadro: a posição da amostra no pixel é a de Halton, e
+    // na base 2 o quadro módulo 4 fixa os dois primeiros bits do x — girando a vez pelo quadro, cada pixel só era traçado
+    // com as amostras de uma faixa de 1/4 do pixel, qual faixa pela fase do contador (a integral do acúmulo mudava 0,4 %
+    // com um quadro a mais antes do corte). Pela soma, em cada 4 quadros seguidos com os mesmos dígitos de cima a vez
+    // passa por todos os pixels (cada um traçado a cada 4 quadros, como antes), e a faixa do pixel gira com os de cima.
     // Em xadrez (Opção B2) o bloco é traçado em quadros alternados: a vez avança a cada traçado dele e mais uma a cada
     // ciclo de 8 quadros (`refraction_block_turn`).
     let f = refraction.frame;
-    let start = select(f, f / 2u + f / 8u, refraction.checkerboard != 0u) % 4u;
+    let digits = f + f / 4u + f / 16u + f / 64u + f / 256u + f / 1024u;
+    let start = select(digits, f / 2u + f / 8u, refraction.checkerboard != 0u) % 4u;
     for (var k = 0u; k < 4u; k++) {
         let q = corner + REFRACTION_BLOCK_ORDER[(start + k) % 4u];
         if (refraction_block_requested(q, size)) { return vec3u(q, 1u); }

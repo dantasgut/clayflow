@@ -39,6 +39,11 @@
 //     pede refração por si: a da câmera é a T065f).
 //   - gi: a cena `sphere` sem a iluminação global, com ela desligada e com ela ligada: as médias por região iguais a
 //     ≤ 0,5 % (SC-002; albedo 0, nenhuma luz indireta a descontar) (US1-6).
+//   - water-fresnel (SC-017, ≤ 2 p.p.): a água lisa num cômodo todo emissor de radiância 1 sobre o chão preto — cada
+//     pixel da superfície vale o Fresnel exato no ângulo de visão; por faixa de 5°, de 0° a 85°, em duas câmeras.
+//   - water-absorption (SC-017, ≤ 3 %): o xadrez visto por 1 m da água colorida dos smokes, contra a referência.
+//   - water-highlight (SC-017): o sol de disco real refletido na água lisa — o pico > 1 no HDR e a energia do reflexo a
+//     ≤ 10 % de R(45°) E.
 // Em todas: nenhum quadro com o passe de cópia da tela (`sceneCopy`): 0 leituras dela pelos transmissivos (SC-001).
 // Diagnóstico: `--query dump=1` grava a referência, o motor e a diferença de cada cena (`zz-refraction-*.png`).
 // Para rodar: `npm run smoke -- refraction [--query case=sphere]`. Resultado: `REFRACTION SMOKE PASSED` ou `FAIL: …`.
@@ -47,6 +52,7 @@ import {
     BoxGeometry,
     Camera,
     createScene,
+    DirectionalLight,
     GlobalIllumination,
     PlaneGeometry,
     PointLight,
@@ -71,7 +77,8 @@ import type {
     PtScene,
 } from '../elements/lighting/reference/pathTracer';
 import { readHdrTexture } from './support/imageMeasures';
-import { materialGraph } from './support/materialScenes';
+import { disposeApp, materialApp, materialGraph, renderIntegral } from './support/materialScenes';
+import { waterLook } from './support/waterScene';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { writeFixture } from './support/fixtures';
 import { luminanceLinear } from './support/images';
@@ -1210,7 +1217,7 @@ async function readBack(
 /**
  * O pedido da refração do último quadro (T041): cada pixel do interior de uma região da referência (a ≥ 2 px de outra)
  * tem pedido se e só se a primeira superfície no centro dele é um dielétrico; a contagem da fila, lida da GPU, é a dos
- * pixels com pedido.
+ * blocos 2×2 com pedido (a meia resolução da spec 039: um representante por bloco).
  */
 async function checkRequest(
     scene: RefractionScene,
@@ -1241,6 +1248,17 @@ async function checkRequest(
     const queued = new Uint32Array(
         (await readBack(engine.app, { kind: 'buffer', spec: count, bytes: 4 })).data,
     )[0]!;
+    // A refração traça em meia resolução (spec 039): um representante por bloco 2×2 com pedido entra na fila.
+    let blocks = 0;
+    for (let y = 0; y < H; y += 2)
+        for (let x = 0; x < W; x += 2)
+            if (
+                marked[y * W + x] === 1
+                || (x + 1 < W && marked[y * W + x + 1] === 1)
+                || (y + 1 < H && marked[(y + 1) * W + x] === 1)
+                || (x + 1 < W && y + 1 < H && marked[(y + 1) * W + x + 1] === 1)
+            )
+                blocks++;
     const glass = new Set(scene.solids.filter((o) => o.glass !== undefined).map((o) => o.id));
     let wrong = 0;
     let interior = 0;
@@ -1270,11 +1288,14 @@ async function checkRequest(
             }
     }
     log(
-        `${scene.name}: pedido em ${total} pixels, fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência; ${lit} pixels com pedido guardam a luz de trás`,
+        `${scene.name}: pedido em ${total} pixels (${blocks} blocos 2×2), fila ${queued}; interior das regiões ${interior} px, ${wrong} discordam da referência; ${lit} pixels com pedido guardam a luz de trás`,
     );
     check(light !== undefined, `${scene.name}: alvo da luz que chega não alocado`);
     check(lit === 0, `${scene.name}: ${lit} pixels com pedido guardam a luz do opaco de trás`);
-    check(queued === total, `${scene.name}: fila com ${queued} pixels, pedido em ${total}`);
+    check(
+        queued === blocks,
+        `${scene.name}: fila com ${queued} pixels, ${blocks} blocos 2×2 com pedido`,
+    );
     check(
         wrong === 0 && interior > 0,
         `${scene.name}: ${wrong} pixels do interior com o pedido diferente da referência`,
@@ -1705,6 +1726,280 @@ async function caseGi(): Promise<void> {
     }
 }
 
+// ── Água (SC-017; 011 SC-009) ────────────────────────────────────────────────────────────────────────────────────
+
+/** Fresnel exato não polarizado de um raio que chega do ar a `cosi` numa interface de índice `n`. */
+function fresnelExact(cosi: number, n: number): number {
+    const sint = Math.sqrt(Math.max(0, 1 - cosi * cosi)) / n;
+    if (sint >= 1) return 1;
+    const cost = Math.sqrt(1 - sint * sint);
+    const rs = (cosi - n * cost) / (cosi + n * cost);
+    const rp = (n * cosi - cost) / (n * cosi + cost);
+    return 0.5 * (rs * rs + rp * rp);
+}
+
+/** A direção do raio da câmera de `scene` pelo centro do pixel (`x`, `y`; y de cima para baixo). */
+function cameraRay(scene: RefractionScene, x: number, y: number): Vec3 {
+    const { position: o, target: t, fovY } = scene.camera;
+    const f = normalize3([t[0] - o[0], t[1] - o[1], t[2] - o[2]]);
+    const r = normalize3([-f[2], 0, f[0]]);
+    const u: Vec3 = [
+        r[1] * f[2] - r[2] * f[1],
+        r[2] * f[0] - r[0] * f[2],
+        r[0] * f[1] - r[1] * f[0],
+    ];
+    const th = Math.tan(fovY / 2);
+    const a = ((2 * (x + 0.5)) / W - 1) * th * (W / H);
+    const b = (1 - (2 * (y + 0.5)) / H) * th;
+    return normalize3([
+        f[0] + a * r[0] + b * u[0],
+        f[1] + a * r[1] + b * u[1],
+        f[2] + a * r[2] + b * u[2],
+    ]);
+}
+
+function normalize3(v: Vec3): Vec3 {
+    const l = Math.hypot(v[0], v[1], v[2]);
+    return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+/** Altura da superfície da água das cenas `water-fresnel`. */
+const FRESNEL_LEVEL = 0.5;
+
+/**
+ * O cômodo da medida do Fresnel: paredes e teto emissores de radiância 1 (albedo 0) acima da água; o chão e a faixa das
+ * paredes dentro da água pretos (nem emitem nem refletem). Pela superfície lisa da água, cada pixel vê R(θ) × 1 do
+ * reflexo e nada do que atravessa: a radiância é o Fresnel exato no ângulo de visão.
+ */
+function fresnelRoom(name: string, camera: RefractionScene['camera']): RefractionScene {
+    const t = 0.1;
+    const lit: Vec3 = [1, 1, 1];
+    const black: Vec3 = [0, 0, 0];
+    const h = FRESNEL_LEVEL;
+    return {
+        name,
+        solids: [
+            {
+                id: 1,
+                shape: { kind: 'box', min: [-2 - t, -t, -2 - t], max: [2 + t, 0, 2 + t] },
+                albedo: black,
+            },
+            {
+                id: 2,
+                shape: { kind: 'box', min: [-2 - t, 3, -2 - t], max: [2 + t, 3 + t, 2 + t] },
+                emission: lit,
+            },
+            {
+                id: 3,
+                shape: { kind: 'box', min: [-2 - t, h, -2 - t], max: [2 + t, 3, -2] },
+                emission: lit,
+            },
+            {
+                id: 4,
+                shape: { kind: 'box', min: [-2 - t, h, 2], max: [2 + t, 3, 2 + t] },
+                emission: lit,
+            },
+            {
+                id: 5,
+                shape: { kind: 'box', min: [-2 - t, h, -2 - t], max: [-2, 3, 2 + t] },
+                emission: lit,
+            },
+            {
+                id: 6,
+                shape: { kind: 'box', min: [2, h, -2 - t], max: [2 + t, 3, 2 + t] },
+                emission: lit,
+            },
+            {
+                id: 7,
+                shape: { kind: 'box', min: [-2 - t, 0, -2 - t], max: [2 + t, h, -2] },
+                albedo: black,
+            },
+            {
+                id: 8,
+                shape: { kind: 'box', min: [-2 - t, 0, 2], max: [2 + t, h, 2 + t] },
+                albedo: black,
+            },
+            {
+                id: 9,
+                shape: { kind: 'box', min: [-2 - t, 0, -2 - t], max: [-2, h, 2 + t] },
+                albedo: black,
+            },
+            {
+                id: 11,
+                shape: { kind: 'box', min: [2, 0, -2 - t], max: [2 + t, h, 2 + t] },
+                albedo: black,
+            },
+            {
+                id: 20,
+                shape: { kind: 'box', min: [-2, -0.01, -2], max: [2, h, 2] },
+                glass: { ior: 1.333 },
+            },
+        ],
+        camera,
+    };
+}
+
+/**
+ * `water-fresnel` (SC-017: ≤ 2 p.p.; 011 SC-009): a água lisa (IOR 1,333, o dielétrico da água pelo grafo) no cômodo de
+ * `fresnelRoom`, vista de cima (0–20°) e de lado (até ~80°): por faixa de 5° do ângulo de visão, a média da radiância
+ * dos pixels da superfície (a 0,5 m das paredes) contra a média do Fresnel exato nos mesmos pixels, nos três canais.
+ */
+async function caseWaterFresnel(): Promise<void> {
+    const bins = new Map<number, { got: number; want: number; n: number }>();
+    for (const scene of [
+        fresnelRoom('water-fresnel-top', {
+            position: [0, 2.6, 0.001],
+            target: [0, 0, 0],
+            fovY: 0.75,
+        }),
+        fresnelRoom('water-fresnel-side', {
+            position: [0, 1.0, 1.9],
+            target: [0, 0.5, -1.5],
+            fovY: 0.9,
+        }),
+    ]) {
+        const e = await renderEngine(scene);
+        const rgb = e.rgb;
+        check(
+            e.sceneCopyFrames === 0,
+            `${scene.name}: ${e.sceneCopyFrames} quadros com a cópia da tela`,
+        );
+        e.close();
+        const o = scene.camera.position;
+        for (let y = 0; y < H; y++)
+            for (let x = 0; x < W; x++) {
+                const d = cameraRay(scene, x, y);
+                if (d[1] >= 0) continue;
+                const s = (FRESNEL_LEVEL - o[1]) / d[1];
+                const px = o[0] + s * d[0];
+                const pz = o[2] + s * d[2];
+                if (Math.abs(px) > 1.5 || Math.abs(pz) > 1.5) continue;
+                const cosi = -d[1];
+                const deg = (Math.acos(cosi) * 180) / Math.PI;
+                const bin = Math.floor(deg / 5);
+                const acc = bins.get(bin) ?? { got: 0, want: 0, n: 0 };
+                const i = y * W + x;
+                acc.got += (rgb[i * 3]! + rgb[i * 3 + 1]! + rgb[i * 3 + 2]!) / 3;
+                acc.want += fresnelExact(cosi, 1.333);
+                acc.n++;
+                bins.set(bin, acc);
+            }
+    }
+    let worst = 0;
+    const lines: string[] = [];
+    for (const [bin, a] of [...bins].sort((p, q) => p[0] - q[0])) {
+        if (a.n < 50) continue;
+        const got = a.got / a.n;
+        const want = a.want / a.n;
+        worst = Math.max(worst, Math.abs(got - want));
+        lines.push(
+            `${5 * bin}–${5 * bin + 5}°: ${(100 * got).toFixed(2)} % contra ${(100 * want).toFixed(2)} %`,
+        );
+    }
+    log(`water-fresnel: ${lines.join('; ')}`);
+    log(
+        `water-fresnel: maior erro ${(100 * worst).toFixed(2)} p.p. (limite 2 p.p.; ${lines.length} faixas)`,
+    );
+    check(lines.length >= 10, `water-fresnel: só ${lines.length} faixas de ângulo`);
+    check(worst <= 0.02, `water-fresnel: erro ${(100 * worst).toFixed(2)} p.p. > 2 p.p.`);
+}
+
+/**
+ * `water-absorption` (SC-017: ≤ 3 %; 011 SC-009): o xadrez emissor do cômodo visto por 1 m de água de cor
+ * [0,6; 0,85; 0,9] a 1 m (a absorção da água dos smokes, Beer–Lambert) contra a referência da CPU, por região.
+ */
+const WATER_ABSORPTION: RefractionScene = {
+    name: 'water-absorption',
+    solids: [
+        ...room(0.1),
+        {
+            id: 20,
+            shape: { kind: 'box', min: [-1.2, -0.01, -1], max: [1.2, 1, 1] },
+            glass: { ior: 1.333, color: [0.6, 0.85, 0.9], depth: 1 },
+        },
+    ],
+    camera: { position: [0, 2.2, 1.9], target: [0, 0, 0], fovY: 0.75 },
+};
+
+async function caseWaterAbsorption(): Promise<void> {
+    const { engine } = await compareScene(WATER_ABSORPTION);
+    engine.close();
+}
+
+/**
+ * `water-highlight` (SC-017: o realce > 1 no HDR; 011 SC-009): o sol (iluminância 3) refletido na água lisa (o material
+ * da água dos smokes pelo grafo, rugosidade 0,02; o sol com o disco real, raio angular 0,00466), a câmera na direção do
+ * espelho; a integral do pixel (acúmulo de 64 quadros) no alvo HDR: o pico da luminância acima de 1 e a energia do reflexo
+ * (a radiância acima do fundo somada no ângulo sólido dos pixels) a ≤ 10 % de R(45°) E.
+ */
+async function caseWaterHighlight(): Promise<void> {
+    const errors: string[] = [];
+    const { app, canvas } = await materialApp(W, H, errors, { antialias: 'accumulate' });
+    // A direção em que a luz anda: desce para +z, e o reflexo sobe para a câmera em (0, 2, 2).
+    const sun = normalize3([0, -Math.cos(Math.PI / 4), Math.sin(Math.PI / 4)]);
+    app.world.insert(
+        new DirectionalLight({
+            direction: [...sun, 0],
+            color: [1, 1, 1, 1],
+            intensity: 3,
+            angularRadius: 0.00466,
+        }),
+    );
+    app.world.insert(
+        new BoxGeometry({ size: [6, 0.5, 6] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -0.25, 0, 1] }))
+            .add(waterLook({ ripple: false })),
+    );
+    // A câmera no espelho do sol: o reflexo no centro da imagem.
+    const eye: Vec3 = [0, 2, 2];
+    app.world.insert(
+        new Camera({ fov: 0.6, aspect: W / H, aspectMode: 'fixed', near: 0.02, far: 30 }).add(
+            new Transform({
+                position: [...eye, 1],
+                rotation: Transform.lookRotation(eye, [0, 0, 0]),
+            }),
+        ),
+    );
+    const img = await renderIntegral(app, 64, 2000);
+    disposeApp(app, canvas);
+    if (errors.length > 0) engineErrors.push(`water-highlight: ${errors.join(' | ')}`);
+    const lum: number[] = [];
+    for (let i = 0; i < img.width * img.height; i++)
+        lum.push(luminanceLinear([img.data[i * 4]!, img.data[i * 4 + 1]!, img.data[i * 4 + 2]!]));
+    {
+        const rgb = new Float32Array(W * H * 3);
+        for (let i = 0; i < W * H; i++)
+            for (let k = 0; k < 3; k++) rgb[i * 3 + k] = img.data[i * 4 + k]!;
+        await dump('water-highlight', rgb, rgb);
+    }
+    const sorted = [...lum].sort((a, b) => a - b);
+    const peak = sorted[sorted.length - 1]!;
+    const median = sorted[Math.floor(sorted.length / 2)]!;
+    const at = lum.indexOf(peak);
+    // A energia do reflexo: num espelho, a radiância refletida somada no ângulo sólido de quem vê é R(θ) E (o disco
+    // inteiro na imagem); o fundo (a mediana: o hemisfério refletido e o que atravessa) descontado, pixel a pixel pelo
+    // ângulo sólido dele (perspectiva: cos³ fora do eixo).
+    const th = Math.tan(0.3);
+    let glint = 0;
+    for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) {
+            const a = ((2 * (x + 0.5)) / W - 1) * th * (W / H);
+            const b = (1 - (2 * (y + 0.5)) / H) * th;
+            const omega = ((2 * th) / H) ** 2 / (1 + a * a + b * b) ** 1.5;
+            glint += Math.max(0, lum[y * W + x]! - median) * omega;
+        }
+    const want = 3 * fresnelExact(Math.cos(Math.PI / 4), 1.333);
+    log(
+        `water-highlight: pico da luminância ${peak.toFixed(1)} no pixel (${at % img.width}, ${Math.floor(at / img.width)}); mediana ${median.toFixed(3)}; energia do reflexo ${glint.toFixed(4)} contra R(45°) E = ${want.toFixed(4)} (${((100 * (glint - want)) / want).toFixed(1)} %)`,
+    );
+    check(peak > 1, `water-highlight: pico ${peak.toFixed(3)} ≤ 1 no HDR`);
+    check(
+        Math.abs(glint / want - 1) <= 0.1,
+        `water-highlight: energia do reflexo ${glint.toFixed(4)} contra ${want.toFixed(4)}`,
+    );
+}
+
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     for (const scene of SCENES) {
@@ -1742,6 +2037,15 @@ async function main(): Promise<void> {
     if (only === null || only === 'gi') {
         log('── gi');
         await caseGi();
+    }
+    for (const [name, run] of [
+        ['water-fresnel', caseWaterFresnel],
+        ['water-absorption', caseWaterAbsorption],
+        ['water-highlight', caseWaterHighlight],
+    ] as const) {
+        if (only !== null && only !== name) continue;
+        log(`── ${name}`);
+        await run();
     }
     if (only === null || only === 'cost') {
         log('── cost');

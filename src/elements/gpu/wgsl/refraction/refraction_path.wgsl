@@ -95,24 +95,45 @@ fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
 /**
  * O brilho das luzes de disco (as direcionais com raio angular, `cones.z`: o sol) refletido por uma interface dielétrica
  * (a água, o vidro) para quem vê de `v`, no ponto `p` de normal de face `nf` (rgb; no w, a luminância do brilho tapado
- * por instâncias que se moveram): a luz direta pelo lobo refletido do fechamento `c` (a transmissão não entra: só a luz do
- * lado de quem vê), com sombra, a rugosidade somada à do disco (as larguras em quadratura) — o reflexo de uma luz de
- * tamanho real. A luz sem disco (uma direção, um ponto) não tem reflexo visível na superfície lisa, como na referência;
- * o caminho refletido nunca acerta a luz: este é o único termo dela ali, sem contagem dupla.
+ * por instâncias que se moveram): o lobo refletido da interface — o GGX na normal do fechamento `c` (a ondulação, o
+ * relevo), a rugosidade somada à do disco (as larguras em quadratura), com o Fresnel exato do dielétrico como o do
+ * caminho refletido (não o Schlick da camada do `closure_eval`, que fecha o forno da 011 pela tabela DFG) e o F82 do
+ * condutor —, com sombra; a transmissão não entra (só a luz do lado de quem vê). A luz sem disco (uma direção, um ponto)
+ * não tem reflexo visível na superfície lisa, como na referência; o caminho refletido nunca acerta a luz: este é o único
+ * termo dela ali, sem contagem dupla.
  */
 fn refraction_glint(c: Closure, p: vec3f, nf: vec3f, v: vec3f) -> vec4f {
     let n = select(nf, -nf, dot(nf, v) < 0.0);
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let nv = max(dot(nb, v), 1e-4);
     let count = min(min(refraction.light_count, arrayLength(&lights)), LIGHT_LIMIT);
     let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
+    let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
+    let ws = max(c.dielectric_weight + c.conductor_weight, 1e-6);
+    let f0 = (c.dielectric_weight * f0d * c.dielectric_tint + c.conductor_weight * c.conductor_f0) / ws;
     var sum = vec4f(0.0);
     for (var i = 0u; i < count; i++) {
         let light = lights[i];
         let disc = light.cones.z;
         if (light.kind != 0u || disc <= 0.0) { continue; }
-        var g = c;
-        g.specular_roughness = sqrt(sqrt(r * r * r * r + disc * disc));
-        let response = ray_light_response(g, i, p, n, v, true);
-        sum += response;
+        let inc = light_incoming(light, p);
+        let nl = dot(nb, inc.l);
+        if (nl <= 0.0 || dot(n, inc.l) <= 0.0 || all(inc.radiance <= vec3f(0.0))) { continue; }
+        let h = normalize(v + inc.l);
+        let vh = max(dot(v, h), 0.0);
+        let a2 = r * r * r * r + disc * disc;
+        let f = c.dielectric_weight * c.dielectric_tint * bsdf_f_dielectric(vh, c.dielectric_ior)
+            + c.conductor_weight * bsdf_f82(c.conductor_f0, c.conductor_tint, vh);
+        let dfg = closure_dfg(nv, sqrt(sqrt(a2)));
+        let response = f * bsdf_d_ggx(max(dot(nb, h), 0.0), a2) * bsdf_v_smith_correlated(nv, nl, a2) * nl
+            * bsdf_multiscatter(f0, dfg.x + dfg.y) * inc.radiance * light_transmission(i, p);
+        let blocker = ray_scene_trace(p + n * 1e-3, inc.l, min(inc.dist, 1e6), true, NONE).instance;
+        if (blocker != NONE) {
+            let moved = ray_instance_moved_at(ray_scene_info.instanceFirst + blocker * RAY_INSTANCE_WORDS);
+            sum.w += select(0.0, luminance(response), moved);
+            continue;
+        }
+        sum += vec4f(response, 0.0);
     }
     return sum;
 }
