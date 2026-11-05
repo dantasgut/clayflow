@@ -323,6 +323,9 @@ export function buildGiScene(
     if (sun !== undefined) app.world.insert(sun);
     if (scene.sky === true && sun !== undefined)
         app.world.insert(new Sky({ sun, sunDisk: false, night: [0, 0, 0] }));
+    // Sem o céu, o ambiente da referência é preto: o hemisfério dos estágios padrão (que, com a iluminação global, fica
+    // como o ambiente dos raios que escapam) sem intensidade.
+    else app.defaults.ambient.data.intensity = 0;
     const c = scene.camera;
     const view = new Transform({
         position: [...c.position, 1],

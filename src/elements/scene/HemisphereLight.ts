@@ -56,6 +56,8 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
 
     private showBackground: boolean;
 
+    private lights = true;
+
     constructor(values: HemisphereLightValues = {}) {
         super();
         this.showBackground = values.background ?? false;
@@ -79,6 +81,21 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
         this.data = { ...this.rawData };
     }
 
+    /**
+     * O hemisfério ilumina as superfícies e os meios com a luz ambiente constante (padrão)? Sem, fica só como o ambiente
+     * dos raios que escapam (`scene_environment`) e o fundo: com a iluminação global, a luz que volta do céu e do chão é
+     * a das sondas, que o veem ao escapar com a oclusão da cena (os estágios padrão desligam isto com a GI, spec 034).
+     */
+    get lighting(): boolean {
+        return this.lights;
+    }
+
+    set lighting(on: boolean) {
+        if (on === this.lights) return;
+        this.lights = on;
+        this.data = { ...this.rawData };
+    }
+
     getDescriptors(): readonly GPUDescriptor[] {
         return [{ id: 'params', role: 'uniform', schema: HemisphereLight.schema }];
     }
@@ -88,18 +105,30 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
     }
 
     /**
-     * O hemisfério no ponto `scene_direct_lighting`, para os meios participantes em `scene_ambient` (spec 033) e, para
+     * O hemisfério no ponto `scene_direct_lighting`, para os meios participantes em `scene_ambient` (spec 033; os dois só
+     * com `lighting`) e, para
      * quem traça raios, em `scene_environment` (o ambiente visto ao escapar, spec 034 T065f) e, o mesmo céu e chão, em
      * `scene_background` (o fundo visível, T066) quando `background` está ligado.
      */
     getSceneContributions(): readonly SceneContribution[] {
         return [
-            hemisphereContribution,
-            hemisphereAmbientContribution,
+            this.lightingContribution,
+            this.ambientContribution,
             hemisphereEnvironmentContribution,
             this.backgroundContribution,
         ];
     }
+
+    private readonly lightingContribution: SceneContribution = {
+        ...hemisphereContribution,
+        build: (resolve) => (this.lights ? hemisphereContribution.build(resolve) : undefined),
+    };
+
+    private readonly ambientContribution: SceneContribution = {
+        ...hemisphereAmbientContribution,
+        build: (resolve) =>
+            this.lights ? hemisphereAmbientContribution.build(resolve) : undefined,
+    };
 
     private readonly backgroundContribution = hemisphereBackgroundContribution(
         () => this.showBackground,

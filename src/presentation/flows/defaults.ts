@@ -30,6 +30,8 @@ import { SceneRenderer } from '../resources/SceneRenderer';
 import { PbrTables } from '../../elements/material/pbr/PbrTables';
 import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
 import { HemisphereLight } from '../../elements/scene/HemisphereLight';
+import { Sky } from '../../elements/scene/sky/Sky';
+import { EnvironmentMap } from '../../elements/scene/environment/EnvironmentMap';
 import { RefractionVolumeRequestFlow } from './RefractionVolumeRequestFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
@@ -318,11 +320,14 @@ function followRenderer(world: World, events: EventBus, renderer: SceneRenderer)
 }
 
 /**
- * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
- * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes), insere a `RayScene` que os
- * raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
- * pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estava.
- * Devolve o cancelamento.
+ * Hemisfério e iluminação global por evento (spec 033, R7): com uma `GlobalIllumination` na cena, a luz ambiente
+ * constante do hemisfério dos estágios padrão sai (a luz que volta do céu é a das sondas, com a oclusão da cena, sem
+ * contar o ambiente duas vezes); o hemisfério fica como o ambiente dos raios que escapam — o céu e o chão que as sondas e
+ * a refração veem (spec 034: retirado inteiro, o raio que saía da cena via preto) — a menos que a cena tenha o próprio
+ * ambiente (`Sky`, `EnvironmentMap`), que então é o único (retirado, como antes). A entrada da GI insere a `RayScene`
+ * que os raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento
+ * por pixel fica caro: cada pixel sombreado uma vez); sem GI, o hemisfério e o passe voltam como estavam. Devolve o
+ * cancelamento.
  */
 function swapAmbientForGi(
     world: World,
@@ -331,17 +336,25 @@ function swapAmbientForGi(
     targets: FrameTargets,
 ): () => void {
     const prepass = targets.data.depthPrepass;
-    const giCount = (): number => world.queryBySchemaName(GlobalIllumination.schema.name).length;
+    const count = (name: string): number => world.queryBySchemaName(name).length;
     return events.on('resourcesChanged', (e) => {
-        const added = e.added.some((r) => r instanceof GlobalIllumination);
-        const removed = e.removed.some((r) => r instanceof GlobalIllumination);
-        if (added) {
-            if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
-            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
-                world.insert(new RayScene());
+        const touched = [...e.added, ...e.removed].some(
+            (r) =>
+                r instanceof GlobalIllumination || r instanceof Sky || r instanceof EnvironmentMap,
+        );
+        if (!touched) return;
+        const gi = count(GlobalIllumination.schema.name) > 0;
+        const environment = count(Sky.schema.name) + count(EnvironmentMap.schema.name) > 0;
+        const inWorld = world.entityIdOfResource(ambient) !== undefined;
+        if (gi) {
+            ambient.lighting = false;
+            if (environment && inWorld) world.remove(ambient);
+            if (!environment && !inWorld) world.insert(ambient);
+            if (count(RayScene.schema.name) === 0) world.insert(new RayScene());
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
-        } else if (removed && giCount() === 0) {
-            if (world.entityIdOfResource(ambient) === undefined) world.insert(ambient);
+        } else if (e.removed.some((r) => r instanceof GlobalIllumination)) {
+            ambient.lighting = true;
+            if (!inWorld) world.insert(ambient);
             if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
         }
     });

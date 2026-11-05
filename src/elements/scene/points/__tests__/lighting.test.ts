@@ -128,11 +128,28 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         // No desenho, para os meios participantes (spec 033, R12) como radiância média e, para quem traça raios, como o
         // ambiente visto ao escapar (spec 034, T065f) e, quando pedido, o fundo visível (T066), o mesmo: o céu acima do
         // horizonte, o chão abaixo.
-        expect(contributions.slice(0, 3)).toEqual([
-            hemisphereContribution,
-            hemisphereAmbientContribution,
-            hemisphereEnvironmentContribution,
+        expect(contributions.map((c) => c.point)).toEqual([
+            hemisphereContribution.point,
+            hemisphereAmbientContribution.point,
+            hemisphereEnvironmentContribution.point,
+            hemisphereBackgroundContribution(() => true).point,
         ]);
+        expect(contributions[0]!.order).toBe(hemisphereContribution.order);
+        expect(contributions[0]!.build(() => undefined)).toBe(
+            hemisphereContribution.build(() => undefined),
+        );
+        expect(contributions[1]!.build(() => undefined)).toBe(
+            hemisphereAmbientContribution.build(() => undefined),
+        );
+        expect(contributions[2]).toBe(hemisphereEnvironmentContribution);
+        // Sem `lighting` (os estágios padrão com a iluminação global, spec 034): a luz ambiente constante sai das
+        // superfícies e dos meios; o ambiente dos raios que escapam fica.
+        const env = new HemisphereLight();
+        env.lighting = false;
+        const off = env.getSceneContributions();
+        expect(off[0]!.build(() => undefined)).toBeUndefined();
+        expect(off[1]!.build(() => undefined)).toBeUndefined();
+        expect(off[2]).toBe(hemisphereEnvironmentContribution);
         expect(contributions[3]!.point).toBe(hemisphereBackgroundContribution(() => true).point);
         // O fundo só com `background` (padrão desligado: a cor da limpeza); trocável depois de criado.
         expect(contributions[3]!.build(() => undefined)).toBeUndefined();

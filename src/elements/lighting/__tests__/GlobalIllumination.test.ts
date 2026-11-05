@@ -103,7 +103,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         ]);
     });
 
-    it('com ela na cena, os estágios padrão retiram o hemisfério e garantem a RayScene; sem ela, o devolvem', async () => {
+    it('com ela na cena, os estágios padrão desligam a luz do hemisfério (fica o ambiente dos raios) e garantem a RayScene; sem ela, a religam', async () => {
         const s = await renderScene();
         const defaults = registerPresentationDefaults(s.scene.flows, {
             world: s.scene.world,
@@ -112,12 +112,16 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         const world = s.scene.world;
         const inWorld = (r: object): boolean => world.entityIdOfResource(r as never) !== undefined;
         expect(inWorld(defaults.ambient)).toBe(true);
+        expect(defaults.ambient.lighting).toBe(true);
         const gi = new GlobalIllumination();
         world.insert(gi);
-        expect(inWorld(defaults.ambient)).toBe(false);
+        // O hemisfério fica como o céu e o chão que os raios veem ao escapar (spec 034): retirado, a refração e as sondas
+        // viam preto fora da cena.
+        expect(inWorld(defaults.ambient)).toBe(true);
+        expect(defaults.ambient.lighting).toBe(false);
         expect(world.queryBySchemaName(RayScene.schema.name)).toHaveLength(1);
         world.remove(gi);
-        expect(inWorld(defaults.ambient)).toBe(true);
+        expect(defaults.ambient.lighting).toBe(true);
         expect(world.queryBySchemaName(HemisphereLight.schema.name)).toHaveLength(1);
     });
 
