@@ -9,8 +9,8 @@
 //     resto das bordas é o número de posições da amostra, não o tempo).
 //   - trail: uma bola clara atravessa a cena; nos pixels por onde ela passou há 4 quadros ou mais (e não está agora), o
 //     desvio coerente sobre a imagem sem a bola (o modo temporal em passo, sem a bola) — a média, a cada quadro, da
-//     diferença nos pixels contados, nos dois sentidos — fica ≤ 1 % do brilho da bola (sem rastro; decisão do usuário,
-//     2026-10-25: um rastro tem a forma da bola e desloca muitos pixels para o mesmo lado, e o pior pixel isolado, que
+//     diferença nos pixels contados, nos dois sentidos — fica ≤ 1 % do brilho da bola (sem rastro; proposta do agente,
+//     2026-10-25, o usuário: "Eu passaria dado que os valores limiares estão muito bons": um rastro tem a forma da bola e desloca muitos pixels para o mesmo lado, e o pior pixel isolado, que
 //     antes era o critério, é o ruído simétrico da reconvergência — fica no registro). A pegada da bola: onde o quadro sem antisserrilhado com a bola difere do sem a bola; contam os pixels de
 //     fundo liso (numa aresta, o pixel recomeçado tem outra média das amostras — ruído, não rastro) e sem detalhe menor
 //     que o pixel (faixa < 0,02 do fundo temporal entre as 8 primeiras posições da amostra; decisão de 2026-10-21).
@@ -551,7 +551,7 @@ async function trailOf(
         bias <= 0.01,
         `${label}: rastro de ${pct(bias)} do brilho da bola após 4 quadros (≤ 1 %)`,
     );
-    // O rastro escuro (a sombra da bola guardada no chão parado) — decisão do usuário, 2026-10-21: os dois sentidos.
+    // O rastro escuro (a sombra da bola guardada no chão parado) — proposta do agente, 2026-10-21, aceita pelo usuário com "Prossiga": os dois sentidos.
     check(
         -darkBias <= 0.01,
         `${label}: rastro escuro de ${pct(-darkBias)} do brilho da bola após 4 quadros (≤ 1 %)`,

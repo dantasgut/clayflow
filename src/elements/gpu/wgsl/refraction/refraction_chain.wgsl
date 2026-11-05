@@ -542,7 +542,7 @@ fn refraction_chain_follow_one(j: u32) {
     // Depois da primeira interface. Na interface lisa (a água, o vidro; α ≤ `REFRACTION_SMOOTH_ALPHA`) sem dispersão as
     // direções dos lobos são exatas: sem sorteio, o caminho segue o de mais energia com o peso exato (na reflexão total,
     // a própria reflexão) e o menor vai à vaga 4 do pixel, se livre (`refraction_chain_spare`); sem vaga, ele é cortado (a
-    // energia dele conta como truncada — decisão do usuário, 2026-10-29: sem o ruído da escolha nem os vagalumes, ao
+    // energia dele conta como truncada — escolha do usuário pela variante A recomendada pelo agente, 2026-10-29 — sem ficar claro na proposta que ela cortava o lobo menor sem vaga: sem o ruído da escolha nem os vagalumes, ao
     // preço do lobo menor além das vagas). Na interface áspera, ou com a dispersão (adiada, aberta ou nesta interface:
     // as vagas são dos canais dela), um
     // lobo pela roleta de Fresnel (sem viés).

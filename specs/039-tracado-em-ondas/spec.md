@@ -320,7 +320,7 @@ contra a referência e contra o piso de ruído; os smokes de refração e cáust
 
 ### Success Criteria da emenda
 
-- **SC-001 e SC-002 (substituídos, decisão do usuário 2026-10-30)**: o orçamento de 16,7 ms do tanque e os 3 ms da
+- **SC-001 e SC-002 (SC-002: medida por perfil, decisão do usuário 2026-10-31 — "T106 medida por perfil"; SC-001: escolha do agente, absorvido pela SC-009 de 60 FPS que o usuário manteve)**: o orçamento de 16,7 ms do tanque e os 3 ms da
   lente não fecham na fidelidade atual (medido em `baseline.md`); passam a ser medidos por perfil pela SC-009. As
   medidas de antes e depois ficam registradas.
 - **SC-007**: Zero `core.create` em `src/elements` e `src/presentation` (lint + teste).
@@ -333,7 +333,7 @@ contra a referência e contra o piso de ruído; os smokes de refração e cáust
   carga na GPU, e o usuário fixou a meta em 60 FPS.
 - **SC-010**: Cada peça da Opção B com a câmera parada converge para a imagem sem ela (diferença no piso de ruído:
   ≤ 0,6 % dos pixels > 8/255); com a câmera girando e a água agitada, o atraso e o rastro medidos e registrados.
-- **Exceção à SC-010 (decisão do usuário, 2026-10-31)**: o traçado em xadrez (B2) entra no médio e no baixo com 1,6 %
+- **Exceção à SC-010 (escolha do agente, 2026-10-31, a partir de um "Sim" do usuário a duas perguntas — aceitar os 1,6 % e seguir)**: o traçado em xadrez (B2) entra no médio e no baixo com 1,6 %
   dos pixels diferentes da imagem sem ele, parado (limite 0,6 %), pelos 4–5 ms (`baseline.md`, "A Opção B2").
 - **SC-011**: O vídeo do tanque em cada perfil no Chrome.
 

@@ -98,7 +98,7 @@ critério): estado menor (as pilhas), os ramos do segundo nível em série por c
 `refraction` igual (custo 56,6 ms); `caustics` engine e water iguais. `fluidField case=closure`: o fechamento por acerto
 pela onda a 7,63e-7 (limite 1e-5); **a transmitância pelo corpo falha (25,96 × σ·voxel; limite 1)**: o grafo do teste
 faz a absorção depender da normal do ponto de entrada, e o meio do corpo agora é avaliado uma vez por quadro (homogêneo
-por corpo). Decisão do usuário pendente: o meio homogêneo por corpo (e a comparação do critério contra ele) ou a absorção
+por corpo). Decidido pelo usuário em 2026-10-29 ("Meio por corpo"): o meio homogêneo por corpo (e a comparação do critério contra ele) ou a absorção
 por trecho avaliada na onda.
 
 ## T028–T029 — o tanque no Deno, só compilação (2026-10-29)
@@ -542,7 +542,7 @@ Tempo (1280×720, M4; congelado 2 ciclos; com a física, duas rodadas na mesma s
   nas bordas (o xadrez do chão, o vidro, a superfície da água), e o mesmo com 150 ou 600 quadros (viés, não convergência
   lenta). A descorrelação com o antisserrilhado e a vizinhança de dois quadros não mudaram o número. A leitura: o valor
   exato de cada pixel é reaproveitado por até 14 quadros (4 sem a B2) enquanto o resto do quadro muda de posição de
-  amostra a cada quadro — as bordas resolvem diferente. Pela SC-010, a B2 fica desligada nos perfis (decisão do usuário).
+  amostra a cada quadro — as bordas resolvem diferente. Pela SC-010, a B2 ficou desligada nos perfis (escolha do agente, 2026-10-31; depois ligada no médio e no baixo — `spec.md`, exceção à SC-010).
 - 60 FPS (SC-009 revista) não fecham: o melhor com a física é ~28 ms (médio ou baixo + B2). Com a física rodando o quadro
   faz ~1,7 passo de 60 Hz (cada um ~6 ms: PBF 2,1, campo 4), e congelado o melhor desenho é ~15,5 ms.
 

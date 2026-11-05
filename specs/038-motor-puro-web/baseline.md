@@ -44,7 +44,7 @@ Nenhum processo de GPU em estado `E` nem órfão em toda a rodada.
 
 Cada cena gravada duas vezes pelo motor (60 quadros, FFV1 sem perda; os vídeos em `bench/results/baseline-038/a` e `b`,
 fora do repositório). Por cena, em `baseline/`: o `framemd5` da primeira gravação e o PSNR por quadro entre as duas
-(`<cena>.psnr`, o arquivo de estatística do ffmpeg). Critério da migração (SC-003, decisão do usuário de 2026-10-28):
+(`<cena>.psnr`, o arquivo de estatística do ffmpeg). Critério da migração (SC-003, decisão do usuário de 2026-10-28, revogada por ele no mesmo dia em favor da conferência pelos vídeos):
 por quadro, o PSNR app × gravação `a` não fica abaixo do PSNR `a` × `b`.
 
 | Cena               | PSNR a × b mínimo / mediano / máximo (dB) |

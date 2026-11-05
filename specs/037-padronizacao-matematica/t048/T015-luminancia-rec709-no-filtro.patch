@@ -89,7 +89,7 @@
      pcg: {},
      teschner: {},
      rec709: {},
--    // Sai com a troca da T015 (decisão do usuário, pacote da T048): o espelho BT.601 do smoke `shaderLibrary`.
+-    // Sai com a troca da T015 (escolha do agente, 2026-10-24, pacote da T048 — o usuário: "Se eu precisasse decidir algo eu intervinha"): o espelho BT.601 do smoke `shaderLibrary`.
 -    bt601: {
 -        '__smokes__/shaderLibrary.ts': 1,
 -    },

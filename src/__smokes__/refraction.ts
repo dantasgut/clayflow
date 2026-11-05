@@ -21,12 +21,12 @@
 //     referência de 1024 amostras: nenhum deslocado ≥ 1 px; controles da medida: a referência em blocos de 4 px tem
 //     degraus, outra referência de 1024 amostras independentes não tem — com 256, o ruído dela desloca 1 cruzamento em
 //     3401); a fração da energia contada como absorvida no limite de interfaces ≤ 1 % (o alfa da radiância traçada; com o
-//     lobo menor das interfaces lisas cortado além da vaga do pixel — decisão do usuário, 2026-10-29).
+//     lobo menor das interfaces lisas cortado além da vaga do pixel — variante A, escolhida pelo usuário por recomendação do agente, 2026-10-29).
 //   - cost: a cena `lens` a 1280 × 720 no modo temporal (o traçado de todo pixel do vidro, o filtro do sinal traçado e
 //     a marca de movimento): o tempo de parede de um quadro (blocos de 40 quadros seguidos com a fila da GPU esvaziada no fim; a
 //     mediana de três blocos) com a refração ligada menos a desligada, em cada perfil do renderizador — registrado (spec
 //     039: o limite de 3 ms foi substituído pela medida por perfil, decisão do usuário 2026-10-31; o filtro e a marca são da
-//     refração, não do antisserrilhado — decisão de 2026-10-24). Não os carimbos por passe: no M4 os passes se sobrepõem
+//     refração, não do antisserrilhado — escolha do agente, 2026-10-24). Não os carimbos por passe: no M4 os passes se sobrepõem
 //     e o intervalo de um conta o fim do outro.
 //   - glint: a cena `dispersed` com o teto 10× mais claro (o céu de dia contra o chão visto pela água) — ≤ 3 %; e os
 //     vagalumes do sinal traçado na esfera (T065i): sem o antisserrilhado (a amostra no centro do pixel, a única
@@ -254,7 +254,7 @@ const SCENES: readonly RefractionScene[] = [
             },
         ],
         camera: { position: [0, 1.4, 1.7], target: [0, 0.35, 0], fovY: 0.75 },
-        // Decisão do usuário (2026-10-29): nas interfaces lisas o motor segue o lobo maior sem sorteio e o menor numa vaga
+        // Variante A (2026-10-29, escolhida pelo usuário por recomendação do agente): nas interfaces lisas o motor segue o lobo maior sem sorteio e o menor numa vaga
         // do pixel; além dela o lobo menor é cortado — a esfera de vidro na água perde reflexões internas (medido 5,9 %).
         limit: 0.07,
     },
@@ -417,7 +417,7 @@ const DISPERSED: RefractionScene = {
     // Câmera baixa, como no vídeo `ondulacao`: pela metade de cima da esfera o raio sai para o ar e só a terceira
     // interface (a superfície da água atrás) é dispersiva; pela de baixo, a segunda (a saída do vidro na água).
     camera: { position: [0, 0.8, 1.7], target: [0, 0.5, 0], fovY: 0.75 },
-    // Decisão do usuário (2026-10-29): o lobo menor das interfaces lisas além da vaga do pixel é cortado (os caminhos sem
+    // Variante A (2026-10-29, escolhida pelo usuário por recomendação do agente): o lobo menor das interfaces lisas além da vaga do pixel é cortado (os caminhos sem
     // dispersão — a esfera de vidro — perdem reflexões internas; medido 8,3 % aqui, 5,4 % na `glint`, que herda o limite).
     limit: 0.1,
 };
@@ -1461,7 +1461,7 @@ async function caseLens(): Promise<void> {
         else {
             const truncatedEnergy = cut / total;
             log(`lens: energia no limite de interfaces ${pct(truncatedEnergy)}`);
-            // Decisão do usuário (2026-10-29): conta também o lobo menor das interfaces lisas cortado além da vaga do
+            // Variante A (2026-10-29, escolhida pelo usuário por recomendação do agente): conta também o lobo menor das interfaces lisas cortado além da vaga do
             // pixel (medido 0,72 %); antes, só a energia no teto de interfaces (0,00 %).
             check(
                 truncatedEnergy <= 0.01,
@@ -1633,7 +1633,7 @@ async function caseDispersed(): Promise<void> {
         // sem dispersão nesta câmera (45× com a esfera vista de cima). Com um caminho por canal onde a dispersão começa
         // sobra o ruído da cena sem dispersão; os 25 % cobrem a roleta entre reflexão e transmissão pela soma dos canais
         // (o Fresnel de cada canal difere do único da cena sem dispersão) — medido 1,07×.
-        // Decisão do usuário (2026-10-29): a cena sem dispersão não sorteia mais o lobo nas interfaces lisas (o maior
+        // Variante A (2026-10-29, escolhida pelo usuário por recomendação do agente): a cena sem dispersão não sorteia mais o lobo nas interfaces lisas (o maior
         // sem sorteio, o menor na vaga do pixel), e a com dispersão ainda sorteia (as vagas são dos canais): a razão sobe
         // pela roleta que só ela tem — medido 1,78×; o teto 2× ainda acusa o canal sorteado (16× antes da T065g).
         check(

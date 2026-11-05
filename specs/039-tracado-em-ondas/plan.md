@@ -209,4 +209,4 @@ atende.
   tem; uma peça nova (uniforme por região).
 - Princípio I: o `Renderer` na C3; a C4 o compõe com o `FrameTargets`; nenhuma importação nova da C1.
 - Princípio II: a fachada do `Renderer` fala em caminhos de luz, fótons e perfis; o layout fica nos descritores.
-- Sem afrouxar: os critérios atuais; o SC-001/SC-002 substituídos pela medida por perfil por decisão do usuário.
+- Sem afrouxar: os critérios atuais; o SC-002 substituído pela medida por perfil (decisão do usuário, 2026-10-31); o SC-001 absorvido pela SC-009 (60 FPS, mantida pelo usuário).

@@ -134,7 +134,7 @@ o componente saem; entram um catálogo de cenas, a página de cena (escolha pela
 assíncrona faz um número variável de quadros internos antes do motor ficar pronto, e os acúmulos temporais começam de
 estados diferentes (não confirmada).
 
-**Decision** (decisão do usuário de 2026-10-28): cada cena gravada duas vezes pelo motor (a linha de base e a variação
+**Decision** (decisão do usuário de 2026-10-28, revogada por ele no mesmo dia — "o código das cenas é o mesmo… Grave vídeos!", ver SC-003): cada cena gravada duas vezes pelo motor (a linha de base e a variação
 dela) e uma pelo app; por quadro, o PSNR app × motor não fica abaixo do PSNR motor × motor (a mesma posição do quadro).
 **Alternatives considered**: tornar a gravação determinística — trabalho fora desta spec.
 

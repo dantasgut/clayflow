@@ -116,7 +116,7 @@ redescrição que encolhe e a leitura sob demanda já existem (plan D8); só o u
 - [x] T134 [US9] B3 no `CausticsFlow` (no passo da física ou na mudança da cena; a média pelo perfil); medido. (Feita como as cáusticas a cada N quadros, `renderer.caustics.interval`; N = 1 nos perfis pela SC-010.)
 - [x] ~~T135~~ [US9] B1 no `RefractionFlow` e no `refraction_chain.wgsl` (rodadas por quadro, vagas que continuam, carimbo
       de nascimento); medido com a câmera parada e girando. (Retirada por decisão do usuário, 2026-10-31.)
-- [x] T136 [US9] B2 no `RefractionFlow` (xadrez pelos carimbos, rejeição do histórico); medido. (Feita; ligada no médio e no baixo com a exceção à SC-010 do usuário.)
+- [x] T136 [US9] B2 no `RefractionFlow` (xadrez pelos carimbos, rejeição do histórico); medido. (Feita; ligada no médio e no baixo com a exceção à SC-010 — escolha do agente a partir de um "Sim" ambíguo do usuário, ver `spec.md`.)
 - [x] T137 [US9] Os perfis com as peças que passam a SC-010; a tabela por perfil no `baseline.md` (SC-009); o que não
       fechar vai ao usuário com a medida. (A tabela por perfil no `baseline.md`; os 60 FPS não fecham, ~23–30 ms com a física no médio.)
 

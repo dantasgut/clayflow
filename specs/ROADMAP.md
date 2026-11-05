@@ -401,7 +401,7 @@ vizinhança (F5/015: `particles/64k` 17 → 74 fps, GPU 60 → 13 ms). Os `*_ver
 lê o pool.
 
 **Status (2026-10-14)**: F5/017 implementada (`feature/017-fluid-surfaces`; aguarda PR), antes das demais specs da F5 por
-decisão do usuário. Água contínua a partir das partículas (`FluidSurfaceMaterial`): superfície em espaço de tela
+escolha do agente, depois do pedido do usuário de incluir cáusticas na água contínua. Água contínua a partir das partículas (`FluidSurfaceMaterial`): superfície em espaço de tela
 (`FluidSurfaceFlow`, vistas da câmera e da luz), óptica (`WaterFlow`: refração, absorção, Fresnel, sombra) e
 **cáusticas** (`CausticsFlow`, fótons em espaço da luz com enquadramento ajustado à água) num estágio que consome uma
 superfície genérica (`WaterSurface`) — a 029 reusa. Capacidades novas: `World.attach`/`detach` (troca de material em
