@@ -83,6 +83,8 @@ async function run(
     };
     const body = waterScene(app, { width: WIDTH, height: HEIGHT, ...options });
     extra?.(app);
+    // Os kernels compilam em segundo plano (spec 039): os quadros capturados são os da cena pronta, como na página da água.
+    await app.whenReady({ timeoutMs: 60_000 });
     app.step(1 / 60);
     let poolWrites = 0;
     const poolKey = body === undefined ? undefined : app.resources.poolKeyForResource(body);
