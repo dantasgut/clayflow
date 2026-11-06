@@ -26,6 +26,7 @@ import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
 import giWaveDirectSource from '../gpu/wgsl/gi/gi_wave_direct.wgsl?raw';
+import giWaveThroughSource from '../gpu/wgsl/gi/gi_wave_through.wgsl?raw';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { causticsCapable } from './caustics/shaders';
 import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
@@ -298,7 +299,6 @@ export const giProbeTrace = wgslModule({
         giScreenPlace,
         closureEval,
         sceneEnvironmentReady,
-        rayVolumeTransmittanceReady,
         rayWave,
         R.rays,
         R.waveDirectRead,
@@ -324,6 +324,25 @@ export const giWaveDirect = wgslModule({
         R.waveDirect,
         R.waveScatterRead,
         rayVolumeScatterReady,
+    ],
+    structs: [RayWaveEntrySchema],
+});
+
+/**
+ * A transmitância dos volumes no trecho de cada raio da onda (spec 034, T060e): a marcha pela água num kernel só dela,
+ * fora dos acertos (que ficam com os registradores da estrutura de raios).
+ */
+export const giWaveThrough = wgslModule({
+    name: 'gi_wave_through',
+    source: giWaveThroughSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        giCommon,
+        rayWaveResources.entries,
+        rayWaveResources.counts,
+        R.waveScatterRead,
+        rayVolumeTransmittanceReady,
     ],
     structs: [RayWaveEntrySchema],
 });
@@ -452,7 +471,6 @@ export const giScreenTrace = wgslModule({
         giDirect,
         closureEval,
         sceneEnvironmentReady,
-        rayVolumeTransmittanceReady,
         rayWave,
         R.screenWork,
         R.waveDirectRead,

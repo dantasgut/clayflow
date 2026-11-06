@@ -161,7 +161,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(1);
     });
 
-    it('o estágio das sondas grava os passes das etapas uma vez por quadro (traçado, sombreamento, luz direta, acúmulo, atlas, tela)', async () => {
+    it('o estágio das sondas grava os passes das etapas uma vez por quadro (traçado, guia, traçado de tela, transmitância, sombreamento, luz direta, acúmulo, atlas, tela)', async () => {
         const s = await renderScene();
         registerPresentationDefaults(s.scene.flows, {
             world: s.scene.world,
@@ -176,6 +176,9 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         s.step();
         expect(s.computes().filter((c) => c.startsWith('ProbeFlow.'))).toEqual([
             'ProbeFlow.trace',
+            'ProbeFlow.guide',
+            'ProbeFlow.screenTrace',
+            'ProbeFlow.through',
             'ProbeFlow.shade',
             'ProbeFlow.direct',
             'ProbeFlow.blend',

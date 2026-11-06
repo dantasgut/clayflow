@@ -59,6 +59,7 @@ import {
     giScreenHistorySlot,
     giProbesSlot,
     giWaveDirect,
+    giWaveThrough,
 } from './shaders';
 
 /** Slots do estágio das sondas. */
@@ -146,7 +147,9 @@ const SCREEN_TRACE = compute('gi_screen_trace', giScreenTrace, 'gi_screen_trace_
  * da luz, nem leem o fechamento.
  */
 const WAVE_DIRECT = compute('gi_wave_direct', giWaveDirect, 'gi_wave_direct_main');
-const TRACES = [PROBE_HIT, PROBE_TRACE, SCREEN_HIT, SCREEN_TRACE, WAVE_DIRECT];
+/** A transmitância dos volumes no trecho de cada raio, depois dos acertos (T060e). */
+const WAVE_THROUGH = compute('gi_wave_through', giWaveThrough, 'gi_wave_through_main');
+const TRACES = [PROBE_HIT, PROBE_TRACE, SCREEN_HIT, SCREEN_TRACE, WAVE_DIRECT, WAVE_THROUGH];
 
 /** Os passes do filtro à-trous das sondas de tela (T054): passo em ladrilhos; ida e volta entre as duas metades. */
 const FILTER_STEPS = [1, 2, 4] as const;
@@ -369,6 +372,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             this.wave.reset(pass, bound);
             // (As vagas das extras começam vazias: os grupos parciais dos despachos indiretos passam por elas.)
             run(pass, -1, updated * rays + probes, W);
+        });
+        frame.compute('ProbeFlow.guide', (pass) => {
             // As sondas extras nas posições a meio ladrilho das dobras côncavas e os argumentos dos despachos (T058).
             if (adaptive > 0 && tiles > 0) {
                 run(pass, 10, 3 * tiles, W);
@@ -376,7 +381,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             }
             // As direções da amostragem mista (cosseno + guia pela sonda do mundo) das sondas colocadas (T051).
             screen(pass, 9, probes, 0);
+        });
+        frame.compute('ProbeFlow.screenTrace', (pass) => {
             screen(pass, -3, probes * screenRays, 16);
+        });
+        frame.compute('ProbeFlow.through', (pass) => {
+            // A transmitância da água no trecho de cada raio (os acertos gravaram o trecho), num passo de grade.
+            run(pass, -6, updated * rays + probes * screenRays, W);
         });
         frame.compute('ProbeFlow.shade', (pass) => {
             this.wave.shade(pass, bound);

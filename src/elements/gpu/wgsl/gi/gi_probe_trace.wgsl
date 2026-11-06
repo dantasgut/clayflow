@@ -7,7 +7,7 @@
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_probe_hit_main` grava o acerto na onda e
 // `gi_probe_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, gi_common, gi_weights, gi, ray_scene, ray_hit, ray_wave, gi_shade, gi_screen_reproject,
-// gi_screen_place, closure_eval, gi_wave_scatter_sample, scene_environment, ray_volume_transmittance, gi_rays, gi_wave_light_read.
+// gi_screen_place, closure_eval, gi_wave_scatter_sample, scene_environment, gi_rays, gi_wave_light_read.
 
 fn gi_trace_index(gid3: vec3u, nwg: vec3u) -> u32 {
     return gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -52,8 +52,9 @@ fn gi_probe_hit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     let origin = gi_probe_world(r.index);
     let dir = gi_ray_dir(r.k);
     let hit = ray_scene_hit(origin, dir, max_dist);
-    // Os volumes atravessados (a água) atenuam o que o raio traz.
-    let through = ray_volume_transmittance(origin, dir, min(hit.t, max_dist), gi.extra.w);
+    // Os volumes atravessados (a água) atenuam o que o raio traz: a transmitância do trecho é de `gi_wave_through_main`
+    // (o trecho gravado aqui), que multiplica a carga.
+    let through = vec3f(1.0);
     // A amostra do espalhamento no trecho (a face de trás fica sem luz).
     gi_wave_scatter_put(i, origin, dir, select(min(hit.t, max_dist), 0.0, hit.face < 0.0 && hit.t < max_dist));
     if (hit.t >= max_dist) {
