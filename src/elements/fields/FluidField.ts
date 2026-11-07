@@ -28,10 +28,8 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
 import {
-    FIELD_ATLAS_FORMAT,
-    FIELD_BRICK_STRIDE,
+    FIELD_BRICK_APRON_VOXELS,
     FIELD_FILM_CELLS,
-    fieldAtlasPages,
     FIELD_FILM_WORDS,
     FieldWordSchema,
     FluidFieldSchema,
@@ -81,11 +79,6 @@ export function fieldFilmOffset(c: FluidFieldCapacity): number {
     return fieldDataLayout(c).end;
 }
 
-/** Texels por eixo do atlas dos voxels para `bricks` blocos (as páginas de 12³, `fieldAtlasPages`). */
-export function fieldAtlasSize(bricks: number): [number, number, number] {
-    return fieldAtlasPages(bricks).map((n) => n * FIELD_BRICK_STRIDE) as [number, number, number];
-}
-
 /**
  * Primeira palavra do meio dos corpos (spec 039), depois da película: por corpo, `FIELD_MEDIUM_WORDS` palavras — a cor e
  * a profundidade da absorção, o índice de refração, o número de Abbe e o peso da transmissão do fechamento do corpo,
@@ -95,9 +88,18 @@ export function fieldMediaOffset(c: FluidFieldCapacity): number {
     return fieldFilmOffset(c) + FIELD_FILM_WORDS.value * FIELD_FILM_CELLS;
 }
 
-/** Palavras do buffer das consultas para as capacidades `c` (com a película e o meio dos corpos). */
-function fieldDataWords(c: FluidFieldCapacity): number {
+/**
+ * Primeira palavra do atlas dos voxels (T060f), no fim do buffer das consultas, depois do meio dos corpos: a página do
+ * bloco i (os 12³ voxels com a borda, f32) a partir de `fieldAtlasOffset + i · 12³`. As páginas são a série por páginas
+ * do buffer (`history.pages.offset`): uma ligação de storage só para tudo o que quem consulta lê.
+ */
+export function fieldAtlasOffset(c: FluidFieldCapacity): number {
     return fieldMediaOffset(c) + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS;
+}
+
+/** Palavras do buffer das consultas para as capacidades `c` (com a película, o meio dos corpos e o atlas). */
+function fieldDataWords(c: FluidFieldCapacity): number {
+    return fieldAtlasOffset(c) + c.bricks * FIELD_BRICK_APRON_VOXELS;
 }
 
 function grow(current: number, needed: number): number {
@@ -111,9 +113,9 @@ function grow(current: number, needed: number): number {
  * com a função `material` — a aparência pelo grafo, spec 034 T065d) como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem
  * mudança de autoria: o material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
  * partículas, por núcleos anisotrópicos e redistanciamento — superfícies planas ficam planas, gotas separadas não se
- * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos e os blocos) fica num
- * buffer só (`data`, uma ligação de storage: cabe ao lado dos da luz rebatida); os voxels com a borda ficam no atlas
- * (`atlas`, textura 3D por páginas de 12³, uma por bloco, lida pela filtragem do hardware — T060f), mais a contagem:
+ * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos, os blocos e o atlas
+ * dos voxels com a borda — uma página de 12³ por bloco, T060f) fica num buffer só (`data`, uma ligação de storage: cabe
+ * ao lado dos da luz rebatida), mais a contagem:
  * a câmera, a luz, os raios das sondas e a luz rebatida enxergam a mesma superfície. Um por cena, inserido pelos estágios padrão; as capacidades crescem com as partículas (`reserve`).
  */
 export class FluidField extends Entity<FluidFieldData> implements Resource {
@@ -141,37 +143,17 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 schema: FieldWordSchema,
                 count: fieldDataWords(this.rawData),
                 upload: 'never',
-            },
-            { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
-            // Os voxels com a borda (T060f): a página do bloco i no atlas. Uma série por páginas: as páginas que a
-            // construção grava levam o carimbo da época (a película e o campo parado seguem entre quadros por ela).
-            {
-                id: 'atlas',
-                role: 'storage-texture',
-                textureShape: {
-                    format: FIELD_ATLAS_FORMAT,
-                    dimension: '3d',
-                    width: fieldAtlasSize(this.rawData.bricks)[0],
-                    height: fieldAtlasSize(this.rawData.bricks)[1],
-                    depthOrArrayLayers: fieldAtlasSize(this.rawData.bricks)[2],
-                    access: 'write-only',
-                },
+                // O atlas dos voxels no fim (T060f): uma série por páginas, uma página por bloco. As páginas que a
+                // construção grava levam o carimbo da época.
                 history: {
                     depth: 1,
-                    pages: { tile: [FIELD_BRICK_STRIDE, FIELD_BRICK_STRIDE, FIELD_BRICK_STRIDE] },
+                    pages: {
+                        record: FIELD_BRICK_APRON_VOXELS * 4,
+                        offset: fieldAtlasOffset(this.rawData) * 4,
+                    },
                 },
             },
-            {
-                id: 'sampler',
-                role: 'sampler',
-                samplerShape: {
-                    magFilter: 'linear',
-                    minFilter: 'linear',
-                    addressModeU: 'clamp-to-edge',
-                    addressModeV: 'clamp-to-edge',
-                    addressModeW: 'clamp-to-edge',
-                },
-            },
+            { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
             {
                 id: 'mesh',
                 role: 'storage-rw',

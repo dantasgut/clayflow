@@ -1,5 +1,6 @@
 export {
     FluidField,
+    fieldAtlasOffset,
     fieldDataLayout,
     type FluidFieldCapacity,
     type FluidFieldData,

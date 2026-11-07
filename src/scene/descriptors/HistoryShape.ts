@@ -28,11 +28,14 @@ export interface HistoryShape {
 /**
  * As páginas de uma série por páginas: numa textura, o lado de cada uma em texels (`tile`; a textura é dividida em
  * páginas inteiras — numa textura 3D, com o terceiro lado, também na profundidade: o atlas do campo dos fluidos, T060f);
- * num buffer de storage próprio, os bytes de cada uma (`record`; o buffer é dividido em registros).
+ * num buffer de storage próprio, os bytes de cada uma (`record`; o buffer é dividido em registros) e, opcional, os bytes
+ * antes da primeira (`offset`; o começo do buffer fica fora das páginas — o buffer das consultas do campo dos fluidos, com
+ * os voxels de cada bloco numa página no fim, T060f).
  */
 export interface HistoryPages {
     readonly tile?: readonly [number, number] | readonly [number, number, number];
     readonly record?: number;
+    readonly offset?: number;
 }
 
 /** Precisão de uma série temporal. */

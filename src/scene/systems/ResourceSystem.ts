@@ -1807,20 +1807,15 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                         : alignUp(desc.schema.stride * (desc.count ?? 1), 16);
                 const record = desc.history?.pages?.record;
                 if (desc.history !== undefined && record !== undefined) {
-                    // Série por páginas de buffer (T060b): um buffer só, um registro por página.
-                    if (
-                        byteSize % record !== 0
-                        && (desc.schema.stride * (desc.count ?? 1)) % record !== 0
-                    ) {
+                    // Série por páginas de buffer (T060b): um buffer só, um registro por página (depois de `offset`).
+                    const offset = desc.history.pages?.offset ?? 0;
+                    const paged = desc.schema.stride * (desc.count ?? 1) - offset;
+                    if (offset < 0 || paged < 0 || paged % record !== 0) {
                         throw new RangeError(
-                            `ResourceSystem: série por páginas '${desc.id}' — ${byteSize} bytes não se dividem em registros de ${record}.`,
+                            `ResourceSystem: série por páginas '${desc.id}' — ${paged} bytes depois de ${offset} não se dividem em registros de ${record}.`,
                         );
                     }
-                    const pages: readonly [number, number, number] = [
-                        Math.floor((desc.schema.stride * (desc.count ?? 1)) / record),
-                        1,
-                        1,
-                    ];
+                    const pages: readonly [number, number, number] = [paged / record, 1, 1];
                     const buffer = this.core.create<StorageBufferSpec>({
                         kind: 'buffer',
                         subkind: 'storage',

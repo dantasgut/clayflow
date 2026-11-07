@@ -40,7 +40,6 @@ import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { lightsResource } from '../scene/resources';
 import { closure } from '../material/pbr/shaders';
 import {
-    FIELD_ATLAS_FORMAT,
     FIELD_FILM_SURFACES,
     FIELD_FILM_WORDS,
     FieldGatherSchema,
@@ -97,27 +96,6 @@ export const fieldResources = Object.freeze({
     }),
     /** O mesmo buffer na escrita dos voxels com a borda. */
     dataVoxels: consumer('field_data_voxels', 'data', 'read_write', f32s),
-    /** O atlas dos voxels (T060f): a leitura (filtrada ou pontual), o amostrador e a escrita da construção. */
-    atlas: wgslResource({
-        name: 'field_atlas',
-        binding: { texture: { sample: 'f32', dimension: '3d' } },
-        frequency: 'frame',
-        provider: { consumer: 'FluidField.atlas' },
-    }),
-    sampler: wgslResource({
-        name: 'field_sampler',
-        binding: { sampler: 'filtering' },
-        frequency: 'frame',
-        provider: { consumer: 'FluidField.sampler' },
-    }),
-    atlasOut: wgslResource({
-        name: 'field_atlas_out',
-        binding: {
-            storageTexture: { format: FIELD_ATLAS_FORMAT, access: 'write', dimension: '3d' },
-        },
-        frequency: 'stage',
-        provider: 'private',
-    }),
     /** Os carimbos das páginas do atlas (a série por páginas) e o relógio dela, na construção. */
     atlasStamps: priv('field_atlas_stamps', 'read_write', u32s),
     atlasClock: wgslResource({
@@ -202,11 +180,11 @@ export const fieldLookup = wgslModule({
     requires: [NONE.module, R.params, fieldCommon, R.data],
 });
 
-/** O atlas dos voxels (T060f): a página de um bloco, a leitura pontual e a trilinear pelo hardware. */
+/** O atlas dos voxels (T060f): a leitura pontual e a trilinear na página de um bloco. */
 export const fieldAtlas = wgslModule({
     name: 'field_atlas_read',
     source: fieldAtlasSource,
-    requires: [fieldCommon, R.atlas, R.sampler],
+    requires: [fieldCommon, R.data],
 });
 
 /** Junção das partículas dos corpos de água no array compacto. */
@@ -342,7 +320,7 @@ export const fieldApron = wgslModule({
         R.counts,
         R.links,
         R.src,
-        R.atlasOut,
+        R.dataVoxels,
         R.atlasStamps,
         R.atlasClock,
         R.volumeWrite,

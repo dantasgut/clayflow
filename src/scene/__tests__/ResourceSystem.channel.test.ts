@@ -319,6 +319,24 @@ describe('ResourceSystem — série por páginas (spec 034, T060a/T060b)', () =>
         expect(ch.buffer(0)).toBe(system.bufferOf(r, 'records'));
     });
 
+    it('buffer: as páginas depois do deslocamento (T060f)', () => {
+        const { world, system } = setup();
+        const offset = Energy.stride * 16;
+        const r = new BagResource([
+            { ...pagedBuffer, history: { depth: 1, pages: { record: 16, offset } } },
+        ]);
+        world.insert(r);
+        // Os 16 primeiros registros ficam fora das páginas: (64 − 16) × stride / 16 páginas.
+        expect(system.channelOf(r, 'records')!.paged?.tiles[0]).toBe((Energy.stride * 48) / 16);
+        expect(() =>
+            world.insert(
+                new BagResource([
+                    { ...pagedBuffer, history: { depth: 1, pages: { record: 16, offset: 4 } } },
+                ]),
+            ),
+        ).toThrow(RangeError);
+    });
+
     it('textura 3D: as páginas também na profundidade (T060f)', () => {
         const { world, system, core } = setup();
         const r = new BagResource([

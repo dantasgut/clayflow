@@ -68,11 +68,10 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
         (id) => new SingletonResolver(CausticsSchema, id, { name: `Caustics.${id}` }),
     ),
     // O campo dos fluidos (spec 033, R11): parâmetros, o buffer das consultas (limites, tabela, blocos) e a contagem; o
-    // mapa da luz pela água e a malha da superfície com os argumentos do desenho (spec 039 refeita); o atlas dos voxels e
-    // o amostrador dele (T060f).
-    ...(
-        ['params', 'data', 'counts', 'lightMap', 'mesh', 'meshArgs', 'atlas', 'sampler'] as const
-    ).map((id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` })),
+    // mapa da luz pela água e a malha da superfície com os argumentos do desenho (spec 039 refeita).
+    ...(['params', 'data', 'counts', 'lightMap', 'mesh', 'meshArgs'] as const).map(
+        (id) => new SingletonResolver(FluidFieldSchema, id, { name: `FluidField.${id}` }),
+    ),
     // A refração traçada (spec 034): o uniform (limite de interfaces, câmera, luzes, quadro, tempo).
     new SingletonResolver(Refraction.schema, 'params', { name: 'Refraction.params' }),
     // O medidor de energia dos corpos rígidos (spec 037): o uniform do kernel.

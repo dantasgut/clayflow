@@ -45,6 +45,7 @@ import {
     Flow,
     FluidBody,
     FluidField,
+    fieldAtlasOffset,
     fieldDataLayout,
     ParticlePhysics,
     PlaneGeometry,
@@ -361,66 +362,18 @@ interface GpuField {
     phi(p: Vec3): number;
 }
 
-/**
- * Os voxels com a borda lidos do atlas (T060f, `rgba16float`, φ no canal x), na ordem de antes: bloco k, 12³ voxels
- * x-y-z (a página do bloco k na ordem x, y, z das páginas).
- */
-async function readAtlas(app: Application, bricks: number): Promise<Float32Array> {
-    const texture = app.resources.textureOf(fieldOf(app), 'atlas');
-    if (texture === undefined) throw new Error('atlas do campo não alocado');
-    const width = texture.width;
-    const height = texture.height ?? 1;
-    const depth = texture.depthOrArrayLayers ?? 1;
-    const bytesPerRow = Math.ceil((width * 8) / 256) * 256;
-    const staging = app.core.create<StagingBufferSpec>({
-        kind: 'buffer',
-        subkind: 'staging',
-        discriminator: `fluid_field_atlas_${width}x${height}x${depth}`,
-        byteSize: bytesPerRow * height * depth,
-    });
-    app.core.record('fluid-field-atlas', (frame) => {
-        frame.copyTextureToBuffer(texture, staging, { bytesPerRow, rowsPerImage: height }, [
-            width,
-            height,
-            depth,
-        ]);
-    });
-    app.core.submit();
-    const halves = new Uint16Array(await app.core.readback(staging));
-    app.core.destroy(staging);
-    const half = (h: number): number => {
-        const e = (h >> 10) & 31;
-        const m = h & 1023;
-        const v = e === 0 ? m * 2 ** -24 : e === 31 ? Infinity : (1 + m / 1024) * 2 ** (e - 15);
-        return h & 0x8000 ? -v : v;
-    };
-    const S = FIELD.brick + 4;
-    const pages = [width / S, height / S, depth / S];
-    const out = new Float32Array(bricks * S * S * S);
-    for (let k = 0; k < bricks; k++) {
-        const o = [
-            k % pages[0]!,
-            Math.floor(k / pages[0]!) % pages[1]!,
-            Math.floor(k / (pages[0]! * pages[1]!)),
-        ];
-        for (let z = 0; z < S; z++)
-            for (let y = 0; y < S; y++)
-                for (let x = 0; x < S; x++) {
-                    const t = [o[0]! * S + x, o[1]! * S + y, o[2]! * S + z];
-                    const word = (t[2]! * height + t[1]!) * (bytesPerRow / 2) + t[0]! * 4;
-                    out[k * S * S * S + x + S * (y + S * z)] = half(halves[word]!);
-                }
-    }
-    return out;
-}
-
 async function gpuField(app: Application, spacing: number): Promise<GpuField> {
     const field = fieldOf(app);
     const counts = new Uint32Array(await read(app, 'counts'));
     const data = await read(app, 'data');
     const layout = fieldDataLayout(field.capacity);
     const bricks = new Int32Array(data, layout.bricks * 4, field.capacity.bricks * 4);
-    const voxels = await readAtlas(app, field.capacity.bricks);
+    // Os voxels com a borda: o atlas no fim do buffer (T060f), uma página de 12³ por bloco.
+    const voxels = new Float32Array(
+        data,
+        fieldAtlasOffset(field.capacity) * 4,
+        field.capacity.bricks * (FIELD.brick + 4) ** 3,
+    );
     const iso = new Float32Array(data, 7 * 4, 1)[0]!;
     const used = Math.min(counts[0]!, field.capacity.bricks);
     const voxel = FIELD.voxel * spacing;

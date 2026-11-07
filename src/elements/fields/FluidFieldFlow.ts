@@ -1,8 +1,12 @@
-import type { BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
-import type { BindingSource } from '../../scene/flows/FlowBinding';
+import type {
+    BindingKey,
+    BindingSource,
+    BoundFlow,
+    PreparedCompute,
+    TransitionContext,
+} from '../../scene/flows/FlowBinding';
 import type {
     ComputePass,
-    EngineCore,
     Frame,
     IndirectBufferSpec,
     StorageBufferSpec,
@@ -24,14 +28,8 @@ import {
     type SlotMap,
     type WorkSlot,
 } from '../../scene/flows/slots';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../scene/flows/createComputeKernel';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { CountToArgs } from '../gpu/compute/CountToArgs';
 import { wordBuffer } from '../gpu/compute/schemas';
@@ -49,7 +47,7 @@ import { Time } from '../../scene/time/Time';
 import { Light } from '../scene/Light';
 import {
     FluidField,
-    fieldAtlasSize,
+    fieldAtlasOffset,
     fieldDataLayout,
     fieldFilmOffset,
     fieldMediaOffset,
@@ -70,7 +68,6 @@ import {
     FIELD_LIGHT_RES,
     FIELD_MAX_BODIES,
     FIELD_PARTICLES_PER_BRICK,
-    fieldAtlasPages,
     FieldGatherSchema,
     fieldContactShape,
 } from './schemas';
@@ -197,34 +194,65 @@ interface Work {
     readonly phiA: StorageBufferSpec;
 }
 
-/** Kernels do quadro (refeitos quando um buffer muda). */
-interface Kernels {
-    readonly key: string;
-    readonly gather: Map<string, ComputeKernel>;
-    /** As partículas na ordem das células (depois da grade). */
-    readonly sort: ComputeKernel;
-    readonly kernels: ComputeKernel;
-    readonly clear: ComputeKernel;
-    readonly mark: ComputeKernel;
-    /** A película de água nos sólidos (spec 034): o passo por célula (absorção, evaporação, escoamento), deposição. */
-    readonly filmStep: ComputeKernel;
-    readonly filmDeposit: ComputeKernel;
-    readonly links: ComputeKernel;
-    readonly density: ComputeKernel;
-    /** Filtro separável da densidade: B (ponto fixo) → A → P → A. */
-    readonly smooth: readonly ComputeKernel[];
-    /** Filtrada (A) → φ inicial (P). */
-    readonly init: ComputeKernel;
-    /** φ inicial (P) → interface e sinais (A) e a primeira distância (B). */
-    readonly classify: ComputeKernel;
-    /** Iterações da eikonal B → P e P → B. */
-    readonly forward: ComputeKernel;
-    readonly backward: ComputeKernel;
-    readonly apron: ComputeKernel;
-    /** A malha da superfície (spec 039 refeita): a extração por bloco e os argumentos do desenho. */
-    readonly mesh: ComputeKernel;
-    readonly meshArgs: ComputeKernel;
-}
+const kernel = (id: string, shader: WgslModule, entry: string): PipelineDescriptor => ({
+    id: `field_${id}`,
+    role: 'compute',
+    shader,
+    entryPoints: [entry],
+});
+
+/**
+ * Os kernels da construção do campo, preparados pela C2 (spec 031): as fontes privadas por `ctx.bind` — por pipeline
+ * só onde o mesmo recurso (`field_src`, `field_dst`) lê ou grava um temporário diferente em cada etapa.
+ */
+const SORT = kernel('sort', fieldSort, 'field_sort_main');
+const KERNELS = kernel('kernels', fieldKernels, 'field_kernels_main');
+const CLEAR = kernel('clear', fieldMark, 'field_clear_main');
+const MARK = kernel('mark', fieldMark, 'field_mark_main');
+/** A película de água nos sólidos (spec 034): o passo por célula (absorção, evaporação, escoamento), a deposição. */
+const FILM_STEP = kernel('film_step', fieldFilmStep, 'field_film_step_main');
+const FILM_DEPOSIT = kernel('film_deposit', fieldFilmDeposit, 'field_film_deposit_main');
+const LINKS = kernel('links', fieldLinks, 'field_links_main');
+const DENSITY = kernel('density', fieldDensity, 'field_density_main');
+/** Filtro separável da densidade: B (ponto fixo) → A → P → A. */
+const SMOOTH = [
+    kernel('smooth_x', fieldRedistance, 'field_smooth_x_main'),
+    kernel('smooth_y', fieldRedistance, 'field_smooth_y_main'),
+    kernel('smooth_z', fieldRedistance, 'field_smooth_z_main'),
+] as const;
+/** Filtrada (A) → φ inicial (P). */
+const INIT = kernel('init', fieldRedistance, 'field_init_main');
+/** φ inicial (P) → interface e sinais (A) e a primeira distância (B). */
+const CLASSIFY = kernel('classify', fieldRedistance, 'field_classify_main');
+/** Iterações da eikonal B → P e P → B. */
+const FORWARD = kernel('eikonal_bp', fieldRedistance, 'field_eikonal_main');
+const BACKWARD = kernel('eikonal_pb', fieldRedistance, 'field_eikonal_main');
+const APRON = kernel('apron', fieldApron, 'field_apron_main');
+/** A malha da superfície (spec 039 refeita): a extração por bloco e os argumentos do desenho. */
+const MESH = kernel('mesh', fieldMesh, 'field_mesh_main');
+const MESH_ARGS = kernel('mesh_args', fieldMesh, 'field_mesh_args_main');
+const BUILD = [
+    SORT,
+    KERNELS,
+    CLEAR,
+    MARK,
+    FILM_STEP,
+    FILM_DEPOSIT,
+    LINKS,
+    DENSITY,
+    ...SMOOTH,
+    INIT,
+    CLASSIFY,
+    FORWARD,
+    BACKWARD,
+    APRON,
+    MESH,
+    MESH_ARGS,
+];
+
+/** A junção de um pool de corpos de água (um pipeline por pool: as partículas dele). */
+const gatherKernel = (poolKey: string): PipelineDescriptor =>
+    kernel(`gather:${poolKey}`, fieldGather, 'field_gather_main');
 
 /** Espaçamento padrão das partículas quando a cena não tem `ParticlePhysics`. */
 const DEFAULT_SPACING = 0.05;
@@ -263,7 +291,11 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     private drawsWritten = '';
     private paramsWritten = '';
     private scratchSize: ScratchSize | undefined;
-    private kernels: Kernels | undefined;
+    /** As fontes privadas ligadas (pela identidade de cada uma): religadas quando alguma muda. */
+    private boundKey = '';
+    private buildPrepared = false;
+    /** Os pools com o pipeline da junção preparado. */
+    private readonly gatherPools = new Set<string>();
     /** A simulação avançou no quadro: a película de água escoa e recebe a deposição (spec 034). */
     private filmAdvances = false;
     /**
@@ -364,85 +396,100 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
 
     /** Grava a construção do campo e o material de cada corpo. */
     dispatch(frame: Frame, bound: BoundFlow<FluidFieldSlots>): void {
-        const k = this.kernels;
         const work = this.scratch;
         const field = this.field;
         const counts = field === undefined ? undefined : this.counts(field);
-        if (!this.active || k === undefined || work === undefined || counts === undefined) return;
-        if (this.rebuilds) this.rebuild(frame, k, work, field!, counts);
-        this.rebuilds = false;
+        if (!this.active || work === undefined || counts === undefined) return;
+        // Enquanto algum kernel compila (em segundo plano), o campo fica para o quadro seguinte.
+        if (this.rebuilds && this.buildReady(bound)) {
+            this.rebuild(frame, bound, work, field!, counts);
+            this.rebuilds = false;
+        }
         this.dispatchClosures(frame, bound);
         this.dispatchLightMap(frame, bound);
+    }
+
+    /** Os kernels da construção (e a junção de cada corpo) compilados. */
+    private buildReady(bound: BoundFlow<FluidFieldSlots>): boolean {
+        const ready = (id: string): boolean => {
+            const p = bound.pipelines.get(id);
+            return p?.role === 'compute' && p.ready;
+        };
+        return (
+            this.buildPrepared
+            && BUILD.every((d) => ready(d.id))
+            && this.order.every((b) => ready(gatherKernel(b.poolKey).id))
+        );
     }
 
     /** A construção do campo pelas partículas: a junção, a grade, os núcleos, os blocos, a distância e a malha. */
     private rebuild(
         frame: Frame,
-        k: Kernels,
+        bound: BoundFlow<FluidFieldSlots>,
         work: Work,
         field: FluidField,
         counts: IndirectBufferSpec,
     ): void {
         const W = WORKGROUP_SIZE.value;
+        const at = (d: PipelineDescriptor): PreparedCompute => bound.compute(d.id);
         frame.compute('FluidFieldFlow.gather', (pass) => {
             this.order.forEach((b, i) => {
-                const kernel = k.gather.get(b.poolKey);
-                if (kernel === undefined) return;
-                pass.bind.setPipeline(kernel.pipeline);
-                kernel.bindTo(pass.bind, { draw: [this.draws.offset(i)] });
+                const gather = at(gatherKernel(b.poolKey));
+                pass.bind.setPipeline(gather.spec);
+                gather.bindTo(pass.bind, { draw: [this.draws.offset(i)] });
                 pass.dispatch.invocations(b.body.count, W);
             });
         });
         this.grid.record(frame);
         const table = field.capacity.table;
         frame.compute('FluidFieldFlow.kernels', (pass) => {
-            this.run(pass, k.sort, this.particles, W);
-            this.run(pass, k.kernels, this.particles, W);
+            this.run(pass, at(SORT), this.particles, W);
+            this.run(pass, at(KERNELS), this.particles, W);
         });
         frame.compute('FluidFieldFlow.mark', (pass) => {
-            this.run(pass, k.clear, table + 1, W);
-            this.run(pass, k.mark, this.particles, W);
-            this.run(pass, k.links, work.bricks, W);
+            this.run(pass, at(CLEAR), table + 1, W);
+            this.run(pass, at(MARK), this.particles, W);
+            this.run(pass, at(LINKS), work.bricks, W);
         });
         // A película de água nos sólidos (spec 034): só nos quadros em que a simulação avança (parada, fica).
         if (this.filmAdvances) {
             frame.compute('FluidFieldFlow.film', (pass) => {
-                this.run(pass, k.filmStep, FIELD_FILM_CELLS, W);
-                this.run(pass, k.filmDeposit, this.particles, W);
+                this.run(pass, at(FILM_STEP), FIELD_FILM_CELLS, W);
+                this.run(pass, at(FILM_DEPOSIT), this.particles, W);
             });
         }
         this.args.record(frame, { counts, index: 0, workgroupSize: 1 });
         // A densidade é somada em ponto fixo: o buffer (também o segundo do redistanciamento) começa zerado.
         frame.clear(work.density);
         frame.compute('FluidFieldFlow.density', (pass) => {
-            this.run(pass, k.density, this.particles, W);
+            this.run(pass, at(DENSITY), this.particles, W);
         });
-        const indirect = (label: string, kernels: readonly ComputeKernel[]): void => {
+        const indirect = (label: string, kernels: readonly PipelineDescriptor[]): void => {
             frame.compute(label, (pass) => {
-                for (const kernel of kernels) {
-                    pass.bind.setPipeline(kernel.pipeline);
-                    kernel.bindTo(pass.bind);
+                for (const d of kernels) {
+                    const k = at(d);
+                    pass.bind.setPipeline(k.spec);
+                    k.bindTo(pass.bind);
                     pass.dispatch.workgroupsIndirect(counts, SET_COUNT_DISPATCH_OFFSET);
                 }
             });
         };
-        indirect('FluidFieldFlow.smooth', k.smooth);
-        indirect('FluidFieldFlow.init', [k.init, k.classify]);
+        indirect('FluidFieldFlow.smooth', SMOOTH);
+        indirect('FluidFieldFlow.init', [INIT, CLASSIFY]);
         indirect(
             'FluidFieldFlow.redistance',
-            Array.from({ length: FIELD.iterations }, (_, n) =>
-                n % 2 === 0 ? k.forward : k.backward,
-            ),
+            Array.from({ length: FIELD.iterations }, (_, n) => (n % 2 === 0 ? FORWARD : BACKWARD)),
         );
-        indirect('FluidFieldFlow.apron', [k.apron]);
+        indirect('FluidFieldFlow.apron', [APRON]);
         // A malha da superfície: a contagem zerada, um grupo por bloco, os argumentos do desenho.
         const meshArgs = this.counts(field, 'meshArgs');
         if (meshArgs !== undefined) frame.clear(meshArgs, 16, 4);
         frame.compute('FluidFieldFlow.mesh', (pass) => {
-            pass.bind.setPipeline(k.mesh.pipeline);
-            k.mesh.bindTo(pass.bind);
+            const mesh = at(MESH);
+            pass.bind.setPipeline(mesh.spec);
+            mesh.bindTo(pass.bind);
             pass.dispatch.workgroupsIndirect(counts, SET_COUNT_DISPATCH_OFFSET);
-            this.run(pass, k.meshArgs, 1, 1);
+            this.run(pass, at(MESH_ARGS), 1, 1);
         });
     }
 
@@ -510,15 +557,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         }
     }
 
-    /** Libera buffers e kernels. */
+    /** Libera a grade e os argumentos (os kernels são da C2). */
     override dispose(): void {
-        this.releaseKernels();
         this.grid.destroy();
         this.args.destroy();
-    }
-
-    private get core(): EngineCore {
-        return this.work.core;
     }
 
     /** Volume do campo somado no quadro (lido pela limpeza do seguinte: o nível que conserva o volume). */
@@ -564,9 +606,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         };
     }
 
-    private run(pass: ComputePass, kernel: ComputeKernel, count: number, size: number): void {
+    private run(pass: ComputePass, kernel: PreparedCompute, count: number, size: number): void {
         if (count <= 0) return;
-        pass.bind.setPipeline(kernel.pipeline);
+        pass.bind.setPipeline(kernel.spec);
         kernel.bindTo(pass.bind);
         pass.dispatch.invocations(count, size);
     }
@@ -632,19 +674,12 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.args.prepare(counts);
         this.writeDraws();
         const layout = fieldDataLayout(field.capacity);
-        const pages = fieldAtlasPages(capacity);
         const params: [Record<string, number[] | number[][]>] = [
             {
                 sizes: [this.particles, capacity, field.capacity.table - 1, FIELD.iterations],
                 grid: [spacing, FIELD.voxel * spacing, radius, FIELD.band * FIELD.voxel * spacing],
                 tuning: [FIELD.smoothing, FIELD.ratio, FIELD.sparse, FIELD.iso],
-                limits: [
-                    FIELD.neighbors,
-                    32,
-                    layout.bricks,
-                    Math.log2(pages[0]) | (Math.log2(pages[1]) << 8),
-                ],
-                atlas: [...fieldAtlasSize(capacity).map((n) => 1 / n), 0],
+                limits: [FIELD.neighbors, 32, layout.bricks, fieldAtlasOffset(field.capacity)],
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
@@ -683,7 +718,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             field.data.params = params;
         }
         this.colliderSet.refresh();
-        this.ensureKernels(field, work, counts, data, gridRebuilt);
+        this.syncKernels(ctx, field, work);
         this.syncClosures(ctx);
     }
 
@@ -806,7 +841,6 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         const w = this.scratchSize;
         if (w !== undefined && w.particles >= particles && w.bricks === bricks)
             return this.scratch!;
-        this.releaseKernels();
         let cap = Math.max(256, w?.particles ?? 0);
         while (cap < particles) cap *= 2;
         // A C2 realoca os temporários no tamanho novo (o Resource de trabalho se redescreve).
@@ -815,207 +849,102 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         return this.scratch!;
     }
 
-    /** Kernels com os buffers atuais (refeitos quando algum muda). */
-    private ensureKernels(
-        field: FluidField,
-        work: Work,
-        counts: IndirectBufferSpec,
-        data: StorageBufferSpec,
-        gridRebuilt: boolean,
-    ): void {
-        const mesh = this.buffer(field, 'mesh');
-        const meshArgs = this.counts(field, 'meshArgs');
-        // O atlas dos voxels (T060f), o amostrador e a série por páginas dele (os carimbos e o relógio).
-        const atlas = this.resources.textureViewOf(field, 'atlas');
-        const sampler = this.resources.samplerOf(field, 'sampler');
-        const paged = this.resources.channelOf(field, 'atlas')?.paged;
+    /**
+     * Os kernels da construção pela C2 e as fontes privadas deles: ligadas de novo quando alguma muda (os temporários
+     * redimensionados, a grade refeita, um pool realocado, a película dos sólidos); a C2 refaz os grupos de ligação. Um
+     * pipeline da junção por pool de corpos de água.
+     */
+    private syncKernels(ctx: Ctx, field: FluidField, work: Work): void {
+        // Os carimbos e o relógio da série por páginas do atlas (T060f).
+        const paged = this.resources.channelOf(field, 'data')?.paged;
         const stamps = paged?.stamps as StorageBufferSpec | undefined;
         const clock = paged?.clock;
-        if (
-            mesh === undefined
-            || meshArgs === undefined
-            || atlas === undefined
-            || sampler === undefined
-            || stamps === undefined
-            || clock === undefined
-        )
-            return;
-        const pools = this.order.map(
-            (b) => `${b.poolKey}:${this.identity(this.resources.poolBufferSpec(b.poolKey))}`,
-        );
-        const key = [work.items, data, counts, mesh, meshArgs, atlas, stamps, clock]
-            .map((b) => String(this.identity(b)))
-            .concat([
-                String(this.draws.generation),
-                `colliders:${this.colliderSet.generation}`,
-                ...pools,
-            ])
-            .join('|');
-        if (this.kernels?.key === key && !gridRebuilt) return;
-        this.releaseKernels();
-        const params = this.resources.bufferOf(field, 'params') as BindingSource;
-        const gridSources: [WgslResource, BindingSource][] = [
+        if (stamps === undefined || clock === undefined) return;
+        const pools = new Map<string, [StorageBufferSpec, StorageBufferSpec]>();
+        for (const b of this.order) {
+            const pool = this.resources.poolBufferSpec(b.poolKey);
+            const live = this.resources.poolLiveBuffer(b.poolKey);
+            if (pool !== undefined && live !== undefined) pools.set(b.poolKey, [pool, live]);
+        }
+        const sources = new Map<BindingKey, BindingSource>([
+            [R.gather, this.draws.source()],
+            [R.itemsWrite, work.items],
+            [R.contactsWrite, work.contacts],
+            [R.items, work.items],
             [R.grid, this.grid.params],
             [R.cellStart, this.grid.cellStart],
             [R.cellCount, this.grid.cellCount],
+            [R.cellItems, this.grid.cellItems],
+            [R.sorted, work.sorted],
+            [R.sortedWrite, work.sorted],
+            [R.contacts, work.contacts],
+            [R.sortedContacts, work.sortedContacts],
+            [R.sortedContactsWrite, work.sortedContacts],
+            [R.kernel, work.kernel],
+            [R.kernelWrite, work.kernel],
+            [R.links, work.links],
+            [R.linksWrite, work.links],
+            [R.density, work.density],
+            [R.densityWrite, work.density],
+            [R.phi0, work.phi0],
+            [R.flags, work.phiA],
+            [R.volumeWrite, this.volume],
+            [R.atlasStamps, stamps],
+            [R.atlasClock, clock as BindingSource],
+            ...[...this.colliderSet.sources()].filter(([r]) => FILM_COLLIDER_RESOURCES.has(r)),
+        ]);
+        // O mesmo recurso, um temporário por etapa: o filtro, o φ inicial, a eikonal (ida e volta) e a borda.
+        const last = FIELD.iterations % 2 === 0 ? work.density : work.phi0;
+        const steps: [
+            PipelineDescriptor,
+            StorageBufferSpec | undefined,
+            StorageBufferSpec | undefined,
+        ][] = [
+            [SMOOTH[0], undefined, work.phiA],
+            [SMOOTH[1], work.phiA, work.phi0],
+            [SMOOTH[2], work.phi0, work.phiA],
+            [INIT, work.phiA, undefined],
+            [CLASSIFY, undefined, work.density],
+            [FORWARD, work.density, work.phi0],
+            [BACKWARD, work.phi0, work.density],
+            [APRON, last, undefined],
         ];
-        const make = (
-            name: string,
-            shader: WgslModule,
-            entryPoint: string,
-            sources: [WgslResource, BindingSource][],
-        ): ComputeKernel =>
-            createComputeKernel(this.core, {
-                discriminator: `field:${name}`,
-                shader,
-                entryPoint,
-                bindings: new Map<WgslResource, BindingSource>([[R.params, params], ...sources]),
-            });
-        const gather = new Map<string, ComputeKernel>();
-        for (const b of this.order) {
-            if (gather.has(b.poolKey)) continue;
-            const pool = this.resources.poolBufferSpec(b.poolKey);
-            const live = this.resources.poolLiveBuffer(b.poolKey);
-            if (pool === undefined || live === undefined) continue;
-            gather.set(
-                b.poolKey,
-                createComputeKernel(this.core, {
-                    discriminator: `field:gather:${b.poolKey}`,
-                    shader: fieldGather,
-                    entryPoint: 'field_gather_main',
-                    bindings: new Map<WgslResource, BindingSource>([
-                        [R.gather, this.draws.source()],
-                        [R.particles, pool],
-                        [R.live, live],
-                        [R.itemsWrite, work.items],
-                        [R.contactsWrite, work.contacts],
-                    ]),
-                }),
-            );
+        for (const [d, src, dst] of steps) {
+            if (src !== undefined) sources.set({ pipeline: d.id, resource: R.src }, src);
+            if (dst !== undefined) sources.set({ pipeline: d.id, resource: R.dst }, dst);
         }
-        const eikonal = (
-            src: StorageBufferSpec,
-            dst: StorageBufferSpec,
-            name: string,
-        ): ComputeKernel =>
-            make(name, fieldRedistance, 'field_eikonal_main', [
-                [R.counts, counts],
-                [R.links, work.links],
-                [R.flags, work.phiA],
-                [R.src, src],
-                [R.dst, dst],
-            ]);
-        this.kernels = {
-            key,
-            gather,
-            sort: make('sort', fieldSort, 'field_sort_main', [
-                ...gridSources,
-                [R.cellItems, this.grid.cellItems],
-                [R.items, work.items],
-                [R.sortedWrite, work.sorted],
-                [R.contacts, work.contacts],
-                [R.sortedContactsWrite, work.sortedContacts],
-            ]),
-            kernels: make('kernels', fieldKernels, 'field_kernels_main', [
-                ...gridSources,
-                [R.sorted, work.sorted],
-                [R.kernelWrite, work.kernel],
-                [R.sortedContacts, work.sortedContacts],
-            ]),
-            clear: make('clear', fieldMark, 'field_clear_main', [
-                [R.dataAtomic, data],
-                [R.countsWrite, counts],
-                [R.volumeWrite, this.volume],
-            ]),
-            mark: make('mark', fieldMark, 'field_mark_main', [
-                [R.sorted, work.sorted],
-                [R.kernel, work.kernel],
-                [R.dataAtomic, data],
-                [R.countsWrite, counts],
-            ]),
-            filmStep: make('film_step', fieldFilmStep, 'field_film_step_main', [
-                [R.dataAtomic, data],
-                ...[...this.colliderSet.sources()].filter(([r]) => FILM_COLLIDER_RESOURCES.has(r)),
-            ]),
-            filmDeposit: make('film_deposit', fieldFilmDeposit, 'field_film_deposit_main', [
-                [R.sorted, work.sorted],
-                [R.sortedContacts, work.sortedContacts],
-                [R.kernel, work.kernel],
-                [R.dataAtomic, data],
-            ]),
-            links: make('links', fieldLinks, 'field_links_main', [
-                [R.data, data],
-                [R.counts, counts],
-                [R.linksWrite, work.links],
-            ]),
-            density: make('density', fieldDensity, 'field_density_main', [
-                [R.data, data],
-                [R.sorted, work.sorted],
-                [R.kernel, work.kernel],
-                [R.densityWrite, work.density],
-            ]),
-            smooth: [
-                make('smooth_x', fieldRedistance, 'field_smooth_x_main', [
-                    [R.counts, counts],
-                    [R.links, work.links],
-                    [R.density, work.density],
-                    [R.dst, work.phiA],
-                ]),
-                make('smooth_y', fieldRedistance, 'field_smooth_y_main', [
-                    [R.counts, counts],
-                    [R.links, work.links],
-                    [R.src, work.phiA],
-                    [R.dst, work.phi0],
-                ]),
-                make('smooth_z', fieldRedistance, 'field_smooth_z_main', [
-                    [R.counts, counts],
-                    [R.links, work.links],
-                    [R.src, work.phi0],
-                    [R.dst, work.phiA],
-                ]),
-            ],
-            init: make('init', fieldRedistance, 'field_init_main', [
-                [R.counts, counts],
-                [R.links, work.links],
-                [R.src, work.phiA],
-                [R.phi0, work.phi0],
-                [R.data, data],
-            ]),
-            classify: make('classify', fieldRedistance, 'field_classify_main', [
-                [R.counts, counts],
-                [R.links, work.links],
-                [R.phi0, work.phi0],
-                [R.flags, work.phiA],
-                [R.dst, work.density],
-            ]),
-            forward: eikonal(work.density, work.phi0, 'eikonal_bp'),
-            backward: eikonal(work.phi0, work.density, 'eikonal_pb'),
-            apron: make('apron', fieldApron, 'field_apron_main', [
-                [R.counts, counts],
-                [R.links, work.links],
-                [R.src, FIELD.iterations % 2 === 0 ? work.density : work.phi0],
-                [R.atlasOut, atlas],
-                [R.atlasStamps, stamps],
-                [R.atlasClock, clock as BindingSource],
-                [R.volumeWrite, this.volume],
-            ]),
-            mesh: make('mesh', fieldMesh, 'field_mesh_main', [
-                [R.data, data],
-                [R.atlas, atlas],
-                [R.counts, counts],
-                [R.meshOut, mesh],
-                [R.meshArgs, meshArgs],
-            ]),
-            meshArgs: createComputeKernel(this.core, {
-                discriminator: 'field:mesh_args',
-                shader: fieldMesh,
-                entryPoint: 'field_mesh_args_main',
-                bindings: new Map<WgslResource, BindingSource>([
-                    [R.meshOut, mesh],
-                    [R.meshArgs, meshArgs],
-                ]),
-            }),
-        };
+        for (const [poolKey, [pool, live]] of pools) {
+            const id = gatherKernel(poolKey).id;
+            sources.set({ pipeline: id, resource: R.particles }, pool);
+            sources.set({ pipeline: id, resource: R.live }, live);
+        }
+        // Pela identidade do buffer (uma fonte com região é um objeto novo a cada chamada) e a região dele.
+        const key = [...sources.values()]
+            .map((v) =>
+                'buffer' in v
+                    ? `${this.identity(v.buffer)}:${v.offset ?? 0}:${v.size ?? 0}`
+                    : String(this.identity(v)),
+            )
+            .join('|');
+        if (key !== this.boundKey) {
+            this.boundKey = key;
+            ctx.bind(sources);
+            this.rebuilds = true;
+        }
+        if (!this.buildPrepared) {
+            for (const d of BUILD) ctx.prepare(d);
+            this.buildPrepared = true;
+        }
+        for (const poolKey of pools.keys()) {
+            if (this.gatherPools.has(poolKey)) continue;
+            this.gatherPools.add(poolKey);
+            ctx.prepare(gatherKernel(poolKey));
+        }
+        for (const poolKey of [...this.gatherPools]) {
+            if (pools.has(poolKey)) continue;
+            this.gatherPools.delete(poolKey);
+            ctx.release(gatherKernel(poolKey).id);
+        }
     }
 
     /** Identidade estável de um objeto de GPU (para saber quando um buffer foi trocado). */
@@ -1024,31 +953,5 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         let id = this.ids.get(o);
         if (id === undefined) this.ids.set(o, (id = this.nextId++));
         return id;
-    }
-
-    private releaseKernels(): void {
-        const k = this.kernels;
-        if (k === undefined) return;
-        for (const kernel of k.gather.values()) destroyComputeKernel(this.core, kernel);
-        for (const kernel of [
-            k.sort,
-            k.kernels,
-            k.clear,
-            k.mark,
-            k.filmStep,
-            k.filmDeposit,
-            k.links,
-            k.density,
-            ...k.smooth,
-            k.init,
-            k.classify,
-            k.forward,
-            k.backward,
-            k.apron,
-            k.mesh,
-            k.meshArgs,
-        ])
-            destroyComputeKernel(this.core, kernel);
-        this.kernels = undefined;
     }
 }

@@ -20,7 +20,13 @@ import {
     rayVolumeOccupiedPoint,
     rayVolumeTransmittancePoint,
 } from '../../raytrace/points';
-import { FIELD_HEADER_WORDS, FluidField, fieldDataLayout, fieldFilmOffset } from '../FluidField';
+import {
+    FIELD_HEADER_WORDS,
+    FluidField,
+    fieldAtlasOffset,
+    fieldDataLayout,
+    fieldFilmOffset,
+} from '../FluidField';
 import { sceneWetnessPoint } from '../../scene/points/media';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
 import {
@@ -57,22 +63,26 @@ describe('FluidField (spec 033, R11)', () => {
             upload: 'never',
             // Depois dos blocos, a película de água nos sólidos (spec 034): 6 palavras por célula (a chave, a água
             // livre, a normal, a marca de submersa, a água absorvida e a superfície); depois, o meio de cada corpo
-            // (spec 039). Os voxels ficam no atlas (T060f).
-            count: layout.end + 6 * FIELD_FILM_CELLS + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
+            // (spec 039); no fim, o atlas dos voxels (T060f): 64 páginas de 12³ palavras, uma série por páginas.
+            count:
+                layout.end
+                + 6 * FIELD_FILM_CELLS
+                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS
+                + 64 * 12 ** 3,
+            history: {
+                depth: 1,
+                pages: { record: 12 ** 3 * 4, offset: fieldAtlasOffset(field.capacity) * 4 },
+            },
         });
+        expect(fieldAtlasOffset(field.capacity)).toBe(
+            layout.end + 6 * FIELD_FILM_CELLS + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
+        );
         expect(fieldFilmOffset(field.capacity)).toBe(layout.end);
         expect(counts).toMatchObject({
             id: 'counts',
             role: 'indirect',
             schema: SetCountSchema,
             count: 1,
-        });
-        // O atlas dos voxels (T060f): 64 blocos → 4 × 4 × 4 páginas de 12³, uma série por páginas.
-        const atlas = field.getDescriptors().find((d) => d.id === 'atlas')!;
-        expect(atlas).toMatchObject({
-            role: 'storage-texture',
-            textureShape: { dimension: '3d', width: 48, height: 48, depthOrArrayLayers: 48 },
-            history: { depth: 1, pages: { tile: [12, 12, 12] } },
         });
         // Blocos de 8³ voxels, voxel de ½ espaçamento (os voxels com 2 de borda de cada lado: 12³).
         expect(FIELD_BRICK).toBe(8);
@@ -97,11 +107,10 @@ describe('FluidField (spec 033, R11)', () => {
         expect(data.count).toBe(
             fieldDataLayout({ bricks: 128, table: 512 }).end
                 + 6 * FIELD_FILM_CELLS
-                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
+                + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS
+                // O atlas acompanha: 128 páginas de 12³ no fim do buffer.
+                + 128 * 12 ** 3,
         );
-        // O atlas acompanha: 128 páginas de 12³ (8 × 4 × 4).
-        const atlas = field.getDescriptors().find((d) => d.id === 'atlas')!;
-        expect(atlas.textureShape).toMatchObject({ width: 96, height: 48, depthOrArrayLayers: 48 });
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
