@@ -4,7 +4,8 @@
 //   3. `sp_instances_main` (uma invocação por instância): o retângulo da instância no plano da luz (a caixa pela matriz
 //      de mundo); a instância que se moveu ou se deformou desde o quadro anterior (a série dos retângulos, atraso 1)
 //      entra na lista das dinâmicas com o retângulo de antes e o de agora;
-//   4. `sp_update_main` (uma por página virtual): a página do quadro anterior (a série da tabela) segue quando ainda é a
+//   4. `sp_update_main` (uma por página virtual): a página do quadro anterior (a tabela no começo do atlas, refeita no
+//      lugar) segue quando ainda é a
 //      mesma página global, foi pedida há poucos quadros, a série do atlas a tem carimbada na época atual e
 //      nenhuma dinâmica a tocou; a pedida (os pedidos do quadro anterior, a
 //      série dos pedidos) sem página física precisa de alocação; a tocada, de redesenho — e `sp_rank_main` monta as filas
@@ -13,6 +14,7 @@
 //   6. `sp_allocate_main` (um grupo): as filas por nível, do mais grosso ao mais fino (a reserva grossa primeiro), até o
 //      orçamento do quadro — a página nova recebe uma física livre — e a lista das sujas a desenhar. As filas, as livres
 //      e a alocação saem em ordem (somas de prefixos no grupo): a imagem não depende da ordem dos atômicos;
+//      `sp_fill_main` (um grupo por posição da lista) preenche as sujas com o fundo;
 //   7. os pares instância × página suja (a instância cujo retângulo toca a página): `sp_pairs_count_main` conta os de
 //      cada grupo, `sp_pairs_base_main` reparte a reserva dos pares (`sp_pairs`, de tamanho fixo) entre os grupos em
 //      ordem e escreve a contagem de instâncias de cada desenho indireto, `sp_pairs_main` escreve cada par no trecho do
@@ -27,6 +29,20 @@ fn sp_f(i: u32) -> f32 {
 
 fn sp_set_f(i: u32, v: f32) {
     atomicStore(&sp_scratch[i], bitcast<u32>(v));
+}
+
+/** A entrada `slot` (de `sv_slot`) da tabela, no começo do atlas. */
+fn sp_table_load(m: ShadowMatrix, slot: vec2u) -> vec4u {
+    let w = sv_table_word(m, slot);
+    return vec4u(sp_atlas[w], sp_atlas[w + 1u], sp_atlas[w + 2u], sp_atlas[w + 3u]);
+}
+
+fn sp_table_store(m: ShadowMatrix, slot: vec2u, e: vec4u) {
+    let w = sv_table_word(m, slot);
+    sp_atlas[w] = e.x;
+    sp_atlas[w + 1u] = e.y;
+    sp_atlas[w + 2u] = e.z;
+    sp_atlas[w + 3u] = e.w;
 }
 
 /** O retângulo (x0, y0, x1, y1) da página global `g` do nível `k` no plano da luz, com a borda de 1 texel. */
@@ -96,7 +112,6 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 3u], 0u);
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 3u + 2u], 0u);
     }
-    if (i == 0u) { atomicStore(&sp_args[sp.clearRecord * 5u + 1u], 0u); }
 }
 
 fn sp_atlas_pages_total() -> u32 {
@@ -131,10 +146,9 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     sp_set_f(r + 1u, rect.y);
     sp_set_f(r + 2u, rect.z);
     sp_set_f(r + 3u, rect.w);
-    let texel = vec2u(j % sp.rectsWidth, j / sp.rectsWidth);
-    textureStore(sp_rects_out, texel, rect);
+    sp_rects_out[j] = rect;
     if (sp.reset != 0u || m.direction.w != 0.0) { return; }
-    let before = textureLoad(sp_rects_previous, texel, 0);
+    let before = sp_rects_previous[j];
     let moved = any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))))
         || (word & SP_DEFORMING) != 0u;
     if (!moved) { return; }
@@ -209,17 +223,18 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     let texel = vec2u(s.x, s.y + k * n);
     atomicStore(&sp_scratch[sp.needBase + i], 0u);
     if (k >= sv_levels(m)) {
-        textureStore(sp_pages, texel, vec4u(0u));
+        sp_table_store(m, texel, vec4u(0u));
         return;
     }
     let g = sp_global(m, k, s);
     let gx = bitcast<u32>(g.x);
     let gy = bitcast<u32>(g.y);
     let reset = sp.reset != 0u || m.direction.w != 0.0;
-    let old = select(textureLoad(sp_pages_previous, texel, 0), vec4u(0u), reset);
+    // A entrada do quadro anterior, no lugar (esta invocação é a única que lê e escreve a entrada).
+    let old = select(sp_table_load(m, texel), vec4u(0u), reset);
     let valid = (old.z & SV_ALLOCATED) != 0u && old.x == gx && old.y == gy;
     let rect = sp_page_rect(m, k, g);
-    var requested = sp.requestsValid != 0u && textureLoad(sp_requests_previous, texel, 0).x != 0u;
+    var requested = sp.requestsValid != 0u && sp_requests_previous[sv_request_word(m, texel)] != 0u;
     // O nível mais grosso no frustum, sempre: a reserva do que não está numa superfície vista no quadro anterior (os
     // pontos do volume da névoa, o primeiro quadro, um corte, a borda que aparece).
     if (k + 1u == sv_levels(m)) { requested = requested || sp_in_frustum(m, rect); }
@@ -230,15 +245,15 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
         // A série do atlas diz se o conteúdo da página ainda vale (carimbada na época atual).
         let stamped = sp_atlas_stamps[phys] == sp_atlas_clock.x;
         let rendered = (old.z & SV_RENDERED) != 0u && stamped && !sp_touched(rect);
-        textureStore(
-            sp_pages,
+        sp_table_store(
+            m,
             texel,
             vec4u(gx, gy, SV_ALLOCATED | select(0u, SV_RENDERED, rendered) | (age << SV_AGE_SHIFT) | phys, old.w),
         );
         if (!rendered) { sp_need(i, SP_NEED_RENDER, phys); }
         return;
     }
-    textureStore(sp_pages, texel, vec4u(gx, gy, 0u, 0u));
+    sp_table_store(m, texel, vec4u(gx, gy, 0u, 0u));
     if (requested) { sp_need(i, SP_NEED_ALLOC, 0u); }
 }
 
@@ -363,15 +378,14 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
     let d = sp_rank[lid] - select(0u, 1u, ok);
     if (lid == 255u) {
         atomicStore(&sp_scratch[SP_DIRTY_COUNT], sp_rank[255]);
-        atomicStore(&sp_args[sp.clearRecord * 5u + 1u], sp_rank[255]);
     }
     if (!ok) { return; }
     let i = word & ~SP_RERENDER;
     let s = vec2u((i % (n * n)) % n, (i % (n * n)) / n);
     let g = sp_global(m, k, s);
     let z0 = bitcast<u32>(m.camera.z);
-    textureStore(
-        sp_pages,
+    sp_table_store(
+        m,
         vec2u(s.x, s.y + k * n),
         vec4u(bitcast<u32>(g.x), bitcast<u32>(g.y), SV_ALLOCATED | SV_RENDERED | phys, z0),
     );
@@ -382,6 +396,21 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
     atomicStore(&sp_scratch[r + 1u], bitcast<u32>(g.x));
     atomicStore(&sp_scratch[r + 2u], bitcast<u32>(g.y));
     atomicStore(&sp_scratch[r + 3u], z0);
+}
+
+// ---- 6b. o fundo das páginas sujas ----
+
+/** Um grupo por posição da lista das sujas: a página física inteira (com a borda) com o fundo (1). */
+@compute @workgroup_size(256)
+fn sp_fill_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) lid: u32) {
+    let d = wid.x;
+    if (d >= sp.budget || d >= atomicLoad(&sp_scratch[SP_DIRTY_COUNT])) { return; }
+    let m = shadow_matrices[sp.casterSlot];
+    let phys = atomicLoad(&sp_scratch[sp.dirtyBase + d * 4u]) & 0xFFFFu;
+    let first = sv_page_word(m, phys, vec2u(0u));
+    for (var t = lid; t < SV_STRIDE * SV_STRIDE; t += 256u) {
+        sp_atlas[first + t] = 0x3f800000u;
+    }
 }
 
 // ---- 7. os pares instância × página suja ----

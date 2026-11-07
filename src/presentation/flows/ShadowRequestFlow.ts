@@ -127,12 +127,12 @@ export class ShadowRequestFlow extends Flow<ShadowRequestSlots, 'idle'> {
         if (mark?.role !== 'compute' || !mark.ready) return;
         if (clear?.role !== 'compute' || !clear.ready) return;
         const depth = bound.slots.sceneDepth;
-        const requests = bound.slots.requests.texture(0);
+        const requests = bound.slots.requests.buffer(0);
         if (depth === undefined || requests === undefined) return;
         frame.compute('ShadowRequestFlow', (pass) => {
             pass.bind.setPipeline(clear.spec);
             clear.bindTo(pass.bind);
-            pass.dispatch.invocations(requests.width * requests.height, WORKGROUP_SIZE);
+            pass.dispatch.invocations(requests.byteSize / 4, WORKGROUP_SIZE);
             pass.bind.setPipeline(mark.spec);
             mark.bindTo(pass.bind);
             pass.dispatch.workgroups(

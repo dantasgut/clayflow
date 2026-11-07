@@ -263,7 +263,10 @@ export const present = wgslModule({ name: 'present', source: presentSource, requ
  */
 export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource, requires: [constants] });
 
-/** Mapa de sombra virtual (spec 034, T060): níveis, páginas, a tabela e a visibilidade com penumbra. */
+/**
+ * Mapa de sombra virtual (spec 034, T060): níveis, páginas e os índices da tabela e das páginas no atlas em buffer
+ * (T060h). A leitura (a visibilidade com a penumbra) é da contribuição de sombra, com o atlas do mapa que projeta.
+ */
 export const shadowVirtual = wgslModule({
     name: 'shadow_virtual',
     source: shadowVirtualSource,

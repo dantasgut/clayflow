@@ -141,30 +141,14 @@ export const instancesResource = wgslResource({
 });
 
 /**
- * O atlas das páginas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.depth`, registrado pelos
- * elementos; a fatia do quadro da série temporal). Lido só pela contribuição de sombra (`light_visibility`).
+ * O atlas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.atlas`, registrado pelos elementos; T060h):
+ * a tabela de páginas no começo e as páginas físicas depois (as profundidades em bits de `f32`). Lido só pela
+ * contribuição de sombra (`light_visibility`).
  */
-export const shadowCasterDepthResource = wgslResource({
-    name: 'shadow_map',
-    binding: { texture: { sample: 'depth' } },
+export const shadowCasterAtlasResource = wgslResource({
+    name: 'shadow_atlas',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
     frequency: 'frame',
-    provider: { consumer: 'ShadowCaster.depth' },
-});
-
-/**
- * A tabela de páginas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.pages`; a fatia do quadro).
- */
-export const shadowCasterPagesResource = wgslResource({
-    name: 'shadow_pages',
-    binding: { texture: { sample: 'u32' } },
-    frequency: 'frame',
-    provider: { consumer: 'ShadowCaster.pages' },
-});
-
-/** Amostrador de comparação do mapa de sombra da luz que projeta (resolver `ShadowCaster.sampler`). */
-export const shadowCasterSamplerResource = wgslResource({
-    name: 'shadow_sampler',
-    binding: { sampler: 'comparison' },
-    frequency: 'frame',
-    provider: { consumer: 'ShadowCaster.sampler' },
+    provider: { consumer: 'ShadowCaster.atlas' },
 });

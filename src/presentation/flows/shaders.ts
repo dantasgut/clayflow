@@ -3,7 +3,6 @@ import { wgslResource } from '../../scene/shaders/WgslResource';
 import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
-import shadowDepthClipSource from './shadow_depth_clip.wgsl?raw';
 import shadowPagesSource from './shadow_pages.wgsl?raw';
 import shadowPagesConstantsSource from './shadow_pages_constants.wgsl?raw';
 import shadowRequestSource from './shadow_request.wgsl?raw';
@@ -74,9 +73,8 @@ const privateUniform = (
         provider: 'private',
     });
 
-/** Slots das séries do mapa virtual no estágio de sombra (spec 037): a tabela, os pedidos, o atlas, os retângulos. */
+/** Slots das séries do mapa virtual no estágio de sombra (spec 037): os pedidos, o atlas (com a tabela), os retângulos. */
 export const shadowPageChannels = Object.freeze({
-    pages: 'pages',
     requests: 'requests',
     atlas: 'atlas',
     rects: 'rects',
@@ -104,36 +102,44 @@ export const shadowResources = {
     geometry: privateUniform('sp_geometry', ShadowBoundsGeometrySchema, 'draw'),
     /** O início dos pares do grupo (por desenho). */
     group: privateUniform('shadow_group', ShadowGroupDrawSchema, 'draw'),
-    /** A tabela de agora (escrita) e a do quadro anterior. */
-    pages: wgslResource({
-        name: 'sp_pages',
-        binding: { storageTexture: { format: 'rgba32uint', access: 'write' } },
+    /**
+     * O atlas (T060h): a tabela de páginas no começo, refeita no lugar a cada quadro (cada entrada lida e escrita pela
+     * mesma invocação), e as páginas físicas depois; no desenho, a profundidade pelo mínimo atômico.
+     */
+    atlas: wgslResource({
+        name: 'sp_atlas',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
         frequency: 'stage',
-        provider: { slot: shadowPageChannels.pages, lag: 0 },
+        provider: { slot: shadowPageChannels.atlas, lag: 0 },
     }),
-    pagesPrevious: wgslResource({
-        name: 'sp_pages_previous',
-        binding: { texture: { sample: 'u32' } },
+    atlasDepth: wgslResource({
+        name: 'sp_atlas_depth',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
         frequency: 'stage',
-        provider: { slot: shadowPageChannels.pages, lag: 1 },
+        provider: { slot: shadowPageChannels.atlas, lag: 0 },
     }),
-    /** Os pedidos do quadro anterior. */
+    /** Os pedidos do quadro anterior (uma palavra por página virtual). */
     requestsPrevious: wgslResource({
         name: 'sp_requests_previous',
-        binding: { texture: { sample: 'u32' } },
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
         frequency: 'stage',
         provider: { slot: shadowPageChannels.requests, lag: 1 },
     }),
     /** Os retângulos das instâncias: os de agora (escritos) e os do quadro anterior. */
     rects: wgslResource({
         name: 'sp_rects_out',
-        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'vec4f', array: true },
         frequency: 'stage',
         provider: { slot: shadowPageChannels.rects, lag: 0 },
     }),
     rectsPrevious: wgslResource({
         name: 'sp_rects_previous',
-        binding: { texture: { sample: 'f32' } },
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec4f', array: true },
         frequency: 'stage',
         provider: { slot: shadowPageChannels.rects, lag: 1 },
     }),
@@ -186,8 +192,7 @@ export const shadowPages = wgslModule({
         shadowResources.pairs,
         shadowResources.vertices,
         shadowResources.geometry,
-        shadowResources.pages,
-        shadowResources.pagesPrevious,
+        shadowResources.atlas,
         shadowResources.requestsPrevious,
         shadowResources.rects,
         shadowResources.rectsPrevious,
@@ -198,7 +203,7 @@ export const shadowPages = wgslModule({
     structs: [ShadowMap.matrixSchema, ShadowInstanceSchema],
 });
 
-/** Profundidade das páginas sujas (vértice, fragmento que descarta fora da página e o fundo). */
+/** Profundidade das páginas sujas (o vértice na página e o mínimo atômico no fragmento, T060h). */
 export const shadowDepth = wgslModule({
     name: 'shadow_depth',
     source: shadowDepthSource,
@@ -213,23 +218,18 @@ export const shadowDepth = wgslModule({
         shadowResources.pairsRead,
         shadowResources.group,
         shadowResources.instances,
+        shadowResources.atlasDepth,
     ],
-});
-
-/** O vértice das páginas recortado pelo hardware (a feature `clip-distances`). */
-export const shadowDepthClip = wgslModule({
-    name: 'shadow_depth_clip',
-    source: shadowDepthClipSource,
-    requires: [shadowDepth],
 });
 
 /** Recursos dos pedidos de páginas (o `ShadowRequestFlow`). */
 export const shadowRequestResources = {
     params: privateUniform('sr', ShadowRequestParamsSchema, 'stage'),
-    /** Os pedidos de agora (escritos). */
+    /** Os pedidos de agora (escritos; uma palavra por página virtual). */
     requests: wgslResource({
         name: 'sr_requests',
-        binding: { storageTexture: { format: 'r32uint', access: 'write' } },
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
         frequency: 'stage',
         provider: { slot: 'requests', lag: 0 },
     }),

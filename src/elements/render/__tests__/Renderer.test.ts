@@ -8,7 +8,7 @@ import { World } from '../../../scene/world/World';
 import { GI_QUALITY, GlobalIllumination } from '../../lighting/GlobalIllumination';
 import { Froxels } from '../../media/Froxels';
 import { FROXEL_GRID } from '../../media/schemas';
-import { SHADOW_MAX_LEVELS, ShadowMap } from '../../scene/ShadowMap';
+import { SHADOW_MAX_LEVELS, ShadowMap, shadowTableWords } from '../../scene/ShadowMap';
 
 describe('Renderer (spec 039, FR-010)', () => {
     it('padrão: perfil alto com os valores de hoje (16 interfaces, 65 536 fótons, cáusticas ligadas)', () => {
@@ -164,9 +164,11 @@ describe('Renderer (spec 039, FR-010)', () => {
         r.adopt(map);
         r.adopt(froxels);
         r.profile = 'low';
-        // O perfil baixo: 8 páginas por nível; a tabela acompanha (o atlas no mínimo de 16 × 16 páginas).
-        const pages = map.getDescriptors().find((d) => d.id === 'pages');
-        expect(pages?.textureShape).toMatchObject({ width: 8, height: 8 * SHADOW_MAX_LEVELS });
+        // O perfil baixo: 8 páginas por nível; os pedidos e a tabela no atlas acompanham (no mínimo 16 × 16 páginas físicas).
+        const requests = map.getDescriptors().find((d) => d.id === 'requests');
+        expect(requests?.count).toBe(8 * 8 * SHADOW_MAX_LEVELS);
+        const atlas = map.getDescriptors().find((d) => d.id === 'atlas');
+        expect(atlas?.history?.pages?.offset).toBe(shadowTableWords(8) * 4);
         const scatter = froxels.getDescriptors().find((d) => d.id === 'scatter');
         expect(scatter?.textureShape).toMatchObject({
             width: 96,

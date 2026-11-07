@@ -60,11 +60,16 @@ describe('ShadowFlow — matriz de mundo por slot', () => {
         expect(s.draws('ShadowFlow')[0]!.pipeline.primitive?.frontFace).toBe('cw');
     });
 
-    it('desenha na textura de profundidade do ShadowMap da luz, sem cor', async () => {
+    it('desenha uma página por vez no anexo do tamanho dela, sem profundidade: o atlas é buffer (T060h)', async () => {
         const s = await scene();
         const [pass] = s.step().filter((p) => p.label === 'ShadowFlow');
-        expect(pass!.target.colorAttachments).toHaveLength(0);
-        expect(discOf(pass!.target.depthStencilAttachment?.view)).toMatch(/depth/);
+        expect(pass!.target.colorAttachments).toHaveLength(1);
+        expect(pass!.target.colorAttachments[0]).toMatchObject({
+            loadOp: 'clear',
+            storeOp: 'discard',
+        });
+        expect(discOf(pass!.target.colorAttachments[0]!.view)).toMatch(/shadow_raster/);
+        expect(pass!.target.depthStencilAttachment).toBeUndefined();
     });
 
     it('religa worlds quando o pool WorldTransform é realocado', async () => {

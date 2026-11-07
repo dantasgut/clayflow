@@ -5,6 +5,7 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { GpuWordSchema } from '../gpu/compute/schemas';
 
 /** Opções de `ShadowMap`. */
 export interface ShadowMapOptions {
@@ -70,22 +71,32 @@ export function shadowPagesPerLevel(size: readonly [number, number]): number {
 }
 
 /**
- * Páginas físicas por lado do atlas: tantas quanto as de um nível (o que a tela pede por nível cabe com folga; os
- * níveis seguintes pedem uma fração), no mínimo 16 e no máximo 48 por lado (6240 texels: dentro do mínimo garantido de
- * `maxTextureDimension2D`).
+ * Páginas físicas por lado do atlas (o atlas tem o quadrado delas): tantas quanto as de um nível (o que a tela pede por
+ * nível cabe com folga; os níveis seguintes pedem uma fração), no mínimo 16 e no máximo 48 por lado.
  */
 export function shadowAtlasPages(pagesPerLevel: number): number {
     return Math.min(48, Math.max(16, pagesPerLevel));
 }
 
+/** Palavras da tabela de páginas no começo do atlas: 4 por página virtual (`vec4u`), os níveis todos reservados. */
+export function shadowTableWords(pagesPerLevel: number): number {
+    return SHADOW_MAX_LEVELS * pagesPerLevel * pagesPerLevel * 4;
+}
+
+/** Palavras de uma página física do atlas (a página e a borda, `SHADOW_PAGE_STRIDE²`). */
+export const SHADOW_PAGE_WORDS = SHADOW_PAGE_STRIDE * SHADOW_PAGE_STRIDE;
+
 /**
  * Mapa de sombra virtual de uma luz (Camada 3; spec 034, T060 — o padrão dos mapas de sombra virtuais): níveis em volta
  * da câmera, cada um com o dobro do lado do anterior e a mesma resolução virtual (`size`), divididos em páginas de 128²
  * ancoradas no espaço da luz. Só as páginas que a imagem usa existem: a profundidade da cena de um quadro marca as
- * páginas pedidas (`requests`), o estágio de sombra do quadro seguinte as aloca num atlas de páginas físicas (`depth`),
- * guardado na tabela de páginas (`pages`), e desenha só as novas e as tocadas por quem se moveu ou se deformou — as
- * demais seguem do quadro anterior. As três são séries temporais (spec 037): a tabela e os pedidos do quadro anterior
- * pelo atraso 1; o atlas, série por páginas (um alvo só, com o carimbo de cada página e a época da C2).
+ * páginas pedidas (`requests`), o estágio de sombra do quadro seguinte as aloca no atlas, guarda-as na tabela de
+ * páginas e desenha só as novas e as tocadas por quem se moveu ou se deformou — as demais seguem do quadro anterior. Sem
+ * texturas (T060h): o atlas é um buffer só (`atlas`) com a tabela no começo (`shadowTableWords`, 4 palavras por página
+ * virtual, refeita no lugar a cada quadro) e as páginas físicas depois, uma por registro de `SHADOW_PAGE_WORDS`
+ * profundidades (os bits do `f32`); os pedidos, um buffer de uma palavra por página virtual. Séries temporais (spec 037):
+ * os pedidos do quadro anterior pelo atraso 1; o atlas, série por páginas (o alvo só, com o carimbo de cada página física
+ * e a época da C2).
  *
  * Os vieses, o tamanho e o primeiro nível em pool (`array<ShadowMap>`); o referencial do quadro (a base da luz, a
  * câmera no espaço dela, a faixa de profundidade) num segundo descritor do mesmo slot (pool `ShadowMatrix`, produzido
@@ -184,9 +195,8 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
      */
     getDescriptors(): readonly GPUDescriptor[] {
         const { pagesPerLevel, atlasPages } = this.rawData;
-        const atlas = atlasPages * SHADOW_PAGE_STRIDE;
-        // A tabela e os pedidos: um texel por página virtual, os níveis empilhados (N × N·16).
-        const table = { width: pagesPerLevel, height: pagesPerLevel * SHADOW_MAX_LEVELS };
+        const atlas = atlasPages;
+        const table = shadowTableWords(pagesPerLevel);
         return [
             { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {
@@ -199,30 +209,22 @@ export class ShadowMap extends Entity<ShadowMapData> implements Resource {
                 history: { depth: 2 },
             },
             {
-                id: 'depth',
-                role: 'texture',
-                textureShape: { format: 'depth32float', width: atlas, height: atlas },
-                // Série por páginas (T060a): um alvo só, o tempo guardado por página (o carimbo e a época da C2); só
-                // as páginas sujas são redesenhadas, as demais seguem onde estão.
-                history: { depth: 1, pages: { tile: [SHADOW_PAGE_STRIDE, SHADOW_PAGE_STRIDE] } },
-            },
-            {
-                id: 'pages',
-                role: 'storage-texture',
-                textureShape: { format: 'rgba32uint', ...table, access: 'write-only' },
-                history: { depth: 2 },
+                id: 'atlas',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: table + atlas * atlas * SHADOW_PAGE_WORDS,
+                upload: 'never',
+                // Série por páginas (T060a): o alvo só, o tempo guardado por página física (o carimbo e a época da C2);
+                // só as páginas sujas são redesenhadas, as demais seguem onde estão. A tabela, antes delas.
+                history: { depth: 1, pages: { record: SHADOW_PAGE_WORDS * 4, offset: table * 4 } },
             },
             {
                 id: 'requests',
-                role: 'storage-texture',
-                textureShape: { format: 'r32uint', ...table, access: 'write-only' },
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: SHADOW_MAX_LEVELS * pagesPerLevel * pagesPerLevel,
+                upload: 'never',
                 history: { depth: 2 },
-            },
-            // Amostrador de comparação da penumbra (spec 031): do mapa, para quem lê a sombra não criar o seu.
-            {
-                id: 'compare',
-                role: 'sampler',
-                samplerShape: { magFilter: 'linear', minFilter: 'linear', compare: 'less' },
             },
         ];
     }

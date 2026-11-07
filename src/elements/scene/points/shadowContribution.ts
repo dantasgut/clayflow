@@ -1,16 +1,9 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
-import { shadowVirtual } from '../../gpu/shaders/math';
+import { shadowVirtualRead } from './shaders';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
-import {
-    lightsResource,
-    shadowCasterDepthResource,
-    shadowCasterPagesResource,
-    shadowCasterSamplerResource,
-    shadowMapsResource,
-    shadowMatricesResource,
-} from '../resources';
+import { lightsResource, shadowMapsResource, shadowMatricesResource } from '../resources';
 import { lightVisibilityPoint } from './lighting';
 
 const visibilities = new Map<string, WgslModule>();
@@ -26,20 +19,17 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
         m = wgslModule({
             name: `light_visibility_shadow_${lightSlot}_${shadowSlot}`,
             requires: [
-                shadowVirtual,
+                shadowVirtualRead,
                 lightsResource,
                 shadowMapsResource,
                 shadowMatricesResource,
-                shadowCasterDepthResource,
-                shadowCasterPagesResource,
-                shadowCasterSamplerResource,
             ],
             source: `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {
     if (light != ${lightSlot}u) { return 1.0; }
     let sm = shadow_maps[${shadowSlot}u];
     let matrix = shadow_matrices[${shadowSlot}u];
     let l = -normalize(lights[${lightSlot}u].direction.xyz);
-    return shadow_virtual_visibility(matrix, shadow_pages, shadow_map, shadow_sampler, p, n, l, sm.bias, sm.normalBias, sm.penumbraSamples);
+    return shadow_virtual_visibility(matrix, p, n, l, sm.bias, sm.normalBias, sm.penumbraSamples);
 }`,
         });
         visibilities.set(key, m);

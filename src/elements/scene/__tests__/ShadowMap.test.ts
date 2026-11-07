@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { DirectionalLight } from '../DirectionalLight';
-import { SHADOW_MAX_LEVELS, SHADOW_PAGE_STRIDE, ShadowMap } from '../ShadowMap';
+import { GpuWordSchema } from '../../gpu/compute/schemas';
+import { SHADOW_MAX_LEVELS, SHADOW_PAGE_WORDS, ShadowMap, shadowTableWords } from '../ShadowMap';
 import { halton, TemporalAntialiasing, type AntialiasingMode } from '../TemporalAntialiasing';
 import { Transform } from '../Transform';
 import { ShadowMatrixParamsSchema } from '../flows/ShadowMatrixSchemas';
@@ -23,13 +24,14 @@ describe('ShadowMap', () => {
         expect(() => new ShadowMap({ firstLevelRadius: 0 })).toThrow(RangeError);
     });
 
-    it('descritores: parâmetros em pool, o referencial só na GPU (mesmo slot), o atlas como série por páginas, a tabela e os pedidos como séries temporais e o amostrador de comparação', () => {
+    it('descritores: parâmetros em pool, o referencial só na GPU (mesmo slot), o atlas em buffer como série por páginas (a tabela no começo) e os pedidos como série temporal, sem textura (T060h)', () => {
         // O maior lado vale: 512 → 4 páginas por nível; o atlas com o mínimo de 16 × 16 páginas físicas.
         const map = new ShadowMap({ size: [512, 256] });
         expect(map.data).not.toHaveProperty('lightViewProj');
         expect(map.data.pagesPerLevel).toBe(4);
-        const atlas = 16 * SHADOW_PAGE_STRIDE;
-        const table = { width: 4, height: 4 * SHADOW_MAX_LEVELS };
+        // A tabela: 4 palavras por página virtual, os 16 níveis reservados.
+        const table = shadowTableWords(4);
+        expect(table).toBe(SHADOW_MAX_LEVELS * 4 * 4 * 4);
         expect(map.getDescriptors()).toEqual([
             { id: 'shadowmap', role: 'storage-ro', schema: ShadowMap.schema, storage: 'pool' },
             {
@@ -41,27 +43,20 @@ describe('ShadowMap', () => {
                 history: { depth: 2 },
             },
             {
-                id: 'depth',
-                role: 'texture',
-                textureShape: { format: 'depth32float', width: atlas, height: atlas },
-                history: { depth: 1, pages: { tile: [SHADOW_PAGE_STRIDE, SHADOW_PAGE_STRIDE] } },
-            },
-            {
-                id: 'pages',
-                role: 'storage-texture',
-                textureShape: { format: 'rgba32uint', ...table, access: 'write-only' },
-                history: { depth: 2 },
+                id: 'atlas',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: table + 16 * 16 * SHADOW_PAGE_WORDS,
+                upload: 'never',
+                history: { depth: 1, pages: { record: SHADOW_PAGE_WORDS * 4, offset: table * 4 } },
             },
             {
                 id: 'requests',
-                role: 'storage-texture',
-                textureShape: { format: 'r32uint', ...table, access: 'write-only' },
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: SHADOW_MAX_LEVELS * 4 * 4,
+                upload: 'never',
                 history: { depth: 2 },
-            },
-            {
-                id: 'compare',
-                role: 'sampler',
-                samplerShape: { magFilter: 'linear', minFilter: 'linear', compare: 'less' },
             },
         ]);
     });
@@ -74,7 +69,7 @@ describe('ShadowMap', () => {
         expect(new DirectionalLight({ castShadow: false }).shadowMap).toBeUndefined();
     });
 
-    it('a C2 aloca os pools e a textura; parâmetros e matriz no mesmo slot; o estágio da matriz despacha a luz', async () => {
+    it('a C2 aloca os pools e o atlas; parâmetros e matriz no mesmo slot; o estágio da matriz despacha a luz', async () => {
         const s = await renderScene();
         registerStages(s.scene, { shadow: true });
         const light = new DirectionalLight({
@@ -86,15 +81,11 @@ describe('ShadowMap', () => {
         s.scene.world.insert(new BoxGeometry().add(new Transform()));
         s.step();
         const rs = s.scene.resourceSystem;
-        const depth = rs.textureOf(light.shadowMap!, 'depth')!;
-        const atlas = 16 * SHADOW_PAGE_STRIDE;
-        expect([depth.width, depth.height, depth.format]).toEqual([atlas, atlas, 'depth32float']);
-        const pages = rs.textureOf(light.shadowMap!, 'pages')!;
-        expect([pages.width, pages.height, pages.format]).toEqual([
-            4,
-            4 * SHADOW_MAX_LEVELS,
-            'rgba32uint',
-        ]);
+        // 256² → 4 páginas por nível (o mínimo); o atlas com 16 × 16 páginas físicas depois da tabela, em séries por página.
+        const atlas = rs.bufferOf(light.shadowMap!, 'atlas')!;
+        expect(atlas.byteSize).toBe((shadowTableWords(4) + 16 * 16 * SHADOW_PAGE_WORDS) * 4);
+        expect(rs.channelOf(light.shadowMap!, 'atlas')?.paged?.tiles[0]).toBe(16 * 16);
+        expect(rs.textureOf(light.shadowMap!, 'atlas')).toBeUndefined();
         expect(rs.poolSlotOf('ShadowMap', id)).toBe(rs.poolSlotOf('ShadowMatrix', id));
         const params = vi
             .mocked(s.core.write)

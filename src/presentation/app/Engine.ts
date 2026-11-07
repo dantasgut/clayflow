@@ -242,14 +242,12 @@ export class Engine {
         const ownsScene = options.scene !== undefined;
         // Desenho indireto com primeira instância (malha adaptativa das superfícies, spec 010; as páginas da sombra
         // virtual, spec 034): pedido quando o adaptador tem; sem ela, a superfície adaptativa usa a grade de mesma
-        // precisão máxima. Distâncias de recorte (as páginas da sombra virtual: cada desenho recortado à sua página no
-        // atlas): sem elas, o fragmento fora da página é descartado.
+        // precisão máxima.
         const device: DeviceOptions = {
             ...options.device,
             optionalFeatures: [
                 ...(options.device?.optionalFeatures ?? []),
                 'indirect-first-instance',
-                'clip-distances',
             ],
         };
         await scene.initialize(options.surface, options.canvasOptions, device, options.platform);

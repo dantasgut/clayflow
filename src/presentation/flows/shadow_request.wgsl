@@ -9,9 +9,8 @@
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn shadow_request_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    let size = textureDimensions(sr_requests);
-    if (i >= size.x * size.y) { return; }
-    textureStore(sr_requests, vec2u(i % size.x, i / size.x), vec4u(0u));
+    if (i >= arrayLength(&sr_requests)) { return; }
+    sr_requests[i] = 0u;
 }
 
 fn shadow_request_page(m: ShadowMatrix, k: u32, q: vec2f, margin: f32) {
@@ -22,7 +21,7 @@ fn shadow_request_page(m: ShadowMatrix, k: u32, q: vec2f, margin: f32) {
         for (var dx = 0; dx < 2; dx++) {
             let g = lo + vec2i(dx, dy);
             if (any(g > hi)) { continue; }
-            if (sv_in_window(m, k, g)) { textureStore(sr_requests, sv_slot(m, k, g), vec4u(1u)); }
+            if (sv_in_window(m, k, g)) { sr_requests[sv_request_word(m, sv_slot(m, k, g))] = 1u; }
         }
     }
 }

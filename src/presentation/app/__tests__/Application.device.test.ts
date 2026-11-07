@@ -10,7 +10,7 @@ vi.mock('../../flows/defaults', () => ({
 }));
 
 describe('Application — dispositivo', () => {
-    it('options.device chega ao core.initialize junto com a superfície do canvas, canvasOptions e o adaptador do navegador (com indirect-first-instance, spec 010, e clip-distances, spec 034)', async () => {
+    it('options.device chega ao core.initialize junto com a superfície do canvas, canvasOptions e o adaptador do navegador (com indirect-first-instance, spec 010)', async () => {
         const { core } = fakeSceneCore();
         const canvas = document.createElement('canvas');
         const app = await Application.create({
@@ -27,7 +27,7 @@ describe('Application — dispositivo', () => {
         expect(canvasOptions).toEqual({ alphaMode: 'premultiplied' });
         expect(device).toEqual({
             powerPreference: 'high-performance',
-            optionalFeatures: ['shader-f16', 'indirect-first-instance', 'clip-distances'],
+            optionalFeatures: ['shader-f16', 'indirect-first-instance'],
         });
         expect(platform).toBeInstanceOf(WebPlatformAdapter);
         // A superfície é a do canvas (o tamanho do backbuffer dele).
