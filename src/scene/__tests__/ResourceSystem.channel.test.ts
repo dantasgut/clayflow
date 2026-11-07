@@ -292,7 +292,7 @@ describe('ResourceSystem — série por páginas (spec 034, T060a/T060b)', () =>
         world.insert(r);
         const ch = system.channelOf(r, 'atlas')!;
         expect(ch.depth).toBe(1);
-        expect(ch.paged?.tiles).toEqual([2, 1]);
+        expect(ch.paged?.tiles).toEqual([2, 1, 1]);
         expect(ch.paged?.stamps).toBeDefined();
         expect(ch.paged?.clock).toBeDefined();
         const epoch = ch.paged!.epoch;
@@ -319,7 +319,38 @@ describe('ResourceSystem — série por páginas (spec 034, T060a/T060b)', () =>
         expect(ch.buffer(0)).toBe(system.bufferOf(r, 'records'));
     });
 
+    it('textura 3D: as páginas também na profundidade (T060f)', () => {
+        const { world, system, core } = setup();
+        const r = new BagResource([
+            {
+                id: 'volume',
+                role: 'storage-texture',
+                textureShape: {
+                    format: 'r32float',
+                    width: 24,
+                    height: 36,
+                    dimension: '3d',
+                    depthOrArrayLayers: 48,
+                },
+                history: { depth: 1, pages: { tile: [12, 12, 12] } },
+            },
+        ]);
+        world.insert(r);
+        const ch = system.channelOf(r, 'volume')!;
+        expect(ch.paged?.tiles).toEqual([2, 3, 4]);
+        expect(
+            vi
+                .mocked(core.create)
+                .mock.calls.some(
+                    ([spec]) =>
+                        spec.discriminator?.endsWith(':stamps:2x3x4') === true
+                        && 'byteSize' in spec
+                        && spec.byteSize === 96,
+                ),
+        ).toBe(true);
+    });
+
     it('a série por páginas exige um alvo só', () => {
-        expect(() => new TemporalChannel('x', 2, undefined, [1, 1])).toThrow(/depth 1/);
+        expect(() => new TemporalChannel('x', 2, undefined, [1, 1, 1])).toThrow(/depth 1/);
     });
 });

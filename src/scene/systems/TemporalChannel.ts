@@ -35,7 +35,7 @@ export class TemporalChannel implements ChannelInfo {
         readonly depth: number,
         format?: GPUTextureFormat,
         /** Páginas por eixo da série por páginas (`depth` 1). */
-        tiles?: readonly [number, number],
+        tiles?: readonly [number, number, number],
     ) {
         this.format = format;
         this.paged =
@@ -159,7 +159,7 @@ export class TemporalChannel implements ChannelInfo {
 
 /** O estado mutável de uma série por páginas (os buffers vêm da C2 na alocação). */
 export interface PagedState extends PagedChannelInfo {
-    tiles: readonly [number, number];
+    tiles: readonly [number, number, number];
     stamps: AnyBufferSpec | undefined;
     clock: AnyBufferSpec | undefined;
     epoch: number;

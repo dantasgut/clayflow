@@ -49,11 +49,11 @@ export interface ChannelInfo {
 /**
  * O estado de uma série por páginas (spec 034, T060a): o buffer dos carimbos (um `u32` por página: a época em que foi
  * escrita; 0 = nunca), o uniforme do relógio (`vec4u`: a época — sobe a cada invalidação, a partir de 1 —, 0, 0, 0;
- * escrito só na alocação e na invalidação) e as páginas por eixo. Página válida: carimbo = época. A idade de cada
+ * escrito só na alocação e na invalidação) e as páginas por eixo (x, y, z; z = 1 nas séries 2D e nos buffers). Página válida: carimbo = época. A idade de cada
  * página é de quem a usa (o produtor guarda a sua, ex.: a tabela da sombra virtual).
  */
 export interface PagedChannelInfo {
-    readonly tiles: readonly [number, number];
+    readonly tiles: readonly [number, number, number];
     readonly stamps: AnyBufferSpec | undefined;
     readonly clock: AnyBufferSpec | undefined;
     /** A época: sobe a cada invalidação (as páginas carimbadas com outra não valem). */

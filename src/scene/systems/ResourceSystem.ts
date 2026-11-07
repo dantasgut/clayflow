@@ -974,34 +974,39 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private openChannel(
         name: string,
         depth: number,
-        tiles?: readonly [number, number],
+        tiles?: readonly [number, number, number],
     ): TemporalChannel {
         const channel = new TemporalChannel(name, depth, undefined, tiles);
         this.channels.add(channel);
         return channel;
     }
 
-    /** As páginas por eixo de uma série por páginas de `width` × `height` texels. */
+    /**
+     * As páginas por eixo de uma série por páginas de `width` × `height` × `depth` texels (`depth` só nas texturas 3D;
+     * sem o terceiro lado da página, ela tem a profundidade inteira).
+     */
     private static tilesOf(
         desc: GPUDescriptor,
         width: number,
         height: number,
-    ): readonly [number, number] | undefined {
+        depth: number,
+    ): readonly [number, number, number] | undefined {
         const tile = desc.history?.pages?.tile;
         if (tile === undefined) return undefined;
-        if (width % tile[0] !== 0 || height % tile[1] !== 0) {
+        const d = tile[2] ?? depth;
+        if (width % tile[0] !== 0 || height % tile[1] !== 0 || depth % d !== 0) {
             throw new RangeError(
-                `ResourceSystem: série por páginas '${desc.id}' — ${width}×${height} não se divide em páginas de ${tile[0]}×${tile[1]}.`,
+                `ResourceSystem: série por páginas '${desc.id}' — ${width}×${height}×${depth} não se divide em páginas de ${tile.join('×')}.`,
             );
         }
-        return [width / tile[0], height / tile[1]];
+        return [width / tile[0], height / tile[1], depth / d];
     }
 
     /** Os carimbos (zerados: nenhuma página escrita) e o relógio de uma série por páginas, recriados com o alvo. */
     private pagedBuffers(
         channel: TemporalChannel,
         disc: string,
-        tiles: readonly [number, number],
+        tiles: readonly [number, number, number],
     ): void {
         const paged = channel.paged;
         if (paged === undefined) return;
@@ -1011,8 +1016,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         paged.stamps = this.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
-            discriminator: `${disc}:stamps:${tiles[0]}x${tiles[1]}`,
-            byteSize: Math.max(16, tiles[0] * tiles[1] * 4),
+            discriminator: `${disc}:stamps:${tiles.join('x')}`,
+            byteSize: Math.max(16, tiles[0] * tiles[1] * tiles[2] * 4),
         });
         paged.clock = this.core.create<UniformBufferSpec>({
             kind: 'buffer',
@@ -1039,7 +1044,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 this.openChannel(
                     `${desc.id}:${this.identityOf(resource)}`,
                     desc.history!.depth,
-                    desc.history!.pages === undefined ? undefined : [1, 1],
+                    desc.history!.pages === undefined ? undefined : [1, 1, 1],
                 ),
             );
     }
@@ -1811,8 +1816,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                             `ResourceSystem: série por páginas '${desc.id}' — ${byteSize} bytes não se dividem em registros de ${record}.`,
                         );
                     }
-                    const pages: readonly [number, number] = [
+                    const pages: readonly [number, number, number] = [
                         Math.floor((desc.schema.stride * (desc.count ?? 1)) / record),
+                        1,
                         1,
                     ];
                     const buffer = this.core.create<StorageBufferSpec>({
@@ -2102,7 +2108,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             return;
         }
         const slices = Array.from({ length: history.depth }, (_, k) => make(`${disc}:h${k}`));
-        const tiles = ResourceSystem.tilesOf(desc, size.width, size.height);
+        const tiles = ResourceSystem.tilesOf(
+            desc,
+            size.width,
+            size.height,
+            shape.dimension === '3d' ? (shape.depthOrArrayLayers ?? 1) : 1,
+        );
         allocation.channel ??= this.openChannel(disc, history.depth, tiles);
         allocation.channel.format = format;
         if (tiles !== undefined) this.pagedBuffers(allocation.channel, disc, tiles);
