@@ -18,7 +18,6 @@ export class PoolLiveResolver implements ConsumerResolver {
     }
 
     resolve(ctx: ResolveContext): ResolvedSource | undefined {
-        const buffer = ctx.resources.poolLiveBuffer(this.poolKey);
-        return buffer === undefined ? undefined : { kind: 'buffer', buffer };
+        return ctx.resources.poolLiveSource(this.poolKey);
     }
 }

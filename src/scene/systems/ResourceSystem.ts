@@ -12,6 +12,9 @@ import type {
     VertexBufferSpec,
 } from '../../core/contracts/index';
 import { DATA_HOOK, Entity, type DataHook } from '../contracts/Entity';
+import { poolArenaSlotOf } from '../shaders/poolArena';
+import { PoolArena } from './PoolArena';
+import type { ResolvedSource } from '../consumers/ResolvedSource';
 import { ResourceState } from '../contracts/ResourceState';
 import type { Resource } from '../contracts/Resource';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
@@ -66,8 +69,15 @@ interface PoolEntry {
     readonly free: FreeRanges;
     /** Bit por slot ocupado (espelho do bitset de vivos na GPU, spec 008). */
     liveBits: Uint32Array;
-    /** Bitset de vivos na GPU, criado no primeiro pedido (`poolLiveBuffer`). */
+    /** Bitset de vivos na GPU, criado no primeiro pedido (`poolLiveBuffer`); na arena, o buffer dela. */
     liveSpec: StorageBufferSpec | undefined;
+    /** O pool mora na arena de pools (T060i): `bufferSpec` é o buffer dela e `base`, a posição da região. */
+    inArena: boolean;
+    /** Posição (bytes) dos registros em `bufferSpec`: 0 fora da arena. */
+    base: number;
+    /** Os vivos moram na arena (região `live:`) e a posição deles. */
+    liveInArena: boolean;
+    liveBase: number;
     /** Palavras do bitset de vivos a enviar: `[liveLo, liveHi]` (`liveLo > liveHi` = nada). */
     liveLo: number;
     liveHi: number;
@@ -211,6 +221,8 @@ interface PendingRead {
 /** Leitura localizada: fonte, slot, stride e schema, com o pedido. */
 interface ReadItem {
     readonly source: AnyBufferSpec;
+    /** Posição (bytes) dos registros no buffer: na arena de pools (T060i), a região do pool. */
+    readonly base?: number;
     readonly stride: number;
     readonly slot: number;
     /** Slots lidos a partir de `slot` (faixa do Resource; 1 no caso comum). */
@@ -323,6 +335,8 @@ const INDIRECT_RECORD_BYTES = 20;
  */
 export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
+    /** A arena de pools da C2 (T060i): os pools que a CPU envia e que algum shader lê pela arena. */
+    private readonly arena: PoolArena;
     private readonly pools = new Map<string, PoolEntry>();
     private readonly allocations = new Map<Resource, Map<string, Allocation>>();
     /** Ouvinte das mutações de `data` dos Resources desta cena (um para todos). */
@@ -401,6 +415,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         readonly consumers: ConsumerResolverRegistry = new ConsumerResolverRegistry(),
         inferencer: LayoutInferencer = new LayoutInferencer(),
     ) {
+        this.arena = new PoolArena(core);
+        consumers.registerDefault({
+            name: 'PoolArena',
+            typeName: 'u32',
+            resolve: () => ({ kind: 'buffer', buffer: this.arena.buffer }),
+        });
         this.subscriptions = [
             this.events.on('resourcesChanged', (e) => {
                 this.onResourcesChanged(e.added, e.removed);
@@ -773,17 +793,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private flushReads(): void {
         this.readsScheduled = false;
         const requests = this.pendingReads.splice(0);
-        const bySource = new Map<AnyBufferSpec, { stride: number; items: ReadItem[] }>();
+        const bySource = new Map<
+            AnyBufferSpec,
+            Map<number, { stride: number; items: ReadItem[] }>
+        >();
         for (const request of requests) {
             const target = this.readTarget(request.resource, request.descId);
             if (target === undefined) {
                 request.resolve(undefined);
                 continue;
             }
-            let group = bySource.get(target.source);
+            // Pelo buffer e a posição dos registros nele (na arena de pools, T060i, vários pools dividem o buffer).
+            const base = target.base ?? 0;
+            let byBase = bySource.get(target.source);
+            if (byBase === undefined) bySource.set(target.source, (byBase = new Map()));
+            let group = byBase.get(base);
             if (group === undefined) {
                 group = { stride: target.stride, items: [] };
-                bySource.set(target.source, group);
+                byBase.set(base, group);
             }
             group.items.push({ ...target, request });
         }
@@ -796,7 +823,9 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         }[] = [];
         const placed: { item: ReadItem; dstOffset: number }[] = [];
         let total = 0;
-        for (const [source, { stride, items }] of bySource) {
+        for (const [source, base, { stride, items }] of [...bySource].flatMap(([src, byBase]) =>
+            [...byBase].map(([b, g]) => [src, b, g] as const),
+        )) {
             const wanted = new Set<number>();
             for (const item of items) for (let k = 0; k < item.span; k++) wanted.add(item.slot + k);
             const slots = [...wanted].sort((a, b) => a - b);
@@ -806,7 +835,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 let end = k;
                 while (end + 1 < slots.length && slots[end + 1] === slots[end]! + 1) end++;
                 const size = (end - k + 1) * stride;
-                copies.push({ source, srcOffset: slots[k]! * stride, dstOffset: total, size });
+                copies.push({
+                    source,
+                    srcOffset: base + slots[k]! * stride,
+                    dstOffset: total,
+                    size,
+                });
                 for (let j = k; j <= end; j++) dstOfSlot.set(slots[j]!, total + (j - k) * stride);
                 total += size;
                 k = end + 1;
@@ -865,6 +899,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             if (entry.occupants[slot] !== resource) return undefined;
             return {
                 source: entry.channel !== undefined ? latestSlice(entry.channel) : entry.bufferSpec,
+                base: entry.base,
                 stride: entry.stride,
                 slot,
                 span: spanIn(tracked, entry),
@@ -892,6 +927,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     /** Desfaz as inscrições no EventBus e descarta os Flows alocados (descarte da cena). */
     dispose(): void {
         this.binder.dispose();
+        this.arena.destroy();
         for (const off of this.subscriptions) off();
         this.subscriptions.length = 0;
     }
@@ -1122,8 +1158,42 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         return entry.liveSpec;
     }
 
-    /** Cria o bitset de vivos com o tamanho da capacidade e escreve o estado atual. */
+    poolLiveSource(poolKey: string): ResolvedSource | undefined {
+        const buffer = this.poolLiveBuffer(poolKey);
+        const entry = this.pools.get(poolKey);
+        if (buffer === undefined || entry === undefined) return undefined;
+        return entry.liveInArena
+            ? {
+                  kind: 'buffer',
+                  buffer,
+                  offset: entry.liveBase,
+                  size: this.arena.sizeOf(`live:${poolKey}`),
+              }
+            : { kind: 'buffer', buffer };
+    }
+
+    /**
+     * Cria o bitset de vivos com o tamanho da capacidade e escreve o estado atual — na região dos vivos da arena, se um
+     * leitor pela arena os declarou (T060i).
+     */
     private createLiveBuffer(entry: PoolEntry): StorageBufferSpec {
+        if (poolArenaSlotOf(`live:${entry.poolKey}`) !== undefined) {
+            entry.liveInArena = true;
+            const key = `live:${entry.poolKey}` as const;
+            if (
+                this.arena.ensure(
+                    key,
+                    Math.max(4, entry.liveBits.byteLength),
+                    entry.liveBits.length,
+                )
+            )
+                this.arenaMoved();
+            entry.liveBase = this.arena.offsetOf(key);
+            this.core.write(this.arena.buffer, entry.liveBits, entry.liveBase);
+            entry.liveLo = 1;
+            entry.liveHi = 0;
+            return this.arena.buffer;
+        }
         const spec = this.core.create<StorageBufferSpec>({
             kind: 'buffer',
             subkind: 'storage',
@@ -1148,6 +1218,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             poolKey,
             schema: entry.schema,
             buffer: entry.bufferSpec,
+            offset: entry.base,
+            size: entry.inArena
+                ? this.arena.sizeOf(`pool:${entry.poolKey}`)
+                : entry.bufferSpec.byteSize,
             stride: entry.stride,
             count: entry.count,
             capacity: entry.capacity,
@@ -1313,7 +1387,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         const hi = entry.liveHi;
         entry.liveLo = 1;
         entry.liveHi = 0;
-        this.core.write(entry.liveSpec, entry.liveBits.subarray(lo, hi + 1), lo * 4);
+        this.core.write(
+            entry.liveSpec,
+            entry.liveBits.subarray(lo, hi + 1),
+            entry.liveBase + lo * 4,
+        );
     }
 
     /**
@@ -1576,7 +1654,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         this.core.write(
             entry.bufferSpec,
             new Uint8Array(this.scratch, 0, bytes),
-            first * entry.stride,
+            entry.base + first * entry.stride,
         );
         for (let slot = first; slot <= last; slot++) setBit(entry.writtenBits, slot);
         ranges.push([first, count]);
@@ -1726,7 +1804,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                         + `${offset + bytes.byteLength}) fora da faixa de ${span * entry.stride} bytes.`,
                 );
             }
-            this.core.write(entry.bufferSpec, padTo4(bytes), slot * entry.stride + offset);
+            this.core.write(
+                entry.bufferSpec,
+                padTo4(bytes),
+                entry.base + slot * entry.stride + offset,
+            );
             return;
         }
         const buffer = this.allocations.get(resource)?.get(descId)?.buffer;
@@ -2441,6 +2523,10 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             free: new FreeRanges(),
             liveBits: new Uint32Array(Math.ceil(capacity / 32)),
             liveSpec: undefined,
+            inArena: false,
+            base: 0,
+            liveInArena: false,
+            liveBase: 0,
             liveLo: 1,
             liveHi: 0,
             generation: 0,
@@ -2457,6 +2543,25 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     : undefined,
         };
         if (demanded && entry.channel !== undefined) this.allocatePoolStorage(entry);
+        // A arena de pools (T060i): um leitor pela arena declarou este pool — os registros moram numa região dela.
+        if (poolArenaSlotOf(`pool:${poolKey}`) !== undefined) {
+            if (entry.upload === 'never' || entry.channel !== undefined || !demanded) {
+                throw new Error(
+                    `ResourceSystem: pool '${poolKey}' lido pela arena, mas produzido pela GPU, com série ou sob demanda — `
+                        + 'a arena guarda só pools que a CPU envia.',
+                );
+            }
+            this.core.destroy(entry.bufferSpec);
+            entry.inArena = true;
+            this.pools.set(poolKey, entry);
+            const moved = this.arena.ensure(`pool:${poolKey}`, stride * capacity, capacity);
+            entry.bufferSpec = this.arena.buffer;
+            entry.base = this.arena.offsetOf(`pool:${poolKey}`);
+            if (moved) this.arenaMoved(entry);
+            // Os vivos lidos pela arena: a região deles nasce com o pool (o leitor não os pede por resolver).
+            if (poolArenaSlotOf(`live:${poolKey}`) !== undefined)
+                entry.liveSpec = this.createLiveBuffer(entry);
+        }
         this.pools.set(poolKey, entry);
         this.consumers.registerDefault(new PoolResolver(poolKey, schema));
         this.consumers.registerDefault(new PoolLiveResolver(poolKey));
@@ -2506,6 +2611,18 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     private growPool(entry: PoolEntry): void {
+        if (entry.inArena) {
+            // Na arena (T060i): a região cresce e a arena inteira é realocada (o conteúdo de todas copiado na GPU).
+            entry.capacity *= 2;
+            this.arena.ensure(
+                `pool:${entry.poolKey}`,
+                entry.stride * entry.capacity,
+                entry.capacity,
+            );
+            this.growBookkeeping(entry);
+            this.arenaMoved();
+            return;
+        }
         if (!entry.demanded) {
             // Sob demanda e ainda não pedido: só a contagem cresce (o buffer é alocado no pedido, já do tamanho certo).
             entry.capacity *= 2;
@@ -2552,6 +2669,32 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         });
     }
 
+    /**
+     * A arena de pools foi realocada (T060i): os pools e os vivos que moram nela apontam o buffer novo e as posições
+     * novas, e cada pool anuncia a realocação (quem o liga religa). `skip`: o pool que ainda está nascendo.
+     */
+    private arenaMoved(skip?: PoolEntry): void {
+        for (const entry of this.pools.values()) {
+            if (!entry.inArena && !entry.liveInArena) continue;
+            const oldByteSize = entry.bufferSpec.byteSize;
+            if (entry.inArena) {
+                entry.bufferSpec = this.arena.buffer;
+                entry.base = this.arena.offsetOf(`pool:${entry.poolKey}`);
+            }
+            if (entry.liveInArena) {
+                entry.liveSpec = this.arena.buffer;
+                entry.liveBase = this.arena.offsetOf(`live:${entry.poolKey}`);
+            }
+            ++entry.generation;
+            if (entry === skip) continue;
+            this.events.emit('poolReallocated', {
+                poolKey: entry.poolKey,
+                oldByteSize,
+                newByteSize: entry.bufferSpec.byteSize,
+            });
+        }
+    }
+
     /** Os espelhos da CPU (bitsets, slot → entidade, registros) acompanham a capacidade nova. */
     private growBookkeeping(entry: PoolEntry): void {
         entry.dirtyBits = grownBits(entry.dirtyBits, entry.capacity);
@@ -2559,7 +2702,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         entry.ownedBits = grownBits(entry.ownedBits, entry.capacity);
         entry.liveBits = grownBits(entry.liveBits, entry.capacity);
         if (entry.liveSpec !== undefined) {
-            this.core.destroy(entry.liveSpec);
+            if (!entry.liveInArena) this.core.destroy(entry.liveSpec);
             entry.liveSpec = this.createLiveBuffer(entry);
         }
         const entities = new Int32Array(entry.capacity).fill(-1);
@@ -2712,7 +2855,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     this.core.write(
                         buffer,
                         new Uint8Array(span * entry.stride),
-                        first * entry.stride,
+                        entry.base + first * entry.stride,
                     );
             }
         }

@@ -1,3 +1,4 @@
+import { poolArenaLiveReader } from '../../../scene/shaders/poolArena';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
@@ -24,12 +25,9 @@ import { sceneAmbientPoint } from './media';
 export const LIGHT_LIMIT = sharedConstant('LIGHT_LIMIT', 1024, 'u32');
 
 /** Bitset de slots vivos do pool `Light` (resolver `Light.live`). */
-export const lightLiveResource = wgslResource({
+export const lightLiveResource = poolArenaLiveReader({
     name: 'light_live',
-    binding: { storage: 'read' },
-    type: { wgsl: 'u32', array: true },
-    frequency: 'frame',
-    provider: { consumer: `${Light.schema.name}.live` },
+    pool: Light.schema.name,
 });
 
 /** Parâmetros do hemisfério da cena (resolver `HemisphereLight.params`). */

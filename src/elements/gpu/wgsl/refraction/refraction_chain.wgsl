@@ -440,8 +440,8 @@ fn refraction_chain_follow_one(j: u32) {
     let closure = ray_wave_entries[2u * j].closure;
     let partial = closure.transmission_weight > 0.0 && closure.transmission_weight < 1.0;
     let rough = !n.done && !n.passes && n.alpha > REFRACTION_SMOOTH_ALPHA;
-    let lights = n.done && p.hit_instance != NONE && refraction.light_count > RAY_EXACT_LIGHTS;
-    if (partial || rough || lights) { p.flags |= REFRACTION_CHAIN_SAMPLED; }
+    let many_lights = n.done && p.hit_instance != NONE && refraction.light_count > RAY_EXACT_LIGHTS;
+    if (partial || rough || many_lights) { p.flags |= REFRACTION_CHAIN_SAMPLED; }
     p.weight *= n.through;
     p.state = state;
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }

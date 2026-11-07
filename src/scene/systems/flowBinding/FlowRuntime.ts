@@ -885,16 +885,24 @@ export class FlowRuntime {
             b: StorageBufferSpec | AnyBufferSpec | undefined,
         ): ResolvedSource | undefined =>
             b === undefined ? undefined : normalizeSource(b as BindingSource);
+        // O pool (ou os vivos dele) pela faixa: na arena de pools (T060i), a região, não o buffer inteiro.
+        const pooled = (pool: BoundPool | undefined, live: boolean): ResolvedSource | undefined => {
+            if (pool === undefined) return undefined;
+            const r = this.host.resources;
+            if (live) return r.poolLiveSource(pool.poolKey);
+            const info = r.poolInfo(pool.poolKey);
+            if (info === undefined) return undefined;
+            return info.offset === 0 && info.size === info.buffer.byteSize
+                ? { kind: 'buffer', buffer: info.buffer }
+                : { kind: 'buffer', buffer: info.buffer, offset: info.offset, size: info.size };
+        };
         switch (decl.kind) {
             case 'pool':
-            case 'bodies': {
-                const pool = value as BoundPool;
-                return buffer(provider.part === 'live' ? pool.live : pool.buffer);
-            }
+            case 'bodies':
+                return pooled(value as BoundPool, provider.part === 'live');
             case 'entities': {
                 const set = value as BoundEntities;
-                const pool = provider.part === 'instances' ? set.instances : set.records;
-                return buffer(pool?.buffer);
+                return pooled(provider.part === 'instances' ? set.instances : set.records, false);
             }
             case 'singleton':
             case 'work': {

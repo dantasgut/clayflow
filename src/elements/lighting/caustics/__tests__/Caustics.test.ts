@@ -96,7 +96,7 @@ describe('Caustics (spec 034, T067c)', () => {
             'let cell = vec2f(f32(local % seg.w), f32(local / seg.w)) + caustics_grid_jitter(segment);',
         );
         expect(trace).toContain(
-            'if (caustics_volume_tile_wet(normalize(lights[l].direction.xyz), volume - 1u, k % tiles)) {',
+            'if (caustics_volume_tile_wet(normalize(lights_at(l).direction.xyz), volume - 1u, k % tiles)) {',
         );
         expect(trace).toContain(
             'if (volume && cover <= 1.0 && !ray_volume_occupied(o, d, 2.0 * back)) { return; }',
@@ -124,7 +124,7 @@ describe('Caustics (spec 034, T067c)', () => {
         // vazão por área da superfície (T057: a área da célula é a projetada no plano das camadas).
         expect(trace).toContain('ph.landed = 1u;');
         expect(trace).toContain('if (o.landed == 0u || o.sig != ph.sig');
-        expect(trace).toContain('let blur = 2.0 * lights[seg.light].cones.z * ph.land_t;');
+        expect(trace).toContain('let blur = 2.0 * lights_at(seg.light).cones.z * ph.land_t;');
         expect(trace).toContain(
             'caustics_splat(ph.land, ph.land_n, e1.xyz, e2.xyz, ph.throughput, blur);',
         );

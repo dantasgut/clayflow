@@ -1,3 +1,4 @@
+import { isArenaReader, rewriteArenaReads } from './poolArena';
 import type { ShaderModuleSpec } from '../../core/contracts/index';
 import type { StructSchema } from '../descriptors/StructSchema';
 import { stripWgslComments } from './scanWgslSymbols';
@@ -98,9 +99,13 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
     // qualquer declaração. No módulo, a linha vira comentário (as faixas de linhas seguem as mesmas).
     const texts = new Map<WgslModule, string>();
     const directives = new Set<string>();
+    // As leituras pela arena de pools (T060i): `nome[i]` e `arrayLength(&nome)` viram os acessores do leitor.
+    const arenaReads = order.filter(isArenaReader).map((m) => m.arenaRead);
     for (const m of order) {
         if (isWgslResource(m)) continue;
-        const text = resolveMarkers(m, entry.name).replace(ENABLE_DIRECTIVE, (d: string) => {
+        const marked = resolveMarkers(m, entry.name);
+        const read = isArenaReader(m) ? marked : rewriteArenaReads(marked, arenaReads, m.name);
+        const text = read.replace(ENABLE_DIRECTIVE, (d: string) => {
             directives.add(d.trim());
             return `// ${d.trim()} (no topo)`;
         });
@@ -291,7 +296,11 @@ function checkResourceReferences(order: readonly WgslModule[], entryName: string
     for (const m of order) {
         if (isWgslResource(m) || m.source.length === 0) continue;
         const reachNames = new Set<string>();
-        for (const r of closureOf(m)) if (isWgslResource(r)) reachNames.add(r.name);
+        for (const r of closureOf(m)) {
+            if (isWgslResource(r)) reachNames.add(r.name);
+            // O nome lido pela arena de pools (T060i): requerido pelo leitor dele.
+            else if (isArenaReader(r)) reachNames.add(r.arenaRead.name);
+        }
         const code = stripWgslComments(m.source);
         // Nomes declarados no próprio módulo (parâmetros, campos, `let`/`var`/`const` locais e de módulo) sombreiam.
         const local = new Set<string>(m.symbols.map((sym) => sym.name));

@@ -1,3 +1,4 @@
+import type { ResolvedSource } from '../consumers/ResolvedSource';
 import type { StorageBufferSpec } from '../../core/contracts/index';
 import type { Schema } from '../descriptors/Schema';
 import type { EntityId } from '../world/EntityId';
@@ -12,8 +13,12 @@ export interface PoolInfo {
     readonly poolKey: string;
     /** Schema dos registros. */
     readonly schema: Schema;
-    /** Buffer atual. */
+    /** Buffer atual (a arena de pools, para o pool que mora nela — T060i). */
     readonly buffer: PoolBufferSpec;
+    /** Posição (bytes) dos registros no buffer: 0, salvo na arena de pools (a região do pool, alinhada a 256). */
+    readonly offset: number;
+    /** Bytes dos registros no buffer (a capacidade inteira; na arena, a região). */
+    readonly size: number;
     /** Bytes por registro: o stride do struct gerado do schema (o do `array<T>` no WGSL). */
     readonly stride: number;
     /** Slots ocupáveis (maior slot já usado + 1). */
@@ -68,6 +73,11 @@ export interface PoolDirectory {
      * mantido pela C2. `undefined` se o pool não existe.
      */
     poolLiveBuffer(poolKey: string): StorageBufferSpec | undefined;
+    /**
+     * Fonte do bitset de vivos do pool: o buffer próprio, ou a faixa da região dos vivos na arena de pools (T060i).
+     * `undefined` se o pool não existe.
+     */
+    poolLiveSource(poolKey: string): ResolvedSource | undefined;
     /** O slot é de posse da GPU (`slot.entities({ owns })`: escrito por um estágio, não pela CPU)? */
     poolSlotOwnedByGpu(poolKey: string, slot: number): boolean;
     /** Pool key do primeiro descritor em pool do recurso, ou `undefined`. */

@@ -25,7 +25,8 @@ function body(module: WgslModule, name: string): string {
     return src.slice(start, src.indexOf('\n}\n', start));
 }
 
-const LIGHT = ['lights', 'ray_bvh', 'ray_geometry'];
+/** As luzes (pela arena de pools, T060i) e a estrutura de raios. */
+const LIGHT = ['pool_arena', 'ray_bvh', 'ray_geometry'];
 
 describe('a luz nos acertos da onda (spec 034, T078)', () => {
     it.each([

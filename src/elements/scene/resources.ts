@@ -1,3 +1,4 @@
+import { poolArenaReader } from '../../scene/shaders/poolArena';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import { Camera } from './Camera';
 import { Light } from './Light';
@@ -96,12 +97,10 @@ export const camerasResource = wgslResource({
 });
 
 /** Luzes (pool `Light`), leitura. */
-export const lightsResource = wgslResource({
+export const lightsResource = poolArenaReader({
     name: 'lights',
-    binding: { storage: 'read' },
-    type: { schema: Light.schema, array: true },
-    frequency: 'frame',
-    provider: { pool: Light.schema.name },
+    pool: Light.schema.name,
+    schema: Light.schema,
 });
 
 /** Referencial do mapa de sombra virtual no quadro (pool `ShadowMatrix`, a fatia do quadro), leitura. */
@@ -114,30 +113,24 @@ export const shadowMatricesResource = wgslResource({
 });
 
 /** Mapas de sombra (pool `ShadowMap`), leitura. */
-export const shadowMapsResource = wgslResource({
+export const shadowMapsResource = poolArenaReader({
     name: 'shadow_maps',
-    binding: { storage: 'read' },
-    type: { schema: ShadowMap.schema, array: true },
-    frequency: 'frame',
-    provider: { pool: ShadowMap.schema.name },
+    pool: ShadowMap.schema.name,
+    schema: ShadowMap.schema,
 });
 
 /** Registros de desenho por entidade (pool `Renderable`, mantido pela C2), leitura. */
-export const renderablesResource = wgslResource({
+export const renderablesResource = poolArenaReader({
     name: 'renderables',
-    binding: { storage: 'read' },
-    type: { schema: RenderableSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: RenderableSchema.name },
+    pool: RenderableSchema.name,
+    schema: RenderableSchema,
 });
 
 /** Lista de instâncias dos grupos de desenho (pool `RenderInstance`), leitura. */
-export const instancesResource = wgslResource({
+export const instancesResource = poolArenaReader({
     name: 'instances',
-    binding: { storage: 'read' },
-    type: { schema: RenderInstanceSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: RenderInstanceSchema.name },
+    pool: RenderInstanceSchema.name,
+    schema: RenderInstanceSchema,
 });
 
 /**
