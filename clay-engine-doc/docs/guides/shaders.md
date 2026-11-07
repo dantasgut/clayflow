@@ -51,8 +51,9 @@ hash — estágios que usam o mesmo módulo compartilham o objeto de GPU. Nada d
 Quem consome:
 
 - `PipelineDescriptor.shader: WgslModule` (render e compute);
-- `createComputeKernel(core, { discriminator, shader, entryPoint, bindings, constants? })` — `bindings` é um
-  `Map<BindingKey, BindingSource>` pela identidade do recurso;
+- `work.pipelines.kernel({ discriminator, shader, entryPoint, bindings, constants? })` (as peças de compute de um Flow,
+  pelo Resource de trabalho dele — T060g) — `bindings` é um `Map<BindingKey, BindingSource>` pela identidade do recurso,
+  ligado só àquele pipeline;
 - efeitos de pós: `PostProcessEffect.fragmentModule?(): WgslModule` (sobre o módulo `effectsBase`).
 
 ### Erros de montagem
@@ -202,8 +203,8 @@ Em `elements` (C3), para os estágios do motor e para quem escreve um algoritmo 
 capacidade e trabalham em duas fases: `prepare(...)` — fora da gravação (no construtor ou numa transição do Flow) —
 cria os kernels para os buffers do chamador e reserva as regiões de parâmetros de até `recordsPerFrame` gravações;
 `record(frame, …)` só grava (nenhuma criação no `dispatch`). Não despacham com contagem 0; o despacho linear cobre mais
-de 65 535 grupos. Os bindings internos usam `createComputeKernel` com fontes pela identidade dos recursos
-declarados.
+de 65 535 grupos. Os kernels internos são pipelines do Flow dono (`work.pipelines.kernel`, T060g), com fontes pela identidade dos
+recursos declarados.
 
 ```ts
 const scan = new PrefixSum(core, { discriminator: 'cells', capacity: cellCount });
@@ -270,14 +271,14 @@ export const height = wgslModule({
   visibilidade (a união dos estágios das entradas que alcançam a variável, inclusive por funções auxiliares).
 - **Fonte** pelo fornecedor: `{ pool: chave }` e `{ consumer: nome }` pelos `ConsumerResolver` da cena; `{ slot }`
   pelo slot do Flow; `{ scene }` pelos pontos de cena; `'private'` pelo Flow (`bindings`/`ctx.bind`, num
-  `Map<BindingKey, BindingSource>` cuja chave é o recurso ou `{ pipeline, resource }`) ou pelo chamador de
-  `createComputeKernel`. Ver [Flows](./flows.md).
+  `Map<BindingKey, BindingSource>` cuja chave é o recurso ou `{ pipeline, resource }`) ou pela parte do trabalho
+  (`work.pipelines.kernel`, ligada só ao pipeline dela). Ver [Flows](./flows.md).
 - **Gravação** sem índices: `prepared.bindTo(pass.bind, offsetsPorFrequência)` ou `prepared.groupsOf(frequência)`.
 - **Limites do device** (grupos, ligações por grupo, storage/uniform/texturas/amostradores por estágio) conferidos na
   preparação: `limit-exceeded` nomeando o pipeline e o limite.
 - **Constantes**: `sharedConstant(nome, valor, tipo)` dá o valor TS (`.value`) e um módulo `const` (`.module`) — fonte
   única para os dois lados (`NONE`, `WORKGROUP_SIZE`, `SCAN_GROUP`, `DEFAULT_LIGHT_DIRECTION`…). Variantes de um mesmo
-  fonte usam `override` com `PipelineDescriptor.constants` / `createComputeKernel({ constants })`.
+  fonte usam `override` com `PipelineDescriptor.constants` / `work.pipelines.kernel({ constants })`.
 - **Instâncias**: o mesmo código duas vezes no shader (contribuintes de um ponto de cena) tem os símbolos renomeados
   por token (`instantiateModule`), nunca por substituição de texto.
 - **Pontos de cena do sombreamento**: o desenho chama `scene_light_direction()`, `light_visibility(p, n_dot_l)` e

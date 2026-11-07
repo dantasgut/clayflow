@@ -12,11 +12,6 @@ import type {
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../scene/flows/FlowWork';
 import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../scene/flows/createComputeKernel';
-import {
     neighborResources as R,
     nsAssignCount,
     nsFind,
@@ -112,10 +107,10 @@ export class NeighborSearchPipeline implements WorkPart {
     private readonly scan: PrefixSum;
     private readonly byRank: boolean;
 
-    private assignKernel: ComputeKernel | null = null;
-    private scatterKernel: ComputeKernel | null = null;
-    private sortCellsKernel: ComputeKernel | null = null;
-    private findKernel: ComputeKernel | null = null;
+    private assignKernel: string | null = null;
+    private scatterKernel: string | null = null;
+    private sortCellsKernel: string | null = null;
+    private findKernel: string | null = null;
 
     /** Contagem escrita em `NsSimParams` (-1 = ainda não escrito). */
     private uploadedParticleCount = -1;
@@ -216,9 +211,9 @@ export class NeighborSearchPipeline implements WorkPart {
 
     /** Libera os kernels que ligam o buffer de partículas (assign e find). */
     private releaseParticleKernels(): void {
-        if (this.assignKernel !== null) destroyComputeKernel(this.core, this.assignKernel);
-        if (this.findKernel !== null) destroyComputeKernel(this.core, this.findKernel);
-        if (this.sortCellsKernel !== null) destroyComputeKernel(this.core, this.sortCellsKernel);
+        if (this.assignKernel !== null) this.ctx.work.pipelines.release(this.assignKernel);
+        if (this.findKernel !== null) this.ctx.work.pipelines.release(this.findKernel);
+        if (this.sortCellsKernel !== null) this.ctx.work.pipelines.release(this.sortCellsKernel);
         this.assignKernel = null;
         this.findKernel = null;
         this.sortCellsKernel = null;
@@ -233,7 +228,7 @@ export class NeighborSearchPipeline implements WorkPart {
     /** Libera os kernels e tira os descritores da busca do trabalho (a C2 libera os buffers). */
     dispose(): void {
         this.releaseParticleKernels();
-        if (this.scatterKernel !== null) destroyComputeKernel(this.core, this.scatterKernel);
+        if (this.scatterKernel !== null) this.ctx.work.pipelines.release(this.scatterKernel);
         this.scatterKernel = null;
         this.scan.destroy();
         // Os descritores da busca saem do trabalho (uma busca recriada com outra grade não deixa os antigos).
@@ -264,7 +259,7 @@ export class NeighborSearchPipeline implements WorkPart {
             this.currentLiveBuffer = liveBuffer;
         }
         const nsParams = this.paramsBuffer!;
-        this.assignKernel ??= createComputeKernel(this.core, {
+        this.assignKernel ??= this.ctx.work.pipelines.kernel({
             discriminator: `ns_assign:${this.disc}`,
             shader: nsAssignCount,
             entryPoint: 'ns_assign_count_main',
@@ -276,7 +271,7 @@ export class NeighborSearchPipeline implements WorkPart {
                 [R.cellCount, this.cellCountBuffer!],
             ]),
         });
-        this.scatterKernel ??= createComputeKernel(this.core, {
+        this.scatterKernel ??= this.ctx.work.pipelines.kernel({
             discriminator: `ns_scatter:${this.disc}`,
             shader: nsScatter,
             entryPoint: 'ns_scatter_main',
@@ -288,7 +283,7 @@ export class NeighborSearchPipeline implements WorkPart {
                 [R.order, this.orderBuffer!],
             ]),
         });
-        this.sortCellsKernel ??= createComputeKernel(this.core, {
+        this.sortCellsKernel ??= this.ctx.work.pipelines.kernel({
             discriminator: `ns_sort_cells:${this.disc}`,
             shader: nsSortCells,
             entryPoint: 'ns_sort_cells_main',
@@ -302,7 +297,7 @@ export class NeighborSearchPipeline implements WorkPart {
                 [R.order, this.orderBuffer!],
             ]),
         });
-        this.findKernel ??= createComputeKernel(this.core, {
+        this.findKernel ??= this.ctx.work.pipelines.kernel({
             discriminator: `ns_find:${this.disc}`,
             shader: nsFind,
             entryPoint: 'ns_find_main',
@@ -429,15 +424,9 @@ export class NeighborSearchPipeline implements WorkPart {
         frame.clear(cellCount, 0, this.cellCount * 4);
         frame.clear(this.neighborCountBuffer!, 0, particleCount * 4);
         frame.clear(this.orderBuffer!, 0, particleCount * 4);
-        const run = (
-            pass: ComputePass,
-            k: ComputeKernel,
-            invocations: number,
-            label: string,
-        ): void => {
+        const run = (pass: ComputePass, k: string, invocations: number, label: string): void => {
             pass.marker(label);
-            pass.bind.setPipeline(k.pipeline);
-            k.bindTo(pass.bind);
+            this.ctx.work.pipelines.use(pass.bind, k);
             pass.dispatch.invocations(invocations, WORKGROUP_SIZE.value);
         };
         frame.compute('NS.assign_count', (pass) => {

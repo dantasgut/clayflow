@@ -10,11 +10,6 @@ import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import type { WorkPart } from '../../../scene/flows/FlowWork';
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { setDispatchOffset, SET_GROUP } from '../../../scene/graph/GraphFlow';
 import type { SetNodeContext } from '../../../scene/graph/SetNode';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
@@ -32,7 +27,7 @@ import { GpuWordSchema, wordBuffer } from '../../gpu/compute/schemas';
  * solta os descritores e a C2 libera os buffers.
  */
 export class SetNodeKernels implements WorkPart {
-    private readonly kernels = new Map<string, ComputeKernel>();
+    private readonly kernels = new Map<string, string>();
     /** Descritores próprios, na ordem dos pedidos. */
     private readonly declared: GPUDescriptor[] = [];
     /** Id e schema de cada uniform próprio, pelo buffer alocado. */
@@ -118,10 +113,10 @@ export class SetNodeKernels implements WorkPart {
         bindings: readonly (readonly [WgslResource, BindingSource])[],
     ): void {
         const old = this.kernels.get(name);
-        if (old !== undefined) destroyComputeKernel(this.ctx.core, old);
+        if (old !== undefined) this.ctx.work.work.pipelines.release(old);
         this.kernels.set(
             name,
-            createComputeKernel(this.ctx.core, {
+            this.ctx.work.work.pipelines.kernel({
                 discriminator: `${this.ctx.id}:${name}`,
                 shader,
                 entryPoint: entry,
@@ -149,7 +144,7 @@ export class SetNodeKernels implements WorkPart {
 
     /** Libera os kernels e solta uniforms e buffers próprios (a C2 os libera com a redescrição do trabalho). */
     dispose(): void {
-        for (const k of this.kernels.values()) destroyComputeKernel(this.ctx.core, k);
+        for (const k of this.kernels.values()) this.ctx.work.work.pipelines.release(k);
         this.kernels.clear();
         for (const desc of this.declared) this.ctx.work.work.data[desc.id] = undefined;
         this.declared.length = 0;
@@ -176,8 +171,7 @@ export class SetNodeKernels implements WorkPart {
         const kernel = this.kernels.get(name);
         if (kernel === undefined) throw new Error(`${this.ctx.id}: kernel '${name}' não criado.`);
         frame.compute(label, (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            this.ctx.work.work.pipelines.use(pass.bind, kernel);
             dispatch(pass);
         });
     }

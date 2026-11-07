@@ -2,11 +2,6 @@ import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import type { WgslModule } from '../../../scene/shaders/WgslModule';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
@@ -56,9 +51,9 @@ export interface CompactionRecordArgs {
 /** Kernels ligados a um par (saída, contador). */
 interface BoundKernels {
     readonly counter: StorageBufferSpec;
-    readonly atomic?: ComputeKernel;
-    readonly flags?: ComputeKernel;
-    readonly scatter?: ComputeKernel;
+    readonly atomic?: string;
+    readonly flags?: string;
+    readonly scatter?: string;
 }
 
 /**
@@ -261,7 +256,7 @@ export class Compaction implements WorkPart {
         if (!this.stable) {
             return {
                 counter,
-                atomic: createComputeKernel(this.ctx.core, {
+                atomic: this.ctx.work.pipelines.kernel({
                     discriminator: `${this.disc}:compact_atomic${gpu}`,
                     shader: variant(this.modules.atomic),
                     entryPoint: 'compact_atomic_main',
@@ -278,7 +273,7 @@ export class Compaction implements WorkPart {
         const flags = this.flagsBuffer;
         return {
             counter,
-            flags: createComputeKernel(this.ctx.core, {
+            flags: this.ctx.work.pipelines.kernel({
                 discriminator: `${this.disc}:compact_flags${gpu}`,
                 shader: variant(this.modules.flags),
                 entryPoint: 'compact_flags_main',
@@ -289,7 +284,7 @@ export class Compaction implements WorkPart {
                     [r.flags, flags],
                 ]),
             }),
-            scatter: createComputeKernel(this.ctx.core, {
+            scatter: this.ctx.work.pipelines.kernel({
                 discriminator: `${this.disc}:compact_scatter${gpu}`,
                 shader: variant(this.modules.scatter),
                 entryPoint: 'compact_scatter_main',
@@ -309,13 +304,12 @@ export class Compaction implements WorkPart {
     private run(
         frame: Frame,
         label: string,
-        kernel: ComputeKernel,
+        kernel: string,
         offset: number,
         count: number | GpuCount,
     ): void {
         frame.compute(label, (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind, { draw: [offset] });
+            this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offset] });
             if (typeof count === 'number') pass.dispatch.invocations(count, SCAN_GROUP);
             else pass.dispatch.workgroupsIndirect(count.counts, CountToArgs.dispatchOffset(count));
         });
@@ -323,7 +317,7 @@ export class Compaction implements WorkPart {
 
     private destroyBound(entry: BoundKernels): void {
         for (const k of [entry.atomic, entry.flags, entry.scatter]) {
-            if (k !== undefined) destroyComputeKernel(this.ctx.core, k);
+            if (k !== undefined) this.ctx.work.pipelines.release(k);
         }
     }
 

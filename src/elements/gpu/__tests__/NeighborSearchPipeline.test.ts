@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NeighborSearchPipeline } from '../NeighborSearchPipeline';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
-import { workHarness } from './helpers/workHarness';
+import { specName, workHarness } from './helpers/workHarness';
 
 function setup(gridDim: [number, number, number]) {
     const h = workHarness();
@@ -31,7 +31,7 @@ function setup(gridDim: [number, number, number]) {
     return { ...h, core, ns, particles, live, own };
 }
 
-const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
+const disc = specName;
 
 describe('NeighborSearchPipeline', () => {
     it('maxNeighbors fora de [1, 128] → RangeError', () => {

@@ -9,11 +9,6 @@ import type {
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { EventBus } from '../../scene/events/EventBus';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../scene/flows/createComputeKernel';
 import { Flow } from '../../scene/flows/Flow';
 import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
@@ -64,10 +59,7 @@ import {
     rayMorton,
     rayRefit,
     rayReorder,
-    raySceneResources,
 } from './shaders';
-import { renderablesResource, worldInversesResource, worldsResource } from '../scene/resources';
-import { standardMaterialsResource } from '../material/renderResources';
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 /** Tipos de primitiva (os `RAY_KIND_*` do WGSL). */
@@ -174,28 +166,28 @@ interface Blas {
     age: number;
     /** Buffers ligados aos kernels de cópia. */
     sources: SourceBuffers | undefined;
-    gatherVertices: ComputeKernel | undefined;
-    gatherTriangles: ComputeKernel | undefined;
+    gatherVertices: string | undefined;
+    gatherTriangles: string | undefined;
     /** Cópia das esferas (o pool do corpo ligado; outro buffer = refeita). */
-    gatherSpheres: ComputeKernel | undefined;
+    gatherSpheres: string | undefined;
     particlePool: AnyBufferSpec | undefined;
 }
 
 /** Kernels genéricos (ligados aos temporários e aos pools, os mesmos para todas as hierarquias). */
 interface SharedKernels {
-    readonly bounds: ComputeKernel;
-    readonly boundsSpheres: ComputeKernel;
-    readonly morton: ComputeKernel;
-    readonly lbvh: ComputeKernel;
-    readonly leaves: ComputeKernel;
-    readonly clear: ComputeKernel;
-    readonly leavesTriangles: ComputeKernel;
-    readonly leavesSpheres: ComputeKernel;
-    readonly leavesAabbs: ComputeKernel;
-    readonly climb: ComputeKernel;
-    readonly reorderGather: ComputeKernel;
-    readonly reorderStore: ComputeKernel;
-    readonly instances: ComputeKernel;
+    readonly bounds: string;
+    readonly boundsSpheres: string;
+    readonly morton: string;
+    readonly lbvh: string;
+    readonly leaves: string;
+    readonly clear: string;
+    readonly leavesTriangles: string;
+    readonly leavesSpheres: string;
+    readonly leavesAabbs: string;
+    readonly climb: string;
+    readonly reorderGather: string;
+    readonly reorderStore: string;
+    readonly instances: string;
 }
 
 /** Temporários da construção. */
@@ -555,10 +547,9 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         this.run(pass, shared.leaves, offset, leaves);
     }
 
-    private run(pass: ComputePass, kernel: ComputeKernel, offset: number[], count: number): void {
+    private run(pass: ComputePass, kernel: string, offset: number[], count: number): void {
         if (count <= 0) return;
-        pass.bind.setPipeline(kernel.pipeline);
-        kernel.bindTo(pass.bind, { draw: offset });
+        this.work.work.pipelines.use(pass.bind, kernel, { draw: offset });
         pass.dispatch.invocations(count, WORKGROUP_SIZE);
     }
 
@@ -980,7 +971,6 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     /** Kernels genéricos e de cópia que faltam (ou cujos buffers mudaram). */
     private ensureKernels(): void {
         const scratch = this.scratch!;
-        const [geometry, bvh] = this.pools as StorageBufferSpec[];
         // Ordenações por quadro: uma por hierarquia construída mais a de cima.
         this.sort!.prepare(scratch.keys, scratch.values, this.order.length + 1);
         if (this.params.reserve(this.order.length + 1)) this.releaseShared();
@@ -994,16 +984,20 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         }
         const build = this.params.source();
         if (this.shared === undefined) {
-            const worlds = this.resources.poolBufferSpec(Transform.worldSchema.name);
-            const renderables = this.resources.poolBufferSpec(renderableRecord.schema.name);
-            const materials = this.resources.poolBufferSpec(StandardMaterial.schema.name);
+            // Os pools que a junção das instâncias lê (a C2 os liga pelo fornecedor): existem mesmo vazios.
+            for (const schema of [
+                Transform.worldSchema,
+                renderableRecord.schema,
+                StandardMaterial.schema,
+            ])
+                this.resources.ensurePool(schema);
             const kernel = (
                 name: string,
-                shader: Parameters<typeof createComputeKernel>[1]['shader'],
+                shader: WgslModule,
                 entryPoint: string,
                 bindings: [WgslResource, BindingSource][],
-            ): ComputeKernel =>
-                createComputeKernel(this.core, {
+            ): string =>
+                this.work.work.pipelines.kernel({
                     discriminator: `ray_scene:${name}`,
                     shader,
                     entryPoint,
@@ -1011,12 +1005,10 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 });
             this.shared = {
                 bounds: kernel('bounds', rayBounds, 'ray_bounds_triangles_main', [
-                    [raySceneResources.geometry, geometry!],
                     [B.aabbs, scratch.aabbs],
                     [B.bounds, scratch.bounds],
                 ]),
                 boundsSpheres: kernel('bounds_spheres', rayBounds, 'ray_bounds_spheres_main', [
-                    [raySceneResources.geometry, geometry!],
                     [B.aabbs, scratch.aabbs],
                     [B.bounds, scratch.bounds],
                 ]),
@@ -1028,84 +1020,71 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 ]),
                 lbvh: kernel('lbvh', rayLbvh, 'ray_lbvh_main', [
                     [B.keysRead, scratch.keys],
-                    [B.bvhOut, bvh!],
                     [B.parents, scratch.parents],
                 ]),
                 leaves: kernel('leaves', rayLbvh, 'ray_lbvh_leaves_main', [
                     [B.valuesRead, scratch.values],
-                    [B.bvhOut, bvh!],
                     [B.parents, scratch.parents],
                 ]),
                 clear: kernel('counters_clear', rayRefit, 'ray_counters_clear_main', [
                     [B.counters, scratch.counters],
                 ]),
-                leavesTriangles: kernel('leaves_triangles', rayRefit, 'ray_leaves_triangles_main', [
-                    [raySceneResources.geometry, geometry!],
-                    [B.bvhOut, bvh!],
-                ]),
-                leavesSpheres: kernel('leaves_spheres', rayRefit, 'ray_leaves_spheres_main', [
-                    [raySceneResources.geometry, geometry!],
-                    [B.bvhOut, bvh!],
-                ]),
+                leavesTriangles: kernel(
+                    'leaves_triangles',
+                    rayRefit,
+                    'ray_leaves_triangles_main',
+                    [],
+                ),
+                leavesSpheres: kernel('leaves_spheres', rayRefit, 'ray_leaves_spheres_main', []),
                 leavesAabbs: kernel('leaves_aabbs', rayRefit, 'ray_leaves_aabbs_main', [
                     [B.aabbsRead, scratch.aabbs],
-                    [B.bvhOut, bvh!],
                 ]),
                 reorderGather: kernel('reorder_gather', rayReorder, 'ray_reorder_gather_main', [
                     [B.valuesRead, scratch.values],
-                    [B.geometryOut, geometry!],
                     [B.tris, scratch.tris],
                 ]),
                 reorderStore: kernel('reorder_store', rayReorder, 'ray_reorder_store_main', [
-                    [B.geometryOut, geometry!],
                     [B.tris, scratch.tris],
                 ]),
                 climb: kernel('climb', rayRefit, 'ray_climb_main', [
-                    [B.bvhOut, bvh!],
                     [B.parentsRead, scratch.parents],
                     [B.counters, scratch.counters],
                     [B.boxes, scratch.boxes],
                 ]),
                 instances: kernel('instances', rayInstances, 'ray_instances_main', [
                     [B.instanceSources, scratch.sources],
-                    [worldsResource, worlds ?? scratch.sources],
-                    [worldInversesResource, inverses ?? scratch.sources],
-                    [renderablesResource, renderables ?? scratch.sources],
-                    [standardMaterialsResource, materials ?? scratch.sources],
-                    [B.bvhOut, bvh!],
                     [B.aabbs, scratch.aabbs],
                     [B.bounds, scratch.bounds],
                 ]),
             };
         }
         for (const b of this.order) {
-            if (b.kind === KIND_SPHERES) this.ensureGatherSpheres(b, build, geometry!);
-            else this.ensureGather(b, build, geometry!);
+            if (b.kind === KIND_SPHERES) this.ensureGatherSpheres(b, build);
+            else this.ensureGather(b, build);
         }
     }
 
     /** Cópia das esferas de um corpo (refeita quando o pool dele é realocado: a hierarquia é reconstruída). */
-    private ensureGatherSpheres(b: Blas, build: BindingSource, geometry: StorageBufferSpec): void {
+    private ensureGatherSpheres(b: Blas, build: BindingSource): void {
         const pool = this.resources.poolBufferSpec(b.particles!.poolKey);
         if (pool === undefined) return;
         if (pool === b.particlePool && b.gatherSpheres !== undefined) return;
         this.releaseGather(b);
         b.built = false;
         b.particlePool = pool;
-        b.gatherSpheres = createComputeKernel(this.core, {
+        b.gatherSpheres = this.work.work.pipelines.kernel({
             discriminator: `ray_scene:gather_spheres:${b.key}`,
             shader: rayGather,
             entryPoint: 'ray_gather_spheres_main',
             bindings: new Map<WgslResource, BindingSource>([
                 [B.build, build],
                 [B.srcParticles, pool],
-                [B.geometryOut, geometry],
             ]),
         });
     }
 
     /** Kernels de cópia da geometria (refeitos quando os buffers dela mudam). */
-    private ensureGather(b: Blas, build: BindingSource, geometry: StorageBufferSpec): void {
+    private ensureGather(b: Blas, build: BindingSource): void {
         const src = this.sourcesOf(b.geometry!);
         if (src === undefined) return;
         const same =
@@ -1118,14 +1097,13 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         b.sources = src;
         const asSource = (buf: AnyBufferSpec): BindingSource =>
             buf as Exclude<AnyBufferSpec, StagingBufferSpec>;
-        b.gatherVertices = createComputeKernel(this.core, {
+        b.gatherVertices = this.work.work.pipelines.kernel({
             discriminator: `ray_scene:gather_vertices:${b.key}`,
             shader: rayGather,
             entryPoint: 'ray_gather_vertices_main',
             bindings: new Map<WgslResource, BindingSource>([
                 [B.build, build],
                 [B.srcVertices, asSource(src.vertices)],
-                [B.geometryOut, geometry],
             ]),
         });
         const entry = b.indirect
@@ -1133,7 +1111,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             : b.u16
               ? 'ray_gather_triangles_u16_main'
               : 'ray_gather_triangles_u32_main';
-        b.gatherTriangles = createComputeKernel(this.core, {
+        b.gatherTriangles = this.work.work.pipelines.kernel({
             discriminator: `ray_scene:gather_triangles:${b.key}`,
             shader: rayGather,
             entryPoint: entry,
@@ -1143,7 +1121,6 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
                 ...(b.indirect && src.indirect !== undefined
                     ? ([[B.srcIndirect, asSource(src.indirect)]] as [WgslResource, BindingSource][])
                     : []),
-                [B.geometryOut, geometry],
             ]),
         });
     }
@@ -1217,9 +1194,9 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
     }
 
     private releaseGather(b: Blas): void {
-        if (b.gatherVertices !== undefined) destroyComputeKernel(this.core, b.gatherVertices);
-        if (b.gatherTriangles !== undefined) destroyComputeKernel(this.core, b.gatherTriangles);
-        if (b.gatherSpheres !== undefined) destroyComputeKernel(this.core, b.gatherSpheres);
+        if (b.gatherVertices !== undefined) this.work.work.pipelines.release(b.gatherVertices);
+        if (b.gatherTriangles !== undefined) this.work.work.pipelines.release(b.gatherTriangles);
+        if (b.gatherSpheres !== undefined) this.work.work.pipelines.release(b.gatherSpheres);
         b.gatherVertices = undefined;
         b.gatherTriangles = undefined;
         b.gatherSpheres = undefined;
@@ -1245,7 +1222,7 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
             s.reorderStore,
             s.instances,
         ])
-            destroyComputeKernel(this.core, k);
+            this.work.work.pipelines.release(k);
         this.shared = undefined;
     }
 }

@@ -46,8 +46,8 @@ grave um com `npm run bench:baseline`. Detalhes em [Benchmark](./benchmark.md).
    ```
    Não adivinhe — leia o erro literal antes de mudar shader.
 
-2. **Helper validator no createComputeKernel:** ao concatenar WGSL de
-   múltiplas libs, é fácil esquecer um helper. O `createComputeKernel` roda
+2. **Validação das referências na montagem:** ao concatenar WGSL de
+   múltiplas libs, é fácil esquecer um helper. A montagem da C2 roda
    `validateWgslReferences` que detecta `fn xxx(...)` sem definição. Erro
    tem mensagem clara:
    ```
@@ -179,9 +179,10 @@ app.use({
 });
 ```
 
-Para um kernel avulso fora de um Flow, `createComputeKernel(core, { discriminator, shader, entryPoint, bindings })`
-recebe as fontes **pela identidade do recurso** (`bindings: new Map([[dataResource, dataBuffer]])`) e lê o layout do
-mesmo jeito; `kernel.bindTo(pass.bind)` grava os grupos.
+Uma peça de compute (uma parte do trabalho de um Flow, T060g) prepara o seu kernel como pipeline do Flow dono:
+`work.pipelines.kernel({ discriminator, shader, entryPoint, bindings })` recebe as fontes **pela identidade do recurso**
+(`bindings: new Map([[dataResource, dataBuffer]])`), ligadas só àquele pipeline, e lê o layout do mesmo jeito;
+`work.pipelines.use(pass.bind, id)` grava os grupos. Não há kernel avulso fora de um Flow.
 
 ## Adicionando um Resource novo
 

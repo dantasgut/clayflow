@@ -48,6 +48,12 @@ export function fakeResourceCore(): {
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),
         onFrameRetired: vi.fn(() => () => undefined),
+        /** Escopo de erro do device: o corpo roda e nenhum erro (os pipelines dos Flows, T060g). */
+        withErrorScope: vi.fn(async <T>(_filter: GPUErrorFilter, body: () => T | Promise<T>) =>
+            body(),
+        ),
+        /** Mensagens do compilador: nenhuma. */
+        shaderMessages: vi.fn(async () => []),
     } as unknown as EngineCore;
     return { core, writes, copies };
 }

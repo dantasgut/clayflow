@@ -193,7 +193,7 @@ Shaders passam a ser montados de módulos (`wgslModule` + `composeWgsl`); ver o 
 
 | Antes | Agora |
 | --- | --- |
-| `createComputeKernel({ shaderSource })` / `core.compute(...)` | `createComputeKernel(core, { shader: wgslModule(…), entryPoint, bindings })` |
+| `createComputeKernel({ shaderSource })` / `core.compute(...)` | um pipeline do Flow (`PipelineDescriptor` com `shader: wgslModule(…)`, ou `work.pipelines.kernel({ shader, entryPoint, bindings })` numa parte do trabalho — T060g) |
 | `PipelineDescriptor.shaderSource` | `PipelineDescriptor.shader` (`WgslModule`) |
 | `PostProcessEffect.fragmentSource()` com concatenação | `fragmentModule()` devolvendo um módulo com `requires: [effectsBase]` |
 | Structs WGSL escritos à mão (`wgsl/structs/*.wgsl`) | gerados do `StructSchema` (`wgslName`, `addressSpace`, `fieldArray`/`fieldStruct`/`fieldRuntimeArray`) |
@@ -230,7 +230,7 @@ Ver o guia [Flows](./flows.md).
 | `new DebugFlow(options).bindEvents(events)` | `new DebugFlow(ctx, options)` (inscreve-se na construção) |
 | `registerPresentationDefaults(flows, { canvas, core, world, resources, events })` | `registerPresentationDefaults(flows, { world })` — registra os estágios e os solvers por factory e insere os `FrameTargets` |
 | `DEFAULT_FLOW_FACTORIES` / `autoRegisterFlows` / `physicsPlugin()` | `DEFAULT_SOLVER_REGISTRATIONS`, registradas pelos defaults; a C2 instancia o solver quando o primeiro corpo cria o pool |
-| `createComputeKernel(core, { bindings: [{ binding, type, buffer }] })` (por índice, `ComputeKernelBinding*`) | `createComputeKernel(core, { discriminator, shader, entryPoint, bindings: { nomeDaVariavel: fonte } })` (layout inferido) |
+| `createComputeKernel(core, { bindings: [{ binding, type, buffer }] })` (por índice, `ComputeKernelBinding*`) | `work.pipelines.kernel({ discriminator, shader, entryPoint, bindings: new Map([[recurso, fonte]]) })` (layout inferido; o `createComputeKernel` saiu na T060g) |
 | Materiais com UBO por entidade (`storage: 'individual'`) | pool de storage por schema (`role: 'storage-ro', storage: 'pool'`), lido como `array<T>` pelo `materialSlot` do registro `Renderable`; `role: 'uniform'` em pool é rejeitado |
 | Forward com `firstInstance` = slot do `WorldTransform` | `firstInstance` = slot do registro `Renderable` (`slot.entities({ all, record: renderableRecord })`, `entry.recordSlot`); shader lê `renderables[instance_index]` |
 | `import type { EngineCore } from '…/core/contracts'` em C3/C4 | `from '…/scene/contracts/gpu'` (ou o barrel `clayflow`) — o lint proíbe `core/` em C3/C4 |

@@ -13,7 +13,6 @@ const CONTRACT_FILES = new Set([
     'scene/systems/LayoutInferencer.ts',
     'scene/systems/flowBinding/FlowRuntime.ts',
     'scene/systems/flowBinding/PipelineState.ts',
-    'scene/flows/createComputeKernel.ts',
     'scene/flows/FlowBinding.ts',
     'scene/flows/FlowBindingError.ts',
     'scene/flows/FlowTransitions.ts',

@@ -4,12 +4,7 @@ import { SCAN_GROUP as SCAN_GROUP_CONSTANT } from '../shaders/constants';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import type { ComputePass } from '../../../scene/contracts/gpu';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
@@ -71,9 +66,9 @@ export interface PrefixSumRecordArgs {
 
 /** Kernels de um nível: subida, descida e topo. */
 interface LevelKernels {
-    local?: ComputeKernel;
-    combine?: ComputeKernel;
-    top?: ComputeKernel;
+    local?: string;
+    combine?: string;
+    top?: string;
 }
 
 /** Kernels de uma origem da contagem: do nível 0 por buffer de saída e dos níveis k ≥ 1 (`upper[k - 1]`). */
@@ -347,7 +342,7 @@ export class PrefixSum implements WorkPart {
         counts: IndirectBufferSpec | null,
         values: StorageBufferSpec,
         above?: StorageBufferSpec,
-    ): ComputeKernel {
+    ): string {
         const ready =
             kind === 'scan_local' ? scanLocal : kind === 'scan_top' ? scanTop : scanCombine;
         const level = this.params.source();
@@ -370,7 +365,7 @@ export class PrefixSum implements WorkPart {
                         [r.groupPrefix, above!],
                     ]);
         if (counts !== null) bindings.set(setCountResources.counts, counts);
-        return createComputeKernel(this.ctx.core, {
+        return this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:${kind}${counts === null ? '' : ':gpu'}`,
             shader:
                 counts === null
@@ -385,14 +380,13 @@ export class PrefixSum implements WorkPart {
     private run(
         frame: Frame,
         label: string,
-        kernel: ComputeKernel,
+        kernel: string,
         offset: number,
         dispatch: LevelDispatch,
         open: ComputePass | undefined,
     ): void {
         const body = (pass: ComputePass): void => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind, { draw: [offset] });
+            this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offset] });
             if (dispatch === null) pass.dispatch.workgroups(1);
             else if (typeof dispatch === 'number') pass.dispatch.invocations(dispatch, SCAN_GROUP);
             else
@@ -411,7 +405,7 @@ export class PrefixSum implements WorkPart {
         for (const variant of this.variants.values()) {
             for (const level of [...variant.base.values(), ...variant.upper]) {
                 for (const k of [level.local, level.combine, level.top]) {
-                    if (k !== undefined) destroyComputeKernel(this.ctx.core, k);
+                    if (k !== undefined) this.ctx.work.pipelines.release(k);
                 }
             }
         }

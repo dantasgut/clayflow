@@ -4,11 +4,6 @@ import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { Frame, StorageBufferSpec, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { PrefixSum } from './PrefixSum';
 import { HashGridParamsSchema, wordBuffer } from './schemas';
 import { shCount, shScatter, hashGridResources } from './shaders';
@@ -50,8 +45,8 @@ export class SpatialHashGrid implements WorkPart {
     private items: StorageBufferSpec | null = null;
     private table = 0;
     private capacity = 0;
-    private countKernel: ComputeKernel | null = null;
-    private scatterKernel: ComputeKernel | null = null;
+    private countKernel: string | null = null;
+    private scatterKernel: string | null = null;
     private count = 0;
 
     constructor(
@@ -129,7 +124,7 @@ export class SpatialHashGrid implements WorkPart {
         if (changed || items !== this.items) {
             this.items = items;
             this.releaseKernels();
-            this.countKernel = createComputeKernel(this.ctx.core, {
+            this.countKernel = this.ctx.work.pipelines.kernel({
                 discriminator: `${this.disc}:count`,
                 shader: shCount,
                 entryPoint: 'sh_count_main',
@@ -139,7 +134,7 @@ export class SpatialHashGrid implements WorkPart {
                     [hashGridResources.counts, this.cellCount],
                 ]),
             });
-            this.scatterKernel = createComputeKernel(this.ctx.core, {
+            this.scatterKernel = this.ctx.work.pipelines.kernel({
                 discriminator: `${this.disc}:scatter`,
                 shader: shScatter,
                 entryPoint: 'sh_scatter_main',
@@ -183,10 +178,9 @@ export class SpatialHashGrid implements WorkPart {
         this.ctx.work.refresh();
     }
 
-    private run(frame: Frame, label: string, kernel: ComputeKernel): void {
+    private run(frame: Frame, label: string, kernel: string): void {
         frame.compute(label, (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            this.ctx.work.pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(this.count, WORKGROUP_SIZE.value);
         });
     }
@@ -206,7 +200,7 @@ export class SpatialHashGrid implements WorkPart {
 
     private releaseKernels(): void {
         for (const k of [this.countKernel, this.scatterKernel])
-            if (k !== null) destroyComputeKernel(this.ctx.core, k);
+            if (k !== null) this.ctx.work.pipelines.release(k);
         this.countKernel = null;
         this.scatterKernel = null;
     }

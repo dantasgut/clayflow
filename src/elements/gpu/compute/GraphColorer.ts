@@ -3,11 +3,6 @@ import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
 import { RadixSort } from './RadixSort';
 import { Reduce } from './Reduce';
@@ -191,7 +186,7 @@ export class GraphColorer implements WorkPart {
     private readonly reduce: Reduce;
     /** Vértices que os buffers por vértice comportam (0 antes da primeira coloração). */
     private vertexCapacity = 0;
-    private kernels: ComputeKernel[] = [];
+    private kernels: string[] = [];
     /** `destroy()` soltou os descritores (a C2 libera os buffers); a próxima coloração os declara de novo. */
     private released = false;
     private busy = false;
@@ -528,8 +523,8 @@ export class GraphColorer implements WorkPart {
         shader: WgslModule,
         entryPoint: string,
         bindings: ReadonlyMap<WgslResource, BindingSource>,
-    ): ComputeKernel {
-        const kernel = createComputeKernel(this.ctx.core, {
+    ): string {
+        const kernel = this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:${name}`,
             shader,
             entryPoint,
@@ -540,15 +535,9 @@ export class GraphColorer implements WorkPart {
     }
 
     /** `count = null`: um grupo (passe de avanço, um único fio); senão `invocations(count, 256)`. */
-    private dispatch(
-        frame: Frame,
-        label: string,
-        kernel: ComputeKernel,
-        count: number | null,
-    ): void {
+    private dispatch(frame: Frame, label: string, kernel: string, count: number | null): void {
         frame.compute(label, (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            this.ctx.work.pipelines.use(pass.bind, kernel);
             if (count === null) pass.dispatch.workgroups(1);
             else pass.dispatch.invocations(count, SCAN_GROUP);
         });
@@ -568,7 +557,7 @@ export class GraphColorer implements WorkPart {
     }
 
     private releaseKernels(): void {
-        for (const k of this.kernels) destroyComputeKernel(this.ctx.core, k);
+        for (const k of this.kernels) this.ctx.work.pipelines.release(k);
         this.kernels = [];
     }
 }

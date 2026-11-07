@@ -507,8 +507,8 @@ Consumidor acessa metadata direto do spec que detém: `vboSpec.byteSize`, `texSp
 - `core.create`/`createAsync` **congelam a spec em profundidade**: alterar uma spec depois de criada lança `TypeError`
   na hora (em vez de deixar um hash velho). Para mudar um recurso, crie uma spec nova.
 - O store guarda **posse por spec**: specs de conteúdo igual compartilham o objeto de GPU, e `core.destroy(spec)` remove
-  só a posse daquela spec — o objeto morre com o último dono. Quem cria kernels com `createComputeKernel` libera com
-  `destroyComputeKernel` ao substituí-los.
+  só a posse daquela spec — o objeto morre com o último dono. Os kernels das partes do trabalho de um Flow são
+  pipelines dele (`work.pipelines.kernel`, T060g): `release` os libera ao substituí-los.
 
 ### Buffers polivalentes — compute produz, render consome
 
@@ -2372,10 +2372,11 @@ ctx.bind(new Map([[{ pipeline: id, resource: effectResources.params }, params]])
 ```
 
 Fonte privada para um recurso que tem fornecedor é erro (troque o pool com `pools` no descritor). Renomear a variável
-no WGSL vira erro de tipo no TypeScript: a chave é o objeto. `createComputeKernel(core, { discriminator, shader,
-entryPoint, bindings, constants?, preferAsync? })` segue a mesma regra fora dos Flows (kernels genéricos, nós de
-conjunto): `bindings` é um `Map` pela identidade do recurso; recurso usado sem fonte, fonte para recurso que a entrada
-não usa e chave por pipeline são erros.
+no WGSL vira erro de tipo no TypeScript: a chave é o objeto. As peças de compute (somas de prefixos, ordenações, a grade
+hash, os nós de conjunto) preparam os seus kernels como pipelines do Flow dono, pelo Resource de trabalho dele
+(`FlowWork.pipelines`, T060g): `kernel({ discriminator, shader, entryPoint, bindings, constants? })` liga cada fonte só
+àquele pipeline (`{ pipeline, resource }`) e devolve o id; `use(pass.bind, id, offsets?)` grava; `release(id)` libera.
+Não há kernel criado fora da C2.
 
 #### Gravação sem índices — `groupsOf` e `bindTo`
 
@@ -2401,7 +2402,7 @@ estágio (teste de varredura).
 `checkLayoutLimits(rótulo, grupos, limites)` confere `maxBindGroups`, `maxBindingsPerBindGroup` e, por estágio,
 `maxStorageBuffersPerShaderStage`, `maxUniformBuffersPerShaderStage`, `maxSamplersPerShaderStage`,
 `maxSampledTexturesPerShaderStage` e `maxStorageTexturesPerShaderStage` (`limit-exceeded` nomeando o pipeline, o
-limite, o valor e o máximo). Roda na preparação de cada pipeline (`PipelineState`) e em `createComputeKernel`. Um
+limite, o valor e o máximo). Roda na preparação de cada pipeline (`PipelineState`), os das partes do trabalho também. Um
 pipeline com código de fora (funções de ponto, cada forma com o seu pool) que excede um limite não lança: é rejeitado
 como erro de compilação (`extensionRejected`) e o atual — ou o pronto — continua.
 
@@ -2418,7 +2419,7 @@ sentinela de slot, luz ou dono ausente) e `WORKGROUP_SIZE` (C2, `engineConstants
 `MAX_SURFACE_COLLIDERS`, `DEFAULT_LIGHT_DIRECTION` e os códigos de campo `FIELD_*` (C3,
 `elements/gpu/shaders/constants.ts`); `WATER_NO_DEPTH` e `WATER_DEPTH_LIMIT` (C4, `presentation/water/constants.ts`).
 Variantes de um mesmo fonte usam constantes de especialização: `PipelineDescriptor.constants` e
-`createComputeKernel({ constants })` chegam ao `constants` da spec de pipeline da C1 (`override` no WGSL).
+`WorkPipelines.kernel({ constants })` chegam ao `constants` da spec de pipeline da C1 (`override` no WGSL).
 
 #### Instanciação por token
 
@@ -2909,7 +2910,7 @@ src/scene/
 │     ├── slots.ts                      construtores `slot.*` (pool, bodies, pools, singleton, entities, texture, target)
 │     ├── FlowTransitions.ts            eventos de Flow, tabela de transições, FlowTransitionError
 │     ├── FlowBinding.ts                BoundFlow, PreparedPipeline (groupsOf/bindTo), BindingKey/BindingSources, TransitionContext
-│     ├── createComputeKernel.ts        kernel de compute avulso com fontes pela identidade do recurso (layout das declarações)
+│     ├── FlowWork.ts                   o Resource de trabalho de um Flow, as partes dele e os pipelines do Flow dono (`WorkPipelines`, T060g)
 │     ├── ExtensionPipelines.ts         estado ativo/pendente único dos pipelines de funções de ponto (spec 009/031)
 │     └── FlowRegistry.ts               register(factory, { type, phase, bodyType?, priority? }) + override + unregister + resolve + flowsInPhase
 │
@@ -3689,8 +3690,8 @@ src/elements/
 >    `duplicate-module-name`, `symbol-conflict`, `struct-marker`, `struct-conflict`, `unresolved-reference`,
 >    `manual-binding`). O resultado é memorizado por módulo: mesma entrada → mesma `ShaderModuleSpec` → mesmo objeto
 >    de GPU (deduplicação pelo hash da spec).
-> 4. **Uso.** `PipelineDescriptor.shader: WgslModule`; `createComputeKernel(core, { discriminator, shader,
->    entryPoint, bindings, constants? })` (fontes num `Map<BindingKey, BindingSource>`, pela identidade do recurso);
+> 4. **Uso.** `PipelineDescriptor.shader: WgslModule`; `WorkPipelines.kernel({ discriminator, shader, entryPoint,
+>    bindings, constants? })` (fontes num `Map<BindingKey, BindingSource>`, pela identidade do recurso);
 >    efeitos de pós declaram `fragmentModule()`. O mesmo módulo serve compute e render.
 > 5. **Biblioteca.** `wgslLib` (congelado) expõe os módulos de base — `quat`, `linalg`, `mat`, `camera`, `sdf`,
 >    `sphKernels`, `mpmWeights`, `xpbd`, `lcp`, `fem`, `noise`, `color`, `brdf`, `finite`, `fixedPoint`,

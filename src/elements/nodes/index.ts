@@ -31,6 +31,7 @@ import { space } from './space';
 import { surface } from './surface';
 
 export { compareOps } from './condition';
+export { SetNodeKernels } from './set/SetNodeKernels';
 export type { CameraArgument, ParticleArgument } from './input';
 
 /** Nós de conjunto (spec 031, US3): malha, pontos, as primitivas paralelas sobre conjuntos u32 (FR-027) e as saídas. */

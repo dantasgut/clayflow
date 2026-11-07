@@ -3,12 +3,7 @@ import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
 import type { ComputePass } from '../../../scene/contracts/gpu';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
@@ -60,8 +55,8 @@ export interface RadixSortRecordArgs {
 
 /** Kernels de um sentido do pingue-pongue. */
 interface PassKernels {
-    readonly histogram: ComputeKernel;
-    readonly scatter: ComputeKernel;
+    readonly histogram: string;
+    readonly scatter: string;
 }
 
 /** Kernels preparados para um buffer de chaves (e valores): do chamador para o temporário e de volta. */
@@ -353,7 +348,7 @@ export class RadixSort implements WorkPart {
                 : bindPoints(ready, new Map([[radixCountPoint, radixCountGpu]]));
         const countBinding: [WgslResource, BindingSource][] =
             counts === null ? [] : [[setCountResources.counts, counts]];
-        const histogram = createComputeKernel(this.ctx.core, {
+        const histogram = this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:radix_histogram${gpu}`,
             shader: variant(radixHistogram),
             entryPoint: 'radix_histogram_main',
@@ -364,7 +359,7 @@ export class RadixSort implements WorkPart {
                 ...countBinding,
             ]),
         });
-        const scatter = createComputeKernel(this.ctx.core, {
+        const scatter = this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:radix_scatter${valuePair === undefined ? '' : '_kv'}${gpu}`,
             shader: variant(radixScatter),
             entryPoint: valuePair === undefined ? 'radix_scatter_main' : 'radix_scatter_kv_main',
@@ -389,14 +384,13 @@ export class RadixSort implements WorkPart {
     private run(
         frame: Frame,
         label: string,
-        kernel: ComputeKernel,
+        kernel: string,
         offset: number,
         count: number | GpuCount,
         open?: ComputePass,
     ): void {
         const body = (pass: ComputePass): void => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind, { draw: [offset] });
+            this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offset] });
             if (typeof count === 'number') pass.dispatch.invocations(count, SCAN_GROUP);
             else pass.dispatch.workgroupsIndirect(count.counts, CountToArgs.dispatchOffset(count));
         };
@@ -406,8 +400,8 @@ export class RadixSort implements WorkPart {
 
     private destroyPrepared(p: PreparedKeys): void {
         for (const k of [p.fromCaller, p.fromTemp]) {
-            destroyComputeKernel(this.ctx.core, k.histogram);
-            destroyComputeKernel(this.ctx.core, k.scatter);
+            this.ctx.work.pipelines.release(k.histogram);
+            this.ctx.work.pipelines.release(k.scatter);
         }
     }
 

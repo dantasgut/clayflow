@@ -42,6 +42,7 @@ export {
     nodes,
     defaultNodeRegistry,
     compareOps,
+    SetNodeKernels,
     type CameraArgument,
     type ParticleArgument,
 } from './nodes/index';

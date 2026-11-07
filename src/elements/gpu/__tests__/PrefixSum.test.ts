@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PrefixSum, scanLevelCounts } from '../compute/PrefixSum';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
-import { workHarness } from './helpers/workHarness';
+import { specName, workHarness } from './helpers/workHarness';
 
 /** Buffers de teste por nome — o mesmo objeto a cada chamada (a preparação reconhece o buffer pela identidade). */
 const buffers = new Map<string, StorageBufferSpec>();
@@ -15,7 +15,7 @@ const buffer = (discriminator: string): StorageBufferSpec => {
     return b;
 };
 
-const disc = (spec: unknown): string => (spec as { discriminator: string }).discriminator;
+const disc = specName;
 
 function setup(capacity: number) {
     const h = workHarness();

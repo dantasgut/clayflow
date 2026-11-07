@@ -3,11 +3,6 @@ import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
@@ -66,8 +61,8 @@ export interface ReduceRecordArgs {
 /** Kernels de uma entrada: por passe `k`, o que escreve no parcial seguinte e o que escreve na saída (último passe). */
 interface PreparedPair {
     readonly out: StorageBufferSpec;
-    readonly toPartial: (ComputeKernel | undefined)[];
-    readonly toOut: ComputeKernel[];
+    readonly toPartial: (string | undefined)[];
+    readonly toOut: string[];
 }
 
 /**
@@ -252,8 +247,7 @@ export class Reduce implements WorkPart {
             const kernel = k === passes - 1 ? pair.toOut[k]! : pair.toPartial[k]!;
             const dispatch = k === 0 ? first : counts[k]!;
             frame.compute('Reduce', (pass) => {
-                pass.bind.setPipeline(kernel.pipeline);
-                kernel.bindTo(pass.bind, { draw: [offsets[k]!] });
+                this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offsets[k]!] });
                 if (typeof dispatch === 'number') pass.dispatch.invocations(dispatch, SCAN_GROUP);
                 else
                     pass.dispatch.workgroupsIndirect(
@@ -297,14 +291,14 @@ export class Reduce implements WorkPart {
         counts: IndirectBufferSpec | null,
         input: StorageBufferSpec,
         output: StorageBufferSpec,
-    ): ComputeKernel {
+    ): string {
         const bindings = new Map<WgslResource, BindingSource>([
             [reduceResources.level, this.params.source()],
             [reduceResources.input, input],
             [reduceResources.output, output],
         ]);
         if (counts !== null) bindings.set(setCountResources.counts, counts);
-        return createComputeKernel(this.ctx.core, {
+        return this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:reduce${counts === null ? '' : ':gpu'}`,
             shader:
                 counts === null
@@ -317,7 +311,7 @@ export class Reduce implements WorkPart {
 
     private destroyPair(pair: PreparedPair): void {
         for (const k of [...pair.toOut, ...pair.toPartial]) {
-            if (k !== undefined) destroyComputeKernel(this.ctx.core, k);
+            if (k !== undefined) this.ctx.work.pipelines.release(k);
         }
     }
 

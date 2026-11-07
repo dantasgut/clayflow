@@ -5,7 +5,6 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
-import { createComputeKernel, type ComputeKernel } from '../../scene/flows/createComputeKernel';
 import type {
     BindingSource,
     BoundFlow,
@@ -275,7 +274,7 @@ export interface ShadowFlowOptions {
 
 /** A caixa de uma geometria: o kernel ligado aos vértices dela (o grupo vem da região do despacho). */
 interface BoundsKernel {
-    readonly kernel: ComputeKernel;
+    readonly kernel: string;
     readonly generation: string;
 }
 
@@ -310,7 +309,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     private readonly boundsGroups: PerStepUniforms;
     /** Os kernels das caixas por buffer de vértices e os grupos do quadro (grupo, kernel). */
     private readonly bounds = new Map<AnyBufferSpec, BoundsKernel>();
-    private boundsGroupsOf: { readonly group: number; readonly kernel: ComputeKernel }[] = [];
+    private boundsGroupsOf: { readonly group: number; readonly kernel: string }[] = [];
     /** Os grupos escritos (chave) e a contagem das instâncias. */
     private groupsKey = '';
     private instanceCount = 0;
@@ -437,8 +436,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             // O início do quadro (os contadores, as caixas vazias) e as caixas das geometrias, cada uma no seu grupo.
             run(0, Math.max(STATE_WORDS, physical, this.groupCount));
             for (const b of this.boundsGroupsOf) {
-                pass.bind.setPipeline(b.kernel.pipeline);
-                b.kernel.bindTo(pass.bind, { draw: [this.boundsGroups.offset(b.group)] });
+                this.work.pipelines.use(pass.bind, b.kernel, {
+                    draw: [this.boundsGroups.offset(b.group)],
+                });
                 pass.dispatch.workgroups(1);
             }
             const once = (index: number, workgroups: number): void => {
@@ -730,7 +730,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             if (b?.generation !== generation) {
                 b = {
                     generation,
-                    kernel: createComputeKernel(this.core, {
+                    kernel: this.work.pipelines.kernel({
                         discriminator: `shadow_bounds:${this.idOf(vertices)}`,
                         shader: shadowPages,
                         entryPoint: 'sp_bounds_main',

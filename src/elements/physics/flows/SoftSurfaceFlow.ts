@@ -9,11 +9,6 @@ import type {
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { Flow } from '../../../scene/flows/Flow';
 import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
@@ -57,8 +52,8 @@ interface Surface {
     readonly faces: StorageBufferSpec;
     /** Pool de partículas ligado aos kernels (recriados quando o pool cresce). */
     particles: StorageBufferSpec;
-    normals: ComputeKernel;
-    vertices: ComputeKernel;
+    normals: string;
+    vertices: string;
 }
 
 /**
@@ -153,13 +148,11 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
         this.order.forEach((surface, region) => {
             const offset = [this.params.offset(region)];
             frame.compute('SoftSurfaceFlow.face_normals', (pass) => {
-                pass.bind.setPipeline(surface.normals.pipeline);
-                surface.normals.bindTo(pass.bind, { draw: offset });
+                this.work.work.pipelines.use(pass.bind, surface.normals, { draw: offset });
                 pass.dispatch.invocations(surface.geometry.triangleCount, WORKGROUP_SIZE);
             });
             frame.compute('SoftSurfaceFlow.vertex_write', (pass) => {
-                pass.bind.setPipeline(surface.vertices.pipeline);
-                surface.vertices.bindTo(pass.bind, { draw: offset });
+                this.work.work.pipelines.use(pass.bind, surface.vertices, { draw: offset });
                 pass.dispatch.invocations(surface.geometry.vertexCount, WORKGROUP_SIZE);
             });
         });
@@ -225,7 +218,7 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
     ): Pick<Surface, 'normals' | 'vertices'> {
         const surface = this.params.source();
         return {
-            normals: createComputeKernel(this.core, {
+            normals: this.work.work.pipelines.kernel({
                 discriminator: `soft_surface_normals:${id}`,
                 shader: softFaceNormals,
                 entryPoint: 'soft_face_normals_main',
@@ -236,7 +229,7 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
                     [R.faceNormalsWrite, faces],
                 ]),
             }),
-            vertices: createComputeKernel(this.core, {
+            vertices: this.work.work.pipelines.kernel({
                 discriminator: `soft_surface_vertices:${id}`,
                 shader: softVertexWrite,
                 entryPoint: 'soft_vertex_write_main',
@@ -253,8 +246,8 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
 
     /** Recria os kernels do corpo (pool de partículas ou parâmetros recriados). */
     private rebuild(surface: Surface): void {
-        destroyComputeKernel(this.core, surface.normals);
-        destroyComputeKernel(this.core, surface.vertices);
+        this.work.work.pipelines.release(surface.normals);
+        this.work.work.pipelines.release(surface.vertices);
         Object.assign(
             surface,
             this.kernels(surface.entity, surface.geometry, surface.faces, surface.particles),
@@ -311,7 +304,7 @@ export class SoftSurfaceFlow extends Flow<SoftSurfaceSlots, 'idle'> {
     }
 
     private release(surface: Surface): void {
-        destroyComputeKernel(this.core, surface.normals);
-        destroyComputeKernel(this.core, surface.vertices);
+        this.work.work.pipelines.release(surface.normals);
+        this.work.work.pipelines.release(surface.vertices);
     }
 }

@@ -5,9 +5,15 @@
 // Para rodar: `npm run smoke -- dispatchCost`. Resultado: `DISPATCHCOST SMOKE PASSED` (só mede) ou `FAIL: …`.
 import { Application, createScene } from 'clayflow/web';
 import type { IndirectBufferSpec, StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
-import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
 import { wgslModule } from '../scene/shaders/WgslModule';
 import { wgslResource } from '../scene/shaders/WgslResource';
+import { FlowWork, StructSchema } from 'clayflow/web';
+import { ownWork } from './support/workOwner';
+
+/** O trabalho do smoke (T060g): o kernel é um pipeline do Flow dono dele. */
+class DispatchCostWork extends FlowWork {
+    static readonly schema = new StructSchema('DispatchCostWork', {});
+}
 
 function log(msg: string): void {
     console.log(`[dispatchCost] ${msg}`);
@@ -61,7 +67,9 @@ async function main(): Promise<void> {
     };
     const empty = args('empty', 0);
     const one = args('one', 1);
-    const k = createComputeKernel(core, {
+    // O kernel pela C2 (T060g): um pipeline do Flow dono do trabalho do smoke.
+    const owner = ownWork(app, new DispatchCostWork(), 'dispatchCostWork');
+    const k = owner.pipelines.kernel({
         discriminator: 'dispatch_cost',
         shader: kernel,
         entryPoint: 'dispatch_cost_main',
@@ -78,8 +86,7 @@ async function main(): Promise<void> {
         const t0 = performance.now();
         core.record('dispatch-cost', (frame) => {
             frame.compute('dispatch-cost', (pass) => {
-                pass.bind.setPipeline(k.pipeline);
-                k.bindTo(pass.bind);
+                owner.pipelines.use(pass.bind, k);
                 for (let i = 0; i < n; i++) {
                     if (mode === 'direct') pass.dispatch.workgroups(1);
                     else if (mode === 'wide') pass.dispatch.workgroups(4096);
@@ -106,7 +113,7 @@ async function main(): Promise<void> {
             `${mode}: ${counts.map((n) => `${n} → ${times.get(n)!.toFixed(3)} ms`).join(', ')}; por despacho ${(slope * 1000).toFixed(2)} µs`,
         );
     }
-    destroyComputeKernel(core, k);
+    owner.pipelines.release(k);
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);
     else log('DISPATCHCOST SMOKE PASSED');
 }

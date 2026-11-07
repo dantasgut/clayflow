@@ -16,7 +16,7 @@ import type {
     SetNodeDefinition,
     SetNodeInstance,
 } from '../../../scene/graph/SetNode';
-import { workHarness } from '../../gpu/__tests__/helpers/workHarness';
+import { specName, workHarness } from '../../gpu/__tests__/helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import { MeshVertexSchema } from '../../geometry/MeshVertexSchema';
 import { defaultNodeRegistry, nodes } from '../index';
@@ -113,7 +113,7 @@ const created = (core: EngineCore): Created[] =>
 
 /** Fonte do shader do pipeline `discriminator`. */
 const sourceOf = (core: EngineCore, discriminator: string): string => {
-    const p = created(core).find((s) => s.kind === 'pipeline' && s.discriminator === discriminator);
+    const p = created(core).find((s) => s.kind === 'pipeline' && specName(s) === discriminator);
     if (p === undefined) throw new Error(`sem pipeline ${discriminator}`);
     return p.shader!.source;
 };
@@ -439,10 +439,12 @@ describe('nós de conjunto — grafo', () => {
         const source = sourceOf(core, 'n:displace_pipeline');
         expect(source).toContain('fn displace_height_graph(');
         expect(source).not.toContain('return 0.0;');
-        const bg = created(core).find(
-            (s) => s.kind === 'bindgroup' && s.discriminator?.startsWith('n:displace'),
-        );
-        expect(JSON.stringify(bg)).toContain('"fused"');
+        // O uniform do grafo fundido num grupo de ligação (os da C2 não têm nome: os de mesmo conteúdo são um objeto só).
+        expect(
+            created(core).some(
+                (s) => s.kind === 'bindgroup' && JSON.stringify(s).includes('"fused"'),
+            ),
+        ).toBe(true);
     });
 
     it('registro: os nós de conjunto pelo nome', () => {

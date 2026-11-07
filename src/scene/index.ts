@@ -173,16 +173,8 @@ export {
     PHASE_ORDER,
     slot,
 } from './flows/index';
-export {
-    createComputeKernel,
-    destroyComputeKernel,
-    sameBindGroup,
-    bindGroupsTo,
-    bindingKeyParts,
-} from './flows/index';
+export { sameBindGroup, bindGroupsTo, bindingKeyParts } from './flows/index';
 export type {
-    ComputeKernel,
-    ComputeKernelOptions,
     FlowLifecycle,
     Listened,
     SchemaFamily,
@@ -216,6 +208,8 @@ export type {
     WorkSlot,
     WorkPart,
     WorkContext,
+    WorkKernel,
+    WorkPipelines,
     BoundEntities,
     EntityEntry,
     BoundTexture,

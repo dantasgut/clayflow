@@ -7,14 +7,12 @@
 // `pointCloud-<perfil>.png` (`--record` grava; duas execuções idênticas antes).
 //
 // Para rodar: `npm run smoke -- pointCloud [--record]`. Resultado: `POINT CLOUD SMOKE PASSED` ou `FAIL: …`.
-import { wgslResource, type WgslResource } from '../scene/shaders/WgslResource';
-import type { BindingSource } from '../scene/flows/FlowBinding';
+import { wgslResource } from '../scene/shaders/WgslResource';
+import type { BindingKey, BindingSource } from '../scene/flows/FlowBinding';
 import {
     Application,
     Camera,
-    createComputeKernel,
     createScene,
-    destroyComputeKernel,
     DirectionalLight,
     FieldType,
     Flow,
@@ -26,7 +24,7 @@ import {
     wgslModule,
 } from 'clayflow/web';
 import type {
-    ComputeKernel,
+    BoundFlow,
     EngineCore,
     EntitiesSlot,
     FlowContext,
@@ -109,7 +107,8 @@ class SpiralFlow extends Flow<SpiralSlots, 'idle'> {
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<SpiralSlots>>;
     private readonly core: EngineCore;
     private readonly params: UniformBufferSpec;
-    private readonly kernels: ComputeKernel[] = [];
+    /** Os pipelines da espiral, um por nuvem (pela C2: `c.prepare`, a fonte dos vértices ligada a cada um). */
+    private readonly kernels: string[] = [];
     private time = 0;
 
     constructor(ctx: FlowContext) {
@@ -122,21 +121,19 @@ class SpiralFlow extends Flow<SpiralSlots, 'idle'> {
             byteSize: SpiralParamsSchema.stride,
         });
         const build = (c: TransitionContext<SpiralSlots>): void => {
-            for (const k of this.kernels.splice(0)) destroyComputeKernel(this.core, k);
+            for (const id of this.kernels.splice(0)) c.release(id);
             for (const entry of c.bound.slots.clouds.entries) {
                 const vertices = ctx.resources.bufferOf(entry.get(PointCloudGeometry), 'vertices');
                 if (vertices?.subkind !== 'vertex') continue;
-                this.kernels.push(
-                    createComputeKernel(this.core, {
-                        discriminator: `smoke_spiral:${entry.entityId}`,
-                        shader: spiral,
-                        entryPoint: 'spiral_main',
-                        bindings: new Map<WgslResource, BindingSource>([
-                            [spiralParams, this.params],
-                            [spiralVertices, vertices],
-                        ]),
-                    }),
+                const id = `smoke_spiral:${entry.entityId}`;
+                c.bind(
+                    new Map<BindingKey, BindingSource>([
+                        [spiralParams, this.params],
+                        [{ pipeline: id, resource: spiralVertices }, vertices],
+                    ]),
                 );
+                c.prepare({ id, role: 'compute', shader: spiral, entryPoints: ['spiral_main'] });
+                this.kernels.push(id);
             }
         };
         this.transitions = {
@@ -171,10 +168,12 @@ class SpiralFlow extends Flow<SpiralSlots, 'idle'> {
         };
     }
 
-    dispatch(frame: Frame): void {
-        for (const kernel of this.kernels) {
+    dispatch(frame: Frame, bound: BoundFlow<SpiralSlots>): void {
+        for (const id of this.kernels) {
+            const kernel = bound.pipelines.get(id);
+            if (kernel?.role !== 'compute' || !kernel.ready) continue;
             frame.compute('SpiralFlow', (pass) => {
-                pass.bind.setPipeline(kernel.pipeline);
+                pass.bind.setPipeline(kernel.spec);
                 kernel.bindTo(pass.bind);
                 pass.dispatch.invocations(POINTS, 64);
             });
@@ -182,7 +181,6 @@ class SpiralFlow extends Flow<SpiralSlots, 'idle'> {
     }
 
     override dispose(): void {
-        for (const k of this.kernels) destroyComputeKernel(this.core, k);
         this.core.destroy(this.params);
     }
 }

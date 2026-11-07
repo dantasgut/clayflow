@@ -6,7 +6,7 @@ import { RadixSort } from '../RadixSort';
 import { Reduce, reduceLevelCounts } from '../Reduce';
 import { wgslModule } from '../../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../../scene/shaders/WgslResource';
-import { workHarness } from '../../__tests__/helpers/workHarness';
+import { specName, workHarness } from '../../__tests__/helpers/workHarness';
 import { recordingFrame } from '../../../physics/__tests__/helpers/recordingFrame';
 import { SET_COUNT_DISPATCH_OFFSET, SetCountSchema } from '../../../../scene/graph/SetCountSchema';
 import type {
@@ -55,7 +55,7 @@ function pipelines(core: EngineCore): Map<string, CreatedSpec> {
     return new Map(
         createdSpecs(core)
             .filter((s) => s.kind === 'pipeline')
-            .map((s) => [disc(s), s]),
+            .map((s) => [specName(s), s]),
     );
 }
 
@@ -74,6 +74,15 @@ const uniformWrites = (core: EngineCore, id: string, fields: number): number[][]
                 && (spec as { subkind?: string }).subkind === 'uniform',
         )
         .map(([, bytes]) => [...new Uint32Array(bytes.buffer, bytes.byteOffset, fields)]);
+
+/**
+ * O registro só nos kernels da variante da GPU: os da contagem da CPU não declaram `set_counts` (os grupos de ligação da
+ * C2 não têm nome — os de mesmo conteúdo são o mesmo objeto).
+ */
+const cpuKernelsWithoutCounts = (core: EngineCore): boolean =>
+    [...pipelines(core)]
+        .filter(([name]) => !name.includes(':gpu'))
+        .every(([, spec]) => !spec.shader!.source.includes('set_counts'));
 
 const dispatches = (rec: ReturnType<typeof recordingFrame>) =>
     rec.passes.map((p) => [p.label, p.dispatches[0]]);
@@ -223,7 +232,7 @@ describe('PrefixSum — contagem da GPU', () => {
         }
         const withCounts = bindGroupsWith(core, counts);
         expect(withCounts.length).toBeGreaterThan(0);
-        expect(withCounts.every((d) => d.includes(':gpu'))).toBe(true);
+        expect(cpuKernelsWithoutCounts(core)).toBe(true);
     });
 
     it('todos os níveis da capacidade: nível 0 indireto, os de cima pela capacidade; uniforms com profundidade e índice', () => {
@@ -337,7 +346,8 @@ describe('RadixSort — contagem da GPU', () => {
             pipelines(core).get('rs:radix_scatter:gpu_pipeline')!.shader!.source,
             'radix',
         );
-        expect(bindGroupsWith(core, counts).every((d) => d.includes(':gpu'))).toBe(true);
+        expect(bindGroupsWith(core, counts).length).toBeGreaterThan(0);
+        expect(cpuKernelsWithoutCounts(core)).toBe(true);
         expect(bindGroupsWith(core, counts).length).toBeGreaterThan(0);
     });
 
@@ -414,7 +424,8 @@ fn compact_value(i: u32) -> u32 { return i; }`,
             pipelines(core).get('cp:compact_atomic:gpu_pipeline')!.shader!.source,
             'compact',
         );
-        expect(bindGroupsWith(core, counts).every((d) => d.includes(':gpu'))).toBe(true);
+        expect(bindGroupsWith(core, counts).length).toBeGreaterThan(0);
+        expect(cpuKernelsWithoutCounts(core)).toBe(true);
     });
 
     it('modo estável: flags e espalhamento indiretos, soma de prefixos com a mesma contagem da GPU', () => {
@@ -507,7 +518,8 @@ describe('Reduce — contagem da GPU', () => {
             pipelines(core).get('rd:reduce:gpu_pipeline')!.shader!.source,
             'reduce_level',
         );
-        expect(bindGroupsWith(core, counts).every((d) => d.includes(':gpu'))).toBe(true);
+        expect(bindGroupsWith(core, counts).length).toBeGreaterThan(0);
+        expect(cpuKernelsWithoutCounts(core)).toBe(true);
     });
 
     it('sem prepare com counts → erro; registro fora do buffer → RangeError', () => {

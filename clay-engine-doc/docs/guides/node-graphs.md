@@ -200,9 +200,8 @@ da instância. Exemplo: escalar os vértices de uma malha.
 
 ```ts
 import {
-    defineSetNode, setType, wgslResource, wgslModule, sharedConstant, createComputeKernel, destroyComputeKernel,
-    setDispatchOffset, SetCountSchema, SET_GROUP, MeshVertexSchema, StructSchema, FieldType,
-    type UniformBufferSpec,
+    defineSetNode, setType, wgslResource, wgslModule, sharedConstant, SetNodeKernels,
+    SetCountSchema, SET_GROUP, MeshVertexSchema, StructSchema, FieldType,
 } from 'clayflow';
 import { MESH, MeshTriangleSchema } from '…/elements/nodes/set/schemas';   // tipo de porta `mesh` da biblioteca
 
@@ -234,9 +233,9 @@ fn scale_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups
 }`,
 });
 
-> **Em migração (spec 039, T141).** Os parâmetros e os kernels de um nó de conjunto passam a ser descritores do
-> Resource de trabalho do `GraphFlow` (o `SetGraph` declara o que cada nó pede); o `create` deixa de usar `c.core` para
-> criar, escrever e destruir. O exemplo abaixo mostra a forma atual e será refeito com a migração.
+O que a instância possui na GPU fica com `SetNodeKernels` (spec 039, T060g): o uniform dos parâmetros, os buffers
+próprios (descritores do Resource de trabalho do `GraphFlow`) e os kernels, preparados pela C2 como pipelines do
+`GraphFlow` (cada um com as suas fontes, ligadas só a ele). Nada é criado pelo core.
 
 export const scaleMesh = defineSetNode({
     name: 'my.scaleMesh',
@@ -249,28 +248,21 @@ export const scaleMesh = defineSetNode({
         const vin = c.input('mesh', 'vertices');
         const tin = c.input('mesh', 'triangles');
         const tout = c.output('mesh', 'triangles');
-        const params = c.core.create<UniformBufferSpec>({ kind: 'buffer', subkind: 'uniform',
-            discriminator: `${c.id}:params`, byteSize: Math.max(16, ScaleParams.stride) });
-        const kernel = createComputeKernel(c.core, {
-            discriminator: `${c.id}:scale`, shader: scaleShader, entryPoint: 'scale_main',
-            bindings: new Map([[R.params, params], [R.counts, c.counts], [R.vin, vin.buffer],
-                [R.vout, c.output('mesh', 'vertices').buffer]]),
-        });
+        const own = new SetNodeKernels(c, ScaleParams);   // o uniform `params` e os kernels, pela C2
+        own.kernel('scale', scaleShader, 'scale_main', [
+            [R.params, own.params], [R.counts, c.counts], [R.vin, vin.buffer],
+            [R.vout, c.output('mesh', 'vertices').buffer],
+        ]);
         return {
             update: () => {                                   // valores novos: fora da gravação
-                c.core.write(params, ScaleParams.pack({ vertices_slot: vin.slot, factor: c.values().factor ?? 1 }));
+                own.write({ vertices_slot: vin.slot, factor: c.values().factor ?? 1 });
             },
             record: (frame) => {                              // só grava
-                frame.compute('my.scaleMesh', (pass) => {
-                    pass.bind.setPipeline(kernel.pipeline);
-                    kernel.bindTo(pass.bind);
-                    pass.dispatch.workgroupsIndirect(c.counts, setDispatchOffset(vin.slot));
-                });
+                own.indirect(frame, 'my.scaleMesh', 'scale', vin.slot);
                 frame.copy(tin.buffer, tout.buffer, tout.capacity * MeshTriangleSchema.stride);
             },
             dispose: () => {
-                destroyComputeKernel(c.core, kernel);
-                c.core.destroy(params);
+                own.dispose();
             },
         };
     },

@@ -12,7 +12,6 @@
 // Para rodar: `npm run smoke -- computeKernels`. Resultado: `COMPUTEKERNELS SMOKE PASSED` ou `FAIL: …`.
 import { Application, createScene } from 'clayflow/web';
 import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
-import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
 import { wgslModule } from '../scene/shaders/WgslModule';
 import { wgslResource } from '../scene/shaders/WgslResource';
 import { PrefixSum } from '../elements/gpu/compute/PrefixSum';
@@ -25,6 +24,7 @@ import { fixedPoint } from '../elements/gpu/compute/shaders';
 import type { ReduceOpName, ReduceType } from '../elements/gpu/compute/shaders';
 import { FIXED_LIMIT, fixedFromF32 } from './support/fixedPointReference';
 import { mulberry32 } from './support/random';
+import { ownWork } from './support/workOwner';
 import { FlowWork, type WorkContext } from '../scene/flows/FlowWork';
 import { StructSchema } from '../scene/descriptors/StructSchema';
 
@@ -547,7 +547,7 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
     const input = upload(values);
     const out = storage(n * 4);
     const sum = upload(new Int32Array(4));
-    const kernel = createComputeKernel(app.core, {
+    const kernel = work.work.pipelines.kernel({
         discriminator: 'ck_fixed_sum',
         shader: module,
         entryPoint: 'fp_main',
@@ -559,8 +559,7 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
     });
     app.core.record('ck-fixed', (frame) => {
         frame.compute('ck.fixed', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            work.work.pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(n, 256);
         });
     });
@@ -586,7 +585,7 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
         `fixed_point: soma ${totals[0]! / scale} longe de ${real} além da resolução`,
     );
     log(`fixed_point: ${n} contribuições somadas iguais à CPU; saturação detectada`);
-    destroyComputeKernel(app.core, kernel);
+    work.work.pipelines.release(kernel);
     for (const b of [input, out, sum]) app.core.destroy(b);
 }
 
@@ -601,8 +600,7 @@ async function main(): Promise<void> {
         autoResize: false,
         captureErrors: true,
     });
-    const owner = new SmokeWork();
-    app.world.insert(owner);
+    const owner = ownWork(app, new SmokeWork(), 'computeKernelsWork');
     work = { core: app.core, resources: app.resources, work: owner };
     await prefixSum();
     await radixSort();

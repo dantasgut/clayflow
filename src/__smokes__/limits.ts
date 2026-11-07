@@ -9,13 +9,7 @@
 // Para rodar: `npm run smoke -- limits` (servidor do bench). Resultado: `LIMITS SMOKE PASSED` ou `FAIL: …`.
 import { wgslResource, type WgslResource } from '../scene/shaders/WgslResource';
 import type { BindingSource } from '../scene/flows/FlowBinding';
-import {
-    Application,
-    createComputeKernel,
-    createScene,
-    NeighborSearchPipeline,
-    wgslModule,
-} from 'clayflow/web';
+import { Application, createScene, NeighborSearchPipeline, wgslModule } from 'clayflow/web';
 import type {
     StagingBufferSpec,
     StorageBufferSpec,
@@ -23,6 +17,7 @@ import type {
     Application as App,
 } from 'clayflow/web';
 import { mulberry32 } from './support/random';
+import { ownWork } from './support/workOwner';
 import { FlowWork } from '../scene/flows/FlowWork';
 import { StructSchema } from '../scene/descriptors/StructSchema';
 
@@ -97,7 +92,7 @@ fn mark_main(
 });
 
 /** (a) Despacho acima de 65 535 grupos: cada elemento exatamente uma vez. */
-async function checkDispatch(app: App, failures: string[]): Promise<void> {
+async function checkDispatch(app: App, owner: LimitsWork, failures: string[]): Promise<void> {
     const count = 70_000 * 256;
     const params = app.core.create<UniformBufferSpec>({
         kind: 'buffer',
@@ -118,7 +113,7 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         byteSize: 16,
     });
     app.core.write(params, new Uint32Array([count, 0, 0, 0]));
-    const kernel = createComputeKernel(app.core, {
+    const kernel = owner.pipelines.kernel({
         discriminator: 'limits_mark',
         shader: MARK_SHADER,
         entryPoint: 'mark_main',
@@ -132,8 +127,7 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         frame.clear(marks);
         frame.clear(counter);
         frame.compute('limits.mark', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            owner.pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(count, 256);
         });
     });
@@ -157,7 +151,7 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
 }
 
 /** (b) Busca de vizinhança em grade de 262 144 células × referência na CPU. */
-async function checkNeighbors(app: App, failures: string[]): Promise<void> {
+async function checkNeighbors(app: App, owner: LimitsWork, failures: string[]): Promise<void> {
     const dim = 64;
     const h = 0.1;
     const n = 60_000;
@@ -178,8 +172,6 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
         byteSize: data.byteLength,
     });
     app.core.write(particles, data);
-    const owner = new LimitsWork();
-    app.world.insert(owner);
     const ns = new NeighborSearchPipeline(
         { core: app.core, resources: app.resources, work: owner },
         {
@@ -298,8 +290,9 @@ async function main(): Promise<void> {
         log(`engineError: ${e.message}`);
     });
     const failures: string[] = [];
-    await checkDispatch(app, failures);
-    await checkNeighbors(app, failures);
+    const owner = ownWork(app, new LimitsWork(), 'limitsWork');
+    await checkDispatch(app, owner, failures);
+    await checkNeighbors(app, owner, failures);
     if (engineErrors > 0) failures.push(`engineErrors=${engineErrors}`);
     app.dispose();
     if (failures.length > 0) {

@@ -16,7 +16,8 @@ import type { WgslResource } from '../../shaders/WgslResource';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
-import { bindingKeyParts } from '../../flows/FlowBinding';
+import { bindingKeyParts, type BindingKey } from '../../flows/FlowBinding';
+import { FlowWork } from '../../flows/FlowWork';
 import type {
     BindingSource,
     BindingSources,
@@ -102,6 +103,8 @@ export class FlowRuntime {
     private readonly entitySets = new Map<string, Map<EntityId, SetEntry>>();
     /** O Resource de trabalho de cada slot `work`, inserido no World com o Flow (spec 039). */
     private readonly works = new Map<string, Resource>();
+    /** Kernels preparados pelas partes do trabalho (o número do id de cada um). */
+    private workKernels = 0;
     private readonly poolViews = new Map<string, BoundPool>();
     private readonly entityViews = new Map<string, BoundEntities>();
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
@@ -208,6 +211,52 @@ export class FlowRuntime {
                 this.host.resources.markProduced(this.flow, resource, descId, produced);
             },
         };
+        // As partes do trabalho de cada `slot.work` preparam e ligam pelos pipelines deste Flow (T060g).
+        for (const work of this.works.values()) {
+            if (!(work instanceof FlowWork)) continue;
+            work.attachPipelines({
+                prepare: (descriptor) => {
+                    this.prepare(descriptor, false);
+                },
+                bind: (sources) => {
+                    this.bindPrivates(sources);
+                },
+                release: (id) => {
+                    this.releasePipeline(id);
+                },
+                kernel: (spec) => {
+                    const id = `${spec.discriminator}#${this.workKernels++}`;
+                    const sources = new Map<BindingKey, BindingSource>();
+                    for (const [key, source] of spec.bindings)
+                        sources.set(
+                            { pipeline: id, resource: bindingKeyParts(key).resource },
+                            source,
+                        );
+                    this.bindPrivates(sources);
+                    this.prepare(
+                        {
+                            id,
+                            role: 'compute',
+                            shader: spec.shader,
+                            entryPoints: [spec.entryPoint],
+                            ...(spec.constants === undefined ? {} : { constants: spec.constants }),
+                        },
+                        false,
+                    );
+                    return id;
+                },
+                compute: (id) => this.workCompute(id),
+                use: (binder, id, offsets) => {
+                    const kernel = this.workCompute(id);
+                    if (kernel === undefined)
+                        throw new Error(
+                            `Flow '${this.flow.type}': kernel '${id}' não está pronto.`,
+                        );
+                    binder.setPipeline(kernel.spec);
+                    kernel.bindTo(binder, offsets);
+                },
+            });
+        }
     }
 
     /** Tipo de corpo do registro (`slot.bodies()`). */
@@ -681,6 +730,7 @@ export class FlowRuntime {
         this.nextStates.get(id)?.release();
         this.nextStates.delete(id);
         this.baseDescriptors.delete(id);
+        this.pipelinePrivates.delete(id);
     }
 
     /** O descritor com as funções de cena dos pontos que o shader contém (conferido pelo compilador, com elas). */
@@ -920,6 +970,14 @@ export class FlowRuntime {
             newSpec,
         });
     };
+
+    /** O kernel de compute `id` pronto (das partes do trabalho), ou `undefined`. */
+    private workCompute(id: string): PreparedCompute | undefined {
+        const state = this.pipelineStates.get(id);
+        if (state?.role !== 'compute') return undefined;
+        const prepared = state.asPrepared();
+        return prepared.ready ? (prepared as PreparedCompute) : undefined;
+    }
 
     private preparedOf(id: string, role: 'compute' | 'render'): PreparedPipeline {
         const state = this.pipelineStates.get(id);

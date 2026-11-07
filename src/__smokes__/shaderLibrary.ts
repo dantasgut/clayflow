@@ -9,11 +9,21 @@
 //       campo está exatamente no `offsetOf` do schema (layout TS ≡ layout WGSL).
 //
 // Para rodar: `npm run smoke -- shaderLibrary`. Resultado: `SHADERLIBRARY SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene } from 'clayflow/web';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
-import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
+import { Application, createScene, FlowWork } from 'clayflow/web';
+import type { StagingBufferSpec, StorageBufferSpec, WorkPipelines } from 'clayflow/web';
+import { ownWork } from './support/workOwner';
 import { wgslModule, type WgslModule } from '../scene/shaders/WgslModule';
 import { wgslResource } from '../scene/shaders/WgslResource';
+
+/** O trabalho do smoke (T060g): os kernels dos casos são pipelines do Flow dono dele. */
+class ShaderLibraryWork extends FlowWork {
+    static readonly schema = new StructSchema('ShaderLibraryWork', {});
+}
+
+/** Os pipelines do Flow dono (entregues em `main`). */
+let pipelines: WorkPipelines;
+/** Erros do motor (a compilação de um pipeline pela C2 chega por eles). */
+const engineErrors: string[] = [];
 
 /** Entradas e saída dos kernels de teste da biblioteca (spec 031). */
 const caseInput = wgslResource({
@@ -504,7 +514,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
     outp[g.x] = eval_case(inp[2u * g.x], inp[2u * g.x + 1u]);
 }`,
     });
-    const kernel = createComputeKernel(app.core, {
+    const kernel = pipelines.kernel({
         discriminator: `shaderlib_case_${index}`,
         shader: module,
         entryPoint: 'test_main',
@@ -515,8 +525,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
     });
     app.core.record('shaderlib-case', (frame) => {
         frame.compute('shaderlib.case', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(N, 64);
         });
     });
@@ -536,7 +545,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
     }
     log(`(b) ${c.name}: erro máximo ${worst.toExponential(2)}`);
     if (!(worst <= c.tol)) failures.push(`(b) ${c.name}: erro ${worst} > ${c.tol}`);
-    destroyComputeKernel(app.core, kernel);
+    pipelines.release(kernel);
 }
 
 // ── (b′) transformações por classe contra a referência f64 (spec 037, R3) ─────────────────────────────────────────
@@ -771,7 +780,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
     for (var c = 0u; c < 4u; c++) { outp[4u * g.x + c] = o[c]; }
 }`,
     });
-    const kernel = createComputeKernel(app.core, {
+    const kernel = pipelines.kernel({
         discriminator: `shaderlib_xform_${index}`,
         shader: module,
         entryPoint: 'test_main',
@@ -782,8 +791,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
     });
     app.core.record('shaderlib-xform', (frame) => {
         frame.compute('shaderlib.xform', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(N, 64);
         });
     });
@@ -804,7 +812,7 @@ fn test_main(@builtin(global_invocation_id) g: vec3u) {
     const unit = 'ulp' in c.tol ? ' ulp' : ' (relativo)';
     log(`(b′) ${c.name}: erro máximo ${worst.toExponential(2)}${unit}`);
     if (!(worst <= limit)) failures.push(`(b′) ${c.name}: erro ${worst}${unit} > ${limit}`);
-    destroyComputeKernel(app.core, kernel);
+    pipelines.release(kernel);
 }
 
 // ── (c) layout dos schemas na GPU ─────────────────────────────────────────────────────────────────────────────────
@@ -924,7 +932,7 @@ fn probe_main() {
     ${wgsl}
 }`,
     });
-    const kernel = createComputeKernel(app.core, {
+    const kernel = pipelines.kernel({
         discriminator: `shaderlib_layout_${index}`,
         shader: module,
         entryPoint: 'probe_main',
@@ -933,8 +941,7 @@ fn probe_main() {
     app.core.record('shaderlib-layout', (frame) => {
         frame.clear(buf);
         frame.compute('shaderlib.layout', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            pipelines.use(pass.bind, kernel);
             pass.dispatch.workgroups(1);
         });
     });
@@ -951,7 +958,7 @@ fn probe_main() {
             `(c) ${schema.name}: ${wrong.length} sondas fora do lugar (ex.: offset ${wrong[0]!.offset})`,
         );
     }
-    destroyComputeKernel(app.core, kernel);
+    pipelines.release(kernel);
 }
 
 async function main(): Promise<void> {
@@ -965,24 +972,31 @@ async function main(): Promise<void> {
         autoResize: false,
         captureErrors: true,
     });
+    app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+    pipelines = ownWork(app, new ShaderLibraryWork(), 'shaderLibraryWork').pipelines;
 
     // (a) compilação de cada módulo da biblioteca, sozinho.
     for (const [key, module] of Object.entries(wgslLib)) {
         try {
-            await app.core.withErrorScope('validation', () => {
-                const probe = wgslModule({
-                    name: `shaderlib_compile_${key}`,
-                    requires: [module],
-                    source: '@compute @workgroup_size(1) fn compile_main() {}',
-                });
-                const k = createComputeKernel(app.core, {
-                    discriminator: `shaderlib_compile_${key}`,
-                    shader: probe,
-                    entryPoint: 'compile_main',
-                    bindings: new Map(),
-                });
-                destroyComputeKernel(app.core, k);
+            const probe = wgslModule({
+                name: `shaderlib_compile_${key}`,
+                requires: [module],
+                source: '@compute @workgroup_size(1) fn compile_main() {}',
             });
+            const errors = engineErrors.length;
+            const k = pipelines.kernel({
+                discriminator: `shaderlib_compile_${key}`,
+                shader: probe,
+                entryPoint: 'compile_main',
+                bindings: new Map(),
+            });
+            await app.core.withErrorScope('validation', () => undefined);
+            const ready = pipelines.compute(k) !== undefined;
+            pipelines.release(k);
+            if (!ready || engineErrors.length > errors)
+                throw new Error(
+                    engineErrors.slice(errors).join('; ') || 'o pipeline não ficou pronto',
+                );
         } catch (e) {
             failures.push(`(a) ${key}: ${e instanceof Error ? e.message : String(e)}`);
         }

@@ -27,13 +27,14 @@ import {
     Application,
     BoxGeometry,
     Camera,
-    createComputeKernel,
     createScene,
     compileSetGraph,
     defaultNodeRegistry,
-    destroyComputeKernel,
     defineNode,
     DirectionalLight,
+    FieldType,
+    FlowWork,
+    ForceField,
     fromJSON,
     GraphGeometry,
     graphArgument,
@@ -43,6 +44,7 @@ import {
     ParametricSurface,
     SetGraph,
     StandardMaterial,
+    StructSchema,
     Subgraph,
     SurfaceFunction,
     toJSON,
@@ -54,6 +56,8 @@ import {
 } from 'clayflow/web';
 import type {
     EntityId,
+    FieldRecordValues,
+    GPUDescriptor,
     GraphJSON,
     NodeDefinition,
     StorageBufferSpec,
@@ -66,6 +70,35 @@ type ResourceSpec = Parameters<Application['core']['create']>[0];
 import { capture, nextGpuFrame, readBuffer, settle } from './support/extensionScenes';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 import { caseSamples, nodeCases, type NodeCase } from './support/nodeLibraryCases';
+import { ownWork } from './support/workOwner';
+
+/** O trabalho dos casos de nó (T060g): o kernel de cada caso é um pipeline do Flow dono dele. */
+class NodeCaseWork extends FlowWork {
+    static readonly schema = new StructSchema('NodeCaseWork', {});
+}
+
+/**
+ * Um campo de força com o registro do caso (o ponto de extensão `ForceField`): o recurso de cena que o nó lê
+ * (`field_builtin_records`, o pool dos campos) vem da cena, pela C2, como num solver.
+ */
+class CaseField extends ForceField {
+    static readonly schema = new StructSchema('CaseField', { _pad: FieldType.f32 });
+
+    constructor(private readonly record: FieldRecordValues) {
+        super();
+        this.data = this.withRecord({});
+    }
+
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [ForceField.recordDescriptor];
+    }
+
+    protected fieldRecord(): FieldRecordValues {
+        return this.record;
+    }
+}
+
+let caseWork: NodeCaseWork | undefined;
 
 function log(msg: string): void {
     console.log(`[nodeGraphs] ${msg}`);
@@ -1087,16 +1120,6 @@ function structOf(module: WgslModule, name: string): [string, string][] | undefi
     return walk(module);
 }
 
-/** O recurso declarado `name` na árvore de `module`. */
-function resourceIn(module: WgslModule, name: string): WgslResource | undefined {
-    if ('resource' in module && module.name === name) return module as WgslResource;
-    for (const r of module.requires) {
-        const found = resourceIn(r, name);
-        if (found !== undefined) return found;
-    }
-    return undefined;
-}
-
 /** Leitura de um valor de tipo `type` a partir do `vec4f` `k` da amostra. */
 function readExpr(type: string, k: string): string {
     switch (type) {
@@ -1234,35 +1257,42 @@ ${writes.map((w, k) => `    node_case_out[o + ${k}u] = ${w};`).join('\n')}
         [nodeCaseIn, inBuf],
         [nodeCaseOut, outBuf],
     ]);
+    // O recurso de cena pelo caminho de autoria: um campo de força por registro (o pool que a C2 liga).
+    const fields: EntityId[] = [];
     if (c.scene !== undefined) {
-        const resource = resourceIn(def.code, c.scene.resource);
-        const type = resource?.resource.type;
-        if (resource === undefined || type === undefined || !('schema' in type))
-            throw new Error(`(f) ${c.node}: recurso '${c.scene.resource}' sem schema`);
-        const bytes = new Uint8Array(type.schema.stride * c.scene.records.length);
-        c.scene.records.forEach((rec, k) => {
-            bytes.set(type.schema.pack({ ...rec }), k * type.schema.stride);
-        });
-        const sceneBuf = storage('scene', bytes.byteLength);
-        app.core.write(sceneBuf, bytes);
-        bindings.set(resource, sceneBuf);
+        if (c.scene.resource !== 'field_builtin_records')
+            throw new Error(
+                `(f) ${c.node}: recurso de cena '${c.scene.resource}' sem autoria no smoke`,
+            );
+        for (const rec of c.scene.records) {
+            fields.push(app.world.insert(new CaseField(rec as unknown as FieldRecordValues)));
+        }
+        app.step(0);
+        await settle(app);
     }
-    const kernel = createComputeKernel(app.core, {
+    caseWork ??= ownWork(app, new NodeCaseWork(), 'nodeCaseWork');
+    const pipelines = caseWork.pipelines;
+    const kernel = pipelines.kernel({
         discriminator: `node_case_${index}`,
         shader: module,
         entryPoint: 'node_case_main',
         bindings,
     });
+    // O pipeline com os recursos de cena fica pronto na reconciliação do quadro.
+    for (let i = 0; i < 20 && pipelines.compute(kernel) === undefined; i++) {
+        app.step(0);
+        await settle(app);
+    }
     app.core.record('node-case', (frame) => {
         frame.compute('node.case', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(n, 64);
         });
     });
     app.core.submit();
     const out = await readBuffer(app, outBuf, `node_case_${index}`);
-    destroyComputeKernel(app.core, kernel);
+    pipelines.release(kernel);
+    for (const id of fields) app.world.remove(id);
     let worst = 0;
     samples.forEach((x, i) => {
         const ref = c.reference(x);
