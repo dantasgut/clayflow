@@ -13,6 +13,24 @@ export const FIELD_BRICK_STRIDE = FIELD_BRICK + 2 * FIELD_APRON;
 export const FIELD_BRICK_VOXELS = FIELD_BRICK ** 3;
 /** Voxels de um bloco com a borda. */
 export const FIELD_BRICK_APRON_VOXELS = FIELD_BRICK_STRIDE ** 3;
+/**
+ * Formato do atlas dos voxels (T060f): gravável como textura de storage e filtrável sem nenhum recurso opcional do
+ * adaptador (o `r16float` grava só com `texture-formats-tier1`, o `r32float` filtra só com `float32-filterable`). φ fica no
+ * canal x; os outros três ficam zerados.
+ */
+export const FIELD_ATLAS_FORMAT: GPUTextureFormat = 'rgba16float';
+
+/**
+ * Páginas por eixo do atlas para `bricks` blocos (potência de dois): o expoente dividido entre os três eixos, x primeiro
+ * — 64 → 4 × 4 × 4, 128 → 8 × 4 × 4.
+ */
+export function fieldAtlasPages(bricks: number): [number, number, number] {
+    const e = Math.max(0, Math.ceil(Math.log2(bricks)));
+    const z = Math.floor(e / 3);
+    const y = Math.floor((e - z) / 2);
+    return [2 ** (e - y - z), 2 ** y, 2 ** z];
+}
+
 /** Partículas por bloco na capacidade de blocos (a capacidade é as partículas divididas por isto). */
 export const FIELD_PARTICLES_PER_BRICK = 8;
 /**
@@ -52,7 +70,8 @@ export const FIELD_FILM_SURFACES = sharedConstant(
  * Parâmetros do campo dos fluidos (uniform, spec 033, R11): `sizes` = (partículas, capacidade de blocos, máscara da
  * tabela, iterações da eikonal); `grid` = (espaçamento, voxel, raio do núcleo, faixa útil); `tuning` = (suavização, razão máxima, raio dos
  * núcleos esparsos em fração, nível da superfície); `limits` = (vizinhos do núcleo anisotrópico, sondagens da tabela,
- * 0, 0); `contact` = (raio lateral e normal da gota pousada num sólido em frações do raio esparso, 0, 0; x = 0 sem
+ * a primeira palavra dos blocos, os expoentes das páginas do atlas em x e y — 8 bits cada, T060f); `atlas` = (o inverso
+ * dos texels do atlas por eixo, 0); `contact` = (raio lateral e normal da gota pousada num sólido em frações do raio esparso, 0, 0; x = 0 sem
  * calota).
  */
 export const FluidFieldSchema = new StructSchema(
@@ -62,6 +81,7 @@ export const FluidFieldSchema = new StructSchema(
         grid: FieldType.vec4f,
         tuning: FieldType.vec4f,
         limits: FieldType.vec4u,
+        atlas: FieldType.vec4f,
         /** x: 1 quando a simulação avançou no quadro (o nível da superfície se ajusta só então). */
         motion: FieldType.vec4u,
         /** x: o tempo simulado do quadro (s) — a amostra do material de cada corpo (spec 039). */

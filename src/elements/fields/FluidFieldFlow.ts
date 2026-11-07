@@ -47,7 +47,13 @@ import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
 import { Light } from '../scene/Light';
-import { FluidField, fieldDataLayout, fieldFilmOffset, fieldMediaOffset } from './FluidField';
+import {
+    FluidField,
+    fieldAtlasSize,
+    fieldDataLayout,
+    fieldFilmOffset,
+    fieldMediaOffset,
+} from './FluidField';
 import { GravityField } from '../physics/forcefields/GravityField';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
@@ -64,6 +70,7 @@ import {
     FIELD_LIGHT_RES,
     FIELD_MAX_BODIES,
     FIELD_PARTICLES_PER_BRICK,
+    fieldAtlasPages,
     FieldGatherSchema,
     fieldContactShape,
 } from './schemas';
@@ -625,12 +632,19 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         this.args.prepare(counts);
         this.writeDraws();
         const layout = fieldDataLayout(field.capacity);
+        const pages = fieldAtlasPages(capacity);
         const params: [Record<string, number[] | number[][]>] = [
             {
                 sizes: [this.particles, capacity, field.capacity.table - 1, FIELD.iterations],
                 grid: [spacing, FIELD.voxel * spacing, radius, FIELD.band * FIELD.voxel * spacing],
                 tuning: [FIELD.smoothing, FIELD.ratio, FIELD.sparse, FIELD.iso],
-                limits: [FIELD.neighbors, 32, layout.bricks, layout.voxels],
+                limits: [
+                    FIELD.neighbors,
+                    32,
+                    layout.bricks,
+                    Math.log2(pages[0]) | (Math.log2(pages[1]) << 8),
+                ],
+                atlas: [...fieldAtlasSize(capacity).map((n) => 1 / n), 0],
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],
@@ -811,11 +825,25 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     ): void {
         const mesh = this.buffer(field, 'mesh');
         const meshArgs = this.counts(field, 'meshArgs');
-        if (mesh === undefined || meshArgs === undefined) return;
+        // O atlas dos voxels (T060f), o amostrador e a série por páginas dele (os carimbos e o relógio).
+        const atlas = this.resources.textureViewOf(field, 'atlas');
+        const sampler = this.resources.samplerOf(field, 'sampler');
+        const paged = this.resources.channelOf(field, 'atlas')?.paged;
+        const stamps = paged?.stamps as StorageBufferSpec | undefined;
+        const clock = paged?.clock;
+        if (
+            mesh === undefined
+            || meshArgs === undefined
+            || atlas === undefined
+            || sampler === undefined
+            || stamps === undefined
+            || clock === undefined
+        )
+            return;
         const pools = this.order.map(
             (b) => `${b.poolKey}:${this.identity(this.resources.poolBufferSpec(b.poolKey))}`,
         );
-        const key = [work.items, data, counts, mesh, meshArgs]
+        const key = [work.items, data, counts, mesh, meshArgs, atlas, stamps, clock]
             .map((b) => String(this.identity(b)))
             .concat([
                 String(this.draws.generation),
@@ -966,11 +994,14 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 [R.counts, counts],
                 [R.links, work.links],
                 [R.src, FIELD.iterations % 2 === 0 ? work.density : work.phi0],
-                [R.dataVoxels, data],
+                [R.atlasOut, atlas],
+                [R.atlasStamps, stamps],
+                [R.atlasClock, clock as BindingSource],
                 [R.volumeWrite, this.volume],
             ]),
             mesh: make('mesh', fieldMesh, 'field_mesh_main', [
                 [R.data, data],
+                [R.atlas, atlas],
                 [R.counts, counts],
                 [R.meshOut, mesh],
                 [R.meshArgs, meshArgs],

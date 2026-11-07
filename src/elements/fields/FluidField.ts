@@ -28,8 +28,10 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
 import {
-    FIELD_BRICK_APRON_VOXELS,
+    FIELD_ATLAS_FORMAT,
+    FIELD_BRICK_STRIDE,
     FIELD_FILM_CELLS,
+    fieldAtlasPages,
     FIELD_FILM_WORDS,
     FieldWordSchema,
     FluidFieldSchema,
@@ -59,21 +61,29 @@ export interface FluidFieldData extends FluidFieldCapacity {
 /** Palavras do cabeçalho do buffer das consultas (os limites). */
 export const FIELD_HEADER_WORDS = 8;
 
-/** Deslocamentos (em palavras) da tabela, dos blocos e dos voxels no buffer das consultas. */
+/**
+ * Deslocamentos (em palavras) da tabela, dos blocos e do fim deles no buffer das consultas (os voxels ficam no atlas,
+ * T060f).
+ */
 export function fieldDataLayout(c: FluidFieldCapacity): {
     table: number;
     bricks: number;
-    voxels: number;
+    end: number;
 } {
     const table = FIELD_HEADER_WORDS;
     // Depois da tabela dos blocos, a dos superblocos (¼ dela, uma palavra por balde).
     const bricks = table + 2 * c.table + c.table / 4;
-    return { table, bricks, voxels: bricks + 4 * c.bricks };
+    return { table, bricks, end: bricks + 4 * c.bricks };
 }
 
-/** Primeira palavra da película de água nos sólidos (spec 034), depois dos voxels com a borda. */
+/** Primeira palavra da película de água nos sólidos (spec 034), depois dos blocos. */
 export function fieldFilmOffset(c: FluidFieldCapacity): number {
-    return fieldDataLayout(c).voxels + c.bricks * FIELD_BRICK_APRON_VOXELS;
+    return fieldDataLayout(c).end;
+}
+
+/** Texels por eixo do atlas dos voxels para `bricks` blocos (as páginas de 12³, `fieldAtlasPages`). */
+export function fieldAtlasSize(bricks: number): [number, number, number] {
+    return fieldAtlasPages(bricks).map((n) => n * FIELD_BRICK_STRIDE) as [number, number, number];
 }
 
 /**
@@ -101,8 +111,9 @@ function grow(current: number, needed: number): number {
  * com a função `material` — a aparência pelo grafo, spec 034 T065d) como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem
  * mudança de autoria: o material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
  * partículas, por núcleos anisotrópicos e redistanciamento — superfícies planas ficam planas, gotas separadas não se
- * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos, os blocos e os voxels
- * com a borda) fica num buffer só (`data`, uma ligação de storage: cabe ao lado dos da luz rebatida), mais a contagem:
+ * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos e os blocos) fica num
+ * buffer só (`data`, uma ligação de storage: cabe ao lado dos da luz rebatida); os voxels com a borda ficam no atlas
+ * (`atlas`, textura 3D por páginas de 12³, uma por bloco, lida pela filtragem do hardware — T060f), mais a contagem:
  * a câmera, a luz, os raios das sondas e a luz rebatida enxergam a mesma superfície. Um por cena, inserido pelos estágios padrão; as capacidades crescem com as partículas (`reserve`).
  */
 export class FluidField extends Entity<FluidFieldData> implements Resource {
@@ -132,6 +143,35 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 upload: 'never',
             },
             { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
+            // Os voxels com a borda (T060f): a página do bloco i no atlas. Uma série por páginas: as páginas que a
+            // construção grava levam o carimbo da época (a película e o campo parado seguem entre quadros por ela).
+            {
+                id: 'atlas',
+                role: 'storage-texture',
+                textureShape: {
+                    format: FIELD_ATLAS_FORMAT,
+                    dimension: '3d',
+                    width: fieldAtlasSize(this.rawData.bricks)[0],
+                    height: fieldAtlasSize(this.rawData.bricks)[1],
+                    depthOrArrayLayers: fieldAtlasSize(this.rawData.bricks)[2],
+                    access: 'write-only',
+                },
+                history: {
+                    depth: 1,
+                    pages: { tile: [FIELD_BRICK_STRIDE, FIELD_BRICK_STRIDE, FIELD_BRICK_STRIDE] },
+                },
+            },
+            {
+                id: 'sampler',
+                role: 'sampler',
+                samplerShape: {
+                    magFilter: 'linear',
+                    minFilter: 'linear',
+                    addressModeU: 'clamp-to-edge',
+                    addressModeV: 'clamp-to-edge',
+                    addressModeW: 'clamp-to-edge',
+                },
+            },
             {
                 id: 'mesh',
                 role: 'storage-rw',

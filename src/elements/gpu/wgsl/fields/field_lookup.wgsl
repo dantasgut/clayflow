@@ -1,5 +1,5 @@
 // Leitura do campo dos fluidos (spec 033, R11) no buffer das consultas (`field_data`): a busca de um bloco na tabela
-// (sondagem linear até achar a chave ou um balde vazio), o bloco, um voxel e os limites.
+// (sondagem linear até achar a chave ou um balde vazio), o bloco e os limites (os voxels ficam no atlas, T060f).
 // Requer: NONE, fluid_field, field_common, field_data (leitura).
 
 /** Índice do bloco de coordenadas `b`, ou `NONE`. */
@@ -36,11 +36,6 @@ fn field_brick_at(brick: u32) -> vec4i {
     let w = field_brick_word(brick);
     return vec4i(bitcast<i32>(field_data[w]), bitcast<i32>(field_data[w + 1u]), bitcast<i32>(field_data[w + 2u]),
         bitcast<i32>(field_data[w + 3u]));
-}
-
-/** φ do voxel de índice `i` (de `field_apron_at`). */
-fn field_voxel_value(i: u32) -> f32 {
-    return bitcast<f32>(field_data[field_voxel_word(i)]);
 }
 
 /** Nível da superfície do quadro (o do uniform antes do primeiro ajuste). */

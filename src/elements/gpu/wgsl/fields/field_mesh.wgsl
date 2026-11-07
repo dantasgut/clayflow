@@ -4,7 +4,8 @@
 // gradiente de φ nos cantos (diferenças centrais), interpolada na aresta. Os triângulos vão para `field_mesh` (3 vértices
 // cada, sem índice: a posição e a normal octaédrica em 16 bytes) por uma contagem atômica; o que passa da capacidade
 // conta mas não é gravado (a contagem diz o estouro). `field_mesh_args_main` escreve os argumentos do desenho indireto.
-// Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_counts, field_lookup, field_mesh, field_mesh_args.
+// Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_counts, field_lookup, field_atlas_read, field_mesh,
+// field_mesh_args.
 
 /** Palavras por vértice da malha (a posição e a normal octaédrica). */
 const FIELD_MESH_VERTEX_WORDS: u32 = 4u;
@@ -38,7 +39,7 @@ fn field_mesh_unpack_normal(w: u32) -> vec3f {
 
 /** φ do voxel `v` (de −2 a 9) do bloco `brick`. */
 fn field_mesh_phi(brick: u32, v: vec3i) -> f32 {
-    return field_voxel_value(field_apron_at(brick, v));
+    return field_atlas_at(brick, v);
 }
 
 /** O gradiente de φ no voxel `v` (de −1 a 8) do bloco `brick`, por diferenças centrais. */
