@@ -193,7 +193,9 @@ frequência: `frame` < `stage` < `batch` < `draw`) e a ligação (pela ordem do 
 `LayoutInferencer` lê essas declarações e deriva a visibilidade. Para cada binding que as entradas do pipeline usam, a
 C2 resolve a fonte pelo **fornecedor declarado**:
 
-1. `PipelineDescriptor.pools` — troca, só naquele pipeline, o pool que fornece um recurso;
+1. `PipelineDescriptor.pools` — troca, só naquele pipeline, o pool que fornece um recurso (num acessor de arena, a C2
+   põe o pool na arena e o shader do pipeline passa a ler a região dele — ver
+   [Shaders — Arenas de pools](./shaders.md#arenas-de-pools-spec-034-t060i));
 2. `'private'` — a fonte que o Flow deu ao recurso: `{ pipeline, resource }` (só naquele pipeline — ex.: a mesma
    origem de pós com uma textura por efeito) vence o próprio recurso (todos os pipelines do Flow); sem fonte,
    `FlowBindingError` nomeando o recurso, o grupo, o pipeline e o Flow;
@@ -203,7 +205,8 @@ C2 resolve a fonte pelo **fornecedor declarado**:
 5. `{ pool: chave }` / `{ consumer: nome }` — o `ConsumerResolver` registrado com esse nome.
 
 Fonte ainda inexistente na cena faz o pipeline esperar. Cada pool criado registra o seu `PoolResolver`
-automaticamente; fornecedores da C3/C4 (`Time`, `GravityField`, `ParticlePhysics`, `ShadowCaster.*`) já têm
+automaticamente (num pool que mora numa arena, ele dá a faixa da região; as arenas têm os resolvers `PoolArena` e
+`PoolArenaGpu`); fornecedores da C3/C4 (`Time`, `GravityField`, `ParticlePhysics`, `ShadowCaster.*`) já têm
 resolver, e `Application.create({ consumers })` registra os seus (`SingletonResolver`,
 `PoolResolver`, `TextureResolver` ou uma implementação própria de `ConsumerResolver`). Uma fonte privada para um
 recurso que tem fornecedor é erro. No `dispatch`, grave os grupos sem índices: `prepared.bindTo(pass.bind, {
@@ -259,6 +262,14 @@ const previous = wgslResource({
 A C2 cria um bind group por **fase** do anel (cada combinação das cabeças dos canais do grupo, até 64), todos fora da
 gravação, e escolhe o do quadro em `bindTo` / `groupsOf`. Alvos de render usam `view(0)`. O `dispatch` que gravou a
 fatia de agora chama `written()` — não o `framePrepare`: um quadro pulado pela prontidão não gira o anel.
+
+**Série por páginas.** Para um cache que muda pouco a cada quadro, `history: { depth: 1, pages }`: o alvo é um só e a
+continuidade é guardada por página — a C2 mantém o carimbo de cada página (a época em que foi escrita, que o produtor
+atualiza na GPU) e o relógio da série (a época, que sobe a cada invalidação); página com carimbo de outra época não
+vale. Num buffer de storage, `pages: { record, offset }`: os bytes de cada página e, opcional, os bytes antes da
+primeira (o começo do buffer fica fora das páginas). Usam: o atlas da sombra virtual (`ShadowMap.atlas`, a tabela de
+páginas no começo e as páginas físicas depois) e o atlas do campo dos fluidos (`FluidField.data`, as consultas no
+começo e os voxels de cada bloco numa página no fim). Nenhum dos dois usa textura.
 
 **Quem já usa.** O antisserrilhado (`TemporalAntialiasing.history|state|light`), a luz global de tela
 (`GlobalIllumination.screenHistory`, um buffer), a névoa (`Froxels.history`, 3D, lida filtrada), o filtro temporal

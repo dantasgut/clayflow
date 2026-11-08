@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / CompactionModules
+[clayflow](../../modules.md) / [elements](../README.md) / CompactionModules
 
 # Interface: CompactionModules
 
-Defined in: [elements/gpu/compute/shaders.ts:88](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/shaders.ts#L88)
+Defined in: [src/elements/gpu/compute/shaders.ts:331](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/shaders.ts#L331)
 
 Kernels de compactação montados sobre um predicado do consumidor.
 
@@ -14,9 +14,9 @@ Kernels de compactação montados sobre um predicado do consumidor.
 
 ### atomic
 
-> `readonly` **atomic**: `WgslModule`
+> `readonly` **atomic**: [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [elements/gpu/compute/shaders.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/shaders.ts#L90)
+Defined in: [src/elements/gpu/compute/shaders.ts:333](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/shaders.ts#L333)
 
 Passe único por `atomic_alloc` (ordem não garantida).
 
@@ -24,9 +24,9 @@ Passe único por `atomic_alloc` (ordem não garantida).
 
 ### flags
 
-> `readonly` **flags**: `WgslModule`
+> `readonly` **flags**: [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [elements/gpu/compute/shaders.ts:92](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/shaders.ts#L92)
+Defined in: [src/elements/gpu/compute/shaders.ts:335](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/shaders.ts#L335)
 
 Modo estável: flags do predicado.
 
@@ -34,8 +34,8 @@ Modo estável: flags do predicado.
 
 ### scatter
 
-> `readonly` **scatter**: `WgslModule`
+> `readonly` **scatter**: [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [elements/gpu/compute/shaders.ts:94](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/shaders.ts#L94)
+Defined in: [src/elements/gpu/compute/shaders.ts:337](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/shaders.ts#L337)
 
 Modo estável: espalhamento pelas posições escaneadas.

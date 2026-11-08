@@ -1,13 +1,13 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SoftBodyRawOptions
+[clayflow](../../modules.md) / [elements](../README.md) / SoftBodyRawOptions
 
 # Type Alias: SoftBodyRawOptions
 
 > **SoftBodyRawOptions** = [`ParticleBodyRawOptions`](../interfaces/ParticleBodyRawOptions.md)
 
-Defined in: [elements/physics/bodies/SoftBody.ts:74](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/SoftBody.ts#L74)
+Defined in: [src/elements/physics/bodies/SoftBody.ts:90](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/SoftBody.ts#L90)
 
 Opções cruas do SoftBody: schema, contagem e dado por campo.

@@ -73,7 +73,7 @@ const QUICK_LINKS: QuickLink[] = [
         icon: '🚀',
         label: 'Application',
         sub: 'Ponto de entrada da Camada 4',
-        to: '/docs/api/presentation/classes/Application',
+        to: '/docs/api/platform/web/classes/Application',
     },
     {
         icon: '🧱',
@@ -85,7 +85,7 @@ const QUICK_LINKS: QuickLink[] = [
         icon: '🔌',
         label: 'Interfaces',
         sub: 'Contratos públicos',
-        to: '/docs/api/presentation/interfaces/ApplicationOptions',
+        to: '/docs/api/platform/web/interfaces/ApplicationOptions',
     },
     {
         icon: '📦',

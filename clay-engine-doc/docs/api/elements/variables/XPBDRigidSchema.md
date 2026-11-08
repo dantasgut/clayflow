@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / XPBDRigidSchema
+[clayflow](../../modules.md) / [elements](../README.md) / XPBDRigidSchema
 
 # Variable: XPBDRigidSchema
 
-> `const` **XPBDRigidSchema**: `StructSchema`
+> `const` **XPBDRigidSchema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/bodies/schemas/XPBDRigidSchema.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/schemas/XPBDRigidSchema.ts#L10)
+Defined in: [src/elements/physics/bodies/schemas/XPBDRigidSchema.ts:10](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/schemas/XPBDRigidSchema.ts#L10)
 
 Schema do RigidBody integrado pelo XPBDFlow rigid (10 vec4f = 160B).
 Layout idêntico ao LCPSchema (mesmo struct WGSL `RigidBody`); schema

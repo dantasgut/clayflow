@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / DistanceConstraint
+[clayflow](../../modules.md) / [elements](../README.md) / DistanceConstraint
 
 # Class: DistanceConstraint
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:45](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L45)
+Defined in: [src/elements/physics/constraints/DistanceConstraint.ts:57](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/constraints/DistanceConstraint.ts#L57)
 
-Restrição de distância entre duas partículas (XPBD), no struct WGSL `DistanceConstraint` (16 bytes): `i`/`j` são os
+Restrição de distância entre duas partículas (XPBD), no struct WGSL `DistanceConstraint` (20 bytes): `i`/`j` são os
 slots das partículas no pool, resolvidos pela C2 a partir de `{ body, index }` (spec 008: o slot de um corpo é da
 C2) — os dois corpos precisam estar no mesmo pool e na cena antes da restrição. Restrições internas de um corpo vão
 em `SoftBody({ edges })`.
@@ -23,7 +23,7 @@ em `SoftBody({ edges })`.
 
 > **new DistanceConstraint**(`values`): `DistanceConstraint`
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:54](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L54)
+Defined in: [src/elements/physics/constraints/DistanceConstraint.ts:67](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/constraints/DistanceConstraint.ts#L67)
 
 #### Parameters
 
@@ -43,9 +43,9 @@ Defined in: [elements/physics/constraints/DistanceConstraint.ts:54](https://gith
 
 ### state
 
-> **state**: `ResourceState` = `ResourceState.Uninitialized`
+> **state**: [`ResourceState`](../../platform/web/enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/constraints/Constraint.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/Constraint.ts#L12)
+Defined in: [src/elements/physics/constraints/Constraint.ts:12](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/constraints/Constraint.ts#L12)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -57,11 +57,11 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 ### schema
 
-> `readonly` `static` **schema**: `StructSchema`
+> `readonly` `static` **schema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:47](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L47)
+Defined in: [src/elements/physics/constraints/DistanceConstraint.ts:59](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/constraints/DistanceConstraint.ts#L59)
 
-StructSchema do DistanceConstraint (16 bytes: i/j/rest_length/compliance).
+StructSchema do DistanceConstraint (20 bytes: i/j/rest_length/compliance/color).
 
 ## Accessors
 
@@ -71,7 +71,7 @@ StructSchema do DistanceConstraint (16 bytes: i/j/rest_length/compliance).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
+Defined in: [src/scene/contracts/Entity.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L160)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -92,7 +92,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
+Defined in: [src/scene/contracts/Entity.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L97)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -105,7 +105,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
+Defined in: [src/scene/contracts/Entity.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L103)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -119,6 +119,12 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 `void`
 
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+schema.
+
 #### Inherited from
 
 [`Constraint`](Constraint.md).[`data`](Constraint.md#data)
@@ -131,7 +137,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
+Defined in: [src/scene/contracts/Entity.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L117)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -150,7 +156,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
+Defined in: [src/scene/contracts/Entity.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L140)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -175,7 +181,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
+Defined in: [src/scene/contracts/Entity.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L149)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -198,9 +204,9 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 ### getDescriptors()
 
-> **getDescriptors**(): readonly `GPUDescriptor`[]
+> **getDescriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
-Defined in: [elements/physics/constraints/DistanceConstraint.ts:70](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/DistanceConstraint.ts#L70)
+Defined in: [src/elements/physics/constraints/DistanceConstraint.ts:85](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/constraints/DistanceConstraint.ts#L85)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -209,7 +215,7 @@ que este resource expõe ao `ResourceSystem`. Cada descriptor define
 
 #### Returns
 
-readonly `GPUDescriptor`[]
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
 #### Overrides
 
@@ -219,18 +225,49 @@ readonly `GPUDescriptor`[]
 
 ### getPipelineDescriptors()
 
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+> **getPipelineDescriptors**(): readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [elements/physics/constraints/Constraint.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/constraints/Constraint.ts#L16)
+Defined in: [src/elements/physics/constraints/Constraint.ts:16](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/constraints/Constraint.ts#L16)
 
-Pipelines GPU declaradas pelo resource (shader source + entry points
-+ consumes). Útil para Materials que carregam shaders próprios.
+Pipelines GPU declaradas pelo resource (shader e entry points; recursos
+pelos módulos declarados). Útil para Materials que carregam shaders próprios.
 Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 
-readonly `PipelineDescriptor`[]
+readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
 #### Inherited from
 
 [`Constraint`](Constraint.md).[`getPipelineDescriptors`](Constraint.md#getpipelinedescriptors)
+
+***
+
+### redescribe()
+
+> `protected` **redescribe**(`previous`, `next`): `void`
+
+Defined in: [src/scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L127)
+
+Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+
+#### Parameters
+
+##### previous
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+##### next
+
+[`DistanceConstraintData`](../interfaces/DistanceConstraintData.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Constraint`](Constraint.md).[`redescribe`](Constraint.md#redescribe)

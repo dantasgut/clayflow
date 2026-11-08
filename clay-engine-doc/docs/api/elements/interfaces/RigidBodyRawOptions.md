@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / RigidBodyRawOptions
+[clayflow](../../modules.md) / [elements](../README.md) / RigidBodyRawOptions
 
 # Interface: RigidBodyRawOptions
 
-Defined in: [elements/physics/bodies/RigidBody.ts:59](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/RigidBody.ts#L59)
+Defined in: [src/elements/physics/bodies/RigidBody.ts:60](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/RigidBody.ts#L60)
 
 Opções cruas (avançado) — fornece `schema` + `data` diretamente, como antes.
 Mantida para retrocompatibilidade e tuning de baixo nível.
@@ -17,7 +17,7 @@ Mantida para retrocompatibilidade e tuning de baixo nível.
 
 > `readonly` `optional` **data?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [elements/physics/bodies/RigidBody.ts:63](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/RigidBody.ts#L63)
+Defined in: [src/elements/physics/bodies/RigidBody.ts:64](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/RigidBody.ts#L64)
 
 Dado cru do struct (campos do schema); ausentes recebem default.
 
@@ -25,8 +25,8 @@ Dado cru do struct (campos do schema); ausentes recebem default.
 
 ### schema
 
-> `readonly` **schema**: `StructSchema`
+> `readonly` **schema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/bodies/RigidBody.ts:61](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/RigidBody.ts#L61)
+Defined in: [src/elements/physics/bodies/RigidBody.ts:62](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/RigidBody.ts#L62)
 
 Schema do struct do corpo (layout de GPU) — define o algoritmo pelo nome do pool.

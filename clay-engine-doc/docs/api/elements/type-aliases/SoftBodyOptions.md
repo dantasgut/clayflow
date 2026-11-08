@@ -1,13 +1,13 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SoftBodyOptions
+[clayflow](../../modules.md) / [elements](../README.md) / SoftBodyOptions
 
 # Type Alias: SoftBodyOptions
 
 > **SoftBodyOptions** = [`SoftBodyDomainOptions`](../interfaces/SoftBodyDomainOptions.md) \| [`SoftBodyRawOptions`](SoftBodyRawOptions.md)
 
-Defined in: [elements/physics/bodies/SoftBody.ts:77](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/SoftBody.ts#L77)
+Defined in: [src/elements/physics/bodies/SoftBody.ts:93](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/SoftBody.ts#L93)
 
 União aceita pelo construtor do SoftBody: vocabulário de domínio ou struct cru.

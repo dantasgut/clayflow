@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ParticlePhysics
+[clayflow](../../modules.md) / [elements](../README.md) / ParticlePhysics
 
 # Class: ParticlePhysics
 
-Defined in: [elements/physics/ParticlePhysics.ts:186](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L186)
+Defined in: [src/elements/physics/ParticlePhysics.ts:194](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L194)
 
 ParticlePhysics — física dos corpos de partículas (fluidos SPH, PBF e MPM; sólidos MPM), em vocabulário de
 domínio. Recurso único por cena, lido pelos estágios de física como o `GravityField`; sem `ParticlePhysics` no World, os
@@ -22,7 +22,7 @@ cúbica com suporte 2h) e do PBF (2 s; poly6/spiky com suporte h), célula da gr
 
 ## Implements
 
-- `Resource`
+- [`Resource`](../../platform/web/interfaces/Resource.md)
 
 ## Constructors
 
@@ -30,7 +30,7 @@ cúbica com suporte 2h) e do PBF (2 s; poly6/spiky com suporte h), célula da gr
 
 > **new ParticlePhysics**(`options?`): `ParticlePhysics`
 
-Defined in: [elements/physics/ParticlePhysics.ts:243](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L243)
+Defined in: [src/elements/physics/ParticlePhysics.ts:275](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L275)
 
 #### Parameters
 
@@ -48,17 +48,48 @@ Defined in: [elements/physics/ParticlePhysics.ts:243](https://github.com/dantasg
 
 ## Properties
 
+### contactAngle
+
+> `readonly` **contactAngle**: `number`
+
+Defined in: [src/elements/physics/ParticlePhysics.ts:258](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L258)
+
+Ângulo de contato θ com as fronteiras sólidas, em graus (90 sem `surfaceTension`: nem molha nem repele). Além da
+adesão, dá a forma da gota pousada num sólido no campo dos fluidos (a calota que molha).
+
+***
+
+### slidingAngle
+
+> `readonly` **slidingAngle**: `number`
+
+Defined in: [src/elements/physics/ParticlePhysics.ts:261](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L261)
+
+Ângulo de deslize das gotas soltas, em graus (0 sem ancoramento).
+
+***
+
 ### state
 
-> **state**: `ResourceState` = `ResourceState.Uninitialized`
+> **state**: [`ResourceState`](../../platform/web/enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [elements/physics/ParticlePhysics.ts:241](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L241)
+Defined in: [src/elements/physics/ParticlePhysics.ts:273](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L273)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Implementation of
 
-`Resource.state`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`state`](../../platform/web/interfaces/Resource.md#state)
+
+***
+
+### surfaceTension
+
+> `readonly` **surfaceTension**: `number`
+
+Defined in: [src/elements/physics/ParticlePhysics.ts:264](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L264)
+
+Tensão superficial física γ (N/m); 0 no modo adimensional (`cohesion`/`adhesion`).
 
 ***
 
@@ -66,7 +97,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > `readonly` `static` **defaults**: `ParticlePhysics`
 
-Defined in: [elements/physics/ParticlePhysics.ts:216](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L216)
+Defined in: [src/elements/physics/ParticlePhysics.ts:224](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L224)
 
 Comportamento padrão (usado quando o World não tem um).
 
@@ -74,9 +105,9 @@ Comportamento padrão (usado quando o World não tem um).
 
 ### schema
 
-> `readonly` `static` **schema**: `StructSchema`
+> `readonly` `static` **schema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/ParticlePhysics.ts:188](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L188)
+Defined in: [src/elements/physics/ParticlePhysics.ts:196](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L196)
 
 Schema do uniform da física (dado do World; os estágios copiam os derivados para os seus parâmetros).
 
@@ -86,11 +117,14 @@ Schema do uniform da física (dado do World; os estágios copiam os derivados pa
 
 > `readonly` `static` **WATER**: `object`
 
-Defined in: [elements/physics/ParticlePhysics.ts:223](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L223)
+Defined in: [src/elements/physics/ParticlePhysics.ts:234](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L234)
 
-Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m e
-ângulo de contato de 30° (molha). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
-a milímetros, dominam. Uso: `new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing })`.
+Água física (spec 010): densidade 1000 kg/m³, viscosidade dinâmica 0,001 Pa·s, tensão superficial 0,072 N/m,
+ângulo de contato de 30° (molha), restituição zero no choque com sólidos (a gota que molha espalha, não volta) e
+ângulo de deslize de 25° das gotas soltas (spec 034). Coesão e adesão saem na escala do espaçamento — a 2,5 cm, ~0,01 g e ~0,02 g;
+a milímetros, dominam. A suavização XSPH é a da água pouco viscosa (0,01): com 0,05, o padrão, o balanço da
+barragem no tanque perdia ~70 % mais velocidade em 7,5 s e a água parava cedo (medido, 2026-10-29). Uso:
+`new ParticlePhysics({ ...ParticlePhysics.WATER, particleSpacing })`.
 
 #### contactAngle
 
@@ -100,6 +134,14 @@ a milímetros, dominam. Uso: `new ParticlePhysics({ ...ParticlePhysics.WATER, pa
 
 > `readonly` **restDensity**: `1000` = `1000`
 
+#### restitution
+
+> `readonly` **restitution**: `0` = `0`
+
+#### slidingAngle
+
+> `readonly` **slidingAngle**: `25` = `25`
+
 #### surfaceTension
 
 > `readonly` **surfaceTension**: `0.072` = `0.072`
@@ -108,13 +150,17 @@ a milímetros, dominam. Uso: `new ParticlePhysics({ ...ParticlePhysics.WATER, pa
 
 > `readonly` **viscosity**: `0.001` = `0.001`
 
+#### xsph
+
+> `readonly` **xsph**: `0.01` = `0.01`
+
 ***
 
 ### WATER\_ADHESION
 
 > `readonly` `static` **WATER\_ADHESION**: `8` = `8`
 
-Defined in: [elements/physics/ParticlePhysics.ts:213](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L213)
+Defined in: [src/elements/physics/ParticlePhysics.ts:221](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L221)
 
 Adesão de referência da água (calibrada pelo smoke `fluidBehavior`: menisco junto à parede).
 
@@ -124,11 +170,23 @@ Adesão de referência da água (calibrada pelo smoke `fluidBehavior`: menisco j
 
 > `readonly` `static` **WATER\_COHESION**: `3` = `3`
 
-Defined in: [elements/physics/ParticlePhysics.ts:210](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L210)
+Defined in: [src/elements/physics/ParticlePhysics.ts:218](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L218)
 
 Coesão de referência da água nas cenas de 2–5 cm de espaçamento (calibrada pelo smoke `fluidBehavior`: gota
 isolada arredondada em 3 s, filete que se parte em gotas). Não é a tensão física de 0,072 N/m — nessa escala, ela
 seria invisível.
+
+***
+
+### WET\_NEIGHBORS
+
+> `readonly` `static` **WET\_NEIGHBORS**: `8` = `8`
+
+Defined in: [src/elements/physics/ParticlePhysics.ts:249](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L249)
+
+Vizinhas abaixo das quais a partícula é uma gota solta (spec 034): encostada num sólido que a água molha, ela
+representa gotas menores que a resolução, em que a borda ancorada domina (`slidingAngle`) — a mesma contagem que
+faz o campo dos fluidos desenhá-la como gota isolada. Com outra água por perto, volta ao volume.
 
 ## Accessors
 
@@ -138,7 +196,7 @@ seria invisível.
 
 > **get** **adhesion**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:333](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L333)
+Defined in: [src/elements/physics/ParticlePhysics.ts:377](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L377)
 
 Adesão às fronteiras sólidas, adimensional.
 
@@ -154,7 +212,7 @@ Adesão às fronteiras sólidas, adimensional.
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
+Defined in: [src/scene/contracts/Entity.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L160)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -175,7 +233,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **bulkModulus**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:395](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L395)
+Defined in: [src/elements/physics/ParticlePhysics.ts:439](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L439)
 
 Módulo volumétrico K = ρ₀c² (fluido fracamente compressível).
 
@@ -191,7 +249,7 @@ Módulo volumétrico K = ρ₀c² (fluido fracamente compressível).
 
 > **get** **cohesion**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:328](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L328)
+Defined in: [src/elements/physics/ParticlePhysics.ts:372](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L372)
 
 Coesão (tensão superficial), adimensional.
 
@@ -207,7 +265,7 @@ Coesão (tensão superficial), adimensional.
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
+Defined in: [src/scene/contracts/Entity.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L97)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -220,7 +278,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
+Defined in: [src/scene/contracts/Entity.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L103)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -234,9 +292,15 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 `void`
 
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+schema.
+
 #### Implementation of
 
-`Resource.data`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`data`](../../platform/web/interfaces/Resource.md#data)
 
 #### Inherited from
 
@@ -250,7 +314,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **domainMax**(): \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/ParticlePhysics.ts:364](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L364)
+Defined in: [src/elements/physics/ParticlePhysics.ts:408](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L408)
 
 Canto máximo do domínio.
 
@@ -266,7 +330,7 @@ Canto máximo do domínio.
 
 > **get** **domainMin**(): \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/ParticlePhysics.ts:358](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L358)
+Defined in: [src/elements/physics/ParticlePhysics.ts:402](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L402)
 
 ##### Returns
 
@@ -280,7 +344,7 @@ Defined in: [elements/physics/ParticlePhysics.ts:358](https://github.com/dantasg
 
 > **get** **lame**(): [`LameParameters`](../interfaces/LameParameters.md)
 
-Defined in: [elements/physics/ParticlePhysics.ts:405](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L405)
+Defined in: [src/elements/physics/ParticlePhysics.ts:449](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L449)
 
 Parâmetros de Lamé (μ, λ) dos sólidos MPM, de E e ν.
 
@@ -296,7 +360,7 @@ Parâmetros de Lamé (μ, λ) dos sólidos MPM, de E e ν.
 
 > **get** **mpmCellSize**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:390](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L390)
+Defined in: [src/elements/physics/ParticlePhysics.ts:434](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L434)
 
 Célula da grade MPM: 2 s (8 partículas por célula em repouso).
 
@@ -312,7 +376,7 @@ Célula da grade MPM: 2 s (8 partículas por célula em repouso).
 
 > **get** **mpmStableDt**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:430](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L430)
+Defined in: [src/elements/physics/ParticlePhysics.ts:474](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L474)
 
 Passo estável do MPM: 0,3 dx / max(c, √((λ+2μ)/ρ₀)) e, com viscosidade, a restrição difusiva dx²ρ₀/(6 μ) da
 tensão viscosa do fluido.
@@ -329,7 +393,7 @@ tensão viscosa do fluido.
 
 > **get** **openBounds**(): `boolean`
 
-Defined in: [elements/physics/ParticlePhysics.ts:354](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L354)
+Defined in: [src/elements/physics/ParticlePhysics.ts:398](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L398)
 
 Domínio aberto (`bounds: 'open'`, spec 010): sem paredes; o que sai da caixa é retirado.
 
@@ -345,7 +409,7 @@ Domínio aberto (`bounds: 'open'`, spec 010): sem paredes; o que sai da caixa é
 
 > **get** **particleMass**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:375](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L375)
+Defined in: [src/elements/physics/ParticlePhysics.ts:419](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L419)
 
 Massa de uma partícula: ρ₀s³.
 
@@ -361,7 +425,7 @@ Massa de uma partícula: ρ₀s³.
 
 > **get** **particleSpacing**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:318](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L318)
+Defined in: [src/elements/physics/ParticlePhysics.ts:362](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L362)
 
 Espaçamento s (m).
 
@@ -377,7 +441,7 @@ Espaçamento s (m).
 
 > **get** **particleVolume**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:370](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L370)
+Defined in: [src/elements/physics/ParticlePhysics.ts:414](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L414)
 
 Volume de repouso de uma partícula: s³.
 
@@ -393,7 +457,7 @@ Volume de repouso de uma partícula: s³.
 
 > **get** **pbfSmoothingLength**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:385](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L385)
+Defined in: [src/elements/physics/ParticlePhysics.ts:429](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L429)
 
 Raio de suavização do PBF (poly6/spiky, suporte h): 2 s.
 
@@ -409,7 +473,7 @@ Raio de suavização do PBF (poly6/spiky, suporte h): 2 s.
 
 > **get** **pbfStableDt**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:422](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L422)
+Defined in: [src/elements/physics/ParticlePhysics.ts:466](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L466)
 
 Passo estável do PBF: o passo da calibração (1/60 s com h = 0,1 m, isto é, 5 cm de espaçamento, e 4 iterações)
 escalado por (h / 0,1)². Duas coisas encolhem com o raio do kernel: o deslocamento por substep tolerado (CFL, ∝ h)
@@ -428,7 +492,7 @@ fixo, abaixo de 5 cm o fluido explodia (spec 017).
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
+Defined in: [src/scene/contracts/Entity.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L117)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -449,7 +513,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **restDensity**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:313](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L313)
+Defined in: [src/elements/physics/ParticlePhysics.ts:357](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L357)
 
 Densidade de repouso ρ₀ (kg/m³).
 
@@ -465,7 +529,7 @@ Densidade de repouso ρ₀ (kg/m³).
 
 > **get** **restitution**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:348](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L348)
+Defined in: [src/elements/physics/ParticlePhysics.ts:392](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L392)
 
 Restituição.
 
@@ -481,7 +545,7 @@ Restituição.
 
 > **get** **speedOfSound**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:343](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L343)
+Defined in: [src/elements/physics/ParticlePhysics.ts:387](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L387)
 
 Velocidade do som c (m/s).
 
@@ -497,7 +561,7 @@ Velocidade do som c (m/s).
 
 > **get** **sphSmoothingLength**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:380](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L380)
+Defined in: [src/elements/physics/ParticlePhysics.ts:424](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L424)
 
 Raio de suavização do SPH (spline cúbica, suporte 2h): 1,3 s.
 
@@ -513,7 +577,7 @@ Raio de suavização do SPH (spline cúbica, suporte 2h): 1,3 s.
 
 > **get** **sphStableDt**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:412](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L412)
+Defined in: [src/elements/physics/ParticlePhysics.ts:456](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L456)
 
 Passo estável do SPH (CFL): 0,4 h / c.
 
@@ -529,7 +593,7 @@ Passo estável do SPH (CFL): 0,4 h / c.
 
 > **get** **taitStiffness**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:400](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L400)
+Defined in: [src/elements/physics/ParticlePhysics.ts:444](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L444)
 
 Rigidez da equação de Tait do SPH: k₀ = ρ₀c²/γ.
 
@@ -545,7 +609,7 @@ Rigidez da equação de Tait do SPH: k₀ = ρ₀c²/γ.
 
 > **get** **viscosity**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:323](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L323)
+Defined in: [src/elements/physics/ParticlePhysics.ts:367](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L367)
 
 Viscosidade.
 
@@ -561,7 +625,7 @@ Viscosidade.
 
 > **get** **xsph**(): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:338](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L338)
+Defined in: [src/elements/physics/ParticlePhysics.ts:382](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L382)
 
 Suavização de velocidade XSPH.
 
@@ -575,7 +639,7 @@ Suavização de velocidade XSPH.
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
+Defined in: [src/scene/contracts/Entity.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L140)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -600,7 +664,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **adhesionAccel**(`adhesion?`): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:451](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L451)
+Defined in: [src/elements/physics/ParticlePhysics.ts:495](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L495)
 
 Escala da adesão para o kernel (m/s²): a aceleração normal a distância d é este valor vezes a integral de
 meio-espaço do núcleo de Akinci em [max(d/H, ½), 1] — `adesão · g` com a partícula encostada (d = 0).
@@ -621,7 +685,7 @@ meio-espaço do núcleo de Akinci em [max(d/H, ½), 1] — `adesão · g` com a 
 
 > **adhesionTangential**(`adhesion?`): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:459](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L459)
+Defined in: [src/elements/physics/ParticlePhysics.ts:503](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L503)
 
 Arrasto tangencial da adesão (1/s) no contato: `adesão · √(g/s)` no modo adimensional; com `surfaceTension`, o
 viscoso da parede μ/(ρ₀ s²) (spec 010).
@@ -642,7 +706,7 @@ viscoso da parede μ/(ρ₀ s²) (spec 010).
 
 > **cohesionGamma**(`cohesion?`): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:443](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L443)
+Defined in: [src/elements/physics/ParticlePhysics.ts:487](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L487)
 
 γ de Akinci et al. 2013 em unidades do solver, para o suporte `support` (H) da vizinhança e a coesão dada (padrão
 a da física): a partícula na borda de um meio-espaço de fluido sente `coesão · g`.
@@ -663,7 +727,7 @@ a da física): a partícula na borda de um meio-espaço de fluido sente `coesão
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
+Defined in: [src/scene/contracts/Entity.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L149)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -686,9 +750,9 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 ### getDescriptors()
 
-> **getDescriptors**(): readonly `GPUDescriptor`[]
+> **getDescriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
-Defined in: [elements/physics/ParticlePhysics.ts:525](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L525)
+Defined in: [src/elements/physics/ParticlePhysics.ts:569](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L569)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -697,31 +761,31 @@ que este resource expõe ao `ResourceSystem`. Cada descriptor define
 
 #### Returns
 
-readonly `GPUDescriptor`[]
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
 #### Implementation of
 
-`Resource.getDescriptors`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`getDescriptors`](../../platform/web/interfaces/Resource.md#getdescriptors)
 
 ***
 
 ### getPipelineDescriptors()
 
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+> **getPipelineDescriptors**(): readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [elements/physics/ParticlePhysics.ts:529](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L529)
+Defined in: [src/elements/physics/ParticlePhysics.ts:573](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L573)
 
-Pipelines GPU declaradas pelo resource (shader source + entry points
-+ consumes). Útil para Materials que carregam shaders próprios.
+Pipelines GPU declaradas pelo resource (shader e entry points; recursos
+pelos módulos declarados). Útil para Materials que carregam shaders próprios.
 Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 
-readonly `PipelineDescriptor`[]
+readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
 #### Implementation of
 
-`Resource.getPipelineDescriptors`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`getPipelineDescriptors`](../../platform/web/interfaces/Resource.md#getpipelinedescriptors)
 
 ***
 
@@ -729,7 +793,7 @@ readonly `PipelineDescriptor`[]
 
 > **gridFor**(`cellSize`): [`ParticleGrid`](../interfaces/ParticleGrid.md)
 
-Defined in: [elements/physics/ParticlePhysics.ts:512](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L512)
+Defined in: [src/elements/physics/ParticlePhysics.ts:556](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L556)
 
 Grade que cobre o domínio com células de `cellSize`: origem no canto mínimo e dimensões arredondadas para cima
 (usada pela vizinhança do SPH/PBF e pela grade do MPM).
@@ -746,11 +810,42 @@ Grade que cobre o domínio com células de `cellSize`: origem no canto mínimo e
 
 ***
 
+### redescribe()
+
+> `protected` **redescribe**(`previous`, `next`): `void`
+
+Defined in: [src/scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L127)
+
+Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+
+#### Parameters
+
+##### previous
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+##### next
+
+[`ParticlePhysicsData`](../interfaces/ParticlePhysicsData.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Entity`](Entity.md).[`redescribe`](Entity.md#redescribe)
+
+***
+
 ### surfaceStep()
 
 > **surfaceStep**(`stepDt`, `solverStableDt`, `minimum?`): `SurfaceStep`
 
-Defined in: [elements/physics/ParticlePhysics.ts:470](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L470)
+Defined in: [src/elements/physics/ParticlePhysics.ts:514](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L514)
 
 Substeps do quadro com coesão e adesão: o passo da oscilação que elas impõem numa partícula (aceleração `valor · g`
 ao longo de um espaçamento, 0,4 √(s / (valor · g))) entra junto com o passo estável do solver. Até 4× os substeps
@@ -781,7 +876,7 @@ exatamente `substepsFor(stepDt, solverStableDt, minimum)`.
 
 > `static` **of**(`world`): `ParticlePhysics`
 
-Defined in: [elements/physics/ParticlePhysics.ts:234](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L234)
+Defined in: [src/elements/physics/ParticlePhysics.ts:267](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L267)
 
 Comportamento do World, ou o padrão.
 
@@ -789,7 +884,7 @@ Comportamento do World, ou o padrão.
 
 ##### world
 
-`World`
+[`World`](../../platform/web/classes/World.md)
 
 #### Returns
 
@@ -801,7 +896,7 @@ Comportamento do World, ou o padrão.
 
 > `static` **substepsFor**(`stepDt`, `stableDt`, `minimum?`): `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:521](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L521)
+Defined in: [src/elements/physics/ParticlePhysics.ts:565](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L565)
 
 Substeps necessários para avançar `stepDt` sem passar do passo estável `stableDt`.
 

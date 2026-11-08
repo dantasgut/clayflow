@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / GraphColoring
+[clayflow](../../modules.md) / [elements](../README.md) / GraphColoring
 
 # Interface: GraphColoring
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:43](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L43)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:40](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L40)
 
 Resultado de uma coloração de arestas. Os buffers pertencem ao `GraphColorer` e valem até a próxima coloração.
 
@@ -16,7 +16,7 @@ Resultado de uma coloração de arestas. Os buffers pertencem ao `GraphColorer` 
 
 > `readonly` **colorCount**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:45](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L45)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:42](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L42)
 
 Cores usadas (`0..colorCount-1`).
 
@@ -24,9 +24,9 @@ Cores usadas (`0..colorCount-1`).
 
 ### edgeColors
 
-> `readonly` **edgeColors**: `StorageBufferSpec`
+> `readonly` **edgeColors**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:47](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L47)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:44](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L44)
 
 `u32[edgeCount]`: cor de cada aresta.
 
@@ -34,9 +34,9 @@ Defined in: [elements/gpu/compute/GraphColorer.ts:47](https://github.com/dantasg
 
 ### edgesByColor
 
-> `readonly` **edgesByColor**: `StorageBufferSpec`
+> `readonly` **edgesByColor**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:49](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L49)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:46](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L46)
 
 `u32[edgeCount]`: índices de aresta agrupados por cor (estável por índice dentro da cor).
 
@@ -44,9 +44,9 @@ Defined in: [elements/gpu/compute/GraphColorer.ts:49](https://github.com/dantasg
 
 ### ranges
 
-> `readonly` **ranges**: `StorageBufferSpec`
+> `readonly` **ranges**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:51](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L51)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:48](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L48)
 
 `ColorRange[colorCount]`: `{ offset, count }` de cada cor em `edgesByColor`.
 
@@ -56,6 +56,6 @@ Defined in: [elements/gpu/compute/GraphColorer.ts:51](https://github.com/dantasg
 
 > `readonly` **rangesCpu**: readonly [`ColorRangeCpu`](ColorRangeCpu.md)[]
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:53](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L53)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:50](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L50)
 
 Os mesmos intervalos, lidos para a CPU (para gravar um despacho por cor).

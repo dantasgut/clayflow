@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / EmitterShapeGpu
+[clayflow](../../modules.md) / [elements](../README.md) / EmitterShapeGpu
 
 # Interface: EmitterShapeGpu
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:28](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/EmitterShape.ts#L28)
+Defined in: [src/elements/particles/shapes/EmitterShape.ts:28](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/EmitterShape.ts#L28)
 
 Forma pronta na GPU (spec 009): 0 ponto, 1 esfera, 2 cone; `a`, `b`, `s` como em `emit_fn_ready.wgsl`.
 
@@ -16,7 +16,7 @@ Forma pronta na GPU (spec 009): 0 ponto, 1 esfera, 2 cone; `a`, `b`, `s` como em
 
 > `readonly` **a**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/EmitterShape.ts#L30)
+Defined in: [src/elements/particles/shapes/EmitterShape.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/EmitterShape.ts#L30)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: [elements/particles/shapes/EmitterShape.ts:30](https://github.com/da
 
 > `readonly` **b**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/EmitterShape.ts#L31)
+Defined in: [src/elements/particles/shapes/EmitterShape.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/EmitterShape.ts#L31)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: [elements/particles/shapes/EmitterShape.ts:31](https://github.com/da
 
 > `readonly` **kind**: `0` \| `1` \| `2`
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/EmitterShape.ts#L29)
+Defined in: [src/elements/particles/shapes/EmitterShape.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/EmitterShape.ts#L29)
 
 ***
 
@@ -40,4 +40,4 @@ Defined in: [elements/particles/shapes/EmitterShape.ts:29](https://github.com/da
 
 > `readonly` **s**: readonly \[`number`, `number`\]
 
-Defined in: [elements/particles/shapes/EmitterShape.ts:32](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/EmitterShape.ts#L32)
+Defined in: [src/elements/particles/shapes/EmitterShape.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/EmitterShape.ts#L32)

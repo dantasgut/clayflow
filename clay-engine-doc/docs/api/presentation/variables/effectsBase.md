@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / effectsBase
+[clayflow](../../modules.md) / [presentation](../README.md) / effectsBase
 
 # Variable: effectsBase
 
-> `const` **effectsBase**: `WgslModule`
+> `const` **effectsBase**: [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [presentation/flows/shaders.ts:32](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/shaders.ts#L32)
+Defined in: [src/presentation/flows/shaders.ts:327](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/shaders.ts#L327)
 
-Base do pós-processamento: bindings da textura de origem e dos parâmetros, `vs_fullscreen` e os fragmentos dos
-efeitos padrão. Efeitos próprios declaram um módulo com `requires: [effectsBase]` e o seu fragmento.
+Base do pós-processamento: recursos da textura de origem, do amostrador e dos parâmetros, `vs_fullscreen` e os
+fragmentos dos efeitos padrão. Efeitos próprios declaram um módulo com `requires: [effectsBase]` e o seu fragmento.

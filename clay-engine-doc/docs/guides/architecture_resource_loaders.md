@@ -1327,7 +1327,7 @@ const bytes = await core.readback(staging);  // exige StagingBufferSpec
 A Camada 2 é a ponte entre o hardware (C1) e os elementos de cena (C3). Ela não conhece geometrias específicas nem solvers concretos — opera sobre **duas abstrações gerenciáveis complementares**:
 
 - **`Resource`** — contrato único de dado GPU. Implementado por classes data-bearing (Camera, Material, Transform, RigidBody, ...). Cada Resource declara `getDescriptors()` retornando uma bag de `GPUDescriptor`. Coalescing é declarativo via `storage: 'individual' | 'pool'` em cada descritor:
-  - `storage: 'individual'` (default): buffer GPU próprio por instância — Camera, `Time`, a textura `depth` do `ShadowMap`, os alvos do quadro (`FrameTargets`).
+  - `storage: 'individual'` (default): buffer GPU próprio por instância — Camera, `Time`, o atlas (`atlas`) e os pedidos (`requests`) do `ShadowMap`, os alvos do quadro (`FrameTargets`).
   - Materiais (`StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial`) usam `storage: 'pool'` com `role: 'storage-ro'`: um pool de storage por schema (`array<T>`, stride do struct), indexado no shader pelo `materialSlot` do registro `Renderable` — ver "Pools canônicos". Pools são sempre de storage: `role: 'uniform'` em pool é rejeitado.
   - `storage: 'pool'`: engine agrega N instâncias do mesmo schema em um buffer global contíguo. Pool key = `${schema.name}` (ou `${schema.name}:${algorithm}` quando o Resource declara FlowDescriptor). Membros indexam por slot estável atribuído na inserção; o ResourceSystem mantém isso em `Map<poolKey, PoolEntry>` interno. Um Flow consome o pool por um slot (`slot.pool('SchemaName')`, `slot.bodies()`) e o shader o lê por um recurso declarado (`wgslResource`, spec 031) com fornecedor `{ pool: 'SchemaName' }` — resolvido pelo `PoolResolver` que o `ResourceSystem` registra ao criar o pool — ou `{ slot: 'nome' }` (o pool que o slot do Flow resolveu); a C2 cria e mantém o bind group. Ver "Contrato de shader estruturado".
 
@@ -1574,7 +1574,7 @@ classDiagram
     }
     note for Flow "Classe abstrata PÚBLICA agnóstica entre compute e render. Engine fornece defaults\nfísicos (LCPFlow, XPBDFlow, FEMFlow, MPMFlow, PBFFlow, SPHFlow), TransformFlow e de render\n(ShadowFlow, ForwardFlow, PostFlow, UIFlow, DebugFlow). Dev escreve subclasses adicionais\n(nível N3) e as registra por factory no FlowRegistry.\n\nDeclara slots (slot.*, inclusive slot.work: o Resource de trabalho da instância, criado e removido pela C2 com o Flow),\npipelines, fontes privadas (sempre objetos alocados pela C2) e a tabela de transições.\nNão cria objetos de GPU (spec 039; lint): o trabalho por entidade é descritor de pool do corpo, o da instância\né descritor do Resource de trabalho.\nA C2 resolve os slots, infere os layouts, liga os bind groups e controla o ciclo de vida\npending → preparing → ready → disposed. O estado do algoritmo (S) só muda por transições;\nevento sem entrada na tabela lança FlowTransitionError.\n\ndispatch(frame, bound) é o único ponto de gravação e só grava: o espaço de trabalho muda\nem transições (work.reserve, work.data, ctx.bind / ctx.prepare / ctx.release)."
     note for FlowRegistry "Registro por factory: register(factory, { type, phase, bodyType?, priority? }).\nSem bodyType, a factory é instanciada no registro; com bodyType, quando o pool do tipo passa\na existir (poolCreated) e o registro vence a seleção.\noverride(bodyType, factory, options) vence a prioridade; unregister(registration) descarta a instância\n(objetos de GPU, inscrições) e instancia o próximo vencedor.\n\nExecutionSystem itera fases na ordem fixa physics → transform → shadow → forward → post → ui.\nDentro da fase: priority decrescente, empate pela ordem de registro (sem before/after/at).\nresolve(bodyType): override, senão maior priority (empate: o último registrado).\n\nOs Flows padrão (solvers, Transform, Shadow, Forward, Post, Debug, UI) são registrados por\nfactory em registerPresentationDefaults (Application.create)."
-    note for RenderFlow "Subclasse abstrata de Flow para estágios que renderizam — Shadow/Forward/Post/UI.\nO alvo é um slot como os demais: slot.target('canvas') ou { color, depth } com texturas de Resources\n(FrameTargets.color/depth, ShadowMap.depth), resolvido pela C2 e recriado com o canvas.\ndispatch(frame, bound) abre frame.render(...) com a view de bound.slots.target (colorView)."
+    note for RenderFlow "Subclasse abstrata de Flow para estágios que renderizam — Shadow/Forward/Post/UI.\nO alvo é um slot como os demais: slot.target('canvas') ou { color, depth } com texturas de Resources\n(FrameTargets.color/depth), resolvido pela C2 e recriado com o canvas.\ndispatch(frame, bound) abre frame.render(...) com a view de bound.slots.target (colorView)."
 
     %% ── SISTEMAS LAYER 2 ─────────────────────────────────────────────────────
     namespace Sistemas {
@@ -1781,13 +1781,13 @@ class StandardMaterial extends Material<StandardMaterialData> {
 
 ```
 composeWgsl(forward) →                                   // grupo = posto da frequência presente; ligação = ordem do nome
-    @group(0) @binding(0) var<storage, read> cameras:     array<CameraMatrices>     // frame — { pool: 'CameraMatrices' }
-    @group(1) @binding(0) var<uniform>       forward_frame: ForwardFrameParams      // stage — 'private' (o ForwardFlow liga)
-    @group(1) @binding(1) var<storage, read> instances:   array<RenderInstance>     // stage — { pool }
-    @group(1) @binding(2) var<storage, read> renderables: array<Renderable>         // stage — { pool }
-    …                                                                                // surface_diff, worlds
-    @group(2) @binding(0) var<storage, read> materials:   array<StandardMaterial>   // batch — { pool: 'StandardMaterial' }
-    (+ os recursos das contribuições de cena compostas no pipeline: shadow_map, shadow_sampler, lights, caustic_map…)
+    @group(0) @binding(0) var<storage, read> pool_arena:     array<u32>   // frame — arena da CPU: instances, renderables,
+                                                                         //   materials, lights, shadow_maps (acessores)
+    @group(0) @binding(1) var<storage, read> pool_arena_gpu: array<u32>   // frame — arena da GPU: cameras, worlds,
+                                                                         //   previous_worlds (acessores)
+    @group(1) @binding(0) var<uniform>       forward_frame: ForwardFrameParams // stage — 'private' (o ForwardFlow liga)
+    …                                                                    // surface_diff
+    (+ os recursos das contribuições de cena compostas no pipeline: shadow_atlas, shadow_matrices, caustic_map…)
 
 LayoutInferencer.infer(composed, ['vs_main', 'fs_main']) →
     → só as declarações; visibilidade pelas funções que cada entrada alcança
@@ -1865,13 +1865,13 @@ Dado em pool não passa por `Dirty` (spec 007): a mutação marca o slot no bits
 
 Um recurso declarado (`wgslResource`) cujo fornecedor é `{ pool: chave }` ou `{ consumer: nome }` recebe a fonte de um
 `ConsumerResolver` registrado com esse nome no `ConsumerResolverRegistry` da cena. O shader declara a intenção (o
-recurso `shadow_map` vem do resolver `ShadowCaster.depth`) sem saber se a fonte é um buffer individual, um pool
+recurso `shadow_atlas` vem do resolver `ShadowCaster.atlas`) sem saber se a fonte é um buffer individual, um pool
 coalescido (`storage: 'pool'`), uma textura alocada pela C2 ou uma estratégia custom. O nome está no recurso, não no
 descritor do pipeline: não há lista de nomes por pipeline, e o casamento é pela declaração, nunca pelo tipo do binding.
 
 ```typescript
 interface ConsumerResolver {
-  readonly name: string;       // nome do fornecedor: chave do pool, 'Time', 'ShadowCaster.depth', 'Light.live'…
+  readonly name: string;       // nome do fornecedor: chave do pool, 'Time', 'ShadowCaster.atlas', 'PoolArena', 'Light.live'…
   readonly typeName: string;   // tipo WGSL que a fonte preenche (struct do elemento, texture_depth_2d, sampler_comparison…)
   resolve(ctx: ResolveContext): ResolvedSource | undefined;   // undefined: o dado ainda não existe — o pipeline espera
 }
@@ -1894,7 +1894,8 @@ class ConsumerResolverRegistry {
 | `TextureResolver(name, typeName, schema, descId, select?)` | view de textura alocada pela C2 | quem precisar |
 
 Os elementos registram os seus por padrão em `Application.create` (`ELEMENT_CONSUMERS`: gravidade, material de
-partículas, `ShadowCaster.depth`/`ShadowCaster.sampler` — o mapa da luz que projeta sombra).
+partículas, `ShadowCaster.atlas` — o atlas do mapa virtual da luz que projeta sombra). A C2 registra os das arenas de
+pools, `PoolArena` e `PoolArenaGpu`.
 
 **Extensão:** dev registra um resolver novo e declara o recurso que ele fornece:
 
@@ -2077,12 +2078,14 @@ Abaixo os pools padrão para Resources com `storage: 'pool'` no GPUDescriptor, c
 
 A pool key é o `schema.name` do recurso; quando o Resource declara FlowDescriptor com algoritmo, `${schema.name}:${algorithm}` (nenhum corpo do motor declara hoje — cada algoritmo tem o seu schema: `LCPSchema`, `XPBDSoftSchema`, …).
 
+**Arenas (spec 034, T060i).** Um pool lido por um acessor de arena (`poolArenaReader`/`poolArenaWriter`) mora numa região de um buffer só da C2, em vez de um buffer próprio: a arena da CPU (`pool_arena`: `Light`, `ShadowMap`, `Renderable`, `RenderInstance`, os materiais e os registros das funções de ponto) ou a da GPU (`pool_arena_gpu`: `WorldTransform`, `PreviousWorldTransform`, `WorldInverse`, `CameraMatrices`). O cabeçalho tem a base e a capacidade de cada região; o crescimento realoca a arena inteira com cópia na GPU e todos os pools dela anunciam `poolReallocated`. `PoolInfo.offset`/`size` dão a região; quem liga o pool por `{ pool }` ou por slot recebe a faixa. Detalhes em [Shaders — Arenas de pools](./shaders.md#arenas-de-pools-spec-034-t060i).
+
 | Pool key | Membro | Consumido por | Status |
 |---|---|---|---|
-| `Transform` / `WorldTransform` | intenção (posição, rotação, escala) e matriz de mundo | `TransformFlow` → forward, sombra, física | atual |
+| `Transform` / `WorldTransform` | intenção (posição, rotação, escala) e matriz de mundo (na arena da GPU, com `PreviousWorldTransform` e `WorldInverse`) | `TransformFlow` → forward, sombra, física | atual |
 | `Camera` / `CameraMatrices` | parâmetros de projeção (`'always'`) e, no mesmo slot, `view`/`projection`/`viewProjection`/`position` (`'never'`, produzidas pelo `CameraFlow` a partir do `Transform` da câmera) | `CameraFlow` → forward (câmera ativa pelo `cameraSlot`) | atual (007) |
-| `StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial` | material por schema — pool de storage (`array<T>`, stride do struct), indexado pelo `materialSlot` do `Renderable` | forward | atual |
-| `ShadowMap` / `ShadowMatrix` | vieses e tamanho (`'always'`) e, no mesmo slot, a matriz luz-vista-projeção (`'never'`, produzida pelo `ShadowMatrixFlow` a partir da direção da luz); a textura `depth` é individual | sombra (desenha na `depth` com a matriz), forward (vieses e matriz pelo slot do caster) | atual (007) |
+| `StandardMaterial`, `WireframeMaterial`, `PointSpriteMaterial` | material por schema — uma região da arena da CPU por schema, lida por `materials[i]` (acessor gerado), indexada pelo `materialSlot` do `Renderable` | forward | atual (034, T060i) |
+| `ShadowMap` / `ShadowMatrix` | vieses e tamanho (`'always'`, na arena da CPU) e, no mesmo slot, o referencial do quadro (`'never'`, produzido pelo `ShadowMatrixFlow` a partir da direção da luz); o atlas das páginas e os pedidos são buffers individuais (séries temporais) | sombra (aloca e desenha as páginas no atlas), forward (a visibilidade pela tabela do atlas) | atual (034, T060h) |
 | `Renderable` | `{ transformSlot, materialSlot }` para cada entidade com Geometry + Material + Transform, mantido pela C2 a partir de `slot.entities({ all, record })` | forward: um draw por grupo de instâncias (geometria, pipeline, face); a lista `RenderInstance` dá o slot do registro de cada instância, e o shader lê matriz e material por ele | atual (006, Emenda 1; agrupado na 007) |
 | `RenderInstance` / `ShadowInstance` / `RigidPoseInstance` / … | listas de instâncias dos grupos (`slot.entities({ groups })`): um `u32` por posição, segmento contíguo por grupo | forward (`instances[instance_index].renderable`), sombra (`.world`), publicação da pose, câmera, matriz de sombra | atual (007) |
 | `LCPSchema` | corpo rígido — LCP | `LCPFlow` | atual |
@@ -2299,12 +2302,12 @@ export const forward = wgslModule({ name: 'forward', source, requires: [camerasR
 | `binding` | `{ storage: 'read' \| 'read_write' }`, `{ uniform: true }`, `{ texture: { sample: 'f32' \| 'i32' \| 'u32' \| 'depth', dimension?, multisampled? } }`, `{ storageTexture: { format, access, dimension? } }`, `{ sampler: 'filtering' \| 'comparison' }` |
 | `type` (buffers; obrigatório) | `{ schema: StructSchema, array? }` (o struct entra nos `structs` do módulo) ou `{ wgsl: 'u32' \| 'vec4f' \| 'atomic<u32>' …, array? }` |
 | `frequency` | `frame` (igual para todos os pipelines e passes do quadro: câmeras, luzes, sombra, cáusticas), `stage` (igual para os pipelines de um estágio: matrizes de mundo, registros e instâncias de desenho, parâmetros do estágio), `batch` (muda entre grupos de desenho: pool de material, registros de função), `draw` (do pipeline ou da chamada: vértices de um pipeline, parâmetros por despacho com offset dinâmico) |
-| `provider` | `{ pool: chave }` (pool da C2), `{ consumer: nome }` (resolver da cena: `Time`, `ShadowCaster.depth`, `<pool>.live`…), `{ slot: nome, part?, descriptor? }` (o que o slot do Flow resolveu: o buffer do pool ou `part: 'live'`; `records`/`instances` de um `slot.entities`; a view de um `slot.texture`; o descritor `descriptor` de um `slot.singleton`), `{ scene: ponto }` (global de ponto de cena), `'private'` (o estágio liga pelo objeto do recurso) |
+| `provider` | `{ pool: chave }` (pool da C2), `{ consumer: nome }` (resolver da cena: `Time`, `ShadowCaster.atlas`, `PoolArena`, `PoolArenaGpu`, `<pool>.live`…), `{ slot: nome, part?, descriptor? }` (o que o slot do Flow resolveu: o buffer do pool ou `part: 'live'`; `records`/`instances` de um `slot.entities`; a view de um `slot.texture`; o descritor `descriptor` de um `slot.singleton`), `{ scene: ponto }` (global de ponto de cena), `'private'` (o estágio liga pelo objeto do recurso) |
 
 Recursos compartilhados são declarados **uma vez**, em módulo próprio, e incluídos por dependência: os de cena em
 `elements/scene/resources.ts` (`transforms`, `worlds`, `camera_params`, `camera_matrices`, `cameras`, `lights`,
-`shadow_matrices`, `shadow_maps`, `renderables`, `instances`, `shadow_map`, `shadow_sampler` — as versões de escrita
-para os estágios que produzem o dado, `*WriteResource`), os de cada família no pacote dono
+`shadow_matrices`, `shadow_maps`, `renderables`, `instances`, `shadow_atlas` — as versões de escrita para os estágios
+que produzem o dado, `*WriteResource`; os de pools em arena são acessores, `poolArenaReader`/`poolArenaWriter`), os de cada família no pacote dono
 (`elements/material/renderResources.ts`, `presentation/water/shaders.ts`, `elements/nodes/set/shaders.ts`…). A
 deduplicação é por objeto: dois módulos que requerem o mesmo recurso o incluem uma vez; duas declarações **diferentes**
 com o mesmo nome no mesmo shader são `symbol-conflict`. Variantes que mudam o tipo do binding são dois recursos com o
@@ -2462,7 +2465,7 @@ uma entram no pipeline pelos `requires` do módulo dela.
 | Contribuinte | Pontos | Quando |
 |---|---|---|
 | Toda `DirectionalLight` e `PointLight` (`anyLightContribution`, `points/anyLightContribution.ts`) | `scene_any_light_direction` (`scene_any_light_direction_pool`: a primeira luz viva do pool `Light`, lida na GPU pelo bitset `{ consumer: 'Light.live' }`; sem luz viva, a direção padrão) | sempre, com ou sem sombra |
-| `DirectionalLight` com `ShadowMap` (`shadowCasterContributions`) | `scene_light_direction` (`lights[slot].direction`) e `light_visibility` (PCF 3×3 do mapa: `shadow_maps`, `shadow_matrices`, `shadow_map`, `shadow_sampler`) | `castShadow = 1` e slots nos pools `Light` e `ShadowMap` |
+| `DirectionalLight` com `ShadowMap` (`shadowCasterContributions`) | `scene_light_direction` (`lights[slot].direction`) e `light_visibility` (a página do mapa virtual pela tabela do atlas, com a penumbra bilinear: `shadow_maps`, `shadow_matrices`, `shadow_atlas`) | `castShadow = 1` e slots nos pools `Light` e `ShadowMap` |
 
 Chamam os pontos: o `forward` (superfícies), os sprites de vértice (`point_sprite`), as partículas secundárias
 (`diffuse_sprite`) e o traçado da refração; os sprites dos corpos de partículas (`particle_sprite`,
@@ -2906,7 +2909,7 @@ src/scene/
 │
 ├── flows/                            ← Flow abstrato + RenderFlow + FlowRegistry
 │     ├── Flow.ts                       classe abstrata pública — slots, pipelines, privados, tabela de transições (estado S) e ciclo de vida da C2; agnóstico compute/render
-│     ├── RenderFlow.ts                 abstrata extends Flow com o slot `target` (canvas, FrameTargets, ShadowMap.depth)
+│     ├── RenderFlow.ts                 abstrata extends Flow com o slot `target` (canvas, FrameTargets)
 │     ├── slots.ts                      construtores `slot.*` (pool, bodies, pools, singleton, entities, texture, target)
 │     ├── FlowTransitions.ts            eventos de Flow, tabela de transições, FlowTransitionError
 │     ├── FlowBinding.ts                BoundFlow, PreparedPipeline (groupsOf/bindTo), BindingKey/BindingSources, TransitionContext
@@ -3566,7 +3569,7 @@ src/elements/
 │     ├── RenderTarget.ts                par color+depth — implementa Resource
 │     ├── resources.ts                   recursos de cena declarados uma vez (spec 031): transforms, worlds, cameras,
 │     │                                  lights, shadow_*, renderables, instances
-│     ├── shadowCaster.ts                castingShadowMap + ShadowCasterResolver (`ShadowCaster.depth`/`.sampler`)
+│     ├── shadowCaster.ts                castingShadowMap + ShadowCasterResolver (`ShadowCaster.atlas`)
 │     └── points/                        pontos de cena do sombreamento (spec 031): lighting.ts (scene_light_direction,
 │                                        light_visibility, light_transmission, scene_any_light_direction),
 │                                        shadowContribution.ts, anyLightContribution.ts
@@ -5129,7 +5132,7 @@ classDiagram
 
     namespace FlowsRender {
         class ShadowFlow {
-            <<extends RenderFlow | profundidade da luz que projeta sombra na ShadowMap.depth>>
+            <<extends RenderFlow | páginas do mapa virtual da luz que projeta sombra, no atlas em buffer>>
         }
         class ForwardFlow {
             <<extends RenderFlow | render principal nos FrameTargets (ou no canvas)>>
@@ -5249,7 +5252,7 @@ ExecutionSystem.onFrameTick()
     // para cada fase, só os Flows ativos (flowReady), com o BoundFlow de cada um:
     // physics   → LCPFlow / XPBDFlow / ... → frame.compute(...)
     // transform → TransformFlow → frame.compute(...) (só quando há intenção pendente)
-    // shadow    → ShadowFlow → frame.render(ShadowMap.depth, ...)
+    // shadow    → ShadowFlow → frame.compute(páginas) + frame.render(uma página suja por vez, atlas por atomicMin)
     // forward   → ForwardFlow → frame.render(FrameTargets.color + depth, ...)
     // post      → PostFlow → frame.render(pingue-pongue …, canvas)
     // ui        → UIFlow → frame.render(canvas, loadOp 'load')
@@ -5399,45 +5402,32 @@ razão `aspectMode: 'canvas'` vem de um uniform escrito quando o canvas muda; `C
 ortográfica ±10, olho a 10 m contra a direção lida em `lights[lightSlot]` — no pool `ShadowMatrix`). Nenhuma matriz de
 câmera ou de sombra é calculada na CPU.
 
-**`ShadowFlow`** — passe só de profundidade do ponto de vista da primeira `DirectionalLight` que projeta sombra, na
-textura `depth` do `ShadowMap` dela:
+**`ShadowFlow`** — o mapa de sombra virtual da primeira `DirectionalLight` que projeta sombra (spec 034, T060/T060h):
+níveis em volta da câmera divididos em páginas de 128², só as que a imagem pede, tudo em buffer.
 
 ```typescript
 // Camada 4 — flows/ShadowFlow.ts (resumo)
-function slotsOf(world: World) {
-  const select = castingShadowMap(world);   // C3 (elements/scene/shadowCaster): o ShadowMap de uma luz com castShadow
-  return {
-    caster:   slot.singleton(ShadowMap.schema, { select }),
-    world:    slot.pool(Transform.worldSchema.name),              // WorldTransform
-    matrices: slot.pool(ShadowMap.matrixSchema.name),             // ShadowMatrix (produzida na GPU)
-    casters:  slot.entities({
-      all: [Geometry, Transform],
-      groups: { schema: ShadowInstanceSchema, key: shadowGroupKey,     // contentKey | face
-                instance: [Transform, 'world'], rekeyOn: { Transform: ['scale'] } },
-    }),
-    target:   slot.target({ color: 'none', depth: { schema: ShadowMap.schema, descId: 'depth', select } }),
-  };
-}
-
-class ShadowFlow extends RenderFlow<ShadowSlots, 'idle'> {
-  readonly type = 'ShadowFlow';
-  // pipelines 'shadow_depth:ccw' e 'shadow_depth:cw' (escala espelhada); privado `shadow` (ShadowDepthParams
-  // { casterSlot }), escrito só quando o slot do caster muda. Sem `listens`: a CPU não acompanha a luz.
-
-  dispatch(frame: Frame, bound: BoundFlow<ShadowSlots>): void {
-    const depth = bound.slots.target.depth;
-    if (depth === undefined) return;
-    frame.render(/* só profundidade, na `depth` do caster */, 'ShadowFlow', (pass) => {
-      // todos os grupos uma vez por passe (ccw.bindTo): ShadowMatrix, parâmetros, WorldTransform, ShadowInstance —
-      // índices atribuídos pelo motor pela frequência de cada recurso, nenhum escrito no estágio
-      for (const group of bound.slots.casters.groups) {
-        // VBO/IBO da geometria do representante (resources.bufferOf); 'shadow_depth:cw' se espelhada
-        pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
-      }
-    });
-  }
-}
+const slots = {
+  caster:   slot.singleton(ShadowMap.schema, { select }),           // o ShadowMap da luz com castShadow
+  world:    slot.pool(Transform.worldSchema.name),                  // WorldTransform (arena da GPU)
+  matrices: slot.pool(ShadowMap.matrixSchema.name),                 // ShadowMatrix (produzida na GPU)
+  casters:  slot.entities({ all: [Geometry, Transform], groups: { … } }),
+  requests: slot.channel(ShadowMap.schema, 'requests'),             // pedidos do quadro anterior (atraso 1)
+  atlas:    slot.channel(ShadowMap.schema, 'atlas'),                // tabela + páginas físicas (série por páginas)
+  rects:    slot.channel(…, 'rects'),                               // retângulos de quem se moveu
+  work:     slot.work(() => new ShadowWork()),
+};
 ```
+
+- **Páginas (compute).** `sp_clear` → `sp_instances` → `sp_update` → `sp_rank` → `sp_free` → `sp_allocate` →
+  `sp_fill` → `sp_pairs_*`: lê os pedidos do quadro anterior, aloca as páginas novas no atlas (no máximo
+  `SHADOW_PAGE_BUDGET` por quadro), suja as tocadas por quem se moveu, enche o fundo das sujas e monta os pares
+  instância × página com argumentos indiretos.
+- **Desenho (render).** Um passe por página suja num anexo do tamanho dela (`r8unorm` com `writeMask` 0, só para
+  rasterizar): o fragmento grava a profundidade no atlas com `atomicMin` sobre os bits do `f32`
+  (`shadow_depth_fs`). Pipelines `shadow_depth:ccw`, `:cw` (escala espelhada) e `:two` (dois lados), por estado.
+- **Leitura.** O sombreamento acha a página pela tabela do atlas (`shadow_table_entry`) e compara com a penumbra
+  bilinear feita à mão (`shadow_page_compare`) — sem textura de profundidade nem amostrador de comparação.
 
 **`ForwardFlow`** — o render principal, nos `FrameTargets` (ou direto no canvas com `output: 'canvas'`):
 
@@ -5469,16 +5459,17 @@ function slotsOf(output: 'scene' | 'canvas') {
 O forward não tem slot de luz, sombra nem água (spec 031): o shader chama os pontos de cena
 `scene_light_direction()`, `light_visibility(p, n_dot_l)` e `light_transmission(p, ambient, direct)`, e a C2 compõe
 neles as contribuições presentes (a luz que projeta sombra, a água com cáusticas) — com os recursos de cada
-contribuinte (`lights`, `shadow_maps`, `shadow_matrices`, `shadow_map`, `shadow_sampler`, `caustic_map`…) entrando no
+contribuinte (`lights`, `shadow_maps`, `shadow_matrices`, `shadow_atlas`, `caustic_map`…) entrando no
 pipeline por `requires` do módulo da contribuição. Os recursos do shader `forward`, por frequência:
 
-- `frame`: `cameras` (pool `CameraMatrices`; a câmera ativa é `cameras[cameraSlot]`) e os recursos das contribuições
-  de cena.
-- `stage`: `worlds`, `renderables` (registro de cada entidade, mantido pela C2), `instances` (slot do registro por
-  instância), `surface_diff` (privado: o pool ou um substituto) e `forward_frame` (privado:
+- `frame`: as duas arenas de pools (spec 034, T060i) — na da CPU, `renderables` (registro de cada entidade, mantido
+  pela C2), `instances` (slot do registro por instância) e `materials` (a região do material do schema do pipeline,
+  lida por `materialSlot`); na da GPU, `cameras` (a câmera ativa é `cameras[cameraSlot]`) e `worlds` — e os recursos
+  das contribuições de cena. O código continua escrevendo `cameras[slot]`, `materials[i]`: a montagem reescreve para
+  os acessores.
+- `stage`: `surface_diff` (privado: o pool ou um substituto) e `forward_frame` (privado:
   `ForwardFrameParams { cameraSlot, cameraFnSlot, viewport, time }`, escrito em `framePrepare` só quando muda).
-- `batch`: `materials` (o pool de storage do material do schema do pipeline, `array<StandardMaterial>`, lido por
-  `materialSlot`).
+- Sem grupo `batch`: trocar de pipeline (de material) não religa nada.
 
 A gravação percorre `BINDING_FREQUENCIES` e, para cada grupo de `prepared.groupsOf(frequência)`, só regrava o que
 mudou (`sameBindGroup`: famílias de pipeline com os mesmos recursos `frame`/`stage` têm bind groups iguais e não são

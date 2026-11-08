@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / PointEmitterShape
+[clayflow](../../modules.md) / [elements](../README.md) / PointEmitterShape
 
 # Class: PointEmitterShape
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/PointEmitterShape.ts#L3)
+Defined in: [src/elements/particles/shapes/PointEmitterShape.ts:3](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/PointEmitterShape.ts#L3)
 
 Shape de emissão — define o volume de onde partículas spawnam e
 a direção inicial. Implementações: SphereEmitterShape (esfera),
@@ -22,7 +22,7 @@ ConeEmitterShape (cone direcional), etc.
 
 > **new PointEmitterShape**(`position?`, `velocity?`): `PointEmitterShape`
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:4](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/PointEmitterShape.ts#L4)
+Defined in: [src/elements/particles/shapes/PointEmitterShape.ts:4](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/PointEmitterShape.ts#L4)
 
 #### Parameters
 
@@ -44,7 +44,7 @@ readonly \[`number`, `number`, `number`\] = `...`
 
 > **gpu**(): [`EmitterShapeGpu`](../interfaces/EmitterShapeGpu.md)
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/PointEmitterShape.ts#L14)
+Defined in: [src/elements/particles/shapes/PointEmitterShape.ts:14](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/PointEmitterShape.ts#L14)
 
 Ponto na GPU: posição e velocidade fixas.
 
@@ -62,7 +62,7 @@ Ponto na GPU: posição e velocidade fixas.
 
 > **sample**(`_rng`): [`SpawnSample`](../interfaces/SpawnSample.md)
 
-Defined in: [elements/particles/shapes/PointEmitterShape.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/particles/shapes/PointEmitterShape.ts#L9)
+Defined in: [src/elements/particles/shapes/PointEmitterShape.ts:9](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/shapes/PointEmitterShape.ts#L9)
 
 Sampleia um novo spawn point. `rng` é uma função pseudo-random
 (default: Math.random). Retorna position + velocity para a partícula.

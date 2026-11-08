@@ -1,30 +1,30 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / FEMSlots
+[clayflow](../../modules.md) / [elements](../README.md) / FEMSlots
 
 # Interface: FEMSlots
 
-Defined in: [elements/physics/flows/FEMFlow.ts:41](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L41)
+Defined in: [src/elements/physics/flows/FEMFlow.ts:41](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L41)
 
 Slots do FEM.
 
 ## Extends
 
-- `SlotMap`
+- [`SlotMap`](../../platform/web/type-aliases/SlotMap.md)
 
 ## Indexable
 
-> \[`key`: `string`\]: `SlotDeclaration`
+> \[`key`: `string`\]: [`SlotDeclaration`](../../platform/web/type-aliases/SlotDeclaration.md)
 
 ## Properties
 
 ### bodies
 
-> `readonly` **bodies**: `BodiesSlot`
+> `readonly` **bodies**: [`BodiesSlot`](../../platform/web/interfaces/BodiesSlot.md)
 
-Defined in: [elements/physics/flows/FEMFlow.ts:43](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L43)
+Defined in: [src/elements/physics/flows/FEMFlow.ts:43](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L43)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -32,9 +32,9 @@ Pool de corpos do `bodyType` do registro.
 
 ### colliderPools
 
-> `readonly` **colliderPools**: `PoolsSlot`
+> `readonly` **colliderPools**: [`PoolsSlot`](../../platform/web/interfaces/PoolsSlot.md)
 
-Defined in: [elements/physics/flows/FEMFlow.ts:49](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L49)
+Defined in: [src/elements/physics/flows/FEMFlow.ts:49](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L49)
 
 Pools dos colliders e dos corpos donos (spec 010: os nós colidem com os colliders).
 
@@ -42,9 +42,9 @@ Pools dos colliders e dos corpos donos (spec 010: os nós colidem com os collide
 
 ### colliders
 
-> `readonly` **colliders**: `EntitiesSlot`
+> `readonly` **colliders**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [elements/physics/flows/FEMFlow.ts:51](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L51)
+Defined in: [src/elements/physics/flows/FEMFlow.ts:51](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L51)
 
 Entidades com collider.
 
@@ -52,9 +52,9 @@ Entidades com collider.
 
 ### gravity
 
-> `readonly` **gravity**: `SingletonSlot`\<`true`\>
+> `readonly` **gravity**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: [elements/physics/flows/FEMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L47)
+Defined in: [src/elements/physics/flows/FEMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L47)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
@@ -62,8 +62,18 @@ Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 ### time
 
-> `readonly` **time**: `SingletonSlot`\<`false`\>
+> `readonly` **time**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`false`\>
 
-Defined in: [elements/physics/flows/FEMFlow.ts:45](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/FEMFlow.ts#L45)
+Defined in: [src/elements/physics/flows/FEMFlow.ts:45](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L45)
 
 Relógio da cena (passos fixos do quadro).
+
+***
+
+### work
+
+> `readonly` **work**: [`WorkSlot`](../../platform/web/interfaces/WorkSlot.md)\<`FEMWork`\>
+
+Defined in: [src/elements/physics/flows/FEMFlow.ts:53](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/FEMFlow.ts#L53)
+
+O espaço de trabalho do solver: parâmetros por iteração e colliders (spec 039).

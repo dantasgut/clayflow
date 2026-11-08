@@ -1,30 +1,30 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / MPMSlots
+[clayflow](../../modules.md) / [elements](../README.md) / MPMSlots
 
 # Interface: MPMSlots
 
-Defined in: [elements/physics/flows/MPMFlow.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L44)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:47](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L47)
 
 Slots do MPM.
 
 ## Extends
 
-- `SlotMap`
+- [`SlotMap`](../../platform/web/type-aliases/SlotMap.md)
 
 ## Indexable
 
-> \[`key`: `string`\]: `SlotDeclaration`
+> \[`key`: `string`\]: [`SlotDeclaration`](../../platform/web/type-aliases/SlotDeclaration.md)
 
 ## Properties
 
 ### bodies
 
-> `readonly` **bodies**: `BodiesSlot`
+> `readonly` **bodies**: [`BodiesSlot`](../../platform/web/interfaces/BodiesSlot.md)
 
-Defined in: [elements/physics/flows/MPMFlow.ts:46](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L46)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:49](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L49)
 
 Pool de corpos do `bodyType` do registro.
 
@@ -32,9 +32,9 @@ Pool de corpos do `bodyType` do registro.
 
 ### colliderPools
 
-> `readonly` **colliderPools**: `PoolsSlot`
+> `readonly` **colliderPools**: [`PoolsSlot`](../../platform/web/interfaces/PoolsSlot.md)
 
-Defined in: [elements/physics/flows/MPMFlow.ts:54](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L54)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:57](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L57)
 
 Pools de colliders e de corpos rígidos (cada um presente ou não).
 
@@ -42,9 +42,9 @@ Pools de colliders e de corpos rígidos (cada um presente ou não).
 
 ### colliders
 
-> `readonly` **colliders**: `EntitiesSlot`
+> `readonly` **colliders**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [elements/physics/flows/MPMFlow.ts:56](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L56)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:59](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L59)
 
 Entidades com collider (donos dos registros nos pools de collider).
 
@@ -52,28 +52,38 @@ Entidades com collider (donos dos registros nos pools de collider).
 
 ### gravity
 
-> `readonly` **gravity**: `SingletonSlot`\<`true`\>
+> `readonly` **gravity**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: [elements/physics/flows/MPMFlow.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L50)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:53](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L53)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 ***
 
-### material
+### physics
 
-> `readonly` **material**: `SingletonSlot`\<`true`\>
+> `readonly` **physics**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: [elements/physics/flows/MPMFlow.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L52)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:55](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L55)
 
-Material das partículas (opcional; padrões do solver).
+Comportamento das partículas (opcional; padrões do solver).
 
 ***
 
 ### time
 
-> `readonly` **time**: `SingletonSlot`\<`false`\>
+> `readonly` **time**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`false`\>
 
-Defined in: [elements/physics/flows/MPMFlow.ts:48](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/MPMFlow.ts#L48)
+Defined in: [src/elements/physics/flows/MPMFlow.ts:51](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L51)
 
 Relógio da cena (passos fixos do quadro).
+
+***
+
+### work
+
+> `readonly` **work**: [`WorkSlot`](../../platform/web/interfaces/WorkSlot.md)\<`MPMWork`\>
+
+Defined in: [src/elements/physics/flows/MPMFlow.ts:61](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/MPMFlow.ts#L61)
+
+O espaço de trabalho do solver: a grade do domínio, os parâmetros por iteração, os colliders (spec 039).

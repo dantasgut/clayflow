@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / DiffuseParticlesData
+[clayflow](../../modules.md) / [elements](../README.md) / DiffuseParticlesData
 
 # Interface: DiffuseParticlesData
 
-Defined in: elements/particles/DiffuseParticles.ts:50
+Defined in: [src/elements/particles/DiffuseParticles.ts:50](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L50)
 
 Dado das partículas secundárias (os parâmetros de geração e de dinâmica).
 
@@ -16,7 +16,7 @@ Dado das partículas secundárias (os parâmetros de geração e de dinâmica).
 
 > **airDrag**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:63
+Defined in: [src/elements/particles/DiffuseParticles.ts:63](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L63)
 
 ***
 
@@ -24,7 +24,7 @@ Defined in: elements/particles/DiffuseParticles.ts:63
 
 > **bubbleDrag**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:65
+Defined in: [src/elements/particles/DiffuseParticles.ts:65](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L65)
 
 ***
 
@@ -32,7 +32,7 @@ Defined in: elements/particles/DiffuseParticles.ts:65
 
 > **bubbleNeighbors**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:68
+Defined in: [src/elements/particles/DiffuseParticles.ts:68](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L68)
 
 ***
 
@@ -40,7 +40,7 @@ Defined in: elements/particles/DiffuseParticles.ts:68
 
 > **buoyancy**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:64
+Defined in: [src/elements/particles/DiffuseParticles.ts:64](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L64)
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: elements/particles/DiffuseParticles.ts:64
 
 > **kinetic**: `number`[]
 
-Defined in: elements/particles/DiffuseParticles.ts:56
+Defined in: [src/elements/particles/DiffuseParticles.ts:56](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L56)
 
 ***
 
@@ -56,7 +56,7 @@ Defined in: elements/particles/DiffuseParticles.ts:56
 
 > **lifetime**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:61
+Defined in: [src/elements/particles/DiffuseParticles.ts:61](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L61)
 
 Dinâmica.
 
@@ -66,7 +66,7 @@ Dinâmica.
 
 > **maxParticles**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:52
+Defined in: [src/elements/particles/DiffuseParticles.ts:52](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L52)
 
 Capacidade do anel.
 
@@ -76,7 +76,7 @@ Capacidade do anel.
 
 > **sprayAging**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:62
+Defined in: [src/elements/particles/DiffuseParticles.ts:62](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L62)
 
 ***
 
@@ -84,7 +84,7 @@ Defined in: elements/particles/DiffuseParticles.ts:62
 
 > **sprayNeighbors**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:67
+Defined in: [src/elements/particles/DiffuseParticles.ts:67](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L67)
 
 Limiares de vizinhança da classificação.
 
@@ -94,7 +94,7 @@ Limiares de vizinhança da classificação.
 
 > **trappedAir**: `number`[]
 
-Defined in: elements/particles/DiffuseParticles.ts:54
+Defined in: [src/elements/particles/DiffuseParticles.ts:54](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L54)
 
 Faixas dos potenciais: ar aprisionado, crista, energia cinética.
 
@@ -104,7 +104,7 @@ Faixas dos potenciais: ar aprisionado, crista, energia cinética.
 
 > **trappedAirRate**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:58
+Defined in: [src/elements/particles/DiffuseParticles.ts:58](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L58)
 
 Ganhos de geração (1/s).
 
@@ -114,7 +114,7 @@ Ganhos de geração (1/s).
 
 > **waveCrest**: `number`[]
 
-Defined in: elements/particles/DiffuseParticles.ts:55
+Defined in: [src/elements/particles/DiffuseParticles.ts:55](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L55)
 
 ***
 
@@ -122,4 +122,4 @@ Defined in: elements/particles/DiffuseParticles.ts:55
 
 > **waveCrestRate**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:59
+Defined in: [src/elements/particles/DiffuseParticles.ts:59](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L59)

@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / DiffuseParticlesOptions
+[clayflow](../../modules.md) / [elements](../README.md) / DiffuseParticlesOptions
 
 # Interface: DiffuseParticlesOptions
 
-Defined in: elements/particles/DiffuseParticles.ts:16
+Defined in: [src/elements/particles/DiffuseParticles.ts:16](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L16)
 
 Opções das partículas secundárias de um fluido.
 
@@ -16,7 +16,7 @@ Opções das partículas secundárias de um fluido.
 
 > `readonly` `optional` **airDrag?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:36
+Defined in: [src/elements/particles/DiffuseParticles.ts:36](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L36)
 
 Arrasto do ar sobre o spray (1/s). Default 0,4.
 
@@ -26,7 +26,7 @@ Arrasto do ar sobre o spray (1/s). Default 0,4.
 
 > `readonly` `optional` **appearance?**: [`DiffuseMaterialOptions`](DiffuseMaterialOptions.md)
 
-Defined in: elements/particles/DiffuseParticles.ts:46
+Defined in: [src/elements/particles/DiffuseParticles.ts:46](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L46)
 
 Aparência (cores e raios por tipo).
 
@@ -36,7 +36,7 @@ Aparência (cores e raios por tipo).
 
 > `readonly` `optional` **bubbleDrag?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:40
+Defined in: [src/elements/particles/DiffuseParticles.ts:40](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L40)
 
 Arrasto das bolhas para a velocidade do fluido (fração por passo). Default 0,5.
 
@@ -46,7 +46,7 @@ Arrasto das bolhas para a velocidade do fluido (fração por passo). Default 0,5
 
 > `readonly` `optional` **bubbleNeighbors?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:44
+Defined in: [src/elements/particles/DiffuseParticles.ts:44](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L44)
 
 Vizinhos do fluido acima dos quais é bolha. Default 20.
 
@@ -56,7 +56,7 @@ Vizinhos do fluido acima dos quais é bolha. Default 20.
 
 > `readonly` `optional` **buoyancy?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:38
+Defined in: [src/elements/particles/DiffuseParticles.ts:38](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L38)
 
 Empuxo das bolhas em múltiplos de g (para cima). Default 0,8.
 
@@ -66,7 +66,7 @@ Empuxo das bolhas em múltiplos de g (para cima). Default 0,8.
 
 > `readonly` `optional` **kinetic?**: [`PotentialRange`](../type-aliases/PotentialRange.md)
 
-Defined in: elements/particles/DiffuseParticles.ts:26
+Defined in: [src/elements/particles/DiffuseParticles.ts:26](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L26)
 
 Energia cinética por massa ½ v², em J/kg. Default [2, 20].
 
@@ -76,7 +76,7 @@ Energia cinética por massa ½ v², em J/kg. Default [2, 20].
 
 > `readonly` `optional` **lifetime?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:32
+Defined in: [src/elements/particles/DiffuseParticles.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L32)
 
 Vida da espuma (s; spray e bolha envelhecem `sprayAging` vezes mais devagar). Default 1,5.
 
@@ -86,7 +86,7 @@ Vida da espuma (s; spray e bolha envelhecem `sprayAging` vezes mais devagar). De
 
 > `readonly` `optional` **maxParticles?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:20
+Defined in: [src/elements/particles/DiffuseParticles.ts:20](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L20)
 
 Capacidade do anel (partículas vivas no máximo). Default 65 536.
 
@@ -96,7 +96,7 @@ Capacidade do anel (partículas vivas no máximo). Default 65 536.
 
 > `readonly` **source**: [`FluidBody`](../classes/FluidBody.md)
 
-Defined in: elements/particles/DiffuseParticles.ts:18
+Defined in: [src/elements/particles/DiffuseParticles.ts:18](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L18)
 
 O corpo de fluido de onde nascem (SPH, PBF ou MPM fluido).
 
@@ -106,7 +106,7 @@ O corpo de fluido de onde nascem (SPH, PBF ou MPM fluido).
 
 > `readonly` `optional` **sprayAging?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:34
+Defined in: [src/elements/particles/DiffuseParticles.ts:34](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L34)
 
 Envelhecimento relativo do spray e das bolhas (0: não envelhecem). Default 0,25.
 
@@ -116,7 +116,7 @@ Envelhecimento relativo do spray e das bolhas (0: não envelhecem). Default 0,25
 
 > `readonly` `optional` **sprayNeighbors?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:42
+Defined in: [src/elements/particles/DiffuseParticles.ts:42](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L42)
 
 Vizinhos do fluido abaixo dos quais é spray. Default 6.
 
@@ -126,7 +126,7 @@ Vizinhos do fluido abaixo dos quais é spray. Default 6.
 
 > `readonly` `optional` **trappedAir?**: [`PotentialRange`](../type-aliases/PotentialRange.md)
 
-Defined in: elements/particles/DiffuseParticles.ts:22
+Defined in: [src/elements/particles/DiffuseParticles.ts:22](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L22)
 
 Ar aprisionado: Σ |v_ij| (1 − v̂_ij·x̂_ij) W, em m/s. Default [5, 20].
 
@@ -136,7 +136,7 @@ Ar aprisionado: Σ |v_ij| (1 − v̂_ij·x̂_ij) W, em m/s. Default [5, 20].
 
 > `readonly` `optional` **trappedAirRate?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:28
+Defined in: [src/elements/particles/DiffuseParticles.ts:28](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L28)
 
 Partículas geradas por segundo por partícula de fluido com ar aprisionado pleno. Default 20.
 
@@ -146,7 +146,7 @@ Partículas geradas por segundo por partícula de fluido com ar aprisionado plen
 
 > `readonly` `optional` **waveCrest?**: [`PotentialRange`](../type-aliases/PotentialRange.md)
 
-Defined in: elements/particles/DiffuseParticles.ts:24
+Defined in: [src/elements/particles/DiffuseParticles.ts:24](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L24)
 
 Crista de onda: Σ (1 − n̂_i·n̂_j) W. Default [2, 8].
 
@@ -156,6 +156,6 @@ Crista de onda: Σ (1 − n̂_i·n̂_j) W. Default [2, 8].
 
 > `readonly` `optional` **waveCrestRate?**: `number`
 
-Defined in: elements/particles/DiffuseParticles.ts:30
+Defined in: [src/elements/particles/DiffuseParticles.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseParticles.ts#L30)
 
 Partículas geradas por segundo por partícula de fluido em crista plena. Default 20.

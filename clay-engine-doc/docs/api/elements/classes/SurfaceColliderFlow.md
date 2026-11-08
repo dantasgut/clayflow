@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SurfaceColliderFlow
+[clayflow](../../modules.md) / [elements](../README.md) / SurfaceColliderFlow
 
 # Class: SurfaceColliderFlow
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L138)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:143](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L143)
 
 SurfaceColliderFlow — constrói na GPU o campo dos `SurfaceCollider` (spec 010, R2): para cada superfície colidível,
 a superfície é avaliada pelo mesmo `surface_at` do desenho (função da entidade ou pronta, espaço da cena) numa grade
@@ -21,7 +21,7 @@ mudam. A função nova vale quando o pipeline compila; rejeitada, o último camp
 
 ## Extends
 
-- `Flow`\<[`SurfaceColliderSlots`](../interfaces/SurfaceColliderSlots.md), `"idle"`\>
+- [`Flow`](../../platform/web/classes/Flow.md)\<[`SurfaceColliderSlots`](../interfaces/SurfaceColliderSlots.md), `"idle"`\>
 
 ## Constructors
 
@@ -29,13 +29,13 @@ mudam. A função nova vale quando o pipeline compila; rejeitada, o último camp
 
 > **new SurfaceColliderFlow**(`ctx`): `SurfaceColliderFlow`
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:152](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L152)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:161](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L161)
 
 #### Parameters
 
 ##### ctx
 
-`FlowContext`
+[`FlowContext`](../../platform/web/interfaces/FlowContext.md)
 
 #### Returns
 
@@ -43,21 +43,21 @@ Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:152](https://github.c
 
 #### Overrides
 
-`Flow<SurfaceColliderSlots, 'idle'>.constructor`
+[`Flow`](../../platform/web/classes/Flow.md).[`constructor`](../../platform/web/classes/Flow.md#constructor)
 
 ## Properties
 
 ### bindings
 
-> `readonly` **bindings**: `BindingSources` = `{}`
+> `readonly` **bindings**: [`BindingSources`](../../platform/web/type-aliases/BindingSources.md)
 
-Defined in: [scene/flows/Flow.ts:67](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L67)
+Defined in: [src/scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L79)
 
-Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
+Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo).
 
 #### Inherited from
 
-`Flow.bindings`
+[`Flow`](../../platform/web/classes/Flow.md).[`bindings`](../../platform/web/classes/Flow.md#bindings)
 
 ***
 
@@ -65,41 +65,41 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:142](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L142)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:148](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L148)
 
 Estado inicial do algoritmo.
 
 #### Overrides
 
-`Flow.initialState`
+[`Flow`](../../platform/web/classes/Flow.md).[`initialState`](../../platform/web/classes/Flow.md#initialstate)
 
 ***
 
 ### listens
 
-> `readonly` **listens**: `StructSchema`[]
+> `readonly` **listens**: [`WgslPoint`](../../platform/web/interfaces/WgslPoint.md)[]
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:141](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L141)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:147](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L147)
 
-Schemas cujos `resourceReady` o Flow recebe como evento.
+Os registros de todas as formas das funções `surface` (spec 031, R8).
 
 #### Overrides
 
-`Flow.listens`
+[`Flow`](../../platform/web/classes/Flow.md).[`listens`](../../platform/web/classes/Flow.md#listens)
 
 ***
 
 ### pipelines
 
-> `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
+> `readonly` **pipelines**: readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L65)
+Defined in: [src/scene/flows/Flow.ts:77](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L77)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 #### Inherited from
 
-`Flow.pipelines`
+[`Flow`](../../platform/web/classes/Flow.md).[`pipelines`](../../platform/web/classes/Flow.md#pipelines)
 
 ***
 
@@ -107,27 +107,27 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`SurfaceColliderSlots`](../interfaces/SurfaceColliderSlots.md)
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:140](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L140)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:145](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L145)
 
 Slots consumidos, por nome.
 
 #### Overrides
 
-`Flow.slots`
+[`Flow`](../../platform/web/classes/Flow.md).[`slots`](../../platform/web/classes/Flow.md#slots)
 
 ***
 
 ### transitions
 
-> `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `Ctx`\>
+> `protected` `readonly` **transitions**: [`FlowTransitions`](../../platform/web/type-aliases/FlowTransitions.md)\<`"idle"`, `Ctx`\>
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:143](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L143)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L149)
 
 Tabela de transições (estado × evento).
 
 #### Overrides
 
-`Flow.transitions`
+[`Flow`](../../platform/web/classes/Flow.md).[`transitions`](../../platform/web/classes/Flow.md#transitions)
 
 ***
 
@@ -135,13 +135,13 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"SurfaceColliderFlow"` = `'SurfaceColliderFlow'`
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:139](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L139)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:144](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L144)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
-`Flow.type`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`type`](../../platform/web/classes/RenderFlow.md#type)
 
 ## Accessors
 
@@ -149,19 +149,19 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 #### Get Signature
 
-> **get** **lifecycle**(): `FlowLifecycle`
+> **get** **lifecycle**(): [`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
+Defined in: [src/scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L94)
 
 Estado do ciclo de vida (só a C2 o muda).
 
 ##### Returns
 
-`FlowLifecycle`
+[`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
 #### Inherited from
 
-`Flow.lifecycle`
+[`Flow`](../../platform/web/classes/Flow.md).[`lifecycle`](../../platform/web/classes/Flow.md#lifecycle)
 
 ***
 
@@ -171,7 +171,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
+Defined in: [src/scene/flows/Flow.ts:99](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L99)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -181,7 +181,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 #### Inherited from
 
-`Flow.state`
+[`Flow`](../../platform/web/classes/Flow.md).[`state`](../../platform/web/classes/Flow.md#state)
 
 ## Methods
 
@@ -189,7 +189,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:235](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L235)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:242](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L242)
 
 Grava as passadas dos colliders a construir neste quadro.
 
@@ -197,11 +197,11 @@ Grava as passadas dos colliders a construir neste quadro.
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### bound
 
-`BoundFlow`\<[`SurfaceColliderSlots`](../interfaces/SurfaceColliderSlots.md)\>
+[`BoundFlow`](../../platform/web/interfaces/BoundFlow.md)\<[`SurfaceColliderSlots`](../interfaces/SurfaceColliderSlots.md)\>
 
 #### Returns
 
@@ -209,7 +209,7 @@ Grava as passadas dos colliders a construir neste quadro.
 
 #### Overrides
 
-`Flow.dispatch`
+[`Flow`](../../platform/web/classes/Flow.md).[`dispatch`](../../platform/web/classes/Flow.md#dispatch)
 
 ***
 
@@ -217,9 +217,9 @@ Grava as passadas dos colliders a construir neste quadro.
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:283](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L283)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:285](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L285)
 
-Libera rascunhos, parâmetros e substitutos.
+Esquece os estados (rascunhos, parâmetros e substitutos são do trabalho e saem da cena com ele).
 
 #### Returns
 
@@ -227,4 +227,4 @@ Libera rascunhos, parâmetros e substitutos.
 
 #### Overrides
 
-`Flow.dispose`
+[`Flow`](../../platform/web/classes/Flow.md).[`dispose`](../../platform/web/classes/Flow.md#dispose)

@@ -1,23 +1,35 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / NeighborSearchOptions
+[clayflow](../../modules.md) / [elements](../README.md) / NeighborSearchOptions
 
 # Interface: NeighborSearchOptions
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:25](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L25)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L32)
 
 Configuração do NeighborSearchPipeline. Define o grid uniform usado
 para spatial hashing e capacidades dos buffers.
 
 ## Properties
 
+### byRank?
+
+> `readonly` `optional` **byRank?**: `boolean`
+
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:55](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L55)
+
+A busca roda e grava na ordem por célula (`neighborOrder`): a lista e a contagem pelo posto `t` da partícula
+`neighborOrder[t] − 1`, e quem as lê roda na mesma ordem — threads vizinhos tratam partículas vizinhas e leem os
+mesmos vizinhos (o cache da GPU os reaproveita). Padrão: pelo índice da partícula.
+
+***
+
 ### cellSize?
 
 > `readonly` `optional` **cellSize?**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L29)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:36](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L36)
 
 Tamanho de uma cell em world units. Default: 0.1.
 
@@ -27,9 +39,9 @@ Tamanho de uma cell em world units. Default: 0.1.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:42](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L42)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:49](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L49)
 
-Discriminador único para isolar buffers entre múltiplas instâncias.
+Prefixo único dos ids dos descritores no Resource de trabalho (várias instâncias no mesmo trabalho).
 
 ***
 
@@ -37,7 +49,7 @@ Discriminador único para isolar buffers entre múltiplas instâncias.
 
 > `readonly` `optional` **gridDim?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L27)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:34](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L34)
 
 Dimensões do grid (cells por eixo). Default: [32, 32, 32].
 
@@ -47,7 +59,7 @@ Dimensões do grid (cells por eixo). Default: [32, 32, 32].
 
 > `readonly` **maxNeighbors**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L35)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:42](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L42)
 
 Máximo de vizinhos retornados por partícula (truncate).
 
@@ -57,7 +69,7 @@ Máximo de vizinhos retornados por partícula (truncate).
 
 > `readonly` **maxParticles**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:33](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L33)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:40](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L40)
 
 Capacidade máxima de partículas (alocação fixa do buffer).
 
@@ -67,7 +79,7 @@ Capacidade máxima de partículas (alocação fixa do buffer).
 
 > `readonly` `optional` **origin?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L31)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:38](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L38)
 
 Origem (canto -X-Y-Z) do grid em world coords.
 
@@ -77,7 +89,7 @@ Origem (canto -X-Y-Z) do grid em world coords.
 
 > `readonly` **particleStrideF32**: `number`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L40)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:47](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L47)
 
 Stride do particle struct em floats (e.g. 16 para SPHParticle = 64 bytes).
 O kernel `assign_count` lê o particle.position desde esse offset.

@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / XPBDFlow
+[clayflow](../../modules.md) / [elements](../README.md) / XPBDFlow
 
 # Class: XPBDFlow
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:82](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L82)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:102](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L102)
 
 XPBDFlow — corpos macios por XPBD (partículas + restrições de distância). O quadro executa `time.steps × substeps`
 iterações (predict → solve → atualização de velocidade), cada uma com a sua região de `SimParams`
@@ -19,7 +19,7 @@ preparado numa transição quando o pool de restrições existe. Os parâmetros 
 
 ## Extends
 
-- `Flow`\<[`XPBDSlots`](../interfaces/XPBDSlots.md), `"running"`\>
+- [`Flow`](../../platform/web/classes/Flow.md)\<[`XPBDSlots`](../interfaces/XPBDSlots.md), `"running"`\>
 
 ## Constructors
 
@@ -27,13 +27,13 @@ preparado numa transição quando o pool de restrições existe. Os parâmetros 
 
 > **new XPBDFlow**(`ctx`, `options?`): `XPBDFlow`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:99](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L99)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:121](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L121)
 
 #### Parameters
 
 ##### ctx
 
-`FlowContext`
+[`FlowContext`](../../platform/web/interfaces/FlowContext.md)
 
 ##### options?
 
@@ -45,21 +45,21 @@ Defined in: [elements/physics/flows/XPBDFlow.ts:99](https://github.com/dantasgut
 
 #### Overrides
 
-`Flow<XPBDSlots, 'running'>.constructor`
+[`Flow`](../../platform/web/classes/Flow.md).[`constructor`](../../platform/web/classes/Flow.md#constructor)
 
 ## Properties
 
 ### bindings
 
-> `readonly` **bindings**: `BindingSources`
+> `readonly` **bindings**: [`BindingSources`](../../platform/web/type-aliases/BindingSources.md)
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:86](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L86)
+Defined in: [src/scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L79)
 
-Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
+Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo).
 
-#### Overrides
+#### Inherited from
 
-`Flow.bindings`
+[`Flow`](../../platform/web/classes/Flow.md).[`bindings`](../../platform/web/classes/Flow.md#bindings)
 
 ***
 
@@ -67,41 +67,42 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"running"`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:87](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L87)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:106](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L106)
 
 Estado inicial do algoritmo.
 
 #### Overrides
 
-`Flow.initialState`
+[`Flow`](../../platform/web/classes/Flow.md).[`initialState`](../../platform/web/classes/Flow.md#initialstate)
 
 ***
 
 ### listens
 
-> `readonly` **listens**: readonly `Schema`[] = `[]`
+> `readonly` **listens**: readonly [`Listened`](../../platform/web/type-aliases/Listened.md)[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L69)
+Defined in: [src/scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L84)
 
-Schemas cujos `resourceReady` o Flow recebe como evento.
+Schemas (ou famílias de schemas: os registros de um ponto de extensão) cujos `resourceReady` e `poolWritten` o
+Flow recebe como evento.
 
 #### Inherited from
 
-`Flow.listens`
+[`Flow`](../../platform/web/classes/Flow.md).[`listens`](../../platform/web/classes/Flow.md#listens)
 
 ***
 
 ### pipelines
 
-> `readonly` **pipelines**: readonly `PipelineDescriptor`[]
+> `readonly` **pipelines**: readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:85](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L85)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:105](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L105)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 #### Overrides
 
-`Flow.pipelines`
+[`Flow`](../../platform/web/classes/Flow.md).[`pipelines`](../../platform/web/classes/Flow.md#pipelines)
 
 ***
 
@@ -109,27 +110,27 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`XPBDSlots`](../interfaces/XPBDSlots.md)
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L84)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:104](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L104)
 
 Slots consumidos, por nome.
 
 #### Overrides
 
-`Flow.slots`
+[`Flow`](../../platform/web/classes/Flow.md).[`slots`](../../platform/web/classes/Flow.md#slots)
 
 ***
 
 ### transitions
 
-> `protected` `readonly` **transitions**: `FlowTransitions`\<`"running"`, `TransitionContext`\<[`XPBDSlots`](../interfaces/XPBDSlots.md)\>\>
+> `protected` `readonly` **transitions**: [`FlowTransitions`](../../platform/web/type-aliases/FlowTransitions.md)\<`"running"`, [`TransitionContext`](../../platform/web/interfaces/TransitionContext.md)\<[`XPBDSlots`](../interfaces/XPBDSlots.md)\>\>
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:88](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L88)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:107](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L107)
 
 Tabela de transições (estado × evento).
 
 #### Overrides
 
-`Flow.transitions`
+[`Flow`](../../platform/web/classes/Flow.md).[`transitions`](../../platform/web/classes/Flow.md#transitions)
 
 ***
 
@@ -137,13 +138,13 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"XPBDFlow"` = `'XPBDFlow'`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:83](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L83)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L103)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
-`Flow.type`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`type`](../../platform/web/classes/RenderFlow.md#type)
 
 ## Accessors
 
@@ -151,19 +152,19 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 #### Get Signature
 
-> **get** **lifecycle**(): `FlowLifecycle`
+> **get** **lifecycle**(): [`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
+Defined in: [src/scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L94)
 
 Estado do ciclo de vida (só a C2 o muda).
 
 ##### Returns
 
-`FlowLifecycle`
+[`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
 #### Inherited from
 
-`Flow.lifecycle`
+[`Flow`](../../platform/web/classes/Flow.md).[`lifecycle`](../../platform/web/classes/Flow.md#lifecycle)
 
 ***
 
@@ -173,7 +174,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
+Defined in: [src/scene/flows/Flow.ts:99](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L99)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -183,7 +184,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 #### Inherited from
 
-`Flow.state`
+[`Flow`](../../platform/web/classes/Flow.md).[`state`](../../platform/web/classes/Flow.md#state)
 
 ## Methods
 
@@ -191,7 +192,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:190](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L190)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:209](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L209)
 
 Grava as iterações do quadro com a região de parâmetros de cada uma.
 
@@ -199,11 +200,11 @@ Grava as iterações do quadro com a região de parâmetros de cada uma.
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### bound
 
-`BoundFlow`\<[`XPBDSlots`](../interfaces/XPBDSlots.md)\>
+[`BoundFlow`](../../platform/web/interfaces/BoundFlow.md)\<[`XPBDSlots`](../interfaces/XPBDSlots.md)\>
 
 #### Returns
 
@@ -211,7 +212,7 @@ Grava as iterações do quadro com a região de parâmetros de cada uma.
 
 #### Overrides
 
-`Flow.dispatch`
+[`Flow`](../../platform/web/classes/Flow.md).[`dispatch`](../../platform/web/classes/Flow.md#dispatch)
 
 ***
 
@@ -219,14 +220,14 @@ Grava as iterações do quadro com a região de parâmetros de cada uma.
 
 > **dispose**(): `void`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:232](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L232)
+Defined in: [src/scene/flows/Flow.ts:107](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L107)
 
-Libera os parâmetros por iteração e o conjunto de colliders.
+Libera os recursos privados do Flow. Chamado pela C2 no descarte (`unregister`).
 
 #### Returns
 
 `void`
 
-#### Overrides
+#### Inherited from
 
-`Flow.dispose`
+[`Flow`](../../platform/web/classes/Flow.md).[`dispose`](../../platform/web/classes/Flow.md#dispose)

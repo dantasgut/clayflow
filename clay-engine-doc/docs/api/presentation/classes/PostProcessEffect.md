@@ -1,20 +1,20 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / PostProcessEffect
+[clayflow](../../modules.md) / [presentation](../README.md) / PostProcessEffect
 
 # Abstract Class: PostProcessEffect
 
-Defined in: [presentation/resources/PostProcessEffect.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L52)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:52](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L52)
 
 PostProcessEffect é a base de todos os post-process passes do PostFlow.
 Cada effect contribui com 1 fragment entry point + 16 bytes de uniform
 (strength + aux). PostFlow encadeia os effects ativos via ping-pong de
 texturas: scene → pp[0] → pp[1] → ... → canvas.
 
-Built-in effects: Bloom, Blur, ChromaticAberration, ColorGrading, Fxaa,
-Ssao, ToneMapping, Vignette. Custom effects: implemente `fragmentModule()`
+Built-in effects: Bloom, Blur, ChromaticAberration, ColorGrading,
+Vignette (a apresentação, `ToneMapping`, não é efeito: é o último passe). Custom effects: implemente `fragmentModule()`
 retornando um módulo WGSL próprio (ver método).
 
 Subclasses devem implementar `name` (identificador) e `fragmentEntry`
@@ -28,14 +28,13 @@ Subclasses devem implementar `name` (identificador) e `fragmentEntry`
 
 - [`Bloom`](Bloom.md)
 - [`Blur`](Blur.md)
-- [`ToneMapping`](ToneMapping.md)
 - [`Vignette`](Vignette.md)
 - [`ChromaticAberration`](ChromaticAberration.md)
 - [`ColorGrading`](ColorGrading.md)
 
 ## Implements
 
-- `Resource`
+- [`Resource`](../../platform/web/interfaces/Resource.md)
 
 ## Constructors
 
@@ -43,7 +42,7 @@ Subclasses devem implementar `name` (identificador) e `fragmentEntry`
 
 > **new PostProcessEffect**(`options?`): `PostProcessEffect`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:55](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L55)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:55](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L55)
 
 #### Parameters
 
@@ -63,15 +62,15 @@ Defined in: [presentation/resources/PostProcessEffect.ts:55](https://github.com/
 
 ### state
 
-> **state**: `ResourceState` = `ResourceState.Uninitialized`
+> **state**: [`ResourceState`](../../platform/web/enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:53](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L53)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:53](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L53)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Implementation of
 
-`Resource.state`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`state`](../../platform/web/interfaces/Resource.md#state)
 
 ## Accessors
 
@@ -81,7 +80,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
+Defined in: [src/scene/contracts/Entity.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L160)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -102,7 +101,7 @@ readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
+Defined in: [src/scene/contracts/Entity.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L97)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -115,7 +114,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
+Defined in: [src/scene/contracts/Entity.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L103)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -129,9 +128,15 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 `void`
 
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+schema.
+
 #### Implementation of
 
-`Resource.data`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`data`](../../platform/web/interfaces/Resource.md#data)
 
 #### Inherited from
 
@@ -145,7 +150,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `abstract` **fragmentEntry**(): `string`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:67](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L67)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:67](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L67)
 
 Nome do fragment entry point no WGSL (e.g. 'fs_bloom').
 
@@ -161,7 +166,7 @@ Nome do fragment entry point no WGSL (e.g. 'fs_bloom').
 
 > **get** **isEnabled**(): `boolean`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:82](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L82)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:82](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L82)
 
 True se o effect deve participar do chain neste frame. Lê `data.enabled`.
 
@@ -177,7 +182,7 @@ True se o effect deve participar do chain neste frame. Lê `data.enabled`.
 
 > **get** `abstract` **name**(): `string`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:65](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L65)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:65](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L65)
 
 Nome único do effect (e.g. 'bloom', 'fxaa'). Usado em discriminator de pipeline/buffer.
 
@@ -193,7 +198,7 @@ Nome único do effect (e.g. 'bloom', 'fxaa'). Usado em discriminator de pipeline
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
+Defined in: [src/scene/contracts/Entity.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L117)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -212,7 +217,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
+Defined in: [src/scene/contracts/Entity.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L140)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -237,7 +242,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
+Defined in: [src/scene/contracts/Entity.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L149)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -260,13 +265,13 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 ### fragmentModule()?
 
-> `optional` **fragmentModule**(): `WgslModule`
+> `optional` **fragmentModule**(): [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [presentation/resources/PostProcessEffect.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L79)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:79](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L79)
 
 Override opcional: módulo WGSL próprio contendo o fragment entry point (`fragmentEntry`). Quando definido, o
 PostFlow monta um shader dedicado para este effect em vez de usar o comum. O módulo declara
-`requires: [effectsBase]` para reutilizar os bindings e o `vs_fullscreen`:
+`requires: [effectsBase]` para reutilizar os recursos (`src_tex`, `src_smp`, `params`) e o `vs_fullscreen`:
 ```ts
 fragmentModule() {
     return wgslModule({ name: 'meu_efeito', source: meuFragmento, requires: [effectsBase] });
@@ -275,43 +280,43 @@ fragmentModule() {
 
 #### Returns
 
-`WgslModule`
+[`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
 ***
 
 ### getDescriptors()
 
-> **getDescriptors**(): readonly `GPUDescriptor`[]
+> **getDescriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:99](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L99)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:99](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L99)
 
 Effects não declaram GPUDescriptors — params buffer é gerenciado pelo PostFlow.
 
 #### Returns
 
-readonly `GPUDescriptor`[]
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
 #### Implementation of
 
-`Resource.getDescriptors`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`getDescriptors`](../../platform/web/interfaces/Resource.md#getdescriptors)
 
 ***
 
 ### getPipelineDescriptors()
 
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+> **getPipelineDescriptors**(): readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:103](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L103)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L103)
 
 Effects não declaram PipelineDescriptors — PostFlow cria via `paramsBytes` + shader.
 
 #### Returns
 
-readonly `PipelineDescriptor`[]
+readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
 #### Implementation of
 
-`Resource.getPipelineDescriptors`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`getPipelineDescriptors`](../../platform/web/interfaces/Resource.md#getpipelinedescriptors)
 
 ***
 
@@ -319,7 +324,7 @@ readonly `PipelineDescriptor`[]
 
 > **paramsBytes**(): `Uint8Array`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:91](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L91)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:91](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L91)
 
 Serializa `strength + aux` em 16 bytes para upload no uniform buffer
 do effect. Override para layouts custom — mas mantenha 16 bytes para
@@ -328,3 +333,34 @@ compatibilidade com o pipeline padrão.
 #### Returns
 
 `Uint8Array`
+
+***
+
+### redescribe()
+
+> `protected` **redescribe**(`previous`, `next`): `void`
+
+Defined in: [src/scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L127)
+
+Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+
+#### Parameters
+
+##### previous
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+##### next
+
+[`PostProcessData`](../interfaces/PostProcessData.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Entity`](../../elements/classes/Entity.md).[`redescribe`](../../elements/classes/Entity.md#redescribe)

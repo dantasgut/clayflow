@@ -290,6 +290,66 @@ export const height = wgslModule({
 
 O detalhe está em [Arquitetura — Contrato de shader estruturado](./architecture_resource_loaders.md).
 
+## Arenas de pools (spec 034, T060i)
+
+Muitos pools num shader são muitas ligações de storage. As **arenas** juntam pools num buffer só da C2, cada pool numa
+região: o shader liga um buffer por arena, qualquer que seja o número de pools que lê.
+
+- **`pool_arena`** — os pools que a CPU envia e que só se leem: `Light` e os vivos dele, `ShadowMap`, `Renderable`,
+  `RenderInstance`, os materiais (`StandardMaterial`, `PointSpriteMaterial`, `DiffuseMaterial`, `WireframeMaterial`) e
+  os registros das funções de ponto (`<ponto>:<hash>`).
+- **`pool_arena_gpu`** — os pools que os estágios produzem (`upload: 'never'`): `WorldTransform`,
+  `PreviousWorldTransform`, `WorldInverse` (sob demanda: a região nasce no `ensurePoolAllocated`) e `CameraMatrices`.
+
+O buffer é de palavras de 32 bits (`array<u32>`). No começo, o cabeçalho: a base de cada região (em palavras) e, depois,
+a capacidade dela (em elementos), 256 regiões no máximo, cada uma com índice fixo. As regiões são alinhadas a 256
+bytes. Uma região que cresce realoca a arena inteira — o conteúdo de todas vai para o buffer novo por cópia na GPU — e
+cada pool dela anuncia `poolReallocated` (a C2 religa quem a usa). Pool com série temporal não entra em arena (as
+fatias são buffers próprios).
+
+**Declarar.** No lugar do `wgslResource` do pool, um acessor gerado pela C2 com o layout do storage do schema:
+
+```ts
+import { poolArenaReader, poolArenaWriter } from 'clayflow';
+
+// Lido pela arena da CPU (o padrão) — ou pela da GPU, com `arena: 'gpu'`.
+export const lightsResource = poolArenaReader({ name: 'lights', pool: Light.schema.name, schema: Light.schema });
+// Lido e escrito pela arena da GPU (o estágio que produz o pool).
+export const worldsWriteResource = poolArenaWriter({
+    name: 'worlds',
+    pool: Transform.worldSchema.name,
+    schema: Transform.worldSchema,
+});
+```
+
+Declarar o acessor põe o pool na arena. O código WGSL de quem usa não muda: a montagem reescreve, por token,
+
+| No código                 | Vira                          |
+| ------------------------- | ----------------------------- |
+| `lights[i]`               | `lights_at(i)` — o struct montado das palavras |
+| `lights[i].direction`     | `lights_at_direction(i)` — só as palavras do campo |
+| `arrayLength(&lights)`    | `lights_len()` — a capacidade da região |
+| `worlds[i] = m;`          | `worlds_store(i, m);` (só no escritor) |
+| `worlds[i].world = m;`    | `worlds_store_world(i, m);` (só no escritor) |
+
+Outro uso do nome — endereço (`&lights`), passar o array como argumento, atribuição composta (`+=`), escrita por um
+leitor — é erro de montagem (`arena-read`). Campos atômicos não entram em arena.
+
+**Leitura e escrita no mesmo kernel.** O WebGPU não aceita o mesmo buffer escrito numa ligação e lido noutra no mesmo
+despacho. Um kernel que escreve um pool da arena da GPU e lê outro dela (as inversas leem as matrizes de mundo; a câmera
+lê a matriz de mundo da sua entidade) liga a arena uma vez: a montagem promove a ligação de leitura a leitura e
+escrita. Do mesmo modo, a cópia de um pool da arena para outro é um kernel, não `copyBufferToBuffer` (o
+`MotionHistoryFlow` copia `WorldTransform` → `PreviousWorldTransform` assim).
+
+**Trocar o pool num pipeline.** `PipelineDescriptor.pools` com um acessor da arena (ex.: um material com pool próprio,
+no layout do `StandardMaterial`, que usa o shader do forward): a C2 põe o pool na arena (`poolIntoArena`, com cópia na
+GPU do que já foi enviado) e troca, no shader daquele pipeline, o acessor pelo que lê a região do outro pool.
+
+**Ligações tipadas** seguem valendo: quem liga um pool da arena por `wgslResource` com `{ pool }` ou por um slot
+(`slot.pool`, os vivos de `slot.entities`) recebe a faixa da região. Uma ligação à mão do buffer inteiro
+(`bound.slots.x.buffer`) lê o cabeçalho, não o pool: use o acessor. Quem lê um pool de volta soma `PoolInfo.offset` (e
+lê `PoolInfo.size` bytes).
+
 ## Pontos de extensão (spec 009)
 
 O usuário escreve a matemática de um estágio numa função WGSL de assinatura fixa — ou a monta como **grafo de nós**
@@ -327,8 +387,10 @@ app.events.on('extensionRejected', (e) => console.warn(e.point, e.line, e.messag
 
 - **Parâmetros tipados** (spec 031). `params` gera um registro por forma: o struct `<alias>_<hash>` com um campo por
   parâmetro no tipo declarado (`f32`, `u32`, `i32` e os vetores `vec2`–`vec4` de cada um) e `revision`, num pool por
-  forma (`<ponto>:<hash>`) — sem teto de escalares e sem reinterpretação de bits. O módulo gerado traz o alias do
-  ponto, o carregador `<função>_params(slot)` e o código; `revision` é nome reservado.
+  forma (`<ponto>:<hash>`) — sem teto de escalares e sem reinterpretação de bits. Os pools das formas moram na arena
+  da CPU (ver [Arenas de pools](#arenas-de-pools-spec-034-t060i)): um kernel com funções de várias formas liga um
+  buffer só para elas. O módulo gerado traz o alias do ponto, o carregador `<função>_params(slot)` e o código;
+  `revision` é nome reservado.
 - **Por grafo.** `new MaterialFunction({ graph })` (e as outras seis) gera o código, os parâmetros (`nó_parâmetro`) e
   os módulos pelo grafo; `values['nó_parâmetro']` muda valores sem recompilar; `setGraph(outro)` troca a topologia
   (revisão +1, compila em transição, falha mantém o anterior); grafo sem saída usa a pronta (aviso único). `setCode`
@@ -339,8 +401,8 @@ app.events.on('extensionRejected', (e) => console.warn(e.point, e.line, e.messag
 - **Não finito.** Matriz, partícula, ponto ou campo infinitos são descartados (mantém o anterior / não nasce / soma
   zero). NaN depende da GPU: compiladores com matemática rápida podem não preservá-lo.
 - **Custos.** Um pipeline por código (não por entidade): entidades com o mesmo código formam um grupo. Funções de
-  cena recompilam os estágios que as usam uma vez por mudança. Um pipeline com funções cujos pools somados excedem um
-  limite de storage do device é rejeitado (`extensionRejected`) e fica com a pronta.
+  cena recompilam os estágios que as usam uma vez por mudança. Um pipeline cujas ligações (com a arena das funções)
+  excedem um limite de storage do device é rejeitado (`extensionRejected`) e fica com a pronta.
 - **Uma instância por entidade** (reuso de instância é proibido); `values` diferentes por entidade.
 - **Laços sem fim** travam a GPU como em qualquer shader: o motor não os interrompe.
 

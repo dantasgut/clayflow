@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / GraphColorerOptions
+[clayflow](../../modules.md) / [elements](../README.md) / GraphColorerOptions
 
 # Interface: GraphColorerOptions
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:57](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L57)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:54](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L54)
 
 Opções de `GraphColorer`.
 
@@ -16,7 +16,7 @@ Opções de `GraphColorer`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:61](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L61)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:58](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L58)
 
 Maior número de arestas aceito por `color`.
 
@@ -26,7 +26,7 @@ Maior número de arestas aceito por `color`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:59](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L59)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:56](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L56)
 
 Prefixo único dos recursos da instância.
 
@@ -36,6 +36,6 @@ Prefixo único dos recursos da instância.
 
 > `readonly` `optional` **maxColors?**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:63](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L63)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:60](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L60)
 
 Teto de cores; padrão `2Δ` (Δ = grau máximo, calculado na GPU).

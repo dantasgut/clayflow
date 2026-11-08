@@ -1,13 +1,13 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / MAX\_SURFACE\_COLLIDERS
+[clayflow](../../modules.md) / [elements](../README.md) / MAX\_SURFACE\_COLLIDERS
 
 # Variable: MAX\_SURFACE\_COLLIDERS
 
-> `const` **MAX\_SURFACE\_COLLIDERS**: `16` = `16`
+> `const` **MAX\_SURFACE\_COLLIDERS**: `number` = `MAX_SURFACE_COLLIDERS_CONSTANT.value`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:59](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L59)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:47](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L47)
 
 Colliders de superfície consultados por estágio (os inícios dos campos vão no uniforme de contagens).

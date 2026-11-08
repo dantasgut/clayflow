@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ReduceRecordArgs
+[clayflow](../../modules.md) / [elements](../README.md) / ReduceRecordArgs
 
 # Interface: ReduceRecordArgs
 
-Defined in: [elements/gpu/compute/Reduce.ts:37](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L37)
+Defined in: [src/elements/gpu/compute/Reduce.ts:46](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L46)
 
 Argumentos de `Reduce.record`.
 
@@ -14,19 +14,21 @@ Argumentos de `Reduce.record`.
 
 ### count
 
-> `readonly` **count**: `number`
+> `readonly` **count**: `number` \| [`GpuCount`](GpuCount.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:41](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L41)
+Defined in: [src/elements/gpu/compute/Reduce.ts:54](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L54)
 
-Elementos (≤ `capacity`). `0` não grava nada (a saída fica como está).
+Elementos (≤ `capacity`). `0` não grava nada (a saída fica como está). Ou a contagem lida na GPU (`GpuCount`,
+com `src` preparado com o mesmo `counts`): todos os passes da capacidade são gravados, a contagem real limitando
+cada um no kernel.
 
 ***
 
 ### out
 
-> `readonly` **out**: `StorageBufferSpec`
+> `readonly` **out**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:43](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L43)
+Defined in: [src/elements/gpu/compute/Reduce.ts:56](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L56)
 
 Buffer de saída, preparado com `src`.
 
@@ -36,7 +38,7 @@ Buffer de saída, preparado com `src`.
 
 > `readonly` `optional` **outOffset?**: `number`
 
-Defined in: [elements/gpu/compute/Reduce.ts:45](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L45)
+Defined in: [src/elements/gpu/compute/Reduce.ts:58](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L58)
 
 Índice (em elementos) do resultado em `out`. Padrão 0.
 
@@ -44,8 +46,8 @@ Defined in: [elements/gpu/compute/Reduce.ts:45](https://github.com/dantasgut/cla
 
 ### src
 
-> `readonly` **src**: `StorageBufferSpec`
+> `readonly` **src**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:39](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L39)
+Defined in: [src/elements/gpu/compute/Reduce.ts:48](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L48)
 
 Entrada `T[count]`, preparada antes (`prepare`).

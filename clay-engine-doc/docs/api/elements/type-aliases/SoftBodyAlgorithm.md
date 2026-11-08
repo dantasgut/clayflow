@@ -1,13 +1,13 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SoftBodyAlgorithm
+[clayflow](../../modules.md) / [elements](../README.md) / SoftBodyAlgorithm
 
 # Type Alias: SoftBodyAlgorithm
 
 > **SoftBodyAlgorithm** = `"XPBD"` \| `"FEM"` \| `"MPM"`
 
-Defined in: [elements/physics/bodies/SoftBody.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/SoftBody.ts#L21)
+Defined in: [src/elements/physics/bodies/SoftBody.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/SoftBody.ts#L30)
 
 Algoritmo de soft body, em vocabulário de domínio.

@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / UiSlider
+[clayflow](../../modules.md) / [presentation](../README.md) / UiSlider
 
 # Class: UiSlider
 
-Defined in: [presentation/ui/UiSlider.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiSlider.ts#L8)
+Defined in: [src/presentation/ui/UiSlider.ts:8](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiSlider.ts#L8)
 
 Slider horizontal. Valor `value` ∈ [`min`, `max`]; UiInteractionHandler
 atualiza via drag (delta_x sobre bounds.width). UiFlattener desenha
@@ -36,7 +36,7 @@ background bar + handle quad na posição interpolada.
 
 > **bounds**: [`UiBounds`](../interfaces/UiBounds.md)
 
-Defined in: [presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiElement.ts#L27)
+Defined in: [src/presentation/ui/UiElement.ts:27](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiElement.ts#L27)
 
 Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
@@ -50,7 +50,7 @@ Posição + tamanho em pixels de tela. Setado pelo layout ou manualmente.
 
 > **children**: [`UiElement`](UiElement.md)[] = `[]`
 
-Defined in: [presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiElement.ts#L31)
+Defined in: [src/presentation/ui/UiElement.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiElement.ts#L31)
 
 Filhos diretos. Renderizados após o pai (z-order natural).
 
@@ -64,7 +64,7 @@ Filhos diretos. Renderizados após o pai (z-order natural).
 
 > **max**: `number` = `1`
 
-Defined in: [presentation/ui/UiSlider.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiSlider.ts#L14)
+Defined in: [src/presentation/ui/UiSlider.ts:14](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiSlider.ts#L14)
 
 Limite máximo.
 
@@ -74,7 +74,7 @@ Limite máximo.
 
 > **min**: `number` = `0`
 
-Defined in: [presentation/ui/UiSlider.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiSlider.ts#L12)
+Defined in: [src/presentation/ui/UiSlider.ts:12](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiSlider.ts#L12)
 
 Limite mínimo.
 
@@ -84,7 +84,7 @@ Limite mínimo.
 
 > **onChange**: ((`v`) => `void`) \| `undefined`
 
-Defined in: [presentation/ui/UiSlider.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiSlider.ts#L16)
+Defined in: [src/presentation/ui/UiSlider.ts:16](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiSlider.ts#L16)
 
 Callback chamado em cada mudança de value durante o drag.
 
@@ -94,7 +94,7 @@ Callback chamado em cada mudança de value durante o drag.
 
 > **value**: `number` = `0`
 
-Defined in: [presentation/ui/UiSlider.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiSlider.ts#L10)
+Defined in: [src/presentation/ui/UiSlider.ts:10](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiSlider.ts#L10)
 
 Valor atual (lerp entre min e max conforme posição do handle).
 
@@ -104,7 +104,7 @@ Valor atual (lerp entre min e max conforme posição do handle).
 
 > **visible**: `boolean` = `true`
 
-Defined in: [presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiElement.ts#L29)
+Defined in: [src/presentation/ui/UiElement.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiElement.ts#L29)
 
 Quando false, o elemento e seus filhos não são renderizados.
 
@@ -118,7 +118,7 @@ Quando false, o elemento e seus filhos não são renderizados.
 
 > **add**(`child`): `this`
 
-Defined in: [presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/ui/UiElement.ts#L34)
+Defined in: [src/presentation/ui/UiElement.ts:34](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/ui/UiElement.ts#L34)
 
 Anexa um UiElement filho. Chaining fluente.
 

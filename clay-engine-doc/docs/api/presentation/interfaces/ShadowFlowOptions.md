@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / ShadowFlowOptions
+[clayflow](../../modules.md) / [presentation](../README.md) / ShadowFlowOptions
 
 # Interface: ShadowFlowOptions
 
-Defined in: [presentation/flows/ShadowFlow.ts:125](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L125)
+Defined in: [src/presentation/flows/ShadowFlow.ts:269](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L269)
 
 Opções do `ShadowFlow`.
 
@@ -16,6 +16,6 @@ Opções do `ShadowFlow`.
 
 > `readonly` `optional` **preferAsync?**: `boolean`
 
-Defined in: [presentation/flows/ShadowFlow.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L127)
+Defined in: [src/presentation/flows/ShadowFlow.ts:271](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L271)
 
 Compila os pipelines em segundo plano; o estágio entra no quadro quando prontos.

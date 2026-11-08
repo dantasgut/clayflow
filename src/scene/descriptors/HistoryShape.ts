@@ -10,10 +10,11 @@ export interface HistoryShape {
      */
     readonly depth: number;
     /**
-     * Série por páginas (spec 034, T060a; textura ou buffer de storage próprio): o alvo é um só e a continuidade é guardada por página — a C2
-     * mantém o carimbo de cada página (a época em que foi escrita, num buffer que o produtor atualiza na GPU) e o
-     * relógio da série (a época, que sobe a cada invalidação). Página com carimbo de outra época não vale. Para o
-     * cache que muda pouco a cada quadro (o atlas da sombra virtual), sem carregar o que não mudou de uma fatia à outra.
+     * Série por páginas (spec 034, T060a; textura ou buffer de storage próprio): o alvo é um só e a continuidade é
+     * guardada por página — a C2 mantém o carimbo de cada página (a época em que foi escrita, num buffer que o
+     * produtor atualiza na GPU) e o relógio da série (a época, que sobe a cada invalidação). Página com carimbo de
+     * outra época não vale. Para o cache que muda pouco a cada quadro (os atlas da sombra virtual e do campo dos
+     * fluidos, ambos em buffer), sem carregar o que não mudou de uma fatia à outra.
      */
     readonly pages?: HistoryPages;
     /**
@@ -27,8 +28,7 @@ export interface HistoryShape {
 
 /**
  * As páginas de uma série por páginas: numa textura, o lado de cada uma em texels (`tile`; a textura é dividida em
- * páginas inteiras — numa textura 3D, com o terceiro lado, também na profundidade: o atlas do campo dos fluidos, T060f);
- * num buffer de storage próprio, os bytes de cada uma (`record`; o buffer é dividido em registros) e, opcional, os bytes
+ * páginas inteiras — numa textura 3D, com o terceiro lado, também na profundidade); num buffer de storage próprio, os bytes de cada uma (`record`; o buffer é dividido em registros) e, opcional, os bytes
  * antes da primeira (`offset`; o começo do buffer fica fora das páginas — o buffer das consultas do campo dos fluidos, com
  * os voxels de cada bloco numa página no fim, T060f).
  */

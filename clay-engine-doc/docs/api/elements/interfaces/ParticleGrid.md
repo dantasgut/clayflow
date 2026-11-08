@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ParticleGrid
+[clayflow](../../modules.md) / [elements](../README.md) / ParticleGrid
 
 # Interface: ParticleGrid
 
-Defined in: [elements/physics/ParticlePhysics.ts:122](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L122)
+Defined in: [src/elements/physics/ParticlePhysics.ts:130](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L130)
 
 Grade uniforme que cobre o domínio das partículas.
 
@@ -16,7 +16,7 @@ Grade uniforme que cobre o domínio das partículas.
 
 > `readonly` **cellSize**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:128](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L128)
+Defined in: [src/elements/physics/ParticlePhysics.ts:136](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L136)
 
 Aresta da célula (mundo).
 
@@ -26,7 +26,7 @@ Aresta da célula (mundo).
 
 > `readonly` **gridDim**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/ParticlePhysics.ts:126](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L126)
+Defined in: [src/elements/physics/ParticlePhysics.ts:134](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L134)
 
 Células por eixo.
 
@@ -36,6 +36,6 @@ Células por eixo.
 
 > `readonly` **origin**: \[`number`, `number`, `number`\]
 
-Defined in: [elements/physics/ParticlePhysics.ts:124](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L124)
+Defined in: [src/elements/physics/ParticlePhysics.ts:132](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L132)
 
 Canto mínimo da grade (mundo).

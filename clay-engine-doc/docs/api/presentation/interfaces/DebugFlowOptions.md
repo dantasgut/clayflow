@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / DebugFlowOptions
+[clayflow](../../modules.md) / [presentation](../README.md) / DebugFlowOptions
 
 # Interface: DebugFlowOptions
 
-Defined in: [presentation/flows/DebugFlow.ts:23](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L23)
+Defined in: [src/presentation/flows/DebugFlow.ts:26](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/DebugFlow.ts#L26)
 
 Opções do `DebugFlow`.
 
@@ -16,7 +16,7 @@ Opções do `DebugFlow`.
 
 > `readonly` `optional` **avgWindow?**: `number`
 
-Defined in: [presentation/flows/DebugFlow.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L27)
+Defined in: [src/presentation/flows/DebugFlow.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/DebugFlow.ts#L30)
 
 Window de rolling average para frame time (default: 60).
 
@@ -26,7 +26,7 @@ Window de rolling average para frame time (default: 60).
 
 > `readonly` `optional` **emitStats?**: `boolean`
 
-Defined in: [presentation/flows/DebugFlow.ts:25](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L25)
+Defined in: [src/presentation/flows/DebugFlow.ts:28](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/DebugFlow.ts#L28)
 
 Emite `profilerStats` ao fim de cada frame quando enabled (default: true).
 
@@ -36,6 +36,6 @@ Emite `profilerStats` ao fim de cada frame quando enabled (default: true).
 
 > `readonly` `optional` **toggleKey?**: `string`
 
-Defined in: [presentation/flows/DebugFlow.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/DebugFlow.ts#L29)
+Defined in: [src/presentation/flows/DebugFlow.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/DebugFlow.ts#L32)
 
 Tecla que toggla o overlay (default: 'F1').

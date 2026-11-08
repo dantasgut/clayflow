@@ -1,59 +1,45 @@
-[**webgpu-engine**](../README.md)
+[**clayflow**](../README.md)
 
 ***
 
-[webgpu-engine](../modules.md) / presentation
+[clayflow](../modules.md) / presentation
 
 # presentation
 
 Camada 4 — Presentation API pública.
 
-Esta é a "fronteira" recomendada para apps que consomem a engine. O default
-é importar tudo aqui (`Application`, `Camera`, `BoxGeometry`, controllers,
-effects, etc.) e usar `Application.create({ canvas })` como bootstrap.
+O que não depende do ambiente (spec 038): o `Engine`, os controllers, os efeitos, a UI. O `Application` sobre um
+canvas e o que é do navegador (entrada do DOM, carregadores) estão no `clayflow/web`; o do Deno, no `clayflow/deno`.
 
 Para implementar Resources/Flows customizados, importe diretamente de
 `webgpu-engine` (que re-exporta este barrel + `core/`+`scene/` types).
 
 ## Classes
 
-- [Application](classes/Application.md)
-- [Assets](classes/Assets.md)
-- [AudioLoader](classes/AudioLoader.md)
 - [Bloom](classes/Bloom.md)
 - [Blur](classes/Blur.md)
-- [CausticsFlow](classes/CausticsFlow.md)
 - [ChromaticAberration](classes/ChromaticAberration.md)
 - [ColorGrading](classes/ColorGrading.md)
 - [DebugFlow](classes/DebugFlow.md)
-- [FluidSurfaceFlow](classes/FluidSurfaceFlow.md)
+- [Engine](classes/Engine.md)
 - [FlyController](classes/FlyController.md)
-- [FontLoader](classes/FontLoader.md)
 - [ForwardFlow](classes/ForwardFlow.md)
-- [FpsController](classes/FpsController.md)
 - [GameLoop](classes/GameLoop.md)
-- [GamepadDevice](classes/GamepadDevice.md)
-- [GltfLoader](classes/GltfLoader.md)
-- [HeightmapLoader](classes/HeightmapLoader.md)
 - [Input](classes/Input.md)
 - [InputDrivenController](classes/InputDrivenController.md)
 - [InteractionSystem](classes/InteractionSystem.md)
-- [KeyboardDevice](classes/KeyboardDevice.md)
 - [OrbitController](classes/OrbitController.md)
 - [ParticleFlow](classes/ParticleFlow.md)
-- [PointerDevice](classes/PointerDevice.md)
 - [PostFlow](classes/PostFlow.md)
 - [PostProcessEffect](classes/PostProcessEffect.md)
+- [SceneRenderer](classes/SceneRenderer.md)
 - [ShadowFlow](classes/ShadowFlow.md)
-- [TextureLoader](classes/TextureLoader.md)
 - [Time](classes/Time.md)
 - [ToneMapping](classes/ToneMapping.md)
-- [TouchDevice](classes/TouchDevice.md)
 - [UiButton](classes/UiButton.md)
 - [UiElement](classes/UiElement.md)
 - [UIFlow](classes/UIFlow.md)
 - [UiHBox](classes/UiHBox.md)
-- [UiInteractionHandler](classes/UiInteractionHandler.md)
 - [UiPanel](classes/UiPanel.md)
 - [UiSlider](classes/UiSlider.md)
 - [UiStack](classes/UiStack.md)
@@ -61,62 +47,50 @@ Para implementar Resources/Flows customizados, importe diretamente de
 - [UiTree](classes/UiTree.md)
 - [UiVBox](classes/UiVBox.md)
 - [Vignette](classes/Vignette.md)
-- [WaterFlow](classes/WaterFlow.md)
-- [WaterSurface](classes/WaterSurface.md)
 
 ## Interfaces
 
-- [ApplicationOptions](interfaces/ApplicationOptions.md)
-- [CausticsSlots](interfaces/CausticsSlots.md)
 - [ColorGradingOptions](interfaces/ColorGradingOptions.md)
 - [DebugFlowOptions](interfaces/DebugFlowOptions.md)
+- [EngineCommonOptions](interfaces/EngineCommonOptions.md)
+- [EngineOptions](interfaces/EngineOptions.md)
 - [EnginePlugin](interfaces/EnginePlugin.md)
-- [FluidSurfaceFlowOptions](interfaces/FluidSurfaceFlowOptions.md)
-- [FluidSurfaceSlots](interfaces/FluidSurfaceSlots.md)
 - [FlyControllerKeymap](interfaces/FlyControllerKeymap.md)
 - [FlyControllerOptions](interfaces/FlyControllerOptions.md)
+- [FontGlyph](interfaces/FontGlyph.md)
 - [ForwardFlowOptions](interfaces/ForwardFlowOptions.md)
 - [ForwardSlots](interfaces/ForwardSlots.md)
-- [FpsControllerOptions](interfaces/FpsControllerOptions.md)
-- [GltfAnimation](interfaces/GltfAnimation.md)
-- [GltfAnimationChannel](interfaces/GltfAnimationChannel.md)
-- [GltfAnimationSampler](interfaces/GltfAnimationSampler.md)
-- [GltfDocument](interfaces/GltfDocument.md)
-- [GltfMaterial](interfaces/GltfMaterial.md)
-- [GltfMesh](interfaces/GltfMesh.md)
-- [GltfNode](interfaces/GltfNode.md)
-- [GltfPrimitive](interfaces/GltfPrimitive.md)
-- [GltfSkin](interfaces/GltfSkin.md)
-- [Heightmap](interfaces/Heightmap.md)
+- [FrameScheduler](interfaces/FrameScheduler.md)
+- [GamepadState](interfaces/GamepadState.md)
+- [InputDevice](interfaces/InputDevice.md)
 - [InputState](interfaces/InputState.md)
-- [InteractionSystemOptions](interfaces/InteractionSystemOptions.md)
 - [KeyEvent](interfaces/KeyEvent.md)
-- [LoadedAudio](interfaces/LoadedAudio.md)
 - [LoadedFont](interfaces/LoadedFont.md)
-- [LoadedTexture](interfaces/LoadedTexture.md)
 - [OrbitControllerOptions](interfaces/OrbitControllerOptions.md)
 - [ParticleSlots](interfaces/ParticleSlots.md)
 - [PointerInputEvent](interfaces/PointerInputEvent.md)
 - [PostProcessData](interfaces/PostProcessData.md)
 - [PostProcessOptions](interfaces/PostProcessOptions.md)
 - [PostSlots](interfaces/PostSlots.md)
+- [PreparedEngine](interfaces/PreparedEngine.md)
 - [PresentationDefaults](interfaces/PresentationDefaults.md)
 - [PresentationDefaultsOptions](interfaces/PresentationDefaultsOptions.md)
 - [ShadowFlowOptions](interfaces/ShadowFlowOptions.md)
 - [ShadowSlots](interfaces/ShadowSlots.md)
+- [ToneMappingData](interfaces/ToneMappingData.md)
+- [ToneMappingOptions](interfaces/ToneMappingOptions.md)
 - [UiBounds](interfaces/UiBounds.md)
 - [UISlots](interfaces/UISlots.md)
-- [WaterSlots](interfaces/WaterSlots.md)
-- [WaterSurfaceOptions](interfaces/WaterSurfaceOptions.md)
 - [WheelInputEvent](interfaces/WheelInputEvent.md)
 
 ## Type Aliases
 
 - [DebugSlots](type-aliases/DebugSlots.md)
 - [ForwardOutput](type-aliases/ForwardOutput.md)
-- [GltfAnimationPath](type-aliases/GltfAnimationPath.md)
-- [GltfInterpolation](type-aliases/GltfInterpolation.md)
-- [WaterView](type-aliases/WaterView.md)
+- [GamepadSource](type-aliases/GamepadSource.md)
+- [InputDevicesFactory](type-aliases/InputDevicesFactory.md)
+- [PresentationOutput](type-aliases/PresentationOutput.md)
+- [ToneOperator](type-aliases/ToneOperator.md)
 
 ## Variables
 

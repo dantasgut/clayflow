@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ParametricFunction
+[clayflow](../../modules.md) / [elements](../README.md) / ParametricFunction
 
 # Type Alias: ParametricFunction
 
 > **ParametricFunction** = (`u`, `v`) => readonly \[`number`, `number`, `number`\]
 
-Defined in: [elements/geometry/ParametricGeometry.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/ParametricGeometry.ts#L16)
+Defined in: [src/elements/geometry/ParametricGeometry.ts:16](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/ParametricGeometry.ts#L16)
 
 Função paramétrica que mapeia coordenadas (u, v) ∈ [0,1]² → posição 3D.
 Usada por `ParametricGeometry` para gerar superfícies (e.g. esfera,

@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / MPMSoftSchema
+[clayflow](../../modules.md) / [elements](../README.md) / MPMSoftSchema
 
 # Variable: MPMSoftSchema
 
-> `const` **MPMSoftSchema**: `StructSchema`
+> `const` **MPMSoftSchema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/bodies/schemas/MPMSoftSchema.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/schemas/MPMSoftSchema.ts#L9)
+Defined in: [src/elements/physics/bodies/schemas/MPMSoftSchema.ts:9](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/schemas/MPMSoftSchema.ts#L9)
 
 Schema da partícula MPM aplicada a soft bodies (8 vec4f = 128B).
 Fonte única do struct WGSL `MPMParticle` (gerado deste schema pela montagem dos shaders). Inclui gradiente de deformação F

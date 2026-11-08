@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SPHFlowOptions
+[clayflow](../../modules.md) / [elements](../README.md) / SPHFlowOptions
 
 # Interface: SPHFlowOptions
 
-Defined in: [elements/physics/flows/SPHFlow.ts:42](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L42)
+Defined in: [src/elements/physics/flows/SPHFlow.ts:52](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SPHFlow.ts#L52)
 
 Opções do `SPHFlow`.
 
@@ -16,7 +16,7 @@ Opções do `SPHFlow`.
 
 > `readonly` `optional` **maxNeighbors?**: `number`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:46](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L46)
+Defined in: [src/elements/physics/flows/SPHFlow.ts:56](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SPHFlow.ts#L56)
 
 Vizinhos guardados por partícula (padrão 128; o suporte 2h tem ~73 vizinhos em repouso).
 
@@ -26,6 +26,6 @@ Vizinhos guardados por partícula (padrão 128; o suporte 2h tem ~73 vizinhos em
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/SPHFlow.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SPHFlow.ts#L44)
+Defined in: [src/elements/physics/flows/SPHFlow.ts:54](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SPHFlow.ts#L54)
 
 Mínimo de substeps por passo (padrão 1); o passo estável do `ParticlePhysics` pode exigir mais.

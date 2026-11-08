@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / XPBDFlowOptions
+[clayflow](../../modules.md) / [elements](../README.md) / XPBDFlowOptions
 
 # Interface: XPBDFlowOptions
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L31)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:39](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L39)
 
 Opções do `XPBDFlow`.
 
@@ -16,7 +16,7 @@ Opções do `XPBDFlow`.
 
 > `readonly` `optional` **constraintPoolKey?**: `string`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:33](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L33)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:41](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L41)
 
 Pool das restrições de distância (padrão `DistanceConstraint`).
 
@@ -26,7 +26,7 @@ Pool das restrições de distância (padrão `DistanceConstraint`).
 
 > `readonly` `optional` **solverIters?**: `number`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:37](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L37)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:45](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L45)
 
 Iterações do solver de restrições por substep (padrão 1).
 
@@ -36,6 +36,6 @@ Iterações do solver de restrições por substep (padrão 1).
 
 > `readonly` `optional` **substeps?**: `number`
 
-Defined in: [elements/physics/flows/XPBDFlow.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/XPBDFlow.ts#L35)
+Defined in: [src/elements/physics/flows/XPBDFlow.ts:43](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/XPBDFlow.ts#L43)
 
 Substeps por passo de física (padrão 8). O passo vem do `Time` da cena.

@@ -51,6 +51,12 @@ qualquer perfil, `new GlobalIllumination({ screenTile: 16 })` fixa só o ladrilh
 `shadow: { size: [2048, 2048] }` fixa a resolução daquele mapa. A troca de resolução realoca as grades e a textura pela
 C2 (o histórico da névoa recomeça).
 
+As sombras são mapas virtuais (spec 034, T060): níveis em volta da câmera, divididos em páginas de 128² ancoradas no
+espaço da luz, e só existem as páginas que a imagem pede. Tudo em buffer, sem texturas (T060h): o atlas
+(`ShadowMap.atlas`) tem a tabela de páginas no começo e as páginas físicas depois, cada uma com a borda de 1 texel e as
+profundidades em bits de `f32`; o desenho das páginas grava a profundidade com `atomicMin` e o sombreamento lê a
+penumbra bilinear da página (`shadow_page_compare`). `shadow.resolution` é o lado virtual de um nível.
+
 O espaçamento das sondas do mundo (`probeSpacing`) não entra no perfil: ele é limitado pela parede mais fina da cena, e
 maior que isso a luz vaza. `lightPaths.globalIllumination = false` desliga a GI da cena sem tirá-la (o `enabled` da
 autoria fica como está).

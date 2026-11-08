@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / LCPSchema
+[clayflow](../../modules.md) / [elements](../README.md) / LCPSchema
 
 # Variable: LCPSchema
 
-> `const` **LCPSchema**: `StructSchema`
+> `const` **LCPSchema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/bodies/schemas/LCPSchema.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/schemas/LCPSchema.ts#L8)
+Defined in: [src/elements/physics/bodies/schemas/LCPSchema.ts:8](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/schemas/LCPSchema.ts#L8)
 
 Schema do RigidBody integrado pelo LCPFlow (10 vec4f = 160B).
 Fonte única do struct WGSL `RigidBody` (gerado deste schema pela montagem dos shaders) — lido pelo kernel rb_predict.

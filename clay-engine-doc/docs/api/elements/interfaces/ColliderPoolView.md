@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ColliderPoolView
+[clayflow](../../modules.md) / [elements](../README.md) / ColliderPoolView
 
 # Interface: ColliderPoolView
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:62](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L62)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:50](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L50)
 
 Visão de um pool de collider: buffer do pool, mapa de dono e contagem.
 
@@ -14,9 +14,9 @@ Visão de um pool de collider: buffer do pool, mapa de dono e contagem.
 
 ### buffer
 
-> `readonly` **buffer**: `StorageBufferSpec`
+> `readonly` **buffer**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:64](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L64)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:52](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L52)
 
 Pool tipado (ou buffer mínimo se o pool não existe).
 
@@ -26,7 +26,7 @@ Pool tipado (ou buffer mínimo se o pool não existe).
 
 > `readonly` **count**: `number`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:68](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L68)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:56](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L56)
 
 Colliders no pool.
 
@@ -34,8 +34,8 @@ Colliders no pool.
 
 ### owners
 
-> `readonly` **owners**: `StorageBufferSpec`
+> `readonly` **owners**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:66](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L66)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:54](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L54)
 
 `owners[slot]` = slot do corpo dono no pool de corpos, ou `NO_OWNER`.

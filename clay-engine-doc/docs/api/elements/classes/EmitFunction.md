@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / EmitFunction
+[clayflow](../../modules.md) / [elements](../README.md) / EmitFunction
 
 # Class: EmitFunction
 
-Defined in: [elements/extension/EmitFunction.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/extension/EmitFunction.ts#L19)
+Defined in: [src/elements/extension/EmitFunction.ts:19](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/extension/EmitFunction.ts#L19)
 
 Função do ponto `emit` (spec 009) — como um emissor cria cada partícula, em WGSL:
 
@@ -21,7 +21,7 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle
 
 ## Extends
 
-- `ExtensionFunction`
+- [`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md)
 
 ## Constructors
 
@@ -29,13 +29,13 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle
 
 > **new EmitFunction**(`options`): `EmitFunction`
 
-Defined in: [elements/extension/EmitFunction.ts:23](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/extension/EmitFunction.ts#L23)
+Defined in: [src/elements/extension/EmitFunction.ts:20](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/extension/EmitFunction.ts#L20)
 
 #### Parameters
 
 ##### options
 
-`ExtensionFunctionOptions`
+[`ExtensionFunctionOptions`](../../platform/web/type-aliases/ExtensionFunctionOptions.md)
 
 #### Returns
 
@@ -43,35 +43,21 @@ Defined in: [elements/extension/EmitFunction.ts:23](https://github.com/dantasgut
 
 #### Overrides
 
-`ExtensionFunction.constructor`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`constructor`](../../platform/web/classes/ExtensionFunction.md#constructor)
 
 ## Properties
 
-### params
-
-> `readonly` **params**: `Readonly`\<`Record`\<`string`, `ExtensionParamType`\>\>
-
-Defined in: [scene/contracts/ExtensionFunction.ts:135](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L135)
-
-Parâmetros declarados (nome → tipo).
-
-#### Inherited from
-
-`ExtensionFunction.params`
-
-***
-
 ### point
 
-> `readonly` **point**: `WgslPoint`
+> `readonly` **point**: [`WgslPoint`](../../platform/web/interfaces/WgslPoint.md)
 
-Defined in: [scene/contracts/ExtensionFunction.ts:133](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L133)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:119](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L119)
 
 Ponto de extensão.
 
 #### Inherited from
 
-`ExtensionFunction.point`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`point`](../../platform/web/classes/ExtensionFunction.md#point)
 
 ***
 
@@ -79,65 +65,27 @@ Ponto de extensão.
 
 > `readonly` **renamed**: `boolean`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:141](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L141)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:121](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L121)
 
 Renomeia a função, o alias e o carregador com o hash (ponto de cena: várias funções no mesmo shader).
 
 #### Inherited from
 
-`ExtensionFunction.renamed`
-
-***
-
-### requires
-
-> `readonly` **requires**: readonly `WgslModule`[]
-
-Defined in: [scene/contracts/ExtensionFunction.ts:139](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L139)
-
-Módulos do núcleo que o código usa.
-
-#### Inherited from
-
-`ExtensionFunction.requires`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`renamed`](../../platform/web/classes/ExtensionFunction.md#renamed)
 
 ***
 
 ### state
 
-> **state**: `ResourceState` = `ResourceState.Uninitialized`
+> **state**: [`ResourceState`](../../platform/web/enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:131](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L131)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L117)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Inherited from
 
-`ExtensionFunction.state`
-
-***
-
-### values
-
-> `readonly` **values**: `Record`\<`string`, `ExtensionParamValue`\>
-
-Defined in: [scene/contracts/ExtensionFunction.ts:137](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L137)
-
-Valores dos parâmetros por nome (leitura e escrita; escrever envia no quadro seguinte).
-
-#### Inherited from
-
-`ExtensionFunction.values`
-
-***
-
-### schema
-
-> `readonly` `static` **schema**: `StructSchema` = `emitPoint.record`
-
-Defined in: [elements/extension/EmitFunction.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/extension/EmitFunction.ts#L21)
-
-Registro de parâmetros das funções `emit` (um pool por ponto).
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`state`](../../platform/web/classes/ExtensionFunction.md#state)
 
 ## Accessors
 
@@ -147,7 +95,7 @@ Registro de parâmetros das funções `emit` (um pool por ponto).
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
+Defined in: [src/scene/contracts/Entity.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L160)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -158,7 +106,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 #### Inherited from
 
-`ExtensionFunction.attached`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`attached`](../../platform/web/classes/ExtensionFunction.md#attached)
 
 ***
 
@@ -168,9 +116,9 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **code**(): `string`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:196](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L196)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:188](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L188)
 
-Código WGSL atual.
+Código WGSL atual (num grafo, o gerado).
 
 ##### Returns
 
@@ -178,7 +126,28 @@ Código WGSL atual.
 
 #### Inherited from
 
-`ExtensionFunction.code`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`code`](../../platform/web/classes/ExtensionFunction.md#code)
+
+***
+
+### composite
+
+#### Get Signature
+
+> **get** **composite**(): `CompositeFunction` \| `undefined`
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:235](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L235)
+
+A função com os nomes do sufixo do hash (spec 033), para reunir várias funções do ponto num mesmo shader;
+`undefined` com a implementação pronta (grafo sem saída).
+
+##### Returns
+
+`CompositeFunction` \| `undefined`
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`composite`](../../platform/web/classes/ExtensionFunction.md#composite)
 
 ***
 
@@ -188,7 +157,7 @@ Código WGSL atual.
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
+Defined in: [src/scene/contracts/Entity.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L97)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -201,7 +170,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
+Defined in: [src/scene/contracts/Entity.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L103)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -215,9 +184,15 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 `void`
 
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+schema.
+
 #### Inherited from
 
-`ExtensionFunction.data`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`data`](../../platform/web/classes/ExtensionFunction.md#data)
 
 ***
 
@@ -227,7 +202,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** **functionName**(): `string`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:216](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L216)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:213](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L213)
 
 Nome da função obrigatória no módulo (com sufixo quando `renamed`).
 
@@ -235,9 +210,54 @@ Nome da função obrigatória no módulo (com sufixo quando `renamed`).
 
 `string`
 
+Nome da função obrigatória no módulo (com o sufixo do hash nos pontos de cena).
+
 #### Inherited from
 
-`ExtensionFunction.functionName`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`functionName`](../../platform/web/classes/ExtensionFunction.md#functionname)
+
+***
+
+### graph
+
+#### Get Signature
+
+> **get** **graph**(): [`NodeGraph`](../../platform/web/classes/NodeGraph.md) \| `undefined`
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:183](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L183)
+
+Grafo de nós que gera o código, ou `undefined` (código escrito à mão).
+
+##### Returns
+
+[`NodeGraph`](../../platform/web/classes/NodeGraph.md) \| `undefined`
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`graph`](../../platform/web/classes/ExtensionFunction.md#graph)
+
+***
+
+### implemented
+
+#### Get Signature
+
+> **get** **implemented**(): `boolean`
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:178](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L178)
+
+Tem função própria; `false` com um grafo sem saída (usa a implementação pronta do ponto).
+
+##### Returns
+
+`boolean`
+
+A implementação tem função própria. `false` (grafo sem saída, spec 031): o módulo é o pronto do ponto e, nos
+pontos de cena, a função não entra na composição.
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`implemented`](../../platform/web/classes/ExtensionFunction.md#implemented)
 
 ***
 
@@ -247,7 +267,7 @@ Nome da função obrigatória no módulo (com sufixo quando `renamed`).
 
 > **get** **loaderName**(): `string`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:229](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L229)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:226](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L226)
 
 Nome do carregador de parâmetros no módulo.
 
@@ -255,9 +275,11 @@ Nome do carregador de parâmetros no módulo.
 
 `string`
 
+Nome do carregador de parâmetros no módulo.
+
 #### Inherited from
 
-`ExtensionFunction.loaderName`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`loaderName`](../../platform/web/classes/ExtensionFunction.md#loadername)
 
 ***
 
@@ -265,19 +287,41 @@ Nome do carregador de parâmetros no módulo.
 
 #### Get Signature
 
-> **get** **module**(): `WgslModule`
+> **get** **module**(): [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [scene/contracts/ExtensionFunction.ts:201](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L201)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:193](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L193)
 
 Módulo gerado do código atual (struct, carregador e código).
 
 ##### Returns
 
-`WgslModule`
+[`WgslModule`](../../platform/web/interfaces/WgslModule.md)
+
+Módulo gerado do código atual.
 
 #### Inherited from
 
-`ExtensionFunction.module`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`module`](../../platform/web/classes/ExtensionFunction.md#module)
+
+***
+
+### params
+
+#### Get Signature
+
+> **get** **params**(): `Readonly`\<`Record`\<`string`, [`ExtensionParamType`](../../platform/web/type-aliases/ExtensionParamType.md)\>\>
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:163](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L163)
+
+Parâmetros declarados (nome → tipo); num grafo, `nó_parâmetro`.
+
+##### Returns
+
+`Readonly`\<`Record`\<`string`, [`ExtensionParamType`](../../platform/web/type-aliases/ExtensionParamType.md)\>\>
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`params`](../../platform/web/classes/ExtensionFunction.md#params)
 
 ***
 
@@ -287,9 +331,9 @@ Módulo gerado do código atual (struct, carregador e código).
 
 > **get** **paramsStruct**(): `string`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:211](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L211)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:203](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L203)
 
-Nome do struct de parâmetros gerado.
+Nome do struct de parâmetros gerado (o do registro tipado da forma).
 
 ##### Returns
 
@@ -297,7 +341,7 @@ Nome do struct de parâmetros gerado.
 
 #### Inherited from
 
-`ExtensionFunction.paramsStruct`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`paramsStruct`](../../platform/web/classes/ExtensionFunction.md#paramsstruct)
 
 ***
 
@@ -307,7 +351,7 @@ Nome do struct de parâmetros gerado.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
+Defined in: [src/scene/contracts/Entity.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L117)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -318,7 +362,47 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 #### Inherited from
 
-`ExtensionFunction.rawData`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`rawData`](../../platform/web/classes/ExtensionFunction.md#rawdata)
+
+***
+
+### record
+
+#### Get Signature
+
+> **get** **record**(): [`StructSchema`](../../platform/web/classes/StructSchema.md)
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:208](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L208)
+
+Schema do registro tipado da forma (spec 031, R8); o nome (`<ponto>:<hash>`) é a chave do pool.
+
+##### Returns
+
+[`StructSchema`](../../platform/web/classes/StructSchema.md)
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`record`](../../platform/web/classes/ExtensionFunction.md#record)
+
+***
+
+### requires
+
+#### Get Signature
+
+> **get** **requires**(): readonly [`WgslModule`](../../platform/web/interfaces/WgslModule.md)[]
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:173](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L173)
+
+Módulos que o código usa (num grafo, os módulos dos nós).
+
+##### Returns
+
+readonly [`WgslModule`](../../platform/web/interfaces/WgslModule.md)[]
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`requires`](../../platform/web/classes/ExtensionFunction.md#requires)
 
 ***
 
@@ -328,7 +412,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **revision**(): `number`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:206](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L206)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:198](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L198)
 
 Revisão do código (sobe a cada `setCode`).
 
@@ -336,9 +420,31 @@ Revisão do código (sobe a cada `setCode`).
 
 `number`
 
+Revisão do código.
+
 #### Inherited from
 
-`ExtensionFunction.revision`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`revision`](../../platform/web/classes/ExtensionFunction.md#revision)
+
+***
+
+### values
+
+#### Get Signature
+
+> **get** **values**(): `Record`\<`string`, [`ExtensionParamValue`](../../platform/web/type-aliases/ExtensionParamValue.md)\>
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:168](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L168)
+
+Valores dos parâmetros por nome (leitura e escrita; escrever envia no quadro seguinte).
+
+##### Returns
+
+`Record`\<`string`, [`ExtensionParamValue`](../../platform/web/type-aliases/ExtensionParamValue.md)\>
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`values`](../../platform/web/classes/ExtensionFunction.md#values)
 
 ## Methods
 
@@ -346,7 +452,7 @@ Revisão do código (sobe a cada `setCode`).
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
+Defined in: [src/scene/contracts/Entity.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L140)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -363,7 +469,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 #### Inherited from
 
-`ExtensionFunction.add`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`add`](../../platform/web/classes/ExtensionFunction.md#add)
 
 ***
 
@@ -371,7 +477,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **codeLine**(`moduleLine`): `number`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:235](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L235)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:245](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L245)
 
 Linha no código do usuário de uma linha do módulo gerado (≤ 0: no trecho gerado).
 
@@ -387,7 +493,7 @@ Linha no código do usuário de uma linha do módulo gerado (≤ 0: no trecho ge
 
 #### Inherited from
 
-`ExtensionFunction.codeLine`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`codeLine`](../../platform/web/classes/ExtensionFunction.md#codeline)
 
 ***
 
@@ -395,7 +501,7 @@ Linha no código do usuário de uma linha do módulo gerado (≤ 0: no trecho ge
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
+Defined in: [src/scene/contracts/Entity.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L149)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -412,15 +518,15 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 #### Inherited from
 
-`ExtensionFunction.detach`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`detach`](../../platform/web/classes/ExtensionFunction.md#detach)
 
 ***
 
 ### getDescriptors()
 
-> **getDescriptors**(): readonly `GPUDescriptor`[]
+> **getDescriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
-Defined in: [scene/contracts/ExtensionFunction.ts:250](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L250)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:310](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L310)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -429,31 +535,31 @@ que este resource expõe ao `ResourceSystem`. Cada descriptor define
 
 #### Returns
 
-readonly `GPUDescriptor`[]
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
 #### Inherited from
 
-`ExtensionFunction.getDescriptors`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`getDescriptors`](../../platform/web/classes/ExtensionFunction.md#getdescriptors)
 
 ***
 
 ### getPipelineDescriptors()
 
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+> **getPipelineDescriptors**(): readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [scene/contracts/ExtensionFunction.ts:254](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L254)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:314](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L314)
 
-Pipelines GPU declaradas pelo resource (shader source + entry points
-+ consumes). Útil para Materials que carregam shaders próprios.
+Pipelines GPU declaradas pelo resource (shader e entry points; recursos
+pelos módulos declarados). Útil para Materials que carregam shaders próprios.
 Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 
-readonly `PipelineDescriptor`[]
+readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
 #### Inherited from
 
-`ExtensionFunction.getPipelineDescriptors`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`getPipelineDescriptors`](../../platform/web/classes/ExtensionFunction.md#getpipelinedescriptors)
 
 ***
 
@@ -461,7 +567,7 @@ readonly `PipelineDescriptor`[]
 
 > **optionalName**(`name`): `string` \| `undefined`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:223](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L223)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:220](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L220)
 
 Nome no módulo da função opcional `name`, se o código a define (com o sufixo do hash quando `renamed`).
 
@@ -477,7 +583,38 @@ Nome no módulo da função opcional `name`, se o código a define (com o sufixo
 
 #### Inherited from
 
-`ExtensionFunction.optionalName`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`optionalName`](../../platform/web/classes/ExtensionFunction.md#optionalname)
+
+***
+
+### redescribe()
+
+> `protected` **redescribe**(`previous`, `next`): `void`
+
+Defined in: [src/scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L127)
+
+Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+
+#### Parameters
+
+##### previous
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+##### next
+
+[`ExtensionParamsData`](../../platform/web/interfaces/ExtensionParamsData.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`redescribe`](../../platform/web/classes/ExtensionFunction.md#redescribe)
 
 ***
 
@@ -485,7 +622,7 @@ Nome no módulo da função opcional `name`, se o código a define (com o sufixo
 
 > **setCode**(`code`): `void`
 
-Defined in: [scene/contracts/ExtensionFunction.ts:243](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/ExtensionFunction.ts#L243)
+Defined in: [src/scene/contracts/ExtensionFunction.ts:253](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L253)
 
 Troca o código. Valida na hora (lança como na criação, e o código anterior continua); a revisão sobe e o
 estágio dono compila o módulo novo.
@@ -502,4 +639,31 @@ estágio dono compila o módulo novo.
 
 #### Inherited from
 
-`ExtensionFunction.setCode`
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`setCode`](../../platform/web/classes/ExtensionFunction.md#setcode)
+
+***
+
+### setGraph()
+
+> **setGraph**(`graph`): `void`
+
+Defined in: [src/scene/contracts/ExtensionFunction.ts:270](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/ExtensionFunction.ts#L270)
+
+Troca o grafo (topologia nova: spec 031, US2). Valida e gera na hora (lança como na criação, e o grafo anterior
+continua); parâmetros de mesmo nome e tipo mantêm o valor, os novos recebem o do grafo; a revisão sobe e o estágio
+dono compila em transição. Com parâmetros de outra forma, o registro muda de schema e de pool (a C2 realoca a
+função; R8). Mudar só valores não passa por aqui (`values`, sem recompilar).
+
+#### Parameters
+
+##### graph
+
+[`NodeGraph`](../../platform/web/classes/NodeGraph.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`ExtensionFunction`](../../platform/web/classes/ExtensionFunction.md).[`setGraph`](../../platform/web/classes/ExtensionFunction.md#setgraph)

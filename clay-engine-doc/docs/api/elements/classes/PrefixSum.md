@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / PrefixSum
+[clayflow](../../modules.md) / [elements](../README.md) / PrefixSum
 
 # Class: PrefixSum
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:66](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/PrefixSum.ts#L66)
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:104](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L104)
 
 Soma de prefixos u32 em vários níveis (research R8 da 005): por grupo de 256 (Hillis–Steele em memória de
 workgroup), com os totais dos grupos subindo nível a nível até caber num grupo, e a descida somando o prefixo de
@@ -17,22 +17,34 @@ O nível 0 roda no lugar em `dst` (com `src ≠ dst`, `src` é copiado antes no 
 vivem em buffers internos dimensionados pela capacidade. `count` e modo de cada chamada vão numa região própria de
 uniform (`FrameUniforms`), então a mesma instância pode ser gravada várias vezes no quadro com contagens diferentes.
 
-Duas fases (spec 006): `prepare(dst, gravaçõesPorQuadro)` cria buffers, kernels e regiões de uniform — fora da
-gravação, numa transição do Flow; `record` só grava.
+Contagem da GPU (spec 031, R10): preparada com `counts`, a soma aceita `count: { counts, index }` — a contagem vem
+do registro `SetCount` no próprio kernel (ponto `scan_count`, nível pela profundidade), sem leitura de volta. O nível
+0 despacha pelo argumento indireto do registro, que precisa já trazer o despacho para grupos de 256 (`CountToArgs`
+com `workgroupSize: 256` gravado antes no mesmo fluxo); os níveis de cima despacham pela capacidade e os acima do
+topo real rodam com contagem 1 (o total, cujo prefixo exclusivo é 0) ou 0, o que não muda o resultado. Com
+`src ≠ dst`, a cópia leva a capacidade (limitada pelos dois buffers). A contagem do registro deve ser ≤ `capacity`.
+
+Duas fases (spec 006): `prepare(dst, gravaçõesPorQuadro, counts?)` cria kernels e regiões de uniform — fora da
+gravação, numa transição do Flow; `record` só grava. Os buffers dos níveis são descritores do Resource de trabalho
+(spec 039), alocados pela C2.
+
+## Implements
+
+- [`WorkPart`](../../platform/web/interfaces/WorkPart.md)
 
 ## Constructors
 
 ### Constructor
 
-> **new PrefixSum**(`core`, `options`): `PrefixSum`
+> **new PrefixSum**(`ctx`, `options`): `PrefixSum`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:78](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/PrefixSum.ts#L78)
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:115](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L115)
 
 #### Parameters
 
-##### core
+##### ctx
 
-`EngineCore`
+[`WorkContext`](../../platform/web/interfaces/WorkContext.md)
 
 ##### options
 
@@ -50,7 +62,7 @@ Defined in: [elements/gpu/compute/PrefixSum.ts:78](https://github.com/dantasgut/
 
 > **get** **regionsPerRecord**(): `number`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:97](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/PrefixSum.ts#L97)
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L149)
 
 Regiões de uniform que uma gravação usa no máximo (uma por nível).
 
@@ -60,13 +72,32 @@ Regiões de uniform que uma gravação usa no máximo (uma por nível).
 
 ## Methods
 
+### descriptors()
+
+> **descriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:133](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L133)
+
+Valores dos níveis k ≥ 1 (`upper[k - 1]` = nível k), em palavras u32.
+
+#### Returns
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+#### Implementation of
+
+[`WorkPart`](../../platform/web/interfaces/WorkPart.md).[`descriptors`](../../platform/web/interfaces/WorkPart.md#descriptors)
+
+***
+
 ### destroy()
 
 > **destroy**(): `void`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:166](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/PrefixSum.ts#L166)
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:210](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L210)
 
-Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no próximo `prepare`.
+Libera os kernels e solta os buffers dos níveis (a C2 os libera com a redescrição do trabalho). A instância volta
+a declará-los no próximo `prepare`.
 
 #### Returns
 
@@ -76,22 +107,27 @@ Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no p
 
 ### prepare()
 
-> **prepare**(`dst`, `recordsPerFrame?`): `void`
+> **prepare**(`dst`, `recordsPerFrame?`, `counts?`): `void`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:105](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/PrefixSum.ts#L105)
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:158](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L158)
 
 Prepara a soma com saída em `dst` para até `recordsPerFrame` gravações por quadro: buffers dos níveis, kernels de
-todos os níveis possíveis e regiões de uniform. Idempotente; chamado fora da gravação.
+todos os níveis possíveis e regiões de uniform. Com `counts`, também os kernels da variante de contagem da GPU
+ligados a esse buffer de registros `SetCount` (memorizados por buffer). Idempotente; chamado fora da gravação.
 
 #### Parameters
 
 ##### dst
 
-`StorageBufferSpec`
+[`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
 ##### recordsPerFrame?
 
 `number` = `1`
+
+##### counts?
+
+[`IndirectBufferSpec`](../../platform/web/interfaces/IndirectBufferSpec.md)
 
 #### Returns
 
@@ -103,7 +139,7 @@ todos os níveis possíveis e regiões de uniform. Idempotente; chamado fora da 
 
 > **record**(`frame`, `args`): `void`
 
-Defined in: [elements/gpu/compute/PrefixSum.ts:131](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/PrefixSum.ts#L131)
+Defined in: [src/elements/gpu/compute/PrefixSum.ts:173](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/PrefixSum.ts#L173)
 
 Grava a soma de prefixos de `src[0, count)` em `dst`.
 
@@ -111,7 +147,7 @@ Grava a soma de prefixos de `src[0, count)` em `dst`.
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### args
 

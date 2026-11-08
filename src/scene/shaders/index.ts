@@ -1,6 +1,8 @@
 export { wgslModule } from './WgslModule';
 export type { WgslModule, WgslModuleOptions } from './WgslModule';
 export { composeWgsl } from './composeWgsl';
+export { poolArenaReader, poolArenaWriter, isArenaReader } from './poolArena';
+export type { ArenaReader, ArenaRead, PoolArenaKind, PoolArenaReaderOptions } from './poolArena';
 export type { ComposedShader, ComposedBinding } from './composeWgsl';
 export {
     wgslResource,

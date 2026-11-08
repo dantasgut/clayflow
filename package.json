@@ -35,7 +35,7 @@
     "dev": "vite",
     "build:lib": "vite build",
     "preview": "vite preview",
-    "doc": "typedoc --plugin typedoc-plugin-markdown --skipErrorChecking --excludeInternal --out clay-engine-doc/docs/api --entryPoints src/presentation/index.ts src/elements/index.ts",
+    "doc": "typedoc --plugin typedoc-plugin-markdown --skipErrorChecking --excludeInternal --out clay-engine-doc/docs/api --entryPoints src/presentation/index.ts src/elements/index.ts src/platform/web/index.ts src/platform/deno/index.ts",
     "doc:coverage": "typedoc --skipErrorChecking --excludeInternal --validation.notDocumented --out .typedoc-cov-trash --entryPoints src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",

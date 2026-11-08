@@ -1,40 +1,50 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / PBFSlots
+[clayflow](../../modules.md) / [elements](../README.md) / PBFSlots
 
 # Interface: PBFSlots
 
-Defined in: [elements/physics/flows/PBFFlow.ts:66](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L66)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:77](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L77)
 
 Slots do PBF.
 
 ## Extends
 
-- `SlotMap`
+- [`SlotMap`](../../platform/web/type-aliases/SlotMap.md)
 
 ## Indexable
 
-> \[`key`: `string`\]: `SlotDeclaration`
+> \[`key`: `string`\]: [`SlotDeclaration`](../../platform/web/type-aliases/SlotDeclaration.md)
 
 ## Properties
 
 ### bodies
 
-> `readonly` **bodies**: `BodiesSlot`
+> `readonly` **bodies**: [`BodiesSlot`](../../platform/web/interfaces/BodiesSlot.md)
 
-Defined in: [elements/physics/flows/PBFFlow.ts:68](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L68)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:79](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L79)
 
 Pool de corpos do `bodyType` do registro.
 
 ***
 
+### boundary
+
+> `readonly` **boundary**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`false`\>
+
+Defined in: [src/elements/physics/flows/PBFFlow.ts:95](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L95)
+
+Fronteira sólida por partícula (pool do corpo, mesmo slot; Σ −B' n, Σ B; spec 034).
+
+***
+
 ### colliderPools
 
-> `readonly` **colliderPools**: `PoolsSlot`
+> `readonly` **colliderPools**: [`PoolsSlot`](../../platform/web/interfaces/PoolsSlot.md)
 
-Defined in: [elements/physics/flows/PBFFlow.ts:76](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L76)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:87](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L87)
 
 Pools de colliders e de corpos rígidos (cada um presente ou não).
 
@@ -42,38 +52,68 @@ Pools de colliders e de corpos rígidos (cada um presente ou não).
 
 ### colliders
 
-> `readonly` **colliders**: `EntitiesSlot`
+> `readonly` **colliders**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [elements/physics/flows/PBFFlow.ts:78](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L78)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:89](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L89)
 
 Entidades com collider (donos dos registros nos pools de collider).
 
 ***
 
+### delta
+
+> `readonly` **delta**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`false`\>
+
+Defined in: [src/elements/physics/flows/PBFFlow.ts:91](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L91)
+
+Correções Δp/Δv por partícula (pool do corpo, mesmo slot), separadas das posições lidas pelos vizinhos.
+
+***
+
 ### gravity
 
-> `readonly` **gravity**: `SingletonSlot`\<`true`\>
+> `readonly` **gravity**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:72](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L72)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:83](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L83)
 
 Campo de gravidade (opcional; padrão `[0, −9,81, 0]`).
 
 ***
 
-### material
+### normals
 
-> `readonly` **material**: `SingletonSlot`\<`true`\>
+> `readonly` **normals**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`false`\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:74](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L74)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:93](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L93)
 
-Material das partículas (opcional; padrões do solver).
+(nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (pool do corpo, mesmo slot; spec 030).
+
+***
+
+### physics
+
+> `readonly` **physics**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
+
+Defined in: [src/elements/physics/flows/PBFFlow.ts:85](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L85)
+
+Comportamento das partículas (opcional; padrões do solver).
 
 ***
 
 ### time
 
-> `readonly` **time**: `SingletonSlot`\<`false`\>
+> `readonly` **time**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`false`\>
 
-Defined in: [elements/physics/flows/PBFFlow.ts:70](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/PBFFlow.ts#L70)
+Defined in: [src/elements/physics/flows/PBFFlow.ts:81](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L81)
 
 Relógio da cena (passos fixos do quadro).
+
+***
+
+### work
+
+> `readonly` **work**: [`WorkSlot`](../../platform/web/interfaces/WorkSlot.md)\<`PBFWork`\>
+
+Defined in: [src/elements/physics/flows/PBFFlow.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/PBFFlow.ts#L97)
+
+O espaço de trabalho do solver: parâmetros por iteração, vizinhança, colliders (spec 039).

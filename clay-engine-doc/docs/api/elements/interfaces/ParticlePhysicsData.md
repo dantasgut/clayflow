@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ParticlePhysicsData
+[clayflow](../../modules.md) / [elements](../README.md) / ParticlePhysicsData
 
 # Interface: ParticlePhysicsData
 
-Defined in: [elements/physics/ParticlePhysics.ts:146](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L146)
+Defined in: [src/elements/physics/ParticlePhysics.ts:154](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L154)
 
 Dado de um `ParticlePhysics` (layout de `ParticlePhysics.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `ParticlePhysics` (layout de `ParticlePhysics.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:172](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L172)
+Defined in: [src/elements/physics/ParticlePhysics.ts:180](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L180)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:174](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L174)
+Defined in: [src/elements/physics/ParticlePhysics.ts:182](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L182)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **adhesion**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:168](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L168)
+Defined in: [src/elements/physics/ParticlePhysics.ts:176](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L176)
 
 Adesão às fronteiras sólidas, adimensional.
 
@@ -46,7 +46,7 @@ Adesão às fronteiras sólidas, adimensional.
 
 > **cohesion**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:162](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L162)
+Defined in: [src/elements/physics/ParticlePhysics.ts:170](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L170)
 
 Coesão (tensão superficial), adimensional.
 
@@ -56,7 +56,7 @@ Coesão (tensão superficial), adimensional.
 
 > **domainMax**: `number`[]
 
-Defined in: [elements/physics/ParticlePhysics.ts:166](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L166)
+Defined in: [src/elements/physics/ParticlePhysics.ts:174](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L174)
 
 Canto máximo do domínio.
 
@@ -66,7 +66,7 @@ Canto máximo do domínio.
 
 > **domainMin**: `number`[]
 
-Defined in: [elements/physics/ParticlePhysics.ts:164](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L164)
+Defined in: [src/elements/physics/ParticlePhysics.ts:172](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L172)
 
 Canto mínimo do domínio.
 
@@ -76,7 +76,7 @@ Canto mínimo do domínio.
 
 > **particleSpacing**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:150](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L150)
+Defined in: [src/elements/physics/ParticlePhysics.ts:158](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L158)
 
 Espaçamento das partículas (m).
 
@@ -86,7 +86,7 @@ Espaçamento das partículas (m).
 
 > **poissonRatio**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:160](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L160)
+Defined in: [src/elements/physics/ParticlePhysics.ts:168](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L168)
 
 Coeficiente de Poisson ν.
 
@@ -96,7 +96,7 @@ Coeficiente de Poisson ν.
 
 > **restDensity**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:148](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L148)
+Defined in: [src/elements/physics/ParticlePhysics.ts:156](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L156)
 
 Densidade de repouso ρ₀ (kg/m³).
 
@@ -106,7 +106,7 @@ Densidade de repouso ρ₀ (kg/m³).
 
 > **restitution**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:156](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L156)
+Defined in: [src/elements/physics/ParticlePhysics.ts:164](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L164)
 
 Restituição.
 
@@ -116,7 +116,7 @@ Restituição.
 
 > **speedOfSound**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:154](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L154)
+Defined in: [src/elements/physics/ParticlePhysics.ts:162](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L162)
 
 Velocidade do som c (m/s).
 
@@ -126,7 +126,7 @@ Velocidade do som c (m/s).
 
 > **viscosity**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:152](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L152)
+Defined in: [src/elements/physics/ParticlePhysics.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L160)
 
 Viscosidade.
 
@@ -136,7 +136,7 @@ Viscosidade.
 
 > **xsph**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:170](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L170)
+Defined in: [src/elements/physics/ParticlePhysics.ts:178](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L178)
 
 Suavização de velocidade XSPH.
 
@@ -146,6 +146,6 @@ Suavização de velocidade XSPH.
 
 > **youngModulus**: `number`
 
-Defined in: [elements/physics/ParticlePhysics.ts:158](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/ParticlePhysics.ts#L158)
+Defined in: [src/elements/physics/ParticlePhysics.ts:166](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/ParticlePhysics.ts#L166)
 
 Módulo de Young E.

@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / CompactionRecordArgs
+[clayflow](../../modules.md) / [elements](../README.md) / CompactionRecordArgs
 
 # Interface: CompactionRecordArgs
 
-Defined in: [elements/gpu/compute/Compaction.ts:34](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L34)
+Defined in: [src/elements/gpu/compute/Compaction.ts:39](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L39)
 
 Argumentos de `Compaction.record`.
 
@@ -14,19 +14,20 @@ Argumentos de `Compaction.record`.
 
 ### count
 
-> `readonly` **count**: `number`
+> `readonly` **count**: `number` \| [`GpuCount`](GpuCount.md)
 
-Defined in: [elements/gpu/compute/Compaction.ts:36](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L36)
+Defined in: [src/elements/gpu/compute/Compaction.ts:44](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L44)
 
-Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera o contador.
+Elementos de entrada avaliados pelo predicado (`i ∈ [0, count)`). `0` só zera o contador. Ou a contagem lida na
+GPU (`GpuCount`, com `out` preparado com o mesmo `counts`).
 
 ***
 
 ### counter
 
-> `readonly` **counter**: `StorageBufferSpec`
+> `readonly` **counter**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/Compaction.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L40)
+Defined in: [src/elements/gpu/compute/Compaction.ts:48](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L48)
 
 Contador `AtomicAllocCounter`: aceitos (`count`, inclui os recusados) e excedente (`overflow`).
 
@@ -34,8 +35,8 @@ Contador `AtomicAllocCounter`: aceitos (`count`, inclui os recusados) e excedent
 
 ### out
 
-> `readonly` **out**: `StorageBufferSpec`
+> `readonly` **out**: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
-Defined in: [elements/gpu/compute/Compaction.ts:38](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L38)
+Defined in: [src/elements/gpu/compute/Compaction.ts:46](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L46)
 
 Saída `u32[capacity]`, preparada antes (`prepare`).

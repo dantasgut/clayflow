@@ -117,7 +117,7 @@ const config: Config = {
                 {
                     title: 'API',
                     items: [
-                        { label: 'Application', to: '/docs/api/presentation/classes/Application' },
+                        { label: 'Application', to: '/docs/api/platform/web/classes/Application' },
                         { label: 'RigidBody', to: '/docs/api/elements/classes/RigidBody' },
                         { label: 'SoftBody', to: '/docs/api/elements/classes/SoftBody' },
                     ],

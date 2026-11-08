@@ -1,30 +1,30 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SurfaceColliderSlots
+[clayflow](../../modules.md) / [elements](../README.md) / SurfaceColliderSlots
 
 # Interface: SurfaceColliderSlots
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:49](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L49)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:58](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L58)
 
 Slots do estágio dos colliders de superfície.
 
 ## Extends
 
-- `SlotMap`
+- [`SlotMap`](../../platform/web/type-aliases/SlotMap.md)
 
 ## Indexable
 
-> \[`key`: `string`\]: `SlotDeclaration`
+> \[`key`: `string`\]: [`SlotDeclaration`](../../platform/web/type-aliases/SlotDeclaration.md)
 
 ## Properties
 
 ### colliders
 
-> `readonly` **colliders**: `EntitiesSlot`
+> `readonly` **colliders**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:51](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L51)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:60](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L60)
 
 Superfícies colidíveis.
 
@@ -32,58 +32,58 @@ Superfícies colidíveis.
 
 ### fields
 
-> `readonly` **fields**: `PoolSlot`\<`false`\>
+> `readonly` **fields**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`false`\>
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:55](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L55)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:64](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L64)
 
 Pool do campo (cabeçalho e valores de todos os colliders de superfície).
 
 ***
 
-### fnRecords
-
-> `readonly` **fnRecords**: `PoolSlot`\<`true`\>
-
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:57](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L57)
-
-Pool dos registros das `SurfaceFunction` (opcional).
-
-***
-
 ### functions
 
-> `readonly` **functions**: `EntitiesSlot`
+> `readonly` **functions**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:53](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L53)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:62](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L62)
 
 Superfícies colidíveis com `SurfaceFunction`.
 
 ***
 
-### spaceRecords
+### spaces
 
-> `readonly` **spaceRecords**: `PoolSlot`\<`true`\>
+> `readonly` **spaces**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:59](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L59)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:66](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L66)
 
-Pool dos registros das `SpaceFunction` (existe com espaço na cena: a superfície anima).
+Funções `space` da cena (com alguma, a superfície anima).
 
 ***
 
 ### time
 
-> `readonly` **time**: `SingletonSlot`\<`true`\>
+> `readonly` **time**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:63](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L63)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:70](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L70)
 
 Relógio da cena (opcional; sem ele, tempo 0 e uma cópia).
 
 ***
 
+### work
+
+> `readonly` **work**: [`WorkSlot`](../../platform/web/interfaces/WorkSlot.md)\<`SurfaceColliderWork`\>
+
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:72](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L72)
+
+O espaço de trabalho: o rascunho e os parâmetros de cada colisor, o substituto das matrizes (spec 039).
+
+***
+
 ### worlds
 
-> `readonly` **worlds**: `PoolSlot`\<`true`\>
+> `readonly` **worlds**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`true`\>
 
-Defined in: [elements/physics/flows/SurfaceColliderFlow.ts:61](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/flows/SurfaceColliderFlow.ts#L61)
+Defined in: [src/elements/physics/flows/SurfaceColliderFlow.ts:68](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/flows/SurfaceColliderFlow.ts#L68)
 
 Pool das matrizes de mundo (transformação por função ou por hierarquia).

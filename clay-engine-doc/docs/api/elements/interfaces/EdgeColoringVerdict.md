@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / EdgeColoringVerdict
+[clayflow](../../modules.md) / [elements](../README.md) / EdgeColoringVerdict
 
 # Interface: EdgeColoringVerdict
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:33](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L33)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L30)
 
 Resultado de `verifyEdgeColoring`.
 
@@ -16,7 +16,7 @@ Resultado de `verifyEdgeColoring`.
 
 > `readonly` **colorCount**: `number`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:37](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L37)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:34](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L34)
 
 Maior cor + 1.
 
@@ -26,7 +26,7 @@ Maior cor + 1.
 
 > `readonly` `optional` **conflict?**: readonly \[`number`, `number`\]
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:39](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L39)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:36](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L36)
 
 Primeiro par de arestas em conflito (índices), quando inválida.
 
@@ -36,6 +36,6 @@ Primeiro par de arestas em conflito (índices), quando inválida.
 
 > `readonly` **valid**: `boolean`
 
-Defined in: [elements/gpu/compute/GraphColorer.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/GraphColorer.ts#L35)
+Defined in: [src/elements/gpu/compute/GraphColorer.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/GraphColorer.ts#L32)
 
 Nenhuma cor com duas arestas no mesmo vértice.
