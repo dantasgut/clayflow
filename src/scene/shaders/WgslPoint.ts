@@ -8,7 +8,7 @@ import { composeWgsl } from './composeWgsl';
 import { stripWgslComments } from './scanWgslSymbols';
 import { WgslCompositionError } from './WgslCompositionError';
 import type { WgslModule } from './WgslModule';
-import { wgslResource, type WgslResource } from './WgslResource';
+import { poolArenaReader, type ArenaReader } from './poolArena';
 
 /** Tipo de parâmetro que aceita o struct de parâmetros da função (ou o alias do ponto). */
 export const POINT_PARAMS = '$P';
@@ -137,10 +137,10 @@ export interface PointRecord {
     /** Schema do registro (nome `<ponto>:<hash>`, struct `<alias>_<hash>`). */
     readonly schema: StructSchema;
     /**
-     * O pool da forma no shader (`<ponto>_records_<hash>: array<struct>`, frequência `batch`, fornecido pelo pool): o
-     * carregador gerado de cada função da forma lê o registro dela por slot.
+     * O pool da forma no shader, lido pela arena de pools (T060i): `<ponto>_records_<hash>[slot]` no carregador gerado
+     * de cada função da forma (o registro dela por slot).
      */
-    readonly resource: WgslResource;
+    readonly resource: ArenaReader;
     /** Hash da forma (ponto, nomes e tipos dos parâmetros). */
     readonly hash: string;
 }
@@ -378,12 +378,10 @@ export function wgslPoint(options: WgslPointOptions): WgslPoint {
             const record: PointRecord = Object.freeze({
                 schema,
                 hash,
-                resource: wgslResource({
+                resource: poolArenaReader({
                     name: `${options.name}_records_${hash}`,
-                    binding: { storage: 'read' },
-                    type: { schema, array: true },
-                    frequency: 'batch',
-                    provider: { pool: schema.name },
+                    pool: schema.name,
+                    schema,
                 }),
             });
             records.set(signature, record);

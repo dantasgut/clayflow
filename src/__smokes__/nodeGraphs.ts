@@ -939,7 +939,8 @@ async function partC(failures: string[]): Promise<void> {
                 wrong++;
                 continue;
             }
-            const base = (slot * info.stride) / 4;
+            // Na arena de pools (T060i), o pool começa na posição da região dele.
+            const base = (info.offset + slot * info.stride) / 4;
             for (let k = 0; k < 3; k++) {
                 const want = Math.fround(e.color[k]!);
                 if (data[base + offA + k] !== want || data[base + offB + k] !== want) wrong++;

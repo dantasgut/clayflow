@@ -13,7 +13,7 @@ import { WgslCompositionError } from './WgslCompositionError';
  */
 
 /** Regiões no máximo (o cabeçalho reserva todas). */
-export const POOL_ARENA_SLOTS = 64;
+export const POOL_ARENA_SLOTS = 256;
 /** Palavras do cabeçalho: as bases e as capacidades. */
 export const POOL_ARENA_HEADER_WORDS = 2 * POOL_ARENA_SLOTS;
 /** Alinhamento das regiões em bytes (o de uma ligação de storage com deslocamento, `minStorageBufferOffsetAlignment`). */
@@ -59,6 +59,8 @@ export interface ArenaRead {
     readonly name: string;
     readonly at: string;
     readonly len: string;
+    /** O schema dos elementos (só nos leitores de elementos; o dos vivos não tem). */
+    readonly schema?: StructSchema;
 }
 
 /** Um módulo leitor da arena: os acessores e o nome que eles substituem. */
@@ -87,6 +89,32 @@ export interface PoolArenaReaderOptions {
  * leitor põe o pool na arena (a C2 o aloca numa região).
  */
 export function poolArenaReader(options: PoolArenaReaderOptions): ArenaReader {
+    return elementReader(options, `pool_arena_${options.name}`);
+}
+
+const swapped = new WeakMap<ArenaReader, Map<string, ArenaReader>>();
+
+/**
+ * O leitor `reader` lendo a região de outro pool no mesmo layout (`pools` no descritor de um pipeline): o mesmo nome e
+ * o mesmo struct, a região de `pool`. Memorizado por `(reader, pool)` — o mesmo par dá o mesmo módulo.
+ * @throws TypeError `reader` não é um leitor de elementos.
+ */
+export function poolArenaReaderOf(reader: ArenaReader, pool: string): ArenaReader {
+    const schema = reader.arenaRead.schema;
+    if (schema === undefined)
+        throw new TypeError(`poolArena: '${reader.name}' não lê elementos de um pool`);
+    let byPool = swapped.get(reader);
+    if (byPool === undefined) swapped.set(reader, (byPool = new Map()));
+    let out = byPool.get(pool);
+    if (out === undefined) {
+        const k = poolArenaSlot(`pool:${pool}`);
+        out = elementReader({ name: reader.arenaRead.name, pool, schema }, `${reader.name}_r${k}`);
+        byPool.set(pool, out);
+    }
+    return out;
+}
+
+function elementReader(options: PoolArenaReaderOptions, moduleName: string): ArenaReader {
     const k = poolArenaSlot(`pool:${options.pool}`);
     const { name, schema } = options;
     const words = layoutOf({ kind: 'struct', schema }).size / 4;
@@ -98,7 +126,7 @@ export function poolArenaReader(options: PoolArenaReaderOptions): ArenaReader {
         `    return ${valueOf({ kind: 'struct', schema }, 0)};`,
         '}',
     ].join('\n');
-    return reader(name, `pool_arena_${name}`, source, [schema]);
+    return reader(name, moduleName, source, [schema], schema);
 }
 
 /** Os vivos do pool `pool` lidos pela arena: `name_at(w)` é a palavra `w` do bitset (`pool_live`). */
@@ -121,11 +149,17 @@ function reader(
     moduleName: string,
     source: string,
     structs: readonly StructSchema[],
+    schema?: StructSchema,
 ): ArenaReader {
     const m = wgslModule({ name: moduleName, source, requires: [poolArenaResource], structs });
     return Object.freeze({
         ...m,
-        arenaRead: Object.freeze({ name, at: `${name}_at`, len: `${name}_len` }),
+        arenaRead: Object.freeze({
+            name,
+            at: `${name}_at`,
+            len: `${name}_len`,
+            ...(schema === undefined ? {} : { schema }),
+        }),
     });
 }
 

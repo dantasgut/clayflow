@@ -12,6 +12,9 @@ import type { Entity } from '../../contracts/Entity';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
 import type { PointImplementation } from '../../shaders/WgslPoint';
+import { bindPoints, type BindablePoint } from '../../shaders/bindPoints';
+import type { WgslModule } from '../../shaders/WgslModule';
+import { isArenaReader, poolArenaReaderOf } from '../../shaders/poolArena';
 import type { WgslResource } from '../../shaders/WgslResource';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
@@ -64,6 +67,8 @@ export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
     releaseOwnership(owner: object, resource: Resource, descId: string): void;
     markProduced(owner: object, resource: Resource, descId: string, produced: boolean): void;
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
+    /** Põe o pool na arena de pools (T060i): o pipeline o lê por um leitor da arena com `pools` no descritor. */
+    poolIntoArena(poolKey: string): void;
 }
 
 /** O que o runtime de um Flow usa da cena. */
@@ -733,8 +738,27 @@ export class FlowRuntime {
         this.pipelinePrivates.delete(id);
     }
 
+    /**
+     * O descritor com os pools trocados nos leitores da arena (T060i): o pool vai para a arena e o leitor, no shader,
+     * dá lugar ao que lê a região dele (o mesmo nome e o mesmo struct).
+     */
+    private withArenaPools(descriptor: PipelineDescriptor): PipelineDescriptor {
+        const pools = descriptor.pools;
+        if (pools === undefined) return descriptor;
+        const swaps = new Map<BindablePoint, WgslModule>();
+        for (const [key, pool] of pools) {
+            if (!isArenaReader(key)) continue;
+            this.host.resources.poolIntoArena(pool);
+            swaps.set({ name: key.name, ready: key }, poolArenaReaderOf(key, pool));
+        }
+        return swaps.size === 0
+            ? descriptor
+            : { ...descriptor, shader: bindPoints(descriptor.shader, swaps) };
+    }
+
     /** O descritor com as funções de cena dos pontos que o shader contém (conferido pelo compilador, com elas). */
-    private withScene(descriptor: PipelineDescriptor): PipelineDescriptor {
+    private withScene(base: PipelineDescriptor): PipelineDescriptor {
+        const descriptor = this.withArenaPools(base);
         const bound = this.host.scenePoints.bind(descriptor.shader, (fns, message) => {
             // A composição não monta neste kernel (ex.: símbolo da função em conflito com o do solver): a cena anuncia,
             // e o pipeline segue com o pronto.

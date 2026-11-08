@@ -5,6 +5,7 @@ import type {
     VertexBufferLayout,
 } from '../../core/contracts/index';
 import type { WgslModule } from '../shaders/WgslModule';
+import type { ArenaReader } from '../shaders/poolArena';
 import type { WgslResource } from '../shaders/WgslResource';
 import type { PointImplementation } from '../shaders/WgslPoint';
 
@@ -49,8 +50,9 @@ export interface PipelineDescriptor {
     /**
      * Pool de cada recurso neste pipeline, quando difere do fornecedor declarado (spec 031): ex. um material com pool
      * próprio que usa o shader do forward liga o seu pool no recurso `materials` do shader. Substitui `{ name, as }`.
+     * Num leitor da arena de pools (T060i), a C2 põe o pool na arena e troca a região do leitor (a constante dele).
      */
-    readonly pools?: ReadonlyMap<WgslResource, string>;
+    readonly pools?: ReadonlyMap<WgslResource | ArenaReader, string>;
     /** Constantes `override` do shader (spec 031): variantes sem remendo de texto. */
     readonly constants?: Readonly<Record<string, number>>;
     /**

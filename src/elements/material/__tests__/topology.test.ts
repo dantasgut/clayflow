@@ -1,3 +1,4 @@
+import { poolArenaSlotOf } from '../../../scene/shaders/poolArena';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 /**
  * Topologia e sombra do material (spec 008, US5): `topology` vem do descritor de pipeline; `castsShadow` é verdadeiro
@@ -43,8 +44,11 @@ describe('topologia do material (spec 008)', () => {
 
     it('PointSpriteMaterial tem struct próprio (sem alias de StandardMaterial)', () => {
         const desc = new PointSpriteMaterial().getPipelineDescriptors()[0]!;
-        const materials = composeWgsl(desc.shader).bindings.find((b) => b.name === 'materials')!;
-        expect(materials.resource.resource.provider).toEqual({ pool: 'PointSpriteMaterial' });
+        // O pool dele pela arena (T060i): o acessor monta o struct próprio da região do pool `PointSpriteMaterial`.
+        const k = poolArenaSlotOf('pool:PointSpriteMaterial')!;
+        const source = composeWgsl(desc.shader).spec.source;
+        expect(source).toContain('fn materials_at(i: u32) -> PointSpriteMaterial {');
+        expect(source).toContain(`let b = pool_arena[${k}u] + i * `);
         expect(desc.pools).toBeUndefined();
     });
 });

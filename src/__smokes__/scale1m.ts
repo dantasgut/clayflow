@@ -109,7 +109,7 @@ async function main(): Promise<void> {
         'PreviousWorldTransform',
         'StandardMaterial',
         'Renderable',
-    ].reduce((sum, key) => sum + (app.resources.poolInfo(key)?.buffer.byteSize ?? 0), 0);
+    ].reduce((sum, key) => sum + (app.resources.poolInfo(key)?.size ?? 0), 0);
     log(`heap JS: ${heap === undefined ? 'n/d' : mib(heap)}`);
     log(
         `GPU: total ${mib(memory.totalBytes)}, pools de cena ${mib(pools)}, além dos pools ${mib(memory.totalBytes - pools)}`,

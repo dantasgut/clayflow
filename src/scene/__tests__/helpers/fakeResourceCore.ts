@@ -10,6 +10,15 @@ export interface WriteCall {
     readonly offset: number;
 }
 
+/** Uma cópia gravada (`frame.copy`): origem, destino, bytes e as posições. */
+export interface FakeCopy {
+    readonly src: ResourceSpec;
+    readonly dst: ResourceSpec;
+    readonly size: number;
+    readonly srcOffset?: number | undefined;
+    readonly dstOffset?: number | undefined;
+}
+
 /**
  * EngineCore falso para testes do ResourceSystem: `create` devolve o próprio spec,
  * `write` registra as chamadas (com cópia dos bytes) e `destroy` é um spy.
@@ -17,10 +26,10 @@ export interface WriteCall {
 export function fakeResourceCore(): {
     core: EngineCore;
     writes: WriteCall[];
-    copies: { src: ResourceSpec; dst: ResourceSpec; size: number }[];
+    copies: FakeCopy[];
 } {
     const writes: WriteCall[] = [];
-    const copies: { src: ResourceSpec; dst: ResourceSpec; size: number }[] = [];
+    const copies: FakeCopy[] = [];
     const core = {
         create: vi.fn(<S>(spec: S) => spec),
         write: vi.fn((spec: ResourceSpec, data: ArrayBufferView, offset?: number) => {
@@ -32,8 +41,14 @@ export function fakeResourceCore(): {
         record: vi.fn((label: unknown, body?: unknown) => {
             const fn = (typeof label === 'function' ? label : body) as (frame: unknown) => void;
             fn({
-                copy: (src: ResourceSpec, dst: ResourceSpec, size: number) => {
-                    copies.push({ src, dst, size });
+                copy: (
+                    src: ResourceSpec,
+                    dst: ResourceSpec,
+                    size: number,
+                    srcOffset?: number,
+                    dstOffset?: number,
+                ) => {
+                    copies.push({ src, dst, size, srcOffset, dstOffset });
                 },
             });
         }),

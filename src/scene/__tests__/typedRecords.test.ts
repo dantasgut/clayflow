@@ -172,7 +172,10 @@ describe('registro tipado das funções de ponto (spec 031, R8)', () => {
             const src = composeWgsl(bindPoints(host, new Map([[fn.point, impl]]))).spec.source;
             expect(src).toContain(`struct ${record.wgslName} {`);
             expect(src).toContain('offset: vec3f,');
-            expect(src).toContain(`${point}_records_${hash}: array<${record.wgslName}>`);
+            // O pool da forma pela arena (T060i): o acessor monta o struct das palavras.
+            expect(src).toContain(`fn ${point}_records_${hash}_at(i: u32) -> ${record.wgslName} {`);
+            expect(src).toContain(`return ${point}_records_${hash}_at(slot);`);
+            expect(src).toContain('pool_arena: array<u32>');
         },
     );
 
@@ -244,14 +247,21 @@ describe('registro tipado das funções de ponto (spec 031, R8)', () => {
         expect(rs.poolInfo(key)?.count).toBe(2);
         expect(rs.poolSlotOf(key, ia)).not.toBe(rs.poolSlotOf(key, ib));
         s.step();
+        // O pool da forma mora na arena (T060i): as escritas na região dele.
+        const info = rs.poolInfo(key)!;
         const writes = vi
             .mocked(s.core.write)
-            .mock.calls.filter(([spec]) => discOf(spec) === `pool:${key}`);
+            .mock.calls.filter(
+                ([spec, , offset = 0]) =>
+                    spec === info.buffer
+                    && offset >= info.offset
+                    && offset < info.offset + info.size,
+            );
         expect(writes.length).toBeGreaterThan(0);
         const [, data, offset = 0] = writes.at(-1)!;
         const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
         const slotB = rs.poolSlotOf(key, ib)!;
-        const at = slotB * a.record.stride - offset;
+        const at = info.offset + slotB * a.record.stride - offset;
         const unpacked = a.record.unpack(bytes, at);
         expect(unpacked.k).toBe(5);
         expect(unpacked.offset).toEqual([4, 5, 6]);
@@ -337,14 +347,14 @@ describe('um pool por forma nos shaders, conferido contra o limite de storage (s
     const storageOf = (shader: Parameters<typeof composeWgsl>[0]) =>
         composeWgsl(shader).bindings.filter((b) => 'storage' in b.resource.resource.binding).length;
 
-    it('ponto de cena: duas formas, dois pools a mais no kernel; a mesma forma, um só', () => {
+    it('ponto de cena: as formas leem pela arena — uma ligação a mais, qualquer que seja o número de formas', () => {
         const base = storageOf(xpbdPredict);
         const same = points();
         same.resourcesChanged([field({ k: 'f32' }), field({ k: 'f32' })], []);
         expect(storageOf(same.bind(xpbdPredict, vi.fn()).shader)).toBe(base + 1);
         const two = points();
         two.resourcesChanged([field({ k: 'f32' }), field({ c: 'vec3f' })], []);
-        expect(storageOf(two.bind(xpbdPredict, vi.fn()).shader)).toBe(base + 2);
+        expect(storageOf(two.bind(xpbdPredict, vi.fn()).shader)).toBe(base + 1);
     });
 
     it('acima do limite de storage do device: a função é rejeitada (extensionRejected) e o TRS continua', async () => {

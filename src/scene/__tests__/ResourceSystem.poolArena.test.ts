@@ -120,6 +120,27 @@ describe('ResourceSystem — arena de pools (T060i)', () => {
         expect(copies.some((c) => c.src === before && c.dst === after.buffer)).toBe(true);
     });
 
+    it('pool que já existe vai para a arena no pedido (pools no descritor): cópia na GPU e realocação anunciada', () => {
+        const Late = new StructSchema('ArenaLate', { v: FieldType.vec4f });
+        const { world, copies, resources, reallocs, frame } = setup();
+        world.insert(new Pooled(Late, 5));
+        frame();
+        const own = resources.poolInfo(Late.name)!;
+        expect(own.buffer.discriminator).toBe(`pool:${Late.name}`);
+        reallocs.length = 0;
+        resources.poolIntoArena(Late.name);
+        const moved = resources.poolInfo(Late.name)!;
+        expect(moved.buffer.discriminator).toMatch(/^pool_arena/);
+        expect(moved.offset % 256).toBe(0);
+        expect(
+            copies.some(
+                (c) =>
+                    c.src === own.buffer && c.dst === moved.buffer && c.dstOffset === moved.offset,
+            ),
+        ).toBe(true);
+        expect(reallocs).toContain(Late.name);
+    });
+
     it('pool produzido pela GPU não entra na arena', () => {
         const Gpu = new StructSchema('ArenaGpu', { v: FieldType.vec4f });
         poolArenaReader({ name: 'arena_gpu', pool: Gpu.name, schema: Gpu });

@@ -12,7 +12,7 @@ import type {
     VertexBufferSpec,
 } from '../../core/contracts/index';
 import { DATA_HOOK, Entity, type DataHook } from '../contracts/Entity';
-import { poolArenaSlotOf } from '../shaders/poolArena';
+import { poolArenaSlot, poolArenaSlotOf } from '../shaders/poolArena';
 import { PoolArena } from './PoolArena';
 import type { ResolvedSource } from '../consumers/ResolvedSource';
 import { ResourceState } from '../contracts/ResourceState';
@@ -557,6 +557,48 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             newByteSize: entry.bufferSpec.byteSize,
         });
         return entry.bufferSpec;
+    }
+
+    /**
+     * Põe o pool `poolKey` na arena de pools (T060i), para o pipeline que o lê por um leitor da arena com `pools` no
+     * descritor: a região fica reservada (o pool que nascer depois nasce nela) e o pool que já existe vai para ela — o
+     * conteúdo copiado na GPU, o buffer próprio destruído e a realocação anunciada.
+     * @throws Error pool produzido pela GPU, com série ou sob demanda (a arena guarda só pools que a CPU envia).
+     */
+    poolIntoArena(poolKey: string): void {
+        poolArenaSlot(`pool:${poolKey}`);
+        const entry = this.pools.get(poolKey);
+        if (entry === undefined || entry.inArena) return;
+        if (entry.upload === 'never' || entry.channel !== undefined || !entry.demanded) {
+            throw new Error(
+                `ResourceSystem: pool '${poolKey}' lido pela arena, mas produzido pela GPU, com série ou sob demanda — `
+                    + 'a arena guarda só pools que a CPU envia.',
+            );
+        }
+        const old = entry.bufferSpec;
+        const bytes = entry.stride * entry.capacity;
+        const moved = this.arena.ensure(`pool:${poolKey}`, bytes, entry.capacity);
+        entry.inArena = true;
+        entry.bufferSpec = this.arena.buffer;
+        entry.base = this.arena.offsetOf(`pool:${poolKey}`);
+        // O que a CPU já enviou vai para a região por cópia na GPU (num comando próprio, como o crescimento).
+        const target = entry.bufferSpec;
+        const to = entry.base;
+        this.core.record(`pool_into_arena:${poolKey}`, (frame) => {
+            frame.copy(old, target, bytes, 0, to);
+        });
+        this.core.submit();
+        this.core.destroy(old);
+        if (moved) {
+            this.arenaMoved();
+            return;
+        }
+        ++entry.generation;
+        this.events.emit('poolReallocated', {
+            poolKey,
+            oldByteSize: old.byteSize,
+            newByteSize: entry.bufferSpec.byteSize,
+        });
     }
 
     ensurePool(schema: Schema): void {
