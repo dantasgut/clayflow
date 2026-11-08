@@ -468,7 +468,7 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         emitId: string,
         vertices: AnyBufferSpec,
     ): void {
-        const { diffs, cameras, worlds } = ctx.bound.slots;
+        const { diffs } = ctx.bound.slots;
         const indices = this.resources.bufferOf(surface, 'indices');
         const edges = this.resources.bufferOf(surface, 'wireEdges');
         const draw = this.resources.bufferOf(surface, 'indirect');
@@ -493,8 +493,6 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     [at(R.adaptEdges), edges as BindingSource],
                     [at(R.adaptDraw), draw as BindingSource],
                     [at(R.diff), diffs?.buffer ?? this.dummyPool],
-                    [at(R.adaptCameras), cameras?.buffer ?? this.dummyPool],
-                    [at(R.adaptWorlds), worlds?.buffer ?? this.dummyPool],
                 ]),
             );
         }

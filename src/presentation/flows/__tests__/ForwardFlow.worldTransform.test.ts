@@ -20,24 +20,25 @@ async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
     return { ...s, id, box, transform, worldSlot };
 }
 
-/** Grupo e ligação do recurso `worlds` no shader do forward (atribuídos pelo motor, spec 031). */
+/**
+ * Grupo e ligação das matrizes de mundo no shader do forward (atribuídos pelo motor, spec 031): a arena da GPU, onde mora
+ * o pool `WorldTransform` (T060i).
+ */
 function worldsBinding(): { group: number; binding: number } {
-    const b = composeWgsl(forward).bindings.find((x) => x.name === 'worlds')!;
+    const b = composeWgsl(forward).bindings.find((x) => x.name === 'pool_arena_gpu')!;
     return { group: b.group, binding: b.binding };
 }
 
 describe('ForwardFlow — matriz de mundo por slot', () => {
-    it('o recurso `worlds` é storage somente leitura visível no vértice, ligado ao pool WorldTransform', async () => {
+    it('worlds pela arena da GPU: storage somente leitura visível no vértice, o buffer do pool WorldTransform', async () => {
         const s = await scene();
         s.step();
         const [draw] = s.draws('ForwardFlow');
         const at = worldsBinding();
         const group = draw!.bindGroups.get(at.group)!.group;
-        expect(group.layout.entries.find((e) => e.binding === at.binding)).toMatchObject({
-            kind: 'buffer',
-            type: 'read-only-storage',
-            visibility: GPUShaderStage.VERTEX,
-        });
+        const entry = group.layout.entries.find((e) => e.binding === at.binding)!;
+        expect(entry).toMatchObject({ kind: 'buffer', type: 'read-only-storage' });
+        expect(entry.visibility & GPUShaderStage.VERTEX).toBe(GPUShaderStage.VERTEX);
         expect(group.bindings.find((b) => b.binding === at.binding)).toMatchObject({
             kind: 'buffer',
             buffer: s.scene.resourceSystem.poolBufferSpec('WorldTransform'),

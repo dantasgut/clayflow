@@ -9,16 +9,19 @@ type ClayflowLib = typeof Clayflow;
 
 /** Lê um pool inteiro de volta (bytes). */
 export async function readPool(app: Application, poolKey: string): Promise<Uint8Array> {
-    const spec = app.resources.poolBufferSpec(poolKey);
-    if (spec === undefined) throw new Error(`pool ${poolKey} inexistente`);
+    const info = app.resources.poolInfo(poolKey);
+    if (info === undefined) throw new Error(`pool ${poolKey} inexistente`);
+    // O pool pela faixa dele (numa arena de pools, T060i, a região; senão, o buffer inteiro).
+    const spec = info.buffer;
+    const size = info.offset === 0 ? spec.byteSize : info.capacity * info.stride;
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
         subkind: 'staging',
-        discriminator: `extension_points_${poolKey}_${spec.byteSize}`,
-        byteSize: spec.byteSize,
+        discriminator: `extension_points_${poolKey}_${size}`,
+        byteSize: size,
     });
     app.core.record('extension-points-readback', (frame) => {
-        frame.copy(spec, staging, spec.byteSize);
+        frame.copy(spec, staging, size, info.offset, 0);
     });
     app.core.submit();
     const bytes = new Uint8Array(await app.core.readback(staging));

@@ -1,4 +1,4 @@
-import { poolArenaReader } from '../../scene/shaders/poolArena';
+import { poolArenaReader, poolArenaWriter } from '../../scene/shaders/poolArena';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import { Camera } from './Camera';
 import { Light } from './Light';
@@ -18,43 +18,40 @@ export const transformsResource = wgslResource({
     provider: { pool: Transform.schema.name },
 });
 
-/** Matrizes de mundo (pool `WorldTransform`), escrita — o estágio de transformação. */
-export const worldsWriteResource = wgslResource({
+/** Matrizes de mundo (pool `WorldTransform`, arena da GPU), leitura e escrita — o estágio de transformação. */
+export const worldsWriteResource = poolArenaWriter({
     name: 'worlds',
-    binding: { storage: 'read_write' },
-    type: { schema: Transform.worldSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.worldSchema.name },
+    pool: Transform.worldSchema.name,
+    schema: Transform.worldSchema,
 });
 
-/** Matrizes de mundo (pool `WorldTransform`), leitura. */
-export const worldsResource = wgslResource({
+/** Matrizes de mundo (pool `WorldTransform`, arena da GPU), leitura. */
+export const worldsResource = poolArenaReader({
     name: 'worlds',
-    binding: { storage: 'read' },
-    type: { schema: Transform.worldSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.worldSchema.name },
-});
-
-/** Inversas das matrizes de mundo (pool `WorldInverse`, spec 037, sob demanda), escrita — o estágio de transformação. */
-export const worldInversesWriteResource = wgslResource({
-    name: 'world_inverses',
-    binding: { storage: 'read_write' },
-    type: { schema: Transform.worldInverseSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.worldInverseSchema.name },
+    pool: Transform.worldSchema.name,
+    schema: Transform.worldSchema,
+    arena: 'gpu',
 });
 
 /**
- * Inversas das matrizes de mundo (pool `WorldInverse`), leitura. Quem lê pede o pool (`ensurePoolAllocated`) numa
- * transição; o estágio de transformação passa a escrevê-lo.
+ * Inversas das matrizes de mundo (pool `WorldInverse`, spec 037, sob demanda; arena da GPU), leitura e escrita — o
+ * estágio de transformação.
  */
-export const worldInversesResource = wgslResource({
+export const worldInversesWriteResource = poolArenaWriter({
     name: 'world_inverses',
-    binding: { storage: 'read' },
-    type: { schema: Transform.worldInverseSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.worldInverseSchema.name },
+    pool: Transform.worldInverseSchema.name,
+    schema: Transform.worldInverseSchema,
+});
+
+/**
+ * Inversas das matrizes de mundo (pool `WorldInverse`, arena da GPU), leitura. Quem lê pede o pool
+ * (`ensurePoolAllocated`) numa transição; o estágio de transformação passa a escrevê-lo.
+ */
+export const worldInversesResource = poolArenaReader({
+    name: 'world_inverses',
+    pool: Transform.worldInverseSchema.name,
+    schema: Transform.worldInverseSchema,
+    arena: 'gpu',
 });
 
 /** Parâmetros das câmeras (pool `Camera`), leitura. */
@@ -67,33 +64,36 @@ export const cameraParamsResource = wgslResource({
 });
 
 /**
- * Matrizes de mundo do quadro anterior (pool `PreviousWorldTransform`, spec 034), leitura — os vetores de movimento do
- * desenho.
+ * Matrizes de mundo do quadro anterior (pool `PreviousWorldTransform`, spec 034; arena da GPU), leitura — os vetores de
+ * movimento do desenho.
  */
-export const previousWorldsResource = wgslResource({
+export const previousWorldsResource = poolArenaReader({
     name: 'previous_worlds',
-    binding: { storage: 'read' },
-    type: { schema: Transform.previousWorldSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.previousWorldSchema.name },
+    pool: Transform.previousWorldSchema.name,
+    schema: Transform.previousWorldSchema,
+    arena: 'gpu',
 });
 
-/** Matrizes das câmeras (pool `CameraMatrices`), escrita — o estágio de câmera. */
-export const cameraMatricesWriteResource = wgslResource({
+/** Matrizes de mundo do quadro anterior, leitura e escrita — o histórico de movimento as copia das de agora. */
+export const previousWorldsWriteResource = poolArenaWriter({
+    name: 'previous_worlds',
+    pool: Transform.previousWorldSchema.name,
+    schema: Transform.previousWorldSchema,
+});
+
+/** Matrizes das câmeras (pool `CameraMatrices`, arena da GPU), leitura e escrita — o estágio de câmera. */
+export const cameraMatricesWriteResource = poolArenaWriter({
     name: 'camera_matrices',
-    binding: { storage: 'read_write' },
-    type: { schema: Camera.matricesSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Camera.matricesSchema.name },
+    pool: Camera.matricesSchema.name,
+    schema: Camera.matricesSchema,
 });
 
-/** Matrizes das câmeras (pool `CameraMatrices`), leitura no desenho. */
-export const camerasResource = wgslResource({
+/** Matrizes das câmeras (pool `CameraMatrices`, arena da GPU), leitura no desenho. */
+export const camerasResource = poolArenaReader({
     name: 'cameras',
-    binding: { storage: 'read' },
-    type: { schema: Camera.matricesSchema, array: true },
-    frequency: 'frame',
-    provider: { pool: Camera.matricesSchema.name },
+    pool: Camera.matricesSchema.name,
+    schema: Camera.matricesSchema,
+    arena: 'gpu',
 });
 
 /** Luzes (pool `Light`), leitura. */

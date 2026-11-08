@@ -12,7 +12,12 @@ import type {
     VertexBufferSpec,
 } from '../../core/contracts/index';
 import { DATA_HOOK, Entity, type DataHook } from '../contracts/Entity';
-import { poolArenaSlot, poolArenaSlotOf } from '../shaders/poolArena';
+import {
+    poolArenaKindOf,
+    poolArenaSlot,
+    poolArenaSlotOf,
+    type PoolArenaKind,
+} from '../shaders/poolArena';
 import { PoolArena } from './PoolArena';
 import type { ResolvedSource } from '../consumers/ResolvedSource';
 import { ResourceState } from '../contracts/ResourceState';
@@ -335,8 +340,11 @@ const INDIRECT_RECORD_BYTES = 20;
  */
 export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
-    /** A arena de pools da C2 (T060i): os pools que a CPU envia e que algum shader lê pela arena. */
-    private readonly arena: PoolArena;
+    /**
+     * As arenas de pools da C2 (T060i): a da CPU (os pools que a CPU envia e que algum shader lê pela arena) e a da GPU
+     * (os que os estágios produzem e que algum shader acessa pela arena).
+     */
+    private readonly arenas: Readonly<Record<PoolArenaKind, PoolArena>>;
     private readonly pools = new Map<string, PoolEntry>();
     private readonly allocations = new Map<Resource, Map<string, Allocation>>();
     /** Ouvinte das mutações de `data` dos Resources desta cena (um para todos). */
@@ -415,11 +423,16 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         readonly consumers: ConsumerResolverRegistry = new ConsumerResolverRegistry(),
         inferencer: LayoutInferencer = new LayoutInferencer(),
     ) {
-        this.arena = new PoolArena(core);
+        this.arenas = { cpu: new PoolArena(core, 'cpu'), gpu: new PoolArena(core, 'gpu') };
         consumers.registerDefault({
             name: 'PoolArena',
             typeName: 'u32',
-            resolve: () => ({ kind: 'buffer', buffer: this.arena.buffer }),
+            resolve: () => ({ kind: 'buffer', buffer: this.arenas.cpu.buffer }),
+        });
+        consumers.registerDefault({
+            name: 'PoolArenaGpu',
+            typeName: 'u32',
+            resolve: () => ({ kind: 'buffer', buffer: this.arenas.gpu.buffer }),
         });
         this.subscriptions = [
             this.events.on('resourcesChanged', (e) => {
@@ -549,6 +562,12 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (entry.demanded) return entry.bufferSpec;
         entry.demanded = true;
         const oldSpec = entry.bufferSpec;
+        if (poolArenaKindOf(`pool:${poolKey}`) === 'gpu') {
+            // Na arena da GPU (T060i): a região nasce no pedido (todos os pools dela anunciam, se ela se moveu).
+            this.core.destroy(oldSpec);
+            this.placeInArena(entry, 'gpu');
+            return entry.bufferSpec;
+        }
         ++entry.generation;
         this.allocatePoolStorage(entry);
         this.events.emit('poolReallocated', {
@@ -560,45 +579,91 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     /**
-     * Põe o pool `poolKey` na arena de pools (T060i), para o pipeline que o lê por um leitor da arena com `pools` no
-     * descritor: a região fica reservada (o pool que nascer depois nasce nela) e o pool que já existe vai para ela — o
-     * conteúdo copiado na GPU, o buffer próprio destruído e a realocação anunciada.
-     * @throws Error pool produzido pela GPU, com série ou sob demanda (a arena guarda só pools que a CPU envia).
+     * Põe o pool `poolKey` na arena `kind` (T060i), para o pipeline que o acessa pela arena com `pools` no descritor: a
+     * região fica reservada (o pool que nascer depois nasce nela) e o pool que já existe vai para ela — o conteúdo
+     * copiado na GPU, o buffer próprio destruído e a realocação anunciada.
+     * @throws Error pool que não cabe na arena (`placeInArena`).
      */
-    poolIntoArena(poolKey: string): void {
-        poolArenaSlot(`pool:${poolKey}`);
+    poolIntoArena(poolKey: string, kind: PoolArenaKind = 'cpu'): void {
+        poolArenaSlot(`pool:${poolKey}`, kind);
         const entry = this.pools.get(poolKey);
-        if (entry === undefined || entry.inArena) return;
-        if (entry.upload === 'never' || entry.channel !== undefined || !entry.demanded) {
-            throw new Error(
-                `ResourceSystem: pool '${poolKey}' lido pela arena, mas produzido pela GPU, com série ou sob demanda — `
-                    + 'a arena guarda só pools que a CPU envia.',
-            );
-        }
+        if (entry === undefined || entry.inArena || !entry.demanded) return;
         const old = entry.bufferSpec;
-        const bytes = entry.stride * entry.capacity;
-        const moved = this.arena.ensure(`pool:${poolKey}`, bytes, entry.capacity);
-        entry.inArena = true;
-        entry.bufferSpec = this.arena.buffer;
-        entry.base = this.arena.offsetOf(`pool:${poolKey}`);
-        // O que a CPU já enviou vai para a região por cópia na GPU (num comando próprio, como o crescimento).
-        const target = entry.bufferSpec;
-        const to = entry.base;
-        this.core.record(`pool_into_arena:${poolKey}`, (frame) => {
-            frame.copy(old, target, bytes, 0, to);
+        const bytes = Math.min(old.byteSize, entry.stride * entry.capacity);
+        this.placeInArena(entry, kind, () => {
+            // O que já foi escrito vai para a região por cópia na GPU (num comando próprio, como o crescimento).
+            const target = entry.bufferSpec;
+            const to = entry.base;
+            this.core.record(`pool_into_arena:${poolKey}`, (frame) => {
+                frame.copy(old, target, bytes, 0, to);
+            });
+            this.core.submit();
+            this.core.destroy(old);
         });
-        this.core.submit();
-        this.core.destroy(old);
+    }
+
+    /**
+     * O pool passa a morar numa região da arena `kind` (T060i): a da CPU guarda os pools que a CPU envia, a da GPU os
+     * que os estágios produzem (`upload: 'never'`); nenhuma guarda pool com série (as fatias são buffers próprios).
+     * `moveContent` roda depois da região existir e antes do anúncio. Anuncia a realocação deste pool (`announce`; não
+     * no que ainda nasce) e a de todos os da arena, se ela se moveu.
+     * @throws Error pool que não cabe na arena (`checkArena`).
+     */
+    private placeInArena(
+        entry: PoolEntry,
+        kind: PoolArenaKind,
+        moveContent?: () => void,
+        announce = true,
+    ): void {
+        const poolKey = entry.poolKey;
+        this.checkArena(entry, kind);
+        const arena = this.arenas[kind];
+        const oldByteSize = entry.bufferSpec.byteSize;
+        const moved = arena.ensure(
+            `pool:${poolKey}`,
+            entry.stride * entry.capacity,
+            entry.capacity,
+        );
+        entry.inArena = true;
+        entry.bufferSpec = arena.buffer;
+        entry.base = arena.offsetOf(`pool:${poolKey}`);
+        moveContent?.();
         if (moved) {
-            this.arenaMoved();
+            this.arenaMoved(kind, announce ? undefined : entry);
             return;
         }
+        if (!announce) return;
         ++entry.generation;
         this.events.emit('poolReallocated', {
             poolKey,
-            oldByteSize: old.byteSize,
+            oldByteSize,
             newByteSize: entry.bufferSpec.byteSize,
         });
+    }
+
+    /**
+     * O pool cabe na arena `kind`? A da CPU guarda os pools que a CPU envia, a da GPU os que os estágios produzem
+     * (`upload: 'never'`); nenhuma, pool com série (as fatias são buffers próprios).
+     * @throws Error não cabe.
+     */
+    private checkArena(entry: PoolEntry, kind: PoolArenaKind): void {
+        const produced = entry.upload === 'never';
+        if (entry.channel === undefined && produced === (kind === 'gpu')) return;
+        const what =
+            entry.channel !== undefined
+                ? 'com série'
+                : produced
+                  ? 'produzido pela GPU'
+                  : 'enviado pela CPU';
+        throw new Error(
+            `ResourceSystem: pool '${entry.poolKey}' na arena '${kind}', mas ${what} — a arena 'cpu' guarda pools `
+                + "que a CPU envia, a 'gpu' os que a GPU produz; nenhuma, pools com série.",
+        );
+    }
+
+    /** A arena em que o pool mora. */
+    private arenaOf(entry: PoolEntry): PoolArena {
+        return this.arenas[poolArenaKindOf(`pool:${entry.poolKey}`) ?? 'cpu'];
     }
 
     ensurePool(schema: Schema): void {
@@ -969,7 +1034,8 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     /** Desfaz as inscrições no EventBus e descarta os Flows alocados (descarte da cena). */
     dispose(): void {
         this.binder.dispose();
-        this.arena.destroy();
+        this.arenas.cpu.destroy();
+        this.arenas.gpu.destroy();
         for (const off of this.subscriptions) off();
         this.subscriptions.length = 0;
     }
@@ -1209,7 +1275,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                   kind: 'buffer',
                   buffer,
                   offset: entry.liveBase,
-                  size: this.arena.sizeOf(`live:${poolKey}`),
+                  size: this.arenas.cpu.sizeOf(`live:${poolKey}`),
               }
             : { kind: 'buffer', buffer };
     }
@@ -1222,19 +1288,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (poolArenaSlotOf(`live:${entry.poolKey}`) !== undefined) {
             entry.liveInArena = true;
             const key = `live:${entry.poolKey}` as const;
-            if (
-                this.arena.ensure(
-                    key,
-                    Math.max(4, entry.liveBits.byteLength),
-                    entry.liveBits.length,
-                )
-            )
-                this.arenaMoved();
-            entry.liveBase = this.arena.offsetOf(key);
-            this.core.write(this.arena.buffer, entry.liveBits, entry.liveBase);
+            const arena = this.arenas.cpu;
+            if (arena.ensure(key, Math.max(4, entry.liveBits.byteLength), entry.liveBits.length))
+                this.arenaMoved('cpu');
+            entry.liveBase = arena.offsetOf(key);
+            this.core.write(arena.buffer, entry.liveBits, entry.liveBase);
             entry.liveLo = 1;
             entry.liveHi = 0;
-            return this.arena.buffer;
+            return arena.buffer;
         }
         const spec = this.core.create<StorageBufferSpec>({
             kind: 'buffer',
@@ -1262,7 +1323,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
             buffer: entry.bufferSpec,
             offset: entry.base,
             size: entry.inArena
-                ? this.arena.sizeOf(`pool:${entry.poolKey}`)
+                ? this.arenaOf(entry).sizeOf(`pool:${entry.poolKey}`)
                 : entry.bufferSpec.byteSize,
             stride: entry.stride,
             count: entry.count,
@@ -2585,24 +2646,20 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                     : undefined,
         };
         if (demanded && entry.channel !== undefined) this.allocatePoolStorage(entry);
-        // A arena de pools (T060i): um leitor pela arena declarou este pool — os registros moram numa região dela.
-        if (poolArenaSlotOf(`pool:${poolKey}`) !== undefined) {
-            if (entry.upload === 'never' || entry.channel !== undefined || !demanded) {
-                throw new Error(
-                    `ResourceSystem: pool '${poolKey}' lido pela arena, mas produzido pela GPU, com série ou sob demanda — `
-                        + 'a arena guarda só pools que a CPU envia.',
-                );
-            }
+        // As arenas de pools (T060i): um acessor pela arena declarou este pool — os registros moram numa região dela
+        // (o pool sob demanda, só no pedido). O pool ainda nasce: nenhum anúncio de realocação dele (só dos outros).
+        const kind = poolArenaKindOf(`pool:${poolKey}`);
+        if (kind !== undefined && demanded) {
             this.core.destroy(entry.bufferSpec);
-            entry.inArena = true;
+            // No mapa antes: uma arena que se move leva junto o pool que nasce.
             this.pools.set(poolKey, entry);
-            const moved = this.arena.ensure(`pool:${poolKey}`, stride * capacity, capacity);
-            entry.bufferSpec = this.arena.buffer;
-            entry.base = this.arena.offsetOf(`pool:${poolKey}`);
-            if (moved) this.arenaMoved(entry);
+            this.placeInArena(entry, kind, undefined, false);
             // Os vivos lidos pela arena: a região deles nasce com o pool (o leitor não os pede por resolver).
             if (poolArenaSlotOf(`live:${poolKey}`) !== undefined)
                 entry.liveSpec = this.createLiveBuffer(entry);
+        } else if (kind !== undefined) {
+            // Sob demanda: a regra da arena já vale (a região só nasce no pedido).
+            this.checkArena(entry, kind);
         }
         this.pools.set(poolKey, entry);
         this.consumers.registerDefault(new PoolResolver(poolKey, schema));
@@ -2656,13 +2713,14 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         if (entry.inArena) {
             // Na arena (T060i): a região cresce e a arena inteira é realocada (o conteúdo de todas copiado na GPU).
             entry.capacity *= 2;
-            this.arena.ensure(
+            const kind = poolArenaKindOf(`pool:${entry.poolKey}`) ?? 'cpu';
+            this.arenas[kind].ensure(
                 `pool:${entry.poolKey}`,
                 entry.stride * entry.capacity,
                 entry.capacity,
             );
             this.growBookkeeping(entry);
-            this.arenaMoved();
+            this.arenaMoved(kind);
             return;
         }
         if (!entry.demanded) {
@@ -2712,20 +2770,24 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
     }
 
     /**
-     * A arena de pools foi realocada (T060i): os pools e os vivos que moram nela apontam o buffer novo e as posições
+     * A arena `kind` foi realocada (T060i): os pools e os vivos que moram nela apontam o buffer novo e as posições
      * novas, e cada pool anuncia a realocação (quem o liga religa). `skip`: o pool que ainda está nascendo.
      */
-    private arenaMoved(skip?: PoolEntry): void {
+    private arenaMoved(kind: PoolArenaKind, skip?: PoolEntry): void {
+        const arena = this.arenas[kind];
         for (const entry of this.pools.values()) {
-            if (!entry.inArena && !entry.liveInArena) continue;
+            const own =
+                entry.inArena && (poolArenaKindOf(`pool:${entry.poolKey}`) ?? 'cpu') === kind;
+            const live = entry.liveInArena && kind === 'cpu';
+            if (!own && !live) continue;
             const oldByteSize = entry.bufferSpec.byteSize;
-            if (entry.inArena) {
-                entry.bufferSpec = this.arena.buffer;
-                entry.base = this.arena.offsetOf(`pool:${entry.poolKey}`);
+            if (own) {
+                entry.bufferSpec = arena.buffer;
+                entry.base = arena.offsetOf(`pool:${entry.poolKey}`);
             }
-            if (entry.liveInArena) {
-                entry.liveSpec = this.arena.buffer;
-                entry.liveBase = this.arena.offsetOf(`live:${entry.poolKey}`);
+            if (live) {
+                entry.liveSpec = arena.buffer;
+                entry.liveBase = arena.offsetOf(`live:${entry.poolKey}`);
             }
             ++entry.generation;
             if (entry === skip) continue;

@@ -300,6 +300,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 pipelinesCompiled: 'ignore',
                 pipelineRejected: 'ignore',
                 bindGroupReplaced: 'ignore',
+                // Pools realocados (a arena da GPU que se move, T060i): a C2 religa.
+                poolReallocated: 'ignore',
             },
         };
     }

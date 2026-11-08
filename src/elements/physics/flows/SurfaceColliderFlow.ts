@@ -175,9 +175,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             time: slot.singleton(Time.schema, { optional: true }),
             work: slot.work(() => work),
         };
-        work.use({
-            descriptors: () => [wordBuffer('scb_worlds_dummy', Transform.worldSchema.stride)],
-        });
         const changed = {
             to: 'idle' as const,
             run: (): void => {
@@ -289,16 +286,11 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
         this.states.clear();
     }
 
-    /** O substituto das matrizes de mundo (sem pool de `WorldTransform`), no trabalho. */
-    private get dummyWorlds(): StorageBufferSpec {
-        return this.pools.bufferOf(this.work.work, 'scb_worlds_dummy') as StorageBufferSpec;
-    }
-
     /** Colliders presentes: estado, rascunho, bindings e pipelines. */
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { colliders, functions, fields, worlds } = ctx.bound.slots;
+        const { colliders, functions, fields } = ctx.bound.slots;
         const present = new Set<EntityId>();
         for (const entry of colliders.entries) {
             const id = entry.entityId;
@@ -336,7 +328,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                         [B.cells, st.cells],
                         [B.ids, st.ids],
                         [B.field, fields.buffer],
-                        [B.worlds, worlds?.buffer ?? this.dummyWorlds],
                     ]),
                 );
                 ctx.prepare({

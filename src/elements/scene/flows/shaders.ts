@@ -19,6 +19,7 @@ import {
     cameraParamsResource,
     camerasResource,
     lightsResource,
+    previousWorldsWriteResource,
     shadowMapsResource,
     transformsResource,
     worldInversesWriteResource,
@@ -31,6 +32,7 @@ import transformLocalSource from '../../gpu/wgsl/kernels/transform_local.wgsl?ra
 import transformFnReadySource from '../../gpu/wgsl/kernels/transform_fn_ready.wgsl?raw';
 import transformComposeFnSource from '../../gpu/wgsl/kernels/transform_compose_fn.wgsl?raw';
 import transformInverseSource from '../../gpu/wgsl/kernels/transform_inverse.wgsl?raw';
+import motionHistorySource from '../../gpu/wgsl/kernels/motion_history.wgsl?raw';
 import cameraSpaceSource from '../../gpu/wgsl/math/camera_space.wgsl?raw';
 import cameraComposeSource from '../../gpu/wgsl/kernels/camera_compose.wgsl?raw';
 import cameraPointTypesSource from '../../gpu/wgsl/kernels/camera_point_types.wgsl?raw';
@@ -203,6 +205,14 @@ export const transformInverse = wgslModule({
         transformResources.params,
     ],
     structs: [Transform.worldSchema, Transform.worldInverseSchema, TransformParamsSchema],
+});
+
+/** Histórico de movimento (spec 034, R3): as matrizes de mundo do quadro anterior copiadas das de agora. */
+export const motionHistory = wgslModule({
+    name: 'motion_history',
+    source: motionHistorySource,
+    requires: [WORKGROUP_SIZE.module, worldsResource, previousWorldsWriteResource],
+    structs: [Transform.worldSchema, Transform.previousWorldSchema],
 });
 
 /**

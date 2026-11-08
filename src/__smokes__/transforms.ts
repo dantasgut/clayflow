@@ -330,8 +330,11 @@ async function main(): Promise<void> {
     };
 
     const readWorlds = async (entityIds: readonly EntityId[]): Promise<Float32Array[]> => {
-        const pool = app.resources.poolBufferSpec('WorldTransform');
-        if (pool === undefined) throw new Error('pool WorldTransform inexistente');
+        const info = app.resources.poolInfo('WorldTransform');
+        if (info === undefined) throw new Error('pool WorldTransform inexistente');
+        // Na arena da GPU (T060i), o pool começa na posição da região dele.
+        const pool = info.buffer;
+        const base = info.offset / 4;
         const staging = app.core.create<StagingBufferSpec>({
             kind: 'buffer',
             subkind: 'staging',
@@ -347,7 +350,7 @@ async function main(): Promise<void> {
         return entityIds.map((id) => {
             const slot = app.resources.poolSlotOf('WorldTransform', id);
             if (slot === undefined) throw new Error(`entidade ${id} sem slot`);
-            return all.slice((slot * 112) / 4, (slot * 112) / 4 + 28);
+            return all.slice(base + (slot * 112) / 4, base + (slot * 112) / 4 + 28);
         });
     };
 

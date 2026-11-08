@@ -150,6 +150,16 @@ function topologicalOrder(entry: WgslModule): WgslModule[] {
     const byName = new Map<string, { module: WgslModule; via: string }>();
     const visit = (m: WgslModule, path: readonly WgslModule[], via: string): void => {
         const other = byName.get(m.name);
+        if (other !== undefined && other.module !== m && promotes(other.module, m)) {
+            // O mesmo recurso lido e escrito no shader (a arena da GPU, T060i): uma ligação só, em leitura e escrita —
+            // o WebGPU não aceita o mesmo buffer escrito numa ligação e lido noutra no mesmo despacho.
+            if (access(m) === 'read_write') {
+                order[order.indexOf(other.module)] = m;
+                byName.set(m.name, { module: m, via });
+            }
+            done.add(m);
+            return;
+        }
         if (other !== undefined && other.module !== m) {
             throw new WgslCompositionError(
                 'duplicate-module-name',
@@ -173,6 +183,29 @@ function topologicalOrder(entry: WgslModule): WgslModule[] {
     };
     visit(entry, [], '(entrada)');
     return order;
+}
+
+/** O acesso de storage de um recurso declarado (`undefined` fora de storage). */
+function access(m: WgslModule): string | undefined {
+    if (!isWgslResource(m)) return undefined;
+    const b = m.resource.binding as { readonly storage?: string };
+    return b.storage;
+}
+
+/**
+ * `a` e `b` são o mesmo recurso, um em leitura e o outro em leitura e escrita (o mesmo nome, tipo, frequência e
+ * fornecedor)? A montagem fica com o de leitura e escrita.
+ */
+function promotes(a: WgslModule, b: WgslModule): boolean {
+    if (!isWgslResource(a) || !isWgslResource(b)) return false;
+    const modes = new Set([access(a), access(b)]);
+    if (!modes.has('read') || !modes.has('read_write')) return false;
+    const same = (x: unknown, y: unknown): boolean => JSON.stringify(x) === JSON.stringify(y);
+    return (
+        same(a.resource.type, b.resource.type)
+        && a.resource.frequency === b.resource.frequency
+        && same(a.resource.provider, b.resource.provider)
+    );
 }
 
 /** Schemas usados pelos módulos (aninhados antes), deduplicados por `wgslName`. */

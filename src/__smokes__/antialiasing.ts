@@ -1173,7 +1173,8 @@ async function readMatrices(
     camera: clayflow.Camera,
 ): Promise<Record<string, number[]>> {
     const schema = clayflow.Camera.matricesSchema;
-    const pool = app.resources.poolBufferSpec(schema.name);
+    const info = app.resources.poolInfo(schema.name);
+    const pool = info?.buffer;
     const id = app.world.entityIdOfResource(camera);
     const slot = id === undefined ? undefined : app.resources.poolSlotOf(schema.name, id);
     if (pool === undefined || slot === undefined)
@@ -1190,7 +1191,8 @@ async function readMatrices(
     app.core.submit();
     const all = new Float32Array(await app.core.readback(staging));
     app.core.destroy(staging);
-    const base = (slot * schema.stride) / 4;
+    // Na arena da GPU (T060i), o pool começa na posição da região dele.
+    const base = (info!.offset + slot * schema.stride) / 4;
     const field = (name: string, n: number): number[] =>
         Array.from(
             all.subarray(base + schema.offsetOf(name) / 4, base + schema.offsetOf(name) / 4 + n),

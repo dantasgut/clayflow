@@ -4,6 +4,8 @@ import {
     POOL_ARENA_HEADER_WORDS,
     POOL_ARENA_SLOTS,
     poolArenaSlot,
+    poolArenaKindOf,
+    type PoolArenaKind,
     type PoolArenaRegion,
 } from '../shaders/poolArena';
 
@@ -16,7 +18,7 @@ interface Region {
 }
 
 /**
- * A arena de pools da C2 (T060i): um buffer de storage com o cabeçalho (as bases e as capacidades de cada região, em
+ * Uma arena de pools da C2 (T060i; a da CPU ou a da GPU): um buffer de storage com o cabeçalho (as bases e as capacidades de cada região, em
  * palavras) e as regiões dos pools que moram nela, alinhadas a `POOL_ARENA_ALIGN` bytes (quem liga um pool tipado liga
  * a faixa da região). Existe desde a criação, só com o cabeçalho: quem lê pela arena não espera por ela. Uma região que
  * cresce realoca a arena inteira — o conteúdo de todas vai para o buffer novo por cópia na GPU — e o cabeçalho é
@@ -28,7 +30,10 @@ export class PoolArena {
     private generation = 0;
     private current: StorageBufferSpec | undefined;
 
-    constructor(private readonly core: EngineCore) {}
+    constructor(
+        private readonly core: EngineCore,
+        private readonly kind: PoolArenaKind = 'cpu',
+    ) {}
 
     /** O buffer da arena (criado no primeiro pedido, só com o cabeçalho). */
     get buffer(): StorageBufferSpec {
@@ -55,7 +60,12 @@ export class PoolArena {
         }
         const previous = new Map([...this.regions].map(([k, v]) => [k, { ...v }]));
         if (r === undefined) {
-            this.regions.set(key, { slot: poolArenaSlot(key), bytes: size, elements, offset: 0 });
+            this.regions.set(key, {
+                slot: poolArenaSlot(key, poolArenaKindOf(key) ?? this.kind),
+                bytes: size,
+                elements,
+                offset: 0,
+            });
         } else {
             r.bytes = size;
             r.elements = elements;
@@ -103,7 +113,7 @@ export class PoolArena {
         }));
         if (old !== undefined && moves.length > 0) {
             const target = this.current;
-            this.core.record(`pool_arena_grow:${this.generation}`, (frame) => {
+            this.core.record(`pool_arena_grow:${this.kind}:${this.generation}`, (frame) => {
                 for (const m of moves) frame.copy(old, target, m.bytes, m.from, m.to);
             });
             this.core.submit();
@@ -126,7 +136,8 @@ export class PoolArena {
             kind: 'buffer',
             subkind: 'storage',
             discriminator:
-                this.generation === 0 ? 'pool_arena' : `pool_arena:gen${this.generation}`,
+                (this.kind === 'cpu' ? 'pool_arena' : 'pool_arena_gpu')
+                + (this.generation === 0 ? '' : `:gen${this.generation}`),
             byteSize,
         });
     }

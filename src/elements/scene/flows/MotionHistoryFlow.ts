@@ -1,4 +1,6 @@
 import type { Frame } from '../../../scene/contracts/gpu';
+import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../../scene/flows/Flow';
 import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
@@ -14,6 +16,7 @@ import {
 import { TemporalAntialiasing } from '../TemporalAntialiasing';
 import { Geometry } from '../../geometry/Geometry';
 import { Transform } from '../Transform';
+import { motionHistory } from './shaders';
 
 /** Slots do estágio do histórico de movimento. */
 export interface MotionHistorySlots extends SlotMap {
@@ -49,6 +52,14 @@ const slots: MotionHistorySlots = {
 export class MotionHistoryFlow extends Flow<MotionHistorySlots, 'idle'> {
     readonly type = 'MotionHistoryFlow';
     readonly slots = slots;
+    override readonly pipelines: readonly PipelineDescriptor[] = [
+        {
+            id: 'motion_history',
+            role: 'compute',
+            shader: motionHistory,
+            entryPoints: ['motion_history_main'],
+        },
+    ];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<MotionHistorySlots>>;
     private readonly resources: ResourceDirectory;
@@ -80,8 +91,15 @@ export class MotionHistoryFlow extends Flow<MotionHistorySlots, 'idle'> {
         const kept = this.kept;
         this.kept = aa?.jitters === true;
         if (!this.kept) return;
-        const bytes = Math.min(worlds.count, previous.capacity) * worlds.stride;
-        if (bytes > 0) frame.copy(worlds.buffer, previous.buffer, bytes, 0, 0);
+        const count = Math.min(worlds.count, previous.capacity);
+        const copy = bound.compute('motion_history');
+        if (count > 0 && copy.ready) {
+            frame.compute('MotionHistoryFlow', (pass) => {
+                pass.bind.setPipeline(copy.spec);
+                copy.bindTo(pass.bind);
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
+            });
+        }
         const stale = new Set<Geometry>();
         for (const entry of geometries.entries) {
             const geometry = entry.get(Geometry);

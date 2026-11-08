@@ -14,7 +14,7 @@ import type { Schema } from '../../descriptors/Schema';
 import type { PointImplementation } from '../../shaders/WgslPoint';
 import { bindPoints, type BindablePoint } from '../../shaders/bindPoints';
 import type { WgslModule } from '../../shaders/WgslModule';
-import { isArenaReader, poolArenaReaderOf } from '../../shaders/poolArena';
+import { isArenaReader, poolArenaReaderOf, type PoolArenaKind } from '../../shaders/poolArena';
 import type { WgslResource } from '../../shaders/WgslResource';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
@@ -67,8 +67,8 @@ export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
     releaseOwnership(owner: object, resource: Resource, descId: string): void;
     markProduced(owner: object, resource: Resource, descId: string, produced: boolean): void;
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
-    /** Põe o pool na arena de pools (T060i): o pipeline o lê por um leitor da arena com `pools` no descritor. */
-    poolIntoArena(poolKey: string): void;
+    /** Põe o pool na arena `kind` (T060i): o pipeline o acessa pela arena com `pools` no descritor. */
+    poolIntoArena(poolKey: string, kind?: PoolArenaKind): void;
 }
 
 /** O que o runtime de um Flow usa da cena. */
@@ -748,7 +748,7 @@ export class FlowRuntime {
         const swaps = new Map<BindablePoint, WgslModule>();
         for (const [key, pool] of pools) {
             if (!isArenaReader(key)) continue;
-            this.host.resources.poolIntoArena(pool);
+            this.host.resources.poolIntoArena(pool, key.arenaRead.kind);
             swaps.set({ name: key.name, ready: key }, poolArenaReaderOf(key, pool));
         }
         return swaps.size === 0

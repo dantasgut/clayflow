@@ -46,8 +46,10 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         // A sombra virtual (spec 034, T060) realoca o seu trabalho por dobra da capacidade de instâncias (as seções dos
         // retângulos e dos grupos) e religa a caixa da geometria: uma vez por dobra, não por entidade. As etapas das
         // páginas também religam os pools que crescem (a C2 refaz os bind groups delas): por pool, não por entidade.
+        // As arenas de pools (T060i) se realocam a cada dobra de um pool delas e religam quem as liga: por dobra, não
+        // por entidade (a da GPU tomou o lugar dos buffers próprios das matrizes de mundo).
         const growth = /^(shadow_pages_|shadow_bounds:|rects:|wgsl:shadow_pages)/;
-        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(110);
+        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(120);
         expect(s.creates().filter((c) => growth.test(discOf(c))).length).toBeLessThan(20);
         expect(
             s

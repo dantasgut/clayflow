@@ -1,5 +1,6 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { poolArenaReader } from '../../../scene/shaders/poolArena';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
@@ -81,7 +82,13 @@ export const surfaceBakeResources = Object.freeze({
     cells: bakeBuffer('bake_cells', 'read_write', { wgsl: 'atomic<u32>', array: true }),
     ids: bakeBuffer('bake_ids', 'read_write', { wgsl: 'atomic<u32>', array: true }),
     field: bakeBuffer('bake_field', 'read_write', { wgsl: 'f32', array: true }),
-    worlds: bakeBuffer('bake_worlds', 'read', { schema: Transform.worldSchema, array: true }),
+    // As matrizes de mundo pela arena da GPU (T060i).
+    worlds: poolArenaReader({
+        name: 'bake_worlds',
+        pool: Transform.worldSchema.name,
+        schema: Transform.worldSchema,
+        arena: 'gpu',
+    }),
 });
 const B = surfaceBakeResources;
 

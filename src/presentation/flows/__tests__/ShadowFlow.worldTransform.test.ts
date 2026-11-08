@@ -16,17 +16,19 @@ async function scene(scale: [number, number, number, number] = [1, 1, 1, 1]) {
 }
 
 /**
- * Ligação `worlds` do desenho das páginas da sombra: no grupo `stage` (o 1, depois do `frame` com `shadow_matrices`), a
- * entrada ligada ao buffer `pool` (as demais do grupo: `instances`, `sp`, o espaço de trabalho e os pares).
+ * A ligação das matrizes de mundo no desenho das páginas da sombra: a arena da GPU (T060i), no grupo `frame` — a entrada
+ * ligada ao buffer `pool` em algum grupo.
  */
 function worldsOf(draw: DrawCall | undefined, pool: unknown) {
-    const group = draw!.bindGroups.get(1)!.group;
-    const k = group.bindings.findIndex((b) => (b as { buffer?: unknown }).buffer === pool);
-    return { layout: group.layout.entries[k], binding: group.bindings[k] };
+    for (const { group } of draw!.bindGroups.values()) {
+        const k = group.bindings.findIndex((b) => (b as { buffer?: unknown }).buffer === pool);
+        if (k >= 0) return { layout: group.layout.entries[k], binding: group.bindings[k] };
+    }
+    return { layout: undefined, binding: undefined };
 }
 
 describe('ShadowFlow — matriz de mundo por slot', () => {
-    it('worlds (grupo stage) é storage somente leitura visível no vértice, ligado ao pool WorldTransform', async () => {
+    it('worlds pela arena da GPU: storage somente leitura visível no vértice, o buffer do pool WorldTransform', async () => {
         const s = await scene();
         s.step();
         const [draw] = s.draws('ShadowFlow');

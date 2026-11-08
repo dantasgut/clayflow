@@ -236,6 +236,8 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
+                // Pools realocados (a arena da GPU que se move, T060i): a C2 religa.
+                poolReallocated: 'ignore',
             },
         };
     }

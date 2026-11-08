@@ -1,5 +1,7 @@
 import { WgslCompositionError } from './WgslCompositionError';
+import { isArenaReader } from './poolArena';
 import { wgslModule, type WgslModule } from './WgslModule';
+import { isWgslResource } from './WgslResource';
 
 /** O que `bindPoints` usa de um ponto (`WgslPoint`): o nome e o módulo pronto que a implementação substitui. */
 export interface BindablePoint {
@@ -49,8 +51,11 @@ export function bindPoints(
     // chegar por dois caminhos já reescritos de formas diferentes (o shader de quem desenha, já trocado, e uma
     // contribuição da cena com o original) e sair igual dos dois.
     const canonical = new Map<string, WgslModule[]>();
+    // Recursos declarados só são o mesmo módulo se forem o mesmo (o de leitura e o de escrita de uma arena têm o mesmo
+    // nome e fonte vazia).
     const same = (a: WgslModule, b: WgslModule): boolean =>
-        a.source === b.source
+        (isWgslResource(a) || isWgslResource(b) ? a === b : true)
+        && a.source === b.source
         && a.requires.length === b.requires.length
         && a.requires.every((r, k) => r === b.requires[k]);
     const visit = (m: WgslModule): WgslModule => {
@@ -65,15 +70,17 @@ export function bindPoints(
         if (done !== undefined) return done;
         const requires = m.requires.map(visit);
         const unchanged = requires.every((r, k) => r === m.requires[k]);
-        let out = unchanged
-            ? m
-            : wgslModule({
-                  name:
-                      m === entry ? `${m.name}@${pairs.map(([, i]) => i.name).join('+')}` : m.name,
-                  source: m.source,
-                  requires,
-                  structs: m.structs,
-              });
+        const rebuilt = (): WgslModule => {
+            const r = wgslModule({
+                name: m === entry ? `${m.name}@${pairs.map(([, i]) => i.name).join('+')}` : m.name,
+                source: m.source,
+                requires,
+                structs: m.structs,
+            });
+            // Um leitor da arena de pools (T060i) continua leitor.
+            return isArenaReader(m) ? Object.freeze({ ...r, arenaRead: m.arenaRead }) : r;
+        };
+        let out = unchanged ? m : rebuilt();
         const twins = canonical.get(out.name) ?? [];
         const twin = twins.find((t) => same(t, out));
         if (twin !== undefined) out = twin;
