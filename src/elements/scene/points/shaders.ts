@@ -1,5 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
-import { shadowVirtual } from '../../gpu/shaders/math';
+import { constants, shadowVirtual } from '../../gpu/shaders/math';
 import shadowVirtualReadSource from '../../gpu/wgsl/math/shadow_virtual_read.wgsl?raw';
 import { shadowCasterAtlasResource } from '../resources';
 
@@ -7,5 +7,5 @@ import { shadowCasterAtlasResource } from '../resources';
 export const shadowVirtualRead = wgslModule({
     name: 'shadow_virtual_read',
     source: shadowVirtualReadSource,
-    requires: [shadowVirtual, shadowCasterAtlasResource],
+    requires: [constants, shadowVirtual, shadowCasterAtlasResource],
 });

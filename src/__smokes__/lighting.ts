@@ -10,7 +10,11 @@
 //   - light-sum: duas direcionais, vermelha e verde, somam na proporção das intensidades;
 //   - normal-scale: esfera com escala (1, 3, 1) — normais desenhadas contra as analíticas (≤ 1°);
 //   - specular-aa: superfície brilhante de detalhe fino sob câmera girando devagar — variância temporal limitada;
-//   - sprites-lit: o sprite de partícula e a esfera de malha equivalente iluminados pelo mesmo modelo (≤ 5 %).
+//   - sprites-lit: o sprite de partícula e a esfera de malha equivalente iluminados pelo mesmo modelo (≤ 5 %);
+//   - penumbra: a borda reta de uma placa a 0,5 m do chão sob uma direcional a 45° da vertical com disco de raio angular
+//     θ (PCSS, spec 034 T061): na média de 64 quadros do antisserrilhado acumulado, a largura de 10 % a 90 % da borda no
+//     chão contra a do disco coberto por uma reta (h tan θ / cos² 45° × (s₉₀ − s₁₀)) e o meio dela na projeção da borda;
+//     com θ = 0, a borda dura.
 // Para rodar: `npm run smoke -- lighting [--query case=furnace]`. Resultado: `LIGHTING SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -54,6 +58,7 @@ const relErr = (got: number, exp: number, floor = 2e-3): number =>
 async function createApp(
     width: number,
     height: number,
+    antialias: 'msaa' | 'accumulate' = 'msaa',
 ): Promise<{ app: Application; canvas: HTMLCanvasElement }> {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -66,7 +71,7 @@ async function createApp(
         captureErrors: true,
         // As medidas comparam cada pixel com a conta analítica no centro dele: o MSAA com que foram calibradas (o padrão
         // antes da 034). O deslocamento da amostra do antisserrilhado temporal tem o smoke `antialiasing`.
-        antialias: 'msaa',
+        antialias,
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>
@@ -80,13 +85,16 @@ function dispose(app: Application, canvas: HTMLCanvasElement): void {
     canvas.remove();
 }
 
-/** Câmera ortográfica de cima (vista exata +y): x à direita, −z para cima na tela; `height` unidades na vertical. */
-function topCamera(app: Application, height: number): void {
+/**
+ * Câmera ortográfica de cima (vista exata +y) à altura `y`: x à direita, −z para cima na tela; `height` unidades na
+ * vertical.
+ */
+function topCamera(app: Application, height: number, y = 8): void {
     app.world.insert(
         new Camera({ projection: 'orthographic', orthoHeight: height, near: 0.1, far: 20 }).add(
             new Transform({
-                position: [0, 8, 0, 1],
-                rotation: Transform.lookRotation([0, 8, 0], [0, 0, 0], [0, 0, -1]),
+                position: [0, y, 0, 1],
+                rotation: Transform.lookRotation([0, y, 0], [0, 0, 0], [0, 0, -1]),
             }),
         ),
     );
@@ -518,7 +526,126 @@ const CASES: Record<string, () => Promise<void>> = {
     'normal-scale': caseNormalScale,
     'specular-aa': caseSpecularAa,
     'sprites-lit': caseSpritesLit,
+    penumbra: casePenumbra,
 };
+
+/** Fração do disco de raio 1 com x < s (o disco coberto por uma borda reta em s). */
+function discFraction(s: number): number {
+    const c = Math.max(-1, Math.min(1, s));
+    return (Math.PI - Math.acos(c) + c * Math.sqrt(1 - c * c)) / Math.PI;
+}
+
+/** O s em que a fração do disco vale `f` (bisseção). */
+function discAt(f: number): number {
+    let lo = -1;
+    let hi = 1;
+    for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        if (discFraction(mid) < f) lo = mid;
+        else hi = mid;
+    }
+    return (lo + hi) / 2;
+}
+
+/**
+ * A borda da sombra da placa (x < −0,5 coberto, a 0,5 m: a câmera de cima vê o chão em volta da borda da sombra, que
+ * cai em x = 0) sob a luz a 45° da vertical, de raio angular `theta`: a média de `frames` quadros acumulados do alvo HDR
+ * na linha z = 0, normalizada entre a sombra e o iluminado; as posições (m) em que ela cruza 10 %, 50 % e 90 %.
+ */
+async function penumbraEdge(
+    theta: number,
+    frames: number,
+): Promise<{ x10: number; x50: number; x90: number }> {
+    const W = 800;
+    const H = 200;
+    const height = 0.4;
+    const { app, canvas } = await createApp(W, H, 'accumulate');
+    app.defaults.renderer.antialiasing.data.sequence = frames;
+    noAmbient(app);
+    // Perto do chão: o mapa virtual dá o nível mais fino em volta da câmera.
+    topCamera(app, height, 1);
+    diffusePlane(app);
+    app.world.insert(
+        new DirectionalLight({
+            direction: [Math.SQRT1_2, -Math.SQRT1_2, 0, 0],
+            intensity: 3,
+            castShadow: true,
+            angularRadius: theta,
+        }),
+    );
+    app.world.insert(
+        new BoxGeometry({ size: [2, 2 * PENUMBRA_EDGE, 2] })
+            .add(new StandardMaterial({ albedo: [0.3, 0.3, 0.3, 1] }))
+            .add(new Transform({ position: [-0.5 - 1, PENUMBRA_HEIGHT, 0, 1] })),
+    );
+    await settle(app, 600);
+    const texture = app.resources.textureOf(app.defaults.targets, 'color');
+    if (texture === undefined) throw new Error('alvo HDR não alocado');
+    const row = new Float64Array(W);
+    const y = Math.floor(H / 2);
+    for (let i = 0; i < frames; i++) {
+        app.step(1 / 60);
+        const hdr = await readHdrTexture(app, texture);
+        for (let x = 0; x < W; x++) row[x] = row[x]! + hdrAt(hdr, x, y)[0] / frames;
+    }
+    dispose(app, canvas);
+    const lit = row[topPixel(0.15, 0, height, W, H)[0]]!;
+    const dark = row[topPixel(-0.15, 0, height, W, H)[0]]!;
+    const at = (f: number): number => {
+        const level = dark + f * (lit - dark);
+        // Só em volta da borda da sombra (a da placa, em x = −0,5, também cruza).
+        const from = topPixel(-0.2, 0, height, W, H)[0];
+        const to = topPixel(0.2, 0, height, W, H)[0];
+        for (let x = from; x < to; x++) {
+            const a = row[x]!;
+            const b = row[x + 1]!;
+            if ((a - level) * (b - level) <= 0 && a !== b)
+                return topWorldX(x + (a - level) / (a - b), height, W, H);
+        }
+        return Number.NaN;
+    };
+    return { x10: at(0.1), x50: at(0.5), x90: at(0.9) };
+}
+
+/** Altura da placa do caso `penumbra` (m). */
+const PENUMBRA_HEIGHT = 0.5;
+/**
+ * Onde cai, no chão, a sombra da aresta de cima da placa (a meia espessura acima de `PENUMBRA_HEIGHT`; a 45°): fina, para
+ * a borda ser uma só (a lateral de uma placa grossa troca a aresta de cima pela de baixo no meio do disco).
+ */
+const PENUMBRA_EDGE = 0.001;
+
+async function casePenumbra(): Promise<void> {
+    // De 10 % a 90 % da fração coberta, em raios do disco.
+    const span = discAt(0.9) - discAt(0.1);
+    // O sol (0,00466 rad) e discos maiores.
+    for (const theta of [0.00466, 0.02, 0.05]) {
+        const e = await penumbraEdge(theta, 64);
+        const width = e.x90 - e.x10;
+        // O raio do disco no chão: L tan θ perpendicular ao raio (L = h / cos α) projetado no chão (÷ cos α), α = 45°.
+        const expected = ((PENUMBRA_HEIGHT * Math.tan(theta)) / 0.5) * span;
+        log(
+            `penumbra: θ = ${theta} — 10–90 % ${(1000 * width).toFixed(2)} mm (disco ${(1000 * expected).toFixed(2)} mm, ${(100 * relErr(width, expected)).toFixed(1)} %), meio em ${(1000 * e.x50).toFixed(2)} mm`,
+        );
+        check(
+            relErr(width, expected) <= 0.15,
+            `penumbra: θ = ${theta} — largura ${(1000 * width).toFixed(2)} mm contra ${(1000 * expected).toFixed(2)} mm`,
+        );
+        check(
+            Math.abs(e.x50 - PENUMBRA_EDGE) <= 0.1 * expected + 0.002,
+            `penumbra: θ = ${theta} — meio da borda em ${(1000 * e.x50).toFixed(2)} mm (a borda em ${1000 * PENUMBRA_EDGE} mm)`,
+        );
+    }
+    const hard = await penumbraEdge(0, 16);
+    const width = hard.x90 - hard.x10;
+    log(
+        `penumbra: θ = 0 — 10–90 % ${(1000 * width).toFixed(2)} mm, meio em ${(1000 * hard.x50).toFixed(2)} mm`,
+    );
+    check(
+        width <= 0.004,
+        `penumbra: θ = 0 — borda de ${(1000 * width).toFixed(2)} mm (dura: ≤ 4 mm)`,
+    );
+}
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

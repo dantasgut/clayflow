@@ -10,7 +10,7 @@ const visibilities = new Map<string, WgslModule>();
 
 /**
  * Visibilidade da luz no slot `lightSlot` pelo mapa de sombra virtual no slot `shadowSlot` (a penumbra com as amostras
- * do mapa, girada no quadro); as outras luzes: 1.
+ * do mapa, girada no quadro, e a largura pelo disco da luz — `cones.z`, o raio angular); as outras luzes: 1.
  */
 function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     const key = `${lightSlot}:${shadowSlot}`;
@@ -29,7 +29,8 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     let sm = shadow_maps[${shadowSlot}u];
     let matrix = shadow_matrices[${shadowSlot}u];
     let l = -normalize(lights[${lightSlot}u].direction.xyz);
-    return shadow_virtual_visibility(matrix, p, n, l, sm.bias, sm.normalBias, sm.penumbraSamples);
+    return shadow_virtual_visibility(matrix, p, n, l, sm.bias, sm.normalBias, sm.penumbraSamples,
+        lights[${lightSlot}u].cones.z);
 }`,
         });
         visibilities.set(key, m);
