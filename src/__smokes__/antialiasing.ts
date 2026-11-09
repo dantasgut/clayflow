@@ -44,6 +44,9 @@
 //     no M4), com a refração traçada desligada nas duas: o filtro do sinal traçado e a marca de movimento são do
 //     orçamento da refração (3 ms, medido no smoke `refraction`), não do antisserrilhado — decisão de 2026-10-24. Não a
 //     soma dos passes: no M4 eles se sobrepõem e o intervalo de cada um conta também o fim do anterior.
+//   - presentCost: o custo da apresentação HDR (011 T110, 034 T069) — a duração de GPU de um quadro vazio a 1280 × 720
+//     (limpar e resolver o alvo `rgba16float`, mapear os tons, apresentar): sem antisserrilhado ≤ 0,3 ms (a resolução
+//     do temporal é do caso `cost`); no MSAA 4×, com o mapeamento de cada amostra antes da média, ≤ 0,5 ms.
 // Para rodar: `npm run smoke -- antialiasing [--query case=still]`. Resultado: `ANTIALIASING SMOKE PASSED` ou `FAIL: …`.
 import * as clayflow from 'clayflow/web';
 import {
@@ -867,6 +870,81 @@ async function cost(): Promise<void> {
     check(own <= 1.5, `cost: antisserrilhado ${own.toFixed(3)} ms (≤ 1,5 ms)`);
 }
 
+/**
+ * A duração de GPU (mediana de 120 quadros) de um quadro sem nada na cena além da câmera, a 1280 × 720, no modo pedido,
+ * e a lista dos passes.
+ */
+async function emptyFrame(
+    mode: AntialiasingMode,
+): Promise<{ span: number; frames: number; passes: string }> {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    document.body.appendChild(canvas);
+    const app = await Application.create({
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+        captureErrors: true,
+        antialias: mode,
+        profiling: 'passes',
+    });
+    app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+    app.world.insert(
+        new clayflow.Camera({
+            fov: 0.8,
+            aspect: 1280 / 720,
+            aspectMode: 'fixed',
+            near: 0.1,
+            far: 10,
+        }).add(new Transform({ position: [0, 0, 3, 1] })),
+    );
+    await app.whenReady({ timeoutMs: 60_000 });
+    const timings: GpuFrameTimedPayload[] = [];
+    const off = app.events.on('gpuFrameTimed', (e) => timings.push(e));
+    for (let i = 0; i < 180; i++) {
+        app.step(1 / 60);
+        await new Promise((r) => setTimeout(r, 4));
+    }
+    for (let i = 0; i < 20; i++) {
+        app.step(0);
+        await new Promise((r) => setTimeout(r, 16));
+    }
+    off();
+    app.dispose();
+    canvas.remove();
+    const last = Math.max(...timings.map((t) => t.gpuFrame)) - 20;
+    const steady = timings.filter((t) => t.gpuFrame <= last).slice(-120);
+    const passes = [...new Set(steady.flatMap((t) => Object.keys(t.passesMs)))]
+        .map(
+            (k) =>
+                `${k.split('/').pop() ?? k} ${median(steady.map((t) => t.passesMs[k] ?? 0)).toFixed(3)}`,
+        )
+        .join(' · ');
+    return { span: median(steady.map((t) => t.spanMs)), frames: steady.length, passes };
+}
+
+/**
+ * 011 T110 / 034 T069: o custo da apresentação HDR a 1280 × 720 — a duração de GPU de um quadro vazio (só a câmera): a
+ * limpeza e a resolução do alvo `rgba16float`, o mapeamento de tons e a apresentação no canvas. Não há mais caminho SDR
+ * para subtrair: o quadro vazio inteiro é o limite de cima do que o HDR custa. Sem antisserrilhado (uma amostra por
+ * pixel; a resolução do temporal é do custo dele, o caso `cost`), ≤ 0,3 ms; no MSAA 4×, o mapeamento de tons de cada amostra antes da média (a borda de um realce forte sobre o escuro fica suave)
+ * lê o alvo multiamostrado inteiro (~29 MB): ≤ 0,5 ms (3 % do quadro de 60 Hz).
+ */
+async function presentCost(): Promise<void> {
+    for (const [mode, limit] of [
+        ['off', 0.3],
+        ['msaa', 0.5],
+    ] as const) {
+        const r = await emptyFrame(mode);
+        log(
+            `presentCost: quadro vazio 1280 × 720, ${mode}: ${r.span.toFixed(3)} ms (${r.frames} quadros) — ${r.passes}`,
+        );
+        check(r.frames >= 90, `presentCost: ${mode} — ${r.frames} quadros medidos (≥ 90)`);
+        check(r.span <= limit, `presentCost: ${mode} — ${r.span.toFixed(3)} ms (≤ ${limit} ms)`);
+    }
+}
+
 /** Tamanho da imagem da borda da sombra. */
 const EDGE_SIZE = [960, 540] as const;
 const EDGE_EYE = [0, 2, 0.8] as const;
@@ -1338,6 +1416,7 @@ const CASES: Record<string, () => Promise<void>> = {
     shadowEdge,
     matrices,
     cost,
+    presentCost,
 };
 
 async function main(): Promise<void> {

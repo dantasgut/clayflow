@@ -391,6 +391,7 @@ pedido em 4N` da meia resolução, `glint`, lente 1 degrau, GI região 10 0,56�
 - [ ] T064 [US7] `bench:check` contra o baseline do Mac após as fases 5–7: nenhuma cena > 10 % de GPU; `instances/100k`, `10k-functions`, GI desligada nos valores do baseline (SC-012)
   - **Ajuste (arquitetura da 039)**: as cenas do `bench/scenes` seguem no motor (as páginas de demonstração foram para o app na 038).
   - **Ressignificada (2026-10-31)**: contra o baseline regravado depois da 039, após a Fase 7 (a 037 rodou o `bench:check` contra a base dela).
+  - **Achado (2026-11-09, `presentCost`)**: num quadro vazio a 1280 × 720, a resolução do antisserrilhado temporal (`PostFlow.temporalResolve`) custa 1,27 ms (o quadro 1,407 ms contra 0,134 sem antisserrilhado); o caso `cost` atribui 0,29 ms a ela numa cena cheia, onde se sobrepõe aos outros passes. Medir a resolução isolada e a causa (formato do histórico, leituras por pixel) junto do bench.
 
 ---
 
@@ -464,7 +465,8 @@ pedido em 4N` da meia resolução, `glint`, lente 1 degrau, GI região 10 0,56�
 - [ ] T067e [US8] O espalhamento no meio pela cadeia da refração (vindo da T067c): coeficiente por canal e anisotropia no meio do grafo, espalhamento simples ao longo do trecho no traçado, sem cor constante somada — a cor da água funda (T065c: +20–86 % em G/B a 50 m); hoje só a luz global espalha nos meios (T058, `gi_wave_scatter`)
 - [ ] T068 [US8] H3 e G3 medidos com o profiler novo (`particles/64k-water`, `rigid-bodies/10k`) e o custo da água pelo campo (`fluidField/timing`: 10,3–10,6 ms contra 2,5 ms da 033, medido na Fase 2); corrigir a causa no motor (reordenação da vizinhança só com teste bit a bit contra o `develop`, partículas fora da grade incluídas) ou levar a medida ao usuário (SC-015)
   - **Ressignificada (2026-10-31)**: a 039 mediu o campo e a física por estágio (`baseline.md`) e descartou a vizinhança por intervalos (T111, sem ganho); ficam o H3/G3 em `particles/64k-water` e `rigid-bodies/10k` e o caso `fluidField/timing`, que derruba o adaptador.
-- [ ] T069 [US8] Custo da apresentação HDR medido e registrado (011 T110)
+- [x] T069 [US8] Custo da apresentação HDR medido e registrado (011 T110)
+  - **Feita (2026-11-09)**: caso novo `presentCost` no smoke `antialiasing` — a duração de GPU de um quadro vazio (só a câmera) a 1280 × 720, mediana de 120 quadros: sem antisserrilhado 0,134 ms (apresentação 0,113; ≤ 0,3 ms, o critério da 011 T110), com MSAA 4× 0,362 ms (apresentação 0,325: o mapeamento de tons de cada amostra antes da média lê o alvo multiamostrado `rgba16float` inteiro, ~29 MB; ≤ 0,5 ms, 3 % do quadro de 60 Hz). Não há mais caminho SDR para subtrair: o quadro vazio inteiro é o limite de cima do custo do HDR.
 - [ ] T070 [US5] As seis checagens desde `5ef1dd4` e H4/H5: medir AgX contra a curva de referência, exposição padrão, `CLEAR_COLOR`, luzes e hemisfério padrão, especular dos materiais de teste; corrigir no motor; critério só com decisão do usuário (`extensionPoints.ts`, `nodeGraphs.ts`, `softSurface.ts`, `fluidSurface.ts`, `parametricSurfaces.ts`, `present.wgsl`, `ToneMapping.ts`, `ForwardFlow.ts`)
 - [ ] T071 [US8] Reconciliação das caixas abertas das specs 001–033 (005 T084, 006 T078, 011 T025/T083/T103/T111 marcadas com evidência; 011 T084/T087 substituídas; US5/US6 → 035; 001 T029 bloqueada) e `specs/PENDENCIAS.md` reescrito sem registro falso (SC-018)
   - **Retomada (2026-10-31)**: `specs/PENDENCIAS.md` sem mudança desde `ed4680c5`; incluir também as caixas da 037, 038 e 039.
