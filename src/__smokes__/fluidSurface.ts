@@ -2,8 +2,9 @@
 //
 // Cenas no tanque de `support/waterScene.ts` (fundo quadriculado, luz direcional com sombra), comparadas com a cena sem
 // fluido e entre si:
-//   - continuidade (SC-001): a barragem de 36 864 partículas SPH parada, com água opaca, cobre sem buracos o interior
-//     da região que os sprites do mesmo corpo ocupam;
+//   - continuidade (SC-001): a barragem de 36 864 partículas SPH parada (a física pausada, no quadro 12: a refração em
+//     meia resolução convergida), com água opaca, cobre sem buracos o interior da região que os sprites do mesmo corpo
+//     ocupam (a cor deles, mais de 24 níveis do fundo: não a sombra nem a luz rebatida que mudam em volta);
 //   - SPH, PBF e MPM fluido (SC-002): água na imagem e movimento entre os quadros 20 e 60;
 //   - absorção (SC-004): o fundo visto através de camadas de 5, 15 e 30 cm escurece de forma monotônica e o padrão
 //     segue reconhecível na camada rasa;
@@ -27,6 +28,8 @@ import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/wat
 
 const WIDTH = 320;
 const HEIGHT = 200;
+/** Quadro da continuidade: a barragem parada (física pausada), a refração em meia resolução já convergida. */
+const CONTINUITY_FRAME = 12;
 /** Quadro da água agitada: as ondas refletidas da barragem já cobrem o centro do tanque. */
 const AGITATED_FRAME = 80;
 /** Câmera de cima (cáusticas): o fundo ocupa a imagem. */
@@ -143,12 +146,12 @@ async function fixture(
     if (d.pixels > 0) failures.push(`${name}: ${d.pixels} pixels diferentes`);
 }
 
-/** Pixels de a ≠ b. */
-function changed(a: ImageData, b: ImageData): Uint8Array {
+/** Pixels de a que diferem de b em mais de `above` níveis num canal (0: qualquer diferença). */
+function changed(a: ImageData, b: ImageData, above = 0): Uint8Array {
     const mask = new Uint8Array(a.width * a.height);
     for (let p = 0; p < mask.length; p++) {
         for (let k = 0; k < 3; k++) {
-            if (a.data[p * 4 + k] !== b.data[p * 4 + k]) {
+            if (Math.abs(a.data[p * 4 + k]! - b.data[p * 4 + k]!) > above) {
                 mask[p] = 1;
                 break;
             }
@@ -207,9 +210,24 @@ async function main(): Promise<void> {
     // Continuidade: água opaca (absorção alta) sobre a área dos sprites do mesmo corpo, parado no primeiro quadro.
     {
         const opaque = { absorption: [80, 80, 80] } as const;
-        const water = await run('continuidade', { material: opaque, box: true }, [2]);
-        const sprites = await run('continuidade-sprites', { material: 'sprites', box: true }, [2]);
-        const mask = erode(changed(sprites.frames[0]!, empty.frames[0]!), WIDTH, HEIGHT, 3);
+        // A barragem parada (a física pausada) e a imagem depois de a refração em meia resolução convergir.
+        const still = (app: Application): void => {
+            app.time.pausePhysics();
+        };
+        const water = await run(
+            'continuidade',
+            { material: opaque, box: true },
+            [CONTINUITY_FRAME],
+            still,
+        );
+        const sprites = await run(
+            'continuidade-sprites',
+            { material: 'sprites', box: true },
+            [CONTINUITY_FRAME],
+            still,
+        );
+        // A cobertura dos sprites (a cor deles, mais de 24 níveis), não a sombra e a luz rebatida que eles mudam em volta.
+        const mask = erode(changed(sprites.frames[0]!, empty.frames[0]!, 24), WIDTH, HEIGHT, 3);
         let interior = 0;
         let holes = 0;
         const seen = changed(water.frames[0]!, empty.frames[0]!);
@@ -226,7 +244,14 @@ async function main(): Promise<void> {
             'dam-opaque',
             water.frames[0]!,
             async () =>
-                (await run('continuidade', { material: opaque, box: true }, [2])).frames[0]!,
+                (
+                    await run(
+                        'continuidade',
+                        { material: opaque, box: true },
+                        [CONTINUITY_FRAME],
+                        still,
+                    )
+                ).frames[0]!,
             water.profile,
             failures,
         );
