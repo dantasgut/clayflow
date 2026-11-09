@@ -207,8 +207,8 @@ const LAKE_H = 200;
 
 /**
  * Cena do lago: o vale colidível (areia), luz com sombra, câmera de cima em ângulo e uma barragem de água (PBF com a
- * aparência pelo grafo: refração e absorção) solta na encosta. `water: 'none'` monta o vale seco; `caustics` e `plain`
- * são a mesma água até as cáusticas unificadas (spec 034, T067c: a chave no transporte de luz, não no material).
+ * aparência pelo grafo: refração e absorção) solta na encosta. `water: 'none'` monta o vale seco; `plain` é a mesma água
+ * sem as cáusticas (a chave no transporte de luz, `Renderer.lightPaths.caustics`; spec 034, T067c).
  */
 async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     let diffuse: clayflow.DiffuseParticles | undefined;
@@ -262,6 +262,8 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
         }),
     );
     insertValley(app, clayflow, { shape: LAKE_VALLEY, albedo: [0.86, 0.8, 0.66] });
+    // A mesma água sem as cáusticas: a chave no transporte de luz (spec 034, T067c), a física igual.
+    if (water === 'plain') app.defaults.renderer.lightPaths.caustics = false;
     if (water !== 'none') {
         const position: number[] = [];
         const r = rng(29);
