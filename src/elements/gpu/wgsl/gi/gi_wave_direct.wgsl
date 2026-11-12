@@ -10,8 +10,11 @@
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_shade, random, RayWaveEntry, ray_wave_entries_in, ray_wave_counts,
 // gi_wave_light, gi_wave_scatter_read, ray_volume_scatter.
 
-/** Pontos do espalhamento por raio (um em cada fração igual do trecho, com o mesmo deslocamento sorteado). */
-const GI_SCATTER_SAMPLES: u32 = 4u;
+/**
+ * Pontos do espalhamento por raio: um, no ponto sorteado do trecho (spec 034, T060e) — a média sem viés vem dos raios da
+ * sonda e do acúmulo; com 4 por raio (cada um com o raio de sombra), a névoa custava 0,13 ms a mais a 1280 × 720.
+ */
+const GI_SCATTER_SAMPLES: u32 = 1u;
 
 /** Fase de Henyey-Greenstein (cosseno entre a direção para a luz e a do raio, da origem para o meio). */
 fn gi_scatter_phase(cos_theta: f32, g: f32) -> f32 {

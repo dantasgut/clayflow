@@ -52,12 +52,16 @@ export const GI_QUALITY: Readonly<
         screenTile: 8,
         screenFraction: 0.5,
     },
+    // 128 raios por sonda do mundo e as sondas de tela em dias alternados (spec 034, T060e): com o cache nas superfícies
+    // (T059) os acertos dos raios não leem mais as sondas do mundo, que ficaram para o que as de tela não cobrem — medido
+    // na cena do `budget` (1280 × 720): a GI de 30,9 para 17,7 ms; `giNoise` alto igual (Cornell: manchas 2,35 %,
+    // cintilação 0,38 %; janela: 0,70 % e 0,24 %).
     high: {
-        raysPerProbe: 256,
+        raysPerProbe: 128,
         probeFraction: 0.5,
         screenRays: 32,
         screenTile: 4,
-        screenFraction: 1,
+        screenFraction: 0.5,
     },
 };
 

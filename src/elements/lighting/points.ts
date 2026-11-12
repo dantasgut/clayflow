@@ -1,6 +1,7 @@
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { NONE } from '../../scene/shaders/engineConstants';
+import { random } from '../gpu/shaders/math';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { lightTransmissionReady, sceneIndirectLightingPoint } from '../scene/points/lighting';
 import { sceneAmbientPoint } from '../scene/points/media';
@@ -82,9 +83,11 @@ fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
 /**
  * A luz rebatida como radiância média de todas as direções (spec 033, R12: o que os meios participantes espalham): a
  * irradiância das sondas do mundo para cima e para baixo — juntas, os dois hemisférios — sobre 2π, pelo meio da luz
- * ambiente. Média em 4 pontos num tetraedro de meio espaçamento das sondas em volta do ponto: no volume, sem as
- * superfícies que as sondas de tela corrigem, a diferença de uma sonda para a vizinha apareceria como faixas na névoa
- * (as colunas de sondas); a média é o passa-baixa na escala delas. O ponto atrás de uma superfície vista pela câmera
+ * ambiente. Média num tetraedro de meio espaçamento das sondas em volta do ponto: no volume, sem as superfícies que as
+ * sondas de tela corrigem, a diferença de uma sonda para a vizinha apareceria como faixas na névoa (as colunas de
+ * sondas); a média é o passa-baixa na escala delas. Um vértice por chamada, sorteado pelo ponto (spec 034, T060e): o
+ * ponto da célula dos froxels já é sorteado a cada quadro e o histórico deles faz a média — os 4 vértices a cada chamada
+ * eram ~⅓ do custo da névoa. O ponto atrás de uma superfície vista pela câmera
  * (uma célula da grade dos meios que atravessa a parede) vem para antes dela, e um vértice do tetraedro do outro lado
  * de uma superfície fica no ponto: do outro lado, a luz de fora vazava para a névoa de dentro. Desligada, nada.
  */
@@ -92,6 +95,7 @@ const giAmbient = wgslModule({
     name: 'gi_scene_ambient',
     requires: [
         NONE.module,
+        random,
         giParamsResource,
         giSample,
         lightTransmissionReady,
@@ -112,15 +116,13 @@ const giAmbient = wgslModule({
         let hit = ray_scene_hit(eye, dir, dist);
         if (hit.instance != NONE) { p = eye + dir * max(hit.t - r, 0.0); }
     }
-    var e = vec3f(0.0);
-    for (var k = 0u; k < 4u; k++) {
-        let s = vec3f(select(-1.0, 1.0, (k & 1u) != 0u), select(-1.0, 1.0, (k & 2u) != 0u), select(-1.0, 1.0, k == 1u || k == 2u));
-        let offset = s * (r * 0.57735);
-        // O vértice do outro lado de uma superfície (o teto, uma parede) fica no ponto.
-        let q = select(p + offset, p, ray_scene_occluded(p, s * 0.57735, r * 0.57735 * 1.7320508));
-        e += gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
-    }
-    return e / (8.0 * PI) * light_transmission(NONE, p_in);
+    let k = pcg_hash(bitcast<u32>(p_in.x) ^ pcg_hash(bitcast<u32>(p_in.y) ^ pcg_hash(bitcast<u32>(p_in.z)))) & 3u;
+    let s = vec3f(select(-1.0, 1.0, (k & 1u) != 0u), select(-1.0, 1.0, (k & 2u) != 0u), select(-1.0, 1.0, k == 1u || k == 2u));
+    let offset = s * (r * 0.57735);
+    // O vértice do outro lado de uma superfície (o teto, uma parede) fica no ponto.
+    let q = select(p + offset, p, ray_scene_occluded(p, s * 0.57735, r * 0.57735 * 1.7320508));
+    let e = gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
+    return e / (2.0 * PI) * light_transmission(NONE, p_in);
 }`,
 });
 
