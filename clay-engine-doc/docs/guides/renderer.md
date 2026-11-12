@@ -33,9 +33,9 @@ são de autoria: são os Resources que os estágios leem, mantidos pelo renderiz
 
 | Perfil   | Interfaces | Cáusticas     | Traçado em xadrez | Luz global (qualidade) | Froxels        | Mapa de sombra | Penumbra |
 | -------- | ---------- | ------------- | ----------------- | ---------------------- | -------------- | -------------- | -------- |
-| `high`   | 16         | 65 536 fótons | não               | alta                   | 160 × 90 × 128 | 1024²          | 9        |
-| `medium` | 4          | 16 384 fótons | sim               | média                  | 128 × 72 × 96  | 1024²          | 4        |
-| `low`    | 4          | 8 192 fótons  | sim               | baixa                  | 96 × 54 × 64   | 512²           | 4        |
+| `high`   | 16         | 65 536 fótons | não               | alta                   | 160 × 90 × 128 | 4096²          | 9        |
+| `medium` | 4          | 16 384 fótons | sim               | média                  | 128 × 72 × 96  | 2048²          | 4        |
+| `low`    | 4          | 8 192 fótons  | sim               | baixa                  | 96 × 54 × 64   | 1024²          | 4        |
 
 O alto é o padrão de antes da 039 e da T079 da 034 (a mesma imagem); o médio e o baixo vêm dos botões medidos no tanque
 (`specs/039-tracado-em-ondas/baseline.md`, "Os botões de qualidade"). A qualidade da luz global é a da
