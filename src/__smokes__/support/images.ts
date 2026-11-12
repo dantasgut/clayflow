@@ -1,7 +1,8 @@
-// Imagens dos smokes: comparação pixel a pixel, PNG ↔ ImageData e as duas medidas de brilho (spec 037): a luma dos
-// valores sRGB de 8 bits (`lumaSrgb`, sem decodificar — a medida do que se vê na tela) e a luminância de luz linear
-// (`luminanceLinear`, dos alvos HDR). Os pesos são os Rec.709 da referência única (`elements/math/reference/color`).
-import { luminance } from '../../elements/math/reference/color';
+// Imagens dos smokes: comparação pixel a pixel, PNG ↔ ImageData e as medidas de brilho (spec 037): a luma dos
+// valores sRGB de 8 bits (`lumaSrgb`, sem decodificar — a medida do que se vê na tela), a luz do pixel (`lumaLinear`,
+// os mesmos valores decodificados) e a luminância de luz linear (`luminanceLinear`, dos alvos HDR). Os pesos e a
+// decodificação são os da referência única (`elements/math/reference/color`).
+import { luminance, srgbDecode } from '../../elements/math/reference/color';
 
 /** Pixels distintos e maior diferença de canal entre duas imagens. */
 export function diff(a: ImageData, b: ImageData): { pixels: number; max: number } {
@@ -40,6 +41,13 @@ export function lumaSrgb8(data: ArrayLike<number>, i: number, bgra = false): num
 /** Luma Rec.709 (0–1) do pixel, dos valores sRGB de 8 bits. */
 export function lumaSrgb(img: ImageData, x: number, y: number): number {
     return lumaSrgb8(img.data, (y * img.width + x) * 4);
+}
+
+/** Luminância Rec.709 (0–1) da luz do pixel: os valores sRGB de 8 bits decodificados para linear (IEC 61966-2-1). */
+export function lumaLinear(img: ImageData, x: number, y: number): number {
+    const i = (y * img.width + x) * 4;
+    const decode = (v: number) => srgbDecode(v / 255);
+    return luminance([decode(img.data[i]!), decode(img.data[i + 1]!), decode(img.data[i + 2]!)]);
 }
 
 /** Luminância Rec.709 de luz linear (os valores HDR). */

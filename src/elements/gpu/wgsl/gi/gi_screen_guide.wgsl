@@ -56,6 +56,17 @@ fn gi_guide_texel(d: vec3f) -> GiGuideTexel {
     return GiGuideTexel(q.x + q.y * GI_IRRADIANCE_TEXELS, r * r * r);
 }
 
+/**
+ * A chave das sequências aleatórias da sonda `i`: a das dos ladrilhos é o índice; a da extra, o texel fino dela depois
+ * das dos ladrilhos — não a vaga, que a extra ocupa por contador atômico numa ordem que muda entre execuções (a mesma
+ * cena daria raios diferentes).
+ */
+fn gi_screen_seed_key(i: u32) -> u32 {
+    if (i < gi_screen_count()) { return i; }
+    let t = vec2u(gi_screen_work[gi_screen_meta_at(i - gi_screen_count())].xy);
+    return gi_screen_count() + t.x + t.y * gi.screen.x * gi_screen_refine();
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -87,9 +98,10 @@ fn gi_screen_guide_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     // Guia só com radiância finita e positiva; senão todos os raios em cosseno.
     let guided = total > 0.0 && total < 3.0e38;
     let basis = basis_duff(n);
-    let h = random_seed(RANDOM_STREAM_GI_SCREEN_RAYS, i, gi.rays.y);
+    let key = gi_screen_seed_key(i);
+    let h = random_seed(RANDOM_STREAM_GI_SCREEN_RAYS, key, gi.rays.y);
     let shift = vec2f(f32(h & 0xFFFFu), f32(h >> 16u)) / 65536.0;
-    let g = random_seed(RANDOM_STREAM_GI_SCREEN_GUIDE, i, gi.rays.y);
+    let g = random_seed(RANDOM_STREAM_GI_SCREEN_GUIDE, key, gi.rays.y);
     let gshift = vec3f(f32(g & 0x3FFu), f32((g >> 10u) & 0x3FFu), f32(g >> 20u)) / vec3f(1024.0, 1024.0, 4096.0);
     // As extras lançam metade dos raios (o acúmulo e o filtro na grade fina fazem o resto; com um quarto, contas claras
     // e escuras ao longo da dobra); os outros ficam com peso −1: fora da média, sem traçar.

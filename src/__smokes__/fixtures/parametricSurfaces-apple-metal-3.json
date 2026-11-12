@@ -13,7 +13,7 @@
       "bodies": "64022acd"
     },
     "solvers": {
-      "XPBD": "bda531a2",
+      "XPBD": "b064d94f",
       "FEM": "6c6d0534",
       "emissor": "ed9a3218"
     },
@@ -22,8 +22,7 @@
       "fluid": "5872743e"
     },
     "lake": {
-      "particles": "d9f97a77",
-      "image": "71b8af6c"
+      "particles": "e4cc5f0a"
     },
     "distanceField": {
       "field": "e632fb2e"

@@ -20,22 +20,42 @@ fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
     return vec3f(v, h, u);
 }`;
 
-/** Forma do vale: profundidade, raio em que a altura volta a 0 e meia largura do domínio. */
+/**
+ * O vale com relevo: a bacia e ondulações de três escalas por cima (o terreno natural do lago da spec 010), a mesma
+ * fórmula de `valleyHeight`.
+ */
+export const VALLEY_RELIEF_CODE = /* wgsl */ `
+fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    var h = data.depth * (u * u + v * v) / (data.r * data.r) - data.depth;
+    h += data.relief * (0.6 * sin(5.3 * v + 0.3) * cos(4.1 * u + 1.1) + 0.3 * sin(11.0 * v - 7.9 * u + 0.7)
+        + 0.1 * sin(24.0 * v + 17.0 * u) * sin(21.0 * u - 6.5 * v));
+    return vec3f(v, h, u);
+}`;
+
+/** Forma do vale: profundidade, raio em que a altura volta a 0, meia largura do domínio e o relevo (m; padrão 0). */
 export interface ValleyShape {
     readonly depth: number;
     readonly r: number;
     readonly half: number;
+    readonly relief?: number;
 }
 
 /** Parâmetros do vale de teste. */
 export const VALLEY: ValleyShape = { depth: 0.8, r: 1.2, half: 1.6 };
 
-/** Vale do lago (escala da água da 017: espaçamento de 2,5 cm). */
-export const LAKE_VALLEY: ValleyShape = { depth: 0.3, r: 0.6, half: 1 };
+/** Vale do lago (escala da água da 017: espaçamento de 2,5 cm), com o relevo de 2 cm do terreno natural. */
+export const LAKE_VALLEY: ValleyShape = { depth: 0.3, r: 0.6, half: 1, relief: 0.02 };
 
 /** Altura do vale de teste em (x, z) (a mesma fórmula da função), com o deslocamento animado. */
 export function valleyHeight(x: number, z: number, lift = 0, shape: ValleyShape = VALLEY): number {
-    return (shape.depth * (x * x + z * z)) / (shape.r * shape.r) - shape.depth + lift;
+    const relief =
+        shape.relief === undefined
+            ? 0
+            : shape.relief
+              * (0.6 * Math.sin(5.3 * x + 0.3) * Math.cos(4.1 * z + 1.1)
+                  + 0.3 * Math.sin(11 * x - 7.9 * z + 0.7)
+                  + 0.1 * Math.sin(24 * x + 17 * z) * Math.sin(21 * z - 6.5 * x));
+    return (shape.depth * (x * x + z * z)) / (shape.r * shape.r) - shape.depth + relief + lift;
 }
 
 /** Insere o vale colidível (malha 96², colisor de altura 128²) com material e `Transform`. */
@@ -59,22 +79,28 @@ export function insertValley(
         animated: options.animated !== undefined,
     });
     const fn =
-        options.animated === undefined
+        shape.relief !== undefined && options.animated === undefined
             ? new SurfaceFunction({
-                  code: VALLEY_CODE,
-                  params: { depth: 'f32', r: 'f32' },
-                  values: { depth: shape.depth, r: shape.r },
+                  code: VALLEY_RELIEF_CODE,
+                  params: { depth: 'f32', r: 'f32', relief: 'f32' },
+                  values: { depth: shape.depth, r: shape.r, relief: shape.relief },
               })
-            : new SurfaceFunction({
-                  code: VALLEY_ANIMATED_CODE,
-                  params: { depth: 'f32', r: 'f32', amp: 'f32', omega: 'f32' },
-                  values: {
-                      depth: shape.depth,
-                      r: shape.r,
-                      amp: options.animated.amp,
-                      omega: options.animated.omega,
-                  },
-              });
+            : options.animated === undefined
+              ? new SurfaceFunction({
+                    code: VALLEY_CODE,
+                    params: { depth: 'f32', r: 'f32' },
+                    values: { depth: shape.depth, r: shape.r },
+                })
+              : new SurfaceFunction({
+                    code: VALLEY_ANIMATED_CODE,
+                    params: { depth: 'f32', r: 'f32', amp: 'f32', omega: 'f32' },
+                    values: {
+                        depth: shape.depth,
+                        r: shape.r,
+                        amp: options.animated.amp,
+                        omega: options.animated.omega,
+                    },
+                });
     const collider = new SurfaceCollider({
         mode: 'height',
         resolution: options.resolution ?? 128,

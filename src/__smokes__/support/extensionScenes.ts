@@ -62,6 +62,21 @@ export async function settle(app: Application, ms = 0): Promise<void> {
 }
 
 /**
+ * Prontidão e um número fixo de quadros sem avançar a física: o estado entre quadros do desenho (séries temporais,
+ * sequências de amostras) chega à captura igual em toda execução — com a espera pelo relógio, o número de quadros varia
+ * com a máquina e a imagem também.
+ */
+export async function settleFrames(app: Application, frames: number): Promise<void> {
+    await app.whenReady({ timeoutMs: 60_000 });
+    for (let i = 0; i < frames; i++) {
+        app.step(0);
+        await nextGpuFrame(app);
+    }
+    // Um quadro na mesma tarefa de quem chamou: o canvas WebGPU só vale até a tarefa ceder (captura logo depois).
+    app.step(0);
+}
+
+/**
  * Espera a GPU ter espaço para mais um quadro (`readyForFrame`, o mesmo ritmo do laço e do bench): medir com a CPU
  * gravando à frente da GPU enche a fila e deixa os quadros sem leitura de tempo (spec 034, H1).
  */
