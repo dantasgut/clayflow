@@ -135,25 +135,36 @@ fn gi_cache_irradiance(cell: u32, g: u32) -> vec3f {
 }
 
 /**
- * As células a atualizar no quadro: as da época atual usadas há até `GI_CACHE_RECENT` quadros, até `gi.cache.y` delas
- * (contador na palavra 0 da lista). O começo da varredura anda `gi.cache.y` células por quadro: com mais células em uso
+ * Células atualizadas no quadro: a vaga (`gi.cache.y`) dividida pelo período das sondas de tela (`gi.screen1.x`: o
+ * trabalho do cache acompanha o delas) e a vaga inteira na janela de resposta a uma luz ou à cena que mudou
+ * (`gi.bounces.z`, o canal `GlobalIllumination.change`) — com metade das células por quadro a luz nova levava mais de
+ * 0,25 s para chegar (`globalIllumination` `response`, spec 034 T060e).
+ */
+fn gi_cache_budget() -> u32 {
+    if (gi.bounces.z > 0u) { return gi.cache.y; }
+    return gi.cache.y / max(gi.screen1.x, 1u);
+}
+
+/**
+ * As células a atualizar no quadro: as da época atual usadas há até `GI_CACHE_RECENT` quadros, até `gi_cache_budget()`
+ * delas (contador na palavra 0 da lista). O começo da varredura anda o orçamento por quadro: com mais células em uso
  * que o orçamento, todas passam em rodízio.
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_cache_select_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let j = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (j >= gi.cache.x || gi.cache.w == 0u) { return; }
-    let cell = (j + gi.rays.y * gi.cache.y) % gi.cache.x;
+    let cell = (j + gi.rays.y * gi_cache_budget()) % gi.cache.x;
     if (atomicLoad(&gi_cache[gi_cache_at(cell, 0u)]) == 0u || !gi_cache_current(cell)) { return; }
     if (gi.rays.y - atomicLoad(&gi_cache[gi_cache_at(cell, 2u)]) > GI_CACHE_RECENT) { return; }
     let slot = atomicAdd(&gi_cache_list[0], 1u);
-    if (slot >= gi.cache.y) { return; }
+    if (slot >= gi_cache_budget()) { return; }
     atomicStore(&gi_cache_list[1u + slot], cell);
 }
 
 /** Células na lista do quadro. */
 fn gi_cache_listed() -> u32 {
-    return min(gi_cache_list_read[0], gi.cache.y);
+    return min(gi_cache_list_read[0], gi_cache_budget());
 }
 
 /**

@@ -11,6 +11,7 @@ import {
     CACHE_NONE,
     CACHE_WORDS,
     cacheBlend,
+    cacheBudget,
     cacheKey,
     cacheReady,
     cacheSelect,
@@ -162,6 +163,13 @@ describe('cache de irradiância nas superfícies (referência de gi_cache.wgsl)'
             for (const x of cacheSelect(cache, 2, cf)) seen.add(x);
         }
         expect(seen).toEqual(new Set(cells.slice(0, 5)));
+    });
+
+    it('o orçamento do quadro: a vaga dividida pelo período das sondas de tela, inteira na janela de resposta', () => {
+        expect(cacheBudget(4096, 1, false)).toBe(4096);
+        expect(cacheBudget(4096, 2, false)).toBe(2048);
+        expect(cacheBudget(4096, 4, false)).toBe(1024);
+        for (const period of [1, 2, 4]) expect(cacheBudget(4096, period, true)).toBe(4096);
     });
 
     it('o acúmulo: o primeiro valor inteiro, depois a média com a memória até CACHE_MEMORY; sem raios, nada', () => {

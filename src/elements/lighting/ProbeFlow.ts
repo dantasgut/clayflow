@@ -673,10 +673,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             screenRays: d.screenRays,
             refine,
             adaptive: refine === 2 ? Math.ceil((tilesX * tilesY) / 2) : 0,
-            // O trabalho do cache acompanha o das sondas de tela (T059): na qualidade média, 2048 células com 8 raios —
-            // com o orçamento da alta, os raios dele custavam 0,6 ms a 1280 × 720, metade do traçado das sondas de tela;
-            // com 4 raios, o bloco baixo da caixa de Cornell média ia de −1 a −8 % conforme a rodada.
-            cacheBudget: Math.round(GI_CACHE_BUDGET * d.screenFraction),
+            // A vaga do cache: o trabalho dele acompanha o das sondas de tela (T059) — a fração delas por quadro divide a
+            // vaga na GPU (`gi_cache_budget`), inteira só na janela de resposta a uma luz ou à cena que mudou (T060e). Na
+            // qualidade média, 2048 células com 8 raios fora da janela — com o orçamento inteiro, os raios dele custavam
+            // 0,6 ms a 1280 × 720, metade do traçado das sondas de tela; com 4 raios, o bloco baixo da caixa de Cornell
+            // média ia de −1 a −8 % conforme a rodada.
+            cacheBudget: GI_CACHE_BUDGET,
             cacheRays: Math.min(GI_CACHE_RAYS, Math.max(2, d.screenRays / 2)),
         };
         // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por sonda (as dos ladrilhos e as vagas

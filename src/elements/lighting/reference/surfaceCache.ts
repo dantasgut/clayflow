@@ -200,6 +200,14 @@ export function cacheReady(cache: SurfaceCache, cell: number, c: CacheParams): b
 }
 
 /**
+ * Células atualizadas no quadro (`gi_cache_budget`): a vaga `capacity` dividida pelo período das sondas de tela
+ * (`period`: 1, 2 ou 4), inteira na janela de resposta a uma luz ou à cena que mudou (`responding`).
+ */
+export function cacheBudget(capacity: number, period: number, responding: boolean): number {
+    return responding ? capacity : Math.floor(capacity / Math.max(period, 1));
+}
+
+/**
  * As células a atualizar no quadro (`gi_cache_select_main`): as da época atual usadas há até `CACHE_RECENT` quadros,
  * até `budget` delas; a varredura começa `frame × budget` células adiante (o rodízio). Na GPU a ordem da lista é a dos
  * atômicos; aqui, a da varredura — o conjunto é o mesmo quando cabe no orçamento.
