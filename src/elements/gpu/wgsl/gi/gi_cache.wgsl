@@ -24,12 +24,8 @@ const GI_CACHE_EVICT: u32 = 120u;
 const GI_CACHE_RECENT: u32 = 2u;
 /** Palavras do índice por célula (a do TS: `GI_CACHE_WORDS`). */
 const GI_CACHE_WORDS: u32 = 8u;
-/**
- * Quadros acumulados desde a última mudança a partir dos quais a célula vale para quem lê (spec 034, T059): a célula
- * nova, ou a que viu a luz mudar, ainda junta os rebatimentos encadeados das vizinhas (cada um, um quadro depois) — até
- * lá, quem lê fica com as sondas de tela e as do mundo, que acompanham a mudança em poucos quadros.
- */
-const GI_CACHE_STEADY: f32 = 16.0;
+/** Histerese máxima do acúmulo das células. */
+const GI_CACHE_MEMORY: f32 = 0.95;
 /** vec4f dos valores por célula (a do TS: `GI_CACHE_DATA`): a chave e a época, o estado e 8 rebatimentos. */
 const GI_CACHE_DATA: u32 = 10u;
 
@@ -130,7 +126,7 @@ fn gi_cache_ready(cell: u32) -> bool {
     let head = gi_cache_data_read[gi_cache_data_at(cell)];
     let key = atomicLoad(&gi_cache[gi_cache_at(cell, 0u)]);
     return head.x == key && head.y == gi_probe_clock.x
-        && bitcast<vec4f>(gi_cache_data_read[gi_cache_data_at(cell) + 1u]).w >= GI_CACHE_STEADY;
+        && bitcast<vec4f>(gi_cache_data_read[gi_cache_data_at(cell) + 1u]).w != 0.0;
 }
 
 /** Irradiância (E) do rebatimento `g` na célula. */
@@ -179,7 +175,12 @@ fn gi_cache_blend_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let same = head.x == key && head.y == gi_probe_clock.x;
     let state = select(vec4f(0.0), bitcast<vec4f>(gi_cache_data[at + 1u]), same);
     let last = gi_cache_fresh_read[slot * bounces + bounces - 1u].rgb;
-    let response = gi_response(state, gi_response_value(last), gi.tuning.x);
+    var response = gi_response(state, gi_response_value(last), gi.tuning.x, gi.bounces.z > 0u, 0.0);
+    // Memória curta (≈ 20 quadros, spec 034 T059): quem lê a célula — os raios das sondas de tela, muitos por sonda, cada
+    // um numa célula — já faz a média no espaço e no tempo; com a memória longa da histerese pela variância (até 0,995:
+    // as células têm poucos raios), os rebatimentos encadeados de célula em célula levavam centenas de quadros para
+    // chegar, e o erro da partida ficava (na caixa de Cornell média, o bloco baixo de −4 a −10 % conforme a rodada).
+    response.h = min(response.h, GI_CACHE_MEMORY);
     for (var g = 0u; g < bounces; g++) {
         let fresh = gi_cache_fresh_read[slot * bounces + g].rgb;
         let old = bitcast<vec4f>(gi_cache_data[at + 2u + g]).rgb;

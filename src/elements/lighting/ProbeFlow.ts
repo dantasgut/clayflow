@@ -32,7 +32,8 @@ import { wordBuffer } from '../gpu/compute/schemas';
 import { RayWave } from '../raytrace/RayWave';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { Camera } from '../scene/Camera';
-import { Light } from '../scene/Light';
+import { CameraInstanceSchema, CameraRecordSchema } from '../scene/flows/CameraSchemas';
+import { Light, type LightData } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Transform } from '../scene/Transform';
 import { pcgHash } from '../math/reference/random';
@@ -81,6 +82,8 @@ export interface ProbeSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** As matrizes das câmeras (o slot da câmera ativa, para a coleta final na tela). */
     readonly cameras: PoolSlot<true>;
+    /** As transformações (a da câmera ativa não conta como mudança da cena para o cache). */
+    readonly transforms: PoolSlot<true>;
     /** O histórico das sondas de tela: um canal temporal (spec 037), reservado pelo estágio para o alvo. */
     readonly giScreenHistory: ChannelSlot<false>;
     /**
@@ -291,6 +294,18 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
     private active = false;
+    /** As luzes na última mudança e os quadros que faltam da resposta a ela (T059). */
+    private lightSnapshot: LightData[] | undefined;
+    private lightResponse = 0;
+    /**
+     * A cena mudou pela CPU desde o quadro anterior (um pool escrito além da câmera) e os quadros que faltam da resposta
+     * do cache a isso (T059). O slot da transformação da câmera ativa, do último quadro.
+     */
+    private sceneChanged = false;
+    private sceneResponse = 0;
+    private cameraTransform: number | undefined;
+    /** Deixa de ouvir os envios dos pools (no descarte). */
+    private readonly stopWatching: () => void;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
     private unsupported = false;
@@ -305,6 +320,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             camera: slot.singleton(Camera.schema, { optional: true }),
             time: slot.singleton(Time.schema, { optional: true }),
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+            transforms: slot.pool(Transform.schema.name, { optional: true }),
             ...giScreenHistorySlot,
             ...giProbesSlot,
             caustics: slot.singleton(Caustics.schema, { optional: true }),
@@ -312,6 +328,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         };
         this.world = ctx.world;
         this.events = ctx.events;
+        // O que a CPU muda na cena (o envio dos pools): o cache de irradiância recomeça a acompanhar (T059).
+        this.stopWatching = ctx.events.on('poolWritten', (e) => {
+            if (this.sceneWrite(e.poolKey, e.ranges)) this.sceneChanged = true;
+        });
         this.resources = ctx.resources;
         work.use({ descriptors: () => this.bufferDescriptors() });
         this.wave = new RayWave(this.work, 'gi');
@@ -482,6 +502,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         bound.slots.giProbes.written();
     }
 
+    override dispose(): void {
+        this.stopWatching();
+    }
+
     private get core(): EngineCore {
         return this.work.core;
     }
@@ -628,10 +652,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             screenRays: d.screenRays,
             refine,
             adaptive: refine === 2 ? Math.ceil((tilesX * tilesY) / 2) : 0,
-            // O trabalho do cache acompanha o das sondas de tela (T059): na qualidade média, 2048 células com 4 raios —
-            // com o orçamento da alta, os raios dele custavam 0,6 ms a 1280 × 720, metade do traçado das sondas de tela.
+            // O trabalho do cache acompanha o das sondas de tela (T059): na qualidade média, 2048 células com 8 raios —
+            // com o orçamento da alta, os raios dele custavam 0,6 ms a 1280 × 720, metade do traçado das sondas de tela;
+            // com 4 raios, o bloco baixo da caixa de Cornell média ia de −1 a −8 % conforme a rodada.
             cacheBudget: Math.round(GI_CACHE_BUDGET * d.screenFraction),
-            cacheRays: Math.min(GI_CACHE_RAYS, Math.max(2, d.screenRays / 4)),
+            cacheRays: Math.min(GI_CACHE_RAYS, Math.max(2, d.screenRays / 2)),
         };
         // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por sonda (as dos ladrilhos e as vagas
         // das extras) e o mapa fino de cada ladrilho; os raios das sondas do mundo também o leem (a luz das superfícies
@@ -811,7 +836,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [sizes.bounces, d.enabled && d.lightPath ? 1 : 0, 0, caustics ? 1 : 0],
+                bounces: [
+                    sizes.bounces,
+                    d.enabled && d.lightPath ? 1 : 0,
+                    Math.max(this.lightChanged(), this.sceneChange(c)),
+                    caustics ? 1 : 0,
+                ],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
@@ -837,6 +867,65 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         ];
     }
 
+    /**
+     * Quadros que faltam da resposta a uma luz que mudou (spec 034, T059): a intensidade, a cor, a direção ou a posição
+     * de alguma luz da cena longe da da última mudança, ou outra contagem de luzes, abre `LIGHT_RESPONSE` quadros em que
+     * as sondas e o cache tomam a mudança sem esperar a detecção delas (`gi_response`). O que muda devagar (o sol que anda)
+     * fica abaixo das tolerâncias a cada quadro e segue pela detecção.
+     */
+    private lightChanged(): number {
+        const lights: LightData[] = [];
+        for (const id of this.world.queryBySchema(Light.schema))
+            for (const r of this.world.resourcesOf(id))
+                if (r instanceof Light) {
+                    const l = r.data;
+                    lights.push({
+                        ...l,
+                        position: [...l.position],
+                        direction: [...l.direction],
+                        color: [...l.color],
+                        cones: [...l.cones],
+                    });
+                }
+        const last = this.lightSnapshot;
+        const moved =
+            last?.length !== lights.length || lights.some((l, k) => lightMoved(last[k]!, l));
+        if (moved) {
+            if (last !== undefined) this.lightResponse = LIGHT_RESPONSE;
+            this.lightSnapshot = lights;
+        } else if (this.lightResponse > 0) this.lightResponse--;
+        return this.lightResponse;
+    }
+
+    /**
+     * Um envio de pool muda a cena para o cache? Não as câmeras nem a transformação da câmera ativa (andar com a câmera
+     * não muda a luz das superfícies).
+     */
+    private sceneWrite(poolKey: string, ranges: readonly (readonly [number, number])[]): boolean {
+        // As luzes têm a tolerância delas (`lightChanged`): o sol que anda devagar escreve o pool a cada quadro.
+        if (CAMERA_POOLS.has(poolKey) || poolKey === Light.schema.name) return false;
+        const camera = this.cameraTransform;
+        if (poolKey === Transform.schema.name && camera !== undefined)
+            return ranges.some(([first, count]) => first !== camera || count !== 1);
+        return true;
+    }
+
+    /**
+     * Quadros que faltam da resposta a uma mudança da cena pela CPU (T059): a geometria, o material ou um objeto que se
+     * moveu — a cortina que corre deixava no chão a cor dela por segundos nas células do cache de ruído alto, que não
+     * distinguem a mudança do ruído. Nesses quadros as sondas e o cache tomam os valores novos sem esperar a detecção
+     * (`gi_response`); na cena animada pela CPU a cada quadro, a luz rebatida acompanha a animação.
+     */
+    private sceneChange(c: Ctx): number {
+        const camera = c.bound.slots.camera?.resource;
+        const id = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
+        this.cameraTransform = id === undefined ? undefined : c.bound.slots.transforms?.slotOf(id);
+        if (this.sceneChanged) this.sceneResponse = LIGHT_RESPONSE;
+        else if (this.sceneResponse > 0) this.sceneResponse--;
+        this.sceneChanged = false;
+        return this.sceneResponse;
+    }
+
     /** Slot da câmera ativa no pool `CameraMatrices` (sem câmera, nenhum). */
     private cameraSlot(c: Ctx): number | undefined {
         const camera = c.bound.slots.camera?.resource;
@@ -854,6 +943,36 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 : this.world.resourcesOf(id).find((r): r is Transform => r instanceof Transform);
         return transform?.data.position ?? [0, 0, 0, 1];
     }
+}
+
+/** Quadros da resposta a uma luz que mudou: as sondas do mundo da qualidade média são atualizadas a cada 8. */
+const LIGHT_RESPONSE = 16;
+/** Pools das câmeras: escrevê-los não muda a luz da cena. */
+const CAMERA_POOLS: ReadonlySet<string> = new Set([
+    Camera.schema.name,
+    Camera.matricesSchema.name,
+    CameraRecordSchema.name,
+    CameraInstanceSchema.name,
+]);
+
+/**
+ * A luz `b` está longe de `a`: o tipo, a sombra, a intensidade ou a cor mais de 3 % (a parte relativa do limiar da
+ * resposta), a direção mais de 1° ou a posição mais de 1 cm.
+ */
+function lightMoved(a: LightData, b: LightData): boolean {
+    const rel = (x: number, y: number): boolean =>
+        Math.abs(x - y) > 0.03 * Math.max(Math.abs(x), Math.abs(y), 1e-9);
+    if (a.kind !== b.kind || a.castShadow !== b.castShadow || rel(a.intensity, b.intensity))
+        return true;
+    if ([0, 1, 2].some((k) => rel(a.color[k] ?? 0, b.color[k] ?? 0))) return true;
+    const dot = [0, 1, 2].reduce(
+        (sum, k) => sum + (a.direction[k] ?? 0) * (b.direction[k] ?? 0),
+        0,
+    );
+    const la = Math.hypot(a.direction[0] ?? 0, a.direction[1] ?? 0, a.direction[2] ?? 0);
+    const lb = Math.hypot(b.direction[0] ?? 0, b.direction[1] ?? 0, b.direction[2] ?? 0);
+    if (la > 0 && lb > 0 && dot / (la * lb) < Math.cos(Math.PI / 180)) return true;
+    return Math.hypot(...[0, 1, 2].map((k) => (a.position[k] ?? 0) - (b.position[k] ?? 0))) > 0.01;
 }
 
 /** O buffer como série por páginas de `record` bytes por página. */

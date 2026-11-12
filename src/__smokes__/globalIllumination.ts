@@ -747,16 +747,17 @@ async function softGraphScene(): Promise<void> {
 }
 
 /**
- * Orçamento (SC-010): a cena do bench `global-illumination` (onda animada de 1 milhão de triângulos, caixas, sol e céu
- * físico, qualidade média) a 1280×720 — o tempo de GPU por quadro (a medida de desempenho, `profiling: 'frame'`; a por
- * passe distorce neste hardware) com e sem a iluminação global; a diferença é o custo dela (≤ 4 ms). O número de
- * referência é o do bench (aquecimento e janela de medida); aqui, a conferência.
+ * Custo por perfil do `Renderer` (SC-010, com o ajuste da arquitetura da 039 na T059 da 034: o orçamento fixo de 4 ms
+ * virou a medida por perfil, como a lente na 039 T106): a cena do bench `global-illumination` (onda animada de 1 milhão
+ * de triângulos, caixas, sol e céu físico) a 1280×720, a GI pelos valores do perfil — o tempo por quadro com e sem a
+ * iluminação global; a diferença é o custo dela, registrado por perfil.
  */
 async function budgetScene(): Promise<void> {
     const lib = await import('clayflow/web');
     /** A cena do orçamento (1 milhão de triângulos animados, sol com sombra e céu) pronta, com ou sem a GI. */
     const open = async (
         gi: boolean,
+        profile: 'high' | 'medium' | 'low',
     ): Promise<{
         app: Application;
         canvas: HTMLCanvasElement;
@@ -776,6 +777,7 @@ async function budgetScene(): Promise<void> {
             captureErrors: true,
         });
         app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+        app.defaults.renderer.profile = profile;
         const ready = { revision: -1, at: 0 };
         app.events.on('globalIlluminationReady', (e) => {
             ready.revision = e.revision;
@@ -839,7 +841,8 @@ async function budgetScene(): Promise<void> {
                 }),
             ),
         );
-        const giRes = new lib.GlobalIllumination({ quality: 'medium' });
+        // Os valores da qualidade vêm do perfil do `Renderer`.
+        const giRes = new lib.GlobalIllumination();
         app.events.on('globalIlluminationUnsupported', (e) =>
             engineErrors.push(`unsupported: ${e.reason}`),
         );
@@ -898,39 +901,40 @@ async function budgetScene(): Promise<void> {
             proto.dispatch = original;
         };
     };
-    // (a) Os kernels da GI: o estágio das sondas 41× contra 21× por quadro, (T₄₁ − T₂₁)/20.
-    const on = await open(true);
-    let probeTimes = 1;
-    let restore = repeat(lib.ProbeFlow, () => probeTimes);
-    probeTimes = 21;
-    const low = await on.perFrame(40);
-    probeTimes = 41;
-    const high = await on.perFrame(40);
-    restore();
-    const kernels = Math.max(0, (high - low) / 20);
-    // (b) O que é por pixel (a leitura das sondas no desenho): o desenho 11× por quadro com e sem a GI —
-    // (T_com − T_sem − kernels)/11.
-    let forwardTimes = 11;
-    restore = repeat(lib.ForwardFlow, () => forwardTimes);
-    const withGi = await on.perFrame(40);
-    on.app.dispose();
-    on.canvas.remove();
-    const off = await open(false);
-    const withoutGi = await off.perFrame(40);
-    off.app.dispose();
-    off.canvas.remove();
-    restore();
-    forwardTimes = 1;
-    const perPixel = Math.max(0, (withGi - withoutGi - kernels) / 11);
-    const cost = kernels + perPixel;
-    log(
-        `budget: tempo de parede por quadro — sondas 21× ${low.toFixed(2)} ms, 41× ${high.toFixed(2)} ms → kernels ${kernels.toFixed(2)} ms; desenho 11× com a GI ${withGi.toFixed(2)} ms, sem ${withoutGi.toFixed(2)} ms → por pixel ${perPixel.toFixed(2)} ms`,
-    );
-    log(
-        `budget: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (orçamento 4 ms; o tempo de GPU do quadro desta máquina repete leituras velhas, então a medida é por repetição com o relógio de parede)`,
-    );
-    check(kernels > 0, 'budget: o trabalho da GI aparece na medida');
-    check(cost <= 4, `budget: iluminação global a ${cost.toFixed(2)} ms/quadro (orçamento 4 ms)`);
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        // (a) Os kernels da GI: o estágio das sondas 41× contra 21× por quadro, (T₄₁ − T₂₁)/20.
+        const on = await open(true, profile);
+        let probeTimes = 1;
+        let restore = repeat(lib.ProbeFlow, () => probeTimes);
+        probeTimes = 21;
+        const low = await on.perFrame(40);
+        probeTimes = 41;
+        const high = await on.perFrame(40);
+        restore();
+        const kernels = Math.max(0, (high - low) / 20);
+        // (b) O que é por pixel (a leitura das sondas no desenho): o desenho 11× por quadro com e sem a GI —
+        // (T_com − T_sem − kernels)/11.
+        let forwardTimes = 11;
+        restore = repeat(lib.ForwardFlow, () => forwardTimes);
+        const withGi = await on.perFrame(40);
+        on.app.dispose();
+        on.canvas.remove();
+        const off = await open(false, profile);
+        const withoutGi = await off.perFrame(40);
+        off.app.dispose();
+        off.canvas.remove();
+        restore();
+        forwardTimes = 1;
+        const perPixel = Math.max(0, (withGi - withoutGi - kernels) / 11);
+        const cost = kernels + perPixel;
+        log(
+            `budget ${profile}: tempo de parede por quadro — sondas 21× ${low.toFixed(2)} ms, 41× ${high.toFixed(2)} ms → kernels ${kernels.toFixed(2)} ms; desenho 11× com a GI ${withGi.toFixed(2)} ms, sem ${withoutGi.toFixed(2)} ms → por pixel ${perPixel.toFixed(2)} ms`,
+        );
+        log(
+            `budget ${profile}: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (${((cost / (1000 / 60)) * 100).toFixed(0)} % do quadro de 60 Hz; o tempo de GPU do quadro desta máquina repete leituras velhas, então a medida é por repetição com o relógio de parede)`,
+        );
+        check(kernels > 0, `budget ${profile}: o trabalho da GI aparece na medida`);
+    }
 }
 
 /** Chão claro sob o sol a pino (cáusticas): placa de 4 × 4 m e a câmera dada. */

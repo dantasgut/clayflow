@@ -51,7 +51,7 @@ fn gi_blend_response_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         n += 1.0;
     }
     let state = select(gi_probes[index].response, vec4f(0.0), gi_probe_reset(index));
-    let response = gi_response(state, value / max(n, 1.0), gi.tuning.x);
+    let response = gi_response(state, value / max(n, 1.0), gi.tuning.x, gi.bounces.z > 0u, 0.0);
     gi_probes[index].response = response.state;
     gi_probe_hysteresis[slot] = response.h;
 }

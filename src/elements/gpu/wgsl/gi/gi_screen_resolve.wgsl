@@ -76,7 +76,8 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let inherit = found && gi_screen_work[gi_screen_fresh_at(i, 0u)].w < 0.0;
     let last = gi_screen_work[gi_screen_fresh_at(i, bounces - 1u)].rgb;
     var response = GiResponse(1.0, state);
-    if (!inherit) { response = gi_response(state, gi_response_value(last), gi.screenSize.w); }
+    if (!inherit) { response = gi_response(state, gi_response_value(last), gi.screenSize.w, gi.bounces.z > 0u,
+        GI_RESPONSE_HOLD_SCREEN); }
     var e = vec3f(0.0);
     for (var g = 0u; g < bounces; g++) {
         let fresh = gi_screen_work[gi_screen_fresh_at(i, g)].rgb;

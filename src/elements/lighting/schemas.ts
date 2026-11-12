@@ -34,7 +34,7 @@ export const GI_CACHE_DATA = 10;
  * rodízio); a fração das sondas de tela por quadro a reduz.
  */
 export const GI_CACHE_BUDGET = 4096;
-/** Raios por célula atualizada no máximo; um quarto dos raios por sonda de tela, de 2 a este. */
+/** Raios por célula atualizada no máximo; metade dos raios por sonda de tela, de 2 a este. */
 export const GI_CACHE_RAYS = 8;
 
 /** Um vec4f do histórico das sondas de tela (o canal temporal `GlobalIllumination.screenHistory`, spec 037). */
@@ -65,7 +65,7 @@ export const GlobalIlluminationSchema = new StructSchema(
         cascade3: FieldType.vec4f,
         rays: FieldType.vec4u,
         tuning: FieldType.vec4f,
-        /** (rebatimentos, ligado, 0, as cáusticas ativas na cena: as sondas não leem o especular direto de vidro e metal liso). */
+        /** (rebatimentos, ligado, quadros que faltam da resposta a uma luz ou à cena que mudou, as cáusticas ativas na cena: as sondas não leem o especular direto de vidro e metal liso). */
         bounces: FieldType.vec4u,
         rotation0: FieldType.vec4f,
         rotation1: FieldType.vec4f,
