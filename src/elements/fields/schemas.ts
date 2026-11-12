@@ -62,6 +62,11 @@ export const FluidFieldSchema = new StructSchema(
         grid: FieldType.vec4f,
         tuning: FieldType.vec4f,
         limits: FieldType.vec4u,
+        /**
+         * x: o raio da vizinhança (m) da covariância dos núcleos — maior que o do núcleo (`grid.z`, o da posição
+         * suavizada): a forma pela covariância de mais partículas tira o relevo do arranjo delas da superfície parada.
+         */
+        reach: FieldType.vec4f,
         /** x: 1 quando a simulação avançou no quadro (o nível da superfície se ajusta só então). */
         motion: FieldType.vec4u,
         /** x: o tempo simulado do quadro (s) — a amostra do material de cada corpo (spec 039). */

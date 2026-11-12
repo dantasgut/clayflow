@@ -670,7 +670,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         const physics = ctx.bound.slots.particlePhysics?.resource as ParticlePhysics | undefined;
         const spacing = physics?.data.particleSpacing ?? DEFAULT_SPACING;
         const radius = FIELD.radius * spacing;
-        const gridRebuilt = this.grid.prepare(work.items, this.particles, radius);
+        const reach = FIELD.neighborhood * spacing;
+        const gridRebuilt = this.grid.prepare(work.items, this.particles, reach);
         this.args.prepare(counts);
         this.writeDraws();
         const layout = fieldDataLayout(field.capacity);
@@ -680,6 +681,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 grid: [spacing, FIELD.voxel * spacing, radius, FIELD.band * FIELD.voxel * spacing],
                 tuning: [FIELD.smoothing, FIELD.ratio, FIELD.sparse, FIELD.iso],
                 limits: [FIELD.neighbors, 32, layout.bricks, fieldAtlasOffset(field.capacity)],
+                reach: [reach, 0, 0, 0],
                 // Sem passo de simulação no quadro (pausa, `step(0)`) o nível fica: a imagem não depende de quantos
                 // quadros foram desenhados com as partículas paradas.
                 motion: [this.advanced(ctx) ? 1 : 0, 0, 0, 0],

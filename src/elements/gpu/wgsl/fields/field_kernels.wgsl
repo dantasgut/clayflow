@@ -1,6 +1,7 @@
 // Núcleos anisotrópicos das partículas (spec 033, R11; Yu & Turk 2013 — a regra de `fields/reference/field.ts`): os
-// vizinhos dentro do raio do núcleo pela grade hash; a média ponderada (peso 1 − (d/r)³) suaviza a posição; a covariância
-// em volta dela dá, pelos autovalores (Jacobi), os raios do núcleo ao longo dos eixos próprios — o maior vale o raio, os
+// vizinhos pela grade hash; a média ponderada (peso 1 − (d/r)³) dos que estão no raio do núcleo suaviza a posição; a
+// covariância dos que estão no raio da vizinhança (`fluid_field.reach.x`, maior, T066e: o arranjo das partículas da
+// superfície parada saía no relevo dela), em volta da média deles, dá, pelos autovalores (Jacobi), os raios do núcleo ao longo dos eixos próprios — o maior vale o raio, os
 // outros até 1/k_r dele. Com poucos vizinhos, um núcleo isotrópico menor (gotas separadas não se fundem); encostado num
 // sólido (`field_sorted_contacts`, spec 034) e com água que molha (`fluid_field.contact`), achatado contra ele no
 // lugar do contato — a calota do ângulo de contato, com o mesmo volume. Grava por
@@ -66,7 +67,8 @@ fn field_eigen(m: mat3x3f) -> FieldEigen {
     return FieldEigen(vals, vecs);
 }
 
-// Unidade do ponto fixo das somas dos vizinhos (≈ 40 vizinhos × 2²² cabem em i32).
+// Unidade do ponto fixo das somas dos vizinhos (peso ≤ 1: até 511 vizinhos × 2²² cabem em i32; na vizinhança de 3
+// espaçamentos são ~113).
 const FIELD_KERNEL_ONE: f32 = 4194304.0;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -85,11 +87,14 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     }
     let p = item.xyz;
     let r = fluid_field.grid.z;
+    let rn = fluid_field.reach.x;
     let home = sh_cell(p, grid.cell_size);
     // Somas em ponto fixo inteiro (em unidades do raio): a ordem dos vizinhos numa célula da grade varia entre execuções
     // (atômicos), e a soma inteira não depende dela — o campo sai idêntico bit a bit.
     var wsum_i = 0;
     var mean_i = vec3i(0);
+    var near_wsum_i = 0;
+    var near_mean_i = vec3i(0);
     var diag_i = vec3i(0);
     var off_i = vec3i(0);
     var n = 0u;
@@ -105,26 +110,33 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
                     if (q.w < 0.0 || any(sh_cell(q.xyz, grid.cell_size) != cell)) { continue; }
                     let d = q.xyz - p;
                     let dist = length(d);
-                    if (dist >= r) { continue; }
-                    let w = 1.0 - pow(dist / r, 3.0);
-                    let u = d / r;
+                    if (dist >= rn) { continue; }
+                    let w = 1.0 - pow(dist / rn, 3.0);
+                    let u = d / rn;
                     wsum_i += i32(round(w * FIELD_KERNEL_ONE));
                     mean_i += vec3i(round(w * u * FIELD_KERNEL_ONE));
                     diag_i += vec3i(round(w * u * u * FIELD_KERNEL_ONE));
                     off_i += vec3i(round(w * vec3f(u.x * u.y, u.x * u.z, u.y * u.z) * FIELD_KERNEL_ONE));
-                    n++;
+                    // No raio do núcleo: a posição suavizada e os vizinhos que decidem o núcleo esparso.
+                    if (dist < r) {
+                        let ws = 1.0 - pow(dist / r, 3.0);
+                        near_wsum_i += i32(round(ws * FIELD_KERNEL_ONE));
+                        near_mean_i += vec3i(round(ws * (d / r) * FIELD_KERNEL_ONE));
+                        n++;
+                    }
                 }
             }
         }
     }
     let wsum = f32(wsum_i) / FIELD_KERNEL_ONE;
-    let mean = vec3f(mean_i) * (r / FIELD_KERNEL_ONE);
-    let diag = vec3f(diag_i) * (r * r / FIELD_KERNEL_ONE);
-    let off = vec3f(off_i) * (r * r / FIELD_KERNEL_ONE);
+    let mean = vec3f(mean_i) * (rn / FIELD_KERNEL_ONE);
+    let diag = vec3f(diag_i) * (rn * rn / FIELD_KERNEL_ONE);
+    let off = vec3f(off_i) * (rn * rn / FIELD_KERNEL_ONE);
     let second = mat3x3f(vec3f(diag.x, off.x, off.y), vec3f(off.x, diag.y, off.z), vec3f(off.y, off.z, diag.z));
     let xw = mean / max(wsum, 1e-12);
+    let near_mean = vec3f(near_mean_i) * (r / FIELD_KERNEL_ONE);
     let lambda = fluid_field.tuning.x;
-    let center = p + lambda * xw;
+    let center = p + lambda * near_mean / max(f32(near_wsum_i) / FIELD_KERNEL_ONE, 1e-12);
     if (n < fluid_field.limits.x) {
         let rs = fluid_field.tuning.z * r;
         let contact = field_sorted_contacts[t];

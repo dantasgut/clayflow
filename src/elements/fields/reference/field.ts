@@ -34,8 +34,16 @@ export interface FieldParams {
 export const FIELD = Object.freeze({
     /** Voxel em espaçamentos de partícula. */
     voxel: 0.5,
-    /** Raio do núcleo (e da vizinhança da covariância) em espaçamentos. */
+    /** Raio do núcleo em espaçamentos (o espalhamento cabe em 2 × 2 × 2 blocos: alcance ≤ 4 voxels). */
     radius: 2,
+    /**
+     * Raio da vizinhança da covariância, em espaçamentos (T066e): com o do núcleo (2), o arranjo das partículas da
+     * superfície parada ficava no relevo dela (o favo de mel do `fluidField` `normal`: 0,0098 → 0,0059). A partir de √6
+     * (a casca seguinte da rede) a forma da esfera pequena do teste da referência sai do |∇φ| ≈ 1 (1,26). A posição
+     * suavizada fica no raio do núcleo: na vizinhança maior a média puxava a superfície para dentro (a barragem perdia 9 %
+     * do volume antes de o nível se ajustar; o nível não compensa — o perfil dos núcleos achatados é íngreme).
+     */
+    neighborhood: 2.25,
     /** Suavização das posições (Laplaciano de Yu & Turk). */
     smoothing: 0.5,
     /** Razão máxima entre o maior e o menor raio do núcleo. */
@@ -157,24 +165,34 @@ function neighborWeight(d: number, r: number): number {
 /** Os núcleos anisotrópicos das partículas (posição suavizada, G e det G). */
 export function anisotropicKernels(positions: readonly Vec3[], params: FieldParams): Kernel[] {
     const r = FIELD.radius * params.spacing;
-    const lists = neighborsOf(positions, r);
+    const rn = FIELD.neighborhood * params.spacing;
+    const lists = neighborsOf(positions, rn);
     return positions.map((p, i) => {
         let wsum = 0;
+        let near = 0;
+        let nearWsum = 0;
         const mean = [0, 0, 0];
+        const nearMean = [0, 0, 0];
         for (const j of lists[i]!) {
-            const w = neighborWeight(
-                Math.sqrt(dot(sub(positions[j]!, p), sub(positions[j]!, p))),
-                r,
-            );
+            const dist = Math.sqrt(dot(sub(positions[j]!, p), sub(positions[j]!, p)));
+            const w = neighborWeight(dist, rn);
             wsum += w;
             for (let k = 0; k < 3; k++) mean[k]! += w * positions[j]![k]!;
+            if (dist < r) {
+                // No raio do núcleo: a posição suavizada e os vizinhos que decidem o núcleo esparso.
+                const ws = neighborWeight(dist, r);
+                near++;
+                nearWsum += ws;
+                for (let k = 0; k < 3; k++) nearMean[k]! += ws * positions[j]![k]!;
+            }
         }
         const xw: Vec3 = [mean[0]! / wsum, mean[1]! / wsum, mean[2]! / wsum];
         const lambda = FIELD.smoothing;
         const center: Vec3 = [0, 1, 2].map(
-            (k) => (1 - lambda) * p[k]! + lambda * xw[k]!,
+            (k) => (1 - lambda) * p[k]! + (lambda * nearMean[k]!) / nearWsum,
         ) as unknown as Vec3;
-        if (lists[i]!.length < FIELD.neighbors) {
+        // Os vizinhos que decidem o núcleo esparso são os do raio do núcleo (as gotas separadas não se fundem).
+        if (near < FIELD.neighbors) {
             const rs = FIELD.sparse * r;
             const [fa, fc] = fieldContactShape(params.contactAngle ?? 90);
             const contact = params.contacts?.[i];
@@ -207,7 +225,7 @@ export function anisotropicKernels(positions: readonly Vec3[], params: FieldPara
         const c = [0, 0, 0, 0, 0, 0, 0, 0, 0];
         for (const j of lists[i]!) {
             const d = sub(positions[j]!, p);
-            const w = neighborWeight(Math.sqrt(dot(d, d)), r);
+            const w = neighborWeight(Math.sqrt(dot(d, d)), rn);
             const e = sub(positions[j]!, xw);
             for (let a = 0; a < 3; a++)
                 for (let b = 0; b < 3; b++) c[a * 3 + b]! += w * e[a]! * e[b]!;
