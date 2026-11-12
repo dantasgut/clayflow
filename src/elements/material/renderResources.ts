@@ -106,6 +106,19 @@ export const particlePoolResource = wgslResource({
     provider: 'private',
 });
 
+/**
+ * As partículas desenhadas do corpo (spec 034, T060d): o índice de cada uma no corpo, na lista que o descarte pela GPU
+ * monta (compactação estável: a ordem do corpo); o sprite lê `particle_list[instance_index]`. Ligada por pipeline (um
+ * por corpo).
+ */
+export const particleListResource = wgslResource({
+    name: 'particle_list',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+
 /** Região do corpo desenhado (offset dinâmico). */
 export const particleDrawResource = wgslResource({
     name: 'particle_draw',

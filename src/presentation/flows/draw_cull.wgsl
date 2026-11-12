@@ -52,30 +52,9 @@ const DC_GROUP_WORDS: u32 = 4u;
 const DC_SPAN_MAX: u32 = 16u;
 /** Níveis montados pelo grupo de 16 × 16 do nível 0 (`HZB_TILE_LEVELS`). */
 const DC_TILE_LEVELS: u32 = 5u;
-const DC_LEVELS_MAX: u32 = 16u;
-/** Abaixo deste `w` um canto está no plano da câmera ou atrás (`CULL_NEAR_W`). */
-const DC_NEAR_W: f32 = 1e-5;
-/** Folga da profundidade no teste de oclusão (`CULL_DEPTH_BIAS`, 2⁻²⁰): a face da própria caixa não a esconde. */
-const DC_DEPTH_BIAS: f32 = 9.5367431640625e-7;
 
 fn dc_slots() -> u32 { return dc.counts.y; }
 fn dc_flags() -> u32 { return dc.counts.w; }
-
-/** Os lados do nível `k` da hierarquia. */
-fn dc_level_size(k: u32) -> vec2u {
-    return max(vec2u(1u), dc.hzb.xy >> vec2u(k));
-}
-
-/** A primeira posição do nível `k` (os níveis em sequência). */
-fn dc_level_offset(k: u32) -> u32 {
-    var offset = 0u;
-    for (var j = 0u; j < DC_LEVELS_MAX; j++) {
-        if (j >= k) { break; }
-        let s = dc_level_size(j);
-        offset += s.x * s.y;
-    }
-    return offset;
-}
 
 /** Pixels `[início, fim)` de um eixo de `pixels` que tocam o texel `t` de um eixo de `texels` (pelo menos um). */
 fn dc_pixel_range(t: u32, texels: u32, pixels: u32) -> vec2u {
@@ -93,68 +72,21 @@ fn dc_world_box(m: mat4x4f, lo: vec3f, hi: vec3f) -> array<vec3f, 2> {
     return array<vec3f, 2>(center, extent);
 }
 
-/** A caixa está toda fora de algum plano do tronco de `vp` (Gribb–Hartmann, profundidade em [0, 1]). */
-fn dc_outside(vp: mat4x4f, c: vec3f, e: vec3f) -> bool {
-    let r0 = vec4f(vp[0].x, vp[1].x, vp[2].x, vp[3].x);
-    let r1 = vec4f(vp[0].y, vp[1].y, vp[2].y, vp[3].y);
-    let r2 = vec4f(vp[0].z, vp[1].z, vp[2].z, vp[3].z);
-    let r3 = vec4f(vp[0].w, vp[1].w, vp[2].w, vp[3].w);
-    let planes = array<vec4f, 6>(r3 + r0, r3 - r0, r3 + r1, r3 - r1, r2, r3 - r2);
-    for (var i = 0u; i < 6u; i++) {
-        let n = planes[i];
-        if (dot(n.xyz, c) + n.w + dot(abs(n.xyz), e) < 0.0) { return true; }
-    }
-    return false;
-}
-
 /** O texel `i` da hierarquia deste quadro (`current`) ou da anterior. */
 fn dc_hzb_at(current: bool, i: u32) -> f32 {
     if (current) { return dc_hzb[i]; }
     return dc_hzb_previous[i];
 }
 
-/**
- * A caixa está escondida pela hierarquia: o retângulo dela na tela por `vp`, aumentado de um texel do nível 0 de cada
- * lado, lido no nível em que cabe em 2 × 2 texels; escondida se o ponto mais perto dela está atrás do mais longe ali.
- */
+/** A caixa está escondida pela hierarquia (`current`: a deste quadro): o ponto mais perto dela atrás do mais longe ali. */
 fn dc_occluded(vp: mat4x4f, c: vec3f, e: vec3f, current: bool) -> bool {
-    var lo = vec3f(3.0e38);
-    var hi = vec3f(-3.0e38);
-    for (var i = 0u; i < 8u; i++) {
-        let s = vec3f(
-            select(-1.0, 1.0, (i & 1u) != 0u),
-            select(-1.0, 1.0, (i & 2u) != 0u),
-            select(-1.0, 1.0, (i & 4u) != 0u),
-        );
-        let clip = vp * vec4f(c + s * e, 1.0);
-        if (clip.w <= DC_NEAR_W) { return false; }
-        let ndc = clip.xyz / clip.w;
-        lo = min(lo, ndc);
-        hi = max(hi, ndc);
-    }
-    if (lo.z <= 0.0) { return false; }
-    // O retângulo em uv (y para baixo: o y mais alto em NDC é o v menor), em texels do nível 0 com a margem.
-    let size0 = vec2f(dc.hzb.xy);
-    let a = clamp(ndc_to_uv(vec2f(lo.x, hi.y)), vec2f(0.0), vec2f(1.0)) * size0 - 1.0;
-    let b = clamp(ndc_to_uv(vec2f(hi.x, lo.y)), vec2f(0.0), vec2f(1.0)) * size0 + 1.0;
-    let u0 = a.x;
-    let u1 = b.x;
-    let v0 = a.y;
-    let v1 = b.y;
-    let span = max(max(u1 - u0, v1 - v0), 1.0);
-    let level = min(dc.hzb.z - 1u, u32(max(0.0, ceil(log2(span)))));
-    let dims = dc_level_size(level);
-    let scale = f32(1u << level);
-    let x0 = min(dims.x - 1u, u32(max(0.0, floor(u0 / scale))));
-    let x1 = min(dims.x - 1u, u32(max(0.0, floor(u1 / scale))));
-    let y0 = min(dims.y - 1u, u32(max(0.0, floor(v0 / scale))));
-    let y1 = min(dims.y - 1u, u32(max(0.0, floor(v1 / scale))));
-    let o = dc_level_offset(level);
+    let r = hzb_rect(dc.hzb.xyz, vp, c, e);
+    if (!r.test) { return false; }
     let far = max(
-        max(dc_hzb_at(current, o + y0 * dims.x + x0), dc_hzb_at(current, o + y0 * dims.x + x1)),
-        max(dc_hzb_at(current, o + y1 * dims.x + x0), dc_hzb_at(current, o + y1 * dims.x + x1)),
+        max(dc_hzb_at(current, r.offset + r.y.x * r.width + r.x.x), dc_hzb_at(current, r.offset + r.y.x * r.width + r.x.y)),
+        max(dc_hzb_at(current, r.offset + r.y.y * r.width + r.x.x), dc_hzb_at(current, r.offset + r.y.y * r.width + r.x.y)),
     );
-    return lo.z > far + DC_DEPTH_BIAS;
+    return r.near > far + CULL_DEPTH_BIAS;
 }
 
 /** A caixa da instância na posição `s` (centro e meia-extensão) e se o grupo dela descarta. */
@@ -239,7 +171,7 @@ fn dc_phase1_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgr
         let inst = dc_instance(s, g);
         if (inst.cull) {
             let cam = cameras[dc.counts.x];
-            if (dc_outside(cam.unjitteredViewProjection, inst.center, inst.extent)) {
+            if (cull_outside(cam.unjitteredViewProjection, inst.center, inst.extent)) {
                 first = 0u;
             } else if ((dc_state() & DC_TEST) != 0u
                 && dc_occluded(cam.previousViewProjection, inst.center, inst.extent, false)) {
@@ -443,7 +375,7 @@ var<workgroup> dc_tile_b: array<f32, 256>;
 
 /** Grava o texel (x, y) do nível `k`. */
 fn dc_hzb_store(k: u32, x: u32, y: u32, v: f32) {
-    dc_hzb[dc_level_offset(k) + y * dc_level_size(k).x + x] = v;
+    dc_hzb[hzb_level_offset(dc.hzb.xyz, k) + y * hzb_level_size(dc.hzb.xyz, k).x + x] = v;
 }
 
 /**
@@ -479,11 +411,11 @@ fn dc_hzb_tile(lid: vec2u, wid: vec2u, far: f32) {
 /** Os níveis acima dos blocos (do `DC_TILE_LEVELS` até 1 × 1), um grupo só, cada um do de baixo. */
 @compute @workgroup_size(256)
 fn dc_hzb_top_main(@builtin(local_invocation_index) lid: u32) {
-    for (var k = DC_TILE_LEVELS; k < DC_LEVELS_MAX; k++) {
+    for (var k = DC_TILE_LEVELS; k < HZB_LEVELS_MAX; k++) {
         if (k >= dc.hzb.z) { break; }
-        let dims = dc_level_size(k);
-        let below = dc_level_size(k - 1u);
-        let o = dc_level_offset(k - 1u);
+        let dims = hzb_level_size(dc.hzb.xyz, k);
+        let below = hzb_level_size(dc.hzb.xyz, k - 1u);
+        let o = hzb_level_offset(dc.hzb.xyz, k - 1u);
         for (var i = lid; i < dims.x * dims.y; i += 256u) {
             let x = i % dims.x;
             let y = i / dims.x;
@@ -495,7 +427,7 @@ fn dc_hzb_top_main(@builtin(local_invocation_index) lid: u32) {
                     far = max(far, dc_hzb[o + sy * below.x + sx]);
                 }
             }
-            dc_hzb[dc_level_offset(k) + i] = far;
+            dc_hzb[hzb_level_offset(dc.hzb.xyz, k) + i] = far;
         }
         storageBarrier();
     }

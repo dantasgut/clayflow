@@ -4,6 +4,8 @@ import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
 import drawCullSource from './draw_cull.wgsl?raw';
+import cullTestSource from './cull_test.wgsl?raw';
+import particleCullSource from './particle_cull.wgsl?raw';
 import drawCullBoundsSource from './draw_cull_bounds.wgsl?raw';
 import drawCullHzbSingleSource from './draw_cull_hzb_single.wgsl?raw';
 import drawCullHzbMsSource from './draw_cull_hzb_ms.wgsl?raw';
@@ -42,6 +44,11 @@ import {
     worldsResource,
 } from '../../elements/scene/resources';
 import { RenderableSchema, RenderInstanceSchema } from '../../elements/scene/Renderable';
+import {
+    particlePoolResource,
+    pointSpriteMaterialsResource,
+} from '../../elements/material/renderResources';
+import { PointSpriteMaterialSchema } from '../../elements/material/PointSpriteMaterialSchema';
 import { Transform } from '../../elements/scene/Transform';
 import {
     DrawCullParamsSchema,
@@ -299,6 +306,16 @@ export const drawCullResources = {
 } as const;
 
 /**
+ * O teste do descarte pela GPU (spec 034, T060d): o tronco da vista e a hierarquia de profundidade (a série do
+ * `ForwardFlow`, deste quadro e do anterior), comum ao desenho principal e às partículas (`cull_test.wgsl`).
+ */
+export const cullTest = wgslModule({
+    name: 'cull_test',
+    source: cullTestSource,
+    requires: [viewSpace],
+});
+
+/**
  * O descarte do desenho principal pela GPU (spec 034, T060d): a política da oclusão, as fases do tronco e da oclusão, as
  * listas densas por grupo, os argumentos dos desenhos indiretos e os níveis de cima da hierarquia (`draw_cull.wgsl`).
  */
@@ -308,7 +325,7 @@ export const drawCull = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         NONE.module,
-        viewSpace,
+        cullTest,
         camerasResource,
         worldsResource,
         renderablesResource,
@@ -332,6 +349,39 @@ export const drawCull = wgslModule({
         drawCullResources.dispatchTemplate,
     ],
     structs: [Camera.matricesSchema, Transform.worldSchema, RenderableSchema, RenderInstanceSchema],
+});
+
+/** Recursos do descarte das partículas (spec 034, T060d), privados do `ParticleFlow` salvo o estado do descarte. */
+export const particleCullResources = {
+    /** O corpo (palavras: primeiro slot, stride, `pos`, material, câmera, bits, a hierarquia e se ela vale), um por corpo. */
+    body: privateStorage('pc_body', 'read', 'u32'),
+    /** As medidas do descarte do desenho principal deste quadro (o estado: a hierarquia montada pela GPU). */
+    cullState: wgslResource({
+        name: 'pc_cull_state',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: drawCullChannels.stats, lag: 0 },
+    }),
+} as const;
+
+/**
+ * O predicado da compactação estável das partículas de um corpo (spec 034, T060d): o tronco da vista e a hierarquia de
+ * profundidade deste quadro (`particle_cull.wgsl`).
+ */
+export const particleCull = wgslModule({
+    name: 'particle_cull',
+    source: particleCullSource,
+    requires: [
+        cullTest,
+        camerasResource,
+        pointSpriteMaterialsResource,
+        particlePoolResource,
+        particleCullResources.body,
+        particleCullResources.cullState,
+        drawCullResources.hzb,
+    ],
+    structs: [Camera.matricesSchema, PointSpriteMaterialSchema],
 });
 
 /** A caixa da geometria de um grupo (um despacho por geometria, ligado aos vértices dela). */

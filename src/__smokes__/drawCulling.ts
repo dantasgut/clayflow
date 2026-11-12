@@ -9,7 +9,11 @@
 //   (b) nada visível some: a imagem com o descarte é a imagem sem ele (`FrameTargets.culling`), parada e no primeiro
 //       quadro depois de um salto da câmera que revela o que estava escondido (a fase 2 desenha o que a hierarquia do
 //       quadro anterior escondia);
-//   (c) custo: com 20 mil caixas atrás da parede, o tempo de GPU do desenho com o descarte contra sem ele, por perfil.
+//   (c) custo: com 20 mil caixas atrás da parede, o tempo de GPU do desenho com o descarte contra sem ele, por perfil;
+//   (d) partículas: um corpo de sprites com partículas atrás da parede, na frente dela e fora dos lados (a física parada):
+//       a lista do corpo (os argumentos indiretos lidos de volta) tem exatamente as da frente, e a imagem com o descarte
+//       é a imagem sem ele; o custo do desenho das partículas (a lista e os sprites) com 100 mil, 90 % atrás da parede,
+//       por perfil, com o descarte contra a lista com todas.
 //
 // Para rodar: `npm run smoke -- drawCulling`. Resultado: `DRAWCULLING SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -17,6 +21,8 @@ import {
     BoxGeometry,
     Camera,
     createScene,
+    FluidBody,
+    PointSpriteMaterial,
     StandardMaterial,
     Transform,
 } from 'clayflow/web';
@@ -115,17 +121,20 @@ async function frames(s: Scene, n: number): Promise<void> {
     }
 }
 
-/** O trabalho do desenho principal (a parte do descarte). */
-function forwardWork(app: Application): Parameters<Application['resources']['read']>[0] {
-    const id = app.world.queryBySchemaName('ForwardWork')[0];
+/** O trabalho de um estágio (o do desenho principal ou o das partículas). */
+function stageWork(
+    app: Application,
+    schema = 'ForwardWork',
+): Parameters<Application['resources']['read']>[0] {
+    const id = app.world.queryBySchemaName(schema)[0];
     const work = id === undefined ? undefined : app.world.resourcesOf(id)[0];
-    if (work === undefined) throw new Error('ForwardWork fora da cena');
+    if (work === undefined) throw new Error(`${schema} fora da cena`);
     return work;
 }
 
 /** As palavras de um buffer do trabalho, copiadas para um buffer de leitura (os argumentos indiretos também). */
-async function words(app: Application, descId: string): Promise<number[]> {
-    const source = app.resources.bufferOf(forwardWork(app), descId);
+async function words(app: Application, descId: string, schema?: string): Promise<number[]> {
+    const source = app.resources.bufferOf(stageWork(app, schema), descId);
     if (source === undefined) return [];
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
@@ -378,6 +387,120 @@ async function partC(): Promise<void> {
     }
 }
 
+/** As partículas do caso (d): atrás da parede, na frente dela (entre a parede e a câmera) e fora dos lados do tronco. */
+function particlePositions(): { readonly position: Vec3; readonly kind: string }[] {
+    const out: { position: Vec3; kind: string }[] = [];
+    for (let i = 0; i < 20; i++)
+        for (let j = 0; j < 10; j++)
+            out.push({ position: [-2 + 0.2 * i, -1 + 0.2 * j, -4], kind: 'escondida' });
+    for (let i = 0; i < 12; i++)
+        for (let j = 0; j < 6; j++)
+            out.push({ position: [-1.8 + 0.3 * i, -0.9 + 0.3 * j, 5], kind: 'na frente' });
+    for (let i = 0; i < 40; i++)
+        out.push({ position: [(i % 2 === 0 ? -1 : 1) * (12 + i), 0, 5], kind: 'fora' });
+    return out;
+}
+
+async function partD(): Promise<void> {
+    const s = await build();
+    try {
+        s.app.time.pausePhysics();
+        const points = particlePositions();
+        const body = new FluidBody({
+            algorithm: 'SPH',
+            position: points.flatMap((p) => p.position),
+        });
+        s.app.world.insert(
+            body.add(new PointSpriteMaterial({ color: [0.9, 0.3, 0.2, 1], radius: 0.05 })),
+        );
+        const entity = s.app.world.entityIdOfResource(body);
+        s.app.defaults.targets.data.culling = 1;
+        await frames(s, SETTLE);
+        const args = await words(s.app, `particle_cull:${entity}:0:args`, 'ParticleWork');
+        const drawn = args[5] ?? -1;
+        const front = points.filter((p) => p.kind === 'na frente').length;
+        log(
+            `(d) partículas: ${drawn} de ${points.length} na lista (${front} na frente, ${points.length - front} escondidas ou de fora)`,
+        );
+        if (drawn !== front)
+            failures.push(`(d) ${drawn} partículas na lista, ${front} estão na frente da parede`);
+        const on = await image(s);
+        s.app.defaults.targets.data.culling = 0;
+        await frames(s, SETTLE);
+        const off = await image(s);
+        const d = compare(on, off);
+        log(
+            `(d) imagem com e sem o descarte: diferença ${d.max.toExponential(2)} (${d.pixels} pixels)`,
+        );
+        if (d.max > IMAGE_TOLERANCE)
+            failures.push(`(d) a imagem das partículas com o descarte difere (${d.pixels} pixels)`);
+        const all = (await words(s.app, `particle_cull:${entity}:0:args`, 'ParticleWork'))[5];
+        if (all !== points.length)
+            failures.push(`(d) sem o descarte a lista tem ${all} de ${points.length} partículas`);
+    } finally {
+        s.app.dispose();
+        s.canvas.remove();
+    }
+}
+
+/** Mediana do tempo de GPU das partículas (a compactação, os argumentos e os sprites) em `n` quadros. */
+async function particleCost(s: Scene, n: number): Promise<number> {
+    const samples: number[] = [];
+    for (let f = 0; f < n; f++) {
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+        const stages = s.app.core.lastFrameStats().stagesNs;
+        if (stages === undefined) continue;
+        let ns = 0;
+        for (const [label, t] of Object.entries(stages))
+            if (/^(ParticleFlow|Compaction|PrefixSum|CountToArgs)/.test(label)) ns += t ?? 0;
+        samples.push(ns / 1e6);
+    }
+    samples.sort((a, b) => a - b);
+    return samples[Math.floor(samples.length / 2)] ?? NaN;
+}
+
+async function partDCost(): Promise<void> {
+    const s = await build();
+    try {
+        s.app.time.pausePhysics();
+        // 100 mil partículas: 90 mil atrás da parede (z = −4) e 10 mil na frente dela (z = 5).
+        const position: number[] = [];
+        for (let i = 0; i < 300; i++)
+            for (let j = 0; j < 300; j++) position.push(-2 + (4 * i) / 300, -1 + (2 * j) / 300, -4);
+        for (let i = 0; i < 100; i++)
+            for (let j = 0; j < 100; j++) position.push(-1.8 + 0.036 * i, -0.9 + 0.018 * j, 5);
+        s.app.world.insert(
+            new FluidBody({ algorithm: 'SPH', position }).add(
+                new PointSpriteMaterial({ color: [0.9, 0.3, 0.2, 1], radius: 0.02 }),
+            ),
+        );
+        for (const profile of [
+            'high',
+            'medium',
+            'low',
+        ] as const satisfies readonly RenderProfile[]) {
+            s.app.defaults.renderer.profile = profile;
+            s.app.defaults.targets.data.culling = 1;
+            await frames(s, SETTLE);
+            const on = await particleCost(s, 60);
+            s.app.defaults.targets.data.culling = 0;
+            await frames(s, SETTLE);
+            const off = await particleCost(s, 60);
+            log(
+                `(d) ${profile}: partículas ${on.toFixed(3)} ms com o descarte, ${off.toFixed(3)} ms com todas (100 mil, 90 % escondidas)`,
+            );
+            if (!(on < off))
+                failures.push(
+                    `(d) ${profile}: o descarte não reduziu o desenho das partículas (${on.toFixed(3)} contra ${off.toFixed(3)} ms)`,
+                );
+        }
+    } finally {
+        s.app.dispose();
+        s.canvas.remove();
+    }
+}
+
 async function main(): Promise<void> {
     const s = await build();
     try {
@@ -387,6 +510,8 @@ async function main(): Promise<void> {
         s.app.dispose();
         s.canvas.remove();
     }
+    await partD();
+    await partDCost();
     await partC();
     failures.push(...new Set(errors));
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);

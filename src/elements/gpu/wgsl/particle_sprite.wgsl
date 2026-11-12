@@ -1,6 +1,6 @@
 // Sprites de partículas (spec 008): um quad virado para a câmera por partícula, com a posição lida direto do pool do
-// corpo (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDrawParams`) pelo índice da instância — sem
-// cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pelo mesmo
+// corpo (`array<vec4f>`, stride e deslocamento do campo `pos` em `ParticleDrawParams`) pela partícula da instância na
+// lista do descarte (`particle_list`, spec 034 T060d) — sem cópia para vertex buffer. Desenhado como esfera impostora (normal reconstruída no fragmento) iluminada pelo mesmo
 // modelo do forward (ponto `scene_lighting`, spec 011: o fechamento da cor do material sobre a normal do impostor). Structs `CameraMatrices`, `PointSpriteMaterial`, `ParticleFrameParams`
 // e `ParticleDrawParams` gerados dos schemas; recursos declarados pelo módulo (spec 031): o pool do corpo (o do
 // pipeline), o dos materiais de sprite e a região do corpo desenhado (offset dinâmico). Com o antisserrilhado temporal
@@ -29,7 +29,8 @@ fn sprite_corner(v: u32) -> vec2f {
 @vertex
 fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance: u32) -> SpriteOut {
     var out: SpriteOut;
-    let slot = particle_draw.first + instance;
+    // A partícula da instância: a lista do descarte pela GPU (spec 034, T060d; as visíveis, na ordem do corpo).
+    let slot = particle_draw.first + particle_list[instance];
     let center = particles[slot * particle_draw.strideVec4 + particle_draw.posOffsetVec4].xyz;
     let material = materials[particle_draw.materialSlot];
     let camera = cameras[particle_frame.cameraSlot];

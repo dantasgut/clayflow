@@ -139,3 +139,9 @@ export const DrawCullStepSchema = new StructSchema(
     { value: FieldType.vec4u, scan: FieldType.vec4u },
     { addressSpace: 'uniform' },
 );
+
+/**
+ * O Resource de trabalho do `ForwardFlow` (spec 039), pelo schema: as séries do descarte (spec 034, T060d) são canais
+ * dele, lidos também pelo `ParticleFlow` (a hierarquia de profundidade do quadro).
+ */
+export const ForwardWorkSchema = new StructSchema('ForwardWork', {});

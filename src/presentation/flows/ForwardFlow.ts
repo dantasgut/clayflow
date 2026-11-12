@@ -14,7 +14,7 @@ import type {
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
-import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { ForwardWorkSchema } from './renderSchemas';
 import { FlowWork } from '../../scene/flows/FlowWork';
 import type {
     BindingKey,
@@ -176,7 +176,7 @@ const DUMMY_DIFF = 'forward_surface_diff_dummy';
  * superfície com geometria diferencial); o descarte pela GPU (`DrawCulling`, spec 034 T060d) declara as partes dele.
  */
 class ForwardWork extends FlowWork {
-    static readonly schema = new StructSchema('ForwardWork', {});
+    static readonly schema = ForwardWorkSchema;
 
     constructor() {
         super();

@@ -204,6 +204,21 @@ export class PrefixSum implements WorkPart {
     }
 
     /**
+     * Os kernels preparados estão compilados (a C2 compila os do trabalho em segundo plano: quem grava num quadro antes
+     * disso consulta aqui em vez de deixar `record` lançar).
+     */
+    get ready(): boolean {
+        for (const variant of this.variants.values()) {
+            const levels = [...variant.base.values(), ...variant.upper];
+            for (const kernels of levels)
+                for (const id of [kernels.local, kernels.combine, kernels.top])
+                    if (id !== undefined && this.ctx.work.pipelines.compute(id) === undefined)
+                        return false;
+        }
+        return true;
+    }
+
+    /**
      * Libera os kernels e solta os buffers dos níveis (a C2 os libera com a redescrição do trabalho). A instância volta
      * a declará-los no próximo `prepare`.
      */

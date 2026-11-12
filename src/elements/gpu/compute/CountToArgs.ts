@@ -153,6 +153,12 @@ export class CountToArgs {
         });
     }
 
+    /** O kernel do registro `counts` foi preparado e está compilado (sem ele, `record` não grava). */
+    ready(counts: IndirectBufferSpec): boolean {
+        const id = this.kernels.get(counts);
+        return id !== undefined && this.ctx.work.pipelines.compute(id) !== undefined;
+    }
+
     /** Libera os pipelines (as regiões de uniform são do Resource de trabalho). */
     destroy(): void {
         for (const id of this.kernels.values()) this.ctx.work.pipelines.release(id);

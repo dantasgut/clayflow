@@ -230,6 +230,16 @@ export class Compaction implements WorkPart {
         this.run(frame, 'Compaction.scatter', kernels.scatter!, offset, count);
     }
 
+    /** Os kernels preparados (e os da soma de prefixos, no modo `stable`) estão compilados. */
+    get ready(): boolean {
+        for (const byOut of this.bound.values())
+            for (const k of byOut.values())
+                for (const id of [k.atomic, k.flags, k.scatter])
+                    if (id !== undefined && this.ctx.work.pipelines.compute(id) === undefined)
+                        return false;
+        return this.scan?.ready ?? true;
+    }
+
     /** Libera os kernels e solta as flags e a soma de prefixos (a C2 libera os buffers); `prepare` os declara de novo. */
     destroy(): void {
         this.releaseKernels();

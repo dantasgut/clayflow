@@ -17,6 +17,7 @@ import {
     forwardFrameResource,
     particleDrawResource,
     particleFrameResource,
+    particleListResource,
     particlePoolResource,
     pointSpriteMaterialsResource,
     pointVerticesResource,
@@ -162,6 +163,7 @@ export const particleSprite = wgslModule({
         particlePoolResource,
         pointSpriteMaterialsResource,
         particleDrawResource,
+        particleListResource,
     ],
     structs: [Camera.matricesSchema, PointSpriteMaterialSchema, ParticleDrawParamsSchema],
 });

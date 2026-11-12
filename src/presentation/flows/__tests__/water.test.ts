@@ -41,7 +41,10 @@ describe('água pelo campo dos fluidos (spec 033, spec 034 T066)', () => {
         const passes = s.step();
         s.step();
         expect(passes.map((p) => p.label).filter((l) => /Fluid|Water/.test(l))).toEqual([]);
-        expect(s.computes().filter((c) => /Fluid|Caustics|copy:/.test(c))).toEqual([]);
+        // As cópias do campo (a contagem do descarte dos sprites, `particle_cull`, é do desenho deles).
+        expect(s.computes().filter((c) => /Fluid|Caustics|copy:(?!particle_cull)/.test(c))).toEqual(
+            [],
+        );
         expect(fieldOf(s).volume).toBe(false);
     });
 
