@@ -25,7 +25,7 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     // Quad: v0 A−, v1 A+, v2 B+, v3 A−, v4 B+, v5 B−.
     let use_b = corner == 2u || corner == 4u || corner == 5u;
     let side = select(-1.0, 1.0, corner == 1u || corner == 2u || corner == 4u);
-    let r = renderables[instances[instance].renderable];
+    let r = renderables[draw_visible[instance]];
     let material = materials[r.materialSlot];
     let mvp = cameras[forward_frame.cameraSlot].viewProjection * worlds[r.transformSlot].world;
     let clip_a = mvp * vec4f(wire_vertex(wire_edges[edge * 2u]), 1.0);

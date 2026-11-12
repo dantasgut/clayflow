@@ -3,6 +3,10 @@ import { wgslResource } from '../../scene/shaders/WgslResource';
 import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
+import drawCullSource from './draw_cull.wgsl?raw';
+import drawCullBoundsSource from './draw_cull_bounds.wgsl?raw';
+import drawCullHzbSingleSource from './draw_cull_hzb_single.wgsl?raw';
+import drawCullHzbMsSource from './draw_cull_hzb_ms.wgsl?raw';
 import shadowPagesSource from './shadow_pages.wgsl?raw';
 import shadowPagesConstantsSource from './shadow_pages_constants.wgsl?raw';
 import shadowRequestSource from './shadow_request.wgsl?raw';
@@ -16,8 +20,9 @@ import presentMsSource from './effects/present_ms.wgsl?raw';
 import uiSource from './ui.wgsl?raw';
 import temporalResolveSource from './effects/temporal_resolve.wgsl?raw';
 import temporalPresentSource from './effects/temporal_present.wgsl?raw';
-import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import { pageAlloc } from '../../elements/gpu/shaders/pageAlloc';
+import { vertexBounds } from '../../elements/gpu/shaders/vertexBounds';
 import { Camera } from '../../elements/scene/Camera';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import {
@@ -31,10 +36,16 @@ import {
 } from '../../elements/gpu/shaders/math';
 import {
     camerasResource,
+    instancesResource,
+    renderablesResource,
     shadowMatricesResource,
     worldsResource,
 } from '../../elements/scene/resources';
+import { RenderableSchema, RenderInstanceSchema } from '../../elements/scene/Renderable';
+import { Transform } from '../../elements/scene/Transform';
 import {
+    DrawCullParamsSchema,
+    DrawCullStepSchema,
     EffectParamsSchema,
     PresentationParamsSchema,
     ScreenParamsSchema,
@@ -97,8 +108,6 @@ export const shadowResources = {
     pairs: privateStorage('sp_pairs', 'read_write', 'u32'),
     /** Os pares, lidos no desenho. */
     pairsRead: privateStorage('sp_pairs_read', 'read', 'u32'),
-    /** Os vértices de uma geometria (a caixa; 8 palavras por vértice, a posição nas 3 primeiras). */
-    vertices: privateStorage('sp_vertices', 'read', 'f32', 'draw'),
     /** O grupo da geometria da caixa (por despacho). */
     geometry: privateUniform('sp_geometry', ShadowBoundsGeometrySchema, 'draw'),
     /** O início dos pares do grupo (por desenho). */
@@ -192,7 +201,7 @@ export const shadowPages = wgslModule({
         shadowResources.groups,
         shadowResources.args,
         shadowResources.pairs,
-        shadowResources.vertices,
+        vertexBounds,
         shadowResources.geometry,
         shadowResources.atlas,
         shadowResources.requestsPrevious,
@@ -204,6 +213,125 @@ export const shadowPages = wgslModule({
     ],
     structs: [ShadowMap.matrixSchema, ShadowInstanceSchema],
 });
+
+/** O slot da série da hierarquia de profundidade no desenho principal (spec 034, T060d). */
+export const drawCullChannels = Object.freeze({ hzb: 'hzb' });
+
+const vec4Storage = (name: string, access: 'read' | 'read_write') =>
+    wgslResource({
+        name,
+        binding: { storage: access },
+        type: { wgsl: 'vec4f', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+/** Recursos do descarte do desenho principal (spec 034, T060d), privados do `ForwardFlow` salvo a série da hierarquia. */
+export const drawCullResources = {
+    /** Parâmetros do quadro (`DrawCullParams`). */
+    params: privateUniform('dc', DrawCullParamsSchema, 'stage'),
+    /** Por despacho: o grupo da caixa, a lista, o nível. */
+    step: privateUniform('dc_step', DrawCullStepSchema, 'draw'),
+    /** Os grupos (primeira posição, contagem, bits). */
+    groups: privateStorage('dc_groups', 'read', 'u32'),
+    /** O modelo dos argumentos de cada grupo (5 palavras: a contagem de índices ou de vértices na primeira). */
+    template: privateStorage('dc_template', 'read', 'u32'),
+    /** O grupo de cada posição da lista de instâncias (`DC_SKIP` nos buracos). */
+    slotGroup: privateStorage('dc_slot_group', 'read', 'u32'),
+    /** A caixa da geometria de cada grupo (mínimo e máximo, dois `vec4f`), escrita e lida. */
+    bounds: vec4Storage('dc_bounds', 'read_write'),
+    boundsRead: vec4Storage('dc_bounds_read', 'read'),
+    /** Os níveis de cima da soma de prefixos (as somas dos grupos de 256). */
+    scanLevels: privateStorage('dc_scan_levels', 'read_write', 'u32'),
+    /** As marcas das duas fases (a soma de prefixos inclusiva no lugar). */
+    flagsA: privateStorage('dc_flags_a', 'read_write', 'u32'),
+    flagsB: privateStorage('dc_flags_b', 'read_write', 'u32'),
+    /** As listas densas (a 1 a partir de 0, a 2 a partir de `N`): o registro `Renderable` de cada instância desenhada. */
+    visible: privateStorage('dc_visible', 'read_write', 'u32'),
+    /** Os argumentos dos desenhos indiretos das duas listas (5 palavras por grupo). */
+    args: privateStorage('dc_args', 'read_write', 'u32'),
+    /** A hierarquia de profundidade (série de duas fatias): a deste quadro, escrita, e a do anterior. */
+    hzb: wgslResource({
+        name: 'dc_hzb',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'f32', array: true },
+        frequency: 'stage',
+        provider: { slot: drawCullChannels.hzb, lag: 0 },
+    }),
+    hzbPrevious: wgslResource({
+        name: 'dc_hzb_previous',
+        binding: { storage: 'read' },
+        type: { wgsl: 'f32', array: true },
+        frequency: 'stage',
+        provider: { slot: drawCullChannels.hzb, lag: 1 },
+    }),
+    /** A profundidade da cena (sem e com amostras). */
+    depth: wgslResource({
+        name: 'dc_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    depthMs: wgslResource({
+        name: 'dc_depth',
+        binding: { texture: { sample: 'depth', multisampled: true } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+} as const;
+
+/**
+ * O descarte do desenho principal pela GPU (spec 034, T060d): as fases do tronco e da oclusão, as listas densas por grupo,
+ * os argumentos dos desenhos indiretos e os níveis da hierarquia (`draw_cull.wgsl`).
+ */
+export const drawCull = wgslModule({
+    name: 'draw_cull',
+    source: drawCullSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        viewSpace,
+        camerasResource,
+        worldsResource,
+        renderablesResource,
+        instancesResource,
+        drawCullResources.params,
+        drawCullResources.step,
+        drawCullResources.groups,
+        drawCullResources.template,
+        drawCullResources.slotGroup,
+        drawCullResources.boundsRead,
+        drawCullResources.flagsA,
+        drawCullResources.flagsB,
+        drawCullResources.scanLevels,
+        drawCullResources.visible,
+        drawCullResources.args,
+        drawCullResources.hzb,
+        drawCullResources.hzbPrevious,
+    ],
+    structs: [Camera.matricesSchema, Transform.worldSchema, RenderableSchema, RenderInstanceSchema],
+});
+
+/** A caixa da geometria de um grupo (um despacho por geometria, ligado aos vértices dela). */
+export const drawCullBounds = wgslModule({
+    name: 'draw_cull_bounds',
+    source: drawCullBoundsSource,
+    requires: [vertexBounds, drawCullResources.step, drawCullResources.bounds],
+});
+
+/** O nível 0 da hierarquia pela profundidade da cena (sem e com amostras). */
+export const drawCullHzb = {
+    single: wgslModule({
+        name: 'draw_cull_hzb_single',
+        source: drawCullHzbSingleSource,
+        requires: [drawCull, drawCullResources.depth],
+    }),
+    multisampled: wgslModule({
+        name: 'draw_cull_hzb_ms',
+        source: drawCullHzbMsSource,
+        requires: [drawCull, drawCullResources.depthMs],
+    }),
+} as const;
 
 /** Profundidade das páginas sujas (o vértice na página e o mínimo atômico no fragmento, T060h). */
 export const shadowDepth = wgslModule({

@@ -33,6 +33,7 @@ import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { Transform } from '../../elements/scene/Transform';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
 import { wordBuffer } from '../../elements/gpu/compute/schemas';
+import { vertexBoundsResource } from '../../elements/gpu/shaders/vertexBounds';
 import {
     ShadowBoundsGeometrySchema,
     ShadowGroupDrawSchema,
@@ -727,7 +728,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                         shader: shadowPages,
                         entryPoint: 'sp_bounds_main',
                         bindings: new Map<WgslResource, BindingSource>([
-                            [shadowResources.vertices, vertices],
+                            [vertexBoundsResource, vertices],
                             [shadowResources.scratch, scratch as BindingSource],
                             [shadowResources.params, params as BindingSource],
                             [shadowResources.geometry, this.boundsGroups.source()],

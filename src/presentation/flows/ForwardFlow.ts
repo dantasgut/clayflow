@@ -4,7 +4,6 @@ import type {
     EngineCore,
     Frame,
     IndexBufferSpec,
-    IndirectBufferSpec,
     RenderPass,
     RenderTarget,
     StorageBufferSpec,
@@ -17,7 +16,6 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { FlowWork } from '../../scene/flows/FlowWork';
-import { GpuWordSchema } from '../../elements/gpu/compute/schemas';
 import type {
     BindingKey,
     BindingSource,
@@ -34,6 +32,7 @@ import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
+    type ChannelSlot,
     type EntitiesSlot,
     type EntityEntry,
     type PoolSlot,
@@ -50,6 +49,7 @@ import { SurfaceDiffSchema } from '../../elements/geometry/SurfaceSchemas';
 import { Material } from '../../elements/material/Material';
 import { ForwardFrameParamsSchema } from '../../elements/material/forwardSchemas';
 import {
+    drawVisibleResource,
     forwardFrameResource,
     pointVerticesResource,
     pointPreviousVerticesResource,
@@ -78,6 +78,7 @@ import {
 } from '../../elements/lighting/refraction/Refraction';
 import { LOBES } from '../../elements/material/pbr/lobes';
 import { LIGHT_FORMAT } from '../app/FrameTargets';
+import { DRAW_CULL_HZB, DrawCulling, type CullGroup, type CullRecord } from './DrawCulling';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
     forwardMaterial,
@@ -152,28 +153,23 @@ export interface ForwardSlots extends SlotMap {
      * composição desenham a cor deles); sem ela, não desenham.
      */
     readonly refraction: SingletonSlot<true>;
-    /** O espaço de trabalho do passe: parâmetros do quadro, substituto da geometria diferencial, argumentos (spec 039). */
+    /** O espaço de trabalho do passe: parâmetros do quadro, substituto da geometria diferencial, o descarte (spec 039). */
     readonly work: WorkSlot<ForwardWork>;
+    /** A série da hierarquia de profundidade do descarte (spec 034, T060d; no trabalho). */
+    readonly hzb: ChannelSlot<true>;
 }
 
 /** Id dos parâmetros do quadro no trabalho. */
 const FRAME_PARAMS = 'forward_frame_params';
 /** Id do substituto do pool `SurfaceDiff` no trabalho. */
 const DUMMY_DIFF = 'forward_surface_diff_dummy';
-/** Id dos argumentos indiretos por grupo no trabalho. */
-const INDIRECT = 'forward_indirect';
-/** Palavras por grupo: o registro indexado (5) e o do arame, não indexado (byte 20, 5 palavras com folga). */
-const INDIRECT_WORDS = 10;
 
 /**
- * Resource de trabalho do `ForwardFlow` (spec 039): `ForwardFrameParams`, o substituto do pool `SurfaceDiff` (nenhuma
- * superfície com geometria diferencial) e os argumentos indiretos dos grupos com registro indireto na geometria, um par
- * de registros por grupo (capacidade em potências de 2).
+ * Resource de trabalho do `ForwardFlow` (spec 039): `ForwardFrameParams` e o substituto do pool `SurfaceDiff` (nenhuma
+ * superfície com geometria diferencial); o descarte pela GPU (`DrawCulling`, spec 034 T060d) declara as partes dele.
  */
 class ForwardWork extends FlowWork {
     static readonly schema = new StructSchema('ForwardWork', {});
-    /** Grupos com argumentos indiretos reservados. */
-    indirectCapacity = 0;
 
     constructor() {
         super();
@@ -187,17 +183,6 @@ class ForwardWork extends FlowWork {
                     upload: 'never',
                 },
                 { id: DUMMY_DIFF, role: 'storage-rw', schema: SurfaceDiffSchema, upload: 'never' },
-                ...(this.indirectCapacity === 0
-                    ? []
-                    : [
-                          {
-                              id: INDIRECT,
-                              role: 'indirect' as const,
-                              schema: GpuWordSchema,
-                              upload: 'never' as const,
-                              count: this.indirectCapacity * INDIRECT_WORDS,
-                          },
-                      ]),
             ],
         });
     }
@@ -280,6 +265,7 @@ function slotsOf(output: ForwardOutput, work: ForwardWork): ForwardSlots {
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
         refraction: slot.singleton(Refraction.schema, { optional: true }),
         work: slot.work(() => work),
+        hzb: slot.channel(ForwardWork.schema, DRAW_CULL_HZB, { optional: true }),
     };
 }
 
@@ -393,17 +379,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private geometryCounter = 0;
     /** Número de cada vertex buffer com pipeline por geometria (nome estável dos pipelines). */
     private readonly geometryKeys = new Map<AnyBufferSpec, number>();
-    /**
-     * Argumentos do desenho indireto dos grupos cuja geometria tem registro indireto (malha adaptativa, spec 010): o
-     * `first`/`count` do grupo deste passe escritos pela CPU e a contagem copiada do registro da geometria (na GPU) antes
-     * do passe. Registro 0 (indexado) e 1 (byte 20: arame, não indexado).
-     */
-    private readonly indirectArgs = new Map<
-        string,
-        { readonly record: number; readonly source: IndirectBufferSpec }
-    >();
-    /** O device tem `indirect-first-instance` (sem ela, a malha adaptativa vem no nível máximo e desenha direto). */
-    private indirectOn = false;
+    /** O desenho conduzido pela GPU (spec 034, T060d): o descarte e as listas e argumentos dos grupos. */
+    private readonly culling: DrawCulling;
+    /** A lista das instâncias desenhadas ligada ao `draw_visible`. */
+    private boundVisible: StorageBufferSpec | undefined;
+    /** Deixa de ouvir os envios de geometria (no descarte). */
+    private readonly stopWatching: () => void;
     /** Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda. */
     profileTimestamps = false;
     /** Descritor de cada pipeline de material de triângulos (base das variantes de projeção). */
@@ -573,6 +554,17 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.depthPrepass = options.depthPrepass !== false;
         this.depthPrepassForced = options.depthPrepass;
         this.work = new ForwardWork();
+        this.culling = new DrawCulling({
+            core: ctx.core,
+            resources: ctx.resources,
+            work: this.work,
+        });
+        // Os vértices de uma geometria enviados de novo pela CPU: a caixa dela é refeita no descarte.
+        this.stopWatching = ctx.events.on('resourceReady', (e) => {
+            const r = e.payload.resource;
+            if (r instanceof Geometry)
+                this.culling.geometryChanged(this.resources.bufferOf(r, 'vertices'));
+        });
         this.slots = slotsOf(options.output ?? 'scene', this.work);
         const diffs = {
             to: 'idle' as const,
@@ -598,6 +590,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             ]),
                         );
                         this.bindDiff(c);
+                        this.bindVisible(c);
                         this.prepareMaterials(c);
                     },
                 },
@@ -662,7 +655,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.bindSceneDepth(c);
                         this.syncProjection(c);
                         this.prepareBackground(c);
-                        this.prepareIndirect(c);
+                        this.prepareCulling(c);
                         this.bindPreviousVertices(c);
                         this.writeFrameParams(c);
                     },
@@ -676,6 +669,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      * grupo do material só quando o pipeline muda. Os transmissivos (spec 011) saem do passe principal: depois dele, com
      * a `Refraction`, marcam o pedido da refração (spec 034) — a cor deles vem do traçado e da composição, depois deste
      * estágio — e, com o antisserrilhado temporal, o movimento da superfície na profundidade do pedido.
+     *
+     * Desenho conduzido pela GPU (spec 034, T060d): o descarte monta as listas de cada grupo antes do passe. Com as duas
+     * fases, o passe se divide: a fase 1 (as instâncias que a hierarquia de profundidade do quadro anterior não esconde)
+     * desenha a profundidade — ou a cor, sem o passe de profundidade —, a hierarquia deste quadro sai dela, e a fase 2 (as
+     * escondidas antes que esta hierarquia não esconde) completa a profundidade antes da cor de todas. Sem as listas
+     * prontas (os kernels compilando), nenhum grupo desenha.
      */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
@@ -688,53 +687,90 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             ? this.core.profiler.timestampWritesFor(0, 1)
             : undefined;
         const light = bound.slots.light;
-        const renderTarget: RenderTarget = {
-            colorAttachments:
-                light === undefined
-                    ? [color]
+        const targetOf = (
+            load: 'clear' | 'load',
+            ts: RenderTarget['timestampWrites'],
+        ): RenderTarget => ({
+            colorAttachments: [
+                load === 'clear' ? color : this.colorAttachment(frame, target, { loadOp: 'load' })!,
+                ...(light === undefined
+                    ? []
                     : [
-                          color,
-                          {
-                              view: light.view,
-                              loadOp: 'clear',
-                              clearValue: [0, 0, 0, 0],
-                              storeOp: 'store',
-                          },
-                      ],
-            depthStencilAttachment: {
-                view: target.depth,
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            },
-            ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
-        };
-        const groups = bound.slots.renderables.groups;
-        // Contagens da malha adaptativa (produzidas na GPU) nos argumentos deste passe.
-        const args = this.indirectBuffer();
-        if (args !== undefined)
-            for (const { record, source } of this.indirectArgs.values()) {
-                const base = record * INDIRECT_WORDS * 4;
-                frame.copy(source, args, 4, 0, base);
-                frame.copy(source, args, 4, 20, base + 20);
-            }
+                          load === 'clear'
+                              ? {
+                                    view: light.view,
+                                    loadOp: 'clear' as const,
+                                    clearValue: [0, 0, 0, 0] as const,
+                                    storeOp: 'store' as const,
+                                }
+                              : {
+                                    view: light.view,
+                                    loadOp: 'load' as const,
+                                    storeOp: 'store' as const,
+                                },
+                      ]),
+            ],
+            depthStencilAttachment:
+                load === 'clear'
+                    ? {
+                          view: target.depth!,
+                          depthClearValue: 1.0,
+                          depthLoadOp: 'clear',
+                          depthStoreOp: 'store',
+                      }
+                    : { view: target.depth!, depthLoadOp: 'load', depthStoreOp: 'store' },
+            ...(ts !== undefined ? { timestampWrites: ts } : {}),
+        });
+        const culled = this.culling.ready;
+        const groups = culled ? bound.slots.renderables.groups : [];
         const transmissive = groups.filter(
             (g) => this.transmissionOf(g.representative) !== undefined,
         );
         const opaque =
             transmissive.length === 0 ? groups : groups.filter((g) => !transmissive.includes(g));
-        frame.render(renderTarget, 'ForwardFlow', (pass) => {
-            // A profundidade dos opacos primeiro (só o vértice); a cor depois, um fragmento por pixel.
-            if (this.prepassActive(bound))
-                this.recordGroups(pass, bound, opaque, (_entry, id) => this.depthPipelines.get(id));
-            this.recordGroups(
-                pass,
-                bound,
-                opaque,
-                (entry, id) => this.materialFnPipelineOf(bound, entry, id) ?? id,
+        const prepass = this.prepassActive(bound);
+        const depthOf = (_entry: EntityEntry, id: string): string | undefined =>
+            this.depthPipelines.get(id);
+        const colorOf = (entry: EntityEntry, id: string): string =>
+            this.materialFnPipelineOf(bound, entry, id) ?? id;
+        if (culled) this.culling.recordEarly(frame);
+        const hzb = bound.slots.hzb;
+        if (culled && this.culling.twoPhase && hzb !== undefined) {
+            // Os timestamps do profiler: o começo na fase 1, o fim na fase 2.
+            const half = (
+                which: 'beginningOfPassWriteIndex' | 'endOfPassWriteIndex',
+            ): RenderTarget['timestampWrites'] => {
+                const index = tsWrites?.[which];
+                return tsWrites === undefined || index === undefined
+                    ? undefined
+                    : { querySet: tsWrites.querySet, [which]: index };
+            };
+            // Fase 1: a profundidade (ou a cor, sem o passe de profundidade) do que o quadro anterior não escondia.
+            frame.render(
+                targetOf('clear', half('beginningOfPassWriteIndex')),
+                'ForwardFlow',
+                (pass) => {
+                    if (prepass) this.recordGroups(pass, bound, opaque, 0, depthOf);
+                    else this.recordGroups(pass, bound, opaque, 0, colorOf);
+                },
             );
-            this.recordBackground(pass, bound);
-        });
+            this.culling.recordLate(frame, hzb);
+            // Fase 2: o que esta hierarquia não esconde; depois a cor de todas (com o passe de profundidade).
+            frame.render(targetOf('load', half('endOfPassWriteIndex')), 'ForwardFlow', (pass) => {
+                if (prepass) {
+                    this.recordGroups(pass, bound, opaque, 1, depthOf);
+                    this.recordGroups(pass, bound, opaque, 2, colorOf);
+                } else this.recordGroups(pass, bound, opaque, 1, colorOf);
+                this.recordBackground(pass, bound);
+            });
+        } else {
+            frame.render(targetOf('clear', tsWrites), 'ForwardFlow', (pass) => {
+                // A profundidade dos opacos primeiro (só o vértice); a cor depois, um fragmento por pixel.
+                if (prepass) this.recordGroups(pass, bound, opaque, 2, depthOf);
+                this.recordGroups(pass, bound, opaque, 2, colorOf);
+                this.recordBackground(pass, bound);
+            });
+        }
         this.recordMotion(frame, bound, opaque, 'clear');
         this.recordRefractionRequest(frame, bound, transmissive);
         if (transmissive.length > 0) this.recordMotion(frame, bound, transmissive, 'load');
@@ -780,7 +816,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             target,
             load === 'clear' ? 'ForwardFlow.motion' : 'ForwardFlow.surfaceMotion',
             (pass) => {
-                this.recordGroups(pass, bound, groups, (_entry, id) => pipelines.get(id));
+                this.recordGroups(pass, bound, groups, 2, (_entry, id) => pipelines.get(id));
             },
         );
     }
@@ -868,7 +904,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             },
             'ForwardFlow.refractionRequest',
             (pass) => {
-                this.recordGroups(pass, bound, groups, (entry, id) => {
+                this.recordGroups(pass, bound, groups, 2, (entry, id) => {
                     const request = this.transmissionOf(entry)?.request;
                     if (request === undefined) return undefined;
                     const v = this.materialFns.active(entry.entityId)!;
@@ -899,14 +935,19 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /**
      * Um desenho por grupo de instâncias, com o pipeline escolhido por `pipelineFor` a partir do pipeline base do grupo
-     * (`undefined`: o grupo não desenha neste passe); bind groups religados só quando mudam.
+     * (`undefined`: o grupo não desenha neste passe); bind groups religados só quando mudam. Com o descarte pela GPU, o
+     * desenho indireto do registro `record` do grupo (a lista 1, a 2 ou as duas); sem `indirect-first-instance`, o direto
+     * de todas as instâncias (a lista nas mesmas posições), só nos registros que as incluem.
      */
     private recordGroups(
         pass: RenderPass,
         bound: BoundFlow<ForwardSlots>,
         groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        record: CullRecord,
         pipelineFor: (entry: EntityEntry, baseId: string) => string | undefined,
     ): void {
+        const args = this.culling.indirect ? this.culling.args : undefined;
+        if (this.culling.indirect ? args === undefined : record === 1) return;
         let current: PreparedRender | undefined;
         // Bind group atual de cada índice: só o que muda é religado ao trocar de pipeline (spec 031).
         const boundGroups: (BindGroupSpec | undefined)[] = [];
@@ -946,19 +987,18 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 }
                 current = prepared;
             }
-            if (topology === 'point-list') {
-                // Um quad (6 vértices) por vértice da geometria, lida como storage pelo shader.
-                pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
-                continue;
-            }
-            const record = this.indirectArgs.get(group.key)?.record;
-            const args = record === undefined ? undefined : this.indirectBuffer();
-            const base = (record ?? 0) * INDIRECT_WORDS * 4;
-            const indirect = args;
-            if (edges?.subkind === 'index') {
-                // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
-                if (indirect !== undefined) pass.draw.indirect(indirect, base + 20);
-                else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
+            const offset =
+                args === undefined ? undefined : this.culling.argsOffset(group.key, record);
+            if (args !== undefined && offset === undefined) continue;
+            if (topology === 'point-list' || edges?.subkind === 'index') {
+                // Sprites: um quad (6 vértices) por vértice da geometria, lida como storage pelo shader. Arame: um quad
+                // por aresta da geometria (`wireEdges`, aos pares).
+                if (args !== undefined) pass.draw.indirect(args, offset!);
+                else {
+                    const quads =
+                        edges?.subkind === 'index' ? edges.count >> 1 : geometry.vertexCount;
+                    pass.draw.vertices(6 * quads, group.count, 0, group.first);
+                }
                 continue;
             }
             pass.geometry.vertex(0, vertices);
@@ -967,59 +1007,79 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const indices = this.resources.bufferOf(geometry, 'indices');
             if (indices?.subkind === 'index') {
                 pass.geometry.index(indices);
-                if (indirect !== undefined) pass.draw.indexedIndirect(indirect, base);
+                if (args !== undefined) pass.draw.indexedIndirect(args, offset!);
                 else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
-            } else {
-                // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
-                pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
-            }
+            } else if (args !== undefined) pass.draw.indirect(args, offset!);
+            // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
+            else pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
         }
     }
 
     /**
-     * Argumentos indiretos dos grupos com registro indireto na geometria (malha adaptativa, spec 010), com o `first` e o
-     * `count` do grupo neste passe; os de grupos que sumiram são liberados. Sem `indirect-first-instance`, nenhum (o
-     * desenho direto pela capacidade, que a superfície preenche no nível máximo).
+     * O descarte do quadro (spec 034, T060d): cada grupo com a caixa da geometria, o desenho (indexado ou por vértices,
+     * a contagem de uma instância e, na malha adaptativa, o registro da geometria com a contagem da GPU) e se descarta —
+     * triângulos sim; sprites e arame (do tamanho em pixels) desenham sempre. Sem função de projeção da câmera e com o
+     * descarte ligado nos `FrameTargets`, o tronco e a oclusão valem. A lista das instâncias desenhadas liga ao
+     * `draw_visible` quando muda.
      */
-    private prepareIndirect(ctx: Ctx): void {
-        this.indirectOn = this.core.capabilities().features.includes('indirect-first-instance');
-        const records: {
-            group: (typeof ctx.bound.slots.renderables.groups)[number];
-            source: IndirectBufferSpec;
-        }[] = [];
-        if (this.indirectOn)
-            for (const group of ctx.bound.slots.renderables.groups) {
-                const source = this.resources.bufferOf(
-                    group.representative.get(Geometry),
-                    'indirect',
-                );
-                if (source?.subkind !== 'indirect') continue;
-                records.push({ group, source });
-            }
-        this.indirectArgs.clear();
-        if (records.length === 0) return;
-        let capacity = Math.max(1, this.work.indirectCapacity);
-        while (capacity < records.length) capacity *= 2;
-        // Um par de registros por grupo; as contagens (palavras 0 e 5) são copiadas da geometria antes do passe.
-        const words = new Uint32Array(capacity * INDIRECT_WORDS);
-        records.forEach(({ group, source }, record) => {
-            words.set(
-                [0, group.count, 0, 0, group.first, 0, group.count, 0, group.first, 0],
-                record * INDIRECT_WORDS,
-            );
-            this.indirectArgs.set(group.key, { record, source });
+    private prepareCulling(ctx: Ctx): void {
+        const slots = ctx.bound.slots;
+        const groups: CullGroup[] = slots.renderables.groups.map((group) => {
+            const entry = group.representative;
+            const geometry = entry.get(Geometry);
+            const topology = entry.get(Material).topology;
+            const vertices = this.resources.bufferOf(geometry, 'vertices');
+            const indices = this.resources.bufferOf(geometry, 'indices');
+            const edges = this.resources.bufferOf(geometry, 'wireEdges');
+            const source = this.resources.bufferOf(geometry, 'indirect');
+            const sprites = topology === 'point-list';
+            const wire = topology === 'line-list';
+            const indexed = !sprites && !wire && indices?.subkind === 'index';
+            const drawCount = sprites
+                ? 6 * geometry.vertexCount
+                : wire
+                  ? 6 * (edges?.subkind === 'index' ? edges.count >> 1 : 0)
+                  : indexed
+                    ? (indices?.count ?? 0)
+                    : geometry.vertexCount;
+            return {
+                key: group.key,
+                first: group.first,
+                count: group.count,
+                vertices: vertices?.subkind === 'vertex' ? vertices : undefined,
+                cull: !sprites && !wire,
+                deforming: this.resources.hasGpuWriter(geometry, 'vertices'),
+                indexed,
+                drawCount,
+                ...(source?.subkind === 'indirect' && !sprites
+                    ? { source: { buffer: source, offset: wire ? 20 : 0 } }
+                    : {}),
+            };
         });
-        if (capacity !== this.work.indirectCapacity) {
-            // A C2 aloca o buffer na capacidade nova.
-            this.work.indirectCapacity = capacity;
-            this.work.refresh();
-        }
-        this.resources.writeNow(this.work, INDIRECT, words);
+        const cameraId = this.world.entityIdOfResource(slots.camera.resource);
+        const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
+        const depth = slots.target.depth;
+        const targets = slots.targets?.resource as FrameTargets | undefined;
+        this.culling.prepare(
+            groups,
+            {
+                cameraSlot,
+                // A projeção por função não é a `viewProjection` do tronco e da hierarquia: sem descarte.
+                enabled: this.projection === undefined && targets?.data.culling !== 0,
+                depth,
+                multisampled: slots.target.sampleCount > 1,
+            },
+            slots.hzb,
+        );
+        this.bindVisible(ctx);
     }
 
-    /** O buffer dos argumentos indiretos que a C2 alocou (ou `undefined` sem grupo indireto). */
-    private indirectBuffer(): IndirectBufferSpec | undefined {
-        return this.resources.bufferOf(this.work, INDIRECT) as IndirectBufferSpec | undefined;
+    /** A lista das instâncias desenhadas (do descarte) no `draw_visible`, religada quando a C2 a realoca. */
+    private bindVisible(ctx: Ctx): void {
+        const visible = this.culling.visible;
+        if (visible === undefined || visible === this.boundVisible) return;
+        ctx.bind(new Map([[drawVisibleResource, visible]]));
+        this.boundVisible = visible;
     }
 
     /** A profundidade dos opacos (com ou sem amostras) ligada ao pedido da refração, religada quando muda. */
@@ -1039,9 +1099,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.sceneDepthBound = sceneDepth;
     }
 
-    /** Os parâmetros, o substituto e os argumentos são do `ForwardWork` (a C2 os libera com ele). */
+    /** Os parâmetros, o substituto e o descarte são do `ForwardWork` (a C2 os libera com ele). */
     override dispose(): void {
-        this.indirectArgs.clear();
+        this.stopWatching();
+        this.culling.dispose();
     }
 
     /** Pool da geometria diferencial das superfícies (ou o substituto), religado quando muda. */

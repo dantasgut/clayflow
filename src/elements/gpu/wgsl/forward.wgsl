@@ -1,4 +1,4 @@
-// Desenho forward. Structs `CameraMatrices`, `WorldTransform`, `Renderable`, `RenderInstance`, `SurfaceDiff`,
+// Desenho forward. Structs `CameraMatrices`, `WorldTransform`, `Renderable`, `SurfaceDiff`,
 // `StandardMaterial` e `ForwardFrameParams` gerados dos schemas; os recursos (câmeras, mundo, registros, instâncias,
 // geometria diferencial, material, parâmetros do quadro) são declarados pelo módulo (spec 031). Projeção pelo ponto
 // `camera_clip` (pronta: `viewProjection`; spec 009); o fechamento de espalhamento pelo ponto `material_eval` (pronto: o
@@ -41,7 +41,7 @@ fn vs_main(
     @builtin(vertex_index) vertex: u32,
 ) -> VsOut {
     var out: VsOut;
-    let r = renderables[instances[instance].renderable];
+    let r = renderables[draw_visible[instance]];
     let w = worlds[r.transformSlot];
     let world = w.world * vec4<f32>(in.position, 1.0);
     out.clip_position = camera_clip(forward_frame.cameraSlot, world);

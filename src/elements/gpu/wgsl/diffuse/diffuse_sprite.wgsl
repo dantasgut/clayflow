@@ -30,7 +30,7 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     let corner = corners[index % 6u];
     let point = index / 6u;
     let m = point_vertices[point];
-    let r = renderables[instances[instance].renderable];
+    let r = renderables[draw_visible[instance]];
     let material = materials[r.materialSlot];
     let camera = cameras[forward_frame.cameraSlot];
     let local = vec3f(m.px, m.py, m.pz);

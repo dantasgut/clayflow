@@ -20,8 +20,6 @@ const SP_RERENDER: u32 = 0x80000000u;
 /** Bits do índice da instância no par (o resto é a página suja). */
 const SP_PAIR_SHIFT: u32 = 20u;
 const SP_PAIR_MASK: u32 = 0xFFFFFu;
-/** Teto das rodadas da caixa por invocação (vértices = 256 × rodadas). */
-const SP_BOUNDS_ROUNDS: u32 = 65536u;
 /** Teto dos grupos percorridos pela repartição dos pares (orçamento do laço). */
 const SP_GROUP_LIMIT: u32 = 1048576u;
 /** Necessidade da página virtual (seção `needBase`): página física nova ou redesenho na que já tem. */

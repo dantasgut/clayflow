@@ -16,11 +16,21 @@ export interface FrameTargetsOptions {
      * ligam quando entra uma `GlobalIllumination` e desligam quando sai a última. Default desligado.
      */
     readonly depthPrepass?: boolean;
+    /**
+     * Desenho conduzido pela GPU (spec 034, T060d): o desenho principal descarta na GPU as instâncias fora do tronco da
+     * câmera e as escondidas atrás do que já foi desenhado (a hierarquia de profundidade em duas fases). Desligado, todas
+     * as instâncias desenham — a mesma imagem, para conferir o descarte. Default ligado.
+     */
+    readonly culling?: boolean;
 }
 
-/** Dado dos `FrameTargets`: o passe de profundidade (1 ligado, 0 desligado), lido pelo desenho a cada quadro. */
+/**
+ * Dado dos `FrameTargets`, lido pelo desenho a cada quadro: o passe de profundidade e o descarte pela GPU (1 ligado, 0
+ * desligado).
+ */
 export interface FrameTargetsData {
     depthPrepass: number;
+    culling: number;
 }
 
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
@@ -46,7 +56,10 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
     constructor(options: FrameTargetsOptions = {}) {
         super();
         this.samples = options.samples ?? 4;
-        this.data = { depthPrepass: options.depthPrepass === true ? 1 : 0 };
+        this.data = {
+            depthPrepass: options.depthPrepass === true ? 1 : 0,
+            culling: options.culling === false ? 0 : 1,
+        };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {

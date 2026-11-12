@@ -7,13 +7,13 @@ import { sceneFogReady, sceneWetnessReady } from '../scene/points/media';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
-    instancesResource,
     renderablesResource,
     worldsResource,
     previousWorldsResource,
 } from '../scene/resources';
 import {
     diffuseMaterialsResource,
+    drawVisibleResource,
     forwardFrameResource,
     particleDrawResource,
     particleFrameResource,
@@ -46,7 +46,7 @@ import {
 import forwardBackgroundSource from '../gpu/wgsl/forward_background.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
-import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
+import { RenderableSchema } from '../scene/Renderable';
 import { ForwardFrameParamsSchema, ParticleDrawParamsSchema } from './forwardSchemas';
 import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
@@ -108,7 +108,7 @@ export const forward = wgslModule({
         worldsResource,
         previousWorldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         surfaceDiffReadResource,
         standardMaterialsResource,
         forwardFrameResource,
@@ -118,7 +118,6 @@ export const forward = wgslModule({
         Transform.worldSchema,
         Transform.previousWorldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         StandardMaterialSchema,
         ForwardFrameParamsSchema,
         SurfaceDiffSchema,
@@ -183,7 +182,7 @@ export const pointSprite = wgslModule({
         camerasResource,
         worldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         pointSpriteMaterialsResource,
         forwardFrameResource,
         pointVerticesResource,
@@ -195,7 +194,6 @@ export const pointSprite = wgslModule({
         Transform.worldSchema,
         Transform.previousWorldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         PointSpriteMaterialSchema,
         ForwardFrameParamsSchema,
     ],
@@ -216,7 +214,7 @@ export const diffuseSprite = wgslModule({
         camerasResource,
         worldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         diffuseMaterialsResource,
         forwardFrameResource,
         pointVerticesResource,
@@ -228,7 +226,6 @@ export const diffuseSprite = wgslModule({
         Transform.worldSchema,
         Transform.previousWorldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         DiffuseMaterialSchema,
         ForwardFrameParamsSchema,
     ],
@@ -245,7 +242,7 @@ export const wire = wgslModule({
         camerasResource,
         worldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         wireframeMaterialsResource,
         forwardFrameResource,
         wireVerticesResource,
@@ -255,7 +252,6 @@ export const wire = wgslModule({
         Camera.matricesSchema,
         Transform.worldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         WireframeMaterialSchema,
         ForwardFrameParamsSchema,
     ],

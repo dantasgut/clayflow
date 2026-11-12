@@ -118,3 +118,24 @@ export const UiQuadSchema = new StructSchema('UiQuad', {
     uv: FieldType.vec4f,
     textured: FieldType.vec4f,
 });
+
+/**
+ * Parâmetros do descarte do desenho principal no quadro (spec 034, T060d): `counts` = (slot da câmera ativa, posições da
+ * lista de instâncias, grupos, bits — o descarte ligado, a hierarquia do quadro anterior valendo); `hzb` = (lados do
+ * nível 0, níveis, 0).
+ */
+export const DrawCullParamsSchema = new StructSchema(
+    'DrawCullParams',
+    { counts: FieldType.vec4u, hzb: FieldType.vec4u },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * Por despacho do descarte: `value` = o grupo da caixa, a lista (0 ou 1) das listas e argumentos, o nível da hierarquia
+ * — ou, na soma de prefixos, (lista, nível); `scan` = (elementos do nível, início dele e do de cima nos níveis da soma).
+ */
+export const DrawCullStepSchema = new StructSchema(
+    'DrawCullStep',
+    { value: FieldType.vec4u, scan: FieldType.vec4u },
+    { addressSpace: 'uniform' },
+);

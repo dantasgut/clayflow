@@ -21,7 +21,8 @@
 //      seu grupo.
 // O espaço de trabalho do quadro é um buffer só de palavras (`sp_scratch`), em seções; os contadores no início.
 // Laços com teto constante.
-// Requer: shadow_virtual, shadow_pages_constants, page_alloc (a soma de prefixos do grupo), WORKGROUP_SIZE e os recursos
+// Requer: shadow_virtual, shadow_pages_constants, page_alloc (a soma de prefixos do grupo), vertex_bounds (a caixa dos
+// vértices), WORKGROUP_SIZE e os recursos
 // de cada entrada.
 
 fn sp_f(i: u32) -> f32 {
@@ -59,39 +60,17 @@ fn sp_overlap(a: vec4f, b: vec4f) -> bool {
 
 // ---- 1. a caixa de uma geometria ----
 
-var<workgroup> sp_lo: array<vec3f, 256>;
-var<workgroup> sp_hi: array<vec3f, 256>;
-
 @compute @workgroup_size(256)
 fn sp_bounds_main(@builtin(local_invocation_index) lid: u32) {
-    let count = arrayLength(&sp_vertices) / 8u;
-    var lo = vec3f(3.0e38);
-    var hi = vec3f(-3.0e38);
-    for (var r = 0u; r < SP_BOUNDS_ROUNDS; r++) {
-        let v = lid + r * 256u;
-        if (v >= count) { break; }
-        let p = vec3f(sp_vertices[v * 8u], sp_vertices[v * 8u + 1u], sp_vertices[v * 8u + 2u]);
-        lo = min(lo, p);
-        hi = max(hi, p);
-    }
-    sp_lo[lid] = lo;
-    sp_hi[lid] = hi;
-    workgroupBarrier();
-    for (var s = 128u; s > 0u; s = s >> 1u) {
-        if (lid < s) {
-            sp_lo[lid] = min(sp_lo[lid], sp_lo[lid + s]);
-            sp_hi[lid] = max(sp_hi[lid], sp_hi[lid + s]);
-        }
-        workgroupBarrier();
-    }
+    let box = vertex_bounds(lid);
     if (lid == 0u) {
         let b = sp.boundsBase + sp_geometry.group * 6u;
-        sp_set_f(b, sp_lo[0].x);
-        sp_set_f(b + 1u, sp_lo[0].y);
-        sp_set_f(b + 2u, sp_lo[0].z);
-        sp_set_f(b + 3u, sp_hi[0].x);
-        sp_set_f(b + 4u, sp_hi[0].y);
-        sp_set_f(b + 5u, sp_hi[0].z);
+        sp_set_f(b, box[0].x);
+        sp_set_f(b + 1u, box[0].y);
+        sp_set_f(b + 2u, box[0].z);
+        sp_set_f(b + 3u, box[1].x);
+        sp_set_f(b + 4u, box[1].y);
+        sp_set_f(b + 5u, box[1].z);
     }
 }
 

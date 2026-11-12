@@ -75,7 +75,10 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
         const s = await scene(false);
         const passes = s.step();
         expect(passes.map((p) => p.label)).toEqual(['ForwardFlow']);
-        expect(s.computes().filter((c) => c !== 'CameraFlow')).toEqual([]);
+        // O descarte do desenho (spec 034, T060d) monta a lista das instâncias desenhadas antes do passe.
+        expect(s.computes().filter((c) => c !== 'CameraFlow' && c !== 'ForwardFlow.cull')).toEqual(
+            [],
+        );
     });
 
     it('com transmissivo e sem a Refraction: fora do passe principal e não desenhado; nenhuma cópia da cena', async () => {
@@ -84,7 +87,10 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
         expect(passes.map((p) => p.label)).toEqual(['ForwardFlow']);
         expect(passes[0]!.draws).toHaveLength(1);
         // Nem compute nem cópia de textura (as cópias também vão a `computes`).
-        expect(s.computes().filter((c) => c !== 'CameraFlow')).toEqual([]);
+        // O descarte do desenho (spec 034, T060d) monta a lista das instâncias desenhadas antes do passe.
+        expect(s.computes().filter((c) => c !== 'CameraFlow' && c !== 'ForwardFlow.cull')).toEqual(
+            [],
+        );
     });
 
     it.each([1, 4] as const)(

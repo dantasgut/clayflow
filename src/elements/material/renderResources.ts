@@ -25,6 +25,19 @@ export const forwardFrameResource = wgslResource({
     provider: 'private',
 });
 
+/**
+ * As instâncias desenhadas (spec 034, T060d): o registro `Renderable` de cada instância, na lista que o descarte pela GPU
+ * monta (densa por grupo, na ordem da lista de instâncias); o desenho lê `draw_visible[instance_index]`. Sem o descarte,
+ * a cópia da lista de instâncias nas mesmas posições.
+ */
+export const drawVisibleResource = wgslResource({
+    name: 'draw_visible',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+
 /** Geometria diferencial das superfícies (spec 010; o estágio liga o pool ou um substituto). */
 export const surfaceDiffReadResource = wgslResource({
     name: 'surface_diff',
