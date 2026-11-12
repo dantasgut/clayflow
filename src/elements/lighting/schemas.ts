@@ -18,6 +18,25 @@ export const GI_VISIBILITY_TEXELS = 16;
  * tamanho; ladrilhos maiores usam o canto delas.
  */
 export const GI_SCREEN_TILE_MIN = 4;
+/**
+ * Cache de irradiância nas superfícies (spec 034, T059; o cache de radiância no espaço do mundo do Lumen e do SHaRC):
+ * células na própria superfície, pela posição (em níveis pela distância à câmera) e pela normal, numa tabela de
+ * espalhamento com sondagem limitada. Os acertos fora da tela leem a irradiância de cada rebatimento ali, no ponto, em vez
+ * das sondas do mundo (que, fora do plano da superfície, ficam mais perto ou mais longe da luz do que ela).
+ */
+export const GI_CACHE_CELLS = 32768;
+/** Palavras de 32 bits do índice do cache por célula (chave, época, uso, normal, ponto e lado). */
+export const GI_CACHE_WORDS = 8;
+/** vec4 dos valores do cache por célula (a chave e a época, o estado da resposta e 8 rebatimentos). */
+export const GI_CACHE_DATA = 10;
+/**
+ * Células do cache atualizadas por quadro com todas as sondas de tela lançando a cada quadro (as usadas há pouco, em
+ * rodízio); a fração das sondas de tela por quadro a reduz.
+ */
+export const GI_CACHE_BUDGET = 4096;
+/** Raios por célula atualizada no máximo; um quarto dos raios por sonda de tela, de 2 a este. */
+export const GI_CACHE_RAYS = 8;
+
 /** Um vec4f do histórico das sondas de tela (o canal temporal `GlobalIllumination.screenHistory`, spec 037). */
 export const GiScreenRecordSchema = new StructSchema('GiScreenRecord', { value: FieldType.vec4f });
 
@@ -61,6 +80,10 @@ export const GlobalIlluminationSchema = new StructSchema(
         screen1: FieldType.vec4u,
         /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
         screenSize: FieldType.vec4f,
+        /** Cache de irradiância nas superfícies (T059): (células, células atualizadas por quadro, raios por célula, ligado). */
+        cache: FieldType.vec4u,
+        /** (lado da célula mais fina em m, distância à câmera em lados até a célula dobrar, 0, 0). */
+        cacheSize: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );

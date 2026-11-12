@@ -5,8 +5,8 @@
 // a amostra gravada pelo acerto em `gi_wave_scatter`) — para quem soma os rebatimentos (`gi_probe_trace_main`, `gi_screen_trace_main`), que não lê o
 // fechamento. A luz direta é o que liga as luzes, a estrutura de raios e os contribuintes da luz (as cáusticas, a
 // transmissão das sombras); os rebatimentos ligam só o que é deles — cada kernel cabe no que o adaptador concede por
-// estágio. Uma rodada leva os raios das sondas do mundo e, depois deles, os das sondas de tela (`gi_wave_screen_first`),
-// cada faixa com a sequência da luz dela.
+// estágio. Uma rodada leva os raios das sondas do mundo, os do cache de irradiância nas superfícies (T059, na sequência
+// da luz das do mundo) e, por último, os das sondas de tela (`gi_wave_screen_first`), com a sequência da luz delas.
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_shade, random, RayWaveEntry, ray_wave_entries_in, ray_wave_counts,
 // gi_wave_light, gi_wave_scatter_read, ray_volume_scatter.
 

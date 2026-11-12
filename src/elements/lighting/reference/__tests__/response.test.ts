@@ -59,6 +59,16 @@ describe('histerese adaptativa das sondas (spec 033, US4)', () => {
         expect(Math.abs(after.state.mean - 1)).toBeLessThan(0.15);
     });
 
+    it('picos raros (poucos raios numa fonte pequena): quase nunca acelera (spec 034, T059)', () => {
+        const r = rng(13);
+        // Quase sempre 1; em 5 % dos quadros, 15 (a mancha de sol achada por um raio).
+        const spiky = (): number => (r() < 0.05 ? 15 : 1);
+        const warm = run(RESPONSE_EMPTY, 300, spiky);
+        const after = run(warm.state, 3000, spiky);
+        expect(after.transients / 3000).toBeLessThan(0.005);
+        expect(Math.abs(after.state.mean - 1.7)).toBeLessThan(0.35);
+    });
+
     it('uma luz que acende: a histerese cai para a de resposta e a média alcança 95 % em ≤ 15 quadros (0,25 s)', () => {
         const r = rng(3);
         const warm = run(RESPONSE_EMPTY, 300, () => 0.1 * (0.9 + 0.2 * r()));

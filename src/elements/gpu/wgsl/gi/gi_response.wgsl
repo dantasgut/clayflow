@@ -1,8 +1,9 @@
 // Histerese adaptativa das sondas (spec 033, R5, US4) — a regra de `reference/response.ts`. Estado por sonda: média
-// rápida e lenta do maior canal da radiância, ruído (variância relativa à rápida) e quadros desde o último recomeço. Quando a rápida se
-// afasta da lenta mais do que o ruído explica, a luz mudou de verdade: alguns quadros com a histerese
-// de resposta (o estado anterior some exponencialmente) e depois a contagem segue; parado, a histerese do acúmulo — pela
-// variância (T052): a que leva o ruído da média acumulada ao alvo, entre a da autoria (o piso) e 0,995.
+// rápida e lenta do maior canal da radiância, ruído (variância relativa à rápida) e quadros desde o último recomeço (meio
+// quadro a mais: a mudança pendente). Quando a rápida se afasta da lenta mais do que o ruído explica e o valor seguinte
+// confirma, a luz mudou de verdade: alguns quadros com a histerese de resposta (o estado anterior some
+// exponencialmente) e depois a contagem segue; parado, a histerese do acúmulo — pela variância (T052): a que leva o
+// ruído da média acumulada ao alvo, entre a da autoria (o piso) e 0,995.
 
 const GI_RESPONSE_FAST: f32 = 0.65;
 const GI_RESPONSE_HYSTERESIS: f32 = 0.3;
@@ -36,17 +37,28 @@ fn gi_response(state: vec4f, x: f32, hysteresis: f32) -> GiResponse {
     let noise = mix(d * d, state.z, GI_RESPONSE_NOISE);
     let scale = max(fast, state.y);
     let sigma_fast = sqrt(state.z * ((1.0 - GI_RESPONSE_FAST) / (1.0 + GI_RESPONSE_FAST)));
-    let transient = abs(fast - state.y) > (GI_RESPONSE_SIGMAS * sigma_fast + GI_RESPONSE_RELATIVE) * scale;
+    // A contagem (o meio quadro marca a mudança pendente: a rápida se afastou da lenta no quadro anterior).
+    let pending = state.w > 0.0 && fract(state.w) != 0.0;
+    let count = select(state.w, state.w - 0.5, pending);
+    let exceed = abs(fast - state.y) > (GI_RESPONSE_SIGMAS * sigma_fast + GI_RESPONSE_RELATIVE) * scale;
+    // A mudança se confirma no quadro seguinte (spec 034, T059): o valor novo fica mais perto do que afastou a rápida (o
+    // do quadro anterior) que da lenta. O pico raro de poucos raios numa fonte pequena volta para a lenta e não recomeça
+    // a sonda; a luz que acende ou apaga fica no novo. A sonda calma não espera.
+    let previous = (state.x - GI_RESPONSE_FAST * state.y) / (1.0 - GI_RESPONSE_FAST);
+    let confirmed = abs(x - previous) < abs(x - state.y);
+    let calm = state.z < GI_RESPONSE_RELATIVE * GI_RESPONSE_RELATIVE;
+    let transient = count > 0.0 && ((exceed && calm) || (pending && confirmed));
     // Na mudança, `GI_RESPONSE_RAMP` quadros com a histerese de resposta (quadros negativos contam os que faltam) e
-    // depois a contagem segue de `GI_RESPONSE_RAMP`.
-    var h = min(state.w / (state.w + 1.0), gi_response_cap(state.z, hysteresis));
-    var frames = state.w + 1.0;
+    // depois a contagem segue de `GI_RESPONSE_RAMP`. A mudança recomeça a rápida no valor novo e o ruído (o salto não é
+    // ruído): cada degrau dos rebatimentos encadeados que ainda sobem é outra mudança, não uma média longa.
     if (transient) {
+        return GiResponse(GI_RESPONSE_HYSTERESIS, vec4f(x, mix(x, state.y, GI_RESPONSE_HYSTERESIS), 0.0, -GI_RESPONSE_RAMP));
+    }
+    var h = min(count / (count + 1.0), gi_response_cap(state.z, hysteresis));
+    var frames = count + 1.0 + select(0.0, 0.5, count > 0.0 && exceed);
+    if (count < 0.0) {
         h = GI_RESPONSE_HYSTERESIS;
-        frames = -GI_RESPONSE_RAMP;
-    } else if (state.w < 0.0) {
-        h = GI_RESPONSE_HYSTERESIS;
-        frames = select(state.w + 1.0, GI_RESPONSE_RAMP, state.w + 1.0 == 0.0);
+        frames = select(count + 1.0, GI_RESPONSE_RAMP, count + 1.0 == 0.0);
     }
     return GiResponse(h, vec4f(fast, mix(x, state.y, h), noise, frames));
 }

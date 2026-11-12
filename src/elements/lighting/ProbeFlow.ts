@@ -39,6 +39,11 @@ import { pcgHash } from '../math/reference/random';
 import { GlobalIllumination } from './GlobalIllumination';
 import { Caustics } from './caustics/Caustics';
 import {
+    GI_CACHE_BUDGET,
+    GI_CACHE_CELLS,
+    GI_CACHE_DATA,
+    GI_CACHE_RAYS,
+    GI_CACHE_WORDS,
     GI_GRID,
     GI_IRRADIANCE_TEXELS,
     GI_MAX_PROBES,
@@ -47,6 +52,8 @@ import {
     GiScreenFilterStepSchema,
 } from './schemas';
 import {
+    giCache,
+    giCacheTrace,
     giProbeAtlas,
     giProbeBlend,
     giProbeClassify,
@@ -117,6 +124,9 @@ const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_
 const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_main');
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
+/** As células do cache de irradiância nas superfícies a atualizar no quadro e o acúmulo delas (spec 034, T059). */
+const CACHE_SELECT = compute('gi_cache_select', giCache, 'gi_cache_select_main');
+const CACHE_BLEND = compute('gi_cache_blend', giCache, 'gi_cache_blend_main');
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -130,6 +140,8 @@ const FIXED = [
     SCREEN_GUIDE,
     SCREEN_ADAPT,
     SCREEN_ARGS,
+    CACHE_SELECT,
+    CACHE_BLEND,
 ];
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
@@ -149,11 +161,26 @@ const SCREEN_TRACE = compute('gi_screen_trace', giScreenTrace, 'gi_screen_trace_
 const WAVE_DIRECT = compute('gi_wave_direct', giWaveDirect, 'gi_wave_direct_main');
 /** A transmitância dos volumes no trecho de cada raio, depois dos acertos (T060e). */
 const WAVE_THROUGH = compute('gi_wave_through', giWaveThrough, 'gi_wave_through_main');
-const TRACES = [PROBE_HIT, PROBE_TRACE, SCREEN_HIT, SCREEN_TRACE, WAVE_DIRECT, WAVE_THROUGH];
+/** Os raios do cache de irradiância nas superfícies (T059): o acerto na onda e a luz que volta. */
+const CACHE_HIT = compute('gi_cache_hit', giCacheTrace, 'gi_cache_hit_main');
+const CACHE_TRACE = compute('gi_cache_trace', giCacheTrace, 'gi_cache_trace_main');
+const TRACES = [
+    PROBE_HIT,
+    PROBE_TRACE,
+    SCREEN_HIT,
+    SCREEN_TRACE,
+    WAVE_DIRECT,
+    WAVE_THROUGH,
+    CACHE_HIT,
+    CACHE_TRACE,
+];
 
 /** Os passes do filtro à-trous das sondas de tela (T054): passo em ladrilhos; ida e volta entre as duas metades. */
 const FILTER_STEPS = [1, 2, 4] as const;
 
+/** Lado da célula mais fina do cache de irradiância (fração do espaçamento das sondas) e a distância do nível (T059). */
+const CACHE_CELL = 0.25;
+const CACHE_LOD = 64;
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
 const VIEW_BIAS = 0.3;
@@ -181,6 +208,9 @@ interface Sizes {
     /** Refinamento das texturas das sondas de tela (2 com as sondas extras a meio ladrilho, 1 sem) e vagas das extras. */
     readonly refine: number;
     readonly adaptive: number;
+    /** Células do cache de irradiância atualizadas por quadro (0 sem a coleta final na tela) e raios por célula (T059). */
+    readonly cacheBudget: number;
+    readonly cacheRays: number;
 }
 
 /** Buffers privados das sondas. */
@@ -197,6 +227,10 @@ interface Buffers {
     readonly screenFilter: StorageBufferSpec;
     readonly screenAdaptCount: StorageBufferSpec;
     readonly screenArgs: IndirectBufferSpec;
+    readonly cache: StorageBufferSpec;
+    readonly cacheData: StorageBufferSpec;
+    readonly cacheList: StorageBufferSpec;
+    readonly cacheFresh: StorageBufferSpec;
 }
 
 /**
@@ -326,9 +360,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             tilesY,
             screenRays,
             adaptive,
+            cacheBudget,
+            cacheRays,
             probes: all,
         } = this.buffers.sizes;
         const tiles = this.screenActive ? tilesX * tilesY : 0;
+        // O cache de irradiância nas superfícies só serve aos raios das sondas de tela (T059).
+        const cacheRayCount = tiles > 0 ? cacheBudget * cacheRays : 0;
         // As sondas de tela: as dos ladrilhos e as vagas das extras (T058).
         const probes = tiles > 0 ? tiles + adaptive : 0;
         const args = this.buffers.screenArgs;
@@ -365,6 +403,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const W = WORKGROUP_SIZE.value;
         // As vagas das sondas extras ocupadas contam do zero a cada quadro (estado do quadro, não entre quadros).
         frame.clear(this.buffers.screenAdaptCount);
+        // A lista das células do cache do quadro (a contagem na palavra 0).
+        if (cacheRayCount > 0) frame.clear(this.buffers.cacheList);
         // Um passe por etapa (os tempos por etapa na tabela da C2: o traçado, o sombreamento dos acertos, a luz direta,
         // o acúmulo, os atlas e as sondas de tela).
         frame.compute('ProbeFlow.trace', (pass) => {
@@ -383,13 +423,18 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             }
             // As direções da amostragem mista (cosseno + guia pela sonda do mundo) das sondas colocadas (T051).
             screen(pass, 9, probes, 0);
+            // As células do cache usadas há pouco, em rodízio pelo orçamento (T059).
+            if (cacheRayCount > 0) run(pass, 12, GI_CACHE_CELLS, W);
         });
         frame.compute('ProbeFlow.screenTrace', (pass) => {
             screen(pass, -3, probes * screenRays, 16);
+            // Os raios do cache, na onda entre os das sondas do mundo e os de tela (as vagas vazias das extras ficam no
+            // fim, acima dos registros gravados: a separação por classe lê todos os abaixo).
+            run(pass, -7, cacheRayCount, W);
         });
         frame.compute('ProbeFlow.through', (pass) => {
             // A transmitância da água no trecho de cada raio (os acertos gravaram o trecho), num passo de grade.
-            run(pass, -6, updated * rays + probes * screenRays, W);
+            run(pass, -6, updated * rays + probes * screenRays + cacheRayCount, W);
         });
         frame.compute('ProbeFlow.shade', (pass) => {
             this.wave.shade(pass, bound);
@@ -397,7 +442,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         frame.compute('ProbeFlow.direct', (pass) => {
             // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo;
             // passo de grade até os registros gravados).
-            run(pass, -5, updated * rays + tiles * screenRays, W);
+            run(pass, -5, updated * rays + tiles * screenRays + cacheRayCount, W);
             run(pass, -2, updated * rays, W);
         });
         frame.compute('ProbeFlow.blend', (pass) => {
@@ -414,6 +459,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             run(pass, 5, all, W);
         });
         frame.compute('ProbeFlow.screen', (pass) => {
+            // O cache de irradiância nas superfícies (T059): a luz dos raios das células e o acúmulo delas, antes dos
+            // rebatimentos das sondas de tela, que o leem nos acertos fora da tela.
+            run(pass, -8, cacheRayCount, W);
+            if (cacheRayCount > 0) run(pass, 13, cacheBudget, W);
             // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
             screen(pass, -4, probes * screenRays, 16);
             screen(pass, 6, probes, 0);
@@ -482,6 +531,19 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
             // O filtro à-trous das sondas de tela: duas metades de ida e volta, vec4f por sonda (T054).
             wordBuffer('gi_probes:screenFilter', Math.max(1, this.screenProbes(sizes)) * 2 * 16),
+            // O cache de irradiância nas superfícies (T059): estado entre quadros, o índice e os valores, séries por
+            // páginas (uma página por célula; a validade é a época da série das sondas, gravada na célula).
+            paged(
+                wordBuffer('gi_probes:cache', GI_CACHE_CELLS * GI_CACHE_WORDS * 4),
+                GI_CACHE_WORDS * 4,
+            ),
+            paged(
+                wordBuffer('gi_probes:cacheData', GI_CACHE_CELLS * GI_CACHE_DATA * 16),
+                GI_CACHE_DATA * 16,
+            ),
+            // As células do cache do quadro (a contagem e a lista) e a média dos raios delas por rebatimento.
+            wordBuffer('gi_probes:cacheList', (sizes.cacheBudget + 1) * 4),
+            wordBuffer('gi_probes:cacheFresh', Math.max(1, sizes.cacheBudget) * sizes.bounces * 16),
         ];
     }
 
@@ -503,6 +565,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             hysteresis: of('hysteresis'),
             screenFilter: of('screenFilter'),
             screenAdaptCount: of('screenAdaptCount'),
+            cache: of('cache'),
+            cacheData: of('cacheData'),
+            cacheList: of('cacheList'),
+            cacheFresh: of('cacheFresh'),
             screenArgs: this.resources.bufferOf(
                 this.work.work,
                 'gi_probes:screenArgs',
@@ -562,6 +628,10 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             screenRays: d.screenRays,
             refine,
             adaptive: refine === 2 ? Math.ceil((tilesX * tilesY) / 2) : 0,
+            // O trabalho do cache acompanha o das sondas de tela (T059): na qualidade média, 2048 células com 4 raios —
+            // com o orçamento da alta, os raios dele custavam 0,6 ms a 1280 × 720, metade do traçado das sondas de tela.
+            cacheBudget: Math.round(GI_CACHE_BUDGET * d.screenFraction),
+            cacheRays: Math.min(GI_CACHE_RAYS, Math.max(2, d.screenRays / 4)),
         };
         // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por sonda (as dos ladrilhos e as vagas
         // das extras) e o mapa fino de cada ladrilho; os raios das sondas do mundo também o leem (a luz das superfícies
@@ -639,6 +709,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.waveDirectRead, b.waveDirect],
                 [R.waveScatter, b.waveScatter],
                 [R.waveScatterRead, b.waveScatter],
+                [R.cache, b.cache],
+                [R.cacheData, b.cacheData],
+                [R.cacheDataRead, b.cacheData],
+                [R.cacheList, b.cacheList],
+                [R.cacheListRead, b.cacheList],
+                [R.cacheFresh, b.cacheFresh],
+                [R.cacheFreshRead, b.cacheFresh],
             ]),
         );
     }
@@ -648,11 +725,16 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         return sizes.tilesX * sizes.tilesY + sizes.adaptive;
     }
 
-    /** Raios da onda: os das sondas do mundo e, depois deles, os das sondas de tela (uma rodada, spec 034 T078). */
+    /**
+     * Raios da onda: os das sondas do mundo, os do cache de irradiância nas superfícies e os das sondas de tela (uma
+     * rodada, spec 034 T078, T059).
+     */
     private waveRays(sizes: Sizes): number {
         return Math.max(
             1,
-            sizes.updated * sizes.rays + this.screenProbes(sizes) * sizes.screenRays,
+            sizes.updated * sizes.rays
+                + this.screenProbes(sizes) * sizes.screenRays
+                + sizes.cacheBudget * sizes.cacheRays,
         );
     }
 
@@ -743,6 +825,14 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                     sizes.adaptive,
                 ],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
+                cache: [
+                    GI_CACHE_CELLS,
+                    sizes.cacheBudget,
+                    sizes.cacheRays,
+                    this.screenActive ? 1 : 0,
+                ],
+                // A célula mais fina com um quarto do espaçamento das sondas; dobra além de 64 lados da câmera.
+                cacheSize: [d.probeSpacing * CACHE_CELL, CACHE_LOD, 0, 0],
             },
         ];
     }

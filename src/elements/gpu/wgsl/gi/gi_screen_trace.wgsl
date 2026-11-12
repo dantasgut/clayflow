@@ -1,16 +1,21 @@
 // Raios das sondas de tela (spec 033, R2 adendo), uma invocação por raio: a direção e o peso da amostragem mista
 // (cosseno + guia pela sonda do mundo, MIS — `gi_screen_guide_main`, spec 034 T051) e, por geração de rebatimento g, a radiância que volta — no
 // acerto, a luz direta com raio de sombra e a emissão (g = 0: o primeiro rebatimento, exato perto da superfície) mais,
-// de g ≥ 1, a luz rebatida pela irradiância da geração g − 1 no ponto atingido: a das sondas de tela do quadro anterior
-// quando o ponto é uma superfície visível (`gi_screen_history_taps`: exata de perto também), a das sondas do mundo
-// quando não. Raio que escapa: o ambiente da cena em todas as gerações. Face de trás (a sonda colada a uma superfície que
-// a corta): fora da soma e da contagem (spec 034, T048) — a média é a dos raios que veem a cena. Grava E_g = média de
-// L · peso (o peso é cos / pdf: π com cosseno puro).
+// de g ≥ 1, a luz rebatida pela irradiância da geração g − 1 no ponto atingido: a do cache de irradiância nas
+// superfícies (`gi_cache`, spec 034 T059), no próprio ponto, visível ou não; sem acúmulo ainda na célula, a das sondas
+// de tela do quadro anterior onde o ponto se vê (`gi_screen_history_taps`) e a das sondas do mundo no resto. Raio que
+// escapa: o ambiente da cena em todas as gerações. Face de trás (a sonda colada a uma superfície que a corta): fora da
+// soma e da contagem (spec 034, T048) — a média é a dos raios que veem a cena. Grava E_g = média de L · peso (o peso é
+// cos / pdf: π com cosseno puro).
+// O cache também nos pontos que se veem: o histórico das sondas de tela num acerto é a média das 2 × 2 sondas em volta
+// da projeção, até meio ladrilho dele — com o ladrilho de 8 px, na base das paredes (onde os raios do chão batem e a luz
+// muda depressa), a sonda do ladrilho fica longe do acerto: na caixa de Cornell média, o chão saía 8 % abaixo da
+// referência; pelo cache, 1 %.
 // O material no ponto atingido é avaliado fora do traçado (spec 039): `gi_screen_hit_main` grava o acerto na onda e
 // `gi_screen_trace_main` lê o fechamento dela e a luz direta no acerto (`gi_wave_direct_main`, spec 034 T078).
 // Requer: WORKGROUP_SIZE, NONE, gi, gi_common, gi_screen_common, gi_screen_reproject, ray_scene, ray_hit, ray_wave,
 // gi_shade, closure_eval, scene_environment, gi_screen_work, gi_wave_light_read, random,
-// gi_wave_scatter_sample.
+// gi_wave_scatter_sample, gi_surface_cache.
 
 /** Direção (xyz) e peso (w: cos / pdf) do raio `k` da sonda `i` (o par gravado por `gi_screen_guide_main`). */
 fn gi_screen_ray_record(i: u32, k: u32) -> vec4f {
@@ -23,17 +28,46 @@ fn gi_screen_ray_record(i: u32, k: u32) -> vec4f {
 const GI_SCREEN_MAX_BOUNCES: u32 = 8u;
 
 /**
- * A luz rebatida que sai do ponto atingido pela irradiância da geração `k`: das sondas de tela pela confiança delas
- * (`screen`, de 0 a 1) e, no que falta, das do mundo pelos pesos `w` do ponto (calculados uma vez para todas as
- * gerações), pelos fatores `f` do fechamento.
+ * A luz rebatida num acerto (spec 034, T059): a célula do cache de irradiância nas superfícies no ponto (criada se falta
+ * e marcada como usada; NONE no translúcido — o verso é outra leitura, fica com as sondas — ou sem acúmulo ainda) e,
+ * sem ela, as sondas de tela do quadro anterior em volta do ponto (`taps`, pela confiança `screen`) e os pesos `w` das
+ * sondas do mundo no que elas não cobrem — calculados uma vez para todas as gerações.
  */
-fn gi_screen_bounce(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, reach: f32, k: u32, taps: GiScreenTaps, screen: f32, w: GiGenerationWeights) -> vec3f {
-    var out = vec3f(0.0);
-    if (screen > 0.0) {
-        let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / PI;
-        out = screen * (f.front + f.back) * e;
+struct GiBounce {
+    cell: u32,
+    taps: GiScreenTaps,
+    screen: f32,
+    w: GiGenerationWeights,
+}
+
+fn gi_bounce_at(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, reach: f32, insert: bool) -> GiBounce {
+    var b: GiBounce;
+    b.cell = NONE;
+    if (!f.translucent) {
+        let cell = gi_cache_touch(p, n, insert);
+        if (gi_cache_ready(cell)) {
+            b.cell = cell;
+            return b;
+        }
     }
-    if (screen < 1.0) { out += (1.0 - screen) * gi_shade_indirect_weighted(f, p, n, v, reach, w, k); }
+    b.taps = gi_screen_history_taps(p, n);
+    b.screen = select(gi_screen_history_confidence(b.taps), 0.0, f.translucent);
+    if (b.screen < 1.0) { b.w = gi_generation_weights(p, n, v, reach); }
+    return b;
+}
+
+/**
+ * A luz rebatida que sai do ponto atingido pela irradiância da geração `k`, pelos fatores `f` do fechamento: a do cache
+ * na célula do ponto ou, sem ela, a das sondas de tela pela confiança delas e a das sondas do mundo no que falta.
+ */
+fn gi_screen_bounce(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, reach: f32, k: u32, b: GiBounce) -> vec3f {
+    if (b.cell != NONE) { return (f.front + f.back) * gi_cache_irradiance(b.cell, k) / PI; }
+    var out = vec3f(0.0);
+    if (b.screen > 0.0) {
+        let e = gi_screen_history_gather(b.taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / PI;
+        out = b.screen * (f.front + f.back) * e;
+    }
+    if (b.screen < 1.0) { out += (1.0 - b.screen) * gi_shade_indirect_weighted(f, p, n, v, reach, b.w, k); }
     return out;
 }
 
@@ -161,12 +195,9 @@ fn gi_screen_trace_main(
             let f = GiShadeFactors(gi_wave_light_read[4u * wi + 1u].rgb, gi_wave_light_read[4u * wi + 2u].rgb, lit.w > 0.0);
             sums[0] = gi_through(direct, through, scatter) * weight;
             if (bounces > 1u) {
-                let taps = gi_screen_history_taps(h.position, h.normal);
-                let screen = select(gi_screen_history_confidence(taps), 0.0, f.translucent);
-                var w: GiGenerationWeights;
-                if (screen < 1.0) { w = gi_generation_weights(h.position, h.normal, v, traced.w); }
+                let b = gi_bounce_at(f, h.position, h.normal, v, traced.w, true);
                 for (var g = 1u; g < bounces; g++) {
-                    sums[g] = gi_through(direct + gi_screen_bounce(f, h.position, h.normal, v, traced.w, g - 1u, taps, screen, w), through,
+                    sums[g] = gi_through(direct + gi_screen_bounce(f, h.position, h.normal, v, traced.w, g - 1u, b), through,
                         scatter) * weight;
                 }
             }

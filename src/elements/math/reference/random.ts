@@ -42,6 +42,9 @@ export const RANDOM_STREAM = {
     giPhoton: 5,
     diffuse: 6,
     froxel: 7,
+    giScreenGuide: 8,
+    giScatter: 9,
+    giCache: 10,
     user: 64,
 } as const;
 

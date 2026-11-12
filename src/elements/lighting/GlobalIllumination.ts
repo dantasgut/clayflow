@@ -44,7 +44,9 @@ export const GI_QUALITY: Readonly<
     medium: {
         raysPerProbe: 64,
         probeFraction: 0.125,
-        screenRays: 8,
+        // 16 (spec 034, T059): com 8, a caixa de Cornell média tinha 1,2 % de cintilação e 7,6 % de manchas (≤ 1 % e
+        // ≤ 7 % no `giNoise`); com 16, 0,8 % e 6,1 %.
+        screenRays: 16,
         screenTile: 8,
         screenFraction: 0.5,
     },

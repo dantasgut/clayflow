@@ -150,11 +150,20 @@ fn gi_fibonacci(k: u32, n: u32) -> vec3f {
 }
 
 /**
+ * Primeiro índice da onda dos raios do cache de irradiância nas superfícies (spec 034, T059): depois dos das sondas do
+ * mundo.
+ */
+fn gi_wave_cache_first() -> u32 {
+    return gi.rays.w * gi.rays.x;
+}
+
+/**
  * Primeiro índice da onda dos raios das sondas de tela (spec 034 T078): uma rodada leva os raios das sondas do mundo do
- * quadro e, depois deles, os das de tela.
+ * quadro, os do cache (com ele ligado) e, por último, os das de tela — as vagas das sondas extras vazias no quadro ficam
+ * no fim, acima dos registros gravados: abaixo deles todo índice é gravado na rodada (a separação por classe lê todos).
  */
 fn gi_wave_screen_first() -> u32 {
-    return gi.rays.w * gi.rays.x;
+    return gi_wave_cache_first() + select(0u, gi.cache.y * gi.cache.z, gi.cache.w != 0u);
 }
 
 /** Direção do raio `k` da sonda neste quadro (a espiral girada pela rotação do quadro). */

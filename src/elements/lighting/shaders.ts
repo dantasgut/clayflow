@@ -27,6 +27,8 @@ import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
 import giWaveDirectSource from '../gpu/wgsl/gi/gi_wave_direct.wgsl?raw';
 import giWaveThroughSource from '../gpu/wgsl/gi/gi_wave_through.wgsl?raw';
+import giCacheSource from '../gpu/wgsl/gi/gi_cache.wgsl?raw';
+import giCacheTraceSource from '../gpu/wgsl/gi/gi_cache_trace.wgsl?raw';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { causticsCapable } from './caustics/shaders';
 import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
@@ -156,6 +158,20 @@ export const giResources = Object.freeze({
     /** A amostra do espalhamento dos meios no trecho de cada raio da onda (T058): escrita no acerto, lida na luz direta. */
     waveScatter: priv('gi_wave_scatter', 'read_write', { wgsl: 'vec4f', array: true }),
     waveScatterRead: priv('gi_wave_scatter_read', 'read', { wgsl: 'vec4f', array: true }),
+    /**
+     * O cache de irradiância nas superfícies (spec 034, T059): o índice das células (chave, época, uso, normal, ponto e
+     * lado) numa série por páginas do trabalho do `ProbeFlow`, em palavras atômicas.
+     */
+    cache: priv('gi_cache', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    /** Os valores do cache (a chave e a época, a resposta e a irradiância de cada rebatimento), em palavras inteiras. */
+    cacheData: priv('gi_cache_data', 'read_write', { wgsl: 'vec4u', array: true }),
+    cacheDataRead: priv('gi_cache_data_read', 'read', { wgsl: 'vec4u', array: true }),
+    /** As células do cache atualizadas no quadro: a contagem na palavra 0 e a lista depois. */
+    cacheList: priv('gi_cache_list', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    cacheListRead: priv('gi_cache_list_read', 'read', { wgsl: 'u32', array: true }),
+    /** A média dos raios de cada célula atualizada no quadro, por rebatimento (w: a fração dos raios na média). */
+    cacheFresh: priv('gi_cache_fresh', 'read_write', { wgsl: 'vec4f', array: true }),
+    cacheFreshRead: priv('gi_cache_fresh_read', 'read', { wgsl: 'vec4f', array: true }),
     /** O histórico do acúmulo (canal temporal, spec 037): a fatia do quadro (escrita) e a do anterior (lida). */
     screenHistory: wgslResource({
         name: 'gi_screen_history',
@@ -452,6 +468,31 @@ export const giScreenAdapt = wgslModule({
     ],
 });
 
+/**
+ * O cache de irradiância nas superfícies (spec 034, T059): a chave de um ponto, a busca e a inserção, a seleção das
+ * células do quadro e o acúmulo delas.
+ */
+export const giCache = wgslModule({
+    name: 'gi_surface_cache',
+    source: giCacheSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        random,
+        R.params,
+        giCommon,
+        giResponse,
+        camerasResource,
+        giProbeSeries.clock,
+        R.cache,
+        R.cacheData,
+        R.cacheDataRead,
+        R.cacheList,
+        R.cacheListRead,
+        R.cacheFreshRead,
+    ],
+});
+
 /** Raios das sondas de tela. */
 export const giScreenTrace = wgslModule({
     name: 'gi_screen_trace',
@@ -474,7 +515,15 @@ export const giScreenTrace = wgslModule({
         rayWave,
         R.screenWork,
         R.waveDirectRead,
+        giCache,
     ],
+});
+
+/** Raios do cache de irradiância nas superfícies (T059), na rodada da onda depois dos das sondas de tela. */
+export const giCacheTrace = wgslModule({
+    name: 'gi_surface_cache_trace',
+    source: giCacheTraceSource,
+    requires: [giScreenTrace, basis, sampling, giCache, R.cacheFresh],
 });
 
 /** Acúmulo das sondas de tela e a vista-projeção para o quadro seguinte. */

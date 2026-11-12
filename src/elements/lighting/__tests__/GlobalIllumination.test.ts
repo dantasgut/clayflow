@@ -27,7 +27,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             raysPerProbe: 64,
             probeFraction: 0.125,
             cascades: 3,
-            screenRays: 8,
+            screenRays: 16,
             screenTile: 8,
             screenFraction: 0.5,
         });
