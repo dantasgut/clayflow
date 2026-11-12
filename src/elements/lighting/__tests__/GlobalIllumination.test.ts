@@ -175,6 +175,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         s.step();
         s.step();
         expect(s.computes().filter((c) => c.startsWith('ProbeFlow.'))).toEqual([
+            'ProbeFlow.change',
             'ProbeFlow.trace',
             'ProbeFlow.guide',
             'ProbeFlow.screenTrace',

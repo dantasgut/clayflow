@@ -1,5 +1,6 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { LIGHT_LIMIT } from '../scene/points/lightContributions';
 
 /** Sondas por cascata em cada eixo (x, y, z). */
 export const GI_GRID = [16, 8, 16] as const;
@@ -36,6 +37,13 @@ export const GI_CACHE_DATA = 10;
 export const GI_CACHE_BUDGET = 4096;
 /** Raios por célula atualizada no máximo; metade dos raios por sonda de tela, de 2 a este. */
 export const GI_CACHE_RAYS = 8;
+/**
+ * Quadros de resposta depois de uma luz ou da cena mudar (spec 034, T059): as sondas e o cache tomam a mudança sem
+ * esperar a detecção delas; as sondas do mundo da qualidade média são atualizadas a cada 8.
+ */
+export const GI_CHANGE_FRAMES = 16;
+/** Palavras do canal da mudança (`GlobalIllumination.change`): o cabeçalho (8) e 16 por luz guardada, até `LIGHT_LIMIT`. */
+export const GI_CHANGE_WORDS = 8 + 16 * LIGHT_LIMIT.value;
 
 /** Um vec4f do histórico das sondas de tela (o canal temporal `GlobalIllumination.screenHistory`, spec 037). */
 export const GiScreenRecordSchema = new StructSchema('GiScreenRecord', { value: FieldType.vec4f });

@@ -29,6 +29,7 @@ import giWaveDirectSource from '../gpu/wgsl/gi/gi_wave_direct.wgsl?raw';
 import giWaveThroughSource from '../gpu/wgsl/gi/gi_wave_through.wgsl?raw';
 import giCacheSource from '../gpu/wgsl/gi/gi_cache.wgsl?raw';
 import giCacheTraceSource from '../gpu/wgsl/gi/gi_cache_trace.wgsl?raw';
+import giChangeSource from '../gpu/wgsl/gi/gi_change.wgsl?raw';
 import { closure, closureEval } from '../material/pbr/shaders';
 import { causticsCapable } from './caustics/shaders';
 import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
@@ -36,8 +37,15 @@ import { RayWaveEntrySchema, rayWave, rayWaveResources } from '../raytrace/wave/
 import { cameraSpace } from '../scene/flows/shaders';
 import { sceneEnvironmentReady } from '../scene/points/lighting';
 import { rayVolumeScatterReady, rayVolumeTransmittanceReady } from '../raytrace/points';
-import { camerasResource } from '../scene/resources';
-import { GiScreenFilterStepSchema, GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
+import { camerasResource, lightsResource } from '../scene/resources';
+import { LIGHT_LIMIT } from '../scene/points/lightContributions';
+import { sharedConstant } from '../../scene/shaders/SharedConstant';
+import {
+    GI_CHANGE_FRAMES,
+    GiScreenFilterStepSchema,
+    GlobalIlluminationSchema,
+    ProbeStateSchema,
+} from './schemas';
 import { slot } from '../../scene/flows/slots';
 import {
     basis,
@@ -187,6 +195,21 @@ export const giResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'giScreenHistory', lag: 1 },
     }),
+    /** A luz e a cena que mudaram (canal temporal, spec 037; T060e): a fatia do quadro e a do anterior. */
+    change: wgslResource({
+        name: 'gi_change',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giChange', lag: 0 },
+    }),
+    changePrevious: wgslResource({
+        name: 'gi_change_previous',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giChange', lag: 1 },
+    }),
 });
 
 const R = giResources;
@@ -236,6 +259,27 @@ const giShade = wgslModule({
 /** O slot do canal do histórico das sondas de tela no estágio das sondas (spec 037). */
 export const giScreenHistorySlot = Object.freeze({
     giScreenHistory: slot.channel(GlobalIlluminationSchema, 'screenHistory'),
+});
+
+/** O slot do canal da luz e da cena que mudaram (spec 034, T060e; constituição VII). */
+export const giChangeSlot = Object.freeze({
+    giChange: slot.channel(GlobalIlluminationSchema, 'change'),
+});
+
+/** A luz ou a cena que mudou: as luzes guardadas e os quadros de resposta, na série (T060e). */
+export const giChange = wgslModule({
+    name: 'gi_change_detect',
+    source: giChangeSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        constants,
+        giParamsResource,
+        lightsResource,
+        LIGHT_LIMIT.module,
+        sharedConstant('GI_CHANGE_FRAMES', GI_CHANGE_FRAMES, 'u32').module,
+        giResources.change,
+        giResources.changePrevious,
+    ],
 });
 
 /** O slot da série por páginas das sondas (spec 034, T060b): os carimbos, a época e a contagem de quadros. */

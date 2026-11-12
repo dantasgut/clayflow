@@ -33,7 +33,7 @@ import { RayWave } from '../raytrace/RayWave';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { Camera } from '../scene/Camera';
 import { CameraInstanceSchema, CameraRecordSchema } from '../scene/flows/CameraSchemas';
-import { Light, type LightData } from '../scene/Light';
+import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Transform } from '../scene/Transform';
 import { pcgHash } from '../math/reference/random';
@@ -66,6 +66,8 @@ import {
     giScreenAdapt,
     giScreenHistorySlot,
     giProbesSlot,
+    giChange,
+    giChangeSlot,
     giWaveDirect,
     giWaveThrough,
 } from './shaders';
@@ -91,6 +93,11 @@ export interface ProbeSlots extends SlotMap {
      * contagem de quadros (as sementes e a rotação das sondas atualizadas).
      */
     readonly giProbes: ChannelSlot<false>;
+    /**
+     * A luz e a cena que mudaram (spec 034, T060e; constituição VII): as luzes guardadas e os quadros de resposta, na
+     * série — o Flow só passa o envio dos pools do quadro.
+     */
+    readonly giChange: ChannelSlot<false>;
     /** As cáusticas (spec 034): com elas ativas, as sondas não leem o especular direto de vidro e metal liso. */
     readonly caustics: SingletonSlot<true>;
     /** O espaço de trabalho das sondas: raios, gerações, radiância, visibilidade, a coleta de tela, a onda (spec 039). */
@@ -130,6 +137,12 @@ const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_fi
 /** As células do cache de irradiância nas superfícies a atualizar no quadro e o acúmulo delas (spec 034, T059). */
 const CACHE_SELECT = compute('gi_cache_select', giCache, 'gi_cache_select_main');
 const CACHE_BLEND = compute('gi_cache_blend', giCache, 'gi_cache_blend_main');
+/** A luz ou a cena que mudou, contra a série (T060e). */
+const CHANGE = compute('gi_change', giChange, 'gi_change_main');
+/** A palavra da fatia da mudança com os quadros que faltam da resposta (`gi_change_main`). */
+const GI_CHANGE_RESPONSE_WORD = 4;
+/** Onde a resposta entra no uniforme: `gi.bounces.z`. */
+const BOUNCES_Z_OFFSET = GlobalIllumination.schema.offsetOf('bounces') + 8;
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -145,7 +158,9 @@ const FIXED = [
     SCREEN_ARGS,
     CACHE_SELECT,
     CACHE_BLEND,
+    CHANGE,
 ];
+const CHANGE_INDEX = FIXED.indexOf(CHANGE);
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
 /**
@@ -294,15 +309,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
     private active = false;
-    /** As luzes na última mudança e os quadros que faltam da resposta a ela (T059). */
-    private lightSnapshot: LightData[] | undefined;
-    private lightResponse = 0;
     /**
-     * A cena mudou pela CPU desde o quadro anterior (um pool escrito além da câmera) e os quadros que faltam da resposta
-     * do cache a isso (T059). O slot da transformação da câmera ativa, do último quadro.
+     * Um pool da cena foi enviado desde o quadro anterior (além da câmera; T059): a entrada do quadro para a série da
+     * mudança (`gi_change`), zerada a cada quadro. O slot da transformação da câmera ativa, do último quadro.
      */
     private sceneChanged = false;
-    private sceneResponse = 0;
     private cameraTransform: number | undefined;
     /** Deixa de ouvir os envios dos pools (no descarte). */
     private readonly stopWatching: () => void;
@@ -323,6 +334,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             transforms: slot.pool(Transform.schema.name, { optional: true }),
             ...giScreenHistorySlot,
             ...giProbesSlot,
+            ...giChangeSlot,
             caustics: slot.singleton(Caustics.schema, { optional: true }),
             work: slot.work(() => work),
         };
@@ -425,6 +437,14 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         frame.clear(this.buffers.screenAdaptCount);
         // A lista das células do cache do quadro (a contagem na palavra 0).
         if (cacheRayCount > 0) frame.clear(this.buffers.cacheList);
+        // A luz ou a cena que mudou, contra a série (T060e): os quadros que faltam da resposta vão da fatia do quadro para
+        // `gi.bounces.z`, que os acúmulos leem (o uniforme do quadro já enviado; a cópia vem depois na ordem da GPU).
+        const change = bound.slots.giChange.buffer(0);
+        const params = bound.slots.gi.bufferOf('params');
+        if (change !== undefined && params !== undefined) {
+            frame.compute('ProbeFlow.change', (pass) => run(pass, CHANGE_INDEX, W, W));
+            frame.copy(change, params, 4, 4 * GI_CHANGE_RESPONSE_WORD, BOUNCES_Z_OFFSET);
+        }
         // Um passe por etapa (os tempos por etapa na tabela da C2: o traçado, o sombreamento dos acertos, a luz direta,
         // o acúmulo, os atlas e as sondas de tela).
         frame.compute('ProbeFlow.trace', (pass) => {
@@ -500,6 +520,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         // O acúmulo escreveu a fatia do quadro do histórico: o quadro seguinte a lê como a anterior (o canal gira).
         if (tiles > 0) bound.slots.giScreenHistory.written();
         bound.slots.giProbes.written();
+        if (change !== undefined) bound.slots.giChange.written();
     }
 
     override dispose(): void {
@@ -839,7 +860,7 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 bounces: [
                     sizes.bounces,
                     d.enabled && d.lightPath ? 1 : 0,
-                    Math.max(this.lightChanged(), this.sceneChange(c)),
+                    this.sceneChange(c),
                     caustics ? 1 : 0,
                 ],
                 rotation0: rotation[0]!,
@@ -868,41 +889,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     }
 
     /**
-     * Quadros que faltam da resposta a uma luz que mudou (spec 034, T059): a intensidade, a cor, a direção ou a posição
-     * de alguma luz da cena longe da da última mudança, ou outra contagem de luzes, abre `LIGHT_RESPONSE` quadros em que
-     * as sondas e o cache tomam a mudança sem esperar a detecção delas (`gi_response`). O que muda devagar (o sol que anda)
-     * fica abaixo das tolerâncias a cada quadro e segue pela detecção.
-     */
-    private lightChanged(): number {
-        const lights: LightData[] = [];
-        for (const id of this.world.queryBySchema(Light.schema))
-            for (const r of this.world.resourcesOf(id))
-                if (r instanceof Light) {
-                    const l = r.data;
-                    lights.push({
-                        ...l,
-                        position: [...l.position],
-                        direction: [...l.direction],
-                        color: [...l.color],
-                        cones: [...l.cones],
-                    });
-                }
-        const last = this.lightSnapshot;
-        const moved =
-            last?.length !== lights.length || lights.some((l, k) => lightMoved(last[k]!, l));
-        if (moved) {
-            if (last !== undefined) this.lightResponse = LIGHT_RESPONSE;
-            this.lightSnapshot = lights;
-        } else if (this.lightResponse > 0) this.lightResponse--;
-        return this.lightResponse;
-    }
-
-    /**
      * Um envio de pool muda a cena para o cache? Não as câmeras nem a transformação da câmera ativa (andar com a câmera
      * não muda a luz das superfícies).
      */
     private sceneWrite(poolKey: string, ranges: readonly (readonly [number, number])[]): boolean {
-        // As luzes têm a tolerância delas (`lightChanged`): o sol que anda devagar escreve o pool a cada quadro.
+        // As luzes têm a tolerância delas (`gi_change`): o sol que anda devagar escreve o pool a cada quadro.
         if (CAMERA_POOLS.has(poolKey) || poolKey === Light.schema.name) return false;
         const camera = this.cameraTransform;
         if (poolKey === Transform.schema.name && camera !== undefined)
@@ -911,19 +902,19 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     }
 
     /**
-     * Quadros que faltam da resposta a uma mudança da cena pela CPU (T059): a geometria, o material ou um objeto que se
-     * moveu — a cortina que corre deixava no chão a cor dela por segundos nas células do cache de ruído alto, que não
-     * distinguem a mudança do ruído. Nesses quadros as sondas e o cache tomam os valores novos sem esperar a detecção
-     * (`gi_response`); na cena animada pela CPU a cada quadro, a luz rebatida acompanha a animação.
+     * A cena mudou pela CPU no quadro (T059): a geometria, o material ou um objeto que se moveu — a cortina que corre
+     * deixava no chão a cor dela por segundos nas células do cache de ruído alto, que não distinguem a mudança do ruído.
+     * A entrada do quadro para a série da mudança (`gi_change`), que abre os quadros em que as sondas e o cache tomam os
+     * valores novos sem esperar a detecção (`gi_response`); na cena animada pela CPU a cada quadro, a luz rebatida
+     * acompanha a animação.
      */
     private sceneChange(c: Ctx): number {
         const camera = c.bound.slots.camera?.resource;
         const id = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
         this.cameraTransform = id === undefined ? undefined : c.bound.slots.transforms?.slotOf(id);
-        if (this.sceneChanged) this.sceneResponse = LIGHT_RESPONSE;
-        else if (this.sceneResponse > 0) this.sceneResponse--;
+        const changed = this.sceneChanged ? 1 : 0;
         this.sceneChanged = false;
-        return this.sceneResponse;
+        return changed;
     }
 
     /** Slot da câmera ativa no pool `CameraMatrices` (sem câmera, nenhum). */
@@ -945,8 +936,6 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     }
 }
 
-/** Quadros da resposta a uma luz que mudou: as sondas do mundo da qualidade média são atualizadas a cada 8. */
-const LIGHT_RESPONSE = 16;
 /** Pools das câmeras: escrevê-los não muda a luz da cena. */
 const CAMERA_POOLS: ReadonlySet<string> = new Set([
     Camera.schema.name,
@@ -954,26 +943,6 @@ const CAMERA_POOLS: ReadonlySet<string> = new Set([
     CameraRecordSchema.name,
     CameraInstanceSchema.name,
 ]);
-
-/**
- * A luz `b` está longe de `a`: o tipo, a sombra, a intensidade ou a cor mais de 3 % (a parte relativa do limiar da
- * resposta), a direção mais de 1° ou a posição mais de 1 cm.
- */
-function lightMoved(a: LightData, b: LightData): boolean {
-    const rel = (x: number, y: number): boolean =>
-        Math.abs(x - y) > 0.03 * Math.max(Math.abs(x), Math.abs(y), 1e-9);
-    if (a.kind !== b.kind || a.castShadow !== b.castShadow || rel(a.intensity, b.intensity))
-        return true;
-    if ([0, 1, 2].some((k) => rel(a.color[k] ?? 0, b.color[k] ?? 0))) return true;
-    const dot = [0, 1, 2].reduce(
-        (sum, k) => sum + (a.direction[k] ?? 0) * (b.direction[k] ?? 0),
-        0,
-    );
-    const la = Math.hypot(a.direction[0] ?? 0, a.direction[1] ?? 0, a.direction[2] ?? 0);
-    const lb = Math.hypot(b.direction[0] ?? 0, b.direction[1] ?? 0, b.direction[2] ?? 0);
-    if (la > 0 && lb > 0 && dot / (la * lb) < Math.cos(Math.PI / 180)) return true;
-    return Math.hypot(...[0, 1, 2].map((k) => (a.position[k] ?? 0) - (b.position[k] ?? 0))) > 0.01;
-}
 
 /** O buffer como série por páginas de `record` bytes por página. */
 function paged(desc: GPUDescriptor, record: number): GPUDescriptor {

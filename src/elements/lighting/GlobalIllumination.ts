@@ -6,6 +6,7 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import {
     GiScreenRecordSchema,
+    GI_CHANGE_WORDS,
     GI_GRID,
     GI_IRRADIANCE_TEXELS,
     GI_MAX_CASCADES,
@@ -17,6 +18,7 @@ import {
     ProbeStateSchema,
 } from './schemas';
 import { giContributions } from './points';
+import { wordBuffer } from '../gpu/compute/schemas';
 
 /** Nível de qualidade (raios por sonda, fração das sondas por quadro, fótons por quadro). */
 export type GlobalIlluminationQuality = 'low' | 'medium' | 'high';
@@ -379,6 +381,9 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
                 allocation: 'onDemand',
                 history: { depth: 2 },
             },
+            // A luz e a cena que mudaram (spec 034, T060e; constituição VII): as luzes guardadas e os quadros de resposta,
+            // canal temporal (a fatia do anterior lida, a do quadro escrita por `gi_change_main`).
+            { ...wordBuffer('change', GI_CHANGE_WORDS * 4), history: { depth: 2 } },
             {
                 id: 'sampler',
                 role: 'sampler',
