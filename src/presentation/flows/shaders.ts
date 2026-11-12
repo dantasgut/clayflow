@@ -17,6 +17,7 @@ import uiSource from './ui.wgsl?raw';
 import temporalResolveSource from './effects/temporal_resolve.wgsl?raw';
 import temporalPresentSource from './effects/temporal_present.wgsl?raw';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { pageAlloc } from '../../elements/gpu/shaders/pageAlloc';
 import { Camera } from '../../elements/scene/Camera';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import {
@@ -181,6 +182,7 @@ export const shadowPages = wgslModule({
     requires: [
         shadowVirtual,
         shadowPagesConstants,
+        pageAlloc,
         xformRigid,
         WORKGROUP_SIZE.module,
         shadowMatricesResource,

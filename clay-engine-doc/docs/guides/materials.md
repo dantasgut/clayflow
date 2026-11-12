@@ -146,6 +146,42 @@ Base (`base_weight`, `base_color`, `base_metalness`, `base_diffuse_roughness`), 
 `thin_film_ior`), emissão (`emission_luminance`, `emission_color`) e geometria (`geometry_opacity`,
 `geometry_thin_walled`).
 
+## Imagens nos materiais: texturas virtuais (spec 034, T060c)
+
+Uma imagem de material (a cor de uma pintura, de um tijolo, de um terreno) entra como `VirtualImage` e é lida no grafo
+pelo nó `nodes.image.virtual`. A imagem fica na CPU como pirâmide de níveis; na GPU só existem as páginas que os quadros
+pedem, num atlas compartilhado pelas `VirtualTextures` da cena — a imagem pode ser maior que a memória reservada a ela.
+
+```ts
+import { MaterialFunction, NodeGraph, nodes, VirtualImage, VirtualTextures } from 'clayflow';
+
+// `pixels`: RGBA de 8 bits em sRGB, decodificados pela aplicação (o motor não lê arquivos).
+const wall = new VirtualImage({ width: 8192, height: 8192, pixels, wrap: 'repeat' });
+const cache = new VirtualTextures({ images: [wall], atlasPages: 16 }); // 16 × 16 páginas de 128² (2048²)
+world.insert(cache);
+
+const material = new MaterialFunction({
+    graph: new NodeGraph({
+        nodes: { img: nodes.image.virtual.with({ image: 0 }), out: nodes.output.surfaceParams },
+        links: [['img.color', 'out.base_color']],
+        output: 'out.value',
+    }),
+});
+```
+
+- **Páginas**: 120² texels de conteúdo com borda de 4 (128² no atlas `rgba8unorm`); a pirâmide é a média 2 × 2 em luz
+  linear até 1 × 1. A cor (`colorSpace: 'srgb'`, o padrão) é filtrada em luz linear pelo nó (cada texel decodificado
+  antes do bilinear); o dado linear (`colorSpace: 'linear'`: rugosidade, metal, normais, máscaras) pelo hardware.
+- **Leitura**: o nível pelas derivadas do uv (a pegada do pixel; no acerto de um raio, o cone), a página residente mais
+  fina a partir dele e a mistura entre os dois níveis em volta. Sem página residente, a média da imagem.
+- **Pedidos**: o nó marca as páginas que queria; o `VirtualTextureFlow` do quadro seguinte aloca as que faltam (do nível
+  mais grosso ao mais fino, até `budget` por quadro; despeja as não pedidas há mais tempo quando o atlas está cheio) e a
+  lista volta à CPU, que escreve os texels no atlas. A página só vale carimbada na época da série por páginas do atlas.
+- **Custo** do `VirtualTextureFlow` (smoke `virtualTextures`, M4; o mesmo nos três perfis, não depende da resolução):
+  0,009 ms por quadro com a cena parada (a lista é lida um quadro em 8), 0,3 ms andando. A leitura direta (`vtSample`, a
+  referência f64) e a imagem pelas páginas diferem até 0,47 % (RMS 0,08 %) — os 8 bits do atlas. As páginas que faltam
+  chegam em 4 a 20 quadros.
+- Uma imagem acrescentada depois (`cache.addImage(img)` devolve o índice) recomeça a tabela.
 ## Materiais transmissivos
 
 Um grafo com lobo de transmissão, opacidade ou translucidez faz da entidade um **transmissivo**: ela vai ao passe dos

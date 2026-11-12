@@ -21,7 +21,8 @@
 //      seu grupo.
 // O espaço de trabalho do quadro é um buffer só de palavras (`sp_scratch`), em seções; os contadores no início.
 // Laços com teto constante.
-// Requer: shadow_virtual, shadow_pages_constants, WORKGROUP_SIZE e os recursos de cada entrada.
+// Requer: shadow_virtual, shadow_pages_constants, page_alloc (a soma de prefixos do grupo), WORKGROUP_SIZE e os recursos
+// de cada entrada.
 
 fn sp_f(i: u32) -> f32 {
     return bitcast<f32>(atomicLoad(&sp_scratch[i]));
@@ -259,8 +260,6 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
 
 // ---- 4b. as filas por nível, na ordem do índice ----
 
-var<workgroup> sp_rank: array<u32, 256>;
-
 /**
  * As filas de um nível (um grupo de trabalho por nível): as páginas que precisam de página física ou de redesenho, na
  * ordem do índice (a soma de prefixos no grupo) — o que entra no orçamento do quadro não depende da ordem dos atômicos.
@@ -276,9 +275,9 @@ fn sp_rank_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
         if (c >= per || lid * per + c >= n * n) { break; }
         if ((atomicLoad(&sp_scratch[sp.needBase + first + c]) & 3u) != 0u) { count++; }
     }
-    sp_rank[lid] = count;
-    sp_scan(lid);
-    var rank = sp_rank[lid] - count;
+    pa_rank[lid] = count;
+    pa_scan(lid);
+    var rank = pa_rank[lid] - count;
     for (var c = 0u; c < SP_RANK_CHUNK; c++) {
         if (c >= per || lid * per + c >= n * n) { break; }
         let i = first + c;
@@ -289,21 +288,10 @@ fn sp_rank_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_ind
         atomicStore(&sp_scratch[o + 1u], need >> 2u);
         rank++;
     }
-    if (lid == 255u) { atomicStore(&sp_scratch[SP_LEVEL_WORK + k], sp_rank[255]); }
+    if (lid == 255u) { atomicStore(&sp_scratch[SP_LEVEL_WORK + k], pa_rank[255]); }
 }
 
 // ---- 5. as livres ----
-
-/** Soma de prefixos inclusiva de `sp_rank` no grupo (Hillis–Steele); todas as invocações chamam. */
-fn sp_scan(lid: u32) {
-    workgroupBarrier();
-    for (var d = 1u; d < 256u; d = d << 1u) {
-        let v = select(0u, sp_rank[lid - d], lid >= d);
-        workgroupBarrier();
-        sp_rank[lid] += v;
-        workgroupBarrier();
-    }
-}
 
 /** As páginas físicas que nenhuma página virtual segura, em ordem (um grupo de trabalho). */
 @compute @workgroup_size(256)
@@ -316,9 +304,9 @@ fn sp_free_main(@builtin(local_invocation_index) lid: u32) {
         if (c >= per || p >= total) { break; }
         if (atomicLoad(&sp_scratch[sp.keepBase + p]) == 0u) { count++; }
     }
-    sp_rank[lid] = count;
-    sp_scan(lid);
-    var rank = sp_rank[lid] - count;
+    pa_rank[lid] = count;
+    pa_scan(lid);
+    var rank = pa_rank[lid] - count;
     for (var c = 0u; c < SP_FREE_CHUNK; c++) {
         let p = lid * per + c;
         if (c >= per || p >= total) { break; }
@@ -326,7 +314,7 @@ fn sp_free_main(@builtin(local_invocation_index) lid: u32) {
         atomicStore(&sp_scratch[sp.freeBase + rank], p);
         rank++;
     }
-    if (lid == 255u) { atomicStore(&sp_scratch[SP_FREE_COUNT], sp_rank[255]); }
+    if (lid == 255u) { atomicStore(&sp_scratch[SP_FREE_COUNT], pa_rank[255]); }
 }
 
 // ---- 6. a alocação e as sujas ----
@@ -366,18 +354,18 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
     }
     let fresh = found && (word & SP_RERENDER) == 0u;
     // A posição entre as novas: a física livre dessa posição.
-    sp_rank[lid] = select(0u, 1u, fresh);
-    sp_scan(lid);
-    let a = sp_rank[lid] - select(0u, 1u, fresh);
+    pa_rank[lid] = select(0u, 1u, fresh);
+    pa_scan(lid);
+    let a = pa_rank[lid] - select(0u, 1u, fresh);
     let ok = found && (!fresh || a < atomicLoad(&sp_scratch[SP_FREE_COUNT]));
     if (fresh && ok) { phys = atomicLoad(&sp_scratch[sp.freeBase + a]); }
     // A posição entre as que entram: a da lista das sujas.
     workgroupBarrier();
-    sp_rank[lid] = select(0u, 1u, ok);
-    sp_scan(lid);
-    let d = sp_rank[lid] - select(0u, 1u, ok);
+    pa_rank[lid] = select(0u, 1u, ok);
+    pa_scan(lid);
+    let d = pa_rank[lid] - select(0u, 1u, ok);
     if (lid == 255u) {
-        atomicStore(&sp_scratch[SP_DIRTY_COUNT], sp_rank[255]);
+        atomicStore(&sp_scratch[SP_DIRTY_COUNT], pa_rank[255]);
     }
     if (!ok) { return; }
     let i = word & ~SP_RERENDER;

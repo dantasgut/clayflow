@@ -10,3 +10,11 @@ export {
 export { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
 export { PbrTables } from './pbr/PbrTables';
 export { LOBES, type LobeName } from './pbr/lobes';
+export { VirtualImage, type VirtualImageValues } from './virtual/VirtualImage';
+export {
+    VirtualTextures,
+    type VirtualTexturesData,
+    type VirtualTexturesOptions,
+} from './virtual/VirtualTextures';
+export { VirtualTextureFlow } from './virtual/VirtualTextureFlow';
+export type { VirtualWrap } from './virtual/reference/virtualTexture';

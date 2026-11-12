@@ -47,6 +47,7 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
@@ -460,6 +461,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'froxels',
         phase: 'shadow',
         priority: -30,
+    });
+    // Texturas virtuais dos materiais (spec 034, T060c) antes do desenho: as cargas no atlas, a tabela renovada pelos
+    // pedidos do quadro anterior e a fatia de agora dos pedidos zerada para o desenho. Sem `VirtualTextures`, pendente.
+    flows.register((ctx) => new VirtualTextureFlow(ctx), {
+        type: 'virtualTextures',
+        phase: 'shadow',
+        priority: -40,
     });
     const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
         type: 'forward',

@@ -15,6 +15,7 @@ import { FroxelsSchema } from './media/schemas';
 import { Refraction } from './lighting/refraction/Refraction';
 import { TemporalFilter } from './lighting/temporal/TemporalFilter';
 import { EnergyMeter } from './physics/energy/EnergyMeter';
+import { VirtualTexturesResolver } from './material/virtual/VirtualTexturesResolver';
 
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
@@ -38,6 +39,12 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
         (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),
     ),
+    // As texturas virtuais dos materiais (spec 034, T060c): os cabeçalhos e a tabela, os pedidos (a fatia atual da
+    // série), o atlas e o amostrador, lidos pelo nó `nodes.image.virtual`.
+    new VirtualTexturesResolver('words', 'array<u32>'),
+    new VirtualTexturesResolver('requests', 'array<atomic<u32>>'),
+    new VirtualTexturesResolver('atlas', 'texture_2d<f32>'),
+    new VirtualTexturesResolver('sampler', 'sampler'),
     // A imagem do mundo (spec 039 refeita): parâmetros, a imagem e o amostrador.
     ...(['params', 'image', 'sampler'] as const).map(
         (id) => new SingletonResolver(EnvironmentMapSchema, id, { name: `EnvironmentMap.${id}` }),

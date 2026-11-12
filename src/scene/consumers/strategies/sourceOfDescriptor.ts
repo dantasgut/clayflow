@@ -15,6 +15,21 @@ export function sourceOfDescriptor(
 ): ResolvedSource | undefined {
     const desc = resource.getDescriptors().find((d) => d.id === descId);
     const visibility = desc?.visibility !== undefined ? { visibility: desc.visibility } : {};
+    // Série de buffer de fatias (spec 037; ex.: os pedidos das texturas virtuais, spec 034 T060c): a fatia atual pelo
+    // anel, não a primeira fatia alocada.
+    const ring =
+        desc?.history !== undefined && desc.history.pages === undefined
+            ? resources.channelOf(resource, descId)
+            : undefined;
+    if (ring?.allocated === true && desc?.textureShape === undefined) {
+        return {
+            kind: 'channel',
+            channel: channelSourceOf(ring, `${resource.constructor.name}.${descId}`),
+            lag: 0,
+            epoch: ring.epoch,
+            ...visibility,
+        };
+    }
     const buffer = resources.bufferOf(resource, descId);
     if (buffer !== undefined && buffer.subkind !== 'staging') {
         const stride =
