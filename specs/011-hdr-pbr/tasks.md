@@ -15,6 +15,20 @@ bit a bit.
 
 **Organização**: por história de usuário. Todas as histórias são implementadas por completo; a prioridade só ordena.
 
+## Reconciliação (2026-11-12, 034 T071)
+
+As 35 caixas abertas foram conferidas contra o código e o histórico. Cada uma traz a nota **Reconciliação** com o
+registro e o arquivo:
+
+- **Feitas, marcadas com a evidência (9)**: T025, T083, T088, T102, T103, T104, T105, T110, T111 — parte delas feita
+  em tarefas da 033 e da 034, citadas na nota.
+- **Substituídas (9)**: T081, T082, T084, T085, T086, T087, T089 (a água pelo traçado e as cáusticas por fótons da
+  034 tiraram o `FluidSurfaceMaterial`, o `WaterSurface`, o `water_composite` e a malha refratada), T101 (fixtures
+  regravadas na 033 e na 034) e T109 (smokes na 033 e na 034 T075). Ficam marcadas, com **Substituída** na nota.
+- **Abertas (17)**: a US5 (T090–T094) e a US6 (T095–T100) inteiras, T003 (inventário dos smokes), T079 (a madeira
+  envernizada no `nodeGraphs`), T106 e T107 (guias), T108 (ROADMAP e README) e T112 (vídeos) — vão para a 035
+  (fechamento da 011); a parte da T112 que não depende dela vai com a 034 T077.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: pode rodar em paralelo (arquivos diferentes, sem dependência pendente)
@@ -27,6 +41,7 @@ bit a bit.
 - [x] T001 Registrar o estado de partida em `specs/011-hdr-pbr/baseline-check.md`: `npm run ci`, todos os smokes `--headless` (fonte e `--dist`) e `npm run bench:check` com a máquina livre (números de partida do bench, inclusive tempo do quadro a 1280×720 com MSAA 4×)
 - [x] T002 [P] Criar `src/__smokes__/support/imageMeasures.ts` com as medidas de imagem reutilizadas pelos smokes da 011: maior passo entre vizinhos e comprimento de sequências iguais (faixas), platôs com borda reta (degraus de texel), variância temporal da luminância (cintilação), energia de alta frequência nas silhuetas (serrilhado), leitura de um alvo `rgba16float` para valores lineares
 - [ ] T003 [P] Criar os smokes vazios `src/__smokes__/hdr.ts`, `src/__smokes__/lighting.ts`, `src/__smokes__/materials.ts` e `src/__smokes__/support/materialScenes.ts`, registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
+  - **Reconciliação (2026-11-12, 034 T071)**: os quatro arquivos existem (`hdr.ts` em `5ef1dd46`, `lighting.ts` em `b7c2805b`, `materials.ts` e `support/materialScenes.ts` em `66d2943f`) e a página do bench carrega o smoke pelo nome (`bench/page/smoke.ts`, sem registro no runner); falta listar `hdr`, `lighting` e `materials` no inventário de `src/__smokes__/README.md`. Vai para a 035.
 - [x] T004 [P] Criar `src/elements/material/reference/` (referências de CPU, só para testes e smokes): `bsdf.ts` (GGX iso/aniso, Smith correlacionado, Schlick, F82, F0 do IOR, Charlie, filme fino de Belcour-Barla, Oren-Nayar energético, Burley com wrap), `tonemap.ts` (AgX, ACES de Hill, Khronos PBR Neutral, sRGB) e `dfg.ts` (integração de E(μ, α) e do albedo do sheen por Monte Carlo determinístico)
 - [x] T005 [P] Atualizar o ROADMAP §3.3 em `specs/ROADMAP.md`: a matriz normal já existe (A5); a 011 só mede
 
@@ -83,7 +98,8 @@ saída HDR estendida quando suportada.
 
 ### Testes
 
-- [ ] T025 [P] Testes de referência em `src/elements/material/reference/__tests__/bsdf.test.ts`: D GGX normalizada (∫ D·cos = 1), Smith correlacionado simétrico, F82 coincide com Schlick quando a tinta é branca, filme fino com espessura 0 = Fresnel do substrato, Charlie normalizado
+- [x] T025 [P] Testes de referência em `src/elements/material/reference/__tests__/bsdf.test.ts`: D GGX normalizada (∫ D·cos = 1), Smith correlacionado simétrico, F82 coincide com Schlick quando a tinta é branca, filme fino com espessura 0 = Fresnel do substrato, Charlie normalizado
+  - **Reconciliação (2026-11-12, 034 T071)**: `src/elements/material/reference/__tests__/bsdf.test.ts` (`5ef1dd46`): GGX normalizada, Smith correlacionado simétrico, F82 com tinta branca = Schlick, filme fino com espessura 0 = Fresnel da base, Charlie normalizada.
 - [x] T026 [P] Testes em `src/scene/graph/__tests__/NodeDefinition.tags.test.ts`: metadado genérico de definição (`tags`) preservado, unido na compilação do grafo (conjunto dos nós presentes, sub-grafos inclusive) e exposto no resultado; a C2 não conhece nomes de lobo
 - [x] T027 [P] Testes em `src/elements/material/__tests__/materialPoint.closure.test.ts`: função de código `-> SurfaceParams` adaptada por `closure_from_params`; `-> Closure` direta; grafo com `output.surfaceParams` e com `output.closure`; sem `MaterialFunction` → `closure_ready`; máscara de lobos (grafo, `lobes` do código, pronto) na chave do pipeline; mudar valores não muda a chave; tipo de retorno inválido → erro tipado
 - [x] T028 [P] Testes em `src/elements/material/__tests__/PbrTables.test.ts`: Resource gerado uma vez no primeiro `framePrepare` (`Uninitialized` → `Ready`), nunca regenerado; descritor `rg16float` 32×32 e kernel de compute registrado
@@ -175,6 +191,7 @@ OpenPBR como sub-grafo.
 - [x] T077 [US3] Caso `material-fn-compat`: as funções `material` da 009 (`support/extensionScenes.ts`, `parametricSurfaces`) desenham sem mudança com o especular da base
 - [x] T078 [US3] Caso `transmission-layers` (vidro atrás de vidro e verso de objeto espesso aparecem; terceira camada com a aproximação documentada) e `transmission-ior1` (IOR 1 invisível, sem divisão por zero)
 - [ ] T079 [US3] Grafo de material no smoke `src/__smokes__/nodeGraphs.ts` (madeira envernizada com verniz áspero por ruído, do contrato) e caso de grafo inválido desenhando com o material pronto e o evento da 031
+  - **Reconciliação (2026-11-12, 034 T071)**: o `nodeGraphs` não tem o grafo da madeira envernizada nem o caso do grafo inválido desenhando com o material pronto (o grafo de material dele é a rampa de ruído da 031). A madeira envernizada é da biblioteca (US5): vai para a 035.
 - [x] T080 [US3] Caso `sanitize`: função `material` devolvendo NaN/∞/negativos — nenhum NaN no alvo HDR nem na cadeia de pós
 
 **Checkpoint**: US3 verificável sozinha.
@@ -187,15 +204,24 @@ OpenPBR como sub-grafo.
 
 **Independent Test**: `npm run smoke -- fluidSurface,parametricSurfaces --headless` (fonte e `--dist`) com os casos novos.
 
-- [ ] T081 [P] [US4] Testes em `src/elements/material/__tests__/FluidSurfaceMaterial.test.ts`: `roughness` (padrão 0,02); `ambient`, `shininess`, `reflectivity` obsoletos com aviso único; `shininess` → rugosidade equivalente
-- [ ] T082 [P] [US4] Testes em `src/presentation/flows/__tests__/water.test.ts` e `src/presentation/__tests__/WaterSurface.test.ts`: vista `background` removida (usa `FrameTargets.sceneCopy`); `lightSize` padrão 1024; `causticGrid` (padrão 2 × `lightSize`) com buffer de vértices; mapa de cáusticas `rgba16float` com mistura aditiva
-- [ ] T083 [US4] `FluidSurfaceMaterial` em `src/elements/material/FluidSurfaceMaterial.ts` e `FluidSurfaceMaterialSchema.ts`: `roughness`, obsolescências
-- [ ] T084 [US4] `src/presentation/water/wgsl/water_composite.wgsl` no fechamento: dielétrico de IOR do material (Fresnel exato), GGX com a rugosidade, reflexo do hemisfério na direção refletida, refração na `sceneCopy` filtrada, Beer-Lambert, sem `clamp`; `WaterFlow` lendo a `sceneCopy`
-- [ ] T085 [US4] `WaterSurface` (`src/presentation/app/WaterSurface.ts`): sem a vista `background`, `lightSize` 1024, `causticGrid`
-- [ ] T086 [US4] Criar `src/presentation/water/wgsl/caustic_mesh.wgsl` (compute: grade N×N refratada até o receptor; render: triângulos com intensidade pela razão de áreas × Fresnel × absorção, mistura aditiva) e reescrever `src/presentation/flows/CausticsFlow.ts` e `water/wgsl/caustics.wgsl` para a malha
-- [ ] T087 [US4] Leitura bicúbica (B-spline, 4 leituras bilineares) no contribuinte `light_transmission` da água (`water_transmission.wgsl`)
-- [ ] T088 [US4] Casos em `src/__smokes__/fluidSurface.ts` e `parametricSurfaces.ts`: `water-fresnel` (IOR 1,33, ≤ 2 p.p.), `water-absorption` (≤ 3 %), `water-highlight` (realce > 1 no HDR) (SC-009)
-- [ ] T089 [US4] Casos `caustics-smooth` (câmera perto, texel ≥ 4 px, 0 platôs de borda reta) e `caustics-temporal` (variação limitada à da superfície) (SC-010); custo da malha 2048² ≤ 1,5 ms registrado
+- [x] T081 [P] [US4] Testes em `src/elements/material/__tests__/FluidSurfaceMaterial.test.ts`: `roughness` (padrão 0,02); `ambient`, `shininess`, `reflectivity` obsoletos com aviso único; `shininess` → rugosidade equivalente
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída** (não feita como escrita): o `FluidSurfaceMaterial` saiu na 034 T066 (`7116382a`) — a água é o dielétrico do grafo, sem `ambient`/`shininess`/`reflectivity`; os testes dele deram lugar aos do caminho novo (quebra em `specs/034-refracao-fisica/api-pendencias.md` §6).
+- [x] T082 [P] [US4] Testes em `src/presentation/flows/__tests__/water.test.ts` e `src/presentation/__tests__/WaterSurface.test.ts`: vista `background` removida (usa `FrameTargets.sceneCopy`); `lightSize` padrão 1024; `causticGrid` (padrão 2 × `lightSize`) com buffer de vértices; mapa de cáusticas `rgba16float` com mistura aditiva
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: a vista `background`, a `sceneCopy`, o `WaterFlow` e o `WaterSurface` saíram na 034 T065/T066 (`7116382a`: a água vista só pelo traçado); as cáusticas são fótons traçados a partir da luz (034 T067c, `2f710aff`), sem `causticGrid` nem mapa aditivo.
+- [x] T083 [US4] `FluidSurfaceMaterial` em `src/elements/material/FluidSurfaceMaterial.ts` e `FluidSurfaceMaterialSchema.ts`: `roughness`, obsolescências
+  - **Reconciliação (2026-11-12, 034 T071)**: `roughness` (GGX, padrão 0,02) e `ambient`/`shininess`/`reflectivity` obsoletos com aviso único em `src/elements/material/FluidSurfaceMaterial.ts` e no schema (`4046c88e`); o material inteiro saiu depois na 034 T066 (`7116382a`).
+- [x] T084 [US4] `src/presentation/water/wgsl/water_composite.wgsl` no fechamento: dielétrico de IOR do material (Fresnel exato), GGX com a rugosidade, reflexo do hemisfério na direção refletida, refração na `sceneCopy` filtrada, Beer-Lambert, sem `clamp`; `WaterFlow` lendo a `sceneCopy`
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: o dielétrico de IOR com GGX e o reflexo do hemisfério entraram no `water_composite.wgsl` (`4046c88e`), mas a composição pela cópia da tela saiu na 034 T065 (`0a6ecc3d`, `7116382a`): a água é vista pela refração traçada (Fresnel exato, Beer–Lambert pelo grafo), sem `water_composite` nem `WaterFlow`.
+- [x] T085 [US4] `WaterSurface` (`src/presentation/app/WaterSurface.ts`): sem a vista `background`, `lightSize` 1024, `causticGrid`
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: o `WaterSurface` saiu na 034 T065 (`7116382a`).
+- [x] T086 [US4] Criar `src/presentation/water/wgsl/caustic_mesh.wgsl` (compute: grade N×N refratada até o receptor; render: triângulos com intensidade pela razão de áreas × Fresnel × absorção, mistura aditiva) e reescrever `src/presentation/flows/CausticsFlow.ts` e `water/wgsl/caustics.wgsl` para a malha
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: as cáusticas são fótons traçados a partir da luz (`Caustics` + `CausticsFlow`), escolhidos contra a referência da CPU na 034 T067a–T067c (`63cd05bf`, `2f710aff`; `specs/034-refracao-fisica/research.md` R14); a malha refratada não foi feita.
+- [x] T087 [US4] Leitura bicúbica (B-spline, 4 leituras bilineares) no contribuinte `light_transmission` da água (`water_transmission.wgsl`)
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: o `water_transmission.wgsl` saiu; a luz que atravessa a água é a transmissão em linha reta com Fresnel e Beer–Lambert (`field_light_transmission.wgsl`) mais a correção dos fótons (034 T067c, `2f710aff`).
+- [x] T088 [US4] Casos em `src/__smokes__/fluidSurface.ts` e `parametricSurfaces.ts`: `water-fresnel` (IOR 1,33, ≤ 2 p.p.), `water-absorption` (≤ 3 %), `water-highlight` (realce > 1 no HDR) (SC-009)
+  - **Reconciliação (2026-11-12, 034 T071)**: feita na 034 T067d, no smoke `refraction` (não no `fluidSurface`): `water-fresnel` erro máximo 0,04 p.p. (≤ 2), `water-absorption` 0,14 % (≤ 3 %), `water-highlight` pico 350 no HDR (> 1) (`d3bb8597`).
+- [x] T089 [US4] Casos `caustics-smooth` (câmera perto, texel ≥ 4 px, 0 platôs de borda reta) e `caustics-temporal` (variação limitada à da superfície) (SC-010); custo da malha 2048² ≤ 1,5 ms registrado
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: `caustics-smooth` e `caustics-temporal` cobertos pelo caso `ripple` do smoke `caustics` contra a referência da CPU — platôs 0 %, contraste 0,95–0,99×, variação com a superfície parada 2,9–3,1 % (034 T067c/T067d, `b5a8a022`); o custo da malha 2048² não se aplica (sem malha): o custo das cáusticas é medido por perfil (039 T110: 2,4–3,8 ms).
 
 **Checkpoint**: US4 verificável sozinha.
 
@@ -208,10 +234,15 @@ OpenPBR como sub-grafo.
 **Independent Test**: caso `gallery` e `library-compose` em `npm run smoke -- materials --headless`.
 
 - [ ] T090 [P] [US5] Testes em `src/elements/material/__tests__/Materials.test.ts`: cada fábrica `Materials.x()` devolve `MaterialFunction` com o grafo de um nó; parâmetro mudado altera só ele; nós e valores documentados (madeira envernizada = madeira crua sob dielétrico liso; pintura de carro = condutor sob dielétrico); serialização ida e volta
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `Materials.test.ts`). US5 vai para a 035.
 - [ ] T091 [US5] Criar os 23 sub-grafos em `src/elements/nodes/material/` (`woodRaw`, `woodVarnishedGloss`, `woodVarnishedMatte`, `cotton`, `wool`, `velvet`, `silk`, `denim`, `sheerFabric`, `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`, `metalPolished`, `metalBrushed`, `carPaint`, `glass`, `metalOxidized`, `skin`, `wax`, `marble`) com valores físicos e fonte em comentário; registrados no `NodeRegistry` padrão
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita: `src/elements/nodes/material/` tem só `index.ts` e `openpbr.ts`. US5 vai para a 035.
 - [ ] T092 [US5] Criar `src/elements/material/Materials.ts` (fábricas → `MaterialFunction`) e exportar em `src/elements/material/index.ts` e `src/index.ts`
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `src/elements/material/Materials.ts`). US5 vai para a 035.
 - [ ] T093 [US5] Caso `gallery` em `src/__smokes__/materials.ts`: todos os materiais sob a mesma luz; medidas de reconhecimento (madeira crua sem realce nítido, envernizada com realce nítido, veludo com borda, metal escovado com realce alongado, vidro com refração)
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `gallery`). US5 vai para a 035.
 - [ ] T094 [US5] Caso `library-compose`: madeira crua e metal escovado misturados por ruído (o quickstart) e um material pronto com entrada ligada a outro nó
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `library-compose`). US5 vai para a 035.
 
 **Checkpoint**: US5 verificável sozinha.
 
@@ -224,11 +255,17 @@ OpenPBR como sub-grafo.
 **Independent Test**: `npm run bench -- --scene materials,point-lights --engines clayflow,three --headless` e a página de comparação.
 
 - [ ] T095 [US6] Adaptador Three em `bench/engines/three.ts`: `antialias: true` (MSAA 4×), AgX equivalente, luzes físicas no lugar de `addDefaultLighting`, hemisfério equivalente
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita: `bench/engines/three.ts` segue com `antialias: false` e `addDefaultLighting`. US6 vai para a 035.
 - [ ] T096 [P] [US6] Cena `bench/scenes/materials/` (`scene.ts`, `clayflow.ts`, `three.ts`): galeria 5×5 com os materiais da biblioteca e os correspondentes do `MeshPhysicalMaterial` (clearcoat, sheen, transmission, iridescence, anisotropy, dispersion)
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `bench/scenes/materials/`). US6 vai para a 035.
 - [ ] T097 [P] [US6] `bench/scenes/point-lights/clayflow.ts` (256 luzes, 200 objetos) e remoção do `unsupported until 'F4'` em `scene.ts`
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita: `bench/scenes/point-lights/scene.ts` ainda declara `unsupported ... until: 'F4'`. US6 vai para a 035.
 - [ ] T098 [P] [US6] Variante `water-lake` em `bench/scenes/particles/` (ou `surfaces/`) com a água nas duas engines
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem variante `water-lake`). US6 vai para a 035.
 - [ ] T099 [US6] Página de comparação lado a lado em `bench/page/` (as duas engines na mesma página, leitura de imagem só no fim): faixas, forno, cintilação especular, serrilhado de borda; resultado gravado em `bench/results/`
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem página de comparação). US6 vai para a 035.
 - [ ] T100 [US6] Registrar as medidas e o tempo de quadro (SC-011) em `specs/011-hdr-pbr/comparison.md`
+  - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `comparison.md`). US6 vai para a 035.
 
 **Checkpoint**: US6 verificável sozinha.
 
@@ -236,28 +273,40 @@ OpenPBR como sub-grafo.
 
 ## Phase 10: Fixtures
 
-- [ ] T101 Regravar uma vez as fixtures de imagem (A14) com `--record`: `render-*`, `fluidSurface-*`, `particles-*`, `softSurface-*`, `pointCloud`, `parametricSurfaces-*`, `nodeGraphs`, os hashes de `extensionPoints-*.json` e `parametricSurfaces-*.json`; lista com justificativa visual em `specs/011-hdr-pbr/fixtures.md` e montagem antes/depois enviada ao usuário
-- [ ] T102 Recalibrar os limiares de cor fixos de `src/__smokes__/parametricSurfaces.ts` e `extensionPoints.ts` pela mesma montagem
-- [ ] T103 Conferir as fixtures de estado (`trajectories`, `contacts`, `fluidBehavior`) bit a bit, sem regravar (SC-012)
+- [x] T101 Regravar uma vez as fixtures de imagem (A14) com `--record`: `render-*`, `fluidSurface-*`, `particles-*`, `softSurface-*`, `pointCloud`, `parametricSurfaces-*`, `nodeGraphs`, os hashes de `extensionPoints-*.json` e `parametricSurfaces-*.json`; lista com justificativa visual em `specs/011-hdr-pbr/fixtures.md` e montagem antes/depois enviada ao usuário
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: as fixtures de imagem foram regravadas na 033 T063 contra a saída do `develop` com a 011, com montagens e justificativa em `specs/033-global-illumination/fixtures.md` (`661e29c6`), e de novo na 034 (T031, T066, T070) com justificativa por fixture; não há `specs/011-hdr-pbr/fixtures.md`.
+- [x] T102 Recalibrar os limiares de cor fixos de `src/__smokes__/parametricSurfaces.ts` e `extensionPoints.ts` pela mesma montagem
+  - **Reconciliação (2026-11-12, 034 T071)**: feita na 034 T070 (`15e667ac`, `38515df6`): as seis checagens desde `5ef1dd4`, com `parametricSurfaces` e `extensionPoints`, medidas e passando.
+- [x] T103 Conferir as fixtures de estado (`trajectories`, `contacts`, `fluidBehavior`) bit a bit, sem regravar (SC-012)
+  - **Reconciliação (2026-11-12, 034 T071)**: `trajectories`, `contactSet` e `fluidBehavior` passam contra as fixtures commitadas, sem regravar, com o código da 011 no `develop` (`693aed4b`, PR #47): `specs/033-global-illumination/fixtures.md` (`661e29c6`).
 
 ---
 
 ## Phase 11: Docs
 
-- [ ] T104 [P] Guia novo `clay-engine-doc/docs/guides/materials.md` (materiais por nós BSDF, fechamento, fusão de lobos, especialização, biblioteca com valores e fontes, compatibilidade da 009)
-- [ ] T105 [P] Guia novo `clay-engine-doc/docs/guides/lighting.md` (luzes e unidades, `scene_lighting`, hemisfério como aproximação até a 033, limite de 1024) e `clay-engine-doc/docs/guides/presentation.md` (HDR, operadores, exposição, saída HDR, resolve por amostra)
+- [x] T104 [P] Guia novo `clay-engine-doc/docs/guides/materials.md` (materiais por nós BSDF, fechamento, fusão de lobos, especialização, biblioteca com valores e fontes, compatibilidade da 009)
+  - **Reconciliação (2026-11-12, 034 T071)**: `clay-engine-doc/docs/guides/materials.md` (034 T073, `38515df6`).
+- [x] T105 [P] Guia novo `clay-engine-doc/docs/guides/lighting.md` (luzes e unidades, `scene_lighting`, hemisfério como aproximação até a 033, limite de 1024) e `clay-engine-doc/docs/guides/presentation.md` (HDR, operadores, exposição, saída HDR, resolve por amostra)
+  - **Reconciliação (2026-11-12, 034 T071)**: `clay-engine-doc/docs/guides/lighting.md` e `presentation.md` (034 T073, `38515df6`).
 - [ ] T106 [P] Atualizar `clay-engine-doc/docs/guides/node-graphs.md` (grupos `bsdf`, `closure`, `geometry`, `color`, `material`), `post_processing.md` (HDR, sem passthrough) e `shaders.md`
+  - **Reconciliação (2026-11-12, 034 T071)**: `post_processing.md` já descreve o HDR e a apresentação sem passthrough (`cb177eb7`, `bf467ff7`) e `shaders.md` o ponto `scene_lighting`; falta o `node-graphs.md` com os grupos `bsdf`, `closure`, `geometry`, `color` e `material` — hoje estão só no `materials.md` (`38515df6`), e o `node-graphs.md` ainda diz que os materiais por nós "são da 011". O `38515df6` não alterou o `node-graphs.md`. Vai para a 035.
 - [ ] T107 [P] Atualizar `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: ordem dos passes (opacos → cópia com mips → transmissivos em duas camadas → água → pós → apresentação), pontos de luz por luz
+  - **Reconciliação (2026-11-12, 034 T071)**: o `architecture_resource_loaders.md` não tem a ordem dos passes nova (o `38515df6` não o alterou), e a ordem escrita aqui mudou: não há mais cópia da cena; os transmissivos e a água vão pela refração traçada (034/039). Vai para a 035, com a ordem do `Renderer` da 039.
 - [ ] T108 `specs/ROADMAP.md` (011 implementada; 014 sem "pós direto no canvas"), `specs/PENDENCIAS.md`, JSDoc das classes públicas novas e `README.md` (API)
+  - **Reconciliação (2026-11-12, 034 T071)**: `specs/PENDENCIAS.md` reescrito na 034 T071; o JSDoc é conferido pelo `doc:coverage` do `npm run ci` (verde no `develop` com a 011: `specs/033-global-illumination/baseline-check.md`, `df93e6a8`); a G2 (pós direto no canvas) saiu na 034 T033 (`cb177eb7`). Falta o `specs/ROADMAP.md` dizer o estado da 011 na linha da F4 (implementada em parte; US5/US6 na 035) e tirar da 014 o "pós sem efeitos desenhando direto no canvas"; o `README.md` da API com os materiais. Vai para a 035.
 
 ---
 
 ## Phase 12: Fechamento
 
-- [ ] T109 Todos os smokes `--headless` no fonte e com `--dist`; nenhum processo órfão ao fim
-- [ ] T110 `npm run bench:check` sem regressão relevante (custo do HDR registrado, ≤ 0,3 ms a 1280×720 com MSAA 4×); baseline regravado com a máquina livre
-- [ ] T111 `npm run ci` verde
+- [x] T109 Todos os smokes `--headless` no fonte e com `--dist`; nenhum processo órfão ao fim
+  - **Reconciliação (2026-11-12, 034 T071)**: **Substituída**: todos os smokes rodaram no fonte e com `--dist` no fechamento da 033 (T067), com o código da 011; as falhas herdadas da 011 (H4, H5) foram fechadas na 034 T070 (`38515df6`). A rodada final é a 034 T075.
+- [x] T110 `npm run bench:check` sem regressão relevante (custo do HDR registrado, ≤ 0,3 ms a 1280×720 com MSAA 4×); baseline regravado com a máquina livre
+  - **Reconciliação (2026-11-12, 034 T071)**: `bench:check` e baseline regravado no fechamento da 033 (T068, `3136f735`), com o código da 011; o custo da apresentação HDR medido na 034 T069 (`c8668d13`): 0,113 ms sem antisserrilhado (≤ 0,3 ms); com MSAA 4×, 0,325 ms — acima dos 0,3 ms escritos aqui; a 034 T069 registrou ≤ 0,5 ms (3 % do quadro de 60 Hz) para esse caso, e o padrão do motor é o antisserrilhado temporal, não o MSAA.
+- [x] T111 `npm run ci` verde
+  - **Reconciliação (2026-11-12, 034 T071)**: `npm run ci` verde no `develop` depois do PR #47 (`693aed4b`): `specs/033-global-illumination/baseline-check.md` (`df93e6a8`), 205 arquivos, 1599 testes.
 - [ ] T112 Vídeos (R14) enviados ao usuário: galeria girando sob luz que se move; grafo de material sendo editado; água (lago e tanque) com cáusticas de perto; comparação lado a lado Clayflow × Three (`materials`, `water-lake`)
+  - **Reconciliação (2026-11-12, 034 T071)**: os vídeos que não dependem da biblioteca nem da comparação vão com a 034 T077; a galeria girando, o grafo de material editado e a comparação Clayflow × Three (`materials`, `water-lake`) vão para a 035.
 
 ---
 

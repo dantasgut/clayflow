@@ -343,8 +343,9 @@ smokes `render` (10 cenas idênticas), `churn`, `bigMesh`, `integration`; A/B de
       atualizar `renderables.test.ts`, `removalRelease.test.ts`, `ForwardFlow.worldTransform.test.ts`
 - [x] T077 [US2] Pool uniforme: remover o caminho uniforme do `ResourceSystem` (stride alinhado, fonte dinâmica de
       pool) se nenhum descritor `role: 'uniform', storage: 'pool'` restar; ajustar testes da C2
-- [ ] T078 [US2] Smokes `render,churn,bigMesh,integration,trajectories` no fonte e com `--dist` (imagem idêntica,
+- [x] T078 [US2] Smokes `render,churn,bigMesh,integration,trajectories` no fonte e com `--dist` (imagem idêntica,
       SC-007); A/B de GPU `instances/10k` e `10k-moving` contra `b437e47` (≤ 0,52 ms) registrado abaixo
+  - **Reconciliação (2026-11-12, 034 T071)**: smokes verdes no fonte e com `--dist` e o A/B registrado abaixo (`c1030d89`, este arquivo); o alvo de GPU que ficou aberto (≤ 0,52 ms) foi atingido em `instances/10k` na 007: 0,46 ms com um desenho por grupo de instâncias (`06e65161`, `specs/007-gpu-scene-state/tasks.md` T028 e T056); da `10k-moving` a 007 registrou só a CPU (2,80 ms), não a GPU.
 
   > **T078 (2026-10-12)**: smokes `render` (10 cenas idênticas), `churn`, `bigMesh`, `integration`, `trajectories`
   > (3 taxas, bit a bit) verdes no fonte e com `--dist`; os 13 smokes da T067 também (26/26). GPU por quadro
