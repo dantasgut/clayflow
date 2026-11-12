@@ -135,15 +135,12 @@ fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, dt
     let u = terms.y * gl * h * h / (3.0 * fluid_field.filmFlow.w);
     let moved = min(free_units, field_film_units(excess * min(1.0, u * dt / size)));
     if (moved == 0u) { return 0u; }
-    // A célula seguinte sobre a superfície do sólido: a vizinha na direção da descida, levada à superfície.
+    // A célula seguinte sobre a superfície do sólido: a vizinha na direção da descida, levada à superfície pela normal da
+    // própria célula (a face plana; a normal do sólido ali só se mede para a célula nova, que nasce com ela).
     let q = (vec3f(c + vec3i(round(gt / gl))) + 0.5) * size;
     let d = field_film_solid(q);
     var next = c;
-    var normal = n;
-    if (abs(d) <= 1.5 * size) {
-        normal = field_film_solid_normal(q);
-        next = field_film_cell(q - d * normal, normal);
-    }
+    if (abs(d) <= 1.5 * size) { next = field_film_cell(q - d * n, n); }
     // A quina: não há sólido por onde descer — a água fica pendente nela.
     if (all(next == c)) { return field_film_hang(w, moved); }
     // A cheia (no anterior) não recebe mais.
@@ -152,9 +149,13 @@ fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, dt
     let below = field_film_find(next, true);
     if (below == NONE) { return 0u; }
     let bw = field_film_cell_word(below);
-    // A água molha o que estava seco — a célula nasce com a normal do sólido ali (também a do anterior que o passo dela
-    // tiraria por seca).
-    atomicStore(&field_film_cells[bw + 2u], pack4x8snorm(vec4f(normal, 0.0)));
+    // A água molha o que estava seco: a célula nasce com a normal do sólido ali (também a do anterior sem nada, que o
+    // passo dela tiraria).
+    if (before == NONE || (field_film_previous[before + 1u] == 0u && field_film_previous[before + 4u] == 0u
+        && field_film_previous[before + 6u] == 0u)) {
+        let normal = field_film_solid_normal(q);
+        atomicStore(&field_film_cells[bw + 2u], pack4x8snorm(vec4f(normal, 0.0)));
+    }
     atomicAdd(&field_film_cells[bw + 1u], moved);
     return moved;
 }
