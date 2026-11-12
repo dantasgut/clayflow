@@ -46,7 +46,7 @@ fn field_film_cell(p: vec3f, n: vec3f) -> vec3i {
     return vec3i(floor((p + n * (0.25 * field_voxel())) / field_voxel()));
 }
 
-/** Balde inicial da célula `c`. */
+/** Balde inicial da célula `c` (a sondagem segue com passo ímpar tirado da chave, como a tabela dos blocos). */
 fn field_film_bucket(c: vec3i) -> u32 {
     return hash_cell(bitcast<vec3u>(c)) & fluid_field.film.y;
 }

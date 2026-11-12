@@ -2,7 +2,7 @@
 // φ redistanciado do próprio bloco e dos 26 vizinhos (`field_links`); sem bloco, φ = +faixa (vazio). A amostra tricúbica
 // de quem consulta cabe num bloco só. Gravados na página do bloco no atlas (T060f), carimbada com a época da série.
 // Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_counts (leitura), field_links (leitura), field_src (leitura),
-// field_data_voxels, field_atlas_stamps, field_atlas_clock, field_volume_write.
+// field_data_voxels, field_atlas_stamps, field_atlas_clock, field_state (o volume do quadro, palavra 1).
 // O volume do interior (a fração dentro de cada voxel, ½ − φ/voxel) vai somado ao do quadro (a correção do nível).
 
 var<workgroup> field_wg_volume: atomic<u32>;
@@ -41,5 +41,5 @@ fn field_apron_main(
     }
     atomicAdd(&field_wg_volume, u32(inside * FIELD_VOLUME_ONE + 0.5));
     workgroupBarrier();
-    if (lid == 0u) { atomicAdd(&field_volume[0], atomicLoad(&field_wg_volume)); }
+    if (lid == 0u) { atomicAdd(&field_state[1], atomicLoad(&field_wg_volume)); }
 }

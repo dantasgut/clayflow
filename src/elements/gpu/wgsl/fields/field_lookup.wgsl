@@ -1,5 +1,5 @@
 // Leitura do campo dos fluidos (spec 033, R11) no buffer das consultas (`field_data`): a busca de um bloco na tabela
-// (sondagem linear até achar a chave ou um balde vazio), o bloco e os limites (os voxels ficam no atlas, T060f).
+// (sondagem com passo ímpar tirado da chave até achar a chave ou um balde vazio), o bloco e os limites (os voxels ficam no atlas, T060f).
 // Requer: NONE, fluid_field, field_common, field_data (leitura).
 
 /** Índice do bloco de coordenadas `b`, ou `NONE`. */
@@ -7,12 +7,13 @@ fn field_find(b: vec3i) -> u32 {
     let key = field_key(b);
     if (key == FIELD_EMPTY) { return NONE; }
     var slot = field_bucket(b);
+    let step = field_step(b);
     for (var k = 0u; k < fluid_field.limits.y; k++) {
         let w = field_key_word(slot);
         let found = field_data[w];
         if (found == key) { return field_data[w + 1u]; }
         if (found == FIELD_EMPTY) { return NONE; }
-        slot = (slot + 1u) & fluid_field.sizes.z;
+        slot = (slot + step) & fluid_field.sizes.z;
     }
     return NONE;
 }
@@ -22,11 +23,12 @@ fn field_super_present(s: vec3i) -> bool {
     let key = field_key(s);
     if (key == FIELD_EMPTY) { return false; }
     var slot = field_super_bucket(s);
+    let step = field_step(s);
     for (var k = 0u; k < fluid_field.limits.y; k++) {
         let found = field_data[field_super_word(slot)];
         if (found == key) { return true; }
         if (found == FIELD_EMPTY) { return false; }
-        slot = (slot + 1u) & field_super_mask();
+        slot = (slot + step) & field_super_mask();
     }
     return true;
 }

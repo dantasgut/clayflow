@@ -10,7 +10,10 @@
 //   rugosidade) para a célula seguinte nessa direção — achada sobre a superfície do sólido (a distância aos colliders e
 //   às paredes do domínio): seca, ela é criada (a água molha o que estava seco); com película, as duas se juntam. Atrás
 //   fica a espessura presa. Onde o sólido acaba (uma quina), a água para.
-// Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_film, field_film_update, collider_surface.
+// Na fatia do quadro do canal temporal da película (T060f; constituição VII): o passo lê cada célula da fatia anterior
+// (`field_film_previous`) e a escreve na do quadro (`field_film_cells`, zerada antes), com o que desce das vizinhas.
+// Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_film, field_film_update, field_film_previous,
+// collider_surface.
 
 /** Água livre acima da qual a célula não recebe mais (m): a película já é uma gota, maior que o modelo de filme fino. */
 const FIELD_FILM_MAX: f32 = 0.01;
@@ -49,34 +52,90 @@ fn field_film_units(h: f32) -> u32 {
     return u32(max(h, 0.0) / FIELD_FILM_UNIT + 0.5);
 }
 
+/** A palavra da célula `c` na fatia do quadro anterior do canal da película (`field_film_previous`), ou `NONE`. */
+fn field_film_previous_word(c: vec3i) -> u32 {
+    let key = field_film_key(c);
+    if (key == 0u) { return NONE; }
+    var slot = field_film_bucket(c);
+    let step = (key << 1u) | 1u;
+    for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
+        let w = field_film_cell_word(slot);
+        let found = field_film_previous[w];
+        if (found == key) { return w; }
+        if (found == 0u) { return NONE; }
+        slot = (slot + step) & fluid_field.film.y;
+    }
+    return NONE;
+}
+
+/**
+ * A água que desce da célula `c` (de normal `n` e água livre `free_units`) para a seguinte sobre o sólido, já somada a
+ * ela na fatia do quadro: o excesso sobre a espessura presa pela borda, na velocidade da película fina. Devolve as
+ * unidades que saíram (0 sem escoamento).
+ */
+fn field_film_flow(c: vec3i, n: vec3f, free_units: u32, terms: vec4f, dt: f32) -> u32 {
+    let vox = field_voxel();
+    let h = f32(free_units) * FIELD_FILM_UNIT;
+    let g = fluid_field.filmFlow.xyz;
+    let gt = g - dot(g, n) * n;
+    let gl = length(gt);
+    if (gl <= 1e-3 || fluid_field.filmFlow.w <= 0.0) { return 0u; }
+    let excess = h - terms.x / (gl * vox);
+    if (excess <= 0.0) { return 0u; }
+    let u = terms.y * gl * h * h / (3.0 * fluid_field.filmFlow.w);
+    let moved = min(free_units, field_film_units(excess * min(1.0, u * dt / vox)));
+    if (moved == 0u) { return 0u; }
+    // A célula seguinte sobre a superfície do sólido: o voxel vizinho na direção da descida, levado à superfície.
+    let q = (vec3f(c + vec3i(round(gt / gl))) + 0.5) * vox;
+    let d = field_film_solid(q);
+    if (abs(d) > vox) { return 0u; }
+    let normal = field_film_solid_normal(q);
+    let next = field_film_cell(q - d * normal, normal);
+    if (all(next == c)) { return 0u; }
+    // A cheia (no anterior) não recebe mais.
+    let before = field_film_previous_word(next);
+    if (before != NONE && f32(field_film_previous[before + 1u]) * FIELD_FILM_UNIT >= FIELD_FILM_MAX) { return 0u; }
+    let below = field_film_find(next, true);
+    if (below == NONE) { return 0u; }
+    let bw = field_film_cell_word(below);
+    // Seca no anterior: a água molha o que estava seco — a célula nasce com a normal do sólido ali.
+    if (before == NONE) { atomicStore(&field_film_cells[bw + 2u], pack4x8snorm(vec4f(normal, 0.0))); }
+    atomicAdd(&field_film_cells[bw + 1u], moved);
+    return moved;
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let slot = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (slot > fluid_field.film.y) { return; }
-    let w = field_film_word(slot);
-    let key = atomicLoad(&field_data_atomic[w]);
+    // A célula do quadro anterior (a fatia anterior do canal); ela vai à fatia do quadro com o passo aplicado.
+    let pw = field_film_cell_word(slot);
+    let key = field_film_previous[pw];
     if (key == 0u) { return; }
     let dt = fluid_field.contact.z;
     let vox = field_voxel();
     let c = field_film_coords(key);
-    var surface = atomicLoad(&field_data_atomic[w + 5u]);
-    if (surface == 0u) {
-        surface = field_film_surface_at((vec3f(c) + 0.5) * vox) + 1u;
-        atomicStore(&field_data_atomic[w + 5u], surface);
-    }
+    var surface = field_film_previous[pw + 5u];
+    if (surface == 0u) { surface = field_film_surface_at((vec3f(c) + 0.5) * vox) + 1u; }
+    let own = field_film_find(c, true);
+    if (own == NONE) { return; }
+    let w = field_film_cell_word(own);
+    atomicStore(&field_film_cells[w + 5u], surface);
+    let packed_normal = field_film_previous[pw + 2u];
+    atomicStore(&field_film_cells[w + 2u], packed_normal);
     // (borda / ρ, 1 / rugosidade, Washburn, capacidade) e a evaporação.
     let terms = field_film_surface(surface - 1u, 0u);
     let evaporation = field_film_surface(surface - 1u, 1u).x;
-    let absorbed_units = atomicLoad(&field_data_atomic[w + 4u]);
+    let absorbed_units = field_film_previous[pw + 4u];
     var absorbed = f32(absorbed_units) * FIELD_FILM_UNIT;
     // A água que os poros aceitam neste passo (Washburn: A² cresce W dt), até a capacidade.
     let soak = max(min(terms.w, sqrt(absorbed * absorbed + terms.z * dt)) - absorbed, 0.0);
-    if (atomicExchange(&field_data_atomic[w + 3u], 0u) != 0u) {
-        atomicStore(&field_data_atomic[w + 1u], field_film_units(FIELD_FILM_RESIDUAL));
-        atomicStore(&field_data_atomic[w + 4u], absorbed_units + field_film_units(soak));
+    if (field_film_previous[pw + 3u] != 0u) {
+        atomicAdd(&field_film_cells[w + 1u], field_film_units(FIELD_FILM_RESIDUAL));
+        atomicStore(&field_film_cells[w + 4u], absorbed_units + field_film_units(soak));
         return;
     }
-    var free_units = atomicLoad(&field_data_atomic[w + 1u]);
+    var free_units = field_film_previous[pw + 1u];
     // Absorção, da água livre.
     let take = min(free_units, field_film_units(soak));
     free_units -= take;
@@ -84,42 +143,16 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     // Evaporação: a água livre; o tempo que sobra depois dela seca os poros na taxa decrescente.
     let free = f32(free_units) * FIELD_FILM_UNIT;
     let dry = evaporation * dt;
-    var gone = min(free_units, field_film_units(dry));
+    let gone = min(free_units, field_film_units(dry));
     var absorbed_after = absorbed;
     if (dry > free && evaporation > 0.0 && terms.w > 0.0) {
         let rest = (dry - free) / evaporation;
         absorbed_after = max(absorbed - evaporation * (absorbed / terms.w) * rest, 0.0);
     }
-    atomicStore(&field_data_atomic[w + 4u], field_film_units(absorbed_after));
-    if (take + gone > 0u) { atomicSub(&field_data_atomic[w + 1u], take + gone); }
+    atomicStore(&field_film_cells[w + 4u], field_film_units(absorbed_after));
     free_units -= gone;
-    // Escoamento do excesso sobre a espessura presa.
-    let h = f32(free_units) * FIELD_FILM_UNIT;
-    let n = unpack4x8snorm(atomicLoad(&field_data_atomic[w + 2u])).xyz;
-    let g = fluid_field.filmFlow.xyz;
-    let gt = g - dot(g, n) * n;
-    let gl = length(gt);
-    if (gl <= 1e-3 || fluid_field.filmFlow.w <= 0.0) { return; }
-    let excess = h - terms.x / (gl * vox);
-    if (excess <= 0.0) { return; }
-    let u = terms.y * gl * h * h / (3.0 * fluid_field.filmFlow.w);
-    let moved = min(free_units, field_film_units(excess * min(1.0, u * dt / vox)));
-    if (moved == 0u) { return; }
-    // A célula seguinte sobre a superfície do sólido: o voxel vizinho na direção da descida, levado à superfície.
-    let q = (vec3f(c + vec3i(round(gt / gl))) + 0.5) * vox;
-    let d = field_film_solid(q);
-    if (abs(d) > vox) { return; }
-    let normal = field_film_solid_normal(q);
-    let next = field_film_cell(q - d * normal, normal);
-    if (all(next == c)) { return; }
-    var below = field_film_find(next, false);
-    if (below == NONE) {
-        below = field_film_find(next, true);
-        if (below == NONE) { return; }
-        atomicStore(&field_data_atomic[field_film_word(below) + 2u], pack4x8snorm(vec4f(normal, 0.0)));
-    }
-    let bw = field_film_word(below);
-    if (f32(atomicLoad(&field_data_atomic[bw + 1u])) * FIELD_FILM_UNIT >= FIELD_FILM_MAX) { return; }
-    atomicSub(&field_data_atomic[w + 1u], moved);
-    atomicAdd(&field_data_atomic[bw + 1u], moved);
+    // Escoamento do excesso sobre a espessura presa; o que fica, na própria célula.
+    let n = unpack4x8snorm(packed_normal).xyz;
+    let moved = field_film_flow(c, n, free_units, terms, dt);
+    if (free_units > moved) { atomicAdd(&field_film_cells[w + 1u], free_units - moved); }
 }

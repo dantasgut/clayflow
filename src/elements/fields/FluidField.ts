@@ -27,6 +27,7 @@ import { sceneWetnessPoint } from '../scene/points/media';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
+import { wordBuffer } from '../gpu/compute/schemas';
 import {
     FIELD_BRICK_APRON_VOXELS,
     FIELD_FILM_CELLS,
@@ -178,6 +179,14 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 schema: FieldWordSchema,
                 count: FIELD_LIGHT_MAPS * FIELD_LIGHT_RES * FIELD_LIGHT_RES * FIELD_LIGHT_WORDS,
                 upload: 'never',
+            },
+            // O estado entre quadros (T060f; constituição VII), canais temporais da spec 037: o nível da superfície e o
+            // volume somado (`state`), e a película de água nos sólidos (`film`: a tabela que o passo lê do anterior e
+            // escreve no quadro; a do quadro vai ao `data`, que quem sombreia lê).
+            { ...wordBuffer('state', 16), history: { depth: 2 } },
+            {
+                ...wordBuffer('film', FIELD_FILM_WORDS.value * FIELD_FILM_CELLS * 4),
+                history: { depth: 2 },
             },
         ];
     }

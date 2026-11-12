@@ -84,6 +84,18 @@ describe('FluidField (spec 033, R11)', () => {
             schema: SetCountSchema,
             count: 1,
         });
+        // O estado entre quadros nos canais temporais (T060f; constituição VII): o nível e o volume, e a película.
+        const descriptors = field.getDescriptors();
+        expect(descriptors.find((d) => d.id === 'state')).toMatchObject({
+            role: 'storage-rw',
+            count: 4,
+            history: { depth: 2 },
+        });
+        expect(descriptors.find((d) => d.id === 'film')).toMatchObject({
+            role: 'storage-rw',
+            count: 6 * FIELD_FILM_CELLS,
+            history: { depth: 2 },
+        });
         // Blocos de 8³ voxels, voxel de ½ espaçamento (os voxels com 2 de borda de cada lado: 12³).
         expect(FIELD_BRICK).toBe(8);
         expect(FIELD.voxel).toBe(0.5);

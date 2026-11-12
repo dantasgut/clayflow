@@ -266,6 +266,7 @@ fn field_film_cell_at(c: vec3i) -> vec2f {
     let key = field_film_key(c);
     if (key == 0u) { return vec2f(0.0); }
     var slot = field_film_bucket(c);
+    let step = (key << 1u) | 1u;
     for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
         let w = field_film_word(slot);
         let found = field_data[w];
@@ -279,7 +280,7 @@ fn field_film_cell_at(c: vec3i) -> vec2f {
             );
         }
         if (found == 0u) { return vec2f(0.0); }
-        slot = (slot + 1u) & fluid_field.film.y;
+        slot = (slot + step) & fluid_field.film.y;
     }
     return vec2f(0.0);
 }

@@ -48,6 +48,16 @@ fn field_bucket(b: vec3i) -> u32 {
     return hash_cell(bitcast<vec3u>(b)) & fluid_field.sizes.z;
 }
 
+/**
+ * Passo da sondagem das coordenadas `c` (T068, dupla dispersão): ímpar (percorre a tabela inteira de potência de dois) e
+ * tirado da chave — as chaves que caem no mesmo balde seguem por caminhos diferentes. Com a sondagem linear, os blocos
+ * vizinhos da água se amontoavam em sequências longas de baldes ocupados (o hash espacial põe vizinhos perto): a marcha
+ * do mapa da luz pela água 2,60 → 2,08 ms e a marcação 0,17 → 0,10 ms, na barragem de 64 000.
+ */
+fn field_step(c: vec3i) -> u32 {
+    return (field_key(c) << 1u) | 1u;
+}
+
 /** Bloco que contém o ponto de mundo `p`. */
 fn field_brick_of(p: vec3f) -> vec3i {
     return vec3i(floor(p / field_brick_size()));

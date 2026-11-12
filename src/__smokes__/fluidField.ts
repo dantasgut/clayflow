@@ -38,9 +38,12 @@
 //     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do meio do corpo na corda (homogêneo: o
 //     fechamento do corpo avaliado uma vez por quadro, spec 039) — |Δ ln T| ≤ σ · 1 voxel
 //     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
-//   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
-//     marcha ≤ 1 ms: medidos juntos pela diferença do tempo de GPU por quadro (perfil por quadro: o por passo não é
-//     confiável no Apple) entre a mesma barragem com a água e com sprites, ≤ 2,5 ms.
+//   - timing (spec 034, T068): o custo da água pelo campo (a construção e a marcha), 64 000 partículas em 1280 × 720,
+//     por perfil do `Renderer` — na mesma aplicação, a mesma barragem alternada 4 vezes com e sem a água pelo campo (a
+//     função `material` tirada e posta na entidade; sem ela, o corpo segue simulado e não é desenhado), o intervalo de GPU do quadro (do primeiro início ao último fim: a soma dos passes
+//     conta duas vezes o que a GPU sobrepõe) na mediana de cada estado; a diferença é o custo da água. Antes, duas
+//     aplicações em sequência e a soma dos passes: −18,8 ms numa rodada (o ruído de dois quadros de ~90 ms), e o "sem"
+//     eram sprites, que custam mais que a água. Limites por perfil pela medida (`TIMING_LIMITS`) e o da construção.
 //
 // Para rodar: `npm run smoke -- fluidField [--query case=close]`. Resultado: `FLUIDFIELD SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -51,6 +54,7 @@ import {
     Flow,
     FluidBody,
     FluidField,
+    MaterialFunction,
     fieldAtlasOffset,
     fieldDataLayout,
     ParticlePhysics,
@@ -70,6 +74,7 @@ import type {
     BoundFlow,
     FlowTransitions,
     Frame,
+    RenderProfile,
     SingletonSlot,
     SlotMap,
     TransitionContext,
@@ -921,10 +926,39 @@ async function caseContact(): Promise<void> {
     s.dispose();
 }
 
-/** Tempo de GPU por quadro (perfil por quadro, leituras novas a cada quadro de tela) da barragem de 64 000. */
-async function damFrameTime(
-    material: 'water' | 'sprites',
-): Promise<{ mean: number; readings: number; count: number }> {
+/**
+ * Custo da água pelo campo por perfil (ms a 1280 × 720, 64 000 partículas: a diferença do intervalo de GPU do quadro com
+ * e sem ela) e o da construção do campo (`FluidFieldFlow`, igual nos três): o medido na T068 (2026-11-12, M4 Max — alto
+ * 36,2, médio 23,9, baixo 22,3; a construção 6,8) com a folga de ¼ para o ruído entre rodadas. A maior parte não é o campo:
+ * a refração pela água (`RefractionFlow`, a composição e o pedido pela malha), as cáusticas e a luz rebatida por ela.
+ */
+const TIMING_LIMITS: Readonly<Record<RenderProfile, number>> = { high: 45, medium: 30, low: 28 };
+const BUILD_LIMIT = 8.5;
+
+/** Mediana. */
+function median(values: readonly number[]): number {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)] ?? NaN;
+}
+
+/**
+ * O intervalo de GPU do quadro da barragem de 64 000 com e sem a água pelo campo, na mesma aplicação, alternados em
+ * `cycles` ciclos de `frames` quadros medidos; por Flow, a diferença; e os passes da construção do campo
+ * (`FluidFieldFlow`) nos quadros com a água.
+ */
+async function damCost(
+    profile: RenderProfile,
+    cycles: number,
+    frames: number,
+): Promise<{
+    water: number;
+    off: number;
+    build: number;
+    stages: [string, number][];
+    passes: [string, number][];
+    readings: number;
+    count: number;
+}> {
     const W = 1280;
     const H = 720;
     const canvas = document.createElement('canvas');
@@ -939,55 +973,125 @@ async function damFrameTime(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        profiling: 'frame',
+        // Por passe: o intervalo do quadro (do primeiro início ao último fim) e o tempo de cada Flow.
+        profiling: 'passes',
     });
     app.events.on('engineError', (e) => engineErrors.push(`timing: ${e.stage}: ${e.message}`));
+    app.defaults.renderer.profile = profile;
     const body = waterScene(app, {
         width: W,
         height: H,
         dam: [40, 40, 40],
         box: true,
-        ...(material === 'sprites' ? { material: 'sprites' as const } : {}),
+        diffuse: false,
     })!;
-    const gpu: number[] = [];
-    let counting = false;
+    // A aparência atual (uma instância nova a cada troca: a removida não volta à cena).
+    let look: MaterialFunction | undefined = body.attached.find(
+        (c): c is MaterialFunction => c instanceof MaterialFunction,
+    )!;
+    let state: 'water' | 'off' | undefined;
+    const spans = { water: [] as number[], off: [] as number[] };
+    // Por Flow, os tempos de cada estado (a soma dos passes dele: onde vai a diferença).
+    const flows = { water: new Map<string, number[]>(), off: new Map<string, number[]>() };
+    // Os passes da construção do campo nos quadros com a água.
+    const passes = new Map<string, number[]>();
     app.events.on('gpuFrameTimed', (e) => {
-        if (counting) gpu.push(e.totalMs);
+        if (state === undefined) return;
+        spans[state].push(e.spanMs);
+        if (state === 'water')
+            for (const [pass, ms] of Object.entries(e.passesMs)) {
+                if (!pass.includes('FluidFieldFlow')) continue;
+                const list = passes.get(pass) ?? [];
+                list.push(ms);
+                passes.set(pass, list);
+            }
+        for (const [flow, ms] of Object.entries(e.flowsMs)) {
+            const list = flows[state].get(flow) ?? [];
+            list.push(ms);
+            flows[state].set(flow, list);
+        }
     });
-    // Todos os pipelines compilados antes de medir (a água recompõe os da cena ao entrar).
+    const show = async (next: 'water' | 'off'): Promise<void> => {
+        state = undefined;
+        if (look !== undefined) app.world.detach(body, look);
+        // Sem a água, o corpo segue simulado e não é desenhado: a diferença é a água pelo campo inteira (a construção,
+        // a marcha, as cáusticas e a luz rebatida por ela), sem o custo de outra aparência no lugar.
+        look = next === 'water' ? waterLook() : undefined;
+        if (look !== undefined) app.world.attach(body, look);
+        await app.whenReady({ timeoutMs: 60_000 });
+        // Os quadros em voo do estado anterior saem antes de medir.
+        for (let i = 0; i < 8; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        state = next;
+        for (let i = 0; i < frames; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        state = undefined;
+    };
     await app.whenReady({ timeoutMs: 60_000 });
     await simulate(app, 90);
-    counting = true;
-    for (let i = 0; i < 120; i++) {
-        app.step(1 / 60);
-        await nextGpuFrame(app);
+    for (let c = 0; c < cycles; c++) {
+        await show('water');
+        await show('off');
     }
     app.dispose();
     canvas.remove();
-    const sorted = [...gpu].sort((a, b) => a - b);
-    // Uma leitura por quadro (spec 034); a mediana, robusta aos picos de relógio.
+    const n = Math.min(spans.water.length, spans.off.length);
+    const stages = [...new Set([...flows.water.keys(), ...flows.off.keys()])]
+        .map((flow): [string, number] => {
+            const at = (list: number[] | undefined): number =>
+                list === undefined
+                    ? 0
+                    : median([...list, ...Array<number>(n - list.length).fill(0)]);
+            return [flow, at(flows.water.get(flow)) - at(flows.off.get(flow))];
+        })
+        .filter(([, d]) => Math.abs(d) >= 0.05)
+        .sort((a, b) => b[1] - a[1]);
     return {
-        mean: sorted[Math.floor(sorted.length / 2)] ?? NaN,
-        readings: gpu.length,
+        water: median(spans.water),
+        off: median(spans.off),
+        build: median(flows.water.get('FluidFieldFlow') ?? [0]),
+        stages,
+        passes: [...passes].map(([pass, list]): [string, number] => [
+            pass.slice(pass.lastIndexOf('/') + 1),
+            median(list),
+        ]),
+        readings: n,
         count: body.count,
     };
 }
 
 async function caseTiming(): Promise<void> {
-    const water = await damFrameTime('water');
-    const sprites = await damFrameTime('sprites');
-    const cost = water.mean - sprites.mean;
-    log(
-        `timing: ${water.count} partículas em 1280 × 720: quadro com a água pelo campo ${water.mean.toFixed(2)} ms, com sprites ${sprites.mean.toFixed(2)} ms (${water.readings}/${sprites.readings} leituras) → a água custa ${cost.toFixed(2)} ms`,
-    );
-    check(
-        water.readings >= 90 && sprites.readings >= 90,
-        `timing: leituras de GPU suficientes (${water.readings}/${sprites.readings}, ≥ 90)`,
-    );
-    check(
-        cost <= 2.5,
-        `timing: campo + marcha da água ${cost.toFixed(2)} ms ≤ 2,5 ms (campo ≤ 1,5 e marcha ≤ 1)`,
-    );
+    const cycles = 4;
+    const frames = 30;
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        const m = await damCost(profile, cycles, frames);
+        const cost = m.water - m.off;
+        log(
+            `timing ${profile}: ${m.count} partículas em 1280 × 720, intervalo de GPU do quadro com a água pelo campo ${m.water.toFixed(2)} ms, sem ela ${m.off.toFixed(2)} ms (${m.readings} leituras por estado) → a água custa ${cost.toFixed(2)} ms; a construção do campo ${m.build.toFixed(2)} ms`,
+        );
+        log(
+            `timing ${profile}: por Flow, com − sem a água (soma dos passes) ${m.stages.map(([f, d]) => `${f} ${d.toFixed(2)}`).join(', ')}`,
+        );
+        log(
+            `timing ${profile}: passes da construção ${m.passes.map(([p, d]) => `${p} ${d.toFixed(2)}`).join(', ')}`,
+        );
+        check(
+            m.readings >= 0.75 * cycles * frames,
+            `timing ${profile}: leituras de GPU suficientes (${m.readings} ≥ ${0.75 * cycles * frames})`,
+        );
+        check(
+            cost <= TIMING_LIMITS[profile],
+            `timing ${profile}: a água pelo campo ${cost.toFixed(2)} ms ≤ ${TIMING_LIMITS[profile]} ms`,
+        );
+        check(
+            m.build <= BUILD_LIMIT,
+            `timing ${profile}: a construção do campo ${m.build.toFixed(2)} ms ≤ ${BUILD_LIMIT} ms`,
+        );
+    }
 }
 
 /** Fechamento no acerto dos raios: o acerto, o fechamento, a saída do corpo e a transmitância (6 `vec4f` por raio). */

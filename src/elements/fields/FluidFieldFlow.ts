@@ -22,6 +22,7 @@ import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
     slot,
+    type ChannelSlot,
     type EntitiesSlot,
     type PoolsSlot,
     type SingletonSlot,
@@ -64,6 +65,7 @@ import {
     FIELD_BRICK_VOXELS,
     FIELD_FILM_CELLS,
     FIELD_FILM_SURFACES,
+    FIELD_FILM_WORDS,
     FIELD_LIGHT_MAPS,
     FIELD_LIGHT_RES,
     FIELD_MAX_BODIES,
@@ -86,6 +88,7 @@ import {
     fieldMark,
     fieldRedistance,
     fieldResources as R,
+    fieldChannelSlots,
 } from './shaders';
 
 /** Slots do estágio do campo. */
@@ -108,6 +111,10 @@ export interface FluidFieldSlots extends SlotMap {
     readonly colliders: EntitiesSlot;
     /** A física da superfície dos sólidos (spec 034): rugosidade, histerese, poros, temperatura. */
     readonly surfaces: EntitiesSlot;
+    /** O nível da superfície e o volume entre quadros (T060f; constituição VII): canal temporal do campo. */
+    readonly fieldState: ChannelSlot<false>;
+    /** A película de água nos sólidos entre quadros (T060f; constituição VII): canal temporal do campo. */
+    readonly fieldFilm: ChannelSlot<false>;
     /** O ar da cena: a evaporação da película (sem ele, `Atmosphere.defaults`). */
     readonly atmosphere: SingletonSlot<true>;
     /** O espaço de trabalho da junção e da reconstrução: temporários, grade, regiões, a onda (spec 039). */
@@ -124,6 +131,9 @@ interface ScratchSize {
     readonly particles: number;
     readonly bricks: number;
 }
+
+/** Invocações por grupo da marcação dos blocos (as do alocador de páginas comum, `page_alloc.wgsl`). */
+const MARK_GROUP = 256;
 
 /**
  * O líquido da película sem a física de superfície no `ParticlePhysics` (`surfaceTension`): a água (0,072 N/m, 30°) —
@@ -326,12 +336,11 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             colliders: slot.entities({ all: [Collider] }),
             surfaces: slot.entities({ all: [SurfacePhysics] }),
             atmosphere: slot.singleton(Atmosphere.schema, { optional: true }),
+            ...fieldChannelSlots,
             work: slot.work(() => work),
         };
-        // O volume do campo somado no quadro e os temporários da junção e da reconstrução.
-        work.use({
-            descriptors: () => [wordBuffer('field_volume', 16), ...this.scratchDescriptors()],
-        });
+        // Os temporários da junção e da reconstrução.
+        work.use({ descriptors: () => this.scratchDescriptors() });
         this.wave = new RayWave(this.work, 'field');
         this.resources = ctx.resources;
         this.world = ctx.world;
@@ -448,15 +457,31 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         });
         frame.compute('FluidFieldFlow.mark', (pass) => {
             this.run(pass, at(CLEAR), table + 1, W);
-            this.run(pass, at(MARK), this.particles, W);
+            // Grupos de 256: os do alocador de páginas comum (`page_alloc.wgsl`).
+            this.run(pass, at(MARK), this.particles, MARK_GROUP);
             this.run(pass, at(LINKS), work.bricks, W);
         });
-        // A película de água nos sólidos (spec 034): só nos quadros em que a simulação avança (parada, fica).
-        if (this.filmAdvances) {
+        // O nível e o volume do quadro foram para a fatia do canal do estado (a limpeza): o seguinte a lê como a anterior.
+        bound.slots.fieldState.written();
+        // A película de água nos sólidos (spec 034): só nos quadros em que a simulação avança (parada, fica). O passo lê a
+        // fatia anterior do canal e escreve a do quadro (zerada antes), a deposição também; a do quadro vai ao buffer das
+        // consultas, que quem sombreia lê (T060f; constituição VII).
+        const film = bound.slots.fieldFilm.buffer(0);
+        const data = this.buffer(field, 'data');
+        if (this.filmAdvances && film !== undefined && data !== undefined) {
+            frame.clear(film);
             frame.compute('FluidFieldFlow.film', (pass) => {
                 this.run(pass, at(FILM_STEP), FIELD_FILM_CELLS, W);
                 this.run(pass, at(FILM_DEPOSIT), this.particles, W);
             });
+            frame.copy(
+                film,
+                data,
+                FIELD_FILM_WORDS.value * FIELD_FILM_CELLS * 4,
+                0,
+                fieldFilmOffset(field.capacity) * 4,
+            );
+            bound.slots.fieldFilm.written();
         }
         this.args.record(frame, { counts, index: 0, workgroupSize: 1 });
         // A densidade é somada em ponto fixo: o buffer (também o segundo do redistanciamento) começa zerado.
@@ -561,11 +586,6 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     override dispose(): void {
         this.grid.destroy();
         this.args.destroy();
-    }
-
-    /** Volume do campo somado no quadro (lido pela limpeza do seguinte: o nível que conserva o volume). */
-    private get volume(): StorageBufferSpec {
-        return this.resources.bufferOf(this.work.work, 'field_volume') as StorageBufferSpec;
     }
 
     /** Os temporários no Resource de trabalho, pelas capacidades atuais (spec 039). */
@@ -890,7 +910,6 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             [R.densityWrite, work.density],
             [R.phi0, work.phi0],
             [R.flags, work.phiA],
-            [R.volumeWrite, this.volume],
             [R.atlasStamps, stamps],
             [R.atlasClock, clock as BindingSource],
             ...[...this.colliderSet.sources()].filter(([r]) => FILM_COLLIDER_RESOURCES.has(r)),

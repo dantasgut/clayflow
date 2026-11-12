@@ -46,6 +46,8 @@ import {
     FluidFieldSchema,
 } from './schemas';
 import { bsdf, colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
+import { pageAlloc } from '../gpu/shaders/pageAlloc';
+import { slot } from '../../scene/flows/slots';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
 // marcação dos blocos, vizinhança, densidade, redistanciamento, borda) e a consulta (φ, normal, marcha). Os buffers que
@@ -157,8 +159,42 @@ export const fieldResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
-    /** Volume do campo somado no quadro (ponto fixo; lido na limpeza do seguinte). */
-    volumeWrite: priv('field_volume', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    /**
+     * O estado do campo entre quadros (T060f; constituição VII), canal temporal da spec 037: na fatia do quadro, o nível
+     * da superfície (f32) e o volume somado (ponto fixo); a do anterior, lida na limpeza.
+     */
+    state: wgslResource({
+        name: 'field_state',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: { slot: 'fieldState', lag: 0 },
+    }),
+    statePrevious: wgslResource({
+        name: 'field_state_previous',
+        binding: { storage: 'read' },
+        type: u32s,
+        frequency: 'stage',
+        provider: { slot: 'fieldState', lag: 1 },
+    }),
+    /**
+     * A película de água nos sólidos entre quadros (T060f; constituição VII), canal temporal: o passo lê a tabela do
+     * anterior e escreve a do quadro (a deposição também); a do quadro vai ao buffer das consultas, que quem sombreia lê.
+     */
+    film: wgslResource({
+        name: 'field_film_cells',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: { slot: 'fieldFilm', lag: 0 },
+    }),
+    filmPrevious: wgslResource({
+        name: 'field_film_previous',
+        binding: { storage: 'read' },
+        type: u32s,
+        frequency: 'stage',
+        provider: { slot: 'fieldFilm', lag: 1 },
+    }),
     cellStart: priv('cell_start', 'read', u32s),
     cellCount: priv('cell_count', 'read', u32s),
     cellItems: priv('cell_items', 'read', u32s),
@@ -246,13 +282,15 @@ export const fieldMark = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         NONE.module,
+        pageAlloc,
         R.params,
         fieldCommon,
         R.sorted,
         R.kernel,
         R.dataAtomic,
         R.countsWrite,
-        R.volumeWrite,
+        R.state,
+        R.statePrevious,
     ],
 });
 
@@ -323,7 +361,7 @@ export const fieldApron = wgslModule({
         R.dataVoxels,
         R.atlasStamps,
         R.atlasClock,
-        R.volumeWrite,
+        R.state,
     ],
 });
 
@@ -344,7 +382,7 @@ const fieldFilm = wgslModule({
 const fieldFilmUpdate = wgslModule({
     name: 'field_film_update',
     source: fieldFilmUpdateSource,
-    requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.dataAtomic],
+    requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.film],
 });
 
 /** Deposição da película por partícula encostada num sólido. */
@@ -377,6 +415,7 @@ export const fieldFilmStep = wgslModule({
         fieldCommon,
         fieldFilm,
         fieldFilmUpdate,
+        R.filmPrevious,
         colliderSurface,
     ],
 });
@@ -527,4 +566,10 @@ export const fieldRayLight = wgslModule({
     name: 'field_ray_light',
     source: 'fn ray_volume_light(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
     requires: [fieldLightThrough],
+});
+
+/** Os canais temporais do campo (T060f; constituição VII): o nível e o volume, e a película nos sólidos. */
+export const fieldChannelSlots = Object.freeze({
+    fieldState: slot.channel(FluidFieldSchema, 'state'),
+    fieldFilm: slot.channel(FluidFieldSchema, 'film'),
 });

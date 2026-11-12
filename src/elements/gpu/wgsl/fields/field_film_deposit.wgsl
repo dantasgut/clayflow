@@ -1,6 +1,7 @@
 // Deposição da película de água nos sólidos (`field_film.wgsl`, spec 034), por partícula encostada num sólido (o
 // contato do solver, a menos de 1,5 raio de colisão): a película residual na célula do ponto de contato (o máximo com a
-// que já há), a normal do sólido e, se a partícula é do volume da água (o núcleo não é o esparso), a marca de submersa.
+// que já há), a normal do sólido e, se a partícula é do volume da água (o núcleo não é o esparso), a marca de submersa —
+// na fatia do quadro do canal da película (T060f), depois do passo.
 // Requer: WORKGROUP_SIZE, fluid_field, field_common, field_film, field_film_update, field_sorted (leitura),
 // field_sorted_contacts (leitura), field_kernel (leitura).
 
@@ -14,8 +15,8 @@ fn field_film_deposit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(
     let q = field_sorted[t].xyz - n * contact.w;
     let slot = field_film_find(field_film_cell(q, n), true);
     if (slot == NONE) { return; }
-    let w = field_film_word(slot);
-    atomicMax(&field_data_atomic[w + 1u], u32(FIELD_FILM_RESIDUAL / FIELD_FILM_UNIT));
-    atomicStore(&field_data_atomic[w + 2u], pack4x8snorm(vec4f(n, 0.0)));
-    if (field_kernel[t * 3u + 2u].w == 0.0) { atomicStore(&field_data_atomic[w + 3u], 1u); }
+    let w = field_film_cell_word(slot);
+    atomicMax(&field_film_cells[w + 1u], u32(FIELD_FILM_RESIDUAL / FIELD_FILM_UNIT));
+    atomicStore(&field_film_cells[w + 2u], pack4x8snorm(vec4f(n, 0.0)));
+    if (field_kernel[t * 3u + 2u].w == 0.0) { atomicStore(&field_film_cells[w + 3u], 1u); }
 }
