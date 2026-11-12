@@ -6,14 +6,14 @@
 //   3. `vt_update_main` (uma por página virtual): a residente que a série do atlas não tem carimbada na época atual sai;
 //      a residente envelhece (zera quando pedida) e marca a página física com a idade e a dona; a pendente envelhece e
 //      sai depois de `VT_PENDING_MAX` quadros sem carga; a sem página pedida (os pedidos do quadro anterior, a série dos
-//      pedidos, e sempre a página mais grossa de cada imagem) precisa de alocação;
+//      pedidos, e sempre a página mais grossa de cada imagem; só das imagens preparadas) precisa de alocação;
 //   4. `vt_rank_main` (um grupo, nível a nível): as filas de cada nível na ordem do índice, até o orçamento;
 //   5. `vt_free_main` (um grupo): as páginas físicas livres em ordem e, depois delas, as residentes não pedidas há
 //      `VT_EVICT_AGE` quadros ou mais (o despejo, na ordem do índice);
 //   6. `vt_allocate_main` (um grupo; só nos quadros em que a CPU lê a lista): as filas do nível mais grosso ao mais fino
 //      até o orçamento e as livres — a entrada
 //      fica pendente na página física, a dona despejada sai da tabela e o par (página virtual, física) vai à lista que a
-//      CPU lê de volta (`vt_loads`) com as contagens do quadro;
+//      CPU lê de volta (`vt_loads`) com as contagens do quadro (a CPU pede os texels à fonte da imagem);
 //   7. `vt_requests_clear_main`: a fatia de agora da série dos pedidos zerada (o desenho do quadro a escreve).
 // Laços com teto constante. Referência: `material/virtual/reference/virtualTexture.ts` (`vtAllocate`).
 // Requer: vt_common, page_alloc, WORKGROUP_SIZE e os recursos de cada entrada.
@@ -80,6 +80,12 @@ fn vt_coarsest(g: u32) -> bool {
     return vt_table[VT_PREAMBLE + image * VT_HEADER + 7u] == g;
 }
 
+/** A imagem da página `g` está preparada (a fonte guarda a pirâmide: as páginas dela podem ser pedidas)? */
+fn vt_ready(g: u32) -> bool {
+    let image = vt_table[vt_table[3] + g] & 0xFFFFu;
+    return vt_table[VT_PREAMBLE + image * VT_HEADER + VT_READY_WORD] != 0u;
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn vt_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let g = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
@@ -87,7 +93,7 @@ fn vt_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
     let w = vt_table[1] + g;
     var entry = vt_table[w];
     atomicStore(&vt_scratch[vt_need_at(g)], 0u);
-    let requested = (vt_frame.requestsValid != 0u && vt_requests_previous[g] != 0u) || vt_coarsest(g);
+    let requested = vt_ready(g) && ((vt_frame.requestsValid != 0u && vt_requests_previous[g] != 0u) || vt_coarsest(g));
     if (requested) { atomicAdd(&vt_scratch[VT_REQUESTED], 1u); }
     let phys = entry & VT_PHYS_MASK;
     // A residente vale só carimbada na época atual da série do atlas.

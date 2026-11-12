@@ -17,4 +17,4 @@ export {
     type VirtualTexturesOptions,
 } from './virtual/VirtualTextures';
 export { VirtualTextureFlow } from './virtual/VirtualTextureFlow';
-export type { VirtualWrap } from './virtual/reference/virtualTexture';
+export type { VirtualColorSpace, VirtualWrap } from './virtual/layout';

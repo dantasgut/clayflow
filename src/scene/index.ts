@@ -336,6 +336,9 @@ export type {
     EngineReadyPayload,
     ConsumerMissingPayload,
     GpuFrameTimedPayload,
+    VirtualTextureRequestPayload,
+    VirtualTextureDeliveryPayload,
+    VirtualTextureLevelPayload,
     PendingWork,
 } from './events/index';
 

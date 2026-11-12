@@ -6,13 +6,19 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { GpuWordSchema } from '../../gpu/compute/schemas';
-import { VT_MAX_LEVELS, VT_PAGE_STRIDE } from './reference/virtualTexture';
+import { VT_MAX_LEVELS, VT_PAGE_STRIDE } from './layout';
 import type { VirtualImage } from './VirtualImage';
 
 /** Palavras do preâmbulo do buffer `words`: imagens, início da tabela, páginas virtuais, início das informações. */
 export const VT_PREAMBLE = 4;
 /** Palavras do cabeçalho de cada imagem (ver `vt_common.wgsl`). */
 export const VT_HEADER = 32;
+/**
+ * Palavra do cabeçalho com a média da imagem (RGBA8, o nível de 1 × 1) e a de "preparada" (a fonte já guarda a
+ * pirâmide inteira): escritas pelo `VirtualTextureFlow` com o resultado da preparação na GPU; antes dela, zero.
+ */
+export const VT_AVERAGE_WORD = 5;
+export const VT_READY_WORD = 24;
 /** Bits da entrada da tabela: a página física, residente, pendente (alocada, à espera da carga) e a idade. */
 export const VT_PHYS_MASK = 0xffff;
 export const VT_RESIDENT = 1 << 16;
@@ -47,13 +53,15 @@ export interface VirtualTexturesData {
 /**
  * Texturas virtuais dos materiais da cena (Camada 3; spec 034, T060c — o modelo das texturas virtuais do Unreal e do
  * id Tech): o cache de páginas de todas as `VirtualImage`. Cada imagem é uma pirâmide de páginas de 120² texels (com
- * borda de 4) e só as páginas pedidas pelos quadros existem na GPU, num atlas `rgba8unorm` (as imagens lineares filtradas
+ * borda de 4), preparada na GPU na entrada da imagem e guardada pela fonte (a aplicação), e só as páginas pedidas pelos
+ * quadros existem na GPU, num atlas `rgba8unorm` (as imagens lineares filtradas
  * pelo hardware; as em sRGB pelo bilinear em luz linear do nó, depois de decodificar cada texel).
  *
  * O nó `nodes.image.virtual` lê a tabela de páginas (o nível pelas derivadas do uv; a página residente mais fina, com a
  * mistura entre dois níveis) e marca a página que queria na série dos pedidos. O `VirtualTextureFlow` do quadro seguinte
  * lê os pedidos (atraso 1), envelhece e solta as páginas não pedidas, aloca as novas (do nível mais grosso ao mais fino,
- * até o orçamento) e a lista vai de volta à CPU, que escreve os texels das páginas no atlas pela C2; a página só vale
+ * até o orçamento) e a lista vai de volta à CPU, que pede os texels de cada página à fonte (`virtualTextureRequest`) e
+ * copia a resposta no atlas pela C2; a página só vale
  * carimbada na época da série por páginas do atlas (T060a). Descritores:
  *   - `params` (uniforme): páginas por lado do atlas, orçamento, imagens, páginas virtuais;
  *   - `words` (storage): o preâmbulo, os cabeçalhos, a tabela (uma palavra por página virtual) e a imagem e o nível de
@@ -71,6 +79,8 @@ export class VirtualTextures extends Entity<VirtualTexturesData> implements Reso
 
     state: ResourceState = ResourceState.Uninitialized;
     private readonly list: VirtualImage[] = [];
+    /** A média de cada imagem preparada (RGBA8, calculada na GPU pelo `VirtualTextureFlow`). */
+    private readonly averages = new Map<VirtualImage, number>();
 
     constructor(options: VirtualTexturesOptions = {}) {
         super();
@@ -81,7 +91,7 @@ export class VirtualTextures extends Entity<VirtualTexturesData> implements Reso
         if (!(Number.isInteger(budget) && budget >= 1 && budget <= VT_MAX_BUDGET))
             throw new RangeError(`VirtualTextures: budget ${budget} fora de 1–${VT_MAX_BUDGET}.`);
         this.list.push(...(options.images ?? []));
-        this.data = { atlasPages, budget, ...layout(this.list) };
+        this.data = { atlasPages, budget, ...layout(this.list, this.averages) };
     }
 
     /** As imagens, na ordem dos índices. */
@@ -93,8 +103,32 @@ export class VirtualTextures extends Entity<VirtualTexturesData> implements Reso
     addImage(image: VirtualImage): number {
         const previous = this.getDescriptors();
         this.list.push(image);
-        this.redescribe(previous, { ...this.rawData, ...layout(this.list) });
+        this.redescribe(previous, { ...this.rawData, ...layout(this.list, this.averages) });
         return this.list.length - 1;
+    }
+
+    /** A média da imagem preparada (RGBA8), ou `undefined` antes da preparação. */
+    averageOf(image: VirtualImage): number | undefined {
+        return this.averages.get(image);
+    }
+
+    /**
+     * A imagem `index` foi preparada (a fonte guarda a pirâmide): a média calculada na GPU e a marca de preparada vão
+     * ao cabeçalho dela. Devolve as palavras escritas (posição em `words`, valor), para o `VirtualTextureFlow` as levar
+     * ao buffer da GPU.
+     */
+    setPrepared(index: number, average: number): [number, number][] {
+        const image = this.list[index];
+        if (image === undefined) return [];
+        this.averages.set(image, average);
+        const h = VT_PREAMBLE + index * VT_HEADER;
+        const words = this.rawData.words;
+        words[h + VT_AVERAGE_WORD] = average;
+        words[h + VT_READY_WORD] = 1;
+        return [
+            [h + VT_AVERAGE_WORD, average],
+            [h + VT_READY_WORD, 1],
+        ];
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
@@ -144,7 +178,10 @@ export class VirtualTextures extends Entity<VirtualTexturesData> implements Reso
 }
 
 /** O preâmbulo, os cabeçalhos, a tabela zerada e as informações das páginas das imagens. */
-function layout(images: readonly VirtualImage[]): {
+function layout(
+    images: readonly VirtualImage[],
+    averages: ReadonlyMap<VirtualImage, number>,
+): {
     imageCount: number;
     totalPages: number;
     words: Uint32Array;
@@ -157,14 +194,18 @@ function layout(images: readonly VirtualImage[]): {
     let first = 0;
     images.forEach((img, i) => {
         const h = VT_PREAMBLE + i * VT_HEADER;
-        const avg = img.pyramid.levels[img.levels - 1]!;
         words[h] = img.width;
         words[h + 1] = img.height;
         words[h + 2] = img.levels;
         words[h + 3] = first;
         // O endereçamento (bit 0: prender) e a codificação (bit 1: linear).
         words[h + 4] = (img.wrap === 'clamp' ? 1 : 0) | (img.colorSpace === 'linear' ? 2 : 0);
-        words[h + 5] = (avg[0]! | (avg[1]! << 8) | (avg[2]! << 16) | (avg[3]! << 24)) >>> 0;
+        // A média e a marca de preparada: zeradas até a preparação na GPU.
+        const average = averages.get(img);
+        if (average !== undefined) {
+            words[h + VT_AVERAGE_WORD] = average;
+            words[h + VT_READY_WORD] = 1;
+        }
         words[h + 6] = img.pages;
         words[h + 7] = first + img.bases[img.levels - 1]!;
         for (let l = 0; l < VT_MAX_LEVELS; l++) words[h + 8 + l] = img.bases[l] ?? 0;

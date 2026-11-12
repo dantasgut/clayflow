@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { srgbDecode } from '../../../../math/reference/color';
 import vtCommonSource from '../../../../gpu/wgsl/virtual/vt_common.wgsl?raw';
+import vtPrepareSource from '../../../../gpu/wgsl/virtual/vt_prepare.wgsl?raw';
+import {
+    VT_MAX_LEVELS as ENGINE_MAX_LEVELS,
+    VT_PAGE_BORDER as ENGINE_BORDER,
+    VT_PAGE_PAYLOAD as ENGINE_PAYLOAD,
+    VT_PAGE_STRIDE as ENGINE_STRIDE,
+    VT_PREP_BLOCK,
+    VT_PREP_LEVELS,
+    vtLevelCount,
+    vtPagesOfLevel,
+    vtPrepOffset,
+    vtSizeOfLevel,
+} from '../../layout';
 import { VirtualImage } from '../../VirtualImage';
 import {
+    VT_AVERAGE_WORD,
     VT_HEADER,
+    VT_READY_WORD,
     VT_PENDING,
     VT_PHYS_MASK,
     VT_PREAMBLE,
@@ -18,6 +33,7 @@ import {
     vtAllocate,
     vtLevelBases,
     vtLevelPages,
+    vtLevelSize,
     vtLevels,
     vtLod,
     vtPageOf,
@@ -111,6 +127,7 @@ describe('texturas virtuais: a referência (spec 034, T060c)', () => {
         expect(value('VT_PHYS_MASK')).toBe(VT_PHYS_MASK);
         expect(value('VT_RESIDENT')).toBe(VT_RESIDENT);
         expect(value('VT_PENDING')).toBe(VT_PENDING);
+        expect(value('VT_READY_WORD')).toBe(VT_READY_WORD);
     });
 
     it('pirâmide: a média 2 × 2 em luz linear; a imagem constante fica constante', () => {
@@ -137,7 +154,6 @@ describe('texturas virtuais: a referência (spec 034, T060c)', () => {
         const linear = new VirtualImage({
             width: 64,
             height: 64,
-            pixels: picture(64, 64),
             colorSpace: 'linear',
             wrap: 'clamp',
         });
@@ -224,13 +240,8 @@ describe('texturas virtuais: a referência (spec 034, T060c)', () => {
     });
 
     it('VirtualTextures: o preâmbulo, os cabeçalhos, a tabela zerada e a imagem e o nível de cada página', () => {
-        const a = new VirtualImage({ width: 300, height: 130, pixels: picture(300, 130) });
-        const b = new VirtualImage({
-            width: 64,
-            height: 64,
-            pixels: picture(64, 64),
-            wrap: 'clamp',
-        });
+        const a = new VirtualImage({ width: 300, height: 130 });
+        const b = new VirtualImage({ width: 64, height: 64, wrap: 'clamp' });
         const vt = new VirtualTextures({ images: [a] });
         expect(vt.addImage(b)).toBe(1);
         const w = vt.data.words;
@@ -259,5 +270,66 @@ describe('texturas virtuais: a referência (spec 034, T060c)', () => {
         expect(w[info + a.pages]).toBe(1);
         expect(a.locate(a.bases[1]! + 1)).toEqual({ level: 1, px: 1, py: 0 });
         expect(vt.data.totalPages).toBe(a.pages + b.pages);
+        // A média e a marca de preparada: zeradas até a preparação; postas no lugar e levadas às disposições seguintes.
+        expect([w[hb + VT_AVERAGE_WORD], w[hb + VT_READY_WORD]]).toEqual([0, 0]);
+        expect(vt.averageOf(b)).toBeUndefined();
+        expect(vt.setPrepared(1, 0x80402010)).toEqual([
+            [hb + VT_AVERAGE_WORD, 0x80402010],
+            [hb + VT_READY_WORD, 1],
+        ]);
+        expect(vt.averageOf(b)).toBe(0x80402010);
+        vt.addImage(new VirtualImage({ width: 8, height: 8 }));
+        const h2 = VT_PREAMBLE + VT_HEADER;
+        expect([vt.data.words[h2 + VT_AVERAGE_WORD], vt.data.words[h2 + VT_READY_WORD]]).toEqual([
+            0x80402010, 1,
+        ]);
+        expect(vt.data.words[VT_PREAMBLE + VT_READY_WORD]).toBe(0);
+    });
+
+    it('a disposição do motor (`layout.ts`, `VirtualImage`) é a da referência, escrita à parte', () => {
+        const sizes: [number, number][] = [
+            [1, 1],
+            [2, 1],
+            [7, 300],
+            [120, 120],
+            [121, 119],
+            [3000, 2400],
+            [4096, 4096],
+            [32768, 3],
+        ];
+        expect([VT_PAGE_PAYLOAD, VT_PAGE_BORDER, VT_PAGE_STRIDE, VT_MAX_LEVELS]).toEqual([
+            ENGINE_PAYLOAD,
+            ENGINE_BORDER,
+            ENGINE_STRIDE,
+            ENGINE_MAX_LEVELS,
+        ]);
+        for (const [w, h] of sizes) {
+            const img = new VirtualImage({ width: w, height: h });
+            expect(img.levels).toBe(vtLevels(w, h));
+            expect(vtLevelCount(w, h)).toBe(vtLevels(w, h));
+            const { bases, total } = vtLevelBases(w, h);
+            expect(img.bases).toEqual(bases);
+            expect(img.pages).toBe(total);
+            for (let l = 0; l < img.levels; l++) {
+                expect(vtSizeOfLevel(w, h, l)).toEqual(vtLevelSize(w, h, l));
+                expect(vtPagesOfLevel(w, h, l)).toEqual(vtLevelPages(w, h, l));
+            }
+        }
+    });
+
+    it('preparação: a saída de um bloco tem os níveis 1 a 10 do bloco de 1024², um após o outro', () => {
+        expect(VT_PREP_BLOCK).toBe(1 << VT_PREP_LEVELS);
+        expect(vtPrepOffset(1)).toBe(0);
+        expect(vtPrepOffset(2)).toBe(512 * 512);
+        let sum = 0;
+        for (let k = 1; k <= VT_PREP_LEVELS; k++) sum += (VT_PREP_BLOCK >> k) ** 2;
+        expect(vtPrepOffset(VT_PREP_LEVELS + 1)).toBe(sum);
+        // As mesmas constantes no WGSL da preparação.
+        expect(/const VT_PREP_BLOCK: u32 = (\d+)u;/.exec(vtPrepareSource)?.[1]).toBe(
+            String(VT_PREP_BLOCK),
+        );
+        expect(/const VT_PREP_LEVELS: u32 = (\d+)u;/.exec(vtPrepareSource)?.[1]).toBe(
+            String(VT_PREP_LEVELS),
+        );
     });
 });

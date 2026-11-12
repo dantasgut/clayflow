@@ -1,6 +1,7 @@
 // Texturas virtuais dos materiais (spec 034, T060c): a disposição comum ao nó e aos kernels das páginas — os tamanhos
 // da página (120² de conteúdo e 4 de borda: 128² no atlas), o preâmbulo e o cabeçalho de cada imagem no buffer `words`
-// (ver `VirtualTextures.ts`) e os bits da entrada da tabela. Referência: `material/virtual/reference/virtualTexture.ts`.
+// (ver `VirtualTextures.ts`) e os bits da entrada da tabela. Disposição: `material/virtual/layout.ts`; referência:
+// `material/virtual/reference/virtualTexture.ts`.
 
 const VT_PAYLOAD: u32 = 120u;
 const VT_BORDER: u32 = 4u;
@@ -12,6 +13,8 @@ const VT_PHYS_MASK: u32 = 0xFFFFu;
 const VT_RESIDENT: u32 = 0x10000u;
 const VT_PENDING: u32 = 0x20000u;
 const VT_AGE_SHIFT: u32 = 24u;
+/** Palavra do cabeçalho da imagem com a marca de preparada (a pirâmide inteira com a fonte). */
+const VT_READY_WORD: u32 = 24u;
 
 /**
  * Cabeçalho de uma imagem: tamanho, níveis, primeira página global, endereçamento e codificação (bit 0 prender, bit 1

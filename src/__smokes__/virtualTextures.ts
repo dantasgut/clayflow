@@ -1,6 +1,11 @@
 // Spec 034 (T060c) — Smoke das texturas virtuais dos materiais: uma `VirtualImage` de 3000 × 2400 (maior que o atlas de
 // 5 × 5 páginas, 600² texels de conteúdo) num quadro de 2 × 2 m, emissão pelo nó `nodes.image.virtual` (montado pelo
-// grafo de material, o caminho de autoria), visto de frente por uma câmera ortográfica que se aproxima e anda.
+// grafo de material, o caminho de autoria), visto de frente por uma câmera ortográfica que se aproxima e anda. O smoke
+// faz o papel da aplicação: a fonte da imagem (`PictureSource`) guarda a original e os níveis que a GPU prepara e só
+// copia bytes para os pedidos do motor — o motor não guarda a original nem processa texels fora da GPU.
+//
+//   (0) preparação: a pirâmide feita na GPU (blocos de 1024², a média 2 × 2 em luz linear) e entregue à fonte é a da
+//       referência f64 (`vtPyramid`) a menos de um degrau de 8 bits por canal (f32 contra f64 no arredondamento);
 //
 //   (a) leitura direta (a imagem em sRGB, filtrada em luz linear pelo nó, e a mesma imagem como dado linear, filtrada
 //       pelo hardware): em cada vista, quando as páginas que os pixels pedem estão residentes (a tabela lida de volta),
@@ -26,12 +31,17 @@ import {
     VirtualTextures,
 } from 'clayflow/web';
 import type { RenderProfile } from 'clayflow/web';
+import type { VirtualTextureLevelPayload, VirtualTextureRequestPayload } from 'clayflow/web';
 import {
     vtLevelBases,
     vtLevelPages,
+    vtLevelSize,
+    vtLevels,
     vtLod,
     vtPageOf,
+    vtPyramid,
     vtSample,
+    type VirtualPyramid,
 } from '../elements/material/virtual/reference/virtualTexture';
 import { hash2 } from '../elements/math/reference/random';
 import { nextGpuFrame } from './support/extensionScenes';
@@ -60,6 +70,12 @@ const RMS_ERROR = 0.0015;
  */
 const COST_STILL_MS = 0.05;
 const COST_MOVING_MS = 0.5;
+/** Quadros no máximo da preparação (12 blocos do nível 0 e 1 do nível 10, um por leitura de volta). */
+const PREPARE_FRAMES = 600;
+/** Tempo de GPU do `VirtualTextureFlow` no quadro de um bloco da preparação: ≤ 2 ms, 12 % do quadro de 60 Hz (medido 0,40). */
+const PREPARE_MS = 2;
+/** Diferença máxima por canal entre a pirâmide da GPU e a da referência (degraus de 8 bits). */
+const PYRAMID_STEPS = 1;
 
 const failures: string[] = [];
 const errors: string[] = [];
@@ -87,10 +103,100 @@ function picture(): Uint8Array {
     return p;
 }
 
+/**
+ * A fonte da imagem — o papel da aplicação (o arquivo, a rede ou a memória dela): a original e os níveis que a GPU
+ * prepara e entrega. Responde aos pedidos do motor só com cópia dos bytes do retângulo (linhas inteiras ou trechos delas;
+ * fora do nível, a volta ou a borda pelo endereçamento).
+ */
+class PictureSource {
+    readonly levels: (Uint8Array | undefined)[];
+    private readonly received: number[];
+    private readonly stop: (() => void)[] = [];
+
+    constructor(
+        private readonly app: Application,
+        private readonly textures: VirtualTextures,
+        private readonly index: number,
+        private readonly width: number,
+        private readonly height: number,
+        original: Uint8Array,
+    ) {
+        const count = vtLevels(width, height);
+        this.levels = Array.from({ length: count }, (_, l) => (l === 0 ? original : undefined));
+        this.received = Array.from({ length: count }, () => 0);
+        this.stop.push(
+            app.events.on('virtualTextureRequest', (e) => {
+                this.answer(e);
+            }),
+            app.events.on('virtualTextureLevel', (e) => {
+                this.keep(e);
+            }),
+        );
+    }
+
+    /** A pirâmide inteira está guardada? */
+    get complete(): boolean {
+        return this.received.every((n, l) => {
+            if (l === 0) return true;
+            const [w, h] = vtLevelSize(this.width, this.height, l);
+            return n >= w * h;
+        });
+    }
+
+    dispose(): void {
+        for (const off of this.stop) off();
+    }
+
+    /** Copia o retângulo pedido e responde. */
+    private answer(e: VirtualTextureRequestPayload): void {
+        if (e.textures !== this.textures || e.image !== this.index) return;
+        const src = this.levels[e.level];
+        if (src === undefined) return;
+        const [lw, lh] = vtLevelSize(this.width, this.height, e.level);
+        const out = new Uint8Array(e.width * e.height * 4);
+        const wrap = (i: number, n: number): number =>
+            e.wrap === 'repeat' ? ((i % n) + n) % n : Math.min(Math.max(i, 0), n - 1);
+        for (let j = 0; j < e.height; j++) {
+            const row = wrap(e.y + j, lh) * lw;
+            let i = 0;
+            while (i < e.width) {
+                const x = e.x + i;
+                const sx = wrap(x, lw);
+                // Fora do nível com a borda presa: o texel da borda; senão, o trecho contíguo da linha.
+                const n =
+                    e.wrap === 'clamp' && (x < 0 || x >= lw) ? 1 : Math.min(e.width - i, lw - sx);
+                out.set(src.subarray((row + sx) * 4, (row + sx + n) * 4), (j * e.width + i) * 4);
+                i += n;
+            }
+        }
+        this.app.events.emit('virtualTextureDelivery', {
+            textures: this.textures,
+            request: e.request,
+            texels: out,
+        });
+    }
+
+    /** Guarda um retângulo de um nível preparado pela GPU. */
+    private keep(e: VirtualTextureLevelPayload): void {
+        if (e.textures !== this.textures || e.image !== this.index) return;
+        const [lw, lh] = vtLevelSize(this.width, this.height, e.level);
+        const level = (this.levels[e.level] ??= new Uint8Array(lw * lh * 4));
+        for (let j = 0; j < e.height; j++)
+            level.set(
+                e.texels.subarray(j * e.width * 4, (j + 1) * e.width * 4),
+                ((e.y + j) * lw + e.x) * 4,
+            );
+        this.received[e.level]! += e.width * e.height;
+    }
+}
+
 interface Scene {
     readonly app: Application;
     readonly canvas: HTMLCanvasElement;
     readonly image: VirtualImage;
+    /** A pirâmide da referência (o oráculo das comparações). */
+    readonly reference: VirtualPyramid;
+    readonly source: PictureSource;
     readonly cache: VirtualTextures;
     readonly camera: Camera;
     readonly eye: Transform;
@@ -113,17 +219,10 @@ async function build(colorSpace: 'srgb' | 'linear'): Promise<Scene> {
     app.events.on('extensionRejected', (e) =>
         errors.push(`extensionRejected ${e.point}:${e.line}: ${e.message}`),
     );
-    const t0 = performance.now();
-    const image = new VirtualImage({
-        width: IMAGE_W,
-        height: IMAGE_H,
-        pixels: picture(),
-        colorSpace,
-    });
-    log(
-        `${colorSpace}: pirâmide de ${image.levels} níveis, ${image.pages} páginas virtuais (${(performance.now() - t0).toFixed(0)} ms)`,
-    );
+    const original = picture();
+    const image = new VirtualImage({ width: IMAGE_W, height: IMAGE_H, colorSpace });
     const cache = new VirtualTextures({ images: [image], atlasPages: ATLAS_PAGES });
+    const source = new PictureSource(app, cache, 0, IMAGE_W, IMAGE_H, original);
     app.world.insert(cache);
     // A emissão é a imagem; a base preta e fosca (o especular que sobra entra no ajuste do fundo).
     const graph = new NodeGraph({
@@ -152,7 +251,53 @@ async function build(colorSpace: 'srgb' | 'linear'): Promise<Scene> {
     });
     app.world.insert(camera.add(eye));
     await app.whenReady({ timeoutMs: 60_000 });
-    return { app, canvas, image, cache, camera, eye };
+    const reference = vtPyramid(IMAGE_W, IMAGE_H, original, colorSpace);
+    const s: Scene = { app, canvas, image, reference, source, cache, camera, eye };
+    await preparation(s, colorSpace);
+    return s;
+}
+
+/** (0) A preparação na GPU: os quadros até a fonte guardar a pirâmide e a pirâmide contra a da referência. */
+async function preparation(s: Scene, colorSpace: string): Promise<void> {
+    let frames = 0;
+    let cost = 0;
+    while (!s.source.complete && frames < PREPARE_FRAMES) {
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+        frames++;
+        const ns = s.app.core.lastFrameStats().stagesNs?.VirtualTextureFlow;
+        if (ns !== undefined) cost = Math.max(cost, ns / 1e6);
+    }
+    if (!s.source.complete) {
+        failures.push(`${colorSpace}: a pirâmide não chegou à fonte em ${PREPARE_FRAMES} quadros`);
+        return;
+    }
+    let worst = 0;
+    let off = 0;
+    let total = 0;
+    for (let l = 1; l < s.image.levels; l++) {
+        const gpu = s.source.levels[l]!;
+        const ref = s.reference.levels[l]!;
+        for (let i = 0; i < ref.length; i++) {
+            const d = Math.abs(gpu[i]! - ref[i]!);
+            if (d > 0) off++;
+            worst = Math.max(worst, d);
+        }
+        total += ref.length;
+    }
+    log(
+        `${colorSpace}: pirâmide de ${s.image.levels} níveis na GPU em ${frames} quadros (o quadro mais caro do `
+            + `VirtualTextureFlow: ${cost.toFixed(3)} ms); contra a referência, `
+            + `${off} de ${total} canais diferem, no máximo ${worst} degrau(s)`,
+    );
+    if (!(cost <= PREPARE_MS))
+        failures.push(
+            `${colorSpace}: a preparação custa ${cost.toFixed(3)} ms num quadro (≤ ${PREPARE_MS})`,
+        );
+    if (worst > PYRAMID_STEPS)
+        failures.push(
+            `${colorSpace}: a pirâmide da GPU difere da referência em ${worst} degraus (≤ ${PYRAMID_STEPS})`,
+        );
 }
 
 /** Uma vista: o centro (m) e a altura (m) da câmera. */
@@ -246,7 +391,7 @@ async function compare(
             // Longe da borda do quadro (o pixel vizinho fora dele muda as derivadas da GPU).
             const margin = 2 * d;
             if (u < margin || u > 1 - margin || vv < margin || vv > 1 - margin) continue;
-            const ref = vtSample(s.image.pyramid, [u, vv], [d, 0], [0, d], 'repeat');
+            const ref = vtSample(s.reference, [u, vv], [d, 0], [0, d], 'repeat');
             const o = (j * img.width + i) * 4;
             for (let c = 0; c < 3; c++) pairs.push([ref[c]!, img.data[o + c]!]);
         }
@@ -368,6 +513,7 @@ async function main(): Promise<void> {
         await partAB(s, VIEWS, true);
         await partC(s);
     } finally {
+        s.source.dispose();
         s.app.dispose();
         s.canvas.remove();
     }
@@ -376,6 +522,7 @@ async function main(): Promise<void> {
     try {
         await partAB(linear, VIEWS.slice(0, 3), false);
     } finally {
+        linear.source.dispose();
         linear.app.dispose();
         linear.canvas.remove();
     }

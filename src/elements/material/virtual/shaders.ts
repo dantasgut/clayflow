@@ -7,6 +7,7 @@ import { color } from '../../gpu/shaders/math';
 import { pageAlloc } from '../../gpu/shaders/pageAlloc';
 import vtCommonSource from '../../gpu/wgsl/virtual/vt_common.wgsl?raw';
 import vtPagesSource from '../../gpu/wgsl/virtual/vt_pages.wgsl?raw';
+import vtPrepareSource from '../../gpu/wgsl/virtual/vt_prepare.wgsl?raw';
 import imageSource from '../../gpu/wgsl/nodes/image.wgsl?raw';
 import { VirtualTextures } from './VirtualTextures';
 
@@ -156,4 +157,46 @@ export const vtPages = wgslModule({
     source: vtPagesSource,
     requires: [vtCommon, pageAlloc, WORKGROUP_SIZE.module, ...Object.values(vtPageResources)],
     structs: [VirtualTextures.schema],
+});
+
+/**
+ * Parâmetros do bloco da preparação (`vt_prepare.wgsl`): `size` = (lado do nível L, largura e altura do bloco de
+ * entrada); `origin` = (origem do bloco no nível L, níveis a produzir, linear?).
+ */
+export const VirtualPrepareSchema = new StructSchema('VirtualPrepare', {
+    size: FieldType.vec4u,
+    origin: FieldType.vec4u,
+});
+
+/** Slot do trabalho que liga os recursos da preparação. */
+const prepResources = {
+    params: wgslResource({
+        name: 'vt_prep',
+        binding: { uniform: true },
+        type: { schema: VirtualPrepareSchema },
+        frequency: 'stage',
+        provider: { slot: vtSlots.work, descriptor: 'vt_prep' },
+    }),
+    input: wgslResource({
+        name: 'vt_prep_in',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: vtSlots.work, descriptor: 'vt_prep_in' },
+    }),
+    output: wgslResource({
+        name: 'vt_prep_out',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: vtSlots.work, descriptor: 'vt_prep_out' },
+    }),
+} as const;
+
+/** Os kernels da preparação da pirâmide na GPU (ver `vt_prepare.wgsl`). */
+export const vtPrepare = wgslModule({
+    name: 'vt_prepare',
+    source: vtPrepareSource,
+    requires: [color, ...Object.values(prepResources)],
+    structs: [VirtualPrepareSchema],
 });

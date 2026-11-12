@@ -180,6 +180,56 @@ export interface GlobalIlluminationReadyPayload {
     readonly revision: number;
 }
 
+/**
+ * Payload de `virtualTextureRequest` (spec 034, T060c — texturas virtuais): o `VirtualTextureFlow` pede à fonte da
+ * imagem (a aplicação: o arquivo, a rede ou a memória dela — o motor não guarda a original) os texels RGBA8 de um
+ * retângulo de um nível, na codificação da imagem e linha a linha. Fora do nível, o endereçamento da imagem
+ * (`repeat`: a volta; `clamp`: a borda). A fonte responde com `virtualTextureDelivery` (o mesmo `request`), agora ou
+ * depois — só cópia dos bytes.
+ */
+export interface VirtualTextureRequestPayload {
+    /** As `VirtualTextures` da cena. */
+    readonly textures: Resource;
+    /** Identificador do pedido (a resposta o devolve). */
+    readonly request: number;
+    /** Índice da imagem nas `VirtualTextures`. */
+    readonly image: number;
+    /** Nível da pirâmide (0: a original). */
+    readonly level: number;
+    /** O canto do retângulo no nível, em texels (pode sair do nível: o endereçamento vale). */
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly wrap: 'repeat' | 'clamp';
+}
+
+/** Payload de `virtualTextureDelivery`: a resposta da fonte a um `virtualTextureRequest` (spec 034, T060c). */
+export interface VirtualTextureDeliveryPayload {
+    readonly textures: Resource;
+    /** O `request` do pedido. */
+    readonly request: number;
+    /** `width × height × 4` bytes, linha a linha (a primeira é a de cima do retângulo). */
+    readonly texels: Uint8Array;
+}
+
+/**
+ * Payload de `virtualTextureLevel` (spec 034, T060c): um retângulo de um nível reduzido da pirâmide, calculado na GPU
+ * na preparação da imagem (a média 2 × 2 em luz linear), entregue à fonte para guardar — a preparação do arquivo das
+ * engines. Os pedidos de páginas desse nível vêm só depois de a imagem inteira estar preparada.
+ */
+export interface VirtualTextureLevelPayload {
+    readonly textures: Resource;
+    readonly image: number;
+    readonly level: number;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    /** `width × height × 4` bytes RGBA8 na codificação da imagem, linha a linha. */
+    readonly texels: Uint8Array;
+}
+
 /** Um trabalho que impede o quadro de sair completo (spec 034, prontidão do motor). */
 export interface PendingWork {
     /** Tipo do Flow. */
@@ -412,6 +462,12 @@ export interface EventMap {
     consumerMissing: ConsumerMissingPayload;
     /** A C2 emite uma vez por quadro medido, quando a leitura de tempo de GPU dele chega (spec 034). */
     gpuFrameTimed: GpuFrameTimedPayload;
+    /** O `VirtualTextureFlow` pede à fonte de uma imagem virtual os texels de um retângulo (spec 034, T060c). */
+    virtualTextureRequest: VirtualTextureRequestPayload;
+    /** A fonte de uma imagem virtual responde a um pedido (spec 034, T060c). */
+    virtualTextureDelivery: VirtualTextureDeliveryPayload;
+    /** O `VirtualTextureFlow` entrega à fonte um nível reduzido calculado na GPU (spec 034, T060c). */
+    virtualTextureLevel: VirtualTextureLevelPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

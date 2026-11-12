@@ -22,6 +22,9 @@ export type {
     EngineReadyPayload,
     ConsumerMissingPayload,
     GpuFrameTimedPayload,
+    VirtualTextureRequestPayload,
+    VirtualTextureDeliveryPayload,
+    VirtualTextureLevelPayload,
     PendingWork,
 } from './EventMap';
 export { DefaultEventBus } from './DefaultEventBus';
