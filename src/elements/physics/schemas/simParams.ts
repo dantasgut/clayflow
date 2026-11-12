@@ -125,9 +125,9 @@ export const SPHSimParamsSchema = new StructSchema(
         inv_particle_mass: FieldType.f32,
         /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
         neighbor_stride: FieldType.u32,
-        /** γ da tensão superficial de Akinci (0 = desligada; spec 030). */
+        /** γ da coesão de Akinci, a tensão da borda não resolvida (0 = desligada; spec 030, T066e). */
         cohesion_gamma: FieldType.f32,
-        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030). */
+        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030; com tensão, só a borda não resolvida). */
         adhesion_accel: FieldType.f32,
         /** Arrasto tangencial da adesão no contato, 1/s (spec 030). */
         adhesion_tangential: FieldType.f32,
@@ -144,6 +144,10 @@ export const SPHSimParamsSchema = new StructSchema(
         wet_neighbors: FieldType.u32,
         /** Ancoramento da borda da gota solta ao longo do sólido (m/s²): |g| · sen(ângulo de deslize). */
         wet_pinning: FieldType.f32,
+        /** Tensão superficial contínua σ/ρ₀, m³/s² (0 = desligada; spec 034, T066e). */
+        surface_tension: FieldType.f32,
+        /** cos θ do ângulo de contato de Young com os sólidos (a normal da borda junto deles; spec 034, T066e). */
+        wet_cos: FieldType.f32,
         /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
         bound_max: FieldType.vec3f,
         /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
@@ -175,9 +179,9 @@ export const PBFSimParamsSchema = new StructSchema(
         mass_over_density: FieldType.f32,
         /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
         neighbor_stride: FieldType.u32,
-        /** γ da tensão superficial de Akinci (0 = desligada; spec 030). */
+        /** γ da coesão de Akinci, a tensão da borda não resolvida (0 = desligada; spec 030, T066e). */
         cohesion_gamma: FieldType.f32,
-        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030). */
+        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030; com tensão, só a borda não resolvida). */
         adhesion_accel: FieldType.f32,
         /** Arrasto tangencial da adesão no contato, 1/s (spec 030). */
         adhesion_tangential: FieldType.f32,
@@ -194,6 +198,10 @@ export const PBFSimParamsSchema = new StructSchema(
         wet_neighbors: FieldType.u32,
         /** Ancoramento da borda da gota solta ao longo do sólido (m/s²): |g| · sen(ângulo de deslize). */
         wet_pinning: FieldType.f32,
+        /** Tensão superficial contínua σ/ρ₀, m³/s² (0 = desligada; spec 034, T066e). */
+        surface_tension: FieldType.f32,
+        /** cos θ do ângulo de contato de Young com os sólidos (a normal da borda junto deles; spec 034, T066e). */
+        wet_cos: FieldType.f32,
         /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
         bound_max: FieldType.vec3f,
         /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */

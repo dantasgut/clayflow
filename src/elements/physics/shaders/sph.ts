@@ -117,7 +117,7 @@ export const sphPressure = wgslModule({
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 
-/** Normais de superfície da tensão superficial de Akinci (spec 030). */
+/** Normais de superfície da tensão superficial contínua (spec 030; CSF, spec 034 T066e). */
 export const sphNormals = wgslModule({
     name: 'sph_normals',
     source: sphNormalsSource,

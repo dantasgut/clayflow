@@ -8,13 +8,13 @@ import type { GPUDescriptor } from '../../../../scene/descriptors/GPUDescriptor'
 
 const vec4 = (name: string): StructSchema => new StructSchema(name, { v: FieldType.vec4f });
 
-/** Normal de superfície por partícula SPH (tensão superficial de Akinci, spec 030). */
+/** Normal de superfície por partícula SPH: n̂ e |∇c| da tensão contínua (spec 030; T066e). */
 export const SPHNormalSchema = vec4('SPHNormal');
 /** Fronteira sólida por partícula SPH (Σ −B' n, Σ B; Akinci et al. 2012). */
 export const SPHBoundarySchema = vec4('SPHBoundary');
 /** Correção de posição por partícula PBF. */
 export const PBFDeltaSchema = vec4('PBFDelta');
-/** Normal de superfície por partícula PBF. */
+/** Normal de superfície por partícula PBF: n̂ e |∇c| da tensão contínua (spec 034, T066e). */
 export const PBFNormalSchema = vec4('PBFNormal');
 /** Fronteira sólida por partícula PBF (spec 034). */
 export const PBFBoundarySchema = vec4('PBFBoundary');

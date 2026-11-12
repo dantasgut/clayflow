@@ -31,11 +31,14 @@ fn pbf_predict_main(
     let field = field_accel(p.pos.xyz, v_in, pbf_params.field_time, body);
     if (any(field != vec3f(0.0))) { p.vel = vec4f(p.vel.xyz + dt * field, 0.0); }
 
-    // Adesão às fronteiras (spec 030): uma vez por iteração, junto da gravidade (a colisão roda N vezes no solver).
-    if (pbf_params.adhesion_accel > 0.0) {
+    // Adesão às fronteiras (spec 030): uma vez por iteração, junto da gravidade (a colisão roda N vezes no solver). Com
+    // tensão superficial, só o arrasto tangencial: a molhagem da borda resolvida vem do ângulo de contato e a força
+    // normal fica com a não resolvida, no passe do XSPH (T066e).
+    if (pbf_params.adhesion_tangential > 0.0) {
         var v = p.vel.xyz;
+        let normal_accel = select(pbf_params.adhesion_accel, 0.0, pbf_params.surface_tension > 0.0);
         collider_set_adhesion(
-            p.pos.xyz, &v, pbf_params.support, pbf_params.adhesion_accel, pbf_params.adhesion_tangential, dt,
+            p.pos.xyz, &v, pbf_params.support, normal_accel, pbf_params.adhesion_tangential, dt,
             fluid_adhesion_min(pbf_params.bound_min, pbf_params.open_bounds),
         );
         p.vel = vec4f(v, 0.0);

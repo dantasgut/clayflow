@@ -34,13 +34,17 @@ export interface ParticlePhysicsOptions {
      */
     readonly bounds?: 'walls' | 'open';
     /**
-     * Coesão — tensão superficial de Akinci et al. 2013 (SPH e PBF), adimensional (default 0, desligada): 1 dá à
-     * partícula de borda uma aceleração de coesão da ordem de g. Referência de água: `ParticlePhysics.WATER_COHESION`.
+     * Coesão — a tensão superficial (SPH e PBF), adimensional (default 0, desligada): σ/(ρ₀ s² g), o comprimento capilar
+     * em espaçamentos ao quadrado. A borda resolvida segue a tensão contínua (CSF; spec 034, T066e) e a não resolvida
+     * (gotinha, fragmento, lâmina mais fina que o núcleo) a coesão molecular de Akinci et al. 2013, em que 1 dá à
+     * partícula de borda uma aceleração da ordem de g. Referência de água: `ParticlePhysics.WATER_COHESION`.
      */
     readonly cohesion?: number;
     /**
-     * Adesão às fronteiras sólidas (limites do domínio e colliders), adimensional (default 0, desligada): 1 dá à
-     * partícula em contato uma aceleração de adesão da ordem de g. Referência de água: `ParticlePhysics.WATER_ADHESION`.
+     * Adesão às fronteiras sólidas (limites do domínio e colliders), adimensional (default 0, desligada). Com coesão, dá
+     * o ângulo de contato de Young pela relação de Young–Dupré, adesão = coesão (1 + cos θ) — a molhagem da borda
+     * resolvida (spec 034, T066e) —, e a força normal de Akinci na não resolvida; sem coesão, a força de adesão em todas:
+     * 1 dá à partícula em contato uma aceleração da ordem de g. Referência de água: `ParticlePhysics.WATER_ADHESION`.
      */
     readonly adhesion?: number;
     /** Suavização de velocidade XSPH do SPH e do PBF (default 0.05). */
@@ -97,6 +101,51 @@ const ADHESION_HALF_SPACE = simpson(
     (u) => Math.max(0, -4 * u * u + 6 * u - 2) ** 0.25 * u * u,
     0.5,
     1,
+);
+
+/** |∇c| mínimo da normal da tensão contínua, em 1/h (o `CSF_NORMAL_MIN` de `sph_kernels.wgsl`). */
+const CSF_NORMAL_MIN = 0.1;
+
+/**
+ * A fração da interface suavizada que as partículas amostram (spec 034, T066e): Σ s |∇c| por área das camadas de um
+ * semiespaço de fluido em rede de espaçamento s = 1 (só as camadas com normal, |∇c| ≥ `CSF_NORMAL_MIN`/h), com a
+ * derivada `dW` do núcleo do solver (suporte `support`, comprimento `h`). Através da superfície |∇c| integra a 1, mas a
+ * metade de fora fica no ar, sem partículas: a delta da tensão contínua é |∇c| dividido por esta fração.
+ */
+function csfSampling(dW: (r: number) => number, h: number, support: number): number {
+    const reach = Math.ceil(support);
+    let total = 0;
+    for (let layer = 0; layer <= reach; layer++) {
+        let gy = 0;
+        for (let x = -reach; x <= reach; x++)
+            for (let y = -layer - reach; y <= 0; y++)
+                for (let z = -reach; z <= reach; z++) {
+                    const dy = -layer - y;
+                    const r = Math.hypot(x, dy, z);
+                    if (r > 0 && r < support) gy += (dW(r) * dy) / r;
+                }
+        if (Math.abs(gy) >= CSF_NORMAL_MIN / h) total += Math.abs(gy);
+    }
+    return total;
+}
+
+/** A fração amostrada na spline cúbica do SPH (h = 1,3 s, suporte 2h). */
+const CSF_SAMPLING_SPH = csfSampling(
+    (r) => {
+        const h = 1.3;
+        const q = r / h;
+        const sigma = 1 / (Math.PI * h ** 3);
+        return q < 1 ? (sigma * (-3 * q + 2.25 * q * q)) / h : (sigma * -0.75 * (2 - q) ** 2) / h;
+    },
+    1.3,
+    2.6,
+);
+
+/** A fração amostrada no gradiente do poly6 do PBF (h = 2 s, suporte h). */
+const CSF_SAMPLING_PBF = csfSampling(
+    (r) => (-945 / (32 * Math.PI * 2 ** 9)) * (4 - r * r) ** 2 * r,
+    2,
+    2,
 );
 
 /** Coesão e adesão efetivas de um quadro e os substeps que elas exigem (`ParticlePhysics.surfaceStep`). */
@@ -481,11 +530,41 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
     }
 
     /**
-     * γ de Akinci et al. 2013 em unidades do solver, para o suporte `support` (H) da vizinhança e a coesão dada (padrão
+     * γ da coesão de Akinci et al. 2013 (a borda não resolvida; spec 034, T066e) em unidades do solver, para o suporte `support` (H) da vizinhança e a coesão dada (padrão
      * a da física): a partícula na borda de um meio-espaço de fluido sente `coesão · g`.
      */
     cohesionGamma(cohesion = this.cohesion): number {
         return (cohesion * G0) / (32 * this.restDensity * COHESION_HALF_SPACE);
+    }
+
+    /**
+     * Tensão superficial contínua σ/ρ₀ (m³/s², spec 034 T066e) para a coesão dada (padrão a da física): a coesão é
+     * σ/(ρ₀ s² g) — o comprimento capilar √(σ/(ρ₀ g)) é s √coesão —, então σ/ρ₀ = coesão · g · s². Com
+     * `surfaceTension`, devolve o σ/ρ₀ dela.
+     */
+    surfaceTensionOverDensity(cohesion = this.cohesion): number {
+        return cohesion * G0 * this.particleSpacing * this.particleSpacing;
+    }
+
+    /**
+     * σ/ρ₀ que o kernel do `solver` usa (spec 034, T066e): a tensão dividida pela fração da interface que as partículas
+     * amostram nele (a delta da superfície vira |∇c| / fração, integrando a 1 através dela).
+     */
+    surfaceTensionKernel(solver: 'SPH' | 'PBF', cohesion = this.cohesion): number {
+        return (
+            this.surfaceTensionOverDensity(cohesion)
+            / (solver === 'SPH' ? CSF_SAMPLING_SPH : CSF_SAMPLING_PBF)
+        );
+    }
+
+    /**
+     * cos θ do ângulo de contato de Young com os sólidos (spec 034, T066e): o `contactAngle` com `surfaceTension`; no modo
+     * adimensional, pela relação de Young–Dupré da adesão, adesão = coesão (1 + cos θ), limitado a [−1, 1] (adesão
+     * acima de 2× a coesão molha tudo). Sem coesão, 0.
+     */
+    get contactCosine(): number {
+        if (this.cohesion <= 0) return 0;
+        return Math.max(-1, Math.min(1, this.adhesion / this.cohesion - 1));
     }
 
     /**
@@ -504,7 +583,6 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
         if (this.wallDrag !== undefined) return adhesion > 0 ? this.wallDrag : 0;
         return adhesion * Math.sqrt(G0 / this.particleSpacing);
     }
-
     /**
      * Substeps do quadro com coesão e adesão: o passo da oscilação que elas impõem numa partícula (aceleração `valor · g`
      * ao longo de um espaçamento, 0,4 √(s / (valor · g))) entra junto com o passo estável do solver. Até 4× os substeps

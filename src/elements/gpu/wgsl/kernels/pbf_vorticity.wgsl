@@ -35,18 +35,16 @@ fn pbf_vorticity_main(
     // Só ω: a força de confinamento lê |ωⱼ| dos vizinhos e é aplicada no passe seguinte (junto do XSPH).
     particles[i].curl = vec4f(omega, 0.0);
 
-    // Tensão superficial de Akinci (spec 030): normal nᵢ = H Σ (m/ρ₀) ∇W e densidade ρᵢ = m Σ W (poly6), lidas pelos
-    // vizinhos no passe do XSPH. Só com coesão > 0.
-    if (pbf_params.cohesion_gamma > 0.0) {
-        var n   = vec3f(0.0);
-        var rho = pbf_params.particle_mass * W_poly6(0.0, h);
+    // Tensão superficial (spec 030; contínua, spec 034 T066e): o gradiente da cor do fluido no poly6 (o núcleo da
+    // fronteira, que o XSPH soma a ele para as normais da tensão contínua e de Akinci), lido pelos vizinhos no passe do
+    // XSPH. Só com σ > 0.
+    if (pbf_params.surface_tension > 0.0) {
+        var n = vec3f(0.0);
         for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
             let j  = neighbor_list[k * pbf_params.neighbor_stride + t];
             let dv = xi - particles[j].pos.xyz;
-            let r  = length(dv);
-            n   += pbf_params.mass_over_density * grad_W_spiky(dv, r, h);
-            rho += pbf_params.particle_mass * W_poly6(r * r, h);
+            n += grad_W_poly6(dv, dot(dv, dv), h);
         }
-        pbf_normal[i] = vec4f(pbf_params.support * n, rho);
+        pbf_normal[i] = vec4f(pbf_params.mass_over_density * n, 0.0);
     }
 }

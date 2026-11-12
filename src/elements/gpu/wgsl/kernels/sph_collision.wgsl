@@ -20,10 +20,13 @@ fn sph_collision_main(
     var pos = particles[i].pos.xyz;
     var vel = particles[i].vel.xyz;
 
-    // ── Adesão às fronteiras (spec 030): só com adesão > 0, antes do empurrão para fora ─────────────────────────────
-    if (sph_params.adhesion_accel > 0.0) {
+    // ── Adesão às fronteiras (spec 030): só com adesão > 0, antes do empurrão para fora. Com tensão superficial, só o
+    // arrasto tangencial: a molhagem da borda resolvida vem do ângulo de contato e a força normal fica com a não
+    // resolvida, no passe das forças (T066e) ─────────────────────────────────────────────────────────────────────────
+    if (sph_params.adhesion_tangential > 0.0) {
+        let normal_accel = select(sph_params.adhesion_accel, 0.0, sph_params.surface_tension > 0.0);
         collider_set_adhesion(
-            pos, &vel, sph_params.support, sph_params.adhesion_accel, sph_params.adhesion_tangential,
+            pos, &vel, sph_params.support, normal_accel, sph_params.adhesion_tangential,
             sph_params.dt, fluid_adhesion_min(bound_min, sph_params.open_bounds),
         );
     }

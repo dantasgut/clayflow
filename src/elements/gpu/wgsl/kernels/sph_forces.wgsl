@@ -29,12 +29,18 @@ fn sph_forces_main(
     var f_press  = vec3f(0.0);
     var f_visc   = vec3f(0.0);
     var xsph_acc = vec3f(0.0);
-    // Tensão superficial de Akinci (spec 030): só com coesão > 0 — com zero, nada é lido nem somado.
-    let gamma   = sph_params.cohesion_gamma;
-    let surface = gamma > 0.0;
-    var a_st    = vec3f(0.0);
-    var n_i     = vec3f(0.0);
-    if (surface) { n_i = sph_normal[i].xyz; }
+    // Tensão superficial contínua (spec 034, T066e): só com σ > 0 — com zero, nada é lido nem somado.
+    let sigma   = sph_params.surface_tension;
+    let surface = sigma > 0.0;
+    var csf     = vec2f(0.0);
+    var a_coh   = vec3f(0.0);
+    var a_curv  = vec3f(0.0);
+    var n_i     = vec4f(0.0);
+    var grad_i  = vec3f(0.0);
+    if (surface) {
+        grad_i = sph_normal[i].xyz - sph_boundary[i].xyz;
+        n_i = csf_normal(sph_normal[i].xyz, sph_boundary[i].xyz, h);
+    }
 
     for (var k: u32 = 0u; k < nb_n && k < max_nb; k++) {
         let j    = neighbor_list[k * sph_params.neighbor_stride + t];
@@ -70,9 +76,16 @@ fn sph_forces_main(
         }
 
         if (surface) {
-            a_st += akinci_pair_accel(
-                r_vec, r, sph_params.support, gamma, mass, sph_params.rest_density,
-                rho_i, rho_j, n_i, sph_normal[j].xyz,
+            let grad_j = sph_normal[j].xyz - sph_boundary[j].xyz;
+            if (n_i.w > 0.0) {
+                csf += csf_divergence_pair(n_i, csf_normal(sph_normal[j].xyz, sph_boundary[j].xyz, h), gw, r);
+            }
+            let rho0 = sph_params.rest_density;
+            a_coh += akinci_cohesion_accel(
+                r_vec, r, sph_params.support, sph_params.cohesion_gamma, mass, rho0, rho_i, rho_j,
+            );
+            a_curv += akinci_curvature_accel(
+                grad_i, grad_j, sph_params.support, sph_params.cohesion_gamma, rho0, rho_i, rho_j,
             );
         }
     }
@@ -87,7 +100,20 @@ fn sph_forces_main(
         f_press += sph_params.rest_density * (p_i / (rho_i * rho_i)) * sph_boundary[i].xyz;
     }
     var accel = g + f_press + visc_acc;
-    if (surface) { accel += a_st; }
+    if (surface) {
+        // A parede como vizinha com a normal de Young (Breinlinger et al. 2013), e os regimes da tensão.
+        let volume  = mass / sph_params.rest_density;
+        let contact = particles[i].contact;
+        if (contact.w < 2.0 * h) {
+            csf += csf_wall_pair(
+                n_i, contact, cubic_half_space(contact.w, h), csf_wall_support(contact.w, h, false),
+                sph_params.wet_cos, volume,
+            );
+        }
+        accel += fluid_surface_accel(
+            n_i, csf, a_coh, a_curv, contact, volume, sigma, h, sph_params.support, h, sph_params.adhesion_accel,
+        );
+    }
     // Campos (spec 009): termo à parte, só quando não são zero — sem campos, a mesma trajetória bit a bit.
     let body = FieldBody(sph_params.inv_particle_mass, sph_params.field_density, mass / sph_params.rest_density, 0.0);
     let field = field_accel(xi, vi, sph_params.field_time, body);

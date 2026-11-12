@@ -28,12 +28,18 @@ fn pbf_xsph_main(
 
     var xsph = vec3f(0.0);
     var eta  = vec3f(0.0);
-    // Tensão superficial de Akinci (spec 030): só com coesão > 0, somada ao Δv como dt · a.
-    let gamma   = pbf_params.cohesion_gamma;
-    let surface = gamma > 0.0;
-    var a_st    = vec3f(0.0);
-    var self_n  = vec4f(0.0);
-    if (surface) { self_n = pbf_normal[i]; }
+    // Tensão superficial contínua (spec 034, T066e): só com σ > 0, somada ao Δv como dt · a.
+    let sigma   = pbf_params.surface_tension;
+    let surface = sigma > 0.0;
+    var csf     = vec2f(0.0);
+    var a_coh   = vec3f(0.0);
+    var a_curv  = vec3f(0.0);
+    var n_i     = vec4f(0.0);
+    var grad_i  = vec3f(0.0);
+    if (surface) {
+        grad_i = pbf_normal[i].xyz - pbf_boundary[i].xyz;
+        n_i = csf_normal(pbf_normal[i].xyz, pbf_boundary[i].xyz, h);
+    }
     for (var k: u32 = 0u; k < nb_count && k < max_nb; k++) {
         let j    = neighbor_list[k * pbf_params.neighbor_stride + t];
         let dv   = xi - particles[j].pos.xyz;
@@ -41,11 +47,18 @@ fn pbf_xsph_main(
         xsph += (particles[j].vel.xyz - vi) * W_poly6(r_sq, h);
         eta  += length(particles[j].curl.xyz) * grad_W_spiky(dv, sqrt(r_sq), h);
         if (surface && r_sq > 1e-12) {
-            let nj = pbf_normal[j];
-            a_st += akinci_pair_accel(
-                dv, sqrt(r_sq), pbf_params.support, gamma, pbf_params.particle_mass,
-                pbf_params.rest_density, self_n.w, nj.w, self_n.xyz, nj.xyz,
+            let grad_j = pbf_normal[j].xyz - pbf_boundary[j].xyz;
+            if (n_i.w > 0.0) {
+                let n_j = csf_normal(pbf_normal[j].xyz, pbf_boundary[j].xyz, h);
+                csf += csf_divergence_pair(n_i, n_j, grad_W_poly6(dv, r_sq, h), sqrt(r_sq));
+            }
+            // Sem a densidade por partícula no PBF: a correção Kᵢⱼ com ρ₀ (1).
+            let rho0 = pbf_params.rest_density;
+            let gamma = pbf_params.cohesion_gamma;
+            a_coh += akinci_cohesion_accel(
+                dv, sqrt(r_sq), pbf_params.support, gamma, pbf_params.particle_mass, rho0, rho0, rho0,
             );
+            a_curv += akinci_curvature_accel(grad_i, grad_j, pbf_params.support, gamma, rho0, rho0, rho0);
         }
     }
     // η = ∇|ω| = Σ (m/ρ₀) |ωⱼ| ∇W; N = η/|η|; f = ε (N × ωᵢ).
@@ -56,6 +69,20 @@ fn pbf_xsph_main(
         f_vort = eps_v * cross(eta / eta_len, omega_i);
     }
     var dvel = c * m_rho0 * xsph + dt * f_vort;
-    if (surface) { dvel += dt * a_st; }
+    if (surface) {
+        // A parede como vizinha com a normal de Young (Breinlinger et al. 2013), e os regimes da tensão (a reação
+        // do sólido na primeira camada, 1,3 s = 0,65 h).
+        let contact = particles[i].contact;
+        if (contact.w < h) {
+            csf += csf_wall_pair(
+                n_i, contact, poly6_half_space(contact.w, h), csf_wall_support(contact.w, h, true),
+                pbf_params.wet_cos, m_rho0,
+            );
+        }
+        dvel += dt * fluid_surface_accel(
+            n_i, csf, a_coh, a_curv, contact, m_rho0, sigma, h, pbf_params.support, 0.65 * h,
+            pbf_params.adhesion_accel,
+        );
+    }
     pbf_delta[i] = vec4f(dvel, 0.0);
 }

@@ -137,6 +137,6 @@ export const pbfVorticity = wgslModule({
 export const pbfXsph = wgslModule({
     name: 'pbf_xsph',
     source: pbfXsphSource,
-    requires: [poolLive, sphKernels, ...own, ...neighbors, R.delta, R.normalRead],
+    requires: [poolLive, sphKernels, ...own, ...neighbors, R.delta, R.normalRead, R.boundaryRead],
     structs: [PBFSimParamsSchema, PBFSchema],
 });

@@ -2,31 +2,31 @@
   "profile": "apple-metal-3",
   "cases": {
     "drop": {
-      "SPH-water": "3595eb48",
+      "SPH-water": "9cfdf76b",
       "SPH-zero": "450dcad7",
-      "PBF-water": "71188fd3",
+      "PBF-water": "ae238c05",
       "PBF-zero": "4824b88d"
     },
     "filament": {
-      "water": "24d843bc",
+      "water": "c4a3654e",
       "zero": "06a37663"
     },
     "dam": {
-      "water": "06add5eb",
+      "water": "3ad3b7c1",
       "zero": "2ea35c57"
     },
     "meniscus": {
-      "water": "c0c51ccb",
+      "water": "4eb227ba",
       "zero": "feb88c9c"
     },
     "slope": {
-      "water": "0ddee627",
-      "zero": "56a3c7d2"
+      "water": "2ff65684",
+      "zero": "b895ec24"
     },
     "puddle": {
-      "adesão 0": "ec804e69",
-      "adesão 0.5": "15c44d94",
-      "adesão 1": "3a7aaa36"
+      "adesão 0": "d83d1254",
+      "adesão 0.5": "4d8d9e6a",
+      "adesão 1": "7f43cafb"
     },
     "material": {
       "mpm-baixa": "edf40b42",
@@ -36,15 +36,15 @@
     },
     "live": {
       "sempre-zero": "631455b3",
-      "ligada-em-N": "009072bb"
+      "ligada-em-N": "93697363"
     },
     "rates": {
-      "SPH@60Hz": "cedfd6b6",
-      "SPH@30Hz": "cedfd6b6",
-      "SPH@144Hz": "cedfd6b6",
-      "PBF@60Hz": "28b397fb",
-      "PBF@30Hz": "28b397fb",
-      "PBF@144Hz": "28b397fb"
+      "SPH@60Hz": "26d755fa",
+      "SPH@30Hz": "26d755fa",
+      "SPH@144Hz": "26d755fa",
+      "PBF@60Hz": "a25798af",
+      "PBF@30Hz": "a25798af",
+      "PBF@144Hz": "a25798af"
     }
   }
 }

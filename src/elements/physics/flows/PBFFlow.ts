@@ -395,6 +395,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 cohesion_gamma: physics.cohesionGamma(surface.cohesion),
                 adhesion_accel: physics.adhesionAccel(surface.adhesion),
                 adhesion_tangential: physics.adhesionTangential(surface.adhesion),
+                surface_tension: physics.surfaceTensionKernel('PBF', surface.cohesion),
+                wet_cos: physics.contactCosine,
                 support: physics.pbfSmoothingLength,
                 // Fim da iteração i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
                 field_time:
