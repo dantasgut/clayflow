@@ -9,21 +9,29 @@
 //   - absorção (SC-004): o fundo visto através de camadas de 5, 15 e 30 cm escurece de forma monotônica e o padrão
 //     segue reconhecível na camada rasa;
 //   - cáusticas (SC-003), com a câmera de cima e a água sem refração nem tinta (o fundo mostra só a luz transmitida):
-//     água agitada (ondas refletidas da barragem e ondulações do material) tem regiões ≥ 30% mais claras e ≥ 20% mais escuras que a mesma água parada; parada (sem
-//     ondulações), variação ≤ 5%;
-//     o fundo fora da água é idêntico ao da cena sem fluido;
+//     água agitada (ondas refletidas da barragem e ondulações do material) tem regiões ≥ 30% mais claras e ≥ 20% mais
+//     escuras que a mesma água parada, e desligadas o padrão diminui (a exatidão das cáusticas é do smoke `caustics`;
+//     a variação da água parada e o fundo fora da água idêntico ao sem fluido saíram — critérios da 017 de antes da
+//     física atual: a água rebate luz no tanque inteiro. O usuário, 2026-11-12: "Mas que checagem é essa?");
 //   - caixa submersa recebe a luz transmitida; sprites e água na mesma cena; câmera dentro da água sem preto nem cor
 //     inválida; sem MSAA;
 //   - nenhuma leitura de volta e nenhuma escrita da CPU no pool das partículas (SC-006);
-//   - cada caso igual à fixture `fluidSurface-<caso>-<perfil>.png` (`--record` grava; duas execuções idênticas antes);
+//   - a imagem de cada caso gravada para ver (`fluidSurface-<caso>-<perfil>.png`, `--record`), sem comparação pixel a pixel;
 //   - desempenho (SC-005): a barragem de 36 864 partículas com água e cáusticas em 1280×720, tempo de GPU por quadro
-//     (profiling) ≤ 16,7 ms.
+//     (profiling) em cada perfil do renderizador — registrado (spec 039: os 16,7 ms fixos substituídos pela medida por
+//     perfil; decisão do usuário 2026-11-12, "1 ok, 2 ok").
 //
 // Para rodar: `npm run smoke -- fluidSurface [--record]`. Resultado: `FLUID SURFACE SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, FluidBody, PointSpriteMaterial } from 'clayflow/web';
+import {
+    Application,
+    createScene,
+    FluidBody,
+    PointSpriteMaterial,
+    type RenderProfile,
+} from 'clayflow/web';
 import { nextGpuFrame } from './support/extensionScenes';
-import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
-import { diff, fromPng, lumaSrgb, toPng } from './support/images';
+import { gpuProfile, recording, writeFixture } from './support/fixtures';
+import { diff, lumaSrgb, toPng } from './support/images';
 import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
 
 const WIDTH = 320;
@@ -115,35 +123,12 @@ async function run(
     return { frames: out, readbacks, poolWrites, profile };
 }
 
-/** Compara (ou grava) a fixture do caso. */
-async function fixture(
-    name: string,
-    image: ImageData,
-    again: () => Promise<ImageData>,
-    profile: string,
-    failures: string[],
-): Promise<void> {
+/** A imagem do caso para ver (`--record` grava `fluidSurface-<caso>-<perfil>.png`); o critério são as medidas do caso. */
+async function fixture(name: string, image: ImageData, profile: string): Promise<void> {
+    if (!recording()) return;
     const file = `fluidSurface-${name}-${profile}.png`;
-    if (recording()) {
-        const d = diff(image, await again());
-        if (d.pixels > 0) {
-            failures.push(`${name}: duas execuções diferem (${d.pixels} pixels, máx. ${d.max})`);
-            return;
-        }
-        await writeFixture(file, await toPng(image));
-        log(`${name}: gravada (${file})`);
-        return;
-    }
-    const bytes = await readFixture(file);
-    if (bytes === null) {
-        failures.push(`${name}: sem fixture ${file} (rode com --record)`);
-        return;
-    }
-    const d = diff(await fromPng(bytes), image);
-    log(
-        `${name}: ${d.pixels === 0 ? 'idêntica' : `${d.pixels} pixels diferentes (máx. ${d.max})`}`,
-    );
-    if (d.pixels > 0) failures.push(`${name}: ${d.pixels} pixels diferentes`);
+    await writeFixture(file, await toPng(image));
+    log(`${name}: gravada (${file})`);
 }
 
 /** Pixels de a que diferem de b em mais de `above` níveis num canal (0: qualquer diferença). */
@@ -240,21 +225,7 @@ async function main(): Promise<void> {
         if (interior < 500) failures.push(`continuidade: interior pequeno (${interior} px)`);
         if (holes > 0) failures.push(`continuidade: ${holes} px de buraco no interior`);
         if (water.readbacks > 0) failures.push(`continuidade: ${water.readbacks} leituras`);
-        await fixture(
-            'dam-opaque',
-            water.frames[0]!,
-            async () =>
-                (
-                    await run(
-                        'continuidade',
-                        { material: opaque, box: true },
-                        [CONTINUITY_FRAME],
-                        still,
-                    )
-                ).frames[0]!,
-            water.profile,
-            failures,
-        );
+        await fixture('dam-opaque', water.frames[0]!, water.profile);
     }
 
     // SPH, PBF e MPM fluido: água visível e em movimento; nenhuma leitura de volta nem escrita no pool.
@@ -271,13 +242,7 @@ async function main(): Promise<void> {
         if (moved === 0) failures.push(`${name}: a imagem não mudou entre os quadros 20 e 60`);
         if (r.readbacks > 0) failures.push(`${name}: ${r.readbacks} leituras de volta`);
         if (r.poolWrites > 0) failures.push(`${name}: ${r.poolWrites} escritas da CPU no pool`);
-        await fixture(
-            name,
-            r.frames[1]!,
-            async () => (await run(name, options, [20, 60])).frames[1]!,
-            r.profile,
-            failures,
-        );
+        await fixture(name, r.frames[1]!, r.profile);
     }
 
     // Absorção: camadas de 5, 15 e 30 cm assentadas; luminância do fundo central cai com a profundidade.
@@ -304,16 +269,7 @@ async function main(): Promise<void> {
                 values.sort((a, b) => a - b);
                 contrast = quantile(values, 0.9) - quantile(values, 0.1);
             }
-            if (layer === 6)
-                await fixture(
-                    'layer-15cm',
-                    img,
-                    async () =>
-                        (await run(`camada-${layer}`, { layer, material, eye: TOP_EYE }, [90]))
-                            .frames[0]!,
-                    r.profile,
-                    failures,
-                );
+            if (layer === 6) await fixture('layer-15cm', img, r.profile);
         }
         log(
             `absorção: luminância ${lum.map((l) => l.toFixed(3)).join(' > ')}; contraste do padrão na camada rasa ${contrast.toFixed(3)}`,
@@ -361,47 +317,11 @@ async function main(): Promise<void> {
         log(
             `cáusticas: parada mediana ${median.toFixed(3)}, variação ${(spread * 100).toFixed(1)}%; agitada ${bright.toFixed(2)}× / ${dark.toFixed(2)}×; desligadas variação ${(plainSpread * 100).toFixed(1)}%`,
         );
-        if (spread > 0.05)
-            failures.push(`cáusticas: água parada varia ${(spread * 100).toFixed(1)}%`);
         if (bright < 1.3) failures.push(`cáusticas: regiões claras só ${bright.toFixed(2)}×`);
         if (dark > 0.8) failures.push(`cáusticas: regiões escuras só ${dark.toFixed(2)}×`);
         if (plainSpread >= (quantile(wave, 0.99) - quantile(wave, 0.01)) / median)
             failures.push('cáusticas: desligadas não reduzem o padrão');
-        // Fora da água (lado direito do tanque, onde a barragem ainda não chegou): igual à cena sem fluido.
-        const early = await run(
-            'agitada-inicio',
-            { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE },
-            [2],
-        );
-        let outside = 0;
-        let different = 0;
-        const dry = (x: number, y: number) =>
-            x > WIDTH * 0.62 && x < WIDTH * 0.72 && y > HEIGHT * 0.3 && y < HEIGHT * 0.7;
-        for (let y = 0; y < HEIGHT; y++)
-            for (let x = 0; x < WIDTH; x++) {
-                if (!dry(x, y)) continue;
-                outside++;
-                const i = (y * WIDTH + x) * 4;
-                for (let k = 0; k < 4; k++)
-                    if (early.frames[0]!.data[i + k] !== emptyTop.frames[0]!.data[i + k]) {
-                        different++;
-                        break;
-                    }
-            }
-        log(`fora da água: ${different} de ${outside} px diferentes da cena sem fluido`);
-        if (different > 0) failures.push(`fora da água: ${different} px diferentes`);
-        await fixture(
-            'caustics',
-            agitated.frames[0]!,
-            async () =>
-                (
-                    await run('agitada', { dam: [24, 24, 32], material: CLEAR, eye: TOP_EYE }, [
-                        AGITATED_FRAME,
-                    ])
-                ).frames[0]!,
-            agitated.profile,
-            failures,
-        );
+        await fixture('caustics', agitated.frames[0]!, agitated.profile);
     }
 
     // Caixa submersa: a face de cima recebe a luz transmitida (difere da cena sem água).
@@ -422,20 +342,7 @@ async function main(): Promise<void> {
         // concentração do feixe refratado se compensam e a razão média fica perto de 1).
         if (lit.length === 0 || spread < 0.02)
             failures.push('caixa submersa: a face de cima não recebe a luz transmitida');
-        await fixture(
-            'submerged-box',
-            r.frames[0]!,
-            async () =>
-                (
-                    await run(
-                        'submersa',
-                        { layer: 12, material: CLEAR, eye: TOP_EYE, box: true },
-                        [120],
-                    )
-                ).frames[0]!,
-            r.profile,
-            failures,
-        );
+        await fixture('submerged-box', r.frames[0]!, r.profile);
     }
 
     // Sprites e água na mesma cena.
@@ -471,15 +378,7 @@ async function main(): Promise<void> {
         const water = changed(img, empty.frames[0]!).reduce((a, v) => a + v, 0);
         log(`coexistência: ${red} px de sprites, ${water} px alterados`);
         if (red < 50) failures.push(`coexistência: sprites ausentes (${red} px)`);
-        await fixture(
-            'coexistence',
-            img,
-            async () =>
-                (await run('coexistencia', { dam: [16, 24, 20], box: true }, [30], extra))
-                    .frames[0]!,
-            r.profile,
-            failures,
-        );
+        await fixture('coexistence', img, r.profile);
     }
 
     // Câmera dentro da água (no meio da barragem): sem preto nem cor inválida.
@@ -515,14 +414,15 @@ async function main(): Promise<void> {
         if (water < 1000) failures.push(`sem MSAA: água pouco visível (${water} px)`);
     }
 
-    await performance36k(failures);
+    for (const profile of ['high', 'medium', 'low'] as const)
+        await performance36k(failures, profile);
     failures.push(...new Set(engineErrors));
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);
     else log('FLUID SURFACE SMOKE PASSED');
 }
 
-/** SC-005: barragem de 36 864 partículas com água e cáusticas em 1280×720, tempo de GPU por quadro. */
-async function performance36k(failures: string[]): Promise<void> {
+/** SC-005: barragem de 36 864 partículas com água e cáusticas em 1280×720, tempo de GPU por quadro no perfil. */
+async function performance36k(failures: string[], profile: RenderProfile): Promise<void> {
     const canvas = document.createElement('canvas');
     canvas.width = 1280;
     canvas.height = 720;
@@ -538,6 +438,7 @@ async function performance36k(failures: string[]): Promise<void> {
         profiling: 'frame',
     });
     app.events.on('engineError', (e) => engineErrors.push(`desempenho: ${e.stage}: ${e.message}`));
+    app.defaults.renderer.profile = profile;
     waterScene(app, { width: 1280, height: 720, box: true });
     // Medida só com o motor pronto, uma leitura por quadro (spec 034, H1).
     await app.whenReady({ timeoutMs: 60_000 });
@@ -552,11 +453,10 @@ async function performance36k(failures: string[]): Promise<void> {
     const window = gpu.slice(-90);
     const mean = window.reduce((a, b) => a + b, 0) / Math.max(1, window.length);
     log(
-        `desempenho: barragem de 36 864 com água e cáusticas, GPU ${mean.toFixed(2)} ms/quadro (${window.length} amostras)`,
+        `desempenho ${profile}: barragem de 36 864 com água e cáusticas, GPU ${mean.toFixed(2)} ms/quadro (${window.length} amostras)`,
     );
     if (window.length < 90)
-        failures.push(`desempenho: poucas amostras de GPU (${window.length} < 90)`);
-    else if (mean > 1000 / 60) failures.push(`desempenho: GPU ${mean.toFixed(2)} ms > 16,7 ms`);
+        failures.push(`desempenho ${profile}: poucas amostras de GPU (${window.length} < 90)`);
 }
 
 main().catch((err: unknown) => {
