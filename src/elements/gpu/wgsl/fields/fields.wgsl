@@ -285,31 +285,57 @@ fn field_film_cell_at(c: vec3i) -> vec2f {
     return vec2f(0.0);
 }
 
+/** A película no ponto e a inclinação dela: a água livre e a saturação (`wet`) e o gradiente da água livre (m/m). */
+struct FieldFilmSample {
+    wet: vec2f,
+    slope: vec3f,
+}
+
 /**
- * A película de água no ponto `p` da superfície de um sólido de normal `n`: a das células da camada junto ao sólido
- * (`field_film_cell`) interpolada entre as quatro mais próximas no plano da superfície — os dois eixos de fora da normal
- * dominante, pelos centros das células. A célula guarda um voxel do campo; lida sem interpolação, a mancha aparecia em
- * blocos dele. A célula sem película conta como zero: a borda da mancha também fica contínua.
+ * A película de água no ponto `p` da superfície de um sólido de normal `n` (spec 034, T066d): a das células da camada
+ * junto ao sólido (`field_film_cell`) pela B-spline quadrática das 3 × 3 mais próximas no plano da superfície — os dois
+ * eixos de fora da normal dominante, pelos centros das células. A leitura é contínua até a primeira derivada: a borda
+ * da mancha e o rastro de uma gota saem como curvas suaves, sem os degraus da grade (a bilinear de antes tinha o vinco
+ * no centro de cada célula). A célula sem película conta como zero. A inclinação é a derivada da mesma leitura.
  */
-fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
-    let voxel = field_voxel();
+fn field_film_sample(p: vec3f, n: vec3f) -> FieldFilmSample {
+    let size = field_film_size();
     let layer = field_film_cell(p, n);
-    let a = abs(n);
-    // Os eixos tangentes: os dois que não são o da normal dominante.
-    var u = 0;
-    var v = 1;
-    if (a.x >= a.y && a.x >= a.z) { u = 1; v = 2; } else if (a.y >= a.z) { u = 0; v = 2; }
-    let g = p / voxel - 0.5;
-    let base = vec2i(i32(floor(g[u])), i32(floor(g[v])));
-    let f = vec2f(g[u] - floor(g[u]), g[v] - floor(g[v]));
-    var sum = vec2f(0.0);
-    for (var k = 0; k < 4; k++) {
-        let o = vec2i(k & 1, k >> 1);
+    let axes = field_film_axes(n);
+    let u = axes.x;
+    let v = axes.y;
+    let g = p / size - 0.5;
+    let center = vec2f(round(g[u]), round(g[v]));
+    let f = vec2f(g[u], g[v]) - center;
+    // Pesos da B-spline quadrática em −1, 0, 1 e as derivadas deles (por célula).
+    let wu = vec3f(0.5 * (0.5 - f.x) * (0.5 - f.x), 0.75 - f.x * f.x, 0.5 * (0.5 + f.x) * (0.5 + f.x));
+    let wv = vec3f(0.5 * (0.5 - f.y) * (0.5 - f.y), 0.75 - f.y * f.y, 0.5 * (0.5 + f.y) * (0.5 + f.y));
+    let du = vec3f(f.x - 0.5, -2.0 * f.x, 0.5 + f.x);
+    let dv = vec3f(f.y - 0.5, -2.0 * f.y, 0.5 + f.y);
+    var out: FieldFilmSample;
+    var grad = vec2f(0.0);
+    for (var k = 0; k < 9; k++) {
+        let o = vec2i(k % 3, k / 3);
         var c = layer;
-        c[u] = base.x + o.x;
-        c[v] = base.y + o.y;
-        let w = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1);
-        sum += w * field_film_cell_at(c);
+        c[u] = i32(center.x) + o.x - 1;
+        c[v] = i32(center.y) + o.y - 1;
+        let w = field_film_cell_at(c);
+        out.wet += wu[o.x] * wv[o.y] * w;
+        grad += vec2f(du[o.x] * wv[o.y], wu[o.x] * dv[o.y]) * w.x;
     }
-    return sum;
+    var slope = vec3f(0.0);
+    slope[u] = grad.x / size;
+    slope[v] = grad.y / size;
+    out.slope = slope - dot(slope, n) * n;
+    return out;
+}
+
+/** A água livre (m) e a saturação dos poros no ponto `p` da superfície de normal `n` (`field_film_sample`). */
+fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
+    return field_film_sample(p, n).wet;
+}
+
+/** A inclinação da película no ponto `p` da superfície de normal `n`: o gradiente da água livre no plano dela (m/m). */
+fn field_film_slope(p: vec3f, n: vec3f) -> vec3f {
+    return field_film_sample(p, n).slope;
 }

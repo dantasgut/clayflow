@@ -11,6 +11,7 @@ import {
     saturationVaporPressure,
     washburnCoefficient,
     wenzelCos,
+    dropPinning,
 } from '../wetting';
 import { SurfacePhysics } from '../SurfacePhysics';
 import { Atmosphere } from '../Atmosphere';
@@ -168,5 +169,20 @@ describe('SurfacePhysics e Atmosphere', () => {
         expect(() => new Atmosphere({ windSpeed: -1 })).toThrow(RangeError);
         expect(Atmosphere.defaults.temperature).toBe(20);
         expect(Atmosphere.defaults.relativeHumidity).toBe(0.5);
+    });
+});
+
+describe('dropPinning (spec 034, T066d): a borda segura a gota de Furmidge', () => {
+    it('a calota da gota e a força da borda dão a aceleração ao longo do sólido', () => {
+        const line = { surfaceTension: 0.072, contactAngle: 30, hysteresis: 10, roughness: 1 };
+        const volume = 2e-8;
+        const mass = 2e-5;
+        const t = (30 * Math.PI) / 180;
+        const r = Math.cbrt((3 * volume) / (Math.PI * (2 - 3 * Math.cos(t) + Math.cos(t) ** 3)));
+        const f = 0.072 * (Math.cos((25 * Math.PI) / 180) - Math.cos((35 * Math.PI) / 180));
+        expect(dropPinning(line, volume, mass)).toBeCloseTo((f * 2 * r * Math.sin(t)) / mass, 10);
+        // Sem molhar (θ ≥ 90°) ou sem histerese, a borda não segura.
+        expect(dropPinning({ ...line, contactAngle: 95 }, volume, mass)).toBe(0);
+        expect(dropPinning({ ...line, hysteresis: 0 }, volume, mass)).toBe(0);
     });
 });

@@ -21,9 +21,10 @@ import {
     fieldRaySurface,
     fieldRayTransmittance,
     fieldWetness,
+    fieldWetnessSlope,
 } from './shaders';
 import { lightTransmissionPoint } from '../scene/points/lighting';
-import { sceneWetnessPoint } from '../scene/points/media';
+import { sceneWetnessPoint, sceneWetnessSlopePoint } from '../scene/points/media';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
@@ -199,7 +200,8 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
      * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`), o material nele
      * (`ray_volume_surface`, spec 034 T065d) e a absorção pelos trechos dentro dele (`ray_volume_transmittance`) — só
      * com fluido na cena (`volume` = 1). Os três com a mesma ordem: o `source` do acerto é a posição no ponto. E a
-     * película de água que o fluido deixa nos sólidos (`scene_wetness`, spec 034), que quem sombreia uma superfície lê.
+     * película de água que o fluido deixa nos sólidos (`scene_wetness`, spec 034), que quem sombreia uma superfície lê, e
+     * a inclinação dela (`scene_wetness_slope`, T066d), que quem refrata no sólido lê.
      */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
@@ -240,6 +242,12 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldWetness : undefined),
+        },
+        {
+            point: sceneWetnessSlopePoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldWetnessSlope : undefined),
         },
         {
             point: rayVolumeBoundsPoint,

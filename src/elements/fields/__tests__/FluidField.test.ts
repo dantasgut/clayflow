@@ -27,7 +27,7 @@ import {
     fieldDataLayout,
     fieldFilmOffset,
 } from '../FluidField';
-import { sceneWetnessPoint } from '../../scene/points/media';
+import { sceneWetnessPoint, sceneWetnessSlopePoint } from '../../scene/points/media';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
 import {
     FIELD_BRICK,
@@ -61,12 +61,12 @@ describe('FluidField (spec 033, R11)', () => {
             id: 'data',
             role: 'storage-rw',
             upload: 'never',
-            // Depois dos blocos, a película de água nos sólidos (spec 034): 6 palavras por célula (a chave, a água
-            // livre, a normal, a marca de submersa, a água absorvida e a superfície); depois, o meio de cada corpo
+            // Depois dos blocos, a película de água nos sólidos (spec 034): 7 palavras por célula (a chave, a água
+            // livre, a normal, a marca de submersa, a água absorvida, a superfície e a pendente); depois, o meio de cada corpo
             // (spec 039); no fim, o atlas dos voxels (T060f): 64 páginas de 12³ palavras, uma série por páginas.
             count:
                 layout.end
-                + 6 * FIELD_FILM_CELLS
+                + 7 * FIELD_FILM_CELLS
                 + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS
                 + 64 * 12 ** 3,
             history: {
@@ -75,7 +75,7 @@ describe('FluidField (spec 033, R11)', () => {
             },
         });
         expect(fieldAtlasOffset(field.capacity)).toBe(
-            layout.end + 6 * FIELD_FILM_CELLS + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
+            layout.end + 7 * FIELD_FILM_CELLS + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
         );
         expect(fieldFilmOffset(field.capacity)).toBe(layout.end);
         expect(counts).toMatchObject({
@@ -93,7 +93,7 @@ describe('FluidField (spec 033, R11)', () => {
         });
         expect(descriptors.find((d) => d.id === 'film')).toMatchObject({
             role: 'storage-rw',
-            count: 6 * FIELD_FILM_CELLS,
+            count: 7 * FIELD_FILM_CELLS,
             history: { depth: 2 },
         });
         // Blocos de 8³ voxels, voxel de ½ espaçamento (os voxels com 2 de borda de cada lado: 12³).
@@ -118,7 +118,7 @@ describe('FluidField (spec 033, R11)', () => {
         const data = field.getDescriptors()[1]!;
         expect(data.count).toBe(
             fieldDataLayout({ bricks: 128, table: 512 }).end
-                + 6 * FIELD_FILM_CELLS
+                + 7 * FIELD_FILM_CELLS
                 + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS
                 // O atlas acompanha: 128 páginas de 12³ no fim do buffer.
                 + 128 * 12 ** 3,
@@ -126,7 +126,7 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, ray_volume_bounds, ray_volume_occupied, light_transmission, ray_volume_light e ray_volume_begin', () => {
+    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, scene_wetness_slope, ray_volume_bounds, ray_volume_occupied, light_transmission, ray_volume_light e ray_volume_begin', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
@@ -134,6 +134,7 @@ describe('FluidField (spec 033, R11)', () => {
             rayVolumeSurfacePoint,
             rayVolumeTransmittancePoint,
             sceneWetnessPoint,
+            sceneWetnessSlopePoint,
             rayVolumeBoundsPoint,
             rayVolumeOccupiedPoint,
             lightTransmissionPoint,
@@ -176,17 +177,21 @@ describe('FluidField (spec 033, R11)', () => {
         const wetness = composeWgsl(modules[3]!).spec.source;
         expect(wetness).toContain('fn scene_wetness(p: vec3f, n: vec3f) -> vec2f');
         expect(wetness).toContain('return field_film_at(p, n);');
+        // A inclinação da película, que a refração lê no sólido (T066d).
+        const slope = composeWgsl(modules[4]!).spec.source;
+        expect(slope).toContain('fn scene_wetness_slope(p: vec3f, n: vec3f) -> vec3f');
+        expect(slope).toContain('return field_film_slope(p, n);');
         // A caixa do campo, alvo dos fótons das cáusticas (spec 034, T067c).
-        expect(composeWgsl(modules[4]!).spec.source).toContain('return field_box();');
+        expect(composeWgsl(modules[5]!).spec.source).toContain('return field_box();');
         // Os raios que passam por algum bloco do campo (a emissão dos fótons só onde há água), sem amostrar φ.
-        const occupied = composeWgsl(modules[5]!).spec.source;
+        const occupied = composeWgsl(modules[6]!).spec.source;
         expect(occupied).toContain(
             'fn ray_volume_occupied(origin: vec3f, dir: vec3f, t_max: f32) -> bool',
         );
         expect(occupied).toContain('if (field_find(b) != NONE) { return true; }');
         // A luz das fontes que atravessa a água em linha reta (as cáusticas a corrigem): Fresnel exato na primeira
         // superfície e Beer–Lambert pelos trechos, numa marcha só (sem o acerto e a transmitância marchando o mesmo trecho).
-        const light = composeWgsl(modules[6]!).spec.source;
+        const light = composeWgsl(modules[7]!).spec.source;
         expect(light).toContain('fn light_transmission(light: u32, p: vec3f) -> vec3f');
         expect(light).toContain(
             'transmittance *= 1.0 - bsdf_f_dielectric(abs(dot(dir, at.normal)), select(ior, 1.0 / ior, start_inside));',

@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { SPHSimParamsSchema } from '../schemas/simParams';
+
+/** O passo entre as regiões dos parâmetros (o tamanho deles alinhado a 256 bytes). */
+const REGION = Math.ceil(SPHSimParamsSchema.stride / 256) * 256;
 import { SPHFlow } from '../flows/SPHFlow';
 import { FluidBody } from '../bodies/FluidBody';
 import { ParticlePhysics } from '../ParticlePhysics';
@@ -37,7 +41,12 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         );
         const integrate = passes.filter((p) => p.label === 'SPHFlow.integrate');
         // Grupos por frequência (spec 031): `stage` (pool, vizinhança) e `draw` (parâmetros, único dinâmico).
-        expect(integrate.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(integrate.map((p) => p.offsets[1]?.[0])).toEqual([
+            0,
+            REGION,
+            2 * REGION,
+            3 * REGION,
+        ]);
         expect(integrate.every((p) => p.offsets.length === 2 && p.offsets[0] === undefined)).toBe(
             true,
         );
@@ -57,7 +66,7 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
             w[0]!.bytes.byteLength / 4,
         );
         expect(f32[3]).toBeCloseTo(1 / 120, 7);
-        expect(f32[64 + 10]).toBeCloseTo(1 / 60, 7);
+        expect(f32[REGION / 4 + 10]).toBeCloseTo(1 / 60, 7);
     });
 
     it('steps = 0 não grava passes; mais passos no quadro não criam nada na gravação', async () => {

@@ -15,6 +15,9 @@ fn fluid_adhesion_min(lo: vec3f, open: u32) -> vec3f {
 }
 
 // ── Gota solta (spec 034): a borda ancorada num sólido que a água molha ─────────────────────────────────────────────
+// O ancoramento vem da superfície física do sólido (T066d: `ParticlePhysics.dropPinning`, a força de Furmidge da borda
+// da gota de uma partícula — a histerese, a rugosidade e o ângulo de Young da `SurfacePhysics` dele), por entrada da
+// tabela das superfícies (`collider_surfaces`; 0 a padrão, a das paredes do domínio).
 // A partícula com poucas vizinhas representa gotas menores que a resolução, em que a borda da gota domina: ao longo do
 // sólido mais próximo (`contact`, a normal e a distância), a velocidade é freada pelo ancoramento (`pinning`, m/s²,
 // independente do aperto contra o sólido) e fica parada enquanto a gravidade ao longo dele for menor — no chão, depois

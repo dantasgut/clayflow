@@ -30,6 +30,9 @@ import fieldFilmSource from '../gpu/wgsl/fields/field_film.wgsl?raw';
 import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw';
 import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?raw';
 import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
+import fieldFilmSolidSource from '../gpu/wgsl/fields/field_film_solid.wgsl?raw';
+import fieldFilmDripSource from '../gpu/wgsl/fields/field_film_drip.wgsl?raw';
+import fieldReviveSource from '../gpu/wgsl/fields/field_revive.wgsl?raw';
 import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
 import fieldLightMapSource from '../gpu/wgsl/fields/field_light_map.wgsl?raw';
 import fieldLightFrameSource from '../gpu/wgsl/fields/field_light_frame.wgsl?raw';
@@ -40,12 +43,13 @@ import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
 import { lightsResource } from '../scene/resources';
 import { closure } from '../material/pbr/shaders';
 import {
+    FIELD_FILM_DRIPS,
     FIELD_FILM_SURFACES,
     FIELD_FILM_WORDS,
     FieldGatherSchema,
     FluidFieldSchema,
 } from './schemas';
-import { bsdf, colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
+import { basis, bsdf, colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
 import { pageAlloc } from '../gpu/shaders/pageAlloc';
 import { slot } from '../../scene/flows/slots';
 
@@ -130,7 +134,17 @@ export const fieldResources = Object.freeze({
         provider: 'private',
     }),
     particles: priv('field_particles', 'read', vec4fs),
+    /** O pool de um corpo de água para o pingo da película (T066d): a partícula retirada volta a ele. */
+    particlesWrite: priv('field_particles_rw', 'read_write', vec4fs),
     live: priv('field_live', 'read', u32s),
+    /**
+     * As retiradas e os pingos do quadro (T066d, `field_film_drip.wgsl`): a junção lista as partículas retiradas, a
+     * película pede os pingos e cada corpo devolve os seus ao pool.
+     */
+    drips: priv('field_drips', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    dripsRead: priv('field_drips_read', 'read', u32s),
+    /** A pressão da película em cada célula do quadro anterior (T066d: o espalhamento no plano). */
+    filmPressure: priv('field_film_pressure', 'read_write', f32s),
     items: priv('field_items', 'read', vec4fs),
     itemsWrite: priv('field_items', 'read_write', vec4fs),
     /** As partículas na ordem das células da grade (cópia depois dela). */
@@ -237,6 +251,8 @@ export const fieldGather = wgslModule({
         poolLive,
         R.itemsWrite,
         R.contactsWrite,
+        R.drips,
+        FIELD_FILM_DRIPS.module,
     ],
 });
 
@@ -385,7 +401,14 @@ const fieldFilmUpdate = wgslModule({
     requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.film],
 });
 
-/** Deposição da película por partícula encostada num sólido. */
+/** Os sólidos da película: a distância, a normal e a superfície física do mais próximo (colliders e paredes). */
+const fieldFilmSolid = wgslModule({
+    name: 'field_film_solid',
+    source: fieldFilmSolidSource,
+    requires: [R.params, fieldCommon, fieldFilm, colliderSurface],
+});
+
+/** Deposição da película por partícula encostada num sólido: o disco do contato dela. */
 export const fieldFilmDeposit = wgslModule({
     name: 'field_film_deposit',
     source: fieldFilmDepositSource,
@@ -395,9 +418,40 @@ export const fieldFilmDeposit = wgslModule({
         fieldCommon,
         fieldFilm,
         fieldFilmUpdate,
+        fieldFilmSolid,
+        basis,
         R.sorted,
         R.sortedContacts,
         R.kernel,
+    ],
+});
+
+/** O pingo: a água pendente com o volume de uma partícula volta a ser uma (das retiradas do corpo). */
+export const fieldFilmDrip = wgslModule({
+    name: 'field_film_drip',
+    source: fieldFilmDripSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        R.drips,
+        FIELD_FILM_DRIPS.module,
+    ],
+});
+
+/** O pingo no pool do corpo de água dele (um pipeline por pool, como a junção). */
+export const fieldRevive = wgslModule({
+    name: 'field_revive',
+    source: fieldReviveSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.gather,
+        R.particlesWrite,
+        R.dripsRead,
+        FIELD_FILM_DRIPS.module,
     ],
 });
 
@@ -416,7 +470,8 @@ export const fieldFilmStep = wgslModule({
         fieldFilm,
         fieldFilmUpdate,
         R.filmPrevious,
-        colliderSurface,
+        R.filmPressure,
+        fieldFilmSolid,
     ],
 });
 
@@ -431,6 +486,13 @@ export const fields = wgslModule({
 export const fieldWetness = wgslModule({
     name: 'field_wetness',
     source: 'fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return field_film_at(p, n);\n}',
+    requires: [fields],
+});
+
+/** Contribuição do campo ao ponto `scene_wetness_slope`: a inclinação da película no ponto do sólido (T066d). */
+export const fieldWetnessSlope = wgslModule({
+    name: 'field_wetness_slope',
+    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f) -> vec3f {\n    return field_film_slope(p, n);\n}',
     requires: [fields],
 });
 

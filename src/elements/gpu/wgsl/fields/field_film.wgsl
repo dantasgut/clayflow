@@ -1,16 +1,21 @@
 // Película de água nos sólidos (spec 034): a água que toca um sólido deixa nele uma película mais fina que as
 // partículas. Ela fica presa pela borda até o peso romper a linha de contato (Furmidge, com a histerese ampliada pela
 // rugosidade), escorre pela gravidade ao longo do sólido — molhando o seco à frente e deixando para trás a espessura
-// que a borda segura —, junta-se à que encontra, entra nos poros (Lucas–Washburn) e evapora para o ar (Carrier). Fica
-// no buffer das consultas do campo (`field_data`), depois dos voxels (`fluid_field.film.x` palavras do início), numa
-// tabela de hash própria que persiste entre os quadros — a da superfície do campo é refeita a cada um. Por célula (um
-// voxel do campo, junto à superfície do sólido), `FIELD_FILM_WORDS` palavras: a chave (as coordenadas + 1; 0 vazia), a
-// água livre (espessura em `FIELD_FILM_UNIT` m), a normal do sólido (snorm 8 × 4), a marca de submersa (a água do
-// volume está ali: a célula não aparece como molhada, é a própria água), a água absorvida (em `FIELD_FILM_UNIT` m) e a
-// superfície (a entrada + 1 na tabela das superfícies do campo, `fluid_field.filmSurfaces`; 0 ainda não resolvida).
-// Por quadro em que a simulação avança: `field_film_step_main` (por célula) e `field_film_deposit_main` (por partícula
-// encostada num sólido). Quem sombreia lê a água livre e a saturação dos poros no ponto da superfície
-// (`field_film_at`).
+// que a borda segura —, espalha-se no plano pela pressão (o peso da coluna e a de Laplace, a lubrificação de película
+// fina), junta-se à que encontra, entra nos poros (Lucas–Washburn), evapora para o ar (Carrier) e, onde não tem mais
+// sólido para descer (a quina, a face de baixo), pende até juntar o volume de uma partícula e pingar. Fica no buffer das
+// consultas do campo (`field_data`), depois dos voxels (`fluid_field.film.x` palavras do início), numa tabela de hash
+// própria que persiste entre os quadros pelo canal temporal — a da superfície do campo é refeita a cada um. A célula tem
+// o lado da resolução do rastro (`fluid_field.filmShape.x`, uma fração do voxel do campo: o rastro de uma gota tem a largura do
+// contato dela, não a do voxel). Por célula, `FIELD_FILM_WORDS` palavras: a chave (as coordenadas deslocadas + 1; 0
+// vazia), a água livre (espessura em `FIELD_FILM_UNIT` m), a normal do sólido (snorm 8 × 4), a marca de submersa (a água
+// do volume está ali: a célula não aparece como molhada, é a própria água), a água absorvida (em `FIELD_FILM_UNIT` m), a
+// superfície (a entrada + 1 na tabela das superfícies do campo, `fluid_field.filmSurfaces`; 0 ainda não resolvida) e a
+// água pendente (em `FIELD_FILM_DROP_UNITS` unidades da livre: a que não tem sólido por onde descer).
+// Por quadro em que a simulação avança: `field_film_pressure_main`, `field_film_step_main` (por célula),
+// `field_film_drip_main` (por célula com água pendente) e `field_film_deposit_main` (por partícula encostada num
+// sólido). Quem sombreia lê a água livre e a saturação dos poros no ponto da superfície (`field_film_at`), quem refrata a
+// inclinação da película (`field_film_slope`).
 // Requer: fluid_field, field_common, FIELD_FILM_WORDS, FIELD_FILM_SURFACES.
 
 /**
@@ -22,28 +27,51 @@ const FIELD_FILM_UNIT: f32 = 1.0e-11;
 const FIELD_FILM_RESIDUAL: f32 = 1.0e-4;
 /** Sondagens da tabela da película. */
 const FIELD_FILM_PROBES: u32 = 32u;
+/**
+ * A água pendente em unidades de `FIELD_FILM_DROP_UNITS` unidades da água livre sobre a célula (a mesma conta inteira:
+ * a passagem da livre à pendente e o pingo não arredondam volume) — com a célula de 6,25 mm, 0,4 nL a unidade e até
+ * 1,7 L por célula.
+ */
+const FIELD_FILM_DROP_UNITS: u32 = 1024u;
+
+/** Lado da célula da película (m): a resolução do rastro. */
+fn field_film_size() -> f32 {
+    return fluid_field.filmShape.x;
+}
 
 /** Primeira palavra da célula `slot` da película. */
 fn field_film_word(slot: u32) -> u32 {
     return fluid_field.film.x + FIELD_FILM_WORDS * slot;
 }
 
-/** Chave da célula `c` (coordenadas em voxels, ±511): 0 fora do alcance (sem película ali). */
+/**
+ * Chave da célula `c` (coordenadas em células: x e z em [−1024, 1022], y em [−512, 511] — 11, 10 e 11 bits): 0 fora do
+ * alcance (sem película ali).
+ */
 fn field_film_key(c: vec3i) -> u32 {
-    if (any(abs(c) > vec3i(511))) { return 0u; }
-    let u = bitcast<vec3u>(c + vec3i(512));
-    return ((u.x << 20u) | (u.y << 10u) | u.z) + 1u;
+    if (c.x < -1024 || c.x > 1022 || c.z < -1024 || c.z > 1022 || c.y < -512 || c.y > 511) { return 0u; }
+    let u = bitcast<vec3u>(c + vec3i(1024, 512, 1024));
+    return ((u.x << 21u) | (u.y << 11u) | u.z) + 1u;
 }
 
 /** Coordenadas da célula de chave `key` (≠ 0). */
 fn field_film_coords(key: u32) -> vec3i {
     let k = key - 1u;
-    return vec3i(i32((k >> 20u) & 1023u), i32((k >> 10u) & 1023u), i32(k & 1023u)) - vec3i(512);
+    return vec3i(i32((k >> 21u) & 2047u), i32((k >> 11u) & 1023u), i32(k & 2047u)) - vec3i(1024, 512, 1024);
 }
 
-/** Célula da película num ponto da superfície de normal `n` (um quarto de voxel para o lado de fora). */
+/** Célula da película num ponto da superfície de normal `n` (um quarto de célula para o lado de fora). */
 fn field_film_cell(p: vec3f, n: vec3f) -> vec3i {
-    return vec3i(floor((p + n * (0.25 * field_voxel())) / field_voxel()));
+    let size = field_film_size();
+    return vec3i(floor((p + n * (0.25 * size)) / size));
+}
+
+/** Os dois eixos do plano da célula de normal `n`: os que não são o da componente dominante dela. */
+fn field_film_axes(n: vec3f) -> vec2i {
+    let a = abs(n);
+    if (a.x >= a.y && a.x >= a.z) { return vec2i(1, 2); }
+    if (a.y >= a.z) { return vec2i(0, 2); }
+    return vec2i(0, 1);
 }
 
 /** Balde inicial da célula `c` (a sondagem segue com passo ímpar tirado da chave, como a tabela dos blocos). */

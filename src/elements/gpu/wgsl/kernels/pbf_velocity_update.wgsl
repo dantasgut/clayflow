@@ -18,11 +18,12 @@ fn pbf_velocity_update_main(
     let pos_old = particles[i].posOld.xyz;
 
     var vel = (pos_new - pos_old) * inv_dt;
-    // Gota solta (spec 034): a borda ancorada num sólido que a água molha (`fluid_wet_pinning`); com outra água por
-    // perto (vizinhas), volta à dinâmica do volume.
+    // Gota solta (spec 034): a borda ancorada num sólido que a água molha (`fluid_wet_pinning`, o ancoramento da
+    // superfície dele que a fronteira gravou em `curl.w`); com outra água por perto (vizinhas), volta à dinâmica do
+    // volume.
     if (pbf_params.wet_neighbors > 0u && neighbor_count[t] < pbf_params.wet_neighbors) {
         vel = fluid_wet_pinning(
-            vel, particles[i].contact, 1.5 * pbf_params.collision_radius, pbf_params.wet_pinning, dt,
+            vel, particles[i].contact, 1.5 * pbf_params.collision_radius, particles[i].curl.w, dt,
         );
     }
     particles[i].vel = vec4f(vel, 0.0);

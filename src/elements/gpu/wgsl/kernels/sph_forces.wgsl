@@ -120,5 +120,6 @@ fn sph_forces_main(
     if (any(field != vec3f(0.0))) { accel += field; }
 
     particles[i].force = vec4f(accel, 0.0);
-    particles[i].color = vec4f(xsph_c * xsph_acc, 0.0);
+    // `color.w`: o ancoramento da gota solta que a fronteira gravou (T066d), preservado.
+    particles[i].color = vec4f(xsph_c * xsph_acc, particles[i].color.w);
 }

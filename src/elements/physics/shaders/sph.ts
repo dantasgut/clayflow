@@ -3,7 +3,13 @@ import { fieldAccelReady, fieldPointTypes } from './fields';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { colliderSet, fluidBoundary, fluidBounds, sphKernels } from '../../gpu/shaders/math';
+import {
+    colliderSet,
+    colliderSurface,
+    fluidBoundary,
+    fluidBounds,
+    sphKernels,
+} from '../../gpu/shaders/math';
 import sphDensitySource from '../../gpu/wgsl/kernels/sph_density.wgsl?raw';
 import sphPressureSource from '../../gpu/wgsl/kernels/sph_pressure.wgsl?raw';
 import sphNormalsSource from '../../gpu/wgsl/kernels/sph_normals.wgsl?raw';
@@ -97,7 +103,7 @@ const neighbors = [neighborParticle, R.neighborList, R.neighborCount] as const;
 export const sphBoundary = wgslModule({
     name: 'sph_boundary_pass',
     source: sphBoundarySource,
-    requires: [poolLive, fluidBoundary, ...own, R.boundary],
+    requires: [poolLive, fluidBoundary, fluidBounds, colliderSurface, ...own, R.boundary],
     structs: [SPHSimParamsSchema, SPHSchema],
 });
 

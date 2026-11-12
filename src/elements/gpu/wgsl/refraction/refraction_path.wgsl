@@ -168,9 +168,23 @@ struct RefractionThin {
     transmit_weight: vec3f,
 }
 
+/**
+ * A normal de sombreamento `ns` com a película de água do sólido (spec 034, T066d; ponto `scene_wetness_slope`): a face
+ * de fora da água tem a normal n − ∇h; a cunha fina de água (índice 1,333) sobre o sólido de índice `ior` desvia o raio
+ * como a interface do sólido com a normal inclinada (1,333 − 1) / (ior − 1) vezes isso — a primeira ordem da cunha. Na
+ * película plana (∇h = 0), nada muda: a água fina e uniforme sobre o vidro liso é quase invisível também na realidade.
+ */
+fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32) -> vec3f {
+    let slope = scene_wetness_slope(hit.position, hit.normal);
+    if (dot(slope, slope) <= 0.0) { return ns; }
+    let k = 0.333 / max(ior - 1.0, 0.05);
+    let side = select(-1.0, 1.0, dot(ns, hit.normal) >= 0.0);
+    return normalize(ns - side * k * slope);
+}
+
 fn refraction_thin(c: Closure, hit: RayHit, d: vec3f, outside: RefractionMedium) -> RefractionThin {
     let nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
-    let ns = refraction_shading_normal(c.normal, hit.normal, nf, d);
+    let ns = refraction_wet_normal(refraction_shading_normal(c.normal, hit.normal, nf, d), hit, c.dielectric_ior);
     let f = refraction_thin_reflectance(c, outside, abs(dot(d, ns)));
     let r = refraction_mirror(d, ns);
     return RefractionThin(nf, r, select(f, vec3f(0.0), dot(r, nf) <= 0.0), vec3f(1.0) - f);
@@ -230,7 +244,7 @@ fn refraction_crossing_at(d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: 
     var out: RefractionCrossing;
     out.p = hit.position;
     out.nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
-    out.ns = refraction_shading_normal(c.normal, hit.normal, out.nf, d);
+    out.ns = refraction_wet_normal(refraction_shading_normal(c.normal, hit.normal, out.nf, d), hit, c.dielectric_ior);
     out.first = refraction_cross_of(hit, c);
     out.count = 1u;
     var rough = c.transmission_roughness;

@@ -121,6 +121,12 @@ export const FluidFieldSchema = new StructSchema(
         /** O escoamento da película: a gravidade (xyz, m/s²) e a viscosidade cinemática da água (w, m²/s). */
         filmFlow: FieldType.vec4f,
         /**
+         * A forma da película (spec 034, T066d): o lado da célula (x, m — a resolução do rastro, `FIELD_FILM_SUBDIV`
+         * células por voxel do campo), a tensão superficial sobre a densidade (y, m³/s²: a pressão de Laplace), o volume
+         * de uma partícula (z, m³: o pingo) e o raio de colisão dela (w, m: o contato que deixa o rastro).
+         */
+        filmShape: FieldType.vec4f,
+        /**
          * As paredes do domínio das partículas, que a película molha como os colliders: o canto mínimo (xyz; w = 1 com
          * paredes, 0 no domínio aberto) e o máximo (xyz) — o chão e os quatro lados.
          */
@@ -157,7 +163,12 @@ export const FieldGatherSchema = new StructSchema(
         base: FieldType.u32,
         body: FieldType.u32,
         contactOffsetVec4: FieldType.u32,
+        /** Deslocamentos da velocidade e da posição anterior em `vec4f` (`NONE` sem): o pingo volta parado (T066d). */
+        velOffsetVec4: FieldType.u32,
+        posOldOffsetVec4: FieldType.u32,
+        _pad0: FieldType.u32,
         _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -178,11 +189,24 @@ export function fieldContactShape(contactAngle: number): [number, number] {
     return [a, 1 / (a * a)];
 }
 
-/** Células da tabela da película de água nos sólidos (spec 034). */
-export const FIELD_FILM_CELLS = 262144;
+/**
+ * Células da tabela da película de água nos sólidos (spec 034): 2²⁰ — com a célula da resolução do rastro (T066d, um
+ * quarto do espaçamento), ~40 m² molhados com a tabela pela metade (28 MiB por fatia).
+ */
+export const FIELD_FILM_CELLS = 1048576;
 
 /**
  * Palavras por célula da película (`field_film.wgsl`): a chave, a água livre, a normal do sólido, a marca de submersa,
- * a água absorvida e a superfície (6 MiB na tabela).
+ * a água absorvida, a superfície e a água pendente (7 MiB na tabela).
  */
-export const FIELD_FILM_WORDS = sharedConstant('FIELD_FILM_WORDS', 6, 'u32');
+export const FIELD_FILM_WORDS = sharedConstant('FIELD_FILM_WORDS', 7, 'u32');
+
+/**
+ * Células da película por lado de voxel do campo (spec 034, T066d): com o voxel de meio espaçamento, a célula é um
+ * quarto dele — o contato de uma partícula (o diâmetro) cobre quatro, e a borda do rastro sai da leitura suave delas, não
+ * dos degraus do voxel.
+ */
+export const FIELD_FILM_SUBDIV = 2;
+
+/** Pingos por quadro no máximo (spec 034, T066d): a lista das partículas que a película devolve à simulação. */
+export const FIELD_FILM_DRIPS = sharedConstant('FIELD_FILM_DRIPS', 64, 'u32');

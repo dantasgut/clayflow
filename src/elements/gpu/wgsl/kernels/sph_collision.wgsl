@@ -51,8 +51,9 @@ fn sph_collision_main(
     // ── Gota solta (spec 034): a borda ancorada num sólido que a água molha (`fluid_wet_pinning`); com outra água por
     // perto (vizinhas), volta à dinâmica do volume. O contato é o sólido mais próximo do início do passo.
     if (sph_params.wet_neighbors > 0u && neighbor_count[t] < sph_params.wet_neighbors) {
+        // O ancoramento da superfície do sólido do contato, que a fronteira gravou em `color.w` (T066d).
         vel = fluid_wet_pinning(
-            vel, particles[i].contact, 1.5 * sph_params.collision_radius, sph_params.wet_pinning, sph_params.dt,
+            vel, particles[i].contact, 1.5 * sph_params.collision_radius, particles[i].color.w, sph_params.dt,
         );
     }
 

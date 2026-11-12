@@ -1,8 +1,10 @@
 // Fronteira sólida do PBF (Akinci et al. 2012; spec 034): por partícula, a cada iteração do solver e antes da
 // densidade, o volume do núcleo poly6 dentro dos sólidos e o gradiente dele (`fluid_boundary`) — lidos pela restrição
 // de densidade e pela correção da mesma iteração —, e o sólido mais próximo no registro da partícula (`contact`, lido
-// pelo campo dos fluidos e pelo ancoramento da gota solta).
-// Grupo 2: conjunto de colliders (`collider_set.wgsl`); o núcleo da fronteira é o poly6 (`FLUID_BOUNDARY_KERNEL` = 1).
+// pelo campo dos fluidos e pelo ancoramento da gota solta), com o ancoramento da superfície física dele em `curl.w`
+// (T066d: lido na atualização da velocidade; a vorticidade o zera depois).
+// Grupo 2: conjunto de colliders (`collider_set.wgsl`, `collider_surface.wgsl`); o núcleo da fronteira é o poly6
+// (`FLUID_BOUNDARY_KERNEL` = 1).
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn pbf_boundary_main(
@@ -19,4 +21,10 @@ fn pbf_boundary_main(
     );
     pbf_boundary[i] = b.term;
     particles[i].contact = b.nearest;
+    // A superfície do sólido mais próximo: a do collider, ou a padrão (entrada 0) quando é uma parede do domínio.
+    let p = particles[i].pos.xyz;
+    let lo = fluid_adhesion_min(pbf_params.bound_min, pbf_params.open_bounds);
+    var surface = 0u;
+    if (collider_set_distance(p) < min(p.y - lo.y, min(p.x - lo.x, p.z - lo.z))) { surface = collider_set_surface(p); }
+    particles[i].curl.w = pbf_params.wet_pinning[surface / 4u][surface % 4u];
 }

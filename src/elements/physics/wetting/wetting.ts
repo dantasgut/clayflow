@@ -77,6 +77,25 @@ export function contactLineRetention(c: ContactLine): number {
 }
 
 /**
+ * Ancoramento de uma gota pousada num sólido (spec 034, T066d; Furmidge 1962): a borda segura a gota com a força f w — a
+ * retenção da linha de contato por comprimento (`contactLineRetention`, N/m) vezes a largura da base dela —, e a gota
+ * escorre quando o peso ao longo do sólido passa disso. A gota de volume `volume` (m³) e massa `mass` (kg) é a calota
+ * esférica do ângulo de contato θ dela com o sólido: raio r = ∛(3V / (π (2 − 3 cos θ + cos³ θ))), base 2 r sen θ.
+ * Devolve a aceleração (m/s²) que a borda segura ao longo do sólido — o ângulo de deslize é asen(a / g); 0 com θ ≥ 90°
+ * (não molha) ou sem retenção.
+ */
+export function dropPinning(line: ContactLine, volume: number, mass: number): number {
+    const theta = (Math.min(Math.max(line.contactAngle, 0), 180) * Math.PI) / 180;
+    if (!(line.contactAngle < 90) || !(volume > 0) || !(mass > 0)) return 0;
+    const c = Math.cos(theta);
+    const shape = 2 - 3 * c + c * c * c;
+    if (!(shape > 0)) return 0;
+    const r = Math.cbrt((3 * volume) / (Math.PI * shape));
+    const width = 2 * r * Math.sin(theta);
+    return (contactLineRetention(line) * width) / mass;
+}
+
+/**
  * Espessura (m) que a película segura parada numa célula de lado `cell` (m) com a gravidade `gt` (m/s²) ao longo do
  * sólido: o peso da água na célula, ρ g_t h ℓ², contra a borda ancorada, f ℓ (`retention`, N/m) — acima dela, o
  * excesso rompe a borda e escorre.

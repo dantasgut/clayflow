@@ -33,7 +33,8 @@ import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
 import { ParticlePhysics, type SurfaceStep } from '../ParticlePhysics';
-import { PBFSimParamsSchema } from '../schemas/simParams';
+import { PBFSimParamsSchema, WET_PINNING_VECS } from '../schemas/simParams';
+import { SurfacePhysics } from '../wetting/SurfacePhysics';
 import {
     pbfApply,
     pbfBoundary,
@@ -363,6 +364,14 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
         const spacingRatio = physics.particleSpacing / 0.05;
+        // O ancoramento da gota solta por superfície (T066d): a padrão e as da cena, na ordem do mapa dos colliders.
+        const surfaces = [SurfacePhysics.defaults, ...this.colliderSet.surfacePhysics()];
+        const pinning = Array.from({ length: WET_PINNING_VECS }, (_, v) =>
+            [0, 1, 2, 3].map((c) => {
+                const k = 4 * v + c;
+                return k < surfaces.length ? physics.dropPinning(surfaces[k]!) : 0;
+            }),
+        );
         for (let i = 0; i < this.iterations; i++) {
             this.params.write(i, {
                 gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
@@ -379,13 +388,8 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
                 max_neighbors: this.maxNeighbors,
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: physics.restitution,
-                wet_neighbors:
-                    physics.contactAngle < 90 && physics.slidingAngle > 0
-                        ? ParticlePhysics.WET_NEIGHBORS
-                        : 0,
-                wet_pinning:
-                    Math.hypot(accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0)
-                    * Math.sin((physics.slidingAngle * Math.PI) / 180),
+                wet_neighbors: physics.contactAngle < 90 ? ParticlePhysics.WET_NEIGHBORS : 0,
+                wet_pinning: pinning,
                 collision_radius: physics.particleSpacing / 2,
                 bound_min: physics.domainMin,
                 bound_max: physics.domainMax,

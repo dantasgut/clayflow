@@ -24,5 +24,5 @@ fn sph_integrate_main(
 
     // Zera força acumulada para próximo substep
     particles[i].force = vec4f(0.0);
-    particles[i].color = vec4f(0.0);
+    particles[i].color = vec4f(0.0, 0.0, 0.0, particles[i].color.w);
 }

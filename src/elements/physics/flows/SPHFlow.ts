@@ -35,7 +35,8 @@ import { GravityField } from '../forcefields/GravityField';
 import { ParticlePhysics, TAIT_GAMMA, type SurfaceStep } from '../ParticlePhysics';
 import { SPHSchema } from '../bodies/schemas/SPHSchema';
 import { SPHBoundarySchema, SPHNormalSchema } from '../bodies/schemas/fluidWork';
-import { SPHSimParamsSchema } from '../schemas/simParams';
+import { SPHSimParamsSchema, WET_PINNING_VECS } from '../schemas/simParams';
+import { SurfacePhysics } from '../wetting/SurfacePhysics';
 import {
     sphBoundary,
     sphCollision,
@@ -325,6 +326,14 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
+        // O ancoramento da gota solta por superfície (T066d): a padrão e as da cena, na ordem do mapa dos colliders.
+        const surfaces = [SurfacePhysics.defaults, ...this.colliderSet.surfacePhysics()];
+        const pinning = Array.from({ length: WET_PINNING_VECS }, (_, v) =>
+            [0, 1, 2, 3].map((c) => {
+                const k = 4 * v + c;
+                return k < surfaces.length ? physics.dropPinning(surfaces[k]!) : 0;
+            }),
+        );
         for (let i = 0; i < this.iterations; i++) {
             this.params.write(i, {
                 gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
@@ -341,13 +350,8 @@ export class SPHFlow extends Flow<SPHSlots, 'running'> {
                 max_neighbors: this.maxNeighbors,
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 restitution: physics.restitution,
-                wet_neighbors:
-                    physics.contactAngle < 90 && physics.slidingAngle > 0
-                        ? ParticlePhysics.WET_NEIGHBORS
-                        : 0,
-                wet_pinning:
-                    Math.hypot(accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0)
-                    * Math.sin((physics.slidingAngle * Math.PI) / 180),
+                wet_neighbors: physics.contactAngle < 90 ? ParticlePhysics.WET_NEIGHBORS : 0,
+                wet_pinning: pinning,
                 bound_min: physics.domainMin,
                 bound_max: physics.domainMax,
                 open_bounds: physics.openBounds ? 1 : 0,

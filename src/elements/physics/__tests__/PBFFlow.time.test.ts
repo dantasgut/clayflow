@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { PBFSimParamsSchema } from '../schemas/simParams';
+
+/** O passo entre as regiões dos parâmetros (o tamanho deles alinhado a 256 bytes). */
+const REGION = Math.ceil(PBFSimParamsSchema.stride / 256) * 256;
 import { PBFFlow } from '../flows/PBFFlow';
 import { FluidBody } from '../bodies/FluidBody';
 import { countPasses } from './helpers/recordingFrame';
@@ -34,7 +38,7 @@ describe('PBFFlow — avanço governado pelo Time (slots)', () => {
         );
         const xsph = passes.filter((p) => p.label === 'PBFFlow.xsph');
         // Grupos por frequência (spec 031): `stage` (pool, vizinhança) e `draw` (parâmetros, único dinâmico).
-        expect(xsph.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(xsph.map((p) => p.offsets[1]?.[0])).toEqual([0, REGION, 2 * REGION, 3 * REGION]);
         expect(xsph.every((p) => p.offsets.length === 2 && p.offsets[0] === undefined)).toBe(true);
     });
 
@@ -52,7 +56,7 @@ describe('PBFFlow — avanço governado pelo Time (slots)', () => {
             w[0]!.bytes.byteLength / 4,
         );
         expect(f32[3]).toBeCloseTo(1 / 120, 7);
-        expect(f32[64 + 11]).toBeCloseTo(1 / 60, 7);
+        expect(f32[REGION / 4 + 11]).toBeCloseTo(1 / 60, 7);
     });
 
     it('steps = 0 não grava passes; nada criado na gravação', async () => {

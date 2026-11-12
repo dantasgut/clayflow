@@ -5,7 +5,8 @@ import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
 // (a névoa entre a câmera e o ponto) sem conhecer quem a implementa — hoje os froxels dos `FogVolume`; quem ilumina um
 // ponto do meio (os froxels) chama `scene_ambient` (a radiância média que chega de todas as direções) sem conhecer a
 // luz ambiente — o hemisfério ou as sondas da iluminação global; quem sombreia uma superfície sólida chama
-// `scene_wetness` (a película de água nela e a água nos poros dela, spec 034) sem conhecer quem a simula. Sem contribuinte, fica o pronto.
+// `scene_wetness` (a película de água nela e a água nos poros dela, spec 034) e quem refrata nela `scene_wetness_slope`
+// (a inclinação dessa película) sem conhecer quem a simula. Sem contribuinte, fica o pronto.
 
 /**
  * `fn scene_fog(p: vec3f) -> vec4f` — a névoa entre a câmera ativa e o ponto `p` (mundo): a luz espalhada para a câmera
@@ -34,6 +35,16 @@ export const sceneAmbientReady = wgslModule({
 export const sceneWetnessReady = wgslModule({
     name: 'scene_wetness_ready',
     source: 'fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return vec2f(0.0);\n}',
+});
+
+/**
+ * `fn scene_wetness_slope(p: vec3f, n: vec3f) -> vec3f` — a inclinação da película de água no ponto `p` de uma
+ * superfície sólida de normal `n` (spec 034, T066d): o gradiente da espessura dela no plano da superfície (m/m) — a
+ * face de fora da água é a normal menos ele; quem refrata no sólido entorta o raio por ela; pronto: plana (0).
+ */
+export const sceneWetnessSlopeReady = wgslModule({
+    name: 'scene_wetness_slope_ready',
+    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
 });
 
 const combined = new Map<string, WgslModule>();
@@ -101,6 +112,23 @@ export const sceneWetnessPoint: ContributionPoint = {
                 source: `fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return max(${modules
                     .map((_, k) => `scene_wetness_${k}(p, n)`)
                     .reduce((a, b) => `max(${a}, ${b})`)}, vec2f(0.0));\n}`,
+            }),
+        ),
+};
+
+/** Inclinação da película: a soma dos contribuintes (as películas de cada um se sobrepõem). */
+export const sceneWetnessSlopePoint: ContributionPoint = {
+    name: 'scene_wetness_slope',
+    ready: sceneWetnessSlopeReady,
+    functionName: 'scene_wetness_slope',
+    combine: (modules) =>
+        memo(`wetness_slope:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_wetness_slope:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_wetness_slope(p: vec3f, n: vec3f) -> vec3f {\n    return ${modules
+                    .map((_, k) => `scene_wetness_slope_${k}(p, n)`)
+                    .join(' + ')};\n}`,
             }),
         ),
 };

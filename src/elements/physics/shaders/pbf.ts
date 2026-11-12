@@ -4,7 +4,13 @@ import { neighborParticle, sphResources } from './sph';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { colliderSet, fluidBoundary, fluidBounds, sphKernels } from '../../gpu/shaders/math';
+import {
+    colliderSet,
+    colliderSurface,
+    fluidBoundary,
+    fluidBounds,
+    sphKernels,
+} from '../../gpu/shaders/math';
 import pbfPredictSource from '../../gpu/wgsl/kernels/pbf_predict.wgsl?raw';
 import pbfDensityLambdaSource from '../../gpu/wgsl/kernels/pbf_density_lambda.wgsl?raw';
 import pbfPositionCorrectSource from '../../gpu/wgsl/kernels/pbf_position_correct.wgsl?raw';
@@ -81,7 +87,7 @@ export const pbfPredict = wgslModule({
 export const pbfBoundary = wgslModule({
     name: 'pbf_boundary_pass',
     source: pbfBoundarySource,
-    requires: [poolLive, fluidBoundary, ...own, R.boundary],
+    requires: [poolLive, fluidBoundary, fluidBounds, colliderSurface, ...own, R.boundary],
     structs: [PBFSimParamsSchema, PBFSchema],
 });
 

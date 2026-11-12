@@ -425,8 +425,26 @@ export class ColliderSet implements WorkPart {
     }
 
     /**
+     * As `SurfacePhysics` da cena na ordem da tabela delas (spec 034): a entrada k + 1 de `collider_surfaces` é a k-ésima
+     * (até `SurfacePhysics.MAX`); a entrada 0 é a padrão (`SurfacePhysics.defaults`). Quem monta a tabela dos termos
+     * (a película, o ancoramento das gotas) a lê daqui — a mesma ordem do mapa dos colliders.
+     */
+    surfacePhysics(): SurfacePhysics[] {
+        return this.world
+            .queryBySchemaName(SurfacePhysics.schema.name)
+            .slice(0, SurfacePhysics.MAX)
+            .map(
+                (id) =>
+                    this.world
+                        .resourcesOf(id)
+                        .find((r): r is SurfacePhysics => r instanceof SurfacePhysics)
+                    ?? SurfacePhysics.defaults,
+            );
+    }
+
+    /**
      * A superfície física de cada collider (spec 034): a posição da entidade dele entre as que têm `SurfacePhysics` + 1
-     * (a ordem da consulta, a mesma de quem monta a tabela delas), 0 sem ela ou além de `SurfacePhysics.MAX`.
+     * (a ordem da consulta, a mesma de `surfacePhysics()`), 0 sem ela ou além de `SurfacePhysics.MAX`.
      */
     private rebuildSurfaces(): void {
         const pools = [PlaneCollider, BoxCollider, SphereCollider, SurfaceCollider].map(

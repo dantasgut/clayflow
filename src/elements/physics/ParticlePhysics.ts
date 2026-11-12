@@ -6,6 +6,8 @@ import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescrip
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import type { World } from '../../scene/world/World';
+import type { SurfacePhysics } from './wetting/SurfacePhysics';
+import { dropPinning } from './wetting/wetting';
 
 /** Opções de domínio da física das partículas (fluidos SPH/PBF/MPM e sólidos MPM). */
 export interface ParticlePhysicsOptions {
@@ -286,14 +288,13 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
         surfaceTension: 0.072,
         contactAngle: 30,
         restitution: 0,
-        slidingAngle: 25,
         xsph: 0.01,
     } as const;
 
     /**
-     * Vizinhas abaixo das quais a partícula é uma gota solta (spec 034): encostada num sólido que a água molha, ela
-     * representa gotas menores que a resolução, em que a borda ancorada domina (`slidingAngle`) — a mesma contagem que
-     * faz o campo dos fluidos desenhá-la como gota isolada. Com outra água por perto, volta ao volume.
+     * Vizinhas abaixo das quais a partícula é uma gota solta (spec 034): encostada num sólido que a água molha, a borda
+     * dela fica ancorada nele (`dropPinning`, pela `SurfacePhysics` do sólido) — a mesma contagem que faz o campo dos
+     * fluidos desenhá-la como gota isolada. Com outra água por perto, volta ao volume.
      */
     static readonly WET_NEIGHBORS = 8;
 
@@ -305,9 +306,6 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
      * adesão, dá a forma da gota pousada num sólido no campo dos fluidos (a calota que molha).
      */
     readonly contactAngle: number;
-
-    /** Ângulo de deslize das gotas soltas, em graus (0 sem ancoramento). */
-    readonly slidingAngle: number;
 
     /** Tensão superficial física γ (N/m); 0 no modo adimensional (`cohesion`/`adhesion`). */
     readonly surfaceTension: number;
@@ -376,13 +374,6 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
             throw new RangeError('ParticlePhysics: contactAngle só vale com surfaceTension');
         }
         this.contactAngle = contactAngle;
-        const sliding = options.slidingAngle ?? 0;
-        if (!(sliding >= 0 && sliding <= 90)) {
-            throw new RangeError(
-                `ParticlePhysics: slidingAngle deve estar em [0, 90] graus (recebeu ${sliding})`,
-            );
-        }
-        this.slidingAngle = sliding;
         this.data = {
             cohesion,
             adhesion,
@@ -467,6 +458,26 @@ export class ParticlePhysics extends Entity<ParticlePhysicsData> implements Reso
     /** Massa de uma partícula: ρ₀s³. */
     get particleMass(): number {
         return this.restDensity * this.particleVolume;
+    }
+
+    /**
+     * Ancoramento da gota solta num sólido (spec 034, T066d), m/s²: a borda da gota de uma partícula (o volume e a massa
+     * dela, a calota do ângulo de contato com o sólido) segura o peso ao longo dele até a força de Furmidge da superfície
+     * (`dropPinning`: a tensão do líquido, o ângulo de Young dela — ou o do líquido —, a histerese e a rugosidade). 0 sem
+     * molhar (`contactAngle` ≥ 90°, o modo adimensional).
+     */
+    dropPinning(surface: SurfacePhysics): number {
+        if (!(this.surfaceTension > 0) || !(this.contactAngle < 90)) return 0;
+        return dropPinning(
+            {
+                surfaceTension: this.surfaceTension,
+                contactAngle: surface.contactAngle ?? this.contactAngle,
+                hysteresis: surface.hysteresis,
+                roughness: surface.roughness,
+            },
+            this.particleMass / this.restDensity,
+            this.particleMass,
+        );
     }
 
     /** Raio de suavização do SPH (spline cúbica, suporte 2h): 1,3 s. */

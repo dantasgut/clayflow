@@ -56,7 +56,7 @@ import {
 } from '../../raytrace/points';
 import { cameraSpace } from '../../scene/flows/shaders';
 import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
-import { sceneFogReady } from '../../scene/points/media';
+import { sceneFogReady, sceneWetnessSlopeReady } from '../../scene/points/media';
 import {
     camerasResource,
     previousWorldsResource,
@@ -273,6 +273,7 @@ export const refractionPath = wgslModule({
         closureEval,
         sceneEnvironmentReady,
         sceneIndirectLightingReady,
+        sceneWetnessSlopeReady,
         R.frame,
     ],
 });

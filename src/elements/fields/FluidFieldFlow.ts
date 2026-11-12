@@ -64,6 +64,8 @@ import {
     FIELD,
     FIELD_BRICK_VOXELS,
     FIELD_FILM_CELLS,
+    FIELD_FILM_DRIPS,
+    FIELD_FILM_SUBDIV,
     FIELD_FILM_SURFACES,
     FIELD_FILM_WORDS,
     FIELD_LIGHT_MAPS,
@@ -79,9 +81,11 @@ import {
     fieldLightMap,
     fieldMesh,
     fieldFilmDeposit,
+    fieldFilmDrip,
     fieldFilmStep,
     fieldDensity,
     fieldGather,
+    fieldRevive,
     fieldSort,
     fieldKernels,
     fieldLinks,
@@ -202,6 +206,9 @@ interface Work {
     readonly density: StorageBufferSpec;
     readonly phi0: StorageBufferSpec;
     readonly phiA: StorageBufferSpec;
+    /** A pressão da película por célula e as retiradas e os pingos do quadro (T066d). */
+    readonly filmPressure: StorageBufferSpec;
+    readonly drips: StorageBufferSpec;
 }
 
 const kernel = (id: string, shader: WgslModule, entry: string): PipelineDescriptor => ({
@@ -219,8 +226,13 @@ const SORT = kernel('sort', fieldSort, 'field_sort_main');
 const KERNELS = kernel('kernels', fieldKernels, 'field_kernels_main');
 const CLEAR = kernel('clear', fieldMark, 'field_clear_main');
 const MARK = kernel('mark', fieldMark, 'field_mark_main');
-/** A película de água nos sólidos (spec 034): o passo por célula (absorção, evaporação, escoamento), a deposição. */
+/**
+ * A película de água nos sólidos (spec 034): a pressão e o passo por célula (absorção, evaporação, escoamento,
+ * espalhamento, a água pendente), o pingo e a deposição.
+ */
+const FILM_PRESSURE = kernel('film_pressure', fieldFilmStep, 'field_film_pressure_main');
 const FILM_STEP = kernel('film_step', fieldFilmStep, 'field_film_step_main');
+const FILM_DRIP = kernel('film_drip', fieldFilmDrip, 'field_film_drip_main');
 const FILM_DEPOSIT = kernel('film_deposit', fieldFilmDeposit, 'field_film_deposit_main');
 const LINKS = kernel('links', fieldLinks, 'field_links_main');
 const DENSITY = kernel('density', fieldDensity, 'field_density_main');
@@ -246,7 +258,9 @@ const BUILD = [
     KERNELS,
     CLEAR,
     MARK,
+    FILM_PRESSURE,
     FILM_STEP,
+    FILM_DRIP,
     FILM_DEPOSIT,
     LINKS,
     DENSITY,
@@ -263,6 +277,10 @@ const BUILD = [
 /** A junção de um pool de corpos de água (um pipeline por pool: as partículas dele). */
 const gatherKernel = (poolKey: string): PipelineDescriptor =>
     kernel(`gather:${poolKey}`, fieldGather, 'field_gather_main');
+
+/** O pingo da película no pool de um corpo de água (um pipeline por pool, T066d). */
+const reviveKernel = (poolKey: string): PipelineDescriptor =>
+    kernel(`revive:${poolKey}`, fieldRevive, 'field_revive_main');
 
 /** Espaçamento padrão das partículas quando a cena não tem `ParticlePhysics`. */
 const DEFAULT_SPACING = 0.05;
@@ -427,7 +445,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         return (
             this.buildPrepared
             && BUILD.every((d) => ready(d.id))
-            && this.order.every((b) => ready(gatherKernel(b.poolKey).id))
+            && this.order.every(
+                (b) => ready(gatherKernel(b.poolKey).id) && ready(reviveKernel(b.poolKey).id),
+            )
         );
     }
 
@@ -441,6 +461,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     ): void {
         const W = WORKGROUP_SIZE.value;
         const at = (d: PipelineDescriptor): PreparedCompute => bound.compute(d.id);
+        // As retiradas e os pingos do quadro (T066d) começam vazios: a junção os lista.
+        frame.clear(work.drips);
         frame.compute('FluidFieldFlow.gather', (pass) => {
             this.order.forEach((b, i) => {
                 const gather = at(gatherKernel(b.poolKey));
@@ -471,8 +493,17 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         if (this.filmAdvances && film !== undefined && data !== undefined) {
             frame.clear(film);
             frame.compute('FluidFieldFlow.film', (pass) => {
+                this.run(pass, at(FILM_PRESSURE), FIELD_FILM_CELLS, W);
                 this.run(pass, at(FILM_STEP), FIELD_FILM_CELLS, W);
+                this.run(pass, at(FILM_DRIP), FIELD_FILM_CELLS, W);
                 this.run(pass, at(FILM_DEPOSIT), this.particles, W);
+                // Os pingos voltam ao pool do corpo de cada um (T066d).
+                this.order.forEach((b, i) => {
+                    const revive = at(reviveKernel(b.poolKey));
+                    pass.bind.setPipeline(revive.spec);
+                    revive.bindTo(pass.bind, { draw: [this.draws.offset(i)] });
+                    pass.dispatch.invocations(FIELD_FILM_DRIPS.value, W);
+                });
             });
             frame.copy(
                 film,
@@ -603,6 +634,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             wordBuffer('field_density', voxels),
             wordBuffer('field_phi0', voxels),
             wordBuffer('field_phi_a', voxels),
+            // A pressão da película por célula do quadro anterior e as retiradas e os pingos do quadro (T066d).
+            wordBuffer('field_film_pressure', FIELD_FILM_CELLS * 4),
+            wordBuffer('field_drips', (2 + 6 * FIELD_FILM_DRIPS.value) * 4),
         ];
     }
 
@@ -623,6 +657,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             density: of('density'),
             phi0: of('phi0'),
             phiA: of('phi_a'),
+            filmPressure: of('film_pressure'),
+            drips: of('drips'),
         };
     }
 
@@ -728,6 +764,17 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     physics?.openBounds === true ? 0 : 1,
                 ],
                 filmBoundsMax: [...(physics?.domainMax ?? [2, 2, 2]), 0],
+                // A célula da película (a resolução do rastro), γ/ρ, o volume de uma partícula e o raio do contato dela.
+                filmShape: [
+                    (FIELD.voxel * spacing) / FIELD_FILM_SUBDIV,
+                    (physics !== undefined && physics.surfaceTension > 0
+                        ? physics.surfaceTension
+                        : WATER_FILM.surfaceTension) / (physics?.restDensity ?? 1000),
+                    physics === undefined
+                        ? spacing * spacing * spacing
+                        : physics.particleMass / physics.restDensity,
+                    spacing / 2,
+                ],
                 filmSurfaces: this.surfaceTable(ctx, physics),
                 bodies: this.bodyTable(ctx),
             },
@@ -759,16 +806,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             viscosity: physics?.viscosity ?? 0.001,
             density: physics?.restDensity ?? 1000,
         };
-        const surfaces = this.world
-            .queryBySchemaName(SurfacePhysics.schema.name)
-            .slice(0, SurfacePhysics.MAX)
-            .map(
-                (id) =>
-                    this.world
-                        .resourcesOf(id)
-                        .find((r): r is SurfacePhysics => r instanceof SurfacePhysics)
-                    ?? SurfacePhysics.defaults,
-            );
+        const surfaces = this.colliderSet.surfacePhysics();
         const rows: number[][] = [];
         for (let k = 0; k < FIELD_FILM_SURFACES.value; k++) {
             const t = filmSurfaceTerms(
@@ -846,6 +884,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 contactOffsetVec4: schema.fields.has('contact')
                     ? schema.offsetOf('contact') / 16
                     : NONE.value,
+                velOffsetVec4: schema.fields.has('vel') ? schema.offsetOf('vel') / 16 : NONE.value,
+                posOldOffsetVec4: schema.fields.has('posOld')
+                    ? schema.offsetOf('posOld') / 16
+                    : NONE.value,
             };
             base += b.body.count;
             return region;
@@ -911,6 +953,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             [R.phi0, work.phi0],
             [R.flags, work.phiA],
             [R.atlasStamps, stamps],
+            [R.filmPressure, work.filmPressure],
+            [R.drips, work.drips],
+            [R.dripsRead, work.drips],
             [R.atlasClock, clock as BindingSource],
             ...[...this.colliderSet.sources()].filter(([r]) => FILM_COLLIDER_RESOURCES.has(r)),
         ]);
@@ -938,6 +983,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             const id = gatherKernel(poolKey).id;
             sources.set({ pipeline: id, resource: R.particles }, pool);
             sources.set({ pipeline: id, resource: R.live }, live);
+            sources.set({ pipeline: reviveKernel(poolKey).id, resource: R.particlesWrite }, pool);
         }
         // Pela identidade do buffer (uma fonte com região é um objeto novo a cada chamada) e a região dele.
         const key = [...sources.values()]
@@ -960,11 +1006,13 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             if (this.gatherPools.has(poolKey)) continue;
             this.gatherPools.add(poolKey);
             ctx.prepare(gatherKernel(poolKey));
+            ctx.prepare(reviveKernel(poolKey));
         }
         for (const poolKey of [...this.gatherPools]) {
             if (pools.has(poolKey)) continue;
             this.gatherPools.delete(poolKey);
             ctx.release(gatherKernel(poolKey).id);
+            ctx.release(reviveKernel(poolKey).id);
         }
     }
 
