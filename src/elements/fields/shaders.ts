@@ -418,7 +418,6 @@ export const fieldFilmDeposit = wgslModule({
         fieldCommon,
         fieldFilm,
         fieldFilmUpdate,
-        fieldFilmSolid,
         basis,
         R.sorted,
         R.sortedContacts,

@@ -1,10 +1,10 @@
 // Deposição da película de água nos sólidos (`field_film.wgsl`, spec 034), por partícula encostada num sólido (o
 // contato do solver, a menos de 1,5 raio de colisão): a película residual em cada célula do contato dela — o disco do
 // raio de colisão em volta do ponto de contato, no plano do sólido (T066d: o rastro tem a largura do contato da gota,
-// não a de um voxel; só onde há sólido) —, o máximo com a que já há, a normal do sólido e, se a partícula é do volume da
+// não a de um voxel) —, o máximo com a que já há, a normal do sólido e, se a partícula é do volume da
 // água (o núcleo não é o esparso), a marca de submersa — na fatia do quadro do canal da película (T060f), depois do
 // passo e do pingo.
-// Requer: WORKGROUP_SIZE, fluid_field, field_common, field_film, field_film_update, field_film_solid, basis,
+// Requer: WORKGROUP_SIZE, fluid_field, field_common, field_film, field_film_update, basis,
 // field_sorted (leitura), field_sorted_contacts (leitura), field_kernel (leitura).
 
 /** Células do raio do disco do contato no máximo (o laço tem esse teto; com a célula de um quarto de espaçamento, 2). */
@@ -40,10 +40,9 @@ fn field_film_deposit_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(
             if (abs(i) > reach || abs(j) > reach || (i == 0 && j == 0)) { continue; }
             let o = (f32(i) * tbn[0] + f32(j) * tbn[1]) * size;
             if (dot(o, o) > r * r) { continue; }
-            let p = q + o;
-            // Só onde há sólido: o disco que passa da quina não molha o ar.
-            if (abs(field_film_solid(p)) > 0.5 * size) { continue; }
-            field_film_wet(p, n, packed, submerged);
+            // O disco que passa da quina molha o ar: o passo tira a célula sem sólido quando resolve a superfície dela
+            // (uma vez por célula nova, não por partícula a cada quadro).
+            field_film_wet(q + o, n, packed, submerged);
         }
     }
 }

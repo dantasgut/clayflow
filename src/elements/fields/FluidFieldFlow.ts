@@ -492,10 +492,17 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         const data = this.buffer(field, 'data');
         if (this.filmAdvances && film !== undefined && data !== undefined) {
             frame.clear(film);
-            frame.compute('FluidFieldFlow.film', (pass) => {
+            // Um passe por etapa: o perfilador mede cada uma.
+            frame.compute('FluidFieldFlow.film.pressure', (pass) => {
                 this.run(pass, at(FILM_PRESSURE), FIELD_FILM_CELLS, W);
+            });
+            frame.compute('FluidFieldFlow.film.step', (pass) => {
                 this.run(pass, at(FILM_STEP), FIELD_FILM_CELLS, W);
+            });
+            frame.compute('FluidFieldFlow.film.drip', (pass) => {
                 this.run(pass, at(FILM_DRIP), FIELD_FILM_CELLS, W);
+            });
+            frame.compute('FluidFieldFlow.film.deposit', (pass) => {
                 this.run(pass, at(FILM_DEPOSIT), this.particles, W);
                 // Os pingos voltam ao pool do corpo de cada um (T066d).
                 this.order.forEach((b, i) => {

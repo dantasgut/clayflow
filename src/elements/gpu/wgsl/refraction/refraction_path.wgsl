@@ -175,6 +175,8 @@ struct RefractionThin {
  * película plana (∇h = 0), nada muda: a água fina e uniforme sobre o vidro liso é quase invisível também na realidade.
  */
 fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32) -> vec3f {
+    // Só nos sólidos: a superfície de um volume (a própria água) não tem película.
+    if (refraction_is_volume(hit.instance)) { return ns; }
     let slope = scene_wetness_slope(hit.position, hit.normal);
     if (dot(slope, slope) <= 0.0) { return ns; }
     let k = 0.333 / max(ior - 1.0, 0.05);

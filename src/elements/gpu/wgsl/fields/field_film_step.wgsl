@@ -294,7 +294,13 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     let size = field_film_size();
     let c = field_film_coords(key);
     var surface = field_film_previous[pw + 5u];
-    if (surface == 0u) { surface = field_film_surface_at((vec3f(c) + 0.5) * size) + 1u; }
+    if (surface == 0u) {
+        // A célula nova: a superfície do sólido dela — e, sem sólido junto (o disco da deposição que passou da quina),
+        // ela sai (a residual no ar não é película).
+        let center = (vec3f(c) + 0.5) * size;
+        if (abs(field_film_solid(center)) > 1.5 * size && field_film_previous[pw + 6u] == 0u) { return; }
+        surface = field_film_surface_at(center) + 1u;
+    }
     let packed_normal = field_film_previous[pw + 2u];
     // (borda / ρ, 1 / rugosidade, Washburn, capacidade) e a evaporação.
     let terms = field_film_surface(surface - 1u, 0u);
