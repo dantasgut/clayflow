@@ -5249,12 +5249,15 @@ GameLoop (RAF)
 ExecutionSystem.onFrameTick()
   eventBus.emit('frameRecording')  // C2: dados sujos → GPU; Flows reconciliados; framePrepare entregue
   core.record('frame', frame => {
-    // para cada fase, só os Flows ativos (flowReady), com o BoundFlow de cada um:
-    // physics   → LCPFlow / XPBDFlow / ... → frame.compute(...)
-    // transform → TransformFlow → frame.compute(...) (só quando há intenção pendente)
-    // shadow    → ShadowFlow → frame.compute(páginas) + frame.render(uma página suja por vez, atlas por atomicMin)
-    // forward   → ForwardFlow → frame.render(FrameTargets.color + depth, ...)
-    // post      → PostFlow → frame.render(pingue-pongue …, canvas)
+    // para cada fase, só os Flows ativos (flowReady), com o BoundFlow de cada um, dentro de
+    // frame.marker(fase) e frame.marker(flow.type) — a sequência completa está em
+    // "Ordem dos passes do quadro" logo abaixo:
+    // physics   → histórico de movimento, colliders, solvers, energia, partículas secundárias, emissores
+    // transform → tabelas PBR, Transform, câmeras, matriz de sombra, superfícies, grafos, campo dos fluidos, céu, BVH
+    // shadow    → sombra virtual (páginas + atlas), GI (sondas), cáusticas (fótons), névoa (froxels)
+    // forward   → pré-passagem + cor + fundo, movimento, pedido da refração, sprites, pedidos de sombra,
+    //             traçado da refração, filtro, composição, movimento do refratado
+    // post      → resolução temporal (AA), nitidez, efeitos, apresentação no canvas
     // ui        → UIFlow → frame.render(canvas, loadOp 'load')
     for (const phase of registry.phasesInOrder())
       for (const flow of registry.flowsInPhase(phase))
@@ -5271,6 +5274,49 @@ ExecutionSystem.onFrameTick()
 - **`ResourceSystem` não tem método `flush` público** — é reativo a eventos do `World`; o envio dos dados sujos acontece em `frameRecording`, antes da gravação. Um Flow cujos slots ou pipelines ainda não estão prontos simplesmente não está entre os ativos.
 - **Ordem fixa entre fases**; dentro da fase, `priority` decrescente, empate pela ordem de registro. Compute físico grava antes dos render passes — barreiras WebGPU são automáticas.
 - **Pipelines `preferAsync=true`** atrasam o `flowReady` até compilarem. Flow só entra entre os ativos quando todos os pipelines declarados estão prontos — sem null checks no hot path. Pipelines preparados em transição avisam com `pipelinesCompiled { pipeline }`.
+
+### Ordem dos passes do quadro (estágios padrão)
+
+A ordem real sai de três lugares do código: as fases fixas em `src/scene/flows/Phase.ts` (`PHASE_ORDER`); o registro
+dos estágios padrão, com fase e `priority`, em `src/presentation/flows/defaults.ts` (`createPresentationDefaults`) e
+`src/elements/physics/flows/defaultFlows.ts` (`DEFAULT_SOLVER_REGISTRATIONS`); e, dentro de cada estágio, a ordem das
+chamadas `frame.compute`/`frame.render` no `dispatch` (rótulos abaixo). O `ExecutionSystem`
+(`src/scene/systems/ExecutionSystem.ts`) emite `frameRecording` (envio dos dados sujos, reconciliação, `framePrepare`),
+grava as fases em ordem — prioridade decrescente, empate pela ordem de registro — e faz `submit`; depois,
+`frameComplete`. O `Renderer` da 039 (`src/elements/render/Renderer.ts`) não ordena passes: é a entidade de
+configuração (perfil, caminhos de luz, cáusticas, GI, névoa, sombras, antisserrilhado, filtro temporal) cujas partes os
+estágios abaixo leem pelos slots. Um estágio sem o recurso que lê (sem `Refraction`, sem `GlobalIllumination`, sem
+`Froxels`…) não fica ativo e não grava nada.
+
+| # | Fase | Prioridade | Estágio | Passes gravados (rótulo, na ordem) |
+|---|---|---|---|---|
+| 1 | `physics` | 1000 | `MotionHistoryFlow` | compute `MotionHistoryFlow` — guarda as matrizes de mundo do quadro anterior (movimento) |
+| 2 | `physics` | 20 / 10 / 5 / 0 | solvers por `bodyType` | `SurfaceColliderFlow` (20), `LCPFlow` (10), `XPBDFlow` (5), `FEMFlow`, `MPMFlow`, `SPHFlow`, `PBFFlow` (0) |
+| 3 | `physics` | 0 / −10 | `EnergyFlow`, `SoftEnergyFlow` | só com `EnergyMeter` na cena |
+| 4 | `physics` | −50 / −100 | `DiffuseFlow`, `EmitterFlow` | partículas secundárias dos fluidos; emissores |
+| 5 | `transform` | 10 | `PbrTablesFlow` | compute `PbrTablesFlow` — tabelas do sombreamento físico |
+| 6 | `transform` | 0 | `TransformFlow` | `TransformFlow`, `.function`, `.level`, `.inverse` |
+| 7 | `transform` | −10 / −20 | `CameraFlow`, `ShadowMatrixFlow` | matrizes das câmeras; matriz luz-vista-projeção |
+| 8 | `transform` | −30 / −40 / −50 | `SoftSurfaceFlow`, `SurfaceFlow`, `GraphFlow` (`setGraph`), `FluidFieldFlow` | vértices de corpos moles, superfícies paramétricas, grafos de conjunto, campo dos fluidos |
+| 9 | `transform` | −55 | `SkyFlow` | `SkyFlow.<tabela>` — atmosfera e vista do céu |
+| 10 | `transform` | −60 | `RaySceneFlow` | `RaySceneFlow.blas` (as geometrias que mudaram), `RaySceneFlow.tlas` — a estrutura de raios |
+| 11 | `shadow` | 0 | `ShadowFlow` | compute `ShadowFlow.pages`; render `ShadowFlow` (uma página suja por vez no atlas da sombra virtual) |
+| 12 | `shadow` | −5 | `ProbeFlow` (GI) | `ProbeFlow.trace`, `.guide`, `.screenTrace`, `.through`, `.shade`, `.direct`, `.blend`, `.atlas`, `.screen` |
+| 13 | `shadow` | −10 | `CausticsFlow` | compute `CausticsFlow` — fótons pela estrutura de raios e pela água |
+| 14 | `shadow` | −30 | `FroxelFlow` | compute `FroxelFlow` — névoa |
+| 15 | `forward` | 0 | `ForwardFlow` | render `ForwardFlow`: **pré-passagem** de profundidade dos opacos (só vértice, quando ligada), cor dos opacos e fundo; render `ForwardFlow.motion` (com AA temporal); render `ForwardFlow.refractionRequest` (transmissivos, com `Refraction`); render `ForwardFlow.surfaceMotion` |
+| 16 | `forward` | −50 | `ParticleFlow` | render `ParticleFlow`, `ParticleFlow.motion` — sprites |
+| 17 | `forward` | −55 | `ShadowRequestFlow` | compute `ShadowRequestFlow` — páginas da sombra pedidas pela profundidade deste quadro (lidas no seguinte) |
+| 18 | `forward` | −61 | `RefractionVolumeRequestFlow` | render `RefractionVolumeRequestFlow` — a superfície da água no pedido da refração |
+| 19 | `forward` | −65 | `RefractionFlow` | compute `RefractionFlow.queue`, `RefractionFlow.trace` — a refração traçada |
+| 20 | `forward` | −66 | `RefractionDenoiseFlow` | compute `.temporal`, `.atrous` — filtro do sinal traçado |
+| 21 | `forward` | −67 | `RefractionCompositeFlow` | render `RefractionCompositeFlow` — o traçado sobre a cor da cena |
+| 22 | `forward` | −68 | `RefractionMotionFlow` | render `RefractionMotionFlow` — movimento do que a refração mostra |
+| 23 | `forward` | −100 | `DebugFlow` | nenhum passe (estatísticas) |
+| 24 | `post` | 0 | `PostFlow` | render `PostFlow.temporalResolve` (AA temporal) e `PostFlow.temporalSharpen`; os efeitos (`PostFlow.<efeito>`, pingue-pongue); render `PostFlow.present` — apresentação no canvas |
+| 25 | `ui` | 0 | `UIFlow` | render `UIFlow` (canvas, `loadOp: 'load'`) |
+
+Flows registrados pela aplicação entram na mesma ordem pela fase e pela prioridade que declaram.
 
 ### Aplicação — entry point reativo
 
@@ -5509,7 +5555,7 @@ habilitado.
 | Substituição | `override(bodyType, factory, options)` — vence a prioridade dos demais para o tipo de corpo |
 | Descarte | `unregister(registration)` — descarta a instância (objetos de GPU, inscrições, compilação em curso) e, para `bodyType`, instancia o próximo vencedor |
 | Erros | `FlowRegistrationError`: `type` repetido na fase, `bodyType` vazio, registro sem cena |
-| Defaults | `registerPresentationDefaults` (chamado por `Application.create`) registra Transform, Camera, ShadowMatrix, Shadow, Forward (`output: 'scene'`), Post, Debug, UI e os solvers (`DEFAULT_SOLVER_REGISTRATIONS`), e insere os `FrameTargets` — uma vez por cena |
+| Defaults | `registerPresentationDefaults` (chamado por `Application.create`) registra os estágios da [ordem dos passes do quadro](#ordem-dos-passes-do-quadro-estágios-padrão) e os solvers (`DEFAULT_SOLVER_REGISTRATIONS`), e insere os `FrameTargets` — uma vez por cena |
 
 **Ordem**: fases fixas `physics → transform → shadow → forward → post → ui`; dentro da fase, `priority` decrescente,
 empate pela ordem de registro — sem `before`/`after`/`at`. `resolve(bodyType)` devolve o `override`, se houver;
@@ -6144,7 +6190,7 @@ Camada 4 — Application / GameLoop / Time / Input / Assets / Flows custom
   GameLoop emite 'frameTick' (multiplica realDt por time.scale)
   ExecutionSystem reage: core.record(frame => for (phase of [physics, transform, shadow, forward, post, ui])
                                                   for (flow of flows.flowsInPhase(phase)) flow.dispatch(frame))
-    fluxo padrão = [Shadow, Forward (offscreen + canvas), Post (Bloom/Tone/...), UI, Debug?]
+    fluxo padrão = ver "Ordem dos passes do quadro (estágios padrão)" (sombra virtual, GI, cáusticas, névoa, forward, refração, AA, apresentação, UI)
   events.emit('frameComplete', { timestamp, dt, elapsed })   ← C4 escuta para profiling/UI
         ↓
 Camada 3 — Composição via Entity + Resource em chain
