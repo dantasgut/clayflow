@@ -727,20 +727,23 @@ fn refraction_blocks_index(p: vec2u, size: vec2u) -> u32 {
 }
 
 /**
- * A variação da distância do pedido em um pixel em volta de `q` (marcas `flags`, distância `d`): a maior diferença para
- * os vizinhos pedidos da mesma superfície (as mesmas marcas).
+ * A variação da distância do pedido entre duas amostras dentro do pixel `q` (marcas `flags`, distância `d`): a amostra
+ * anda até um pixel em x e em y ao mesmo tempo (o jitter em [-½, ½]² nos dois quadros), então a variação é a soma da
+ * maior diferença para os vizinhos pedidos da mesma superfície em cada eixo, não a maior das duas (na diagonal de uma
+ * superfície inclinada a distância passava da tolerância e o pixel parado caía na reconstrução).
  */
 fn refraction_pixel_depth_step(q: vec2u, size: vec2u, flags: u32, d: f32) -> f32 {
-    var step = 0.0;
+    var axis = vec2f(0.0);
     for (var k = 0u; k < 4u; k++) {
         let o = array<vec2i, 4>(vec2i(1, 0), vec2i(-1, 0), vec2i(0, 1), vec2i(0, -1))[k];
         let n = vec2i(q) + o;
         if (any(n < vec2i(0)) || any(n >= vec2i(size))) { continue; }
         let r = textureLoad(refraction_request, vec2u(n), 0);
         if (r.y != flags) { continue; }
-        step = max(step, abs(bitcast<f32>(r.x) - d));
+        let diff = abs(bitcast<f32>(r.x) - d);
+        if (k < 2u) { axis.x = max(axis.x, diff); } else { axis.y = max(axis.y, diff); }
     }
-    return step;
+    return axis.x + axis.y;
 }
 
 /** A câmera da refração não se moveu desde o quadro anterior (a vista-projeção sem o deslocamento da amostra igual)? */
@@ -758,8 +761,14 @@ fn refraction_camera_still() -> bool {
     return change <= 1e-6 * scale;
 }
 
-/** Quadros em que o valor exato de um pixel vale (a volta do representante pelo bloco). */
-const REFRACTION_STAMP_FRAMES: u32 = 4u;
+/**
+ * Quadros em que o valor exato de um pixel vale: a maior volta do representante pelo bloco. A vez gira pela soma dos
+ * dígitos do quadro na base 4 (`refraction_block_rep`), e entre dois traçados do mesmo pixel passam até 7 quadros (em
+ * 32 % das voltas mais de 4); em xadrez (Opção B2), até 15. Com a validade de 4, a imagem parada perdia o valor exato
+ * nesses quadros e o pixel caía na reconstrução pelos vizinhos (a borda nítida atrás do vidro borrava ~7 % por lado).
+ */
+const REFRACTION_STAMP_FRAMES: u32 = 7u;
+const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 16u;
 
 /**
  * Cada pixel pedido pelos representantes traçados neste quadro nos blocos em volta (3 × 3 blocos): o próprio, quando foi
@@ -840,8 +849,8 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     let ds = bitcast<f32>(stamp.y);
     let jittered = any(cameras[refraction.camera_slot].jitter.zw != vec2f(0.0));
     let tolerance = select(0.0, refraction_pixel_depth_step(q, size, own.y, d), jittered) + 1e-4 * d;
-    // Em xadrez (Opção B2) a volta do representante pelo bloco leva até 4× os quadros (a vez e a fase giram por ciclo).
-    let stamp_frames = select(REFRACTION_STAMP_FRAMES, 4u * REFRACTION_STAMP_FRAMES, refraction.checkerboard != 0u);
+    // Em xadrez (Opção B2) a volta do representante pelo bloco é mais longa (a vez e a fase giram por ciclo).
+    let stamp_frames = select(REFRACTION_STAMP_FRAMES, REFRACTION_STAMP_FRAMES_CHECKER, refraction.checkerboard != 0u);
     // O ponto mostrado é uma série temporal (spec 037): o pixel que guarda o valor leva o do quadro anterior à fatia de
     // agora.
     let kept = textureLoad(refraction_hit_previous, q, 0);
