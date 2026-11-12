@@ -38,20 +38,30 @@ fn field_film_units(h: f32) -> u32 {
 }
 
 
+/** A página `pc` na fatia do quadro anterior do canal da película (`field_film_previous`), ou `NONE`. */
+fn field_film_previous_page(pc: vec3i) -> u32 {
+    let key = field_film_page_key(pc);
+    let base = field_film_pages_word();
+    let mask = field_film_page_mask();
+    var page = field_film_page_bucket(pc);
+    let step = (key << 1u) | 1u;
+    for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
+        let found = field_film_previous[base + page];
+        if (found == key) { return page; }
+        if (found == 0u) { return NONE; }
+        page = (page + step) & mask;
+    }
+    return NONE;
+}
+
 /** A palavra da célula `c` na fatia do quadro anterior do canal da película (`field_film_previous`), ou `NONE`. */
 fn field_film_previous_word(c: vec3i) -> u32 {
     let key = field_film_key(c);
     if (key == 0u) { return NONE; }
-    var slot = field_film_bucket(c);
-    let step = (key << 1u) | 1u;
-    for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
-        let w = field_film_cell_word(slot);
-        let found = field_film_previous[w];
-        if (found == key) { return w; }
-        if (found == 0u) { return NONE; }
-        slot = (slot + step) & fluid_field.film.y;
-    }
-    return NONE;
+    let page = field_film_previous_page(field_film_page(c));
+    if (page == NONE) { return NONE; }
+    let w = field_film_cell_word(field_film_slot_in(page, c));
+    return select(NONE, w, field_film_previous[w] == key);
 }
 
 /** A vizinha `k` (0–3) da célula `c` no plano dos eixos `axes`: −u, +u, −v, +v. */

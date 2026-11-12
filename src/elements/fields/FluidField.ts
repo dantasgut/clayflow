@@ -31,8 +31,7 @@ import { SetCountSchema } from '../../scene/graph/SetCountSchema';
 import { wordBuffer } from '../gpu/compute/schemas';
 import {
     FIELD_BRICK_APRON_VOXELS,
-    FIELD_FILM_CELLS,
-    FIELD_FILM_WORDS,
+    FIELD_FILM_SLICE_WORDS,
     FieldWordSchema,
     FluidFieldSchema,
     FIELD_MAX_BODIES,
@@ -87,7 +86,7 @@ export function fieldFilmOffset(c: FluidFieldCapacity): number {
  * avaliado uma vez por quadro na onda dos acertos.
  */
 export function fieldMediaOffset(c: FluidFieldCapacity): number {
-    return fieldFilmOffset(c) + FIELD_FILM_WORDS.value * FIELD_FILM_CELLS;
+    return fieldFilmOffset(c) + FIELD_FILM_SLICE_WORDS;
 }
 
 /**
@@ -186,7 +185,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             // escreve no quadro; a do quadro vai ao `data`, que quem sombreia lê).
             { ...wordBuffer('state', 16), history: { depth: 2 } },
             {
-                ...wordBuffer('film', FIELD_FILM_WORDS.value * FIELD_FILM_CELLS * 4),
+                ...wordBuffer('film', FIELD_FILM_SLICE_WORDS * 4),
                 history: { depth: 2 },
             },
         ];

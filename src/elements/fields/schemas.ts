@@ -202,6 +202,20 @@ export const FIELD_FILM_CELLS = 1048576;
 export const FIELD_FILM_WORDS = sharedConstant('FIELD_FILM_WORDS', 7, 'u32');
 
 /**
+ * Células por página da película (T066d): páginas de 4³ células — a tabela de espalhamento guarda as páginas, e a célula
+ * é endereçada direto dentro da sua (a leitura 3 × 3 da superfície e as vizinhas do passo caem quase sempre na mesma
+ * página: uma sondagem por página, não por célula). `FIELD_FILM_CELLS / FIELD_FILM_PAGE_CELLS` páginas.
+ */
+export const FIELD_FILM_PAGE_CELLS = 64;
+
+/**
+ * Palavras de uma fatia da película: as células (`FIELD_FILM_WORDS` cada, na ordem das páginas) e depois a tabela das
+ * páginas (a chave de cada uma).
+ */
+export const FIELD_FILM_SLICE_WORDS =
+    FIELD_FILM_WORDS.value * FIELD_FILM_CELLS + FIELD_FILM_CELLS / FIELD_FILM_PAGE_CELLS;
+
+/**
  * Células da película por lado de voxel do campo (spec 034, T066d): com o voxel de meio espaçamento, a célula é um
  * quarto dele — o contato de uma partícula (o diâmetro) cobre quatro, e a borda do rastro sai da leitura suave delas, não
  * dos degraus do voxel.

@@ -5,7 +5,9 @@
 // fina), junta-se à que encontra, entra nos poros (Lucas–Washburn), evapora para o ar (Carrier) e, onde não tem mais
 // sólido para descer (a quina, a face de baixo), pende até juntar o volume de uma partícula e pingar. Fica no buffer das
 // consultas do campo (`field_data`), depois dos voxels (`fluid_field.film.x` palavras do início), numa tabela de hash
-// própria que persiste entre os quadros pelo canal temporal — a da superfície do campo é refeita a cada um. A célula tem
+// própria que persiste entre os quadros pelo canal temporal — a da superfície do campo é refeita a cada um. A tabela é
+// por páginas de 4³ células (T066d): as células, na ordem das páginas, e depois a chave de cada página; a busca sonda a
+// página e acha a célula direto nela (a leitura 3 × 3 e as vizinhas do passo caem quase sempre na mesma página). A célula tem
 // o lado da resolução do rastro (`fluid_field.filmShape.x`, uma fração do voxel do campo: o rastro de uma gota tem a largura do
 // contato dela, não a do voxel). Por célula, `FIELD_FILM_WORDS` palavras: a chave (as coordenadas deslocadas + 1; 0
 // vazia), a água livre (espessura em `FIELD_FILM_UNIT` m), a normal do sólido (snorm 8 × 4), a marca de submersa (a água
@@ -74,9 +76,36 @@ fn field_film_axes(n: vec3f) -> vec2i {
     return vec2i(0, 1);
 }
 
-/** Balde inicial da célula `c` (a sondagem segue com passo ímpar tirado da chave, como a tabela dos blocos). */
-fn field_film_bucket(c: vec3i) -> u32 {
-    return hash_cell(bitcast<vec3u>(c)) & fluid_field.film.y;
+/** Página da célula `c` (4³ células). */
+fn field_film_page(c: vec3i) -> vec3i {
+    return c >> vec3u(2u);
+}
+
+/** Chave da página `pc` (≠ 0; as coordenadas da célula já no alcance de `field_film_key`). */
+fn field_film_page_key(pc: vec3i) -> u32 {
+    let u = bitcast<vec3u>(pc + vec3i(256, 128, 256));
+    return ((u.x << 18u) | (u.y << 9u) | u.z) + 1u;
+}
+
+/** Máscara da tabela das páginas (as células por página são 64). */
+fn field_film_page_mask() -> u32 {
+    return fluid_field.film.y >> 6u;
+}
+
+/** Primeira palavra da tabela das páginas, a partir do começo da fatia (depois das células). */
+fn field_film_pages_word() -> u32 {
+    return FIELD_FILM_WORDS * (fluid_field.film.y + 1u);
+}
+
+/** Balde inicial da página `pc` (a sondagem segue com passo ímpar tirado da chave, como a tabela dos blocos). */
+fn field_film_page_bucket(pc: vec3i) -> u32 {
+    return hash_cell(bitcast<vec3u>(pc)) & field_film_page_mask();
+}
+
+/** Índice da célula `c` na página `page` da tabela. */
+fn field_film_slot_in(page: u32, c: vec3i) -> u32 {
+    let l = bitcast<vec3u>(c & vec3i(3));
+    return page * 64u + l.x + 4u * l.y + 16u * l.z;
 }
 
 /** Linha `row` (0 ou 1) da entrada `surface` da tabela das superfícies (fora dela, o padrão). */

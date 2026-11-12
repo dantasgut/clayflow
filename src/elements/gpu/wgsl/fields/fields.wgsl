@@ -257,33 +257,40 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
     return miss;
 }
 
-/**
- * A película de água na célula `c` (spec 034; `field_film.wgsl`): a espessura da água livre (m) e a saturação dos poros
- * (a absorvida sobre a capacidade, em [0, 1]). Zero sem película ou onde a água do volume está (submersa — ali é a
- * própria água).
- */
-fn field_film_cell_at(c: vec3i) -> vec2f {
-    let key = field_film_key(c);
-    if (key == 0u) { return vec2f(0.0); }
-    var slot = field_film_bucket(c);
+/** A página `pc` da película no buffer das consultas (`NONE` sem ela; `field_film.wgsl`, as páginas de 4³ células). */
+fn field_film_data_page(pc: vec3i) -> u32 {
+    let key = field_film_page_key(pc);
+    let base = fluid_field.film.x + field_film_pages_word();
+    let mask = field_film_page_mask();
+    var page = field_film_page_bucket(pc);
     let step = (key << 1u) | 1u;
     for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
-        let w = field_film_word(slot);
-        let found = field_data[w];
-        if (found == key) {
-            if (field_data[w + 3u] != 0u) { return vec2f(0.0); }
-            let capacity = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 0u).w;
-            let absorbed = f32(field_data[w + 4u]) * FIELD_FILM_UNIT;
-            return vec2f(
-                f32(field_data[w + 1u]) * FIELD_FILM_UNIT,
-                select(0.0, min(absorbed / capacity, 1.0), capacity > 0.0),
-            );
-        }
-        if (found == 0u) { return vec2f(0.0); }
-        slot = (slot + step) & fluid_field.film.y;
+        let found = field_data[base + page];
+        if (found == key) { return page; }
+        if (found == 0u) { return NONE; }
+        page = (page + step) & mask;
     }
-    return vec2f(0.0);
+    return NONE;
 }
+
+/**
+ * A película de água na célula `c` da página `page` (achada por `field_film_data_page`; `NONE`: sem película; spec 034):
+ * a espessura da água livre (m) e a saturação dos poros (a absorvida sobre a capacidade, em [0, 1]). Zero sem película
+ * ou onde a água do volume está (submersa — ali é a própria água).
+ */
+fn field_film_cell_in(page: u32, c: vec3i) -> vec2f {
+    let key = field_film_key(c);
+    if (page == NONE || key == 0u) { return vec2f(0.0); }
+    let w = field_film_word(field_film_slot_in(page, c));
+    if (field_data[w] != key || field_data[w + 3u] != 0u) { return vec2f(0.0); }
+    let capacity = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 0u).w;
+    let absorbed = f32(field_data[w + 4u]) * FIELD_FILM_UNIT;
+    return vec2f(
+        f32(field_data[w + 1u]) * FIELD_FILM_UNIT,
+        select(0.0, min(absorbed / capacity, 1.0), capacity > 0.0),
+    );
+}
+
 
 /** A película no ponto e a inclinação dela: a água livre e a saturação (`wet`) e o gradiente da água livre (m/m). */
 struct FieldFilmSample {
@@ -314,12 +321,20 @@ fn field_film_sample(p: vec3f, n: vec3f) -> FieldFilmSample {
     let dv = vec3f(f.y - 0.5, -2.0 * f.y, 0.5 + f.y);
     var out: FieldFilmSample;
     var grad = vec2f(0.0);
+    // A página da última célula lida: as 3 × 3 cabem em uma a quatro páginas (uma sondagem por página).
+    var page_of = vec3i(-100000);
+    var page = NONE;
     for (var k = 0; k < 9; k++) {
         let o = vec2i(k % 3, k / 3);
         var c = layer;
         c[u] = i32(center.x) + o.x - 1;
         c[v] = i32(center.y) + o.y - 1;
-        let w = field_film_cell_at(c);
+        let pc = field_film_page(c);
+        if (any(pc != page_of)) {
+            page_of = pc;
+            page = select(NONE, field_film_data_page(pc), field_film_key(c) != 0u);
+        }
+        let w = field_film_cell_in(page, c);
         out.wet += wu[o.x] * wv[o.y] * w;
         grad += vec2f(du[o.x] * wv[o.y], wu[o.x] * dv[o.y]) * w.x;
     }

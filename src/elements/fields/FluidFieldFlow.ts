@@ -65,9 +65,9 @@ import {
     FIELD_BRICK_VOXELS,
     FIELD_FILM_CELLS,
     FIELD_FILM_DRIPS,
+    FIELD_FILM_SLICE_WORDS,
     FIELD_FILM_SUBDIV,
     FIELD_FILM_SURFACES,
-    FIELD_FILM_WORDS,
     FIELD_LIGHT_MAPS,
     FIELD_LIGHT_RES,
     FIELD_MAX_BODIES,
@@ -515,7 +515,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             frame.copy(
                 film,
                 data,
-                FIELD_FILM_WORDS.value * FIELD_FILM_CELLS * 4,
+                FIELD_FILM_SLICE_WORDS * 4,
                 0,
                 fieldFilmOffset(field.capacity) * 4,
             );

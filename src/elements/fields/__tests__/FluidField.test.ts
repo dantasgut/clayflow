@@ -32,7 +32,7 @@ import { lightTransmissionPoint } from '../../scene/points/lighting';
 import {
     FIELD_BRICK,
     FIELD_BRICK_APRON_VOXELS,
-    FIELD_FILM_CELLS,
+    FIELD_FILM_SLICE_WORDS,
     FIELD_MAX_BODIES,
     FIELD_MEDIUM_WORDS,
 } from '../schemas';
@@ -66,7 +66,7 @@ describe('FluidField (spec 033, R11)', () => {
             // (spec 039); no fim, o atlas dos voxels (T060f): 64 páginas de 12³ palavras, uma série por páginas.
             count:
                 layout.end
-                + 7 * FIELD_FILM_CELLS
+                + FIELD_FILM_SLICE_WORDS
                 + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS
                 + 64 * 12 ** 3,
             history: {
@@ -75,7 +75,7 @@ describe('FluidField (spec 033, R11)', () => {
             },
         });
         expect(fieldAtlasOffset(field.capacity)).toBe(
-            layout.end + 7 * FIELD_FILM_CELLS + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
+            layout.end + FIELD_FILM_SLICE_WORDS + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS,
         );
         expect(fieldFilmOffset(field.capacity)).toBe(layout.end);
         expect(counts).toMatchObject({
@@ -93,7 +93,7 @@ describe('FluidField (spec 033, R11)', () => {
         });
         expect(descriptors.find((d) => d.id === 'film')).toMatchObject({
             role: 'storage-rw',
-            count: 7 * FIELD_FILM_CELLS,
+            count: FIELD_FILM_SLICE_WORDS,
             history: { depth: 2 },
         });
         // Blocos de 8³ voxels, voxel de ½ espaçamento (os voxels com 2 de borda de cada lado: 12³).
@@ -118,7 +118,7 @@ describe('FluidField (spec 033, R11)', () => {
         const data = field.getDescriptors()[1]!;
         expect(data.count).toBe(
             fieldDataLayout({ bricks: 128, table: 512 }).end
-                + 7 * FIELD_FILM_CELLS
+                + FIELD_FILM_SLICE_WORDS
                 + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS
                 // O atlas acompanha: 128 páginas de 12³ no fim do buffer.
                 + 128 * 12 ** 3,
