@@ -1,12 +1,15 @@
-// O nível 0 da hierarquia de profundidade pela profundidade da cena com amostras (MSAA): o máximo de todas as amostras
-// (ver `draw_cull`).
+// O nível 0 da hierarquia de profundidade pela profundidade da cena com amostras (MSAA): o máximo de todas as amostras,
+// e os 4 níveis de cima do bloco (ver `draw_cull`). Os lados do nível 0 são múltiplos de 16.
 
 /** Teto das amostras por pixel. */
 const DC_SAMPLES_MAX: u32 = 8u;
 
-@compute @workgroup_size(8, 8)
-fn dc_hzb_base_ms_main(@builtin(global_invocation_id) gid: vec3u) {
-    if (gid.x >= dc.hzb.x || gid.y >= dc.hzb.y) { return; }
+@compute @workgroup_size(16, 16)
+fn dc_hzb_base_ms_main(
+    @builtin(global_invocation_id) gid: vec3u,
+    @builtin(local_invocation_id) lid: vec3u,
+    @builtin(workgroup_id) wid: vec3u,
+) {
     let size = textureDimensions(dc_depth);
     let samples = textureNumSamples(dc_depth);
     let xr = dc_pixel_range(gid.x, dc.hzb.x, size.x);
@@ -28,5 +31,5 @@ fn dc_hzb_base_ms_main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
     }
-    dc_hzb[gid.y * dc.hzb.x + gid.x] = far;
+    dc_hzb_tile(lid.xy, wid.xy, far);
 }

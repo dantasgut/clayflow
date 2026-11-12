@@ -214,8 +214,8 @@ export const shadowPages = wgslModule({
     structs: [ShadowMap.matrixSchema, ShadowInstanceSchema],
 });
 
-/** O slot da série da hierarquia de profundidade no desenho principal (spec 034, T060d). */
-export const drawCullChannels = Object.freeze({ hzb: 'hzb' });
+/** Os slots das séries do descarte no desenho principal (spec 034, T060d): a hierarquia e as medidas. */
+export const drawCullChannels = Object.freeze({ hzb: 'hzb', stats: 'cullStats' });
 
 const vec4Storage = (name: string, access: 'read' | 'read_write') =>
     wgslResource({
@@ -265,6 +265,24 @@ export const drawCullResources = {
         frequency: 'stage',
         provider: { slot: drawCullChannels.hzb, lag: 1 },
     }),
+    /** As medidas e o estado do quadro (série de duas fatias): as deste quadro, escritas, e as do anterior. */
+    stats: wgslResource({
+        name: 'dc_stats',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: { slot: drawCullChannels.stats, lag: 0 },
+    }),
+    statsPrevious: wgslResource({
+        name: 'dc_stats_previous',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: drawCullChannels.stats, lag: 1 },
+    }),
+    /** Os despachos indiretos da hierarquia e da fase 2 (o modelo, ou zero) e o modelo deles. */
+    dispatch: privateStorage('dc_dispatch', 'read_write', 'u32'),
+    dispatchTemplate: privateStorage('dc_dispatch_template', 'read', 'u32'),
     /** A profundidade da cena (sem e com amostras). */
     depth: wgslResource({
         name: 'dc_depth',
@@ -281,8 +299,8 @@ export const drawCullResources = {
 } as const;
 
 /**
- * O descarte do desenho principal pela GPU (spec 034, T060d): as fases do tronco e da oclusão, as listas densas por grupo,
- * os argumentos dos desenhos indiretos e os níveis da hierarquia (`draw_cull.wgsl`).
+ * O descarte do desenho principal pela GPU (spec 034, T060d): a política da oclusão, as fases do tronco e da oclusão, as
+ * listas densas por grupo, os argumentos dos desenhos indiretos e os níveis de cima da hierarquia (`draw_cull.wgsl`).
  */
 export const drawCull = wgslModule({
     name: 'draw_cull',
@@ -308,6 +326,10 @@ export const drawCull = wgslModule({
         drawCullResources.args,
         drawCullResources.hzb,
         drawCullResources.hzbPrevious,
+        drawCullResources.stats,
+        drawCullResources.statsPrevious,
+        drawCullResources.dispatch,
+        drawCullResources.dispatchTemplate,
     ],
     structs: [Camera.matricesSchema, Transform.worldSchema, RenderableSchema, RenderInstanceSchema],
 });
@@ -319,7 +341,7 @@ export const drawCullBounds = wgslModule({
     requires: [vertexBounds, drawCullResources.step, drawCullResources.bounds],
 });
 
-/** O nível 0 da hierarquia pela profundidade da cena (sem e com amostras). */
+/** O nível 0 da hierarquia pela profundidade da cena (sem e com amostras) e os 4 de cima de cada bloco. */
 export const drawCullHzb = {
     single: wgslModule({
         name: 'draw_cull_hzb_single',

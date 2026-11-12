@@ -4,11 +4,13 @@
 // Matrizes em colunas, como no WGSL (`m[4·c + r]`); profundidade do WebGPU em [0, 1] (0 perto, limpa em 1).
 import { mat4Apply, type Mat4, type Vec3 } from '../../math/reference/xform';
 
-/** Lado do nível 0 da hierarquia de profundidade (texels): fixo, independente do canvas. */
-export const HZB_WIDTH = 1024;
-export const HZB_HEIGHT = 512;
-/** Teto de pixels por eixo cobertos por um texel do nível 0 (canvas até 8 × 1024 de largura); acima, o texel é longe. */
-export const HZB_SPAN_MAX = 8;
+/** Lado do nível 0 da hierarquia de profundidade (texels): fixo, independente do canvas (múltiplos de 16). */
+export const HZB_WIDTH = 512;
+export const HZB_HEIGHT = 256;
+/** Teto de pixels por eixo cobertos por um texel do nível 0 (canvas até 16 × 512 de largura); acima, o texel é longe. */
+export const HZB_SPAN_MAX = 16;
+/** Níveis montados pelo grupo de 16 × 16 do nível 0 (0 a 4); os de cima, por um grupo só. */
+export const HZB_TILE_LEVELS = 5;
 /** Abaixo deste `w` um canto da caixa está no plano da câmera ou atrás dele: a caixa conta como visível. */
 export const CULL_NEAR_W = 1e-5;
 /**
@@ -203,4 +205,45 @@ export function compactGroups(
         return out;
     });
     return { lists, counts: lists.map((l) => l.length) };
+}
+
+/** A cada quantos quadros a oclusão desligada é experimentada de novo. */
+export const CULL_PROBE_PERIOD = 64;
+/** A oclusão vale quando esconde ao menos 1/20 do que passa pelo tronco (o custo da hierarquia se paga). */
+export const CULL_USEFUL_DIVISOR = 20;
+
+/** As medidas de um quadro do descarte: as escondidas na fase 2, as candidatas a ela e as desenhadas na fase 1. */
+export interface CullStats {
+    readonly occluded: number;
+    readonly candidates: number;
+    readonly drawn: number;
+}
+
+/**
+ * A política do descarte pela oclusão, decidida na GPU a cada quadro pelo estado e pelas medidas do anterior (a série
+ * das medidas): a palavra de estado tem a hierarquia montada neste quadro (bit 0), o teste contra a do anterior (bit 1),
+ * o descarte ligado (bit 2) e o contador de quadros (bits 8 em diante). A hierarquia é montada enquanto a oclusão se paga
+ * (`CULL_USEFUL_DIVISOR`), no quadro de experimentar (`CULL_PROBE_PERIOD`, e no primeiro com o descarte ligado de novo)
+ * e no seguinte a uma montagem sem teste (para testar); o teste vale quando o quadro anterior a montou e a série
+ * continua.
+ */
+export function cullPolicy(
+    previousState: number,
+    stats: CullStats,
+    enabled: boolean,
+    continuous: boolean,
+): number {
+    const built = (previousState & 1) !== 0;
+    const tested = (previousState & 2) !== 0;
+    const wasEnabled = (previousState & 4) !== 0;
+    const counter = previousState >>> 8;
+    const useful =
+        tested
+        && stats.occluded > 0
+        && stats.occluded * CULL_USEFUL_DIVISOR >= stats.drawn + stats.candidates;
+    const probe = counter % CULL_PROBE_PERIOD === 0 || !wasEnabled;
+    const build = enabled && (useful || probe || (built && !tested));
+    const test = enabled && continuous && built;
+    const bits = (build ? 1 : 0) | (test ? 2 : 0) | (enabled ? 4 : 0);
+    return (bits | (((counter + 1) & 0xffffff) << 8)) >>> 0;
 }

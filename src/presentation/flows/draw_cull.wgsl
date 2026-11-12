@@ -10,17 +10,36 @@
 //      em até três níveis, os parâmetros de cada nível escritos só quando a lista muda), `dc_scatter_main` (a posição de cada marcada
 //      no trecho do seu grupo, na ordem da lista: a imagem não depende da ordem dos atômicos) e `dc_args_main` (a
 //      contagem de cada grupo nos argumentos, a partir do modelo do grupo);
+//   0. `dc_policy_main` (um grupo, no começo): pelo estado e pelas medidas do quadro anterior (a série `dc_stats`), se
+//      este quadro monta a hierarquia e se testa contra a do anterior — a oclusão segue enquanto se paga e é
+//      experimentada de tempos em tempos (`cullPolicy` da referência); os despachos da hierarquia e da fase 2 são
+//      indiretos (`dc_dispatch`: o modelo ou zero);
 //   3. o desenho da fase 1 (a profundidade), a hierarquia deste quadro (`dc_hzb_base_*_main`, o nível 0 pela
-//      profundidade; `dc_hzb_reduce_main`, um despacho por nível) e `dc_phase2_main`: as escondidas na fase 1 contra a
+//      profundidade e os 4 de cima no grupo de 16 × 16; `dc_hzb_top_main`, os demais num grupo só) e
+//      `dc_phase2_main`: as escondidas na fase 1 contra a
 //      hierarquia deste quadro, que só tem o que já foi desenhado (conservador); de novo a soma, a lista 2 (no trecho de
 //      cada grupo, depois da lista 1) e os argumentos dela e das duas juntas (o desenho da cor, do movimento e dos
 //      transmissivos).
 // A hierarquia deste quadro é a fatia gravada da série (`dc_hzb`); o quadro seguinte a lê como a anterior. Laços com teto
 // constante.
 
-/** Bits de `dc.counts.w`: o descarte ligado; a hierarquia do quadro anterior vale. */
+/** Bits de `dc.counts.w`: o descarte ligado; as séries (a hierarquia e as medidas) continuam do quadro anterior. */
 const DC_ENABLED: u32 = 1u;
-const DC_OCCLUSION: u32 = 2u;
+const DC_CONTINUOUS: u32 = 2u;
+/** As medidas do quadro (`dc_stats`): as escondidas na fase 2, as candidatas a ela, as desenhadas na fase 1 e o estado. */
+const DC_STAT_OCCLUDED: u32 = 0u;
+const DC_STAT_CANDIDATES: u32 = 1u;
+const DC_STAT_DRAWN: u32 = 2u;
+const DC_STAT_STATE: u32 = 3u;
+/** Bits do estado: a hierarquia montada neste quadro; o teste contra a do anterior; o descarte ligado (`cullPolicy`). */
+const DC_BUILD: u32 = 1u;
+const DC_TEST: u32 = 2u;
+const DC_ON: u32 = 4u;
+/** A cada quantos quadros a oclusão desligada é experimentada (`CULL_PROBE_PERIOD`) e a fração que a paga (1/20). */
+const DC_PROBE_PERIOD: u32 = 64u;
+const DC_USEFUL_DIVISOR: u32 = 20u;
+/** Os despachos indiretos (3 palavras cada): os 2 primeiros da hierarquia, os demais da fase 2. */
+const DC_DISPATCH_HZB: u32 = 2u;
 /** Bits dos grupos: sem descarte (sprites, arame, caixa ainda desconhecida); argumentos não indexados. */
 const DC_NO_CULL: u32 = 1u;
 const DC_NON_INDEXED: u32 = 4u;
@@ -30,7 +49,9 @@ const DC_ARGS_WORDS: u32 = 5u;
 const DC_RECORDS: u32 = 3u;
 const DC_GROUP_WORDS: u32 = 4u;
 /** Teto de pixels por eixo de um texel do nível 0 (`HZB_SPAN_MAX`) e dos níveis percorridos. */
-const DC_SPAN_MAX: u32 = 8u;
+const DC_SPAN_MAX: u32 = 16u;
+/** Níveis montados pelo grupo de 16 × 16 do nível 0 (`HZB_TILE_LEVELS`). */
+const DC_TILE_LEVELS: u32 = 5u;
 const DC_LEVELS_MAX: u32 = 16u;
 /** Abaixo deste `w` um canto está no plano da câmera ou atrás (`CULL_NEAR_W`). */
 const DC_NEAR_W: f32 = 1e-5;
@@ -163,6 +184,45 @@ fn dc_index(gid: vec3u, nwg: vec3u) -> u32 {
     return gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
 }
 
+/** O estado deste quadro (escrito por `dc_policy_main` no começo). */
+fn dc_state() -> u32 {
+    return atomicLoad(&dc_stats[DC_STAT_STATE]);
+}
+
+/**
+ * A política (`cullPolicy` da referência): monta a hierarquia enquanto a oclusão se paga, no quadro de experimentar (e
+ * no primeiro com o descarte ligado de novo) e no seguinte a uma montagem sem teste; testa quando o quadro anterior a montou e as séries continuam. Zera as medidas
+ * deste quadro e escreve os despachos indiretos (o modelo, ou zero nos que não valem).
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn dc_policy_main(@builtin(local_invocation_index) lid: u32) {
+    let previous = dc_stats_previous[DC_STAT_STATE];
+    let built = (previous & DC_BUILD) != 0u;
+    let tested = (previous & DC_TEST) != 0u;
+    let was_on = (previous & DC_ON) != 0u;
+    let counter = previous >> 8u;
+    let occluded = dc_stats_previous[DC_STAT_OCCLUDED];
+    let useful = tested && occluded > 0u
+        && occluded * DC_USEFUL_DIVISOR >= dc_stats_previous[DC_STAT_DRAWN] + dc_stats_previous[DC_STAT_CANDIDATES];
+    let enabled = (dc_flags() & DC_ENABLED) != 0u;
+    let probe = counter % DC_PROBE_PERIOD == 0u || !was_on;
+    let build = enabled && (useful || probe || (built && !tested));
+    let test = enabled && (dc_flags() & DC_CONTINUOUS) != 0u && built;
+    if (lid == 0u) {
+        atomicStore(&dc_stats[DC_STAT_OCCLUDED], 0u);
+        atomicStore(&dc_stats[DC_STAT_CANDIDATES], 0u);
+        atomicStore(&dc_stats[DC_STAT_DRAWN], 0u);
+        let bits = select(0u, DC_BUILD, build) | select(0u, DC_TEST, test) | select(0u, DC_ON, enabled);
+        let state = bits | (((counter + 1u) & 0xFFFFFFu) << 8u);
+        atomicStore(&dc_stats[DC_STAT_STATE], state);
+    }
+    let words = arrayLength(&dc_dispatch_template);
+    for (var i = lid; i < words; i += WORKGROUP_SIZE) {
+        let on = select(test, build, i < DC_DISPATCH_HZB * 3u);
+        dc_dispatch[i] = select(0u, dc_dispatch_template[i], on);
+    }
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn dc_phase1_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let s = dc_index(gid, nwg);
@@ -181,7 +241,7 @@ fn dc_phase1_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgr
             let cam = cameras[dc.counts.x];
             if (dc_outside(cam.unjitteredViewProjection, inst.center, inst.extent)) {
                 first = 0u;
-            } else if ((dc_flags() & DC_OCCLUSION) != 0u
+            } else if ((dc_state() & DC_TEST) != 0u
                 && dc_occluded(cam.previousViewProjection, inst.center, inst.extent, false)) {
                 first = 0u;
                 later = 1u;
@@ -192,14 +252,38 @@ fn dc_phase1_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgr
     dc_flags_b[s] = later;
 }
 
+var<workgroup> dc_wg_occluded: atomic<u32>;
+var<workgroup> dc_wg_candidates: atomic<u32>;
+
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn dc_phase2_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+fn dc_phase2_main(
+    @builtin(global_invocation_id) gid: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    if (lid == 0u) {
+        atomicStore(&dc_wg_occluded, 0u);
+        atomicStore(&dc_wg_candidates, 0u);
+    }
+    workgroupBarrier();
     let s = dc_index(gid, nwg);
-    if (s >= dc_slots() || dc_flags_b[s] == 0u) { return; }
-    let g = dc_slot_group[s];
-    let inst = dc_instance(s, g);
-    let cam = cameras[dc.counts.x];
-    dc_flags_b[s] = select(1u, 0u, inst.cull && dc_occluded(cam.viewProjection, inst.center, inst.extent, true));
+    if (s < dc_slots() && dc_flags_b[s] != 0u) {
+        let g = dc_slot_group[s];
+        let inst = dc_instance(s, g);
+        let cam = cameras[dc.counts.x];
+        let hidden = inst.cull && dc_occluded(cam.viewProjection, inst.center, inst.extent, true);
+        dc_flags_b[s] = select(1u, 0u, hidden);
+        atomicAdd(&dc_wg_candidates, 1u);
+        if (hidden) { atomicAdd(&dc_wg_occluded, 1u); }
+    }
+    workgroupBarrier();
+    if (lid == 0u) {
+        let c = atomicLoad(&dc_wg_candidates);
+        if (c > 0u) {
+            atomicAdd(&dc_stats[DC_STAT_CANDIDATES], c);
+            atomicAdd(&dc_stats[DC_STAT_OCCLUDED], atomicLoad(&dc_wg_occluded));
+        }
+    }
 }
 
 // ---- a soma de prefixos inclusiva das marcas, no lugar ----
@@ -344,6 +428,7 @@ fn dc_args_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgrou
     if (count > 0u) { n = dc_scan(list, first + count - 1u) - dc_scan_before(list, first); }
     if (list == 0u) {
         dc_write_args(g, 0u, n, first);
+        if (n > 0u) { atomicAdd(&dc_stats[DC_STAT_DRAWN], n); }
         return;
     }
     let n1 = dc_args[dc_record(g, 0u) + 1u];
@@ -351,23 +436,67 @@ fn dc_args_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgrou
     dc_write_args(g, 2u, n1 + n, first);
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn dc_hzb_reduce_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let i = dc_index(gid, nwg);
-    let k = dc_step.value.x;
-    let dims = dc_level_size(k);
-    if (i >= dims.x * dims.y) { return; }
-    let x = i % dims.x;
-    let y = i / dims.x;
-    let below = dc_level_size(k - 1u);
-    let o = dc_level_offset(k - 1u);
-    var far = 0.0;
-    for (var dy = 0u; dy < 2u; dy++) {
-        for (var dx = 0u; dx < 2u; dx++) {
-            let sx = min(below.x - 1u, 2u * x + dx);
-            let sy = min(below.y - 1u, 2u * y + dy);
-            far = max(far, dc_hzb[o + sy * below.x + sx]);
+// ---- a hierarquia de profundidade ----
+
+var<workgroup> dc_tile_a: array<f32, 256>;
+var<workgroup> dc_tile_b: array<f32, 256>;
+
+/** Grava o texel (x, y) do nível `k`. */
+fn dc_hzb_store(k: u32, x: u32, y: u32, v: f32) {
+    dc_hzb[dc_level_offset(k) + y * dc_level_size(k).x + x] = v;
+}
+
+/**
+ * O nível 0 de um bloco de 16 × 16 texels (o valor `far` de cada invocação) e os 4 níveis de cima dele, pela memória do
+ * grupo (os lados do nível 0 são múltiplos de 16: os blocos se dividem por inteiro até o nível 4).
+ */
+fn dc_hzb_tile(lid: vec2u, wid: vec2u, far: f32) {
+    dc_hzb_store(0u, wid.x * 16u + lid.x, wid.y * 16u + lid.y, far);
+    dc_tile_a[lid.y * 16u + lid.x] = far;
+    workgroupBarrier();
+    var side = 16u;
+    for (var k = 1u; k < DC_TILE_LEVELS; k++) {
+        side = side >> 1u;
+        let inside = lid.x < side && lid.y < side;
+        var v = 0.0;
+        if (inside) {
+            let o = 2u * lid.y * 16u + 2u * lid.x;
+            if ((k & 1u) == 1u) {
+                v = max(max(dc_tile_a[o], dc_tile_a[o + 1u]), max(dc_tile_a[o + 16u], dc_tile_a[o + 17u]));
+            } else {
+                v = max(max(dc_tile_b[o], dc_tile_b[o + 1u]), max(dc_tile_b[o + 16u], dc_tile_b[o + 17u]));
+            }
         }
+        workgroupBarrier();
+        if (inside) {
+            if ((k & 1u) == 1u) { dc_tile_b[lid.y * 16u + lid.x] = v; } else { dc_tile_a[lid.y * 16u + lid.x] = v; }
+            dc_hzb_store(k, wid.x * side + lid.x, wid.y * side + lid.y, v);
+        }
+        workgroupBarrier();
     }
-    dc_hzb[dc_level_offset(k) + i] = far;
+}
+
+/** Os níveis acima dos blocos (do `DC_TILE_LEVELS` até 1 × 1), um grupo só, cada um do de baixo. */
+@compute @workgroup_size(256)
+fn dc_hzb_top_main(@builtin(local_invocation_index) lid: u32) {
+    for (var k = DC_TILE_LEVELS; k < DC_LEVELS_MAX; k++) {
+        if (k >= dc.hzb.z) { break; }
+        let dims = dc_level_size(k);
+        let below = dc_level_size(k - 1u);
+        let o = dc_level_offset(k - 1u);
+        for (var i = lid; i < dims.x * dims.y; i += 256u) {
+            let x = i % dims.x;
+            let y = i / dims.x;
+            var far = 0.0;
+            for (var dy = 0u; dy < 2u; dy++) {
+                for (var dx = 0u; dx < 2u; dx++) {
+                    let sx = min(below.x - 1u, 2u * x + dx);
+                    let sy = min(below.y - 1u, 2u * y + dy);
+                    far = max(far, dc_hzb[o + sy * below.x + sx]);
+                }
+            }
+            dc_hzb[dc_level_offset(k) + i] = far;
+        }
+        storageBarrier();
+    }
 }

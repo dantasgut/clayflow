@@ -78,7 +78,13 @@ import {
 } from '../../elements/lighting/refraction/Refraction';
 import { LOBES } from '../../elements/material/pbr/lobes';
 import { LIGHT_FORMAT } from '../app/FrameTargets';
-import { DRAW_CULL_HZB, DrawCulling, type CullGroup, type CullRecord } from './DrawCulling';
+import {
+    DRAW_CULL_HZB,
+    DRAW_CULL_STATS,
+    DrawCulling,
+    type CullGroup,
+    type CullRecord,
+} from './DrawCulling';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
     forwardMaterial,
@@ -155,8 +161,9 @@ export interface ForwardSlots extends SlotMap {
     readonly refraction: SingletonSlot<true>;
     /** O espaço de trabalho do passe: parâmetros do quadro, substituto da geometria diferencial, o descarte (spec 039). */
     readonly work: WorkSlot<ForwardWork>;
-    /** A série da hierarquia de profundidade do descarte (spec 034, T060d; no trabalho). */
+    /** As séries do descarte (spec 034, T060d; no trabalho): a hierarquia de profundidade e as medidas da oclusão. */
     readonly hzb: ChannelSlot<true>;
+    readonly cullStats: ChannelSlot<true>;
 }
 
 /** Id dos parâmetros do quadro no trabalho. */
@@ -266,6 +273,7 @@ function slotsOf(output: ForwardOutput, work: ForwardWork): ForwardSlots {
         refraction: slot.singleton(Refraction.schema, { optional: true }),
         work: slot.work(() => work),
         hzb: slot.channel(ForwardWork.schema, DRAW_CULL_HZB, { optional: true }),
+        cullStats: slot.channel(ForwardWork.schema, DRAW_CULL_STATS, { optional: true }),
     };
 }
 
@@ -381,8 +389,12 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly geometryKeys = new Map<AnyBufferSpec, number>();
     /** O desenho conduzido pela GPU (spec 034, T060d): o descarte e as listas e argumentos dos grupos. */
     private readonly culling: DrawCulling;
-    /** A lista das instâncias desenhadas ligada ao `draw_visible`. */
-    private boundVisible: StorageBufferSpec | undefined;
+    /** A lista das instâncias desenhadas ligada ao `draw_visible` (a chave da fonte). */
+    private boundVisible = '';
+    /** Os grupos do descarte, os grupos do slot de que vieram e se uma geometria mudou desde então. */
+    private cullGroups: CullGroup[] = [];
+    private cullSource: unknown = undefined;
+    private cullDirty = true;
     /** Deixa de ouvir os envios de geometria (no descarte). */
     private readonly stopWatching: () => void;
     /** Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda. */
@@ -562,8 +574,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         // Os vértices de uma geometria enviados de novo pela CPU: a caixa dela é refeita no descarte.
         this.stopWatching = ctx.events.on('resourceReady', (e) => {
             const r = e.payload.resource;
-            if (r instanceof Geometry)
-                this.culling.geometryChanged(this.resources.bufferOf(r, 'vertices'));
+            if (!(r instanceof Geometry)) return;
+            this.culling.geometryChanged(this.resources.bufferOf(r, 'vertices'));
+            this.cullDirty = true;
         });
         this.slots = slotsOf(options.output ?? 'scene', this.work);
         const diffs = {
@@ -612,6 +625,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.releaseGeometryPipelines(c, e.removed);
                         this.prepareMaterials(c, e.added);
                         this.materialFnDirty = true;
+                        this.cullDirty = true;
                     },
                 },
                 resourceReady: 'ignore',
@@ -733,7 +747,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             this.depthPipelines.get(id);
         const colorOf = (entry: EntityEntry, id: string): string =>
             this.materialFnPipelineOf(bound, entry, id) ?? id;
-        if (culled) this.culling.recordEarly(frame);
+        if (culled) this.culling.recordEarly(frame, bound.slots.cullStats);
         const hzb = bound.slots.hzb;
         if (culled && this.culling.twoPhase && hzb !== undefined) {
             // Os timestamps do profiler: o começo na fase 1, o fim na fase 2.
@@ -1024,7 +1038,39 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      */
     private prepareCulling(ctx: Ctx): void {
         const slots = ctx.bound.slots;
-        const groups: CullGroup[] = slots.renderables.groups.map((group) => {
+        const source = slots.renderables.groups;
+        // A lista dos grupos refeita só quando os grupos ou uma geometria mudam (ou falta um buffer ainda).
+        if (source !== this.cullSource || this.cullDirty) {
+            this.cullGroups = this.cullGroupsOf(source);
+            this.cullSource = source;
+            this.cullDirty = this.cullGroups.some(
+                (g) => g.vertices === undefined || g.drawCount === 0,
+            );
+        }
+        const cameraId = this.world.entityIdOfResource(slots.camera.resource);
+        const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
+        const depth = slots.target.depth;
+        const targets = slots.targets?.resource as FrameTargets | undefined;
+        this.culling.prepare(
+            this.cullGroups,
+            {
+                cameraSlot,
+                // A projeção por função não é a `viewProjection` do tronco e da hierarquia: sem descarte.
+                enabled: this.projection === undefined && targets?.data.culling !== 0,
+                depth,
+                multisampled: slots.target.sampleCount > 1,
+            },
+            slots.hzb,
+            slots.cullStats,
+        );
+        this.bindVisible(ctx);
+    }
+
+    /** Os grupos do descarte (a geometria, o desenho e se descarta) a partir dos grupos do slot. */
+    private cullGroupsOf(
+        source: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): CullGroup[] {
+        return source.map((group) => {
             const entry = group.representative;
             const geometry = entry.get(Geometry);
             const topology = entry.get(Material).topology;
@@ -1056,30 +1102,29 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     : {}),
             };
         });
-        const cameraId = this.world.entityIdOfResource(slots.camera.resource);
-        const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
-        const depth = slots.target.depth;
-        const targets = slots.targets?.resource as FrameTargets | undefined;
-        this.culling.prepare(
-            groups,
-            {
-                cameraSlot,
-                // A projeção por função não é a `viewProjection` do tronco e da hierarquia: sem descarte.
-                enabled: this.projection === undefined && targets?.data.culling !== 0,
-                depth,
-                multisampled: slots.target.sampleCount > 1,
-            },
-            slots.hzb,
-        );
-        this.bindVisible(ctx);
     }
 
-    /** A lista das instâncias desenhadas (do descarte) no `draw_visible`, religada quando a C2 a realoca. */
+    /** A lista das instâncias desenhadas (do descarte) no `draw_visible`, religada quando muda (modo, realocação). */
     private bindVisible(ctx: Ctx): void {
         const visible = this.culling.visible;
-        if (visible === undefined || visible === this.boundVisible) return;
+        if (visible === undefined) return;
+        const r = visible as { buffer?: object; offset?: number; size?: number };
+        const key = `${this.idOf(r.buffer ?? visible)}:${r.offset ?? 0}:${r.size ?? 0}`;
+        if (key === this.boundVisible) return;
         ctx.bind(new Map([[drawVisibleResource, visible]]));
-        this.boundVisible = visible;
+        this.boundVisible = key;
+    }
+
+    /** Ids estáveis dos buffers (a chave da lista ligada). */
+    private readonly ids = new WeakMap<object, number>();
+    private nextId = 1;
+    private idOf(o: object): number {
+        let id = this.ids.get(o);
+        if (id === undefined) {
+            id = this.nextId++;
+            this.ids.set(o, id);
+        }
+        return id;
     }
 
     /** A profundidade dos opacos (com ou sem amostras) ligada ao pedido da refração, religada quando muda. */

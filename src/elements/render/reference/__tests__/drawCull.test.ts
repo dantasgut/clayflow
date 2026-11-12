@@ -3,6 +3,8 @@ import { mat4Apply, mat4Multiply, type Mat4, type Vec3 } from '../../../math/ref
 import {
     buildHzb,
     compactGroups,
+    CULL_PROBE_PERIOD,
+    cullPolicy,
     frustumPlanes,
     HZB_HEIGHT,
     HZB_SPAN_MAX,
@@ -55,9 +57,9 @@ function wallDepth(
 
 describe('descarte do desenho pela GPU (spec 034, T060d) — referência', () => {
     it('os níveis da hierarquia: lados, posições e o total', () => {
-        expect(hzbLevels()).toBe(11);
+        expect(hzbLevels()).toBe(10);
         expect(hzbLevelSize(0)).toEqual([HZB_WIDTH, HZB_HEIGHT]);
-        expect(hzbLevelSize(10)).toEqual([1, 1]);
+        expect(hzbLevelSize(9)).toEqual([1, 1]);
         expect(hzbLevelOffset(1)).toBe(HZB_WIDTH * HZB_HEIGHT);
         let total = 0;
         for (let k = 0; k < hzbLevels(); k++) total += hzbLevelSize(k)[0] * hzbLevelSize(k)[1];
@@ -162,6 +164,39 @@ describe('descarte do desenho pela GPU (spec 034, T060d) — referência', () =>
         expect(occluded(hzb, VP, [0, 0, -2], [3, 0.2, 0.2])).toBe(false);
         // Um canto atrás da câmera.
         expect(occluded(hzb, VP, [0, 0, 5], [1, 1, 1])).toBe(false);
+    });
+
+    it('a política: monta enquanto a oclusão se paga, experimenta de tempos em tempos e só testa contra a montada', () => {
+        const none = { occluded: 0, candidates: 0, drawn: 100 };
+        const many = { occluded: 30, candidates: 40, drawn: 100 };
+        // O primeiro quadro experimenta: monta, sem testar (não há a anterior).
+        const s0 = cullPolicy(0, none, true, true);
+        expect(s0 & 3).toBe(1);
+        // O seguinte monta e testa.
+        const s1 = cullPolicy(s0, none, true, true);
+        expect(s1 & 3).toBe(3);
+        // Escondeu muito: segue montando e testando.
+        expect(cullPolicy(s1, many, true, true) & 3).toBe(3);
+        // Não escondeu nada: para de montar; ainda testa contra a última.
+        const off = cullPolicy(s1, none, true, true);
+        expect(off & 3).toBe(2);
+        const quiet = cullPolicy(off, none, true, true);
+        expect(quiet & 3).toBe(0);
+        // Volta a experimentar no período.
+        let s = quiet;
+        let probes = 0;
+        for (let i = 0; i < CULL_PROBE_PERIOD; i++) {
+            s = cullPolicy(s, none, true, true);
+            if ((s & 1) !== 0 && (s & 2) === 0) probes++;
+        }
+        expect(probes).toBe(1);
+        // Pouco escondido (abaixo de 1/20): não se paga.
+        expect(cullPolicy(s1, { occluded: 2, candidates: 2, drawn: 100 }, true, true) & 1).toBe(0);
+        // Série interrompida: não testa. Descarte desligado: nada; ligado de novo, experimenta já.
+        expect(cullPolicy(s1, many, true, false) & 2).toBe(0);
+        const disabled = cullPolicy(s1, many, false, true);
+        expect(disabled & 3).toBe(0);
+        expect(cullPolicy(disabled, none, true, true) & 3).toBe(1);
     });
 
     it('as listas por grupo seguem a ordem das instâncias', () => {

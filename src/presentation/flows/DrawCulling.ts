@@ -3,7 +3,6 @@ import type {
     AnyBufferSpec,
     Frame,
     IndirectBufferSpec,
-    StorageBufferSpec,
     TextureViewSpec,
 } from '../../scene/contracts/gpu';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
@@ -15,12 +14,13 @@ import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
 import { wordBuffer } from '../../elements/gpu/compute/schemas';
 import { vertexBoundsResource } from '../../elements/gpu/shaders/vertexBounds';
 import {
+    CULL_USEFUL_DIVISOR,
     HZB_HEIGHT,
     HZB_WIDTH,
-    hzbLevelSize,
     hzbLevels,
     hzbWords,
 } from '../../elements/render/reference/drawCull';
+import { RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { DrawCullParamsSchema, DrawCullStepSchema } from './renderSchemas';
 import { drawCull, drawCullBounds, drawCullHzb, drawCullResources } from './shaders';
 
@@ -35,10 +35,14 @@ const BOUNDS = 'forward_cull_bounds';
 const FLAGS_A = 'forward_cull_flags_a';
 const FLAGS_B = 'forward_cull_flags_b';
 const SCAN = 'forward_cull_scan';
+const DISPATCH = 'forward_cull_dispatch';
+const DISPATCH_TEMPLATE = 'forward_cull_dispatch_template';
 const VISIBLE = 'forward_cull_visible';
 const ARGS = 'forward_cull_args';
 /** A série da hierarquia de profundidade (o slot `hzb` do `ForwardFlow`). */
 export const DRAW_CULL_HZB = 'forward_cull_hzb';
+/** A série das medidas e do estado da oclusão (o slot `cullStats` do `ForwardFlow`). */
+export const DRAW_CULL_STATS = 'forward_cull_stats';
 
 /** Palavras de um grupo na tabela, de um registro de argumentos e registros por grupo (ver `draw_cull.wgsl`). */
 const GROUP_WORDS = 4;
@@ -48,9 +52,22 @@ export const DRAW_CULL_RECORDS = 3;
 const SKIP = NONE.value;
 const NO_CULL = 1;
 const NON_INDEXED = 4;
-/** Bits dos parâmetros: o descarte ligado; a hierarquia do quadro anterior vale. */
+/** Bits dos parâmetros: o descarte ligado; as séries (a hierarquia e as medidas) continuam. */
 const ENABLED = 1;
-const OCCLUSION = 2;
+const CONTINUOUS = 2;
+/** Despachos indiretos (3 palavras): a hierarquia (2), a fase 2, a soma da lista 2 (até 5) e a lista 2. */
+const DISPATCH_RECORDS = 9;
+/** Grupos de trabalho por eixo de um despacho (o mínimo garantido do WebGPU). */
+const MAX_WORKGROUPS = 65535;
+/**
+ * O modo do quadro pela medida: com o descarte, as listas montadas na GPU; direto, a lista de instâncias da C2 e os
+ * argumentos de todas as instâncias (sem compute). Depois de `CULL_SETTLE` quadros descartando, a cada `CULL_MEASURE`
+ * as medidas são lidas de volta: descartando menos de 1/`CULL_USEFUL_DIVISOR` das instâncias, o descarte não se paga
+ * (as listas custam mais que o que poupam) e o desenho fica direto por `CULL_DIRECT` quadros, depois mede de novo.
+ */
+const CULL_SETTLE = 8;
+const CULL_MEASURE = 64;
+const CULL_DIRECT = 512;
 /** Elementos por grupo e níveis no máximo da soma de prefixos (256³ posições). */
 const SCAN_GROUP = 256;
 const SCAN_LEVELS = 3;
@@ -96,6 +113,27 @@ export interface CullFrame {
     readonly multisampled: boolean;
 }
 
+/** Os grupos são os mesmos para as tabelas (campo a campo, sem montar chaves por quadro). */
+function sameGroups(a: readonly CullGroup[], b: readonly CullGroup[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        const x = a[i]!;
+        const y = b[i]!;
+        if (
+            x.key !== y.key
+            || x.first !== y.first
+            || x.count !== y.count
+            || x.cull !== y.cull
+            || x.indexed !== y.indexed
+            || x.drawCount !== y.drawCount
+            || x.vertices !== y.vertices
+            || x.deforming !== y.deforming
+        )
+            return false;
+    }
+    return true;
+}
+
 /** Capacidades do trabalho (crescem por dobra). */
 interface Capacity {
     groups: number;
@@ -133,6 +171,12 @@ export class DrawCulling implements WorkPart {
     /** A posição de cada grupo pela chave, os grupos escritos e os parâmetros escritos. */
     private readonly groupIndex = new Map<string, number>();
     private groupsKey = '';
+    /** Os grupos escritos nas tabelas, com os buffers ligados então, e a versão deles. */
+    private written: readonly CullGroup[] = [];
+    private groupsBound = '';
+    private groupsVersion = 0;
+    /** A versão dos grupos das caixas preparadas. */
+    private boundsVersion = '';
     private paramsKey = '';
     private groups: readonly CullGroup[] = [];
     private slotCount = 0;
@@ -144,9 +188,27 @@ export class DrawCulling implements WorkPart {
     /** O quadro: há o que desenhar, o descarte vale, a hierarquia do quadro anterior vale. */
     private active = false;
     private enabledNow = false;
-    private occlusionNow = false;
+    private continuousNow = false;
+    /** O registro de cada despacho indireto da fase 2 (a fase 2, a soma da lista 2, a lista 2). */
+    private scanRecords: { up: number[]; top: number; down: number[] } = {
+        up: [],
+        top: 0,
+        down: [],
+    };
+    private scatterRecord = 0;
     /** O device tem `indirect-first-instance`. */
     readonly indirect: boolean;
+    /** O modo do quadro (ver `CULL_SETTLE`): as listas da GPU ou o desenho direto da lista da C2. */
+    private mode: 'cull' | 'direct' = 'direct';
+    /** Quadros contados (o relógio do modo), o quadro da próxima leitura das medidas e o fim do modo direto. */
+    private clock = 0;
+    private measureAt = 0;
+    private directUntil = 0;
+    private measuring = false;
+    /** Os argumentos de todas as instâncias escritos para o modo direto (a chave dos grupos). */
+    private directArgsKey = '';
+    /** Instâncias nos grupos (a base da fração descartada). */
+    private instances = 0;
     private readonly ids = new WeakMap<object, number>();
     private nextId = 1;
 
@@ -179,19 +241,23 @@ export class DrawCulling implements WorkPart {
             ),
             wordBuffer(VISIBLE, c.slots * 4),
             wordBuffer(ARGS, c.groups * DRAW_CULL_RECORDS * ARGS_WORDS * 4, 'indirect'),
-            // A hierarquia de profundidade (spec 037): a deste quadro e a do anterior.
+            // A hierarquia de profundidade e as medidas da oclusão (spec 037): as deste quadro e as do anterior.
             { ...wordBuffer(DRAW_CULL_HZB, hzbWords() * 4), history: { depth: 2 } },
+            { ...wordBuffer(DRAW_CULL_STATS, 16), history: { depth: 2 } },
+            wordBuffer(DISPATCH, DISPATCH_RECORDS * 12, 'indirect'),
+            wordBuffer(DISPATCH_TEMPLATE, DISPATCH_RECORDS * 12),
         ];
     }
 
-    /** O descarte vale neste quadro: as duas fases, os desenhos indiretos. */
+    /** O descarte vale neste quadro: as duas fases, as listas da GPU. */
     get twoPhase(): boolean {
-        return this.active && this.indirect && this.enabledNow;
+        return this.active && this.mode === 'cull' && this.enabledNow;
     }
 
     /** Pronto para gravar (os kernels compilados e os buffers alocados). */
     get ready(): boolean {
         if (!this.active) return false;
+        if (this.mode === 'direct') return this.directSource() !== undefined;
         for (const id of this.kernels.values())
             if (this.ctx.work.pipelines.compute(id) === undefined) return false;
         for (const b of this.boundsRun)
@@ -199,9 +265,25 @@ export class DrawCulling implements WorkPart {
         return !this.twoPhase || this.ctx.work.pipelines.compute(this.hzbKernel!) !== undefined;
     }
 
-    /** A lista das instâncias desenhadas (o `draw_visible` do desenho). */
-    get visible(): StorageBufferSpec | undefined {
-        return this.buffer(VISIBLE) as StorageBufferSpec | undefined;
+    /**
+     * A lista das instâncias desenhadas (o `draw_visible` do desenho): a montada pela GPU ou, no modo direto, a região da
+     * lista de instâncias da C2 (o mesmo registro por posição).
+     */
+    get visible(): BindingSource | undefined {
+        const direct = this.mode === 'direct' ? this.directSource() : undefined;
+        return direct ?? (this.buffer(VISIBLE) as BindingSource | undefined);
+    }
+
+    /** A lista de instâncias da C2 (o pool `RenderInstance`, na região dele da arena). */
+    private directSource(): BindingSource | undefined {
+        const info = this.ctx.resources.poolInfo(RenderInstanceSchema.name);
+        if (info === undefined) return undefined;
+        return {
+            kind: 'buffer',
+            buffer: info.buffer,
+            offset: info.offset,
+            size: info.size,
+        } as BindingSource;
     }
 
     /** Os argumentos dos desenhos indiretos. */
@@ -232,11 +314,17 @@ export class DrawCulling implements WorkPart {
         groups: readonly CullGroup[],
         frame: CullFrame,
         hzb: BoundChannel | undefined,
+        stats: BoundChannel | undefined,
     ): boolean {
         this.groups = groups;
         this.active = groups.length > 0;
         if (!this.active) return false;
-        const slots = Math.max(1, ...groups.map((g) => g.first + g.count));
+        let slots = 1;
+        let instances = 0;
+        for (const g of groups) {
+            slots = Math.max(slots, g.first + g.count);
+            instances += g.count;
+        }
         this.ensureCapacity(groups.length, slots);
         if (slots > SCAN_GROUP ** SCAN_LEVELS)
             throw new RangeError(
@@ -251,9 +339,13 @@ export class DrawCulling implements WorkPart {
         this.writeSteps();
         this.ensureHzbKernel(frame);
         this.rebuildBounds();
-        this.enabledNow = this.indirect && frame.enabled && this.hzbKernel !== undefined;
-        this.occlusionNow = this.enabledNow && hzb?.age(1) === 1;
+        this.enabledNow =
+            this.indirect && frame.enabled && this.hzbKernel !== undefined && stats !== undefined;
+        this.continuousNow = this.enabledNow && hzb?.age(1) === 1 && stats?.age(1) === 1;
+        this.instances = instances;
+        this.chooseMode();
         this.writeParams(frame.cameraSlot);
+        if (this.mode === 'direct') this.writeDirectArgs();
         return true;
     }
 
@@ -261,13 +353,30 @@ export class DrawCulling implements WorkPart {
      * Antes da fase 1 do desenho: as contagens produzidas na GPU nos modelos, as caixas, a fase 1, a lista 1 e os
      * argumentos dela (sem as duas fases, também os da lista 2 — vazia — e das duas juntas).
      */
-    recordEarly(frame: Frame): void {
+    recordEarly(frame: Frame, stats: BoundChannel | undefined): void {
+        if (this.mode === 'direct') {
+            // Sem compute: só as contagens produzidas na GPU (malha adaptativa) nos argumentos de todas as instâncias.
+            const args = this.buffer(ARGS);
+            if (args !== undefined && this.indirect)
+                for (const s of this.sources)
+                    frame.copy(
+                        s.buffer,
+                        args,
+                        4,
+                        s.offset,
+                        (s.group * DRAW_CULL_RECORDS + 2) * ARGS_WORDS * 4,
+                    );
+            return;
+        }
         const template = this.buffer(TEMPLATE);
         if (template !== undefined)
             for (const s of this.sources)
                 frame.copy(s.buffer, template, 4, s.offset, s.group * ARGS_WORDS * 4);
         const pipelines = this.ctx.work.pipelines;
         frame.compute('ForwardFlow.cull', (pass) => {
+            // A política do quadro (as medidas do anterior) e os despachos indiretos da hierarquia e da fase 2.
+            pipelines.use(pass.bind, this.kernels.get('dc_policy_main')!);
+            pass.dispatch.workgroups(1);
             for (const b of this.boundsRun) {
                 pipelines.use(pass.bind, b.kernel, {
                     draw: [this.steps.offset(this.groupStep(b.group))],
@@ -280,6 +389,7 @@ export class DrawCulling implements WorkPart {
             this.run(pass, 'dc_args_main', this.groups.length, 0);
             if (!this.twoPhase) this.run(pass, 'dc_args_main', this.groups.length, 1);
         });
+        stats?.written();
         // As caixas estáticas ficam; as deformadas são refeitas no próximo quadro.
         this.boundsRun = this.boundsRun.filter((b) => this.groups[b.group]?.deforming === true);
     }
@@ -290,22 +400,74 @@ export class DrawCulling implements WorkPart {
      */
     recordLate(frame: Frame, hzb: BoundChannel): void {
         const pipelines = this.ctx.work.pipelines;
-        const levels = hzbLevels();
+        const dispatch = this.buffer(DISPATCH);
+        if (dispatch?.subkind !== 'indirect') return;
+        const at = (record: number): number => record * 12;
         frame.compute('ForwardFlow.cull', (pass) => {
+            // A hierarquia e a fase 2 pelos despachos que a política escreveu (zero nos quadros sem elas).
             pipelines.use(pass.bind, this.hzbKernel!);
-            pass.dispatch.workgroups(Math.ceil(HZB_WIDTH / 8), Math.ceil(HZB_HEIGHT / 8));
-            for (let k = 1; k < levels; k++) {
-                const [w, h] = hzbLevelSize(k);
-                this.run(pass, 'dc_hzb_reduce_main', w * h, 2 + k);
-            }
-            if (this.occlusionNow) {
-                this.run(pass, 'dc_phase2_main', this.slotCount);
-                this.recordScan(pass, 1);
-                this.run(pass, 'dc_scatter_main', this.slotCount, 1);
-            }
+            pass.dispatch.workgroupsIndirect(dispatch, at(0));
+            pipelines.use(pass.bind, this.kernels.get('dc_hzb_top_main')!);
+            pass.dispatch.workgroupsIndirect(dispatch, at(1));
+            pipelines.use(pass.bind, this.kernels.get('dc_phase2_main')!);
+            pass.dispatch.workgroupsIndirect(dispatch, at(2));
+            this.recordScan(pass, 1, dispatch);
+            pipelines.use(pass.bind, this.kernels.get('dc_scatter_main')!, {
+                draw: [this.steps.offset(1)],
+            });
+            pass.dispatch.workgroupsIndirect(dispatch, at(this.scatterRecord));
             this.run(pass, 'dc_args_main', this.groups.length, 1);
         });
         hzb.written();
+    }
+
+    /**
+     * O modo do quadro pela medida (ver `CULL_SETTLE`): sem `indirect-first-instance` ou sem o descarte, direto; senão,
+     * descarta e lê as medidas de tempos em tempos — o que não se paga fica direto até medir de novo.
+     */
+    private chooseMode(): void {
+        this.clock++;
+        if (!this.enabledNow) {
+            this.mode = 'direct';
+            return;
+        }
+        // Descartando, a GPU reescreve os argumentos: o modo direto os escreve de novo quando voltar.
+        if (this.mode === 'cull') this.directArgsKey = '';
+        if (this.mode === 'direct') {
+            if (this.clock < this.directUntil) return;
+            this.mode = 'cull';
+            this.directArgsKey = '';
+            this.measureAt = this.clock + CULL_SETTLE;
+            return;
+        }
+        if (this.measuring || this.clock < this.measureAt) return;
+        this.measuring = true;
+        const instances = this.instances;
+        void this.ctx.resources.read(this.ctx.work, DRAW_CULL_STATS).then((record) => {
+            this.measuring = false;
+            const w = record?.w as number[] | undefined;
+            if (w === undefined || this.mode !== 'cull') return;
+            const [occluded = 0, candidates = 0, drawn = 0] = w;
+            const culled = instances - (drawn + candidates - occluded);
+            if (culled * CULL_USEFUL_DIVISOR < instances) {
+                this.mode = 'direct';
+                this.directUntil = this.clock + CULL_DIRECT;
+                this.directArgsKey = '';
+            } else this.measureAt = this.clock + CULL_MEASURE;
+        });
+    }
+
+    /** Os argumentos de todas as instâncias (registro 2 de cada grupo) para o modo direto, quando os grupos mudam. */
+    private writeDirectArgs(): void {
+        if (!this.indirect || this.directArgsKey === this.groupsKey) return;
+        const args = new Uint32Array(this.capacity.groups * DRAW_CULL_RECORDS * ARGS_WORDS);
+        this.groups.forEach((g, index) => {
+            const at = (index * DRAW_CULL_RECORDS + 2) * ARGS_WORDS;
+            args.set([g.drawCount, g.count, 0, 0, 0], at);
+            args[at + (g.indexed ? 4 : 3)] = g.first;
+        });
+        this.ctx.resources.writeNow(this.ctx.work, ARGS, args);
+        this.directArgsKey = this.groupsKey;
     }
 
     /** Solta os kernels (a C2 libera os buffers com o trabalho). */
@@ -324,23 +486,23 @@ export class DrawCulling implements WorkPart {
 
     // ── preparação ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Regiões dos passos: as duas listas, os níveis da hierarquia, os níveis da soma de prefixos de cada lista e a caixa
-     * de cada grupo.
-     */
+    /** Regiões dos passos: as duas listas, os níveis da soma de prefixos de cada lista e a caixa de cada grupo. */
     private stepCount(groups: number): number {
         return this.groupStep(groups);
     }
 
     private scanStep(list: number, level: number): number {
-        return 2 + hzbLevels() + list * SCAN_LEVELS + level;
+        return 2 + list * SCAN_LEVELS + level;
     }
 
     private groupStep(group: number): number {
-        return 2 + hzbLevels() + 2 * SCAN_LEVELS + group;
+        return 2 + 2 * SCAN_LEVELS + group;
     }
 
-    /** As regiões dos passos (os valores mudam com as posições da lista; escritas só então). */
+    /**
+     * As regiões dos passos e o modelo dos despachos indiretos da hierarquia e da fase 2 (os valores mudam com as
+     * posições da lista; escritos só então).
+     */
     private writeSteps(): void {
         const counts = scanLevelCounts(this.slotCount);
         const key = `${this.sourcesBound}|${counts.join(',')}|${this.steps.capacity}`;
@@ -353,8 +515,6 @@ export class DrawCulling implements WorkPart {
         for (let i = 0; i < count; i++) this.steps.write(i, { value: zero, scan: zero });
         this.steps.write(0, { value: [0, 0, 0, 0], scan: zero });
         this.steps.write(1, { value: [1, 0, 0, 0], scan: zero });
-        for (let k = 0; k < hzbLevels(); k++)
-            this.steps.write(2 + k, { value: [k, 0, 0, 0], scan: zero });
         for (let list = 0; list < 2; list++)
             counts.forEach((n, k) => {
                 if (k >= SCAN_LEVELS) return;
@@ -366,26 +526,67 @@ export class DrawCulling implements WorkPart {
         for (let g = 0; this.groupStep(g) < count; g++)
             this.steps.write(this.groupStep(g), { value: [g, 0, 0, 0], scan: zero });
         this.steps.flush(count);
+        // Os despachos (x, y, z) que a política copia nos quadros com a hierarquia e com a fase 2.
+        const template = new Uint32Array(DISPATCH_RECORDS * 3);
+        const put = (record: number, workgroups: number): void => {
+            const x = Math.min(Math.max(workgroups, 1), MAX_WORKGROUPS);
+            template.set([x, Math.ceil(workgroups / x), 1], record * 3);
+        };
+        template.set([HZB_WIDTH / 16, HZB_HEIGHT / 16, 1], 0);
+        put(1, 1);
+        put(2, Math.ceil(this.slotCount / WORKGROUP_SIZE));
+        const top = counts.length - 1;
+        let record = 3;
+        const up: number[] = [];
+        const down: number[] = [];
+        for (let k = 0; k < top; k++) {
+            up.push(record);
+            put(record++, Math.ceil(counts[k]! / SCAN_GROUP));
+        }
+        const topRecord = record;
+        put(record++, 1);
+        for (let k = top - 1; k >= 0; k--) {
+            down.push(record);
+            put(record++, Math.ceil(counts[k]! / SCAN_GROUP));
+        }
+        this.scanRecords = { up, top: topRecord, down };
+        this.scatterRecord = record;
+        put(record, Math.ceil(this.slotCount / WORKGROUP_SIZE));
+        this.ctx.resources.writeNow(this.ctx.work, DISPATCH_TEMPLATE, template);
         this.stepsKey = key;
     }
 
-    /** A soma de prefixos inclusiva das marcas da lista `list`, no lugar: subida, topo e descida. */
-    private recordScan(pass: Parameters<Parameters<Frame['compute']>[1]>[0], list: number): void {
+    /**
+     * A soma de prefixos inclusiva das marcas da lista `list`, no lugar: subida, topo e descida — pelos despachos
+     * indiretos de `dispatch` (a lista 2: zero nos quadros sem a fase 2) ou diretos.
+     */
+    private recordScan(
+        pass: Parameters<Parameters<Frame['compute']>[1]>[0],
+        list: number,
+        dispatch?: IndirectBufferSpec,
+    ): void {
         const counts = scanLevelCounts(this.slotCount);
         const top = counts.length - 1;
         const use = (entry: string, level: number): void =>
             this.ctx.work.pipelines.use(pass.bind, this.kernels.get(entry)!, {
                 draw: [this.steps.offset(this.scanStep(list, level))],
             });
+        const go = (record: number | undefined, workgroups: number): void => {
+            if (dispatch !== undefined && record !== undefined)
+                pass.dispatch.workgroupsIndirect(dispatch, record * 12);
+            else pass.dispatch.invocations(workgroups * SCAN_GROUP, SCAN_GROUP);
+        };
         for (let k = 0; k < top; k++) {
             use('dc_scan_up_main', k);
-            pass.dispatch.invocations(counts[k]!, SCAN_GROUP);
+            go(this.scanRecords.up[k], Math.ceil(counts[k]! / SCAN_GROUP));
         }
         use('dc_scan_top_main', top);
-        pass.dispatch.workgroups(1);
+        if (dispatch !== undefined)
+            pass.dispatch.workgroupsIndirect(dispatch, this.scanRecords.top * 12);
+        else pass.dispatch.workgroups(1);
         for (let k = top - 1; k >= 0; k--) {
             use('dc_scan_down_main', k);
-            pass.dispatch.invocations(counts[k]!, SCAN_GROUP);
+            go(this.scanRecords.down[top - 1 - k], Math.ceil(counts[k]! / SCAN_GROUP));
         }
     }
 
@@ -431,7 +632,7 @@ export class DrawCulling implements WorkPart {
         if (next.groups === this.capacity.groups && next.slots === this.capacity.slots) return;
         this.capacity = next;
         this.ctx.work.refresh();
-        this.groupsKey = '';
+        this.written = [];
         this.paramsKey = '';
     }
 
@@ -449,11 +650,25 @@ export class DrawCulling implements WorkPart {
             VISIBLE,
             ARGS,
             SCAN,
+            DISPATCH,
+            DISPATCH_TEMPLATE,
         ];
         const buffers = need.map((id) => this.buffer(id));
         if (buffers.some((b) => b === undefined || b.subkind === 'staging')) return undefined;
-        const [params, groups, template, slotGroup, bounds, flagsA, flagsB, visible, args, scan] =
-            buffers as AnyBufferSpec[];
+        const [
+            params,
+            groups,
+            template,
+            slotGroup,
+            bounds,
+            flagsA,
+            flagsB,
+            visible,
+            args,
+            scan,
+            dispatch,
+            dispatchTemplate,
+        ] = buffers as AnyBufferSpec[];
         const src = (b: AnyBufferSpec): BindingSource => b as BindingSource;
         return new Map<WgslResource, BindingSource>([
             [R.params, src(params!)],
@@ -466,6 +681,8 @@ export class DrawCulling implements WorkPart {
             [R.flagsA, src(flagsA!)],
             [R.flagsB, src(flagsB!)],
             [R.scanLevels, src(scan!)],
+            [R.dispatch, src(dispatch!)],
+            [R.dispatchTemplate, src(dispatchTemplate!)],
             [R.visible, src(visible!)],
             [R.args, src(args!)],
         ]);
@@ -484,6 +701,8 @@ export class DrawCulling implements WorkPart {
             VISIBLE,
             ARGS,
             SCAN,
+            DISPATCH,
+            DISPATCH_TEMPLATE,
         ];
         return [
             ...ids.map((id) => {
@@ -507,11 +726,12 @@ export class DrawCulling implements WorkPart {
         pipelines.bind(sources);
         if (this.kernels.size === 0)
             for (const entry of [
+                'dc_policy_main',
                 'dc_phase1_main',
                 'dc_phase2_main',
                 'dc_scatter_main',
                 'dc_args_main',
-                'dc_hzb_reduce_main',
+                'dc_hzb_top_main',
                 'dc_scan_up_main',
                 'dc_scan_top_main',
                 'dc_scan_down_main',
@@ -521,7 +741,7 @@ export class DrawCulling implements WorkPart {
                 this.kernels.set(entry, id);
             }
         this.sourcesBound = key;
-        this.groupsKey = '';
+        this.written = [];
         this.stepsKey = '';
         return true;
     }
@@ -561,16 +781,7 @@ export class DrawCulling implements WorkPart {
                     offset: g.source.offset,
                 });
         });
-        const key = [
-            this.sourcesBound,
-            ...groups.map(
-                (g) =>
-                    `${g.key}:${g.first}:${g.count}:${g.cull ? 1 : 0}:${g.indexed ? 1 : 0}:${g.drawCount}:${
-                        g.vertices === undefined ? 0 : this.idOf(g.vertices)
-                    }`,
-            ),
-        ].join(';');
-        if (key === this.groupsKey) return;
+        if (this.groupsBound === this.sourcesBound && sameGroups(groups, this.written)) return;
         const c = this.capacity;
         const table = new Uint32Array(c.groups * GROUP_WORDS);
         const template = new Uint32Array(c.groups * ARGS_WORDS);
@@ -588,7 +799,9 @@ export class DrawCulling implements WorkPart {
         resources.writeNow(this.ctx.work, GROUPS, table);
         resources.writeNow(this.ctx.work, TEMPLATE, template);
         resources.writeNow(this.ctx.work, SLOT_GROUP, slotGroup);
-        this.groupsKey = key;
+        this.written = groups;
+        this.groupsBound = this.sourcesBound;
+        this.groupsKey = String(++this.groupsVersion);
         this.slotCount = slots;
         this.paramsKey = '';
     }
@@ -598,6 +811,9 @@ export class DrawCulling implements WorkPart {
      * liberado) e os grupos a refazer neste quadro: os novos, os mudados e os deformados pela GPU.
      */
     private rebuildBounds(): void {
+        // Os mesmos grupos e nenhuma caixa velha: seguem as deformadas (na lista desde o quadro anterior).
+        if (this.boundsVersion === this.groupsKey && this.boundsStale.size === 0) return;
+        this.boundsVersion = this.groupsKey;
         const pipelines = this.ctx.work.pipelines;
         const used = new Set<AnyBufferSpec>();
         const run = new Map<number, string>();
@@ -640,7 +856,7 @@ export class DrawCulling implements WorkPart {
 
     /** Os parâmetros do quadro, escritos quando mudam. */
     private writeParams(cameraSlot: number): void {
-        const flags = (this.enabledNow ? ENABLED : 0) | (this.occlusionNow ? OCCLUSION : 0);
+        const flags = (this.enabledNow ? ENABLED : 0) | (this.continuousNow ? CONTINUOUS : 0);
         const values = {
             counts: [cameraSlot, this.slotCount, this.groups.length, flags],
             hzb: [HZB_WIDTH, HZB_HEIGHT, hzbLevels(), 0],
