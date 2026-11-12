@@ -10,12 +10,14 @@ import surfaceColliderCommonSource from '../../gpu/wgsl/kernels/surface_collider
 import surfaceColliderPointsSource from '../../gpu/wgsl/kernels/surface_collider_points.wgsl?raw';
 import { surfaceAt, surfaceResources } from '../../geometry/shaders';
 import { SurfaceParamsSchema } from '../../geometry/SurfaceSchemas';
+import { transformsResource } from '../../scene/resources';
+import { transformLocal } from '../../scene/flows/shaders';
 import { Transform } from '../../scene/Transform';
 
 /**
  * Parâmetros de uma passada da construção de um colisor de superfície (spec 010; uma região por passada, offset
- * dinâmico): amostragem, cópias e os tempos delas, grade e modo, faixa do campo, transformação (da CPU ou do pool de
- * mundo) e, no jump flooding, o passo e a metade lida.
+ * dinâmico): amostragem, cópias e os tempos delas, grade e modo, faixa do campo, o slot do `Transform` (o TRS calculado
+ * na GPU, ou a matriz do pool de mundo com função ou hierarquia) e, no jump flooding, o passo e a metade lida.
  */
 export const SurfaceBakeParamsSchema = new StructSchema(
     'SurfaceBakeParams',
@@ -44,10 +46,6 @@ export const SurfaceBakeParamsSchema = new StructSchema(
         t1: FieldType.vec4f,
         t2: FieldType.vec4f,
         t3: FieldType.vec4f,
-        world: FieldType.mat4x4f,
-        normal0: FieldType.vec4f,
-        normal1: FieldType.vec4f,
-        normal2: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );
@@ -125,6 +123,7 @@ export const surfaceColliderBuild = wgslModule({
     requires: [
         linalg,
         xformAffine,
+        transformLocal,
         surfaceColliderCommon,
         WORKGROUP_SIZE.module,
         B.points,
@@ -133,6 +132,7 @@ export const surfaceColliderBuild = wgslModule({
         B.ids,
         B.field,
         B.worlds,
+        transformsResource,
     ],
-    structs: [SurfaceBakeParamsSchema, Transform.worldSchema],
+    structs: [SurfaceBakeParamsSchema, Transform.schema, Transform.worldSchema],
 });

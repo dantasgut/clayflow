@@ -11,7 +11,7 @@
 //   4. a amostragem por B-spline tricúbica (contínua até a segunda derivada: ponto e normal lisos de perto) e a marcha
 //      do raio com refinamento por secante.
 
-import { fieldContactShape } from '../schemas';
+import { FIELD, fieldContactShape } from '../schemas';
 
 export type Vec3 = readonly [number, number, number];
 
@@ -30,37 +30,8 @@ export interface FieldParams {
     readonly contacts?: readonly (readonly [number, number, number, number] | undefined)[];
 }
 
-/** Constantes do campo (as mesmas do WGSL). */
-export const FIELD = Object.freeze({
-    /** Voxel em espaçamentos de partícula. */
-    voxel: 0.5,
-    /** Raio do núcleo em espaçamentos (o espalhamento cabe em 2 × 2 × 2 blocos: alcance ≤ 4 voxels). */
-    radius: 2,
-    /**
-     * Raio da vizinhança da covariância, em espaçamentos (T066e): com o do núcleo (2), o arranjo das partículas da
-     * superfície parada ficava no relevo dela (o favo de mel do `fluidField` `normal`: 0,0098 → 0,0059). A partir de √6
-     * (a casca seguinte da rede) a forma da esfera pequena do teste da referência sai do |∇φ| ≈ 1 (1,26). A posição
-     * suavizada fica no raio do núcleo: na vizinhança maior a média puxava a superfície para dentro (a barragem perdia 9 %
-     * do volume antes de o nível se ajustar; o nível não compensa — o perfil dos núcleos achatados é íngreme).
-     */
-    neighborhood: 2.25,
-    /** Suavização das posições (Laplaciano de Yu & Turk). */
-    smoothing: 0.5,
-    /** Razão máxima entre o maior e o menor raio do núcleo. */
-    ratio: 4,
-    /** Vizinhos abaixo dos quais o núcleo é isotrópico e menor. */
-    neighbors: 8,
-    /** Raio do núcleo isotrópico das partículas com poucos vizinhos, em fração do raio. */
-    sparse: 0.5,
-    /** Nível da superfície na densidade normalizada (1 dentro do fluido). */
-    iso: 0.42,
-    /** Faixa estreita útil do campo, em voxels (o redistanciamento calcula em 3 vezes ela). */
-    band: 4,
-    /** Iterações do método rápido da eikonal (a distância é exata até essa quantidade de voxels da interface). */
-    iterations: 6,
-    /** Blocos de voxels por lado (a grade esparsa da GPU). */
-    brick: 8,
-});
+/** Constantes do campo: as de produção (`../schemas`), reexportadas para os testes. */
+export { FIELD };
 
 /** Grade densa do campo: origem (canto do voxel 0), tamanho do voxel, dimensões e φ por voxel (x mais rápido). */
 export interface FieldGrid {

@@ -42,7 +42,6 @@ import { isFieldBody } from './fieldBody';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
 import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
-import { FIELD } from './reference/field';
 import { Time } from '../../scene/time/Time';
 import { Light } from '../scene/Light';
 import {
@@ -61,6 +60,7 @@ import { SurfacePhysics } from '../physics/wetting/SurfacePhysics';
 import { Atmosphere } from '../physics/wetting/Atmosphere';
 import { filmSurfaceTerms, type WettingLiquid } from '../physics/wetting/wetting';
 import {
+    FIELD,
     FIELD_BRICK_VOXELS,
     FIELD_FILM_CELLS,
     FIELD_FILM_SURFACES,

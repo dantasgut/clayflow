@@ -36,7 +36,7 @@ import { CameraInstanceSchema, CameraRecordSchema } from '../scene/flows/CameraS
 import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Transform } from '../scene/Transform';
-import { pcgHash } from '../math/reference/random';
+import { pcgHash } from '../math/random';
 import { GlobalIllumination } from './GlobalIllumination';
 import { Caustics } from './caustics/Caustics';
 import {

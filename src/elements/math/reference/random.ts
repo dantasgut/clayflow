@@ -1,14 +1,12 @@
 // Referência f64 única da aleatoriedade (spec 037, R2): a família `random` do WGSL com a mesma aritmética u32.
 // `pcg_hash`, `hash2`, `hash3`, `hash_signed` são bit a bit (as sementes dos nós e a sequência dos emissores dependem
 // deles); `random_next` é o gerador com estado (`H(s + 0x9e3779b9)`) e `random_unit` a conversão em [0, 1).
+// O `pcgHash` é o de produção (`../random.ts`, o dono da conta do lado da CPU), reexportado: os valores de controle do
+// teste o conferem.
 
-/** PCG (hash de 32 bits, permutação RXS-M-XS). */
-export function pcgHash(v: number): number {
-    const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
-    const word =
-        Math.imul(((state >>> (((state >>> 28) + 4) >>> 0)) ^ state) >>> 0, 277803737) >>> 0;
-    return ((word >>> 22) ^ word) >>> 0;
-}
+import { pcgHash } from '../random';
+
+export { pcgHash };
 
 export function hash2(x: number, y: number): number {
     return pcgHash((x ^ pcgHash(y)) >>> 0);

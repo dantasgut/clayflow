@@ -19,7 +19,7 @@ import {
     HZB_WIDTH,
     hzbLevels,
     hzbWords,
-} from '../../elements/render/reference/drawCull';
+} from '../../elements/render/cullLayout';
 import { RenderInstanceSchema } from '../../elements/scene/Renderable';
 import { DrawCullParamsSchema, DrawCullStepSchema } from './renderSchemas';
 import { drawCull, drawCullBounds, drawCullHzb, drawCullResources } from './shaders';

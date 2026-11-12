@@ -14,7 +14,7 @@ import { CountToArgs } from '../../elements/gpu/compute/CountToArgs';
 import { wordBuffer } from '../../elements/gpu/compute/schemas';
 import { particlePoolResource } from '../../elements/material/renderResources';
 import { SET_COUNT_DRAW_OFFSET, SetCountSchema } from '../../scene/graph/SetCountSchema';
-import { HZB_HEIGHT, HZB_WIDTH, hzbLevels } from '../../elements/render/reference/drawCull';
+import { HZB_HEIGHT, HZB_WIDTH, hzbLevels } from '../../elements/render/cullLayout';
 import { particleCull, particleCullResources } from './shaders';
 
 /** Palavras do corpo (`pc_body`, ver `particle_cull.wgsl`). */

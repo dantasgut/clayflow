@@ -29,7 +29,7 @@ const SIGNATURES: Readonly<Record<string, Signature>> = {
     pcg: {
         family: 'Aleatoriedade',
         pattern: /747796405|2891336453|277803737/,
-        owners: ['elements/gpu/wgsl/math/random.wgsl', 'elements/math/reference/random.ts'],
+        owners: ['elements/gpu/wgsl/math/random.wgsl', 'elements/math/random.ts'],
         languages: ['wgsl', 'ts'],
     },
     teschner: {
@@ -214,7 +214,7 @@ describe('assinaturas canônicas (spec 037, R1)', () => {
             text: 'fn pcg_hash(v: u32) -> u32 { let s = v * 747796405u + 2891336453u; return s; }',
         };
         const cpu: SourceFile = {
-            path: 'elements/math/reference/random.ts',
+            path: 'elements/math/random.ts',
             text: 'const s = Math.imul(v, 747796405);',
         };
         const copy: SourceFile = {
@@ -226,7 +226,7 @@ describe('assinaturas canônicas (spec 037, R1)', () => {
             text: 'const h = Math.imul(v, 277803737);',
         };
 
-        // Dono do WGSL e referência da CPU: nada a apontar.
+        // Dono do WGSL e o da CPU: nada a apontar.
         expect(checkSignatures([owner, cpu], sig, {})).toMatchObject({ unexpected: [], stale: [] });
         // Cópia nova no WGSL (o comentário não conta) e no TypeScript: apontadas com arquivo e linha.
         expect(checkSignatures([owner, copy, tsCopy], sig, {}).unexpected).toEqual([
