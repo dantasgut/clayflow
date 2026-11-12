@@ -88,21 +88,28 @@ export function decodeCausticsHash(words: Uint32Array, cellSize: number): Causti
     const irradiance = (p: Vec3, n: Vec3): Rgb => {
         const q = [p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]];
         const out: Rgb = [0, 0, 0];
-        // A tenda 2D (`caustics_tent`): o eixo dominante da normal é o das camadas.
+        // A B-spline quadrática (`caustics_spline`): o eixo dominante da normal é o das camadas; nos tangentes, a célula
+        // mais próxima e as duas vizinhas.
         const an = n.map(Math.abs);
         const a = an[0]! >= an[1]! && an[0]! >= an[2]! ? 0 : an[1]! >= an[2]! ? 1 : 2;
         const u = (a + 1) % 3;
         const v = (a + 2) % 3;
+        const weights = (t: number): number[] => [
+            0.5 * (0.5 - t) ** 2,
+            0.75 - t * t,
+            0.5 * (0.5 + t) ** 2,
+        ];
         for (let level = 0; level < LEVELS; level++) {
             const size = cellSize * 2 ** level;
             const g = q.map((x) => x / size - 0.5);
-            const base = g.map(Math.floor);
-            const fu = g[u]! - base[u]!;
-            const fv = g[v]! - base[v]!;
+            // O `round` do WGSL arredonda o meio para o par; o peso é contínuo ali, a diferença não aparece.
+            const base = g.map(Math.round);
+            const wu = weights(g[u]! - base[u]!);
+            const wv = weights(g[v]! - base[v]!);
             const outward = (n[a] >= 0 ? 0.5 : -0.5) * size;
-            for (let k = 0; k < 4; k++) {
-                const du = k & 1;
-                const dv = (k >> 1) & 1;
+            for (let k = 0; k < 9; k++) {
+                const du = (k % 3) - 1;
+                const dv = Math.floor(k / 3) - 1;
                 const cu = (base[u]! + du + 0.5) * size;
                 const cv = (base[v]! + dv + 0.5) * size;
                 const h = q[a]! - (n[u]! * (cu - q[u]!) + n[v]! * (cv - q[v]!)) / n[a];
@@ -112,7 +119,7 @@ export function decodeCausticsHash(words: Uint32Array, cellSize: number): Causti
                 c[a] = Math.floor((h + outward) / size);
                 const rgb = cells.get(`${level}:${c[0]},${c[1]},${c[2]}`);
                 if (rgb === undefined) continue;
-                const w = (du ? fu : 1 - fu) * (dv ? fv : 1 - fv);
+                const w = wu[du + 1]! * wv[dv + 1]!;
                 for (let i = 0; i < 3; i++) out[i]! += rgb[i]! * w;
             }
         }

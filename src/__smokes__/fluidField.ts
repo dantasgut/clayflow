@@ -18,10 +18,12 @@
 //   - normal: a água parada vista de cima de perto: a normal da superfície que os raios da câmera acham (o ponto
 //     `ray_volume_hit`, o mesmo do traçado) tem amplitude RMS na escala das partículas ≤ 0,007 (sem favo de mel; 0,0098
 //     com a covariância dos núcleos no raio deles, 0,0059 na vizinhança de 2,25 espaçamentos — T066e); a luminância da
-//     imagem, ≤ 0,008. O favo de mel só aparece na imagem pelas cáusticas no fundo (sem elas, 0,0012 com e sem ele: a
+//     imagem, ≤ 0,007. O favo de mel só aparece na imagem pelas cáusticas no fundo (sem elas, 0,0012 com e sem ele: a
 //     areia lisa refratada não o mostra); o limite de 0,004 era da 033, de antes de elas entrarem no tanque (039). Com
-//     elas, o campo antigo dá 0,0111–0,0112 e os novos 0,0038–0,0064: o piso é a leitura bilinear das células das
-//     cáusticas (com a normal de 0,0061 a 0,0020 ele não muda; 4× os fótons o baixam e 120 quadros parados o sobem);
+//     elas, o campo antigo dá 0,0111–0,0112 e o novo 0,0058–0,0062 (a leitura das células pela B-spline quadrática;
+//     pela tenda, 0,0064): o que sobra é a cáustica do relevo que resta na superfície — com 3 s de quadros parados ela
+//     não muda (a média do hash já convergiu) e com 4× os fótons sobe a 0,0074 (os depósitos vão a níveis mais finos e
+//     o foco do relevo fica mais nítido); só baixa com a superfície mais lisa;
 //   - edge: o realce da borda da frente é contínuo (≤ 5 % dos pixels de brilho isolados);
 //   - volume: a barragem em movimento: o volume do campo a ±5 % do das partículas (N · espaçamento³) em 4 quadros;
 //   - caustics: a placa de água parada sobre o fundo: a borda da sombra e das cáusticas no fundo sem ondulação na
@@ -753,7 +755,7 @@ async function caseNormal(): Promise<void> {
         `normal: p = ${p.toFixed(1)} px; amplitude na escala das partículas: normal ${normalAmp.toFixed(4)}, luminância ${lumAmp.toFixed(4)}`,
     );
     check(normalAmp <= 0.007, `normal: favo de mel na normal ${normalAmp.toFixed(4)} ≤ 0,007`);
-    check(lumAmp <= 0.008, `normal: favo de mel na imagem ${lumAmp.toFixed(4)} ≤ 0,008`);
+    check(lumAmp <= 0.007, `normal: favo de mel na imagem ${lumAmp.toFixed(4)} ≤ 0,007`);
     s.dispose();
 }
 

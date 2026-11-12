@@ -148,8 +148,9 @@ describe('Caustics (spec 034, T067c)', () => {
         expect(resolve).toContain('let cell = caustics_cell_size(slot / caustics_level_slots());');
         const light = composeWgsl(causticsLight).spec.source;
         expect(light).toContain('fn caustics_irradiance(p: vec3f, n: vec3f) -> vec3f');
-        // A leitura: a soma dos níveis, cada um pela tenda a partir da âncora.
-        expect(light).toContain('let t = caustics_tent(q, n, level);');
+        // A leitura: a soma dos níveis, cada um pela B-spline quadrática (3 × 3 células) a partir da âncora.
+        expect(light).toContain('let s = caustics_spline(q, n, level);');
+        expect(light).toContain('fn caustics_spline_weights(t: f32) -> vec3f');
         expect(light).toContain('let q = p - anchor;');
         // Com sinal: sob a água, a irradiância corrige a direta em linha reta.
         expect(light).toContain('if (all(e == vec3f(0.0))) { return vec3f(0.0); }');

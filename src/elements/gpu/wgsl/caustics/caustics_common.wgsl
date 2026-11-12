@@ -7,8 +7,9 @@
 // pegada dele, e quem lê soma os níveis. Cada balde: a chave (as coordenadas da célula, 10 bits cada, deslocadas de 512,
 // e o nível nos 3 bits de cima, +1 — 0 vazio), a soma do quadro em ponto fixo com sinal (rgb, a vazão de cada fóton,
 // negativa na parcela da variável de controle) e a irradiância acumulada (rgb, f32). O cabeçalho: a potência por fóton
-// do quadro (f32), os baldes ocupados no quadro anterior e a soma do quadro, e a âncora. Depósito e leitura pela tenda 2D no plano tangente (`caustics_tent`, spec 034 T057): uma camada de células
-// ao longo da normal e a interpolação bilinear nos dois eixos tangentes — a irradiância é por área da superfície.
+// do quadro (f32), os baldes ocupados no quadro anterior e a soma do quadro, e a âncora. O depósito pela tenda 2D no plano tangente (`caustics_tent`, spec 034 T057): uma camada de células
+// ao longo da normal e a interpolação bilinear nos dois eixos tangentes — a irradiância é por área da superfície; a
+// leitura pela B-spline quadrática nas mesmas camadas (`caustics_spline`, T066e).
 // Requer: caustics (os baldes em `caustics.counts.y`), hash_cell.
 
 const CAUSTICS_HEADER: u32 = 12u;
@@ -120,4 +121,59 @@ fn caustics_tent_cell(t: CausticsTent, k: u32) -> vec3i {
 
 fn caustics_tent_weight(t: CausticsTent, k: u32) -> f32 {
     return select(1.0 - t.f.x, t.f.x, (k & 1u) != 0u) * select(1.0 - t.f.y, t.f.y, ((k >> 1u) & 1u) != 0u);
+}
+
+/**
+ * A leitura pela B-spline quadrática no plano tangente do ponto `p` de normal `n` no nível `level`: nos eixos tangentes
+ * (`u`, `v`, os da tenda), a célula mais próxima e as duas vizinhas, com os pesos ½(½ − t)², ¾ − t², ½(½ + t)² (somam 1:
+ * a irradiância constante sai igual). A tenda bilinear tem a derivada quebrada no centro de cada célula — na água
+ * parada, sobre uma grade de células fixa no mundo, isso desenhava riscos curtos alinhados aos eixos; a quadrática é
+ * contínua na derivada (spec 034, T066e). A camada de cada uma das 9 células, como na tenda, pelo plano tangente no centro
+ * dela.
+ */
+struct CausticsSpline {
+    base: vec3i,
+    wu: vec3f,
+    wv: vec3f,
+    u: u32,
+    v: u32,
+    a: u32,
+    layers: array<i32, 9>,
+}
+
+fn caustics_spline_weights(t: f32) -> vec3f {
+    return vec3f(0.5 * (0.5 - t) * (0.5 - t), 0.75 - t * t, 0.5 * (0.5 + t) * (0.5 + t));
+}
+
+fn caustics_spline(p: vec3f, n: vec3f, level: u32) -> CausticsSpline {
+    let an = abs(n);
+    let a = select(select(2u, 1u, an.y >= an.z), 0u, an.x >= an.y && an.x >= an.z);
+    let u = (a + 1u) % 3u;
+    let v = (a + 2u) % 3u;
+    let cell = caustics_cell_size(level);
+    let g = p / cell - 0.5;
+    let base = vec3i(round(g));
+    let outward = select(-0.5, 0.5, n[a] >= 0.0) * cell;
+    var layers: array<i32, 9>;
+    for (var k = 0u; k < 9u; k++) {
+        let cu = (f32(base[u] + i32(k % 3u) - 1) + 0.5) * cell;
+        let cv = (f32(base[v] + i32(k / 3u) - 1) + 0.5) * cell;
+        let h = p[a] - (n[u] * (cu - p[u]) + n[v] * (cv - p[v])) / n[a];
+        layers[k] = i32(floor((h + outward) / cell));
+    }
+    return CausticsSpline(base, caustics_spline_weights(g[u] - f32(base[u])),
+        caustics_spline_weights(g[v] - f32(base[v])), u, v, a, layers);
+}
+
+/** A célula `k` (0–8) da leitura e o peso dela. */
+fn caustics_spline_cell(s: CausticsSpline, k: u32) -> vec3i {
+    var c = s.base;
+    c[s.u] += i32(k % 3u) - 1;
+    c[s.v] += i32(k / 3u) - 1;
+    c[s.a] = s.layers[k];
+    return c;
+}
+
+fn caustics_spline_weight(s: CausticsSpline, k: u32) -> f32 {
+    return s.wu[k % 3u] * s.wv[k / 3u];
 }
