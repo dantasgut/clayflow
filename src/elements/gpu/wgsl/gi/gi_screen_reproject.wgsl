@@ -22,13 +22,18 @@ fn gi_screen_history_at(i: u32) -> u32 {
 }
 
 /**
- * As sondas do quadro anterior em volta de um ponto (índices na fatia anterior) e os pesos normalizados (soma 1; 0 =
- * nenhuma): as 2 × 2 dos ladrilhos ou, onde elas têm sondas extras, as 2 × 2 da grade fina.
+ * As sondas do quadro anterior em volta de um ponto (índices na fatia anterior), os pesos normalizados (soma 1; 0 =
+ * nenhuma) e a cobertura (a soma dos pesos antes de normalizar, de 0 a 1): as 2 × 2 dos ladrilhos ou, onde elas têm
+ * sondas extras, as 2 × 2 da grade fina.
  */
 struct GiScreenTaps {
     at: vec4u,
     w: vec4f,
+    cover: f32,
 }
+
+/** Cobertura das sondas de tela a partir da qual o histórico delas vale sozinho num acerto (a mesma do desenho). */
+const GI_SCREEN_HISTORY_FULL: f32 = 0.5;
 
 /** Índice no histórico do mapa fino do ladrilho `tile` (depois das entradas de todas as sondas). */
 fn gi_screen_history_map_at(tile: u32) -> u32 {
@@ -54,9 +59,10 @@ fn gi_screen_history_fine_probe(t: vec2u) -> u32 {
  * vista-projeção anterior, pesadas pela posição (bilinear), pela distância ao plano delas e pela normal — o histórico
  * no ponto exato, também com a câmera andando. A tolerância do plano cresce com a distância à câmera (a precisão do
  * acerto do raio da câmera). Onde as dos ladrilhos têm sondas extras (a dobra côncava), as 2 × 2 da grade fina (as dos ladrilhos e as extras) pesam pela cobertura delas, e as dos ladrilhos pelo que falta.
+ * A cobertura sai zerada quando o ponto está atrás da superfície de uma das 2 × 2 (`gi_screen_history_behind`).
  */
 fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
-    var taps = GiScreenTaps(vec4u(NONE), vec4f(0.0));
+    var taps = GiScreenTaps(vec4u(NONE), vec4f(0.0), 0.0);
     // A vista-projeção anterior sem o deslocamento da amostra e a câmera anterior (spec 037): as guardadas da câmera.
     let cam = cameras[gi.screen.w];
     // Sem histórico no corte de câmera (`history.x`, spec 037).
@@ -67,9 +73,15 @@ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
     let g = px / gi_screen_tile() - 0.5;
     let base = vec2i(floor(g));
     let f = g - vec2f(base);
-    let tolerance = 0.01 + length(p - rigid_inverse(cam.previousView)[3].xyz) * 0.01;
+    let world = rigid_inverse(cam.previousView);
+    let dp = length(p - world[3].xyz);
+    // A direção do raio da câmera anterior pelo ponto: da câmera (perspectiva) ou a da vista (ortográfica).
+    var view = (p - world[3].xyz) / max(dp, 1e-6);
+    if (is_orthographic(cam.projection)) { view = -normalize(world[2].xyz); }
+    let tolerance = 0.01 + dp * 0.01;
     var sum = 0.0;
     var extra = false;
+    var hidden = false;
     for (var o = 0u; o < 4u; o++) {
         let d = vec2i(i32(o & 1u), i32(o >> 1u));
         let t = base + d;
@@ -81,6 +93,9 @@ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
         extra = extra || hn.w > 0.5;
         let b = mix(vec2f(1.0) - f, f, vec2f(d));
         let w = b.x * b.y * temporal_validate_plane(hp.xyz, hn.xyz, p, n, tolerance, 0.95);
+        // A vizinha de outra superfície voltada para a câmera cujo plano o raio da câmera cruza antes do ponto: o ponto
+        // está atrás dela (as sondas como profundidade grossa do quadro anterior).
+        if (w <= 0.0) { hidden = hidden || gi_screen_history_behind(hp.xyz, hn.xyz, p, view, tolerance); }
         taps.at[o] = at;
         taps.w[o] = w;
         sum += w;
@@ -91,7 +106,7 @@ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
         let gf = px / (0.5 * gi_screen_tile()) - 1.0;
         let fb = vec2i(floor(gf));
         let ff = gf - vec2f(fb);
-        var fine = GiScreenTaps(vec4u(NONE), vec4f(0.0));
+        var fine = GiScreenTaps(vec4u(NONE), vec4f(0.0), 0.0);
         var fsum = 0.0;
         for (var o = 0u; o < 4u; o++) {
             let d = vec2i(i32(o & 1u), i32(o >> 1u));
@@ -114,8 +129,34 @@ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
             sum = fsum;
         }
     }
+    taps.cover = select(min(sum, 1.0), 0.0, hidden);
     if (sum > 1e-4) { taps.w = taps.w / sum; } else { taps.w = vec4f(0.0); }
     return taps;
+}
+
+/**
+ * A confiança do histórico das sondas de tela num ponto atingido por um raio: a cobertura até
+ * `GI_SCREEN_HISTORY_FULL` (como no desenho, `gi_lighting_irradiance`); 0 no ponto escondido atrás de outra superfície.
+ * Abaixo dela, a parte que falta vem das sondas do mundo. Sem isso, o chão atrás de um bloco caía na tela ao lado do
+ * chão da frente dele — o mesmo plano, a vizinha valia — e levava a luz daquele chão; e uma só vizinha valendo por um
+ * peso pequeno, normalizado a 1, levava a luz dela até um ladrilho de distância (no `giNoise`, a caixa de Cornell alta:
+ * manchas de 5,9 % para 2,7 %, o viés do chão de 7,7 % para 0,5 %).
+ */
+fn gi_screen_history_confidence(taps: GiScreenTaps) -> f32 {
+    if (!gi_screen_history_found(taps)) { return 0.0; }
+    return saturate(taps.cover / GI_SCREEN_HISTORY_FULL);
+}
+
+/**
+ * O ponto `p`, visto pela câmera anterior na direção `view`, está atrás da superfície da sonda `q` (normal `qn`)? O plano
+ * dela voltado para a câmera e cruzado pelo raio da câmera mais de `tolerance` antes do ponto. Perto de uma borda
+ * convexa o plano estendido também cruza pontos que se veem (a profundidade é grossa, um ladrilho): esses ficam com as
+ * sondas do mundo, como os escondidos.
+ */
+fn gi_screen_history_behind(q: vec3f, qn: vec3f, p: vec3f, view: vec3f, tolerance: f32) -> bool {
+    let facing = dot(view, qn);
+    if (facing > -0.05) { return false; }
+    return dot(q - p, qn) / facing < -tolerance;
 }
 
 /** Há histórico no ponto? */

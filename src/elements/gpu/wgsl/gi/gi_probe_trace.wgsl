@@ -106,19 +106,21 @@ fn gi_probe_trace_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let f = GiShadeFactors(gi_wave_light_read[4u * i + 1u].rgb, gi_wave_light_read[4u * i + 2u].rgb, lit.w > 0.0);
     gi_rays[out_base] = vec4f(gi_through(direct, through, scatter), traced.w);
     if (bounces < 2u) { return; }
-    // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto); senão, das do mundo.
+    // Acerto numa superfície visível: o rebatimento anterior das sondas de tela (exato de perto) pela confiança delas;
+    // no que falta, das do mundo.
     let taps = gi_screen_history_taps(p, n);
-    let screen = gi_screen_history_found(taps) && !f.translucent;
+    let screen = select(gi_screen_history_confidence(taps), 0.0, f.translucent);
     // Os pesos das sondas do mundo uma vez para todas as gerações.
     var w: GiGenerationWeights;
-    if (!screen) { w = gi_generation_weights(p, n, v, traced.w); }
+    if (screen < 1.0) { w = gi_generation_weights(p, n, v, traced.w); }
     for (var b = 1u; b < bounces; b++) {
         var indirect = vec3f(0.0);
-        if (screen) {
+        if (screen > 0.0) {
             let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + b - 1u).rgb / PI;
-            indirect = (f.front + f.back) * e;
-        } else {
-            indirect = gi_shade_indirect_weighted(f, p, n, v, traced.w, w, b - 1u);
+            indirect = screen * (f.front + f.back) * e;
+        }
+        if (screen < 1.0) {
+            indirect += (1.0 - screen) * gi_shade_indirect_weighted(f, p, n, v, traced.w, w, b - 1u);
         }
         gi_rays[out_base + b] = vec4f(gi_through(direct + indirect, through, scatter), traced.w);
     }

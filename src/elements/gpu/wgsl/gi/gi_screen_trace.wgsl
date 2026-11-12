@@ -23,13 +23,18 @@ fn gi_screen_ray_record(i: u32, k: u32) -> vec4f {
 const GI_SCREEN_MAX_BOUNCES: u32 = 8u;
 
 /**
- * A luz rebatida que sai do ponto atingido pela irradiância da geração `k`: das sondas de tela (`screen`) ou das do
- * mundo pelos pesos `w` do ponto (calculados uma vez para todas as gerações), pelos fatores `f` do fechamento.
+ * A luz rebatida que sai do ponto atingido pela irradiância da geração `k`: das sondas de tela pela confiança delas
+ * (`screen`, de 0 a 1) e, no que falta, das do mundo pelos pesos `w` do ponto (calculados uma vez para todas as
+ * gerações), pelos fatores `f` do fechamento.
  */
-fn gi_screen_bounce(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, reach: f32, k: u32, taps: GiScreenTaps, screen: bool, w: GiGenerationWeights) -> vec3f {
-    if (!screen) { return gi_shade_indirect_weighted(f, p, n, v, reach, w, k); }
-    let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / PI;
-    return (f.front + f.back) * e;
+fn gi_screen_bounce(f: GiShadeFactors, p: vec3f, n: vec3f, v: vec3f, reach: f32, k: u32, taps: GiScreenTaps, screen: f32, w: GiGenerationWeights) -> vec3f {
+    var out = vec3f(0.0);
+    if (screen > 0.0) {
+        let e = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + k).rgb / PI;
+        out = screen * (f.front + f.back) * e;
+    }
+    if (screen < 1.0) { out += (1.0 - screen) * gi_shade_indirect_weighted(f, p, n, v, reach, w, k); }
+    return out;
 }
 
 /** A radiância de cada geração que volta por um raio, por invocação (a soma por sonda é do grupo). */
@@ -157,9 +162,9 @@ fn gi_screen_trace_main(
             sums[0] = gi_through(direct, through, scatter) * weight;
             if (bounces > 1u) {
                 let taps = gi_screen_history_taps(h.position, h.normal);
-                let screen = gi_screen_history_found(taps) && !f.translucent;
+                let screen = select(gi_screen_history_confidence(taps), 0.0, f.translucent);
                 var w: GiGenerationWeights;
-                if (!screen) { w = gi_generation_weights(h.position, h.normal, v, traced.w); }
+                if (screen < 1.0) { w = gi_generation_weights(h.position, h.normal, v, traced.w); }
                 for (var g = 1u; g < bounces; g++) {
                     sums[g] = gi_through(direct + gi_screen_bounce(f, h.position, h.normal, v, traced.w, g - 1u, taps, screen, w), through,
                         scatter) * weight;
