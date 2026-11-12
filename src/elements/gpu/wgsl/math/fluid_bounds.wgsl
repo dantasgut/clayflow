@@ -23,6 +23,20 @@ fn fluid_adhesion_min(lo: vec3f, open: u32) -> vec3f {
 // independente do aperto contra o sólido) e fica parada enquanto a gravidade ao longo dele for menor — no chão, depois
 // do choque, espalha e para; na parede vertical, a gravidade rompe a borda e ela escorre. `contact_reach`: distância
 // abaixo da qual a partícula está encostada.
+// Gota solta ou volume (T066d): a contagem de vizinhas fluidas contra o limite tomado só na parte aberta da vizinhança —
+// a calota da esfera de alcance `support` dentro do sólido mais próximo (`contact`) não tem vizinhas a contar. A
+// partícula do volume encostada na parede tem a calota no sólido e o resto cheio de água: é volume, recebe a condição
+// de parede do solver. A gota pousada tem a parte aberta vazia: segue gota, ancorada pela superfície.
+fn fluid_loose_drop(count: u32, threshold: u32, contact: vec4f, support: f32) -> bool {
+    if (threshold == 0u) { return false; }
+    var open = 1.0;
+    if (dot(contact.xyz, contact.xyz) > 0.25 && contact.w < support) {
+        let x = clamp(contact.w / support, 0.0, 1.0);
+        open = 1.0 - (1.0 - x) * (1.0 - x) * (2.0 + x) * 0.25;
+    }
+    return f32(count) < f32(threshold) * open;
+}
+
 fn fluid_wet_pinning(v: vec3f, contact: vec4f, contact_reach: f32, pinning: f32, dt: f32) -> vec3f {
     if (dot(contact.xyz, contact.xyz) <= 0.25 || contact.w >= contact_reach) { return v; }
     let n = normalize(contact.xyz);

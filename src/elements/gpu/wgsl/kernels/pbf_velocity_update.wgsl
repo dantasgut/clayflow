@@ -21,7 +21,7 @@ fn pbf_velocity_update_main(
     // Gota solta (spec 034): a borda ancorada num sólido que a água molha (`fluid_wet_pinning`, o ancoramento da
     // superfície dele que a fronteira gravou em `curl.w`); com outra água por perto (vizinhas), volta à dinâmica do
     // volume.
-    if (pbf_params.wet_neighbors > 0u && neighbor_count[t] < pbf_params.wet_neighbors) {
+    if (fluid_loose_drop(neighbor_count[t], pbf_params.wet_neighbors, particles[i].contact, pbf_params.support)) {
         vel = fluid_wet_pinning(
             vel, particles[i].contact, 1.5 * pbf_params.collision_radius, particles[i].curl.w, dt,
         );
