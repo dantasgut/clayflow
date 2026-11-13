@@ -10,6 +10,7 @@ import {
     closureEmission,
     closureLayer,
     closureMediumPriority,
+    closureMediumScatter,
     closureMix,
     closureNormal,
     closureOpacity,
@@ -242,6 +243,20 @@ const closureCases: readonly NodeCase[] = [
         sample: (r) => ({ c: randomClosure(r), priority: uniform(r, -2, 8) }),
         reference: (x) => ({
             value: flat(closureMediumPriority(closureIn(x, 'c'), num(x.priority))),
+        }),
+    },
+    {
+        node: 'closure.mediumScatter',
+        tolerance: 1e-6,
+        sample: (r) => ({
+            c: randomClosure(r),
+            scatter: vector(r, 3, -0.5, 2),
+            anisotropy: uniform(r, -1.2, 1.2),
+        }),
+        reference: (x) => ({
+            value: flat(
+                closureMediumScatter(closureIn(x, 'c'), v3(vec(x.scatter)), num(x.anisotropy)),
+            ),
         }),
     },
     {

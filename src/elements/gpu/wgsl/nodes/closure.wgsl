@@ -30,6 +30,10 @@ fn node_closure_medium_priority(c: Closure, priority: f32) -> Closure {
     return closure_medium_priority(c, priority);
 }
 
+fn node_closure_medium_scatter(c: Closure, scatter: vec3f, anisotropy: f32) -> Closure {
+    return closure_medium_scatter(c, scatter, anisotropy);
+}
+
 fn node_closure_thin_walled(c: Closure) -> Closure {
     return closure_thin_walled(c);
 }

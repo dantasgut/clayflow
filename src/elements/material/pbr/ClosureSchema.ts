@@ -51,6 +51,10 @@ export const ClosureSchema = new StructSchema('Closure', {
     // Prioridade do meio na sobreposição de volumes transmissivos (a maior vale dentro da interseção; empate: o último
     // em que o raio entrou). Padrão 0.
     transmission_priority: FieldType.f32,
+    // Espalhamento no meio da transmissão (spec 034, T067e): o coeficiente por canal por unidade de percurso (somado à
+    // absorção na extinção) e a anisotropia de Henyey–Greenstein. Padrão 0 (o meio só absorve).
+    transmission_scatter: FieldType.vec3f,
+    transmission_anisotropy: FieldType.f32,
     // Parede fina (0 ou 1): a superfície é uma placa de espessura zero, sem interior — a luz atravessa sem desviar, com
     // as reflexões entre as duas faces; nenhum meio entra na pilha. Padrão 0 (a superfície fecha um volume).
     transmission_thin: FieldType.f32,

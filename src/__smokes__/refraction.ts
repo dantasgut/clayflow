@@ -44,6 +44,10 @@
 //   - water-absorption (SC-017, ≤ 3 %): o xadrez visto por 1 m da água colorida dos smokes, contra a referência.
 //   - water-highlight (SC-017): o sol de disco real refletido na água lisa — o pico > 1 no HDR e a energia do reflexo a
 //     ≤ 10 % de R(45°) E.
+//   - water-deep (T067e): a água pura funda (50 m, Pope e Fry, Smith e Baker; o espalhamento pelo nó
+//     `closure.mediumScatter`) sob o sol a pino, fundo preto: a luz que o meio espalha para a câmera (a imagem com o
+//     espalhamento menos a sem ele) contra a referência f64 (`reference/mediumScatter`: a forma fechada do espalhamento
+//     simples com a refração exata) — ≤ 3 % por canal.
 // Em todas: nenhum quadro com o passe de cópia da tela (`sceneCopy`): 0 leituras dela pelos transmissivos (SC-001).
 // Diagnóstico: `--query dump=1` grava a referência, o motor e a diferença de cada cena (`zz-refraction-*.png`).
 // Para rodar: `npm run smoke -- refraction [--query case=sphere]`. Resultado: `REFRACTION SMOKE PASSED` ou `FAIL: …`.
@@ -79,6 +83,10 @@ import type {
 import { readHdrTexture } from './support/imageMeasures';
 import { disposeApp, materialApp, materialGraph, renderIntegral } from './support/materialScenes';
 import { waterLook } from './support/waterScene';
+import {
+    deepWaterSingleScatter,
+    type DeepWater,
+} from '../elements/lighting/reference/mediumScatter';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { writeFixture } from './support/fixtures';
 import { luminanceLinear } from './support/images';
@@ -2051,6 +2059,190 @@ async function caseWaterHighlight(): Promise<void> {
     );
 }
 
+/** A água pura a 650/550/450 nm (Pope e Fry 1997; Smith e Baker 1981) numa lâmina de 50 m. */
+const DEEP_WATER: DeepWater = {
+    ior: 1.333,
+    absorption: [0.34, 0.0565, 0.0092],
+    scattering: [0.000927, 0.001908, 0.004541],
+    g: 0,
+    depth: 50,
+};
+const DEEP_SUN = 3;
+const DEEP_CAMERA: RefractionScene['camera'] = {
+    position: [0, 3, 2.5],
+    target: [0, 0, 0],
+    fovY: 0.3,
+};
+
+/** A cena `water-deep` no app: o sol a pino, a lâmina de água pura (com o espalhamento ou sem ele) e o fundo preto. */
+function buildDeepWater(app: Application, scatter: boolean, aspect: number): void {
+    app.world.insert(
+        new DirectionalLight({
+            direction: [0, -1, 0, 0],
+            color: [1, 1, 1, 1],
+            intensity: DEEP_SUN,
+        }),
+    );
+    const w = DEEP_WATER;
+    const water = materialGraph(
+        {
+            reflect: nodes.bsdf.dielectric.with({ ior: w.ior, roughness: 0 }),
+            transmit: nodes.bsdf.transmission.with({
+                ior: w.ior,
+                color: w.absorption.map((a) => Math.exp(-a)),
+                depth: 1,
+            }),
+            sum: nodes.closure.add,
+            medium: nodes.closure.mediumScatter.with({
+                scatter: scatter ? [...w.scattering] : [0, 0, 0],
+                anisotropy: w.g,
+            }),
+        },
+        [
+            ['reflect.value', 'sum.a'],
+            ['transmit.value', 'sum.b'],
+            ['sum.value', 'medium.c'],
+        ],
+        'medium.value',
+    );
+    // A água passa meio metro do fundo (como o tanque do `immersed`): o fundo é atingido dentro dela, sem a interface
+    // água–ar embaixo (que refletiria para cima a luz do céu, menos com o espalhamento).
+    app.world.insert(
+        new BoxGeometry({ size: [400, w.depth + 0.5, 400] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -(w.depth + 0.5) / 2, 0, 1] }))
+            .add(water),
+    );
+    // O fundo preto (nem reflete nem emite) a `depth`: o que se vê pela água é só o que ela espalha.
+    app.world.insert(
+        new BoxGeometry({ size: [400, 1, 400] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -w.depth - 0.5, 0, 1] }))
+            .add(
+                materialGraph(
+                    { black: nodes.bsdf.diffuse.with({ color: [0, 0, 0], roughness: 0 }) },
+                    [],
+                    'black.value',
+                ),
+            ),
+    );
+    const eye = DEEP_CAMERA.position;
+    app.world.insert(
+        new Camera({
+            fov: DEEP_CAMERA.fovY,
+            aspect,
+            aspectMode: 'fixed',
+            near: 0.02,
+            far: 500,
+        }).add(
+            new Transform({
+                position: [...eye, 1],
+                rotation: Transform.lookRotation(eye, DEEP_CAMERA.target),
+            }),
+        ),
+    );
+}
+
+/** A integral do pixel da cena `water-deep`, com o espalhamento no meio ou sem ele. */
+async function deepWaterImage(scatter: boolean): Promise<Float32Array> {
+    const errors: string[] = [];
+    const { app, canvas } = await materialApp(W, H, errors, { antialias: 'accumulate' });
+    buildDeepWater(app, scatter, W / H);
+    const img = await renderIntegral(app, 128, 2000);
+    disposeApp(app, canvas);
+    if (errors.length > 0) engineErrors.push(`water-deep: ${errors.join(' | ')}`);
+    return img.data;
+}
+
+/**
+ * O tempo de um quadro da cena `water-deep` a 1280 × 720 no modo temporal, com o espalhamento ou sem ele, no perfil
+ * `profile` (a mediana de três blocos de 40 quadros com a fila da GPU esvaziada no fim, como o `cost`).
+ */
+async function deepWaterFrameMs(scatter: boolean, profile: RenderProfile): Promise<number> {
+    const [width, height] = [1280, 720];
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    document.body.appendChild(canvas);
+    const app = await Application.create({
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+        captureErrors: true,
+        antialias: 'temporal',
+    });
+    app.events.on('engineError', (e) => engineErrors.push(`water-deep: ${e.stage}: ${e.message}`));
+    app.defaults.renderer.profile = profile;
+    buildDeepWater(app, scatter, width / height);
+    await app.whenReady({ timeoutMs: 60_000 });
+    const color = app.resources.textureOf(app.defaults.targets, 'color');
+    if (color === undefined) throw new Error('alvo HDR não alocado');
+    const drain = async (): Promise<void> => {
+        await readHdrTexture(app, color);
+    };
+    for (let i = 0; i < 30; i++) app.step(1 / 60);
+    await drain();
+    const blocks: number[] = [];
+    for (let b = 0; b < 3; b++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 40; i++) app.step(1 / 60);
+        await drain();
+        blocks.push((performance.now() - t0) / 40);
+    }
+    app.dispose();
+    canvas.remove();
+    blocks.sort((a, b) => a - b);
+    return blocks[1]!;
+}
+
+/**
+ * `water-deep` (T067e): a cor da água funda pela luz que o meio espalha uma vez ao longo do caminho da refração — a
+ * diferença das integrais com e sem o espalhamento (o reflexo na superfície e o fundo preto saem iguais nas duas) contra
+ * a forma fechada da referência f64 em cada pixel, na média da imagem, por canal.
+ */
+async function caseWaterDeep(): Promise<void> {
+    const on = await deepWaterImage(true);
+    const off = await deepWaterImage(false);
+    const got = [0, 0, 0];
+    const want = [0, 0, 0];
+    const scene = { camera: DEEP_CAMERA } as RefractionScene;
+    for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) {
+            const i = (y * W + x) * 4;
+            const ref = deepWaterSingleScatter(
+                DEEP_WATER,
+                cameraRay(scene, x, y),
+                [0, -1, 0],
+                [DEEP_SUN, DEEP_SUN, DEEP_SUN],
+            );
+            for (let k = 0; k < 3; k++) {
+                got[k]! += on[i + k]! - off[i + k]!;
+                want[k]! += ref[k]!;
+            }
+        }
+    const errors = [0, 1, 2].map((k) => got[k]! / want[k]! - 1);
+    log(
+        `water-deep: a luz espalhada na água (média por pixel) R/G/B ${got.map((v) => (v / (W * H)).toExponential(3)).join(' / ')} contra a referência ${want.map((v) => (v / (W * H)).toExponential(3)).join(' / ')} — ${errors.map((e) => pct(e)).join(' / ')}`,
+    );
+    for (let k = 0; k < 3; k++)
+        check(
+            Math.abs(errors[k]!) <= 0.03,
+            `water-deep: canal ${k} a ${pct(errors[k]!)} da referência`,
+        );
+    // O custo do espalhamento (registrado): o quadro com ele menos sem ele, por perfil, intercalados.
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        const with1 = await deepWaterFrameMs(true, profile);
+        const without1 = await deepWaterFrameMs(false, profile);
+        const with2 = await deepWaterFrameMs(true, profile);
+        const without2 = await deepWaterFrameMs(false, profile);
+        const on = Math.min(with1, with2);
+        const off = Math.min(without1, without2);
+        log(
+            `water-deep custo ${profile}: 1280 × 720, quadro ${on.toFixed(3)} ms com o espalhamento, ${off.toFixed(3)} ms sem — ${(on - off).toFixed(3)} ms`,
+        );
+    }
+}
+
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     for (const scene of SCENES) {
@@ -2093,6 +2285,7 @@ async function main(): Promise<void> {
         ['water-fresnel', caseWaterFresnel],
         ['water-absorption', caseWaterAbsorption],
         ['water-highlight', caseWaterHighlight],
+        ['water-deep', caseWaterDeep],
     ] as const) {
         if (only !== null && only !== name) continue;
         log(`── ${name}`);

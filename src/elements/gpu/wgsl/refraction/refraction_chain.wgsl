@@ -470,6 +470,13 @@ fn refraction_chain_follow_one(j: u32) {
     let rough = !n.done && !n.passes && n.alpha > REFRACTION_SMOOTH_ALPHA;
     let many_lights = n.done && p.hit_instance != NONE && refraction.light_count > RAY_EXACT_LIGHTS;
     if (partial || rough || many_lights) { p.flags |= REFRACTION_CHAIN_SAMPLED; }
+    // A luz das fontes espalhada no meio ao longo deste trecho (T067e), com o peso de antes dele.
+    let segment = refraction_current(p.stack);
+    if (any(refraction_medium_scatter(segment) > vec3f(0.0))) {
+        let reach = select(p.hit_t, REFRACTION_FAR, p.hit_instance == NONE);
+        p.radiance += p.weight * refraction_inscatter(segment, p.origin, p.dir, reach, &state);
+        p.flags |= REFRACTION_CHAIN_SAMPLED;
+    }
     p.weight *= n.through;
     p.state = state;
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }

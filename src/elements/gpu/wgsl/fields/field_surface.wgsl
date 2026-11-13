@@ -7,7 +7,7 @@
 
 /**
  * O meio do corpo `body` (índice + 1; 0 = nenhum): um fechamento só com a transmissão do fechamento do corpo — a cor e a
- * profundidade da absorção, o índice de refração, o número de Abbe e o peso.
+ * profundidade da absorção, o índice de refração, o número de Abbe, o peso e o espalhamento com a anisotropia (T067e).
  */
 fn field_medium(body: u32) -> Closure {
     var c = closure_zero();
@@ -19,6 +19,9 @@ fn field_medium(body: u32) -> Closure {
     c.transmission_ior = bitcast<f32>(field_data[w + 4u]);
     c.transmission_abbe = bitcast<f32>(field_data[w + 5u]);
     c.transmission_weight = bitcast<f32>(field_data[w + 6u]);
+    c.transmission_scatter = vec3f(bitcast<f32>(field_data[w + 8u]), bitcast<f32>(field_data[w + 9u]),
+        bitcast<f32>(field_data[w + 10u]));
+    c.transmission_anisotropy = bitcast<f32>(field_data[w + 11u]);
     return c;
 }
 

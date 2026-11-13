@@ -4,13 +4,35 @@
 // borda de um meio que não é o corrente nem passa a ser não é interface (o raio segue). Absorção de Beer–Lambert pelo
 // percurso no meio corrente: σ = −ln(cor) / profundidade por canal (a cor atingida a `transmission_depth`). O índice
 // por canal vem do número de Abbe (`closure_dispersion_iors`): o canal −1 (os três juntos) usa o da linha d (verde).
+// O espalhamento do meio (T067e) soma-se à absorção na extinção; a luz que ele devolve ao caminho é a do traçado
+// (`refraction_inscatter`).
 // Requer: NONE, closure, REFRACTION_MAX_MEDIA.
 
 // Os structs `RefractionMedium` e `RefractionStack` vêm dos schemas (`RefractionMediumSchema`, `RefractionStackSchema`).
 
-/** O meio da instância `instance` com a prioridade, o índice e a absorção por canal. */
-fn refraction_medium_of(instance: u32, priority: f32, ior: vec3f, sigma: vec3f) -> RefractionMedium {
-    return RefractionMedium(instance, priority, ior.x, ior.y, ior.z, sigma.x, sigma.y, sigma.z);
+/**
+ * O meio da instância `instance` com a prioridade, o índice, a absorção e o espalhamento por canal e a anisotropia: a
+ * prioridade com a anisotropia e a absorção com o espalhamento de cada canal em meia precisão (a prioridade inteira é
+ * exata até 2048; a absorção e o espalhamento a 0,1 %), limitados à faixa dela (±65 504: fora dela o empacotamento não
+ * é definido).
+ */
+fn refraction_medium_of(instance: u32, priority: f32, ior: vec3f, sigma: vec3f, scatter: vec3f, g: f32)
+    -> RefractionMedium {
+    let half = 65504.0;
+    let a = clamp(sigma, vec3f(0.0), vec3f(half));
+    let b = clamp(scatter, vec3f(0.0), vec3f(half));
+    return RefractionMedium(instance, pack2x16float(vec2f(clamp(priority, -half, half), g)), ior.x, ior.y, ior.z,
+        pack2x16float(vec2f(a.x, b.x)), pack2x16float(vec2f(a.y, b.y)), pack2x16float(vec2f(a.z, b.z)));
+}
+
+/** A prioridade do meio `m`. */
+fn refraction_medium_priority(m: RefractionMedium) -> f32 {
+    return unpack2x16float(m.priority).x;
+}
+
+/** A anisotropia de Henyey–Greenstein do espalhamento do meio `m`. */
+fn refraction_medium_anisotropy(m: RefractionMedium) -> f32 {
+    return unpack2x16float(m.priority).y;
 }
 
 /** O índice por canal do meio `m`. */
@@ -20,11 +42,16 @@ fn refraction_medium_ior(m: RefractionMedium) -> vec3f {
 
 /** A absorção por canal do meio `m`. */
 fn refraction_medium_sigma(m: RefractionMedium) -> vec3f {
-    return vec3f(m.sigma_r, m.sigma_g, m.sigma_b);
+    return vec3f(unpack2x16float(m.media_r).x, unpack2x16float(m.media_g).x, unpack2x16float(m.media_b).x);
+}
+
+/** O espalhamento por canal do meio `m`. */
+fn refraction_medium_scatter(m: RefractionMedium) -> vec3f {
+    return vec3f(unpack2x16float(m.media_r).y, unpack2x16float(m.media_g).y, unpack2x16float(m.media_b).y);
 }
 
 fn refraction_air() -> RefractionMedium {
-    return refraction_medium_of(NONE, -1e30, vec3f(1.0), vec3f(0.0));
+    return refraction_medium_of(NONE, -1e30, vec3f(1.0), vec3f(0.0), vec3f(0.0), 0.0);
 }
 
 fn refraction_empty_stack() -> RefractionStack {
@@ -41,6 +68,8 @@ fn refraction_medium(c: Closure, instance: u32) -> RefractionMedium {
         c.transmission_priority,
         closure_dispersion_iors(c.transmission_ior, c.transmission_abbe),
         closure_absorption(c),
+        c.transmission_scatter,
+        c.transmission_anisotropy,
     );
 }
 
@@ -52,7 +81,8 @@ fn refraction_medium(c: Closure, instance: u32) -> RefractionMedium {
 fn refraction_current(s: RefractionStack) -> RefractionMedium {
     var best = refraction_air();
     for (var i = 0u; i < REFRACTION_MAX_MEDIA; i++) {
-        if (i < s.count && (best.instance == NONE || s.media[i].priority >= best.priority)) { best = s.media[i]; }
+        if (i < s.count && (best.instance == NONE
+            || refraction_medium_priority(s.media[i]) >= refraction_medium_priority(best))) { best = s.media[i]; }
     }
     return best;
 }
@@ -118,8 +148,11 @@ fn refraction_dispersive(m: RefractionMedium) -> bool {
     return m.ior_r != m.ior_b;
 }
 
-/** A energia que resta depois de `t` de percurso no meio `m` (os canais sem absorção não mudam, mesmo com t infinito). */
+/**
+ * A energia que resta depois de `t` de percurso no meio `m`, pela extinção (a absorção mais o espalhamento; os canais
+ * sem extinção não mudam, mesmo com t infinito).
+ */
 fn refraction_absorb(throughput: vec3f, m: RefractionMedium, t: f32) -> vec3f {
-    let sigma = refraction_medium_sigma(m);
+    let sigma = refraction_medium_sigma(m) + refraction_medium_scatter(m);
     return select(throughput, throughput * exp(-sigma * t), sigma > vec3f(0.0));
 }

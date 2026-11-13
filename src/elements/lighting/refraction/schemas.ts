@@ -3,19 +3,21 @@ import { StructSchema, fieldArray, fieldStruct } from '../../../scene/descriptor
 import { REFRACTION_MAX_MEDIA } from './Refraction';
 
 /**
- * Um meio da pilha de um caminho (spec 034, R1): a instância, a prioridade, o índice por canal e a absorção por canal —
- * em escalares (32 bytes; com `vec3f` o alinhamento dava 48): as pilhas vão em cada vaga do traçado, lidas e gravadas
- * em cada rodada. O WGSL os lê por `refraction_medium_ior` e `refraction_medium_sigma`.
+ * Um meio da pilha de um caminho (spec 034, R1): a instância, a prioridade com a anisotropia do espalhamento (T067e; em
+ * meia precisão, `pack2x16float`), o índice por canal e, por canal, a absorção com o espalhamento (meia precisão) — 32
+ * bytes em escalares: as pilhas vão em cada vaga do traçado, lidas e gravadas em cada rodada, e copiadas a cada entrada
+ * e saída de meio (com 48 bytes o traçado da água saía NaN no M4). O WGSL os lê por `refraction_medium_priority`,
+ * `refraction_medium_ior`, `refraction_medium_sigma`, `refraction_medium_scatter` e `refraction_medium_anisotropy`.
  */
 export const RefractionMediumSchema = new StructSchema('RefractionMedium', {
     instance: FieldType.u32,
-    priority: FieldType.f32,
+    priority: FieldType.u32,
     ior_r: FieldType.f32,
     ior_g: FieldType.f32,
     ior_b: FieldType.f32,
-    sigma_r: FieldType.f32,
-    sigma_g: FieldType.f32,
-    sigma_b: FieldType.f32,
+    media_r: FieldType.u32,
+    media_g: FieldType.u32,
+    media_b: FieldType.u32,
 });
 
 /**

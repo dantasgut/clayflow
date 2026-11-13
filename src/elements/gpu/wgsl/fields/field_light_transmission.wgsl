@@ -20,10 +20,10 @@ fn field_light_texel(k: u32, texel: vec2i, t: f32) -> vec3f {
     let enter2 = field_light_map[w + 2u];
     let exit2 = field_light_map[w + 3u];
     var out = vec3f(field_light_map[w + 4u]);
-    out *= exp(-closure_absorption(field_medium(bitcast<u32>(field_light_map[w + 5u])))
+    out *= exp(-closure_extinction(field_medium(bitcast<u32>(field_light_map[w + 5u])))
         * max(min(t, exit1) - enter1, 0.0));
     if (t > enter2) {
-        out *= exp(-closure_absorption(field_medium(bitcast<u32>(field_light_map[w + 6u])))
+        out *= exp(-closure_extinction(field_medium(bitcast<u32>(field_light_map[w + 6u])))
             * max(min(t, exit2) - enter2, 0.0));
     }
     return out;
@@ -84,7 +84,7 @@ fn field_light_through(light: u32, p: vec3f) -> vec3f {
             transmittance *= 1.0 - bsdf_f_dielectric(abs(dot(dir, at.normal)), select(ior, 1.0 / ior, start_inside));
         }
         if (body > 0u || start_inside) {
-            transmittance *= exp(-closure_absorption(c) * max(exit.t - enter, 0.0));
+            transmittance *= exp(-closure_extinction(c) * max(exit.t - enter, 0.0));
         }
         t = exit.t + field_voxel();
     }

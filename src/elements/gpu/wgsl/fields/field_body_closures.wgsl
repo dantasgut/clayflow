@@ -37,4 +37,8 @@ fn field_body_closure_main(@builtin(global_invocation_id) gid: vec3u) {
     field_data_voxels[w + 5u] = c.transmission_abbe;
     field_data_voxels[w + 6u] = c.transmission_weight;
     field_data_voxels[w + 7u] = 0.0;
+    field_data_voxels[w + 8u] = c.transmission_scatter.r;
+    field_data_voxels[w + 9u] = c.transmission_scatter.g;
+    field_data_voxels[w + 10u] = c.transmission_scatter.b;
+    field_data_voxels[w + 11u] = c.transmission_anisotropy;
 }

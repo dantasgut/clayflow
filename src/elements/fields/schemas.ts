@@ -53,8 +53,11 @@ export const FIELD_PARTICLES_PER_BRICK = 8;
  */
 export const FIELD_MAX_BODIES = 64;
 
-/** Palavras do meio de um corpo no buffer das consultas (`fieldMediaOffset`, spec 039). */
-export const FIELD_MEDIUM_WORDS = 8;
+/**
+ * Palavras do meio de um corpo no buffer das consultas (`fieldMediaOffset`, spec 039): a absorção (cor e profundidade),
+ * o índice, o Abbe, o peso da transmissão e o espalhamento por canal com a anisotropia (T067e).
+ */
+export const FIELD_MEDIUM_WORDS = 12;
 
 /**
  * O mapa da luz pela água (spec 039 refeita, `field_light_map.wgsl`): luzes direcionais com mapa, texels por lado e

@@ -112,11 +112,11 @@ describe('Caustics (spec 034, T067c)', () => {
             'caustics_photons[slot].throughput = ph.throughput * exp(-sigma * hit.t);',
         );
         expect(trace).toContain(
-            'ph.glass_absorption = select(vec3f(0.0), closure_absorption(c), outside);',
+            'ph.glass_absorption = select(vec3f(0.0), closure_extinction(c), outside);',
         );
         expect(trace).not.toContain('ph.throughput *= c.transmission_color;');
         expect(trace).toContain(
-            'ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);',
+            'ph.absorption = select(vec3f(0.0), closure_extinction(c), outside);',
         );
         expect(trace).not.toContain('ray_volume_transmittance(');
         // O pouso guarda o ponto e a assinatura do caminho; a pegada pelos vizinhos da grade de mesma assinatura, no

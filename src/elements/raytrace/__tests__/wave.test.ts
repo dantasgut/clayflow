@@ -72,8 +72,8 @@ describe('onda dos acertos (spec 039)', () => {
 
     it('layout: o registro em 96 B e o fechamento pelo schema', () => {
         expect(RayWaveHitSchema.stride).toBe(96);
-        // O fechamento em storage: 67 floats com o alinhamento de 16 B dos vec3f.
-        expect(ClosureSchema.stride).toBe(368);
-        expect(RayWaveEntrySchema.stride).toBe(464);
+        // O fechamento em storage: 71 floats com o alinhamento de 16 B dos vec3f (o espalhamento do meio, T067e).
+        expect(ClosureSchema.stride).toBe(384);
+        expect(RayWaveEntrySchema.stride).toBe(480);
     });
 });

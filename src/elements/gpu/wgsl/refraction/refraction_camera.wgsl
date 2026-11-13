@@ -2,7 +2,7 @@
 // (fora dos eixos) e percorre os acertos até escapar; o primeiro acerto de cada instância dielétrica pela face de trás
 // diz que a câmera está dentro dela (o raio sai antes de entrar); paredes finas não têm interior e não contam. Os meios achados, por prioridade crescente, vão para o
 // estado do quadro (`refraction_frame_out`, dois texels por meio: instância, prioridade e índice; o resto do índice e a
-// absorção; instância `NONE` nos vazios) — a pilha inicial de todo caminho do quadro, como a da referência da CPU. A
+// absorção com o espalhamento — as palavras do meio, `RefractionMedium`; instância `NONE` nos vazios) — a pilha inicial de todo caminho do quadro, como a da referência da CPU. A
 // câmera dentro de um volume (a água das partículas, T065e) também: pelo lado do acerto do volume na mesma direção.
 // O material dos acertos é avaliado fora do traçado (spec 039): `refraction_camera_hits_main` grava os acertos na onda e
 // `refraction_camera_main` lê os fechamentos dela.
@@ -16,9 +16,8 @@ const REFRACTION_CAMERA_SEEN: u32 = 32u;
 
 fn refraction_store_medium(k: u32, m: RefractionMedium) {
     textureStore(refraction_frame_out, vec2u(2u * k, 0u),
-        vec4u(m.instance, bitcast<u32>(m.priority), bitcast<u32>(m.ior_r), bitcast<u32>(m.ior_g)));
-    textureStore(refraction_frame_out, vec2u(2u * k + 1u, 0u),
-        vec4u(bitcast<u32>(m.ior_b), bitcast<vec3u>(refraction_medium_sigma(m))));
+        vec4u(m.instance, m.priority, bitcast<u32>(m.ior_r), bitcast<u32>(m.ior_g)));
+    textureStore(refraction_frame_out, vec2u(2u * k + 1u, 0u), vec4u(bitcast<u32>(m.ior_b), m.media_r, m.media_g, m.media_b));
 }
 
 /** Índice da onda do acerto do volume em que a câmera está (depois dos das instâncias). */
@@ -84,7 +83,7 @@ fn refraction_camera_main() {
     // Prioridade crescente: no empate, o corrente é o último (como a referência ordena).
     for (var i = 1u; i < inside.count; i++) {
         var j = i;
-        while (j > 0u && inside.media[j - 1u].priority > inside.media[j].priority) {
+        while (j > 0u && refraction_medium_priority(inside.media[j - 1u]) > refraction_medium_priority(inside.media[j])) {
             let t = inside.media[j - 1u];
             inside.media[j - 1u] = inside.media[j];
             inside.media[j] = t;

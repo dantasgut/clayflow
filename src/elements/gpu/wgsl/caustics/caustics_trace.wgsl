@@ -782,15 +782,15 @@ fn caustics_photon_step(ph0: CausticsPhoton, c: Closure, p: vec3f, n: vec3f, out
         } else {
             ph.dir = normalize(t);
             ph.origin = p - nn * 1e-4;
-            // A malha e a água absorvem pelos trechos, por Beer–Lambert como a refração (`closure_absorption`: a cor a
-            // `transmission_depth`), guardada ao entrar pela superfície e zerada ao sair.
+            // A malha e a água absorvem pelos trechos, pela extinção como a refração (`closure_extinction`: a absorção pela cor a
+            // `transmission_depth` mais o espalhamento), guardada ao entrar pela superfície e zerada ao sair.
             if (!volume) {
                 ph.glass = select(0u, 1u, outside);
-                ph.glass_absorption = select(vec3f(0.0), closure_absorption(c), outside);
+                ph.glass_absorption = select(vec3f(0.0), closure_extinction(c), outside);
             }
             if (volume) {
                 ph.medium = select(1.0, ior, outside);
-                ph.absorption = select(vec3f(0.0), closure_absorption(c), outside);
+                ph.absorption = select(vec3f(0.0), closure_extinction(c), outside);
             }
             ph.side = select(-1, select(0, 1, outside), volume);
         }

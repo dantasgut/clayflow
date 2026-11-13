@@ -96,7 +96,7 @@ fn field_body_at(p: vec3f) -> u32 {
  * `material` na composição dos acertos dos raios, 0 sem; slot dos parâmetros dela; 0; 0).
  */
 /** Palavras do meio de um corpo no buffer das consultas (`FIELD_MEDIUM_WORDS` no TypeScript; spec 039). */
-const FIELD_MEDIUM_WORDS: u32 = 8u;
+const FIELD_MEDIUM_WORDS: u32 = 12u;
 
 fn field_body(body: u32) -> vec4u {
     if (body == 0u) { return vec4u(0u); }

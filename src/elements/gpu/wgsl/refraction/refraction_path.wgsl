@@ -69,8 +69,8 @@ fn refraction_camera_stack() -> RefractionStack {
         let a = textureLoad(refraction_frame, vec2u(2u * k, 0u), 0);
         let b = textureLoad(refraction_frame, vec2u(2u * k + 1u, 0u), 0);
         if (a.x == NONE) { continue; }
-        s.media[s.count] = refraction_medium_of(a.x, bitcast<f32>(a.y), bitcast<vec3f>(vec3u(a.zw, b.x)),
-            bitcast<vec3f>(b.yzw));
+        s.media[s.count] = RefractionMedium(a.x, a.y, bitcast<f32>(a.z), bitcast<f32>(a.w), bitcast<f32>(b.x), b.y, b.z,
+            b.w);
         s.count += 1u;
     }
     return s;
@@ -90,6 +90,77 @@ fn refraction_shade(c: Closure, hit: RayHit, v: vec3f, seed: u32) -> vec4f {
     let n = select(hit.normal, -hit.normal, dot(hit.normal, v) < 0.0);
     let direct = ray_direct_marked(c, hit.position, n, v, refraction.light_count, seed);
     return vec4f(closure_emitted(c, n, v) + direct.xyz + scene_indirect_lighting(c, hit.position, n, v), direct.w);
+}
+
+/** Pontos do espalhamento simples por trecho do caminho no meio (orçamento fixo por trecho). */
+const REFRACTION_SCATTER_STEPS: u32 = 4u;
+
+/** A fase de Henyey–Greenstein (por esferorradiano) no cosseno `cos_theta` entre a luz que chega e a que segue. */
+fn refraction_phase_hg(cos_theta: f32, g: f32) -> f32 {
+    let g2 = g * g;
+    let denom = max(1.0 + g2 - 2.0 * g * cos_theta, 1e-6);
+    return (1.0 - g2) / (4.0 * PI * denom * sqrt(denom));
+}
+
+/**
+ * A luz da fonte `i` que chega ao ponto `x` dentro do meio `m` (rgb), vinda pela direção `l`: a dela (`light_incoming`)
+ * pela transmitância das contribuições da cena (`light_transmission`: a atmosfera, a água do campo dos fluidos) e pela
+ * sombra; quando o meio é o de uma malha, pela superfície dela que o raio da luz cruza — o Fresnel exato na entrada da
+ * luz e a extinção do meio até lá. Em linha reta, como a luz das fontes pela água do campo (`field_light_through`): o
+ * desvio da luz na superfície (o foco) é o das cáusticas, que o corrigem nas superfícies, não no meio.
+ */
+fn refraction_light_in_medium(i: u32, x: vec3f, m: RefractionMedium, l: vec3f, dist: f32, radiance: vec3f) -> vec3f {
+    var e = radiance * light_transmission(i, x);
+    if (all(e <= vec3f(0.0))) { return vec3f(0.0); }
+    var start = x;
+    var left = min(dist, 1e6);
+    if (m.instance != NONE && !refraction_is_volume(m.instance)) {
+        let exit = ray_scene_hit(x, l, left);
+        if (exit.instance == m.instance) {
+            let cos_i = abs(dot(exit.normal, l));
+            e *= (1.0 - refraction_fresnel(cos_i, 1.0, refraction_ior(m, -1)))
+                * exp(-(refraction_medium_sigma(m) + refraction_medium_scatter(m)) * exit.t);
+            start = exit.position + exit.normal * select(-1e-3, 1e-3, dot(exit.normal, l) > 0.0);
+            left = max(left - exit.t, 0.0);
+        }
+    }
+    if (ray_scene_trace(start, l, left, true, NONE).instance != NONE) { return vec3f(0.0); }
+    return e;
+}
+
+/**
+ * A luz das fontes espalhada uma vez para o caminho ao longo do trecho de `o` na direção `d`, de comprimento `t`, no
+ * meio `m` (spec 034, T067e): a integral de σs e^(−σt s) · fase · luz no ponto, por `REFRACTION_SCATTER_STEPS` pontos
+ * estratificados e sorteados pela extinção do canal que vai mais longe (a densidade e^(−σ s) no trecho; os outros canais
+ * pesam pela razão, que só cai), uma fonte por ponto sorteada entre as usadas (o peso, a contagem). Sem espalhamento no
+ * meio, nada. A luz do céu espalhada no meio não entra (só a das fontes).
+ */
+fn refraction_inscatter(m: RefractionMedium, o: vec3f, d: vec3f, t: f32, state: ptr<function, u32>) -> vec3f {
+    let scatter = refraction_medium_scatter(m);
+    let count = min(min(refraction.light_count, arrayLength(&lights)), LIGHT_LIMIT);
+    if (all(scatter <= vec3f(0.0)) || count == 0u || t <= 0.0) { return vec3f(0.0); }
+    let ext = refraction_medium_sigma(m) + scatter;
+    // A densidade dos pontos: o canal de menor extinção entre os que espalham (o que vai mais longe no trecho).
+    let far = vec3f(select(1e30, ext.x, scatter.x > 0.0), select(1e30, ext.y, scatter.y > 0.0),
+        select(1e30, ext.z, scatter.z > 0.0));
+    let sigma = min(far.x, min(far.y, far.z));
+    let span = min(t, REFRACTION_FAR);
+    let uniform = sigma * span < 1e-4;
+    let mass = select((1.0 - exp(-sigma * span)) / max(sigma, 1e-30), span, uniform);
+    var sum = vec3f(0.0);
+    for (var k = 0u; k < REFRACTION_SCATTER_STEPS; k++) {
+        let u = (f32(k) + refraction_random(state)) / f32(REFRACTION_SCATTER_STEPS);
+        let s = select(-log(max(1.0 - u * (1.0 - exp(-sigma * span)), 1e-30)) / max(sigma, 1e-30), u * span, uniform);
+        // σs e^(−σt s) / pdf(s), pdf = e^(−σ s) / mass.
+        let w = scatter * exp(-(ext - vec3f(select(sigma, 0.0, uniform))) * s) * mass;
+        let x = o + d * s;
+        let i = min(u32(refraction_random(state) * f32(count)), count - 1u);
+        let inc = light_incoming(lights[i], x);
+        if (all(inc.radiance <= vec3f(0.0))) { continue; }
+        let light = refraction_light_in_medium(i, x, m, inc.l, inc.dist, inc.radiance);
+        sum += w * light * (refraction_phase_hg(dot(inc.l, d), refraction_medium_anisotropy(m)) * f32(count));
+    }
+    return sum / f32(REFRACTION_SCATTER_STEPS);
 }
 
 /**

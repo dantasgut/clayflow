@@ -173,7 +173,7 @@ describe('FluidField (spec 033, R11)', () => {
             'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );
         expect(transmittance).toContain(
-            'closure_absorption(ray_volume_surface_closure(at, field_surface(at), time))',
+            'closure_extinction(ray_volume_surface_closure(at, field_surface(at), time))',
         );
         expect(transmittance).not.toContain('field_materials');
         // Cada símbolo uma vez.
@@ -210,7 +210,7 @@ describe('FluidField (spec 033, R11)', () => {
             'transmittance *= 1.0 - bsdf_f_dielectric(abs(dot(dir, at.normal)), select(ior, 1.0 / ior, start_inside));',
         );
         expect(light).toContain(
-            'transmittance *= exp(-closure_absorption(c) * max(exit.t - enter, 0.0));',
+            'transmittance *= exp(-closure_extinction(c) * max(exit.t - enter, 0.0));',
         );
         expect(light).not.toContain('ray_volume_hit(');
         expect(light).not.toContain('ray_volume_transmittance(');
