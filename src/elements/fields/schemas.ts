@@ -203,9 +203,10 @@ export const FIELD_FILM_CELLS = 2097152;
 
 /**
  * Palavras por célula da película (`field_film.wgsl`): a chave, a água livre, a normal do sólido, a marca de submersa,
- * a água absorvida, a superfície e a água pendente (7 MiB na tabela).
+ * a água absorvida, a superfície, a água pendente e o escoamento (a água que passou pela célula descendo, com a memória
+ * de poucos passos: o filete que corre).
  */
-export const FIELD_FILM_WORDS = sharedConstant('FIELD_FILM_WORDS', 7, 'u32');
+export const FIELD_FILM_WORDS = sharedConstant('FIELD_FILM_WORDS', 8, 'u32');
 
 /**
  * Células por página da película (T066d): páginas de 8 × 8 células no plano da superfície, numa camada, com o eixo da

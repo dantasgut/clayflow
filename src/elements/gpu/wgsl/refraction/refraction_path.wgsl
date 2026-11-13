@@ -176,6 +176,13 @@ struct RefractionThin {
 var<private> refraction_wet_footprint: f32 = 0.0;
 
 /**
+ * A interface resolvida agora tinha água correndo (`scene_wetness_moving`: o filete, `refraction_wet_normal`): o que se
+ * vê por ela muda de um quadro para o outro — conta como movido (`refraction_node_at`), e a reconstrução da meia
+ * resolução não guarda ali o valor exato antigo. A gota parada não: guardada, ela sai na resolução cheia.
+ */
+var<private> refraction_wet_moved: bool = false;
+
+/**
  * A normal de sombreamento `ns` com a água do sólido (spec 034, T066d; ponto `scene_wetness_slope`) para o raio `d`: a
  * superfície da água (a película ou a calota da gota) tem a normal n − ∇h, e o raio passa por duas interfaces — o ar e a
  * água por ela, a água e o sólido de índice `ior` pela face plana. Devolve a normal da interface única do ar com o sólido
@@ -189,6 +196,7 @@ fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32, d: vec3f) -> vec3f {
     if (refraction_is_volume(hit.instance)) { return ns; }
     let slope = scene_wetness_slope(hit.position, hit.normal, refraction_wet_footprint);
     if (dot(slope, slope) <= 0.0) { return ns; }
+    refraction_wet_moved = refraction_wet_moved || scene_wetness_moving(hit.position, hit.normal);
     let n = hit.normal;
     let side = select(-1.0, 1.0, dot(ns, n) >= 0.0);
     // A água fica do lado de `n` (a película é a da face).
@@ -457,6 +465,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.count = 0u;
     n.vol = refraction_is_volume(hit.instance);
     n.vol_n = hit.normal;
+    refraction_wet_moved = false;
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
     if (hit.instance == NONE) {
         n.radiance = scene_environment(d);
@@ -483,6 +492,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
         // Parede fina: a pilha não muda; reflete pela refletância (a roleta pela do canal seguido, ou pela do verde) ou
         // atravessa sem desviar.
         let thin = refraction_thin(c, hit, d, refraction_current(stack));
+        n.moved = n.moved || refraction_wet_moved;
         let f = thin.reflect_weight;
         n.p = hit.position;
         n.nf = thin.nf;
@@ -494,6 +504,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
         return n;
     }
     let x = refraction_crossing_at(d, hit, c, other, c2, stack);
+    n.moved = n.moved || refraction_wet_moved;
     n.p = x.p;
     n.nf = x.nf;
     n.first = x.first;

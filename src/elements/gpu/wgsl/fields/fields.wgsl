@@ -283,11 +283,13 @@ struct FieldFilmCell {
     kappa: f32,
     cos_t: f32,
     critical: f32,
+    /** A água correu pela célula nos últimos passos (o filete; `field_film_step_main`). */
+    flowing: bool,
 }
 
 /** A película na célula `c` da página `page` (achada por `field_film_data_page`; `NONE`: sem película; spec 034). */
 fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
-    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0);
+    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, false);
     let key = field_film_key(c);
     if (page == NONE || key == 0u) { return out; }
     let w = field_film_word(field_film_slot_in(page, c, axes));
@@ -304,29 +306,53 @@ fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
     out.kappa = drop.z;
     out.cos_t = drop.y;
     out.critical = drop.w;
+    out.flowing = field_data[w + 7u] != 0u;
     return out;
 }
 
 /**
  * Gotas por lado de célula da película (spec 034, T066d): os sítios onde a película fina se rompe ficam numa grade de
- * passo s = ℓ (6,25 mm com a célula de 6,25 mm), a escala do espaçamento das gotas num vidro molhado; com os pesos dos
- * sítios, as bases vão de ~0,5 a 2,2 mm de raio.
+ * passo s = ℓ / 2 (3,1 mm com a célula de 6,25 mm), a escala do espaçamento das gotas num vidro molhado, cada centro
+ * deslocado ao acaso por quase todo o sítio (`FIELD_FILM_SITE_JITTER`): a nucleação da ruptura é irregular (o defeito
+ * do sólido onde a película se rompe, que o modelo não resolve), não uma grade.
  */
-const FIELD_FILM_SITES: f32 = 1.0;
+const FIELD_FILM_SITES: f32 = 2.0;
 /**
  * Fração dos sítios sem gota: a película que se rompe junta a água em gotas separadas por vidro seco (de Gennes,
  * Brochard-Wyart e Quéré, "Capillarity and Wetting Phenomena", cap. 7). O resto da água vai às gotas dos outros.
  */
 const FIELD_FILM_SITE_EMPTY: f32 = 0.4;
 /**
- * Raio máximo da base de uma gota, em passos s dos sítios: 0,35 s — as gotas de sítios vizinhos ficam separadas (os
- * centros a até 0,15 s dos dos sítios, `FIELD_FILM_SITE_JITTER`: a 0,7 s um do outro no mínimo), e a leitura percorre só
- * os 3 × 3 sítios em volta do ponto. A gota que passaria disso (a água da película perto da
- * espessura de ruptura, nos sítios de peso grande) fica no máximo.
+ * Raio máximo da base de uma gota, em passos s dos sítios: com os centros a até 0,4 s do centro do sítio, a gota de um
+ * sítio a dois passos não chega ao ponto (fica a 0,6 s dele no mínimo) — a leitura percorre só os 3 × 3 sítios em
+ * volta. As vizinhas que se tocam se juntam (a mais alta no ponto).
  */
-const FIELD_FILM_SITE_REACH: f32 = 0.35;
+const FIELD_FILM_SITE_REACH: f32 = 0.6;
 /** Deslocamento máximo do centro da gota ao do sítio, em passos s (para cada lado: ± metade disto). */
-const FIELD_FILM_SITE_JITTER: f32 = 0.3;
+const FIELD_FILM_SITE_JITTER: f32 = 0.8;
+/** O raio da cabeça do filete (a gota que corre na frente dele) em meias larguras do filete. */
+const FIELD_FILM_RIVULET_HEAD: f32 = 1.4;
+
+/**
+ * A base a (m) da calota esférica de volume `volume` (m³) e ângulo de contato de cosseno `cos_t`: V = π a³ (2 − 3 cos θ
+ * + cos³ θ) / (3 sen³ θ).
+ */
+fn field_film_cap_base(volume: f32, cos_t: f32) -> f32 {
+    let sin_t = sqrt(max(1.0 - cos_t * cos_t, 1e-6));
+    let shape = max(2.0 - 3.0 * cos_t + cos_t * cos_t * cos_t, 1e-6);
+    return pow(3.0 * volume * sin_t * sin_t * sin_t / (PI * shape), 1.0 / 3.0);
+}
+
+/**
+ * A largura w (m) do filete de seção em arco de círculo com ângulo de contato θ (cosseno `cos_t`) que leva a água `h`
+ * (m) de uma célula de lado `size` correndo ao longo dela: a seção A = (w/2)² (θ − sen θ cos θ) / sen² θ é a água da
+ * célula por comprimento, h ℓ.
+ */
+fn field_film_rivulet_width(h: f32, size: f32, cos_t: f32) -> f32 {
+    let sin_t = sqrt(max(1.0 - cos_t * cos_t, 1e-6));
+    let theta = acos(clamp(cos_t, -1.0, 1.0));
+    return 2.0 * sin_t * sqrt(h * size / max(theta - sin_t * cos_t, 1e-6));
+}
 
 /**
  * A média do peso das gotas nos sítios (`field_film_site_weight` sobre u uniforme): ∫ u⁴ du em [vazio, 1]. O volume de
@@ -353,6 +379,25 @@ fn field_film_site_weight(u: f32) -> f32 {
  */
 fn field_film_breaks(h: f32, kappa: f32, critical: f32) -> bool {
     return kappa > 0.0 && h > 0.0 && h < critical;
+}
+
+/**
+ * A altura (x, m) e a inclinação (yz, m/m no plano) da calota de ângulo θ (`sin_t`, `cos_t`) e base de raio `a` (m) no
+ * ponto a `r` (m, no plano) do centro dela: a esfera de raio R = a / sen θ acima do sólido. A calota menor que a amostra
+ * (`footprint`: a largura que a amostra do pixel cobre na superfície, m) entra pela média dela na amostra, como a
+ * filtragem de um mapa de alturas: esticada até o raio ρ da amostra, a altura vezes a fração coberta, (a/ρ)^`dims` (2 na
+ * gota, 1 na faixa do filete, esticada só na largura).
+ */
+fn field_film_cap_at(r: vec2f, a: f32, sin_t: f32, cos_t: f32, footprint: f32, dims: f32) -> vec3f {
+    let radius = a / max(sin_t, 1e-3);
+    let sample = max(a, 0.5 * footprint);
+    let k2 = a / sample;
+    let cover = pow(k2, dims);
+    let rs = r * k2;
+    let rr = dot(rs, rs);
+    if (rr >= a * a) { return vec3f(0.0); }
+    let root = sqrt(max(radius * radius - rr, 1e-12));
+    return vec3f((root - radius * cos_t) * cover, -rs / root * k2 * cover);
 }
 
 /** A película no ponto e a inclinação dela: a água livre e a saturação (`wet`) e o gradiente da água livre (m/m). */
@@ -417,11 +462,22 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
         cells[k] = field_film_cell_in(page, c, axes);
         if (cells[k].kappa > kc.x) { kc = vec2f(cells[k].kappa, cells[k].cos_t); }
     }
-    // A água das células que se rompem vai às gotas (fica em `drops`, fora da leitura contínua).
+    // A descida no plano (a gravidade ao longo do sólido): o filete corre no eixo dela mais próximo.
+    let g3 = fluid_field.filmFlow.xyz;
+    let gt3 = g3 - dot(g3, n) * n;
+    let gdir = vec2f(gt3[u], gt3[v]);
+    let runs = length(gdir) > 1e-3;
+    let along_v = abs(gdir.y) >= abs(gdir.x);
+    let down = select(i32(sign(gdir.x)), i32(sign(gdir.y)), along_v);
+    // A água das células que se rompem sai da leitura contínua: parada, vai às gotas (`drops`); correndo, é o filete
+    // (`rivulets`).
     var drops: array<f32, 16>;
+    var rivulets: array<f32, 16>;
     for (var k = 0; k < 16; k++) {
         let broken = field_film_breaks(cells[k].wet.x, cells[k].kappa, cells[k].critical);
-        drops[k] = select(0.0, cells[k].wet.x, broken);
+        let running = broken && runs && cells[k].flowing;
+        drops[k] = select(0.0, cells[k].wet.x, broken && !running);
+        rivulets[k] = select(0.0, cells[k].wet.x, running);
         if (broken) { cells[k].wet.x = 0.0; }
     }
     // A leitura contínua só pelas células que não estão submersas, com os pesos renormalizados: junto à água do volume
@@ -458,16 +514,15 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
     var slope = vec3f(0.0);
     slope[u] = grad.x;
     slope[v] = grad.y;
-    // As gotas dos 3 × 3 sítios em volta do ponto (passo s; o sítio i cobre [i s, (i + 1) s) no plano).
+    // As gotas dos 3 × 3 sítios em volta do ponto e os filetes das 3 × 3 células: no ponto, a mais alta delas.
     let s = size / FIELD_FILM_SITES;
     let kappa = kc.x;
+    let q = vec2f(p[u], p[v]);
+    var best = 0.0;
+    var best_slope = vec2f(0.0);
     if (kappa > 0.0) {
-        let q = vec2f(p[u], p[v]);
         let own = vec2i(floor(q / s));
-        let radius_of = 1.0 / max(sin_t, 1e-3);
         let mean = field_film_site_mean();
-        var best = 0.0;
-        var best_slope = vec2f(0.0);
         for (var k = 0; k < 9; k++) {
             let site = own + vec2i(k % 3 - 1, k / 3 - 1);
             // O sítio pelas coordenadas dele no plano e a camada da célula (a normal dominante é o eixo de fora).
@@ -477,39 +532,97 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
             if (weight <= 0.0) { continue; }
             let jitter = vec2f(f32(hash3(seed ^ vec3u(1u)) & 0xFFFFu), f32(hash3(seed ^ vec3u(2u)) & 0xFFFFu)) / 65535.0;
             let at = (vec2f(site) + 0.5 + FIELD_FILM_SITE_JITTER * (jitter - 0.5)) * s;
-            // A água das células que se rompem no centro do sítio (bilinear pelos centros das células).
+            // A água das células paradas que se rompem no centro do sítio (bilinear pelos centros das células).
             let gc = (vec2f(site) + 0.5) * s / size - 0.5 - vec2f(base);
             let c0 = clamp(vec2i(floor(gc)), vec2i(0), vec2i(2));
             let t = clamp(gc - vec2f(c0), vec2f(0.0), vec2f(1.0));
             let h = mix(mix(drops[c0.x + 4 * c0.y], drops[c0.x + 1 + 4 * c0.y], t.x),
                 mix(drops[c0.x + 4 * (c0.y + 1)], drops[c0.x + 1 + 4 * (c0.y + 1)], t.x), t.y);
             if (h <= 0.0) { continue; }
-            // A calota de volume h s² · peso / média: base a = κ ∛(V / ℓ²) (até o alcance), raio R = a / sen θ.
-            let volume = h * s * s * weight / mean;
-            let a = min(kappa * pow(volume / (size * size), 1.0 / 3.0), FIELD_FILM_SITE_REACH * s);
-            let radius = a * radius_of;
-            // A gota menor que a amostra entra pela média nela: esticada até o raio da amostra, a altura pela fração.
-            let sample = max(a, 0.5 * footprint);
-            let k2 = a / sample;
-            let cover = k2 * k2;
-            let r = (q - at) * k2;
-            let rr = dot(r, r);
-            if (rr >= a * a) { continue; }
-            let root = sqrt(max(radius * radius - rr, 1e-12));
-            let height = (root - radius * cos_t) * cover;
-            if (height > best) {
-                best = height;
-                best_slope = -r / root * k2 * cover;
+            // A calota de volume h s² · peso / média e ângulo θ (até o alcance), raio R = a / sen θ.
+            let a = min(field_film_cap_base(h * s * s * weight / mean, cos_t), FIELD_FILM_SITE_REACH * s);
+            let cap = field_film_cap_at(q - at, a, sin_t, cos_t, footprint, 2.0);
+            if (cap.x > best) {
+                best = cap.x;
+                best_slope = cap.yz;
             }
         }
-        if (best > 0.0) {
-            out.wet.x += best;
-            slope[u] += best_slope.x;
-            slope[v] += best_slope.y;
+        // Os filetes: a água que corre pela célula numa faixa de seção em arco (`field_film_rivulet_width`) ao longo da
+        // descida, no deslocamento lateral da coluna (o mesmo em toda a coluna: o filete segue de uma célula à outra).
+        // Onde a célula de cima não corre, o filete começa no meio dela; onde a de baixo não corre, ele acaba no meio
+        // com a cabeça — a gota que corre na frente.
+        for (var k = 0; k < 9; k++) {
+            let o = vec2i(k % 3, k / 3);
+            let h = rivulets[o.x + 4 * o.y];
+            if (h <= 0.0) { continue; }
+            let cell = base + o;
+            let step = select(vec2i(down, 0), vec2i(0, down), along_v);
+            let up_o = o - step;
+            let down_o = o + step;
+            let up_in = all(up_o >= vec2i(0)) && all(up_o < vec2i(4));
+            let down_in = all(down_o >= vec2i(0)) && all(down_o < vec2i(4));
+            let up_runs = !up_in || rivulets[up_o.x + 4 * up_o.y] > 0.0;
+            let down_runs = !down_in || rivulets[down_o.x + 4 * down_o.y] > 0.0;
+            let lateral = select(cell.y, cell.x, along_v);
+            let seed = bitcast<vec3u>(vec3i(layer[3 - u - v], lateral, select(0, 1, along_v)))
+                ^ vec3u(0x27D4EB2Fu, 0x165667B1u, 0u);
+            let offset = 0.5 * (f32(hash3(seed) & 0xFFFFu) / 65535.0 - 0.5);
+            let a0 = f32(select(cell.x, cell.y, along_v)) * size;
+            let mid = a0 + 0.5 * size;
+            // As pontas do trecho ao longo do eixo (a de cima e a de baixo pela descida).
+            let top = select(mid, select(a0 + size, a0, down > 0), up_runs);
+            let bottom = select(mid, select(a0, a0 + size, down > 0), down_runs);
+            let lc = (f32(lateral) + 0.5 + offset) * size;
+            let qa = select(q.x, q.y, along_v);
+            let ql = select(q.y, q.x, along_v);
+            let w = min(field_film_rivulet_width(h, size, cos_t), 0.8 * size);
+            let nearest = clamp(qa, min(top, bottom), max(top, bottom));
+            let rel = select(vec2f(ql - lc, qa - nearest), vec2f(qa - nearest, ql - lc), !along_v);
+            let band = field_film_cap_at(rel, 0.5 * w, sin_t, cos_t, footprint, 1.0);
+            if (band.x > best) {
+                best = band.x;
+                best_slope = band.yz;
+            }
+            if (!down_runs) {
+                let hr = select(vec2f(ql - lc, qa - mid), vec2f(qa - mid, ql - lc), !along_v);
+                let head = field_film_cap_at(hr, FIELD_FILM_RIVULET_HEAD * 0.5 * w, sin_t, cos_t, footprint, 2.0);
+                if (head.x > best) {
+                    best = head.x;
+                    best_slope = head.yz;
+                }
+            }
         }
+    }
+    if (best > 0.0) {
+        out.wet.x += best;
+        slope[u] += best_slope.x;
+        slope[v] += best_slope.y;
     }
     out.slope = slope - dot(slope, n) * n;
     return out;
+}
+
+/**
+ * A película corre no ponto `p` da superfície de normal `n`: a célula dele ou uma das 8 em volta no plano teve água
+ * descendo nos últimos passos (o filete; `field_film_step_main`).
+ */
+fn field_film_moving(p: vec3f, n: vec3f) -> bool {
+    let layer = field_film_cell(p, n);
+    let axes = field_film_axes(n);
+    var page_of = 0u;
+    var page = NONE;
+    for (var k = 0; k < 9; k++) {
+        var c = layer;
+        c[axes.x] += k % 3 - 1;
+        c[axes.y] += k / 3 - 1;
+        let pk = field_film_page_key(c, axes);
+        if (pk != page_of) {
+            page_of = pk;
+            page = select(NONE, field_film_data_page(pk), field_film_key(c) != 0u);
+        }
+        if (field_film_cell_in(page, c, axes).flowing) { return true; }
+    }
+    return false;
 }
 
 /**

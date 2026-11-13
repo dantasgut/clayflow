@@ -49,6 +49,16 @@ export const sceneWetnessSlopeReady = wgslModule({
     source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {\n    return vec3f(0.0);\n}',
 });
 
+/**
+ * `fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool` — a água no ponto `p` da superfície sólida de normal `n` está
+ * correndo (spec 034, T066d: o filete; a gota parada e a película presa, não): quem guarda entre quadros o que vê por
+ * ela não guarda ali; pronto: parada (`false`).
+ */
+export const sceneWetnessMovingReady = wgslModule({
+    name: 'scene_wetness_moving_ready',
+    source: 'fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool {\n    return false;\n}',
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -131,6 +141,23 @@ export const sceneWetnessSlopePoint: ContributionPoint = {
                 source: `fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {\n    return ${modules
                     .map((_, k) => `scene_wetness_slope_${k}(p, n, footprint)`)
                     .join(' + ')};\n}`,
+            }),
+        ),
+};
+
+/** A água correndo no ponto: algum contribuinte a vê correr. */
+export const sceneWetnessMovingPoint: ContributionPoint = {
+    name: 'scene_wetness_moving',
+    ready: sceneWetnessMovingReady,
+    functionName: 'scene_wetness_moving',
+    combine: (modules) =>
+        memo(`wetness_moving:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_wetness_moving:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool {\n    return ${modules
+                    .map((_, k) => `scene_wetness_moving_${k}(p, n)`)
+                    .join(' || ')};\n}`,
             }),
         ),
 };

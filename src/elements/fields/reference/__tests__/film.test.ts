@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     absorbUnits,
+    capAt,
+    capBase,
+    capVolume,
     FILM_IOR,
     filmBreaks,
     filmCoverage,
@@ -15,6 +18,8 @@ import {
     FILM_SITES,
     puddleThickness,
     refract,
+    rivuletSection,
+    rivuletWidth,
     wetNormal,
 } from '../film';
 
@@ -73,19 +78,55 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
         for (let k = 0; k < n; k++) sum += filmSiteWeight((k + 0.5) / n);
         expect(sum / n).toBeCloseTo(filmSiteMean(), 9);
         expect(filmSiteWeight(0.39)).toBe(0);
-        // A gota do sítio: a calota do volume h s² · peso / média, até o alcance (metade do passo).
+        // A gota do sítio: a calota do volume h s² · peso / média e ângulo θ, até o alcance.
         const cell = 0.00625;
         const kappa = 0.0449;
+        const theta = (30 * Math.PI) / 180;
         const s = cell / FILM_SITES;
-        expect(filmSiteBase(1e-4, filmSiteMean(), kappa, cell)).toBeCloseTo(
-            kappa * Math.cbrt(1e-4),
-            12,
-        );
-        expect(filmSiteBase(1e-3, 1, kappa, cell)).toBe(FILM_SITE_REACH * s);
+        const a = filmSiteBase(1e-5, filmSiteMean(), theta, cell);
+        expect(capVolume(a, theta)).toBeCloseTo(1e-5 * s * s, 15);
+        expect(capBase(capVolume(1.3e-3, theta), theta)).toBeCloseTo(1.3e-3, 12);
+        expect(filmSiteBase(1e-3, 1, theta, cell)).toBe(FILM_SITE_REACH * s);
         // A ruptura: abaixo da espessura crítica, na molhagem parcial.
         expect(filmBreaks(1e-4, kappa, 1.4e-3)).toBe(true);
         expect(filmBreaks(2e-3, kappa, 1.4e-3)).toBe(false);
         expect(filmBreaks(1e-4, 0, 1.4e-3)).toBe(false);
+    });
+
+    it('o filete leva a água da célula na seção em arco, e a calota tem a altura e a inclinação da esfera', () => {
+        const cell = 0.00625;
+        const theta = (30 * Math.PI) / 180;
+        // A seção do filete é a água da célula por comprimento (h ℓ), e a largura cresce com √h.
+        for (const h of [2e-5, 1e-4, 6e-4]) {
+            const w = rivuletWidth(h, cell, theta);
+            expect(rivuletSection(w, theta)).toBeCloseTo(h * cell, 15);
+        }
+        expect(rivuletWidth(4e-4, cell, theta) / rivuletWidth(1e-4, cell, theta)).toBeCloseTo(
+            2,
+            12,
+        );
+        // A calota: no centro, a altura R (1 − cos θ); na borda, zero; a inclinação é a da esfera, tangente na borda a
+        // tan θ (o ângulo de contato).
+        const a = 1.5e-3;
+        const radius = a / Math.sin(theta);
+        expect(capAt([0, 0], a, theta, 0, 2)[0]).toBeCloseTo(radius * (1 - Math.cos(theta)), 15);
+        expect(capAt([a, 0], a, theta, 0, 2)[0]).toBe(0);
+        const near = capAt([a * (1 - 1e-9), 0], a, theta, 0, 2);
+        expect(Math.abs(near[1])).toBeCloseTo(Math.tan(theta), 6);
+        // A gota menor que a amostra entra pela média: o volume na amostra se conserva (a integral da altura).
+        const fp = 8 * a;
+        const n = 400;
+        let sum = 0;
+        let exact = 0;
+        const span = fp;
+        for (let i = 0; i < n; i++)
+            for (let j = 0; j < n; j++) {
+                const x = ((i + 0.5) / n - 0.5) * 2 * span;
+                const y = ((j + 0.5) / n - 0.5) * 2 * span;
+                sum += capAt([x, y], a, theta, fp, 2)[0];
+                exact += capAt([x, y], a, theta, 0, 2)[0];
+            }
+        expect(sum / exact).toBeCloseTo(1, 2);
     });
 
     it('a pressão: o peso da coluna e a de Laplace, a seca sem fluxo pela borda', () => {

@@ -771,6 +771,14 @@ fn refraction_camera_still() -> bool {
  * nesses quadros e o pixel caía na reconstrução pelos vizinhos (a borda nítida atrás do vidro borrava ~7 % por lado).
  */
 const REFRACTION_STAMP_FRAMES: u32 = 7u;
+
+/**
+ * A fração da luz por caminhos que tocaram algo que se moveu (o alfa do albedo do bloco) acima da qual o valor exato
+ * antigo de um pixel não fica: com a primeira superfície parada (o vidro) e a água atrás dele se movendo, o pixel
+ * guardava por até 16 quadros o que o raio viu antes, ao lado do representante de agora — o pontilhado regular de
+ * período 2 em toda a água vista pelo vidro.
+ */
+const REFRACTION_KEEP_MOVING: f32 = 0.01;
 const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 16u;
 
 /**
@@ -804,6 +812,12 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // superfície (a borda de um objeto que se move) — melhor que o valor de quadros atrás.
     var near_any = 1e9;
     var fallback: RefractionBlock;
+    // A luz da mesma superfície em volta veio por algo que se moveu (a água atrás do vidro, a película nele)? Então o
+    // que o pixel mostra mudou mesmo com a primeira superfície parada: o valor exato antigo não fica.
+    var moving = false;
+    // O pixel é o representante traçado agora (o valor exato dele).
+    var own_traced = false;
+    var own_block: RefractionBlock;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let c = center + vec2i(dx, dy);
@@ -825,13 +839,10 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             let radiance = block.radiance;
             let hit = block.end;
             let alb = block.albedo;
+            moving = moving || alb.a > REFRACTION_KEEP_MOVING;
             if (all(r == q)) {
-                textureStore(refraction_radiance_out, q, radiance);
-                textureStore(refraction_hit_out, q, hit);
-                textureStore(refraction_albedo_out, q, alb);
-                textureStore(refraction_noise_out, q, vec4f(block.noise));
-                refraction_stamps[i] = vec2u(refraction.frame + 1u, own.x);
-                return;
+                own_block = block;
+                own_traced = true;
             }
             let dist2 = dot(vec2f(r) - vec2f(q), vec2f(r) - vec2f(q));
             let w = exp(-dist2 / (2.0 * REFRACTION_UPSAMPLE_SIGMA * REFRACTION_UPSAMPLE_SIGMA));
@@ -844,6 +855,19 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
                 end = hit;
             }
         }
+    }
+    // O representante fica com o valor exato dele quando nada em volta se moveu. Com movimento, os 3 pixels do bloco que
+    // não foram traçados saem da reconstrução e o traçado sairia nítido entre eles: um pixel diferente a cada 2 × 2, o
+    // pontilhado regular onde a imagem tem detalhe mais fino que o bloco (as gotas, a água que ondula). Então ele também
+    // sai da reconstrução, com o peso 1 da própria amostra — a imagem em movimento fica com a resolução do bloco, sem
+    // padrão; parada, a volta do representante e o antisserrilhado temporal a levam à resolução cheia.
+    if (own_traced && !moving) {
+        textureStore(refraction_radiance_out, q, own_block.radiance);
+        textureStore(refraction_hit_out, q, own_block.end);
+        textureStore(refraction_albedo_out, q, own_block.albedo);
+        textureStore(refraction_noise_out, q, vec4f(own_block.noise));
+        refraction_stamps[i] = vec2u(refraction.frame + 1u, own.x);
+        return;
     }
     // A mesma superfície de quando foi traçado (na volta corrente, a distância do pedido não mudou): o valor exato fica.
     // Com o antisserrilhado temporal a amostra se desloca dentro do pixel a cada quadro: a tolerância é a variação da
@@ -861,7 +885,7 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // vidro ou a água quase de lado ela é grande — a câmera girava e 3 de cada 4 pixels mostravam por até 4 quadros a
     // imagem refratada antiga (a refração com retardo).
     let still = refraction_camera_still();
-    if (still && stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
+    if (still && !moving && stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
         textureStore(refraction_hit_out, q, kept);
         return;
     }

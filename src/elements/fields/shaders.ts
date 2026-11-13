@@ -453,6 +453,7 @@ export const fieldFilmDrip = wgslModule({
         fieldCommon,
         fieldFilm,
         fieldFilmUpdate,
+        fieldFilmSolid,
         R.drips,
         fieldDrops,
     ],
@@ -537,6 +538,7 @@ export const fieldFilmStep = wgslModule({
         R.filmPressure,
         fieldFilmSolid,
         fieldFilmPrevious,
+        random,
     ],
 });
 
@@ -544,7 +546,16 @@ export const fieldFilmStep = wgslModule({
 export const fields = wgslModule({
     name: 'fields',
     source: fieldsSource,
-    requires: [NONE.module, R.params, fieldCommon, fieldLookup, fieldAtlas, fieldFilm, random],
+    requires: [
+        NONE.module,
+        R.params,
+        fieldCommon,
+        fieldLookup,
+        fieldAtlas,
+        fieldFilm,
+        random,
+        constants,
+    ],
 });
 
 /** Contribuição do campo ao ponto `scene_wetness`: a película livre e a saturação dos poros no ponto do sólido. */
@@ -558,6 +569,13 @@ export const fieldWetness = wgslModule({
 export const fieldWetnessSlope = wgslModule({
     name: 'field_wetness_slope',
     source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {\n    return field_film_slope(p, n, footprint);\n}',
+    requires: [fields],
+});
+
+/** Contribuição do campo ao ponto `scene_wetness_moving`: a película corre no ponto do sólido (o filete, T066d). */
+export const fieldWetnessMoving = wgslModule({
+    name: 'field_wetness_moving',
+    source: 'fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool {\n    return field_film_moving(p, n);\n}',
     requires: [fields],
 });
 

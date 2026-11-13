@@ -21,10 +21,15 @@ import {
     fieldRaySurface,
     fieldRayTransmittance,
     fieldWetness,
+    fieldWetnessMoving,
     fieldWetnessSlope,
 } from './shaders';
 import { lightTransmissionPoint } from '../scene/points/lighting';
-import { sceneWetnessPoint, sceneWetnessSlopePoint } from '../scene/points/media';
+import {
+    sceneWetnessMovingPoint,
+    sceneWetnessPoint,
+    sceneWetnessSlopePoint,
+} from '../scene/points/media';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
@@ -247,6 +252,12 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldWetnessSlope : undefined),
+        },
+        {
+            point: sceneWetnessMovingPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldWetnessMoving : undefined),
         },
         {
             point: rayVolumeBoundsPoint,

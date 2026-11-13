@@ -69,10 +69,15 @@ export function filmSlopeCap(slope: readonly [number, number], cosTheta: number)
     return [slope[0] * k, slope[1] * k];
 }
 
-/** Gotas por lado de célula (os sítios de passo ℓ), a fração de sítios vazios e o alcance da base (em passos). */
-export const FILM_SITES = 1;
+/**
+ * Gotas por lado de célula (os sítios de passo ℓ / 2), a fração de sítios vazios, o alcance da base e o deslocamento
+ * máximo do centro (em passos) e o raio da cabeça do filete (em meias larguras).
+ */
+export const FILM_SITES = 2;
 export const FILM_SITE_EMPTY = 0.4;
-export const FILM_SITE_REACH = 0.35;
+export const FILM_SITE_REACH = 0.6;
+export const FILM_SITE_JITTER = 0.8;
+export const FILM_RIVULET_HEAD = 1.4;
 
 /** O peso da gota do sítio de número `u` ∈ [0, 1): 0 nos vazios, u⁴ nos outros. */
 export function filmSiteWeight(u: number): number {
@@ -84,15 +89,68 @@ export function filmSiteMean(): number {
     return (1 - FILM_SITE_EMPTY ** 5) / 5;
 }
 
+/** O volume (m³) da calota esférica de base `a` (m) e ângulo de contato θ: π a³ (2 − 3 cos θ + cos³ θ) / (3 sen³ θ). */
+export function capVolume(a: number, theta: number): number {
+    const c = Math.cos(theta);
+    const sn = Math.sin(theta);
+    return (Math.PI * a ** 3 * (2 - 3 * c + c ** 3)) / (3 * sn ** 3);
+}
+
+/** A base (m) da calota de volume `volume` (m³) e ângulo θ (a inversa de `capVolume`). */
+export function capBase(volume: number, theta: number): number {
+    const c = Math.cos(theta);
+    const sn = Math.sin(theta);
+    return Math.cbrt((3 * volume * sn ** 3) / (Math.PI * (2 - 3 * c + c ** 3)));
+}
+
 /**
- * A base (m) da gota do sítio com a água livre `h` (m) e o peso `weight`, na superfície de coeficiente κ
- * (`dropBaseCoefficient` da célula de lado `cell`): a calota de volume h s² · peso / média, a = κ ∛(V / ℓ²), até o
- * alcance.
+ * A base (m) da gota do sítio com a água livre `h` (m) e o peso `weight` na célula de lado `cell` e ângulo θ: a calota
+ * de volume h s² · peso / média, até o alcance.
  */
-export function filmSiteBase(h: number, weight: number, kappa: number, cell: number): number {
+export function filmSiteBase(h: number, weight: number, theta: number, cell: number): number {
     const s = cell / FILM_SITES;
     const volume = (h * s * s * weight) / filmSiteMean();
-    return Math.min(kappa * Math.cbrt(volume / (cell * cell)), FILM_SITE_REACH * s);
+    return Math.min(capBase(volume, theta), FILM_SITE_REACH * s);
+}
+
+/**
+ * A largura w (m) do filete de seção em arco de círculo de ângulo θ que leva a água `h` (m) de uma célula de lado
+ * `cell` ao longo dela: a seção (w/2)² (θ − sen θ cos θ) / sen² θ é h ℓ.
+ */
+export function rivuletWidth(h: number, cell: number, theta: number): number {
+    const sn = Math.sin(theta);
+    return 2 * sn * Math.sqrt((h * cell) / (theta - sn * Math.cos(theta)));
+}
+
+/** A área da seção (m²) do filete de largura `w` e ângulo θ (o segmento de círculo). */
+export function rivuletSection(w: number, theta: number): number {
+    const sn = Math.sin(theta);
+    return ((w / 2) ** 2 * (theta - sn * Math.cos(theta))) / sn ** 2;
+}
+
+/**
+ * A altura e a inclinação no plano da calota de base `a` e ângulo θ no ponto a `r` do centro, com a média na amostra
+ * de largura `footprint` (a calota esticada até o raio dela, a altura pela fração coberta elevada a `dims`).
+ */
+export function capAt(
+    r: readonly [number, number],
+    a: number,
+    theta: number,
+    footprint: number,
+    dims: number,
+): [number, number, number] {
+    const radius = a / Math.max(Math.sin(theta), 1e-3);
+    const k = a / Math.max(a, 0.5 * footprint);
+    const cover = k ** dims;
+    const rs: [number, number] = [r[0] * k, r[1] * k];
+    const rr = rs[0] ** 2 + rs[1] ** 2;
+    if (rr >= a * a) return [0, 0, 0];
+    const root = Math.sqrt(Math.max(radius * radius - rr, 1e-12));
+    return [
+        (root - radius * Math.cos(theta)) * cover,
+        (-rs[0] / root) * k * cover,
+        (-rs[1] / root) * k * cover,
+    ];
 }
 
 /**

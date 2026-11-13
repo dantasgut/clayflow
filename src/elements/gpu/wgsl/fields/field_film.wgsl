@@ -17,7 +17,9 @@
 // fica a de maior palavra — a escolha não depende da ordem dos atômicos), a marca de submersa (a água
 // do volume está ali: a célula não aparece como molhada, é a própria água), a água absorvida (em `FIELD_FILM_UNIT` m), a
 // superfície (a entrada + 1 na tabela das superfícies do campo, `fluid_field.filmSurfaces`; 0 ainda não resolvida) e a
-// água pendente (em `FIELD_FILM_DROP_UNITS` unidades da livre: a que não tem sólido por onde descer).
+// água pendente (em `FIELD_FILM_DROP_UNITS` unidades da livre: a que não tem sólido por onde descer) e o escoamento (a
+// água livre que saiu da célula descendo ou chegou a ela de cima no passo, mais a metade da do passo anterior: a célula
+// por onde o filete corre; `field_film_step_main`).
 // Por quadro em que a simulação avança: `field_film_pressure_main`, `field_film_step_main` (por célula),
 // `field_film_absorb_main` (por gota que desliza: a partícula passa à película), `field_film_drip_main` (por célula com
 // água pendente: a película volta a ser partícula) e `field_film_deposit_main` (por partícula encostada num sólido).

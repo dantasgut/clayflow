@@ -27,7 +27,11 @@ import {
     fieldDataLayout,
     fieldFilmOffset,
 } from '../FluidField';
-import { sceneWetnessPoint, sceneWetnessSlopePoint } from '../../scene/points/media';
+import {
+    sceneWetnessMovingPoint,
+    sceneWetnessPoint,
+    sceneWetnessSlopePoint,
+} from '../../scene/points/media';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
 import {
     FIELD_BRICK,
@@ -126,7 +130,7 @@ describe('FluidField (spec 033, R11)', () => {
         expect(field.reserve({ bricks: 128, table: 512 })).toBe(false);
     });
 
-    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, scene_wetness_slope, ray_volume_bounds, ray_volume_occupied, light_transmission, ray_volume_light e ray_volume_begin', () => {
+    it('contribuição aos raios, à película e à luz só com fluido: ray_volume_hit, ray_volume_surface, ray_volume_transmittance, scene_wetness, scene_wetness_slope, scene_wetness_moving, ray_volume_bounds, ray_volume_occupied, light_transmission, ray_volume_light e ray_volume_begin', () => {
         const field = new FluidField();
         const contributions = field.getSceneContributions();
         expect(contributions.map((c) => c.point)).toEqual([
@@ -135,6 +139,7 @@ describe('FluidField (spec 033, R11)', () => {
             rayVolumeTransmittancePoint,
             sceneWetnessPoint,
             sceneWetnessSlopePoint,
+            sceneWetnessMovingPoint,
             rayVolumeBoundsPoint,
             rayVolumeOccupiedPoint,
             lightTransmissionPoint,
@@ -183,17 +188,21 @@ describe('FluidField (spec 033, R11)', () => {
             'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f',
         );
         expect(slope).toContain('return field_film_slope(p, n, footprint);');
+        // A água correndo no ponto (o filete), que a refração não guarda entre quadros (T066d).
+        const moving = composeWgsl(modules[5]!).spec.source;
+        expect(moving).toContain('fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool');
+        expect(moving).toContain('return field_film_moving(p, n);');
         // A caixa do campo, alvo dos fótons das cáusticas (spec 034, T067c).
-        expect(composeWgsl(modules[5]!).spec.source).toContain('return field_box();');
+        expect(composeWgsl(modules[6]!).spec.source).toContain('return field_box();');
         // Os raios que passam por algum bloco do campo (a emissão dos fótons só onde há água), sem amostrar φ.
-        const occupied = composeWgsl(modules[6]!).spec.source;
+        const occupied = composeWgsl(modules[7]!).spec.source;
         expect(occupied).toContain(
             'fn ray_volume_occupied(origin: vec3f, dir: vec3f, t_max: f32) -> bool',
         );
         expect(occupied).toContain('if (field_find(b) != NONE) { return true; }');
         // A luz das fontes que atravessa a água em linha reta (as cáusticas a corrigem): Fresnel exato na primeira
         // superfície e Beer–Lambert pelos trechos, numa marcha só (sem o acerto e a transmitância marchando o mesmo trecho).
-        const light = composeWgsl(modules[7]!).spec.source;
+        const light = composeWgsl(modules[8]!).spec.source;
         expect(light).toContain('fn light_transmission(light: u32, p: vec3f) -> vec3f');
         expect(light).toContain(
             'transmittance *= 1.0 - bsdf_f_dielectric(abs(dot(dir, at.normal)), select(ior, 1.0 / ior, start_inside));',

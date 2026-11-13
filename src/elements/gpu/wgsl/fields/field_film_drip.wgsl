@@ -1,11 +1,13 @@
 // O pingo da película (spec 034, T066d): a água pendente que juntou o volume de uma partícula (`fluid_field.filmShape.z`)
 // volta a ser partícula — uma das retiradas do corpo de água (as que saíram do domínio aberto ou passaram à película),
 // posta parada do lado de fora do sólido: logo abaixo da célula na face de baixo, logo fora dela pela normal nas outras
-// (a quina de lado). Aqui a célula pede o pingo (`field_drops.wgsl`); `field_revive_main` escolhe a
+// (a quina de lado), a partir do ponto da superfície do sólido mais perto do centro da célula (o centro pode estar
+// dentro do sólido: no terreno inclinado do lago, a partícula da água que a célula submersa devolve ao volume nascia
+// abaixo dele). Aqui a célula pede o pingo (`field_drops.wgsl`); `field_revive_main` escolhe a
 // retirada pela ordem da chave e tira da célula exatamente o volume (a massa se conserva: a película vira a partícula).
 // Sem retirada, a água segue pendente.
-// Requer: WORKGROUP_SIZE, fluid_field, field_common, field_film, field_film_update, field_drips, field_drops,
-// FIELD_FILM_DRIPS.
+// Requer: WORKGROUP_SIZE, fluid_field, field_common, field_film, field_film_update, field_film_solid, field_drips,
+// field_drops, FIELD_FILM_DRIPS.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn field_film_drip_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -23,8 +25,11 @@ fn field_film_drip_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     let down = normalize(fluid_field.filmFlow.xyz + vec3f(0.0, -1e-6, 0.0));
     let r = fluid_field.filmShape.w;
     let center = (vec3f(field_film_coords(key)) + 0.5) * size;
+    // O ponto da superfície do sólido junto da célula (sem sólido perto, o centro dela).
+    let d = field_film_solid(center);
+    let base = select(center, center - d * n, abs(d) <= 1.5 * size);
     let under = dot(down, n) > 0.0;
-    let p = select(center + n * (r + 0.25 * size), center + down * (r + size) + n * r, under);
+    let p = select(base + n * (r + 0.25 * size), base + down * (r + size) + n * r, under);
     let o = field_drip_word(k);
     atomicStore(&field_drips[o], key);
     atomicStore(&field_drips[o + 1u], w);
