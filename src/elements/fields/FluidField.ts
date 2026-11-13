@@ -149,6 +149,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 schema: FieldWordSchema,
                 count: fieldDataWords(this.rawData),
                 upload: 'never',
+                allocation: 'onDemand',
                 // O atlas dos voxels no fim (T060f): uma série por páginas, uma página por bloco. As páginas que a
                 // construção grava levam o carimbo da época.
                 history: {
@@ -170,6 +171,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                     * 3
                     * FIELD_MESH_VERTEX_WORDS,
                 upload: 'never',
+                allocation: 'onDemand',
             },
             {
                 id: 'meshArgs',
@@ -184,6 +186,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 schema: FieldWordSchema,
                 count: FIELD_LIGHT_MAPS * FIELD_LIGHT_RES * FIELD_LIGHT_RES * FIELD_LIGHT_WORDS,
                 upload: 'never',
+                allocation: 'onDemand',
             },
             // O estado entre quadros (T060f; constituição VII), canais temporais da spec 037: o nível da superfície e o
             // volume somado (`state`), e a película de água nos sólidos (`film`: a tabela que o passo lê do anterior e
@@ -192,6 +195,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             {
                 ...wordBuffer('film', FIELD_FILM_SLICE_WORDS * 4),
                 history: { depth: 2 },
+                allocation: 'onDemand',
             },
         ];
     }

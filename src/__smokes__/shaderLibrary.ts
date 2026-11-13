@@ -852,18 +852,38 @@ function probeProgram(schema: StructSchema): { wgsl: string; probes: Probe[] } {
     const lines: string[] = [];
     const probes: Probe[] = [];
     let field = 0;
+    // Cada campo, e cada elemento de um vetor de tamanho fixo de tipo simples (`fieldArray`: `outp[0].nome[k]`).
+    const leaves: { name: string; access: string; type: FieldType; base: number }[] = [];
     for (const [name, type] of schema.fields) {
-        field++;
-        if (typeof type !== 'string')
+        if (typeof type === 'string') {
+            leaves.push({ name, access: name, type, base: schema.offsetOf(name) });
+            continue;
+        }
+        if (type.kind !== 'array' || typeof type.element !== 'string')
             throw new Error(`${schema.name}.${name}: campo composto fora da sonda`);
+        const element = ELEMENT[type.element];
+        if (element === undefined)
+            throw new Error(`${schema.name}.${name}: tipo ${type.element} sem sonda`);
+        // O passo do elemento: o tamanho alinhado (vec3 e as colunas das matrizes ocupam 16 bytes).
+        const stride =
+            element.cols !== undefined ? 16 * element.cols : element.n === 3 ? 16 : 4 * element.n;
+        for (let k = 0; k < type.length; k++)
+            leaves.push({
+                name,
+                access: `${name}[${k}]`,
+                type: type.element,
+                base: schema.offsetOf(name) + k * stride,
+            });
+    }
+    for (const { name, access, type, base } of leaves) {
+        field++;
         const info = ELEMENT[type];
         if (info === undefined) throw new Error(`${schema.name}.${name}: tipo ${type} sem sonda`);
-        const base = schema.offsetOf(name);
         const value = (col: number, row: number): number => field * 100 + col * 10 + row + 1;
         const lit = (v: number): string =>
             info.view === 'f32' ? `${v}.0` : info.view === 'u32' ? `${v}u` : `${v}i`;
         if (type === FieldType.atomicU32 || type === FieldType.atomicI32) {
-            lines.push(`atomicStore(&outp[0].${name}, ${lit(value(0, 0))});`);
+            lines.push(`atomicStore(&outp[0].${access}, ${lit(value(0, 0))});`);
             probes.push({ offset: base, value: value(0, 0), view: info.view });
             continue;
         }
@@ -881,7 +901,9 @@ function probeProgram(schema: StructSchema): { wgsl: string; probes: Probe[] } {
                     : `vec${info.n}${info.view === 'f32' ? 'f' : info.view === 'u32' ? 'u' : 'i'}(${comps.join(', ')})`,
             );
         }
-        lines.push(`outp[0].${name} = ${cols === 1 ? parts[0]! : `${type}(${parts.join(', ')})`};`);
+        lines.push(
+            `outp[0].${access} = ${cols === 1 ? parts[0]! : `${type}(${parts.join(', ')})`};`,
+        );
     }
     return { wgsl: lines.join('\n    '), probes };
 }
@@ -896,7 +918,7 @@ const SCHEMAS: readonly StructSchema[] = [
     MeshCollider.schema,
     ColliderSetCountsSchema,
     DistanceConstraint.schema,
-    ...Object.values(Params),
+    ...Object.values(Params).filter((s): s is StructSchema => s instanceof StructSchema),
     ...Object.values(State),
     NsSimParamsSchema,
     ...Object.values(ComputeSchemas).filter((s): s is StructSchema => s instanceof StructSchema),

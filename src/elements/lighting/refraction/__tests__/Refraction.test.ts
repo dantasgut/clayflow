@@ -34,7 +34,7 @@ describe('Refraction (spec 034, T040)', () => {
             frame: 0,
             time: 0,
             checkerboard: 0,
-            _pad1: 0,
+            sample_origin: 0,
         });
         expect([r.enabled, r.maxInterfaces]).toEqual([true, REFRACTION_DEFAULT_INTERFACES]);
         expect(new Refraction({ enabled: false, maxInterfaces: 32 }).data).toMatchObject({

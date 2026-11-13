@@ -88,10 +88,13 @@ export interface RefractionData {
     frame: number;
     /** Tempo simulado (as funções `material` nos acertos; escrito pelo estágio). */
     time: number;
-    /** Preenchimento. */
     /** 1: metade dos blocos 2×2 traçada por quadro, em xadrez (spec 039, Opção B2); 0: todos. */
     checkerboard: number;
-    _pad1: number;
+    /**
+     * Quadro do último corte da câmera (escrito pelo estágio): a vez do representante do bloco 2×2 conta os quadros
+     * desde ele, como a sequência das posições da amostra, que recomeça no corte (T075).
+     */
+    sample_origin: number;
 }
 
 /**
@@ -135,7 +138,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             frame: FieldType.u32,
             time: FieldType.f32,
             checkerboard: FieldType.u32,
-            _pad1: FieldType.u32,
+            sample_origin: FieldType.u32,
         },
         { addressSpace: 'uniform' },
     );
@@ -152,7 +155,7 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             frame: 0,
             time: 0,
             checkerboard: 0,
-            _pad1: 0,
+            sample_origin: 0,
         };
         validate(data);
         this.data = data;

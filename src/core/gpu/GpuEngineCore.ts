@@ -126,6 +126,25 @@ function textureByteSize(spec: TextureSpec): number {
     return total;
 }
 
+/**
+ * As entradas que o objeto de `spec` cita e guarda (o bind group: o layout, os buffers, as vistas e os amostradores; a
+ * vista: a textura) — quando uma delas é recriada, o objeto fica velho (`GpuResourceStore.stale`).
+ */
+function dependenciesOf(spec: ResourceSpec): readonly string[] {
+    if (spec.kind === 'bindgroup') {
+        return [
+            specHash(spec.layout),
+            ...spec.bindings.map((b) =>
+                specHash(
+                    b.kind === 'buffer' ? b.buffer : b.kind === 'sampler' ? b.sampler : b.view,
+                ),
+            ),
+        ];
+    }
+    if (spec.kind === 'textureview') return [specHash(spec.source)];
+    return [];
+}
+
 export class GpuEngineCore implements EngineCore {
     private context: GpuContext | null = null;
     private readonly store = new GpuResourceStore();
@@ -275,9 +294,19 @@ export class GpuEngineCore implements EngineCore {
     create<S extends ResourceSpec>(spec: S): S {
         deepFreeze(spec);
         const hash = specHash(spec);
-        if (this.store.retain(hash, spec)) return spec;
+        if (this.store.retain(hash, spec)) {
+            // O mesmo conteúdo, mas o que o objeto cita foi destruído e criado de novo (o buffer de vértices
+            // compartilhado que a remoção das entidades soltou e a inserção seguinte recriou): o bind group guardado
+            // citava o buffer destruído ("used in submit while destroyed", smoke `churn`). Materializa de novo.
+            if (this.store.stale(hash)) {
+                this.store.replace(hash, this.materialize(spec, hash));
+                this.store.dependOn(hash, dependenciesOf(spec));
+            }
+            return spec;
+        }
         const obj = this.materialize(spec, hash);
         this.storeWithMetadata(hash, spec, obj);
+        this.store.dependOn(hash, dependenciesOf(spec));
         return spec;
     }
 

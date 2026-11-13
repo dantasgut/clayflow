@@ -124,6 +124,11 @@ async function run(
     let frame = 1;
     for (const target of frames) {
         while (frame < target) {
+            // Só com espaço na GPU (`readyForFrame`, como o laço do motor): sem a espera, centenas de quadros entravam
+            // na fila de uma vez, e o processo da GPU seguia executando-os por dezenas de segundos depois do smoke —
+            // o custo medido pelo smoke seguinte saía inflado (`fog` timing 1,44 contra 0,92 ms; T075). O quadro
+            // capturado é o do último passo, na mesma tarefa.
+            while (!app.readyForFrame()) await new Promise((r) => setTimeout(r, 1));
             app.step(1 / 60);
             frame++;
         }

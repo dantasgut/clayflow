@@ -19,7 +19,10 @@ fn refraction_block_requested(p: vec2u, size: vec2u) -> bool {
  * ordem que começa no da vez.
  *
  * A vez espalha as posições da amostra que cada pixel recebe (Halton 2, 3 do antisserrilhado temporal) pelo pixel
- * inteiro nos dois eixos, em qualquer fase entre o quadro da refração e a sequência (T075). Pela soma dos dígitos do
+ * inteiro nos dois eixos, em qualquer fase entre o quadro da refração e a sequência (T075). Os quadros contam desde o
+ * último corte da câmera (`sample_origin`), quando a sequência recomeça: duas cenas acumuladas desde um corte (o mesmo
+ * deslocamento da amostra em cada quadro) traçam os mesmos pixels em cada quadro — antes, a fase dependia de quantos
+ * quadros cada uma desenhou até ficar pronta, e a imagem da mesma cena mudava de uma rodada para outra. Pela soma dos dígitos do
  * quadro na base 4 (antes) o x se espalhava, mas o y (base 3) não: cada pixel ficava com posições de um terço do pixel em
  * y — o centro deslocado até 0,2 px, a cobertura de uma borda errada em até 31–42 % em 256 quadros, conforme a fase —, e
  * as bordas vistas pelo vidro com relevo e pela água ondulada saíam deslocadas até 1 px, umas rodadas sim, outras não
@@ -31,7 +34,7 @@ fn refraction_block_requested(p: vec2u, size: vec2u) -> bool {
  */
 fn refraction_block_rep(p: vec2u, size: vec2u) -> vec3u {
     let corner = p & vec2u(~1u);
-    let f = refraction.frame;
+    let f = refraction.frame - refraction.sample_origin;
     let plain = 3u * f + f / 16u + f / 64u;
     let checker = 2u * f + f / 2u + f / 8u + f / 64u;
     let start = select(plain, checker, refraction.checkerboard != 0u) % 4u;
@@ -49,7 +52,7 @@ fn refraction_block_rep(p: vec2u, size: vec2u) -> vec3u {
 fn refraction_block_turn(p: vec2u) -> bool {
     if (refraction.checkerboard == 0u) { return true; }
     let b = p / 2u;
-    let f = refraction.frame;
+    let f = refraction.frame - refraction.sample_origin;
     return ((b.x + b.y + f + f / 8u) & 1u) == 0u;
 }
 

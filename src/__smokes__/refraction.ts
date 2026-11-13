@@ -897,7 +897,8 @@ async function renderEngine(
         for (let i = 0; i < W * H; i++)
             for (let k = 0; k < 3; k++) rgb[i * 3 + k]! += img.data[i * 4 + k]! / SAMPLES;
         const refraction = app.defaults.renderer.refractionResource;
-        refractionFrames[f] = refraction.data.frame;
+        // O quadro da vez do representante: o da refração desde o último corte da câmera (`sample_origin`).
+        refractionFrames[f] = refraction.data.frame - refraction.data.sample_origin;
         const radiance = app.resources.textureOf(refraction, 'radiance');
         if (radiance === undefined) continue;
         const t = (await readHdrTexture(app, radiance)).data;
@@ -1098,7 +1099,8 @@ function lineOf(rgb: Float32Array, v: number, transpose: boolean): Float32Array 
 /**
  * Degraus da borda vista pela lente contra a referência. Na referência, por linha e por coluna, as bordas nítidas que
  * atravessam a linha: onde a luminância cruza o meio entre o claro e o escuro a 3 px de cada lado (dentro da região;
- * contraste ≥ 4×, diferença ≥ 0,3, o salto entre os dois pixels ≥ 25 % dela), e só as resolvidas (nenhum outro cruzamento
+ * contraste ≥ 4×, diferença ≥ 0,3, o salto entre os dois pixels ≥ 25 % dela e os vizinhos do salto a ≥ 25 % dela do
+ * meio, cada um do seu lado — a borda de um pixel, não a rampa), e só as resolvidas (nenhum outro cruzamento
  * desse meio a < 6 px: junto da beirada da lente o xadrez comprimido tem casas de 2–4 px). Na imagem medida, onde a
  * mesma linha cruza o mesmo nível mais perto (até 3 px; sem cruzamento, conta como degrau). Degrau: a borda deslocada
  * ≥ 1 px de onde a referência a põe. Devolve os degraus, as bordas medidas e o percentil 99 do deslocamento.
@@ -1139,6 +1141,13 @@ function edgeSteps(
                 const b = r[u + 1]! - mid;
                 if (a === 0 || Math.sign(a) === Math.sign(b) || Math.abs(b - a) < 0.25 * (hi - lo))
                     continue;
+                // Só a borda de um pixel: os vizinhos do salto a ≥ 25 % do contraste do meio, cada um do seu lado. Na
+                // borda em rampa ou com patamar no meio (o relevo dobra a casa do xadrez em degraus de meio contraste), um
+                // desvio de poucos % num pixel do patamar move o cruzamento de 1 a 2 px: a referência de 64 amostras (as
+                // que cada pixel do motor recebe na meia resolução, 256 quadros ÷ 4) já dava 1 degrau assim (T075).
+                const before = (r[u - 1]! - mid) * Math.sign(a);
+                const after = (r[u + 2]! - mid) * Math.sign(b);
+                if (before < 0.25 * (hi - lo) || after < 0.25 * (hi - lo)) continue;
                 const x = u + a / (a - b);
                 if (
                     crossingsOf(r, mid, u - 6, u + 7).some(
@@ -1701,7 +1710,7 @@ const BLOCK_ORDER: readonly (readonly [number, number])[] = [
 ];
 
 /**
- * O pixel `i` é o representante do bloco 2×2 dele no quadro `frame` da refração (`refraction_block_rep`, sem o xadrez),
+ * O pixel `i` é o representante do bloco 2×2 dele no quadro `frame` da refração desde o corte (`refraction_block_rep`, sem o xadrez),
  * com os quatro pixels do bloco pedidos (`requested`)? Só aí a amostra dele é o próprio caminho; nos outros quadros ele
  * recebe a do representante (outro pixel, outro caminho).
  */

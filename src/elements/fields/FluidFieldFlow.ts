@@ -182,6 +182,9 @@ const BODY_CLOSURE: PipelineDescriptor = {
 };
 
 /** O mapa da luz pela água (spec 039 refeita): uma marcha por texel de cada luz direcional com mapa. */
+/** Os descritores do campo alocados só quando há fluido na cena (`FluidField`, `allocation: 'onDemand'`). */
+const FIELD_ON_DEMAND = ['data', 'mesh', 'lightMap', 'film'] as const;
+
 const LIGHT_MAP: PipelineDescriptor = {
     id: 'field_light_map',
     role: 'compute',
@@ -746,6 +749,9 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         if (!this.active) return;
         const bricks = Math.max(64, Math.ceil(this.particles / FIELD_PARTICLES_PER_BRICK));
         field.reserve({ bricks, table: bricks * 4 });
+        // Os buffers grandes só com fluido na cena (T075; `allocation: 'onDemand'`): a película nos sólidos e a tabela
+        // dela no buffer das consultas somavam ~210 MiB numa cena sem água (smoke `scale1m`).
+        for (const id of FIELD_ON_DEMAND) this.resources.ensureAllocated(field, id);
         const capacity = field.capacity.bricks;
         const counts = this.counts(field);
         const data = this.buffer(field, 'data');

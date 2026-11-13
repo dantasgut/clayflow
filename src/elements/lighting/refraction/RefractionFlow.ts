@@ -195,6 +195,9 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
     /** Revisão das funções `material` dos kernels de material da onda. */
     private materialRevision = -1;
     private frame = 0;
+    /** O quadro do último corte da câmera (`Refraction.sample_origin`) e se o corte estava ligado no quadro anterior. */
+    private sampleOrigin = 0;
+    private cutSeen = false;
     /** Invocações do gradiente temporal (uma por bloco). */
     private strata = 0;
     /** O kernel do gradiente temporal, depois que um consumidor o alocou. */
@@ -675,6 +678,13 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         if (d.light_count !== lights) d.light_count = lights;
         if (d.frame !== this.frame) d.frame = this.frame;
         if (d.time !== time) d.time = time;
+        // O corte da câmera recomeça a sequência das posições da amostra: a vez do representante do bloco 2×2 conta
+        // os quadros desde ele (`sample_origin`), na mesma fase dela em toda cena (T075). O corte fica ligado no quadro
+        // em que é enviado e pode ser visto também no seguinte: conta só a subida.
+        const cut = (c.bound.slots.camera?.resource as Camera | undefined)?.data.cut === 1;
+        if (cut && !this.cutSeen) this.sampleOrigin = this.frame;
+        this.cutSeen = cut;
+        if (d.sample_origin !== this.sampleOrigin) d.sample_origin = this.sampleOrigin;
     }
 
     /** Slot da câmera ativa no pool das matrizes. */
