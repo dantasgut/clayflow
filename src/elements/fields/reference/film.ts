@@ -124,9 +124,10 @@ export function dropShape(volume: number, theta: number, hold: number, gt: numbe
 }
 
 /**
- * A altura e a inclinação (no plano) da gota de forma `shape` no ponto a `r` do centro da base, com a descida unitária
- * `down` (`field_film_drop_at`): a calota de base a no espaço em que a base é redonda — o lado escalado por a / a⊥, a
- * descida por a / (a∥ ∓ δ) abaixo e acima do ápice deslocado δ = y min(χ, 1) a∥ para baixo.
+ * A altura, a inclinação (no plano) e a curvatura da gota de forma `shape` no ponto a `r` do centro da base, com a
+ * descida unitária `down` (`field_film_drop_at`): a calota de base a no espaço em que a base é redonda — o lado escalado
+ * por a / a⊥, a descida por a / (a∥ ∓ δ) abaixo e acima do ápice deslocado δ = y min(χ, 1) a∥ para baixo; a curvatura,
+ * a do eixo mais apertado.
  */
 export function dropAt(
     r: readonly [number, number],
@@ -134,7 +135,7 @@ export function dropAt(
     down: readonly [number, number],
     theta: number,
     footprint: number,
-): [number, number, number] {
+): [number, number, number, number] {
     const delta = FILM_DROP_STRETCH[1] * Math.min(shape.chi, 1) * shape.along;
     const lateral = [-down[1], down[0]] as const;
     const t = r[0] * down[0] + r[1] * down[1] - delta;
@@ -146,6 +147,7 @@ export function dropAt(
         cap[0],
         cap[2] * st * down[0] + cap[1] * sl * lateral[0],
         cap[2] * st * down[1] + cap[1] * sl * lateral[1],
+        cap[3] * Math.max(st * st, sl * sl),
     ];
 }
 
@@ -257,8 +259,10 @@ export function rivuletSection(w: number, theta: number): number {
 }
 
 /**
- * A altura e a inclinação no plano da calota de base `a` e ângulo θ no ponto a `r` do centro, com a média na amostra
- * de largura `footprint` (a calota esticada até o raio dela, a altura pela fração coberta elevada a `dims`).
+ * A altura, a inclinação no plano e a curvatura (1/R) da calota de base `a` e ângulo θ no ponto a `r` do centro, com a
+ * média na amostra de largura `footprint` (a calota menor que ela esticada até o raio dela, a altura pela fração coberta
+ * elevada a `dims`; a maior, com a borda na rampa linear da fração da amostra que cai nela — a inclinação média de quem
+ * passa pela borda).
  */
 export function capAt(
     r: readonly [number, number],
@@ -266,19 +270,35 @@ export function capAt(
     theta: number,
     footprint: number,
     dims: number,
-): [number, number, number] {
+): [number, number, number, number] {
     const radius = a / Math.max(Math.sin(theta), 1e-3);
-    const k = a / Math.max(a, 0.5 * footprint);
+    const sample = Math.max(a, 0.5 * footprint);
+    const k = a / sample;
     const cover = k ** dims;
     const rs: [number, number] = [r[0] * k, r[1] * k];
-    const rr = rs[0] ** 2 + rs[1] ** 2;
-    if (rr >= a * a) return [0, 0, 0];
-    const root = Math.sqrt(Math.max(radius * radius - rr, 1e-12));
+    const half = sample <= a ? 0.5 * footprint : 0;
+    const rl = Math.hypot(rs[0], rs[1]);
+    const edge =
+        half > 0 ? Math.min(Math.max(0.5 + (0.5 * (a - rl)) / half, 0), 1) : rl < a ? 1 : 0;
+    if (edge <= 0) return [0, 0, 0, 0];
+    const c = Math.min(1, a / Math.max(rl, 1e-12));
+    const rc: [number, number] = [rs[0] * c, rs[1] * c];
+    const root = Math.sqrt(Math.max(radius * radius - rc[0] ** 2 - rc[1] ** 2, 1e-12));
     return [
-        (root - radius * Math.cos(theta)) * cover,
-        (-rs[0] / root) * k * cover,
-        (-rs[1] / root) * k * cover,
+        Math.max(root - radius * Math.cos(theta), 0) * cover * edge,
+        (-rc[0] / root) * k * cover * edge,
+        (-rc[1] / root) * k * cover * edge,
+        (k * k * cover * edge) / radius,
     ];
+}
+
+/**
+ * O ângulo do cone do pixel depois de uma gota de curvatura κ (1/m) em que ele tem a largura w (m), com o ângulo
+ * `spread` antes (`refraction_chain_lens`): a lente fina plano-convexa de distância focal R / (n − 1) abre o ângulo
+ * entre os raios do cone por w (n − 1) κ.
+ */
+export function lensSpread(spread: number, width: number, curvature: number, ior: number): number {
+    return spread + width * (ior - 1) * curvature;
 }
 
 /**

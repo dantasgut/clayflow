@@ -176,11 +176,19 @@ struct RefractionThin {
 var<private> refraction_wet_footprint: f32 = 0.0;
 
 /**
- * A interface resolvida agora tinha água correndo (`scene_wetness_moving`: o filete, `refraction_wet_normal`): o que se
- * vê por ela muda de um quadro para o outro — conta como movido (`refraction_node_at`), e a reconstrução da meia
- * resolução não guarda ali o valor exato antigo. A gota parada não: guardada, ela sai na resolução cheia.
+ * O que se vê pela água da interface resolvida agora muda de um quadro para o outro (`scene_wetness_moving`: a cabeça
+ * do filete que desce, `refraction_wet_normal`) — conta como movido (`refraction_node_at`), e a reconstrução da meia
+ * resolução não guarda ali o valor exato antigo. A gota parada e a faixa do filete não: guardadas, saem na resolução
+ * cheia.
  */
 var<private> refraction_wet_moved: bool = false;
+
+/**
+ * A curvatura (1/m) da água na interface resolvida agora (`scene_wetness_slope`: a calota da gota, o filete; 0 sem
+ * água ou na película plana): a gota é uma lente — quem segue o caminho abre o cone do raio por ela
+ * (`refraction_chain_follow_one`), e o que se vê pela gota é filtrado na largura que o cone tem lá.
+ */
+var<private> refraction_wet_curvature: f32 = 0.0;
 
 /**
  * A normal de sombreamento `ns` com a água do sólido (spec 034, T066d; ponto `scene_wetness_slope`) para o raio `d`: a
@@ -194,9 +202,12 @@ var<private> refraction_wet_moved: bool = false;
 fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32, d: vec3f) -> vec3f {
     // Só nos sólidos: a superfície de um volume (a própria água) não tem película.
     if (refraction_is_volume(hit.instance)) { return ns; }
-    let slope = scene_wetness_slope(hit.position, hit.normal, refraction_wet_footprint);
+    let wet = scene_wetness_slope(hit.position, hit.normal, refraction_wet_footprint);
+    let slope = wet.xyz;
+    refraction_wet_curvature = max(refraction_wet_curvature, wet.w);
     if (dot(slope, slope) <= 0.0) { return ns; }
-    refraction_wet_moved = refraction_wet_moved || scene_wetness_moving(hit.position, hit.normal);
+    refraction_wet_moved = refraction_wet_moved || scene_wetness_moving(hit.position, hit.normal,
+        refraction_wet_footprint);
     let n = hit.normal;
     let side = select(-1.0, 1.0, dot(ns, n) >= 0.0);
     // A água fica do lado de `n` (a película é a da face).
@@ -466,6 +477,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.vol = refraction_is_volume(hit.instance);
     n.vol_n = hit.normal;
     refraction_wet_moved = false;
+    refraction_wet_curvature = 0.0;
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
     if (hit.instance == NONE) {
         n.radiance = scene_environment(d);

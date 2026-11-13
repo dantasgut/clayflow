@@ -185,13 +185,15 @@ describe('FluidField (spec 033, R11)', () => {
         // A inclinação da película, que a refração lê no sólido (T066d).
         const slope = composeWgsl(modules[4]!).spec.source;
         expect(slope).toContain(
-            'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f',
+            'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f',
         );
         expect(slope).toContain('return field_film_slope(p, n, footprint);');
         // A água correndo no ponto (o filete), que a refração não guarda entre quadros (T066d).
         const moving = composeWgsl(modules[5]!).spec.source;
-        expect(moving).toContain('fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool');
-        expect(moving).toContain('return field_film_moving(p, n);');
+        expect(moving).toContain(
+            'fn scene_wetness_moving(p: vec3f, n: vec3f, footprint: f32) -> bool',
+        );
+        expect(moving).toContain('return field_film_moving(p, n, footprint);');
         // A caixa do campo, alvo dos fótons das cáusticas (spec 034, T067c).
         expect(composeWgsl(modules[6]!).spec.source).toContain('return field_box();');
         // Os raios que passam por algum bloco do campo (a emissão dos fótons só onde há água), sem amostrar φ.

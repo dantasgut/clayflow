@@ -287,13 +287,11 @@ struct FieldFilmCell {
     hold: f32,
     /** A água correu pela célula nos últimos passos (o filete; `field_film_step_main`). */
     flowing: bool,
-    /** A água que corre pela célula sobre a que ela tem (o escoamento do passo sobre a água livre). */
-    flow_share: f32,
 }
 
 /** A película na célula `c` da página `page` (achada por `field_film_data_page`; `NONE`: sem película; spec 034). */
 fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
-    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, 0.0, false, 0.0);
+    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, 0.0, false);
     let key = field_film_key(c);
     if (page == NONE || key == 0u) { return out; }
     let w = field_film_word(field_film_slot_in(page, c, axes));
@@ -314,7 +312,6 @@ fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
     let rows = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 2u);
     out.hold = surface.x * field_film_defect(c, rows.x) * select(1.0, rows.y, field_data[w + 7u] != 0u);
     out.flowing = field_data[w + 7u] != 0u;
-    out.flow_share = f32(field_data[w + 7u]) / f32(max(field_data[w + 1u], 1u));
     return out;
 }
 
@@ -360,7 +357,7 @@ fn field_film_drop_shape(volume: f32, sin_t: f32, cos_t: f32, hold: f32, gt: f32
  * redonda — o lado escalado por a / a⊥, a descida por a / (a∥ ∓ δ) abaixo e acima do ápice (a metade de baixo mais
  * curta: a frente íngreme; a de cima mais longa: a cauda). Cada metade conserva a área da sua, e o volume é o da calota.
  */
-fn field_film_drop_at(r: vec2f, shape: vec4f, down: vec2f, sin_t: f32, cos_t: f32, footprint: f32) -> vec3f {
+fn field_film_drop_at(r: vec2f, shape: vec4f, down: vec2f, sin_t: f32, cos_t: f32, footprint: f32) -> vec4f {
     let a = shape.x;
     let side = shape.y;
     let along = shape.z;
@@ -371,8 +368,8 @@ fn field_film_drop_at(r: vec2f, shape: vec4f, down: vec2f, sin_t: f32, cos_t: f3
     let st = a / select(along + delta, along - delta, t > 0.0);
     let sl = a / side;
     let cap = field_film_cap_at(vec2f(l * sl, t * st), a, sin_t, cos_t, footprint, 2.0);
-    // A inclinação de volta ao plano: a derivada pela escala de cada eixo.
-    return vec3f(cap.x, (cap.z * st) * down + (cap.y * sl) * lateral);
+    // A inclinação de volta ao plano: a derivada pela escala de cada eixo; a curvatura, a do eixo mais apertado.
+    return vec4f(cap.x, (cap.z * st) * down + (cap.y * sl) * lateral, cap.w * max(st * st, sl * sl));
 }
 
 /** O número em [0, 1) do quadrado `node` do nível `level` na camada `layer` (o eixo de fora), o sorteio `k`. */
@@ -418,7 +415,7 @@ fn field_film_drop_largest(layer: i32, cell: vec2i) -> f32 {
  * altura e a inclinação (`field_film_drop_at`); zero fora delas.
  */
 fn field_film_cell_drops(q: vec2f, cell: vec2i, volume: f32, size: f32, layer: i32, down: vec2f, gt: f32, hold: f32,
-    sin_t: f32, cos_t: f32, footprint: f32) -> vec3f {
+    sin_t: f32, cos_t: f32, footprint: f32) -> vec4f {
     var v: array<f32, 4>;
     var a: array<f32, 4>;
     var c: array<vec2f, 4>;
@@ -450,7 +447,7 @@ fn field_film_cell_drops(q: vec2f, cell: vec2i, volume: f32, size: f32, layer: i
         }
         if (!joined) { break; }
     }
-    var best = vec3f(0.0);
+    var best = vec4f(0.0);
     for (var k = 0; k < FIELD_FILM_DROP_SITES; k++) {
         if (v[k] <= 0.0) { continue; }
         let r = q - c[k];
@@ -511,24 +508,41 @@ fn field_film_breaks(h: f32, kappa: f32, critical: f32) -> bool {
  * ponto a `r` (m, no plano) do centro dela: a esfera de raio R = a / sen θ acima do sólido. A calota menor que a amostra
  * (`footprint`: a largura que a amostra do pixel cobre na superfície, m) entra pela média dela na amostra, como a
  * filtragem de um mapa de alturas: esticada até o raio ρ da amostra, a altura vezes a fração coberta, (a/ρ)^`dims` (2 na
- * gota, 1 na faixa do filete, esticada só na largura).
+ * gota, 1 na faixa do filete, esticada só na largura). A curvatura (w, 1/m) da superfície da água ali: 1/R na calota,
+ * pela mesma filtragem (a altura vezes a fração coberta, esticada) — a lente que a gota é abre o cone dos raios que a
+ * atravessam (`refraction_wet_normal`).
  */
-fn field_film_cap_at(r: vec2f, a: f32, sin_t: f32, cos_t: f32, footprint: f32, dims: f32) -> vec3f {
+fn field_film_cap_at(r: vec2f, a: f32, sin_t: f32, cos_t: f32, footprint: f32, dims: f32) -> vec4f {
     let radius = a / max(sin_t, 1e-3);
     let sample = max(a, 0.5 * footprint);
     let k2 = a / sample;
     let cover = pow(k2, dims);
     let rs = r * k2;
-    let rr = dot(rs, rs);
-    if (rr >= a * a) { return vec3f(0.0); }
-    let root = sqrt(max(radius * radius - rr, 1e-12));
-    return vec3f((root - radius * cos_t) * cover, -rs / root * k2 * cover);
+    // A borda da calota maior que a amostra: a amostra que passa por ela cobre parte da gota e parte do sólido seco, e a
+    // inclinação média nela é a da borda vezes a fração coberta — a rampa linear na largura da amostra (a normal salta
+    // de θ a 0 ali; no ponto, ela serrilha).
+    let half = select(0.0, 0.5 * footprint, sample <= a);
+    let rl = sqrt(dot(rs, rs));
+    let edge = select(select(0.0, 1.0, rl < a), clamp(0.5 + 0.5 * (a - rl) / max(half, 1e-9), 0.0, 1.0), half > 0.0);
+    if (edge <= 0.0) { return vec4f(0.0); }
+    let rc = rs * min(1.0, a / max(rl, 1e-12));
+    let root = sqrt(max(radius * radius - dot(rc, rc), 1e-12));
+    return vec4f(max(root - radius * cos_t, 0.0) * cover * edge, -rc / root * k2 * cover * edge,
+        k2 * k2 * cover * edge / radius);
 }
 
 /** A película no ponto e a inclinação dela: a água livre e a saturação (`wet`) e o gradiente da água livre (m/m). */
 struct FieldFilmSample {
     wet: vec2f,
     slope: vec3f,
+    /** A curvatura da superfície da água no ponto (1/m; a da calota da gota ou do filete, 0 na película contínua). */
+    curvature: f32,
+    /**
+     * O que se vê no ponto muda de um quadro para o outro: ele está na cabeça do filete (a gota que desce na frente
+     * dele, mm por quadro); a faixa do filete, não — a água corre por ela, mas a forma dela fica (o filete parado no
+     * caminho que molhou). De longe (a média da célula, que muda devagar), não.
+     */
+    moving: bool,
 }
 
 /**
@@ -686,6 +700,8 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
     let q = vec2f(p[u], p[v]);
     var best = 0.0;
     var best_slope = vec2f(0.0);
+    var best_curvature = 0.0;
+    var best_moving = false;
     if (kappa > 0.0) {
         let gl = length(gdir);
         let fall = select(vec2f(0.0, -1.0), gdir / max(gl, 1e-6), gl > 1e-3);
@@ -701,6 +717,8 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
             if (drop.x > best) {
                 best = drop.x;
                 best_slope = drop.yz;
+                best_curvature = drop.w;
+                best_moving = false;
             }
         }
         // Os filetes: a água que corre pela célula numa faixa de seção em arco (`field_film_rivulet_width`) ao longo da
@@ -728,12 +746,16 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
             if (band.x > best) {
                 best = band.x;
                 best_slope = band.yz;
+                best_curvature = band.w;
+                best_moving = false;
             }
             if (!down_runs) {
                 let head = field_film_cap_at(q - a, FIELD_FILM_RIVULET_HEAD * 0.5 * w, sin_t, cos_t, footprint, 2.0);
                 if (head.x > best) {
                     best = head.x;
                     best_slope = head.yz;
+                    best_curvature = head.w;
+                    best_moving = true;
                 }
             }
         }
@@ -744,6 +766,8 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
         slope[v] += best_slope.y;
     }
     out.wet.x = mix(out.wet.x, mean_all, lod);
+    out.curvature = select(0.0, best_curvature, best > 0.0) * (1.0 - lod);
+    out.moving = best > 0.0 && best_moving;
     slope[u] = mix(slope[u], grad_all.x, lod);
     slope[v] = mix(slope[v], grad_all.y, lod);
     out.slope = slope - dot(slope, n) * n;
@@ -751,33 +775,12 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
 }
 
 /**
- * A fração da água de uma célula que corre por ela por passo acima da qual o que se vê ali muda depressa: abaixo dela (a
- * gota que se arrasta a mm/s pela linha de contato, o excesso que ainda escoa devagar sobre um defeito) a água da célula
- * leva mais de ~1 s (60 passos) para se renovar — mais que a janela do histórico da imagem, que pode guardar o que viu.
+ * O que se vê pela película no ponto `p` da superfície de normal `n` muda de um quadro para o outro
+ * (`field_film_sample`, na largura `footprint`): a cabeça do filete que desce. A gota parada e a faixa do filete
+ * (a forma dele fica enquanto a água corre por ela) não — guardadas entre quadros, saem nítidas.
  */
-const FIELD_FILM_MOVING_SHARE: f32 = 0.02;
-
-/**
- * A película corre no ponto `p` da superfície de normal `n`: na célula dele ou numa das 8 em volta no plano, a água que
- * desceu nos últimos passos passa de `FIELD_FILM_MOVING_SHARE` da que a célula tem (o filete; `field_film_step_main`).
- */
-fn field_film_moving(p: vec3f, n: vec3f) -> bool {
-    let layer = field_film_cell(p, n);
-    let axes = field_film_axes(n);
-    var page_of = 0u;
-    var page = NONE;
-    for (var k = 0; k < 9; k++) {
-        var c = layer;
-        c[axes.x] += k % 3 - 1;
-        c[axes.y] += k / 3 - 1;
-        let pk = field_film_page_key(c, axes);
-        if (pk != page_of) {
-            page_of = pk;
-            page = select(NONE, field_film_data_page(pk), field_film_key(c) != 0u);
-        }
-        if (field_film_cell_in(page, c, axes).flow_share > FIELD_FILM_MOVING_SHARE) { return true; }
-    }
-    return false;
+fn field_film_moving(p: vec3f, n: vec3f, footprint: f32) -> bool {
+    return field_film_sample(p, n, footprint).moving;
 }
 
 /**
@@ -789,9 +792,10 @@ fn field_film_at(p: vec3f, n: vec3f, footprint: f32) -> vec2f {
 }
 
 /**
- * A inclinação da película no ponto `p` da superfície de normal `n`: o gradiente da água livre no plano dela (m/m), média
- * na largura `footprint` (m) do pixel.
+ * A inclinação da película no ponto `p` da superfície de normal `n`: o gradiente da água livre no plano dela (xyz, m/m)
+ * e a curvatura da superfície da água ali (w, 1/m), média na largura `footprint` (m) do pixel.
  */
-fn field_film_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {
-    return field_film_sample(p, n, footprint).slope;
+fn field_film_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f {
+    let s = field_film_sample(p, n, footprint);
+    return vec4f(s.slope, s.curvature);
 }

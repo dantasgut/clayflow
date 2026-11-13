@@ -51,9 +51,11 @@ fn refraction_volume_hit_of(hit: RayHit) -> RayVolumeHit {
 /**
  * O acerto `hit` (malha ou volume) no índice `i` da onda (spec 039), no tempo simulado `time`, com a carga `payload` de
  * quem traça: o material do volume sem função (o fechamento pronto dele) e as constantes da malha sem função gravados
- * já avaliados; com função, o registro para a classe dela.
+ * já avaliados; com função, o registro para a classe dela. `width`: a largura (m) do cone do raio no acerto — o
+ * material da malha se filtra nela (os nós pelas derivadas do uv: o padrão visto de longe ou por uma lente que abre o
+ * cone sai pela média na área, sem o serrilhado da amostra no ponto); 0 = no ponto.
  */
-fn refraction_wave_put(i: u32, hit: RayHit, time: f32, payload: vec4f) {
+fn refraction_wave_put(i: u32, hit: RayHit, time: f32, width: f32, payload: vec4f) {
     if (refraction_is_volume(hit.instance)) {
         let v = refraction_volume_hit_of(hit);
         let surface = ray_volume_surface(v);
@@ -67,9 +69,9 @@ fn refraction_wave_put(i: u32, hit: RayHit, time: f32, payload: vec4f) {
             payload);
         return;
     }
-    let s = ray_hit_surface(hit, time, 0.0);
-    ray_wave_put_surface(i, s.index, s.slot, s.sample.world_position, s.sample.normal, s.sample.uv, time, 0.0, 0.0,
-        s.material, payload);
+    let s = ray_hit_surface(hit, time, width);
+    ray_wave_put_surface(i, s.index, s.slot, s.sample.world_position, s.sample.normal, s.sample.uv, time,
+        s.sample.footprint, s.sample.duvdx.x, s.material, payload);
 }
 
 /** O que o acerto `hit` mostra se moveu desde o quadro anterior (a instância, ou a superfície do volume)? */

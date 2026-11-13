@@ -566,17 +566,20 @@ export const fieldWetness = wgslModule({
     requires: [fields],
 });
 
-/** Contribuição do campo ao ponto `scene_wetness_slope`: a inclinação da película no ponto do sólido (T066d). */
+/**
+ * Contribuição do campo ao ponto `scene_wetness_slope`: a inclinação da película e a curvatura da água no ponto do
+ * sólido (T066d).
+ */
 export const fieldWetnessSlope = wgslModule({
     name: 'field_wetness_slope',
-    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {\n    return field_film_slope(p, n, footprint);\n}',
+    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f {\n    return field_film_slope(p, n, footprint);\n}',
     requires: [fields],
 });
 
 /** Contribuição do campo ao ponto `scene_wetness_moving`: a película corre no ponto do sólido (o filete, T066d). */
 export const fieldWetnessMoving = wgslModule({
     name: 'field_wetness_moving',
-    source: 'fn scene_wetness_moving(p: vec3f, n: vec3f) -> bool {\n    return field_film_moving(p, n);\n}',
+    source: 'fn scene_wetness_moving(p: vec3f, n: vec3f, footprint: f32) -> bool {\n    return field_film_moving(p, n, footprint);\n}',
     requires: [fields],
 });
 

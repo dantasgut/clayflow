@@ -48,7 +48,7 @@ fn refraction_camera_hits_main() {
         for (var i = 0u; i < seen_count; i++) { known = known || seen[i] == hit.instance; }
         if (!known && seen_count < REFRACTION_CAMERA_SEEN) {
             seen[seen_count] = hit.instance;
-            refraction_wave_put(seen_count, hit, refraction.time, vec4f(0.0, hit.face, 1.0, 0.0));
+            refraction_wave_put(seen_count, hit, refraction.time, 0.0, vec4f(0.0, hit.face, 1.0, 0.0));
             ray_wave_tag(seen_count, hit.instance);
             seen_count += 1u;
         }
@@ -58,7 +58,7 @@ fn refraction_camera_hits_main() {
     // Os volumes (a água das partículas): a câmera está dentro quando a superfície mais próxima é vista por dentro.
     let v = ray_volume_hit(origin, dir, RAY_MISS, -1);
     if (v.hit && v.inside) {
-        refraction_wave_put(REFRACTION_CAMERA_VOLUME, refraction_volume_as_hit(v), refraction.time,
+        refraction_wave_put(REFRACTION_CAMERA_VOLUME, refraction_volume_as_hit(v), refraction.time, 0.0,
             vec4f(0.0, -1.0, 1.0, 0.0));
         ray_wave_tag(REFRACTION_CAMERA_VOLUME, refraction_volume_id(v));
     } else {

@@ -238,8 +238,11 @@ fn refraction_chain_hit_one(j: u32) {
         ray_wave_put_empty(2u * j + 1u, vec4f(0.0));
         return;
     }
+    // A largura do cone no acerto: a amostra cobre o bloco 2 × 2 do pixel (o ângulo dele vezes dois, pelo caminho desde a
+    // câmera; aberto pelas lentes de água no caminho, `refraction_chain_follow_one`) — o material se filtra nela.
+    let width = 2.0 * refraction_paths[s].spread * max(refraction_paths[s].travelled + hit.t, 0.0);
     // A direção do raio na carga e o estado do sorteio na etiqueta: a luz do ponto opaco (`refraction_chain_light_main`).
-    refraction_wave_put(2u * j, hit, refraction.time, vec4f(dir, 0.0));
+    refraction_wave_put(2u * j, hit, refraction.time, width, vec4f(dir, 0.0));
     ray_wave_tag(2u * j, refraction_paths[s].state);
     let other = refraction_coincident(origin, dir, hit);
     refraction_paths[s].other_instance = other.instance;
@@ -247,7 +250,7 @@ fn refraction_chain_hit_one(j: u32) {
     if (other.instance == NONE) {
         ray_wave_put_empty(2u * j + 1u, vec4f(0.0));
     } else {
-        refraction_wave_put(2u * j + 1u, other, refraction.time, vec4f(1.0));
+        refraction_wave_put(2u * j + 1u, other, refraction.time, width, vec4f(1.0));
     }
 }
 
@@ -395,6 +398,27 @@ fn refraction_chain_open(p0: RefractionChainState, s: u32) -> RefractionChainSta
     return p;
 }
 
+/**
+ * A gota de água na interface resolvida agora (`refraction_wet_curvature`, κ = 1/R da calota) é uma lente: os raios do
+ * cone do pixel, de largura w ali, saem dela com o ângulo entre eles aberto por w (n − 1) κ (a lente fina plano-convexa
+ * de distância focal R / (n − 1)) — o fundo visto por ela é a imagem invertida e reduzida de uma área grande, e a
+ * amostra de um raio por pixel nele serrilha. O cone segue com o ângulo aberto e a mesma largura na lente (o caminho
+ * desde a câmera virtual: `travelled` refeito por ela), e os acertos depois dela filtram o material e a película na
+ * largura dele (`refraction_chain_hit_one`, `refraction_wet_footprint`).
+ */
+fn refraction_chain_lens(p: ptr<function, RefractionChainState>) {
+    if (refraction_wet_curvature <= 0.0) { return; }
+    let along = (*p).travelled + (*p).hit_t;
+    let w = (*p).spread * along;
+    let spread = (*p).spread + w * (REFRACTION_WATER_IOR - 1.0) * refraction_wet_curvature;
+    // `travelled` mais o trecho até a lente (somado ao seguir) dá a largura w ali com o ângulo novo.
+    (*p).travelled = w / spread - (*p).hit_t;
+    (*p).spread = spread;
+}
+
+/** O índice de refração da água das gotas sobre os sólidos (a lente de `refraction_chain_lens`). */
+const REFRACTION_WATER_IOR: f32 = 1.333;
+
 /** A continuação da vaga da posição `j` da lista: o nó do acerto pelos fechamentos da onda e o passo. */
 fn refraction_chain_follow_one(j: u32) {
     ray_volume_begin();
@@ -408,6 +432,7 @@ fn refraction_chain_follow_one(j: u32) {
     refraction_wet_footprint = 4.0 * p.spread * (p.travelled + p.hit_t);
     var n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
         refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state, ray_wave_entries[2u * j].hit.payload);
+    refraction_chain_lens(&p);
     // A dispersão adiada: no fim do caminho, os canais se abrem se o afastamento deles (o acumulado mais o ângulo vezes
     // este trecho; sem acerto, só o ângulo) passa do pixel (o ângulo do pixel vezes a distância desde a câmera) — numa
     // gota eles caem no mesmo pixel (branca), num prisma não; numa interface em que um canal não passa (a reflexão

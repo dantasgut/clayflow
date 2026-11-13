@@ -731,7 +731,7 @@ fn caustics_photon_hit_one(j: u32) {
     caustics_photons[slot].throughput = ph.throughput * exp(-sigma * hit.t);
     caustics_photons[slot].travel = ph.travel + hit.t;
     // A instância na carga: a assinatura do caminho (`caustics_photon_step`).
-    refraction_wave_put(j, hit, caustics.extra.y,
+    refraction_wave_put(j, hit, caustics.extra.y, 0.0,
         vec4f(hit.face, select(0.0, 1.0, refraction_is_volume(hit.instance)), bitcast<f32>(hit.instance), 1.0));
 }
 

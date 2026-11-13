@@ -3,6 +3,7 @@ import { contactLineRetention, trailRetention } from '../../../physics/wetting/w
 import {
     absorbUnits,
     capAt,
+    lensSpread,
     capBase,
     capVolume,
     FILM_IOR,
@@ -298,6 +299,30 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
                 exact += capAt([x, y], a, theta, 0, 2)[0];
             }
         expect(sum / exact).toBeCloseTo(1, 2);
+        // A curvatura da calota é 1/R = sen θ / a (a lente que a gota é).
+        expect(capAt([0, 0], a, theta, 0, 2)[3]).toBeCloseTo(Math.sin(theta) / a, 9);
+        // A borda da calota maior que a amostra: a inclinação é a média na amostra — a da borda pela fração dela que cai
+        // na gota (a metade, com a amostra centrada na borda), e o caixote da amostra sobre a inclinação no ponto dá o
+        // mesmo pela rampa.
+        const small = 0.2 * a;
+        const edge = capAt([a, 0], a, theta, small, 2);
+        expect(Math.abs(edge[1])).toBeCloseTo(0.5 * Math.tan(theta), 6);
+        for (const x of [a - 0.3 * small, a - 0.1 * small, a + 0.1 * small, a + 0.3 * small]) {
+            let box = 0;
+            const m = 4000;
+            for (let i = 0; i < m; i++)
+                box += capAt([x + ((i + 0.5) / m - 0.5) * small, 0], a, theta, 0, 2)[1];
+            box /= m;
+            // A rampa linear contra o caixote sobre a inclinação da esfera (que cresce até tan θ na borda): a diferença
+            // é a variação da inclinação dentro da amostra, pequena perto da borda.
+            expect(capAt([x, 0], a, theta, small, 2)[1]).toBeCloseTo(box, 1);
+        }
+        expect(capAt([a + 0.51 * small, 0], a, theta, small, 2)[1]).toBe(0);
+        // A lente fina: o ângulo do cone abre por w (n − 1) / R.
+        expect(lensSpread(1e-3, 2e-3, Math.sin(theta) / a, 1.333)).toBeCloseTo(
+            1e-3 + (2e-3 * 0.333 * Math.sin(theta)) / a,
+            12,
+        );
     });
 
     it('a pressão: o peso da coluna e a de Laplace, a seca sem fluxo pela borda', () => {
