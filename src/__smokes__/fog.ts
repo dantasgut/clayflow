@@ -817,7 +817,9 @@ async function timing(): Promise<void> {
 }
 
 type CaseFn = () => Promise<void>;
-const CASES: Record<string, CaseFn> = { beer, glass, beam, gi, noise, walk, opaque, timing };
+// O custo primeiro: depois dos outros casos o processo da GPU ainda termina o trabalho das aplicações já fechadas (a
+// medida de parede saía 1,5 ms; com 15 s de espera antes dela, 0,92 — a mesma de quando roda sozinha).
+const CASES: Record<string, CaseFn> = { timing, beer, glass, beam, gi, noise, walk, opaque };
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

@@ -63,6 +63,9 @@ interface Run {
     readonly profile: string;
 }
 
+/** As medidas de agendamento do renderizador lidas de volta (o descritor): a contagem da fila da refração e a do descarte. */
+const RENDERER_MEASURES: ReadonlySet<string> = new Set(['queueCount', 'forward_cull_stats']);
+
 /**
  * Monta a cena, avança até cada quadro pedido e captura a imagem; conta as leituras de volta e as escritas da CPU no
  * pool do corpo depois da inserção.
@@ -86,11 +89,21 @@ async function run(
         antialias: antialias ? 'msaa' : 'off',
     });
     app.events.on('engineError', (e) => engineErrors.push(`${name}: ${e.stage}: ${e.message}`));
+    // As leituras de volta do que a água é (SC-006): as diretas do núcleo e os pedidos `resources.read`, menos as medidas
+    // de agendamento do renderizador, que existem em toda cena, com água ou sem (a contagem da fila da refração e a do
+    // descarte do desenho: lidas sem bloquear, de tempos em tempos, para dimensionar o trabalho dos quadros seguintes).
+    // Contadas pela leitura de volta, elas saíam numa rodada sim, noutra não ("continuidade: 1 leituras"): a leitura
+    // agrupada sai num microtask, e só acontece se a página ceder antes do fim do caso.
     let readbacks = 0;
     const readback = app.core.readback.bind(app.core);
     app.core.readback = (spec: Parameters<typeof readback>[0]) => {
-        readbacks++;
+        if (!(spec.discriminator ?? '').startsWith('read:')) readbacks++;
         return readback(spec);
+    };
+    const read = app.resources.read.bind(app.resources);
+    app.resources.read = (resource: Parameters<typeof read>[0], descId?: string) => {
+        if (descId === undefined || !RENDERER_MEASURES.has(descId)) readbacks++;
+        return read(resource, descId);
     };
     const body = waterScene(app, { width: WIDTH, height: HEIGHT, ...options });
     extra?.(app);

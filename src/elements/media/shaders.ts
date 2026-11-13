@@ -210,6 +210,15 @@ export const mediaRayTransmittance = wgslModule({
     requires: [mediaVolumes],
 });
 
+/** Transmitância só da névoa nos raios (`ray_media_transmittance`): a mesma dos volumes, sem os da cena. */
+export const mediaRayMediaTransmittance = wgslModule({
+    name: 'media_ray_media_transmittance',
+    source: `fn ray_media_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f {
+    return vec3f(fog_transmittance(origin, dir, t_max));
+}`,
+    requires: [mediaVolumes],
+});
+
 /**
  * Espalhamento dos volumes nos raios (\`ray_volume_scatter\`, spec 034 T058): no ponto sorteado do trecho, os
  * coeficientes de todos os volumes (o de espalhamento pelo albedo de cada um, a anisotropia pesada pelo espalhamento) e

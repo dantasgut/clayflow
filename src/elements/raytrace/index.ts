@@ -13,6 +13,8 @@ export {
     rayVolumeSurfaceReady,
     rayVolumeHitPoint,
     rayVolumeHitReady,
+    rayMediaTransmittancePoint,
+    rayMediaTransmittanceReady,
     rayVolumeTransmittancePoint,
     rayVolumeTransmittanceReady,
     rayVolumeScatterPoint,

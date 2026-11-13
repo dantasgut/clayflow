@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capNormal, wetExit, wetFateAcross, type V3, type WetPane } from '../wetLens';
+import { capNormal, wetBackExit, wetExit, wetFateAcross, type V3, type WetPane } from '../wetLens';
 
 /** A gota do vidro de janela (30°, 1 mm de raio de base) na lâmina de 4 mm, vista a 40° (a `molharperto`). */
 const PANE: WetPane = {
@@ -130,5 +130,44 @@ describe('wetLens — a gota no vidro visto de lado (T066d)', () => {
         // dobra é a gota fina (o raio acerta a calota acima do ponto da base), não o caminho exato dentro dela.
         expect(kinds / total).toBeGreaterThan(0.85);
         expect(median).toBeLessThan((10 * Math.PI) / 180);
+    });
+
+    it('na parede fina, o raio que a calota devolve sai do lado de onde veio, ou a lâmina o guia', () => {
+        // Arrange: a vista rasante (75°), em que a calota devolve ao vidro 36 % dos raios (a 40°, 8 %); a lâmina guia
+        // quase todos (a volta desce mais inclinada que o ângulo crítico do vidro para o ar), o shader os termina em
+        // `scene_ambient` como no teto de interfaces.
+        const sinT = Math.sin((75 * Math.PI) / 180) / PANE.glass;
+        const dg: V3 = [sinT, 0, Math.sqrt(1 - sinT * sinT)];
+        let backs = 0;
+        let exits = 0;
+        let worst = 0;
+        const n = 40;
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                const x = (((i + 0.5) / n) * 2 - 1) * PANE.base;
+                const y = (((j + 0.5) / n) * 2 - 1) * PANE.base;
+                if (x * x + y * y >= 0.9 * PANE.base * PANE.base) continue;
+                const exact = wetExit(PANE, x, y, dg);
+                if (exact?.kind !== 'back') continue;
+                backs++;
+                // Act: a saída exata pela face de baixo e a do shader na parede fina, que devolve o raio da água direto
+                // ao ar (`refract(r, n, água / ar)`, a normal +z) — r, a volta na água (a mesma componente tangencial).
+                const exit = wetBackExit(PANE, exact.dir);
+                const r = refractW(exact.dir, [0, 0, 1], PANE.glass / PANE.water)!;
+                const shader = refractW(norm(r), [0, 0, 1], PANE.water);
+                // Assert: as duas existem ou faltam juntas; existindo, descem (o lado da câmera) na mesma direção.
+                expect(shader === null).toBe(exit === null);
+                if (exit === null || shader === null) continue;
+                exits++;
+                expect(exit[2]).toBeLessThan(0);
+                worst = Math.max(
+                    worst,
+                    Math.acos(Math.min(Math.max(dot(exit, norm(shader)), -1), 1)),
+                );
+            }
+        }
+        expect(backs).toBeGreaterThan(300);
+        expect(exits).toBeGreaterThan(20);
+        expect(worst).toBeLessThan(1e-6);
     });
 });

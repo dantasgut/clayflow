@@ -218,3 +218,12 @@ export function capNormal(pane: WetPane, x: number, y: number): V3 {
     const z = zc + Math.sqrt(Math.max(R * R - x * x - y * y, 0));
     return norm([x, y, z - zc]);
 }
+
+/**
+ * A saída no ar do raio que a calota devolveu ao vidro (`back`, a direção no vidro descendo, −z) pela face de baixo
+ * (z = −T, paralela à de cima): na parede fina (T075) as duas faces são uma só e é esta direção que o raio leva de
+ * volta para o lado de onde veio. Nula quando a face de baixo o reflete inteiro (a lâmina o guia para longe da gota).
+ */
+export function wetBackExit(pane: WetPane, back: V3): V3 | null {
+    return refract(back, [0, 0, 1], pane.glass, AIR);
+}

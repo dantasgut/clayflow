@@ -9,7 +9,11 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { rayVolumeScatterPoint, rayVolumeTransmittancePoint } from '../raytrace/points';
+import {
+    rayMediaTransmittancePoint,
+    rayVolumeScatterPoint,
+    rayVolumeTransmittancePoint,
+} from '../raytrace/points';
 import { lightTransmissionPoint } from '../scene/points/lighting';
 import { sceneFogPoint } from '../scene/points/media';
 import type { HistoryPrecision } from '../scene/TemporalAntialiasing';
@@ -19,6 +23,7 @@ import {
     fogDensityAtPoint,
     mediaLightTransmission,
     mediaLookup,
+    mediaRayMediaTransmittance,
     mediaRayScatter,
     mediaRayTransmittance,
     mediaVolumes,
@@ -232,6 +237,16 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             pools: [],
             build: () =>
                 this.rawData.active === 1 ? this.withDensity(mediaRayTransmittance) : undefined,
+        },
+        {
+            // Só a névoa, para quem conta os outros volumes como meio próprio (a pilha da refração, T075).
+            point: rayMediaTransmittancePoint,
+            order: 10,
+            pools: [],
+            build: () =>
+                this.rawData.active === 1
+                    ? this.withDensity(mediaRayMediaTransmittance)
+                    : undefined,
         },
         {
             // O espalhamento nos raios (T058): quem transporta luz por raios soma a luz que a névoa devolve.

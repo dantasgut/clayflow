@@ -1711,9 +1711,8 @@ function ownSample(i: number, frame: number, requested: ReadonlySet<number>): bo
     const cx = x & ~1;
     const cy = y & ~1;
     for (const [dx, dy] of BLOCK_ORDER) if (!requested.has((cy + dy) * W + cx + dx)) return false;
-    let digits = 0;
-    for (let d = 1; d <= 1024; d *= 4) digits += Math.floor(frame / d);
-    const [ox, oy] = BLOCK_ORDER[digits % 4]!;
+    const turn = (3 * frame + Math.floor(frame / 16) + Math.floor(frame / 64)) % 4;
+    const [ox, oy] = BLOCK_ORDER[turn]!;
     return cx + ox === x && cy + oy === y;
 }
 

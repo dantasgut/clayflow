@@ -76,6 +76,18 @@ export const rayVolumeTransmittanceReady = wgslModule({
 }`,
 });
 
+/**
+ * `fn ray_media_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f` — a fração da luz que atravessa só os
+ * meios participantes (a névoa) no segmento, sem os volumes que quem traça já conta como meio próprio (a água do campo
+ * dos fluidos na pilha da refração); pronto: 1.
+ */
+export const rayMediaTransmittanceReady = wgslModule({
+    name: 'ray_media_transmittance_ready',
+    source: `fn ray_media_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f {
+    return vec3f(1.0);
+}`,
+});
+
 /** O ponto sorteado no trecho de um raio dentro dos meios que espalham (`ray_volume_scatter`). */
 export const rayVolumeScatterTypes = wgslModule({
     name: 'ray_volume_scatter_types',
@@ -289,6 +301,23 @@ export const rayVolumeTransmittancePoint: ContributionPoint = {
                 requires: modules,
                 source: `fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f {
     return ${modules.map((_, k) => `ray_volume_transmittance_${k}(origin, dir, t_max, time)`).join(' * ')};
+}`,
+            }),
+        ),
+};
+
+/** Transmitância só dos meios participantes: o produto dos contribuintes. */
+export const rayMediaTransmittancePoint: ContributionPoint = {
+    name: 'ray_media_transmittance',
+    ready: rayMediaTransmittanceReady,
+    functionName: 'ray_media_transmittance',
+    combine: (modules) =>
+        memo(`rmt:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `ray_media_transmittance:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn ray_media_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f {
+    return ${modules.map((_, k) => `ray_media_transmittance_${k}(origin, dir, t_max)`).join(' * ')};
 }`,
             }),
         ),

@@ -48,8 +48,10 @@ import {
     RefractionStackSchema,
 } from './schemas';
 import {
+    rayMediaTransmittanceReady,
     rayVolumeBeginReady,
     rayVolumeHitReady,
+    rayVolumeScatterReady,
     rayVolumeMaterial,
     rayVolumeSurfaceReady,
     rayVolumeTypes,
@@ -302,6 +304,8 @@ export const refractionPath = wgslModule({
         sceneAmbientReady,
         sceneWetnessSlopeReady,
         sceneWetnessMovingReady,
+        rayMediaTransmittanceReady,
+        rayVolumeScatterReady,
         R.frame,
     ],
 });

@@ -264,9 +264,15 @@ async function settle(app: Application, ms = 0): Promise<void> {
     app.step(0);
 }
 
-/** Avança `frames` quadros da simulação (tempo fixo). */
+/**
+ * Avança `frames` quadros da simulação (tempo fixo), cada um só com espaço na GPU (`readyForFrame`: os quadros em
+ * andamento abaixo do teto, como o laço do motor). Sem a espera, 20 quadros seguidos entravam na fila da GPU de uma vez:
+ * na sessão de 2560 × 1440 do `close`, a fila passava de segundos de trabalho e o processo da GPU caía ("A valid external
+ * Instance reference no longer exists") — nas rodadas em que os kernels já vinham compilados de um caso anterior.
+ */
 async function simulate(app: Application, frames: number): Promise<void> {
     for (let i = 0; i < frames; i++) {
+        while (!app.readyForFrame()) await new Promise((r) => setTimeout(r, 1));
         app.step(1 / 60);
         if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
     }

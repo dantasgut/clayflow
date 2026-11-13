@@ -34,6 +34,15 @@ const REFRACTION_CHAIN_SPLIT: u32 = 4u;
  * escolhida entre muitas): só a luz dele tem ruído a filtrar.
  */
 const REFRACTION_CHAIN_SAMPLED: u32 = 16u;
+/**
+ * A probabilidade mínima de cada lobo na roleta de Fresnel quando os dois levam luz (T075): pela probabilidade de Fresnel,
+ * a reflexão de ~4 % ia numa amostra em 25 com o peso 25 — onde ela vê algo claro (o teto 10× mais claro visto pela
+ * esfera que dispersa, na `glint`), um vagalume (0,128 % das amostras). Com o piso, o lobo raro pesa até F/0,06: sem viés
+ * (o peso divide pela probabilidade usada), com o ruído espalhado em vez de concentrado. Medido na `glint`/`dispersed`:
+ * 0,06 → vagalumes 0,032 % (≤ 0,05) e o ruído da esfera 1,83× o sem dispersão (≤ 2, era 1,67); 0,1 → 0,032 % e 2,10×; 0,2
+ * → 0,010 % e 3,2×.
+ */
+const REFRACTION_ROULETTE_FLOOR: f32 = 0.06;
 /** α da microfaceta até o qual a interface é lisa (rugosidade 0,1): os lobos seguidos sem sorteio. */
 const REFRACTION_SMOOTH_ALPHA: f32 = 0.01;
 
@@ -477,6 +486,16 @@ fn refraction_chain_follow_one(j: u32) {
         p.radiance += p.weight * refraction_inscatter(segment, p.origin, p.dir, reach, &state);
         p.flags |= REFRACTION_CHAIN_SAMPLED;
     }
+    if ((p.flags & REFRACTION_CHAIN_CAMERA) == 0u) {
+        // A névoa no trecho depois da primeira interface (T075): a do trecho da câmera vem dos froxels na composição.
+        let fog_reach = select(p.hit_t, REFRACTION_FOG_REACH, p.hit_instance == NONE);
+        let fog_light = refraction_fog_inscatter(segment, p.origin, p.dir, fog_reach, &state);
+        if (any(fog_light > vec3f(0.0))) {
+            p.radiance += p.weight * fog_light;
+            p.flags |= REFRACTION_CHAIN_SAMPLED;
+        }
+        p.weight *= ray_media_transmittance(p.origin, p.dir, fog_reach);
+    }
     p.weight *= n.through;
     p.state = state;
     if (n.moved) { p.flags |= REFRACTION_CHAIN_MOVED; }
@@ -579,8 +598,8 @@ fn refraction_chain_follow_one(j: u32) {
     // a própria reflexão) e o menor vai à vaga 4 do pixel, se livre (`refraction_chain_spare`); sem vaga, ele é cortado (a
     // energia dele conta como truncada — escolha do usuário pela variante A recomendada pelo agente, 2026-10-29 — sem ficar claro na proposta que ela cortava o lobo menor sem vaga: sem o ruído da escolha nem os vagalumes, ao
     // preço do lobo menor além das vagas). Na interface áspera, ou com a dispersão (adiada, aberta ou nesta interface:
-    // as vagas são dos canais dela), um
-    // lobo pela roleta de Fresnel (sem viés).
+    // as vagas são dos canais dela), um lobo pela roleta de Fresnel (sem viés), com a probabilidade de cada lobo de ao
+    // menos `REFRACTION_ROULETTE_FLOOR` quando os dois levam luz.
     if (n.alpha <= REFRACTION_SMOOTH_ALPHA && !disperse && !carry && p.channel < 0) {
         let reflects_major = luminance(reflect_weight) > luminance(transmit_weight);
         let major_dir = select(transmit_dir, reflect_dir, reflects_major);
@@ -618,7 +637,9 @@ fn refraction_chain_follow_one(j: u32) {
         refraction_chain_keep(s);
         return;
     }
-    let p_reflect = clamp(select(p_single, (f.x + f.y + f.z) / 3.0, disperse), 1e-4, 1.0 - 1e-4);
+    let both = any(reflect_weight > vec3f(0.0)) && any(transmit_weight > vec3f(0.0));
+    let floor_p = select(1e-4, REFRACTION_ROULETTE_FLOOR, both);
+    let p_reflect = clamp(select(p_single, (f.x + f.y + f.z) / 3.0, disperse), floor_p, 1.0 - floor_p);
     let u = refraction_random(&state);
     p.state = state;
     p.flags |= REFRACTION_CHAIN_SAMPLED;
@@ -818,12 +839,12 @@ fn refraction_camera_still() -> bool {
 }
 
 /**
- * Quadros em que o valor exato de um pixel vale: a maior volta do representante pelo bloco. A vez gira pela soma dos
- * dígitos do quadro na base 4 (`refraction_block_rep`), e entre dois traçados do mesmo pixel passam até 7 quadros (em
- * 32 % das voltas mais de 4); em xadrez (Opção B2), até 15. Com a validade de 4, a imagem parada perdia o valor exato
- * nesses quadros e o pixel caía na reconstrução pelos vizinhos (a borda nítida atrás do vidro borrava ~7 % por lado).
+ * Quadros em que o valor exato de um pixel vale: a maior volta do representante pelo bloco (`refraction_block_rep`):
+ * entre dois traçados do mesmo pixel passam até 6 quadros; em xadrez (Opção B2), até 11. Com a validade menor que a
+ * volta, a imagem parada perdia o valor exato nesses quadros e o pixel caía na reconstrução pelos vizinhos (a borda
+ * nítida atrás do vidro borrava ~7 % por lado).
  */
-const REFRACTION_STAMP_FRAMES: u32 = 7u;
+const REFRACTION_STAMP_FRAMES: u32 = 6u;
 
 /**
  * A fração da luz por caminhos que tocaram algo que se moveu (o alfa do albedo do bloco) acima da qual o valor exato
@@ -849,7 +870,7 @@ const REFRACTION_KEEP_RANGE: f32 = 0.02;
 const REFRACTION_KEEP_NOISY: f32 = 0.05;
 /** A variação relativa dos representantes em volta até a qual a vizinhança é lisa (a faixa vale). */
 const REFRACTION_KEEP_FLAT: f32 = 0.1;
-const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 16u;
+const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 11u;
 
 /** Passos do deslocamento da amostra dentro do pixel na etiqueta do último traçado (5 bits por eixo). */
 const REFRACTION_TRACE_STEPS: f32 = 31.0;
