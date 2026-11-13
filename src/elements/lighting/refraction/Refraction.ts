@@ -41,6 +41,15 @@ export const REFRACTION_RADIANCE_FORMAT: GPUTextureFormat = 'rgba16float';
  */
 export const REFRACTION_HIT_FORMAT: GPUTextureFormat = 'rgba32float';
 /**
+ * Formato do último traçado de cada pixel (`trace`, série temporal): xyz o ponto em que terminou o caminho que mais
+ * contribui para a cor (bits de f32) e w a etiqueta — o registro do objeto atingido nos 20 bits de baixo (`NONE` e os
+ * acima: 0xFFFFF), o deslocamento da amostra dentro do pixel no traçado (em pixels, [−½, ½] em 31 passos) em x nos
+ * bits 20–24 e em y nos 25–29, no bit 30 se o ponto discordava dos traçados anteriores em volta e o bit 31 marcando o
+ * texel traçado.
+ */
+export const REFRACTION_TRACE_FORMAT: GPUTextureFormat = 'rgba32uint';
+
+/**
  * Formato do albedo do ponto que o pixel mostra (`albedo`): a refletância (`closure_albedo`) da superfície em que termina
  * o caminho que mais contribui para a cor; 1 no céu e sem superfície — o guia de textura do filtro do sinal traçado
  * (casas de albedo diferente não se misturam). No alfa, 1 se algum caminho do pixel tocou uma instância que se moveu.
@@ -218,6 +227,9 @@ export class Refraction extends Entity<RefractionData> implements Resource {
             // Série temporal (spec 037): o ponto de agora e o do quadro anterior (quem mede o quanto a imagem que a água
             // ou o vidro levam andou: o movimento da refração).
             { ...target('hit', REFRACTION_HIT_FORMAT), history: { depth: 2 } },
+            // Série temporal (spec 037): o último traçado de cada pixel — o representante de agora o compara com o
+            // traçado dele ou de um vizinho pela posição da amostra mais próxima: o que o bloco mostra mudou?
+            { ...target('trace', REFRACTION_TRACE_FORMAT), history: { depth: 2 } },
             target('albedo', REFRACTION_ALBEDO_FORMAT),
             // A fração da luz de cada pixel que veio por caminhos com sorteio (a de ruído, que o filtro do sinal limpa).
             target('noise', 'r32float'),

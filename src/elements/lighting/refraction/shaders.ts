@@ -74,6 +74,7 @@ import {
     REFRACTION_ALBEDO_FORMAT,
     REFRACTION_FRAME_COUNT,
     REFRACTION_HIT_FORMAT,
+    REFRACTION_TRACE_FORMAT,
     REFRACTION_GRADIENT_FORMAT,
     REFRACTION_MAX_MEDIA,
     REFRACTION_QUEUE_FORMAT,
@@ -118,6 +119,11 @@ export const refractionHitSlots = Object.freeze({
     refractionHit: slot.channel(Refraction.schema, 'hit', { optional: true }),
 });
 
+/** O ponto do último traçado de cada pixel, série temporal (spec 037): o estágio da refração o escreve e o lê. */
+export const refractionTraceSlots = Object.freeze({
+    refractionTrace: slot.channel(Refraction.schema, 'trace', { optional: true }),
+});
+
 /** A fatia do ponto mostrado com atraso `lag` (0 agora, 1 o quadro anterior), lida ou (`write`) escrita. */
 const hitSeries = (name: string, lag: 0 | 1, write = false): ReturnType<typeof wgslResource> =>
     wgslResource({
@@ -127,6 +133,18 @@ const hitSeries = (name: string, lag: 0 | 1, write = false): ReturnType<typeof w
             : { texture: { sample: 'f32' } },
         frequency: 'stage',
         provider: { slot: 'refractionHit', lag },
+    });
+
+/** A fatia do último traçado com atraso `lag` (0 agora, escrita; 1 o quadro anterior, lida). */
+const traceSeries = (name: string, lag: 0 | 1): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding:
+            lag === 0
+                ? { storageTexture: { format: REFRACTION_TRACE_FORMAT, access: 'write' } }
+                : { texture: { sample: 'u32' } },
+        frequency: 'stage',
+        provider: { slot: 'refractionTrace', lag },
     });
 
 const priv = (name: string, access: 'read' | 'read_write', type: WgslResourceType): WgslResource =>
@@ -161,6 +179,9 @@ export const refractionResources = Object.freeze({
     hitOut: hitSeries('refraction_hit_out', 0, true),
     hit: hitSeries('refraction_hit', 0),
     hitPrevious: hitSeries('refraction_hit_previous', 1),
+    /** O ponto do último traçado de cada pixel: a fatia de agora (escrita) e a do quadro anterior. */
+    traceOut: traceSeries('refraction_trace_out', 0),
+    tracePrevious: traceSeries('refraction_trace_previous', 1),
     albedoOut: storageTexture('refraction_albedo_out', REFRACTION_ALBEDO_FORMAT),
     albedo: texture('refraction_albedo', 'f32'),
     noiseOut: storageTexture('refraction_noise_out', 'r32float'),
@@ -308,6 +329,8 @@ export const refractionChain = wgslModule({
         R.radianceOut,
         R.hitOut,
         R.hitPrevious,
+        R.traceOut,
+        R.tracePrevious,
         R.albedoOut,
         R.noiseOut,
         R.paths,

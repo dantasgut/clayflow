@@ -107,7 +107,15 @@ describe('Refraction (spec 034, T040)', () => {
             textureShape: { format: 'rgba32float', sizeFromCanvas: true, access: 'write-only' },
             history: { depth: 2 },
         });
-        expect(byId.size).toBe(11);
+        // O último traçado de cada pixel (T066d), série temporal: o ponto e a etiqueta com o deslocamento da amostra.
+        expect(byId.get('trace')).toEqual({
+            id: 'trace',
+            role: 'storage-texture',
+            allocation: 'onDemand',
+            textureShape: { format: 'rgba32uint', sizeFromCanvas: true, access: 'write-only' },
+            history: { depth: 2 },
+        });
+        expect(byId.size).toBe(12);
     });
 
     it('a C2 aloca só os parâmetros na inserção; os alvos quando pedidos, no tamanho do canvas, e recriados quando ele muda', async () => {

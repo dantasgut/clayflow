@@ -714,6 +714,8 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         var best = -1.0;
         var end = refraction_end(vec3f(0.0), NONE);
         var albedo_best = vec3f(1.0);
+        // A largura do cone do pixel no fim de maior luz.
+        var width = 0.0;
         var pixel = NONE;
         for (var k = 0u; k < REFRACTION_CHAIN_SLOTS; k++) {
             let p = refraction_paths[REFRACTION_CHAIN_SLOTS * i + k];
@@ -739,6 +741,7 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
                 best = l;
                 end = p.end;
                 albedo_best = p.albedo;
+                width = p.spread * (p.travelled + p.hit_t);
             }
         }
         if (pixel == NONE) { continue; }
@@ -751,7 +754,7 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
         // (`refraction_chain_upsample_main`) o leva aos pixels pedidos.
         let request = textureLoad(refraction_request, px, 0);
         refraction_blocks[refraction_blocks_index(px, size)] = RefractionBlock(vec4f(radiance, truncated), end,
-            vec4f(a, moved), vec4u(refraction.frame, px.x | (px.y << 16u), request.x, request.y), noisy);
+            vec4f(a, moved), vec4u(refraction.frame, px.x | (px.y << 16u), request.x, request.y), noisy, width, 0.0);
     }
 }
 
@@ -848,6 +851,123 @@ const REFRACTION_KEEP_NOISY: f32 = 0.05;
 const REFRACTION_KEEP_FLAT: f32 = 0.1;
 const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 16u;
 
+/** Passos do deslocamento da amostra dentro do pixel na etiqueta do último traçado (5 bits por eixo). */
+const REFRACTION_TRACE_STEPS: f32 = 31.0;
+
+/**
+ * A etiqueta do último traçado (`REFRACTION_TRACE_FORMAT`): o registro `record`, o deslocamento `jitter` (pixels) e se
+ * o ponto dele discordava dos traçados anteriores em volta (`off`, bit 30: `refraction_chain_change_main`).
+ */
+fn refraction_trace_tag(record: u32, jitter: vec2f, off: bool) -> u32 {
+    let k = vec2u(round(clamp(jitter + 0.5, vec2f(0.0), vec2f(1.0)) * REFRACTION_TRACE_STEPS));
+    return min(record, 0xFFFFFu) | (k.x << 20u) | (k.y << 25u) | select(0u, 0x40000000u, off) | 0x80000000u;
+}
+
+/** O deslocamento da amostra (pixels) na etiqueta `tag` do último traçado. */
+fn refraction_trace_jitter(tag: u32) -> vec2f {
+    return vec2f(f32((tag >> 20u) & 31u), f32((tag >> 25u) & 31u)) / REFRACTION_TRACE_STEPS - 0.5;
+}
+
+/**
+ * Com a cena parada, o ponto mostrado por duas amostras a `g` pixels uma da outra na tela fica a até a largura por
+ * pixel no ponto vezes `g`; a folga sobre isso cobre a curvatura da imagem que a superfície leva entre elas. Empírico:
+ * a 2 a água das partículas parada (a física em pausa) vista pelo vidro perdia o valor exato em muitos blocos; a 4 a
+ * que se move guardava mais o de antes.
+ */
+const REFRACTION_KEEP_DRIFT: f32 = 3.0;
+
+/**
+ * O que o bloco do representante `rep` mostra mudou desde os últimos traçados em volta — o gradiente temporal da
+ * reconstrução (como o do A-SVGF, Schied et al. 2018: a amostra de agora contra a anterior na mesma posição)? Entre os
+ * últimos traçados dos pixels 3 × 3 em volta dele (`refraction_trace_previous`, da mesma superfície do pedido `request`
+ * e do mesmo objeto do ponto de agora `end`), o de amostra mais perto na tela da de agora (o pixel mais o deslocamento
+ * dentro dele): o ponto dele a mais de `REFRACTION_KEEP_DRIFT` × `scale` (a largura por pixel no ponto) × a distância
+ * entre as amostras do ponto de agora é a mudança, confirmada pela segunda mais perto (quando há): uma só discorda onde
+ * a imagem que a superfície leva se curva mais que a folga entre as amostras (a borda de uma lente). A água das
+ * partículas nunca é marcada em movimento (`ray_volume_hit`) e o que se vê por ela muda sem a marca: sem este gradiente
+ * os pixels do bloco guardavam o valor exato de quadros diferentes — o granulado de pixel a pixel em toda a água que se
+ * move vista pelo vidro. Pela amostra mais perto, e não pelo traçado anterior do próprio pixel, o deslocamento da
+ * amostra pelo antisserrilhado temporal não conta como mudança onde a superfície amplia a imagem (as gotas, a água
+ * ondulada parada). Sem traçado do mesmo objeto em volta, não se sabe: não mudou.
+ */
+fn refraction_block_changed(rep: vec2u, size: vec2u, end: vec4f, request: vec2u, scale: f32) -> bool {
+    let now = vec2f(rep) + 0.5 + cameras[refraction.camera_slot].jitter.zw;
+    let id = min(bitcast<u32>(end.w), 0xFFFFFu);
+    let d = bitcast<f32>(request.x);
+    // As duas amostras mais perto: (a distância na tela, se o ponto dela discorda do de agora).
+    var first = vec2f(3.0e38, 0.0);
+    var second = vec2f(3.0e38, 0.0);
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let p = vec2i(rep) + vec2i(dx, dy);
+            if (any(p < vec2i(0)) || any(p >= vec2i(size))) { continue; }
+            let r = textureLoad(refraction_request, vec2u(p), 0);
+            if (r.y != request.y || abs(bitcast<f32>(r.x) - d) > 0.02 * d + 1e-3) { continue; }
+            let t = textureLoad(refraction_trace_previous, vec2u(p), 0);
+            if ((t.w & 0x80000000u) == 0u || (t.w & 0xFFFFFu) != id) { continue; }
+            let gap = distance(vec2f(p) + 0.5 + refraction_trace_jitter(t.w), now);
+            let off = distance(bitcast<vec3f>(t.xyz), end.xyz)
+                > REFRACTION_KEEP_DRIFT * scale * max(gap, 1.0 / REFRACTION_TRACE_STEPS);
+            let c = vec2f(gap, select(0.0, 1.0, off));
+            if (gap < first.x) {
+                second = first;
+                first = c;
+            } else if (gap < second.x) {
+                second = c;
+            }
+        }
+    }
+    if (first.x >= 3.0e38) { return false; }
+    return first.y > 0.5 && (second.x >= 3.0e38 || second.y > 0.5);
+}
+
+/**
+ * A mudança de cada bloco traçado neste quadro (`RefractionBlock.change`: 0 não, 1 o ponto discorda só agora, 2 mudou),
+ * depois do fechamento de todos e antes da reconstrução, com a câmera parada (com ela em movimento nenhum valor antigo
+ * fica e o xadrez não reconstrói pela cena de antes): `refraction_block_changed` com a largura por pixel no ponto do
+ * representante — o cone do pixel ali ou, maior, a distância por pixel aos pontos dos representantes traçados agora nos
+ * blocos em volta (o que a superfície amplia), da mesma superfície e do mesmo objeto. A mudança pede a discordância
+ * também num traçado anterior do bloco (o bit 30 da etiqueta dos pixels dele): a água que se move discorda em todos os
+ * quadros; a parada, só onde a curva da imagem entre duas amostras passa da folga — num quadro, pelo deslocamento
+ * delas, e raramente no seguinte.
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn refraction_chain_change_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let size = textureDimensions(refraction_request);
+    let blocks = vec2i((size + vec2u(1u)) / 2u);
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (i >= u32(blocks.x * blocks.y)) { return; }
+    let block = refraction_blocks[i];
+    if (block.tag.x != refraction.frame || !refraction_camera_still()) { return; }
+    let rep = vec2u(block.tag.y & 0xFFFFu, block.tag.y >> 16u);
+    let d = bitcast<f32>(block.tag.z);
+    let id = bitcast<u32>(block.end.w);
+    let c = vec2i(i32(i) % blocks.x, i32(i) / blocks.x);
+    var scale = block.width;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let n = c + vec2i(dx, dy);
+            if ((dx == 0 && dy == 0) || any(n < vec2i(0)) || any(n >= blocks)) { continue; }
+            let other = refraction_blocks[u32(n.x + n.y * blocks.x)];
+            if (other.tag.x != refraction.frame || other.tag.w != block.tag.w
+                || abs(bitcast<f32>(other.tag.z) - d) > 0.02 * d + 1e-3 || bitcast<u32>(other.end.w) != id) {
+                continue;
+            }
+            let r = vec2f(f32(other.tag.y & 0xFFFFu), f32(other.tag.y >> 16u));
+            scale = max(scale, distance(other.end.xyz, block.end.xyz) / max(distance(r, vec2f(rep)), 1.0));
+        }
+    }
+    if (!refraction_block_changed(rep, size, block.end, block.tag.zw, scale)) { return; }
+    var before = false;
+    let corner = rep & vec2u(~1u);
+    for (var k = 0u; k < 4u; k++) {
+        let p = corner + vec2u(k & 1u, k >> 1u);
+        if (any(p >= size)) { continue; }
+        before = before || (textureLoad(refraction_trace_previous, p, 0).w & 0xC0000000u) == 0xC0000000u;
+    }
+    refraction_blocks[i].change = select(1.0, 2.0, before);
+}
+
 /**
  * Cada pixel pedido pelos representantes traçados neste quadro nos blocos em volta (3 × 3 blocos): o próprio, quando foi
  * o representante (o valor exato, com o carimbo: o quadro e a distância do pedido, `refraction_stamps`); senão, com a
@@ -855,7 +975,9 @@ const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 16u;
  * valor exato dele fica — a imagem parada é a de resolução cheia; senão (a superfície mudou: a câmera ou a água se moveram) a média com o
  * peso da distância em pixels, só dos que mostram a mesma superfície do pedido (as marcas e a distância dele, como no
  * bloco), com o fim (o guia) do mais próximo. Sem nenhum, o pixel fica com o valor anterior. O filtro temporal sabe
- * quais são reconstruídos (`temporal_filter_source_fresh`): neles guarda o histórico válido.
+ * quais são reconstruídos (`temporal_filter_source_fresh`): neles guarda o histórico válido. Onde o que o bloco mostra
+ * mudou (`RefractionBlock.change`, a água que se move vista pelo vidro), nem o valor exato antigo fica nem, em xadrez,
+ * entram os blocos do quadro anterior. O traçado de agora vai ao último traçado do pixel (`refraction_trace_out`).
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -863,6 +985,8 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= size.x * size.y) { return; }
     let q = vec2u(i % size.x, i / size.x);
+    // O último traçado é uma série temporal (spec 037): o pixel não traçado agora leva o anterior à fatia de agora.
+    textureStore(refraction_trace_out, q, textureLoad(refraction_trace_previous, q, 0));
     let own = textureLoad(refraction_request, q, 0);
     if ((own.y & REFRACTION_REQUEST_VALID) == 0u) { return; }
     let d = bitcast<f32>(own.x);
@@ -879,9 +1003,24 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // superfície (a borda de um objeto que se move) — melhor que o valor de quadros atrás.
     var near_any = 1e9;
     var fallback: RefractionBlock;
+    // O que o bloco do pixel mostra mudou desde os últimos traçados ali (`refraction_chain_change_main`: a água das
+    // partículas, sem a marca de movimento)? Pelo próprio bloco quando traçado agora; em xadrez, o bloco do quadro
+    // anterior pelos dos lados, traçados agora. Então os blocos do quadro anterior ficam de fora — mostram a cena de
+    // antes —, e o valor exato antigo também não fica.
+    var changed = false;
+    for (var k = 0u; k < 5u; k++) {
+        let c = center + array<vec2i, 5>(vec2i(0, 0), vec2i(1, 0), vec2i(-1, 0), vec2i(0, 1), vec2i(0, -1))[k];
+        if (any(c < vec2i(0)) || any(c >= blocks)) { continue; }
+        let b = u32(c.x + c.y * blocks.x);
+        let tag = refraction_blocks[b].tag;
+        if (tag.x != refraction.frame || tag.w != own.y || abs(bitcast<f32>(tag.z) - d) > 0.02 * d + 1e-3) { continue; }
+        changed = changed || refraction_blocks[b].change > 1.5;
+        // O próprio bloco traçado agora basta.
+        if (k == 0u) { break; }
+    }
     // A luz da mesma superfície em volta veio por algo que se moveu (a água atrás do vidro, a película nele)? Então o
     // que o pixel mostra mudou mesmo com a primeira superfície parada: o valor exato antigo não fica.
-    var moving = false;
+    var moving = changed;
     // A faixa da luminância dos representantes de agora da mesma superfície (`REFRACTION_KEEP_RANGE`).
     var low = 3.0e38;
     var high = 0.0;
@@ -897,7 +1036,7 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             let tag = block.tag;
             // Em xadrez (Opção B2) a vizinhança tem os blocos deste quadro e os do anterior (a outra metade).
             let fresh = tag.x == refraction.frame
-                || (refraction.checkerboard != 0u && tag.x + 1u == refraction.frame);
+                || (refraction.checkerboard != 0u && tag.x + 1u == refraction.frame && !changed);
             if (!fresh || tag.w != own.y) { continue; }
             let r = vec2u(tag.y & 0xFFFFu, tag.y >> 16u);
             let to_rep = dot(vec2f(r) - vec2f(q), vec2f(r) - vec2f(q));
@@ -930,6 +1069,12 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
                 end = hit;
             }
         }
+    }
+    // O traçado de agora do pixel (em xadrez, o bloco pode ser do quadro anterior: o traçado já foi guardado).
+    if (own_traced && own_block.tag.x == refraction.frame) {
+        textureStore(refraction_trace_out, q, vec4u(bitcast<vec3u>(own_block.end.xyz),
+            refraction_trace_tag(bitcast<u32>(own_block.end.w), cameras[refraction.camera_slot].jitter.zw,
+                own_block.change > 0.5)));
     }
     // O representante fica com o valor exato dele quando nada em volta se moveu. Com movimento, os 3 pixels do bloco que
     // não foram traçados saem da reconstrução e o traçado sairia nítido entre eles: um pixel diferente a cada 2 × 2, o

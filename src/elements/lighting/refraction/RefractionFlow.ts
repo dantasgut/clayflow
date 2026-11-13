@@ -42,6 +42,7 @@ import {
     refractionQueue,
     refractionResources,
     refractionHitSlots,
+    refractionTraceSlots,
     refractionChain,
     refractionChainArgs,
 } from './shaders';
@@ -65,6 +66,8 @@ export interface RefractionSlots extends SlotMap {
     readonly work: WorkSlot<RefractionWork>;
     /** O ponto mostrado, série temporal (spec 037): a fatia de agora, escrita, e a do quadro anterior. */
     readonly refractionHit: ChannelSlot<true>;
+    /** O ponto do último traçado de cada pixel, série temporal (spec 037). */
+    readonly refractionTrace: ChannelSlot<true>;
 }
 
 /** Resource de trabalho do `RefractionFlow` (spec 039). */
@@ -115,6 +118,7 @@ const CHAIN_KERNELS = [
     'follow',
     'swap',
     'resolve',
+    'change',
     'upsample',
 ] as const;
 type ChainKernel = (typeof CHAIN_KERNELS)[number];
@@ -208,6 +212,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
             time: slot.singleton(Time.schema, { optional: true }),
             work: slot.work(() => work),
             ...refractionHitSlots,
+            ...refractionTraceSlots,
         };
         this.resources = ctx.resources;
         this.world = ctx.world;
@@ -336,13 +341,24 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 bind(pass, kernel('resolve'));
                 pass.dispatch.invocations(grid, W);
             }
+            // A mudança de cada bloco traçado (o gradiente temporal da reconstrução), com todos os blocos fechados.
+            bind(pass, kernel('change'));
+            pass.dispatch.invocations(this.blocks, W);
             // A meia resolução: cada pixel pedido pelos representantes do quadro em volta.
             bind(pass, kernel('upsample'));
             pass.dispatch.invocations(this.pixels, W);
         });
-        // O ponto mostrado de agora está na fatia corrente do canal: o quadro seguinte a lê como a anterior.
-        bound.slots.refractionHit?.written();
+        this.written(bound);
         this.frame++;
+    }
+
+    /**
+     * O ponto mostrado e o último traçado de agora estão nas fatias correntes dos canais: o quadro seguinte os lê como
+     * os anteriores.
+     */
+    private written(bound: BoundFlow<RefractionSlots>): void {
+        bound.slots.refractionHit?.written();
+        bound.slots.refractionTrace?.written();
     }
 
     /**
@@ -503,6 +519,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
         for (const [id] of textures.slice(1)) this.resources.ensureAllocated(refraction, id);
         // O ponto mostrado: ligado pelo canal (a fatia de agora e a anterior giram a cada quadro).
         this.resources.ensureAllocated(refraction, 'hit');
+        this.resources.ensureAllocated(refraction, 'trace');
         // As inversas de mundo (spec 037): o histórico leva o ponto atingido ao espaço do objeto por elas.
         this.resources.ensurePoolAllocated(Transform.worldInverseSchema.name);
         const count = this.resources.ensureAllocated(refraction, 'queueCount');

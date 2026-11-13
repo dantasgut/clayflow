@@ -41,8 +41,9 @@ export const RefractionStackSchema = new StructSchema('RefractionStack', {
 /**
  * O registro de um bloco 2×2 da meia resolução (spec 039 refeita): o resultado do representante traçado no quadro — a
  * radiância e a energia truncada, o fim (o guia), o albedo e a marca de movimento — e (o quadro, o pixel em 16 + 16
- * bits, a distância e as marcas do pedido nele), e a fração da luz com ruído (a dos caminhos que passaram por um
- * sorteio), lidos pela reconstrução.
+ * bits, a distância e as marcas do pedido nele), a fração da luz com ruído (a dos caminhos que passaram por um
+ * sorteio), a largura do cone do pixel no fim e a mudança do que o bloco mostra desde os últimos traçados em volta (1
+ * mudou: o gradiente temporal da reconstrução), lidos pela reconstrução.
  */
 export const RefractionBlockSchema = new StructSchema('RefractionBlock', {
     radiance: FieldType.vec4f,
@@ -50,6 +51,8 @@ export const RefractionBlockSchema = new StructSchema('RefractionBlock', {
     albedo: FieldType.vec4f,
     tag: FieldType.vec4u,
     noise: FieldType.f32,
+    width: FieldType.f32,
+    change: FieldType.f32,
 });
 
 export const RefractionChainSchema = new StructSchema('RefractionChainState', {
