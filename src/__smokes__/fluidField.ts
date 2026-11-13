@@ -1045,7 +1045,8 @@ async function damCost(
             const at = (list: number[] | undefined): number =>
                 list === undefined
                     ? 0
-                    : median([...list, ...Array<number>(n - list.length).fill(0)]);
+                    : // Os quadros sem o Flow contam zero (um estado pode ter mais leituras que o outro).
+                      median([...list, ...Array<number>(Math.max(0, n - list.length)).fill(0)]);
             return [flow, at(flows.water.get(flow)) - at(flows.off.get(flow))];
         })
         .filter(([, d]) => Math.abs(d) >= 0.05)

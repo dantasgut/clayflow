@@ -820,8 +820,11 @@ const CASES: Record<string, Case> = {
                 retired++;
                 continue;
             }
+            // Abaixo da superfície só sobre o terreno: além da borda dele a água cai (o pingo da película que chega à
+            // borda, T066d) e sai por baixo do domínio.
+            const over = Math.max(Math.abs(p[0]), Math.abs(p[2])) <= LAKE_VALLEY.half;
             const h = valleyHeight(p[0], p[2], 0, LAKE_VALLEY);
-            if (h - p[1] > LAKE_SPACING / 2) below++;
+            if (over && h - p[1] > LAKE_SPACING / 2) below++;
             if (p[1] < -LAKE_VALLEY.depth - LAKE_SPACING) escaped++;
         }
         c.measure('retiradas (saíram do terreno)', retired);
