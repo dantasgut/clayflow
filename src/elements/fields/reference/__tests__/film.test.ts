@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { contactLineRetention, trailRetention } from '../../../physics/wetting/wetting';
 import {
     absorbUnits,
     capAt,
@@ -13,6 +14,7 @@ import {
     dropAt,
     dropShape,
     cellDrops,
+    criticalDropBase,
     dropExtent,
     filmFlowSpeed,
     filmSlopeCap,
@@ -181,6 +183,29 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
         expect(filmDefect([3, 7, -2], 0.5)).toBe(filmDefect([3, 7, -2], 0.5));
         // Sem desigualdade, a borda é a mesma em toda parte.
         expect(filmDefect([3, 7, -2], 0)).toBe(1);
+    });
+
+    it('a ruptura da borda (Furmidge): o vidro de janela segura a gota até ~2,4 mm de raio de base', () => {
+        const theta = (30 * Math.PI) / 180;
+        const line = { surfaceTension: 0.072, contactAngle: 30, hysteresis: 20, roughness: 1 };
+        const hold = contactLineRetention(line) / 1000;
+        const ac = criticalDropBase(hold, 9.81, theta);
+        expect(ac).toBeGreaterThan(2.3e-3);
+        expect(ac).toBeLessThan(2.6e-3);
+        // A forma do motor (`dropShape`) com a mesma borda: a gota redonda do raio crítico tem carga 1 pela largura 2a; a
+        // alongada pela gravidade estreita a base e escorre um pouco antes (a carga pela largura de lado, 2a⊥).
+        expect(dropShape(capVolume(0.9 * ac, theta), theta, hold, 9.81).chi).toBeLessThan(1);
+        expect(dropShape(capVolume(1.1 * ac, theta), theta, hold, 9.81).chi).toBeGreaterThan(1);
+        // O caminho já molhado: a frente no ângulo de equilíbrio — a borda segura (cos θr − cos θ)/(cos θr − cos θa).
+        const trail = trailRetention(line);
+        const deg = Math.PI / 180;
+        expect(trail).toBeCloseTo(
+            (Math.cos(20 * deg) - Math.cos(30 * deg)) / (Math.cos(20 * deg) - Math.cos(40 * deg)),
+            12,
+        );
+        expect(trail).toBeGreaterThan(0.4);
+        expect(trail).toBeLessThan(0.5);
+        expect(trailRetention({ ...line, hysteresis: 0 })).toBe(1);
     });
 
     it('a gota alongada pela carga da borda: a área e o volume da calota, o ápice para baixo (a frente íngreme)', () => {

@@ -163,16 +163,18 @@ fn field_film_toward_channel(c: vec3i, axes: vec2i, along: i32) -> i32 {
     return 0;
 }
 
-fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, cos_t: f32, spread: f32, dt: f32)
-    -> u32 {
+fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, cos_t: f32, rows: vec4f,
+    wet_path: bool, dt: f32) -> u32 {
     let size = field_film_size();
     let h = f32(free_units) * FIELD_FILM_UNIT;
     let g = fluid_field.filmFlow.xyz;
     let gt = g - dot(g, n) * n;
     let gl = length(gt);
     if (gl <= 1e-3 || fluid_field.filmFlow.w <= 0.0) { return 0u; }
-    // A espessura presa pela borda da célula (os defeitos do sólido, `field_film_defect`).
-    let excess = h - terms.x * field_film_defect(c, spread) / (gl * field_voxel());
+    // A espessura presa pela borda da célula (os defeitos do sólido, `field_film_defect`); no caminho por onde a água
+    // acabou de passar, a frente avança sobre água — só a fração `trail` da borda (`trailRetention`): a gota seguinte
+    // desce pelo mesmo caminho, e o caminho vira filete.
+    let excess = h - terms.x * field_film_defect(c, rows.x) * select(1.0, rows.y, wet_path) / (gl * field_voxel());
     if (excess <= 0.0) { return 0u; }
     // A velocidade: a da película fina de Nusselt, limitada na molhagem parcial (θ > 0) pela dissipação na linha de
     // contato da frente (Kim, Lee & Kang 2002; Le Grand, Daerr & Limat 2005): o peso que passa da borda por largura, ρ
@@ -445,7 +447,7 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     }
     // Escoamento do excesso sobre a espessura presa, depois o espalhamento no plano; o que fica, na própria célula.
     let moved = field_film_flow(c, w, n, free_units, terms, field_film_surface(surface - 1u, 1u).y,
-        field_film_surface(surface - 1u, 2u).x, dt);
+        field_film_surface(surface - 1u, 2u), field_film_previous[pw + 7u] != 0u, dt);
     free_units -= moved;
     // O escoamento da célula: a água que desceu dela agora e a metade do do passo anterior (o filete que corre
     // intermitente — o excesso sai em unidades inteiras — não pisca entre filete e gotas; parado, some em poucos passos e

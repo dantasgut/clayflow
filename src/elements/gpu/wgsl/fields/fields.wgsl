@@ -287,11 +287,13 @@ struct FieldFilmCell {
     hold: f32,
     /** A água correu pela célula nos últimos passos (o filete; `field_film_step_main`). */
     flowing: bool,
+    /** A água que corre pela célula sobre a que ela tem (o escoamento do passo sobre a água livre). */
+    flow_share: f32,
 }
 
 /** A película na célula `c` da página `page` (achada por `field_film_data_page`; `NONE`: sem película; spec 034). */
 fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
-    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, 0.0, false);
+    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, 0.0, false, 0.0);
     let key = field_film_key(c);
     if (page == NONE || key == 0u) { return out; }
     let w = field_film_word(field_film_slot_in(page, c, axes));
@@ -309,8 +311,10 @@ fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
     out.cos_t = drop.y;
     out.critical = drop.w;
     // A força da borda com os defeitos do sólido na célula (a mesma do passo, `field_film_flow`).
-    out.hold = surface.x * field_film_defect(c, field_film_surface(max(field_data[w + 5u], 1u) - 1u, 2u).x);
+    let rows = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 2u);
+    out.hold = surface.x * field_film_defect(c, rows.x) * select(1.0, rows.y, field_data[w + 7u] != 0u);
     out.flowing = field_data[w + 7u] != 0u;
+    out.flow_share = f32(field_data[w + 7u]) / f32(max(field_data[w + 1u], 1u));
     return out;
 }
 
@@ -663,8 +667,9 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
     if (cos_t > 1e-3 && steep_all * cos_t > sin_t) { grad_all *= sin_t / (cos_t * steep_all); }
     // O nível de detalhe: a amostra que cobre a célula inteira vê a média da água dela (a filtragem da área, como o
     // mapa de alturas filtrado de LEAN, Olano & Baker 2010) — as gotas e os filetes menores que ela somem na média, e a
-    // inclinação média de uma gota inteira na amostra é zero. De meia célula (as gotas resolvidas) a uma e meia.
-    let lod = clamp(footprint / size - 0.5, 0.0, 1.0);
+    // inclinação média de uma gota inteira na amostra é zero. Da amostra de um oitavo de célula (~0,8 mm: o raio das
+    // gotas médias, resolvidas) à de um quarto (~1,6 mm: várias gotas na amostra, a média delas).
+    let lod = clamp(8.0 * footprint / size - 1.0, 0.0, 1.0);
     if (lod >= 1.0) {
         out.wet.x = mean_all;
         var flat = vec3f(0.0);
@@ -746,8 +751,15 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
 }
 
 /**
- * A película corre no ponto `p` da superfície de normal `n`: a célula dele ou uma das 8 em volta no plano teve água
- * descendo nos últimos passos (o filete; `field_film_step_main`).
+ * A fração da água de uma célula que corre por ela por passo acima da qual o que se vê ali muda depressa: abaixo dela (a
+ * gota que se arrasta a mm/s pela linha de contato, o excesso que ainda escoa devagar sobre um defeito) a água da célula
+ * leva mais de ~1 s (60 passos) para se renovar — mais que a janela do histórico da imagem, que pode guardar o que viu.
+ */
+const FIELD_FILM_MOVING_SHARE: f32 = 0.02;
+
+/**
+ * A película corre no ponto `p` da superfície de normal `n`: na célula dele ou numa das 8 em volta no plano, a água que
+ * desceu nos últimos passos passa de `FIELD_FILM_MOVING_SHARE` da que a célula tem (o filete; `field_film_step_main`).
  */
 fn field_film_moving(p: vec3f, n: vec3f) -> bool {
     let layer = field_film_cell(p, n);
@@ -763,7 +775,7 @@ fn field_film_moving(p: vec3f, n: vec3f) -> bool {
             page_of = pk;
             page = select(NONE, field_film_data_page(pk), field_film_key(c) != 0u);
         }
-        if (field_film_cell_in(page, c, axes).flowing) { return true; }
+        if (field_film_cell_in(page, c, axes).flow_share > FIELD_FILM_MOVING_SHARE) { return true; }
     }
     return false;
 }

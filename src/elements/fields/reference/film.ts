@@ -404,3 +404,13 @@ export function filmDefect(c: readonly [number, number, number], spread: number)
     const n = ((h & 0xffff) + (h >>> 16)) / 65535 - 1;
     return Math.exp(spread * 2.449 * n);
 }
+
+/**
+ * O raio crítico (m) da base da gota redonda de ângulo θ que a borda `hold` (f / ρ, m³/s²) segura contra a gravidade
+ * `gt` (m/s²) ao longo do sólido (Furmidge 1962; ElSherbini & Jacobi 2006 com k = 1 e a largura 2a): ρ g_t V(a) = f 2a,
+ * V = c a³ — a_c = √(2 (f/ρ) / (g_t c)). Abaixo dele a gota fica; acima, escorre.
+ */
+export function criticalDropBase(hold: number, gt: number, theta: number): number {
+    const c = capVolume(1, theta);
+    return Math.sqrt((2 * hold) / (gt * c));
+}

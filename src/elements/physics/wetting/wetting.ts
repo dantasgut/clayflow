@@ -137,6 +137,23 @@ export function filmBreakThickness(
  * sólido: o peso da água na célula, ρ g_t h ℓ², contra a borda ancorada, f ℓ (`retention`, N/m) — acima dela, o
  * excesso rompe a borda e escorre.
  */
+/**
+ * A fração da retenção da borda que sobra no caminho já molhado (spec 034, T066d): a gota que desce por onde outra já
+ * passou avança sobre água — a frente fica no ângulo de equilíbrio θ, não no de avanço θ_a —, e a borda a segura com
+ * γ (cos θ_r − cos θ) em vez de γ (cos θ_r − cos θ_a) (Podgorski, Flesselles & Limat 2001; o caminho pré-molhado de Le
+ * Grand, Daerr & Limat 2005). Com a rugosidade de Wenzel nos três ângulos; 1 sem histerese.
+ */
+export function trailRetention(c: ContactLine): number {
+    const advancing = Math.min(180, c.contactAngle + c.hysteresis / 2);
+    const receding = Math.max(0, c.contactAngle - c.hysteresis / 2);
+    const full = wenzelCos(receding, c.roughness) - wenzelCos(advancing, c.roughness);
+    if (!(full > 0)) return 1;
+    return (
+        Math.max(0, wenzelCos(receding, c.roughness) - wenzelCos(c.contactAngle, c.roughness))
+        / full
+    );
+}
+
 export function pinnedThickness(
     retention: number,
     gt: number,
@@ -237,6 +254,8 @@ export interface FilmSurfaceTerms {
     readonly breakThickness: number;
     /** O desvio-padrão do logaritmo da força da borda de lugar para lugar (`SurfacePhysics.pinningSpread`). */
     readonly pinningSpread: number;
+    /** A fração da retenção que sobra no caminho já molhado (`trailRetention`). */
+    readonly trailRetention: number;
 }
 
 /**
@@ -293,5 +312,11 @@ export function filmSurfaceTerms(
             contactAngle,
         ),
         pinningSpread: surface.pinningSpread ?? 0,
+        trailRetention: trailRetention({
+            surfaceTension: liquid.surfaceTension,
+            contactAngle,
+            hysteresis: surface.hysteresis,
+            roughness: surface.roughness,
+        }),
     };
 }

@@ -136,7 +136,7 @@ export const FluidFieldSchema = new StructSchema(
          * Por superfície da película (`FIELD_FILM_SURFACES`, três linhas cada; `filmSurfaceTerms`): (a força da borda
          * sobre a densidade em m³/s², o inverso da rugosidade, o coeficiente de Washburn em m²/s, a capacidade dos poros
          * em m), (a evaporação da água livre em m/s, o cosseno do ângulo de contato, a base da gota, a espessura da
-         * ruptura) e (a desigualdade da força da borda, 0, 0, 0).
+         * ruptura) e (a desigualdade da força da borda, a fração dela no caminho já molhado, 0, 0).
          */
         filmSurfaces: fieldArray(FieldType.vec4f, 3 * FIELD_FILM_SURFACES.value),
         /**

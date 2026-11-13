@@ -333,8 +333,8 @@ async function main(): Promise<void> {
             `absorb: retirada ${spread.retired}, ${spread.film[0]!.volume} contra ${whole}, eixos ${spread.film[0]!.ratio}, centro ${off}`,
         );
 
-    // A borda que segura (Furmidge): a gota passada à película escorre pela parede e deixa atrás a espessura presa — a
-    // do vidro (abaixo da residual: a residual também escorre) e a do tijolo (acima: a residual fica), sem os poros.
+    // A borda que segura (Furmidge): a gota passada à película escorre pela parede e deixa atrás a espessura presa no
+    // caminho já molhado, a do vidro e a do tijolo, sem os poros.
     const wallCell = (0.5 * 0.01) / FIELD_FILM_SUBDIV;
     const trailOf = async (app: Application): Promise<{ trail: number[]; above: number }> => {
         const field = app.world.findResource(FluidField.schema, FluidField)!;
@@ -352,7 +352,11 @@ async function main(): Promise<void> {
         ['tijolo', { ...SurfacePhysics.BRICK, porosity: 0 }],
     ] as const) {
         const terms = filmSurfaceTerms(new SurfacePhysics(options), liquid, air);
-        const hold = pinnedThickness(terms.retentionPerDensity * 1000, 9.81, 0.5 * 0.01);
+        // No caminho por onde a água acabou de passar a frente avança sobre água: a borda segura só a fração
+        // `trailRetention` (o rastro de quem desce é mais fino que a água que uma gota parada segura).
+        const hold =
+            pinnedThickness(terms.retentionPerDensity * 1000, 9.81, 0.5 * 0.01)
+            * terms.trailRetention;
         const { trail, above } = await wallTrail(options, trailOf);
         const sorted = [...trail].sort((a, b) => a - b);
         const mid = sorted[sorted.length >> 1] ?? NaN;
