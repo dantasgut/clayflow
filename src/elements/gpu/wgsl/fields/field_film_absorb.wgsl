@@ -3,7 +3,7 @@
 // partículas — a de uma partícula sobre um sólido se abre numa poça mais fina que ela, ou escorre como filete. O volume
 // dela entra na película na poça em que se abre: o disco da espessura que a linha de contato segura contra o peso
 // normal à superfície, √(2 f / (ρ g_n)), até a película mais grossa do modelo (na parede, ela), com a água de cada célula
-// pela cobertura do disco (a borda redonda); o disco até o alcance do laço (a poça maior começa menor e espalha). Só as
+// pela cobertura do disco (a borda redonda), ou o da lâmina do impacto se maior (Clanet et al. 2004); o disco até o alcance do laço (a poça maior começa menor e espalha). Só as
 // células sobre o sólido recebem (na quina a poça não passa ao ar); a conta é inteira, nas unidades da pendente (as do
 // pingo, a conta inversa): a parte de cada célula e o resto do arredondamento na célula do contato — a película ganha
 // exatamente o que a partícula tinha. Daí em diante é a física da película: escorre (deixando atrás a espessura que a
@@ -78,8 +78,13 @@ fn field_film_absorb_main(
     let thickness = select(FIELD_FILM_MAX, min(FIELD_FILM_MAX, sqrt(2.0 * hold / gn)), gn > 1e-3);
     // O disco inteiro dentro do alcance do laço (a poça maior que ele começa menor e mais grossa, e espalha pela física
     // da película): cortado pelo quadrado do laço, ela sairia quadrada.
+    // A lâmina do impacto (`field_film_impact_spread`): a água que chegou rápida abre-se até o diâmetro dela, mais fina
+    // que a poça parada — a gravidade a drena e ela rompe em gotas pela física da película (a da parede descia como uma
+    // placa de 1 cm, a mais grossa do modelo).
+    let d0 = 2.0 * pow(3.0 * fluid_field.filmShape.z / (4.0 * PI), 1.0 / 3.0);
+    let impact = 0.5 * d0 * bitcast<f32>(field_drips_read[c + 4u]);
     let radius = min(
-        sqrt(fluid_field.filmShape.z / (PI * max(thickness, 1e-9))),
+        max(sqrt(fluid_field.filmShape.z / (PI * max(thickness, 1e-9))), impact),
         (f32(FIELD_FILM_ABSORB) - 0.5) * size,
     );
     let reach = min(i32(ceil(radius / size + 0.5)), FIELD_FILM_ABSORB);

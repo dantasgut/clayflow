@@ -25,6 +25,9 @@ import {
     filmSlopeCap,
     filmWeights,
     puddleThickness,
+    impactSpread,
+    wallSheet,
+    absorbRadius,
     refract,
     rivuletSection,
     rivuletWidth,
@@ -496,5 +499,50 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
         expect(descentLateral(h, 5e-4, 4e-4)).toBe(0);
         expect(descentLateral(h, 5e-4, 6e-4)).toBeCloseTo(0.1, 12);
         expect(descentLateral(h, 0, 1)).toBe(FILM_DESCENT_LATERAL);
+    });
+
+    describe('a lâmina do impacto (T066d)', () => {
+        const gammaRho = 0.072 / 1000;
+        it('parada não espalha; We = 174 (1 m/s, 1,25 cm) dá 0,9 We^¼ ≈ 3,27', () => {
+            expect(impactSpread(0, 0.0125, gammaRho)).toBe(1);
+            const we = (1 * 0.0125) / gammaRho;
+            expect(impactSpread(1, 0.0125, gammaRho)).toBeCloseTo(0.9 * Math.pow(we, 0.25), 12);
+            expect(impactSpread(1, 0.0125, gammaRho)).toBeCloseTo(3.27, 2);
+        });
+        it('cresce com a raiz quadrada da velocidade (We^¼ ∝ v^½)', () => {
+            const a = impactSpread(1, 0.0125, gammaRho);
+            const b = impactSpread(4, 0.0125, gammaRho);
+            expect(b / a).toBeCloseTo(2, 12);
+        });
+        it('na parede (a poça de 1 cm) a lâmina do impacto dá o disco e afina a água abaixo da espessura crítica', () => {
+            const d0 = 0.0125;
+            const volume = (Math.PI / 6) * d0 ** 3;
+            const parada = absorbRadius(volume, 0.01, d0, 1, 0.05);
+            const lamina = absorbRadius(volume, 0.01, d0, impactSpread(1, d0, gammaRho), 0.05);
+            expect(parada).toBeCloseTo(
+                Math.max(Math.sqrt(volume / (Math.PI * 0.01)), 0.5 * d0),
+                12,
+            );
+            expect(lamina).toBeCloseTo(0.5 * d0 * impactSpread(1, d0, gammaRho), 12);
+            // A espessura média da lâmina: abaixo de 1,4 mm (a crítica da água a 30°), a película rompe em gotas.
+            expect(volume / (Math.PI * lamina * lamina)).toBeLessThan(1.4e-3);
+            expect(absorbRadius(volume, 0.01, d0, 100, 0.03)).toBe(0.03);
+        });
+    });
+
+    describe('a lâmina de uma camada na parede (T066d)', () => {
+        const s = 0.0125;
+        it('uma camada na parede vertical é lâmina; a segunda camada (0,82 espaçamento) não', () => {
+            expect(wallSheet(0.2 * s, s, 0.5 * s, 9.81, 0)).toBe(true);
+            expect(wallSheet(0.82 * s, s, 0.5 * s, 9.81, 0)).toBe(false);
+        });
+        it('longe da parede, ou no chão e na encosta abaixo de 63°, não', () => {
+            expect(wallSheet(0, s, 0.8 * s, 9.81, 0)).toBe(false);
+            expect(wallSheet(0, s, 0.5 * s, 0, 9.81)).toBe(false);
+            const a = (60 * Math.PI) / 180;
+            expect(wallSheet(0, s, 0.5 * s, 9.81 * Math.sin(a), 9.81 * Math.cos(a))).toBe(false);
+            const b = (64 * Math.PI) / 180;
+            expect(wallSheet(0, s, 0.5 * s, 9.81 * Math.sin(b), 9.81 * Math.cos(b))).toBe(true);
+        });
     });
 });

@@ -206,6 +206,8 @@ interface Work {
     /** O contato de cada partícula na junção e na ordem da grade (spec 034). */
     readonly contacts: StorageBufferSpec;
     readonly sortedContacts: StorageBufferSpec;
+    /** A velocidade de cada partícula na junção (T066d). */
+    readonly velocities: StorageBufferSpec;
     readonly kernel: StorageBufferSpec;
     readonly links: StorageBufferSpec;
     readonly density: StorageBufferSpec;
@@ -655,6 +657,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             wordBuffer('field_sorted', n.particles * 16),
             wordBuffer('field_contacts', n.particles * 16),
             wordBuffer('field_sorted_contacts', n.particles * 16),
+            wordBuffer('field_velocities', n.particles * 16),
             wordBuffer('field_kernel', n.particles * 48),
             wordBuffer('field_links', n.bricks * 28 * 4),
             wordBuffer('field_density', voxels),
@@ -663,7 +666,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             // A pressão da película por célula do quadro anterior e as listas do quadro (`field_drops.wgsl`, T066d): as
             // retiradas, os pingos e as gotas passadas à película.
             wordBuffer('field_film_pressure', FIELD_FILM_CELLS * 4),
-            wordBuffer('field_drips', (1 + 11 * FIELD_FILM_DRIPS.value) * 4),
+            wordBuffer('field_drips', (1 + 12 * FIELD_FILM_DRIPS.value) * 4),
         ];
     }
 
@@ -679,6 +682,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             sorted: of('sorted'),
             contacts: of('contacts'),
             sortedContacts: of('sorted_contacts'),
+            velocities: of('velocities'),
             kernel: of('kernel'),
             links: of('links'),
             density: of('density'),
@@ -978,6 +982,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             [R.gather, this.draws.source()],
             [R.itemsWrite, work.items],
             [R.contactsWrite, work.contacts],
+            [R.velocitiesWrite, work.velocities],
+            [R.velocities, work.velocities],
             [R.items, work.items],
             [R.grid, this.grid.params],
             [R.cellStart, this.grid.cellStart],

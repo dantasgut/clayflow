@@ -7,8 +7,35 @@
 // lugar do contato — a calota do ângulo de contato, com o mesmo volume. Grava por
 // partícula três `vec4f`: (centro, det G), (G₀₀, G₀₁, G₀₂, G₁₁), (G₁₂, G₂₂, maior raio, 1 no núcleo esparso — a gota
 // solta, spec 034 — e 0 no do volume).
-// Requer: WORKGROUP_SIZE, fluid_field, spatial_hash, grid, cell_start, cell_count, field_sorted (leitura),
-// field_kernel, field_sorted_contacts.
+// A lâmina de uma camada numa parede íngreme (`field_wall_sheet`, T066d) vai aos baldes das passadas à película, como a
+// gota solta que desliza (`field_gather.wgsl`): a contagem é a da vizinhança inteira da grade, em ordem que não depende
+// dos atômicos (a do solver lê a lista capada de vizinhas — a partícula saía outra de uma cena para a seguinte).
+// Requer: WORKGROUP_SIZE, NONE, fluid_field, spatial_hash, grid, cell_start, cell_count, field_sorted (leitura),
+// field_kernel, field_sorted_contacts, cell_items, field_drips, field_drops, FIELD_FILM_DRIPS.
+
+/**
+ * A espessura da lâmina em espaçamentos: a vizinha mais longe do sólido que 0,6 espaçamento é de uma segunda camada (a
+ * rede compacta põe a seguinte a ~0,82); abaixo, o tremor da mesma camada.
+ */
+const FIELD_SHEET_LAYER: f32 = 0.6;
+
+/**
+ * A lâmina de uma partícula na parede íngreme (T066d; `fields/reference/film.ts`: `wallSheet`): a água arremessada no
+ * vidro abre-se numa lâmina que a gravidade drena e afina abaixo do milímetro (a espessura de Nusselt, ∝ (3μq/ρg)^⅓) —
+ * mais fina que o espaçamento das partículas, que a representam por uma camada só encostada no sólido, descendo como
+ * uma placa granulada. É água abaixo da resolução: passa à película, que a abre pelo impacto, drena, rompe em gotas e as
+ * escorre (Furmidge). A partícula encostada (`contact` a menos de meio espaçamento e um quarto) sem vizinha mais longe do
+ * sólido que `FIELD_SHEET_LAYER` espaçamentos (`outer`, ao longo da normal dele, a partir dela) numa parede quase
+ * vertical (a gravidade ao longo dela ao menos o dobro da normal: ≥ 63°) — no chão a camada fina é a borda da poça, e na
+ * encosta do lago, água que as partículas resolvem.
+ */
+fn field_wall_sheet(outer: f32, spacing: f32, contact: vec4f, g: vec3f) -> bool {
+    if (dot(contact.xyz, contact.xyz) <= 0.25 || contact.w >= 0.75 * spacing) { return false; }
+    let n = normalize(contact.xyz);
+    let gn = dot(g, n);
+    let gt = length(g - gn * n);
+    return outer < FIELD_SHEET_LAYER * spacing && gt >= 2.0 * abs(gn);
+}
 
 /** Autovalores (decrescentes) e autovetores (colunas) de uma simétrica 3 × 3 (Jacobi cíclico). */
 struct FieldEigen {
@@ -98,6 +125,10 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     var diag_i = vec3i(0);
     var off_i = vec3i(0);
     var n = 0u;
+    // A vizinha mais longe do sólido, ao longo da normal dele (a lâmina, `field_wall_sheet`).
+    let contact_self = field_sorted_contacts[t];
+    let wall = normalize(contact_self.xyz + vec3f(0.0, 1e-9, 0.0));
+    var outer = 0.0;
     for (var dz = -1; dz <= 1; dz++) {
         for (var dy = -1; dy <= 1; dy++) {
             for (var dx = -1; dx <= 1; dx++) {
@@ -111,6 +142,7 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
                     let d = q.xyz - p;
                     let dist = length(d);
                     if (dist >= rn) { continue; }
+                    outer = max(outer, dot(d, wall));
                     let w = 1.0 - pow(dist / rn, 3.0);
                     let u = d / rn;
                     wsum_i += i32(round(w * FIELD_KERNEL_ONE));
@@ -127,6 +159,10 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
                 }
             }
         }
+    }
+    if (fluid_field.contact.x > 0.0 && field_wall_sheet(outer, 0.5 * r, contact_self, fluid_field.filmFlow.xyz)) {
+        let it = cell_items[t];
+        atomicMax(&field_drips[field_absorb_word(it % FIELD_FILM_DRIPS)], ~it);
     }
     let wsum = f32(wsum_i) / FIELD_KERNEL_ONE;
     let mean = vec3f(mean_i) * (rn / FIELD_KERNEL_ONE);

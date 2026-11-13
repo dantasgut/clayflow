@@ -391,6 +391,48 @@ export function puddleThickness(holdPerDensity: number, gn: number, max: number)
 }
 
 /**
+ * A lâmina de uma partícula na parede íngreme (T066d, `field_wall_sheet`): encostada (`contactDistance` abaixo de 0,75
+ * espaçamento), sem vizinha mais longe do sólido que 0,6 espaçamento (`outer`, ao longo da normal dele) e numa parede
+ * em que a gravidade ao longo dela é ao menos o dobro da normal (`gt`, `gn`; ≥ 63°).
+ */
+export function wallSheet(
+    outer: number,
+    spacing: number,
+    contactDistance: number,
+    gt: number,
+    gn: number,
+): boolean {
+    return contactDistance < 0.75 * spacing && outer < 0.6 * spacing && gt >= 2 * Math.abs(gn);
+}
+
+/**
+ * O diâmetro máximo da lâmina que a água de diâmetro `d0` (m) abre ao chegar ao sólido com a velocidade `speed` (m/s), em
+ * diâmetros dela: 0,9 We^¼, We = v² d0 / (γ/ρ) (`gammaRho`) — Clanet, Béguin, Richard & Quéré 2004 (J. Fluid Mech. 517),
+ * o impacto de baixa viscosidade —, nunca menos que 1 (`field_film_impact_spread`).
+ */
+export function impactSpread(speed: number, d0: number, gammaRho: number): number {
+    const we = (speed * speed * d0) / Math.max(gammaRho, 1e-12);
+    return Math.max(1, 0.9 * Math.pow(we, 0.25));
+}
+
+/**
+ * O raio do disco em que a água de volume `volume` passada à película se abre (m): o da poça de espessura `thickness`
+ * ou o da lâmina do impacto (`spread` diâmetros de `d0`), o maior, até `cap` (o alcance do laço).
+ */
+export function absorbRadius(
+    volume: number,
+    thickness: number,
+    d0: number,
+    spread: number,
+    cap: number,
+): number {
+    return Math.min(
+        Math.max(Math.sqrt(volume / (Math.PI * Math.max(thickness, 1e-9))), 0.5 * d0 * spread),
+        cap,
+    );
+}
+
+/**
  * A gota que desliza passada à película (T066d): o volume dela (`units` unidades inteiras da pendente: as do pingo, a
  * conta inversa) repartido nas células do disco da poça pela cobertura de cada uma (`weights`, as fora do sólido com
  * peso 0) — a parte inteira de cada uma, e o que sobra do arredondamento na célula do contato (`center`). Nada se perde

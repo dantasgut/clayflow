@@ -6,7 +6,8 @@
 //   quadro seguinte);
 // - os pedidos de pingo da película (`~chave` e a palavra da célula, a posição), em `FIELD_FILM_DRIPS` baldes pelo hash
 //   da chave (o de menor chave de cada um): o de ordem `r` pela chave volta na retirada do `r`-ésimo balde ocupado;
-// - o contato de cada gota dos baldes passada à película (o ponto e a normal snorm 8 × 4; `field_absorb_prepare_main`).
+// - o contato de cada gota dos baldes passada à película (o ponto, a normal snorm 8 × 4 e o fator do espalhamento do
+//   impacto; `field_absorb_prepare_main`).
 // Requer: FIELD_FILM_DRIPS.
 
 /** A palavra do balde `k` das retiradas. */
@@ -29,7 +30,7 @@ fn field_drop_item(stored: u32) -> u32 {
     return select(~stored, NONE, stored == 0u);
 }
 
-/** Primeira palavra do contato da gota do balde `k` passada à película (o ponto, a normal). */
+/** Primeira palavra do contato da gota do balde `k` passada à película (o ponto, a normal, o espalhamento). */
 fn field_absorb_contact_word(k: u32) -> u32 {
-    return 7u * FIELD_FILM_DRIPS + 1u + 4u * k;
+    return 7u * FIELD_FILM_DRIPS + 1u + 5u * k;
 }

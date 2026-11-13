@@ -167,6 +167,9 @@ export const fieldResources = Object.freeze({
     contactsWrite: priv('field_contacts', 'read_write', vec4fs),
     sortedContacts: priv('field_sorted_contacts', 'read', vec4fs),
     sortedContactsWrite: priv('field_sorted_contacts', 'read_write', vec4fs),
+    /** A velocidade de cada partícula na junção (T066d: a lâmina passada à película espalha pelo impacto). */
+    velocities: priv('field_velocities', 'read', vec4fs),
+    velocitiesWrite: priv('field_velocities', 'read_write', vec4fs),
     kernel: priv('field_kernel', 'read', vec4fs),
     kernelWrite: priv('field_kernel', 'read_write', vec4fs),
     links: priv('field_links', 'read', u32s),
@@ -270,6 +273,7 @@ export const fieldGather = wgslModule({
         poolLive,
         R.itemsWrite,
         R.contactsWrite,
+        R.velocitiesWrite,
         R.drips,
         fieldDrops,
     ],
@@ -307,6 +311,10 @@ export const fieldKernels = wgslModule({
         R.sorted,
         R.kernelWrite,
         R.sortedContacts,
+        R.cellItems,
+        R.drips,
+        fieldDrops,
+        NONE.module,
     ],
 });
 
@@ -492,8 +500,10 @@ export const fieldAbsorbPrepare = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         NONE.module,
+        constants,
         R.items,
         R.contacts,
+        R.velocities,
         R.drips,
         fieldDrops,
         R.params,
