@@ -2,7 +2,7 @@
 // quadrática das 3 × 3 células, `field_film_sample`), a pressão do espalhamento (`field_film_pressure_main`), a normal
 // que a refração vê pela cunha de água sobre o sólido (`refraction_wet_normal`), a cobertura do disco do contato na
 // deposição (`field_film_coverage`), a gota que desliza passada à película (`field_film_absorb_main`) e as gotas em que a
-// película fina se rompe (`field_film_breaks`, os sítios de `field_film_sample`). As mesmas contas do WGSL, em f64.
+// película fina se rompe (`field_film_breaks`, a árvore das gotas de `field_film_drops`). As mesmas contas do WGSL, em f64.
 
 /** Os pesos da B-spline quadrática nas células −1, 0 e 1 para o deslocamento `f` ∈ [−½, ½) ao centro mais próximo. */
 export function filmWeights(f: number): [number, number, number] {
@@ -70,24 +70,14 @@ export function filmSlopeCap(slope: readonly [number, number], cosTheta: number)
 }
 
 /**
- * Gotas por lado de célula (os sítios de passo ℓ / 2), a fração de sítios vazios, o alcance da base e o deslocamento
- * máximo do centro (em passos) e o raio da cabeça do filete (em meias larguras).
+ * O limiar da coalescência (τ = x + y u, u o número sorteado do quadrado), o alongamento (β = 1 + x χ, o ápice a y χ
+ * do semieixo abaixo do centro), a amplitude do serpentear do filete (em células) e o raio da cabeça do filete (em
+ * meias larguras).
  */
-export const FILM_SITES = 2;
-export const FILM_SITE_EMPTY = 0.4;
-export const FILM_SITE_REACH = 0.6;
-export const FILM_SITE_JITTER = 0.8;
+export const FILM_DROP_TOUCH: readonly [number, number] = [0.5, 1];
+export const FILM_DROP_STRETCH: readonly [number, number] = [0.5, 0.25];
+export const FILM_RIVULET_WANDER = 0.6;
 export const FILM_RIVULET_HEAD = 1.4;
-
-/** O peso da gota do sítio de número `u` ∈ [0, 1): 0 nos vazios, u⁴ nos outros. */
-export function filmSiteWeight(u: number): number {
-    return u < FILM_SITE_EMPTY ? 0 : u ** 4;
-}
-
-/** A média do peso sobre u uniforme, ∫ u⁴ du em [vazio, 1]: o volume da gota é a água do sítio vezes peso / média. */
-export function filmSiteMean(): number {
-    return (1 - FILM_SITE_EMPTY ** 5) / 5;
-}
 
 /** O volume (m³) da calota esférica de base `a` (m) e ângulo de contato θ: π a³ (2 − 3 cos θ + cos³ θ) / (3 sen³ θ). */
 export function capVolume(a: number, theta: number): number {
@@ -103,14 +93,110 @@ export function capBase(volume: number, theta: number): number {
     return Math.cbrt((3 * volume * sn ** 3) / (Math.PI * (2 - 3 * c + c ** 3)));
 }
 
+/** A forma da gota (`field_film_drop_shape`): a base redonda de mesma área, os semieixos de lado e ao longo, a carga. */
+export interface DropShape {
+    readonly a: number;
+    readonly side: number;
+    readonly along: number;
+    /** A carga da borda χ: o peso ao longo do sólido sobre a força de Furmidge da largura (≥ 1: desliza). */
+    readonly chi: number;
+}
+
 /**
- * A base (m) da gota do sítio com a água livre `h` (m) e o peso `weight` na célula de lado `cell` e ângulo θ: a calota
- * de volume h s² · peso / média, até o alcance.
+ * A gota de volume `volume` e ângulo θ com a borda que segura `hold` (f / ρ, m³/s²) e a gravidade `gt` (m/s²) ao longo
+ * do sólido: a calota de base a; com a carga χ₀ = g_t V / (f/ρ · 2a), a razão dos eixos β = 1 + x min(χ₀, 1), os
+ * semieixos a⊥ = a / √β e a∥ = a √β (a área π a⊥ a∥ = π a²) e a carga pela largura de verdade, χ = g_t V / (f/ρ · 2a⊥).
  */
-export function filmSiteBase(h: number, weight: number, theta: number, cell: number): number {
-    const s = cell / FILM_SITES;
-    const volume = (h * s * s * weight) / filmSiteMean();
-    return Math.min(capBase(volume, theta), FILM_SITE_REACH * s);
+export function dropShape(volume: number, theta: number, hold: number, gt: number): DropShape {
+    const a = capBase(volume, theta);
+    if (!(gt > 1e-3)) return { a, side: a, along: a, chi: 0 };
+    if (!(hold > 0)) return { a, side: a, along: a, chi: 2 };
+    const load = (gt * volume) / (hold * 2 * a);
+    const beta = 1 + FILM_DROP_STRETCH[0] * Math.min(load, 1);
+    const side = a / Math.sqrt(beta);
+    return { a, side, along: a * Math.sqrt(beta), chi: (gt * volume) / (hold * 2 * side) };
+}
+
+/**
+ * A altura e a inclinação (no plano) da gota de forma `shape` no ponto a `r` do centro da base, com a descida unitária
+ * `down` (`field_film_drop_at`): a calota de base a no espaço em que a base é redonda — o lado escalado por a / a⊥, a
+ * descida por a / (a∥ ∓ δ) abaixo e acima do ápice deslocado δ = y min(χ, 1) a∥ para baixo.
+ */
+export function dropAt(
+    r: readonly [number, number],
+    shape: DropShape,
+    down: readonly [number, number],
+    theta: number,
+    footprint: number,
+): [number, number, number] {
+    const delta = FILM_DROP_STRETCH[1] * Math.min(shape.chi, 1) * shape.along;
+    const lateral = [-down[1], down[0]] as const;
+    const t = r[0] * down[0] + r[1] * down[1] - delta;
+    const l = r[0] * lateral[0] + r[1] * lateral[1];
+    const st = shape.a / (t > 0 ? shape.along - delta : shape.along + delta);
+    const sl = shape.a / shape.side;
+    const cap = capAt([l * sl, t * st], shape.a, theta, footprint, 2);
+    return [
+        cap[0],
+        cap[2] * st * down[0] + cap[1] * sl * lateral[0],
+        cap[2] * st * down[1] + cap[1] * sl * lateral[1],
+    ];
+}
+
+/** Uma gota da árvore dos quadrados: o nível (2 o bloco, 1 a célula, 0 o quarto), o canto e o lado (m) e o volume. */
+export interface FilmDrop {
+    readonly level: number;
+    readonly corner: readonly [number, number];
+    readonly side: number;
+    readonly volume: number;
+}
+
+/**
+ * As gotas do bloco de 2 × 2 células de lado `size` com canto em `corner` (`field_film_drops`): `water` a água parada
+ * de cada célula (m; [x0y0, x1y0, x0y1, x1y1]); `rand(level, node, k)` o número sorteado em [0, 1) do quadrado; `fits`
+ * se a gota de volume V cabe no quadrado de lado s e não desliza. O bloco é uma gota só quando as dos quatro filhos se
+ * tocariam (2 a(V/4) ≥ τ ℓ) e ela cabe; senão cada célula, do mesmo modo; senão os quatro quartos com a água pelos
+ * pesos u³ + 10⁻³. A água de cada célula vai a exatamente uma gota.
+ */
+export function filmDrops(
+    water: readonly [number, number, number, number],
+    size: number,
+    corner: readonly [number, number],
+    theta: number,
+    rand: (level: number, node: readonly [number, number], k: number) => number,
+    fits: (volume: number, side: number) => boolean,
+): FilmDrop[] {
+    const tau = (level: number, node: readonly [number, number]): number =>
+        FILM_DROP_TOUCH[0] + FILM_DROP_TOUCH[1] * rand(level, node, 0);
+    const own = [Math.floor(corner[0] / size), Math.floor(corner[1] / size)] as const;
+    const v2 = (water[0] + water[1] + water[2] + water[3]) * size * size;
+    if (!(v2 > 0)) return [];
+    const block = [own[0] / 2, own[1] / 2] as const;
+    if (2 * capBase(v2 / 4, theta) >= tau(2, block) * size && fits(v2, 2 * size))
+        return [{ level: 2, corner, side: 2 * size, volume: v2 }];
+    const out: FilmDrop[] = [];
+    for (let c = 0; c < 4; c++) {
+        const v1 = water[c]! * size * size;
+        if (!(v1 > 0)) continue;
+        const cell = [own[0] + (c % 2), own[1] + Math.floor(c / 2)] as const;
+        const at = [cell[0] * size, cell[1] * size] as const;
+        if (2 * capBase(v1 / 4, theta) >= tau(1, cell) * 0.5 * size && fits(v1, size)) {
+            out.push({ level: 1, corner: at, side: size, volume: v1 });
+            continue;
+        }
+        const weights = [0, 1, 2, 3].map(
+            (k) => rand(0, [2 * cell[0] + (k % 2), 2 * cell[1] + Math.floor(k / 2)], 0) ** 3 + 1e-3,
+        );
+        const total = weights.reduce((x, y) => x + y, 0);
+        for (let k = 0; k < 4; k++)
+            out.push({
+                level: 0,
+                corner: [at[0] + (k % 2) * 0.5 * size, at[1] + Math.floor(k / 2) * 0.5 * size],
+                side: 0.5 * size,
+                volume: (v1 * weights[k]!) / total,
+            });
+    }
+    return out;
 }
 
 /**

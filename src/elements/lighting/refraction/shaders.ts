@@ -176,8 +176,8 @@ export const refractionResources = Object.freeze({
     pathArgs: priv('refraction_path_args', 'read_write', { wgsl: 'u32', array: true }),
     /** O registro de cada bloco 2×2 traçado no quadro (o representante), para a reconstrução. */
     blocks: priv('refraction_blocks', 'read_write', { schema: RefractionBlockSchema, array: true }),
-    /** Por pixel: o quadro (+ 1; 0 = nenhum) e a distância do pedido do último valor exato dele. */
-    stamps: priv('refraction_stamps', 'read_write', { wgsl: 'vec2u', array: true }),
+    /** Por pixel: o quadro (+ 1; 0 = nenhum), a distância do pedido e a luminância do último valor exato dele. */
+    stamps: priv('refraction_stamps', 'read_write', { wgsl: 'vec4u', array: true }),
 });
 
 const R = refractionResources;

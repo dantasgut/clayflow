@@ -719,8 +719,20 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
 
 // ---- A reconstrução da meia resolução ----
 
-/** Desvio (pixels) do peso espacial da reconstrução: os representantes ficam a 1–3 pixels. */
-const REFRACTION_UPSAMPLE_SIGMA: f32 = 1.2;
+/**
+ * O peso espacial da reconstrução: o bilinear dos blocos (a tenda de raio 2 pixels) pelo centro de cada bloco, não pela
+ * posição do representante — os quatro pixels de um bloco ficam com os mesmos pesos (9/16, 3/16, 3/16, 1/16 nos quatro
+ * blocos mais próximos) e com a mesma variância. Pela posição do representante (a gaussiana dele), o pixel traçado
+ * levava quase só a própria amostra e os outros três a média de quatro: com o ruído do traçado (as cáusticas no fundo
+ * sob a água, a luz rebatida), a grade dos traçados saía mais ruidosa — a trama regular de período 2 na água que se
+ * move vista pelo vidro, em todo perfil. Os blocos fora da tenda entram com um peso mínimo: o recurso quando os mais
+ * próximos mostram outra superfície.
+ */
+fn refraction_upsample_weight(c: vec2i, q: vec2u) -> f32 {
+    let o = abs(vec2f(c) * 2.0 + 0.5 - vec2f(q));
+    let tent = max(1.0 - 0.5 * o, vec2f(0.0));
+    return tent.x * tent.y + 1e-4 * exp(-dot(o, o) / 8.0);
+}
 
 /** O índice do bloco 2×2 do pixel `p` numa tela `size`. */
 fn refraction_blocks_index(p: vec2u, size: vec2u) -> u32 {
@@ -779,6 +791,23 @@ const REFRACTION_STAMP_FRAMES: u32 = 7u;
  * período 2 em toda a água vista pelo vidro.
  */
 const REFRACTION_KEEP_MOVING: f32 = 0.01;
+/**
+ * A margem relativa da luminância do valor exato guardado sobre a faixa dos representantes de agora em volta (os da
+ * mesma superfície, 3 × 3 blocos): fora dela o valor guardado é de antes de algo mudar que a marca do movimento não pega
+ * (a luz que muda devagar, a água quase parada) e não fica — como o recorte da vizinhança do antisserrilhado temporal.
+ * Guardados por até 7 quadros enquanto o representante do bloco era traçado de novo, os quatro pixels de cada bloco
+ * mostravam quadros diferentes, e a diferença saía na grade dos blocos: a trama regular de período 2 sobre o vidro e o
+ * que se vê por ele, com a cena parada.
+ */
+const REFRACTION_KEEP_RANGE: f32 = 0.02;
+/**
+ * A fração da luz com ruído (o ruído do bloco: a luz de amostras sorteadas) acima da qual a faixa não vale: ali a amostra
+ * exata de um quadro cai fora da faixa dos vizinhos pelo próprio ruído, e é o acúmulo dos valores exatos que dá a
+ * imagem (o vidro fosco, o prisma, as luzes sorteadas).
+ */
+const REFRACTION_KEEP_NOISY: f32 = 0.05;
+/** A variação relativa dos representantes em volta até a qual a vizinhança é lisa (a faixa vale). */
+const REFRACTION_KEEP_FLAT: f32 = 0.1;
 const REFRACTION_STAMP_FRAMES_CHECKER: u32 = 16u;
 
 /**
@@ -815,6 +844,10 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // A luz da mesma superfície em volta veio por algo que se moveu (a água atrás do vidro, a película nele)? Então o
     // que o pixel mostra mudou mesmo com a primeira superfície parada: o valor exato antigo não fica.
     var moving = false;
+    // A faixa da luminância dos representantes de agora da mesma superfície (`REFRACTION_KEEP_RANGE`).
+    var low = 3.0e38;
+    var high = 0.0;
+    var noisy = 0.0;
     // O pixel é o representante traçado agora (o valor exato dele).
     var own_traced = false;
     var own_block: RefractionBlock;
@@ -840,12 +873,16 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
             let hit = block.end;
             let alb = block.albedo;
             moving = moving || alb.a > REFRACTION_KEEP_MOVING;
+            let lum = luminance(radiance.rgb);
+            low = min(low, lum);
+            high = max(high, lum);
+            noisy = max(noisy, block.noise);
             if (all(r == q)) {
                 own_block = block;
                 own_traced = true;
             }
             let dist2 = dot(vec2f(r) - vec2f(q), vec2f(r) - vec2f(q));
-            let w = exp(-dist2 / (2.0 * REFRACTION_UPSAMPLE_SIGMA * REFRACTION_UPSAMPLE_SIGMA));
+            let w = refraction_upsample_weight(c, q);
             sum += w * radiance;
             albedo += w * alb;
             noise += w * block.noise;
@@ -866,7 +903,7 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
         textureStore(refraction_hit_out, q, own_block.end);
         textureStore(refraction_albedo_out, q, own_block.albedo);
         textureStore(refraction_noise_out, q, vec4f(own_block.noise));
-        refraction_stamps[i] = vec2u(refraction.frame + 1u, own.x);
+        refraction_stamps[i] = vec4u(refraction.frame + 1u, own.x, bitcast<u32>(luminance(own_block.radiance.rgb)), 0u);
         return;
     }
     // A mesma superfície de quando foi traçado (na volta corrente, a distância do pedido não mudou): o valor exato fica.
@@ -885,11 +922,18 @@ fn refraction_chain_upsample_main(@builtin(global_invocation_id) gid3: vec3u, @b
     // vidro ou a água quase de lado ela é grande — a câmera girava e 3 de cada 4 pixels mostravam por até 4 quadros a
     // imagem refratada antiga (a refração com retardo).
     let still = refraction_camera_still();
-    if (still && !moving && stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames && abs(ds - d) <= tolerance) {
+    let kept_lum = bitcast<f32>(stamp.z);
+    let margin = REFRACTION_KEEP_RANGE * high;
+    // A faixa só onde a vizinhança é lisa (a trama aparecia no plano liso; na borda e no detalhe o valor exato fora da
+    // faixa dos representantes é a resolução cheia).
+    let flat = high - low <= REFRACTION_KEEP_FLAT * high;
+    let in_range = (kept_lum >= low - margin && kept_lum <= high + margin) || noisy > REFRACTION_KEEP_NOISY || !flat;
+    if (still && !moving && in_range && stamp.x != 0u && refraction.frame + 1u - stamp.x < stamp_frames
+        && abs(ds - d) <= tolerance) {
         textureStore(refraction_hit_out, q, kept);
         return;
     }
-    refraction_stamps[i] = vec2u(0u);
+    refraction_stamps[i] = vec4u(0u);
     if (weight <= 0.0) {
         textureStore(refraction_hit_out, q, kept);
         if (near_any < 1e9) {

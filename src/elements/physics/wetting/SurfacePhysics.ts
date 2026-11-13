@@ -89,6 +89,14 @@ export class SurfacePhysics extends Entity<SurfacePhysicsData> implements Resour
     /** Vidro limpo: liso, histerese de ~5°, impermeável. */
     static readonly GLASS: SurfacePhysicsOptions = { roughness: 1, hysteresis: 5 };
 
+    /**
+     * Vidro comum de janela (o do uso, não o limpo de laboratório): liso, impermeável, histerese de ~20°. A gota parada
+     * num vidro vertical molhado chega a ~5 mm (a foto de referência da T066d): pela força de Furmidge, a calota de 30°
+     * com base de 2,5 mm de raio só fica parada com cos θ_r − cos θ_a ≈ 0,18 — a histerese de ~20° em torno de 30°
+     * (com os 5° do `GLASS`, a maior gota parada tem ~2,5 mm e a película presa ~0,05 mm).
+     */
+    static readonly WINDOW_GLASS: SurfacePhysicsOptions = { roughness: 1, hysteresis: 20 };
+
     /** Cerâmica vidrada (azulejo): quase lisa, histerese de ~15°, impermeável. */
     static readonly GLAZED_TILE: SurfacePhysicsOptions = { roughness: 1.05, hysteresis: 15 };
 

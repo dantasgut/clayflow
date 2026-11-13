@@ -9,13 +9,11 @@ import {
     filmCoverage,
     filmPressure,
     filmSample,
-    filmSiteBase,
-    filmSiteMean,
-    filmSiteWeight,
+    dropAt,
+    dropShape,
+    filmDrops,
     filmSlopeCap,
     filmWeights,
-    FILM_SITE_REACH,
-    FILM_SITES,
     puddleThickness,
     refract,
     rivuletSection,
@@ -71,26 +69,101 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
         expect(filmSlopeCap([3, 0], 0)).toEqual([3, 0]);
     });
 
-    it('as gotas dos sítios: a água se conserva na média e a película se rompe enquanto a maior cabe', () => {
-        // A média dos pesos sobre u uniforme (o ponto médio em 10⁶ faixas) é a do modelo: o volume das gotas soma a água.
-        const n = 1_000_000;
-        let sum = 0;
-        for (let k = 0; k < n; k++) sum += filmSiteWeight((k + 0.5) / n);
-        expect(sum / n).toBeCloseTo(filmSiteMean(), 9);
-        expect(filmSiteWeight(0.39)).toBe(0);
-        // A gota do sítio: a calota do volume h s² · peso / média e ângulo θ, até o alcance.
+    it('as gotas da árvore dos quadrados: a água de cada célula numa gota só, a coalescência soma o volume', () => {
         const cell = 0.00625;
-        const kappa = 0.0449;
         const theta = (30 * Math.PI) / 180;
-        const s = cell / FILM_SITES;
-        const a = filmSiteBase(1e-5, filmSiteMean(), theta, cell);
-        expect(capVolume(a, theta)).toBeCloseTo(1e-5 * s * s, 15);
-        expect(capBase(capVolume(1.3e-3, theta), theta)).toBeCloseTo(1.3e-3, 12);
-        expect(filmSiteBase(1e-3, 1, theta, cell)).toBe(FILM_SITE_REACH * s);
+        // Um sorteio determinístico (o hash do WGSL é outro; a conta não depende dele).
+        const rand = (level: number, node: readonly [number, number], k: number): number => {
+            const x =
+                Math.sin(level * 12.9898 + node[0] * 78.233 + node[1] * 37.719 + k * 4.581)
+                * 43758.5453;
+            return x - Math.floor(x);
+        };
+        const always = (): boolean => true;
+        let seen = new Set<number>();
+        for (const h of [2e-6, 2e-5, 1e-4, 3e-4, 8e-4]) {
+            for (let b = 0; b < 40; b++) {
+                const water: [number, number, number, number] = [0, 1, 2, 3].map(
+                    (k) => h * (0.2 + 1.6 * rand(9, [b, k], 3)),
+                ) as [number, number, number, number];
+                const drops = filmDrops(water, cell, [2 * b * cell, 0], theta, rand, always);
+                const total = drops.reduce((x, d) => x + d.volume, 0);
+                const exact = water.reduce((x, w) => x + w, 0) * cell * cell;
+                expect(total / exact).toBeCloseTo(1, 12);
+                for (const d of drops) seen.add(d.level);
+            }
+        }
+        // A película fina fica nos quartos; a mais grossa coalesce na célula e no bloco.
+        expect([...seen].sort()).toEqual([0, 1, 2]);
+        // O bloco que não cabe (ou desliza) se divide: as células.
+        seen = new Set<number>();
+        const small = (volume: number, side: number): boolean => side < 2 * cell;
+        const drops = filmDrops([8e-4, 8e-4, 8e-4, 8e-4], cell, [0, 0], theta, rand, small);
+        for (const d of drops) seen.add(d.level);
+        expect(seen.has(2)).toBe(false);
+        expect(drops.reduce((x, d) => x + d.volume, 0)).toBeCloseTo(4 * 8e-4 * cell * cell, 15);
         // A ruptura: abaixo da espessura crítica, na molhagem parcial.
-        expect(filmBreaks(1e-4, kappa, 1.4e-3)).toBe(true);
-        expect(filmBreaks(2e-3, kappa, 1.4e-3)).toBe(false);
+        expect(filmBreaks(1e-4, 0.0449, 1.4e-3)).toBe(true);
+        expect(filmBreaks(2e-3, 0.0449, 1.4e-3)).toBe(false);
         expect(filmBreaks(1e-4, 0, 1.4e-3)).toBe(false);
+        // A gota de uma célula fina é a calota do volume dela.
+        expect(capVolume(capBase(1e-9, theta), theta)).toBeCloseTo(1e-9, 20);
+    });
+
+    it('a gota alongada pela carga da borda: a área e o volume da calota, o ápice para baixo (a frente íngreme)', () => {
+        const theta = (30 * Math.PI) / 180;
+        // f/ρ do vidro de janela (γ = 0,072, θ 30° ± 10°) e a gravidade ao longo de uma parede vertical.
+        const hold =
+            (0.072 * (Math.cos((20 * Math.PI) / 180) - Math.cos((40 * Math.PI) / 180))) / 1000;
+        const g = 9.81;
+        // A gota pequena quase não sente o peso; a de 10 µL, perto da crítica.
+        expect(dropShape(1e-11, theta, hold, g).chi).toBeLessThan(0.05);
+        const shape = dropShape(1e-8, theta, hold, g);
+        expect(shape.chi).toBeGreaterThan(0.5);
+        expect(shape.side * shape.along).toBeCloseTo(shape.a * shape.a, 15);
+        expect(shape.along / shape.side).toBeGreaterThan(1.2);
+        // Na parede horizontal, redonda.
+        const flat = dropShape(1e-8, theta, hold, 0);
+        expect(flat.along).toBe(flat.side);
+        // A gota grande demais desliza (χ ≥ 1).
+        expect(dropShape(1e-7, theta, hold, g).chi).toBeGreaterThan(1);
+        // O volume pela integral da altura é o da calota; a extensão para baixo (a frente) menor que para cima.
+        const down: [number, number] = [0, -1];
+        const span = 2 * shape.along;
+        const n = 600;
+        let sum = 0;
+        let top = 0;
+        let apex = 0;
+        for (let i = 0; i < n; i++)
+            for (let j = 0; j < n; j++) {
+                const x = ((i + 0.5) / n - 0.5) * 2 * span;
+                const y = ((j + 0.5) / n - 0.5) * 2 * span;
+                const h = dropAt([x, y], shape, down, theta, 0)[0];
+                sum += h;
+                if (h > top) {
+                    top = h;
+                    apex = y;
+                }
+            }
+        const cellArea = ((2 * span) / n) ** 2;
+        expect((sum * cellArea) / capVolume(shape.a, theta)).toBeCloseTo(1, 2);
+        // O ápice desce δ = y χ a∥ do centro da base (a descida é −y).
+        const delta = 0.25 * Math.min(shape.chi, 1) * shape.along;
+        expect(-apex).toBeCloseTo(delta, 4);
+        // A inclinação é a derivada da altura (diferença central).
+        const p: [number, number] = [0.3 * shape.side, -0.2 * shape.along];
+        const e = 1e-7;
+        const s = dropAt(p, shape, down, theta, 0);
+        const dx =
+            (dropAt([p[0] + e, p[1]], shape, down, theta, 0)[0]
+                - dropAt([p[0] - e, p[1]], shape, down, theta, 0)[0])
+            / (2 * e);
+        const dy =
+            (dropAt([p[0], p[1] + e], shape, down, theta, 0)[0]
+                - dropAt([p[0], p[1] - e], shape, down, theta, 0)[0])
+            / (2 * e);
+        expect(s[1]).toBeCloseTo(dx, 4);
+        expect(s[2]).toBeCloseTo(dy, 4);
     });
 
     it('o filete leva a água da célula na seção em arco, e a calota tem a altura e a inclinação da esfera', () => {

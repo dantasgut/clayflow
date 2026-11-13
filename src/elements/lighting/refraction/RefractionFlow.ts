@@ -424,7 +424,7 @@ export class RefractionFlow extends Flow<RefractionSlots, 'idle'> {
                 },
                 wordBuffer(
                     'refraction_stamps',
-                    this.pixelsAllocated * 2 * Uint32Array.BYTES_PER_ELEMENT,
+                    this.pixelsAllocated * 4 * Uint32Array.BYTES_PER_ELEMENT,
                 ),
             );
         return out;

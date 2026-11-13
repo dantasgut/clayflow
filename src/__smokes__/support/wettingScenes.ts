@@ -113,7 +113,8 @@ const TRAIL_FOV = Math.PI / 18;
 
 /**
  * O trecho sem água ao longo do rastro que é falha (mm): o rastro que se rompe em gotas tem o vidro seco entre elas, a
- * até dois passos dos sítios das gotas (`FIELD_FILM_SITES`, 6,25 mm) — além disso, o rastro foi interrompido.
+ * até o lado do maior quadrado das gotas (o bloco de 2 × 2 células da película, `field_film_drops`: 12,5 mm) — além
+ * disso, o rastro foi interrompido.
  */
 const TRAIL_GAP = 12.5;
 
