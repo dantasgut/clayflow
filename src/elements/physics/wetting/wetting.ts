@@ -100,8 +100,8 @@ export function dropPinning(line: ContactLine, volume: number, mass: number): nu
  * água livre h somada num bloco de células de lado `cell` = ℓ) tem a base de raio a = κ ∛h, com
  * κ = ∛(3 ℓ² sen³ θ / (π (2 − 3 cos θ + cos³ θ))) — o volume da calota é π a³ (2 − 3 cos θ + cos³ θ) / (3 sen³ θ). Na
  * molhagem parcial a película fina se rompe em gotas (de Gennes, Brochard-Wyart e Quéré, "Capillarity and Wetting
- * Phenomena", cap. 7); a água de um bloco de 2 × 2 células fica gota enquanto a base cabe nele (a ≤ ℓ;
- * `field_film_is_drop`). Devolve κ (m^⅔), ou 0 onde a água não se junta em gotas: a molhagem total (θ = 0, a película
+ * Phenomena", cap. 7): abaixo da espessura crítica (`filmBreakThickness`) a película se rompe, e nos sítios de passo ℓ a
+ * água de cada sítio é uma gota de base a = κ ∛(V / ℓ²) (`field_film_sample`). Devolve κ (m^⅔), ou 0 onde a água não se junta em gotas: a molhagem total (θ = 0, a película
  * se espalha) e θ ≥ 90° (a calota passaria do hemisfério e deixaria de ser altura sobre o sólido).
  */
 export function dropBaseCoefficient(contactAngle: number, cell: number): number {
@@ -110,6 +110,26 @@ export function dropBaseCoefficient(contactAngle: number, cell: number): number 
     const c = Math.cos(theta);
     const sin = Math.sin(theta);
     return Math.cbrt((3 * cell * cell * sin * sin * sin) / (Math.PI * (2 - 3 * c + c * c * c)));
+}
+
+/**
+ * A espessura crítica (m) abaixo da qual a película de um líquido que molha em parte (0 < θ < 90°) se rompe em gotas: a
+ * película de equilíbrio sob a gravidade, e_c = 2 ℓ_c sen(θ/2), com ℓ_c = √(γ / (ρ g)) o comprimento capilar (de Gennes,
+ * Brochard-Wyart e Quéré, "Capillarity and Wetting Phenomena", cap. 7: a película mais fina que ela é instável e se
+ * desfaz). 0 sem ruptura (θ = 0, a película se espalha; θ ≥ 90°) ou sem gravidade (`g` 0: a capilaridade vale em
+ * qualquer escala, e_c sem limite — devolve +∞).
+ */
+export function filmBreakThickness(
+    surfaceTension: number,
+    density: number,
+    gravity: number,
+    contactAngle: number,
+): number {
+    if (!(contactAngle > 0 && contactAngle < 90) || !(surfaceTension > 0) || !(density > 0))
+        return 0;
+    if (!(gravity > 0)) return Infinity;
+    const lc = Math.sqrt(surfaceTension / (density * gravity));
+    return 2 * lc * Math.sin((contactAngle * Math.PI) / 360);
 }
 
 /**
@@ -213,11 +233,14 @@ export interface FilmSurfaceTerms {
     readonly contactCosine: number;
     /** O coeficiente da base da gota numa célula da película (`dropBaseCoefficient`; 0 sem gotas). */
     readonly dropBase: number;
+    /** A espessura abaixo da qual a película se rompe em gotas (`filmBreakThickness`, m; 0 sem ruptura). */
+    readonly breakThickness: number;
 }
 
 /**
  * As grandezas da película numa superfície: a física dela, o líquido e o ar; `cell` (m) é o lado da célula da película
- * (a base da gota, `dropBaseCoefficient`; 0: sem gotas).
+ * (a base da gota, `dropBaseCoefficient`; 0: sem gotas) e `gravity` (m/s²) a aceleração da gravidade (a espessura em que
+ * a película se rompe, `filmBreakThickness`).
  */
 export function filmSurfaceTerms(
     surface: {
@@ -233,6 +256,7 @@ export function filmSurfaceTerms(
         readonly windSpeed: number;
     },
     cell = 0,
+    gravity = 9.81,
 ): FilmSurfaceTerms {
     const contactAngle = surface.contactAngle ?? liquid.contactAngle;
     return {
@@ -259,5 +283,11 @@ export function filmSurfaceTerms(
         }),
         contactCosine: Math.cos((Math.min(Math.max(contactAngle, 0), 180) * Math.PI) / 180),
         dropBase: dropBaseCoefficient(contactAngle, cell),
+        breakThickness: filmBreakThickness(
+            liquid.surfaceTension,
+            liquid.density,
+            gravity,
+            contactAngle,
+        ),
     };
 }

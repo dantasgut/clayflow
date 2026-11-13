@@ -12,6 +12,7 @@ import {
     washburnCoefficient,
     wenzelCos,
     dropBaseCoefficient,
+    filmBreakThickness,
     dropPinning,
 } from '../wetting';
 import { SurfacePhysics } from '../SurfacePhysics';
@@ -209,5 +210,22 @@ describe('dropBaseCoefficient (spec 034, T066d): a gota em que a película se ro
         expect(dropBaseCoefficient(90, 0.00625)).toBe(0);
         expect(dropBaseCoefficient(120, 0.00625)).toBe(0);
         expect(dropBaseCoefficient(50, 0)).toBe(0);
+    });
+});
+
+describe('filmBreakThickness (spec 034, T066d): a película fina que se rompe em gotas', () => {
+    it('e_c = 2 ℓ_c sen(θ/2): a água a 30° com a gravidade da Terra, ~1,4 mm', () => {
+        const lc = Math.sqrt(0.072 / (1000 * 9.81));
+        expect(filmBreakThickness(0.072, 1000, 9.81, 30)).toBeCloseTo(
+            2 * lc * Math.sin(Math.PI / 12),
+            12,
+        );
+        expect(filmBreakThickness(0.072, 1000, 9.81, 30)).toBeCloseTo(1.4e-3, 4);
+    });
+
+    it('sem ruptura na molhagem total, sem molhar, e sem limite sem gravidade', () => {
+        expect(filmBreakThickness(0.072, 1000, 9.81, 0)).toBe(0);
+        expect(filmBreakThickness(0.072, 1000, 9.81, 95)).toBe(0);
+        expect(filmBreakThickness(0.072, 1000, 0, 30)).toBe(Infinity);
     });
 });

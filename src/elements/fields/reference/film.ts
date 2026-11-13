@@ -1,8 +1,8 @@
 // Referência f64 da película de água nos sólidos (spec 034, T066d): a leitura dela no plano da superfície (a B-spline
 // quadrática das 3 × 3 células, `field_film_sample`), a pressão do espalhamento (`field_film_pressure_main`), a normal
 // que a refração vê pela cunha de água sobre o sólido (`refraction_wet_normal`), a cobertura do disco do contato na
-// deposição (`field_film_coverage`) e a gota que desliza passada à película (`field_film_absorb_main`). As mesmas contas
-// do WGSL, em f64.
+// deposição (`field_film_coverage`), a gota que desliza passada à película (`field_film_absorb_main`) e as gotas em que a
+// película fina se rompe (`field_film_breaks`, os sítios de `field_film_sample`). As mesmas contas do WGSL, em f64.
 
 /** Os pesos da B-spline quadrática nas células −1, 0 e 1 para o deslocamento `f` ∈ [−½, ½) ao centro mais próximo. */
 export function filmWeights(f: number): [number, number, number] {
@@ -16,7 +16,9 @@ export function filmWeightSlopes(f: number): [number, number, number] {
 
 /**
  * A película lida no ponto (u, v) do plano (em células; os centros nos inteiros + ½) da grade `h(i, j)` (a água livre
- * de cada célula, 0 na seca): a espessura e o gradiente dela (por célula).
+ * de cada célula, 0 na seca; negativa na submersa, a água do volume): a espessura e o gradiente dela (por célula). A
+ * submersa fica fora da leitura, com os pesos das outras renormalizados — junto à água do volume a película termina
+ * nela, sem descer a zero ali; o ponto numa célula submersa não tem película.
  */
 export function filmSample(
     h: (i: number, j: number) => number,
@@ -27,21 +29,78 @@ export function filmSample(
     const gv = v - 0.5;
     const cu = Math.round(gu);
     const cv = Math.round(gv);
+    if (h(cu, cv) < 0) return { value: 0, slope: [0, 0] };
     const wu = filmWeights(gu - cu);
     const wv = filmWeights(gv - cv);
     const du = filmWeightSlopes(gu - cu);
     const dv = filmWeightSlopes(gv - cv);
+    let weight = 0;
     let value = 0;
+    let wdu = 0;
+    let wdv = 0;
     let su = 0;
     let sv = 0;
     for (let b = 0; b < 3; b++)
         for (let a = 0; a < 3; a++) {
             const x = h(cu + a - 1, cv + b - 1);
-            value += wu[a]! * wv[b]! * x;
+            if (x < 0) continue;
+            const w = wu[a]! * wv[b]!;
+            weight += w;
+            value += w * x;
+            wdu += du[a]! * wv[b]!;
+            wdv += wu[a]! * dv[b]!;
             su += du[a]! * wv[b]! * x;
             sv += wu[a]! * dv[b]! * x;
         }
-    return { value, slope: [su, sv] };
+    if (!(weight > 0)) return { value: 0, slope: [0, 0] };
+    const mean = value / weight;
+    return { value: mean, slope: [(su - wdu * mean) / weight, (sv - wdv * mean) / weight] };
+}
+
+/**
+ * A inclinação da película (m/m) limitada pelo ângulo de contato de cosseno `cosTheta`: a superfície da água parada não
+ * encontra o sólido mais inclinada que θ (Young); θ ≥ 90°, sem limite.
+ */
+export function filmSlopeCap(slope: readonly [number, number], cosTheta: number): [number, number] {
+    const steep = Math.hypot(slope[0], slope[1]);
+    const sin = Math.sqrt(Math.max(1 - cosTheta * cosTheta, 0));
+    if (!(cosTheta > 1e-3) || steep * cosTheta <= sin) return [slope[0], slope[1]];
+    const k = sin / (cosTheta * steep);
+    return [slope[0] * k, slope[1] * k];
+}
+
+/** Gotas por lado de célula (os sítios de passo ℓ), a fração de sítios vazios e o alcance da base (em passos). */
+export const FILM_SITES = 1;
+export const FILM_SITE_EMPTY = 0.4;
+export const FILM_SITE_REACH = 0.35;
+
+/** O peso da gota do sítio de número `u` ∈ [0, 1): 0 nos vazios, u⁴ nos outros. */
+export function filmSiteWeight(u: number): number {
+    return u < FILM_SITE_EMPTY ? 0 : u ** 4;
+}
+
+/** A média do peso sobre u uniforme, ∫ u⁴ du em [vazio, 1]: o volume da gota é a água do sítio vezes peso / média. */
+export function filmSiteMean(): number {
+    return (1 - FILM_SITE_EMPTY ** 5) / 5;
+}
+
+/**
+ * A base (m) da gota do sítio com a água livre `h` (m) e o peso `weight`, na superfície de coeficiente κ
+ * (`dropBaseCoefficient` da célula de lado `cell`): a calota de volume h s² · peso / média, a = κ ∛(V / ℓ²), até o
+ * alcance.
+ */
+export function filmSiteBase(h: number, weight: number, kappa: number, cell: number): number {
+    const s = cell / FILM_SITES;
+    const volume = (h * s * s * weight) / filmSiteMean();
+    return Math.min(kappa * Math.cbrt(volume / (cell * cell)), FILM_SITE_REACH * s);
+}
+
+/**
+ * A película de espessura `h` se rompe em gotas? Na molhagem parcial (κ > 0), abaixo da espessura crítica `critical`
+ * (`filmBreakThickness`).
+ */
+export function filmBreaks(h: number, kappa: number, critical: number): boolean {
+    return kappa > 0 && h > 0 && h < critical;
 }
 
 /**

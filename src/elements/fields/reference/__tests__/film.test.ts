@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
     absorbUnits,
     FILM_IOR,
+    filmBreaks,
     filmCoverage,
     filmPressure,
     filmSample,
+    filmSiteBase,
+    filmSiteMean,
+    filmSiteWeight,
+    filmSlopeCap,
     filmWeights,
+    FILM_SITE_REACH,
+    FILM_SITES,
     puddleThickness,
     refract,
     wetNormal,
@@ -31,6 +38,54 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
             expect(Math.abs(a.value - b.value)).toBeLessThan(1e-10);
             expect(Math.abs(a.slope[0] - b.slope[0])).toBeLessThan(1e-9);
         }
+    });
+
+    it('junto à água do volume a película termina nela: sem a descida a zero da célula submersa', () => {
+        // Película uniforme de 0,1 mm acima da linha d'água (j ≥ 0), submersa abaixo: a leitura é a película, plana.
+        const grid = (_i: number, j: number): number => (j >= 0 ? 1e-4 : -1);
+        for (const v of [0.5, 0.7, 1.0, 1.4]) {
+            const r = filmSample(grid, 2.3, v);
+            expect(r.value).toBeCloseTo(1e-4, 15);
+            expect(Math.abs(r.slope[1])).toBeLessThan(1e-15);
+        }
+        // Na célula submersa, nenhuma película (é a própria água).
+        expect(filmSample(grid, 2.3, -0.5).value).toBe(0);
+        // Com a submersa contada como seca, a borda descia a zero: a inclinação de antes.
+        const dry = (_i: number, j: number): number => (j >= 0 ? 1e-4 : 0);
+        expect(Math.abs(filmSample(dry, 2.3, 0.6).slope[1])).toBeGreaterThan(3e-5);
+    });
+
+    it('o ângulo de contato limita a inclinação da película', () => {
+        const cos = Math.cos((30 * Math.PI) / 180);
+        const tan = Math.tan((30 * Math.PI) / 180);
+        const capped = filmSlopeCap([1.2, -0.9], cos);
+        expect(Math.hypot(...capped)).toBeCloseTo(tan, 12);
+        expect(capped[0] / capped[1]).toBeCloseTo(1.2 / -0.9, 12);
+        expect(filmSlopeCap([0.1, 0.2], cos)).toEqual([0.1, 0.2]);
+        // θ ≥ 90°: sem limite.
+        expect(filmSlopeCap([3, 0], 0)).toEqual([3, 0]);
+    });
+
+    it('as gotas dos sítios: a água se conserva na média e a película se rompe enquanto a maior cabe', () => {
+        // A média dos pesos sobre u uniforme (o ponto médio em 10⁶ faixas) é a do modelo: o volume das gotas soma a água.
+        const n = 1_000_000;
+        let sum = 0;
+        for (let k = 0; k < n; k++) sum += filmSiteWeight((k + 0.5) / n);
+        expect(sum / n).toBeCloseTo(filmSiteMean(), 9);
+        expect(filmSiteWeight(0.39)).toBe(0);
+        // A gota do sítio: a calota do volume h s² · peso / média, até o alcance (metade do passo).
+        const cell = 0.00625;
+        const kappa = 0.0449;
+        const s = cell / FILM_SITES;
+        expect(filmSiteBase(1e-4, filmSiteMean(), kappa, cell)).toBeCloseTo(
+            kappa * Math.cbrt(1e-4),
+            12,
+        );
+        expect(filmSiteBase(1e-3, 1, kappa, cell)).toBe(FILM_SITE_REACH * s);
+        // A ruptura: abaixo da espessura crítica, na molhagem parcial.
+        expect(filmBreaks(1e-4, kappa, 1.4e-3)).toBe(true);
+        expect(filmBreaks(2e-3, kappa, 1.4e-3)).toBe(false);
+        expect(filmBreaks(1e-4, 0, 1.4e-3)).toBe(false);
     });
 
     it('a pressão: o peso da coluna e a de Laplace, a seca sem fluxo pela borda', () => {

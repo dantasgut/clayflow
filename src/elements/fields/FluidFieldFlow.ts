@@ -150,6 +150,8 @@ const WATER_FILM = { surfaceTension: 0.072, contactAngle: 30 };
 
 /** Água que os poros guardam no máximo (m): o alcance do ponto fixo da película (`FIELD_FILM_UNIT`). */
 const FILM_MAX_CAPACITY = 0.04;
+/** A espessura de ruptura em f32 (m): sem gravidade ela não tem limite (`filmBreakThickness` +∞) — a película inteira. */
+const FILM_BREAK_MAX = 1;
 
 /** Recursos do conjunto de colliders que o passo da película lê (a distância e a superfície, sem a malha). */
 const FILM_COLLIDER_RESOURCES = new Set([
@@ -820,7 +822,8 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
      * A tabela das superfícies da película (`FIELD_FILM_SURFACES` entradas, duas linhas cada): a padrão
      * (`SurfacePhysics.defaults`) e as `SurfacePhysics` da cena na ordem da consulta — a mesma do mapa dos colliders
      * (`ColliderSet`) —, com o líquido (o `ParticlePhysics`) e o ar (`Atmosphere`); a segunda linha leva a evaporação, o
-     * cosseno do ângulo de contato e a base da gota na célula de lado `cell` (m).
+     * cosseno do ângulo de contato, a base da gota na célula de lado `cell` (m) e a espessura em que a película se rompe
+     * em gotas (m).
      */
     private surfaceTable(ctx: Ctx, physics: ParticlePhysics | undefined, cell: number): number[][] {
         const air =
@@ -840,6 +843,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 liquid,
                 air,
                 cell,
+                Math.hypot(...this.gravity(ctx)),
             );
             rows.push(
                 [
@@ -848,7 +852,12 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     t.washburn,
                     Math.min(t.capacity, FILM_MAX_CAPACITY),
                 ],
-                [t.evaporation, t.contactCosine, t.dropBase, 0],
+                [
+                    t.evaporation,
+                    t.contactCosine,
+                    t.dropBase,
+                    Math.min(t.breakThickness, FILM_BREAK_MAX),
+                ],
             );
         }
         return rows;

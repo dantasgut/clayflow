@@ -12,10 +12,10 @@
 //   - brick: paredes de tijolo (`BRICK`): o tijolo absorve.
 // E três cenas da T066d (`support/wettingScenes.ts`):
 //   - edge: o rastro de uma gota de 3 × 3 partículas num azulejo inclinado 35°, a descida a 30° dos eixos da grade, visto
-//     de cima — a água que o rastro segura se rompe em gotas (a molhagem parcial: `field_film_is_drop`), e as gotas
-//     são calotas redondas, sem os degraus da grade: a razão mediana dos eixos delas ≤ 1,6 (o plano inclinado encurta
-//     a vista em 0,82; a gota de poucos pixels, a quantização), ≥ 100 gotas e nenhuma fileira do rastro sem água
-//     (≤ 1 %). Antes das gotas, a faixa contínua com as bordas a ≤ 3,5 mm da reta (antes da T066d, 7,4 mm);
+//     de cima — a água que o rastro segura se rompe em gotas (a molhagem parcial: `field_film_breaks`), e as gotas
+//     são calotas redondas, sem os degraus da grade: a razão mediana dos eixos das resolvidas (≥ 3 × 3 pixels) ≤ 1,6 (o
+//     plano inclinado encurta a vista em 0,82; a gota de poucos pixels, a quantização), ≥ 100 gotas e nenhum trecho do
+//     rastro sem água mais longo que dois passos das gotas (12,5 mm; ≤ 1 % das fileiras). Antes das gotas, a faixa contínua com as bordas a ≤ 3,5 mm da reta (antes da T066d, 7,4 mm);
 //   - anchor: a gota de uma partícula num plano inclinado da superfície { rugosidade 1,3, histerese 40° } — o ângulo de
 //     deslize pela força de Furmidge da borda dela (`ParticlePhysics.dropPinning`): a metade dele, parada (< 1 mm/s); o
 //     dobro, solta (> 100 mm em 1 s);

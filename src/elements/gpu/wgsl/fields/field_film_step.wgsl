@@ -347,10 +347,16 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         let w = field_film_cell_word(own);
         atomicStore(&field_film_cells[w + 5u], surface);
         atomicMax(&field_film_cells[w + 2u], packed_normal);
-        // A residual, ou a água livre que já estava (a da gota passada à película fica: nada some sob a água).
-        field_film_keep(w, max(field_film_previous[pw + 1u], field_film_units(FIELD_FILM_RESIDUAL)));
+        // Sob a água, a película é a residual; a água livre além dela (a que desceu pelo sólido até a água do volume, a
+        // da gota passada à película) se junta ao volume: passa à pendente, que volta a ser partícula no pingo — nada
+        // some sob a água. Antes ela ficava livre na célula submersa e, quando o nível baixava (a água que balança no
+        // tanque), aparecia de uma vez como película de até 1 cm logo acima da linha d'água: a faixa escura grossa.
+        let residual = field_film_units(FIELD_FILM_RESIDUAL);
+        let before = field_film_previous[pw + 1u];
+        let joined = select(0u, (before - residual) / FIELD_FILM_DROP_UNITS, before > residual);
+        field_film_keep(w, max(before - joined * FIELD_FILM_DROP_UNITS, residual));
         atomicStore(&field_film_cells[w + 4u], absorbed_units + field_film_units(soak));
-        field_film_add_drop(w, drop_units);
+        field_film_add_drop(w, drop_units + joined);
         return;
     }
     var free_units = field_film_previous[pw + 1u];

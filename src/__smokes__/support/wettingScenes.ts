@@ -97,13 +97,25 @@ export interface TrailEdge {
     readonly width: number;
     /** Fileiras medidas. */
     readonly rows: number;
-    /** As gotas do rastro (os componentes da máscara de ≥ 4 pixels). */
+    /** As gotas do rastro (os componentes da máscara de ≥ 4 pixels; a razão dos eixos, nos de ≥ 9). */
     readonly drops: number;
     /** A razão mediana dos eixos das gotas (os momentos de segunda ordem; 1 na redonda). */
     readonly roundness: number;
     /** A imagem medida. */
     readonly image?: ImageData;
 }
+
+/**
+ * O campo de visão do rastro: 10°, 0,74 mm por pixel no plano — as gotas em que o rastro se rompe (de 1 a 4 mm) com
+ * forma resolvida.
+ */
+const TRAIL_FOV = Math.PI / 18;
+
+/**
+ * O trecho sem água ao longo do rastro que é falha (mm): o rastro que se rompe em gotas tem o vidro seco entre elas, a
+ * até dois passos dos sítios das gotas (`FIELD_FILM_SITES`, 6,25 mm) — além disso, o rastro foi interrompido.
+ */
+const TRAIL_GAP = 12.5;
 
 /**
  * O rastro de uma gota (um aglomerado de 3 × 3 partículas) que escorre num azulejo inclinado 35°, com a descida a 30°
@@ -151,7 +163,7 @@ export async function trailEdge(): Promise<TrailEdge> {
     world.insert(body);
     const eye: Vec3 = [0, 1.6, 0.001];
     world.insert(
-        new Camera({ fov: Math.PI / 6, aspect: 1, aspectMode: 'fixed', near: 0.05, far: 10 }).add(
+        new Camera({ fov: TRAIL_FOV, aspect: 1, aspectMode: 'fixed', near: 0.05, far: 10 }).add(
             new Transform({
                 position: [...eye, 1],
                 rotation: Transform.lookRotation(eye, [0, 0, 0]),
@@ -173,7 +185,7 @@ export async function trailEdge(): Promise<TrailEdge> {
     const image = capture(canvas);
     close(app, canvas, errors);
     // Milímetros por pixel no centro da vista (a borda do rastro corre na horizontal do plano: sem encurtar).
-    const mm = (2 * 1.6 * Math.tan(Math.PI / 12) * 1000) / W;
+    const mm = (2 * 1.6 * Math.tan(TRAIL_FOV / 2) * 1000) / W;
     return { ...measureTrail(image, mm), image };
 }
 
@@ -252,6 +264,8 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
     const right: [number, number][] = [];
     let gaps = 0;
     let rows = 0;
+    // As fileiras sem água seguidas: falha só o trecho mais longo que o espaço entre duas gotas do rastro.
+    let empty = 0;
     let width = 0;
     let crossings = 0;
     // O meio do rastro (10 % a 90 % do comprimento): as pontas são o começo e o fim da gota.
@@ -261,8 +275,8 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
         const cy = my + t * u[1];
         let first = NaN;
         let last = NaN;
-        let prev = sample(cx - 60 * v[0], cy - 60 * v[1]);
-        for (let q = -60 + 0.25; q <= 60; q += 0.25) {
+        let prev = sample(cx - 120 * v[0], cy - 120 * v[1]);
+        for (let q = -120 + 0.25; q <= 120; q += 0.25) {
             const val = sample(cx + q * v[0], cy + q * v[1]);
             if ((prev - threshold) * (val - threshold) < 0) {
                 crossings++;
@@ -273,13 +287,16 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
             prev = val;
         }
         if (Number.isNaN(first) || last - first < 1) {
-            gaps++;
+            empty++;
             continue;
         }
+        if (empty * mm > TRAIL_GAP) gaps += empty;
+        empty = 0;
         left.push([t, first]);
         right.push([t, last]);
         width += last - first;
     }
+    if (empty * mm > TRAIL_GAP) gaps += empty;
     // As interrupções ao longo das linhas paralelas ao eixo.
     const residual = (pts: [number, number][]): number[] => {
         const n = pts.length;
@@ -299,6 +316,7 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
     // As gotas: os componentes conexos (4-vizinhança) da máscara e a razão dos eixos de cada um.
     const label = new Int32Array(W * H).fill(-1);
     const ratios: number[] = [];
+    let dropCount = 0;
     for (let i0 = 0; i0 < W * H; i0++) {
         if (label[i0] !== -1 || !(L[i0]! < threshold)) continue;
         const stack = [i0];
@@ -328,6 +346,9 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
             ratios.push(NaN);
             continue;
         }
+        dropCount++;
+        // A forma só nas resolvidas (≥ 3 × 3 pixels): numa de 4 a 8 a razão dos eixos é a da quantização (√3 na de 3 em L).
+        if (pts.length < 9) continue;
         let ax = 0;
         let ay = 0;
         for (const i of pts) {
@@ -359,7 +380,7 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
         crossings: rows > 0 ? crossings / rows : 0,
         width: left.length > 0 ? (width / left.length) * mm : 0,
         rows,
-        drops: round.length,
+        drops: dropCount,
         roundness: round.length > 0 ? round[Math.floor(round.length / 2)]! : Infinity,
     };
 }
