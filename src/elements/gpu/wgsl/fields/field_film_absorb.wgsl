@@ -28,10 +28,17 @@ fn field_film_absorb_column(home: vec2i, index: u32) -> vec2i {
     return home + vec2i(i32(index) % side - FIELD_FILM_ABSORB, i32(index) / side - FIELD_FILM_ABSORB);
 }
 
-/** O peso da coluna `uv` na poça de raio `radius` em volta de `q` (0 fora dela ou fora do sólido). */
-fn field_film_absorb_weight(q: vec3f, n: vec3f, axes: vec2i, uv: vec2i, radius: f32) -> f32 {
+/**
+ * O peso da coluna `uv` na poça de raio `radius` em volta de `q` (0 fora dela ou fora do sólido): a cobertura do disco
+ * (a borda nítida da poça parada) ou, na lâmina do impacto (`lamella`), o perfil (1 − (d/R)²)², que vai a zero com a
+ * derivada na borda — as lâminas de partículas vizinhas somadas se fundem numa película contínua, sem o ladrilhado de
+ * ovais que os discos de espessura uniforme deixavam (`fields/reference/film.ts`: `impactWeight`).
+ */
+fn field_film_absorb_weight(q: vec3f, n: vec3f, axes: vec2i, uv: vec2i, radius: f32, lamella: bool) -> f32 {
     let at = field_film_plane_cell(q, n, axes, uv);
-    let cover = field_film_coverage(length(at.point - q), radius);
+    let d = length(at.point - q);
+    let u = max(1.0 - (d / radius) * (d / radius), 0.0);
+    let cover = select(field_film_coverage(d, radius), u * u, lamella);
     if (cover <= 0.0) { return 0.0; }
     let size = field_film_size();
     if (abs(field_film_solid((vec3f(at.cell) + 0.5) * size)) > size) { return 0.0; }
@@ -83,10 +90,9 @@ fn field_film_absorb_main(
     // placa de 1 cm, a mais grossa do modelo).
     let d0 = 2.0 * pow(3.0 * fluid_field.filmShape.z / (4.0 * PI), 1.0 / 3.0);
     let impact = 0.5 * d0 * bitcast<f32>(field_drips_read[c + 4u]);
-    let radius = min(
-        max(sqrt(fluid_field.filmShape.z / (PI * max(thickness, 1e-9))), impact),
-        (f32(FIELD_FILM_ABSORB) - 0.5) * size,
-    );
+    let puddle = sqrt(fluid_field.filmShape.z / (PI * max(thickness, 1e-9)));
+    let lamella = impact > puddle;
+    let radius = min(max(puddle, impact), (f32(FIELD_FILM_ABSORB) - 0.5) * size);
     let reach = min(i32(ceil(radius / size + 0.5)), FIELD_FILM_ABSORB);
     let axes = field_film_axes(n);
     let center = field_film_cell(q, n);
@@ -97,7 +103,7 @@ fn field_film_absorb_main(
         let d = field_film_absorb_column(home, c) - home;
         var wgt = 0.0;
         if (live && abs(d.x) <= reach && abs(d.y) <= reach) {
-            wgt = field_film_absorb_weight(q, n, axes, home + d, radius);
+            wgt = field_film_absorb_weight(q, n, axes, home + d, radius, lamella);
         }
         field_absorb_weights[c] = wgt;
         sum += wgt;

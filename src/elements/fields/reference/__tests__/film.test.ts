@@ -26,6 +26,7 @@ import {
     filmWeights,
     puddleThickness,
     impactSpread,
+    impactWeight,
     wallSheet,
     absorbRadius,
     refract,
@@ -508,6 +509,32 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
             const we = (1 * 0.0125) / gammaRho;
             expect(impactSpread(1, 0.0125, gammaRho)).toBeCloseTo(0.9 * Math.pow(we, 0.25), 12);
             expect(impactSpread(1, 0.0125, gammaRho)).toBeCloseTo(3.27, 2);
+        });
+        it('o perfil da lâmina vai a zero com a derivada na borda: lâminas vizinhas somadas sem degrau', () => {
+            const R = 0.02;
+            expect(impactWeight(0, R)).toBe(1);
+            expect(impactWeight(R, R)).toBe(0);
+            // A derivada na borda: (w(R − ε) − 0)/ε → 0.
+            const e = 1e-9;
+            expect(impactWeight(R - e, R) / e).toBeLessThan(1e-3);
+            // Duas lâminas a 1,2 R: a soma ao longo da reta entre os centros não tem salto (a maior diferença entre
+            // amostras vizinhas a R/200 fica abaixo de 3 % do máximo), ao contrário dos discos de espessura uniforme.
+            const sum = (x: number, w: (d: number) => number) =>
+                w(Math.abs(x)) + w(Math.abs(x - 1.2 * R));
+            let worst = 0;
+            let flat = 0;
+            const disc = (d: number) => (d < R ? 1 : 0);
+            for (let i = -100; i < 340; i++) {
+                const x = (i * R) / 200;
+                const y = x + R / 200;
+                worst = Math.max(
+                    worst,
+                    Math.abs(sum(y, (d) => impactWeight(d, R)) - sum(x, (d) => impactWeight(d, R))),
+                );
+                flat = Math.max(flat, Math.abs(sum(y, disc) - sum(x, disc)));
+            }
+            expect(worst).toBeLessThan(0.03);
+            expect(flat).toBe(1);
         });
         it('cresce com a raiz quadrada da velocidade (We^¼ ∝ v^½)', () => {
             const a = impactSpread(1, 0.0125, gammaRho);

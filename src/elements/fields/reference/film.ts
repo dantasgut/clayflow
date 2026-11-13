@@ -433,6 +433,18 @@ export function absorbRadius(
 }
 
 /**
+ * O peso da célula a `distance` do centro da lâmina do impacto de raio `radius` (`field_film_absorb_weight`): o perfil
+ * (1 − (d/R)²)², que vai a zero com a derivada na borda — as lâminas de partículas vizinhas somadas se fundem numa
+ * película contínua. O disco de espessura uniforme (a cobertura, a borda nítida da poça parada) deixava, na água
+ * arremessada no vidro, o ladrilhado de ovais lado a lado: cada uma com o degrau da borda dela.
+ */
+export function impactWeight(distance: number, radius: number): number {
+    if (!(radius > 0) || distance >= radius) return 0;
+    const u = 1 - (distance / radius) ** 2;
+    return u * u;
+}
+
+/**
  * A gota que desliza passada à película (T066d): o volume dela (`units` unidades inteiras da pendente: as do pingo, a
  * conta inversa) repartido nas células do disco da poça pela cobertura de cada uma (`weights`, as fora do sólido com
  * peso 0) — a parte inteira de cada uma, e o que sobra do arredondamento na célula do contato (`center`). Nada se perde
