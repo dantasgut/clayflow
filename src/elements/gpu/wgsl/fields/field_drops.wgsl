@@ -4,8 +4,8 @@
 //   compacto da junção (`~item` pelo máximo atômico; 0 vazio);
 // - as gotas que deslizam, passadas à película, nos mesmos baldes (a de menor índice de cada um; as outras esperam o
 //   quadro seguinte);
-// - os pedidos de pingo da película (a chave e a palavra da célula, a posição), `FIELD_FILM_DRIPS` no máximo: o de
-//   ordem `r` pela chave volta na retirada do `r`-ésimo balde ocupado;
+// - os pedidos de pingo da película (`~chave` e a palavra da célula, a posição), em `FIELD_FILM_DRIPS` baldes pelo hash
+//   da chave (o de menor chave de cada um): o de ordem `r` pela chave volta na retirada do `r`-ésimo balde ocupado;
 // - o contato de cada gota dos baldes passada à película (o ponto e a normal snorm 8 × 4; `field_absorb_prepare_main`).
 // Requer: FIELD_FILM_DRIPS.
 
@@ -19,12 +19,7 @@ fn field_absorb_word(k: u32) -> u32 {
     return FIELD_FILM_DRIPS + k;
 }
 
-/** A palavra da contagem dos pedidos de pingo. */
-fn field_drip_count_word() -> u32 {
-    return 2u * FIELD_FILM_DRIPS;
-}
-
-/** Primeira palavra do pedido de pingo `k` (a chave da célula, a palavra dela na fatia do quadro, a posição). */
+/** Primeira palavra do balde `k` dos pedidos de pingo (`~chave` da célula, a palavra dela na fatia do quadro, a posição). */
 fn field_drip_word(k: u32) -> u32 {
     return 2u * FIELD_FILM_DRIPS + 1u + 5u * k;
 }

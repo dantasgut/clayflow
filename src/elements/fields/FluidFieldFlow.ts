@@ -239,6 +239,8 @@ const FILM_PRESSURE = kernel('film_pressure', fieldFilmStep, 'field_film_pressur
 const FILM_STEP = kernel('film_step', fieldFilmStep, 'field_film_step_main');
 const ABSORB_PREPARE = kernel('absorb_prepare', fieldAbsorbPrepare, 'field_absorb_prepare_main');
 const FILM_ABSORB = kernel('film_absorb', fieldFilmAbsorb, 'field_film_absorb_main');
+/** O pingo em dois passes: o balde de cada pedido fica com o de menor chave, e só ele grava (`field_film_drip.wgsl`). */
+const FILM_DRIP_CLAIM = kernel('film_drip_claim', fieldFilmDrip, 'field_film_drip_claim_main');
 const FILM_DRIP = kernel('film_drip', fieldFilmDrip, 'field_film_drip_main');
 const FILM_DEPOSIT = kernel('film_deposit', fieldFilmDeposit, 'field_film_deposit_main');
 const LINKS = kernel('links', fieldLinks, 'field_links_main');
@@ -269,6 +271,7 @@ const BUILD = [
     FILM_STEP,
     ABSORB_PREPARE,
     FILM_ABSORB,
+    FILM_DRIP_CLAIM,
     FILM_DRIP,
     FILM_DEPOSIT,
     LINKS,
@@ -515,6 +518,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 this.run(pass, at(FILM_ABSORB), FIELD_FILM_DRIPS.value * W, W);
             });
             frame.compute('FluidFieldFlow.film.drip', (pass) => {
+                this.run(pass, at(FILM_DRIP_CLAIM), FIELD_FILM_CELLS, W);
                 this.run(pass, at(FILM_DRIP), FIELD_FILM_CELLS, W);
             });
             frame.compute('FluidFieldFlow.film.deposit', (pass) => {

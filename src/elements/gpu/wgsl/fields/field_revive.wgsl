@@ -1,7 +1,7 @@
 // As listas do quadro no pool do corpo de água (spec 034, T066d; `field_drops.wgsl`), por corpo (uma região da junção):
 // - a gota deste corpo passada à película (`field_film_absorb_main`) é retirada — parada muito abaixo da cena
 //   (`FLUID_RETIRED_Y`), como a que sai do domínio aberto: a película a devolve num pingo;
-// - o pedido de pingo de ordem `r` pela chave da célula (o empate pela palavra) volta na retirada do `r`-ésimo balde
+// - o pedido de pingo de ordem `r` pela chave da célula (um por balde, `field_film_drip.wgsl`) volta na retirada do `r`-ésimo balde
 //   ocupado: se ela é deste corpo, a partícula vai à posição do pingo (a anterior igual, parada; o resto do registro
 //   fica) e a célula perde exatamente o volume dela. A escolha não depende da ordem dos atômicos.
 // Requer: WORKGROUP_SIZE, NONE, field_gather, field_particles_rw, field_drips_read, field_drops, FIELD_FILM_DRIPS,
@@ -37,17 +37,16 @@ fn field_revive_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
         let p = field_particles_rw[absorbed + field_gather.posOffsetVec4].xyz;
         field_place(absorbed, vec3f(p.x, FLUID_RETIRED_Y, p.z));
     }
-    // O pingo k: a ordem dele entre os pedidos pela chave (e pela palavra no empate).
-    let requests = min(field_drips_read[field_drip_count_word()], FIELD_FILM_DRIPS);
-    if (k >= requests) { return; }
+    // O pingo do balde k (`~chave`; 0 vazio): a ordem dele entre os pedidos pela chave (uma por balde, sem empate).
     let o = field_drip_word(k);
-    let key = field_drips_read[o];
+    let stored = field_drips_read[o];
+    if (stored == 0u) { return; }
+    let key = ~stored;
     let word = field_drips_read[o + 1u];
     var rank = 0u;
-    for (var j = 0u; j < requests; j++) {
+    for (var j = 0u; j < FIELD_FILM_DRIPS; j++) {
         let other = field_drips_read[field_drip_word(j)];
-        let other_word = field_drips_read[field_drip_word(j) + 1u];
-        if (other < key || (other == key && other_word < word)) { rank++; }
+        if (other != 0u && ~other < key) { rank++; }
     }
     // O balde ocupado de mesma ordem.
     var item = NONE;
