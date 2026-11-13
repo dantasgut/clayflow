@@ -36,6 +36,11 @@ const FIELD_FILM_GATHER: i32 = 3;
  * oscilar: a soma dos pesos é 10/3, e o total fica em 0,8).
  */
 const FIELD_FILM_SPREAD_STEP: f32 = 0.24;
+/**
+ * O logaritmo da razão das escalas da cunha junto à linha de contato (Cox–Voinov: o tamanho da gota sobre o comprimento
+ * molecular, ln(10⁻³ / 10⁻⁷) ≈ 9; Le Grand, Daerr & Limat 2005 ajustam 10 a 20).
+ */
+const FIELD_FILM_CONTACT_LOG: f32 = 10.0;
 
 /** Espessura em unidades inteiras (arredondada). */
 fn field_film_units(h: f32) -> u32 {
@@ -158,16 +163,25 @@ fn field_film_toward_channel(c: vec3i, axes: vec2i, along: i32) -> i32 {
     return 0;
 }
 
-fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, dt: f32) -> u32 {
+fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, cos_t: f32, spread: f32, dt: f32)
+    -> u32 {
     let size = field_film_size();
     let h = f32(free_units) * FIELD_FILM_UNIT;
     let g = fluid_field.filmFlow.xyz;
     let gt = g - dot(g, n) * n;
     let gl = length(gt);
     if (gl <= 1e-3 || fluid_field.filmFlow.w <= 0.0) { return 0u; }
-    let excess = h - terms.x / (gl * field_voxel());
+    // A espessura presa pela borda da célula (os defeitos do sólido, `field_film_defect`).
+    let excess = h - terms.x * field_film_defect(c, spread) / (gl * field_voxel());
     if (excess <= 0.0) { return 0u; }
-    let u = terms.y * gl * h * h / (3.0 * fluid_field.filmFlow.w);
+    // A velocidade: a da película fina de Nusselt, limitada na molhagem parcial (θ > 0) pela dissipação na linha de
+    // contato da frente (Kim, Lee & Kang 2002; Le Grand, Daerr & Limat 2005): o peso que passa da borda por largura, ρ
+    // g_t ℓ (h − h_presa), contra a cunha 3 μ U ln Λ / θ — a gota pouco acima do limiar desce a poucos cm/s.
+    var u = terms.y * gl * h * h / (3.0 * fluid_field.filmFlow.w);
+    if (cos_t < 1.0) {
+        let theta = acos(clamp(cos_t, -1.0, 1.0));
+        u = min(u, theta * gl * field_voxel() * excess / (3.0 * fluid_field.filmFlow.w * FIELD_FILM_CONTACT_LOG));
+    }
     let moved = min(free_units, field_film_units(excess * min(1.0, u * dt / size)));
     if (moved == 0u) { return 0u; }
     // A célula seguinte sobre a superfície do sólido: a vizinha na direção da descida, levada à superfície pela normal da
@@ -430,7 +444,8 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
         }
     }
     // Escoamento do excesso sobre a espessura presa, depois o espalhamento no plano; o que fica, na própria célula.
-    let moved = field_film_flow(c, w, n, free_units, terms, dt);
+    let moved = field_film_flow(c, w, n, free_units, terms, field_film_surface(surface - 1u, 1u).y,
+        field_film_surface(surface - 1u, 2u).x, dt);
     free_units -= moved;
     // O escoamento da célula: a água que desceu dela agora e a metade do do passo anterior (o filete que corre
     // intermitente — o excesso sai em unidades inteiras — não pisca entre filete e gotas; parado, some em poucos passos e

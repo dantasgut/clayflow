@@ -819,11 +819,11 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     }
 
     /**
-     * A tabela das superfícies da película (`FIELD_FILM_SURFACES` entradas, duas linhas cada): a padrão
+     * A tabela das superfícies da película (`FIELD_FILM_SURFACES` entradas, três linhas cada): a padrão
      * (`SurfacePhysics.defaults`) e as `SurfacePhysics` da cena na ordem da consulta — a mesma do mapa dos colliders
      * (`ColliderSet`) —, com o líquido (o `ParticlePhysics`) e o ar (`Atmosphere`); a segunda linha leva a evaporação, o
      * cosseno do ângulo de contato, a base da gota na célula de lado `cell` (m) e a espessura em que a película se rompe
-     * em gotas (m).
+     * em gotas (m); a terceira, a desigualdade da força da borda (`SurfacePhysics.pinningSpread`).
      */
     private surfaceTable(ctx: Ctx, physics: ParticlePhysics | undefined, cell: number): number[][] {
         const air =
@@ -858,6 +858,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     t.dropBase,
                     Math.min(t.breakThickness, FILM_BREAK_MAX),
                 ],
+                [t.pinningSpread, 0, 0, 0],
             );
         }
         return rows;

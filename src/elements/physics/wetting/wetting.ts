@@ -235,6 +235,8 @@ export interface FilmSurfaceTerms {
     readonly dropBase: number;
     /** A espessura abaixo da qual a película se rompe em gotas (`filmBreakThickness`, m; 0 sem ruptura). */
     readonly breakThickness: number;
+    /** O desvio-padrão do logaritmo da força da borda de lugar para lugar (`SurfacePhysics.pinningSpread`). */
+    readonly pinningSpread: number;
 }
 
 /**
@@ -248,6 +250,7 @@ export function filmSurfaceTerms(
         readonly hysteresis: number;
         readonly contactAngle?: number | undefined;
         readonly temperature?: number | undefined;
+        readonly pinningSpread?: number | undefined;
     } & PorousMedium,
     liquid: WettingLiquid,
     air: {
@@ -289,5 +292,6 @@ export function filmSurfaceTerms(
             gravity,
             contactAngle,
         ),
+        pinningSpread: surface.pinningSpread ?? 0,
     };
 }

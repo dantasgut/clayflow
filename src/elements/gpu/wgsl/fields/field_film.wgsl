@@ -25,7 +25,7 @@
 // água pendente: a película volta a ser partícula) e `field_film_deposit_main` (por partícula encostada num sólido).
 // Quem sombreia lê a água livre e a saturação dos poros no ponto da superfície (`field_film_at`), quem refrata a
 // inclinação da película (`field_film_slope`).
-// Requer: fluid_field, field_common, FIELD_FILM_WORDS, FIELD_FILM_SURFACES.
+// Requer: fluid_field, field_common, random, FIELD_FILM_WORDS, FIELD_FILM_SURFACES.
 
 /**
  * Espessura em ponto fixo, da água livre e da absorvida: unidade de 0,01 nm — a evaporação de um passo de 60 Hz (~0,7 nm
@@ -165,7 +165,20 @@ fn field_film_slot_in(page: u32, c: vec3i, axes: vec2i) -> u32 {
     return page * 64u + bitcast<u32>(c[axes.x] & 7) + 8u * bitcast<u32>(c[axes.y] & 7);
 }
 
-/** Linha `row` (0 ou 1) da entrada `surface` da tabela das superfícies (fora dela, o padrão). */
+/**
+ * O fator da força da borda na célula `c` com a desigualdade `spread` da superfície (`SurfacePhysics.pinningSpread`: o
+ * desvio-padrão do logaritmo dela — os defeitos químicos e topográficos do sólido, Joanny & de Gennes 1984): log-normal
+ * de mediana 1 pelo hash da célula (a soma das duas metades de 16 bits, quase gaussiana, escalada a desvio 1), fixo no
+ * sólido — o mesmo no passo e na leitura.
+ */
+fn field_film_defect(c: vec3i, spread: f32) -> f32 {
+    if (spread <= 0.0) { return 1.0; }
+    let h = hash3(bitcast<vec3u>(c) ^ vec3u(0x27D4EB2Fu, 0x165667B1u, 0xD3A2646Cu));
+    let n = (f32(h & 0xFFFFu) + f32(h >> 16u)) / 65535.0 - 1.0;
+    return exp(spread * 2.449 * n);
+}
+
+/** Linha `row` (0 a 2) da entrada `surface` da tabela das superfícies (fora dela, o padrão). */
 fn field_film_surface(surface: u32, row: u32) -> vec4f {
-    return fluid_field.filmSurfaces[2u * select(0u, surface, surface < FIELD_FILM_SURFACES) + row];
+    return fluid_field.filmSurfaces[3u * select(0u, surface, surface < FIELD_FILM_SURFACES) + row];
 }

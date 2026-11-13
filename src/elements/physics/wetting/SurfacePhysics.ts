@@ -28,6 +28,13 @@ export interface SurfacePhysicsOptions {
     readonly thickness?: number;
     /** Temperatura da superfície (°C); sem ela, a do ar (`Atmosphere`). */
     readonly temperature?: number;
+    /**
+     * A desigualdade da força da borda de lugar para lugar: o desvio-padrão do logaritmo dela entre as células da película
+     * (default 0, uniforme). Os defeitos químicos e topográficos de um sólido real seguram a linha de contato com força
+     * desigual (Joanny & de Gennes 1984; de Gennes 1985, §IV): a água que um filete deixa para trás varia de lugar para
+     * lugar, e a que passa da borda num ponto fraco desce enquanto a vizinha fica.
+     */
+    readonly pinningSpread?: number;
 }
 
 /** Dado de um `SurfacePhysics` (layout de `SurfacePhysics.schema`). */
@@ -41,7 +48,7 @@ export interface SurfacePhysicsData {
     thickness: number;
     /** Temperatura em °C; NaN sem ela (a do ar). */
     temperature: number;
-    _pad0: number;
+    pinningSpread: number;
 }
 
 function check(name: string, value: number, ok: boolean): number {
@@ -80,7 +87,7 @@ export class SurfacePhysics extends Entity<SurfacePhysicsData> implements Resour
         poreRadius: FieldType.f32,
         thickness: FieldType.f32,
         temperature: FieldType.f32,
-        _pad0: FieldType.f32,
+        pinningSpread: FieldType.f32,
     });
 
     /** Superfícies distintas que a película distingue numa cena (as demais ficam com o padrão). */
@@ -93,9 +100,15 @@ export class SurfacePhysics extends Entity<SurfacePhysicsData> implements Resour
      * Vidro comum de janela (o do uso, não o limpo de laboratório): liso, impermeável, histerese de ~20°. A gota parada
      * num vidro vertical molhado chega a ~5 mm (a foto de referência da T066d): pela força de Furmidge, a calota de 30°
      * com base de 2,5 mm de raio só fica parada com cos θ_r − cos θ_a ≈ 0,18 — a histerese de ~20° em torno de 30°
-     * (com os 5° do `GLASS`, a maior gota parada tem ~2,5 mm e a película presa ~0,05 mm).
+     * (com os 5° do `GLASS`, a maior gota parada tem ~2,5 mm e a película presa ~0,05 mm). A sujeira e os resíduos do uso
+     * seguram a borda com força desigual (`pinningSpread` 0,5: a força entre ~0,6 e ~1,6 vezes a mediana): gotas de
+     * tamanhos diferentes, e as que passam da borda num ponto fraco descem.
      */
-    static readonly WINDOW_GLASS: SurfacePhysicsOptions = { roughness: 1, hysteresis: 20 };
+    static readonly WINDOW_GLASS: SurfacePhysicsOptions = {
+        roughness: 1,
+        hysteresis: 20,
+        pinningSpread: 0.5,
+    };
 
     /** Cerâmica vidrada (azulejo): quase lisa, histerese de ~15°, impermeável. */
     static readonly GLAZED_TILE: SurfacePhysicsOptions = { roughness: 1.05, hysteresis: 15 };
@@ -140,6 +153,7 @@ export class SurfacePhysics extends Entity<SurfacePhysicsData> implements Resour
         const thickness = options.thickness ?? 0;
         const angle = options.contactAngle;
         const temperature = options.temperature;
+        const pinningSpread = options.pinningSpread ?? 0;
         this.data = {
             roughness: check('roughness', roughness, roughness >= 1),
             hysteresis: check('hysteresis', hysteresis, hysteresis >= 0 && hysteresis <= 180),
@@ -152,7 +166,7 @@ export class SurfacePhysics extends Entity<SurfacePhysicsData> implements Resour
                 temperature === undefined
                     ? NaN
                     : check('temperature', temperature, temperature > -273.15),
-            _pad0: 0,
+            pinningSpread: check('pinningSpread', pinningSpread, pinningSpread >= 0),
         };
     }
 
@@ -189,6 +203,11 @@ export class SurfacePhysics extends Entity<SurfacePhysicsData> implements Resour
     /** Temperatura própria (°C), ou `undefined` (a do ar). */
     get temperature(): number | undefined {
         return Number.isNaN(this.data.temperature) ? undefined : this.data.temperature;
+    }
+
+    /** A desigualdade da força da borda: o desvio-padrão do logaritmo dela de lugar para lugar. */
+    get pinningSpread(): number {
+        return this.data.pinningSpread;
     }
 
     /** Sem dado de GPU: o estágio da película leva as grandezas derivadas ao uniform do campo. */

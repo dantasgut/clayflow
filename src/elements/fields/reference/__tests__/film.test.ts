@@ -6,12 +6,15 @@ import {
     capVolume,
     FILM_IOR,
     filmBreaks,
+    filmDefect,
     filmCoverage,
     filmPressure,
     filmSample,
     dropAt,
     dropShape,
-    filmDrops,
+    cellDrops,
+    dropExtent,
+    filmFlowSpeed,
     filmSlopeCap,
     filmWeights,
     puddleThickness,
@@ -69,45 +72,115 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
         expect(filmSlopeCap([3, 0], 0)).toEqual([3, 0]);
     });
 
-    it('as gotas da árvore dos quadrados: a água de cada célula numa gota só, a coalescência soma o volume', () => {
+    it('as gotas da célula: sítios sem grade, tamanhos contínuos, a coalescência soma o volume e a massa se conserva', () => {
         const cell = 0.00625;
         const theta = (30 * Math.PI) / 180;
         // Um sorteio determinístico (o hash do WGSL é outro; a conta não depende dele).
-        const rand = (level: number, node: readonly [number, number], k: number): number => {
-            const x =
-                Math.sin(level * 12.9898 + node[0] * 78.233 + node[1] * 37.719 + k * 4.581)
-                * 43758.5453;
+        const hash = (a: number, b: number, k: number): number => {
+            const x = Math.sin(a * 12.9898 + b * 78.233 + k * 37.719 + 4.581) * 43758.5453;
             return x - Math.floor(x);
         };
-        const always = (): boolean => true;
-        let seen = new Set<number>();
+        const fits = (volume: number): boolean => 2 * capBase(volume, theta) <= cell;
+        const radii: number[] = [];
+        const offsets: number[] = [];
+        let merged = 0;
+        let puddles = 0;
         for (const h of [2e-6, 2e-5, 1e-4, 3e-4, 8e-4]) {
-            for (let b = 0; b < 40; b++) {
-                const water: [number, number, number, number] = [0, 1, 2, 3].map(
-                    (k) => h * (0.2 + 1.6 * rand(9, [b, k], 3)),
-                ) as [number, number, number, number];
-                const drops = filmDrops(water, cell, [2 * b * cell, 0], theta, rand, always);
-                const total = drops.reduce((x, d) => x + d.volume, 0);
-                const exact = water.reduce((x, w) => x + w, 0) * cell * cell;
-                expect(total / exact).toBeCloseTo(1, 12);
-                for (const d of drops) seen.add(d.level);
+            for (let b = 0; b < 200; b++) {
+                const at: [number, number] = [b, 7];
+                const volume = h * (0.2 + 1.6 * hash(b, 1, 99)) * cell * cell;
+                const drops = cellDrops(volume, at, cell, theta, (k) => hash(b, 7, k), fits);
+                if (drops === undefined) {
+                    puddles++;
+                    continue;
+                }
+                // A água da célula vai inteira às gotas.
+                expect(drops.reduce((x, d) => x + d.volume, 0) / volume).toBeCloseTo(1, 12);
+                if (drops.length < 4) merged++;
+                for (const d of drops) {
+                    expect(fits(d.volume)).toBe(true);
+                    radii.push(capBase(d.volume, theta));
+                    offsets.push(d.center[0] / cell - at[0]);
+                    // A gota coalescida fica entre os sítios dela: na célula.
+                    expect(d.center[0]).toBeGreaterThanOrEqual(at[0] * cell);
+                    expect(d.center[0]).toBeLessThanOrEqual((at[0] + 1) * cell);
+                }
+                // As gotas que ficam não se tocam (a coalescência as juntou) — salvo a que não caberia.
+                for (let i = 0; i < drops.length; i++)
+                    for (let j = i + 1; j < drops.length; j++) {
+                        const di = drops[i]!;
+                        const dj = drops[j]!;
+                        const gap = Math.hypot(
+                            di.center[0] - dj.center[0],
+                            di.center[1] - dj.center[1],
+                        );
+                        const touch = capBase(di.volume, theta) + capBase(dj.volume, theta);
+                        if (gap < touch) expect(fits(di.volume + dj.volume)).toBe(false);
+                    }
             }
         }
-        // A película fina fica nos quartos; a mais grossa coalesce na célula e no bloco.
-        expect([...seen].sort()).toEqual([0, 1, 2]);
-        // O bloco que não cabe (ou desliza) se divide: as células.
-        seen = new Set<number>();
-        const small = (volume: number, side: number): boolean => side < 2 * cell;
-        const drops = filmDrops([8e-4, 8e-4, 8e-4, 8e-4], cell, [0, 0], theta, rand, small);
-        for (const d of drops) seen.add(d.level);
-        expect(seen.has(2)).toBe(false);
-        expect(drops.reduce((x, d) => x + d.volume, 0)).toBeCloseTo(4 * 8e-4 * cell * cell, 15);
+        // A película fina dá gotas de fração de mm a mm; as bases cobrem mais de uma década, contínuas.
+        radii.sort((x, y) => x - y);
+        expect(radii[0]!).toBeLessThan(2e-4);
+        expect(radii[radii.length - 1]!).toBeGreaterThan(2e-3);
+        expect(merged).toBeGreaterThan(50);
+        expect(puddles).toBeGreaterThan(0);
+        // Sem grade: as posições na célula se espalham por ela inteira (nenhum quarto vazio, nenhum pico no centro).
+        const bins = [0, 0, 0, 0];
+        for (const o of offsets) bins[Math.min(3, Math.floor(o * 4))]!++;
+        for (const n of bins) expect(n / offsets.length).toBeGreaterThan(0.12);
+        // A gota grande demais para a célula: a poça (a leitura contínua).
+        expect(
+            cellDrops(1e-3 * cell * cell, [0, 0], cell, theta, (k) => hash(0, 0, k), fits),
+        ).toBeUndefined();
+        // A extensão da gota redonda é a base; a alongada, o semieixo de baixo com a cauda.
+        const round = dropShape(1e-9, theta, 1e-5, 0);
+        expect(dropExtent(round)).toBe(round.a);
         // A ruptura: abaixo da espessura crítica, na molhagem parcial.
         expect(filmBreaks(1e-4, 0.0449, 1.4e-3)).toBe(true);
         expect(filmBreaks(2e-3, 0.0449, 1.4e-3)).toBe(false);
         expect(filmBreaks(1e-4, 0, 1.4e-3)).toBe(false);
         // A gota de uma célula fina é a calota do volume dela.
         expect(capVolume(capBase(1e-9, theta), theta)).toBeCloseTo(1e-9, 20);
+    });
+
+    it('a água acima da presa desce a poucos cm/s pela linha de contato, não na queda da película livre', () => {
+        const theta = (30 * Math.PI) / 180;
+        const nu = 1e-6;
+        const voxel = 0.0125;
+        const g = 9.81;
+        // f/ρ do vidro de janela (θ 30° ± 10°) e a espessura presa numa parede vertical, f / (ρ g ℓ).
+        const hold =
+            (0.072 * (Math.cos((20 * Math.PI) / 180) - Math.cos((40 * Math.PI) / 180))) / 1000;
+        const pinned = hold / (g * voxel);
+        // 10 % acima da presa: o peso que sobra, ρ g ℓ (h − h_p), contra 3 μ U ln Λ / θ.
+        const h = 1.1 * pinned;
+        const u = filmFlowSpeed(h, h - pinned, g, voxel, theta, nu, 1);
+        expect(u).toBeCloseTo((theta * 0.1 * hold) / (3 * nu * 10), 12);
+        expect(u).toBeGreaterThan(0.005);
+        expect(u).toBeLessThan(0.05);
+        // A de Nusselt sozinha seria mais rápida; a película que passa muito da presa (a lâmina) desce depressa.
+        expect((g * h * h) / (3 * nu)).toBeGreaterThan(u);
+        expect(filmFlowSpeed(1e-3, 1e-3 - pinned, g, voxel, theta, nu, 1)).toBeGreaterThan(1);
+        // Na presa, parada; a película fina (Nusselt menor) não acelera pela linha.
+        expect(filmFlowSpeed(pinned, 0, g, voxel, theta, nu, 1)).toBe(0);
+        expect(filmFlowSpeed(1e-5, 1e-3, g, voxel, theta, nu, 1)).toBeCloseTo(
+            (g * 1e-10) / (3 * nu),
+            12,
+        );
+    });
+
+    it('os defeitos do sólido: a força da borda log-normal de mediana 1 com o desvio pedido, fixa por célula', () => {
+        const logs: number[] = [];
+        for (let i = -40; i < 40; i++)
+            for (let j = -40; j < 40; j++) logs.push(Math.log(filmDefect([i, 7, j], 0.5)));
+        const mean = logs.reduce((a, b) => a + b, 0) / logs.length;
+        const sd = Math.sqrt(logs.reduce((a, b) => a + (b - mean) ** 2, 0) / logs.length);
+        expect(Math.abs(mean)).toBeLessThan(0.02);
+        expect(sd).toBeCloseTo(0.5, 1);
+        expect(filmDefect([3, 7, -2], 0.5)).toBe(filmDefect([3, 7, -2], 0.5));
+        // Sem desigualdade, a borda é a mesma em toda parte.
+        expect(filmDefect([3, 7, -2], 0)).toBe(1);
     });
 
     it('a gota alongada pela carga da borda: a área e o volume da calota, o ápice para baixo (a frente íngreme)', () => {

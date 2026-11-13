@@ -408,6 +408,7 @@ const fieldFilm = wgslModule({
         R.params,
         fieldCommon,
         hashAddress,
+        random,
         FIELD_FILM_WORDS.module,
         FIELD_FILM_SURFACES.module,
     ],

@@ -2,7 +2,11 @@
 // quadrática das 3 × 3 células, `field_film_sample`), a pressão do espalhamento (`field_film_pressure_main`), a normal
 // que a refração vê pela cunha de água sobre o sólido (`refraction_wet_normal`), a cobertura do disco do contato na
 // deposição (`field_film_coverage`), a gota que desliza passada à película (`field_film_absorb_main`) e as gotas em que a
-// película fina se rompe (`field_film_breaks`, a árvore das gotas de `field_film_drops`). As mesmas contas do WGSL, em f64.
+// película fina se rompe (`field_film_breaks`, os sítios das gotas de `field_film_cell_drops`), a velocidade com que a água
+// desce (`field_film_flow`: a película de Nusselt freada pela linha de contato) e o fator dos defeitos do sólido na força
+// da borda (`field_film_defect`). As mesmas contas do WGSL, em f64.
+
+import { pcgHash } from '../../math/reference/random';
 
 /** Os pesos da B-spline quadrática nas células −1, 0 e 1 para o deslocamento `f` ∈ [−½, ½) ao centro mais próximo. */
 export function filmWeights(f: number): [number, number, number] {
@@ -74,7 +78,9 @@ export function filmSlopeCap(slope: readonly [number, number], cosTheta: number)
  * do semieixo abaixo do centro), a amplitude do serpentear do filete (em células) e o raio da cabeça do filete (em
  * meias larguras).
  */
-export const FILM_DROP_TOUCH: readonly [number, number] = [0.5, 1];
+export const FILM_DROP_SITES = 4;
+/** Os volumes dos sítios log-uniformes em 4 décadas: o peso e^(−L u) (`FIELD_FILM_DROP_SPREAD`). */
+export const FILM_DROP_SPREAD = 9.21;
 export const FILM_DROP_STRETCH: readonly [number, number] = [0.5, 0.25];
 export const FILM_RIVULET_WANDER = 0.6;
 export const FILM_RIVULET_HEAD = 1.4;
@@ -143,60 +149,96 @@ export function dropAt(
     ];
 }
 
-/** Uma gota da árvore dos quadrados: o nível (2 o bloco, 1 a célula, 0 o quarto), o canto e o lado (m) e o volume. */
+/** Uma gota da célula: o centro da base (m, no plano) e o volume (m³). */
 export interface FilmDrop {
-    readonly level: number;
-    readonly corner: readonly [number, number];
-    readonly side: number;
+    readonly center: readonly [number, number];
     readonly volume: number;
 }
 
+/** A meia extensão (m) da base da gota de forma `shape` em cada eixo do plano: a elipse com a cauda (δ para cima). */
+export function dropExtent(shape: DropShape): number {
+    const delta = FILM_DROP_STRETCH[1] * Math.min(shape.chi, 1) * shape.along;
+    return Math.max(shape.along + delta, shape.side);
+}
+
 /**
- * As gotas do bloco de 2 × 2 células de lado `size` com canto em `corner` (`field_film_drops`): `water` a água parada
- * de cada célula (m; [x0y0, x1y0, x0y1, x1y1]); `rand(level, node, k)` o número sorteado em [0, 1) do quadrado; `fits`
- * se a gota de volume V cabe no quadrado de lado s e não desliza. O bloco é uma gota só quando as dos quatro filhos se
- * tocariam (2 a(V/4) ≥ τ ℓ) e ela cabe; senão cada célula, do mesmo modo; senão os quatro quartos com a água pelos
- * pesos u³ + 10⁻³. A água de cada célula vai a exatamente uma gota.
+ * As gotas em que se rompe a água parada `volume` (m³) da célula `cell` de lado `size` (`field_film_cell_drops`):
+ * `FILM_DROP_SITES` sítios em posições sorteadas na célula inteira (`rand(k)` em [0, 1): o volume pelo peso e^(−L u) —
+ * log-uniforme, a gota principal e as satélites —, a posição por dois sorteios), sem grade; duas gotas cujas bases se tocam
+ * coalescem numa só, com o volume somado e o centro no centro de massa, se ela ainda couber (`fits`). Devolve `undefined`
+ * se a maior não cabe: a água da célula é uma poça, a leitura contínua. A água da célula vai inteira às gotas.
  */
-export function filmDrops(
-    water: readonly [number, number, number, number],
+export function cellDrops(
+    volume: number,
+    cell: readonly [number, number],
     size: number,
-    corner: readonly [number, number],
     theta: number,
-    rand: (level: number, node: readonly [number, number], k: number) => number,
-    fits: (volume: number, side: number) => boolean,
-): FilmDrop[] {
-    const tau = (level: number, node: readonly [number, number]): number =>
-        FILM_DROP_TOUCH[0] + FILM_DROP_TOUCH[1] * rand(level, node, 0);
-    const own = [Math.floor(corner[0] / size), Math.floor(corner[1] / size)] as const;
-    const v2 = (water[0] + water[1] + water[2] + water[3]) * size * size;
-    if (!(v2 > 0)) return [];
-    const block = [own[0] / 2, own[1] / 2] as const;
-    if (2 * capBase(v2 / 4, theta) >= tau(2, block) * size && fits(v2, 2 * size))
-        return [{ level: 2, corner, side: 2 * size, volume: v2 }];
-    const out: FilmDrop[] = [];
-    for (let c = 0; c < 4; c++) {
-        const v1 = water[c]! * size * size;
-        if (!(v1 > 0)) continue;
-        const cell = [own[0] + (c % 2), own[1] + Math.floor(c / 2)] as const;
-        const at = [cell[0] * size, cell[1] * size] as const;
-        if (2 * capBase(v1 / 4, theta) >= tau(1, cell) * 0.5 * size && fits(v1, size)) {
-            out.push({ level: 1, corner: at, side: size, volume: v1 });
-            continue;
-        }
-        const weights = [0, 1, 2, 3].map(
-            (k) => rand(0, [2 * cell[0] + (k % 2), 2 * cell[1] + Math.floor(k / 2)], 0) ** 3 + 1e-3,
-        );
-        const total = weights.reduce((x, y) => x + y, 0);
-        for (let k = 0; k < 4; k++)
-            out.push({
-                level: 0,
-                corner: [at[0] + (k % 2) * 0.5 * size, at[1] + Math.floor(k / 2) * 0.5 * size],
-                side: 0.5 * size,
-                volume: (v1 * weights[k]!) / total,
-            });
+    rand: (k: number) => number,
+    fits: (volume: number) => boolean,
+): FilmDrop[] | undefined {
+    if (!(volume > 0)) return [];
+    const weights: number[] = [];
+    for (let k = 0; k < FILM_DROP_SITES; k++)
+        weights.push(Math.exp(-FILM_DROP_SPREAD * rand(3 * k)));
+    const total = weights.reduce((x, y) => x + y, 0);
+    const v = weights.map((w) => (volume * w) / total);
+    if (!fits(Math.max(...v))) return undefined;
+    const c: [number, number][] = [];
+    for (let k = 0; k < FILM_DROP_SITES; k++)
+        c.push([(cell[0] + rand(3 * k + 1)) * size, (cell[1] + rand(3 * k + 2)) * size]);
+    // A coalescência em cadeia: passadas por todos os pares até nenhuma juntar (no máximo uma por gota a menos).
+    for (let pass = 0; pass < FILM_DROP_SITES; pass++) {
+        let joined = false;
+        for (let i = 0; i < FILM_DROP_SITES; i++)
+            for (let j = i + 1; j < FILM_DROP_SITES; j++) {
+                if (!(v[i]! > 0 && v[j]! > 0)) continue;
+                const ci = c[i]!;
+                const cj = c[j]!;
+                const touch = capBase(v[i]!, theta) + capBase(v[j]!, theta);
+                if (Math.hypot(ci[0] - cj[0], ci[1] - cj[1]) >= touch) continue;
+                const merged = v[i]! + v[j]!;
+                if (!fits(merged)) continue;
+                c[i] = [
+                    (v[i]! * ci[0] + v[j]! * cj[0]) / merged,
+                    (v[i]! * ci[1] + v[j]! * cj[1]) / merged,
+                ];
+                v[i] = merged;
+                v[j] = 0;
+                joined = true;
+            }
+        if (!joined) break;
     }
+    const out: FilmDrop[] = [];
+    for (let k = 0; k < FILM_DROP_SITES; k++)
+        if (v[k]! > 0) out.push({ center: c[k]!, volume: v[k]! });
     return out;
+}
+
+/**
+ * O logaritmo da razão das escalas da cunha junto à linha de contato (Cox–Voinov: o tamanho da gota sobre o
+ * comprimento molecular, ln(10⁻³ / 10⁻⁷) ≈ 9; Le Grand, Daerr & Limat 2005 medem 10 a 20 ao ajustar ao modelo).
+ */
+export const FILM_CONTACT_LOG = 10;
+
+/**
+ * A velocidade (m/s) com que a água acima da espessura presa desce (`field_film_flow`): a da película fina de Nusselt,
+ * r g_t h² / (3ν) (`r` o freio da rugosidade), limitada pela dissipação na linha de contato da frente (Kim, Lee & Kang
+ * 2002; Le Grand, Daerr & Limat 2005): por largura, o peso que passa da borda, ρ g_t ℓ (h − h_presa), equilibra a força
+ * viscosa da cunha 3 μ U ln Λ / θ — U = θ g_t ℓ (h − h_presa) / (3 ν ln Λ). A gota pouco acima do limiar desce a
+ * poucos cm/s, não na queda da película livre.
+ */
+export function filmFlowSpeed(
+    h: number,
+    excess: number,
+    gt: number,
+    voxel: number,
+    theta: number,
+    nu: number,
+    rough: number,
+): number {
+    const film = (rough * gt * h * h) / (3 * nu);
+    const line = (theta * gt * voxel * Math.max(excess, 0)) / (3 * nu * FILM_CONTACT_LOG);
+    return Math.min(film, line);
 }
 
 /**
@@ -345,4 +387,20 @@ export function absorbUnits(units: number, weights: readonly number[], center: n
     });
     out[center] = (out[center] ?? 0) + left;
     return out;
+}
+
+/**
+ * O fator dos defeitos do sólido na força da borda da célula `c` com a desigualdade `spread` (`field_film_defect`,
+ * `SurfacePhysics.pinningSpread`): log-normal de mediana 1 pelo hash dela (a soma das duas metades de 16 bits, quase
+ * gaussiana, escalada a desvio 1), a mesma aritmética u32 do WGSL.
+ */
+export function filmDefect(c: readonly [number, number, number], spread: number): number {
+    if (!(spread > 0)) return 1;
+    const h = pcgHash(
+        (c[0] | 0)
+            ^ 0x27d4eb2f
+            ^ pcgHash((c[1] | 0) ^ 0x165667b1 ^ pcgHash((c[2] | 0) ^ 0xd3a2646c)),
+    );
+    const n = ((h & 0xffff) + (h >>> 16)) / 65535 - 1;
+    return Math.exp(spread * 2.449 * n);
 }
