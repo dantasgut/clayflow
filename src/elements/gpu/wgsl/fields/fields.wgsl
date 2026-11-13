@@ -287,11 +287,28 @@ struct FieldFilmCell {
     hold: f32,
     /** A água correu pela célula nos últimos passos (o filete; `field_film_step_main`). */
     flowing: bool,
+    /**
+     * O cosseno do ângulo de recuo θr da água no sólido da célula: o de equilíbrio menos metade da histerese que a força
+     * da borda dali dá (com os defeitos; `field_film_receding_cos`) — a borda de trás da água que corre, a do filete.
+     */
+    recede: f32,
+}
+
+/**
+ * O cosseno do ângulo de recuo θr da água de ângulo de equilíbrio θ (cosseno `cos_t`) num sólido em que a borda segura a
+ * força `hold` por comprimento sobre a densidade (m³/s²): a diferença dos cossenos de recuo e de avanço é f/γ
+ * (`contactLineRetention`), e com os dois a ±δ de θ ela é 2 sen θ sen δ — θr = θ − δ.
+ */
+fn field_film_receding_cos(cos_t: f32, hold: f32) -> f32 {
+    let sin_t = sqrt(max(1.0 - cos_t * cos_t, 0.0));
+    if (sin_t <= 1e-4) { return cos_t; }
+    let delta = asin(clamp(hold / max(fluid_field.filmShape.y, 1e-12) / (2.0 * sin_t), 0.0, 1.0));
+    return cos(max(acos(clamp(cos_t, -1.0, 1.0)) - delta, 0.0));
 }
 
 /** A película na célula `c` da página `page` (achada por `field_film_data_page`; `NONE`: sem película; spec 034). */
 fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
-    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, 0.0, false);
+    var out = FieldFilmCell(vec2f(0.0), 0.0, 1.0, 0.0, 0.0, false, 1.0);
     let key = field_film_key(c);
     if (page == NONE || key == 0u) { return out; }
     let w = field_film_word(field_film_slot_in(page, c, axes));
@@ -310,8 +327,10 @@ fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> FieldFilmCell {
     out.critical = drop.w;
     // A força da borda com os defeitos do sólido na célula (a mesma do passo, `field_film_flow`).
     let rows = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 2u);
-    out.hold = surface.x * field_film_defect(c, rows.x) * select(1.0, rows.y, field_data[w + 7u] != 0u);
+    let base_hold = surface.x * field_film_defect(c, rows.x);
+    out.hold = base_hold * select(1.0, rows.y, field_data[w + 7u] != 0u);
     out.flowing = field_data[w + 7u] != 0u;
+    out.recede = field_film_receding_cos(out.cos_t, base_hold);
     return out;
 }
 
@@ -589,6 +608,7 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
     // A superfície do ponto: o κ e o cos θ da célula de maior κ.
     var kc = vec2f(0.0, 1.0);
     var hold = 0.0;
+    var recede = 1.0;
     for (var k = 0; k < 16; k++) {
         var c = layer;
         c[u] = base.x + (k % 4);
@@ -602,6 +622,7 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
         if (cells[k].kappa > kc.x) {
             kc = vec2f(cells[k].kappa, cells[k].cos_t);
             hold = cells[k].hold;
+            recede = cells[k].recede;
         }
     }
     // A descida no plano (a gravidade ao longo do sólido).
@@ -721,36 +742,45 @@ fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
                 best_moving = false;
             }
         }
-        // Os filetes: a água que corre pela célula numa faixa de seção em arco (`field_film_rivulet_width`) ao longo da
-        // descida de verdade (não do eixo da grade mais próximo dela): do centro da célula, deslocado de lado por um
-        // sorteio dela (o filete serpenteia, a linha de contato presa nos defeitos do sólido), ao da célula de baixo
-        // pela descida quando ela também corre; senão a ponta — a gota que corre na frente dele.
+        // Os filetes: a água que corre pela célula numa faixa de seção em arco (`field_film_rivulet_width`) ao longo do
+        // caminho que ela tomou: do centro da célula, deslocado de lado por um sorteio dela (a linha de contato presa nos
+        // defeitos do sólido), ao da célula de baixo por onde a água seguiu (`field_film_flow`: a reta abaixo ou a de um
+        // dos lados, a de menor resistência — o filete serpenteia) quando ela também corre; senão a ponta — a gota que
+        // corre na frente dele. A seção da faixa é a do ângulo de recuo θr (a borda de trás da água que corre: o filete
+        // fino e baixo, quase invisível, com o brilho na borda); a ponta, a do ângulo de equilíbrio.
         let lean = fall / max(max(abs(fall.x), abs(fall.y)), 1e-6);
         let step = vec2i(round(lean));
         let across = vec2f(-fall.y, fall.x);
+        let sin_r = sqrt(max(1.0 - recede * recede, 0.0));
         for (var k = 0; k < 9; k++) {
             let o = vec2i(k % 3, k / 3);
             let h = rivulets[o.x + 4 * o.y];
             if (h <= 0.0) { continue; }
-            let down_o = o + step;
-            let down_in = all(down_o >= vec2i(0)) && all(down_o < vec2i(4));
-            let down_runs = !down_in || rivulets[down_o.x + 4 * down_o.y] > 0.0;
             let cell = base + o;
+            // A célula de baixo pela descida: a faixa liga as duas quando ela também corre (fora das 4 × 4 lidas, sim).
+            // Quando a água desviou de lado (`field_film_descent`), a de baixo não corre: a faixa termina na ponta, e o
+            // caminho segue da célula do lado — o filete em trechos, não uma linha da grade.
+            let next = o + step;
+            let next_in = all(next >= vec2i(0)) && all(next < vec2i(4));
+            let next_runs = !next_in || rivulets[next.x + 4 * next.y] > 0.0;
             let a = field_film_rivulet_center(cell, size, across, layer[3 - u - v]);
-            let w = min(field_film_rivulet_width(h, size, cos_t), 0.8 * size);
+            let w = min(field_film_rivulet_width(h, size, recede), 0.8 * size);
             var b = a;
-            if (down_runs && any(step != vec2i(0))) { b = field_film_rivulet_center(cell + step, size, across, layer[3 - u - v]); }
+            if (next_runs && any(next != o)) {
+                b = field_film_rivulet_center(base + next, size, across, layer[3 - u - v]);
+            }
             let ab = b - a;
             let t = clamp(dot(q - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
-            let band = field_film_cap_at(q - (a + t * ab), 0.5 * w, sin_t, cos_t, footprint, 1.0);
+            let band = field_film_cap_at(q - (a + t * ab), 0.5 * w, sin_r, recede, footprint, 1.0);
             if (band.x > best) {
                 best = band.x;
                 best_slope = band.yz;
                 best_curvature = band.w;
                 best_moving = false;
             }
-            if (!down_runs) {
-                let head = field_film_cap_at(q - a, FIELD_FILM_RIVULET_HEAD * 0.5 * w, sin_t, cos_t, footprint, 2.0);
+            if (!next_runs) {
+                let wh = min(field_film_rivulet_width(h, size, cos_t), 0.8 * size);
+                let head = field_film_cap_at(q - a, FIELD_FILM_RIVULET_HEAD * 0.5 * wh, sin_t, cos_t, footprint, 2.0);
                 if (head.x > best) {
                     best = head.x;
                     best_slope = head.yz;

@@ -434,3 +434,52 @@ export function criticalDropBase(hold: number, gt: number, theta: number): numbe
     const c = capVolume(1, theta);
     return Math.sqrt((2 * hold) / (gt * c));
 }
+
+/**
+ * O ângulo de recuo θr (rad) da água de ângulo de equilíbrio θ num sólido em que a borda segura f/ρ = `hold` (m³/s²),
+ * com γ/ρ = `gammaRho` (`field_film_receding_cos`): cos θr − cos θa = f/γ e, com os dois a ±δ de θ, isso é 2 sen θ sen δ —
+ * θr = θ − δ. A borda de trás da água que corre: a seção do filete.
+ */
+export function recedingAngle(theta: number, hold: number, gammaRho: number): number {
+    const s = Math.sin(theta);
+    if (!(s > 1e-4)) return theta;
+    const delta = Math.asin(Math.min(Math.max(hold / gammaRho / (2 * s), 0), 1));
+    return Math.max(theta - delta, 0);
+}
+
+/** Uma direção possível da descida (`descentChoice`): o cosseno do desvio dela da gravidade e a espessura presa ali (m). */
+export interface DescentCandidate {
+    readonly along: number;
+    readonly pinned: number;
+}
+
+/** O desvio de lado mais forte da descida (`FIELD_FILM_DESCENT_LATERAL`): meia célula de lado por célula descida. */
+export const FILM_DESCENT_LATERAL = 0.5;
+
+/**
+ * A chance de o passo ir de lado (`field_film_descent`): a vantagem da força do lado sobre a da reta, sobre a espessura
+ * `h`, até `FILM_DESCENT_LATERAL` — a média do desvio por célula descida; 0 quando a reta ganha.
+ */
+export function descentLateral(h: number, straight: number, side: number): number {
+    if (!(side > straight)) return 0;
+    return Math.min((side - straight) / Math.max(h, 1e-12), FILM_DESCENT_LATERAL);
+}
+
+/**
+ * A direção que a água de espessura `h` (m) que rompe a borda toma entre as candidatas (`field_film_descent`): a de
+ * maior h · cos(desvio) − h_presa (a força ao longo dela contra a borda presa ali); as de cos ≤ 0 não contam. No empate,
+ * a primeira. Devolve o índice, ou −1 sem nenhuma.
+ */
+export function descentChoice(h: number, candidates: readonly DescentCandidate[]): number {
+    let best = -1;
+    let score = -Infinity;
+    candidates.forEach((c, i) => {
+        if (!(c.along > 0)) return;
+        const s = h * c.along - c.pinned;
+        if (s > score) {
+            score = s;
+            best = i;
+        }
+    });
+    return best;
+}

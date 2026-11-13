@@ -22,10 +22,11 @@
 // Na fatia do quadro do canal temporal da película (T060f; constituição VII): o passo lê cada célula da fatia anterior
 // (`field_film_previous`) e a escreve na do quadro (`field_film_cells`, zerada antes), com o que chega das vizinhas. A
 // célula sem nada (seca, sem água nos poros, sem pendente) sai da tabela.
-// - Filetes (T066d): a película que escorre não desce em lâmina — a frente dela se desfaz em dedos (Huppert, "Flow and
-//   instability of a viscous current down a slope", Nature 1982) e a água corre em filetes espaçados. A coluna de células
-//   ao longo da descida é canal com probabilidade 1/3 (pelo hash dela: os filetes a ~3 células um do outro, ~2 cm, sem
-//   grade); a água que escorre fora de um canal desce para a célula de baixo do lado do canal vizinho.
+// - Filetes (T066d): a água que rompe a borda não desce pela reta da grade — a frente avança para onde a força passa
+//   mais da que a borda segura ali (`field_film_descent`): entre a célula de baixo e as dos dois lados dela, o peso ao
+//   longo de cada uma contra a borda presa nos defeitos do sólido daquela célula, menor onde já há água (o caminho
+//   molhado, a gota vizinha que ela absorve). A gota desvia dos pontos fortes e vai às vizinhas: o filete serpenteia, e
+//   as gotas seguintes descem pelo caminho que ele molhou.
 // Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_film, field_film_update, field_film_previous,
 // field_film_pressure, field_film_solid, field_film_previous_read, random.
 
@@ -140,27 +141,45 @@ fn field_film_hang(w: u32, free_units: u32) -> u32 {
  * acaba (a seguinte sai dele), o excesso fica pendente na própria célula (palavra `w`). Devolve as unidades que saíram
  * da água livre (0 sem escoamento).
  */
-/** A coluna `column` da camada `layer` (o eixo da descida `along`) é canal de filete (probabilidade 1/3, pelo hash)? */
-fn field_film_channel(layer: i32, column: i32, along: i32) -> bool {
-    return hash3(bitcast<vec3u>(vec3i(layer, column, along)) ^ vec3u(0x5BD1E995u, 0x68E31DA4u, 0x1B56C4E9u)) % 3u == 0u;
-}
+/** O desvio de lado mais forte da descida: meia célula de lado por célula descida (~27° da vertical). */
+const FIELD_FILM_DESCENT_LATERAL: f32 = 0.5;
 
 /**
- * O passo lateral (−1, 0 ou 1 no eixo de lado do plano) da água que escorre da célula `c` no plano dos eixos `axes`,
- * descendo no eixo `along` (0 ou 1 dos eixos): 0 num canal; fora dele, para o canal vizinho (o do hash, se os dois); sem
- * canal ao lado, 0 (a coluna leva o próprio filete).
+ * O passo de lado (−1, 0 ou 1 no eixo de lado `side`) da água de espessura `h` que rompe a borda da célula `c` (o plano
+ * dos eixos `axes`) descendo pelo passo `step` da grade, na gravidade ao longo do sólido `gt` (módulo `gl`): entre a
+ * célula de baixo e as dos dois lados dela, a de maior h · cos(desvio) − h_presa, a força ao longo daquela direção contra
+ * a borda presa nos defeitos do sólido dela (`field_film_defect`; no caminho já molhado, só a fração `trail`). A
+ * linha de contato avança onde ela segura menos. A gota não anda a 45°: o lado ganha da reta pela diferença das forças,
+ * e a fração dela sobre a espessura (até `FIELD_FILM_DESCENT_LATERAL`) é a do passo de lado por célula descida — a
+ * célula deixa passar de lado com essa probabilidade, pelo hash dela (o mesmo caminho para as gotas seguintes). A
+ * referência: `descentChoice` e `descentLateral`, `fields/reference/film.ts`.
  */
-fn field_film_toward_channel(c: vec3i, axes: vec2i, along: i32) -> i32 {
-    let side = select(axes.x, axes.y, along == 0);
-    let layer = c[3 - axes.x - axes.y];
-    let column = c[side];
-    if (field_film_channel(layer, column, along)) { return 0; }
-    let left = field_film_channel(layer, column - 1, along);
-    let right = field_film_channel(layer, column + 1, along);
-    if (left && right) { return select(-1, 1, (hash3(bitcast<vec3u>(vec3i(layer, column, along))) & 1u) == 1u); }
-    if (left) { return -1; }
-    if (right) { return 1; }
-    return 0;
+fn field_film_descent(c: vec3i, axes: vec2i, side: i32, step: vec3i, gt: vec3f, gl: f32, h: f32, hold: f32,
+    rows: vec4f) -> i32 {
+    var best = 0;
+    var best_score = -1e30;
+    var straight = -1e30;
+    for (var j = -1; j <= 1; j++) {
+        var e = step;
+        e[side] += j;
+        let ef = vec3f(e);
+        let along = dot(gt, ef) / (gl * max(length(ef), 1e-6));
+        if (along <= 0.0) { continue; }
+        let cj = c + e;
+        let pw = field_film_previous_word(cj, axes);
+        let wet = pw != NONE && (field_film_previous[pw + 1u] != 0u || field_film_previous[pw + 7u] != 0u);
+        let pinned = hold * field_film_defect(cj, rows.x) * select(1.0, rows.y, wet) / (gl * field_voxel());
+        let score = h * along - pinned;
+        if (j == 0) { straight = score; }
+        if (score > best_score) {
+            best_score = score;
+            best = j;
+        }
+    }
+    if (best == 0 || straight <= -1e30) { return best; }
+    let chance = min((best_score - straight) / max(h, 1e-12), FIELD_FILM_DESCENT_LATERAL);
+    let u = f32(hash3(bitcast<vec3u>(c) ^ vec3u(0x9E3779B9u, 0x85EBCA6Bu, 0xC2B2AE35u)) & 0xFFFFu) / 65536.0;
+    return select(0, best, u < chance);
 }
 
 fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, cos_t: f32, rows: vec4f,
@@ -192,12 +211,13 @@ fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, co
     // quina, a parede fina) a normal do sólido ali é medida: a dominante pode mudar (a água que desce passa às páginas
     // da face de lado, as que a leitura de lá procura), e a face do outro lado do sólido (a parede de vidro mais fina
     // que duas células: a distância medida até a face de fora) não recebe — a água não atravessa o sólido.
-    // A descida e, fora dos canais, o passo de lado para o canal vizinho (no plano da célula).
+    // A descida pela direção de menor resistência (`field_film_descent`: a de baixo ou a de um dos lados, no plano da
+    // célula).
     var step = vec3i(round(gt / gl));
     let axes = field_film_axes(n);
     let along = select(1, 0, abs(gt[axes.x]) >= abs(gt[axes.y]));
-    let lateral = field_film_toward_channel(c, axes, along);
-    if (lateral != 0) { step[select(axes.x, axes.y, along == 0)] += lateral; }
+    let side = select(axes.x, axes.y, along == 0);
+    step[side] += field_film_descent(c, axes, side, step, gt, gl, h, terms.x, rows);
     let q = (vec3f(c + step) + 0.5) * size;
     let d = field_film_solid(q);
     var next = c;

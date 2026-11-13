@@ -16,6 +16,10 @@ import {
     dropShape,
     cellDrops,
     criticalDropBase,
+    descentChoice,
+    descentLateral,
+    FILM_DESCENT_LATERAL,
+    recedingAngle,
     dropExtent,
     filmFlowSpeed,
     filmSlopeCap,
@@ -437,5 +441,60 @@ describe('película: leitura, pressão e a normal da refração (spec 034, T066d
         }
         // Sem célula sobre o sólido além da do contato: tudo nela.
         expect(absorbUnits(5, [0, 0, 0], 1)).toEqual([0, 5, 0]);
+    });
+
+    it('o ângulo de recuo pela força da borda: θ − metade da histerese (contactLineRetention sem rugosidade)', () => {
+        const gammaRho = 0.072 / 1000;
+        for (const [theta, hysteresis] of [
+            [30, 20],
+            [60, 10],
+            [45, 40],
+        ] as const) {
+            const hold =
+                contactLineRetention({
+                    surfaceTension: 0.072,
+                    contactAngle: theta,
+                    hysteresis,
+                    roughness: 1,
+                }) / 1000;
+            const deg = (recedingAngle((theta * Math.PI) / 180, hold, gammaRho) * 180) / Math.PI;
+            expect(deg).toBeCloseTo(theta - hysteresis / 2, 9);
+        }
+        expect(recedingAngle(0.5, 0, gammaRho)).toBe(0.5);
+    });
+
+    it('a descida pela menor resistência: a reta sem defeitos, o lado de borda fraca ou já molhado', () => {
+        const d = Math.SQRT1_2;
+        const h = 1e-3;
+        // Defeitos iguais: a reta (o peso todo ao longo dela).
+        expect(
+            descentChoice(h, [
+                { along: d, pinned: 5e-4 },
+                { along: 1, pinned: 5e-4 },
+                { along: d, pinned: 5e-4 },
+            ]),
+        ).toBe(1);
+        // Borda forte embaixo, fraca de lado: o lado.
+        expect(
+            descentChoice(h, [
+                { along: d, pinned: 1e-4 },
+                { along: 1, pinned: 9e-4 },
+                { along: d, pinned: 5e-4 },
+            ]),
+        ).toBe(0);
+        // O caminho molhado (a fração da borda) atrai.
+        expect(
+            descentChoice(h, [
+                { along: d, pinned: 5e-4 },
+                { along: 1, pinned: 5e-4 },
+                { along: d, pinned: 5e-4 * 0.2 },
+            ]),
+        ).toBe(2);
+        // Para cima não.
+        expect(descentChoice(h, [{ along: -1, pinned: 0 }])).toBe(-1);
+        // O passo de lado pela vantagem da força, até meia célula por célula descida (nunca a 45°).
+        expect(descentLateral(h, 5e-4, 4e-4)).toBe(0);
+        expect(descentLateral(h, 5e-4, 6e-4)).toBeCloseTo(0.1, 12);
+        expect(descentLateral(h, 0, 1)).toBe(FILM_DESCENT_LATERAL);
     });
 });
