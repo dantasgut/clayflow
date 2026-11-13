@@ -3,7 +3,7 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { poolLive } from '../../gpu/compute/shaders';
 import { basis, colliderSet, constants, random } from '../../gpu/shaders/math';
-import { neighborResources } from '../../gpu/shaders/neighborSearch';
+import { neighborResources, nsTableCell } from '../../gpu/shaders/neighborSearch';
 import diffuseCommonSource from '../../gpu/wgsl/diffuse/diffuse_common.wgsl?raw';
 import diffuseSpawnSource from '../../gpu/wgsl/diffuse/diffuse_spawn.wgsl?raw';
 import diffuseUpdateSource from '../../gpu/wgsl/diffuse/diffuse_update.wgsl?raw';
@@ -94,6 +94,7 @@ export const diffuseUpdate = wgslModule({
     source: diffuseUpdateSource,
     requires: [
         diffuseCommon,
+        nsTableCell,
         WORKGROUP_SIZE.module,
         R.params,
         R.fluid,

@@ -26,11 +26,24 @@ import { wordBuffer } from './compute/schemas';
 const MAX_NEIGHBORS = 128;
 
 /**
+ * Células por eixo da tabela da busca (spec 034): a grade cobre o domínio inteiro, mas a tabela das células (as
+ * contagens, a soma de prefixos, a ordenação por célula — o custo por reconstrução) é periódica nele, com até 80 células
+ * por eixo — 512 mil células, a grade do domínio padrão de 4 m com o núcleo de 5 cm. Domínio maior (a água que
+ * transborda no chão inteiro da cena) não pesa mais: as partículas distantes que caem na mesma célula da tabela saem
+ * pela distância na busca (medida de 2026-11-13: o domínio de 12 × 3,5 × 12 m em grade densa custava +4,2 ms na física
+ * do tanque, a soma de prefixos de 0,48 a 3,0 ms).
+ */
+export const NS_TABLE_AXIS = 80;
+
+/**
  * Configuração do NeighborSearchPipeline. Define o grid uniform usado
  * para spatial hashing e capacidades dos buffers.
  */
 export interface NeighborSearchOptions {
-    /** Dimensões do grid (cells por eixo). Default: [32, 32, 32]. */
+    /**
+     * Dimensões da grade do domínio (células por eixo). Default: [32, 32, 32]. A tabela das células tem até
+     * `NS_TABLE_AXIS` por eixo e se repete no domínio maior.
+     */
     readonly gridDim?: readonly [number, number, number];
     /** Tamanho de uma cell em world units. Default: 0.1. */
     readonly cellSize?: number;
@@ -96,6 +109,8 @@ export class NeighborSearchPipeline implements WorkPart {
 
     private readonly disc: string;
     private readonly gridDim: readonly [number, number, number];
+    /** As células por eixo da tabela (a grade do domínio dobrada em `NS_TABLE_AXIS`). */
+    private readonly tableDim: readonly [number, number, number];
     private readonly cellSize: number;
     private readonly origin: readonly [number, number, number];
     private readonly maxParticles: number;
@@ -128,13 +143,18 @@ export class NeighborSearchPipeline implements WorkPart {
         }
         this.disc = options.discriminator;
         this.gridDim = options.gridDim ?? [32, 32, 32];
+        this.tableDim = this.gridDim.map((n) => Math.min(n, NS_TABLE_AXIS)) as [
+            number,
+            number,
+            number,
+        ];
         this.cellSize = options.cellSize ?? 0.1;
         this.origin = options.origin ?? [-1.6, -1.6, -1.6];
         this.maxParticles = options.maxParticles;
         this.maxNeighbors = options.maxNeighbors;
         this.particleStrideF32 = options.particleStrideF32;
-        // A grade e a célula extra das partículas fora dela (na ordem por célula, nunca vizinhas de ninguém).
-        this.cellCount = this.gridDim[0] * this.gridDim[1] * this.gridDim[2] + 1;
+        // A tabela e a célula extra das partículas fora do domínio (na ordem por célula, nunca vizinhas de ninguém).
+        this.cellCount = this.tableDim[0] * this.tableDim[1] * this.tableDim[2] + 1;
         this.byRank = options.byRank === true;
         this.scan = new PrefixSum(ctx, {
             discriminator: `ns_scan:${this.disc}`,
@@ -329,9 +349,13 @@ export class NeighborSearchPipeline implements WorkPart {
             NsSimParamsSchema.pack({
                 origin: this.origin,
                 cell_size: this.cellSize,
-                grid_x: this.gridDim[0],
-                grid_y: this.gridDim[1],
-                grid_z: this.gridDim[2],
+                grid_x: this.tableDim[0],
+                grid_y: this.tableDim[1],
+                grid_z: this.tableDim[2],
+                domain_x: this.gridDim[0],
+                domain_y: this.gridDim[1],
+                domain_z: this.gridDim[2],
+                _pad0: 0,
                 cell_count: this.cellCount,
                 particle_count: particleCount,
                 particle_stride: this.particleStrideF32,
@@ -354,8 +378,9 @@ export class NeighborSearchPipeline implements WorkPart {
 
     /**
      * Grade da última reconstrução (spec 010, partículas secundárias): `cellStart[c]` e `cellCount[c]` dão a faixa da
-     * célula `c` em `sortedParticles` (índices das partículas, em ordem dentro da célula); origem, dimensões e aresta da
-     * célula para achar a célula de um ponto qualquer. Null antes de `allocate`.
+     * célula `c` da tabela em `sortedParticles` (índices das partículas, em ordem dentro da célula); origem, dimensões
+     * do domínio e da tabela e aresta da célula para achar a célula de um ponto qualquer (`ns_table_cell`). Null antes de
+     * `allocate`.
      */
     get grid(): {
         readonly cellStart: StorageBufferSpec;
@@ -363,6 +388,7 @@ export class NeighborSearchPipeline implements WorkPart {
         readonly sortedParticles: StorageBufferSpec;
         readonly origin: readonly [number, number, number];
         readonly gridDim: readonly [number, number, number];
+        readonly tableDim: readonly [number, number, number];
         readonly cellSize: number;
     } | null {
         if (
@@ -377,6 +403,7 @@ export class NeighborSearchPipeline implements WorkPart {
             sortedParticles: this.sortedParticlesBuffer,
             origin: this.origin,
             gridDim: this.gridDim,
+            tableDim: this.tableDim,
             cellSize: this.cellSize,
         };
     }

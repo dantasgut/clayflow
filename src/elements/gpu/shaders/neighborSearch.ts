@@ -5,6 +5,7 @@ import nsAssignCountSource from '../wgsl/kernels/ns_assign_count.wgsl?raw';
 import nsScatterSource from '../wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFindSource from '../wgsl/kernels/ns_find.wgsl?raw';
 import nsSortCellsSource from '../wgsl/kernels/ns_sort_cells.wgsl?raw';
+import nsTableCellSource from '../wgsl/kernels/ns_table_cell.wgsl?raw';
 import { NsSimParamsSchema } from '../../gpu/schemas';
 import { poolLive } from '../compute/shaders';
 
@@ -54,12 +55,20 @@ export const neighborResources = Object.freeze({
 });
 const R = neighborResources;
 
+/** A célula da tabela que se repete no domínio (spec 034): a busca, a contagem e quem lê a grade (as secundárias). */
+export const nsTableCell = wgslModule({
+    name: 'ns_table_cell',
+    source: nsTableCellSource,
+    requires: [NONE.module],
+});
+
 /** Célula de cada partícula e contagem por célula. */
 export const nsAssignCount = wgslModule({
     name: 'ns_assign_count',
     source: nsAssignCountSource,
     requires: [
         poolLive,
+        nsTableCell,
         NONE.module,
         WORKGROUP_SIZE.module,
         R.params,
@@ -110,6 +119,7 @@ export const nsFind = wgslModule({
     source: nsFindSource,
     requires: [
         poolLive,
+        nsTableCell,
         WORKGROUP_SIZE.module,
         R.params,
         R.particles,
