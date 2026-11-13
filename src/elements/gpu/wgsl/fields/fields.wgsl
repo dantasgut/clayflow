@@ -274,22 +274,37 @@ fn field_film_data_page(key: u32) -> u32 {
 
 /**
  * A película de água na célula `c` da página `page` (achada por `field_film_data_page`; `NONE`: sem película; spec 034):
- * a espessura da água livre (m) e a saturação dos poros (a absorvida sobre a capacidade, em [0, 1]). Zero sem película
- * ou onde a água do volume está (submersa — ali é a própria água).
+ * a espessura da água livre (m), a saturação dos poros (a absorvida sobre a capacidade, em [0, 1]) e o coeficiente da
+ * gota da superfície dela (`field_film_surface(·, 1).z`: 0 onde a água não se junta em gotas). Zero sem película ou onde
+ * a água do volume está (submersa — ali é a própria água).
  */
-fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> vec2f {
+fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> vec4f {
     let key = field_film_key(c);
-    if (page == NONE || key == 0u) { return vec2f(0.0); }
+    if (page == NONE || key == 0u) { return vec4f(0.0); }
     let w = field_film_word(field_film_slot_in(page, c, axes));
-    if (field_data[w] != key || field_data[w + 3u] != 0u) { return vec2f(0.0); }
-    let capacity = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 0u).w;
+    if (field_data[w] != key || field_data[w + 3u] != 0u) { return vec4f(0.0); }
+    let surface = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 0u);
+    let drop = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 1u);
     let absorbed = f32(field_data[w + 4u]) * FIELD_FILM_UNIT;
-    return vec2f(
+    return vec4f(
         f32(field_data[w + 1u]) * FIELD_FILM_UNIT,
-        select(0.0, min(absorbed / capacity, 1.0), capacity > 0.0),
+        select(0.0, min(absorbed / surface.w, 1.0), surface.w > 0.0),
+        drop.z,
+        drop.y,
     );
 }
 
+/**
+ * A água de um bloco de 2 × 2 células de lado `size` (a soma das águas livres `h`, m) está em gota (spec 034, T066d)? Na
+ * molhagem parcial (ângulo de contato θ > 0) a película fina é instável e se rompe em gotas (de Gennes, Brochard-Wyart e
+ * Quéré, "Capillarity and Wetting Phenomena", cap. 7: a película abaixo da espessura crítica 2 ℓ_c sen(θ/2) se desfaz),
+ * e cada gota junta a água em volta dela: a do bloco é uma gota — a calota esférica de ângulo θ e volume h · size² —
+ * enquanto a base dela cabe no bloco. A base é a = κ ∛h (κ da superfície, `filmSurfaceTerms`): a gota cabe com
+ * a ≤ size. A água que não cabe (a lâmina, o filete que corre, a poça) segue película contínua.
+ */
+fn field_film_is_drop(h: f32, kappa: f32, size: f32) -> bool {
+    return kappa > 0.0 && h > 0.0 && kappa * pow(h, 1.0 / 3.0) <= size;
+}
 
 /** A película no ponto e a inclinação dela: a água livre e a saturação (`wet`) e o gradiente da água livre (m/m). */
 struct FieldFilmSample {
@@ -303,8 +318,17 @@ struct FieldFilmSample {
  * eixos de fora da normal dominante, pelos centros das células. A leitura é contínua até a primeira derivada: a borda
  * da mancha e o rastro de uma gota saem como curvas suaves, sem os degraus da grade (a bilinear de antes tinha o vinco
  * no centro de cada célula). A célula sem película conta como zero. A inclinação é a derivada da mesma leitura.
+ *
+ * A água em gota (`field_film_is_drop`, por bloco de 2 × 2 células) não entra na leitura contínua: no bloco do ponto ela
+ * é a calota esférica — a altura e a inclinação exatas dela, com a borda nítida na linha de contato —, no centro da água
+ * do bloco; fora da base, o sólido está seco.
+ *
+ * A gota menor que a amostra (`footprint`: a largura da área que a amostra do pixel cobre na superfície, m; 0 no
+ * ponto) entra pela média dela na amostra, como a filtragem de um mapa de alturas: a calota esticada até o raio ρ da
+ * amostra, com a altura vezes a fração da área dela que a gota cobre, (a/ρ)². A gota resolvida (a ≥ ρ) é a exata; a de
+ * fração da amostra deixa de cair num pixel só como um ponto escuro.
  */
-fn field_film_sample(p: vec3f, n: vec3f) -> FieldFilmSample {
+fn field_film_sample(p: vec3f, n: vec3f, footprint: f32) -> FieldFilmSample {
     let size = field_film_size();
     let layer = field_film_cell(p, n);
     let axes = field_film_axes(n);
@@ -318,38 +342,111 @@ fn field_film_sample(p: vec3f, n: vec3f) -> FieldFilmSample {
     let wv = vec3f(0.5 * (0.5 - f.y) * (0.5 - f.y), 0.75 - f.y * f.y, 0.5 * (0.5 + f.y) * (0.5 + f.y));
     let du = vec3f(f.x - 0.5, -2.0 * f.x, 0.5 + f.x);
     let dv = vec3f(f.y - 0.5, -2.0 * f.y, 0.5 + f.y);
-    var out: FieldFilmSample;
-    var grad = vec2f(0.0);
-    // A página da última célula lida: as 3 × 3 cabem em uma a quatro páginas (uma sondagem por página).
+    // As 3 × 3 células da leitura cabem nos 2 × 2 blocos de 2 × 2 células a partir de `base` (as 4 × 4 células deles).
+    let cc = vec2i(center);
+    let base = ((cc - vec2i(1)) >> vec2u(1u)) * 2;
+    var cells: array<vec4f, 16>;
+    // A página da última célula lida: as 4 × 4 cabem em uma a quatro páginas (uma sondagem por página).
     var page_of = 0u;
     var page = NONE;
-    for (var k = 0; k < 9; k++) {
-        let o = vec2i(k % 3, k / 3);
+    for (var k = 0; k < 16; k++) {
         var c = layer;
-        c[u] = i32(center.x) + o.x - 1;
-        c[v] = i32(center.y) + o.y - 1;
+        c[u] = base.x + (k % 4);
+        c[v] = base.y + (k / 4);
         let pk = field_film_page_key(c, axes);
         if (pk != page_of) {
             page_of = pk;
             page = select(NONE, field_film_data_page(pk), field_film_key(c) != 0u);
         }
-        let w = field_film_cell_in(page, c, axes);
-        out.wet += wu[o.x] * wv[o.y] * w;
+        cells[k] = field_film_cell_in(page, c, axes);
+    }
+    // Os blocos: a água somada, a superfície (o κ e o cos θ da célula de maior κ) e se é gota.
+    var drops: array<bool, 4>;
+    var sums: array<f32, 4>;
+    var kappas: array<vec2f, 4>;
+    for (var b = 0; b < 4; b++) {
+        let o = vec2i(2 * (b % 2), 2 * (b / 2));
+        var h = 0.0;
+        var kc = vec2f(0.0, 1.0);
+        for (var q = 0; q < 4; q++) {
+            let w = cells[(o.x + q % 2) + 4 * (o.y + q / 2)];
+            h += w.x;
+            if (w.z > kc.x) { kc = w.zw; }
+        }
+        sums[b] = h;
+        kappas[b] = kc;
+        drops[b] = field_film_is_drop(h, kc.x, size);
+    }
+    var out: FieldFilmSample;
+    var grad = vec2f(0.0);
+    for (var k = 0; k < 9; k++) {
+        let o = vec2i(k % 3, k / 3);
+        let at = cc + o - vec2i(1) - base;
+        var w = cells[at.x + 4 * at.y];
+        // A água dos blocos em gota não entra na leitura contínua.
+        if (drops[(at.x >> 1u) + 2 * (at.y >> 1u)]) { w.x = 0.0; }
+        out.wet += wu[o.x] * wv[o.y] * w.xy;
         grad += vec2f(du[o.x] * wv[o.y], wu[o.x] * dv[o.y]) * w.x;
     }
     var slope = vec3f(0.0);
     slope[u] = grad.x / size;
     slope[v] = grad.y / size;
+    // O bloco do ponto (o da célula dele).
+    let ob = (cc - base) >> vec2u(1u);
+    let bi = ob.x + 2 * ob.y;
+    if (drops[bi]) {
+        // O centro da gota: o da água do bloco (a média dos centros das células pela água delas), deslocado pelo ponto
+        // onde a película se rompe — o defeito do sólido, que o modelo não resolve: um ponto fixo do bloco pelo hash dele
+        // (na película uniforme as gotas não ficam numa grade) —, sem a base sair do bloco.
+        var mass = vec2f(0.0);
+        for (var q = 0; q < 4; q++) {
+            let c = 2 * ob + vec2i(q % 2, q / 2);
+            mass += cells[c.x + 4 * c.y].x * vec2f(base + c);
+        }
+        let h = sums[bi];
+        let a = kappas[bi].x * pow(h, 1.0 / 3.0);
+        let cos_t = kappas[bi].y;
+        let lo = vec2f(base + 2 * ob) - 0.5 + a / size;
+        let hi = vec2f(base + 2 * ob) + 1.5 - a / size;
+        var key = layer;
+        key[u] = base.x + 2 * ob.x;
+        key[v] = base.y + 2 * ob.y;
+        let seed = bitcast<vec3u>(key);
+        let defect = vec2f(f32(hash3(seed) & 0xFFFFu), f32(hash3(seed ^ vec3u(0x9E3779B9u)) & 0xFFFFu)) / 65535.0;
+        let at = clamp(mass / h + (defect - 0.5) * (hi - lo), lo, hi) * size;
+        // A calota: base a, raio R = a / sen θ, altura no ponto √(R² − r²) − R cos θ. O raio da amostra na superfície:
+        // a gota com a base abaixo dele não é resolvida e entra pela média — a calota esticada até ele (até a metade do
+        // bloco: a gota não sai dele), com a altura vezes a fração da área da amostra que ela cobre.
+        let radius = a / sqrt(max(1.0 - cos_t * cos_t, 1e-6));
+        let sample = max(a, 0.5 * footprint);
+        let stretch = max(a, min(sample, size));
+        let k = a / stretch;
+        let cover = (a / sample) * (a / sample);
+        let r = (vec2f(g[u], g[v]) * size - at) * k;
+        let rr = dot(r, r);
+        if (rr < a * a) {
+            let root = sqrt(max(radius * radius - rr, 1e-12));
+            out.wet.x += (root - radius * cos_t) * cover;
+            slope[u] -= r.x / root * k * cover;
+            slope[v] -= r.y / root * k * cover;
+        }
+    }
     out.slope = slope - dot(slope, n) * n;
     return out;
 }
 
-/** A água livre (m) e a saturação dos poros no ponto `p` da superfície de normal `n` (`field_film_sample`). */
-fn field_film_at(p: vec3f, n: vec3f) -> vec2f {
-    return field_film_sample(p, n).wet;
+/**
+ * A água livre (m) e a saturação dos poros no ponto `p` da superfície de normal `n` (`field_film_sample`), média na
+ * largura `footprint` (m) do pixel.
+ */
+fn field_film_at(p: vec3f, n: vec3f, footprint: f32) -> vec2f {
+    return field_film_sample(p, n, footprint).wet;
 }
 
-/** A inclinação da película no ponto `p` da superfície de normal `n`: o gradiente da água livre no plano dela (m/m). */
-fn field_film_slope(p: vec3f, n: vec3f) -> vec3f {
-    return field_film_sample(p, n).slope;
+/**
+ * A inclinação da película no ponto `p` da superfície de normal `n`: o gradiente da água livre no plano dela (m/m), média
+ * na largura `footprint` (m) do pixel.
+ */
+fn field_film_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {
+    return field_film_sample(p, n, footprint).slope;
 }

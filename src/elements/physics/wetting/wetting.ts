@@ -96,6 +96,23 @@ export function dropPinning(line: ContactLine, volume: number, mass: number): nu
 }
 
 /**
+ * A gota em que a água da película se junta (spec 034, T066d): a calota esférica de ângulo de contato θ e volume h ℓ² (a
+ * água livre h somada num bloco de células de lado `cell` = ℓ) tem a base de raio a = κ ∛h, com
+ * κ = ∛(3 ℓ² sen³ θ / (π (2 − 3 cos θ + cos³ θ))) — o volume da calota é π a³ (2 − 3 cos θ + cos³ θ) / (3 sen³ θ). Na
+ * molhagem parcial a película fina se rompe em gotas (de Gennes, Brochard-Wyart e Quéré, "Capillarity and Wetting
+ * Phenomena", cap. 7); a água de um bloco de 2 × 2 células fica gota enquanto a base cabe nele (a ≤ ℓ;
+ * `field_film_is_drop`). Devolve κ (m^⅔), ou 0 onde a água não se junta em gotas: a molhagem total (θ = 0, a película
+ * se espalha) e θ ≥ 90° (a calota passaria do hemisfério e deixaria de ser altura sobre o sólido).
+ */
+export function dropBaseCoefficient(contactAngle: number, cell: number): number {
+    if (!(contactAngle > 0 && contactAngle < 90) || !(cell > 0)) return 0;
+    const theta = (contactAngle * Math.PI) / 180;
+    const c = Math.cos(theta);
+    const sin = Math.sin(theta);
+    return Math.cbrt((3 * cell * cell * sin * sin * sin) / (Math.PI * (2 - 3 * c + c * c * c)));
+}
+
+/**
  * Espessura (m) que a película segura parada numa célula de lado `cell` (m) com a gravidade `gt` (m/s²) ao longo do
  * sólido: o peso da água na célula, ρ g_t h ℓ², contra a borda ancorada, f ℓ (`retention`, N/m) — acima dela, o
  * excesso rompe a borda e escorre.
@@ -192,9 +209,16 @@ export interface FilmSurfaceTerms {
     readonly capacity: number;
     /** A taxa de evaporação da água livre (m/s). */
     readonly evaporation: number;
+    /** O cosseno do ângulo de contato de Young da água no sólido. */
+    readonly contactCosine: number;
+    /** O coeficiente da base da gota numa célula da película (`dropBaseCoefficient`; 0 sem gotas). */
+    readonly dropBase: number;
 }
 
-/** As grandezas da película numa superfície: a física dela, o líquido e o ar. */
+/**
+ * As grandezas da película numa superfície: a física dela, o líquido e o ar; `cell` (m) é o lado da célula da película
+ * (a base da gota, `dropBaseCoefficient`; 0: sem gotas).
+ */
 export function filmSurfaceTerms(
     surface: {
         readonly roughness: number;
@@ -208,6 +232,7 @@ export function filmSurfaceTerms(
         readonly relativeHumidity: number;
         readonly windSpeed: number;
     },
+    cell = 0,
 ): FilmSurfaceTerms {
     const contactAngle = surface.contactAngle ?? liquid.contactAngle;
     return {
@@ -232,5 +257,7 @@ export function filmSurfaceTerms(
             relativeHumidity: air.relativeHumidity,
             windSpeed: air.windSpeed,
         }),
+        contactCosine: Math.cos((Math.min(Math.max(contactAngle, 0), 180) * Math.PI) / 180),
+        dropBase: dropBaseCoefficient(contactAngle, cell),
     };
 }

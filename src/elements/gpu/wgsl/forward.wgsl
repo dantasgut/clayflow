@@ -115,7 +115,7 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
     );
     // A água no ponto, a película e a dos poros (ponto de cena `scene_wetness`, spec 034; seca, nada muda).
     let c = closure_specular_aa(
-        closure_wet(material_eval(sample, material, in.fn_slot), scene_wetness(in.world_position, n)),
+        closure_wet(material_eval(sample, material, in.fn_slot), scene_wetness(in.world_position, n, footprint)),
         variance,
     );
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);

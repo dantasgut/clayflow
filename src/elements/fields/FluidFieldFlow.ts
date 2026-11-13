@@ -796,7 +796,11 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                         : physics.particleMass / physics.restDensity,
                     spacing / 2,
                 ],
-                filmSurfaces: this.surfaceTable(ctx, physics),
+                filmSurfaces: this.surfaceTable(
+                    ctx,
+                    physics,
+                    (FIELD.voxel * spacing) / FIELD_FILM_SUBDIV,
+                ),
                 bodies: this.bodyTable(ctx),
             },
         ];
@@ -815,9 +819,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
     /**
      * A tabela das superfícies da película (`FIELD_FILM_SURFACES` entradas, duas linhas cada): a padrão
      * (`SurfacePhysics.defaults`) e as `SurfacePhysics` da cena na ordem da consulta — a mesma do mapa dos colliders
-     * (`ColliderSet`) —, com o líquido (o `ParticlePhysics`) e o ar (`Atmosphere`).
+     * (`ColliderSet`) —, com o líquido (o `ParticlePhysics`) e o ar (`Atmosphere`); a segunda linha leva a evaporação, o
+     * cosseno do ângulo de contato e a base da gota na célula de lado `cell` (m).
      */
-    private surfaceTable(ctx: Ctx, physics: ParticlePhysics | undefined): number[][] {
+    private surfaceTable(ctx: Ctx, physics: ParticlePhysics | undefined, cell: number): number[][] {
         const air =
             (ctx.bound.slots.atmosphere?.resource as Atmosphere | undefined) ?? Atmosphere.defaults;
         const physical = physics !== undefined && physics.surfaceTension > 0;
@@ -834,6 +839,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 k === 0 ? SurfacePhysics.defaults : (surfaces[k - 1] ?? SurfacePhysics.defaults),
                 liquid,
                 air,
+                cell,
             );
             rows.push(
                 [
@@ -842,7 +848,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                     t.washburn,
                     Math.min(t.capacity, FILM_MAX_CAPACITY),
                 ],
-                [t.evaporation, 0, 0, 0],
+                [t.evaporation, t.contactCosine, t.dropBase, 0],
             );
         }
         return rows;

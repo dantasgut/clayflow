@@ -12,10 +12,10 @@
 //   - brick: paredes de tijolo (`BRICK`): o tijolo absorve.
 // E três cenas da T066d (`support/wettingScenes.ts`):
 //   - edge: o rastro de uma gota de 3 × 3 partículas num azulejo inclinado 35°, a descida a 30° dos eixos da grade, visto
-//     de cima — a borda do rastro sem os degraus da grade (a célula da película de um quarto do espaçamento, a leitura
-//     pela B-spline quadrática, o disco do contato na deposição): desvio RMS das bordas da reta ≤ 3,5 mm e nenhuma
-//     fileira sem água (≤ 1 %) — antes da T066d, 7,4 mm: o rastro em três fileiras pontilhadas, nos degraus do voxel
-//     (as três fileiras de gotas seguem como três faixas, agora lisas);
+//     de cima — a água que o rastro segura se rompe em gotas (a molhagem parcial: `field_film_is_drop`), e as gotas
+//     são calotas redondas, sem os degraus da grade: a razão mediana dos eixos delas ≤ 1,6 (o plano inclinado encurta
+//     a vista em 0,82; a gota de poucos pixels, a quantização), ≥ 100 gotas e nenhuma fileira do rastro sem água
+//     (≤ 1 %). Antes das gotas, a faixa contínua com as bordas a ≤ 3,5 mm da reta (antes da T066d, 7,4 mm);
 //   - anchor: a gota de uma partícula num plano inclinado da superfície { rugosidade 1,3, histerese 40° } — o ângulo de
 //     deslize pela força de Furmidge da borda dela (`ParticlePhysics.dropPinning`): a metade dele, parada (< 1 mm/s); o
 //     dobro, solta (> 100 mm em 1 s);
@@ -224,11 +224,11 @@ async function main(): Promise<void> {
     // A borda do rastro (T066d).
     const edge = await trailEdge();
     log(
-        `edge: serrilha ${edge.rms.toFixed(2)} mm, ${edge.crossings.toFixed(2)} bordas por fileira, falhas ${(100 * edge.gaps).toFixed(1)} %, largura ${edge.width.toFixed(1)} mm (${edge.rows} fileiras)`,
+        `edge: ${edge.drops} gotas, a razão mediana dos eixos ${edge.roundness.toFixed(2)}, falhas ${(100 * edge.gaps).toFixed(1)} %, largura ${edge.width.toFixed(1)} mm (${edge.rows} fileiras)`,
     );
-    if (!(edge.rms <= 3.5) || !(edge.gaps <= 0.01) || edge.rows < 100)
+    if (!(edge.roundness <= 1.6) || edge.drops < 100 || !(edge.gaps <= 0.01) || edge.rows < 100)
         fail(
-            `edge: serrilha ${edge.rms} mm, ${edge.crossings} bordas por fileira, falhas ${edge.gaps}, ${edge.rows} fileiras`,
+            `edge: ${edge.drops} gotas, razão ${edge.roundness}, falhas ${edge.gaps}, ${edge.rows} fileiras`,
         );
 
     // O ancoramento da gota pela superfície (T066d).

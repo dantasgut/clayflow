@@ -11,6 +11,7 @@ import {
     saturationVaporPressure,
     washburnCoefficient,
     wenzelCos,
+    dropBaseCoefficient,
     dropPinning,
 } from '../wetting';
 import { SurfacePhysics } from '../SurfacePhysics';
@@ -184,5 +185,29 @@ describe('dropPinning (spec 034, T066d): a borda segura a gota de Furmidge', () 
         // Sem molhar (θ ≥ 90°) ou sem histerese, a borda não segura.
         expect(dropPinning({ ...line, contactAngle: 95 }, volume, mass)).toBe(0);
         expect(dropPinning({ ...line, hysteresis: 0 }, volume, mass)).toBe(0);
+    });
+});
+
+describe('dropBaseCoefficient (spec 034, T066d): a gota em que a película se rompe', () => {
+    it('a calota de base a = κ ∛h tem o volume h ℓ² da água', () => {
+        const cell = 0.00625;
+        for (const angle of [20, 50, 80]) {
+            const kappa = dropBaseCoefficient(angle, cell);
+            const t = (angle * Math.PI) / 180;
+            const c = Math.cos(t);
+            for (const h of [1e-6, 3e-5, 4e-4]) {
+                const a = kappa * Math.cbrt(h);
+                // O volume da calota esférica de base a e ângulo θ.
+                const volume = (Math.PI * a ** 3 * (2 - 3 * c + c ** 3)) / (3 * Math.sin(t) ** 3);
+                expect(volume / (h * cell * cell)).toBeCloseTo(1, 10);
+            }
+        }
+    });
+
+    it('sem gotas na molhagem total e a partir de 90°', () => {
+        expect(dropBaseCoefficient(0, 0.00625)).toBe(0);
+        expect(dropBaseCoefficient(90, 0.00625)).toBe(0);
+        expect(dropBaseCoefficient(120, 0.00625)).toBe(0);
+        expect(dropBaseCoefficient(50, 0)).toBe(0);
     });
 });

@@ -60,6 +60,7 @@ import {
     fluidBounds,
     hashAddress,
     linalg,
+    random,
 } from '../gpu/shaders/math';
 import { pageAlloc } from '../gpu/shaders/pageAlloc';
 import { slot } from '../../scene/flows/slots';
@@ -543,20 +544,20 @@ export const fieldFilmStep = wgslModule({
 export const fields = wgslModule({
     name: 'fields',
     source: fieldsSource,
-    requires: [NONE.module, R.params, fieldCommon, fieldLookup, fieldAtlas, fieldFilm],
+    requires: [NONE.module, R.params, fieldCommon, fieldLookup, fieldAtlas, fieldFilm, random],
 });
 
 /** Contribuição do campo ao ponto `scene_wetness`: a película livre e a saturação dos poros no ponto do sólido. */
 export const fieldWetness = wgslModule({
     name: 'field_wetness',
-    source: 'fn scene_wetness(p: vec3f, n: vec3f) -> vec2f {\n    return field_film_at(p, n);\n}',
+    source: 'fn scene_wetness(p: vec3f, n: vec3f, footprint: f32) -> vec2f {\n    return field_film_at(p, n, footprint);\n}',
     requires: [fields],
 });
 
 /** Contribuição do campo ao ponto `scene_wetness_slope`: a inclinação da película no ponto do sólido (T066d). */
 export const fieldWetnessSlope = wgslModule({
     name: 'field_wetness_slope',
-    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f) -> vec3f {\n    return field_film_slope(p, n);\n}',
+    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec3f {\n    return field_film_slope(p, n, footprint);\n}',
     requires: [fields],
 });
 

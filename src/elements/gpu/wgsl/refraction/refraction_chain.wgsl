@@ -403,6 +403,9 @@ fn refraction_chain_follow_one(j: u32) {
     var state = p.state;
     var c2 = closure_zero();
     if (p.other_instance != NONE) { c2 = ray_wave_entries[2u * j + 1u].closure; }
+    // A área da amostra no acerto: o traçado tem uma amostra por bloco 2 × 2 (a distância entre elas, dois pixels), a
+    // largura dela é a de quatro — o ângulo do pixel vezes o caminho desde a câmera.
+    refraction_wet_footprint = 4.0 * p.spread * (p.travelled + p.hit_t);
     var n = refraction_node_at(p.origin, p.dir, refraction_chain_hit_of(p), ray_wave_entries[2u * j].closure,
         refraction_chain_other_of(p), c2, p.stack, p.channel, p.interfaces, &state, ray_wave_entries[2u * j].hit.payload);
     // A dispersão adiada: no fim do caminho, os canais se abrem se o afastamento deles (o acumulado mais o ângulo vezes

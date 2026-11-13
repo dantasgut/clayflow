@@ -169,24 +169,49 @@ struct RefractionThin {
 }
 
 /**
- * A normal de sombreamento `ns` com a película de água do sólido (spec 034, T066d; ponto `scene_wetness_slope`): a face
- * de fora da água tem a normal n − ∇h; a cunha fina de água (índice 1,333) sobre o sólido de índice `ior` desvia o raio
- * como a interface do sólido com a normal inclinada (1,333 − 1) / (ior − 1) vezes isso — a primeira ordem da cunha. Na
- * película plana (∇h = 0), nada muda: a água fina e uniforme sobre o vidro liso é quase invisível também na realidade.
+ * A largura (m) que o pixel do caminho cobre no acerto que se resolve agora (a gota menor que ela entra pela média no
+ * pixel, `scene_wetness_slope`): quem segue um caminho de câmera a escreve antes de resolver o acerto; 0 (no ponto) para
+ * os outros.
  */
-fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32) -> vec3f {
+var<private> refraction_wet_footprint: f32 = 0.0;
+
+/**
+ * A normal de sombreamento `ns` com a água do sólido (spec 034, T066d; ponto `scene_wetness_slope`) para o raio `d`: a
+ * superfície da água (a película ou a calota da gota) tem a normal n − ∇h, e o raio passa por duas interfaces — o ar e a
+ * água por ela, a água e o sólido de índice `ior` pela face plana. Devolve a normal da interface única do ar com o sólido
+ * que dá a mesma direção (Snell na forma vetorial: η₁ d − η₂ t é paralelo à normal): a gota é uma lente — o fundo
+ * refratado dentro dela, a borda escura onde o raio sai rasante ou volta (a reflexão interna total na saída pela água
+ * vira a do sólido pela normal da água). Na película plana (∇h = 0), nada muda: a água fina e uniforme sobre o vidro liso
+ * é quase invisível também na realidade.
+ */
+fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32, d: vec3f) -> vec3f {
     // Só nos sólidos: a superfície de um volume (a própria água) não tem película.
     if (refraction_is_volume(hit.instance)) { return ns; }
-    let slope = scene_wetness_slope(hit.position, hit.normal);
+    let slope = scene_wetness_slope(hit.position, hit.normal, refraction_wet_footprint);
     if (dot(slope, slope) <= 0.0) { return ns; }
-    let k = 0.333 / max(ior - 1.0, 0.05);
-    let side = select(-1.0, 1.0, dot(ns, hit.normal) >= 0.0);
-    return normalize(ns - side * k * slope);
+    let n = hit.normal;
+    let side = select(-1.0, 1.0, dot(ns, n) >= 0.0);
+    // A água fica do lado de `n` (a película é a da face).
+    let nw = normalize(n - slope);
+    let water = 1.333;
+    if (dot(d, n) < 0.0) {
+        // De fora: ar → água → sólido.
+        let t1 = refract(d, nw, 1.0 / water);
+        let t2 = refract(t1, n, water / ior);
+        if (dot(t2, t2) <= 0.0) { return side * nw; }
+        return side * normalize(d - ior * t2);
+    }
+    // De dentro: sólido → água → ar.
+    let t1 = refract(d, -n, ior / water);
+    if (dot(t1, t1) <= 0.0) { return ns; }
+    let t2 = refract(t1, -nw, water);
+    if (dot(t2, t2) <= 0.0) { return side * nw; }
+    return side * normalize(ior * d - t2);
 }
 
 fn refraction_thin(c: Closure, hit: RayHit, d: vec3f, outside: RefractionMedium) -> RefractionThin {
     let nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
-    let ns = refraction_wet_normal(refraction_shading_normal(c.normal, hit.normal, nf, d), hit, c.dielectric_ior);
+    let ns = refraction_wet_normal(refraction_shading_normal(c.normal, hit.normal, nf, d), hit, c.dielectric_ior, d);
     let f = refraction_thin_reflectance(c, outside, abs(dot(d, ns)));
     let r = refraction_mirror(d, ns);
     return RefractionThin(nf, r, select(f, vec3f(0.0), dot(r, nf) <= 0.0), vec3f(1.0) - f);
@@ -246,7 +271,7 @@ fn refraction_crossing_at(d: vec3f, hit: RayHit, c: Closure, other: RayHit, c2: 
     var out: RefractionCrossing;
     out.p = hit.position;
     out.nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
-    out.ns = refraction_wet_normal(refraction_shading_normal(c.normal, hit.normal, out.nf, d), hit, c.dielectric_ior);
+    out.ns = refraction_wet_normal(refraction_shading_normal(c.normal, hit.normal, out.nf, d), hit, c.dielectric_ior, d);
     out.first = refraction_cross_of(hit, c);
     out.count = 1u;
     var rough = c.transmission_roughness;

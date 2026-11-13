@@ -97,6 +97,10 @@ export interface TrailEdge {
     readonly width: number;
     /** Fileiras medidas. */
     readonly rows: number;
+    /** As gotas do rastro (os componentes da máscara de ≥ 4 pixels). */
+    readonly drops: number;
+    /** A razão mediana dos eixos das gotas (os momentos de segunda ordem; 1 na redonda). */
+    readonly roundness: number;
     /** A imagem medida. */
     readonly image?: ImageData;
 }
@@ -194,7 +198,16 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
                 mx += x;
                 my += y;
             }
-    if (count < 50) return { rms: Infinity, gaps: 1, crossings: 0, width: 0, rows: 0 };
+    if (count < 50)
+        return {
+            rms: Infinity,
+            gaps: 1,
+            crossings: 0,
+            width: 0,
+            rows: 0,
+            drops: 0,
+            roundness: Infinity,
+        };
     mx /= count;
     my /= count;
     let sxx = 0;
@@ -283,12 +296,71 @@ export function measureTrail(image: ImageData, mm: number): TrailEdge {
     };
     const all = [...residual(left), ...residual(right)];
     const rms = Math.sqrt(all.reduce((a, r) => a + r * r, 0) / Math.max(all.length, 1));
+    // As gotas: os componentes conexos (4-vizinhança) da máscara e a razão dos eixos de cada um.
+    const label = new Int32Array(W * H).fill(-1);
+    const ratios: number[] = [];
+    for (let i0 = 0; i0 < W * H; i0++) {
+        if (label[i0] !== -1 || !(L[i0]! < threshold)) continue;
+        const stack = [i0];
+        label[i0] = ratios.length;
+        const pts: number[] = [];
+        while (stack.length > 0) {
+            const i = stack.pop()!;
+            pts.push(i);
+            const x = i % W;
+            const y = (i - x) / W;
+            for (const [dx, dy] of [
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+            ] as const) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                const j = ny * W + nx;
+                if (label[j] !== -1 || !(L[j]! < threshold)) continue;
+                label[j] = label[i0]!;
+                stack.push(j);
+            }
+        }
+        if (pts.length < 4) {
+            ratios.push(NaN);
+            continue;
+        }
+        let ax = 0;
+        let ay = 0;
+        for (const i of pts) {
+            ax += i % W;
+            ay += Math.floor(i / W);
+        }
+        ax /= pts.length;
+        ay /= pts.length;
+        let cxx = 0;
+        let cxy = 0;
+        let cyy = 0;
+        for (const i of pts) {
+            const dx = (i % W) - ax;
+            const dy = Math.floor(i / W) - ay;
+            cxx += dx * dx;
+            cxy += dx * dy;
+            cyy += dy * dy;
+        }
+        const tr = cxx + cyy;
+        const det = Math.sqrt(Math.max(0, (cxx - cyy) ** 2 + 4 * cxy * cxy));
+        const l1 = 0.5 * (tr + det);
+        const l2 = Math.max(0.5 * (tr - det), 1e-9);
+        ratios.push(Math.sqrt(l1 / l2));
+    }
+    const round = ratios.filter((r) => Number.isFinite(r)).sort((a, b) => a - b);
     return {
         rms: rms * mm,
         gaps: rows > 0 ? gaps / rows : 1,
         crossings: rows > 0 ? crossings / rows : 0,
         width: left.length > 0 ? (width / left.length) * mm : 0,
         rows,
+        drops: round.length,
+        roundness: round.length > 0 ? round[Math.floor(round.length / 2)]! : Infinity,
     };
 }
 

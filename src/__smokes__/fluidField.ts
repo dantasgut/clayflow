@@ -66,6 +66,7 @@ import {
     nodes,
     slot,
     StandardMaterial,
+    SurfacePhysics,
     Transform,
     wgslModule,
     wgslResource,
@@ -648,6 +649,10 @@ async function closeSilhouette(
         // Só a silhueta do material opaco: sem a luz rebatida. Com ela, a sessão de 2560 × 1440 depois das outras do
         // smoke esgotava a GPU da página (o pedido de adaptador seguinte falhava) e a silhueta não era achada.
         gi: false,
+        // A silhueta da água vista pelo vidro limpo: a água que assenta molha a face de dentro acima dela, e no vidro
+        // (molhagem parcial) essa água se rompe em gotas (T066d) — lentes entre a câmera e a borda medida. O vidro que a
+        // água molha por inteiro (θ = 0) a guarda em película lisa, quase invisível: a medida é a da borda da água.
+        surfaces: { walls: { ...SurfacePhysics.GLASS, contactAngle: 0 } },
     });
     const img = s.capture();
     const p = WATER_SPACING * pxPerMeter(0.7, height);
