@@ -5,15 +5,11 @@
 //   - glass: chão de concreto (`SurfacePhysics.CONCRETE`) e paredes de vidro (`GLASS`):
 //     - washburn: no concreto, a água absorvida da célula molhada há mais tempo segue Lucas–Washburn — (A²(3 s) −
 //       A²(2 s)) / 1 s igual ao coeficiente W da superfície a 1 %;
-//     - evaporation (na cena do tijolo, de 4 a 5 s): a película parada no chão (fora da água e do toque das partículas
-//       há 1 s, com as quatro vizinhas na mesma espessura: a pressão não a move) perde em 1 s a taxa de Carrier a 20 °C e 50 % (`Atmosphere.defaults`) a 2 %
-//       (o ponto fixo de 0,01 nm dá ~0,7 %), em ≥ 10 células;
 //     - flow: o vidro segura parada só ~0,03 mm (Furmidge, histerese de 5°): a residual de 0,1 mm que a água deixa rompe
 //       a borda e escorre — há células da parede com mais que a residual (a água que desceu e se juntou) e células com
 //       a espessura presa (o rastro que ela deixa);
 //     - impermeable: nada absorvido no vidro nem nas superfícies sem `SurfacePhysics`;
-//   - brick: paredes de tijolo (`BRICK`): a borda segura ~0,2 mm (rugoso, histerese de 35°), mais que a residual —
-//     nenhuma célula da parede passa da residual (nada escorre) —, e o tijolo absorve.
+//   - brick: paredes de tijolo (`BRICK`): o tijolo absorve.
 // E três cenas da T066d (`support/wettingScenes.ts`):
 //   - edge: o rastro de uma gota de 3 × 3 partículas num azulejo inclinado 35°, a descida a 30° dos eixos da grade, visto
 //     de cima — a borda do rastro sem os degraus da grade (a célula da película de um quarto do espaçamento, a leitura
@@ -24,7 +20,15 @@
 //     deslize pela força de Furmidge da borda dela (`ParticlePhysics.dropPinning`): a metade dele, parada (< 1 mm/s); o
 //     dobro, solta (> 100 mm em 1 s);
 //   - drip: a água que escorre por uma esfera lisa pende embaixo, junta-se e pinga — ≥ 1 pingo abaixo da esfera, a
-//     menos de 1 cm do eixo, e a película perde exatamente o volume das partículas que voltaram (≤ 0,1 %).
+//     menos de 1 cm do eixo, e a película perde o volume das partículas que voltaram menos o das gotas que deslizavam
+//     nela e passaram a ela (a 0,1 % de um pingo), menos no máximo a residual que as partículas encostadas deixam;
+//   - absorb: a gota de uma partícula (1 mL) lançada rente ao chão a 0,5 m/s desliza (o ancoramento não a para) e passa
+//     à película — a partícula sai do corpo e a película ganha exatamente o volume dela (a conta inteira das unidades
+//     da pendente: o arredondamento de uma), numa poça redonda em volta de onde tocou o chão: os momentos de segunda
+//     ordem da água com a razão dos eixos ≤ 1,1, o centro a menos de 2 mm de onde ela passou à película;
+//   - evaporation: a mesma poça no ar de 20 °C e 50 % (`Atmosphere.defaults`), a superfície sem poros — entre 2 e 3 s a
+//     película perde a taxa de Carrier vezes a área molhada, a 2 % (o ponto fixo de 0,01 nm dá ~0,7 %). Antes medida
+//     nas células paradas do chão da barragem, que agora é coberto pelas poças das gotas que deslizam.
 //
 // Para rodar: `npm run smoke -- wetting`. Resultado: `WETTING SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -39,7 +43,14 @@ import { FluidField, fieldFilmOffset } from '../elements/fields/FluidField';
 import { FIELD_FILM_CELLS, FIELD_FILM_SUBDIV, FIELD_FILM_WORDS } from '../elements/fields/schemas';
 import { filmSurfaceTerms, pinnedThickness } from '../elements/physics/wetting/wetting';
 import { nextGpuFrame } from './support/extensionScenes';
-import { DRIP_SPHERE, dropSlide, sphereDrips, trailEdge } from './support/wettingScenes';
+import {
+    DRIP_SPHERE,
+    dropSlide,
+    dropSpread,
+    sphereDrips,
+    trailEdge,
+    wallTrail,
+} from './support/wettingScenes';
 import { waterScene, WATER_SPACING } from './support/waterScene';
 
 /** Unidade da espessura na tabela (`FIELD_FILM_UNIT`, m). */
@@ -82,25 +93,6 @@ const coords = (key: number): [number, number, number] => [
     ((key - 1) & 2047) - 1024,
 ];
 
-/** Chave da célula de coordenadas `c` (`field_film_key`). */
-const keyOf = (c: readonly number[]): number =>
-    ((((c[0]! + 1024) << 21) | ((c[1]! + 512) << 11) | (c[2]! + 1024)) + 1) >>> 0;
-
-/** As quatro vizinhas do plano da célula (os eixos fora da normal dominante, como `field_film_axes`). */
-function neighbors(c: Cell): number[] {
-    const a = [Math.abs(c.nx), Math.abs(c.ny), Math.abs(c.nz)];
-    const axes = a[0]! >= a[1]! && a[0]! >= a[2]! ? [1, 2] : a[1]! >= a[2]! ? [0, 2] : [0, 1];
-    const at = coords(c.key);
-    const out: number[] = [];
-    for (const axis of axes)
-        for (const d of [-1, 1]) {
-            const o = [...at];
-            o[axis]! += d;
-            out.push(keyOf(o));
-        }
-    return out;
-}
-
 async function table(app: Application, field: FluidField): Promise<Map<number, Cell>> {
     const spec = app.resources.bufferOf(field, 'data')!;
     const bytes = FIELD_FILM_CELLS * WORDS * 4;
@@ -134,11 +126,6 @@ async function table(app: Application, field: FluidField): Promise<Map<number, C
     }
     return cells;
 }
-
-const median = (v: number[]): number => {
-    const s = [...v].sort((a, b) => a - b);
-    return s[s.length >> 1]!;
-};
 
 /** A cena: a barragem no tanque com as superfícies dadas; devolve a película a cada segundo, de 1 a `seconds` s. */
 async function run(
@@ -225,50 +212,14 @@ async function main(): Promise<void> {
     if (soaked > 0) fail(`impermeable: ${soaked} células`);
 
     // A cena do tijolo: as paredes são as superfícies 1…4 (palavras 2…5).
-    const [, , b3, b4, b5] = await run({ walls: SurfacePhysics.BRICK }, 5);
+    const [, , b3] = await run({ walls: SurfacePhysics.BRICK }, 3);
 
-    // A evaporação no chão sem `SurfacePhysics` (a superfície padrão: não absorve, a taxa de Carrier é a mesma do
-    // vidro — só o ar e a temperatura): as células fora da água, mais secas aos 3 s, com as quatro vizinhas do plano
-    // na mesma espessura nos dois instantes — ali a pressão (o peso e a de Laplace) não move água, só a evaporação.
-    const level = (m: Map<number, Cell>, c: Cell): boolean =>
-        neighbors(c).every((k) => {
-            const o = m.get(k);
-            return o !== undefined && !o.submerged && Math.abs(o.free - c.free) <= 2 * UNIT;
-        });
-    const drops: number[] = [];
-    for (const c of b5!.values()) {
-        const p = b4!.get(c.key);
-        if (
-            c.surface !== 1
-            || c.ny < 0.9
-            || p === undefined
-            || p.submerged
-            || c.submerged
-            || !(c.free < p.free)
-            // Fora do alcance das partículas há pelo menos 1 s (a deposição devolve a residual a quem elas tocam).
-            || !(p.free <= RESIDUAL - glass.evaporation)
-            || !level(b4!, p)
-            || !level(b5!, c)
-        )
-            continue;
-        drops.push(p.free - c.free);
-    }
-    const rate = drops.length > 0 ? median(drops) : NaN;
-    log(
-        `evaporation: ${drops.length} células paradas no chão, ${rate.toExponential(4)} m/s (Carrier ${glass.evaporation.toExponential(4)})`,
-    );
-    if (drops.length < 10 || !(Math.abs(rate / glass.evaporation - 1) <= 0.02))
-        fail(`evaporation: ${drops.length} células, ${rate} contra ${glass.evaporation}`);
     const brickWalls = [...b3!.values()].filter(
         (c) => c.surface >= 2 && Math.abs(c.ny) < 0.3 && !c.submerged,
     );
-    const over = brickWalls.filter((c) => c.free > RESIDUAL + 2 * UNIT).length;
     const absorbed = brickWalls.filter((c) => c.absorbed > 0).length;
-    log(
-        `brick: ${brickWalls.length} células à vista nas paredes, ${over} acima da residual, ${absorbed} com água absorvida`,
-    );
-    if (over > 0 || absorbed === 0)
-        fail(`brick: ${over} acima da residual, ${absorbed} absorvendo`);
+    log(`brick: ${brickWalls.length} células à vista nas paredes, ${absorbed} com água absorvida`);
+    if (absorbed === 0) fail(`brick: ${absorbed} absorvendo`);
 
     // A borda do rastro (T066d).
     const edge = await trailEdge();
@@ -301,25 +252,129 @@ async function main(): Promise<void> {
     const sphereFilm = async (app: Application): Promise<{ volume: number }> => {
         const field = app.world.findResource(FluidField.schema, FluidField)!;
         let volume = 0;
+        // A da esfera e a nova (a superfície ainda não resolvida: a gota passada à película neste quadro).
         for (const c of (await table(app, field)).values())
-            if (c.surface === 2) volume += (c.free + c.pending * 1024 * UNIT) * cell * cell;
+            if (c.surface === 2 || c.surface === 0)
+                volume += (c.free + c.pending * 1024 * UNIT) * cell * cell;
         return { volume };
     };
     const drip = await sphereDrips(sphereFilm, 2, 10);
     const lost = drip.before - drip.after;
-    const expected = drip.drips * drip.volume;
+    const expected = (drip.drips - drip.absorbed) * drip.volume;
+    // A residual que a partícula encostada deixa no disco do contato (raio de meio espaçamento, mais a meia célula da
+    // cobertura) não sai dela (a massa por partícula é da 040): a película ganha no máximo isso por partícula-quadro.
+    const touchGain = Math.PI * (0.5 * 0.01 + 0.5 * cell) ** 2 * RESIDUAL;
     const bottom = DRIP_SPHERE.center[1] - DRIP_SPHERE.radius;
     log(
-        `drip: ${drip.drips} pingos de ${(drip.volume * 1e6).toFixed(3)} mL entre 2 e 10 s, a película perdeu ${(lost * 1e6).toFixed(4)} mL (as partículas: ${(expected * 1e6).toFixed(4)} mL); os pingos de ${drip.lowest.toFixed(3)} a ${drip.highest.toFixed(3)} m (o fundo da esfera a ${bottom.toFixed(2)} m), a ${(drip.aside * 1e3).toFixed(1)} mm do eixo`,
+        `drip: ${drip.drips} pingos de ${(drip.volume * 1e6).toFixed(3)} mL entre 2 e 10 s, ${drip.absorbed} gotas passadas a ela, a película perdeu ${(lost * 1e6).toFixed(4)} mL (as partículas: ${(expected * 1e6).toFixed(4)} mL; a residual das ${drip.touching} partículas-quadro encostadas, até ${(drip.touching * touchGain * 1e6).toFixed(4)} mL); os pingos de ${drip.lowest.toFixed(3)} a ${drip.highest.toFixed(3)} m (o fundo da esfera a ${bottom.toFixed(2)} m), a ${(drip.aside * 1e3).toFixed(1)} mm do eixo`,
     );
     if (
         drip.drips < 1
-        || !(Math.abs(lost - expected) <= 1e-3 * expected)
+        || !(lost <= expected + 1e-3 * drip.volume)
+        || !(lost >= expected - drip.touching * touchGain - 1e-3 * drip.volume)
         || !(drip.highest < bottom)
         || !(drip.lowest > bottom - 0.05)
         || !(drip.aside <= 0.01)
     )
         fail(`drip: ${drip.drips} pingos, perda ${lost} contra ${expected}`);
+
+    // A gota que desliza passada à película (T066d): a única superfície da cena (entrada 1, palavra 2).
+    const spreadFilm = async (
+        app: Application,
+    ): Promise<{ volume: number; center: [number, number]; ratio: number; cells: number }> => {
+        const field = app.world.findResource(FluidField.schema, FluidField)!;
+        let m = 0;
+        let mx = 0;
+        let mz = 0;
+        let xx = 0;
+        let zz = 0;
+        let xz = 0;
+        let cells = 0;
+        for (const c of (await table(app, field)).values()) {
+            if (c.surface !== 2 || c.free <= 0) continue;
+            const [i, , k] = coords(c.key);
+            const x = (i + 0.5) * cell;
+            const z = (k + 0.5) * cell;
+            const w = c.free * cell * cell;
+            m += w;
+            mx += w * x;
+            mz += w * z;
+            xx += w * x * x;
+            zz += w * z * z;
+            xz += w * x * z;
+            cells++;
+        }
+        const cx = mx / m;
+        const cz = mz / m;
+        const a = xx / m - cx * cx;
+        const b = zz / m - cz * cz;
+        const d = xz / m - cx * cz;
+        const root = Math.sqrt(((a - b) / 2) ** 2 + d * d);
+        const ratio = Math.sqrt(((a + b) / 2 + root) / ((a + b) / 2 - root));
+        return { volume: m, center: [cx, cz], ratio, cells };
+    };
+    const spread = await dropSpread(rough, spreadFilm, [1]);
+    const step = 1024 * UNIT * cell * cell;
+    const whole = Math.round(spread.volume / step) * step;
+    const off = Math.hypot(
+        spread.film[0]!.center[0] - spread.landing[0],
+        spread.film[0]!.center[1] - spread.landing[1],
+    );
+    log(
+        `absorb: retirada ${spread.retired}, a película ${(spread.film[0]!.volume * 1e6).toFixed(6)} mL em ${spread.film[0]!.cells} células (a partícula ${(spread.volume * 1e6).toFixed(6)} mL; nas unidades ${(whole * 1e6).toFixed(6)}), eixos da poça ${spread.film[0]!.ratio.toFixed(3)}:1, o centro a ${(off * 1e3).toFixed(1)} mm de onde ela passou à película`,
+    );
+    if (
+        !spread.retired
+        || !(Math.abs(spread.film[0]!.volume - whole) <= 1e-6 * whole)
+        || !(spread.film[0]!.ratio <= 1.1)
+        || !(off <= 0.002)
+    )
+        fail(
+            `absorb: retirada ${spread.retired}, ${spread.film[0]!.volume} contra ${whole}, eixos ${spread.film[0]!.ratio}, centro ${off}`,
+        );
+
+    // A borda que segura (Furmidge): a gota passada à película escorre pela parede e deixa atrás a espessura presa — a
+    // do vidro (abaixo da residual: a residual também escorre) e a do tijolo (acima: a residual fica), sem os poros.
+    const wallCell = (0.5 * 0.01) / FIELD_FILM_SUBDIV;
+    const trailOf = async (app: Application): Promise<{ trail: number[]; above: number }> => {
+        const field = app.world.findResource(FluidField.schema, FluidField)!;
+        const cells = [...(await table(app, field)).values()].filter(
+            (c) => c.surface === 2 && c.free > 0 && !c.submerged,
+        );
+        const top = Math.max(...cells.map((c) => c.free));
+        return {
+            trail: cells.filter((c) => c.free < 0.5 * top).map((c) => c.free),
+            above: cells.length,
+        };
+    };
+    for (const [name, options] of [
+        ['vidro', SurfacePhysics.GLASS],
+        ['tijolo', { ...SurfacePhysics.BRICK, porosity: 0 }],
+    ] as const) {
+        const terms = filmSurfaceTerms(new SurfacePhysics(options), liquid, air);
+        const hold = pinnedThickness(terms.retentionPerDensity * 1000, 9.81, 0.5 * 0.01);
+        const { trail, above } = await wallTrail(options, trailOf);
+        const sorted = [...trail].sort((a, b) => a - b);
+        const mid = sorted[sorted.length >> 1] ?? NaN;
+        log(
+            `hold ${name}: ${trail.length} células no rastro (de ${above}) com ${(mid * 1e3).toFixed(4)} mm na mediana, a borda segura ${(hold * 1e3).toFixed(4)} mm (célula de ${(wallCell * 1e3).toFixed(2)} mm)`,
+        );
+        if (trail.length < 20 || !(Math.abs(mid / hold - 1) <= 0.02))
+            fail(`hold ${name}: ${trail.length} células, ${mid} contra ${hold}`);
+    }
+
+    // A evaporação (Carrier): a poça da gota passada à película no ar de 50 % (`Atmosphere.defaults`), na superfície sem
+    // poros — o espalhamento só muda a água de lugar (a conta inteira), e entre 2 e 3 s ela perde a taxa vezes a área
+    // molhada (a média das células com água nos dois instantes).
+    const dry = filmSurfaceTerms(new SurfacePhysics(rough), liquid, air).evaporation;
+    const puddle = await dropSpread(rough, spreadFilm, [2, 3], air.relativeHumidity);
+    const [p2, p3] = puddle.film;
+    const area = 0.5 * (p2!.cells + p3!.cells) * cell * cell;
+    const rate = (p2!.volume - p3!.volume) / area;
+    log(
+        `evaporation: a poça de ${p2!.cells} → ${p3!.cells} células perde ${rate.toExponential(4)} m/s (Carrier ${dry.toExponential(4)})`,
+    );
+    if (!(Math.abs(rate / dry - 1) <= 0.02)) fail(`evaporation: ${rate} contra ${dry}`);
 
     log('WETTING SMOKE PASSED');
 }

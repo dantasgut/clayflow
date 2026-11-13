@@ -41,6 +41,7 @@ import { RayScene } from '../raytrace/RayScene';
 import { RayWave } from '../raytrace/RayWave';
 import { isFieldBody } from './fieldBody';
 import { ParticleBody } from '../physics/bodies/ParticleBody';
+import { FLUID_DROP_FIELD } from '../physics/bodies/FluidBody';
 import { ParticlePhysics } from '../physics/ParticlePhysics';
 import { SET_COUNT_DISPATCH_OFFSET } from '../../scene/graph/SetCountSchema';
 import { Time } from '../../scene/time/Time';
@@ -80,6 +81,8 @@ import {
     fieldBodyClosures,
     fieldLightMap,
     fieldMesh,
+    fieldAbsorbPrepare,
+    fieldFilmAbsorb,
     fieldFilmDeposit,
     fieldFilmDrip,
     fieldFilmStep,
@@ -228,10 +231,12 @@ const CLEAR = kernel('clear', fieldMark, 'field_clear_main');
 const MARK = kernel('mark', fieldMark, 'field_mark_main');
 /**
  * A película de água nos sólidos (spec 034): a pressão e o passo por célula (absorção, evaporação, escoamento,
- * espalhamento, a água pendente), o pingo e a deposição.
+ * espalhamento, a água pendente), a gota que desliza passada a ela, o pingo e a deposição.
  */
 const FILM_PRESSURE = kernel('film_pressure', fieldFilmStep, 'field_film_pressure_main');
 const FILM_STEP = kernel('film_step', fieldFilmStep, 'field_film_step_main');
+const ABSORB_PREPARE = kernel('absorb_prepare', fieldAbsorbPrepare, 'field_absorb_prepare_main');
+const FILM_ABSORB = kernel('film_absorb', fieldFilmAbsorb, 'field_film_absorb_main');
 const FILM_DRIP = kernel('film_drip', fieldFilmDrip, 'field_film_drip_main');
 const FILM_DEPOSIT = kernel('film_deposit', fieldFilmDeposit, 'field_film_deposit_main');
 const LINKS = kernel('links', fieldLinks, 'field_links_main');
@@ -260,6 +265,8 @@ const BUILD = [
     MARK,
     FILM_PRESSURE,
     FILM_STEP,
+    ABSORB_PREPARE,
+    FILM_ABSORB,
     FILM_DRIP,
     FILM_DEPOSIT,
     LINKS,
@@ -499,12 +506,18 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             frame.compute('FluidFieldFlow.film.step', (pass) => {
                 this.run(pass, at(FILM_STEP), FIELD_FILM_CELLS, W);
             });
+            // As gotas que deslizam, listadas pela junção, passadas à película (T066d).
+            frame.compute('FluidFieldFlow.film.absorb', (pass) => {
+                this.run(pass, at(ABSORB_PREPARE), FIELD_FILM_DRIPS.value, W);
+                // Um grupo por gota (`field_film_absorb.wgsl`).
+                this.run(pass, at(FILM_ABSORB), FIELD_FILM_DRIPS.value * W, W);
+            });
             frame.compute('FluidFieldFlow.film.drip', (pass) => {
                 this.run(pass, at(FILM_DRIP), FIELD_FILM_CELLS, W);
             });
             frame.compute('FluidFieldFlow.film.deposit', (pass) => {
                 this.run(pass, at(FILM_DEPOSIT), this.particles, W);
-                // Os pingos voltam ao pool do corpo de cada um (T066d).
+                // Os pingos voltam ao pool do corpo de cada um, e as gotas passadas à película saem dele (T066d).
                 this.order.forEach((b, i) => {
                     const revive = at(reviveKernel(b.poolKey));
                     pass.bind.setPipeline(revive.spec);
@@ -641,9 +654,10 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
             wordBuffer('field_density', voxels),
             wordBuffer('field_phi0', voxels),
             wordBuffer('field_phi_a', voxels),
-            // A pressão da película por célula do quadro anterior e as retiradas e os pingos do quadro (T066d).
+            // A pressão da película por célula do quadro anterior e as listas do quadro (`field_drops.wgsl`, T066d): as
+            // retiradas, os pingos e as gotas passadas à película.
             wordBuffer('field_film_pressure', FIELD_FILM_CELLS * 4),
-            wordBuffer('field_drips', (2 + 6 * FIELD_FILM_DRIPS.value) * 4),
+            wordBuffer('field_drips', (1 + 11 * FIELD_FILM_DRIPS.value) * 4),
         ];
     }
 
@@ -881,6 +895,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
         const regions = this.order.map((b, i) => {
             const range = this.resources.poolRangeOf(b.poolKey, b.entity);
             const schema = b.body.particleSchema;
+            const drop = FLUID_DROP_FIELD.get(schema);
             const region = {
                 first: range?.first ?? 0,
                 strideVec4: schema.stride / 16,
@@ -895,6 +910,7 @@ export class FluidFieldFlow extends Flow<FluidFieldSlots, 'idle'> {
                 posOldOffsetVec4: schema.fields.has('posOld')
                     ? schema.offsetOf('posOld') / 16
                     : NONE.value,
+                dropOffsetVec4: drop !== undefined ? schema.offsetOf(drop) / 16 : NONE.value,
             };
             base += b.body.count;
             return region;

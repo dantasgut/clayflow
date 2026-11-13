@@ -33,6 +33,10 @@ import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
 import fieldFilmSolidSource from '../gpu/wgsl/fields/field_film_solid.wgsl?raw';
 import fieldFilmDripSource from '../gpu/wgsl/fields/field_film_drip.wgsl?raw';
 import fieldReviveSource from '../gpu/wgsl/fields/field_revive.wgsl?raw';
+import fieldDropsSource from '../gpu/wgsl/fields/field_drops.wgsl?raw';
+import fieldFilmAbsorbSource from '../gpu/wgsl/fields/field_film_absorb.wgsl?raw';
+import fieldAbsorbPrepareSource from '../gpu/wgsl/fields/field_absorb_prepare.wgsl?raw';
+import fieldFilmPreviousSource from '../gpu/wgsl/fields/field_film_previous.wgsl?raw';
 import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
 import fieldLightMapSource from '../gpu/wgsl/fields/field_light_map.wgsl?raw';
 import fieldLightFrameSource from '../gpu/wgsl/fields/field_light_frame.wgsl?raw';
@@ -49,7 +53,14 @@ import {
     FieldGatherSchema,
     FluidFieldSchema,
 } from './schemas';
-import { basis, bsdf, colliderSurface, hashAddress, linalg } from '../gpu/shaders/math';
+import {
+    bsdf,
+    colliderSurface,
+    constants,
+    fluidBounds,
+    hashAddress,
+    linalg,
+} from '../gpu/shaders/math';
 import { pageAlloc } from '../gpu/shaders/pageAlloc';
 import { slot } from '../../scene/flows/slots';
 
@@ -237,6 +248,13 @@ export const fieldAtlas = wgslModule({
     requires: [fieldCommon, R.data],
 });
 
+/** As listas do quadro entre as partículas e a película: as retiradas, os pingos e as gotas passadas a ela (T066d). */
+const fieldDrops = wgslModule({
+    name: 'field_drops',
+    source: fieldDropsSource,
+    requires: [FIELD_FILM_DRIPS.module],
+});
+
 /** Junção das partículas dos corpos de água no array compacto. */
 export const fieldGather = wgslModule({
     name: 'field_gather_kernel',
@@ -252,7 +270,7 @@ export const fieldGather = wgslModule({
         R.itemsWrite,
         R.contactsWrite,
         R.drips,
-        FIELD_FILM_DRIPS.module,
+        fieldDrops,
     ],
 });
 
@@ -418,7 +436,6 @@ export const fieldFilmDeposit = wgslModule({
         fieldCommon,
         fieldFilm,
         fieldFilmUpdate,
-        basis,
         R.sorted,
         R.sortedContacts,
         R.kernel,
@@ -436,21 +453,68 @@ export const fieldFilmDrip = wgslModule({
         fieldFilm,
         fieldFilmUpdate,
         R.drips,
-        FIELD_FILM_DRIPS.module,
+        fieldDrops,
     ],
 });
 
-/** O pingo no pool do corpo de água dele (um pipeline por pool, como a junção). */
+/** A gota que desliza passada à película: o volume dela na poça em que se abre (T066d). */
+export const fieldFilmAbsorb = wgslModule({
+    name: 'field_film_absorb',
+    source: fieldFilmAbsorbSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        constants,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        fieldFilmSolid,
+        R.dripsRead,
+        fieldDrops,
+    ],
+});
+
+/** A busca de uma célula na fatia do quadro anterior da película (só leitura). */
+const fieldFilmPrevious = wgslModule({
+    name: 'field_film_previous_read',
+    source: fieldFilmPreviousSource,
+    requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.filmPrevious],
+});
+
+/** O contato das gotas passadas à película, do array compacto (T066d). */
+export const fieldAbsorbPrepare = wgslModule({
+    name: 'field_absorb_prepare',
+    source: fieldAbsorbPrepareSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.items,
+        R.contacts,
+        R.drips,
+        fieldDrops,
+        R.params,
+        fieldFilm,
+        fieldFilmPrevious,
+    ],
+});
+
+/** O pingo e a gota passada à película no pool do corpo de água deles (um pipeline por pool, como a junção). */
 export const fieldRevive = wgslModule({
     name: 'field_revive',
     source: fieldReviveSource,
     requires: [
         WORKGROUP_SIZE.module,
         NONE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
         R.gather,
         R.particlesWrite,
         R.dripsRead,
-        FIELD_FILM_DRIPS.module,
+        fieldDrops,
+        fluidBounds,
     ],
 });
 
@@ -471,6 +535,7 @@ export const fieldFilmStep = wgslModule({
         R.filmPrevious,
         R.filmPressure,
         fieldFilmSolid,
+        fieldFilmPrevious,
     ],
 });
 

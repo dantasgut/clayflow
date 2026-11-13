@@ -257,12 +257,11 @@ fn field_march(origin: vec3f, dir: vec3f, t0: f32, t1: f32, inside: bool, refine
     return miss;
 }
 
-/** A página `pc` da película no buffer das consultas (`NONE` sem ela; `field_film.wgsl`, as páginas de 4³ células). */
-fn field_film_data_page(pc: vec3i) -> u32 {
-    let key = field_film_page_key(pc);
+/** A página de chave `key` da película no buffer das consultas (`NONE` sem ela; `field_film.wgsl`). */
+fn field_film_data_page(key: u32) -> u32 {
     let base = fluid_field.film.x + field_film_pages_word();
     let mask = field_film_page_mask();
-    var page = field_film_page_bucket(pc);
+    var page = field_film_page_bucket(key);
     let step = (key << 1u) | 1u;
     for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
         let found = field_data[base + page];
@@ -278,10 +277,10 @@ fn field_film_data_page(pc: vec3i) -> u32 {
  * a espessura da água livre (m) e a saturação dos poros (a absorvida sobre a capacidade, em [0, 1]). Zero sem película
  * ou onde a água do volume está (submersa — ali é a própria água).
  */
-fn field_film_cell_in(page: u32, c: vec3i) -> vec2f {
+fn field_film_cell_in(page: u32, c: vec3i, axes: vec2i) -> vec2f {
     let key = field_film_key(c);
     if (page == NONE || key == 0u) { return vec2f(0.0); }
-    let w = field_film_word(field_film_slot_in(page, c));
+    let w = field_film_word(field_film_slot_in(page, c, axes));
     if (field_data[w] != key || field_data[w + 3u] != 0u) { return vec2f(0.0); }
     let capacity = field_film_surface(max(field_data[w + 5u], 1u) - 1u, 0u).w;
     let absorbed = f32(field_data[w + 4u]) * FIELD_FILM_UNIT;
@@ -322,19 +321,19 @@ fn field_film_sample(p: vec3f, n: vec3f) -> FieldFilmSample {
     var out: FieldFilmSample;
     var grad = vec2f(0.0);
     // A página da última célula lida: as 3 × 3 cabem em uma a quatro páginas (uma sondagem por página).
-    var page_of = vec3i(-100000);
+    var page_of = 0u;
     var page = NONE;
     for (var k = 0; k < 9; k++) {
         let o = vec2i(k % 3, k / 3);
         var c = layer;
         c[u] = i32(center.x) + o.x - 1;
         c[v] = i32(center.y) + o.y - 1;
-        let pc = field_film_page(c);
-        if (any(pc != page_of)) {
-            page_of = pc;
-            page = select(NONE, field_film_data_page(pc), field_film_key(c) != 0u);
+        let pk = field_film_page_key(c, axes);
+        if (pk != page_of) {
+            page_of = pk;
+            page = select(NONE, field_film_data_page(pk), field_film_key(c) != 0u);
         }
-        let w = field_film_cell_in(page, c);
+        let w = field_film_cell_in(page, c, axes);
         out.wet += wu[o.x] * wv[o.y] * w;
         grad += vec2f(du[o.x] * wv[o.y], wu[o.x] * dv[o.y]) * w.x;
     }

@@ -32,6 +32,12 @@ fn sph_collision_main(
     }
 
     // ── Bounds AABB (piso + laterais); domínio aberto: quem sai da caixa é retirado (spec 010) ───────────────────
+    // A retirada segue retirada (também com as paredes: a gota que virou película, T066d).
+    if (fluid_retired(pos)) {
+        particles[i].pos = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].pos.w);
+        particles[i].vel = vec4f(0.0, 0.0, 0.0, particles[i].vel.w);
+        return;
+    }
     if (sph_params.open_bounds != 0u) {
         if (fluid_outside(pos, bound_min, sph_params.bound_max)) {
             particles[i].pos = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].pos.w);
@@ -52,8 +58,11 @@ fn sph_collision_main(
     // perto (vizinhas), volta à dinâmica do volume. O contato é o sólido mais próximo do início do passo.
     if (fluid_loose_drop(neighbor_count[t], sph_params.wet_neighbors, particles[i].contact, sph_params.support)) {
         // O ancoramento da superfície do sólido do contato, que a fronteira gravou em `color.w` (T066d).
-        vel = fluid_wet_pinning(
-            vel, particles[i].contact, 1.5 * sph_params.collision_radius, particles[i].color.w, sph_params.dt,
+        let reach = 1.5 * sph_params.collision_radius;
+        vel = fluid_wet_pinning(vel, particles[i].contact, reach, particles[i].color.w, sph_params.dt);
+        // A que o ancoramento não parou fica marcada (`fluid_drop_state`): o campo dos fluidos a passa à película.
+        particles[i].color.w = fluid_drop_state(
+            vel, sph_params.gravity, particles[i].contact, reach, particles[i].color.w,
         );
     }
 

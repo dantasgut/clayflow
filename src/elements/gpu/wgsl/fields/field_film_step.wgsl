@@ -13,8 +13,8 @@
 //   às paredes do domínio): seca, ela é criada (a água molha o que estava seco); com película, as duas se juntam. Atrás
 //   fica a espessura presa. Onde o sólido acaba (uma quina) a água não tem por onde descer: fica pendente.
 // - Espalhamento no plano (T066d; a lubrificação de película fina, Oron, Davis e Bankoff 1997): o fluxo entre a célula e
-//   cada vizinha do plano é h³ / (3ν) vezes a diferença da pressão (`field_film_pressure_main`: o peso da coluna e a de
-//   Laplace, γ ∇²h). Para a vizinha seca a linha de contato segura a película até a altura em que o peso dela vence a
+//   cada vizinha do plano (as oito, pelos pesos do laplaciano isotrópico) é h³ / (3ν) vezes a diferença da pressão
+//   (`field_film_pressure_main`: o peso da coluna e a de Laplace, γ ∇²h). Para a vizinha seca a linha de contato segura a película até a altura em que o peso dela vence a
 //   borda, √(2 f / (ρ g_n)) — a poça para de abrir.
 // - Pendente (T066d): na face de baixo (o sólido não segura a água contra a gravidade) o que passa da altura da borda e
 //   o que chega à quina viram água pendente; ela corre para baixo pela película e, no ponto mais baixo, junta-se na
@@ -23,14 +23,15 @@
 // (`field_film_previous`) e a escreve na do quadro (`field_film_cells`, zerada antes), com o que chega das vizinhas. A
 // célula sem nada (seca, sem água nos poros, sem pendente) sai da tabela.
 // Requer: WORKGROUP_SIZE, NONE, fluid_field, field_common, field_film, field_film_update, field_film_previous,
-// field_film_pressure, field_film_solid.
+// field_film_pressure, field_film_solid, field_film_previous_read.
 
-/** Água livre acima da qual a célula não recebe mais (m): a película já é uma gota, maior que o modelo de filme fino. */
-const FIELD_FILM_MAX: f32 = 0.01;
 /** Células do alcance da gota que pende no máximo, para cada lado (o laço tem esse teto: 7 × 7 vizinhas). */
 const FIELD_FILM_GATHER: i32 = 3;
-/** Fração da diferença de espessura que vai a uma vizinha num passo, no máximo (o explícito sem oscilar). */
-const FIELD_FILM_SPREAD_STEP: f32 = 0.2;
+/**
+ * Fração da diferença de espessura que vai a uma vizinha num passo, no máximo, sobre o peso dela (o explícito sem
+ * oscilar: a soma dos pesos é 10/3, e o total fica em 0,8).
+ */
+const FIELD_FILM_SPREAD_STEP: f32 = 0.24;
 
 /** Espessura em unidades inteiras (arredondada). */
 fn field_film_units(h: f32) -> u32 {
@@ -38,37 +39,28 @@ fn field_film_units(h: f32) -> u32 {
 }
 
 
-/** A página `pc` na fatia do quadro anterior do canal da película (`field_film_previous`), ou `NONE`. */
-fn field_film_previous_page(pc: vec3i) -> u32 {
-    let key = field_film_page_key(pc);
-    let base = field_film_pages_word();
-    let mask = field_film_page_mask();
-    var page = field_film_page_bucket(pc);
-    let step = (key << 1u) | 1u;
-    for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
-        let found = field_film_previous[base + page];
-        if (found == key) { return page; }
-        if (found == 0u) { return NONE; }
-        page = (page + step) & mask;
-    }
-    return NONE;
-}
-
-/** A palavra da célula `c` na fatia do quadro anterior do canal da película (`field_film_previous`), ou `NONE`. */
-fn field_film_previous_word(c: vec3i) -> u32 {
-    let key = field_film_key(c);
-    if (key == 0u) { return NONE; }
-    let page = field_film_previous_page(field_film_page(c));
-    if (page == NONE) { return NONE; }
-    let w = field_film_cell_word(field_film_slot_in(page, c));
-    return select(NONE, w, field_film_previous[w] == key);
-}
-
-/** A vizinha `k` (0–3) da célula `c` no plano dos eixos `axes`: −u, +u, −v, +v. */
+/**
+ * A vizinha `k` (0–7) da célula `c` no plano dos eixos `axes`: −u, +u, −v, +v e as quatro diagonais (−u −v, +u −v,
+ * −u +v, +u +v).
+ */
 fn field_film_neighbor(c: vec3i, axes: vec2i, k: u32) -> vec3i {
     var d = vec3i(0);
-    d[select(axes.x, axes.y, k >= 2u)] = select(-1, 1, (k & 1u) == 1u);
+    if (k < 4u) {
+        d[select(axes.x, axes.y, k >= 2u)] = select(-1, 1, (k & 1u) == 1u);
+    } else {
+        d[axes.x] = select(-1, 1, (k & 1u) == 1u);
+        d[axes.y] = select(-1, 1, k >= 6u);
+    }
     return c + d;
+}
+
+/**
+ * O peso da vizinha `k` no laplaciano isotrópico de nove pontos (2/3 nos eixos, 1/6 nas diagonais; a soma 10/3): o
+ * espalhamento e a pressão de Laplace sem a direção preferida da grade — com as quatro vizinhas dos eixos, a mancha que
+ * se abre sai quadrada (T066d).
+ */
+fn field_film_neighbor_weight(k: u32) -> f32 {
+    return select(1.0 / 6.0, 2.0 / 3.0, k < 4u);
 }
 
 /** A água livre (m) da célula na palavra `w` da fatia anterior (0 sem ela ou submersa: ali é a própria água). */
@@ -96,13 +88,14 @@ fn field_film_pressure_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let c = field_film_coords(key);
     let n = unpack4x8snorm(field_film_previous[pw + 2u]).xyz;
     let h = f32(field_film_previous[pw + 1u]) * FIELD_FILM_UNIT;
-    let axes = field_film_axes(n);
-    var around = 0.0;
-    for (var k = 0u; k < 4u; k++) {
-        let nw = field_film_previous_word(field_film_neighbor(c, axes, k));
-        around += select(h, field_film_previous_free(nw), nw != NONE && field_film_previous[nw + 3u] == 0u);
+    let axes = field_film_previous_axes(slot);
+    var laplacian = 0.0;
+    for (var k = 0u; k < 8u; k++) {
+        let nw = field_film_previous_word(field_film_neighbor(c, axes, k), axes);
+        let around = select(h, field_film_previous_free(nw), nw != NONE && field_film_previous[nw + 3u] == 0u);
+        laplacian += field_film_neighbor_weight(k) * (around - h);
     }
-    let laplacian = (around - 4.0 * h) / (size * size);
+    laplacian /= size * size;
     let gn = max(-dot(fluid_field.filmFlow.xyz, n), 0.0);
     field_film_pressure[slot] = gn * h - fluid_field.filmShape.y * laplacian;
 }
@@ -110,6 +103,11 @@ fn field_film_pressure_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
 /** A pressão da célula na palavra `w` da fatia anterior (`field_film_pressure_main`). */
 fn field_film_pressure_of(w: u32) -> f32 {
     return field_film_pressure[w / FIELD_FILM_WORDS];
+}
+
+/** A água livre `units` que fica na própria célula (palavra `w`). */
+fn field_film_keep(w: u32, units: u32) {
+    if (units > 0u) { atomicAdd(&field_film_cells[w + 1u], units); }
 }
 
 /** Soma `units` de água pendente à célula da palavra `w` na fatia do quadro. */
@@ -146,35 +144,55 @@ fn field_film_flow(c: vec3i, w: u32, n: vec3f, free_units: u32, terms: vec4f, dt
     let moved = min(free_units, field_film_units(excess * min(1.0, u * dt / size)));
     if (moved == 0u) { return 0u; }
     // A célula seguinte sobre a superfície do sólido: a vizinha na direção da descida, levada à superfície pela normal da
-    // própria célula (a face plana; a normal do sólido ali só se mede para a célula nova, que nasce com ela).
+    // própria célula; a página dela, a do plano da normal do sólido ali. No plano (a vizinha a um quarto de célula da
+    // face, como a própria, e a normal perto de um eixo) é a da própria célula; fora dele (a esfera entre as faces, a
+    // quina, a parede fina) a normal do sólido ali é medida: a dominante pode mudar (a água que desce passa às páginas
+    // da face de lado, as que a leitura de lá procura), e a face do outro lado do sólido (a parede de vidro mais fina
+    // que duas células: a distância medida até a face de fora) não recebe — a água não atravessa o sólido.
     let q = (vec3f(c + vec3i(round(gt / gl))) + 0.5) * size;
     let d = field_film_solid(q);
     var next = c;
-    if (abs(d) <= 1.5 * size) { next = field_film_cell(q - d * n, n); }
+    var normal = n;
+    if (abs(d) <= 1.5 * size) {
+        let a = abs(n);
+        if (max(a.x, max(a.y, a.z)) < 0.9 || d < 0.0 || d > 0.75 * size) {
+            normal = field_film_solid_normal(q - d * n);
+        }
+        if (dot(normal, n) > -0.5) { next = field_film_cell(q - d * n, normal); }
+    }
     // A quina: não há sólido por onde descer — a água fica pendente nela.
     if (all(next == c)) { return field_film_hang(w, moved); }
+    let next_axes = field_film_axes(normal);
     // A cheia (no anterior) não recebe mais.
-    let before = field_film_previous_word(next);
+    let before = field_film_previous_word(next, next_axes);
     if (before != NONE && f32(field_film_previous[before + 1u]) * FIELD_FILM_UNIT >= FIELD_FILM_MAX) { return 0u; }
-    let below = field_film_find(next, true);
+    let below = field_film_find(next, next_axes, true);
     if (below == NONE) { return 0u; }
     let bw = field_film_cell_word(below);
     // A água molha o que estava seco: a célula nasce com a normal do sólido ali (também a do anterior sem nada, que o
     // passo dela tiraria).
     if (before == NONE || (field_film_previous[before + 1u] == 0u && field_film_previous[before + 4u] == 0u
         && field_film_previous[before + 6u] == 0u)) {
-        let normal = field_film_solid_normal(q);
-        atomicStore(&field_film_cells[bw + 2u], pack4x8snorm(vec4f(normal, 0.0)));
+        let fresh = field_film_solid_normal(q);
+        atomicMax(&field_film_cells[bw + 2u], pack4x8snorm(vec4f(fresh, 0.0)));
     }
     atomicAdd(&field_film_cells[bw + 1u], moved);
     return moved;
 }
 
 /**
- * O espalhamento no plano da célula `c` (palavra `w` no quadro, `pw` no anterior): a água que vai a cada vizinha do
- * plano pela diferença de pressão, já somada a ela. Devolve as unidades que saíram.
+ * O espalhamento no plano da célula `c` (palavra `pw` no anterior; o plano dos eixos `axes`, os da página dela): a água
+ * que vai a cada vizinha do plano pela diferença de pressão, já somada a ela. Devolve as unidades que saíram.
  */
-fn field_film_spread(c: vec3i, pw: u32, n: vec3f, free_units: u32, terms: vec4f, dt: f32) -> u32 {
+fn field_film_spread(
+    c: vec3i,
+    axes: vec2i,
+    pw: u32,
+    n: vec3f,
+    free_units: u32,
+    terms: vec4f,
+    dt: f32,
+) -> u32 {
     let nu = fluid_field.filmFlow.w;
     if (free_units == 0u || nu <= 0.0) { return 0u; }
     let size = field_film_size();
@@ -184,31 +202,32 @@ fn field_film_spread(c: vec3i, pw: u32, n: vec3f, free_units: u32, terms: vec4f,
     let hold = select(3.0e38, sqrt(2.0 * terms.x / gn), gn > 1e-3);
     let pi = field_film_pressure_of(pw);
     let mobility = terms.y * dt * h * h * h / (3.0 * nu * size * size);
-    let axes = field_film_axes(n);
     let packed = pack4x8snorm(vec4f(n, 0.0));
     var sent = 0u;
-    for (var k = 0u; k < 4u; k++) {
+    for (var k = 0u; k < 8u; k++) {
         let nc = field_film_neighbor(c, axes, k);
-        let nw = field_film_previous_word(nc);
+        let weight = field_film_neighbor_weight(k);
+        let nw = field_film_previous_word(nc, axes);
         var hj = 0.0;
         var pj = 0.0;
         if (nw != NONE) {
             if (field_film_previous[nw + 3u] != 0u) { continue; }
+            // Só a muito cheia (`FIELD_FILM_FULL`, no anterior) não recebe: a pressão decide até a escala das partículas.
             hj = f32(field_film_previous[nw + 1u]) * FIELD_FILM_UNIT;
-            if (hj >= FIELD_FILM_MAX) { continue; }
+            if (hj >= FIELD_FILM_FULL) { continue; }
             pj = field_film_pressure_of(nw);
         } else {
             // A vizinha seca: a borda segura até a altura dela; e a vizinha tem de estar sobre o sólido.
             if (h <= hold || abs(field_film_solid((vec3f(nc) + 0.5) * size)) > size) { continue; }
         }
         if (pi <= pj || h <= hj) { continue; }
-        let out = min(mobility * (pi - pj), FIELD_FILM_SPREAD_STEP * (h - hj));
+        let out = weight * min(mobility * (pi - pj), FIELD_FILM_SPREAD_STEP * (h - hj));
         let units = min(field_film_units(out), free_units - sent);
         if (units == 0u) { continue; }
-        let slot = field_film_find(nc, true);
+        let slot = field_film_find(nc, axes, true);
         if (slot == NONE) { continue; }
         let tw = field_film_cell_word(slot);
-        if (nw == NONE) { atomicStore(&field_film_cells[tw + 2u], packed); }
+        if (nw == NONE) { atomicMax(&field_film_cells[tw + 2u], packed); }
         atomicAdd(&field_film_cells[tw + 1u], units);
         sent += units;
     }
@@ -245,11 +264,11 @@ fn field_film_gather_drop(c: vec3i, key: u32, w: u32, n: vec3f, drop_units: u32)
             let normal = field_film_solid_normal(q);
             let next = field_film_cell(q - d * normal, normal);
             if (all(next == c) || field_film_low(next, g) <= here) { continue; }
-            let slot = field_film_find(next, true);
+            let slot = field_film_find(next, field_film_axes(normal), true);
             if (slot == NONE) { break; }
             let tw = field_film_cell_word(slot);
             // A normal do sólido ali (a célula pode ser nova, ou a do anterior que o passo dela tiraria por seca).
-            atomicStore(&field_film_cells[tw + 2u], pack4x8snorm(vec4f(normal, 0.0)));
+            atomicMax(&field_film_cells[tw + 2u], pack4x8snorm(vec4f(normal, 0.0)));
             field_film_add_drop(tw, drop_units);
             return;
         }
@@ -268,7 +287,7 @@ fn field_film_gather_drop(c: vec3i, key: u32, w: u32, n: vec3f, drop_units: u32)
         var nc = c;
         nc[axes.x] += du;
         nc[axes.y] += dv;
-        let nw = field_film_previous_word(nc);
+        let nw = field_film_previous_word(nc, axes);
         if (nw == NONE || field_film_previous[nw + 3u] != 0u) { continue; }
         let other = field_film_previous[nw + 6u];
         if (other == 0u) { continue; }
@@ -285,7 +304,7 @@ fn field_film_gather_drop(c: vec3i, key: u32, w: u32, n: vec3f, drop_units: u32)
         field_film_add_drop(w, drop_units);
         return;
     }
-    let slot = field_film_find(dest, true);
+    let slot = field_film_find(dest, axes, true);
     if (slot == NONE) {
         field_film_add_drop(w, drop_units);
         return;
@@ -304,6 +323,7 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     let dt = fluid_field.contact.z;
     let size = field_film_size();
     let c = field_film_coords(key);
+    let axes = field_film_previous_axes(slot);
     var surface = field_film_previous[pw + 5u];
     if (surface == 0u) {
         // A célula nova: a superfície do sólido dela — e, sem sólido junto (o disco da deposição que passou da quina),
@@ -322,13 +342,15 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     // A água que os poros aceitam neste passo (Washburn: A² cresce W dt), até a capacidade.
     let soak = max(min(terms.w, sqrt(absorbed * absorbed + terms.z * dt)) - absorbed, 0.0);
     if (field_film_previous[pw + 3u] != 0u) {
-        let own = field_film_find(c, true);
+        let own = field_film_find(c, axes, true);
         if (own == NONE) { return; }
         let w = field_film_cell_word(own);
         atomicStore(&field_film_cells[w + 5u], surface);
-        atomicStore(&field_film_cells[w + 2u], packed_normal);
-        atomicAdd(&field_film_cells[w + 1u], field_film_units(FIELD_FILM_RESIDUAL));
+        atomicMax(&field_film_cells[w + 2u], packed_normal);
+        // A residual, ou a água livre que já estava (a da gota passada à película fica: nada some sob a água).
+        field_film_keep(w, max(field_film_previous[pw + 1u], field_film_units(FIELD_FILM_RESIDUAL)));
         atomicStore(&field_film_cells[w + 4u], absorbed_units + field_film_units(soak));
+        field_film_add_drop(w, drop_units);
         return;
     }
     var free_units = field_film_previous[pw + 1u];
@@ -350,11 +372,11 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     // Seca de todo (nada livre, nada nos poros, nada pendente): a célula sai da tabela (as vizinhas a recriam se a água
     // chegar).
     if (free_units == 0u && after_units == 0u && drop_units == 0u) { return; }
-    let own = field_film_find(c, true);
+    let own = field_film_find(c, axes, true);
     if (own == NONE) { return; }
     let w = field_film_cell_word(own);
     atomicStore(&field_film_cells[w + 5u], surface);
-    atomicStore(&field_film_cells[w + 2u], packed_normal);
+    atomicMax(&field_film_cells[w + 2u], packed_normal);
     atomicStore(&field_film_cells[w + 4u], after_units);
     let n = unpack4x8snorm(packed_normal).xyz;
     // A face de baixo: o que passa da altura que a borda segura contra o peso pende.
@@ -369,7 +391,7 @@ fn field_film_step_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num
     // Escoamento do excesso sobre a espessura presa, depois o espalhamento no plano; o que fica, na própria célula.
     let moved = field_film_flow(c, w, n, free_units, terms, dt);
     free_units -= moved;
-    free_units -= field_film_spread(c, pw, n, free_units, terms, dt);
-    if (free_units > 0u) { atomicAdd(&field_film_cells[w + 1u], free_units); }
+    free_units -= field_film_spread(c, axes, pw, n, free_units, terms, dt);
+    field_film_keep(w, free_units);
     if (drop_units > 0u) { field_film_gather_drop(c, key, w, n, drop_units); }
 }

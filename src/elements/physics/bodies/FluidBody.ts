@@ -27,6 +27,16 @@ const FLUID_SCHEMAS: Record<FluidAlgorithm, StructSchema> = {
 };
 
 /**
+ * O campo do registro cujo `w` guarda o ancoramento da gota solta (a fronteira o grava a cada iteração) e, depois do
+ * passo, o estado dela (`fluid_drop_state`: negativo na gota encostada que desliza) — o campo dos fluidos lê dali a gota
+ * que passa à película (spec 034, T066d). Sem ancoramento (MPM), nenhum.
+ */
+export const FLUID_DROP_FIELD: ReadonlyMap<StructSchema, string> = new Map([
+    [SPHSchema, 'color'],
+    [PBFSchema, 'curl'],
+]);
+
+/**
  * Opções de domínio do FluidBody — o fluido inteiro: N partículas em arrays. O algoritmo seleciona o schema. `pos.w` é
  * do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticlePhysics` da cena.
  */

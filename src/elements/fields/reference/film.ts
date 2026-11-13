@@ -1,6 +1,8 @@
 // Referência f64 da película de água nos sólidos (spec 034, T066d): a leitura dela no plano da superfície (a B-spline
-// quadrática das 3 × 3 células, `field_film_sample`), a pressão do espalhamento (`field_film_pressure_main`) e a normal
-// que a refração vê pela cunha de água sobre o sólido (`refraction_wet_normal`). As mesmas contas do WGSL, em f64.
+// quadrática das 3 × 3 células, `field_film_sample`), a pressão do espalhamento (`field_film_pressure_main`), a normal
+// que a refração vê pela cunha de água sobre o sólido (`refraction_wet_normal`), a cobertura do disco do contato na
+// deposição (`field_film_coverage`) e a gota que desliza passada à película (`field_film_absorb_main`). As mesmas contas
+// do WGSL, em f64.
 
 /** Os pesos da B-spline quadrática nas células −1, 0 e 1 para o deslocamento `f` ∈ [−½, ½) ao centro mais próximo. */
 export function filmWeights(f: number): [number, number, number] {
@@ -43,8 +45,16 @@ export function filmSample(
 }
 
 /**
- * Pressão da película sobre a densidade (m²/s²): o peso da coluna na face voltada para cima e a de Laplace pelas quatro
- * vizinhas do plano (a seca conta como a própria célula: sem fluxo pela linha de contato).
+ * O peso da vizinha `k` (0–3 as dos eixos, 4–7 as diagonais) no laplaciano isotrópico de nove pontos: 2/3 e 1/6.
+ */
+export function filmNeighborWeight(k: number): number {
+    return k < 4 ? 2 / 3 : 1 / 6;
+}
+
+/**
+ * Pressão da película sobre a densidade (m²/s²): o peso da coluna na face voltada para cima e a de Laplace pelas oito
+ * vizinhas do plano (as quatro dos eixos e as quatro diagonais, pelos pesos do laplaciano isotrópico; a seca conta como
+ * a própria célula: sem fluxo pela linha de contato).
  */
 export function filmPressure(
     h: number,
@@ -53,8 +63,11 @@ export function filmPressure(
     tensionPerDensity: number,
     cell: number,
 ): number {
-    const sum = around.reduce<number>((a, x) => a + (x === undefined ? h : x), 0);
-    return Math.max(gn, 0) * h - (tensionPerDensity * (sum - 4 * h)) / (cell * cell);
+    const laplacian = around.reduce<number>(
+        (a, x, k) => a + filmNeighborWeight(k) * ((x ?? h) - h),
+        0,
+    );
+    return Math.max(gn, 0) * h - (tensionPerDensity * laplacian) / (cell * cell);
 }
 
 type Vec3 = readonly [number, number, number];
@@ -91,4 +104,42 @@ export function refract(d: Vec3, n: Vec3, eta: number): [number, number, number]
     if (k < 0) return undefined;
     const t = eta * c - Math.sqrt(k);
     return normalize([eta * d[0] + t * n[0], eta * d[1] + t * n[1], eta * d[2] + t * n[2]]);
+}
+
+/**
+ * A fração da célula de lado `cell` coberta pelo disco de raio `radius` cujo centro está a `distance` do centro dela (a
+ * borda do disco como a reta que corta a célula: a fração linear na distância com sinal, de 0 a 1 numa célula). A
+ * deposição pesa a residual por ela: a leitura suave das células dá a borda do disco redonda, não a do conjunto de
+ * células inteiras que ele toca (o quadrado de cantos arredondados).
+ */
+export function filmCoverage(distance: number, radius: number, cell: number): number {
+    return Math.min(Math.max(0.5 + (radius - distance) / cell, 0), 1);
+}
+
+/**
+ * A espessura da poça em que a gota passada à película se abre (m): a altura que a linha de contato segura contra o peso
+ * normal à superfície, √(2 f / (ρ g_n)) (`f / ρ` = `holdPerDensity`), até a película mais grossa do modelo (`max`) — na
+ * parede (sem peso normal) ela.
+ */
+export function puddleThickness(holdPerDensity: number, gn: number, max: number): number {
+    return gn > 1e-3 ? Math.min(max, Math.sqrt((2 * holdPerDensity) / gn)) : max;
+}
+
+/**
+ * A gota que desliza passada à película (T066d): o volume dela (`units` unidades inteiras da pendente: as do pingo, a
+ * conta inversa) repartido nas células do disco da poça pela cobertura de cada uma (`weights`, as fora do sólido com
+ * peso 0) — a parte inteira de cada uma, e o que sobra do arredondamento na célula do contato (`center`). Nada se perde
+ * nem se cria: a soma devolvida é `units`.
+ */
+export function absorbUnits(units: number, weights: readonly number[], center: number): number[] {
+    const total = weights.reduce((a, w) => a + w, 0);
+    let left = units;
+    const out = weights.map((w) => {
+        if (!(total > 0) || !(w > 0)) return 0;
+        const k = Math.min(Math.floor((units * w) / total), left);
+        left -= k;
+        return k;
+    });
+    out[center] = (out[center] ?? 0) + left;
+    return out;
 }

@@ -5,6 +5,14 @@
 
 const FLUID_RETIRED_Y: f32 = -1.0e7;
 
+/**
+ * A partícula retirada (abaixo da cena: a que saiu do domínio aberto ou a gota que virou película, T066d) — com as
+ * paredes do domínio ela não volta ao chão: segue retirada até a película a devolver num pingo.
+ */
+fn fluid_retired(p: vec3f) -> bool {
+    return p.y < 0.5 * FLUID_RETIRED_Y;
+}
+
 fn fluid_outside(p: vec3f, lo: vec3f, hi: vec3f) -> bool {
     return p.y < lo.y || p.x < lo.x || p.z < lo.z || p.x > hi.x || p.z > hi.z;
 }
@@ -35,6 +43,31 @@ fn fluid_loose_drop(count: u32, threshold: u32, contact: vec4f, support: f32) ->
         open = 1.0 - (1.0 - x) * (1.0 - x) * (2.0 + x) * 0.25;
     }
     return f32(count) < f32(threshold) * open;
+}
+
+/**
+ * O estado da gota solta depois do passo (T066d), no lugar do ancoramento (a fronteira o grava de novo no passo
+ * seguinte): `FLUID_DROP_SLIDING` na gota encostada que o ancoramento não parou — ela desliza pelo sólido, e o campo dos
+ * fluidos a passa à película (a água abaixo da resolução das partículas; `FLUID_DROP_SLIDE_SPEED`); o ancoramento,
+ * nas outras. Só a que o peso
+ * não puxa para fora do sólido (`g` a gravidade: o chão, a rampa, a parede) — na face de baixo a gota pende ou cai, e a
+ * película pende e pinga por conta própria — e que não se afasta dele mais do que anda ao longo dele.
+ */
+const FLUID_DROP_SLIDING: f32 = -1.0;
+/**
+ * Velocidade ao longo do sólido acima da qual a gota solta desliza (m/s): 1 cm/s — abaixo, é o tremor do solver na gota
+ * pousada (a que a película devolveu parada no fundo de uma poça voltava a ela no quadro seguinte, e as duas trocavam a
+ * água sem parar); a gota que a gravidade vence passa disso em poucos quadros.
+ */
+const FLUID_DROP_SLIDE_SPEED: f32 = 0.01;
+
+fn fluid_drop_state(v: vec3f, g: vec3f, contact: vec4f, contact_reach: f32, pinning: f32) -> f32 {
+    if (dot(contact.xyz, contact.xyz) <= 0.25 || contact.w >= contact_reach) { return pinning; }
+    let n = normalize(contact.xyz);
+    let vn = dot(v, n);
+    let vt = length(v - vn * n);
+    let pressed = dot(g, n) <= 0.01 * length(g);
+    return select(pinning, FLUID_DROP_SLIDING, pressed && vt > FLUID_DROP_SLIDE_SPEED && vn < vt);
 }
 
 fn fluid_wet_pinning(v: vec3f, contact: vec4f, contact_reach: f32, pinning: f32, dt: f32) -> vec3f {

@@ -8,12 +8,11 @@ fn field_film_cell_word(slot: u32) -> u32 {
     return FIELD_FILM_WORDS * slot;
 }
 
-/** A página `pc` da película na fatia do quadro: o índice dela, inserida se `insert` (ou `NONE`). */
-fn field_film_page_find(pc: vec3i, insert: bool) -> u32 {
-    let key = field_film_page_key(pc);
+/** A página de chave `key` da película na fatia do quadro: o índice dela, inserida se `insert` (ou `NONE`). */
+fn field_film_page_find(key: u32, insert: bool) -> u32 {
     let base = field_film_pages_word();
     let mask = field_film_page_mask();
-    var page = field_film_page_bucket(pc);
+    var page = field_film_page_bucket(key);
     let step = (key << 1u) | 1u;
     for (var k = 0u; k < FIELD_FILM_PROBES; k++) {
         let found = atomicLoad(&field_film_cells[base + page]);
@@ -30,15 +29,15 @@ fn field_film_page_find(pc: vec3i, insert: bool) -> u32 {
 }
 
 /**
- * Célula `c` da película na fatia do quadro: o índice da que tem a chave, inserida se `insert` (ou `NONE`) — a página
- * pela tabela das páginas, a célula direto nela.
+ * Célula `c` da película no plano dos eixos `axes`, na fatia do quadro: o índice da que tem a chave, inserida se
+ * `insert` (ou `NONE`) — a página pela tabela das páginas, a célula direto nela.
  */
-fn field_film_find(c: vec3i, insert: bool) -> u32 {
+fn field_film_find(c: vec3i, axes: vec2i, insert: bool) -> u32 {
     let key = field_film_key(c);
     if (key == 0u) { return NONE; }
-    let page = field_film_page_find(field_film_page(c), insert);
+    let page = field_film_page_find(field_film_page_key(c, axes), insert);
     if (page == NONE) { return NONE; }
-    let slot = field_film_slot_in(page, c);
+    let slot = field_film_slot_in(page, c, axes);
     let w = field_film_cell_word(slot);
     // A chave da célula só é escrita na primeira vez (muitas partículas molham a mesma célula no quadro).
     if (atomicLoad(&field_film_cells[w]) == key) { return slot; }
@@ -46,3 +45,4 @@ fn field_film_find(c: vec3i, insert: bool) -> u32 {
     atomicStore(&field_film_cells[w], key);
     return slot;
 }
+

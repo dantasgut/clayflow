@@ -32,8 +32,9 @@ fn pbf_vorticity_main(
     }
 
     // Passo 2: ηᵢ = Σⱼ ‖ωⱼ‖ · ∇W  (lendo curl armazenado do frame anterior — ok para 1ª iteração = 0)
-    // Só ω: a força de confinamento lê |ωⱼ| dos vizinhos e é aplicada no passe seguinte (junto do XSPH).
-    particles[i].curl = vec4f(omega, 0.0);
+    // Só ω: a força de confinamento lê |ωⱼ| dos vizinhos e é aplicada no passe seguinte (junto do XSPH). O `w` é o
+    // estado da gota solta que a velocidade deixou (`fluid_drop_state`, T066d): o campo dos fluidos o lê depois do passo.
+    particles[i].curl = vec4f(omega, particles[i].curl.w);
 
     // Tensão superficial (spec 030; contínua, spec 034 T066e): o gradiente da cor do fluido no poly6 (o núcleo da
     // fronteira, que o XSPH soma a ele para as normais da tensão contínua e de Akinci), lido pelos vizinhos no passe do

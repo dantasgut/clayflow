@@ -1,6 +1,6 @@
 // Spec 034, T066d — Cenas do smoke `wetting` que medem a película pela imagem e pelas partículas: o rastro de uma gota
 // num plano inclinado (a borda dele, vista de cima), a gota parada ou solta num plano inclinado (o ancoramento pela
-// `SurfacePhysics`) e o pingo da água que escorre pela face de uma laje.
+// `SurfacePhysics`), a gota que desliza no chão passada à película e o pingo da água que escorre pela face de uma laje.
 import {
     Application,
     Atmosphere,
@@ -376,9 +376,132 @@ export async function dropSlide(
     return { moved: d[0]! * down[0] + d[1]! * down[1] + d[2]! * down[2] };
 }
 
+/** A gota que desliza no chão passada à película (`dropSpread`). */
+export interface DropSpread {
+    /** A partícula foi retirada do corpo (a película a recebeu). */
+    readonly retired: boolean;
+    /** O volume de uma partícula (m³). */
+    readonly volume: number;
+    /** Onde ela passou à película (x, z; m). */
+    readonly landing: [number, number];
+}
+
+/**
+ * A gota de uma partícula de 1 cm (1 mL) lançada rente a um chão horizontal de superfície `surface` a 0,5 m/s (spec
+ * 034, T066d): solta e deslizando, o ancoramento não a para — o campo dos fluidos a passa à película, na poça em que ela
+ * se abre. A superfície sem poros: a água só muda de lugar e evapora (`humidity`: a umidade do ar; 1, saturado, sem
+ * evaporação). Lê a película (`readFilm`) aos `at` segundos.
+ */
+export async function dropSpread<T>(
+    surface: SurfacePhysicsOptions,
+    readFilm: (app: Application) => Promise<T>,
+    at: readonly number[],
+    humidity = 1,
+): Promise<DropSpread & { film: T[] }> {
+    const { app, canvas, errors } = await open(64, 64);
+    const world = app.world;
+    const s = 0.01;
+    world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+    const physics = new ParticlePhysics({
+        ...ParticlePhysics.WATER,
+        particleSpacing: s,
+        bounds: 'open',
+        domainMin: [-1, -1, -1],
+        domainMax: [1, 1, 1],
+    });
+    world.insert(physics);
+    world.insert(new Atmosphere({ relativeHumidity: humidity }));
+    world.insert(
+        new PlaneCollider({ normal: [0, 1, 0, 0], offset: 0 }).add(new SurfacePhysics(surface)),
+    );
+    const body = new FluidBody({
+        algorithm: 'PBF',
+        position: [0.0123, 0.5 * s, -0.0071],
+        velocity: [0.4, 0, 0.3],
+    });
+    body.add(waterLook({}));
+    world.insert(body);
+    world.insert(
+        new Camera({ fov: Math.PI / 4, aspect: 1, aspectMode: 'fixed', near: 0.05, far: 10 }).add(
+            new Transform({
+                position: [0, 1, 1, 1],
+                rotation: Transform.lookRotation([0, 1, 1], [0, 0, 0]),
+            }),
+        ),
+    );
+    await app.whenReady({ timeoutMs: 30_000 });
+    let retired = false;
+    let landing: [number, number] = [NaN, NaN];
+    const film: T[] = [];
+    const last = Math.max(...at);
+    for (let i = 1; i <= 60 * last; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+        if (!retired) {
+            // A retirada guarda o x e o z de onde passou à película.
+            const now = await positions(app);
+            if (now[1]! < -1e6) {
+                retired = true;
+                landing = [now[0]!, now[2]!];
+            }
+        }
+        if (at.includes(i / 60)) film.push(await readFilm(app));
+    }
+    close(app, canvas, errors);
+    return { retired, volume: physics.particleMass / physics.restDensity, landing, film };
+}
+
+/**
+ * A gota de uma partícula de 1 cm (1 mL) encostada numa parede vertical de superfície `surface` (spec 034, T066d): a
+ * gravidade vence o ancoramento, ela desliza e passa à película, que escorre pela parede deixando atrás a espessura que
+ * a borda segura. Ar saturado (sem evaporação). Lê a película (`readFilm`) aos `seconds` segundos.
+ */
+export async function wallTrail<T>(
+    surface: SurfacePhysicsOptions,
+    readFilm: (app: Application) => Promise<T>,
+    seconds = 1,
+): Promise<T> {
+    const { app, canvas, errors } = await open(64, 64);
+    const world = app.world;
+    const s = 0.01;
+    world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
+    world.insert(
+        new ParticlePhysics({
+            ...ParticlePhysics.WATER,
+            particleSpacing: s,
+            bounds: 'open',
+            domainMin: [-1, -1, -1],
+            domainMax: [1, 1, 1],
+        }),
+    );
+    world.insert(new Atmosphere({ relativeHumidity: 1 }));
+    world.insert(
+        new PlaneCollider({ normal: [1, 0, 0, 0], offset: 0 }).add(new SurfacePhysics(surface)),
+    );
+    const body = new FluidBody({ algorithm: 'PBF', position: [0.5 * s, 0.4, 0.0037] });
+    body.add(waterLook({}));
+    world.insert(body);
+    world.insert(
+        new Camera({ fov: Math.PI / 4, aspect: 1, aspectMode: 'fixed', near: 0.05, far: 10 }).add(
+            new Transform({
+                position: [1, 0.3, 0, 1],
+                rotation: Transform.lookRotation([1, 0.3, 0], [0, 0.3, 0]),
+            }),
+        ),
+    );
+    await app.whenReady({ timeoutMs: 30_000 });
+    for (let i = 1; i <= 60 * seconds; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+    }
+    const film = await readFilm(app);
+    close(app, canvas, errors);
+    return film;
+}
+
 /** O pingo da película que escorre pela esfera (`sphereDrips`). */
 export interface SphereDrips {
-    /** Partículas que voltaram da película (as retiradas que reapareceram) entre os dois instantes. */
+    /** Partículas que voltaram da película (as retiradas que reapareceram junto da esfera) entre os dois instantes. */
     readonly drips: number;
     /** A água da película na esfera (livre e pendente, m³) nos dois instantes. */
     readonly before: number;
@@ -387,6 +510,8 @@ export interface SphereDrips {
     readonly volume: number;
     /** Partículas-quadro encostadas na esfera no intervalo (a deposição somaria água à película). */
     readonly touching: number;
+    /** Gotas que deslizavam na esfera passadas à película no intervalo (retiradas junto dela). */
+    readonly absorbed: number;
     /** A altura mínima e máxima (m) e o afastamento horizontal máximo do eixo da esfera (m) onde os pingos apareceram. */
     readonly lowest: number;
     readonly highest: number;
@@ -450,6 +575,7 @@ export async function sphereDrips(
     let previous: Float32Array | undefined;
     let drips = 0;
     let touching = 0;
+    let absorbed = 0;
     let lowest = Infinity;
     let highest = -Infinity;
     let aside = 0;
@@ -462,10 +588,24 @@ export async function sphereDrips(
         const now = await positions(app);
         for (let e = 0; e < now.length / 3; e++) {
             const p: Vec3 = [now[3 * e]!, now[3 * e + 1]!, now[3 * e + 2]!];
-            if (p[1] < -1e6) continue;
+            if (p[1] < -1e6) {
+                // A que estava encostada na esfera e foi retirada passou à película (a que sai do domínio cai por baixo).
+                if (previous !== undefined && previous[3 * e + 1]! > -1e6) {
+                    const q: Vec3 = [previous[3 * e]!, previous[3 * e + 1]!, previous[3 * e + 2]!];
+                    const was =
+                        Math.hypot(q[0] - center[0], q[1] - center[1], q[2] - center[2]) - radius;
+                    if (was < reach) absorbed++;
+                }
+                continue;
+            }
             const d = Math.hypot(p[0] - center[0], p[1] - center[1], p[2] - center[2]) - radius;
             if (d < reach) touching++;
-            if (previous !== undefined && previous[3 * e + 1]! < -1e6) {
+            // O pingo: a retirada que reaparece — ou a que caiu do domínio e voltou no mesmo quadro (a junção a lista
+            // depois do passo que a retirou): o salto para cima, para junto da esfera.
+            const jumped =
+                previous !== undefined
+                && (previous[3 * e + 1]! < -1e6 || p[1] > previous[3 * e + 1]! + 0.05);
+            if (jumped) {
                 drips++;
                 lowest = Math.min(lowest, p[1]);
                 highest = Math.max(highest, p[1]);
@@ -482,6 +622,7 @@ export async function sphereDrips(
         after,
         volume: physics.particleMass / physics.restDensity,
         touching,
+        absorbed,
         lowest,
         highest,
         aside,

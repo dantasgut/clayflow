@@ -166,7 +166,11 @@ export const FieldGatherSchema = new StructSchema(
         /** Deslocamentos da velocidade e da posição anterior em `vec4f` (`NONE` sem): o pingo volta parado (T066d). */
         velOffsetVec4: FieldType.u32,
         posOldOffsetVec4: FieldType.u32,
-        _pad0: FieldType.u32,
+        /**
+         * Deslocamento em `vec4f` do campo cujo `w` guarda o estado da gota solta depois do passo (`fluid_drop_state`:
+         * negativo na que desliza, T066d) — `NONE` sem: a gota que desliza vira película.
+         */
+        dropOffsetVec4: FieldType.u32,
         _pad1: FieldType.u32,
         _pad2: FieldType.u32,
     },
@@ -190,10 +194,12 @@ export function fieldContactShape(contactAngle: number): [number, number] {
 }
 
 /**
- * Células da tabela da película de água nos sólidos (spec 034): 2²⁰ — com a célula da resolução do rastro (T066d, um
- * quarto do espaçamento), ~40 m² molhados com a tabela pela metade (28 MiB por fatia).
+ * Células da tabela da película de água nos sólidos (spec 034): 2²¹ — com a célula da resolução do rastro (T066d, um
+ * quarto do espaçamento), ~80 m² molhados com a tabela pela metade (56 MiB por fatia). A barragem que transborda do
+ * tanque cobre o chão inteiro do domínio de 4 × 4 m (a água que passa das paredes vira película no chão: ~730 mil
+ * células com as do vidro); com 2²⁰ as páginas enchiam a 95 % e as que não cabiam sumiam.
  */
-export const FIELD_FILM_CELLS = 1048576;
+export const FIELD_FILM_CELLS = 2097152;
 
 /**
  * Palavras por célula da película (`field_film.wgsl`): a chave, a água livre, a normal do sólido, a marca de submersa,
@@ -202,9 +208,11 @@ export const FIELD_FILM_CELLS = 1048576;
 export const FIELD_FILM_WORDS = sharedConstant('FIELD_FILM_WORDS', 7, 'u32');
 
 /**
- * Células por página da película (T066d): páginas de 4³ células — a tabela de espalhamento guarda as páginas, e a célula
- * é endereçada direto dentro da sua (a leitura 3 × 3 da superfície e as vizinhas do passo caem quase sempre na mesma
- * página: uma sondagem por página, não por célula). `FIELD_FILM_CELLS / FIELD_FILM_PAGE_CELLS` páginas.
+ * Células por página da película (T066d): páginas de 8 × 8 células no plano da superfície, numa camada, com o eixo da
+ * normal dominante na chave — a tabela de espalhamento guarda as páginas, e a célula é endereçada direto dentro da sua (a
+ * leitura 3 × 3 da superfície e as vizinhas do passo caem quase sempre na mesma página: uma sondagem por página, não por
+ * célula). A página cúbica de 4³ de antes usava uma camada só (16 das 64): a chuva num chão grande enchia a tabela das
+ * páginas. `FIELD_FILM_CELLS / FIELD_FILM_PAGE_CELLS` páginas.
  */
 export const FIELD_FILM_PAGE_CELLS = 64;
 
@@ -223,4 +231,4 @@ export const FIELD_FILM_SLICE_WORDS =
 export const FIELD_FILM_SUBDIV = 2;
 
 /** Pingos por quadro no máximo (spec 034, T066d): a lista das partículas que a película devolve à simulação. */
-export const FIELD_FILM_DRIPS = sharedConstant('FIELD_FILM_DRIPS', 64, 'u32');
+export const FIELD_FILM_DRIPS = sharedConstant('FIELD_FILM_DRIPS', 256, 'u32');
