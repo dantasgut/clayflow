@@ -720,8 +720,14 @@ fn refraction_chain_resolve_main(@builtin(global_invocation_id) gid: vec3u, @bui
             if (p.pixel == NONE) { continue; }
             pixel = p.pixel;
             var tr = p.truncated;
-            if (p.alive != 0u) { tr += p.weight; }
-            radiance += p.radiance;
+            var rad = p.radiance;
+            // A vaga ainda viva depois da última rodada: como no limite de interfaces, termina na luz de todas as
+            // direções no ponto em que parou (`scene_ambient`), não em preto.
+            if (p.alive != 0u) {
+                tr += p.weight;
+                rad += p.weight * scene_ambient(p.origin);
+            }
+            radiance += rad;
             truncated += luminance(tr);
             moving += p.moving;
             if ((p.flags & REFRACTION_CHAIN_SAMPLED) != 0u) { sampled += luminance(p.radiance); }

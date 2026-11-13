@@ -57,6 +57,7 @@ import {
 import { cameraSpace } from '../../scene/flows/shaders';
 import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
 import {
+    sceneAmbientReady,
     sceneFogReady,
     sceneWetnessMovingReady,
     sceneWetnessSlopeReady,
@@ -277,6 +278,7 @@ export const refractionPath = wgslModule({
         closureEval,
         sceneEnvironmentReady,
         sceneIndirectLightingReady,
+        sceneAmbientReady,
         sceneWetnessSlopeReady,
         sceneWetnessMovingReady,
         R.frame,

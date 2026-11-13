@@ -12,8 +12,10 @@
 // da água; sortear o canal com o triplo do peso somava 2 ao ruído relativo). Cada trecho é absorvido no meio corrente
 // (Beer–Lambert). No acerto opaco: a emissão, a luz direta com raio de sombra (`ray_direct`) e a luz rebatida da cena
 // (`scene_indirect_lighting`: as sondas da GI, ou o hemisfério); no escape, o ambiente (`scene_environment`). Depois de
-// `max_interfaces` interfaces (ou de um meio além do teto da pilha) a energia restante conta como absorvida (a
-// luminância dela sai à parte). O fechamento com transmissão parcial é dielétrico com a probabilidade do peso dela,
+// `max_interfaces` interfaces (ou de um meio além do teto da pilha) o caminho termina na estimativa da luz que chega ao
+// ponto de todas as direções (`scene_ambient`: as sondas da luz global, o hemisfério) — a energia não some na reflexão
+// interna total, ela segue presa na lâmina e sai por outro ponto, numa direção que o teto não deixa seguir; preto ali era
+// a meia gota escura no vidro molhado visto de lado (T066d). A luminância dessa energia sai à parte (`truncated`). O fechamento com transmissão parcial é dielétrico com a probabilidade do peso dela,
 // opaco no resto. A parede fina (`closure_thin_walled`) não muda a pilha: reflete com 2R/(1 + R) ou atravessa sem
 // desviar. Com a normal do material, as interfaces refletem e refratam por ela (`refraction_shading_normal`); a
 // geométrica decide o lado e a pilha. Sai também o ponto em que termina o caminho que mais contribui para a cor, com o registro do objeto, e o
@@ -23,7 +25,7 @@
 // (`moving`: quem acumula o sinal encurta o histórico na proporção dela).
 // Os acertos são os de `refraction_scene` (a malha ou a superfície de um volume, a água das partículas: T065e).
 // Requer: NONE, refraction, refraction_interface, refraction_media, refraction_scene, ray_scene, ray_hit, camera_space,
-// ray_direct, closure_eval, scene_environment, scene_indirect_lighting, refraction_frame.
+// ray_direct, closure_eval, scene_environment, scene_indirect_lighting, scene_ambient, refraction_frame.
 
 /** Distância máxima dos raios. */
 const REFRACTION_FAR: f32 = 1.0e6;
@@ -262,6 +264,12 @@ var<private> refraction_wet_moved: bool = false;
 var<private> refraction_wet_curvature: f32 = 0.0;
 
 /**
+ * A direção com que o raio volta ao sólido quando sai dele por uma gota e a calota o reflete inteiro (a reflexão interna
+ * total na água, `refraction_wet_normal`); nula sem ela. Com ela, a interface do acerto reflete inteira nessa direção.
+ */
+var<private> refraction_wet_back: vec3f = vec3f(0.0);
+
+/**
  * A normal de sombreamento `ns` com a água do sólido (spec 034, T066d; ponto `scene_wetness_slope`) para o raio `d`: a
  * superfície da água (a película ou a calota da gota) tem a normal n − ∇h, e o raio passa por duas interfaces — o ar e a
  * água por ela, a água e o sólido de índice `ior` pela face plana. Devolve a normal da interface única do ar com o sólido
@@ -295,9 +303,28 @@ fn refraction_wet_normal(ns: vec3f, hit: RayHit, ior: f32, d: vec3f) -> vec3f {
     let t1 = refract(d, -n, ior / water);
     if (dot(t1, t1) <= 0.0) { return ns; }
     let t2 = refract(t1, -nw, water);
-    if (dot(t2, t2) <= 0.0) { return side * nw; }
-    return side * normalize(ior * d - t2);
+    if (dot(t2, t2) > 0.0) { return side * normalize(ior * d - t2); }
+    // A reflexão interna total na calota: o raio volta para dentro da gota. As voltas seguintes acertam a calota do
+    // outro lado (ela é simétrica: a inclinação oposta); a que sai pela calota é a transmissão (a normal equivalente
+    // dela), a que desce para a base volta ao sólido com a direção exata (`refraction_wet_back`: a interface reflete
+    // inteira por ela). Preto aqui era a meia gota escura no vidro molhado visto de lado: o reflexo pela normal da água
+    // saía pela face plana com a pilha ainda no sólido, e o caminho se perdia até o teto de interfaces.
+    var r = reflect(t1, nw);
+    for (var k = 0u; k < REFRACTION_WET_BOUNCES; k++) {
+        if (dot(r, n) < 0.0) { break; }
+        let nk = normalize(n + select(slope, -slope, (k & 1u) != 0u));
+        let out = refract(r, -nk, water);
+        if (dot(out, out) > 0.0) { return side * normalize(ior * d - out); }
+        r = reflect(r, nk);
+    }
+    // Ainda subindo depois das voltas (rasante na borda): desce pela base (o espelho na face plana).
+    if (dot(r, n) >= 0.0) { r = r - 2.0 * dot(r, n) * n; }
+    refraction_wet_back = refract(r, n, water / ior);
+    return ns;
 }
+
+/** Teto das voltas do raio dentro da gota na reflexão interna total (`refraction_wet_normal`). */
+const REFRACTION_WET_BOUNCES: u32 = 4u;
 
 fn refraction_thin(c: Closure, hit: RayHit, d: vec3f, outside: RefractionMedium) -> RefractionThin {
     let nf = select(hit.normal, -hit.normal, dot(hit.normal, d) > 0.0);
@@ -398,7 +425,7 @@ fn refraction_end(p: vec3f, record: u32) -> vec4f {
 
 /**
  * O que um trecho de caminho acha no acerto seguinte: o fim (`done`: a radiância do opaco ou do céu, ou `truncated` 1 no
- * limite de interfaces; sem a absorção), uma borda que não muda o meio (`passes`: o raio segue reto depois dos
+ * limite de interfaces, com a radiância de `scene_ambient`; sem a absorção), uma borda que não muda o meio (`passes`: o raio segue reto depois dos
  * cruzamentos) ou uma interface — a absorção até ela (`through`, com o canal sorteado na dispersão já separado), a
  * probabilidade da reflexão na roleta e os dois lobos que saem dela, com o peso de cada um (o Fresnel vezes o peso do
  * lobo); a reflexão fica na pilha, a transmissão (e a passagem) aplicam os cruzamentos (`first` e `second`, `count`
@@ -549,6 +576,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.vol_n = hit.normal;
     refraction_wet_moved = false;
     refraction_wet_curvature = 0.0;
+    refraction_wet_back = vec3f(0.0);
     n.through = refraction_absorb(vec3f(1.0), refraction_current(stack), min(hit.t, REFRACTION_FAR));
     if (hit.instance == NONE) {
         n.radiance = scene_environment(d);
@@ -568,6 +596,7 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.interfaces += 1u;
     if (n.interfaces > refraction.max_interfaces || stack.overflow != 0u) {
         n.truncated = 1.0;
+        n.radiance = scene_ambient(hit.position);
         return n;
     }
     n.done = false;
@@ -595,6 +624,15 @@ fn refraction_node_at(o: vec3f, d: vec3f, hit: RayHit, c: Closure, other: RayHit
     n.count = x.count;
     if (!x.crosses) {
         n.passes = true;
+        return n;
+    }
+    if (dot(refraction_wet_back, refraction_wet_back) > 0.0) {
+        // A gota refletiu o raio inteiro de volta ao sólido: um lobo só, sem roleta nem dispersão.
+        n.p_reflect = 1.0;
+        n.reflect_dir = refraction_wet_back;
+        n.reflect_weight = vec3f(1.0);
+        n.transmit_dir = refraction_wet_back;
+        n.transmit_weight = vec3f(0.0);
         return n;
     }
     if (n.channel < 0 && (refraction_dispersive(x.before) || refraction_dispersive(x.next))) {
