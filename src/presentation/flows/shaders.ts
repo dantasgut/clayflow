@@ -215,6 +215,7 @@ export const shadowPages = wgslModule({
         pageAlloc,
         xformRigid,
         WORKGROUP_SIZE.module,
+        NONE.module,
         shadowMatricesResource,
         worldsResource,
         shadowResources.params,

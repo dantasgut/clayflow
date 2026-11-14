@@ -47,5 +47,3 @@ const SS_ENTRY_WORDS: u32 = 5u;
 const SS_PAGE_SPAN: i32 = 4;
 /** Pontos por invocação no retângulo de uma fonte (256 invocações: até 1 048 576 pontos). */
 const SS_RECT_CHUNK: u32 = 4096u;
-/** A fonte sem instância (corpo de partículas: as posições já no mundo). */
-const SS_NO_INSTANCE: u32 = 0xFFFFFFFFu;

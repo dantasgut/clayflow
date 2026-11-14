@@ -579,7 +579,8 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
 fn ss_center(i: u32) -> vec3f {
     let w = (ss_source.first + i) * ss_source.strideWords + ss_source.posOffsetWords;
     let p = vec3f(ss_points[w], ss_points[w + 1u], ss_points[w + 2u]);
-    if (ss_source.instance == SS_NO_INSTANCE) { return p; }
+    // A fonte sem instância (`NONE`: corpo de partículas) tem as posições já no mundo.
+    if (ss_source.instance == NONE) { return p; }
     return (worlds[instances[ss_source.instance].world].world * vec4f(p, 1.0)).xyz;
 }
 

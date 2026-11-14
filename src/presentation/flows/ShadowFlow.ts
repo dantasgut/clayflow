@@ -1,4 +1,4 @@
-import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
+import { NONE, WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type {
     AnyBufferSpec,
     EngineCore,
@@ -122,8 +122,6 @@ interface ClusterPlan {
 const SPRITE_ENTRY_WORDS = 5;
 const SPRITE_ENTRIES_PER_POINT = 8;
 const SPRITE_LIST_MAX = 1 << 19;
-/** A fonte sem instância (corpo de partículas). */
-const SPRITE_NO_INSTANCE = 0xffffffff;
 
 /**
  * Uma fonte de sprites que projetam: os pontos (o buffer, o primeiro registro, quantos, o passo e a posição em
@@ -1258,7 +1256,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 count: body.count,
                 strideWords: schema.stride / 4,
                 posOffsetWords: schema.offsetOf('pos') / 4,
-                instance: SPRITE_NO_INSTANCE,
+                instance: NONE.value,
                 dynamic: true,
                 radius: material.data.radius,
             });

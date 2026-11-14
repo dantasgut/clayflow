@@ -69,7 +69,7 @@ export const ShadowBoundsGeometrySchema = new StructSchema(
 
 /**
  * Por despacho de uma fonte de sprites que projetam (spec 034): os pontos (o primeiro registro, quantos, o passo e a
- * posição em palavras), a instância (a matriz de mundo; `SS_NO_INSTANCE` no corpo de partículas), o lugar na série dos
+ * posição em palavras), a instância (a matriz de mundo; `NONE` no corpo de partículas), o lugar na série dos
  * retângulos, se a fonte se move sozinha e o raio dos sprites.
  */
 export const ShadowSpriteSourceSchema = new StructSchema(
