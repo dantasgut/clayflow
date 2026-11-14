@@ -19,7 +19,7 @@
 // Para rodar: `npm run smoke -- giNoise [--query case=cornell-medium]`. Resultado: `GINOISE SMOKE PASSED` ou `FAIL: …`.
 import { FogVolume, GlobalIllumination, Transform, type Application } from 'clayflow/web';
 import type { PtImage } from '../elements/lighting/reference/pathTracer';
-import { settle } from './support/extensionScenes';
+import { nextGpuFrame, settleFrames } from './support/extensionScenes';
 import {
     buildGiScene,
     cornellBox,
@@ -81,10 +81,12 @@ async function open(
     if (opts.ambient === undefined) app.world.remove(app.defaults.ambient);
     else app.defaults.ambient.data.intensity = opts.ambient;
     if (opts.fog !== undefined) app.world.insert(opts.fog);
-    const ready = { revision: -1, at: 0 };
+    // A prontidão da luz global pelo quadro em que chegou (o número de quadros antes da medida não depende do relógio).
+    const ready = { revision: -1, frame: 0 };
+    let frame = 0;
     app.events.on('globalIlluminationReady', (e) => {
         ready.revision = e.revision;
-        ready.at = performance.now();
+        ready.frame = frame;
     });
     if (opts.gi !== undefined) {
         app.world.insert(
@@ -98,13 +100,19 @@ async function open(
             }),
         );
     }
-    await settle(app, 2500);
+    // Quadros contados e no ritmo da GPU (`settleFrames`, `nextGpuFrame`, como o laço): com a espera pelo relógio e a
+    // CPU gravando centenas de quadros à frente, a história da luz global antes da medida variava com a máquina — a
+    // cintilação do `cornell-medium` ainda cai com os quadros (0,58 % com 307, 0,40 % com 460) e passava de 1 % depois de
+    // carga longa da GPU.
+    await settleFrames(app, 150);
     if (opts.gi?.enabled === true) {
         const limit = performance.now() + 120000;
-        while (ready.revision < 0 || performance.now() - ready.at < 1000) {
+        while (ready.revision < 0 || frame - ready.frame < 60) {
             if (performance.now() > limit)
                 throw new Error('a iluminação global não ficou pronta em 120 s');
-            await settle(app, 100);
+            app.step(0);
+            await nextGpuFrame(app);
+            frame++;
         }
     }
     return {
@@ -113,7 +121,7 @@ async function open(
         async step(frames) {
             for (let i = 0; i < frames; i++) {
                 app.step(1 / 60);
-                if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
+                await nextGpuFrame(app);
             }
         },
         async read() {
