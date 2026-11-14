@@ -7,7 +7,7 @@ describe('parseArgs', () => {
         expect(c).toMatchObject({
             warmupMs: DEFAULTS.warmupMs,
             windowMs: DEFAULTS.windowMs,
-            repetitions: 3,
+            repetitions: 5,
             timeoutMs: 60_000,
             tolerance: 0.1,
             port: 5180,
