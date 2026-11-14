@@ -1,24 +1,27 @@
 // Apoio do smoke dos pontos de extensão (spec 009): leitura de pools de volta (só no smoke), espera das compilações
 // assíncronas (quadros de duração 0: a cena reconcilia sem avançar o tempo), captura de pixels e as funções WGSL dos
 // exemplos.
-import type * as Clayflow from 'clayflow';
-import type { Application, EntityId, StagingBufferSpec, StructSchema } from 'clayflow';
+import type * as Clayflow from 'clayflow/web';
+import type { Application, EntityId, StagingBufferSpec, StructSchema } from 'clayflow/web';
 
 /** O módulo `clayflow` (os smokes importam o barril público). */
 type ClayflowLib = typeof Clayflow;
 
 /** Lê um pool inteiro de volta (bytes). */
 export async function readPool(app: Application, poolKey: string): Promise<Uint8Array> {
-    const spec = app.resources.poolBufferSpec(poolKey);
-    if (spec === undefined) throw new Error(`pool ${poolKey} inexistente`);
+    const info = app.resources.poolInfo(poolKey);
+    if (info === undefined) throw new Error(`pool ${poolKey} inexistente`);
+    // O pool pela faixa dele (numa arena de pools, T060i, a região; senão, o buffer inteiro).
+    const spec = info.buffer;
+    const size = info.offset === 0 ? spec.byteSize : info.capacity * info.stride;
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
         subkind: 'staging',
-        discriminator: `extension_points_${poolKey}_${spec.byteSize}`,
-        byteSize: spec.byteSize,
+        discriminator: `extension_points_${poolKey}_${size}`,
+        byteSize: size,
     });
     app.core.record('extension-points-readback', (frame) => {
-        frame.copy(spec, staging, spec.byteSize);
+        frame.copy(spec, staging, size, info.offset, 0);
     });
     app.core.submit();
     const bytes = new Uint8Array(await app.core.readback(staging));
@@ -43,16 +46,43 @@ export async function readWorlds(
 }
 
 /**
- * Deixa as compilações em segundo plano concluírem: quadros de duração 0 (sem avanço do tempo nem passos da física)
- * intercalados com espera real, até `ms`.
+ * Espera o motor pronto (spec 034): nenhum pipeline sem fonte, em conferência, compilando ou trocando — quadros de
+ * duração 0 (sem avanço do tempo nem passos da física) até a prontidão. `ms` é o mínimo de espera real, para os
+ * smokes que acumulam luz ou deixam a página respirar; o prazo da prontidão é de 60 s.
  */
-export async function settle(app: Application, ms = 400): Promise<void> {
+export async function settle(app: Application, ms = 0): Promise<void> {
     const end = performance.now() + ms;
+    await app.whenReady({ timeoutMs: 60_000 });
     while (performance.now() < end) {
         app.step(0);
         await new Promise((r) => setTimeout(r, 16));
     }
+    // Um quadro na mesma tarefa de quem chamou: o canvas WebGPU só vale até a tarefa ceder (captura logo depois).
     app.step(0);
+}
+
+/**
+ * Prontidão e um número fixo de quadros sem avançar a física: o estado entre quadros do desenho (séries temporais,
+ * sequências de amostras) chega à captura igual em toda execução — com a espera pelo relógio, o número de quadros varia
+ * com a máquina e a imagem também.
+ */
+export async function settleFrames(app: Application, frames: number): Promise<void> {
+    await app.whenReady({ timeoutMs: 60_000 });
+    for (let i = 0; i < frames; i++) {
+        app.step(0);
+        await nextGpuFrame(app);
+    }
+    // Um quadro na mesma tarefa de quem chamou: o canvas WebGPU só vale até a tarefa ceder (captura logo depois).
+    app.step(0);
+}
+
+/**
+ * Espera a GPU ter espaço para mais um quadro (`readyForFrame`, o mesmo ritmo do laço e do bench): medir com a CPU
+ * gravando à frente da GPU enche a fila e deixa os quadros sem leitura de tempo (spec 034, H1).
+ */
+export async function nextGpuFrame(app: Application): Promise<void> {
+    do await new Promise((r) => requestAnimationFrame(r));
+    while (!app.readyForFrame());
 }
 
 /** Pixels RGBA do canvas do app (por um canvas 2D). */
@@ -114,7 +144,7 @@ export function solverBodies(
     lib: ClayflowLib,
 ): StructSchema {
     const { FluidBody, RigidBody, SoftBody } = lib;
-    const spacing = lib.ParticleMaterial.defaults.particleSpacing;
+    const spacing = lib.ParticlePhysics.defaults.particleSpacing;
     const cube = (n: number, s: number, c: readonly [number, number, number]): number[] => {
         const side = Math.round(Math.cbrt(n));
         const out: number[] = [];

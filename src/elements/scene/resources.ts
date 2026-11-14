@@ -1,3 +1,4 @@
+import { poolArenaReader, poolArenaWriter } from '../../scene/shaders/poolArena';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import { Camera } from './Camera';
 import { Light } from './Light';
@@ -17,22 +18,40 @@ export const transformsResource = wgslResource({
     provider: { pool: Transform.schema.name },
 });
 
-/** Matrizes de mundo (pool `WorldTransform`), escrita — o estágio de transformação. */
-export const worldsWriteResource = wgslResource({
+/** Matrizes de mundo (pool `WorldTransform`, arena da GPU), leitura e escrita — o estágio de transformação. */
+export const worldsWriteResource = poolArenaWriter({
     name: 'worlds',
-    binding: { storage: 'read_write' },
-    type: { schema: Transform.worldSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.worldSchema.name },
+    pool: Transform.worldSchema.name,
+    schema: Transform.worldSchema,
 });
 
-/** Matrizes de mundo (pool `WorldTransform`), leitura. */
-export const worldsResource = wgslResource({
+/** Matrizes de mundo (pool `WorldTransform`, arena da GPU), leitura. */
+export const worldsResource = poolArenaReader({
     name: 'worlds',
-    binding: { storage: 'read' },
-    type: { schema: Transform.worldSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Transform.worldSchema.name },
+    pool: Transform.worldSchema.name,
+    schema: Transform.worldSchema,
+    arena: 'gpu',
+});
+
+/**
+ * Inversas das matrizes de mundo (pool `WorldInverse`, spec 037, sob demanda; arena da GPU), leitura e escrita — o
+ * estágio de transformação.
+ */
+export const worldInversesWriteResource = poolArenaWriter({
+    name: 'world_inverses',
+    pool: Transform.worldInverseSchema.name,
+    schema: Transform.worldInverseSchema,
+});
+
+/**
+ * Inversas das matrizes de mundo (pool `WorldInverse`, arena da GPU), leitura. Quem lê pede o pool
+ * (`ensurePoolAllocated`) numa transição; o estágio de transformação passa a escrevê-lo.
+ */
+export const worldInversesResource = poolArenaReader({
+    name: 'world_inverses',
+    pool: Transform.worldInverseSchema.name,
+    schema: Transform.worldInverseSchema,
+    arena: 'gpu',
 });
 
 /** Parâmetros das câmeras (pool `Camera`), leitura. */
@@ -44,43 +63,47 @@ export const cameraParamsResource = wgslResource({
     provider: { pool: Camera.schema.name },
 });
 
-/** Matrizes das câmeras (pool `CameraMatrices`), escrita — o estágio de câmera. */
-export const cameraMatricesWriteResource = wgslResource({
-    name: 'camera_matrices',
-    binding: { storage: 'read_write' },
-    type: { schema: Camera.matricesSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: Camera.matricesSchema.name },
+/**
+ * Matrizes de mundo do quadro anterior (pool `PreviousWorldTransform`, spec 034; arena da GPU), leitura — os vetores de
+ * movimento do desenho.
+ */
+export const previousWorldsResource = poolArenaReader({
+    name: 'previous_worlds',
+    pool: Transform.previousWorldSchema.name,
+    schema: Transform.previousWorldSchema,
+    arena: 'gpu',
 });
 
-/** Matrizes das câmeras (pool `CameraMatrices`), leitura no desenho. */
-export const camerasResource = wgslResource({
+/** Matrizes de mundo do quadro anterior, leitura e escrita — o histórico de movimento as copia das de agora. */
+export const previousWorldsWriteResource = poolArenaWriter({
+    name: 'previous_worlds',
+    pool: Transform.previousWorldSchema.name,
+    schema: Transform.previousWorldSchema,
+});
+
+/** Matrizes das câmeras (pool `CameraMatrices`, arena da GPU), leitura e escrita — o estágio de câmera. */
+export const cameraMatricesWriteResource = poolArenaWriter({
+    name: 'camera_matrices',
+    pool: Camera.matricesSchema.name,
+    schema: Camera.matricesSchema,
+});
+
+/** Matrizes das câmeras (pool `CameraMatrices`, arena da GPU), leitura no desenho. */
+export const camerasResource = poolArenaReader({
     name: 'cameras',
-    binding: { storage: 'read' },
-    type: { schema: Camera.matricesSchema, array: true },
-    frequency: 'frame',
-    provider: { pool: Camera.matricesSchema.name },
+    pool: Camera.matricesSchema.name,
+    schema: Camera.matricesSchema,
+    arena: 'gpu',
 });
 
 /** Luzes (pool `Light`), leitura. */
-export const lightsResource = wgslResource({
+export const lightsResource = poolArenaReader({
     name: 'lights',
-    binding: { storage: 'read' },
-    type: { schema: Light.schema, array: true },
-    frequency: 'frame',
-    provider: { pool: Light.schema.name },
+    pool: Light.schema.name,
+    schema: Light.schema,
 });
 
-/** Matrizes luz-vista-projeção (pool `ShadowMatrix`), escrita — o estágio das matrizes de sombra. */
-export const shadowMatricesWriteResource = wgslResource({
-    name: 'shadow_matrices',
-    binding: { storage: 'read_write' },
-    type: { schema: ShadowMap.matrixSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: ShadowMap.matrixSchema.name },
-});
-
-/** Matrizes luz-vista-projeção (pool `ShadowMatrix`), leitura. */
+/** Referencial do mapa de sombra virtual no quadro (pool `ShadowMatrix`, a fatia do quadro), leitura. */
 export const shadowMatricesResource = wgslResource({
     name: 'shadow_matrices',
     binding: { storage: 'read' },
@@ -90,47 +113,35 @@ export const shadowMatricesResource = wgslResource({
 });
 
 /** Mapas de sombra (pool `ShadowMap`), leitura. */
-export const shadowMapsResource = wgslResource({
+export const shadowMapsResource = poolArenaReader({
     name: 'shadow_maps',
-    binding: { storage: 'read' },
-    type: { schema: ShadowMap.schema, array: true },
-    frequency: 'frame',
-    provider: { pool: ShadowMap.schema.name },
+    pool: ShadowMap.schema.name,
+    schema: ShadowMap.schema,
 });
 
 /** Registros de desenho por entidade (pool `Renderable`, mantido pela C2), leitura. */
-export const renderablesResource = wgslResource({
+export const renderablesResource = poolArenaReader({
     name: 'renderables',
-    binding: { storage: 'read' },
-    type: { schema: RenderableSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: RenderableSchema.name },
+    pool: RenderableSchema.name,
+    schema: RenderableSchema,
 });
 
 /** Lista de instâncias dos grupos de desenho (pool `RenderInstance`), leitura. */
-export const instancesResource = wgslResource({
+export const instancesResource = poolArenaReader({
     name: 'instances',
-    binding: { storage: 'read' },
-    type: { schema: RenderInstanceSchema, array: true },
-    frequency: 'stage',
-    provider: { pool: RenderInstanceSchema.name },
+    pool: RenderInstanceSchema.name,
+    schema: RenderInstanceSchema,
 });
 
 /**
- * Profundidade do mapa de sombra da luz que projeta (resolver `ShadowCaster.depth`, registrado pelos elementos). Lido só
- * pela contribuição de sombra (`light_visibility`).
+ * O atlas do mapa de sombra virtual da luz que projeta (resolver `ShadowCaster.atlas`, registrado pelos elementos; T060h):
+ * a tabela de páginas no começo e as páginas físicas depois (as profundidades em bits de `f32`). Lido só pela
+ * contribuição de sombra (`light_visibility`).
  */
-export const shadowCasterDepthResource = wgslResource({
-    name: 'shadow_map',
-    binding: { texture: { sample: 'depth' } },
+export const shadowCasterAtlasResource = wgslResource({
+    name: 'shadow_atlas',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
     frequency: 'frame',
-    provider: { consumer: 'ShadowCaster.depth' },
-});
-
-/** Amostrador de comparação do mapa de sombra da luz que projeta (resolver `ShadowCaster.sampler`). */
-export const shadowCasterSamplerResource = wgslResource({
-    name: 'shadow_sampler',
-    binding: { sampler: 'comparison' },
-    frequency: 'frame',
-    provider: { consumer: 'ShadowCaster.sampler' },
+    provider: { consumer: 'ShadowCaster.atlas' },
 });

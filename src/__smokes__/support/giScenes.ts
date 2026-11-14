@@ -23,7 +23,11 @@ import {
     MaterialFunction,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+    type AntialiasingMode,
+    type DeviceOptions,
+} from 'clayflow/web';
+
+const aaQuery = new URLSearchParams(location.search).get('aa');
 import {
     skyTableDir,
     type PtCamera,
@@ -319,6 +323,9 @@ export function buildGiScene(
     if (sun !== undefined) app.world.insert(sun);
     if (scene.sky === true && sun !== undefined)
         app.world.insert(new Sky({ sun, sunDisk: false, night: [0, 0, 0] }));
+    // Sem o céu, o ambiente da referência é preto: o hemisfério dos estágios padrão (que, com a iluminação global, fica
+    // como o ambiente dos raios que escapam) sem intensidade.
+    else app.defaults.ambient.data.intensity = 0;
     const c = scene.camera;
     const view = new Transform({
         position: [...c.position, 1],
@@ -380,6 +387,7 @@ export async function giApp(
     width: number,
     height: number,
     errors: string[],
+    device?: DeviceOptions,
 ): Promise<{ app: Application; canvas: HTMLCanvasElement }> {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -390,6 +398,10 @@ export async function giApp(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
+        ...(device !== undefined ? { device } : {}),
+        // Antisserrilhado com que as medidas foram calibradas (MSAA, o padrão antes da 034; o temporal, padrão agora,
+        // tem o smoke `antialiasing`). Diagnóstico: `?aa=off|temporal|msaa|accumulate` troca o de todas as cenas.
+        antialias: (aaQuery ?? 'msaa') as AntialiasingMode,
     });
     app.events.on('engineError', (e) => errors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>

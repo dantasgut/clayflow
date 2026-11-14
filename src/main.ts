@@ -4,7 +4,7 @@
 // E.2 valida que core.createAsync devolve uma compute pipeline funcional
 //     que pode ser dispatched ao igual a uma pipeline sync.
 // E.3 valida que DebugFlow emite `profilerStats` ao receber frameTicks.
-import { Application } from './presentation/index';
+import { Application } from './platform/web/index';
 import type {
     BindGroupSpec,
     ComputePipelineSpec,

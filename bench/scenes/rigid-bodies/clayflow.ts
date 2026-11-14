@@ -5,7 +5,7 @@ import {
     SphereGeometry,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
 import { BALL_RADIUS, ballPositions, GROUND_HALF } from './scene';

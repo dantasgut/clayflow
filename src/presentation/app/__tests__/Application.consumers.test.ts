@@ -8,7 +8,7 @@ import type { ConsumerResolverRegistry } from '../../../scene/consumers/Consumer
 import { Camera } from '../../../elements/scene/Camera';
 import { Transform } from '../../../elements/scene/Transform';
 import { GravityField } from '../../../elements/physics/forcefields/GravityField';
-import { Application } from '../Application';
+import { Application } from '../../../platform/web/Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),
@@ -27,9 +27,9 @@ async function app(consumers?: (r: ConsumerResolverRegistry) => void) {
 }
 
 describe('Application — resolvers de consumes', () => {
-    it('registra os resolvers padrão da C3 (GravityField, ParticleMaterial); a câmera é pool (spec 007)', async () => {
+    it('registra os resolvers padrão da C3 (GravityField, ParticlePhysics); a câmera é pool (spec 007)', async () => {
         const { scene } = await app();
-        for (const name of ['GravityField', 'ParticleMaterial']) {
+        for (const name of ['GravityField', 'ParticlePhysics']) {
             expect(scene.consumers.get(name)).toBeInstanceOf(SingletonResolver);
         }
         scene.world.insert(new Camera().add(new Transform()));

@@ -1,3 +1,4 @@
+import type { HistoryShape } from './HistoryShape';
 import type { SamplerShape } from './SamplerShape';
 import type { Schema } from './Schema';
 import type { TextureShape } from './TextureShape';
@@ -90,7 +91,8 @@ export interface GPUDescriptor {
     /**
      * Quando a C2 aloca o objeto de GPU de um descritor individual (spec 008): `'eager'` (padrão) na inserção;
      * `'onDemand'` só quando um estágio o pede (`ResourceDirectory.ensureAllocated`) — dado que só alguns consumidores
-     * usam (ex.: as arestas de arame de uma geometria, só com material de arame). Liberado com o Resource.
+     * usam (ex.: as arestas de arame de uma geometria, só com material de arame). Liberado com o Resource. Em pool
+     * (spec 037; só `upload: 'never'`), o pool fica com um elemento até `ResourceDirectory.ensurePoolAllocated`.
      */
     readonly allocation?: 'eager' | 'onDemand';
     /**
@@ -99,6 +101,27 @@ export interface GPUDescriptor {
      * sem ligar o bitset de vivos — uma ligação de storage a menos nos kernels. Padrão: o dado antigo fica no slot.
      */
     readonly clearOnRelease?: boolean;
+    /**
+     * Série temporal do descritor (spec 037, canal temporal): a C2 mantém `depth` fatias (texturas, ou buffers do pool
+     * com `upload: 'never'`), gira o anel quando o produtor grava (`ResourceDirectory.markWritten`), carimba as fatias e
+     * invalida a série na recriação, no crescimento do pool e na entrada ou saída de entidades dele. Lida por atraso
+     * (`ResourceDirectory.channelOf`, `slot.channel`, provedor `{ slot, lag }`).
+     */
+    readonly history?: HistoryShape;
+    /**
+     * Uniforme por região (spec 039, FR-014): `count` regiões do schema num buffer só, cada uma começando num múltiplo do
+     * `minUniformBufferOffsetAlignment` do adaptador, ligadas por offset dinâmico (a fonte sai com `dynamic`) — os
+     * parâmetros por passo, por substep ou por nível de um Flow. O dado é `data[id]`: um registro por região (as
+     * ausentes ficam zeradas). Só `role: 'uniform'` individual, sem `count` nem `history`; a capacidade muda por
+     * redescrição. Offset da região `i`: `i × ResourceDirectory.regionStrideOf(...)`.
+     */
+    readonly regions?: UniformRegions;
+}
+
+/** Forma de um uniforme por região (`GPUDescriptor.regions`). */
+export interface UniformRegions {
+    /** Número de regiões (inteiro ≥ 1). */
+    readonly count: number;
 }
 
 /** Alvo de uma referência de slot (`GPUDescriptor.slotRefs`). */

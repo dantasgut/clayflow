@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / InputDrivenController
+[clayflow](../../modules.md) / [presentation](../README.md) / InputDrivenController
 
 # Abstract Class: InputDrivenController\<TData\>
 
-Defined in: [presentation/input/InputDrivenController.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InputDrivenController.ts#L21)
+Defined in: [src/presentation/input/InputDrivenController.ts:21](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InputDrivenController.ts#L21)
 
 Base dos controllers de câmera (`OrbitController`, `FpsController`, `FlyController`; spec 007): um Resource sem dado
 de GPU, componente da entidade da câmera. O `InteractionSystem` chama `tick` a cada quadro com o `Input` da cena e o
@@ -26,8 +26,8 @@ app.world.insert(new Camera().add(new Transform()).add(new OrbitController({ dis
 ## Extended by
 
 - [`OrbitController`](OrbitController.md)
-- [`FpsController`](FpsController.md)
 - [`FlyController`](FlyController.md)
+- [`FpsController`](../../platform/web/classes/FpsController.md)
 
 ## Type Parameters
 
@@ -37,7 +37,7 @@ app.world.insert(new Camera().add(new Transform()).add(new OrbitController({ dis
 
 ## Implements
 
-- `Resource`
+- [`Resource`](../../platform/web/interfaces/Resource.md)
 
 ## Constructors
 
@@ -57,15 +57,15 @@ app.world.insert(new Camera().add(new Transform()).add(new OrbitController({ dis
 
 ### state
 
-> **state**: `ResourceState` = `ResourceState.Uninitialized`
+> **state**: [`ResourceState`](../../platform/web/enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InputDrivenController.ts#L25)
+Defined in: [src/presentation/input/InputDrivenController.ts:25](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InputDrivenController.ts#L25)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 #### Implementation of
 
-`Resource.state`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`state`](../../platform/web/interfaces/Resource.md#state)
 
 ## Accessors
 
@@ -75,7 +75,7 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 > **get** **attached**(): readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
+Defined in: [src/scene/contracts/Entity.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L160)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -96,7 +96,7 @@ readonly [`Entity`](../../elements/classes/Entity.md)\<`object`\>[]
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
+Defined in: [src/scene/contracts/Entity.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L97)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -109,7 +109,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
+Defined in: [src/scene/contracts/Entity.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L103)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -123,9 +123,15 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 `void`
 
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+schema.
+
 #### Implementation of
 
-`Resource.data`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`data`](../../platform/web/interfaces/Resource.md#data)
 
 #### Inherited from
 
@@ -139,7 +145,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
+Defined in: [src/scene/contracts/Entity.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L117)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -158,7 +164,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
+Defined in: [src/scene/contracts/Entity.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L140)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -183,7 +189,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
+Defined in: [src/scene/contracts/Entity.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L149)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -208,7 +214,7 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InputDrivenController.ts#L31)
+Defined in: [src/presentation/input/InputDrivenController.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InputDrivenController.ts#L31)
 
 Remove ouvintes de DOM que o controller registrou (chamado quando ele sai da cena). Default: no-op.
 
@@ -220,9 +226,9 @@ Remove ouvintes de DOM que o controller registrou (chamado quando ele sai da cen
 
 ### getDescriptors()
 
-> **getDescriptors**(): readonly `GPUDescriptor`[]
+> **getDescriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
-Defined in: [presentation/input/InputDrivenController.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InputDrivenController.ts#L35)
+Defined in: [src/presentation/input/InputDrivenController.ts:35](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InputDrivenController.ts#L35)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -231,31 +237,62 @@ que este resource expõe ao `ResourceSystem`. Cada descriptor define
 
 #### Returns
 
-readonly `GPUDescriptor`[]
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
 #### Implementation of
 
-`Resource.getDescriptors`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`getDescriptors`](../../platform/web/interfaces/Resource.md#getdescriptors)
 
 ***
 
 ### getPipelineDescriptors()
 
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+> **getPipelineDescriptors**(): readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [presentation/input/InputDrivenController.ts:39](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InputDrivenController.ts#L39)
+Defined in: [src/presentation/input/InputDrivenController.ts:39](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InputDrivenController.ts#L39)
 
-Pipelines GPU declaradas pelo resource (shader source + entry points
-+ consumes). Útil para Materials que carregam shaders próprios.
+Pipelines GPU declaradas pelo resource (shader e entry points; recursos
+pelos módulos declarados). Útil para Materials que carregam shaders próprios.
 Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 
-readonly `PipelineDescriptor`[]
+readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
 #### Implementation of
 
-`Resource.getPipelineDescriptors`
+[`Resource`](../../platform/web/interfaces/Resource.md).[`getPipelineDescriptors`](../../platform/web/interfaces/Resource.md#getpipelinedescriptors)
+
+***
+
+### redescribe()
+
+> `protected` **redescribe**(`previous`, `next`): `void`
+
+Defined in: [src/scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L127)
+
+Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+
+#### Parameters
+
+##### previous
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+##### next
+
+`TData`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Entity`](../../elements/classes/Entity.md).[`redescribe`](../../elements/classes/Entity.md#redescribe)
 
 ***
 
@@ -263,7 +300,7 @@ readonly `PipelineDescriptor`[]
 
 > `abstract` **tick**(`input`, `dt`, `transform`): `void`
 
-Defined in: [presentation/input/InputDrivenController.ts:28](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InputDrivenController.ts#L28)
+Defined in: [src/presentation/input/InputDrivenController.ts:28](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InputDrivenController.ts#L28)
 
 Lê o `input` e muta `transform` (posição/rotação); `dt` em segundos.
 

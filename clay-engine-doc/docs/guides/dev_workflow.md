@@ -46,8 +46,8 @@ grave um com `npm run bench:baseline`. Detalhes em [Benchmark](./benchmark.md).
    ```
    Não adivinhe — leia o erro literal antes de mudar shader.
 
-2. **Helper validator no createComputeKernel:** ao concatenar WGSL de
-   múltiplas libs, é fácil esquecer um helper. O `createComputeKernel` roda
+2. **Validação das referências na montagem:** ao concatenar WGSL de
+   múltiplas libs, é fácil esquecer um helper. A montagem da C2 roda
    `validateWgslReferences` que detecta `fn xxx(...)` sem definição. Erro
    tem mensagem clara:
    ```
@@ -95,15 +95,16 @@ Para forçar limpeza imediata sem reload, você pode chamar
 ## Adicionando um Flow novo
 
 Um Flow é uma unidade de execução por frame, normalmente uma compute pass
-ou render pass. Ele declara slots, pipelines, recursos privados e uma tabela
-de transições; a C2 atribui as ligações dos recursos declarados pelos módulos,
+ou render pass. Ele declara slots (inclusive o seu Resource de trabalho, `slot.work`), pipelines e uma tabela
+de transições — e não cria objetos de GPU (spec 039); a C2 atribui as ligações dos recursos declarados pelos módulos,
 liga os bind groups e decide quando o Flow entra no quadro. Guia completo: [Flows](./flows.md). Esqueleto:
 
 ```ts
 import { Flow, wgslModule, wgslResource, wgslLib, WORKGROUP_SIZE } from 'webgpu-engine';
 import type {
-    BindingSources, BoundFlow, FlowTransitions, Frame, PipelineDescriptor, StorageBufferSpec, TransitionContext,
+    BoundFlow, FlowTransitions, Frame, GPUDescriptor, PipelineDescriptor, Resource, TransitionContext,
 } from 'webgpu-engine';
+import { Entity, FieldType, ResourceState, StructSchema, slot } from 'webgpu-engine';
 import mySource from './my_flow.wgsl?raw';
 
 // O recurso é declarado (spec 031): o fonte usa `data` sem escrever `@group/@binding` — a montagem emite a linha.
@@ -112,8 +113,25 @@ const dataResource = wgslResource({
     binding: { storage: 'read_write' },
     type: { wgsl: 'f32', array: true },
     frequency: 'stage',
-    provider: 'private', // o Flow liga pelo objeto do recurso
+    provider: { slot: 'work', descriptor: 'data' }, // o descritor do Resource de trabalho, alocado pela C2
 });
+
+// O espaço de trabalho: um Resource comum, inserido e removido pela C2 junto com o Flow.
+const MyData = new StructSchema('MyData', { v: FieldType.f32 });
+class MyWork extends Entity implements Resource {
+    static readonly schema = new StructSchema('MyWork', {});
+    state = ResourceState.Uninitialized;
+    constructor(private readonly count: number) {
+        super();
+        this.data = {};
+    }
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [{ id: 'data', role: 'storage-rw', schema: MyData, upload: 'never', count: this.count }];
+    }
+    getPipelineDescriptors() {
+        return [];
+    }
+}
 // Módulo de entrada: dependências (inclusive recursos e constantes) por `requires`, structs gerados em `structs`.
 const myShader = wgslModule({
     name: 'my_flow',
@@ -121,7 +139,7 @@ const myShader = wgslModule({
     requires: [wgslLib.quat, WORKGROUP_SIZE.module, dataResource],
 });
 
-const slots = {};
+const slots = { work: slot.work(() => new MyWork(1024)) };
 type Ctx = TransitionContext<typeof slots>;
 
 export class MyFlow extends Flow<typeof slots, 'idle'> {
@@ -131,15 +149,13 @@ export class MyFlow extends Flow<typeof slots, 'idle'> {
     override readonly pipelines: readonly PipelineDescriptor[] = [
         { id: 'my', role: 'compute', shader: myShader, entryPoints: ['my_main'] },
     ];
-    override readonly bindings: BindingSources;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx> = {
         '*': { slotsResolved: 'ignore', slotLost: 'ignore', pipelinesCompiled: 'ignore', bindGroupReplaced: 'ignore' },
     };
 
-    constructor(data: StorageBufferSpec, private readonly count: number) {
+    constructor(private readonly count: number) {
         super();
-        this.bindings = new Map([[dataResource, data]]); // privado, pela identidade do recurso
     }
 
     dispatch(frame: Frame, bound: BoundFlow<typeof slots>) {
@@ -153,7 +169,7 @@ export class MyFlow extends Flow<typeof slots, 'idle'> {
 }
 
 // Registro por factory: a fase e a prioridade vêm das opções.
-app.flows.register(() => new MyFlow(dataBuffer, count), { type: 'MyFlow', phase: 'physics' });
+app.flows.register(() => new MyFlow(1024), { type: 'MyFlow', phase: 'physics' });
 // Ou via plugin para reutilização:
 app.use({
     name: 'my',
@@ -163,9 +179,10 @@ app.use({
 });
 ```
 
-Para um kernel avulso fora de um Flow, `createComputeKernel(core, { discriminator, shader, entryPoint, bindings })`
-recebe as fontes **pela identidade do recurso** (`bindings: new Map([[dataResource, dataBuffer]])`) e lê o layout do
-mesmo jeito; `kernel.bindTo(pass.bind)` grava os grupos.
+Uma peça de compute (uma parte do trabalho de um Flow, T060g) prepara o seu kernel como pipeline do Flow dono:
+`work.pipelines.kernel({ discriminator, shader, entryPoint, bindings })` recebe as fontes **pela identidade do recurso**
+(`bindings: new Map([[dataResource, dataBuffer]])`), ligadas só àquele pipeline, e lê o layout do mesmo jeito;
+`work.pipelines.use(pass.bind, id)` grava os grupos. Não há kernel avulso fora de um Flow.
 
 ## Adicionando um Resource novo
 

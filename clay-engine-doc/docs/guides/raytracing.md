@@ -32,7 +32,7 @@ Sem `RayScene` o `RaySceneFlow` fica pendente e não custa nada.
 | Geometria escrita na GPU (`ParametricSurface`, corpos moles) | triângulos | reajuste das caixas nos quadros em que o produtor marca `produced('vertices')` |
 | Geometria com contagem só na GPU (`GraphGeometry`, malha adaptativa) | triângulos; os além da contagem do registro indireto ficam vazios | reconstruída quando produzida |
 | Corpos de partículas com `PointSpriteMaterial` | esferas do raio do material, na posição do pool do corpo; a cor do sprite é o albedo | reajuste a cada quadro, topologia nova a cada 8 |
-| Corpos com `FluidSurfaceMaterial` (água) | volume, pelo campo de distância (`FluidField`) — ver [Volumes](#volumes) | campo refeito a cada quadro |
+| Corpos de fluido com função `material` e sem material de desenho (água) | volume, pelo campo de distância (`FluidField`) — ver [Volumes](#volumes) | campo refeito a cada quadro |
 
 Nuvens de pontos e arames não são superfícies e ficam de fora. A hierarquia de cima (uma folha por instância, com a
 matriz de mundo lida do pool `WorldTransform` na GPU) é reajustada a cada quadro e refeita a cada 8 ou quando o conjunto

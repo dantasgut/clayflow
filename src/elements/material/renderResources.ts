@@ -1,3 +1,4 @@
+import { poolArenaReader, type ArenaReader } from '../../scene/shaders/poolArena';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
 import { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
@@ -12,14 +13,27 @@ import { MeshVertexSchema } from '../geometry/MeshVertexSchema';
 import { WireframeMaterialSchema } from './WireframeMaterialSchema';
 
 // Recursos dos desenhos de material (spec 031): câmeras, mundo, registros e instâncias vêm de `scene/resources`; aqui,
-// o que é de cada família — parâmetros do estágio (`stage`), o pool do material do shader (`batch`, muda entre grupos
-// de desenho) e os vértices da geometria de cada pipeline de sprites e arame (`draw`).
+// o que é de cada família — parâmetros do estágio (`stage`), o pool do material do shader (pela arena) e os vértices
+// da geometria de cada pipeline de sprites e arame (`draw`).
 
 /** Parâmetros do quadro do forward (câmera ativa, tamanho do alvo, função de projeção, tempo). */
 export const forwardFrameResource = wgslResource({
     name: 'forward_frame',
     binding: { uniform: true },
     type: { schema: ForwardFrameParamsSchema },
+    frequency: 'stage',
+    provider: 'private',
+});
+
+/**
+ * As instâncias desenhadas (spec 034, T060d): o registro `Renderable` de cada instância, na lista que o descarte pela GPU
+ * monta (densa por grupo, na ordem da lista de instâncias); o desenho lê `draw_visible[instance_index]`. Sem o descarte,
+ * a cópia da lista de instâncias nas mesmas posições.
+ */
+export const drawVisibleResource = wgslResource({
+    name: 'draw_visible',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
     frequency: 'stage',
     provider: 'private',
 });
@@ -33,14 +47,10 @@ export const surfaceDiffReadResource = wgslResource({
     provider: 'private',
 });
 
-const materials = (schema: typeof StandardMaterialSchema): ReturnType<typeof wgslResource> =>
-    wgslResource({
-        name: 'materials',
-        binding: { storage: 'read' },
-        type: { schema, array: true },
-        frequency: 'batch',
-        provider: { pool: schema.name },
-    });
+// O pool do material lido pela arena de pools (T060i): `materials[i]` nos shaders; o pipeline com pool próprio no mesmo
+// layout troca a região (`pools` no descritor).
+const materials = (schema: typeof StandardMaterialSchema): ArenaReader =>
+    poolArenaReader({ name: 'materials', pool: schema.name, schema });
 
 /** Pool `StandardMaterial` (desenho forward). */
 export const standardMaterialsResource = materials(StandardMaterialSchema);
@@ -62,6 +72,11 @@ const vertices = (name: string): ReturnType<typeof wgslResource> =>
 
 /** Vértices da geometria de um pipeline de sprites (`array<MeshVertex>`), lidos como storage. */
 export const pointVerticesResource = vertices('point_vertices');
+/**
+ * Vértices do quadro anterior da geometria de um pipeline de sprites (spec 034: os `previousVertices` da geometria que a
+ * GPU reescreve; nas outras, os mesmos `vertices`).
+ */
+export const pointPreviousVerticesResource = vertices('point_previous_vertices');
 /** Vértices da geometria de um pipeline de arame. */
 export const wireVerticesResource = vertices('wire_vertices');
 /** Arestas da geometria de um pipeline de arame (índices aos pares). */
@@ -87,6 +102,19 @@ export const particlePoolResource = wgslResource({
     name: 'particles',
     binding: { storage: 'read' },
     type: { wgsl: 'vec4f', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+
+/**
+ * As partículas desenhadas do corpo (spec 034, T060d): o índice de cada uma no corpo, na lista que o descarte pela GPU
+ * monta (compactação estável: a ordem do corpo); o sprite lê `particle_list[instance_index]`. Ligada por pipeline (um
+ * por corpo).
+ */
+export const particleListResource = wgslResource({
+    name: 'particle_list',
+    binding: { storage: 'read' },
+    type: { wgsl: 'u32', array: true },
     frequency: 'stage',
     provider: 'private',
 });

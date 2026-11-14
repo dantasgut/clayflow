@@ -5,6 +5,13 @@ export type { RenderSlotMap } from './RenderFlow';
 export type { Phase } from './Phase';
 export { PHASE_ORDER } from './Phase';
 export { slot, RECORD_NONE } from './slots';
+export {
+    FlowWork,
+    type WorkPart,
+    type WorkContext,
+    type WorkKernel,
+    type WorkPipelines,
+} from './FlowWork';
 export type {
     SlotDeclaration,
     SlotMap,
@@ -17,6 +24,7 @@ export type {
     EntityGroupsDeclaration,
     DrawGroup,
     TextureSlot,
+    ChannelSlot,
     TargetSlot,
     TextureRef,
     ResourceType,
@@ -24,9 +32,12 @@ export type {
     BoundSlots,
     BoundPool,
     BoundSingleton,
+    BoundWork,
+    WorkSlot,
     BoundEntities,
     EntityEntry,
     BoundTexture,
+    BoundChannel,
     BoundTarget,
 } from './slots';
 export { FlowTransitionError } from './FlowTransitions';
@@ -61,5 +72,3 @@ export type {
 } from './FlowRegistry';
 export { FlowBindingError } from './FlowBindingError';
 export type { FlowBindingErrorDetails } from './FlowBindingError';
-export { createComputeKernel, destroyComputeKernel } from './createComputeKernel';
-export type { ComputeKernel, ComputeKernelOptions } from './createComputeKernel';

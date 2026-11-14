@@ -22,7 +22,8 @@ export const femResources = Object.freeze({
         binding: { uniform: true },
         type: { schema: FEMSimParamsSchema },
         frequency: 'draw',
-        provider: 'private',
+        // Uma região por iteração do uniforme por região do Resource de trabalho (offset dinâmico, spec 039).
+        provider: { slot: 'work', descriptor: 'fem_sim_params' },
     }),
     nodes: wgslResource({
         name: 'nodes',

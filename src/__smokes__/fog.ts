@@ -14,7 +14,7 @@
 //   - noise: densidade por função de ruído — a névoa segue a densidade sem degraus nem blocos entre pixels vizinhos.
 //   - walk: a câmera andando pela névoa com o feixe — sem cintilação acima do limiar.
 //   - opaque: névoa densa num corredor — a transmitância cai suave com a distância, sem bandas.
-//   - timing: o custo dos froxels a 1280×720 (≤ 1 ms, A/B dos totais do quadro).
+//   - timing: o custo dos froxels a 1280×720 (≤ 1,05 ms, A/B dos totais do quadro).
 // Para rodar: `npm run smoke -- fog [--query case=beer]`. Resultado: `FOG SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -29,7 +29,7 @@ import {
     GlobalIllumination,
     Transform,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { PtMedium } from '../elements/lighting/reference/pathTracer';
 import { halfToFloat } from './support/imageMeasures';
 import { settle } from './support/extensionScenes';
@@ -46,6 +46,7 @@ import {
 import { hdrLuminance, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
 import { closureFn } from './support/materialScenes';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[fog] ${msg}`);
@@ -90,9 +91,10 @@ async function open(
 ): Promise<Session> {
     const { app, canvas } = await giApp(size.width, size.height, engineErrors);
     app.events.on('deviceLost', (e) => engineErrors.push(`deviceLost: ${JSON.stringify(e)}`));
+    const built = buildGiScene(app, scene, size.width / size.height);
+    // Depois da cena (que deixa o ambiente preto sem o céu, como a referência): o ambiente pedido.
     if (options.ambient === undefined) app.world.remove(app.defaults.ambient);
     else app.defaults.ambient.data.intensity = options.ambient;
-    const built = buildGiScene(app, scene, size.width / size.height);
     for (const f of fogs) app.world.insert(f);
     extra?.(app);
     const ready = { revision: -1, at: 0 };
@@ -185,7 +187,7 @@ async function read3d(
 }
 
 /** Luminância de um rgb. */
-const lum = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+const lum = (r: number, g: number, b: number): number => luminanceLinear([r, g, b]);
 
 /**
  * Beer-Lambert: uma parede branca acesa de lado pelo sol, a câmera de frente, e entre elas uma caixa de névoa só
@@ -691,6 +693,9 @@ async function timingApp(
     canvas.height = height;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -759,7 +764,7 @@ async function timingApp(
  * quadro (a GPU como gargalo; o tempo de GPU do quadro desta máquina repete leituras velhas e oscila em patamares do
  * relógio): (a) os froxels — na mesma aplicação, o estágio despachado 41 vezes por quadro contra 21 (o `dispatch`
  * envolvido só no teste), (T₄₁ − T₂₁)/20; (b) o que é por pixel (a leitura no desenho, a névoa na luz das superfícies e
- * dos raios) — com e sem névoa em 4K, onde ele domina, (T_com − T_sem − froxels)/9 para 1280×720. A soma ≤ 1 ms.
+ * dos raios) — com e sem névoa em 4K, onde ele domina, (T_com − T_sem − froxels)/9 para 1280×720. A soma ≤ 1,05 ms.
  */
 async function timing(): Promise<void> {
     const t = await timingApp(1280, 720, true);
@@ -806,11 +811,15 @@ async function timing(): Promise<void> {
         `timing: a névoa a 1280×720 custa ${cost.toFixed(2)} ms (froxels ${froxels.toFixed(2)} + por pixel ${perPixel.toFixed(2)})`,
     );
     check(froxels > 0, 'timing: o trabalho dos froxels aparece na medida');
-    check(cost <= 1, `timing: névoa ${cost.toFixed(2)} ms (≤ 1 ms)`);
+    // ≤ 1,05 ms (6 % do quadro a 60 Hz): a sombra virtual (spec 034, T060) acrescenta ~0,03 ms aos froxels — a tabela de
+    // páginas e o atlas de páginas no lugar do mapa de 1024² (antes, 0,97 ms).
+    check(cost <= 1.05, `timing: névoa ${cost.toFixed(2)} ms (≤ 1,05 ms)`);
 }
 
 type CaseFn = () => Promise<void>;
-const CASES: Record<string, CaseFn> = { beer, glass, beam, gi, noise, walk, opaque, timing };
+// O custo primeiro: depois dos outros casos o processo da GPU ainda termina o trabalho das aplicações já fechadas (a
+// medida de parede saía 1,5 ms; com 15 s de espera antes dela, 0,92 — a mesma de quando roda sozinha).
+const CASES: Record<string, CaseFn> = { timing, beer, glass, beam, gi, noise, walk, opaque };
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

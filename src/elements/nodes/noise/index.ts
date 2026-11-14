@@ -3,7 +3,9 @@ import { nodeNoise } from '../shaders';
 
 // Nós de ruído (spec 031, R12) sobre a `wgslLib.noise`: posição `p · scale + offset` e semente (u32; 0 = o ruído da
 // biblioteca). Mesma semente, mesma saída na GPU e na referência da CPU (`reference/noise.ts`, aritmética inteira u32).
-// Valem em todos os estágios.
+// Valem em todos os estágios. Valor, gradiente e fBm filtram na origem pela entrada `width` (a largura do pixel ou do
+// cone do raio no espaço de `p`, ex.: `s.footprint` com `p` = posição de mundo; padrão 0 = sem filtragem, spec 034): a
+// oitava mais fina que o pixel se esvai para a média. O celular não filtra (a média dele depende do `jitter`).
 
 /** Parâmetros comuns: escala, deslocamento (`vec2f` ou `vec3f`) e semente. */
 function noiseParams(offset: 'vec2f' | 'vec3f') {
@@ -14,13 +16,13 @@ function noiseParams(offset: 'vec2f' | 'vec3f') {
     } as const;
 }
 
-/** Ruído escalar em [-1, 1] sobre `p` de tipo `vec2f`/`vec3f`. */
+/** Ruído escalar em [-1, 1] sobre `p` de tipo `vec2f`/`vec3f`, filtrado pela largura `width` (0 = sem filtragem). */
 function lattice(name: string, p: 'vec2f' | 'vec3f'): NodeDefinition {
     return defineNode({
         name: `noise.${name}`,
-        inputs: { p },
+        inputs: { p, width: 'f32' },
         outputs: { value: 'f32' },
-        params: noiseParams(p),
+        params: { width: { type: 'f32', default: 0 }, ...noiseParams(p) },
         code: nodeNoise,
         fn: `node_noise_${name}`,
     });
@@ -45,9 +47,10 @@ const cellular3 = defineNode({
  */
 const fbm3 = defineNode({
     name: 'noise.fbm3',
-    inputs: { p: 'vec3f' },
+    inputs: { p: 'vec3f', width: 'f32' },
     outputs: { value: 'f32' },
     params: {
+        width: { type: 'f32', default: 0 },
         ...noiseParams('vec3f'),
         octaves: { type: 'u32', default: 5 },
         lacunarity: { type: 'f32', default: 2 },

@@ -98,7 +98,7 @@ app.start();
 ### 3. Scene com sombras + post-processing
 
 ```typescript
-import { Application, Bloom, ToneMapping, Fxaa, Vignette } from 'webgpu-engine';
+import { Application, Bloom, ToneMapping, Vignette } from 'webgpu-engine';
 import {
   BoxGeometry,
   Camera,
@@ -129,10 +129,11 @@ cube.add(new StandardMaterial({ albedo: [0.85, 0.4, 0.25, 1], roughness: 0.3 }))
 cube.add(new Transform({ position: [0, 0, 0, 1] }));
 app.world.insert(cube);
 
-// Post chain: ToneMapping → Bloom → Fxaa → Vignette
-app.defaults.post.addEffect(new ToneMapping({ strength: 1.0 }));
+// Apresentação (o último passe, do HDR à tela): AgX com exposição em EV. O antisserrilhado é o temporal, padrão da
+// opção `antialias` de `Application.create` ('temporal' | 'msaa' | 'off').
+app.world.insert(new ToneMapping({ operator: 'agx', exposure: 0 }));
+// Efeitos em HDR antes da apresentação: Bloom → Vignette
 app.defaults.post.addEffect(new Bloom({ aux: [0.5, 0, 0] }));
-app.defaults.post.addEffect(new Fxaa());
 app.defaults.post.addEffect(new Vignette({ strength: 0.5 }));
 
 app.start();

@@ -1,20 +1,23 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { poolArenaReader } from '../../../scene/shaders/poolArena';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResourceType } from '../../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { linalg, noise } from '../../gpu/shaders/math';
+import { linalg, noise, xformAffine } from '../../gpu/shaders/math';
 import surfaceColliderBuildSource from '../../gpu/wgsl/kernels/surface_collider_build.wgsl?raw';
 import surfaceColliderCommonSource from '../../gpu/wgsl/kernels/surface_collider_common.wgsl?raw';
 import surfaceColliderPointsSource from '../../gpu/wgsl/kernels/surface_collider_points.wgsl?raw';
 import { surfaceAt, surfaceResources } from '../../geometry/shaders';
 import { SurfaceParamsSchema } from '../../geometry/SurfaceSchemas';
+import { transformsResource } from '../../scene/resources';
+import { transformLocal } from '../../scene/flows/shaders';
 import { Transform } from '../../scene/Transform';
 
 /**
  * Parâmetros de uma passada da construção de um colisor de superfície (spec 010; uma região por passada, offset
- * dinâmico): amostragem, cópias e os tempos delas, grade e modo, faixa do campo, transformação (da CPU ou do pool de
- * mundo) e, no jump flooding, o passo e a metade lida.
+ * dinâmico): amostragem, cópias e os tempos delas, grade e modo, faixa do campo, o slot do `Transform` (o TRS calculado
+ * na GPU, ou a matriz do pool de mundo com função ou hierarquia) e, no jump flooding, o passo e a metade lida.
  */
 export const SurfaceBakeParamsSchema = new StructSchema(
     'SurfaceBakeParams',
@@ -43,10 +46,6 @@ export const SurfaceBakeParamsSchema = new StructSchema(
         t1: FieldType.vec4f,
         t2: FieldType.vec4f,
         t3: FieldType.vec4f,
-        world: FieldType.mat4x4f,
-        normal0: FieldType.vec4f,
-        normal1: FieldType.vec4f,
-        normal2: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );
@@ -81,7 +80,13 @@ export const surfaceBakeResources = Object.freeze({
     cells: bakeBuffer('bake_cells', 'read_write', { wgsl: 'atomic<u32>', array: true }),
     ids: bakeBuffer('bake_ids', 'read_write', { wgsl: 'atomic<u32>', array: true }),
     field: bakeBuffer('bake_field', 'read_write', { wgsl: 'f32', array: true }),
-    worlds: bakeBuffer('bake_worlds', 'read', { schema: Transform.worldSchema, array: true }),
+    // As matrizes de mundo pela arena da GPU (T060i).
+    worlds: poolArenaReader({
+        name: 'bake_worlds',
+        pool: Transform.worldSchema.name,
+        schema: Transform.worldSchema,
+        arena: 'gpu',
+    }),
 });
 const B = surfaceBakeResources;
 
@@ -117,6 +122,8 @@ export const surfaceColliderBuild = wgslModule({
     source: surfaceColliderBuildSource,
     requires: [
         linalg,
+        xformAffine,
+        transformLocal,
         surfaceColliderCommon,
         WORKGROUP_SIZE.module,
         B.points,
@@ -125,6 +132,7 @@ export const surfaceColliderBuild = wgslModule({
         B.ids,
         B.field,
         B.worlds,
+        transformsResource,
     ],
-    structs: [SurfaceBakeParamsSchema, Transform.worldSchema],
+    structs: [SurfaceBakeParamsSchema, Transform.schema, Transform.worldSchema],
 });

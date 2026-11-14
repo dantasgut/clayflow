@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ColliderSetOptions
+[clayflow](../../modules.md) / [elements](../README.md) / ColliderSetOptions
 
 # Interface: ColliderSetOptions
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:92](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L92)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:80](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L80)
 
 Opções do `ColliderSet`.
 
@@ -16,7 +16,7 @@ Opções do `ColliderSet`.
 
 > `readonly` `optional` **bodiesPoolKey?**: `string`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L96)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:84](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L84)
 
 Pool dos corpos donos (pose dos colliders dinâmicos). Default `LCPSchema`.
 
@@ -26,6 +26,6 @@ Pool dos corpos donos (pose dos colliders dinâmicos). Default `LCPSchema`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/physics/colliders/ColliderSet.ts:94](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/colliders/ColliderSet.ts#L94)
+Defined in: [src/elements/physics/colliders/ColliderSet.ts:82](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/colliders/ColliderSet.ts#L82)
 
-Prefixo dos discriminadores dos buffers próprios.
+Prefixo dos ids dos descritores no Resource de trabalho.

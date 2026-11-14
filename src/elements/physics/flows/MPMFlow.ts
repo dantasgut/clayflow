@@ -1,8 +1,9 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
 import type {
-    BindingSource,
     BoundFlow,
     PreparedCompute,
     TransitionContext,
@@ -16,25 +17,18 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Time } from '../../../scene/time/Time';
 import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
-import { ParticleMaterial } from '../materials/ParticleMaterial';
+import { ParticlePhysics } from '../ParticlePhysics';
 import { MPMSimParamsSchema } from '../schemas/simParams';
 import { MPMGridNodeSchema } from '../schemas/simState';
-import {
-    mpmClearGrid,
-    mpmG2P,
-    mpmGridUpdate,
-    mpmP2G,
-    mpmParticleCollision,
-    mpmResources as R,
-} from '../shaders/mpm';
+import { mpmClearGrid, mpmG2P, mpmGridUpdate, mpmP2G, mpmParticleCollision } from '../shaders/mpm';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Escala do ponto fixo das somas atômicas da grade. */
@@ -45,7 +39,7 @@ const MPM_MATERIAL_FLUID = 2;
 
 /** Opções do `MPMFlow`. */
 export interface MPMFlowOptions {
-    /** Mínimo de substeps por passo (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais. */
+    /** Mínimo de substeps por passo (padrão 1); o passo estável do `ParticlePhysics` pode exigir mais. */
     readonly substeps?: number;
 }
 
@@ -57,22 +51,20 @@ export interface MPMSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
     readonly gravity: SingletonSlot<true>;
-    /** Material das partículas (opcional; padrões do solver). */
-    readonly material: SingletonSlot<true>;
+    /** Comportamento das partículas (opcional; padrões do solver). */
+    readonly physics: SingletonSlot<true>;
     /** Pools de colliders e de corpos rígidos (cada um presente ou não). */
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do solver: a grade do domínio, os parâmetros por iteração, os colliders (spec 039). */
+    readonly work: WorkSlot<MPMWork>;
 }
 
-const slots: MPMSlots = {
-    bodies: slot.bodies(),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    material: slot.singleton(ParticleMaterial.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/** Resource de trabalho do `MPMFlow` (spec 039). */
+class MPMWork extends FlowWork {
+    static readonly schema = new StructSchema('MPMWork', {});
+}
 
 type Ctx = TransitionContext<MPMSlots>;
 
@@ -80,55 +72,70 @@ type Ctx = TransitionContext<MPMSlots>;
  * MPMFlow — corpos por Material Point Method (MLS-MPM: limpa grade → P2G → atualização da grade → G2P → colisão):
  * fluido fracamente compressível (`MPMFluidSchema`) ou sólido neo-Hookean (`MPMSoftSchema`), conforme o `bodyType` do
  * registro. O quadro executa `time.steps × substeps` iterações, com `substeps` pelo passo estável do
- * `ParticleMaterial`, cada uma com a sua região de `MPMSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`)
+ * `ParticlePhysics`, cada uma com a sua região de `MPMSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`)
  * ligada por offset dinâmico. Massa, volume, grade (célula 2s sobre o domínio), módulo volumétrico e Lamé vêm do
- * material.
+ * `ParticlePhysics`.
  *
- * Slots: pool de partículas, `Time`, `GravityField` e `ParticleMaterial` (opcionais), pools de collider e as
- * entidades com collider. Recursos privados — grade, parâmetros por iteração e o `ColliderSet` — são recriados e
- * religados em transições (`framePrepare` para grade e parâmetros; entidades/pools para os colliders), nunca no
- * `dispatch`.
+ * Slots: pool de partículas, `Time`, `GravityField` e `ParticlePhysics` (opcionais), pools de collider e as
+ * entidades com collider. O espaço de trabalho — grade, parâmetros por iteração e o `ColliderSet` — é do Resource de
+ * trabalho (`MPMWork`, spec 039), redimensionado em transições (`framePrepare` para grade e parâmetros;
+ * entidades/pools para os colliders), nunca no `dispatch`.
  */
 export class MPMFlow extends Flow<MPMSlots, 'running'> {
     readonly type = 'MPMFlow';
-    readonly slots = slots;
+    readonly slots: MPMSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<MPMSlots>>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly bodyType: string;
     private readonly minSubsteps: number;
     private readonly params: PerStepUniforms;
     private readonly colliderSet: ColliderSet;
-    private grid: ReturnType<ParticleMaterial['gridFor']>;
+    private grid: ReturnType<ParticlePhysics['gridFor']>;
     private gridKey = '';
-    private gridBuffer: StorageBufferSpec;
     /** Iterações do quadro corrente (decididas em `framePrepare`). */
     private iterations = 0;
 
     constructor(ctx: FlowContext, options: MPMFlowOptions = {}) {
         super();
-        this.core = ctx.core;
+        const work = new MPMWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            bodies: slot.bodies(),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            work: slot.work(() => work),
+        };
         this.bodyType = ctx.bodyType ?? 'MPMFluidSchema';
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'mpm_params',
+        const physics = ParticlePhysics.defaults;
+        this.grid = physics.gridFor(physics.mpmCellSize);
+        this.gridKey = gridKeyOf(this.grid);
+        // A grade do domínio: uma célula por nó, pela grade atual da física.
+        work.use({
+            descriptors: () => [
+                {
+                    id: 'mpm_grid',
+                    role: 'storage-rw',
+                    schema: MPMGridNodeSchema,
+                    upload: 'never',
+                    count: this.gridCellCount(),
+                },
+            ],
+        });
+        this.params = new PerStepUniforms(this.work, {
+            id: 'mpm_params',
             schema: MPMSimParamsSchema,
         });
         this.params.reserve(1);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'mpm_colliders',
         });
-        const material = ParticleMaterial.defaults;
-        this.grid = material.gridFor(material.mpmCellSize);
-        this.gridKey = gridKeyOf(this.grid);
-        this.gridBuffer = this.createGrid();
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [R.params, this.params.source()],
-            [R.grid, this.gridBuffer],
-        ]);
         this.pipelines = [
             {
                 id: 'mpm_clear_grid',
@@ -226,24 +233,8 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
         }
     }
 
-    /** Libera parâmetros, grade e colliders. */
-    override dispose(): void {
-        this.params.dispose();
-        this.core.destroy(this.gridBuffer);
-        this.colliderSet.destroy();
-    }
-
     private gridCellCount(): number {
         return this.grid.gridDim[0] * this.grid.gridDim[1] * this.grid.gridDim[2];
-    }
-
-    private createGrid(): StorageBufferSpec {
-        return this.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'mpm_grid',
-            byteSize: this.gridCellCount() * MPMGridNodeSchema.stride,
-        });
     }
 
     /** Mapas de dono e contagens dos colliders; religa as fontes do grupo de colliders quando mudam. */
@@ -258,37 +249,35 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
     }
 
     /**
-     * Antes da gravação: grade pelo material (recriada e religada quando muda), substeps pelo passo estável e uma
+     * Antes da gravação: grade pela física (recriada e religada quando muda), substeps pelo passo estável e uma
      * região de `MPMSimParams` por iteração (crescimento e religação aqui, fora da gravação).
      */
     private prepareFrame(ctx: Ctx): void {
         const bound = ctx.bound;
         const time = bound.slots.time.resource as Time;
-        const material =
-            (bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
-        const grid = material.gridFor(material.mpmCellSize);
+        const physics =
+            (bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
+        const grid = physics.gridFor(physics.mpmCellSize);
         const key = gridKeyOf(grid);
         if (key !== this.gridKey) {
             this.grid = grid;
             this.gridKey = key;
-            this.core.destroy(this.gridBuffer);
-            this.gridBuffer = this.createGrid();
-            ctx.bind(new Map([[R.grid, this.gridBuffer]]));
+            // A C2 realoca a grade e religa o fornecedor do trabalho.
+            this.work.work.refresh();
         }
-        const substeps = ParticleMaterial.substepsFor(
+        const substeps = ParticlePhysics.substepsFor(
             time.stepDt,
-            material.mpmStableDt,
+            physics.mpmStableDt,
             this.minSubsteps,
         );
         this.iterations = time.steps * substeps;
         if (this.iterations === 0) return;
-        if (this.params.reserve(this.iterations))
-            ctx.bind(new Map([[R.params, this.params.source()]]));
+        this.params.reserve(this.iterations);
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
-        const { mu, lambda } = material.lame;
+        const { mu, lambda } = physics.lame;
         const count = bound.slots.bodies.count;
         for (let i = 0; i < this.iterations; i++) {
             this.params.write(i, {
@@ -297,10 +286,10 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
                 mu,
                 lambda_lame: lambda,
                 fixed_scale: MPM_FIXED_SCALE,
-                particle_mass: material.particleMass,
-                particle_volume: material.particleVolume,
-                bulk_modulus: material.bulkModulus,
-                viscosity: material.viscosity,
+                particle_mass: physics.particleMass,
+                particle_volume: physics.particleVolume,
+                bulk_modulus: physics.bulkModulus,
+                viscosity: physics.viscosity,
                 dt_frame: time.stepDt,
                 particle_count: count,
                 grid_x: this.grid.gridDim[0],
@@ -308,7 +297,7 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
                 grid_z: this.grid.gridDim[2],
                 grid_origin: this.grid.origin,
                 cell_size: this.grid.cellSize,
-                open_bounds: material.openBounds ? 1 : 0,
+                open_bounds: physics.openBounds ? 1 : 0,
                 material_id:
                     this.bodyType === 'MPMFluidSchema' ? MPM_MATERIAL_FLUID : MPM_MATERIAL_ELASTIC,
                 substep_count: substeps,
@@ -317,13 +306,13 @@ export class MPMFlow extends Flow<MPMSlots, 'running'> {
                 field_time:
                     time.stepTime(Math.floor(i / substeps))
                     + ((i % substeps) + 1) * (time.stepDt / substeps),
-                field_density: material.particleMass / material.particleVolume,
+                field_density: physics.particleMass / physics.particleVolume,
             });
         }
         this.params.flush(this.iterations);
     }
 }
 
-function gridKeyOf(grid: ReturnType<ParticleMaterial['gridFor']>): string {
+function gridKeyOf(grid: ReturnType<ParticlePhysics['gridFor']>): string {
     return `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
 }

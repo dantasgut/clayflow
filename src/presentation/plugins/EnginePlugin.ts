@@ -1,7 +1,7 @@
-import type { Application } from '../app/Application';
+import type { Engine } from '../app/Engine';
 
 /**
- * EnginePlugin: extensão pluggable para `Application`. Plugins podem registrar
+ * EnginePlugin: extensão pluggable para o motor (`Engine`; o `Application` dos pontos de entrada o estende). Plugins podem registrar
  * Flows, instalar handlers de evento, criar sistemas auxiliares, etc.
  *
  * Uso:
@@ -17,15 +17,15 @@ import type { Application } from '../app/Application';
  * Os solvers de física não precisam de plugin: são registrados por factory pela aplicação e instanciados pela C2 no
  * primeiro corpo de cada tipo (`DEFAULT_SOLVER_REGISTRATIONS`).
  *
- * Type-only cycle Application↔EnginePlugin é aceito (madge --exclude documentado).
+ * Type-only cycle Engine↔EnginePlugin é aceito (madge --exclude documentado).
  */
 export interface EnginePlugin {
     /** Identificador único do plugin (para logs/dedup). */
     readonly name: string;
     /** Hook de instalação — chamado antes do GameLoop iniciar; registra flows/listeners/sistemas. */
-    install(app: Application): void;
+    install(app: Engine): void;
     /**
      * Optional. Cleanup quando Application.dispose() é chamado.
      */
-    dispose?(app: Application): void;
+    dispose?(app: Engine): void;
 }

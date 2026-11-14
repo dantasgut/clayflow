@@ -55,14 +55,15 @@ export class GraphGeometry extends Geometry<GraphGeometryData> {
 
     getDescriptors(): readonly GPUDescriptor[] {
         const d = this.data;
+        const vertices: GPUDescriptor = {
+            id: 'vertices',
+            role: 'vertex',
+            schema: GraphGeometry.vertexStruct,
+            count: d.vertexCapacity,
+            upload: 'never',
+        };
         return [
-            {
-                id: 'vertices',
-                role: 'vertex',
-                schema: GraphGeometry.vertexStruct,
-                count: d.vertexCapacity,
-                upload: 'never',
-            },
+            vertices,
             {
                 id: 'indices',
                 role: 'index',
@@ -83,6 +84,7 @@ export class GraphGeometry extends Geometry<GraphGeometryData> {
                 : []),
             // Registro 0: desenho indexado; registro 1 (byte 20): arame (6 vértices por aresta).
             { id: 'indirect', role: 'indirect', count: 2, upload: 'never' },
+            ...this.historyDescriptors(vertices),
         ];
     }
 

@@ -9,12 +9,15 @@ import {
     closureDiffuse,
     closureEmission,
     closureLayer,
+    closureMediumPriority,
+    closureMediumScatter,
     closureMix,
     closureNormal,
     closureOpacity,
     closureSheen,
     closureSubsurface,
     closureThinFilm,
+    closureThinWalled,
     closureTranslucent,
     closureTransmission,
     flattenClosure,
@@ -22,6 +25,7 @@ import {
     type Closure,
 } from '../../material/reference/closureNodes';
 import type { Vec3 } from '../../material/reference/bsdf';
+import { luminance, srgbDecode } from '../../math/reference/color';
 import { num, uniform, vec, vector, type NodeCase, type NodeValues } from './cases';
 
 const v3 = (v: readonly number[]): Vec3 => [v[0]!, v[1]!, v[2]!];
@@ -234,6 +238,34 @@ const closureCases: readonly NodeCase[] = [
         reference: (x) => ({ value: flat(closureNormal(closureIn(x, 'c'), v3(vec(x.normal)))) }),
     },
     {
+        node: 'closure.mediumPriority',
+        tolerance: 1e-6,
+        sample: (r) => ({ c: randomClosure(r), priority: uniform(r, -2, 8) }),
+        reference: (x) => ({
+            value: flat(closureMediumPriority(closureIn(x, 'c'), num(x.priority))),
+        }),
+    },
+    {
+        node: 'closure.mediumScatter',
+        tolerance: 1e-6,
+        sample: (r) => ({
+            c: randomClosure(r),
+            scatter: vector(r, 3, -0.5, 2),
+            anisotropy: uniform(r, -1.2, 1.2),
+        }),
+        reference: (x) => ({
+            value: flat(
+                closureMediumScatter(closureIn(x, 'c'), v3(vec(x.scatter)), num(x.anisotropy)),
+            ),
+        }),
+    },
+    {
+        node: 'closure.thinWalled',
+        tolerance: 1e-6,
+        sample: (r) => ({ c: randomClosure(r) }),
+        reference: (x) => ({ value: flat(closureThinWalled(closureIn(x, 'c'))) }),
+    },
+    {
         node: 'output.closure',
         tolerance: 1e-6,
         sample: (r) => ({ closure: randomClosure(r) }),
@@ -270,7 +302,7 @@ function temperature(kelvin: number): number[] {
             1,
         ];
     }
-    const lin = rgb.map((c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+    const lin = rgb.map(srgbDecode);
     const m = Math.max(...lin);
     return lin.map((c) => c / m);
 }
@@ -301,7 +333,7 @@ const colorCases: readonly NodeCase[] = [
         sample: (r) => ({ c: vector(r, 3, 0, 4) }),
         reference: (x) => {
             const c = vec(x.c);
-            return { value: 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]! };
+            return { value: luminance([c[0]!, c[1]!, c[2]!]) };
         },
     },
 ];

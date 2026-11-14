@@ -39,6 +39,10 @@ export const CLOSURE_FIELDS = [
     ['transmission_ior', 1],
     ['transmission_abbe', 1],
     ['transmission_roughness', 1],
+    ['transmission_priority', 1],
+    ['transmission_scatter', 3],
+    ['transmission_anisotropy', 1],
+    ['transmission_thin', 1],
     ['translucent_weight', 1],
     ['translucent_color', 3],
     ['emission', 3],
@@ -156,6 +160,26 @@ export const closureTransmission = (
     transmission_abbe: abbe > 0 ? Math.max(abbe, 10) : 0,
     transmission_roughness: c01(roughness),
 });
+
+/** `closure_medium_priority`: a prioridade do meio na sobreposição de volumes transmissivos. */
+export const closureMediumPriority = (c: Closure, priority: number): Closure => ({
+    ...c,
+    transmission_priority: priority,
+});
+
+/** `closure_medium_scatter`: o espalhamento no meio da transmissão (coeficiente por canal ≥ 0, anisotropia em (−1, 1)). */
+export const closureMediumScatter = (c: Closure, scatter: Vec3, anisotropy: number): Closure => ({
+    ...c,
+    transmission_scatter: [
+        Math.max(scatter[0], 0),
+        Math.max(scatter[1], 0),
+        Math.max(scatter[2], 0),
+    ],
+    transmission_anisotropy: Math.min(Math.max(anisotropy, -0.99), 0.99),
+});
+
+/** `closure_thin_walled`: a transmissão como parede fina (placa de espessura zero, sem interior). */
+export const closureThinWalled = (c: Closure): Closure => ({ ...c, transmission_thin: 1 });
 
 export const closureTranslucent = (color: Vec3): Closure => ({
     ...closureZero(),
@@ -312,6 +336,15 @@ export function closureAdd(a: Closure, b: Closure): Closure {
             b.transmission_roughness,
             wtb,
         ),
+        transmission_priority: Math.max(a.transmission_priority, b.transmission_priority),
+        transmission_scatter: merge3(a.transmission_scatter, wta, b.transmission_scatter, wtb),
+        transmission_anisotropy: merge1(
+            a.transmission_anisotropy,
+            wta,
+            b.transmission_anisotropy,
+            wtb,
+        ),
+        transmission_thin: Math.max(a.transmission_thin, b.transmission_thin),
         translucent_weight: a.translucent_weight + b.translucent_weight,
         translucent_color: merge3(
             a.translucent_color,

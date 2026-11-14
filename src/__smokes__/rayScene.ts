@@ -22,12 +22,11 @@ import {
     createScene,
     Flow,
     FluidBody,
-    FluidSurfaceMaterial,
     GraphGeometry,
     NodeGraph,
     nodes,
     ParametricSurface,
-    ParticleMaterial,
+    ParticlePhysics,
     PointSpriteMaterial,
     RayScene,
     rayScene,
@@ -41,9 +40,17 @@ import {
     Transform,
     wgslModule,
     wgslResource,
-} from 'clayflow';
-import type { BoundFlow, Frame, StagingBufferSpec, StorageBufferSpec, WgslModule } from 'clayflow';
+} from 'clayflow/web';
+import type {
+    BoundFlow,
+    Frame,
+    StagingBufferSpec,
+    StorageBufferSpec,
+    WgslModule,
+} from 'clayflow/web';
 import { readPool, settle } from './support/extensionScenes';
+import { lcg } from './support/random';
+import { waterLook } from './support/waterScene';
 
 function log(msg: string): void {
     console.log(`[rayScene] ${msg}`);
@@ -114,7 +121,7 @@ fn smoke_ray_query_main(@builtin(global_invocation_id) gid: vec3u) {
     let o = smoke_rays[i * 2u].xyz;
     let d = smoke_rays[i * 2u + 1u].xyz;
     let h = ray_scene_hit(o, d, 1e30);
-    let v = ray_volume_hit(o, d, min(h.t, 1e6));
+    let v = ray_volume_hit(o, d, min(h.t, 1e6), -1);
     if (v.hit) {
         smoke_hits[i * 2u] = vec4f(v.position, v.t);
         smoke_hits[i * 2u + 1u] = vec4f(v.normal, -2.0);
@@ -206,6 +213,9 @@ async function rayApp(
     document.body.appendChild(canvas);
     const scene = createScene();
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene,
         autoResize: false,
@@ -213,9 +223,7 @@ async function rayApp(
         ...(profiling ? { profiling: 'passes' as const, profilingCapacity: 1024 } : {}),
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
-    app.events.on('globalIlluminationUnsupported', (e) =>
-        engineErrors.push(`unsupported: ${e.reason}`),
-    );
+    app.events.on('raySceneUnsupported', (e) => engineErrors.push(`unsupported: ${e.reason}`));
     app.world.insert(new RayScene());
     const bytes = capacity * 32;
     const storage = (name: string): StorageBufferSpec =>
@@ -263,15 +271,6 @@ async function rayApp(
 function dispose(app: Application, canvas: HTMLCanvasElement): void {
     app.dispose();
     canvas.remove();
-}
-
-/** Gerador determinístico em [0, 1). */
-function rng(seed: number): () => number {
-    let s = seed >>> 0;
-    return () => {
-        s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-        return s / 2 ** 32;
-    };
 }
 
 /** Interseção analítica raio–esfera. */
@@ -360,7 +359,7 @@ async function caseAnalytic(): Promise<void> {
             .add(new Transform({ position: [planeX, 0, 0, 1] })),
     );
     await settle(app, 600);
-    const r = rng(7);
+    const r = lcg(7);
     const probes: Probe[] = [];
     const expected: ({ t: number; n: V3; size: number } | null)[] = [];
     for (let i = 0; i < 900; i++) {
@@ -771,10 +770,10 @@ async function caseContract(): Promise<void> {
     const spacing = 0.05;
     const waterC: V3 = [0, 0, 5];
     const waterR = 0.3;
-    app.world.insert(new ParticleMaterial({ particleSpacing: spacing }));
+    app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     app.world.insert(
         new FluidBody({ algorithm: 'SPH', position: particleBall(waterC, waterR, spacing) }).add(
-            new FluidSurfaceMaterial(),
+            waterLook({ abbe: 55.7, ripple: { strength: 0.3, size: 0.06, speed: 1 } }),
         ),
     );
     // Corpo mole (XPBD, a superfície escrita na GPU a cada quadro): pano 16 × 16 plano em y = 1,3 em volta de
@@ -830,7 +829,7 @@ async function caseContract(): Promise<void> {
     await settle(app, 1200);
 
     type Kind = 'mesh' | 'surface' | 'graph' | 'cloth' | 'sprites' | 'water';
-    const r = rng(11);
+    const r = lcg(11);
     const probes: Probe[] = [];
     const expected: { kind: Kind; t: number; n: V3 | null; size: number }[] = [];
     const add = (kind: Kind, origin: V3, target: V3): void => {

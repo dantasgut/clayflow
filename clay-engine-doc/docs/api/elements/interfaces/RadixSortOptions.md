@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / RadixSortOptions
+[clayflow](../../modules.md) / [elements](../README.md) / RadixSortOptions
 
 # Interface: RadixSortOptions
 
-Defined in: [elements/gpu/compute/RadixSort.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/RadixSort.ts#L17)
+Defined in: [src/elements/gpu/compute/RadixSort.ts:26](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/RadixSort.ts#L26)
 
 Opções de `RadixSort`.
 
@@ -16,7 +16,7 @@ Opções de `RadixSort`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:21](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/RadixSort.ts#L21)
+Defined in: [src/elements/gpu/compute/RadixSort.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/RadixSort.ts#L30)
 
 Maior `count` aceito por `record`.
 
@@ -26,7 +26,7 @@ Maior `count` aceito por `record`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/RadixSort.ts#L19)
+Defined in: [src/elements/gpu/compute/RadixSort.ts:28](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/RadixSort.ts#L28)
 
 Prefixo único dos recursos da instância.
 
@@ -36,6 +36,6 @@ Prefixo único dos recursos da instância.
 
 > `readonly` `optional` **withValues?**: `boolean`
 
-Defined in: [elements/gpu/compute/RadixSort.ts:23](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/RadixSort.ts#L23)
+Defined in: [src/elements/gpu/compute/RadixSort.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/RadixSort.ts#L32)
 
 Permite ordenar valores junto com as chaves (aloca o buffer temporário dos valores).

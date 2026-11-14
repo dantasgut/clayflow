@@ -24,24 +24,17 @@ fn emit_fn(i: u32, time: f32, seed: u32, data: EmitFnParams) -> EmittedParticle 
     switch emit_params.shape_kind {
         // Esfera: a = centro, s.x = raio, s.y = velocidade radial.
         case 1u: {
-            let u = emit_rand(i, seed, 0u) * 2.0 - 1.0;
-            let th = emit_rand(i, seed, 1u) * 6.2831853;
-            let r = sqrt(max(1.0 - u * u, 0.0));
-            let d = vec3f(r * cos(th), u, r * sin(th));
+            let d = sample_sphere(vec2f(emit_rand(i, seed, 0u), emit_rand(i, seed, 1u))).xzy;
             p.position = a + d * s.x;
             p.velocity = d * s.y;
         }
         // Cone: a = vértice, b = direção, s.x = meio-ângulo (rad), s.y = velocidade.
         case 2u: {
-            let ct = 1.0 - emit_rand(i, seed, 0u) * (1.0 - cos(s.x));
-            let st = sqrt(max(1.0 - ct * ct, 0.0));
-            let ph = emit_rand(i, seed, 1u) * 6.2831853;
+            let l = sample_cone(vec2f(emit_rand(i, seed, 0u), emit_rand(i, seed, 1u)), cos(s.x));
             let w = normalize(b);
-            let other = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(w.x) > 0.9);
-            let e1 = normalize(cross(other, w));
-            let e2 = cross(w, e1);
+            let e = basis_cross(w, select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(w.x) > 0.9));
             p.position = a;
-            p.velocity = (e1 * (st * cos(ph)) + e2 * (st * sin(ph)) + w * ct) * s.y;
+            p.velocity = (e[0] * l.x + e[1] * l.y + w * l.z) * s.y;
         }
         // Ponto: a = posição, b = velocidade.
         default: {

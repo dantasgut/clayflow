@@ -1,22 +1,14 @@
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
-import type {
-    EngineCore,
-    Frame,
-    IndirectBufferSpec,
-    StorageBufferSpec,
-} from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
+import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { ComputePass } from '../../../scene/contracts/gpu';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
 import { PrefixSum, SCAN_GROUP } from './PrefixSum';
-import { RadixParamsSchema } from './schemas';
+import { RadixParamsSchema, wordBuffer } from './schemas';
 import {
     radixCountGpu,
     radixCountPoint,
@@ -63,8 +55,8 @@ export interface RadixSortRecordArgs {
 
 /** Kernels de um sentido do pingue-pongue. */
 interface PassKernels {
-    readonly histogram: ComputeKernel;
-    readonly scatter: ComputeKernel;
+    readonly histogram: string;
+    readonly scatter: string;
 }
 
 /** Kernels preparados para um buffer de chaves (e valores): do chamador para o temporário e de volta. */
@@ -94,16 +86,16 @@ const MAX_PASSES = 32 / DIGIT_BITS;
  * pela capacidade (limitada pelos buffers) — a cauda além da contagem volta intacta. A contagem deve ser ≤ `capacity`.
  *
  * Duas fases (spec 006): `prepare(keys, values, gravaçõesPorQuadro, counts?)` fora da gravação; `record` só grava.
+ * Os temporários e o histograma são descritores do Resource de trabalho (spec 039).
  */
-export class RadixSort {
+export class RadixSort implements WorkPart {
     private readonly disc: string;
     private readonly capacity: number;
     private readonly withValues: boolean;
     private readonly params: FrameUniforms;
     private readonly scan: PrefixSum;
-    private tmpKeys: StorageBufferSpec | null = null;
-    private tmpValues: StorageBufferSpec | null = null;
-    private hist: StorageBufferSpec | null = null;
+    /** `destroy()` soltou os descritores (a C2 libera os buffers); o próximo `prepare` os declara de novo. */
+    private released = false;
     /** Kernels por origem da contagem (`null` = CPU; um buffer `SetCount` = variante da GPU) e buffer de chaves. */
     private readonly prepared = new Map<
         IndirectBufferSpec | null,
@@ -111,7 +103,7 @@ export class RadixSort {
     >();
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: RadixSortOptions,
     ) {
         if (!Number.isInteger(options.capacity) || options.capacity < 1) {
@@ -122,14 +114,49 @@ export class RadixSort {
         this.disc = options.discriminator;
         this.capacity = options.capacity;
         this.withValues = options.withValues === true;
-        this.params = new FrameUniforms(core, {
-            discriminator: `${this.disc}:radix`,
+        this.params = new FrameUniforms(ctx, {
+            id: `${this.disc}:radix`,
             schema: RadixParamsSchema,
         });
-        this.scan = new PrefixSum(core, {
+        this.scan = new PrefixSum(ctx, {
             discriminator: `${this.disc}:radix_scan`,
             capacity: DIGITS * Math.ceil(options.capacity / SCAN_GROUP),
         });
+        ctx.work.use(this);
+    }
+
+    /** Temporários do pingue-pongue (chaves e, com `withValues`, valores) e o histograma dos grupos. */
+    descriptors(): readonly GPUDescriptor[] {
+        if (this.released) return [];
+        return [
+            wordBuffer(`${this.disc}:radix_tmp_keys`, this.capacity * 4),
+            ...(this.withValues
+                ? [wordBuffer(`${this.disc}:radix_tmp_values`, this.capacity * 4)]
+                : []),
+            wordBuffer(
+                `${this.disc}:radix_hist`,
+                DIGITS * Math.ceil(this.capacity / SCAN_GROUP) * 4,
+            ),
+        ];
+    }
+
+    private buffer(name: string): StorageBufferSpec {
+        const buffer = this.ctx.resources.bufferOf(this.ctx.work, `${this.disc}:${name}`);
+        if (buffer === undefined)
+            throw new Error(`RadixSort(${this.disc}): trabalho fora da cena.`);
+        return buffer as StorageBufferSpec;
+    }
+
+    private get tmpKeys(): StorageBufferSpec {
+        return this.buffer('radix_tmp_keys');
+    }
+
+    private get tmpValues(): StorageBufferSpec {
+        return this.buffer('radix_tmp_values');
+    }
+
+    private get hist(): StorageBufferSpec {
+        return this.buffer('radix_hist');
     }
 
     /**
@@ -144,10 +171,13 @@ export class RadixSort {
         counts?: IndirectBufferSpec,
     ): void {
         this.checkValues(values);
+        if (this.released) {
+            this.released = false;
+            this.ctx.work.refresh();
+        }
         if (this.params.reserve(MAX_PASSES * recordsPerFrame)) this.releaseKernels();
-        this.allocate();
-        this.scan.prepare(this.hist!, MAX_PASSES * recordsPerFrame);
-        const tmpKeys = this.tmpKeys!;
+        this.scan.prepare(this.hist, MAX_PASSES * recordsPerFrame);
+        const tmpKeys = this.tmpKeys;
         for (const source of counts === undefined ? [null] : [null, counts]) {
             let byKeys = this.prepared.get(source);
             if (byKeys === undefined) this.prepared.set(source, (byKeys = new Map()));
@@ -160,13 +190,13 @@ export class RadixSort {
                     source,
                     keys,
                     tmpKeys,
-                    values === undefined ? undefined : [values, this.tmpValues!],
+                    values === undefined ? undefined : [values, this.tmpValues],
                 ),
                 fromTemp: this.passKernels(
                     source,
                     tmpKeys,
                     keys,
-                    values === undefined ? undefined : [this.tmpValues!, values],
+                    values === undefined ? undefined : [this.tmpValues, values],
                 ),
             });
         }
@@ -235,8 +265,8 @@ export class RadixSort {
         const limit = Math.min(this.capacity * 4, keys.byteSize, values?.byteSize ?? Infinity);
         const bytes = limit - (limit % 4);
         if (odd) {
-            frame.copy(keys, this.tmpKeys!, bytes);
-            if (values !== undefined) frame.copy(values, this.tmpValues!, bytes);
+            frame.copy(keys, this.tmpKeys, bytes);
+            if (values !== undefined) frame.copy(values, this.tmpValues, bytes);
         }
         this.runPasses(frame, prepared, bits, this.capacity, count, count.index);
         if (odd) this.copyBack(frame, args, bytes);
@@ -256,7 +286,7 @@ export class RadixSort {
         pass?: ComputePass,
     ): void {
         const groups = Math.ceil(count / SCAN_GROUP);
-        const hist = this.hist!;
+        const hist = this.hist;
         for (let p = 0; p < bits / DIGIT_BITS; p++) {
             const offset = this.params.allocate(frame, {
                 count,
@@ -278,21 +308,17 @@ export class RadixSort {
 
     /** Número ímpar de passes: o resultado, no temporário, volta às chaves (e valores) do chamador. */
     private copyBack(frame: Frame, args: RadixSortRecordArgs, bytes: number): void {
-        frame.copy(this.tmpKeys!, args.keys, bytes);
-        if (args.values !== undefined) frame.copy(this.tmpValues!, args.values, bytes);
+        frame.copy(this.tmpKeys, args.keys, bytes);
+        if (args.values !== undefined) frame.copy(this.tmpValues, args.values, bytes);
     }
 
-    /** Libera kernels, temporários, a soma de prefixos interna e os uniforms. */
+    /** Libera os kernels e solta os temporários e a soma interna (a C2 os libera); `prepare` os declara de novo. */
     destroy(): void {
         this.releaseKernels();
-        for (const b of [this.tmpKeys, this.tmpValues, this.hist]) {
-            if (b !== null) this.core.destroy(b);
-        }
-        this.tmpKeys = null;
-        this.tmpValues = null;
-        this.hist = null;
         this.scan.destroy();
-        this.params.destroy();
+        this.released = true;
+        this.params.release();
+        this.ctx.work.refresh();
     }
 
     private checkValues(values: StorageBufferSpec | undefined): void {
@@ -306,19 +332,6 @@ export class RadixSort {
         }
     }
 
-    private allocate(): void {
-        const storage = (name: string, byteSize: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:${name}`,
-                byteSize: Math.max(16, byteSize),
-            });
-        this.tmpKeys ??= storage('radix_tmp_keys', this.capacity * 4);
-        if (this.withValues) this.tmpValues ??= storage('radix_tmp_values', this.capacity * 4);
-        this.hist ??= storage('radix_hist', DIGITS * Math.ceil(this.capacity / SCAN_GROUP) * 4);
-    }
-
     private passKernels(
         counts: IndirectBufferSpec | null,
         inKeys: StorageBufferSpec,
@@ -326,7 +339,7 @@ export class RadixSort {
         valuePair: readonly [StorageBufferSpec, StorageBufferSpec] | undefined,
     ): PassKernels {
         const radix = this.params.source();
-        const hist = this.hist!;
+        const hist = this.hist;
         const r = radixResources;
         const gpu = counts === null ? '' : ':gpu';
         const variant = (ready: typeof radixHistogram): typeof radixHistogram =>
@@ -335,7 +348,7 @@ export class RadixSort {
                 : bindPoints(ready, new Map([[radixCountPoint, radixCountGpu]]));
         const countBinding: [WgslResource, BindingSource][] =
             counts === null ? [] : [[setCountResources.counts, counts]];
-        const histogram = createComputeKernel(this.core, {
+        const histogram = this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:radix_histogram${gpu}`,
             shader: variant(radixHistogram),
             entryPoint: 'radix_histogram_main',
@@ -346,7 +359,7 @@ export class RadixSort {
                 ...countBinding,
             ]),
         });
-        const scatter = createComputeKernel(this.core, {
+        const scatter = this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:radix_scatter${valuePair === undefined ? '' : '_kv'}${gpu}`,
             shader: variant(radixScatter),
             entryPoint: valuePair === undefined ? 'radix_scatter_main' : 'radix_scatter_kv_main',
@@ -371,14 +384,13 @@ export class RadixSort {
     private run(
         frame: Frame,
         label: string,
-        kernel: ComputeKernel,
+        kernel: string,
         offset: number,
         count: number | GpuCount,
         open?: ComputePass,
     ): void {
         const body = (pass: ComputePass): void => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind, { draw: [offset] });
+            this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offset] });
             if (typeof count === 'number') pass.dispatch.invocations(count, SCAN_GROUP);
             else pass.dispatch.workgroupsIndirect(count.counts, CountToArgs.dispatchOffset(count));
         };
@@ -388,8 +400,8 @@ export class RadixSort {
 
     private destroyPrepared(p: PreparedKeys): void {
         for (const k of [p.fromCaller, p.fromTemp]) {
-            destroyComputeKernel(this.core, k.histogram);
-            destroyComputeKernel(this.core, k.scatter);
+            this.ctx.work.pipelines.release(k.histogram);
+            this.ctx.work.pipelines.release(k.scatter);
         }
     }
 

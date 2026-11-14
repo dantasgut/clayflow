@@ -1,30 +1,30 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / FieldKind
+[clayflow](../../modules.md) / [elements](../README.md) / FieldKind
 
 # Variable: FieldKind
 
 > `const` **FieldKind**: `object`
 
-Defined in: [elements/physics/forcefields/ForceField.ts:9](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/forcefields/ForceField.ts#L9)
+Defined in: [src/elements/physics/forcefields/ForceField.ts:16](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/forcefields/ForceField.ts#L16)
 
-Tipo de campo pronto no registro comum (`kind` do `FieldFnRecord`; 0 = fora do laço).
+Tipo de campo pronto no registro (`kind` do `FieldBuiltinRecord`; 0 = fora do laço).
 
 ## Type Declaration
 
 ### buoyancy
 
-> `readonly` **buoyancy**: `5` = `5`
+> `readonly` **buoyancy**: `number` = `FIELD_BUOYANCY.value`
 
 ### drag
 
-> `readonly` **drag**: `4` = `4`
+> `readonly` **drag**: `number` = `FIELD_DRAG.value`
 
 ### gravityPoint
 
-> `readonly` **gravityPoint**: `1` = `1`
+> `readonly` **gravityPoint**: `number` = `FIELD_GRAVITY_POINT.value`
 
 ### none
 
@@ -32,8 +32,8 @@ Tipo de campo pronto no registro comum (`kind` do `FieldFnRecord`; 0 = fora do l
 
 ### vortex
 
-> `readonly` **vortex**: `3` = `3`
+> `readonly` **vortex**: `number` = `FIELD_VORTEX.value`
 
 ### wind
 
-> `readonly` **wind**: `2` = `2`
+> `readonly` **wind**: `number` = `FIELD_WIND.value`

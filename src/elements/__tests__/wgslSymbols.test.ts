@@ -18,6 +18,8 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const ALLOWED: Readonly<Record<string, string>> = {
     vs_main: 'entrada de vértice de cada pipeline de render',
     fs_main: 'entrada de fragmento de cada pipeline de render',
+    fs_motion:
+        'entrada de fragmento do passe de movimento (spec 034) de cada pipeline de render — a conta é a de `camera_motion`',
     VsIn: 'entrada de vértice, local a cada pipeline de render',
     VsOut: 'saída do vértice, local a cada pipeline de render',
     camera_clip:
@@ -38,6 +40,30 @@ const ALLOWED: Readonly<Record<string, string>> = {
         'predicado da compactação (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
     compact_value:
         'valor compactado (spec 031): cada consumidor de `Compaction` define o seu (nós set.compact e set.distributeOnMesh), um por kernel montado',
+    temporal_filter_source_size:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_valid:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_signal:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_guide:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_albedo:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_previous_point:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_footprint:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_change:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_fresh:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_noise:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    temporal_filter_source_guide_span:
+        'fonte do filtro de sinal traçado (spec 034): a pronta (sem sinal) ou a de quem produz o sinal (a refração) — bindPoints troca uma pela outra',
+    soft_energy_source_terms:
+        'fonte da energia dos corpos moles (spec 037): a pronta (sem partículas) ou a de cada algoritmo (XPBD com as arestas, nós, MPM) — bindPoints troca uma pela outra',
     surface_jet:
         'lugar do jato da superfície (spec 010): numérico (pronto), analítico, das prontas ou do mapa com o espaço — bindPoints troca um pelo outro',
 };

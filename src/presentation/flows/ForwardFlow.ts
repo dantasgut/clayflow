@@ -4,17 +4,18 @@ import type {
     EngineCore,
     Frame,
     IndexBufferSpec,
-    IndirectBufferSpec,
     RenderPass,
     RenderTarget,
-    SamplerSpec,
     StorageBufferSpec,
-    TextureSpec,
     TextureViewSpec,
     UniformBufferSpec,
+    VertexBufferSpec,
 } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
+import { ForwardWorkSchema } from './renderSchemas';
+import { FlowWork } from '../../scene/flows/FlowWork';
 import type {
     BindingKey,
     BindingSource,
@@ -31,21 +32,27 @@ import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
+    type ChannelSlot,
     type EntitiesSlot,
     type EntityEntry,
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
+    type TextureSlot,
+    type WorkSlot,
 } from '../../scene/flows/slots';
+import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { SurfaceDiffSchema } from '../../elements/geometry/SurfaceSchemas';
 import { Material } from '../../elements/material/Material';
 import { ForwardFrameParamsSchema } from '../../elements/material/forwardSchemas';
 import {
+    drawVisibleResource,
     forwardFrameResource,
     pointVerticesResource,
+    pointPreviousVerticesResource,
     surfaceDiffReadResource,
     wireEdgesResource,
     wireVerticesResource,
@@ -62,18 +69,22 @@ import {
     forwardBackground,
     forwardCameraAdapter,
     forwardCameraClip,
-    forwardTransmission,
+    forwardRefractionRequest,
     transmissionResources,
 } from '../../elements/material/shaders';
-import { LOBES } from '../../elements/material/pbr/lobes';
 import {
-    createComputeKernel,
-    destroyComputeKernel,
-    type ComputeKernel,
-} from '../../scene/flows/createComputeKernel';
-import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import { SCENE_COLOR_FORMAT } from '../app/FrameTargets';
-import { sceneCopyMips, sceneMipResources } from './shaders';
+    Refraction,
+    REFRACTION_REQUEST_FORMAT,
+} from '../../elements/lighting/refraction/Refraction';
+import { TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
+import { LIGHT_FORMAT } from '../app/FrameTargets';
+import {
+    DRAW_CULL_HZB,
+    DRAW_CULL_STATS,
+    DrawCulling,
+    type CullGroup,
+    type CullRecord,
+} from './DrawCulling';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
 import {
     forwardMaterial,
@@ -82,9 +93,6 @@ import {
 } from '../../elements/material/point/shaders';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
-
-/** Lobos que vão ao passe de transmissivos (spec 011, R6): o que está atrás aparece através do material. */
-const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
 
 const VERTEX_LAYOUT = [
     {
@@ -95,6 +103,19 @@ const VERTEX_LAYOUT = [
             { shaderLocation: 1, offset: 12, format: 'float32x3' as const },
             { shaderLocation: 2, offset: 24, format: 'float32x2' as const },
         ],
+    },
+];
+
+/**
+ * Desenho pelos buffers de vértice: o mesmo layout e, no buffer 1, a posição do vértice no quadro anterior (spec 034) — os `previousVertices`
+ * da geometria que a GPU reescreve; nas outras, os próprios vértices.
+ */
+const SURFACE_VERTEX_LAYOUT = [
+    ...VERTEX_LAYOUT,
+    {
+        arrayStride: 32,
+        stepMode: 'vertex' as const,
+        attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x3' as const }],
     },
 ];
 
@@ -122,8 +143,53 @@ export interface ForwardSlots extends SlotMap {
     readonly cameraFunctions: EntitiesSlot;
     /** Relógio da cena (tempo das funções `material`; opcional). */
     readonly time: SingletonSlot<true>;
-    /** Os alvos da cena (a cópia com mips e a espessura dos transmissivos, spec 011; opcional). */
+    /** Os alvos da cena (o passe de profundidade, spec 033; opcional). */
     readonly targets: SingletonSlot<true>;
+    /** Vetores de movimento (`FrameTargets.motion`, spec 034; sem MSAA). */
+    readonly motion: TextureSlot<true>;
+    /** A luz que chega a cada pixel (`FrameTargets.light`, spec 034; sem MSAA): escrita pelo passe principal. */
+    readonly light: TextureSlot<true>;
+    /** Antisserrilhado da cena: o passe de movimento vale com o modo temporal. */
+    readonly antialiasing: SingletonSlot<true>;
+    /**
+     * Refração traçada (spec 034): com ela, os transmissivos marcam o pedido por pixel depois dos opacos (o traçado e a
+     * composição desenham a cor deles); sem ela, não desenham.
+     */
+    readonly refraction: SingletonSlot<true>;
+    /** O espaço de trabalho do passe: parâmetros do quadro, substituto da geometria diferencial, o descarte (spec 039). */
+    readonly work: WorkSlot<ForwardWork>;
+    /** As séries do descarte (spec 034, T060d; no trabalho): a hierarquia de profundidade e as medidas da oclusão. */
+    readonly hzb: ChannelSlot<true>;
+    readonly cullStats: ChannelSlot<true>;
+}
+
+/** Id dos parâmetros do quadro no trabalho. */
+const FRAME_PARAMS = 'forward_frame_params';
+/** Id do substituto do pool `SurfaceDiff` no trabalho. */
+const DUMMY_DIFF = 'forward_surface_diff_dummy';
+
+/**
+ * Resource de trabalho do `ForwardFlow` (spec 039): `ForwardFrameParams` e o substituto do pool `SurfaceDiff` (nenhuma
+ * superfície com geometria diferencial); o descarte pela GPU (`DrawCulling`, spec 034 T060d) declara as partes dele.
+ */
+class ForwardWork extends FlowWork {
+    static readonly schema = ForwardWorkSchema;
+
+    constructor() {
+        super();
+        this.use({
+            descriptors: (): readonly GPUDescriptor[] => [
+                // Escritos da CPU só quando mudam (`writeNow`), cada um por si.
+                {
+                    id: FRAME_PARAMS,
+                    role: 'uniform',
+                    schema: ForwardFrameParamsSchema,
+                    upload: 'never',
+                },
+                { id: DUMMY_DIFF, role: 'storage-rw', schema: SurfaceDiffSchema, upload: 'never' },
+            ],
+        });
+    }
 }
 
 /**
@@ -151,10 +217,12 @@ interface MaterialFnVariant extends PipelineVariant {
     readonly base: { readonly ccw: string; readonly cw: string };
     readonly ccw: string;
     readonly cw: string;
-    /** Transmissivos (spec 011): os pipelines das faces de trás e da frente, por orientação. */
+    /**
+     * Transmissivos (spec 011): fora do passe principal; com a `Refraction` na cena, os pipelines do pedido da refração
+     * (spec 034), por orientação.
+     */
     readonly transmission?: {
-        readonly back: { readonly ccw: string; readonly cw: string };
-        readonly front: { readonly ccw: string; readonly cw: string };
+        readonly request?: { readonly ccw: string; readonly cw: string };
     };
 }
 
@@ -163,22 +231,12 @@ function isTransmissive(fn: MaterialFunction | undefined): boolean {
     return fn !== undefined && (fn.lobeMask & TRANSMISSIVE_LOBES) !== 0;
 }
 
-/** Cópia da cena com mips e os kernels da redução, por textura (recriados quando ela muda). */
-interface SceneCopyState {
-    readonly texture: TextureSpec;
-    readonly view: TextureViewSpec;
-    readonly levelViews: readonly TextureViewSpec[];
-    readonly storageViews: readonly TextureViewSpec[];
-    readonly kernels: readonly ComputeKernel[];
-    readonly sizes: readonly number[];
-}
-
 /** A `MaterialFunction` da entidade, se tem. */
 function materialFunctionOf(entry: EntityEntry): MaterialFunction | undefined {
     return entry.resources.find((r): r is MaterialFunction => r instanceof MaterialFunction);
 }
 
-function slotsOf(output: ForwardOutput): ForwardSlots {
+function slotsOf(output: ForwardOutput, work: ForwardWork): ForwardSlots {
     const depth = { schema: FrameTargets.schema, descId: 'depth' };
     // Cor multiamostrada dos alvos (MSAA, spec 008): o passe desenha nela e resolve na cor.
     const samples = { schema: FrameTargets.schema, descId: 'samples' };
@@ -206,10 +264,26 @@ function slotsOf(output: ForwardOutput): ForwardSlots {
         cameraFunctions: slot.entities({ all: [Camera, CameraFunction] }),
         time: slot.singleton(Time.schema, { optional: true }),
         targets: slot.singleton(FrameTargets.schema, { optional: true }),
+        motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+        light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
+        antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+        refraction: slot.singleton(Refraction.schema, { optional: true }),
+        work: slot.work(() => work),
+        hzb: slot.channel(ForwardWork.schema, DRAW_CULL_HZB, { optional: true }),
+        cullStats: slot.channel(ForwardWork.schema, DRAW_CULL_STATS, { optional: true }),
     };
 }
 
 type Ctx = TransitionContext<ForwardSlots>;
+
+/** Pipeline por geometria (sprites e arame): o de cor, o de movimento (sprites sem MSAA) e os vértices anteriores ligados. */
+interface GeometryPipeline {
+    readonly id: string;
+    users: number;
+    readonly geometry: Geometry;
+    readonly motion: string | undefined;
+    previous: VertexBufferSpec;
+}
 
 /** Opções do `ForwardFlow`. */
 export interface ForwardFlowOptions {
@@ -247,7 +321,6 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     readonly slots: ForwardSlots;
     /** Os registros de todas as formas das funções `material` (spec 031, R8). */
     override readonly listens = [materialPoint];
-    override readonly bindings: ReadonlyMap<BindingKey, BindingSource>;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ForwardSlots>>;
 
@@ -261,9 +334,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private readonly depthPrepassForced: boolean | undefined;
     /** Pipeline de profundidade de cada pipeline base de opaco (o mesmo vértice, sem fragmento). */
     private readonly depthPipelines = new Map<string, string>();
-    private readonly frameParams: UniformBufferSpec;
-    /** Substituto do pool `SurfaceDiff` (nenhuma superfície com geometria diferencial). */
-    private readonly dummyDiff: StorageBufferSpec;
+    /** Pipeline de movimento de cada pipeline base de opaco (o mesmo vértice, o fragmento `fs_motion`; spec 034). */
+    private readonly motionPipelines = new Map<string, string>();
+    /**
+     * O mesmo para a interface mais próxima dos transmissivos (as duas faces, na profundidade do pedido da refração),
+     * escrevendo só rg (ba fica com o movimento do que está atrás).
+     */
+    private readonly surfaceMotionPipelines = new Map<string, string>();
+    /** Parâmetros do quadro, substituto do pool `SurfaceDiff` e argumentos indiretos (spec 039). */
+    private readonly work: ForwardWork;
     /** Pool `SurfaceDiff` ligado (o real ou o substituto). */
     private boundDiff: StorageBufferSpec | undefined;
     /** Conteúdo escrito em `ForwardFrameParams` (comparado para escrever só quando muda). */
@@ -295,7 +374,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
      * material, vertex buffer da geometria); os vértices (e as arestas do arame) são bindings privados do pipeline.
      * Contagem de entidades por pipeline (liberado com a última).
      */
-    private readonly geometryPipelines = new Map<string, { readonly id: string; users: number }>();
+    private readonly geometryPipelines = new Map<string, GeometryPipeline>();
     /** Pipeline por geometria de cada entidade que o usa (para liberar na saída). */
     private readonly geometryOfEntity = new Map<EntityId, string>();
     /** Geometrias escritas pela GPU sem escritor já avisadas. */
@@ -305,17 +384,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private geometryCounter = 0;
     /** Número de cada vertex buffer com pipeline por geometria (nome estável dos pipelines). */
     private readonly geometryKeys = new Map<AnyBufferSpec, number>();
-    /**
-     * Argumentos do desenho indireto dos grupos cuja geometria tem registro indireto (malha adaptativa, spec 010): o
-     * `first`/`count` do grupo deste passe escritos pela CPU e a contagem copiada do registro da geometria (na GPU) antes
-     * do passe. Registro 0 (indexado) e 1 (byte 20: arame, não indexado).
-     */
-    private readonly indirectArgs = new Map<
-        string,
-        { readonly args: IndirectBufferSpec; readonly source: IndirectBufferSpec }
-    >();
-    /** O device tem `indirect-first-instance` (sem ela, a malha adaptativa vem no nível máximo e desenha direto). */
-    private indirectOn = false;
+    /** O desenho conduzido pela GPU (spec 034, T060d): o descarte e as listas e argumentos dos grupos. */
+    private readonly culling: DrawCulling;
+    /** A lista das instâncias desenhadas ligada ao `draw_visible` (a chave da fonte). */
+    private boundVisible = '';
+    /** Os grupos do descarte, os grupos do slot de que vieram e se uma geometria mudou desde então. */
+    private cullGroups: CullGroup[] = [];
+    private cullSource: unknown = undefined;
+    private cullDirty = true;
+    /** Deixa de ouvir os envios de geometria (no descarte). */
+    private readonly stopWatching: () => void;
     /** Quando true, o passe grava os timestamps do profiler (`timestamp-query`); sem a feature, nada muda. */
     profileTimestamps = false;
     /** Descritor de cada pipeline de material de triângulos (base das variantes de projeção). */
@@ -345,27 +423,24 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const name = fn.module.name;
             const ccw = `${base.ccw}|material:${name}`;
             const cw = `${base.cw}|material:${name}`;
-            const transmissive = isTransmissive(fn) && this.ensureTransmission(ctx);
+            const transmissive = isTransmissive(fn);
+            const request = transmissive && this.ensureRefractionRequest(ctx);
             const transmission = transmissive
-                ? {
-                      back: { ccw: `${ccw}|back`, cw: `${cw}|back` },
-                      front: { ccw: `${ccw}|front`, cw: `${cw}|front` },
-                  }
+                ? request
+                    ? { request: { ccw: `${ccw}|request`, cw: `${cw}|request` } }
+                    : {}
                 : undefined;
             const next: MaterialFnVariant = {
-                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}`,
-                id: transmission?.front.ccw ?? ccw,
+                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}${request ? '|request' : ''}`,
+                // A variante passa a valer quando o pipeline `id` compila: o do pedido, quando há (a entrada da
+                // refração troca a variante de uma entidade cuja função já compilou).
+                id: transmission?.request?.ccw ?? ccw,
                 ids: [
                     ccw,
                     cw,
-                    ...(transmission === undefined
+                    ...(transmission?.request === undefined
                         ? []
-                        : [
-                              transmission.back.ccw,
-                              transmission.back.cw,
-                              transmission.front.ccw,
-                              transmission.front.cw,
-                          ]),
+                        : [transmission.request.ccw, transmission.request.cw]),
                 ],
                 base,
                 ccw,
@@ -395,41 +470,33 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 };
                 const ready = variant(base.ccw, ccw);
                 variant(base.cw, cw);
-                if (transmission === undefined) return ready;
-                // Transmissivos: as duas camadas sobre a variante da função (o mesmo adaptador e os mesmos lobos).
-                const layer = (fromId: string, id: string, side: 'back' | 'front'): boolean => {
+                if (transmission?.request === undefined) return ready;
+                // Pedido da refração (spec 034): as duas faces, sem amostras, na profundidade própria.
+                const requestLayer = (fromId: string, id: string): boolean => {
                     const f = this.baseDescriptors.get(fromId)!;
                     return ctx.prepare({
                         ...f,
                         id,
                         shader: bindPoints(
                             ctx.bound.slots.target.sampleCount > 1
-                                ? forwardTransmission.multisampled
-                                : forwardTransmission.single,
+                                ? forwardRefractionRequest.multisampled
+                                : forwardRefractionRequest.single,
                             new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
                         ),
-                        entryPoints: [
-                            'vs_main',
-                            side === 'back' ? 'fs_transmission_back' : 'fs_transmission_front',
-                        ],
-                        cullMode: side === 'back' ? 'front' : 'back',
-                        colorTargets:
-                            side === 'back'
-                                ? [{ format: SCENE_COLOR_FORMAT }, { format: 'r16float' }]
-                                : [{ format: SCENE_COLOR_FORMAT }],
-                        // Trás: a mais distante por pixel na profundidade própria (descasque); frente: a da cena.
+                        entryPoints: ['vs_main', 'fs_refraction_request'],
+                        cullMode: 'none',
+                        colorTargets: [{ format: REFRACTION_REQUEST_FORMAT }],
                         depth: {
                             format: 'depth24plus',
                             depthWriteEnabled: true,
-                            depthCompare: side === 'back' ? 'greater' : 'less',
+                            depthCompare: 'less',
                         },
+                        multisample: { count: 1 },
                     }).ready;
                 };
-                layer(ccw, transmission.back.ccw, 'back');
-                layer(cw, transmission.back.cw, 'back');
-                const frontReady = layer(ccw, transmission.front.ccw, 'front');
-                layer(cw, transmission.front.cw, 'front');
-                return ready && frontReady;
+                const requestReady = requestLayer(ccw, transmission.request.ccw);
+                requestLayer(cw, transmission.request.cw);
+                return ready && requestReady;
             });
         }
         this.materialFns.retain(ctx, present);
@@ -484,12 +551,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     );
     /** As funções `material` (conjunto ou código) mudaram desde a última sincronização. */
     private materialFnDirty = true;
-    /** Amostrador linear com mips da cópia da cena (transmissivos, spec 011). */
-    private copySampler: SamplerSpec | undefined;
-    /** Cópia da cena com mips e os kernels da redução. */
-    private sceneCopy: SceneCopyState | undefined;
-    /** Views ligadas às variáveis dos transmissivos (religadas quando mudam). */
-    private transmissionBound: readonly unknown[] = [];
+    /** A profundidade dos opacos ligada ao pedido da refração (religada quando muda). */
+    private sceneDepthBound: TextureViewSpec | undefined;
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
         super();
@@ -499,23 +562,20 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.preferAsync = options.preferAsync === true;
         this.depthPrepass = options.depthPrepass !== false;
         this.depthPrepassForced = options.depthPrepass;
-        this.slots = slotsOf(options.output ?? 'scene');
-        this.frameParams = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'forward_frame_params',
-            byteSize: ForwardFrameParamsSchema.stride,
+        this.work = new ForwardWork();
+        this.culling = new DrawCulling({
+            core: ctx.core,
+            resources: ctx.resources,
+            work: this.work,
         });
-        this.dummyDiff = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'forward_surface_diff_dummy',
-            byteSize: SurfaceDiffSchema.stride,
+        // Os vértices de uma geometria enviados de novo pela CPU: a caixa dela é refeita no descarte.
+        this.stopWatching = ctx.events.on('resourceReady', (e) => {
+            const r = e.payload.resource;
+            if (!(r instanceof Geometry)) return;
+            this.culling.geometryChanged(this.resources.bufferOf(r, 'vertices'));
+            this.cullDirty = true;
         });
-        this.bindings = new Map<BindingKey, BindingSource>([
-            [forwardFrameResource, this.frameParams],
-            [surfaceDiffReadResource, this.dummyDiff],
-        ]);
+        this.slots = slotsOf(options.output ?? 'scene', this.work);
         const diffs = {
             to: 'idle' as const,
             run: (_e: unknown, c: Ctx) => {
@@ -527,11 +587,32 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
+                        // O trabalho já está na cena: os parâmetros do quadro (fonte privada) ligam ao que a C2 alocou.
+                        c.bind(
+                            new Map<BindingKey, BindingSource>([
+                                [
+                                    forwardFrameResource,
+                                    this.resources.bufferOf(
+                                        this.work,
+                                        FRAME_PARAMS,
+                                    ) as UniformBufferSpec,
+                                ],
+                            ]),
+                        );
                         this.bindDiff(c);
+                        this.bindVisible(c);
                         this.prepareMaterials(c);
                     },
                 },
-                slotChanged: diffs,
+                slotChanged: {
+                    to: 'idle',
+                    run: (e, c) => {
+                        this.bindDiff(c);
+                        // A refração entrou ou saiu: as variantes dos transmissivos ganham ou perdem o pedido.
+                        if (e.type === 'slotChanged' && e.slot === 'refraction')
+                            this.materialFnDirty = true;
+                    },
+                },
                 poolReallocated: diffs,
                 entitiesChanged: {
                     to: 'idle',
@@ -541,6 +622,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         this.releaseGeometryPipelines(c, e.removed);
                         this.prepareMaterials(c, e.added);
                         this.materialFnDirty = true;
+                        this.cullDirty = true;
                     },
                 },
                 resourceReady: 'ignore',
@@ -581,10 +663,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
                         this.syncMaterialFunctions(c);
-                        this.syncSceneCopy(c);
+                        this.bindSceneDepth(c);
                         this.syncProjection(c);
                         this.prepareBackground(c);
-                        this.prepareIndirect(c);
+                        this.prepareCulling(c);
+                        this.bindPreviousVertices(c);
                         this.writeFrameParams(c);
                     },
                 },
@@ -594,9 +677,15 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /**
      * Grava o passe principal: um desenho por grupo de instâncias; grupos de bind compartilhados uma vez; pipeline e
-     * grupo do material só quando o pipeline muda. Com transmissivos (spec 011), eles saem do passe principal e vão a
-     * duas camadas depois dele: a cor resolvida é copiada para a cópia com mips, as faces de trás desenham (com a
-     * distância delas), a cópia é refeita e as faces da frente desenham sobre ela.
+     * grupo do material só quando o pipeline muda. Os transmissivos (spec 011) saem do passe principal: depois dele, com
+     * a `Refraction`, marcam o pedido da refração (spec 034) — a cor deles vem do traçado e da composição, depois deste
+     * estágio — e, com o antisserrilhado temporal, o movimento da superfície na profundidade do pedido.
+     *
+     * Desenho conduzido pela GPU (spec 034, T060d): o descarte monta as listas de cada grupo antes do passe. Com as duas
+     * fases, o passe se divide: a fase 1 (as instâncias que a hierarquia de profundidade do quadro anterior não esconde)
+     * desenha a profundidade — ou a cor, sem o passe de profundidade —, a hierarquia deste quadro sai dela, e a fase 2 (as
+     * escondidas antes que esta hierarquia não esconde) completa a profundidade antes da cor de todas. Sem as listas
+     * prontas (os kernels compilando), nenhum grupo desenha.
      */
     dispatch(frame: Frame, bound: BoundFlow<ForwardSlots>): void {
         const target = bound.slots.target;
@@ -608,40 +697,149 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         const tsWrites = this.profileTimestamps
             ? this.core.profiler.timestampWritesFor(0, 1)
             : undefined;
-        const renderTarget: RenderTarget = {
-            colorAttachments: [color],
-            depthStencilAttachment: {
-                view: target.depth,
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            },
-            ...(tsWrites !== undefined ? { timestampWrites: tsWrites } : {}),
-        };
-        const groups = bound.slots.renderables.groups;
-        // Contagens da malha adaptativa (produzidas na GPU) nos argumentos deste passe.
-        for (const { args, source } of this.indirectArgs.values()) {
-            frame.copy(source, args, 4, 0, 0);
-            frame.copy(source, args, 4, 20, 20);
-        }
+        const light = bound.slots.light;
+        const targetOf = (
+            load: 'clear' | 'load',
+            ts: RenderTarget['timestampWrites'],
+        ): RenderTarget => ({
+            colorAttachments: [
+                load === 'clear' ? color : this.colorAttachment(frame, target, { loadOp: 'load' })!,
+                ...(light === undefined
+                    ? []
+                    : [
+                          load === 'clear'
+                              ? {
+                                    view: light.view,
+                                    loadOp: 'clear' as const,
+                                    clearValue: [0, 0, 0, 0] as const,
+                                    storeOp: 'store' as const,
+                                }
+                              : {
+                                    view: light.view,
+                                    loadOp: 'load' as const,
+                                    storeOp: 'store' as const,
+                                },
+                      ]),
+            ],
+            depthStencilAttachment:
+                load === 'clear'
+                    ? {
+                          view: target.depth!,
+                          depthClearValue: 1.0,
+                          depthLoadOp: 'clear',
+                          depthStoreOp: 'store',
+                      }
+                    : { view: target.depth!, depthLoadOp: 'load', depthStoreOp: 'store' },
+            ...(ts !== undefined ? { timestampWrites: ts } : {}),
+        });
+        const culled = this.culling.ready;
+        const groups = culled ? bound.slots.renderables.groups : [];
         const transmissive = groups.filter(
             (g) => this.transmissionOf(g.representative) !== undefined,
         );
         const opaque =
             transmissive.length === 0 ? groups : groups.filter((g) => !transmissive.includes(g));
-        frame.render(renderTarget, 'ForwardFlow', (pass) => {
-            // A profundidade dos opacos primeiro (só o vértice); a cor depois, um fragmento por pixel.
-            if (this.prepassActive(bound))
-                this.recordGroups(pass, bound, opaque, (_entry, id) => this.depthPipelines.get(id));
-            this.recordGroups(
-                pass,
-                bound,
-                opaque,
-                (entry, id) => this.materialFnPipelineOf(bound, entry, id) ?? id,
+        const prepass = this.prepassActive(bound);
+        const depthOf = (_entry: EntityEntry, id: string): string | undefined =>
+            this.depthPipelines.get(id);
+        const colorOf = (entry: EntityEntry, id: string): string =>
+            this.materialFnPipelineOf(bound, entry, id) ?? id;
+        if (culled) this.culling.recordEarly(frame, bound.slots.cullStats);
+        const hzb = bound.slots.hzb;
+        if (culled && this.culling.twoPhase && hzb !== undefined) {
+            // Os timestamps do profiler: o começo na fase 1, o fim na fase 2.
+            const half = (
+                which: 'beginningOfPassWriteIndex' | 'endOfPassWriteIndex',
+            ): RenderTarget['timestampWrites'] => {
+                const index = tsWrites?.[which];
+                return tsWrites === undefined || index === undefined
+                    ? undefined
+                    : { querySet: tsWrites.querySet, [which]: index };
+            };
+            // Fase 1: a profundidade (ou a cor, sem o passe de profundidade) do que o quadro anterior não escondia.
+            frame.render(
+                targetOf('clear', half('beginningOfPassWriteIndex')),
+                'ForwardFlow',
+                (pass) => {
+                    if (prepass) this.recordGroups(pass, bound, opaque, 0, depthOf);
+                    else this.recordGroups(pass, bound, opaque, 0, colorOf);
+                },
             );
-            this.recordBackground(pass, bound);
-        });
-        if (transmissive.length > 0) this.recordTransmission(frame, bound, transmissive);
+            this.culling.recordLate(frame, hzb);
+            // Fase 2: o que esta hierarquia não esconde; depois a cor de todas (com o passe de profundidade).
+            frame.render(targetOf('load', half('endOfPassWriteIndex')), 'ForwardFlow', (pass) => {
+                if (prepass) {
+                    this.recordGroups(pass, bound, opaque, 1, depthOf);
+                    this.recordGroups(pass, bound, opaque, 2, colorOf);
+                } else this.recordGroups(pass, bound, opaque, 1, colorOf);
+                this.recordBackground(pass, bound);
+            });
+        } else {
+            frame.render(targetOf('clear', tsWrites), 'ForwardFlow', (pass) => {
+                // A profundidade dos opacos primeiro (só o vértice); a cor depois, um fragmento por pixel.
+                if (prepass) this.recordGroups(pass, bound, opaque, 2, depthOf);
+                this.recordGroups(pass, bound, opaque, 2, colorOf);
+                this.recordBackground(pass, bound);
+            });
+        }
+        this.recordMotion(frame, bound, opaque, 'clear');
+        this.recordRefractionRequest(frame, bound, transmissive);
+        if (transmissive.length > 0) this.recordMotion(frame, bound, transmissive, 'load');
+    }
+
+    /**
+     * Passe de movimento (spec 034): com o antisserrilhado temporal e o alvo de movimento, os opacos de novo só no vértice
+     * (a profundidade do passe principal, teste igual) escrevendo o deslocamento de cada pixel desde o quadro anterior
+     * (`clear`); depois do pedido da refração, a interface mais próxima dos transmissivos (as duas faces, teste igual na
+     * profundidade do pedido) reescreve só o da superfície (`load`), e o do que está atrás fica — a resolução o usa para o
+     * que o transmissivo mostra. O fundo
+     * (nenhuma geometria) fica com zero: a resolução usa a reprojeção pela câmera onde a profundidade é a do plano
+     * distante.
+     */
+    private recordMotion(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        load: 'clear' | 'load',
+    ): void {
+        const motion = bound.slots.motion;
+        const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        const depth =
+            load === 'clear'
+                ? bound.slots.target.depth
+                : bound.slots.refraction?.textureViewOf('requestDepth');
+        if (motion === undefined || depth === undefined || aa?.mode !== 'temporal') return;
+        const target: RenderTarget = {
+            colorAttachments: [
+                load === 'clear'
+                    ? {
+                          view: motion.view,
+                          loadOp: 'clear',
+                          clearValue: [0, 0, 0, 0],
+                          storeOp: 'store',
+                      }
+                    : { view: motion.view, loadOp: 'load', storeOp: 'store' },
+            ],
+            depthStencilAttachment: { view: depth, depthLoadOp: 'load', depthStoreOp: 'store' },
+        };
+        const pipelines = load === 'clear' ? this.motionPipelines : this.surfaceMotionPipelines;
+        frame.render(
+            target,
+            load === 'clear' ? 'ForwardFlow.motion' : 'ForwardFlow.surfaceMotion',
+            (pass) => {
+                this.recordGroups(pass, bound, groups, 2, (_entry, id) => pipelines.get(id));
+            },
+        );
+    }
+
+    /**
+     * O anexo da luz que chega no passe principal (spec 034): presente com o alvo `FrameTargets.light` (sem MSAA). Só o
+     * fragmento do forward o escreve; o fundo, a profundidade, os sprites e o arame o declaram sem escrever (fica o
+     * zero da limpeza ou o da superfície de antes).
+     */
+    private lightTargets(ctx: Ctx, write: boolean): GPUColorTargetState[] {
+        if (ctx.bound.slots.light === undefined) return [];
+        return [{ format: LIGHT_FORMAT, ...(write ? {} : { writeMask: 0 }) }];
     }
 
     /** O passe de profundidade vale neste quadro: forçado pela opção ou ligado nos `FrameTargets`. */
@@ -670,7 +868,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             entryPoints: ['vs_background', 'fs_background'],
             topology: 'triangle-list',
             cullMode: 'none',
-            colorTargets: [{ format }],
+            colorTargets: [{ format }, ...this.lightTargets(ctx, false)],
             depth: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
             multisample: { count: samples },
         });
@@ -689,94 +887,78 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         pass.draw.vertices(3);
     }
 
-    /** Pipelines de transmissivo da entidade (as duas camadas), se a função dela os tem e estão prontos. */
-    private transmissionOf(entry: EntityEntry):
-        | {
-              readonly back: { ccw: string; cw: string };
-              readonly front: { ccw: string; cw: string };
-          }
-        | undefined {
+    /**
+     * Pedido da refração (spec 034, R1): com a `Refraction` e os alvos dela alocados, os transmissivos com as duas faces
+     * na profundidade própria, à frente dos opacos — o pixel guarda a distância à primeira interface vista e a face. O
+     * passe é gravado (limpando o pedido) também sem transmissivos: a fila do quadro nunca lê um pedido antigo.
+     */
+    private recordRefractionRequest(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): void {
+        const refraction = bound.slots.refraction;
+        const view = refraction?.textureViewOf('request');
+        const depth = refraction?.textureViewOf('requestDepth');
+        if (view === undefined || depth === undefined) return;
+        frame.render(
+            {
+                colorAttachments: [
+                    { view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+                ],
+                depthStencilAttachment: {
+                    view: depth,
+                    depthClearValue: 1,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ForwardFlow.refractionRequest',
+            (pass) => {
+                this.recordGroups(pass, bound, groups, 2, (entry, id) => {
+                    const request = this.transmissionOf(entry)?.request;
+                    if (request === undefined) return undefined;
+                    const v = this.materialFns.active(entry.entityId)!;
+                    return id === v.base.cw ? request.cw : request.ccw;
+                });
+            },
+        );
+    }
+
+    /**
+     * Aloca o pedido da refração e a profundidade dele (spec 034) quando a cena tem a `Refraction` e liga a profundidade
+     * dos opacos ao pedido: `false` sem ela (os transmissivos não desenham).
+     */
+    private ensureRefractionRequest(ctx: Ctx): boolean {
+        const refraction = ctx.bound.slots.refraction?.resource;
+        if (refraction === undefined) return false;
+        this.resources.ensureAllocated(refraction, 'request');
+        this.resources.ensureAllocated(refraction, 'requestDepth');
+        this.bindSceneDepth(ctx);
+        return true;
+    }
+
+    /** Pipelines de transmissivo da entidade (o pedido, com a `Refraction`), se a função dela os tem. */
+    private transmissionOf(entry: EntityEntry): MaterialFnVariant['transmission'] {
         if (!isTransmissive(materialFunctionOf(entry))) return undefined;
         return this.materialFns.active(entry.entityId)?.transmission;
     }
 
     /**
-     * As duas camadas dos transmissivos (spec 011, R6). Sem a cópia da cena ou com os pipelines compilando, os
-     * transmissivos esperam (não desenham pela metade).
-     */
-    private recordTransmission(
-        frame: Frame,
-        bound: BoundFlow<ForwardSlots>,
-        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
-    ): void {
-        const target = bound.slots.target;
-        const targets = bound.slots.targets?.resource;
-        const colorView = this.colorView(frame, target);
-        if (targets === undefined || colorView === undefined || target.depth === undefined) return;
-        const colorTexture = colorView.source;
-        const depthResolved = this.resources.textureViewOf(targets, 'transmissionDepth');
-        const depthSamples = this.resources.textureViewOf(targets, 'transmissionSamples');
-        const backZ = this.resources.textureViewOf(targets, 'transmissionZ');
-        if (this.sceneCopy === undefined || depthResolved === undefined || backZ === undefined)
-            return;
-        const color = this.colorAttachment(frame, target, { loadOp: 'load' })!;
-        const distance =
-            target.samples !== undefined && depthSamples !== undefined
-                ? { view: depthSamples, resolveTarget: depthResolved }
-                : { view: depthResolved };
-        const depth = {
-            view: target.depth,
-            depthLoadOp: 'load' as const,
-            depthStoreOp: 'store' as const,
-        };
-        const pick =
-            (side: 'back' | 'front') =>
-            (entry: EntityEntry, id: string): string | undefined => {
-                const t = this.transmissionOf(entry);
-                if (t === undefined) return undefined;
-                const v = this.materialFns.active(entry.entityId)!;
-                return id === v.base.cw ? t[side].cw : t[side].ccw;
-            };
-        this.recordSceneCopy(frame, colorTexture);
-        frame.render(
-            {
-                colorAttachments: [
-                    color,
-                    { ...distance, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
-                ],
-                // Profundidade própria limpa em 0: o teste `greater` guarda a face de trás mais distante.
-                depthStencilAttachment: {
-                    view: backZ,
-                    depthClearValue: 0,
-                    depthLoadOp: 'clear',
-                    depthStoreOp: 'store',
-                },
-            },
-            'ForwardFlow.transmissionBack',
-            (pass) => {
-                this.recordGroups(pass, bound, groups, pick('back'));
-            },
-        );
-        this.recordSceneCopy(frame, colorTexture);
-        frame.render(
-            { colorAttachments: [color], depthStencilAttachment: depth },
-            'ForwardFlow.transmissionFront',
-            (pass) => {
-                this.recordGroups(pass, bound, groups, pick('front'));
-            },
-        );
-    }
-
-    /**
      * Um desenho por grupo de instâncias, com o pipeline escolhido por `pipelineFor` a partir do pipeline base do grupo
-     * (`undefined`: o grupo não desenha neste passe); bind groups religados só quando mudam.
+     * (`undefined`: o grupo não desenha neste passe); bind groups religados só quando mudam. Com o descarte pela GPU, o
+     * desenho indireto do registro `record` do grupo (a lista 1, a 2 ou as duas); sem `indirect-first-instance`, o direto
+     * de todas as instâncias (a lista nas mesmas posições), só nos registros que as incluem.
      */
     private recordGroups(
         pass: RenderPass,
         bound: BoundFlow<ForwardSlots>,
         groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        record: CullRecord,
         pipelineFor: (entry: EntityEntry, baseId: string) => string | undefined,
     ): void {
+        const args = this.culling.indirect ? this.culling.args : undefined;
+        if (this.culling.indirect ? args === undefined : record === 1) return;
         let current: PreparedRender | undefined;
         // Bind group atual de cada índice: só o que muda é religado ao trocar de pipeline (spec 031).
         const boundGroups: (BindGroupSpec | undefined)[] = [];
@@ -816,214 +998,160 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 }
                 current = prepared;
             }
-            if (topology === 'point-list') {
-                // Um quad (6 vértices) por vértice da geometria, lida como storage pelo shader.
-                pass.draw.vertices(6 * geometry.vertexCount, group.count, 0, group.first);
-                continue;
-            }
-            const indirect = this.indirectArgs.get(group.key)?.args;
-            if (edges?.subkind === 'index') {
-                // Arame: um quad (6 vértices) por aresta da geometria (`wireEdges`, aos pares).
-                if (indirect !== undefined) pass.draw.indirect(indirect, 20);
-                else pass.draw.vertices(6 * (edges.count >> 1), group.count, 0, group.first);
+            const offset =
+                args === undefined ? undefined : this.culling.argsOffset(group.key, record);
+            if (args !== undefined && offset === undefined) continue;
+            if (topology === 'point-list' || edges?.subkind === 'index') {
+                // Sprites: um quad (6 vértices) por vértice da geometria, lida como storage pelo shader. Arame: um quad
+                // por aresta da geometria (`wireEdges`, aos pares).
+                if (args !== undefined) pass.draw.indirect(args, offset!);
+                else {
+                    const quads =
+                        edges?.subkind === 'index' ? edges.count >> 1 : geometry.vertexCount;
+                    pass.draw.vertices(6 * quads, group.count, 0, group.first);
+                }
                 continue;
             }
             pass.geometry.vertex(0, vertices);
+            const previous = this.resources.bufferOf(geometry, 'previousVertices');
+            pass.geometry.vertex(1, previous?.subkind === 'vertex' ? previous : vertices);
             const indices = this.resources.bufferOf(geometry, 'indices');
             if (indices?.subkind === 'index') {
                 pass.geometry.index(indices);
-                if (indirect !== undefined) pass.draw.indexedIndirect(indirect, 0);
+                if (args !== undefined) pass.draw.indexedIndirect(args, offset!);
                 else pass.draw.indexed(indices.count, group.count, 0, 0, group.first);
-            } else {
-                // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
-                pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
-            }
+            } else if (args !== undefined) pass.draw.indirect(args, offset!);
+            // Geometria sem índices (ex.: escrita por um estágio): desenho direto pela contagem de vértices.
+            else pass.draw.vertices(geometry.vertexCount, group.count, 0, group.first);
         }
     }
 
     /**
-     * Argumentos indiretos dos grupos com registro indireto na geometria (malha adaptativa, spec 010), com o `first` e o
-     * `count` do grupo neste passe; os de grupos que sumiram são liberados. Sem `indirect-first-instance`, nenhum (o
-     * desenho direto pela capacidade, que a superfície preenche no nível máximo).
+     * O descarte do quadro (spec 034, T060d): cada grupo com a caixa da geometria, o desenho (indexado ou por vértices,
+     * a contagem de uma instância e, na malha adaptativa, o registro da geometria com a contagem da GPU) e se descarta —
+     * triângulos sim; sprites e arame (do tamanho em pixels) desenham sempre. Sem função de projeção da câmera e com o
+     * descarte ligado nos `FrameTargets`, o tronco e a oclusão valem. A lista das instâncias desenhadas liga ao
+     * `draw_visible` quando muda.
      */
-    private prepareIndirect(ctx: Ctx): void {
-        this.indirectOn = this.core.capabilities().features.includes('indirect-first-instance');
-        const used = new Set<string>();
-        if (this.indirectOn)
-            for (const group of ctx.bound.slots.renderables.groups) {
-                const source = this.resources.bufferOf(
-                    group.representative.get(Geometry),
-                    'indirect',
-                );
-                if (source?.subkind !== 'indirect') continue;
-                used.add(group.key);
-                let entry = this.indirectArgs.get(group.key);
-                if (entry?.source !== source) {
-                    if (entry !== undefined) this.core.destroy(entry.args);
-                    entry = {
-                        args: this.core.create<IndirectBufferSpec>({
-                            kind: 'buffer',
-                            subkind: 'indirect',
-                            discriminator: `forward_indirect:${group.key}:${this.indirectArgs.size}`,
-                            byteSize: 40,
-                        }),
-                        source,
-                    };
-                    this.indirectArgs.set(group.key, entry);
-                }
-                const words = new Uint32Array([
-                    0,
-                    group.count,
-                    0,
-                    0,
-                    group.first,
-                    0,
-                    group.count,
-                    0,
-                    group.first,
-                    0,
-                ]);
-                this.core.write(entry.args, new Uint8Array(words.buffer));
-            }
-        for (const [key, entry] of [...this.indirectArgs]) {
-            if (used.has(key)) continue;
-            this.core.destroy(entry.args);
-            this.indirectArgs.delete(key);
+    private prepareCulling(ctx: Ctx): void {
+        const slots = ctx.bound.slots;
+        const source = slots.renderables.groups;
+        // A lista dos grupos refeita só quando os grupos ou uma geometria mudam (ou falta um buffer ainda).
+        if (source !== this.cullSource || this.cullDirty) {
+            this.cullGroups = this.cullGroupsOf(source);
+            this.cullSource = source;
+            this.cullDirty = this.cullGroups.some(
+                (g) => g.vertices === undefined || g.drawCount === 0,
+            );
         }
-    }
-
-    /**
-     * Prepara os recursos dos transmissivos (spec 011): aloca a cópia da cena com mips e a espessura nos alvos, cria o
-     * amostrador e liga as três variáveis privadas — antes de preparar o primeiro pipeline de transmissivo. `false` sem
-     * os alvos da cena (desenho direto no canvas: sem transmissivos).
-     */
-    private ensureTransmission(ctx: Ctx): boolean {
-        const targets = ctx.bound.slots.targets?.resource;
-        if (targets === undefined) return false;
-        for (const id of ['sceneCopy', 'transmissionDepth', 'transmissionSamples', 'transmissionZ'])
-            if (targets.getDescriptors().some((d) => d.id === id))
-                this.resources.ensureAllocated(targets, id);
-        this.copySampler ??= this.core.create<SamplerSpec>({
-            kind: 'sampler',
-            discriminator: 'forward_scene_copy_sampler',
-            desc: {
-                magFilter: 'linear',
-                minFilter: 'linear',
-                mipmapFilter: 'linear',
-                addressModeU: 'clamp-to-edge',
-                addressModeV: 'clamp-to-edge',
+        const cameraId = this.world.entityIdOfResource(slots.camera.resource);
+        const cameraSlot = cameraId === undefined ? 0 : (slots.cameras.slotOf(cameraId) ?? 0);
+        const depth = slots.target.depth;
+        const targets = slots.targets?.resource as FrameTargets | undefined;
+        this.culling.prepare(
+            this.cullGroups,
+            {
+                cameraSlot,
+                // A projeção por função não é a `viewProjection` do tronco e da hierarquia: sem descarte.
+                enabled: this.projection === undefined && targets?.data.culling !== 0,
+                depth,
+                multisampled: slots.target.sampleCount > 1,
             },
-        });
-        this.syncSceneCopy(ctx);
-        return this.sceneCopy !== undefined;
+            slots.hzb,
+            slots.cullStats,
+        );
+        this.bindVisible(ctx);
     }
 
-    /**
-     * Cópia da cena com mips (spec 011): com transmissivos, views por nível e um kernel de redução por nível, refeitos
-     * quando a textura muda (redimensionamento); as variáveis dos transmissivos religadas quando as views mudam.
-     */
-    private syncSceneCopy(ctx: Ctx): void {
-        const targets = ctx.bound.slots.targets?.resource;
-        if (targets === undefined || this.copySampler === undefined) return;
-        const texture = this.resources.textureOf(targets, 'sceneCopy');
-        const depthView = this.resources.textureViewOf(targets, 'transmissionDepth');
-        if (texture === undefined || depthView === undefined) return;
-        if (this.sceneCopy?.texture !== texture) {
-            this.releaseSceneCopy();
-            const levels = texture.mipLevelCount ?? 1;
-            const view = (base: number, count: number | undefined, tag: string): TextureViewSpec =>
-                this.core.create<TextureViewSpec>({
-                    kind: 'textureview',
-                    discriminator: `forward_scene_copy_${tag}:${texture.width}x${texture.height}`,
-                    source: texture,
-                    baseMipLevel: base,
-                    ...(count !== undefined ? { mipLevelCount: count } : {}),
-                });
-            const levelViews = Array.from({ length: levels }, (_, l) => view(l, 1, `l${l}`));
-            const storageViews = levelViews;
-            const sampler = this.copySampler;
-            const kernels = Array.from({ length: Math.max(levels - 1, 0) }, (_, k) =>
-                createComputeKernel(this.core, {
-                    discriminator: `forward_scene_mip_${k + 1}:${texture.width}x${texture.height}`,
-                    shader: sceneCopyMips,
-                    entryPoint: 'scene_copy_down',
-                    bindings: new Map<WgslResource, BindingSource>([
-                        [sceneMipResources.src, levelViews[k]!],
-                        [sceneMipResources.dst, storageViews[k + 1]!],
-                        [sceneMipResources.sampler, sampler],
-                    ]),
-                }),
-            );
-            const sizes = Array.from(
-                { length: levels },
-                (_, l) => Math.max(texture.width >> l, 1) * Math.max(texture.height >> l, 1),
-            );
-            this.sceneCopy = {
-                texture,
-                view: view(0, undefined, 'all'),
-                levelViews,
-                storageViews,
-                kernels,
-                sizes,
+    /** Os grupos do descarte (a geometria, o desenho e se descarta) a partir dos grupos do slot. */
+    private cullGroupsOf(
+        source: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): CullGroup[] {
+        return source.map((group) => {
+            const entry = group.representative;
+            const geometry = entry.get(Geometry);
+            const topology = entry.get(Material).topology;
+            const vertices = this.resources.bufferOf(geometry, 'vertices');
+            const indices = this.resources.bufferOf(geometry, 'indices');
+            const edges = this.resources.bufferOf(geometry, 'wireEdges');
+            const source = this.resources.bufferOf(geometry, 'indirect');
+            const sprites = topology === 'point-list';
+            const wire = topology === 'line-list';
+            const indexed = !sprites && !wire && indices?.subkind === 'index';
+            const drawCount = sprites
+                ? 6 * geometry.vertexCount
+                : wire
+                  ? 6 * (edges?.subkind === 'index' ? edges.count >> 1 : 0)
+                  : indexed
+                    ? (indices?.count ?? 0)
+                    : geometry.vertexCount;
+            return {
+                key: group.key,
+                first: group.first,
+                count: group.count,
+                vertices: vertices?.subkind === 'vertex' ? vertices : undefined,
+                cull: !sprites && !wire,
+                deforming: this.resources.hasGpuWriter(geometry, 'vertices'),
+                indexed,
+                drawCount,
+                ...(source?.subkind === 'indirect' && !sprites
+                    ? { source: { buffer: source, offset: wire ? 20 : 0 } }
+                    : {}),
             };
-        }
-        const sceneDepth = ctx.bound.slots.target.depth;
-        if (sceneDepth === undefined) return;
-        const sources = [this.sceneCopy.view, this.copySampler, depthView, sceneDepth];
-        if (sources.some((v, k) => v !== this.transmissionBound[k])) {
-            ctx.bind(
-                new Map<BindingKey, BindingSource>([
-                    [transmissionResources.sceneCopy, this.sceneCopy.view],
-                    [transmissionResources.sampler, this.copySampler],
-                    [transmissionResources.depth, depthView],
-                    [
-                        ctx.bound.slots.target.sampleCount > 1
-                            ? transmissionResources.sceneDepthMs
-                            : transmissionResources.sceneDepth,
-                        sceneDepth,
-                    ],
-                ]),
-            );
-            this.transmissionBound = sources;
-        }
-    }
-
-    private releaseSceneCopy(): void {
-        const copy = this.sceneCopy;
-        if (copy === undefined) return;
-        for (const k of copy.kernels) destroyComputeKernel(this.core, k);
-        for (const v of copy.levelViews) this.core.destroy(v);
-        this.core.destroy(copy.view);
-        this.sceneCopy = undefined;
-    }
-
-    /** Copia a cor resolvida da cena para a cópia e reduz os mips (compute). */
-    private recordSceneCopy(frame: Frame, color: TextureSpec): void {
-        const copy = this.sceneCopy;
-        if (copy === undefined) return;
-        frame.copyTextureToTexture(color, copy.texture, [copy.texture.width, copy.texture.height]);
-        if (copy.kernels.length === 0) return;
-        frame.compute('ForwardFlow.sceneCopy', (pass) => {
-            copy.kernels.forEach((kernel, k) => {
-                pass.bind.setPipeline(kernel.pipeline);
-                kernel.bindTo(pass.bind);
-                pass.dispatch.invocations(copy.sizes[k + 1]!, WORKGROUP_SIZE.value);
-            });
         });
     }
 
-    /** Libera os recursos privados. */
+    /** A lista das instâncias desenhadas (do descarte) no `draw_visible`, religada quando muda (modo, realocação). */
+    private bindVisible(ctx: Ctx): void {
+        const visible = this.culling.visible;
+        if (visible === undefined) return;
+        const r = visible as { buffer?: object; offset?: number; size?: number };
+        const key = `${this.idOf(r.buffer ?? visible)}:${r.offset ?? 0}:${r.size ?? 0}`;
+        if (key === this.boundVisible) return;
+        ctx.bind(new Map([[drawVisibleResource, visible]]));
+        this.boundVisible = key;
+    }
+
+    /** Ids estáveis dos buffers (a chave da lista ligada). */
+    private readonly ids = new WeakMap<object, number>();
+    private nextId = 1;
+    private idOf(o: object): number {
+        let id = this.ids.get(o);
+        if (id === undefined) {
+            id = this.nextId++;
+            this.ids.set(o, id);
+        }
+        return id;
+    }
+
+    /** A profundidade dos opacos (com ou sem amostras) ligada ao pedido da refração, religada quando muda. */
+    private bindSceneDepth(ctx: Ctx): void {
+        const sceneDepth = ctx.bound.slots.target.depth;
+        if (sceneDepth === undefined || sceneDepth === this.sceneDepthBound) return;
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [
+                    ctx.bound.slots.target.sampleCount > 1
+                        ? transmissionResources.sceneDepthMs
+                        : transmissionResources.sceneDepth,
+                    sceneDepth,
+                ],
+            ]),
+        );
+        this.sceneDepthBound = sceneDepth;
+    }
+
+    /** Os parâmetros, o substituto e o descarte são do `ForwardWork` (a C2 os libera com ele). */
     override dispose(): void {
-        this.releaseSceneCopy();
-        if (this.copySampler !== undefined) this.core.destroy(this.copySampler);
-        for (const { args } of this.indirectArgs.values()) this.core.destroy(args);
-        this.indirectArgs.clear();
-        for (const spec of [this.frameParams, this.dummyDiff]) this.core.destroy(spec);
+        this.stopWatching();
+        this.culling.dispose();
     }
 
     /** Pool da geometria diferencial das superfícies (ou o substituto), religado quando muda. */
     private bindDiff(ctx: Ctx): void {
-        const buffer = ctx.bound.slots.diffs?.buffer ?? this.dummyDiff;
+        const buffer =
+            ctx.bound.slots.diffs?.buffer
+            ?? (this.resources.bufferOf(this.work, DUMMY_DIFF) as StorageBufferSpec);
         if (buffer === this.boundDiff) return;
         this.boundDiff = buffer;
         ctx.bind(new Map([[surfaceDiffReadResource, buffer]]));
@@ -1083,10 +1211,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ...desc,
                     id: `forward:${desc.id}:${frontFace}`,
                     topology,
-                    cullMode: topology === 'triangle-list' ? 'back' : 'none',
+                    // As faces de trás pelo material (dois lados: `cullMode` 'none' no descritor dele; T061a).
+                    cullMode: topology === 'triangle-list' ? (desc.cullMode ?? 'back') : 'none',
                     frontFace,
-                    vertexBuffers: VERTEX_LAYOUT,
-                    colorTargets: [{ format }],
+                    vertexBuffers: SURFACE_VERTEX_LAYOUT,
+                    colorTargets: [{ format }, ...this.lightTargets(ctx, true)],
                     // Depois do passe de profundidade só o fragmento visível passa (o igual); sem o passe, `less-equal`
                     // dá o mesmo que o teste comum fora dos empates exatos.
                     depth: {
@@ -1109,7 +1238,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
                             'fs_depth',
                         ],
-                        colorTargets: [{ format, writeMask: 0 }],
+                        colorTargets: [{ format, writeMask: 0 }, ...this.lightTargets(ctx, false)],
                         depth: {
                             format: 'depth24plus',
                             depthWriteEnabled: true,
@@ -1119,6 +1248,38 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ctx.prepare(depth);
                     this.depthPipelines.set(descriptor.id, depth.id);
                     this.prepareVariant(ctx, depth);
+                }
+                if (samples === 1 && topology === 'triangle-list') {
+                    // Passe de movimento (spec 034): o mesmo vértice (a mesma profundidade, bit a bit), teste igual sem
+                    // escrita, o deslocamento do pixel no alvo rgba16float.
+                    const motionOf = (surface: boolean): PipelineDescriptor => ({
+                        ...descriptor,
+                        id: `${descriptor.id}:${surface ? 'surfaceMotion' : 'motion'}`,
+                        // A superfície dos transmissivos: as duas faces, como o pedido (a mais próxima passa no igual).
+                        ...(surface ? { cullMode: 'none' as const } : {}),
+                        entryPoints: [
+                            ...descriptor.entryPoints.filter((e) => e.startsWith('vs_')),
+                            'fs_motion',
+                        ],
+                        colorTargets: [
+                            {
+                                format: 'rgba16float',
+                                // Só vermelho e verde (`GPUColorWrite.RED | GREEN`).
+                                ...(surface ? { writeMask: 0x3 } : {}),
+                            },
+                        ],
+                        depth: {
+                            format: 'depth24plus',
+                            depthWriteEnabled: false,
+                            depthCompare: 'equal',
+                        },
+                    });
+                    const motion = motionOf(false);
+                    ctx.prepare(motion);
+                    this.motionPipelines.set(descriptor.id, motion.id);
+                    const surface = motionOf(true);
+                    ctx.prepare(surface);
+                    this.surfaceMotionPipelines.set(descriptor.id, surface.id);
                 }
                 return descriptor.id;
             };
@@ -1155,6 +1316,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         let pipeline = this.geometryPipelines.get(key);
         if (pipeline === undefined) {
             const id = `forward:${desc.id}:${wire ? 'wire' : 'points'}:${n}`;
+            // Sprites sem MSAA: o passe de movimento (spec 034) com os vértices do quadro anterior.
+            const motion = !wire && samples === 1 ? `${id}:motion` : undefined;
             const at = (resource: WgslResource): BindingKey => ({ pipeline: id, resource });
             ctx.bind(
                 new Map<BindingKey, BindingSource>(
@@ -1163,15 +1326,33 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                               [at(wireVerticesResource), vertices],
                               [at(wireEdgesResource), edges! as IndexBufferSpec],
                           ]
-                        : [[at(pointVerticesResource), vertices]],
+                        : [
+                              [at(pointVerticesResource), vertices],
+                              [at(pointPreviousVerticesResource), vertices],
+                              ...(motion !== undefined
+                                  ? ([
+                                        [
+                                            { pipeline: motion, resource: pointVerticesResource },
+                                            vertices,
+                                        ],
+                                        [
+                                            {
+                                                pipeline: motion,
+                                                resource: pointPreviousVerticesResource,
+                                            },
+                                            vertices,
+                                        ],
+                                    ] as const)
+                                  : []),
+                          ],
                 ),
             );
-            ctx.prepare({
+            const color: PipelineDescriptor = {
                 ...desc,
                 id,
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format }],
+                colorTargets: [{ format }, ...this.lightTargets(ctx, false)],
                 depth: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
                 // Arame sem mistura: escreve profundidade como um opaco e a ordem de desenho não importa. A borda é
                 // suavizada pelo MSAA; o alfa da cor vira a fração das amostras cobertas (alpha-to-coverage).
@@ -1180,8 +1361,26 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ...(wire && samples > 1 ? { alphaToCoverageEnabled: true } : {}),
                 },
                 ...(this.preferAsync ? { preferAsync: true } : {}),
-            });
-            pipeline = { id, users: 0 };
+            };
+            ctx.prepare(color);
+            if (motion !== undefined) {
+                ctx.prepare({
+                    ...color,
+                    id: motion,
+                    entryPoints: [
+                        ...color.entryPoints.filter((e) => e.startsWith('vs_')),
+                        'fs_motion',
+                    ],
+                    colorTargets: [{ format: 'rgba16float' }],
+                    depth: {
+                        format: 'depth24plus',
+                        depthWriteEnabled: false,
+                        depthCompare: 'equal',
+                    },
+                });
+                this.motionPipelines.set(id, motion);
+            }
+            pipeline = { id, users: 0, geometry, motion, previous: vertices };
             this.geometryPipelines.set(key, pipeline);
         }
         pipeline.users++;
@@ -1205,6 +1404,34 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             if (--pipeline.users > 0) continue;
             this.geometryPipelines.delete(key);
             ctx.release(pipeline.id);
+            if (pipeline.motion !== undefined) {
+                ctx.release(pipeline.motion);
+                this.motionPipelines.delete(pipeline.id);
+            }
+        }
+    }
+
+    /**
+     * Os vértices do quadro anterior dos sprites (spec 034): os `previousVertices` que o histórico de movimento aloca na
+     * geometria que a GPU reescreve (com o temporal), religados quando aparecem ou mudam; sem eles, os próprios vértices.
+     */
+    private bindPreviousVertices(ctx: Ctx): void {
+        for (const pipeline of this.geometryPipelines.values()) {
+            if (pipeline.motion === undefined) continue;
+            const history = this.resources.bufferOf(pipeline.geometry, 'previousVertices');
+            const vertices = this.resources.bufferOf(pipeline.geometry, 'vertices');
+            const previous = history?.subkind === 'vertex' ? history : vertices;
+            if (previous?.subkind !== 'vertex' || previous === pipeline.previous) continue;
+            pipeline.previous = previous;
+            ctx.bind(
+                new Map<BindingKey, BindingSource>([
+                    [{ pipeline: pipeline.id, resource: pointPreviousVerticesResource }, previous],
+                    [
+                        { pipeline: pipeline.motion, resource: pointPreviousVerticesResource },
+                        previous,
+                    ],
+                ]),
+            );
         }
     }
 
@@ -1325,8 +1552,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             : 0;
         const key = `${cameraSlot}:${width}x${height}:${this.cameraFnSlot}:${time}`;
         if (key === this.writtenFrame) return;
-        this.core.write(
-            this.frameParams,
+        this.resources.writeNow(
+            this.work,
+            FRAME_PARAMS,
             ForwardFrameParamsSchema.pack({
                 cameraSlot,
                 cameraFnSlot: this.cameraFnSlot,

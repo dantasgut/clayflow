@@ -1,0 +1,47 @@
+diff --git a/src/elements/physics/flows/SurfaceColliderFlow.ts b/src/elements/physics/flows/SurfaceColliderFlow.ts
+index 93774745..356dee92 100644
+--- a/src/elements/physics/flows/SurfaceColliderFlow.ts
++++ b/src/elements/physics/flows/SurfaceColliderFlow.ts
+@@ -39,6 +39,7 @@ import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
+ import { Parent } from '../../scene/Parent';
+ import { Transform } from '../../scene/Transform';
+ import { SurfaceCollider } from '../colliders/SurfaceCollider';
++import { trsNormal, trsWorld } from '../../math/reference/xform';
+ import {
+     SurfaceBakeParamsSchema,
+     surfaceColliderBuild,
+@@ -549,10 +550,7 @@ function shapeOf(c: SurfaceCollider): Shape {
+     };
+ }
+ 
+-/**
+- * Matriz de mundo `T·R·S` (colunas) e matriz normal `R·S⁻¹` (3 colunas de vec4) do `Transform` da CPU; `undefined`
+- * sem `Transform` (identidade, pelo substituto).
+- */
++/** Matriz de mundo e de normais do `Transform` pela referência f64 do TRS (a mesma regra da GPU, spec 037). */
+ function trsOf(
+     t: Transform | undefined,
+ ): { m: Float32Array; n: [number[], number[], number[]] } | undefined {
+@@ -561,19 +559,9 @@ function trsOf(
+     const [px = 0, py = 0, pz = 0] = d.position;
+     const [qx = 0, qy = 0, qz = 0, qw = 1] = d.rotation;
+     const [sx = 1, sy = 1, sz = 1] = d.scale;
+-    const r = [
+-        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw)],
+-        [2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw)],
+-        [2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+-    ] as const;
+-    const s = [sx, sy, sz];
+-    const m = new Float32Array(16);
+-    for (let c = 0; c < 3; c++) for (let k = 0; k < 3; k++) m[4 * c + k] = r[c]![k]! * s[c]!;
+-    m[12] = px;
+-    m[13] = py;
+-    m[14] = pz;
+-    m[15] = 1;
+-    const n = [0, 1, 2].map((c) => [...r[c]!.map((v) => v / (s[c] || 1)), 0]) as [
++    const m = new Float32Array(trsWorld([px, py, pz], [qx, qy, qz, qw], [sx, sy, sz]));
++    const nm = trsNormal([qx, qy, qz, qw], [sx, sy, sz]);
++    const n = [0, 1, 2].map((c) => [nm[3 * c]!, nm[3 * c + 1]!, nm[3 * c + 2]!, 0]) as [
+         number[],
+         number[],
+         number[],

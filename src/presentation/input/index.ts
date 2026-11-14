@@ -1,11 +1,7 @@
 export { Input } from './Input';
-export type { InputState } from './Input';
+export type { InputState, GamepadSource, GamepadState } from './Input';
 export type { KeyEvent, PointerInputEvent, WheelInputEvent } from './InputEvents';
-export { KeyboardDevice } from './KeyboardDevice';
-export { PointerDevice } from './PointerDevice';
-export { GamepadDevice } from './GamepadDevice';
-export { TouchDevice } from './TouchDevice';
+export type { InputDevice } from './InputDevice';
 export { InputDrivenController } from './InputDrivenController';
 export { InteractionSystem } from './InteractionSystem';
-export type { InteractionSystemOptions } from './InteractionSystem';
 export * from './controllers/index';

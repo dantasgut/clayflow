@@ -2,12 +2,52 @@ import { Entity } from '../../scene/contracts/Entity';
 import { ResourceState } from '../../scene/contracts/ResourceState';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { rayVolumeHitPoint, rayVolumeTransmittancePoint } from '../raytrace/points';
-import { fieldRayHit, fieldRayTransmittance } from './shaders';
+import {
+    rayVolumeBoundsPoint,
+    rayVolumeBeginPoint,
+    rayVolumeLightPoint,
+    rayVolumeOccupiedPoint,
+    rayVolumeSurfacePoint,
+    rayVolumeHitPoint,
+    rayVolumeTransmittancePoint,
+} from '../raytrace/points';
+import {
+    fieldLightTransmission,
+    fieldRayBounds,
+    fieldRayHit,
+    fieldRayBegin,
+    fieldRayLight,
+    fieldRayOccupied,
+    fieldRaySurface,
+    fieldRayTransmittance,
+    fieldWetness,
+    fieldWetnessMoving,
+    fieldWetnessSlope,
+} from './shaders';
+import { lightTransmissionPoint } from '../scene/points/lighting';
+import {
+    sceneWetnessMovingPoint,
+    sceneWetnessPoint,
+    sceneWetnessSlopePoint,
+} from '../scene/points/media';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { SetCountSchema } from '../../scene/graph/SetCountSchema';
-import { FIELD_BRICK_APRON_VOXELS, FieldWordSchema, FluidFieldSchema } from './schemas';
+import { wordBuffer } from '../gpu/compute/schemas';
+import {
+    FIELD_BRICK_APRON_VOXELS,
+    FIELD_FILM_SLICE_WORDS,
+    FieldWordSchema,
+    FluidFieldSchema,
+    FIELD_MAX_BODIES,
+    FIELD_MEDIUM_WORDS,
+    FIELD_LIGHT_MAPS,
+    FIELD_LIGHT_RES,
+    FIELD_LIGHT_WORDS,
+    FIELD_MESH_ARGS_WORDS,
+    FIELD_MESH_TRIANGLES_PER_BRICK,
+    FIELD_MESH_VERTEX_WORDS,
+} from './schemas';
 
 /** Capacidades do campo: blocos e baldes da tabela (potências de dois). */
 export interface FluidFieldCapacity {
@@ -17,7 +57,7 @@ export interface FluidFieldCapacity {
 
 /** Dado de um `FluidField`: as capacidades, o uniform (escrito pelo estágio quando muda) e se há fluido na cena. */
 export interface FluidFieldData extends FluidFieldCapacity {
-    params: [Record<string, number[]>];
+    params: [Record<string, number[] | number[][]>];
     /** 1 com corpos de fluido na cena (o campo contribui para os raios); 0 sem. Escrito só quando muda. */
     volume: number;
 }
@@ -25,21 +65,47 @@ export interface FluidFieldData extends FluidFieldCapacity {
 /** Palavras do cabeçalho do buffer das consultas (os limites). */
 export const FIELD_HEADER_WORDS = 8;
 
-/** Deslocamentos (em palavras) da tabela, dos blocos e dos voxels no buffer das consultas. */
+/**
+ * Deslocamentos (em palavras) da tabela, dos blocos e do fim deles no buffer das consultas (os voxels ficam no atlas,
+ * T060f).
+ */
 export function fieldDataLayout(c: FluidFieldCapacity): {
     table: number;
     bricks: number;
-    voxels: number;
+    end: number;
 } {
     const table = FIELD_HEADER_WORDS;
     // Depois da tabela dos blocos, a dos superblocos (¼ dela, uma palavra por balde).
     const bricks = table + 2 * c.table + c.table / 4;
-    return { table, bricks, voxels: bricks + 4 * c.bricks };
+    return { table, bricks, end: bricks + 4 * c.bricks };
 }
 
-/** Palavras do buffer das consultas para as capacidades `c`. */
+/** Primeira palavra da película de água nos sólidos (spec 034), depois dos blocos. */
+export function fieldFilmOffset(c: FluidFieldCapacity): number {
+    return fieldDataLayout(c).end;
+}
+
+/**
+ * Primeira palavra do meio dos corpos (spec 039), depois da película: por corpo, `FIELD_MEDIUM_WORDS` palavras — a cor e
+ * a profundidade da absorção, o índice de refração, o número de Abbe e o peso da transmissão do fechamento do corpo,
+ * avaliado uma vez por quadro na onda dos acertos.
+ */
+export function fieldMediaOffset(c: FluidFieldCapacity): number {
+    return fieldFilmOffset(c) + FIELD_FILM_SLICE_WORDS;
+}
+
+/**
+ * Primeira palavra do atlas dos voxels (T060f), no fim do buffer das consultas, depois do meio dos corpos: a página do
+ * bloco i (os 12³ voxels com a borda, f32) a partir de `fieldAtlasOffset + i · 12³`. As páginas são a série por páginas
+ * do buffer (`history.pages.offset`): uma ligação de storage só para tudo o que quem consulta lê.
+ */
+export function fieldAtlasOffset(c: FluidFieldCapacity): number {
+    return fieldMediaOffset(c) + FIELD_MAX_BODIES * FIELD_MEDIUM_WORDS;
+}
+
+/** Palavras do buffer das consultas para as capacidades `c` (com a película, o meio dos corpos e o atlas). */
 function fieldDataWords(c: FluidFieldCapacity): number {
-    return fieldDataLayout(c).voxels + c.bricks * FIELD_BRICK_APRON_VOXELS;
+    return fieldAtlasOffset(c) + c.bricks * FIELD_BRICK_APRON_VOXELS;
 }
 
 function grow(current: number, needed: number): number {
@@ -49,12 +115,13 @@ function grow(current: number, needed: number): number {
 }
 
 /**
- * Campo dos fluidos (Camada 3, spec 033, R11): a superfície contínua dos corpos de partículas com `FluidSurfaceMaterial`
- * como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem mudança de autoria: o
- * material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
+ * Campo dos fluidos (Camada 3, spec 033, R11): a superfície contínua dos corpos de fluido (`isFieldBody`: o `FluidBody`
+ * com a função `material` — a aparência pelo grafo, spec 034 T065d) como distância com sinal no espaço, construída na GPU a cada quadro pelo `FluidFieldFlow` (sem
+ * mudança de autoria: o material na entidade basta). Grade esparsa em blocos de 8³ voxels de ½ espaçamento de partícula, só onde há
  * partículas, por núcleos anisotrópicos e redistanciamento — superfícies planas ficam planas, gotas separadas não se
- * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos, os blocos e os voxels
- * com a borda) fica num buffer só (`data`, uma ligação de storage: cabe ao lado dos da luz rebatida), mais a contagem:
+ * fundem, a normal é contínua. O que quem consulta lê (`fields`: os limites, a tabela dos blocos, os blocos e o atlas
+ * dos voxels com a borda — uma página de 12³ por bloco, T060f) fica num buffer só (`data`, uma ligação de storage: cabe
+ * ao lado dos da luz rebatida), mais a contagem:
  * a câmera, a luz, os raios das sondas e a luz rebatida enxergam a mesma superfície. Um por cena, inserido pelos estágios padrão; as capacidades crescem com as partículas (`reserve`).
  */
 export class FluidField extends Entity<FluidFieldData> implements Resource {
@@ -68,7 +135,7 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
         this.data = {
             bricks: 64,
             table: 256,
-            params: [FluidFieldSchema.applyDefaults({}) as Record<string, number[]>],
+            params: [FluidFieldSchema.applyDefaults({}) as Record<string, number[] | number[][]>],
             volume: 0,
         };
     }
@@ -82,8 +149,54 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
                 schema: FieldWordSchema,
                 count: fieldDataWords(this.rawData),
                 upload: 'never',
+                allocation: 'onDemand',
+                // O atlas dos voxels no fim (T060f): uma série por páginas, uma página por bloco. As páginas que a
+                // construção grava levam o carimbo da época.
+                history: {
+                    depth: 1,
+                    pages: {
+                        record: FIELD_BRICK_APRON_VOXELS * 4,
+                        offset: fieldAtlasOffset(this.rawData) * 4,
+                    },
+                },
             },
             { id: 'counts', role: 'indirect', schema: SetCountSchema, count: 1, upload: 'never' },
+            {
+                id: 'mesh',
+                role: 'storage-rw',
+                schema: FieldWordSchema,
+                count:
+                    this.rawData.bricks
+                    * FIELD_MESH_TRIANGLES_PER_BRICK
+                    * 3
+                    * FIELD_MESH_VERTEX_WORDS,
+                upload: 'never',
+                allocation: 'onDemand',
+            },
+            {
+                id: 'meshArgs',
+                role: 'indirect',
+                schema: FieldWordSchema,
+                count: FIELD_MESH_ARGS_WORDS,
+                upload: 'never',
+            },
+            {
+                id: 'lightMap',
+                role: 'storage-rw',
+                schema: FieldWordSchema,
+                count: FIELD_LIGHT_MAPS * FIELD_LIGHT_RES * FIELD_LIGHT_RES * FIELD_LIGHT_WORDS,
+                upload: 'never',
+                allocation: 'onDemand',
+            },
+            // O estado entre quadros (T060f; constituição VII), canais temporais da spec 037: o nível da superfície e o
+            // volume somado (`state`), e a película de água nos sólidos (`film`: a tabela que o passo lê do anterior e
+            // escreve no quadro; a do quadro vai ao `data`, que quem sombreia lê).
+            { ...wordBuffer('state', 16), history: { depth: 2 } },
+            {
+                ...wordBuffer('film', FIELD_FILM_SLICE_WORDS * 4),
+                history: { depth: 2 },
+                allocation: 'onDemand',
+            },
         ];
     }
 
@@ -92,11 +205,19 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
     }
 
     /**
-     * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`) e a absorção pelos trechos
-     * dentro dele (`ray_volume_transmittance`) — só com fluido na cena (`volume` = 1).
+     * Os raios atravessam o fluido (spec 033): o cruzamento com a superfície (`ray_volume_hit`), o material nele
+     * (`ray_volume_surface`, spec 034 T065d) e a absorção pelos trechos dentro dele (`ray_volume_transmittance`) — só
+     * com fluido na cena (`volume` = 1). Os três com a mesma ordem: o `source` do acerto é a posição no ponto. E a
+     * película de água que o fluido deixa nos sólidos (`scene_wetness`, spec 034), que quem sombreia uma superfície lê, e
+     * a inclinação dela (`scene_wetness_slope`, T066d), que quem refrata no sólido lê.
      */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
+    }
+
+    /** O campo contribui para os raios (há corpos de fluido com partículas na cena)? */
+    get volume(): boolean {
+        return this.rawData.volume === 1;
     }
 
     /** Liga ou desliga a contribuição aos raios (estado `volume`, escrito só quando muda). */
@@ -113,10 +234,64 @@ export class FluidField extends Entity<FluidFieldData> implements Resource {
             build: () => (this.rawData.volume === 1 ? fieldRayHit : undefined),
         },
         {
+            point: rayVolumeSurfacePoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRaySurface : undefined),
+        },
+        {
             point: rayVolumeTransmittancePoint,
             order: 0,
             pools: [],
             build: () => (this.rawData.volume === 1 ? fieldRayTransmittance : undefined),
+        },
+        {
+            point: sceneWetnessPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldWetness : undefined),
+        },
+        {
+            point: sceneWetnessSlopePoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldWetnessSlope : undefined),
+        },
+        {
+            point: sceneWetnessMovingPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldWetnessMoving : undefined),
+        },
+        {
+            point: rayVolumeBoundsPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayBounds : undefined),
+        },
+        {
+            point: rayVolumeOccupiedPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayOccupied : undefined),
+        },
+        {
+            point: lightTransmissionPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldLightTransmission : undefined),
+        },
+        {
+            point: rayVolumeLightPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayLight : undefined),
+        },
+        {
+            point: rayVolumeBeginPoint,
+            order: 0,
+            pools: [],
+            build: () => (this.rawData.volume === 1 ? fieldRayBegin : undefined),
         },
     ];
 

@@ -7,11 +7,20 @@ import type {
 } from '../contracts/gpu';
 import type { Resource } from '../contracts/Resource';
 import type { ResourceDirectory } from '../contracts/ResourceDirectory';
+import type { GPUDescriptor } from '../descriptors/GPUDescriptor';
+import { StructSchema } from '../descriptors/StructSchema';
 import { Flow } from '../flows/Flow';
+import { FlowWork, type WorkContext, type WorkPart } from '../flows/FlowWork';
 import type { BoundFlow, TransitionContext } from '../flows/FlowBinding';
 import type { FlowContext } from '../flows/FlowRegistry';
 import type { FlowTransitions } from '../flows/FlowTransitions';
-import { slot, type EntitiesSlot, type ResourceType, type SlotMap } from '../flows/slots';
+import {
+    slot,
+    type EntitiesSlot,
+    type ResourceType,
+    type SlotMap,
+    type WorkSlot,
+} from '../flows/slots';
 import type { EntityId } from '../world/EntityId';
 import { compileSetGraph, type PlannedSet, type SetGraphPlan } from './compileSetGraph';
 import { SetCountSchema, SET_COUNT_DISPATCH_OFFSET } from './SetCountSchema';
@@ -32,6 +41,13 @@ export interface GraphFlowOptions {
 export interface GraphFlowSlots extends SlotMap {
     /** Entidades com grafo de conjunto. */
     readonly graphs: EntitiesSlot;
+    /** O espaço de trabalho: conjuntos, registros de contagem e uniforms de cada grafo (spec 039). */
+    readonly work: WorkSlot<GraphWork>;
+}
+
+/** Resource de trabalho do `GraphFlow` (spec 039). */
+class GraphWork extends FlowWork {
+    static readonly schema = new StructSchema('GraphWork', {});
 }
 
 type Ctx = TransitionContext<GraphFlowSlots>;
@@ -42,6 +58,10 @@ interface Running {
     readonly entity: EntityId;
     readonly graph: SetGraph;
     readonly target: Resource | undefined;
+    /** Prefixo dos ids dos descritores do grafo no trabalho. */
+    readonly disc: string;
+    /** Os descritores do grafo no trabalho (conjuntos, contagens, uniforms). */
+    readonly part: WorkPart;
     revision: number;
     plan: SetGraphPlan;
     counts: IndirectBufferSpec;
@@ -57,7 +77,8 @@ interface Running {
 
 /**
  * Grafo de nós de conjunto compilado num Flow (spec 031, R10, FR-017–FR-020): para cada entidade com `SetGraph`, o
- * plano (`compileSetGraph`), os conjuntos intermediários e os registros `SetCount` (alocados aqui, na C2), as
+ * plano (`compileSetGraph`), os conjuntos intermediários e os registros `SetCount` (descritores do Resource de trabalho,
+ * alocados pela C2 — spec 039), as
  * contagens conhecidas na CPU já com os argumentos de despacho e de desenho, os uniforms dos grafos de ponto fundidos e
  * a instância de cada nó. `dispatch` grava os nós em ordem topológica **só quando o grafo está desatualizado** — ao
  * entrar, com valores novos (`poolWritten` do registro do `SetGraph`), com topologia nova (revisão) ou, com nó
@@ -73,6 +94,7 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
 
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
+    private readonly work: WorkContext;
     private readonly target: ResourceType | undefined;
     private readonly running = new Map<EntityId, Running>();
 
@@ -81,6 +103,8 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
         this.core = ctx.core;
         this.resources = ctx.resources;
         this.target = options.target;
+        const work = new GraphWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
         this.slots = {
             graphs: slot.entities({
                 all: [SetGraph],
@@ -88,6 +112,7 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
                     ? { owns: options.owns.map((d) => [options.target!, d] as const) }
                     : {}),
             }),
+            work: slot.work(() => work),
         };
         this.transitions = {
             '*': {
@@ -214,41 +239,55 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
     private build(id: EntityId, graph: SetGraph, target: Resource | undefined): Running {
         const plan = compileSetGraph(graph.graph, (n) => graph.valuesOf(n));
         const disc = `graph:${id}:${graph.revision}`;
-        const counts = this.core.create<IndirectBufferSpec>({
-            kind: 'buffer',
-            subkind: 'indirect',
-            discriminator: `${disc}:counts`,
-            byteSize: plan.slots * SetCountSchema.stride,
-        });
-        const sets = new Map<string, StorageBufferSpec>();
-        for (const s of plan.sets) {
-            sets.set(
-                s.key,
-                this.core.create<StorageBufferSpec>({
-                    kind: 'buffer',
-                    subkind: 'storage',
-                    discriminator: `${disc}:${s.key}`,
-                    byteSize: Math.max(16, s.capacity * s.schema.stride),
+        // Os conjuntos, os registros de contagem e os uniforms dos grafos de ponto: descritores do trabalho.
+        const descriptors: GPUDescriptor[] = [
+            {
+                id: `${disc}:counts`,
+                role: 'indirect',
+                schema: SetCountSchema,
+                upload: 'never',
+                count: Math.max(1, plan.slots),
+            },
+            ...plan.sets.map(
+                (s): GPUDescriptor => ({
+                    id: `${disc}:${s.key}`,
+                    role: 'storage-rw',
+                    schema: s.schema,
+                    upload: 'never',
+                    count: Math.max(1, s.capacity),
                 }),
-            );
-        }
+            ),
+            ...plan.nodes.flatMap((node) =>
+                [...node.points].map(
+                    ([port, p]): GPUDescriptor => ({
+                        id: `${disc}:${node.id}.${port}:params`,
+                        role: 'uniform',
+                        schema: p.schema,
+                        upload: 'never',
+                    }),
+                ),
+            ),
+        ];
+        const part: WorkPart = { descriptors: () => descriptors };
+        this.work.work.use(part);
+        const own = <B>(descId: string): B => this.resources.bufferOf(this.work.work, descId) as B;
+        const counts = own<IndirectBufferSpec>(`${disc}:counts`);
+        const sets = new Map<string, StorageBufferSpec>(
+            plan.sets.map((s) => [s.key, own<StorageBufferSpec>(`${disc}:${s.key}`)]),
+        );
         const points = new Map<string, UniformBufferSpec>();
         for (const node of plan.nodes)
-            for (const [port, p] of node.points) {
+            for (const port of node.points.keys())
                 points.set(
                     `${node.id}.${port}`,
-                    this.core.create<UniformBufferSpec>({
-                        kind: 'buffer',
-                        subkind: 'uniform',
-                        discriminator: `${disc}:${node.id}.${port}:params`,
-                        byteSize: p.schema.stride,
-                    }),
+                    own<UniformBufferSpec>(`${disc}:${node.id}.${port}:params`),
                 );
-            }
         const r: Running = {
             entity: id,
             graph,
             target,
+            disc,
+            part,
             revision: graph.revision,
             plan,
             counts,
@@ -276,6 +315,7 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
         };
         return {
             core: this.core,
+            work: this.work,
             id: `${disc}:${nodeId}`,
             counts: r.counts,
             input: (port, set) =>
@@ -314,23 +354,31 @@ export class GraphFlow extends Flow<GraphFlowSlots, State> {
                 index_count: count,
                 instance_count: 1,
             });
-            this.core.write(r.counts, record, slotIndex * SetCountSchema.stride);
+            this.resources.writeNow(
+                this.work.work,
+                `${r.disc}:counts`,
+                record,
+                slotIndex * SetCountSchema.stride,
+            );
         }
         for (const node of r.plan.nodes) {
             const values = r.graph.values;
             for (const [port, p] of node.points) {
                 const data: Record<string, unknown> = {};
                 for (const name of p.params) data[name] = values[name];
-                this.core.write(r.points.get(`${node.id}.${port}`)!, p.schema.pack(data));
+                this.resources.writeNow(
+                    this.work.work,
+                    `${r.disc}:${node.id}.${port}:params`,
+                    p.schema.pack(data),
+                );
             }
         }
     }
 
     private release(r: Running): void {
         for (const instance of r.instances) instance.dispose();
-        for (const b of r.sets.values()) this.core.destroy(b);
-        for (const b of r.points.values()) this.core.destroy(b);
-        this.core.destroy(r.counts);
+        // Os descritores do grafo saem do trabalho: a C2 libera os buffers.
+        this.work.work.drop(r.part);
     }
 }
 

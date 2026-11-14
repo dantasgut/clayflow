@@ -7,7 +7,8 @@ export type Command = 'run' | 'check' | 'baseline';
 export const DEFAULTS = {
     warmupMs: 3000,
     windowMs: 10_000,
-    repetitions: 3,
+    // Cinco, intercaladas (`planRuns`): a mediana descarta até duas repetições perturbadas por linha.
+    repetitions: 5,
     timeoutMs: 60_000,
     tolerance: 0.1,
     port: 5180,

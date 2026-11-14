@@ -8,19 +8,32 @@ import mpmWeightsSource from '../wgsl/math/mpm_weights.wgsl?raw';
 import xpbdSource from '../wgsl/math/xpbd.wgsl?raw';
 import lcpSource from '../wgsl/math/lcp.wgsl?raw';
 import colliderSetSource from '../wgsl/math/collider_set.wgsl?raw';
+import colliderSurfaceSource from '../wgsl/math/collider_surface.wgsl?raw';
+import fluidBoundarySource from '../wgsl/math/fluid_boundary.wgsl?raw';
 import surfaceColliderHitSource from '../wgsl/math/surface_collider_hit.wgsl?raw';
 import colliderHitSource from '../wgsl/math/collider_hit.wgsl?raw';
 import fluidBoundsSource from '../wgsl/math/fluid_bounds.wgsl?raw';
 import lcpStateSource from '../wgsl/math/lcp_state.wgsl?raw';
 import femSource from '../wgsl/math/fem.wgsl?raw';
 import noiseSource from '../wgsl/math/noise.wgsl?raw';
+import randomSource from '../wgsl/math/random.wgsl?raw';
+import hashAddressSource from '../wgsl/math/hash_address.wgsl?raw';
+import basisSource from '../wgsl/math/basis.wgsl?raw';
+import samplingSource from '../wgsl/math/sampling.wgsl?raw';
+import xformRigidSource from '../wgsl/math/xform_rigid.wgsl?raw';
+import xformAffineSource from '../wgsl/math/xform_affine.wgsl?raw';
+import xformProjectiveSource from '../wgsl/math/xform_projective.wgsl?raw';
+import xformTrsSource from '../wgsl/math/xform_trs.wgsl?raw';
+import viewSpaceSource from '../wgsl/math/view_space.wgsl?raw';
+import temporalSource from '../wgsl/temporal/temporal.wgsl?raw';
 import colorSource from '../wgsl/math/color.wgsl?raw';
 import presentSource from '../wgsl/math/present.wgsl?raw';
 import bsdfSource from '../wgsl/math/bsdf.wgsl?raw';
-import brdfSource from '../wgsl/math/brdf.wgsl?raw';
+import shadowVirtualSource from '../wgsl/math/shadow_virtual.wgsl?raw';
 import mpmMaterialSource from '../wgsl/math/mpm_material.wgsl?raw';
 import cameraSource from '../wgsl/math/camera.wgsl?raw';
 import finiteSource from '../wgsl/math/finite.wgsl?raw';
+import constantsSource from '../wgsl/math/constants.wgsl?raw';
 import { LCPSchema } from '../../physics/bodies/schemas/LCPSchema';
 import { BoxCollider } from '../../physics/colliders/BoxCollider';
 import { PlaneCollider } from '../../physics/colliders/PlaneCollider';
@@ -31,12 +44,32 @@ import {
     colliderResources,
 } from '../../physics/colliders/colliderResources';
 import { NONE } from '../../../scene/shaders/engineConstants';
+import { ShadowMap } from '../../scene/ShadowMap';
 import { RBSimParamsSchema } from '../../physics/schemas/simParams';
 import {
     RBBodyCorrectionSchema,
     RBBodyDeltaSchema,
     RBWarmEntrySchema,
 } from '../../physics/schemas/simState';
+
+/** Constantes matemáticas canônicas (spec 037): `PI`, `TAU`, `INV_PI`. */
+export const constants = wgslModule({ name: 'constants', source: constantsSource });
+
+/**
+ * Endereçamento (spec 037): `hash_cell` (Teschner) e `hash_knuth`, sem a redução — a família das tabelas, separada
+ * da aleatoriedade.
+ */
+export const hashAddress = wgslModule({ name: 'hash_address', source: hashAddressSource });
+
+/** Bases ortonormais (spec 037): `basis_duff` e `basis_cross` (com o eixo auxiliar de cada uso). */
+export const basis = wgslModule({ name: 'basis', source: basisSource });
+
+/** Amostragem (spec 037): cosseno, esfera, cone e triângulo, de números uniformes em [0, 1)². */
+export const sampling = wgslModule({
+    name: 'sampling',
+    source: samplingSource,
+    requires: [constants],
+});
 
 /** Teste de valor finito (sem NaN nem ±∞) de `vec3f`/`vec4f` — o saneamento único das saídas de funções e grafos. */
 export const finite = wgslModule({ name: 'finite', source: finiteSource });
@@ -47,17 +80,65 @@ export const quat = wgslModule({ name: 'quat', source: quatSource });
 /** Álgebra 3×3: determinante, inversa, transposta, produto, norma de Frobenius. */
 export const linalg = wgslModule({ name: 'linalg', source: linalgSource });
 
-/** Construção de matrizes: de quaternion/colunas, TRS, inversa rígida, decomposição polar. */
+/** Construção de matrizes: de quaternion e de colunas, decomposição polar. */
 export const mat = wgslModule({ name: 'mat', source: matSource, requires: [quat, linalg] });
 
+/**
+ * Transformações por classe (spec 037, R3): a mesma lista de operações em cada uma, escolhida pelo nome na montagem
+ * (nunca por ramo em execução). Rígida: `rigid_compose`, `rigid_inverse`, `rigid_rotation_inverse`, `rigid_point`,
+ * `rigid_direction`.
+ */
+export const xformRigid = wgslModule({ name: 'xform_rigid', source: xformRigidSource });
+
+/** Afim: `affine_compose`, `affine_inverse` (singular → identidade), `affine_point`, `affine_direction`, `affine_normal`. */
+export const xformAffine = wgslModule({
+    name: 'xform_affine',
+    source: xformAffineSource,
+    requires: [linalg],
+});
+
+/** Projetiva: `projective_inverse` (cofatores), `projective_point` (com a divisão por w). */
+export const xformProjective = wgslModule({
+    name: 'xform_projective',
+    source: xformProjectiveSource,
+});
+
+/** TRS: `trs_world` (T·R·S) e `trs_normal` (R·S⁻¹, escala 0 anula o eixo). */
+export const xformTrs = wgslModule({
+    name: 'xform_trs',
+    source: xformTrsSource,
+    requires: [quat, mat],
+});
+
+/** Espaços da tela (spec 037, R4): NDC ↔ uv ↔ pixel, divisão por w, ortográfica, profundidade, movimento. */
+export const viewSpace = wgslModule({ name: 'view_space', source: viewSpaceSource });
+
+/**
+ * Peças temporais (spec 037, R5): reprojeção de um ponto, corte de câmera, validação por objeto e por plano, pesos por
+ * contagem, por mudança (A-SVGF) e por histerese, momentos e variâncias — compostas por cada acumulador.
+ */
+export const temporal = wgslModule({
+    name: 'temporal',
+    source: temporalSource,
+    requires: [viewSpace],
+});
+
 /** Câmera: projeções perspectiva e ortográfica e a vista a partir da matriz de mundo (spec 007). */
-export const camera = wgslModule({ name: 'camera', source: cameraSource, requires: [mat] });
+export const camera = wgslModule({
+    name: 'camera',
+    source: cameraSource,
+    requires: [viewSpace, xformRigid],
+});
 
 /** Funções de distância com sinal (esfera, caixa, plano) e gradientes. */
 export const sdf = wgslModule({ name: 'sdf', source: sdfSource });
 
 /** Núcleos de suavização do SPH (spline cúbica, viscosidade). */
-export const sphKernels = wgslModule({ name: 'sph_kernels', source: sphKernelsSource });
+export const sphKernels = wgslModule({
+    name: 'sph_kernels',
+    source: sphKernelsSource,
+    requires: [constants],
+});
 
 /** Pesos B-spline quadráticos do MPM e índices de nó. */
 export const mpmWeights = wgslModule({
@@ -81,6 +162,7 @@ export const lcp = wgslModule({
 export const lcpState = wgslModule({
     name: 'lcp_state',
     source: lcpStateSource,
+    requires: [hashAddress],
     structs: [RBWarmEntrySchema, RBBodyDeltaSchema, RBBodyCorrectionSchema],
 });
 
@@ -134,23 +216,59 @@ export const colliderSet = wgslModule({
     ],
 });
 
+/** A superfície física (`SurfacePhysics`, spec 034) do collider mais próximo de um ponto. */
+export const colliderSurface = wgslModule({
+    name: 'collider_surface',
+    source: colliderSurfaceSource,
+    requires: [colliderSet, colliderResources.surfaces],
+});
+
+/**
+ * Fronteira sólida dos fluidos de partículas (Akinci et al. 2012; spec 034): o volume do núcleo nos colliders e o
+ * gradiente dele e o sólido mais próximo. O núcleo do solver é a constante de pipeline `FLUID_BOUNDARY_KERNEL`
+ * (`FLUID_BOUNDARY_POLY6` no PBF).
+ */
+export const fluidBoundary = wgslModule({
+    name: 'fluid_boundary',
+    source: fluidBoundarySource,
+    requires: [colliderSet],
+});
+
+/** Constante de pipeline do núcleo poly6 na fronteira sólida (PBF). */
+export const FLUID_BOUNDARY_POLY6: Readonly<Record<string, number>> = Object.freeze({
+    FLUID_BOUNDARY_KERNEL: 1,
+});
+
 /** FEM por XPBD: cinemática do tetraedro (D_s, F, J) e restrições hidrostática e desviadora. */
 export const fem = wgslModule({ name: 'fem', source: femSource, requires: [linalg, mat] });
 
-/** Ruído determinístico: hash PCG, ruído de valor e de gradiente 2D/3D em [-1, 1]. */
-export const noise = wgslModule({ name: 'noise', source: noiseSource });
+/**
+ * Aleatoriedade (spec 037): `pcg_hash`, `hash2`, `hash3`, `hash_signed` (bit a bit), o gerador com estado `random_next`
+ * e `random_unit` em [0, 1).
+ */
+export const random = wgslModule({ name: 'random', source: randomSource });
 
-/** Cor: exposição, codificação gama, luminância. */
+/** Ruído determinístico: ruído de valor e de gradiente 2D/3D em [-1, 1] sobre o hash PCG. */
+export const noise = wgslModule({ name: 'noise', source: noiseSource, requires: [random] });
+
+/** Cor (spec 037): luminância Rec.709, maior canal, YCoCg, curva sRGB, gradação gama, RGB em meia precisão. */
 export const color = wgslModule({ name: 'color', source: colorSource });
 
 /** Apresentação (spec 011): AgX, ACES, neutro, sRGB (padrão e estendido) e pontilhamento. */
-export const present = wgslModule({ name: 'present', source: presentSource });
+export const present = wgslModule({ name: 'present', source: presentSource, requires: [color] });
 
 /**
  * Funções físicas de espalhamento (spec 011): GGX iso/aniso, Smith correlacionado, Schlick, F82, Fresnel dielétrico
  * exato, Oren-Nayar energético, sheen, wrap da subsuperfície, filme fino, serrilhado especular e multiespalhamento.
  */
-export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource });
+export const bsdf = wgslModule({ name: 'bsdf', source: bsdfSource, requires: [constants] });
 
-/** Sombra por PCF 3×3 (o sombreamento físico está em `bsdf` e no fechamento, spec 011). */
-export const brdf = wgslModule({ name: 'brdf', source: brdfSource });
+/**
+ * Mapa de sombra virtual (spec 034, T060): níveis, páginas e os índices da tabela e das páginas no atlas em buffer
+ * (T060h). A leitura (a visibilidade com a penumbra) é da contribuição de sombra, com o atlas do mapa que projeta.
+ */
+export const shadowVirtual = wgslModule({
+    name: 'shadow_virtual',
+    source: shadowVirtualSource,
+    structs: [ShadowMap.matrixSchema],
+});

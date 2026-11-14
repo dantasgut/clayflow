@@ -50,6 +50,10 @@ export const DiffuseParamsSchema = new StructSchema(
         spawn_spread: FieldType.f32,
         spray_aging: FieldType.f32,
         time: FieldType.f32,
+        /** Células por eixo da grade do domínio (`grid_x/y/z` são as da tabela da busca: `ns_table_cell`, spec 034). */
+        domain_x: FieldType.u32,
+        domain_y: FieldType.u32,
+        domain_z: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

@@ -1,20 +1,17 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
-import { brdf } from '../../gpu/shaders/math';
+import { shadowVirtualRead } from './shaders';
 import { Light } from '../Light';
 import { ShadowMap } from '../ShadowMap';
-import {
-    lightsResource,
-    shadowCasterDepthResource,
-    shadowCasterSamplerResource,
-    shadowMapsResource,
-    shadowMatricesResource,
-} from '../resources';
+import { lightsResource, shadowMapsResource, shadowMatricesResource } from '../resources';
 import { lightVisibilityPoint } from './lighting';
 
 const visibilities = new Map<string, WgslModule>();
 
-/** Visibilidade da luz no slot `lightSlot` pela sombra (PCF 3×3) do mapa no slot `shadowSlot`; as outras luzes: 1. */
+/**
+ * Visibilidade da luz no slot `lightSlot` pelo mapa de sombra virtual no slot `shadowSlot` (a penumbra com as amostras
+ * do mapa, girada no quadro, e a largura pelo disco da luz — `cones.z`, o raio angular); as outras luzes: 1.
+ */
 function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
     const key = `${lightSlot}:${shadowSlot}`;
     let m = visibilities.get(key);
@@ -22,19 +19,18 @@ function visibilityModule(lightSlot: number, shadowSlot: number): WgslModule {
         m = wgslModule({
             name: `light_visibility_shadow_${lightSlot}_${shadowSlot}`,
             requires: [
-                brdf,
+                shadowVirtualRead,
                 lightsResource,
                 shadowMapsResource,
                 shadowMatricesResource,
-                shadowCasterDepthResource,
-                shadowCasterSamplerResource,
             ],
             source: `fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {
     if (light != ${lightSlot}u) { return 1.0; }
     let sm = shadow_maps[${shadowSlot}u];
-    let light_view_proj = shadow_matrices[${shadowSlot}u].lightViewProj;
+    let matrix = shadow_matrices[${shadowSlot}u];
     let l = -normalize(lights[${lightSlot}u].direction.xyz);
-    return sample_shadow_pcf(shadow_map, shadow_sampler, light_view_proj, p, n, l, sm.bias, sm.normalBias, 1.0);
+    return shadow_virtual_visibility(matrix, p, n, l, sm.bias, sm.normalBias, sm.penumbraSamples,
+        lights[${lightSlot}u].cones.z);
 }`,
         });
         visibilities.set(key, m);

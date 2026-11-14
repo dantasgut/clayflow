@@ -1,10 +1,41 @@
 // Núcleos anisotrópicos das partículas (spec 033, R11; Yu & Turk 2013 — a regra de `fields/reference/field.ts`): os
-// vizinhos dentro do raio do núcleo pela grade hash; a média ponderada (peso 1 − (d/r)³) suaviza a posição; a covariância
-// em volta dela dá, pelos autovalores (Jacobi), os raios do núcleo ao longo dos eixos próprios — o maior vale o raio, os
-// outros até 1/k_r dele. Com poucos vizinhos, um núcleo isotrópico menor (gotas separadas não se fundem). Grava por
-// partícula três `vec4f`: (centro, det G), (G₀₀, G₀₁, G₀₂, G₁₁), (G₁₂, G₂₂, maior raio, 0).
-// Requer: WORKGROUP_SIZE, fluid_field, spatial_hash, grid, cell_start, cell_count, field_sorted (leitura),
-// field_kernel.
+// vizinhos pela grade hash; a média ponderada (peso 1 − (d/r)³) dos que estão no raio do núcleo suaviza a posição; a
+// covariância dos que estão no raio da vizinhança (`fluid_field.reach.x`, maior, T066e: o arranjo das partículas da
+// superfície parada saía no relevo dela), em volta da média deles, dá, pelos autovalores (Jacobi), os raios do núcleo ao longo dos eixos próprios — o maior vale o raio, os
+// outros até 1/k_r dele. Com poucos vizinhos, um núcleo isotrópico menor (gotas separadas não se fundem); encostado num
+// sólido (`field_sorted_contacts`, spec 034) e com água que molha (`fluid_field.contact`), achatado contra ele no
+// lugar do contato — a calota do ângulo de contato, com o mesmo volume. Grava por
+// partícula três `vec4f`: (centro, det G), (G₀₀, G₀₁, G₀₂, G₁₁), (G₁₂, G₂₂, maior raio, 1 no núcleo esparso — a gota
+// solta, spec 034 — e 0 no do volume).
+// A lâmina de uma camada numa parede íngreme (`field_wall_sheet`, T066d) vai aos baldes das passadas à película, como a
+// gota solta que desliza (`field_gather.wgsl`): a contagem é a da vizinhança inteira da grade, em ordem que não depende
+// dos atômicos (a do solver lê a lista capada de vizinhas — a partícula saía outra de uma cena para a seguinte).
+// Requer: WORKGROUP_SIZE, NONE, fluid_field, spatial_hash, grid, cell_start, cell_count, field_sorted (leitura),
+// field_kernel, field_sorted_contacts, cell_items, field_drips, field_drops, FIELD_FILM_DRIPS.
+
+/**
+ * A espessura da lâmina em espaçamentos: a vizinha mais longe do sólido que 0,6 espaçamento é de uma segunda camada (a
+ * rede compacta põe a seguinte a ~0,82); abaixo, o tremor da mesma camada.
+ */
+const FIELD_SHEET_LAYER: f32 = 0.6;
+
+/**
+ * A lâmina de uma partícula na parede íngreme (T066d; `fields/reference/film.ts`: `wallSheet`): a água arremessada no
+ * vidro abre-se numa lâmina que a gravidade drena e afina abaixo do milímetro (a espessura de Nusselt, ∝ (3μq/ρg)^⅓) —
+ * mais fina que o espaçamento das partículas, que a representam por uma camada só encostada no sólido, descendo como
+ * uma placa granulada. É água abaixo da resolução: passa à película, que a abre pelo impacto, drena, rompe em gotas e as
+ * escorre (Furmidge). A partícula encostada (`contact` a menos de meio espaçamento e um quarto) sem vizinha mais longe do
+ * sólido que `FIELD_SHEET_LAYER` espaçamentos (`outer`, ao longo da normal dele, a partir dela) numa parede quase
+ * vertical (a gravidade ao longo dela ao menos o dobro da normal: ≥ 63°) — no chão a camada fina é a borda da poça, e na
+ * encosta do lago, água que as partículas resolvem.
+ */
+fn field_wall_sheet(outer: f32, spacing: f32, contact: vec4f, g: vec3f) -> bool {
+    if (dot(contact.xyz, contact.xyz) <= 0.25 || contact.w >= 0.75 * spacing) { return false; }
+    let n = normalize(contact.xyz);
+    let gn = dot(g, n);
+    let gt = length(g - gn * n);
+    return outer < FIELD_SHEET_LAYER * spacing && gt >= 2.0 * abs(gn);
+}
 
 /** Autovalores (decrescentes) e autovetores (colunas) de uma simétrica 3 × 3 (Jacobi cíclico). */
 struct FieldEigen {
@@ -63,7 +94,8 @@ fn field_eigen(m: mat3x3f) -> FieldEigen {
     return FieldEigen(vals, vecs);
 }
 
-// Unidade do ponto fixo das somas dos vizinhos (≈ 40 vizinhos × 2²² cabem em i32).
+// Unidade do ponto fixo das somas dos vizinhos (peso ≤ 1: até 511 vizinhos × 2²² cabem em i32; na vizinhança de 3
+// espaçamentos são ~113).
 const FIELD_KERNEL_ONE: f32 = 4194304.0;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -82,14 +114,21 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     }
     let p = item.xyz;
     let r = fluid_field.grid.z;
+    let rn = fluid_field.reach.x;
     let home = sh_cell(p, grid.cell_size);
     // Somas em ponto fixo inteiro (em unidades do raio): a ordem dos vizinhos numa célula da grade varia entre execuções
     // (atômicos), e a soma inteira não depende dela — o campo sai idêntico bit a bit.
     var wsum_i = 0;
     var mean_i = vec3i(0);
+    var near_wsum_i = 0;
+    var near_mean_i = vec3i(0);
     var diag_i = vec3i(0);
     var off_i = vec3i(0);
     var n = 0u;
+    // A vizinha mais longe do sólido, ao longo da normal dele (a lâmina, `field_wall_sheet`).
+    let contact_self = field_sorted_contacts[t];
+    let wall = normalize(contact_self.xyz + vec3f(0.0, 1e-9, 0.0));
+    var outer = 0.0;
     for (var dz = -1; dz <= 1; dz++) {
         for (var dy = -1; dy <= 1; dy++) {
             for (var dx = -1; dx <= 1; dx++) {
@@ -102,32 +141,57 @@ fn field_kernels_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
                     if (q.w < 0.0 || any(sh_cell(q.xyz, grid.cell_size) != cell)) { continue; }
                     let d = q.xyz - p;
                     let dist = length(d);
-                    if (dist >= r) { continue; }
-                    let w = 1.0 - pow(dist / r, 3.0);
-                    let u = d / r;
+                    if (dist >= rn) { continue; }
+                    outer = max(outer, dot(d, wall));
+                    let w = 1.0 - pow(dist / rn, 3.0);
+                    let u = d / rn;
                     wsum_i += i32(round(w * FIELD_KERNEL_ONE));
                     mean_i += vec3i(round(w * u * FIELD_KERNEL_ONE));
                     diag_i += vec3i(round(w * u * u * FIELD_KERNEL_ONE));
                     off_i += vec3i(round(w * vec3f(u.x * u.y, u.x * u.z, u.y * u.z) * FIELD_KERNEL_ONE));
-                    n++;
+                    // No raio do núcleo: a posição suavizada e os vizinhos que decidem o núcleo esparso.
+                    if (dist < r) {
+                        let ws = 1.0 - pow(dist / r, 3.0);
+                        near_wsum_i += i32(round(ws * FIELD_KERNEL_ONE));
+                        near_mean_i += vec3i(round(ws * (d / r) * FIELD_KERNEL_ONE));
+                        n++;
+                    }
                 }
             }
         }
     }
+    if (fluid_field.contact.x > 0.0 && field_wall_sheet(outer, 0.5 * r, contact_self, fluid_field.filmFlow.xyz)) {
+        let it = cell_items[t];
+        atomicMax(&field_drips[field_absorb_word(it % FIELD_FILM_DRIPS)], ~it);
+    }
     let wsum = f32(wsum_i) / FIELD_KERNEL_ONE;
-    let mean = vec3f(mean_i) * (r / FIELD_KERNEL_ONE);
-    let diag = vec3f(diag_i) * (r * r / FIELD_KERNEL_ONE);
-    let off = vec3f(off_i) * (r * r / FIELD_KERNEL_ONE);
+    let mean = vec3f(mean_i) * (rn / FIELD_KERNEL_ONE);
+    let diag = vec3f(diag_i) * (rn * rn / FIELD_KERNEL_ONE);
+    let off = vec3f(off_i) * (rn * rn / FIELD_KERNEL_ONE);
     let second = mat3x3f(vec3f(diag.x, off.x, off.y), vec3f(off.x, diag.y, off.z), vec3f(off.y, off.z, diag.z));
     let xw = mean / max(wsum, 1e-12);
+    let near_mean = vec3f(near_mean_i) * (r / FIELD_KERNEL_ONE);
     let lambda = fluid_field.tuning.x;
-    let center = p + lambda * xw;
+    let center = p + lambda * near_mean / max(f32(near_wsum_i) / FIELD_KERNEL_ONE, 1e-12);
     if (n < fluid_field.limits.x) {
         let rs = fluid_field.tuning.z * r;
+        let contact = field_sorted_contacts[t];
+        if (fluid_field.contact.x > 0.0 && dot(contact.xyz, contact.xyz) > 0.25 && contact.w < rs) {
+            // A calota: raio lateral a e normal c (a² c = rs³: o volume do núcleo esparso), centrada no sólido.
+            let nrm = normalize(contact.xyz);
+            let a = rs * fluid_field.contact.x;
+            let cn = rs * fluid_field.contact.y;
+            let g = (1.0 / a) * mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0))
+                + (1.0 / cn - 1.0 / a) * mat3x3f(nrm * nrm.x, nrm * nrm.y, nrm * nrm.z);
+            field_kernel[i * 3u] = vec4f(center - nrm * contact.w, 1.0 / (a * a * cn));
+            field_kernel[i * 3u + 1u] = vec4f(g[0][0], g[1][0], g[2][0], g[1][1]);
+            field_kernel[i * 3u + 2u] = vec4f(g[2][1], g[2][2], max(a, cn), 1.0);
+            return;
+        }
         let s = 1.0 / rs;
         field_kernel[i * 3u] = vec4f(center, s * s * s);
         field_kernel[i * 3u + 1u] = vec4f(s, 0.0, 0.0, s);
-        field_kernel[i * 3u + 2u] = vec4f(0.0, s, rs, 0.0);
+        field_kernel[i * 3u + 2u] = vec4f(0.0, s, rs, 1.0);
         return;
     }
     // Covariância em volta da média ponderada (em coordenadas relativas a p).

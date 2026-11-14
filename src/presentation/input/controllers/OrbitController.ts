@@ -10,6 +10,11 @@ export interface OrbitControllerOptions {
     readonly target?: readonly [number, number, number];
     /** Distância inicial entre câmera e target (raio do orbit). Default: 5. */
     readonly distance?: number;
+    /**
+     * Posição inicial da câmera: a órbita começa nela (a distância e os ângulos dela em torno do alvo; ignora
+     * `distance`) — quem assume uma câmera parada não a faz saltar.
+     */
+    readonly eye?: readonly [number, number, number];
     /** Quando true, rotaciona automaticamente sem input do usuário. */
     readonly autoRotate?: boolean;
     /** Radianos/segundo de auto-rotação (se habilitada). Default: 0.5. */
@@ -43,6 +48,19 @@ export class OrbitController extends InputDrivenController<Record<string, never>
         super();
         this.target = [...(options.target ?? [0, 0, 0])] as [number, number, number];
         this.distance = options.distance ?? 5;
+        if (options.eye !== undefined) {
+            const d = [0, 1, 2].map((k) => options.eye![k]! - this.target[k]!) as [
+                number,
+                number,
+                number,
+            ];
+            const r = Math.hypot(d[0], d[1], d[2]);
+            if (r > 0) {
+                this.distance = r;
+                this.phi = Math.acos(Math.max(-1, Math.min(1, d[1] / r)));
+                this.theta = Math.atan2(d[2], d[0]);
+            }
+        }
         this.autoRotate = options.autoRotate ?? false;
         this.autoRotateSpeed = options.autoRotateSpeed ?? 0.5;
         this.damping = Math.max(0, Math.min(1, options.damping ?? 0.85));

@@ -1,5 +1,5 @@
 import type { BindingEntry, BindingLayoutEntry } from '../../../core/contracts/index';
-import type { ResolvedSource } from '../../consumers/ResolvedSource';
+import type { ResolvedSource, SliceSource } from '../../consumers/ResolvedSource';
 import type { BindingSource } from '../../flows/FlowBinding';
 import type { InferredEntry } from '../LayoutInferencer';
 
@@ -15,9 +15,27 @@ export function normalizeSource(source: BindingSource): ResolvedSource {
     return source;
 }
 
+/**
+ * Fonte concreta (spec 037): a fatia de um canal temporal na cabeça `head` (padrão: a de agora); as demais fontes
+ * passam inalteradas.
+ */
+export function concreteSource(
+    source: ResolvedSource,
+    head?: number,
+): Exclude<ResolvedSource, { kind: 'channel' }> {
+    if (source.kind !== 'channel') return source;
+    const c = source.channel;
+    const h = head ?? c.head;
+    const slice: SliceSource = c.sliceSource((((h - source.lag) % c.depth) + c.depth) % c.depth);
+    return source.visibility !== undefined ? { ...slice, visibility: source.visibility } : slice;
+}
+
 /** Mesma fonte (mesmos objetos de GPU e a mesma região)? */
 export function sameSource(a: ResolvedSource, b: ResolvedSource): boolean {
     if (a.kind !== b.kind) return false;
+    if (a.kind === 'channel' && b.kind === 'channel') {
+        return a.channel === b.channel && a.lag === b.lag && a.epoch === b.epoch;
+    }
     if (a.kind === 'buffer' && b.kind === 'buffer') {
         return (
             a.buffer === b.buffer
@@ -32,7 +50,8 @@ export function sameSource(a: ResolvedSource, b: ResolvedSource): boolean {
 }
 
 /** Entrada do bind group para a fonte no binding. */
-export function bindingEntryOf(binding: number, source: ResolvedSource): BindingEntry {
+export function bindingEntryOf(binding: number, resolved: ResolvedSource): BindingEntry {
+    const source = concreteSource(resolved);
     switch (source.kind) {
         case 'buffer':
             return {
@@ -54,13 +73,17 @@ const UNFILTERABLE: ReadonlySet<string> = new Set(['r32float', 'rg32float', 'rgb
 
 /**
  * Entrada de layout para o binding inferido com a fonte resolvida, ou a razão da incompatibilidade (string).
- * `visibility` explícita (da fonte ou do descritor) vence a inferida (FR-013).
+ * `visibility` explícita (da fonte ou do descritor) vence a inferida (FR-013). Com `float32Filterable` (a feature do
+ * device), os formatos de 32 bits por canal são filtráveis (spec 037: os históricos `full` lidos filtrados).
  */
 export function layoutEntryOf(
     entry: InferredEntry,
-    source: ResolvedSource,
+    resolved: ResolvedSource,
     explicitVisibility: number | undefined,
+    float32Filterable = false,
 ): BindingLayoutEntry | string {
+    // Canal temporal: as fatias têm a mesma forma — o layout é o de qualquer uma (spec 037).
+    const source = concreteSource(resolved);
     const visibility = source.visibility ?? explicitVisibility ?? entry.visibility;
     const base = { binding: entry.binding, visibility };
     const r = entry.resource;
@@ -97,7 +120,8 @@ export function layoutEntryOf(
     if (sampleType !== 'depth' && isDepth && sampleType !== 'unfilterable-float') {
         return `binding de cor recebeu textura de profundidade '${format}'`;
     }
-    if (sampleType === 'float' && UNFILTERABLE.has(format)) sampleType = 'unfilterable-float';
+    if (sampleType === 'float' && UNFILTERABLE.has(format) && !float32Filterable)
+        sampleType = 'unfilterable-float';
     // Textura multiamostrada de cor só se lê por `textureLoad`: o WebGPU exige `unfilterable-float`.
     if (sampleType === 'float' && r.texture.multisampled) sampleType = 'unfilterable-float';
     return {

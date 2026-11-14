@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { adaptiveHysteresis, GI_RESPONSE, RESPONSE_EMPTY, type ResponseState } from '../response';
+import {
+    adaptiveHysteresis,
+    GI_RESPONSE,
+    RESPONSE_EMPTY,
+    varianceHysteresis,
+    type ResponseState,
+} from '../response';
 
 // Histerese adaptativa das sondas (spec 033, T036): a mudança de verdade reduz a histerese; o ruído não; parado, volta à
 // do acúmulo.
@@ -18,11 +24,12 @@ function run(
     state: ResponseState,
     n: number,
     sample: (k: number) => number,
+    options: { hold?: number } = {},
 ): { state: ResponseState; hs: number[]; transients: number } {
     const hs: number[] = [];
     let transients = 0;
     for (let k = 0; k < n; k++) {
-        const r = adaptiveHysteresis(state, sample(k), 0.97);
+        const r = adaptiveHysteresis(state, sample(k), 0.97, options);
         state = r.state;
         hs.push(r.h);
         if (r.transient) transients++;
@@ -53,6 +60,28 @@ describe('histerese adaptativa das sondas (spec 033, US4)', () => {
         expect(Math.abs(after.state.mean - 1)).toBeLessThan(0.15);
     });
 
+    it('picos raros (poucos raios numa fonte pequena): com a retenção do ruído, quase nunca acelera (spec 034, T059)', () => {
+        const r = rng(13);
+        // Quase sempre 1; em 5 % dos quadros, 15 (a mancha de sol achada por um raio).
+        const spiky = (): number => (r() < 0.05 ? 15 : 1);
+        const hold = { hold: GI_RESPONSE.holdScreen };
+        const warm = run(RESPONSE_EMPTY, 300, spiky, hold);
+        const after = run(warm.state, 3000, spiky, hold);
+        const plain = run(run(RESPONSE_EMPTY, 300, spiky).state, 3000, spiky);
+        expect(after.transients).toBeLessThan(plain.transients / 2);
+        expect(after.transients / 3000).toBeLessThan(0.01);
+        expect(Math.abs(after.state.mean - 1.7)).toBeLessThan(0.35);
+    });
+
+    it('luz ou cena que mudou (spec 034, T059): a histerese de resposta, a rampa depois e o ruído recomeçado', () => {
+        const warm = run(RESPONSE_EMPTY, 300, () => 0.1);
+        const r = adaptiveHysteresis(warm.state, 10, 0.97, { changed: true });
+        expect(r.h).toBe(GI_RESPONSE.changed);
+        expect(r.state.mean).toBeCloseTo(0.1 * 0.3 + 10 * 0.7);
+        expect(r.state.frames).toBe(-GI_RESPONSE.ramp);
+        expect(r.state.noise).toBe(0);
+    });
+
     it('uma luz que acende: a histerese cai para a de resposta e a média alcança 95 % em ≤ 15 quadros (0,25 s)', () => {
         const r = rng(3);
         const warm = run(RESPONSE_EMPTY, 300, () => 0.1 * (0.9 + 0.2 * r()));
@@ -71,12 +100,34 @@ describe('histerese adaptativa das sondas (spec 033, US4)', () => {
         expect(reached).toBeLessThanOrEqual(15);
     });
 
+    it('pela variância (spec 034, T052): a sonda ruidosa acumula até o teto, a limpa fica no piso da autoria', () => {
+        // σ = 60 %: o ruído da média em 0,5 % pede mais que o teto.
+        expect(varianceHysteresis(0.36, 0.97)).toBe(GI_RESPONSE.ceiling);
+        // σ = 2 %: 0,88 basta — fica o piso.
+        expect(varianceHysteresis(0.0004, 0.97)).toBe(0.97);
+        // σ = 5 %: (σ² − τ²)/(σ² + τ²).
+        const t2 = GI_RESPONSE.target ** 2;
+        expect(varianceHysteresis(0.0025, 0.97)).toBeCloseTo((0.0025 - t2) / (0.0025 + t2), 12);
+        // O ruído da média acumulada no ponto: σ √((1 − h)/(1 + h)) = τ.
+        const h = varianceHysteresis(0.0025, 0.97);
+        expect(0.05 * Math.sqrt((1 - h) / (1 + h))).toBeCloseTo(GI_RESPONSE.target, 12);
+        // Piso acima do teto (autoria 0,995): vale o piso.
+        expect(varianceHysteresis(0.36, 0.995)).toBe(0.995);
+        // Na sonda ruidosa, parada, a histerese chega acima de 0,97.
+        const r = rng(5);
+        const noisy = run(RESPONSE_EMPTY, 2000, () => 1 + 0.6 * (r() + r() + r() - 1.5) * 2);
+        expect(Math.max(...noisy.hs.slice(-200))).toBeGreaterThan(0.99);
+    });
+
     it('depois da mudança, parado, volta à histerese do acúmulo (sem rastro)', () => {
         const r = rng(11);
         let state = run(RESPONSE_EMPTY, 300, () => 0.1).state;
         state = run(state, 30, () => 10 * (0.95 + 0.1 * r())).state;
         const settled = run(state, 100, () => 10 * (0.95 + 0.1 * r()));
-        expect(settled.hs.slice(-50).every((h) => h === 0.97)).toBe(true);
+        // Fora da resposta: a histerese do acúmulo — o piso da autoria ou acima, pela variância (T052), até o teto.
+        expect(settled.hs.slice(-50).every((h) => h >= 0.97 && h <= GI_RESPONSE.ceiling)).toBe(
+            true,
+        );
         expect(Math.abs(settled.state.mean - 10)).toBeLessThan(0.2);
     });
 });

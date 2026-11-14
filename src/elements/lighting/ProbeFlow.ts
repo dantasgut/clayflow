@@ -2,50 +2,74 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type {
     EngineCore,
     Frame,
+    IndirectBufferSpec,
     StorageBufferSpec,
     TextureViewSpec,
 } from '../../scene/contracts/gpu';
 import type { EventBus } from '../../scene/events/EventBus';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { Flow } from '../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
-import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../scene/flows/slots';
-import { bindPoints } from '../../scene/shaders/bindPoints';
+import {
+    slot,
+    type ChannelSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type WorkSlot,
+} from '../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Time } from '../../scene/time/Time';
 import type { World } from '../../scene/world/World';
-import { closure } from '../material/pbr/shaders';
-import { materialPointTypes } from '../material/point/types/shaders';
-import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
-import { RayScene, type RayMaterialFunction } from '../raytrace/RayScene';
+import { RayScene } from '../raytrace/RayScene';
+import { wordBuffer } from '../gpu/compute/schemas';
+import { RayWave } from '../raytrace/RayWave';
+import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { Camera } from '../scene/Camera';
+import { CameraInstanceSchema, CameraRecordSchema } from '../scene/flows/CameraSchemas';
 import { Light } from '../scene/Light';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import { Transform } from '../scene/Transform';
+import { pcgHash } from '../math/random';
 import { GlobalIllumination } from './GlobalIllumination';
+import { Caustics } from './caustics/Caustics';
 import {
+    GI_CACHE_BUDGET,
+    GI_CACHE_CELLS,
+    GI_CACHE_DATA,
+    GI_CACHE_RAYS,
+    GI_CACHE_WORDS,
     GI_GRID,
     GI_IRRADIANCE_TEXELS,
     GI_MAX_PROBES,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
-    GI_PHOTON_SLOTS,
+    GiScreenFilterStepSchema,
 } from './schemas';
 import {
-    giHitMaterialPoint,
+    giCache,
+    giCacheTrace,
     giProbeAtlas,
     giProbeBlend,
     giProbeClassify,
     giProbeTrace,
     giResources as R,
-    giScreenPlace,
     giScreenResolve,
     giScreenTrace,
-    giPhotonResolve,
-    giPhotonTrace,
+    giScreenGuide,
+    giScreenAdapt,
+    giScreenHistorySlot,
+    giProbesSlot,
+    giChange,
+    giChangeSlot,
+    giWaveDirect,
+    giWaveThrough,
 } from './shaders';
 
 /** Slots do estágio das sondas. */
@@ -60,15 +84,30 @@ export interface ProbeSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** As matrizes das câmeras (o slot da câmera ativa, para a coleta final na tela). */
     readonly cameras: PoolSlot<true>;
+    /** As transformações (a da câmera ativa não conta como mudança da cena para o cache). */
+    readonly transforms: PoolSlot<true>;
+    /** O histórico das sondas de tela: um canal temporal (spec 037), reservado pelo estágio para o alvo. */
+    readonly giScreenHistory: ChannelSlot<false>;
+    /**
+     * A série por páginas das sondas (spec 034, T060b): os carimbos e a época (o histórico de cada sonda vale?) e a
+     * contagem de quadros (as sementes e a rotação das sondas atualizadas).
+     */
+    readonly giProbes: ChannelSlot<false>;
+    /**
+     * A luz e a cena que mudaram (spec 034, T060e; constituição VII): as luzes guardadas e os quadros de resposta, na
+     * série — o Flow só passa o envio dos pools do quadro.
+     */
+    readonly giChange: ChannelSlot<false>;
+    /** As cáusticas (spec 034): com elas ativas, as sondas não leem o especular direto de vidro e metal liso. */
+    readonly caustics: SingletonSlot<true>;
+    /** O espaço de trabalho das sondas: raios, gerações, radiância, visibilidade, a coleta de tela, a onda (spec 039). */
+    readonly work: WorkSlot<ProbeWork>;
 }
 
-const slots: ProbeSlots = {
-    gi: slot.singleton(GlobalIllumination.schema),
-    rays: slot.singleton(RayScene.schema),
-    camera: slot.singleton(Camera.schema, { optional: true }),
-    time: slot.singleton(Time.schema, { optional: true }),
-    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
-};
+/** Resource de trabalho do `ProbeFlow` (spec 039). */
+class ProbeWork extends FlowWork {
+    static readonly schema = new StructSchema('ProbeWork', {});
+}
 
 type Ctx = TransitionContext<ProbeSlots>;
 
@@ -81,15 +120,29 @@ const compute = (id: string, shader: WgslModule, entry: string): PipelineDescrip
 
 const BLEND_IRRADIANCE = compute('gi_blend_irradiance', giProbeBlend, 'gi_blend_irradiance_main');
 const BLEND_VISIBILITY = compute('gi_blend_visibility', giProbeBlend, 'gi_blend_visibility_main');
+/** A histerese de cada sonda atualizada, antes do acúmulo (spec 034, T049: o estado da resposta lido e gravado uma vez). */
+const BLEND_RESPONSE = compute('gi_blend_response', giProbeBlend, 'gi_blend_response_main');
+/** As direções e os pesos MIS dos raios das sondas de tela (spec 034, T051). */
+const SCREEN_GUIDE = compute('gi_screen_guide', giScreenGuide, 'gi_screen_guide_main');
+/** As sondas de tela extras onde as dos ladrilhos não cobrem (a dobra, a borda; spec 034, T058). */
+const SCREEN_ADAPT = compute('gi_screen_adapt', giScreenAdapt, 'gi_screen_adapt_main');
+/** Os argumentos dos despachos indiretos das sondas de tela pelas vagas ocupadas (T058). */
+const SCREEN_ARGS = compute('gi_screen_args', giScreenAdapt, 'gi_screen_args_main');
 const CLASSIFY = compute('gi_classify', giProbeClassify, 'gi_probe_classify_main');
 const ATLAS_IRRADIANCE = compute('gi_atlas_irradiance', giProbeAtlas, 'gi_atlas_irradiance_main');
 const ATLAS_VISIBILITY = compute('gi_atlas_visibility', giProbeAtlas, 'gi_atlas_visibility_main');
 const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_main');
-const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_main');
 const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
-const SCREEN_FINISH = compute('gi_screen_finish', giScreenResolve, 'gi_screen_finish_main');
 const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
-const PHOTON_RESOLVE = compute('gi_photon_resolve', giPhotonResolve, 'gi_photon_resolve_main');
+/** As células do cache de irradiância nas superfícies a atualizar no quadro e o acúmulo delas (spec 034, T059). */
+const CACHE_SELECT = compute('gi_cache_select', giCache, 'gi_cache_select_main');
+const CACHE_BLEND = compute('gi_cache_blend', giCache, 'gi_cache_blend_main');
+/** A luz ou a cena que mudou, contra a série (T060e). */
+const CHANGE = compute('gi_change', giChange, 'gi_change_main');
+/** A palavra da fatia da mudança com os quadros que faltam da resposta (`gi_change_main`). */
+const GI_CHANGE_RESPONSE_WORD = 4;
+/** Onde a resposta entra no uniforme: `gi.bounces.z`. */
+const BOUNCES_Z_OFFSET = GlobalIllumination.schema.offsetOf('bounces') + 8;
 const FIXED = [
     BLEND_IRRADIANCE,
     BLEND_VISIBILITY,
@@ -97,33 +150,64 @@ const FIXED = [
     ATLAS_IRRADIANCE,
     ATLAS_VISIBILITY,
     ATLAS_PROBES,
-    SCREEN_PLACE,
     SCREEN_RESOLVE,
-    SCREEN_FINISH,
     SCREEN_FILTER,
-    PHOTON_RESOLVE,
+    BLEND_RESPONSE,
+    SCREEN_GUIDE,
+    SCREEN_ADAPT,
+    SCREEN_ARGS,
+    CACHE_SELECT,
+    CACHE_BLEND,
+    CHANGE,
 ];
-/** vec4f do começo do histórico da tela: a vista-projeção e a câmera anteriores (`GI_SCREEN_HISTORY_HEADER`). */
-const SCREEN_HISTORY_HEADER = 5;
+const CHANGE_INDEX = FIXED.indexOf(CHANGE);
 /** vec4f por sonda de tela no histórico além das gerações (posição, normal, estado da resposta). */
 const SCREEN_HISTORY_FIXED = 3;
-/** Ids dos kernels compostos com as funções `material` (sondas do mundo e de tela, alvos e fótons) de uma revisão. */
-const traceIds = (revision: number): readonly [string, string, string, string] => [
-    `gi_trace:${revision}`,
-    `gi_screen_trace:${revision}`,
-    `gi_photon_trace:${revision}`,
-    `gi_photon_targets:${revision}`,
+/**
+ * Os raios das sondas do mundo e de tela (spec 039): o acerto de cada raio na onda e, depois do material avaliado por
+ * classe, a luz que volta — sem as funções `material` nos kernels.
+ */
+const PROBE_HIT = compute('gi_probe_hit', giProbeTrace, 'gi_probe_hit_main');
+const PROBE_TRACE = compute('gi_trace', giProbeTrace, 'gi_probe_trace_main');
+const SCREEN_HIT = compute('gi_screen_hit', giScreenTrace, 'gi_screen_hit_main');
+const SCREEN_TRACE = compute('gi_screen_trace', giScreenTrace, 'gi_screen_trace_main');
+/**
+ * A luz direta nos acertos da onda e os fatores do fechamento (spec 034 T078), numa rodada com os raios das sondas do
+ * mundo e os de tela: os kernels que somam os rebatimentos não ligam as luzes, a estrutura de raios nem os contribuintes
+ * da luz, nem leem o fechamento.
+ */
+const WAVE_DIRECT = compute('gi_wave_direct', giWaveDirect, 'gi_wave_direct_main');
+/** A transmitância dos volumes no trecho de cada raio, depois dos acertos (T060e). */
+const WAVE_THROUGH = compute('gi_wave_through', giWaveThrough, 'gi_wave_through_main');
+/** Os raios do cache de irradiância nas superfícies (T059): o acerto na onda e a luz que volta. */
+const CACHE_HIT = compute('gi_cache_hit', giCacheTrace, 'gi_cache_hit_main');
+const CACHE_TRACE = compute('gi_cache_trace', giCacheTrace, 'gi_cache_trace_main');
+const TRACES = [
+    PROBE_HIT,
+    PROBE_TRACE,
+    SCREEN_HIT,
+    SCREEN_TRACE,
+    WAVE_DIRECT,
+    WAVE_THROUGH,
+    CACHE_HIT,
+    CACHE_TRACE,
 ];
-/** f32 da lista dos alvos dos fótons (`gi_photon_trace.wgsl`: cabeçalho, 64 caixas, áreas de 8 luzes × 64). */
-const PHOTON_TARGET_WORDS = 8 + 8 * 64 + 8 * 64;
 
+/** Os passes do filtro à-trous das sondas de tela (T054): passo em ladrilhos; ida e volta entre as duas metades. */
+const FILTER_STEPS = [1, 2, 4] as const;
+
+/** Lado da célula mais fina do cache de irradiância (fração do espaçamento das sondas) e a distância do nível (T059). */
+const CACHE_CELL = 0.25;
+const CACHE_LOD = 64;
 /** Vieses do ponto amostrado (frações do espaçamento): pela normal e pela vista (DDGI). */
 const NORMAL_BIAS = 0.1;
 const VIEW_BIAS = 0.3;
 /**
- * Ligações de storage que o kernel mais carregado usa sem funções `material` (os raios das sondas de tela: os dois pools
- * da estrutura, as luzes, os rebatimentos das sondas do mundo, o trabalho e o histórico da tela) mais uma forma de
- * função; cada forma a mais é mais uma (o limite do dispositivo é conferido pela C2 na preparação).
+ * Ligações de storage que o kernel mais carregado usa sem contribuintes (o acerto dos raios das sondas de tela: os dois
+ * pools da estrutura, as matrizes das câmeras, o trabalho e o histórico da tela, a onda e as contagens dela); a luz
+ * direta nos acertos é um kernel à parte (`gi_wave_direct_main`: as luzes, a estrutura, a onda e a saída, mais os
+ * contribuintes da luz), e os que somam os rebatimentos não ligam nenhum deles (spec 034 T078). Os contribuintes de
+ * cada cena (volumes, cáusticas) a C2 confere na preparação contra o que o adaptador concede.
  */
 const STORAGE_BINDINGS_NEEDED = 7;
 
@@ -139,6 +223,12 @@ interface Sizes {
     readonly screenRays: number;
     /** Pixels por lado do ladrilho no alvo atual. */
     readonly tile: number;
+    /** Refinamento das texturas das sondas de tela (2 com as sondas extras a meio ladrilho, 1 sem) e vagas das extras. */
+    readonly refine: number;
+    readonly adaptive: number;
+    /** Células do cache de irradiância atualizadas por quadro (0 sem a coleta final na tela) e raios por célula (T059). */
+    readonly cacheBudget: number;
+    readonly cacheRays: number;
 }
 
 /** Buffers privados das sondas. */
@@ -149,32 +239,16 @@ interface Buffers {
     readonly radiance: StorageBufferSpec;
     readonly visibility: StorageBufferSpec;
     readonly screenWork: StorageBufferSpec;
-    readonly screenHistory: StorageBufferSpec;
-    readonly photonTargets: StorageBufferSpec;
-}
-
-/** Composição das funções `material` nos acertos (um `switch` pelo índice da função da instância). */
-export function composeHitMaterial(functions: readonly RayMaterialFunction[]): WgslModule {
-    const cases = functions.map((f, k) => {
-        const call = `${f.functionName}(s, m, ${f.loaderName}(fn_slot))`;
-        return `        case ${k + 1}u: { c = ${f.returnsClosure ? call : `closure_from_params(${call})`}; }`;
-    });
-    return wgslModule({
-        name: `gi_hit_material_${functions.map((f) => f.module.name).join('_')}`,
-        requires: [materialPointTypes, closure, ...functions.map((f) => f.module)],
-        structs: [StandardMaterialSchema],
-        source: [
-            '// Funções `material` da cena nos acertos dos raios (gerado; spec 033, R3).',
-            'fn gi_hit_material(index: u32, s: SurfaceSample, m: StandardMaterial, fn_slot: u32) -> Closure {',
-            '    var c: Closure;',
-            '    switch (index) {',
-            ...cases,
-            '        default: { c = closure_from_params(SurfaceParams(m.albedo, m.roughness, m.metallic, vec3f(0.0))); }',
-            '    }',
-            '    return closure_sanitize(c);',
-            '}',
-        ].join('\n'),
-    });
+    readonly waveDirect: StorageBufferSpec;
+    readonly waveScatter: StorageBufferSpec;
+    readonly hysteresis: StorageBufferSpec;
+    readonly screenFilter: StorageBufferSpec;
+    readonly screenAdaptCount: StorageBufferSpec;
+    readonly screenArgs: IndirectBufferSpec;
+    readonly cache: StorageBufferSpec;
+    readonly cacheData: StorageBufferSpec;
+    readonly cacheList: StorageBufferSpec;
+    readonly cacheFresh: StorageBufferSpec;
 }
 
 /**
@@ -187,11 +261,7 @@ export function screenTile(authored: number, height: number): number {
 }
 
 /** Gerador determinístico (hash PCG) em [0, 1). */
-function random(seed: number): number {
-    let s = (Math.imul(seed >>> 0, 747796405) + 2891336453) >>> 0;
-    s = Math.imul((s >>> ((s >>> 28) + 4)) ^ s, 277803737) >>> 0;
-    return (((s >>> 22) ^ s) >>> 0) / 4294967296;
-}
+const random = (seed: number): number => pcgHash(seed >>> 0) / 4294967296;
 
 /** Rotação aleatória (uniforme, de um quatérnio de Shoemake) do quadro `n`: as três linhas. */
 function frameRotation(n: number): number[][] {
@@ -219,38 +289,69 @@ function frameRotation(n: number): number[][] {
  */
 export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     readonly type = 'ProbeFlow';
-    readonly slots = slots;
+    readonly slots: ProbeSlots;
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly world: World;
     private readonly events: EventBus;
     private readonly resources: ResourceDirectory;
-    private buffers: Buffers | undefined;
+    private sizes: Sizes | undefined;
     private atlases: readonly (TextureViewSpec | undefined)[] = [];
     private prepared = false;
-    /** Revisão dos kernels dos raios em uso e a que está compilando (composição nova das funções `material`). */
-    private traceRevision: number | undefined;
-    private nextTraceRevision: number | undefined;
+    /** A onda dos acertos dos raios (o material fora do traçado): os das sondas do mundo e, depois deles, os das de tela. */
+    private readonly wave: RayWave;
+    /** Os passes do filtro à-trous das sondas de tela (T054): o passo e as metades por região, por offset dinâmico. */
+    private readonly filterSteps: PerStepUniforms;
     private materialRevision = -1;
     /** Revisão já anunciada pronta (`globalIlluminationReady`). */
     private announcedRevision = -1;
-    private frame = 0;
-    /** Fótons do quadro (0 sem cáusticas). */
-    private photons = 0;
     private active = false;
+    /**
+     * Um pool da cena foi enviado desde o quadro anterior (além da câmera; T059): a entrada do quadro para a série da
+     * mudança (`gi_change`), zerada a cada quadro. O slot da transformação da câmera ativa, do último quadro.
+     */
+    private sceneChanged = false;
+    private cameraTransform: number | undefined;
+    /** Deixa de ouvir os envios dos pools (no descarte). */
+    private readonly stopWatching: () => void;
     /** Coleta final na tela no quadro (ligada, com câmera e com o canvas). */
     private screenActive = false;
     private unsupported = false;
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new ProbeWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            gi: slot.singleton(GlobalIllumination.schema),
+            rays: slot.singleton(RayScene.schema),
+            camera: slot.singleton(Camera.schema, { optional: true }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+            transforms: slot.pool(Transform.schema.name, { optional: true }),
+            ...giScreenHistorySlot,
+            ...giProbesSlot,
+            ...giChangeSlot,
+            caustics: slot.singleton(Caustics.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
         this.world = ctx.world;
         this.events = ctx.events;
+        // O que a CPU muda na cena (o envio dos pools): o cache de irradiância recomeça a acompanhar (T059).
+        this.stopWatching = ctx.events.on('poolWritten', (e) => {
+            if (this.sceneWrite(e.poolKey, e.ranges)) this.sceneChanged = true;
+        });
         this.resources = ctx.resources;
+        work.use({ descriptors: () => this.bufferDescriptors() });
+        this.wave = new RayWave(this.work, 'gi');
+        this.filterSteps = new PerStepUniforms(this.work, {
+            id: 'gi_screen_filter_step',
+            schema: GiScreenFilterStepSchema,
+        });
+        this.filterSteps.reserve(FILTER_STEPS.length);
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -265,6 +366,8 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 pipelinesCompiled: 'ignore',
                 pipelineRejected: 'ignore',
                 bindGroupReplaced: 'ignore',
+                // Pools realocados (a arena da GPU que se move, T060i): a C2 religa.
+                poolReallocated: 'ignore',
             },
         };
     }
@@ -275,11 +378,30 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
      */
     dispatch(frame: Frame, bound: BoundFlow<ProbeSlots>): void {
         if (!this.active || this.buffers === undefined) return;
-        const traces = this.readyTraces(bound);
+        const traces = TRACES.map((d) => bound.pipelines.get(d.id));
         const fixed = FIXED.map((d) => bound.pipelines.get(d.id));
-        if (traces === undefined || fixed.some((p) => p?.role !== 'compute' || !p.ready)) return;
-        const { updated, rays, tilesX, tilesY, screenRays } = this.buffers.sizes;
+        if (
+            [...traces, ...fixed].some((p) => p?.role !== 'compute' || !p.ready)
+            || !this.wave.ready(bound)
+        )
+            return;
+        const {
+            updated,
+            rays,
+            tilesX,
+            tilesY,
+            screenRays,
+            adaptive,
+            cacheBudget,
+            cacheRays,
+            probes: all,
+        } = this.buffers.sizes;
         const tiles = this.screenActive ? tilesX * tilesY : 0;
+        // O cache de irradiância nas superfícies só serve aos raios das sondas de tela (T059).
+        const cacheRayCount = tiles > 0 ? cacheBudget * cacheRays : 0;
+        // As sondas de tela: as dos ladrilhos e as vagas das extras (T058).
+        const probes = tiles > 0 ? tiles + adaptive : 0;
+        const args = this.buffers.screenArgs;
         const run = (
             pass: Parameters<Parameters<Frame['compute']>[1]>[0],
             k: number,
@@ -292,48 +414,211 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             p.bindTo(pass.bind);
             pass.dispatch.invocations(count, size);
         };
+        // Com as sondas extras, os passes das sondas de tela despacham pelos argumentos que a GPU gravou (as dos
+        // ladrilhos e as extras ocupadas: `at` 0 por sonda, 16 por raio); sem elas, direto.
+        const screen = (
+            pass: Parameters<Parameters<Frame['compute']>[1]>[0],
+            k: number,
+            count: number,
+            at: 0 | 16,
+        ): void => {
+            if (adaptive === 0) {
+                run(pass, k, count, W);
+                return;
+            }
+            const p = k < 0 ? traces[-k - 1] : fixed[k];
+            if (p?.role !== 'compute' || count === 0) return;
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
+            pass.dispatch.workgroupsIndirect(args, at);
+        };
         const W = WORKGROUP_SIZE.value;
-        frame.compute('ProbeFlow', (pass) => {
-            run(pass, -1, updated * rays, W);
+        // As vagas das sondas extras ocupadas contam do zero a cada quadro (estado do quadro, não entre quadros).
+        frame.clear(this.buffers.screenAdaptCount);
+        // A lista das células do cache do quadro (a contagem na palavra 0).
+        if (cacheRayCount > 0) frame.clear(this.buffers.cacheList);
+        // A luz ou a cena que mudou, contra a série (T060e): os quadros que faltam da resposta vão da fatia do quadro para
+        // `gi.bounces.z`, que os acúmulos leem (o uniforme do quadro já enviado; a cópia vem depois na ordem da GPU).
+        const change = bound.slots.giChange.buffer(0);
+        const params = bound.slots.gi.bufferOf('params');
+        if (change !== undefined && params !== undefined) {
+            frame.compute('ProbeFlow.change', (pass) => run(pass, CHANGE_INDEX, W, W));
+            frame.copy(change, params, 4, 4 * GI_CHANGE_RESPONSE_WORD, BOUNCES_Z_OFFSET);
+        }
+        // Um passe por etapa (os tempos por etapa na tabela da C2: o traçado, o sombreamento dos acertos, a luz direta,
+        // o acúmulo, os atlas e as sondas de tela).
+        frame.compute('ProbeFlow.trace', (pass) => {
+            // A rodada única da onda: os acertos das sondas do mundo com a colocação das sondas de tela na mesma despacho
+            // (os raios longos da câmera, poucos, sozinhos deixariam a GPU ociosa), depois os acertos das de tela, o
+            // material por classe e a luz direta de todos.
+            this.wave.reset(pass, bound);
+            // (As vagas das extras começam vazias: os grupos parciais dos despachos indiretos passam por elas.)
+            run(pass, -1, updated * rays + probes, W);
+        });
+        frame.compute('ProbeFlow.guide', (pass) => {
+            // As sondas extras nas posições a meio ladrilho das dobras côncavas e os argumentos dos despachos (T058).
+            if (adaptive > 0 && tiles > 0) {
+                run(pass, 10, 3 * tiles, W);
+                run(pass, 11, 1, W);
+            }
+            // As direções da amostragem mista (cosseno + guia pela sonda do mundo) das sondas colocadas (T051).
+            screen(pass, 9, probes, 0);
+            // As células do cache usadas há pouco, em rodízio pelo orçamento (T059).
+            if (cacheRayCount > 0) run(pass, 12, GI_CACHE_CELLS, W);
+        });
+        frame.compute('ProbeFlow.screenTrace', (pass) => {
+            screen(pass, -3, probes * screenRays, 16);
+            // Os raios do cache, na onda entre os das sondas do mundo e os de tela (as vagas vazias das extras ficam no
+            // fim, acima dos registros gravados: a separação por classe lê todos os abaixo).
+            run(pass, -7, cacheRayCount, W);
+        });
+        frame.compute('ProbeFlow.through', (pass) => {
+            // A transmitância da água no trecho de cada raio (os acertos gravaram o trecho), num passo de grade.
+            run(pass, -6, updated * rays + probes * screenRays + cacheRayCount, W);
+        });
+        frame.compute('ProbeFlow.shade', (pass) => {
+            this.wave.shade(pass, bound);
+        });
+        frame.compute('ProbeFlow.direct', (pass) => {
+            // A luz direta com uma invocação por raio (os raios de sombra: o trabalho que mais pede invocações em voo;
+            // passo de grade até os registros gravados).
+            run(pass, -5, updated * rays + tiles * screenRays + cacheRayCount, W);
+            run(pass, -2, updated * rays, W);
+        });
+        frame.compute('ProbeFlow.blend', (pass) => {
+            // A histerese por sonda antes do acúmulo: todos os texels da sonda leem a mesma (T049).
+            run(pass, 8, updated, W);
             run(pass, 0, updated * GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS, W);
             run(pass, 1, updated * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS, W);
             run(pass, 2, updated, W);
-            run(pass, 3, updated * (GI_IRRADIANCE_TEXELS + 2) ** 2, W);
-            run(pass, 4, updated * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
-            run(pass, 5, updated, W);
-            run(pass, 6, tiles, W);
-            run(pass, -2, tiles * screenRays, W);
-            run(pass, 7, tiles, W);
-            run(pass, 9, tiles, W);
-            run(pass, 8, tiles > 0 ? 1 : 0, 1);
         });
-        // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
-        frame.compute('ProbeFlow.photons', (pass) => {
-            run(pass, -4, this.photons > 0 ? W : 0, W);
-            run(pass, -3, Math.max(this.photons, 1), W);
-            run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
+        frame.compute('ProbeFlow.atlas', (pass) => {
+            // Os atlas de todas as sondas, a cada quadro (o produto do quadro; o estado é a série das sondas).
+            run(pass, 3, all * (GI_IRRADIANCE_TEXELS + 2) ** 2, W);
+            run(pass, 4, all * (GI_VISIBILITY_TEXELS + 2) ** 2, W);
+            run(pass, 5, all, W);
         });
-        this.frame++;
+        frame.compute('ProbeFlow.screen', (pass) => {
+            // O cache de irradiância nas superfícies (T059): a luz dos raios das células e o acúmulo delas, antes dos
+            // rebatimentos das sondas de tela, que o leem nos acertos fora da tela.
+            run(pass, -8, cacheRayCount, W);
+            if (cacheRayCount > 0) run(pass, 13, cacheBudget, W);
+            // Os rebatimentos das sondas de tela leem as sondas do mundo já acumuladas no quadro.
+            screen(pass, -4, probes * screenRays, 16);
+            screen(pass, 6, probes, 0);
+            // O filtro à-trous em três passes (passos 1, 2 e 4), cada um na sua região do uniforme (T054).
+            const filter = fixed[7];
+            if (filter?.role === 'compute' && tiles > 0) {
+                pass.bind.setPipeline(filter.spec);
+                FILTER_STEPS.forEach((_, k) => {
+                    filter.bindTo(pass.bind, { draw: [this.filterSteps.offset(k)] });
+                    if (adaptive === 0) pass.dispatch.invocations(probes, W);
+                    else pass.dispatch.workgroupsIndirect(args, 0);
+                });
+            }
+        });
+        // O acúmulo escreveu a fatia do quadro do histórico: o quadro seguinte a lê como a anterior (o canal gira).
+        if (tiles > 0) bound.slots.giScreenHistory.written();
+        bound.slots.giProbes.written();
+        if (change !== undefined) bound.slots.giChange.written();
     }
 
-    /** Libera os buffers privados. */
     override dispose(): void {
-        this.releaseBuffers();
+        this.stopWatching();
     }
 
-    /** Os kernels dos raios prontos: os novos assim que compilam (os anteriores são liberados), senão os atuais. */
-    private readyTraces(
-        bound: BoundFlow<ProbeSlots>,
-    ): readonly ReturnType<BoundFlow['compute']>[] | undefined {
-        type Compute = ReturnType<BoundFlow['compute']>;
-        const ready = (revision: number | undefined): Compute[] | undefined => {
-            if (revision === undefined) return undefined;
-            const ps = traceIds(revision).map((id) => bound.pipelines.get(id));
-            return ps.every((p) => p?.role === 'compute' && p.ready)
-                ? (ps as Compute[])
-                : undefined;
+    private get core(): EngineCore {
+        return this.work.core;
+    }
+
+    /** Os buffers das sondas no Resource de trabalho, pelos tamanhos atuais (spec 039). */
+    private bufferDescriptors(): readonly GPUDescriptor[] {
+        const sizes = this.sizes;
+        if (sizes === undefined) return [];
+        const texels = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
+        return [
+            wordBuffer('gi_probes:rays', sizes.updated * sizes.rays * sizes.bounces * 16),
+            // Os acúmulos das sondas (spec 034, T060b): séries por páginas, uma página por sonda (a validade de cada uma
+            // é a da série das sondas, `GlobalIllumination.probes`, escrita junto).
+            paged(
+                wordBuffer('gi_probes:generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
+                texels * sizes.bounces * 8,
+            ),
+            paged(wordBuffer('gi_probes:radiance', GI_MAX_PROBES * texels * 8), texels * 8),
+            paged(
+                wordBuffer(
+                    'gi_probes:visibility',
+                    GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
+                ),
+                GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
+            ),
+            // Coleta final na tela: por sonda de tela, posição e normal, a irradiância do quadro de cada geração e, por
+            // raio, a direção e o peso da amostragem mista (T051), depois o mapa fino de cada ladrilho e o texel fino de
+            // cada vaga das sondas extras (T058) — o histórico, de 3 + gerações vec4f por sonda, é o canal temporal
+            // `GlobalIllumination.screenHistory`.
+            wordBuffer(
+                'gi_probes:screenWork',
+                (this.screenProbes(sizes) * (2 + sizes.bounces + sizes.screenRays / 2)
+                    + 3 * sizes.tilesX * sizes.tilesY
+                    + sizes.adaptive)
+                    * 16,
+            ),
+            // O contador das vagas das sondas extras ocupadas no quadro (T058).
+            wordBuffer('gi_probes:screenAdaptCount', 16),
+            // Os argumentos dos despachos indiretos das sondas de tela: por sonda e por raio (T058).
+            wordBuffer('gi_probes:screenArgs', 32, 'indirect'),
+            // A luz direta nos acertos da onda, os fatores do fechamento e a luz espalhada pelos meios no trecho (quatro
+            // vec4f), por raio da rodada (spec 034 T078, T058).
+            wordBuffer('gi_probes:waveDirect', this.waveRays(sizes) * 64),
+            // A amostra do espalhamento dos meios no trecho de cada raio (dois vec4f, T058).
+            wordBuffer('gi_probes:waveScatter', this.waveRays(sizes) * 32),
+            // A histerese de cada sonda atualizada no quadro (spec 034, T049).
+            wordBuffer('gi_probes:hysteresis', Math.max(4, sizes.updated) * 4),
+            // O filtro à-trous das sondas de tela: duas metades de ida e volta, vec4f por sonda (T054).
+            wordBuffer('gi_probes:screenFilter', Math.max(1, this.screenProbes(sizes)) * 2 * 16),
+            // O cache de irradiância nas superfícies (T059): estado entre quadros, o índice e os valores, séries por
+            // páginas (uma página por célula; a validade é a época da série das sondas, gravada na célula).
+            paged(
+                wordBuffer('gi_probes:cache', GI_CACHE_CELLS * GI_CACHE_WORDS * 4),
+                GI_CACHE_WORDS * 4,
+            ),
+            paged(
+                wordBuffer('gi_probes:cacheData', GI_CACHE_CELLS * GI_CACHE_DATA * 16),
+                GI_CACHE_DATA * 16,
+            ),
+            // As células do cache do quadro (a contagem e a lista) e a média dos raios delas por rebatimento.
+            wordBuffer('gi_probes:cacheList', (sizes.cacheBudget + 1) * 4),
+            wordBuffer('gi_probes:cacheFresh', Math.max(1, sizes.cacheBudget) * sizes.bounces * 16),
+        ];
+    }
+
+    /** Os buffers que a C2 alocou para as sondas (ou `undefined` antes do primeiro dimensionamento). */
+    private get buffers(): Buffers | undefined {
+        const sizes = this.sizes;
+        if (sizes === undefined) return undefined;
+        const of = (name: string): StorageBufferSpec =>
+            this.resources.bufferOf(this.work.work, `gi_probes:${name}`) as StorageBufferSpec;
+        return {
+            sizes,
+            rays: of('rays'),
+            generations: of('generations'),
+            radiance: of('radiance'),
+            visibility: of('visibility'),
+            screenWork: of('screenWork'),
+            waveDirect: of('waveDirect'),
+            waveScatter: of('waveScatter'),
+            hysteresis: of('hysteresis'),
+            screenFilter: of('screenFilter'),
+            screenAdaptCount: of('screenAdaptCount'),
+            cache: of('cache'),
+            cacheData: of('cacheData'),
+            cacheList: of('cacheList'),
+            cacheFresh: of('cacheFresh'),
+            screenArgs: this.resources.bufferOf(
+                this.work.work,
+                'gi_probes:screenArgs',
+            ) as IndirectBufferSpec,
         };
-        return ready(this.nextTraceRevision) ?? ready(this.traceRevision);
     }
 
     private prepare(c: Ctx): void {
@@ -372,16 +657,38 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         const probes = GI_GRID[0] * GI_GRID[1] * GI_GRID[2] * d.cascades;
         const canvas = this.core.canvasSize();
         const tile = screenTile(d.screenTile, canvas?.height ?? 1080);
+        const tilesX = canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.width / tile));
+        const tilesY = canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.height / tile));
+        // As sondas extras a meio ladrilho quando ele cabe nas texturas (meio ladrilho de pelo menos o menor): vagas
+        // para metade dos ladrilhos.
+        const refine = tile / 2 >= GI_SCREEN_TILE_MIN ? 2 : 1;
         const sizes: Sizes = {
             probes,
             updated: Math.min(probes, Math.max(1, Math.ceil(probes * d.probeFraction))),
             rays: d.raysPerProbe,
             bounces: d.bounces,
-            tilesX: canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.width / tile)),
-            tilesY: canvas === undefined ? 0 : Math.max(1, Math.ceil(canvas.height / tile)),
+            tilesX,
+            tilesY,
             tile,
             screenRays: d.screenRays,
+            refine,
+            adaptive: refine === 2 ? Math.ceil((tilesX * tilesY) / 2) : 0,
+            // A vaga do cache: o trabalho dele acompanha o das sondas de tela (T059) — a fração delas por quadro divide a
+            // vaga na GPU (`gi_cache_budget`), inteira só na janela de resposta a uma luz ou à cena que mudou (T060e). Na
+            // qualidade média, 2048 células com 8 raios fora da janela — com o orçamento inteiro, os raios dele custavam
+            // 0,6 ms a 1280 × 720, metade do traçado das sondas de tela; com 4 raios, o bloco baixo da caixa de Cornell
+            // média ia de −1 a −8 % conforme a rodada.
+            cacheBudget: GI_CACHE_BUDGET,
+            cacheRays: Math.min(GI_CACHE_RAYS, Math.max(2, d.screenRays / 2)),
         };
+        // O histórico das sondas de tela (o canal): uma fatia de 3 + gerações vec4f por sonda (as dos ladrilhos e as vagas
+        // das extras) e o mapa fino de cada ladrilho; os raios das sondas do mundo também o leem (a luz das superfícies
+        // visíveis), com ou sem a coleta final.
+        gi.reserveScreenHistory(
+            this.screenProbes(sizes) * (SCREEN_HISTORY_FIXED + sizes.bounces)
+                + (refine === 2 ? sizes.tilesX * sizes.tilesY : 0),
+        );
+        this.resources.ensureAllocated(gi, 'screenHistory');
         const sameSizes =
             this.buffers !== undefined
             && (Object.keys(sizes) as (keyof Sizes)[]).every(
@@ -389,7 +696,11 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             );
         const sameViews = views.every((v, k) => v === this.atlases[k]);
         if (!sameSizes || !sameViews) {
-            if (!sameSizes) this.allocate(sizes);
+            if (!sameSizes) {
+                this.allocate(sizes);
+                // Os acúmulos realocados (zerados): o histórico de toda sonda recomeça pela série.
+                c.bound.slots.giProbes.invalidate();
+            }
             this.atlases = views;
             this.bind(c, views as TextureViewSpec[]);
             if (!this.prepared) {
@@ -400,45 +711,20 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
         this.syncTrace(c, c.bound.slots.rays.resource as RayScene);
         const cameraSlot = this.cameraSlot(c);
         this.screenActive =
-            d.enabled && d.screenGather && cameraSlot !== undefined && sizes.tilesX > 0;
+            d.enabled
+            && d.lightPath
+            && d.screenGather
+            && cameraSlot !== undefined
+            && sizes.tilesX > 0;
         this.writeParams(c, gi, sizes, cameraSlot ?? 0);
-        this.active = d.enabled;
+        // Desligada pela autoria ou nos caminhos de luz do `Renderer` (T079): nada roda.
+        this.active = d.enabled && d.lightPath;
     }
 
-    /** Buffers privados nos tamanhos dados (o histórico das sondas recomeça). */
+    /** Os buffers nos tamanhos dados: a C2 os realoca (o histórico das sondas recomeça). */
     private allocate(sizes: Sizes): void {
-        this.releaseBuffers();
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `gi_probes:${name}`,
-                byteSize: Math.max(16, bytes),
-            });
-        const texels = GI_IRRADIANCE_TEXELS * GI_IRRADIANCE_TEXELS;
-        this.buffers = {
-            sizes,
-            rays: storage('rays', sizes.updated * sizes.rays * sizes.bounces * 16),
-            generations: storage('generations', GI_MAX_PROBES * texels * sizes.bounces * 8),
-            radiance: storage('radiance', GI_MAX_PROBES * texels * 8),
-            visibility: storage(
-                'visibility',
-                GI_MAX_PROBES * GI_VISIBILITY_TEXELS * GI_VISIBILITY_TEXELS * 4,
-            ),
-            // Coleta final na tela: por sonda de tela, posição e normal e a irradiância do quadro de cada geração; o
-            // histórico com a câmera anterior e as duas metades (quadro anterior e atual) de 3 + gerações vec4f.
-            screenWork: storage(
-                'screenWork',
-                sizes.tilesX * sizes.tilesY * (2 + sizes.bounces) * 16,
-            ),
-            screenHistory: storage(
-                'screenHistory',
-                (SCREEN_HISTORY_HEADER
-                    + sizes.tilesX * sizes.tilesY * (SCREEN_HISTORY_FIXED + sizes.bounces) * 2)
-                    * 16,
-            ),
-            photonTargets: storage('photonTargets', PHOTON_TARGET_WORDS * 4),
-        };
+        this.sizes = sizes;
+        this.work.work.refresh();
     }
 
     /** Liga os buffers privados e as saídas dos atlas. */
@@ -452,6 +738,9 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.generationsRead, b.generations],
                 [R.radianceMap, b.radiance],
                 [R.radianceMapRead, b.radiance],
+                [R.probeHysteresis, b.hysteresis],
+                [R.screenFilter, b.screenFilter],
+                [R.screenFilterStep, this.filterSteps.source()],
                 [R.visibilityMap, b.visibility],
                 [R.visibilityMapRead, b.visibility],
                 [R.irradianceOut, views[0]!],
@@ -462,48 +751,66 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 [R.screenIrradianceOut, views[5]!],
                 [R.screenWork, b.screenWork],
                 [R.screenWorkRead, b.screenWork],
-                [R.screenHistory, b.screenHistory],
-                [R.photonTargets, b.photonTargets],
+                [R.screenAdaptCount, b.screenAdaptCount],
+                [R.screenArgs, b.screenArgs],
+                [R.waveDirect, b.waveDirect],
+                [R.waveDirectRead, b.waveDirect],
+                [R.waveScatter, b.waveScatter],
+                [R.waveScatterRead, b.waveScatter],
+                [R.cache, b.cache],
+                [R.cacheData, b.cacheData],
+                [R.cacheDataRead, b.cacheData],
+                [R.cacheList, b.cacheList],
+                [R.cacheListRead, b.cacheList],
+                [R.cacheFresh, b.cacheFresh],
+                [R.cacheFreshRead, b.cacheFresh],
             ]),
         );
     }
 
-    /** Os kernels dos raios com a composição das funções `material` da cena (novos quando o conjunto muda). */
+    /** Sondas de tela: as dos ladrilhos e as vagas das extras (T058). */
+    private screenProbes(sizes: Sizes): number {
+        return sizes.tilesX * sizes.tilesY + sizes.adaptive;
+    }
+
+    /**
+     * Raios da onda: os das sondas do mundo, os do cache de irradiância nas superfícies e os das sondas de tela (uma
+     * rodada, spec 034 T078, T059).
+     */
+    private waveRays(sizes: Sizes): number {
+        return Math.max(
+            1,
+            sizes.updated * sizes.rays
+                + this.screenProbes(sizes) * sizes.screenRays
+                + sizes.cacheBudget * sizes.cacheRays,
+        );
+    }
+
+    /**
+     * A onda dos raios (refeita quando os raios crescem) e os kernels de material por classe da revisão das funções
+     * `material` da estrutura de raios; os kernels dos raios na primeira vez.
+     */
     private syncTrace(c: Ctx, scene: RayScene): void {
-        if (this.nextTraceRevision !== undefined) {
-            const next = traceIds(this.nextTraceRevision).map((id) => c.bound.pipelines.get(id));
-            if (next.every((p) => p?.ready === true)) {
-                if (this.traceRevision !== undefined)
-                    for (const id of traceIds(this.traceRevision)) c.release(id);
-                this.traceRevision = this.nextTraceRevision;
-                this.nextTraceRevision = undefined;
-            }
+        const rays = this.waveRays(this.buffers!.sizes);
+        if (this.wave.capacity < rays || scene.materialRevision !== this.materialRevision) {
+            const first = this.materialRevision < 0;
+            this.materialRevision = scene.materialRevision;
+            const w = this.wave.ensure(rays, scene.materialFunctions, scene.materialRevision);
+            if (w.bindings !== undefined) c.bind(w.bindings);
+            for (const id of w.released) c.release(id);
+            for (const p of w.pipelines) c.prepare(p);
+            if (first) for (const p of TRACES) c.prepare(p);
         }
         this.announceReady(c);
-        if (scene.materialRevision === this.materialRevision) return;
-        this.materialRevision = scene.materialRevision;
-        const fns = scene.materialFunctions;
-        const compose = (shader: WgslModule): WgslModule =>
-            fns.length === 0
-                ? shader
-                : bindPoints(shader, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]]));
-        const [probeId, screenId, photonId, targetsId] = traceIds(this.materialRevision);
-        if (this.nextTraceRevision !== undefined)
-            for (const id of traceIds(this.nextTraceRevision)) c.release(id);
-        c.prepare(compute(probeId, compose(giProbeTrace), 'gi_probe_trace_main'));
-        c.prepare(compute(screenId, compose(giScreenTrace), 'gi_screen_trace_main'));
-        c.prepare(compute(photonId, compose(giPhotonTrace), 'gi_photon_trace_main'));
-        c.prepare(compute(targetsId, compose(giPhotonTrace), 'gi_photon_targets_main'));
-        if (this.traceRevision === undefined) this.traceRevision = this.materialRevision;
-        else this.nextTraceRevision = this.materialRevision;
     }
 
     /** Emite `globalIlluminationReady` quando os kernels da revisão em uso (e os fixos) ficam prontos pela primeira vez. */
     private announceReady(c: Ctx): void {
-        const revision = this.traceRevision;
-        if (revision === undefined || revision === this.announcedRevision) return;
-        const ids = [...traceIds(revision), ...FIXED.map((d) => d.id)];
+        const revision = this.materialRevision;
+        if (revision < 0 || revision === this.announcedRevision) return;
+        const ids = [...TRACES, ...FIXED].map((d) => d.id);
         if (!ids.every((id) => c.bound.pipelines.get(id)?.ready === true)) return;
+        if (!this.wave.ready(c.bound) || !this.wave.shadeReady(c.bound)) return;
         this.announcedRevision = revision;
         this.events.emit('globalIlluminationReady', { revision });
     }
@@ -511,6 +818,13 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
     /** O uniform do quadro: cascatas na câmera, raios, ajuste, rebatimentos, rotação e tempo. */
     private writeParams(c: Ctx, gi: GlobalIllumination, sizes: Sizes, cameraSlot: number): void {
         const d = gi.data;
+        // Os passes do filtro à-trous: o passo, a metade lida, a escrita e o último (escreve a textura do desenho).
+        FILTER_STEPS.forEach((step, k) => {
+            this.filterSteps.write(k, {
+                step: [step, k % 2, (k + 1) % 2, k === FILTER_STEPS.length - 1 ? 1 : 0],
+            });
+        });
+        this.filterSteps.flush(FILTER_STEPS.length);
         const canvas = this.core.canvasSize();
         const eye = d.center.length >= 3 ? d.center : this.cameraPosition(c);
         const cascades: number[][] = [];
@@ -524,8 +838,12 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
             ]);
         }
         const coarsest = d.probeSpacing * 2 ** (d.cascades - 1);
-        this.photons = d.caustics ? d.photons : 0;
-        const rotation = frameRotation(this.frame);
+        // As cáusticas ativas na cena (o `Caustics` ligado): as sondas não leem o especular direto de vidro e metal liso.
+        const caustics =
+            (c.bound.slots.caustics?.resource as Caustics | undefined)?.enabled === true;
+        // A contagem de quadros da série das sondas (recomeça com ela): as sementes e a rotação.
+        const frameIndex = c.bound.slots.giProbes.frames;
+        const rotation = frameRotation(frameIndex);
         const time = (c.bound.slots.time?.resource as Time | undefined)?.simulated ?? 0;
         d.params = [
             {
@@ -536,28 +854,69 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 cascade3: cascades[3]!,
                 rays: [
                     sizes.rays,
-                    this.frame,
-                    (this.frame * sizes.updated) % sizes.probes,
+                    frameIndex,
+                    (frameIndex * sizes.updated) % sizes.probes,
                     sizes.updated,
                 ],
                 tuning: [d.hysteresis, NORMAL_BIAS, VIEW_BIAS, coarsest * GI_GRID[0] * 1.5],
-                bounces: [sizes.bounces, d.enabled ? 1 : 0, 0, this.photons > 0 ? 1 : 0],
+                bounces: [
+                    sizes.bounces,
+                    d.enabled && d.lightPath ? 1 : 0,
+                    this.sceneChange(c),
+                    caustics ? 1 : 0,
+                ],
                 rotation0: rotation[0]!,
                 rotation1: rotation[1]!,
                 rotation2: rotation[2]!,
-                // Cáusticas: a célula do hash (1/16 do espaçamento das sondas), os fótons do quadro e o tempo.
-                extra: [1, d.probeSpacing / 16, this.photons, time],
-                counts: [this.resources.poolCount(Light.schema.name), GI_PHOTON_SLOTS, 0, 0],
+                extra: [1, 0, 0, time],
+                counts: [this.resources.poolCount(Light.schema.name), 0, 0, 0],
                 screen: [sizes.tilesX, sizes.tilesY, sizes.screenRays, cameraSlot],
                 screen1: [
                     Math.round(1 / d.screenFraction),
-                    this.frame & 1,
+                    sizes.refine,
                     this.screenActive ? 1 : 0,
-                    0,
+                    sizes.adaptive,
                 ],
                 screenSize: [canvas?.width ?? 1, canvas?.height ?? 1, sizes.tile, d.hysteresis],
+                cache: [
+                    GI_CACHE_CELLS,
+                    sizes.cacheBudget,
+                    sizes.cacheRays,
+                    this.screenActive ? 1 : 0,
+                ],
+                // A célula mais fina com um quarto do espaçamento das sondas; dobra além de 64 lados da câmera.
+                cacheSize: [d.probeSpacing * CACHE_CELL, CACHE_LOD, 0, 0],
             },
         ];
+    }
+
+    /**
+     * Um envio de pool muda a cena para o cache? Não as câmeras nem a transformação da câmera ativa (andar com a câmera
+     * não muda a luz das superfícies).
+     */
+    private sceneWrite(poolKey: string, ranges: readonly (readonly [number, number])[]): boolean {
+        // As luzes têm a tolerância delas (`gi_change`): o sol que anda devagar escreve o pool a cada quadro.
+        if (CAMERA_POOLS.has(poolKey) || poolKey === Light.schema.name) return false;
+        const camera = this.cameraTransform;
+        if (poolKey === Transform.schema.name && camera !== undefined)
+            return ranges.some(([first, count]) => first !== camera || count !== 1);
+        return true;
+    }
+
+    /**
+     * A cena mudou pela CPU no quadro (T059): a geometria, o material ou um objeto que se moveu — a cortina que corre
+     * deixava no chão a cor dela por segundos nas células do cache de ruído alto, que não distinguem a mudança do ruído.
+     * A entrada do quadro para a série da mudança (`gi_change`), que abre os quadros em que as sondas e o cache tomam os
+     * valores novos sem esperar a detecção (`gi_response`); na cena animada pela CPU a cada quadro, a luz rebatida
+     * acompanha a animação.
+     */
+    private sceneChange(c: Ctx): number {
+        const camera = c.bound.slots.camera?.resource;
+        const id = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
+        this.cameraTransform = id === undefined ? undefined : c.bound.slots.transforms?.slotOf(id);
+        const changed = this.sceneChanged ? 1 : 0;
+        this.sceneChanged = false;
+        return changed;
     }
 
     /** Slot da câmera ativa no pool `CameraMatrices` (sem câmera, nenhum). */
@@ -577,20 +936,17 @@ export class ProbeFlow extends Flow<ProbeSlots, 'idle'> {
                 : this.world.resourcesOf(id).find((r): r is Transform => r instanceof Transform);
         return transform?.data.position ?? [0, 0, 0, 1];
     }
+}
 
-    private releaseBuffers(): void {
-        const b = this.buffers;
-        if (b === undefined) return;
-        for (const buf of [
-            b.rays,
-            b.generations,
-            b.radiance,
-            b.visibility,
-            b.screenWork,
-            b.screenHistory,
-            b.photonTargets,
-        ])
-            this.core.destroy(buf);
-        this.buffers = undefined;
-    }
+/** Pools das câmeras: escrevê-los não muda a luz da cena. */
+const CAMERA_POOLS: ReadonlySet<string> = new Set([
+    Camera.schema.name,
+    Camera.matricesSchema.name,
+    CameraRecordSchema.name,
+    CameraInstanceSchema.name,
+]);
+
+/** O buffer como série por páginas de `record` bytes por página. */
+function paged(desc: GPUDescriptor, record: number): GPUDescriptor {
+    return { ...desc, history: { depth: 1, pages: { record } } };
 }

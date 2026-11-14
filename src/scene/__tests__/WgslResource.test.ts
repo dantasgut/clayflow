@@ -1,27 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
-import type {
-    BindingLayoutEntry,
-    EngineCore,
-    StorageBufferSpec,
-    UniformBufferSpec,
-} from '../../core/contracts/index';
+import { describe, expect, it } from 'vitest';
+import type { BindingLayoutEntry } from '../../core/contracts/index';
 import { FieldType } from '../descriptors/FieldType';
 import { StructSchema } from '../descriptors/StructSchema';
-import { createComputeKernel } from '../flows/createComputeKernel';
 import { composeWgsl } from '../shaders/composeWgsl';
 import { sharedConstant } from '../shaders/SharedConstant';
 import { WgslCompositionError } from '../shaders/WgslCompositionError';
 import { wgslModule } from '../shaders/WgslModule';
-import {
-    isWgslResource,
-    resourceTypeText,
-    wgslResource,
-    type WgslResource,
-} from '../shaders/WgslResource';
-import type { BindingSource } from '../flows/FlowBinding';
+import { isWgslResource, resourceTypeText, wgslResource } from '../shaders/WgslResource';
 import { LayoutInferencer } from '../systems/LayoutInferencer';
 import { checkLayoutLimits } from '../systems/flowBinding/limits';
-import { defaultCapabilities } from './helpers/defaultCapabilities';
 
 const Item = new StructSchema('ResItem', { a: FieldType.f32, b: FieldType.u32 });
 
@@ -335,75 +322,5 @@ describe('checkLayoutLimits (spec 031, T006)', () => {
         expect(() => {
             checkLayoutLimits('p', [[storage(0)]], {});
         }).not.toThrow();
-    });
-});
-
-describe('createComputeKernel com recursos declarados (spec 031, T011)', () => {
-    const ubo: UniformBufferSpec = {
-        kind: 'buffer',
-        subkind: 'uniform',
-        discriminator: 'u',
-        byteSize: 16,
-    };
-    const sbo: StorageBufferSpec = {
-        kind: 'buffer',
-        subkind: 'storage',
-        discriminator: 's',
-        byteSize: 64,
-    };
-    const core = {
-        create: vi.fn(<S>(spec: S) => spec),
-        createAsync: vi.fn(<S>(spec: S) => Promise.resolve(spec)),
-        capabilities: vi.fn(defaultCapabilities),
-    } as unknown as EngineCore;
-    const kernel = wgslModule({
-        name: 'res_ck',
-        requires: [items, out, params],
-        source: '@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) { out_values[id.x] = items[params.x].a; }',
-    });
-
-    it('fontes por objeto do recurso; grupos por frequência', () => {
-        const k = createComputeKernel(core, {
-            discriminator: 'res_ck',
-            shader: kernel,
-            entryPoint: 'main',
-            bindings: new Map<WgslResource, BindingSource>([
-                [items, sbo],
-                [out, sbo],
-                [params, ubo],
-            ]),
-        });
-        expect(k.groupsOf('stage').map((g) => g.index)).toEqual([0]);
-        expect(k.groupsOf('draw').map((g) => g.index)).toEqual([1]);
-        expect(k.groupsOf('frame')).toEqual([]);
-    });
-
-    it('recurso usado sem fonte → erro', () => {
-        expect(() =>
-            createComputeKernel(core, {
-                discriminator: 'res_ck2',
-                shader: kernel,
-                entryPoint: 'main',
-                bindings: new Map<WgslResource, BindingSource>([
-                    [items, sbo],
-                    [out, sbo],
-                ]),
-            }),
-        ).toThrow(/binding 'params'/);
-    });
-
-    it('constants repassados ao pipeline', () => {
-        const k = createComputeKernel(core, {
-            discriminator: 'res_ck3',
-            shader: kernel,
-            entryPoint: 'main',
-            bindings: new Map<WgslResource, BindingSource>([
-                [items, sbo],
-                [out, sbo],
-                [params, ubo],
-            ]),
-            constants: { SCALE: 2 },
-        });
-        expect(k.pipeline.constants).toEqual({ SCALE: 2 });
     });
 });

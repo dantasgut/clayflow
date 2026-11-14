@@ -7,12 +7,21 @@ import {
     NODE_COMPARE_LESS_EQUAL,
     NODE_COMPARE_NOT_EQUAL,
 } from '../gpu/shaders/constants';
-import { linalg, noise } from '../gpu/shaders/math';
+import {
+    basis,
+    color,
+    constants,
+    noise,
+    xformAffine,
+    xformProjective,
+    xformRigid,
+} from '../gpu/shaders/math';
 import { materialPointTypes } from '../material/point/shaders';
 import { fieldAccelReady, fieldPointTypes } from '../physics/shaders/fields';
 import mathSource from '../gpu/wgsl/nodes/math.wgsl?raw';
 import mapSource from '../gpu/wgsl/nodes/map.wgsl?raw';
 import noiseSource from '../gpu/wgsl/nodes/noise.wgsl?raw';
+import patternSource from '../gpu/wgsl/nodes/pattern.wgsl?raw';
 import colorSource from '../gpu/wgsl/nodes/color.wgsl?raw';
 import conditionSource from '../gpu/wgsl/nodes/condition.wgsl?raw';
 import spaceSource from '../gpu/wgsl/nodes/space.wgsl?raw';
@@ -33,8 +42,11 @@ export const nodeMap = wgslModule({ name: 'node_map', source: mapSource });
 /** Nós de ruído (spec 031): valor, gradiente, celular e fBm com semente, sobre a `wgslLib.noise`. */
 export const nodeNoise = wgslModule({ name: 'node_noise', source: noiseSource, requires: [noise] });
 
+/** Nós de padrão procedural (spec 038): o xadrez em 2D e 3D, filtrado pela largura do pixel. */
+export const nodePattern = wgslModule({ name: 'node_pattern', source: patternSource });
+
 /** Nós de rampa de cor (spec 031). */
-export const nodeColor = wgslModule({ name: 'node_color', source: colorSource });
+export const nodeColor = wgslModule({ name: 'node_color', source: colorSource, requires: [color] });
 
 /** Nós de condição (spec 031): comparação (operações das constantes `NODE_COMPARE_*`) e escolha. */
 export const nodeCondition = wgslModule({
@@ -54,7 +66,7 @@ export const nodeCondition = wgslModule({
 export const nodeSpace = wgslModule({
     name: 'node_space',
     source: spaceSource,
-    requires: [linalg],
+    requires: [xformRigid, xformAffine, xformProjective],
 });
 
 /**
@@ -67,8 +79,15 @@ export const nodeField = wgslModule({
     requires: [fieldPointTypes, fieldAccelReady],
 });
 
-/** Nós de geometria diferencial (spec 031): métrica, curvaturas, direções principais da amostra de superfície. */
-export const nodeSurface = wgslModule({ name: 'node_surface', source: surfaceSource });
+/**
+ * Nós de superfície (spec 031): métrica, curvaturas, direções principais da amostra de superfície; as ondulações (spec
+ * 034).
+ */
+export const nodeSurface = wgslModule({
+    name: 'node_surface',
+    source: surfaceSource,
+    requires: [constants],
+});
 
 /** Nós de saída do ponto `material` (spec 031; o de fechamento, spec 011). */
 export const nodeOutput = wgslModule({
@@ -88,4 +107,8 @@ export const nodeClosure = wgslModule({
 });
 
 /** Nó de tangente pelo uv (spec 011): referencial cotangente das derivadas de tela (só `fragment`). */
-export const nodeGeometry = wgslModule({ name: 'node_geometry', source: geometrySource });
+export const nodeGeometry = wgslModule({
+    name: 'node_geometry',
+    source: geometrySource,
+    requires: [basis],
+});

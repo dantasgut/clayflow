@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createScene } from '../../../scene/SceneContext';
 import { fakeSceneCore } from '../../../scene/__tests__/helpers/fakeSceneCore';
 import type { FrameTickEvent } from '../../../scene/events/FrameTickEvent';
-import { Application } from '../Application';
+import { Application } from '../../../platform/web/Application';
 
 vi.mock('../../flows/defaults', () => ({
     registerPresentationDefaults: () => ({}),

@@ -1,6 +1,8 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
+import type { Frame, StorageBufferSpec } from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { Flow } from '../../scene/flows/Flow';
+import { FlowWork, type WorkContext, type WorkPart } from '../../scene/flows/FlowWork';
 import type {
     BindingKey,
     BindingSource,
@@ -16,6 +18,7 @@ import {
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
@@ -24,6 +27,7 @@ import { Time } from '../../scene/time/Time';
 import type { EntityId } from '../../scene/world/EntityId';
 import { PerStepUniforms } from '../gpu/compute/PerStepUniforms';
 import { PrefixSum } from '../gpu/compute/PrefixSum';
+import { wordBuffer } from '../gpu/compute/schemas';
 import {
     NEIGHBOR_SEARCH_MAX_PARTICLES,
     NeighborSearchPipeline,
@@ -34,7 +38,7 @@ import { LCPSchema } from '../physics/bodies/schemas/LCPSchema';
 import { Collider } from '../physics/colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../physics/colliders/ColliderSet';
 import { GravityField } from '../physics/forcefields/GravityField';
-import { ParticleMaterial } from '../physics/materials/ParticleMaterial';
+import { ParticlePhysics } from '../physics/ParticlePhysics';
 import {
     diffuseCollide,
     diffuseResources as R,
@@ -55,25 +59,25 @@ export interface DiffuseSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Gravidade uniforme (opcional; padrão −9,81 em y). */
     readonly gravity: SingletonSlot<true>;
-    /** Material das partículas do fluido (espaçamento, domínio). */
-    readonly material: SingletonSlot<true>;
+    /** Comportamento das partículas do fluido (espaçamento, domínio). */
+    readonly physics: SingletonSlot<true>;
     /** Pools dos colliders e dos corpos donos (o spray colide com os sólidos da cena). */
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider. */
     readonly colliders: EntitiesSlot;
+    /** O espaço de trabalho do estágio: o de cada entidade de secundárias e os colliders (spec 039). */
+    readonly work: WorkSlot<DiffuseWork>;
 }
 
-const slots: DiffuseSlots = {
-    diffuse: slot.entities({
-        all: [DiffuseParticles, PointCloudGeometry],
-        owns: [[PointCloudGeometry, 'vertices']],
-    }),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    material: slot.singleton(ParticleMaterial.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/**
+ * Resource de trabalho do `DiffuseFlow` (spec 039). O trabalho de cada entidade (parâmetros, busca de vizinhos, soma de
+ * prefixos, normais, contagens e posições de geração, estado) é uma parte dele, tirada quando a entidade sai ou a grade
+ * muda. As normais, contagens e posições são indexadas pela partícula do fluido de origem em todo o pool dele (não por
+ * entidade de secundárias), então ficam no trabalho pela capacidade da busca, não num pool de corpo.
+ */
+class DiffuseWork extends FlowWork {
+    static readonly schema = new StructSchema('DiffuseWork', {});
+}
 
 type Ctx = TransitionContext<DiffuseSlots>;
 
@@ -86,11 +90,13 @@ interface DiffuseState {
     readonly params: PerStepUniforms;
     readonly search: NeighborSearchPipeline;
     readonly scan: PrefixSum;
+    /** Os buffers próprios da entidade no trabalho (normais, contagens, posições, estado). */
+    readonly part: WorkPart;
     readonly normals: StorageBufferSpec;
     readonly counts: StorageBufferSpec;
     readonly offsets: StorageBufferSpec;
     readonly state: StorageBufferSpec;
-    /** Grade da busca (recriada quando o material muda). */
+    /** Grade da busca (recriada quando a física muda). */
     gridKey: string;
     /** Pool do fluido ligado (detecta realocação). */
     pool: StorageBufferSpec | undefined;
@@ -112,11 +118,11 @@ interface DiffuseState {
  */
 export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     readonly type = 'DiffuseFlow';
-    readonly slots = slots;
+    readonly slots: DiffuseSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly resources: ResourceDirectory;
     private readonly states = new Map<EntityId, DiffuseState>();
     private readonly colliderSet: ColliderSet;
@@ -125,9 +131,22 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
 
     constructor(ctx: FlowContext) {
         super();
-        this.core = ctx.core;
+        const work = new DiffuseWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            diffuse: slot.entities({
+                all: [DiffuseParticles, PointCloudGeometry],
+                owns: [[PointCloudGeometry, 'vertices']],
+            }),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            work: slot.work(() => work),
+        };
         this.resources = ctx.resources;
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'diffuse_colliders',
         });
         const changed = {
@@ -206,29 +225,31 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
         }
     }
 
-    /** Libera os recursos de cada entidade e o conjunto de colliders. */
+    /** Libera os kernels de cada entidade (os buffers são do `DiffuseWork` e saem da cena com ele). */
     override dispose(): void {
         for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.colliderSet.destroy();
     }
 
+    /** Libera os kernels da entidade e tira o trabalho dela do `DiffuseWork` (a C2 libera os buffers). */
     private destroyState(st: DiffuseState): void {
-        st.params.dispose();
         st.search.dispose();
         st.scan.destroy();
-        for (const b of [st.normals, st.counts, st.offsets, st.state]) this.core.destroy(b);
+        const work = this.work.work;
+        work.drop(st.scan);
+        work.drop(st.params);
+        work.drop(st.part);
     }
 
     /** Entidades presentes: estado, busca de vizinhos sobre o pool do fluido, bindings e pipelines. */
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const material =
-            (ctx.bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
-        const h = 2 * material.particleSpacing;
-        const grid = material.gridFor(h);
+        const physics =
+            (ctx.bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
+        const h = 2 * physics.particleSpacing;
+        const grid = physics.gridFor(h);
         const gridKey = `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
         const present = new Set<EntityId>();
         for (const entry of ctx.bound.slots.diffuse.entries) {
@@ -307,17 +328,23 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     private createState(
         id: EntityId,
         strideF32: number,
-        grid: ReturnType<ParticleMaterial['gridFor']>,
+        grid: ReturnType<ParticlePhysics['gridFor']>,
         gridKey: string,
     ): DiffuseState {
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `diffuse_${name}:${id}:${gridKey}`,
-                byteSize: bytes,
-            });
-        const search = new NeighborSearchPipeline(this.core, {
+        // Normais, contagens e posições de geração por partícula do fluido, e o estado da entidade (spec 039).
+        const own = (name: string): string => `diffuse_${name}:${id}:${gridKey}`;
+        const part: WorkPart = {
+            descriptors: () => [
+                wordBuffer(own('normals'), NEIGHBOR_SEARCH_MAX_PARTICLES * 16),
+                wordBuffer(own('counts'), NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
+                wordBuffer(own('offsets'), NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
+                wordBuffer(own('state'), 16),
+            ],
+        };
+        this.work.work.use(part);
+        const storage = (name: string): StorageBufferSpec =>
+            this.resources.bufferOf(this.work.work, own(name)) as StorageBufferSpec;
+        const search = new NeighborSearchPipeline(this.work, {
             discriminator: `diffuse:${id}:${gridKey}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: MAX_NEIGHBORS,
@@ -327,8 +354,8 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             origin: grid.origin,
         });
         search.allocate();
-        const params = new PerStepUniforms(this.core, {
-            discriminator: `diffuse_params:${id}:${gridKey}`,
+        const params = new PerStepUniforms(this.work, {
+            id: `diffuse_params:${id}:${gridKey}`,
             schema: DiffuseParamsSchema,
         });
         params.reserve(1 + 4);
@@ -336,14 +363,15 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             id,
             params,
             search,
-            scan: new PrefixSum(this.core, {
+            scan: new PrefixSum(this.work, {
                 discriminator: `diffuse_scan:${id}:${gridKey}`,
                 capacity: NEIGHBOR_SEARCH_MAX_PARTICLES,
             }),
-            normals: storage('normals', NEIGHBOR_SEARCH_MAX_PARTICLES * 16),
-            counts: storage('counts', NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
-            offsets: storage('offsets', NEIGHBOR_SEARCH_MAX_PARTICLES * 4),
-            state: storage('state', 16),
+            part,
+            normals: storage('normals'),
+            counts: storage('counts'),
+            offsets: storage('offsets'),
+            state: storage('state'),
             gridKey,
             pool: undefined,
             steps: 0,
@@ -359,13 +387,15 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
     private writeParams(ctx: Ctx): void {
         const { diffuse, time, gravity } = ctx.bound.slots;
         const clock = time.resource as Time;
-        const material =
-            (ctx.bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
+        const physics =
+            (ctx.bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
         const g = (gravity?.resource as GravityField | undefined)?.uniformAcceleration() ?? [
             0, -9.81, 0, 0,
         ];
-        this.frame++;
+        // A semente conta os quadros que simulam: quadros sem passo (a cena parada, a espera da prontidão) não a avançam,
+        // e a trajetória das secundárias depende só dos passos dados (spec 034, FR-024).
+        if (clock.steps > 0) this.frame++;
         for (const st of this.states.values()) {
             st.steps = 0;
             const entry = diffuse.entry(st.id);
@@ -381,7 +411,7 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
             if (st.params.reserve(1 + st.steps)) this.dirty = true;
             const grid = st.search.grid!;
             const data = d.data;
-            const s = material.particleSpacing;
+            const s = physics.particleSpacing;
             const base = {
                 fluid_count: st.fluidCount,
                 fluid_stride: schema.stride / 4,
@@ -391,17 +421,20 @@ export class DiffuseFlow extends Flow<DiffuseSlots, 'idle'> {
                 list_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
                 capacity: data.maxParticles,
                 frame: this.frame,
-                grid_x: grid.gridDim[0],
-                grid_y: grid.gridDim[1],
-                grid_z: grid.gridDim[2],
+                grid_x: grid.tableDim[0],
+                grid_y: grid.tableDim[1],
+                grid_z: grid.tableDim[2],
+                domain_x: grid.gridDim[0],
+                domain_y: grid.gridDim[1],
+                domain_z: grid.gridDim[2],
                 spray_max: data.sprayNeighbors,
                 grid_origin: [...grid.origin],
                 cell_size: grid.cellSize,
                 gravity: [g[0] ?? 0, g[1] ?? -9.81, g[2] ?? 0],
                 dt: clock.stepDt * st.steps,
-                bound_min: material.domainMin,
+                bound_min: physics.domainMin,
                 h: 2 * s,
-                bound_max: material.domainMax,
+                bound_max: physics.domainMax,
                 bubble_min: data.bubbleNeighbors,
                 ta_min: data.trappedAir[0],
                 ta_max: data.trappedAir[1],

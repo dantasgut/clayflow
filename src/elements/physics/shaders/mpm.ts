@@ -25,7 +25,7 @@ export const mpmResources = Object.freeze({
         binding: { uniform: true },
         type: { schema: MPMSimParamsSchema },
         frequency: 'draw',
-        provider: 'private',
+        provider: { slot: 'work', descriptor: 'mpm_params' },
     }),
     /** Grade euleriana (somas atômicas em ponto fixo no P2G). */
     grid: wgslResource({
@@ -33,7 +33,8 @@ export const mpmResources = Object.freeze({
         binding: { storage: 'read_write' },
         type: { schema: MPMGridNodeSchema, array: true },
         frequency: 'stage',
-        provider: 'private',
+        // A grade do domínio no Resource de trabalho (spec 039): a C2 a realoca quando a grade da física muda.
+        provider: { slot: 'work', descriptor: 'mpm_grid' },
     }),
     /** Pool de partículas do `bodyType` (fluido ou sólido; mesmo struct `MPMParticle`). */
     particles: wgslResource({

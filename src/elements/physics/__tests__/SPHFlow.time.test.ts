@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { SPHSimParamsSchema } from '../schemas/simParams';
+
+/** O passo entre as regiões dos parâmetros (o tamanho deles alinhado a 256 bytes). */
+const REGION = Math.ceil(SPHSimParamsSchema.stride / 256) * 256;
 import { SPHFlow } from '../flows/SPHFlow';
 import { FluidBody } from '../bodies/FluidBody';
-import { ParticleMaterial } from '../materials/ParticleMaterial';
+import { ParticlePhysics } from '../ParticlePhysics';
 import { countPasses } from './helpers/recordingFrame';
 import { solverScene } from './helpers/solverScene';
 
@@ -13,7 +17,7 @@ async function setup(substeps: number) {
         bodyType: 'SPHSchema',
     });
     // Passo estável bem maior que o passo da cena: substeps = o configurado (a derivação pelo material tem teste próprio).
-    s.scene.world.insert(new ParticleMaterial({ speedOfSound: 0.1, youngModulus: 1 }));
+    s.scene.world.insert(new ParticlePhysics({ speedOfSound: 0.1, youngModulus: 1 }));
     s.scene.world.insert(new FluidBody({ algorithm: 'SPH', position: [0, 0, 0] }));
     return s;
 }
@@ -37,7 +41,12 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         );
         const integrate = passes.filter((p) => p.label === 'SPHFlow.integrate');
         // Grupos por frequência (spec 031): `stage` (pool, vizinhança) e `draw` (parâmetros, único dinâmico).
-        expect(integrate.map((p) => p.offsets[1]?.[0])).toEqual([0, 256, 512, 768]);
+        expect(integrate.map((p) => p.offsets[1]?.[0])).toEqual([
+            0,
+            REGION,
+            2 * REGION,
+            3 * REGION,
+        ]);
         expect(integrate.every((p) => p.offsets.length === 2 && p.offsets[0] === undefined)).toBe(
             true,
         );
@@ -48,7 +57,7 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         writes.length = 0;
         step(1 / 60);
         const w = writes.filter((x) =>
-            (x.spec as { discriminator: string }).discriminator.includes('sph_params:per_step'),
+            (x.spec as { discriminator: string }).discriminator.includes('sph_params:'),
         );
         expect(w).toHaveLength(1);
         const f32 = new Float32Array(
@@ -57,7 +66,7 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
             w[0]!.bytes.byteLength / 4,
         );
         expect(f32[3]).toBeCloseTo(1 / 120, 7);
-        expect(f32[64 + 10]).toBeCloseTo(1 / 60, 7);
+        expect(f32[REGION / 4 + 10]).toBeCloseTo(1 / 60, 7);
     });
 
     it('steps = 0 não grava passes; mais passos no quadro não criam nada na gravação', async () => {
@@ -73,8 +82,8 @@ describe('SPHFlow — avanço governado pelo Time (slots)', () => {
         const s = await setup(1);
         s.step();
         const mat = s.scene.world.rootOf(
-            s.scene.world.queryBySchemaName('ParticleMaterial')[0]!,
-        ) as ParticleMaterial;
+            s.scene.world.queryBySchemaName('ParticlePhysics')[0]!,
+        ) as ParticlePhysics;
         mat.data.particleSpacing = 0.08;
         const replaced: string[] = [];
         s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));

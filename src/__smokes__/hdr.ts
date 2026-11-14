@@ -22,8 +22,8 @@ import {
     StandardMaterial,
     Transform,
     Vignette,
-} from 'clayflow';
-import type { ToneOperator } from 'clayflow';
+} from 'clayflow/web';
+import type { ToneOperator } from 'clayflow/web';
 import { capture, settle } from './support/extensionScenes';
 import { banding, edgeEnergy, readHdrTexture, rowLevels, hdrAt } from './support/imageMeasures';
 import { present, srgbDecode } from '../elements/material/reference/tonemap';
@@ -67,6 +67,10 @@ interface Emission {
     readonly b: number;
 }
 
+/**
+ * Aplicação do smoke. Antisserrilhado: o MSAA com que as medidas foram calibradas (o padrão antes da 034; o temporal,
+ * padrão agora, tem o smoke `antialiasing`); `false` desliga.
+ */
 async function createApp(
     antialias = true,
 ): Promise<{ app: Application; canvas: HTMLCanvasElement }> {
@@ -79,7 +83,7 @@ async function createApp(
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        antialias,
+        antialias: antialias ? 'msaa' : 'off',
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
     app.events.on('extensionRejected', (e) =>
@@ -196,8 +200,8 @@ async function caseRamp(): Promise<void> {
     };
     for (const dither of [false, true]) {
         const { app, canvas } = await createApp();
-        app.defaults.presentation.data.operator = 'neutral';
-        app.defaults.presentation.data.dither = dither;
+        app.defaults.renderer.output.data.operator = 'neutral';
+        app.defaults.renderer.output.data.dither = dither;
         emissivePlane(app, { mode: 1, a: 0.05, b: 0.7 });
         const img = await frame(app, canvas);
         dispose(app, canvas);
@@ -224,8 +228,8 @@ async function caseExposure(): Promise<void> {
     const linear: number[] = [];
     for (const ev of [0, 1]) {
         const { app, canvas } = await createApp();
-        app.defaults.presentation.data.operator = 'linear';
-        app.defaults.presentation.data.exposure = ev;
+        app.defaults.renderer.output.data.operator = 'linear';
+        app.defaults.renderer.output.data.exposure = ev;
         emissivePlane(app, { mode: 0, a: 0.1, b: 0.1 });
         const img = await frame(app, canvas);
         dispose(app, canvas);
@@ -244,8 +248,8 @@ async function caseOperators(): Promise<void> {
         'linear',
     ] as const satisfies readonly ToneOperator[]) {
         const { app, canvas } = await createApp();
-        app.defaults.presentation.data.operator = operator;
-        app.defaults.presentation.data.dither = false;
+        app.defaults.renderer.output.data.operator = operator;
+        app.defaults.renderer.output.data.dither = false;
         emissivePlane(app, { mode: 2, a: 0.05, b: 1 });
         const img = await frame(app, canvas);
         dispose(app, canvas);
@@ -273,7 +277,7 @@ async function caseOutput(): Promise<void> {
     const { app, canvas } = await createApp();
     let fallbacks = 0;
     app.events.on('presentationFallback', () => fallbacks++);
-    app.defaults.presentation.data.output = 'hdr';
+    app.defaults.renderer.output.data.output = 'hdr';
     emissivePlane(app, { mode: 1, a: 0.05, b: 3 });
     const img = await frame(app, canvas);
     const output = app.core.canvasOutput;

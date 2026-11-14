@@ -8,9 +8,11 @@ import { color } from './color';
 import { bsdf } from './bsdf';
 import { closure } from './closure';
 import { geometry } from './geometry';
+import { image } from './image';
 import { material } from './material';
 import { math } from './math';
 import { noise } from './noise';
+import { pattern } from './pattern';
 import { output } from './output';
 import {
     compact,
@@ -30,6 +32,7 @@ import { space } from './space';
 import { surface } from './surface';
 
 export { compareOps } from './condition';
+export { SetNodeKernels } from './set/SetNodeKernels';
 export type { CameraArgument, ParticleArgument } from './input';
 
 /** Nós de conjunto (spec 031, US3): malha, pontos, as primitivas paralelas sobre conjuntos u32 (FR-027) e as saídas. */
@@ -52,7 +55,8 @@ const set = {
  * Biblioteca base de nós da C3 (spec 031, R12): entradas de contexto (`input`: argumentos do ponto alvo, sem código),
  * matemática, mapeamentos, rampas de cor, ruídos, condições, conversões de espaço, campo da cena, geometria diferencial e
  * saídas — nós de ponto, cada um com a referência da CPU em `reference/` e a tolerância documentada em
- * `reference/library.ts` —; e os nós de conjunto (`set`). Os de ponto valem em todos os estágios, salvo os que dizem o
+ * `reference/library.ts` —; a imagem virtual (`image`, spec 034 T060c: depende das `VirtualTextures` da cena) e os nós de
+ * conjunto (`set`). Os de ponto valem em todos os estágios, salvo os que dizem o
  * contrário (`output.surfaceParams`, só `fragment`).
  */
 export const nodes = {
@@ -61,6 +65,7 @@ export const nodes = {
     map,
     color,
     noise,
+    pattern,
     condition,
     space,
     field,
@@ -70,6 +75,7 @@ export const nodes = {
     closure,
     output,
     material,
+    image,
     set,
 } as const;
 
@@ -80,6 +86,7 @@ export const pointNodes: readonly NodeDefinition[] = Object.freeze(
         map,
         color,
         noise,
+        pattern,
         condition,
         space,
         field,
@@ -96,4 +103,5 @@ export const defaultNodeRegistry = new NodeRegistry([
     ...pointNodes,
     ...Object.values(set),
     ...Object.values(material),
+    ...Object.values(image),
 ]);

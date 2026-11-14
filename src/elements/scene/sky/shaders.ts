@@ -8,6 +8,7 @@ import skyMultiscatterSource from '../../gpu/wgsl/sky/sky_multiscatter.wgsl?raw'
 import skyViewSource from '../../gpu/wgsl/sky/sky_view.wgsl?raw';
 import skySource from '../../gpu/wgsl/sky/sky.wgsl?raw';
 import { SkySchema } from './SkySchema';
+import { constants } from '../../gpu/shaders/math';
 
 // Módulos do céu físico (spec 033, R4): a atmosfera, a leitura das tabelas, os três kernels das tabelas (saídas
 // privadas do `SkyFlow`) e a consulta `sky` (radiância, transmitância do sol, fundo). Os descritores do `Sky` são
@@ -64,7 +65,7 @@ export const skyOutputs = Object.freeze({
 export const skyAtmosphere = wgslModule({
     name: 'sky_atmosphere',
     source: skyAtmosphereSource,
-    requires: [skyParamsResource],
+    requires: [skyParamsResource, constants],
 });
 
 /** Leitura da transmitância e do múltiplo espalhamento. */

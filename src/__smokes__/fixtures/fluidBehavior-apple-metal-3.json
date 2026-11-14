@@ -2,49 +2,49 @@
   "profile": "apple-metal-3",
   "cases": {
     "drop": {
-      "SPH-water": "d993707c",
-      "SPH-zero": "11df6bd3",
-      "PBF-water": "b6b787e3",
-      "PBF-zero": "580ee801"
+      "SPH-water": "9cfdf76b",
+      "SPH-zero": "450dcad7",
+      "PBF-water": "ae238c05",
+      "PBF-zero": "4824b88d"
     },
     "filament": {
-      "water": "46354bb8",
-      "zero": "8b0589bc"
+      "water": "c4a3654e",
+      "zero": "06a37663"
     },
     "dam": {
-      "water": "eb5868ae",
-      "zero": "c37b5aaa"
+      "water": "3ad3b7c1",
+      "zero": "2ea35c57"
     },
     "meniscus": {
-      "water": "e5016616",
-      "zero": "0abcbd09"
+      "water": "4eb227ba",
+      "zero": "feb88c9c"
     },
     "slope": {
-      "water": "3d9a7b01",
-      "zero": "6be400f2"
+      "water": "2ff65684",
+      "zero": "b895ec24"
     },
     "puddle": {
-      "adesão 0": "ec804e69",
-      "adesão 0.5": "15c44d94",
-      "adesão 1": "3a7aaa36"
+      "adesão 0": "d83d1254",
+      "adesão 0.5": "4d8d9e6a",
+      "adesão 1": "7f43cafb"
     },
     "material": {
       "mpm-baixa": "edf40b42",
       "mpm-alta": "b34133ce",
-      "xsph-0": "f4528611",
-      "xsph-0.3": "ec3eb1ff"
+      "xsph-0": "3af6068e",
+      "xsph-0.3": "bd4bb2ea"
     },
     "live": {
-      "sempre-zero": "ee8a3a43",
-      "ligada-em-N": "674c696b"
+      "sempre-zero": "631455b3",
+      "ligada-em-N": "93697363"
     },
     "rates": {
-      "SPH@60Hz": "3a51ece4",
-      "SPH@30Hz": "3a51ece4",
-      "SPH@144Hz": "3a51ece4",
-      "PBF@60Hz": "7a54339c",
-      "PBF@30Hz": "7a54339c",
-      "PBF@144Hz": "7a54339c"
+      "SPH@60Hz": "26d755fa",
+      "SPH@30Hz": "26d755fa",
+      "SPH@144Hz": "26d755fa",
+      "PBF@60Hz": "a25798af",
+      "PBF@30Hz": "a25798af",
+      "PBF@144Hz": "a25798af"
     }
   }
 }

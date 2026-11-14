@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / PointSpriteMaterialData
+[clayflow](../../modules.md) / [elements](../README.md) / PointSpriteMaterialData
 
 # Interface: PointSpriteMaterialData
 
-Defined in: [elements/material/PointSpriteMaterial.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L8)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:9](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L9)
 
 Dado de um `PointSpriteMaterial` (layout de `PointSpriteMaterial.schema`).
 
@@ -16,7 +16,7 @@ Dado de um `PointSpriteMaterial` (layout de `PointSpriteMaterial.schema`).
 
 > **\_pad0**: `number`
 
-Defined in: [elements/material/PointSpriteMaterial.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L14)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:15](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L15)
 
 Preenchimento do layout.
 
@@ -26,7 +26,7 @@ Preenchimento do layout.
 
 > **\_pad1**: `number`
 
-Defined in: [elements/material/PointSpriteMaterial.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L16)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:17](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L17)
 
 Preenchimento do layout.
 
@@ -36,7 +36,7 @@ Preenchimento do layout.
 
 > **\_pad2**: `number`
 
-Defined in: [elements/material/PointSpriteMaterial.ts:18](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L18)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:19](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L19)
 
 Preenchimento do layout.
 
@@ -46,7 +46,7 @@ Preenchimento do layout.
 
 > **color**: `number`[]
 
-Defined in: [elements/material/PointSpriteMaterial.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L10)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:11](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L11)
 
 Cor RGBA linear.
 
@@ -56,6 +56,6 @@ Cor RGBA linear.
 
 > **radius**: `number`
 
-Defined in: [elements/material/PointSpriteMaterial.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L12)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:13](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L13)
 
 Raio.

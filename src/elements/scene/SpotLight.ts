@@ -44,7 +44,7 @@ export class SpotLight extends Light {
         };
     }
 
-    /** O laço das luzes do pool no ponto `scene_lighting`. */
+    /** O laço das luzes do pool no ponto `scene_direct_lighting`. */
     getSceneContributions(): readonly SceneContribution[] {
         return [poolLightContribution];
     }

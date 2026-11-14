@@ -42,10 +42,12 @@ fn node_color_temperature(kelvin: f32) -> vec3f {
         c.g = clamp(288.1221695283 * pow(t - 60.0, -0.0755148492) / 255.0, 0.0, 1.0);
         c.b = 1.0;
     }
-    let lin = select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
-    return lin / max(lin.r, max(lin.g, lin.b));
+    let lin = srgb_decode(c);
+    return lin / max_channel(lin);
 }
 
+
+// O nó `color.luminance`: a luminância canônica (Rec.709, módulo `color`).
 fn node_color_luminance(c: vec3f) -> f32 {
-    return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+    return luminance(c);
 }

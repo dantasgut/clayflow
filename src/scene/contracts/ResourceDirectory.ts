@@ -8,6 +8,58 @@ import type { Schema } from '../descriptors/Schema';
 import type { PoolDirectory } from './PoolDirectory';
 import type { Resource } from './Resource';
 
+/** Carimbo de uma fatia de canal temporal: o quadro gravado (contagem da C2) e o tempo da cena nele. */
+export interface ChannelStamp {
+    readonly frame: number;
+    readonly elapsed: number;
+}
+
+/**
+ * Canal temporal de um descritor com `history` (spec 037): o anel de fatias mantido pela C2. A fatia do atraso 0 é a
+ * que o produtor grava no quadro; o atraso `k` vale quando `frames ≥ k`. Contrato:
+ * `specs/037-padronizacao-matematica/contracts/temporal-channel.md`.
+ */
+export interface ChannelInfo {
+    /** Fatias no anel. */
+    readonly depth: number;
+    /** As fatias existem? (o canal de um descritor sob demanda existe desde a inserção; as fatias, desde o pedido) */
+    readonly allocated: boolean;
+    /** Índice físico da fatia do atraso 0. */
+    readonly head: number;
+    /** Quadros gravados seguidos desde a última invalidação. */
+    readonly frames: number;
+    /** Muda quando as fatias são recriadas (redimensionamento, crescimento do pool, `redescribe`). */
+    readonly epoch: number;
+    /** Formato resolvido (texturas; com a precisão e o recuo sem `float32-filterable`). */
+    readonly format: GPUTextureFormat | undefined;
+    texture(lag: number): TextureSpec | undefined;
+    view(lag: number): TextureViewSpec | undefined;
+    buffer(lag: number): AnyBufferSpec | undefined;
+    /** Carimbo da fatia do atraso `lag`, ou `undefined` se ela não vale. */
+    stamp(lag: number): ChannelStamp | undefined;
+    /**
+     * Quadros desde que a fatia do atraso `lag` foi gravada (0 = no quadro corrente; 1 = a anterior gravada no quadro
+     * imediatamente anterior), ou `undefined` se ela não vale. Quem reprojeta pela câmera do quadro anterior exige 1.
+     */
+    age(lag: number): number | undefined;
+    /** Série por páginas (`HistoryShape.pages`): o carimbo por página e o relógio; `undefined` nas de fatias. */
+    readonly paged: PagedChannelInfo | undefined;
+}
+
+/**
+ * O estado de uma série por páginas (spec 034, T060a): o buffer dos carimbos (um `u32` por página: a época em que foi
+ * escrita; 0 = nunca), o uniforme do relógio (`vec4u`: a época — sobe a cada invalidação, a partir de 1 —, 0, 0, 0;
+ * escrito só na alocação e na invalidação) e as páginas por eixo (x, y, z; z = 1 nas séries 2D e nos buffers). Página válida: carimbo = época. A idade de cada
+ * página é de quem a usa (o produtor guarda a sua, ex.: a tabela da sombra virtual).
+ */
+export interface PagedChannelInfo {
+    readonly tiles: readonly [number, number, number];
+    readonly stamps: AnyBufferSpec | undefined;
+    readonly clock: AnyBufferSpec | undefined;
+    /** A época: sobe a cada invalidação (as páginas carimbadas com outra não valem). */
+    readonly epoch: number;
+}
+
 /**
  * Localização do que a C2 alocou para cada descritor de cada recurso (`ResourceSystem`): buffers de qualquer
  * papel (uniform, storage, vértice, índice, indireto, staging), texturas, views e samplers. Estende
@@ -29,6 +81,38 @@ export interface ResourceDirectory extends PoolDirectory {
     /** Sampler alocado para o descritor `sampler`, ou `undefined`. */
     samplerOf(resource: Resource, descId: string): SamplerSpec | undefined;
     /**
+     * Distância em bytes entre as regiões do uniforme por região `descId` de `resource` (o stride do schema alinhado ao
+     * `minUniformBufferOffsetAlignment` do adaptador; spec 039), ou `undefined` se o descritor não tem `regions`.
+     */
+    regionStrideOf(resource: Resource, descId: string): number | undefined;
+    /**
+     * Grava agora as regiões `[first, first + records.length)` do uniforme por região `descId` de `resource`, numa escrita
+     * (spec 039). Vale também durante a gravação do quadro: a escrita entra na fila antes do envio, então cada chamada
+     * gravada lê a sua região. O dado vai só à GPU (não a `data`).
+     * @throws Error se o descritor não tem `regions` ou não está alocado; RangeError fora das regiões.
+     */
+    writeRegions(
+        resource: Resource,
+        descId: string,
+        records: readonly Record<string, unknown>[],
+        first?: number,
+    ): void;
+    /**
+     * Grava agora `bytes` no buffer do descritor `descId` de `resource` — o próprio, ou, em pool, a faixa do Resource (o
+     * `offset` relativo ao início dela) —, a partir de `offset` (spec 039) — o
+     * envio de um valor conhecido só na gravação (a contagem de uma reconstrução, os parâmetros de um despacho). Vale
+     * durante a gravação: a escrita entra na fila antes do envio do quadro. O dado vai só à GPU (não a `data`).
+     * @throws Error se o descritor não tem buffer alocado; RangeError fora da faixa em pool.
+     */
+    writeNow(resource: Resource, descId: string, bytes: ArrayBufferView, offset?: number): void;
+    /**
+     * Lê da GPU o dado do descritor `descId` de `resource` (ou o primeiro com schema), desempacotado pelo schema — a
+     * leitura sob demanda da spec 007: os pedidos da mesma tarefa saem num lote, uma cópia por faixa contígua; o valor é
+     * o do último quadro enviado. Resource fora da cena (ou removido antes da resposta) resolve `undefined`. É o caminho
+     * de um Flow para um contador da GPU (a fila da refração, os contatos do LCP), sem staging próprio.
+     */
+    read(resource: Resource, descId?: string): Promise<Record<string, unknown> | undefined>;
+    /**
      * O descritor individual `descId` de `resource` tem um escritor na GPU (um conjunto com `owns`, spec 008)? Serve a
      * quem consome dado `upload: 'never'` (ex.: o forward avisa quando desenha uma geometria que ninguém escreve).
      */
@@ -46,9 +130,34 @@ export interface ResourceDirectory extends PoolDirectory {
      */
     ensureAllocated(resource: Resource, descId: string): AnyBufferSpec | undefined;
     /**
+     * Aloca agora o pool `poolKey` declarado `allocation: 'onDemand'` (spec 037: a inversa de mundo, que só alguns
+     * consumidores leem) com a capacidade inteira e devolve o buffer; emite `poolReallocated` na primeira vez (os
+     * estágios religam os bind groups). Pool já alocado: o buffer dele. Sem o pool na cena: `undefined`. Chamado numa
+     * transição, fora da gravação.
+     */
+    ensurePoolAllocated(poolKey: string): AnyBufferSpec | undefined;
+    /**
      * Garante o pool de chave `schema.name`: se a cena ainda não tem nenhum recurso dele, cria-o vazio (zerado, com a
      * capacidade inicial) e o registra como fornecedor `{ pool }` — para quem lê um pool que a cena pode não ter (ex.:
      * as luzes nos acertos da iluminação global num cômodo só com emissores; spec 033). Chamado numa transição.
      */
     ensurePool(schema: Schema): void;
+    /**
+     * Canal temporal do descritor individual `descId` (com `history`) — desde a inserção do recurso; as fatias de um
+     * descritor `onDemand` só depois do `ensureAllocated` (`allocated`). `undefined` sem o descritor ou fora da cena.
+     */
+    channelOf(resource: Resource, descId: string): ChannelInfo | undefined;
+    /** Canal temporal do pool `poolKey` (descritor com `history`; as fatias desde o `ensurePoolAllocated`). */
+    channelOfPool(poolKey: string): ChannelInfo | undefined;
+    /**
+     * O produtor gravou a fatia atual do canal no quadro (chamado no `dispatch` que a gravou): a C2 gira o anel no
+     * próximo quadro e carimba a fatia. Sem gravação, o anel não gira.
+     */
+    markWritten(resource: Resource, descId: string): void;
+    /** `markWritten` do canal de um pool. */
+    markPoolWritten(poolKey: string): void;
+    /** A continuidade da série quebrou por um motivo que só o produtor conhece: nenhuma fatia anterior vale. */
+    invalidateChannel(resource: Resource, descId: string): void;
+    /** `invalidateChannel` do canal de um pool. */
+    invalidatePoolChannel(poolKey: string): void;
 }

@@ -10,8 +10,61 @@
 //
 // Type-aware rules requerem `parserOptions.project` apontando para o tsconfig real.
 
+import path from 'node:path';
 import tseslint from 'typescript-eslint';
 import prettierConfig from 'eslint-config-prettier';
+
+/**
+ * Os contratos da C2 que C3 e C4 importam (constituição, Princípio I): as pastas de `src/scene` permitidas. O bootstrap
+ * da C4 (`presentation/app`, `platform`) compõe a cena também pelo `SceneContext`, pelos sistemas e pelo índice; os
+ * testes, também pelos auxiliares de teste da C2.
+ */
+const C2_CONTRACTS = [
+    'contracts',
+    'descriptors',
+    'world',
+    'events',
+    'flows',
+    'shaders',
+    'consumers',
+    'time',
+    'graph',
+];
+const C2_BOOTSTRAP = ['SceneContext', 'SceneContext.ts', 'systems', 'index', 'index.ts'];
+const SCENE_DIR = path.resolve('src/scene');
+
+/** Regra local: a importação relativa que entra em `src/scene` fora dos contratos é recusada (resolve o caminho). */
+const c2Contracts = {
+    meta: { type: 'problem', schema: [] },
+    create(context) {
+        const file = context.filename;
+        const test = /[\\/]__tests__[\\/]/.test(file);
+        const bootstrap = /src[\\/](presentation[\\/]app|platform)[\\/]/.test(file);
+        const allowed = new Set([
+            ...C2_CONTRACTS,
+            ...(bootstrap || test ? C2_BOOTSTRAP : []),
+            ...(test ? ['__tests__'] : []),
+        ]);
+        const check = (node, spec) => {
+            if (typeof spec !== 'string' || !spec.startsWith('.')) return;
+            const target = path.resolve(path.dirname(file), spec);
+            if (target !== SCENE_DIR && !target.startsWith(SCENE_DIR + path.sep)) return;
+            const first = path.relative(SCENE_DIR, target).split(path.sep)[0] || 'index';
+            if (allowed.has(first)) return;
+            context.report({
+                node,
+                message: `C3/C4 importam só os contratos da C2 (${C2_CONTRACTS.join(', ')}): \`scene/${first}\` não é contrato (constituição, Princípio I).`,
+            });
+        };
+        return {
+            ImportDeclaration: (node) => check(node, node.source.value),
+            ExportNamedDeclaration: (node) => node.source && check(node, node.source.value),
+            ExportAllDeclaration: (node) => check(node, node.source.value),
+            ImportExpression: (node) =>
+                node.source.type === 'Literal' && check(node, node.source.value),
+        };
+    },
+};
 
 export default tseslint.config(
     {
@@ -26,7 +79,11 @@ export default tseslint.config(
             'eslint.config.js',
             '.typedoc-cov-trash/**',
             'bench/results/**',
+            // Descartáveis locais (fora dos commits, por convenção): os diagnósticos `zz*` e a página da água do bench.
+            '**/zz*.ts',
+            'bench/page/agua.ts',
             'bench/vite.config.ts',
+            'vite.config.ts',
         ],
     },
 
@@ -175,10 +232,17 @@ export default tseslint.config(
         },
     },
 
-    // Fronteira de importação (decisão D4): as Camadas 3 e 4 importam contratos de GPU só por `scene/`
-    // (`scene/contracts/gpu`), nunca de `core/`.
+    // Os contratos da C2 (spec 034, FR-035/T063): C3 e C4 só importam de `src/scene` as pastas da lista.
     {
-        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts'],
+        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts', 'src/platform/**/*.ts'],
+        plugins: { clay: { rules: { 'c2-contracts': c2Contracts } } },
+        rules: { 'clay/c2-contracts': 'error' },
+    },
+
+    // Fronteira de importação (decisão D4): as Camadas 3 e 4 importam contratos de GPU só por `scene/`
+    // (`scene/contracts/gpu`), nunca de `core/`. Os pontos de entrada (`src/platform/**`, spec 038) seguem a mesma regra.
+    {
+        files: ['src/elements/**/*.ts', 'src/presentation/**/*.ts', 'src/platform/**/*.ts'],
         rules: {
             '@typescript-eslint/no-restricted-imports': [
                 'error',
@@ -191,6 +255,64 @@ export default tseslint.config(
                         },
                     ],
                 },
+            ],
+            // Marcações por camada (spec 034): os grupos de depuração por fase e por Flow são da C2; C3/C4 só nomeiam os
+            // próprios passes (o rótulo de `frame.compute`/`frame.render`) e marcam pontos dentro do passe.
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector: "CallExpression[callee.property.name='marker'][arguments.length=2]",
+                    message:
+                        'Grupos de depuração por fase e por Flow são da C2 (spec 034): nomeie o passe no rótulo de `frame.compute`/`frame.render`.',
+                },
+                // Todo dado de GPU é descritor de um Resource, alocado e escrito pela C2 (Princípio III; spec 039): o
+                // espaço de trabalho de um Flow é o Resource de trabalho dele (`slot.work`).
+                {
+                    selector:
+                        "CallExpression[callee.property.name=/^(create|createAsync|write|writeTexture|destroy|readback)$/][callee.object.property.name='core']",
+                    message:
+                        'C3/C4 não criam, escrevem, destroem nem leem objetos de GPU (spec 039): declare um descritor no Resource de trabalho (`slot.work`) e use `writeNow`/`writeRegions`/`read` da C2.',
+                },
+                {
+                    selector:
+                        "CallExpression[callee.property.name=/^(create|createAsync|write|writeTexture|destroy|readback)$/][callee.object.name='core']",
+                    message:
+                        'C3/C4 não criam, escrevem, destroem nem leem objetos de GPU (spec 039): declare um descritor no Resource de trabalho (`slot.work`) e use `writeNow`/`writeRegions`/`read` da C2.',
+                },
+            ],
+        },
+    },
+
+    // Núcleo puro (spec 038): nada do navegador nem do Deno fora dos pontos de entrada (`src/platform/web`,
+    // `src/platform/deno`); testes, smokes e a página antiga ficam de fora.
+    {
+        files: ['src/**/*.ts'],
+        ignores: [
+            'src/platform/**',
+            'src/**/__tests__/**',
+            'src/**/*.test.ts',
+            'src/__smokes__/**',
+            'src/main.ts',
+        ],
+        rules: {
+            'no-restricted-globals': [
+                'error',
+                ...[
+                    'document',
+                    'window',
+                    'HTMLCanvasElement',
+                    'OffscreenCanvas',
+                    'ResizeObserver',
+                    'requestAnimationFrame',
+                    'cancelAnimationFrame',
+                    'Image',
+                    'FontFace',
+                    'navigator',
+                    'Deno',
+                ].map((name) => ({
+                    name,
+                    message: `\`${name}\` é do ambiente: só nos pontos de entrada (\`src/platform/web\`, \`src/platform/deno\`) — spec 038.`,
+                })),
             ],
         },
     },
@@ -250,9 +372,10 @@ export default tseslint.config(
         },
     },
 
-    // Smokes de navegador: compilados com o projeto do bench (importam o barrel público `clayflow`).
+    // Smokes de navegador: compilados com o projeto do bench (importam o barrel público `clayflow`); os scripts de
+    // desenvolvimento (`scripts/`, Node) pelo mesmo projeto.
     {
-        files: ['src/__smokes__/**/*.ts'],
+        files: ['src/__smokes__/**/*.ts', 'scripts/**/*.ts'],
         languageOptions: {
             parserOptions: {
                 project: './bench/tsconfig.json',

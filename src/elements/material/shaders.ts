@@ -3,29 +3,33 @@ import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
-import { sceneFogReady } from '../scene/points/media';
+import { sceneFogReady, sceneWetnessReady } from '../scene/points/media';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
-    instancesResource,
     renderablesResource,
     worldsResource,
+    previousWorldsResource,
 } from '../scene/resources';
 import {
     diffuseMaterialsResource,
+    drawVisibleResource,
     forwardFrameResource,
     particleDrawResource,
     particleFrameResource,
+    particleListResource,
     particlePoolResource,
     pointSpriteMaterialsResource,
     pointVerticesResource,
+    pointPreviousVerticesResource,
     standardMaterialsResource,
     surfaceDiffReadResource,
     wireEdgesResource,
     wireframeMaterialsResource,
     wireVerticesResource,
 } from './renderResources';
-import { bsdf, camera } from '../gpu/shaders/math';
+import { bsdf, camera, color, hashAddress, random, viewSpace } from '../gpu/shaders/math';
+import { cameraSpace } from '../scene/flows/shaders';
 import { cameraPointTypes } from '../scene/flows/shaders';
 import { forwardMaterialReady, materialPointTypes } from './point/shaders';
 import forwardSource from '../gpu/wgsl/forward.wgsl?raw';
@@ -35,11 +39,15 @@ import particleSpriteSource from '../gpu/wgsl/particle_sprite.wgsl?raw';
 import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
-import forwardTransmissionSource from '../gpu/wgsl/forward_transmission.wgsl?raw';
+import forwardRefractionRequestSource from '../gpu/wgsl/forward_refraction_request.wgsl?raw';
+import {
+    REFRACTION_REQUEST_BACK_FACE,
+    REFRACTION_REQUEST_VALID,
+} from '../lighting/refraction/Refraction';
 import forwardBackgroundSource from '../gpu/wgsl/forward_background.wgsl?raw';
 import { Camera } from '../scene/Camera';
 import { Transform } from '../scene/Transform';
-import { RenderableSchema, RenderInstanceSchema } from '../scene/Renderable';
+import { RenderableSchema } from '../scene/Renderable';
 import { ForwardFrameParamsSchema, ParticleDrawParamsSchema } from './forwardSchemas';
 import { SurfaceDiffSchema } from '../geometry/SurfaceSchemas';
 import { StandardMaterialSchema } from './StandardMaterialSchema';
@@ -85,6 +93,8 @@ export const forward = wgslModule({
     name: 'forward',
     source: forwardSource,
     requires: [
+        camera,
+        color,
         bsdf,
         NONE.module,
         forwardCameraReady,
@@ -94,10 +104,12 @@ export const forward = wgslModule({
         forwardMaterialReady,
         sceneLightingReady,
         sceneFogReady,
+        sceneWetnessReady,
         camerasResource,
         worldsResource,
+        previousWorldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         surfaceDiffReadResource,
         standardMaterialsResource,
         forwardFrameResource,
@@ -105,8 +117,8 @@ export const forward = wgslModule({
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,
+        Transform.previousWorldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         StandardMaterialSchema,
         ForwardFrameParamsSchema,
         SurfaceDiffSchema,
@@ -120,7 +132,14 @@ export const forward = wgslModule({
 export const forwardBackground = wgslModule({
     name: 'forward_background',
     source: forwardBackgroundSource,
-    requires: [sceneBackgroundReady, sceneFogReady, camerasResource, forwardFrameResource],
+    requires: [
+        cameraSpace,
+        viewSpace,
+        sceneBackgroundReady,
+        sceneFogReady,
+        camerasResource,
+        forwardFrameResource,
+    ],
     structs: [Camera.matricesSchema, ForwardFrameParamsSchema],
 });
 
@@ -133,6 +152,8 @@ export const particleSprite = wgslModule({
     name: 'particle_sprite',
     source: particleSpriteSource,
     requires: [
+        camera,
+        NONE.module,
         materialPointTypes,
         closure,
         sceneLightingReady,
@@ -142,6 +163,7 @@ export const particleSprite = wgslModule({
         particlePoolResource,
         pointSpriteMaterialsResource,
         particleDrawResource,
+        particleListResource,
     ],
     structs: [Camera.matricesSchema, PointSpriteMaterialSchema, ParticleDrawParamsSchema],
 });
@@ -154,6 +176,7 @@ export const pointSprite = wgslModule({
     name: 'point_sprite',
     source: pointSpriteSource,
     requires: [
+        camera,
         materialPointTypes,
         closure,
         sceneLightingReady,
@@ -161,16 +184,18 @@ export const pointSprite = wgslModule({
         camerasResource,
         worldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         pointSpriteMaterialsResource,
         forwardFrameResource,
         pointVerticesResource,
+        previousWorldsResource,
+        pointPreviousVerticesResource,
     ],
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,
+        Transform.previousWorldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         PointSpriteMaterialSchema,
         ForwardFrameParamsSchema,
     ],
@@ -181,6 +206,9 @@ export const diffuseSprite = wgslModule({
     name: 'diffuse_sprite',
     source: diffuseSpriteSource,
     requires: [
+        random,
+        hashAddress,
+        camera,
         materialPointTypes,
         closure,
         sceneLightingReady,
@@ -188,16 +216,18 @@ export const diffuseSprite = wgslModule({
         camerasResource,
         worldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         diffuseMaterialsResource,
         forwardFrameResource,
         pointVerticesResource,
+        previousWorldsResource,
+        pointPreviousVerticesResource,
     ],
     structs: [
         Camera.matricesSchema,
         Transform.worldSchema,
+        Transform.previousWorldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         DiffuseMaterialSchema,
         ForwardFrameParamsSchema,
     ],
@@ -214,7 +244,7 @@ export const wire = wgslModule({
         camerasResource,
         worldsResource,
         renderablesResource,
-        instancesResource,
+        drawVisibleResource,
         wireframeMaterialsResource,
         forwardFrameResource,
         wireVerticesResource,
@@ -224,29 +254,17 @@ export const wire = wgslModule({
         Camera.matricesSchema,
         Transform.worldSchema,
         RenderableSchema,
-        RenderInstanceSchema,
         WireframeMaterialSchema,
         ForwardFrameParamsSchema,
     ],
 });
 
-/** Recursos do passe de transmissivos (spec 011, R6), privados do estágio que o grava. */
+/**
+ * Recursos dos transmissivos (spec 011, R6; spec 034): a profundidade dos opacos lida pelo pedido da refração, privada do
+ * estágio que o grava.
+ */
 export const transmissionResources = {
-    /** Cópia da cena com mips (o que está atrás, em HDR). */
-    sceneCopy: wgslResource({
-        name: 'scene_copy',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'frame',
-        provider: 'private',
-    }),
-    /** Amostrador linear com mips da cópia. */
-    sampler: wgslResource({
-        name: 'scene_copy_sampler',
-        binding: { sampler: 'filtering' },
-        frequency: 'frame',
-        provider: 'private',
-    }),
-    /** Profundidade dos opacos (sem amostras), para a camada de trás ficar à frente deles. */
+    /** Profundidade dos opacos (sem amostras): o pedido fica à frente deles. */
     sceneDepth: wgslResource({
         name: 'scene_depth',
         binding: { texture: { sample: 'depth' } },
@@ -260,36 +278,27 @@ export const transmissionResources = {
         frequency: 'frame',
         provider: 'private',
     }),
-    /** Distância da câmera às faces de trás dos transmissivos (a espessura da camada da frente). */
-    depth: wgslResource({
-        name: 'transmission_depth',
-        binding: { texture: { sample: 'f32' } },
-        frequency: 'frame',
-        provider: 'private',
-    }),
 } as const;
 
 /**
- * Transmissivos em duas camadas (spec 011, R6): o vértice do forward e os fragmentos das faces de trás e da frente, que
- * refratam a cópia da cena com mips (Beer-Lambert, dispersão, parede fina, opacidade).
+ * Pedido da refração (spec 034, R1): o vértice do forward e o fragmento que marca, por pixel, a primeira interface vista
+ * (distância e face), à frente dos opacos (a profundidade deles, com ou sem amostras).
  */
-export const forwardTransmission = {
+export const forwardRefractionRequest = {
     /** Alvos sem amostras. */
-    single: transmissionModule(false),
-    /** Alvos com MSAA. */
-    multisampled: transmissionModule(true),
+    single: refractionRequestModule(false),
+    /** Alvos com MSAA (a profundidade dos opacos com amostras; o pedido, sem). */
+    multisampled: refractionRequestModule(true),
 } as const;
 
-function transmissionModule(multisampled: boolean): WgslModule {
+function refractionRequestModule(multisampled: boolean): WgslModule {
     return wgslModule({
-        name: multisampled ? 'forward_transmission_ms' : 'forward_transmission',
-        source: forwardTransmissionSource,
+        name: multisampled ? 'forward_refraction_request_ms' : 'forward_refraction_request',
+        source: forwardRefractionRequestSource,
         requires: [
             forward,
-            closureEval,
-            transmissionResources.sceneCopy,
-            transmissionResources.sampler,
-            transmissionResources.depth,
+            REFRACTION_REQUEST_VALID.module,
+            REFRACTION_REQUEST_BACK_FACE.module,
             multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
         ],
     });

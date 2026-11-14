@@ -17,8 +17,8 @@ import {
     SphereGeometry,
     StandardMaterial,
     Transform,
-} from 'clayflow';
-import type { Entity } from 'clayflow';
+} from 'clayflow/web';
+import type { Entity } from 'clayflow/web';
 
 const CYCLES = 100;
 const OBJECTS = 1000;
@@ -34,7 +34,14 @@ async function main(): Promise<void> {
     if (canvas === null) throw new Error('canvas#gpuCanvas não encontrado');
     canvas.width = 320;
     canvas.height = 180;
-    const app = await Application.create({ canvas, captureErrors: true, autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        captureErrors: true,
+        autoResize: false,
+    });
     let engineErrors = 0;
     app.events.on('engineError', (e) => {
         engineErrors++;

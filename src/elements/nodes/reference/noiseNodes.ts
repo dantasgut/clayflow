@@ -40,6 +40,21 @@ function cell3(q: Vec3, seed: number): { c: [number, number, number]; f: Vec3 } 
 }
 
 const f32 = Math.fround;
+
+/** `smoothstep` do WGSL. */
+function smoothstep(a: number, b: number, x: number): number {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+}
+
+/** `node_noise_band`: fator da oitava pela largura do pixel em células (spec 034). */
+export function noiseBand(w: number): number {
+    return 1 - smoothstep(0.25, 0.75, w);
+}
+
+/** O valor filtrado pela largura (`width` 0 = sem filtragem). */
+const band = (v: number, width: number, scale: number): number =>
+    width > 0 ? v * noiseBand(width * scale) : v;
 const scaled3 = (p: Vec3, scale: number, offset: Vec3): Vec3 => [
     f32(p[0] * scale + offset[0]),
     f32(p[1] * scale + offset[1]),
@@ -47,37 +62,39 @@ const scaled3 = (p: Vec3, scale: number, offset: Vec3): Vec3 => [
 ];
 
 /** `noise.value2`: ruído de valor 2D com semente, em [-1, 1]. */
-function noiseValue2(p: Vec2, scale: number, offset: Vec2, seed = 0): number {
+function noiseValue2(p: Vec2, scale: number, offset: Vec2, seed = 0, width = 0): number {
     const q = [f32(p[0] * scale + offset[0]), f32(p[1] * scale + offset[1])] as const;
-    return valueNoise2Cell(
+    const v = valueNoise2Cell(
         (noiseCell(q[0]) + seedOffset(seed, 0)) >>> 0,
         (noiseCell(q[1]) + seedOffset(seed, 1)) >>> 0,
         noiseFract(q[0]),
         noiseFract(q[1]),
     );
+    return band(v, width, scale);
 }
 
 /** `noise.gradient2`: ruído de gradiente 2D com semente, em [-1, 1]. */
-export function noiseGradient2(p: Vec2, scale: number, offset: Vec2, seed = 0): number {
+export function noiseGradient2(p: Vec2, scale: number, offset: Vec2, seed = 0, width = 0): number {
     const q = [f32(p[0] * scale + offset[0]), f32(p[1] * scale + offset[1])] as const;
-    return gradientNoise2Cell(
+    const v = gradientNoise2Cell(
         (noiseCell(q[0]) + seedOffset(seed, 0)) >>> 0,
         (noiseCell(q[1]) + seedOffset(seed, 1)) >>> 0,
         noiseFract(q[0]),
         noiseFract(q[1]),
     );
+    return band(v, width, scale);
 }
 
 /** `noise.value3`: ruído de valor 3D com semente, em [-1, 1]. */
-export function noiseValue3(p: Vec3, scale: number, offset: Vec3, seed = 0): number {
+export function noiseValue3(p: Vec3, scale: number, offset: Vec3, seed = 0, width = 0): number {
     const { c, f } = cell3(scaled3(p, scale, offset), seed);
-    return valueNoise3Cell(c, f);
+    return band(valueNoise3Cell(c, f), width, scale);
 }
 
 /** `noise.gradient3`: ruído de gradiente 3D com semente (0: o `gradient_noise3` da biblioteca), em [-1, 1]. */
-export function noiseGradient3(p: Vec3, scale: number, offset: Vec3, seed = 0): number {
+export function noiseGradient3(p: Vec3, scale: number, offset: Vec3, seed = 0, width = 0): number {
     const { c, f } = cell3(scaled3(p, scale, offset), seed);
-    return gradientNoise3Cell(c, f);
+    return band(gradientNoise3Cell(c, f), width, scale);
 }
 
 /** `noise.cellular3`: distâncias ao ponto mais próximo e ao segundo, e o valor em [0, 1] da célula mais próxima. */
@@ -125,18 +142,22 @@ export function noiseFbm3(
     octaves: number,
     lacunarity: number,
     gain: number,
+    width = 0,
 ): number {
     let q = scaled3(p, scale, offset);
     let amp = 1;
     let sum = 0;
     let norm = 0;
+    let w = width * scale;
     const n = Math.min(12, Math.max(1, octaves));
     for (let k = 0; k < n; k++) {
         const { c, f } = cell3(q, (seed + k) >>> 0);
-        sum += amp * gradientNoise3Cell(c, f);
+        const v = gradientNoise3Cell(c, f);
+        sum += amp * (width > 0 ? v * noiseBand(w) : v);
         norm += amp;
         amp *= gain;
         q = [f32(q[0] * lacunarity), f32(q[1] * lacunarity), f32(q[2] * lacunarity)];
+        w *= lacunarity;
     }
     return sum / norm;
 }
@@ -151,6 +172,9 @@ function lattice(random: () => number, k: number, n: 2 | 3): NodeValues {
         scale: 2 ** Math.floor(uniform(random, -1, 3)),
         offset: vector(random, n, -2, 2),
         seed: k % 2 === 0 ? Math.floor(uniform(random, 1, 1 << 20)) : 0,
+        // Metade das amostras sem filtragem (o ruído de antes), metade com a largura do pixel cobrindo a faixa da
+        // transição (¼ a ¾ de célula) e além.
+        width: k % 4 < 2 ? 0 : uniform(random, 0, 2),
     };
 }
 
@@ -164,7 +188,13 @@ export const noiseCases: readonly NodeCase[] = [
         tolerance: 1e-5,
         sample: (r, k) => lattice(r, k, 2),
         reference: (x) => ({
-            value: noiseValue2(v2(x, 'p'), num(x.scale), v2(x, 'offset'), num(x.seed)),
+            value: noiseValue2(
+                v2(x, 'p'),
+                num(x.scale),
+                v2(x, 'offset'),
+                num(x.seed),
+                num(x.width),
+            ),
         }),
     },
     {
@@ -172,7 +202,13 @@ export const noiseCases: readonly NodeCase[] = [
         tolerance: 1e-5,
         sample: (r, k) => lattice(r, k, 2),
         reference: (x) => ({
-            value: noiseGradient2(v2(x, 'p'), num(x.scale), v2(x, 'offset'), num(x.seed)),
+            value: noiseGradient2(
+                v2(x, 'p'),
+                num(x.scale),
+                v2(x, 'offset'),
+                num(x.seed),
+                num(x.width),
+            ),
         }),
     },
     {
@@ -180,7 +216,13 @@ export const noiseCases: readonly NodeCase[] = [
         tolerance: 1e-5,
         sample: (r, k) => lattice(r, k, 3),
         reference: (x) => ({
-            value: noiseValue3(v3(x, 'p'), num(x.scale), v3(x, 'offset'), num(x.seed)),
+            value: noiseValue3(
+                v3(x, 'p'),
+                num(x.scale),
+                v3(x, 'offset'),
+                num(x.seed),
+                num(x.width),
+            ),
         }),
     },
     {
@@ -188,13 +230,24 @@ export const noiseCases: readonly NodeCase[] = [
         tolerance: 1e-5,
         sample: (r, k) => lattice(r, k, 3),
         reference: (x) => ({
-            value: noiseGradient3(v3(x, 'p'), num(x.scale), v3(x, 'offset'), num(x.seed)),
+            value: noiseGradient3(
+                v3(x, 'p'),
+                num(x.scale),
+                v3(x, 'offset'),
+                num(x.seed),
+                num(x.width),
+            ),
         }),
     },
     {
         node: 'noise.cellular3',
         tolerance: 1e-5,
-        sample: (r, k) => ({ ...lattice(r, k, 3), jitter: uniform(r, 0, 1) }),
+        sample: (r, k) => {
+            // O celular não filtra (sem a entrada `width`).
+            const base = { ...lattice(r, k, 3) };
+            delete base.width;
+            return { ...base, jitter: uniform(r, 0, 1) };
+        },
         reference: (x) =>
             noiseCellular3(v3(x, 'p'), num(x.scale), v3(x, 'offset'), num(x.seed), num(x.jitter)),
     },
@@ -216,6 +269,7 @@ export const noiseCases: readonly NodeCase[] = [
                 num(x.octaves),
                 num(x.lacunarity),
                 num(x.gain),
+                num(x.width),
             ),
         }),
     },

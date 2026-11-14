@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / PointSpriteMaterial
+[clayflow](../../modules.md) / [elements](../README.md) / PointSpriteMaterial
 
 # Class: PointSpriteMaterial
 
-Defined in: [elements/material/PointSpriteMaterial.ts:26](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L26)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:27](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L27)
 
 Material de sprites — cada partícula de um corpo (`FluidBody`, `SoftBody`) ou cada vértice de uma geometria vira um
 quad virado para a câmera de raio `radius` (unidades de mundo), desenhado como esfera iluminada (topologia
@@ -22,7 +22,7 @@ quad virado para a câmera de raio `radius` (unidades de mundo), desenhado como 
 
 > **new PointSpriteMaterial**(`values?`): `PointSpriteMaterial`
 
-Defined in: [elements/material/PointSpriteMaterial.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L30)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L31)
 
 #### Parameters
 
@@ -42,9 +42,9 @@ Defined in: [elements/material/PointSpriteMaterial.ts:30](https://github.com/dan
 
 ### state
 
-> **state**: `ResourceState` = `ResourceState.Uninitialized`
+> **state**: [`ResourceState`](../../platform/web/enumerations/ResourceState.md) = `ResourceState.Uninitialized`
 
-Defined in: [elements/material/Material.ts:15](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L15)
+Defined in: [src/elements/material/Material.ts:15](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L15)
 
 Estado atual do lifecycle (gerenciado por ResourceSystem).
 
@@ -56,9 +56,9 @@ Estado atual do lifecycle (gerenciado por ResourceSystem).
 
 ### schema
 
-> `readonly` `static` **schema**: `StructSchema` = `PointSpriteMaterialSchema`
+> `readonly` `static` **schema**: [`StructSchema`](../../platform/web/classes/StructSchema.md) = `PointSpriteMaterialSchema`
 
-Defined in: [elements/material/PointSpriteMaterial.ts:28](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L28)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L29)
 
 StructSchema do PointSpriteMaterial (cor + raio), struct WGSL próprio (spec 008).
 
@@ -70,7 +70,7 @@ StructSchema do PointSpriteMaterial (cor + raio), struct WGSL próprio (spec 008
 
 > **get** **attached**(): readonly [`Entity`](Entity.md)\<`object`\>[]
 
-Defined in: [scene/contracts/Entity.ts:138](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L138)
+Defined in: [src/scene/contracts/Entity.ts:160](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L160)
 
 Lista somente-leitura dos filhos diretos. World.insert traverse essa
 árvore recursivamente para coletar todos os Resources de um root.
@@ -91,7 +91,7 @@ readonly [`Entity`](Entity.md)\<`object`\>[]
 
 > **get** **castsShadow**(): `boolean`
 
-Defined in: [elements/material/Material.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L30)
+Defined in: [src/elements/material/Material.ts:47](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L47)
 
 Projeta sombra? Padrão: só triângulos (linhas e sprites não projetam). Atribuir antes de inserir na cena: a
 escolha entra nos grupos de desenho na inserção.
@@ -104,7 +104,7 @@ escolha entra nos grupos de desenho na inserção.
 
 > **set** **castsShadow**(`value`): `void`
 
-Defined in: [elements/material/Material.ts:35](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L35)
+Defined in: [src/elements/material/Material.ts:52](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L52)
 
 Define se o material projeta sombra (vale sobre o padrão da topologia).
 
@@ -130,7 +130,7 @@ Define se o material projeta sombra (vale sobre o padrão da topologia).
 
 > **get** **data**(): `TData`
 
-Defined in: [scene/contracts/Entity.ts:90](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L90)
+Defined in: [src/scene/contracts/Entity.ts:97](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L97)
 
 Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações de campo (`data.position = …`,
 `data.position[0] = …`) e a reatribuição inteira (`data = …`) marcam o recurso para envio.
@@ -143,7 +143,7 @@ Dados do Resource (o layout é o do schema dos descritores). Na cena, mutações
 
 > **set** **data**(`next`): `void`
 
-Defined in: [scene/contracts/Entity.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L96)
+Defined in: [src/scene/contracts/Entity.ts:103](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L103)
 
 Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
@@ -157,9 +157,96 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 `void`
 
+Dados runtime do resource (e.g. Camera position, Material albedo,
+RigidBody mass). Schema é declarado em `getDescriptors()[i].schema`.
+Mutações devem disparar evento `resourceDirty` para re-upload. O tipo
+concreto vem do parâmetro de `Entity<TData>`; o motor lê os campos pelo
+schema.
+
 #### Inherited from
 
 [`Material`](Material.md).[`data`](Material.md#data)
+
+***
+
+### doubleSided
+
+#### Get Signature
+
+> **get** **doubleSided**(): `boolean`
+
+Defined in: [src/elements/material/Material.ts:61](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L61)
+
+Superfície de dois lados (tecido, folhas, paredes de espessura zero; spec 034, T061a): as faces de trás são
+desenhadas (com a normal voltada para quem vê) e projetam sombra. Padrão: um lado só (as de trás descartadas).
+Atribuir antes de inserir na cena: a escolha entra nos pipelines e nos grupos de desenho na inserção.
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **doubleSided**(`value`): `void`
+
+Defined in: [src/elements/material/Material.ts:66](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L66)
+
+Define se o material é de dois lados.
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### Inherited from
+
+[`Material`](Material.md).[`doubleSided`](Material.md#doublesided)
+
+***
+
+### drawsParticles
+
+#### Get Signature
+
+> **get** **drawsParticles**(): `boolean`
+
+Defined in: [src/elements/material/PointSpriteMaterial.ts:69](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L69)
+
+Desenha corpos de partículas.
+
+##### Returns
+
+`boolean`
+
+#### Overrides
+
+[`Material`](Material.md).[`drawsParticles`](Material.md#drawsparticles)
+
+***
+
+### family
+
+#### Get Signature
+
+> **get** **family**(): `string` \| `undefined`
+
+Defined in: [src/elements/material/Material.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L31)
+
+Família de desenho (spec 031): o estágio que desenha as entidades com este material escolhe por ela (`surface`,
+`points`, `wire`, `fluid-surface`…), sem conhecer outros tipos. Padrão: a do descritor de pipeline do material.
+
+##### Returns
+
+`string` \| `undefined`
+
+#### Inherited from
+
+[`Material`](Material.md).[`family`](Material.md#family)
 
 ***
 
@@ -169,7 +256,7 @@ Troca o dado inteiro; na cena, o recurso inteiro é marcado para envio.
 
 > **get** `protected` **rawData**(): `Readonly`\<`TData`\>
 
-Defined in: [scene/contracts/Entity.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L110)
+Defined in: [src/scene/contracts/Entity.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L117)
 
 O dado cru, sem o proxy reativo — para leituras do próprio Resource (ex.: uma propriedade derivada consultada pelos
 estágios) que não devem criar proxies aninhados. Escrever por aqui não marca o recurso.
@@ -190,7 +277,7 @@ estágios) que não devem criar proxies aninhados. Escrever por aqui não marca 
 
 > **get** **topology**(): `GPUPrimitiveTopology`
 
-Defined in: [elements/material/Material.ts:22](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/Material.ts#L22)
+Defined in: [src/elements/material/Material.ts:23](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/Material.ts#L23)
 
 Topologia do desenho: a do descritor de pipeline do material (padrão `'triangle-list'`).
 
@@ -208,7 +295,7 @@ Topologia do desenho: a do descritor de pipeline do material (padrão `'triangle
 
 > **add**(`e`): `this`
 
-Defined in: [scene/contracts/Entity.ts:118](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L118)
+Defined in: [src/scene/contracts/Entity.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L140)
 
 Anexa uma Entity-filha. Retorna `this` para chaining fluente.
 Não valida ciclos nem múltiplos pais — responsabilidade do caller.
@@ -233,7 +320,7 @@ Não valida ciclos nem múltiplos pais — responsabilidade do caller.
 
 > **detach**(`e`): `boolean`
 
-Defined in: [scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/contracts/Entity.ts#L127)
+Defined in: [src/scene/contracts/Entity.ts:149](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L149)
 
 Desanexa uma Entity-filha direta (inverso de `add`). Devolve `false` se ela não é filha desta. Numa entidade já
 inserida, use `World.detach` (que também atualiza a cena).
@@ -256,9 +343,9 @@ inserida, use `World.detach` (que também atualiza a cena).
 
 ### getDescriptors()
 
-> **getDescriptors**(): readonly `GPUDescriptor`[]
+> **getDescriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
-Defined in: [elements/material/PointSpriteMaterial.ts:41](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L41)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:42](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L42)
 
 Lista de bindings GPU (uniform/storage buffers, texturas, samplers)
 que este resource expõe ao `ResourceSystem`. Cada descriptor define
@@ -267,7 +354,7 @@ que este resource expõe ao `ResourceSystem`. Cada descriptor define
 
 #### Returns
 
-readonly `GPUDescriptor`[]
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
 
 #### Overrides
 
@@ -277,18 +364,49 @@ readonly `GPUDescriptor`[]
 
 ### getPipelineDescriptors()
 
-> **getPipelineDescriptors**(): readonly `PipelineDescriptor`[]
+> **getPipelineDescriptors**(): readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [elements/material/PointSpriteMaterial.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/material/PointSpriteMaterial.ts#L52)
+Defined in: [src/elements/material/PointSpriteMaterial.ts:53](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/PointSpriteMaterial.ts#L53)
 
-Pipelines GPU declaradas pelo resource (shader source + entry points
-+ consumes). Útil para Materials que carregam shaders próprios.
+Pipelines GPU declaradas pelo resource (shader e entry points; recursos
+pelos módulos declarados). Útil para Materials que carregam shaders próprios.
 Vazio para a maioria (Flows criam pipelines diretamente).
 
 #### Returns
 
-readonly `PipelineDescriptor`[]
+readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
 #### Overrides
 
 [`Material`](Material.md).[`getPipelineDescriptors`](Material.md#getpipelinedescriptors)
+
+***
+
+### redescribe()
+
+> `protected` **redescribe**(`previous`, `next`): `void`
+
+Defined in: [src/scene/contracts/Entity.ts:127](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/contracts/Entity.ts#L127)
+
+Troca o dado e os descritores em pool de uma vez — o Resource cujo layout depende do próprio dado (ex.: o registro
+tipado de uma função de ponto quando a forma dos parâmetros muda; spec 031, R8). `getDescriptors()` já devolve os
+novos; `previous` são os de antes. Fora da cena, só troca o dado; na cena, a C2 libera os slots nos pools antigos,
+ocupa os dos novos com `next` e recompõe a entidade (`entitiesRecomposed`: registros e conjuntos dos estágios).
+
+#### Parameters
+
+##### previous
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+##### next
+
+[`PointSpriteMaterialData`](../interfaces/PointSpriteMaterialData.md)
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`Material`](Material.md).[`redescribe`](Material.md#redescribe)

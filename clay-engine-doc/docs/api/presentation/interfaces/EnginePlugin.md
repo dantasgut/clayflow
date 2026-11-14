@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / EnginePlugin
+[clayflow](../../modules.md) / [presentation](../README.md) / EnginePlugin
 
 # Interface: EnginePlugin
 
-Defined in: [presentation/plugins/EnginePlugin.ts:22](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/plugins/EnginePlugin.ts#L22)
+Defined in: [src/presentation/plugins/EnginePlugin.ts:22](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/plugins/EnginePlugin.ts#L22)
 
-EnginePlugin: extensão pluggable para `Application`. Plugins podem registrar
+EnginePlugin: extensão pluggable para o motor (`Engine`; o `Application` dos pontos de entrada o estende). Plugins podem registrar
 Flows, instalar handlers de evento, criar sistemas auxiliares, etc.
 
 Uso:
@@ -24,7 +24,7 @@ os controllers da cena (spec 007).
 Os solvers de física não precisam de plugin: são registrados por factory pela aplicação e instanciados pela C2 no
 primeiro corpo de cada tipo (`DEFAULT_SOLVER_REGISTRATIONS`).
 
-Type-only cycle Application↔EnginePlugin é aceito (madge --exclude documentado).
+Type-only cycle Engine↔EnginePlugin é aceito (madge --exclude documentado).
 
 ## Properties
 
@@ -32,7 +32,7 @@ Type-only cycle Application↔EnginePlugin é aceito (madge --exclude documentad
 
 > `readonly` **name**: `string`
 
-Defined in: [presentation/plugins/EnginePlugin.ts:24](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/plugins/EnginePlugin.ts#L24)
+Defined in: [src/presentation/plugins/EnginePlugin.ts:24](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/plugins/EnginePlugin.ts#L24)
 
 Identificador único do plugin (para logs/dedup).
 
@@ -42,7 +42,7 @@ Identificador único do plugin (para logs/dedup).
 
 > `optional` **dispose**(`app`): `void`
 
-Defined in: [presentation/plugins/EnginePlugin.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/plugins/EnginePlugin.ts#L30)
+Defined in: [src/presentation/plugins/EnginePlugin.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/plugins/EnginePlugin.ts#L30)
 
 Optional. Cleanup quando Application.dispose() é chamado.
 
@@ -50,7 +50,7 @@ Optional. Cleanup quando Application.dispose() é chamado.
 
 ##### app
 
-[`Application`](../classes/Application.md)
+[`Engine`](../classes/Engine.md)
 
 #### Returns
 
@@ -62,7 +62,7 @@ Optional. Cleanup quando Application.dispose() é chamado.
 
 > **install**(`app`): `void`
 
-Defined in: [presentation/plugins/EnginePlugin.ts:26](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/plugins/EnginePlugin.ts#L26)
+Defined in: [src/presentation/plugins/EnginePlugin.ts:26](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/plugins/EnginePlugin.ts#L26)
 
 Hook de instalação — chamado antes do GameLoop iniciar; registra flows/listeners/sistemas.
 
@@ -70,7 +70,7 @@ Hook de instalação — chamado antes do GameLoop iniciar; registra flows/liste
 
 ##### app
 
-[`Application`](../classes/Application.md)
+[`Engine`](../classes/Engine.md)
 
 #### Returns
 

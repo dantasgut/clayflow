@@ -1,5 +1,5 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
-import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { fieldArray, StructSchema } from '../../../scene/descriptors/StructSchema';
 
 // Parâmetros por iteração dos estágios de física (uniform, uma região por iteração em `PerStepUniforms`). Cada schema
 // é a fonte única do struct WGSL correspondente e do empacotamento (spec 005, R5).
@@ -22,8 +22,13 @@ export const SimParamsSchema = new StructSchema(
         field_time: FieldType.f32,
         /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
         field_density: FieldType.f32,
-        _field_pad0: FieldType.f32,
-        _field_pad1: FieldType.f32,
+        /**
+         * A cor das restrições de distância deste despacho (XPBD, spec 034 T061b): as da cor resolvidas em paralelo; a cor
+         * `XPBD_SERIAL_COLOR`, as avulsas, por uma invocação só. Os outros solvers não a usam (0).
+         */
+        constraint_color: FieldType.u32,
+        /** Iterações das restrições por substep (XPBD; spec 034, T061b). */
+        constraint_iterations: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -60,7 +65,7 @@ export const FEMSimParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
-/** MLS-MPM (fluido e sólido). Massa, volume, K e Lamé vêm do `ParticleMaterial`. */
+/** MLS-MPM (fluido e sólido). Massa, volume, K e Lamé vêm do `ParticlePhysics`. */
 export const MPMSimParamsSchema = new StructSchema(
     'MPMSimParams',
     {
@@ -98,6 +103,9 @@ export const MPMSimParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
+/** `vec4f` da tabela do ancoramento das gotas: as `SurfacePhysics.MAX` + 1 entradas, quatro por vetor. */
+export const WET_PINNING_VECS = 9;
+
 /** SPH fracamente compressível (Tait). */
 export const SPHSimParamsSchema = new StructSchema(
     'SPHSimParams',
@@ -120,9 +128,9 @@ export const SPHSimParamsSchema = new StructSchema(
         inv_particle_mass: FieldType.f32,
         /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
         neighbor_stride: FieldType.u32,
-        /** γ da tensão superficial de Akinci (0 = desligada; spec 030). */
+        /** γ da coesão de Akinci, a tensão da borda não resolvida (0 = desligada; spec 030, T066e). */
         cohesion_gamma: FieldType.f32,
-        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030). */
+        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030; com tensão, só a borda não resolvida). */
         adhesion_accel: FieldType.f32,
         /** Arrasto tangencial da adesão no contato, 1/s (spec 030). */
         adhesion_tangential: FieldType.f32,
@@ -132,12 +140,24 @@ export const SPHSimParamsSchema = new StructSchema(
         field_time: FieldType.f32,
         /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
         field_density: FieldType.f32,
-        _field_pad0: FieldType.f32,
-        _field_pad1: FieldType.f32,
+        /**
+         * Gota solta (spec 034): a partícula com menos vizinhas que isto (0 = desligado) encostada num sólido que a
+         * água molha tem a borda ancorada nele, com a aceleração de `wet_pinning` da superfície dele.
+         */
+        wet_neighbors: FieldType.u32,
+        /** Tensão superficial contínua σ/ρ₀, m³/s² (0 = desligada; spec 034, T066e). */
+        surface_tension: FieldType.f32,
+        /** cos θ do ângulo de contato de Young com os sólidos (a normal da borda junto deles; spec 034, T066e). */
+        wet_cos: FieldType.f32,
         /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
         bound_max: FieldType.vec3f,
         /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
         open_bounds: FieldType.u32,
+        /**
+         * Ancoramento da borda da gota solta por superfície (spec 034, T066d; `ParticlePhysics.dropPinning`, m/s²): a
+         * entrada k da tabela das `SurfacePhysics` (0 a padrão; `collider_surfaces`) em `[k / 4][k % 4]`.
+         */
+        wet_pinning: fieldArray(FieldType.vec4f, WET_PINNING_VECS),
     },
     { addressSpace: 'uniform' },
 );
@@ -165,9 +185,9 @@ export const PBFSimParamsSchema = new StructSchema(
         mass_over_density: FieldType.f32,
         /** Passo da lista de vizinhos intercalada (`k * neighbor_stride + i`). */
         neighbor_stride: FieldType.u32,
-        /** γ da tensão superficial de Akinci (0 = desligada; spec 030). */
+        /** γ da coesão de Akinci, a tensão da borda não resolvida (0 = desligada; spec 030, T066e). */
         cohesion_gamma: FieldType.f32,
-        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030). */
+        /** Escala da adesão às fronteiras, m/s² (0 = desligada; spec 030; com tensão, só a borda não resolvida). */
         adhesion_accel: FieldType.f32,
         /** Arrasto tangencial da adesão no contato, 1/s (spec 030). */
         adhesion_tangential: FieldType.f32,
@@ -177,12 +197,24 @@ export const PBFSimParamsSchema = new StructSchema(
         field_time: FieldType.f32,
         /** Densidade do corpo para os campos (empuxo); 0 = sem densidade (spec 009). */
         field_density: FieldType.f32,
-        _field_pad0: FieldType.f32,
-        _field_pad1: FieldType.f32,
+        /**
+         * Gota solta (spec 034): a partícula com menos vizinhas que isto (0 = desligado) encostada num sólido que a
+         * água molha tem a borda ancorada nele, com a aceleração de `wet_pinning` da superfície dele.
+         */
+        wet_neighbors: FieldType.u32,
+        /** Tensão superficial contínua σ/ρ₀, m³/s² (0 = desligada; spec 034, T066e). */
+        surface_tension: FieldType.f32,
+        /** cos θ do ângulo de contato de Young com os sólidos (a normal da borda junto deles; spec 034, T066e). */
+        wet_cos: FieldType.f32,
         /** Canto máximo do domínio (spec 010: com `open_bounds`, o que sai da caixa é retirado). */
         bound_max: FieldType.vec3f,
         /** Domínio aberto (spec 010): sem paredes nem adesão nos planos do domínio; quem sai da caixa é retirado. */
         open_bounds: FieldType.u32,
+        /**
+         * Ancoramento da borda da gota solta por superfície (spec 034, T066d; `ParticlePhysics.dropPinning`, m/s²): a
+         * entrada k da tabela das `SurfacePhysics` (0 a padrão; `collider_surfaces`) em `[k / 4][k % 4]`.
+         */
+        wet_pinning: fieldArray(FieldType.vec4f, WET_PINNING_VECS),
     },
     { addressSpace: 'uniform' },
 );

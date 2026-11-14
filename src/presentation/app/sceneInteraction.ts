@@ -1,6 +1,11 @@
 import type { SceneContext } from '../../scene/SceneContext';
 import { Input } from '../input/Input';
 import { InteractionSystem } from '../input/InteractionSystem';
+import type { InputDevice } from '../input/InputDevice';
+import type { EventBus } from '../../scene/events/EventBus';
+
+/** Os dispositivos de entrada do ambiente para o `Input` da cena (o ponto de entrada os cria). */
+export type InputDevicesFactory = (input: Input, events: EventBus) => readonly InputDevice[];
 
 /** `Input` e `InteractionSystem` de uma cena e quantas aplicações os usam. */
 interface SceneInteraction {
@@ -13,12 +18,12 @@ const BY_SCENE = new WeakMap<SceneContext, SceneInteraction>();
 
 /**
  * O `Input` (Resource singleton, inserido no World) e o `InteractionSystem` da cena (spec 007): criados pela primeira
- * aplicação, com os dispositivos ligados ao canvas dela; aplicações seguintes na mesma cena compartilham. Pareado com
+ * aplicação, com os dispositivos do ambiente dela (spec 038: os do ponto de entrada); aplicações seguintes na mesma cena compartilham. Pareado com
  * `releaseSceneInteraction`.
  */
 export function acquireSceneInteraction(
     scene: SceneContext,
-    canvas: HTMLCanvasElement,
+    devices: InputDevicesFactory,
 ): SceneInteraction {
     const existing = BY_SCENE.get(scene);
     if (existing !== undefined) {
@@ -28,7 +33,7 @@ export function acquireSceneInteraction(
     const input = new Input();
     scene.world.insert(input);
     const system = new InteractionSystem(
-        { canvas, window: typeof window !== 'undefined' ? window : null },
+        devices(input, scene.events),
         scene.events,
         scene.world,
         input,

@@ -9,6 +9,7 @@ import {
     lobeMask,
     lobeMaskOfTags,
     PARAMS_LOBES,
+    TRANSMISSIVE_LOBES,
     type LobeName,
 } from '../material/pbr/lobes';
 
@@ -16,7 +17,7 @@ import {
 export type MaterialFunctionOptions = ExtensionFunctionOptions & {
     /**
      * Lobos que a função de código `-> Closure` produz (spec 011): o shader é especializado só com eles. Sem a lista,
-     * todos. Ignorado num grafo (os lobos vêm dos nós) e nas funções `-> SurfaceParams` (difuso, especular e emissão).
+     * todos — menos os transmissivos, se o código não tem como produzi-los. Ignorado num grafo (os lobos vêm dos nós) e nas funções `-> SurfaceParams` (difuso, especular e emissão).
      */
     readonly lobes?: readonly LobeName[];
 };
@@ -53,7 +54,8 @@ export class MaterialFunction extends ExtensionFunction {
 
     /**
      * Máscara dos lobos do shader (bits de `LOBES`): num grafo, a união das marcas `lobe:*` dos nós; num código de
-     * fechamento, os `lobes` declarados (sem eles, todos); com `SurfaceParams`, difuso, especular e emissão.
+     * fechamento, os `lobes` declarados (sem eles, todos — menos os transmissivos se o código não tem como produzi-los,
+     * `TRANSMISSIVE_SOURCE`); com `SurfaceParams`, difuso, especular e emissão.
      */
     get lobeMask(): number {
         if (!this.returnsClosure) return PARAMS_LOBES;
@@ -62,6 +64,19 @@ export class MaterialFunction extends ExtensionFunction {
             const mask = lobeMaskOfTags(graph.tags());
             return mask === 0 ? PARAMS_LOBES : mask;
         }
-        return this.#lobes ?? ALL_LOBES;
+        if (this.#lobes !== undefined) return this.#lobes;
+        return TRANSMISSIVE_SOURCE.test(this.module.source)
+            ? ALL_LOBES
+            : ALL_LOBES & ~TRANSMISSIVE_LOBES;
     }
 }
+
+/**
+ * O código pode produzir transmissão, opacidade ou translucidez? O fechamento só as ganha pelos construtores delas
+ * (`closure_transmission`, `closure_translucent`, `closure_opacity`), pelos campos delas (`.transmission_*`,
+ * `.translucent_*`, `.opacity`) ou montado inteiro (`Closure(…)`). Na dúvida (o nome em qualquer lugar, comentário
+ * incluído), sim. Um código sem nenhum deles não é transmissivo: não pede a refração nem traz o traçado à cena — o piso
+ * de `closure_diffuse` sem a lista de lobos era desenhado pelo traçado da refração, com as sombras dos raios.
+ */
+const TRANSMISSIVE_SOURCE =
+    /\bclosure_(?:transmission|translucent|opacity)\b|\.(?:transmission_\w+|translucent_\w+|opacity)\b|\bClosure\s*\(/;

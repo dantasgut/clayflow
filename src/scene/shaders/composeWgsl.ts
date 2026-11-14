@@ -1,3 +1,4 @@
+import { isArenaReader, rewriteArenaReads } from './poolArena';
 import type { ShaderModuleSpec } from '../../core/contracts/index';
 import type { StructSchema } from '../descriptors/StructSchema';
 import { stripWgslComments } from './scanWgslSymbols';
@@ -59,6 +60,9 @@ const composed = new WeakMap<WgslModule, ComposedShader>();
  * `wgslName` e layouts diferentes, e chamada a função não definida. Memorizado por módulo de entrada — roda na criação
  * dos recursos de GPU, nunca por quadro.
  */
+/** Uma diretiva `enable` numa linha própria. */
+const ENABLE_DIRECTIVE = /^[ \t]*enable[ \t]+[A-Za-z0-9_, \t]+;[ \t]*$/gm;
+
 export function composeWgsl(entry: WgslModule): ComposedShader {
     const cached = composed.get(entry);
     if (cached !== undefined) return cached;
@@ -91,6 +95,23 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
         // Cada parte é seguida de uma linha em branco (`\n\n` na junção).
         line += text.split('\n').length + 1;
     };
+    // Diretivas `enable` dos módulos (ex.: `clip_distances`) vão para o topo, uma vez cada: o WGSL as exige antes de
+    // qualquer declaração. No módulo, a linha vira comentário (as faixas de linhas seguem as mesmas).
+    const texts = new Map<WgslModule, string>();
+    const directives = new Set<string>();
+    // As leituras pela arena de pools (T060i): `nome[i]` e `arrayLength(&nome)` viram os acessores do leitor.
+    const arenaReads = order.filter(isArenaReader).map((m) => m.arenaRead);
+    for (const m of order) {
+        if (isWgslResource(m)) continue;
+        const marked = resolveMarkers(m, entry.name);
+        const read = isArenaReader(m) ? marked : rewriteArenaReads(marked, arenaReads, m.name);
+        const text = read.replace(ENABLE_DIRECTIVE, (d: string) => {
+            directives.add(d.trim());
+            return `// ${d.trim()} (no topo)`;
+        });
+        texts.set(m, text);
+    }
+    if (directives.size > 0) push([...directives].join('\n'));
     if (schemas.length > 0) push(schemas.map((s) => s.toWGSL()).join('\n\n'));
     if (bindings.length > 0) {
         push(
@@ -103,7 +124,7 @@ export function composeWgsl(entry: WgslModule): ComposedShader {
     }
     for (const m of order) {
         if (isWgslResource(m)) continue;
-        const text = resolveMarkers(m, entry.name);
+        const text = texts.get(m)!;
         ranges.set(m.name, { first: line, last: line + text.split('\n').length - 1 });
         push(text);
     }
@@ -129,6 +150,16 @@ function topologicalOrder(entry: WgslModule): WgslModule[] {
     const byName = new Map<string, { module: WgslModule; via: string }>();
     const visit = (m: WgslModule, path: readonly WgslModule[], via: string): void => {
         const other = byName.get(m.name);
+        if (other !== undefined && other.module !== m && promotes(other.module, m)) {
+            // O mesmo recurso lido e escrito no shader (a arena da GPU, T060i): uma ligação só, em leitura e escrita —
+            // o WebGPU não aceita o mesmo buffer escrito numa ligação e lido noutra no mesmo despacho.
+            if (access(m) === 'read_write') {
+                order[order.indexOf(other.module)] = m;
+                byName.set(m.name, { module: m, via });
+            }
+            done.add(m);
+            return;
+        }
         if (other !== undefined && other.module !== m) {
             throw new WgslCompositionError(
                 'duplicate-module-name',
@@ -152,6 +183,29 @@ function topologicalOrder(entry: WgslModule): WgslModule[] {
     };
     visit(entry, [], '(entrada)');
     return order;
+}
+
+/** O acesso de storage de um recurso declarado (`undefined` fora de storage). */
+function access(m: WgslModule): string | undefined {
+    if (!isWgslResource(m)) return undefined;
+    const b = m.resource.binding as { readonly storage?: string };
+    return b.storage;
+}
+
+/**
+ * `a` e `b` são o mesmo recurso, um em leitura e o outro em leitura e escrita (o mesmo nome, tipo, frequência e
+ * fornecedor)? A montagem fica com o de leitura e escrita.
+ */
+function promotes(a: WgslModule, b: WgslModule): boolean {
+    if (!isWgslResource(a) || !isWgslResource(b)) return false;
+    const modes = new Set([access(a), access(b)]);
+    if (!modes.has('read') || !modes.has('read_write')) return false;
+    const same = (x: unknown, y: unknown): boolean => JSON.stringify(x) === JSON.stringify(y);
+    return (
+        same(a.resource.type, b.resource.type)
+        && a.resource.frequency === b.resource.frequency
+        && same(a.resource.provider, b.resource.provider)
+    );
 }
 
 /** Schemas usados pelos módulos (aninhados antes), deduplicados por `wgslName`. */
@@ -275,7 +329,11 @@ function checkResourceReferences(order: readonly WgslModule[], entryName: string
     for (const m of order) {
         if (isWgslResource(m) || m.source.length === 0) continue;
         const reachNames = new Set<string>();
-        for (const r of closureOf(m)) if (isWgslResource(r)) reachNames.add(r.name);
+        for (const r of closureOf(m)) {
+            if (isWgslResource(r)) reachNames.add(r.name);
+            // O nome lido pela arena de pools (T060i): requerido pelo leitor dele.
+            else if (isArenaReader(r)) reachNames.add(r.arenaRead.name);
+        }
         const code = stripWgslComments(m.source);
         // Nomes declarados no próprio módulo (parâmetros, campos, `let`/`var`/`const` locais e de módulo) sombreiam.
         const local = new Set<string>(m.symbols.map((sym) => sym.name));

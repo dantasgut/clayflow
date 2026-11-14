@@ -3,8 +3,8 @@
 // Três cenas determinísticas cobrem todos os shaders de render: (1) `forward` — chão, caixa e esfera com
 // `StandardMaterial`, caixa com `WireframeMaterial` (arestas, spec 008), caixa com `PointSpriteMaterial` (sprites nos
 // vértices), luz direcional com sombra (forward + shadow_depth); (2) `post` — a
-// mesma cena com toda a cadeia de pós-processamento (bloom, blur, aberração cromática, color grading, FXAA, SSAO,
-// tone mapping, vinheta); (3) `ui` — a cena com painéis de UI por cima. Cada cena desenha um quadro por `app.step`, o
+// mesma cena com toda a cadeia de pós-processamento (bloom, blur, aberração cromática, color grading, tone
+// mapping, vinheta); (3) `ui` — a cena com painéis de UI por cima. Cada cena desenha um quadro por `app.step`, o
 // canvas é lido por um canvas 2D e os pixels comparados com a fixture PNG (igualdade exata).
 //   - `--record`: grava `fixtures/render-<cena>-<perfil>.png`.
 //
@@ -19,17 +19,15 @@ import {
     ColorGrading,
     createScene,
     DirectionalLight,
-    Fxaa,
     PlaneGeometry,
     PointSpriteMaterial,
     SphereGeometry,
-    Ssao,
     StandardMaterial,
     Transform,
     UiPanel,
     Vignette,
     WireframeMaterial,
-} from 'clayflow';
+} from 'clayflow/web';
 import { gpuProfile, readFixture, recording, writeFixture } from './support/fixtures';
 
 const WIDTH = 256;
@@ -105,8 +103,6 @@ const SCENES: readonly RenderScene[] = [
             ['blur', () => new Blur({})],
             ['chromatic', () => new ChromaticAberration({})],
             ['color-grading', () => new ColorGrading({})],
-            ['fxaa', () => new Fxaa({})],
-            ['ssao', () => new Ssao({})],
             ['vignette', () => new Vignette({ strength: 0.3 })],
         ] as const
     ).map(
@@ -123,8 +119,8 @@ const SCENES: readonly RenderScene[] = [
         name: 'post-tone-mapping',
         build: (app) => {
             baseScene(app);
-            app.defaults.presentation.data.operator = 'aces';
-            app.defaults.presentation.data.exposure = 1;
+            app.defaults.renderer.output.data.operator = 'aces';
+            app.defaults.renderer.output.data.exposure = 1;
         },
     },
     {
@@ -153,6 +149,9 @@ async function render(scene: RenderScene): Promise<{ pixels: ImageData; profile:
     canvas.height = HEIGHT;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -162,7 +161,9 @@ async function render(scene: RenderScene): Promise<{ pixels: ImageData; profile:
         engineErrors.push(`${scene.name}: ${e.stage}: ${e.message}`),
     );
     scene.build(app);
-    // Dois quadros: o primeiro aloca e compila; o segundo desenha com tudo pronto. Leitura na mesma tarefa.
+    // Três quadros: o primeiro aloca e compila; o segundo desenha e pede as páginas da sombra virtual pela profundidade
+    // dele (spec 034, T060); o terceiro desenha com elas. Leitura na mesma tarefa.
+    app.step(1 / 60);
     app.step(1 / 60);
     app.step(1 / 60);
     const ctx = new OffscreenCanvas(WIDTH, HEIGHT).getContext('2d');

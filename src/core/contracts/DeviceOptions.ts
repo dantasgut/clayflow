@@ -15,6 +15,13 @@ export interface DeviceOptions {
      * `DeviceCapabilities.clampedLimits`.
      */
     readonly requiredLimits?: Readonly<Record<string, number>>;
+    /**
+     * Teto dos limites do device (nome → valor máximo), aplicado depois dos limites de escala e dos pedidos: o device
+     * fica com o menor entre o teto e o que seria pedido (nunca abaixo do padrão do WebGPU). Serve para validar numa
+     * GPU maior o piso de outra (ex.: `maxStorageBuffersPerShaderStage: 10`, o do Apple M4) — o que não cabe falha
+     * igual nas duas.
+     */
+    readonly limitsCeiling?: Readonly<Record<string, number>>;
 }
 
 /** Identificação do adaptador GPU obtido (`GPUAdapterInfo` + fallback). */

@@ -1,30 +1,40 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / ShadowSlots
+[clayflow](../../modules.md) / [presentation](../README.md) / ShadowSlots
 
 # Interface: ShadowSlots
 
-Defined in: [presentation/flows/ShadowFlow.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L44)
+Defined in: [src/presentation/flows/ShadowFlow.ts:47](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L47)
 
 Slots do estágio de sombra.
 
 ## Extends
 
-- `SlotMap`
+- [`SlotMap`](../../platform/web/type-aliases/SlotMap.md)
 
 ## Indexable
 
-> \[`key`: `string`\]: `SlotDeclaration`
+> \[`key`: `string`\]: [`SlotDeclaration`](../../platform/web/type-aliases/SlotDeclaration.md)
 
 ## Properties
 
+### atlas
+
+> `readonly` **atlas**: `ChannelSlot`\<`false`\>
+
+Defined in: [src/presentation/flows/ShadowFlow.ts:59](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L59)
+
+A série do atlas (a tabela no começo e as páginas físicas: o alvo do desenho; o quadro anterior segue no de agora).
+
+***
+
 ### caster
 
-> `readonly` **caster**: `SingletonSlot`\<`false`\>
+> `readonly` **caster**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`false`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:46](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L46)
+Defined in: [src/presentation/flows/ShadowFlow.ts:49](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L49)
 
 `ShadowMap` da primeira `DirectionalLight` que projeta sombra.
 
@@ -32,9 +42,9 @@ Defined in: [presentation/flows/ShadowFlow.ts:46](https://github.com/dantasgut/c
 
 ### casters
 
-> `readonly` **casters**: `EntitiesSlot`
+> `readonly` **casters**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: [presentation/flows/ShadowFlow.ts:52](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L52)
+Defined in: [src/presentation/flows/ShadowFlow.ts:55](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L55)
 
 Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, orientação) mantidos pela C2.
 
@@ -42,28 +52,48 @@ Entidades desenhadas no mapa (geometria + transform), em grupos por (geometria, 
 
 ### matrices
 
-> `readonly` **matrices**: `PoolSlot`\<`false`\>
+> `readonly` **matrices**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`false`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L50)
+Defined in: [src/presentation/flows/ShadowFlow.ts:53](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L53)
 
-Pool `ShadowMatrix` (matriz da luz pelo slot do caster, produzida na GPU pelo `ShadowMatrixFlow`).
+Pool `ShadowMatrix` (o referencial do quadro, produzido na GPU pelo `ShadowMatrixFlow`).
 
 ***
 
-### target
+### rects
 
-> `readonly` **target**: `TargetSlot`
+> `readonly` **rects**: `ChannelSlot`\<`true`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:54](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L54)
+Defined in: [src/presentation/flows/ShadowFlow.ts:61](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L61)
 
-Alvo só de profundidade: a textura `depth` do `ShadowMap` do caster.
+A série dos retângulos das instâncias no plano da luz (quem se moveu).
+
+***
+
+### requests
+
+> `readonly` **requests**: `ChannelSlot`\<`false`\>
+
+Defined in: [src/presentation/flows/ShadowFlow.ts:57](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L57)
+
+A série dos pedidos de páginas (o quadro anterior, pelo `ShadowRequestFlow`).
+
+***
+
+### work
+
+> `readonly` **work**: [`WorkSlot`](../../platform/web/interfaces/WorkSlot.md)\<`ShadowWork`\>
+
+Defined in: [src/presentation/flows/ShadowFlow.ts:63](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L63)
+
+O espaço de trabalho do passe (spec 039).
 
 ***
 
 ### world
 
-> `readonly` **world**: `PoolSlot`\<`false`\>
+> `readonly` **world**: [`PoolSlot`](../../platform/web/interfaces/PoolSlot.md)\<`false`\>
 
-Defined in: [presentation/flows/ShadowFlow.ts:48](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/ShadowFlow.ts#L48)
+Defined in: [src/presentation/flows/ShadowFlow.ts:51](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/ShadowFlow.ts#L51)
 
 Pool `WorldTransform` (matriz de mundo pelo slot da entidade).

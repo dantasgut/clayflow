@@ -36,7 +36,7 @@ fn sky_background(dir: vec3f) -> vec3f {
     var l = sky_radiance(dir);
     let radius = sky.sunIlluminance.w;
     if (sky.sunDisk != 0u && dot(dir, sky.sunDirection.xyz) > cos(radius)) {
-        let solid = SKY_PI * radius * radius;
+        let solid = PI * radius * radius;
         l += min(sky.sunIlluminance.rgb * sky_sun_transmittance(vec3f(0.0)) / solid, vec3f(SKY_SUN_DISK_MAX));
     }
     return min(l, vec3f(SKY_SUN_DISK_MAX));

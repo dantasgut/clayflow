@@ -3,6 +3,8 @@ import { SPHSchema } from './schemas/SPHSchema';
 import { PBFSchema } from './schemas/PBFSchema';
 import { MPMFluidSchema } from './schemas/MPMFluidSchema';
 import { MPM_REST_DEFORMATION } from './schemas/MPMSoftSchema';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import { fluidWorkDescriptors } from './schemas/fluidWork';
 import {
     ParticleBody,
     particleCount,
@@ -25,8 +27,18 @@ const FLUID_SCHEMAS: Record<FluidAlgorithm, StructSchema> = {
 };
 
 /**
+ * O campo do registro cujo `w` guarda o ancoramento da gota solta (a fronteira o grava a cada iteração) e, depois do
+ * passo, o estado dela (`fluid_drop_state`: negativo na gota encostada que desliza) — o campo dos fluidos lê dali a gota
+ * que passa à película (spec 034, T066d). Sem ancoramento (MPM), nenhum.
+ */
+export const FLUID_DROP_FIELD: ReadonlyMap<StructSchema, string> = new Map([
+    [SPHSchema, 'color'],
+    [PBFSchema, 'curl'],
+]);
+
+/**
  * Opções de domínio do FluidBody — o fluido inteiro: N partículas em arrays. O algoritmo seleciona o schema. `pos.w` é
- * do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticleMaterial` da cena.
+ * do algoritmo (densidade no SPH, lambda no PBF) e não é massa — massa e volume vêm do `ParticlePhysics` da cena.
  */
 export interface FluidBodyDomainOptions {
     /** Seleciona o schema e o estágio que simula (SPH, PBF ou MPM). */
@@ -78,10 +90,15 @@ export class FluidBody extends ParticleBody {
             vel: vec4Of(options.velocity, count),
         };
         if (options.algorithm === 'MPM') {
-            // Gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticleMaterial`.
+            // Gradiente de deformação em repouso (identidade); massa e volume vêm do `ParticlePhysics`.
             for (const [field, value] of Object.entries(MPM_REST_DEFORMATION))
                 body[field] = repeated(value, count);
         }
         this.data = { body };
+    }
+
+    /** As partículas e o trabalho por partícula do solver no mesmo slot (spec 039: o pool do próprio corpo). */
+    override getDescriptors(): readonly GPUDescriptor[] {
+        return [this.bodyDescriptor(), ...fluidWorkDescriptors(this.particleSchema, this.count)];
     }
 }

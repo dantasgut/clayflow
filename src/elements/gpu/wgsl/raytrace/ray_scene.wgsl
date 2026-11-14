@@ -99,8 +99,8 @@ fn ray_blas_hit(blas: vec4u, leaf_size: u32, o: vec3f, d: vec3f, t_max: f32, fir
     return best;
 }
 
-/** Travessia de dois níveis: (t, u, v, primitiva) e a instância (`NONE` sem acerto). */
-fn ray_scene_trace(origin: vec3f, dir: vec3f, t_max: f32, first: bool) -> RayHit {
+/** Travessia de dois níveis: (t, u, v, primitiva) e a instância (`NONE` sem acerto), sem a instância `exclude`. */
+fn ray_scene_trace(origin: vec3f, dir: vec3f, t_max: f32, first: bool, exclude: u32) -> RayHit {
     var hit = ray_miss();
     let count = ray_scene_info.instanceCount;
     if (count == 0u) { return hit; }
@@ -123,7 +123,7 @@ fn ray_scene_trace(origin: vec3f, dir: vec3f, t_max: f32, first: bool) -> RayHit
         if ((left & RAY_LEAF) != 0u) {
             let iw = ray_scene_info.instanceFirst + right * RAY_INSTANCE_WORDS;
             let ids = ray_instance_ids_at(iw);
-            if (ids.z == RAY_KIND_VOLUME) { continue; }
+            if (ids.z == RAY_KIND_VOLUME || right == exclude) { continue; }
             let bw = ray_scene_info.blasFirst + ids.x * RAY_BLAS_WORDS;
             let to_object = ray_instance_to_object_at(iw);
             let o = (to_object * vec4f(origin, 1.0)).xyz;
@@ -165,7 +165,7 @@ fn ray_scene_resolve(hit_in: RayHit, origin: vec3f, dir: vec3f) -> RayHit {
     hit.renderable = inst.ids.y;
     hit.position = origin + dir * hit.t;
     // Normais em mundo pela transposta da inversa (as colunas de `toObject`).
-    let n3 = transpose(mat3x3f(inst.toObject[0].xyz, inst.toObject[1].xyz, inst.toObject[2].xyz));
+    let n3 = affine_normal_of_inverse(inst.toObject);
     var geometric: vec3f;
     if (blas.w == RAY_KIND_SPHERES) {
         let s = ray_sphere_at(ray_scene_info.sphereFirst + (blas.y + hit.primitive) * RAY_SPHERE_WORDS);
@@ -190,12 +190,42 @@ fn ray_scene_resolve(hit_in: RayHit, origin: vec3f, dir: vec3f) -> RayHit {
     return hit;
 }
 
+/**
+ * Densidade do uv no triângulo atingido (spec 034): √(área em uv / área em mundo) — quanto o uv muda por metro. Com a
+ * largura do cone do raio no ponto, dá as derivadas do uv para filtrar texturas e padrões no acerto. Esferas: 0.
+ */
+fn ray_scene_uv_density(hit: RayHit) -> f32 {
+    if (hit.instance == NONE) { return 0.0; }
+    let inst = ray_instance_at(ray_scene_info.instanceFirst + hit.instance * RAY_INSTANCE_WORDS);
+    let blas = ray_blas_a(ray_scene_info.blasFirst + inst.ids.x * RAY_BLAS_WORDS);
+    if (blas.w == RAY_KIND_SPHERES) { return 0.0; }
+    let tri = ray_triangle_at(ray_scene_info.triangleFirst + (blas.y + hit.primitive) * RAY_TRIANGLE_WORDS);
+    let vf = ray_scene_info.vertexFirst;
+    let a = ray_vertex_at(vf + tri.x * RAY_VERTEX_WORDS);
+    let b = ray_vertex_at(vf + tri.y * RAY_VERTEX_WORDS);
+    let c = ray_vertex_at(vf + tri.z * RAY_VERTEX_WORDS);
+    let w = mat3x3f(inst.toWorld[0].xyz, inst.toWorld[1].xyz, inst.toWorld[2].xyz);
+    let world = length(cross(w * (b.position.xyz - a.position.xyz), w * (c.position.xyz - a.position.xyz)));
+    let du = vec2f(b.position.w - a.position.w, b.normal.w - a.normal.w);
+    let dv = vec2f(c.position.w - a.position.w, c.normal.w - a.normal.w);
+    let uv = abs(du.x * dv.y - du.y * dv.x);
+    return select(0.0, sqrt(uv / world), world > 1e-20);
+}
+
 /** Acerto mais próximo do raio (origem, direção unitária) até `t_max`. */
 fn ray_scene_hit(origin: vec3f, dir: vec3f, t_max: f32) -> RayHit {
-    return ray_scene_resolve(ray_scene_trace(origin, dir, t_max, false), origin, dir);
+    return ray_scene_resolve(ray_scene_trace(origin, dir, t_max, false, NONE), origin, dir);
+}
+
+/**
+ * Acerto mais próximo sem a instância `exclude` (spec 034): a outra superfície no mesmo ponto — as interfaces
+ * coincidentes (o vidro encostado na água) que a refração cruza juntas.
+ */
+fn ray_scene_hit_excluding(origin: vec3f, dir: vec3f, t_max: f32, exclude: u32) -> RayHit {
+    return ray_scene_resolve(ray_scene_trace(origin, dir, t_max, false, exclude), origin, dir);
 }
 
 /** Algo bloqueia o segmento (origem, direção) até `t_max`? */
 fn ray_scene_occluded(origin: vec3f, dir: vec3f, t_max: f32) -> bool {
-    return ray_scene_trace(origin, dir, t_max, true).instance != NONE;
+    return ray_scene_trace(origin, dir, t_max, true, NONE).instance != NONE;
 }

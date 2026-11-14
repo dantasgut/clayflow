@@ -1,14 +1,14 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / registerPresentationDefaults
+[clayflow](../../modules.md) / [presentation](../README.md) / registerPresentationDefaults
 
 # Function: registerPresentationDefaults()
 
 > **registerPresentationDefaults**(`flows`, `options`): [`PresentationDefaults`](../interfaces/PresentationDefaults.md)
 
-Defined in: [presentation/flows/defaults.ts:91](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/defaults.ts#L91)
+Defined in: [src/presentation/flows/defaults.ts:138](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/defaults.ts#L138)
 
 Registra por factory os estágios padrão da cena — Transform, Camera, ShadowMatrix, Shadow, Forward, os da água, Post,
 Debug e UI, mais os solvers
@@ -26,7 +26,7 @@ Chamado por `Application.create`. Apps que querem outro pipeline podem registrar
 
 ### flows
 
-`FlowRegistry`
+[`FlowRegistry`](../../platform/web/classes/FlowRegistry.md)
 
 ### options
 

@@ -27,7 +27,7 @@ import {
     Transform,
     type Application,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { PtImage } from '../elements/lighting/reference/pathTracer';
 import { settle } from './support/extensionScenes';
 import {
@@ -55,6 +55,8 @@ import { hdrAt, hdrLuminance, readHdrTexture, type HdrImage } from './support/im
 import { closureFn } from './support/materialScenes';
 import { waterScene } from './support/waterScene';
 import { renderPathTracedParallel } from './support/pathTraceParallel';
+import { luminanceLinear } from './support/images';
+import { readCausticsHash, type CausticsHash } from './support/causticsHash';
 
 function log(msg: string): void {
     console.log(`[globalIllumination] ${msg}`);
@@ -69,7 +71,7 @@ function check(ok: boolean, msg: string): void {
     if (!ok) failures.push(msg);
 }
 
-const lum = (c: readonly number[]): number => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+const lum = luminanceLinear;
 
 /** Rebatimentos das medidas (o motor e a referência). */
 const BOUNCES = 3;
@@ -88,7 +90,9 @@ async function giReady(app: Application, ready: { revision: number; at: number }
     const limit = performance.now() + 120000;
     while (ready.revision < 0 || performance.now() - ready.at < 1000) {
         if (performance.now() > limit)
-            throw new Error('a iluminação global não ficou pronta em 120 s');
+            throw new Error(
+                `a iluminação global não ficou pronta em 120 s${engineErrors.length > 0 ? ` (${engineErrors.join(' | ')})` : ''}`,
+            );
         await settle(app, 100);
     }
 }
@@ -743,16 +747,17 @@ async function softGraphScene(): Promise<void> {
 }
 
 /**
- * Orçamento (SC-010): a cena do bench `global-illumination` (onda animada de 1 milhão de triângulos, caixas, sol e céu
- * físico, qualidade média) a 1280×720 — o tempo de GPU por quadro (a medida de desempenho, `profiling: 'frame'`; a por
- * passe distorce neste hardware) com e sem a iluminação global; a diferença é o custo dela (≤ 4 ms). O número de
- * referência é o do bench (aquecimento e janela de medida); aqui, a conferência.
+ * Custo por perfil do `Renderer` (SC-010, com o ajuste da arquitetura da 039 na T059 da 034: o orçamento fixo de 4 ms
+ * virou a medida por perfil, como a lente na 039 T106): a cena do bench `global-illumination` (onda animada de 1 milhão
+ * de triângulos, caixas, sol e céu físico) a 1280×720, a GI pelos valores do perfil — o tempo por quadro com e sem a
+ * iluminação global; a diferença é o custo dela, registrado por perfil.
  */
 async function budgetScene(): Promise<void> {
-    const lib = await import('clayflow');
+    const lib = await import('clayflow/web');
     /** A cena do orçamento (1 milhão de triângulos animados, sol com sombra e céu) pronta, com ou sem a GI. */
     const open = async (
         gi: boolean,
+        profile: 'high' | 'medium' | 'low',
     ): Promise<{
         app: Application;
         canvas: HTMLCanvasElement;
@@ -763,12 +768,16 @@ async function budgetScene(): Promise<void> {
         canvas.height = 720;
         document.body.appendChild(canvas);
         const app = await lib.Application.create({
+            // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+            // temporal, padrão agora, tem o smoke `antialiasing`).
+            antialias: 'msaa',
             canvas,
             scene: lib.createScene(),
             autoResize: false,
             captureErrors: true,
         });
         app.events.on('engineError', (e) => engineErrors.push(`${e.stage}: ${e.message}`));
+        app.defaults.renderer.profile = profile;
         const ready = { revision: -1, at: 0 };
         app.events.on('globalIlluminationReady', (e) => {
             ready.revision = e.revision;
@@ -832,7 +841,8 @@ async function budgetScene(): Promise<void> {
                 }),
             ),
         );
-        const giRes = new lib.GlobalIllumination({ quality: 'medium' });
+        // Os valores da qualidade vêm do perfil do `Renderer`.
+        const giRes = new lib.GlobalIllumination();
         app.events.on('globalIlluminationUnsupported', (e) =>
             engineErrors.push(`unsupported: ${e.reason}`),
         );
@@ -891,39 +901,40 @@ async function budgetScene(): Promise<void> {
             proto.dispatch = original;
         };
     };
-    // (a) Os kernels da GI: o estágio das sondas 41× contra 21× por quadro, (T₄₁ − T₂₁)/20.
-    const on = await open(true);
-    let probeTimes = 1;
-    let restore = repeat(lib.ProbeFlow, () => probeTimes);
-    probeTimes = 21;
-    const low = await on.perFrame(40);
-    probeTimes = 41;
-    const high = await on.perFrame(40);
-    restore();
-    const kernels = Math.max(0, (high - low) / 20);
-    // (b) O que é por pixel (a leitura das sondas no desenho): o desenho 11× por quadro com e sem a GI —
-    // (T_com − T_sem − kernels)/11.
-    let forwardTimes = 11;
-    restore = repeat(lib.ForwardFlow, () => forwardTimes);
-    const withGi = await on.perFrame(40);
-    on.app.dispose();
-    on.canvas.remove();
-    const off = await open(false);
-    const withoutGi = await off.perFrame(40);
-    off.app.dispose();
-    off.canvas.remove();
-    restore();
-    forwardTimes = 1;
-    const perPixel = Math.max(0, (withGi - withoutGi - kernels) / 11);
-    const cost = kernels + perPixel;
-    log(
-        `budget: tempo de parede por quadro — sondas 21× ${low.toFixed(2)} ms, 41× ${high.toFixed(2)} ms → kernels ${kernels.toFixed(2)} ms; desenho 11× com a GI ${withGi.toFixed(2)} ms, sem ${withoutGi.toFixed(2)} ms → por pixel ${perPixel.toFixed(2)} ms`,
-    );
-    log(
-        `budget: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (orçamento 4 ms; o tempo de GPU do quadro desta máquina repete leituras velhas, então a medida é por repetição com o relógio de parede)`,
-    );
-    check(kernels > 0, 'budget: o trabalho da GI aparece na medida');
-    check(cost <= 4, `budget: iluminação global a ${cost.toFixed(2)} ms/quadro (orçamento 4 ms)`);
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        // (a) Os kernels da GI: o estágio das sondas 41× contra 21× por quadro, (T₄₁ − T₂₁)/20.
+        const on = await open(true, profile);
+        let probeTimes = 1;
+        let restore = repeat(lib.ProbeFlow, () => probeTimes);
+        probeTimes = 21;
+        const low = await on.perFrame(40);
+        probeTimes = 41;
+        const high = await on.perFrame(40);
+        restore();
+        const kernels = Math.max(0, (high - low) / 20);
+        // (b) O que é por pixel (a leitura das sondas no desenho): o desenho 11× por quadro com e sem a GI —
+        // (T_com − T_sem − kernels)/11.
+        let forwardTimes = 11;
+        restore = repeat(lib.ForwardFlow, () => forwardTimes);
+        const withGi = await on.perFrame(40);
+        on.app.dispose();
+        on.canvas.remove();
+        const off = await open(false, profile);
+        const withoutGi = await off.perFrame(40);
+        off.app.dispose();
+        off.canvas.remove();
+        restore();
+        forwardTimes = 1;
+        const perPixel = Math.max(0, (withGi - withoutGi - kernels) / 11);
+        const cost = kernels + perPixel;
+        log(
+            `budget ${profile}: tempo de parede por quadro — sondas 21× ${low.toFixed(2)} ms, 41× ${high.toFixed(2)} ms → kernels ${kernels.toFixed(2)} ms; desenho 11× com a GI ${withGi.toFixed(2)} ms, sem ${withoutGi.toFixed(2)} ms → por pixel ${perPixel.toFixed(2)} ms`,
+        );
+        log(
+            `budget ${profile}: custo da iluminação global ${cost.toFixed(2)} ms/quadro a 1280×720 (${((cost / (1000 / 60)) * 100).toFixed(0)} % do quadro de 60 Hz; o tempo de GPU do quadro desta máquina repete leituras velhas, então a medida é por repetição com o relógio de parede)`,
+        );
+        check(kernels > 0, `budget ${profile}: o trabalho da GI aparece na medida`);
+    }
 }
 
 /** Chão claro sob o sol a pino (cáusticas): placa de 4 × 4 m e a câmera dada. */
@@ -961,36 +972,17 @@ function peakNear(
 }
 
 /**
- * A irradiância das cáusticas por célula do chão (y = 0 entre as duas camadas de células em volta), lida de volta do
- * hash (só no teste): chave `x,z` em células.
+ * O hash das cáusticas lido de volta (só no teste; spec 034, o hash do `Caustics`): a irradiância como o motor a lê
+ * (`readCausticsHash`).
  */
-async function floorCaustics(
-    s: Awaited<ReturnType<typeof openEngine>>,
-): Promise<Map<string, number>> {
-    const spec = s.app.resources.bufferOf(s.gi, 'caustics')!;
-    const staging = s.app.core.create<StagingBufferSpec>({
-        kind: 'buffer',
-        subkind: 'staging',
-        discriminator: 'gi_caustics_readback',
-        byteSize: spec.byteSize,
-    });
-    s.app.core.record('gi-caustics-readback', (frame) => {
-        frame.copy(spec, staging, spec.byteSize);
-    });
-    s.app.core.submit();
-    const words = new Uint32Array(await s.app.core.readback(staging));
-    const floats = new Float32Array(words.buffer);
-    s.app.core.destroy(staging);
-    const cells = new Map<string, number>();
-    for (let w = 8; w + 8 <= words.length; w += 8) {
-        const key = words[w]!;
-        if (key === 0) continue;
-        const y = (((key - 1) >> 10) & 1023) - 512;
-        if (y !== 0 && y !== -1) continue;
-        const k = `${((key - 1) & 1023) - 512},${(((key - 1) >> 20) & 1023) - 512}`;
-        cells.set(k, (cells.get(k) ?? 0) + (floats[w + 4]! + floats[w + 5]! + floats[w + 6]!) / 2);
-    }
-    return cells;
+async function floorCaustics(s: Awaited<ReturnType<typeof openEngine>>): Promise<CausticsHash> {
+    return readCausticsHash(s.app, s.app.defaults.renderer.causticsResource);
+}
+
+/** A irradiância das cáusticas (média dos canais) no ponto (x, 0, z) do chão. */
+function floorAt(hash: CausticsHash, x: number, z: number): number {
+    const e = hash.irradiance([x, 0, z], [0, 1, 0]);
+    return (e[0] + e[1] + e[2]) / 3;
 }
 
 /**
@@ -998,8 +990,7 @@ async function floorCaustics(
  * 1,2 vezes a distância focal da lente esférica (f = nR / 2(n − 1), do centro): o pico de luz no chão sob ela é o mais
  * concentrado a ≤ 10 % de f e mais claro que o chão aceso em volta; (b) um anel de metal polido sob sol rasante: a
  * cáustica que os fótons somam no chão (no hash) tem o máximo perto da cúspide, a meio raio do centro do
- * lado de onde a luz vai; (c) a água: com a iluminação global, ligar as cáusticas por fótons não muda o fundo sob a
- * água (a dela continua pela vista da luz, sem duplicar).
+ * lado de onde a luz vai. A água com a iluminação global: `causticsWater`.
  */
 async function causticsScene(): Promise<void> {
     const size = { width: 640, height: 400 };
@@ -1015,6 +1006,7 @@ async function causticsScene(): Promise<void> {
     {
         const scene = causticFloor(camera, [0, -1, 0]);
         const s = await openEngine(scene, size, true, (app) => {
+            app.world.insert(app.defaults.renderer.causticsResource);
             app.world.insert(
                 new SphereGeometry({ radius: R })
                     .add(new StandardMaterial())
@@ -1035,10 +1027,12 @@ async function causticsScene(): Promise<void> {
     // A distância focal (paraxial): um diafragma de 12 cm sobre a esfera, a altura dela de 0,8 a 1,2 f.
     const peaks: { factor: number; value: number }[] = [];
     for (const factor of [0.8, 0.9, 1, 1.1, 1.2]) {
-        // Sondas a 8 cm: a célula das cáusticas (1/16 do espaçamento) de 5 mm separa o foco.
-        const scene = { ...causticFloor(camera, [0, -1, 0]), probeSpacing: 0.08 };
+        // A célula das cáusticas de 5 mm separa o foco.
+        const scene = causticFloor(camera, [0, -1, 0]);
         const h = factor * focal;
         const s = await openEngine(scene, size, true, (app) => {
+            app.defaults.renderer.caustics.cellSize = 0.005;
+            app.world.insert(app.defaults.renderer.causticsResource);
             app.world.insert(
                 new SphereGeometry({ radius: R })
                     .add(new StandardMaterial())
@@ -1060,10 +1054,13 @@ async function causticsScene(): Promise<void> {
                 );
         });
         await s.step(150);
-        // A maior irradiância das células do hash das cáusticas no chão (lido de volta só no teste): o ponto focado
-        // é menor que um pixel na vista rasante.
-        const cells = await floorCaustics(s);
-        const value = Math.max(0, ...cells.values());
+        // A maior irradiância das cáusticas no chão (lida de volta só no teste, numa grade de 2,5 mm em volta do eixo):
+        // o ponto focado é menor que um pixel na vista rasante.
+        const hash = await floorCaustics(s);
+        let value = 0;
+        for (let x = -0.15; x <= 0.15; x += 0.0025)
+            for (let z = -0.15; z <= 0.15; z += 0.0025)
+                value = Math.max(value, floorAt(hash, x, z));
         peaks.push({ factor, value });
         s.close();
     }
@@ -1103,14 +1100,18 @@ async function causticsScene(): Promise<void> {
             );
         }
     };
-    // A cáustica no hash (as sondas a 0,3 m: células de 1,875 cm), média num disco de 3 cm, no interior longe da parede.
+    // A cáustica no hash (células de 1,875 cm), média num disco de 3 cm, no interior longe da parede.
     let peak = { value: 0, x: 0, z: 0 };
     {
-        const s = await openEngine(causticFloor(top, sun), size, true, ring);
-        await s.step(150);
-        const cells = await floorCaustics(s);
-        s.close();
         const cell = 0.3 / 16;
+        const s = await openEngine(causticFloor(top, sun), size, true, (app) => {
+            app.defaults.renderer.caustics.cellSize = cell;
+            app.world.insert(app.defaults.renderer.causticsResource);
+            ring(app);
+        });
+        await s.step(150);
+        const hash = await floorCaustics(s);
+        s.close();
         const reach = Math.ceil(0.03 / cell);
         for (let i = -30; i <= 30; i++)
             for (let j = -30; j <= 30; j++) {
@@ -1124,7 +1125,7 @@ async function causticsScene(): Promise<void> {
                 for (let a = -reach; a <= reach; a++)
                     for (let b = -reach; b <= reach; b++) {
                         if (Math.hypot(a, b) > reach) continue;
-                        sum += cells.get(`${cx + a},${cz + b}`) ?? 0;
+                        sum += floorAt(hash, (cx + a + 0.5) * cell, (cz + b + 0.5) * cell);
                         n++;
                     }
                 if (sum / n > peak.value) peak = { value: sum / n, x, z };
@@ -1139,9 +1140,14 @@ async function causticsScene(): Promise<void> {
             && Math.abs(Math.hypot(peak.x, peak.z) - ringR / 2) <= 0.25 * ringR,
         'caustics: a cáustica do anel com a cúspide perto de meio raio',
     );
+}
 
-    // (c) A água com a iluminação global: as cáusticas por fótons ligadas ou não, o fundo sob a água igual (a luz que a
-    // atravessa vem pelas cáusticas dela, na vista da luz — os fótons param na água).
+/**
+ * Cáusticas na água com a iluminação global (spec 034, T067c): a água parada a pino, o fundo sob ela com as cáusticas (a
+ * direta em linha reta e a correção dos fótons) e sem elas (só a linha reta, exata na água plana a pino) igual na média.
+ */
+async function causticsWaterScene(): Promise<void> {
+    const size = { width: 640, height: 400 };
     {
         const { app, canvas } = await giApp(size.width, size.height, engineErrors);
         waterScene(app, {
@@ -1171,14 +1177,29 @@ async function causticsScene(): Promise<void> {
             return sum / n;
         };
         const on = await floorMean();
-        gi.data.caustics = false;
+        // A energia: a correção dos fótons (os que passam pela água menos a luz em linha reta que ela substitui) tem
+        // média ~0 no fundo longe das paredes — a água desvia a luz, não a cria. Medida no hash, como o motor a lê. A
+        // média da imagem não serve: a câmera olha o fundo pela mesma superfície que concentra a luz e vê mais os
+        // pontos claros (reciprocidade; com as cáusticas nítidas, ~3 %), o que a física de fato faz.
+        const hash = await readCausticsHash(app, app.defaults.renderer.causticsResource);
+        let correction = 0;
+        let n = 0;
+        for (let x = -0.3; x <= 0.3; x += 0.005)
+            for (let z = -0.15; z <= 0.15; z += 0.005) {
+                correction += floorAt(hash, x, z);
+                n++;
+            }
+        correction /= n;
+        app.defaults.renderer.caustics.enabled = false;
         const off = await floorMean();
+        // O sol que chega ao fundo em linha reta (luminância do sol de 1,2 pelo cosseno, sem a absorção rasa).
+        const sun = 1.2 * 0.92;
         log(
-            `caustics: água com a GI — fundo sob a água com as cáusticas por fótons ${on.toFixed(4)}, sem ${off.toFixed(4)}`,
+            `caustics: água parada com a GI — correção média dos fótons no fundo ${correction.toFixed(5)} (${((100 * correction) / sun).toFixed(2)} % do sol); imagem do fundo com as cáusticas ${on.toFixed(4)}, em linha reta ${off.toFixed(4)} (${((on / off - 1) * 100).toFixed(2)} %)`,
         );
         check(
-            Math.abs(on / off - 1) <= 0.02,
-            `caustics: a água sem luz duplicada (${((on / off - 1) * 100).toFixed(2)} %)`,
+            Math.abs(correction) <= 0.02 * sun,
+            `caustics: a correção dos fótons no fundo a ${((100 * correction) / sun).toFixed(2)} % do sol`,
         );
         app.dispose();
         canvas.remove();
@@ -1187,6 +1208,7 @@ async function causticsScene(): Promise<void> {
 
 const CASES: Record<string, () => Promise<void>> = {
     caustics: causticsScene,
+    causticsWater: causticsWaterScene,
     cornell: () =>
         compareScene(
             'cornell',

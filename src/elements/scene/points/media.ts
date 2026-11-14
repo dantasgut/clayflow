@@ -4,7 +4,9 @@ import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
 // Pontos de cena dos meios participantes (spec 033, R12): quem desenha uma superfície chama `scene_fog` no ponto dela
 // (a névoa entre a câmera e o ponto) sem conhecer quem a implementa — hoje os froxels dos `FogVolume`; quem ilumina um
 // ponto do meio (os froxels) chama `scene_ambient` (a radiância média que chega de todas as direções) sem conhecer a
-// luz ambiente — o hemisfério ou as sondas da iluminação global. Sem contribuinte, fica o pronto.
+// luz ambiente — o hemisfério ou as sondas da iluminação global; quem sombreia uma superfície sólida chama
+// `scene_wetness` (a película de água nela e a água nos poros dela, spec 034) e quem refrata nela `scene_wetness_slope`
+// (a inclinação dessa película) sem conhecer quem a simula. Sem contribuinte, fica o pronto.
 
 /**
  * `fn scene_fog(p: vec3f) -> vec4f` — a névoa entre a câmera ativa e o ponto `p` (mundo): a luz espalhada para a câmera
@@ -23,6 +25,40 @@ export const sceneFogReady = wgslModule({
 export const sceneAmbientReady = wgslModule({
     name: 'scene_ambient_ready',
     source: 'fn scene_ambient(p: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * `fn scene_wetness(p: vec3f, n: vec3f, footprint: f32) -> vec2f` — a água no ponto `p` de uma superfície sólida de
+ * normal `n` (spec 034): a espessura da película livre (x, m) e a saturação dos poros (y, em [0, 1]), média na largura
+ * `footprint` (m) que o pixel cobre ali (0: no ponto); quem sombreia a superfície a molha (`closure_wet`); pronto: seca
+ * (0, 0).
+ */
+export const sceneWetnessReady = wgslModule({
+    name: 'scene_wetness_ready',
+    source: 'fn scene_wetness(p: vec3f, n: vec3f, footprint: f32) -> vec2f {\n    return vec2f(0.0);\n}',
+});
+
+/**
+ * `fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f` — a inclinação da água no ponto `p` de uma
+ * superfície sólida de normal `n` (spec 034, T066d): o gradiente da espessura dela no plano da superfície (xyz, m/m) e
+ * a curvatura da superfície da água ali (w, 1/m: a da calota da gota), média na largura `footprint` (m) que o pixel
+ * cobre ali (0: no ponto) — a face de fora da água é a normal menos o gradiente; quem refrata no sólido entorta o raio
+ * por ela e abre o cone dele pela curvatura (a gota é uma lente); pronto: plana (0).
+ */
+export const sceneWetnessSlopeReady = wgslModule({
+    name: 'scene_wetness_slope_ready',
+    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f {\n    return vec4f(0.0);\n}',
+});
+
+/**
+ * `fn scene_wetness_moving(p: vec3f, n: vec3f, footprint: f32) -> bool` — o que se vê pela água no ponto `p` da
+ * superfície sólida de normal `n` (na largura `footprint` do pixel ali) muda de um quadro para o outro (spec 034, T066d:
+ * a cabeça do filete que desce; a gota parada, a faixa do filete e a película presa, não): quem guarda entre quadros o
+ * que vê por ela não guarda ali; pronto: parada (`false`).
+ */
+export const sceneWetnessMovingReady = wgslModule({
+    name: 'scene_wetness_moving_ready',
+    source: 'fn scene_wetness_moving(p: vec3f, n: vec3f, footprint: f32) -> bool {\n    return false;\n}',
 });
 
 const combined = new Map<string, WgslModule>();
@@ -73,6 +109,57 @@ export const sceneAmbientPoint: ContributionPoint = {
                 source: `fn scene_ambient(p: vec3f) -> vec3f {\n    return ${modules
                     .map((_, k) => `scene_ambient_${k}(p)`)
                     .join(' + ')};\n}`,
+            }),
+        ),
+};
+
+/** Água na superfície: a maior película e a maior saturação dos contribuintes. */
+export const sceneWetnessPoint: ContributionPoint = {
+    name: 'scene_wetness',
+    ready: sceneWetnessReady,
+    functionName: 'scene_wetness',
+    combine: (modules) =>
+        memo(`wetness:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_wetness:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_wetness(p: vec3f, n: vec3f, footprint: f32) -> vec2f {\n    return max(${modules
+                    .map((_, k) => `scene_wetness_${k}(p, n, footprint)`)
+                    .reduce((a, b) => `max(${a}, ${b})`)}, vec2f(0.0));\n}`,
+            }),
+        ),
+};
+
+/** Inclinação da película: a soma dos contribuintes (as películas de cada um se sobrepõem). */
+export const sceneWetnessSlopePoint: ContributionPoint = {
+    name: 'scene_wetness_slope',
+    ready: sceneWetnessSlopeReady,
+    functionName: 'scene_wetness_slope',
+    combine: (modules) =>
+        memo(`wetness_slope:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_wetness_slope:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f {\n    return ${modules
+                    .map((_, k) => `scene_wetness_slope_${k}(p, n, footprint)`)
+                    .join(' + ')};\n}`,
+            }),
+        ),
+};
+
+/** A água correndo no ponto: algum contribuinte a vê correr. */
+export const sceneWetnessMovingPoint: ContributionPoint = {
+    name: 'scene_wetness_moving',
+    ready: sceneWetnessMovingReady,
+    functionName: 'scene_wetness_moving',
+    combine: (modules) =>
+        memo(`wetness_moving:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_wetness_moving:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_wetness_moving(p: vec3f, n: vec3f, footprint: f32) -> bool {\n    return ${modules
+                    .map((_, k) => `scene_wetness_moving_${k}(p, n, footprint)`)
+                    .join(' || ')};\n}`,
             }),
         ),
 };

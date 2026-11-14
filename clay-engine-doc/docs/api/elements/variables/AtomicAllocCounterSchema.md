@@ -1,13 +1,13 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / AtomicAllocCounterSchema
+[clayflow](../../modules.md) / [elements](../README.md) / AtomicAllocCounterSchema
 
 # Variable: AtomicAllocCounterSchema
 
-> `const` **AtomicAllocCounterSchema**: `StructSchema`
+> `const` **AtomicAllocCounterSchema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/gpu/compute/schemas.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/schemas.ts#L17)
+Defined in: [src/elements/gpu/compute/schemas.ts:21](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/schemas.ts#L21)
 
 Contador de alocação atômica (`atomic_alloc`): posições concedidas e pedidos recusados por falta de espaço.

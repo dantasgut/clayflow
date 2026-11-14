@@ -1,21 +1,13 @@
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
-import type {
-    EngineCore,
-    Frame,
-    IndirectBufferSpec,
-    StorageBufferSpec,
-} from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
+import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
 import { SCAN_GROUP } from './PrefixSum';
-import { ReduceLevelSchema } from './schemas';
+import { ReduceLevelSchema, wordBuffer } from './schemas';
 import {
     reduceCountGpu,
     reduceCountPoint,
@@ -69,8 +61,8 @@ export interface ReduceRecordArgs {
 /** Kernels de uma entrada: por passe `k`, o que escreve no parcial seguinte e o que escreve na saída (último passe). */
 interface PreparedPair {
     readonly out: StorageBufferSpec;
-    readonly toPartial: (ComputeKernel | undefined)[];
-    readonly toOut: ComputeKernel[];
+    readonly toPartial: (string | undefined)[];
+    readonly toOut: string[];
 }
 
 /**
@@ -86,16 +78,17 @@ interface PreparedPair {
  * nada. A contagem do registro deve ser ≤ `capacity`.
  *
  * Duas fases (spec 006): `prepare(src, out, gravaçõesPorQuadro, counts?)` cria parciais, kernels de todos os passes
- * possíveis e regiões de uniform, fora da gravação; `record` só grava.
+ * possíveis e regiões de uniform, fora da gravação; `record` só grava. Os parciais são descritores do Resource de
+ * trabalho (spec 039).
  */
-export class Reduce {
+export class Reduce implements WorkPart {
     private readonly disc: string;
-    private readonly capacity: number;
-    private readonly levelCapacity: readonly number[];
+    private capacity: number;
+    private levelCapacity: readonly number[];
     private readonly params: FrameUniforms;
+    /** `destroy()` soltou os descritores (a C2 libera os buffers); o próximo `prepare` os declara de novo. */
+    private released = false;
     private readonly shader: ReturnType<typeof reduceKernel>;
-    /** Resultados parciais dos níveis intermediários (`partials[k - 1]` = nível k). */
-    private partials: StorageBufferSpec[] | null = null;
     /** Kernels por origem da contagem (`null` = CPU; um buffer `SetCount` = variante da GPU) e buffer de entrada. */
     private readonly prepared = new Map<
         IndirectBufferSpec | null,
@@ -103,7 +96,7 @@ export class Reduce {
     >();
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: ReduceOptions,
     ) {
         if (!Number.isInteger(options.capacity) || options.capacity < 1) {
@@ -115,10 +108,37 @@ export class Reduce {
         this.capacity = options.capacity;
         this.levelCapacity = reduceLevelCounts(options.capacity);
         this.shader = reduceKernel(options.op, options.type);
-        this.params = new FrameUniforms(core, {
-            discriminator: `${this.disc}:reduce`,
+        this.params = new FrameUniforms(ctx, {
+            id: `${this.disc}:reduce`,
             schema: ReduceLevelSchema,
         });
+        ctx.work.use(this);
+    }
+
+    /**
+     * Garante `capacity` elementos (fora da gravação): os parciais crescem (o trabalho se redescreve) e os kernels são
+     * refeitos no próximo `prepare`. Devolve `true` quando cresceu.
+     */
+    reserve(capacity: number): boolean {
+        if (!Number.isInteger(capacity) || capacity < 1) {
+            throw new RangeError(
+                `Reduce(${this.disc}): capacity deve ser inteiro ≥ 1 (recebeu ${capacity}).`,
+            );
+        }
+        if (capacity <= this.capacity) return false;
+        this.capacity = capacity;
+        this.levelCapacity = reduceLevelCounts(capacity);
+        this.releaseKernels();
+        this.ctx.work.refresh();
+        return true;
+    }
+
+    /** Parciais dos níveis 1..L-1 pela capacidade (o último passe escreve na saída do chamador). */
+    descriptors(): readonly GPUDescriptor[] {
+        if (this.released) return [];
+        return this.levelCapacity
+            .slice(1, -1)
+            .map((n, i) => wordBuffer(`${this.disc}:reduce_level:${i + 1}`, n * 4));
     }
 
     /**
@@ -132,9 +152,13 @@ export class Reduce {
         recordsPerFrame = 1,
         counts?: IndirectBufferSpec,
     ): void {
+        if (this.released) {
+            this.released = false;
+            this.ctx.work.refresh();
+        }
         const maxPasses = this.levelCapacity.length - 1;
         if (this.params.reserve(maxPasses * recordsPerFrame)) this.releaseKernels();
-        const partials = (this.partials ??= this.allocate());
+        const partials = this.partials();
         for (const source of counts === undefined ? [null] : [null, counts]) {
             let bySrc = this.prepared.get(source);
             if (bySrc === undefined) this.prepared.set(source, (bySrc = new Map()));
@@ -223,8 +247,7 @@ export class Reduce {
             const kernel = k === passes - 1 ? pair.toOut[k]! : pair.toPartial[k]!;
             const dispatch = k === 0 ? first : counts[k]!;
             frame.compute('Reduce', (pass) => {
-                pass.bind.setPipeline(kernel.pipeline);
-                kernel.bindTo(pass.bind, { draw: [offsets[k]!] });
+                this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offsets[k]!] });
                 if (typeof dispatch === 'number') pass.dispatch.invocations(dispatch, SCAN_GROUP);
                 else
                     pass.dispatch.workgroupsIndirect(
@@ -243,38 +266,39 @@ export class Reduce {
         }
     }
 
-    /** Libera kernels, parciais e uniforms. */
+    /** Libera os kernels e solta os parciais (a C2 os libera); o próximo `prepare` os declara de novo. */
     destroy(): void {
         this.releaseKernels();
-        for (const b of this.partials ?? []) this.core.destroy(b);
-        this.partials = null;
-        this.params.destroy();
+        this.released = true;
+        this.params.release();
+        this.ctx.work.refresh();
     }
 
-    /** Parciais dos níveis 1..L-1 pela capacidade (o último passe escreve na saída do chamador). */
-    private allocate(): StorageBufferSpec[] {
-        return this.levelCapacity.slice(1, -1).map((n, i) =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:reduce_level:${i + 1}`,
-                byteSize: Math.max(16, n * 4),
-            }),
-        );
+    /** Parciais alocados pela C2 (`partials[k - 1]` = nível k). */
+    private partials(): StorageBufferSpec[] {
+        return this.levelCapacity.slice(1, -1).map((_, i) => {
+            const buffer = this.ctx.resources.bufferOf(
+                this.ctx.work,
+                `${this.disc}:reduce_level:${i + 1}`,
+            );
+            if (buffer === undefined)
+                throw new Error(`Reduce(${this.disc}): trabalho fora da cena.`);
+            return buffer as StorageBufferSpec;
+        });
     }
 
     private kernel(
         counts: IndirectBufferSpec | null,
         input: StorageBufferSpec,
         output: StorageBufferSpec,
-    ): ComputeKernel {
+    ): string {
         const bindings = new Map<WgslResource, BindingSource>([
             [reduceResources.level, this.params.source()],
             [reduceResources.input, input],
             [reduceResources.output, output],
         ]);
         if (counts !== null) bindings.set(setCountResources.counts, counts);
-        return createComputeKernel(this.core, {
+        return this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:reduce${counts === null ? '' : ':gpu'}`,
             shader:
                 counts === null
@@ -287,7 +311,7 @@ export class Reduce {
 
     private destroyPair(pair: PreparedPair): void {
         for (const k of [...pair.toOut, ...pair.toPartial]) {
-            if (k !== undefined) destroyComputeKernel(this.core, k);
+            if (k !== undefined) this.ctx.work.pipelines.release(k);
         }
     }
 

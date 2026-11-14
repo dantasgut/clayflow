@@ -1,30 +1,30 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / DiffuseSlots
+[clayflow](../../modules.md) / [elements](../README.md) / DiffuseSlots
 
 # Interface: DiffuseSlots
 
-Defined in: elements/particles/DiffuseFlow.ts:39
+Defined in: [src/elements/particles/DiffuseFlow.ts:55](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L55)
 
 Slots do estágio das partículas secundárias.
 
 ## Extends
 
-- `SlotMap`
+- [`SlotMap`](../../platform/web/type-aliases/SlotMap.md)
 
 ## Indexable
 
-> \[`key`: `string`\]: `SlotDeclaration`
+> \[`key`: `string`\]: [`SlotDeclaration`](../../platform/web/type-aliases/SlotDeclaration.md)
 
 ## Properties
 
 ### colliderPools
 
-> `readonly` **colliderPools**: `PoolsSlot`
+> `readonly` **colliderPools**: [`PoolsSlot`](../../platform/web/interfaces/PoolsSlot.md)
 
-Defined in: elements/particles/DiffuseFlow.ts:49
+Defined in: [src/elements/particles/DiffuseFlow.ts:65](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L65)
 
 Pools dos colliders e dos corpos donos (o spray colide com os sólidos da cena).
 
@@ -32,9 +32,9 @@ Pools dos colliders e dos corpos donos (o spray colide com os sólidos da cena).
 
 ### colliders
 
-> `readonly` **colliders**: `EntitiesSlot`
+> `readonly` **colliders**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: elements/particles/DiffuseFlow.ts:51
+Defined in: [src/elements/particles/DiffuseFlow.ts:67](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L67)
 
 Entidades com collider.
 
@@ -42,9 +42,9 @@ Entidades com collider.
 
 ### diffuse
 
-> `readonly` **diffuse**: `EntitiesSlot`
+> `readonly` **diffuse**: [`EntitiesSlot`](../../platform/web/interfaces/EntitiesSlot.md)
 
-Defined in: elements/particles/DiffuseFlow.ts:41
+Defined in: [src/elements/particles/DiffuseFlow.ts:57](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L57)
 
 Partículas secundárias com a nuvem de pontos onde são desenhadas (o estágio escreve os vértices).
 
@@ -52,28 +52,38 @@ Partículas secundárias com a nuvem de pontos onde são desenhadas (o estágio 
 
 ### gravity
 
-> `readonly` **gravity**: `SingletonSlot`\<`true`\>
+> `readonly` **gravity**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: elements/particles/DiffuseFlow.ts:45
+Defined in: [src/elements/particles/DiffuseFlow.ts:61](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L61)
 
 Gravidade uniforme (opcional; padrão −9,81 em y).
 
 ***
 
-### material
+### physics
 
-> `readonly` **material**: `SingletonSlot`\<`true`\>
+> `readonly` **physics**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`true`\>
 
-Defined in: elements/particles/DiffuseFlow.ts:47
+Defined in: [src/elements/particles/DiffuseFlow.ts:63](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L63)
 
-Material das partículas do fluido (espaçamento, domínio).
+Comportamento das partículas do fluido (espaçamento, domínio).
 
 ***
 
 ### time
 
-> `readonly` **time**: `SingletonSlot`\<`false`\>
+> `readonly` **time**: [`SingletonSlot`](../../platform/web/interfaces/SingletonSlot.md)\<`false`\>
 
-Defined in: elements/particles/DiffuseFlow.ts:43
+Defined in: [src/elements/particles/DiffuseFlow.ts:59](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L59)
 
 Relógio da cena.
+
+***
+
+### work
+
+> `readonly` **work**: [`WorkSlot`](../../platform/web/interfaces/WorkSlot.md)\<`DiffuseWork`\>
+
+Defined in: [src/elements/particles/DiffuseFlow.ts:69](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/particles/DiffuseFlow.ts#L69)
+
+O espaço de trabalho do estágio: o de cada entidade de secundárias e os colliders (spec 039).

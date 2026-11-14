@@ -43,8 +43,24 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         s.step();
         // Nada escala com o número de entidades: a geometria é uma cópia por conteúdo (spec 007), e o resto — pools
         // que crescem e os bind groups religados — é por pool.
-        expect(s.creates().length).toBeLessThan(100);
-        expect(s.creates().filter((c) => /^(forward|shadow)_/.test(discOf(c)))).toEqual([]);
+        // A sombra virtual (spec 034, T060) realoca o seu trabalho por dobra da capacidade de instâncias (as seções dos
+        // retângulos e dos grupos) e religa a caixa da geometria: uma vez por dobra, não por entidade. As etapas das
+        // páginas também religam os pools que crescem (a C2 refaz os bind groups delas): por pool, não por entidade.
+        // As arenas de pools (T060i) se realocam a cada dobra de um pool delas e religam quem as liga: por dobra, não
+        // por entidade (a da GPU tomou o lugar dos buffers próprios das matrizes de mundo).
+        // O descarte do desenho pela GPU (spec 034, T060d) realoca as listas e tabelas dele por dobra da capacidade de
+        // instâncias e religa os mesmos pipelines (sem compilar de novo): por dobra, não por entidade.
+        const growth = /^(shadow_pages_|shadow_bounds:|rects:|wgsl:shadow_pages|forward_cull)/;
+        // Os grupos de ligação dos pipelines do descarte, refeitos com os buffers realocados (14 a mais): por dobra. A
+        // etapa das listas das malhas grandes em aglomerados (`sp_clusters_main`, T064) liga os pools das instâncias e
+        // das matrizes de mundo: o grupo dela refeito quando eles crescem (1 a mais), por pool.
+        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(136);
+        expect(s.creates().filter((c) => growth.test(discOf(c))).length).toBeLessThan(20);
+        expect(
+            s
+                .creates()
+                .filter((c) => /^(forward|shadow)_/.test(discOf(c)) && !growth.test(discOf(c))),
+        ).toEqual([]);
         expect(s.createdWhileRecording()).toBe(0);
         // Um desenho por grupo (mesma caixa, mesmo material, mesma orientação) com as 10 010 instâncias.
         expect(s.draws('ForwardFlow').map((d) => d.instanceCount)).toEqual([10_010]);
@@ -69,6 +85,10 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
     it('nenhuma criação nem escrita em quadros estáveis além do relógio', async () => {
         const s = await scene();
         s.add(50);
+        // Os primeiros quadros firmam as séries temporais da sombra virtual (o referencial e a tabela passam a valer:
+        // os parâmetros mudam uma vez); daí em diante, estáveis.
+        s.step();
+        s.step();
         s.step();
         s.resetCounts();
         s.step();
@@ -84,7 +104,7 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         ).toEqual([]);
     });
 
-    it('grupos `frame` e `stage` uma vez por passe; `batch` (material) só quando o pipeline muda; um desenho por grupo de instâncias', async () => {
+    it('grupos `frame` e `stage` uma vez por passe; o material pela arena, sem grupo por pipeline; um desenho por grupo de instâncias', async () => {
         const s = await scene();
         s.add(20);
         const ids: number[] = [];
@@ -103,9 +123,8 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         expect(count(3)).toBe(0);
         // Dois grupos (mesma caixa; shaders standard e wireframe) ⇒ dois desenhos, com 20 e 5 instâncias.
         expect(pass!.draws.map((d) => d.instanceCount)).toEqual([20, 5]);
-        // Dois pipelines ⇒ dois binds do material, sem offset dinâmico.
-        expect(count(2)).toBe(2);
-        for (const d of pass!.draws) expect(d.bindGroups.get(2)!.offsets ?? []).toHaveLength(0);
+        // Os materiais moram na arena de pools (T060i, grupo `frame`): trocar de pipeline não religa material.
+        expect(count(2)).toBe(0);
         // Os segmentos dos grupos na lista de instâncias não se sobrepõem.
         const [a, b] = pass!.draws;
         expect(
@@ -120,8 +139,8 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         s.add(10_000);
         const [pass] = s.step().filter((p) => p.label === 'ForwardFlow');
         expect(pass!.draws.map((d) => d.instanceCount)).toEqual([10_000]);
-        // `frame` e `stage` uma vez; `batch` uma vez por pipeline (um só: StandardMaterial, faces diretas).
-        expect(pass!.setBindGroups).toHaveLength(3);
+        // `frame` e `stage` uma vez; o material pela arena (T060i), sem grupo próprio.
+        expect(pass!.setBindGroups).toHaveLength(2);
     });
 
     it('sem câmera o forward não fica pronto e não grava', async () => {

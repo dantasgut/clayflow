@@ -9,7 +9,8 @@ export type WgslCompositionErrorKind =
     | 'point-signature'
     | 'point-missing'
     | 'manual-binding'
-    | 'limit-exceeded';
+    | 'limit-exceeded'
+    | 'arena-read';
 
 /**
  * Erro da montagem de shaders por módulos (`wgslModule`/`composeWgsl`). `detail` traz os envolvidos: o caminho do

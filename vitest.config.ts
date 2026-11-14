@@ -1,7 +1,18 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-    resolve: { alias: { clayflow: new URL('./src/index.ts', import.meta.url).pathname } },
+    resolve: {
+        alias: [
+            {
+                find: /^clayflow\/web$/,
+                replacement: new URL('./src/platform/web/index.ts', import.meta.url).pathname,
+            },
+            {
+                find: /^clayflow$/,
+                replacement: new URL('./src/index.ts', import.meta.url).pathname,
+            },
+        ],
+    },
     test: {
         environment: 'happy-dom',
         globals: false,

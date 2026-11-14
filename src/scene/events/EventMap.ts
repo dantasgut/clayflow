@@ -153,6 +153,24 @@ export interface GlobalIlluminationUnsupportedPayload {
 }
 
 /**
+ * Payload do evento `raySceneUnsupported` (spec 034, T046): a estrutura de raios da cena não coube no dispositivo; ela
+ * para de ser montada, e quem traça raios nela (a iluminação global, a refração) não roda.
+ */
+export interface RaySceneUnsupportedPayload {
+    /** Motivo (o limite do dispositivo que faltou). */
+    readonly reason: string;
+}
+
+/**
+ * Payload do evento `refractionUnsupported` (spec 034, T046): a refração traçada não roda no dispositivo (a estrutura
+ * de raios faltou); os transmissivos não mostram o que está atrás deles.
+ */
+export interface RefractionUnsupportedPayload {
+    /** Motivo (o limite do dispositivo que faltou). */
+    readonly reason: string;
+}
+
+/**
  * Payload do evento `globalIlluminationReady` (spec 033): os kernels da iluminação global da composição atual das
  * funções `material` da cena compilaram e o estágio passou a acumular luz (emitido a cada composição nova que fica
  * pronta). Antes dele, a cena não tem luz rebatida — quem mede espera por ele.
@@ -160,6 +178,119 @@ export interface GlobalIlluminationUnsupportedPayload {
 export interface GlobalIlluminationReadyPayload {
     /** Revisão da composição das funções `material` (a da estrutura de raios). */
     readonly revision: number;
+}
+
+/**
+ * Payload de `virtualTextureRequest` (spec 034, T060c — texturas virtuais): o `VirtualTextureFlow` pede à fonte da
+ * imagem (a aplicação: o arquivo, a rede ou a memória dela — o motor não guarda a original) os texels RGBA8 de um
+ * retângulo de um nível, na codificação da imagem e linha a linha. Fora do nível, o endereçamento da imagem
+ * (`repeat`: a volta; `clamp`: a borda). A fonte responde com `virtualTextureDelivery` (o mesmo `request`), agora ou
+ * depois — só cópia dos bytes.
+ */
+export interface VirtualTextureRequestPayload {
+    /** As `VirtualTextures` da cena. */
+    readonly textures: Resource;
+    /** Identificador do pedido (a resposta o devolve). */
+    readonly request: number;
+    /** Índice da imagem nas `VirtualTextures`. */
+    readonly image: number;
+    /** Nível da pirâmide (0: a original). */
+    readonly level: number;
+    /** O canto do retângulo no nível, em texels (pode sair do nível: o endereçamento vale). */
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly wrap: 'repeat' | 'clamp';
+}
+
+/** Payload de `virtualTextureDelivery`: a resposta da fonte a um `virtualTextureRequest` (spec 034, T060c). */
+export interface VirtualTextureDeliveryPayload {
+    readonly textures: Resource;
+    /** O `request` do pedido. */
+    readonly request: number;
+    /** `width × height × 4` bytes, linha a linha (a primeira é a de cima do retângulo). */
+    readonly texels: Uint8Array;
+}
+
+/**
+ * Payload de `virtualTextureLevel` (spec 034, T060c): um retângulo de um nível reduzido da pirâmide, calculado na GPU
+ * na preparação da imagem (a média 2 × 2 em luz linear), entregue à fonte para guardar — a preparação do arquivo das
+ * engines. Os pedidos de páginas desse nível vêm só depois de a imagem inteira estar preparada.
+ */
+export interface VirtualTextureLevelPayload {
+    readonly textures: Resource;
+    readonly image: number;
+    readonly level: number;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    /** `width × height × 4` bytes RGBA8 na codificação da imagem, linha a linha. */
+    readonly texels: Uint8Array;
+}
+
+/** Um trabalho que impede o quadro de sair completo (spec 034, prontidão do motor). */
+export interface PendingWork {
+    /** Tipo do Flow. */
+    readonly flow: string;
+    /** Pipeline do Flow. */
+    readonly pipeline: string;
+    /**
+     * `waiting`: um binding sem fonte na cena; `verifying`: conferência do compilador em voo; `compiling`: compilação
+     * em voo; `swapping`: o pipeline refeito com a composição nova da cena ainda não entrou no lugar do atual;
+     * `settling`: entidades entraram ou saíram da cena e as reações delas (envio, Flows novos, composição) ainda não
+     * apareceram — vale nos dois quadros seguintes à mudança (`flow` = `World`).
+     */
+    readonly reason: 'waiting' | 'verifying' | 'compiling' | 'swapping' | 'settling';
+    /** Binding sem fonte (`waiting`). */
+    readonly name?: string;
+}
+
+/**
+ * Payload do evento `gpuFrameTimed` (spec 034): o tempo de GPU de um quadro, uma única vez por quadro, agregado pelos
+ * grupos de depuração da gravação (fase → Flow → passe). Chega 1–3 quadros depois da gravação.
+ */
+export interface GpuFrameTimedPayload {
+    /** Índice do quadro medido. */
+    readonly gpuFrame: number;
+    /** Soma dos passes medidos (ms). Onde a GPU sobrepõe passes seguidos (TBDR), conta a sobreposição mais de uma vez. */
+    readonly totalMs: number;
+    /** Do primeiro início ao último fim dos passes (ms): o tempo do quadro na GPU. */
+    readonly spanMs: number;
+    /** Por fase (`transform`, `shadow`, `forward`, `post`, `ui`; `outros` fora dos grupos), em ms. */
+    readonly phasesMs: Readonly<Record<string, number>>;
+    /** Por tipo de Flow, em ms. */
+    readonly flowsMs: Readonly<Record<string, number>>;
+    /** Por caminho completo do passe (`fase/Flow/rótulo`), em ms. */
+    readonly passesMs: Readonly<Record<string, number>>;
+}
+
+/** Payload do evento `enginePreparing` (spec 034): o que falta para o quadro sair completo. */
+export interface EnginePreparingPayload {
+    /** Revisão da prontidão (sobe a cada transição). */
+    readonly revision: number;
+    /** Trabalho pendente: Flow, pipeline, motivo e, sem fonte, o binding. */
+    readonly pending: readonly PendingWork[];
+}
+
+/** Payload do evento `engineReady` (spec 034): nenhum trabalho pendente. */
+export interface EngineReadyPayload {
+    /** Revisão da prontidão (sobe a cada transição). */
+    readonly revision: number;
+}
+
+/**
+ * Payload do evento `consumerMissing` (spec 034, H2): o binding de um pipeline de um Flow ativo continua sem fonte
+ * depois de 120 quadros — falta o resolvedor ou o pool que o fornece; o pipeline espera e o Flow não grava.
+ */
+export interface ConsumerMissingPayload {
+    /** Tipo do Flow. */
+    readonly flow: string;
+    /** Pipeline do Flow. */
+    readonly pipeline: string;
+    /** Binding sem fonte. */
+    readonly name: string;
 }
 
 /**
@@ -179,6 +310,8 @@ export interface ProfilerStatsPayload {
      * o device não suporta `timestamp-query` feature.
      */
     readonly stagesNs: Readonly<Record<string, number>>;
+    /** Tempo de GPU da última leitura por fase, por Flow e por passe (ms; spec 034). Vazio sem leitura. */
+    readonly gpu?: Omit<GpuFrameTimedPayload, 'gpuFrame'>;
 }
 
 /**
@@ -307,10 +440,34 @@ export interface EventMap {
     memoryWarning: MemoryWarningPayload;
     /** A apresentação emite (uma vez) quando a saída pedida não é suportada e cai no padrão (spec 011). */
     presentationFallback: PresentationFallbackPayload;
-    /** A estrutura de raios ou a iluminação global emite (uma vez) quando o dispositivo não a comporta (spec 033). */
+    /**
+     * As sondas da iluminação global emitem (uma vez) quando o dispositivo não as comporta (spec 033); o estágio padrão,
+     * quando a estrutura de raios não coube e há uma `GlobalIllumination` na cena (spec 034, T046).
+     */
     globalIlluminationUnsupported: GlobalIlluminationUnsupportedPayload;
+    /** A estrutura de raios emite (uma vez) quando não cabe no dispositivo (spec 034, T046). */
+    raySceneUnsupported: RaySceneUnsupportedPayload;
+    /**
+     * O estágio padrão emite (uma vez) quando a estrutura de raios não coube e a cena tem um transmissivo com a refração
+     * ligada no renderizador (spec 034, T046).
+     */
+    refractionUnsupported: RefractionUnsupportedPayload;
     /** As sondas da iluminação global emitem quando os kernels da composição atual ficam prontos (spec 033). */
     globalIlluminationReady: GlobalIlluminationReadyPayload;
+    /** A C2 emite quando o motor passa a ter trabalho pendente (compilação, conferência, troca, fonte ausente). */
+    enginePreparing: EnginePreparingPayload;
+    /** A C2 emite quando não resta trabalho pendente: o quadro sai completo (spec 034). */
+    engineReady: EngineReadyPayload;
+    /** A C2 emite (uma vez por Flow, pipeline e binding) quando um binding de um Flow ativo segue sem fonte (H2). */
+    consumerMissing: ConsumerMissingPayload;
+    /** A C2 emite uma vez por quadro medido, quando a leitura de tempo de GPU dele chega (spec 034). */
+    gpuFrameTimed: GpuFrameTimedPayload;
+    /** O `VirtualTextureFlow` pede à fonte de uma imagem virtual os texels de um retângulo (spec 034, T060c). */
+    virtualTextureRequest: VirtualTextureRequestPayload;
+    /** A fonte de uma imagem virtual responde a um pedido (spec 034, T060c). */
+    virtualTextureDelivery: VirtualTextureDeliveryPayload;
+    /** O `VirtualTextureFlow` entrega à fonte um nível reduzido calculado na GPU (spec 034, T060c). */
+    virtualTextureLevel: VirtualTextureLevelPayload;
 }
 
 /** União dos nomes de evento conhecidos (chaves do EventMap). */

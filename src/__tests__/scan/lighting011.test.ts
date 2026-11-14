@@ -29,15 +29,12 @@ describe('varreduras do sombreamento físico (spec 011)', () => {
         expect(defs.has('bsdf_d_ggx')).toBe(true);
     });
 
-    it('nenhum estágio de desenho, sprite ou da água importa uma classe de luz', () => {
-        // A sombra e as cáusticas são da luz que projeta (ShadowFlow, CausticsFlow); o desenho não conhece luz.
+    it('nenhum estágio de desenho ou de sprite importa uma classe de luz', () => {
+        // A sombra é da luz que projeta (ShadowFlow); o desenho não conhece luz.
         const stages = [
             'presentation/flows/ForwardFlow.ts',
             'presentation/flows/ParticleFlow.ts',
-            'presentation/flows/WaterFlow.ts',
-            'presentation/flows/FluidFieldPassFlow.ts',
             'presentation/flows/PostFlow.ts',
-            'presentation/water/shaders.ts',
             'elements/material/shaders.ts',
         ];
         const light =

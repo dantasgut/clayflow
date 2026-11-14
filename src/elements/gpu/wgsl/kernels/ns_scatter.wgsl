@@ -15,4 +15,7 @@ fn ns_scatter_main(
 
     let pos = atomicAdd(&cell_cursor[cell], 1u);
     sorted_particles[pos] = i;
+    // A ordem por célula (+ 1; 0 é posto vazio): `ns_sort_cells` a refaz dentro de cada célula da grade; na extra, das
+    // partículas fora dela (nunca vizinhas de ninguém), a ordem de chegada basta.
+    ns_order[pos] = i + 1u;
 }

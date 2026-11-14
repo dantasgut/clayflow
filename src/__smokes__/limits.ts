@@ -11,17 +11,25 @@ import { wgslResource, type WgslResource } from '../scene/shaders/WgslResource';
 import type { BindingSource } from '../scene/flows/FlowBinding';
 import {
     Application,
-    createComputeKernel,
     createScene,
+    FlowWork,
     NeighborSearchPipeline,
     wgslModule,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     StagingBufferSpec,
     StorageBufferSpec,
     UniformBufferSpec,
     Application as App,
-} from 'clayflow';
+} from 'clayflow/web';
+import { mulberry32 } from './support/random';
+import { ownWork } from './support/workOwner';
+import { StructSchema } from '../scene/descriptors/StructSchema';
+
+/** O Resource de trabalho da busca de vizinhos do smoke (spec 039: o espaço dela é da C2). */
+class LimitsWork extends FlowWork {
+    static readonly schema = new StructSchema('LimitsWork', {});
+}
 
 function log(msg: string): void {
     console.log(`[limits] ${msg}`);
@@ -89,7 +97,7 @@ fn mark_main(
 });
 
 /** (a) Despacho acima de 65 535 grupos: cada elemento exatamente uma vez. */
-async function checkDispatch(app: App, failures: string[]): Promise<void> {
+async function checkDispatch(app: App, owner: LimitsWork, failures: string[]): Promise<void> {
     const count = 70_000 * 256;
     const params = app.core.create<UniformBufferSpec>({
         kind: 'buffer',
@@ -110,7 +118,7 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         byteSize: 16,
     });
     app.core.write(params, new Uint32Array([count, 0, 0, 0]));
-    const kernel = createComputeKernel(app.core, {
+    const kernel = owner.pipelines.kernel({
         discriminator: 'limits_mark',
         shader: MARK_SHADER,
         entryPoint: 'mark_main',
@@ -124,8 +132,7 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
         frame.clear(marks);
         frame.clear(counter);
         frame.compute('limits.mark', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            owner.pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(count, 256);
         });
     });
@@ -148,26 +155,14 @@ async function checkDispatch(app: App, failures: string[]): Promise<void> {
     if (total !== count) failures.push(`(a) contador ${total} ≠ ${count}`);
 }
 
-/** Gerador determinístico (mulberry32). */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
 /** (b) Busca de vizinhança em grade de 262 144 células × referência na CPU. */
-async function checkNeighbors(app: App, failures: string[]): Promise<void> {
+async function checkNeighbors(app: App, owner: LimitsWork, failures: string[]): Promise<void> {
     const dim = 64;
     const h = 0.1;
     const n = 60_000;
     const maxNeighbors = 48;
     const stride = 4;
-    const random = rng(2026);
+    const random = mulberry32(2026);
     const data = new Float32Array(n * stride);
     for (let i = 0; i < n; i++) {
         // Concentra metade das partículas nas camadas z altas: células de índice > 65 536.
@@ -182,15 +177,18 @@ async function checkNeighbors(app: App, failures: string[]): Promise<void> {
         byteSize: data.byteLength,
     });
     app.core.write(particles, data);
-    const ns = new NeighborSearchPipeline(app.core, {
-        discriminator: 'limits',
-        maxParticles: n,
-        maxNeighbors,
-        particleStrideF32: stride,
-        cellSize: h,
-        gridDim: [dim, dim, dim],
-        origin: [0, 0, 0],
-    });
+    const ns = new NeighborSearchPipeline(
+        { core: app.core, resources: app.resources, work: owner },
+        {
+            discriminator: 'limits',
+            maxParticles: n,
+            maxNeighbors,
+            particleStrideF32: stride,
+            cellSize: h,
+            gridDim: [dim, dim, dim],
+            origin: [0, 0, 0],
+        },
+    );
     // Todas as partículas vivas (bitset de ocupação com os n bits ligados).
     const liveBits = new Uint32Array(Math.ceil(n / 32)).fill(0xffffffff);
     const live = app.core.create<StorageBufferSpec>({
@@ -283,6 +281,9 @@ async function main(): Promise<void> {
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement | null;
     if (canvas === null) throw new Error('canvas#gpuCanvas não encontrado');
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -294,8 +295,9 @@ async function main(): Promise<void> {
         log(`engineError: ${e.message}`);
     });
     const failures: string[] = [];
-    await checkDispatch(app, failures);
-    await checkNeighbors(app, failures);
+    const owner = ownWork(app, new LimitsWork(), 'limitsWork');
+    await checkDispatch(app, owner, failures);
+    await checkNeighbors(app, owner, failures);
     if (engineErrors > 0) failures.push(`engineErrors=${engineErrors}`);
     app.dispose();
     if (failures.length > 0) {

@@ -1,5 +1,6 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { LIGHT_LIMIT } from '../scene/points/lightContributions';
 
 /** Sondas por cascata em cada eixo (x, y, z). */
 export const GI_GRID = [16, 8, 16] as const;
@@ -18,12 +19,44 @@ export const GI_VISIBILITY_TEXELS = 16;
  * tamanho; ladrilhos maiores usam o canto delas.
  */
 export const GI_SCREEN_TILE_MIN = 4;
-/** Baldes do hash das cáusticas por fótons (US5): 2¹⁹ células (um chão de 4 × 4 m todo aceso em células de 1,25 cm ocupa ~40 %), 8 palavras cada, mais o cabeçalho. */
-export const GI_PHOTON_SLOTS = 1 << 19;
-/** Palavras do buffer das cáusticas. */
-export const GI_PHOTON_BUFFER_WORDS = 8 + GI_PHOTON_SLOTS * 8;
-/** Palavra de 32 bits (o tamanho do descritor do hash das cáusticas). */
-export const GiWordSchema = new StructSchema('GiWord', { value: FieldType.u32 });
+/**
+ * Cache de irradiância nas superfícies (spec 034, T059; o cache de radiância no espaço do mundo do Lumen e do SHaRC):
+ * células na própria superfície, pela posição (em níveis pela distância à câmera) e pela normal, numa tabela de
+ * espalhamento com sondagem limitada. Os acertos fora da tela leem a irradiância de cada rebatimento ali, no ponto, em vez
+ * das sondas do mundo (que, fora do plano da superfície, ficam mais perto ou mais longe da luz do que ela).
+ */
+export const GI_CACHE_CELLS = 32768;
+/** Palavras de 32 bits do índice do cache por célula (chave, época, uso, normal, ponto e lado). */
+export const GI_CACHE_WORDS = 8;
+/** vec4 dos valores do cache por célula (a chave e a época, o estado da resposta e 8 rebatimentos). */
+export const GI_CACHE_DATA = 10;
+/**
+ * Células do cache atualizadas por quadro com todas as sondas de tela lançando a cada quadro (as usadas há pouco, em
+ * rodízio); a fração das sondas de tela por quadro a reduz.
+ */
+export const GI_CACHE_BUDGET = 4096;
+/** Raios por célula atualizada no máximo; metade dos raios por sonda de tela, de 2 a este. */
+export const GI_CACHE_RAYS = 8;
+/**
+ * Quadros de resposta depois de uma luz ou da cena mudar (spec 034, T059): as sondas e o cache tomam a mudança sem
+ * esperar a detecção delas; as sondas do mundo da qualidade média são atualizadas a cada 8.
+ */
+export const GI_CHANGE_FRAMES = 16;
+/** Palavras do canal da mudança (`GlobalIllumination.change`): o cabeçalho (8) e 16 por luz guardada, até `LIGHT_LIMIT`. */
+export const GI_CHANGE_WORDS = 8 + 16 * LIGHT_LIMIT.value;
+
+/** Um vec4f do histórico das sondas de tela (o canal temporal `GlobalIllumination.screenHistory`, spec 037). */
+export const GiScreenRecordSchema = new StructSchema('GiScreenRecord', { value: FieldType.vec4f });
+
+/**
+ * Um passe do filtro à-trous das sondas de tela (spec 034, T054): (passo em ladrilhos, metade lida, metade escrita,
+ * 1 no último — escreve a textura do desenho). Uma região por passe, por offset dinâmico.
+ */
+export const GiScreenFilterStepSchema = new StructSchema(
+    'GiScreenFilterStep',
+    { step: FieldType.vec4u },
+    { addressSpace: 'uniform' },
+);
 
 /**
  * Parâmetros da iluminação global (uniform, spec 033, R2/R5/R6): a grade (sondas por eixo, cascatas), o canto de cada
@@ -40,21 +73,25 @@ export const GlobalIlluminationSchema = new StructSchema(
         cascade3: FieldType.vec4f,
         rays: FieldType.vec4u,
         tuning: FieldType.vec4f,
-        /** (rebatimentos, ligado, 0, cáusticas). */
+        /** (rebatimentos, ligado, quadros que faltam da resposta a uma luz ou à cena que mudou, as cáusticas ativas na cena: as sondas não leem o especular direto de vidro e metal liso). */
         bounces: FieldType.vec4u,
         rotation0: FieldType.vec4f,
         rotation1: FieldType.vec4f,
         rotation2: FieldType.vec4f,
-        /** (intensidade das cáusticas, raio do hash, fótons, tempo simulado). */
+        /** (1, 0, 0, tempo simulado). */
         extra: FieldType.vec4f,
         /** (slots usados do pool `Light`, 0, 0, 0). */
         counts: FieldType.vec4u,
         /** Coleta final na tela (R2 adendo): (ladrilhos em x, em y, raios por sonda de tela, slot da câmera ativa). */
         screen: FieldType.vec4u,
-        /** (período do rodízio das sondas de tela, metade do histórico escrita no quadro, ligada, 0). */
+        /** (período do rodízio das sondas de tela, refinamento — 2 com as sondas extras a meio ladrilho, 1 sem —, ligada, vagas das sondas extras). */
         screen1: FieldType.vec4u,
         /** (largura e altura do alvo em pixels, pixels por lado do ladrilho, histerese das sondas de tela). */
         screenSize: FieldType.vec4f,
+        /** Cache de irradiância nas superfícies (T059): (células, células atualizadas por quadro, raios por célula, ligado). */
+        cache: FieldType.vec4u,
+        /** (lado da célula mais fina em m, distância à câmera em lados até a célula dobrar, 0, 0). */
+        cacheSize: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );

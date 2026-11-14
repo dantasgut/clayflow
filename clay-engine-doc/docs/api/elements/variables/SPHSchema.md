@@ -1,14 +1,16 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / SPHSchema
+[clayflow](../../modules.md) / [elements](../README.md) / SPHSchema
 
 # Variable: SPHSchema
 
-> `const` **SPHSchema**: `StructSchema`
+> `const` **SPHSchema**: [`StructSchema`](../../platform/web/classes/StructSchema.md)
 
-Defined in: [elements/physics/bodies/schemas/SPHSchema.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/physics/bodies/schemas/SPHSchema.ts#L8)
+Defined in: [src/elements/physics/bodies/schemas/SPHSchema.ts:10](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/physics/bodies/schemas/SPHSchema.ts#L10)
 
-Schema da partícula SPH (4 vec4f = 64B).
+Schema da partícula SPH (5 vec4f = 80B).
 Fonte única do struct WGSL `SPHParticle` (gerado deste schema pela montagem dos shaders) (pos.w=ρ, vel.w=p).
+`contact`: o sólido mais próximo ao alcance do núcleo (normal para fora dele, distância com sinal em w; sem sólido,
+normal zero) — escrito pela fronteira sólida a cada passo e lido pelo campo dos fluidos (a gota que molha).

@@ -9,8 +9,8 @@
 //
 // As poses são lidas direto do pool de corpos na GPU (`LCPSchema`), sem depender do readback assíncrono.
 // Para rodar: `npm run smoke -- time` (servidor do bench). Resultado: `TIME SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene, GravityField, RigidBody } from 'clayflow';
-import type { StagingBufferSpec } from 'clayflow';
+import { Application, createScene, GravityField, RigidBody } from 'clayflow/web';
+import type { StagingBufferSpec } from 'clayflow/web';
 
 const BODY_STRIDE_F32 = 40;
 const TOLERANCE_M = 1e-5;
@@ -28,6 +28,9 @@ async function createApp(): Promise<Application> {
     canvas.height = 64;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,

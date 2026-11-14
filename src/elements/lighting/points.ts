@@ -1,12 +1,13 @@
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { NONE } from '../../scene/shaders/engineConstants';
+import { random } from '../gpu/shaders/math';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { lightTransmissionReady, sceneLightingPoint } from '../scene/points/lighting';
+import { lightTransmissionReady, sceneIndirectLightingPoint } from '../scene/points/lighting';
 import { sceneAmbientPoint } from '../scene/points/media';
 import { camerasResource } from '../scene/resources';
 import { rayScene } from '../raytrace/shaders';
-import { giParamsResource, giPhoton, giSample, giScreenSample } from './shaders';
+import { giParamsResource, giSample, giScreenSample } from './shaders';
 
 /**
  * A luz indireta das sondas no ponto (spec 033, R7): a irradiância na normal dos lobos — a das sondas de tela onde
@@ -26,30 +27,48 @@ const giLighting = wgslModule({
         giParamsResource,
         giSample,
         giScreenSample,
-        giPhoton,
         lightTransmissionReady,
     ],
     source: `/** Rugosidade abaixo da qual a especular indireta vem da radiância das sondas do mundo. */
 const GI_GLOSSY: f32 = 0.5;
 
-/** Irradiância (E/π) no ponto com a normal \`nl\`: das sondas de tela se alguma vale, senão das do mundo. */
+/** Cobertura das sondas de tela a partir da qual valem sozinhas (abaixo, a mistura com as do mundo). */
+const GI_SCREEN_FULL: f32 = 0.5;
+
+/**
+ * Irradiância (E/π) no ponto com a normal \`nl\`: a das sondas de tela pela confiança delas — a cobertura (a soma dos
+ * pesos de posição, plano e normal) até \`GI_SCREEN_FULL\` — e, no que falta (quinas, bordas, fora da tela), a das sondas
+ * do mundo: a mistura contínua, sem escolha entre as duas e sem uma vizinha só valendo pelo ponto.
+ */
 fn gi_lighting_irradiance(p: vec3f, nl: vec3f, v: vec3f) -> vec3f {
     let screen = gi_screen_irradiance(p, nl);
-    if (screen.a > 0.0) { return screen.rgb / GI_PI; }
-    return gi_irradiance(p, nl, v) / GI_PI;
+    let confidence = saturate(screen.a / GI_SCREEN_FULL);
+    var e = vec3f(0.0);
+    if (confidence > 0.0) { e = screen.rgb / screen.a * confidence; }
+    if (confidence < 1.0) { e += (1.0 - confidence) * gi_irradiance(p, nl, v); }
+    return e / PI;
 }
 
-fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+fn scene_indirect_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     if (gi.bounces.y == 0u) { return vec3f(0.0); }
     let nb = closure_lobe_normal(c.normal, n, v);
-    // A irradiância das sondas mais a das cáusticas por fótons (a luz focada por vidro e metal).
-    let e = gi_lighting_irradiance(p, nb, v) + gi_caustic_irradiance(p) / GI_PI;
+    // A irradiância das sondas de tela pela confiança delas e, no que falta e na especular brilhante, as do mundo numa
+    // passada só (os pesos das sondas uma vez para as duas leituras; spec 034, T060e).
+    let screen = gi_screen_irradiance(p, nb);
+    let confidence = saturate(screen.a / GI_SCREEN_FULL);
+    let glossy = c.dielectric_weight + c.conductor_weight > 0.0 && c.specular_roughness < GI_GLOSSY;
+    var world = GiWorldLight(vec3f(0.0), vec3f(0.0));
+    if (confidence < 1.0 || glossy) {
+        world = gi_world_light(p, nb, v, closure_specular_dir(c, n, v), confidence < 1.0, glossy);
+    }
+    var e = vec3f(0.0);
+    if (confidence > 0.0) { e = screen.rgb / screen.a * confidence; }
+    if (confidence < 1.0) { e += (1.0 - confidence) * world.e; }
+    e = e / PI;
     var back = e;
     if (c.translucent_weight > 0.0) { back = gi_lighting_irradiance(p, -nb, v); }
     var spec = e;
-    if (c.dielectric_weight + c.conductor_weight > 0.0 && c.specular_roughness < GI_GLOSSY) {
-        spec = gi_radiance(p, nb, v, closure_specular_dir(c, n, v));
-    }
+    if (glossy) { spec = world.l; }
     var coat = spec;
     var coat_e = e;
     if (c.coat_weight > 0.0) {
@@ -64,9 +83,11 @@ fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
 /**
  * A luz rebatida como radiância média de todas as direções (spec 033, R12: o que os meios participantes espalham): a
  * irradiância das sondas do mundo para cima e para baixo — juntas, os dois hemisférios — sobre 2π, pelo meio da luz
- * ambiente. Média em 4 pontos num tetraedro de meio espaçamento das sondas em volta do ponto: no volume, sem as
- * superfícies que as sondas de tela corrigem, a diferença de uma sonda para a vizinha apareceria como faixas na névoa
- * (as colunas de sondas); a média é o passa-baixa na escala delas. O ponto atrás de uma superfície vista pela câmera
+ * ambiente. Média num tetraedro de meio espaçamento das sondas em volta do ponto: no volume, sem as superfícies que as
+ * sondas de tela corrigem, a diferença de uma sonda para a vizinha apareceria como faixas na névoa (as colunas de
+ * sondas); a média é o passa-baixa na escala delas. Um vértice por chamada, sorteado pelo ponto (spec 034, T060e): o
+ * ponto da célula dos froxels já é sorteado a cada quadro e o histórico deles faz a média — os 4 vértices a cada chamada
+ * eram ~⅓ do custo da névoa. O ponto atrás de uma superfície vista pela câmera
  * (uma célula da grade dos meios que atravessa a parede) vem para antes dela, e um vértice do tetraedro do outro lado
  * de uma superfície fica no ponto: do outro lado, a luz de fora vazava para a névoa de dentro. Desligada, nada.
  */
@@ -74,6 +95,7 @@ const giAmbient = wgslModule({
     name: 'gi_scene_ambient',
     requires: [
         NONE.module,
+        random,
         giParamsResource,
         giSample,
         lightTransmissionReady,
@@ -94,23 +116,21 @@ const giAmbient = wgslModule({
         let hit = ray_scene_hit(eye, dir, dist);
         if (hit.instance != NONE) { p = eye + dir * max(hit.t - r, 0.0); }
     }
-    var e = vec3f(0.0);
-    for (var k = 0u; k < 4u; k++) {
-        let s = vec3f(select(-1.0, 1.0, (k & 1u) != 0u), select(-1.0, 1.0, (k & 2u) != 0u), select(-1.0, 1.0, k == 1u || k == 2u));
-        let offset = s * (r * 0.57735);
-        // O vértice do outro lado de uma superfície (o teto, uma parede) fica no ponto.
-        let q = select(p + offset, p, ray_scene_occluded(p, s * 0.57735, r * 0.57735 * 1.7320508));
-        e += gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
-    }
-    return e / (8.0 * GI_PI) * light_transmission(NONE, p_in);
+    let k = pcg_hash(bitcast<u32>(p_in.x) ^ pcg_hash(bitcast<u32>(p_in.y) ^ pcg_hash(bitcast<u32>(p_in.z)))) & 3u;
+    let s = vec3f(select(-1.0, 1.0, (k & 1u) != 0u), select(-1.0, 1.0, (k & 2u) != 0u), select(-1.0, 1.0, k == 1u || k == 2u));
+    let offset = s * (r * 0.57735);
+    // O vértice do outro lado de uma superfície (o teto, uma parede) fica no ponto.
+    let q = select(p + offset, p, ray_scene_occluded(p, s * 0.57735, r * 0.57735 * 1.7320508));
+    let e = gi_irradiance(q, up, up) + gi_irradiance(q, -up, -up);
+    return e / (2.0 * PI) * light_transmission(NONE, p_in);
 }`,
 });
 
 /**
- * Contribuições da `GlobalIllumination` (spec 033, R7, R12): a luz indireta em `scene_lighting`, depois das luzes, e
+ * Contribuições da `GlobalIllumination` (spec 033, R7, R12): a luz indireta em `scene_indirect_lighting`, e
  * em `scene_ambient` (os meios).
  */
 export const giContributions: readonly SceneContribution[] = [
-    { point: sceneLightingPoint, order: 5, pools: [], build: () => giLighting },
+    { point: sceneIndirectLightingPoint, order: 5, pools: [], build: () => giLighting },
     { point: sceneAmbientPoint, order: 5, pools: [], build: () => giAmbient },
 ];

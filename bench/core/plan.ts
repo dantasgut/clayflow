@@ -24,7 +24,10 @@ export interface RunPlan {
 }
 
 /**
- * Produto cena × variante × engine × repetição respeitando os filtros do `RunConfig`.
+ * Produto cena × variante × engine × repetição respeitando os filtros do `RunConfig`, na ordem das repetições: todas
+ * as linhas na repetição 1, depois todas na 2, e assim por diante. Uma perturbação passageira da máquina (indexação do
+ * sistema, a lentidão térmica depois de carga longa) cai em uma repetição de cada linha, não nas seguidas de uma linha
+ * só, e a mediana entre as repetições (`aggregateRepetitions`) a descarta.
  * Implementação `Unsupported` vira um único `Result` por cena × variante × engine. Filtro sem
  * correspondência é erro (lista os ids válidos).
  */
@@ -80,5 +83,7 @@ export function planRuns(catalog: readonly SceneDefinition[], config: RunConfig)
             }
         }
     }
+    // Estável: dentro de uma repetição, a ordem do catálogo.
+    runs.sort((a, b) => a.repetition - b.repetition);
     return { runs, unsupported };
 }

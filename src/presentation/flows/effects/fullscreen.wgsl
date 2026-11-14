@@ -11,7 +11,7 @@ fn vs_fullscreen(@builtin(vertex_index) vid: u32) -> VsOut {
     var out: VsOut;
     let x = f32((vid << 1u) & 2u);
     let y = f32(vid & 2u);
-    out.clip_position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+    out.clip_position = vec4<f32>(uv_to_ndc(vec2f(x, y)), 0.0, 1.0);
     out.uv = vec2<f32>(x, y);
     return out;
 }

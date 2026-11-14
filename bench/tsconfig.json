@@ -4,10 +4,13 @@
     "types": ["@webgpu/types", "node"],
     "lib": ["esnext", "dom", "dom.iterable"],
     "baseUrl": ".",
-    "paths": { "clayflow": ["../src/index.ts"] },
+    "paths": {
+      "clayflow": ["../src/index.ts"],
+      "clayflow/web": ["../src/platform/web/index.ts"]
+    },
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["**/*.ts", "../src/**/*.ts"],
+  "include": ["**/*.ts", "../src/**/*.ts", "../scripts/**/*.ts"],
   "exclude": ["results/**", "../src/legacy/**", "../src/**/__tests__/**"]
 }

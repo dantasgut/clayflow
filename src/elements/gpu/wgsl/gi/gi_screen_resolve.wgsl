@@ -2,23 +2,63 @@
 // raios) misturada ao histórico no mesmo ponto (`gi_screen_history_taps`: as sondas do quadro anterior em volta da projeção,
 // no mesmo plano e com a mesma normal; sem nenhuma, o acúmulo recomeça) pela histerese adaptativa (`gi_response`: a do acúmulo, `gi.screenSize.w`,
 // parado; a de resposta quando a luz muda de verdade).
-// Escreve as texturas que o desenho lê (a última geração: todos os rebatimentos) e a metade do histórico do quadro.
-// Depois, `gi_screen_finish_main` guarda a vista-projeção e a posição da câmera para o quadro seguinte.
-// Requer: WORKGROUP_SIZE, gi, gi_screen_common, gi_screen_reproject, gi_response, cameras, gi_screen_work,
-// gi_screen_probe_out, gi_screen_irradiance_out.
+// Escreve a textura das sondas que o desenho lê, a fatia do quadro do histórico (o canal temporal, spec 037: o quadro
+// seguinte a lê como a anterior) e a semente do filtro à-trous (a última geração — todos os rebatimentos — e a
+// variância), que escreve a irradiância do desenho. As sondas extras (spec 034, T058) vão no texel fino delas; a sonda de
+// cada ladrilho copia o mapa fino para o histórico e esvazia nas texturas as posições finas dele sem sonda extra.
+// Requer: WORKGROUP_SIZE, gi, gi_screen_common, gi_screen_reproject, gi_response, cameras, gi_screen_history,
+// gi_screen_work, gi_screen_probe_out, gi_screen_irradiance_out, gi_screen_filter, gi_screen_filter_step, color.
+
+/** O texel das texturas do desenho da sonda `i`: o do ladrilho na grade fina, o fino da sonda extra. */
+fn gi_screen_probe_texel(i: u32) -> vec2u {
+    if (i < gi_screen_count()) { return vec2u(i % gi.screen.x, i / gi.screen.x) * gi_screen_refine(); }
+    return vec2u(gi_screen_work[gi_screen_meta_at(i - gi_screen_count())].xy);
+}
+
+/**
+ * A sonda do quadro no texel fino `t` pelo mapa fino do histórico do quadro (o acúmulo já o copiou): a do ladrilho no
+ * texel par, a extra nos outros; NONE sem.
+ */
+fn gi_screen_current_fine_probe(t: vec2u) -> u32 {
+    let tile = t / 2u;
+    if (any(tile >= gi.screen.xy)) { return NONE; }
+    let index = tile.x + tile.y * gi.screen.x;
+    if (((t.x | t.y) & 1u) == 0u) { return index; }
+    let slot = u32(gi_screen_history[gi_screen_history_map_at(index)][gi_screen_fine_slot(t)]);
+    if (slot == 0u) { return NONE; }
+    return gi_screen_count() + slot - 1u;
+}
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= gi_screen_count()) { return; }
-    let tile = vec2u(i % gi.screen.x, i / gi.screen.x);
+    if (i >= gi_screen_total()) { return; }
+    let count = gi_screen_count();
     let bounces = gi.bounces.x;
-    let out = gi_screen_history_at(gi.screen1.y, i);
+    let out = gi_screen_history_at(i);
     let probe = gi_screen_work[gi_screen_probe_at(i)];
+    // A sonda do ladrilho: o mapa fino para o histórico e as posições finas sem sonda extra vazias nas texturas.
+    if (i < count && gi_screen_refine() == 2u) {
+        let map = vec4f(gi_screen_work[gi_screen_map_at(i, 0u)].x, gi_screen_work[gi_screen_map_at(i, 1u)].x,
+            gi_screen_work[gi_screen_map_at(i, 2u)].x, 0.0);
+        gi_screen_history[gi_screen_history_map_at(i)] = map;
+        let tile = vec2u(i % gi.screen.x, i / gi.screen.x);
+        for (var k = 0u; k < 3u; k++) {
+            let t = 2u * tile + gi_screen_fine_offset(k);
+            if (map[k] == 0.0 && gi_screen_fine_inside(vec2i(t))) {
+                textureStore(gi_screen_probe_out, t, vec4f(0.0));
+            }
+        }
+    }
     if (probe.w <= 0.0) {
         for (var k = 0u; k < gi_screen_history_stride(); k++) { gi_screen_history[out + k] = vec4f(0.0); }
-        textureStore(gi_screen_probe_out, tile, vec4f(0.0));
-        textureStore(gi_screen_irradiance_out, tile, vec4f(0.0));
+        gi_screen_filter[i] = vec4f(0.0);
+        // A vaga vazia não tem texel (a posição fina dela, se houve, o ladrilho esvaziou).
+        if (i < count) {
+            let texel = gi_screen_probe_texel(i);
+            textureStore(gi_screen_probe_out, texel, vec4f(0.0));
+            textureStore(gi_screen_irradiance_out, texel, vec4f(0.0));
+        }
         return;
     }
     let n = gi_screen_work[gi_screen_probe_at(i) + 1u].xyz;
@@ -29,27 +69,38 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         // O estado da resposta da sonda anterior mais pesada (a contagem não se mistura entre sondas).
         var best = 0u;
         for (var o = 1u; o < 4u; o++) { if (taps.w[o] > taps.w[best]) { best = o; } }
-        state = gi_screen_history[taps.at[best] + 2u];
+        state = gi_screen_history_previous[taps.at[best] + 2u];
     }
     // A histerese pelo maior canal de todos os rebatimentos (a última geração), a mesma para todas as gerações.
     // Fora da vez no rodízio (sem raios no quadro): o histórico reprojetado, sem mistura e com o estado como estava.
     let inherit = found && gi_screen_work[gi_screen_fresh_at(i, 0u)].w < 0.0;
     let last = gi_screen_work[gi_screen_fresh_at(i, bounces - 1u)].rgb;
     var response = GiResponse(1.0, state);
-    if (!inherit) { response = gi_response(state, gi_response_value(last), gi.screenSize.w); }
+    if (!inherit) { response = gi_response(state, gi_response_value(last), gi.screenSize.w, gi.bounces.z > 0u,
+        GI_RESPONSE_HOLD_SCREEN); }
     var e = vec3f(0.0);
     for (var g = 0u; g < bounces; g++) {
         let fresh = gi_screen_work[gi_screen_fresh_at(i, g)].rgb;
         var history = fresh;
         if (found) { history = gi_screen_history_gather(taps, GI_SCREEN_HISTORY_GENERATIONS + g).rgb; }
-        e = mix(fresh, history, response.h);
+        e = temporal_hysteresis(vec4f(fresh, 0.0), vec4f(history, 0.0), response.h).rgb;
         gi_screen_history[out + GI_SCREEN_HISTORY_GENERATIONS + g] = vec4f(e, 0.0);
     }
     gi_screen_history[out] = probe;
-    gi_screen_history[out + 1u] = vec4f(n, 0.0);
+    // No `w` da normal, se o ladrilho tem sondas extras (a leitura do histórico consulta então a grade fina).
+    var has_extra = false;
+    if (i < count && gi_screen_refine() == 2u) {
+        has_extra = gi_screen_work[gi_screen_map_at(i, 0u)].x + gi_screen_work[gi_screen_map_at(i, 1u)].x
+            + gi_screen_work[gi_screen_map_at(i, 2u)].x > 0.0;
+    }
+    gi_screen_history[out + 1u] = vec4f(n, select(0.0, 1.0, has_extra));
     gi_screen_history[out + 2u] = response.state;
+    // A semente do filtro (T054): todos os rebatimentos e a variância da média acumulada (o desvio relativo estimado da
+    // sonda na luminância dela).
+    let sd = gi_screen_noise(response.state) * luminance(e);
+    gi_screen_filter[i] = vec4f(e, sd * sd);
     // A posição e, no w, a normal empacotada (> 0: há superfície).
-    textureStore(gi_screen_probe_out, tile, vec4f(probe.xyz, gi_normal_pack(n)));
+    textureStore(gi_screen_probe_out, gi_screen_probe_texel(i), vec4f(probe.xyz, gi_normal_pack(n)));
 }
 
 /**
@@ -58,55 +109,91 @@ fn gi_screen_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
  */
 fn gi_screen_noise(state: vec4f) -> f32 {
     // Nos quadros de resposta (contagem negativa), a histerese de resposta.
-    let h = select(min(state.w / (state.w + 1.0), gi.screenSize.w), GI_RESPONSE_HYSTERESIS, state.w < 0.0);
+    let h = select(min(state.w / (state.w + 1.0), gi_response_cap(state.z, gi.screenSize.w)), GI_RESPONSE_HYSTERESIS,
+        state.w < 0.0);
     return sqrt(max(state.z * (1.0 - h) / (1.0 + h), 0.0));
 }
 
+/** Pesos do núcleo B3 do à-trous por distância em passos (0, 1, 2). */
+const GI_ATROUS_KERNEL = array<f32, 3>(0.375, 0.25, 0.0625);
+/** Desvios da luminância (pela variância da sonda) acima dos quais a vizinha não pesa (SVGF). */
+const GI_ATROUS_LUMA: f32 = 4.0;
+/** Teto do desvio da luminância, como fração da luminância da sonda. */
+const GI_ATROUS_RELATIVE: f32 = 0.05;
+
 /**
- * Filtro espacial das sondas de tela para o desenho (o histórico fica sem filtro): as 5 × 5 vizinhas do quadro, pesadas
- * pela gaussiana (σ = 1,2 ladrilho: o resíduo do acúmulo forma manchas de 2 a 3 ladrilhos), pelo plano e pela normal, com força pelo ruído estimado da sonda — a convergida e sem ruído fica
- * quase como está (a luz de perto), a ruidosa (recém-descoberta, fonte pequena) é suavizada.
+ * Filtro à-trous das sondas de tela guiado pela variância (spec 034, T054; SVGF, Schied et al. 2017), um passe por
+ * despacho: as 5 × 5 vizinhas a `passo` ladrilhos (1, 2 e 4 nos três passes: o alcance de 17 ladrilhos — as manchas do
+ * acúmulo são de 2 a 3), pesadas pelo núcleo B3, pelo plano, pela normal e pela luminância relativa ao desvio da sonda —
+ * a convergida (variância perto de zero) fica como está (a luz de perto), a ruidosa é suavizada; a variância segue
+ * pelos quadrados dos pesos. Ida e volta numa metade de `gi_screen_filter` cada (`gi_screen_filter_step`: o passo, a
+ * metade lida, a escrita e se é o último, que escreve a textura do desenho); o acúmulo semeia a primeira metade.
  */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn gi_screen_filter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= gi_screen_count()) { return; }
-    let tile = vec2i(i32(i % gi.screen.x), i32(i / gi.screen.x));
-    let half = gi.screen1.y;
-    let at = gi_screen_history_at(half, i);
+    let total = gi_screen_total();
+    if (i >= total) { return; }
+    let extra = i >= gi_screen_count();
+    let step = i32(gi_screen_filter_step.step.x);
+    let src = gi_screen_filter_step.step.y * total;
+    let dst = gi_screen_filter_step.step.z * total;
+    let last = gi_screen_filter_step.step.w == 1u;
+    // A fatia do quadro do histórico (o acúmulo acabou de escrevê-la): a posição e a normal das sondas.
+    let at = gi_screen_history_at(i);
     let probe = gi_screen_history[at];
     if (probe.w <= 0.0) {
-        textureStore(gi_screen_irradiance_out, vec2u(tile), vec4f(0.0));
+        gi_screen_filter[dst + i] = vec4f(0.0);
+        if (last && !extra) { textureStore(gi_screen_irradiance_out, gi_screen_probe_texel(i), vec4f(0.0)); }
         return;
     }
+    // As vizinhas: as dos ladrilhos em volta do ladrilho; as da grade fina (dos ladrilhos e extras) em volta da extra.
+    var center = vec2i(i32(i % gi.screen.x), i32(i / gi.screen.x));
+    if (extra) { center = vec2i(gi_screen_probe_texel(i)); }
     let n = gi_screen_history[at + 1u].xyz;
-    let last = GI_SCREEN_HISTORY_GENERATIONS + gi.bounces.x - 1u;
-    let strength = clamp(gi_screen_noise(gi_screen_history[at + 2u]) / 0.02, 0.0, 1.0);
+    let c = gi_screen_filter[src + i];
+    let lc = luminance(c.rgb);
+    let sigma = GI_ATROUS_LUMA * sqrt(max(c.w, 0.0)) + 1e-3 * lc + 1e-8;
+    // O desvio limitado a uma fração da luminância da sonda: com a variância da média recém-recomeçada (a luz mudou),
+    // sem o limite o filtro levaria a luz do lugar que mudou para os vizinhos que não mudaram e a resposta atrasaria.
+    let pair = min(sigma, GI_ATROUS_RELATIVE * lc + 1e-8);
     let tolerance = 0.01 + probe.w * 0.01;
-    var sum = gi_screen_history[at + last].rgb;
-    var wsum = 1.0;
+    let kc = GI_ATROUS_KERNEL[0] * GI_ATROUS_KERNEL[0];
+    var sum = c.rgb * kc;
+    var vsum = max(c.w, 0.0) * kc * kc;
+    var wsum = kc;
     for (var o = 0u; o < 25u; o++) {
         let d = vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
         if (all(d == vec2i(0))) { continue; }
-        let t = tile + d;
-        if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
-        let j = gi_screen_history_at(half, u32(t.x) + u32(t.y) * gi.screen.x);
-        let q = gi_screen_history[j];
+        let t = center + d * step;
+        var j = NONE;
+        if (extra) {
+            if (gi_screen_fine_inside(t)) { j = gi_screen_current_fine_probe(vec2u(t)); }
+        } else if (all(t >= vec2i(0)) && all(t < vec2i(gi.screen.xy))) {
+            j = u32(t.x) + u32(t.y) * gi.screen.x;
+        }
+        if (j == NONE) { continue; }
+        let hq = gi_screen_history_at(j);
+        let q = gi_screen_history[hq];
         if (q.w <= 0.0) { continue; }
-        let qn = gi_screen_history[j + 1u].xyz;
+        let qn = gi_screen_history[hq + 1u].xyz;
+        let s = gi_screen_filter[src + j];
         let plane = abs(dot(q.xyz - probe.xyz, n));
-        let w = exp(-f32(d.x * d.x + d.y * d.y) / (2.0 * 1.2 * 1.2)) * strength * max(0.0, 1.0 - plane / tolerance)
-            * smoothstep(0.9, 0.98, dot(qn, n));
-        sum += gi_screen_history[j + last].rgb * w;
+        let w = GI_ATROUS_KERNEL[abs(d.x)] * GI_ATROUS_KERNEL[abs(d.y)] * max(0.0, 1.0 - plane / tolerance)
+            * smoothstep(0.9, 0.98, dot(qn, n)) * exp(-abs(luminance(s.rgb) - lc) / pair);
+        sum += s.rgb * w;
+        vsum += max(s.w, 0.0) * w * w;
         wsum += w;
     }
-    textureStore(gi_screen_irradiance_out, vec2u(tile), vec4f(sum / wsum, 1.0));
-}
-
-/** Guarda a vista-projeção e a posição da câmera ativa para o quadro seguinte (uma invocação). */
-@compute @workgroup_size(1)
-fn gi_screen_finish_main() {
-    let cam = cameras[gi.screen.w];
-    for (var c = 0u; c < 4u; c++) { gi_screen_history[c] = cam.viewProjection[c]; }
-    gi_screen_history[4] = cam.position;
+    let out = vec4f(sum / wsum, vsum / (wsum * wsum));
+    gi_screen_filter[dst + i] = out;
+    if (last) {
+        // No alfa da sonda do ladrilho, 2 quando o ladrilho tem sondas extras (o desenho lê então a grade fina).
+        var flag = 1.0;
+        if (!extra && gi_screen_refine() == 2u) {
+            let map = gi_screen_history[gi_screen_history_map_at(i)];
+            flag = select(1.0, 2.0, map.x + map.y + map.z > 0.0);
+        }
+        textureStore(gi_screen_irradiance_out, gi_screen_probe_texel(i), vec4f(out.rgb, flag));
+    }
 }

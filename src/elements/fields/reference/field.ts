@@ -11,6 +11,8 @@
 //   4. a amostragem por B-spline tricúbica (contínua até a segunda derivada: ponto e normal lisos de perto) e a marcha
 //      do raio com refinamento por secante.
 
+import { FIELD, fieldContactShape } from '../schemas';
+
 export type Vec3 = readonly [number, number, number];
 
 /** Parâmetros do campo. */
@@ -19,31 +21,17 @@ export interface FieldParams {
     readonly spacing: number;
     /** Nível da superfície na densidade (padrão `FIELD.iso`; a GPU o ajusta para conservar o volume). */
     readonly iso?: number;
+    /** Ângulo de contato com os sólidos em graus (padrão 90: a gota pousada não molha e fica a esfera). */
+    readonly contactAngle?: number;
+    /**
+     * O sólido mais próximo de cada partícula (normal para fora dele, distância), como o solver o escreve; sem ele (ou
+     * normal zero), nenhum.
+     */
+    readonly contacts?: readonly (readonly [number, number, number, number] | undefined)[];
 }
 
-/** Constantes do campo (as mesmas do WGSL). */
-export const FIELD = Object.freeze({
-    /** Voxel em espaçamentos de partícula. */
-    voxel: 0.5,
-    /** Raio do núcleo (e da vizinhança da covariância) em espaçamentos. */
-    radius: 2,
-    /** Suavização das posições (Laplaciano de Yu & Turk). */
-    smoothing: 0.5,
-    /** Razão máxima entre o maior e o menor raio do núcleo. */
-    ratio: 4,
-    /** Vizinhos abaixo dos quais o núcleo é isotrópico e menor. */
-    neighbors: 8,
-    /** Raio do núcleo isotrópico das partículas com poucos vizinhos, em fração do raio. */
-    sparse: 0.5,
-    /** Nível da superfície na densidade normalizada (1 dentro do fluido). */
-    iso: 0.42,
-    /** Faixa estreita útil do campo, em voxels (o redistanciamento calcula em 3 vezes ela). */
-    band: 4,
-    /** Iterações do método rápido da eikonal (a distância é exata até essa quantidade de voxels da interface). */
-    iterations: 6,
-    /** Blocos de voxels por lado (a grade esparsa da GPU). */
-    brick: 8,
-});
+/** Constantes do campo: as de produção (`../schemas`), reexportadas para os testes. */
+export { FIELD };
 
 /** Grade densa do campo: origem (canto do voxel 0), tamanho do voxel, dimensões e φ por voxel (x mais rápido). */
 export interface FieldGrid {
@@ -148,31 +136,67 @@ function neighborWeight(d: number, r: number): number {
 /** Os núcleos anisotrópicos das partículas (posição suavizada, G e det G). */
 export function anisotropicKernels(positions: readonly Vec3[], params: FieldParams): Kernel[] {
     const r = FIELD.radius * params.spacing;
-    const lists = neighborsOf(positions, r);
+    const rn = FIELD.neighborhood * params.spacing;
+    const lists = neighborsOf(positions, rn);
     return positions.map((p, i) => {
         let wsum = 0;
+        let near = 0;
+        let nearWsum = 0;
         const mean = [0, 0, 0];
+        const nearMean = [0, 0, 0];
         for (const j of lists[i]!) {
-            const w = neighborWeight(
-                Math.sqrt(dot(sub(positions[j]!, p), sub(positions[j]!, p))),
-                r,
-            );
+            const dist = Math.sqrt(dot(sub(positions[j]!, p), sub(positions[j]!, p)));
+            const w = neighborWeight(dist, rn);
             wsum += w;
             for (let k = 0; k < 3; k++) mean[k]! += w * positions[j]![k]!;
+            if (dist < r) {
+                // No raio do núcleo: a posição suavizada e os vizinhos que decidem o núcleo esparso.
+                const ws = neighborWeight(dist, r);
+                near++;
+                nearWsum += ws;
+                for (let k = 0; k < 3; k++) nearMean[k]! += ws * positions[j]![k]!;
+            }
         }
         const xw: Vec3 = [mean[0]! / wsum, mean[1]! / wsum, mean[2]! / wsum];
         const lambda = FIELD.smoothing;
         const center: Vec3 = [0, 1, 2].map(
-            (k) => (1 - lambda) * p[k]! + lambda * xw[k]!,
+            (k) => (1 - lambda) * p[k]! + (lambda * nearMean[k]!) / nearWsum,
         ) as unknown as Vec3;
-        if (lists[i]!.length < FIELD.neighbors) {
-            const s = 1 / (FIELD.sparse * r);
+        // Os vizinhos que decidem o núcleo esparso são os do raio do núcleo (as gotas separadas não se fundem).
+        if (near < FIELD.neighbors) {
+            const rs = FIELD.sparse * r;
+            const [fa, fc] = fieldContactShape(params.contactAngle ?? 90);
+            const contact = params.contacts?.[i];
+            if (
+                fa > 0
+                && contact !== undefined
+                && dot(contact as unknown as Vec3, contact as unknown as Vec3) > 0.25
+                && contact[3] < rs
+            ) {
+                // A calota pousada (a regra do WGSL): achatada contra o sólido, centrada nele, com o volume do núcleo.
+                const len = Math.hypot(contact[0], contact[1], contact[2]);
+                const n: Vec3 = [contact[0] / len, contact[1] / len, contact[2] / len];
+                const a = rs * fa;
+                const c = rs * fc;
+                const g = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+                for (let x = 0; x < 3; x++)
+                    for (let y = 0; y < 3; y++)
+                        g[x * 3 + y] = (x === y ? 1 / a : 0) + (1 / c - 1 / a) * n[x]! * n[y]!;
+                return {
+                    center: [0, 1, 2].map(
+                        (k) => center[k]! - n[k]! * contact[3],
+                    ) as unknown as Vec3,
+                    g,
+                    det: 1 / (a * a * c),
+                };
+            }
+            const s = 1 / rs;
             return { center, g: [s, 0, 0, 0, s, 0, 0, 0, s], det: s * s * s };
         }
         const c = [0, 0, 0, 0, 0, 0, 0, 0, 0];
         for (const j of lists[i]!) {
             const d = sub(positions[j]!, p);
-            const w = neighborWeight(Math.sqrt(dot(d, d)), r);
+            const w = neighborWeight(Math.sqrt(dot(d, d)), rn);
             const e = sub(positions[j]!, xw);
             for (let a = 0; a < 3; a++)
                 for (let b = 0; b < 3; b++) c[a * 3 + b]! += w * e[a]! * e[b]!;

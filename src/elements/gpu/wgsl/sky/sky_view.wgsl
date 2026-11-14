@@ -48,7 +48,7 @@ fn sky_view_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
         let x = pos + view * seg;
         let n = normalize(x);
         let mu_s = dot(n, sun);
-        lum += throughput * sky_transmittance(sky_bottom(), mu_s) * sky.ground.rgb * max(mu_s, 0.0) / SKY_PI;
+        lum += throughput * sky_transmittance(sky_bottom(), mu_s) * sky.ground.rgb * max(mu_s, 0.0) / PI;
     }
     textureStore(sky_view_out, texel, vec4f(lum, 1.0));
 }

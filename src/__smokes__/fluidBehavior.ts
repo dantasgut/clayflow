@@ -1,5 +1,5 @@
 // Spec 030 — Smoke de comportamento de fluido: coesão (tensão superficial de Akinci), adesão às fronteiras, XSPH e
-// viscosidade do MPM fluido, controlados pelo `ParticleMaterial`.
+// viscosidade do MPM fluido, controlados pelo `ParticlePhysics`.
 //
 // Cada caso simula uma cena pequena por passos fixos de 1/60 s e lê o pool de volta (só aqui, para medir):
 //   - gota alongada sem gravidade (SPH e PBF): com a coesão da água, razão de semieixos ≤ 1,15 em 3 s; sem, não (SC-001);
@@ -21,11 +21,11 @@ import {
     Application,
     createScene,
     MPMFluidSchema,
-    ParticleMaterial,
+    ParticlePhysics,
     PBFSchema,
     SPHSchema,
-} from 'clayflow';
-import type { StagingBufferSpec, StructSchema } from 'clayflow';
+} from 'clayflow/web';
+import type { StagingBufferSpec, StructSchema } from 'clayflow/web';
 import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
 import {
     axisRatio,
@@ -58,8 +58,8 @@ import {
 
 const QUERY = new URLSearchParams(location.search);
 /** Coesão e adesão de referência (para calibrar, `--query wc=…&wa=…` as sobrepõe; a fixture vale só com as de referência). */
-const WATER_C = Number(QUERY.get('wc') ?? ParticleMaterial.WATER_COHESION);
-const WATER_A = Number(QUERY.get('wa') ?? ParticleMaterial.WATER_ADHESION);
+const WATER_C = Number(QUERY.get('wc') ?? ParticlePhysics.WATER_COHESION);
+const WATER_A = Number(QUERY.get('wa') ?? ParticlePhysics.WATER_ADHESION);
 /** Viscosidade alta do MPM (Pa·s): na escala de 0,4 m, o tempo viscoso L²ρ/μ fica abaixo de 1 s. */
 const MPM_HIGH_VISCOSITY = Number(QUERY.get('mv') ?? 5000);
 /** Alcance da vizinhança do SPH no espaçamento das cenas (2h = 2,6 s). */
@@ -86,6 +86,9 @@ async function createApp(): Promise<Application> {
     canvas.height = 64;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -140,7 +143,7 @@ async function simulate(
         rate?: number;
         every?: number;
         onSample?: (step: number, p: Particles) => void;
-        onStep?: (step: number, material: ParticleMaterial) => void;
+        onStep?: (step: number, material: ParticlePhysics) => void;
     } = {},
 ): Promise<{ bytes: Uint8Array; p: Particles; profile: string }> {
     const app = await createApp();
@@ -292,7 +295,9 @@ const CASES: Record<string, Case> = {
                     r.p.pos[3 * i + 1]!,
                     r.p.pos[3 * i + 2]!,
                 ];
-                if (plateDistance(q) < H_SPH && Math.abs(plateCoordinate(q)) < 0.9) stuck++;
+                // Sobre a face da placa (distância ≥ 0): o que caiu no chão embaixo dela não está aderido.
+                const d = plateDistance(q);
+                if (d >= 0 && d < H_SPH && Math.abs(plateCoordinate(q)) < 0.9) stuck++;
             }
             return { arrival, stuck };
         };
@@ -356,7 +361,7 @@ const CASES: Record<string, Case> = {
         for (const bad of [{ cohesion: -1 }, { adhesion: Number.NaN }, { xsph: -0.1 }]) {
             let message = '';
             try {
-                new ParticleMaterial(bad);
+                new ParticlePhysics(bad);
             } catch (e) {
                 message = e instanceof Error ? e.message : String(e);
             }
@@ -369,7 +374,7 @@ const CASES: Record<string, Case> = {
     async live() {
         const c = collector();
         const N = 30;
-        const enable = (step: number, material: ParticleMaterial): void => {
+        const enable = (step: number, material: ParticlePhysics): void => {
             if (step === N) material.data.cohesion = WATER_C;
         };
         const reference = await simulate(drop('SPH', 0), N);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { renderScene } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import { registerPresentationDefaults } from '../../../presentation/flows/defaults';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
@@ -9,7 +10,9 @@ import { DirectionalLight } from '../../scene/DirectionalLight';
 import { HemisphereLight } from '../../scene/HemisphereLight';
 import { Transform } from '../../scene/Transform';
 import { GI_QUALITY, GlobalIllumination } from '../GlobalIllumination';
-import { composeHitMaterial, screenTile } from '../ProbeFlow';
+import { screenTile } from '../ProbeFlow';
+import { giProbeTrace, giScreenTrace } from '../shaders';
+import { hitShade } from '../../raytrace/hitShade';
 import { MaterialFunction } from '../../extension/MaterialFunction';
 import { GI_SCREEN_TILE_MIN } from '../schemas';
 
@@ -24,7 +27,7 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             raysPerProbe: 64,
             probeFraction: 0.125,
             cascades: 3,
-            screenRays: 8,
+            screenRays: 16,
             screenTile: 8,
             screenFraction: 0.5,
         });
@@ -52,9 +55,9 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(screenTile(8, 4320)).toBe(32);
     });
 
-    it('composição das funções `material` nos acertos: um caso por função, um único retorno depois do switch', () => {
-        // O retorno do fechamento (struct grande) de dentro de cada caso, com invocações em casos diferentes, saía
-        // errado no Metal (a emissão do painel sumia nos acertos): os casos atribuem e a função retorna uma vez.
+    it('as funções `material` nos acertos fora dos raios das sondas: um kernel por função, nenhum seletor', () => {
+        // Spec 039: o seletor composto (um `switch` por função, expandido no traçado) quebrava o compilador da Apple pelo
+        // naga; cada função tem o kernel de material dela, e os kernels dos raios só gravam o acerto na onda.
         const fns = [
             'closure_diffuse(m.albedo.rgb, 0.0)',
             'closure_add(closure_diffuse(m.albedo.rgb, 0.0), closure_emission(vec3f(4.0), 1.0))',
@@ -64,9 +67,16 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             });
             return { ...f.composite!, returnsClosure: f.returnsClosure };
         });
-        const source = composeHitMaterial(fns).source;
-        expect(source.match(/case \d+u:/g)).toHaveLength(2);
-        expect(source.match(/\breturn\b/g)).toHaveLength(1);
+        for (const f of fns) {
+            const source = composeWgsl(hitShade(f)).spec.source;
+            expect(source).not.toContain('switch');
+            expect(source.match(/\bmaterial_fn_[0-9a-f]+\(s, m,/g)).toHaveLength(1);
+        }
+        for (const kernel of [giProbeTrace, giScreenTrace]) {
+            const source = composeWgsl(kernel).spec.source;
+            expect(source).not.toMatch(/\bmaterial_fn_|\bray_hit_material\(|switch \(index\)/);
+            expect(source).toContain('ray_wave_put_surface(');
+        }
     });
 
     it('descritores: parâmetros, estado das sondas (só GPU), três atlas e o amostrador; contribui a scene_lighting', () => {
@@ -88,12 +98,12 @@ describe('GlobalIllumination (spec 033, T024)', () => {
             });
         // A luz indireta no desenho e, para os meios participantes (R12), a radiância média.
         expect(gi.getSceneContributions().map((c) => c.point.name)).toEqual([
-            'scene_lighting',
+            'scene_indirect_lighting',
             'scene_ambient',
         ]);
     });
 
-    it('com ela na cena, os estágios padrão retiram o hemisfério e garantem a RayScene; sem ela, o devolvem', async () => {
+    it('com ela na cena, os estágios padrão desligam a luz do hemisfério (fica o ambiente dos raios) e garantem a RayScene; sem ela, a religam', async () => {
         const s = await renderScene();
         const defaults = registerPresentationDefaults(s.scene.flows, {
             world: s.scene.world,
@@ -102,16 +112,56 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         const world = s.scene.world;
         const inWorld = (r: object): boolean => world.entityIdOfResource(r as never) !== undefined;
         expect(inWorld(defaults.ambient)).toBe(true);
+        expect(defaults.ambient.lighting).toBe(true);
         const gi = new GlobalIllumination();
         world.insert(gi);
-        expect(inWorld(defaults.ambient)).toBe(false);
+        // O hemisfério fica como o céu e o chão que os raios veem ao escapar (spec 034): retirado, a refração e as sondas
+        // viam preto fora da cena.
+        expect(inWorld(defaults.ambient)).toBe(true);
+        expect(defaults.ambient.lighting).toBe(false);
         expect(world.queryBySchemaName(RayScene.schema.name)).toHaveLength(1);
         world.remove(gi);
-        expect(inWorld(defaults.ambient)).toBe(true);
+        expect(defaults.ambient.lighting).toBe(true);
         expect(world.queryBySchemaName(HemisphereLight.schema.name)).toHaveLength(1);
+        // O hemisfério que a cena retirou fica fora: a entrada e a saída da GI não o devolvem.
+        world.remove(defaults.ambient);
+        const again = new GlobalIllumination();
+        world.insert(again);
+        expect(inWorld(defaults.ambient)).toBe(false);
+        world.remove(again);
+        expect(inWorld(defaults.ambient)).toBe(false);
     });
 
-    it('o estágio das sondas grava um passe por quadro (raios, acúmulo, estado e atlas)', async () => {
+    it('a GI e a sombra da cena seguem o renderizador dos estágios padrão; desligada nos caminhos de luz, nada roda (T079)', async () => {
+        const s = await renderScene();
+        const defaults = registerPresentationDefaults(s.scene.flows, {
+            world: s.scene.world,
+            events: s.scene.events,
+        });
+        const world = s.scene.world;
+        const renderer = defaults.renderer;
+        renderer.profile = 'low';
+        world.insert(new Camera().add(new Transform({ position: [0, 1, 5, 1] })));
+        const light = new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true });
+        world.insert(light);
+        world.insert(new BoxGeometry().add(new StandardMaterial()).add(new Transform()));
+        const gi = new GlobalIllumination();
+        world.insert(gi);
+        expect(gi.data.raysPerProbe).toBe(GI_QUALITY.low.raysPerProbe);
+        expect(light.shadowMap?.data).toMatchObject({ size: [1024, 1024], penumbraSamples: 4 });
+        renderer.profile = 'medium';
+        expect(gi.data.screenTile).toBe(GI_QUALITY.medium.screenTile);
+        expect(light.shadowMap?.data.size).toEqual([2048, 2048]);
+        renderer.lightPaths.globalIllumination = false;
+        s.step();
+        s.step();
+        expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(0);
+        renderer.lightPaths.globalIllumination = true;
+        s.step();
+        expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(1);
+    });
+
+    it('o estágio das sondas grava os passes das etapas uma vez por quadro (traçado, guia, traçado de tela, transmitância, sombreamento, luz direta, acúmulo, atlas, tela)', async () => {
         const s = await renderScene();
         registerPresentationDefaults(s.scene.flows, {
             world: s.scene.world,
@@ -124,7 +174,18 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         world.insert(new GlobalIllumination());
         s.step();
         s.step();
-        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(1);
+        expect(s.computes().filter((c) => c.startsWith('ProbeFlow.'))).toEqual([
+            'ProbeFlow.change',
+            'ProbeFlow.trace',
+            'ProbeFlow.guide',
+            'ProbeFlow.screenTrace',
+            'ProbeFlow.through',
+            'ProbeFlow.shade',
+            'ProbeFlow.direct',
+            'ProbeFlow.blend',
+            'ProbeFlow.atlas',
+            'ProbeFlow.screen',
+        ]);
         expect(s.createdWhileRecording()).toBe(0);
         const gi = world
             .queryBySchemaName(GlobalIllumination.schema.name)
@@ -134,6 +195,6 @@ describe('GlobalIllumination (spec 033, T024)', () => {
         expect(gi.data.params[0].cascade0).toEqual([-8, -3, -3, 1]);
         gi.data.enabled = false;
         s.step();
-        expect(s.computes().filter((c) => c === 'ProbeFlow')).toHaveLength(0);
+        expect(s.computes().filter((c) => c === 'ProbeFlow.trace')).toHaveLength(0);
     });
 });

@@ -20,19 +20,19 @@ export function castingShadowMap(world: World): (resource: Resource) => boolean 
 }
 
 /**
- * Fonte de um descritor do mapa de sombra que projeta (spec 031): a profundidade (`ShadowCaster.depth`) ou o
- * amostrador de comparação (`ShadowCaster.sampler`), para a contribuição de sombra dos pontos de cena.
+ * Fonte de um descritor do mapa de sombra que projeta (spec 031): o atlas (`ShadowCaster.atlas`: a tabela de páginas e
+ * as páginas físicas, T060h), para a contribuição de sombra dos pontos de cena.
  */
 export class ShadowCasterResolver implements ConsumerResolver {
     readonly name: string;
 
     constructor(
-        /** Descritor do `ShadowMap` (`depth`, `compare`). */
+        /** Descritor do `ShadowMap` (`atlas`). */
         private readonly descId: string,
         /** Tipo WGSL do binding. */
         readonly typeName: string,
     ) {
-        this.name = `ShadowCaster.${descId === 'compare' ? 'sampler' : descId}`;
+        this.name = `ShadowCaster.${descId}`;
     }
 
     resolve(ctx: ResolveContext): ResolvedSource | undefined {

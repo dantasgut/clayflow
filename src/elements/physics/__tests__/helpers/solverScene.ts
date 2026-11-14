@@ -75,6 +75,7 @@ export async function solverScene(): Promise<{
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        takeFrameTimings: vi.fn(() => []),
         capabilities: vi.fn(defaultCapabilities),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),

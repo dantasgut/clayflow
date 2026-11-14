@@ -4,7 +4,7 @@
 // atomicMin dos bits e depois do id, jump flooding 3D em ping-pong, distância final exata com o sinal pela normal
 // interpolada no ponto mais próximo). Todos os atômicos são de ordem total: o campo não depende da ordem das threads.
 // Layout do campo: ver `surface_collider_hit.wgsl`.
-// Requer: structs SurfaceBakeParams, WorldTransform; surface_collider_common; linalg.
+// Requer: structs SurfaceBakeParams, Transform, WorldTransform; surface_collider_common; linalg; transform_local.
 
 const SCB_HEADER: u32 = 64u;
 // Nós por eixo que um triângulo pode cobrir (amostragem muito mais grossa que o campo: o excesso é ignorado).
@@ -101,21 +101,29 @@ fn scb_header_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_work
         lo = mid - 0.5 * e - f32(bake.band) * cell;
         hi = mid + 0.5 * e + f32(bake.band) * cell;
     }
-    var world = bake.world;
-    var normal_m = mat3x3f(bake.normal0.xyz, bake.normal1.xyz, bake.normal2.xyz);
-    if (bake.use_world_pool != 0u && bake.transform_slot != SCB_NONE) {
-        world = bake_worlds[bake.transform_slot].world;
-        normal_m = bake_worlds[bake.transform_slot].normal;
+    var world = mat4x4f(vec4f(1.0, 0.0, 0.0, 0.0), vec4f(0.0, 1.0, 0.0, 0.0), vec4f(0.0, 0.0, 1.0, 0.0), vec4f(0.0, 0.0, 0.0, 1.0));
+    var normal_m = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0));
+    if (bake.transform_slot != SCB_NONE) {
+        if (bake.use_world_pool != 0u) {
+            // Função ou hierarquia: a matriz do estágio de transformação (a do quadro anterior; a física roda antes).
+            world = bake_worlds[bake.transform_slot].world;
+            normal_m = bake_worlds[bake.transform_slot].normal;
+        } else {
+            // Só o TRS: a mesma conta do estágio de transformação (`transform_local`) sobre a intenção deste quadro.
+            let local = transform_local(transforms[bake.transform_slot]);
+            world = local.world;
+            normal_m = local.normal;
+        }
     }
-    var m3 = mat3x3f(world[0].xyz, world[1].xyz, world[2].xyz);
-    if (abs(mat3_det(m3)) <= 1e-20) {
+    if (abs(mat3_det(affine_linear(world))) <= AFFINE_SINGULAR_DET) {
         // Mundo ainda não calculado (primeiro quadro) ou singular: identidade.
         world = mat4x4f(vec4f(1.0, 0.0, 0.0, 0.0), vec4f(0.0, 1.0, 0.0, 0.0), vec4f(0.0, 0.0, 1.0, 0.0), vec4f(0.0, 0.0, 0.0, 1.0));
-        m3 = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0));
-        normal_m = m3;
+        normal_m = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0));
     }
-    let inv3 = mat3_inverse(m3);
-    let t = -(inv3 * world[3].xyz);
+    let m3 = affine_linear(world);
+    let inv = affine_inverse(world);
+    let inv3 = affine_linear(inv);
+    let t = inv[3].xyz;
     let base = scb_base(k);
     bake_field[base] = lo.x;
     bake_field[base + 1u] = lo.y;

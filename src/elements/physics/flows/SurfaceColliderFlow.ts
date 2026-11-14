@@ -9,6 +9,9 @@ import type {
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../../scene/contracts/gpu';
+import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { FlowWork, type WorkContext, type WorkPart } from '../../../scene/flows/FlowWork';
 import { ExtensionPipelines, type PipelineVariant } from '../../../scene/flows/ExtensionPipelines';
 import { Flow } from '../../../scene/flows/Flow';
 import type {
@@ -17,7 +20,6 @@ import type {
     TransitionContext,
 } from '../../../scene/flows/FlowBinding';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
-import type { PoolDirectory } from '../../../scene/contracts/PoolDirectory';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
 import {
     slot,
@@ -25,6 +27,7 @@ import {
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { Time } from '../../../scene/time/Time';
@@ -36,6 +39,7 @@ import { ParametricSurface, SURFACE_PRESET_INDEX } from '../../geometry/Parametr
 import { SurfaceParamsSchema } from '../../geometry/SurfaceSchemas';
 import { surfacePoint, surfaceTangents, surfaceTangentsAnalytic } from '../../geometry/shaders';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
+import { wordBuffer } from '../../gpu/compute/schemas';
 import { Parent } from '../../scene/Parent';
 import { Transform } from '../../scene/Transform';
 import { SurfaceCollider } from '../colliders/SurfaceCollider';
@@ -63,16 +67,14 @@ export interface SurfaceColliderSlots extends SlotMap {
     readonly worlds: PoolSlot<true>;
     /** Relógio da cena (opcional; sem ele, tempo 0 e uma cópia). */
     readonly time: SingletonSlot<true>;
+    /** O espaço de trabalho: o rascunho e os parâmetros de cada colisor, o substituto das matrizes (spec 039). */
+    readonly work: WorkSlot<SurfaceColliderWork>;
 }
 
-const slots: SurfaceColliderSlots = {
-    colliders: slot.entities({ all: [ParametricSurface, SurfaceCollider] }),
-    functions: slot.entities({ all: [ParametricSurface, SurfaceCollider, SurfaceFunction] }),
-    fields: slot.pool(SurfaceCollider.cellSchema.name),
-    spaces: slot.entities({ all: [SpaceFunction] }),
-    worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
-    time: slot.singleton(Time.schema, { optional: true }),
-};
+/** Resource de trabalho do `SurfaceColliderFlow` (spec 039). */
+class SurfaceColliderWork extends FlowWork {
+    static readonly schema = new StructSchema('SurfaceColliderWork', {});
+}
 
 type Ctx = TransitionContext<SurfaceColliderSlots>;
 
@@ -107,6 +109,10 @@ interface Shape {
 interface ColliderState {
     readonly id: EntityId;
     shape: Shape;
+    /** Os descritores do rascunho e dos parâmetros da superfície no trabalho (saem com o estado). */
+    readonly part: WorkPart;
+    /** Id do descritor dos parâmetros da superfície (escritos na hora pela C2). */
+    readonly surfaceParamsId: string;
     readonly surfaceParams: UniformBufferSpec;
     readonly bake: PerStepUniforms;
     points: StorageBufferSpec;
@@ -117,8 +123,6 @@ interface ColliderState {
     stale: boolean;
     /** Cópias a construir neste quadro (0: nada). */
     copies: number;
-    /** Matriz de mundo da última construção (CPU), para reconstruir quando o `Transform` muda. */
-    world: Float32Array | undefined;
 }
 
 /**
@@ -135,17 +139,20 @@ interface ColliderState {
  */
 export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
     readonly type = 'SurfaceColliderFlow';
-    readonly slots = slots;
-    /** Os registros de todas as formas das funções `surface` (spec 031, R8). */
-    override readonly listens = [surfacePoint];
+    readonly slots: SurfaceColliderSlots;
+    /**
+     * Os registros de todas as formas das funções `surface` (spec 031, R8) e o pool `Transform`: a intenção escrita no
+     * slot de um colisor o reconstrói (o TRS é calculado na GPU, na construção).
+     */
+    override readonly listens = [surfacePoint, Transform.schema];
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
     private readonly core: EngineCore;
-    /** Pools da C2: o slot do registro de cada função, no pool da forma dela. */
-    private readonly pools: PoolDirectory;
+    /** Diretório da C2: o slot do registro de cada função, no pool da forma dela; os objetos do trabalho. */
+    private readonly pools: ResourceDirectory;
+    private readonly work: WorkContext;
     private readonly states = new Map<EntityId, ColliderState>();
-    private readonly dummyWorlds: StorageBufferSpec;
     private readonly warnedSteps = new Set<EntityId>();
     /** Pipeline da amostragem de cada colisor (pela função da entidade, ou a pronta), ativo ao compilar. */
     private readonly pointPipelines = new ExtensionPipelines<EntityId>();
@@ -155,12 +162,19 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
         super();
         this.core = ctx.core;
         this.pools = ctx.resources;
-        this.dummyWorlds = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'scb_worlds_dummy',
-            byteSize: Transform.worldSchema.stride,
-        });
+        const work = new SurfaceColliderWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            colliders: slot.entities({ all: [ParametricSurface, SurfaceCollider] }),
+            functions: slot.entities({
+                all: [ParametricSurface, SurfaceCollider, SurfaceFunction],
+            }),
+            fields: slot.pool(SurfaceCollider.cellSchema.name),
+            spaces: slot.entities({ all: [SpaceFunction] }),
+            worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            work: slot.work(() => work),
+        };
         const changed = {
             to: 'idle' as const,
             run: (): void => {
@@ -182,8 +196,16 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 entitiesChanged: changed,
                 // O campo é só da GPU: realocado, é reconstruído.
                 poolReallocated: restale,
-                // Valores ou código de uma função.
-                poolWritten: restale,
+                // Valores ou código de uma função; o `Transform` de um colisor.
+                poolWritten: {
+                    to: 'idle',
+                    run: (e) => {
+                        if (e.type !== 'poolWritten') return;
+                        if (e.schema === Transform.schema)
+                            this.transformsWritten(e.poolKey, e.ranges);
+                        else restale.run();
+                    },
+                },
                 resourceReady: {
                     to: 'idle',
                     run: (e) => {
@@ -267,18 +289,16 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
         }
     }
 
-    /** Libera rascunhos, parâmetros e substitutos. */
+    /** Esquece os estados (rascunhos, parâmetros e substitutos são do trabalho e saem da cena com ele). */
     override dispose(): void {
-        for (const st of this.states.values()) this.destroyState(st);
         this.states.clear();
-        this.core.destroy(this.dummyWorlds);
     }
 
     /** Colliders presentes: estado, rascunho, bindings e pipelines. */
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
         this.dirty = false;
-        const { colliders, functions, fields, worlds } = ctx.bound.slots;
+        const { colliders, functions, fields } = ctx.bound.slots;
         const present = new Set<EntityId>();
         for (const entry of colliders.entries) {
             const id = entry.entityId;
@@ -316,7 +336,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                         [B.cells, st.cells],
                         [B.ids, st.ids],
                         [B.field, fields.buffer],
-                        [B.worlds, worlds?.buffer ?? this.dummyWorlds],
                     ]),
                 );
                 ctx.prepare({
@@ -369,9 +388,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             const byFunction = entry.resources.some(
                 (r) => r instanceof TransformFunction || r instanceof Parent,
             );
-            const transform = entry.resources.find((r): r is Transform => r instanceof Transform);
-            const world = byFunction ? undefined : trsOf(transform);
-            if (world !== undefined && !sameMatrix(world.m, st.world)) st.stale = true;
             const animated = surface.data.animated || spaced || byFunction;
             const steps = time?.steps ?? 0;
             const times: number[] = [];
@@ -390,14 +406,14 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             }
             if (times.length === 0) continue;
             st.copies = times.length;
-            st.world = world?.m;
             const d = surface.data;
             const [u0, u1, v0, v1] = d.domain;
             const fn = functions.entry(st.id)?.get(SurfaceFunction);
             const record =
                 fn === undefined ? undefined : this.pools.poolSlotOf(fn.record.name, st.id);
-            this.core.write(
-                st.surfaceParams,
+            this.pools.writeNow(
+                this.work.work,
+                st.surfaceParamsId,
                 SurfaceParamsSchema.pack({
                     nu: st.shape.nu,
                     nv: st.shape.nv,
@@ -436,8 +452,11 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 band: collider.data.band,
                 field_first: fields.slotOf(st.id) ?? 0,
                 copy_stride: collider.data.copy_stride,
-                transform_slot: worlds?.slotOf(st.id) ?? NONE,
-                use_world_pool: world === undefined ? 1 : 0,
+                transform_slot:
+                    (byFunction
+                        ? worlds?.slotOf(st.id)
+                        : this.pools.poolSlotOf(Transform.schema.name, st.id)) ?? NONE,
+                use_world_pool: byFunction ? 1 : 0,
                 pass_step: 0,
                 parity: 0,
                 margin: collider.data.margin,
@@ -445,10 +464,6 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 t1: [...t.subarray(4, 8)],
                 t2: [...t.subarray(8, 12)],
                 t3: [...t.subarray(12, 16)],
-                world: [...(world?.m ?? IDENTITY)],
-                normal0: world?.n[0] ?? [1, 0, 0, 0],
-                normal1: world?.n[1] ?? [0, 1, 0, 0],
-                normal2: world?.n[2] ?? [0, 0, 1, 0],
             };
             const regions = 2 + s.jfa.length;
             if (st.bake.reserve(regions)) this.dirty = true;
@@ -463,39 +478,61 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
         if (this.dirty) this.sync(ctx);
     }
 
+    /** Intenção de `Transform` enviada: reconstrói os colliders cujo slot está nas faixas escritas. */
+    private transformsWritten(
+        poolKey: string,
+        ranges: readonly (readonly [number, number])[],
+    ): void {
+        for (const st of this.states.values()) {
+            const slot = this.pools.poolSlotOf(poolKey, st.id);
+            if (slot === undefined) continue;
+            if (ranges.some(([first, count]) => slot >= first && slot < first + count))
+                st.stale = true;
+        }
+    }
+
+    /** Estado do colisor: o rascunho e os parâmetros como descritores do trabalho (a C2 aloca na hora). */
     private createState(id: EntityId, shape: Shape): ColliderState {
-        const storage = (name: string, bytes: number): StorageBufferSpec =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `scb_${name}:${id}:${shape.key}`,
-                byteSize: Math.max(16, bytes),
-            });
-        const bake = new PerStepUniforms(this.core, {
-            discriminator: `scb_bake:${id}:${shape.key}`,
+        const name = (n: string): string => `scb_${n}:${id}:${shape.key}`;
+        const surfaceParamsId = name('surface_params');
+        const sizes: readonly (readonly [string, number])[] = [
+            ['points', shape.copies * shape.samples * 32],
+            ['bounds', shape.copies * 32],
+            ['cells', shape.copies * shape.cells * 4],
+            ['ids', shape.mode === 'distance' ? shape.copies * 2 * shape.cells * 4 : 16],
+        ];
+        const part: WorkPart = {
+            descriptors: () => [
+                {
+                    id: surfaceParamsId,
+                    role: 'uniform',
+                    schema: SurfaceParamsSchema,
+                    upload: 'never',
+                },
+                ...sizes.map(([n, bytes]) => wordBuffer(name(n), Math.max(16, bytes))),
+            ],
+        };
+        this.work.work.use(part);
+        const bake = new PerStepUniforms(this.work, {
+            id: name('bake'),
             schema: SurfaceBakeParamsSchema,
         });
         bake.reserve(2 + shape.jfa.length);
+        const own = (id: string): StorageBufferSpec =>
+            this.pools.bufferOf(this.work.work, id) as StorageBufferSpec;
         return {
             id,
             shape,
-            surfaceParams: this.core.create<UniformBufferSpec>({
-                kind: 'buffer',
-                subkind: 'uniform',
-                discriminator: `scb_surface_params:${id}:${shape.key}`,
-                byteSize: SurfaceParamsSchema.stride,
-            }),
+            part,
+            surfaceParamsId,
+            surfaceParams: own(surfaceParamsId) as unknown as UniformBufferSpec,
             bake,
-            points: storage('points', shape.copies * shape.samples * 32),
-            bounds: storage('bounds', shape.copies * 32),
-            cells: storage('cells', shape.copies * shape.cells * 4),
-            ids: storage(
-                'ids',
-                shape.mode === 'distance' ? shape.copies * 2 * shape.cells * 4 : 16,
-            ),
+            points: own(name('points')),
+            bounds: own(name('bounds')),
+            cells: own(name('cells')),
+            ids: own(name('ids')),
             stale: true,
             copies: 0,
-            world: undefined,
         };
     }
 
@@ -504,14 +541,12 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
         for (const entry of BUILD_ENTRIES[st.shape.mode]) ctx.release(buildId(st.id, entry));
     }
 
+    /** Tira o rascunho e os parâmetros do colisor do trabalho (a C2 os libera). */
     private destroyState(st: ColliderState): void {
-        this.core.destroy(st.surfaceParams);
-        st.bake.dispose();
-        for (const b of [st.points, st.bounds, st.cells, st.ids]) this.core.destroy(b);
+        this.work.work.drop(st.part);
+        this.work.work.drop(st.bake);
     }
 }
-
-const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
 function buildId(id: EntityId, entry: string): string {
     return `${entry}:${id}`;
@@ -547,42 +582,4 @@ function shapeOf(c: SurfaceCollider): Shape {
         copies: c.data.copies,
         jfa,
     };
-}
-
-/**
- * Matriz de mundo `T·R·S` (colunas) e matriz normal `R·S⁻¹` (3 colunas de vec4) do `Transform` da CPU; `undefined`
- * sem `Transform` (identidade, pelo substituto).
- */
-function trsOf(
-    t: Transform | undefined,
-): { m: Float32Array; n: [number[], number[], number[]] } | undefined {
-    if (t === undefined) return undefined;
-    const d = t.data;
-    const [px = 0, py = 0, pz = 0] = d.position;
-    const [qx = 0, qy = 0, qz = 0, qw = 1] = d.rotation;
-    const [sx = 1, sy = 1, sz = 1] = d.scale;
-    const r = [
-        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw)],
-        [2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw)],
-        [2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)],
-    ] as const;
-    const s = [sx, sy, sz];
-    const m = new Float32Array(16);
-    for (let c = 0; c < 3; c++) for (let k = 0; k < 3; k++) m[4 * c + k] = r[c]![k]! * s[c]!;
-    m[12] = px;
-    m[13] = py;
-    m[14] = pz;
-    m[15] = 1;
-    const n = [0, 1, 2].map((c) => [...r[c]!.map((v) => v / (s[c] || 1)), 0]) as [
-        number[],
-        number[],
-        number[],
-    ];
-    return { m, n };
-}
-
-function sameMatrix(a: Float32Array, b: Float32Array | undefined): boolean {
-    if (b === undefined) return false;
-    for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false;
-    return true;
 }

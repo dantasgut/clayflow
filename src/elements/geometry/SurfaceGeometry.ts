@@ -123,14 +123,15 @@ export class SurfaceGeometry extends Geometry<SurfaceGeometryData> {
 
     /** Vértices (estado inicial; depois escritos pela GPU), triângulos e adjacência. */
     getDescriptors(): readonly GPUDescriptor[] {
+        const vertices: GPUDescriptor = {
+            id: 'vertices',
+            role: 'vertex',
+            schema: SurfaceGeometry.vertexStruct,
+            count: this.data.vertexCount,
+            upload: 'initial',
+        };
         return [
-            {
-                id: 'vertices',
-                role: 'vertex',
-                schema: SurfaceGeometry.vertexStruct,
-                count: this.data.vertexCount,
-                upload: 'initial',
-            },
+            vertices,
             { id: 'indices', role: 'index', count: this.data.indexCount },
             {
                 id: 'adjacency',
@@ -139,6 +140,7 @@ export class SurfaceGeometry extends Geometry<SurfaceGeometryData> {
                 count: this.data.adjacency.length,
             },
             ...this.wireDescriptors(),
+            ...this.historyDescriptors(vertices),
         ];
     }
 }

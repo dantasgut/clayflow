@@ -2,6 +2,8 @@
 // continuidade do realce, os degraus entre vizinhos (névoa, US8) e a média HDR por região (luz rebatida contra a
 // referência, US1). Puras (sem o motor): testadas na CPU.
 
+import { lumaSrgb } from './images';
+
 /** Região retangular de uma imagem (pixels). */
 export interface Rect {
     readonly x: number;
@@ -19,8 +21,7 @@ export interface HdrImage {
 
 /** Luminância 8 bits (0–1) de um pixel. */
 function lum8(img: ImageData, x: number, y: number): number {
-    const i = (y * img.width + x) * 4;
-    return (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!) / 255;
+    return lumaSrgb(img, x, y);
 }
 
 /** Energia por período da DFT de um sinal 1D sem a média e sem a reta de mínimos quadrados. */

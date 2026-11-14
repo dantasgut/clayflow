@@ -18,7 +18,13 @@ describe('MeshVertex e GraphGeometry (spec 031, T070)', () => {
     it('GraphGeometry: vértices, índices, arame e indireto escritos só pela GPU, com as capacidades', () => {
         const g = new GraphGeometry({ vertexCapacity: 100, indexCapacity: 300, edgeCapacity: 50 });
         const d = Object.fromEntries(g.getDescriptors().map((x) => [x.id, x]));
-        expect(Object.keys(d)).toEqual(['vertices', 'indices', 'wireEdges', 'indirect']);
+        expect(Object.keys(d)).toEqual([
+            'vertices',
+            'indices',
+            'wireEdges',
+            'indirect',
+            'previousVertices',
+        ]);
         for (const x of Object.values(d)) expect(x.upload).toBe('never');
         expect(d.vertices).toMatchObject({
             role: 'vertex',
@@ -34,7 +40,7 @@ describe('MeshVertex e GraphGeometry (spec 031, T070)', () => {
             new GraphGeometry({ vertexCapacity: 3, indexCapacity: 3 })
                 .getDescriptors()
                 .map((x) => x.id),
-        ).toEqual(['vertices', 'indices', 'indirect']);
+        ).toEqual(['vertices', 'indices', 'indirect', 'previousVertices']);
         expect(() => new GraphGeometry({ vertexCapacity: 3, indexCapacity: 4 })).toThrow(
             /múltiplo de 3/,
         );

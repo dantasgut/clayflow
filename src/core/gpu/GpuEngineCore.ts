@@ -1,5 +1,6 @@
 import type {
     CanvasOptions,
+    CanvasPixels,
     CanvasOutput,
     DeviceLostHandler,
     DeviceLostInfo,
@@ -8,8 +9,9 @@ import type {
     ShaderMessage,
 } from '../contracts/EngineCore';
 import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
+import type { PlatformAdapter, PresentationSurface } from '../contracts/PlatformAdapter';
 import type { Frame } from '../contracts/Frame';
-import type { FrameStats } from '../contracts/FrameStats';
+import type { FrameGpuTiming, FrameStats } from '../contracts/FrameStats';
 import type { Profiler } from '../contracts/Profiler';
 import type { BindGroupSpec } from '../contracts/specs/BindGroupSpec';
 import type { BufferSpec } from '../contracts/specs/BufferSpec';
@@ -124,6 +126,25 @@ function textureByteSize(spec: TextureSpec): number {
     return total;
 }
 
+/**
+ * As entradas que o objeto de `spec` cita e guarda (o bind group: o layout, os buffers, as vistas e os amostradores; a
+ * vista: a textura) — quando uma delas é recriada, o objeto fica velho (`GpuResourceStore.stale`).
+ */
+function dependenciesOf(spec: ResourceSpec): readonly string[] {
+    if (spec.kind === 'bindgroup') {
+        return [
+            specHash(spec.layout),
+            ...spec.bindings.map((b) =>
+                specHash(
+                    b.kind === 'buffer' ? b.buffer : b.kind === 'sampler' ? b.sampler : b.view,
+                ),
+            ),
+        ];
+    }
+    if (spec.kind === 'textureview') return [specHash(spec.source)];
+    return [];
+}
+
 export class GpuEngineCore implements EngineCore {
     private context: GpuContext | null = null;
     private readonly store = new GpuResourceStore();
@@ -143,7 +164,9 @@ export class GpuEngineCore implements EngineCore {
     /** Opções da última inicialização — reaplicadas em recuperação e reconfiguração. */
     private storedCanvasOptions: CanvasOptions | undefined;
     private deviceOptions: DeviceOptions | undefined;
-    private lastCanvas: HTMLCanvasElement | null = null;
+    private lastSurface: PresentationSurface | null = null;
+    /** O adaptador de plataforma da inicialização (spec 038): reusado na recuperação. */
+    private platform: PlatformAdapter | undefined;
     private shuttingDown = false;
     /** Compilações assíncronas em andamento por hash: specs iguais concorrentes compilam uma vez. */
     private readonly pendingPipelines = new Map<string, Promise<void>>();
@@ -171,30 +194,37 @@ export class GpuEngineCore implements EngineCore {
     }
 
     async initialize(
-        canvas?: HTMLCanvasElement,
+        surface?: PresentationSurface,
         canvasOptions?: CanvasOptions,
         device?: DeviceOptions,
+        platform?: PlatformAdapter,
     ): Promise<void> {
         if (canvasOptions !== undefined) this.storedCanvasOptions = canvasOptions;
         if (device !== undefined) this.deviceOptions = device;
-        if (canvas !== undefined) this.lastCanvas = canvas;
+        if (platform !== undefined) this.platform = platform;
+        if (surface !== undefined) this.lastSurface = surface;
         if (this.context !== null) {
-            this.applyCanvas(this.context, canvas ?? null, this.storedCanvasOptions);
+            this.applyCanvas(this.context, surface ?? null, this.storedCanvasOptions);
             return;
         }
+        if (this.platform === undefined) {
+            throw new Error(
+                'GpuEngineCore: sem adaptador de plataforma — use o ponto de entrada do ambiente (`clayflow/web`, `clayflow/deno`).',
+            );
+        }
         this.shuttingDown = false;
-        const created = await createGpuContext(this.deviceOptions);
+        const created = await createGpuContext(this.platform, this.deviceOptions);
         const { queue, canvasFormat, capabilities } = created;
         this.preferredFormat = canvasFormat;
         const ctx: GpuContext = {
             device: created.device,
             queue,
-            canvas: null,
+            surface: null,
             canvasContext: null,
             canvasFormat,
             capabilities,
         };
-        this.applyCanvas(ctx, canvas ?? null, this.storedCanvasOptions);
+        this.applyCanvas(ctx, surface ?? null, this.storedCanvasOptions);
         this.context = ctx;
         this.profilerSystem.attach(created.device);
         this.warnIfProfilingUnsupported();
@@ -208,7 +238,7 @@ export class GpuEngineCore implements EngineCore {
         };
     }
 
-    async requestRecover(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void> {
+    async requestRecover(surface?: PresentationSurface, options?: CanvasOptions): Promise<void> {
         if (this.context !== null) {
             // Caller wants fresh device — simulate lost path para limpar tudo.
             this.handleDeviceLost(this.context.device, {
@@ -216,7 +246,7 @@ export class GpuEngineCore implements EngineCore {
                 message: 'manual reset',
             });
         }
-        await this.initialize(canvas ?? this.lastCanvas ?? undefined, options);
+        await this.initialize(surface ?? this.lastSurface ?? undefined, options);
     }
 
     private watchDeviceLost(device: GPUDevice): void {
@@ -244,8 +274,8 @@ export class GpuEngineCore implements EngineCore {
     }
 
     canvasSize(): { readonly width: number; readonly height: number } | undefined {
-        const canvas = this.context?.canvas ?? null;
-        return canvas === null ? undefined : { width: canvas.width, height: canvas.height };
+        const surface = this.context?.surface ?? null;
+        return surface === null ? undefined : { width: surface.width, height: surface.height };
     }
 
     capabilities(): DeviceCapabilities {
@@ -254,7 +284,7 @@ export class GpuEngineCore implements EngineCore {
 
     reconfigureCanvas(options?: CanvasOptions): void {
         const ctx = this.requireContext();
-        if (ctx.canvas === null || ctx.canvasContext === null) {
+        if (ctx.surface === null || ctx.canvasContext === null) {
             throw new Error('GpuEngineCore: no canvas attached to reconfigure.');
         }
         if (options !== undefined) this.storedCanvasOptions = options;
@@ -264,9 +294,19 @@ export class GpuEngineCore implements EngineCore {
     create<S extends ResourceSpec>(spec: S): S {
         deepFreeze(spec);
         const hash = specHash(spec);
-        if (this.store.retain(hash, spec)) return spec;
+        if (this.store.retain(hash, spec)) {
+            // O mesmo conteúdo, mas o que o objeto cita foi destruído e criado de novo (o buffer de vértices
+            // compartilhado que a remoção das entidades soltou e a inserção seguinte recriou): o bind group guardado
+            // citava o buffer destruído ("used in submit while destroyed", smoke `churn`). Materializa de novo.
+            if (this.store.stale(hash)) {
+                this.store.replace(hash, this.materialize(spec, hash));
+                this.store.dependOn(hash, dependenciesOf(spec));
+            }
+            return spec;
+        }
         const obj = this.materialize(spec, hash);
         this.storeWithMetadata(hash, spec, obj);
+        this.store.dependOn(hash, dependenciesOf(spec));
         return spec;
     }
 
@@ -337,7 +377,12 @@ export class GpuEngineCore implements EngineCore {
             gpuTimeMs: reading.gpuTimeMs,
             gpuFrame: reading.gpuFrame,
             stagesNs: reading.stagesNs,
+            scopesNs: reading.scopesNs,
         };
+    }
+
+    takeFrameTimings(): readonly FrameGpuTiming[] {
+        return this.profilerSystem.takeFrameReadings();
     }
 
     private warnIfProfilingUnsupported(): void {
@@ -385,6 +430,45 @@ export class GpuEngineCore implements EngineCore {
         const hash = specHash(spec);
         if (this.store.release(hash, spec)) return;
         if (this.pendingPipelines.has(hash)) this.releasedWhilePending.add(spec);
+    }
+
+    async readCanvas(): Promise<CanvasPixels> {
+        const ctx = this.requireContext();
+        if (ctx.canvasContext === null) throw new Error('readCanvas(): sem canvas configurado.');
+        const texture = ctx.canvasContext.getCurrentTexture();
+        if ((texture.usage & GPUTextureUsage.COPY_SRC) === 0) {
+            throw new Error(
+                'readCanvas(): configure o canvas com `capture: true` (CanvasOptions).',
+            );
+        }
+        const { width, height, format } = texture;
+        const bytesPerPixel = format === 'rgba16float' ? 8 : 4;
+        const tight = width * bytesPerPixel;
+        const bytesPerRow = Math.ceil(tight / 256) * 256;
+        const buffer = ctx.device.createBuffer({
+            label: 'readCanvas',
+            size: bytesPerRow * height,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        try {
+            // A cópia sai na mesma tarefa do quadro (a textura atual do canvas ainda é a apresentada).
+            const encoder = ctx.device.createCommandEncoder({ label: 'readCanvas' });
+            encoder.copyTextureToBuffer(
+                { texture },
+                { buffer, bytesPerRow, rowsPerImage: height },
+                [width, height],
+            );
+            ctx.queue.submit([encoder.finish()]);
+            await buffer.mapAsync(GPUMapMode.READ);
+            const mapped = new Uint8Array(buffer.getMappedRange());
+            const data = new Uint8Array(tight * height);
+            for (let y = 0; y < height; y++)
+                data.set(mapped.subarray(y * bytesPerRow, y * bytesPerRow + tight), y * tight);
+            buffer.unmap();
+            return { width, height, format, bytesPerPixel, data };
+        } finally {
+            buffer.destroy();
+        }
     }
 
     async readback(spec: StagingBufferSpec): Promise<ArrayBuffer> {
@@ -479,15 +563,30 @@ export class GpuEngineCore implements EngineCore {
     async withErrorScope<T>(filter: GPUErrorFilter, body: () => T | Promise<T>): Promise<T> {
         const ctx = this.requireContext();
         ctx.device.pushErrorScope(filter);
+        let value: T | Promise<T>;
         try {
-            const result = await body();
-            const err = await ctx.device.popErrorScope();
-            if (err !== null) throw new Error(`[${filter}] ${err.message}`);
-            return result;
+            value = body();
         } catch (e) {
             await ctx.device.popErrorScope().catch(() => null);
             throw e;
         }
+        // Corpo síncrono: o escopo fecha na mesma tarefa, antes de qualquer outro abrir — os escopos de quem chama em
+        // seguida (o pipeline criado na preparação, a gravação do quadro) ficam aninhados, cada erro no seu.
+        if (!(value instanceof Promise)) {
+            const err = await ctx.device.popErrorScope();
+            if (err !== null) throw new Error(`[${filter}] ${err.message}`);
+            return value;
+        }
+        let result: T;
+        try {
+            result = await value;
+        } catch (e) {
+            await ctx.device.popErrorScope().catch(() => null);
+            throw e;
+        }
+        const err = await ctx.device.popErrorScope();
+        if (err !== null) throw new Error(`[${filter}] ${err.message}`);
+        return result;
     }
 
     async shaderMessages(spec: ShaderModuleSpec): Promise<readonly ShaderMessage[]> {
@@ -530,21 +629,16 @@ export class GpuEngineCore implements EngineCore {
 
     private applyCanvas(
         ctx: GpuContext,
-        canvas: HTMLCanvasElement | null,
+        surface: PresentationSurface | null,
         options: CanvasOptions | undefined,
     ): void {
-        if (canvas === null) {
-            ctx.canvas = null;
+        if (surface === null) {
+            ctx.surface = null;
             ctx.canvasContext = null;
             return;
         }
-        if (ctx.canvas !== canvas) {
-            const cctx = canvas.getContext('webgpu');
-            if (cctx === null)
-                throw new Error('GpuEngineCore: failed to get webgpu canvas context.');
-            ctx.canvas = canvas;
-            ctx.canvasContext = cctx;
-        }
+        ctx.surface = surface;
+        ctx.canvasContext = surface.context;
         this.configureCanvasContext(ctx, options);
     }
 
@@ -560,6 +654,9 @@ export class GpuEngineCore implements EngineCore {
             ctx.canvasContext!.configure({
                 device: ctx.device,
                 format,
+                ...(options?.capture === true
+                    ? { usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC }
+                    : {}),
                 alphaMode: options?.alphaMode ?? 'opaque',
                 ...(options?.colorSpace !== undefined ? { colorSpace: options.colorSpace } : {}),
                 ...(hdr ? { toneMapping: { mode: 'extended' } } : {}),

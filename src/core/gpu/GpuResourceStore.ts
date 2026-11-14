@@ -15,7 +15,11 @@ export type StoredGpuObject =
 export type StoredKind = 'buffer' | 'texture' | 'other';
 
 interface StoredEntry {
-    readonly obj: StoredGpuObject;
+    obj: StoredGpuObject;
+    /** A materialização do objeto: muda a cada objeto novo da entrada (criação ou `replace`). */
+    generation: number;
+    /** As entradas que o objeto cita (as de um bind group, a textura de uma vista), com a materialização de então. */
+    depends?: readonly { readonly hash: string; readonly generation: number }[];
     readonly kind: StoredKind;
     readonly bytes: number;
     readonly label?: string;
@@ -31,6 +35,7 @@ export type { MemoryUsageReport } from '../contracts/EngineCore';
  */
 export class GpuResourceStore {
     private readonly entries = new Map<string, StoredEntry>();
+    private generations = 0;
     private bufferBytes = 0;
     private textureBytes = 0;
 
@@ -63,12 +68,52 @@ export class GpuResourceStore {
             throw new Error(`GpuResourceStore: entrada ${hash} já existe — use retain()`);
         }
         const owners = new Set<object>([owner]);
+        const generation = ++this.generations;
         const entry: StoredEntry =
             label !== undefined
-                ? { obj, kind, bytes, label, owners }
-                : { obj, kind, bytes, owners };
+                ? { obj, generation, kind, bytes, label, owners }
+                : { obj, generation, kind, bytes, owners };
         this.entries.set(hash, entry);
         this.creditBytes(entry, 1);
+    }
+
+    /**
+     * As entradas que o objeto de `hash` cita (`hashes`), guardadas com a materialização atual de cada uma: quando uma
+     * delas é destruída e criada de novo com o mesmo conteúdo (o mesmo hash), o objeto que a cita fica velho
+     * (`stale`).
+     */
+    dependOn(hash: string, hashes: readonly string[]): void {
+        const entry = this.entries.get(hash);
+        if (entry === undefined) return;
+        entry.depends = hashes.map((h) => ({
+            hash: h,
+            generation: this.entries.get(h)?.generation ?? 0,
+        }));
+    }
+
+    /**
+     * O objeto de `hash` cita uma materialização que não existe mais — a entrada citada foi destruída e criada de novo
+     * (todas as citadas presentes, alguma com outra materialização)? Com uma citada ausente, não: ela não pode ser
+     * materializada de novo agora.
+     */
+    stale(hash: string): boolean {
+        const depends = this.entries.get(hash)?.depends;
+        if (depends === undefined) return false;
+        let changed = false;
+        for (const d of depends) {
+            const generation = this.entries.get(d.hash)?.generation;
+            if (generation === undefined) return false;
+            changed ||= generation !== d.generation;
+        }
+        return changed;
+    }
+
+    /** Troca o objeto da entrada de `hash` por `obj` (uma materialização nova; os donos ficam). */
+    replace(hash: string, obj: StoredGpuObject): void {
+        const entry = this.entries.get(hash);
+        if (entry === undefined) return;
+        entry.obj = obj;
+        entry.generation = ++this.generations;
     }
 
     /** Acrescenta `owner` à entrada existente (idempotente). Devolve `false` se não há entrada para `hash`. */

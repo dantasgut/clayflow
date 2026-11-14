@@ -1,4 +1,4 @@
-import { BoxGeometry, StandardMaterial, Transform, TransformFunction } from 'clayflow';
+import { BoxGeometry, StandardMaterial, Transform, TransformFunction } from 'clayflow/web';
 import { gridScatter, motionAt, type Placement } from '../../core/rng';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';

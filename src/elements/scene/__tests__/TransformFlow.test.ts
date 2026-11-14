@@ -26,8 +26,9 @@ function setup() {
 
 const composes = (trace: readonly string[]): number =>
     trace.filter((c) => c === 'compute:TransformFlow').length;
+/** Escritas do uniforme de parâmetros (descritor `transform_params` do Resource de trabalho; spec 039). */
 const paramWrites = (trace: readonly string[]): number =>
-    trace.filter((c) => c === 'write:transform_compose_params').length;
+    trace.filter((c) => c.startsWith('write:transform_params:')).length;
 
 describe('TransformFlow (slots)', () => {
     it('fica pronto quando os pools existem (reconciliado antes da gravação do quadro); antes não grava', () => {
@@ -84,14 +85,63 @@ describe('TransformFlow (slots)', () => {
         scene.events.on('bindGroupReplaced', (e) => replaced.push(e));
         for (let i = 0; i < 20; i++) scene.world.insert(new Transform());
         expect(composes(frame())).toBe(1);
-        // Os dois pipelines do estágio leem os pools: composição e nível da hierarquia.
-        expect(replaced.map((e) => e.pipeline).sort()).toEqual([
+        // Os pipelines do estágio leem os pools: composição, inversas (spec 037) e nível da hierarquia — religados
+        // pelo pool `Transform` e pela arena da GPU (T060i), que cresceram.
+        expect([...new Set(replaced.map((e) => e.pipeline))].sort()).toEqual([
             'transform_compose',
+            'transform_inverse',
             'transform_link',
         ]);
-        expect(
-            replaced[0]!.newSpec.bindings.map((b) => (b.kind === 'buffer' ? b.buffer : null)),
-        ).toContain(scene.resourceSystem.poolBufferSpec('WorldTransform'));
+        const buffers = replaced.flatMap((e) =>
+            e.newSpec.bindings.map((b) => (b.kind === 'buffer' ? b.buffer : null)),
+        );
+        expect(buffers).toContain(scene.resourceSystem.poolBufferSpec('Transform'));
+        expect(buffers).toContain(scene.resourceSystem.poolBufferSpec('WorldTransform'));
+    });
+
+    it('WorldInverse (spec 037): sem leitor, o pool fica com um elemento e as inversas não são despachadas', () => {
+        const { scene, frame } = setup();
+        for (let i = 0; i < 40; i++) scene.world.insert(new Transform());
+        const trace = frame();
+        expect(trace).not.toContain('compute:TransformFlow.inverse');
+        const info = scene.resourceSystem.poolInfo('WorldInverse')!;
+        expect(info.allocated).toBe(false);
+        expect(info.buffer.byteSize).toBe(Transform.worldInverseSchema.stride);
+        expect(info.count).toBe(40);
+    });
+
+    it('WorldInverse: pedido por um leitor, aloca a capacidade, recompõe e despacha as inversas depois do mundo', () => {
+        const { scene, frame } = setup();
+        for (let i = 0; i < 3; i++) scene.world.insert(new Transform());
+        frame();
+        expect(frame()).not.toContain('compute:TransformFlow.inverse');
+        // Na arena da GPU (T060i): a região com a capacidade inteira.
+        const buffer = scene.resourceSystem.ensurePoolAllocated('WorldInverse')!;
+        const info = scene.resourceSystem.poolInfo('WorldInverse')!;
+        expect(buffer.discriminator).toMatch(/^pool_arena_gpu/);
+        expect(info.size).toBeGreaterThanOrEqual(
+            Transform.worldInverseSchema.stride * info.capacity,
+        );
+        const trace = frame();
+        const compose = trace.indexOf('compute:TransformFlow');
+        const inverse = trace.indexOf('compute:TransformFlow.inverse');
+        expect(compose).toBeGreaterThanOrEqual(0);
+        expect(inverse).toBeGreaterThan(compose);
+        // Cena parada: nem composição nem inversas.
+        expect(frame()).not.toContain('compute:TransformFlow.inverse');
+    });
+
+    it('o shader das inversas usa a afim canônica e lê o mundo', () => {
+        const { flow } = setup();
+        const desc = flow.pipelines.find((p) => p.id === 'transform_inverse')!;
+        const composed = composeWgsl(desc.shader);
+        expect(composed.modules).toContain('xform_affine');
+        // Pela arena da GPU (T060i): a escrita e a leitura do campo pelos acessores, numa ligação só.
+        expect(composed.spec.source).toContain(
+            'world_inverses_store_inverse(i, affine_inverse(worlds_at_world(i)));',
+        );
+        expect(composed.bindings.filter((b) => b.name === 'pool_arena_gpu')).toHaveLength(1);
+        expect(composed.spec.source).toContain('var<storage, read_write> pool_arena_gpu');
     });
 
     it('o shader monta sem erro e consome os pools certos', () => {
@@ -102,10 +152,12 @@ describe('TransformFlow (slots)', () => {
             'quat',
             'linalg',
             'mat',
+            'xform_trs',
             'transform_local',
             'const:WORKGROUP_SIZE',
             'transforms',
-            'worlds',
+            'pool_arena_gpu',
+            'pool_arena_worlds_rw',
             'params',
             'transform_compose',
         ]);
@@ -113,18 +165,19 @@ describe('TransformFlow (slots)', () => {
         expect(composed.spec.source).toContain(Transform.worldSchema.toWGSL());
         // Os pools vêm dos fornecedores dos recursos declarados (spec 031).
         expect(composed.bindings.map((b) => [b.name, b.resource.resource.provider])).toEqual([
-            ['params', 'private'],
+            ['pool_arena_gpu', { consumer: 'PoolArenaGpu' }],
+            ['params', { slot: 'work', descriptor: 'transform_params' }],
             ['transforms', { pool: Transform.schema.name }],
-            ['worlds', { pool: Transform.worldSchema.name }],
         ]);
     });
 
-    it('dispose libera o uniform de parâmetros', () => {
+    it('dispose libera o uniform de parâmetros (do Resource de trabalho, pela C2)', () => {
         const { scene, core } = setup();
         scene.dispose();
-        expect(core.destroy).toHaveBeenCalledWith(
-            expect.objectContaining({ discriminator: 'transform_compose_params' }),
-        );
+        const destroyed = (
+            core.destroy as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls.map(([spec]) => (spec as { discriminator?: string }).discriminator ?? '');
+        expect(destroyed.some((d) => d.startsWith('transform_params:'))).toBe(true);
     });
 });
 

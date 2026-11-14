@@ -17,7 +17,7 @@ import {
     Sky,
     StandardMaterial,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import { settle } from './support/extensionScenes';
 import { hdrAt, readHdrTexture, type HdrImage } from './support/imageMeasures';
 import {
@@ -26,6 +26,7 @@ import {
     skyRadiance,
     type Vec3,
 } from '../elements/scene/reference/atmosphere';
+import { luminanceLinear } from './support/images';
 
 function log(msg: string): void {
     console.log(`[sky] ${msg}`);
@@ -50,6 +51,9 @@ async function skyApp(): Promise<{ app: Application; canvas: HTMLCanvasElement }
     canvas.height = SIZE;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -161,10 +165,10 @@ async function caseReference(): Promise<void> {
             if (dir[1] < Math.sin((12 * Math.PI) / 180)) continue;
             const ref = skyRadiance(atm, 0.2, dir, sunToward(60), 200, ms).map((c) => c * SUN_LUX);
             const got = hdrAt(img, px, py);
-            const lum = (c: readonly number[]): number =>
-                0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
             // Erro por canal relativo à luminância (os canais fracos não dominam).
-            const err = Math.max(...[0, 1, 2].map((k) => Math.abs(got[k]! - ref[k]!))) / lum(ref);
+            const err =
+                Math.max(...[0, 1, 2].map((k) => Math.abs(got[k]! - ref[k]!)))
+                / luminanceLinear(ref);
             maxErr = Math.max(maxErr, err);
             sumErr += err;
             n++;
@@ -208,7 +212,7 @@ async function caseSunset(): Promise<void> {
         const img = await renderHdr(app, 300);
         const c = hdrAt(img, SIZE / 2, SIZE / 2);
         ratios.push(c[0] / c[2]);
-        levels.push(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]);
+        levels.push(luminanceLinear(c));
     }
     log(
         `sunset: vermelho/azul ${ratios.map((r) => r.toFixed(3)).join(' → ')}; luminância ${levels.map((l) => l.toFixed(2)).join(' → ')}`,

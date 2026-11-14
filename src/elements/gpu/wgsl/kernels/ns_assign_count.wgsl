@@ -23,23 +23,22 @@ fn ns_assign_count_main(
 
     let origin    = ns_params.origin;
     let cell_size = ns_params.cell_size;
-    let gx = ns_params.grid_x;
-    let gy = ns_params.grid_y;
-    let gz = ns_params.grid_z;
+    let table = vec3u(ns_params.grid_x, ns_params.grid_y, ns_params.grid_z);
+    let domain = vec3u(ns_params.domain_x, ns_params.domain_y, ns_params.domain_z);
 
-    // Coordenadas de célula
-    let ix = i32(floor((px - origin.x) / cell_size));
-    let iy = i32(floor((py - origin.y) / cell_size));
-    let iz = i32(floor((pz - origin.z) / cell_size));
+    // Coordenadas da grade do domínio e a célula da tabela.
+    let q = vec3i(floor((vec3f(px, py, pz) - origin) / cell_size));
+    let cell = ns_table_cell(q, domain, table);
 
-    // Fora do volume → célula inválida (não contribui para o neighbor search)
-    if (ix < 0 || iy < 0 || iz < 0
-     || u32(ix) >= gx || u32(iy) >= gy || u32(iz) >= gz) {
-        cell_ids[i] = NS_INVALID_CELL;
+    // Fora do domínio → a célula extra depois da tabela: nunca vizinha de ninguém, mas na ordem por célula (quem roda
+    // nessa ordem a processa).
+    if (cell == NONE) {
+        let outside = table.x * table.y * table.z;
+        cell_ids[i] = outside;
+        atomicAdd(&cell_count[outside], 1u);
         return;
     }
 
-    let cell = u32(ix) + u32(iy) * gx + u32(iz) * gx * gy;
     cell_ids[i] = cell;
     atomicAdd(&cell_count[cell], 1u);
 }

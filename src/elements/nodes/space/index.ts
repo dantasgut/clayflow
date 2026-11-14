@@ -42,6 +42,24 @@ const inverse = defineNode({
     fn: 'node_space_inverse',
 });
 
+/** Inversa de uma matriz rígida (rotação + translação, sem escala): `[R | t]⁻¹ = [Rᵀ | −Rᵀ·t]`, exata. */
+const inverseRigid = defineNode({
+    name: 'space.inverseRigid',
+    inputs: { m: 'mat4x4f' },
+    outputs: { value: 'mat4x4f' },
+    code: nodeSpace,
+    fn: 'node_space_inverse_rigid',
+});
+
+/** Inversa de uma 4×4 geral (projeções; cofatores). */
+const inverseProjective = defineNode({
+    name: 'space.inverseProjective',
+    inputs: { m: 'mat4x4f' },
+    outputs: { value: 'mat4x4f' },
+    code: nodeSpace,
+    fn: 'node_space_inverse_projective',
+});
+
 /** Projeção com divisão perspectiva: `clip = m · (p, 1)`, devolve `clip.xyz / clip.w` (NDC). */
 const project = defineNode({
     name: 'space.project',
@@ -51,5 +69,16 @@ const project = defineNode({
     fn: 'node_space_project',
 });
 
-/** Conversões de espaço: ponto, direção, normal, inversa afim, projeção. */
-export const space = { point, direction, normal, inverse, project } as const;
+/**
+ * Conversões de espaço: ponto, direção, normal, as inversas por classe (afim, rígida, projetiva — a classe é escolhida
+ * pelo nó, na montagem do grafo; spec 037, R3) e a projeção.
+ */
+export const space = {
+    point,
+    direction,
+    normal,
+    inverse,
+    inverseRigid,
+    inverseProjective,
+    project,
+} as const;

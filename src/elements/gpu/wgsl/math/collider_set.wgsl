@@ -90,6 +90,55 @@ fn collider_set_push_out(p: ptr<function, vec3f>, v: ptr<function, vec3f>, radiu
     }
 }
 
+// Menor distância com sinal de `p` aos colliders (plano, caixa, esfera, superfície); 3e38 sem nenhum.
+fn collider_set_distance(p: vec3f) -> f32 {
+    var d = 3.0e38;
+    for (var i = 0u; i < collider_counts.plane_count; i++) { d = min(d, collider_hit_plane(i, p).dist); }
+    for (var i = 0u; i < collider_counts.box_count; i++) { d = min(d, collider_hit_box(i, p).dist); }
+    for (var i = 0u; i < collider_counts.sphere_count; i++) { d = min(d, collider_hit_sphere(i, p).dist); }
+    for (var i = 0u; i < collider_counts.surface_count; i++) {
+        let first = surface_collider_first(i);
+        d = min(d, collider_hit_surface(first, p).dist - surface_collider_margin(first));
+    }
+    return d;
+}
+
+// Colisão contínua de uma partícula que andou de `start` (centro fora dos colliders) até `end` no passo: se o centro
+// entra num sólido em algum ponto do trajeto (no fim ou no meio — a partícula rápida atravessa um sólido fino, ou a
+// quina dele, e sai do outro lado; e a partícula encostada num canto, que o empurrão comum pode jogar pela face de
+// fora), acha o primeiro ponto em que o centro chega à superfície (amostras em oitavos do trajeto, depois bissecção de
+// 12 iterações) e segue dele com o resto do deslocamento sem a parte que entra no sólido (normal pela diferença central
+// da distância); o empurrão comum completa até o raio `radius`. A partícula com o centro sempre fora passa direto, sem
+// perder o deslize.
+fn collider_set_sweep(start: vec3f, end: vec3f, radius: f32) -> vec3f {
+    // Um passo menor que o raio não atravessa nada que o empurrão comum não resolva: a busca só para os rápidos.
+    if (dot(end - start, end - start) <= radius * radius || collider_set_distance(start) < 0.0) { return end; }
+    // O primeiro oitavo do trajeto com o centro dentro de um sólido.
+    var hi = 2.0;
+    for (var k = 1u; k <= 8u; k++) {
+        let t = f32(k) / 8.0;
+        if (collider_set_distance(mix(start, end, t)) < 0.0) {
+            hi = t;
+            break;
+        }
+    }
+    if (hi > 1.0) { return end; }
+    var lo = 0.0;
+    for (var k = 0u; k < 12u; k++) {
+        let mid = 0.5 * (lo + hi);
+        if (collider_set_distance(mix(start, end, mid)) >= 0.0) { lo = mid; } else { hi = mid; }
+    }
+    let touch = mix(start, end, lo);
+    let e = 0.25 * radius;
+    let n = normalize(vec3f(
+        collider_set_distance(touch + vec3f(e, 0.0, 0.0)) - collider_set_distance(touch - vec3f(e, 0.0, 0.0)),
+        collider_set_distance(touch + vec3f(0.0, e, 0.0)) - collider_set_distance(touch - vec3f(0.0, e, 0.0)),
+        collider_set_distance(touch + vec3f(0.0, 0.0, e)) - collider_set_distance(touch - vec3f(0.0, 0.0, e)),
+    ) + vec3f(0.0, 1e-20, 0.0));
+    let rest = end - touch;
+    return touch + rest - min(dot(rest, n), 0.0) * n;
+}
+
 // Nó de grade a menos de `band` da superfície (ou dentro): remove a componente normal entrante da velocidade
 // (deslizamento livre). A faixa de uma célula mantém as partículas fora do collider sem mover posições (o volume
 // das partículas fica coerente com o J).
@@ -166,3 +215,4 @@ fn collider_set_adhesion(
         collider_adhesion_contact(collider_hit_surface(surface_collider_first(i), p), v, H, accel, tangential, dt);
     }
 }
+

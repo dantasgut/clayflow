@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / BoxGeometryData
+[clayflow](../../modules.md) / [elements](../README.md) / BoxGeometryData
 
 # Interface: BoxGeometryData
 
-Defined in: [elements/geometry/BoxGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/BoxGeometry.ts#L8)
+Defined in: [src/elements/geometry/BoxGeometry.ts:8](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/BoxGeometry.ts#L8)
 
 Dado de uma `BoxGeometry`.
 
@@ -20,7 +20,7 @@ Dado de uma `BoxGeometry`.
 
 > **indexCount**: `number`
 
-Defined in: [elements/geometry/BoxGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/BoxGeometry.ts#L12)
+Defined in: [src/elements/geometry/BoxGeometry.ts:12](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/BoxGeometry.ts#L12)
 
 Número de índices.
 
@@ -28,9 +28,9 @@ Número de índices.
 
 ### indices?
 
-> `optional` **indices?**: `Uint16Array`\<`ArrayBufferLike`\> \| `Uint32Array`\<`ArrayBufferLike`\>
+> `optional` **indices?**: `Uint32Array`\<`ArrayBufferLike`\> \| `Uint16Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L19)
+Defined in: [src/elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/Geometry.ts#L19)
 
 Índices de triângulo.
 
@@ -44,7 +44,7 @@ Defined in: [elements/geometry/Geometry.ts:19](https://github.com/dantasgut/clay
 
 > **size**: readonly `number`[]
 
-Defined in: [elements/geometry/BoxGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/BoxGeometry.ts#L14)
+Defined in: [src/elements/geometry/BoxGeometry.ts:14](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/BoxGeometry.ts#L14)
 
 Tamanho.
 
@@ -54,7 +54,7 @@ Tamanho.
 
 > **vertexCount**: `number`
 
-Defined in: [elements/geometry/BoxGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/BoxGeometry.ts#L10)
+Defined in: [src/elements/geometry/BoxGeometry.ts:10](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/BoxGeometry.ts#L10)
 
 Número de vértices.
 
@@ -64,7 +64,7 @@ Número de vértices.
 
 > `optional` **vertices?**: `Float32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L17)
+Defined in: [src/elements/geometry/Geometry.ts:17](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/Geometry.ts#L17)
 
 Vértices intercalados (posição, normal, uv).
 
@@ -78,7 +78,7 @@ Vértices intercalados (posição, normal, uv).
 
 > `optional` **wireEdges?**: `Uint32Array`\<`ArrayBufferLike`\>
 
-Defined in: [elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/geometry/Geometry.ts#L24)
+Defined in: [src/elements/geometry/Geometry.ts:24](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/geometry/Geometry.ts#L24)
 
 Arestas de arame (spec 008): pares de índices de vértice em espaço de objeto — o que o `WireframeMaterial` desenha
 (de feição nas geometrias estáticas: sem as diagonais de faces planas).

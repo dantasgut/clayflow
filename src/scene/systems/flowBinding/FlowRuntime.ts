@@ -4,18 +4,23 @@ import type {
     EngineCore,
     StorageBufferSpec,
 } from '../../../core/contracts/index';
-import type { ResolvedSource } from '../../consumers/ResolvedSource';
+import type { BindableBufferSpec, ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
 import type { PoolDirectory } from '../../contracts/PoolDirectory';
 import type { Resource } from '../../contracts/Resource';
+import type { Entity } from '../../contracts/Entity';
 import type { PipelineDescriptor } from '../../descriptors/PipelineDescriptor';
 import type { Schema } from '../../descriptors/Schema';
 import type { PointImplementation } from '../../shaders/WgslPoint';
+import { bindPoints, type BindablePoint } from '../../shaders/bindPoints';
+import type { WgslModule } from '../../shaders/WgslModule';
+import { isArenaReader, poolArenaReaderOf, type PoolArenaKind } from '../../shaders/poolArena';
 import type { WgslResource } from '../../shaders/WgslResource';
 import type { EventBus } from '../../events/EventBus';
 import { deliverFlowEvent, flowHandles, setFlowLifecycle, type Flow } from '../../flows/Flow';
 import { FlowBindingError } from '../../flows/FlowBindingError';
-import { bindingKeyParts } from '../../flows/FlowBinding';
+import { bindingKeyParts, type BindingKey } from '../../flows/FlowBinding';
+import { FlowWork } from '../../flows/FlowWork';
 import type {
     BindingSource,
     BindingSources,
@@ -28,11 +33,14 @@ import type {
 import type { RegisterOptions } from '../../flows/FlowRegistry';
 import type { FlowEvent } from '../../flows/FlowTransitions';
 import type {
+    BoundChannel,
     BoundEntities,
     BoundPool,
     BoundSingleton,
     BoundTarget,
     BoundTexture,
+    BoundWork,
+    ChannelSlot,
     EntitiesSlot,
     EntityEntry,
     EntityRecordDeclaration,
@@ -45,9 +53,11 @@ import type { EntityId } from '../../world/EntityId';
 import type { LayoutInferencer, InferredEntry } from '../LayoutInferencer';
 import type { ResourceDirectory } from '../../contracts/ResourceDirectory';
 import { EntityGroups, type GroupMember, type InstanceListHost } from './EntityGroups';
+import type { PendingWork } from '../../events/EventMap';
 import { PipelineState } from './PipelineState';
 import type { ScenePoints } from './ScenePoints';
 import { normalizeSource } from './sources';
+import { boundChannelOf, channelSourceOf } from './channelBinding';
 
 /** O que o runtime de um Flow usa da C2 (implementado pelo `ResourceSystem`). */
 export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
@@ -57,6 +67,8 @@ export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
     releaseOwnership(owner: object, resource: Resource, descId: string): void;
     markProduced(owner: object, resource: Resource, descId: string, produced: boolean): void;
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
+    /** Põe o pool na arena `kind` (T060i): o pipeline o acessa pela arena com `pools` no descritor. */
+    poolIntoArena(poolKey: string, kind?: PoolArenaKind): void;
 }
 
 /** O que o runtime de um Flow usa da cena. */
@@ -80,6 +92,13 @@ export interface FlowRuntimeHost {
 export class FlowRuntime {
     /** Algo mudou desde o último `reconcile` (fontes, slots, compilação). */
     dirty = true;
+    /** Slot obrigatório sem valor na última reconciliação (`undefined` com todos resolvidos). */
+    private missingSlot: string | undefined;
+    /**
+     * O recurso do slot ausente está no mundo (avaliado na reconciliação, que roda a cada mudança da cena — nenhuma
+     * consulta ao mundo por quadro).
+     */
+    private missingPresent = false;
     private readonly slotValues: Record<string, unknown> = {};
     /** Fontes privadas por recurso (todos os pipelines). */
     private readonly privates = new Map<WgslResource, BindingSource>();
@@ -87,6 +106,10 @@ export class FlowRuntime {
     private readonly pipelinePrivates = new Map<string, Map<WgslResource, BindingSource>>();
     private readonly pipelineStates = new Map<string, PipelineState>();
     private readonly entitySets = new Map<string, Map<EntityId, SetEntry>>();
+    /** O Resource de trabalho de cada slot `work`, inserido no World com o Flow (spec 039). */
+    private readonly works = new Map<string, Resource>();
+    /** Kernels preparados pelas partes do trabalho (o número do id de cada um). */
+    private workKernels = 0;
     private readonly poolViews = new Map<string, BoundPool>();
     private readonly entityViews = new Map<string, BoundEntities>();
     /** Lista das entradas por slot, refeita só quando o conjunto muda. */
@@ -110,6 +133,10 @@ export class FlowRuntime {
     private readonly nextStates = new Map<string, PipelineState>();
     private readonly swapQueue: string[] = [];
     private readonly nextRejected: string[] = [];
+    /** `epoch` de cada canal dos slots na última resolução (spec 037). */
+    private readonly channelEpochs = new Map<BoundChannel, number>();
+    /** Visão de cada canal resolvido (estável: a identidade do slot). */
+    private readonly channelViews = new WeakMap<object, BoundChannel>();
     /** Identidade dos slots opcionais na última resolução. */
     private readonly slotIdentity = new Map<string, unknown>();
     /** Slots opcionais que mudaram na última resolução. */
@@ -136,6 +163,7 @@ export class FlowRuntime {
             if (decl.kind === 'pool') pools.add(decl.poolKey);
             else if (decl.kind === 'bodies') pools.add(this.bodyType());
             else if (decl.kind === 'pools') for (const k of decl.poolKeys) pools.add(k);
+            else if (decl.kind === 'channel' && decl.poolKey !== undefined) pools.add(decl.poolKey);
         }
         this.slotPools = pools;
         const decls = Object.values(flow.slots);
@@ -143,6 +171,13 @@ export class FlowRuntime {
         this.hasEntities = decls.some((d) => d.kind === 'entities');
         this.wantsFrameRecorded = flowHandles(flow, 'frameRecorded');
         this.wantsFramePrepare = flowHandles(flow, 'framePrepare');
+        // O Resource de trabalho de cada `slot.work` entra no World com o Flow (spec 039) e sai no `dispose`.
+        for (const [name, decl] of Object.entries(flow.slots)) {
+            if (decl.kind !== 'work') continue;
+            const resource = decl.create();
+            this.works.set(name, resource);
+            host.world.insert(resource as unknown as Entity);
+        }
         for (const [name, decl] of Object.entries(flow.slots)) {
             if (decl.kind !== 'entities') continue;
             if (decl.record !== undefined)
@@ -181,6 +216,52 @@ export class FlowRuntime {
                 this.host.resources.markProduced(this.flow, resource, descId, produced);
             },
         };
+        // As partes do trabalho de cada `slot.work` preparam e ligam pelos pipelines deste Flow (T060g).
+        for (const work of this.works.values()) {
+            if (!(work instanceof FlowWork)) continue;
+            work.attachPipelines({
+                prepare: (descriptor) => {
+                    this.prepare(descriptor, false);
+                },
+                bind: (sources) => {
+                    this.bindPrivates(sources);
+                },
+                release: (id) => {
+                    this.releasePipeline(id);
+                },
+                kernel: (spec) => {
+                    const id = `${spec.discriminator}#${this.workKernels++}`;
+                    const sources = new Map<BindingKey, BindingSource>();
+                    for (const [key, source] of spec.bindings)
+                        sources.set(
+                            { pipeline: id, resource: bindingKeyParts(key).resource },
+                            source,
+                        );
+                    this.bindPrivates(sources);
+                    this.prepare(
+                        {
+                            id,
+                            role: 'compute',
+                            shader: spec.shader,
+                            entryPoints: [spec.entryPoint],
+                            ...(spec.constants === undefined ? {} : { constants: spec.constants }),
+                        },
+                        false,
+                    );
+                    return id;
+                },
+                compute: (id) => this.workCompute(id),
+                use: (binder, id, offsets) => {
+                    const kernel = this.workCompute(id);
+                    if (kernel === undefined)
+                        throw new Error(
+                            `Flow '${this.flow.type}': kernel '${id}' não está pronto.`,
+                        );
+                    binder.setPipeline(kernel.spec);
+                    kernel.bindTo(binder, offsets);
+                },
+            });
+        }
     }
 
     /** Tipo de corpo do registro (`slot.bodies()`). */
@@ -211,9 +292,14 @@ export class FlowRuntime {
      * Resolve slots, prepara e atualiza pipelines e muda o ciclo de vida. Idempotente; trabalha só quando `dirty`.
      */
     reconcile(force = false): void {
-        if (this.flow.lifecycle === 'disposed' || (!this.dirty && !force)) return;
+        if (this.flow.lifecycle === 'disposed') return;
+        // Fatias de canal recriadas (redimensionamento, `redescribe`, crescimento): as fontes mudam (spec 037).
+        if (!this.dirty && !force && !this.channelsMoved()) return;
         this.dirty = false;
         const missing = this.resolveSlots();
+        this.missingSlot = missing;
+        this.missingPresent =
+            missing !== undefined && this.slotResourcePresent(this.flow.slots[missing]!);
         if (missing !== undefined) {
             if (this.flow.lifecycle !== 'pending') {
                 this.leave('pending');
@@ -295,6 +381,12 @@ export class FlowRuntime {
         } else if (this.flow.lifecycle === 'ready' && !declaredReady) {
             this.leave('preparing');
         }
+    }
+
+    /** Algum canal ligado trocou de fatias (o `epoch` mudou) desde a última resolução? */
+    private channelsMoved(): boolean {
+        for (const [channel, epoch] of this.channelEpochs) if (channel.epoch !== epoch) return true;
+        return false;
     }
 
     /** Quadro prestes a ser gravado: entrega `framePrepare` ao Flow pronto que declara o evento. */
@@ -508,6 +600,9 @@ export class FlowRuntime {
         }
         setFlowLifecycle(this.flow, 'disposed');
         this.flow.dispose();
+        for (const resource of this.works.values())
+            this.host.world.remove(resource as unknown as Entity);
+        this.works.clear();
     }
 
     private leave(to: 'pending' | 'preparing'): void {
@@ -580,7 +675,56 @@ export class FlowRuntime {
                 this.rejectedQueue.push(s.id);
                 this.dirty = true;
             },
+            (s, message) => {
+                this.pipelineFailed(s, message);
+            },
         );
+    }
+
+    /** Compilação ou conferência que falhou no device: vira `engineError` com o nome do Flow e do pipeline. */
+    private pipelineFailed(state: PipelineState, message: string): void {
+        if (this.flow.lifecycle === 'disposed') return;
+        this.host.events.emit('engineError', {
+            stage: 'pipeline',
+            filter: 'internal',
+            message: `Flow '${this.flow.type}', pipeline '${state.id}': ${message}`,
+        });
+        this.dirty = true;
+    }
+
+    /**
+     * O que este Flow ainda espera para o quadro sair completo (prontidão do motor, spec 034): pipelines sem fonte,
+     * em conferência ou compilando, e trocas pela composição nova da cena ainda não concluídas. Flow sem os slots
+     * obrigatórios (`pending`) não entra: o recurso que ele desenha não está na cena.
+     */
+    pendingWork(): PendingWork[] {
+        const l = this.flow.lifecycle;
+        if (l === 'pending') {
+            // Sem um slot obrigatório: só conta se o recurso dele já está na cena (falta o envio, o pool ou o que outro
+            // Flow produz); ausente da cena, o Flow não tem o que fazer.
+            const name = this.missingSlot;
+            if (name === undefined || !this.missingPresent) return [];
+            return [{ flow: this.flow.type, pipeline: `slot:${name}`, reason: 'waiting', name }];
+        }
+        if (l !== 'preparing' && l !== 'ready') return [];
+        const out: PendingWork[] = [];
+        for (const state of this.pipelineStates.values()) {
+            const reason = state.pending;
+            if (reason === undefined) continue;
+            out.push({
+                flow: this.flow.type,
+                pipeline: state.id,
+                reason,
+                ...(reason === 'waiting' && state.missing !== undefined
+                    ? { name: state.missing }
+                    : {}),
+            });
+        }
+        for (const [id, next] of this.nextStates) {
+            if (next.rejected !== null || next.failed !== null) continue;
+            out.push({ flow: this.flow.type, pipeline: id, reason: 'swapping' });
+        }
+        return out;
     }
 
     private releasePipeline(id: string): void {
@@ -591,10 +735,30 @@ export class FlowRuntime {
         this.nextStates.get(id)?.release();
         this.nextStates.delete(id);
         this.baseDescriptors.delete(id);
+        this.pipelinePrivates.delete(id);
+    }
+
+    /**
+     * O descritor com os pools trocados nos leitores da arena (T060i): o pool vai para a arena e o leitor, no shader,
+     * dá lugar ao que lê a região dele (o mesmo nome e o mesmo struct).
+     */
+    private withArenaPools(descriptor: PipelineDescriptor): PipelineDescriptor {
+        const pools = descriptor.pools;
+        if (pools === undefined) return descriptor;
+        const swaps = new Map<BindablePoint, WgslModule>();
+        for (const [key, pool] of pools) {
+            if (!isArenaReader(key)) continue;
+            this.host.resources.poolIntoArena(pool, key.arenaRead.kind);
+            swaps.set({ name: key.name, ready: key }, poolArenaReaderOf(key, pool));
+        }
+        return swaps.size === 0
+            ? descriptor
+            : { ...descriptor, shader: bindPoints(descriptor.shader, swaps) };
     }
 
     /** O descritor com as funções de cena dos pontos que o shader contém (conferido pelo compilador, com elas). */
-    private withScene(descriptor: PipelineDescriptor): PipelineDescriptor {
+    private withScene(base: PipelineDescriptor): PipelineDescriptor {
+        const descriptor = this.withArenaPools(base);
         const bound = this.host.scenePoints.bind(descriptor.shader, (fns, message) => {
             // A composição não monta neste kernel (ex.: símbolo da função em conflito com o do solver): a cena anuncia,
             // e o pipeline segue com o pronto.
@@ -647,6 +811,14 @@ export class FlowRuntime {
                 (s) => {
                     this.nextRejected.push(s.id);
                     this.dirty = true;
+                },
+                (s, message) => {
+                    // A troca falhou: o atual continua, como na rejeição.
+                    this.pipelineFailed(s, message);
+                    if (this.nextStates.get(s.id) === s) {
+                        s.release();
+                        this.nextStates.delete(s.id);
+                    }
                 },
             );
             this.nextStates.set(id, next);
@@ -713,7 +885,12 @@ export class FlowRuntime {
 
     /** Fonte de um recurso fornecido por um slot do Flow (spec 031). */
     private slotSource(
-        provider: { readonly slot: string; readonly part?: string; readonly descriptor?: string },
+        provider: {
+            readonly slot: string;
+            readonly part?: string;
+            readonly descriptor?: string;
+            readonly lag?: number;
+        },
         entry: InferredEntry,
         state: PipelineState,
     ): ResolvedSource | undefined {
@@ -732,22 +909,44 @@ export class FlowRuntime {
             b: StorageBufferSpec | AnyBufferSpec | undefined,
         ): ResolvedSource | undefined =>
             b === undefined ? undefined : normalizeSource(b as BindingSource);
+        // O pool (ou os vivos dele) pela faixa: na arena de pools (T060i), a região, não o buffer inteiro.
+        const pooled = (pool: BoundPool | undefined, live: boolean): ResolvedSource | undefined => {
+            if (pool === undefined) return undefined;
+            const r = this.host.resources;
+            if (live) return r.poolLiveSource(pool.poolKey);
+            const info = r.poolInfo(pool.poolKey);
+            if (info === undefined) return undefined;
+            return info.offset === 0 && info.size === info.buffer.byteSize
+                ? { kind: 'buffer', buffer: info.buffer }
+                : { kind: 'buffer', buffer: info.buffer, offset: info.offset, size: info.size };
+        };
         switch (decl.kind) {
             case 'pool':
-            case 'bodies': {
-                const pool = value as BoundPool;
-                return buffer(provider.part === 'live' ? pool.live : pool.buffer);
-            }
+            case 'bodies':
+                return pooled(value as BoundPool, provider.part === 'live');
             case 'entities': {
                 const set = value as BoundEntities;
-                const pool = provider.part === 'instances' ? set.instances : set.records;
-                return buffer(pool?.buffer);
+                return pooled(provider.part === 'instances' ? set.instances : set.records, false);
             }
-            case 'singleton': {
+            case 'singleton':
+            case 'work': {
                 const single = value as BoundSingleton;
                 const d = provider.descriptor;
                 if (d === undefined) return undefined;
                 const b = single.bufferOf(d);
+                const stride = this.host.resources.regionStrideOf(single.resource, d);
+                if (b !== undefined && stride !== undefined) {
+                    // Uniforme por região (spec 039): uma região do schema por ligação, escolhida pelo offset dinâmico.
+                    const schema = single.resource
+                        .getDescriptors()
+                        .find((x) => x.id === d)!.schema!;
+                    return {
+                        kind: 'buffer',
+                        buffer: b as BindableBufferSpec,
+                        size: schema.stride,
+                        dynamic: { stride },
+                    };
+                }
                 if (b !== undefined) return buffer(b);
                 const view = single.textureViewOf(d);
                 if (view !== undefined) return normalizeSource(view);
@@ -756,6 +955,24 @@ export class FlowRuntime {
             }
             case 'texture':
                 return normalizeSource((value as BoundTexture).view);
+            case 'channel': {
+                const channel = value as BoundChannel;
+                // Fatias ainda não pedidas (`ensureAllocated`): o pipeline espera.
+                if (!channel.allocated) return undefined;
+                // A série por páginas (spec 034, T060a): os carimbos e o relógio pelas partes do slot.
+                if (provider.part === 'stamps' || provider.part === 'clock') {
+                    const buffer =
+                        provider.part === 'stamps' ? channel.paged?.stamps : channel.paged?.clock;
+                    if (buffer === undefined || buffer.subkind === 'staging') return undefined;
+                    return { kind: 'buffer', buffer };
+                }
+                return {
+                    kind: 'channel',
+                    channel: channelSourceOf(channel, `${this.flow.type}.${provider.slot}`),
+                    lag: provider.lag ?? 0,
+                    epoch: channel.epoch,
+                };
+            }
             default:
                 throw new FlowBindingError(
                     `recurso '${entry.name}' do Flow '${this.flow.type}': o slot '${provider.slot}' (${decl.kind}) não fornece dado de shader.`,
@@ -785,6 +1002,14 @@ export class FlowRuntime {
             newSpec,
         });
     };
+
+    /** O kernel de compute `id` pronto (das partes do trabalho), ou `undefined`. */
+    private workCompute(id: string): PreparedCompute | undefined {
+        const state = this.pipelineStates.get(id);
+        if (state?.role !== 'compute') return undefined;
+        const prepared = state.asPrepared();
+        return prepared.ready ? (prepared as PreparedCompute) : undefined;
+    }
 
     private preparedOf(id: string, role: 'compute' | 'render'): PreparedPipeline {
         const state = this.pipelineStates.get(id);
@@ -831,14 +1056,40 @@ export class FlowRuntime {
         }
     }
 
+    /** O recurso de que o slot depende está no mundo (ainda que sem pool, textura ou envio)? */
+    private slotResourcePresent(decl: SlotDeclaration): boolean {
+        const world = this.host.world;
+        const has = (schemaName: string): boolean => world.queryBySchemaName(schemaName).length > 0;
+        switch (decl.kind) {
+            case 'pool':
+                return has(decl.poolKey);
+            case 'bodies':
+                return has(this.bodyType());
+            case 'singleton':
+                return has(decl.schema.name);
+            case 'texture':
+                return has(decl.schema.name);
+            case 'channel':
+                return has(decl.poolKey ?? decl.schema!.name);
+            case 'target':
+            case 'work':
+                return true;
+            case 'pools':
+            case 'entities':
+                return false;
+        }
+    }
+
     private isRequired(decl: SlotDeclaration): boolean {
         switch (decl.kind) {
             case 'pool':
             case 'singleton':
             case 'texture':
+            case 'channel':
                 return !decl.optional;
             case 'bodies':
             case 'target':
+            case 'work':
                 return true;
             case 'pools':
             case 'entities':
@@ -862,8 +1113,12 @@ export class FlowRuntime {
                 return this.entitiesView(name);
             case 'texture':
                 return this.textureOf(decl);
+            case 'channel':
+                return this.channelOf(decl);
             case 'target':
                 return this.targetOf(decl.color, decl.depth, decl.samples);
+            case 'work':
+                return this.workView(name);
         }
     }
 
@@ -907,6 +1162,24 @@ export class FlowRuntime {
             this.poolViews.set(poolKey, view);
         }
         return view;
+    }
+
+    /** O Resource de trabalho do slot `name` como singleton, com o stride das regiões (spec 039). */
+    private workView(name: string): BoundWork | undefined {
+        const resource = this.works.get(name);
+        if (resource === undefined) return undefined;
+        const r = this.host.resources;
+        return {
+            ...this.singletonView(resource),
+            regionStride: (descId) => {
+                const stride = r.regionStrideOf(resource, descId);
+                if (stride === undefined)
+                    throw new Error(
+                        `Flow '${this.flow.type}': o descritor '${descId}' do Resource de trabalho '${name}' não tem regions.`,
+                    );
+                return stride;
+            },
+        };
     }
 
     private singletonView(resource: Resource): BoundSingleton {
@@ -953,6 +1226,47 @@ export class FlowRuntime {
             };
             this.entityViews.set(name, view);
         }
+        return view;
+    }
+
+    /**
+     * O canal do slot (spec 037): existe desde a inserção do recurso (ou do pool); as fatias de um descritor sob demanda
+     * nascem no pedido de quem o usa (`ensureAllocated`, `ensurePoolAllocated`) — os pipelines que ligam o canal esperam
+     * até lá, e o `epoch` novo refaz a resolução.
+     */
+    private channelOf(decl: ChannelSlot): BoundChannel | undefined {
+        const resources = this.host.resources;
+        let info;
+        let written: () => void;
+        let invalidate: () => void;
+        if (decl.poolKey !== undefined) {
+            const key = decl.poolKey;
+            info = resources.channelOfPool(key);
+            written = () => {
+                resources.markPoolWritten(key);
+            };
+            invalidate = () => {
+                resources.invalidatePoolChannel(key);
+            };
+        } else {
+            const descId = decl.descId!;
+            const resource = this.firstWithSchema(decl.schema!, descId, decl.select);
+            if (resource === undefined) return undefined;
+            info = resources.channelOf(resource, descId);
+            written = () => {
+                resources.markWritten(resource, descId);
+            };
+            invalidate = () => {
+                resources.invalidateChannel(resource, descId);
+            };
+        }
+        if (info === undefined) return undefined;
+        let view = this.channelViews.get(info);
+        if (view === undefined) {
+            view = boundChannelOf(info, written, invalidate);
+            this.channelViews.set(info, view);
+        }
+        this.channelEpochs.set(view, view.epoch);
         return view;
     }
 

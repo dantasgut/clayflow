@@ -1,4 +1,8 @@
-// Imagens dos smokes: comparação pixel a pixel, PNG ↔ ImageData e luminância.
+// Imagens dos smokes: comparação pixel a pixel, PNG ↔ ImageData e as medidas de brilho (spec 037): a luma dos
+// valores sRGB de 8 bits (`lumaSrgb`, sem decodificar — a medida do que se vê na tela), a luz do pixel (`lumaLinear`,
+// os mesmos valores decodificados) e a luminância de luz linear (`luminanceLinear`, dos alvos HDR). Os pesos e a
+// decodificação são os da referência única (`elements/math/reference/color`).
+import { luminance, srgbDecode } from '../../elements/math/reference/color';
 
 /** Pixels distintos e maior diferença de canal entre duas imagens. */
 export function diff(a: ImageData, b: ImageData): { pixels: number; max: number } {
@@ -29,8 +33,22 @@ export async function fromPng(bytes: Uint8Array): Promise<ImageData> {
     return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
 }
 
-/** Luminância relativa (0–1) do pixel, dos valores sRGB de 8 bits. */
-export function luminance(img: ImageData, x: number, y: number): number {
-    const i = (y * img.width + x) * 4;
-    return (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!) / 255;
+/** Luma Rec.709 (0–1) dos valores sRGB de 8 bits a partir do índice `i` (RGBA; BGRA com `bgra`). */
+export function lumaSrgb8(data: ArrayLike<number>, i: number, bgra = false): number {
+    return luminance([data[i + (bgra ? 2 : 0)]!, data[i + 1]!, data[i + (bgra ? 0 : 2)]!]) / 255;
 }
+
+/** Luma Rec.709 (0–1) do pixel, dos valores sRGB de 8 bits. */
+export function lumaSrgb(img: ImageData, x: number, y: number): number {
+    return lumaSrgb8(img.data, (y * img.width + x) * 4);
+}
+
+/** Luminância Rec.709 (0–1) da luz do pixel: os valores sRGB de 8 bits decodificados para linear (IEC 61966-2-1). */
+export function lumaLinear(img: ImageData, x: number, y: number): number {
+    const i = (y * img.width + x) * 4;
+    const decode = (v: number) => srgbDecode(v / 255);
+    return luminance([decode(img.data[i]!), decode(img.data[i + 1]!), decode(img.data[i + 2]!)]);
+}
+
+/** Luminância Rec.709 de luz linear (os valores HDR). */
+export const luminanceLinear = (c: ArrayLike<number>): number => luminance([c[0]!, c[1]!, c[2]!]);

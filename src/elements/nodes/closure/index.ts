@@ -72,5 +72,59 @@ const normal = defineNode({
     fn: 'node_closure_normal',
 });
 
+/**
+ * Prioridade do meio na sobreposição de volumes transmissivos (o vidro mergulhado na água: o de maior prioridade vale
+ * dentro dele, e a borda do outro que passa por dentro não é interface). Empate: o último em que o raio entrou.
+ */
+const mediumPriority = defineNode({
+    name: 'closure.mediumPriority',
+    inputs: { c: 'Closure', priority: 'f32' },
+    outputs: { value: 'Closure' },
+    params: { priority: { type: 'f32', default: 0 } },
+    code: nodeClosure,
+    fn: 'node_closure_medium_priority',
+});
+
+/**
+ * Espalhamento no meio da transmissão (spec 034, T067e): o coeficiente por canal por unidade de percurso e a anisotropia
+ * de Henyey–Greenstein. A luz das fontes espalhada uma vez ao longo de cada trecho dentro do meio entra pelo traçado da
+ * refração (a cor da água funda), sem cor constante somada. Padrão: a água pura (Smith e Baker 1981, Morel 1974:
+ * b(λ) = 0,00288 (λ/500)^−4,32 /m a 650, 550 e 450 nm; a fase quase isotrópica).
+ */
+const mediumScatter = defineNode({
+    name: 'closure.mediumScatter',
+    inputs: { c: 'Closure', scatter: 'vec3f', anisotropy: 'f32' },
+    outputs: { value: 'Closure' },
+    params: {
+        scatter: { type: 'vec3f', default: [0.000927, 0.001908, 0.004541] },
+        anisotropy: { type: 'f32', default: 0 },
+    },
+    code: nodeClosure,
+    fn: 'node_closure_medium_scatter',
+});
+
+/**
+ * Transmissão como parede fina (o `thin_walled` do OpenPBR): placa de espessura zero — vidraça, bolha. A luz atravessa
+ * sem desviar e reflete com as reflexões múltiplas entre as faces (2R/(1 + R)); absorção e rugosidade da transmissão
+ * não valem nela.
+ */
+const thinWalled = defineNode({
+    name: 'closure.thinWalled',
+    inputs: { c: 'Closure' },
+    outputs: { value: 'Closure' },
+    code: nodeClosure,
+    fn: 'node_closure_thin_walled',
+});
+
 /** Nós de composição de fechamentos. */
-export const closure = { mix, add, layer, thinFilm, opacity, normal } as const;
+export const closure = {
+    mix,
+    add,
+    layer,
+    thinFilm,
+    opacity,
+    normal,
+    mediumPriority,
+    mediumScatter,
+    thinWalled,
+} as const;

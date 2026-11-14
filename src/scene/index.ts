@@ -1,15 +1,23 @@
 import { createScene, type SceneContext } from './SceneContext';
-import type { CanvasOptions } from '../core/contracts/index';
+import type { CanvasOptions, PlatformAdapter, PresentationSurface } from '../core/contracts/index';
 
 const defaultScene: SceneContext = createScene();
 
 export interface SceneBootstrapOptions {
-    canvas?: HTMLCanvasElement;
+    /** O adaptador de plataforma (spec 038). */
+    platform: PlatformAdapter;
+    /** A superfície de apresentação. */
+    surface?: PresentationSurface;
     canvasOptions?: CanvasOptions;
 }
 
-export async function bootstrap(options: SceneBootstrapOptions = {}): Promise<void> {
-    await defaultScene.initialize(options.canvas, options.canvasOptions);
+export async function bootstrap(options: SceneBootstrapOptions): Promise<void> {
+    await defaultScene.initialize(
+        options.surface,
+        options.canvasOptions,
+        undefined,
+        options.platform,
+    );
 }
 
 // Singletons da scene default — backwards-compat. Para multi-Application,
@@ -114,6 +122,7 @@ export type {
 
 export type {
     GPUDescriptor,
+    UniformRegions,
     GPUDescriptorRole,
     SlotRef,
     SlotRefTarget,
@@ -155,6 +164,7 @@ export type { EntityId } from './world/EntityId';
 
 export {
     Flow,
+    FlowWork,
     RenderFlow,
     FlowRegistry,
     FlowRegistrationError,
@@ -163,16 +173,8 @@ export {
     PHASE_ORDER,
     slot,
 } from './flows/index';
-export {
-    createComputeKernel,
-    destroyComputeKernel,
-    sameBindGroup,
-    bindGroupsTo,
-    bindingKeyParts,
-} from './flows/index';
+export { sameBindGroup, bindGroupsTo, bindingKeyParts } from './flows/index';
 export type {
-    ComputeKernel,
-    ComputeKernelOptions,
     FlowLifecycle,
     Listened,
     SchemaFamily,
@@ -202,6 +204,12 @@ export type {
     BoundSlots,
     BoundPool,
     BoundSingleton,
+    BoundWork,
+    WorkSlot,
+    WorkPart,
+    WorkContext,
+    WorkKernel,
+    WorkPipelines,
     BoundEntities,
     EntityEntry,
     BoundTexture,
@@ -232,6 +240,9 @@ export {
     bindPoints,
     wgslResource,
     isWgslResource,
+    poolArenaReader,
+    poolArenaWriter,
+    isArenaReader,
     resourceTypeText,
     BINDING_FREQUENCIES,
     sharedConstant,
@@ -260,6 +271,9 @@ export type {
     ComposedBinding,
     WgslResource,
     WgslResourceOptions,
+    ArenaReader,
+    PoolArenaKind,
+    PoolArenaReaderOptions,
     WgslResourceDeclaration,
     WgslResourceType,
     WgslBindingKind,
@@ -318,6 +332,14 @@ export type {
     DeviceRecoveredPayload,
     MemoryWarningPayload,
     PresentationFallbackPayload,
+    EnginePreparingPayload,
+    EngineReadyPayload,
+    ConsumerMissingPayload,
+    GpuFrameTimedPayload,
+    VirtualTextureRequestPayload,
+    VirtualTextureDeliveryPayload,
+    VirtualTextureLevelPayload,
+    PendingWork,
 } from './events/index';
 
 export type {
@@ -389,3 +411,5 @@ export type {
     InferredResource,
 } from './systems/index';
 export { LayoutInferencer, ResourceSystem, ExecutionSystem } from './systems/index';
+export { EngineReadiness, CONSUMER_MISSING_FRAMES } from './readiness/EngineReadiness';
+export type { ReadinessState } from './readiness/EngineReadiness';

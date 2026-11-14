@@ -9,15 +9,22 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { bindPoints } from '../../scene/shaders/bindPoints';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
-import { rayVolumeTransmittancePoint } from '../raytrace/points';
+import {
+    rayMediaTransmittancePoint,
+    rayVolumeScatterPoint,
+    rayVolumeTransmittancePoint,
+} from '../raytrace/points';
 import { lightTransmissionPoint } from '../scene/points/lighting';
 import { sceneFogPoint } from '../scene/points/media';
-import { FROXEL_AMBIENT_GRID, FROXEL_GRID, FroxelsSchema } from './schemas';
+import type { HistoryPrecision } from '../scene/TemporalAntialiasing';
+import { FROXEL_GRID, FroxelsSchema, froxelAmbientGrid } from './schemas';
 import { composeDensityFunctions } from './composeDensity';
 import {
     fogDensityAtPoint,
     mediaLightTransmission,
     mediaLookup,
+    mediaRayMediaTransmittance,
+    mediaRayScatter,
     mediaRayTransmittance,
     mediaVolumes,
     mediaVolumesPoint,
@@ -35,6 +42,10 @@ export interface FroxelsData {
     active: number;
     /** Revisão da composição das funções de densidade (sobe a cada mudança do conjunto). */
     revision: number;
+    /** Precisão dos históricos da névoa (spec 037, R6): 0 half, 1 full. */
+    historyPrecision: number;
+    /** Froxels por eixo (x, y na tela, z em fatias da profundidade): o valor do perfil do `Renderer` (spec 034, T079). */
+    grid: readonly [number, number, number];
 }
 
 function grow(current: number, needed: number): number {
@@ -44,7 +55,7 @@ function grow(current: number, needed: number): number {
 }
 
 /**
- * Froxels dos meios participantes (Camada 3, spec 033, R12): a grade 160 × 90 × 128 alinhada à câmera (fatias
+ * Froxels dos meios participantes (Camada 3, spec 033, R12): a grade alinhada à câmera (160 × 90 × 128 no perfil alto; fatias
  * exponenciais da profundidade) onde o `FroxelFlow` injeta, acumula no tempo e integra a névoa de todos os `FogVolume`
  * da cena, e o buffer dos meios (os volumes e as grades de densidade, uma ligação só). Contribui aos pontos de cena: a
  * névoa no desenho (`scene_fog`), a transmitância nos raios (`ray_volume_transmittance`: sondas, fótons) e na luz que
@@ -66,20 +77,59 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             capacity: 64,
             active: 0,
             revision: 0,
+            historyPrecision: 0,
+            grid: FROXEL_GRID,
         };
+    }
+
+    /** Froxels por eixo. */
+    get grid(): readonly [number, number, number] {
+        return this.rawData.grid;
+    }
+
+    /**
+     * Troca a resolução da grade (o perfil do `Renderer`, spec 034 T079): a C2 realoca as grades (o histórico
+     * recomeça); a da luz ambiente acompanha (a cada 4 por eixo).
+     * @throws RangeError fora de 1–2048 inteiros por eixo (o mínimo garantido de textura 3D do WebGPU).
+     */
+    set grid(grid: readonly [number, number, number]) {
+        if (!grid.every((n) => Number.isInteger(n) && n >= 1 && n <= 2048))
+            throw new RangeError(`Froxels: grid [${grid.join(', ')}] fora de 1–2048 por eixo.`);
+        const current = this.rawData.grid;
+        if (grid.every((n, k) => n === current[k])) return;
+        this.redescribe(this.getDescriptors(), {
+            ...this.rawData,
+            grid: [grid[0], grid[1], grid[2]],
+        });
+    }
+
+    /**
+     * Precisão do histórico da névoa (`half`, o padrão, ou `full`: 32 bits, dobra a banda das duas fatias). `full`
+     * exige `float32-filterable` (o histórico é lido filtrado); sem ela, a C2 o mantém em `half` com aviso (spec 037:
+     * a precisão de um canal temporal). Mudar realoca o histórico (recomeça).
+     */
+    get historyPrecision(): HistoryPrecision {
+        return this.data.historyPrecision === 1 ? 'full' : 'half';
+    }
+
+    set historyPrecision(precision: HistoryPrecision) {
+        const value = precision === 'full' ? 1 : 0;
+        if (value === this.rawData.historyPrecision) return;
+        this.redescribe(this.getDescriptors(), { ...this.rawData, historyPrecision: value });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
         const volume = (
             id: string,
-            grid: readonly [number, number, number] = FROXEL_GRID,
+            grid: readonly [number, number, number] = this.rawData.grid,
+            format: GPUTextureFormat = 'rgba16float',
         ): GPUDescriptor => ({
             id,
             role: 'storage-texture',
             // Só com névoa na cena (o `FroxelFlow` pede): sem ela, as ~45 MB das grades não existem.
             allocation: 'onDemand',
             textureShape: {
-                format: 'rgba16float',
+                format,
                 dimension: '3d',
                 width: grid[0],
                 height: grid[1],
@@ -97,10 +147,16 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
                 upload: 'never',
             },
             volume('scatter'),
-            volume('history0'),
-            volume('history1'),
+            // O quadro da injeção, antes do acúmulo (T058: o acúmulo recorta o histórico pela vizinhança dele).
+            volume('current'),
+            // O histórico: um canal temporal da C2 (spec 037) — a fatia do quadro anterior, lida filtrada na injeção,
+            // e a do quadro, escrita por ela e lida na integração.
+            {
+                ...volume('history'),
+                history: { depth: 2, precision: this.historyPrecision, filtered: true },
+            },
             // A luz ambiente (o hemisfério, a luz rebatida) numa grade mais grossa, lida na injeção.
-            volume('ambient', FROXEL_AMBIENT_GRID),
+            volume('ambient', froxelAmbientGrid(this.rawData.grid)),
             {
                 id: 'sampler',
                 role: 'sampler',
@@ -181,6 +237,24 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             pools: [],
             build: () =>
                 this.rawData.active === 1 ? this.withDensity(mediaRayTransmittance) : undefined,
+        },
+        {
+            // Só a névoa, para quem conta os outros volumes como meio próprio (a pilha da refração, T075).
+            point: rayMediaTransmittancePoint,
+            order: 10,
+            pools: [],
+            build: () =>
+                this.rawData.active === 1
+                    ? this.withDensity(mediaRayMediaTransmittance)
+                    : undefined,
+        },
+        {
+            // O espalhamento nos raios (T058): quem transporta luz por raios soma a luz que a névoa devolve.
+            point: rayVolumeScatterPoint,
+            order: 10,
+            pools: [],
+            build: () =>
+                this.rawData.active === 1 ? this.withDensity(mediaRayScatter) : undefined,
         },
         {
             point: lightTransmissionPoint,

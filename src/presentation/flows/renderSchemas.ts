@@ -1,10 +1,101 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-/** Passe de profundidade da sombra: slot, no pool `ShadowMap`, do mapa da luz que projeta. */
-export const ShadowDepthParamsSchema = new StructSchema(
-    'ShadowDepthParams',
-    { casterSlot: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
+/**
+ * Parâmetros das páginas do mapa de sombra virtual no quadro (spec 034, T060): o slot do mapa que projeta (no pool
+ * `ShadowMap`), os grupos e as instâncias dos desenhos, o orçamento de páginas desenhadas por quadro, o recomeço do
+ * cache (`reset`: a série da tabela ou dos retângulos interrompida, os grupos mudados), se os pedidos do quadro anterior
+ * valem (senão, a reserva grossa no frustum da câmera do referencial) e as seções do espaço de trabalho (`sp_scratch`, em
+ * palavras): as páginas físicas em uso e livres, as filas por nível, as sujas, as dinâmicas, as caixas e os retângulos;
+ * os trechos dos pares por grupo (contagem, início, preenchimento, o que coube); as caixas dos aglomerados das malhas grandes e as necessidades das páginas virtuais; em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
+ * páginas sujas (e, no seguinte, o do transporte das que seguem).
+ */
+export const ShadowPagesParamsSchema = new StructSchema(
+    'ShadowPagesParams',
+    {
+        casterSlot: FieldType.u32,
+        groupCount: FieldType.u32,
+        instanceCount: FieldType.u32,
+        budget: FieldType.u32,
+        reset: FieldType.u32,
+        requestsValid: FieldType.u32,
+        keepBase: FieldType.u32,
+        freeBase: FieldType.u32,
+        workBase: FieldType.u32,
+        dirtyBase: FieldType.u32,
+        dynamicBase: FieldType.u32,
+        dynamicCap: FieldType.u32,
+        boundsBase: FieldType.u32,
+        rectsBase: FieldType.u32,
+        instanceGroupBase: FieldType.u32,
+        groupPairsBase: FieldType.u32,
+        needBase: FieldType.u32,
+        clusterBoundsBase: FieldType.u32,
+        spriteRecord: FieldType.u32,
+        spriteCap: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * Por desenho de um grupo das páginas: o grupo (o trecho dos pares dele em `sp_pairs` vem da GPU); na malha grande em
+ * aglomerados, o início e o teto da lista dos pares (aglomerado, par) em `sp_scratch` e os índices da malha.
+ */
+export const ShadowGroupDrawSchema = new StructSchema(
+    'ShadowGroupDraw',
+    {
+        group: FieldType.u32,
+        listBase: FieldType.u32,
+        listCap: FieldType.u32,
+        indexCount: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * Por despacho da caixa de uma geometria: o grupo dela; na malha grande em aglomerados (triângulos seguidos nos
+ * índices), o primeiro aglomerado (as caixas de todos em seção do `sp_scratch`), quantos e os índices da malha.
+ */
+export const ShadowBoundsGeometrySchema = new StructSchema(
+    'ShadowBoundsGeometry',
+    {
+        group: FieldType.u32,
+        clusterFirst: FieldType.u32,
+        clusterCount: FieldType.u32,
+        indexCount: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * Por despacho de uma fonte de sprites que projetam (spec 034): os pontos (o primeiro registro, quantos, o passo e a
+ * posição em palavras), a instância (a matriz de mundo; `NONE` no corpo de partículas), o lugar na série dos
+ * retângulos, se a fonte se move sozinha e o raio dos sprites.
+ */
+export const ShadowSpriteSourceSchema = new StructSchema(
+    'ShadowSpriteSource',
+    {
+        first: FieldType.u32,
+        count: FieldType.u32,
+        strideWords: FieldType.u32,
+        posOffsetWords: FieldType.u32,
+        instance: FieldType.u32,
+        rectSlot: FieldType.u32,
+        dynamic: FieldType.u32,
+        radius: FieldType.f32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/** Pedidos de páginas: o slot do mapa que projeta e o da câmera no pool das matrizes. */
+export const ShadowRequestParamsSchema = new StructSchema(
+    'ShadowRequestParams',
+    {
+        casterSlot: FieldType.u32,
+        cameraSlot: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+    },
     { addressSpace: 'uniform' },
 );
 
@@ -36,6 +127,21 @@ export const PresentationParamsSchema = new StructSchema(
     { addressSpace: 'uniform' },
 );
 
+/**
+ * Parâmetros da resolução temporal (spec 034): slot da câmera ativa no pool `CameraMatrices` e o modo (1 temporal,
+ * 3 acumulação).
+ */
+export const TemporalResolveParamsSchema = new StructSchema(
+    'TemporalResolveParams',
+    {
+        cameraSlot: FieldType.u32,
+        mode: FieldType.u32,
+        _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
 /** Tamanho da tela em pixels (UI). */
 export const ScreenParamsSchema = new StructSchema(
     'ScreenParams',
@@ -50,3 +156,30 @@ export const UiQuadSchema = new StructSchema('UiQuad', {
     uv: FieldType.vec4f,
     textured: FieldType.vec4f,
 });
+
+/**
+ * Parâmetros do descarte do desenho principal no quadro (spec 034, T060d): `counts` = (slot da câmera ativa, posições da
+ * lista de instâncias, grupos, bits — o descarte ligado, a hierarquia do quadro anterior valendo); `hzb` = (lados do
+ * nível 0, níveis, 0).
+ */
+export const DrawCullParamsSchema = new StructSchema(
+    'DrawCullParams',
+    { counts: FieldType.vec4u, hzb: FieldType.vec4u },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * Por despacho do descarte: `value` = o grupo da caixa, a lista (0 ou 1) das listas e argumentos, o nível da hierarquia
+ * — ou, na soma de prefixos, (lista, nível); `scan` = (elementos do nível, início dele e do de cima nos níveis da soma).
+ */
+export const DrawCullStepSchema = new StructSchema(
+    'DrawCullStep',
+    { value: FieldType.vec4u, scan: FieldType.vec4u },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * O Resource de trabalho do `ForwardFlow` (spec 039), pelo schema: as séries do descarte (spec 034, T060d) são canais
+ * dele, lidos também pelo `ParticleFlow` (a hierarquia de profundidade do quadro).
+ */
+export const ForwardWorkSchema = new StructSchema('ForwardWork', {});

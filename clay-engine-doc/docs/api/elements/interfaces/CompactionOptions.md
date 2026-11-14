@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / CompactionOptions
+[clayflow](../../modules.md) / [elements](../README.md) / CompactionOptions
 
 # Interface: CompactionOptions
 
-Defined in: [elements/gpu/compute/Compaction.ts:15](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L15)
+Defined in: [src/elements/gpu/compute/Compaction.ts:20](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L20)
 
 Opções de `Compaction`.
 
@@ -14,11 +14,11 @@ Opções de `Compaction`.
 
 ### bindings?
 
-> `readonly` `optional` **bindings?**: `Readonly`\<`Record`\<`string`, `BindingSource`\>\>
+> `readonly` `optional` **bindings?**: `ReadonlyMap`\<[`BindingKey`](../../platform/web/type-aliases/BindingKey.md), [`BindingSource`](../../platform/web/type-aliases/BindingSource.md)\>
 
-Defined in: [elements/gpu/compute/Compaction.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L30)
+Defined in: [src/elements/gpu/compute/Compaction.ts:35](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L35)
 
-Fontes dos buffers lidos pelo predicado, pelo nome da variável WGSL.
+Fontes dos recursos privados lidos pelo predicado.
 
 ***
 
@@ -26,7 +26,7 @@ Fontes dos buffers lidos pelo predicado, pelo nome da variável WGSL.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/Compaction.ts:24](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L24)
+Defined in: [src/elements/gpu/compute/Compaction.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L29)
 
 Tamanho máximo da saída (elementos u32).
 
@@ -36,7 +36,7 @@ Tamanho máximo da saída (elementos u32).
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/Compaction.ts:17](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L17)
+Defined in: [src/elements/gpu/compute/Compaction.ts:22](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L22)
 
 Prefixo único dos recursos da instância.
 
@@ -46,7 +46,7 @@ Prefixo único dos recursos da instância.
 
 > `readonly` `optional` **inputCapacity?**: `number`
 
-Defined in: [elements/gpu/compute/Compaction.ts:28](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L28)
+Defined in: [src/elements/gpu/compute/Compaction.ts:33](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L33)
 
 Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a soma de prefixos).
 
@@ -54,12 +54,12 @@ Maior `count` de entrada — obrigatório com `stable` (dimensiona as flags e a 
 
 ### predicate
 
-> `readonly` **predicate**: `WgslModule`
+> `readonly` **predicate**: [`WgslModule`](../../platform/web/interfaces/WgslModule.md)
 
-Defined in: [elements/gpu/compute/Compaction.ts:22](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L22)
+Defined in: [src/elements/gpu/compute/Compaction.ts:27](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L27)
 
-Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32`, e
-declara no `@group(1)` os buffers que lê (fontes em `bindings`, pelo nome da variável).
+Predicado do consumidor: define `fn compact_keep(i: u32) -> bool` e `fn compact_value(i: u32) -> u32` e requer
+os recursos que lê (spec 031; fontes em `bindings`, pelo objeto do recurso).
 
 ***
 
@@ -67,6 +67,6 @@ declara no `@group(1)` os buffers que lê (fontes em `bindings`, pelo nome da va
 
 > `readonly` `optional` **stable?**: `boolean`
 
-Defined in: [elements/gpu/compute/Compaction.ts:26](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Compaction.ts#L26)
+Defined in: [src/elements/gpu/compute/Compaction.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Compaction.ts#L31)
 
 Preserva a ordem da entrada (flags + `PrefixSum` + espalhamento). Padrão `false` (`atomic_alloc`).

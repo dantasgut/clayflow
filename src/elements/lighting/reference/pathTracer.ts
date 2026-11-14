@@ -3,6 +3,19 @@
 // luzes da 011 (direcional em lux, pontual em candela), céu por função e meios participantes (homogêneos ou por
 // densidade, fase de Henyey-Greenstein). Amostragem determinística (hash por pixel e amostra); o número de rebatimentos é
 // fixo, o mesmo do alvo. Saída: a radiância HDR por pixel e a instância vista, para medir por região.
+//
+// Dielétricos (spec 034, R10 — a referência da refração, independente da GPU): Fresnel exato (luz não polarizada em
+// cada interface, sem seguir a polarização — a convenção do motor), reflexão interna total, rugosidade GGX amostrada
+// pela distribuição visível de normais (peso G1), absorção de Beer–Lambert pelo comprimento em cada meio, dispersão
+// por canal (o canal sorteado na primeira interface dispersiva segue sozinho, com o próprio índice em todas as
+// interfaces), pilha de meios com prioridade (na sobreposição de volumes vale o de maior prioridade; cruzar a borda de
+// um meio que não é o corrente não é interface), interfaces coincidentes cruzadas juntas, parede fina (quadrilátero:
+// placa de espessura zero) e a água como caixa com o topo por tabela de alturas. A radiância muda pelo quadrado da
+// razão dos índices ao atravessar (L/n² se conserva). As luzes pontuais e direcionais não atravessam dielétricos (só
+// chegam por um caminho que as atinja, o que um delta não permite): a sombra de vidro e água é a física sem cáusticas.
+
+import { surfaceRipple } from '../../nodes/reference/surface';
+import { pcgHash } from '../../math/reference/random';
 
 export type Vec3 = readonly [number, number, number];
 
@@ -30,6 +43,91 @@ export interface PtMaterial {
     readonly emission?: Vec3;
     /** Espelho perfeito com esta refletância (sem difuso). */
     readonly mirror?: Vec3;
+    /** Dielétrico (vidro, água): sem difuso; o volume da forma é o meio. */
+    readonly dielectric?: PtDielectric;
+    /** Xadrez pela posição no mundo no lugar do albedo e da emissão constantes. */
+    readonly checker?: PtChecker;
+}
+
+/**
+ * Xadrez procedural (spec 034, smoke `refraction`): a paridade de ⌊p[a]/size⌋ + ⌊p[b]/size⌋ nos dois eixos `axes`
+ * escolhe o primeiro valor (par) ou o segundo.
+ */
+export interface PtChecker {
+    readonly size: number;
+    readonly axes: readonly [number, number];
+    readonly albedo?: readonly [Vec3, Vec3];
+    readonly emission?: readonly [Vec3, Vec3];
+}
+
+/** Albedo e emissão do material no ponto `p` (o xadrez, se houver). */
+function surfaceAt(m: PtMaterial, p: Vec3): { albedo: Vec3; emission: Vec3 | undefined } {
+    const c = m.checker;
+    if (c === undefined) return { albedo: m.albedo, emission: m.emission };
+    const cell = Math.floor(p[c.axes[0]]! / c.size) + Math.floor(p[c.axes[1]]! / c.size);
+    const odd = ((cell % 2) + 2) % 2;
+    return {
+        albedo: c.albedo?.[odd] ?? m.albedo,
+        emission: c.emission?.[odd] ?? m.emission,
+    };
+}
+
+/** Dielétrico na convenção do `closure_transmission` do motor. */
+export interface PtDielectric {
+    /** Índice de refração na linha d (≥ 1). */
+    readonly ior: number;
+    /** Número de Abbe (0 ou ausente = sem dispersão). */
+    readonly abbe?: number;
+    /** Cor atingida a `depth` de percurso (Beer–Lambert); `depth` 0 ou ausente = sem absorção. */
+    readonly color?: Vec3;
+    readonly depth?: number;
+    /** Rugosidade em [0, 1]; α do GGX = rugosidade². */
+    readonly roughness?: number;
+    /** Na sobreposição de volumes vale o meio de maior prioridade (padrão 0; empate: o último em que se entrou). */
+    readonly priority?: number;
+    /** Relevo da normal (a normal de sombreamento do `closure_normal` do motor); ausente = a geométrica. */
+    readonly bump?: PtBump;
+}
+
+/** Relevo da normal: senoidal ou ondulações. */
+export type PtBump = PtSines | PtRipple;
+
+/**
+ * Relevo senoidal: a altura h(p) = amplitude · sen(k·x) · sen(k·z) inclina a normal pelo gradiente dela projetado no
+ * plano tangente, n_s = normalize(n − (∇h − (∇h·n) n)) — a conta que o grafo do smoke monta com nós de math.
+ */
+export interface PtSines {
+    readonly kind: 'sines';
+    readonly amplitude: number;
+    /** k, em rad/m. */
+    readonly wavenumber: number;
+}
+
+/** Ondulações do nó `surface.ripple` (a mesma referência, `surfaceRipple`) no instante `time`. */
+export interface PtRipple {
+    readonly kind: 'ripple';
+    readonly strength: number;
+    readonly size: number;
+    readonly speed: number;
+    readonly time: number;
+    readonly up: Vec3;
+}
+
+/** A normal de sombreamento do relevo `bump` no ponto `p` com a normal geométrica `n` (no sentido dela). */
+export function bumpNormal(bump: PtBump, p: Vec3, n: Vec3): Vec3 {
+    if (bump.kind === 'ripple') {
+        const r = surfaceRipple(p, n, bump.time, bump.strength, bump.size, bump.speed, bump.up);
+        return [r[0]!, r[1]!, r[2]!];
+    }
+    const k = bump.wavenumber;
+    const a = bump.amplitude * k;
+    const g: Vec3 = [
+        a * Math.cos(k * p[0]) * Math.sin(k * p[2]),
+        0,
+        a * Math.sin(k * p[0]) * Math.cos(k * p[2]),
+    ];
+    const tangent = sub(g, scale(n, dot(g, n)));
+    return normalize(sub(n, tangent));
 }
 
 /** Caixa (opcionalmente girada em torno do eixo y pelo centro). */
@@ -56,10 +154,24 @@ export interface PtQuad {
     readonly v: Vec3;
 }
 
+/**
+ * Caixa com o topo por tabela de alturas (a água): o volume `min.y ≤ y ≤ h(x, z)` sobre `[min.x, max.x] × [min.z,
+ * max.z]`; `heights` tem `nx × nz` amostras (x mais rápido) nos cantos de uma grade regular, interpoladas por bilinear;
+ * `max.y` é um limite de cima das alturas.
+ */
+export interface PtHeightField {
+    readonly kind: 'heightField';
+    readonly min: Vec3;
+    readonly max: Vec3;
+    readonly nx: number;
+    readonly nz: number;
+    readonly heights: Float32Array;
+}
+
 /** Objeto da cena: forma, material e o id da região (máscara). */
 export interface PtObject {
     readonly id: number;
-    readonly shape: PtBox | PtSphere | PtQuad;
+    readonly shape: PtBox | PtSphere | PtQuad | PtHeightField;
     readonly material: PtMaterial;
 }
 
@@ -144,6 +256,13 @@ export interface PtOptions {
      * faixas renderizadas à parte (em paralelo) compõem a mesma imagem.
      */
     readonly rows?: readonly [number, number];
+    /**
+     * Índice da primeira amostra (padrão 0): duas renderizações com `samples` N e `firstSample` 0 e N são independentes
+     * e a média delas é a de 2N amostras — a diferença entre elas mede o ruído da própria referência.
+     */
+    readonly firstSample?: number;
+    /** Interfaces dielétricas por caminho (padrão 64); no limite o caminho termina (a energia conta como absorvida). */
+    readonly interfaces?: number;
 }
 
 /** Imagem HDR e a instância vista por pixel (−1 = nada). */
@@ -162,12 +281,9 @@ interface Hit {
     readonly object: PtObject;
 }
 
-/** Gerador determinístico por (pixel, amostra, dimensão): hash PCG. */
+/** Gerador determinístico por (pixel, amostra, dimensão): hash PCG da mistura dos três. */
 function hash(a: number, b: number, c: number): number {
-    let s = (Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca77) ^ Math.imul(c, 0xc2b2ae3d)) >>> 0;
-    s = (Math.imul(s, 747796405) + 2891336453) >>> 0;
-    const w = Math.imul((s >>> ((s >>> 28) + 4)) ^ s, 277803737) >>> 0;
-    return ((w >>> 22) ^ w) >>> 0;
+    return pcgHash(Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca77) ^ Math.imul(c, 0xc2b2ae3d));
 }
 
 class Rng {
@@ -271,23 +387,159 @@ function intersectQuad(q: PtQuad, o: Vec3, d: Vec3, tMax: number): { t: number; 
     return { t, n };
 }
 
+/** Altura bilinear da tabela e o gradiente (∂h/∂x, ∂h/∂z) da célula. */
+function heightAt(f: PtHeightField, x: number, z: number): [number, number, number] {
+    const cw = (f.max[0] - f.min[0]) / (f.nx - 1);
+    const cd = (f.max[2] - f.min[2]) / (f.nz - 1);
+    const gx = Math.min(f.nx - 2, Math.max(0, Math.floor((x - f.min[0]) / cw)));
+    const gz = Math.min(f.nz - 2, Math.max(0, Math.floor((z - f.min[2]) / cd)));
+    const fx = (x - f.min[0]) / cw - gx;
+    const fz = (z - f.min[2]) / cd - gz;
+    const h00 = f.heights[gz * f.nx + gx]!;
+    const h10 = f.heights[gz * f.nx + gx + 1]!;
+    const h01 = f.heights[(gz + 1) * f.nx + gx]!;
+    const h11 = f.heights[(gz + 1) * f.nx + gx + 1]!;
+    const h = (1 - fz) * ((1 - fx) * h00 + fx * h10) + fz * ((1 - fx) * h01 + fx * h11);
+    const dx = ((1 - fz) * (h10 - h00) + fz * (h11 - h01)) / cw;
+    const dz = ((1 - fx) * (h01 - h00) + fx * (h11 - h10)) / cd;
+    return [h, dx, dz];
+}
+
+function insideHeightField(f: PtHeightField, p: Vec3): boolean {
+    if (p[0] < f.min[0] || p[0] > f.max[0] || p[2] < f.min[2] || p[2] > f.max[2]) return false;
+    return p[1] >= f.min[1] && p[1] <= heightAt(f, p[0], p[2])[0];
+}
+
+/**
+ * Raio contra o volume da água: marcha em 512 passos pelo trecho dentro da caixa envolvente até a troca de dentro/fora,
+ * refinada por bisseção; a normal é a do topo (pelo gradiente da célula) ou a da face da caixa onde a troca caiu.
+ */
+function intersectHeightField(
+    f: PtHeightField,
+    o: Vec3,
+    d: Vec3,
+    tMax: number,
+): { t: number; n: Vec3 } | null {
+    let t0 = EPS;
+    let t1 = tMax;
+    for (let k = 0; k < 3; k++) {
+        const inv = 1 / d[k]!;
+        const a = (f.min[k]! - o[k]!) * inv;
+        const b = (f.max[k]! - o[k]!) * inv;
+        t0 = Math.max(t0, Math.min(a, b) - EPS);
+        t1 = Math.min(t1, Math.max(a, b) + EPS);
+    }
+    if (!(t0 < t1)) return null;
+    const at = (t: number): Vec3 => add(o, scale(d, t));
+    const start = insideHeightField(f, at(t0));
+    const steps = 512;
+    let prev = t0;
+    for (let i = 1; i <= steps; i++) {
+        const t = t0 + ((t1 - t0) * i) / steps;
+        if (insideHeightField(f, at(t)) === start) {
+            prev = t;
+            continue;
+        }
+        let lo = prev;
+        let hi = t;
+        for (let k = 0; k < 48; k++) {
+            const mid = 0.5 * (lo + hi);
+            if (insideHeightField(f, at(mid)) === start) lo = mid;
+            else hi = mid;
+        }
+        const th = 0.5 * (lo + hi);
+        if (th <= EPS || th >= tMax) return null;
+        const p = at(th);
+        const tol = 1e-6 * (1 + Math.abs(th));
+        const faces: [number, Vec3][] = [
+            [Math.abs(p[0] - f.min[0]), [-1, 0, 0]],
+            [Math.abs(p[0] - f.max[0]), [1, 0, 0]],
+            [Math.abs(p[2] - f.min[2]), [0, 0, -1]],
+            [Math.abs(p[2] - f.max[2]), [0, 0, 1]],
+            [Math.abs(p[1] - f.min[1]), [0, -1, 0]],
+        ];
+        const [h, hx, hz] = heightAt(f, p[0], p[2]);
+        let best: [number, Vec3] = [Math.abs(p[1] - h), normalize([-hx, 1, -hz])];
+        for (const face of faces) if (face[0] < best[0] - tol) best = face;
+        return { t: th, n: best[1] };
+    }
+    return null;
+}
+
+function intersectShape(
+    sh: PtObject['shape'],
+    o: Vec3,
+    d: Vec3,
+    tMax: number,
+): { t: number; n: Vec3 } | null {
+    switch (sh.kind) {
+        case 'box':
+            return intersectBox(sh, o, d, tMax);
+        case 'sphere':
+            return intersectSphere(sh, o, d, tMax);
+        case 'quad':
+            return intersectQuad(sh, o, d, tMax);
+        case 'heightField':
+            return intersectHeightField(sh, o, d, tMax);
+    }
+}
+
 function intersect(scene: PtScene, o: Vec3, d: Vec3, tMax: number): Hit | null {
     let best: Hit | null = null;
     let limit = tMax;
     for (const object of scene.objects) {
-        const sh = object.shape;
-        const h =
-            sh.kind === 'box'
-                ? intersectBox(sh, o, d, limit)
-                : sh.kind === 'sphere'
-                  ? intersectSphere(sh, o, d, limit)
-                  : intersectQuad(sh, o, d, limit);
+        const h = intersectShape(object.shape, o, d, limit);
         if (h !== null) {
             limit = h.t;
             best = { t: h.t, normal: h.n, object };
         }
     }
     return best;
+}
+
+/** Os dielétricos cuja borda o raio cruza junto com o acerto mais próximo (interfaces coincidentes), com a normal de fora. */
+function coincidentDielectrics(
+    scene: PtScene,
+    o: Vec3,
+    d: Vec3,
+    hit: Hit,
+): { object: PtObject; normal: Vec3 }[] {
+    const tol = 1e-5 * (1 + hit.t);
+    const out: { object: PtObject; normal: Vec3 }[] = [];
+    for (const object of scene.objects) {
+        if (object.material.dielectric === undefined) continue;
+        if (object === hit.object) {
+            out.push({ object, normal: hit.normal });
+            continue;
+        }
+        const h = intersectShape(object.shape, o, d, hit.t + tol);
+        if (h !== null && h.t >= hit.t - tol) out.push({ object, normal: h.n });
+    }
+    return out;
+}
+
+/** Ponto dentro do volume da forma (o quadrilátero não tem volume). */
+function contains(sh: PtObject['shape'], p: Vec3): boolean {
+    switch (sh.kind) {
+        case 'box': {
+            const center = scale(add(sh.min, sh.max), 0.5);
+            const rot = sh.rotationY ?? 0;
+            const c = Math.cos(-rot);
+            const s = Math.sin(-rot);
+            const v = sub(p, center);
+            const l: Vec3 = [c * v[0] + s * v[2], v[1], -s * v[0] + c * v[2]];
+            const half = scale(sub(sh.max, sh.min), 0.5);
+            return (
+                Math.abs(l[0]) <= half[0] && Math.abs(l[1]) <= half[1] && Math.abs(l[2]) <= half[2]
+            );
+        }
+        case 'sphere':
+            return length(sub(p, sh.center)) <= sh.radius;
+        case 'quad':
+            return false;
+        case 'heightField':
+            return insideHeightField(sh, p);
+    }
 }
 
 /** Entrada e saída de um raio numa caixa de meio (ou `null`). */
@@ -372,6 +624,170 @@ function cosineSample(n: Vec3, r1: number, r2: number): Vec3 {
     );
 }
 
+/** Refletâncias s e p de Fresnel na interface n1 → n2 com o cosseno de incidência `cosI` (1 e 1 na reflexão interna total). */
+function fresnelSP(cosI: number, n1: number, n2: number): [number, number] {
+    const ci = Math.min(1, Math.abs(cosI));
+    const sin2t = (n1 / n2) ** 2 * (1 - ci * ci);
+    if (sin2t >= 1) return [1, 1];
+    const ct = Math.sqrt(1 - sin2t);
+    const rs = (n1 * ci - n2 * ct) / (n1 * ci + n2 * ct);
+    const rp = (n2 * ci - n1 * ct) / (n2 * ci + n1 * ct);
+    return [rs * rs, rp * rp];
+}
+
+/** Refletância de Fresnel exata (luz não polarizada) da interface dielétrica n1 → n2; 1 acima do ângulo crítico. */
+export function fresnelDielectric(cosI: number, n1: number, n2: number): number {
+    const [rs, rp] = fresnelSP(cosI, n1, n2);
+    return 0.5 * (rs + rp);
+}
+
+/** Índices por canal (R, G, B) pelo número de Abbe: n_d + (n_d − 1)/V · (−½, 0, ½), V ≥ 10 (a convenção do motor). */
+export function dispersionIors(m: PtDielectric): Vec3 {
+    const abbe = m.abbe ?? 0;
+    const k = abbe > 0 ? (m.ior - 1) / Math.max(abbe, 10) : 0;
+    return [m.ior - 0.5 * k, m.ior, m.ior + 0.5 * k];
+}
+
+/** Mascaramento de Smith do GGX para a direção com cosseno `cos` em relação à normal de macro-superfície. */
+export function smithG1(cos: number, alpha: number): number {
+    const c = Math.min(1, Math.abs(cos));
+    if (c <= 0) return 0;
+    const tan2 = (1 - c * c) / (c * c);
+    return 2 / (1 + Math.sqrt(1 + alpha * alpha * tan2));
+}
+
+/** Normal de microfaceta GGX amostrada pela distribuição visível (Heitz 2018) para `wo` no referencial com z = normal. */
+function sampleVndf(wo: Vec3, alpha: number, u1: number, u2: number): Vec3 {
+    const vh = normalize([alpha * wo[0], alpha * wo[1], wo[2]]);
+    const lensq = vh[0] * vh[0] + vh[1] * vh[1];
+    const t1: Vec3 = lensq > 0 ? scale([-vh[1], vh[0], 0], 1 / Math.sqrt(lensq)) : [1, 0, 0];
+    const t2 = cross(vh, t1);
+    const r = Math.sqrt(u1);
+    const phi = 2 * Math.PI * u2;
+    const p1 = r * Math.cos(phi);
+    const sv = 0.5 * (1 + vh[2]);
+    const p2 = (1 - sv) * Math.sqrt(Math.max(0, 1 - p1 * p1)) + sv * r * Math.sin(phi);
+    const nh = add(
+        add(scale(t1, p1), scale(t2, p2)),
+        scale(vh, Math.sqrt(Math.max(0, 1 - p1 * p1 - p2 * p2))),
+    );
+    return normalize([alpha * nh[0], alpha * nh[1], Math.max(1e-7, nh[2])]);
+}
+
+/** Amostra de uma interface dielétrica: a direção seguinte, o peso e se atravessou. */
+export interface PtInterfaceSample {
+    readonly dir: Vec3;
+    readonly weight: number;
+    readonly transmitted: boolean;
+}
+
+/**
+ * A normal de sombreamento na face `nf` (a geométrica `normal` voltada para o raio `d`): `shading` (no sentido de
+ * `normal`; ausente = a geométrica) no sentido de `nf` e, se o raio a vê por trás, inclinada até vê-la de frente — a
+ * regra de `refraction_shading_normal` do motor.
+ */
+function shadingFace(shading: Vec3 | undefined, normal: Vec3, nf: Vec3, d: Vec3): Vec3 {
+    if (shading === undefined) return nf;
+    const ns = dot(normal, nf) < 0 ? scale(shading, -1) : shading;
+    const v = scale(d, -1);
+    const c = dot(ns, v);
+    return c <= 0 ? normalize(sub(ns, scale(v, c - 1e-3))) : ns;
+}
+
+/**
+ * Interface dielétrica n1 (lado de onde o raio `d` vem) → n2 com a normal geométrica `normal` (qualquer sentido), a de
+ * sombreamento `shading` (no sentido de `normal`; ausente = a geométrica) e o α do GGX (0 = lisa). A microfaceta vem da
+ * distribuição visível em volta da normal de sombreamento; reflete com a probabilidade de Fresnel na microfaceta, senão
+ * refrata por Snell. Peso: G1 da direção de saída na normal de sombreamento (0 se a saída cai do lado errado da face
+ * geométrica) e, ao atravessar, (n1/n2)² — a radiância vista do lado n1. `u` em [0, 1)³. `null`: caminho perdido.
+ */
+export function sampleDielectricInterface(
+    d: Vec3,
+    normal: Vec3,
+    n1: number,
+    n2: number,
+    alpha: number,
+    u: readonly [number, number, number],
+    shading?: Vec3,
+): PtInterfaceSample | null {
+    const nf = dot(normal, d) < 0 ? normal : scale(normal, -1);
+    const ns = shadingFace(shading, normal, nf, d);
+    const wo = scale(d, -1);
+    let m = ns;
+    if (alpha > 1e-4) {
+        const [t, b] = basis(ns);
+        const local: Vec3 = [dot(wo, t), dot(wo, b), dot(wo, ns)];
+        const ml = sampleVndf(local, alpha, u[0], u[1]);
+        m = normalize(add(add(scale(t, ml[0]), scale(b, ml[1])), scale(ns, ml[2])));
+    }
+    const c = dot(wo, m);
+    if (c <= 0) return null;
+    const eta = n1 / n2;
+    const sin2t = eta * eta * (1 - c * c);
+    const f = fresnelDielectric(c, n1, n2);
+    let dir: Vec3;
+    let transmitted: boolean;
+    if (u[2] < f) {
+        dir = sub(scale(m, 2 * c), wo);
+        transmitted = false;
+        if (dot(dir, nf) <= 0) return null;
+    } else {
+        dir = normalize(add(scale(d, eta), scale(m, eta * c - Math.sqrt(1 - sin2t))));
+        transmitted = true;
+        if (dot(dir, nf) >= 0) return null;
+    }
+    let weight = alpha > 1e-4 ? smithG1(dot(dir, ns), alpha) : 1;
+    if (transmitted) weight *= eta * eta;
+    return { dir, weight, transmitted };
+}
+
+/** Meio da pilha: o objeto dielétrico em que o caminho está. */
+interface StackEntry {
+    readonly object: PtObject;
+    readonly medium: PtDielectric;
+}
+
+/** O meio corrente: o de maior prioridade; no empate, o último em que se entrou (`null` = ar, índice 1). */
+function currentMedium(stack: readonly StackEntry[]): StackEntry | null {
+    let best: StackEntry | null = null;
+    for (const e of stack)
+        if (best === null || (e.medium.priority ?? 0) >= (best.medium.priority ?? 0)) best = e;
+    return best;
+}
+
+/** Pilha inicial: os dielétricos cujo volume contém o ponto, por prioridade crescente. */
+function initialStack(scene: PtScene, p: Vec3): StackEntry[] {
+    const out: StackEntry[] = [];
+    for (const object of scene.objects) {
+        const medium = object.material.dielectric;
+        if (medium !== undefined && contains(object.shape, p)) out.push({ object, medium });
+    }
+    return out.sort((a, b) => (a.medium.priority ?? 0) - (b.medium.priority ?? 0));
+}
+
+/** Coeficiente de absorção por canal (−ln cor / profundidade). */
+function absorptionOf(m: PtDielectric): Vec3 {
+    const depth = m.depth ?? 0;
+    const color = m.color ?? [1, 1, 1];
+    if (depth <= 0) return ZERO;
+    return color.map((c) => (c >= 1 ? 0 : -Math.log(Math.max(c, 1e-9)) / depth)) as unknown as Vec3;
+}
+
+/** A energia que resta depois de `t` de percurso no meio (Beer–Lambert; o ar não absorve). */
+function absorbed(throughput: Vec3, inside: StackEntry | null, t: number): Vec3 {
+    if (inside === null) return throughput;
+    const sigma = absorptionOf(inside.medium);
+    return throughput.map((v, c) =>
+        sigma[c]! > 0 ? v * Math.exp(-sigma[c]! * t) : v,
+    ) as unknown as Vec3;
+}
+
+/** Índice do meio no canal (−1 = todos: o da linha d). */
+function iorOf(m: StackEntry | null, channel: number): number {
+    if (m === null) return 1;
+    return channel < 0 ? m.medium.ior : dispersionIors(m.medium)[channel]!;
+}
+
 /** Luz direta (luzes da 011 e emissores quadriláteros) que chega a `p` vinda de cada fonte, com a função de resposta. */
 function directLight(
     scene: PtScene,
@@ -439,12 +855,27 @@ function radiance(
     let throughput: Vec3 = [1, 1, 1];
     let sum: Vec3 = ZERO;
     let countEmission = true;
-    for (let depth = 0; depth <= opts.bounces; depth++) {
+    // Pilha de meios dielétricos, o canal da dispersão (−1 = os três juntos) e as interfaces atravessadas.
+    let stack = initialStack(scene, o0);
+    let channel = -1;
+    let interfaces = 0;
+    const maxInterfaces = opts.interfaces ?? 64;
+    let depth = 0;
+    while (depth <= opts.bounces) {
         const hit = intersect(scene, o, d, Infinity);
         const tSurf = hit === null ? Infinity : hit.t;
+        // Meio de cor por canal no trecho (T067a): o caminho segue um canal sorteado (× 3, como a dispersão) e o voo
+        // livre usa a extinção exata dele — com a média dos canais, cada canal atenuava pela média.
+        if (scatter && channel < 0 && chromaticMedia(scene, o, d, tSurf)) {
+            channel = Math.min(2, Math.floor(rng.next() * 3));
+            throughput = throughput.map((v, c) => (c === channel ? 3 * v : 0)) as unknown as Vec3;
+        }
         // Meio: amostragem de voo livre por rastreamento delta (majorante = coeficiente na densidade 1).
         // Sem espalhamento (modo simples): o meio só atenua, aplicado por quem chama e nas luzes diretas.
-        const scatterEvent = scatter ? sampleMedia(scene, o, d, tSurf, rng) : null;
+        const scatterEvent = scatter ? sampleMedia(scene, o, d, tSurf, rng, channel) : null;
+        // Beer–Lambert no meio dielétrico corrente pelo trecho percorrido: até o evento de espalhamento, se houver
+        // (T067a: antes ia até a superfície e o caminho que espalhava absorvia de novo a partir do evento).
+        throughput = absorbed(throughput, currentMedium(stack), scatterEvent?.t ?? tSurf);
         if (scatterEvent !== null) {
             const { p, medium } = scatterEvent;
             const albedo: Vec3 = [0, 1, 2].map((c) => {
@@ -468,6 +899,7 @@ function radiance(
             o = p;
             d = sampleHg(d, medium.g, rng.next(), rng.next());
             countEmission = false;
+            depth++;
             continue;
         }
         if (hit === null) {
@@ -477,64 +909,232 @@ function radiance(
             break;
         }
         const p = add(o, scale(d, hit.t));
+        const mat = hit.object.material;
+        const surf = surfaceAt(mat, p);
+        if (mat.dielectric !== undefined) {
+            if (++interfaces > maxInterfaces) break;
+            const next = crossDielectric(scene, o, d, hit, stack, channel, rng);
+            if (next === null) break;
+            throughput = afterCrossing(throughput, channel, next);
+            channel = next.channel;
+            stack = next.stack;
+            o = next.origin;
+            d = next.dir;
+            countEmission = true;
+            continue;
+        }
         let n = hit.normal;
         if (dot(n, d) > 0) n = scale(n, -1);
-        const mat = hit.object.material;
         // Quadriláteros emissores entram pela amostragem direta; as outras formas emissoras, pelo acerto.
         const sampledEmitter = hit.object.shape.kind === 'quad';
         const firstHitDirect = opts.indirectOnly === true && depth === 0;
-        if (mat.emission !== undefined && (countEmission || !sampledEmitter) && !firstHitDirect) {
-            sum = add(sum, mul(throughput, mat.emission));
+        if (surf.emission !== undefined && (countEmission || !sampledEmitter) && !firstHitDirect) {
+            sum = add(sum, mul(throughput, surf.emission));
         }
         if (mat.mirror !== undefined) {
             throughput = mul(throughput, mat.mirror);
             d = sub(d, scale(n, 2 * dot(d, n)));
             o = add(p, scale(n, EPS * 10));
             countEmission = true;
+            depth++;
             continue;
         }
-        const brdf = scale(mat.albedo, 1 / Math.PI);
+        const brdf = scale(surf.albedo, 1 / Math.PI);
         const direct = directLight(scene, p, (l) => scale(brdf, Math.max(0, dot(n, l))), rng, n);
         if (!(opts.indirectOnly === true && depth === 0)) sum = add(sum, mul(throughput, direct));
         // Rebatimento difuso por cosseno: o peso é o albedo.
-        throughput = mul(throughput, mat.albedo);
+        throughput = mul(throughput, surf.albedo);
         d = cosineSample(n, rng.next(), rng.next());
         o = add(p, scale(n, EPS * 10));
         // A emissão de área já entrou pela amostragem direta.
         countEmission = false;
+        depth++;
     }
     return sum;
 }
 
-/** Evento de espalhamento antes de `tMax` (rastreamento delta em cada meio), ou `null`. */
+/** Estado do caminho depois de uma interface dielétrica. */
+interface Crossing {
+    readonly stack: StackEntry[];
+    readonly channel: number;
+    readonly dir: Vec3;
+    readonly origin: Vec3;
+    readonly weight: number;
+    /**
+     * O fator da radiância que o peso leva ao atravessar, (n1/n2)² no sentido do caminho (1 na reflexão e na parede
+     * fina): o fluxo de um fóton não tem ele (`lightTrace`).
+     */
+    readonly radianceScale: number;
+}
+
+/** O canal que segue: sorteado na primeira interface com meio dispersivo, depois o mesmo. */
+function channelAt(channel: number, dispersive: boolean, pick: number): number {
+    return dispersive && channel < 0 ? Math.min(2, Math.floor(pick * 3)) : channel;
+}
+
+/**
+ * Saída de uma interface: o raio seguinte parte do próprio ponto (a interseção ignora acertos a menos de `EPS`). Nada
+ * de afastar a origem pela normal: o deslocamento lateral muda onde o raio cai, e numa lupa (ampliação forte perto das
+ * dobras da cáustica) 1 mm no ponto de saída cria ou apaga traços inteiros da imagem.
+ */
+function leave(p: Vec3, rest: Omit<Crossing, 'origin'>): Crossing {
+    return { ...rest, origin: p };
+}
+
+/**
+ * Parede fina (quadrilátero): placa de espessura zero no meio corrente, sem mudar a pilha; as reflexões múltiplas entre
+ * as duas faces somadas (R + T²R/(1 − R²) = 2R/(1 + R), luz não polarizada como nas outras interfaces); atravessa sem
+ * desviar.
+ */
+function crossThinWall(
+    p: Vec3,
+    d: Vec3,
+    hit: Hit,
+    stack: readonly StackEntry[],
+    channel0: number,
+    u: number,
+    pick: number,
+): Crossing | null {
+    const slab = hit.object.material.dielectric!;
+    const before = currentMedium(stack);
+    const channel = channelAt(
+        channel0,
+        (slab.abbe ?? 0) > 0 || (before?.medium.abbe ?? 0) > 0,
+        pick,
+    );
+    const nIn = channel < 0 ? slab.ior : dispersionIors(slab)[channel]!;
+    const nf = dot(hit.normal, d) < 0 ? hit.normal : scale(hit.normal, -1);
+    const shading = slab.bump === undefined ? undefined : bumpNormal(slab.bump, p, hit.normal);
+    const ns = shadingFace(shading, hit.normal, nf, d);
+    const r = fresnelDielectric(Math.abs(dot(d, ns)), iorOf(before, channel), nIn);
+    const reflected = u < (2 * r) / (1 + r);
+    const dir = reflected ? sub(d, scale(ns, 2 * dot(d, ns))) : d;
+    // O reflexo pela normal de sombreamento que cai atrás da face: caminho perdido (como o motor).
+    if (reflected && dot(dir, nf) <= 0) return null;
+    return leave(p, { stack: [...stack], channel, dir, weight: 1, radianceScale: 1 });
+}
+
+/** A pilha depois de cruzar as bordas dadas: sai de quem a normal aponta para fora no sentido do raio, entra nos outros. */
+function stackAfter(
+    stack: readonly StackEntry[],
+    d: Vec3,
+    crossings: readonly { object: PtObject; normal: Vec3 }[],
+): StackEntry[] {
+    let after: StackEntry[] = [...stack];
+    for (const c of crossings) {
+        if (dot(c.normal, d) > 0) after = after.filter((e) => e.object !== c.object);
+        else if (!after.some((e) => e.object === c.object))
+            after.push({ object: c.object, medium: c.object.material.dielectric! });
+    }
+    return after;
+}
+
+/** A energia depois da interface: o peso dela e, se a dispersão acabou de separar os canais, só o sorteado (× 3). */
+function afterCrossing(throughput: Vec3, channel: number, next: Crossing): Vec3 {
+    const w = scale(throughput, next.weight);
+    if (next.channel === channel) return w;
+    return w.map((v, c) => (c === next.channel ? 3 * v : 0)) as unknown as Vec3;
+}
+
+/** Travessia de uma interface dielétrica (com as coincidentes): pilha, canal, direção, origem e peso seguintes. */
+function crossDielectric(
+    scene: PtScene,
+    o: Vec3,
+    d: Vec3,
+    hit: Hit,
+    stack: readonly StackEntry[],
+    channel0: number,
+    rng: Rng,
+): Crossing | null {
+    const p = add(o, scale(d, hit.t));
+    const u: [number, number, number] = [rng.next(), rng.next(), rng.next()];
+    const pick = rng.next();
+    if (hit.object.shape.kind === 'quad')
+        return crossThinWall(p, d, hit, stack, channel0, u[2], pick);
+    // Interfaces coincidentes cruzadas juntas.
+    const crossings = coincidentDielectrics(scene, o, d, hit);
+    const after = stackAfter(stack, d, crossings);
+    const before = currentMedium(stack);
+    const next = currentMedium(after);
+    // A borda de um meio que não é o corrente nem passa a ser: não é interface, o raio segue.
+    if (before?.object === next?.object) {
+        return leave(p, { stack: after, channel: channel0, dir: d, weight: 1, radianceScale: 1 });
+    }
+    const dispersive = (before?.medium.abbe ?? 0) > 0 || (next?.medium.abbe ?? 0) > 0;
+    const channel = channelAt(channel0, dispersive, pick);
+    // Rugosidade: a da superfície cruzada (a maior entre as coincidentes).
+    const roughness = Math.max(
+        ...crossings.map((c) => c.object.material.dielectric!.roughness ?? 0),
+    );
+    // A normal de sombreamento: a do relevo da superfície atingida (as coincidentes cruzam pela dela, como o motor).
+    const bump = hit.object.material.dielectric!.bump;
+    const sample = sampleDielectricInterface(
+        d,
+        hit.normal,
+        iorOf(before, channel),
+        iorOf(next, channel),
+        roughness * roughness,
+        u,
+        bump === undefined ? undefined : bumpNormal(bump, p, hit.normal),
+    );
+    if (sample === null) return null;
+    return leave(p, {
+        stack: sample.transmitted ? after : [...stack],
+        channel,
+        dir: sample.dir,
+        weight: sample.weight,
+        radianceScale: sample.transmitted
+            ? (iorOf(before, channel) / iorOf(next, channel)) ** 2
+            : 1,
+    });
+}
+
+/** Algum meio com coeficientes diferentes por canal cruza o trecho [0, tMax]? */
+function chromaticMedia(scene: PtScene, o: Vec3, d: Vec3, tMax: number): boolean {
+    for (const m of scene.media ?? []) {
+        const ext = add(m.scattering, m.absorption);
+        const gray =
+            ext[0] === ext[1]
+            && ext[1] === ext[2]
+            && m.scattering[0] === m.scattering[1]
+            && m.scattering[1] === m.scattering[2];
+        if (!gray && mediumSpan(m, o, d, tMax) !== null) return true;
+    }
+    return false;
+}
+
+/**
+ * Evento de espalhamento antes de `tMax` (rastreamento delta em cada meio, a extinção do canal `channel` — o caminho
+ * num meio de cor por canal segue um só; −1 nos meios cinza), ou `null`.
+ */
 function sampleMedia(
     scene: PtScene,
     o: Vec3,
     d: Vec3,
     tMax: number,
     rng: Rng,
-): { p: Vec3; medium: PtMedium } | null {
+    channel: number,
+): { p: Vec3; t: number; medium: PtMedium } | null {
     let best: { t: number; medium: PtMedium } | null = null;
     for (const m of scene.media ?? []) {
         const span = mediumSpan(m, o, d, tMax);
         if (span === null) continue;
-        // Majorante escalar: o maior coeficiente de extinção (cor tratada pela razão no evento).
+        // Majorante: a extinção do canal na densidade 1 (a densidade, ≤ 1, decide as colisões nulas).
         const ext = add(m.scattering, m.absorption);
-        const major = Math.max(ext[0], ext[1], ext[2]);
+        const major = channel < 0 ? (ext[0] + ext[1] + ext[2]) / 3 : ext[channel]!;
         if (major <= 0) continue;
         let t = span[0];
         for (;;) {
             t -= Math.log(1 - rng.next()) / major;
             if (t >= span[1] || (best !== null && t >= best.t)) break;
             const p = add(o, scale(d, t));
-            const lum = (ext[0] + ext[1] + ext[2]) / 3;
-            if (rng.next() < (densityAt(m, p) * lum) / major) {
+            if (rng.next() < densityAt(m, p)) {
                 best = { t, medium: m };
                 break;
             }
         }
     }
-    return best === null ? null : { p: add(o, scale(d, best.t)), medium: best.medium };
+    return best === null ? null : { p: add(o, scale(d, best.t)), t: best.t, medium: best.medium };
 }
 
 /** Espalhamento simples de um raio de câmera (marcha determinística) somado à superfície atenuada. */
@@ -609,7 +1209,8 @@ export function renderPathTraced(input: PtScene, camera: PtCamera, opts: PtOptio
                 faces[pixel] = axis * 2 + (center.normal[axis] > 0 ? 1 : 0);
             }
             let acc: Vec3 = ZERO;
-            for (let s = 0; s < opts.samples; s++) {
+            const first = opts.firstSample ?? 0;
+            for (let s = first; s < first + opts.samples; s++) {
                 const rng = new Rng(pixel, s);
                 const d = dirAt(x + rng.next(), y + rng.next());
                 const l =
@@ -650,4 +1251,163 @@ export function regionMeans(image: PtImage): Map<number, Vec3> {
     const out = new Map<number, Vec3>();
     for (const [id, e] of sums) out.set(id, [e.s[0] / e.n, e.s[1] / e.n, e.s[2] / e.n]);
     return out;
+}
+
+/** Receptor das cáusticas: um retângulo sobre a superfície do objeto `objectId`, em `nx` × `ny` células. */
+export interface PtReceiver {
+    readonly objectId: number;
+    /** Canto do retângulo e os dois lados (o primeiro ao longo das `nx` células, o segundo das `ny`). */
+    readonly corner: Vec3;
+    readonly u: Vec3;
+    readonly v: Vec3;
+    readonly nx: number;
+    readonly ny: number;
+}
+
+/** Opções do traçado a partir da luz. */
+export interface PtLightTraceOptions {
+    /**
+     * Estratos da janela (o mais próximo quadrado perfeito, k × k, uma posição por estrato); de cada um saem três fótons,
+     * um por canal, cada um com a energia só do seu — a dispersão e os meios de cor seguem o canal sem sortear.
+     */
+    readonly photons: number;
+    /**
+     * A janela de onde os fótons saem: o quadrado perpendicular à luz, de centro `center` e meio lado `halfWidth`, acima
+     * de toda a cena no sentido contrário à luz — o fluxo dela é a iluminância × (2 · halfWidth)².
+     */
+    readonly center: Vec3;
+    readonly halfWidth: number;
+    /** Eventos de espalhamento nos meios por fóton (padrão 64). */
+    readonly scatterings?: number;
+    /** Interfaces dielétricas por fóton (padrão 64). */
+    readonly interfaces?: number;
+    /** Índice do primeiro estrato (padrão 0): duas metades independentes medem o ruído da própria referência. */
+    readonly firstPhoton?: number;
+}
+
+/** Irradiância no receptor (por célula e canal, nas unidades da iluminância da luz) e o balanço do fluxo. */
+export interface PtIrradianceMap {
+    readonly nx: number;
+    readonly ny: number;
+    readonly rgb: Float32Array;
+    /** Fluxo que saiu da janela, que chegou ao objeto receptor (dentro ou fora do retângulo), a outras superfícies
+     * difusas, e que escapou da cena; o resto foi absorvido (dielétricos, meios) ou perdido no teto de interfaces. */
+    readonly emitted: Vec3;
+    readonly received: Vec3;
+    readonly landedElsewhere: Vec3;
+    readonly escaped: Vec3;
+}
+
+/**
+ * Cáusticas da referência (spec 034, T067a): traçado a partir da luz direcional. Os fótons saem estratificados da
+ * janela perpendicular à luz, atravessam os dielétricos pelo mesmo cruzamento do traçado da câmera (Fresnel por roleta,
+ * GGX, relevo da normal, pilha de meios, dispersão por canal) com o peso de fluxo — sem o (n1/n2)² da radiância —,
+ * perdem energia por Beer–Lambert e espalham nos meios participantes, e param na primeira superfície difusa: no objeto
+ * receptor, o fluxo entra na célula do retângulo. A irradiância de cada célula é o fluxo dela sobre a área: a luz que
+ * chega pela cadeia especular (a cáustica) e a direta, sem a luz rebatida pelas superfícies difusas.
+ */
+export function lightTrace(
+    scene: PtScene,
+    light: { readonly direction: Vec3; readonly illuminance: Vec3 },
+    receiver: PtReceiver,
+    opts: PtLightTraceOptions,
+): PtIrradianceMap {
+    const dir = normalize(light.direction);
+    const [wu, wv] = basis(dir);
+    const k = Math.max(1, Math.round(Math.sqrt(opts.photons)));
+    const side = 2 * opts.halfWidth;
+    const photonFlux = scale(light.illuminance, (side * side) / (k * k));
+    const channelFlux = (c: number): Vec3 =>
+        [0, 1, 2].map((j) => (j === c ? photonFlux[j]! : 0)) as unknown as Vec3;
+    const cells = new Float64Array(receiver.nx * receiver.ny * 3);
+    let received: Vec3 = ZERO;
+    let elsewhere: Vec3 = ZERO;
+    let escaped: Vec3 = ZERO;
+    const uu = dot(receiver.u, receiver.u);
+    const vv = dot(receiver.v, receiver.v);
+    const cellArea = length(cross(receiver.u, receiver.v)) / (receiver.nx * receiver.ny);
+    const maxScatter = opts.scatterings ?? 64;
+    const maxInterfaces = opts.interfaces ?? 64;
+    const first = opts.firstPhoton ?? 0;
+    for (let n = 0; n < 3 * k * k; n++) {
+        const i = Math.floor(n / 3);
+        const place = new Rng(i, first + 0x51ed);
+        const a = (((i % k) + place.next()) / k - 0.5) * side;
+        const b = ((Math.floor(i / k) + place.next()) / k - 0.5) * side;
+        const rng = new Rng(n, first + 0x7a11);
+        let o: Vec3 = add(opts.center, add(scale(wu, a), scale(wv, b)));
+        let d = dir;
+        let channel = n % 3;
+        let flux: Vec3 = channelFlux(channel);
+        let stack = initialStack(scene, o);
+        let interfaces = 0;
+        let scatterings = 0;
+        for (;;) {
+            const hit = intersect(scene, o, d, Infinity);
+            const tSurf = hit === null ? Infinity : hit.t;
+            const event = sampleMedia(scene, o, d, tSurf, rng, channel);
+            flux = absorbed(flux, currentMedium(stack), event?.t ?? tSurf);
+            if (event !== null) {
+                if (++scatterings > maxScatter) break;
+                const m = event.medium;
+                flux = flux.map((v, c) => {
+                    const ext = m.scattering[c]! + m.absorption[c]!;
+                    return ext > 0 ? (v * m.scattering[c]!) / ext : 0;
+                }) as unknown as Vec3;
+                o = event.p;
+                d = sampleHg(d, m.g, rng.next(), rng.next());
+                continue;
+            }
+            if (hit === null) {
+                escaped = add(escaped, flux);
+                break;
+            }
+            const p = add(o, scale(d, hit.t));
+            const mat = hit.object.material;
+            if (mat.dielectric !== undefined) {
+                if (++interfaces > maxInterfaces) break;
+                const next = crossDielectric(scene, o, d, hit, stack, channel, rng);
+                if (next === null) break;
+                flux = scale(afterCrossing(flux, channel, next), 1 / next.radianceScale);
+                channel = next.channel;
+                stack = next.stack;
+                o = next.origin;
+                d = next.dir;
+                continue;
+            }
+            if (mat.mirror !== undefined) {
+                let n = hit.normal;
+                if (dot(n, d) > 0) n = scale(n, -1);
+                flux = mul(flux, mat.mirror);
+                d = sub(d, scale(n, 2 * dot(d, n)));
+                o = add(p, scale(n, EPS * 10));
+                continue;
+            }
+            if (hit.object.id !== receiver.objectId) {
+                elsewhere = add(elsewhere, flux);
+                break;
+            }
+            received = add(received, flux);
+            const rel = sub(p, receiver.corner);
+            const s = dot(rel, receiver.u) / uu;
+            const t = dot(rel, receiver.v) / vv;
+            if (s >= 0 && s < 1 && t >= 0 && t < 1) {
+                const cell =
+                    Math.floor(t * receiver.ny) * receiver.nx + Math.floor(s * receiver.nx);
+                for (let c = 0; c < 3; c++) cells[cell * 3 + c] = cells[cell * 3 + c]! + flux[c]!;
+            }
+            break;
+        }
+    }
+    const rgb = new Float32Array(cells.length);
+    for (let j = 0; j < cells.length; j++) rgb[j] = cells[j]! / cellArea;
+    return {
+        nx: receiver.nx,
+        ny: receiver.ny,
+        rgb,
+        emitted: scale(photonFlux, k * k),
+        received,
+        landedElsewhere: elsewhere,
+        escaped,
+    };
 }

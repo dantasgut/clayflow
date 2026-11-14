@@ -8,10 +8,13 @@ export {
     type DiffuseMaterialOptions,
 } from './DiffuseMaterial';
 export { DiffuseMaterialSchema } from './DiffuseMaterialSchema';
-export {
-    FluidSurfaceMaterial,
-    type FluidSurfaceMaterialData,
-    type FluidSurfaceMaterialOptions,
-} from './FluidSurfaceMaterial';
 export { PbrTables } from './pbr/PbrTables';
 export { LOBES, type LobeName } from './pbr/lobes';
+export { VirtualImage, type VirtualImageValues } from './virtual/VirtualImage';
+export {
+    VirtualTextures,
+    type VirtualTexturesData,
+    type VirtualTexturesOptions,
+} from './virtual/VirtualTextures';
+export { VirtualTextureFlow } from './virtual/VirtualTextureFlow';
+export type { VirtualColorSpace, VirtualWrap } from './virtual/layout';

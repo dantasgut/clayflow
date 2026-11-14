@@ -2,7 +2,7 @@
 // da busca de vizinhos: células, faixas e índices ordenados) e a velocidade média delas; pela vizinhança vira spray
 // (poucos vizinhos: balística com arrasto do ar), espuma (na superfície: levada pelo fluido, se desfaz com o tempo) ou
 // bolha (dentro: empuxo e arrasto para a velocidade do fluido). Sai da caixa do domínio: morre.
-// Requer: structs DiffuseParams, DiffuseParticle; diffuse_common.
+// Requer: structs DiffuseParams, DiffuseParticle; diffuse_common, ns_table_cell.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn diffuse_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -15,16 +15,16 @@ fn diffuse_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     // Vizinhos do fluido nas 27 células em volta.
     let rel = (x - p.grid_origin) / p.cell_size;
     let c = vec3i(floor(rel));
-    let dims = vec3i(i32(p.grid_x), i32(p.grid_y), i32(p.grid_z));
+    let table = vec3u(p.grid_x, p.grid_y, p.grid_z);
+    let domain = vec3u(p.domain_x, p.domain_y, p.domain_z);
     var count = 0u;
     var vsum = vec3f(0.0);
     var wsum = 0.0;
     for (var dz = -1; dz <= 1; dz++) {
         for (var dy = -1; dy <= 1; dy++) {
             for (var dx = -1; dx <= 1; dx++) {
-                let q = c + vec3i(dx, dy, dz);
-                if (any(q < vec3i(0)) || any(q >= dims)) { continue; }
-                let cell = u32(q.x) + u32(q.y) * p.grid_x + u32(q.z) * p.grid_x * p.grid_y;
+                let cell = ns_table_cell(c + vec3i(dx, dy, dz), domain, table);
+                if (cell == NONE) { continue; }
                 let start = cell_start[cell];
                 let n = cell_count[cell];
                 for (var k = 0u; k < n; k++) {

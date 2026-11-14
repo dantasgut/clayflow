@@ -22,56 +22,7 @@ const CLOSURE_ANISOTROPY: u32 = 256u;
 const CLOSURE_OPACITY: u32 = 512u;
 const CLOSURE_TRANSLUCENT: u32 = 1024u;
 
-struct Closure {
-    // Difuso (Oren-Nayar energético).
-    diffuse_weight: f32,
-    diffuse_color: vec3f,
-    diffuse_roughness: f32,
-    // Subsuperfície no modelo (difuso com "wrap" por canal).
-    subsurface_weight: f32,
-    subsurface_color: vec3f,
-    subsurface_radius: vec3f,
-    // Especular de base: parte dielétrica (F0 do IOR, tinta) e parte condutora (F0 e tinta F82), mesma microgeometria.
-    dielectric_weight: f32,
-    dielectric_ior: f32,
-    dielectric_tint: vec3f,
-    conductor_weight: f32,
-    conductor_f0: vec3f,
-    conductor_tint: vec3f,
-    specular_roughness: f32,
-    specular_anisotropy: f32,
-    // Tangente do especular anisotrópico (0 = a do referencial padrão).
-    tangent: vec3f,
-    // Filme fino sobre o especular de base.
-    film_weight: f32,
-    film_thickness: f32,
-    film_ior: f32,
-    // Verniz (camada de cima): dielétrico liso com cor de absorção e normal própria (0 = a geométrica).
-    coat_weight: f32,
-    coat_ior: f32,
-    coat_roughness: f32,
-    coat_color: vec3f,
-    coat_normal: vec3f,
-    // Brilho de fibra (Charlie), por cima de tudo.
-    sheen_weight: f32,
-    sheen_color: vec3f,
-    sheen_roughness: f32,
-    // Transmissão com refração: cor e distância de absorção (Beer-Lambert), IOR, número de Abbe (0 = sem dispersão).
-    transmission_weight: f32,
-    transmission_color: vec3f,
-    transmission_depth: f32,
-    transmission_ior: f32,
-    transmission_abbe: f32,
-    transmission_roughness: f32,
-    // Parede fina: transmissão difusa sem refração.
-    translucent_weight: f32,
-    translucent_color: vec3f,
-    // Emissão (nits) e opacidade.
-    emission: vec3f,
-    opacity: f32,
-    // Normal de base própria (0 = a geométrica).
-    normal: vec3f,
-}
+// O struct `Closure` vem do `ClosureSchema` (gerado na montagem).
 
 // Fechamento vazio: nenhum lobo, opaco, IORs no padrão do vidro comum (1,5).
 fn closure_zero() -> Closure {
@@ -140,6 +91,53 @@ fn closure_transmission(ior: f32, color: vec3f, depth: f32, abbe: f32, roughness
     c.transmission_abbe = select(0.0, max(abbe, 10.0), abbe > 0.0);
     c.transmission_roughness = clamp(roughness, 0.0, 1.0);
     return c;
+}
+
+// Coeficiente de absorção por unidade de percurso do meio da transmissão de `c`, por canal (Beer–Lambert): a cor
+// atingida a `depth` de percurso dá −ln(cor)/depth; 0 sem absorção (`depth` 0, ou a cor 1 no canal).
+fn closure_absorption(c: Closure) -> vec3f {
+    var sigma = vec3f(0.0);
+    if (c.transmission_depth > 0.0) {
+        for (var k = 0; k < 3; k++) {
+            let color = c.transmission_color[k];
+            if (color < 1.0) { sigma[k] = -log(max(color, 1e-9)) / c.transmission_depth; }
+        }
+    }
+    return sigma;
+}
+
+// Prioridade do meio de `c` na sobreposição de volumes transmissivos (o vidro mergulhado na água: o vidro com a maior
+// vale dentro dele, e a borda da água que passa por dentro do vidro não é interface). Empate: o último em que o raio
+// entrou. Padrão 0.
+fn closure_medium_priority(c: Closure, priority: f32) -> Closure {
+    var o = c;
+    o.transmission_priority = priority;
+    return o;
+}
+
+// Espalhamento no meio da transmissão de `c` (spec 034, T067e): o coeficiente por canal por unidade de percurso (≥ 0;
+// soma-se à absorção na extinção) e a anisotropia de Henyey–Greenstein em (−1, 1). A luz das fontes espalhada uma vez
+// ao longo de cada trecho no meio entra pelo traçado da refração; sem cor constante somada.
+fn closure_medium_scatter(c: Closure, scatter: vec3f, anisotropy: f32) -> Closure {
+    var o = c;
+    o.transmission_scatter = max(scatter, vec3f(0.0));
+    o.transmission_anisotropy = clamp(anisotropy, -0.99, 0.99);
+    return o;
+}
+
+// A extinção por unidade de percurso do meio da transmissão de `c`, por canal: a absorção mais o espalhamento (a luz que
+// segue em linha reta pelo meio perde as duas).
+fn closure_extinction(c: Closure) -> vec3f {
+    return closure_absorption(c) + c.transmission_scatter;
+}
+
+// Transmissão de `c` como parede fina (o `thin_walled` do OpenPBR): placa de espessura zero, sem interior — vidraça,
+// bolha, folha de plástico modeladas por uma superfície só. A luz atravessa sem desviar e reflete com as reflexões
+// múltiplas entre as duas faces (2R/(1 + R)); a absorção e a rugosidade da transmissão não valem nela.
+fn closure_thin_walled(c: Closure) -> Closure {
+    var o = c;
+    o.transmission_thin = 1.0;
+    return o;
 }
 
 // Parede fina translúcida (cortina, folha): a luz de trás atravessa espalhada, sem refratar o fundo.
@@ -256,6 +254,10 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.transmission_ior = closure_merge1(a.transmission_ior, wta, b.transmission_ior, wtb);
     o.transmission_abbe = closure_merge1(a.transmission_abbe, wta, b.transmission_abbe, wtb);
     o.transmission_roughness = closure_merge_roughness(a.transmission_roughness, wta, b.transmission_roughness, wtb);
+    o.transmission_priority = max(a.transmission_priority, b.transmission_priority);
+    o.transmission_scatter = closure_merge3(a.transmission_scatter, wta, b.transmission_scatter, wtb);
+    o.transmission_anisotropy = closure_merge1(a.transmission_anisotropy, wta, b.transmission_anisotropy, wtb);
+    o.transmission_thin = max(a.transmission_thin, b.transmission_thin);
     o.translucent_weight = a.translucent_weight + b.translucent_weight;
     o.translucent_color = closure_merge3(a.translucent_color, a.translucent_weight, b.translucent_color, b.translucent_weight);
     o.emission = a.emission + b.emission;
@@ -314,6 +316,16 @@ fn closure_normal(c: Closure, n: vec3f) -> Closure {
     return o;
 }
 
+// Refletância do fechamento (a cor da superfície, sem a luz): cada lobo pelo peso e pela cor; o especular dielétrico pelo
+// F0 do IOR. Aproximada (sem o ângulo nem o verniz): serve para separar a luz da textura (spec 034, a mudança de
+// iluminação na resolução temporal), não para sombrear.
+fn closure_albedo(c: Closure) -> vec3f {
+    let f = (c.dielectric_ior - 1.0) / (c.dielectric_ior + 1.0);
+    return c.diffuse_weight * c.diffuse_color + c.subsurface_weight * c.subsurface_color
+        + c.dielectric_weight * f * f * c.dielectric_tint + c.conductor_weight * c.conductor_f0
+        + c.sheen_weight * c.sheen_color + c.translucent_weight * c.translucent_color;
+}
+
 // Fechamento dos parâmetros da 009 (`SurfaceParams`): a "base" do OpenPBR — difuso + especular dielétrico de IOR 1,5 +
 // condutor pela metalicidade, com a rugosidade e a emissão da função.
 fn closure_from_params(p: SurfaceParams) -> Closure {
@@ -354,13 +366,47 @@ fn closure_sanitize(c: Closure) -> Closure {
     let ok_sh = finite3(vec3f(c.sheen_weight, c.sheen_roughness, 0.0)) && finite3(c.sheen_color);
     o.sheen_weight = select(0.0, max(c.sheen_weight, 0.0), ok_sh);
     let ok_t = finite3(vec3f(c.transmission_weight, c.transmission_depth, c.transmission_ior))
-        && finite3(vec3f(c.transmission_abbe, c.transmission_roughness, 0.0)) && finite3(c.transmission_color);
+        && finite3(vec3f(c.transmission_abbe, c.transmission_roughness, c.transmission_priority))
+        && finite3(c.transmission_color) && finite3(vec3f(c.transmission_thin, c.transmission_anisotropy, 0.0))
+        && finite3(c.transmission_scatter);
     o.transmission_weight = select(0.0, max(c.transmission_weight, 0.0), ok_t);
     o.transmission_ior = select(1.5, max(c.transmission_ior, 1.0), ok_t);
+    o.transmission_priority = select(0.0, c.transmission_priority, ok_t);
+    o.transmission_thin = select(0.0, 1.0, ok_t && c.transmission_thin > 0.5);
+    o.transmission_scatter = select(vec3f(0.0), max(c.transmission_scatter, vec3f(0.0)), ok_t);
+    o.transmission_anisotropy = select(0.0, clamp(c.transmission_anisotropy, -0.99, 0.99), ok_t);
     let ok_tl = finite3(vec3f(c.translucent_weight, 0.0, 0.0)) && finite3(c.translucent_color);
     o.translucent_weight = select(0.0, max(c.translucent_weight, 0.0), ok_tl);
     o.emission = select(vec3f(0.0), clamp(c.emission, vec3f(0.0), vec3f(65000.0)), finite3(c.emission));
     o.opacity = select(1.0, clamp(c.opacity, 0.0, 1.0), finite3(vec3f(c.opacity, 0.0, 0.0)));
     o.normal = select(vec3f(0.0), c.normal, finite3(c.normal));
+    return o;
+}
+
+// ── Superfície molhada (spec 034) ───────────────────────────────────────────────────────────────────────────────────
+// A água numa superfície (`wet`): uma película livre de espessura `wet.x` (m) sobre o fechamento e a saturação `wet.y`
+// dos poros dele. A cobertura da película cresce com a espessura até cobrir a microgeometria (`CLOSURE_WET_FULL`) e o
+// brilho passa a ser o da água: o especular dielétrico com o índice dela, quase liso. A base escurece pela película e
+// pela água nos poros, pelo mesmo mecanismo — a luz que volta dela fica presa pela reflexão interna da superfície
+// água–ar (Lekner e Dorf 1988: a' = a (1 − rₑ)(1 − rᵢ) / (1 − rᵢ a), rₑ e rᵢ as refletâncias difusas de fora e de dentro
+// para n = 1,333); nos poros, a água troca o ar entre os grãos, sem película por cima: escurece sem o brilho.
+const CLOSURE_WET_FULL: f32 = 5.0e-5;
+const CLOSURE_WET_IOR: f32 = 1.333;
+const CLOSURE_WET_R_OUT: f32 = 0.066;
+const CLOSURE_WET_R_IN: f32 = 0.474;
+const CLOSURE_WET_ROUGHNESS: f32 = 0.03;
+
+fn closure_wet(c: Closure, wet: vec2f) -> Closure {
+    let w = clamp(wet.x / CLOSURE_WET_FULL, 0.0, 1.0);
+    let dark = max(w, clamp(wet.y, 0.0, 1.0));
+    if (dark <= 0.0) { return c; }
+    var o = c;
+    let a = c.diffuse_color;
+    let soaked = a * ((1.0 - CLOSURE_WET_R_OUT) * (1.0 - CLOSURE_WET_R_IN)) / (vec3f(1.0) - CLOSURE_WET_R_IN * a);
+    o.diffuse_color = mix(a, soaked, dark);
+    o.dielectric_weight = mix(c.dielectric_weight, 1.0, w);
+    o.dielectric_ior = mix(c.dielectric_ior, CLOSURE_WET_IOR, w);
+    o.dielectric_tint = mix(c.dielectric_tint, vec3f(1.0), w);
+    o.specular_roughness = mix(c.specular_roughness, CLOSURE_WET_ROUGHNESS, w);
     return o;
 }

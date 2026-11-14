@@ -55,4 +55,9 @@ export const colliderResources = Object.freeze({
     meshes: read('collider_meshes', { schema: MeshCollider.schema, array: true }),
     meshOwners: read('collider_mesh_owners', { wgsl: 'u32', array: true }),
     surfaceField: read('collider_surface_field', { wgsl: 'f32', array: true }),
+    /**
+     * A superfície física de cada collider (spec 034): a entrada na tabela das `SurfacePhysics` da cena (0 o padrão,
+     * k + 1 a k-ésima), na ordem planos, caixas, esferas, superfícies.
+     */
+    surfaces: read('collider_surfaces', { wgsl: 'u32', array: true }),
 });

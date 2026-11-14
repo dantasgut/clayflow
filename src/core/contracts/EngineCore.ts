@@ -1,6 +1,7 @@
 import type { DeviceCapabilities, DeviceOptions } from './DeviceOptions';
 import type { Frame } from './Frame';
-import type { FrameStats } from './FrameStats';
+import type { FrameGpuTiming, FrameStats } from './FrameStats';
+import type { PlatformAdapter, PresentationSurface } from './PlatformAdapter';
 import type { Profiler } from './Profiler';
 import type { AnyBufferSpec, ResourceSpec } from './specs/ResourceSpec';
 import type { ShaderModuleSpec } from './specs/ShaderModuleSpec';
@@ -71,6 +72,23 @@ export interface CanvasOptions {
     readonly toneMapping?: 'standard' | 'extended';
     /** Formato do canvas: `preferred` (default, o de `getPreferredCanvasFormat`) ou `rgba16float` (saída HDR). */
     readonly format?: 'preferred' | 'rgba16float';
+    /**
+     * Permite ler o quadro apresentado (`readCanvas`, spec 034): a textura do canvas ganha o uso de cópia. Para
+     * ferramentas (gravação de vídeo, comparação de imagens); sem ela o canvas fica só como alvo de desenho.
+     */
+    readonly capture?: boolean;
+}
+
+/** O quadro apresentado lido da GPU (`EngineCore.readCanvas`, spec 034), linhas sem preenchimento. */
+export interface CanvasPixels {
+    readonly width: number;
+    readonly height: number;
+    /** Formato da textura do canvas (`bgra8unorm`, `rgba8unorm` ou `rgba16float`). */
+    readonly format: GPUTextureFormat;
+    /** Bytes por pixel (4 nos formatos de 8 bits, 8 no `rgba16float`). */
+    readonly bytesPerPixel: number;
+    /** `width · height · bytesPerPixel` bytes, linha a linha, de cima para baixo. */
+    readonly data: Uint8Array;
 }
 
 /** Saída do canvas efetivamente configurada (spec 011): o formato e o mapeamento de tons da tela. */
@@ -124,16 +142,18 @@ export interface EngineCore {
     readonly canvasOptions: CanvasOptions;
 
     /**
-     * Adquire GPUAdapter + GPUDevice (assíncrono) aplicando `device` (potência, features, limites) e configura o
-     * canvas swapchain com `canvasOptions`. As opções ficam guardadas e são reaplicadas em `requestRecover` e
+     * Adquire GPUAdapter + GPUDevice (assíncrono) pelo adaptador de plataforma (`platform`, spec 038: obrigatório na
+     * primeira vez, guardado para a recuperação) aplicando `device` (potência, features, limites) e configura a
+     * superfície de apresentação (`surface`: o canvas, a janela ou a textura) com `canvasOptions`. As opções ficam guardadas e são reaplicadas em `requestRecover` e
      * `reconfigureCanvas`. Idempotente quando o device já existe — apenas reaplica canvas/opções de canvas.
      * Rejeita se WebGPU não está disponível ou se uma feature de `device.requiredFeatures` falta no adaptador
      * (a mensagem nomeia a feature).
      */
     initialize(
-        canvas?: HTMLCanvasElement,
+        surface?: PresentationSurface,
         canvasOptions?: CanvasOptions,
         device?: DeviceOptions,
+        platform?: PlatformAdapter,
     ): Promise<void>;
     /**
      * Re-configura o canvas swapchain (chamado após resize). Não recria o device. Sem `options`, reaplica as
@@ -174,7 +194,7 @@ export interface EngineCore {
      * o canvas (o informado ou o anterior) com as `CanvasOptions` guardadas — ou com `options`, que passam a ser
      * as guardadas. Resources cacheados precisam ser recriados pelos sistemas consumidores.
      */
-    requestRecover(canvas?: HTMLCanvasElement, options?: CanvasOptions): Promise<void>;
+    requestRecover(surface?: PresentationSurface, options?: CanvasOptions): Promise<void>;
 
     /**
      * Bytes alocados em GPU memory neste momento. `top` lista as N maiores
@@ -203,6 +223,12 @@ export interface EngineCore {
      * 1–3 quadros; `gpuFrame` diz a que quadro pertence).
      */
     lastFrameStats(): FrameStats;
+
+    /**
+     * Leituras de tempo de GPU chegadas desde a última chamada, cada uma uma única vez, na ordem de chegada (spec
+     * 034). Vazio sem profiling por quadro ou sem `timestamp-query`.
+     */
+    takeFrameTimings(): readonly FrameGpuTiming[];
 
     /**
      * Cria (ou reutiliza, por conteúdo) o objeto de GPU descrito por `spec` e devolve `spec`.
@@ -242,6 +268,14 @@ export interface EngineCore {
      * Retorna ArrayBuffer com cópia dos dados.
      */
     readback(spec: StagingBufferSpec): Promise<ArrayBuffer>;
+
+    /**
+     * Lê da GPU o quadro apresentado no canvas (spec 034): copia a textura atual do canvas para um buffer de leitura e
+     * devolve os pixels. Chame na mesma tarefa do quadro (a textura do canvas só vale até a tarefa ceder) e com o canvas
+     * configurado com `capture: true`. Para ferramentas — o motor nunca lê de volta por quadro por conta própria.
+     * @throws Error sem canvas, sem `capture` ou depois de a tarefa do quadro ceder.
+     */
+    readCanvas(): Promise<CanvasPixels>;
 
     /**
      * Abre um command encoder, passa um Frame para o body emitir comandos,

@@ -10,20 +10,39 @@
 // Registra os tempos de PrefixSum e RadixSort com 4 M elementos.
 //
 // Para rodar: `npm run smoke -- computeKernels`. Resultado: `COMPUTEKERNELS SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene } from 'clayflow';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
-import { createComputeKernel, destroyComputeKernel } from '../scene/flows/createComputeKernel';
-import { wgslModule } from '../scene/shaders/WgslModule';
-import { wgslResource } from '../scene/shaders/WgslResource';
-import { PrefixSum } from '../elements/gpu/compute/PrefixSum';
-import { RadixSort } from '../elements/gpu/compute/RadixSort';
-import { Compaction } from '../elements/gpu/compute/Compaction';
-import { Reduce } from '../elements/gpu/compute/Reduce';
-import { GraphColorer, verifyEdgeColoring } from '../elements/gpu/compute/GraphColorer';
-import { AtomicAllocCounterSchema } from '../elements/gpu/compute/schemas';
+// Pela API pública (como com `--dist`): o motor reconhece o trabalho e as partes dele pela classe da mesma cópia.
+import {
+    Application,
+    AtomicAllocCounterSchema,
+    Compaction,
+    createScene,
+    FlowWork,
+    GraphColorer,
+    PrefixSum,
+    RadixSort,
+    Reduce,
+    StructSchema,
+    verifyEdgeColoring,
+    wgslModule,
+    wgslResource,
+} from 'clayflow/web';
+import type {
+    ReduceOpName,
+    ReduceType,
+    StagingBufferSpec,
+    StorageBufferSpec,
+    WorkContext,
+} from 'clayflow/web';
+// Só o módulo WGSL do ponto fixo, fora da API pública; sozinho nos kernels do smoke.
 import { fixedPoint } from '../elements/gpu/compute/shaders';
-import type { ReduceOpName, ReduceType } from '../elements/gpu/compute/shaders';
 import { FIXED_LIMIT, fixedFromF32 } from './support/fixedPointReference';
+import { mulberry32 } from './support/random';
+import { ownWork } from './support/workOwner';
+
+/** O Resource de trabalho dos kernels do smoke (spec 039: o espaço deles é da C2). */
+class SmokeWork extends FlowWork {
+    static readonly schema = new StructSchema('ComputeKernelsWork', {});
+}
 
 function log(msg: string): void {
     console.log(`[computeKernels] ${msg}`);
@@ -37,6 +56,7 @@ function check(ok: boolean, msg: string): void {
 }
 
 let app: Application;
+let work: WorkContext;
 let serial = 0;
 
 function storage(byteSize: number): StorageBufferSpec {
@@ -71,18 +91,6 @@ async function read(src: StorageBufferSpec, byteSize: number): Promise<ArrayBuff
     return data.slice(0, byteSize);
 }
 
-/** Gerador determinístico (mulberry32). */
-function rng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
 const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
 /** Mede (mediana de 5, depois de um aquecimento) o tempo de gravar, enviar e concluir `body`. */
@@ -101,8 +109,8 @@ async function timeIt(body: () => void, sync: StorageBufferSpec): Promise<number
 
 async function prefixSum(): Promise<void> {
     const sizes = [0, 1, 255, 256, 257, 65_537, 70_000 * 256, 4_194_304];
-    const scan = new PrefixSum(app.core, { discriminator: 'ck_scan', capacity: 70_000 * 256 });
-    const r = rng(1);
+    const scan = new PrefixSum(work, { discriminator: 'ck_scan', capacity: 70_000 * 256 });
+    const r = mulberry32(1);
     for (const n of sizes) {
         const input = Uint32Array.from({ length: n }, () => Math.floor(r() * 4));
         for (const mode of ['exclusive', 'inclusive'] as const) {
@@ -153,12 +161,12 @@ async function prefixSum(): Promise<void> {
 // ── RadixSort ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async function radixSort(): Promise<void> {
-    const sort = new RadixSort(app.core, {
+    const sort = new RadixSort(work, {
         discriminator: 'ck_sort',
         capacity: 4_194_304,
         withValues: true,
     });
-    const r = rng(2);
+    const r = mulberry32(2);
     const kinds: Record<string, (n: number, i: number) => number> = {
         aleatórias: () => Math.floor(r() * 4294967296),
         iguais: () => 77,
@@ -201,7 +209,7 @@ async function radixSort(): Promise<void> {
     log(`RadixSort: ${cases} casos ordenados e estáveis`);
 
     const n = 4_194_304;
-    const keysOnly = new RadixSort(app.core, { discriminator: 'ck_sort_keys', capacity: n });
+    const keysOnly = new RadixSort(work, { discriminator: 'ck_sort_keys', capacity: n });
     const kb = upload(Uint32Array.from({ length: n }, () => Math.floor(r() * 4294967296)));
     keysOnly.prepare(kb);
     const ms = await timeIt(() => {
@@ -244,7 +252,7 @@ fn compact_value(i: u32) -> u32 { return i; }`,
 async function compaction(): Promise<void> {
     const n = 100_000;
     const SENTINEL = 0xdeadbeef;
-    const r = rng(3);
+    const r = mulberry32(3);
     const values = Uint32Array.from({ length: n }, () => Math.floor(r() * 1000));
     const valuesBuf = upload(values);
     const cases = [
@@ -256,7 +264,7 @@ async function compaction(): Promise<void> {
     ];
     for (const c of cases) {
         const threshold = upload(new Uint32Array([c.percent, 0, 0, 0]));
-        const compaction = new Compaction(app.core, {
+        const compaction = new Compaction(work, {
             discriminator: `ck_compact_${serial++}`,
             predicate: keepPredicate,
             capacity: c.capacity,
@@ -315,11 +323,11 @@ async function compaction(): Promise<void> {
 // ── Reduce ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async function reduce(): Promise<void> {
-    const r = rng(4);
+    const r = mulberry32(4);
     let cases = 0;
     for (const type of ['u32', 'i32', 'f32'] as ReduceType[]) {
         for (const op of ['sum', 'min', 'max'] as ReduceOpName[]) {
-            const reducer = new Reduce(app.core, {
+            const reducer = new Reduce(work, {
                 discriminator: `ck_reduce_${op}_${type}`,
                 capacity: 4_194_304,
                 op,
@@ -420,7 +428,7 @@ function tetraEdges(n: number): Uint32Array {
 }
 
 function randomEdges(count: number, vertices: number): Uint32Array {
-    const r = rng(5);
+    const r = mulberry32(5);
     const out = new Uint32Array(count * 2);
     for (let e = 0; e < count; e++) {
         const a = Math.floor(r() * vertices);
@@ -438,7 +446,7 @@ async function graphColoring(): Promise<void> {
         ['malha de tetraedros 16³', tetraEdges(16), 16 ** 3],
         ['grafo aleatório 1 M arestas', randomEdges(1_000_000, 100_000), 100_000],
     ];
-    const colorer = new GraphColorer(app.core, { discriminator: 'ck_gc', capacity: 1_000_000 });
+    const colorer = new GraphColorer(work, { discriminator: 'ck_gc', capacity: 1_000_000 });
     for (const [name, edges, vertexCount] of graphs) {
         const edgeCount = edges.length / 2;
         const degree = new Uint32Array(vertexCount);
@@ -508,7 +516,7 @@ async function graphColoring(): Promise<void> {
 async function fixedPointSum(): Promise<void> {
     const n = 1_000_000;
     const scale = 1048576;
-    const r = rng(6);
+    const r = mulberry32(6);
     const values = Float32Array.from({ length: n }, () => (r() * 2 - 1) * 1e-3);
     // Empates exatos de arredondamento (k + 0,5) / scale e valores fora da faixa.
     values.set([0.5 / scale, 1.5 / scale, -2.5 / scale, 4096, -4096], 0);
@@ -550,7 +558,7 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
     const input = upload(values);
     const out = storage(n * 4);
     const sum = upload(new Int32Array(4));
-    const kernel = createComputeKernel(app.core, {
+    const kernel = work.work.pipelines.kernel({
         discriminator: 'ck_fixed_sum',
         shader: module,
         entryPoint: 'fp_main',
@@ -562,8 +570,7 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
     });
     app.core.record('ck-fixed', (frame) => {
         frame.compute('ck.fixed', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            work.work.pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(n, 256);
         });
     });
@@ -589,18 +596,23 @@ fn fp_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) 
         `fixed_point: soma ${totals[0]! / scale} longe de ${real} além da resolução`,
     );
     log(`fixed_point: ${n} contribuições somadas iguais à CPU; saturação detectada`);
-    destroyComputeKernel(app.core, kernel);
+    work.work.pipelines.release(kernel);
     for (const b of [input, out, sum]) app.core.destroy(b);
 }
 
 async function main(): Promise<void> {
     const canvas = document.createElement('canvas');
     app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
     });
+    const owner = ownWork(app, new SmokeWork(), 'computeKernelsWork');
+    work = { core: app.core, resources: app.resources, work: owner };
     await prefixSum();
     await radixSort();
     await compaction();

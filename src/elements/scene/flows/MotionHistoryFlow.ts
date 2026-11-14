@@ -1,0 +1,120 @@
+import type { Frame } from '../../../scene/contracts/gpu';
+import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
+import { Flow } from '../../../scene/flows/Flow';
+import type { BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
+import type { FlowContext } from '../../../scene/flows/FlowRegistry';
+import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
+import {
+    slot,
+    type EntitiesSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
+import { TemporalAntialiasing } from '../TemporalAntialiasing';
+import { Geometry } from '../../geometry/Geometry';
+import { Transform } from '../Transform';
+import { motionHistory } from './shaders';
+
+/** Slots do estágio do histórico de movimento. */
+export interface MotionHistorySlots extends SlotMap {
+    /** Pool `WorldTransform` (o do quadro anterior, ainda intacto no início do quadro). */
+    readonly worlds: PoolSlot<false>;
+    /** Pool `PreviousWorldTransform` (saída: mesmo slot e layout). */
+    readonly previous: PoolSlot<false>;
+    /** Geometrias: as que têm vértices reescritos pela GPU guardam os do quadro anterior (`previousVertices`). */
+    readonly geometries: EntitiesSlot;
+    /** O antisserrilhado da cena: sem o deslocamento da amostra (MSAA, desligado) ninguém lê o histórico. */
+    readonly antialiasing: SingletonSlot<true>;
+}
+
+const slots: MotionHistorySlots = {
+    worlds: slot.pool(Transform.worldSchema.name),
+    previous: slot.pool(Transform.previousWorldSchema.name),
+    geometries: slot.entities({
+        all: [Geometry],
+        owns: [[Geometry, 'previousVertices']],
+    }),
+    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+};
+
+/**
+ * Histórico de movimento (spec 034, R3): no início do quadro — fase `physics`, antes de qualquer solver ou do estágio de
+ * transformação escreverem as matrizes de mundo — copia a `WorldTransform` de todos os slots para a
+ * `PreviousWorldTransform`. Na geometria cujos vértices a GPU reescreve (superfícies, corpos moles, grafos), copia os
+ * vértices para `previousVertices` antes de o produtor os reescrever, no quadro seguinte a cada um em que ele os produziu
+ * (parada, os dois ficam iguais e a geometria não tem movimento). Só com o antisserrilhado temporal (ou a acumulação):
+ * sem ele, ninguém lê o histórico. O passe de movimento do desenho compara as matrizes e
+ * os vértices (vetores de movimento do antisserrilhado temporal). Cópias de buffer, sem kernel nem leitura de volta.
+ */
+export class MotionHistoryFlow extends Flow<MotionHistorySlots, 'idle'> {
+    readonly type = 'MotionHistoryFlow';
+    readonly slots = slots;
+    override readonly pipelines: readonly PipelineDescriptor[] = [
+        {
+            id: 'motion_history',
+            role: 'compute',
+            shader: motionHistory,
+            entryPoints: ['motion_history_main'],
+        },
+    ];
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<MotionHistorySlots>>;
+    private readonly resources: ResourceDirectory;
+    /** Geometrias cujos vértices anteriores ainda diferem dos atuais (produzidas no quadro passado ou recém-alocadas). */
+    private stale = new Set<Geometry>();
+    /** O histórico foi mantido no quadro anterior (senão, tudo é copiado no primeiro quadro com o temporal). */
+    private kept = false;
+
+    constructor(ctx: FlowContext) {
+        super();
+        this.resources = ctx.resources;
+        this.transitions = {
+            '*': {
+                slotsResolved: 'ignore',
+                entitiesChanged: 'ignore',
+                slotLost: 'ignore',
+                slotChanged: 'ignore',
+                pipelinesCompiled: 'ignore',
+                bindGroupReplaced: 'ignore',
+                poolReallocated: 'ignore',
+            },
+        };
+    }
+
+    dispatch(frame: Frame, bound: BoundFlow<MotionHistorySlots>): void {
+        const { worlds, previous, geometries } = bound.slots;
+        // Sem o temporal não há passe de movimento: nada a copiar (com um milhão de objetos, 112 MiB por quadro).
+        const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        const kept = this.kept;
+        this.kept = aa?.jitters === true;
+        if (!this.kept) return;
+        const count = Math.min(worlds.count, previous.capacity);
+        const copy = bound.compute('motion_history');
+        if (count > 0 && copy.ready) {
+            frame.compute('MotionHistoryFlow', (pass) => {
+                pass.bind.setPipeline(copy.spec);
+                copy.bindTo(pass.bind);
+                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
+            });
+        }
+        const stale = new Set<Geometry>();
+        for (const entry of geometries.entries) {
+            const geometry = entry.get(Geometry);
+            if (!this.resources.hasGpuWriter(geometry, 'vertices')) continue;
+            const known = this.resources.bufferOf(geometry, 'previousVertices');
+            const history = known ?? this.resources.ensureAllocated(geometry, 'previousVertices');
+            const vertices = this.resources.bufferOf(geometry, 'vertices');
+            if (history?.subkind !== 'vertex' || vertices?.subkind !== 'vertex') continue;
+            // Gravada antes do produtor, a cópia guarda os vértices do fim do quadro anterior. Só muda algo quando ele
+            // os reescreveu no quadro passado; sem isso os anteriores já são os atuais.
+            if (known === undefined || !kept || this.stale.has(geometry))
+                frame.copy(vertices, history, Math.min(vertices.byteSize, history.byteSize), 0, 0);
+            // As marcas de produção do quadro já estão feitas (todo `framePrepare` antes da gravação).
+            if (this.resources.isProduced(geometry, 'vertices')) stale.add(geometry);
+        }
+        this.stale = stale;
+    }
+}

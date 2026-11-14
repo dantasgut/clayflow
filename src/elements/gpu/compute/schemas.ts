@@ -1,5 +1,6 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 
 /**
  * Parâmetros de um nível da soma de prefixos (`PrefixSum`): contagem e modo (inclusiva só no nível 0); na variante de
@@ -130,3 +131,27 @@ export const CountToArgsParamsSchema = new StructSchema(
     },
     { addressSpace: 'uniform' },
 );
+
+/**
+ * Palavra de 32 bits (spec 039): o elemento dos buffers de trabalho sem struct próprio (contagens, índices, chaves,
+ * bytes de uma lista) — um descritor do Resource de trabalho com `count` palavras.
+ */
+export const GpuWordSchema = new StructSchema('GpuWord', { w: FieldType.u32 });
+
+/**
+ * Descritor de trabalho de `byteSize` bytes em palavras de 32 bits (no mínimo 4 palavras), produzido só pela GPU.
+ * `role: 'indirect'` para argumentos de despacho/desenho; `'staging'` não entra aqui (a leitura é pela C2, `read`).
+ */
+export function wordBuffer(
+    id: string,
+    byteSize: number,
+    role: 'storage-rw' | 'indirect' = 'storage-rw',
+): GPUDescriptor {
+    return {
+        id,
+        role,
+        schema: GpuWordSchema,
+        upload: 'never',
+        count: Math.max(4, Math.ceil(byteSize / 4)),
+    };
+}

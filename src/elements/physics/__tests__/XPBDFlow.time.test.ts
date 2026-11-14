@@ -24,7 +24,7 @@ const paramWrites = (writes: Awaited<ReturnType<typeof solverScene>>['writes']) 
     );
 
 describe('XPBDFlow — avanço governado pelo Time (slots)', () => {
-    it('instanciado pela C2 no primeiro corpo; iterações = steps × substeps, cada uma na sua região', async () => {
+    it('instanciado pela C2 no primeiro corpo; iterações = steps × substeps, cada uma nas suas regiões (a do substep e a das avulsas)', async () => {
         const { step, flow } = await setup(2);
         expect(flow().lifecycle).toBe('ready');
         const passes = step(3 / 60);
@@ -32,7 +32,7 @@ describe('XPBDFlow — avanço governado pelo Time (slots)', () => {
         expect(countPasses(passes, 'XPBDFlow.velocity_update')).toBe(6);
         expect(
             passes.filter((p) => p.label === 'XPBDFlow.predict').map((p) => paramsOffset(p)),
-        ).toEqual([0, 256, 512, 768, 1024, 1280]);
+        ).toEqual([0, 512, 1024, 1536, 2048, 2560]);
     });
 
     it('dt de cada região = stepDt / substeps; uma escrita por quadro (framePrepare)', async () => {

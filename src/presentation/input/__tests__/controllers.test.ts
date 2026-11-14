@@ -13,7 +13,7 @@ import { World } from '../../../scene/world/World';
 import { Input } from '../Input';
 import { InteractionSystem } from '../InteractionSystem';
 import { FlyController } from '../controllers/FlyController';
-import { FpsController } from '../controllers/FpsController';
+import { FpsController } from '../../../platform/web/input/FpsController';
 import { OrbitController } from '../controllers/OrbitController';
 
 function setup() {
@@ -21,12 +21,7 @@ function setup() {
     const world = new World(events);
     const input = new Input();
     world.insert(input);
-    const system = new InteractionSystem(
-        { canvas: document.createElement('canvas'), window: null },
-        events,
-        world,
-        input,
-    );
+    const system = new InteractionSystem([], events, world, input);
     const frame = () => {
         events.emit('frameTick', { dt: 1 / 60, realDt: 1 / 60, elapsed: 0, frame: 1 });
     };
@@ -56,6 +51,21 @@ describe('controllers de câmera (spec 007)', () => {
             expect(v).toBeCloseTo(toTarget[i]!, 5);
         });
         expect(transform.data.scale).toEqual([2, 2, 2, 1]);
+    });
+
+    it('orbit com `eye`: começa na posição dada (a distância e os ângulos dela em torno do alvo)', () => {
+        const s = setup();
+        const transform = new Transform();
+        s.world.insert(
+            new Camera()
+                .add(transform)
+                .add(new OrbitController({ target: [0, 0.5, 0], eye: [1, 2, -3] })),
+        );
+        s.frame();
+        const p = transform.data.position;
+        [1, 2, -3].forEach((v, i) => {
+            expect(p[i]).toBeCloseTo(v, 5);
+        });
     });
 
     it('arrasto gira a órbita; deltas do quadro são consumidos', () => {

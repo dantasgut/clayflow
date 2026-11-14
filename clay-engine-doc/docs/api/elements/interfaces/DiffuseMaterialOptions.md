@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / DiffuseMaterialOptions
+[clayflow](../../modules.md) / [elements](../README.md) / DiffuseMaterialOptions
 
 # Interface: DiffuseMaterialOptions
 
-Defined in: elements/material/DiffuseMaterial.ts:20
+Defined in: [src/elements/material/DiffuseMaterial.ts:21](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L21)
 
 Opções do `DiffuseMaterial`.
 
@@ -16,7 +16,7 @@ Opções do `DiffuseMaterial`.
 
 > `readonly` `optional` **bubbleColor?**: readonly `number`[]
 
-Defined in: elements/material/DiffuseMaterial.ts:26
+Defined in: [src/elements/material/DiffuseMaterial.ts:27](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L27)
 
 Cor das bolhas (RGBA linear). Default [0,85, 0,92, 1, 1].
 
@@ -26,7 +26,7 @@ Cor das bolhas (RGBA linear). Default [0,85, 0,92, 1, 1].
 
 > `readonly` `optional` **bubbleRadius?**: `number`
 
-Defined in: elements/material/DiffuseMaterial.ts:32
+Defined in: [src/elements/material/DiffuseMaterial.ts:33](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L33)
 
 Raio das bolhas (m). Default 0,005.
 
@@ -36,7 +36,7 @@ Raio das bolhas (m). Default 0,005.
 
 > `readonly` `optional` **foamColor?**: readonly `number`[]
 
-Defined in: elements/material/DiffuseMaterial.ts:24
+Defined in: [src/elements/material/DiffuseMaterial.ts:25](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L25)
 
 Cor da espuma (RGBA linear). Default [0,95, 0,97, 1, 1].
 
@@ -46,7 +46,7 @@ Cor da espuma (RGBA linear). Default [0,95, 0,97, 1, 1].
 
 > `readonly` `optional` **foamRadius?**: `number`
 
-Defined in: elements/material/DiffuseMaterial.ts:30
+Defined in: [src/elements/material/DiffuseMaterial.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L31)
 
 Raio dos flocos de espuma (m). Default 0,008.
 
@@ -56,7 +56,7 @@ Raio dos flocos de espuma (m). Default 0,008.
 
 > `readonly` `optional` **sprayColor?**: readonly `number`[]
 
-Defined in: elements/material/DiffuseMaterial.ts:22
+Defined in: [src/elements/material/DiffuseMaterial.ts:23](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L23)
 
 Cor das gotículas de spray (RGBA linear). Default [0,55, 0,7, 0,8, 1].
 
@@ -66,6 +66,6 @@ Cor das gotículas de spray (RGBA linear). Default [0,55, 0,7, 0,8, 1].
 
 > `readonly` `optional` **sprayRadius?**: `number`
 
-Defined in: elements/material/DiffuseMaterial.ts:28
+Defined in: [src/elements/material/DiffuseMaterial.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/material/DiffuseMaterial.ts#L29)
 
 Raio das gotículas de spray (m). Default 0,004.

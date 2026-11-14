@@ -87,7 +87,7 @@ export const distributeOnMesh = defineSetNode({
             distributeDensity,
             c.point('density'),
         );
-        const compaction = new Compaction(c.core, {
+        const compaction = new Compaction(c.work, {
             discriminator: `${c.id}:compact`,
             predicate,
             capacity: candidates,
@@ -101,7 +101,7 @@ export const distributeOnMesh = defineSetNode({
             ]),
         });
         compaction.prepare(list, counter, 1, records);
-        const args = new CountToArgs(c.core, { discriminator: `${c.id}:args` });
+        const args = new CountToArgs(c.work, { discriminator: `${c.id}:args` });
         args.prepare(records, 2);
         args.prepare(c.counts, 2);
         k.kernel('candidates', setDistributeCount, 'distribute_candidates_main', [
@@ -206,8 +206,8 @@ export const realizeInstances = defineSetNode({
         const vout = c.output('mesh', 'vertices');
         const tout = c.output('mesh', 'triangles');
         const [segments, rings] = realizeResolution(c.values());
-        const table = k.storage('table', realizeTable(segments, rings).byteLength);
-        const args = new CountToArgs(c.core, { discriminator: `${c.id}:args` });
+        const table = k.constant('table', realizeTable(segments, rings));
+        const args = new CountToArgs(c.work, { discriminator: `${c.id}:args` });
         args.prepare(c.counts, 2);
         k.kernel('count', setRealizeCount, 'realize_count_main', [
             [R.realize, k.params],
@@ -238,7 +238,6 @@ export const realizeInstances = defineSetNode({
                     vertex_capacity: vout.capacity,
                     triangle_capacity: tout.capacity,
                 });
-                c.core.write(table, realizeTable(segments, rings));
             },
             record: (frame) => {
                 k.single(frame, 'set.realizeInstances.count', 'count');

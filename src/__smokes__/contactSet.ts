@@ -8,8 +8,8 @@
 // testados pela narrowphase contra N·M (SC-006: ≤ 1% em 10 000 corpos).
 //
 // Para rodar: `npm run smoke -- contactSet [--record]`. Resultado: `CONTACTSET SMOKE PASSED` ou `FAIL`.
-import { Application, createScene, LCPFlow } from 'clayflow';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow';
+import { Application, createScene, LCPFlow } from 'clayflow/web';
+import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
 import { buildRigidPile } from './support/rigidPile';
 import { gpuProfile, readJsonFixture, recording, writeJsonFixture } from './support/fixtures';
 
@@ -86,7 +86,14 @@ async function scenario(
     canvas.width = 64;
     canvas.height = 64;
     document.body.appendChild(canvas);
-    const app = await Application.create({ canvas, scene: createScene(), autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+    });
     buildRigidPile(app, count);
     const flow = app.flows.resolve('LCPSchema')?.flow;
     if (!(flow instanceof LCPFlow)) throw new Error('LCPFlow não registrado para LCPSchema');

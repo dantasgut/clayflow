@@ -5,6 +5,7 @@ import type {
     IndirectBufferSpec,
     StorageBufferSpec,
 } from '../contracts/gpu';
+import type { WorkContext } from '../flows/FlowWork';
 import type { ExtensionParamValue } from '../contracts/ExtensionParams';
 import type { StructSchema } from '../descriptors/StructSchema';
 import type { BindingSource } from '../flows/FlowBinding';
@@ -69,6 +70,11 @@ export interface FusedPoint {
 /** O que a instância de um nó de conjunto recebe do `GraphFlow`. */
 export interface SetNodeContext {
     readonly core: EngineCore;
+    /**
+     * O espaço de trabalho do nó (spec 039): o Resource de trabalho do `GraphFlow` dono, o diretório da C2 e o core.
+     * Parâmetros, buffers próprios e os primitivos (`PrefixSum`, `Compaction`…) declaram neles os seus descritores.
+     */
+    readonly work: WorkContext;
     /** Prefixo único dos recursos desta instância. */
     readonly id: string;
     /** Os registros `SetCount` do grafo (descritor `indirect`, lido como `array<SetCount>`). */

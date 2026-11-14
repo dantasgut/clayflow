@@ -1,0 +1,107 @@
+--- a/src/elements/gpu/wgsl/gi/gi_screen_resolve.wgsl
++++ b/src/elements/gpu/wgsl/gi/gi_screen_resolve.wgsl
+@@ -102,11 +102,3 @@
+     }
+     textureStore(gi_screen_irradiance_out, vec2u(tile), vec4f(sum / wsum, 1.0));
+ }
+-
+-/** Guarda a vista-projeção e a posição da câmera ativa para o quadro seguinte (uma invocação). */
+-@compute @workgroup_size(1)
+-fn gi_screen_finish_main() {
+-    let cam = cameras[gi.screen.w];
+-    for (var c = 0u; c < 4u; c++) { gi_screen_history[c] = cam.viewProjection[c]; }
+-    gi_screen_history[4] = cam.position;
+-}
+--- a/src/elements/gpu/wgsl/gi/gi_screen_reproject.wgsl
++++ b/src/elements/gpu/wgsl/gi/gi_screen_reproject.wgsl
+@@ -5,7 +5,7 @@
+ // As sondas do quadro anterior em volta de um ponto (no mesmo plano e com a mesma normal, pesadas pela posição) dão o
+ // histórico no ponto exato — o acúmulo das sondas e os rebatimentos seguintes nos acertos dos raios (a luz das
+ // superfícies visíveis, exata de perto, em vez das sondas do mundo).
+-// Requer: NONE, gi, gi_screen_common, gi_screen_history, temporal.
++// Requer: NONE, gi, gi_screen_common, gi_screen_history, temporal, cameras, xform_rigid.
+ 
+ const GI_SCREEN_HISTORY_HEADER: u32 = 5u;
+ /** Deslocamento da primeira geração na entrada de uma sonda. */
+@@ -40,14 +40,15 @@
+  */
+ fn gi_screen_history_taps(p: vec3f, n: vec3f) -> GiScreenTaps {
+     var taps = GiScreenTaps(vec4u(NONE), vec4f(0.0));
+-    let vp = mat4x4f(gi_screen_history[0], gi_screen_history[1], gi_screen_history[2], gi_screen_history[3]);
+-    let previous = temporal_reproject_point(vp, p);
++    // A vista-projeção anterior sem o deslocamento da amostra e a câmera anterior (spec 037): as guardadas da câmera.
++    let cam = cameras[gi.screen.w];
++    let previous = temporal_reproject_point(cam.previousViewProjection, p);
+     if (previous.z == 0.0) { return taps; }
+     let px = previous.xy * gi.screenSize.xy;
+     let g = px / gi_screen_tile() - 0.5;
+     let base = vec2i(floor(g));
+     let f = g - vec2f(base);
+-    let tolerance = 0.01 + length(p - gi_screen_history[4].xyz) * 0.01;
++    let tolerance = 0.01 + length(p - rigid_inverse(cam.previousView)[3].xyz) * 0.01;
+     let half = gi_screen_history_previous();
+     var sum = 0.0;
+     for (var o = 0u; o < 4u; o++) {
+--- a/src/elements/lighting/shaders.ts
++++ b/src/elements/lighting/shaders.ts
+@@ -43,6 +43,7 @@
+     sampling,
+     temporal as temporalPieces,
+     viewSpace,
++    xformRigid,
+ } from '../gpu/shaders/math';
+ 
+ // Módulos da iluminação global (spec 033, R2/R5/R6/R7): as sondas (endereçamento, pesos, leitura dos atlas e dos
+@@ -203,7 +204,16 @@
+ const giScreenReproject = wgslModule({
+     name: 'gi_screen_reproject',
+     source: giScreenReprojectSource,
+-    requires: [temporalPieces, viewSpace, NONE.module, R.params, giScreenCommon, R.screenHistory],
++    requires: [
++        temporalPieces,
++        viewSpace,
++        xformRigid,
++        NONE.module,
++        R.params,
++        giScreenCommon,
++        R.screenHistory,
++        camerasResource,
++    ],
+ });
+ 
+ /** Raios das sondas atualizadas no quadro. */
+--- a/src/elements/lighting/ProbeFlow.ts
++++ b/src/elements/lighting/ProbeFlow.ts
+@@ -85,7 +85,6 @@
+ const ATLAS_PROBES = compute('gi_atlas_probes', giProbeAtlas, 'gi_atlas_probes_main');
+ const SCREEN_PLACE = compute('gi_screen_place', giScreenPlace, 'gi_screen_place_main');
+ const SCREEN_RESOLVE = compute('gi_screen_resolve', giScreenResolve, 'gi_screen_resolve_main');
+-const SCREEN_FINISH = compute('gi_screen_finish', giScreenResolve, 'gi_screen_finish_main');
+ const SCREEN_FILTER = compute('gi_screen_filter', giScreenResolve, 'gi_screen_filter_main');
+ const PHOTON_RESOLVE = compute('gi_photon_resolve', giPhotonResolve, 'gi_photon_resolve_main');
+ const FIXED = [
+@@ -97,7 +96,6 @@
+     ATLAS_PROBES,
+     SCREEN_PLACE,
+     SCREEN_RESOLVE,
+-    SCREEN_FINISH,
+     SCREEN_FILTER,
+     PHOTON_RESOLVE,
+ ];
+@@ -274,14 +272,13 @@
+             run(pass, 6, tiles, W);
+             run(pass, -2, tiles * screenRays, W);
+             run(pass, 7, tiles, W);
+-            run(pass, 9, tiles, W);
+-            run(pass, 8, tiles > 0 ? 1 : 0, 1);
++            run(pass, 8, tiles, W);
+         });
+         // Cáusticas por fótons (US5): os fótons do quadro e o acúmulo no hash.
+         frame.compute('ProbeFlow.photons', (pass) => {
+             run(pass, -4, this.photons > 0 ? W : 0, W);
+             run(pass, -3, Math.max(this.photons, 1), W);
+-            run(pass, 10, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
++            run(pass, 9, this.photons > 0 ? GI_PHOTON_SLOTS : 0, W);
+         });
+         this.frame++;
+     }

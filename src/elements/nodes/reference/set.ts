@@ -1,6 +1,6 @@
 // Referências em CPU dos nós de conjunto da C3 (spec 031, US3): a mesma regra em f64 — a mesma ordem de elementos, os
 // mesmos hashes inteiros e as mesmas decisões —, para os testes e o smoke `nodeGraphs` (parte b) compararem com a GPU.
-import { hash3 } from './noise';
+import { hash3, randomUnit } from '../../math/reference/random';
 
 /** Malha de referência: 8 números por vértice (posição, normal, uv — o layout `MeshVertex`) e 3 índices por triângulo. */
 export interface ReferenceMesh {
@@ -101,11 +101,6 @@ export function recomputeNormals(mesh: ReferenceMesh): ReferenceMesh {
     return { vertices, triangles: mesh.triangles };
 }
 
-/** Os 24 bits altos do hash em [0, 1) (`set_hash_unit`). */
-export function hashUnit(h: number): number {
-    return (h >>> 8) / 16777216;
-}
-
 /**
  * `set.distributeOnMesh`: candidatos (t, k) em ordem, baricêntricas s = √r₁, w = (1 − s, s(1 − r₂), s·r₂) pelos hashes
  * (semente, t, 3k) e (semente, t, 3k + 1), aceitos quando o hash (semente, t, 3k + 2) fica abaixo da densidade presa
@@ -124,8 +119,8 @@ export function distributeOnMesh(
     for (let tri = 0; tri < t.length / 3; tri++) {
         const ids = [t[tri * 3]!, t[tri * 3 + 1]!, t[tri * 3 + 2]!];
         for (let k = 0; k < perTriangle; k++) {
-            const r1 = hashUnit(hash3(seed >>> 0, tri, 3 * k));
-            const r2 = hashUnit(hash3(seed >>> 0, tri, 3 * k + 1));
+            const r1 = randomUnit(hash3(seed >>> 0, tri, 3 * k));
+            const r2 = randomUnit(hash3(seed >>> 0, tri, 3 * k + 1));
             const s = Math.sqrt(r1);
             const w = [1 - s, s * (1 - r2), s * r2];
             const p: [number, number, number] = [0, 0, 0];
@@ -143,7 +138,7 @@ export function distributeOnMesh(
             const n: [number, number, number] =
                 len > 0 ? [m[0] / len, m[1] / len, m[2] / len] : [0, 1, 0];
             const d = Math.min(1, Math.max(0, density(p, n, uv)));
-            const h = hashUnit(hash3(seed >>> 0, tri, 3 * k + 2));
+            const h = randomUnit(hash3(seed >>> 0, tri, 3 * k + 2));
             margin = Math.min(margin, Math.abs(h - d));
             if (h < d) out.push(...p, ...n);
         }

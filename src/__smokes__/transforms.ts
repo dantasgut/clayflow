@@ -24,8 +24,8 @@ import {
     Parent,
     GravityField,
     RigidBody,
-} from 'clayflow';
-import type { StagingBufferSpec, EntityId } from 'clayflow';
+} from 'clayflow/web';
+import type { StagingBufferSpec, EntityId } from 'clayflow/web';
 
 type Vec3 = [number, number, number];
 type Vec4 = [number, number, number, number];
@@ -244,7 +244,14 @@ async function main(): Promise<void> {
     const W = canvas.width;
     const H = canvas.height;
 
-    const app = await Application.create({ canvas, captureErrors: true, autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        captureErrors: true,
+        autoResize: false,
+    });
     let engineErrors = 0;
     app.events.on('engineError', (e) => {
         engineErrors++;
@@ -323,8 +330,11 @@ async function main(): Promise<void> {
     };
 
     const readWorlds = async (entityIds: readonly EntityId[]): Promise<Float32Array[]> => {
-        const pool = app.resources.poolBufferSpec('WorldTransform');
-        if (pool === undefined) throw new Error('pool WorldTransform inexistente');
+        const info = app.resources.poolInfo('WorldTransform');
+        if (info === undefined) throw new Error('pool WorldTransform inexistente');
+        // Na arena da GPU (T060i), o pool começa na posição da região dele.
+        const pool = info.buffer;
+        const base = info.offset / 4;
         const staging = app.core.create<StagingBufferSpec>({
             kind: 'buffer',
             subkind: 'staging',
@@ -340,7 +350,7 @@ async function main(): Promise<void> {
         return entityIds.map((id) => {
             const slot = app.resources.poolSlotOf('WorldTransform', id);
             if (slot === undefined) throw new Error(`entidade ${id} sem slot`);
-            return all.slice((slot * 112) / 4, (slot * 112) / 4 + 28);
+            return all.slice(base + (slot * 112) / 4, base + (slot * 112) / 4 + 28);
         });
     };
 

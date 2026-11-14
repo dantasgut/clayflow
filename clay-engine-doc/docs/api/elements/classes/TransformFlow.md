@@ -1,18 +1,18 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / TransformFlow
+[clayflow](../../modules.md) / [elements](../README.md) / TransformFlow
 
 # Class: TransformFlow
 
-Defined in: [elements/scene/flows/TransformFlow.ts:109](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L109)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:115](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L115)
 
 Estágio de transformação — produz, na GPU, a matriz de mundo e a matriz de normais de cada `Transform` a partir da
 sua intenção (posição, rotação, escala), com a convenção `M = T · R · S`. O resultado fica no pool
 `WorldTransform` (mesmo slot do `Transform`), que os estágios de sombra e desenho leem por índice de instância.
 
-Slots: os pools `Transform` e `WorldTransform` (ligados por `consumes`) e as entidades com `Transform`. Reativo
+Slots: os pools `Transform` e `WorldTransform` (fornecedores `{ pool }` dos recursos) e as entidades com `Transform`. Reativo
 pela tabela de transições: fica `stale` com `poolWritten` do pool `Transform`, entidades inseridas ou removidas,
 pool realocado ou bind group substituído; em `stale`, `framePrepare` escreve a contagem (uma vez por quadro) e o
 quadro grava a composição; `frameRecorded` volta a `clean` — numa cena parada não faz nada. Se o pool tem slots de
@@ -31,7 +31,7 @@ euclidianas do roadmap.
 
 ## Extends
 
-- `Flow`\<[`TransformSlots`](../interfaces/TransformSlots.md), [`TransformState`](../type-aliases/TransformState.md)\>
+- [`Flow`](../../platform/web/classes/Flow.md)\<[`TransformSlots`](../interfaces/TransformSlots.md), [`TransformState`](../type-aliases/TransformState.md)\>
 
 ## Constructors
 
@@ -39,13 +39,13 @@ euclidianas do roadmap.
 
 > **new TransformFlow**(`ctx`): `TransformFlow`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:191](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L191)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:179](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L179)
 
 #### Parameters
 
 ##### ctx
 
-`FlowContext`
+[`FlowContext`](../../platform/web/interfaces/FlowContext.md)
 
 #### Returns
 
@@ -53,51 +53,21 @@ Defined in: [elements/scene/flows/TransformFlow.ts:191](https://github.com/danta
 
 #### Overrides
 
-`Flow<TransformSlots, TransformState>.constructor`
+[`Flow`](../../platform/web/classes/Flow.md).[`constructor`](../../platform/web/classes/Flow.md#constructor)
 
 ## Properties
 
 ### bindings
 
-> `readonly` **bindings**: `object`
+> `readonly` **bindings**: [`BindingSources`](../../platform/web/type-aliases/BindingSources.md)
 
-Defined in: [elements/scene/flows/TransformFlow.ts:129](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L129)
+Defined in: [src/scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L79)
 
-Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
+Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo).
 
-#### level
+#### Inherited from
 
-> `readonly` **level**: `ResolvedSource`
-
-Trecho de cada nível (`TransformLevel`, uma região por nível, offset dinâmico).
-
-#### links
-
-> `readonly` **links**: `StorageBufferSpec`
-
-Elos da hierarquia (`TransformLink`), ordenados por nível.
-
-#### params
-
-> `readonly` **params**: `UniformBufferSpec`
-
-Parâmetros da composição (`TransformParams`: contagem).
-
-#### transform\_fn\_group
-
-> `readonly` **transform\_fn\_group**: `ResolvedSource`
-
-Trecho e tempo de cada grupo de função (`TransformFnGroup`, uma região por grupo, offset dinâmico).
-
-#### transform\_fn\_pairs
-
-> `readonly` **transform\_fn\_pairs**: `StorageBufferSpec`
-
-Pares (slot do Transform, slot do registro) das entidades com função, agrupados por função.
-
-#### Overrides
-
-`Flow.bindings`
+[`Flow`](../../platform/web/classes/Flow.md).[`bindings`](../../platform/web/classes/Flow.md#bindings)
 
 ***
 
@@ -105,41 +75,41 @@ Pares (slot do Transform, slot do registro) das entidades com função, agrupado
 
 > `protected` `readonly` **initialState**: `"stale"`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:141](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L141)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:140](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L140)
 
 Estado inicial do algoritmo.
 
 #### Overrides
 
-`Flow.initialState`
+[`Flow`](../../platform/web/classes/Flow.md).[`initialState`](../../platform/web/classes/Flow.md#initialstate)
 
 ***
 
 ### listens
 
-> `readonly` **listens**: `StructSchema`[]
+> `readonly` **listens**: ([`StructSchema`](../../platform/web/classes/StructSchema.md) \| [`WgslPoint`](../../platform/web/interfaces/WgslPoint.md))[]
 
-Defined in: [elements/scene/flows/TransformFlow.ts:112](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L112)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:119](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L119)
 
-Schemas cujos `resourceReady` o Flow recebe como evento.
+O pool `Transform` e os registros de todas as formas das funções `transform` (spec 031, R8).
 
 #### Overrides
 
-`Flow.listens`
+[`Flow`](../../platform/web/classes/Flow.md).[`listens`](../../platform/web/classes/Flow.md#listens)
 
 ***
 
 ### pipelines
 
-> `readonly` **pipelines**: readonly `PipelineDescriptor`[]
+> `readonly` **pipelines**: readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[]
 
-Defined in: [elements/scene/flows/TransformFlow.ts:113](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L113)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:120](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L120)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 #### Overrides
 
-`Flow.pipelines`
+[`Flow`](../../platform/web/classes/Flow.md).[`pipelines`](../../platform/web/classes/Flow.md#pipelines)
 
 ***
 
@@ -147,27 +117,27 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`TransformSlots`](../interfaces/TransformSlots.md)
 
-Defined in: [elements/scene/flows/TransformFlow.ts:111](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L111)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:117](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L117)
 
 Slots consumidos, por nome.
 
 #### Overrides
 
-`Flow.slots`
+[`Flow`](../../platform/web/classes/Flow.md).[`slots`](../../platform/web/classes/Flow.md#slots)
 
 ***
 
 ### transitions
 
-> `protected` `readonly` **transitions**: `FlowTransitions`\<[`TransformState`](../type-aliases/TransformState.md), `TransitionContext`\<[`TransformSlots`](../interfaces/TransformSlots.md)\>\>
+> `protected` `readonly` **transitions**: [`FlowTransitions`](../../platform/web/type-aliases/FlowTransitions.md)\<[`TransformState`](../type-aliases/TransformState.md), [`TransitionContext`](../../platform/web/interfaces/TransitionContext.md)\<[`TransformSlots`](../interfaces/TransformSlots.md)\>\>
 
-Defined in: [elements/scene/flows/TransformFlow.ts:142](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L142)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:141](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L141)
 
 Tabela de transições (estado × evento).
 
 #### Overrides
 
-`Flow.transitions`
+[`Flow`](../../platform/web/classes/Flow.md).[`transitions`](../../platform/web/classes/Flow.md#transitions)
 
 ***
 
@@ -175,13 +145,13 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"TransformFlow"` = `'TransformFlow'`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L110)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:116](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L116)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
-`Flow.type`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`type`](../../platform/web/classes/RenderFlow.md#type)
 
 ## Accessors
 
@@ -189,19 +159,19 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 #### Get Signature
 
-> **get** **lifecycle**(): `FlowLifecycle`
+> **get** **lifecycle**(): [`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
+Defined in: [src/scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L94)
 
 Estado do ciclo de vida (só a C2 o muda).
 
 ##### Returns
 
-`FlowLifecycle`
+[`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
 #### Inherited from
 
-`Flow.lifecycle`
+[`Flow`](../../platform/web/classes/Flow.md).[`lifecycle`](../../platform/web/classes/Flow.md#lifecycle)
 
 ***
 
@@ -211,7 +181,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
+Defined in: [src/scene/flows/Flow.ts:99](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L99)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -221,7 +191,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 #### Inherited from
 
-`Flow.state`
+[`Flow`](../../platform/web/classes/Flow.md).[`state`](../../platform/web/classes/Flow.md#state)
 
 ## Methods
 
@@ -229,7 +199,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:303](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L303)
+Defined in: [src/elements/scene/flows/TransformFlow.ts:316](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/flows/TransformFlow.ts#L316)
 
 Grava a composição quando há intenção pendente (`stale`).
 
@@ -237,11 +207,11 @@ Grava a composição quando há intenção pendente (`stale`).
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### bound
 
-`BoundFlow`\<[`TransformSlots`](../interfaces/TransformSlots.md)\>
+[`BoundFlow`](../../platform/web/interfaces/BoundFlow.md)\<[`TransformSlots`](../interfaces/TransformSlots.md)\>
 
 #### Returns
 
@@ -249,7 +219,7 @@ Grava a composição quando há intenção pendente (`stale`).
 
 #### Overrides
 
-`Flow.dispatch`
+[`Flow`](../../platform/web/classes/Flow.md).[`dispatch`](../../platform/web/classes/Flow.md#dispatch)
 
 ***
 
@@ -257,14 +227,14 @@ Grava a composição quando há intenção pendente (`stale`).
 
 > **dispose**(): `void`
 
-Defined in: [elements/scene/flows/TransformFlow.ts:349](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/flows/TransformFlow.ts#L349)
+Defined in: [src/scene/flows/Flow.ts:107](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L107)
 
-Libera o uniform de parâmetros, a lista de elos, as regiões dos níveis e as listas das funções.
+Libera os recursos privados do Flow. Chamado pela C2 no descarte (`unregister`).
 
 #### Returns
 
 `void`
 
-#### Overrides
+#### Inherited from
 
-`Flow.dispose`
+[`Flow`](../../platform/web/classes/Flow.md).[`dispose`](../../platform/web/classes/Flow.md#dispose)

@@ -38,13 +38,19 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
         const rs = s.scene.resourceSystem;
         const src = forwardSource(s);
         expect(
-            src.match(/if \(!pool_live\(light_live\[i >> 5u\], i\)\) \{ continue; \}/g),
+            // As luzes e os vivos lidos pela arena de pools (T060i): os acessores no lugar dos arrays.
+            src.match(/if \(!pool_live\(light_live_at\(i >> 5u\), i\)\) \{ continue; \}/g),
         ).toHaveLength(1);
         expect(src).toContain(
             `if (light != ${rs.poolSlotOf('Light', s.lightId)}u) { return 1.0; }`,
         );
-        expect(src).toContain(`let sm = shadow_maps[${rs.poolSlotOf('ShadowMap', s.lightId)}u];`);
-        expect(src).toContain('sample_shadow_pcf(shadow_map, shadow_sampler');
+        expect(src).toContain(
+            `let sm = shadow_maps_at(${rs.poolSlotOf('ShadowMap', s.lightId)}u);`,
+        );
+        // O atlas em buffer (T060h): a tabela e as páginas lidas de `shadow_atlas`, sem textura nem amostrador.
+        expect(src).toContain('shadow_virtual_visibility(matrix, p, n, l,');
+        expect(src).toMatch(/var<storage, read> shadow_atlas: array<u32>/);
+        expect(src).not.toMatch(/texture_depth_2d|sampler_comparison/);
         expect(src).not.toContain('scene_light_direction');
     });
 
@@ -56,7 +62,7 @@ describe('ForwardFlow — luz pelos pontos de cena (spec 007, 031)', () => {
         expect(src).toMatch(
             /fn light_visibility\(light: u32, p: vec3f, n: vec3f\) -> f32 \{\s*return 1\.0;/,
         );
-        expect(src).not.toMatch(/var shadow_map|shadow_maps\[/);
+        expect(src).not.toMatch(/shadow_atlas|shadow_maps\[/);
     });
 
     it('nenhuma escrita dos parâmetros do quadro sem mudança — nem quando a direção da luz muda', async () => {

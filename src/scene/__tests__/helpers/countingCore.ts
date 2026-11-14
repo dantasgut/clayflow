@@ -78,6 +78,9 @@ export function countingCore(): {
         },
         copy: () => undefined,
         clear: () => undefined,
+        marker: (_label: string, body: () => void) => {
+            body();
+        },
     } as unknown as Frame;
 
     const core = {
@@ -89,6 +92,10 @@ export function countingCore(): {
             countCreate(spec);
             return Promise.resolve(spec);
         }),
+        /** Escopo de erro do device: o corpo roda e nenhum erro, salvo quando o teste troca a implementação. */
+        withErrorScope: vi.fn(async <T>(_filter: GPUErrorFilter, body: () => T | Promise<T>) =>
+            body(),
+        ),
         /** Mensagens do compilador: nenhuma, salvo quando o teste troca a implementação. */
         shaderMessages: vi.fn(() => Promise.resolve([])),
         write: vi.fn((spec: ResourceSpec) => {
@@ -113,6 +120,7 @@ export function countingCore(): {
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        takeFrameTimings: vi.fn(() => []),
         capabilities: vi.fn(defaultCapabilities),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),

@@ -15,7 +15,7 @@ foco de luz sob uma esfera de vidro) entra na cena por três Resources independe
 | `FogVolume` | névoa, neblina ou fumaça iluminada pelo sol, pelo céu e pela luz rebatida |
 
 Os materiais, os grafos de nós e o desenho da 011 não mudam: a luz indireta chega pelo ponto de cena `scene_lighting`.
-Sem nenhum dos três, a cena é a da 011. Os fluidos com `FluidSurfaceMaterial` passam a ser uma superfície contínua por
+Sem nenhum dos três, a cena é a da 011. Os corpos de fluido com a aparência pelo grafo são uma superfície contínua por
 campo de distância, sem mudança de autoria.
 
 ## Céu
@@ -138,9 +138,9 @@ Medido (smoke `fog`):
 
 ## Fluidos por campo de distância
 
-Corpos de partículas com `FluidSurfaceMaterial` viram um campo de distância com sinal, refeito na GPU a cada quadro
-(blocos 8³ de ½ espaçamento, núcleos anisotrópicos, redistanciamento). A câmera, a sombra, as cáusticas e os raios da
-GI enxergam a mesma superfície: lisa de perto, sem semicírculos nem favo de mel, com o volume a ±4,5 % das partículas.
+Corpos de fluido com uma função `material` (a aparência pelo grafo) e sem material de desenho viram um campo de
+distância com sinal, refeito na GPU a cada quadro (blocos 8³ de ½ espaçamento, núcleos anisotrópicos,
+redistanciamento). O traçado da refração, a sombra e os raios da GI enxergam a mesma superfície: lisa de perto, sem semicírculos nem favo de mel, com o volume a ±4,5 % das partículas.
 Custo da água a 64 mil partículas: 2,3 ms (smoke `fluidField`).
 
 ## Orçamento

@@ -4,7 +4,7 @@ import {
     DirectionalLight,
     Transform,
     type FrameCompleteEvent,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { EngineAdapter, FrameSample, SceneImplementation } from '../core/types';
 
 /** Handle do clayflow entregue às cenas. */

@@ -1,5 +1,5 @@
 {
-  "name": "webgpu-engine",
+  "name": "clayflow",
   "version": "0.1.0",
   "description": "WebGPU engine with Clean Architecture — ECS, physics, particles and forward rendering.",
   "type": "module",
@@ -15,6 +15,14 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./web": {
+      "import": "./dist/web.js",
+      "types": "./dist/platform/web/index.d.ts"
+    },
+    "./deno": {
+      "import": "./dist/deno.js",
+      "types": "./dist/platform/deno/index.d.ts"
     }
   },
   "main": "./dist/index.js",
@@ -27,7 +35,7 @@
     "dev": "vite",
     "build:lib": "vite build",
     "preview": "vite preview",
-    "doc": "typedoc --plugin typedoc-plugin-markdown --skipErrorChecking --excludeInternal --out clay-engine-doc/docs/api --entryPoints src/presentation/index.ts src/elements/index.ts",
+    "doc": "typedoc --plugin typedoc-plugin-markdown --skipErrorChecking --excludeInternal --out clay-engine-doc/docs/api --entryPoints src/presentation/index.ts src/elements/index.ts src/platform/web/index.ts src/platform/deno/index.ts",
     "doc:coverage": "typedoc --skipErrorChecking --excludeInternal --validation.notDocumented --out .typedoc-cov-trash --entryPoints src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -45,6 +53,8 @@
     "bench:check": "tsx bench/runner/cli.ts check",
     "bench:baseline": "tsx bench/runner/cli.ts baseline",
     "smoke": "tsx bench/runner/smoke.ts",
+    "caustics:reference": "tsx scripts/causticsReference.ts",
+    "video": "tsx bench/runner/video.ts",
     "typecheck:bench": "tsc -p bench/tsconfig.json --noEmit"
   },
   "devDependencies": {

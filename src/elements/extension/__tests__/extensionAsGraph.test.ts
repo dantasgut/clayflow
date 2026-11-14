@@ -193,6 +193,7 @@ describe('funções da 009 montadas por grafo (spec 031, T059)', () => {
         expect(fn.values.n_scale).toBe(4);
         expect(fn.values.c_low).toBe(-1);
         expect(fn.params).toEqual({
+            n_width: 'f32',
             n_scale: 'f32',
             n_offset: 'vec3f',
             n_seed: 'u32',

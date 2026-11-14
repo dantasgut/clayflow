@@ -1,3 +1,4 @@
+import { poolArenaLiveReader } from '../../../scene/shaders/poolArena';
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
@@ -8,7 +9,13 @@ import { closure, closureEval } from '../../material/pbr/shaders';
 import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
 import { lightsResource } from '../resources';
-import { lightTransmissionReady, lightVisibilityReady, sceneLightingPoint } from './lighting';
+import {
+    lightTransmissionReady,
+    lightVisibilityReady,
+    sceneBackgroundPoint,
+    sceneDirectLightingPoint,
+    sceneEnvironmentPoint,
+} from './lighting';
 import { sceneAmbientPoint } from './media';
 
 /**
@@ -18,12 +25,9 @@ import { sceneAmbientPoint } from './media';
 export const LIGHT_LIMIT = sharedConstant('LIGHT_LIMIT', 1024, 'u32');
 
 /** Bitset de slots vivos do pool `Light` (resolver `Light.live`). */
-export const lightLiveResource = wgslResource({
+export const lightLiveResource = poolArenaLiveReader({
     name: 'light_live',
-    binding: { storage: 'read' },
-    type: { wgsl: 'u32', array: true },
-    frequency: 'frame',
-    provider: { consumer: `${Light.schema.name}.live` },
+    pool: Light.schema.name,
 });
 
 /** Parâmetros do hemisfério da cena (resolver `HemisphereLight.params`). */
@@ -91,7 +95,7 @@ const poolLights = wgslModule({
         lightVisibilityReady,
         lightTransmissionReady,
     ],
-    source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     var sum = vec3f(0.0);
     let count = min(arrayLength(&lights), LIGHT_LIMIT);
     for (var i = 0u; i < count; i++) {
@@ -109,7 +113,7 @@ const poolLights = wgslModule({
 const hemisphereLight = wgslModule({
     name: 'scene_lighting_hemisphere',
     requires: [closure, closureEval, NONE.module, hemisphereResource, lightTransmissionReady],
-    source: `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     let k = hemisphere.intensity;
     let up = normalize(hemisphere.up.xyz);
     return closure_ambient(c, n, v, hemisphere.skyColor.rgb * k, hemisphere.groundColor.rgb * k, up)
@@ -121,11 +125,11 @@ const hemisphereLight = wgslModule({
 let warnedLimit = false;
 
 /**
- * Contribuição de toda luz do pool (spec 011, R7) ao ponto `scene_lighting`: o mesmo laço para todas (a C2 o compõe uma
+ * Contribuição de toda luz do pool (spec 011, R7) ao ponto `scene_direct_lighting`: o mesmo laço para todas (a C2 o compõe uma
  * vez); a luz acima do teto não ilumina e avisa uma vez.
  */
 export const poolLightContribution: SceneContribution = {
-    point: sceneLightingPoint,
+    point: sceneDirectLightingPoint,
     order: 0,
     pools: [Light.schema],
     build: (slotOf) => {
@@ -140,9 +144,9 @@ export const poolLightContribution: SceneContribution = {
     },
 };
 
-/** Contribuição do hemisfério (spec 011, R7) ao ponto `scene_lighting`, depois das luzes do pool. */
+/** Contribuição do hemisfério (spec 011, R7) ao ponto `scene_direct_lighting`, depois das luzes do pool. */
 export const hemisphereContribution: SceneContribution = {
-    point: sceneLightingPoint,
+    point: sceneDirectLightingPoint,
     order: 10,
     pools: [],
     build: () => hemisphereLight,
@@ -165,3 +169,59 @@ export const hemisphereAmbientContribution: SceneContribution = {
     pools: [],
     build: () => hemisphereAmbient,
 };
+
+/**
+ * A radiância do hemisfério vinda da direção `dir`: o céu acima do horizonte e o chão abaixo, as mesmas radiâncias
+ * uniformes que iluminam o difuso e o especular.
+ */
+const hemisphereRadiance = wgslModule({
+    name: 'hemisphere_radiance',
+    requires: [hemisphereResource],
+    source: `fn hemisphere_radiance(dir: vec3f) -> vec3f {
+    let up = normalize(hemisphere.up.xyz);
+    return select(hemisphere.groundColor.rgb, hemisphere.skyColor.rgb, dot(dir, up) >= 0.0) * hemisphere.intensity;
+}`,
+});
+
+/**
+ * O hemisfério como o ambiente que os raios veem ao escapar (spec 034, T065f): a luz que ilumina é a que se vê pelo
+ * vidro e pela água (sem céu físico na cena, o raio que escapava via preto).
+ */
+const hemisphereEnvironment = wgslModule({
+    name: 'scene_environment_hemisphere',
+    requires: [hemisphereRadiance],
+    source: `fn scene_environment(dir: vec3f) -> vec3f {
+    return hemisphere_radiance(dir);
+}`,
+});
+
+/** Contribuição do hemisfério (spec 034, T065f) ao ponto `scene_environment`: o ambiente que os raios veem. */
+export const hemisphereEnvironmentContribution: SceneContribution = {
+    point: sceneEnvironmentPoint,
+    order: 10,
+    pools: [],
+    build: () => hemisphereEnvironment,
+};
+
+/**
+ * O hemisfério como o fundo visível (spec 034, T066), quando a cena pede (`HemisphereLight.background`): o mesmo céu e
+ * chão do ambiente dos raios — o que a câmera vê atrás da cena é o mundo que a água e o vidro refratam e refletem (com o
+ * fundo da limpeza, a gota mostrava o chão do hemisfério diante de um fundo que não era ele).
+ */
+export const hemisphereBackground = wgslModule({
+    name: 'scene_background_hemisphere',
+    requires: [hemisphereRadiance],
+    source: `fn scene_background(dir: vec3f) -> vec3f {
+    return hemisphere_radiance(dir);
+}`,
+});
+
+/** Contribuição do hemisfério (spec 034, T066) ao ponto `scene_background`: o fundo visível, só com `on()`. */
+export function hemisphereBackgroundContribution(on: () => boolean): SceneContribution {
+    return {
+        point: sceneBackgroundPoint,
+        order: 10,
+        pools: [],
+        build: () => (on() ? hemisphereBackground : undefined),
+    };
+}

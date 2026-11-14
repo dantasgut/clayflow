@@ -115,11 +115,10 @@ app.world.insert(
 **Depois:** `app.defaults.post.addEffect(...)`:
 
 ```typescript
-import { Bloom, ToneMapping, Fxaa, Vignette } from 'webgpu-engine';
+import { Bloom, ToneMapping, Vignette } from 'webgpu-engine';
 
-app.defaults.post.addEffect(new ToneMapping());
+app.world.insert(new ToneMapping()); // a apresentação: último passe, não é efeito
 app.defaults.post.addEffect(new Bloom({ aux: [0.5, 0, 0] }));
-app.defaults.post.addEffect(new Fxaa());
 app.defaults.post.addEffect(new Vignette());
 ```
 
@@ -194,7 +193,7 @@ Shaders passam a ser montados de módulos (`wgslModule` + `composeWgsl`); ver o 
 
 | Antes | Agora |
 | --- | --- |
-| `createComputeKernel({ shaderSource })` / `core.compute(...)` | `createComputeKernel(core, { shader: wgslModule(…), entryPoint, bindings })` |
+| `createComputeKernel({ shaderSource })` / `core.compute(...)` | um pipeline do Flow (`PipelineDescriptor` com `shader: wgslModule(…)`, ou `work.pipelines.kernel({ shader, entryPoint, bindings })` numa parte do trabalho — T060g) |
 | `PipelineDescriptor.shaderSource` | `PipelineDescriptor.shader` (`WgslModule`) |
 | `PostProcessEffect.fragmentSource()` com concatenação | `fragmentModule()` devolvendo um módulo com `requires: [effectsBase]` |
 | Structs WGSL escritos à mão (`wgsl/structs/*.wgsl`) | gerados do `StructSchema` (`wgslName`, `addressSpace`, `fieldArray`/`fieldStruct`/`fieldRuntimeArray`) |
@@ -231,7 +230,7 @@ Ver o guia [Flows](./flows.md).
 | `new DebugFlow(options).bindEvents(events)` | `new DebugFlow(ctx, options)` (inscreve-se na construção) |
 | `registerPresentationDefaults(flows, { canvas, core, world, resources, events })` | `registerPresentationDefaults(flows, { world })` — registra os estágios e os solvers por factory e insere os `FrameTargets` |
 | `DEFAULT_FLOW_FACTORIES` / `autoRegisterFlows` / `physicsPlugin()` | `DEFAULT_SOLVER_REGISTRATIONS`, registradas pelos defaults; a C2 instancia o solver quando o primeiro corpo cria o pool |
-| `createComputeKernel(core, { bindings: [{ binding, type, buffer }] })` (por índice, `ComputeKernelBinding*`) | `createComputeKernel(core, { discriminator, shader, entryPoint, bindings: { nomeDaVariavel: fonte } })` (layout inferido) |
+| `createComputeKernel(core, { bindings: [{ binding, type, buffer }] })` (por índice, `ComputeKernelBinding*`) | `work.pipelines.kernel({ discriminator, shader, entryPoint, bindings: new Map([[recurso, fonte]]) })` (layout inferido; o `createComputeKernel` saiu na T060g) |
 | Materiais com UBO por entidade (`storage: 'individual'`) | pool de storage por schema (`role: 'storage-ro', storage: 'pool'`), lido como `array<T>` pelo `materialSlot` do registro `Renderable`; `role: 'uniform'` em pool é rejeitado |
 | Forward com `firstInstance` = slot do `WorldTransform` | `firstInstance` = slot do registro `Renderable` (`slot.entities({ all, record: renderableRecord })`, `entry.recordSlot`); shader lê `renderables[instance_index]` |
 | `import type { EngineCore } from '…/core/contracts'` em C3/C4 | `from '…/scene/contracts/gpu'` (ou o barrel `clayflow`) — o lint proíbe `core/` em C3/C4 |
@@ -313,15 +312,12 @@ Só acréscimos, sem mudança incompatível na API pública:
 
 | Antes | Agora |
 | --- | --- |
-| Fluido só como sprites (`PointSpriteMaterial`) | `FluidSurfaceMaterial` desenha o corpo como água contínua com cáusticas |
+| Fluido só como sprites (`PointSpriteMaterial`) | Um `FluidBody` com uma função `material` (o grafo: o dielétrico com transmissão) e sem material de desenho vira água contínua, traçada com refração e absorção (spec 034; o `FluidSurfaceMaterial` da 017 saiu na T066) |
 | Composição de uma entidade fixa na inserção | `world.attach(entidade, componente)` / `world.detach(entidade, componente)` (evento `entitiesRecomposed`) |
 | `ensureAllocated` só para buffers | Aloca também descritores de textura sob demanda (o retorno é `undefined` para eles; leia por `textureViewOf`) |
 | PBF com 1 substep fixo | Substeps pelo passo estável do material (`pbfStableDt`); 5 cm continua com 1 |
 | `ForwardFrameParams { …, viewport }` | + `causticsEnabled` (0 = caminho de antes) |
 | Viscosidade do SPH ~1000× a do material (sem ÷ρ) | Viscosidade física: o mesmo `viscosity` deixa o fluido bem menos viscoso — trajetórias de SPH mudam |
-
-Estágios próprios que substituem o forward padrão e queiram cáusticas leem `caustic_map`, `water_light_depth` e
-`water_light_matrix` do `WaterSurface` (ver o documento de arquitetura).
 
 ## Convivência durante a transição
 

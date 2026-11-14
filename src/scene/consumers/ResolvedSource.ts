@@ -45,6 +45,21 @@ export type ResolvedSource =
           readonly visibility?: number;
       }
     | {
+          /**
+           * Fonte de canal temporal (spec 037): a fatia do atraso `lag` do anel. O bind group do grupo tem uma fase por
+           * cabeça do anel, criada uma vez; a C2 escolhe a do quadro ao gravar (sem cópia, sem pipeline por paridade).
+           */
+          readonly kind: 'channel';
+          /** O canal. */
+          readonly channel: ChannelSource;
+          /** Atraso da fatia ligada (0 = a atual). */
+          readonly lag: number;
+          /** `epoch` do canal na resolução: fatias recriadas mudam a fonte. */
+          readonly epoch: number;
+          /** Visibilidade explícita; vence a inferida. */
+          readonly visibility?: number;
+      }
+    | {
           /** Fonte de sampler. */
           readonly kind: 'sampler';
           /** O sampler ligado. */
@@ -52,3 +67,20 @@ export type ResolvedSource =
           /** Visibilidade explícita; vence a inferida. */
           readonly visibility?: number;
       };
+
+/** Fonte concreta de uma fatia de canal: buffer ou textura. */
+export type SliceSource = Extract<ResolvedSource, { kind: 'buffer' } | { kind: 'textureView' }>;
+
+/** O anel de um canal temporal visto pela ligação (spec 037). */
+export interface ChannelSource {
+    /** Nome para mensagens. */
+    readonly name: string;
+    /** Fatias no anel. */
+    readonly depth: number;
+    /** Índice físico da fatia do atraso 0 agora. */
+    readonly head: number;
+    /** Muda quando as fatias são recriadas. */
+    readonly epoch: number;
+    /** A fatia física `index` como fonte concreta. */
+    sliceSource(index: number): SliceSource;
+}

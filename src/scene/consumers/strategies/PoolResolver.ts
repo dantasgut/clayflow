@@ -25,6 +25,9 @@ export class PoolResolver implements ConsumerResolver {
     resolve(ctx: ResolveContext): ResolvedSource | undefined {
         const pool = ctx.resources.poolInfo(this.name);
         if (pool === undefined) return undefined;
-        return { kind: 'buffer', buffer: pool.buffer };
+        // Na arena de pools (T060i), a faixa da região do pool.
+        return pool.offset === 0 && pool.size === pool.buffer.byteSize
+            ? { kind: 'buffer', buffer: pool.buffer }
+            : { kind: 'buffer', buffer: pool.buffer, offset: pool.offset, size: pool.size };
     }
 }

@@ -2,16 +2,22 @@
 // vértice da nuvem de pontos (posição; uv = tipo e fração de vida), com a aparência do tipo — spray: gotícula
 // (esfera com reflexo especular e Fresnel, tom de água); espuma: disco branco que se dissolve com a vida (descarte
 // pontilhado, sem mistura); bolha: anel claro. Morta: fora do recorte. Direção da luz pelo ponto de cena
-// `scene_lighting` (spec 011): cada tipo com o seu fechamento sobre a normal do impostor, o mesmo modelo do forward.
+// `scene_lighting` (spec 011): cada tipo com o seu fechamento sobre a normal do impostor, o mesmo modelo do forward. Com
+// o antisserrilhado temporal (spec 034), o passe de movimento desenha o mesmo quadrado com `fs_motion`, pelos vértices do
+// quadro anterior (`point_previous_vertices`: a nuvem que a GPU reescreve guarda a do quadro anterior).
 
 struct DiffuseOut {
-    @builtin(position) clip_position: vec4f,
+    // Invariante: o passe de cor e o de movimento (teste igual) chegam à mesma profundidade bit a bit.
+    @builtin(position) @invariant clip_position: vec4f,
     @location(0) corner: vec2f,
     @location(1) @interpolate(flat) material_slot: u32,
     @location(2) @interpolate(flat) kind: f32,
     @location(3) @interpolate(flat) life: f32,
     @location(4) @interpolate(flat) id: u32,
     @location(5) center: vec3f,
+    // O centro em clip no quadro anterior e neste, sem o deslocamento da amostra (spec 034).
+    @location(6) motion_previous: vec4f,
+    @location(7) motion_current: vec4f,
 }
 
 @vertex
@@ -24,7 +30,7 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     let corner = corners[index % 6u];
     let point = index / 6u;
     let m = point_vertices[point];
-    let r = renderables[instances[instance].renderable];
+    let r = renderables[draw_visible[instance]];
     let material = materials[r.materialSlot];
     let camera = cameras[forward_frame.cameraSlot];
     let local = vec3f(m.px, m.py, m.pz);
@@ -42,15 +48,30 @@ fn vs_main(@builtin(vertex_index) index: u32, @builtin(instance_index) instance:
     out.center = world.xyz;
     let view = camera.view * world;
     out.clip_position = camera.projection * vec4f(view.xy + corner * radius, view.z, 1.0);
+    // Vetores de movimento (spec 034): o vértice no quadro anterior (o da geometria que a GPU reescreve; nas outras, o
+    // mesmo) pela matriz anterior; o ponto do quadrado acompanha o centro.
+    let p = point_previous_vertices[point];
+    // O ponto que nasceu neste quadro (o anterior fora do recorte, morto) fica sem movimento: a distância o recomeça.
+    let before = select(local, vec3f(p.px, p.py, p.pz), all(abs(vec3f(p.px, p.py, p.pz)) < vec3f(1e8)));
+    let previous = previous_worlds[r.transformSlot].world * vec4f(before, 1.0);
+    let offset = vec4f(corner * radius, 0.0, 0.0);
+    out.motion_current = camera.unjitteredViewProjection * world + camera.projection * offset;
+    out.motion_previous = camera.previousViewProjection * previous + camera.projection * offset;
     return out;
 }
 
+// Passe de movimento (spec 034): o deslocamento do ponto do pixel na tela desde o quadro anterior, em uv (anterior −
+// atual), o mesmo da superfície e do que está atrás (rg e ba), com a profundidade do passe principal (teste igual).
+@fragment
+fn fs_motion(in: DiffuseOut) -> @location(0) vec4f {
+    if (dot(in.corner, in.corner) > 1.0) { discard; }
+    return motion_from_clips(in.motion_previous, in.motion_current);
+}
+
+
 // Hash do pixel e da partícula → [0, 1) (descarte pontilhado da espuma).
 fn diffuse_dither(p: vec2f, id: u32) -> f32 {
-    var v = (u32(p.x) * 73856093u) ^ (u32(p.y) * 19349663u) ^ (id * 83492791u);
-    v = v * 747796405u + 2891336453u;
-    v = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
-    return f32((v >> 22u) ^ v) / 4294967296.0;
+    return random_unit(pcg_hash(hash_cell(vec3u(u32(p.x), u32(p.y), id))));
 }
 
 @fragment
@@ -60,7 +81,7 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
     let material = materials[in.material_slot];
     let camera = cameras[forward_frame.cameraSlot];
     let n_view = vec3f(in.corner, sqrt(1.0 - r2));
-    let n = normalize(transpose(mat3x3f(camera.view[0].xyz, camera.view[1].xyz, camera.view[2].xyz)) * n_view);
+    let n = normalize(mat3x3f(camera.inverseView[0].xyz, camera.inverseView[1].xyz, camera.inverseView[2].xyz) * n_view);
     let radius = material.radii[u32(clamp(in.kind, 0.0, 2.0))];
     let p = in.center + n * radius;
     let v = normalize(camera.position.xyz - p);

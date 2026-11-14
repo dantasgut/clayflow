@@ -22,17 +22,19 @@
 //       função do nó) contra a referência da CPU (`elements/nodes/reference/library.ts`) com a tolerância do nó.
 //
 // Para rodar: `npm run smoke -- nodeGraphs [--query part=a.b.c.d.e.f]`. Resultado: `NODEGRAPHS SMOKE PASSED` ou `FAIL: …`.
+import { srgbEncode } from '../elements/math/reference/color';
 import {
     Application,
     BoxGeometry,
     Camera,
-    createComputeKernel,
     createScene,
     compileSetGraph,
     defaultNodeRegistry,
-    destroyComputeKernel,
     defineNode,
     DirectionalLight,
+    FieldType,
+    FlowWork,
+    ForceField,
     fromJSON,
     GraphGeometry,
     graphArgument,
@@ -42,6 +44,7 @@ import {
     ParametricSurface,
     SetGraph,
     StandardMaterial,
+    StructSchema,
     Subgraph,
     SurfaceFunction,
     toJSON,
@@ -50,22 +53,52 @@ import {
     wgslLib,
     wgslModule,
     wgslResource,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     EntityId,
-    FrameCompleteEvent,
+    FieldRecordValues,
+    GPUDescriptor,
     GraphJSON,
     NodeDefinition,
     StorageBufferSpec,
     WgslModule,
     WgslResource,
-} from 'clayflow';
+} from 'clayflow/web';
 
 /** Spec de recurso do núcleo (o que `create` recebe). */
 type ResourceSpec = Parameters<Application['core']['create']>[0];
-import { capture, readBuffer, settle } from './support/extensionScenes';
+import { capture, nextGpuFrame, readBuffer, settle } from './support/extensionScenes';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 import { caseSamples, nodeCases, type NodeCase } from './support/nodeLibraryCases';
+import { ownWork } from './support/workOwner';
+
+/** O trabalho dos casos de nó (T060g): o kernel de cada caso é um pipeline do Flow dono dele. */
+class NodeCaseWork extends FlowWork {
+    static readonly schema = new StructSchema('NodeCaseWork', {});
+}
+
+/**
+ * Um campo de força com o registro do caso (o ponto de extensão `ForceField`): o recurso de cena que o nó lê
+ * (`field_builtin_records`, o pool dos campos) vem da cena, pela C2, como num solver.
+ */
+class CaseField extends ForceField {
+    static readonly schema = new StructSchema('CaseField', { _pad: FieldType.f32 });
+
+    constructor(private readonly record: FieldRecordValues) {
+        super();
+        this.data = this.withRecord({});
+    }
+
+    getDescriptors(): readonly GPUDescriptor[] {
+        return [ForceField.recordDescriptor];
+    }
+
+    protected fieldRecord(): FieldRecordValues {
+        return this.record;
+    }
+}
+
+let caseWork: NodeCaseWork | undefined;
 
 function log(msg: string): void {
     console.log(`[nodeGraphs] ${msg}`);
@@ -84,6 +117,9 @@ async function createApp(profiling = false, width = SIZE, height = SIZE): Promis
     canvas.height = height;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -379,17 +415,16 @@ async function partA(failures: string[]): Promise<void> {
     const gpu: Record<string, number> = { hand: Infinity, graph: Infinity };
     for (const variant of ['hand', 'graph', 'hand', 'graph'] as const) {
         const b = await build(variant, true);
+        await b.app.whenReady({ timeoutMs: 60_000 });
         const samples: number[] = [];
-        b.app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-            if (e.stats.gpuTimeMs !== undefined) samples.push(e.stats.gpuTimeMs);
-        });
+        b.app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
         for (let k = 0; k < 150; k++) {
             b.app.step(1 / 60);
-            await new Promise((r) => requestAnimationFrame(r));
+            await nextGpuFrame(b.app);
         }
         const window = samples.slice(-90);
         const mean = window.reduce((a, c) => a + c, 0) / Math.max(1, window.length);
-        if (window.length >= 30) gpu[variant] = Math.min(gpu[variant]!, mean);
+        if (window.length >= 90) gpu[variant] = Math.min(gpu[variant]!, mean);
         b.app.dispose();
         b.app.canvas.remove();
     }
@@ -507,7 +542,8 @@ function instrument(app: Application): {
         const out = create(s);
         const d = (s as { discriminator?: string }).discriminator;
         if (s.kind === 'buffer' && d?.startsWith('graph:') === true)
-            buffers.set(d.split(':').slice(3).join(':'), out as { byteSize: number });
+            // `graph:<entidade>:<revisão>:<chave>:<identidade do Resource de trabalho>` (spec 039: a C2 aloca).
+            buffers.set(d.split(':').slice(3, -1).join(':'), out as { byteSize: number });
         return out;
     };
     core.readback = (s: unknown): Promise<ArrayBuffer> => {
@@ -772,6 +808,12 @@ function tintSubgraph(): ReturnType<typeof Subgraph.point> {
 
 async function partC(failures: string[]): Promise<void> {
     const app = await createApp(false, GRID_X * PX, GRID_Z * PX);
+    // Só a emissão chega à tela: sem luz nem ambiente (a base preta ainda reflete pelo especular do dielétrico, F0 0,04)
+    // e a apresentação sem curva de tom (o AgX da 011 mudaria a cor); a imagem é a emissão na codificação sRGB.
+    app.defaults.renderer.output.data.operator = 'linear';
+    // Sem o pontilhado da quantização (soma até ±1 nível de propósito).
+    app.defaults.renderer.output.data.dither = false;
+    app.world.remove(app.defaults.ambient);
     app.world.insert(
         // Câmera ortográfica a 40 m, de cima.
         new Camera({ projection: 'orthographic', orthoHeight: GRID_Z, near: 0.1, far: 50 }).add(
@@ -781,7 +823,6 @@ async function partC(failures: string[]): Promise<void> {
             }),
         ),
     );
-    app.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], intensity: 1 }));
     const tint = tintSubgraph();
     // Contagem a partir de agora: shaders e pipelines com a função do sub-grafo.
     const shaderSources = new Set<string>();
@@ -898,7 +939,8 @@ async function partC(failures: string[]): Promise<void> {
                 wrong++;
                 continue;
             }
-            const base = (slot * info.stride) / 4;
+            // Na arena de pools (T060i), o pool começa na posição da região dele.
+            const base = (info.offset + slot * info.stride) / 4;
             for (let k = 0; k < 3; k++) {
                 const want = Math.fround(e.color[k]!);
                 if (data[base + offA + k] !== want || data[base + offB + k] !== want) wrong++;
@@ -910,7 +952,7 @@ async function partC(failures: string[]): Promise<void> {
         if (wrong > 0) failures.push(`(c) ${wrong} valores do pool diferentes dos das entidades`);
     }
 
-    // Cor de cada caixa no centro dela (emissão = a cor; cor base preta).
+    // Cor de cada caixa no centro dela: a emissão (a cor) na codificação sRGB.
     let checked = 0;
     let worst = 0;
     let worstAt = -1;
@@ -920,7 +962,7 @@ async function partC(failures: string[]): Promise<void> {
         const o = ((rz * PX + PX / 2) * image.width + cx * PX + PX / 2) * 4;
         const color = entities[i]!.color;
         for (let k = 0; k < 3; k++) {
-            const d = Math.abs(image.data[o + k]! - color[k]! * 255);
+            const d = Math.abs(image.data[o + k]! - srgbEncode(color[k]!) * 255);
             if (d > worst) {
                 worst = d;
                 worstAt = i;
@@ -1059,7 +1101,11 @@ function structOf(module: WgslModule, name: string): [string, string][] | undefi
     const walk = (m: WgslModule): [string, string][] | undefined => {
         if (seen.has(m)) return undefined;
         seen.add(m);
-        const match = new RegExp(`struct\\s+${name}\\s*\\{([^}]*)\\}`).exec(m.source);
+        // O struct escrito no fonte ou gerado de um schema do módulo (`structs`: o `Closure` vem do `ClosureSchema`).
+        const generated = m.structs.find((x) => x.wgslName === name)?.toWGSL() ?? '';
+        const match = new RegExp(`struct\\s+${name}\\s*\\{([^}]*)\\}`).exec(
+            `${m.source}\n${generated}`,
+        );
         if (match !== null)
             return match[1]!
                 .replace(/\/\/[^\n]*/g, '')
@@ -1073,16 +1119,6 @@ function structOf(module: WgslModule, name: string): [string, string][] | undefi
         return undefined;
     };
     return walk(module);
-}
-
-/** O recurso declarado `name` na árvore de `module`. */
-function resourceIn(module: WgslModule, name: string): WgslResource | undefined {
-    if ('resource' in module && module.name === name) return module as WgslResource;
-    for (const r of module.requires) {
-        const found = resourceIn(r, name);
-        if (found !== undefined) return found;
-    }
-    return undefined;
 }
 
 /** Leitura de um valor de tipo `type` a partir do `vec4f` `k` da amostra. */
@@ -1222,35 +1258,42 @@ ${writes.map((w, k) => `    node_case_out[o + ${k}u] = ${w};`).join('\n')}
         [nodeCaseIn, inBuf],
         [nodeCaseOut, outBuf],
     ]);
+    // O recurso de cena pelo caminho de autoria: um campo de força por registro (o pool que a C2 liga).
+    const fields: EntityId[] = [];
     if (c.scene !== undefined) {
-        const resource = resourceIn(def.code, c.scene.resource);
-        const type = resource?.resource.type;
-        if (resource === undefined || type === undefined || !('schema' in type))
-            throw new Error(`(f) ${c.node}: recurso '${c.scene.resource}' sem schema`);
-        const bytes = new Uint8Array(type.schema.stride * c.scene.records.length);
-        c.scene.records.forEach((rec, k) => {
-            bytes.set(type.schema.pack({ ...rec }), k * type.schema.stride);
-        });
-        const sceneBuf = storage('scene', bytes.byteLength);
-        app.core.write(sceneBuf, bytes);
-        bindings.set(resource, sceneBuf);
+        if (c.scene.resource !== 'field_builtin_records')
+            throw new Error(
+                `(f) ${c.node}: recurso de cena '${c.scene.resource}' sem autoria no smoke`,
+            );
+        for (const rec of c.scene.records) {
+            fields.push(app.world.insert(new CaseField(rec as unknown as FieldRecordValues)));
+        }
+        app.step(0);
+        await settle(app);
     }
-    const kernel = createComputeKernel(app.core, {
+    caseWork ??= ownWork(app, new NodeCaseWork(), 'nodeCaseWork');
+    const pipelines = caseWork.pipelines;
+    const kernel = pipelines.kernel({
         discriminator: `node_case_${index}`,
         shader: module,
         entryPoint: 'node_case_main',
         bindings,
     });
+    // O pipeline com os recursos de cena fica pronto na reconciliação do quadro.
+    for (let i = 0; i < 20 && pipelines.compute(kernel) === undefined; i++) {
+        app.step(0);
+        await settle(app);
+    }
     app.core.record('node-case', (frame) => {
         frame.compute('node.case', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind);
+            pipelines.use(pass.bind, kernel);
             pass.dispatch.invocations(n, 64);
         });
     });
     app.core.submit();
     const out = await readBuffer(app, outBuf, `node_case_${index}`);
-    destroyComputeKernel(app.core, kernel);
+    pipelines.release(kernel);
+    for (const id of fields) app.world.remove(id);
     let worst = 0;
     samples.forEach((x, i) => {
         const ref = c.reference(x);

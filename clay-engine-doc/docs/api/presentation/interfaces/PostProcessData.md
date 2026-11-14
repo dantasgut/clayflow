@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / PostProcessData
+[clayflow](../../modules.md) / [presentation](../README.md) / PostProcessData
 
 # Interface: PostProcessData
 
-Defined in: [presentation/resources/PostProcessEffect.ts:30](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L30)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:30](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L30)
 
 Dado de um `PostProcessEffect`.
 
@@ -16,7 +16,7 @@ Dado de um `PostProcessEffect`.
 
 > **aux**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/resources/PostProcessEffect.ts:36](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L36)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:36](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L36)
 
 Parâmetros auxiliares do efeito.
 
@@ -26,7 +26,7 @@ Parâmetros auxiliares do efeito.
 
 > **enabled**: `boolean`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:32](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L32)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:32](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L32)
 
 Efeito ativo.
 
@@ -36,6 +36,6 @@ Efeito ativo.
 
 > **strength**: `number`
 
-Defined in: [presentation/resources/PostProcessEffect.ts:34](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/resources/PostProcessEffect.ts#L34)
+Defined in: [src/presentation/resources/PostProcessEffect.ts:34](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/resources/PostProcessEffect.ts#L34)
 
 Intensidade do efeito.

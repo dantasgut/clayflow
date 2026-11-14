@@ -73,6 +73,25 @@ export abstract class Geometry<TData extends GeometryData = GeometryData>
         ];
     }
 
+    /**
+     * Descritor dos vértices do quadro anterior (`previousVertices`, spec 034): o mesmo layout de `vertices`, para
+     * geometria cujos vértices a GPU reescreve (superfícies, corpos moles, grafos). O histórico de movimento guarda neles
+     * os vértices antes de o produtor os reescrever; o passe de movimento compara os dois (vetores de movimento da
+     * geometria deformada). Alocado só quando há escritor dos vértices na GPU.
+     */
+    protected historyDescriptors(vertices: GPUDescriptor): GPUDescriptor[] {
+        return [
+            {
+                id: 'previousVertices',
+                role: 'vertex',
+                ...(vertices.schema !== undefined ? { schema: vertices.schema } : {}),
+                ...(vertices.count !== undefined ? { count: vertices.count } : {}),
+                upload: 'never',
+                allocation: 'onDemand',
+            },
+        ];
+    }
+
     /** Número de vértices na geometria — usado para `pass.draw(count)`. */
     abstract get vertexCount(): number;
     /** Número de índices (0 = sem index buffer, draw não-indexed). */

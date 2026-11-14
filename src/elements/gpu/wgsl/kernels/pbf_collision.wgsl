@@ -21,6 +21,13 @@ fn pbf_collision_main(
 
     // ── Bounds AABB ───────────────────────────────────────────────────────────
     // Usa bound_min como piso e assume domínio simétrico em y (apenas piso)
+    // A retirada segue retirada (também com as paredes: a gota que virou película, T066d).
+    if (fluid_retired(pos)) {
+        particles[i].pos = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].pos.w);
+        particles[i].posOld = vec4f(pos.x, FLUID_RETIRED_Y, pos.z, particles[i].posOld.w);
+        particles[i].vel = vec4f(0.0);
+        return;
+    }
     if (pbf_params.open_bounds != 0u) {
         // Domínio aberto (spec 010): quem sai da caixa é retirado.
         if (fluid_outside(pos, bound_min, pbf_params.bound_max)) {
@@ -40,7 +47,9 @@ fn pbf_collision_main(
     }
 
     // ── Colliders (pools tipados; pose pelo corpo dono) ──────────────────────
-    // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento).
+    // Partícula como esfera de raio s/2 (ocupa o próprio espaçamento). Colisão contínua desde o início do passo
+    // (`posOld`): o passo do PBF é longo, e a partícula rápida atravessaria um sólido fino (spec 034).
+    pos = collider_set_sweep(particles[i].posOld.xyz, pos, pbf_params.collision_radius);
     collider_set_push_out(&pos, &vel, pbf_params.collision_radius, restitution);
 
     particles[i].pos = vec4f(pos, particles[i].pos.w);

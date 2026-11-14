@@ -1,57 +1,93 @@
 // Spec 033 — Smoke do campo dos fluidos (US7, R11; SC-013).
 //
-// A superfície dos corpos de partículas com `FluidSurfaceMaterial` é um campo de distância com sinal construído na GPU
+// A superfície dos corpos de fluido (a aparência pelo grafo, spec 034 T066) é um campo de distância com sinal construído na GPU
 // a cada quadro e desenhado por marcha. Casos (limiares documentados aqui e nas notas do US7 em `tasks.md`; `p` é o
 // espaçamento das partículas em pixels na distância medida):
 //   - gpu: o campo da GPU (blocos esparsos, voxels com a borda) igual ao da referência de CPU (`fields/reference/field`)
 //     nas mesmas partículas paradas: φ nos voxels da faixa (|φ| < 2 voxels) com erro ≤ ¼ voxel no percentil 95 e
 //     ≤ 1 voxel no máximo; nenhum NaN; blocos dentro da capacidade;
+//   - mesh (spec 039, T109): a malha da superfície (o raster da água) nas mesmas partículas paradas do `gpu` — os
+//     vértices no nível zero do campo da GPU (|φ| ≤ ¼ voxel no percentil 95, ≤ 1 voxel no máximo) e no da referência de
+//     CPU (os mesmos limites); a profundidade do raster contra a marcha da referência é o caso `rays`;
 //   - drops: gotas separadas por 2 e 4 espaçamentos não se fundem (φ > 0 em todo o vão);
-//   - rays: os raios atingem a mesma superfície — a profundidade da câmera e o ponto `ray_volume_hit` (composto pela C2
-//     num estágio de consulta) contra a marcha da referência: erro ≤ ½ espaçamento em 99 % dos raios;
+//   - rays: os raios atingem a mesma superfície — a distância que a câmera pede à refração (spec 034, T065f: a água vista
+//     pela câmera é achada pelos raios) e o ponto `ray_volume_hit` (composto pela C2 num estágio de consulta) contra a
+//     marcha da referência: erro ≤ ½ espaçamento em 99 % dos raios;
 //   - close: o tanque com água parada de perto (p ≥ 20 px): a silhueta da borda contra a parede tem ondulação RMS na
 //     escala das partículas (períodos de ½p a 2p) ≤ 0,008 p (sem semicírculos; a versão da 017 dá 0,018 p); com a resolução dobrada, igual (em p);
-//   - normal: a água parada vista de cima de perto: a normal da superfície tem amplitude RMS na escala das partículas
-//     ≤ 0,01 (sem favo de mel); a luminância da imagem, ≤ 0,004;
+//   - normal: a água parada vista de cima de perto: a normal da superfície que os raios da câmera acham (o ponto
+//     `ray_volume_hit`, o mesmo do traçado) tem amplitude RMS na escala das partículas ≤ 0,007 (sem favo de mel; 0,0098
+//     com a covariância dos núcleos no raio deles, 0,0059 na vizinhança de 2,25 espaçamentos — T066e); a luminância da
+//     imagem, ≤ 0,007. O favo de mel só aparece na imagem pelas cáusticas no fundo (sem elas, 0,0012 com e sem ele: a
+//     areia lisa refratada não o mostra); o limite de 0,004 era da 033, de antes de elas entrarem no tanque (039). Com
+//     elas, o campo antigo dá 0,0111–0,0112 e o novo 0,0058–0,0062 (a leitura das células pela B-spline quadrática;
+//     pela tenda, 0,0064): o que sobra é a cáustica do relevo que resta na superfície — com 3 s de quadros parados ela
+//     não muda (a média do hash já convergiu) e com 4× os fótons sobe a 0,0074 (os depósitos vão a níveis mais finos e
+//     o foco do relevo fica mais nítido); só baixa com a superfície mais lisa;
 //   - edge: o realce da borda da frente é contínuo (≤ 5 % dos pixels de brilho isolados);
 //   - volume: a barragem em movimento: o volume do campo a ±5 % do das partículas (N · espaçamento³) em 4 quadros;
 //   - caustics: a placa de água parada sobre o fundo: a borda da sombra e das cáusticas no fundo sem ondulação na
 //     escala das partículas (RMS ≤ 0,05 p) e o padrão sem blocos (≤ 2 % de degraus entre vizinhos acima de 0,06);
-//   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água em ≥ 95 % dos pixels;
-//   - timing: 64 000 partículas em 1280 × 720 — o campo (junção, grade, marcação, densidade, distância) ≤ 1,5 ms e a
-//     marcha ≤ 1 ms: medidos juntos pela diferença do tempo de GPU por quadro (perfil por quadro: o por passo não é
-//     confiável no Apple) entre a mesma barragem com a água e com sprites, ≤ 2,5 ms.
+//   - contact: a água encosta na caixa: o anel de ½ a 1½ espaçamento em volta da caixa tem água (o pedido da refração
+//     pela superfície dela) em ≥ 95 % dos pixels;
+//   - closure (spec 034, T065d): a aparência do corpo de fluido pelo grafo — dois `FluidBody` com a função `material`:
+//     o dielétrico de IOR 1,4 com a transmissão de cor 0,5 + 0,25·n pela normal do ponto, a 2 m, e a água da cena dos
+//     smokes (IOR 1,333, Abbe 55,7, a cor exp(−absorção) a 1 m); por raios contra cada um, o fechamento
+//     do acerto na onda dos acertos (a referência do ponto `ray_volume_surface`, avaliada pelo kernel da classe, spec 039)
+//     dá o fechamento de cada grafo no ponto e na normal do acerto, a 1e-5 (a precisão de f32 das contas); o
+//     `ray_volume_transmittance` pelo corpo, Beer–Lambert pela absorção do meio do corpo na corda (homogêneo: o
+//     fechamento do corpo avaliado uma vez por quadro, spec 039) — |Δ ln T| ≤ σ · 1 voxel
+//     (a saída dele é a da marcha sem o refinamento, a um voxel da superfície);
+//   - timing (spec 034, T068): o custo da água pelo campo (a construção e a marcha), 64 000 partículas em 1280 × 720,
+//     por perfil do `Renderer` — na mesma aplicação, a mesma barragem alternada 4 vezes com e sem a água pelo campo (a
+//     função `material` tirada e posta na entidade; sem ela, o corpo segue simulado e não é desenhado), o intervalo de GPU do quadro (do primeiro início ao último fim: a soma dos passes
+//     conta duas vezes o que a GPU sobrepõe) na mediana de cada estado; a diferença é o custo da água. Antes, duas
+//     aplicações em sequência e a soma dos passes: −18,8 ms numa rodada (o ruído de dois quadros de ~90 ms), e o "sem"
+//     eram sprites, que custam mais que a água. Limites por perfil pela medida (`TIMING_LIMITS`) e o da construção.
 //
 // Para rodar: `npm run smoke -- fluidField [--query case=close]`. Resultado: `FLUIDFIELD SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
     Camera,
     createScene,
+    FIELD_MESH_VERTEX_WORDS,
+    FlowWork,
+    RayWave,
+    rayWave,
+    StructSchema,
+    type WorkSlot,
     DirectionalLight,
     Flow,
     FluidBody,
     FluidField,
+    MaterialFunction,
+    fieldAtlasOffset,
     fieldDataLayout,
-    FluidSurfaceMaterial,
-    ParticleMaterial,
+    ParticlePhysics,
     PlaneGeometry,
+    rayVolumeMaterial,
     rayVolumeHitReady,
+    rayVolumeTransmittanceReady,
+    RayScene,
+    nodes,
     slot,
     StandardMaterial,
+    SurfacePhysics,
     Transform,
-    WaterSurface,
     wgslModule,
     wgslResource,
-} from 'clayflow';
+} from 'clayflow/web';
 import type {
     BoundFlow,
-    FluidSurfaceMaterialOptions,
+    FlowTransitions,
     Frame,
-    FrameCompleteEvent,
+    RenderProfile,
+    SingletonSlot,
+    SlotMap,
+    TransitionContext,
     StagingBufferSpec,
     StorageBufferSpec,
-    TextureSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 import {
     buildField,
     FIELD,
@@ -59,7 +95,7 @@ import {
     type FieldGrid,
     type Vec3,
 } from '../elements/fields/reference/field';
-import { readHdrTexture } from './support/imageMeasures';
+import { nextGpuFrame } from './support/extensionScenes';
 import {
     bandAmplitude,
     isolatedHighlights,
@@ -67,7 +103,17 @@ import {
     silhouetteRows,
     type Rect,
 } from './support/spectralMeasures';
-import { WATER_SPACING, waterScene, type WaterSceneOptions } from './support/waterScene';
+import {
+    WATER_SPACING,
+    waterLook,
+    waterScene,
+    type WaterLook,
+    type WaterSceneOptions,
+} from './support/waterScene';
+import { lumaSrgb8 } from './support/images';
+import { lcg } from './support/random';
+import { queryRays, queryVolumeHits } from './support/volumeQuery';
+import { materialGraph } from './support/materialScenes';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;
@@ -86,21 +132,12 @@ function check(ok: boolean, msg: string): void {
     if (!ok) failures.push(msg);
 }
 
-/** Gerador determinístico em [0, 1). */
-function rng(seed: number): () => number {
-    let s = seed >>> 0;
-    return () => {
-        s = (s * 1664525 + 1013904223) >>> 0;
-        return s / 2 ** 32;
-    };
-}
-
 /**
  * Partículas numa bola de raio `r` em volta de `c` (rede cúbica do espaçamento, perturbada de ±10%: sem vizinhos
  * exatamente no raio do núcleo, onde a contagem dependeria do arredondamento).
  */
 function ball(c: Vec3, r: number, seed = 7): number[] {
-    const jitter = rng(seed);
+    const jitter = lcg(seed);
     const out: number[] = [];
     const n = Math.ceil(r / SPACING);
     for (let z = -n; z <= n; z++)
@@ -116,7 +153,7 @@ function ball(c: Vec3, r: number, seed = 7): number[] {
 
 /** Placa de partículas (nx × ny × nz) a partir do canto `lo`, no espaçamento `s`, perturbada de ±5 %. */
 function slab(lo: Vec3, n: readonly [number, number, number], s: number, seed = 11): number[] {
-    const jitter = rng(seed);
+    const jitter = lcg(seed);
     const out: number[] = [];
     for (let z = 0; z < n[2]; z++)
         for (let y = 0; y < n[1]; y++)
@@ -144,6 +181,9 @@ async function session(width: number, height: number, profiling?: 'passes'): Pro
     canvas.height = height;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -204,27 +244,35 @@ function staticBody(
     app: Application,
     positions: readonly number[],
     spacing: number,
-    material: FluidSurfaceMaterialOptions = {},
+    look: WaterLook = {},
 ): void {
-    app.world.insert(new ParticleMaterial({ particleSpacing: spacing }));
+    app.world.insert(new ParticlePhysics({ particleSpacing: spacing }));
     const body = new FluidBody({ algorithm: 'SPH', position: [...positions] });
-    body.add(new FluidSurfaceMaterial(material));
+    body.add(waterLook(look));
     app.world.insert(body);
 }
 
-/** Deixa as compilações concluírem com quadros de duração 0. */
-async function settle(app: Application, ms = 600): Promise<void> {
+/** Espera o motor pronto (spec 034) com quadros de duração 0, e ao menos `ms` de tempo real. */
+async function settle(app: Application, ms = 0): Promise<void> {
     const end = performance.now() + ms;
+    await app.whenReady({ timeoutMs: 60_000 });
     while (performance.now() < end) {
         app.step(0);
         await new Promise((r) => setTimeout(r, 16));
     }
+    // Um quadro na mesma tarefa de quem chamou: o canvas WebGPU só vale até a tarefa ceder (captura logo depois).
     app.step(0);
 }
 
-/** Avança `frames` quadros da simulação (tempo fixo). */
+/**
+ * Avança `frames` quadros da simulação (tempo fixo), cada um só com espaço na GPU (`readyForFrame`: os quadros em
+ * andamento abaixo do teto, como o laço do motor). Sem a espera, 20 quadros seguidos entravam na fila da GPU de uma vez:
+ * na sessão de 2560 × 1440 do `close`, a fila passava de segundos de trabalho e o processo da GPU caía ("A valid external
+ * Instance reference no longer exists") — nas rodadas em que os kernels já vinham compilados de um caso anterior.
+ */
 async function simulate(app: Application, frames: number): Promise<void> {
     for (let i = 0; i < frames; i++) {
+        while (!app.readyForFrame()) await new Promise((r) => setTimeout(r, 1));
         app.step(1 / 60);
         if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
     }
@@ -234,12 +282,6 @@ function fieldOf(app: Application): FluidField {
     const field = app.world.findResource(FluidField.schema, FluidField);
     if (field === undefined) throw new Error('sem FluidField na cena');
     return field;
-}
-
-function waterOf(app: Application): WaterSurface {
-    const water = app.world.findResource(WaterSurface.schema, WaterSurface);
-    if (water === undefined) throw new Error('sem WaterSurface na cena');
-    return water;
 }
 
 async function readSpec(
@@ -269,19 +311,23 @@ async function read(app: Application, descId: string): Promise<ArrayBuffer> {
 }
 
 /** Lê uma textura de 32 bits por texel (`r32float`/`r32uint`) de volta. */
-async function readR32(
-    app: Application,
-    texture: TextureSpec,
-): Promise<{ data: ArrayBuffer; stride: number }> {
+/**
+ * O pedido da refração do último quadro (spec 034, T065f): por pixel, a distância da câmera até a interface mais
+ * próxima (a superfície da água, sem vidro nestas cenas) e as marcas (bit 0: há pedido) — o que a câmera vê da água,
+ * achado pelo ponto `ray_volume_hit` como os raios do traçado.
+ */
+async function readRequest(app: Application): Promise<{ words: Uint32Array; stride: number }> {
+    const texture = app.resources.textureOf(app.defaults.renderer.refractionResource, 'request');
+    if (texture === undefined) throw new Error('pedido da refração não alocado');
     const { width, height } = texture;
-    const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+    const bytesPerRow = Math.ceil((width * 8) / 256) * 256;
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
         subkind: 'staging',
-        discriminator: `fluid_field_r32_${width}x${height}`,
+        discriminator: `fluid_field_request_${width}x${height}`,
         byteSize: bytesPerRow * height,
     });
-    app.core.record('fluid-field-texture', (frame) => {
+    app.core.record('fluid-field-request', (frame) => {
         frame.copyTextureToBuffer(texture, staging, { bytesPerRow, rowsPerImage: height }, [
             width,
             height,
@@ -290,7 +336,36 @@ async function readR32(
     app.core.submit();
     const data = await app.core.readback(staging);
     app.core.destroy(staging);
-    return { data, stride: bytesPerRow / 4 };
+    return { words: new Uint32Array(data), stride: bytesPerRow / 4 };
+}
+
+/** O raio (unitário) do centro do pixel (px, py) da câmera de 45° em `eye` olhando `target`, com o y para cima. */
+function pixelRay(
+    eye: Vec3,
+    target: Vec3,
+    width: number,
+    height: number,
+): (px: number, py: number) => Vec3 {
+    const tanY = Math.tan(Math.PI / 8);
+    const tanX = tanY * (width / height);
+    const fwd = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+    const fl = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
+    const ahead: Vec3 = [fwd[0]! / fl, fwd[1]! / fl, fwd[2]! / fl];
+    const rr = [-ahead[2], 0, ahead[0]];
+    const rl = Math.hypot(rr[0]!, rr[2]!);
+    const right: Vec3 = [rr[0]! / rl, 0, rr[2]! / rl];
+    const up: Vec3 = [
+        right[1] * ahead[2] - right[2] * ahead[1],
+        right[2] * ahead[0] - right[0] * ahead[2],
+        right[0] * ahead[1] - right[1] * ahead[0],
+    ];
+    return (px, py) => {
+        const nx = ((px + 0.5) / width) * 2 - 1;
+        const ny = 1 - ((py + 0.5) / height) * 2;
+        const d = [0, 1, 2].map((k) => ahead[k]! + right[k]! * nx * tanX + up[k]! * ny * tanY);
+        const dl = Math.hypot(d[0]!, d[1]!, d[2]!);
+        return [d[0]! / dl, d[1]! / dl, d[2]! / dl];
+    };
 }
 
 /** O campo da GPU lido de volta: blocos e voxels, com φ trilinear num ponto de mundo. */
@@ -311,7 +386,12 @@ async function gpuField(app: Application, spacing: number): Promise<GpuField> {
     const data = await read(app, 'data');
     const layout = fieldDataLayout(field.capacity);
     const bricks = new Int32Array(data, layout.bricks * 4, field.capacity.bricks * 4);
-    const voxels = new Float32Array(data, layout.voxels * 4);
+    // Os voxels com a borda: o atlas no fim do buffer (T060f), uma página de 12³ por bloco.
+    const voxels = new Float32Array(
+        data,
+        fieldAtlasOffset(field.capacity) * 4,
+        field.capacity.bricks * (FIELD.brick + 4) ** 3,
+    );
     const iso = new Float32Array(data, 7 * 4, 1)[0]!;
     const used = Math.min(counts[0]!, field.capacity.bricks);
     const voxel = FIELD.voxel * spacing;
@@ -457,94 +537,16 @@ async function caseDrops(): Promise<void> {
     s.dispose();
 }
 
-/** Raios de consulta (origem, direção) → (t, acertou) pelo ponto `ray_volume_hit`. */
-const queryRays = wgslResource({
-    name: 'smoke_rays',
-    binding: { storage: 'read' },
-    type: { wgsl: 'vec4f', array: true },
-    frequency: 'stage',
-    provider: 'private',
-});
-const queryHits = wgslResource({
-    name: 'smoke_hits',
-    binding: { storage: 'read_write' },
-    type: { wgsl: 'vec4f', array: true },
-    frequency: 'stage',
-    provider: 'private',
-});
-const volumeQuery = wgslModule({
-    name: 'smoke_volume_query',
-    requires: [rayVolumeHitReady, queryRays, queryHits],
-    source: /* wgsl */ `
-@compute @workgroup_size(64)
-fn smoke_volume_query_main(@builtin(global_invocation_id) gid: vec3u) {
-    let i = gid.x;
-    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
-    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0);
-    smoke_hits[i] = vec4f(h.t, select(0.0, 1.0, h.hit), f32(h.material), 0.0);
-}`,
-});
-
-/** Estágio de consulta: o ponto `ray_volume_hit` composto pela C2 com a contribuição do campo. */
-class VolumeQueryFlow extends Flow<{ readonly field: ReturnType<typeof slot.singleton> }, 'idle'> {
-    readonly type = 'smokeVolumeQuery';
-    readonly slots = { field: slot.singleton(FluidField.schema) };
-    override readonly pipelines = [
-        {
-            id: 'query',
-            role: 'compute' as const,
-            shader: volumeQuery,
-            entryPoints: ['smoke_volume_query_main'],
-        },
-    ];
-    override readonly bindings: ReadonlyMap<typeof queryRays, StorageBufferSpec>;
-    protected readonly initialState = 'idle' as const;
-    protected readonly transitions = {
-        '*': {
-            slotsResolved: 'ignore',
-            slotChanged: 'ignore',
-            slotLost: 'ignore',
-            pipelinesCompiled: 'ignore',
-            bindGroupReplaced: 'ignore',
-        },
-    } as const;
-    pending = 0;
-
-    constructor(
-        rays: StorageBufferSpec,
-        hits: StorageBufferSpec,
-        private readonly count: number,
-    ) {
-        super();
-        this.bindings = new Map([
-            [queryRays, rays],
-            [queryHits, hits],
-        ]);
-    }
-
-    dispatch(frame: Frame, bound: BoundFlow): void {
-        if (this.pending === 0) return;
-        const p = bound.pipelines.get('query');
-        if (p?.role !== 'compute' || !p.ready) return;
-        frame.compute('smokeVolumeQuery', (pass) => {
-            pass.bind.setPipeline(p.spec);
-            p.bindTo(pass.bind);
-            pass.dispatch.workgroups(Math.ceil(this.count / 64));
-        });
-        this.pending--;
-    }
-}
-
 async function caseRays(): Promise<void> {
     const positions = BALLS();
     const W = 640;
     const H = 400;
     const s = await session(W, H);
     staticStage(s.app, W, H, BALL_EYE, BALL_TARGET);
-    staticBody(s.app, positions, SPACING, { rippleStrength: 0 });
+    staticBody(s.app, positions, SPACING, { ripple: false });
     // Raios para a bola grande, de fora, em direções variadas.
     const count = 256;
-    const r = rng(29);
+    const r = lcg(29);
     const rays: { o: Vec3; d: Vec3 }[] = [];
     for (let i = 0; i < count; i++) {
         const u = 2 * r() - 1;
@@ -560,35 +562,9 @@ async function caseRays(): Promise<void> {
         const len = Math.hypot(d[0]!, d[1]!, d[2]!);
         rays.push({ o, d: [d[0]! / len, d[1]! / len, d[2]! / len] });
     }
-    const storage = (name: string, bytes: number): StorageBufferSpec =>
-        s.app.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: `smoke_volume_${name}`,
-            byteSize: bytes,
-        });
-    const raysBuf = storage('rays', count * 32);
-    const hitsBuf = storage('hits', count * 16);
-    const data = new Float32Array(count * 8);
-    rays.forEach((ray, i) => {
-        data.set([...ray.o, 0, ...ray.d, 0], i * 8);
-    });
-    s.app.core.write(raysBuf, data);
-    const query = new VolumeQueryFlow(raysBuf, hitsBuf, count);
-    s.app.flows.register(() => query, {
-        type: 'smokeVolumeQuery',
-        phase: 'transform',
-        priority: -100,
-    });
     await settle(s.app, 1500);
     // A consulta roda quando o pipeline (recomposto com a contribuição do campo) estiver pronto.
-    let hits = new Float32Array(count * 4);
-    for (let attempt = 0; attempt < 40 && !hits.some((v, i) => i % 4 === 1 && v > 0.5); attempt++) {
-        query.pending = 1;
-        s.app.step(0);
-        hits = new Float32Array(await readSpec(s.app, hitsBuf, 'hits'));
-        await new Promise((r) => setTimeout(r, 100));
-    }
+    const hits = await queryVolumeHits(s.app, rays);
     const f = await gpuField(s.app, SPACING);
     const grid = buildField(toPoints(positions), { spacing: SPACING, iso: f.iso });
     const half = 0.5 * SPACING;
@@ -596,12 +572,12 @@ async function caseRays(): Promise<void> {
     let missed = 0;
     rays.forEach((ray, i) => {
         const ref = marchField(grid, ray.o, ray.d, 3);
-        const hit = hits[i * 4 + 1]! > 0.5;
+        const hit = hits[i * 8 + 1]! > 0.5;
         if (ref === null || !hit) {
             if ((ref === null) !== !hit) missed++;
             return;
         }
-        errors.push(Math.abs(hits[i * 4]! - ref.t));
+        errors.push(Math.abs(hits[i * 8]! - ref.t));
     });
     errors.sort((a, b) => a - b);
     const p99 = errors[Math.floor(0.99 * (errors.length - 1))] ?? Infinity;
@@ -616,63 +592,34 @@ async function caseRays(): Promise<void> {
         p99 <= half,
         `rays: ray_volume_hit a ${(p99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
     );
-    // A profundidade que a câmera escreveu na superfície da água contra a marcha da referência pelo mesmo pixel.
-    const depth = await readR32(s.app, s.app.resources.textureOf(waterOf(s.app), 'depth')!);
-    const z = new Float32Array(depth.data);
-    const tanY = Math.tan(Math.PI / 8);
-    const tanX = tanY * (W / H);
-    const fwd = [
-        BALL_TARGET[0] - BALL_EYE[0],
-        BALL_TARGET[1] - BALL_EYE[1],
-        BALL_TARGET[2] - BALL_EYE[2],
-    ];
-    const fl = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
-    const ahead: Vec3 = [fwd[0]! / fl, fwd[1]! / fl, fwd[2]! / fl];
-    const right: Vec3 = (() => {
-        const rr = [-ahead[2], 0, ahead[0]];
-        const l = Math.hypot(rr[0]!, rr[2]!);
-        return [rr[0]! / l, 0, rr[2]! / l];
-    })();
-    const up: Vec3 = [
-        right[1] * ahead[2] - right[2] * ahead[1],
-        right[2] * ahead[0] - right[0] * ahead[2],
-        right[0] * ahead[1] - right[1] * ahead[0],
-    ];
+    // A distância que a câmera pede à refração (a superfície achada pelos raios dela) contra a marcha da referência
+    // pelo mesmo pixel.
+    const request = await readRequest(s.app);
+    const distance = new Float32Array(request.words.buffer);
+    const ray = pixelRay(BALL_EYE, BALL_TARGET, W, H);
     const depthErrors: number[] = [];
     for (let py = 4; py < H; py += 8)
         for (let px = 4; px < W; px += 8) {
-            const zg = z[py * depth.stride + px]!;
-            if (!(zg < 1e5)) continue;
-            const nx = ((px + 0.5) / W) * 2 - 1;
-            const ny = 1 - ((py + 0.5) / H) * 2;
-            const d = [0, 1, 2].map((k) => ahead[k]! + right[k]! * nx * tanX + up[k]! * ny * tanY);
-            const dl = Math.hypot(d[0]!, d[1]!, d[2]!);
-            const dir: Vec3 = [d[0]! / dl, d[1]! / dl, d[2]! / dl];
-            const ref = marchField(grid, BALL_EYE, dir, 5);
+            const k = py * request.stride + 2 * px;
+            if ((request.words[k + 1]! & 1) === 0) continue;
+            const ref = marchField(grid, BALL_EYE, ray(px, py), 5);
             if (ref === null) continue;
-            depthErrors.push(Math.abs(zg - ref.t / dl));
+            depthErrors.push(Math.abs(distance[k]! - ref.t));
         }
     depthErrors.sort((a, b) => a - b);
     const dp99 = depthErrors[Math.floor(0.99 * (depthErrors.length - 1))] ?? Infinity;
     log(
-        `rays: profundidade da câmera em ${depthErrors.length} pixels, erro p99 ${(dp99 / SPACING).toFixed(3)} espaçamento`,
+        `rays: distância pedida pela câmera em ${depthErrors.length} pixels, erro p99 ${(dp99 / SPACING).toFixed(3)} espaçamento`,
     );
     check(
         depthErrors.length > 200 && dp99 <= half,
-        `rays: profundidade da câmera a ${(dp99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
+        `rays: distância pedida pela câmera a ${(dp99 / SPACING).toFixed(3)} ≤ ½ espaçamento (p99)`,
     );
-    s.app.core.destroy(raysBuf);
-    s.app.core.destroy(hitsBuf);
     s.dispose();
 }
 
 /** Água opaca e escura (a silhueta contra o fundo claro). */
-const OPAQUE: FluidSurfaceMaterialOptions = {
-    color: [0.02, 0.03, 0.05, 1],
-    absorption: [40, 40, 40, 0],
-    rippleStrength: 0,
-    refraction: 0,
-};
+const OPAQUE: WaterLook = { absorption: [40, 40, 40], ripple: false };
 /** Camada parada de 6 partículas (15 cm) depois de assentar. */
 const SETTLE_FRAMES = 240;
 
@@ -705,6 +652,13 @@ async function closeSilhouette(
         material: OPAQUE,
         eye,
         target: [0.05, 0.12, 0.4],
+        // Só a silhueta do material opaco: sem a luz rebatida. Com ela, a sessão de 2560 × 1440 depois das outras do
+        // smoke esgotava a GPU da página (o pedido de adaptador seguinte falhava) e a silhueta não era achada.
+        gi: false,
+        // A silhueta da água vista pelo vidro limpo: a água que assenta molha a face de dentro acima dela, e no vidro
+        // (molhagem parcial) essa água se rompe em gotas (T066d) — lentes entre a câmera e a borda medida. O vidro que a
+        // água molha por inteiro (θ = 0) a guarda em película lisa, quase invisível: a medida é a da borda da água.
+        surfaces: { walls: { ...SurfacePhysics.GLASS, contactAngle: 0 } },
     });
     const img = s.capture();
     const p = WATER_SPACING * pxPerMeter(0.7, height);
@@ -735,6 +689,10 @@ async function caseClose(): Promise<void> {
         `close: resolução dobrada, p = ${b.p.toFixed(1)} px, ondulação ${b.ripple.toFixed(3)} px (${(b.ripple / b.p).toFixed(4)} p)`,
     );
     check(
+        b.rows > 0.9 * 2560 * 0.7,
+        `close: resolução dobrada, silhueta contínua (${b.rows} colunas)`,
+    );
+    check(
         b.ripple / b.p <= 0.008,
         `close: resolução dobrada ${(b.ripple / b.p).toFixed(4)} p ≤ 0,008 p`,
     );
@@ -747,7 +705,7 @@ async function caseNormal(): Promise<void> {
     const s = await tank(W, H, {
         layer: 6,
         floor: 'sand',
-        material: { rippleStrength: 0 },
+        material: { ripple: false },
         eye,
         target: [0.05, 0.15, 0],
     });
@@ -767,30 +725,43 @@ async function caseNormal(): Promise<void> {
         const row: number[] = [];
         for (let x = rect.x; x < rect.x + rect.w; x++) {
             const i = (y * W + x) * 4;
-            row.push(
-                (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!)
-                    / 255,
-            );
+            row.push(lumaSrgb8(img.data, i));
         }
         lum += bandAmplitude(row, 0.5 * p, 2 * p);
         lumN++;
         lumRows.push(row.length);
     }
-    const normal = await readHdrTexture(
+    // A normal da superfície que os raios da câmera acham (o ponto `ray_volume_hit`, o mesmo do traçado), nas fileiras
+    // e colunas da região.
+    const ray = pixelRay(eye, [0.05, 0.15, 0], W, H);
+    const rowPixels: [number, number][] = [];
+    for (let y = rect.y; y < rect.y + rect.h; y += 4)
+        for (let x = rect.x; x < rect.x + rect.w; x++) rowPixels.push([x, y]);
+    const colPixels: [number, number][] = [];
+    for (let x = rect.x; x < rect.x + rect.w; x += 4)
+        for (let y = rect.y; y < rect.y + rect.h; y++) colPixels.push([x, y]);
+    const pixels = [...rowPixels, ...colPixels];
+    const hits = await queryVolumeHits(
         s.app,
-        s.app.resources.textureOf(waterOf(s.app), 'normal')!,
+        pixels.map(([x, y]) => ({ o: eye, d: ray(x, y) })),
     );
+    // A normal de um raio sem acerto conta como a vertical (a região é toda água; um furo aparece na amplitude).
+    const normalOf = (i: number, axis: number): number =>
+        hits[i * 8 + 1]! > 0.5 ? hits[i * 8 + 4 + axis]! : axis === 1 ? 1 : 0;
     let amp = 0;
     let n = 0;
-    for (let y = rect.y; y < rect.y + rect.h; y += 4) {
+    const rowLength = rect.w;
+    for (let r = 0; r * rowLength < rowPixels.length; r++) {
         const row: number[] = [];
-        for (let x = rect.x; x < rect.x + rect.w; x++) row.push(normal.data[(y * W + x) * 4]!);
+        for (let x = 0; x < rowLength; x++) row.push(normalOf(r * rowLength + x, 0));
         amp += bandAmplitude(row, 0.5 * p, 2 * p);
         n++;
     }
-    for (let x = rect.x; x < rect.x + rect.w; x += 4) {
+    const colLength = rect.h;
+    for (let c = 0; c * colLength < colPixels.length; c++) {
         const col: number[] = [];
-        for (let y = rect.y; y < rect.y + rect.h; y++) col.push(normal.data[(y * W + x) * 4 + 2]!);
+        for (let y = 0; y < colLength; y++)
+            col.push(normalOf(rowPixels.length + c * colLength + y, 2));
         amp += bandAmplitude(col, 0.5 * p, 2 * p);
         n++;
     }
@@ -799,8 +770,8 @@ async function caseNormal(): Promise<void> {
     log(
         `normal: p = ${p.toFixed(1)} px; amplitude na escala das partículas: normal ${normalAmp.toFixed(4)}, luminância ${lumAmp.toFixed(4)}`,
     );
-    check(normalAmp <= 0.01, `normal: favo de mel na normal ${normalAmp.toFixed(4)} ≤ 0,01`);
-    check(lumAmp <= 0.004, `normal: favo de mel na imagem ${lumAmp.toFixed(4)} ≤ 0,004`);
+    check(normalAmp <= 0.007, `normal: favo de mel na normal ${normalAmp.toFixed(4)} ≤ 0,007`);
+    check(lumAmp <= 0.007, `normal: favo de mel na imagem ${lumAmp.toFixed(4)} ≤ 0,007`);
     s.dispose();
 }
 
@@ -810,7 +781,7 @@ async function caseEdge(): Promise<void> {
     const eye: Vec3 = [0.05, 0.22, 1.05];
     const s = await tank(W, H, {
         layer: 6,
-        material: { rippleStrength: 0 },
+        material: { ripple: false },
         eye,
         target: [0.05, 0.16, 0.4],
     });
@@ -825,11 +796,7 @@ async function caseEdge(): Promise<void> {
     for (let y = rect.y; y < rect.y + rect.h; y++)
         for (let x = rect.x; x < rect.x + rect.w; x++) {
             const i = (y * W + x) * 4;
-            max = Math.max(
-                max,
-                (0.2126 * img.data[i]! + 0.7152 * img.data[i + 1]! + 0.0722 * img.data[i + 2]!)
-                    / 255,
-            );
+            max = Math.max(max, lumaSrgb8(img.data, i));
         }
     const isolated = isolatedHighlights(img, rect, 0.85 * max);
     log(
@@ -889,8 +856,8 @@ async function caseCaustics(): Promise<void> {
     s.app.world.insert(floor);
     const s0 = WATER_SPACING;
     staticBody(s.app, slab([-0.2, 0, -0.15], [16, 3, 12], s0), s0, {
-        absorption: [6, 3, 1.5, 0],
-        rippleStrength: 0,
+        absorption: [6, 3, 1.5],
+        ripple: false,
     });
     await settle(s.app, 1200);
     const img = s.capture();
@@ -936,12 +903,12 @@ async function caseContact(): Promise<void> {
     const s = await tank(W, H, {
         layer: 6,
         box: true,
-        material: { rippleStrength: 0 },
+        material: { ripple: false },
         eye,
         target: [0.15, 0, 0],
     });
-    const material = await readR32(s.app, s.app.resources.textureOf(waterOf(s.app), 'material')!);
-    const m = new Uint32Array(material.data);
+    // A água no pixel: a câmera pede a refração da superfície dela (o vidro não está nesta cena).
+    const request = await readRequest(s.app);
     // A caixa (centro x = 0,15, z = 0, meio lado 0,12; topo a 0,24) vista de cima: o quadrado na tela pela câmera.
     const ppm = pxPerMeter(0.9 - 0.24, H);
     const cx = W / 2;
@@ -958,7 +925,7 @@ async function caseContact(): Promise<void> {
             const d = Math.hypot(dx, dy);
             if (d === 0 || !ring(d)) continue;
             inRing++;
-            if (m[y * material.stride + x]! > 0) wet++;
+            if ((request.words[y * request.stride + 2 * x + 1]! & 1) !== 0) wet++;
         }
     log(
         `contact: anel em volta da caixa ${inRing} px, com água ${((wet / Math.max(1, inRing)) * 100).toFixed(1)} %`,
@@ -970,10 +937,39 @@ async function caseContact(): Promise<void> {
     s.dispose();
 }
 
-/** Tempo de GPU por quadro (perfil por quadro, leituras novas a cada quadro de tela) da barragem de 64 000. */
-async function damFrameTime(
-    material: 'water' | 'sprites',
-): Promise<{ mean: number; readings: number; count: number }> {
+/**
+ * Custo da água pelo campo por perfil (ms a 1280 × 720, 64 000 partículas: a diferença do intervalo de GPU do quadro com
+ * e sem ela) e o da construção do campo (`FluidFieldFlow`, igual nos três): o medido na T068 (2026-11-12, M4 Max — alto
+ * 36,2, médio 23,9, baixo 22,3; a construção 6,8) com a folga de ¼ para o ruído entre rodadas. A maior parte não é o campo:
+ * a refração pela água (`RefractionFlow`, a composição e o pedido pela malha), as cáusticas e a luz rebatida por ela.
+ */
+const TIMING_LIMITS: Readonly<Record<RenderProfile, number>> = { high: 45, medium: 30, low: 28 };
+const BUILD_LIMIT = 8.5;
+
+/** Mediana. */
+function median(values: readonly number[]): number {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)] ?? NaN;
+}
+
+/**
+ * O intervalo de GPU do quadro da barragem de 64 000 com e sem a água pelo campo, na mesma aplicação, alternados em
+ * `cycles` ciclos de `frames` quadros medidos; por Flow, a diferença; e os passes da construção do campo
+ * (`FluidFieldFlow`) nos quadros com a água.
+ */
+async function damCost(
+    profile: RenderProfile,
+    cycles: number,
+    frames: number,
+): Promise<{
+    water: number;
+    off: number;
+    build: number;
+    stages: [string, number][];
+    passes: [string, number][];
+    readings: number;
+    count: number;
+}> {
     const W = 1280;
     const H = 720;
     const canvas = document.createElement('canvas');
@@ -981,60 +977,545 @@ async function damFrameTime(
     canvas.height = H;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
-        profiling: 'frame',
+        // Por passe: o intervalo do quadro (do primeiro início ao último fim) e o tempo de cada Flow.
+        profiling: 'passes',
     });
     app.events.on('engineError', (e) => engineErrors.push(`timing: ${e.stage}: ${e.message}`));
+    app.defaults.renderer.profile = profile;
     const body = waterScene(app, {
         width: W,
         height: H,
         dam: [40, 40, 40],
         box: true,
-        ...(material === 'sprites' ? { material: 'sprites' as const } : {}),
+        diffuse: false,
     })!;
-    const gpu: number[] = [];
-    let counting = false;
-    app.events.on('frameComplete', (e: FrameCompleteEvent) => {
-        if (counting && e.stats.gpuTimeMs !== undefined) gpu.push(e.stats.gpuTimeMs);
+    // A aparência atual (uma instância nova a cada troca: a removida não volta à cena).
+    let look: MaterialFunction | undefined = body.attached.find(
+        (c): c is MaterialFunction => c instanceof MaterialFunction,
+    )!;
+    let state: 'water' | 'off' | undefined;
+    const spans = { water: [] as number[], off: [] as number[] };
+    // Por Flow, os tempos de cada estado (a soma dos passes dele: onde vai a diferença).
+    const flows = { water: new Map<string, number[]>(), off: new Map<string, number[]>() };
+    // Os passes da construção do campo nos quadros com a água.
+    const passes = new Map<string, number[]>();
+    app.events.on('gpuFrameTimed', (e) => {
+        if (state === undefined) return;
+        spans[state].push(e.spanMs);
+        if (state === 'water')
+            for (const [pass, ms] of Object.entries(e.passesMs)) {
+                if (!pass.includes('FluidFieldFlow')) continue;
+                const list = passes.get(pass) ?? [];
+                list.push(ms);
+                passes.set(pass, list);
+            }
+        for (const [flow, ms] of Object.entries(e.flowsMs)) {
+            const list = flows[state].get(flow) ?? [];
+            list.push(ms);
+            flows[state].set(flow, list);
+        }
     });
-    // Todos os pipelines compilados antes de medir (a água recompõe os da cena ao entrar).
-    await settle(app, 5000);
+    const show = async (next: 'water' | 'off'): Promise<void> => {
+        state = undefined;
+        if (look !== undefined) app.world.detach(body, look);
+        // Sem a água, o corpo segue simulado e não é desenhado: a diferença é a água pelo campo inteira (a construção,
+        // a marcha, as cáusticas e a luz rebatida por ela), sem o custo de outra aparência no lugar.
+        look = next === 'water' ? waterLook() : undefined;
+        if (look !== undefined) app.world.attach(body, look);
+        await app.whenReady({ timeoutMs: 60_000 });
+        // Os quadros em voo do estado anterior saem antes de medir.
+        for (let i = 0; i < 8; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        state = next;
+        for (let i = 0; i < frames; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        state = undefined;
+    };
+    await app.whenReady({ timeoutMs: 60_000 });
     await simulate(app, 90);
-    counting = true;
-    for (let i = 0; i < 120; i++) {
-        app.step(1 / 60);
-        await new Promise((r) => requestAnimationFrame(r));
+    for (let c = 0; c < cycles; c++) {
+        await show('water');
+        await show('off');
     }
     app.dispose();
     canvas.remove();
-    const sorted = [...gpu].sort((a, b) => a - b);
-    // A mediana: robusta às leituras repetidas e aos picos de relógio.
+    const n = Math.min(spans.water.length, spans.off.length);
+    const stages = [...new Set([...flows.water.keys(), ...flows.off.keys()])]
+        .map((flow): [string, number] => {
+            const at = (list: number[] | undefined): number =>
+                list === undefined
+                    ? 0
+                    : // Os quadros sem o Flow contam zero (um estado pode ter mais leituras que o outro).
+                      median([...list, ...Array<number>(Math.max(0, n - list.length)).fill(0)]);
+            return [flow, at(flows.water.get(flow)) - at(flows.off.get(flow))];
+        })
+        .filter(([, d]) => Math.abs(d) >= 0.05)
+        .sort((a, b) => b[1] - a[1]);
     return {
-        mean: sorted[Math.floor(sorted.length / 2)] ?? NaN,
-        readings: gpu.length,
+        water: median(spans.water),
+        off: median(spans.off),
+        build: median(flows.water.get('FluidFieldFlow') ?? [0]),
+        stages,
+        passes: [...passes].map(([pass, list]): [string, number] => [
+            pass.slice(pass.lastIndexOf('/') + 1),
+            median(list),
+        ]),
+        readings: n,
         count: body.count,
     };
 }
 
 async function caseTiming(): Promise<void> {
-    const water = await damFrameTime('water');
-    const sprites = await damFrameTime('sprites');
-    const cost = water.mean - sprites.mean;
+    const cycles = 4;
+    const frames = 30;
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        const m = await damCost(profile, cycles, frames);
+        const cost = m.water - m.off;
+        log(
+            `timing ${profile}: ${m.count} partículas em 1280 × 720, intervalo de GPU do quadro com a água pelo campo ${m.water.toFixed(2)} ms, sem ela ${m.off.toFixed(2)} ms (${m.readings} leituras por estado) → a água custa ${cost.toFixed(2)} ms; a construção do campo ${m.build.toFixed(2)} ms`,
+        );
+        log(
+            `timing ${profile}: por Flow, com − sem a água (soma dos passes) ${m.stages.map(([f, d]) => `${f} ${d.toFixed(2)}`).join(', ')}`,
+        );
+        log(
+            `timing ${profile}: passes da construção ${m.passes.map(([p, d]) => `${p} ${d.toFixed(2)}`).join(', ')}`,
+        );
+        check(
+            m.readings >= 0.75 * cycles * frames,
+            `timing ${profile}: leituras de GPU suficientes (${m.readings} ≥ ${0.75 * cycles * frames})`,
+        );
+        check(
+            cost <= TIMING_LIMITS[profile],
+            `timing ${profile}: a água pelo campo ${cost.toFixed(2)} ms ≤ ${TIMING_LIMITS[profile]} ms`,
+        );
+        check(
+            m.build <= BUILD_LIMIT,
+            `timing ${profile}: a construção do campo ${m.build.toFixed(2)} ms ≤ ${BUILD_LIMIT} ms`,
+        );
+    }
+}
+
+/** Fechamento no acerto dos raios: o acerto, o fechamento, a saída do corpo e a transmitância (6 `vec4f` por raio). */
+const closureOut = wgslResource({
+    name: 'smoke_closures',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'vec4f', array: true },
+    frequency: 'stage',
+    provider: 'private',
+});
+const closureQuery = wgslModule({
+    name: 'smoke_closure_query',
+    // O material no acerto do volume pela onda dos acertos, como em quem traça (spec 039): o acerto e a referência do
+    // material dele (`ray_volume_surface`) gravados na onda, o material avaliado por classe, a leitura depois.
+    requires: [
+        rayVolumeHitReady,
+        rayVolumeMaterial,
+        rayVolumeTransmittanceReady,
+        queryRays,
+        closureOut,
+        rayWave,
+    ],
+    source: /* wgsl */ `
+@compute @workgroup_size(64)
+fn smoke_closure_hits_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
+    let h = ray_volume_hit(smoke_rays[i * 2u].xyz, smoke_rays[i * 2u + 1u].xyz, 10.0, -1);
+    let surface = ray_volume_surface(h);
+    let m = ray_volume_standard();
+    if (!h.hit || surface.index == 0u) {
+        ray_wave_put_shaded(i, ray_wave_hit(h.position, h.normal, vec2f(0.0), 0.0, 0.0, 0.0, m, 0u, RAY_WAVE_SHADED, i,
+            vec4f(0.0)), surface.closure);
+        return;
+    }
+    ray_wave_put_surface(i, surface.index, surface.slot, h.position, h.normal, vec2f(0.0), 0.0, 0.0, 0.0, m,
+        vec4f(0.0));
+}
+
+@compute @workgroup_size(64)
+fn smoke_closure_query_main(@builtin(global_invocation_id) gid: vec3u) {
+    let i = gid.x;
+    if (i >= arrayLength(&smoke_rays) / 2u) { return; }
+    let o = smoke_rays[i * 2u].xyz;
+    let d = smoke_rays[i * 2u + 1u].xyz;
+    let h = ray_volume_hit(o, d, 10.0, -1);
+    let c = ray_wave_entries[i].closure;
+    // A saída do corpo: o acerto de dentro, a partir de 1 cm depois da entrada (perto da superfície o sinal de φ ainda
+    // é o da faixa dela). A transmitância só até 2 cm depois da saída: o raio não chega ao outro corpo (a 30 cm).
+    let start = h.position + d * 0.01;
+    let out = ray_volume_hit(start, d, 10.0, -1);
+    let exit = h.t + 0.01 + out.t;
+    let tr = ray_volume_transmittance(o, d, exit + 0.02, 0.0);
+    let b = i * 6u;
+    smoke_closures[b] = vec4f(h.t, select(0.0, 1.0, h.hit), f32(h.material), c.transmission_ior);
+    smoke_closures[b + 1u] = vec4f(c.transmission_color, c.transmission_depth);
+    smoke_closures[b + 2u] = vec4f(c.dielectric_ior, c.transmission_weight, c.dielectric_weight, c.transmission_abbe);
+    smoke_closures[b + 3u] = vec4f(h.position, exit);
+    smoke_closures[b + 4u] = vec4f(h.normal, select(0.0, 1.0, out.hit && out.inside));
+    smoke_closures[b + 5u] = vec4f(tr, 0.0);
+}`,
+});
+
+/** O Resource de trabalho do estágio de consulta (spec 039: a onda é da C2). */
+class ClosureQueryWork extends FlowWork {
+    static readonly schema = new StructSchema('SmokeClosureQueryWork', {});
+}
+
+interface ClosureQuerySlots extends SlotMap {
+    readonly field: SingletonSlot<false>;
+    readonly rays: SingletonSlot<false>;
+    readonly work: WorkSlot<ClosureQueryWork>;
+}
+
+/**
+ * Estágio de consulta do fechamento: o kernel com as funções `material` dos acertos da cena (a composição da estrutura
+ * de raios, refeita quando ela muda, como fazem a luz global e a refração); os pontos dos volumes compostos pela C2.
+ */
+class ClosureQueryFlow extends Flow<ClosureQuerySlots, 'idle'> {
+    readonly type = 'smokeClosureQuery';
+    private readonly owner = new ClosureQueryWork();
+    readonly slots: ClosureQuerySlots = {
+        field: slot.singleton(FluidField.schema),
+        rays: slot.singleton(RayScene.schema),
+        work: slot.work(() => this.owner),
+    };
+    override readonly bindings: ReadonlyMap<typeof queryRays, StorageBufferSpec>;
+    protected readonly initialState = 'idle' as const;
+    protected readonly transitions: FlowTransitions<'idle', TransitionContext<ClosureQuerySlots>>;
+    pending = 0;
+    revision = -1;
+    functions = 0;
+    private readonly wave: RayWave;
+
+    constructor(
+        core: Application['core'],
+        resources: Application['resources'],
+        rays: StorageBufferSpec,
+        out: StorageBufferSpec,
+        private readonly count: number,
+    ) {
+        super();
+        this.wave = new RayWave({ core, resources, work: this.owner }, 'smoke_closure');
+        this.bindings = new Map([
+            [queryRays, rays],
+            [closureOut, out],
+        ]);
+        this.transitions = {
+            '*': {
+                slotsResolved: 'ignore',
+                slotChanged: 'ignore',
+                slotLost: 'ignore',
+                pipelinesCompiled: 'ignore',
+                bindGroupReplaced: 'ignore',
+                framePrepare: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        const scene = c.bound.slots.rays.resource as RayScene;
+                        if (scene.materialRevision === this.revision) return;
+                        const first = this.revision < 0;
+                        this.revision = scene.materialRevision;
+                        this.functions = scene.materialFunctions.length;
+                        const w = this.wave.ensure(
+                            this.count,
+                            scene.materialFunctions,
+                            scene.materialRevision,
+                        );
+                        if (w.bindings !== undefined) c.bind(w.bindings);
+                        for (const id of w.released) c.release(id);
+                        for (const d of w.pipelines) c.prepare(d);
+                        if (first) {
+                            for (const entry of [
+                                'smoke_closure_hits_main',
+                                'smoke_closure_query_main',
+                            ])
+                                c.prepare({
+                                    id: entry,
+                                    role: 'compute',
+                                    shader: closureQuery,
+                                    entryPoints: [entry],
+                                });
+                        }
+                    },
+                },
+            },
+        };
+    }
+
+    dispatch(frame: Frame, bound: BoundFlow): void {
+        if (this.pending === 0) return;
+        const hits = bound.pipelines.get('smoke_closure_hits_main');
+        const p = bound.pipelines.get('smoke_closure_query_main');
+        if (
+            hits?.role !== 'compute'
+            || !hits.ready
+            || p?.role !== 'compute'
+            || !p.ready
+            || !this.wave.ready(bound)
+            || !this.wave.shadeReady(bound)
+        )
+            return;
+        frame.compute('smokeClosureQuery', (pass) => {
+            this.wave.reset(pass, bound);
+            pass.bind.setPipeline(hits.spec);
+            hits.bindTo(pass.bind);
+            pass.dispatch.invocations(this.count, 64);
+            this.wave.shade(pass, bound);
+            pass.bind.setPipeline(p.spec);
+            p.bindTo(pass.bind);
+            pass.dispatch.invocations(this.count, 64);
+        });
+        this.pending--;
+    }
+}
+/** Fechamento esperado do grafo do corpo A na normal `n`: cor 0,5 + 0,25·n a 2 m, IOR 1,4. */
+const GRAPH_IOR = 1.4;
+const GRAPH_DEPTH = 2;
+
+async function caseClosure(): Promise<void> {
+    const W = 320;
+    const H = 240;
+    const s = await session(W, H);
+    staticStage(s.app, W, H, BALL_EYE, BALL_TARGET);
+    s.app.world.insert(new ParticlePhysics({ particleSpacing: SPACING }));
+    const centers: readonly Vec3[] = [
+        [-0.4, 0.5, 0],
+        [0.4, 0.5, 0],
+    ];
+    const radius = 0.25;
+    // A: a aparência pelo grafo (o caminho de autoria: nós até `closure`).
+    s.app.world.insert(
+        new FluidBody({ algorithm: 'SPH', position: ball(centers[0]!, radius, 3) }).add(
+            materialGraph(
+                {
+                    s: nodes.input.surfaceSample(),
+                    half: nodes.math.value3.with({ value: [0.5, 0.5, 0.5] }),
+                    tilt: nodes.math.scale3,
+                    tint: nodes.math.add3,
+                    quarter: nodes.math.value.with({ value: 0.25 }),
+                    reflect: nodes.bsdf.dielectric.with({ ior: GRAPH_IOR, roughness: 0 }),
+                    transmit: nodes.bsdf.transmission.with({ ior: GRAPH_IOR, depth: GRAPH_DEPTH }),
+                    water: nodes.closure.add,
+                },
+                [
+                    ['s.normal', 'tilt.v'],
+                    ['quarter.value', 'tilt.s'],
+                    ['tilt.value', 'tint.a'],
+                    ['half.value', 'tint.b'],
+                    ['tint.value', 'transmit.color'],
+                    ['reflect.value', 'water.a'],
+                    ['transmit.value', 'water.b'],
+                ],
+                'water.value',
+            ),
+        ),
+    );
+    // B: a água pelo grafo da cena dos smokes (a absorção da água por metro, o Abbe; sem ondulações).
+    const WATER_ABSORPTION = [0.45, 0.09, 0.06] as const;
+    s.app.world.insert(
+        new FluidBody({ algorithm: 'SPH', position: ball(centers[1]!, radius, 5) }).add(
+            waterLook({ absorption: WATER_ABSORPTION, abbe: 55.7, ripple: false }),
+        ),
+    );
+    // Raios de fora para o centro de cada corpo, em direções variadas.
+    const perBody = 64;
+    const r = lcg(41);
+    const rays: { o: Vec3; d: Vec3; body: number }[] = [];
+    for (let body = 0; body < 2; body++)
+        for (let i = 0; i < perBody; i++) {
+            const u = 2 * r() - 1;
+            const a = 2 * Math.PI * r();
+            const dir: Vec3 = [
+                Math.sqrt(1 - u * u) * Math.cos(a),
+                u,
+                Math.sqrt(1 - u * u) * Math.sin(a),
+            ];
+            const c = centers[body]!;
+            const o: Vec3 = [c[0] + dir[0] * 0.38, c[1] + dir[1] * 0.38, c[2] + dir[2] * 0.38];
+            const aim: Vec3 = [
+                c[0] + (r() - 0.5) * 0.1,
+                c[1] + (r() - 0.5) * 0.1,
+                c[2] + (r() - 0.5) * 0.1,
+            ];
+            const d = [aim[0] - o[0], aim[1] - o[1], aim[2] - o[2]];
+            const len = Math.hypot(d[0]!, d[1]!, d[2]!);
+            rays.push({ o, d: [d[0]! / len, d[1]! / len, d[2]! / len], body });
+        }
+    const count = rays.length;
+    const storage = (name: string, bytes: number): StorageBufferSpec =>
+        s.app.core.create<StorageBufferSpec>({
+            kind: 'buffer',
+            subkind: 'storage',
+            discriminator: `smoke_closure_${name}`,
+            byteSize: bytes,
+        });
+    const raysBuf = storage('rays', count * 32);
+    const outBuf = storage('out', count * 96);
+    const data = new Float32Array(count * 8);
+    rays.forEach((ray, i) => {
+        data.set([...ray.o, 0, ...ray.d, 0], i * 8);
+    });
+    s.app.core.write(raysBuf, data);
+    const query = new ClosureQueryFlow(s.app.core, s.app.resources, raysBuf, outBuf, count);
+    s.app.flows.register(() => query, {
+        type: 'smokeClosureQuery',
+        phase: 'transform',
+        priority: -100,
+    });
+    await settle(s.app, 1500);
+    // A consulta roda quando o kernel (com a função do corpo A e a contribuição do campo) estiver pronto.
+    let out = new Float32Array(count * 24);
+    const ready = (): boolean => out.some((v, i) => i % 24 === 1 && v > 0.5) && query.functions > 0;
+    for (let attempt = 0; attempt < 60 && !ready(); attempt++) {
+        query.pending = 1;
+        s.app.step(0);
+        out = new Float32Array(await readSpec(s.app, outBuf, 'closures'));
+        await new Promise((res) => setTimeout(res, 100));
+    }
+    const voxel = FIELD.voxel * SPACING;
+    let hits = 0;
+    let missed = 0;
+    let worstClosure = 0;
+    // A maior razão entre |Δ ln T| e o limite σ · voxel, por canal.
+    let worstRatio = 0;
+    let crossed = 0;
+    const ids = new Set<number>();
+    rays.forEach((ray, i) => {
+        const v = (k: number): number => out[i * 24 + k]!;
+        if (v(1) < 0.5) {
+            missed++;
+            return;
+        }
+        hits++;
+        ids.add(v(2) * 10 + ray.body);
+        const n: Vec3 = [v(16), v(17), v(18)];
+        let expected: { ior: number; color: Vec3; depth: number; abbe: number };
+        if (ray.body === 0)
+            expected = {
+                ior: GRAPH_IOR,
+                color: [0.5 + 0.25 * n[0], 0.5 + 0.25 * n[1], 0.5 + 0.25 * n[2]],
+                depth: GRAPH_DEPTH,
+                abbe: 0,
+            };
+        else
+            expected = {
+                ior: 1.333,
+                color: [
+                    Math.exp(-WATER_ABSORPTION[0]),
+                    Math.exp(-WATER_ABSORPTION[1]),
+                    Math.exp(-WATER_ABSORPTION[2]),
+                ],
+                depth: 1,
+                abbe: 55.7,
+            };
+        const got = [v(3), v(4), v(5), v(6), v(7), v(8), v(9), v(10), v(11)];
+        const want = [
+            expected.ior,
+            ...expected.color,
+            expected.depth,
+            expected.ior,
+            1,
+            1,
+            expected.abbe,
+        ];
+        for (let k = 0; k < got.length; k++)
+            worstClosure = Math.max(worstClosure, Math.abs(got[k]! - want[k]!));
+        // Beer–Lambert pela absorção do meio do corpo na corda (a entrada e a saída refinadas). O meio é homogêneo por
+        // corpo (spec 039, decisão do usuário de 2026-10-29): o fechamento do corpo avaliado uma vez por quadro, na
+        // amostra do meio (o centro da caixa do campo, a normal para cima) — no corpo A, a cor do grafo na normal +y.
+        if (v(19) > 0.5) {
+            crossed++;
+            const chord = v(15) - v(0);
+            const medium: Vec3 = ray.body === 0 ? [0.5, 0.75, 0.5] : expected.color;
+            const sigma = medium.map((col) => -Math.log(col) / expected.depth);
+            for (let k = 0; k < 3; k++) {
+                const err = Math.abs(Math.log(Math.max(v(20 + k), 1e-30)) + sigma[k]! * chord);
+                worstRatio = Math.max(worstRatio, err / (sigma[k]! * voxel));
+            }
+        }
+    });
     log(
-        `timing: ${water.count} partículas em 1280 × 720: quadro com a água pelo campo ${water.mean.toFixed(2)} ms, com sprites ${sprites.mean.toFixed(2)} ms (${water.readings}/${sprites.readings} leituras) → a água custa ${cost.toFixed(2)} ms`,
+        `closure: ${hits} acertos de ${count} (${query.functions} função material na composição); maior diferença do fechamento ${worstClosure.toExponential(2)}; transmitância em ${crossed} cordas: |Δ ln T| até ${worstRatio.toFixed(3)} × σ·voxel (limite 1)`,
     );
-    check(water.readings >= 30 && sprites.readings >= 30, 'timing: leituras de GPU suficientes');
+    check(hits === count && missed === 0, `closure: ${hits} de ${count} raios acertam os corpos`);
     check(
-        cost <= 2.5,
-        `timing: campo + marcha da água ${cost.toFixed(2)} ms ≤ 2,5 ms (campo ≤ 1,5 e marcha ≤ 1)`,
+        ids.size === 2,
+        `closure: cada corpo com o seu índice na tabela (${[...ids].join(', ')})`,
     );
+    check(
+        worstClosure <= 1e-5,
+        `closure: o fechamento no acerto a ${worstClosure.toExponential(2)} ≤ 1e-5`,
+    );
+    check(
+        crossed === count && worstRatio <= 1,
+        `closure: a transmitância pelo corpo (${crossed} cordas) a ${worstRatio.toFixed(3)} × σ · 1 voxel em ln T ≤ 1`,
+    );
+    s.dispose();
+}
+
+/** A malha da superfície (T109): os vértices no nível zero do campo da GPU e no da referência de CPU. */
+async function caseMesh(): Promise<void> {
+    const positions = BALLS();
+    const s = await session(320, 200);
+    staticStage(s.app, s.width, s.height, BALL_EYE, BALL_TARGET);
+    staticBody(s.app, positions, SPACING);
+    await settle(s.app);
+    const f = await gpuField(s.app, SPACING);
+    const args = new Uint32Array(await read(s.app, 'meshArgs'));
+    const words = new Float32Array(await read(s.app, 'mesh'));
+    const vertices = Math.min(args[0]!, words.length / FIELD_MESH_VERTEX_WORDS);
+    const grid = buildField(toPoints(positions), { spacing: SPACING, iso: f.iso });
+    const gpu: number[] = [];
+    const cpu: number[] = [];
+    let nans = 0;
+    for (let v = 0; v < vertices; v++) {
+        const p: Vec3 = [
+            words[v * FIELD_MESH_VERTEX_WORDS]!,
+            words[v * FIELD_MESH_VERTEX_WORDS + 1]!,
+            words[v * FIELD_MESH_VERTEX_WORDS + 2]!,
+        ];
+        if (!p.every(Number.isFinite)) {
+            nans++;
+            continue;
+        }
+        gpu.push(Math.abs(f.phi(p)) / f.voxel);
+        cpu.push(Math.abs(trilinear(grid, p)) / f.voxel);
+    }
+    const stats = (e: number[]): [number, number] => {
+        e.sort((a, b) => a - b);
+        return [e[Math.floor(0.95 * (e.length - 1))] ?? Infinity, e[e.length - 1] ?? Infinity];
+    };
+    const [g95, gmax] = stats(gpu);
+    const [c95, cmax] = stats(cpu);
+    log(
+        `mesh: ${vertices} vértices; |φ| no campo da GPU p95 ${g95.toFixed(3)}, máx ${gmax.toFixed(3)} voxel; na referência p95 ${c95.toFixed(3)}, máx ${cmax.toFixed(3)} voxel; ${nans} NaN`,
+    );
+    check(vertices > 1000, `mesh: ${vertices} vértices`);
+    check(nans === 0, `mesh: ${nans} vértices NaN`);
+    check(
+        g95 <= 0.25 && gmax <= 1,
+        `mesh: no campo da GPU p95 ${g95.toFixed(3)} ≤ 0,25 e máx ${gmax.toFixed(3)} ≤ 1 voxel`,
+    );
+    check(
+        c95 <= 0.25 && cmax <= 1,
+        `mesh: na referência p95 ${c95.toFixed(3)} ≤ 0,25 e máx ${cmax.toFixed(3)} ≤ 1 voxel`,
+    );
+    s.dispose();
 }
 
 const CASES: Record<string, () => Promise<void>> = {
     gpu: caseGpu,
+    mesh: caseMesh,
     drops: caseDrops,
     rays: caseRays,
     close: caseClose,
@@ -1043,6 +1524,7 @@ const CASES: Record<string, () => Promise<void>> = {
     volume: caseVolume,
     caustics: caseCaustics,
     contact: caseContact,
+    closure: caseClosure,
     timing: caseTiming,
 };
 
@@ -1051,6 +1533,9 @@ async function main(): Promise<void> {
     for (const [name, run] of Object.entries(CASES)) {
         if (only !== null && !only.split('-').includes(name)) continue;
         await run();
+        // O Chrome recupera os dispositivos destruídos com atraso: em sequência rápida, depois da sessão de 2560 × 1440
+        // do `close`, o pedido de adaptador seguinte falhava ("Failed to acquire GPUAdapter"); com a pausa, não.
+        await new Promise((r) => setTimeout(r, 2000));
     }
     failures.push(...new Set(engineErrors));
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);

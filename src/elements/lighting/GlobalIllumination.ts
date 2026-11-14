@@ -5,19 +5,20 @@ import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import {
+    GiScreenRecordSchema,
+    GI_CHANGE_WORDS,
     GI_GRID,
     GI_IRRADIANCE_TEXELS,
     GI_MAX_CASCADES,
     GI_MAX_PROBES,
-    GI_PHOTON_BUFFER_WORDS,
     GI_PROBE_TEXTURE_SIZE,
     GI_SCREEN_TILE_MIN,
     GI_VISIBILITY_TEXELS,
-    GiWordSchema,
     GlobalIlluminationSchema,
     ProbeStateSchema,
 } from './schemas';
 import { giContributions } from './points';
+import { wordBuffer } from '../gpu/compute/schemas';
 
 /** Nível de qualidade (raios por sonda, fração das sondas por quadro, fótons por quadro). */
 export type GlobalIlluminationQuality = 'low' | 'medium' | 'high';
@@ -29,7 +30,6 @@ export const GI_QUALITY: Readonly<
         {
             raysPerProbe: number;
             probeFraction: number;
-            photons: number;
             screenRays: number;
             screenTile: number;
             screenFraction: number;
@@ -39,7 +39,6 @@ export const GI_QUALITY: Readonly<
     low: {
         raysPerProbe: 64,
         probeFraction: 0.0625,
-        photons: 65536,
         screenRays: 8,
         screenTile: 16,
         screenFraction: 0.25,
@@ -47,18 +46,22 @@ export const GI_QUALITY: Readonly<
     medium: {
         raysPerProbe: 64,
         probeFraction: 0.125,
-        photons: 262144,
-        screenRays: 8,
+        // 16 (spec 034, T059): com 8, a caixa de Cornell média tinha 1,2 % de cintilação e 7,6 % de manchas (≤ 1 % e
+        // ≤ 7 % no `giNoise`); com 16, 0,8 % e 6,1 %.
+        screenRays: 16,
         screenTile: 8,
         screenFraction: 0.5,
     },
+    // 128 raios por sonda do mundo e as sondas de tela em dias alternados (spec 034, T060e): com o cache nas superfícies
+    // (T059) os acertos dos raios não leem mais as sondas do mundo, que ficaram para o que as de tela não cobrem — medido
+    // na cena do `budget` (1280 × 720): a GI de 30,9 para 17,7 ms; `giNoise` alto igual (Cornell: manchas 2,35 %,
+    // cintilação 0,38 %; janela: 0,70 % e 0,24 %).
     high: {
-        raysPerProbe: 256,
+        raysPerProbe: 128,
         probeFraction: 0.5,
-        photons: 1048576,
         screenRays: 32,
         screenTile: 4,
-        screenFraction: 1,
+        screenFraction: 0.5,
     },
 };
 
@@ -66,7 +69,7 @@ export const GI_QUALITY: Readonly<
 export interface GlobalIlluminationValues {
     /** Liga a iluminação global. Default `true`. */
     readonly enabled?: boolean;
-    /** Qualidade (raios por sonda, fração por quadro, fótons). Default `'medium'`. */
+    /** Qualidade (raios por sonda, fração por quadro, sondas de tela). Default `'medium'`. */
     readonly quality?: GlobalIlluminationQuality;
     /** Rebatimentos da luz indireta, em 1–8. Default 3. */
     readonly bounces?: number;
@@ -74,9 +77,11 @@ export interface GlobalIlluminationValues {
     readonly raysPerProbe?: number;
     /** Fração das sondas atualizadas por quadro, em (0, 1] (substitui a da qualidade). */
     readonly probeFraction?: number;
-    /** Fótons por quadro para as cáusticas (substitui o da qualidade). */
-    readonly photons?: number;
-    /** Histerese do acúmulo nas sondas, em [0,8; 0,995]. Default 0,97. */
+    /**
+     * Histerese do acúmulo nas sondas, em [0,8; 0,995]. Default 0,97. É o piso: as sondas com ruído sobem pela variância
+     * até 0,995, o bastante para o ruído da média ficar em 0,5 % (spec 034, T052); a mudança de luz cai para a de
+     * resposta.
+     */
     readonly hysteresis?: number;
     /** Cascatas de sondas, em 1–4. Default 3. */
     readonly cascades?: number;
@@ -88,8 +93,6 @@ export interface GlobalIlluminationValues {
      * vazamento nas quinas.
      */
     readonly probeSpacing?: number;
-    /** Cáusticas por fótons (spec 033, US5). Default `true`. */
-    readonly caustics?: boolean;
     /**
      * Coleta final na tela (R2 adendo): sondas de tela a cada 8 × 8 pixels lançam raios das superfícies visíveis — a
      * luz rebatida de perto (cantos, sombras da luz rebatida) exata; as sondas do mundo dão o resto. Default `true`.
@@ -118,14 +121,17 @@ export interface GlobalIlluminationValues {
 /** Dado de uma `GlobalIllumination`: os parâmetros de autoria. */
 export interface GlobalIlluminationData {
     enabled: boolean;
+    /**
+     * A luz global nos caminhos de luz do `Renderer` (`lightPaths.globalIllumination`): desligada lá, a GI não roda
+     * mesmo com `enabled`. Escrito pelo renderizador; `true` sem ele.
+     */
+    lightPath: boolean;
     bounces: number;
     raysPerProbe: number;
     probeFraction: number;
-    photons: number;
     hysteresis: number;
     cascades: number;
     probeSpacing: number;
-    caustics: boolean;
     screenGather: boolean;
     screenRays: number;
     screenTile: number;
@@ -133,16 +139,45 @@ export interface GlobalIlluminationData {
     /** Centro fixo do volume de sondas, ou vazio (as cascatas acompanham a câmera). */
     center: number[];
     /**
+     * vec4f de uma fatia do histórico das sondas de tela (ladrilhos × (3 + gerações)), reservados pelo estágio das
+     * sondas para o tamanho do alvo (`reserveScreenHistory`); 1 até lá.
+     */
+    screenRecords: number;
+    /**
      * O uniform, num registro (escrito pelo estágio das sondas a cada quadro: cascatas, raios, rotação) — separado dos
      * valores de autoria, cujos nomes não são os do layout.
      */
     params: [Record<string, number[]>];
 }
 
-const RAYS = [32, 64, 128, 256] as const;
-const SCREEN_RAYS = [4, 8, 16, 32, 64] as const;
-const SCREEN_TILES = [4, 8, 16] as const;
-const SCREEN_FRACTIONS = [1, 0.5, 0.25] as const;
+/** Raios por sonda aceitos. */
+export const GI_RAYS_PER_PROBE = [32, 64, 128, 256] as const;
+/** Raios por sonda de tela aceitos. */
+export const GI_SCREEN_RAYS = [4, 8, 16, 32, 64] as const;
+/** Lados do ladrilho de uma sonda de tela aceitos (px num alvo de 1080 linhas). */
+export const GI_SCREEN_TILES = [4, 8, 16] as const;
+/** Frações das sondas de tela por quadro aceitas. */
+export const GI_SCREEN_FRACTIONS = [1, 0.5, 0.25] as const;
+const RAYS = GI_RAYS_PER_PROBE;
+const SCREEN_RAYS = GI_SCREEN_RAYS;
+const SCREEN_TILES = GI_SCREEN_TILES;
+const SCREEN_FRACTIONS = GI_SCREEN_FRACTIONS;
+
+/** Os valores da GI que o perfil do `Renderer` preenche (os da qualidade). */
+export type GlobalIlluminationProfileField =
+    | 'raysPerProbe'
+    | 'probeFraction'
+    | 'screenRays'
+    | 'screenTile'
+    | 'screenFraction';
+
+const PROFILE_FIELDS: readonly GlobalIlluminationProfileField[] = [
+    'raysPerProbe',
+    'probeFraction',
+    'screenRays',
+    'screenTile',
+    'screenFraction',
+];
 
 /** Lado do atlas de um mapa octaédrico de `texels` com borda de 1 texel. */
 export function giAtlasSize(texels: number): readonly [number, number] {
@@ -154,7 +189,7 @@ export function giAtlasSize(texels: number): readonly [number, number] {
  * Valida os valores de autoria.
  * @throws RangeError fora dos intervalos documentados.
  */
-function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
+function validate(d: Omit<GlobalIlluminationData, 'params' | 'screenRecords' | 'lightPath'>): void {
     const check = (ok: boolean, what: string): void => {
         if (!ok) throw new RangeError(`GlobalIllumination: ${what}.`);
     };
@@ -191,10 +226,6 @@ function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
         (SCREEN_FRACTIONS as readonly number[]).includes(d.screenFraction),
         `screenFraction ${d.screenFraction} fora de {1, 0,5, 0,25}`,
     );
-    check(
-        Number.isInteger(d.photons) && d.photons >= 0,
-        `photons ${d.photons} deve ser inteiro ≥ 0`,
-    );
 }
 
 /**
@@ -207,8 +238,8 @@ function validate(d: Omit<GlobalIlluminationData, 'params'>): void {
  * rebatimento exato de perto; os seguintes pelas sondas de tela do quadro anterior e, fora da tela, pelas do mundo) e são
  * filtradas pelo ruído estimado. O acúmulo das duas tem histerese adaptativa: parado, converge e fica estável; quando a
  * luz muda de verdade (uma luz acende, a geometria muda), responde em poucos quadros sem rastro.
- * Fótons das fontes pelos caminhos especulares dão as cáusticas de toda superfície. A luz indireta chega ao desenho pelo
- * ponto `scene_lighting` (`closure_indirect`); com ela na cena, os estágios padrão retiram o hemisfério. Mudar valores
+ * As cáusticas (a luz pelos caminhos especulares) são do recurso `Caustics` (spec 034). A luz indireta chega ao desenho pelo
+ * ponto `scene_indirect_lighting` (`closure_indirect`); com ela na cena, os estágios padrão retiram o hemisfério. Mudar valores
  * vale no quadro seguinte, sem recompilar.
  */
 export class GlobalIllumination extends Entity<GlobalIlluminationData> implements Resource {
@@ -216,20 +247,28 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
     static readonly schema = GlobalIlluminationSchema;
 
     state: ResourceState = ResourceState.Uninitialized;
+    /**
+     * Os valores da qualidade fixados pela autoria (na construção, ou todos por `quality`): o perfil do `Renderer` não
+     * os muda; os outros vêm dele (spec 034, T079).
+     */
+    readonly authored: ReadonlySet<GlobalIlluminationProfileField>;
 
     constructor(values: GlobalIlluminationValues = {}) {
         super();
+        this.authored = new Set(
+            values.quality !== undefined
+                ? PROFILE_FIELDS
+                : PROFILE_FIELDS.filter((k) => values[k] !== undefined),
+        );
         const q = GI_QUALITY[values.quality ?? 'medium'];
         const data = {
             enabled: values.enabled ?? true,
             bounces: values.bounces ?? 3,
             raysPerProbe: values.raysPerProbe ?? q.raysPerProbe,
             probeFraction: values.probeFraction ?? q.probeFraction,
-            photons: values.photons ?? q.photons,
             hysteresis: values.hysteresis ?? 0.97,
             cascades: values.cascades ?? 3,
             probeSpacing: values.probeSpacing ?? 1,
-            caustics: values.caustics ?? true,
             screenGather: values.screenGather ?? true,
             screenRays: values.screenRays ?? q.screenRays,
             screenTile: values.screenTile ?? q.screenTile,
@@ -239,24 +278,51 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         validate(data);
         this.data = {
             ...data,
+            lightPath: true,
+            screenRecords: 1,
             params: [GlobalIlluminationSchema.applyDefaults({}) as Record<string, number[]>],
         };
     }
 
-    /** Aplica uma qualidade (raios por sonda, fração por quadro, fótons). */
+    /** Aplica uma qualidade (raios por sonda, fração por quadro, sondas de tela), fixada pela autoria. */
     set quality(q: GlobalIlluminationQuality) {
         const v = GI_QUALITY[q];
+        for (const k of PROFILE_FIELDS)
+            (this.authored as Set<GlobalIlluminationProfileField>).add(k);
         this.data.raysPerProbe = v.raysPerProbe;
         this.data.probeFraction = v.probeFraction;
-        this.data.photons = v.photons;
         this.data.screenRays = v.screenRays;
         this.data.screenTile = v.screenTile;
         this.data.screenFraction = v.screenFraction;
     }
 
+    /**
+     * Os valores do `Renderer` (spec 034, T079): os da qualidade que a autoria não fixou e o caminho de luz. Só escreve
+     * o que muda.
+     */
+    fromRenderer(
+        values: Readonly<Record<GlobalIlluminationProfileField, number>>,
+        lightPath: boolean,
+    ): void {
+        const d = this.rawData;
+        for (const k of PROFILE_FIELDS)
+            if (!this.authored.has(k) && d[k] !== values[k]) this.data[k] = values[k];
+        if (d.lightPath !== lightPath) this.data.lightPath = lightPath;
+    }
+
     /** Valida os valores atuais (o estágio chama antes de usá-los; um valor inválido mantém o anterior). */
     validate(): void {
         validate(this.rawData);
+    }
+
+    /**
+     * Reserva o histórico das sondas de tela para `records` vec4f por fatia (o estágio das sondas, quando o alvo ou as
+     * gerações mudam): realoca as duas fatias do canal (o histórico recomeça).
+     */
+    reserveScreenHistory(records: number): void {
+        const n = Math.max(1, Math.ceil(records));
+        if (n === this.rawData.screenRecords) return;
+        this.redescribe(this.getDescriptors(), { ...this.rawData, screenRecords: n });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
@@ -286,6 +352,9 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
                 schema: ProbeStateSchema,
                 count: GI_MAX_PROBES,
                 upload: 'never',
+                // Série por páginas (spec 034, T060b): uma página por sonda — o carimbo diz se o estado e os acúmulos
+                // dela valem (a média recomeça na sonda sem carimbo da época atual).
+                history: { depth: 1, pages: { record: ProbeStateSchema.stride } },
             },
             // O estado das sondas para quem lê (o desenho, os raios): deslocamento e estado; a célula (módulo 2048).
             {
@@ -305,14 +374,20 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
             // Sondas de tela (R2 adendo), um texel por ladrilho (o menor): posição (xyz, w = válida), normal e irradiância.
             screen('screenProbe', 'rgba32float'),
             screen('screenIrradiance', 'rgba16float'),
-            // Cáusticas por fótons (US5): o hash em mundo (cabeçalho e baldes), escrito e lido só na GPU.
+            // O histórico do acúmulo das sondas de tela: um canal temporal (spec 037) — a fatia do quadro anterior (as
+            // sondas em volta de um ponto) e a do quadro (o acúmulo), sob demanda da coleta final na tela.
             {
-                id: 'caustics',
+                id: 'screenHistory',
                 role: 'storage-rw',
-                schema: GiWordSchema,
-                count: GI_PHOTON_BUFFER_WORDS,
+                schema: GiScreenRecordSchema,
+                count: this.rawData.screenRecords,
                 upload: 'never',
+                allocation: 'onDemand',
+                history: { depth: 2 },
             },
+            // A luz e a cena que mudaram (spec 034, T060e; constituição VII): as luzes guardadas e os quadros de resposta,
+            // canal temporal (a fatia do anterior lida, a do quadro escrita por `gi_change_main`).
+            { ...wordBuffer('change', GI_CHANGE_WORDS * 4), history: { depth: 2 } },
             {
                 id: 'sampler',
                 role: 'sampler',
@@ -330,7 +405,7 @@ export class GlobalIllumination extends Entity<GlobalIlluminationData> implement
         return [];
     }
 
-    /** A luz indireta em `scene_lighting` (e as cáusticas). */
+    /** A luz indireta em `scene_indirect_lighting` (e as cáusticas). */
     getSceneContributions(): readonly SceneContribution[] {
         return giContributions;
     }

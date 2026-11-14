@@ -22,10 +22,10 @@ import {
     GravityField,
     Camera,
     Transform,
-} from 'clayflow';
-import * as clayflow from 'clayflow';
-import type { EntityId } from 'clayflow';
-import { capture, readBuffer, readPool, settle } from './support/extensionScenes';
+} from 'clayflow/web';
+import * as clayflow from 'clayflow/web';
+import type { EntityId } from 'clayflow/web';
+import { capture, readBuffer, readPool, settle, settleFrames } from './support/extensionScenes';
 import {
     gpuProfile,
     readJsonFixture,
@@ -33,8 +33,10 @@ import {
     writeFixture,
     writeJsonFixture,
 } from './support/fixtures';
-import { luminance, toPng } from './support/images';
+import { readHdrFixture } from './support/hdr';
+import { lumaLinear, toPng } from './support/images';
 import { hashBytes } from './support/fluidMeasures';
+import { waterLook } from './support/waterScene';
 import { block, rng } from './support/particleScenes';
 import {
     insertValley,
@@ -63,6 +65,9 @@ async function createApp(size = 64): Promise<Application> {
     canvas.height = size;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -200,10 +205,69 @@ async function countDiffuse(
 const LAKE_SPACING = 0.025;
 const LAKE_W = 320;
 const LAKE_H = 200;
+/** Rochas do lago: 16 corpos, esferas de 5 cm de raio e caixas de 8 cm de lado alternadas. */
+const LAKE_ROCKS = 16;
+const ROCK_RADIUS = 0.05;
+const ROCK_HALF = 0.04;
+/** Câmera do lago: de cima, em ângulo. */
+const LAKE_EYE: [number, number, number] = [0, 0.95, 1.25];
+const LAKE_TARGET: [number, number, number] = [0, -0.2, 0];
+const LAKE_FOV = Math.PI / 4;
 
 /**
- * Cena do lago: o vale colidível (areia), luz com sombra, câmera de cima em ângulo e uma barragem de água (PBF com
- * `FluidSurfaceMaterial`: refração, absorção e cáusticas) solta na encosta. `water: 'none'` monta o vale seco.
+ * Os pixels da água do lago: as partículas projetadas pela câmera do lago, cada uma um disco do tamanho do espaçamento
+ * na distância dela (a medida das cáusticas só na água, sem a areia em volta).
+ */
+function lakeWaterMask(particles: readonly (readonly number[])[]): Uint8Array {
+    const mask = new Uint8Array(LAKE_W * LAKE_H);
+    const sub = (a: readonly number[], b: readonly number[]) => [
+        a[0]! - b[0]!,
+        a[1]! - b[1]!,
+        a[2]! - b[2]!,
+    ];
+    const dot = (a: readonly number[], b: readonly number[]) =>
+        a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+    const norm = (a: readonly number[]) => a.map((v) => v / Math.hypot(...a));
+    const cross = (a: readonly number[], b: readonly number[]) => [
+        a[1]! * b[2]! - a[2]! * b[1]!,
+        a[2]! * b[0]! - a[0]! * b[2]!,
+        a[0]! * b[1]! - a[1]! * b[0]!,
+    ];
+    const f = norm(sub(LAKE_TARGET, LAKE_EYE));
+    const r = norm(cross(f, [0, 1, 0]));
+    const u = cross(r, f);
+    const t = Math.tan(LAKE_FOV / 2);
+    for (const p of particles) {
+        if (p[1]! < RETIRED_BELOW / 2) continue;
+        const d = sub(p, LAKE_EYE);
+        const z = dot(d, f);
+        if (z <= 0) continue;
+        const px = ((dot(d, r) / z / (t * (LAKE_W / LAKE_H))) * 0.5 + 0.5) * LAKE_W;
+        const py = (0.5 - (dot(d, u) / z / t) * 0.5) * LAKE_H;
+        const rad = (LAKE_SPACING / z / t) * 0.5 * LAKE_H;
+        for (
+            let y = Math.max(0, Math.floor(py - rad));
+            y <= Math.min(LAKE_H - 1, Math.ceil(py + rad));
+            y++
+        )
+            for (
+                let x = Math.max(0, Math.floor(px - rad));
+                x <= Math.min(LAKE_W - 1, Math.ceil(px + rad));
+                x++
+            )
+                if ((x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2 <= rad * rad)
+                    mask[y * LAKE_W + x] = 1;
+    }
+    return mask;
+}
+
+/** Passo da imagem das cáusticas: o lago ainda agitado pelo respingo e pelas rochas (a água lisa quase não concentra luz). */
+const LAKE_AGITATED_STEP = 120;
+
+/**
+ * Cena do lago: o vale colidível (areia), luz com sombra, câmera de cima em ângulo e uma barragem de água (PBF com a
+ * aparência pelo grafo: refração e absorção) solta na encosta. `water: 'none'` monta o vale seco; `plain` é a mesma água
+ * sem as cáusticas (a chave do `Renderer`, `caustics.enabled`; spec 034, T067c).
  */
 async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     let diffuse: clayflow.DiffuseParticles | undefined;
@@ -212,6 +276,8 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     canvas.height = LAKE_H;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Os padrões do motor, como a cena `agua` do app (o antisserrilhado temporal, a série temporal, o atlas e as
+        // arenas como o tanque em tempo real usa).
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -220,11 +286,11 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     app.events.on('engineError', (e) => {
         engineErrors.push(`${e.stage}/${e.filter}: ${e.message}`);
     });
-    const eye: [number, number, number] = [0, 0.95, 1.25];
-    const target: [number, number, number] = [0, -0.2, 0];
+    const eye = LAKE_EYE;
+    const target = LAKE_TARGET;
     app.world.insert(
         new Camera({
-            fov: Math.PI / 4,
+            fov: LAKE_FOV,
             aspect: LAKE_W / LAKE_H,
             aspectMode: 'fixed',
             near: 0.05,
@@ -233,19 +299,36 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
             new Transform({ position: [...eye, 1], rotation: Transform.lookRotation(eye, target) }),
         ),
     );
+    // A luz da cena `agua` do app (luz de um dia de sol): o sol com o disco a 4,8 e a panorâmica HDR a 0,075 como o
+    // mundo que a água reflete e o fundo — o sol direto 6 a 8 vezes a luz do céu no chão (com o céu a ~80 % da luz do
+    // chão, luz de dia encoberto, não há cáustica nem sombra); a luz rebatida pela luz global; o traçado da água sem o
+    // filtro do sinal (não sorteia o lobo: o filtro só borraria o que se vê).
     app.world.insert(
         new DirectionalLight({
             direction: [-0.25, -1, -0.35, 0],
             color: [1, 1, 1, 1],
-            intensity: 1.2,
+            intensity: 4.8,
             castShadow: true,
+            angularRadius: 0.00466,
         }),
     );
+    app.defaults.ambient.background = false;
+    app.world.insert(
+        new clayflow.EnvironmentMap({
+            ...(await readHdrFixture('quarry_cloudy_1k.hdr')),
+            intensity: 0.075,
+        }),
+    );
+    app.world.insert(
+        new clayflow.GlobalIllumination({ probeSpacing: 0.1, cascades: 3, center: [0, -0.2, 0] }),
+    );
+    app.defaults.renderer.lightPaths.transmission = 8;
+    app.defaults.renderer.temporalFilter.enabled = false;
     app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
     app.world.insert(
-        new clayflow.ParticleMaterial({
+        new clayflow.ParticlePhysics({
             // Água física (spec 010): tensão superficial, ângulo de contato e viscosidade reais na escala do espaçamento.
-            ...clayflow.ParticleMaterial.WATER,
+            ...clayflow.ParticlePhysics.WATER,
             particleSpacing: LAKE_SPACING,
             // Domínio aberto (spec 010): sem paredes; a caixa só limita o cálculo, e o que sai do terreno é retirado.
             bounds: 'open',
@@ -253,7 +336,45 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
             domainMax: [1.5, 1.5, 1.5],
         }),
     );
-    insertValley(app, clayflow, { shape: LAKE_VALLEY, albedo: [0.86, 0.8, 0.66] });
+    insertValley(app, clayflow, { shape: LAKE_VALLEY, albedo: [0.48, 0.4, 0.25] });
+    // As rochas do lago da spec 010: esferas e caixas cinza (corpos rígidos) soltas sobre o centro do vale, caindo na
+    // água que chega pela encosta; o choque agita o lago e gera a espuma.
+    for (let i = 0; i < (water === 'none' ? 0 : LAKE_ROCKS); i++) {
+        const a = i * 2.39996;
+        const r = 0.05 + 0.1 * Math.sqrt(i / LAKE_ROCKS);
+        const position: [number, number, number] = [
+            r * Math.cos(a),
+            valleyHeight(0, 0, 0, LAKE_VALLEY) + 0.25 + 0.06 * i,
+            r * Math.sin(a),
+        ];
+        const rock =
+            i % 2 === 0
+                ? new clayflow.RigidBody({
+                      shape: 'sphere',
+                      radius: ROCK_RADIUS,
+                      mass: 1,
+                      position,
+                  })
+                : new clayflow.RigidBody({
+                      shape: 'box',
+                      halfExtents: [ROCK_HALF, ROCK_HALF, ROCK_HALF],
+                      mass: 1,
+                      position,
+                  });
+        rock.add(
+            i % 2 === 0
+                ? new clayflow.SphereGeometry({
+                      radius: ROCK_RADIUS,
+                      latSegments: 16,
+                      lonSegments: 32,
+                  })
+                : new clayflow.BoxGeometry({ size: [2 * ROCK_HALF, 2 * ROCK_HALF, 2 * ROCK_HALF] }),
+        );
+        rock.add(new clayflow.StandardMaterial({ albedo: [0.22, 0.22, 0.24, 1], roughness: 0.35 }));
+        app.world.insert(rock);
+    }
+    // A mesma água sem as cáusticas: a chave do `Renderer` (spec 034, T067c), a física igual.
+    if (water === 'plain') app.defaults.renderer.caustics.enabled = false;
     if (water !== 'none') {
         const position: number[] = [];
         const r = rng(29);
@@ -265,9 +386,7 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
                         0.02 + LAKE_SPACING * (y + 0.5),
                         -0.2 + LAKE_SPACING * (z + 0.5) + (r() - 0.5) * LAKE_SPACING * 0.1,
                     );
-        const body = new clayflow.FluidBody({ algorithm: 'PBF', position }).add(
-            new clayflow.FluidSurfaceMaterial({ caustics: water === 'caustics' }),
-        );
+        const body = new clayflow.FluidBody({ algorithm: 'PBF', position }).add(waterLook());
         app.world.insert(body);
         // Spray, espuma e bolhas do respingo (spec 010).
         diffuse = new clayflow.DiffuseParticles({ source: body, maxParticles: 32_768 });
@@ -275,14 +394,20 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     }
     // Tempo para os pipelines compilarem antes do respingo (com o passe de profundidade do desenho, spec 033, a fila é
     // maior; o estágio das partículas secundárias pronto tarde perderia o respingo).
-    await settle(app, 3000);
+    await settleFrames(app, 180);
     const levels: number[] = [];
     const sprayPeak = { alive: 0, spray: 0, foam: 0, bubble: 0 };
     let image: ImageData | undefined;
+    let agitated: ImageData | undefined;
+    let agitatedParticles: [number, number, number][] = [];
     for (let i = 0; i < steps; i++) {
         app.step(1 / 60);
         // Captura antes de qualquer leitura de volta (a espera apresenta e limpa o canvas).
         if (i === steps - 1) image = capture(canvas);
+        if (i === Math.min(LAKE_AGITATED_STEP, steps - 1)) {
+            agitated = capture(canvas);
+            if (water !== 'none') agitatedParticles = await readPositions(app, clayflow.PBFSchema);
+        }
         // Pico de cada tipo de partícula secundária nos 2 primeiros segundos (o respingo).
         if (diffuse !== undefined && i < 120 && i % 10 === 9) {
             const now = await countDiffuse(app, diffuse);
@@ -306,7 +431,15 @@ async function lakeScene(water: 'caustics' | 'plain' | 'none', steps: number) {
     const sprayEnd = diffuse === undefined ? undefined : await countDiffuse(app, diffuse);
     app.dispose();
     canvas.remove();
-    return { image: image!, particles, levels, sprayPeak, sprayEnd };
+    return {
+        image: image!,
+        agitated: agitated!,
+        agitatedParticles,
+        particles,
+        levels,
+        sprayPeak,
+        sprayEnd,
+    };
 }
 
 /** Toro de teste (raios do anel e do tubo) e a distância com sinal analítica. */
@@ -592,7 +725,7 @@ const CASES: Record<string, Case> = {
                     );
                 }
             else {
-                app.world.insert(new clayflow.ParticleMaterial(OPEN_DOMAIN));
+                app.world.insert(new clayflow.ParticlePhysics(OPEN_DOMAIN));
                 app.world.insert(
                     new clayflow.FluidBody({
                         algorithm: 'PBF',
@@ -617,7 +750,7 @@ const CASES: Record<string, Case> = {
             app.dispose();
             return { points, built: field.built, lift };
         };
-        const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
+        const spacing = clayflow.ParticlePhysics.defaults.particleSpacing;
         for (const rate of [30, 60, 144]) {
             const b = await scene(rate, 'bodies');
             const f = await scene(rate, 'fluid');
@@ -687,8 +820,11 @@ const CASES: Record<string, Case> = {
                 retired++;
                 continue;
             }
+            // Abaixo da superfície só sobre o terreno: além da borda dele a água cai (o pingo da película que chega à
+            // borda, T066d) e sai por baixo do domínio.
+            const over = Math.max(Math.abs(p[0]), Math.abs(p[2])) <= LAKE_VALLEY.half;
             const h = valleyHeight(p[0], p[2], 0, LAKE_VALLEY);
-            if (h - p[1] > LAKE_SPACING / 2) below++;
+            if (over && h - p[1] > LAKE_SPACING / 2) below++;
             if (p[1] < -LAKE_VALLEY.depth - LAKE_SPACING) escaped++;
         }
         c.measure('retiradas (saíram do terreno)', retired);
@@ -721,22 +857,25 @@ const CASES: Record<string, Case> = {
             wet.levels.at(-1)! < 0 && wet.levels.at(-1)! > -LAKE_VALLEY.depth,
             `nível ${wet.levels.at(-1)} fora do vale`,
         );
-        // Água na imagem: pixels diferentes do vale seco; cáusticas: na água, regiões mais claras e mais escuras que a
-        // mesma água sem cáusticas (o mesmo estado: a física não depende do desenho).
+        // Água na imagem no passo da agitação: os pixels das partículas projetadas que diferem do vale seco; cáusticas: na água, regiões mais claras
+        // e mais escuras que a mesma água sem cáusticas (o mesmo estado: a física não depende do desenho).
+        const lake = lakeWaterMask(wet.agitatedParticles);
         let water = 0;
         let brighter = 0;
         let darker = 0;
         for (let y = 0; y < LAKE_H; y++)
             for (let x = 0; x < LAKE_W; x++) {
                 const i = (y * LAKE_W + x) * 4;
+                if (lake[y * LAKE_W + x] === 0) continue;
                 let differs = false;
                 for (let k = 0; k < 3; k++)
-                    if (Math.abs(wet.image.data[i + k]! - dry.image.data[i + k]!) > 6)
+                    if (Math.abs(wet.agitated.data[i + k]! - dry.image.data[i + k]!) > 6)
                         differs = true;
                 if (!differs) continue;
                 water++;
-                const a = luminance(wet.image, x, y);
-                const b = luminance(plain.image, x, y);
+                // Pela luz (linear), não pelo valor do pixel em sRGB (com o gama, 15 % no valor são ~36 % na luz).
+                const a = lumaLinear(wet.agitated, x, y);
+                const b = lumaLinear(plain.agitated, x, y);
                 if (a > b * 1.15 + 0.01) brighter++;
                 if (a < b * 0.9 - 0.01) darker++;
             }
@@ -748,8 +887,7 @@ const CASES: Record<string, Case> = {
         c.check(brighter > 0.02 * water, `cáusticas: só ${brighter} px mais claros na água`);
         c.check(darker > 0.02 * water, `cáusticas: só ${darker} px mais escuros na água`);
         c.hash('particles', bytesOf(wet.particles));
-        // A imagem entra no manifesto pelo hash (pixel a pixel); a PNG gravada é para ver.
-        c.hash('image', new Uint8Array(wet.image.data.buffer));
+        // A PNG gravada é para ver; o critério da imagem são a água e as cáusticas medidas acima.
         if (recording())
             await writeFixture(
                 `parametricSurfaces-lake-${profileName}.png`,
@@ -877,12 +1015,12 @@ const CASES: Record<string, Case> = {
     async sphereFluid() {
         const c = collector();
         const results: Record<string, number> = {};
-        for (const adhesion of [0, clayflow.ParticleMaterial.WATER_ADHESION]) {
+        for (const adhesion of [0, clayflow.ParticlePhysics.WATER_ADHESION]) {
             const app = await createApp();
             view(app);
             app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
-            const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
-            app.world.insert(new clayflow.ParticleMaterial({ ...OPEN_DOMAIN, adhesion }));
+            const spacing = clayflow.ParticlePhysics.defaults.particleSpacing;
+            app.world.insert(new clayflow.ParticlePhysics({ ...OPEN_DOMAIN, adhesion }));
             const R = 0.45;
             insertDistanceSurface(app, 'sphere', [R]);
             app.world.insert(
@@ -1010,6 +1148,9 @@ const CASES: Record<string, Case> = {
         canvas.height = H;
         document.body.appendChild(canvas);
         const app = await Application.create({
+            // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+            // temporal, padrão agora, tem o smoke `antialiasing`).
+            antialias: 'msaa',
             canvas,
             scene: createScene(),
             autoResize: false,
@@ -1311,8 +1452,8 @@ const CASES: Record<string, Case> = {
             view(app);
             app.world.insert(new GravityField({ acceleration: [0, -9.81, 0, 0] }));
             insertValley(app, clayflow);
-            app.world.insert(new clayflow.ParticleMaterial(OPEN_DOMAIN));
-            const spacing = clayflow.ParticleMaterial.defaults.particleSpacing;
+            app.world.insert(new clayflow.ParticlePhysics(OPEN_DOMAIN));
+            const spacing = clayflow.ParticlePhysics.defaults.particleSpacing;
             const start = block(512, spacing, [0.5, -0.2, -0.2], 7);
             app.world.insert(
                 new clayflow.FluidBody({ algorithm, position: start.flat() }).add(

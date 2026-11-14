@@ -10,20 +10,60 @@ import { HashGridParamsSchema } from '../gpu/compute/schemas';
 import { poolLive, spatialHash } from '../gpu/compute/shaders';
 import fieldCommonSource from '../gpu/wgsl/fields/field_common.wgsl?raw';
 import fieldLookupSource from '../gpu/wgsl/fields/field_lookup.wgsl?raw';
+import fieldAtlasSource from '../gpu/wgsl/fields/field_atlas.wgsl?raw';
 import fieldGatherSource from '../gpu/wgsl/fields/field_gather.wgsl?raw';
 import fieldSortSource from '../gpu/wgsl/fields/field_sort.wgsl?raw';
 import fieldKernelsSource from '../gpu/wgsl/fields/field_kernels.wgsl?raw';
 import fieldMarkSource from '../gpu/wgsl/fields/field_mark.wgsl?raw';
 import fieldLinksSource from '../gpu/wgsl/fields/field_links.wgsl?raw';
+import fieldRayOccupiedSource from '../gpu/wgsl/fields/field_ray_occupied.wgsl?raw';
 import fieldDensitySource from '../gpu/wgsl/fields/field_density.wgsl?raw';
 import fieldRedistanceSource from '../gpu/wgsl/fields/field_redistance.wgsl?raw';
 import fieldApronSource from '../gpu/wgsl/fields/field_apron.wgsl?raw';
 import fieldsSource from '../gpu/wgsl/fields/fields.wgsl?raw';
 import fieldRayHitSource from '../gpu/wgsl/fields/field_ray_hit.wgsl?raw';
 import fieldRayTransmittanceSource from '../gpu/wgsl/fields/field_ray_transmittance.wgsl?raw';
-import { FluidSurfaceMaterialSchema } from '../material/FluidSurfaceMaterialSchema';
-import { rayVolumeTypes } from '../raytrace/points';
-import { FieldGatherSchema, FluidFieldSchema } from './schemas';
+import fieldSurfaceSource from '../gpu/wgsl/fields/field_surface.wgsl?raw';
+import fieldBodyClosuresSource from '../gpu/wgsl/fields/field_body_closures.wgsl?raw';
+import fieldRaySurfaceSource from '../gpu/wgsl/fields/field_ray_surface.wgsl?raw';
+import fieldFilmSource from '../gpu/wgsl/fields/field_film.wgsl?raw';
+import fieldFilmUpdateSource from '../gpu/wgsl/fields/field_film_update.wgsl?raw';
+import fieldFilmDepositSource from '../gpu/wgsl/fields/field_film_deposit.wgsl?raw';
+import fieldFilmStepSource from '../gpu/wgsl/fields/field_film_step.wgsl?raw';
+import fieldFilmSolidSource from '../gpu/wgsl/fields/field_film_solid.wgsl?raw';
+import fieldFilmDripSource from '../gpu/wgsl/fields/field_film_drip.wgsl?raw';
+import fieldReviveSource from '../gpu/wgsl/fields/field_revive.wgsl?raw';
+import fieldDropsSource from '../gpu/wgsl/fields/field_drops.wgsl?raw';
+import fieldFilmAbsorbSource from '../gpu/wgsl/fields/field_film_absorb.wgsl?raw';
+import fieldAbsorbPrepareSource from '../gpu/wgsl/fields/field_absorb_prepare.wgsl?raw';
+import fieldFilmPreviousSource from '../gpu/wgsl/fields/field_film_previous.wgsl?raw';
+import fieldLightTransmissionSource from '../gpu/wgsl/fields/field_light_transmission.wgsl?raw';
+import fieldLightMapSource from '../gpu/wgsl/fields/field_light_map.wgsl?raw';
+import fieldLightFrameSource from '../gpu/wgsl/fields/field_light_frame.wgsl?raw';
+import fieldMeshSource from '../gpu/wgsl/fields/field_mesh.wgsl?raw';
+import { rayVolumeMaterial, rayVolumeTypes } from '../raytrace/points';
+import { rayWave } from '../raytrace/wave/shaders';
+import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
+import { lightsResource } from '../scene/resources';
+import { closure } from '../material/pbr/shaders';
+import {
+    FIELD_FILM_DRIPS,
+    FIELD_FILM_SURFACES,
+    FIELD_FILM_WORDS,
+    FieldGatherSchema,
+    FluidFieldSchema,
+} from './schemas';
+import {
+    bsdf,
+    colliderSurface,
+    constants,
+    fluidBounds,
+    hashAddress,
+    linalg,
+    random,
+} from '../gpu/shaders/math';
+import { pageAlloc } from '../gpu/shaders/pageAlloc';
+import { slot } from '../../scene/flows/slots';
 
 // Módulos do campo dos fluidos (spec 033, R11): a construção por quadro (junção das partículas, núcleos anisotrópicos,
 // marcação dos blocos, vizinhança, densidade, redistanciamento, borda) e a consulta (φ, normal, marcha). Os buffers que
@@ -74,6 +114,25 @@ export const fieldResources = Object.freeze({
     }),
     /** O mesmo buffer na escrita dos voxels com a borda. */
     dataVoxels: consumer('field_data_voxels', 'data', 'read_write', f32s),
+    /** Os carimbos das páginas do atlas (a série por páginas) e o relógio dela, na construção. */
+    atlasStamps: priv('field_atlas_stamps', 'read_write', u32s),
+    atlasClock: wgslResource({
+        name: 'field_atlas_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** O mapa da luz pela água (spec 039 refeita): o que `light_transmission` lê, e a escrita dele. */
+    lightMap: consumer('field_light_map', 'lightMap', 'read', f32s),
+    lightMapOut: consumer('field_light_map_out', 'lightMap', 'read_write', f32s),
+    /** A malha da superfície (spec 039 refeita): a escrita, os argumentos e a leitura de quem a desenha. */
+    meshOut: consumer('field_mesh', 'mesh', 'read_write', u32s),
+    meshArgs: consumer('field_mesh_args', 'meshArgs', 'read_write', {
+        wgsl: 'atomic<u32>',
+        array: true,
+    }),
+    mesh: consumer('field_mesh_vertices', 'mesh', 'read', u32s),
     counts: consumer('field_counts', 'counts', 'read', { schema: SetCountSchema, array: true }),
     countsWrite: consumer('field_counts', 'counts', 'read_write', {
         wgsl: 'atomic<u32>',
@@ -87,12 +146,30 @@ export const fieldResources = Object.freeze({
         provider: 'private',
     }),
     particles: priv('field_particles', 'read', vec4fs),
+    /** O pool de um corpo de água para o pingo da película (T066d): a partícula retirada volta a ele. */
+    particlesWrite: priv('field_particles_rw', 'read_write', vec4fs),
     live: priv('field_live', 'read', u32s),
+    /**
+     * As retiradas e os pingos do quadro (T066d, `field_film_drip.wgsl`): a junção lista as partículas retiradas, a
+     * película pede os pingos e cada corpo devolve os seus ao pool.
+     */
+    drips: priv('field_drips', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    dripsRead: priv('field_drips_read', 'read', u32s),
+    /** A pressão da película em cada célula do quadro anterior (T066d: o espalhamento no plano). */
+    filmPressure: priv('field_film_pressure', 'read_write', f32s),
     items: priv('field_items', 'read', vec4fs),
     itemsWrite: priv('field_items', 'read_write', vec4fs),
     /** As partículas na ordem das células da grade (cópia depois dela). */
     sorted: priv('field_sorted', 'read', vec4fs),
     sortedWrite: priv('field_sorted', 'read_write', vec4fs),
+    /** O sólido mais próximo de cada partícula (normal, distância; normal zero sem), na junção e na ordem da grade. */
+    contacts: priv('field_contacts', 'read', vec4fs),
+    contactsWrite: priv('field_contacts', 'read_write', vec4fs),
+    sortedContacts: priv('field_sorted_contacts', 'read', vec4fs),
+    sortedContactsWrite: priv('field_sorted_contacts', 'read_write', vec4fs),
+    /** A velocidade de cada partícula na junção (T066d: a lâmina passada à película espalha pelo impacto). */
+    velocities: priv('field_velocities', 'read', vec4fs),
+    velocitiesWrite: priv('field_velocities', 'read_write', vec4fs),
     kernel: priv('field_kernel', 'read', vec4fs),
     kernelWrite: priv('field_kernel', 'read_write', vec4fs),
     links: priv('field_links', 'read', u32s),
@@ -111,19 +188,45 @@ export const fieldResources = Object.freeze({
         frequency: 'stage',
         provider: 'private',
     }),
-    /** Volume do campo somado no quadro (ponto fixo; lido na limpeza do seguinte). */
-    volumeWrite: priv('field_volume', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    /**
+     * O estado do campo entre quadros (T060f; constituição VII), canal temporal da spec 037: na fatia do quadro, o nível
+     * da superfície (f32) e o volume somado (ponto fixo); a do anterior, lida na limpeza.
+     */
+    state: wgslResource({
+        name: 'field_state',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: { slot: 'fieldState', lag: 0 },
+    }),
+    statePrevious: wgslResource({
+        name: 'field_state_previous',
+        binding: { storage: 'read' },
+        type: u32s,
+        frequency: 'stage',
+        provider: { slot: 'fieldState', lag: 1 },
+    }),
+    /**
+     * A película de água nos sólidos entre quadros (T060f; constituição VII), canal temporal: o passo lê a tabela do
+     * anterior e escreve a do quadro (a deposição também); a do quadro vai ao buffer das consultas, que quem sombreia lê.
+     */
+    film: wgslResource({
+        name: 'field_film_cells',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: { slot: 'fieldFilm', lag: 0 },
+    }),
+    filmPrevious: wgslResource({
+        name: 'field_film_previous',
+        binding: { storage: 'read' },
+        type: u32s,
+        frequency: 'stage',
+        provider: { slot: 'fieldFilm', lag: 1 },
+    }),
     cellStart: priv('cell_start', 'read', u32s),
     cellCount: priv('cell_count', 'read', u32s),
     cellItems: priv('cell_items', 'read', u32s),
-    /** Materiais de água (pool `FluidSurfaceMaterial`): a absorção nos raios que atravessam o fluido. */
-    materials: wgslResource({
-        name: 'field_materials',
-        binding: { storage: 'read' },
-        type: { schema: FluidSurfaceMaterialSchema, array: true },
-        frequency: 'frame',
-        provider: { pool: FluidSurfaceMaterialSchema.name },
-    }),
 });
 
 const R = fieldResources;
@@ -132,7 +235,7 @@ const R = fieldResources;
 export const fieldCommon = wgslModule({
     name: 'field_common',
     source: fieldCommonSource,
-    requires: [R.params],
+    requires: [R.params, hashAddress],
 });
 
 /** Leitura do buffer das consultas: a busca de um bloco, o bloco, um voxel, os limites. */
@@ -142,18 +245,37 @@ export const fieldLookup = wgslModule({
     requires: [NONE.module, R.params, fieldCommon, R.data],
 });
 
+/** O atlas dos voxels (T060f): a leitura pontual e a trilinear na página de um bloco. */
+export const fieldAtlas = wgslModule({
+    name: 'field_atlas_read',
+    source: fieldAtlasSource,
+    requires: [fieldCommon, R.data],
+});
+
+/** As listas do quadro entre as partículas e a película: as retiradas, os pingos e as gotas passadas a ela (T066d). */
+const fieldDrops = wgslModule({
+    name: 'field_drops',
+    source: fieldDropsSource,
+    requires: [FIELD_FILM_DRIPS.module],
+});
+
 /** Junção das partículas dos corpos de água no array compacto. */
 export const fieldGather = wgslModule({
     name: 'field_gather_kernel',
     source: fieldGatherSource,
     requires: [
         WORKGROUP_SIZE.module,
+        NONE.module,
         R.params,
         R.gather,
         R.particles,
         R.live,
         poolLive,
         R.itemsWrite,
+        R.contactsWrite,
+        R.velocitiesWrite,
+        R.drips,
+        fieldDrops,
     ],
 });
 
@@ -170,6 +292,8 @@ export const fieldSort = wgslModule({
         R.cellItems,
         R.items,
         R.sortedWrite,
+        R.contacts,
+        R.sortedContactsWrite,
     ],
 });
 
@@ -186,6 +310,11 @@ export const fieldKernels = wgslModule({
         R.cellCount,
         R.sorted,
         R.kernelWrite,
+        R.sortedContacts,
+        R.cellItems,
+        R.drips,
+        fieldDrops,
+        NONE.module,
     ],
 });
 
@@ -196,13 +325,15 @@ export const fieldMark = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         NONE.module,
+        pageAlloc,
         R.params,
         fieldCommon,
         R.sorted,
         R.kernel,
         R.dataAtomic,
         R.countsWrite,
-        R.volumeWrite,
+        R.state,
+        R.statePrevious,
     ],
 });
 
@@ -226,6 +357,7 @@ export const fieldDensity = wgslModule({
     name: 'field_density_kernel',
     source: fieldDensitySource,
     requires: [
+        linalg,
         WORKGROUP_SIZE.module,
         NONE.module,
         R.params,
@@ -270,15 +402,195 @@ export const fieldApron = wgslModule({
         R.links,
         R.src,
         R.dataVoxels,
-        R.volumeWrite,
+        R.atlasStamps,
+        R.atlasClock,
+        R.state,
     ],
 });
 
-/** Consulta ao campo: φ, normal e a marcha de um raio. */
+/** A película de água nos sólidos (spec 034): a tabela, as chaves, as células e a tabela das superfícies. */
+const fieldFilm = wgslModule({
+    name: 'field_film',
+    source: fieldFilmSource,
+    requires: [
+        R.params,
+        fieldCommon,
+        hashAddress,
+        random,
+        FIELD_FILM_WORDS.module,
+        FIELD_FILM_SURFACES.module,
+    ],
+});
+
+/** A tabela da película escrita com atômicos: a busca e a inserção de uma célula. */
+const fieldFilmUpdate = wgslModule({
+    name: 'field_film_update',
+    source: fieldFilmUpdateSource,
+    requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.film],
+});
+
+/** Os sólidos da película: a distância, a normal e a superfície física do mais próximo (colliders e paredes). */
+const fieldFilmSolid = wgslModule({
+    name: 'field_film_solid',
+    source: fieldFilmSolidSource,
+    requires: [R.params, fieldCommon, fieldFilm, colliderSurface],
+});
+
+/** Deposição da película por partícula encostada num sólido: o disco do contato dela. */
+export const fieldFilmDeposit = wgslModule({
+    name: 'field_film_deposit',
+    source: fieldFilmDepositSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        R.sorted,
+        R.sortedContacts,
+        R.kernel,
+    ],
+});
+
+/** O pingo: a água pendente com o volume de uma partícula volta a ser uma (das retiradas do corpo). */
+export const fieldFilmDrip = wgslModule({
+    name: 'field_film_drip',
+    source: fieldFilmDripSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        fieldFilmSolid,
+        R.drips,
+        fieldDrops,
+    ],
+});
+
+/** A gota que desliza passada à película: o volume dela na poça em que se abre (T066d). */
+export const fieldFilmAbsorb = wgslModule({
+    name: 'field_film_absorb',
+    source: fieldFilmAbsorbSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        constants,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        fieldFilmSolid,
+        R.dripsRead,
+        fieldDrops,
+    ],
+});
+
+/** A busca de uma célula na fatia do quadro anterior da película (só leitura). */
+const fieldFilmPrevious = wgslModule({
+    name: 'field_film_previous_read',
+    source: fieldFilmPreviousSource,
+    requires: [NONE.module, R.params, fieldCommon, fieldFilm, R.filmPrevious],
+});
+
+/** O contato das gotas passadas à película, do array compacto (T066d). */
+export const fieldAbsorbPrepare = wgslModule({
+    name: 'field_absorb_prepare',
+    source: fieldAbsorbPrepareSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        constants,
+        R.items,
+        R.contacts,
+        R.velocities,
+        R.drips,
+        fieldDrops,
+        R.params,
+        fieldFilm,
+        fieldFilmPrevious,
+    ],
+});
+
+/** O pingo e a gota passada à película no pool do corpo de água deles (um pipeline por pool, como a junção). */
+export const fieldRevive = wgslModule({
+    name: 'field_revive',
+    source: fieldReviveSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        R.gather,
+        R.particlesWrite,
+        R.dripsRead,
+        fieldDrops,
+        fluidBounds,
+    ],
+});
+
+/**
+ * Um passo da película por célula: a superfície física dela, a absorção, a evaporação e o escoamento sobre a superfície
+ * dos sólidos (o conjunto de colliders).
+ */
+export const fieldFilmStep = wgslModule({
+    name: 'field_film_step',
+    source: fieldFilmStepSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        fieldCommon,
+        fieldFilm,
+        fieldFilmUpdate,
+        R.filmPrevious,
+        R.filmPressure,
+        fieldFilmSolid,
+        fieldFilmPrevious,
+        random,
+    ],
+});
+
+/** Consulta ao campo: φ, normal, a marcha de um raio e a película nos sólidos. */
 export const fields = wgslModule({
     name: 'fields',
     source: fieldsSource,
-    requires: [NONE.module, R.params, fieldCommon, fieldLookup],
+    requires: [
+        NONE.module,
+        R.params,
+        fieldCommon,
+        fieldLookup,
+        fieldAtlas,
+        fieldFilm,
+        random,
+        constants,
+    ],
+});
+
+/** Contribuição do campo ao ponto `scene_wetness`: a película livre e a saturação dos poros no ponto do sólido. */
+export const fieldWetness = wgslModule({
+    name: 'field_wetness',
+    source: 'fn scene_wetness(p: vec3f, n: vec3f, footprint: f32) -> vec2f {\n    return field_film_at(p, n, footprint);\n}',
+    requires: [fields],
+});
+
+/**
+ * Contribuição do campo ao ponto `scene_wetness_slope`: a inclinação da película e a curvatura da água no ponto do
+ * sólido (T066d).
+ */
+export const fieldWetnessSlope = wgslModule({
+    name: 'field_wetness_slope',
+    source: 'fn scene_wetness_slope(p: vec3f, n: vec3f, footprint: f32) -> vec4f {\n    return field_film_slope(p, n, footprint);\n}',
+    requires: [fields],
+});
+
+/** Contribuição do campo ao ponto `scene_wetness_moving`: a película corre no ponto do sólido (o filete, T066d). */
+export const fieldWetnessMoving = wgslModule({
+    name: 'field_wetness_moving',
+    source: 'fn scene_wetness_moving(p: vec3f, n: vec3f, footprint: f32) -> bool {\n    return field_film_moving(p, n, footprint);\n}',
+    requires: [fields],
 });
 
 /** Contribuição do campo ao ponto `ray_volume_hit`: o cruzamento com a superfície da água. */
@@ -288,9 +600,135 @@ export const fieldRayHit = wgslModule({
     requires: [rayVolumeTypes, fields],
 });
 
+/** O material da água num acerto do campo: a função `material` do corpo (o grafo). */
+const fieldSurface = wgslModule({
+    name: 'field_surface',
+    source: fieldSurfaceSource,
+    requires: [rayVolumeTypes, fields, closure, R.data],
+});
+
+/**
+ * O material de cada corpo na onda dos acertos (spec 039): o acerto sintético no centro da caixa do campo por corpo e,
+ * depois do material avaliado por classe, o meio dele (a absorção, o índice, o Abbe) no buffer das consultas.
+ */
+export const fieldBodyClosures = wgslModule({
+    name: 'field_body_material',
+    source: fieldBodyClosuresSource,
+    requires: [WORKGROUP_SIZE.module, fields, closure, rayVolumeMaterial, rayWave, R.dataVoxels],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_surface`: o material da água no acerto. */
+export const fieldRaySurface = wgslModule({
+    name: 'field_ray_surface',
+    source: fieldRaySurfaceSource,
+    requires: [rayVolumeTypes, fieldSurface],
+});
+
 /** Contribuição do campo ao ponto `ray_volume_transmittance`: a absorção pelos trechos dentro da água. */
 export const fieldRayTransmittance = wgslModule({
     name: 'field_ray_transmittance',
     source: fieldRayTransmittanceSource,
-    requires: [fields, R.materials],
+    requires: [fields, rayVolumeTypes, rayVolumeMaterial, fieldSurface],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_begin`: o orçamento de passos da marcha renovado a cada raio. */
+export const fieldRayBegin = wgslModule({
+    name: 'field_ray_begin',
+    source: 'fn ray_volume_begin() {\n    field_steps_left = FIELD_STEP_BUDGET;\n}',
+    requires: [fields],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_bounds`: a caixa dele (spec 034, T067c: um alvo dos fótons). */
+export const fieldRayBounds = wgslModule({
+    name: 'field_ray_bounds',
+    source: 'fn ray_volume_bounds() -> array<vec3f, 2> {\n    return field_box();\n}',
+    requires: [fields],
+});
+
+/**
+ * Contribuição do campo ao ponto `ray_volume_occupied`: o raio passa por algum bloco do campo (spec 034, T067c: a
+ * emissão dos fótons só onde há água).
+ */
+export const fieldRayOccupied = wgslModule({
+    name: 'field_ray_occupied',
+    source: fieldRayOccupiedSource,
+    requires: [fields],
+});
+
+/**
+ * A malha da superfície da água (spec 039 refeita, D3): tetraedros marchantes por bloco ocupado, os triângulos com a
+ * normal pelo gradiente, a contagem e os argumentos do desenho indireto.
+ */
+export const fieldMesh = wgslModule({
+    name: 'field_mesh_extract',
+    source: fieldMeshSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        fieldCommon,
+        R.counts,
+        fieldLookup,
+        fieldAtlas,
+        R.meshOut,
+        R.meshArgs,
+    ],
+});
+
+/** O referencial de cada luz direcional sobre a caixa do campo e o mapa de cada luz (spec 039 refeita). */
+const fieldLightFrame = wgslModule({
+    name: 'field_light_frame',
+    source: fieldLightFrameSource,
+    requires: [NONE.module, LIGHT_LIMIT.module, fields, lightsResource],
+});
+
+/**
+ * O mapa da luz pela água (spec 039 refeita): por luz direcional, um texel por raio paralelo a ela sobre a caixa do
+ * campo, com as duas primeiras camadas de água, o Fresnel da entrada e os corpos — uma marcha por texel por quadro.
+ */
+export const fieldLightMap = wgslModule({
+    name: 'field_light_map_write',
+    source: fieldLightMapSource,
+    requires: [WORKGROUP_SIZE.module, fields, fieldLightFrame, fieldSurface, bsdf, R.lightMapOut],
+});
+
+/**
+ * Contribuição do campo ao ponto `light_transmission`: a luz das fontes que atravessa a superfície da água até o ponto
+ * em linha reta, com o Fresnel e Beer–Lambert, numa marcha só (spec 034, T067c; as cáusticas corrigem para o caminho
+ * refratado).
+ */
+const fieldLightThrough = wgslModule({
+    name: 'field_light_through',
+    source: fieldLightTransmissionSource,
+    requires: [
+        fields,
+        rayVolumeTypes,
+        rayVolumeMaterial,
+        fieldSurface,
+        fieldLightFrame,
+        bsdf,
+        lightIncoming,
+        lightsResource,
+        R.lightMap,
+    ],
+});
+
+/** Contribuição do campo ao ponto `light_transmission`: a luz pela água até o ponto. */
+export const fieldLightTransmission = wgslModule({
+    name: 'field_light_transmission',
+    source: 'fn light_transmission(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
+    requires: [fieldLightThrough],
+});
+
+/** Contribuição do campo ao ponto `ray_volume_light`: a mesma luz pela água (só a dos volumes). */
+export const fieldRayLight = wgslModule({
+    name: 'field_ray_light',
+    source: 'fn ray_volume_light(light: u32, p: vec3f) -> vec3f {\n    return field_light_through(light, p);\n}',
+    requires: [fieldLightThrough],
+});
+
+/** Os canais temporais do campo (T060f; constituição VII): o nível e o volume, e a película nos sólidos. */
+export const fieldChannelSlots = Object.freeze({
+    fieldState: slot.channel(FluidFieldSchema, 'state'),
+    fieldFilm: slot.channel(FluidFieldSchema, 'film'),
 });

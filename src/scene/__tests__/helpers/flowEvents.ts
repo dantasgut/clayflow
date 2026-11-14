@@ -32,6 +32,8 @@ function required(decl: SlotDeclaration): boolean {
             return !decl.optional;
         case 'bodies':
         case 'target':
+        // O Resource de trabalho (spec 039) entra com o Flow: sempre resolvido.
+        case 'work':
             return true;
         default:
             return false;

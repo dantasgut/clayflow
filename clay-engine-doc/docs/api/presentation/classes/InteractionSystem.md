@@ -1,14 +1,15 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / InteractionSystem
+[clayflow](../../modules.md) / [presentation](../README.md) / InteractionSystem
 
 # Class: InteractionSystem
 
-Defined in: [presentation/input/InteractionSystem.ts:38](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L38)
+Defined in: [src/presentation/input/InteractionSystem.ts:25](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L25)
 
-InteractionSystem (spec 007) — liga os dispositivos (teclado, ponteiro, toque, gamepad) ao `Input` da cena e, a cada
+InteractionSystem (spec 007) — liga os dispositivos de entrada do ambiente (spec 038: os do DOM no navegador, os da
+janela no Deno) ao `Input` da cena e, a cada
 `frameTick`, chama `tick(input, dt, transform)` de cada controller do World (componente da entidade da câmera) com o
 `Transform` da mesma entidade; depois zera os deltas do quadro. Os controllers são mantidos por eventos do World
 (`entitiesInserted`/`entitiesRemoved`) — o quadro não percorre a cena. Um controller sem `Transform` na entidade é
@@ -20,23 +21,23 @@ Criado pela `Application` (um por cena).
 
 ### Constructor
 
-> **new InteractionSystem**(`options`, `events`, `world`, `input`): `InteractionSystem`
+> **new InteractionSystem**(`devices`, `events`, `world`, `input`): `InteractionSystem`
 
-Defined in: [presentation/input/InteractionSystem.ts:50](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L50)
+Defined in: [src/presentation/input/InteractionSystem.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L31)
 
 #### Parameters
 
-##### options
+##### devices
 
-[`InteractionSystemOptions`](../interfaces/InteractionSystemOptions.md)
+readonly [`InputDevice`](../interfaces/InputDevice.md)[]
 
 ##### events
 
-`EventBus`
+[`EventBus`](../../platform/web/interfaces/EventBus.md)
 
 ##### world
 
-`World`
+[`World`](../../platform/web/classes/World.md)
 
 ##### input
 
@@ -50,13 +51,13 @@ Defined in: [presentation/input/InteractionSystem.ts:50](https://github.com/dant
 
 ## Properties
 
-### gamepad
+### devices
 
-> `readonly` **gamepad**: [`GamepadDevice`](GamepadDevice.md)
+> `readonly` **devices**: readonly [`InputDevice`](../interfaces/InputDevice.md)[]
 
-Defined in: [presentation/input/InteractionSystem.ts:46](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L46)
+Defined in: [src/presentation/input/InteractionSystem.ts:27](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L27)
 
-GamepadDevice — polling-based (Gamepad API não dispatch events).
+Os dispositivos de entrada do ambiente (o ponto de entrada os dá).
 
 ***
 
@@ -64,39 +65,9 @@ GamepadDevice — polling-based (Gamepad API não dispatch events).
 
 > `readonly` **input**: [`Input`](Input.md)
 
-Defined in: [presentation/input/InteractionSystem.ts:55](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L55)
+Defined in: [src/presentation/input/InteractionSystem.ts:36](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L36)
 
 `Input` da cena (inserido no World pela `Application`).
-
-***
-
-### keyboard
-
-> `readonly` **keyboard**: [`KeyboardDevice`](KeyboardDevice.md)
-
-Defined in: [presentation/input/InteractionSystem.ts:40](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L40)
-
-KeyboardDevice — captura keydown/keyup no `window`.
-
-***
-
-### pointer
-
-> `readonly` **pointer**: [`PointerDevice`](PointerDevice.md)
-
-Defined in: [presentation/input/InteractionSystem.ts:42](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L42)
-
-PointerDevice — captura pointer events no canvas (mouse, pen).
-
-***
-
-### touch
-
-> `readonly` **touch**: [`TouchDevice`](TouchDevice.md)
-
-Defined in: [presentation/input/InteractionSystem.ts:44](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L44)
-
-TouchDevice — captura touch events (multi-touch + pinch).
 
 ## Methods
 
@@ -104,9 +75,9 @@ TouchDevice — captura touch events (multi-touch + pinch).
 
 > **attach**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:88](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L88)
+Defined in: [src/presentation/input/InteractionSystem.ts:65](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L65)
 
-Registra DOM event listeners (e reativa a atualização por quadro depois de um `detach`).
+Liga os dispositivos (e reativa a atualização por quadro depois de um `detach`).
 
 #### Returns
 
@@ -118,9 +89,9 @@ Registra DOM event listeners (e reativa a atualização por quadro depois de um 
 
 > **detach**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:96](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L96)
+Defined in: [src/presentation/input/InteractionSystem.ts:71](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L71)
 
-Remove os ouvintes de DOM e as inscrições no barramento. Chamar antes de descartar o InteractionSystem.
+Desliga os dispositivos e as inscrições no barramento. Chamar antes de descartar o InteractionSystem.
 
 #### Returns
 
@@ -132,7 +103,7 @@ Remove os ouvintes de DOM e as inscrições no barramento. Chamar antes de desca
 
 > **dispose**(): `void`
 
-Defined in: [presentation/input/InteractionSystem.ts:105](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/InteractionSystem.ts#L105)
+Defined in: [src/presentation/input/InteractionSystem.ts:78](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/InteractionSystem.ts#L78)
 
 Descarte: `detach` e descarte dos controllers da cena (ouvintes de DOM deles).
 

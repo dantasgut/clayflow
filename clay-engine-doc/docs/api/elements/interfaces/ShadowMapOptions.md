@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ShadowMapOptions
+[clayflow](../../modules.md) / [elements](../README.md) / ShadowMapOptions
 
 # Interface: ShadowMapOptions
 
-Defined in: [elements/scene/ShadowMap.ts:10](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/ShadowMap.ts#L10)
+Defined in: [src/elements/scene/ShadowMap.ts:11](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/ShadowMap.ts#L11)
 
 Opções de `ShadowMap`.
 
@@ -16,9 +16,19 @@ Opções de `ShadowMap`.
 
 > `readonly` `optional` **bias?**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:12](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/ShadowMap.ts#L12)
+Defined in: [src/elements/scene/ShadowMap.ts:13](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/ShadowMap.ts#L13)
 
-Viés de profundidade da comparação (contra acne). Padrão 0,005.
+Viés de profundidade da comparação (contra acne), em texels do mapa. Padrão 1.
+
+***
+
+### firstLevelRadius?
+
+> `readonly` `optional` **firstLevelRadius?**: `number`
+
+Defined in: [src/elements/scene/ShadowMap.ts:28](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/ShadowMap.ts#L28)
+
+Meio lado, em metros, do primeiro nível (o mais fino) em volta da câmera; cada nível seguinte dobra. Padrão 1.
 
 ***
 
@@ -26,9 +36,21 @@ Viés de profundidade da comparação (contra acne). Padrão 0,005.
 
 > `readonly` `optional` **normalBias?**: `number`
 
-Defined in: [elements/scene/ShadowMap.ts:14](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/ShadowMap.ts#L14)
+Defined in: [src/elements/scene/ShadowMap.ts:18](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/ShadowMap.ts#L18)
 
-Viés ao longo da normal. Padrão 0,001.
+Deslocamento da consulta ao longo da normal da superfície, em texels do mapa (mais quanto mais rasante a luz).
+Padrão 1,5.
+
+***
+
+### penumbraSamples?
+
+> `readonly` `optional` **penumbraSamples?**: `number`
+
+Defined in: [src/elements/scene/ShadowMap.ts:33](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/ShadowMap.ts#L33)
+
+Amostras da penumbra (o filtro da borda): 1, 4 (2 × 2) ou 9 (3 × 3). Sem ela, a do perfil do `Renderer`
+(`shadows.penumbraSamples`; 9 sem renderizador).
 
 ***
 
@@ -36,6 +58,8 @@ Viés ao longo da normal. Padrão 0,001.
 
 > `readonly` `optional` **size?**: readonly \[`number`, `number`\]
 
-Defined in: [elements/scene/ShadowMap.ts:16](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/scene/ShadowMap.ts#L16)
+Defined in: [src/elements/scene/ShadowMap.ts:24](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/scene/ShadowMap.ts#L24)
 
-Resolução do mapa em texels `[largura, altura]`. Padrão `[1024, 1024]`.
+Resolução virtual de cada nível do mapa em texels `[largura, altura]` (o maior lado vale; spec 034, T060: páginas de
+128², em número par por lado, de 4 a 64). Sem ela, a do perfil do `Renderer` da cena (`shadows.resolution`;
+`[4096, 4096]` sem renderizador).

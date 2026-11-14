@@ -9,8 +9,8 @@
 // Registra o tempo de GPU por quadro (quadro sincronizado por leitura de volta).
 //
 // Para rodar: `npm run smoke -- rigidContacts` (servidor do bench). Resultado: `RIGIDCONTACTS SMOKE PASSED` ou `FAIL`.
-import { Application, createScene } from 'clayflow';
-import type { StagingBufferSpec } from 'clayflow';
+import { Application, createScene } from 'clayflow/web';
+import type { StagingBufferSpec } from 'clayflow/web';
 import { buildRigidPile, GROUND_HALF } from './support/rigidPile';
 
 const BODY_STRIDE_F32 = 40; // RigidBody: pos(0) vel(4) ...
@@ -66,6 +66,9 @@ async function scenario(count: number, failures: string[]): Promise<void> {
     canvas.height = 64;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,

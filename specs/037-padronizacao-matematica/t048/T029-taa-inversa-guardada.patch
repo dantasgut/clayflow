@@ -1,0 +1,11 @@
+--- a/src/presentation/flows/effects/temporal_resolve.wgsl
++++ b/src/presentation/flows/effects/temporal_resolve.wgsl
+@@ -80,7 +80,7 @@
+     let cam = cameras[taa_params.cameraSlot];
+     let depth = textureLoad(taa_depth, pixel, 0);
+     let ndc = uv_to_ndc(uv);
+-    let world_h = projective_inverse(cam.unjitteredViewProjection) * vec4f(ndc, depth, 1.0);
++    let world_h = cam.inverseUnjitteredViewProjection * vec4f(ndc, depth, 1.0);
+     let world = world_h.xyz / world_h.w;
+     let motion = textureLoad(taa_motion, pixel, 0);
+     var prev_uv = uv + motion.xy;

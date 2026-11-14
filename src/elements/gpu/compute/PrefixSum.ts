@@ -1,22 +1,14 @@
 import type { BindingSource } from '../../../scene/flows/FlowBinding';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { SCAN_GROUP as SCAN_GROUP_CONSTANT } from '../shaders/constants';
-import type {
-    EngineCore,
-    Frame,
-    IndirectBufferSpec,
-    StorageBufferSpec,
-} from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
+import type { Frame, IndirectBufferSpec, StorageBufferSpec } from '../../../scene/contracts/gpu';
 import type { ComputePass } from '../../../scene/contracts/gpu';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { CountToArgs, type GpuCount } from './CountToArgs';
 import { FrameUniforms } from './FrameUniforms';
-import { ScanLevelSchema } from './schemas';
+import { ScanLevelSchema, wordBuffer } from './schemas';
 import {
     scanCombine,
     scanCountGpu,
@@ -74,9 +66,9 @@ export interface PrefixSumRecordArgs {
 
 /** Kernels de um nível: subida, descida e topo. */
 interface LevelKernels {
-    local?: ComputeKernel;
-    combine?: ComputeKernel;
-    top?: ComputeKernel;
+    local?: string;
+    combine?: string;
+    top?: string;
 }
 
 /** Kernels de uma origem da contagem: do nível 0 por buffer de saída e dos níveis k ≥ 1 (`upper[k - 1]`). */
@@ -105,22 +97,23 @@ type LevelDispatch = number | GpuCount | null;
  * topo real rodam com contagem 1 (o total, cujo prefixo exclusivo é 0) ou 0, o que não muda o resultado. Com
  * `src ≠ dst`, a cópia leva a capacidade (limitada pelos dois buffers). A contagem do registro deve ser ≤ `capacity`.
  *
- * Duas fases (spec 006): `prepare(dst, gravaçõesPorQuadro, counts?)` cria buffers, kernels e regiões de uniform —
- * fora da gravação, numa transição do Flow; `record` só grava.
+ * Duas fases (spec 006): `prepare(dst, gravaçõesPorQuadro, counts?)` cria kernels e regiões de uniform — fora da
+ * gravação, numa transição do Flow; `record` só grava. Os buffers dos níveis são descritores do Resource de trabalho
+ * (spec 039), alocados pela C2.
  */
-export class PrefixSum {
+export class PrefixSum implements WorkPart {
     private readonly disc: string;
     private readonly label: string;
     private readonly capacity: number;
     private readonly levelCapacity: readonly number[];
     private readonly params: FrameUniforms;
-    /** Valores dos níveis k ≥ 1 (`upper[k - 1]` = nível k). */
-    private upper: StorageBufferSpec[] = [];
+    /** `destroy()` soltou os descritores (a C2 libera os buffers); o próximo `prepare` os declara de novo. */
+    private released = false;
     /** Kernels por origem da contagem: `null` = CPU (uniform); um buffer `SetCount` = variante da GPU ligada a ele. */
     private readonly variants = new Map<IndirectBufferSpec | null, CountVariant>();
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: PrefixSumOptions,
     ) {
         if (!Number.isInteger(options.capacity) || options.capacity < 1) {
@@ -132,10 +125,24 @@ export class PrefixSum {
         this.label = options.label ?? 'PrefixSum';
         this.capacity = options.capacity;
         this.levelCapacity = scanLevelCounts(options.capacity);
-        this.params = new FrameUniforms(core, {
-            discriminator: `${this.disc}:scan`,
-            schema: ScanLevelSchema,
-        });
+        this.params = new FrameUniforms(ctx, { id: `${this.disc}:scan`, schema: ScanLevelSchema });
+        ctx.work.use(this);
+    }
+
+    /** Valores dos níveis k ≥ 1 (`upper[k - 1]` = nível k), em palavras u32. */
+    descriptors(): readonly GPUDescriptor[] {
+        if (this.released) return [];
+        return this.levelCapacity
+            .slice(1)
+            .map((n, i) => wordBuffer(`${this.disc}:scan_level:${i + 1}`, n * 4));
+    }
+
+    /** Buffer do nível `k ≥ 1` (alocado pela C2). */
+    private upper(k: number): StorageBufferSpec {
+        const buffer = this.ctx.resources.bufferOf(this.ctx.work, `${this.disc}:scan_level:${k}`);
+        if (buffer === undefined)
+            throw new Error(`PrefixSum(${this.disc}): trabalho fora da cena.`);
+        return buffer as StorageBufferSpec;
     }
 
     /** Regiões de uniform que uma gravação usa no máximo (uma por nível). */
@@ -149,8 +156,11 @@ export class PrefixSum {
      * ligados a esse buffer de registros `SetCount` (memorizados por buffer). Idempotente; chamado fora da gravação.
      */
     prepare(dst: StorageBufferSpec, recordsPerFrame = 1, counts?: IndirectBufferSpec): void {
+        if (this.released) {
+            this.released = false;
+            this.ctx.work.refresh();
+        }
         if (this.params.reserve(this.regionsPerRecord * recordsPerFrame)) this.releaseKernels();
-        if (this.upper.length === 0) this.allocateLevels();
         for (const source of counts === undefined ? [null] : [null, counts]) {
             this.prepareVariant(dst, source);
         }
@@ -193,12 +203,30 @@ export class PrefixSum {
         this.runLevels(frame, variant, dst, offsets, counts, count, args.pass);
     }
 
-    /** Libera kernels, buffers dos níveis e uniforms. A instância volta a alocar no próximo `prepare`. */
+    /**
+     * Os kernels preparados estão compilados (a C2 compila os do trabalho em segundo plano: quem grava num quadro antes
+     * disso consulta aqui em vez de deixar `record` lançar).
+     */
+    get ready(): boolean {
+        for (const variant of this.variants.values()) {
+            const levels = [...variant.base.values(), ...variant.upper];
+            for (const kernels of levels)
+                for (const id of [kernels.local, kernels.combine, kernels.top])
+                    if (id !== undefined && this.ctx.work.pipelines.compute(id) === undefined)
+                        return false;
+        }
+        return true;
+    }
+
+    /**
+     * Libera os kernels e solta os buffers dos níveis (a C2 os libera com a redescrição do trabalho). A instância volta
+     * a declará-los no próximo `prepare`.
+     */
     destroy(): void {
         this.releaseKernels();
-        for (const b of this.upper) this.core.destroy(b);
-        this.upper = [];
-        this.params.destroy();
+        this.released = true;
+        this.params.release();
+        this.ctx.work.refresh();
     }
 
     /**
@@ -311,7 +339,7 @@ export class PrefixSum {
     }
 
     private values(k: number, dst: StorageBufferSpec): StorageBufferSpec {
-        return k === 0 ? dst : this.upper[k - 1]!;
+        return k === 0 ? dst : this.upper(k);
     }
 
     private kernelsOf(variant: CountVariant, k: number, dst: StorageBufferSpec): LevelKernels {
@@ -324,23 +352,12 @@ export class PrefixSum {
         return entry;
     }
 
-    private allocateLevels(): void {
-        this.upper = this.levelCapacity.slice(1).map((n, i) =>
-            this.core.create<StorageBufferSpec>({
-                kind: 'buffer',
-                subkind: 'storage',
-                discriminator: `${this.disc}:scan_level:${i + 1}`,
-                byteSize: Math.max(16, n * 4),
-            }),
-        );
-    }
-
     private levelKernel(
         kind: 'scan_local' | 'scan_top' | 'scan_combine',
         counts: IndirectBufferSpec | null,
         values: StorageBufferSpec,
         above?: StorageBufferSpec,
-    ): ComputeKernel {
+    ): string {
         const ready =
             kind === 'scan_local' ? scanLocal : kind === 'scan_top' ? scanTop : scanCombine;
         const level = this.params.source();
@@ -363,7 +380,7 @@ export class PrefixSum {
                         [r.groupPrefix, above!],
                     ]);
         if (counts !== null) bindings.set(setCountResources.counts, counts);
-        return createComputeKernel(this.core, {
+        return this.ctx.work.pipelines.kernel({
             discriminator: `${this.disc}:${kind}${counts === null ? '' : ':gpu'}`,
             shader:
                 counts === null
@@ -378,14 +395,13 @@ export class PrefixSum {
     private run(
         frame: Frame,
         label: string,
-        kernel: ComputeKernel,
+        kernel: string,
         offset: number,
         dispatch: LevelDispatch,
         open: ComputePass | undefined,
     ): void {
         const body = (pass: ComputePass): void => {
-            pass.bind.setPipeline(kernel.pipeline);
-            kernel.bindTo(pass.bind, { draw: [offset] });
+            this.ctx.work.pipelines.use(pass.bind, kernel, { draw: [offset] });
             if (dispatch === null) pass.dispatch.workgroups(1);
             else if (typeof dispatch === 'number') pass.dispatch.invocations(dispatch, SCAN_GROUP);
             else
@@ -394,15 +410,17 @@ export class PrefixSum {
                     CountToArgs.dispatchOffset(dispatch),
                 );
         };
-        if (open !== undefined) body(open);
-        else frame.compute(label, body);
+        if (open !== undefined) {
+            open.marker(label);
+            body(open);
+        } else frame.compute(label, body);
     }
 
     private releaseKernels(): void {
         for (const variant of this.variants.values()) {
             for (const level of [...variant.base.values(), ...variant.upper]) {
                 for (const k of [level.local, level.combine, level.top]) {
-                    if (k !== undefined) destroyComputeKernel(this.core, k);
+                    if (k !== undefined) this.ctx.work.pipelines.release(k);
                 }
             }
         }

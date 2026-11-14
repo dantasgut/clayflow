@@ -27,7 +27,7 @@ fn pbr_dfg_build(
     for (var i = 0u; i < PBR_DFG_SAMPLES; i = i + 1u) {
         let u1 = f32(i) / f32(PBR_DFG_SAMPLES);
         let u2 = f32(reverseBits(i)) * 2.3283064365386963e-10;
-        let phi = 2.0 * BSDF_PI * u1;
+        let phi = 2.0 * PI * u1;
         let cos_h = sqrt((1.0 - u2) / (1.0 + (a2 - 1.0) * u2));
         let sin_h = sqrt(1.0 - cos_h * cos_h);
         let h = vec3f(sin_h * cos(phi), sin_h * sin(phi), cos_h);
@@ -45,7 +45,7 @@ fn pbr_dfg_build(
         let hs = v + l;
         let len = length(hs);
         if (len > 1e-6 && cl > 0.0) {
-            sheen = sheen + bsdf_d_charlie(hs.z / len, roughness) * bsdf_v_neubelt(nv, cl) * cl * 2.0 * BSDF_PI;
+            sheen = sheen + bsdf_d_charlie(hs.z / len, roughness) * bsdf_v_neubelt(nv, cl) * cl * 2.0 * PI;
         }
     }
     let n = f32(PBR_DFG_SAMPLES);

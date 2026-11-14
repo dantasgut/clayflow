@@ -46,20 +46,22 @@ describe('LCPFlow — pose publicada na GPU (spec 007)', () => {
 
     it('nenhuma leitura de volta da pose por quadro; o contador de excedente é lido no máximo a cada 60 passos', async () => {
         const s = await setup(3);
+        s.readbackWith((spec) => new ArrayBuffer((spec as { byteSize: number }).byteSize));
+        // A leitura é a sob demanda da C2 (spec 039): os pedidos do Flow e as leituras de volta que ela faz.
+        const requests = vi.spyOn(s.scene.resourceSystem, 'read');
         for (let i = 0; i < 59; i++) s.step();
         await vi.runAllTimersAsync();
         expect(s.core.readback).not.toHaveBeenCalled();
         s.step();
         await vi.runAllTimersAsync();
-        // Só os contadores de diagnóstico (contatos e pares da broadphase), não o pool de corpos.
-        const read = () =>
-            vi
-                .mocked(s.core.readback)
-                .mock.calls.map(([spec]) => (spec as { discriminator?: string }).discriminator);
-        expect(read()).toEqual(['lcp_contact_counter_staging', 'lcp_pair_counts_staging']);
+        // Só os contadores de diagnóstico (contatos e pares da broadphase), não o pool de corpos: num lote só.
+        const read = () => requests.mock.calls.map(([, descId]) => descId);
+        expect(read()).toEqual(['lcp_contact_counter', 'lcp_pair_counts']);
+        expect(s.core.readback).toHaveBeenCalledTimes(1);
         for (let i = 0; i < 10; i++) s.step();
         await vi.runAllTimersAsync();
         expect(read()).toHaveLength(2);
+        expect(s.core.readback).toHaveBeenCalledTimes(1);
     });
 
     it('o Transform do corpo é de posse da GPU: mutação ignorada com aviso único', async () => {

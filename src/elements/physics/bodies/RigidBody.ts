@@ -4,6 +4,7 @@ import { Transform } from '../../scene/Transform';
 import { BoxCollider } from '../colliders/BoxCollider';
 import { SphereCollider } from '../colliders/SphereCollider';
 import { LCPSchema } from './schemas/LCPSchema';
+import { BODY_ENERGY_HISTORY, BodyEnergySchema } from '../energy/schemas';
 import { PhysicsBody } from './PhysicsBody';
 
 /**
@@ -205,7 +206,10 @@ export class RigidBody extends PhysicsBody {
         this.add(colliderFor(options));
     }
 
-    /** Pool storage para coalescer N RigidBodies do mesmo schema em 1 buffer GPU. */
+    /**
+     * Pool storage para coalescer N RigidBodies do mesmo schema em 1 buffer GPU; e a série temporal da energia do corpo
+     * (spec 037: o canal `BodyEnergy`, no mesmo slot, de 8 fatias), alocada só quando um `EnergyMeter` a pede.
+     */
     getDescriptors(): readonly GPUDescriptor[] {
         return [
             {
@@ -215,6 +219,15 @@ export class RigidBody extends PhysicsBody {
                 storage: 'pool',
                 // A simulação é dona do estado após a inserção: a CPU envia só o spawn.
                 upload: 'initial',
+            },
+            {
+                id: 'energy',
+                role: 'storage-rw',
+                schema: BodyEnergySchema,
+                storage: 'pool',
+                upload: 'never',
+                allocation: 'onDemand',
+                history: { depth: BODY_ENERGY_HISTORY },
             },
         ];
     }

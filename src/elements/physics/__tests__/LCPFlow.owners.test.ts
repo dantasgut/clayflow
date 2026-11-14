@@ -19,7 +19,7 @@ describe('LCPFlow — mapas de dono pelo ColliderSet (transições)', () => {
                 .mocked(s.core.create)
                 .mock.calls.map((c) => c[0] as { discriminator?: string })
                 .filter((spec) => spec.discriminator?.startsWith(prefix));
-        const first = created('lcp_colliders_owners_SphereCollider')[0];
+        const first = created('lcp_colliders:owners:SphereCollider:')[0];
         expect(first).toBeDefined();
         const replaced: string[] = [];
         s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));
@@ -30,7 +30,7 @@ describe('LCPFlow — mapas de dono pelo ColliderSet (transições)', () => {
             );
         }
         s.step();
-        expect(created('lcp_colliders_owners_SphereCollider').length).toBeGreaterThan(1);
+        expect(created('lcp_colliders:owners:SphereCollider:').length).toBeGreaterThan(1);
         expect(s.core.destroy).toHaveBeenCalledWith(first);
         expect(replaced).toContain('lcp_narrowphase_sphere');
         expect(s.createdWhileRecording()).toBe(0);
@@ -43,7 +43,7 @@ describe('LCPFlow — mapas de dono pelo ColliderSet (transições)', () => {
         const owners = vi
             .mocked(s.core.create)
             .mock.calls.map((c) => c[0] as { discriminator?: string })
-            .filter((spec) => spec.discriminator?.startsWith('lcp_colliders_'));
+            .filter((spec) => spec.discriminator?.startsWith('lcp_colliders:'));
         expect(owners.length).toBeGreaterThan(0);
         s.scene.flows.unregister(s.scene.flows.resolve('LCPSchema')!);
         for (const spec of owners) expect(s.core.destroy).toHaveBeenCalledWith(spec);

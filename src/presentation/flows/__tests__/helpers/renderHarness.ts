@@ -10,7 +10,6 @@ import type {
 import { createScene, type SceneContext } from '../../../../scene/SceneContext';
 import { defaultCapabilities } from '../../../../scene/__tests__/helpers/defaultCapabilities';
 import { ELEMENT_CONSUMERS } from '../../../../elements/consumers';
-import { WATER_CONSUMERS } from '../../../water/consumers';
 import { TransformFlow } from '../../../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../../../elements/scene/flows/ShadowMatrixFlow';
@@ -20,13 +19,12 @@ import { ParticleFlow } from '../../ParticleFlow';
 import { SoftSurfaceFlow } from '../../../../elements/physics/flows/SoftSurfaceFlow';
 import { PostFlow } from '../../PostFlow';
 import { ShadowFlow } from '../../ShadowFlow';
-import { WaterSurface } from '../../../app/WaterSurface';
-import { FluidFieldPassFlow } from '../../FluidFieldPassFlow';
 import { FluidField } from '../../../../elements/fields/FluidField';
 import { FluidFieldFlow } from '../../../../elements/fields/FluidFieldFlow';
-import { CausticsFlow } from '../../CausticsFlow';
-import { WaterFlow } from '../../WaterFlow';
 import { PbrTables } from '../../../../elements/material/pbr/PbrTables';
+import { MaterialFunction } from '../../../../elements/extension/MaterialFunction';
+import { NodeGraph } from '../../../../scene/graph/NodeGraph';
+import { nodes } from '../../../../elements/nodes';
 
 /** Bind group ligado num desenho, com os offsets dinâmicos. */
 export interface BoundGroup {
@@ -100,6 +98,28 @@ export async function renderScene(
     let creates: ResourceSpec[] = [];
     let writes: ResourceSpec[] = [];
     let destroys: ResourceSpec[] = [];
+    /** O último dado escrito em cada buffer (palavras). */
+    const written = new Map<ResourceSpec, Uint32Array>();
+    /**
+     * Desenho indireto das páginas da sombra virtual (spec 034, T060): a contagem de índices (ou vértices) do registro e,
+     * no lugar dos pares instância × página (só a GPU os conhece), as entidades do grupo — da tabela de grupos escrita
+     * pela CPU. Fora dos grupos (o transporte e o fundo das páginas), 0 entidades.
+     */
+    const shadowArgs = (
+        buffer: ResourceSpec,
+        offset: number,
+    ): { indexCount: number; instanceCount: number } | undefined => {
+        if (!discOf(buffer).startsWith('shadow_pages_args')) return undefined;
+        const args = written.get(buffer);
+        // O último buffer de grupos escrito (o trabalho realoca por dobra).
+        const groups = [...written]
+            .filter(([spec]) => discOf(spec).startsWith('shadow_pages_groups'))
+            .at(-1)?.[1];
+        const record = offset / 20;
+        const count = groups?.[record * 4 + 1] ?? 0;
+        const own = groups?.[record * 4 + 3] === record;
+        return { indexCount: args?.[record * 5] ?? -1, instanceCount: own ? count : 0 };
+    };
     let recording = false;
     let createdWhileRecording = 0;
     let passes: RenderPassRecord[] = [];
@@ -151,28 +171,32 @@ export async function renderScene(
                     },
                     draw: {
                         indexedIndirect: (buffer: ResourceSpec, offset = 0) => {
+                            const shadow = shadowArgs(buffer, offset);
                             draws.push({
                                 pass: label,
                                 pipeline: pipeline!,
                                 bindGroups: new Map(bound),
                                 vertex,
                                 index,
-                                indexCount: -1,
-                                instanceCount: -1,
+                                indexCount: shadow?.indexCount ?? -1,
+                                instanceCount: shadow?.instanceCount ?? -1,
                                 firstInstance: undefined,
                                 indirect: { buffer, offset },
                             });
                             return pass.draw;
                         },
                         indirect: (buffer: ResourceSpec, offset = 0) => {
+                            const shadow = shadowArgs(buffer, offset);
+                            // O transporte e o fundo das páginas não desenham entidades.
+                            if (shadow?.instanceCount === 0) return pass.draw;
                             vertexDraws.push({
                                 pass: label,
                                 pipeline: pipeline!,
                                 bindGroups: new Map(bound),
                                 vertex,
                                 index: undefined,
-                                indexCount: -1,
-                                instanceCount: -1,
+                                indexCount: shadow?.indexCount ?? -1,
+                                instanceCount: shadow?.instanceCount ?? -1,
                                 firstInstance: undefined,
                                 indirect: { buffer, offset },
                             });
@@ -231,6 +255,7 @@ export async function renderScene(
                         invocations: () => pass.dispatch,
                         workgroupsIndirect: () => pass.dispatch,
                     },
+                    marker: () => undefined,
                 };
                 body(pass);
             },
@@ -241,6 +266,9 @@ export async function renderScene(
                 computes.push(`copy:${discOf(src)}→${discOf(dst)}`);
             },
             clear: () => undefined,
+            marker: (_label: string, body: () => void) => {
+                body();
+            },
         }) as unknown as Frame;
 
     const core = {
@@ -248,8 +276,16 @@ export async function renderScene(
         shaderMessages: vi.fn(() => Promise.resolve([])),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(created(spec))),
         writeTexture: vi.fn(),
-        write: vi.fn((spec: ResourceSpec) => {
+        write: vi.fn((spec: ResourceSpec, data?: ArrayBufferView) => {
             writes.push(spec);
+            written.delete(spec);
+            if (data !== undefined)
+                written.set(
+                    spec,
+                    new Uint32Array(
+                        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+                    ),
+                );
         }),
         destroy: vi.fn((spec: ResourceSpec) => {
             destroys.push(spec);
@@ -280,6 +316,7 @@ export async function renderScene(
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        takeFrameTimings: vi.fn(() => []),
         capabilities: vi.fn(() => ({
             ...defaultCapabilities(),
             features: [...(options.features ?? [])],
@@ -292,7 +329,6 @@ export async function renderScene(
     const scene = createScene({ core });
     await scene.initialize();
     for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
-    for (const resolver of WATER_CONSUMERS) scene.consumers.registerDefault(resolver);
     let frame = 0;
     return {
         scene,
@@ -335,16 +371,15 @@ export interface StageOptions {
     readonly particles?: boolean;
     /** Vértices das superfícies de corpos moles (`SoftSurfaceFlow`, fase `transform`). */
     readonly softSurface?: boolean;
-    /**
-     * Estágios da água (spec 017): superfície vista pela luz e cáusticas (fase `shadow`), superfície vista pela câmera
-     * e composição (fase `forward`), com o `WaterSurface` da cena.
-     */
+    /** O campo dos fluidos (spec 033): a superfície dos corpos de fluido pelo grafo (o que a câmera vê é da refração). */
     readonly water?: boolean;
     /**
      * Passe de profundidade dos opacos no forward (padrão desligado aqui: os testes de grupos contam os desenhos de
      * cor; o passe tem o seu teste).
      */
     readonly depthPrepass?: boolean;
+    /** Amostras por pixel dos `FrameTargets` inseridos aqui (padrão o deles, 4). */
+    readonly samples?: 1 | 4;
 }
 
 /** Registra os estágios pedidos por factory, como `registerPresentationDefaults`, e devolve as instâncias. */
@@ -385,7 +420,7 @@ export function registerStages(
         || options.post === true
         || options.particles === true
         || options.water === true
-            ? new FrameTargets()
+            ? new FrameTargets(options.samples === undefined ? {} : { samples: options.samples })
             : undefined;
     if (frameTargets !== undefined) scene.world.insert(frameTargets);
     // Tabelas do sombreamento físico (spec 011): o fechamento as lê em todo desenho iluminado.
@@ -414,32 +449,11 @@ export function registerStages(
             priority: -50,
         });
     if (options.water === true) {
-        scene.world.insert(new WaterSurface());
         scene.world.insert(new FluidField());
         scene.flows.register((ctx) => new FluidFieldFlow(ctx), {
             type: 'fluidField',
             phase: 'transform',
             priority: -50,
-        });
-        scene.flows.register((ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }), {
-            type: 'fluidLightSurface',
-            phase: 'shadow',
-            priority: -10,
-        });
-        scene.flows.register((ctx) => new CausticsFlow(ctx), {
-            type: 'caustics',
-            phase: 'shadow',
-            priority: -20,
-        });
-        scene.flows.register((ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }), {
-            type: 'fluidSurface',
-            phase: 'forward',
-            priority: -60,
-        });
-        scene.flows.register((ctx) => new WaterFlow(ctx), {
-            type: 'water',
-            phase: 'forward',
-            priority: -70,
         });
     }
     const post =
@@ -447,4 +461,27 @@ export function registerStages(
             ? scene.flows.register((ctx) => new PostFlow(ctx), { type: 'post', phase: 'post' }).flow
             : undefined;
     return { forward, shadow, post, frameTargets };
+}
+
+/**
+ * A aparência de água pelo grafo (spec 034): o dielétrico de índice 1,333 com a transmissão — a função `material` que faz
+ * de um `FluidBody` um corpo do campo dos fluidos.
+ */
+export function waterMaterial(): MaterialFunction {
+    return new MaterialFunction({
+        graph: new NodeGraph({
+            nodes: {
+                reflect: nodes.bsdf.dielectric.with({ ior: 1.333, roughness: 0 }),
+                transmit: nodes.bsdf.transmission.with({ ior: 1.333 }),
+                water: nodes.closure.add,
+                out: nodes.output.closure,
+            },
+            links: [
+                ['reflect.value', 'water.a'],
+                ['transmit.value', 'water.b'],
+                ['water.value', 'out.closure'],
+            ],
+            output: 'out.value',
+        }),
+    });
 }

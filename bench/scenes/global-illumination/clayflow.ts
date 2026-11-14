@@ -7,7 +7,7 @@ import {
     StandardMaterial,
     SurfaceFunction,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
 import { GI_SURFACE_HALF, GI_SURFACE_SEGMENTS } from './scene';
@@ -34,7 +34,7 @@ const impl: SceneImplementation<ClayflowHandle> = {
         });
         world.insert(sun);
         world.insert(new Sky({ sun }));
-        engine.app.defaults.presentation.data.exposure = -11;
+        engine.app.defaults.renderer.output.data.exposure = -11;
         const h = GI_SURFACE_HALF;
         world.insert(
             new ParametricSurface({

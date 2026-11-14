@@ -1,11 +1,6 @@
-import type { BindingSource } from '../../../scene/flows/FlowBinding';
-import type { WgslResource } from '../../../scene/shaders/WgslResource';
-import type { EngineCore, Frame, IndirectBufferSpec } from '../../../scene/contracts/gpu';
-import type { ComputeKernel } from '../../../scene/flows/createComputeKernel';
-import {
-    createComputeKernel,
-    destroyComputeKernel,
-} from '../../../scene/flows/createComputeKernel';
+import type { BindingKey, BindingSource } from '../../../scene/flows/FlowBinding';
+import type { Frame, IndirectBufferSpec } from '../../../scene/contracts/gpu';
+import type { WorkContext } from '../../../scene/flows/FlowWork';
 import { SET_COUNT_DISPATCH_OFFSET, SetCountSchema } from '../../../scene/graph/SetCountSchema';
 import { FrameUniforms } from './FrameUniforms';
 import { CountToArgsParamsSchema } from './schemas';
@@ -48,13 +43,15 @@ export interface CountToArgsRecordArgs {
  * escrita na GPU por um nó, e escreve no mesmo registro o despacho linear (`workgroupsIndirect` no byte 4, dividido em
  * x/y como `Dispatcher.invocations`) e o desenho (byte 16). A contagem nunca volta à CPU.
  *
- * Duas fases (spec 006): `prepare(counts, gravaçõesPorQuadro)` cria o kernel e as regiões de uniform, fora da
- * gravação; `record` só grava.
+ * Duas fases (spec 006): `prepare(counts, gravaçõesPorQuadro)` prepara o kernel pela C2 (um pipeline do Flow dono por
+ * registro `counts`, T060g) e reserva as regiões de uniform (no Resource de trabalho, spec 039), fora da gravação;
+ * `record` só grava.
  */
 export class CountToArgs {
     private readonly disc: string;
     private readonly params: FrameUniforms;
-    private readonly kernels = new Map<IndirectBufferSpec, ComputeKernel>();
+    /** O pipeline (id) de cada registro `counts` preparado. */
+    private readonly kernels = new Map<IndirectBufferSpec, string>();
 
     /**
      * Confere uma contagem da GPU recebida por `owner`: índice inteiro ≥ 0 com o registro inteiro dentro de `counts`.
@@ -80,33 +77,43 @@ export class CountToArgs {
     }
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: CountToArgsOptions,
     ) {
         this.disc = options.discriminator;
-        this.params = new FrameUniforms(core, {
-            discriminator: `${this.disc}:count_to_args`,
+        this.params = new FrameUniforms(ctx, {
+            id: `${this.disc}:count_to_args`,
             schema: CountToArgsParamsSchema,
         });
     }
 
     /** Prepara a conversão sobre `counts` para até `recordsPerFrame` gravações por quadro. Idempotente. */
     prepare(counts: IndirectBufferSpec, recordsPerFrame = 1): void {
-        if (this.params.reserve(recordsPerFrame)) this.releaseKernels();
-        if (this.kernels.has(counts)) return;
+        const grown = this.params.reserve(recordsPerFrame);
+        const pipelines = this.ctx.work.pipelines;
         const r = countToArgsResources;
-        this.kernels.set(
-            counts,
-            createComputeKernel(this.core, {
-                discriminator: `${this.disc}:count_to_args:${this.kernels.size}`,
-                shader: countToArgs,
-                entryPoint: 'count_to_args_main',
-                bindings: new Map<WgslResource, BindingSource>([
-                    [r.params, this.params.source()],
-                    [r.counts, counts],
-                ]),
-            }),
+        if (grown) {
+            // As regiões cresceram (outro buffer): os pipelines de antes leem o uniform novo.
+            const sources = new Map<BindingKey, BindingSource>();
+            for (const id of this.kernels.values())
+                sources.set({ pipeline: id, resource: r.params }, this.params.source());
+            if (sources.size > 0) pipelines.bind(sources);
+        }
+        if (this.kernels.has(counts)) return;
+        const id = `${this.disc}:count_to_args:${this.kernels.size}`;
+        this.kernels.set(counts, id);
+        pipelines.bind(
+            new Map<BindingKey, BindingSource>([
+                [{ pipeline: id, resource: r.params }, this.params.source()],
+                [{ pipeline: id, resource: r.counts }, counts],
+            ]),
         );
+        pipelines.prepare({
+            id,
+            role: 'compute',
+            shader: countToArgs,
+            entryPoints: ['count_to_args_main'],
+        });
     }
 
     /**
@@ -114,9 +121,11 @@ export class CountToArgs {
      * @throws Error se `counts` não foi preparado; RangeError para argumentos inválidos.
      */
     record(frame: Frame, args: CountToArgsRecordArgs): void {
-        const kernel = this.kernels.get(args.counts);
-        if (kernel === undefined)
+        const id = this.kernels.get(args.counts);
+        if (id === undefined)
             throw new Error(`CountToArgs(${this.disc}): prepare(counts) antes de gravar.`);
+        const kernel = this.ctx.work.pipelines.compute(id);
+        if (kernel === undefined) return;
         const perElement = args.perElement ?? 0;
         for (const [name, v, min] of [
             ['index', args.index, 0],
@@ -135,23 +144,25 @@ export class CountToArgs {
             per_element: perElement,
             instances: 1,
             instanced: args.instanced === true ? 1 : 0,
-            max_x: this.core.capabilities().limits.maxComputeWorkgroupsPerDimension ?? 65_535,
+            max_x: this.ctx.core.capabilities().limits.maxComputeWorkgroupsPerDimension ?? 65_535,
         });
         frame.compute('CountToArgs', (pass) => {
-            pass.bind.setPipeline(kernel.pipeline);
+            pass.bind.setPipeline(kernel.spec);
             kernel.bindTo(pass.bind, { draw: [offset] });
             pass.dispatch.workgroups(1);
         });
     }
 
-    /** Libera kernels e uniforms. */
-    destroy(): void {
-        this.releaseKernels();
-        this.params.destroy();
+    /** O kernel do registro `counts` foi preparado e está compilado (sem ele, `record` não grava). */
+    ready(counts: IndirectBufferSpec): boolean {
+        const id = this.kernels.get(counts);
+        return id !== undefined && this.ctx.work.pipelines.compute(id) !== undefined;
     }
 
-    private releaseKernels(): void {
-        for (const k of this.kernels.values()) destroyComputeKernel(this.core, k);
+    /** Libera os pipelines (as regiões de uniform são do Resource de trabalho). */
+    destroy(): void {
+        for (const id of this.kernels.values()) this.ctx.work.pipelines.release(id);
         this.kernels.clear();
+        this.params.release();
     }
 }

@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / ReduceOptions
+[clayflow](../../modules.md) / [elements](../README.md) / ReduceOptions
 
 # Interface: ReduceOptions
 
-Defined in: [elements/gpu/compute/Reduce.ts:25](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L25)
+Defined in: [src/elements/gpu/compute/Reduce.ts:34](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L34)
 
 Opções de `Reduce`.
 
@@ -16,7 +16,7 @@ Opções de `Reduce`.
 
 > `readonly` **capacity**: `number`
 
-Defined in: [elements/gpu/compute/Reduce.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L29)
+Defined in: [src/elements/gpu/compute/Reduce.ts:38](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L38)
 
 Maior `count` aceito por `record`.
 
@@ -26,7 +26,7 @@ Maior `count` aceito por `record`.
 
 > `readonly` **discriminator**: `string`
 
-Defined in: [elements/gpu/compute/Reduce.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L27)
+Defined in: [src/elements/gpu/compute/Reduce.ts:36](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L36)
 
 Prefixo único dos recursos da instância.
 
@@ -36,7 +36,7 @@ Prefixo único dos recursos da instância.
 
 > `readonly` **op**: [`ReduceOpName`](../type-aliases/ReduceOpName.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L31)
+Defined in: [src/elements/gpu/compute/Reduce.ts:40](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L40)
 
 Operação.
 
@@ -46,6 +46,6 @@ Operação.
 
 > `readonly` **type**: [`ReduceType`](../type-aliases/ReduceType.md)
 
-Defined in: [elements/gpu/compute/Reduce.ts:33](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/compute/Reduce.ts#L33)
+Defined in: [src/elements/gpu/compute/Reduce.ts:42](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/compute/Reduce.ts#L42)
 
 Tipo dos elementos.

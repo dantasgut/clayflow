@@ -2,6 +2,7 @@ import { finite, linalg, noise } from '../gpu/shaders/math';
 import { wgslResource, type WgslResourceType } from '../../scene/shaders/WgslResource';
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
+import { poolArenaReader } from '../../scene/shaders/poolArena';
 import { wgslModule } from '../../scene/shaders/WgslModule';
 import { POINT_PARAMS, wgslPoint } from '../../scene/shaders/WgslPoint';
 import surfaceFnReadySource from '../gpu/wgsl/kernels/surface_fn_ready.wgsl?raw';
@@ -64,8 +65,19 @@ export const surfaceResources = Object.freeze({
     adaptIndices: priv('adapt_indices', 'read_write', { wgsl: 'u32', array: true }),
     adaptEdges: priv('adapt_edges', 'read_write', { wgsl: 'u32', array: true }),
     adaptDraw: priv('adapt_draw', 'read_write', { wgsl: 'u32', array: true }),
-    adaptCameras: priv('adapt_cameras', 'read', { schema: Camera.matricesSchema, array: true }),
-    adaptWorlds: priv('adapt_worlds', 'read', { schema: Transform.worldSchema, array: true }),
+    // As câmeras e as matrizes de mundo pela arena da GPU (T060i).
+    adaptCameras: poolArenaReader({
+        name: 'adapt_cameras',
+        pool: Camera.matricesSchema.name,
+        schema: Camera.matricesSchema,
+        arena: 'gpu',
+    }),
+    adaptWorlds: poolArenaReader({
+        name: 'adapt_worlds',
+        pool: Transform.worldSchema.name,
+        schema: Transform.worldSchema,
+        arena: 'gpu',
+    }),
 });
 const R = surfaceResources;
 

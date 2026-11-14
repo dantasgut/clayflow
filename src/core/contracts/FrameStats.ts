@@ -22,4 +22,26 @@ export interface FrameStats {
      * (ex.: `{ TransformFlow: 41000, forward: 820000 }`). Ausente junto com `gpuTimeMs`.
      */
     readonly stagesNs?: Readonly<Record<string, number>>;
+    /** Tempo de GPU pelo caminho completo do passe (`fase/Flow/rótulo`, ns), da mesma leitura de `gpuTimeMs`. */
+    readonly scopesNs?: Readonly<Record<string, number>>;
+}
+
+/**
+ * Uma leitura de tempo de GPU de um quadro (spec 034): entregue uma única vez por `EngineCore.takeFrameTimings()`,
+ * na ordem de chegada (a GPU termina 1–3 quadros depois da gravação).
+ */
+export interface FrameGpuTiming {
+    /** Índice do quadro medido. */
+    readonly gpuFrame: number;
+    /** Soma dos passes medidos, em ms. */
+    readonly gpuTimeMs: number;
+    /**
+     * Do primeiro início ao último fim dos passes, em ms: o tempo do quadro na GPU. Menor que a soma onde a GPU sobrepõe
+     * passes seguidos (TBDR).
+     */
+    readonly spanMs: number;
+    /** Por rótulo de passe (ns). */
+    readonly stagesNs: Readonly<Record<string, number>>;
+    /** Pelo caminho completo do passe (`fase/Flow/rótulo`, ns). */
+    readonly scopesNs: Readonly<Record<string, number>>;
 }

@@ -18,6 +18,14 @@ export type {
     DeviceRecoveredPayload,
     MemoryWarningPayload,
     PresentationFallbackPayload,
+    EnginePreparingPayload,
+    EngineReadyPayload,
+    ConsumerMissingPayload,
+    GpuFrameTimedPayload,
+    VirtualTextureRequestPayload,
+    VirtualTextureDeliveryPayload,
+    VirtualTextureLevelPayload,
+    PendingWork,
 } from './EventMap';
 export { DefaultEventBus } from './DefaultEventBus';
 export type { ChangedEvent } from './ChangedEvent';

@@ -15,7 +15,7 @@ import {
     StandardMaterial,
     Transform,
     type StagingBufferSpec,
-} from 'clayflow';
+} from 'clayflow/web';
 
 /** Entidades (`--query count=N` para diagnóstico em escala menor; o critério vale para 1 milhão). */
 const COUNT = Number(new URLSearchParams(location.search).get('count') ?? 1_000_000);
@@ -56,7 +56,14 @@ async function main(): Promise<void> {
     canvas.width = 320;
     canvas.height = 180;
     document.body.appendChild(canvas);
-    const app = await Application.create({ canvas, scene: createScene(), autoResize: false });
+    const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
+        canvas,
+        scene: createScene(),
+        autoResize: false,
+    });
     app.world.insert(
         new Camera({ far: 1000 }).add(
             new Transform({
@@ -95,10 +102,14 @@ async function main(): Promise<void> {
     log(`quadros seguintes: ${frames.map((f) => f.toFixed(1)).join(', ')} ms`);
     const heap = heapBytes();
     const memory = app.core.memoryUsage(8);
-    const pools = ['Transform', 'WorldTransform', 'StandardMaterial', 'Renderable'].reduce(
-        (sum, key) => sum + (app.resources.poolInfo(key)?.buffer.byteSize ?? 0),
-        0,
-    );
+    // Pools do estado de cena (com o das matrizes do quadro anterior, spec 034 — decisão do usuário, 2026-10-21).
+    const pools = [
+        'Transform',
+        'WorldTransform',
+        'PreviousWorldTransform',
+        'StandardMaterial',
+        'Renderable',
+    ].reduce((sum, key) => sum + (app.resources.poolInfo(key)?.size ?? 0), 0);
     log(`heap JS: ${heap === undefined ? 'n/d' : mib(heap)}`);
     log(
         `GPU: total ${mib(memory.totalBytes)}, pools de cena ${mib(pools)}, além dos pools ${mib(memory.totalBytes - pools)}`,

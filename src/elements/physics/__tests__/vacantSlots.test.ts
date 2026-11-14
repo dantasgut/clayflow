@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { SPHFlow } from '../flows/SPHFlow';
 import { FluidBody } from '../bodies/FluidBody';
-import { ParticleMaterial } from '../materials/ParticleMaterial';
+import { ParticlePhysics } from '../ParticlePhysics';
 import { solverScene } from './helpers/solverScene';
 
 /** Bloco de `n` partículas em linha (x, 0, 0). */
@@ -21,7 +21,7 @@ async function setup() {
         phase: 'physics',
         bodyType: 'SPHSchema',
     });
-    s.scene.world.insert(new ParticleMaterial({ speedOfSound: 0.1, youngModulus: 1 }));
+    s.scene.world.insert(new ParticlePhysics({ speedOfSound: 0.1, youngModulus: 1 }));
     return s;
 }
 

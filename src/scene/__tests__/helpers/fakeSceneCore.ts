@@ -39,10 +39,16 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
         clear: (spec: unknown) => {
             trace.push(`clear:${disc(spec)}`);
         },
+        marker: (_label: string, body: () => void) => {
+            body();
+        },
     } as unknown as Frame;
     const core = {
         create: vi.fn(<S>(spec: S) => spec),
         shaderMessages: vi.fn(() => Promise.resolve([])),
+        withErrorScope: vi.fn(async <T>(_filter: GPUErrorFilter, body: () => T | Promise<T>) =>
+            body(),
+        ),
         createAsync: vi.fn(<S>(spec: S) => Promise.resolve(spec)),
         writeTexture: vi.fn(),
         write: vi.fn((spec: ResourceSpec) => {
@@ -66,6 +72,7 @@ export function fakeSceneCore(): { core: EngineCore; trace: string[] } {
         profiler: { isSupported: false, timestampWritesFor: () => undefined },
         setFrameProfiling: vi.fn(),
         lastFrameStats: vi.fn(() => ({ drawCalls: 0, dispatches: 0, passes: 0 })),
+        takeFrameTimings: vi.fn(() => []),
         capabilities: vi.fn(defaultCapabilities),
         canvasSize: vi.fn(() => ({ width: 800, height: 600 })),
         framesInFlight: vi.fn(() => 0),

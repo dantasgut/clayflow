@@ -203,15 +203,16 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
     getDescriptors(): readonly GPUDescriptor[] {
         const adaptive = this.adaptive;
         if (adaptive !== undefined) return this.adaptiveDescriptors(adaptive);
+        const vertices: GPUDescriptor = {
+            id: 'vertices',
+            role: 'vertex',
+            schema: ParametricSurface.vertexStruct,
+            count: this.data.vertexCount,
+            // Escritos só pelo `SurfaceFlow`.
+            upload: 'never',
+        };
         return [
-            {
-                id: 'vertices',
-                role: 'vertex',
-                schema: ParametricSurface.vertexStruct,
-                count: this.data.vertexCount,
-                // Escritos só pelo `SurfaceFlow`.
-                upload: 'never',
-            },
+            vertices,
             { id: 'indices', role: 'index', count: this.data.indexCount },
             ...this.wireDescriptors(),
             ...(this.differential
@@ -227,6 +228,7 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
                       },
                   ]
                 : []),
+            ...this.historyDescriptors(vertices),
         ];
     }
 
@@ -235,14 +237,15 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
      * todos escritos pela GPU, e o registro indireto (índices do desenho e vértices do arame, contados na GPU).
      */
     private adaptiveDescriptors(a: AdaptiveConfig): GPUDescriptor[] {
+        const vertices: GPUDescriptor = {
+            id: 'vertices',
+            role: 'vertex',
+            schema: ParametricSurface.vertexStruct,
+            count: a.vertexCapacity,
+            upload: 'never',
+        };
         return [
-            {
-                id: 'vertices',
-                role: 'vertex',
-                schema: ParametricSurface.vertexStruct,
-                count: a.vertexCapacity,
-                upload: 'never',
-            },
+            vertices,
             {
                 id: 'indices',
                 role: 'index',
@@ -267,6 +270,7 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
                 upload: 'never',
                 count: a.vertexCapacity,
             },
+            ...this.historyDescriptors(vertices),
         ];
     }
 

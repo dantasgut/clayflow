@@ -1,11 +1,11 @@
 // Campo dos fluidos (spec 033, R11): constantes, a chave e o balde de um bloco na tabela, os índices dos voxels e as
 // coordenadas. Blocos de 8³ voxels de ½ espaçamento de partícula, em coordenadas absolutas de mundo (o bloco b cobre
 // [b · 8 · voxel, (b + 1) · 8 · voxel)); a chave empacota as três coordenadas em 10 bits cada (deslocadas de 512, +1 —
-// 0 é o balde vazio). Os voxels do interior (`field_interior_at`) e os com 2 de borda de cada lado (`field_apron_at`,
-// 12³: a amostra tricúbica cabe num bloco só). O que as consultas leem fica num buffer só de palavras de 32 bits
-// (`FluidField.data`, uma ligação de storage): os limites (8 palavras, em ordem sem sinal), a tabela (chave e índice do
-// bloco por balde), os blocos (coordenadas e material, 4 palavras) e os voxels com a borda (f32), nos deslocamentos de
-// `fluid_field.limits.zw`.
+// 0 é o balde vazio). Os voxels do interior (`field_interior_at`, os temporários da construção) e os com 2 de borda de
+// cada lado (12³: a amostra tricúbica cabe num bloco só, `field_atlas_index`). O que as consultas leem fica num buffer só
+// de palavras de 32 bits (`FluidField.data`, uma ligação de storage): os limites (8 palavras, em ordem sem sinal), a
+// tabela (chave e índice do bloco por balde), os blocos (coordenadas e corpo, 4 palavras), a película, o meio dos corpos
+// e, no fim, o atlas dos voxels (uma página por bloco, T060f), nos deslocamentos de `fluid_field.limits.zw`.
 // Requer: fluid_field (os parâmetros).
 
 const FIELD_BRICK: i32 = 8;
@@ -45,8 +45,17 @@ fn field_key(b: vec3i) -> u32 {
 
 /** Balde inicial de uma chave na tabela. */
 fn field_bucket(b: vec3i) -> u32 {
-    let h = (bitcast<u32>(b.x) * 73856093u) ^ (bitcast<u32>(b.y) * 19349663u) ^ (bitcast<u32>(b.z) * 83492791u);
-    return h & fluid_field.sizes.z;
+    return hash_cell(bitcast<vec3u>(b)) & fluid_field.sizes.z;
+}
+
+/**
+ * Passo da sondagem das coordenadas `c` (T068, dupla dispersão): ímpar (percorre a tabela inteira de potência de dois) e
+ * tirado da chave — as chaves que caem no mesmo balde seguem por caminhos diferentes. Com a sondagem linear, os blocos
+ * vizinhos da água se amontoavam em sequências longas de baldes ocupados (o hash espacial põe vizinhos perto): a marcha
+ * do mapa da luz pela água 2,60 → 2,08 ms e a marcação 0,17 → 0,10 ms, na barragem de 64 000.
+ */
+fn field_step(c: vec3i) -> u32 {
+    return (field_key(c) << 1u) | 1u;
 }
 
 /** Bloco que contém o ponto de mundo `p`. */
@@ -59,8 +68,8 @@ fn field_interior_at(brick: u32, v: vec3i) -> u32 {
     return brick * FIELD_BRICK_VOXELS + u32(v.x + FIELD_BRICK * (v.y + FIELD_BRICK * v.z));
 }
 
-/** Índice de um voxel com borda (−2..9 em cada eixo) do bloco `brick`. */
-fn field_apron_at(brick: u32, v: vec3i) -> u32 {
+/** Índice do voxel `v` (−2..9 em cada eixo) do bloco `brick` no atlas (a página do bloco, T060f). */
+fn field_atlas_index(brick: u32, v: vec3i) -> u32 {
     let a = v + vec3i(FIELD_APRON);
     return brick * FIELD_APRON_VOXELS + u32(a.x + FIELD_STRIDE * (a.y + FIELD_STRIDE * a.z));
 }
@@ -88,18 +97,12 @@ fn field_super_word(slot: u32) -> u32 {
 
 /** Balde inicial de um superbloco. */
 fn field_super_bucket(s: vec3i) -> u32 {
-    let h = (bitcast<u32>(s.x) * 73856093u) ^ (bitcast<u32>(s.y) * 19349663u) ^ (bitcast<u32>(s.z) * 83492791u);
-    return h & field_super_mask();
+    return hash_cell(bitcast<vec3u>(s)) & field_super_mask();
 }
 
-/** Primeira palavra do bloco `brick` (x, y, z, material). */
+/** Primeira palavra do bloco `brick` (x, y, z, corpo). */
 fn field_brick_word(brick: u32) -> u32 {
     return fluid_field.limits.z + 4u * brick;
-}
-
-/** Palavra do voxel de índice `i` (de `field_apron_at`). */
-fn field_voxel_word(i: u32) -> u32 {
-    return fluid_field.limits.w + i;
 }
 
 /** Inteiro com sinal → sem sinal na mesma ordem (os limites por mínimo e máximo atômicos sem sinal). */

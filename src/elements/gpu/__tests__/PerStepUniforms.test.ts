@@ -1,127 +1,69 @@
 import { describe, expect, it } from 'vitest';
 import { PerStepUniforms } from '../compute/PerStepUniforms';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
-import type { UniformBufferSpec } from '../../../scene/contracts/gpu';
-import { StructSchema, fieldArray } from '../../../scene/descriptors/StructSchema';
-import { FieldType } from '../../../scene/descriptors/FieldType';
+import { ScanLevelSchema } from '../compute/schemas';
+import { workHarness } from './helpers/workHarness';
 
-/** Schema de uniform com `vec4f`s suficientes para `bytes` (múltiplo de 16). */
-function schemaOf(bytes: number): StructSchema {
-    return new StructSchema(
-        `P${bytes}`,
-        { x: FieldType.f32, n: FieldType.u32, rest: fieldArray(FieldType.vec4f, bytes / 16 - 1) },
-        { addressSpace: 'uniform' },
-    );
+function setup() {
+    const h = workHarness();
+    const uniforms = new PerStepUniforms(h.ctx, { id: 'ps', schema: ScanLevelSchema });
+    return { ...h, uniforms };
 }
 
-function setup(bytes = 80) {
-    const { core, writes } = fakeResourceCore();
-    const schema = schemaOf(bytes);
-    const params = new PerStepUniforms(core, { discriminator: 'test_params', schema });
-    return { core, writes, params, schema };
-}
-
-describe('PerStepUniforms — uma região de parâmetros por iteração', () => {
-    it('região alinhada a minUniformBufferOffsetAlignment (256)', () => {
-        const { params } = setup(80);
-        expect(params.regionSize).toBe(256);
-        expect(params.offset(0)).toBe(0);
-        expect(params.offset(3)).toBe(768);
+describe('PerStepUniforms (spec 039: uniforme por região do trabalho)', () => {
+    it('schema que não é de uniform → TypeError', () => {
+        const h = workHarness();
+        expect(
+            () =>
+                new PerStepUniforms(h.ctx, {
+                    id: 'x',
+                    schema: { addressSpace: 'storage', name: 'S' } as never,
+                }),
+        ).toThrow(TypeError);
     });
 
-    it('struct maior que o alinhamento ocupa múltiplos do alinhamento', () => {
-        const { params } = setup(304);
-        expect(params.regionSize).toBe(512);
+    it('reserve declara regiões em potência de 2 no trabalho; a C2 aloca no stride do adaptador', () => {
+        const { uniforms, resources, work } = setup();
+        expect(uniforms.reserve(3)).toBe(true);
+        expect(uniforms.capacity).toBe(4);
+        expect(uniforms.reserve(4)).toBe(false);
+        expect(uniforms.regionSize).toBe(256);
+        expect(resources.bufferOf(work, 'ps')?.byteSize).toBe(4 * 256);
     });
 
-    it('reserve cria o buffer com capacidade × região e devolve true só quando recria', () => {
-        const { params } = setup();
-        expect(params.reserve(8)).toBe(true);
-        expect(params.capacity).toBeGreaterThanOrEqual(8);
-        expect(params.buffer.byteSize).toBe(params.capacity * 256);
-        expect(params.reserve(8)).toBe(false);
-        expect(params.reserve(2)).toBe(false);
+    it('reserve maior realoca pela C2, libera o anterior e incrementa generation', () => {
+        const { uniforms, resources, work, core } = setup();
+        uniforms.reserve(2);
+        const first = resources.bufferOf(work, 'ps');
+        expect(uniforms.reserve(5)).toBe(true);
+        expect(uniforms.capacity).toBe(8);
+        expect(uniforms.generation).toBe(2);
+        expect(core.destroy).toHaveBeenCalledWith(first);
     });
 
-    it('uma única escrita por quadro com as regiões usadas preenchidas', () => {
-        const { params, writes } = setup();
-        params.reserve(4);
-        for (let i = 0; i < 3; i++) params.write(i, { x: i + 0.5, n: i === 2 ? 7 : 0 });
-        params.flush(3);
-        expect(writes).toHaveLength(1);
-        const w = writes[0]!;
-        expect(w.spec).toBe(params.buffer);
-        expect(w.offset).toBe(0);
-        expect(w.bytes.byteLength).toBe(3 * 256);
-        const f = new Float32Array(w.bytes.buffer, w.bytes.byteOffset, w.bytes.byteLength / 4);
-        expect(f[0]).toBe(0.5);
-        expect(f[64]).toBe(1.5);
-        expect(f[128]).toBe(2.5);
-        expect(new Uint32Array(w.bytes.buffer, w.bytes.byteOffset)[129]).toBe(7);
-    });
-
-    it('flush(0) não escreve', () => {
-        const { params, writes } = setup();
-        params.reserve(2);
-        params.flush(0);
-        expect(writes).toHaveLength(0);
-    });
-
-    it('source(): fonte com offset dinâmico de passo regionSize e tamanho do struct', () => {
-        const { params } = setup(80);
-        params.reserve(1);
-        expect(params.source()).toEqual({
-            kind: 'buffer',
-            buffer: params.buffer,
-            size: 80,
+    it('write + flush: cada região no seu offset, numa escrita; source() com offset dinâmico', () => {
+        const { uniforms, resources, work, bytesOf } = setup();
+        uniforms.reserve(2);
+        uniforms.write(0, { count: 10 });
+        uniforms.write(1, { count: 11 });
+        uniforms.flush(2);
+        const bytes = new Uint32Array(bytesOf(resources.bufferOf(work, 'ps')!).buffer);
+        expect([bytes[0], bytes[256 / 4]]).toEqual([10, 11]);
+        expect(uniforms.offset(1)).toBe(256);
+        expect(uniforms.source()).toMatchObject({
+            size: ScanLevelSchema.stride,
             dynamic: { stride: 256 },
         });
     });
 
-    it('source() acompanha o buffer recriado pelo reserve', () => {
-        const { params } = setup(80);
-        params.reserve(1);
-        const first = params.source();
-        params.reserve(5);
-        expect(params.source()).not.toEqual(first);
-        expect(params.source()).toMatchObject({ buffer: params.buffer });
-    });
-
-    it('crescimento recria o buffer, destrói o anterior e incrementa a geração', () => {
-        const { core, params } = setup();
-        params.reserve(4);
-        const old: UniformBufferSpec = params.buffer;
-        const gen = params.generation;
-        expect(params.reserve(params.capacity + 1)).toBe(true);
-        expect(params.buffer).not.toBe(old);
-        expect(params.generation).toBe(gen + 1);
-        expect(core.destroy).toHaveBeenCalledWith(old);
-    });
-
-    it('acesso a região além da capacidade lança', () => {
-        const { params } = setup();
-        params.reserve(2);
+    it('região fora da capacidade → RangeError; antes de reserve → erro', () => {
+        const { uniforms } = setup();
+        expect(() => uniforms.source()).toThrow(/reserve/);
+        uniforms.reserve(1);
         expect(() => {
-            params.write(params.capacity, {});
+            uniforms.write(1, {});
         }).toThrow(RangeError);
         expect(() => {
-            params.flush(params.capacity + 1);
+            uniforms.flush(2);
         }).toThrow(RangeError);
-    });
-
-    it('dispose destrói o buffer', () => {
-        const { core, params } = setup();
-        params.reserve(1);
-        const buf = params.buffer;
-        params.dispose();
-        expect(core.destroy).toHaveBeenCalledWith(buf);
-    });
-
-    it('schema que não é de uniform é recusado', () => {
-        const { core } = fakeResourceCore();
-        const storage = new StructSchema('S', { a: FieldType.vec4f });
-        expect(() => new PerStepUniforms(core, { discriminator: 'bad', schema: storage })).toThrow(
-            /uniform/,
-        );
     });
 });

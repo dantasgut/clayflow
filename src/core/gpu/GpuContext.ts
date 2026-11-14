@@ -1,23 +1,32 @@
 import type { ClampedLimit, DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
+import type {
+    PlatformAdapter,
+    PresentationContext,
+    PresentationSurface,
+} from '../contracts/PlatformAdapter';
 
 export interface GpuContext {
     readonly device: GPUDevice;
     readonly queue: GPUQueue;
-    canvas: HTMLCanvasElement | null;
-    canvasContext: GPUCanvasContext | null;
+    /** A superfície de apresentação (spec 038: o canvas, a janela ou a textura, pelo adaptador de plataforma). */
+    surface: PresentationSurface | null;
+    canvasContext: PresentationContext | null;
     canvasFormat: GPUTextureFormat;
     /** Relatório do device deste contexto (recriado junto com o device). */
     readonly capabilities: DeviceCapabilities;
 }
 
 /** Features opcionais que o motor usa quando o adaptador oferece (profiling de GPU). */
-const ENGINE_OPTIONAL_FEATURES: readonly GPUFeatureName[] = ['timestamp-query'];
+/** Features opcionais do motor: medida de tempo da GPU e a filtragem de float32 (os históricos `full`, spec 037). */
+const ENGINE_OPTIONAL_FEATURES: readonly GPUFeatureName[] = [
+    'timestamp-query',
+    'float32-filterable',
+];
 
 /** Limites com que as cenas do motor escalam: pedidos no máximo do adaptador. */
 const ENGINE_SCALE_LIMITS = [
     'maxBufferSize',
     'maxStorageBufferBindingSize',
-    'maxStorageBuffersPerShaderStage',
     'maxBindGroups',
     'maxComputeWorkgroupStorageSize',
     'maxComputeInvocationsPerWorkgroup',
@@ -27,7 +36,7 @@ const ENGINE_SCALE_LIMITS = [
  * Nomes dos limites do WebGPU. `GPUSupportedLimits` expõe os valores como getters do protótipo (não
  * enumeráveis), então o relatório os lê por nome.
  */
-const LIMIT_NAMES = [
+export const WEBGPU_LIMIT_NAMES = [
     'maxTextureDimension1D',
     'maxTextureDimension2D',
     'maxTextureDimension3D',
@@ -61,6 +70,20 @@ const LIMIT_NAMES = [
     'maxComputeWorkgroupsPerDimension',
 ] as const;
 
+/**
+ * Limites que o desenho do motor usa além dos de escala (spec 037 R7, spec 038): pedidos, como os de escala, no máximo
+ * que o adaptador informa — o ambiente se declara pelo próprio adaptador (no M4, o Chrome informa 10 buffers de
+ * storage por estágio e o wgpu do Deno 31), sem teto escrito no motor. Um pipeline que pede mais do que o dispositivo
+ * tem falha na montagem (`limit-exceeded`); um teto menor, para emular um dispositivo modesto, vem de
+ * `DeviceOptions.limitsCeiling`.
+ */
+export const ENGINE_DRAWING_LIMITS = [
+    'maxStorageBuffersPerShaderStage',
+    'maxStorageTexturesPerShaderStage',
+    'maxColorAttachments',
+    'maxColorAttachmentBytesPerSample',
+] as const;
+
 /** Resultado da criação do device: objetos de GPU e o relatório de capacidades. */
 export interface CreatedGpuContext {
     readonly device: GPUDevice;
@@ -76,7 +99,7 @@ function readLimit(limits: GPUSupportedLimits, name: string): number | undefined
 
 function readAllLimits(limits: GPUSupportedLimits): Record<string, number> {
     const out: Record<string, number> = {};
-    for (const name of LIMIT_NAMES) {
+    for (const name of WEBGPU_LIMIT_NAMES) {
         const v = readLimit(limits, name);
         if (v !== undefined) out[name] = v;
     }
@@ -84,12 +107,14 @@ function readAllLimits(limits: GPUSupportedLimits): Record<string, number> {
 }
 
 /**
- * Limites pedidos ao device: os de escala do motor no máximo do adaptador e os do usuário ajustados ao que o
- * adaptador permite (`min*` = quanto menor, mais capaz; os demais = quanto maior, mais capaz).
+ * Limites pedidos ao device: os de escala do motor no máximo do adaptador, os de desenho (`ENGINE_DRAWING_LIMITS`) também
+ * e os do usuário ajustados ao que o adaptador permite (`min*` =
+ * quanto menor, mais capaz; os demais = quanto maior, mais capaz).
  */
 function resolveLimits(
     adapterLimits: GPUSupportedLimits,
     requested: Readonly<Record<string, number>> | undefined,
+    ceiling: Readonly<Record<string, number>> | undefined,
 ): { required: Record<string, number>; clamped: ClampedLimit[] } {
     const required: Record<string, number> = {};
     const clamped: ClampedLimit[] = [];
@@ -97,6 +122,7 @@ function resolveLimits(
         const max = readLimit(adapterLimits, name);
         if (max !== undefined) required[name] = max;
     }
+    requireDrawing(adapterLimits, required);
     for (const [name, value] of Object.entries(requested ?? {})) {
         const best = readLimit(adapterLimits, name);
         if (best === undefined) {
@@ -115,7 +141,30 @@ function resolveLimits(
                   ? Math.min(current, granted)
                   : Math.max(current, granted);
     }
+    for (const [name, cap] of Object.entries(ceiling ?? {})) {
+        if (readLimit(adapterLimits, name) === undefined) {
+            throw new Error(
+                `DeviceOptions.limitsCeiling: limite desconhecido do adaptador: ${name}`,
+            );
+        }
+        if (name.startsWith('min')) {
+            throw new Error(
+                `DeviceOptions.limitsCeiling: ${name} é um limite mínimo (alinhamento); o teto vale só para os máximos`,
+            );
+        }
+        const current = required[name];
+        // Sem pedido, o device fica no padrão do WebGPU, que já é o menor possível.
+        if (current !== undefined) required[name] = Math.min(current, cap);
+    }
     return { required, clamped };
+}
+
+/** Os limites de desenho no máximo do adaptador (spec 037 R7, spec 038). */
+function requireDrawing(adapterLimits: GPUSupportedLimits, required: Record<string, number>): void {
+    for (const name of ENGINE_DRAWING_LIMITS) {
+        const max = readLimit(adapterLimits, name);
+        if (max !== undefined) required[name] = max;
+    }
 }
 
 function describeAdapter(adapter: GPUAdapter): DeviceCapabilities['adapter'] {
@@ -132,16 +181,17 @@ function describeAdapter(adapter: GPUAdapter): DeviceCapabilities['adapter'] {
 }
 
 /**
- * Cria adaptador e device aplicando `DeviceOptions` (potência, features, limites) e devolve o relatório de
- * capacidades efetivas. Rejeita se WebGPU não existe, se não há adaptador ou se uma feature obrigatória falta.
+ * Cria adaptador e device pelo adaptador de plataforma (spec 038) aplicando `DeviceOptions` (potência, features,
+ * limites) e devolve o relatório de capacidades efetivas. Rejeita se o ambiente não tem adaptador ou se uma feature
+ * obrigatória falta.
  */
-export async function createGpuContext(options: DeviceOptions = {}): Promise<CreatedGpuContext> {
-    if (!('gpu' in navigator)) {
-        throw new Error('WebGPU not supported in this browser.');
-    }
+export async function createGpuContext(
+    platform: PlatformAdapter,
+    options: DeviceOptions = {},
+): Promise<CreatedGpuContext> {
     const adapterOptions: GPURequestAdapterOptions =
         options.powerPreference !== undefined ? { powerPreference: options.powerPreference } : {};
-    const adapter = await navigator.gpu.requestAdapter(adapterOptions);
+    const adapter = await platform.requestAdapter(adapterOptions);
     if (!adapter) throw new Error('Failed to acquire GPUAdapter.');
 
     const missingRequired = (options.requiredFeatures ?? []).filter(
@@ -163,10 +213,11 @@ export async function createGpuContext(options: DeviceOptions = {}): Promise<Cre
     const { required: requiredLimits, clamped } = resolveLimits(
         adapter.limits,
         options.requiredLimits,
+        options.limitsCeiling,
     );
     const device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
     const queue = device.queue;
-    const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+    const canvasFormat = platform.preferredFormat();
     const capabilities: DeviceCapabilities = Object.freeze({
         adapter: describeAdapter(adapter),
         powerPreference: options.powerPreference ?? 'default',

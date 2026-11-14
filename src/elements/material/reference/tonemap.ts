@@ -1,6 +1,9 @@
 // Referência em CPU da apresentação (spec 011, R2): os operadores de mapeamento de tons e a codificação sRGB do módulo
 // WGSL `present`, com a mesma aritmética, para os testes e o smoke `hdr`.
 
+export { srgbDecode, srgbEncode } from '../../math/reference/color';
+import { srgbEncode } from '../../math/reference/color';
+
 import type { Vec3 } from './bsdf';
 
 const clamp01 = (x: number): number => Math.min(Math.max(x, 0), 1);
@@ -98,18 +101,6 @@ export function tonemapNeutral(c: Vec3): Vec3 {
     b *= k;
     const t = 1 - 1 / (desaturation * (peak - newPeak) + 1);
     return [r + (newPeak - r) * t, g + (newPeak - g) * t, b + (newPeak - b) * t];
-}
-
-/** Codificação sRGB (curva por partes da IEC 61966-2-1). */
-export function srgbEncode(x: number): number {
-    const c = clamp01(x);
-    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-}
-
-/** Decodificação sRGB. */
-export function srgbDecode(x: number): number {
-    const c = clamp01(x);
-    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
 /** Operadores da apresentação. */

@@ -2,7 +2,6 @@ import type { ComputePass } from './passes/ComputePass';
 import type { RenderPass } from './passes/RenderPass';
 import type { RenderTarget } from './render_target/RenderTarget';
 import type { AnyBufferSpec } from './specs/ResourceSpec';
-import type { StagingBufferSpec } from './specs/StagingBufferSpec';
 import type { TextureSpec } from './specs/TextureSpec';
 import type { TextureViewSpec } from './specs/TextureViewSpec';
 
@@ -115,15 +114,10 @@ export interface Frame {
     ): void;
 
     /**
-     * Debug marker — agrupa comandos no encoder para visualização em
-     * RenderDoc/PIX. Não tem efeito em runtime, só metadado.
+     * Grupo de depuração (`pushDebugGroup`/`popDebugGroup`) em volta de `body`: aparece nas capturas do quadro
+     * (Xcode/Metal, PIX, RenderDoc) e nas mensagens de validação. Grupos aninham; cada passe aberto dentro deles leva o
+     * caminho (`fase/Flow`) no seu par de timestamps, e os tempos por quadro saem agregados por escopo
+     * (`FrameStats.scopesNs`). Sem profiling, só o grupo de depuração.
      */
     marker(label: string, body: () => void): void;
-
-    /**
-     * Resolve timestamp queries do Profiler para um staging buffer.
-     * Chamado uma vez por frame após todos os passes que usaram timestamps.
-     * No-op se device não suporta `timestamp-query` feature.
-     */
-    resolveTimestamps(dst: StagingBufferSpec, first: number, count: number): void;
 }

@@ -5,6 +5,7 @@ import nsAssignCountSource from '../wgsl/kernels/ns_assign_count.wgsl?raw';
 import nsScatterSource from '../wgsl/kernels/ns_scatter.wgsl?raw';
 import nsFindSource from '../wgsl/kernels/ns_find.wgsl?raw';
 import nsSortCellsSource from '../wgsl/kernels/ns_sort_cells.wgsl?raw';
+import nsTableCellSource from '../wgsl/kernels/ns_table_cell.wgsl?raw';
 import { NsSimParamsSchema } from '../../gpu/schemas';
 import { poolLive } from '../compute/shaders';
 
@@ -48,8 +49,18 @@ export const neighborResources = Object.freeze({
     sortedPositionsRead: stage('sorted_positions', 'read', { wgsl: 'vec4f', array: true }),
     neighborList: stage('neighbor_list', 'read_write', u32s),
     neighborCount: stage('neighbor_count', 'read_write', u32s),
+    /** A ordem por célula: no posto `t`, a partícula + 1 (0: posto vazio). */
+    order: stage('ns_order', 'read_write', u32s),
+    orderRead: stage('ns_order', 'read', u32s),
 });
 const R = neighborResources;
+
+/** A célula da tabela que se repete no domínio (spec 034): a busca, a contagem e quem lê a grade (as secundárias). */
+export const nsTableCell = wgslModule({
+    name: 'ns_table_cell',
+    source: nsTableCellSource,
+    requires: [NONE.module],
+});
 
 /** Célula de cada partícula e contagem por célula. */
 export const nsAssignCount = wgslModule({
@@ -57,6 +68,7 @@ export const nsAssignCount = wgslModule({
     source: nsAssignCountSource,
     requires: [
         poolLive,
+        nsTableCell,
         NONE.module,
         WORKGROUP_SIZE.module,
         R.params,
@@ -79,6 +91,7 @@ export const nsScatter = wgslModule({
         R.cellIdsRead,
         R.cellCursor,
         R.sortedParticles,
+        R.order,
     ],
     structs: [NsSimParamsSchema],
 });
@@ -95,6 +108,7 @@ export const nsSortCells = wgslModule({
         R.sortedParticles,
         R.particles,
         R.sortedPositions,
+        R.order,
     ],
     structs: [NsSimParamsSchema],
 });
@@ -105,6 +119,7 @@ export const nsFind = wgslModule({
     source: nsFindSource,
     requires: [
         poolLive,
+        nsTableCell,
         WORKGROUP_SIZE.module,
         R.params,
         R.particles,
@@ -115,6 +130,7 @@ export const nsFind = wgslModule({
         R.neighborCount,
         R.live,
         R.sortedPositionsRead,
+        R.orderRead,
     ],
     structs: [NsSimParamsSchema],
 });

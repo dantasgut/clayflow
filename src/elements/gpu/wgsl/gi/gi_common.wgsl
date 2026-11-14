@@ -4,7 +4,6 @@
 // coordenadas no atlas dos mapas e a espiral de Fibonacci dos raios.
 // Requer: gi (os parâmetros).
 
-const GI_PI: f32 = 3.14159265358979;
 /** Texels por lado dos mapas de irradiância/radiância e de visibilidade (sem a borda). */
 const GI_IRRADIANCE_TEXELS: u32 = 8u;
 const GI_VISIBILITY_TEXELS: u32 = 16u;
@@ -148,6 +147,23 @@ fn gi_fibonacci(k: u32, n: u32) -> vec3f {
     let r = sqrt(max(0.0, 1.0 - z * z));
     let phi = f32(k) * golden;
     return vec3f(r * cos(phi), r * sin(phi), z);
+}
+
+/**
+ * Primeiro índice da onda dos raios do cache de irradiância nas superfícies (spec 034, T059): depois dos das sondas do
+ * mundo.
+ */
+fn gi_wave_cache_first() -> u32 {
+    return gi.rays.w * gi.rays.x;
+}
+
+/**
+ * Primeiro índice da onda dos raios das sondas de tela (spec 034 T078): uma rodada leva os raios das sondas do mundo do
+ * quadro, os do cache (com ele ligado) e, por último, os das de tela — as vagas das sondas extras vazias no quadro ficam
+ * no fim, acima dos registros gravados: abaixo deles todo índice é gravado na rodada (a separação por classe lê todos).
+ */
+fn gi_wave_screen_first() -> u32 {
+    return gi_wave_cache_first() + select(0u, gi.cache.y * gi.cache.z, gi.cache.w != 0u);
 }
 
 /** Direção do raio `k` da sonda neste quadro (a espiral girada pela rotação do quadro). */

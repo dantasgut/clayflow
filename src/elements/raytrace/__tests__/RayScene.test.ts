@@ -3,18 +3,19 @@ import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { SphereGeometry } from '../../geometry/SphereGeometry';
 import { StandardMaterial } from '../../material/StandardMaterial';
 import { Transform } from '../../scene/Transform';
-import { renderScene } from '../../../presentation/flows/__tests__/helpers/renderHarness';
+import {
+    renderScene,
+    waterMaterial,
+} from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import { RayScene } from '../RayScene';
 import { RaySceneFlow } from '../RaySceneFlow';
 import { RAY_WORDS } from '../schemas';
 import { MaterialFunction } from '../../extension/MaterialFunction';
-import { FluidSurfaceMaterial } from '../../material/FluidSurfaceMaterial';
 import { PointSpriteMaterial } from '../../material/PointSpriteMaterial';
 import { FluidBody } from '../../physics/bodies/FluidBody';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
-import { bindPoints } from '../../../scene/shaders/bindPoints';
-import { composeHitMaterial } from '../../lighting/ProbeFlow';
-import { giHitMaterialPoint, giProbeTrace } from '../../lighting/shaders';
+import { giProbeTrace } from '../../lighting/shaders';
+import { hitShade } from '../hitShade';
 
 // Estrutura de raios (spec 033, T007): descritores, uma hierarquia de baixo por conteúdo de geometria, construção uma
 // vez, hierarquia de cima a cada quadro, crescimento das capacidades.
@@ -136,9 +137,7 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         }).add(new PointSpriteMaterial({ radius: 0.05, color: [1, 0.5, 0.25, 1] }));
         s.scene.world.insert(sprites);
         s.scene.world.insert(
-            new FluidBody({ algorithm: 'SPH', position: [5, 0, 0] }).add(
-                new FluidSurfaceMaterial(),
-            ),
+            new FluidBody({ algorithm: 'SPH', position: [5, 0, 0] }).add(waterMaterial()),
         );
         s.step();
         // A caixa e as esferas construídas; a água não entra.
@@ -156,6 +155,20 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         s.step();
         expect(s.flow().lastFrame).toMatchObject({ built: 0, refit: 0, instances: 1 });
         expect(s.createdWhileRecording()).toBe(0);
+    });
+
+    it('a malha desenhada como sprites pelo material não entra como triângulos', async () => {
+        // Arrange: a caixa de triângulos e uma esfera cujo material a desenha como sprites (os vértices).
+        const s = await sceneWith(1);
+        s.scene.world.insert(
+            new SphereGeometry({ radius: 0.25 })
+                .add(new PointSpriteMaterial({ radius: 0.03 }))
+                .add(new Transform({ position: [0, 2, 0, 1] })),
+        );
+        // Act
+        s.step();
+        // Assert: só a caixa — a esfera de sprites não é uma bola para os raios.
+        expect(s.flow().lastFrame).toMatchObject({ built: 1, instances: 1 });
     });
 
     it('sem RayScene na cena o estágio não grava nada', async () => {
@@ -220,11 +233,12 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         expect(fns).toHaveLength(2);
         expect(new Set(fns.map((f) => f.functionName)).size).toBe(2);
         expect(fns.every((f) => /^material_fn_[0-9a-f]+$/.test(f.functionName))).toBe(true);
-        // As duas compõem juntas no kernel dos raios das sondas, sem símbolos repetidos.
-        const source = composeWgsl(
-            bindPoints(giProbeTrace, new Map([[giHitMaterialPoint, composeHitMaterial(fns)]])),
-        ).spec.source;
-        for (const f of fns) expect(source).toContain(`fn ${f.functionName}(`);
-        expect(source).not.toContain('fwidth');
+        // Cada uma num kernel de material próprio (spec 039: fora do traçado); o dos raios das sondas, sem nenhuma.
+        for (const f of fns) {
+            const source = composeWgsl(hitShade(f)).spec.source;
+            expect(source).toContain(`fn ${f.functionName}(`);
+            expect(source).not.toContain('fwidth');
+        }
+        expect(composeWgsl(giProbeTrace).spec.source).not.toMatch(/\bmaterial_fn_/);
     });
 });

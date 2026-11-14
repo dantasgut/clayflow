@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { radianceAt, renderPathTraced, regionMeans, type PtScene } from '../pathTracer';
+import { radianceAt, renderPathTraced, regionMeans, type PtScene, type Vec3 } from '../pathTracer';
 
 describe('traçador de caminhos de referência (spec 033, R8)', () => {
     it('forno: dentro de uma caixa emissora de albedo 0,5, a série de rebatimentos é exata', () => {
@@ -117,6 +117,82 @@ describe('traçador de caminhos de referência (spec 033, R8)', () => {
         expect(Math.abs(full.rgb[0]! - Math.exp(-1)) / Math.exp(-1)).toBeLessThan(0.04);
     });
 
+    it('meio colorido (T067a): no voo livre cada canal atenua pelo próprio coeficiente, exp(−σ_c·d)', () => {
+        const sigma: Vec3 = [0.25, 0.5, 1];
+        const scene: PtScene = {
+            objects: [
+                {
+                    id: 0,
+                    shape: { kind: 'quad', corner: [-5, -5, 5], u: [10, 0, 0], v: [0, 10, 0] },
+                    material: { albedo: [0, 0, 0], emission: [1, 1, 1] },
+                },
+            ],
+            media: [
+                {
+                    min: [-5, -5, 0],
+                    max: [5, 5, 2],
+                    scattering: [0, 0, 0],
+                    absorption: sigma,
+                    g: 0,
+                },
+            ],
+        };
+        const cam = { position: [0, 0, -1] as const, target: [0, 0, 5] as const, fovY: 0.01 };
+        const full = renderPathTraced(scene, cam, {
+            width: 1,
+            height: 1,
+            samples: 6000,
+            bounces: 0,
+        });
+        for (let c = 0; c < 3; c++) {
+            const want = Math.exp(-sigma[c]! * 2);
+            expect(Math.abs(full.rgb[c]! - want) / want).toBeLessThan(0.06);
+        }
+    });
+
+    it('dielétrico absorvente com espalhamento dentro (T067a): a absorção conta uma vez pelo caminho, não de novo do evento', () => {
+        // Índice 1 (sem Fresnel nem desvio), absorção 0,5/m por 2 m; dentro, espalhamento forte quase todo para a frente.
+        const scene: PtScene = {
+            objects: [
+                {
+                    id: 0,
+                    shape: { kind: 'quad', corner: [-50, -50, 5], u: [100, 0, 0], v: [0, 100, 0] },
+                    material: { albedo: [0, 0, 0], emission: [1, 1, 1] },
+                },
+                {
+                    id: 1,
+                    shape: { kind: 'box', min: [-5, -5, 0], max: [5, 5, 2] },
+                    material: {
+                        albedo: [0, 0, 0],
+                        dielectric: {
+                            ior: 1,
+                            color: [Math.exp(-0.5), Math.exp(-0.5), Math.exp(-0.5)],
+                            depth: 1,
+                        },
+                    },
+                },
+            ],
+            media: [
+                {
+                    min: [-5, -5, 0],
+                    max: [5, 5, 2],
+                    scattering: [2, 2, 2],
+                    absorption: [0, 0, 0],
+                    g: 0.99,
+                },
+            ],
+        };
+        const cam = { position: [0, 0, -1] as const, target: [0, 0, 5] as const, fovY: 0.01 };
+        const full = renderPathTraced(scene, cam, {
+            width: 1,
+            height: 1,
+            samples: 4000,
+            bounces: 64,
+        });
+        // Os desvios de g = 0,99 alongam o caminho em ~1 %: exp(−1) a 6 %.
+        expect(Math.abs(full.rgb[0]! - Math.exp(-1)) / Math.exp(-1)).toBeLessThan(0.06);
+    });
+
     it('regiões: média por instância vista', () => {
         const scene: PtScene = {
             objects: [
@@ -140,5 +216,30 @@ describe('traçador de caminhos de referência (spec 033, R8)', () => {
         const means = regionMeans(img);
         expect(means.get(3)?.[0]).toBeCloseTo(2, 6);
         expect(means.get(4)?.[1]).toBeCloseTo(1, 6);
+    });
+
+    it('firstSample: duas metades independentes compõem a imagem de 2N amostras', () => {
+        const scene: PtScene = {
+            objects: [
+                {
+                    id: 1,
+                    shape: { kind: 'quad', corner: [-50, 0, -50], u: [100, 0, 0], v: [0, 0, 100] },
+                    material: { albedo: [0.8, 0.8, 0.8] },
+                },
+                {
+                    id: 2,
+                    shape: { kind: 'quad', corner: [-1, 3, -1], u: [2, 0, 0], v: [0, 0, 2] },
+                    material: { albedo: [0, 0, 0], emission: [5, 5, 5] },
+                },
+            ],
+        };
+        const camera = { position: [0, 1, 4] as const, target: [0, 0, 0] as const, fovY: 1 };
+        const opts = { width: 6, height: 4, samples: 4, bounces: 1 };
+        const a = renderPathTraced(scene, camera, opts);
+        const b = renderPathTraced(scene, camera, { ...opts, firstSample: 4 });
+        const both = renderPathTraced(scene, camera, { ...opts, samples: 8 });
+        expect(Array.from(a.rgb)).not.toEqual(Array.from(b.rgb));
+        for (let i = 0; i < both.rgb.length; i++)
+            expect((a.rgb[i]! + b.rgb[i]!) / 2).toBeCloseTo(both.rgb[i]!, 6);
     });
 });

@@ -1,102 +1,98 @@
-import type { EngineCore, UniformBufferSpec } from '../../../scene/contracts/gpu';
 import type { ResolvedSource } from '../../../scene/consumers/ResolvedSource';
+import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { StructSchema } from '../../../scene/descriptors/StructSchema';
+import type { WorkContext, WorkPart } from '../../../scene/flows/FlowWork';
 
 /** Opções de `PerStepUniforms`. */
 export interface PerStepUniformsOptions {
-    /** Prefixo do discriminator do buffer (único por Flow). */
-    readonly discriminator: string;
+    /** Id do descritor no Resource de trabalho (único nele). */
+    readonly id: string;
     /** Schema do struct de parâmetros (`addressSpace: 'uniform'`): layout, empacotamento e struct WGSL. */
     readonly schema: StructSchema;
 }
 
 /**
- * Parâmetros por iteração de um Flow (passos e substeps da física, níveis da hierarquia de `Transform`): um buffer
- * uniform com **uma região por iteração** do quadro,
- * alinhada a `minUniformBufferOffsetAlignment`, escrito **uma vez por quadro** e ligado por **offset dinâmico**.
+ * Parâmetros por iteração de um Flow (passos e substeps da física, níveis da hierarquia de `Transform`): um uniforme
+ * por região (spec 039) no Resource de trabalho do Flow — **uma região por iteração** do quadro, alinhada ao
+ * `minUniformBufferOffsetAlignment` do adaptador, escrita **uma vez por quadro** e ligada por **offset dinâmico**.
  *
- * Por que existe (research A1): `core.write` entra na fila antes do command buffer do quadro — reescrever o mesmo
- * uniform durante a gravação faz todos os passes lerem o último valor. Com N passos × M substeps no mesmo quadro,
- * cada iteração precisa da sua região: o Flow grava cada região por campo (`write(i, dados)`, pelo schema), envia
- * tudo com `flush`, e liga a iteração `i` com `setBindGroup(g, bg, [offset(i)])`.
+ * Por que regiões (research A1): a escrita entra na fila antes do command buffer do quadro — reescrever o mesmo
+ * uniform durante a gravação faz todos os passes lerem o último valor. Com N passos × M substeps no mesmo quadro, cada
+ * iteração tem a sua região: o Flow grava cada região por campo (`write(i, dados)`), envia com `flush` e liga a
+ * iteração `i` com `setBindGroup(g, bg, [offset(i)])`.
  *
- * Crescimento (`reserve` acima da capacidade) recria o buffer, destrói o anterior e incrementa `generation`. No modelo
- * de slots (spec 006) o Flow chama `reserve` numa **transição** (ex.: `resourceReady` do `Time`, quando o número de
- * passos do quadro muda) e, se o buffer foi recriado, religa `source()` (`ctx.bind`) — a C2 recria os bind groups.
+ * O buffer é da C2 (descritor `regions` do trabalho). `reserve` acima da capacidade redescreve o trabalho (a C2
+ * realoca e incrementa `generation`): o Flow chama `reserve` numa **transição** e, se mudou, religa `source()`.
  */
-export class PerStepUniforms {
+export class PerStepUniforms implements WorkPart {
     private readonly schema: StructSchema;
-    private cachedRegionSize = 0;
-    private readonly discriminator: string;
-    private spec: UniformBufferSpec | null = null;
-    private staging = new ArrayBuffer(0);
+    private readonly id: string;
+    private records: Record<string, unknown>[] = [];
     private regionCount = 0;
     private bufferGeneration = 0;
 
     constructor(
-        private readonly core: EngineCore,
+        private readonly ctx: WorkContext,
         options: PerStepUniformsOptions,
     ) {
         if (options.schema.addressSpace !== 'uniform') {
             throw new TypeError(
-                `PerStepUniforms(${options.discriminator}): o schema '${options.schema.name}' precisa ser de uniform.`,
+                `PerStepUniforms(${options.id}): o schema '${options.schema.name}' precisa ser de uniform.`,
             );
         }
         this.schema = options.schema;
-        this.discriminator = options.discriminator;
+        this.id = options.id;
+        ctx.work.use(this);
     }
 
-    /**
-     * Bytes por região: o struct arredondado a `minUniformBufferOffsetAlignment` do device (lido no primeiro uso,
-     * para que o Flow possa ser construído antes do device existir).
-     */
+    descriptors(): readonly GPUDescriptor[] {
+        if (this.regionCount === 0) return [];
+        return [
+            {
+                id: this.id,
+                role: 'uniform',
+                schema: this.schema,
+                regions: { count: this.regionCount },
+            },
+        ];
+    }
+
+    /** Bytes por região: o stride do schema alinhado ao adaptador (pela C2). */
     get regionSize(): number {
-        if (this.cachedRegionSize === 0) {
-            const alignment =
-                this.core.capabilities().limits.minUniformBufferOffsetAlignment ?? 256;
-            this.cachedRegionSize = Math.ceil(this.schema.stride / alignment) * alignment;
-        }
-        return this.cachedRegionSize;
+        const stride = this.ctx.resources.regionStrideOf(this.ctx.work, this.id);
+        if (stride === undefined)
+            throw new Error(`PerStepUniforms(${this.id}): reserve() antes do uso.`);
+        return stride;
     }
 
-    /** Regiões disponíveis no buffer atual. */
+    /** Solta as regiões: o descritor sai do trabalho e a C2 libera o buffer (o próximo `reserve` declara de novo). */
+    release(): void {
+        if (this.regionCount === 0) return;
+        this.regionCount = 0;
+        this.ctx.work.refresh();
+    }
+
+    /** Regiões disponíveis. */
     get capacity(): number {
         return this.regionCount;
     }
 
-    /** Incrementa a cada recriação do buffer — bind groups com `binding(...)` precisam ser refeitos. */
+    /** Incrementa a cada realocação — bind groups com `source()` precisam ser refeitos. */
     get generation(): number {
         return this.bufferGeneration;
     }
 
-    /** Buffer atual. Lança antes do primeiro `reserve`. */
-    get buffer(): UniformBufferSpec {
-        if (this.spec === null)
-            throw new Error(`PerStepUniforms(${this.discriminator}): reserve() antes do uso.`);
-        return this.spec;
-    }
-
     /**
-     * Garante espaço para `regions` regiões. Devolve `true` quando o buffer foi (re)criado — o chamador refaz os
-     * bind groups. A capacidade cresce em potências de 2 para não recriar a cada aumento.
+     * Garante espaço para `regions` regiões. Devolve `true` quando o buffer foi realocado — o chamador religa
+     * `source()`. A capacidade cresce em potências de 2 para não realocar a cada aumento.
      */
     reserve(regions: number): boolean {
-        if (regions <= this.regionCount && this.spec !== null) return false;
+        if (regions <= this.regionCount) return false;
         let capacity = Math.max(1, this.regionCount);
         while (capacity < regions) capacity *= 2;
-        const previous = this.spec;
-        this.bufferGeneration++;
-        this.spec = this.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `${this.discriminator}:per_step:${this.bufferGeneration}`,
-            byteSize: capacity * this.regionSize,
-        });
-        const staging = new ArrayBuffer(capacity * this.regionSize);
-        new Uint8Array(staging).set(new Uint8Array(this.staging));
-        this.staging = staging;
         this.regionCount = capacity;
-        if (previous !== null) this.core.destroy(previous);
+        this.bufferGeneration++;
+        this.ctx.work.refresh();
         return true;
     }
 
@@ -105,44 +101,41 @@ export class PerStepUniforms {
         return i * this.regionSize;
     }
 
-    /** Grava a região `i` campo a campo pelo schema (padding zerado; campos ausentes ficam 0). */
+    /** Grava a região `i` campo a campo pelo schema (campos ausentes ficam 0); vai à GPU no `flush`. */
     write(i: number, data: Record<string, unknown>): void {
         this.checkRegion(i);
-        this.schema.packInto(this.staging, this.offset(i), data);
+        this.records[i] = { ...data };
     }
 
-    /** Envia as regiões `[0, count)` numa única escrita. `count = 0` não escreve. */
+    /** Envia as regiões `[0, count)` numa única escrita da C2. `count = 0` não escreve. */
     flush(count: number): void {
         if (count === 0) return;
         if (count > this.regionCount) {
             throw new RangeError(
-                `PerStepUniforms(${this.discriminator}): flush(${count}) além da capacidade ${this.regionCount}.`,
+                `PerStepUniforms(${this.id}): flush(${count}) além da capacidade ${this.regionCount}.`,
             );
         }
-        this.core.write(this.buffer, new Uint8Array(this.staging, 0, count * this.regionSize));
+        const records = Array.from({ length: count }, (_, i) => this.records[i] ?? {});
+        this.ctx.resources.writeRegions(this.ctx.work, this.id, records);
     }
 
-    /** Fonte de binding do buffer: uma região de `schema.stride` bytes, escolhida por offset dinâmico. */
+    /** Fonte de binding: uma região de `schema.stride` bytes, escolhida por offset dinâmico. */
     source(): ResolvedSource {
+        const buffer = this.ctx.resources.bufferOf(this.ctx.work, this.id);
+        if (buffer === undefined || buffer.subkind === 'staging')
+            throw new Error(`PerStepUniforms(${this.id}): reserve() antes do uso.`);
         return {
             kind: 'buffer',
-            buffer: this.buffer,
+            buffer,
             size: this.schema.stride,
             dynamic: { stride: this.regionSize },
         };
     }
 
-    /** Destrói o buffer. */
-    dispose(): void {
-        if (this.spec !== null) this.core.destroy(this.spec);
-        this.spec = null;
-        this.regionCount = 0;
-    }
-
     private checkRegion(i: number): void {
         if (!Number.isInteger(i) || i < 0 || i >= this.regionCount) {
             throw new RangeError(
-                `PerStepUniforms(${this.discriminator}): região ${i} fora de [0, ${this.regionCount}).`,
+                `PerStepUniforms(${this.id}): região ${i} fora de [0, ${this.regionCount}).`,
             );
         }
     }

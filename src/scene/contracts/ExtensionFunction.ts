@@ -107,7 +107,7 @@ function fnv(text: string): string {
  *
  * O módulo gerado contém o alias do ponto para o struct da forma (ex. `alias TransformFnParams =
  * TransformFnParams_<hash>`), o carregador `<função>_params(slot: u32) -> <struct>` — que lê o registro no pool da forma
- * (recurso declarado `<ponto>_records_<hash>`) — e o código. Pontos com várias funções no mesmo shader (`field`)
+ * (lido pela arena de pools, `<ponto>_records_<hash>[slot]`) — e o código. Pontos com várias funções no mesmo shader (`field`)
  * recebem nomes com sufixo do hash (`renamed`).
  */
 export abstract class ExtensionFunction
@@ -384,7 +384,7 @@ export abstract class ExtensionFunction
                 `// Função do ponto '${point.name}' (gerado: alias do registro tipado e carregador).`,
                 `alias ${alias} = ${struct};`,
                 `fn ${loader}(slot: u32) -> ${struct} {`,
-                `    return ${record.resource.name}[slot];`,
+                `    return ${record.resource.arenaRead.name}[slot];`,
                 '}',
             ];
             // A função obrigatória, as opcionais e o alias com o sufixo, por token (spec 031, R7): várias funções no

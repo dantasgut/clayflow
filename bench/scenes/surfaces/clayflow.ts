@@ -4,7 +4,7 @@ import {
     StandardMaterial,
     SurfaceFunction,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 import type { SceneImplementation } from '../../core/types';
 import type { ClayflowHandle } from '../../engines/clayflow';
 import { SURFACE_HALF, SURFACE_SEGMENTS } from './scene';

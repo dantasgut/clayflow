@@ -3,7 +3,16 @@ import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { GlobalIllumination } from '../../elements/lighting/GlobalIllumination';
 import { ProbeFlow } from '../../elements/lighting/ProbeFlow';
+import { Caustics } from '../../elements/lighting/caustics/Caustics';
+import { CausticsFlow } from '../../elements/lighting/caustics/CausticsFlow';
+import { RefractionFlow } from '../../elements/lighting/refraction/RefractionFlow';
+import { RefractionCompositeFlow } from './RefractionCompositeFlow';
+import { RefractionDenoiseFlow } from './RefractionDenoiseFlow';
+import { RefractionMotionFlow } from './RefractionMotionFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
+import { MaterialFunction } from '../../elements/extension/MaterialFunction';
+import { TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
+import type { Resource } from '../../scene/contracts/Resource';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
 import { SoftSurfaceFlow } from '../../elements/physics/flows/SoftSurfaceFlow';
@@ -14,16 +23,17 @@ import { DebugFlow } from './DebugFlow';
 import { TransformFlow } from '../../elements/scene/flows/TransformFlow';
 import { CameraFlow } from '../../elements/scene/flows/CameraFlow';
 import { ShadowMatrixFlow } from '../../elements/scene/flows/ShadowMatrixFlow';
+import { MotionHistoryFlow } from '../../elements/scene/flows/MotionHistoryFlow';
 import { DEFAULT_SOLVER_REGISTRATIONS } from '../../elements/physics/flows/defaultFlows';
 import { FrameTargets } from '../app/FrameTargets';
-import { WaterSurface } from '../app/WaterSurface';
-import { ToneMapping } from '../resources/ToneMapping';
+import { SceneRenderer } from '../resources/SceneRenderer';
 import { PbrTables } from '../../elements/material/pbr/PbrTables';
 import { PbrTablesFlow } from '../../elements/material/pbr/PbrTablesFlow';
 import { HemisphereLight } from '../../elements/scene/HemisphereLight';
-import { FluidFieldPassFlow } from './FluidFieldPassFlow';
-import { CausticsFlow } from './CausticsFlow';
-import { WaterFlow } from './WaterFlow';
+import { Sky } from '../../elements/scene/sky/Sky';
+import { EnvironmentMap } from '../../elements/scene/environment/EnvironmentMap';
+import { RefractionVolumeRequestFlow } from './RefractionVolumeRequestFlow';
+import { ShadowRequestFlow } from './ShadowRequestFlow';
 import { EmitterFlow } from '../../elements/particles/EmitterFlow';
 import { DiffuseFlow } from '../../elements/particles/DiffuseFlow';
 import { SurfaceFlow } from '../../elements/geometry/SurfaceFlow';
@@ -34,7 +44,12 @@ import { FluidField } from '../../elements/fields/FluidField';
 import { FluidFieldFlow } from '../../elements/fields/FluidFieldFlow';
 import { Froxels } from '../../elements/media/Froxels';
 import { FroxelFlow } from '../../elements/media/FroxelFlow';
+import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
+import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
+import { ShadowMap } from '../../elements/scene/ShadowMap';
+import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
 export interface PresentationDefaultsOptions {
@@ -47,6 +62,8 @@ export interface PresentationDefaultsOptions {
     readonly events?: EventBus;
     /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
     readonly samples?: 1 | 4;
+    /** Modo do antisserrilhado da cena (spec 034). Default `'temporal'`. */
+    readonly antialiasing?: AntialiasingMode;
 }
 
 /**
@@ -65,27 +82,19 @@ export interface PresentationDefaults {
     readonly forward: ForwardFlow;
     /** Corpos de partículas em sprites (fase `forward`, depois do forward), lidos direto dos pools dos corpos. */
     readonly particles: ParticleFlow;
-    /** Superfície de água vista pela câmera, pela marcha no campo dos fluidos (fase `forward`, depois dos sprites). */
-    readonly fluidSurface: FluidFieldPassFlow;
-    /** Superfície de água vista pela luz que projeta sombra, pela marcha no campo (fase `shadow`, depois do mapa). */
-    readonly fluidLightSurface: FluidFieldPassFlow;
-    /** Cáusticas da água em espaço da luz (fase `shadow`, depois da superfície vista pela luz). */
-    readonly caustics: CausticsFlow;
-    /** Composição óptica da água nos alvos da cena (fase `forward`, depois da superfície). */
-    readonly water: WaterFlow;
     /** Passe de profundidade do ponto de vista da luz que projeta sombra, no `ShadowMap` dela. */
     readonly shadow: ShadowFlow;
-    /** Post-processing chain (Bloom/Fxaa/etc. em ping-pong). */
+    /** Post-processing chain (Bloom/Vignette/etc. em ping-pong). */
     readonly post: PostFlow;
     /** UI pass (quads + glyphs sobre o canvas). */
     readonly ui: UIFlow;
     /** Debug overlay — emite profilerStats event quando habilitado. */
     readonly debug: DebugFlow;
     /**
-     * Apresentação da cena (spec 011): exposição, mapeamento de tons e saída — ajuste em `data`
-     * (`defaults.presentation.data.exposure = 1`).
+     * O renderizador da cena (spec 039): o perfil de qualidade, os caminhos de luz, as cáusticas, o antisserrilhado, o
+     * filtro temporal e a saída (`defaults.renderer.profile = 'medium'`, `defaults.renderer.output.data.exposure = 1`).
      */
-    readonly presentation: ToneMapping;
+    readonly renderer: SceneRenderer;
     /**
      * Luz ambiente da cena (spec 011): o hemisfério céu/chão no lugar da constante escondida — ajuste em `data`
      * (`defaults.ambient.data.intensity = 0.5`) ou remova do World (só as luzes diretas iluminam).
@@ -100,10 +109,9 @@ interface RegisteredDefaults {
     readonly defaults: PresentationDefaults;
     readonly registrations: readonly FlowRegistration[];
     readonly frameTargets: FrameTargets;
-    readonly waterSurface: WaterSurface;
     readonly fluidField: FluidField;
     readonly froxels: Froxels;
-    readonly presentation: ToneMapping;
+    readonly renderer: SceneRenderer;
     readonly pbrTables: PbrTables;
     readonly ambient: HemisphereLight;
     readonly world: World;
@@ -139,18 +147,20 @@ export function registerPresentationDefaults(
     }
     const frameTargets = new FrameTargets({ samples: options.samples ?? 4 });
     options.world.insert(frameTargets);
-    // Superfície de água (spec 017): texturas sob demanda, alocadas só quando entra água.
-    const waterSurface = new WaterSurface();
-    options.world.insert(waterSurface);
-    // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos com `FluidSurfaceMaterial`, na GPU.
+    // Campo dos fluidos (spec 033, R11): a superfície contínua dos corpos de fluido (a aparência pelo grafo), na GPU.
     const fluidField = new FluidField();
     options.world.insert(fluidField);
     // Froxels dos meios participantes (spec 033, R12): a névoa dos `FogVolume`, sem nada a fazer enquanto não há.
     const froxels = new Froxels();
     options.world.insert(froxels);
-    // Apresentação (spec 011): o último passo do quadro, lido pelo pós pelo slot.
-    const presentation = new ToneMapping();
-    options.world.insert(presentation);
+    // O renderizador (spec 039): numa entidade, a saída (lida pelo pós), o antisserrilhado (o estágio de câmera desloca
+    // a amostra, o pós resolve o histórico), a refração traçada (os alvos só com um transmissivo desenhado) e o filtro
+    // do sinal traçado; as cáusticas entram com o primeiro transmissivo.
+    const renderer = new SceneRenderer({ antialiasing: options.antialiasing ?? 'temporal' });
+    options.world.insert(renderer);
+    // A névoa segue o perfil do renderizador (a resolução dos froxels, spec 034 T079); a luz global e as sombras, por
+    // evento quando entram (`followRenderer`).
+    renderer.adopt(froxels);
     // Tabelas do sombreamento físico (spec 011): geradas na GPU uma vez pelo `PbrTablesFlow`.
     const pbrTables = new PbrTables();
     options.world.insert(pbrTables);
@@ -158,13 +168,24 @@ export function registerPresentationDefaults(
     const ambient = new HemisphereLight();
     options.world.insert(ambient);
     const { flows: stages, registrations } = createPresentationDefaults(flows);
+    const events = options.events;
     const unsubscribe =
-        options.events === undefined
+        events === undefined
             ? undefined
-            : swapAmbientForGi(options.world, options.events, ambient, frameTargets);
+            : ((): (() => void) => {
+                  const offs = [
+                      swapAmbientForGi(options.world, events, ambient, frameTargets),
+                      raySceneForTransmissives(options.world, events, renderer),
+                      warnRaySceneUnsupported(options.world, events, renderer),
+                      followRenderer(options.world, events, renderer),
+                  ];
+                  return () => {
+                      for (const off of offs) off();
+                  };
+              })();
     const defaults: PresentationDefaults = {
         ...stages,
-        presentation,
+        renderer,
         ambient,
         targets: frameTargets,
     };
@@ -172,10 +193,9 @@ export function registerPresentationDefaults(
         defaults,
         registrations,
         frameTargets,
-        waterSurface,
         fluidField,
         froxels,
-        presentation,
+        renderer,
         pbrTables,
         ambient,
         world: options.world,
@@ -200,8 +220,9 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     if (entry.world.entityIdOfResource(entry.ambient) !== undefined)
         entry.world.remove(entry.ambient);
     entry.world.remove(entry.pbrTables);
-    entry.world.remove(entry.presentation);
-    entry.world.remove(entry.waterSurface);
+    entry.world.remove(entry.renderer);
+    const caustics = entry.renderer.causticsResource;
+    if (entry.world.entityIdOfResource(caustics) !== undefined) entry.world.remove(caustics);
     entry.world.remove(entry.fluidField);
     entry.world.remove(entry.froxels);
     entry.world.remove(entry.frameTargets);
@@ -209,11 +230,103 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
 }
 
 /**
- * Hemisfério e iluminação global por evento (spec 033, R7): a entrada de uma `GlobalIllumination` retira o hemisfério
- * dos estágios padrão (o céu com oclusão o substitui, sem contar o ambiente duas vezes), insere a `RayScene` que os
- * raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento por
- * pixel fica caro: cada pixel sombreado uma vez); a saída da última devolve o hemisfério e o passe como estava.
+ * Estrutura de raios para a refração (spec 034, R1) e o transporte das cáusticas (T067c) por evento: o que um
+ * transmissivo mostra vem do traçado, que consulta a `RayScene` — com a GI desligada também —, e a luz que passa por ele
+ * chega pelas cáusticas. A entrada de uma função `material` transmissiva (o vidro, a água) — ou uma já na cena — insere
+ * a `RayScene` e as cáusticas do renderizador, se a cena não tem (desligadas pelo renderizador, ficam desligadas).
  * Devolve o cancelamento.
+ */
+function raySceneForTransmissives(
+    world: World,
+    events: EventBus,
+    renderer: SceneRenderer,
+): () => void {
+    const ensure = (resources: Iterable<Resource>): void => {
+        for (const r of resources) {
+            const transmissive =
+                r instanceof MaterialFunction && (r.lobeMask & TRANSMISSIVE_LOBES) !== 0;
+            if (!transmissive) continue;
+            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
+                world.insert(new RayScene());
+            if (world.queryBySchemaName(Caustics.schema.name).length === 0)
+                world.insert(renderer.causticsResource);
+            return;
+        }
+    };
+    for (const record of world.allRecords()) ensure(record.resources);
+    return events.on('resourcesChanged', (e) => {
+        ensure(e.added);
+    });
+}
+
+/**
+ * A estrutura de raios que não coube no dispositivo (`raySceneUnsupported`, spec 034 T046) avisa, por evento, o que
+ * depende dela na cena: a refração (`refractionUnsupported`), com um transmissivo e a refração ligada no renderizador,
+ * e a luz global (`globalIlluminationUnsupported`), com uma `GlobalIllumination` — cada aviso uma vez, também para o que
+ * entra depois. Devolve o cancelamento.
+ */
+function warnRaySceneUnsupported(
+    world: World,
+    events: EventBus,
+    renderer: SceneRenderer,
+): () => void {
+    let reason: string | undefined;
+    let refraction = false;
+    let gi = false;
+    const warn = (resources: Iterable<Resource>): void => {
+        if (reason === undefined) return;
+        for (const r of resources) {
+            const transmissive =
+                r instanceof MaterialFunction && (r.lobeMask & TRANSMISSIVE_LOBES) !== 0;
+            if (!refraction && transmissive && renderer.lightPaths.refraction) {
+                refraction = true;
+                events.emit('refractionUnsupported', { reason });
+            }
+            if (!gi && r instanceof GlobalIllumination) {
+                gi = true;
+                events.emit('globalIlluminationUnsupported', { reason });
+            }
+        }
+    };
+    const offs = [
+        events.on('raySceneUnsupported', (e) => {
+            reason = e.reason;
+            for (const record of world.allRecords()) warn(record.resources);
+        }),
+        events.on('resourcesChanged', (e) => {
+            warn(e.added);
+        }),
+    ];
+    return () => {
+        for (const off of offs) off();
+    };
+}
+
+/**
+ * A luz global e os mapas de sombra da cena seguem o renderizador por evento (spec 034, T079): os que entram — e os já
+ * na cena — recebem os valores do perfil e dos ajustes dele (o que a autoria fixou neles vale por cima); os que saem
+ * deixam de segui-lo. Devolve o cancelamento.
+ */
+function followRenderer(world: World, events: EventBus, renderer: SceneRenderer): () => void {
+    const follows = (r: Resource): r is GlobalIllumination | ShadowMap =>
+        r instanceof GlobalIllumination || r instanceof ShadowMap;
+    for (const record of world.allRecords())
+        for (const r of record.resources) if (follows(r)) renderer.adopt(r);
+    return events.on('resourcesChanged', (e) => {
+        for (const r of e.removed) if (follows(r)) renderer.release(r);
+        for (const r of e.added) if (follows(r)) renderer.adopt(r);
+    });
+}
+
+/**
+ * Hemisfério e iluminação global por evento (spec 033, R7): com uma `GlobalIllumination` na cena, a luz ambiente
+ * constante do hemisfério dos estágios padrão sai (a luz que volta do céu é a das sondas, com a oclusão da cena, sem
+ * contar o ambiente duas vezes); o hemisfério fica como o ambiente dos raios que escapam — o céu e o chão que as sondas e
+ * a refração veem (spec 034: retirado inteiro, o raio que saía da cena via preto) — a menos que a cena tenha o próprio
+ * ambiente (`Sky`, `EnvironmentMap`), que então é o único (retirado, como antes). A entrada da GI insere a `RayScene`
+ * que os raios das sondas consultam, se a cena não tem, e liga o passe de profundidade dos `FrameTargets` (o sombreamento
+ * por pixel fica caro: cada pixel sombreado uma vez); sem GI, o hemisfério e o passe voltam como estavam. Devolve o
+ * cancelamento.
  */
 function swapAmbientForGi(
     world: World,
@@ -222,24 +335,43 @@ function swapAmbientForGi(
     targets: FrameTargets,
 ): () => void {
     const prepass = targets.data.depthPrepass;
-    const giCount = (): number => world.queryBySchemaName(GlobalIllumination.schema.name).length;
+    const count = (name: string): number => world.queryBySchemaName(name).length;
+    // O hemisfério retirado por esta troca (a cena com o próprio ambiente) — só ele volta; o que a cena retirou fica fora.
+    let removed = false;
     return events.on('resourcesChanged', (e) => {
-        const added = e.added.some((r) => r instanceof GlobalIllumination);
-        const removed = e.removed.some((r) => r instanceof GlobalIllumination);
-        if (added) {
-            if (world.entityIdOfResource(ambient) !== undefined) world.remove(ambient);
-            if (world.queryBySchemaName(RayScene.schema.name).length === 0)
-                world.insert(new RayScene());
+        const touched = [...e.added, ...e.removed].some(
+            (r) =>
+                r instanceof GlobalIllumination || r instanceof Sky || r instanceof EnvironmentMap,
+        );
+        if (!touched) return;
+        const gi = count(GlobalIllumination.schema.name) > 0;
+        const environment = count(Sky.schema.name) + count(EnvironmentMap.schema.name) > 0;
+        const inWorld = world.entityIdOfResource(ambient) !== undefined;
+        if (gi) {
+            ambient.lighting = false;
+            if (environment && inWorld) {
+                world.remove(ambient);
+                removed = true;
+            }
+            if (!environment && removed) {
+                removed = false;
+                world.insert(ambient);
+            }
+            if (count(RayScene.schema.name) === 0) world.insert(new RayScene());
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
-        } else if (removed && giCount() === 0) {
-            if (world.entityIdOfResource(ambient) === undefined) world.insert(ambient);
+        } else if (e.removed.some((r) => r instanceof GlobalIllumination)) {
+            ambient.lighting = true;
+            if (removed) {
+                removed = false;
+                world.insert(ambient);
+            }
             if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
         }
     });
 }
 
 function createPresentationDefaults(flows: FlowRegistry): {
-    flows: Omit<PresentationDefaults, 'presentation' | 'ambient' | 'targets'>;
+    flows: Omit<PresentationDefaults, 'renderer' | 'ambient' | 'targets'>;
     registrations: readonly FlowRegistration[];
 } {
     const transformRegistration = flows.register((ctx) => new TransformFlow(ctx), {
@@ -315,11 +447,24 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'shadow',
         priority: -5,
     });
+    // Cáusticas (spec 034, T067c) depois das sondas: os fótons pela estrutura de raios e pela superfície da água.
+    const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
+        type: 'caustics',
+        phase: 'shadow',
+        priority: -10,
+    });
     // Névoa (spec 033, R12) depois das sondas e da vista da luz da água (a luz rebatida e o meio até as luzes prontos).
     const froxelRegistration = flows.register((ctx) => new FroxelFlow(ctx), {
         type: 'froxels',
         phase: 'shadow',
         priority: -30,
+    });
+    // Texturas virtuais dos materiais (spec 034, T060c) antes do desenho: as cargas no atlas, a tabela renovada pelos
+    // pedidos do quadro anterior e a fatia de agora dos pedidos zerada para o desenho. Sem `VirtualTextures`, pendente.
+    flows.register((ctx) => new VirtualTextureFlow(ctx), {
+        type: 'virtualTextures',
+        phase: 'shadow',
+        priority: -40,
     });
     const forwardRegistration = flows.register((ctx) => new ForwardFlow(ctx, { output: 'scene' }), {
         type: 'forward',
@@ -331,26 +476,48 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -50,
     });
-    // Água (spec 017; superfície pelo campo dos fluidos, spec 033): superfície vista pela luz e cáusticas depois do mapa
-    // de sombra; superfície vista pela câmera e composição depois dos opacos e dos sprites (lê a profundidade da cena),
-    // antes da depuração.
-    const fluidLightRegistration = flows.register(
-        (ctx) => new FluidFieldPassFlow(ctx, { view: 'light' }),
-        { type: 'fluidLightSurface', phase: 'shadow', priority: -10 },
-    );
-    const causticsRegistration = flows.register((ctx) => new CausticsFlow(ctx), {
-        type: 'caustics',
-        phase: 'shadow',
-        priority: -20,
-    });
-    const fluidRegistration = flows.register(
-        (ctx) => new FluidFieldPassFlow(ctx, { view: 'camera' }),
-        { type: 'fluidSurface', phase: 'forward', priority: -60 },
-    );
-    const waterRegistration = flows.register((ctx) => new WaterFlow(ctx), {
-        type: 'water',
+    // Pedidos de páginas do mapa de sombra virtual (spec 034, T060): a profundidade da cena deste quadro, depois do
+    // desenho dos opacos e dos sprites, para o estágio de sombra do quadro seguinte.
+    const shadowRequestRegistration = flows.register((ctx) => new ShadowRequestFlow(ctx), {
+        type: 'shadowRequest',
         phase: 'forward',
-        priority: -70,
+        priority: -55,
+    });
+    // Pedido da refração pelos volumes (spec 034, T065f): a superfície da água à frente dos opacos (ou todo pixel com a
+    // câmera dentro dela) no pedido, depois do dos transmissivos (forward) e dos sprites, antes do traçado.
+    const volumeRequestRegistration = flows.register(
+        (ctx) => new RefractionVolumeRequestFlow(ctx),
+        {
+            type: 'refractionVolumeRequest',
+            phase: 'forward',
+            priority: -61,
+        },
+    );
+    // Refração traçada (spec 034, R1): depois do pedido dos transmissivos (forward), dos sprites e do pedido pelos
+    // volumes.
+    const refractionRegistration = flows.register((ctx) => new RefractionFlow(ctx), {
+        type: 'refraction',
+        phase: 'forward',
+        priority: -65,
+    });
+    // Filtro do sinal traçado da refração (T044a), com o antisserrilhado temporal: entre o traçado e a composição, que
+    // lê a cor filtrada.
+    const refractionDenoiseRegistration = flows.register((ctx) => new RefractionDenoiseFlow(ctx), {
+        type: 'refractionDenoise',
+        phase: 'forward',
+        priority: -66,
+    });
+    // Composição da refração traçada (T045) logo depois do traçado, antes da água: a água e a resolução veem a cor e a
+    // profundidade dos transmissivos.
+    const refractionCompositeRegistration = flows.register(
+        (ctx) => new RefractionCompositeFlow(ctx),
+        { type: 'refractionComposite', phase: 'forward', priority: -67 },
+    );
+    // Movimento do que a refração mostra (T044a), antes da água (que mistura o movimento dela sobre o do fundo).
+    const refractionMotionRegistration = flows.register((ctx) => new RefractionMotionFlow(ctx), {
+        type: 'refractionMotion',
+        phase: 'forward',
+        priority: -68,
     });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
@@ -374,6 +541,25 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'physics',
         priority: -50,
     });
+    // Histórico de movimento (spec 034): a primeira coisa do quadro (fase `physics`, maior prioridade), antes de qualquer
+    // escrita nas matrizes de mundo.
+    const motionHistoryRegistration = flows.register((ctx) => new MotionHistoryFlow(ctx), {
+        type: 'motionHistory',
+        phase: 'physics',
+        priority: 1000,
+    });
+    // A energia dos corpos rígidos (spec 037) depois dos solvers: só com um `EnergyMeter` na cena.
+    flows.register((ctx) => new EnergyFlow(ctx), {
+        type: 'energy',
+        phase: 'physics',
+        priority: 0,
+    });
+    // A dos corpos moles (spec 037) depois de todos os solvers (os de prioridade 0 se registram depois): idem.
+    flows.register((ctx) => new SoftEnergyFlow(ctx), {
+        type: 'softEnergy',
+        phase: 'physics',
+        priority: -10,
+    });
     // Solvers padrão por factory: a C2 instancia cada um no primeiro corpo do seu tipo.
     const solvers = DEFAULT_SOLVER_REGISTRATIONS.map((r) => flows.register(r.factory, r.options));
     return {
@@ -384,15 +570,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
             shadow: shadowRegistration.flow!,
             forward: forwardRegistration.flow!,
             particles: particleRegistration.flow!,
-            fluidSurface: fluidRegistration.flow!,
-            fluidLightSurface: fluidLightRegistration.flow!,
-            caustics: causticsRegistration.flow!,
-            water: waterRegistration.flow!,
             post: postRegistration.flow!,
             ui: uiRegistration.flow!,
             debug: debugRegistration.flow!,
         },
         registrations: [
+            motionHistoryRegistration,
             transformRegistration,
             pbrTablesRegistration,
             cameraRegistration,
@@ -405,13 +588,16 @@ function createPresentationDefaults(flows: FlowRegistry): {
             raySceneRegistration,
             shadowRegistration,
             probeRegistration,
+            causticsRegistration,
             froxelRegistration,
             forwardRegistration,
             particleRegistration,
-            fluidLightRegistration,
-            causticsRegistration,
-            fluidRegistration,
-            waterRegistration,
+            volumeRequestRegistration,
+            shadowRequestRegistration,
+            refractionRegistration,
+            refractionDenoiseRegistration,
+            refractionCompositeRegistration,
+            refractionMotionRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

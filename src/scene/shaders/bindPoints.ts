@@ -1,5 +1,7 @@
 import { WgslCompositionError } from './WgslCompositionError';
+import { isArenaReader } from './poolArena';
 import { wgslModule, type WgslModule } from './WgslModule';
+import { isWgslResource } from './WgslResource';
 
 /** O que `bindPoints` usa de um ponto (`WgslPoint`): o nome e o módulo pronto que a implementação substitui. */
 export interface BindablePoint {
@@ -10,6 +12,17 @@ export interface BindablePoint {
 }
 
 const memo = new WeakMap<WgslModule, Map<string, WgslModule>>();
+/** As trocas aplicadas em cada módulo devolvido (as do módulo de entrada, se ele mesmo já vinha trocado, e as novas). */
+const applied = new WeakMap<WgslModule, ReadonlyMap<BindablePoint, WgslModule>>();
+
+/**
+ * As trocas que `bindPoints` aplicou no módulo `m` (vazio se ele não saiu de `bindPoints`): ponto → implementação. Quem
+ * troca outros pontos depois no mesmo shader (a C2, com as contribuições da cena) as aplica também dentro dos módulos
+ * que acrescenta — uma contribuição que chama o ponto usa a implementação que o shader já tem, não o pronto.
+ */
+export function boundImplementations(m: WgslModule): ReadonlyMap<BindablePoint, WgslModule> {
+    return applied.get(m) ?? new Map();
+}
 
 /**
  * Módulo de entrada com a implementação de cada ponto trocada (spec 009): a árvore de `requires` de `entry` é
@@ -34,6 +47,17 @@ export function bindPoints(
     const swap = new Map<WgslModule, WgslModule>(pairs.map(([p, m]) => [p.ready, m]));
     const found = new Set<WgslModule>();
     const rewritten = new Map<WgslModule, WgslModule>();
+    // Reescritas iguais (o mesmo nome, a mesma fonte e as mesmas dependências) são um módulo só: o mesmo módulo pode
+    // chegar por dois caminhos já reescritos de formas diferentes (o shader de quem desenha, já trocado, e uma
+    // contribuição da cena com o original) e sair igual dos dois.
+    const canonical = new Map<string, WgslModule[]>();
+    // Recursos declarados só são o mesmo módulo se forem o mesmo (o de leitura e o de escrita de uma arena têm o mesmo
+    // nome e fonte vazia).
+    const same = (a: WgslModule, b: WgslModule): boolean =>
+        (isWgslResource(a) || isWgslResource(b) ? a === b : true)
+        && a.source === b.source
+        && a.requires.length === b.requires.length
+        && a.requires.every((r, k) => r === b.requires[k]);
     const visit = (m: WgslModule): WgslModule => {
         const direct = swap.get(m);
         if (direct !== undefined) {
@@ -45,16 +69,22 @@ export function bindPoints(
         const done = rewritten.get(m);
         if (done !== undefined) return done;
         const requires = m.requires.map(visit);
-        const same = requires.every((r, k) => r === m.requires[k]);
-        const out = same
-            ? m
-            : wgslModule({
-                  name:
-                      m === entry ? `${m.name}@${pairs.map(([, i]) => i.name).join('+')}` : m.name,
-                  source: m.source,
-                  requires,
-                  structs: m.structs,
-              });
+        const unchanged = requires.every((r, k) => r === m.requires[k]);
+        const rebuilt = (): WgslModule => {
+            const r = wgslModule({
+                name: m === entry ? `${m.name}@${pairs.map(([, i]) => i.name).join('+')}` : m.name,
+                source: m.source,
+                requires,
+                structs: m.structs,
+            });
+            // Um leitor da arena de pools (T060i) continua leitor.
+            return isArenaReader(m) ? Object.freeze({ ...r, arenaRead: m.arenaRead }) : r;
+        };
+        let out = unchanged ? m : rebuilt();
+        const twins = canonical.get(out.name) ?? [];
+        const twin = twins.find((t) => same(t, out));
+        if (twin !== undefined) out = twin;
+        else canonical.set(out.name, [...twins, out]);
         rewritten.set(m, out);
         return out;
     };
@@ -68,6 +98,7 @@ export function bindPoints(
         );
     }
     byKey.set(key, result);
+    applied.set(result, new Map([...boundImplementations(entry), ...pairs]));
     return result;
 }
 

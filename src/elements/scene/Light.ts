@@ -22,7 +22,10 @@ export interface LightData {
     direction: number[];
     /** Cor RGBA linear. */
     color: number[];
-    /** Cones da spot em radianos (`[interno, externo, 0, 0]`); zeros nas outras. */
+    /**
+     * Cones da spot em radianos (`[interno, externo, 0, 0]`); na direcional, `[0, 0, raio angular do disco, 0]` (o sol:
+     * 0,00466 rad); zeros nas outras.
+     */
     cones: number[];
 }
 
@@ -34,7 +37,7 @@ export interface LightValues extends Partial<Omit<LightData, 'kind' | 'castShado
 
 /**
  * Base dos tipos de luz (`DirectionalLight`, `PointLight`, `SpotLight`): um struct comum num pool, lido pela
- * contribuição das luzes ao ponto de cena `scene_lighting` (spec 011) — o desenho não conhece nenhuma classe de luz.
+ * contribuição das luzes ao ponto de cena `scene_direct_lighting` (spec 011) — o desenho não conhece nenhuma classe de luz.
  * Cor e intensidade em unidades físicas: lux na direcional, candela na pontual e na spot.
  *
  * `kind`: 0 = direcional, 1 = pontual, 2 = spot.

@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { ambientParamsUniform, evalParams, indirectParams } from '../closure';
+import {
+    CLOSURE_SIZE,
+    closureAdd,
+    closureDiffuse,
+    closureMediumPriority,
+    closureThinWalled,
+    closureMix,
+    closureTransmission,
+    flattenClosure,
+    unflattenClosure,
+} from '../closureNodes';
 
 // Referência do fechamento pronto (spec 011): o forno fecha em 1 e a luz por trás não reflete.
 
@@ -43,5 +54,29 @@ describe('base do OpenPBR — referência de CPU', () => {
             specular: [1, 1, 1],
         });
         expect(rough[0]).toBeCloseTo(0, 10);
+    });
+
+    it('prioridade do meio (spec 034): padrão 0; soma, mistura e achatamento mantêm a maior', () => {
+        const water = closureTransmission(1.33, [1, 1, 1], 0, 0, 0);
+        const glass = closureMediumPriority(closureTransmission(1.5, [1, 1, 1], 0, 0, 0), 1);
+        expect(water.transmission_priority).toBe(0);
+        expect(glass.transmission_priority).toBe(1);
+        expect(closureAdd(water, glass).transmission_priority).toBe(1);
+        expect(closureAdd(glass, closureDiffuse([1, 1, 1], 0)).transmission_priority).toBe(1);
+        expect(closureMix(water, glass, 0.3).transmission_priority).toBe(1);
+        const flat = flattenClosure(glass);
+        expect(flat).toHaveLength(CLOSURE_SIZE);
+        expect(unflattenClosure(flat)).toEqual(glass);
+    });
+
+    it('parede fina (spec 034): padrão 0; só a marca muda; soma, mistura e achatamento a mantêm', () => {
+        const glass = closureTransmission(1.5, [0.5, 0.6, 0.7], 2, 30, 0.2);
+        const pane = closureThinWalled(glass);
+        expect(glass.transmission_thin).toBe(0);
+        expect(pane).toEqual({ ...glass, transmission_thin: 1 });
+        expect(closureAdd(glass, pane).transmission_thin).toBe(1);
+        expect(closureAdd(closureDiffuse([1, 1, 1], 0), pane).transmission_thin).toBe(1);
+        expect(closureMix(glass, pane, 0.3).transmission_thin).toBe(1);
+        expect(unflattenClosure(flattenClosure(pane))).toEqual(pane);
     });
 });

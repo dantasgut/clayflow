@@ -4,7 +4,11 @@ import { registerPresentationDefaults } from '../../../presentation/flows/defaul
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
 import { StandardMaterial } from '../../material/StandardMaterial';
-import { rayVolumeTransmittancePoint } from '../../raytrace/points';
+import {
+    rayMediaTransmittancePoint,
+    rayVolumeScatterPoint,
+    rayVolumeTransmittancePoint,
+} from '../../raytrace/points';
 import { Camera } from '../../scene/Camera';
 import { DirectionalLight } from '../../scene/DirectionalLight';
 import { lightTransmissionPoint } from '../../scene/points/lighting';
@@ -14,7 +18,13 @@ import { DensityFunction } from '../../extension/DensityFunction';
 import { FogVolume } from '../FogVolume';
 import { Froxels } from '../Froxels';
 import { FOG_DENSITY, FOG_SHAPE, FROXEL_GRID } from '../schemas';
-import { froxelAmbient, froxelInject, froxelIntegrate, mediaLookup } from '../shaders';
+import {
+    froxelAmbient,
+    froxelInject,
+    froxelIntegrate,
+    froxelResolve,
+    mediaLookup,
+} from '../shaders';
 
 // Névoa volumétrica (spec 033, T055): a validação do `FogVolume` (forma, densidade constante, por função, por grafo ou
 // por grade, albedo, anisotropia, emissão), as contribuições dos `Froxels` só com névoa (`scene_fog`,
@@ -84,8 +94,8 @@ describe('FogVolume (spec 033, T055)', () => {
             'params',
             'media',
             'scatter',
-            'history0',
-            'history1',
+            'current',
+            'history',
             'ambient',
             'sampler',
         ]);
@@ -100,9 +110,13 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(contributions.map((c) => c.point)).toEqual([
             sceneFogPoint,
             rayVolumeTransmittancePoint,
+            rayMediaTransmittancePoint,
+            rayVolumeScatterPoint,
             lightTransmissionPoint,
         ]);
         expect(contributions.map((c) => c.build(() => undefined))).toEqual([
+            undefined,
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -111,9 +125,17 @@ describe('FogVolume (spec 033, T055)', () => {
         const modules = contributions.map((c) => c.build(() => undefined)!);
         expect(composeWgsl(modules[0]!).spec.source).toContain('fn scene_fog(p: vec3f) -> vec4f');
         expect(composeWgsl(modules[1]!).spec.source).toContain(
-            'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f',
+            'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );
+        // O espalhamento nos raios (T058): a amostra no trecho com o peso, o albedo e a anisotropia.
+        // Só a névoa, para a pilha da refração (T075): a transmitância dos volumes de névoa, sem os da cena.
         expect(composeWgsl(modules[2]!).spec.source).toContain(
+            'fn ray_media_transmittance(origin: vec3f, dir: vec3f, t_max: f32) -> vec3f',
+        );
+        expect(composeWgsl(modules[3]!).spec.source).toContain(
+            'fn ray_volume_scatter(origin: vec3f, dir: vec3f, t_max: f32, u: f32) -> RayVolumeScatter',
+        );
+        expect(composeWgsl(modules[4]!).spec.source).toContain(
             'fn light_transmission(light: u32, p: vec3f) -> vec3f',
         );
         // Com uma função de densidade: a composição troca a pronta pelo `switch`.
@@ -123,16 +145,28 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(withFn).toContain(`case 1u: { return ${fn.composite!.functionName}(`);
     });
 
-    it('kernels: injeção (as duas paridades), integração e a leitura montam', () => {
-        for (const m of [froxelAmbient, ...froxelInject, ...froxelIntegrate, mediaLookup]) {
+    it('kernels: injeção, acúmulo, integração e a leitura montam (o histórico é um canal: sem paridade)', () => {
+        for (const m of [
+            froxelAmbient,
+            froxelInject,
+            froxelResolve,
+            froxelIntegrate,
+            mediaLookup,
+        ]) {
             expect(() => composeWgsl(m)).not.toThrow();
         }
-        const inject = composeWgsl(froxelInject[0]).spec.source;
+        const inject = composeWgsl(froxelInject).spec.source;
         expect(inject).toContain('fn froxel_inject_main(');
         expect(inject).toContain('light_visibility(l, p, vec3f(0.0))');
         // A luz ambiente vem da grade grossa (o kernel dela consulta `scene_ambient`).
         expect(inject).toContain('textureSampleLevel(froxel_ambient');
         expect(composeWgsl(froxelAmbient).spec.source).toContain('scene_ambient(p)');
+        // O acúmulo recorta o histórico reprojetado pela vizinhança do quadro antes de misturar (T058).
+        const resolve = composeWgsl(froxelResolve).spec.source;
+        expect(resolve).toContain(
+            'let clipped = clamp(history, max(mean - FROXEL_CLIP * sd, vec4f(0.0)), mean + FROXEL_CLIP * sd);',
+        );
+        expect(resolve).toContain('textureStore(froxel_history_out, cell, out);');
     });
 
     it('o estágio: um passe por quadro com névoa, sem recompilar ao mudar valores; sem névoa, nada', async () => {

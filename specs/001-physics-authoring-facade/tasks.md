@@ -107,6 +107,7 @@ simulação visualmente idêntica à atual.
 - [x] T027 [P] Atualizar `clay-engine-doc/docs/guides/getting_started.md` (passo física com construtor de domínio + auto-flow)
 - [x] T028 [P] Regenerar API (`npm run doc`) refletindo os novos construtores/tipos públicos
 - [ ] T029 Validar SC-001 reescrevendo a cena de referência do `claflow-web` (`../claflow-web/src/components/WebGPUCanvas.tsx`) com a fachada — zero `schema`/`data`/`vec4`/`invMass`/`flows.register`; comportamento idêntico (SC-006). (Repo irmão; após repointar dep `file:../clayflow`.)
+  - **Reconciliação (2026-11-12, 034 T071)**: **Bloqueada**. A cena de referência (`src/components/WebGPUCanvas.tsx`: corpos rígidos, gelatina FEM, neve MPM) saiu do app na 038 sem ser reescrita com a fachada (claflow-web `3586df0`, a 038 T021); o comportamento idêntico (SC-006) só se confere contra a cena antiga, que existe apenas no histórico do app (`511de38`). As cenas novas do catálogo (`claflow-web/src/scenes/catalog.ts`) já montam os corpos pelos construtores de domínio (`FluidBody`, `SoftBody`), sem `schema`/`invMass`/`flows.register`, mas não são a cena desta tarefa. Sem spec de destino: falta decidir se a cena antiga volta ao catálogo.
 - [x] T030 Rodar o gate completo: `npm run lint && npm run format:check && npm run check:circular && npm run check:dead && npx tsc --noEmit && npm run test:coverage && npm run build:lib`
 - [x] T031 Atualizar `Status` da spec para "Implemented" e abrir PR `feature/001-physics-authoring-facade → develop`
 

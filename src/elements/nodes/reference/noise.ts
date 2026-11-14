@@ -2,23 +2,9 @@
 // os smokes `shaderLibrary` e `nodeGraphs` compararem com a GPU (e referência dos nós de ruído, spec 031). Cada ruído tem
 // a forma por célula (`*Cell`: a célula inteira u32 e a posição dentro dela), como no WGSL.
 
-export function pcgHash(v: number): number {
-    const state = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0;
-    const word =
-        Math.imul(((state >>> (((state >>> 28) + 4) >>> 0)) ^ state) >>> 0, 277803737) >>> 0;
-    return ((word >>> 22) ^ word) >>> 0;
-}
+export { hash2, hash3, hashSigned, pcgHash } from '../../math/reference/random';
+import { hash2, hash3, hashSigned } from '../../math/reference/random';
 
-export function hash2(x: number, y: number): number {
-    return pcgHash((x ^ pcgHash(y)) >>> 0);
-}
-
-export function hash3(x: number, y: number, z: number): number {
-    return pcgHash((x ^ pcgHash((y ^ pcgHash(z)) >>> 0)) >>> 0);
-}
-
-/** `hash_signed`: hash → [-1, 1]. */
-export const hashSigned = (h: number): number => (h >>> 8) * (2 / 16777215) - 1;
 const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
 const mix = (a: number, b: number, t: number): number => a * (1 - t) + b * t;
 /** `noise_cell*` por componente: a célula inteira como u32 (o bitcast do i32). */

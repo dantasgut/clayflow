@@ -79,7 +79,7 @@ extensão](./shaders.md)). As entradas do ponto são **argumentos** do grafo, pe
 | `surface` | `u`, `v`, `time` | `vec3f` |
 | `space` | `x`, `time` | `vec3f` |
 | `field` | `x`, `v`, `time`, `body` (`FieldBody`) | `vec3f` |
-| `material` | `s` (`SurfaceSample`), `m` (`StandardMaterial`) | `SurfaceParams` |
+| `material` | `s` (`SurfaceSample`), `m` (`StandardMaterial`) | `SurfaceParams` ou `Closure` (saída `output.closure`; ver [Materiais](#materiais-nodesbsdf-nodesclosure-nodesmaterial)) |
 | `emit` | `i`, `time`, `seed` | `EmittedParticle` |
 
 `graphArgument(nome, campos?)` dá a porta `value` (o argumento inteiro) e uma porta por campo declarado
@@ -200,9 +200,8 @@ da instância. Exemplo: escalar os vértices de uma malha.
 
 ```ts
 import {
-    defineSetNode, setType, wgslResource, wgslModule, sharedConstant, createComputeKernel, destroyComputeKernel,
-    setDispatchOffset, SetCountSchema, SET_GROUP, MeshVertexSchema, StructSchema, FieldType,
-    type UniformBufferSpec,
+    defineSetNode, setType, wgslResource, wgslModule, sharedConstant, SetNodeKernels,
+    SetCountSchema, SET_GROUP, MeshVertexSchema, StructSchema, FieldType,
 } from 'clayflow';
 import { MESH, MeshTriangleSchema } from '…/elements/nodes/set/schemas';   // tipo de porta `mesh` da biblioteca
 
@@ -234,6 +233,10 @@ fn scale_main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups
 }`,
 });
 
+O que a instância possui na GPU fica com `SetNodeKernels` (spec 039, T060g): o uniform dos parâmetros, os buffers
+próprios (descritores do Resource de trabalho do `GraphFlow`) e os kernels, preparados pela C2 como pipelines do
+`GraphFlow` (cada um com as suas fontes, ligadas só a ele). Nada é criado pelo core.
+
 export const scaleMesh = defineSetNode({
     name: 'my.scaleMesh',
     inputs: { mesh: MESH },
@@ -245,28 +248,21 @@ export const scaleMesh = defineSetNode({
         const vin = c.input('mesh', 'vertices');
         const tin = c.input('mesh', 'triangles');
         const tout = c.output('mesh', 'triangles');
-        const params = c.core.create<UniformBufferSpec>({ kind: 'buffer', subkind: 'uniform',
-            discriminator: `${c.id}:params`, byteSize: Math.max(16, ScaleParams.stride) });
-        const kernel = createComputeKernel(c.core, {
-            discriminator: `${c.id}:scale`, shader: scaleShader, entryPoint: 'scale_main',
-            bindings: new Map([[R.params, params], [R.counts, c.counts], [R.vin, vin.buffer],
-                [R.vout, c.output('mesh', 'vertices').buffer]]),
-        });
+        const own = new SetNodeKernels(c, ScaleParams);   // o uniform `params` e os kernels, pela C2
+        own.kernel('scale', scaleShader, 'scale_main', [
+            [R.params, own.params], [R.counts, c.counts], [R.vin, vin.buffer],
+            [R.vout, c.output('mesh', 'vertices').buffer],
+        ]);
         return {
             update: () => {                                   // valores novos: fora da gravação
-                c.core.write(params, ScaleParams.pack({ vertices_slot: vin.slot, factor: c.values().factor ?? 1 }));
+                own.write({ vertices_slot: vin.slot, factor: c.values().factor ?? 1 });
             },
             record: (frame) => {                              // só grava
-                frame.compute('my.scaleMesh', (pass) => {
-                    pass.bind.setPipeline(kernel.pipeline);
-                    kernel.bindTo(pass.bind);
-                    pass.dispatch.workgroupsIndirect(c.counts, setDispatchOffset(vin.slot));
-                });
+                own.indirect(frame, 'my.scaleMesh', 'scale', vin.slot);
                 frame.copy(tin.buffer, tout.buffer, tout.capacity * MeshTriangleSchema.stride);
             },
             dispose: () => {
-                destroyComputeKernel(c.core, kernel);
-                c.core.destroy(params);
+                own.dispose();
             },
         };
     },
@@ -327,12 +323,14 @@ com nós próprios (como o `myWaves` acima, que depende da `wgslLib.noise`), reg
 
 ## Biblioteca
 
-A biblioteca fica na C3, em `src/elements/nodes`, um subdiretório por categoria (`input/`, `math/`, `map/`, `noise/`,
-`condition/`, `space/`, `field/`, `surface/`, `output/`, `set/`). É publicada por `nodes` (os nós por categoria) e
-`defaultNodeRegistry` (todos os nós de ponto e de conjunto, para a serialização; `defaultNodeRegistry.names()` lista os
-disponíveis). São **64 nós de ponto**, 12 de conjunto e as entradas de contexto.
+A biblioteca fica na C3, em `src/elements/nodes`, um subdiretório por categoria (`input/`, `math/`, `map/`, `color/`,
+`noise/`, `pattern/`, `condition/`, `space/`, `field/`, `surface/`, `geometry/`, `bsdf/`, `closure/`, `output/`,
+`material/`, `set/`). É publicada por `nodes` (os nós por categoria) e `defaultNodeRegistry` (todos os nós de ponto e de
+conjunto e o sub-grafo `material.openpbr`, para a serialização; `defaultNodeRegistry.names()` lista os disponíveis). São
+**91 nós de ponto** (`pointNodes`), 12 de conjunto, o sub-grafo `material.openpbr` e as entradas de contexto.
 
-Os nós de ponto valem em todos os estágios, salvo `output.surfaceParams` (só `fragment`). Cada um tem a referência da
+Os nós de ponto valem em todos os estágios, salvo `output.surfaceParams`, `output.closure` e `geometry.tangentUv` (só
+`fragment`). Cada um tem a referência da
 CPU em `src/elements/nodes/reference` (f64; aritmética inteira u32 exata nos ruídos) e um caso de teste
 (`reference/cases.ts`, 128 amostras determinísticas) avaliado pelo teste da biblioteca e, na GPU, pelo smoke
 `nodeGraphs`. A **tolerância** é por componente: `|gpu − referência| ≤ tol · max(1, |referência|)`.
@@ -392,6 +390,14 @@ Tipos fixos por nó: sem sufixo, escalar (`f32`); `2`/`3`/`4`, vetor de tantas c
 | `map.curve4` | `x` → `value` | `p0`…`p3` (`vec2f`; a identidade em [0, 1]) | linear por trecho pelos pontos (x crescente), constante fora | 1e-5 |
 | `color.ramp` | `t` → `color` (`vec3f`) | `color_a` (preto), `color_b` (branco), `low` (0), `high` (1) | `color_a` em `low` a `color_b` em `high`, presa nos extremos | 1e-5 |
 | `color.ramp4` | `t` → `color` | `stop0`…`stop3` (`vec4f`: cor em `rgb`, posição em `w`; preto, vermelho, amarelo, branco em 0, ⅓, ⅔, 1) | linear por trecho, presa nos extremos | 1e-5 |
+| `color.rgb` | `r`, `g`, `b` → `value` (`vec3f`) | as entradas, com valor ou ligação | a cor das componentes | 1e-5 |
+| `color.hsv` | `h`, `s`, `v` → `value` (`vec3f`) | as entradas | cor de matiz (voltas em [0, 1)), saturação e valor | 1e-5 |
+| `color.temperature` | `kelvin` → `value` (`vec3f`) | `kelvin` (6500) | cor de corpo negro de 1000 a 40000 K, normalizada no máximo 1 | 2e-3 |
+| `color.luminance` | `c` (`vec3f`) → `value` (`f32`) | — | luminância Rec. 709 de uma cor linear | 1e-5 |
+
+Padrões (`nodes.pattern`, spec 038): `pattern.checker2` (`p`: `vec2f`) e `pattern.checker3` (`p`: `vec3f`), o xadrez
+avaliado por pixel na GPU sobre `p · scale + offset`, filtrado pela largura `width` (ex.: `s.footprint`; 0 = exato),
+saída em [0, 1] para uma rampa de cor; tolerância 1e-4.
 
 ### Ruídos (`nodes.noise`)
 
@@ -454,6 +460,79 @@ geometria diferencial).
 `alpha`, `roughness`, `metallic`, `emissive`; sem ligação, as constantes do material (`m.albedo.rgb`, `m.albedo.a`,
 `m.roughness`, `m.metallic`, emissão 0), como a função pronta. Tolerância 1e-6.
 
+`output.closure` — a saída de fechamento do ponto `material` (`Closure`, spec 011), só em `fragment`: entrada `closure`;
+sem ligação, o fechamento pronto das constantes do material da entidade. Tolerância 1e-5.
+
+### Materiais (`nodes.bsdf`, `nodes.closure`, `nodes.material`)
+
+Os materiais por nós da spec 011 estão no motor: uma `MaterialFunction` com um `NodeGraph` cuja saída é
+`output.closure` compõe lobos de espalhamento, camadas e o OpenPBR como sub-grafo. Toda entrada de um nó `bsdf.*` ou
+`closure.*` aceita um valor (o parâmetro de mesmo nome, que muda sem recompilar) ou uma ligação. Cada nó de lobo tem a
+marca `lobe:<nome>`; a `MaterialFunction` une as marcas do grafo em `lobeMask` e o shader do material é especializado só
+com esses lobos — mudar valores não recompila, mudar ligações recompila. Referência da CPU em
+`src/elements/nodes/reference/material.ts`, tolerância 1e-5.
+
+| Nó | Faz |
+|---|---|
+| `bsdf.diffuse` | difuso (Oren-Nayar energético; `roughness` 0 = Lambert) |
+| `bsdf.conductor` | metal: `color` (F0), `edge_tint` (F82), `roughness`, `anisotropy`, `tangent` |
+| `bsdf.dielectric` | reflexão dielétrica por `ior`, `tint`, `roughness`, `anisotropy`; o que não reflete segue aos lobos de baixo |
+| `bsdf.transmission` | refração do que está atrás: `ior`, `color` a `depth` (Beer-Lambert), `abbe` (dispersão), `roughness` |
+| `bsdf.translucent` | parede fina translúcida, sem refratar o fundo |
+| `bsdf.sheen` | brilho de fibra (veludo) |
+| `bsdf.subsurface` | subsuperfície no modelo: `color`, `radius` por canal |
+| `bsdf.emission` | `color` × `luminance` em nits |
+| `closure.mix` | mistura `a` e `b` por `t` |
+| `closure.add` | soma os lobos (um dielétrico fica sobre o difuso) |
+| `closure.layer` | verniz: o dielétrico de `top` sobre `base`, com `top_color` e `top_weight` |
+| `closure.thinFilm` | filme fino (iridescência): `thickness` em nm, `ior` |
+| `closure.opacity` | recorte parcial `alpha`: o material vai ao passe dos transmissivos |
+| `closure.normal` | normal própria dos lobos de base |
+| `closure.mediumPriority` | prioridade do meio na sobreposição de volumes transmissivos |
+| `closure.thinWalled` | a transmissão como parede fina (vidraça, bolha) |
+| `geometry.tangentUv` | tangente pelo uv (derivadas de tela), para o anisotrópico em malhas sem tangente; só `fragment` |
+| `material.openpbr` | o OpenPBR Surface 1.1 como sub-grafo de ponto (`Subgraph.point`) montado com os nós acima; parâmetros com os nomes da norma |
+
+```ts
+import { MaterialFunction, NodeGraph, nodes } from 'clayflow';
+
+// Madeira envernizada: difuso sob um dielétrico em camada.
+const varnished = new MaterialFunction({
+    graph: new NodeGraph({
+        nodes: {
+            wood: nodes.bsdf.diffuse.with({ color: [0.45, 0.28, 0.15] }),
+            coat: nodes.bsdf.dielectric.with({ ior: 1.5, roughness: 0.08 }),
+            l: nodes.closure.layer.with({ top_color: [1, 0.85, 0.6] }),
+            out: nodes.output.closure,
+        },
+        links: [
+            ['coat.value', 'l.top'],
+            ['wood.value', 'l.base'],
+            ['l.value', 'out.closure'],
+        ],
+        output: 'out.value',
+    }),
+});
+varnished.lobeMask;               // difuso | especular | anisotropia | verniz — os lobos do shader
+varnished.values.wood_color = [0.6, 0.35, 0.2]; // quadro seguinte, sem recompilar
+
+// O OpenPBR como nó: pintura de carro.
+const paint = new MaterialFunction({
+    graph: new NodeGraph({
+        nodes: {
+            pbr: nodes.material.openpbr.with({ base_color: [0.6, 0.02, 0.02], coat_weight: 1, coat_roughness: 0.03 }),
+            out: nodes.output.closure,
+        },
+        links: [['pbr.value', 'out.closure']],
+        output: 'out.value',
+    }),
+});
+```
+
+A função também pode ser escrita em WGSL com retorno `Closure` (`new MaterialFunction({ code, lobes })`, os lobos
+declarados especializam o shader). Os parâmetros do OpenPBR, os materiais transmissivos e a forma em código estão em
+[Materiais](./materials.md); vidro e água em [Refração](./refraction.md).
+
 ### Nós de conjunto (`nodes.set`)
 
 Em `src/elements/nodes/set/`: malha (`grid`, `displace`, `recomputeNormals`), pontos (`distributeOnMesh`,
@@ -498,6 +577,7 @@ pronta — continua.
 ## Limites desta versão
 
 - Autoria por código; o JSON abre caminho para um editor visual, que não é desta spec.
-- Materiais por nós (closures, camadas, OpenPBR como sub-grafo) são da 011; texturas procedurais em compute, da 012; a
-  biblioteca de geometria (subdividir, curvas, L-systems), da 032; física por nós, da F5.
+- Materiais por nós (fechamentos, camadas, OpenPBR como sub-grafo) já existem ([Materiais](#materiais-nodesbsdf-nodesclosure-nodesmaterial));
+  texturas procedurais em compute são da 012; a biblioteca de geometria (subdividir, curvas, L-systems), da 032; física
+  por nós, da F5.
 - Pendências abertas da 031 estão em `specs/PENDENCIAS.md`.

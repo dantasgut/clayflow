@@ -1,7 +1,7 @@
 // Fase I.1 — Stress smoke 60s combinando flows.
 //
 // Cenário: Application com defaults (Forward + Shadow + Post + UI + Debug)
-// + 8 PostEffects + cubo + luz direcional. Ativa captureErrors e memoryBudgetMB.
+// + 5 PostEffects + cubo + luz direcional. Ativa captureErrors e memoryBudgetMB.
 // Loop a 60 fps real-time por 60s; cada 600 frames captura memoryUsage().
 // Assertion: total alocado em frame 3600 ≤ 1.1× total em frame 600.
 //
@@ -11,8 +11,6 @@ import {
     Application,
     Bloom,
     Blur,
-    Fxaa,
-    Ssao,
     Vignette,
     ChromaticAberration,
     ColorGrading,
@@ -21,7 +19,7 @@ import {
     Camera,
     DirectionalLight,
     Transform,
-} from 'clayflow';
+} from 'clayflow/web';
 
 const log = (m: string): void => {
     console.log(`[stress] ${m}`);
@@ -41,6 +39,9 @@ async function main(): Promise<void> {
     canvas.width = 800;
     canvas.height = 600;
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         captureErrors: true,
         memoryBudgetMB: 256,
@@ -89,16 +90,14 @@ async function main(): Promise<void> {
 
     log('scene: camera + directional light + box+material+transform');
 
-    // ─── 8 PostEffects ─────────────────────────────────────────────────────
+    // ─── 5 PostEffects ─────────────────────────────────────────────────────
     app.defaults.post
-        .addEffect(new Ssao({ strength: 0.6 }))
         .addEffect(new Bloom({ strength: 0.5 }))
         .addEffect(new Blur({ strength: 0.2 }))
         .addEffect(new ChromaticAberration({ strength: 0.003 }))
         .addEffect(new ColorGrading({ strength: 1.05 }))
-        .addEffect(new Fxaa({}))
         .addEffect(new Vignette({ strength: 0.4 }));
-    log('post: 8 effects registered');
+    log('post: 5 effects registered');
 
     // ─── Engine error / device-lost / memory listeners ─────────────────────
     let engineErrors = 0;

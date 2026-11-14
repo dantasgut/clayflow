@@ -1,38 +1,34 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [elements](../README.md) / NeighborSearchPipeline
+[clayflow](../../modules.md) / [elements](../README.md) / NeighborSearchPipeline
 
 # Class: NeighborSearchPipeline
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:64](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L64)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:83](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L83)
 
-NeighborSearchPipeline implementa busca de vizinhos GPU via spatial
-hashing + parallel prefix scan + scatter:
-  1. `assign_count`: cada partícula computa cell index + atomicAdd em cellCount.
-  2. soma de prefixos exclusiva cellCount → cellStart (offsets por cell) pelo `PrefixSum` genérico — qualquer
-     número de células.
-  3. `scatter`: cada partícula é escrita em sortedParticles[cellStart[cell] + cursor].
-  4. `sort_cells` (spec 008): cada célula é ordenada por índice — o espalhamento atômico varia a ordem entre execuções.
-  5. `find`: cada partícula busca vizinhos nas 27 cells adjacentes, numa ordem fixa, via
-     sortedParticles[cellStart[c]..cellStart[c]+cellCount[c]] — a lista sai determinística, gravada direto.
+Busca de vizinhos por grade uniforme (contagem por célula, soma de prefixos, espalhamento, ordem por célula, busca).
+O espaço de trabalho — a grade, as listas por partícula, os parâmetros — é descritor do Resource de trabalho do Flow
+dono (spec 039): a C2 aloca e libera; a instância só liga os kernels ao que a C2 alocou.
 
-Usado por SPHFlow e PBFFlow para acelerar density/forces computation.
+## Implements
+
+- [`WorkPart`](../../platform/web/interfaces/WorkPart.md)
 
 ## Constructors
 
 ### Constructor
 
-> **new NeighborSearchPipeline**(`core`, `options`): `NeighborSearchPipeline`
+> **new NeighborSearchPipeline**(`ctx`, `options`): `NeighborSearchPipeline`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:110](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L110)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:120](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L120)
 
 #### Parameters
 
-##### core
+##### ctx
 
-`EngineCore`
+[`WorkContext`](../../platform/web/interfaces/WorkContext.md)
 
 ##### options
 
@@ -48,9 +44,9 @@ Defined in: [elements/gpu/NeighborSearchPipeline.ts:110](https://github.com/dant
 
 #### Get Signature
 
-> **get** **grid**(): \{ `cellCount`: `StorageBufferSpec`; `cellSize`: `number`; `cellStart`: `StorageBufferSpec`; `gridDim`: readonly \[`number`, `number`, `number`\]; `origin`: readonly \[`number`, `number`, `number`\]; `sortedParticles`: `StorageBufferSpec`; \} \| `null`
+> **get** **grid**(): \{ `cellCount`: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md); `cellSize`: `number`; `cellStart`: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md); `gridDim`: readonly \[`number`, `number`, `number`\]; `origin`: readonly \[`number`, `number`, `number`\]; `sortedParticles`: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md); \} \| `null`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:369](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L369)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:360](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L360)
 
 Grade da última reconstrução (spec 010, partículas secundárias): `cellStart[c]` e `cellCount[c]` dão a faixa da
 célula `c` em `sortedParticles` (índices das partículas, em ordem dentro da célula); origem, dimensões e aresta da
@@ -58,7 +54,7 @@ célula para achar a célula de um ponto qualquer. Null antes de `allocate`.
 
 ##### Returns
 
-\{ `cellCount`: `StorageBufferSpec`; `cellSize`: `number`; `cellStart`: `StorageBufferSpec`; `gridDim`: readonly \[`number`, `number`, `number`\]; `origin`: readonly \[`number`, `number`, `number`\]; `sortedParticles`: `StorageBufferSpec`; \} \| `null`
+\{ `cellCount`: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md); `cellSize`: `number`; `cellStart`: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md); `gridDim`: readonly \[`number`, `number`, `number`\]; `origin`: readonly \[`number`, `number`, `number`\]; `sortedParticles`: [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md); \} \| `null`
 
 ***
 
@@ -66,16 +62,16 @@ célula para achar a célula de um ponto qualquer. Null antes de `allocate`.
 
 #### Get Signature
 
-> **get** **neighborCount**(): `StorageBufferSpec` \| `null`
+> **get** **neighborCount**(): [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md) \| `null`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:397](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L397)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:388](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L388)
 
 Buffer de contadores — `neighborCount[p]` é o número de vizinhos
 encontrados para a partícula p (≤ maxNeighbors).
 
 ##### Returns
 
-`StorageBufferSpec` \| `null`
+[`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md) \| `null`
 
 ***
 
@@ -83,9 +79,9 @@ encontrados para a partícula p (≤ maxNeighbors).
 
 #### Get Signature
 
-> **get** **neighborList**(): `StorageBufferSpec` \| `null`
+> **get** **neighborList**(): [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md) \| `null`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:360](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L360)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:351](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L351)
 
 Lista de vizinhos intercalada — o vizinho `n` da partícula `p` em `neighborList[n * maxParticles + p]` (leituras e
 escritas contíguas entre partículas vizinhas)
@@ -94,7 +90,23 @@ Null antes de `rebuild` ser chamado pela primeira vez.
 
 ##### Returns
 
-`StorageBufferSpec` \| `null`
+[`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md) \| `null`
+
+***
+
+### neighborOrder
+
+#### Get Signature
+
+> **get** **neighborOrder**(): [`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md) \| `null`
+
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:393](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L393)
+
+A ordem por célula: no posto `t`, a partícula + 1 (0: posto vazio). Null antes de `allocate`.
+
+##### Returns
+
+[`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md) \| `null`
 
 ## Methods
 
@@ -102,10 +114,10 @@ Null antes de `rebuild` ser chamado pela primeira vez.
 
 > **allocate**(): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:143](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L143)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:226](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L226)
 
-Aloca os buffers da busca (grade, contagens, lista de vizinhos). Idempotente. Os Flows chamam antes de montar
-os próprios kernels, que ligam `neighborList`/`neighborCount`.
+Compatibilidade da sequência dos Flows: o espaço de trabalho já é declarado na construção e alocado pela C2 com o
+Resource de trabalho (spec 039). Os Flows montam os próprios kernels depois, ligando `neighborList`/`neighborCount`.
 
 #### Returns
 
@@ -113,13 +125,31 @@ os próprios kernels, que ligam `neighborList`/`neighborCount`.
 
 ***
 
+### descriptors()
+
+> **descriptors**(): readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:146](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L146)
+
+Os descritores atuais da parte (ids únicos no Resource de trabalho).
+
+#### Returns
+
+readonly [`GPUDescriptor`](../../platform/web/interfaces/GPUDescriptor.md)[]
+
+#### Implementation of
+
+[`WorkPart`](../../platform/web/interfaces/WorkPart.md).[`descriptors`](../../platform/web/interfaces/WorkPart.md#descriptors)
+
+***
+
 ### dispose()
 
 > **dispose**(): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:223](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L223)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:229](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L229)
 
-Libera kernels, buffers e uniforms. A instância pode ser reutilizada (realoca no próximo uso).
+Libera os kernels e tira os descritores da busca do trabalho (a C2 libera os buffers).
 
 #### Returns
 
@@ -131,7 +161,7 @@ Libera kernels, buffers e uniforms. A instância pode ser reutilizada (realoca n
 
 > **prepare**(`particlesBuffer`, `liveBuffer`, `rebuildsPerFrame?`): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:260](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L260)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:247](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L247)
 
 Prepara a busca para o buffer de partículas `particlesBuffer` e até `rebuildsPerFrame` reconstruções por quadro:
 buffers da grade, kernels e a soma de prefixos. Idempotente; fora da gravação (numa transição do Flow — ex.: o
@@ -141,11 +171,11 @@ pool de partículas cresceu ou o número de passos do quadro mudou).
 
 ##### particlesBuffer
 
-`StorageBufferSpec`
+[`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
 ##### liveBuffer
 
-`StorageBufferSpec`
+[`StorageBufferSpec`](../../platform/web/interfaces/StorageBufferSpec.md)
 
 ##### rebuildsPerFrame?
 
@@ -159,25 +189,32 @@ pool de partículas cresceu ou o número de passos do quadro mudou).
 
 ### rebuild()
 
-> **rebuild**(`frame`, `particleCount`): `void`
+> **rebuild**(`frame`, `particleCount`, `then?`): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:409](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L409)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:408](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L408)
 
 Grava a reconstrução das listas de vizinhos para as `particleCount` partículas do buffer preparado (`prepare`).
 `particleCount = 0` não grava nada.
 
 Sequência: assign_count → soma de prefixos (cellCount → cellStart) → copy(cellStart, cellCursor) → scatter →
-sort_cells (cada célula em ordem de índice) → find.
+sort_cells (cada célula em ordem de índice) → find. São três passes de computação (as cópias e zeragens ficam
+entre eles): cada passe aberto custa mais que um despacho de dezenas de milhares de partículas, e dentro de um
+passe cada despacho já vê o que o anterior escreveu. `then` grava, no mesmo passe da busca, os despachos do
+consumidor que leem as listas.
 
 #### Parameters
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### particleCount
 
 `number`
+
+##### then?
+
+(`pass`) => `void`
 
 #### Returns
 
@@ -193,7 +230,7 @@ Error se `prepare` não foi chamado.
 
 > `static` **requireCapacity**(`stage`, `pool`): `void`
 
-Defined in: [elements/gpu/NeighborSearchPipeline.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/elements/gpu/NeighborSearchPipeline.ts#L69)
+Defined in: [src/elements/gpu/NeighborSearchPipeline.ts:88](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/elements/gpu/NeighborSearchPipeline.ts#L88)
 
 Confere que o pool cabe no teto da busca (`NEIGHBOR_SEARCH_MAX_PARTICLES`).
 
@@ -205,7 +242,7 @@ Confere que o pool cabe no teto da busca (`NEIGHBOR_SEARCH_MAX_PARTICLES`).
 
 ##### pool
 
-`BoundPool`
+[`BoundPool`](../../platform/web/interfaces/BoundPool.md)
 
 #### Returns
 

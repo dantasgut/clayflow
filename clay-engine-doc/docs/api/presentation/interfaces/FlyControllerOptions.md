@@ -1,12 +1,12 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / FlyControllerOptions
+[clayflow](../../modules.md) / [presentation](../README.md) / FlyControllerOptions
 
 # Interface: FlyControllerOptions
 
-Defined in: [presentation/input/controllers/FlyController.ts:23](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L23)
+Defined in: [src/presentation/input/controllers/FlyController.ts:23](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/controllers/FlyController.ts#L23)
 
 Opções do FlyController.
 
@@ -16,7 +16,7 @@ Opções do FlyController.
 
 > `readonly` `optional` **keymap?**: [`FlyControllerKeymap`](FlyControllerKeymap.md)
 
-Defined in: [presentation/input/controllers/FlyController.ts:31](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L31)
+Defined in: [src/presentation/input/controllers/FlyController.ts:31](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/controllers/FlyController.ts#L31)
 
 Teclas por direção.
 
@@ -26,7 +26,7 @@ Teclas por direção.
 
 > `readonly` `optional` **mouseSensitivity?**: `number`
 
-Defined in: [presentation/input/controllers/FlyController.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L29)
+Defined in: [src/presentation/input/controllers/FlyController.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/controllers/FlyController.ts#L29)
 
 Radianos por pixel de arrasto. Default 0.003.
 
@@ -36,7 +36,7 @@ Radianos por pixel de arrasto. Default 0.003.
 
 > `readonly` `optional` **position?**: readonly \[`number`, `number`, `number`\]
 
-Defined in: [presentation/input/controllers/FlyController.ts:25](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L25)
+Defined in: [src/presentation/input/controllers/FlyController.ts:25](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/controllers/FlyController.ts#L25)
 
 Posição inicial. Default: a do `Transform` da câmera no primeiro quadro.
 
@@ -46,6 +46,6 @@ Posição inicial. Default: a do `Transform` da câmera no primeiro quadro.
 
 > `readonly` `optional` **speed?**: `number`
 
-Defined in: [presentation/input/controllers/FlyController.ts:27](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/input/controllers/FlyController.ts#L27)
+Defined in: [src/presentation/input/controllers/FlyController.ts:27](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/input/controllers/FlyController.ts#L27)
 
 Unidades por segundo. Default 6.

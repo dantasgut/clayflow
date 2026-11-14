@@ -13,7 +13,10 @@ export const CameraRecordSchema = new StructSchema('CameraRecord', {
 /** Lista das câmeras vivas (grupo único da C2): o estágio percorre só câmeras presentes. */
 export const CameraInstanceSchema = new StructSchema('CameraInstance', { record: FieldType.u32 });
 
-/** Parâmetros do estágio de câmera: início e tamanho da lista e a razão de aspecto do canvas. */
+/**
+ * Parâmetros do estágio de câmera: início e tamanho da lista, a razão de aspecto do canvas e o deslocamento da amostra
+ * dentro do pixel do quadro (spec 034: xy em NDC, zw em pixels; zero sem antisserrilhado temporal).
+ */
 export const CameraComposeParamsSchema = new StructSchema(
     'CameraComposeParams',
     {
@@ -21,6 +24,7 @@ export const CameraComposeParamsSchema = new StructSchema(
         count: FieldType.u32,
         canvas_aspect: FieldType.f32,
         _pad0: FieldType.u32,
+        jitter: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );
@@ -52,6 +56,8 @@ export const CameraFnGroupSchema = new StructSchema(
         count: FieldType.u32,
         time: FieldType.f32,
         canvas_aspect: FieldType.f32,
+        /** O deslocamento da amostra do quadro (o mesmo do estágio padrão). */
+        jitter: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );

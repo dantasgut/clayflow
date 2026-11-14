@@ -219,6 +219,48 @@ describe('ResourceSystem — alocação da bag inteira (R9)', () => {
         expect(created).toEqual(['Lamp']);
     });
 
+    it("pool 'onDemand' (spec 037): um elemento até o pedido, conta e cresce sem realocar; o pedido aloca a capacidade e avisa", () => {
+        const { world, system, events } = setup();
+        const realloc: number[] = [];
+        events.on('poolReallocated', (e) => realloc.push(e.newByteSize));
+        const desc: GPUDescriptor = {
+            id: 'inverse',
+            role: 'storage-rw',
+            storage: 'pool',
+            schema: Item,
+            upload: 'never',
+            allocation: 'onDemand',
+        };
+        const all = Array.from({ length: 70 }, () => new BagResource([desc]));
+        for (const r of all) world.insert(r);
+        const info = system.poolInfo('AllocItem')!;
+        expect(info.count).toBe(70);
+        expect(info.buffer.byteSize).toBe(Item.stride);
+        expect(realloc).toEqual([]);
+        const buffer = system.ensurePoolAllocated('AllocItem')!;
+        expect(buffer.byteSize).toBe(Item.stride * system.poolInfo('AllocItem')!.capacity);
+        expect(system.poolInfo('AllocItem')!.capacity).toBeGreaterThanOrEqual(70);
+        expect(realloc).toEqual([buffer.byteSize]);
+        // Já alocado: o mesmo buffer, sem aviso.
+        expect(system.ensurePoolAllocated('AllocItem')).toBe(buffer);
+        expect(realloc).toHaveLength(1);
+        expect(system.ensurePoolAllocated('Inexistente')).toBeUndefined();
+    });
+
+    it("pool 'onDemand' com envio da CPU é erro (só pools produzidos pela GPU)", () => {
+        const { world } = setup();
+        const r = new BagResource([
+            {
+                id: 'x',
+                role: 'storage-ro',
+                storage: 'pool',
+                schema: Params,
+                allocation: 'onDemand',
+            },
+        ]);
+        expect(() => world.insert(r)).toThrow(/sob demanda/);
+    });
+
     it('canvasDivisor: uma fração do canvas, arredondada para cima, também ao recriar no resize', () => {
         const { world, system, events } = setup();
         const r = new BagResource([

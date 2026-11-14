@@ -1,3 +1,4 @@
+import { poolArenaSlotOf } from '../../shaders/poolArena';
 /**
  * Integração — o mesmo mecanismo reativo vale para qualquer recurso (spec 003, US2,
  * Acceptance 4): mutar a cor de um material inserido envia o dado no quadro seguinte.
@@ -69,8 +70,21 @@ describe('material em pool de storage', () => {
         expect(s.scene.resourceSystem.poolSlotOf(TintMaterial.schema.name, id2)).toBeDefined();
         const [after] = s.draws('ForwardFlow');
         expect(after!.pipeline).not.toBe(before.pipeline);
-        expect(after!.bindGroups.get(2)!.group.bindings[0]).toMatchObject({
-            buffer: s.scene.resourceSystem.poolBufferSpec(TintMaterial.schema.name),
-        });
+        // O pool próprio vai para a arena (T060i) e o shader do pipeline lê a região dele no lugar da do padrão.
+        const tint = s.scene.resourceSystem.poolInfo(TintMaterial.schema.name)!;
+        expect(tint.buffer).toBe(
+            s.scene.resourceSystem.poolInfo(StandardMaterial.schema.name)!.buffer,
+        );
+        const k = poolArenaSlotOf(`pool:${TintMaterial.schema.name}`)!;
+        const shaders = s.creates().filter((c) => c.kind === 'shader') as unknown as {
+            discriminator?: string;
+            code?: string;
+            source?: string;
+        }[];
+        expect(
+            shaders.some((c) =>
+                (c.code ?? c.source ?? '').includes(`let b = pool_arena[${k}u] + i * `),
+            ),
+        ).toBe(true);
     });
 });

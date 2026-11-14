@@ -99,6 +99,22 @@ describe('aggregateRepetitions', () => {
         expect(a.unstable).toBe(false);
     });
 
+    it('cinco repetições: a mediana fica dentro de 10 % com até duas perturbadas (o dobro do tempo)', () => {
+        // Arrange: a GPU a 1 ms, duas repetições numa máquina ocupada a 2,1 e 2,3 ms (a do bench de 14/11).
+        const reps = [
+            rep(10, 1, 1.0),
+            rep(10, 1, 2.1),
+            rep(10, 1, 0.98),
+            rep(10, 1, 2.3),
+            rep(10, 1, 1.03),
+        ];
+        // Act
+        const a = aggregateRepetitions(reps);
+        // Assert: a mediana é uma das limpas; a média seria 1,48 ms (+48 %).
+        expect(a.metrics.gpuMs).toBe(1.03);
+        expect(Math.abs((a.metrics.gpuMs ?? 0) - 1) / 1).toBeLessThan(0.1);
+    });
+
     it('gpuMs usa só repetições com leitura; null se nenhuma', () => {
         expect(aggregateRepetitions([rep(10, 1, null), rep(10, 1, 4)]).metrics.gpuMs).toBe(4);
         expect(aggregateRepetitions([rep(10, 1, null)]).metrics.gpuMs).toBeNull();

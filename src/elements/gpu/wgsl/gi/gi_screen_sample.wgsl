@@ -1,32 +1,37 @@
 // Irradiância da coleta final na tela num ponto (spec 033, R2 adendo): o ponto projetado pela câmera ativa cai entre
-// as sondas de tela; as 2 × 2 vizinhas pesam pela posição (bilinear), pela distância ao plano delas e pela normal. Sem
-// nenhuma compatível, a válida mais próxima de orientação parecida (borda, superfície curva, ou um fragmento que não vira
-// pixel: encoberto ou auxiliar do quad) — barato, e quem não vira pixel não paga a leitura das sondas do mundo; de
-// orientação diferente (uma face fina — o vão de uma janela — tem as suas sondas em alguns ladrilhos da faixa, não em
-// todos), as compatíveis num raio de 2 ladrilhos, pela distância; sem nenhuma, a mais próxima mesmo assim. A confiança (a): 1
-// com sondas compatíveis, 0,5 com a mais próxima, 0 sem nenhuma válida (fora da tela, o que não está na estrutura de
-// raios) — aí valem as sondas do mundo.
+// as sondas de tela; as 2 × 2 vizinhas pesam pela posição (bilinear), pela distância ao plano delas e pela normal, sem
+// renormalizar para as que sobram (spec 034, T055): a soma dos pesos é a cobertura das sondas de tela no ponto, e o que
+// falta (a quina, a borda de um objeto, fora da tela, o que não está na estrutura de raios) vem das sondas do mundo na
+// mistura contínua de `gi_lighting_irradiance`. Onde as dos ladrilhos têm sondas extras (na dobra côncava), as 2 × 2 da
+// grade fina a meio ladrilho (as dos ladrilhos e as extras, spec 034 T058) pesam pela cobertura delas, e as
+// dos ladrilhos pelo que falta.
 // Requer: gi, gi_common (a normal empacotada), cameras, gi_screen_probe_texture, gi_screen_irradiance_texture.
 
-/** Uma sonda de tela para um ponto: irradiância, peso (0 = outro plano ou orientação), se há superfície e a orientação. */
+/**
+ * Uma sonda de tela para um ponto: irradiância e peso (0 = sem superfície, outro plano ou outra orientação) e se o
+ * ladrilho dela tem sondas extras (o alfa da irradiância acima de 1,5).
+ */
 struct GiScreenTap {
     e: vec3f,
     w: f32,
-    valid: bool,
-    facing: f32,
+    extra: bool,
 }
 
 fn gi_screen_tap(t: vec2i, p: vec3f, n: vec3f, tolerance: f32) -> GiScreenTap {
     let probe = textureLoad(gi_screen_probe_texture, t, 0);
-    if (probe.w <= 0.0) { return GiScreenTap(vec3f(0.0), 0.0, false, 0.0); }
+    if (probe.w <= 0.0) { return GiScreenTap(vec3f(0.0), 0.0, false); }
     let pn = gi_normal_unpack(probe.w);
     let plane = abs(dot(p - probe.xyz, pn));
-    let facing = dot(pn, n);
-    let w = max(0.0, 1.0 - plane / tolerance) * smoothstep(0.85, 0.97, facing);
-    return GiScreenTap(textureLoad(gi_screen_irradiance_texture, t, 0).rgb, w, true, facing);
+    let w = max(0.0, 1.0 - plane / tolerance) * smoothstep(0.85, 0.97, dot(pn, n));
+    let e = textureLoad(gi_screen_irradiance_texture, t, 0);
+    return GiScreenTap(e.rgb, w, e.a > 1.5);
 }
 
-/** Irradiância (rgb, E) e confiança (a: 1, 0,5 ou 0) das sondas de tela no ponto `p` com normal `n`. */
+/**
+ * Irradiância das sondas de tela no ponto `p` com normal `n` já pesada (rgb = Σ w E) e a cobertura (a = Σ w, de 0 a 1):
+ * os pesos bilineares das 2 × 2 vizinhas vezes os de plano e normal, sem renormalizar — a parte que as sondas de tela
+ * não cobrem (a quina, a borda, fora da tela) fica para as sondas do mundo.
+ */
 fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     if (gi.screen1.z == 0u) { return vec4f(0.0); }
     let cam = cameras[gi.screen.w];
@@ -34,46 +39,36 @@ fn gi_screen_irradiance(p: vec3f, n: vec3f) -> vec4f {
     if (clip.w <= 0.0) { return vec4f(0.0); }
     let ndc = clip.xy / clip.w;
     if (any(abs(ndc) > vec2f(1.0))) { return vec4f(0.0); }
-    let px = vec2f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * gi.screenSize.xy;
+    let px = ndc_to_uv(ndc) * gi.screenSize.xy;
     let g = px / gi.screenSize.z - 0.5;
     let base = vec2i(floor(g));
     let f = g - vec2f(base);
     let tolerance = 0.01 + length(p - cam.position.xyz) * 0.01;
-    var acc = vec3f(0.0);
-    var wsum = 0.0;
-    var nearest = vec3f(0.0);
-    var nearest_d = 1e9;
-    var nearest_facing = 1.0;
+    var acc = vec4f(0.0);
+    var extra = false;
     for (var o = 0u; o < 4u; o++) {
         let d = vec2i(i32(o & 1u), i32(o >> 1u));
         let t = base + d;
         if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
-        let tap = gi_screen_tap(t, p, n, tolerance);
+        let tap = gi_screen_tap(t * i32(gi.screen1.y), p, n, tolerance);
         let b = mix(vec2f(1.0) - f, f, vec2f(d));
-        let w = tap.w * b.x * b.y;
-        acc += tap.e * w;
-        wsum += w;
-        let dist = length(g - vec2f(t));
-        if (tap.valid && dist < nearest_d) {
-            nearest_d = dist;
-            nearest = tap.e;
-            nearest_facing = tap.facing;
-        }
+        acc += vec4f(tap.e, 1.0) * (tap.w * b.x * b.y);
+        extra = extra || tap.extra;
     }
-    if (wsum > 1e-4) { return vec4f(acc / wsum, 1.0); }
-    // A mais próxima de orientação parecida (fora do plano: borda, superfície curva, o encoberto) vale como está.
-    if (nearest_d < 1e8 && nearest_facing > 0.5) { return vec4f(nearest, 0.5); }
-    // Orientação diferente (a face fina): as compatíveis em volta (5 × 5 ladrilhos), pesadas pela distância na grade.
-    for (var o = 0u; o < 25u; o++) {
-        let t = base + vec2i(i32(o % 5u) - 2, i32(o / 5u) - 2);
-        if (any(t < vec2i(0)) || any(t >= vec2i(gi.screen.xy))) { continue; }
+    // A grade fina só onde há sondas extras (na dobra): sem elas, a grade fina repete as dos ladrilhos.
+    if (!extra) { return acc; }
+    // A grade fina: o ponto fino k a (k + 1) meios ladrilhos.
+    let gf = px / (0.5 * gi.screenSize.z) - 1.0;
+    let fb = vec2i(floor(gf));
+    let ff = gf - vec2f(fb);
+    var fine = vec4f(0.0);
+    for (var o = 0u; o < 4u; o++) {
+        let d = vec2i(i32(o & 1u), i32(o >> 1u));
+        let t = fb + d;
+        if (any(t < vec2i(0)) || any((vec2f(t) + 1.0) * (0.5 * gi.screenSize.z) >= gi.screenSize.xy)) { continue; }
         let tap = gi_screen_tap(t, p, n, tolerance);
-        let d = g - vec2f(t);
-        let w = tap.w / (1.0 + dot(d, d));
-        acc += tap.e * w;
-        wsum += w;
+        let b = mix(vec2f(1.0) - ff, ff, vec2f(d));
+        fine += vec4f(tap.e, 1.0) * (tap.w * b.x * b.y);
     }
-    if (wsum > 1e-4) { return vec4f(acc / wsum, 0.5); }
-    if (nearest_d < 1e8) { return vec4f(nearest, 0.5); }
-    return vec4f(0.0);
+    return acc * (1.0 - min(fine.a, 1.0)) + fine;
 }

@@ -1,6 +1,8 @@
-import type { EngineCore, Frame, StorageBufferSpec } from '../../../scene/contracts/gpu';
+import type { ComputePass, Frame } from '../../../scene/contracts/gpu';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
+import { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { Flow } from '../../../scene/flows/Flow';
+import { FlowWork, type WorkContext } from '../../../scene/flows/FlowWork';
 import type {
     BindingSource,
     BoundFlow,
@@ -13,9 +15,11 @@ import {
     slot,
     type BodiesSlot,
     type EntitiesSlot,
+    type PoolSlot,
     type PoolsSlot,
     type SingletonSlot,
     type SlotMap,
+    type WorkSlot,
 } from '../../../scene/flows/slots';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
@@ -28,10 +32,12 @@ import { LCPSchema } from '../bodies/schemas/LCPSchema';
 import { Collider } from '../colliders/Collider';
 import { COLLIDER_POOL_KEYS, ColliderSet } from '../colliders/ColliderSet';
 import { GravityField } from '../forcefields/GravityField';
-import { ParticleMaterial, type SurfaceStep } from '../materials/ParticleMaterial';
-import { PBFSimParamsSchema } from '../schemas/simParams';
+import { ParticlePhysics, type SurfaceStep } from '../ParticlePhysics';
+import { PBFSimParamsSchema, WET_PINNING_VECS } from '../schemas/simParams';
+import { SurfacePhysics } from '../wetting/SurfacePhysics';
 import {
     pbfApply,
+    pbfBoundary,
     pbfCollision,
     pbfDensityLambda,
     pbfPositionCorrect,
@@ -41,6 +47,9 @@ import {
     pbfXsph,
     pbfResources,
 } from '../shaders/pbf';
+import { FLUID_BOUNDARY_POLY6 } from '../../gpu/shaders/math';
+import { PBFSchema } from '../bodies/schemas/PBFSchema';
+import { PBFBoundarySchema, PBFDeltaSchema, PBFNormalSchema } from '../bodies/schemas/fluidWork';
 import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 
 /** Expoente n do `s_corr`. */
@@ -55,7 +64,7 @@ const PBF_S_CORR_K_AT_5CM = 1e-4;
 /** Opções do `PBFFlow`. */
 export interface PBFFlowOptions {
     /**
-     * Mínimo de substeps por passo de física (padrão 1); o passo estável do `ParticleMaterial` pode exigir mais (spec
+     * Mínimo de substeps por passo de física (padrão 1); o passo estável do `ParticlePhysics` pode exigir mais (spec
      * 017). O passo vem do `Time` da cena.
      */
     readonly substeps?: number;
@@ -73,22 +82,26 @@ export interface PBFSlots extends SlotMap {
     readonly time: SingletonSlot<false>;
     /** Campo de gravidade (opcional; padrão `[0, −9,81, 0]`). */
     readonly gravity: SingletonSlot<true>;
-    /** Material das partículas (opcional; padrões do solver). */
-    readonly material: SingletonSlot<true>;
+    /** Comportamento das partículas (opcional; padrões do solver). */
+    readonly physics: SingletonSlot<true>;
     /** Pools de colliders e de corpos rígidos (cada um presente ou não). */
     readonly colliderPools: PoolsSlot;
     /** Entidades com collider (donos dos registros nos pools de collider). */
     readonly colliders: EntitiesSlot;
+    /** Correções Δp/Δv por partícula (pool do corpo, mesmo slot), separadas das posições lidas pelos vizinhos. */
+    readonly delta: PoolSlot<false>;
+    /** (nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (pool do corpo, mesmo slot; spec 030). */
+    readonly normals: PoolSlot<false>;
+    /** Fronteira sólida por partícula (pool do corpo, mesmo slot; Σ −B' n, Σ B; spec 034). */
+    readonly boundary: PoolSlot<false>;
+    /** O espaço de trabalho do solver: parâmetros por iteração, vizinhança, colliders (spec 039). */
+    readonly work: WorkSlot<PBFWork>;
 }
 
-const slots: PBFSlots = {
-    bodies: slot.bodies(),
-    time: slot.singleton(Time.schema),
-    gravity: slot.singleton(GravityField.schema, { optional: true }),
-    material: slot.singleton(ParticleMaterial.schema, { optional: true }),
-    colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
-    colliders: slot.entities({ all: [Collider] }),
-};
+/** Resource de trabalho do `PBFFlow` (spec 039). */
+class PBFWork extends FlowWork {
+    static readonly schema = new StructSchema('PBFWork', {});
+}
 
 type Ctx = TransitionContext<PBFSlots>;
 
@@ -98,31 +111,27 @@ type Ctx = TransitionContext<PBFSlots>;
  * vorticidade → XSPH com a sua região de `PBFSimParams` (`dt = stepDt / substeps`, `dt_frame = stepDt`) ligada por
  * offset dinâmico.
  *
- * Recursos privados — parâmetros por iteração, correções `pbf_delta`, busca de vizinhança (recriada quando a grade do
- * material muda) e `ColliderSet` — são preparados e religados em transições, nunca no `dispatch`.
+ * O espaço de trabalho — parâmetros por iteração, busca de vizinhança (recriada quando a grade da física muda) e
+ * `ColliderSet` — é do Resource de trabalho (`PBFWork`); as correções, as normais e a fronteira por partícula são pools
+ * do próprio corpo (spec 039). Tudo é preparado e religado em transições, nunca no `dispatch`.
  */
 export class PBFFlow extends Flow<PBFSlots, 'running'> {
     readonly type = 'PBFFlow';
-    readonly slots = slots;
+    readonly slots: PBFSlots;
     override readonly pipelines: readonly PipelineDescriptor[];
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
     protected readonly initialState = 'running' as const;
     protected readonly transitions: FlowTransitions<'running', TransitionContext<PBFSlots>>;
 
-    private readonly core: EngineCore;
+    private readonly work: WorkContext;
     private readonly minSubsteps: number;
-    /** Substeps do quadro corrente (pelo passo estável do material). */
+    /** Substeps do quadro corrente (pelo passo estável da física). */
     private substeps = 1;
     private readonly solverIters: number;
     private readonly maxNeighbors: number;
     private readonly params: PerStepUniforms;
     private readonly colliderSet: ColliderSet;
-    /** Correções Δp/Δv por partícula (vec4f), separadas das posições/velocidades lidas pelos vizinhos. */
-    private readonly delta: StorageBufferSpec;
-    /** (nᵢ, ρᵢ) por partícula para a tensão superficial de Akinci (vec4f; spec 030). */
-    private readonly normals: StorageBufferSpec;
     /** Materiais já avisados de coesão/adesão grampeadas. */
-    private readonly warnedClamp = new WeakSet<ParticleMaterial>();
+    private readonly warnedClamp = new WeakSet<ParticlePhysics>();
     private neighborSearch: NeighborSearchPipeline;
     /** Grade com que a vizinhança foi criada. */
     private neighborKey: string;
@@ -133,41 +142,34 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
 
     constructor(ctx: FlowContext, options: PBFFlowOptions = {}) {
         super();
-        this.core = ctx.core;
+        const work = new PBFWork();
+        this.work = { core: ctx.core, resources: ctx.resources, work };
+        this.slots = {
+            bodies: slot.bodies(),
+            time: slot.singleton(Time.schema),
+            gravity: slot.singleton(GravityField.schema, { optional: true }),
+            physics: slot.singleton(ParticlePhysics.schema, { optional: true }),
+            colliderPools: slot.pools([...COLLIDER_POOL_KEYS, LCPSchema.name]),
+            colliders: slot.entities({ all: [Collider] }),
+            delta: slot.pool(PBFDeltaSchema.name),
+            normals: slot.pool(PBFNormalSchema.name),
+            boundary: slot.pool(PBFBoundarySchema.name),
+            work: slot.work(() => work),
+        };
         this.minSubsteps = Math.max(1, options.substeps ?? 1);
         this.solverIters = Math.max(1, options.solverIters ?? 4);
         this.maxNeighbors = options.maxNeighbors ?? 64;
-        this.params = new PerStepUniforms(ctx.core, {
-            discriminator: 'pbf_params',
+        this.params = new PerStepUniforms(this.work, {
+            id: 'pbf_params',
             schema: PBFSimParamsSchema,
         });
         this.params.reserve(1);
-        this.colliderSet = new ColliderSet(ctx.core, ctx.world, ctx.resources, {
+        this.colliderSet = new ColliderSet(this.work, ctx.world, {
             discriminator: 'pbf_colliders',
         });
-        this.delta = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'pbf_delta',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
-        });
-        this.normals = ctx.core.create<StorageBufferSpec>({
-            kind: 'buffer',
-            subkind: 'storage',
-            discriminator: 'pbf_normal',
-            byteSize: NEIGHBOR_SEARCH_MAX_PARTICLES * 16,
-        });
-        const grid = gridOf(ParticleMaterial.defaults);
+        const grid = gridOf(ParticlePhysics.defaults);
         this.neighborKey = gridKeyOf(grid);
         this.neighborSearch = this.createNeighborSearch(grid);
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [pbfResources.params, this.params.source()],
-            [pbfResources.delta, this.delta],
-            [pbfResources.deltaRead, this.delta],
-            [pbfResources.normal, this.normals],
-            [pbfResources.normalRead, this.normals],
-            ...this.neighborSources(),
-        ]);
         const compute = (
             id: string,
             shader: PipelineDescriptor['shader'],
@@ -180,6 +182,10 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         });
         this.pipelines = [
             compute('pbf_predict', pbfPredict, 'pbf_predict_main'),
+            {
+                ...compute('pbf_boundary', pbfBoundary, 'pbf_boundary_main'),
+                constants: FLUID_BOUNDARY_POLY6,
+            },
             compute('pbf_density_lambda', pbfDensityLambda, 'pbf_density_lambda_main'),
             compute('pbf_position_correct', pbfPositionCorrect, 'pbf_position_correct_main'),
             compute('pbf_apply_position', pbfApply, 'pbf_apply_position_main'),
@@ -197,7 +203,14 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         };
         this.transitions = {
             '*': {
-                slotsResolved: colliders,
+                // O trabalho já está na cena: a vizinhança (fonte privada) liga ao que a C2 alocou.
+                slotsResolved: {
+                    to: 'running',
+                    run: (_e, c) => {
+                        c.bind(this.neighborSources());
+                        this.refreshColliders(c);
+                    },
+                },
                 slotChanged: colliders,
                 // Entidades com collider entram/saem em massa: só marca; a reconstrução é uma por quadro (framePrepare).
                 entitiesChanged: {
@@ -227,6 +240,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         if (this.iterations === 0 || count === 0) return;
         const p = (id: string): PreparedCompute => bound.compute(id);
         const predict = p('pbf_predict');
+        const boundary = p('pbf_boundary');
         const densityLambda = p('pbf_density_lambda');
         const positionCorrect = p('pbf_position_correct');
         const applyPosition = p('pbf_apply_position');
@@ -235,54 +249,59 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         const vorticity = p('pbf_vorticity');
         const xsph = p('pbf_xsph');
         const applyVelocity = p('pbf_apply_velocity');
-        const run = (label: string, k: PreparedCompute, offset: number[]): void => {
-            frame.compute(label, (pass) => {
-                pass.bind.setPipeline(k.spec);
-                k.bindTo(pass.bind, { draw: offset });
-                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
-            });
+        // Cada passe aberto custa mais que um despacho destas partículas: a iteração inteira vai no passe da busca de
+        // vizinhos (dentro do passe, cada despacho vê o que o anterior escreveu).
+        const run = (
+            pass: ComputePass,
+            k: PreparedCompute,
+            offset: number[],
+            label: string,
+        ): void => {
+            pass.marker(label);
+            pass.bind.setPipeline(k.spec);
+            k.bindTo(pass.bind, { draw: offset });
+            pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
         };
         for (let i = 0; i < this.iterations; i++) {
             const offset = [this.params.offset(i)];
             // A vizinhança acompanha cada iteração (as posições mudam entre elas).
-            this.neighborSearch.rebuild(frame, count);
-            run('PBFFlow.predict', predict, offset);
-            // Colisão dentro do laço do solver: cada projeção de densidade é seguida da projeção nos colliders.
-            for (let it = 0; it < this.solverIters; it++) {
-                run('PBFFlow.density_lambda', densityLambda, offset);
-                run('PBFFlow.position_correct', positionCorrect, offset);
-                run('PBFFlow.apply_position', applyPosition, offset);
-                run('PBFFlow.collision', collision, offset);
-            }
-            run('PBFFlow.velocity_update', velocityUpdate, offset);
-            run('PBFFlow.vorticity', vorticity, offset);
-            run('PBFFlow.xsph', xsph, offset);
-            run('PBFFlow.apply_velocity', applyVelocity, offset);
+            this.neighborSearch.rebuild(frame, count, (pass) => {
+                run(pass, predict, offset, 'PBFFlow.predict');
+                // Colisão dentro do laço do solver: cada projeção de densidade é seguida da projeção nos colliders.
+                for (let it = 0; it < this.solverIters; it++) {
+                    run(pass, boundary, offset, 'PBFFlow.boundary');
+                    run(pass, densityLambda, offset, 'PBFFlow.density_lambda');
+                    run(pass, positionCorrect, offset, 'PBFFlow.position_correct');
+                    run(pass, applyPosition, offset, 'PBFFlow.apply_position');
+                    run(pass, collision, offset, 'PBFFlow.collision');
+                }
+                run(pass, velocityUpdate, offset, 'PBFFlow.velocity_update');
+                run(pass, vorticity, offset, 'PBFFlow.vorticity');
+                run(pass, xsph, offset, 'PBFFlow.xsph');
+                run(pass, applyVelocity, offset, 'PBFFlow.apply_velocity');
+            });
         }
     }
 
-    /** Libera parâmetros, correções, colliders e a busca de vizinhança. */
+    /** Libera os kernels da busca de vizinhança (os buffers são do `PBFWork` e saem da cena com ele). */
     override dispose(): void {
-        this.params.dispose();
-        this.core.destroy(this.delta);
-        this.core.destroy(this.normals);
-        this.colliderSet.destroy();
         this.neighborSearch.dispose();
     }
 
     private createNeighborSearch(
-        grid: ReturnType<ParticleMaterial['gridFor']>,
+        grid: ReturnType<ParticlePhysics['gridFor']>,
     ): NeighborSearchPipeline {
-        const ns = new NeighborSearchPipeline(this.core, {
-            // Uma geração por grade: a busca recriada (material mudou) não pode repetir as specs da anterior — a C1
+        const ns = new NeighborSearchPipeline(this.work, {
+            // Uma geração por grade: a busca recriada (a física mudou) não pode repetir as specs da anterior — a C1
             // devolveria os bind groups antigos, ligados aos buffers destruídos.
             discriminator: `pbf:gen${this.neighborGeneration++}`,
             maxParticles: NEIGHBOR_SEARCH_MAX_PARTICLES,
             maxNeighbors: this.maxNeighbors,
-            particleStrideF32: 16,
+            particleStrideF32: PBFSchema.stride / 4,
             cellSize: grid.cellSize,
             gridDim: grid.gridDim,
             origin: grid.origin,
+            byRank: true,
         });
         ns.allocate();
         return ns;
@@ -292,6 +311,7 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
         return new Map<WgslResource, BindingSource>([
             [pbfResources.neighborList, this.neighborSearch.neighborList!],
             [pbfResources.neighborCount, this.neighborSearch.neighborCount!],
+            [pbfResources.neighborOrder, this.neighborSearch.neighborOrder!],
         ]);
     }
 
@@ -307,17 +327,17 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
     }
 
     /**
-     * Antes da gravação: vizinhança pela grade do material (recriada e religada quando muda) e preparada para as
+     * Antes da gravação: vizinhança pela grade da física (recriada e religada quando muda) e preparada para as
      * iterações do quadro, e uma região de `PBFSimParams` por iteração.
      */
     private prepareFrame(ctx: Ctx): void {
         const bound = ctx.bound;
         NeighborSearchPipeline.requireCapacity('PBFFlow', bound.slots.bodies);
         const time = bound.slots.time.resource as Time;
-        const material =
-            (bound.slots.material?.resource as ParticleMaterial | undefined)
-            ?? ParticleMaterial.defaults;
-        const grid = gridOf(material);
+        const physics =
+            (bound.slots.physics?.resource as ParticlePhysics | undefined)
+            ?? ParticlePhysics.defaults;
+        const grid = gridOf(physics);
         const key = gridKeyOf(grid);
         if (key !== this.neighborKey) {
             this.neighborSearch.dispose();
@@ -325,10 +345,10 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             this.neighborKey = key;
             ctx.bind(this.neighborSources());
         }
-        // Substeps pelo passo estável do material (spec 017: abaixo de 5 cm o passo fixo explodia o fluido).
+        // Substeps pelo passo estável da física (spec 017: abaixo de 5 cm o passo fixo explodia o fluido).
         // Coesão/adesão podem pedir mais substeps (spec 030); com as duas em zero, é o passo estável do PBF.
-        const surface = material.surfaceStep(time.stepDt, material.pbfStableDt, this.minSubsteps);
-        if (surface.clamped) this.warnClamp(material, surface);
+        const surface = physics.surfaceStep(time.stepDt, physics.pbfStableDt, this.minSubsteps);
+        if (surface.clamped) this.warnClamp(physics, surface);
         this.substeps = surface.substeps;
         this.iterations = time.steps * this.substeps;
         if (this.iterations === 0) return;
@@ -337,65 +357,77 @@ export class PBFFlow extends Flow<PBFSlots, 'running'> {
             bound.slots.bodies.live,
             this.iterations,
         );
-        if (this.params.reserve(this.iterations))
-            ctx.bind(new Map([[pbfResources.params, this.params.source()]]));
+        // Uma região por iteração (a C2 realoca e religa o fornecedor do trabalho quando cresce).
+        this.params.reserve(this.iterations);
         const accel = (
             bound.slots.gravity?.resource as GravityField | undefined
         )?.uniformAcceleration() ?? [0, -9.81, 0, 0];
         const count = bound.slots.bodies.count;
-        const spacingRatio = material.particleSpacing / 0.05;
+        const spacingRatio = physics.particleSpacing / 0.05;
+        // O ancoramento da gota solta por superfície (T066d): a padrão e as da cena, na ordem do mapa dos colliders.
+        const surfaces = [SurfacePhysics.defaults, ...this.colliderSet.surfacePhysics()];
+        const pinning = Array.from({ length: WET_PINNING_VECS }, (_, v) =>
+            [0, 1, 2, 3].map((c) => {
+                const k = 4 * v + c;
+                return k < surfaces.length ? physics.dropPinning(surfaces[k]!) : 0;
+            }),
+        );
         for (let i = 0; i < this.iterations; i++) {
             this.params.write(i, {
                 gravity: [accel[0] ?? 0, accel[1] ?? -9.81, accel[2] ?? 0],
                 dt: time.stepDt / this.substeps,
-                rest_density: material.restDensity,
-                h: material.pbfSmoothingLength,
+                rest_density: physics.restDensity,
+                h: physics.pbfSmoothingLength,
                 relaxation: PBF_RELAXATION,
                 s_corr_k: PBF_S_CORR_K_AT_5CM * spacingRatio * spacingRatio,
                 s_corr_n: PBF_S_CORR_N,
                 vorticity_eps: PBF_VORTICITY_EPS,
-                xsph_c: material.xsph,
+                xsph_c: physics.xsph,
                 dt_frame: time.stepDt,
                 particle_count: count,
                 max_neighbors: this.maxNeighbors,
                 neighbor_stride: NEIGHBOR_SEARCH_MAX_PARTICLES,
-                restitution: material.restitution,
-                collision_radius: material.particleSpacing / 2,
-                bound_min: material.domainMin,
-                bound_max: material.domainMax,
-                open_bounds: material.openBounds ? 1 : 0,
-                particle_mass: material.particleMass,
-                mass_over_density: material.particleMass / material.restDensity,
-                cohesion_gamma: material.cohesionGamma(surface.cohesion),
-                adhesion_accel: material.adhesionAccel(surface.adhesion),
-                adhesion_tangential: material.adhesionTangential(surface.adhesion),
-                support: material.pbfSmoothingLength,
+                restitution: physics.restitution,
+                wet_neighbors: physics.contactAngle < 90 ? ParticlePhysics.WET_NEIGHBORS : 0,
+                wet_pinning: pinning,
+                collision_radius: physics.particleSpacing / 2,
+                bound_min: physics.domainMin,
+                bound_max: physics.domainMax,
+                open_bounds: physics.openBounds ? 1 : 0,
+                particle_mass: physics.particleMass,
+                mass_over_density: physics.particleMass / physics.restDensity,
+                cohesion_gamma: physics.cohesionGamma(surface.cohesion),
+                adhesion_accel: physics.adhesionAccel(surface.adhesion),
+                adhesion_tangential: physics.adhesionTangential(surface.adhesion),
+                surface_tension: physics.surfaceTensionKernel('PBF', surface.cohesion),
+                wet_cos: physics.contactCosine,
+                support: physics.pbfSmoothingLength,
                 // Fim da iteração i (passo ⌊i/substeps⌋): o mesmo tempo em qualquer taxa (spec 009).
                 field_time:
                     time.stepTime(Math.floor(i / this.substeps))
                     + ((i % this.substeps) + 1) * (time.stepDt / this.substeps),
-                field_density: material.restDensity,
+                field_density: physics.restDensity,
             });
         }
         this.params.flush(this.iterations);
     }
 
-    /** Aviso único por material: coesão/adesão acima do teto de substeps foram grampeadas. */
-    private warnClamp(material: ParticleMaterial, surface: SurfaceStep): void {
-        if (this.warnedClamp.has(material)) return;
-        this.warnedClamp.add(material);
+    /** Aviso único por `ParticlePhysics`: coesão/adesão acima do teto de substeps foram grampeadas. */
+    private warnClamp(physics: ParticlePhysics, surface: SurfaceStep): void {
+        if (this.warnedClamp.has(physics)) return;
+        this.warnedClamp.add(physics);
         console.warn(
-            `PBFFlow: coesão ${material.cohesion} / adesão ${material.adhesion} exigem mais que o teto de substeps; `
+            `PBFFlow: coesão ${physics.cohesion} / adesão ${physics.adhesion} exigem mais que o teto de substeps; `
                 + `usando ${surface.cohesion.toPrecision(3)} / ${surface.adhesion.toPrecision(3)}`,
         );
     }
 }
 
 /** Vizinhança com raio = suporte do núcleo (h) e grade pelo domínio. */
-function gridOf(material: ParticleMaterial): ReturnType<ParticleMaterial['gridFor']> {
-    return material.gridFor(material.pbfSmoothingLength);
+function gridOf(physics: ParticlePhysics): ReturnType<ParticlePhysics['gridFor']> {
+    return physics.gridFor(physics.pbfSmoothingLength);
 }
 
-function gridKeyOf(grid: ReturnType<ParticleMaterial['gridFor']>): string {
+function gridKeyOf(grid: ReturnType<ParticlePhysics['gridFor']>): string {
     return `${grid.cellSize}|${grid.gridDim.join(',')}|${grid.origin.join(',')}`;
 }

@@ -4,14 +4,11 @@ import {
     type WgslResource,
     type WgslResourceType,
 } from '../../scene/shaders/WgslResource';
-import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE, WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
 import giCommonSource from '../gpu/wgsl/gi/gi_common.wgsl?raw';
 import giWeightsSource from '../gpu/wgsl/gi/gi_weights.wgsl?raw';
 import giSampleSource from '../gpu/wgsl/gi/gi_sample.wgsl?raw';
 import giGenerationSource from '../gpu/wgsl/gi/gi_generation.wgsl?raw';
-import giHitSource from '../gpu/wgsl/gi/gi_hit.wgsl?raw';
-import giHitMaterialReadySource from '../gpu/wgsl/gi/gi_hit_material_ready.wgsl?raw';
 import giDirectSource from '../gpu/wgsl/gi/gi_direct.wgsl?raw';
 import giProbeTraceSource from '../gpu/wgsl/gi/gi_probe_trace.wgsl?raw';
 import giProbeBlendSource from '../gpu/wgsl/gi/gi_probe_blend.wgsl?raw';
@@ -22,23 +19,44 @@ import giResponseSource from '../gpu/wgsl/gi/gi_response.wgsl?raw';
 import giScreenCommonSource from '../gpu/wgsl/gi/gi_screen_common.wgsl?raw';
 import giScreenPlaceSource from '../gpu/wgsl/gi/gi_screen_place.wgsl?raw';
 import giScreenTraceSource from '../gpu/wgsl/gi/gi_screen_trace.wgsl?raw';
+import giScreenGuideSource from '../gpu/wgsl/gi/gi_screen_guide.wgsl?raw';
+import giScreenAdaptSource from '../gpu/wgsl/gi/gi_screen_adapt.wgsl?raw';
+import giWaveScatterSource from '../gpu/wgsl/gi/gi_wave_scatter.wgsl?raw';
 import giScreenResolveSource from '../gpu/wgsl/gi/gi_screen_resolve.wgsl?raw';
 import giScreenSampleSource from '../gpu/wgsl/gi/gi_screen_sample.wgsl?raw';
 import giScreenReprojectSource from '../gpu/wgsl/gi/gi_screen_reproject.wgsl?raw';
-import giPhotonCommonSource from '../gpu/wgsl/gi/gi_photon_common.wgsl?raw';
-import giPhotonSource from '../gpu/wgsl/gi/gi_photon.wgsl?raw';
-import giPhotonTraceSource from '../gpu/wgsl/gi/gi_photon_trace.wgsl?raw';
-import giPhotonResolveSource from '../gpu/wgsl/gi/gi_photon_resolve.wgsl?raw';
-import { rayVolumeHitReady } from '../raytrace/points';
+import giWaveDirectSource from '../gpu/wgsl/gi/gi_wave_direct.wgsl?raw';
+import giWaveThroughSource from '../gpu/wgsl/gi/gi_wave_through.wgsl?raw';
+import giCacheSource from '../gpu/wgsl/gi/gi_cache.wgsl?raw';
+import giCacheTraceSource from '../gpu/wgsl/gi/gi_cache_trace.wgsl?raw';
+import giChangeSource from '../gpu/wgsl/gi/gi_change.wgsl?raw';
 import { closure, closureEval } from '../material/pbr/shaders';
-import { materialPointTypes } from '../material/point/types/shaders';
-import { StandardMaterialSchema } from '../material/StandardMaterialSchema';
-import { rayInstanceRead, rayScene } from '../raytrace/shaders';
-import { lightTransmissionReady, sceneEnvironmentReady } from '../scene/points/lighting';
-import { rayVolumeTransmittanceReady } from '../raytrace/points';
-import { LIGHT_LIMIT, lightIncoming } from '../scene/points/lightContributions';
+import { causticsCapable } from './caustics/shaders';
+import { rayDirect, rayHit, rayScene } from '../raytrace/shaders';
+import { RayWaveEntrySchema, rayWave, rayWaveResources } from '../raytrace/wave/shaders';
+import { cameraSpace } from '../scene/flows/shaders';
+import { sceneEnvironmentReady } from '../scene/points/lighting';
+import { rayVolumeScatterReady, rayVolumeTransmittanceReady } from '../raytrace/points';
 import { camerasResource, lightsResource } from '../scene/resources';
-import { GlobalIlluminationSchema, ProbeStateSchema } from './schemas';
+import { LIGHT_LIMIT } from '../scene/points/lightContributions';
+import { sharedConstant } from '../../scene/shaders/SharedConstant';
+import {
+    GI_CHANGE_FRAMES,
+    GiScreenFilterStepSchema,
+    GlobalIlluminationSchema,
+    ProbeStateSchema,
+} from './schemas';
+import { slot } from '../../scene/flows/slots';
+import {
+    basis,
+    color,
+    constants,
+    random,
+    sampling,
+    temporal as temporalPieces,
+    viewSpace,
+    xformRigid,
+} from '../gpu/shaders/math';
 
 // Módulos da iluminação global (spec 033, R2/R5/R6/R7): as sondas (endereçamento, pesos, leitura dos atlas e dos
 // rebatimentos), o material e a luz direta nos acertos, os kernels das sondas (raios, acúmulo, estado, atlas) e a leitura
@@ -112,34 +130,85 @@ export const giResources = Object.freeze({
     generations: priv('gi_generations', 'read_write', { wgsl: 'vec2u', array: true }),
     generationsRead: priv('gi_generations', 'read', { wgsl: 'vec2u', array: true }),
     radianceMap: priv('gi_radiance_map', 'read_write', { wgsl: 'vec2u', array: true }),
+    /** A histerese de cada sonda atualizada no quadro (spec 034, T049): o passe da resposta grava, o acúmulo lê. */
+    probeHysteresis: priv('gi_probe_hysteresis', 'read_write', { wgsl: 'f32', array: true }),
     radianceMapRead: priv('gi_radiance_map', 'read', { wgsl: 'vec2u', array: true }),
     visibilityMap: priv('gi_visibility_map', 'read_write', { wgsl: 'u32', array: true }),
     visibilityMapRead: priv('gi_visibility_map', 'read', { wgsl: 'u32', array: true }),
-    // Coleta final na tela (R2 adendo): as texturas das sondas de tela que o desenho lê, as saídas, o trabalho do
-    // quadro (sondas e raios) e o histórico do acúmulo (privados do `ProbeFlow`).
+    // Coleta final na tela (R2 adendo): as texturas das sondas de tela que o desenho lê, as saídas e o trabalho do
+    // quadro (sondas e raios; privados do `ProbeFlow`).
     screenProbe: atlas('gi_screen_probe_texture', 'GlobalIllumination.screenProbe'),
     screenIrradiance: atlas('gi_screen_irradiance_texture', 'GlobalIllumination.screenIrradiance'),
+    /** O filtro à-trous das sondas de tela (T054): duas metades de ida e volta, irradiância e variância por sonda. */
+    screenFilter: priv('gi_screen_filter', 'read_write', { wgsl: 'vec4f', array: true }),
+    /** O passe do filtro: uma região por passe, por offset dinâmico (spec 039). */
+    screenFilterStep: wgslResource({
+        name: 'gi_screen_filter_step',
+        binding: { uniform: true },
+        type: { schema: GiScreenFilterStepSchema },
+        frequency: 'draw',
+        provider: 'private',
+    }),
     screenProbeOut: out('gi_screen_probe_out', 'rgba32float'),
     screenIrradianceOut: out('gi_screen_irradiance_out'),
     screenWork: priv('gi_screen_work', 'read_write', { wgsl: 'vec4f', array: true }),
+    /** O contador das vagas das sondas de tela extras ocupadas no quadro (spec 034, T058). */
+    screenAdaptCount: priv('gi_screen_adapt_count', 'read_write', {
+        wgsl: 'atomic<u32>',
+        array: true,
+    }),
+    /** Os argumentos dos despachos indiretos das sondas de tela pelas vagas ocupadas (T058). */
+    screenArgs: priv('gi_screen_args', 'read_write', { wgsl: 'u32', array: true }),
     screenWorkRead: priv('gi_screen_work', 'read', { wgsl: 'vec4f', array: true }),
-    screenHistory: priv('gi_screen_history', 'read_write', { wgsl: 'vec4f', array: true }),
-    // As instâncias capazes de cáustica e as áreas das projeções delas (privado do `ProbeFlow`; US5).
-    photonTargets: priv('gi_photon_targets', 'read_write', { wgsl: 'f32', array: true }),
-    // Cáusticas por fótons (US5): o hash em mundo — leitura no desenho, atômicos nos fótons e no acúmulo.
-    caustics: wgslResource({
-        name: 'gi_caustics',
+    /** A luz direta nos acertos da onda por raio (spec 034 T078; privada do `ProbeFlow`). */
+    waveDirect: priv('gi_wave_light', 'read_write', { wgsl: 'vec4f', array: true }),
+    waveDirectRead: priv('gi_wave_light_read', 'read', { wgsl: 'vec4f', array: true }),
+    /** A amostra do espalhamento dos meios no trecho de cada raio da onda (T058): escrita no acerto, lida na luz direta. */
+    waveScatter: priv('gi_wave_scatter', 'read_write', { wgsl: 'vec4f', array: true }),
+    waveScatterRead: priv('gi_wave_scatter_read', 'read', { wgsl: 'vec4f', array: true }),
+    /**
+     * O cache de irradiância nas superfícies (spec 034, T059): o índice das células (chave, época, uso, normal, ponto e
+     * lado) numa série por páginas do trabalho do `ProbeFlow`, em palavras atômicas.
+     */
+    cache: priv('gi_cache', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    /** Os valores do cache (a chave e a época, a resposta e a irradiância de cada rebatimento), em palavras inteiras. */
+    cacheData: priv('gi_cache_data', 'read_write', { wgsl: 'vec4u', array: true }),
+    cacheDataRead: priv('gi_cache_data_read', 'read', { wgsl: 'vec4u', array: true }),
+    /** As células do cache atualizadas no quadro: a contagem na palavra 0 e a lista depois. */
+    cacheList: priv('gi_cache_list', 'read_write', { wgsl: 'atomic<u32>', array: true }),
+    cacheListRead: priv('gi_cache_list_read', 'read', { wgsl: 'u32', array: true }),
+    /** A média dos raios de cada célula atualizada no quadro, por rebatimento (w: a fração dos raios na média). */
+    cacheFresh: priv('gi_cache_fresh', 'read_write', { wgsl: 'vec4f', array: true }),
+    cacheFreshRead: priv('gi_cache_fresh_read', 'read', { wgsl: 'vec4f', array: true }),
+    /** O histórico do acúmulo (canal temporal, spec 037): a fatia do quadro (escrita) e a do anterior (lida). */
+    screenHistory: wgslResource({
+        name: 'gi_screen_history',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'vec4f', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giScreenHistory', lag: 0 },
+    }),
+    screenHistoryPrevious: wgslResource({
+        name: 'gi_screen_history_previous',
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec4f', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giScreenHistory', lag: 1 },
+    }),
+    /** A luz e a cena que mudaram (canal temporal, spec 037; T060e): a fatia do quadro e a do anterior. */
+    change: wgslResource({
+        name: 'gi_change',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giChange', lag: 0 },
+    }),
+    changePrevious: wgslResource({
+        name: 'gi_change_previous',
         binding: { storage: 'read' },
         type: { wgsl: 'u32', array: true },
-        frequency: 'frame',
-        provider: { consumer: 'GlobalIllumination.caustics' },
-    }),
-    causticsWrite: wgslResource({
-        name: 'gi_caustics_atomic',
-        binding: { storage: 'read_write' },
-        type: { wgsl: 'atomic<u32>', array: true },
-        frequency: 'frame',
-        provider: { consumer: 'GlobalIllumination.caustics' },
+        frequency: 'stage',
+        provider: { slot: 'giChange', lag: 1 },
     }),
 });
 
@@ -149,7 +218,7 @@ const R = giResources;
 export const giCommon = wgslModule({
     name: 'gi_common',
     source: giCommonSource,
-    requires: [R.params],
+    requires: [R.params, constants],
 });
 
 /** Pesos das sondas num ponto (trilinear, voltada para a normal, Chebyshev) e as cascatas. */
@@ -170,77 +239,107 @@ export const giSample = wgslModule({
 const giGeneration = wgslModule({
     name: 'gi_generation',
     source: giGenerationSource,
-    requires: [giCommon, giWeights, R.params, R.generationsRead],
-});
-
-/** Composição pronta das funções `material` nos acertos: as constantes do material. */
-export const giHitMaterialReady = wgslModule({
-    name: 'gi_hit_material_ready',
-    source: giHitMaterialReadySource,
-    requires: [materialPointTypes, closure],
-    structs: [StandardMaterialSchema],
-});
-
-/**
- * Ponto da composição das funções `material` nos acertos (spec 033, R3): o `ProbeFlow` troca o pronto pelo `switch`
- * das funções da cena (`bindPoints`).
- */
-export const giHitMaterialPoint: BindablePoint = {
-    name: 'gi_hit_material',
-    ready: giHitMaterialReady,
-};
-
-/** Material no ponto atingido. */
-const giHit = wgslModule({
-    name: 'gi_hit',
-    source: giHitSource,
-    requires: [
-        rayScene,
-        rayInstanceRead,
-        R.params,
-        materialPointTypes,
-        closure,
-        giHitMaterialReady,
-    ],
-    structs: [StandardMaterialSchema],
+    requires: [color, giCommon, giWeights, R.params, R.generationsRead],
 });
 
 /** Luz direta no ponto atingido (sombra pela estrutura de raios). */
 const giDirect = wgslModule({
     name: 'gi_direct',
     source: giDirectSource,
-    requires: [
-        NONE.module,
-        R.params,
-        closure,
-        closureEval,
-        rayScene,
-        lightsResource,
-        LIGHT_LIMIT.module,
-        lightIncoming,
-        lightTransmissionReady,
-    ],
+    requires: [random, R.params, closure, rayDirect],
 });
 
 /** Luz que sai de um ponto atingido: a direta, a emissão e o rebatimento anterior das sondas do mundo. */
 const giShade = wgslModule({
     name: 'gi_shade',
     source: giShadeSource,
-    requires: [giDirect, giGeneration, closure, closureEval],
+    requires: [giDirect, causticsCapable, giGeneration, closure, closureEval],
+});
+
+/** O slot do canal do histórico das sondas de tela no estágio das sondas (spec 037). */
+export const giScreenHistorySlot = Object.freeze({
+    giScreenHistory: slot.channel(GlobalIlluminationSchema, 'screenHistory'),
+});
+
+/** O slot do canal da luz e da cena que mudaram (spec 034, T060e; constituição VII). */
+export const giChangeSlot = Object.freeze({
+    giChange: slot.channel(GlobalIlluminationSchema, 'change'),
+});
+
+/** A luz ou a cena que mudou: as luzes guardadas e os quadros de resposta, na série (T060e). */
+export const giChange = wgslModule({
+    name: 'gi_change_detect',
+    source: giChangeSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        constants,
+        giParamsResource,
+        lightsResource,
+        LIGHT_LIMIT.module,
+        sharedConstant('GI_CHANGE_FRAMES', GI_CHANGE_FRAMES, 'u32').module,
+        giResources.change,
+        giResources.changePrevious,
+    ],
+});
+
+/** O slot da série por páginas das sondas (spec 034, T060b): os carimbos, a época e a contagem de quadros. */
+export const giProbesSlot = Object.freeze({
+    giProbes: slot.channel(GlobalIlluminationSchema, 'probes'),
+});
+
+/** Os carimbos das sondas (a época em que cada uma foi escrita) e o relógio da série (`vec4u`: a época). */
+export const giProbeSeries = Object.freeze({
+    stamps: wgslResource({
+        name: 'gi_probe_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'giProbes', part: 'stamps' },
+    }),
+    clock: wgslResource({
+        name: 'gi_probe_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'giProbes', part: 'clock' },
+    }),
 });
 
 /** Sondas de tela: ladrilhos, buffer de trabalho e o raio da câmera ativa. */
 const giScreenCommon = wgslModule({
     name: 'gi_screen_common',
     source: giScreenCommonSource,
-    requires: [R.params, camerasResource],
+    requires: [R.params, cameraSpace],
 });
 
 /** Histórico das sondas de tela: o layout e a busca da sonda do quadro anterior num ponto. */
 const giScreenReproject = wgslModule({
     name: 'gi_screen_reproject',
     source: giScreenReprojectSource,
-    requires: [NONE.module, R.params, giScreenCommon, R.screenHistory],
+    requires: [
+        temporalPieces,
+        viewSpace,
+        xformRigid,
+        NONE.module,
+        R.params,
+        giScreenCommon,
+        R.screenHistoryPrevious,
+        camerasResource,
+    ],
+});
+
+/** Colocação das sondas de tela pelo raio da câmera (na despacho dos acertos das sondas do mundo). */
+const giScreenPlace = wgslModule({
+    name: 'gi_screen_place',
+    source: giScreenPlaceSource,
+    requires: [NONE.module, R.params, giScreenCommon, giScreenReproject, rayScene, R.screenWork],
+});
+
+/** A amostra do espalhamento dos meios nos raios das sondas e a luz que o meio devolve (T058). */
+const giWaveScatterSample = wgslModule({
+    name: 'gi_wave_scatter_sample',
+    source: giWaveScatterSource,
+    requires: [R.params, giCommon, R.waveScatter],
 });
 
 /** Raios das sondas atualizadas no quadro. */
@@ -248,29 +347,75 @@ export const giProbeTrace = wgslModule({
     name: 'gi_probe_trace',
     source: giProbeTraceSource,
     requires: [
+        giWaveScatterSample,
         WORKGROUP_SIZE.module,
         giCommon,
         giWeights,
         R.params,
         rayScene,
-        giHit,
+        rayHit,
         giShade,
         giScreenReproject,
+        giScreenPlace,
         closureEval,
         sceneEnvironmentReady,
-        rayVolumeTransmittanceReady,
+        rayWave,
         R.rays,
+        R.waveDirectRead,
     ],
 });
 
+/**
+ * A luz direta nos acertos da onda (spec 034 T078): o kernel que liga as luzes, a estrutura de raios e os contribuintes
+ * da luz, fora dos que somam os rebatimentos.
+ */
+export const giWaveDirect = wgslModule({
+    name: 'gi_wave_direct',
+    source: giWaveDirectSource,
+    requires: [
+        random,
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        giCommon,
+        giShade,
+        rayWaveResources.entriesIn,
+        rayWaveResources.counts,
+        R.waveDirect,
+        R.waveScatterRead,
+        rayVolumeScatterReady,
+    ],
+    structs: [RayWaveEntrySchema],
+});
+
+/**
+ * A transmitância dos volumes no trecho de cada raio da onda (spec 034, T060e): a marcha pela água num kernel só dela,
+ * fora dos acertos (que ficam com os registradores da estrutura de raios).
+ */
+export const giWaveThrough = wgslModule({
+    name: 'gi_wave_through',
+    source: giWaveThroughSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        R.params,
+        giCommon,
+        rayWaveResources.entries,
+        rayWaveResources.counts,
+        R.waveScatterRead,
+        rayVolumeTransmittanceReady,
+    ],
+    structs: [RayWaveEntrySchema],
+});
+
 /** Histerese adaptativa das sondas (a regra de `reference/response.ts`). */
-const giResponse = wgslModule({ name: 'gi_response', source: giResponseSource });
+const giResponse = wgslModule({ name: 'gi_response', source: giResponseSource, requires: [color] });
 
 /** Acúmulo dos raios nos mapas das sondas. */
 export const giProbeBlend = wgslModule({
     name: 'gi_probe_blend',
     source: giProbeBlendSource,
     requires: [
+        color,
         WORKGROUP_SIZE.module,
         giCommon,
         giResponse,
@@ -280,6 +425,9 @@ export const giProbeBlend = wgslModule({
         R.generations,
         R.radianceMap,
         R.visibilityMap,
+        R.probeHysteresis,
+        giProbeSeries.stamps,
+        giProbeSeries.clock,
     ],
 });
 
@@ -287,7 +435,15 @@ export const giProbeBlend = wgslModule({
 export const giProbeClassify = wgslModule({
     name: 'gi_probe_classify',
     source: giProbeClassifySource,
-    requires: [WORKGROUP_SIZE.module, giCommon, R.params, R.probesWrite, R.raysRead],
+    requires: [
+        WORKGROUP_SIZE.module,
+        giCommon,
+        R.params,
+        R.probesWrite,
+        R.raysRead,
+        giProbeSeries.stamps,
+        giProbeSeries.clock,
+    ],
 });
 
 /** Cópia dos mapas para os atlas filtrados. */
@@ -295,6 +451,7 @@ export const giProbeAtlas = wgslModule({
     name: 'gi_probe_atlas',
     source: giProbeAtlasSource,
     requires: [
+        color,
         WORKGROUP_SIZE.module,
         giCommon,
         R.params,
@@ -306,14 +463,78 @@ export const giProbeAtlas = wgslModule({
         R.radianceOut,
         R.visibilityOut,
         R.probeOut,
+        giProbeSeries.stamps,
+        giProbeSeries.clock,
     ],
 });
 
-/** Colocação das sondas de tela pelo raio da câmera. */
-export const giScreenPlace = wgslModule({
-    name: 'gi_screen_place',
-    source: giScreenPlaceSource,
-    requires: [WORKGROUP_SIZE.module, R.params, giScreenCommon, rayScene, R.screenWork],
+/**
+ * As direções dos raios das sondas de tela (spec 034, T051): metade em cosseno, metade guiada pela radiância da sonda do
+ * mundo de maior peso, com o peso MIS de cada raio.
+ */
+export const giScreenGuide = wgslModule({
+    name: 'gi_screen_guide',
+    source: giScreenGuideSource,
+    requires: [
+        random,
+        basis,
+        sampling,
+        color,
+        WORKGROUP_SIZE.module,
+        R.params,
+        giCommon,
+        giWeights,
+        giScreenCommon,
+        R.radianceMapRead,
+        R.screenWork,
+        R.screenArgs,
+    ],
+});
+
+/**
+ * As sondas de tela extras (spec 034, T058): as posições a meio ladrilho que as sondas dos ladrilhos não cobrem (a dobra,
+ * a borda) ganham uma sonda numa vaga.
+ */
+export const giScreenAdapt = wgslModule({
+    name: 'gi_screen_adapt',
+    source: giScreenAdaptSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        R.params,
+        giScreenCommon,
+        giScreenReproject,
+        rayScene,
+        camerasResource,
+        R.screenWork,
+        R.screenAdaptCount,
+        R.screenArgs,
+    ],
+});
+
+/**
+ * O cache de irradiância nas superfícies (spec 034, T059): a chave de um ponto, a busca e a inserção, a seleção das
+ * células do quadro e o acúmulo delas.
+ */
+export const giCache = wgslModule({
+    name: 'gi_surface_cache',
+    source: giCacheSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        NONE.module,
+        random,
+        R.params,
+        giCommon,
+        giResponse,
+        camerasResource,
+        giProbeSeries.clock,
+        R.cache,
+        R.cacheData,
+        R.cacheDataRead,
+        R.cacheList,
+        R.cacheListRead,
+        R.cacheFreshRead,
+    ],
 });
 
 /** Raios das sondas de tela. */
@@ -321,6 +542,8 @@ export const giScreenTrace = wgslModule({
     name: 'gi_screen_trace',
     source: giScreenTraceSource,
     requires: [
+        random,
+        giWaveScatterSample,
         WORKGROUP_SIZE.module,
         NONE.module,
         R.params,
@@ -328,14 +551,23 @@ export const giScreenTrace = wgslModule({
         giScreenCommon,
         giScreenReproject,
         rayScene,
-        giHit,
+        rayHit,
         giShade,
         giDirect,
         closureEval,
         sceneEnvironmentReady,
-        rayVolumeTransmittanceReady,
+        rayWave,
         R.screenWork,
+        R.waveDirectRead,
+        giCache,
     ],
+});
+
+/** Raios do cache de irradiância nas superfícies (T059), na rodada da onda depois dos das sondas de tela. */
+export const giCacheTrace = wgslModule({
+    name: 'gi_surface_cache_trace',
+    source: giCacheTraceSource,
+    requires: [giScreenTrace, basis, sampling, giCache, R.cacheFresh],
 });
 
 /** Acúmulo das sondas de tela e a vista-projeção para o quadro seguinte. */
@@ -349,11 +581,16 @@ export const giScreenResolve = wgslModule({
         giScreenCommon,
         giScreenReproject,
         giResponse,
+        temporalPieces,
         camerasResource,
+        R.screenHistory,
         R.screenWorkRead,
         giCommon,
         R.screenProbeOut,
         R.screenIrradianceOut,
+        R.screenFilter,
+        R.screenFilterStep,
+        color,
     ],
 });
 
@@ -361,46 +598,5 @@ export const giScreenResolve = wgslModule({
 export const giScreenSample = wgslModule({
     name: 'gi_screen_sample',
     source: giScreenSampleSource,
-    requires: [R.params, giCommon, camerasResource, R.screenProbe, R.screenIrradiance],
-});
-
-/** Chave, balde e endereços do hash das cáusticas por fótons (US5). */
-const giPhotonCommon = wgslModule({
-    name: 'gi_photon_common',
-    source: giPhotonCommonSource,
-    requires: [R.params],
-});
-
-/** Irradiância das cáusticas num ponto (o desenho). */
-export const giPhoton = wgslModule({
-    name: 'gi_photon',
-    source: giPhotonSource,
-    requires: [R.params, giPhotonCommon, R.caustics],
-});
-
-/** Fótons das fontes pelos caminhos especulares até a primeira difusa (com a composição das funções `material`). */
-export const giPhotonTrace = wgslModule({
-    name: 'gi_photon_trace',
-    source: giPhotonTraceSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        NONE.module,
-        giCommon,
-        R.params,
-        giPhotonCommon,
-        R.causticsWrite,
-        R.photonTargets,
-        rayScene,
-        giHit,
-        giDirect,
-        rayVolumeHitReady,
-        rayVolumeTransmittanceReady,
-    ],
-});
-
-/** Acúmulo das cáusticas no hash. */
-export const giPhotonResolve = wgslModule({
-    name: 'gi_photon_resolve',
-    source: giPhotonResolveSource,
-    requires: [WORKGROUP_SIZE.module, R.params, giPhotonCommon, R.causticsWrite],
+    requires: [viewSpace, R.params, giCommon, camerasResource, R.screenProbe, R.screenIrradiance],
 });

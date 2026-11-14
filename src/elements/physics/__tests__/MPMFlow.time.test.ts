@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MPMFlow } from '../flows/MPMFlow';
 import { FluidBody } from '../bodies/FluidBody';
 import { RigidBody } from '../bodies/RigidBody';
-import { ParticleMaterial } from '../materials/ParticleMaterial';
+import { ParticlePhysics } from '../ParticlePhysics';
 import { countPasses } from './helpers/recordingFrame';
 import { solverScene } from './helpers/solverScene';
 
@@ -14,7 +14,7 @@ async function setup(substeps: number) {
         bodyType: 'MPMFluidSchema',
     });
     // Passo estável bem maior que o passo da cena: substeps = o configurado (a derivação pelo material tem teste próprio).
-    s.scene.world.insert(new ParticleMaterial({ speedOfSound: 0.1, youngModulus: 1 }));
+    s.scene.world.insert(new ParticlePhysics({ speedOfSound: 0.1, youngModulus: 1 }));
     s.scene.world.insert(new FluidBody({ algorithm: 'MPM', position: [0, 0, 0] }));
     return s;
 }
@@ -47,7 +47,7 @@ describe('MPMFlow — avanço governado pelo Time (slots)', () => {
         writes.length = 0;
         step(1 / 60);
         const w = writes.filter((x) =>
-            (x.spec as { discriminator: string }).discriminator.includes('mpm_params:per_step'),
+            (x.spec as { discriminator: string }).discriminator.includes('mpm_params:'),
         );
         expect(w).toHaveLength(1);
         const f32 = new Float32Array(
@@ -84,8 +84,8 @@ describe('MPMFlow — avanço governado pelo Time (slots)', () => {
         const s = await setup(1);
         s.step();
         const mat = s.scene.world.rootOf(
-            s.scene.world.queryBySchemaName('ParticleMaterial')[0]!,
-        ) as ParticleMaterial;
+            s.scene.world.queryBySchemaName('ParticlePhysics')[0]!,
+        ) as ParticlePhysics;
         mat.data.particleSpacing = 0.08;
         const replaced: string[] = [];
         s.scene.events.on('bindGroupReplaced', (e) => replaced.push(e.pipeline));

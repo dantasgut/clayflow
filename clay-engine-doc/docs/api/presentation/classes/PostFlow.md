@@ -1,25 +1,26 @@
-[**webgpu-engine**](../../README.md)
+[**clayflow**](../../README.md)
 
 ***
 
-[webgpu-engine](../../modules.md) / [presentation](../README.md) / PostFlow
+[clayflow](../../modules.md) / [presentation](../README.md) / PostFlow
 
 # Class: PostFlow
 
-Defined in: [presentation/flows/PostFlow.ts:57](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L57)
+Defined in: [src/presentation/flows/PostFlow.ts:202](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L202)
 
-PostFlow — cadeia de pós-processamento: lê a cor da cena (`FrameTargets.color`, slot `scene`) e aplica os efeitos
-ligados em pingue-pongue até o canvas (`scene → pp[0] → pp[1] → … → canvas`); sem efeitos, copia a cena para o
-canvas.
+PostFlow — cadeia de pós-processamento e apresentação (spec 011): lê a cor HDR da cena (`FrameTargets.color`), aplica
+os efeitos ligados em pingue-pongue `rgba16float` (`scene → pp[0] → pp[1] → …`) e termina na **apresentação** no
+canvas — exposição, mapeamento de tons, sRGB e pontilhamento (`ToneMapping` da cena). Sem efeitos e com MSAA, a
+apresentação lê a cor multiamostrada e mapeia cada amostra antes da média; sem MSAA, lê a cor resolvida.
 
-Recursos privados — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas em `canvasReconfigured`), o
-sampler, um pipeline e um uniform de parâmetros por efeito — são preparados e religados em transições: em
-`framePrepare`, efeitos novos ganham pipeline, os parâmetros são escritos e a origem de cada efeito na cadeia é
-religada quando a cadeia muda.
+O espaço de trabalho — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas pela C2 no
+redimensionamento), o sampler, um uniform de parâmetros por efeito e o da apresentação — é do `PostWork` (spec 039);
+os pipelines (um por efeito, os da apresentação por formato do canvas) são preparados e religados em transições. A saída HDR (`output: 'hdr'`) reconfigura o canvas no
+`framePrepare` em que é pedida; sem suporte, cai no padrão e emite `presentationFallback` uma vez.
 
 ## Extends
 
-- `RenderFlow`\<[`PostSlots`](../interfaces/PostSlots.md), `"idle"`\>
+- [`RenderFlow`](../../platform/web/classes/RenderFlow.md)\<[`PostSlots`](../interfaces/PostSlots.md), `"idle"`\>
 
 ## Constructors
 
@@ -27,13 +28,13 @@ religada quando a cadeia muda.
 
 > **new PostFlow**(`ctx`): `PostFlow`
 
-Defined in: [presentation/flows/PostFlow.ts:76](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L76)
+Defined in: [src/presentation/flows/PostFlow.ts:240](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L240)
 
 #### Parameters
 
 ##### ctx
 
-`FlowContext`
+[`FlowContext`](../../platform/web/interfaces/FlowContext.md)
 
 #### Returns
 
@@ -41,21 +42,21 @@ Defined in: [presentation/flows/PostFlow.ts:76](https://github.com/dantasgut/cla
 
 #### Overrides
 
-`RenderFlow<PostSlots, 'idle'>.constructor`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`constructor`](../../platform/web/classes/RenderFlow.md#constructor)
 
 ## Properties
 
 ### bindings
 
-> `readonly` **bindings**: `BindingSources`
+> `readonly` **bindings**: [`BindingSources`](../../platform/web/type-aliases/BindingSources.md)
 
-Defined in: [presentation/flows/PostFlow.ts:60](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L60)
+Defined in: [src/scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L79)
 
-Bindings privados iniciais por nome de variável WGSL (uniforms por passo, temporários do algoritmo).
+Bindings privados iniciais por recurso declarado (uniforms por passo, temporários do algoritmo).
 
-#### Overrides
+#### Inherited from
 
-`RenderFlow.bindings`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`bindings`](../../platform/web/classes/RenderFlow.md#bindings)
 
 ***
 
@@ -63,41 +64,42 @@ Bindings privados iniciais por nome de variável WGSL (uniforms por passo, tempo
 
 > `protected` `readonly` **initialState**: `"idle"`
 
-Defined in: [presentation/flows/PostFlow.ts:61](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L61)
+Defined in: [src/presentation/flows/PostFlow.ts:205](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L205)
 
 Estado inicial do algoritmo.
 
 #### Overrides
 
-`RenderFlow.initialState`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`initialState`](../../platform/web/classes/RenderFlow.md#initialstate)
 
 ***
 
 ### listens
 
-> `readonly` **listens**: readonly `Schema`[] = `[]`
+> `readonly` **listens**: readonly [`Listened`](../../platform/web/type-aliases/Listened.md)[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:69](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L69)
+Defined in: [src/scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L84)
 
-Schemas cujos `resourceReady` o Flow recebe como evento.
+Schemas (ou famílias de schemas: os registros de um ponto de extensão) cujos `resourceReady` e `poolWritten` o
+Flow recebe como evento.
 
 #### Inherited from
 
-`RenderFlow.listens`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`listens`](../../platform/web/classes/RenderFlow.md#listens)
 
 ***
 
 ### pipelines
 
-> `readonly` **pipelines**: readonly `PipelineDescriptor`[] = `[]`
+> `readonly` **pipelines**: readonly [`PipelineDescriptor`](../../platform/web/interfaces/PipelineDescriptor.md)[] = `[]`
 
-Defined in: [scene/flows/Flow.ts:65](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L65)
+Defined in: [src/scene/flows/Flow.ts:77](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L77)
 
 Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 #### Inherited from
 
-`RenderFlow.pipelines`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`pipelines`](../../platform/web/classes/RenderFlow.md#pipelines)
 
 ***
 
@@ -105,27 +107,27 @@ Pipelines declarados; a C2 os prepara antes de o Flow ficar pronto.
 
 > `readonly` **slots**: [`PostSlots`](../interfaces/PostSlots.md)
 
-Defined in: [presentation/flows/PostFlow.ts:59](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L59)
+Defined in: [src/presentation/flows/PostFlow.ts:204](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L204)
 
 Slots consumidos, por nome.
 
 #### Overrides
 
-`RenderFlow.slots`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`slots`](../../platform/web/classes/RenderFlow.md#slots)
 
 ***
 
 ### transitions
 
-> `protected` `readonly` **transitions**: `FlowTransitions`\<`"idle"`, `TransitionContext`\<[`PostSlots`](../interfaces/PostSlots.md)\>\>
+> `protected` `readonly` **transitions**: [`FlowTransitions`](../../platform/web/type-aliases/FlowTransitions.md)\<`"idle"`, [`TransitionContext`](../../platform/web/interfaces/TransitionContext.md)\<[`PostSlots`](../interfaces/PostSlots.md)\>\>
 
-Defined in: [presentation/flows/PostFlow.ts:62](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L62)
+Defined in: [src/presentation/flows/PostFlow.ts:206](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L206)
 
 Tabela de transições (estado × evento).
 
 #### Overrides
 
-`RenderFlow.transitions`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`transitions`](../../platform/web/classes/RenderFlow.md#transitions)
 
 ***
 
@@ -133,13 +135,13 @@ Tabela de transições (estado × evento).
 
 > `readonly` **type**: `"PostFlow"` = `'PostFlow'`
 
-Defined in: [presentation/flows/PostFlow.ts:58](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L58)
+Defined in: [src/presentation/flows/PostFlow.ts:203](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L203)
 
 Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não nome de classe (minificação).
 
 #### Overrides
 
-`RenderFlow.type`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`type`](../../platform/web/classes/RenderFlow.md#type)
 
 ## Accessors
 
@@ -147,19 +149,19 @@ Nome explícito do estágio (mensagens, profiling, `flowReady`) — dado, não n
 
 #### Get Signature
 
-> **get** **lifecycle**(): `FlowLifecycle`
+> **get** **lifecycle**(): [`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
-Defined in: [scene/flows/Flow.ts:79](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L79)
+Defined in: [src/scene/flows/Flow.ts:94](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L94)
 
 Estado do ciclo de vida (só a C2 o muda).
 
 ##### Returns
 
-`FlowLifecycle`
+[`FlowLifecycle`](../../platform/web/type-aliases/FlowLifecycle.md)
 
 #### Inherited from
 
-`RenderFlow.lifecycle`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`lifecycle`](../../platform/web/classes/RenderFlow.md#lifecycle)
 
 ***
 
@@ -169,7 +171,7 @@ Estado do ciclo de vida (só a C2 o muda).
 
 > **get** **state**(): `S`
 
-Defined in: [scene/flows/Flow.ts:84](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/Flow.ts#L84)
+Defined in: [src/scene/flows/Flow.ts:99](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/Flow.ts#L99)
 
 Estado próprio do algoritmo (só transições o mudam).
 
@@ -179,7 +181,7 @@ Estado próprio do algoritmo (só transições o mudam).
 
 #### Inherited from
 
-`RenderFlow.state`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`state`](../../platform/web/classes/RenderFlow.md#state)
 
 ## Methods
 
@@ -187,10 +189,11 @@ Estado próprio do algoritmo (só transições o mudam).
 
 > **addEffect**(`effect`): `this`
 
-Defined in: [presentation/flows/PostFlow.ts:121](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L121)
+Defined in: [src/presentation/flows/PostFlow.ts:299](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L299)
 
-Empilha um efeito na cadeia. A ordem importa: efeitos são aplicados em sequência (`Bloom → ToneMapping → Fxaa →
-…`); desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo. Builder fluente.
+Empilha um efeito na cadeia (antes da apresentação). A ordem importa: efeitos são aplicados em sequência
+(`Bloom → Vignette → …`), todos sobre o HDR; desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo.
+Builder fluente.
 
 #### Parameters
 
@@ -208,7 +211,7 @@ Empilha um efeito na cadeia. A ordem importa: efeitos são aplicados em sequênc
 
 > `protected` **colorAttachment**(`frame`, `target`, `load`): `ColorAttachment` \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:29](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/RenderFlow.ts#L29)
+Defined in: [src/scene/flows/RenderFlow.ts:29](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/RenderFlow.ts#L29)
 
 Anexo de cor do alvo (spec 008): com amostras (MSAA), desenha na textura de amostras — guardada, para um passe
 seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefined` sem cor.
@@ -217,11 +220,11 @@ seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefi
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### target
 
-`BoundTarget`
+[`BoundTarget`](../../platform/web/interfaces/BoundTarget.md)
 
 ##### load
 
@@ -233,15 +236,15 @@ seguinte carregar — e resolve na cor; sem elas, desenha direto na cor. `undefi
 
 #### Inherited from
 
-`RenderFlow.colorAttachment`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`colorAttachment`](../../platform/web/classes/RenderFlow.md#colorattachment)
 
 ***
 
 ### colorView()
 
-> `protected` **colorView**(`frame`, `target`): `TextureViewSpec` \| `undefined`
+> `protected` **colorView**(`frame`, `target`): [`TextureViewSpec`](../../platform/web/interfaces/TextureViewSpec.md) \| `undefined`
 
-Defined in: [scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/scene/flows/RenderFlow.ts#L20)
+Defined in: [src/scene/flows/RenderFlow.ts:20](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/scene/flows/RenderFlow.ts#L20)
 
 View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `undefined` sem cor).
 
@@ -249,19 +252,19 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### target
 
-`BoundTarget`
+[`BoundTarget`](../../platform/web/interfaces/BoundTarget.md)
 
 #### Returns
 
-`TextureViewSpec` \| `undefined`
+[`TextureViewSpec`](../../platform/web/interfaces/TextureViewSpec.md) \| `undefined`
 
 #### Inherited from
 
-`RenderFlow.colorView`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`colorView`](../../platform/web/classes/RenderFlow.md#colorview)
 
 ***
 
@@ -269,19 +272,19 @@ View de cor do alvo resolvido neste quadro (`frame.canvasView` para o canvas; `u
 
 > **dispatch**(`frame`, `bound`): `void`
 
-Defined in: [presentation/flows/PostFlow.ts:127](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L127)
+Defined in: [src/presentation/flows/PostFlow.ts:305](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L305)
 
-Grava a cadeia preparada em `framePrepare`.
+Grava os efeitos e a apresentação preparados em `framePrepare`.
 
 #### Parameters
 
 ##### frame
 
-`Frame`
+[`Frame`](../../platform/web/interfaces/Frame.md)
 
 ##### bound
 
-`BoundFlow`\<[`PostSlots`](../interfaces/PostSlots.md)\>
+[`BoundFlow`](../../platform/web/interfaces/BoundFlow.md)\<[`PostSlots`](../interfaces/PostSlots.md)\>
 
 #### Returns
 
@@ -289,7 +292,7 @@ Grava a cadeia preparada em `framePrepare`.
 
 #### Overrides
 
-`RenderFlow.dispatch`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`dispatch`](../../platform/web/classes/RenderFlow.md#dispatch)
 
 ***
 
@@ -297,9 +300,9 @@ Grava a cadeia preparada em `framePrepare`.
 
 > **dispose**(): `void`
 
-Defined in: [presentation/flows/PostFlow.ts:153](https://github.com/dantasgut/clayflow/blob/91d5c3609755b8c4fd2a2f050c89ddc499f6ac6d/src/presentation/flows/PostFlow.ts#L153)
+Defined in: [src/presentation/flows/PostFlow.ts:382](https://github.com/dantasgut/clayflow/blob/9be3ad597671ac7e8dc53b879ebefd3eb752cbd6/src/presentation/flows/PostFlow.ts#L382)
 
-Libera pingue-pongue, sampler e os uniforms dos efeitos.
+O pingue-pongue, o sampler e os uniforms são do `PostWork` (a C2 os libera com ele).
 
 #### Returns
 
@@ -307,4 +310,4 @@ Libera pingue-pongue, sampler e os uniforms dos efeitos.
 
 #### Overrides
 
-`RenderFlow.dispose`
+[`RenderFlow`](../../platform/web/classes/RenderFlow.md).[`dispose`](../../platform/web/classes/RenderFlow.md#dispose)

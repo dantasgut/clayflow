@@ -10,5 +10,5 @@ struct EmittedParticle {
 }
 
 fn emit_rand(i: u32, seed: u32, channel: u32) -> f32 {
-    return f32(hash3(vec3u(i, seed, channel)) >> 8u) / 16777216.0;
+    return random_unit(hash3(vec3u(i, seed, channel)));
 }

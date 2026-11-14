@@ -2,11 +2,12 @@ import type {
     EngineCore,
     Frame,
     RenderTarget,
-    SamplerSpec,
-    TextureSpec,
     TextureViewSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
+import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
+import { StructSchema } from '../../scene/descriptors/StructSchema';
+import { FlowWork } from '../../scene/flows/FlowWork';
 import type { EventBus } from '../../scene/events/EventBus';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type {
@@ -20,22 +21,42 @@ import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
 import {
     slot,
+    type ChannelSlot,
+    type PoolSlot,
     type SingletonSlot,
     type SlotMap,
     type TargetSlot,
     type TextureSlot,
+    type WorkSlot,
 } from '../../scene/flows/slots';
+import type { World } from '../../scene/world/World';
+import { Camera } from '../../elements/scene/Camera';
+import {
+    TAA_LIGHT_FORMAT,
+    TAA_STATE_FORMAT,
+    TemporalAntialiasing,
+} from '../../elements/scene/TemporalAntialiasing';
+import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { PostProcessEffect } from '../resources/PostProcessEffect';
 import { ToneMapping, operatorIndex } from '../resources/ToneMapping';
 import { FrameTargets, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
-import { EffectParamsSchema, PresentationParamsSchema } from './renderSchemas';
+import {
+    EffectParamsSchema,
+    PresentationParamsSchema,
+    TemporalResolveParamsSchema,
+} from './renderSchemas';
 import {
     effectResources,
     effectsBase,
     presentMultisampled,
     presentResources,
     presentSingle,
+    temporalPresent,
+    temporalResolve,
+    temporalResources,
+    temporalSharpen,
+    temporalSlots,
 } from './shaders';
 
 /** Slots do pós-processamento. */
@@ -48,22 +69,118 @@ export interface PostSlots extends SlotMap {
     readonly presentation: SingletonSlot<true>;
     /** O canvas do quadro (o passe de apresentação). */
     readonly target: TargetSlot;
+    /** Antisserrilhado da cena (spec 034): no modo temporal ou de acumulação, a resolução abre a cadeia. */
+    readonly antialiasing: SingletonSlot<true>;
+    /** Profundidade da cena (`FrameTargets.depth`): a reprojeção do histórico. */
+    readonly depth: TextureSlot<true>;
+    /** Vetores de movimento (`FrameTargets.motion`). */
+    readonly motion: TextureSlot<true>;
+    /** Máscara reativa (`FrameTargets.reactive`): onde o histórico recomeça. */
+    readonly reactive: TextureSlot<true>;
+    /** A luz que chega a cada pixel (`FrameTargets.light`: direta, total). */
+    readonly light: TextureSlot<true>;
+    /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
+    readonly camera: SingletonSlot<true>;
+    readonly cameras: PoolSlot<true>;
+    /** As séries da resolução temporal (spec 037): a cor, o estado e a luz de cada pixel, a anterior e a do quadro. */
+    readonly taaHistory: ChannelSlot<true>;
+    readonly taaState: ChannelSlot<true>;
+    readonly taaLight: ChannelSlot<true>;
+    /** O espaço de trabalho da cadeia: pingue-pongue, sampler, parâmetros (spec 039). */
+    readonly work: WorkSlot<PostWork>;
 }
 
-const slots: PostSlots = {
+/** Ids do trabalho. */
+const TAA_PARAMS = 'post_taa_params';
+const SAMPLER = 'post_sampler';
+const PRESENT_PARAMS = 'post_present_params';
+const PINGPONG = ['post_pp_a', 'post_pp_b'] as const;
+const TAA_OUT = 'post_pp_taa_out';
+const effectParamsId = (effect: PostProcessEffect): string => `post_params:${effect.name}`;
+
+/**
+ * Resource de trabalho do `PostFlow` (spec 039): os parâmetros da resolução temporal e da apresentação, o sampler, um
+ * uniform de parâmetros por efeito e — com o canvas dimensionado — as duas texturas de pingue-pongue HDR e a imagem
+ * resolvida, do tamanho do canvas (`sizeFromCanvas`: a C2 as recria no redimensionamento).
+ */
+class PostWork extends FlowWork {
+    static readonly schema = new StructSchema('PostWork', {});
+    /** O canvas tem tamanho: as texturas do tamanho dele entram no trabalho. */
+    sized = false;
+    /** Efeitos com uniform de parâmetros. */
+    readonly effects: PostProcessEffect[] = [];
+
+    constructor() {
+        super();
+        this.use({
+            descriptors: (): readonly GPUDescriptor[] => [
+                // Escritos da CPU (`writeNow`), cada um por si.
+                {
+                    id: TAA_PARAMS,
+                    role: 'uniform',
+                    schema: TemporalResolveParamsSchema,
+                    upload: 'never',
+                },
+                {
+                    id: SAMPLER,
+                    role: 'sampler',
+                    samplerShape: {
+                        magFilter: 'linear',
+                        minFilter: 'linear',
+                        addressModeU: 'clamp-to-edge',
+                        addressModeV: 'clamp-to-edge',
+                    },
+                },
+                {
+                    id: PRESENT_PARAMS,
+                    role: 'uniform',
+                    schema: PresentationParamsSchema,
+                    upload: 'never',
+                },
+                ...this.effects.map(
+                    (e): GPUDescriptor => ({
+                        id: effectParamsId(e),
+                        role: 'uniform',
+                        schema: EffectParamsSchema,
+                        upload: 'never',
+                    }),
+                ),
+                ...(this.sized
+                    ? [...PINGPONG, TAA_OUT].map(
+                          (id): GPUDescriptor => ({
+                              id,
+                              role: 'texture',
+                              textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
+                          }),
+                      )
+                    : []),
+            ],
+        });
+    }
+}
+
+const baseSlots = {
     scene: slot.texture(FrameTargets.schema, 'color'),
     samples: slot.texture(FrameTargets.schema, 'samples', { optional: true }),
     presentation: slot.singleton(ToneMapping.schema, { optional: true }),
     target: slot.target('canvas'),
-};
+    antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+    depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
+    motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
+    reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
+    light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
+    camera: slot.singleton(Camera.schema, { optional: true }),
+    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+    ...temporalSlots,
+} as const;
 
 type Ctx = TransitionContext<PostSlots>;
 
-/** Pipeline e uniform de parâmetros de um efeito. */
+/** Pipeline e uniform de parâmetros de um efeito (o id do uniform no trabalho). */
 interface EffectPass {
     readonly pipeline: string;
     readonly descriptor: PipelineDescriptor;
-    readonly params: UniformBufferSpec;
+    readonly params: string;
     /** Já preparado pela C2 (depois de a origem ser ligada). */
     prepared: boolean;
 }
@@ -77,15 +194,14 @@ const DEFAULT_PRESENTATION = new ToneMapping();
  * canvas — exposição, mapeamento de tons, sRGB e pontilhamento (`ToneMapping` da cena). Sem efeitos e com MSAA, a
  * apresentação lê a cor multiamostrada e mapeia cada amostra antes da média; sem MSAA, lê a cor resolvida.
  *
- * Recursos privados — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas em `canvasReconfigured`), o
- * sampler, um pipeline e um uniform de parâmetros por efeito, o uniform e os pipelines da apresentação (um por formato
- * do canvas) — são preparados e religados em transições. A saída HDR (`output: 'hdr'`) reconfigura o canvas no
+ * O espaço de trabalho — as duas texturas de pingue-pongue (do tamanho do canvas, recriadas pela C2 no
+ * redimensionamento), o sampler, um uniform de parâmetros por efeito e o da apresentação — é do `PostWork` (spec 039);
+ * os pipelines (um por efeito, os da apresentação por formato do canvas) são preparados e religados em transições. A saída HDR (`output: 'hdr'`) reconfigura o canvas no
  * `framePrepare` em que é pedida; sem suporte, cai no padrão e emite `presentationFallback` uma vez.
  */
 export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     readonly type = 'PostFlow';
-    readonly slots = slots;
-    override readonly bindings: ReadonlyMap<WgslResource, BindingSource>;
+    readonly slots: PostSlots;
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<PostSlots>>;
 
@@ -93,14 +209,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private readonly events: EventBus;
     private readonly effects: PostProcessEffect[] = [];
     private readonly passes = new Map<PostProcessEffect, EffectPass>();
-    private readonly sampler: SamplerSpec;
-    private readonly presentParams: UniformBufferSpec;
+    private readonly work: PostWork;
     /** Pipelines de apresentação já preparados (por id: entrada + formato do canvas). */
     private readonly presentPrepared = new Set<string>();
-    private pingpong: {
-        textures: [TextureSpec, TextureSpec];
-        views: [TextureViewSpec, TextureViewSpec];
-    } | null = null;
+
     /** Efeitos ligados no último `framePrepare`, em ordem. */
     private chain: readonly EffectPass[] = [];
     /** Pipeline da apresentação do último `framePrepare`. */
@@ -108,36 +220,45 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     private chainKey = '';
     /** Saída pedida da última vez que o canvas foi configurado por este estágio. */
     private requestedOutput: 'sdr' | 'hdr' = 'sdr';
+    private readonly world: World;
+    private readonly resources: ResourceDirectory;
+
+    /**
+     * O formato da série da cor neste quadro (o resolvido pela C2: `historyPrecision`, com o recuo sem
+     * `float32-filterable`; spec 037) — o pipeline da resolução é um por formato.
+     */
+    private historyFormat: GPUTextureFormat = SCENE_COLOR_FORMAT;
+    /** A resolução temporal grava neste quadro. */
+    private taaActive = false;
+    /**
+     * O passe depois da resolução: a nitidez para os efeitos (`post:taa_sharpen`, no HDR) ou, sem efeitos, a nitidez
+     * já apresentada no canvas (`post:taa_present:*`, G2).
+     */
+    private taaFinal = '';
+    private readonly taaPrepared = new Set<string>();
 
     constructor(ctx: FlowContext) {
         super();
         this.core = ctx.core;
         this.events = ctx.events;
-        this.sampler = ctx.core.create<SamplerSpec>({
-            kind: 'sampler',
-            discriminator: 'post_sampler',
-            desc: {
-                magFilter: 'linear',
-                minFilter: 'linear',
-                addressModeU: 'clamp-to-edge',
-                addressModeV: 'clamp-to-edge',
-            },
-        });
-        this.presentParams = ctx.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: 'post_present_params',
-            byteSize: PresentationParamsSchema.stride,
-        });
-        this.bindings = new Map<WgslResource, BindingSource>([
-            [effectResources.sampler, this.sampler],
-            [presentResources.params, this.presentParams],
-        ]);
+        this.world = ctx.world;
+        this.resources = ctx.resources;
+        const work = new PostWork();
+        this.work = work;
+        this.slots = { ...baseSlots, work: slot.work(() => work) };
         this.transitions = {
             '*': {
                 slotsResolved: {
                     to: 'idle',
                     run: (_e, c) => {
+                        // O trabalho já está na cena: as fontes privadas ligam ao que a C2 alocou.
+                        c.bind(
+                            new Map<WgslResource, BindingSource>([
+                                [effectResources.sampler, this.resources.samplerOf(work, SAMPLER)!],
+                                [presentResources.params, this.uniform(PRESENT_PARAMS)],
+                                [temporalResources.params, this.uniform(TAA_PARAMS)],
+                            ]),
+                        );
                         this.resizePingPong(c);
                     },
                 },
@@ -164,13 +285,15 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
+                // O pool das matrizes de câmera realocado: a C2 religa a fonte.
+                poolReallocated: 'ignore',
             },
         };
     }
 
     /**
      * Empilha um efeito na cadeia (antes da apresentação). A ordem importa: efeitos são aplicados em sequência
-     * (`Bloom → Fxaa → …`), todos sobre o HDR; desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo.
+     * (`Bloom → Vignette → …`), todos sobre o HDR; desligar um (`data.enabled = false`) o tira da cadeia sem removê-lo.
      * Builder fluente.
      */
     addEffect(effect: PostProcessEffect): this {
@@ -182,6 +305,59 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<PostSlots>): void {
         const canvas = this.colorView(frame, bound.slots.target);
         if (canvas === undefined || this.presentPipeline === '') return;
+        const { taaHistory, taaState, taaLight } = bound.slots;
+        if (
+            this.taaActive
+            && this.taaOut !== null
+            && taaHistory !== undefined
+            && taaState !== undefined
+            && taaLight !== undefined
+        ) {
+            // A resolução temporal abre a cadeia: escreve as fatias do quadro das séries (a cor, o estado e a luz), que a
+            // cadeia e a apresentação leem e o quadro seguinte lê como as anteriores.
+            const resolve = bound.pipelines.get(`post:taa:${this.historyFormat}`);
+            if (resolve?.role !== 'render' || !resolve.ready) return;
+            const attachment = (view: TextureViewSpec) =>
+                ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }) as const;
+            const target: RenderTarget = {
+                colorAttachments: [
+                    attachment(taaHistory.view(0)!),
+                    attachment(taaState.view(0)!),
+                    attachment(taaLight.view(0)!),
+                ],
+            };
+            frame.render(target, 'PostFlow.temporalResolve', (p) => {
+                p.bind.setPipeline(resolve.spec);
+                resolve.bindTo(p.bind);
+                p.draw.vertices(3);
+            });
+            taaHistory.written();
+            taaState.written();
+            taaLight.written();
+            // Nitidez adaptativa ao movimento, fora do histórico; sem efeitos, já apresentada no canvas (G2).
+            const sharpen = bound.pipelines.get(this.taaFinal);
+            if (sharpen?.role !== 'render' || !sharpen.ready) return;
+            const presents = this.chain.length === 0;
+            frame.render(
+                {
+                    colorAttachments: [
+                        {
+                            view: presents ? canvas : this.taaOut.view,
+                            loadOp: 'clear',
+                            clearValue: [0, 0, 0, 1],
+                            storeOp: 'store',
+                        },
+                    ],
+                },
+                presents ? 'PostFlow.present' : 'PostFlow.temporalSharpen',
+                (p) => {
+                    p.bind.setPipeline(sharpen.spec);
+                    sharpen.bindTo(p.bind);
+                    p.draw.vertices(3);
+                },
+            );
+            if (presents) return;
+        }
         const passes = [...this.chain.map((p) => p.pipeline), this.presentPipeline];
         for (let i = 0; i < passes.length; i++) {
             const id = passes[i]!;
@@ -202,62 +378,147 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         }
     }
 
-    /** Libera pingue-pongue, sampler e os uniforms dos efeitos e da apresentação. */
+    /** O pingue-pongue, o sampler e os uniforms são do `PostWork` (a C2 os libera com ele). */
     override dispose(): void {
-        this.releasePingPong();
-        this.core.destroy(this.sampler);
-        this.core.destroy(this.presentParams);
-        for (const pass of this.passes.values()) this.core.destroy(pass.params);
         this.passes.clear();
     }
 
-    /** Texturas de pingue-pongue HDR do tamanho do canvas (recriadas quando ele muda); a cadeia é religada. */
+    /** O uniform do trabalho `id` alocado pela C2. */
+    private uniform(id: string): UniformBufferSpec {
+        return this.resources.bufferOf(this.work, id) as UniformBufferSpec;
+    }
+
+    /** As vistas do pingue-pongue HDR (do tamanho do canvas), ou `null` antes de o canvas ter tamanho. */
+    private get pingpong(): { readonly views: readonly [TextureViewSpec, TextureViewSpec] } | null {
+        const a = this.resources.textureViewOf(this.work, PINGPONG[0]);
+        const b = this.resources.textureViewOf(this.work, PINGPONG[1]);
+        return a === undefined || b === undefined ? null : { views: [a, b] };
+    }
+
+    /** A imagem resolvida com a nitidez adaptativa (o que a cadeia e a apresentação leem; do tamanho do canvas). */
+    private get taaOut(): { readonly view: TextureViewSpec } | null {
+        const view = this.resources.textureViewOf(this.work, TAA_OUT);
+        return view === undefined ? null : { view };
+    }
+
+    /**
+     * Texturas de pingue-pongue HDR do tamanho do canvas: declaradas no trabalho quando o canvas tem tamanho (a C2 as
+     * recria quando ele muda, antes de os Flows reagirem); a cadeia é religada às vistas novas.
+     */
     private resizePingPong(ctx: Ctx): void {
         const size = this.core.canvasSize();
-        this.releasePingPong();
         if (size === undefined || size.width === 0 || size.height === 0) return;
-        const { width, height } = size;
-        const format = SCENE_COLOR_FORMAT;
-        const texture = (name: string): TextureSpec =>
-            this.core.create<TextureSpec>({
-                kind: 'texture',
-                discriminator: `post_pp_${name}:${width}x${height}`,
-                width,
-                height,
-                format,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            });
-        const view = (source: TextureSpec, name: string): TextureViewSpec =>
-            this.core.create<TextureViewSpec>({
-                kind: 'textureview',
-                discriminator: `post_pp_${name}_v:${width}x${height}`,
-                source,
-                format,
-            });
-        const a = texture('a');
-        const b = texture('b');
-        this.pingpong = { textures: [a, b], views: [view(a, 'a'), view(b, 'b')] };
+        if (!this.work.sized) {
+            this.work.sized = true;
+            this.work.refresh();
+        }
         this.chainKey = '';
         this.prepareChain(ctx);
     }
 
-    private releasePingPong(): void {
-        if (this.pingpong === null) return;
-        for (const v of this.pingpong.views) this.core.destroy(v);
-        for (const t of this.pingpong.textures) this.core.destroy(t);
-        this.pingpong = null;
+    /**
+     * Resolução temporal do quadro (spec 034): ativa com o antisserrilhado temporal ou de acumulação, a profundidade
+     * sem MSAA e uma câmera. Pede as séries (os canais temporais do `TemporalAntialiasing`, spec 037), escreve os
+     * parâmetros e liga/prepara o pipeline do formato da série da cor.
+     * Com `presents` (nenhum efeito), a nitidez apresenta no canvas (G2). Devolve a vista da imagem resolvida deste
+     * quadro, ou `undefined` sem a resolução.
+     */
+    private prepareTemporal(ctx: Ctx, presents: boolean): TextureViewSpec | undefined {
+        const aa = ctx.bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
+        const depth = ctx.bound.slots.depth;
+        const motion = ctx.bound.slots.motion;
+        const reactive = ctx.bound.slots.reactive;
+        const light = ctx.bound.slots.light;
+        const camera = ctx.bound.slots.camera?.resource;
+        const cameraId = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
+        const cameraSlot =
+            cameraId === undefined ? undefined : ctx.bound.slots.cameras?.slotOf(cameraId);
+        if (
+            aa === undefined
+            || !aa.jitters
+            || depth === undefined
+            || motion === undefined
+            || reactive === undefined
+            || light === undefined
+            || ctx.bound.slots.samples !== undefined
+            || cameraSlot === undefined
+            || this.taaOut === null
+        ) {
+            this.taaActive = false;
+            return undefined;
+        }
+        // As séries sob demanda: alocadas com a primeira resolução (a C2 as recria no redimensionamento).
+        for (const id of ['history', 'state', 'light']) this.resources.ensureAllocated(aa, id);
+        const series = ctx.bound.slots.taaHistory;
+        if (series?.allocated !== true || series.format === undefined) {
+            this.taaActive = false;
+            return undefined;
+        }
+        this.historyFormat = series.format;
+        this.taaActive = true;
+        this.resources.writeNow(
+            this.work,
+            TAA_PARAMS,
+            TemporalResolveParamsSchema.pack({ cameraSlot, mode: aa.data.mode }),
+        );
+        const id = `post:taa:${this.historyFormat}`;
+        // O que cada passe lê do quadro (as séries vêm dos slots: a resolução lê as anteriores, a nitidez as do quadro).
+        const frameInputs = (pipeline: string): [BindingKey, BindingSource][] => [
+            [{ pipeline, resource: temporalResources.depth }, depth.view],
+            [{ pipeline, resource: temporalResources.motion }, motion.view],
+            [{ pipeline, resource: temporalResources.reactive }, reactive.view],
+            [{ pipeline, resource: temporalResources.light }, light.view],
+        ];
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [{ pipeline: id, resource: effectResources.source }, ctx.bound.slots.scene.view],
+                ...frameInputs(id),
+            ]),
+        );
+        const format = this.core.canvasFormat;
+        const sharpenId = presents ? `post:taa_present:${format}` : 'post:taa_sharpen';
+        this.taaFinal = sharpenId;
+        ctx.bind(new Map<BindingKey, BindingSource>(frameInputs(sharpenId)));
+        if (!this.taaPrepared.has(sharpenId)) {
+            ctx.prepare({
+                id: sharpenId,
+                role: 'render',
+                shader: presents ? temporalPresent : temporalSharpen,
+                entryPoints: [
+                    'vs_fullscreen',
+                    presents ? 'fs_temporal_present' : 'fs_temporal_sharpen',
+                ],
+                topology: 'triangle-list',
+                colorTargets: [{ format: presents ? format : SCENE_COLOR_FORMAT }],
+            });
+            this.taaPrepared.add(sharpenId);
+        }
+        if (!this.taaPrepared.has(id)) {
+            ctx.prepare({
+                id,
+                role: 'render',
+                shader: temporalResolve,
+                entryPoints: ['vs_fullscreen', 'fs_temporal_resolve'],
+                topology: 'triangle-list',
+                colorTargets: [
+                    { format: this.historyFormat },
+                    { format: TAA_STATE_FORMAT },
+                    { format: TAA_LIGHT_FORMAT },
+                ],
+            });
+            this.taaPrepared.add(id);
+        }
+        return this.taaOut.view;
     }
 
     /** Descritor e uniform de parâmetros do efeito, criados uma vez; o efeito escreve no pingue-pongue HDR. */
     private passOf(effect: PostProcessEffect, ctx: Ctx): EffectPass {
         const cached = this.passes.get(effect);
         if (cached !== undefined) return cached;
-        const params = this.core.create<UniformBufferSpec>({
-            kind: 'buffer',
-            subkind: 'uniform',
-            discriminator: `post_params:${effect.name}`,
-            byteSize: EffectParamsSchema.stride,
-        });
+        // O uniform do efeito entra no trabalho (a C2 o aloca na redescrição).
+        const params = effectParamsId(effect);
+        this.work.effects.push(effect);
+        this.work.refresh();
         const id = `post:${effect.name}`;
         // Efeito próprio (fragmentModule, com requires: [effectsBase]) → shader dele; padrão: o comum.
         const descriptor: PipelineDescriptor = {
@@ -270,7 +531,7 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         };
         ctx.bind(
             new Map<BindingKey, BindingSource>([
-                [{ pipeline: id, resource: effectResources.params }, params],
+                [{ pipeline: id, resource: effectResources.params }, this.uniform(params)],
             ]),
         );
         const pass = { pipeline: id, descriptor, params, prepared: false };
@@ -325,8 +586,9 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const data = presentation.data;
         this.applyOutput(data.output);
         const extended = this.core.canvasOutput.toneMapping === 'extended';
-        this.core.write(
-            this.presentParams,
+        this.resources.writeNow(
+            this.work,
+            PRESENT_PARAMS,
             PresentationParamsSchema.pack({
                 toneOperator: operatorIndex(data.operator),
                 exposure: Math.pow(2, data.exposure),
@@ -338,8 +600,16 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const enabled = this.effects.filter((e) => e.isEnabled);
         const chain = enabled.map((e) => this.passOf(e, ctx));
         for (let i = 0; i < enabled.length; i++)
-            this.core.write(chain[i]!.params, enabled[i]!.paramsBytes());
-        const scene = ctx.bound.slots.scene.view;
+            this.resources.writeNow(this.work, chain[i]!.params, enabled[i]!.paramsBytes());
+        // Com a resolução temporal, a cadeia e a apresentação leem a imagem resolvida, não a cor crua da cena.
+        const resolved = this.prepareTemporal(ctx, chain.length === 0);
+        this.chain = chain;
+        if (resolved !== undefined && chain.length === 0) {
+            // A resolução já apresenta no canvas (G2): sem passe de apresentação.
+            this.presentPipeline = this.taaFinal;
+            return;
+        }
+        const scene = resolved ?? ctx.bound.slots.scene.view;
         const samples = ctx.bound.slots.samples;
         const multisampled = chain.length === 0 && samples !== undefined;
         const present = this.presentDescriptor(multisampled);

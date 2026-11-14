@@ -125,8 +125,8 @@ describe('pontos de cena (spec 009)', () => {
         expect(bound.extensions).toEqual([fn]);
         const src = composeWgsl(bound.shader).spec.source;
         expect(src).toContain(`${fn.functionName}(x, v, time, body, ${fn.loaderName}(3u))`);
-        // O registro tipado da forma, no pool dela, lido pelo carregador da função.
-        expect(src).toContain(`return field_records_${fn.record.name.split(':')[1]}[slot];`);
+        // O registro tipado da forma, no pool dela, lido pela arena (T060i) no carregador da função.
+        expect(src).toContain(`return field_records_${fn.record.name.split(':')[1]}_at(slot);`);
         expect(fn.module.source).not.toContain('bitcast');
         expect(rejected).not.toHaveBeenCalled();
     });

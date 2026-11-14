@@ -225,9 +225,14 @@ describe('malha adaptativa (spec 010)', () => {
         s.step();
         s.step();
         expect(events).toHaveLength(1);
-        expect(s.draws().some((d) => d.indirect !== undefined)).toBe(false);
+        // O forward desenha direto; a sombra virtual desenha sempre pelos seus argumentos (os pares das páginas), com a
+        // contagem de índices da capacidade.
+        expect(s.draws('ForwardFlow').some((d) => d.indirect !== undefined)).toBe(false);
         expect(s.draws().some((d) => d.indexCount === s.surface.adaptive!.indexCapacity)).toBe(
             true,
         );
+        expect(
+            s.draws('ShadowFlow').every((d) => d.indexCount === s.surface.adaptive!.indexCapacity),
+        ).toBe(true);
     });
 });

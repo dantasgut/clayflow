@@ -1,7 +1,7 @@
 // Spec 031 (US3) — Grafo de conjunto do smoke `nodeGraphs` (parte b) e a referência da CPU dele: "grade → deslocar por
 // ruído → normais → distribuir por densidade → esferas → saída", com os valores do grafo, e a mesma cadeia pelas
 // referências dos nós (`elements/nodes/reference`).
-import { graphArgument, NodeGraph, nodes } from 'clayflow';
+import { graphArgument, NodeGraph, nodes } from 'clayflow/web';
 import { noiseGradient3 } from '../../elements/nodes/reference/index';
 import {
     displace,

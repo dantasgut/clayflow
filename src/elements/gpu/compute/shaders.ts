@@ -33,7 +33,7 @@ import reduceCountGpuSource from './wgsl/reduce_count_gpu.wgsl?raw';
 import { SetCountSchema } from '../../../scene/graph/SetCountSchema';
 import shCountSource from './wgsl/sh_count.wgsl?raw';
 import shScatterSource from './wgsl/sh_scatter.wgsl?raw';
-import { noise } from '../shaders/math';
+import { hashAddress, noise } from '../shaders/math';
 import {
     AtomicAllocCounterSchema,
     ColorRangeSchema,
@@ -520,6 +520,7 @@ export const gcGroup = wgslModule({
 export const spatialHash = wgslModule({
     name: 'spatial_hash',
     source: spatialHashSource,
+    requires: [hashAddress],
     structs: [HashGridParamsSchema],
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RadixSort } from '../compute/RadixSort';
-import { fakeResourceCore } from '../../../scene/__tests__/helpers/fakeResourceCore';
+import { workHarness } from './helpers/workHarness';
 import { recordingFrame } from '../../physics/__tests__/helpers/recordingFrame';
 import type { StorageBufferSpec } from '../../../scene/contracts/gpu';
 
@@ -17,10 +17,19 @@ const buffer = (discriminator: string): StorageBufferSpec => {
 
 /** Ordenação preparada para as chaves `k` (e valores `v` com `withValues`). */
 function setup(capacity: number, withValues = false) {
-    const { core, writes } = fakeResourceCore();
-    const sort = new RadixSort(core, { discriminator: 'rs', capacity, withValues });
+    const h = workHarness();
+    const sort = new RadixSort(h.ctx, { discriminator: 'rs', capacity, withValues });
     sort.prepare(buffer('k'), withValues ? buffer('v') : undefined);
-    return { core, writes, sort };
+    /** Escritas no uniforme por região dos passes (`rs:radix`), na ordem. */
+    const writes = () => {
+        const params = h.resources.bufferOf(h.work, 'rs:radix');
+        return (
+            h.core.write as unknown as { mock: { calls: [unknown, ArrayBufferView, number?][] } }
+        ).mock.calls
+            .filter(([spec]) => spec === params)
+            .map(([, bytes, offset]) => ({ offset: offset ?? 0, bytes }));
+    };
+    return { ...h, writes, sort };
 }
 
 /** Rótulos dos passes de alto nível (sem os do PrefixSum interno, resumidos como `scan`). */
@@ -72,8 +81,8 @@ function radixPass(
 
 describe('RadixSort — validação', () => {
     it('capacity inválida → RangeError', () => {
-        const { core } = fakeResourceCore();
-        expect(() => new RadixSort(core, { discriminator: 'x', capacity: 0 })).toThrow(RangeError);
+        const { ctx } = workHarness();
+        expect(() => new RadixSort(ctx, { discriminator: 'x', capacity: 0 })).toThrow(RangeError);
     });
 
     it.each([0, 3, 6, 36, 2.5])('bits = %s → RangeError', (bits) => {
@@ -125,6 +134,24 @@ describe('RadixSort — duas fases', () => {
     });
 });
 
+describe('RadixSort — espaço de trabalho', () => {
+    it('temporários e histograma no Resource de trabalho; destroy os solta e prepare os declara de novo', () => {
+        const { sort, resources, work, core } = setup(1000, true);
+        const ids = ['rs:radix_tmp_keys', 'rs:radix_tmp_values', 'rs:radix_hist'];
+        const buffers = ids.map((id) => resources.bufferOf(work, id));
+        expect(buffers.map((b) => b?.byteSize)).toEqual([4000, 4000, 16 * 4 * 4]); // 16 dígitos × 4 grupos de 256, em palavras
+        sort.destroy();
+        for (const b of buffers) expect(core.destroy).toHaveBeenCalledWith(b);
+        expect(ids.map((id) => resources.bufferOf(work, id))).toEqual([
+            undefined,
+            undefined,
+            undefined,
+        ]);
+        sort.prepare(buffer('k'), buffer('v'));
+        expect(resources.bufferOf(work, 'rs:radix_hist')?.byteSize).toBe(256);
+    });
+});
+
 describe('RadixSort — gravação', () => {
     it.each([
         [32, 8],
@@ -166,11 +193,10 @@ describe('RadixSort — gravação', () => {
     it('um deslocamento de dígito por passe, cada um na sua região de parâmetros', () => {
         const { sort, writes } = setup(1000);
         sort.record(recordingFrame().frame, { keys: buffer('k'), count: 1000, bits: 12 });
-        const radix = writes
-            .filter((w) =>
-                (w.spec as { discriminator: string }).discriminator.startsWith('rs:radix:'),
-            )
-            .map((w) => [w.offset, ...new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, 3)]);
+        const radix = writes().map((w) => [
+            w.offset,
+            ...new Uint32Array(w.bytes.buffer, w.bytes.byteOffset, 3),
+        ]);
         expect(radix).toEqual([
             [0, 1000, 0, 4],
             [256, 1000, 4, 4],

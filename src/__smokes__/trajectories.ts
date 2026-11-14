@@ -18,14 +18,14 @@ import {
     LCPSchema,
     MPMFluidSchema,
     MPMSoftSchema,
-    ParticleMaterial,
+    ParticlePhysics,
     PBFSchema,
     RigidBody,
     SoftBody,
     SPHSchema,
     XPBDSoftSchema,
-} from 'clayflow';
-import type { StagingBufferSpec, StructSchema } from 'clayflow';
+} from 'clayflow/web';
+import type { StagingBufferSpec, StructSchema } from 'clayflow/web';
 import {
     gpuProfile,
     readFixture,
@@ -83,8 +83,8 @@ const FLUID_START_MEAN_Y = 0.1 + 4.5 * SPACING;
 /** Critérios dos fluidos (R18): finitos, no domínio, acima do chão, assentados, abaixo da altura inicial. */
 function fluidChecks(v: PoolView): string[] {
     const out: string[] = [];
-    const min = ParticleMaterial.defaults.domainMin;
-    const max = ParticleMaterial.defaults.domainMax;
+    const min = ParticlePhysics.defaults.domainMin;
+    const max = ParticlePhysics.defaults.domainMax;
     let sumY = 0;
     let sumSpeed = 0;
     let below = 0;
@@ -259,7 +259,7 @@ const SCENES: readonly Scene[] = [
                 (a, b) => a - b,
             );
             const median = rho[Math.floor(rho.length / 2)]!;
-            const rho0 = ParticleMaterial.defaults.restDensity;
+            const rho0 = ParticlePhysics.defaults.restDensity;
             if (!(Math.abs(median / rho0 - 1) <= 0.15))
                 out.push(`densidade mediana ${median.toFixed(0)} kg/m³`);
             return out;
@@ -307,6 +307,9 @@ async function createApp(): Promise<Application> {
     canvas.height = 64;
     document.body.appendChild(canvas);
     const app = await Application.create({
+        // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
+        // temporal, padrão agora, tem o smoke `antialiasing`).
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,

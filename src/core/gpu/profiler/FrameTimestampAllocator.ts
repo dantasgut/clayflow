@@ -3,6 +3,8 @@ export interface TimestampPair {
     readonly first: number;
     readonly last: number;
     readonly label: string;
+    /** Caminho dos grupos de depuração em que o passe foi aberto (`fase/Flow`); vazio fora de grupo. */
+    readonly scope?: string;
 }
 
 /**
@@ -59,12 +61,17 @@ export class FrameTimestampAllocator {
     }
 
     /** Reserva um par na região automática; `undefined` (e estouro) quando não cabe. */
-    allocatePair(label: string): TimestampPair | undefined {
+    allocatePair(label: string, scope = ''): TimestampPair | undefined {
         if (this.next + 2 > this.base + this.capacity) {
             this.overflow = true;
             return undefined;
         }
-        const pair = { first: this.next, last: this.next + 1, label };
+        const pair = {
+            first: this.next,
+            last: this.next + 1,
+            label,
+            ...(scope !== '' ? { scope } : {}),
+        };
         this.next += 2;
         this.list.push(pair);
         return pair;
@@ -91,6 +98,24 @@ export class FrameTimestampAllocator {
         return valid === 0 ? undefined : total / 1e6;
     }
 
+    /**
+     * Duração do quadro em ms: do primeiro início ao último fim entre os pares válidos (`undefined` sem nenhum). Numa GPU
+     * que sobrepõe passes seguidos (TBDR: o vértice de um passe começa enquanto o fragmento do anterior termina), a soma
+     * dos intervalos conta a sobreposição mais de uma vez; a duração não.
+     */
+    static span(ns: BigInt64Array, pairs: readonly TimestampPair[]): number | undefined {
+        let begin: bigint | undefined;
+        let end: bigint | undefined;
+        for (const p of pairs) {
+            if (FrameTimestampAllocator.interval(ns, p) === undefined) continue;
+            const a = ns[p.first]!;
+            const b = ns[p.last]!;
+            if (begin === undefined || a < begin) begin = a;
+            if (end === undefined || b > end) end = b;
+        }
+        return begin === undefined || end === undefined ? undefined : Number(end - begin) / 1e6;
+    }
+
     /** Intervalos válidos em ns agrupados por rótulo (rótulos repetidos acumulam). */
     static intervalsByLabel(
         ns: BigInt64Array,
@@ -101,6 +126,24 @@ export class FrameTimestampAllocator {
             const d = FrameTimestampAllocator.interval(ns, p);
             if (d === undefined) continue;
             out[p.label] = (out[p.label] ?? 0) + d;
+        }
+        return out;
+    }
+
+    /**
+     * Intervalos válidos em ns pelo caminho completo do passe (`escopo/rótulo`; só o rótulo fora de grupo). Rótulos
+     * repetidos no mesmo escopo acumulam.
+     */
+    static intervalsByScope(
+        ns: BigInt64Array,
+        pairs: readonly TimestampPair[],
+    ): Record<string, number> {
+        const out: Record<string, number> = {};
+        for (const p of pairs) {
+            const d = FrameTimestampAllocator.interval(ns, p);
+            if (d === undefined) continue;
+            const key = p.scope !== undefined && p.scope !== '' ? `${p.scope}/${p.label}` : p.label;
+            out[key] = (out[key] ?? 0) + d;
         }
         return out;
     }

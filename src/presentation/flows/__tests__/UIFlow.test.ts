@@ -38,7 +38,8 @@ describe('UIFlow — slots', () => {
         s.resetCounts();
         s.step();
         expect(s.creates()).toEqual([]);
-        const written = s.writes().map(discOf);
+        // Tela e quads são do trabalho do UIFlow (spec 039): discriminadores `id:identidade` da C2.
+        const written = s.writes().map((w) => discOf(w).split(':')[0]);
         expect(written).toContain('ui_quads');
         expect(written).not.toContain('ui_screen');
     });

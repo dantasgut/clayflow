@@ -1,10 +1,21 @@
 import { FieldType } from '../../scene/descriptors/FieldType';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 
-/** Froxels por eixo (x, y na tela; z em fatias exponenciais da profundidade), R12. */
+/**
+ * Froxels por eixo do padrão (x, y na tela; z em fatias exponenciais da profundidade), R12 — o do perfil alto do
+ * `Renderer`; a grade de uma cena é dado dos `Froxels` (`Froxels.grid`, spec 034 T079).
+ */
 export const FROXEL_GRID = [160, 90, 128] as const;
-/** Células da grade da luz ambiente por eixo (a dos froxels a cada 4 por eixo: a luz rebatida varia devagar). */
-export const FROXEL_AMBIENT_GRID = [40, 23, 32] as const;
+
+/** Células da grade da luz ambiente por eixo para uma grade de froxels (a cada 4 por eixo: a luz rebatida varia devagar). */
+export function froxelAmbientGrid(
+    grid: readonly [number, number, number],
+): readonly [number, number, number] {
+    return [Math.ceil(grid[0] / 4), Math.ceil(grid[1] / 4), Math.ceil(grid[2] / 4)];
+}
+
+/** Células da grade da luz ambiente da grade padrão. */
+export const FROXEL_AMBIENT_GRID = froxelAmbientGrid(FROXEL_GRID);
 /** Distância mínima da primeira fatia (m): a névoa mais perto que isso é tratada como na primeira fatia. */
 export const FROXEL_NEAR = 0.1;
 /** Peso do histórico no acúmulo dos froxels (reprojetado; o quadro novo entra com o resto). */
