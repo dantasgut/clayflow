@@ -36,6 +36,8 @@ import type { WgslResource } from '../../scene/shaders/WgslResource';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
+import { PointSpriteMaterial } from '../../elements/material/PointSpriteMaterial';
+import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
 import { SHADOW_MAX_LEVELS, SHADOW_PAGE_STRIDE, ShadowMap } from '../../elements/scene/ShadowMap';
 import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { Transform } from '../../elements/scene/Transform';
@@ -47,6 +49,7 @@ import {
     ShadowGroupDrawSchema,
     ShadowInstanceSchema,
     ShadowPagesParamsSchema,
+    ShadowSpriteSourceSchema,
 } from './renderSchemas';
 import { shadowDepth, shadowPages, shadowResources } from './shaders';
 
@@ -68,6 +71,8 @@ export interface ShadowSlots extends SlotMap {
     readonly atlas: ChannelSlot<false>;
     /** A série dos retângulos das instâncias no plano da luz (quem se moveu). */
     readonly rects: ChannelSlot<true>;
+    /** Corpos de partículas desenhados como sprites (os que projetam: `castsShadow` do material). */
+    readonly sprites: EntitiesSlot;
     /** O espaço de trabalho do passe (spec 039). */
     readonly work: WorkSlot<ShadowWork>;
 }
@@ -110,6 +115,39 @@ interface ClusterPlan {
     readonly pipeline: string;
     readonly ready: boolean;
 }
+/**
+ * Sprites que projetam (esferas impostoras; `shadow_pages.wgsl`, etapa 9): palavras por entrada da lista dos pares
+ * (sprite, página suja), entradas por ponto reservadas (os níveis que o disco alcança) e o teto da lista.
+ */
+const SPRITE_ENTRY_WORDS = 5;
+const SPRITE_ENTRIES_PER_POINT = 8;
+const SPRITE_LIST_MAX = 1 << 19;
+/** A fonte sem instância (corpo de partículas). */
+const SPRITE_NO_INSTANCE = 0xffffffff;
+
+/**
+ * Uma fonte de sprites que projetam: os pontos (o buffer, o primeiro registro, quantos, o passo e a posição em
+ * palavras), a instância da matriz de mundo (vértices de uma geometria) ou nenhuma (partículas), se se move sozinha e o
+ * raio.
+ */
+interface SpriteSource {
+    readonly points: AnyBufferSpec;
+    readonly first: number;
+    readonly count: number;
+    readonly strideWords: number;
+    readonly posOffsetWords: number;
+    readonly instance: number;
+    readonly dynamic: boolean;
+    readonly radius: number;
+}
+
+/** Os kernels de uma fonte de sprites (ligados aos pontos dela). */
+interface SpriteKernels {
+    readonly rect: string;
+    readonly pairs: string;
+    readonly generation: string;
+}
+
 /** Bits da palavra de grupo de cada instância (ver `shadow_pages_constants.wgsl`). */
 const SKIP = 0x80000000;
 const DEFORMING = 0x40000000;
@@ -119,6 +157,7 @@ const SCRATCH = 'shadow_pages_scratch';
 const GROUPS = 'shadow_pages_groups';
 const ARGS = 'shadow_pages_args';
 const PAIRS = 'shadow_pages_pairs';
+const SPRITES = 'shadow_pages_sprites';
 const RECTS = 'rects';
 /**
  * O anexo do desenho das páginas (T060h): o passe de desenho do WebGPU pede um; a escrita dele fica desligada (a
@@ -133,6 +172,9 @@ interface Capacity {
     /** Aglomerados das malhas grandes e as palavras das listas deles. */
     clusters: number;
     clusterList: number;
+    /** Fontes de sprites (lugares na série dos retângulos) e entradas da lista dos pares deles. */
+    sprites: number;
+    spriteList: number;
     /** Páginas por nível e por lado do atlas do mapa que projeta. */
     pagesPerLevel: number;
     atlasPages: number;
@@ -193,6 +235,8 @@ class ShadowWork extends FlowWork {
         instances: 1,
         clusters: 1,
         clusterList: 1,
+        sprites: 1,
+        spriteList: 1,
         pagesPerLevel: 4,
         atlasPages: 16,
     };
@@ -211,10 +255,13 @@ class ShadowWork extends FlowWork {
                     },
                     wordBuffer(SCRATCH, layoutOf(c).words * 4),
                     wordBuffer(GROUPS, (c.groups * 4 + c.instances) * 4),
-                    wordBuffer(ARGS, c.groups * INDIRECT_WORDS * 4, 'indirect'),
+                    // Um registro por grupo e o dos sprites (o último).
+                    wordBuffer(ARGS, (c.groups + 1) * INDIRECT_WORDS * 4, 'indirect'),
                     wordBuffer(PAIRS, PAIR_CAPACITY * 4),
-                    // Os retângulos das instâncias (um `vec4f` cada), série de duas fatias: os de agora e os de antes.
-                    { ...wordBuffer(RECTS, c.instances * 16), history: { depth: 2 } },
+                    wordBuffer(SPRITES, c.spriteList * SPRITE_ENTRY_WORDS * 4),
+                    // Os retângulos das instâncias e depois os das fontes de sprites (um `vec4f` cada), série de duas
+                    // fatias: os de agora e os de antes.
+                    { ...wordBuffer(RECTS, (c.instances + c.sprites) * 16), history: { depth: 2 } },
                     {
                         id: RASTER,
                         role: 'texture',
@@ -232,6 +279,16 @@ class ShadowWork extends FlowWork {
 
 /** Prefixo da chave dos grupos que não projetam sombra (material com `castsShadow` falso): não desenhados. */
 const NO_SHADOW = 'no-shadow|';
+/**
+ * Prefixo da chave dos grupos desenhados como sprites que projetam (`PointSpriteMaterial` com `castsShadow`): fora do
+ * desenho dos triângulos; cada instância é uma fonte de sprites (os vértices da geometria).
+ */
+const SPRITE_SHADOW = 'sprites|';
+
+/** O grupo desenha triângulos no mapa (nem sem sombra, nem sprites)? */
+function drawsTriangles(key: string): boolean {
+    return !key.startsWith(NO_SHADOW) && !key.startsWith(SPRITE_SHADOW);
+}
 
 /**
  * Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces — `two` para o material de dois
@@ -246,6 +303,9 @@ export function shadowGroupKey(entry: EntityEntry, world: World): string {
     const casts = material === undefined || material.castsShadow;
     const faces =
         material?.doubleSided === true ? 'two' : entry.get(Transform).mirrored ? 'cw' : 'ccw';
+    // Os vértices como sprites que projetam: o raio na chave (as instâncias de um grupo dividem o raio).
+    if (casts && material instanceof PointSpriteMaterial)
+        return `${SPRITE_SHADOW}${material.data.radius}|${geometry}|${faces}`;
     return `${casts ? '' : NO_SHADOW}${geometry}|${faces}`;
 }
 
@@ -268,6 +328,7 @@ function slotsOf(world: World, work: ShadowWork): ShadowSlots {
         requests: slot.channel(ShadowMap.schema, 'requests', { select }),
         atlas: slot.channel(ShadowMap.schema, 'atlas', { select }),
         rects: slot.channel(ShadowWork.schema, RECTS, { optional: true }),
+        sprites: slot.entities({ all: [ParticleBody, PointSpriteMaterial] }),
     };
 }
 
@@ -319,6 +380,23 @@ function clusterPipeline(
         topology: 'triangle-list',
         cullMode: faces === 'two' ? 'none' : 'back',
         frontFace: faces === 'two' ? 'ccw' : faces,
+        ...(preferAsync ? { preferAsync: true } : {}),
+    };
+}
+
+/** O desenho dos sprites que projetam (seis vértices por par da lista; sem buffer de vértices). */
+const SPRITE_PIPELINE = 'shadow_sprite';
+
+/** O pipeline dos sprites, preparado quando a primeira fonte aparece (a cena sem sprites que projetam não o compila). */
+function spritePipeline(preferAsync: boolean): PipelineDescriptor {
+    return {
+        id: SPRITE_PIPELINE,
+        role: 'render',
+        shader: shadowDepth,
+        entryPoints: ['shadow_sprite_vs', 'shadow_sprite_fs'],
+        colorTargets: [{ format: 'r8unorm', writeMask: 0 }],
+        topology: 'triangle-list',
+        cullMode: 'none',
         ...(preferAsync ? { preferAsync: true } : {}),
     };
 }
@@ -409,6 +487,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     private readonly indirectSources = new Map<number, AnyBufferSpec>();
     /** As fontes privadas ligadas (outras = religa). */
     private boundSources = '';
+    /** As fontes de sprites que projetam no quadro, a região de cada uma e os kernels por buffer de pontos. */
+    private spriteSources: SpriteSource[] = [];
+    private readonly spriteRegions: PerStepUniforms;
+    private readonly spriteKernels = new Map<AnyBufferSpec, SpriteKernels>();
+    private spritesKey = '';
+    private spritePrepared = false;
 
     constructor(ctx: FlowContext, options: ShadowFlowOptions = {}) {
         super();
@@ -425,8 +509,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             id: 'shadow_bounds_geometry',
             schema: ShadowBoundsGeometrySchema,
         });
+        this.spriteRegions = new PerStepUniforms(this.workContext, {
+            id: 'shadow_sprite_source',
+            schema: ShadowSpriteSourceSchema,
+        });
         this.groupDraws.reserve(1);
         this.boundsGroups.reserve(1);
+        this.spriteRegions.reserve(1);
         this.slots = slotsOf(ctx.world, this.work);
         const async = options.preferAsync === true;
         this.preferAsync = async;
@@ -494,6 +583,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             if (k === undefined || this.work.pipelines.compute(k) === undefined) return;
             if (bound.pipelines.get(plan.pipeline)?.ready !== true) return;
         }
+        const sprites = this.readySprites(bound);
+        if (sprites === undefined) return;
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
         const two = bound.render('shadow_depth:two');
@@ -537,6 +628,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 pass.dispatch.workgroups(workgroups);
             };
             run(1, this.instanceCount);
+            // Os retângulos das fontes de sprites (um grupo por fonte), entre as dinâmicas antes da tabela.
+            sprites.parts.forEach((part, s) => {
+                this.work.pipelines.use(pass.bind, part.rect, {
+                    draw: [this.spriteRegions.offset(s)],
+                });
+                pass.dispatch.workgroups(1);
+            });
             run(2, entries);
             // As filas: um grupo de trabalho por nível.
             once(3, SHADOW_MAX_LEVELS);
@@ -555,6 +653,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 clusters.bindTo(pass.bind, { draw: [this.boundsGroups.offset(group)] });
                 pass.dispatch.invocations(plan.count, WORKGROUP_SIZE);
             }
+            // Os pares (sprite, página suja) de cada fonte: uma invocação por ponto.
+            sprites.parts.forEach((part, s) => {
+                this.work.pipelines.use(pass.bind, part.pairs, {
+                    draw: [this.spriteRegions.offset(s)],
+                });
+                pass.dispatch.invocations(Math.max(1, part.count), WORKGROUP_SIZE);
+            });
         });
         // A profundidade vai ao atlas pelo fragmento; o anexo só dá a janela do desenho (uma página).
         const target: RenderTarget = {
@@ -565,7 +670,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             // Os grupos nas páginas sujas; as demais seguem no atlas (a série por páginas).
             let current: PreparedRender | undefined;
             groups.forEach((group, index) => {
-                if (group.key.startsWith(NO_SHADOW)) return;
+                if (!drawsTriangles(group.key)) return;
                 const entry = group.representative;
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
@@ -601,9 +706,39 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                     pass.draw.indirect(args, offset);
                 }
             });
+            // Os sprites: um desenho só, um par da lista por instância (o registro depois dos grupos).
+            if (sprites.draw !== undefined) {
+                pass.bind.setPipeline(sprites.draw.spec);
+                sprites.draw.bindTo(pass.bind);
+                pass.draw.indirect(args, c.groups * INDIRECT_WORDS * 4);
+            }
         });
         atlas.written();
         bound.slots.rects?.written();
+    }
+
+    /**
+     * Os sprites que projetam no quadro: o desenho e, por fonte, os kernels e os pontos — `undefined` se algum ainda não
+     * está pronto (o quadro fica com o atlas de antes); sem fontes, sem desenho.
+     */
+    private readySprites(bound: BoundFlow<ShadowSlots>):
+        | {
+              readonly draw: PreparedRender | undefined;
+              readonly parts: readonly { rect: string; pairs: string; count: number }[];
+          }
+        | undefined {
+        if (this.spriteSources.length === 0) return { draw: undefined, parts: [] };
+        const draw = bound.pipelines.get(SPRITE_PIPELINE);
+        if (draw?.role !== 'render' || !draw.ready) return undefined;
+        const parts: { rect: string; pairs: string; count: number }[] = [];
+        for (const src of this.spriteSources) {
+            const k = this.spriteKernels.get(src.points);
+            if (k === undefined) return undefined;
+            if (this.work.pipelines.compute(k.rect) === undefined) return undefined;
+            if (this.work.pipelines.compute(k.pairs) === undefined) return undefined;
+            parts.push({ rect: k.rect, pairs: k.pairs, count: src.count });
+        }
+        return { draw, parts };
     }
 
     /** O trabalho é do `ShadowWork` (a C2 o libera com ele). */
@@ -615,6 +750,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.clusterKernels = new Map();
         this.clusterPlans = new Map();
         this.indirectSources.clear();
+        this.spriteKernels.clear();
+        this.spriteSources = [];
     }
 
     /** O quadro: as capacidades, os grupos, as caixas, as ligações privadas e os parâmetros. */
@@ -624,7 +761,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const id = this.world.entityIdOfResource(map);
         const casterSlot = id === undefined ? undefined : s.matrices.slotOf(id);
         const groups = s.casters.groups;
-        this.active = casterSlot !== undefined && groups.length > 0;
+        const sprites = this.collectSprites(ctx);
+        this.active = casterSlot !== undefined && (groups.length > 0 || sprites.length > 0);
         if (!this.active || casterSlot === undefined) {
             // Sem grupos, nenhum kernel das caixas fica ligado: a geometria de mesmo conteúdo que volta (o mesmo buffer de
             // vértices pela chave de conteúdo, outro objeto de GPU) não reaproveita o grupo de ligação do que morreu.
@@ -634,11 +772,28 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const instances = Math.max(1, ...groups.map((g) => g.first + g.count));
         const { pagesPerLevel, atlasPages } = map.data;
         const clusters = this.planClusters(ctx);
-        this.ensureCapacity(groups.length, instances, clusters, pagesPerLevel, atlasPages);
+        const points = sprites.reduce((n, src) => n + src.count, 0);
+        this.ensureCapacity(
+            groups.length,
+            instances,
+            clusters,
+            {
+                sprites: sprites.length,
+                spriteList: Math.min(SPRITE_LIST_MAX, points * SPRITE_ENTRIES_PER_POINT),
+            },
+            pagesPerLevel,
+            atlasPages,
+        );
         this.writeGroups(ctx, instances);
+        this.writeSprites(sprites);
         if (!this.bindPrivate(ctx)) {
             this.active = false;
             return;
+        }
+        // Depois das fontes privadas ligadas (as do trabalho realocado neste quadro).
+        if (sprites.length > 0 && !this.spritePrepared) {
+            ctx.prepare(spritePipeline(this.preferAsync));
+            this.spritePrepared = true;
         }
         this.writeParams(ctx, casterSlot);
     }
@@ -715,8 +870,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         group: DrawGroup,
         adaptive: boolean,
     ): { vertices: AnyBufferSpec; indices: IndexBufferSpec } | undefined {
-        if (group.key.startsWith(NO_SHADOW) || group.count > CLUSTER_MAX_INSTANCES)
-            return undefined;
+        if (!drawsTriangles(group.key) || group.count > CLUSTER_MAX_INSTANCES) return undefined;
         const geometry = group.representative.get(Geometry);
         const vertices = this.resources.bufferOf(geometry, 'vertices');
         const indices = this.resources.bufferOf(geometry, 'indices');
@@ -735,6 +889,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         groups: number,
         instances: number,
         clusters: { clusters: number; clusterList: number },
+        sprites: { sprites: number; spriteList: number },
         pagesPerLevel: number,
         atlasPages: number,
     ): void {
@@ -749,6 +904,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             instances: grow(c.instances, instances),
             clusters: grow(c.clusters, clusters.clusters),
             clusterList: grow(c.clusterList, clusters.clusterList),
+            sprites: grow(c.sprites, sprites.sprites),
+            spriteList: grow(c.spriteList, sprites.spriteList),
             pagesPerLevel,
             atlasPages,
         };
@@ -757,6 +914,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             && next.instances === c.instances
             && next.clusters === c.clusters
             && next.clusterList === c.clusterList
+            && next.sprites === c.sprites
+            && next.spriteList === c.spriteList
             && next.pagesPerLevel === c.pagesPerLevel
             && next.atlasPages === c.atlasPages
         )
@@ -798,7 +957,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         groups.forEach((group, index) => {
             if (!adaptive) return;
             const source = this.resources.bufferOf(group.representative.get(Geometry), 'indirect');
-            if (source?.subkind === 'indirect' && !group.key.startsWith(NO_SHADOW))
+            if (source?.subkind === 'indirect' && drawsTriangles(group.key))
                 this.indirectSources.set(index, source);
         });
         if (key === this.groupsKey && !this.regroup) return;
@@ -807,13 +966,15 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const words = new Uint32Array(c.groups * 4 + c.instances);
         // As posições da lista sem instância de grupo (a lista da C2 tem buracos) ficam fora do desenho.
         words.fill(SKIP, c.groups * 4);
-        const args = new Uint32Array(c.groups * INDIRECT_WORDS);
+        const args = new Uint32Array((c.groups + 1) * INDIRECT_WORDS);
+        // O registro dos sprites: seis vértices por par (a contagem de instâncias pela GPU).
+        args.set([6, 0, 0, 0, 0], c.groups * INDIRECT_WORDS);
         const { clusterListBase } = layoutOf(c);
         groups.forEach((group, index) => {
             const geometry = group.representative.get(Geometry);
             // Fora do desenho só o que não projeta; a geometria ainda sem vértices fica com a caixa vazia (zerada a cada
             // quadro) até o kernel dela rodar.
-            const skip = group.key.startsWith(NO_SHADOW);
+            const skip = !drawsTriangles(group.key);
             const deforming = this.resources.hasGpuWriter(geometry, 'vertices');
             const plan = this.clusterPlans.get(index);
             // O grupo em aglomerados pronto: a lista dele (a palavra 2, nunca 0) e o desenho de um aglomerado por
@@ -880,12 +1041,14 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const groups = buffer(GROUPS);
         const args = buffer(ARGS);
         const pairs = buffer(PAIRS);
+        const spriteList = buffer(SPRITES);
         if (
             params === undefined
             || scratch === undefined
             || groups === undefined
             || args === undefined
             || pairs === undefined
+            || spriteList === undefined
         )
             return false;
         const key = [
@@ -894,8 +1057,10 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             groups,
             args,
             pairs,
+            spriteList,
             this.groupDraws.generation,
             this.boundsGroups.generation,
+            this.spriteRegions.generation,
         ]
             .map((b) => (typeof b === 'number' ? b : this.idOf(b)))
             .join(':');
@@ -913,12 +1078,22 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                     [R.group, this.groupDraws.source()],
                     // A região do grupo nas listas dos aglomerados (`sp_clusters_main`).
                     [R.geometry, this.boundsGroups.source()],
+                    [R.spriteSource, this.spriteRegions.source()],
+                    [R.spriteList, src(spriteList)],
+                    [R.spriteListRead, src(spriteList)],
                 ]),
             );
             this.boundSources = key;
             this.boundsDirty = true;
         }
         if (this.boundsDirty) this.rebuildBounds(ctx, params, scratch, key);
+        this.rebuildSprites(key, [
+            [R.params, src(params)],
+            [R.scratch, src(scratch)],
+            [R.args, src(args)],
+            [R.spriteList, src(spriteList)],
+            [R.spriteSource, this.spriteRegions.source()],
+        ]);
         return true;
     }
 
@@ -926,6 +1101,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     private releaseBounds(): void {
         for (const b of this.bounds.values()) this.work.pipelines.release(b.kernel);
         for (const b of this.clusterBounds.values()) this.work.pipelines.release(b.kernel);
+        for (const k of this.spriteKernels.values()) {
+            this.work.pipelines.release(k.rect);
+            this.work.pipelines.release(k.pairs);
+        }
+        this.spriteKernels.clear();
+        this.spriteSources = [];
+        this.spritesKey = '';
         this.bounds.clear();
         this.clusterBounds.clear();
         this.boundsGroupsOf = [];
@@ -967,7 +1149,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             );
             if (vertices === undefined || vertices.subkind === 'staging') {
                 // A geometria ainda sem buffer (alocado no envio do quadro): tenta de novo no próximo.
-                if (!group.key.startsWith(NO_SHADOW)) this.boundsDirty = true;
+                if (drawsTriangles(group.key)) this.boundsDirty = true;
                 return;
             }
             used.add(vertices);
@@ -1031,6 +1213,137 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         }
     }
 
+    /**
+     * As fontes de sprites que projetam: cada instância de um grupo de vértices como sprites (a matriz de mundo dela; a
+     * geometria escrita pela GPU se move sozinha) e cada corpo de partículas com `PointSpriteMaterial` que projeta (o
+     * trecho do corpo no pool; sempre em movimento). O raio é o do material.
+     */
+    private collectSprites(ctx: Ctx): SpriteSource[] {
+        const out: SpriteSource[] = [];
+        const s = ctx.bound.slots;
+        for (const group of s.casters.groups) {
+            if (!group.key.startsWith(SPRITE_SHADOW)) continue;
+            const entry = group.representative;
+            const geometry = entry.get(Geometry);
+            const points = this.resources.bufferOf(geometry, 'vertices');
+            const material = entry.resources.find((r) => r instanceof PointSpriteMaterial);
+            if (points === undefined || points.subkind === 'staging' || material === undefined)
+                continue;
+            const dynamic = this.resources.hasGpuWriter(geometry, 'vertices');
+            for (let j = 0; j < group.count; j++)
+                out.push({
+                    points,
+                    first: 0,
+                    count: geometry.vertexCount,
+                    strideWords: 8,
+                    posOffsetWords: 0,
+                    instance: group.first + j,
+                    dynamic,
+                    radius: material.data.radius,
+                });
+        }
+        for (const entry of s.sprites.entries) {
+            // O corpo com geometria (a superfície de um corpo mole) é desenhado como malha.
+            if (entry.resources.some((r) => r instanceof Geometry)) continue;
+            const material = entry.get(PointSpriteMaterial);
+            if (!material.castsShadow) continue;
+            const body = entry.get(ParticleBody);
+            const poolKey = this.resources.poolKeyForResource(body);
+            const pool = poolKey === undefined ? undefined : this.resources.poolBufferSpec(poolKey);
+            if (poolKey === undefined || pool === undefined) continue;
+            const schema = body.particleSchema;
+            out.push({
+                points: pool,
+                first: this.resources.poolRangeOf(poolKey, entry.entityId)?.first ?? 0,
+                count: body.count,
+                strideWords: schema.stride / 4,
+                posOffsetWords: schema.offsetOf('pos') / 4,
+                instance: SPRITE_NO_INSTANCE,
+                dynamic: true,
+                radius: material.data.radius,
+            });
+        }
+        return out;
+    }
+
+    /** As regiões das fontes de sprites (escritas quando mudam; o lugar de cada uma na série dos retângulos). */
+    private writeSprites(sources: SpriteSource[]): void {
+        this.spriteSources = sources;
+        if (sources.length === 0) return;
+        this.spriteRegions.reserve(sources.length);
+        const rectsFirst = this.work.capacity.instances;
+        const key = [
+            this.spriteRegions.generation,
+            rectsFirst,
+            ...sources.map(
+                (src) =>
+                    `${this.idOf(src.points)}:${src.first}:${src.count}:${src.strideWords}:`
+                    + `${src.posOffsetWords}:${src.instance}:${src.dynamic}:${src.radius}`,
+            ),
+        ].join(';');
+        if (key === this.spritesKey) return;
+        sources.forEach((src, i) => {
+            this.spriteRegions.write(i, {
+                first: src.first,
+                count: src.count,
+                strideWords: src.strideWords,
+                posOffsetWords: src.posOffsetWords,
+                instance: src.instance,
+                rectSlot: rectsFirst + i,
+                dynamic: src.dynamic ? 1 : 0,
+                radius: src.radius,
+            });
+        });
+        this.spriteRegions.flush(sources.length);
+        this.spritesKey = key;
+    }
+
+    /**
+     * Os kernels das fontes de sprites, um par (retângulo, pares) por buffer de pontos, ligados a ele e aos buffers do
+     * trabalho (`shared`): refeitos quando estes mudam; os dos pontos que saíram são liberados.
+     */
+    private rebuildSprites(
+        generation: string,
+        shared: readonly (readonly [WgslResource, BindingSource])[],
+    ): void {
+        const used = new Set<AnyBufferSpec>();
+        for (const src of this.spriteSources) {
+            used.add(src.points);
+            const k = this.spriteKernels.get(src.points);
+            if (k?.generation === generation) continue;
+            if (k !== undefined) {
+                this.work.pipelines.release(k.rect);
+                this.work.pipelines.release(k.pairs);
+            }
+            const bindings = new Map<WgslResource, BindingSource>([
+                ...shared,
+                [shadowResources.spritePoints, src.points as BindingSource],
+            ]);
+            const id = this.idOf(src.points);
+            this.spriteKernels.set(src.points, {
+                generation,
+                rect: this.work.pipelines.kernel({
+                    discriminator: `shadow_sprite_rect:${id}`,
+                    shader: shadowPages,
+                    entryPoint: 'ss_rect_main',
+                    bindings,
+                }),
+                pairs: this.work.pipelines.kernel({
+                    discriminator: `shadow_sprite_pairs:${id}`,
+                    shader: shadowPages,
+                    entryPoint: 'ss_pairs_main',
+                    bindings,
+                }),
+            });
+        }
+        for (const [points, k] of [...this.spriteKernels]) {
+            if (used.has(points)) continue;
+            this.work.pipelines.release(k.rect);
+            this.work.pipelines.release(k.pairs);
+            this.spriteKernels.delete(points);
+        }
+    }
+
     /** Os parâmetros do quadro: o recomeço (séries interrompidas, grupos mudados), os pedidos e as seções. */
     private writeParams(ctx: Ctx, casterSlot: number): void {
         const s = ctx.bound.slots;
@@ -1056,6 +1369,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             groupPairsBase: layout.groupPairsBase,
             needBase: layout.needBase,
             clusterBoundsBase: layout.clusterBoundsBase,
+            spriteRecord: this.work.capacity.groups,
+            spriteCap: this.work.capacity.spriteList,
         };
         const key = JSON.stringify(values);
         if (key !== this.paramsKey) {

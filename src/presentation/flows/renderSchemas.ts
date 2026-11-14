@@ -31,8 +31,8 @@ export const ShadowPagesParamsSchema = new StructSchema(
         groupPairsBase: FieldType.u32,
         needBase: FieldType.u32,
         clusterBoundsBase: FieldType.u32,
-        _pad0: FieldType.u32,
-        _pad1: FieldType.u32,
+        spriteRecord: FieldType.u32,
+        spriteCap: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
@@ -63,6 +63,26 @@ export const ShadowBoundsGeometrySchema = new StructSchema(
         clusterFirst: FieldType.u32,
         clusterCount: FieldType.u32,
         indexCount: FieldType.u32,
+    },
+    { addressSpace: 'uniform' },
+);
+
+/**
+ * Por despacho de uma fonte de sprites que projetam (spec 034): os pontos (o primeiro registro, quantos, o passo e a
+ * posição em palavras), a instância (a matriz de mundo; `SS_NO_INSTANCE` no corpo de partículas), o lugar na série dos
+ * retângulos, se a fonte se move sozinha e o raio dos sprites.
+ */
+export const ShadowSpriteSourceSchema = new StructSchema(
+    'ShadowSpriteSource',
+    {
+        first: FieldType.u32,
+        count: FieldType.u32,
+        strideWords: FieldType.u32,
+        posOffsetWords: FieldType.u32,
+        instance: FieldType.u32,
+        rectSlot: FieldType.u32,
+        dynamic: FieldType.u32,
+        radius: FieldType.f32,
     },
     { addressSpace: 'uniform' },
 );

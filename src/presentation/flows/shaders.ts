@@ -61,6 +61,7 @@ import {
     ShadowInstanceSchema,
     ShadowPagesParamsSchema,
     ShadowRequestParamsSchema,
+    ShadowSpriteSourceSchema,
     TemporalResolveParamsSchema,
     UiQuadSchema,
 } from './renderSchemas';
@@ -124,6 +125,14 @@ export const shadowResources = {
     geometry: privateUniform('sp_geometry', ShadowBoundsGeometrySchema, 'draw'),
     /** O início dos pares do grupo (por desenho). */
     group: privateUniform('shadow_group', ShadowGroupDrawSchema, 'draw'),
+    /** Os pontos de uma fonte de sprites que projetam (vértices ou partículas), ligados ao kernel da fonte. */
+    spritePoints: privateStorage('ss_points', 'read', 'f32', 'draw'),
+    /** A fonte de sprites do despacho (`ShadowSpriteSource`). */
+    spriteSource: privateUniform('ss_source', ShadowSpriteSourceSchema, 'draw'),
+    /** A lista dos pares (sprite, página suja): o centro no espaço da luz, o raio e a página (5 palavras cada). */
+    spriteList: privateStorage('ss_list', 'read_write', 'u32'),
+    /** A mesma, lida no desenho. */
+    spriteListRead: privateStorage('ss_list_read', 'read', 'u32'),
     /**
      * O atlas (T060h): a tabela de páginas no começo, refeita no lugar a cada quadro (cada entrada lida e escrita pela
      * mesma invocação), e as páginas físicas depois; no desenho, a profundidade pelo mínimo atômico.
@@ -223,6 +232,9 @@ export const shadowPages = wgslModule({
         shadowResources.atlasStamps,
         shadowResources.atlasClock,
         shadowResources.instances,
+        shadowResources.spritePoints,
+        shadowResources.spriteSource,
+        shadowResources.spriteList,
     ],
     structs: [ShadowMap.matrixSchema, ShadowInstanceSchema],
 });
@@ -429,6 +441,7 @@ export const shadowDepth = wgslModule({
         shadowResources.atlasDepth,
         shadowResources.drawClusterVertices,
         shadowResources.drawClusterIndices,
+        shadowResources.spriteListRead,
     ],
 });
 

@@ -20,7 +20,10 @@
 //      ordem e escreve a contagem de instâncias de cada desenho indireto, `sp_pairs_main` escreve cada par no trecho do
 //      seu grupo;
 //   8. as malhas grandes em aglomerados: `sp_cluster_bounds_main` (um despacho por geometria) dá a caixa de cada
-//      aglomerado, e `sp_clusters_main` (um despacho por grupo) monta a lista dos pares (aglomerado, página suja).
+//      aglomerado, e `sp_clusters_main` (um despacho por grupo) monta a lista dos pares (aglomerado, página suja);
+//   9. os sprites que projetam (esferas impostoras, um despacho por fonte de pontos): `ss_rect_main`, antes da tabela,
+//      dá o retângulo da fonte no plano da luz e a põe entre as dinâmicas; `ss_pairs_main`, depois das sujas, monta a
+//      lista (sprite, página suja) pelas páginas que o disco de cada um alcança em cada nível.
 // O espaço de trabalho do quadro é um buffer só de palavras (`sp_scratch`), em seções; os contadores no início.
 // Laços com teto constante.
 // Requer: shadow_virtual, shadow_pages_constants, page_alloc (a soma de prefixos do grupo), vertex_bounds (a caixa dos
@@ -95,6 +98,8 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u + 2u], 0u);
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u + 3u], 0u);
     }
+    // A contagem da lista dos sprites (as instâncias do desenho deles).
+    if (i == 0u) { atomicStore(&sp_args[sp.spriteRecord * 5u + 1u], 0u); }
 }
 
 fn sp_atlas_pages_total() -> u32 {
@@ -361,6 +366,8 @@ fn sp_allocate_main(@builtin(local_invocation_index) lid: u32) {
     );
     // O carimbo da série do atlas: a página escrita na época atual.
     sp_atlas_stamps[phys] = sp_atlas_clock.x;
+    // A página virtual aponta a posição na lista das sujas (os sprites acham as páginas sujas que alcançam por ela).
+    atomicStore(&sp_scratch[sp.needBase + i], SP_DIRTY_MARK | d);
     let r = sp.dirtyBase + d * 4u;
     atomicStore(&sp_scratch[r], phys | (k << 16u));
     atomicStore(&sp_scratch[r + 1u], bitcast<u32>(g.x));
@@ -555,5 +562,114 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
         if (!sp_shape_touches(shapes[local], sp_page_rect(m, k, g))) { continue; }
         let idx = atomicAdd(&sp_args[record * 5u + 1u], 1u);
         if (idx < cap) { atomicStore(&sp_scratch[list + idx], (p << SP_CLUSTER_SHIFT) | c); }
+    }
+}
+
+// ---- 9. os sprites que projetam ----
+// Uma fonte de pontos (`ss_source`, região por despacho; os pontos em `ss_points`, ligados ao kernel da fonte): os
+// vértices de uma geometria desenhada como sprites (pela matriz de mundo da instância) ou as partículas de um corpo
+// (já no mundo). Cada ponto é uma esfera de raio `radius` (o do material): vista da luz, um disco; a profundidade, a da
+// face voltada para a luz. O retângulo da fonte no plano da luz (os pontos com o raio) entra na série dos retângulos
+// depois das instâncias e, se mudou ou a fonte se move sozinha (`dynamic`), na lista das dinâmicas — as páginas onde ela
+// estava e onde está são redesenhadas. Depois das sujas, cada ponto acha, em cada nível, as páginas que o disco alcança
+// (com a borda de 1 texel) pela marca da alocação, e cada par entra na lista dos sprites (um desenho só, seis vértices
+// por par). A lista tem teto (`sp.spriteCap`): o que passa não é desenhado.
+
+/** O centro do ponto `i` da fonte no mundo. */
+fn ss_center(i: u32) -> vec3f {
+    let w = (ss_source.first + i) * ss_source.strideWords + ss_source.posOffsetWords;
+    let p = vec3f(ss_points[w], ss_points[w + 1u], ss_points[w + 2u]);
+    if (ss_source.instance == SS_NO_INSTANCE) { return p; }
+    return (worlds[instances[ss_source.instance].world].world * vec4f(p, 1.0)).xyz;
+}
+
+var<workgroup> ss_lo: array<vec2f, 256>;
+var<workgroup> ss_hi: array<vec2f, 256>;
+
+/** O retângulo da fonte no plano da luz (um grupo de trabalho por fonte) e, se mudou ou se move, a dinâmica dela. */
+@compute @workgroup_size(256)
+fn ss_rect_main(@builtin(local_invocation_index) lid: u32) {
+    let m = shadow_matrices[sp.casterSlot];
+    let count = ss_source.count;
+    let per = (count + 255u) / 256u;
+    var lo = vec2f(3.0e38);
+    var hi = vec2f(-3.0e38);
+    for (var c = 0u; c < SS_RECT_CHUNK; c++) {
+        let i = lid * per + c;
+        if (c >= per || i >= count) { break; }
+        let q = sv_light(m, ss_center(i)).xy;
+        lo = min(lo, q);
+        hi = max(hi, q);
+    }
+    ss_lo[lid] = lo;
+    ss_hi[lid] = hi;
+    for (var s = 128u; s > 0u; s >>= 1u) {
+        workgroupBarrier();
+        if (lid < s) {
+            ss_lo[lid] = min(ss_lo[lid], ss_lo[lid + s]);
+            ss_hi[lid] = max(ss_hi[lid], ss_hi[lid + s]);
+        }
+    }
+    if (lid != 0u) { return; }
+    let r = ss_source.radius;
+    var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
+    if (all(ss_lo[0] <= ss_hi[0])) { rect = vec4f(ss_lo[0] - vec2f(r), ss_hi[0] + vec2f(r)); }
+    let slot = ss_source.rectSlot;
+    sp_rects_out[slot] = rect;
+    if (sp.reset != 0u || m.direction.w != 0.0) { return; }
+    let before = sp_rects_previous[slot];
+    let moved = ss_source.dynamic != 0u || any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))));
+    if (!moved) { return; }
+    let d = atomicAdd(&sp_scratch[SP_DYNAMIC_COUNT], 1u);
+    if (d >= sp.dynamicCap) {
+        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
+        return;
+    }
+    let u = vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw));
+    let o = sp.dynamicBase + d * 4u;
+    sp_set_f(o, u.x);
+    sp_set_f(o + 1u, u.y);
+    sp_set_f(o + 2u, u.z);
+    sp_set_f(o + 3u, u.w);
+}
+
+/**
+ * Os pares (sprite, página suja) de uma fonte (uma invocação por ponto): em cada nível, as páginas globais que o
+ * quadrado do disco (com a borda de 1 texel) alcança, na janela do nível, marcadas como sujas pela alocação.
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn ss_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (i >= ss_source.count) { return; }
+    if (min(atomicLoad(&sp_scratch[SP_DIRTY_COUNT]), sp.budget) == 0u) { return; }
+    let m = shadow_matrices[sp.casterSlot];
+    let l = sv_light(m, ss_center(i));
+    let r = ss_source.radius;
+    let n = m.pagesPerLevel;
+    for (var k = 0u; k < SV_MAX_LEVELS; k++) {
+        if (k >= sv_levels(m)) { break; }
+        let p = sv_page_size(m, k);
+        let reach = vec2f(r + sv_texel(m, k));
+        let g0 = vec2i(floor((l.xy - reach) / p));
+        let g1 = vec2i(floor((l.xy + reach) / p));
+        for (var y = 0; y < SS_PAGE_SPAN; y++) {
+            if (g0.y + y > g1.y) { break; }
+            for (var x = 0; x < SS_PAGE_SPAN; x++) {
+                if (g0.x + x > g1.x) { break; }
+                let g = g0 + vec2i(x, y);
+                if (!sv_in_window(m, k, g)) { continue; }
+                let s = sv_slot(m, k, g);
+                let mark = atomicLoad(&sp_scratch[sp.needBase + s.y * n + s.x]);
+                if ((mark & SP_DIRTY_MARK) == 0u) { continue; }
+                let idx = atomicAdd(&sp_args[sp.spriteRecord * 5u + 1u], 1u);
+                if (idx >= sp.spriteCap) { return; }
+                let e = idx * SS_ENTRY_WORDS;
+                ss_list[e] = bitcast<u32>(l.x);
+                ss_list[e + 1u] = bitcast<u32>(l.y);
+                ss_list[e + 2u] = bitcast<u32>(l.z);
+                ss_list[e + 3u] = bitcast<u32>(r);
+                ss_list[e + 4u] = mark & ~SP_DIRTY_MARK;
+            }
+        }
     }
 }

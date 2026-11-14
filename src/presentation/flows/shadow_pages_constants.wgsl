@@ -39,3 +39,13 @@ const SP_CLUSTER_PAIR_LIMIT: u32 = 4096u;
 const SP_CLUSTER_SLOTS: u32 = 32u;
 const SP_CLUSTER_SHIFT: u32 = 20u;
 const SP_CLUSTER_MASK: u32 = 0xFFFFFu;
+/** A página suja na seção das necessidades depois da alocação (`sp_allocate_main`): a marca e a posição na lista. */
+const SP_DIRTY_MARK: u32 = 0x80000000u;
+/** Sprites que projetam (esferas impostoras): palavras por entrada da lista (centro no espaço da luz, raio, página suja). */
+const SS_ENTRY_WORDS: u32 = 5u;
+/** Páginas por eixo que um sprite alcança num nível, no máximo (o laço da lista). */
+const SS_PAGE_SPAN: i32 = 4;
+/** Pontos por invocação no retângulo de uma fonte (256 invocações: até 1 048 576 pontos). */
+const SS_RECT_CHUNK: u32 = 4096u;
+/** A fonte sem instância (corpo de partículas: as posições já no mundo). */
+const SS_NO_INSTANCE: u32 = 0xFFFFFFFFu;
