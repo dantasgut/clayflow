@@ -7,7 +7,7 @@
 // luz (quem está antes da faixa ainda faz sombra). Antes, `sp_fill_main` (as etapas das páginas) preenche cada página
 // suja com o fundo (1); as demais seguem no atlas (a série por páginas).
 // Recursos declarados no módulo (`shadow_matrices`, `worlds`, `instances`, `sp_scratch_read`, `sp_pairs_read`,
-// `shadow_group`, `sp`, `sp_atlas_depth`).
+// `shadow_group`, `sp`, `sp_atlas_depth`; na malha grande, `shadow_cluster_vertices` e `shadow_cluster_indices`).
 
 struct VsIn {
     @location(0) position: vec3<f32>,
@@ -43,13 +43,11 @@ struct ShadowVsOut {
     @location(0) @interpolate(flat) phys: u32,
 }
 
-@vertex
-fn shadow_depth_vs(in: VsIn, @builtin(instance_index) instance: u32) -> ShadowVsOut {
+/** O ponto `p` (espaço do objeto) do par `pair` (instância × página suja) na página do desenho. */
+fn shadow_depth_place(p: vec3f, pair: u32) -> ShadowVsOut {
     let m = shadow_matrices[sp.casterSlot];
-    let base = sp_scratch_read[sp.groupPairsBase + shadow_group.group * 3u + 1u];
-    let pair = sp_pairs_read[base + instance];
     let page = shadow_dirty(pair >> SP_PAIR_SHIFT);
-    let world = worlds[instances[pair & SP_PAIR_MASK].world].world * vec4f(in.position, 1.0);
+    let world = worlds[instances[pair & SP_PAIR_MASK].world].world * vec4f(p, 1.0);
     let l = sv_light(m, world.xyz);
     let t = sv_texel(m, page.level);
     let origin = vec2f(page.global) * sv_page_size(m, page.level) - t;
@@ -57,6 +55,34 @@ fn shadow_depth_vs(in: VsIn, @builtin(instance_index) instance: u32) -> ShadowVs
     out.position = vec4f(shadow_page_clip((l.xy - origin) / t), max(sv_depth(m, l.z, page.z0), 0.0), 1.0);
     out.phys = page.phys;
     return out;
+}
+
+@vertex
+fn shadow_depth_vs(in: VsIn, @builtin(instance_index) instance: u32) -> ShadowVsOut {
+    let base = sp_scratch_read[sp.groupPairsBase + shadow_group.group * 4u + 1u];
+    return shadow_depth_place(in.position, sp_pairs_read[base + instance]);
+}
+
+/**
+ * A malha grande em aglomerados (`sp_clusters_main`): uma instância por par (aglomerado, par do grupo) da lista do
+ * grupo, `SP_CLUSTER_TRIS` triângulos por instância, os vértices lidos pelos índices (`shadow_cluster_vertices`,
+ * `shadow_cluster_indices`, ligados ao pipeline da geometria). Além do teto da lista e do fim dos índices, o triângulo
+ * degenerado.
+ */
+@vertex
+fn shadow_cluster_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) instance: u32) -> ShadowVsOut {
+    var out: ShadowVsOut;
+    out.position = vec4f(0.0, 0.0, 2.0, 1.0);
+    out.phys = 0u;
+    if (instance >= shadow_group.listCap) { return out; }
+    let entry = sp_scratch_read[shadow_group.listBase + instance];
+    let i = (entry & SP_CLUSTER_MASK) * SP_CLUSTER_TRIS * 3u + v;
+    if (i >= shadow_group.indexCount) { return out; }
+    let base = sp_scratch_read[sp.groupPairsBase + shadow_group.group * 4u + 1u];
+    let pair = sp_pairs_read[base + (entry >> SP_CLUSTER_SHIFT)];
+    let k = shadow_cluster_indices[i] * 8u;
+    let p = vec3f(shadow_cluster_vertices[k], shadow_cluster_vertices[k + 1u], shadow_cluster_vertices[k + 2u]);
+    return shadow_depth_place(p, pair);
 }
 
 @fragment

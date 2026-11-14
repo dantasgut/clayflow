@@ -29,3 +29,13 @@ const SP_NEED_RENDER: u32 = 2u;
 const SP_RANK_CHUNK: u32 = 16u;
 /** Páginas físicas por invocação na pilha das livres (48² páginas / 256 invocações). */
 const SP_FREE_CHUNK: u32 = 9u;
+/** Triângulos por aglomerado das malhas grandes. */
+const SP_CLUSTER_TRIS: u32 = 32u;
+/** Instâncias de um grupo em aglomerados, no máximo. */
+const SP_CLUSTER_MAX_INSTANCES: u32 = 16u;
+/** Teto dos pares de um grupo percorridos por aglomerado (16 instâncias × 256 páginas sujas). */
+const SP_CLUSTER_PAIR_LIMIT: u32 = 4096u;
+/** Lugares da lista de um grupo por aglomerado (o par local nos bits altos, o aglomerado nos baixos). */
+const SP_CLUSTER_SLOTS: u32 = 32u;
+const SP_CLUSTER_SHIFT: u32 = 20u;
+const SP_CLUSTER_MASK: u32 = 0xFFFFFu;

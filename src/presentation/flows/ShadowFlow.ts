@@ -1,11 +1,18 @@
 import { WORKGROUP_SIZE as ENGINE_WORKGROUP_SIZE } from '../../scene/shaders/engineConstants';
-import type { AnyBufferSpec, EngineCore, Frame, RenderTarget } from '../../scene/contracts/gpu';
+import type {
+    AnyBufferSpec,
+    EngineCore,
+    Frame,
+    IndexBufferSpec,
+    RenderTarget,
+} from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { StructSchema } from '../../scene/descriptors/StructSchema';
 import { FlowWork, type WorkContext } from '../../scene/flows/FlowWork';
 import type {
+    BindingKey,
     BindingSource,
     BoundFlow,
     PreparedRender,
@@ -17,6 +24,7 @@ import { Flow } from '../../scene/flows/Flow';
 import {
     slot,
     type ChannelSlot,
+    type DrawGroup,
     type EntitiesSlot,
     type EntityEntry,
     type PoolSlot,
@@ -77,6 +85,31 @@ const DYNAMIC_CAP = 1024;
 const STATE_WORDS = 32;
 /** Palavras de um registro de argumentos indiretos. */
 const INDIRECT_WORDS = 5;
+/**
+ * Malhas grandes em aglomerados (ver `shadow_pages.wgsl`, etapa 8): a geometria indexada em `uint32` de pelo menos
+ * tantos triângulos, num grupo de até `CLUSTER_MAX_INSTANCES` instâncias, é desenhada por aglomerados de
+ * `CLUSTER_TRIS` triângulos — cada um só nas páginas sujas que a forma dele, vista da luz, toca — em vez da malha
+ * inteira em cada página suja (o custo deixa de ser triângulos × páginas).
+ */
+const CLUSTER_MIN_TRIANGLES = 16384;
+const CLUSTER_TRIS = 32;
+const CLUSTER_MAX_INSTANCES = 16;
+/** Lugares da lista de um grupo por aglomerado (`SP_CLUSTER_SLOTS`). */
+const CLUSTER_SLOTS = 32;
+/** Aglomerados de um grupo, no máximo (o índice do aglomerado tem 20 bits na lista). */
+const CLUSTER_MAX = 1 << 20;
+
+/**
+ * Um grupo em aglomerados: o primeiro aglomerado (global), quantos, os índices da malha, o pipeline do desenho (ligado
+ * aos vértices e aos índices da geometria) e se o pipeline e o kernel das caixas estão prontos.
+ */
+interface ClusterPlan {
+    readonly first: number;
+    readonly count: number;
+    readonly indexCount: number;
+    readonly pipeline: string;
+    readonly ready: boolean;
+}
 /** Bits da palavra de grupo de cada instância (ver `shadow_pages_constants.wgsl`). */
 const SKIP = 0x80000000;
 const DEFORMING = 0x40000000;
@@ -97,6 +130,9 @@ const RASTER = 'shadow_raster';
 interface Capacity {
     groups: number;
     instances: number;
+    /** Aglomerados das malhas grandes e as palavras das listas deles. */
+    clusters: number;
+    clusterList: number;
     /** Páginas por nível e por lado do atlas do mapa que projeta. */
     pagesPerLevel: number;
     atlasPages: number;
@@ -113,6 +149,8 @@ function layoutOf(c: Capacity): {
     rectsBase: number;
     groupPairsBase: number;
     needBase: number;
+    clusterBoundsBase: number;
+    clusterListBase: number;
     words: number;
 } {
     const physical = c.atlasPages * c.atlasPages;
@@ -124,7 +162,9 @@ function layoutOf(c: Capacity): {
     const boundsBase = dynamicBase + DYNAMIC_CAP * 4;
     const rectsBase = boundsBase + c.groups * 6;
     const groupPairsBase = rectsBase + c.instances * 4;
-    const needBase = groupPairsBase + c.groups * 3;
+    const needBase = groupPairsBase + c.groups * 4;
+    const clusterBoundsBase = needBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel;
+    const clusterListBase = clusterBoundsBase + c.clusters * 6;
     return {
         keepBase,
         freeBase,
@@ -135,7 +175,9 @@ function layoutOf(c: Capacity): {
         rectsBase,
         groupPairsBase,
         needBase,
-        words: needBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel,
+        clusterBoundsBase,
+        clusterListBase,
+        words: clusterListBase + c.clusterList,
     };
 }
 
@@ -146,7 +188,14 @@ function layoutOf(c: Capacity): {
  */
 class ShadowWork extends FlowWork {
     static readonly schema = new StructSchema('ShadowWork', {});
-    capacity: Capacity = { groups: 1, instances: 1, pagesPerLevel: 4, atlasPages: 16 };
+    capacity: Capacity = {
+        groups: 1,
+        instances: 1,
+        clusters: 1,
+        clusterList: 1,
+        pagesPerLevel: 4,
+        atlasPages: 16,
+    };
 
     constructor() {
         super();
@@ -252,6 +301,28 @@ function depthPipeline(faces: GPUFrontFace | 'two', preferAsync: boolean): Pipel
     };
 }
 
+/**
+ * O desenho dos aglomerados de uma malha grande (o pipeline `id`, ligado aos vértices e aos índices dela): sem buffer de
+ * vértices, um aglomerado por instância (`shadow_cluster_vs`).
+ */
+function clusterPipeline(
+    id: string,
+    faces: GPUFrontFace | 'two',
+    preferAsync: boolean,
+): PipelineDescriptor {
+    return {
+        id,
+        role: 'render',
+        shader: shadowDepth,
+        entryPoints: ['shadow_cluster_vs', 'shadow_depth_fs'],
+        colorTargets: [{ format: 'r8unorm', writeMask: 0 }],
+        topology: 'triangle-list',
+        cullMode: faces === 'two' ? 'none' : 'back',
+        frontFace: faces === 'two' ? 'ccw' : faces,
+        ...(preferAsync ? { preferAsync: true } : {}),
+    };
+}
+
 /** As etapas das páginas (ver `shadow_pages.wgsl`). */
 const PAGE_STEPS = [
     'sp_clear_main',
@@ -264,7 +335,10 @@ const PAGE_STEPS = [
     'sp_pairs_count_main',
     'sp_pairs_base_main',
     'sp_pairs_main',
+    'sp_clusters_main',
 ] as const;
+/** A etapa das listas dos grupos em aglomerados (despachada por grupo, com a região dele). */
+const CLUSTERS_STEP = PAGE_STEPS.indexOf('sp_clusters_main');
 
 /** Opções do `ShadowFlow`. */
 export interface ShadowFlowOptions {
@@ -289,7 +363,9 @@ interface BoundsKernel {
  * (`shadow_pages.wgsl`: os retângulos das instâncias no plano da luz e quem se moveu, a tabela, as páginas livres, a
  * alocação do mais grosso ao mais fino até o orçamento do quadro, com o carimbo das páginas escritas, e os pares
  * instância × página suja, e o fundo das sujas) e o desenho — um desenho indireto por grupo de instâncias (geometria,
- * orientação) com uma instância por par, do tamanho de uma página, a profundidade no atlas pelo mínimo atômico. A CPU não acompanha a luz nem as páginas: escreve só os
+ * orientação) com uma instância por par, do tamanho de uma página, a profundidade no atlas pelo mínimo atômico; a malha
+ * grande vai em aglomerados (um desenho com uma instância por par aglomerado × página que a forma do aglomerado toca,
+ * pelo pipeline da geometria). A CPU não acompanha a luz nem as páginas: escreve só os
  * grupos quando mudam e os parâmetros do quadro.
  */
 export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
@@ -300,6 +376,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     protected readonly transitions: FlowTransitions<'idle', TransitionContext<ShadowSlots>>;
 
     private readonly core: EngineCore;
+    private readonly preferAsync: boolean;
     private readonly world: World;
     private readonly resources: ResourceDirectory;
     private readonly work: ShadowWork;
@@ -310,6 +387,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     /** Os kernels das caixas por buffer de vértices e os grupos do quadro (grupo, kernel). */
     private readonly bounds = new Map<AnyBufferSpec, BoundsKernel>();
     private boundsGroupsOf: { readonly group: number; readonly kernel: string }[] = [];
+    /** Os kernels das caixas dos aglomerados por buffer de índices e os pipelines do desenho deles (id → usado). */
+    private readonly clusterBounds = new Map<AnyBufferSpec, BoundsKernel>();
+    private readonly clusterPipelines = new Set<string>();
+    /** Os grupos em aglomerados no quadro (por índice do grupo). */
+    private clusterPlans = new Map<number, ClusterPlan>();
+    /** O kernel das caixas dos aglomerados de cada grupo em aglomerados (refeito com as caixas). */
+    private clusterKernels = new Map<number, string>();
     /** Os grupos escritos (chave) e a contagem das instâncias. */
     private groupsKey = '';
     private instanceCount = 0;
@@ -345,6 +429,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsGroups.reserve(1);
         this.slots = slotsOf(ctx.world, this.work);
         const async = options.preferAsync === true;
+        this.preferAsync = async;
         this.pipelines = [
             ...PAGE_STEPS.map(
                 (entry): PipelineDescriptor => ({
@@ -401,6 +486,14 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         if (!this.active) return;
         const steps = PAGE_STEPS.map((id) => bound.compute(id));
         if (steps.some((s) => !s.ready)) return;
+        // Os grupos em aglomerados escritos como prontos: o kernel das caixas (refeito com os buffers) e o pipeline do
+        // desenho também prontos agora, senão o quadro fica com o atlas de antes.
+        for (const [group, plan] of this.clusterPlans) {
+            if (!plan.ready) continue;
+            const k = this.clusterKernels.get(group);
+            if (k === undefined || this.work.pipelines.compute(k) === undefined) return;
+            if (bound.pipelines.get(plan.pipeline)?.ready !== true) return;
+        }
         const ccw = bound.render('shadow_depth:ccw');
         const cw = bound.render('shadow_depth:cw');
         const two = bound.render('shadow_depth:two');
@@ -428,6 +521,15 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 });
                 pass.dispatch.workgroups(1);
             }
+            // As caixas dos aglomerados das malhas grandes: uma invocação por aglomerado.
+            for (const [group, plan] of this.clusterPlans) {
+                const k = this.clusterKernels.get(group);
+                if (!plan.ready || k === undefined) continue;
+                this.work.pipelines.use(pass.bind, k, {
+                    draw: [this.boundsGroups.offset(group)],
+                });
+                pass.dispatch.invocations(plan.count, WORKGROUP_SIZE);
+            }
             const once = (index: number, workgroups: number): void => {
                 const step = steps[index]!;
                 pass.bind.setPipeline(step.spec);
@@ -445,6 +547,14 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             run(7, SHADOW_PAGE_BUDGET * this.instanceCount);
             once(8, 1);
             run(9, SHADOW_PAGE_BUDGET * this.instanceCount);
+            // As listas dos grupos em aglomerados: uma invocação por aglomerado, com a região do grupo.
+            const clusters = steps[CLUSTERS_STEP];
+            for (const [group, plan] of this.clusterPlans) {
+                if (!plan.ready || clusters === undefined) continue;
+                pass.bind.setPipeline(clusters.spec);
+                clusters.bindTo(pass.bind, { draw: [this.boundsGroups.offset(group)] });
+                pass.dispatch.invocations(plan.count, WORKGROUP_SIZE);
+            }
         });
         // A profundidade vai ao atlas pelo fragmento; o anexo só dá a janela do desenho (uma página).
         const target: RenderTarget = {
@@ -460,6 +570,16 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 const geometry = entry.get(Geometry);
                 const vertices = this.resources.bufferOf(geometry, 'vertices');
                 if (vertices?.subkind !== 'vertex') return;
+                const plan = this.clusterPlans.get(index);
+                if (plan?.ready === true) {
+                    // A malha grande: um desenho só, os vértices pelos índices (o pipeline da geometria).
+                    const clustered = bound.render(plan.pipeline);
+                    pass.bind.setPipeline(clustered.spec);
+                    current = clustered;
+                    clustered.bindTo(pass.bind, { draw: [this.groupDraws.offset(index)] });
+                    pass.draw.indirect(args, index * INDIRECT_WORDS * 4);
+                    return;
+                }
                 const pipeline = group.key.endsWith('|two')
                     ? two
                     : entry.get(Transform).mirrored
@@ -489,7 +609,11 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     /** O trabalho é do `ShadowWork` (a C2 o libera com ele). */
     override dispose(): void {
         this.bounds.clear();
+        this.clusterBounds.clear();
+        this.clusterPipelines.clear();
         this.boundsGroupsOf = [];
+        this.clusterKernels = new Map();
+        this.clusterPlans = new Map();
         this.indirectSources.clear();
     }
 
@@ -509,7 +633,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         }
         const instances = Math.max(1, ...groups.map((g) => g.first + g.count));
         const { pagesPerLevel, atlasPages } = map.data;
-        this.ensureCapacity(groups.length, instances, pagesPerLevel, atlasPages);
+        const clusters = this.planClusters(ctx);
+        this.ensureCapacity(groups.length, instances, clusters, pagesPerLevel, atlasPages);
         this.writeGroups(ctx, instances);
         if (!this.bindPrivate(ctx)) {
             this.active = false;
@@ -518,10 +643,98 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.writeParams(ctx, casterSlot);
     }
 
+    /**
+     * Os grupos em aglomerados: a geometria indexada em `uint32` de pelo menos `CLUSTER_MIN_TRIANGLES`, sem contagem
+     * vinda da GPU (a malha adaptativa), num grupo que projeta com até `CLUSTER_MAX_INSTANCES` instâncias. Cada um tem o
+     * pipeline do desenho ligado aos vértices e aos índices da geometria (preparado aqui; os que saíram são liberados) e
+     * fica pronto quando o pipeline e o kernel das caixas estão prontos — até lá, o grupo vai inteiro a cada página,
+     * como os outros. Devolve os aglomerados e as palavras das listas.
+     */
+    private planClusters(ctx: Ctx): { clusters: number; clusterList: number } {
+        const groups = ctx.bound.slots.casters.groups;
+        const adaptive = this.core.capabilities().features.includes('indirect-first-instance');
+        const plans = new Map<number, ClusterPlan>();
+        const used = new Set<string>();
+        let clusters = 0;
+        let clusterList = 0;
+        groups.forEach((group, index) => {
+            const buffers = this.clusterBuffersOf(group, adaptive);
+            if (buffers === undefined) return;
+            const { vertices, indices } = buffers;
+            const triangles = Math.floor(indices.count / 3);
+            const count = Math.ceil(triangles / CLUSTER_TRIS);
+            const faces = group.key.endsWith('|two')
+                ? 'two'
+                : group.representative.get(Transform).mirrored
+                  ? 'cw'
+                  : 'ccw';
+            const id = `shadow_cluster:${faces}:${this.idOf(vertices)}:${this.idOf(indices)}`;
+            if (!this.clusterPipelines.has(id)) {
+                ctx.bind(
+                    new Map<BindingKey, BindingSource>([
+                        [
+                            { pipeline: id, resource: shadowResources.drawClusterVertices },
+                            vertices as BindingSource,
+                        ],
+                        [{ pipeline: id, resource: shadowResources.drawClusterIndices }, indices],
+                    ]),
+                );
+                ctx.prepare(clusterPipeline(id, faces, this.preferAsync));
+                this.clusterPipelines.add(id);
+            }
+            used.add(id);
+            const kernel = this.clusterKernels.get(index);
+            const ready =
+                ctx.bound.pipelines.get(id)?.ready === true
+                && kernel !== undefined
+                && this.work.pipelines.compute(kernel) !== undefined;
+            plans.set(index, {
+                first: clusters,
+                count,
+                indexCount: triangles * 3,
+                pipeline: id,
+                ready,
+            });
+            clusters += count;
+            clusterList += count * CLUSTER_SLOTS;
+        });
+        for (const id of [...this.clusterPipelines]) {
+            if (used.has(id)) continue;
+            ctx.release(id);
+            this.clusterPipelines.delete(id);
+        }
+        this.clusterPlans = plans;
+        return { clusters, clusterList };
+    }
+
+    /**
+     * Os vértices e os índices da geometria do grupo, se ele vai em aglomerados (ver `planClusters`); senão,
+     * `undefined`.
+     */
+    private clusterBuffersOf(
+        group: DrawGroup,
+        adaptive: boolean,
+    ): { vertices: AnyBufferSpec; indices: IndexBufferSpec } | undefined {
+        if (group.key.startsWith(NO_SHADOW) || group.count > CLUSTER_MAX_INSTANCES)
+            return undefined;
+        const geometry = group.representative.get(Geometry);
+        const vertices = this.resources.bufferOf(geometry, 'vertices');
+        const indices = this.resources.bufferOf(geometry, 'indices');
+        if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') return undefined;
+        if (geometry.indexFormat !== 'uint32') return undefined;
+        if (adaptive && this.resources.bufferOf(geometry, 'indirect')?.subkind === 'indirect')
+            return undefined;
+        const triangles = Math.floor(indices.count / 3);
+        if (triangles < CLUSTER_MIN_TRIANGLES || Math.ceil(triangles / CLUSTER_TRIS) > CLUSTER_MAX)
+            return undefined;
+        return { vertices, indices };
+    }
+
     /** Capacidades do trabalho (por dobra); mudadas, a C2 realoca e o cache recomeça. */
     private ensureCapacity(
         groups: number,
         instances: number,
+        clusters: { clusters: number; clusterList: number },
         pagesPerLevel: number,
         atlasPages: number,
     ): void {
@@ -534,12 +747,16 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const next: Capacity = {
             groups: grow(c.groups, groups),
             instances: grow(c.instances, instances),
+            clusters: grow(c.clusters, clusters.clusters),
+            clusterList: grow(c.clusterList, clusters.clusterList),
             pagesPerLevel,
             atlasPages,
         };
         if (
             next.groups === c.groups
             && next.instances === c.instances
+            && next.clusters === c.clusters
+            && next.clusterList === c.clusterList
             && next.pagesPerLevel === c.pagesPerLevel
             && next.atlasPages === c.atlasPages
         )
@@ -562,6 +779,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         // Os grupos (o conteúdo: muda o que é desenhado — o cache recomeça) e os buffers (realocados voltam vazios: os
         // grupos são reescritos, as páginas seguem valendo).
         const content = groups.map((g) => `${g.key}:${g.first}:${g.count}`).join(';');
+        const plans = [...this.clusterPlans]
+            .map(([g, p]) => `${g}:${p.first}:${p.count}:${p.pipeline}:${p.ready}`)
+            .join(';');
         const target = this.resources.bufferOf(this.work, GROUPS);
         const argsBuffer = this.resources.bufferOf(this.work, ARGS);
         const key = [
@@ -570,6 +790,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             this.groupDraws.generation,
             this.boundsGroups.generation,
             content,
+            plans,
         ].join(';');
         this.indirectSources.clear();
         // Sem 'indirect-first-instance' a malha adaptativa fica no nível máximo: a contagem é a da capacidade.
@@ -587,21 +808,25 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         // As posições da lista sem instância de grupo (a lista da C2 tem buracos) ficam fora do desenho.
         words.fill(SKIP, c.groups * 4);
         const args = new Uint32Array(c.groups * INDIRECT_WORDS);
+        const { clusterListBase } = layoutOf(c);
         groups.forEach((group, index) => {
             const geometry = group.representative.get(Geometry);
             // Fora do desenho só o que não projeta; a geometria ainda sem vértices fica com a caixa vazia (zerada a cada
             // quadro) até o kernel dela rodar.
             const skip = group.key.startsWith(NO_SHADOW);
             const deforming = this.resources.hasGpuWriter(geometry, 'vertices');
-            words.set([group.first, group.count, 0, index], index * 4);
+            const plan = this.clusterPlans.get(index);
+            // O grupo em aglomerados pronto: a lista dele (a palavra 2, nunca 0) e o desenho de um aglomerado por
+            // instância; os outros, a malha inteira por instância.
+            const list = plan?.ready === true ? clusterListBase + plan.first * CLUSTER_SLOTS : 0;
+            words.set([group.first, group.count, list, index], index * 4);
             const word = index | (skip ? SKIP : 0) | (deforming ? DEFORMING : 0);
             for (let j = 0; j < group.count; j++)
                 words[c.groups * 4 + group.first + j] = word >>> 0;
             const indices = this.resources.bufferOf(geometry, 'indices');
             const count = indices?.subkind === 'index' ? indices.count : geometry.vertexCount;
-            args.set([count, 0, 0, 0, 0], index * INDIRECT_WORDS);
-            this.groupDraws.write(index, { group: index });
-            this.boundsGroups.write(index, { group: index });
+            args.set([list !== 0 ? CLUSTER_TRIS * 3 : count, 0, 0, 0, 0], index * INDIRECT_WORDS);
+            this.writeRegions(index, list, plan);
         });
         this.resources.writeNow(this.work, GROUPS, words);
         this.resources.writeNow(this.work, ARGS, args);
@@ -613,6 +838,27 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsDirty = true;
         if (content !== this.groupsContent) this.reset = true;
         this.groupsContent = content;
+    }
+
+    /**
+     * As regiões do grupo `index`: a do desenho (a lista dos aglomerados, se pronto) e a das caixas e das listas (os
+     * aglomerados dele).
+     */
+    private writeRegions(index: number, list: number, plan: ClusterPlan | undefined): void {
+        const count = plan?.count ?? 0;
+        const indexCount = plan?.indexCount ?? 0;
+        this.groupDraws.write(index, {
+            group: index,
+            listBase: list,
+            listCap: count * CLUSTER_SLOTS,
+            indexCount,
+        });
+        this.boundsGroups.write(index, {
+            group: index,
+            clusterFirst: plan?.first ?? 0,
+            clusterCount: count,
+            indexCount,
+        });
     }
 
     /** O conteúdo dos grupos escrito (as chaves, primeiras instâncias e contagens). */
@@ -665,6 +911,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                     [R.pairs, src(pairs)],
                     [R.pairsRead, src(pairs)],
                     [R.group, this.groupDraws.source()],
+                    // A região do grupo nas listas dos aglomerados (`sp_clusters_main`).
+                    [R.geometry, this.boundsGroups.source()],
                 ]),
             );
             this.boundSources = key;
@@ -677,8 +925,11 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     /** Solta os kernels das caixas (a C2 libera os pipelines e as ligações deles). */
     private releaseBounds(): void {
         for (const b of this.bounds.values()) this.work.pipelines.release(b.kernel);
+        for (const b of this.clusterBounds.values()) this.work.pipelines.release(b.kernel);
         this.bounds.clear();
+        this.clusterBounds.clear();
         this.boundsGroupsOf = [];
+        this.clusterKernels = new Map();
         this.boundsDirty = true;
     }
 
@@ -706,7 +957,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     ): void {
         this.boundsDirty = false;
         const used = new Set<AnyBufferSpec>();
+        const usedIndices = new Set<AnyBufferSpec>();
         this.boundsGroupsOf = [];
+        this.clusterKernels = new Map();
         ctx.bound.slots.casters.groups.forEach((group, index) => {
             const vertices = this.resources.bufferOf(
                 group.representative.get(Geometry),
@@ -738,7 +991,38 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 this.bounds.set(vertices, b);
             }
             this.boundsGroupsOf.push({ group: index, kernel: b.kernel });
+            // Os aglomerados da malha grande: o kernel das caixas ligado aos vértices e aos índices dela.
+            const indices = this.resources.bufferOf(group.representative.get(Geometry), 'indices');
+            if (!this.clusterPlans.has(index) || indices?.subkind !== 'index') return;
+            usedIndices.add(indices);
+            const tag = `${generation}:${this.idOf(vertices)}`;
+            let k = this.clusterBounds.get(indices);
+            if (k?.generation !== tag) {
+                if (k !== undefined) this.work.pipelines.release(k.kernel);
+                k = {
+                    generation: tag,
+                    kernel: this.work.pipelines.kernel({
+                        discriminator: `shadow_cluster_bounds:${this.idOf(indices)}`,
+                        shader: shadowPages,
+                        entryPoint: 'sp_cluster_bounds_main',
+                        bindings: new Map<WgslResource, BindingSource>([
+                            [vertexBoundsResource, vertices],
+                            [shadowResources.clusterIndices, indices],
+                            [shadowResources.scratch, scratch as BindingSource],
+                            [shadowResources.params, params as BindingSource],
+                            [shadowResources.geometry, this.boundsGroups.source()],
+                        ]),
+                    }),
+                };
+                this.clusterBounds.set(indices, k);
+            }
+            this.clusterKernels.set(index, k.kernel);
         });
+        for (const [i, k] of [...this.clusterBounds]) {
+            if (usedIndices.has(i)) continue;
+            this.work.pipelines.release(k.kernel);
+            this.clusterBounds.delete(i);
+        }
         // Os vértices que saíram (a geometria removida): o kernel ligado a eles sai da C2.
         for (const [v, b] of [...this.bounds]) {
             if (used.has(v)) continue;
@@ -771,6 +1055,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             instanceGroupBase: this.work.capacity.groups * 4,
             groupPairsBase: layout.groupPairsBase,
             needBase: layout.needBase,
+            clusterBoundsBase: layout.clusterBoundsBase,
         };
         const key = JSON.stringify(values);
         if (key !== this.paramsKey) {

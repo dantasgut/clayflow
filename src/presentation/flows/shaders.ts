@@ -115,6 +115,11 @@ export const shadowResources = {
     pairs: privateStorage('sp_pairs', 'read_write', 'u32'),
     /** Os pares, lidos no desenho. */
     pairsRead: privateStorage('sp_pairs_read', 'read', 'u32'),
+    /** Os índices da malha grande em aglomerados (a caixa de cada aglomerado), ligados ao kernel da geometria. */
+    clusterIndices: privateStorage('sp_cluster_indices', 'read', 'u32', 'draw'),
+    /** Os vértices (8 palavras cada) e os índices da malha grande no desenho, ligados ao pipeline da geometria. */
+    drawClusterVertices: privateStorage('shadow_cluster_vertices', 'read', 'f32', 'draw'),
+    drawClusterIndices: privateStorage('shadow_cluster_indices', 'read', 'u32', 'draw'),
     /** O grupo da geometria da caixa (por despacho). */
     geometry: privateUniform('sp_geometry', ShadowBoundsGeometrySchema, 'draw'),
     /** O início dos pares do grupo (por desenho). */
@@ -209,6 +214,7 @@ export const shadowPages = wgslModule({
         shadowResources.args,
         shadowResources.pairs,
         vertexBounds,
+        shadowResources.clusterIndices,
         shadowResources.geometry,
         shadowResources.atlas,
         shadowResources.requestsPrevious,
@@ -421,6 +427,8 @@ export const shadowDepth = wgslModule({
         shadowResources.group,
         shadowResources.instances,
         shadowResources.atlasDepth,
+        shadowResources.drawClusterVertices,
+        shadowResources.drawClusterIndices,
     ],
 });
 

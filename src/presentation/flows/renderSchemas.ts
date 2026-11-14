@@ -7,7 +7,7 @@ import { StructSchema } from '../../scene/descriptors/StructSchema';
  * cache (`reset`: a série da tabela ou dos retângulos interrompida, os grupos mudados), se os pedidos do quadro anterior
  * valem (senão, a reserva grossa no frustum da câmera do referencial) e as seções do espaço de trabalho (`sp_scratch`, em
  * palavras): as páginas físicas em uso e livres, as filas por nível, as sujas, as dinâmicas, as caixas e os retângulos;
- * os trechos dos pares por grupo (contagem, início, preenchimento) e as necessidades das páginas virtuais; em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
+ * os trechos dos pares por grupo (contagem, início, preenchimento, o que coube); as caixas dos aglomerados das malhas grandes e as necessidades das páginas virtuais; em `sp_groups`, a palavra de grupo de cada instância; nos argumentos, o registro do fundo das
  * páginas sujas (e, no seguinte, o do transporte das que seguem).
  */
 export const ShadowPagesParamsSchema = new StructSchema(
@@ -30,22 +30,40 @@ export const ShadowPagesParamsSchema = new StructSchema(
         instanceGroupBase: FieldType.u32,
         groupPairsBase: FieldType.u32,
         needBase: FieldType.u32,
+        clusterBoundsBase: FieldType.u32,
         _pad0: FieldType.u32,
+        _pad1: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );
 
-/** Por desenho de um grupo das páginas: o grupo (o trecho dos pares dele em `sp_pairs` vem da GPU). */
+/**
+ * Por desenho de um grupo das páginas: o grupo (o trecho dos pares dele em `sp_pairs` vem da GPU); na malha grande em
+ * aglomerados, o início e o teto da lista dos pares (aglomerado, par) em `sp_scratch` e os índices da malha.
+ */
 export const ShadowGroupDrawSchema = new StructSchema(
     'ShadowGroupDraw',
-    { group: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
+    {
+        group: FieldType.u32,
+        listBase: FieldType.u32,
+        listCap: FieldType.u32,
+        indexCount: FieldType.u32,
+    },
     { addressSpace: 'uniform' },
 );
 
-/** Por despacho da caixa de uma geometria: o grupo dela. */
+/**
+ * Por despacho da caixa de uma geometria: o grupo dela; na malha grande em aglomerados (triângulos seguidos nos
+ * índices), o primeiro aglomerado (as caixas de todos em seção do `sp_scratch`), quantos e os índices da malha.
+ */
 export const ShadowBoundsGeometrySchema = new StructSchema(
     'ShadowBoundsGeometry',
-    { group: FieldType.u32, _pad0: FieldType.u32, _pad1: FieldType.u32, _pad2: FieldType.u32 },
+    {
+        group: FieldType.u32,
+        clusterFirst: FieldType.u32,
+        clusterCount: FieldType.u32,
+        indexCount: FieldType.u32,
+    },
     { addressSpace: 'uniform' },
 );
 

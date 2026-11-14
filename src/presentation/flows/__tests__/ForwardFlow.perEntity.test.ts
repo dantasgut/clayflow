@@ -51,8 +51,10 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         // O descarte do desenho pela GPU (spec 034, T060d) realoca as listas e tabelas dele por dobra da capacidade de
         // instâncias e religa os mesmos pipelines (sem compilar de novo): por dobra, não por entidade.
         const growth = /^(shadow_pages_|shadow_bounds:|rects:|wgsl:shadow_pages|forward_cull)/;
-        // Os grupos de ligação dos pipelines do descarte, refeitos com os buffers realocados (14 a mais): por dobra.
-        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(135);
+        // Os grupos de ligação dos pipelines do descarte, refeitos com os buffers realocados (14 a mais): por dobra. A
+        // etapa das listas das malhas grandes em aglomerados (`sp_clusters_main`, T064) liga os pools das instâncias e
+        // das matrizes de mundo: o grupo dela refeito quando eles crescem (1 a mais), por pool.
+        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(136);
         expect(s.creates().filter((c) => growth.test(discOf(c))).length).toBeLessThan(20);
         expect(
             s

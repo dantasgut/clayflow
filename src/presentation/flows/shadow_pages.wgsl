@@ -18,7 +18,9 @@
 //   7. os pares instância × página suja (a instância cujo retângulo toca a página): `sp_pairs_count_main` conta os de
 //      cada grupo, `sp_pairs_base_main` reparte a reserva dos pares (`sp_pairs`, de tamanho fixo) entre os grupos em
 //      ordem e escreve a contagem de instâncias de cada desenho indireto, `sp_pairs_main` escreve cada par no trecho do
-//      seu grupo.
+//      seu grupo;
+//   8. as malhas grandes em aglomerados: `sp_cluster_bounds_main` (um despacho por geometria) dá a caixa de cada
+//      aglomerado, e `sp_clusters_main` (um despacho por grupo) monta a lista dos pares (aglomerado, página suja).
 // O espaço de trabalho do quadro é um buffer só de palavras (`sp_scratch`), em seções; os contadores no início.
 // Laços com teto constante.
 // Requer: shadow_virtual, shadow_pages_constants, page_alloc (a soma de prefixos do grupo), vertex_bounds (a caixa dos
@@ -89,8 +91,9 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
             sp_set_f(b + c, 3.0e38);
             sp_set_f(b + 3u + c, -3.0e38);
         }
-        atomicStore(&sp_scratch[sp.groupPairsBase + i * 3u], 0u);
-        atomicStore(&sp_scratch[sp.groupPairsBase + i * 3u + 2u], 0u);
+        atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u], 0u);
+        atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u + 2u], 0u);
+        atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u + 3u], 0u);
     }
 }
 
@@ -403,7 +406,7 @@ fn sp_pairs_count_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     if (sp.instanceCount == 0u) { return; }
     let group = sp_pair_group(i / sp.instanceCount, i % sp.instanceCount);
     if (group == SP_SKIP) { return; }
-    atomicAdd(&sp_scratch[sp.groupPairsBase + group * 3u], 1u);
+    atomicAdd(&sp_scratch[sp.groupPairsBase + group * 4u], 1u);
 }
 
 /** Os trechos dos grupos na reserva dos pares, em ordem; o que passa da reserva fica para os quadros seguintes. */
@@ -413,10 +416,12 @@ fn sp_pairs_base_main() {
     var running = 0u;
     for (var g = 0u; g < SP_GROUP_LIMIT; g++) {
         if (g >= sp.groupCount) { break; }
-        let o = sp.groupPairsBase + g * 3u;
+        let o = sp.groupPairsBase + g * 4u;
         let n = min(atomicLoad(&sp_scratch[o]), capacity - running);
         atomicStore(&sp_scratch[o + 1u], running);
-        atomicStore(&sp_args[sp_groups[g * 4u + 3u] * 5u + 1u], n);
+        atomicStore(&sp_scratch[o + 3u], n);
+        // O grupo em aglomerados conta as instâncias do desenho na lista dele (`sp_clusters_main`).
+        atomicStore(&sp_args[sp_groups[g * 4u + 3u] * 5u + 1u], select(n, 0u, sp_groups[g * 4u + 2u] != 0u));
         running += n;
     }
 }
@@ -429,8 +434,126 @@ fn sp_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
     let j = i % sp.instanceCount;
     let group = sp_pair_group(d, j);
     if (group == SP_SKIP) { return; }
-    let o = sp.groupPairsBase + group * 3u;
+    let o = sp.groupPairsBase + group * 4u;
     let idx = atomicAdd(&sp_scratch[o + 2u], 1u);
-    if (idx >= atomicLoad(&sp_args[sp_groups[group * 4u + 3u] * 5u + 1u])) { return; }
+    if (idx >= atomicLoad(&sp_scratch[o + 3u])) { return; }
     sp_pairs[atomicLoad(&sp_scratch[o + 1u]) + idx] = j | (d << SP_PAIR_SHIFT);
+}
+
+// ---- 8. os aglomerados das malhas grandes ----
+// A malha grande (muitos triângulos, poucas instâncias) não vai inteira a cada página suja: os triângulos dela se
+// dividem em aglomerados de `SP_CLUSTER_TRIS` (na ordem dos índices), cada um com a caixa dos vértices que usa, e o
+// aglomerado só é desenhado nas páginas que a forma da caixa dele, vista da luz, toca — um desenho só por grupo, uma
+// instância por par (aglomerado, par instância × página suja) da lista do grupo, com os vértices lidos pelos índices.
+// A profundidade vai ao atlas pelo mínimo atômico: a ordem da lista não muda a imagem.
+
+/** A caixa de cada aglomerado de uma geometria (uma invocação por aglomerado), dos índices dele. */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn sp_cluster_bounds_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let c = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (c >= sp_geometry.clusterCount) { return; }
+    let count = arrayLength(&bounds_vertices) / 8u;
+    let first = c * SP_CLUSTER_TRIS * 3u;
+    let end = min(first + SP_CLUSTER_TRIS * 3u, sp_geometry.indexCount);
+    var lo = vec3f(3.0e38);
+    var hi = vec3f(-3.0e38);
+    for (var k = 0u; k < SP_CLUSTER_TRIS * 3u; k++) {
+        let i = first + k;
+        if (i >= end) { break; }
+        let v = sp_cluster_indices[i];
+        if (v >= count) { continue; }
+        let p = vec3f(bounds_vertices[v * 8u], bounds_vertices[v * 8u + 1u], bounds_vertices[v * 8u + 2u]);
+        lo = min(lo, p);
+        hi = max(hi, p);
+    }
+    let b = sp.clusterBoundsBase + (sp_geometry.clusterFirst + c) * 6u;
+    sp_set_f(b, lo.x);
+    sp_set_f(b + 1u, lo.y);
+    sp_set_f(b + 2u, lo.z);
+    sp_set_f(b + 3u, hi.x);
+    sp_set_f(b + 4u, hi.y);
+    sp_set_f(b + 5u, hi.z);
+}
+
+/**
+ * A caixa de um aglomerado vista da luz: o centro e os três meios eixos da caixa no plano da luz (a projeção da caixa é
+ * a soma dos três segmentos, um polígono convexo).
+ */
+struct SpClusterShape {
+    center: vec2f,
+    a: vec2f,
+    b: vec2f,
+    c: vec2f,
+}
+
+/** Meia largura da forma ao longo do eixo `n`. */
+fn sp_shape_reach(s: SpClusterShape, n: vec2f) -> f32 {
+    return abs(dot(n, s.a)) + abs(dot(n, s.b)) + abs(dot(n, s.c));
+}
+
+/**
+ * A forma toca o retângulo (x0, y0, x1, y1)? Separação pelos eixos do retângulo e pelas normais dos três segmentos
+ * (exata para dois convexos no plano): o aglomerado oblíquo à luz não toca as páginas que só a caixa alinhada tocaria.
+ */
+fn sp_shape_touches(s: SpClusterShape, rect: vec4f) -> bool {
+    let half = 0.5 * (rect.zw - rect.xy);
+    let d = s.center - 0.5 * (rect.xy + rect.zw);
+    let axes = array<vec2f, 5>(vec2f(1.0, 0.0), vec2f(0.0, 1.0), vec2f(-s.a.y, s.a.x), vec2f(-s.b.y, s.b.x),
+        vec2f(-s.c.y, s.c.x));
+    for (var i = 0u; i < 5u; i++) {
+        let n = axes[i];
+        if (abs(dot(n, d)) > sp_shape_reach(s, n) + abs(n.x) * half.x + abs(n.y) * half.y) { return false; }
+    }
+    return true;
+}
+
+/**
+ * A lista de um grupo em aglomerados (uma invocação por aglomerado, depois dos pares dos grupos): cada par do grupo
+ * cuja página suja a forma do aglomerado na instância do par toca entra na lista do grupo (`sp_scratch`, a partir da
+ * palavra 2 do grupo em `sp_groups`), e a contagem é a de instâncias do desenho do grupo. A lista tem
+ * `SP_CLUSTER_SLOTS` lugares por aglomerado; o que passa não é desenhado (o desenho lê só até o teto).
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let c = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (c >= sp_geometry.clusterCount) { return; }
+    let group = sp_geometry.group;
+    let list = sp_groups[group * 4u + 2u];
+    let record = sp_groups[group * 4u + 3u];
+    let firstInstance = sp_groups[group * 4u];
+    let instancesN = min(sp_groups[group * 4u + 1u], SP_CLUSTER_MAX_INSTANCES);
+    let cap = sp_geometry.clusterCount * SP_CLUSTER_SLOTS;
+    let m = shadow_matrices[sp.casterSlot];
+    let b = sp.clusterBoundsBase + (sp_geometry.clusterFirst + c) * 6u;
+    let lo = vec3f(sp_f(b), sp_f(b + 1u), sp_f(b + 2u));
+    let hi = vec3f(sp_f(b + 3u), sp_f(b + 4u), sp_f(b + 5u));
+    if (any(lo > hi)) { return; }
+    let h = 0.5 * (hi - lo);
+    var shapes: array<SpClusterShape, SP_CLUSTER_MAX_INSTANCES>;
+    for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
+        if (j >= instancesN) { break; }
+        let world = worlds[instances[firstInstance + j].world].world;
+        let to_light = m.lightView * world;
+        shapes[j] = SpClusterShape(
+            sv_light(m, (world * vec4f(0.5 * (lo + hi), 1.0)).xyz).xy,
+            (to_light * vec4f(h.x, 0.0, 0.0, 0.0)).xy,
+            (to_light * vec4f(0.0, h.y, 0.0, 0.0)).xy,
+            (to_light * vec4f(0.0, 0.0, h.z, 0.0)).xy,
+        );
+    }
+    let o = sp.groupPairsBase + group * 4u;
+    let base = atomicLoad(&sp_scratch[o + 1u]);
+    let n = min(atomicLoad(&sp_scratch[o + 3u]), SP_CLUSTER_PAIR_LIMIT);
+    for (var p = 0u; p < SP_CLUSTER_PAIR_LIMIT; p++) {
+        if (p >= n) { break; }
+        let pair = sp_pairs[base + p];
+        let local = (pair & SP_PAIR_MASK) - firstInstance;
+        if (local >= instancesN) { continue; }
+        let w = sp.dirtyBase + (pair >> SP_PAIR_SHIFT) * 4u;
+        let k = atomicLoad(&sp_scratch[w]) >> 16u;
+        let g = vec2i(bitcast<i32>(atomicLoad(&sp_scratch[w + 1u])), bitcast<i32>(atomicLoad(&sp_scratch[w + 2u])));
+        if (!sp_shape_touches(shapes[local], sp_page_rect(m, k, g))) { continue; }
+        let idx = atomicAdd(&sp_args[record * 5u + 1u], 1u);
+        if (idx < cap) { atomicStore(&sp_scratch[list + idx], (p << SP_CLUSTER_SHIFT) | c); }
+    }
 }
