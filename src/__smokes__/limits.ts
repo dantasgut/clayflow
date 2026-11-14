@@ -9,7 +9,13 @@
 // Para rodar: `npm run smoke -- limits` (servidor do bench). Resultado: `LIMITS SMOKE PASSED` ou `FAIL: …`.
 import { wgslResource, type WgslResource } from '../scene/shaders/WgslResource';
 import type { BindingSource } from '../scene/flows/FlowBinding';
-import { Application, createScene, NeighborSearchPipeline, wgslModule } from 'clayflow/web';
+import {
+    Application,
+    createScene,
+    FlowWork,
+    NeighborSearchPipeline,
+    wgslModule,
+} from 'clayflow/web';
 import type {
     StagingBufferSpec,
     StorageBufferSpec,
@@ -18,7 +24,6 @@ import type {
 } from 'clayflow/web';
 import { mulberry32 } from './support/random';
 import { ownWork } from './support/workOwner';
-import { FlowWork } from '../scene/flows/FlowWork';
 import { StructSchema } from '../scene/descriptors/StructSchema';
 
 /** O Resource de trabalho da busca de vizinhos do smoke (spec 039: o espaço dela é da C2). */

@@ -10,23 +10,34 @@
 // Registra os tempos de PrefixSum e RadixSort com 4 M elementos.
 //
 // Para rodar: `npm run smoke -- computeKernels`. Resultado: `COMPUTEKERNELS SMOKE PASSED` ou `FAIL: …`.
-import { Application, createScene } from 'clayflow/web';
-import type { StagingBufferSpec, StorageBufferSpec } from 'clayflow/web';
-import { wgslModule } from '../scene/shaders/WgslModule';
-import { wgslResource } from '../scene/shaders/WgslResource';
-import { PrefixSum } from '../elements/gpu/compute/PrefixSum';
-import { RadixSort } from '../elements/gpu/compute/RadixSort';
-import { Compaction } from '../elements/gpu/compute/Compaction';
-import { Reduce } from '../elements/gpu/compute/Reduce';
-import { GraphColorer, verifyEdgeColoring } from '../elements/gpu/compute/GraphColorer';
-import { AtomicAllocCounterSchema } from '../elements/gpu/compute/schemas';
+// Pela API pública (como com `--dist`): o motor reconhece o trabalho e as partes dele pela classe da mesma cópia.
+import {
+    Application,
+    AtomicAllocCounterSchema,
+    Compaction,
+    createScene,
+    FlowWork,
+    GraphColorer,
+    PrefixSum,
+    RadixSort,
+    Reduce,
+    StructSchema,
+    verifyEdgeColoring,
+    wgslModule,
+    wgslResource,
+} from 'clayflow/web';
+import type {
+    ReduceOpName,
+    ReduceType,
+    StagingBufferSpec,
+    StorageBufferSpec,
+    WorkContext,
+} from 'clayflow/web';
+// Só o módulo WGSL do ponto fixo, fora da API pública; sozinho nos kernels do smoke.
 import { fixedPoint } from '../elements/gpu/compute/shaders';
-import type { ReduceOpName, ReduceType } from '../elements/gpu/compute/shaders';
 import { FIXED_LIMIT, fixedFromF32 } from './support/fixedPointReference';
 import { mulberry32 } from './support/random';
 import { ownWork } from './support/workOwner';
-import { FlowWork, type WorkContext } from '../scene/flows/FlowWork';
-import { StructSchema } from '../scene/descriptors/StructSchema';
 
 /** O Resource de trabalho dos kernels do smoke (spec 039: o espaço deles é da C2). */
 class SmokeWork extends FlowWork {

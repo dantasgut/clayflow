@@ -50,6 +50,12 @@ import {
     Application,
     Camera,
     createScene,
+    FIELD_MESH_VERTEX_WORDS,
+    FlowWork,
+    RayWave,
+    rayWave,
+    StructSchema,
+    type WorkSlot,
     DirectionalLight,
     Flow,
     FluidBody,
@@ -108,12 +114,6 @@ import { lumaSrgb8 } from './support/images';
 import { lcg } from './support/random';
 import { queryRays, queryVolumeHits } from './support/volumeQuery';
 import { materialGraph } from './support/materialScenes';
-import { RayWave } from '../elements/raytrace/RayWave';
-import { rayWave } from '../elements/raytrace/wave/shaders';
-import { FlowWork } from '../scene/flows/FlowWork';
-import { StructSchema } from '../scene/descriptors/StructSchema';
-import type { WorkSlot } from '../scene/flows/slots';
-import { FIELD_MESH_VERTEX_WORDS } from '../elements/fields/schemas';
 
 /** Espaçamento das cenas paradas (sem a simulação). */
 const SPACING = 0.05;

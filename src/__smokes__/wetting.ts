@@ -35,11 +35,12 @@ import {
     Application,
     Atmosphere,
     createScene,
+    fieldDataLayout,
+    FluidField,
     ParticlePhysics,
     SurfacePhysics,
 } from 'clayflow/web';
 import type { StagingBufferSpec, SurfacePhysicsOptions } from 'clayflow/web';
-import { FluidField, fieldFilmOffset } from '../elements/fields/FluidField';
 import { FIELD_FILM_CELLS, FIELD_FILM_SUBDIV, FIELD_FILM_WORDS } from '../elements/fields/schemas';
 import { filmSurfaceTerms, pinnedThickness } from '../elements/physics/wetting/wetting';
 import { nextGpuFrame } from './support/extensionScenes';
@@ -103,7 +104,8 @@ async function table(app: Application, field: FluidField): Promise<Map<number, C
         byteSize: bytes,
     });
     app.core.record('wetting-film', (frame) => {
-        frame.copy(spec, staging, bytes, fieldFilmOffset(field.capacity) * 4, 0);
+        // A película começa no fim dos blocos (`fieldFilmOffset`, pela API pública: `fieldDataLayout().end`).
+        frame.copy(spec, staging, bytes, fieldDataLayout(field.capacity).end * 4, 0);
     });
     app.core.submit();
     const u = new Uint32Array(await app.core.readback(staging));
