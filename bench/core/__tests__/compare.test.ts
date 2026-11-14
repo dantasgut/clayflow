@@ -88,6 +88,21 @@ describe('compare — gate de regressão', () => {
         expect(worse.regressions.map((r) => r.metric)).toEqual(['frameMs.p95']);
     });
 
+    it('agendamento: o ruído das repetições atuais também conta (em quadratura com o do baseline)', () => {
+        // Arrange: CPU de instances/100k (14/11) — baseline 0,145 (MAD 0,02), atual 0,21 com repetições de 0,12 a 0,475.
+        const withReps = (cpus: number[], cpu: number): Result => ({
+            ...withMetrics(metrics({ cpuMs: cpu })),
+            repetitions: cpus.map((c) => metrics({ cpuMs: c })),
+        });
+        const b = base([withReps([0.125, 0.135, 0.165, 0.445, 0.145], 0.145)]);
+        // Act
+        const noisy = compare(b, runFile([withReps([0.12, 0.21, 0.155, 0.475, 0.348], 0.21)]), 0.1);
+        const steady = compare(b, runFile([withReps([0.2, 0.21, 0.21, 0.22, 0.21], 0.21)]), 0.1);
+        // Assert: com a atual espalhada, dentro do ruído; com a atual firme em 0,21, a piora de 0,065 passa dele.
+        expect(noisy.passed).toBe(true);
+        expect(steady.regressions.map((r) => r.metric)).toEqual(['cpuMs']);
+    });
+
     it('execução idêntica passa (SC-003)', () => {
         const r = [okResult('s', 'v', 'clayflow')];
         const report = compare(base(r), runFile(r), 0.1);

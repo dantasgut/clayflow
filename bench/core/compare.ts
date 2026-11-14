@@ -20,9 +20,11 @@ const TIME_METRICS: readonly [GateMetric, (m: Metrics) => number | null][] = [
  * Métricas do agendamento — o tempo de CPU do quadro e a cauda do intervalo entre quadros: dependem de quando o
  * navegador e o sistema dão a vez ao quadro, não só do trabalho do motor (no Mac, com o mesmo código, o p95 de
  * `rigid-bodies/1k` foi de 2,72 a 4,36 ms entre as cinco repetições do baseline, e o tempo de CPU de 0,14 ms muda
- * 0,02 ms). Para elas, a piora só conta se, além da tolerância, passa do ruído medido entre as repetições do
- * próprio baseline (`NOISE_MADS` × o desvio absoluto mediano). Sem repetições no baseline, só a tolerância (a
- * degradação de +15 % é sempre detectada, SC-003). O tempo de GPU fica só na tolerância.
+ * 0,02 ms; o tempo de CPU de `instances/100k` alterna entre ~0,14 e ~0,45 ms de uma repetição para outra). Para
+ * elas, a piora só conta se, além da tolerância, passa do ruído medido entre as repetições dos dois lados — o do
+ * baseline e o da execução atual somados em quadratura, cada um `NOISE_MADS` × o desvio absoluto mediano. Sem
+ * repetições, só a tolerância (a degradação de +15 % é sempre detectada, SC-003). O tempo de GPU fica só na
+ * tolerância.
  */
 const SCHEDULING_METRICS: ReadonlySet<GateMetric> = new Set([
     'cpuMs',
@@ -32,7 +34,7 @@ const SCHEDULING_METRICS: ReadonlySet<GateMetric> = new Set([
 /** Desvios absolutos medianos que a piora de uma métrica do agendamento precisa passar (~2σ numa normal). */
 export const NOISE_MADS = 3;
 
-/** O ruído de uma métrica entre as repetições do baseline: `NOISE_MADS` × o desvio absoluto mediano (0 com < 3). */
+/** O ruído de uma métrica entre as repetições de um resultado: `NOISE_MADS` × o desvio absoluto mediano (0 com < 3). */
 export function repetitionNoise(base: Result, pick: (m: Metrics) => number | null): number {
     const values = (base.repetitions ?? [])
         .map(pick)
@@ -135,12 +137,14 @@ export function compare(
             const deltaPct = ((c - b) / b) * 100;
             const item = { ...id, metric, baseline: b, current: c, deltaPct };
             if (deltaPct > tolerance * 100) {
-                const noise = SCHEDULING_METRICS.has(metric) ? repetitionNoise(base, pick) : 0;
+                const noise = SCHEDULING_METRICS.has(metric)
+                    ? Math.hypot(repetitionNoise(base, pick), repetitionNoise(cur, pick))
+                    : 0;
                 if (c - b > noise) regressions.push(item);
                 else
                     skipped.push({
                         ...item,
-                        note: `dentro do ruído entre as repetições do baseline (±${noise.toFixed(3)} ms)`,
+                        note: `dentro do ruído entre as repetições (±${noise.toFixed(3)} ms)`,
                     });
             } else if (deltaPct < -tolerance * 100) improvements.push(item);
         }
