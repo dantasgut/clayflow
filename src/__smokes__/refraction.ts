@@ -2162,11 +2162,10 @@ async function deepWaterImage(scatter: boolean): Promise<Float32Array> {
     return img.data;
 }
 
-/**
- * O tempo de um quadro da cena `water-deep` a 1280 × 720 no modo temporal, com o espalhamento ou sem ele, no perfil
- * `profile` (a mediana de três blocos de 40 quadros com a fila da GPU esvaziada no fim, como o `cost`).
- */
-async function deepWaterFrameMs(scatter: boolean, profile: RenderProfile): Promise<number> {
+/** Um app da cena `water-deep` a 1280 × 720 no modo temporal (com o espalhamento ou sem ele), para o custo. */
+async function deepWaterCostApp(
+    scatter: boolean,
+): Promise<{ app: Application; canvas: HTMLCanvasElement; drain: () => Promise<void> }> {
     const [width, height] = [1280, 720];
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -2180,27 +2179,52 @@ async function deepWaterFrameMs(scatter: boolean, profile: RenderProfile): Promi
         antialias: 'temporal',
     });
     app.events.on('engineError', (e) => engineErrors.push(`water-deep: ${e.stage}: ${e.message}`));
-    app.defaults.renderer.profile = profile;
     buildDeepWater(app, scatter, width / height);
     await app.whenReady({ timeoutMs: 60_000 });
     const color = app.resources.textureOf(app.defaults.targets, 'color');
     if (color === undefined) throw new Error('alvo HDR não alocado');
+    // A fila da GPU termina: uma leitura do alvo de cor.
     const drain = async (): Promise<void> => {
         await readHdrTexture(app, color);
     };
-    for (let i = 0; i < 30; i++) app.step(1 / 60);
-    await drain();
-    const blocks: number[] = [];
-    for (let b = 0; b < 3; b++) {
-        const t0 = performance.now();
-        for (let i = 0; i < 40; i++) app.step(1 / 60);
-        await drain();
-        blocks.push((performance.now() - t0) / 40);
+    return { app, canvas, drain };
+}
+
+/**
+ * O custo do espalhamento na cena `water-deep` por perfil: os dois apps (com e sem) criados uma vez; em cada perfil,
+ * trocado nos dois, 30 quadros de aquecimento e três blocos de 40 quadros de cada um, intercalados (com, sem, com…),
+ * com a fila da GPU esvaziada no fim de cada bloco — a mediana dos blocos de cada um. Antes, quatro apps novos por
+ * perfil (doze criações e o dobro dos quadros, ~90 s de 124 do caso, com o quadro de 85 ms do perfil alto).
+ */
+async function deepWaterCost(): Promise<void> {
+    const on = await deepWaterCostApp(true);
+    const off = await deepWaterCostApp(false);
+    try {
+        for (const profile of ['high', 'medium', 'low'] as const) {
+            for (const s of [on, off]) {
+                s.app.defaults.renderer.profile = profile;
+                for (let i = 0; i < 30; i++) s.app.step(1 / 60);
+                await s.drain();
+            }
+            const blocks: [number[], number[]] = [[], []];
+            for (let b = 0; b < 3; b++)
+                for (const [k, s] of [on, off].entries()) {
+                    const t0 = performance.now();
+                    for (let i = 0; i < 40; i++) s.app.step(1 / 60);
+                    await s.drain();
+                    blocks[k]!.push((performance.now() - t0) / 40);
+                }
+            const [msOn, msOff] = blocks.map((b) => [...b].sort((x, y) => x - y)[1]!);
+            log(
+                `water-deep custo ${profile}: 1280 × 720, quadro ${msOn!.toFixed(3)} ms com o espalhamento, ${msOff!.toFixed(3)} ms sem — ${(msOn! - msOff!).toFixed(3)} ms`,
+            );
+        }
+    } finally {
+        for (const s of [on, off]) {
+            s.app.dispose();
+            s.canvas.remove();
+        }
     }
-    app.dispose();
-    canvas.remove();
-    blocks.sort((a, b) => a - b);
-    return blocks[1]!;
 }
 
 /**
@@ -2238,43 +2262,45 @@ async function caseWaterDeep(): Promise<void> {
             `water-deep: canal ${k} a ${pct(errors[k]!)} da referência`,
         );
     // O custo do espalhamento (registrado): o quadro com ele menos sem ele, por perfil, intercalados.
-    for (const profile of ['high', 'medium', 'low'] as const) {
-        const with1 = await deepWaterFrameMs(true, profile);
-        const without1 = await deepWaterFrameMs(false, profile);
-        const with2 = await deepWaterFrameMs(true, profile);
-        const without2 = await deepWaterFrameMs(false, profile);
-        const on = Math.min(with1, with2);
-        const off = Math.min(without1, without2);
-        log(
-            `water-deep custo ${profile}: 1280 × 720, quadro ${on.toFixed(3)} ms com o espalhamento, ${off.toFixed(3)} ms sem — ${(on - off).toFixed(3)} ms`,
-        );
-    }
+    await deepWaterCost();
+}
+
+/** O começo do caso em andamento (o tempo de parede de cada caso no registro: onde vai o prazo do smoke). */
+let sectionStart: { name: string; at: number } | undefined;
+
+/** Abre o caso `name` (ou só fecha o anterior), registrando o tempo de parede do anterior. */
+function section(name: string | undefined): void {
+    const now = performance.now();
+    if (sectionStart !== undefined)
+        log(`   ${sectionStart.name}: ${((now - sectionStart.at) / 1000).toFixed(1)} s`);
+    if (name !== undefined) log(`── ${name}`);
+    sectionStart = name === undefined ? undefined : { name, at: now };
 }
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     for (const scene of SCENES) {
         if (only !== null && only !== scene.name) continue;
-        log(`── ${scene.name}`);
+        section(scene.name);
         const { engine } = await compareScene(scene);
         engine.close();
     }
     for (const scene of FIELD_SCENES) {
         if (only !== null && only !== scene.name) continue;
-        log(`── ${scene.name}`);
+        section(scene.name);
         const { engine } = await compareScene(scene);
         engine.close();
     }
     if (only === null || only === 'lens') {
-        log('── lens');
+        section('lens');
         await caseLens();
     }
     if (only === null || only === 'dispersed') {
-        log('── dispersed');
+        section('dispersed');
         await caseDispersed();
     }
     if (only === null || only === 'glint') {
-        log('── glint');
+        section('glint');
         await caseGlint();
     }
     for (const [scene, id] of [
@@ -2282,11 +2308,11 @@ async function main(): Promise<void> {
         [RIPPLE, 20],
     ] as const) {
         if (only !== null && only !== scene.name) continue;
-        log(`── ${scene.name}`);
+        section(scene.name);
         await caseBumped(scene, id);
     }
     if (only === null || only === 'gi') {
-        log('── gi');
+        section('gi');
         await caseGi();
     }
     for (const [name, run] of [
@@ -2296,13 +2322,14 @@ async function main(): Promise<void> {
         ['water-deep', caseWaterDeep],
     ] as const) {
         if (only !== null && only !== name) continue;
-        log(`── ${name}`);
+        section(name);
         await run();
     }
     if (only === null || only === 'cost') {
-        log('── cost');
+        section('cost');
         await caseCost();
     }
+    section(undefined);
     check(engineErrors.length === 0, `erros do motor: ${engineErrors.slice(0, 5).join(' | ')}`);
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);
     else log('REFRACTION SMOKE PASSED');
