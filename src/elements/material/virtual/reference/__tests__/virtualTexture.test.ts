@@ -63,6 +63,9 @@ function picture(w: number, h: number): Uint8Array {
 }
 
 /** A leitura de um nível pela página com borda (o caminho do nó): o bilinear dentro dos texels da página. */
+/** As páginas já montadas por pirâmide (montar a página é o grosso do tempo da leitura pela página). */
+const pagesOf = new WeakMap<VirtualPyramid, Map<string, ReturnType<typeof vtPageTexels>>>();
+
 function samplePage(
     pyr: VirtualPyramid,
     level: number,
@@ -75,7 +78,17 @@ function samplePage(
     const [nx] = vtLevelPages(width, height, level);
     const px = page % nx;
     const py = Math.floor(page / nx);
-    const texels = vtPageTexels(pyr, level, px, py, wrap);
+    let pages = pagesOf.get(pyr);
+    if (pages === undefined) {
+        pages = new Map();
+        pagesOf.set(pyr, pages);
+    }
+    const key = `${level}:${px}:${py}:${wrap}`;
+    let texels = pages.get(key);
+    if (texels === undefined) {
+        texels = vtPageTexels(pyr, level, px, py, wrap);
+        pages.set(key, texels);
+    }
     const lw = Math.max(1, width >> level);
     const lh = Math.max(1, height >> level);
     // A posição no atlas: a borda e a posição no nível menos o começo da página (centros em i + ½).

@@ -2191,9 +2191,7 @@
         }
       ],
       "unstable": true,
-      "limitations": [
-        "render LDR 8 bits (HDR na F4)"
-      ]
+      "limitations": ["render LDR 8 bits (HDR na F4)"]
     },
     {
       "scene": "graph-geometry",
@@ -2311,9 +2309,7 @@
         }
       ],
       "unstable": true,
-      "limitations": [
-        "render LDR 8 bits (HDR na F4)"
-      ]
+      "limitations": ["render LDR 8 bits (HDR na F4)"]
     },
     {
       "scene": "global-illumination",
@@ -2431,9 +2427,7 @@
         }
       ],
       "unstable": false,
-      "limitations": [
-        "sem equivalente no Three.js (iluminação global em tempo real)"
-      ]
+      "limitations": ["sem equivalente no Three.js (iluminação global em tempo real)"]
     },
     {
       "scene": "global-illumination",
@@ -2551,9 +2545,7 @@
         }
       ],
       "unstable": false,
-      "limitations": [
-        "sem equivalente no Three.js (iluminação global em tempo real)"
-      ]
+      "limitations": ["sem equivalente no Three.js (iluminação global em tempo real)"]
     }
   ]
 }
