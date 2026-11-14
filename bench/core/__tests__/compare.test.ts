@@ -52,6 +52,42 @@ describe('compare — gate de regressão', () => {
         expect(detected).toBe(total);
     });
 
+    it('agendamento: a piora dentro do ruído das repetições do baseline não reprova; a GPU, sim', () => {
+        // Arrange: p95 de 2,72 a 4,36 ms e GPU de 0,92 a 1,04 ms entre as cinco repetições (rigid-bodies/1k, 14/11).
+        const reps = [2.86, 2.72, 2.85, 4.36, 3.04].map((p95, k) =>
+            metrics({
+                gpuMs: [0.93, 0.92, 0.96, 1.04, 0.96][k],
+                frameMs: { mean: 2, p95, p99: 4 },
+            }),
+        );
+        const b = base([
+            {
+                ...withMetrics(metrics({ gpuMs: 0.96, frameMs: { mean: 2, p95: 2.86, p99: 4 } })),
+                repetitions: reps,
+            },
+        ]);
+        // Act: p95 a 3,20 (+12 %, dentro de 3 × 0,14); GPU a 1,08 (+12,5 %).
+        const report = compare(
+            b,
+            runFile([
+                withMetrics(metrics({ gpuMs: 1.08, frameMs: { mean: 2, p95: 3.2, p99: 4 } })),
+            ]),
+            0.1,
+        );
+        // Assert
+        expect(report.regressions.map((r) => r.metric)).toEqual(['gpuMs']);
+        expect(report.skipped.find((r) => r.metric === 'frameMs.p95')?.note).toMatch(/ruído/);
+        // Fora do ruído (3,5 ms = +0,64), reprova.
+        const worse = compare(
+            b,
+            runFile([
+                withMetrics(metrics({ gpuMs: 0.96, frameMs: { mean: 2, p95: 3.5, p99: 4 } })),
+            ]),
+            0.1,
+        );
+        expect(worse.regressions.map((r) => r.metric)).toEqual(['frameMs.p95']);
+    });
+
     it('execução idêntica passa (SC-003)', () => {
         const r = [okResult('s', 'v', 'clayflow')];
         const report = compare(base(r), runFile(r), 0.1);
