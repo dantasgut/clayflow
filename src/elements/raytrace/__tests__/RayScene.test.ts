@@ -157,6 +157,20 @@ describe('RayScene e RaySceneFlow (spec 033, T007)', () => {
         expect(s.createdWhileRecording()).toBe(0);
     });
 
+    it('a malha desenhada como sprites pelo material não entra como triângulos', async () => {
+        // Arrange: a caixa de triângulos e uma esfera cujo material a desenha como sprites (os vértices).
+        const s = await sceneWith(1);
+        s.scene.world.insert(
+            new SphereGeometry({ radius: 0.25 })
+                .add(new PointSpriteMaterial({ radius: 0.03 }))
+                .add(new Transform({ position: [0, 2, 0, 1] })),
+        );
+        // Act
+        s.step();
+        // Assert: só a caixa — a esfera de sprites não é uma bola para os raios.
+        expect(s.flow().lastFrame).toMatchObject({ built: 1, instances: 1 });
+    });
+
     it('sem RayScene na cena o estágio não grava nada', async () => {
         const s = await renderScene();
         s.scene.flows.register((ctx) => new RaySceneFlow(ctx), {

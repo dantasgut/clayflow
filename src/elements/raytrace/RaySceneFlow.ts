@@ -568,8 +568,14 @@ export class RaySceneFlow extends Flow<RaySceneSlots, 'idle'> {
         }
         for (const entry of added) {
             const geometry = entry.get(Geometry);
-            // Só triângulos indexados entram (nuvens de pontos e arames não são superfícies).
-            if (geometry.indexCount < 3 || this.blasOf.has(entry.entityId)) continue;
+            // Só triângulos indexados desenhados como triângulos entram (nuvens de pontos e arames não são superfícies;
+            // a malha desenhada como sprites ou linhas pelo material também não — a esfera de sprites não é uma bola).
+            if (
+                geometry.indexCount < 3
+                || entry.get(Material).topology !== 'triangle-list'
+                || this.blasOf.has(entry.entityId)
+            )
+                continue;
             const key = geometry.contentKey ?? `entity:${entry.entityId}`;
             let b = this.blas.get(key);
             if (b === undefined) {

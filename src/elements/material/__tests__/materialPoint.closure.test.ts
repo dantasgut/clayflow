@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MaterialFunction } from '../../extension/MaterialFunction';
 import { forwardMaterialAdapter } from '../point/shaders';
-import { ALL_LOBES, LOBES, lobeMask, PARAMS_LOBES } from '../pbr/lobes';
+import { ALL_LOBES, LOBES, lobeMask, PARAMS_LOBES, TRANSMISSIVE_LOBES } from '../pbr/lobes';
 import { composeWgsl } from '../../../scene/shaders/composeWgsl';
 import { WgslCompositionError } from '../../../scene/shaders/WgslCompositionError';
 import { BoxGeometry } from '../../geometry/BoxGeometry';
@@ -38,14 +38,37 @@ describe('ponto material com fechamento (spec 011, T027)', () => {
         );
     });
 
-    it('Closure: vai direto (saneado); lobos declarados ou, sem eles, todos', () => {
+    it('Closure: vai direto (saneado); lobos declarados ou, sem eles, todos menos os que o código não produz', () => {
         const declared = new MaterialFunction({ code: CLOSURE_CODE, lobes: ['diffuse', 'sheen'] });
         expect(declared.returnsClosure).toBe(true);
         expect(declared.lobeMask).toBe(LOBES.diffuse | LOBES.sheen);
-        expect(new MaterialFunction({ code: CLOSURE_CODE }).lobeMask).toBe(ALL_LOBES);
+        expect(new MaterialFunction({ code: CLOSURE_CODE }).lobeMask).toBe(
+            ALL_LOBES & ~TRANSMISSIVE_LOBES,
+        );
         const src = composeWgsl(forwardMaterialAdapter(declared.module)).spec.source;
         expect(src).toContain('closure_sanitize(material_fn(s, m, material_fn_params(fn_slot)))');
         expect(src).not.toContain('closure_from_params(material_fn(');
+    });
+
+    it('sem a lista, o código que pode produzir transmissão, opacidade ou translucidez é transmissivo', () => {
+        // Cada via: o construtor, o campo, o fechamento montado inteiro.
+        const bodies = [
+            'return closure_transmission(1.5, vec3f(1.0), 0.0, 0.0, 0.0);',
+            'return closure_opacity(closure_diffuse(m.albedo.rgb, 0.0), 0.5);',
+            'return closure_translucent(vec3f(0.8));',
+            'var c = closure_diffuse(m.albedo.rgb, 0.0);\n    c.transmission_weight = 0.3;\n    return c;',
+            'var c = closure_diffuse(m.albedo.rgb, 0.0);\n    c.opacity = 0.5;\n    return c;',
+        ];
+        for (const body of bodies) {
+            const code = `fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {\n    ${body}\n}`;
+            expect(new MaterialFunction({ code }).lobeMask, body).toBe(ALL_LOBES);
+        }
+        // Só difuso: nenhuma das vias.
+        const diffuse = new MaterialFunction({
+            code: 'fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {\n    return closure_diffuse(m.albedo.rgb, 0.0);\n}',
+        });
+        expect(diffuse.lobeMask & TRANSMISSIVE_LOBES).toBe(0);
+        expect(diffuse.lobeMask & LOBES.diffuse).toBe(LOBES.diffuse);
     });
 
     it('lobo desconhecido e retorno de outro tipo são erros na criação', () => {

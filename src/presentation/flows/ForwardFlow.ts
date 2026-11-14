@@ -76,7 +76,7 @@ import {
     Refraction,
     REFRACTION_REQUEST_FORMAT,
 } from '../../elements/lighting/refraction/Refraction';
-import { LOBES } from '../../elements/material/pbr/lobes';
+import { TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
 import { LIGHT_FORMAT } from '../app/FrameTargets';
 import {
     DRAW_CULL_HZB,
@@ -93,9 +93,6 @@ import {
 } from '../../elements/material/point/shaders';
 
 const CLEAR_COLOR: readonly [number, number, number, number] = [0.05, 0.07, 0.12, 1.0];
-
-/** Lobos que vão ao passe de transmissivos (spec 011, R6): o que está atrás aparece através do material. */
-const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
 
 const VERTEX_LAYOUT = [
     {

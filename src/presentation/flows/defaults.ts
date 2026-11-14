@@ -11,7 +11,7 @@ import { RefractionDenoiseFlow } from './RefractionDenoiseFlow';
 import { RefractionMotionFlow } from './RefractionMotionFlow';
 import { RayScene } from '../../elements/raytrace/RayScene';
 import { MaterialFunction } from '../../elements/extension/MaterialFunction';
-import { LOBES } from '../../elements/material/pbr/lobes';
+import { TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
 import type { Resource } from '../../scene/contracts/Resource';
 import { ForwardFlow } from './ForwardFlow';
 import { ParticleFlow } from './ParticleFlow';
@@ -228,9 +228,6 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.world.remove(entry.frameTargets);
     return true;
 }
-
-/** Lobos que fazem de uma função `material` um transmissivo (o que está atrás aparece através dele). */
-const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
 
 /**
  * Estrutura de raios para a refração (spec 034, R1) e o transporte das cáusticas (T067c) por evento: o que um

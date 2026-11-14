@@ -22,6 +22,12 @@ export type LobeName = keyof typeof LOBES;
 /** Todos os lobos (o avaliador sem especialização). */
 export const ALL_LOBES = Object.values(LOBES).reduce((a, b) => a | b, 0);
 
+/**
+ * Lobos que fazem de um material um transmissivo — o que está atrás aparece através dele: o raster só o escolhe e o
+ * traçado da refração refaz o raio dos pixels dele (spec 034, R1).
+ */
+export const TRANSMISSIVE_LOBES = LOBES.transmission | LOBES.opacity | LOBES.translucent;
+
 /** Lobos do fechamento pronto e do adaptador da 009 (`SurfaceParams`): difuso, especular de base e emissão. */
 export const PARAMS_LOBES = LOBES.diffuse | LOBES.specular | LOBES.emission;
 
