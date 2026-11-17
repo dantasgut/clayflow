@@ -11,6 +11,11 @@
 
 /** Tolerância do gradiente temporal: diferença relativa da luz mais a da transmitância. */
 const CLOUD_GRADIENT_TOLERANCE: f32 = 0.2;
+/**
+ * Peso do valor novo no pixel marchado (média exponencial sobre o histórico recortado): a amostra de um deslocamento
+ * inicial aleatório entra aos poucos, e o ruído do deslocamento não cintila a cada vez que o bloco é marchado.
+ */
+const CLOUD_HISTORY_BLEND: f32 = 0.25;
 
 /** O histórico no pixel `q` (¼ da tela) reprojetado; `a` < 0 quando sai da tela. */
 fn cloud_history_at(q: vec2u, full: vec2f) -> vec4f {
@@ -50,7 +55,7 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     var out = fresh;
     var depth = fresh_depth;
     let full = vec2f(size * 2u);
-    if (clouds.flags.x == 1u && cameras[clouds.march.w].history.x < 0.5 && any(q != marched)) {
+    if (clouds.flags.x == 1u && cameras[clouds.march.w].history.x < 0.5) {
         let hist = cloud_history_at(q, full);
         let check = cloud_history_at(min(marched, size - 1u), full);
         if (hist.a >= 0.0 && check.a >= 0.0 && cloud_divergence(check, fresh) <= CLOUD_GRADIENT_TOLERANCE) {
@@ -63,7 +68,11 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
                 hi = max(hi, n);
             }
             out = clamp(hist, lo, hi);
-            depth = textureLoad(cloud_march_depth_prev, q, 0).r;
+            if (all(q == marched)) {
+                out = mix(out, fresh, CLOUD_HISTORY_BLEND);
+            } else {
+                depth = textureLoad(cloud_march_depth_prev, q, 0).r;
+            }
         }
     }
     textureStore(cloud_march_out, q, out);

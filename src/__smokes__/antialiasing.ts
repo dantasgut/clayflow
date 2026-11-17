@@ -1417,53 +1417,51 @@ async function cloudsMotion(): Promise<void> {
     const s = await cloudScene({
         width: 320,
         height: 180,
-        clouds: { coverage: 0.5, wind: [15, 0] },
+        clouds: {
+            coverage: 0.5,
+            wind: [Number(new URLSearchParams(location.search).get('wind') ?? 15), 0],
+        },
         target: [1000, 450, 200],
     });
+    // A nuvem (~200 nits com o sol de 1000 lux) no meio da escala apresentada.
+    s.app.defaults.renderer.output.data.exposure = -9;
     await settleFrames(s.app, 60);
-    const read = async (): Promise<Float32Array> => {
-        const t = s.app.resources.textureOf(s.app.defaults.targets, 'color');
-        if (t === undefined) throw new Error('cor da cena não alocada');
-        return (await readHdrTexture(s.app, t)).data;
-    };
-    const lum = (img: Float32Array): number => {
-        let m = 0;
-        for (let k = 0; k < img.length; k += 4) m += img[k + 1]!;
-        return m / (img.length / 4);
-    };
+    // A imagem apresentada (depois da resolução temporal), como os outros casos deste smoke.
+    const read = async (): Promise<Float32Array> => lum(await s.app.core.readCanvas());
+    const mean = (img: Float32Array): number => img.reduce((a, v) => a + v, 0) / img.length;
     let prev = await read();
     let flicker = 0;
     for (let f = 0; f < 20; f++) {
-        await settleFrames(s.app, 1);
+        s.app.step(1 / 60);
         const cur = await read();
         let d = 0;
-        for (let k = 1; k < cur.length; k += 4) d += Math.abs(cur[k]! - prev[k]!);
-        flicker = Math.max(flicker, d / (cur.length / 4) / lum(cur));
+        for (let k = 0; k < cur.length; k++) d += Math.abs(cur[k]! - prev[k]!);
+        flicker = Math.max(flicker, d / cur.length / mean(cur));
         prev = cur;
     }
     let drift = 0;
-    let last = lum(prev);
+    let last = mean(prev);
     for (let f = 0; f < 40; f++) {
         const a = 0.3 * (f / 60);
         s.camera.data.rotation = Transform.lookRotation(
             [0, 2, 0],
             [1000 * Math.cos(a), 450, 200 + 1000 * Math.sin(a)],
         );
-        await settleFrames(s.app, 1);
-        const m = lum(await read());
+        s.app.step(1 / 60);
+        const m = mean(await read());
         drift = Math.max(drift, Math.abs(m / last - 1));
         last = m;
     }
     // Corte: vista nova, o primeiro quadro contra a convergida.
     s.camera.data.rotation = Transform.lookRotation([0, 2, 0], [-1000, 500, -300]);
     s.cameraResource.cut();
-    await settleFrames(s.app, 1);
-    const first = lum(await read());
-    await settleFrames(s.app, 40);
-    const converged = lum(await read());
+    s.app.step(1 / 60);
+    const first = mean(await read());
+    for (let k = 0; k < 40; k++) s.app.step(1 / 60);
+    const converged = mean(await read());
     const cutErr = Math.abs(first / converged - 1);
     log(
-        `cloudsMotion: cintilação ${pct(flicker)} do brilho por quadro (câmera parada, vento 15 m/s); deriva ${pct(drift)} por quadro girando; corte ${pct(cutErr)} da convergida`,
+        `cloudsMotion: brilho médio apresentado ${mean(prev).toFixed(3)}; cintilação ${pct(flicker)} do brilho por quadro (câmera parada, vento 15 m/s); deriva ${pct(drift)} por quadro girando; corte ${pct(cutErr)} da convergida`,
     );
     check(flicker <= 0.04, `cloudsMotion: cintilação ${pct(flicker)} > 4 %`);
     check(drift <= 0.02, `cloudsMotion: deriva ${pct(drift)} > 2 % por quadro`);

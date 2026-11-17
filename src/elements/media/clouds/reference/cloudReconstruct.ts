@@ -1,5 +1,5 @@
 // Referência da reconstrução temporal das nuvens (spec 041, R2; `cloud_reconstruct.wgsl`): por pixel do alvo de ¼, o
-// valor exato do bloco (o pixel marchado no quadro), ou o histórico reprojetado recortado pela caixa dos valores exatos
+// valor do bloco misturado ao histórico recortado (o pixel marchado no quadro, média exponencial), ou o histórico reprojetado recortado pela caixa dos valores exatos
 // dos 3 × 3 blocos em volta — salvo quando o gradiente temporal reprova o bloco (no pixel marchado, o histórico
 // reprojetado diverge do valor exato além da tolerância: a lição dos blocos 2 × 2 da 034), quando o histórico sai da
 // tela ou quando a série não vale (corte, recriação, primeiro quadro).
@@ -10,6 +10,8 @@ export type Rgba = readonly [number, number, number, number];
 
 /** Tolerância do gradiente temporal. */
 export const CLOUD_GRADIENT_TOLERANCE = 0.2;
+/** Peso do valor novo no pixel marchado (média exponencial sobre o histórico recortado). */
+export const CLOUD_HISTORY_BLEND = 0.25;
 
 const luminance = (c: Rgba): number => rec709([c[0], c[1], c[2]]);
 

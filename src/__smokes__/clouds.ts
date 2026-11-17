@@ -1145,7 +1145,8 @@ async function caseOvercastAmbient(): Promise<void> {
 }
 
 async function caseFogInFront(): Promise<void> {
-    // Névoa perto da câmera e nuvens longe (US3 cenário 4): com a névoa na frente, cada pixel é `a + b·(o mesmo pixel
+    // Névoa perto da câmera (uma esfera em volta dela: o mesmo trecho em toda direção) e nuvens longe (US3 cenário 4):
+    // com a névoa na frente, cada pixel é `a + b·(o mesmo pixel
     // sem névoa)` — a mesma fração e a mesma luz da névoa sobre a nuvem e sobre o céu (sem halo nem borda dupla).
     const view = {
         width: 320,
@@ -1158,32 +1159,44 @@ async function caseFogInFront(): Promise<void> {
     const ca = await sceneColor(a);
     finish(a);
     const b = await cloudScene(view);
-    b.app.world.insert(new FogVolume({ shape: { box: [60, 60, 60] }, density: 0.004 }));
+    b.app.world.insert(new FogVolume({ shape: { sphere: 30 }, center: [0, 2, 0], density: 0.004 }));
     await settleFrames(b.app, 60);
     const cb = await sceneColor(b);
     finish(b);
-    // Ajuste linear por mínimos quadrados no verde.
-    let sx = 0,
-        sy = 0,
-        sxx = 0,
-        sxy = 0,
-        n = 0;
-    for (let k = 1; k < ca.length; k += 4) {
-        sx += ca[k]!;
-        sy += cb[k]!;
-        sxx += ca[k]! * ca[k]!;
-        sxy += ca[k]! * cb[k]!;
-        n++;
+    // Médias de blocos de 8 × 8 px no verde (a escala de um halo; tira o ruído do deslocamento da amostra do AA), e o
+    // ajuste linear por mínimos quadrados.
+    const block = (img: Float32Array): number[] => {
+        const out: number[] = [];
+        for (let by = 0; by + 8 <= 180; by += 8)
+            for (let bx = 0; bx + 8 <= 320; bx += 8) {
+                let m = 0;
+                for (let y = by; y < by + 8; y++)
+                    for (let x = bx; x < bx + 8; x++) m += img[(y * 320 + x) * 4 + 1]!;
+                out.push(m / 64);
+            }
+        return out;
+    };
+    const xa = block(ca);
+    const xb = block(cb);
+    const n = xa.length;
+    let sx = 0;
+    let sy = 0;
+    let sxx = 0;
+    let sxy = 0;
+    for (let k = 0; k < n; k++) {
+        sx += xa[k]!;
+        sy += xb[k]!;
+        sxx += xa[k]! * xa[k]!;
+        sxy += xa[k]! * xb[k]!;
     }
     const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
     const icpt = (sy - slope * sx) / n;
     let worst = 0;
-    let mean = 0;
-    for (let k = 1; k < ca.length; k += 4) mean += cb[k]! / n;
-    for (let k = 1; k < ca.length; k += 4)
-        worst = Math.max(worst, Math.abs(cb[k]! - (icpt + slope * ca[k]!)) / mean);
+    const mean = sy / n;
+    for (let k = 0; k < n; k++)
+        worst = Math.max(worst, Math.abs(xb[k]! - (icpt + slope * xa[k]!)) / mean);
     log(
-        `fog-in-front: com névoa = ${icpt.toFixed(3)} + ${slope.toFixed(4)} × sem névoa; pior resíduo ${(worst * 100).toFixed(2)} % da média`,
+        `fog-in-front: com névoa = ${icpt.toFixed(3)} + ${slope.toFixed(4)} × sem névoa; pior resíduo por bloco de 8 × 8 px ${(worst * 100).toFixed(2)} % da média`,
     );
     check(slope < 0.999, 'fog-in-front: a névoa não atenuou as nuvens');
     check(

@@ -69,6 +69,8 @@ export async function cloudScene(o: CloudSceneOptions = {}): Promise<CloudScene>
         scene: createScene(),
         autoResize: false,
         captureErrors: true,
+        // A imagem apresentada legível (`readCanvas`): os casos de movimento a medem depois da resolução temporal.
+        canvasOptions: { capture: true },
         ...(o.profiling === true ? { profiling: 'passes' as const } : {}),
     });
     const errors: string[] = [];
