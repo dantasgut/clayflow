@@ -420,3 +420,16 @@ da luz na camada, iterada na GPU pela série 037). Em aberto.
   transmitância até o sol no chão da câmera, pelo mapa, com a integral da referência: o sol fica atrás das nuvens até
   6,1° (ref 6,0°), passa por uma abertura e some de novo a 4,3° (ref 4,3°); diferença média 0,016. Os degraus do vídeo
   (quadros ~257 e ~331) são o sol entrando e saindo da abertura — na cena o sol desce 11° em 8 s, e 0,1° são 4 quadros.
+
+### Retomada — a nuvem achatada (2026-11-17)
+
+Medido na referência f64 (cobertura 0,5, tipo 0,5, camada de 1500 a 4000 m, 400 colunas, densidade > 0,02): a forma
+de base tem pouca variância (o Perlin-Worley remapeado fica em ~0,64–0,9), e a borda da nuvem segue a curva de nível
+do perfil de altura: base mediana 1956 m, topo mediano 3106 m, 10–90 % dos topos entre 2806 e 3219 m (413 m), densidade
+quase constante dentro (0,70–0,76). Com o tipo igual em todo ponto, todas as nuvens param na mesma altura — o tapete
+liso visto de cima. Correção: o campo do tipo em volta do tipo pedido (`typeField`/`cloud_type_field`, ±0,4 em
+células de 3 km, o canal G do mapa — o tipo por ponto do mapa de tempo de Schneider 2015 e de Hillaire 2016): topos
+de 2294 a 3394 m (10–90 %, 1,1 km), espessura p90 1313 → 1638 m. A cobertura medida não mudou (19,4/49,8/81,4 %).
+O contraste na imagem do `nuvens` (meio-dia, exposição −13) não mudou: luminância apresentada das nuvens p95/p5 1,17
+antes e depois — em aberto; o branco fica no alto da curva de tom (p5 0,80) e o modelo de oitavas calibrado (T023)
+clareia a base (a difusão local não representa a luz que entra pelas laterais).

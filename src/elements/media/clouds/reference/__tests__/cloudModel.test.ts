@@ -16,6 +16,7 @@ import {
     shadowTexel,
     shadowTransmittance,
     shellSegments,
+    typeField,
     type CloudModel,
     type Vec3,
 } from '../cloudModel';
@@ -104,6 +105,23 @@ describe('perfil de altura', () => {
         expect(heightProfile(0.5, 0)).toBe(0);
         expect(heightProfile(0.15, 0)).toBeGreaterThan(0.9);
         expect(heightProfile(0.75, 1)).toBeCloseTo(1, 10);
+    });
+});
+
+describe('campo do tipo', () => {
+    it('varia em volta do tipo pedido, em [0, 1], com média no pedido', () => {
+        // Arrange + Act
+        const v: number[] = [];
+        for (let k = 0; k < 2000; k++)
+            v.push(typeField(((k * 0.618034) % 1) * 60_000, ((k * 0.754878) % 1) * 60_000, 0.5));
+        const mean = v.reduce((a, b) => a + b, 0) / v.length;
+        const sorted = [...v].sort((a, b) => a - b);
+        // Assert: o desenvolvimento vertical muda de uma nuvem para outra (10–90 % numa faixa de ≥ 0,4).
+        expect(Math.min(...v)).toBeGreaterThanOrEqual(0);
+        expect(Math.max(...v)).toBeLessThanOrEqual(1);
+        expect(Math.abs(mean - 0.5)).toBeLessThan(0.05);
+        expect(sorted[1800]! - sorted[200]!).toBeGreaterThan(0.4);
+        expect(typeField(1234, 5678, 0)).toBeGreaterThanOrEqual(0);
     });
 });
 

@@ -192,6 +192,33 @@ export function coverageUniform(x: number, z: number): number {
     return 1 / (1 + Math.exp((-1.702 * (s / n)) / CLOUD_COVERAGE_SIGMA));
 }
 
+/** Células (1/m) e amplitude do campo do tipo (o desenvolvimento vertical) em volta do tipo pedido. */
+export const CLOUD_TYPE_SCALE = 1 / 3000;
+export const CLOUD_TYPE_SPREAD = 0.8;
+
+/**
+ * O tipo local padrão em `(x, z)` para o tipo pedido `t` (`cloud_type_field`): `t + 0,8·(u₂ − 0,5)`, `u₂` o campo uniforme
+ * de 2 oitavas de gradiente com células de 3 km e sementes próprias. Num campo de cúmulos uma nuvem sobe mais que a
+ * outra (a convecção de cada célula): com o tipo igual em todo ponto, o topo de todas as nuvens ficava na mesma altura
+ * — a curva de nível do perfil (topo mediano 3106 m, p90 3219 m numa camada de 1500 a 4000 m).
+ */
+export function typeField(x: number, z: number, t: number): number {
+    const f32 = Math.fround;
+    const q = [f32(x * CLOUD_TYPE_SCALE), f32(z * CLOUD_TYPE_SCALE)];
+    let s = 0;
+    let a = 1;
+    let n = 0;
+    let f = 1;
+    for (let k = 0; k < 2; k++) {
+        s += a * noiseGradient2([f32(q[0]! * f), f32(q[1]! * f)], 1, [0, 0], k + 3);
+        n += a;
+        a *= 0.5;
+        f *= 2;
+    }
+    const u = 1 / (1 + Math.exp((-1.702 * (s / n)) / CLOUD_COVERAGE_SIGMA));
+    return clamp01(t + CLOUD_TYPE_SPREAD * (u - 0.5));
+}
+
 /** A cobertura local padrão em `(x, z)` para a cobertura pedida `c` e o tipo `t` (`cloud_coverage_field`). */
 export function coverageField(x: number, z: number, c: number, t: number): number {
     const k = clamp01(t * 2);

@@ -103,7 +103,9 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
     let base = clouds.shell.w / 64.0;
     let floor_step = total / f32(n);
     let cos_theta = dot(d, sky.sunDirection.xyz);
-    var t = segs.x + jitter * max(base, floor_step);
+    // A grade dos passos deslocada de `jitter` passo para trás da entrada da casca (com o primeiro passo começando em
+    // `entrada + jitter·passo`, o trecho antes dele nunca era amostrado). Fora da casca a densidade é zero.
+    var t = segs.x - (1.0 - jitter) * max(base, floor_step);
     var seg_start = segs.x;
     var end = segs.y;
     var second = segs.w > segs.z;

@@ -4,12 +4,14 @@
 // `L = g(c, tipo) + 0,4·(u − 0,5)`, e `g` é a inversa da área coberta medida na referência f64 com os volumes completos
 // (a fração das colunas com transmitância < 0,5; tabelas do cúmulo e do estrato, `cloud_coverage_calibration` em
 // research.md, R4). Com `c = 0`, nada; com `c = 1`, `L ≥ 1` em todo ponto (sem buracos). Espelho de `coverageField` em
-// `cloudModel.ts`.
+// `cloudModel.ts`. O tipo local (`cloud_type_field`) varia em volta do tipo pedido.
 // Requer: node_noise.
 
 const CLOUD_COVERAGE_SCALE: f32 = 1.0 / 8000.0;
 const CLOUD_COVERAGE_SIGMA: f32 = 0.2014;
 const CLOUD_COVERAGE_SPREAD: f32 = 0.4;
+const CLOUD_TYPE_SCALE: f32 = 1.0 / 3000.0;
+const CLOUD_TYPE_SPREAD: f32 = 0.8;
 
 /** Área coberta medida em g = 0, 0,1, …, 0,7 (cúmulo e estrato). */
 const CLOUD_AREA_CUMULUS = array<f32, 8>(0.0, 0.016, 0.142, 0.370, 0.604, 0.834, 0.975, 0.999);
@@ -48,4 +50,26 @@ fn cloud_coverage_field(xz: vec2f, c: f32, t: f32) -> f32 {
     let k = clamp(t * 2.0, 0.0, 1.0);
     let g = mix(cloud_coverage_inverse(c, true), cloud_coverage_inverse(c, false), k);
     return clamp(g + CLOUD_COVERAGE_SPREAD * (u - 0.5), 0.0, 1.0);
+}
+
+/**
+ * O tipo local em `xz` (m, referencial do vento) para o tipo pedido `t`: `t + 0,8·(u₂ − 0,5)`, `u₂` o campo uniforme de 2
+ * oitavas de gradiente com células de 3 km e sementes próprias — uma nuvem sobe mais que a outra (com o tipo igual em
+ * todo ponto, o topo de todas ficava na curva de nível do perfil: 10–90 % dos topos em 413 m; com o campo, 1,1 km).
+ * Espelho de `typeField` em `cloudModel.ts`.
+ */
+fn cloud_type_field(xz: vec2f, t: f32) -> f32 {
+    let q = xz * CLOUD_TYPE_SCALE;
+    var s = 0.0;
+    var a = 1.0;
+    var n = 0.0;
+    var f = 1.0;
+    for (var k = 0u; k < 2u; k++) {
+        s += a * node_noise_gradient2(q * f, 0.0, 1.0, vec2f(0.0), k + 3u, 0u);
+        n += a;
+        a *= 0.5;
+        f *= 2.0;
+    }
+    let u = 1.0 / (1.0 + exp(-1.702 * (s / n) / CLOUD_COVERAGE_SIGMA));
+    return clamp(t + CLOUD_TYPE_SPREAD * (u - 0.5), 0.0, 1.0);
 }

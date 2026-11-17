@@ -259,11 +259,11 @@ const coverageField = wgslModule({
     requires: [nodeNoise],
 });
 
-/** `cloud_coverage_fn_at` pronto (sem função de cobertura): o campo da cobertura global, o tipo da camada. */
+/** `cloud_coverage_fn_at` pronto (sem função de cobertura): os campos da cobertura e do tipo em volta dos da camada. */
 const coverageAtReady = wgslModule({
     name: 'cloud_coverage_fn_at_ready',
     requires: [cloudParamsResource, coverageField],
-    source: 'fn cloud_coverage_fn_at(xz: vec2f, time: f32, slot: u32) -> vec3f {\n    return vec3f(cloud_coverage_field(xz, clouds.layer.x, clouds.layer.y), clouds.layer.y, 1.0);\n}',
+    source: 'fn cloud_coverage_fn_at(xz: vec2f, time: f32, slot: u32) -> vec3f {\n    return vec3f(cloud_coverage_field(xz, clouds.layer.x, clouds.layer.y), cloud_type_field(xz, clouds.layer.y), 1.0);\n}',
 });
 
 /** Lugar da função de forma no kernel dos volumes (o estágio troca o pronto pela composta, `bindPoints`). */

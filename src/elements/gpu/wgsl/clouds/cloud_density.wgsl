@@ -8,12 +8,13 @@
 const CLOUD_EROSION: f32 = 0.35;
 const CLOUD_SKEW: f32 = 0.5;
 
-/** Cobertura, tipo e densidade relativa no ponto horizontal `xz` (m): o mapa e, fora dele, o campo da cobertura global. */
+/** Cobertura, tipo e densidade relativa no ponto horizontal `xz` (m): o mapa e, fora dele, os campos da cobertura e do tipo. */
 fn cloud_coverage_at(xz: vec2f) -> vec3f {
     let m = clouds.coverageMap;
     let uv = (xz - m.xy) / m.z + 0.5;
     if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) {
-        return vec3f(cloud_coverage_field(xz - clouds.coverageOffset.xy, clouds.layer.x, clouds.layer.y), clouds.layer.y, 1.0);
+        let w = xz - clouds.coverageOffset.xy;
+        return vec3f(cloud_coverage_field(w, clouds.layer.x, clouds.layer.y), cloud_type_field(w, clouds.layer.y), 1.0);
     }
     return textureSampleLevel(cloud_coverage_tex, cloud_clamp_sampler, uv, 0.0).rgb;
 }

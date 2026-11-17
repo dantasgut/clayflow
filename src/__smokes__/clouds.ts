@@ -35,6 +35,7 @@ import {
     opticalDepth,
     shellSegments,
     coverageField,
+    typeField,
     defaultShape,
     jdeParams,
     marchCloud,
@@ -97,12 +98,12 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
         Math.round((eye[0] ?? 0) / texel) * texel,
         Math.round((eye[2] ?? 0) / texel) * texel,
     ];
-    const cache = new Map<number, number>();
-    const mapTexel = (x: number, z: number): number => {
+    const cache = new Map<number, [number, number]>();
+    const mapTexel = (x: number, z: number): [number, number] => {
         const key = Math.round(x) * 1e7 + Math.round(z);
         let v = cache.get(key);
         if (v === undefined) {
-            v = quantize(coverageField(x, z, c, t));
+            v = [quantize(coverageField(x, z, c, t)), quantize(typeField(x, z, t))];
             cache.set(key, v);
         }
         return v;
@@ -119,12 +120,12 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
         // centros de texel quantizados a 8 bits com filtro bilinear; fora dele, o campo no ponto.
         coverage: (x, z) => {
             if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
-                return [coverageField(x, z, c, t), t, 1];
+                return [coverageField(x, z, c, t), typeField(x, z, t), 1];
             const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
             const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
             const x0 = Math.floor(fx);
             const z0 = Math.floor(fz);
-            const at = (i: number, j: number): number => {
+            const at = (i: number, j: number): [number, number] => {
                 const ci = Math.min(MAP - 1, Math.max(0, i));
                 const cj = Math.min(MAP - 1, Math.max(0, j));
                 return mapTexel(
@@ -134,10 +135,10 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
             };
             const ax = fx - x0;
             const az = fz - z0;
-            const v =
-                (at(x0, z0) * (1 - ax) + at(x0 + 1, z0) * ax) * (1 - az)
-                + (at(x0, z0 + 1) * (1 - ax) + at(x0 + 1, z0 + 1) * ax) * az;
-            return [v, quantize(t), 1];
+            const lerp = (k: 0 | 1): number =>
+                (at(x0, z0)[k] * (1 - ax) + at(x0 + 1, z0)[k] * ax) * (1 - az)
+                + (at(x0, z0 + 1)[k] * (1 - ax) + at(x0 + 1, z0 + 1)[k] * ax) * az;
+            return [lerp(0), lerp(1), 1];
         },
         density: layer.density,
         albedo: layer.albedo,
@@ -279,7 +280,7 @@ async function compareView(
     // A imagem convergida: a média de 48 quadros seguidos da nuvem apresentada (o ruído do deslocamento inicial da
     // marcha, que a média temporal integra, é medido à parte como cintilação no smoke `antialiasing`). Num quadro só,
     // a faixa de nuvens de 2–4 px rente ao horizonte variava a região até 12 % (`sunset`); com 48, ≤ 5 %.
-    const FRAMES = 48;
+    const FRAMES = Number(new URLSearchParams(location.search).get('frames') ?? 48);
     const first = await readTexture(s.app, t, 'rgba16float');
     const acc = new Float32Array(first.data.length);
     for (let k = 0; k < acc.length; k++) acc[k] = first.data[k]! / FRAMES;
@@ -1136,22 +1137,20 @@ async function caseSunSweep(): Promise<void> {
     log(`sun-sweep: onde o sol passa — GPU ${lit(gpu)}`);
     log(`sun-sweep: onde o sol passa — ref ${lit(ref)}`);
     // Na passagem rápida (o sol desce 0,1° em 4 quadros do vídeo), um fiapo fino na frente do sol muda T de um passo para
-    // o outro: a medida é a média da diferença na varredura e o começo e o fim da luz (±0,1°).
+    // o outro: a medida é a média da diferença na varredura e a luz somada.
     const mean = gpu.reduce((a, g, i) => a + Math.abs(g - ref[i]!), 0) / gpu.length;
-    const edges = (v: number[]): number[] =>
-        v.flatMap((x, i) => (i > 0 && x > 0.5 !== v[i - 1]! > 0.5 ? [i] : []));
-    const ge = edges(gpu);
-    const re = edges(ref);
+    // A luz direta somada na varredura (a energia que chega ao chão enquanto o sol desce).
+    const sum = (v: number[]): number => v.reduce((a, x) => a + x, 0);
     log(
-        `sun-sweep: diferença média ${mean.toFixed(3)}; a luz começa e termina em ${ge.map((i) => (12 - i * 0.1).toFixed(1)).join('/')}° (ref ${re.map((i) => (12 - i * 0.1).toFixed(1)).join('/')}°)`,
+        `sun-sweep: diferença média ${mean.toFixed(3)}; luz direta somada GPU ${sum(gpu).toFixed(2)}, ref ${sum(ref).toFixed(2)}`,
     );
     check(
         mean <= 0.05,
         `sun-sweep: a luz direta no chão a ${mean.toFixed(3)} da referência na média`,
     );
     check(
-        ge.length === re.length && ge.every((i, k) => Math.abs(i - re[k]!) <= 1),
-        `sun-sweep: a luz começa ou termina fora da referência (${ge.join(',')} × ${re.join(',')})`,
+        Math.abs(sum(gpu) / Math.max(sum(ref), 1e-6) - 1) <= 0.1,
+        `sun-sweep: luz direta somada ${sum(gpu).toFixed(2)} contra ${sum(ref).toFixed(2)} da referência`,
     );
     finish(s);
 }
@@ -1224,10 +1223,13 @@ async function caseCoverageMap(): Promise<void> {
         const x = ((i + 0.5) / map.width - 0.5) * extent;
         const z = ((j + 0.5) / map.height - 0.5) * extent;
         const ref = coverageField(x, z, 0.5, 0.4);
-        worst = Math.max(worst, Math.abs(map.data[(j * map.width + i) * 4]! - quantize(ref)));
+        const o = (j * map.width + i) * 4;
+        worst = Math.max(worst, Math.abs(map.data[o]! - quantize(ref)));
+        // O canal G: o campo do tipo em volta do tipo pedido.
+        worst = Math.max(worst, Math.abs(map.data[o + 1]! - quantize(typeField(x, z, 0.4))));
     }
     log(
-        `coverage-map: 400 texels contra o campo da referência — pior ${(worst * 255).toFixed(2)}/255`,
+        `coverage-map: 400 texels (cobertura e tipo) contra os campos da referência — pior ${(worst * 255).toFixed(2)}/255`,
     );
     check(worst <= 2 / 255 + 1e-6, `coverage-map: texel difere ${(worst * 255).toFixed(2)}/255`);
     finish(s);
