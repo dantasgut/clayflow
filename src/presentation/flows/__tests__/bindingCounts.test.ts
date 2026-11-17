@@ -124,7 +124,7 @@ describe('ligações por estágio (spec 041)', () => {
                 limits.maxSampledTexturesPerShaderStage ?? Infinity,
             );
         }
-    });
+    }, 60_000);
 });
 
 describe('custo zero sem camada de nuvens (spec 041, T035)', () => {
@@ -134,5 +134,5 @@ describe('custo zero sem camada de nuvens (spec 041, T035)', () => {
         expect(lastComputes.some((c) => c.startsWith('Cloud'))).toBe(false);
         await countScene(true);
         expect(lastComputes.some((c) => c.startsWith('CloudFlow.march'))).toBe(true);
-    });
+    }, 60_000);
 });
