@@ -5,17 +5,22 @@
 // truncado (δ-M), o próximo evento ao sol em cada colisão pelo mapa visto do sol, o céu ao sair por cima, o chão (com a
 // sombra das nuvens) ao sair por baixo — que estima a luz que chega à sonda espalhada pela fase na direção da câmera.
 // A média tem janela `clouds.scatterParams.y` caminhos; o histórico recomeça no corte da câmera, quando a série não vale
-// ou quando o centro da grade muda. A marcha soma o espalhamento simples exato e esta luz × σs.
+// ou quando o centro da grade muda, e esquece na proporção do ângulo que o sol andou desde o quadro anterior (a série
+// `cloud_scatter_sun`: `e^(−Δ/CLOUD_SCATTER_SUN_MEMORY)`; o sol parado não esquece). A marcha soma o espalhamento simples
+// exato e esta luz × σs.
 // Teto constante: `CLOUD_SCATTER_STEPS` passos por caminho (nulos, reais e saltos) e `CLOUD_PHASE_TRIES` tentativas em
 // cada amostra da fase — o orçamento total por invocação é `CLOUD_SCATTER_STEPS × (1 + 2·CLOUD_PHASE_TRIES)`.
 // Despacho linear: uma sonda por invocação.
 // Requer: WORKGROUP_SIZE, constants, random, cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup,
-// cloud_scatter_grid, sky_query, clouds, cameras, cloud_ambient_tex, cloud_scatter_prev, cloud_scatter_out.
+// cloud_scatter_grid, sky_query, clouds, cameras, cloud_ambient_tex, cloud_scatter_prev, cloud_scatter_out,
+// cloud_scatter_sun_prev, cloud_scatter_sun_out.
 
 const CLOUD_SCATTER_STEPS: u32 = 256u;
 const CLOUD_SCATTER_COLLISIONS: u32 = 48u;
 const CLOUD_PHASE_TRIES: u32 = 8u;
 const RANDOM_STREAM_CLOUD_SCATTER: u32 = RANDOM_STREAM_USER + 41u;
+/** Ângulo (rad) do sol que reduz a média das sondas a 1/e: 0,25° (o sol que anda depressa cai nas oitavas, sem o ruído de poucos caminhos). */
+const CLOUD_SCATTER_SUN_MEMORY: f32 = 0.0043633231;
 
 fn cloud_scatter_rand(state: ptr<function, u32>) -> f32 {
     return random_unit(random_next(state));
@@ -158,8 +163,15 @@ fn cloud_scatter_main(
     let prev_eye = -(transpose(mat3x3f(pv[0].xyz, pv[1].xyz, pv[2].xyz)) * pv[3].xyz);
     let moved = any(cloud_scatter_center(prev_eye) != clouds.scatterGrid.xy);
     let valid = clouds.scatterParams.z > 0.5 && cam.history.x < 0.5 && !moved;
+    let sun = sky.sunDirection.xyz;
+    if (i == 0u) { textureStore(cloud_scatter_sun_out, vec2u(0u, 0u), vec4f(sun, 1.0)); }
+    let prev_sun = textureLoad(cloud_scatter_sun_prev, vec2u(0u, 0u), 0);
+    var keep = 1.0;
+    if (prev_sun.w > 0.5) {
+        keep = exp(-acos(clamp(dot(prev_sun.xyz, sun), -1.0, 1.0)) / CLOUD_SCATTER_SUN_MEMORY);
+    }
     var q = vec4f(0.0);
-    if (valid) { q = textureLoad(cloud_scatter_prev, g, 0); }
+    if (valid) { q = textureLoad(cloud_scatter_prev, g, 0) * keep; }
     let group = wid.x + wid.y * nwg.x;
     if ((group + work.z) % max(work.x, 1u) == 0u) {
         if (cloud_scatter_active(g, size)) {

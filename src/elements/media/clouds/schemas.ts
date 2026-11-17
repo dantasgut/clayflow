@@ -96,7 +96,7 @@ export const CLOUD_SCATTER_MAX_COLLISIONS = 48;
  * Peso (em caminhos) da estimativa das oitavas na luz da sonda: `(Σ caminhos + n0·oitavas)/(n + n0)` — a sonda sem
  * caminhos dá as oitavas, e a média dos caminhos domina à medida que eles chegam.
  */
-export const CLOUD_SCATTER_PRIOR = 8;
+export const CLOUD_SCATTER_PRIOR = 16;
 /** Teto da média móvel da sonda (caminhos): a janela em que a luz acompanha o sol e as nuvens que mudam. */
 export const CLOUD_SCATTER_WINDOW = 64;
 /** Lado (m) do encaixe do centro da grade: a câmera que cruza esse lado recomeça as sondas. */

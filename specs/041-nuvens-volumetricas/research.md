@@ -456,8 +456,11 @@ igual à de 1024 a 0,1 %). A série guarda a soma (em unidades da iluminância d
 recomeça no corte, quando a série não vale e quando a câmera troca o encaixe do centro (a posição anterior vem da
 `previousView`). Na marcha: `σs·(E·e^(−(1 − ω·fc)τ)·p(θ) + J)`, o feixe do sol com o pico transmitido (sem esse termo a luz
 que o núcleo desvia menos de 2° não chega a ninguém: −8 a −18 % nas nuvens finas, medido pixel a pixel) e `J` a luz das
-sondas interpolada, misturada às oitavas ≥ 1 e ao ambiente local com peso de 8 caminhos (a sonda nova dá as oitavas; fora
-da grade, as oitavas). Nada na CPU: o empacotamento só calcula a truncagem pelo diâmetro (`cloudPhaseTruncation`).
+sondas interpolada, misturada às oitavas ≥ 1 e ao ambiente local com peso de 16 caminhos (a sonda nova dá as oitavas; fora
+da grade, as oitavas). O sol que anda esquece a média na proporção do ângulo (`e^(−Δ/0,25°)` por quadro, pela série de um
+texel `scatterSun`): com o sol parado o cache converge; com o sol descendo depressa (os vídeos, 0,02–0,05° por quadro) a
+imagem fica nas oitavas — com 1° de memória, poucos caminhos por sonda (desvio de um caminho 2,7 ao meio dia e 5,4 com o
+sol a 10°, medido) davam manchas na nuvem do crepúsculo. Nada na CPU: o empacotamento só calcula a truncagem pelo diâmetro (`cloudPhaseTruncation`).
 
 **Calibração** (`scatter.calibration.{60,30,10}.test.ts`, a referência f64 do mesmo esquema, `cloudScatter.ts`, 1500
 caminhos por sonda, sondas a 100 m): erro médio **3,7 % (60°), 2,1 % (30°), 4,1 % (10°)** — 3,3 % nas 18 vistas, contra
@@ -473,6 +476,29 @@ imagem da GPU do `noon` contra a imagem física (rastreamento delta da cena inte
 (as oitavas: 12,8 %; pior região 17 % contra 33 %), a GPU 7 % abaixo na mediana — a perspectiva aérea da GPU (−2 a −3 %,
 o traçador não tem atmosfera), o peso das oitavas que fica (8 de 72 caminhos) e o mapa visto do sol linear entre os nós
 no próximo evento (−4 % nas sondas). O tempo do passe fica para a T035.
+
+### Contraste das nuvens (a nuvem "achatada", 2026-11-17)
+
+Medido isolando cada termo, contra a imagem física (rastreamento delta da cena do `noon`, 64 × 36, com sol, céu e chão):
+
+- **HDR antes da curva**: p95/p5 da luminância das nuvens — oitavas 3,21, traçador 3,15, GPU com as sondas 2,75; parte
+  alta/base (pelo primeiro ponto denso no raio) — oitavas 1,36, traçador 1,08, GPU 1,06. As oitavas não clareavam a base:
+  exageravam a parte alta; o contraste físico desta nuvem vista de baixo é pequeno.
+- **Curva de tom e exposição**: o mesmo HDR do traçador sai 1,15 com AgX a −13 EV e 1,28 a −14,5. A exposição −13 das
+  cenas fica 1,5 EV acima da de um fotômetro de luz incidente ao meio dia (EV100 15, a regra do "sunny 16": −14,47 pela
+  iluminância horizontal da atmosfera f64): as nuvens caem no ombro da curva. **Fora da física; corrigido** nas cenas do
+  claflow-web (a exposição pelo fotômetro em função da elevação do sol; abaixo de 8°, 15 % da queda, como o fotógrafo que
+  expõe para o céu).
+- **A espessura ótica**: a extinção padrão (0,04/m na densidade 1, ~0,028/m na densidade média da forma) é a de uma nuvem
+  fina; um cúmulo de ~0,4 g/m³ com gotículas de 20 µm tem `3·LWC/(2ρr)` ≈ 0,06/m. Com 0,08 na densidade 1, o traçador dá
+  p95/p5 4,07 (contra 3,15). As cenas de cúmulos do claflow-web passam a 0,08 (o padrão da camada não muda: a cobertura
+  medida da SC-003 foi calibrada com ele).
+- **Ambiente** (`cloud_ambient`) e **"powder"**: o ambiente local é a estimativa a que as sondas se sobrepõem (as sondas
+  levam o céu e o chão com a sombra das nuvens pelos caminhos); o motor não tem termo "powder" e o traçador não pede
+  um (a borda escura vem do transporte).
+
+Resultado na cena `nuvens` (quadros do vídeo, pixels de nuvem acima do horizonte): p95/p5 **1,17–1,23 → 1,38–1,46**, p5
+0,79 → 0,56 (a base cinza), com a mesma curva AgX.
 
 ### Retomada — o pôr do sol do claflow-web (2026-11-17)
 

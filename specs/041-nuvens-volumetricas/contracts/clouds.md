@@ -86,7 +86,7 @@ nada). As referências de imagem afetadas são regravadas e relatadas.
 ## Perfis do `Renderer`
 
 `RENDER_PROFILES[profile].clouds`: `{ steps, lightSteps, octaves, panorama: [w, h], shadow: { size, extent },
-coverageExtent }` (valores em [research.md R15](../research.md)). Os tetos de custo são do perfil; a `CloudLayer` só descreve o meio.
+coverageExtent, scatter: { size: [x, altitude, z], stride, collisions } }` (o cache de espalhamento, T023) (valores em [research.md R15](../research.md)). Os tetos de custo são do perfil; a `CloudLayer` só descreve o meio.
 
 ## Eventos
 

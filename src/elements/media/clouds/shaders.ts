@@ -72,6 +72,11 @@ export const cloudScatterSlots = Object.freeze({
     cloudScatter: slot.channel(CloudSchema, 'scatter'),
 });
 
+/** Slot do canal temporal do sol do cache de espalhamento (T023). */
+export const cloudScatterSunSlots = Object.freeze({
+    cloudScatterSun: slot.channel(CloudSchema, 'scatterSun'),
+});
+
 /** Recursos da camada. */
 export const cloudResources = Object.freeze({
     params: cloudParamsResource,
@@ -145,6 +150,18 @@ export const cloudResources = Object.freeze({
         binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
         frequency: 'stage',
         provider: { slot: 'cloudScatter', lag: 0 },
+    }),
+    scatterSunPrevious: wgslResource({
+        name: 'cloud_scatter_sun_prev',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatterSun', lag: 1 },
+    }),
+    scatterSunOut: wgslResource({
+        name: 'cloud_scatter_sun_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatterSun', lag: 0 },
     }),
     /** A profundidade da cena (sem e com amostras), privada do estágio da marcha. */
     sceneDepth: wgslResource({
@@ -589,6 +606,8 @@ export const cloudScatterKernel = wgslModule({
         R.ambient,
         R.scatterPrevious,
         R.scatterOut,
+        R.scatterSunPrevious,
+        R.scatterSunOut,
     ],
 });
 

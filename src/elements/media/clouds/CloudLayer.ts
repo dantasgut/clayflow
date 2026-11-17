@@ -415,6 +415,15 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 },
                 history: { depth: 2, filtered: true },
             },
+            // A direção do sol com que o cache foi atualizado no quadro anterior (série da 037): o sol que anda esquece a
+            // média das sondas na proporção do ângulo (T023).
+            {
+                id: 'scatterSun',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                history: { depth: 2 },
+            },
             sampler('noiseSampler', 'repeat'),
             sampler('clampSampler', 'clamp-to-edge'),
         ];

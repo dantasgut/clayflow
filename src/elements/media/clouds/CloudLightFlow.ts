@@ -26,6 +26,7 @@ import {
     cloudPanoramaKernel,
     cloudScatterKernel,
     cloudScatterSlots,
+    cloudScatterSunSlots,
     cloudShadowKernel,
 } from './shaders';
 
@@ -35,6 +36,8 @@ export interface CloudLightSlots extends SlotMap {
     readonly sky: SingletonSlot<true>;
     /** O cache de espalhamento (spec 037; T023): a fatia anterior lida, a do quadro escrita. */
     readonly cloudScatter: ChannelSlot<false>;
+    /** O sol do cache de espalhamento no quadro anterior (T023). */
+    readonly cloudScatterSun: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudLightSlots>;
@@ -71,6 +74,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         cloud: slot.singleton(CloudLayer.schema),
         sky: slot.singleton(Sky.schema, { optional: true }),
         ...cloudScatterSlots,
+        ...cloudScatterSunSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -133,7 +137,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
             // O cache de espalhamento escrito: a série gira (o panorama e a marcha leem a fatia do quadro).
-            if (id === SCATTER.id) bound.slots.cloudScatter.written();
+            if (id === SCATTER.id) {
+                bound.slots.cloudScatter.written();
+                bound.slots.cloudScatterSun.written();
+            }
         });
         // Os alvos do quadro existem: as contribuições (a sombra, o céu coberto) passam a valer.
         cloud.setActive(true);
@@ -152,6 +159,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         }
         for (const id of TARGETS) this.resources.ensureAllocated(cloud, id);
         this.resources.ensureAllocated(cloud, 'scatter');
+        this.resources.ensureAllocated(cloud, 'scatterSun');
         const views = TARGETS.map((id) => c.bound.slots.cloud.textureViewOf(id));
         if (views.some((v) => v === undefined)) {
             this.active = false;
