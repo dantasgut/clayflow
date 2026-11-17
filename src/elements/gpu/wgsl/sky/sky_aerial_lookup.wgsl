@@ -1,9 +1,7 @@
 // Leitura da perspectiva aérea (spec 041, R10): a luz espalhada (por unidade de iluminância do sol) e a transmitância
 // da câmera até a distância `d` (m) na direção de tela `uv` — a tabela 32³ até `SKY_AERIAL_RANGE` km (interpolada na
-// fatia pela raiz da distância; antes da primeira fatia, linear desde (0, 1)); além, o trecho que falta pela razão das
-// transmitâncias até o topo (exata numa atmosfera esférica) e a luz dele pela fonte uniforme no trecho
-// (`S∞ − S_D`)·(1 − T)/(1 − T∞), com `S∞` a vista do céu. `sky_aerial_far` faz o mesmo sem a tabela (para as direções
-// fora da tela: o panorama das nuvens).
+// fatia pela raiz da distância; antes da primeira fatia, linear desde (0, 1)); além, o trecho que falta integrado como
+// a tabela (`sky_aerial_far`, que também serve sem a tabela às direções fora da tela: o panorama das nuvens).
 // Requer: SKY_AERIAL_RANGE, sky_atmosphere, sky_lookup, sky, sky_view_lut, sky_aerial_lut, sky_aerial_transmittance_lut, sky_sampler.
 
 struct SkyAerial {
@@ -11,18 +9,16 @@ struct SkyAerial {
     transmittance: vec3f,
 }
 
-/** Transmitância da atmosfera entre a câmera (raio `r0`) e o ponto a `d` km na direção de cosseno zenital `mu`. */
-fn sky_segment_transmittance(r0: f32, mu: f32, d: f32) -> vec3f {
-    let r1 = sqrt(max(r0 * r0 + d * d + 2.0 * r0 * mu * d, 1e-6));
-    let mu1 = clamp((r0 * mu + d) / r1, -1.0, 1.0);
-    // Para cima: T(r0)/T(r1) até o topo. Para baixo: o caminho ao contrário (Bruneton), que não atinge o chão.
-    if (mu >= 0.0) {
-        return sky_transmittance(r0, mu) / max(sky_transmittance(r1, mu1), vec3f(1e-12));
-    }
-    return sky_transmittance(r1, -mu1) / max(sky_transmittance(r0, -mu), vec3f(1e-12));
-}
+/** Passos da marcha do trecho além da tabela (teto constante). */
+const SKY_AERIAL_FAR_STEPS: u32 = 32u;
 
-/** A luz do céu (por unidade de sol) na direção `dir` e a transmitância até o topo, vistas do observador. */
+/**
+ * O trecho de `start_km` a `d_km` na direção `dir` (mundo), continuando `start` (a luz e a transmitância até
+ * `start_km`): a mesma integral da tabela (simples de Rayleigh e Mie com a transmitância do sol mais Ψms) em
+ * `SKY_AERIAL_FAR_STEPS` passos. A aproximação anterior (a fonte uniforme no resto do caminho até o topo, pela razão das
+ * transmitâncias) errava 10 % a luz das nuvens a 100 km rente ao horizonte na direção do sol baixo (smoke `clouds`,
+ * `sunset`): o caminho sobe e a luz do sol que chega a ele muda ao longo dele.
+ */
 fn sky_aerial_far(dir: vec3f, start_km: f32, start: SkyAerial, d_km: f32) -> SkyAerial {
     let r0 = sky_bottom() + max(sky.radii.w, 0.001);
     let mu = clamp(dir.y, -1.0, 1.0);
@@ -30,19 +26,33 @@ fn sky_aerial_far(dir: vec3f, start_km: f32, start: SkyAerial, d_km: f32) -> Sky
     let a = min(start_km, seg);
     let b = min(d_km, seg);
     if (b <= a) { return start; }
-    let t_rest = sky_segment_transmittance(sky_bottom() + max(sky.radii.w, 0.001), mu, b)
-        / max(sky_segment_transmittance(sky_bottom() + max(sky.radii.w, 0.001), mu, a), vec3f(1e-12));
-    let t_inf = sky_segment_transmittance(r0, mu, seg) / max(sky_segment_transmittance(r0, mu, a), vec3f(1e-12));
-    let zenith = acos(mu);
-    let sun = sky.sunDirection.xyz;
-    let la = length(dir.xz);
-    let lb = length(sun.xz);
-    let cos_az = select(1.0, dot(dir.xz, sun.xz) / (la * lb), la > 1e-6 && lb > 1e-6);
-    let s_inf = textureSampleLevel(sky_view_lut, sky_sampler, sky_view_uv(zenith, acos(clamp(cos_az, -1.0, 1.0)), r0), 0.0).rgb;
-    let rest = max(s_inf - start.scattered, vec3f(0.0)) / max(start.transmittance, vec3f(1e-6));
-    let frac = (1.0 - t_rest) / max(1.0 - t_inf, vec3f(1e-6));
-    return SkyAerial(start.scattered + start.transmittance * rest * clamp(frac, vec3f(0.0), vec3f(1.0)),
-        start.transmittance * t_rest);
+    // O sol no plano x-y e a direção com o mesmo azimute relativo (como a tabela).
+    let sun_cos = clamp(sky.sunDirection.y, -1.0, 1.0);
+    let sun = vec3f(sqrt(max(0.0, 1.0 - sun_cos * sun_cos)), sun_cos, 0.0);
+    let h = length(dir.xz);
+    let lb = length(sky.sunDirection.xz);
+    let cos_az = select(1.0, dot(dir.xz, sky.sunDirection.xz) / (h * lb), h > 1e-6 && lb > 1e-6);
+    let v = vec3f(h * cos_az, mu, h * sqrt(max(0.0, 1.0 - cos_az * cos_az)));
+    let c = dot(v, sun);
+    let pr = sky_rayleigh_phase(c);
+    let pm = sky_mie_phase(c);
+    let pos = vec3f(0.0, r0, 0.0);
+    var lum = start.scattered;
+    var throughput = start.transmittance;
+    let dt = (b - a) / f32(SKY_AERIAL_FAR_STEPS);
+    for (var k = 0u; k < SKY_AERIAL_FAR_STEPS; k++) {
+        let x = pos + v * (a + (f32(k) + 0.5) * dt);
+        let rx = length(x);
+        let m = sky_medium(rx - sky_bottom());
+        let step_t = exp(-m.extinction * dt);
+        let integ = select(vec3f(dt), (1.0 - step_t) / max(m.extinction, vec3f(1e-12)), m.extinction > vec3f(0.0));
+        let mu_s = dot(x, sun) / rx;
+        let single = (m.rayleigh * pr + vec3f(m.mie * pm)) * sky_transmittance(rx, mu_s);
+        let multi = m.scattering * sky_multiscatter(rx, mu_s);
+        lum += throughput * (single + multi) * integ;
+        throughput *= step_t;
+    }
+    return SkyAerial(lum, throughput);
 }
 
 /** A perspectiva aérea até `d` metros pela coluna `uv` da tela, na direção `dir` (mundo). */

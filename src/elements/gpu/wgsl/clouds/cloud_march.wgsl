@@ -1,7 +1,7 @@
 // Marcha principal das nuvens (spec 041, R1, R2, R10): no alvo de ¼ da tela (½ × ½), um pixel de cada bloco 2 × 2 por
-// quadro na ordem de Bayer (`clouds.march.z`): o raio da câmera pelo centro do pixel, até a superfície opaca mais próxima
-// dos 2 × 2 pixels da tela que ele cobre (a profundidade da cena depois da água), com o deslocamento inicial por ruído
-// azul no tempo (sequência R2 por pixel). A nuvem sai com a perspectiva aérea até a profundidade dela:
+// quadro na ordem de Bayer (`clouds.march.z`): o raio da câmera por um ponto do pixel que muda a cada marcha, até a
+// superfície opaca mais próxima dos 2 × 2 pixels da tela que ele cobre (a profundidade da cena depois da água), com o
+// deslocamento inicial por ruído azul no tempo (sequência R2 por pixel). A nuvem sai com a perspectiva aérea até a profundidade dela:
 // `Sc = L·Ta(dc) + (1 − Tc)·Sa(dc)`. Uma invocação por bloco; saídas `cloud_trace_out` (rgb, a = Tc) e
 // `cloud_trace_depth_out` (a profundidade da nuvem, m; 0 sem nuvem).
 // Despacho linear: um bloco por invocação.
@@ -39,7 +39,13 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let slot = clouds.march.w;
     let full = vec2f(cloud_scene_depth_size());
     let q = g.xy * 2u + cloud_bayer(clouds.march.z);
-    let center = vec2f(q) * 2.0 + 1.0;
+    // O raio num ponto do pixel de ¼ (os 2 × 2 da tela que ele cobre) que muda a cada vez que ele é marchado (sequência
+    // R2 deslocada pelo hash do pixel): a média temporal integra a área do pixel, não só o centro dele (o detalhe menor
+    // que o pixel de ¼, como a faixa de nuvens de 2–4 px rente ao horizonte, entra pela área que cobre).
+    let k = f32(clouds.march.z / 4u);
+    let hp = vec2f(f32(hash2(q + vec2u(7u, 13u)) >> 8u), f32(hash2(q + vec2u(29u, 3u)) >> 8u)) / 16777216.0;
+    let sub = fract(hp + k * vec2f(0.7548776662, 0.5698402910));
+    let center = vec2f(q) * 2.0 + sub * 2.0;
     let ray = camera_ray(slot, center, full);
     let limit = cloud_block_distance(slot, q);
     // Ruído azul no tempo: a sequência R2 deslocada pelo hash do pixel.

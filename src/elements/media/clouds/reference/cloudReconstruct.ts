@@ -1,8 +1,9 @@
 // Referência da reconstrução temporal das nuvens (spec 041, R2; `cloud_reconstruct.wgsl`): por pixel do alvo de ¼, o
-// valor do bloco misturado ao histórico recortado (o pixel marchado no quadro, média exponencial), ou o histórico reprojetado recortado pela caixa dos valores exatos
-// dos 3 × 3 blocos em volta — salvo quando o gradiente temporal reprova o bloco (no pixel marchado, o histórico
-// reprojetado diverge do valor exato além da tolerância: a lição dos blocos 2 × 2 da 034), quando o histórico sai da
-// tela ou quando a série não vale (corte, recriação, primeiro quadro).
+// histórico reprojetado (o pixel marchado no quadro mistura o valor do bloco a ele, média exponencial) — salvo quando o
+// gradiente temporal filtrado reprova o bloco (a média dos históricos reprojetados nos pixels marchados dos 3 × 3 blocos
+// em volta diverge da média dos valores exatos deles além da tolerância: Schied et al. 2018; a lição dos blocos 2 × 2
+// da 034), quando o histórico sai da tela ou quando a série não vale (corte, recriação, primeiro quadro): aí, o valor do
+// bloco. Sem recorte pela caixa da vizinhança.
 
 import { luminance as rec709 } from '../../../math/reference/color';
 
@@ -34,17 +35,28 @@ export interface ReconstructInput {
     readonly history: Rgba | undefined;
     /** O histórico reprojetado no pixel marchado do bloco (undefined: fora da tela). */
     readonly check: Rgba | undefined;
-    /** Os valores exatos dos 3 × 3 blocos em volta (o próprio incluso). */
-    readonly neighbors: readonly Rgba[];
+    /**
+     * Os 3 × 3 blocos em volta (o próprio incluso): o valor exato de cada um e o histórico reprojetado no pixel marchado
+     * dele (undefined: fora da tela, fica de fora da média).
+     */
+    readonly neighbors: readonly { readonly fresh: Rgba; readonly check: Rgba | undefined }[];
 }
+
+const mean = (v: readonly Rgba[]): Rgba =>
+    [0, 1, 2, 3].map((c) => v.reduce((s, x) => s + x[c]!, 0) / v.length) as unknown as Rgba;
 
 /** O valor reconstruído do pixel. */
 export function reconstructTexel(i: ReconstructInput): Rgba {
-    if (i.marched || !i.valid || i.history === undefined || i.check === undefined) return i.fresh;
-    if (cloudDivergence(i.check, i.fresh) > CLOUD_GRADIENT_TOLERANCE) return i.fresh;
-    const lo = [0, 1, 2, 3].map((c) => Math.min(...i.neighbors.map((n) => n[c]!), i.fresh[c]!));
-    const hi = [0, 1, 2, 3].map((c) => Math.max(...i.neighbors.map((n) => n[c]!), i.fresh[c]!));
-    return [0, 1, 2, 3].map((c) =>
-        Math.min(hi[c]!, Math.max(lo[c]!, i.history![c]!)),
+    if (!i.valid || i.history === undefined || i.check === undefined) return i.fresh;
+    const seen = i.neighbors.filter((n) => n.check !== undefined);
+    if (seen.length === 0) return i.fresh;
+    const divergence = cloudDivergence(
+        mean(seen.map((n) => n.check!)),
+        mean(seen.map((n) => n.fresh)),
+    );
+    if (divergence > CLOUD_GRADIENT_TOLERANCE) return i.fresh;
+    if (!i.marched) return i.history;
+    return [0, 1, 2, 3].map(
+        (c) => i.history![c]! + (i.fresh[c]! - i.history![c]!) * CLOUD_HISTORY_BLEND,
     ) as unknown as Rgba;
 }

@@ -1,9 +1,12 @@
 // Reconstrução temporal das nuvens (spec 041, R2): o alvo de ¼ da tela, série temporal da 037 (`march` e `marchDepth`,
-// lidas pelo atraso 1). O pixel marchado do bloco entra exato; os outros três vêm do histórico reprojetado pela posição
-// da nuvem (a câmera atual e a profundidade da nuvem do quadro anterior) e pelo vento (onde a nuvem estava: o ponto
-// menos o vento × Δt), recortado pela caixa dos pixels marchados nos 3 × 3 blocos em volta; e o gradiente temporal da
-// 034: se no pixel marchado o histórico reprojetado diverge do valor exato além da tolerância, os três do bloco largam
-// o histórico (o valor do bloco). Sem histórico válido (corte, recriação, primeiro quadro), o valor do bloco.
+// lidas pelo atraso 1). Os pixels do bloco vêm do histórico reprojetado pela posição da nuvem (a câmera atual e a
+// profundidade da nuvem do quadro anterior) e pelo vento (onde a nuvem estava: o ponto menos o vento × Δt); o pixel
+// marchado mistura o valor exato a ele (média exponencial). O gradiente temporal da 034, filtrado nos 3 × 3 blocos em
+// volta, decide a validade: se a média dos históricos reprojetados nos pixels marchados diverge da média dos valores
+// exatos além da tolerância, os quatro do bloco largam o histórico (o valor do bloco). Sem recorte do histórico pela
+// caixa da vizinhança: ela tem uma amostra por bloco, e o detalhe fino fora dela seria recortado em três de cada quatro
+// quadros (como a Unreal, que deixa o recorte da reprojeção desligado por padrão). Sem histórico válido (corte,
+// recriação, primeiro quadro), o valor do bloco.
 // Espelho de `reference/cloudReconstruct.ts`.
 // Despacho linear: um texel por invocação.
 // Requer: WORKGROUP_SIZE, color, cloud_march_bayer, camera_space, clouds, cameras, cloud_trace, cloud_trace_depth, cloud_march_prev,
@@ -12,7 +15,7 @@
 /** Tolerância do gradiente temporal: diferença relativa da luz mais a da transmitância. */
 const CLOUD_GRADIENT_TOLERANCE: f32 = 0.2;
 /**
- * Peso do valor novo no pixel marchado (média exponencial sobre o histórico recortado): a amostra de um deslocamento
+ * Peso do valor novo no pixel marchado (média exponencial sobre o histórico): a amostra de um deslocamento
  * inicial aleatório entra aos poucos, e o ruído do deslocamento não cintila a cada vez que o bloco é marchado.
  */
 const CLOUD_HISTORY_BLEND: f32 = 0.25;
@@ -58,16 +61,26 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     if (clouds.flags.x == 1u && cameras[clouds.march.w].history.x < 0.5) {
         let hist = cloud_history_at(q, full);
         let check = cloud_history_at(min(marched, size - 1u), full);
-        if (hist.a >= 0.0 && check.a >= 0.0 && cloud_divergence(check, fresh) <= CLOUD_GRADIENT_TOLERANCE) {
-            var lo = fresh;
-            var hi = fresh;
-            for (var k = 0; k < 9; k++) {
-                let o = vec2i(k % 3 - 1, k / 3 - 1);
-                let n = textureLoad(cloud_trace, vec2u(clamp(vec2i(b) + o, vec2i(0), vec2i(blocks) - 1)), 0);
-                lo = min(lo, n);
-                hi = max(hi, n);
+        // O gradiente temporal filtrado (Schied et al. 2018, A-SVGF): a divergência entre as médias dos 3 × 3 blocos em
+        // volta — o valor exato de cada um e o histórico reprojetado no pixel marchado dele —, não a de uma amostra só:
+        // o ruído do deslocamento inicial da marcha numa amostra reprovava o bloco na nuvem fina e na borda, e o bloco
+        // trocado pela amostra do pixel marchado puxava a borda para o vizinho (smoke `clouds`: `noon` 7 %, `sunset` 9 %).
+        // Os vizinhos cujo histórico sai da tela ficam de fora da média.
+        var fresh_sum = vec4f(0.0);
+        var check_sum = vec4f(0.0);
+        var n = 0.0;
+        for (var k = 0; k < 9; k++) {
+            let nb = vec2u(clamp(vec2i(b) + vec2i(k % 3 - 1, k / 3 - 1), vec2i(0), vec2i(blocks) - 1));
+            let h = cloud_history_at(min(nb * 2u + cloud_bayer(clouds.march.z), size - 1u), full);
+            if (h.a >= 0.0) {
+                fresh_sum += textureLoad(cloud_trace, nb, 0);
+                check_sum += h;
+                n += 1.0;
             }
-            out = clamp(hist, lo, hi);
+        }
+        let agrees = n > 0.0 && cloud_divergence(check_sum / max(n, 1.0), fresh_sum / max(n, 1.0)) <= CLOUD_GRADIENT_TOLERANCE;
+        if (hist.a >= 0.0 && check.a >= 0.0 && agrees) {
+            out = hist;
             if (all(q == marched)) {
                 out = mix(out, fresh, CLOUD_HISTORY_BLEND);
             } else {

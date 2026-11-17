@@ -14,6 +14,7 @@ import { defaultCloudShapeGraph } from './defaultShape';
 import {
     CLOUD_COVERAGE_SIZE,
     CLOUD_DETAIL_SIZE,
+    CLOUD_SHADOW_KNOTS,
     CLOUD_SHAPE_SIZE,
     CloudSchema,
     type CloudQuality,
@@ -68,12 +69,12 @@ export interface CloudLayerData {
 
 /** A qualidade do perfil alto (o padrão antes do `Renderer` adotar a camada). */
 export const CLOUD_QUALITY_HIGH: CloudQuality = {
-    steps: 96,
+    steps: 128,
     lightSteps: 6,
     octaves: 3,
     panorama: [256, 128],
     panoramaSteps: 32,
-    shadow: { size: 384, extent: 32_000 },
+    shadow: { size: 256, extent: 400_000, near: 3_000 },
     coverageExtent: 64_000,
 };
 
@@ -343,7 +344,20 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             volume('detail', CLOUD_DETAIL_SIZE),
             target('coverage', 'rgba8unorm', [CLOUD_COVERAGE_SIZE, CLOUD_COVERAGE_SIZE]),
             target('ambient', 'rgba16float', [2, 1]),
-            target('shadow', 'rgba16float', [q.shadow.size, q.shadow.size]),
+            // O mapa visto do sol: 16 nós de profundidade ótica por coluna, 4 por camada (spec 041, R11).
+            {
+                id: 'shadow',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    dimension: '3d',
+                    width: q.shadow.size,
+                    height: q.shadow.size,
+                    depthOrArrayLayers: CLOUD_SHADOW_KNOTS / 4,
+                    access: 'write-only',
+                },
+            },
             target('panorama', 'rgba16float', q.panorama),
             // A marcha: um valor por bloco 2 × 2 do alvo de ¼ (1/16 da tela) e a série reconstruída (spec 037).
             target('trace', 'rgba16float', 4),

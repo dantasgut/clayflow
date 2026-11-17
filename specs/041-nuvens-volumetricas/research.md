@@ -389,7 +389,18 @@ mediana 0,984 com extremos 0,44/1,57; a 60°, 0,983). Descartados por medida:
 - a perspectiva aérea além de 32 km: todas as nuvens do caso estão mais perto;
 - o termo ambiente: × 1,3 na referência leva a mediana de 1,27 a 1,21 (é ~¼ da luz).
   Sobra o termo do sol na marcha da câmera com τ grande (as oitavas `e^(−aⁱτ)` amplificam qualquer diferença de τ ao
-  longo do raio da câmera); os diagnósticos ficam no smoke (`?el=`, `?az=`, `?map=1`, `?cone=1`, `?amb=`). Em aberto.
+  longo do raio da câmera); os diagnósticos ficam no smoke (`?el=`, `?az=`, `?cone=1`, `?amb=`).
+
+  **Causa achada (2026-11-17), amostra a amostra num raio** (os termos do shader exportados num buffer, contra
+  `marchCloud`): a marcha lia o mapa como T e refazia `τ = −log(max(T, 1e−6))` — τ saturava em 13,8, contra 30–50 com o
+  sol a 4°, e `e^(−0,35²·13,8)` deixava passar o sol (o diagnóstico `map=1` lia o mapa em f64, sem a saturação). Com τ
+  lido direto, sobrou o mapa: 4 nós lineares num trecho de ~35 km erravam τ em dezenas e as colunas além de ±16 km saíam
+  da borda. Na emulação f64 (luz do sol por região contra τ exato, a 4°): 4 nós lineares até 50 %; 16 nós lineares até
+  14 %; 16 nós com o pedaço até o nó marchado pelo receptor ≤ 2,2 % (com a altura do texel ≤ ~80 m: a 125 m, 10 %).
+  Desenho: volume 4 × rgba16f (16 nós), 64 passos por coluna, coordenadas do plano do sol `x0·sinh(2a·k)` (perto da
+  câmera ~115 × 60–140 m, até ±200 km). A perspectiva aérea além de 32 km passou a ser integrada (a fonte uniforme
+  errava 10 % a 100 km na direção do sol baixo). Na reconstrução, o gradiente temporal filtrado nos 3 × 3 blocos (A-SVGF)
+  no lugar do de uma amostra. O smoke compara a média de 48 quadros com 32 × 32 raios por região. Resultado na T024.
 
 ### Retomada — espalhamento múltiplo (T023)
 

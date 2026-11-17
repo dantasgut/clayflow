@@ -215,16 +215,35 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const sun = unit(s.sunDirection, [0, 1, 0]);
         const right = unit(Math.abs(sun[1]!) < 0.99 ? cross([0, 1, 0], sun) : [1, 0, 0], [1, 0, 0]);
         const up = cross(sun, right);
-        const shTexel = q.shadow.extent / q.shadow.size;
-        const sx = Math.round(dot(eye, right) / shTexel) * shTexel;
-        const sy = Math.round(dot(eye, up) / shTexel) * shTexel;
+        // O plano do sol deformado por asinh em volta da câmera (texels finos perto, crescendo com a distância, até as
+        // nuvens do horizonte). Na direita (horizontal), a escala `near`; em cima, a mesma escala na parte horizontal de
+        // `up` mais a meia faixa da casca (do chão − 1 km ao topo + 1 km) na parte vertical — com o sol baixo, `up` é
+        // quase vertical e a casca é uma faixa estreita do plano, com texels finos na altitude.
+        const half = q.shadow.extent / 2;
+        const ey = eye[1] ?? 0;
+        const lo = Math.min(ey, 0) - 1000;
+        const hi = Math.max(ey, d.top) + 1000;
+        const band = (hi - lo) / 2;
+        const upH = Math.hypot(up[0]!, up[2]!);
+        const upY = Math.abs(up[1]!);
+        const x0u = q.shadow.near;
+        const ku = Math.asinh(half / x0u);
+        const x0v = q.shadow.near * upH + band * upY;
+        const kv = Math.asinh((half * upH + band * upY) / x0v);
+        const vMid = ((hi + lo) / 2 - ey) * up[1]!;
+        // O centro encaixado no texel de perto (a câmera andando não faz tremer).
+        const tu = (2 * x0u * ku) / q.shadow.size;
+        const tv = (2 * x0v * kv) / q.shadow.size;
+        const sx = Math.round(dot(eye, right) / tu) * tu;
+        const sy = Math.round((dot(eye, up) + vMid) / tv) * tv;
         const center = [
             right[0]! * sx + up[0]! * sy,
             right[1]! * sx + up[1]! * sy,
             right[2]! * sx + up[2]! * sy,
         ];
+        // A origem dos raios acima do topo em todo texel: o texel mais baixo fica `|up_y|·alcance` abaixo do centro.
         const far = Math.min(
-            (d.top + 0.5 * q.shadow.extent + 500 - Math.min(center[1]!, 0))
+            (d.top + 1000 - Math.min(center[1]!, 0) + upY * (half * upH + band * upY))
                 / Math.max(sun[1]!, 0.02),
             2e6,
         );
@@ -249,6 +268,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 sunRight: [right[0]!, right[1]!, right[2]!, far],
                 sunUp: [up[0]!, up[1]!, up[2]!, 0],
                 sunDir: [sun[0]!, sun[1]!, sun[2]!, 0],
+                sunWarp: [x0u, ku, x0v, kv],
                 march: [q.steps, q.lightSteps, time?.frame ?? 0, cameraSlot],
                 flags: [valid ? 1 : 0, shapeSlot, coverageSlot, 0],
                 timing: [time?.dt ?? 0, q.panoramaSteps, 0, 0],

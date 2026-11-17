@@ -7,7 +7,8 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
  * (cobertura, tipo, extinção, albedo), a fase (g_HG, g_D, α, w_D), as oitavas (quantas, a, b, c), os deslocamentos do
  * vento da forma e do detalhe (m, reduzidos módulo o período em f64; `w` a escala), o vento (direção unitária xz e
  * velocidade xz em m/s), o mapa de cobertura (centro xz, lado, tempo) e o deslocamento dele, o referencial do mapa
- * visto do sol (centro e lado; direita e a distância da origem dos raios; cima; a direção do sol), a marcha (passos,
+ * visto do sol (centro e lado; direita e a distância da origem dos raios; cima; a direção do sol; a deformação: escala e
+ * alcance em asinh na direita e em cima), a marcha (passos,
  * passos de luz, quadro de Bayer, slot da câmera), as marcas (histórico válido, slots das funções de forma e de
  * cobertura), os tempos (Δt, passos do panorama) e a posição da câmera do panorama.
  */
@@ -27,6 +28,7 @@ export const CloudSchema = new StructSchema(
         sunRight: FieldType.vec4f,
         sunUp: FieldType.vec4f,
         sunDir: FieldType.vec4f,
+        sunWarp: FieldType.vec4f,
         march: FieldType.vec4u,
         flags: FieldType.vec4u,
         timing: FieldType.vec4f,
@@ -38,6 +40,8 @@ export const CloudSchema = new StructSchema(
 /** Lado dos volumes de ruído (texels por eixo): a forma e o detalhe (spec 041, R3). */
 export const CLOUD_SHAPE_SIZE = 128;
 export const CLOUD_DETAIL_SIZE = 32;
+/** Nós de profundidade ótica por coluna do mapa visto do sol (R11; 4 por camada do volume). */
+export const CLOUD_SHADOW_KNOTS = 16;
 /** Texels por lado do mapa de cobertura (R4). */
 export const CLOUD_COVERAGE_SIZE = 512;
 
@@ -60,8 +64,12 @@ export interface CloudQuality {
     readonly panorama: readonly [number, number];
     /** Passos da marcha do panorama. */
     readonly panoramaSteps: number;
-    /** Mapa visto do sol: texels por lado e lado (m). */
-    readonly shadow: { readonly size: number; readonly extent: number };
+    /**
+     * Mapa visto do sol: texels por lado, o lado coberto (m) e a escala perto da câmera (m): as coordenadas do plano do sol
+     * são deformadas por `asinh(x/near)` — texels de ~`2·near·asinh(extent/2/near)/size` perto da câmera, crescendo com a
+     * distância (como o pixel da câmera), até as nuvens do horizonte.
+     */
+    readonly shadow: { readonly size: number; readonly extent: number; readonly near: number };
     /** Lado (m) do mapa de cobertura. */
     readonly coverageExtent: number;
 }

@@ -447,21 +447,31 @@ export function marchCloud(
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Mapa de transmitância visto do sol (R11)
+// Mapa de profundidade ótica visto do sol (R11)
 
-/** Texel do mapa: a profundidade ótica acumulada ao fim de cada quarto do trecho da casca ao longo do sol. */
-export type ShadowTexel = readonly [number, number, number, number];
+/** Texel do mapa: a profundidade ótica acumulada ao fim de cada um dos `knots` trechos iguais da casca ao longo do sol. */
+export type ShadowTexel = readonly number[];
+
+/** Nós por coluna (o volume da GPU: 4 camadas × 4 canais). */
+export const SHADOW_KNOTS = 16;
 
 /**
- * Texel do mapa de transmitância ao longo do raio que desce do sol a partir de `o` (acima da camada) na direção `dir`
- * (do sol para baixo), pelo primeiro trecho da casca em `steps` passos (múltiplo de 4): τ ao fim de cada quarto.
+ * Texel do mapa ao longo do raio que desce do sol a partir de `o` (acima da camada) na direção `dir` (do sol para
+ * baixo), pelo primeiro trecho da casca em `steps` passos (múltiplo de `knots`): τ ao fim de cada trecho.
  */
-export function shadowTexel(m: CloudModel, o: Vec3, dir: Vec3, steps = 48): ShadowTexel {
+export function shadowTexel(
+    m: CloudModel,
+    o: Vec3,
+    dir: Vec3,
+    steps = 64,
+    knots = SHADOW_KNOTS,
+): ShadowTexel {
+    const out = new Array<number>(knots).fill(0);
     const segs = shellSegments(m, o, dir, Infinity);
-    if (segs.length === 0) return [0, 0, 0, 0];
+    if (segs.length === 0) return out;
     const [start, end] = segs[0]!;
     const dt = (end - start) / steps;
-    const knots = [0, 0, 0, 0];
+    const per = steps / knots;
     let tau = 0;
     for (let i = 0; i < steps; i++) {
         const t = start + (i + 0.5) * dt;
@@ -469,18 +479,55 @@ export function shadowTexel(m: CloudModel, o: Vec3, dir: Vec3, steps = 48): Shad
             cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t])
             * m.density
             * dt;
-        if ((i + 1) % (steps / 4) === 0) knots[(i + 1) / (steps / 4) - 1] = tau;
+        if ((i + 1) % per === 0) out[(i + 1) / per - 1] = tau;
     }
-    return knots as unknown as ShadowTexel;
+    return out;
+}
+
+/** τ acumulado da entrada do lado do sol até o nó `k` (0…n) do texel. */
+export function shadowKnot(texel: ShadowTexel, k: number): number {
+    return k <= 0 ? 0 : texel[Math.min(k, texel.length) - 1]!;
 }
 
 /**
- * `T(p) = exp(−τ)` para o receptor a `d` m da origem do raio do texel, com o trecho da casca `[a, b]` da coluna: τ
- * linear entre os nós dos quartos.
+ * `τ(p)` (a superfície) para o receptor a `d` m da origem do raio do texel, com o trecho da casca `[a, b]` da coluna: τ
+ * linear entre os nós.
  */
+export function shadowDepth(texel: ShadowTexel, d: number, a: number, b: number): number {
+    const n = texel.length;
+    const s = Math.min(1, Math.max(0, (d - a) / (b - a))) * n;
+    const k = Math.min(Math.floor(s), n - 1);
+    const lo = shadowKnot(texel, k);
+    return lo + (shadowKnot(texel, k + 1) - lo) * (s - k);
+}
+
+/** `T(p) = exp(−τ(p))` da superfície. */
 export function shadowTransmittance(texel: ShadowTexel, d: number, a: number, b: number): number {
-    const s = Math.min(1, Math.max(0, (d - a) / (b - a))) * 4;
-    const k = Math.min(Math.floor(s), 3);
-    const lo = k === 0 ? 0 : texel[k - 1]!;
-    return Math.exp(-(lo + (texel[k]! - lo) * (s - k)));
+    return Math.exp(-shadowDepth(texel, d, a, b));
+}
+
+/**
+ * `τ(q)` como a marcha da nuvem o lê (`cloud_sun_depth`): o nó do lado do sol mais o pedaço do trecho de `q` até ele,
+ * integrado em `steps` passos ao longo de `sun` (a direção para o sol).
+ */
+export function shadowDepthMarched(
+    m: CloudModel,
+    q: Vec3,
+    sun: Vec3,
+    texel: ShadowTexel,
+    d: number,
+    a: number,
+    b: number,
+    steps = 4,
+): number {
+    const n = texel.length;
+    const s = Math.min(1, Math.max(0, (d - a) / (b - a))) * n;
+    const k = Math.floor(s);
+    const dt = (((s - k) / n) * (b - a)) / steps;
+    let tau = 0;
+    for (let i = 0; i < steps; i++) {
+        const t = (i + 0.5) * dt;
+        tau += cloudDensity(m, [q[0] + sun[0] * t, q[1] + sun[1] * t, q[2] + sun[2] * t]) * dt;
+    }
+    return shadowKnot(texel, k) + tau * m.density;
 }

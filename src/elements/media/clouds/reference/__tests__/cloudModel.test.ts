@@ -11,8 +11,11 @@ import {
     opticalDepth,
     profileLimits,
     sampleVolume,
+    shadowDepth,
+    shadowDepthMarched,
     shadowTexel,
     shadowTransmittance,
+    shellSegments,
     type CloudModel,
     type Vec3,
 } from '../cloudModel';
@@ -139,6 +142,42 @@ describe('transmitância e mapa visto do sol', () => {
             const tauMap = -Math.log(shadowTransmittance(texel, 4000 - y, a, b));
             expect(Math.abs(tauMap - tauInside)).toBeLessThan(0.25 * tauInside + 0.2);
         }
+    });
+
+    it('com o sol a 4°, o nó do lado do sol e o pedaço marchado seguem τ exato; quatro nós lineares, não', () => {
+        // Arrange: cobertura que oscila a cada 3 km (estrutura ao longo do raio do sol, que cruza ~14 km da camada).
+        const base = flatModel(1, 0.5);
+        const m: CloudModel = {
+            ...base,
+            coverage: (x) => [0.65 + 0.35 * Math.sin((2 * Math.PI * x) / 3000), 0.5, 1],
+        };
+        const e = (4 * Math.PI) / 180;
+        const sun: Vec3 = [Math.cos(e), Math.sin(e), 0];
+        const down: Vec3 = [-sun[0], -sun[1], -sun[2]];
+        const far = 200_000;
+        let worst16 = 0;
+        let worst4 = 0;
+        for (const [x, y] of [
+            [0, 1700],
+            [700, 1900],
+            [2600, 2100],
+            [-3100, 2300],
+            [5200, 1600],
+        ] as const) {
+            const q: Vec3 = [x, y, 0];
+            const o: Vec3 = [q[0] + sun[0] * far, q[1] + sun[1] * far, q[2] + sun[2] * far];
+            const [a, b] = shellSegments(m, o, down, Infinity)[0]!;
+            const exact = opticalDepth(m, q, sun, 4096);
+            // Act
+            const marched = shadowDepthMarched(m, q, sun, shadowTexel(m, o, down, 64), far, a, b);
+            const linear4 = shadowDepth(shadowTexel(m, o, down, 64, 4), far, a, b);
+            // Assert (relativo, com piso de 0,5 de τ)
+            worst16 = Math.max(worst16, Math.abs(marched - exact) / Math.max(exact, 0.5));
+            worst4 = Math.max(worst4, Math.abs(linear4 - exact) / Math.max(exact, 0.5));
+        }
+        // Medido: 16 nós com o pedaço marchado ≤ 0,5 %; quatro nós lineares, 19 %.
+        expect(worst16).toBeLessThan(0.02);
+        expect(worst4).toBeGreaterThan(0.1);
     });
 
     it('a marcha sem nuvem deixa tudo passar; com nuvem espessa, quase nada', () => {
