@@ -30,6 +30,7 @@ import {
 import { materialGraph } from './support/materialScenes';
 import { noiseCellular3 } from '../elements/nodes/reference/noiseNodes';
 import {
+    cloudDensity,
     coneSunDepth,
     opticalDepth,
     shellSegments,
@@ -301,14 +302,74 @@ async function compareView(
         }
         return v;
     };
+    // Diagnóstico (`?amb=k`): o ambiente da referência × k.
+    const ambK = Number(new URLSearchParams(location.search).get('amb') ?? 1);
     const light = {
         sunDir: sun,
         sunAt,
         sun: [sunT[0] * lux, sunT[1] * lux, sunT[2] * lux] as Vec3,
-        ambientUp: [ambient.data[0]!, ambient.data[1]!, ambient.data[2]!] as Vec3,
-        ambientDown: [ambient.data[4]!, ambient.data[5]!, ambient.data[6]!] as Vec3,
+        ambientUp: [0, 1, 2].map((c) => ambient.data[c]! * ambK) as unknown as Vec3,
+        ambientDown: [4, 5, 6].map((c) => ambient.data[c]! * ambK) as unknown as Vec3,
     };
     const phase = jdeParams(layer.dropletDiameter);
+    // Variante de diagnóstico (`?map=1`): além do cone, o mapa visto do sol da própria GPU, lido como o shader lê.
+    const useMap = new URLSearchParams(location.search).get('map') === '1';
+    const mapTex = useMap ? s.app.resources.textureOf(layer, 'shadow') : undefined;
+    const map = mapTex === undefined ? undefined : await readTexture(s.app, mapTex, 'rgba16float');
+    const pp = layer.data.params[0]!;
+    const mapTau = (q: Vec3): number => {
+        if (map === undefined) return 0;
+        const c = pp.sunFrame!,
+            rt = pp.sunRight!,
+            up = pp.sunUp!,
+            sd = pp.sunDir!;
+        const rel = [q[0] - c[0]!, q[1] - c[1]!, q[2] - c[2]!];
+        const d = rt[3]! - (rel[0]! * sd[0]! + rel[1]! * sd[1]! + rel[2]! * sd[2]!);
+        const o: Vec3 = [q[0] + sd[0]! * d, q[1] + sd[1]! * d, q[2] + sd[2]! * d];
+        const segs = shellSegments(model, o, [-sd[0]!, -sd[1]!, -sd[2]!], 1e9);
+        if (segs.length === 0) return 0;
+        const [a, b] = segs[0]!;
+        const u = (rel[0]! * rt[0]! + rel[1]! * rt[1]! + rel[2]! * rt[2]!) / c[3]! + 0.5;
+        const v = (rel[0]! * up[0]! + rel[1]! * up[1]! + rel[2]! * up[2]!) / c[3]! + 0.5;
+        const fx = u * map.width - 0.5;
+        const fy = v * map.height - 0.5;
+        const x0 = Math.floor(fx);
+        const y0 = Math.floor(fy);
+        const ax = fx - x0;
+        const ay = fy - y0;
+        const at = (i: number, j: number, k: number): number =>
+            map.data[
+                (Math.min(map.height - 1, Math.max(0, j)) * map.width
+                    + Math.min(map.width - 1, Math.max(0, i)))
+                    * 4
+                    + k
+            ]!;
+        const knot = (k: number): number =>
+            (at(x0, y0, k) * (1 - ax) + at(x0 + 1, y0, k) * ax) * (1 - ay)
+            + (at(x0, y0 + 1, k) * (1 - ax) + at(x0 + 1, y0 + 1, k) * ax) * ay;
+        const sq = Math.min(1, Math.max(0, (d - a) / (b - a))) * 4;
+        const k = Math.min(Math.floor(sq), 3);
+        const lo = k === 0 ? 0 : knot(k - 1);
+        return lo + (knot(k) - lo) * (sq - k);
+    };
+    const coneMap = (x: Vec3): number => {
+        const base = (layer.top - layer.base) / 48;
+        let tau = 0;
+        let t = 0;
+        for (let i = 0; i < 6; i++) {
+            const len = base * 0.5 * 1.5 ** i;
+            tau +=
+                cloudDensity(model, [
+                    x[0] + sun[0] * (t + 0.5 * len),
+                    x[1] + sun[1] * (t + 0.5 * len),
+                    x[2] + sun[2] * (t + 0.5 * len),
+                ]) * len;
+            t += len;
+        }
+        return (
+            tau * model.density + mapTau([x[0] + sun[0] * t, x[1] + sun[1] * t, x[2] + sun[2] * t])
+        );
+    };
     const octaves = { count: layer.quality.octaves, ...CLOUD_OCTAVES };
     // Regiões de 60 × 68 px a 480 × 270: a média por região da SC-001 (o aumento de ¼ borra a borda em ~4 px).
     const cols = 8;
@@ -356,7 +417,11 @@ async function compareView(
                         eye,
                         d,
                         Infinity,
-                        cone ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) } : light,
+                        useMap
+                            ? { ...light, sunDepth: coneMap }
+                            : cone
+                              ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) }
+                              : light,
                         phase,
                         octaves,
                         256,
@@ -416,6 +481,13 @@ async function compareView(
     };
     const edgeRatio = ratioOf('gL') / ratioOf('rL');
     const ratios = samples.map((x) => x.gL / Math.max(x.rL, 1e-6)).sort((a, b) => a - b);
+    const med = (v: number[]): string => {
+        const a = [...v].sort((x, y) => x - y);
+        return a.length === 0 ? '—' : a[Math.floor(a.length / 2)]!.toFixed(3);
+    };
+    log(
+        `${label}: razão mediana com a nuvem a < 32 km ${med(samples.filter((x) => x.depth > 0 && x.depth < 32_000).map((x) => x.gL / x.rL))}, além ${med(samples.filter((x) => x.depth >= 32_000).map((x) => x.gL / x.rL))}`,
+    );
     log(
         `${label}: razão GPU/referência da luz — mín ${ratios[0]!.toFixed(3)}, mediana ${ratios[Math.floor(ratios.length / 2)]!.toFixed(3)}, máx ${ratios.at(-1)!.toFixed(3)}`,
     );
@@ -809,14 +881,17 @@ async function viewCase(
     });
     await settleFrames(s.app, 90);
     const r = await compareView(s, label, eye, target, fov, sunElevation, false, sunAzimuth);
+    if (new URLSearchParams(location.search).get('cone') === '1')
+        await compareView(s, `${label} (cone)`, eye, target, fov, sunElevation, true, sunAzimuth);
     return { ...r, s };
 }
 
 async function caseSunset(): Promise<void> {
+    const q = new URLSearchParams(location.search);
     const r = await viewCase(
         'sunset',
-        4,
-        0,
+        Number(q.get('el') ?? 4),
+        Number(q.get('az') ?? 0),
         { coverage: 0.5, wind: [0, 0] },
         [0, 2, 0],
         [1000, 350, 200],
@@ -926,7 +1001,7 @@ async function caseShadowMap(): Promise<void> {
     const s = await cloudScene({
         width: 256,
         height: 144,
-        sunElevation: 55,
+        sunElevation: Number(new URLSearchParams(location.search).get('el') ?? 55),
         clouds: { coverage: 0.5, wind: [0, 0] },
     });
     await settleFrames(s.app, 30);
@@ -1303,8 +1378,55 @@ async function caseCoverage(): Promise<void> {
     }
 }
 
+async function caseSunTransmittance(): Promise<void> {
+    // A tabela de transmitância do céu (a luz do sol que chega a cada ponto da nuvem) contra a integral f64, com o sol
+    // perto do horizonte e nas altitudes da camada (o termo que muda com o sol baixo).
+    const s = await cloudScene({ width: 64, height: 36, sunElevation: 4 });
+    await settleFrames(s.app, 8);
+    const t = s.app.resources.textureOf(s.sky, 'transmittance');
+    if (t === undefined) throw new Error('tabela de transmitância não alocada');
+    const lut = await readTexture(s.app, t, 'rgba16float');
+    const bottom = 6360;
+    const top = 6460;
+    const H = Math.sqrt(top * top - bottom * bottom);
+    let worst = 0;
+    const rows: string[] = [];
+    for (const alt of [0.2, 1.7, 3.0, 4.2])
+        for (const deg of [1, 4, 8, 20]) {
+            const r = bottom + alt;
+            const mu = Math.sin((deg * Math.PI) / 180);
+            const rho = Math.sqrt(r * r - bottom * bottom);
+            const d = -r * mu + Math.sqrt(r * r * (mu * mu - 1) + top * top);
+            const dMin = top - r;
+            const dMax = rho + H;
+            const u = (d - dMin) / (dMax - dMin);
+            const v = rho / H;
+            const fx = u * lut.width - 0.5;
+            const fy = v * lut.height - 0.5;
+            const x0 = Math.max(0, Math.min(lut.width - 2, Math.floor(fx)));
+            const y0 = Math.max(0, Math.min(lut.height - 2, Math.floor(fy)));
+            const ax = Math.min(1, Math.max(0, fx - x0));
+            const ay = Math.min(1, Math.max(0, fy - y0));
+            const at = (i: number, j: number, c: number): number =>
+                lut.data[(j * lut.width + i) * 4 + c]!;
+            const gpu = [0, 1, 2].map(
+                (c) =>
+                    (at(x0, y0, c) * (1 - ax) + at(x0 + 1, y0, c) * ax) * (1 - ay)
+                    + (at(x0, y0 + 1, c) * (1 - ax) + at(x0 + 1, y0 + 1, c) * ax) * ay,
+            );
+            const ref = transmittanceToTop(atmosphere, r, mu, 1024);
+            const err = Math.max(...[0, 1, 2].map((c) => Math.abs(gpu[c]! / ref[c]! - 1)));
+            worst = Math.max(worst, err);
+            rows.push(`${alt} km ${deg}°: ${(err * 100).toFixed(1)} %`);
+        }
+    log(`sun-transmittance: ${rows.join(', ')}`);
+    check(worst <= 0.02, `sun-transmittance: tabela a ${(worst * 100).toFixed(1)} % da integral`);
+    finish(s);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     coverage: caseCoverage,
+    'sun-transmittance': caseSunTransmittance,
     'coverage-map': caseCoverageMap,
     'overcast-ambient': caseOvercastAmbient,
     'fog-in-front': caseFogInFront,

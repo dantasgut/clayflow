@@ -377,3 +377,23 @@ Tempo do quadro com nuvens menos o do mesmo céu sem a camada (smoke `clouds`, `
 navegador e a primeira cena da rodada é mais lenta): alto 2,3–2,8 ms, médio 0,8–1,6 ms, baixo 0,6 ms (2,2–2,4 ms na
 primeira cena). Por passe no alto: tabela aérea 0,07–0,12, cobertura 0,03, ambiente 0,05, mapa visto do sol 0,8, panorama
 0,15–0,19, marcha 0,75–0,82, reconstrução 0,07, aumento 0,23–0,30 ms.
+
+### Retomada — o excesso de luz com o sol baixo (T020/T024/T026), isolado termo a termo
+
+`sunset` (sol a 4°): a GPU sai 27 % acima da referência f64 do mesmo modelo na mediana (sol de costas: 10 %; a 20°,
+mediana 0,984 com extremos 0,44/1,57; a 60°, 0,983). Descartados por medida:
+
+- τ até o sol: com o cone da GPU e o resto exato, a referência fica igual (1,270); com o mapa visto do sol da própria
+  GPU lido como o shader lê, também (1,278); o mapa no chão acerta a 0,011 com o sol a 4°;
+- a tabela de transmitância do céu: ≤ 1,2 % da integral f64 a 1°, ≤ 0,5 % a 4°, nas altitudes da camada;
+- a perspectiva aérea além de 32 km: todas as nuvens do caso estão mais perto;
+- o termo ambiente: × 1,3 na referência leva a mediana de 1,27 a 1,21 (é ~¼ da luz).
+  Sobra o termo do sol na marcha da câmera com τ grande (as oitavas `e^(−aⁱτ)` amplificam qualquer diferença de τ ao
+  longo do raio da câmera); os diagnósticos ficam no smoke (`?el=`, `?az=`, `?map=1`, `?cone=1`, `?amb=`). Em aberto.
+
+### Retomada — espalhamento múltiplo (T023)
+
+Nas 18 vistas (sol a 60°, 30° e 10°, seis vistas cada) contra o rastreamento delta: oitavas 47,1 %; difusão local
+`e^(−τ)p(θ) + M(1 − e^(−τ))(1 + kτ)^(−p) p_HG(θ)` na melhor grade, 41,2 %. Nenhuma função local do τ até o sol
+representa a luz que entra pelas laterais de uma nuvem espessa: falta o transporte não local (uma grade de propagação
+da luz na camada, iterada na GPU pela série 037). Em aberto.
