@@ -29,6 +29,21 @@ registro e o arquivo:
   envernizada no `nodeGraphs`), T106 e T107 (guias), T108 (ROADMAP e README) e T112 (vídeos) — vão para a 035
   (fechamento da 011); a parte da T112 que não depende dela vai com a 034 T077.
 
+## Conferência (2026-11-17)
+
+As 17 caixas abertas conferidas de novo, uma a uma, contra o `origin/develop` (`2fd2429e`), os outros ramos do motor e
+o `claflow-web`; cada uma traz a nota **Conferência** com a situação: (a) entregue, (b) entregue de outro jeito ou
+substituída, (c) parcial, (d) não entregue.
+
+- **Entregue e marcada (1)**: T106 — o `node-graphs.md` com os grupos de material em `fcd2a794` (034 T073), registrado
+  depois da reconciliação de 2026-11-12.
+- **Parciais (4)**: T003 (falta o inventário do README dos smokes), T107 (a ordem nova feita; faltam os pontos de luz
+  por luz no guia), T108 (faltam ROADMAP e README), T112 (faltam os vídeos da galeria, do grafo editado e da
+  comparação).
+- **Não entregues (12)**: T079 e a US5 (T090–T094) e a US6 (T095–T100) inteiras.
+
+Ficam 16 abertas, para a 035 (não criada).
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: pode rodar em paralelo (arquivos diferentes, sem dependência pendente)
@@ -42,6 +57,7 @@ registro e o arquivo:
 - [x] T002 [P] Criar `src/__smokes__/support/imageMeasures.ts` com as medidas de imagem reutilizadas pelos smokes da 011: maior passo entre vizinhos e comprimento de sequências iguais (faixas), platôs com borda reta (degraus de texel), variância temporal da luminância (cintilação), energia de alta frequência nas silhuetas (serrilhado), leitura de um alvo `rgba16float` para valores lineares
 - [ ] T003 [P] Criar os smokes vazios `src/__smokes__/hdr.ts`, `src/__smokes__/lighting.ts`, `src/__smokes__/materials.ts` e `src/__smokes__/support/materialScenes.ts`, registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
   - **Reconciliação (2026-11-12, 034 T071)**: os quatro arquivos existem (`hdr.ts` em `5ef1dd46`, `lighting.ts` em `b7c2805b`, `materials.ts` e `support/materialScenes.ts` em `66d2943f`) e a página do bench carrega o smoke pelo nome (`bench/page/smoke.ts`, sem registro no runner); falta listar `hdr`, `lighting` e `materials` no inventário de `src/__smokes__/README.md`. Vai para a 035.
+  - **Conferência (2026-11-17)**: (c) parcial, sem mudança: os quatro arquivos existem e a página `bench/page/smoke.ts` carrega o smoke pelo nome; o inventário de `src/__smokes__/README.md` (§ Inventário e a tabela das specs 033/034) ainda não lista `hdr`, `lighting` nem `materials`. Falta só isso.
 - [x] T004 [P] Criar `src/elements/material/reference/` (referências de CPU, só para testes e smokes): `bsdf.ts` (GGX iso/aniso, Smith correlacionado, Schlick, F82, F0 do IOR, Charlie, filme fino de Belcour-Barla, Oren-Nayar energético, Burley com wrap), `tonemap.ts` (AgX, ACES de Hill, Khronos PBR Neutral, sRGB) e `dfg.ts` (integração de E(μ, α) e do albedo do sheen por Monte Carlo determinístico)
 - [x] T005 [P] Atualizar o ROADMAP §3.3 em `specs/ROADMAP.md`: a matriz normal já existe (A5); a 011 só mede
 
@@ -192,6 +208,7 @@ OpenPBR como sub-grafo.
 - [x] T078 [US3] Caso `transmission-layers` (vidro atrás de vidro e verso de objeto espesso aparecem; terceira camada com a aproximação documentada) e `transmission-ior1` (IOR 1 invisível, sem divisão por zero)
 - [ ] T079 [US3] Grafo de material no smoke `src/__smokes__/nodeGraphs.ts` (madeira envernizada com verniz áspero por ruído, do contrato) e caso de grafo inválido desenhando com o material pronto e o evento da 031
   - **Reconciliação (2026-11-12, 034 T071)**: o `nodeGraphs` não tem o grafo da madeira envernizada nem o caso do grafo inválido desenhando com o material pronto (o grafo de material dele é a rampa de ruído da 031). A madeira envernizada é da biblioteca (US5): vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: o `nodeGraphs.ts` não tem a madeira envernizada nem o caso do grafo inválido. A madeira envernizada existe só como grafo de teste de unidade (`src/elements/nodes/__tests__/materialNodes.test.ts:14`, verniz com rugosidade por valor, não por ruído) e como exemplo no guia `node-graphs.md`; nenhum smoke desenha o grafo inválido com o material pronto.
 - [x] T080 [US3] Caso `sanitize`: função `material` devolvendo NaN/∞/negativos — nenhum NaN no alvo HDR nem na cadeia de pós
 
 **Checkpoint**: US3 verificável sozinha.
@@ -235,14 +252,19 @@ OpenPBR como sub-grafo.
 
 - [ ] T090 [P] [US5] Testes em `src/elements/material/__tests__/Materials.test.ts`: cada fábrica `Materials.x()` devolve `MaterialFunction` com o grafo de um nó; parâmetro mudado altera só ele; nós e valores documentados (madeira envernizada = madeira crua sob dielétrico liso; pintura de carro = condutor sob dielétrico); serialização ida e volta
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `Materials.test.ts`). US5 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem `src/elements/material/__tests__/Materials.test.ts` no `origin/develop` (`2fd2429e`); nenhum registro em ramo algum cita `woodRaw`/`carPaint` fora do plano e das tarefas.
 - [ ] T091 [US5] Criar os 23 sub-grafos em `src/elements/nodes/material/` (`woodRaw`, `woodVarnishedGloss`, `woodVarnishedMatte`, `cotton`, `wool`, `velvet`, `silk`, `denim`, `sheerFabric`, `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`, `metalPolished`, `metalBrushed`, `carPaint`, `glass`, `metalOxidized`, `skin`, `wax`, `marble`) com valores físicos e fonte em comentário; registrados no `NodeRegistry` padrão
   - **Reconciliação (2026-11-12, 034 T071)**: não feita: `src/elements/nodes/material/` tem só `index.ts` e `openpbr.ts`. US5 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: `src/elements/nodes/material/` segue só com `index.ts` e `openpbr.ts`.
 - [ ] T092 [US5] Criar `src/elements/material/Materials.ts` (fábricas → `MaterialFunction`) e exportar em `src/elements/material/index.ts` e `src/index.ts`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `src/elements/material/Materials.ts`). US5 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem `src/elements/material/Materials.ts`.
 - [ ] T093 [US5] Caso `gallery` em `src/__smokes__/materials.ts`: todos os materiais sob a mesma luz; medidas de reconhecimento (madeira crua sem realce nítido, envernizada com realce nítido, veludo com borda, metal escovado com realce alongado, vidro com refração)
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `gallery`). US5 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: `src/__smokes__/materials.ts` sem o caso `gallery`.
 - [ ] T094 [US5] Caso `library-compose`: madeira crua e metal escovado misturados por ruído (o quickstart) e um material pronto com entrada ligada a outro nó
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `library-compose`). US5 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem o caso `library-compose`.
 
 **Checkpoint**: US5 verificável sozinha.
 
@@ -256,16 +278,22 @@ OpenPBR como sub-grafo.
 
 - [ ] T095 [US6] Adaptador Three em `bench/engines/three.ts`: `antialias: true` (MSAA 4×), AgX equivalente, luzes físicas no lugar de `addDefaultLighting`, hemisfério equivalente
   - **Reconciliação (2026-11-12, 034 T071)**: não feita: `bench/engines/three.ts` segue com `antialias: false` e `addDefaultLighting`. US6 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: `bench/engines/three.ts:39` com `antialias: false` e `addDefaultLighting` (`:20`, `:55`).
 - [ ] T096 [P] [US6] Cena `bench/scenes/materials/` (`scene.ts`, `clayflow.ts`, `three.ts`): galeria 5×5 com os materiais da biblioteca e os correspondentes do `MeshPhysicalMaterial` (clearcoat, sheen, transmission, iridescence, anisotropy, dispersion)
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `bench/scenes/materials/`). US6 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem `bench/scenes/materials/` (as cenas do bench são `clouds`, `global-illumination`, `graph-geometry`, `instances`, `particles`, `point-lights`, `rigid-bodies`, `skinned-characters`, `surfaces`, `unique-objects`).
 - [ ] T097 [P] [US6] `bench/scenes/point-lights/clayflow.ts` (256 luzes, 200 objetos) e remoção do `unsupported until 'F4'` em `scene.ts`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita: `bench/scenes/point-lights/scene.ts` ainda declara `unsupported ... until: 'F4'`. US6 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: `bench/scenes/point-lights/` só com `scene.ts` e `three.ts`; `scene.ts:15` ainda com `unsupported: 'o forward ignora PointLight', until: 'F4'`.
 - [ ] T098 [P] [US6] Variante `water-lake` em `bench/scenes/particles/` (ou `surfaces/`) com a água nas duas engines
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem variante `water-lake`). US6 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: as variantes `*-water` de `bench/scenes/particles/scene.ts:43` são água só no Clayflow (o Three desenha as partículas instanciadas); não há `water-lake` com a água nas duas engines.
 - [ ] T099 [US6] Página de comparação lado a lado em `bench/page/` (as duas engines na mesma página, leitura de imagem só no fim): faixas, forno, cintilação especular, serrilhado de borda; resultado gravado em `bench/results/`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem página de comparação). US6 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: `bench/page/` só com `main.ts`, `sampler.ts` e `smoke.ts`.
 - [ ] T100 [US6] Registrar as medidas e o tempo de quadro (SC-011) em `specs/011-hdr-pbr/comparison.md`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `comparison.md`). US6 vai para a 035.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem `specs/011-hdr-pbr/comparison.md`.
 
 **Checkpoint**: US6 verificável sozinha.
 
@@ -288,12 +316,15 @@ OpenPBR como sub-grafo.
   - **Reconciliação (2026-11-12, 034 T071)**: `clay-engine-doc/docs/guides/materials.md` (034 T073, `38515df6`).
 - [x] T105 [P] Guia novo `clay-engine-doc/docs/guides/lighting.md` (luzes e unidades, `scene_lighting`, hemisfério como aproximação até a 033, limite de 1024) e `clay-engine-doc/docs/guides/presentation.md` (HDR, operadores, exposição, saída HDR, resolve por amostra)
   - **Reconciliação (2026-11-12, 034 T071)**: `clay-engine-doc/docs/guides/lighting.md` e `presentation.md` (034 T073, `38515df6`).
-- [ ] T106 [P] Atualizar `clay-engine-doc/docs/guides/node-graphs.md` (grupos `bsdf`, `closure`, `geometry`, `color`, `material`), `post_processing.md` (HDR, sem passthrough) e `shaders.md`
+- [x] T106 [P] Atualizar `clay-engine-doc/docs/guides/node-graphs.md` (grupos `bsdf`, `closure`, `geometry`, `color`, `material`), `post_processing.md` (HDR, sem passthrough) e `shaders.md`
   - **Reconciliação (2026-11-12, 034 T071)**: `post_processing.md` já descreve o HDR e a apresentação sem passthrough (`cb177eb7`, `bf467ff7`) e `shaders.md` o ponto `scene_lighting`; falta o `node-graphs.md` com os grupos `bsdf`, `closure`, `geometry`, `color` e `material` — hoje estão só no `materials.md` (`38515df6`), e o `node-graphs.md` ainda diz que os materiais por nós "são da 011". O `38515df6` não alterou o `node-graphs.md`. Vai para a 035.
+  - **Conferência (2026-11-17)**: (a) entregue em `fcd2a794` (034 T073, 2026-11-12, depois da reconciliação): `clay-engine-doc/docs/guides/node-graphs.md` com a seção "Materiais (`nodes.bsdf`, `nodes.closure`, `nodes.material`)" (`:466`–`:493`: os nós `bsdf.*`, `closure.*`, `geometry.tangentUv`, `material.openpbr`), os nós `color.*` (`:391`–`:396`), `output.closure` (`:463`) e a contagem de 91 nós de ponto (`:330`); a frase "são da 011" saiu. `post_processing.md` e `shaders.md` já estavam feitos.
 - [ ] T107 [P] Atualizar `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: ordem dos passes (opacos → cópia com mips → transmissivos em duas camadas → água → pós → apresentação), pontos de luz por luz
   - **Reconciliação (2026-11-12, 034 T071)**: o `architecture_resource_loaders.md` não tem a ordem dos passes nova (o `38515df6` não o alterou), e a ordem escrita aqui mudou: não há mais cópia da cena; os transmissivos e a água vão pela refração traçada (034/039). Vai para a 035, com a ordem do `Renderer` da 039.
+  - **Conferência (2026-11-17)**: (c) parcial: a ordem dos passes foi escrita em `fcd2a794` (034 T073, 2026-11-12) — seção "Ordem dos passes do quadro (estágios padrão)", com a ordem real do motor; a ordem desta tarefa (cópia com mips, transmissivos em duas camadas, água) foi substituída pela refração traçada da 034/039 e não se aplica. Falta "pontos de luz por luz" nesse guia: ele não cita o `scene_lighting` e a linha do `Light` na tabela de Resources ainda diz "cor e intensidade no sombreamento: F4" (o ponto por luz está em `lighting.md:17` e `shaders.md:444`).
 - [ ] T108 `specs/ROADMAP.md` (011 implementada; 014 sem "pós direto no canvas"), `specs/PENDENCIAS.md`, JSDoc das classes públicas novas e `README.md` (API)
   - **Reconciliação (2026-11-12, 034 T071)**: `specs/PENDENCIAS.md` reescrito na 034 T071; o JSDoc é conferido pelo `doc:coverage` do `npm run ci` (verde no `develop` com a 011: `specs/033-global-illumination/baseline-check.md`, `df93e6a8`); a G2 (pós direto no canvas) saiu na 034 T033 (`cb177eb7`). Falta o `specs/ROADMAP.md` dizer o estado da 011 na linha da F4 (implementada em parte; US5/US6 na 035) e tirar da 014 o "pós sem efeitos desenhando direto no canvas"; o `README.md` da API com os materiais. Vai para a 035.
+  - **Conferência (2026-11-17)**: (c) parcial, sem mudança: `PENDENCIAS.md` e o JSDoc (o `doc:coverage` do `npm run ci`, verde na 034 T075, `37455cdd`) feitos; faltam no `specs/ROADMAP.md` o estado da 011 na linha da F4 (§3, a linha só descreve o escopo) e tirar da 014 o "pós sem efeitos desenhando direto no canvas" (ainda lá); o `README.md` da raiz segue com `webgpu-engine` e só o `StandardMaterial`, sem os materiais por nós.
 
 ---
 
@@ -307,6 +338,7 @@ OpenPBR como sub-grafo.
   - **Reconciliação (2026-11-12, 034 T071)**: `npm run ci` verde no `develop` depois do PR #47 (`693aed4b`): `specs/033-global-illumination/baseline-check.md` (`df93e6a8`), 205 arquivos, 1599 testes.
 - [ ] T112 Vídeos (R14) enviados ao usuário: galeria girando sob luz que se move; grafo de material sendo editado; água (lago e tanque) com cáusticas de perto; comparação lado a lado Clayflow × Three (`materials`, `water-lake`)
   - **Reconciliação (2026-11-12, 034 T071)**: os vídeos que não dependem da biblioteca nem da comparação vão com a 034 T077; a galeria girando, o grafo de material editado e a comparação Clayflow × Three (`materials`, `water-lake`) vão para a 035.
+  - **Conferência (2026-11-17)**: (c) parcial: os vídeos da água (lago e tanque com cáusticas de perto) foram na 034 T077 (fechada); faltam a galeria girando sob luz que se move, o grafo de material sendo editado e a comparação Clayflow × Three (`materials`, `water-lake`), que dependem da US5 e da US6.
 
 ---
 

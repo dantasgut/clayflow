@@ -29,6 +29,18 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
   o gravador pelo Deno para o catálogo e a gravação enviada (T043, T044); a janela nativa conferida (T045); o JSDoc e
   o gate (T047, T048). Seguem nesta spec.
 
+## Conferência (2026-11-17)
+
+As 17 caixas abertas conferidas de novo contra o `origin/develop` do motor (`2fd2429e`) e o `claflow-web` (`master`,
+`feature/038-motor-puro-web`, `feature/039-tracado-em-ondas`, `feature/034-luz-global-tanque` e a ponta
+`feature/041-nuvens-volumetricas`, `8bab445`). Nenhuma estava entregue sem marcar; cada uma traz a nota
+**Conferência** com a situação: (c) parcial ou (d) não entregue.
+
+- **Parciais (8)**: T027, T036, T037, T042, T043, T045, T046, T047 — e o que falta em cada uma.
+- **Não entregues (9)**: T029, T030–T033, T035, T038, T044, T048.
+
+Ficam 17 abertas.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: pode rodar em paralelo (arquivos diferentes, sem dependência pendente)
@@ -97,9 +109,11 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
   - **Reconciliação (2026-11-12, 034 T071)**: no app, `3586df0`: `runner/video.ts`, `runner/browser.ts`, `runner/server.ts` e o script `npm run video`, com `--frames`, `--lossless`, `--10bit`, `--size`, `--timeout`, `--aa` (e `--profile`, `e4c8f67`).
 - [ ] T027 [US2] A página `agua` interativa do bench (`bench/agua.html`, `bench/page/agua.ts`, hoje fora do commit) como a cena interativa `agua` do app, com os controles dela (girar, aproximar, pausar, recomeçar, `?res`, `?look`, `?s`)
   - **Reconciliação (2026-11-12, 034 T071)**: a cena `agua` do app gira, aproxima e pausa (`3586df0`, `4dafc9b`, `66aea1e`); faltam recomeçar, `?res`, `?look` e `?s`, e a página antiga segue no motor fora do registro (`bench/agua.html`, `bench/page/agua.ts`). Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial: a cena `agua` do app gira, aproxima e pausa (`claflow-web` `src/ScenePanel.tsx:302`, `src/TimeControls.tsx:16`) e a resolução vem por `?w`/`?h` (`src/scenes/catalog.ts:41`); faltam o R (recomeçar), `?look` e `?s` — que a janela nativa `deno/agua.ts` tem (R) e a página antiga do motor tem (`bench/page/agua.ts`, ainda fora do registro, sem estar no `origin/develop`).
 - [x] T028 [US2] Sem comparação de quadros (decisão do usuário de 2026-10-28: "o código das cenas é o mesmo" — a conferência é pelos vídeos gravados pelo app). Antes: conferir a migração: gravar os 60 quadros de cada cena pelo app (`--lossless`) e, por quadro, o PSNR app × linha de base não abaixo do PSNR linha de base × segunda gravação (SC-003, R9) — quadro abaixo é investigado até a causa, sem regravar a linha de base
 - [ ] T029 [US2] `claflow-web/README.md`: o que é o app, como rodar, as cenas, os dois gravadores
   - **Reconciliação (2026-11-12, 034 T071)**: o `README.md` do app ainda é o do modelo do Vite. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: o `README.md` do `claflow-web` (inclusive na ponta, `feature/041-nuvens-volumetricas` `8bab445`) ainda é o do modelo do Vite ("React + TypeScript + Vite").
 
 **Checkpoint**: o app tem todas as cenas e grava os mesmos quadros.
 
@@ -113,12 +127,16 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
 
 - [ ] T030 [US1] Tirar do motor `src/__smokes__/videoScenes.ts`, `bench/runner/video.ts`, o script `video` do `package.json` e o que só eles usavam
   - **Reconciliação (2026-11-12, 034 T071)**: `src/__smokes__/videoScenes.ts`, `bench/runner/video.ts` e o script `video` do `package.json` seguem no motor. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: no `origin/develop` (`2fd2429e`) seguem `src/__smokes__/videoScenes.ts`, `bench/runner/video.ts` e o script `video` (`package.json:57`).
 - [ ] T031 [US1] A página antiga `index.html` + `src/main.ts` (verificação da Fase E: profiler, `createAsync`, `DebugFlow`): conferir se um smoke cobre o que ela verifica; se não, virar o smoke `profilerAsync` em `src/__smokes__/`; depois tirar as duas (R7)
   - **Reconciliação (2026-11-12, 034 T071)**: `index.html` e `src/main.ts` seguem no motor; não há smoke `profilerAsync`. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: `index.html` e `src/main.ts` seguem no motor; nenhum smoke cobre o que a página verifica por inteiro — o `createAsync` está no `readiness`, mas nem o `readRange` do profiler (E.1) nem o `profilerStats` do `DebugFlow` (E.3) aparecem em `src/__smokes__/`; sem smoke `profilerAsync`.
 - [ ] T032 [US1] O apoio dos smokes (`src/__smokes__/support/*`) só com o que os smokes usam (`knip` sem código morto); o `README.md` dos smokes sem as cenas de vídeo
   - **Reconciliação (2026-11-12, 034 T071)**: depende da T030. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: depende da T030; `src/__smokes__/support/` segue com o apoio das cenas de vídeo.
 - [ ] T033 [US1] Verificação: `npm test`, `tsc`, lint, `knip`, `madge`, `build:lib` e os smokes da linha de base com os mesmos resultados (SC-001, SC-004)
   - **Reconciliação (2026-11-12, 034 T071)**: depende da T030–T032. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: depende da T030–T032. O `npm run ci` verde da 034 T075 (`37455cdd`) não é esta verificação (o motor ainda tem as cenas).
 
 **Checkpoint**: o motor só tem capacidades, testes e o benchmark.
 
@@ -133,8 +151,10 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
 - [x] T034 [US3] Lint de pureza (R2) em `eslint.config.js`: `no-restricted-globals` (`document`, `window`, `navigator`, `HTMLCanvasElement`, `OffscreenCanvas`, `ResizeObserver`, `requestAnimationFrame`, `cancelAnimationFrame`, `Image`, `FontFace`, `Deno`) em `src/**` exceto `src/platform/web/**`, `src/platform/deno/**`, testes e smokes; o lint passa
 - [ ] T035 [US3] Teste no Deno `bench/deno/core.test.ts`: importar `dist/index.js` (o núcleo) e montar o `Engine` com uma `TextureSurface` e o `ManualClock`, um quadro, sem erro (SC-002); `deno.json` do motor com a task `test:deno`
   - **Reconciliação (2026-11-12, 034 T071)**: não há `bench/deno/` nem `deno.json` no motor. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem `bench/deno/` nem `deno.json` no motor.
 - [ ] T036 [US3] Guia: `clay-engine-doc` com os pontos de entrada (`clayflow` e `clayflow/web`), o guia de migração do import do `Application` e a mudança do nome do pacote; `api-pendencias.md` da 034 com a quebra
   - **Reconciliação (2026-11-12, 034 T071)**: a quebra está em `specs/034-refracao-fisica/api-pendencias.md` §7; faltam no `clay-engine-doc` os pontos de entrada e o guia de migração do import do `Application` (o `video.md` só usa o `clayflow/web`). Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial, sem mudança: a quebra está em `specs/034-refracao-fisica/api-pendencias.md` §7 e a referência gerada da API tem `clay-engine-doc/docs/api/platform/web/` e `…/platform/deno/`; faltam nos guias os pontos de entrada e a migração do import do `Application` — o `getting_started.md` ainda instala e importa `webgpu-engine` (`:13`, `:41`).
 
 **Checkpoint**: o núcleo é puro e verificado.
 
@@ -150,8 +170,10 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
 
 - [ ] T037 [P] [US4] Teste no Deno `bench/deno/limits.test.ts`: o ponto de entrada Deno pede ao dispositivo o máximo do adaptador nos limites de ligação e nos de escala, sem o teto do navegador (R5, FR-009)
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `bench/deno/limits.test.ts`). Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial: a regra está no núcleo, comum aos ambientes (`src/core/gpu/GpuContext.ts`, `resolveLimits`: os limites de escala e os de desenho, `ENGINE_DRAWING_LIMITS`, no máximo do adaptador; `b32ccaee`) e tem teste de unidade com um adaptador que informa 31 buffers de storage (`src/core/gpu/__tests__/GpuContext.capabilities.test.ts:164`); falta o teste no Deno com o adaptador real (`bench/deno/limits.test.ts`).
 - [ ] T038 [P] [US4] Smoke do naga `bench/deno/naga.ts` (R4): com o `dist/`, as cenas mínimas dos smokes que não usam o DOM, em `TextureSurface`, com `pushErrorScope('validation')` em volta da criação dos pipelines, um `setPipeline` sem despacho de cada um (o wgpu cria sem erro o pipeline que o compilador da plataforma recusou; ver R4) e os `engineError`; relatório por pipeline (compila / erro e mensagem) em `specs/038-motor-puro-web/naga.md`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `bench/deno/naga.ts` nem `naga.md`). Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem `bench/deno/naga.ts` nem `specs/038-motor-puro-web/naga.md`; o único teste do naga registrado (`zzNaga.test.ts`, em `75057417`) era experimento e saiu em `bf888156` (PR #51).
 
 ### Implementação
 
@@ -160,12 +182,16 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
 - [x] T041 [US4] `src/platform/deno/index.ts` completo (núcleo + `Application`, superfícies, relógio, entrada SDL) e a entrada no build
 - [ ] T042 [US4] Rodar o naga (T038) e corrigir no WGSL do motor o que ele recusar, um por vez, cada correção conferida pelos smokes de imagem no Chrome (as fixtures bit a bit iguais) e pelo orçamento de passos dos laços (regra contra travamento); 100 % compilando (SC-005)
   - **Reconciliação (2026-11-12, 034 T071)**: depende da T038. Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial: correções do WGSL pelo naga/wgpu foram feitas à medida que apareciam — `b32ccaee` (composição nos acertos e cáusticas por instância, contra o compilador da Apple pelo naga) e `43d0f560` (o teste de finito pelos bits do expoente e o `0u - N` que o naga recusa); falta a rodada pelo smoke do naga (T038) com o relatório e os 100 % compilando (SC-005).
 - [ ] T043 [US4] O gravador pelo Deno no app: `claflow-web/deno/video.ts` (as cenas do catálogo em `TextureSurface`, os quadros no `stdin` do ffmpeg, as mesmas saídas e a conferência do gravador do Chrome) e `claflow-web/deno.json` com a task `video`
   - **Reconciliação (2026-11-12, 034 T071)**: o gravador pelo Deno existe só para o tanque: `claflow-web/deno/video.ts` e a task `video` no `deno.json` (`eccfd10`); faltam as cenas do catálogo e a conferência contra o gravador do Chrome. Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial, sem mudança: `claflow-web/deno/video.ts` e a task `video` do `deno.json` (`eccfd10`) gravam só o tanque (`waterScene`); faltam as cenas do catálogo e a conferência contra o gravador do Chrome.
 - [ ] T044 [US4] Gravar pelo Deno uma cena com água, vidro e luz (a `agua`) e enviar o vídeo ao usuário (SC-006); comparar com a gravação do Chrome (a diferença entre os dois compiladores medida, não exigida igual)
   - **Reconciliação (2026-11-12, 034 T071)**: sem registro da gravação pelo Deno enviada nem da comparação com a do Chrome (não há `agua-deno.mp4` em `claflow-web/videos/`). Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: não há `agua-deno.mp4` em `claflow-web/videos/` nem registro da comparação com a gravação do Chrome.
 - [ ] T045 [US4] Uma cena na janela nativa (`deno run … claflow-web/deno/window.ts agua`) aberta e fechada sem processo órfão
   - **Reconciliação (2026-11-12, 034 T071)**: a janela nativa existe como `claflow-web/deno/agua.ts` (`deno task agua`; `3586df0`, `a557d20`), não `window.ts`; falta o registro de abrir e fechar sem processo órfão. Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial: a janela nativa existe como `claflow-web/deno/agua.ts` (`deno task agua`; `3586df0`, e pelo renderizador da cena em `a557d20`), com girar, aproximar, pausar, R e fechar a janela para sair; falta o registro de abrir e fechar sem processo órfão.
 
 **Checkpoint**: o motor roda no Deno; o gravador funciona nos dois ambientes.
 
@@ -175,10 +201,13 @@ que contém a `feature/038-motor-puro-web` dele). Cada uma traz a nota **Reconci
 
 - [ ] T046 [P] Guia do Deno em `clay-engine-doc`: o `clayflow/deno`, a textura e a janela, os limites (no Deno, o máximo do adaptador; o teto de 10 buffers de storage é do navegador), a SDL2 como requisito da janela
   - **Reconciliação (2026-11-12, 034 T071)**: o `video.md` (034 T072) cita o `clayflow/deno` no gravador; falta o guia do Deno (textura, janela, limites, SDL2). Segue na 038.
+  - **Conferência (2026-11-17)**: (c) parcial: o `video.md` (`:59`) descreve o `clayflow/deno` em textura; faltam a janela, os limites e a SDL2 como requisito num guia do Deno.
 - [ ] T047 [P] JSDoc em todos os exports novos (`npm run doc:coverage`)
   - **Reconciliação (2026-11-12, 034 T071)**: sem registro de `npm run ci` (que roda o `doc:coverage`) depois da volta da 038 à 034 (`289b2137`): o gate da 039 (T114) rodou tsc, lint, testes e smokes, sem o `doc:coverage`. Segue na 038; a 034 T075 roda o `npm run ci`.
+  - **Conferência (2026-11-17)**: (c) parcial: o `doc:coverage` passou no `npm run ci` da 034 T075 (`37455cdd`), mas o script só olha `src/index.ts` (`package.json:39`): os exports de `clayflow/web` e `clayflow/deno` (`src/platform/*/index.ts`) ficam fora da conferência (as declarações de topo têm JSDoc à vista). Falta o `doc:coverage` com as três entradas.
 - [ ] T048 Gate completo do motor (`npm run ci`) e do app (`npm run build`, lint); a suíte contra `baseline.md` (SC-004) e o relatório final da spec em `specs/038-motor-puro-web/tasks.md` (os números de cada critério)
   - **Reconciliação (2026-11-12, 034 T071)**: não feita. Segue na 038.
+  - **Conferência (2026-11-17)**: (d) não entregue: sem o gate da spec (motor e app) contra `baseline.md` nem o relatório final; o `npm run ci` verde da 034 T075 (`37455cdd`) é anterior às tarefas abertas.
 
 ---
 
