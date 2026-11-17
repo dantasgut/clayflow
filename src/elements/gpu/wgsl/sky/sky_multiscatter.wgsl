@@ -12,7 +12,9 @@ fn sky_multiscatter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let texel = vec2u(i % size.x, i / size.x);
     let uv = (vec2f(texel) + 0.5) / vec2f(size);
     let mu_s = uv.x * 2.0 - 1.0;
-    let r = sky_bottom() + uv.y * (sky_top() - sky_bottom()) + 1e-3;
+    // Altura pela raiz (spec 041): linhas finas perto do chão, onde fica a câmera (linear, o primeiro texel ficava a
+    // 1,56 km e o Ψms azul da câmera a 0,2 km saía 8,5 % alto).
+    let r = sky_bottom() + uv.y * uv.y * (sky_top() - sky_bottom()) + 1e-3;
     let pos = vec3f(0.0, r, 0.0);
     let sun = vec3f(sqrt(max(0.0, 1.0 - mu_s * mu_s)), mu_s, 0.0);
     let dirs = 64.0;
