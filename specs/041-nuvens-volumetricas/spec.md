@@ -126,7 +126,8 @@ por pixel com a câmera girando.
 - Cobertura 0 e 1, camada de espessura zero, vento zero e muito forte.
 - Nuvem atrás de uma montanha ou de um objeto: a geometria opaca recorta a nuvem pela profundidade, sem halo.
 - Lua ou mais de uma luz direcional: cada luz que ilumina a cena ilumina as nuvens.
-- Cena interna sem céu visível: o estágio das nuvens não gasta tempo de GPU.
+- Cena interna sem céu visível: a marcha das nuvens não gasta tempo; só a sombra e o ambiente das nuvens seguem (entram
+  pelas janelas), dentro do teto da SC-005.
 - GPU com limites menores (perfil de dispositivo mínimo): as nuvens abrem e funcionam com qualidade menor, sem erro.
 - Corte de câmera: o histórico é recomeçado sem rastro do quadro anterior.
 
@@ -175,7 +176,8 @@ por pixel com a câmera girando.
 - **FR-015**: Os raios da refração e do reflexo que saem para o céu MUST ver as nuvens.
 - **FR-016**: Névoa e nuvens MUST se compor pela profundidade (a névoa na frente atenua a nuvem; a geometria opaca
   recorta a nuvem).
-- **FR-017**: Uma cena sem céu visível nem sombra de nuvem MUST não pagar o custo do estágio.
+- **FR-017**: Uma cena sem camada de nuvens MUST não pagar nada; com a camada e sem céu visível, MUST pagar só a sombra e
+  o ambiente das nuvens.
 
 **Validação e entrega**
 
@@ -208,7 +210,8 @@ por pixel com a câmera girando.
 - **SC-003**: Cobertura medida na imagem dentro de 5 pontos percentuais da cobertura pedida.
 - **SC-004**: Sombra no chão: a luz direta sob a nuvem dentro de 5 % da transmitância de referência até o sol.
 - **SC-005**: Custo do estágio das nuvens no Apple M4, 1280 × 720, perfil alto: até 3 ms por quadro (18 % do quadro de
-  60 Hz); perfil médio até 2 ms; cena sem céu: custo desprezível (abaixo de 0,05 ms).
+  60 Hz); perfil médio até 2 ms; cena sem camada de nuvens: custo zero; cena com a camada e sem céu visível (um
+  interior): até 0,3 ms (só a sombra e o ambiente das nuvens, que entram pelas janelas).
 - **SC-006**: Cintilação e rastro com câmera e vento em movimento dentro dos limites do smoke de antisserrilhado.
 - **SC-007**: Nenhuma regressão: todos os smokes passam 3 vezes seguidas pelo código-fonte e com o pacote montado; o
   bench não piora mais de 10 % em GPU em nenhuma cena existente.
