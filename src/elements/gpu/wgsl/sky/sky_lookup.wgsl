@@ -10,6 +10,6 @@ fn sky_transmittance(r: f32, mu: f32) -> vec3f {
 
 /** Ψms (por unidade de iluminância do sol) a raio `r` com o sol a cosseno zenital `mu_s`. */
 fn sky_multiscatter(r: f32, mu_s: f32) -> vec3f {
-    let uv = vec2f(mu_s * 0.5 + 0.5, clamp((r - sky_bottom()) / (sky_top() - sky_bottom()), 0.0, 1.0));
+    let uv = vec2f(mu_s * 0.5 + 0.5, sqrt(clamp((r - sky_bottom()) / (sky_top() - sky_bottom()), 0.0, 1.0)));
     return textureSampleLevel(sky_multiscatter_lut, sky_sampler, uv, 0.0).rgb;
 }

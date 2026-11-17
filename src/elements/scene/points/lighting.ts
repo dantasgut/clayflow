@@ -88,6 +88,15 @@ export const sceneBackgroundReady = wgslModule({
     source: 'fn scene_background(dir: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
 });
 
+/**
+ * `fn sky_cover(dir: vec3f) -> vec4f` — o que cobre o céu na direção `dir` (spec 041: as nuvens): a luz espalhada para
+ * quem olha (rgb) e a transmitância (a); quem lê o céu compõe `céu · a + rgb`. Pronto: nada cobre (`vec4f(0, 0, 0, 1)`).
+ */
+export const skyCoverReady = wgslModule({
+    name: 'sky_cover_ready',
+    source: 'fn sky_cover(dir: vec3f) -> vec4f {\n    return vec4f(0.0, 0.0, 0.0, 1.0);\n}',
+});
+
 const combined = new Map<string, WgslModule>();
 
 function memo(key: string, make: () => WgslModule): WgslModule {
@@ -195,4 +204,31 @@ export const sceneBackgroundPoint: ContributionPoint = {
     ready: sceneBackgroundReady,
     functionName: 'scene_background',
     combine: sumOfDirection('scene_background'),
+};
+
+/**
+ * O que cobre o céu (spec 041, R12): os contribuintes em ordem, cada um na frente do seguinte (o espalhado de trás
+ * atenuado pela transmitância da frente), como `scene_fog`.
+ */
+export const skyCoverPoint: ContributionPoint = {
+    name: 'sky_cover',
+    ready: skyCoverReady,
+    functionName: 'sky_cover',
+    combine: (modules) =>
+        memo(`cover:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `sky_cover:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn sky_cover(dir: vec3f) -> vec4f {
+    var cover = vec4f(0.0, 0.0, 0.0, 1.0);
+${modules
+    .map(
+        (_, k) => `    let c${k} = sky_cover_${k}(dir);
+    cover = vec4f(cover.rgb + cover.a * c${k}.rgb, cover.a * c${k}.a);`,
+    )
+    .join('\n')}
+    return cover;
+}`,
+            }),
+        ),
 };

@@ -6,12 +6,20 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 import { Flow } from '../../../scene/flows/Flow';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type SingletonSlot, type SlotMap } from '../../../scene/flows/slots';
+import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../../scene/flows/slots';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { World } from '../../../scene/world/World';
+import { Camera } from '../Camera';
 import { Light } from '../Light';
-import { Sky, SKY_MULTISCATTER_SIZE, SKY_TRANSMITTANCE_SIZE, SKY_VIEW_SIZE } from './Sky';
 import {
+    Sky,
+    SKY_AERIAL_SIZE,
+    SKY_MULTISCATTER_SIZE,
+    SKY_TRANSMITTANCE_SIZE,
+    SKY_VIEW_SIZE,
+} from './Sky';
+import {
+    skyAerialKernel,
     skyMultiscatterKernel,
     skyOutputs,
     skyTransmittanceKernel,
@@ -22,9 +30,17 @@ import {
 export interface SkySlots extends SlotMap {
     /** O céu da cena. */
     readonly sky: SingletonSlot<false>;
+    /** A câmera ativa (a perspectiva aérea é dela). */
+    readonly camera: SingletonSlot<true>;
+    /** As matrizes das câmeras (o slot da ativa). */
+    readonly cameras: PoolSlot<true>;
 }
 
-const slots: SkySlots = { sky: slot.singleton(Sky.schema) };
+const slots: SkySlots = {
+    sky: slot.singleton(Sky.schema),
+    camera: slot.singleton(Camera.schema, { optional: true }),
+    cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+};
 
 type Ctx = TransitionContext<SkySlots>;
 
@@ -46,6 +62,12 @@ const VIEW: PipelineDescriptor = {
     shader: skyViewKernel,
     entryPoints: ['sky_view_main'],
 };
+const AERIAL: PipelineDescriptor = {
+    id: 'sky_aerial',
+    role: 'compute',
+    shader: skyAerialKernel,
+    entryPoints: ['sky_aerial_main'],
+};
 
 /** Campos da atmosfera que, mudando, regeneram as tabelas de transmitância e de múltiplo espalhamento. */
 const ATMOSPHERE_FIELDS = ['rayleigh', 'mie', 'ozone', 'radii', 'ground'] as const;
@@ -53,8 +75,9 @@ const ATMOSPHERE_FIELDS = ['rayleigh', 'mie', 'ozone', 'radii', 'ground'] as con
 /**
  * Estágio do céu físico (spec 033, R4): a cada quadro copia do sol (`DirectionalLight` do `Sky`) a direção (para ele), a
  * iluminância e o slot no pool `Light` para os parâmetros do céu; regenera a transmitância e o múltiplo espalhamento
- * quando a atmosfera muda (e na primeira vez) e a vista do céu a cada quadro (o sol se move sem recompilar nada). Fase
- * `transform`, antes da iluminação global e do desenho.
+ * quando a atmosfera muda (e na primeira vez), a vista do céu a cada quadro (o sol se move sem recompilar nada) e, com
+ * câmera, a tabela da perspectiva aérea dela (spec 041). Fase `transform`, depois da câmera, antes da iluminação global
+ * e do desenho.
  */
 export class SkyFlow extends Flow<SkySlots, 'idle'> {
     readonly type = 'SkyFlow';
@@ -72,6 +95,10 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
     /** Regenerar as tabelas da atmosfera neste quadro. */
     private tables = false;
     private ready = false;
+    /** Tabelas da perspectiva aérea ligadas (as vistas). */
+    private aerialBound: readonly (TextureViewSpec | undefined)[] = [];
+    /** Há câmera: a perspectiva aérea é gravada neste quadro. */
+    private aerial = false;
 
     constructor(ctx: FlowContext) {
         super();
@@ -90,6 +117,7 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
+                poolReallocated: 'ignore',
             },
         };
     }
@@ -119,6 +147,17 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
             this.tables = false;
         }
         run(VIEW, SKY_VIEW_SIZE);
+        // A perspectiva aérea (spec 041, R10), da câmera ativa, a cada quadro.
+        const aerial = bound.pipelines.get(AERIAL.id);
+        if (this.aerial && aerial?.role === 'compute' && aerial.ready)
+            frame.compute('SkyFlow.sky_aerial', (pass) => {
+                pass.bind.setPipeline(aerial.spec);
+                aerial.bindTo(pass.bind);
+                pass.dispatch.invocations(
+                    SKY_AERIAL_SIZE[0] * SKY_AERIAL_SIZE[1],
+                    WORKGROUP_SIZE.value,
+                );
+            });
     }
 
     /** Liga as saídas às texturas do céu, copia o sol e decide se as tabelas da atmosfera são regeneradas. */
@@ -143,6 +182,7 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
             this.atmosphere = '';
         }
         this.syncSun(sky);
+        this.prepareAerial(c, sky);
         const raw = sky.data;
         const key = JSON.stringify(ATMOSPHERE_FIELDS.map((f) => raw[f]));
         if (key !== this.atmosphere) {
@@ -150,6 +190,35 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
             this.tables = true;
         }
         this.ready = true;
+    }
+
+    /**
+     * A perspectiva aérea (spec 041, R10): com câmera, as tabelas alocadas, ligadas às saídas do kernel e o slot da câmera
+     * nos parâmetros do céu.
+     */
+    private prepareAerial(c: Ctx, sky: Sky): void {
+        const camera = c.bound.slots.camera?.resource;
+        const id = camera === undefined ? undefined : this.world.entityIdOfResource(camera);
+        const cameraSlot = id === undefined ? undefined : c.bound.slots.cameras?.slotOf(id);
+        this.aerial = false;
+        if (cameraSlot === undefined) return;
+        for (const t of ['aerial', 'aerialTransmittance']) this.resources.ensureAllocated(sky, t);
+        const views = (['aerial', 'aerialTransmittance'] as const).map((t) =>
+            c.bound.slots.sky.textureViewOf(t),
+        );
+        if (views.some((v) => v === undefined)) return;
+        if (views.some((v, k) => v !== this.aerialBound[k])) {
+            c.bind(
+                new Map<WgslResource, BindingSource>([
+                    [skyOutputs.aerial, views[0]!],
+                    [skyOutputs.aerialTransmittance, views[1]!],
+                ]),
+            );
+            if (this.aerialBound.length === 0) c.prepare(AERIAL);
+            this.aerialBound = views;
+        }
+        if (sky.data.cameraSlot !== cameraSlot) sky.data.cameraSlot = cameraSlot;
+        this.aerial = true;
     }
 
     /** Direção para o sol, iluminância (cor × lux) e slot da luz — escritos só quando mudam. */

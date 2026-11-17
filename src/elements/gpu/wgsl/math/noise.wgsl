@@ -102,3 +102,69 @@ fn gradient_noise3_cell(c: vec3u, f: vec3f) -> f32 {
     let x11 = mix(g011, g111, u.x);
     return clamp(mix(mix(x00, x10, u.y), mix(x01, x11, u.y), u.z), -1.0, 1.0);
 }
+
+// Ruído periódico (spec 041, R3): o índice inteiro da célula reduzido módulo `period` (> 0), os cantos `(c + d) mod
+// period` e só então a semente (`seed`, o deslocamento u32 dela); a saída repete com período `period` em unidades de
+// rede — o volume ladrilhável das nuvens. A referência da CPU é `nodes/reference/noise.ts` (`*Period`).
+
+fn noise_wrap2(p: vec2f, period: u32) -> vec2u {
+    let n = i32(period);
+    return vec2u((vec2i(floor(p)) % n + n) % n);
+}
+
+fn noise_wrap3(p: vec3f, period: u32) -> vec3u {
+    let n = i32(period);
+    return vec3u((vec3i(floor(p)) % n + n) % n);
+}
+
+fn value_noise2_period(c: vec2u, f: vec2f, period: u32, seed: vec2u) -> f32 {
+    let a = hash_signed(hash2(c % period + seed));
+    let b = hash_signed(hash2((c + vec2u(1u, 0u)) % period + seed));
+    let d = hash_signed(hash2((c + vec2u(0u, 1u)) % period + seed));
+    let e = hash_signed(hash2((c + vec2u(1u, 1u)) % period + seed));
+    let u = vec2f(noise_fade(f.x), noise_fade(f.y));
+    return mix(mix(a, b, u.x), mix(d, e, u.x), u.y);
+}
+
+fn gradient_noise2_period(c: vec2u, f: vec2f, period: u32, seed: vec2u) -> f32 {
+    let a = noise_grad2(hash2(c % period + seed), f);
+    let b = noise_grad2(hash2((c + vec2u(1u, 0u)) % period + seed), f - vec2f(1.0, 0.0));
+    let d = noise_grad2(hash2((c + vec2u(0u, 1u)) % period + seed), f - vec2f(0.0, 1.0));
+    let e = noise_grad2(hash2((c + vec2u(1u, 1u)) % period + seed), f - vec2f(1.0, 1.0));
+    let u = vec2f(noise_fade(f.x), noise_fade(f.y));
+    return clamp(1.41421356 * mix(mix(a, b, u.x), mix(d, e, u.x), u.y), -1.0, 1.0);
+}
+
+fn value_noise3_period(c: vec3u, f: vec3f, period: u32, seed: vec3u) -> f32 {
+    let u = vec3f(noise_fade(f.x), noise_fade(f.y), noise_fade(f.z));
+    let v000 = hash_signed(hash3(c % period + seed));
+    let v100 = hash_signed(hash3((c + vec3u(1u, 0u, 0u)) % period + seed));
+    let v010 = hash_signed(hash3((c + vec3u(0u, 1u, 0u)) % period + seed));
+    let v110 = hash_signed(hash3((c + vec3u(1u, 1u, 0u)) % period + seed));
+    let v001 = hash_signed(hash3((c + vec3u(0u, 0u, 1u)) % period + seed));
+    let v101 = hash_signed(hash3((c + vec3u(1u, 0u, 1u)) % period + seed));
+    let v011 = hash_signed(hash3((c + vec3u(0u, 1u, 1u)) % period + seed));
+    let v111 = hash_signed(hash3((c + vec3u(1u, 1u, 1u)) % period + seed));
+    let x00 = mix(v000, v100, u.x);
+    let x10 = mix(v010, v110, u.x);
+    let x01 = mix(v001, v101, u.x);
+    let x11 = mix(v011, v111, u.x);
+    return mix(mix(x00, x10, u.y), mix(x01, x11, u.y), u.z);
+}
+
+fn gradient_noise3_period(c: vec3u, f: vec3f, period: u32, seed: vec3u) -> f32 {
+    let u = vec3f(noise_fade(f.x), noise_fade(f.y), noise_fade(f.z));
+    let g000 = noise_grad3(hash3(c % period + seed), f);
+    let g100 = noise_grad3(hash3((c + vec3u(1u, 0u, 0u)) % period + seed), f - vec3f(1.0, 0.0, 0.0));
+    let g010 = noise_grad3(hash3((c + vec3u(0u, 1u, 0u)) % period + seed), f - vec3f(0.0, 1.0, 0.0));
+    let g110 = noise_grad3(hash3((c + vec3u(1u, 1u, 0u)) % period + seed), f - vec3f(1.0, 1.0, 0.0));
+    let g001 = noise_grad3(hash3((c + vec3u(0u, 0u, 1u)) % period + seed), f - vec3f(0.0, 0.0, 1.0));
+    let g101 = noise_grad3(hash3((c + vec3u(1u, 0u, 1u)) % period + seed), f - vec3f(1.0, 0.0, 1.0));
+    let g011 = noise_grad3(hash3((c + vec3u(0u, 1u, 1u)) % period + seed), f - vec3f(0.0, 1.0, 1.0));
+    let g111 = noise_grad3(hash3((c + vec3u(1u, 1u, 1u)) % period + seed), f - vec3f(1.0, 1.0, 1.0));
+    let x00 = mix(g000, g100, u.x);
+    let x10 = mix(g010, g110, u.x);
+    let x01 = mix(g001, g101, u.x);
+    let x11 = mix(g011, g111, u.x);
+    return clamp(mix(mix(x00, x10, u.y), mix(x01, x11, u.y), u.z), -1.0, 1.0);
+}

@@ -47,6 +47,12 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
+import { CloudNoiseFlow } from '../../elements/media/clouds/CloudNoiseFlow';
+import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
+import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
+import { SkyCompositeFlow } from './SkyCompositeFlow';
+import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
@@ -308,8 +314,8 @@ function warnRaySceneUnsupported(
  * deixam de segui-lo. Devolve o cancelamento.
  */
 function followRenderer(world: World, events: EventBus, renderer: SceneRenderer): () => void {
-    const follows = (r: Resource): r is GlobalIllumination | ShadowMap =>
-        r instanceof GlobalIllumination || r instanceof ShadowMap;
+    const follows = (r: Resource): r is GlobalIllumination | ShadowMap | CloudLayer =>
+        r instanceof GlobalIllumination || r instanceof ShadowMap || r instanceof CloudLayer;
     for (const record of world.allRecords())
         for (const r of record.resources) if (follows(r)) renderer.adopt(r);
     return events.on('resourcesChanged', (e) => {
@@ -338,6 +344,12 @@ function swapAmbientForGi(
     const count = (name: string): number => world.queryBySchemaName(name).length;
     // O hemisfério retirado por esta troca (a cena com o próprio ambiente) — só ele volta; o que a cena retirou fica fora.
     let removed = false;
+    // O céu ilumina as superfícies sem GI (spec 041): a luz dele no lugar do hemisfério (que ficaria invisível na exposição
+    // do dia); com a GI, as sondas são a luz que volta do céu.
+    const skyLights = (gi: boolean): void => {
+        for (const id of world.queryBySchemaName(Sky.schema.name))
+            for (const r of world.resourcesOf(id)) if (r instanceof Sky) r.setAmbient(!gi);
+    };
     return events.on('resourcesChanged', (e) => {
         const touched = [...e.added, ...e.removed].some(
             (r) =>
@@ -345,8 +357,10 @@ function swapAmbientForGi(
         );
         if (!touched) return;
         const gi = count(GlobalIllumination.schema.name) > 0;
-        const environment = count(Sky.schema.name) + count(EnvironmentMap.schema.name) > 0;
+        const sky = count(Sky.schema.name) > 0;
+        const environment = sky || count(EnvironmentMap.schema.name) > 0;
         const inWorld = world.entityIdOfResource(ambient) !== undefined;
+        skyLights(gi);
         if (gi) {
             ambient.lighting = false;
             if (environment && inWorld) {
@@ -359,13 +373,18 @@ function swapAmbientForGi(
             }
             if (count(RayScene.schema.name) === 0) world.insert(new RayScene());
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
-        } else if (e.removed.some((r) => r instanceof GlobalIllumination)) {
+            return;
+        }
+        if (e.removed.some((r) => r instanceof GlobalIllumination)) {
             ambient.lighting = true;
-            if (removed) {
-                removed = false;
-                world.insert(ambient);
-            }
             if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
+        }
+        if (sky && inWorld) {
+            world.remove(ambient);
+            removed = true;
+        } else if (!sky && removed) {
+            removed = false;
+            world.insert(ambient);
         }
     });
 }
@@ -427,6 +446,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
     // Estrutura de raios (spec 033) depois de toda geometria escrita na GPU: registrada depois dos estágios que a
     // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
     // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
+    // Nuvens (spec 041): o uniforme do quadro e os volumes de ruído, depois da câmera e do céu.
+    const cloudNoiseRegistration = flows.register((ctx) => new CloudNoiseFlow(ctx), {
+        type: 'cloudNoise',
+        phase: 'transform',
+        priority: -56,
+    });
     const fluidFieldRegistration = flows.register((ctx) => new FluidFieldFlow(ctx), {
         type: 'fluidField',
         phase: 'transform',
@@ -440,6 +465,19 @@ function createPresentationDefaults(flows: FlowRegistry): {
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
+    });
+    // A luz das nuvens (spec 041): a cobertura, o ambiente, a sombra e o panorama, que as sondas, a névoa e o desenho
+    // leem (`light_transmission`, `sky_cover`) — depois do mapa de sombra, antes das sondas.
+    const cloudLightRegistration = flows.register((ctx) => new CloudLightFlow(ctx), {
+        type: 'cloudLight',
+        phase: 'shadow',
+        priority: -1,
+    });
+    // A luz do céu nas superfícies sem GI (spec 041), depois da luz das nuvens (o céu coberto) e antes do desenho.
+    const skyAmbientRegistration = flows.register((ctx) => new SkyAmbientFlow(ctx), {
+        type: 'skyAmbient',
+        phase: 'shadow',
+        priority: -2,
     });
     // Sondas da iluminação global (spec 033) depois do mapa de sombra: a estrutura de raios e o céu já estão prontos.
     const probeRegistration = flows.register((ctx) => new ProbeFlow(ctx), {
@@ -519,6 +557,18 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -68,
     });
+    // As nuvens na tela (spec 041) depois da água (a última superfície que escreve profundidade) e a composição do céu
+    // (a perspectiva aérea em toda a geometria e as nuvens, atrás da névoa) logo depois, antes da resolução temporal.
+    const cloudRegistration = flows.register((ctx) => new CloudFlow(ctx, FrameTargets.schema), {
+        type: 'clouds',
+        phase: 'forward',
+        priority: -69,
+    });
+    const skyCompositeRegistration = flows.register((ctx) => new SkyCompositeFlow(ctx), {
+        type: 'skyComposite',
+        phase: 'forward',
+        priority: -70,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -584,9 +634,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
             surfaceRegistration,
             graphRegistration,
             skyRegistration,
+            cloudNoiseRegistration,
             fluidFieldRegistration,
             raySceneRegistration,
             shadowRegistration,
+            cloudLightRegistration,
+            skyAmbientRegistration,
             probeRegistration,
             causticsRegistration,
             froxelRegistration,
@@ -598,6 +651,8 @@ function createPresentationDefaults(flows: FlowRegistry): {
             refractionDenoiseRegistration,
             refractionCompositeRegistration,
             refractionMotionRegistration,
+            cloudRegistration,
+            skyCompositeRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

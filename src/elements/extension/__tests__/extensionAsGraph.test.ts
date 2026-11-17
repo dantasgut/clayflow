@@ -197,6 +197,7 @@ describe('funções da 009 montadas por grafo (spec 031, T059)', () => {
             n_scale: 'f32',
             n_offset: 'vec3f',
             n_seed: 'u32',
+            n_period: 'u32',
             c_color_a: 'vec3f',
             c_color_b: 'vec3f',
             c_low: 'f32',

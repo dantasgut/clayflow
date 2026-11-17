@@ -10,6 +10,8 @@ import {
     type GlobalIlluminationProfileField,
 } from '../lighting/GlobalIllumination';
 import { Froxels } from '../media/Froxels';
+import { CloudLayer } from '../media/clouds/CloudLayer';
+import type { CloudQuality } from '../media/clouds/schemas';
 import { SHADOW_PENUMBRA_SAMPLES, type ShadowMap } from '../scene/ShadowMap';
 import { Refraction } from '../lighting/refraction/Refraction';
 import { TemporalFilter } from '../lighting/temporal/TemporalFilter';
@@ -38,6 +40,8 @@ interface ProfileValues {
     readonly shadowResolution: number;
     /** Amostras da penumbra. */
     readonly penumbraSamples: number;
+    /** A qualidade das nuvens (spec 041, R15). */
+    readonly clouds: CloudQuality;
 }
 
 const giOf = (q: keyof typeof GI_QUALITY): ProfileValues['globalIllumination'] => {
@@ -69,6 +73,15 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [160, 90, 128],
         shadowResolution: 4096,
         penumbraSamples: 9,
+        clouds: {
+            steps: 128,
+            lightSteps: 6,
+            octaves: 3,
+            panorama: [256, 128],
+            panoramaSteps: 32,
+            shadow: { size: 256, extent: 400_000, near: 3_000 },
+            coverageExtent: 64_000,
+        },
     },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
     // SC-010 — aceito pelo usuário em 2026-10-31 pelos 4–5 ms.
@@ -82,6 +95,15 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [128, 72, 96],
         shadowResolution: 2048,
         penumbraSamples: 4,
+        clouds: {
+            steps: 64,
+            lightSteps: 5,
+            octaves: 3,
+            panorama: [192, 96],
+            panoramaSteps: 24,
+            shadow: { size: 192, extent: 400_000, near: 3_000 },
+            coverageExtent: 32_000,
+        },
     },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
     // cáusticas ficam em todo perfil (decisão do usuário): o baixo só tem menos fótons.
@@ -95,6 +117,15 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
         froxels: [96, 54, 64],
         shadowResolution: 1024,
         penumbraSamples: 4,
+        clouds: {
+            steps: 48,
+            lightSteps: 4,
+            octaves: 3,
+            panorama: [128, 64],
+            panoramaSteps: 16,
+            shadow: { size: 128, extent: 400_000, near: 3_000 },
+            coverageExtent: 32_000,
+        },
     },
 };
 
@@ -204,8 +235,9 @@ export class Renderer extends Entity {
     #froxels: readonly [number, number, number] = RENDER_PROFILES.high.froxels;
     #shadowResolution = RENDER_PROFILES.high.shadowResolution;
     #penumbraSamples = RENDER_PROFILES.high.penumbraSamples;
+    #clouds: CloudQuality = RENDER_PROFILES.high.clouds;
     /** Os recursos da cena que seguem o renderizador (os estágios padrão adotam os que entram). */
-    readonly #adopted = new Set<GlobalIllumination | Froxels | ShadowMap>();
+    readonly #adopted = new Set<GlobalIllumination | Froxels | ShadowMap | CloudLayer>();
 
     constructor(options: RendererOptions = {}) {
         super();
@@ -366,20 +398,22 @@ export class Renderer extends Entity {
         this.#froxels = values.froxels;
         this.#shadowResolution = values.shadowResolution;
         this.#penumbraSamples = values.penumbraSamples;
+        this.#clouds = values.clouds;
         this.push();
     }
 
     /**
-     * Passa a seguir o renderizador (spec 034, T079): a luz global, os froxels e os mapas de sombra da cena recebem os
+     * Passa a seguir o renderizador (spec 034, T079; spec 041): a luz global, os froxels, os mapas de sombra e a camada de
+     * nuvens da cena recebem os
      * valores dele agora e a cada mudança (o perfil, um ajuste). Os estágios padrão adotam os que entram na cena.
      */
-    adopt(resource: GlobalIllumination | Froxels | ShadowMap): void {
+    adopt(resource: GlobalIllumination | Froxels | ShadowMap | CloudLayer): void {
         this.#adopted.add(resource);
         this.pushTo(resource);
     }
 
     /** Deixa de seguir (o recurso saiu da cena). */
-    release(resource: GlobalIllumination | Froxels | ShadowMap): void {
+    release(resource: GlobalIllumination | Froxels | ShadowMap | CloudLayer): void {
         this.#adopted.delete(resource);
     }
 
@@ -387,9 +421,10 @@ export class Renderer extends Entity {
         for (const r of this.#adopted) this.pushTo(r);
     }
 
-    private pushTo(r: GlobalIllumination | Froxels | ShadowMap): void {
+    private pushTo(r: GlobalIllumination | Froxels | ShadowMap | CloudLayer): void {
         if (r instanceof GlobalIllumination) r.fromRenderer(this.#gi, this.#giOn);
         else if (r instanceof Froxels) r.grid = this.#froxels;
+        else if (r instanceof CloudLayer) r.fromRenderer(this.#clouds);
         else r.fromRenderer(this.#shadowResolution, this.#penumbraSamples);
     }
 }

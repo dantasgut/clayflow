@@ -5,12 +5,14 @@
 // estágio, anexos de cor e bytes por amostra) — numa GPU maior o resultado é o do piso, então o que não cabe falha em
 // todas:
 //   - giGlassFog: cômodo com janela, iluminação global `medium`, uma placa de vidro (dielétrico + transmissão) e névoa;
-//   - giWater: o tanque de água por campo de distância com a iluminação global `medium`.
+//   - giWater: o tanque de água por campo de distância com a iluminação global `medium`;
+//   - giGlassFogClouds: o giGlassFog com uma camada de nuvens no céu (spec 041).
 // Falha com qualquer erro de limite (`limit-exceeded`), `globalIlluminationUnsupported`, `extensionRejected`, erro do
 // motor ou erro de página, ou se a GI não ficar pronta.
 // Para rodar: `npm run smoke -- deviceFloor [--query case=giWater]`. Resultado: `DEVICEFLOOR SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
+    CloudLayer,
     FogVolume,
     GlobalIllumination,
     StandardMaterial,
@@ -66,7 +68,7 @@ async function exercise(name: string, app: Application, errors: string[]): Promi
     for (const e of new Set(errors)) failures.push(`${name}: ${e}`);
 }
 
-async function giGlassFog(): Promise<void> {
+async function giGlassFog(clouds = false): Promise<void> {
     const errors: string[] = [];
     const { app, canvas } = await giApp(480, 300, errors, { limitsCeiling: FLOOR });
     const scene = windowRoom();
@@ -98,7 +100,10 @@ async function giGlassFog(): Promise<void> {
             center: scene.probeCenter,
         }),
     );
-    await exercise('giGlassFog', app, errors);
+    // Com nuvens (spec 041, T037): a camada no céu do cômodo — a sombra e o céu coberto entram nos estágios que leem a
+    // luz; abre e desenha no piso, sem `limit-exceeded`.
+    if (clouds) app.world.insert(new CloudLayer({ coverage: 0.5 }));
+    await exercise(clouds ? 'giGlassFogClouds' : 'giGlassFog', app, errors);
     app.dispose();
     canvas.remove();
 }
@@ -113,7 +118,11 @@ async function giWater(): Promise<void> {
     canvas.remove();
 }
 
-const CASES: Record<string, () => Promise<void>> = { giGlassFog, giWater };
+const CASES: Record<string, () => Promise<void>> = {
+    giGlassFog: () => giGlassFog(false),
+    giWater,
+    giGlassFogClouds: () => giGlassFog(true),
+};
 
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');

@@ -217,6 +217,58 @@ function rippledWater(app: Application, size: Vec3, center: Vec3): void {
     );
 }
 
+let cloudView = new Transform();
+
+/** O céu físico e a camada de nuvens (spec 041) com o sol a `elevation` graus. */
+function cloudSky(
+    app: Application,
+    elevation: number,
+    values: clayflow.CloudLayerValues,
+    eye: Vec3,
+    target: Vec3,
+): { sun: clayflow.DirectionalLight; move: (p: Vec3, t: Vec3) => void } {
+    const e = (elevation * Math.PI) / 180;
+    const sun = new clayflow.DirectionalLight({
+        direction: [-Math.cos(e) * 0.8, -Math.sin(e), -Math.cos(e) * 0.6, 0],
+        intensity: 100_000,
+        castShadow: true,
+    });
+    app.world.insert(sun);
+    app.world.insert(new clayflow.Sky({ sun }));
+    app.world.insert(new clayflow.CloudLayer(values));
+    cloudView = new Transform({
+        position: [...eye, 1],
+        rotation: Transform.lookRotation(eye, target),
+    });
+    app.world.insert(
+        new clayflow.Camera({
+            fov: Math.PI / 3,
+            aspect: W / H,
+            aspectMode: 'fixed',
+            near: 0.5,
+            far: 200_000,
+        }).add(cloudView),
+    );
+    app.defaults.renderer.output.data.exposure = -13;
+    const view = cloudView;
+    return {
+        sun,
+        move: (p, t) => {
+            view.data.position = [...p, 1];
+            view.data.rotation = Transform.lookRotation(p, t);
+        },
+    };
+}
+
+/** Um chão de 4 km (o terreno das sombras das nuvens). */
+function cloudGround(app: Application): void {
+    app.world.insert(
+        new clayflow.PlaneGeometry({ size: [4000, 4000] })
+            .add(new clayflow.StandardMaterial({ albedo: [0.32, 0.38, 0.26, 1], roughness: 0.95 }))
+            .add(new Transform()),
+    );
+}
+
 const SHOTS: Record<string, Shot> = {
     lente: {
         frames: 360,
@@ -562,6 +614,78 @@ const SHOTS: Record<string, Shot> = {
             return (i) => {
                 const d = sunFrom(20 + 30 * (i / 479), -25 + 50 * (i / 479));
                 if (built.sun !== undefined) built.sun.data.direction = [...d, 0];
+            };
+        },
+    },
+    nuvens: {
+        frames: 480,
+        build(app) {
+            // Meio dia: cúmulos com vento, a câmera no chão girando devagar do horizonte para o alto.
+            cloudGround(app);
+            const { move } = cloudSky(
+                app,
+                60,
+                { coverage: 0.5, type: 0.5, wind: [12, 3] },
+                [0, 2, 0],
+                [1000, 300, 0],
+            );
+            return (i) => {
+                const a = (i / 479) * 0.9;
+                move([0, 2, 0], [1000 * Math.cos(a), 250 + 500 * (i / 479), 1000 * Math.sin(a)]);
+            };
+        },
+    },
+    pordosol: {
+        frames: 480,
+        build(app) {
+            // O sol descendo de 12° a 1° atrás das nuvens: as bordas acesas e a base alaranjada.
+            cloudGround(app);
+            const { sun } = cloudSky(
+                app,
+                12,
+                { coverage: 0.45, type: 0.55, wind: [8, 0] },
+                [0, 2, 0],
+                [-1000, 200, -600],
+            );
+            return (i) => {
+                const e = ((12 - 11 * (i / 479)) * Math.PI) / 180;
+                sun.data.direction = [-Math.cos(e) * 0.8, -Math.sin(e), -Math.cos(e) * 0.6, 0];
+            };
+        },
+    },
+    voo: {
+        frames: 600,
+        build(app) {
+            // Do chão até acima da camada: céu com nuvens, névoa densa dentro, mar de nuvens visto de cima.
+            cloudGround(app);
+            const { move } = cloudSky(
+                app,
+                40,
+                { coverage: 0.55, type: 0.5, wind: [6, 0], base: 1500, top: 3500 },
+                [0, 2, 0],
+                [1000, 600, 0],
+            );
+            return (i) => {
+                const t = i / 599;
+                const y = 2 + 5500 * t * t;
+                move([400 * t, y, 0], [400 * t + 1000, y + 600 - 900 * t, 200]);
+            };
+        },
+    },
+    sombrasnuvens: {
+        frames: 480,
+        build(app) {
+            // As sombras das nuvens correndo pelo chão (vento forte), vistas de cima de um morro.
+            cloudGround(app);
+            const { move } = cloudSky(
+                app,
+                50,
+                { coverage: 0.45, type: 0.5, wind: [25, 5] },
+                [0, 120, 0],
+                [600, 0, 400],
+            );
+            return () => {
+                move([0, 120, 0], [600, 0, 400]);
             };
         },
     },

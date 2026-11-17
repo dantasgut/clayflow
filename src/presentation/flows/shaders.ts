@@ -1,5 +1,11 @@
-import { wgslModule } from '../../scene/shaders/WgslModule';
-import { wgslResource } from '../../scene/shaders/WgslResource';
+import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
+import { wgslResource, type WgslResource } from '../../scene/shaders/WgslResource';
+import { sky, skyAerialLookup } from '../../elements/scene/sky/shaders';
+import { cloudResources } from '../../elements/media/clouds/shaders';
+import { sceneFogReady } from '../../elements/scene/points/media';
+import { refractionScreen } from '../../elements/lighting/refraction/shaders';
+import { cameraSpace } from '../../elements/scene/flows/shaders';
+import skyCompositeSource from './sky_composite.wgsl?raw';
 import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
@@ -29,6 +35,7 @@ import { Camera } from '../../elements/scene/Camera';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import {
     color,
+    constants,
     shadowVirtual,
     xformRigid,
     present,
@@ -769,3 +776,78 @@ export const ui = wgslModule({
         uiResources.sampler,
     ],
 });
+
+// Composição do céu na tela (spec 041, R13): a perspectiva aérea, a névoa e as nuvens sobre a cor da cena.
+
+const skyCompositeDepthResource = (multisampled: boolean): WgslResource =>
+    wgslResource({
+        name: 'sky_composite_depth_tex',
+        binding: { texture: { sample: 'depth', ...(multisampled ? { multisampled: true } : {}) } },
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+const SKY_COMPOSITE_DEPTH = {
+    single: skyCompositeDepthResource(false),
+    multisampled: skyCompositeDepthResource(true),
+} as const;
+
+const skyCompositeDepthModule = (r: WgslResource, name: string): WgslModule =>
+    wgslModule({
+        name,
+        requires: [r],
+        source: `fn sky_composite_depth(px: vec2i) -> f32 {
+    return textureLoad(sky_composite_depth_tex, px, 0);
+}
+
+fn sky_composite_depth_size() -> vec2u {
+    return textureDimensions(sky_composite_depth_tex);
+}`,
+    });
+
+const SKY_COMPOSITE_DEPTH_MODULES = {
+    single: skyCompositeDepthModule(SKY_COMPOSITE_DEPTH.single, 'sky_composite_depth'),
+    multisampled: skyCompositeDepthModule(
+        SKY_COMPOSITE_DEPTH.multisampled,
+        'sky_composite_depth_ms',
+    ),
+} as const;
+
+/** A nuvem no pixel: nenhuma (`(0, 1)`) ou a aumentada da `CloudLayer`. */
+const SKY_COMPOSITE_CLOUD = {
+    none: wgslModule({
+        name: 'sky_composite_cloud_none',
+        source: 'fn sky_composite_cloud(px: vec2u) -> vec4f {\n    return vec4f(0.0, 0.0, 0.0, 1.0);\n}',
+    }),
+    clouds: wgslModule({
+        name: 'sky_composite_cloud',
+        requires: [cloudResources.view],
+        source: 'fn sky_composite_cloud(px: vec2u) -> vec4f {\n    return textureLoad(cloud_view_tex, px, 0);\n}',
+    }),
+} as const;
+
+function skyCompositeModule(multisampled: boolean, clouds: boolean): WgslModule {
+    return wgslModule({
+        name: `sky_composite${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`,
+        source: skyCompositeSource,
+        requires: [
+            refractionScreen,
+            clouds ? SKY_COMPOSITE_CLOUD.clouds : SKY_COMPOSITE_CLOUD.none,
+            skyAerialLookup,
+            cameraSpace,
+            sceneFogReady,
+            sky,
+            constants,
+            camerasResource,
+            multisampled
+                ? SKY_COMPOSITE_DEPTH_MODULES.multisampled
+                : SKY_COMPOSITE_DEPTH_MODULES.single,
+        ],
+    });
+}
+
+/** Módulos da composição do céu: o shader (pelas amostras e pela presença das nuvens) e a profundidade da cena. */
+export const skyComposite = {
+    module: skyCompositeModule,
+    depth: SKY_COMPOSITE_DEPTH,
+} as const;
