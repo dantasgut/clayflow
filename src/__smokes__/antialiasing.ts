@@ -65,7 +65,6 @@ import { waterScene } from './support/waterScene';
 import { writeFixture } from './support/fixtures';
 import { lumaSrgb8 } from './support/images';
 import { cloudScene, disposeCloudScene } from './support/cloudScenes';
-import { readHdrTexture } from './support/imageMeasures';
 import { settleFrames } from './support/extensionScenes';
 import { projectiveInverse, rigidInverse } from '../elements/math/reference/xform';
 
