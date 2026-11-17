@@ -23,6 +23,7 @@ export interface CloudScene {
     readonly sky: Sky;
     readonly layer: CloudLayer | undefined;
     readonly camera: Transform;
+    readonly cameraResource: Camera;
     readonly errors: string[];
 }
 
@@ -88,16 +89,15 @@ export async function cloudScene(o: CloudSceneOptions = {}): Promise<CloudScene>
         position: [eye[0], eye[1], eye[2], 1],
         rotation: Transform.lookRotation([...eye], [...target]),
     });
-    app.world.insert(
-        new Camera({
-            fov: o.fov ?? Math.PI / 3,
-            aspect: width / height,
-            aspectMode: 'fixed',
-            near: 0.5,
-            far: o.far ?? 200_000,
-        }).add(camera),
-    );
-    return { app, canvas, sun, sky, layer, camera, errors };
+    const cameraResource = new Camera({
+        fov: o.fov ?? Math.PI / 3,
+        aspect: width / height,
+        aspectMode: 'fixed',
+        near: 0.5,
+        far: o.far ?? 200_000,
+    });
+    app.world.insert(cameraResource.add(camera));
+    return { app, canvas, sun, sky, layer, camera, cameraResource, errors };
 }
 
 /** Descarta a cena. */

@@ -1,6 +1,6 @@
 // Densidade das nuvens (spec 041, R3–R6): a cobertura (o mapa centrado na câmera; fora dele, os valores globais), o
 // perfil de altura pelo tipo, a forma pelo volume periódico (Perlin-Worley remapeado pelo fBm de Worley) deslocado
-// pelo vento e inclinado pela altura, e a erosão das bordas pelo volume de detalhe (1,5× o vento). Densidade relativa
+// pelo vento e inclinado pela altura, e a erosão das bordas pelo volume de detalhe (com o vento, derivando para cima). Densidade relativa
 // (≥ 0); a extinção é ela × `clouds.layer.z`. Espelho de `cloudDensity` em `cloudModel.ts`.
 // Requer: cloud_coverage_field, cloud_common, clouds, cloud_shape_tex, cloud_detail_tex, cloud_coverage_tex, cloud_noise_sampler,
 // cloud_clamp_sampler.

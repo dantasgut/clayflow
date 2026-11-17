@@ -25,8 +25,8 @@ type Ctx = TransitionContext<SkyCompositeSlots>;
 
 /**
  * SkyCompositeFlow — a atmosfera e as nuvens na tela (spec 041, R10, R13; Camada 4). Na fase `forward`, depois da água e
- * da marcha das nuvens, antes da resolução temporal, com um `Sky` na cena: dois triângulos de tela cheia sobre a cor da
- * cena (com MSAA, nas amostras, resolvidas na cor) — o produto pela transmitância da nuvem e da atmosfera até a
+ * da marcha das nuvens, antes da resolução temporal, com um `Sky` na cena: dois triângulos de tela cheia sobre a cor
+ * resolvida da cena (com MSAA, depois da resolução: as amostras não são mais lidas) — o produto pela transmitância da nuvem e da atmosfera até a
  * superfície (mistura `dst·src`, por canal) e a soma da luz delas, atrás da névoa dos froxels (mistura aditiva). A
  * perspectiva aérea vale para toda a geometria, com ou sem `CloudLayer`; com ela, a nuvem aumentada entra na mesma
  * fórmula. Sem `Sky`, nada.
@@ -81,9 +81,14 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         const add = bound.pipelines.get(this.prepared[1]);
         if (multiply?.role !== 'render' || !multiply.ready || add?.role !== 'render' || !add.ready)
             return;
-        const color = this.colorAttachment(frame, bound.slots.target, { loadOp: 'load' });
-        if (color === undefined) return;
-        const renderTarget: RenderTarget = { colorAttachments: [color] };
+        // Na cor resolvida (uma amostra): nada depois da composição lê as amostras, e o passe sobre o alvo
+        // multiamostrado traria e devolveria as quatro de todo pixel (a banda dominava o custo).
+        const target = bound.slots.target;
+        const resolved = target.color;
+        if (resolved === 'none' || resolved === 'canvas') return;
+        const renderTarget: RenderTarget = {
+            colorAttachments: [{ view: resolved, loadOp: 'load', storeOp: 'store' }],
+        };
         frame.render(renderTarget, 'SkyCompositeFlow', (pass) => {
             pass.bind.setPipeline(multiply.spec);
             multiply.bindTo(pass.bind);
@@ -103,6 +108,7 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
             return;
         }
         const multisampled = target.sampleCount > 1;
+        // A composição desenha na cor resolvida: uma amostra (a profundidade, essa sim, é a multiamostrada).
         if (depth !== this.boundDepth) {
             c.bind(
                 new Map<WgslResource, BindingSource>([
@@ -118,7 +124,7 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         const clouds =
             cloud !== undefined && this.resources.textureViewOf(cloud, 'view') !== undefined;
         const format = target.format ?? this.core.canvasFormat;
-        const key = `${format}:${target.sampleCount}${clouds ? ':clouds' : ''}`;
+        const key = `${format}:${target.sampleCount}${clouds ? ':clouds' : ''}:resolved`;
         const ids = [`sky_composite_multiply:${key}`, `sky_composite_add:${key}`] as const;
         if (this.prepared?.[0] === ids[0]) return;
         if (this.prepared !== undefined) for (const id of this.prepared) c.release(id);
@@ -133,7 +139,7 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
                 topology: 'triangle-list',
                 cullMode: 'none',
                 colorTargets: [{ format, blend }],
-                multisample: { count: target.sampleCount },
+                multisample: { count: 1 },
             });
         };
         pipeline(ids[0], 'sky_composite_multiply_fs', {

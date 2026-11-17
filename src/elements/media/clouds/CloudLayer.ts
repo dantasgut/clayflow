@@ -275,7 +275,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
 
     /**
      * Os deslocamentos do vento no tempo simulado `time` (s), em f64 (spec 041, R6): a forma `vento·t` e o detalhe
-     * `1,5·vento·t` reduzidos módulo o período do volume (o volume é periódico: a redução não salta) e a cobertura
+     * `vento·t` com a deriva vertical `0,1·|vento|·t` reduzidos módulo o período do volume (o volume é periódico: a
+     * redução não salta) e a cobertura
      * `vento·t` (o referencial da função de cobertura).
      */
     windOffsets(time: number): CloudWindOffsets {
@@ -284,7 +285,13 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         const d = this.rawData.detailScale;
         return {
             shape: [wrap(wx * time, s), 0, wrap(wz * time, s)],
-            detail: [wrap(1.5 * wx * time, d), 0, wrap(1.5 * wz * time, d)],
+            // O detalhe anda com o vento e deriva para cima a 0,1·|vento|: a forma muda aos poucos sem desviar o
+            // deslocamento da nuvem (o 1,5× de Schneider puxava a nuvem medida para 130 m em vez de 100).
+            detail: [
+                wrap(wx * time, d),
+                wrap(0.1 * Math.hypot(wx, wz) * time, d),
+                wrap(wz * time, d),
+            ],
             coverage: [wx * time, wz * time],
         };
     }

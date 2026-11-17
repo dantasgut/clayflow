@@ -64,6 +64,9 @@ vi.mock('../../../scene/systems/flowBinding/limits', async (original) => {
 /** Os pipelines que leem a luz da cena (os que ganham as contribuições das nuvens). */
 const LIGHT_READERS = /forward|froxel_inject|gi_.*trace|refraction_path/;
 
+let lastComputes: readonly string[] = [];
+let allLabels: string[] = [];
+
 async function countScene(withClouds: boolean): Promise<Map<string, Record<string, number>>> {
     recorded.length = 0;
     const s = await renderScene();
@@ -88,6 +91,8 @@ async function countScene(withClouds: boolean): Promise<Map<string, Record<strin
         s.step();
         for (let i = 0; i < 30; i++) await Promise.resolve();
     }
+    lastComputes = s.computes();
+    allLabels = recorded.map((r) => r.label);
     const out = new Map<string, Record<string, number>>();
     for (const r of recorded) if (LIGHT_READERS.test(r.label)) out.set(r.label, r.counts);
     return out;
@@ -119,5 +124,15 @@ describe('ligações por estágio (spec 041)', () => {
                 limits.maxSampledTexturesPerShaderStage ?? Infinity,
             );
         }
+    });
+});
+
+describe('custo zero sem camada de nuvens (spec 041, T035)', () => {
+    it('sem CloudLayer, nenhum pipeline nem passe das nuvens; com ela, os passes existem', async () => {
+        await countScene(false);
+        expect(allLabels.some((l) => l.includes('Cloud'))).toBe(false);
+        expect(lastComputes.some((c) => c.startsWith('Cloud'))).toBe(false);
+        await countScene(true);
+        expect(lastComputes.some((c) => c.startsWith('CloudFlow.march'))).toBe(true);
     });
 });

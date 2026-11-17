@@ -206,8 +206,6 @@ export function coverageField(x: number, z: number, c: number, t: number): numbe
 export const CLOUD_EROSION = 0.35;
 /** Inclinação do vento pela altura: o topo adiantado de `CLOUD_SKEW × espessura` na direção do vento. */
 export const CLOUD_SKEW = 0.5;
-/** O detalhe anda a 1,5× o vento (Schneider 2015). */
-export const CLOUD_DETAIL_WIND = 1.5;
 
 /** A camada como a marcha a vê (os valores empacotados do `CloudLayer` e do `Sky`). */
 export interface CloudModel {
@@ -224,7 +222,7 @@ export interface CloudModel {
     readonly detail: CloudVolume;
     readonly shapeScale: number;
     readonly detailScale: number;
-    /** Deslocamentos (m) da forma e do detalhe: `vento · tempo` (e 1,5× no detalhe). */
+    /** Deslocamentos (m) da forma e do detalhe: `vento · tempo` (no detalhe, mais a deriva vertical). */
     readonly shapeOffset: Vec3;
     readonly detailOffset: Vec3;
     /** Direção unitária do vento no plano (x, z) — a inclinação do topo. */

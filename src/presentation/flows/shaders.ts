@@ -35,6 +35,7 @@ import { Camera } from '../../elements/scene/Camera';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import {
     color,
+    constants,
     shadowVirtual,
     xformRigid,
     present,
@@ -836,6 +837,7 @@ function skyCompositeModule(multisampled: boolean, clouds: boolean): WgslModule 
             cameraSpace,
             sceneFogReady,
             sky,
+            constants,
             camerasResource,
             multisampled
                 ? SKY_COMPOSITE_DEPTH_MODULES.multisampled

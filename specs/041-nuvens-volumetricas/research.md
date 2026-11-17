@@ -313,3 +313,67 @@ composição ≈ 0,2 ms (SC-009). A medida por passe entra no bench (cena `cloud
 - Unreal Engine, "Volumetric Cloud Component"
   ([documentação](https://dev.epicgames.com/documentation/unreal-engine/volumetric-cloud-component-in-unreal-engine)):
   marcha em resolução reduzida com reconstrução temporal, _Beer shadow map_, captura do céu com nuvens.
+
+## Implementação — decisões e medidas (2026-11-17)
+
+Registradas durante a implementação (as tarefas citam os números; os smokes os repetem).
+
+### R1 — o cone de luz
+
+O cone de Schneider com crescimento × 2 (trechos até 16 passos base) dava, pelo ponto médio dos trechos longos que
+cruzam a borda da nuvem, −3 % de luz na mediana contra a referência f64 do mesmo modelo (`noon`; com o mesmo cone na
+referência, a GPU ficava a 1 %). Crescimento × 1,5 (0,5·1,5ⁱ passos base, i = 0…5): o mapa visto do sol cobre o resto.
+
+### R3 — o contraste do Perlin-Worley
+
+O fBm de gradiente normalizado tem σ ≈ 0,2: com ele em [−1, 1] → [0, 1], a forma base fica em [0,72; 0,93] (5–95 %,
+medido na referência) e a remapeação da cobertura não esculpe nada — as nuvens saíam como lâminas lisas. O grafo padrão
+leva ±0,5 a [0, 1].
+
+### R4 — a cobertura é a fração do céu coberta
+
+Com um número global, a densidade não varia no plano (no modelo de Schneider a variação vem do mapa de tempo): a
+cobertura medida saía 0 % ou 100 %. Sem função de cobertura, a cobertura local é `L = g(c, tipo) + 0,4·(u − 0,5)`: `u` um
+fBm de gradiente 2D (3 oitavas, células de 8 km) uniformizado pela normal acumulada aproximada (σ = 0,2014, medido; a
+uniformização dá 21,3 / 50,0 / 78,6 % de área acima do limiar para 20 / 50 / 80 %), e `g` a inversa da área coberta
+medida na referência f64 com os volumes completos (a fração das colunas com transmitância < 0,5):
+
+| g                       | 0   | 0,1   | 0,2   | 0,3   | 0,4   | 0,5   | 0,6   | 0,7   |
+| ----------------------- | --- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |
+| área, cúmulo (tipo 0,5) | 0   | 0,016 | 0,142 | 0,370 | 0,604 | 0,834 | 0,975 | 0,999 |
+| área, estrato (tipo 0)  | 0   | 0,004 | 0,063 | 0,242 | 0,476 | 0,720 | 0,914 | 0,989 |
+
+Medido na GPU (smoke `clouds`, `coverage`, vista de cima a 60 km): 0 / 19,2 / 49,3 / 80,4 / 100 % para 0 / 0,2 / 0,5 /
+0,8 / 1 (SC-003).
+
+### R8 — calibração das oitavas (T023)
+
+Contra o rastreamento delta (`octaves.calibration.test.ts`: cilindro de 1 km de raio, 1500–2500 m, σt 0,02/m, albedo
+0,99, J&dE a 20 µm, só o sol; vistas de baixo, perto da borda, de lado e contra o sol, com o sol a 60° e a 10°), a melhor
+combinação na grade (N 2–8, a 0,15–0,65, b 0,7–1, c 0,5–0,9) é **N = 3, a = 0,35, b = 0,95, c = 0,6**, com erro médio de
+**31,9 %**: −40 % de baixo e −52 % de lado com o sol a 60°, −67 % de baixo com o sol a 10°, +27 % de lado com o sol a 10°;
+na borda contra o sol, 0,7–2 %. O modelo de oitavas não reproduz a difusão através de nuvem espessa: o critério de 5 % da
+SC-001 contra o transporte completo **não fecha** com ele (em aberto, PENDENCIAS). A imagem do motor fica a ≤ 4 % (luz) e
+0,009 (transmitância) do mesmo modelo calculado em f64 com cobertura total, e a 7,5 % / 0,030 com cobertura 0,5. Os
+perfis médio e baixo também usam 3 oitavas (o custo é o da fase e da exponencial; com 2 o erro cresce).
+
+### R11 — o mapa visto do sol por quartos
+
+A extinção média do trecho inteiro (o Beer shadow map de Hillaire 2016) superestima τ onde a coluna tem vazios e no
+topo dos cúmulos (125 % a 300 m do topo, no teste de unidade); escurecia a nuvem 20 % (mediana 0,80 contra a
+referência). O texel guarda τ acumulado ao fim de cada quarto do trecho da casca ao longo do sol (os nós são da
+geometria, recalculados na leitura), com a erosão; linear entre os nós. Mapa inteiro a cada quadro (sem série), 384² e
+32 passos no alto (512² × 48 custava 1,4–2,0 ms medidos; 384² × 32, 0,8 ms) — a precisão do `noon` não mudou.
+
+### R13 — a composição
+
+Dois passes de tela cheia com mistura do hardware (produto por canal e soma), que descartam o pixel sem efeito. O
+perfilador por passe conta a sobreposição de passes seguidos no TBDR (a composição aparece com 1,2–3,9 ms logo depois da
+marcha); a medida é o tempo do quadro com e sem a camada.
+
+### R17 — tempos medidos (M4, 1280 × 720)
+
+Tempo do quadro com nuvens menos o do mesmo céu sem a camada (smoke `clouds`, `timing`; a GPU é dividida com o
+navegador e a primeira cena da rodada é mais lenta): alto 2,3–2,8 ms, médio 0,8–1,6 ms, baixo 0,6 ms (2,2–2,4 ms na
+primeira cena). Por passe no alto: tabela aérea 0,07–0,12, cobertura 0,03, ambiente 0,05, mapa visto do sol 0,8, panorama
+0,15–0,19, marcha 0,75–0,82, reconstrução 0,07, aumento 0,23–0,30 ms.
