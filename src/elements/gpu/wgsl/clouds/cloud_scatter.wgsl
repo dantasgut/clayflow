@@ -11,7 +11,7 @@
 // Teto constante: `CLOUD_SCATTER_STEPS` passos por caminho (nulos, reais e saltos) e `CLOUD_PHASE_TRIES` tentativas em
 // cada amostra da fase — o orçamento total por invocação é `CLOUD_SCATTER_STEPS × (1 + 2·CLOUD_PHASE_TRIES)`.
 // Despacho linear: uma sonda por invocação.
-// Requer: WORKGROUP_SIZE, constants, random, cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup,
+// Requer: WORKGROUP_SIZE, constants, random, xform_rigid, cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup,
 // cloud_scatter_grid, sky_query, clouds, cameras, cloud_ambient_tex, cloud_scatter_prev, cloud_scatter_out,
 // cloud_scatter_sun_prev, cloud_scatter_sun_out.
 
@@ -159,8 +159,7 @@ fn cloud_scatter_main(
     let work = clouds.scatterWork;
     let cam = cameras[clouds.march.w];
     // A posição da câmera no quadro anterior (a vista anterior é rígida): o centro da grade que ela dava.
-    let pv = cam.previousView;
-    let prev_eye = -(transpose(mat3x3f(pv[0].xyz, pv[1].xyz, pv[2].xyz)) * pv[3].xyz);
+    let prev_eye = rigid_inverse(cam.previousView)[3].xyz;
     let moved = any(cloud_scatter_center(prev_eye) != clouds.scatterGrid.xy);
     let valid = clouds.scatterParams.z > 0.5 && cam.history.x < 0.5 && !moved;
     let sun = sky.sunDirection.xyz;

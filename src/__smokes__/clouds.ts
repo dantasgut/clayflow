@@ -60,6 +60,7 @@ import {
     type ScatterGrid,
 } from '../elements/media/clouds/reference/cloudScatter';
 import { deltaRng } from '../elements/lighting/reference/pathTracer';
+import { luminance } from '../elements/math/reference/color';
 import {
     aerialPerspective,
     earthAtmosphere,
@@ -704,11 +705,8 @@ async function caseScatterCache(): Promise<void> {
             || (rel[0] * fwd[0]! + rel[1] * fwd[1]! + rel[2] * fwd[2]!) / (dist * fl) < 0.5
         )
             continue;
-        const lum = (): number =>
-            0.2126 * grid.data[i * 4]!
-            + 0.7152 * grid.data[i * 4 + 1]!
-            + 0.0722 * grid.data[i * 4 + 2]!;
-        picks.push({ x, n, v: (lum() / n) * E });
+        const sum = luminance([grid.data[i * 4]!, grid.data[i * 4 + 1]!, grid.data[i * 4 + 2]!]);
+        picks.push({ x, n, v: (sum / n) * E });
     }
     const walks = Number(q.get('walks') ?? 1000);
     let sumG = 0;
@@ -732,7 +730,7 @@ async function caseScatterCache(): Promise<void> {
                 48,
                 256,
             );
-            acc += 0.2126 * L[0] + 0.7152 * L[1] + 0.0722 * L[2];
+            acc += luminance(L);
         }
         const ref = acc / walks;
         sumG += p.v;

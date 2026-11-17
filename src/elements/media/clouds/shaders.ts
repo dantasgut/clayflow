@@ -6,7 +6,7 @@ import { slot } from '../../../scene/flows/slots';
 import { camerasResource } from '../../scene/resources';
 import { cameraSpace } from '../../scene/flows/shaders';
 import { sky, skyAerialLookup, skyParamsResource } from '../../scene/sky/shaders';
-import { color, constants, random, viewSpace } from '../../gpu/shaders/math';
+import { color, constants, random, viewSpace, xformRigid } from '../../gpu/shaders/math';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { CloudSchema } from './schemas';
 import cloudCommonSource from '../../gpu/wgsl/clouds/cloud_common.wgsl?raw';
@@ -594,6 +594,7 @@ export const cloudScatterKernel = wgslModule({
         WORKGROUP_SIZE.module,
         constants,
         random,
+        xformRigid,
         cloudCommon,
         cloudDensity,
         cloudPhase,
