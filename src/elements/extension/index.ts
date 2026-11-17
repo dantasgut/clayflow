@@ -7,3 +7,5 @@ export { SpaceFunction } from './SpaceFunction';
 export { MaterialFunction } from './MaterialFunction';
 export { DensityFunction } from './DensityFunction';
 export type { MaterialFunctionOptions } from './MaterialFunction';
+export { CloudShapeFunction, type CloudShapeOptions } from './CloudShapeFunction';
+export { CloudCoverageFunction, type CloudCoverageOptions } from './CloudCoverageFunction';

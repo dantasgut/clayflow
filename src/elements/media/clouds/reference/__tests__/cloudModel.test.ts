@@ -127,15 +127,18 @@ describe('transmitância e mapa visto do sol', () => {
         const down: Vec3 = [0, -1, 0];
         const top: Vec3 = [0, 4000, 0];
         const texel = shadowTexel(m, top, down, 512);
+        // O trecho da casca ao longo do raio (do topo da casca à base): 1500 m a 2500 m de distância da origem.
+        const [a, b] = [1500, 2500];
         // Act + Assert: abaixo da base, o trecho inteiro.
         const exact = Math.exp(-opticalDepth(m, [0, 500, 0], [0, 1, 0], 2048));
-        expect(shadowTransmittance(texel, 3500)).toBeCloseTo(exact, 3);
-        // Dentro: a extinção média do texel (Beer shadow map, Hillaire 2016) é exata num meio homogêneo; com o perfil de
-        // altura, a profundidade ótica fica a um fator de 3 da integral (medido: 1,77 contra 0,79 a 300 m do topo).
-        const tauInside = opticalDepth(m, [0, 2200, 0], [0, 1, 0], 2048);
-        const tauMap = -Math.log(shadowTransmittance(texel, 1800));
-        expect(tauMap / tauInside).toBeGreaterThan(1 / 3);
-        expect(tauMap / tauInside).toBeLessThan(3);
+        expect(shadowTransmittance(texel, 3500, a, b)).toBeCloseTo(exact, 3);
+        // Dentro: τ linear entre os quartos do trecho segue o perfil de altura (a extinção média do trecho inteiro, o Beer
+        // shadow map simples, dava 125 % de erro a 300 m do topo).
+        for (const y of [2400, 2200, 1900, 1600]) {
+            const tauInside = opticalDepth(m, [0, y, 0], [0, 1, 0], 2048);
+            const tauMap = -Math.log(shadowTransmittance(texel, 4000 - y, a, b));
+            expect(Math.abs(tauMap - tauInside)).toBeLessThan(0.25 * tauInside + 0.2);
+        }
     });
 
     it('a marcha sem nuvem deixa tudo passar; com nuvem espessa, quase nada', () => {

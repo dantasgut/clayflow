@@ -13,6 +13,9 @@ import { skyContributions } from './points';
 export const SKY_TRANSMITTANCE_SIZE = [256, 64] as const;
 export const SKY_MULTISCATTER_SIZE = [32, 32] as const;
 export const SKY_VIEW_SIZE = [192, 108] as const;
+/** Tabela da perspectiva aérea (spec 041, R10): colunas na tela × fatias de distância. */
+export const SKY_AERIAL_SIZE = [32, 32, 32] as const;
+export { SKY_AERIAL_RANGE_KM } from './SkySchema';
 
 /** Raio angular do sol visto da Terra (rad). */
 const SUN_ANGULAR_RADIUS = 0.004675;
@@ -45,8 +48,10 @@ export interface SkyData {
     night: number[];
     sunSlot: number;
     sunDisk: number;
-    _pad0: number;
-    _pad1: number;
+    /** 1 com uma `CloudLayer` na cena: o ambiente dos raios lê `sky_cover` (spec 041). */
+    cover: number;
+    /** Slot da câmera ativa (a tabela da perspectiva aérea). */
+    cameraSlot: number;
 }
 
 /** Espalhamento e extinção de Mie ao nível do chão (1/km) com turbidez 1. */
@@ -60,7 +65,9 @@ const MIE_EXTINCTION = 4.44e-3;
  * superfícies atenuada pela atmosfera (contribuição a `light_transmission`). O céu é o fundo visível (contribuição a
  * `scene_background`) e a fonte dos raios que escapam da iluminação global (`sky_radiance`). As tabelas
  * (`rgba16float`) são geradas na GPU pelo `SkyFlow`: transmitância e múltiplo espalhamento quando a atmosfera muda, a
- * vista do céu a cada quadro. Sem `Sky`, a cena fica como na 011 (o hemisfério e o fundo de limpeza).
+ * vista do céu a cada quadro. Com câmera, também a perspectiva aérea (spec 041): toda a geometria da cena recebe a
+ * atmosfera entre a câmera e ela na composição da tela (`SkyCompositeFlow`). Sem `Sky`, a cena fica como na 011 (o
+ * hemisfério e o fundo de limpeza).
  */
 export class Sky extends Entity<SkyData> implements Resource {
     /** Parâmetros do céu (uniform). */
@@ -87,8 +94,8 @@ export class Sky extends Entity<SkyData> implements Resource {
             night: [...(values.night ?? [0.0005, 0.0008, 0.0015]), 0],
             sunSlot: NONE.value,
             sunDisk: values.sunDisk === false ? 0 : 1,
-            _pad0: 0,
-            _pad1: 0,
+            cover: 0,
+            cameraSlot: 0,
         };
     }
 
@@ -114,6 +121,23 @@ export class Sky extends Entity<SkyData> implements Resource {
             table('transmittance', SKY_TRANSMITTANCE_SIZE),
             table('multiscatter', SKY_MULTISCATTER_SIZE),
             table('view', SKY_VIEW_SIZE),
+            // A perspectiva aérea (spec 041, R10): a luz espalhada e a transmitância da câmera até cada fatia, para toda a
+            // geometria da cena; alocada quando o estágio do céu a pede (com câmera).
+            ...(['aerial', 'aerialTransmittance'] as const).map(
+                (id): GPUDescriptor => ({
+                    id,
+                    role: 'storage-texture',
+                    allocation: 'onDemand',
+                    textureShape: {
+                        format: 'rgba16float',
+                        dimension: '3d',
+                        width: SKY_AERIAL_SIZE[0],
+                        height: SKY_AERIAL_SIZE[1],
+                        depthOrArrayLayers: SKY_AERIAL_SIZE[2],
+                        access: 'write-only',
+                    },
+                }),
+            ),
             {
                 id: 'sampler',
                 role: 'sampler',
@@ -131,8 +155,19 @@ export class Sky extends Entity<SkyData> implements Resource {
         return [];
     }
 
+    /**
+     * Liga ou desliga a leitura do que cobre o céu (`sky_cover`, spec 041) no ambiente dos raios: escrito só quando muda
+     * (a composição dos pontos de cena é refeita).
+     */
+    setCovered(on: boolean): void {
+        const cover = on ? 1 : 0;
+        if (this.rawData.cover !== cover) this.data.cover = cover;
+    }
+
     /** A transmitância do sol em `light_transmission` e o céu como fundo em `scene_background`. */
     getSceneContributions(): readonly SceneContribution[] {
-        return skyContributions;
+        return this.contributions;
     }
+
+    private readonly contributions = skyContributions(() => this.rawData.cover === 1);
 }

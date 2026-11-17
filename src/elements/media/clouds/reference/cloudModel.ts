@@ -313,6 +313,32 @@ export interface CloudLighting {
     /** Radiância média do céu (hemisfério de cima) e do chão (hemisfério de baixo). */
     readonly ambientUp: Vec3;
     readonly ambientDown: Vec3;
+    /** A luz do sol num ponto (a iluminância × a transmitância da atmosfera até ele); sem: `sun` em todo ponto. */
+    readonly sunAt?: (x: Vec3) => Vec3;
+    /** A profundidade ótica até o sol num ponto; sem: a integral até a saída da casca. */
+    readonly sunDepth?: (x: Vec3) => number;
+}
+
+/**
+ * A profundidade ótica até o sol pelo cone curto do shader (`cloud_sun_depth`): `steps` trechos de comprimento
+ * `espessura/48 · 0,5 · 1,5^i`, a densidade no meio de cada um, e o resto até a saída da casca integrado.
+ */
+export function coneSunDepth(m: CloudModel, x: Vec3, sun: Vec3, steps = 6): number {
+    const base = (m.top - m.base) / 48;
+    let tau = 0;
+    let t = 0;
+    for (let i = 0; i < steps; i++) {
+        const len = base * 0.5 * 1.5 ** i;
+        const p: Vec3 = [
+            x[0] + sun[0] * (t + 0.5 * len),
+            x[1] + sun[1] * (t + 0.5 * len),
+            x[2] + sun[2] * (t + 0.5 * len),
+        ];
+        tau += cloudDensity(m, p) * len;
+        t += len;
+    }
+    const end: Vec3 = [x[0] + sun[0] * t, x[1] + sun[1] * t, x[2] + sun[2] * t];
+    return tau * m.density + opticalDepth(m, end, sun, 128);
 }
 
 /** Resultado de uma marcha: luz espalhada (rgb), transmitância e profundidade média ponderada pela opacidade (m). */
@@ -352,15 +378,16 @@ export function marchCloud(
             const rho = cloudDensity(m, x);
             if (rho <= 0) continue;
             const sigmaT = rho * m.density;
-            const tau = opticalDepth(m, x, light.sunDir, sunSteps);
+            const tau = light.sunDepth?.(x) ?? opticalDepth(m, x, light.sunDir, sunSteps);
             const sun = octaveScattering(sigmaT, m.albedo, tau, cosTheta, phase, octaves);
             const h = clamp01(heightFraction(m, x));
+            const sunLight = light.sunAt?.(x) ?? light.sun;
             const stepT = Math.exp(-sigmaT * dt);
             const integ = (1 - stepT) / sigmaT;
             for (let c = 0; c < 3; c++) {
                 const amb =
                     sigmaT * m.albedo * (light.ambientUp[c]! * h + light.ambientDown[c]! * (1 - h));
-                L[c]! += T * (sun * light.sun[c]! + amb) * integ;
+                L[c]! += T * (sun * sunLight[c]! + amb) * integ;
             }
             const alpha = T * (1 - stepT);
             depthSum += alpha * t;
@@ -379,37 +406,38 @@ export function marchCloud(
 // ---------------------------------------------------------------------------------------------------------------------
 // Mapa de transmitância visto do sol (R11)
 
-/** Texel do mapa: profundidade da frente ao longo do sol (m), extinção média (1/m) e profundidade ótica máxima. */
-export type ShadowTexel = readonly [number, number, number];
+/** Texel do mapa: a profundidade ótica acumulada ao fim de cada quarto do trecho da casca ao longo do sol. */
+export type ShadowTexel = readonly [number, number, number, number];
 
 /**
  * Texel do mapa de transmitância ao longo do raio que desce do sol a partir de `o` (acima da camada) na direção `dir`
- * (do sol para baixo): a frente é a primeira amostra com densidade, a extinção média é `τ / (fim − frente)` e `τ` a
- * profundidade ótica do trecho inteiro.
+ * (do sol para baixo), pelo primeiro trecho da casca em `steps` passos (múltiplo de 4): τ ao fim de cada quarto.
  */
 export function shadowTexel(m: CloudModel, o: Vec3, dir: Vec3, steps = 48): ShadowTexel {
     const segs = shellSegments(m, o, dir, Infinity);
-    if (segs.length === 0) return [0, 0, 0];
-    const start = segs[0]![0];
-    const end = segs[segs.length - 1]![1];
+    if (segs.length === 0) return [0, 0, 0, 0];
+    const [start, end] = segs[0]!;
     const dt = (end - start) / steps;
+    const knots = [0, 0, 0, 0];
     let tau = 0;
-    let front = -1;
-    let back = start;
     for (let i = 0; i < steps; i++) {
         const t = start + (i + 0.5) * dt;
-        const rho = cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t]);
-        if (rho > 0) {
-            if (front < 0) front = t - 0.5 * dt;
-            back = t + 0.5 * dt;
-            tau += rho * m.density * dt;
-        }
+        tau +=
+            cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t])
+            * m.density
+            * dt;
+        if ((i + 1) % (steps / 4) === 0) knots[(i + 1) / (steps / 4) - 1] = tau;
     }
-    if (front < 0) return [0, 0, 0];
-    return [front, tau / Math.max(back - front, 1e-6), tau];
+    return knots as unknown as ShadowTexel;
 }
 
-/** `T(p) = exp(−min(τ_max, σ̄ · max(0, d − frente)))` para o receptor a `d` m do início do raio do texel. */
-export function shadowTransmittance(texel: ShadowTexel, d: number): number {
-    return Math.exp(-Math.min(texel[2], texel[1] * Math.max(0, d - texel[0])));
+/**
+ * `T(p) = exp(−τ)` para o receptor a `d` m da origem do raio do texel, com o trecho da casca `[a, b]` da coluna: τ
+ * linear entre os nós dos quartos.
+ */
+export function shadowTransmittance(texel: ShadowTexel, d: number, a: number, b: number): number {
+    const s = Math.min(1, Math.max(0, (d - a) / (b - a))) * 4;
+    const k = Math.min(Math.floor(s), 3);
+    const lo = k === 0 ? 0 : texel[k - 1]!;
+    return Math.exp(-(lo + (texel[k]! - lo) * (s - k)));
 }

@@ -4,6 +4,7 @@ import {
     lightTransmissionPoint,
     sceneBackgroundPoint,
     sceneEnvironmentPoint,
+    skyCoverReady,
 } from '../points/lighting';
 import { sky, skyParamsResource } from './shaders';
 
@@ -35,9 +36,32 @@ const skyEnvironment = wgslModule({
 }`,
 });
 
-/** Contribuições do `Sky` (spec 033, R4): a transmitância do sol, o fundo e o ambiente. */
-export const skyContributions: readonly SceneContribution[] = [
-    { point: lightTransmissionPoint, order: 20, pools: [], build: () => skyLightTransmission },
-    { point: sceneBackgroundPoint, order: 0, pools: [], build: () => skyBackground },
-    { point: sceneEnvironmentPoint, order: 0, pools: [], build: () => skyEnvironment },
-];
+/**
+ * O céu coberto (spec 041, R12): o que está na frente dele numa direção (`sky_cover`, composição "na frente de": as
+ * nuvens) tapa a radiância do céu e soma a própria luz.
+ */
+const skyEnvironmentCovered = wgslModule({
+    name: 'sky_scene_environment_covered',
+    requires: [sky, skyCoverReady],
+    source: `fn scene_environment(dir: vec3f) -> vec3f {
+    let cover = sky_cover(dir);
+    return sky_radiance(dir) * cover.a + cover.rgb;
+}`,
+});
+
+/**
+ * Contribuições do `Sky` (spec 033, R4): a transmitância do sol, o fundo e o ambiente — com algo cobrindo o céu
+ * (`covered`, spec 041), o ambiente lê `sky_cover`; sem, o módulo de antes (o mesmo WGSL).
+ */
+export function skyContributions(covered: () => boolean): readonly SceneContribution[] {
+    return [
+        { point: lightTransmissionPoint, order: 20, pools: [], build: () => skyLightTransmission },
+        { point: sceneBackgroundPoint, order: 0, pools: [], build: () => skyBackground },
+        {
+            point: sceneEnvironmentPoint,
+            order: 0,
+            pools: [],
+            build: () => (covered() ? skyEnvironmentCovered : skyEnvironment),
+        },
+    ];
+}

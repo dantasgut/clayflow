@@ -1,14 +1,18 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
+import { sharedConstant } from '../../../scene/shaders/SharedConstant';
+import { SKY_AERIAL_RANGE_KM, SkySchema } from './SkySchema';
 import skyAtmosphereSource from '../../gpu/wgsl/sky/sky_atmosphere.wgsl?raw';
 import skyLookupSource from '../../gpu/wgsl/sky/sky_lookup.wgsl?raw';
 import skyTransmittanceSource from '../../gpu/wgsl/sky/sky_transmittance.wgsl?raw';
 import skyMultiscatterSource from '../../gpu/wgsl/sky/sky_multiscatter.wgsl?raw';
 import skyViewSource from '../../gpu/wgsl/sky/sky_view.wgsl?raw';
 import skySource from '../../gpu/wgsl/sky/sky.wgsl?raw';
-import { SkySchema } from './SkySchema';
-import { constants } from '../../gpu/shaders/math';
+import skyAerialSource from '../../gpu/wgsl/sky/sky_aerial.wgsl?raw';
+import skyAerialLookupSource from '../../gpu/wgsl/sky/sky_aerial_lookup.wgsl?raw';
+import { camerasResource } from '../resources';
+import { constants, viewSpace } from '../../gpu/shaders/math';
 
 // Módulos do céu físico (spec 033, R4): a atmosfera, a leitura das tabelas, os três kernels das tabelas (saídas
 // privadas do `SkyFlow`) e a consulta `sky` (radiância, transmitância do sol, fundo). Os descritores do `Sky` são
@@ -38,6 +42,21 @@ export const skyMultiscatterLut = lut('sky_multiscatter_lut', 'Sky.multiscatter'
 /** Tabela da vista do céu (resolver `Sky.view`). */
 export const skyViewLut = lut('sky_view_lut', 'Sky.view');
 
+const lut3d = (name: string, consumer: string): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { texture: { sample: 'f32', dimension: '3d' } },
+        frequency: 'frame',
+        provider: { consumer },
+    });
+
+/** Tabela da perspectiva aérea: a luz espalhada (resolver `Sky.aerial`) e a transmitância (`Sky.aerialTransmittance`). */
+export const skyAerialLut = lut3d('sky_aerial_lut', 'Sky.aerial');
+export const skyAerialTransmittanceLut = lut3d(
+    'sky_aerial_transmittance_lut',
+    'Sky.aerialTransmittance',
+);
+
 /** Amostrador linear das tabelas (resolver `Sky.sampler`). */
 export const skySampler = wgslResource({
     name: 'sky_sampler',
@@ -54,11 +73,21 @@ const out = (name: string): ReturnType<typeof wgslResource> =>
         provider: 'private',
     });
 
+const out3d = (name: string): ReturnType<typeof wgslResource> =>
+    wgslResource({
+        name,
+        binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
+        frequency: 'stage',
+        provider: 'private',
+    });
+
 /** Saídas dos kernels das tabelas (as texturas do `Sky`), privadas do `SkyFlow`. */
 export const skyOutputs = Object.freeze({
     transmittance: out('sky_transmittance_out'),
     multiscatter: out('sky_multiscatter_out'),
     view: out('sky_view_out'),
+    aerial: out3d('sky_aerial_out'),
+    aerialTransmittance: out3d('sky_aerial_transmittance_out'),
 });
 
 /** O meio, as fases, as distâncias e as parametrizações das tabelas. */
@@ -115,4 +144,43 @@ export const sky = wgslModule({
     name: 'sky_query',
     source: skySource,
     requires: [skyAtmosphere, skyLookup, skyParamsResource, skyViewLut, skySampler],
+});
+
+/** Alcance (km) da tabela da perspectiva aérea, compartilhado pelo kernel e pela leitura. */
+const SKY_AERIAL_RANGE = sharedConstant('SKY_AERIAL_RANGE', SKY_AERIAL_RANGE_KM, 'f32');
+
+/** Kernel da tabela da perspectiva aérea (spec 041, R10): pela câmera ativa (`sky.cameraSlot`). */
+export const skyAerialKernel = wgslModule({
+    name: 'sky_aerial',
+    source: skyAerialSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        SKY_AERIAL_RANGE.module,
+        viewSpace,
+        skyAtmosphere,
+        skyLookup,
+        skyParamsResource,
+        camerasResource,
+        skyOutputs.aerial,
+        skyOutputs.aerialTransmittance,
+    ],
+});
+
+/**
+ * Leitura da perspectiva aérea (spec 041, R10): `sky_aerial(uv, dir, d)` pela tabela até 32 km e pela razão das
+ * transmitâncias além; `sky_aerial_far` sem a tabela.
+ */
+export const skyAerialLookup = wgslModule({
+    name: 'sky_aerial_lookup',
+    source: skyAerialLookupSource,
+    requires: [
+        SKY_AERIAL_RANGE.module,
+        skyAtmosphere,
+        skyLookup,
+        skyParamsResource,
+        skyViewLut,
+        skyAerialLut,
+        skyAerialTransmittanceLut,
+        skySampler,
+    ],
 });

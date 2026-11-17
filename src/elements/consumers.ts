@@ -12,6 +12,7 @@ import { CausticsSchema } from './lighting/caustics/schemas';
 import { EnvironmentMapSchema } from './scene/environment/schema';
 import { FluidFieldSchema } from './fields/schemas';
 import { FroxelsSchema } from './media/schemas';
+import { CloudSchema } from './media/clouds/schemas';
 import { Refraction } from './lighting/refraction/Refraction';
 import { TemporalFilter } from './lighting/temporal/TemporalFilter';
 import { EnergyMeter } from './physics/energy/EnergyMeter';
@@ -20,7 +21,7 @@ import { VirtualTexturesResolver } from './material/virtual/VirtualTexturesResol
 /**
  * Resolvers (fornecedores `{ consumer }`) dos Resources únicos da Camada 3, registrados pela aplicação na cena (sem substituir os da
  * aplicação): `GravityField`, `ParticlePhysics` e o mapa de sombra que projeta (`ShadowCaster.atlas`: a
- * tabela e as páginas, spec 031 e T060h) as tabelas do sombreamento físico (`PbrTables.dfg`, `PbrTables.sampler`, spec 011), a estrutura de raios (`RayScene.info`), o céu físico (`Sky.*`) e a iluminação global (`GlobalIllumination.*`, spec 033). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
+ * tabela e as páginas, spec 031 e T060h) as tabelas do sombreamento físico (`PbrTables.dfg`, `PbrTables.sampler`, spec 011), a estrutura de raios (`RayScene.info`), o céu físico (`Sky.*`), as nuvens (`CloudLayer.*`, spec 041) e a iluminação global (`GlobalIllumination.*`, spec 033). Os pools (`Camera`, `CameraMatrices`, `WorldTransform`,
  * `Transform`, `Light`, `ShadowMap`, materiais, corpos, colliders, restrições) têm o `PoolResolver` registrado pela C2
  * ao serem criados; o `Time` é registrado pela cena.
  */
@@ -36,9 +37,34 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     // A estrutura de raios da cena (spec 033): o uniform com as faixas nos pools (os pools têm o resolver da C2).
     new SingletonResolver(RaySceneSchema, 'info', { name: 'RayScene.info' }),
     // O céu físico (spec 033): parâmetros, tabelas e amostrador.
-    ...(['params', 'transmittance', 'multiscatter', 'view', 'sampler'] as const).map(
-        (id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` }),
-    ),
+    ...(
+        [
+            'params',
+            'transmittance',
+            'multiscatter',
+            'view',
+            'sampler',
+            'aerial',
+            'aerialTransmittance',
+        ] as const
+    ).map((id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` })),
+    // A camada de nuvens (spec 041): o uniforme, os volumes, os mapas, a marcha e os amostradores.
+    ...(
+        [
+            'params',
+            'shape',
+            'detail',
+            'coverage',
+            'ambient',
+            'shadow',
+            'panorama',
+            'trace',
+            'traceDepth',
+            'view',
+            'noiseSampler',
+            'clampSampler',
+        ] as const
+    ).map((id) => new SingletonResolver(CloudSchema, id, { name: `CloudLayer.${id}` })),
     // As texturas virtuais dos materiais (spec 034, T060c): os cabeçalhos e a tabela, os pedidos (a fatia atual da
     // série), o atlas e o amostrador, lidos pelo nó `nodes.image.virtual`.
     new VirtualTexturesResolver('words', 'array<u32>'),

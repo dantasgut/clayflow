@@ -174,7 +174,7 @@ mudarem são regravadas e relatadas com a montagem antes/depois (mudança corret
 frente de uma nuvem esmaecida à mesma distância (US3, cenário 5). FR-012 e o cenário 4 da US1 pedem a nuvem a 30 km
 esmaecida e azulada; a tabela da vista do céu não dá a luz até um ponto a distância finita. Aplicar na composição (um
 passe de tela cheia que já lê a profundidade) e não no fragmento do forward não acrescenta ligação ao forward, o
-estágio mais perto dos limites.
+estágio mais carregado.
 
 **Custo**: tabela 0,08 ms + 0,05 ms a mais na composição (uma leitura 3D por pixel). Cena só com o céu (sem nuvens):
 ≈ 0,2 ms novos (SC-009: ≤ 0,25 ms).

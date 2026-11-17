@@ -47,6 +47,11 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
+import { CloudNoiseFlow } from '../../elements/media/clouds/CloudNoiseFlow';
+import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
+import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
+import { SkyCompositeFlow } from './SkyCompositeFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
@@ -308,8 +313,8 @@ function warnRaySceneUnsupported(
  * deixam de segui-lo. Devolve o cancelamento.
  */
 function followRenderer(world: World, events: EventBus, renderer: SceneRenderer): () => void {
-    const follows = (r: Resource): r is GlobalIllumination | ShadowMap =>
-        r instanceof GlobalIllumination || r instanceof ShadowMap;
+    const follows = (r: Resource): r is GlobalIllumination | ShadowMap | CloudLayer =>
+        r instanceof GlobalIllumination || r instanceof ShadowMap || r instanceof CloudLayer;
     for (const record of world.allRecords())
         for (const r of record.resources) if (follows(r)) renderer.adopt(r);
     return events.on('resourcesChanged', (e) => {
@@ -427,6 +432,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
     // Estrutura de raios (spec 033) depois de toda geometria escrita na GPU: registrada depois dos estágios que a
     // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
     // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
+    // Nuvens (spec 041): o uniforme do quadro e os volumes de ruído, depois da câmera e do céu.
+    const cloudNoiseRegistration = flows.register((ctx) => new CloudNoiseFlow(ctx), {
+        type: 'cloudNoise',
+        phase: 'transform',
+        priority: -56,
+    });
     const fluidFieldRegistration = flows.register((ctx) => new FluidFieldFlow(ctx), {
         type: 'fluidField',
         phase: 'transform',
@@ -440,6 +451,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
     const shadowRegistration = flows.register((ctx) => new ShadowFlow(ctx), {
         type: 'shadow',
         phase: 'shadow',
+    });
+    // A luz das nuvens (spec 041): a cobertura, o ambiente, a sombra e o panorama, que as sondas, a névoa e o desenho
+    // leem (`light_transmission`, `sky_cover`) — depois do mapa de sombra, antes das sondas.
+    const cloudLightRegistration = flows.register((ctx) => new CloudLightFlow(ctx), {
+        type: 'cloudLight',
+        phase: 'shadow',
+        priority: -1,
     });
     // Sondas da iluminação global (spec 033) depois do mapa de sombra: a estrutura de raios e o céu já estão prontos.
     const probeRegistration = flows.register((ctx) => new ProbeFlow(ctx), {
@@ -519,6 +537,18 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -68,
     });
+    // As nuvens na tela (spec 041) depois da água (a última superfície que escreve profundidade) e a composição do céu
+    // (a perspectiva aérea em toda a geometria e as nuvens, atrás da névoa) logo depois, antes da resolução temporal.
+    const cloudRegistration = flows.register((ctx) => new CloudFlow(ctx, FrameTargets.schema), {
+        type: 'clouds',
+        phase: 'forward',
+        priority: -69,
+    });
+    const skyCompositeRegistration = flows.register((ctx) => new SkyCompositeFlow(ctx), {
+        type: 'skyComposite',
+        phase: 'forward',
+        priority: -70,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -584,9 +614,11 @@ function createPresentationDefaults(flows: FlowRegistry): {
             surfaceRegistration,
             graphRegistration,
             skyRegistration,
+            cloudNoiseRegistration,
             fluidFieldRegistration,
             raySceneRegistration,
             shadowRegistration,
+            cloudLightRegistration,
             probeRegistration,
             causticsRegistration,
             froxelRegistration,
@@ -598,6 +630,8 @@ function createPresentationDefaults(flows: FlowRegistry): {
             refractionDenoiseRegistration,
             refractionCompositeRegistration,
             refractionMotionRegistration,
+            cloudRegistration,
+            skyCompositeRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,
