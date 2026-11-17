@@ -255,3 +255,53 @@ export function skyRadiance(
 export function sunTransmittance(p: AtmosphereParams, altitude: number, sun: Vec3): Vec3 {
     return transmittanceToTop(p, p.bottomRadius + altitude, sun[1]);
 }
+
+/** Luz espalhada e transmitância da atmosfera entre a câmera e um ponto (spec 041, R10). */
+export interface AerialPerspective {
+    /** Luz espalhada no trecho, por unidade de iluminância do sol. */
+    readonly scattered: Vec3;
+    /** Transmitância do trecho. */
+    readonly transmittance: Vec3;
+}
+
+/**
+ * Perspectiva aérea (spec 041, R10; Hillaire 2020, §5.4): a luz espalhada (simples de Rayleigh e Mie com a
+ * transmitância do sol, mais o múltiplo Ψms) e a transmitância da câmera, a `altitude` km, até a distância `distance` km
+ * na direção `view`, cortada no topo e no chão da atmosfera. Por unidade de iluminância do sol; a superfície no ponto
+ * fica de fora (`L' = L · T + S`). Distância infinita acima do horizonte = `skyRadiance`.
+ */
+export function aerialPerspective(
+    p: AtmosphereParams,
+    altitude: number,
+    view: Vec3,
+    sun: Vec3,
+    distance: number,
+    steps = 128,
+    ms?: (r: number, muS: number) => Vec3,
+): AerialPerspective {
+    const r = p.bottomRadius + altitude;
+    const pos: Vec3 = [0, r, 0];
+    const length = Math.min(Math.max(distance, 0), segmentLength(p, r, view[1]));
+    const cosTheta = dot(view, sun);
+    const pr = rayleighPhase(cosTheta);
+    const pm = miePhase(cosTheta, p.mieG);
+    const msOf = ms ?? ((rr: number, muS: number): Vec3 => multipleScattering(p, rr, muS, 32, 24));
+    let throughput: Vec3 = [1, 1, 1];
+    let lum: Vec3 = [0, 0, 0];
+    for (const { t, dt } of quadraticSteps(length, steps)) {
+        const x = add(pos, scale(view, t));
+        const rx = len(x);
+        const m = mediumAt(p, rx - p.bottomRadius);
+        const stepT = exp3(scale(m.extinction, -dt));
+        const integ: Vec3 = [0, 1, 2].map((c) =>
+            m.extinction[c]! > 0 ? (1 - stepT[c]!) / m.extinction[c]! : dt,
+        ) as unknown as Vec3;
+        const muSx = dot(x, sun) / rx;
+        const sunT = transmittanceToTop(p, rx, muSx, 64);
+        const single = mul(add(scale(m.rayleigh, pr), [m.mie * pm, m.mie * pm, m.mie * pm]), sunT);
+        const multi = mul(m.scattering, msOf(rx, muSx));
+        lum = add(lum, mul(mul(throughput, add(single, multi)), integ));
+        throughput = mul(throughput, stepT);
+    }
+    return { scattered: lum, transmittance: throughput };
+}

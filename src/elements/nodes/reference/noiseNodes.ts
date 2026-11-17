@@ -5,14 +5,19 @@
 // potências de 2 (o produto `p·scale` é exato em f32, com ou sem FMA na GPU).
 import {
     gradientNoise2Cell,
+    gradientNoise2Period,
     gradientNoise3Cell,
+    gradientNoise3Period,
     hash3,
     hashSigned,
     noiseCell,
     noiseFract,
+    noiseWrap,
     pcgHash,
     valueNoise2Cell,
+    valueNoise2Period,
     valueNoise3Cell,
+    valueNoise3Period,
 } from './noise';
 import { num, uniform, vec, vector, type NodeCase, type NodeValues } from './cases';
 
@@ -41,6 +46,27 @@ function cell3(q: Vec3, seed: number): { c: [number, number, number]; f: Vec3 } 
 
 const f32 = Math.fround;
 
+/** Célula periódica (o índice reduzido módulo `period`, sem a semente) e posição dentro dela de `q`. */
+function wrap3(q: Vec3, period: number): { c: [number, number, number]; f: Vec3 } {
+    return {
+        c: [noiseWrap(q[0], period), noiseWrap(q[1], period), noiseWrap(q[2], period)],
+        f: [noiseFract(q[0]), noiseFract(q[1]), noiseFract(q[2])],
+    };
+}
+
+const seed3 = (seed: number): [number, number, number] => [
+    seedOffset(seed, 0),
+    seedOffset(seed, 1),
+    seedOffset(seed, 2),
+];
+
+/** Período da oitava `k` do fBm: `period · lacunarity^k` em f32, arredondado (`floor(x + 0,5)`). */
+export function fbmOctavePeriod(period: number, lacunarity: number, k: number): number {
+    let p = f32(period);
+    for (let i = 0; i < k; i++) p = f32(p * f32(lacunarity));
+    return Math.max(1, Math.floor(p + 0.5));
+}
+
 /** `smoothstep` do WGSL. */
 function smoothstep(a: number, b: number, x: number): number {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -62,8 +88,26 @@ const scaled3 = (p: Vec3, scale: number, offset: Vec3): Vec3 => [
 ];
 
 /** `noise.value2`: ruído de valor 2D com semente, em [-1, 1]. */
-function noiseValue2(p: Vec2, scale: number, offset: Vec2, seed = 0, width = 0): number {
+function noiseValue2(
+    p: Vec2,
+    scale: number,
+    offset: Vec2,
+    seed = 0,
+    width = 0,
+    period = 0,
+): number {
     const q = [f32(p[0] * scale + offset[0]), f32(p[1] * scale + offset[1])] as const;
+    if (period > 0)
+        return band(
+            valueNoise2Period(
+                [noiseWrap(q[0], period), noiseWrap(q[1], period)],
+                [noiseFract(q[0]), noiseFract(q[1])],
+                period,
+                [seedOffset(seed, 0), seedOffset(seed, 1)],
+            ),
+            width,
+            scale,
+        );
     const v = valueNoise2Cell(
         (noiseCell(q[0]) + seedOffset(seed, 0)) >>> 0,
         (noiseCell(q[1]) + seedOffset(seed, 1)) >>> 0,
@@ -74,8 +118,26 @@ function noiseValue2(p: Vec2, scale: number, offset: Vec2, seed = 0, width = 0):
 }
 
 /** `noise.gradient2`: ruído de gradiente 2D com semente, em [-1, 1]. */
-export function noiseGradient2(p: Vec2, scale: number, offset: Vec2, seed = 0, width = 0): number {
+export function noiseGradient2(
+    p: Vec2,
+    scale: number,
+    offset: Vec2,
+    seed = 0,
+    width = 0,
+    period = 0,
+): number {
     const q = [f32(p[0] * scale + offset[0]), f32(p[1] * scale + offset[1])] as const;
+    if (period > 0)
+        return band(
+            gradientNoise2Period(
+                [noiseWrap(q[0], period), noiseWrap(q[1], period)],
+                [noiseFract(q[0]), noiseFract(q[1])],
+                period,
+                [seedOffset(seed, 0), seedOffset(seed, 1)],
+            ),
+            width,
+            scale,
+        );
     const v = gradientNoise2Cell(
         (noiseCell(q[0]) + seedOffset(seed, 0)) >>> 0,
         (noiseCell(q[1]) + seedOffset(seed, 1)) >>> 0,
@@ -86,13 +148,35 @@ export function noiseGradient2(p: Vec2, scale: number, offset: Vec2, seed = 0, w
 }
 
 /** `noise.value3`: ruído de valor 3D com semente, em [-1, 1]. */
-export function noiseValue3(p: Vec3, scale: number, offset: Vec3, seed = 0, width = 0): number {
+export function noiseValue3(
+    p: Vec3,
+    scale: number,
+    offset: Vec3,
+    seed = 0,
+    width = 0,
+    period = 0,
+): number {
+    if (period > 0) {
+        const { c, f } = wrap3(scaled3(p, scale, offset), period);
+        return band(valueNoise3Period(c, f, period, seed3(seed)), width, scale);
+    }
     const { c, f } = cell3(scaled3(p, scale, offset), seed);
     return band(valueNoise3Cell(c, f), width, scale);
 }
 
 /** `noise.gradient3`: ruído de gradiente 3D com semente (0: o `gradient_noise3` da biblioteca), em [-1, 1]. */
-export function noiseGradient3(p: Vec3, scale: number, offset: Vec3, seed = 0, width = 0): number {
+export function noiseGradient3(
+    p: Vec3,
+    scale: number,
+    offset: Vec3,
+    seed = 0,
+    width = 0,
+    period = 0,
+): number {
+    if (period > 0) {
+        const { c, f } = wrap3(scaled3(p, scale, offset), period);
+        return band(gradientNoise3Period(c, f, period, seed3(seed)), width, scale);
+    }
     const { c, f } = cell3(scaled3(p, scale, offset), seed);
     return band(gradientNoise3Cell(c, f), width, scale);
 }
@@ -104,8 +188,14 @@ export function noiseCellular3(
     offset: Vec3,
     seed: number,
     jitter: number,
+    period = 0,
 ): { f1: number; f2: number; cell: number } {
-    const { c, f } = cell3(scaled3(p, scale, offset), seed);
+    const q = scaled3(p, scale, offset);
+    const { c, f } = period > 0 ? wrap3(q, period) : cell3(q, seed);
+    const so = seed3(seed);
+    /** Célula vizinha: a da rede (com a semente já somada) ou a periódica `(c + P + d) mod P` mais a semente. */
+    const at = (k: number, d: number): number =>
+        period > 0 ? (((c[k]! + period + d) % period) + so[k]!) >>> 0 : (c[k]! + d) >>> 0;
     let d1 = 1e30;
     let d2 = 1e30;
     let h1 = 0;
@@ -113,7 +203,7 @@ export function noiseCellular3(
         for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
                 const o = [dx, dy, dz] as const;
-                const h = hash3((c[0] + dx) >>> 0, (c[1] + dy) >>> 0, (c[2] + dz) >>> 0);
+                const h = hash3(at(0, dx), at(1, dy), at(2, dz));
                 const hy = pcgHash(h);
                 const j = [hashSigned(h), hashSigned(hy), hashSigned(pcgHash(hy))].map(
                     (v) => 0.5 * v,
@@ -143,6 +233,7 @@ export function noiseFbm3(
     lacunarity: number,
     gain: number,
     width = 0,
+    period = 0,
 ): number {
     let q = scaled3(p, scale, offset);
     let amp = 1;
@@ -151,8 +242,15 @@ export function noiseFbm3(
     let w = width * scale;
     const n = Math.min(12, Math.max(1, octaves));
     for (let k = 0; k < n; k++) {
-        const { c, f } = cell3(q, (seed + k) >>> 0);
-        const v = gradientNoise3Cell(c, f);
+        let v: number;
+        if (period > 0) {
+            const pk = fbmOctavePeriod(period, lacunarity, k);
+            const w3 = wrap3(q, pk);
+            v = gradientNoise3Period(w3.c, w3.f, pk, seed3((seed + k) >>> 0));
+        } else {
+            const { c, f } = cell3(q, (seed + k) >>> 0);
+            v = gradientNoise3Cell(c, f);
+        }
         sum += amp * (width > 0 ? v * noiseBand(w) : v);
         norm += amp;
         amp *= gain;
@@ -175,6 +273,8 @@ function lattice(random: () => number, k: number, n: 2 | 3): NodeValues {
         // Metade das amostras sem filtragem (o ruído de antes), metade com a largura do pixel cobrindo a faixa da
         // transição (¼ a ¾ de célula) e além.
         width: k % 4 < 2 ? 0 : uniform(random, 0, 2),
+        // Um terço das amostras periódicas (spec 041, R3), sem consumir o gerador: os valores das outras não mudam.
+        period: k % 3 === 2 ? 1 + (k % 7) : 0,
     };
 }
 
@@ -194,6 +294,7 @@ export const noiseCases: readonly NodeCase[] = [
                 v2(x, 'offset'),
                 num(x.seed),
                 num(x.width),
+                num(x.period),
             ),
         }),
     },
@@ -208,6 +309,7 @@ export const noiseCases: readonly NodeCase[] = [
                 v2(x, 'offset'),
                 num(x.seed),
                 num(x.width),
+                num(x.period),
             ),
         }),
     },
@@ -222,6 +324,7 @@ export const noiseCases: readonly NodeCase[] = [
                 v3(x, 'offset'),
                 num(x.seed),
                 num(x.width),
+                num(x.period),
             ),
         }),
     },
@@ -236,6 +339,7 @@ export const noiseCases: readonly NodeCase[] = [
                 v3(x, 'offset'),
                 num(x.seed),
                 num(x.width),
+                num(x.period),
             ),
         }),
     },
@@ -249,7 +353,14 @@ export const noiseCases: readonly NodeCase[] = [
             return { ...base, jitter: uniform(r, 0, 1) };
         },
         reference: (x) =>
-            noiseCellular3(v3(x, 'p'), num(x.scale), v3(x, 'offset'), num(x.seed), num(x.jitter)),
+            noiseCellular3(
+                v3(x, 'p'),
+                num(x.scale),
+                v3(x, 'offset'),
+                num(x.seed),
+                num(x.jitter),
+                num(x.period),
+            ),
     },
     {
         node: 'noise.fbm3',
@@ -270,6 +381,7 @@ export const noiseCases: readonly NodeCase[] = [
                 num(x.lacunarity),
                 num(x.gain),
                 num(x.width),
+                num(x.period),
             ),
         }),
     },

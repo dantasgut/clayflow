@@ -1411,3 +1411,195 @@ export function lightTrace(
         escaped,
     };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Meios de quilômetros (spec 041, R16): fase arbitrária amostrada por tabela inversa e rastreamento delta com majorante
+// (Novák et al. 2018) — eventos nulos no lugar da marcha de passo fixo, sem viés em meios densos e grandes; a
+// transmitância até a luz por rastreamento de razão. A verdade contra a qual as oitavas das nuvens são calibradas.
+
+/** Fase arbitrária (normalizada a 1 em 4π) com a amostragem pela inversa da distribuição tabelada. */
+export interface PtPhase {
+    readonly value: (cosTheta: number) => number;
+    /** Cosseno amostrado a partir de `u` ∈ [0, 1). */
+    readonly sampleCos: (u: number) => number;
+}
+
+/**
+ * Tabela da distribuição acumulada de uma fase em `cos θ`, numa grade `c = 1 − 2x⁴` (densa perto da frente, onde a
+ * fase das gotículas tem o pico); a amostra interpola linearmente dentro da célula.
+ */
+export function tabulatePhase(value: (cosTheta: number) => number, cells = 8192): PtPhase {
+    const cs: number[] = [];
+    const cdf: number[] = [0];
+    for (let i = 0; i <= cells; i++) cs.push(1 - 2 * (i / cells) ** 4);
+    let acc = 0;
+    for (let i = 0; i < cells; i++) {
+        // Trapézio em c (c decresce: da frente para trás).
+        const dc = cs[i]! - cs[i + 1]!;
+        acc += 0.5 * (value(cs[i]!) + value(cs[i + 1]!)) * dc * 2 * Math.PI;
+        cdf.push(acc);
+    }
+    const total = acc;
+    return {
+        value,
+        sampleCos: (u: number): number => {
+            const target = u * total;
+            let lo = 0;
+            let hi = cells;
+            while (hi - lo > 1) {
+                const mid = (lo + hi) >> 1;
+                if (cdf[mid]! <= target) lo = mid;
+                else hi = mid;
+            }
+            const span = cdf[lo + 1]! - cdf[lo]!;
+            const f = span > 0 ? (target - cdf[lo]!) / span : 0;
+            return cs[lo]! + (cs[lo + 1]! - cs[lo]!) * f;
+        },
+    };
+}
+
+/** Meio heterogêneo para o rastreamento delta. */
+export interface PtDeltaMedium {
+    /** Majorante: ≥ a extinção em todo ponto (1/m). */
+    readonly majorant: number;
+    /** Extinção (1/m) no ponto. */
+    readonly extinction: (p: Vec3) => number;
+    /** Albedo de espalhamento simples. */
+    readonly albedo: number;
+    readonly phase: PtPhase;
+    /** Trechos do raio onde pode haver meio, até `tMax` (fora deles a extinção é 0). */
+    readonly spans: (o: Vec3, d: Vec3, tMax: number) => readonly (readonly [number, number])[];
+}
+
+/** Cena do rastreamento delta: o meio, o sol (direção para ele e irradiância já atenuada pela atmosfera), o céu e o chão. */
+export interface PtDeltaScene {
+    readonly medium: PtDeltaMedium;
+    readonly sunDir: Vec3;
+    readonly sun: Vec3;
+    /** Radiância do céu numa direção (sem o disco do sol). */
+    readonly sky: (d: Vec3) => Vec3;
+    /** Chão difuso no plano `y = height` (opcional): albedo de Lambert. */
+    readonly ground?: { readonly height: number; readonly albedo: Vec3 };
+}
+
+/** Gerador para o rastreamento delta: semente por pixel e amostra. */
+export function deltaRng(pixel: number, sample: number): () => number {
+    const r = new Rng(pixel, sample);
+    return () => r.next();
+}
+
+/** Distância até o chão (ou ∞). */
+function groundHit(scene: PtDeltaScene, o: Vec3, d: Vec3): number {
+    const g = scene.ground;
+    if (g === undefined || d[1] >= 0 || o[1] <= g.height) return Infinity;
+    return (g.height - o[1]) / d[1];
+}
+
+/** Transmitância por rastreamento de razão (Novák 2018) de `o` ao longo de `d` até `tMax`. */
+export function ratioTrackTransmittance(
+    medium: PtDeltaMedium,
+    o: Vec3,
+    d: Vec3,
+    tMax: number,
+    rng: () => number,
+): number {
+    let T = 1;
+    for (const [a, b] of medium.spans(o, d, tMax)) {
+        let t = a;
+        for (;;) {
+            t -= Math.log(1 - rng()) / medium.majorant;
+            if (t >= b) break;
+            T *= 1 - medium.extinction(add(o, scale(d, t))) / medium.majorant;
+            if (T <= 0) return 0;
+        }
+    }
+    return T;
+}
+
+/** Primeira colisão real por rastreamento delta (eventos nulos rejeitados): a distância ou ∞. */
+function deltaTrack(
+    medium: PtDeltaMedium,
+    o: Vec3,
+    d: Vec3,
+    tMax: number,
+    rng: () => number,
+): number {
+    for (const [a, b] of medium.spans(o, d, tMax)) {
+        let t = a;
+        for (;;) {
+            t -= Math.log(1 - rng()) / medium.majorant;
+            if (t >= b) break;
+            if (rng() < medium.extinction(add(o, scale(d, t))) / medium.majorant) return t;
+        }
+    }
+    return Infinity;
+}
+
+/** A direção depois de espalhar em `w` com o cosseno `cos` e o azimute `phi`. */
+function rotateTo(w: Vec3, cos: number, phi: number): Vec3 {
+    const [t, b] = basis(w);
+    const sin = Math.sqrt(Math.max(0, 1 - cos * cos));
+    return normalize(
+        add(add(scale(t, sin * Math.cos(phi)), scale(b, sin * Math.sin(phi))), scale(w, cos)),
+    );
+}
+
+/**
+ * Radiância que chega a `o` vinda de `-d` (o raio da câmera em `d`) pelo transporte completo no meio: rastreamento
+ * delta até a colisão real, espalhamento pela fase amostrada (o peso é o albedo), a luz do sol em cada colisão pela
+ * fase e pela transmitância de razão até ela (estimador de próximo evento), o céu quando o caminho escapa (sem o disco
+ * do sol, que é a luz direta), o chão de Lambert com a luz do sol sombreada e o rebatimento amostrado pelo cosseno.
+ * `maxBounces` colisões; roleta russa depois de 8.
+ */
+export function deltaTrackRadiance(
+    scene: PtDeltaScene,
+    origin: Vec3,
+    dir: Vec3,
+    rng: () => number,
+    maxBounces = 256,
+): Vec3 {
+    const m = scene.medium;
+    let o = origin;
+    let d = dir;
+    let throughput: Vec3 = [1, 1, 1];
+    let L: Vec3 = ZERO;
+    for (let bounce = 0; bounce <= maxBounces; bounce++) {
+        const tg = groundHit(scene, o, d);
+        const t = deltaTrack(m, o, d, tg, rng);
+        if (t === Infinity && tg === Infinity) {
+            // Escapa: o céu (o sol é luz direta, já contado nas colisões).
+            return add(L, mul(throughput, scene.sky(d)));
+        }
+        if (t === Infinity) {
+            // Chão de Lambert.
+            const g = scene.ground!;
+            const p = add(o, scale(d, tg));
+            const p1: Vec3 = [p[0], g.height + EPS, p[2]];
+            const cosSun = Math.max(0, scene.sunDir[1]);
+            const Ts = cosSun > 0 ? ratioTrackTransmittance(m, p1, scene.sunDir, Infinity, rng) : 0;
+            L = add(L, mul(throughput, scale(mul(g.albedo, scene.sun), (Ts * cosSun) / Math.PI)));
+            throughput = mul(throughput, g.albedo);
+            o = p1;
+            d = cosineSample([0, 1, 0], rng(), rng());
+        } else {
+            o = add(o, scale(d, t));
+            throughput = scale(throughput, m.albedo);
+            const cosSun = dot(d, scene.sunDir);
+            const Ts = ratioTrackTransmittance(
+                m,
+                o,
+                scene.sunDir,
+                groundHit(scene, o, scene.sunDir),
+                rng,
+            );
+            L = add(L, mul(throughput, scale(scene.sun, Ts * m.phase.value(cosSun))));
+            d = rotateTo(d, m.phase.sampleCos(rng()), 2 * Math.PI * rng());
+        }
+        if (bounce >= 8) {
+            const q = Math.min(0.99, Math.max(throughput[0], throughput[1], throughput[2]));
+            if (rng() >= q) break;
+            throughput = scale(throughput, 1 / q);
+        }
+    }
+    return L;
+}
