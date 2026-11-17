@@ -9,7 +9,8 @@ const WORLEY = [4, 8, 16, 32, 64] as const;
 
 /**
  * O grafo padrão da forma das nuvens (spec 041, R3; Schneider 2015), todo com ruídos periódicos (`period` = a escala:
- * o volume ladrilha): R = Perlin-Worley — o fBm de gradiente (4 oitavas, período 4) em [0, 1] remapeado para cima pelo
+ * o volume ladrilha): R = Perlin-Worley — o fBm de gradiente (4 oitavas, período 4; ±0,5 levado a [0, 1]: o fBm
+ * normalizado tem σ ≈ 0,2, e sem esse contraste a forma não esculpe a nuvem) remapeado para cima pelo
  * fBm de Worley invertido de 4 células (`mix(w, 1, perlin)`) —, G/B/A = fBm de Worley invertido em 4, 8 e 16 células
  * (`0,625·w(f) + 0,25·w(2f) + 0,125·w(4f)`). Espelho de `defaultShape` em `reference/cloudModel.ts`.
  */
@@ -19,7 +20,7 @@ export function defaultCloudShapeGraph(): NodeGraph {
     n.p = graphArgument('p');
     n.perlin = noise.fbm3.with({ scale: 4, octaves: 4, lacunarity: 2, gain: 0.5, period: 4 });
     links.push(['p.value', 'perlin.p']);
-    n.perlin01 = map.range.with({ in_min: -1, in_max: 1, out_min: 0, out_max: 1, clamped: 1 });
+    n.perlin01 = map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0, out_max: 1, clamped: 1 });
     links.push(['perlin.value', 'perlin01.x']);
     for (const f of WORLEY) {
         n[`cell${f}`] = noise.cellular3.with({ scale: f, jitter: 1, period: f });

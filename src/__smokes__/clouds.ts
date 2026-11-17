@@ -19,6 +19,7 @@ import {
 } from './support/cloudScenes';
 import {
     coneSunDepth,
+    coverageField,
     defaultShape,
     jdeParams,
     marchCloud,
@@ -73,6 +74,24 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
     const detail = await readCloudVolume(s.app, layer, 'detail');
     const radii = s.sky.data.radii;
     const half = layer.quality.coverageExtent / 2;
+    const MAP = 512;
+    // O centro do mapa: a câmera encaixada no texel (o empacotamento do `CloudNoiseFlow`).
+    const texel = (2 * half) / MAP;
+    const eye = s.camera.data.position;
+    const center = [
+        Math.round((eye[0] ?? 0) / texel) * texel,
+        Math.round((eye[2] ?? 0) / texel) * texel,
+    ];
+    const cache = new Map<number, number>();
+    const mapTexel = (x: number, z: number): number => {
+        const key = Math.round(x) * 1e7 + Math.round(z);
+        let v = cache.get(key);
+        if (v === undefined) {
+            v = quantize(coverageField(x, z, c, t));
+            cache.set(key, v);
+        }
+        return v;
+    };
     const c = layer.coverage;
     const t = layer.type;
     const wind = layer.wind;
@@ -81,8 +100,30 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
         groundRadius: ((radii[0] ?? 6360) + (radii[3] ?? 0.2)) * 1000,
         base: layer.base,
         top: layer.top,
-        coverage: (x, z) =>
-            Math.abs(x) <= half && Math.abs(z) <= half ? [quantize(c), quantize(t), 1] : [c, t, 1],
+        // O campo da cobertura global como a GPU o lê: no mapa (512², centrado na câmera encaixada no texel), os
+        // centros de texel quantizados a 8 bits com filtro bilinear; fora dele, o campo no ponto.
+        coverage: (x, z) => {
+            if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
+                return [coverageField(x, z, c, t), t, 1];
+            const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
+            const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
+            const x0 = Math.floor(fx);
+            const z0 = Math.floor(fz);
+            const at = (i: number, j: number): number => {
+                const ci = Math.min(MAP - 1, Math.max(0, i));
+                const cj = Math.min(MAP - 1, Math.max(0, j));
+                return mapTexel(
+                    center[0]! + ((ci + 0.5) / MAP - 0.5) * 2 * half,
+                    center[1]! + ((cj + 0.5) / MAP - 0.5) * 2 * half,
+                );
+            };
+            const ax = fx - x0;
+            const az = fz - z0;
+            const v =
+                (at(x0, z0) * (1 - ax) + at(x0 + 1, z0) * ax) * (1 - az)
+                + (at(x0, z0 + 1) * (1 - ax) + at(x0 + 1, z0 + 1) * ax) * az;
+            return [v, quantize(t), 1];
+        },
         density: layer.density,
         albedo: layer.albedo,
         shape,
@@ -254,8 +295,9 @@ async function compareView(
     };
     const phase = jdeParams(layer.dropletDiameter);
     const octaves = { count: layer.quality.octaves, ...CLOUD_OCTAVES };
-    const cols = 12;
-    const rows = 6;
+    // Regiões de 60 × 68 px a 480 × 270: a média por região da SC-001 (o aumento de ¼ borra a borda em ~4 px).
+    const cols = 8;
+    const rows = 4;
     let worstT = 0;
     let worstL = 0;
     let peak = 0;
@@ -269,19 +311,30 @@ async function compareView(
     }[] = [];
     for (let j = 0; j < rows; j++)
         for (let i = 0; i < cols; i++) {
-            const cx = Math.floor(((i + 0.5) / cols) * w);
-            const cy = Math.floor(((j + 0.5) / rows) * h);
-            // As mesmas 3 × 3 posições de pixel (a 4 px) na GPU e na referência: a média da região dos dois lados.
+            // A região (o bloco da grade): a média de todos os pixels da GPU e a de 16 × 16 raios da referência nele.
+            const x0 = Math.floor((i / cols) * w);
+            const x1 = Math.floor(((i + 1) / cols) * w);
+            const y0 = Math.floor((j / rows) * h);
+            const y1 = Math.floor(((j + 1) / rows) * h);
             let rgbSum = [0, 0, 0];
             let rTSum = 0;
             let depthSum = 0;
             let rawSum = 0;
             let gL = 0;
             let gT = 0;
-            for (let dy = -1; dy <= 1; dy++)
-                for (let dx = -1; dx <= 1; dx++) {
-                    const px = cx + 4 * dx;
-                    const py = cy + 4 * dy;
+            for (let py = y0; py < y1; py++)
+                for (let px = x0; px < x1; px++) {
+                    const o = (py * w + px) * 4;
+                    gL += (view.data[o]! + view.data[o + 1]! + view.data[o + 2]!) / 3;
+                    gT += view.data[o + 3]!;
+                }
+            gL /= (x1 - x0) * (y1 - y0);
+            gT /= (x1 - x0) * (y1 - y0);
+            const n = 16;
+            for (let sy = 0; sy < n; sy++)
+                for (let sx = 0; sx < n; sx++) {
+                    const px = x0 + ((sx + 0.5) / n) * (x1 - x0) - 0.5;
+                    const py = y0 + ((sy + 0.5) / n) * (y1 - y0) - 0.5;
                     const d = pixelDir(px, py, w, h, eye, target, fov);
                     const r = marchCloud(
                         model,
@@ -291,8 +344,8 @@ async function compareView(
                         cone ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) } : light,
                         phase,
                         octaves,
-                        384,
-                        96,
+                        256,
+                        64,
                     );
                     let c: Vec3 = r.scattered;
                     if (r.transmittance < 1) {
@@ -311,13 +364,10 @@ async function compareView(
                                 + (1 - r.transmittance) * a.scattered[k]! * lux,
                         ) as unknown as Vec3;
                     }
-                    rgbSum = rgbSum.map((v, k) => v + c[k]! / 9);
-                    rTSum += r.transmittance / 9;
-                    depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / 9;
-                    rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / 27;
-                    const o = (py * w + px) * 4;
-                    gL += (view.data[o]! + view.data[o + 1]! + view.data[o + 2]!) / 27;
-                    gT += view.data[o + 3]! / 9;
+                    rgbSum = rgbSum.map((v, k) => v + c[k]! / (n * n));
+                    rTSum += r.transmittance / (n * n);
+                    depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / (n * n);
+                    rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / (3 * n * n);
                 }
             const rgb = rgbSum as unknown as Vec3;
             const r = {
@@ -467,7 +517,46 @@ async function caseTiming(): Promise<void> {
     }
 }
 
+// ── coverage ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Fração dos pixels da nuvem aumentada com transmitância < 0,5 (a vista de cima: a área coberta). */
+async function coveredImage(s: CloudScene): Promise<number> {
+    const t = s.app.resources.textureOf(s.layer!, 'view');
+    if (t === undefined) throw new Error('view não alocado');
+    const v = await readTexture(s.app, t, 'rgba16float');
+    let covered = 0;
+    for (let k = 0; k < v.width * v.height; k++) if (v.data[k * 4 + 3]! < 0.5) covered++;
+    return covered / (v.width * v.height);
+}
+
+async function caseCoverage(): Promise<void> {
+    // A vista de cima, a 60 km, 60° de campo (até 30° do nadir: as laterais das nuvens pouco contam), ~69 km de lado,
+    // em duas posições: ~150 células do campo de cobertura.
+    for (const coverage of [0, 0.2, 0.5, 0.8, 1]) {
+        let f = 0;
+        for (const x of [0, 150_000]) {
+            const s = await cloudScene({
+                width: 320,
+                height: 320,
+                clouds: { coverage, wind: [0, 0] },
+                eye: [x, 60_000, 0],
+                target: [x + 1, 0, 0.5],
+                fov: Math.PI / 3,
+            });
+            await settleFrames(s.app, 24);
+            f += (await coveredImage(s)) / 2;
+            finish(s);
+        }
+        log(`coverage ${coverage}: área coberta ${(f * 100).toFixed(1)} % na vista de cima`);
+        check(
+            Math.abs(f - coverage) <= 0.05,
+            `coverage ${coverage}: medida ${(f * 100).toFixed(1)} % (SC-003: ±5 pontos)`,
+        );
+    }
+}
+
 const CASES: Record<string, () => Promise<void>> = {
+    coverage: caseCoverage,
     'noise-volumes': caseNoiseVolumes,
     ambient: caseAmbient,
     noon: caseNoon,

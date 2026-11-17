@@ -5,7 +5,7 @@
 // (Wrenninge 2013; Hillaire 2016). Só para testes e smokes: a produção não importa daqui.
 // Unidades: metros na cena, +y para cima; o planeta centrado em (0, −R, 0), R = raio do chão da cena (y = 0).
 
-import { noiseCellular3, noiseFbm3 } from '../../../nodes/reference/noiseNodes';
+import { noiseCellular3, noiseFbm3, noiseGradient2 } from '../../../nodes/reference/noiseNodes';
 
 export type Vec3 = readonly [number, number, number];
 export type Vec4 = readonly [number, number, number, number];
@@ -98,7 +98,7 @@ export interface CloudVolume {
 }
 
 /**
- * A forma padrão (o grafo de `defaultShape.ts`) em u32: R = Perlin-Worley — o fBm de gradiente com período 4 em [0, 1]
+ * A forma padrão (o grafo de `defaultShape.ts`) em u32: R = Perlin-Worley — o fBm de gradiente com período 4 (±0,5 → [0, 1])
  * remapeado para cima pelo fBm de Worley invertido (Schneider 2015) —, G/B/A = fBm de Worley em 4, 8 e 16 células por
  * período. `p` em [0, 1)³.
  */
@@ -106,7 +106,7 @@ export function defaultShape(p: Vec3): Vec4 {
     const worley = (f: number): number => clamp01(1 - noiseCellular3(p, f, [0, 0, 0], 0, 1, f).f1);
     const wfbm = (f: number): number =>
         worley(f) * 0.625 + worley(2 * f) * 0.25 + worley(4 * f) * 0.125;
-    const perlin = clamp01(noiseFbm3(p, 4, [0, 0, 0], 0, 4, 2, 0.5, 0, 4) * 0.5 + 0.5);
+    const perlin = clamp01(noiseFbm3(p, 4, [0, 0, 0], 0, 4, 2, 0.5, 0, 4) + 0.5);
     const w4 = wfbm(4);
     return [clamp01(remap(perlin, 0, 1, w4, 1)), w4, wfbm(8), wfbm(16)];
 }
@@ -152,6 +152,51 @@ export function sampleVolume(v: CloudVolume, u: Vec3): Vec4 {
                 for (let c = 0; c < 4; c++) out[c]! += w * v.data[o + c]!;
             }
     return out as unknown as Vec4;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Campo da cobertura global (R4)
+
+/** Células do campo (1/m), desvio padrão do fBm de 3 oitavas (medido) e a amplitude da variação da cobertura local. */
+export const CLOUD_COVERAGE_SCALE = 1 / 8000;
+export const CLOUD_COVERAGE_SIGMA = 0.2014;
+export const CLOUD_COVERAGE_SPREAD = 0.4;
+/** Área coberta medida em g = 0, 0,1, …, 0,7 (cúmulo e estrato), com os volumes completos (research.md, R4). */
+export const CLOUD_AREA_CUMULUS = [0, 0.016, 0.142, 0.37, 0.604, 0.834, 0.975, 0.999] as const;
+export const CLOUD_AREA_STRATUS = [0, 0.004, 0.063, 0.242, 0.476, 0.72, 0.914, 0.989] as const;
+
+/** A inversa da área coberta (`cloud_coverage_inverse`). */
+export function coverageInverse(c: number, stratus: boolean): number {
+    if (c <= 0) return -1;
+    if (c >= 1) return 1.2;
+    const t = stratus ? CLOUD_AREA_STRATUS : CLOUD_AREA_CUMULUS;
+    for (let k = 1; k < 8; k++)
+        if (c <= t[k]!) return (k - 1 + (c - t[k - 1]!) / Math.max(t[k]! - t[k - 1]!, 1e-6)) * 0.1;
+    return 0.7 + ((c - 0.999) / 0.001) * 0.5;
+}
+
+/** O campo uniforme de grande escala `u` em `(x, z)` (m). */
+export function coverageUniform(x: number, z: number): number {
+    const f32 = Math.fround;
+    const q = [f32(x * CLOUD_COVERAGE_SCALE), f32(z * CLOUD_COVERAGE_SCALE)];
+    let s = 0;
+    let a = 1;
+    let n = 0;
+    let f = 1;
+    for (let k = 0; k < 3; k++) {
+        s += a * noiseGradient2([f32(q[0]! * f), f32(q[1]! * f)], 1, [0, 0], k);
+        n += a;
+        a *= 0.5;
+        f *= 2;
+    }
+    return 1 / (1 + Math.exp((-1.702 * (s / n)) / CLOUD_COVERAGE_SIGMA));
+}
+
+/** A cobertura local padrão em `(x, z)` para a cobertura pedida `c` e o tipo `t` (`cloud_coverage_field`). */
+export function coverageField(x: number, z: number, c: number, t: number): number {
+    const k = clamp01(t * 2);
+    const g = coverageInverse(c, true) * (1 - k) + coverageInverse(c, false) * k;
+    return clamp01(g + CLOUD_COVERAGE_SPREAD * (coverageUniform(x, z) - 0.5));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

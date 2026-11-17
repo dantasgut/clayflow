@@ -25,6 +25,8 @@ import cloudUpsampleSource from '../../gpu/wgsl/clouds/cloud_upsample.wgsl?raw';
 import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
 import cloudTransmissionSource from '../../gpu/wgsl/clouds/cloud_transmission.wgsl?raw';
+import cloudCoverageFieldSource from '../../gpu/wgsl/clouds/cloud_coverage_field.wgsl?raw';
+import { nodeNoise } from '../../nodes/shaders';
 
 // Módulos das nuvens volumétricas (spec 041): os recursos da `CloudLayer` (resolvers `CloudLayer.*`), os pontos das
 // funções de forma (`cloud_shape`) e de cobertura (`cloud_coverage`), a densidade, a fase, a luz e a marcha, os kernels
@@ -250,11 +252,18 @@ const shapeAtReady = wgslModule({
     source: 'fn cloud_shape_at(p: vec3f, slot: u32) -> vec4f {\n    return vec4f(1.0);\n}',
 });
 
-/** `cloud_coverage_fn_at` pronto (sem função de cobertura): os valores globais da camada. */
+/** O campo da cobertura global (a área coberta é a cobertura pedida). */
+const coverageField = wgslModule({
+    name: 'cloud_coverage_field',
+    source: cloudCoverageFieldSource,
+    requires: [nodeNoise],
+});
+
+/** `cloud_coverage_fn_at` pronto (sem função de cobertura): o campo da cobertura global, o tipo da camada. */
 const coverageAtReady = wgslModule({
     name: 'cloud_coverage_fn_at_ready',
-    requires: [cloudParamsResource],
-    source: 'fn cloud_coverage_fn_at(xz: vec2f, time: f32, slot: u32) -> vec3f {\n    return vec3f(clouds.layer.x, clouds.layer.y, 1.0);\n}',
+    requires: [cloudParamsResource, coverageField],
+    source: 'fn cloud_coverage_fn_at(xz: vec2f, time: f32, slot: u32) -> vec3f {\n    return vec3f(cloud_coverage_field(xz, clouds.layer.x, clouds.layer.y), clouds.layer.y, 1.0);\n}',
 });
 
 /** Lugar da função de forma no kernel dos volumes (o estágio troca o pronto pela composta, `bindPoints`). */
@@ -312,6 +321,7 @@ export const cloudDensity = wgslModule({
     name: 'cloud_density',
     source: cloudDensitySource,
     requires: [
+        coverageField,
         cloudCommon,
         cloudParamsResource,
         R.shape,

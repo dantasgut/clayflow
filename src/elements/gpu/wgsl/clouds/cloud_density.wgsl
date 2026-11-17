@@ -2,17 +2,19 @@
 // perfil de altura pelo tipo, a forma pelo volume periódico (Perlin-Worley remapeado pelo fBm de Worley) deslocado
 // pelo vento e inclinado pela altura, e a erosão das bordas pelo volume de detalhe (1,5× o vento). Densidade relativa
 // (≥ 0); a extinção é ela × `clouds.layer.z`. Espelho de `cloudDensity` em `cloudModel.ts`.
-// Requer: cloud_common, clouds, cloud_shape_tex, cloud_detail_tex, cloud_coverage_tex, cloud_noise_sampler,
+// Requer: cloud_coverage_field, cloud_common, clouds, cloud_shape_tex, cloud_detail_tex, cloud_coverage_tex, cloud_noise_sampler,
 // cloud_clamp_sampler.
 
 const CLOUD_EROSION: f32 = 0.35;
 const CLOUD_SKEW: f32 = 0.5;
 
-/** Cobertura, tipo e densidade relativa no ponto horizontal `xz` (m). */
+/** Cobertura, tipo e densidade relativa no ponto horizontal `xz` (m): o mapa e, fora dele, o campo da cobertura global. */
 fn cloud_coverage_at(xz: vec2f) -> vec3f {
     let m = clouds.coverageMap;
     let uv = (xz - m.xy) / m.z + 0.5;
-    if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { return vec3f(clouds.layer.x, clouds.layer.y, 1.0); }
+    if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) {
+        return vec3f(cloud_coverage_field(xz - clouds.coverageOffset.xy, clouds.layer.x, clouds.layer.y), clouds.layer.y, 1.0);
+    }
     return textureSampleLevel(cloud_coverage_tex, cloud_clamp_sampler, uv, 0.0).rgb;
 }
 
