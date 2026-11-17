@@ -19,11 +19,22 @@ import type { World } from '../../../scene/world/World';
 import { Camera } from '../../scene/Camera';
 import { Sky } from '../../scene/sky/Sky';
 import { Transform } from '../../scene/Transform';
-import { CloudLayer, cloudPhaseParams } from './CloudLayer';
-import { CLOUD_COVERAGE_SIZE, CLOUD_DETAIL_SIZE, CLOUD_OCTAVES, CLOUD_SHAPE_SIZE } from './schemas';
+import { CloudLayer, cloudPhaseParams, cloudPhaseTruncation } from './CloudLayer';
+import {
+    CLOUD_COVERAGE_SIZE,
+    CLOUD_DETAIL_SIZE,
+    CLOUD_OCTAVES,
+    CLOUD_SCATTER_EXTENT,
+    CLOUD_SCATTER_NEAR,
+    CLOUD_SCATTER_PRIOR,
+    CLOUD_SCATTER_SNAP,
+    CLOUD_SCATTER_WINDOW,
+    CLOUD_SHAPE_SIZE,
+} from './schemas';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import {
     cloudHistorySlots,
+    cloudScatterSlots,
     cloudNoiseKernel,
     cloudOutputs,
     cloudShapeAt,
@@ -43,6 +54,8 @@ export interface CloudNoiseSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** A série da marcha (a validade do histórico do quadro). */
     readonly cloudMarch: ChannelSlot<false>;
+    /** A série do cache de espalhamento (a validade dele). */
+    readonly cloudScatter: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudNoiseSlots>;
@@ -79,6 +92,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
         time: slot.singleton(Time.schema, { optional: true }),
         cloudMarch: cloudHistorySlots.cloudMarch,
+        cloudScatter: cloudScatterSlots.cloudScatter,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -248,6 +262,12 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
             2e6,
         );
         const valid = c.bound.slots.cloudMarch.age(1) === 1;
+        const scatterValid = c.bound.slots.cloudScatter.age(1) === 1;
+        // O centro da grade do cache de espalhamento encaixado (o shader refaz o encaixe da posição anterior da câmera).
+        const scatterCenter = [
+            Math.floor((eye[0] ?? 0) / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP,
+            Math.floor((eye[2] ?? 0) / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP,
+        ];
         const shapeSlot = this.functionSlot(cloud, cloud.shapeFunction);
         const coverageSlot =
             cloud.coverageFunction === undefined
@@ -273,6 +293,20 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 flags: [valid ? 1 : 0, shapeSlot, coverageSlot, 0],
                 timing: [time?.dt ?? 0, q.panoramaSteps, 0, 0],
                 eye: [eye[0] ?? 0, eye[1] ?? 0, eye[2] ?? 0, 0],
+                scatterGrid: [
+                    scatterCenter[0]!,
+                    scatterCenter[1]!,
+                    CLOUD_SCATTER_NEAR,
+                    Math.asinh(CLOUD_SCATTER_EXTENT / CLOUD_SCATTER_NEAR),
+                ],
+                scatterParams: [
+                    CLOUD_SCATTER_PRIOR,
+                    CLOUD_SCATTER_WINDOW,
+                    scatterValid ? 1 : 0,
+                    CLOUD_SCATTER_SNAP,
+                ],
+                phaseCut: cloudPhaseTruncation(d.dropletDiameter),
+                scatterWork: [q.scatter.stride, q.scatter.collisions, time?.frame ?? 0, 0],
             },
         ];
     }

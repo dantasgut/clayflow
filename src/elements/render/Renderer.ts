@@ -81,6 +81,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             panoramaSteps: 32,
             shadow: { size: 256, extent: 400_000, near: 3_000 },
             coverageExtent: 64_000,
+            scatter: { size: [160, 32, 160], stride: 8, collisions: 48 },
         },
     },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
@@ -103,6 +104,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             panoramaSteps: 24,
             shadow: { size: 192, extent: 400_000, near: 3_000 },
             coverageExtent: 32_000,
+            scatter: { size: [128, 24, 128], stride: 8, collisions: 32 },
         },
     },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
@@ -125,6 +127,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             panoramaSteps: 16,
             shadow: { size: 128, extent: 400_000, near: 3_000 },
             coverageExtent: 32_000,
+            scatter: { size: [96, 16, 96], stride: 8, collisions: 24 },
         },
     },
 };

@@ -7,7 +7,11 @@ import { CloudLayer } from '../../media/clouds/CloudLayer';
 
 describe('Renderer — nuvens', () => {
     it('os perfis têm a qualidade das nuvens de R15', () => {
-        expect(RENDER_PROFILES.high.clouds).toMatchObject({ steps: 128, lightSteps: 6, octaves: 3 });
+        expect(RENDER_PROFILES.high.clouds).toMatchObject({
+            steps: 128,
+            lightSteps: 6,
+            octaves: 3,
+        });
         expect(RENDER_PROFILES.medium.clouds).toMatchObject({
             steps: 64,
             lightSteps: 5,
@@ -15,7 +19,11 @@ describe('Renderer — nuvens', () => {
         });
         expect(RENDER_PROFILES.low.clouds).toMatchObject({ steps: 48, lightSteps: 4, octaves: 3 });
         expect(RENDER_PROFILES.high.clouds.panorama).toEqual([256, 128]);
-        expect(RENDER_PROFILES.low.clouds.shadow).toEqual({ size: 128, extent: 400_000, near: 3_000 });
+        expect(RENDER_PROFILES.low.clouds.shadow).toEqual({
+            size: 128,
+            extent: 400_000,
+            near: 3_000,
+        });
     });
 
     it('a camada adotada segue o perfil', () => {

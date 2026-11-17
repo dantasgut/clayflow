@@ -5,10 +5,20 @@
 // `scene/reference/atmosphere.ts`. Casos (`--query case=<nome>`):
 //   - noise-volumes: os volumes de forma e de detalhe contra o grafo padrão avaliado pela referência u32 (2/255);
 //   - ambient: as irradiâncias do céu e do chão contra a integral da radiância do céu da referência (≤ 5 %);
-//   - noon: a nuvem vista do chão (luz espalhada e transmitância por região) contra a marcha de referência (SC-001);
+//   - noon: a nuvem vista do chão (luz espalhada e transmitância por região) contra a marcha de referência (SC-001), com
+//     a luz das sondas do cache de espalhamento lida da GPU (`?settle=` quadros antes; `?dump=W` grava blocos da imagem);
+//   - scatter-cache: as sondas do cache de espalhamento (T023) contra caminhos f64 nas mesmas sondas (viés ≤ 5 %);
 //   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005).
 // Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
-import { CLOUD_OCTAVES, type Application, type CloudLayer } from 'clayflow/web';
+import {
+    CLOUD_OCTAVES,
+    CLOUD_SCATTER_EXTENT,
+    CLOUD_SCATTER_NEAR,
+    CLOUD_SCATTER_PRIOR,
+    CLOUD_SCATTER_SNAP,
+    type Application,
+    type CloudLayer,
+} from 'clayflow/web';
 import { settleFrames } from './support/extensionScenes';
 import {
     cloudScene,
@@ -31,6 +41,7 @@ import {
 import { materialGraph } from './support/materialScenes';
 import { noiseCellular3 } from '../elements/nodes/reference/noiseNodes';
 import {
+    altitude as altitudeOf,
     coneSunDepth,
     opticalDepth,
     shellSegments,
@@ -42,6 +53,13 @@ import {
     type CloudModel,
     type Vec3,
 } from '../elements/media/clouds/reference/cloudModel';
+import {
+    phaseTruncation,
+    scatterProbePosition,
+    scatterWalk,
+    type ScatterGrid,
+} from '../elements/media/clouds/reference/cloudScatter';
+import { deltaRng } from '../elements/lighting/reference/pathTracer';
 import {
     aerialPerspective,
     earthAtmosphere,
@@ -257,6 +275,64 @@ async function caseAmbient(): Promise<void> {
     finish(s);
 }
 
+/**
+ * A luz das sondas do cache de espalhamento como a marcha da GPU a lê (T023): a fatia do quadro lida da GPU (a mesma
+ * representação dos dois lados; as sondas são conferidas contra os caminhos da referência no caso `scatter-cache`),
+ * interpolada como o amostrador (trilinear, borda presa) na soma pré-multiplicada, misturada à estimativa local pelo
+ * peso `CLOUD_SCATTER_PRIOR`. Fora da grade, a estimativa local.
+ */
+async function scatterLookupOf(
+    s: CloudScene,
+    layer: CloudLayer,
+    model: CloudModel,
+): Promise<{ kT: number; light: (x: Vec3, prior: Vec3) => Vec3 } | undefined> {
+    const tex = s.app.resources.channelOf(layer, 'scatter')?.texture(0);
+    if (tex === undefined) return undefined;
+    const grid = await readTexture(s.app, tex, 'rgba16float');
+    const E = s.sky.data.sunIlluminance[1] ?? 1;
+    const eye = s.camera.data.position;
+    const snap = (v: number): number =>
+        Math.floor(v / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP;
+    const cx = snap(eye[0] ?? 0);
+    const cz = snap(eye[2] ?? 0);
+    const reach = Math.asinh(CLOUD_SCATTER_EXTENT / CLOUD_SCATTER_NEAR);
+    const size = [grid.width, grid.height, grid.depth];
+    const trunc = phaseTruncation(jdeParams(layer.dropletDiameter));
+    const at = (i: number, j: number, k: number, c: number): number =>
+        grid.data[((k * size[1]! + j) * size[0]! + i) * 4 + c]!;
+    return {
+        kT: 1 - model.albedo * trunc.fc,
+        light: (x, prior) => {
+            const u = (Math.asinh((x[0] - cx) / CLOUD_SCATTER_NEAR) / reach + 1) / 2;
+            const w = (Math.asinh((x[2] - cz) / CLOUD_SCATTER_NEAR) / reach + 1) / 2;
+            if (u < 0 || u > 1 || w < 0 || w > 1) return prior;
+            const h = Math.min(
+                1,
+                Math.max(0, (altitudeOf(model, x) - model.base) / (model.top - model.base)),
+            );
+            const f = [u * size[0]! - 0.5, h * size[1]! - 0.5, w * size[2]! - 0.5];
+            const b = f.map(Math.floor);
+            const q = [0, 0, 0, 0];
+            for (let dz = 0; dz < 2; dz++)
+                for (let dy = 0; dy < 2; dy++)
+                    for (let dx = 0; dx < 2; dx++) {
+                        const wt =
+                            (dx ? f[0]! - b[0]! : 1 - f[0]! + b[0]!)
+                            * (dy ? f[1]! - b[1]! : 1 - f[1]! + b[1]!)
+                            * (dz ? f[2]! - b[2]! : 1 - f[2]! + b[2]!);
+                        const i = Math.min(size[0]! - 1, Math.max(0, b[0]! + dx));
+                        const j = Math.min(size[1]! - 1, Math.max(0, b[1]! + dy));
+                        const k = Math.min(size[2]! - 1, Math.max(0, b[2]! + dz));
+                        for (let c = 0; c < 4; c++) q[c]! += wt * at(i, j, k, c);
+                    }
+            const n0 = CLOUD_SCATTER_PRIOR;
+            return [0, 1, 2].map(
+                (c) => (q[c]! * E + n0 * prior[c]!) / (Math.max(q[3]!, 0) + n0),
+            ) as unknown as Vec3;
+        },
+    };
+}
+
 // ── noon ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Compara a nuvem aumentada (`view`) com a marcha de referência num conjunto de regiões. */
@@ -290,8 +366,33 @@ async function compareView(
         for (let k = 0; k < acc.length; k++) acc[k]! += v.data[k]! / FRAMES;
     }
     const view = { ...first, data: acc };
+    // Diagnóstico (`?dump=W`): a luz apresentada (rgb, nits) em blocos de W × W·h/w, para comparar fora da página com o
+    // traçador.
+    const dump = Number(new URLSearchParams(location.search).get('dump') ?? 0);
+    if (dump > 0) {
+        const dh = Math.round((dump * h) / w);
+        const out: number[][] = [];
+        for (let by = 0; by < dh; by++)
+            for (let bx = 0; bx < dump; bx++) {
+                const c = [0, 0, 0, 0];
+                let n = 0;
+                for (let py = Math.floor((by * h) / dh); py < Math.floor(((by + 1) * h) / dh); py++)
+                    for (
+                        let px = Math.floor((bx * w) / dump);
+                        px < Math.floor(((bx + 1) * w) / dump);
+                        px++
+                    ) {
+                        const o = (py * w + px) * 4;
+                        for (let k = 0; k < 4; k++) c[k]! += view.data[o + k]!;
+                        n++;
+                    }
+                out.push(c.map((v) => +(v / n).toFixed(3)));
+            }
+        log(`${label}: blocos ${JSON.stringify(out)}`);
+    }
     const ambient = await readTexture(s.app, amb, 'rgba16float');
     const model = await referenceModel(s, layer);
+    const scatter = await scatterLookupOf(s, layer, model);
     const sun = sunToward(sunElevation, sunAzimuth);
     const lux = s.sun.data.intensity;
     const sunT = sunTransmittance(atmosphere, 0.2 + (layer.base + layer.top) / 2000, sun);
@@ -323,6 +424,7 @@ async function compareView(
         sun: [sunT[0] * lux, sunT[1] * lux, sunT[2] * lux] as Vec3,
         ambientUp: [0, 1, 2].map((c) => ambient.data[c]! * ambK) as unknown as Vec3,
         ambientDown: [4, 5, 6].map((c) => ambient.data[c]! * ambK) as unknown as Vec3,
+        ...(scatter === undefined ? {} : { scatter }),
     };
     const phase = jdeParams(layer.dropletDiameter);
     const octaves = { count: layer.quality.octaves, ...CLOUD_OCTAVES };
@@ -488,7 +590,8 @@ async function caseNoon(): Promise<void> {
         target,
         fov,
     });
-    await settleFrames(s.app, 90);
+    // O cache de espalhamento converge com os caminhos (`?settle=` para os diagnósticos).
+    await settleFrames(s.app, Number(new URLSearchParams(location.search).get('settle') ?? 600));
     const r = await compareView(s, 'noon', eye, target, fov, 60);
     if (new URLSearchParams(location.search).get('cone') === '1')
         await compareView(s, 'noon (cone)', eye, target, fov, 60, true);
@@ -499,6 +602,152 @@ async function caseNoon(): Promise<void> {
     check(
         r.worstL <= 0.05,
         `noon: luz a ${(r.worstL * 100).toFixed(1)} % da referência (SC-001: 5 %)`,
+    );
+    finish(s);
+}
+
+// ── scatter-cache ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * O cache de espalhamento (T023): as sondas da GPU (a média dos caminhos de cada uma, depois de convergir com a câmera
+ * parada) contra a média de caminhos da referência f64 nas mesmas sondas (`scatterWalk` sobre os volumes lidos da GPU,
+ * a profundidade ótica exata até o sol, o céu e o sol da atmosfera f64, o chão com a sombra das nuvens). Mede a razão
+ * das somas (o viés) e a dispersão por sonda contra a esperada do ruído das duas médias.
+ */
+async function caseScatterCache(): Promise<void> {
+    const q = new URLSearchParams(location.search);
+    const eye: Vec3 = [0, 2, 0];
+    const target: Vec3 = [1000, 700, 300];
+    const s = await cloudScene({
+        width: 480,
+        height: 270,
+        sunElevation: 60,
+        clouds: { coverage: 0.5, type: 0.5, wind: [0, 0] },
+        eye,
+        target,
+        fov: Math.PI / 3,
+    });
+    await settleFrames(s.app, Number(q.get('settle') ?? 900));
+    const layer = s.layer!;
+    const channel = s.app.resources.channelOf(layer, 'scatter');
+    const tex = channel?.texture(0);
+    const amb = s.app.resources.textureOf(layer, 'ambient');
+    if (tex === undefined || amb === undefined) throw new Error('scatter-cache: cache não alocado');
+    const grid = await readTexture(s.app, tex, 'rgba16float');
+    const ambient = await readTexture(s.app, amb, 'rgba16float');
+    const model = await referenceModel(s, layer);
+    const sun = sunToward(60);
+    const lux = s.sun.data.intensity;
+    const R = model.groundRadius;
+    const sunAt = (x: Vec3): Vec3 => {
+        const r = Math.hypot(x[0], x[1] + R, x[2]);
+        const mu = (x[0] * sun[0] + (x[1] + R) * sun[1] + x[2] * sun[2]) / r;
+        const t = transmittanceToTop(
+            atmosphere,
+            atmosphere.bottomRadius + 0.2 + (r - R) / 1000,
+            mu,
+        );
+        return [t[0] * lux, t[1] * lux, t[2] * lux];
+    };
+    // O céu da GPU é a vista do céu na altitude da câmera.
+    const skyCache = new Map<number, Vec3>();
+    const sky = (d: Vec3): Vec3 => {
+        const key =
+            Math.round((d[1] + 1) * 32) * 4096
+            + Math.round((Math.atan2(d[2], d[0]) + Math.PI) * 32);
+        let v = skyCache.get(key);
+        if (v === undefined) {
+            const L = skyRadiance(atmosphere, 0.2 + eye[1] / 1000, d, sun, 48, ms);
+            v = [L[0] * lux, L[1] * lux, L[2] * lux];
+            skyCache.set(key, v);
+        }
+        return v;
+    };
+    const phase = jdeParams(layer.dropletDiameter);
+    const trunc = phaseTruncation(phase);
+    const kT = 1 - model.albedo * trunc.fc;
+    const ground = s.sky.data.ground;
+    const up = [0, 1, 2].map((c) => ambient.data[c]!);
+    const sunDepth = (x: Vec3): number => opticalDepth(model, x, sun, 48);
+    const light = {
+        sunDir: sun,
+        sunAt,
+        sunDepth,
+        sky,
+        ground: (pg: Vec3): Vec3 => {
+            const e = sunAt([pg[0], 0, pg[2]]);
+            const t = Math.exp(-sunDepth(pg) * kT) * Math.max(sun[1], 0);
+            return [0, 1, 2].map(
+                (c) => (ground[c] ?? 0.3) * ((e[c]! * t) / Math.PI + up[c]!),
+            ) as unknown as Vec3;
+        },
+    };
+    const size = [grid.width, grid.height, grid.depth] as const;
+    const g: ScatterGrid = { size, center: [0, 0], x0: 2000, reach: Math.asinh(32) };
+    const E = s.sky.data.sunIlluminance[1] ?? lux;
+    // As sondas convergidas (≥ 48 caminhos) no campo de visão, espalhadas.
+    const fwd = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+    const fl = Math.hypot(...fwd);
+    const picks: { x: Vec3; n: number; v: number }[] = [];
+    const total = size[0] * size[1] * size[2];
+    for (let i = 0; i < total && picks.length < Number(q.get('probes') ?? 120); i += 397) {
+        const n = grid.data[i * 4 + 3]!;
+        if (n < 48) continue;
+        const gi = i % size[0];
+        const gj = Math.floor(i / size[0]) % size[1];
+        const gk = Math.floor(i / (size[0] * size[1]));
+        const x = scatterProbePosition(model, g, gi, gj, gk);
+        const rel = [x[0] - eye[0], x[1] - eye[1], x[2] - eye[2]];
+        const dist = Math.hypot(...rel);
+        if (
+            dist > 15_000
+            || (rel[0] * fwd[0]! + rel[1] * fwd[1]! + rel[2] * fwd[2]!) / (dist * fl) < 0.5
+        )
+            continue;
+        const lum = (): number =>
+            0.2126 * grid.data[i * 4]!
+            + 0.7152 * grid.data[i * 4 + 1]!
+            + 0.0722 * grid.data[i * 4 + 2]!;
+        picks.push({ x, n, v: (lum() / n) * E });
+    }
+    const walks = Number(q.get('walks') ?? 1000);
+    let sumG = 0;
+    let sumR = 0;
+    const ratios: number[] = [];
+    for (const [k, p] of picks.entries()) {
+        await new Promise((r) => setTimeout(r, 0));
+        const rel = [p.x[0] - eye[0], p.x[1] - eye[1], p.x[2] - eye[2]];
+        const l = Math.hypot(...rel);
+        const dcam: Vec3 = [rel[0]! / l, rel[1]! / l, rel[2]! / l];
+        let acc = 0;
+        for (let w = 0; w < walks; w++) {
+            const L = scatterWalk(
+                model,
+                p.x,
+                dcam,
+                light,
+                phase,
+                trunc,
+                deltaRng(k * 100_003 + 17, w),
+                48,
+                256,
+            );
+            acc += 0.2126 * L[0] + 0.7152 * L[1] + 0.0722 * L[2];
+        }
+        const ref = acc / walks;
+        sumG += p.v;
+        sumR += ref;
+        ratios.push(p.v / ref);
+    }
+    ratios.sort((a, b) => a - b);
+    const bias = sumG / Math.max(sumR, 1e-12);
+    log(
+        `scatter-cache: ${picks.length} sondas (≥ 48 caminhos na GPU, ${walks} na referência): razão das somas GPU/referência ${bias.toFixed(3)}; por sonda mín ${ratios[0]?.toFixed(3)} mediana ${ratios[Math.floor(ratios.length / 2)]?.toFixed(3)} máx ${ratios.at(-1)?.toFixed(3)}`,
+    );
+    check(picks.length >= 60, `scatter-cache: só ${picks.length} sondas convergidas`);
+    check(
+        Math.abs(bias - 1) <= 0.05,
+        `scatter-cache: viés das sondas ${((bias - 1) * 100).toFixed(1)} % (≤ 5 %)`,
     );
     finish(s);
 }
@@ -850,7 +1099,8 @@ async function viewCase(
         target,
         fov,
     });
-    await settleFrames(s.app, 90);
+    // O cache de espalhamento converge com os caminhos (um por sonda a cada 8 quadros, janela de 64).
+    await settleFrames(s.app, Number(new URLSearchParams(location.search).get('settle') ?? 600));
     const r = await compareView(s, label, eye, target, fov, sunElevation, false, sunAzimuth);
     if (new URLSearchParams(location.search).get('cone') === '1')
         await compareView(s, `${label} (cone)`, eye, target, fov, sunElevation, true, sunAzimuth);
@@ -1546,6 +1796,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'noise-volumes': caseNoiseVolumes,
     ambient: caseAmbient,
     noon: caseNoon,
+    'scatter-cache': caseScatterCache,
     timing: caseTiming,
 };
 

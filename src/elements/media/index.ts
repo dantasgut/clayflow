@@ -22,5 +22,14 @@ export { CloudNoiseFlow, type CloudNoiseSlots } from './clouds/CloudNoiseFlow';
 export { CloudLightFlow, type CloudLightSlots } from './clouds/CloudLightFlow';
 export { CloudFlow, type CloudSlots } from './clouds/CloudFlow';
 export { defaultCloudShapeGraph } from './clouds/defaultShape';
-export { CloudSchema, CLOUD_OCTAVES, type CloudQuality } from './clouds/schemas';
+export {
+    CloudSchema,
+    CLOUD_OCTAVES,
+    CLOUD_SCATTER_EXTENT,
+    CLOUD_SCATTER_NEAR,
+    CLOUD_SCATTER_PRIOR,
+    CLOUD_SCATTER_SNAP,
+    CLOUD_SCATTER_WINDOW,
+    type CloudQuality,
+} from './clouds/schemas';
 export { cloudCoveragePoint, cloudShapePoint } from './clouds/shaders';

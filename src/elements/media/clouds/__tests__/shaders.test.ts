@@ -13,6 +13,7 @@ import {
     cloudNoiseKernel,
     cloudPanoramaKernel,
     cloudReconstructKernel,
+    cloudScatterKernel,
     cloudShadowKernel,
     cloudShapeAt,
     cloudShapeAtPoint,
@@ -35,6 +36,7 @@ const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_upsample', cloudUpsampleKernel.single, 'cloud_upsample_main'],
     ['cloud_upsample_ms', cloudUpsampleKernel.multisampled, 'cloud_upsample_main'],
     ['cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main'],
+    ['cloud_scatter', cloudScatterKernel, 'cloud_scatter_main'],
     ['sky_aerial', skyAerialKernel, 'sky_aerial_main'],
 ];
 

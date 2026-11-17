@@ -8,7 +8,8 @@
 // (`CLOUD_MAX_LIGHT_STEPS`) e do pedaço até o nó do mapa (`CLOUD_SHADOW_PARTIAL_STEPS`): o orçamento total por
 // invocação é `CLOUD_MAX_STEPS × (1 + CLOUD_MAX_LIGHT_STEPS + CLOUD_SHADOW_PARTIAL_STEPS)`.
 // Espelho de `marchCloud` em `cloudModel.ts`.
-// Requer: cloud_common, cloud_density, cloud_phase, cloud_shadow_lookup, sky_query, clouds, cloud_ambient_tex.
+// Requer: cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup, cloud_scatter_lookup, sky_query,
+// clouds, cloud_ambient_tex.
 
 const CLOUD_MAX_STEPS: u32 = 128u;
 const CLOUD_MAX_LIGHT_STEPS: u32 = 6u;
@@ -25,13 +26,6 @@ struct CloudSample {
     transmittance: f32,
     /** Profundidade média ponderada pela opacidade (m); 0 sem nuvem. */
     depth: f32,
-}
-
-/** Transmitância da atmosfera do topo até o ponto `p` na direção do sol (pela altitude na casca do planeta). */
-fn cloud_sun_atmosphere(p: vec3f) -> vec3f {
-    let up = normalize(vec3f(p.x, p.y + clouds.shell.x, p.z));
-    let r = sky_bottom() + max(sky.radii.w + cloud_altitude(p) * 0.001, 0.001);
-    return sky_transmittance(r, clamp(dot(up, sky.sunDirection.xyz), -1.0, 1.0));
 }
 
 /**
@@ -71,11 +65,16 @@ fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32) -> 
     let tau = cloud_sun_depth(p, light_steps);
     let o = clouds.octaves;
     let count = min(u32(o.x), CLOUD_MAX_OCTAVES);
+    // A oitava 0 é o espalhamento simples exato; as demais e o ambiente local são a estimativa a que a luz das sondas do
+    // cache de espalhamento (o transporte completo por caminhos, T023) se sobrepõe à medida que os caminhos chegam.
+    // O feixe do sol no ponto: o não desviado e o desviado menos de 2° pelo pico de frente (δ-M), `e^(−(1 − ω·fc)τ)` — a
+    // luz que os caminhos das sondas não alcançam (o pico é transmitido neles).
+    let single = exp(-(1.0 - clouds.layer.w * clouds.phaseCut.y) * tau) * cloud_phase(cos_theta, 1.0);
     var s = 0.0;
-    var energy = 1.0;
-    var attenuation = 1.0;
-    var anisotropy = 1.0;
-    for (var i = 0u; i < CLOUD_MAX_OCTAVES; i++) {
+    var energy = o.z;
+    var attenuation = o.y;
+    var anisotropy = o.w;
+    for (var i = 1u; i < CLOUD_MAX_OCTAVES; i++) {
         if (i >= count) { break; }
         s += energy * exp(-attenuation * tau) * cloud_phase(cos_theta, anisotropy);
         energy *= o.z;
@@ -86,7 +85,8 @@ fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32) -> 
     let h = clamp(cloud_height_fraction(p), 0.0, 1.0);
     let ambient = textureLoad(cloud_ambient_tex, vec2u(0u, 0u), 0).rgb * h
         + textureLoad(cloud_ambient_tex, vec2u(1u, 0u), 0).rgb * (1.0 - h);
-    return sigma_t * clouds.layer.w * (s * sun + ambient);
+    let multiple = cloud_scatter_light(p, s * sun + ambient);
+    return sigma_t * clouds.layer.w * (single * sun + multiple);
 }
 
 /**

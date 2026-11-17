@@ -5,7 +5,12 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 import { Flow } from '../../../scene/flows/Flow';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type SingletonSlot, type SlotMap } from '../../../scene/flows/slots';
+import {
+    slot,
+    type ChannelSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
@@ -19,6 +24,8 @@ import {
     cloudCoverageKernel,
     cloudOutputs,
     cloudPanoramaKernel,
+    cloudScatterKernel,
+    cloudScatterSlots,
     cloudShadowKernel,
 } from './shaders';
 
@@ -26,6 +33,8 @@ import {
 export interface CloudLightSlots extends SlotMap {
     readonly cloud: SingletonSlot<false>;
     readonly sky: SingletonSlot<true>;
+    /** O cache de espalhamento (spec 037; T023): a fatia anterior lida, a do quadro escrita. */
+    readonly cloudScatter: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudLightSlots>;
@@ -44,6 +53,7 @@ const compute = (
 const AMBIENT = compute('cloud_ambient', cloudAmbientKernel, 'cloud_ambient_main');
 const SHADOW = compute('cloud_shadow', cloudShadowKernel, 'cloud_shadow_main');
 const PANORAMA = compute('cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main');
+const SCATTER = compute('cloud_scatter', cloudScatterKernel, 'cloud_scatter_main');
 
 /** Ids dos alvos que o estágio escreve, na ordem das saídas. */
 const TARGETS = ['coverage', 'ambient', 'shadow', 'panorama'] as const;
@@ -60,6 +70,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     readonly slots: CloudLightSlots = {
         cloud: slot.singleton(CloudLayer.schema),
         sky: slot.singleton(Sky.schema, { optional: true }),
+        ...cloudScatterSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -104,11 +115,16 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             [this.coverage, 'CloudLightFlow.coverage', CLOUD_COVERAGE_SIZE * CLOUD_COVERAGE_SIZE],
             [AMBIENT.id, 'CloudLightFlow.ambient', WORKGROUP_SIZE.value],
             [SHADOW.id, 'CloudLightFlow.shadow', q.shadow.size * q.shadow.size],
+            [
+                SCATTER.id,
+                'CloudLightFlow.scatter',
+                q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
+            ],
             [PANORAMA.id, 'CloudLightFlow.panorama', q.panorama[0] * q.panorama[1]],
         ];
         const ready = steps.map(([id]) => bound.pipelines.get(id));
         if (ready.some((p) => p?.role !== 'compute' || !p.ready)) return;
-        steps.forEach(([, label, count], k) => {
+        steps.forEach(([id, label, count], k) => {
             const p = ready[k]!;
             if (p.role !== 'compute') return;
             frame.compute(label, (pass) => {
@@ -116,6 +132,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 p.bindTo(pass.bind);
                 pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
+            // O cache de espalhamento escrito: a série gira (o panorama e a marcha leem a fatia do quadro).
+            if (id === SCATTER.id) bound.slots.cloudScatter.written();
         });
         // Os alvos do quadro existem: as contribuições (a sombra, o céu coberto) passam a valer.
         cloud.setActive(true);
@@ -133,6 +151,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             return;
         }
         for (const id of TARGETS) this.resources.ensureAllocated(cloud, id);
+        this.resources.ensureAllocated(cloud, 'scatter');
         const views = TARGETS.map((id) => c.bound.slots.cloud.textureViewOf(id));
         if (views.some((v) => v === undefined)) {
             this.active = false;
@@ -149,7 +168,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             );
             this.views = views;
             if (!this.prepared) {
-                for (const p of [AMBIENT, SHADOW, PANORAMA]) c.prepare(p);
+                for (const p of [AMBIENT, SHADOW, SCATTER, PANORAMA]) c.prepare(p);
                 this.prepared = true;
             }
         }

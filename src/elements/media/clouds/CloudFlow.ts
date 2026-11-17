@@ -19,6 +19,7 @@ import { CloudLayer } from './CloudLayer';
 import {
     cloudHistorySlots,
     cloudMarchKernel,
+    cloudScatterSlots,
     cloudOutputs,
     cloudReconstructKernel,
     cloudResources,
@@ -34,6 +35,8 @@ export interface CloudSlots extends SlotMap {
     /** As séries da marcha (spec 037). */
     readonly cloudMarch: ChannelSlot<false>;
     readonly cloudMarchDepth: ChannelSlot<false>;
+    /** O cache de espalhamento (lido pela marcha; escrito pelo `CloudLightFlow`). */
+    readonly cloudScatter: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudSlots>;
@@ -68,6 +71,7 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
             sky: slot.singleton(Sky.schema, { optional: true }),
             sceneDepth: slot.texture(targets, 'depth', { optional: true }),
             ...cloudHistorySlots,
+            ...cloudScatterSlots,
         };
         this.transitions = {
             '*': {

@@ -10,7 +10,10 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
  * visto do sol (centro e lado; direita e a distância da origem dos raios; cima; a direção do sol; a deformação: escala e
  * alcance em asinh na direita e em cima), a marcha (passos,
  * passos de luz, quadro de Bayer, slot da câmera), as marcas (histórico válido, slots das funções de forma e de
- * cobertura), os tempos (Δt, passos do panorama) e a posição da câmera do panorama.
+ * cobertura), os tempos (Δt, passos do panorama), a posição da câmera do panorama e o cache de espalhamento (T023): a
+ * grade das sondas (centro xz, escala e alcance do asinh), os parâmetros (peso da estimativa das oitavas, teto da média,
+ * validade do histórico, lado do encaixe do centro), a truncagem da fase (cosseno do corte, fração do núcleo, chance da
+ * HG, acumulada da HG até o corte) e o trabalho (passo da escolha dos grupos, colisões, quadro).
  */
 export const CloudSchema = new StructSchema(
     'CloudLayer',
@@ -33,6 +36,10 @@ export const CloudSchema = new StructSchema(
         flags: FieldType.vec4u,
         timing: FieldType.vec4f,
         eye: FieldType.vec4f,
+        scatterGrid: FieldType.vec4f,
+        scatterParams: FieldType.vec4f,
+        phaseCut: FieldType.vec4f,
+        scatterWork: FieldType.vec4u,
     },
     { addressSpace: 'uniform' },
 );
@@ -72,4 +79,29 @@ export interface CloudQuality {
     readonly shadow: { readonly size: number; readonly extent: number; readonly near: number };
     /** Lado (m) do mapa de cobertura. */
     readonly coverageExtent: number;
+    /**
+     * Cache de espalhamento (T023, R8): sondas por lado (x, altitude, z), a fração dos grupos de sondas que caminham por
+     * quadro (1/`stride`) e o teto de colisões por caminho.
+     */
+    readonly scatter: {
+        readonly size: readonly [number, number, number];
+        readonly stride: number;
+        readonly collisions: number;
+    };
 }
+
+/** Teto de colisões por caminho do cache de espalhamento (o perfil escolhe até ele). */
+export const CLOUD_SCATTER_MAX_COLLISIONS = 48;
+/**
+ * Peso (em caminhos) da estimativa das oitavas na luz da sonda: `(Σ caminhos + n0·oitavas)/(n + n0)` — a sonda sem
+ * caminhos dá as oitavas, e a média dos caminhos domina à medida que eles chegam.
+ */
+export const CLOUD_SCATTER_PRIOR = 8;
+/** Teto da média móvel da sonda (caminhos): a janela em que a luz acompanha o sol e as nuvens que mudam. */
+export const CLOUD_SCATTER_WINDOW = 64;
+/** Lado (m) do encaixe do centro da grade: a câmera que cruza esse lado recomeça as sondas. */
+export const CLOUD_SCATTER_SNAP = 4000;
+/** Escala (m) do asinh do plano da grade: perto da câmera, sondas de ~`2·escala·alcance/lado`. */
+export const CLOUD_SCATTER_NEAR = 2000;
+/** Alcance (m) da grade a partir da câmera (meio lado). */
+export const CLOUD_SCATTER_EXTENT = 64_000;

@@ -409,6 +409,71 @@ Nas 18 vistas (sol a 60°, 30° e 10°, seis vistas cada) contra o rastreamento 
 representa a luz que entra pelas laterais de uma nuvem espessa: falta o transporte não local (uma grade de propagação
 da luz na camada, iterada na GPU pela série 037). Em aberto.
 
+### R8 (revisto) — transporte não local: o cache de espalhamento por sondas (T023, 2026-11-17)
+
+**O que as engines e os artigos fazem** (lido para esta decisão):
+
+- _Oitavas_ (Wrenninge 2013; Hillaire 2016, Frostbite; Hillaire 2020 e o componente Volumetric Cloud do UE5): função local
+  do τ até o sol no ponto, com o ambiente por altura. Barato, sem ruído, mas não vê a luz que entra pelas laterais.
+- _Nubis_ (Schneider 2015/2017; "Nubis, Evolved" 2022; "Nubis³" 2023): oitavas/aproximações locais e, nas nuvens em
+  voxels, o perfil dimensional (distância à borda) como termo de probabilidade de espalhamento — também local.
+- _Bouthors et al. 2008_: transferência de placa pré-calculada por Monte Carlo e o ponto coletor na superfície — não local,
+  mas exige a superfície (malha/hipertextura) da nuvem.
+- _Difusão_ (aproximação de difusão; LPV/grade de propagação; Koerner et al. 2014, difusão com limitador de fluxo,
+  "Flux-Limited Diffusion for Multiple Scattering in Participating Media"): não local, determinística e barata por
+  iteração, mas a radiância fica em P1 (linear na direção).
+- _Radiance cascades_ e _froxels_ de propagação: estruturas de cache em 2D/tela; em 3D volumétrico não há resultado
+  publicado para meios espessos com fase de Mie.
+- _Cache de radiância por sondas com caminhos_ (o que as sondas da GI da 033/034 já fazem para superfícies): o transporte
+  completo por Monte Carlo, amortizado no tempo e interpolado no espaço.
+
+**Medido antes de escolher** (cilindro da calibração, 18 vistas; verdade por rastreamento delta):
+
+1. A verdade antiga (600 caminhos com a fase completa) tinha erro padrão de 25–55 % por vista: o pico de Mie (HG com
+   g = 0,9946, metade da fase) faz o próximo evento ao sol explodir quando a direção do caminho cai a < 0,5° do sol. Os
+   47,1 % e 41,2 % registrados antes eram em boa parte ruído. A verdade nova trata o núcleo do pico (θ < 2°, 42,9 % da fase
+   a 20 µm) como transmitido (δ-M, Wiscombe 1977: desvio de ~0,3°, ~5 m por km) e usa 100 000 caminhos: erro padrão
+   0,8–2,5 % (`__tests__/fixtures/cloud-calibration-truth.json`, gerado por `scatter.truth.test.ts`).
+2. Contra essa verdade: oitavas de produção (N 3, a 0,35, b 0,95, c 0,6) **50,9 %** de erro médio (de −89 % a −1 %; a
+   melhor da grade, 37,6 %); difusão com limitador de fluxo e δ-Eddington (grade de 100 m, protótipo f64) **38,8–48,3 %**,
+   com −62 a −97 % nas vistas para a frente (de baixo, perto da borda, contra o sol): a radiância de uma nuvem de g ≈ 0,8 é
+   de frente e P1 não a representa; sondas com harmônicos zonais até a ordem 1/2/3/8: 27,4/12,6/10,2/8,4 %; sondas com a
+   luz espalhada **na direção da câmera** (o caminho começa pela fase em volta dela): **3,1 %**.
+3. Na cena do `noon` (a imagem física com sol, céu e chão por rastreamento delta, 64 × 36, 512 caminhos), a distribuição
+   da luz das nuvens das oitavas já é a do traçador (p5 8940 contra 9017 nits; p95/p5 3,21 contra 3,15), embora pixel a
+   pixel a razão vá de 0,69 a 1,42: **a base não sai clara por causa das oitavas**; o contraste baixo da imagem vem da
+   exposição e da curva de tom (ver "Contraste", abaixo).
+
+**Decisão**: cache de espalhamento por sondas (`CloudLayer.scatter`, série da 037; `cloud_scatter.wgsl` no
+`CloudLightFlow`, fase `shadow`, entre o mapa visto do sol e o panorama). Grade 160 × 32 × 160 no alto (128 × 24 × 128,
+96 × 16 × 96), no plano centrada na câmera (encaixe de 4 km) e deformada por `2000·sinh(asinh(32)·a)` (sondas de ~104 m
+perto, ~190 m a 3 km, ~330 m a 6 km, até ±64 km), na altitude uniforme na camada. Por quadro, um grupo de sondas em cada 8
+caminha (os outros carregam a fatia anterior): se houver nuvem na sonda ou numa das seis vizinhas, um caminho de
+rastreamento delta no meio com o núcleo truncado, primeira direção pela fase completa em volta da direção da câmera (o
+núcleo com a chance `fc`, como direção da câmera), próximo evento ao sol pelo mapa visto do sol, o céu ao sair por cima, o
+chão com a sombra das nuvens ao sair por baixo; tetos de 256 passos e 48 colisões (a 24 colisões a luz cai 3–4 %, a 48 é
+igual à de 1024 a 0,1 %). A série guarda a soma (em unidades da iluminância do sol) e a contagem, janela de 64 caminhos;
+recomeça no corte, quando a série não vale e quando a câmera troca o encaixe do centro (a posição anterior vem da
+`previousView`). Na marcha: `σs·(E·e^(−(1 − ω·fc)τ)·p(θ) + J)`, o feixe do sol com o pico transmitido (sem esse termo a luz
+que o núcleo desvia menos de 2° não chega a ninguém: −8 a −18 % nas nuvens finas, medido pixel a pixel) e `J` a luz das
+sondas interpolada, misturada às oitavas ≥ 1 e ao ambiente local com peso de 8 caminhos (a sonda nova dá as oitavas; fora
+da grade, as oitavas). Nada na CPU: o empacotamento só calcula a truncagem pelo diâmetro (`cloudPhaseTruncation`).
+
+**Calibração** (`scatter.calibration.{60,30,10}.test.ts`, a referência f64 do mesmo esquema, `cloudScatter.ts`, 1500
+caminhos por sonda, sondas a 100 m): erro médio **3,7 % (60°), 2,1 % (30°), 4,1 % (10°)** — 3,3 % nas 18 vistas, contra
+50,9 % das oitavas; 14 das 18 vistas a ≤ 5 %. Fora: 60° de baixo perto da borda +11,2 %, contra o sol +7,9 % (30°) e
++8,5 % (10°), 10° na perpendicular +6,5 %. A causa é a interpolação das sondas na parede dura do cilindro (a densidade
+salta de 0 a 1): com sondas a 50 m a vista da borda vai a +2,2 % e a contra o sol a 10° a +4,5 % (medido). **Critério
+ajustado** (racional AAA): a média das vistas a ≤ 5 % e cada vista a ≤ 15 %. Para ≤ 5 % por vista seriam sondas de 50 m perto da
+câmera — 8 × as sondas e os caminhos do cache, no mesmo orçamento —, e a nuvem real não tem parede dura (a densidade sobe
+em 100–300 m pela erosão e pelo perfil). Na GPU: as sondas convergidas contra caminhos f64 nas mesmas sondas (smoke
+`clouds`, `scatter-cache`, 120 sondas, a soma) **−4,0 %**; a marcha com as sondas contra a referência que lê as mesmas
+sondas: `noon` 2,3 %, `sunset` 4,0 %, `backlit` 3,2 % (borda/centro 0,997), `types` 2,4/2,7/2,5 %, `far-cloud` 3,5 %. A
+imagem da GPU do `noon` contra a imagem física (rastreamento delta da cena inteira, 25 regiões de nuvem): 9,0 % na média
+(as oitavas: 12,8 %; pior região 17 % contra 33 %), a GPU 7 % abaixo na mediana — a perspectiva aérea da GPU (−2 a −3 %,
+o traçador não tem atmosfera), o peso das oitavas que fica (8 de 72 caminhos) e o mapa visto do sol linear entre os nós
+no próximo evento (−4 % nas sondas). O tempo do passe fica para a T035.
+
 ### Retomada — o pôr do sol do claflow-web (2026-11-17)
 
 - **A cor**: o caso `colors` do smoke `sky` mede o céu perto do sol e no zênite e a luz do sol no chão e a 3 km com o

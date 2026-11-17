@@ -387,6 +387,12 @@ export interface CloudLighting {
     readonly sunAt?: (x: Vec3) => Vec3;
     /** A profundidade ótica até o sol num ponto; sem: a integral até a saída da casca. */
     readonly sunDepth?: (x: Vec3) => number;
+    /**
+     * O cache de espalhamento (T023, R8): o feixe do sol com o pico de frente transmitido (`e^(−kT·τ)`, δ-M) espalhado pela
+     * fase completa, e no lugar das oitavas ≥ 1 e do ambiente local a luz das sondas, que recebe essa estimativa local
+     * (`prior`, na mesma unidade: radiância) para a mistura pela contagem de caminhos.
+     */
+    readonly scatter?: { readonly kT: number; readonly light: (x: Vec3, prior: Vec3) => Vec3 };
 }
 
 /**
@@ -449,15 +455,33 @@ export function marchCloud(
             if (rho <= 0) continue;
             const sigmaT = rho * m.density;
             const tau = light.sunDepth?.(x) ?? opticalDepth(m, x, light.sunDir, sunSteps);
-            const sun = octaveScattering(sigmaT, m.albedo, tau, cosTheta, phase, octaves);
             const h = clamp01(heightFraction(m, x));
             const sunLight = light.sunAt?.(x) ?? light.sun;
             const stepT = Math.exp(-sigmaT * dt);
             const integ = (1 - stepT) / sigmaT;
-            for (let c = 0; c < 3; c++) {
-                const amb =
-                    sigmaT * m.albedo * (light.ambientUp[c]! * h + light.ambientDown[c]! * (1 - h));
-                L[c]! += T * (sun * sunLight[c]! + amb) * integ;
+            if (light.scatter !== undefined) {
+                const single = Math.exp(-light.scatter.kT * tau) * jdePhase(cosTheta, phase);
+                const higher =
+                    octaveScattering(1, 1, tau, cosTheta, phase, octaves)
+                    - Math.exp(-tau) * jdePhase(cosTheta, phase);
+                const prior = [0, 1, 2].map(
+                    (c) =>
+                        higher * sunLight[c]!
+                        + light.ambientUp[c]! * h
+                        + light.ambientDown[c]! * (1 - h),
+                ) as unknown as Vec3;
+                const J = light.scatter.light(x, prior);
+                for (let c = 0; c < 3; c++)
+                    L[c]! += T * sigmaT * m.albedo * (single * sunLight[c]! + J[c]!) * integ;
+            } else {
+                const sun = octaveScattering(sigmaT, m.albedo, tau, cosTheta, phase, octaves);
+                for (let c = 0; c < 3; c++) {
+                    const amb =
+                        sigmaT
+                        * m.albedo
+                        * (light.ambientUp[c]! * h + light.ambientDown[c]! * (1 - h));
+                    L[c]! += T * (sun * sunLight[c]! + amb) * integ;
+                }
             }
             const alpha = T * (1 - stepT);
             depthSum += alpha * t;

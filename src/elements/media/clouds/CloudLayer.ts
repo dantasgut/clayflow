@@ -76,6 +76,7 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     panoramaSteps: 32,
     shadow: { size: 256, extent: 400_000, near: 3_000 },
     coverageExtent: 64_000,
+    scatter: { size: [160, 32, 160], stride: 8, collisions: 48 },
 };
 
 /** Os quatro parâmetros da fase de Jendersie & d'Eon (2023, Eq. 4–7) pelo diâmetro das gotículas (µm). */
@@ -87,6 +88,38 @@ export function cloudPhaseParams(diameter: number): [number, number, number, num
         Math.exp(3.62489 - 8.29288 / (d + 5.52825)),
         Math.exp(-0.599085 / (d - 0.641583) - 0.665888),
     ];
+}
+
+/**
+ * A truncagem da fase pelo diâmetro (spec 041, T023, R8; δ-M, Wiscombe 1977): o pico de frente a menos de `degrees` é
+ * tratado como transmitido nos caminhos do cache de espalhamento. Devolve [cosseno do corte, fração da fase no núcleo
+ * `fc`, chance da HG entre as partes de fora, acumulada da HG até o corte] — a HG pela acumulada fechada, a de Draine pela
+ * integral numérica (empacotamento de parâmetros, como `cloudPhaseParams`).
+ */
+export function cloudPhaseTruncation(
+    diameter: number,
+    degrees = 2,
+): [number, number, number, number] {
+    const [gHG, gD, alpha, wD] = cloudPhaseParams(diameter);
+    const cosCut = Math.cos((degrees * Math.PI) / 180);
+    const hg = (c: number, g: number): number => {
+        const d = 1 + g * g - 2 * g * c;
+        return (1 - g * g) / (4 * Math.PI * d * Math.sqrt(d));
+    };
+    const cdf = (mu: number, g: number): number =>
+        ((1 - g * g) / (2 * g)) * (1 / Math.sqrt(1 + g * g - 2 * g * mu) - 1 / (1 + g));
+    const coreHG = 1 - cdf(cosCut, gHG);
+    const draine = (c: number): number =>
+        (hg(c, gD) * (1 + alpha * c * c)) / (1 + (alpha * (1 + 2 * gD * gD)) / 3);
+    let coreD = 0;
+    const n = 2000;
+    for (let i = 0; i < n; i++) {
+        const c0 = 1 - (1 - cosCut) * (i / n) ** 2;
+        const c1 = 1 - (1 - cosCut) * ((i + 1) / n) ** 2;
+        coreD += 0.5 * (draine(c0) + draine(c1)) * (c0 - c1) * 2 * Math.PI;
+    }
+    const fc = (1 - wD) * coreHG + wD * coreD;
+    return [cosCut, fc, ((1 - wD) * (1 - coreHG)) / (1 - fc), 1 - coreHG];
 }
 
 /** Resto em [0, period) (f64). */
@@ -269,7 +302,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         const resized =
             q.panorama[0] !== quality.panorama[0]
             || q.panorama[1] !== quality.panorama[1]
-            || q.shadow.size !== quality.shadow.size;
+            || q.shadow.size !== quality.shadow.size
+            || q.scatter.size.some((v, k) => v !== quality.scatter.size[k]);
         if (resized) this.redescribe(this.getDescriptors(), { ...this.rawData, quality });
         else this.data.quality = quality;
     }
@@ -365,6 +399,22 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             target('march', 'rgba16float', 2, { depth: 2, filtered: true }),
             target('marchDepth', 'r32float', 2, { depth: 2 }),
             target('view', 'rgba16float', 1),
+            // O cache de espalhamento (T023, R8): por sonda, a soma da luz dos caminhos (em unidades da iluminância do
+            // sol, rgb) e quantos (a), série temporal da 037 (o quadro lê a fatia anterior e escreve a sua), lida filtrada.
+            {
+                id: 'scatter',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    dimension: '3d',
+                    width: q.scatter.size[0],
+                    height: q.scatter.size[1],
+                    depthOrArrayLayers: q.scatter.size[2],
+                    access: 'write-only',
+                },
+                history: { depth: 2, filtered: true },
+            },
             sampler('noiseSampler', 'repeat'),
             sampler('clampSampler', 'clamp-to-edge'),
         ];

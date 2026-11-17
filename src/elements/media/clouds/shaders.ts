@@ -26,6 +26,10 @@ import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
 import cloudTransmissionSource from '../../gpu/wgsl/clouds/cloud_transmission.wgsl?raw';
 import cloudCoverageFieldSource from '../../gpu/wgsl/clouds/cloud_coverage_field.wgsl?raw';
+import cloudScatterLookupSource from '../../gpu/wgsl/clouds/cloud_scatter_lookup.wgsl?raw';
+import cloudScatterGridSource from '../../gpu/wgsl/clouds/cloud_scatter_grid.wgsl?raw';
+import cloudSunSource from '../../gpu/wgsl/clouds/cloud_sun.wgsl?raw';
+import cloudScatterSource from '../../gpu/wgsl/clouds/cloud_scatter.wgsl?raw';
 import { nodeNoise } from '../../nodes/shaders';
 
 // Módulos das nuvens volumétricas (spec 041): os recursos da `CloudLayer` (resolvers `CloudLayer.*`), os pontos das
@@ -61,6 +65,11 @@ const out = (name: string, format: GPUTextureFormat, dimension: '2d' | '3d' = '2
 export const cloudHistorySlots = Object.freeze({
     cloudMarch: slot.channel(CloudSchema, 'march'),
     cloudMarchDepth: slot.channel(CloudSchema, 'marchDepth'),
+});
+
+/** Slot do canal temporal do cache de espalhamento (spec 037; T023). */
+export const cloudScatterSlots = Object.freeze({
+    cloudScatter: slot.channel(CloudSchema, 'scatter'),
 });
 
 /** Recursos da camada. */
@@ -117,6 +126,25 @@ export const cloudResources = Object.freeze({
         binding: { storageTexture: { format: 'r32float', access: 'write' } },
         frequency: 'stage',
         provider: { slot: 'cloudMarchDepth', lag: 0 },
+    }),
+    /** O cache de espalhamento: a fatia do quadro (lida filtrada na marcha e no panorama), a anterior e a escrita. */
+    scatterNow: wgslResource({
+        name: 'cloud_scatter_tex',
+        binding: { texture: { sample: 'f32', dimension: '3d' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatter', lag: 0 },
+    }),
+    scatterPrevious: wgslResource({
+        name: 'cloud_scatter_prev',
+        binding: { texture: { sample: 'f32', dimension: '3d' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatter', lag: 1 },
+    }),
+    scatterOut: wgslResource({
+        name: 'cloud_scatter_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatter', lag: 0 },
     }),
     /** A profundidade da cena (sem e com amostras), privada do estágio da marcha. */
     sceneDepth: wgslResource({
@@ -339,6 +367,27 @@ export const cloudShadowLookup = wgslModule({
     requires: [cloudCommon, cloudParamsResource, R.shadow, R.clampSampler],
 });
 
+/** A luz do sol que chega a um ponto da camada (a atmosfera até ele). */
+export const cloudSun = wgslModule({
+    name: 'cloud_sun',
+    source: cloudSunSource,
+    requires: [cloudCommon, sky, cloudParamsResource],
+});
+
+/** A grade do cache de espalhamento (T023). */
+export const cloudScatterGrid = wgslModule({
+    name: 'cloud_scatter_grid',
+    source: cloudScatterGridSource,
+    requires: [cloudCommon, cloudParamsResource],
+});
+
+/** A leitura do cache de espalhamento (T023). */
+export const cloudScatterLookup = wgslModule({
+    name: 'cloud_scatter_lookup',
+    source: cloudScatterLookupSource,
+    requires: [cloudScatterGrid, sky, cloudParamsResource, R.scatterNow, R.clampSampler],
+});
+
 /** A luz e a marcha (teto constante de passos). */
 export const cloudLight = wgslModule({
     name: 'cloud_light',
@@ -348,6 +397,8 @@ export const cloudLight = wgslModule({
         cloudDensity,
         cloudPhase,
         cloudShadowLookup,
+        cloudScatterLookup,
+        cloudSun,
         sky,
         cloudParamsResource,
         R.ambient,
@@ -517,6 +568,29 @@ export const cloudUpsampleKernel = {
         ],
     }),
 } as const;
+
+/** O cache de espalhamento: um caminho por sonda na vez do grupo dela (T023). */
+export const cloudScatterKernel = wgslModule({
+    name: 'cloud_scatter',
+    source: cloudScatterSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        constants,
+        random,
+        cloudCommon,
+        cloudDensity,
+        cloudPhase,
+        cloudSun,
+        cloudShadowLookup,
+        cloudScatterGrid,
+        sky,
+        cloudParamsResource,
+        camerasResource,
+        R.ambient,
+        R.scatterPrevious,
+        R.scatterOut,
+    ],
+});
 
 /** Panorama das nuvens vistas da câmera. */
 export const cloudPanoramaKernel = wgslModule({
