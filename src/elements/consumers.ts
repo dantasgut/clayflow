@@ -46,6 +46,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'sampler',
             'aerial',
             'aerialTransmittance',
+            'ambient',
         ] as const
     ).map((id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` })),
     // A camada de nuvens (spec 041): o uniforme, os volumes, os mapas, a marcha e os amostradores.

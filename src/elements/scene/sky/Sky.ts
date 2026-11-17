@@ -52,6 +52,11 @@ export interface SkyData {
     cover: number;
     /** Slot da câmera ativa (a tabela da perspectiva aérea). */
     cameraSlot: number;
+    /**
+     * 1 quando o céu ilumina as superfícies (sem iluminação global na cena: a luz do céu no lugar do hemisfério, spec
+     * 041); fora do uniforme, escrito só quando muda.
+     */
+    ambient?: number;
 }
 
 /** Espalhamento e extinção de Mie ao nível do chão (1/km) com turbidez 1. */
@@ -96,6 +101,7 @@ export class Sky extends Entity<SkyData> implements Resource {
             sunDisk: values.sunDisk === false ? 0 : 1,
             cover: 0,
             cameraSlot: 0,
+            ambient: 0,
         };
     }
 
@@ -123,6 +129,13 @@ export class Sky extends Entity<SkyData> implements Resource {
             table('view', SKY_VIEW_SIZE),
             // A perspectiva aérea (spec 041, R10): a luz espalhada e a transmitância da câmera até cada fatia, para toda a
             // geometria da cena; alocada quando o estágio do céu a pede (com câmera).
+            // A luz do céu nas superfícies (spec 041): o céu e o chão médios, sem iluminação global.
+            {
+                id: 'ambient',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', width: 2, height: 1, access: 'write-only' },
+            },
             ...(['aerial', 'aerialTransmittance'] as const).map(
                 (id): GPUDescriptor => ({
                     id,
@@ -164,10 +177,27 @@ export class Sky extends Entity<SkyData> implements Resource {
         if (this.rawData.cover !== cover) this.data.cover = cover;
     }
 
+    /**
+     * Liga ou desliga a luz do céu nas superfícies (sem iluminação global: os estágios padrão trocam o hemisfério por
+     * ela; com a GI, as sondas são a luz que volta do céu). Escrito só quando muda.
+     */
+    setAmbient(on: boolean): void {
+        const ambient = on ? 1 : 0;
+        if ((this.rawData.ambient ?? 0) !== ambient) this.data.ambient = ambient;
+    }
+
+    /** Se o céu ilumina as superfícies. */
+    get lightsSurfaces(): boolean {
+        return this.rawData.ambient === 1;
+    }
+
     /** A transmitância do sol em `light_transmission` e o céu como fundo em `scene_background`. */
     getSceneContributions(): readonly SceneContribution[] {
         return this.contributions;
     }
 
-    private readonly contributions = skyContributions(() => this.rawData.cover === 1);
+    private readonly contributions = skyContributions(
+        () => this.rawData.cover === 1,
+        () => this.rawData.ambient === 1,
+    );
 }

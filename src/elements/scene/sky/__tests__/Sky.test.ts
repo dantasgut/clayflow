@@ -44,13 +44,21 @@ describe('Sky e SkyFlow (spec 033, T017)', () => {
         expect(byId.get('sampler')?.role).toBe('sampler');
     });
 
-    it('contribui à transmissão da luz, ao fundo e ao ambiente', () => {
-        const names = new Sky({ sun: new DirectionalLight() })
-            .getSceneContributions()
-            .map((c) => c.point.name);
-        expect(names.sort()).toEqual([
+    it('contribui à transmissão da luz, ao fundo e ao ambiente; a luz nas superfícies só sem GI (spec 041)', () => {
+        const sky = new Sky({ sun: new DirectionalLight() });
+        const built = (): string[] =>
+            sky
+                .getSceneContributions()
+                .filter((c) => c.build(() => undefined) !== undefined)
+                .map((c) => c.point.name)
+                .sort();
+        expect(built()).toEqual(['light_transmission', 'scene_background', 'scene_environment']);
+        sky.setAmbient(true);
+        expect(built()).toEqual([
             'light_transmission',
+            'scene_ambient',
             'scene_background',
+            'scene_direct_lighting',
             'scene_environment',
         ]);
     });

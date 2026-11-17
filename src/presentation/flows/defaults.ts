@@ -52,6 +52,7 @@ import { CloudNoiseFlow } from '../../elements/media/clouds/CloudNoiseFlow';
 import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
 import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
 import { SkyCompositeFlow } from './SkyCompositeFlow';
+import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
@@ -343,6 +344,12 @@ function swapAmbientForGi(
     const count = (name: string): number => world.queryBySchemaName(name).length;
     // O hemisfério retirado por esta troca (a cena com o próprio ambiente) — só ele volta; o que a cena retirou fica fora.
     let removed = false;
+    // O céu ilumina as superfícies sem GI (spec 041): a luz dele no lugar do hemisfério (que ficaria invisível na exposição
+    // do dia); com a GI, as sondas são a luz que volta do céu.
+    const skyLights = (gi: boolean): void => {
+        for (const id of world.queryBySchemaName(Sky.schema.name))
+            for (const r of world.resourcesOf(id)) if (r instanceof Sky) r.setAmbient(!gi);
+    };
     return events.on('resourcesChanged', (e) => {
         const touched = [...e.added, ...e.removed].some(
             (r) =>
@@ -350,8 +357,10 @@ function swapAmbientForGi(
         );
         if (!touched) return;
         const gi = count(GlobalIllumination.schema.name) > 0;
-        const environment = count(Sky.schema.name) + count(EnvironmentMap.schema.name) > 0;
+        const sky = count(Sky.schema.name) > 0;
+        const environment = sky || count(EnvironmentMap.schema.name) > 0;
         const inWorld = world.entityIdOfResource(ambient) !== undefined;
+        skyLights(gi);
         if (gi) {
             ambient.lighting = false;
             if (environment && inWorld) {
@@ -364,13 +373,18 @@ function swapAmbientForGi(
             }
             if (count(RayScene.schema.name) === 0) world.insert(new RayScene());
             if (targets.data.depthPrepass !== 1) targets.data.depthPrepass = 1;
-        } else if (e.removed.some((r) => r instanceof GlobalIllumination)) {
+            return;
+        }
+        if (e.removed.some((r) => r instanceof GlobalIllumination)) {
             ambient.lighting = true;
-            if (removed) {
-                removed = false;
-                world.insert(ambient);
-            }
             if (targets.data.depthPrepass !== prepass) targets.data.depthPrepass = prepass;
+        }
+        if (sky && inWorld) {
+            world.remove(ambient);
+            removed = true;
+        } else if (!sky && removed) {
+            removed = false;
+            world.insert(ambient);
         }
     });
 }
@@ -458,6 +472,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'cloudLight',
         phase: 'shadow',
         priority: -1,
+    });
+    // A luz do céu nas superfícies sem GI (spec 041), depois da luz das nuvens (o céu coberto) e antes do desenho.
+    const skyAmbientRegistration = flows.register((ctx) => new SkyAmbientFlow(ctx), {
+        type: 'skyAmbient',
+        phase: 'shadow',
+        priority: -2,
     });
     // Sondas da iluminação global (spec 033) depois do mapa de sombra: a estrutura de raios e o céu já estão prontos.
     const probeRegistration = flows.register((ctx) => new ProbeFlow(ctx), {
@@ -619,6 +639,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             raySceneRegistration,
             shadowRegistration,
             cloudLightRegistration,
+            skyAmbientRegistration,
             probeRegistration,
             causticsRegistration,
             froxelRegistration,

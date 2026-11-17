@@ -196,7 +196,8 @@ async function caseSunset(): Promise<void> {
     app.world.remove(app.defaults.ambient);
     const sun = new DirectionalLight({ direction: sunTravel(60), intensity: SUN_LUX });
     app.world.insert(sun);
-    app.world.insert(new Sky({ sun, sunDisk: false }));
+    const skyOnly = new Sky({ sun, sunDisk: false });
+    app.world.insert(skyOnly);
     app.world.insert(
         new PlaneGeometry({ size: [4, 4] })
             .add(new StandardMaterial({ albedo: [0.8, 0.8, 0.8, 1], roughness: 1 }))
@@ -214,6 +215,8 @@ async function caseSunset(): Promise<void> {
     const levels: number[] = [];
     for (const e of [60, 30, 10, 3]) {
         sun.data.direction = sunTravel(e);
+        // Só o sol ilumina o plano (a medida é a cor dele): a luz do céu nas superfícies (spec 041) desligada.
+        skyOnly.setAmbient(false);
         const img = await renderHdr(app, 300);
         const c = hdrAt(img, SIZE / 2, SIZE / 2);
         ratios.push(c[0] / c[2]);

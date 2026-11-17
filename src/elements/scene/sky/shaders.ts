@@ -11,6 +11,8 @@ import skyViewSource from '../../gpu/wgsl/sky/sky_view.wgsl?raw';
 import skySource from '../../gpu/wgsl/sky/sky.wgsl?raw';
 import skyAerialSource from '../../gpu/wgsl/sky/sky_aerial.wgsl?raw';
 import skyAerialLookupSource from '../../gpu/wgsl/sky/sky_aerial_lookup.wgsl?raw';
+import skyAmbientSource from '../../gpu/wgsl/sky/sky_ambient.wgsl?raw';
+import { sceneEnvironmentReady } from '../points/lighting';
 import { camerasResource } from '../resources';
 import { constants, viewSpace } from '../../gpu/shaders/math';
 
@@ -88,6 +90,7 @@ export const skyOutputs = Object.freeze({
     view: out('sky_view_out'),
     aerial: out3d('sky_aerial_out'),
     aerialTransmittance: out3d('sky_aerial_transmittance_out'),
+    ambient: out('sky_ambient_out'),
 });
 
 /** O meio, as fases, as distâncias e as parametrizações das tabelas. */
@@ -182,5 +185,22 @@ export const skyAerialLookup = wgslModule({
         skyAerialLut,
         skyAerialTransmittanceLut,
         skySampler,
+    ],
+});
+
+/** A luz do céu (resolver `Sky.ambient`): o céu e o chão médios, lidos pelas superfícies sem iluminação global. */
+export const skyAmbientTexture = lut('sky_ambient_tex', 'Sky.ambient');
+
+/** Kernel da luz do céu nas superfícies (spec 041): pelo ambiente da cena, com o que cobre o céu. */
+export const skyAmbientKernel = wgslModule({
+    name: 'sky_ambient',
+    source: skyAmbientSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        constants,
+        sky,
+        skyParamsResource,
+        sceneEnvironmentReady,
+        skyOutputs.ambient,
     ],
 });
