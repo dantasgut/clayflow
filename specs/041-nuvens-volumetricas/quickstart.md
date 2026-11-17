@@ -24,6 +24,9 @@ await app.whenReady();
 Céu encoberto de estratos: `coverage: 1, type: 0, base: 600, top: 1400`. Cobertura desenhada por um grafo:
 `coverage: { graph }` com um grafo cuja saída `vec3f` é (cobertura, tipo, densidade) pela posição `xz` e pelo tempo.
 
+Só o `Sky`, sem `CloudLayer`, já dá a perspectiva aérea: montanhas, terreno e água distantes esmaecem e azulam pela
+atmosfera até eles.
+
 ## Verificar
 
 ```bash
@@ -35,8 +38,8 @@ npm run ci
 ```
 
 O smoke `clouds` mede, contra a referência f64: transmitância e radiância por região (SC-001), brilho de borda contra o
-sol (SC-002), cobertura (SC-003), sombra no chão (SC-004), tempo de GPU por passe (SC-005) e cintilação/rastro com
-câmera e vento (SC-006). Imagens de referência em `src/__smokes__/fixtures/clouds-*`.
+sol (SC-002), cobertura (SC-003), sombra no chão (SC-004), tempo de GPU por passe (SC-005), cintilação/rastro com
+câmera e vento (SC-006) e a perspectiva aérea até superfícies a 2, 10 e 30 km, com e sem nuvens (SC-009). Imagens de referência em `src/__smokes__/fixtures/clouds-*`.
 
 ## Vídeos (claflow-web, porta 5184)
 

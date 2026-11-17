@@ -81,7 +81,8 @@ vento; a cobertura medida na imagem segue o valor pedido e as nuvens se movem na
 
 As nuvens fazem sombra no chão, na água e nos objetos, e a sombra se move com elas. O céu que ilumina a cena (a luz
 ambiente e a iluminação global) fica mais escuro e mais neutro com o céu encoberto. O vidro e a água refletem e
-refratam as nuvens. A névoa perto da câmera e as nuvens distantes se compõem na ordem certa de profundidade.
+refratam as nuvens. A névoa perto da câmera e as nuvens distantes se compõem na ordem certa de profundidade. A
+atmosfera entre a câmera e tudo o que está longe (montanhas, terreno, água, nuvens) esmaece e azula pela distância.
 
 **Why this priority**: uma nuvem que não sombreia nem muda a luz da cena é um fundo pintado, não física.
 
@@ -97,6 +98,9 @@ transmitância das nuvens até o sol; a luz ambiente medida cai com a cobertura;
 3. **Given** água calma e nuvens no céu, **When** a câmera olha a água, **Then** o reflexo mostra as nuvens.
 4. **Given** névoa perto da câmera e nuvens ao longe, **When** a cena é desenhada, **Then** a névoa fica na frente das
    nuvens e as atenua, sem halo nem borda dupla.
+5. **Given** um terreno com montanhas a 2, 10 e 30 km e um céu físico, com ou sem nuvens, **When** a cena é desenhada,
+   **Then** cada montanha recebe a luz espalhada e a transmitância da atmosfera até ela dentro da tolerância da referência
+   da atmosfera (mais azulada e mais clara quanto mais longe), e a montanha e a nuvem à mesma distância esmaecem igual.
 
 ---
 
@@ -189,6 +193,9 @@ por pixel com a câmera girando.
   fabricante ou sistema.
 - **FR-021**: MUST haver cenas de demonstração no app clayflow-web (céu ao meio dia, pôr do sol, voo através das nuvens,
   sombras de nuvens sobre terreno e água) gravadas em vídeo.
+- **FR-022**: A perspectiva aérea MUST valer para toda a geometria da cena sob um céu físico (não só para as nuvens),
+  com ou sem camada de nuvens, pela mesma tabela da atmosfera; as referências de imagem das cenas ao ar livre que
+  mudarem são regravadas e relatadas com a comparação antes/depois.
 
 ### Key Entities
 
@@ -216,6 +223,8 @@ por pixel com a câmera girando.
 - **SC-007**: Nenhuma regressão: todos os smokes passam 3 vezes seguidas pelo código-fonte e com o pacote montado; o
   bench não piora mais de 10 % em GPU em nenhuma cena existente.
 - **SC-008**: Vídeos de demonstração gravados e enviados ao usuário, sem faixas, blocos ou cortes visíveis.
+- **SC-009**: Perspectiva aérea na geometria: luz espalhada e transmitância até superfícies a 2, 10 e 30 km dentro de 5 %
+  da referência da atmosfera; com só o céu (sem nuvens), o custo novo fica até 0,25 ms no M4, perfil alto.
 
 ## Assumptions
 

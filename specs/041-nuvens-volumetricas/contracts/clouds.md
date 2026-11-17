@@ -76,6 +76,13 @@ fn sky_cover(dir: vec3f) -> vec4f   // rgb: luz espalhada; a: transmitância
 `Sky` → `scene_environment(dir) = sky_radiance(dir) · sky_cover(dir).a + sky_cover(dir).rgb` quando há contribuinte;
 sem contribuinte, `sky_radiance(dir)` como hoje.
 
+## Perspectiva aérea (mudança de comportamento do `Sky`)
+
+Com um `Sky` na cena, toda a geometria passa a receber a atmosfera entre a câmera e ela (luz espalhada e transmitância
+pela tabela 32³ de Hillaire 2020), com ou sem `CloudLayer`, aplicada na composição da tela (`SkyCompositeFlow`). Nenhuma
+assinatura muda; a imagem das cenas ao ar livre muda (a geometria a quilômetros esmaece e azula; a de metros, quase
+nada). As referências de imagem afetadas são regravadas e relatadas.
+
 ## Perfis do `Renderer`
 
 `RENDER_PROFILES[profile].clouds`: `{ steps, lightSteps, octaves, panorama: [w, h], shadow: { size, extent },

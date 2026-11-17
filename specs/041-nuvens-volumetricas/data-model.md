@@ -42,6 +42,13 @@ pronta antes). Mudar `shape` ou `shapeScale`/`detailScale` sobe a revisão: os v
 até terminarem, a marcha usa os anteriores (sem buraco). Mudar `coverage`, `type`, `wind` vale no quadro seguinte sem
 recompilar. Mudar o perfil do `Renderer` realoca os alvos (as séries recomeçam pela invalidação do canal).
 
+## Sky (acréscimos, C3)
+
+Descritor novo `aerial`: textura 3D `rgba16float` 32 × 32 × 32 (luz espalhada rgb e transmitância média da câmera até
+cada fatia; fatias quadráticas até 32 km), escrita pelo `SkyFlow` a cada quadro, `allocation: 'onDemand'` (só com o
+`SkyCompositeFlow`). Não é série temporal (recalculada inteira a cada quadro). Lida pelo `SkyCompositeFlow` em toda a
+geometria da cena e pelo `CloudFlow` na profundidade das nuvens.
+
 ## CloudShapeFunction / CloudCoverageFunction (ExtensionFunction, C3)
 
 - `cloud_shape`: `fn shape_fn(p: vec3f, data: ShapeFnParams) -> vec4f` — `p` em [0, 1)³ do volume (periódico); devolve

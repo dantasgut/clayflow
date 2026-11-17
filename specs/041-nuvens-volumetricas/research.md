@@ -160,19 +160,27 @@ integrar na GPU segue a regra "nada na CPU".
 
 **Alternativas**: constante da cena (errada no pôr do sol); amostrar a vista do céu em cada passo (caro).
 
-### R10 — Perspectiva aérea
+### R10 — Perspectiva aérea (nuvens e toda a geometria)
 
 **Decisão**: o `Sky` ganha o **volume de perspectiva aérea** de Hillaire 2020 (32 × 32 × 32 `rgba16float`: luz
-espalhada e transmitância média da câmera até cada fatia, fatias lineares até 32 km), gerado pelo `SkyFlow` a cada
-quadro (~0,1 ms). As nuvens aplicam-no na sua profundidade (R2); além de 32 km, a integral direta pelas tabelas de
-transmitância e múltiplo espalhamento no trecho que falta. A geometria da cena **não** passa a usá-lo nesta spec (mudaria
-as imagens de referência de todas as cenas ao ar livre; fica registrado como pendência).
+espalhada e transmitância média da câmera até cada fatia, até 32 km, fatias em distribuição quadrática — mais finas
+perto, para cenas de metros), gerado pelo `SkyFlow` a cada quadro (~0,08 ms). Vale para **toda a geometria da cena**
+sob o céu físico, com ou sem nuvens (FR-022): o passe de composição do céu (R13) aplica-o em cada pixel pela
+profundidade da superfície; as nuvens aplicam-no na sua profundidade (R2). Além de 32 km, a integral direta pelas
+tabelas de transmitância e múltiplo espalhamento no trecho que falta. As referências de imagem das cenas com `Sky` que
+mudarem são regravadas e relatadas com a montagem antes/depois (mudança correta).
 
-**Racional**: FR-012 e o cenário 4 da US1 pedem a nuvem a 30 km esmaecida e azulada; a tabela da vista do céu não dá a
-luz até um ponto a distância finita.
+**Racional**: em AAA a atmosfera vale para tudo o que está longe; aplicá-la só às nuvens deixaria a montanha nítida na
+frente de uma nuvem esmaecida à mesma distância (US3, cenário 5). FR-012 e o cenário 4 da US1 pedem a nuvem a 30 km
+esmaecida e azulada; a tabela da vista do céu não dá a luz até um ponto a distância finita. Aplicar na composição (um
+passe de tela cheia que já lê a profundidade) e não no fragmento do forward não acrescenta ligação ao forward, o
+estágio mais perto dos limites.
 
-**Alternativas**: marchar a atmosfera em cada pixel de nuvem (16 passos × pixel); ignorar (nuvens distantes brancas
-demais, como nos motores ingênuos).
+**Custo**: tabela 0,08 ms + 0,05 ms a mais na composição (uma leitura 3D por pixel). Cena só com o céu (sem nuvens):
+≈ 0,2 ms novos (SC-009: ≤ 0,25 ms).
+
+**Alternativas**: marchar a atmosfera em cada pixel (16 passos × pixel); aplicar no fragmento do forward (mais uma
+textura e um uniforme no estágio mais carregado); só nas nuvens (incoerente com a geometria à mesma distância).
 
 ### R11 — Mapa de transmitância visto do sol (sombra das nuvens)
 
@@ -206,21 +214,26 @@ o ponto novo com composição. O panorama é o equivalente à captura em tempo r
 **Alternativas**: marchar nuvens em cada raio que escapa (milhares de raios das sondas: caro); contribuir somando a
 diferença (`cover.rgb − sky·(1 − a)`): exato, mas acopla a nuvem à fórmula do céu e quebra com outro fundo.
 
-### R13 — Composição na tela, com a névoa e com a geometria opaca
+### R13 — Composição na tela: perspectiva aérea, névoa, nuvens e geometria
 
-**Decisão**: `CloudCompositeFlow` (C4, fase `forward`, depois do `CloudFlow` e antes da água e dos sprites): triângulo
-de tela cheia sobre a cor da cena com a profundidade; em cada pixel, a nuvem do alvo reconstruído (que já foi marchada
-até a superfície daquele pixel) entra **atrás da névoa dos froxels**:
-`final = cor · Tc + Sfog · (1 − Tc) + Tfog · Sc`, com `(Sfog, Tfog) = scene_fog(p_superfície)` — exato quando a névoa
-está na frente das nuvens (os froxels acabam onde os volumes de névoa acabam; as nuvens começam na base da camada).
-O fundo (o céu, o disco do sol) é a superfície no infinito: a mesma fórmula tapa o sol atrás da nuvem.
+**Decisão**: `SkyCompositeFlow` (C4, fase `forward`, depois da água — a última superfície que escreve profundidade — e
+antes da resolução temporal), que roda sempre que há `Sky`: triângulo de tela cheia sobre a cor da cena com a
+profundidade. Em cada pixel, com `(Sa, Ta)` a perspectiva aérea até a superfície (R10) e `(Sc, Tc)` a nuvem do alvo
+reconstruído (já marchada até a superfície daquele pixel e já com a perspectiva aérea até ela; `(0, 1)` sem
+`CloudLayer`), tudo **atrás da névoa dos froxels**:
+`L' = Sc + Tc · (L · Ta + Sa)` e, como `cor = Sfog + Tfog · L`,
+`final = Sfog + Tfog · (Sc + Tc · Sa) + Tc · Ta · (cor − Sfog)`, com `(Sfog, Tfog) = scene_fog(p_superfície)` — exato
+quando a névoa está na frente das nuvens e da atmosfera distante (os froxels acabam onde os volumes de névoa acabam). O
+fundo (o céu, o disco do sol) é a superfície no infinito: a perspectiva aérea já está na tabela da vista do céu
+(`Ta = 1`, `Sa = 0` ali) e a nuvem tapa o sol.
 
-**Racional**: a cor da cena já traz a névoa (`cor = Sfog + Tfog · L`); a fórmula reordena para "névoa, depois nuvem,
-depois a superfície" sem refazer a névoa. A refração composta antes já escreveu a profundidade da primeira interface:
-a nuvem entre a câmera e a água fica na frente da água; o que se vê através da água vem do raio (R12).
+**Racional**: a cor da cena já traz a névoa; a fórmula reordena para "névoa, nuvem, atmosfera, superfície" sem refazer
+a névoa. A ordem igual à das Volumetric Clouds da Unreal (a nuvem com a atmosfera até ela, sobre a cena com a
+atmosfera). O `CloudFlow` marcha depois da água pela mesma razão (a nuvem para na superfície da água).
 
 **Alternativas**: nuvens como contribuinte de `scene_fog` (cada fragmento leria o alvo de nuvens: mais ligações no
-forward, que é o estágio mais perto dos limites); compor antes da névoa (a névoa perto da câmera ficaria atrás da nuvem).
+forward); compor antes da névoa (a névoa perto da câmera ficaria atrás da nuvem); compor antes da água (a água sem
+perspectiva aérea).
 
 ### R14 — Custo zero sem nuvens
 
@@ -264,22 +277,23 @@ pede: a mesma representação de densidade nos dois lados.
 
 ### R17 — Orçamento por passe (M4, 1280 × 720, alto)
 
-| Passe                                       | Frequência                        | Estimativa   | Teto do smoke       |
-| ------------------------------------------- | --------------------------------- | ------------ | ------------------- |
-| Volumes de ruído                            | só quando a função muda (fatiado) | 0            | —                   |
-| Cobertura 512²                              | ¼ das linhas por quadro           | 0,03 ms      | 0,1 ms              |
-| Irradiâncias do céu e do chão               | por quadro                        | 0,01 ms      | 0,05 ms             |
-| Perspectiva aérea 32³ (no `SkyFlow`)        | por quadro                        | 0,08 ms      | 0,15 ms             |
-| Mapa de transmitância 512² × 48 passos      | ½ por quadro                      | 0,25 ms      | 0,4 ms              |
-| Marcha principal (¼ res, 1 de 4 por bloco)  | por quadro                        | 1,10 ms      | 1,5 ms              |
-| Reconstrução temporal + aumento para a tela | por quadro                        | 0,25 ms      | 0,35 ms             |
-| Panorama 256 × 128                          | ¼ por quadro                      | 0,20 ms      | 0,3 ms              |
-| Composição                                  | por quadro                        | 0,10 ms      | 0,15 ms             |
-| **Total**                                   |                                   | **≈ 2,0 ms** | **3,0 ms** (SC-005) |
+| Passe                                        | Frequência                        | Estimativa   | Teto do smoke       |
+| -------------------------------------------- | --------------------------------- | ------------ | ------------------- |
+| Volumes de ruído                             | só quando a função muda (fatiado) | 0            | —                   |
+| Cobertura 512²                               | ¼ das linhas por quadro           | 0,03 ms      | 0,1 ms              |
+| Irradiâncias do céu e do chão                | por quadro                        | 0,01 ms      | 0,05 ms             |
+| Perspectiva aérea 32³ (no `SkyFlow`)         | por quadro, também sem nuvens     | 0,08 ms      | 0,15 ms             |
+| Mapa de transmitância 512² × 48 passos       | ½ por quadro                      | 0,25 ms      | 0,4 ms              |
+| Marcha principal (¼ res, 1 de 4 por bloco)   | por quadro                        | 1,10 ms      | 1,5 ms              |
+| Reconstrução temporal + aumento para a tela  | por quadro                        | 0,25 ms      | 0,35 ms             |
+| Panorama 256 × 128                           | ¼ por quadro                      | 0,20 ms      | 0,3 ms              |
+| Composição (perspectiva aérea, névoa, nuvem) | por quadro, também sem nuvens     | 0,15 ms      | 0,2 ms              |
+| **Total**                                    |                                   | **≈ 2,1 ms** | **3,0 ms** (SC-005) |
 
 Estimativa da marcha: 640 × 360 / 4 = 57,6 mil raios; ~70 amostras médias com saída antecipada, 2 leituras 3D + 1 2D
 por amostra densa e 6 de luz em ~25 % delas → ~25 milhões de leituras por quadro, na ordem de 0,5–1 ms no M4 pela taxa
-de textura. Médio: ≤ 2 ms; baixo: ≤ 1,2 ms. A medida por passe entra no bench (cena `clouds/*`) e no smoke.
+de textura. Médio: ≤ 2 ms; baixo: ≤ 1,2 ms. Só o céu, sem nuvens (a perspectiva aérea na geometria): tabela +
+composição ≈ 0,2 ms (SC-009). A medida por passe entra no bench (cena `clouds/*`) e no smoke.
 
 ## Fontes
 
