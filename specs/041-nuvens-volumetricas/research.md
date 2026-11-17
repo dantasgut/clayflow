@@ -408,3 +408,15 @@ Nas 18 vistas (sol a 60°, 30° e 10°, seis vistas cada) contra o rastreamento 
 `e^(−τ)p(θ) + M(1 − e^(−τ))(1 + kτ)^(−p) p_HG(θ)` na melhor grade, 41,2 %. Nenhuma função local do τ até o sol
 representa a luz que entra pelas laterais de uma nuvem espessa: falta o transporte não local (uma grade de propagação
 da luz na camada, iterada na GPU pela série 037). Em aberto.
+
+### Retomada — o pôr do sol do claflow-web (2026-11-17)
+
+- **A cor**: o caso `colors` do smoke `sky` mede o céu perto do sol e no zênite e a luz do sol no chão e a 3 km com o
+  sol a 60°, 20° e 4° contra a referência f64: razão vermelho/azul do céu perto do sol 0,421 → 0,600 → 2,069 (ref 0,423 →
+  0,603 → 2,089), do sol no chão 1,27 → 1,81 → 12,0 (ref 1,27 → 1,81 → 12,0), a 3 km 1,17 → 1,49 → 5,38 (ref idem a
+  ≤ 0,4 %). A física estava certa; a cena `pordosol` olhava de costas para o sol (azimute (0,8; 0,6), câmera para
+  (−1000, 200, −600)): passou a olhar para ele.
+- **O chão que pisca**: o caso `sun-sweep` do smoke `clouds` desce o sol de 12° a 1° no azimute da cena e compara a
+  transmitância até o sol no chão da câmera, pelo mapa, com a integral da referência: o sol fica atrás das nuvens até
+  6,1° (ref 6,0°), passa por uma abertura e some de novo a 4,3° (ref 4,3°); diferença média 0,016. Os degraus do vídeo
+  (quadros ~257 e ~331) são o sol entrando e saindo da abertura — na cena o sol desce 11° em 8 s, e 0,1° são 4 quadros.

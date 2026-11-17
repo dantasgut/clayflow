@@ -6,7 +6,10 @@
 //   - sunset: um plano branco iluminado só pelo sol (sem o hemisfério) com o sol descendo de 60° a 3°: a razão
 //     vermelho/azul da luz cresce sem voltar e a intensidade cai (a atmosfera filtra o sol pela altura);
 //   - update: mudar a direção do sol muda o céu no mesmo quadro, sem criar pipeline nem shader;
-//   - no-sky: sem `Sky` o fundo é o da limpeza e o hemisfério da 011 continua iluminando.
+//   - no-sky: sem `Sky` o fundo é o da limpeza e o hemisfério da 011 continua iluminando;
+//   - colors: o azul de dia e o laranja à tarde — com o sol a 60°, 20° e 4°, a cor do céu perto do sol e no zênite e a
+//     da luz do sol que chega ao chão e a 3 km (a altura das nuvens) contra a referência f64: a razão vermelho/azul a
+//     ≤ 5 % da referência e crescendo com o sol baixando.
 // Para rodar: `npm run smoke -- sky [--query case=reference]`. Resultado: `SKY SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -25,6 +28,7 @@ import {
     earthAtmosphere,
     multipleScattering,
     skyRadiance,
+    sunTransmittance,
     type Vec3,
 } from '../elements/scene/reference/atmosphere';
 import { BoxGeometry, FogVolume, nodes } from 'clayflow/web';
@@ -505,6 +509,107 @@ async function caseAerialGeometry(): Promise<void> {
     }
 }
 
+async function caseColors(): Promise<void> {
+    const atm = earthAtmosphere();
+    const msCache = new Map<string, Vec3>();
+    const ms = (r: number, muS: number): Vec3 => {
+        const key = `${Math.round(r * 2)}:${Math.round(muS * 200)}`;
+        let v = msCache.get(key);
+        if (v === undefined)
+            msCache.set(
+                key,
+                (v = multipleScattering(
+                    atm,
+                    Math.round(r * 2) / 2,
+                    Math.round(muS * 200) / 200,
+                    64,
+                    32,
+                )),
+            );
+        return v;
+    };
+    const rb = (c: readonly number[]): number => c[0]! / c[2]!;
+    const rows: string[] = [];
+    const series: Record<string, number[]> = {
+        'céu perto do sol': [],
+        zênite: [],
+        chão: [],
+        '3 km': [],
+    };
+    for (const e of [60, 20, 4]) {
+        const sun = sunToward(e);
+        // O céu: perto do sol (5° acima dele, no mesmo azimute) e no zênite.
+        for (const [label, target] of [
+            ['céu perto do sol', sunToward(e + 5)],
+            ['zênite', [0.01, 1, 0] as Vec3],
+        ] as const) {
+            const { app, canvas } = await skyApp();
+            const light = new DirectionalLight({ direction: sunTravel(e), intensity: SUN_LUX });
+            app.world.insert(light);
+            app.world.insert(new Sky({ sun: light, sunDisk: false, night: [0, 0, 0] }));
+            perspectiveCamera(app, target, Math.PI / 6);
+            const img = await renderHdr(app, 300);
+            const got = hdrAt(img, SIZE / 2, SIZE / 2);
+            const dir = pixelDir(SIZE / 2, SIZE / 2, target, Math.PI / 6);
+            const ref = skyRadiance(atm, 0.2, dir, sun, 200, ms);
+            const k = rb(got) / rb(ref);
+            series[label]!.push(rb(got));
+            rows.push(`${e}° ${label} R/B ${rb(got).toFixed(3)} (ref ${rb(ref).toFixed(3)})`);
+            check(
+                Math.abs(k - 1) <= 0.05,
+                `colors: ${label} a ${e}°: R/B a ${((k - 1) * 100).toFixed(1)} % da referência`,
+            );
+            dispose(app, canvas);
+        }
+        // A luz do sol num plano cinza só pelo sol (sem a luz do céu), no chão e a 3 km.
+        for (const [label, y] of [
+            ['chão', 0],
+            ['3 km', 3000],
+        ] as const) {
+            const { app, canvas } = await skyApp();
+            app.world.remove(app.defaults.ambient);
+            const light = new DirectionalLight({ direction: sunTravel(e), intensity: SUN_LUX });
+            app.world.insert(light);
+            const sky = new Sky({ sun: light, sunDisk: false });
+            app.world.insert(sky);
+            sky.setAmbient(false);
+            app.world.insert(
+                new PlaneGeometry({ size: [4, 4] })
+                    .add(new StandardMaterial({ albedo: [0.8, 0.8, 0.8, 1], roughness: 1 }))
+                    .add(new Transform({ position: [0, y, 0, 1] })),
+            );
+            app.world.insert(
+                new Camera({ projection: 'orthographic', orthoHeight: 2, near: 0.1, far: 20 }).add(
+                    new Transform({
+                        position: [0, y + 5, 0, 1],
+                        rotation: Transform.lookRotation([0, y + 5, 0], [0, y, 0], [0, 0, -1]),
+                    }),
+                ),
+            );
+            const img = await renderHdr(app, 300);
+            const got = hdrAt(img, SIZE / 2, SIZE / 2);
+            const ref = sunTransmittance(atm, 0.2 + y / 1000, sun);
+            const k = rb(got) / rb(ref);
+            series[label]!.push(rb(got));
+            rows.push(
+                `${e}° sol no ${label} R/B ${rb(got).toFixed(3)} (ref ${rb(ref).toFixed(3)})`,
+            );
+            check(
+                Math.abs(k - 1) <= 0.05,
+                `colors: sol no ${label} a ${e}°: R/B a ${((k - 1) * 100).toFixed(1)} % da referência`,
+            );
+            dispose(app, canvas);
+        }
+    }
+    log(`colors: ${rows.join('; ')}`);
+    for (const [label, v] of Object.entries(series))
+        if (label !== 'zênite')
+            check(
+                v[0]! < v[1]! && v[1]! < v[2]!,
+                `colors: ${label}: R/B não cresce com o sol baixando (${v.join(', ')})`,
+            );
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     reference: caseReference,
     sunset: caseSunset,
@@ -512,6 +617,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'no-sky': caseNoSky,
     'aerial-table': caseAerialTable,
     'aerial-geometry': caseAerialGeometry,
+    colors: caseColors,
 };
 
 async function main(): Promise<void> {

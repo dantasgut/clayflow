@@ -3,7 +3,7 @@
 // gradiente temporal filtrado reprova o bloco (a média dos históricos reprojetados nos pixels marchados dos 3 × 3 blocos
 // em volta diverge da média dos valores exatos deles além da tolerância: Schied et al. 2018; a lição dos blocos 2 × 2
 // da 034), quando o histórico sai da tela ou quando a série não vale (corte, recriação, primeiro quadro): aí, o valor do
-// bloco. Sem recorte pela caixa da vizinhança.
+// bloco. O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura.
 
 import { luminance as rec709 } from '../../../math/reference/color';
 
@@ -11,6 +11,8 @@ export type Rgba = readonly [number, number, number, number];
 
 /** Tolerância do gradiente temporal. */
 export const CLOUD_GRADIENT_TOLERANCE = 0.2;
+/** Folga da caixa do recorte do histórico (fração da largura dela). */
+export const CLOUD_BOX_PAD = 0.5;
 /** Peso do valor novo no pixel marchado (média exponencial sobre o histórico recortado). */
 export const CLOUD_HISTORY_BLEND = 0.25;
 
@@ -55,8 +57,15 @@ export function reconstructTexel(i: ReconstructInput): Rgba {
         mean(seen.map((n) => n.fresh)),
     );
     if (divergence > CLOUD_GRADIENT_TOLERANCE) return i.fresh;
-    if (!i.marched) return i.history;
+    const box = [i.fresh, ...i.neighbors.map((n) => n.fresh)];
+    const clamped = [0, 1, 2, 3].map((c) => {
+        const lo = Math.min(...box.map((n) => n[c]!));
+        const hi = Math.max(...box.map((n) => n[c]!));
+        const pad = CLOUD_BOX_PAD * (hi - lo);
+        return Math.min(hi + pad, Math.max(lo - pad, i.history![c]!));
+    });
+    if (!i.marched) return clamped as unknown as Rgba;
     return [0, 1, 2, 3].map(
-        (c) => i.history![c]! + (i.fresh[c]! - i.history![c]!) * CLOUD_HISTORY_BLEND,
+        (c) => clamped[c]! + (i.fresh[c]! - clamped[c]!) * CLOUD_HISTORY_BLEND,
     ) as unknown as Rgba;
 }

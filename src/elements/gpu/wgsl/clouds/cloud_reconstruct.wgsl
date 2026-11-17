@@ -12,6 +12,8 @@
 // Requer: WORKGROUP_SIZE, color, cloud_march_bayer, camera_space, clouds, cameras, cloud_trace, cloud_trace_depth, cloud_march_prev,
 // cloud_march_depth_prev, cloud_clamp_sampler, cloud_march_out, cloud_march_depth_out.
 
+/** Folga da caixa do recorte do histórico (fração da largura dela). */
+const CLOUD_BOX_PAD: f32 = 0.5;
 /** Tolerância do gradiente temporal: diferença relativa da luz mais a da transmitância. */
 const CLOUD_GRADIENT_TOLERANCE: f32 = 0.2;
 /**
@@ -80,7 +82,21 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         }
         let agrees = n > 0.0 && cloud_divergence(check_sum / max(n, 1.0), fresh_sum / max(n, 1.0)) <= CLOUD_GRADIENT_TOLERANCE;
         if (hist.a >= 0.0 && check.a >= 0.0 && agrees) {
-            out = hist;
+            // O histórico recortado pela caixa dos valores exatos dos 3 × 3 blocos: com a câmera andando dentro da nuvem
+            // (`voo` do claflow-web), a reprojeção pela profundidade da nuvem erra e, sem o recorte, o histórico velho
+            // ficava em manchas de blocos.
+            var lo = fresh;
+            var hi = fresh;
+            for (var k = 0; k < 9; k++) {
+                let nb = vec2u(clamp(vec2i(b) + vec2i(k % 3 - 1, k / 3 - 1), vec2i(0), vec2i(blocks) - 1));
+                let v = textureLoad(cloud_trace, nb, 0);
+                lo = min(lo, v);
+                hi = max(hi, v);
+            }
+            // A caixa com folga de metade da largura: uma amostra por bloco não cobre o detalhe fino (a faixa de 2–4 px
+            // rente ao horizonte), que o recorte justo erodia (`sunset`, 5,8 %).
+            let pad = CLOUD_BOX_PAD * (hi - lo);
+            out = clamp(hist, lo - pad, hi + pad);
             if (all(q == marched)) {
                 out = mix(out, fresh, CLOUD_HISTORY_BLEND);
             } else {

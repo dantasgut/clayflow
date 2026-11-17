@@ -12,6 +12,7 @@ import { CLOUD_OCTAVES, type Application, type CloudLayer } from 'clayflow/web';
 import { settleFrames } from './support/extensionScenes';
 import {
     cloudScene,
+    sunTravel,
     disposeCloudScene,
     readCloudVolume,
     readTexture,
@@ -1041,6 +1042,120 @@ async function caseShadowMap(): Promise<void> {
     void shellSegments;
 }
 
+/** A transmitância do mapa visto do sol no ponto do chão `q`, lida como a GPU a lê (o último nó, bilinear). */
+function groundMapT(
+    map: { width: number; height: number; depth: number; data: Float32Array },
+    p: CloudLayer['data']['params'][number],
+    q: Vec3,
+): number {
+    const c0 = p.sunFrame!;
+    const right = p.sunRight!;
+    const up = p.sunUp!;
+    const wp = p.sunWarp!;
+    const rel = [q[0] - c0[0]!, q[1] - c0[1]!, q[2] - c0[2]!];
+    const u =
+        (Math.asinh((rel[0]! * right[0]! + rel[1]! * right[1]! + rel[2]! * right[2]!) / wp[0]!)
+            / wp[1]!)
+            * 0.5
+        + 0.5;
+    const v =
+        (Math.asinh((rel[0]! * up[0]! + rel[1]! * up[1]! + rel[2]! * up[2]!) / wp[2]!) / wp[3]!)
+            * 0.5
+        + 0.5;
+    const fx = u * map.width - 0.5;
+    const fy = v * map.height - 0.5;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const at = (i: number, j: number): number =>
+        map.data[
+            ((map.depth - 1) * map.height * map.width
+                + Math.min(map.height - 1, Math.max(0, j)) * map.width
+                + Math.min(map.width - 1, Math.max(0, i)))
+                * 4
+                + 3
+        ]!;
+    const ax = fx - x0;
+    const ay = fy - y0;
+    const tau =
+        (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay)
+        + (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay;
+    return Math.exp(-tau);
+}
+
+async function caseSunSweep(): Promise<void> {
+    // O pôr do sol do `pordosol` (claflow-web): o sol descendo de 12° a 1° no azimute (0,8; 0,6) e a luz direta no chão
+    // da câmera — a transmitância das nuvens até o sol pelo mapa, quadro a quadro, contra a integral da referência. Os
+    // degraus da luz no chão são as nuvens passando na frente do sol (o sol desce 11° em 8 s): a curva da GPU segue a da
+    // referência, sem salto próprio.
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 12,
+        sunAzimuth: az,
+        clouds: { coverage: 0.45, type: 0.55, wind: [0, 0] },
+    });
+    await settleFrames(s.app, 20);
+    const layer = s.layer!;
+    const model = await referenceModel(s, layer);
+    const gpu: number[] = [];
+    const ref: number[] = [];
+    let worst = 0;
+    for (let k = 0; k <= 110; k++) {
+        const el = 12 - k * 0.1;
+        s.sun.data.direction = sunTravel(el, az);
+        await settleFrames(s.app, 2);
+        const t = s.app.resources.textureOf(layer, 'shadow');
+        if (t === undefined) throw new Error('mapa visto do sol não alocado');
+        const map = await readTexture(s.app, t, 'rgba16float');
+        const g = groundMapT(map, layer.data.params[0]!, [0, 0, 0]);
+        const r = Math.exp(-opticalDepth(model, [0, 0, 0], sunToward(el, az), 512));
+        gpu.push(g);
+        ref.push(r);
+        worst = Math.max(worst, Math.abs(g - r));
+    }
+    const jump = (v: number[]): number =>
+        Math.max(...v.slice(1).map((x, i) => Math.abs(x - v[i]!)));
+    log(
+        `sun-sweep: T do chão de 12° a 1° (a cada 1°) GPU ${gpu
+            .filter((_, i) => i % 10 === 0)
+            .map((x) => x.toFixed(2))
+            .join(' ')} | ref ${ref
+            .filter((_, i) => i % 10 === 0)
+            .map((x) => x.toFixed(2))
+            .join(
+                ' ',
+            )}; pior diferença ${worst.toFixed(3)}; maior degrau por 0,1° GPU ${jump(gpu).toFixed(3)}, ref ${jump(ref).toFixed(3)}`,
+    );
+    const lit = (v: number[]): string =>
+        v
+            .map((x, i) => [x, i] as const)
+            .filter(([x], i) => x > 0.02 || (ref[i] ?? 0) > 0.02)
+            .map(([x, i]) => `${(12 - i * 0.1).toFixed(1)}°:${x.toFixed(2)}`)
+            .join(' ');
+    log(`sun-sweep: onde o sol passa — GPU ${lit(gpu)}`);
+    log(`sun-sweep: onde o sol passa — ref ${lit(ref)}`);
+    // Na passagem rápida (o sol desce 0,1° em 4 quadros do vídeo), um fiapo fino na frente do sol muda T de um passo para
+    // o outro: a medida é a média da diferença na varredura e o começo e o fim da luz (±0,1°).
+    const mean = gpu.reduce((a, g, i) => a + Math.abs(g - ref[i]!), 0) / gpu.length;
+    const edges = (v: number[]): number[] =>
+        v.flatMap((x, i) => (i > 0 && x > 0.5 !== v[i - 1]! > 0.5 ? [i] : []));
+    const ge = edges(gpu);
+    const re = edges(ref);
+    log(
+        `sun-sweep: diferença média ${mean.toFixed(3)}; a luz começa e termina em ${ge.map((i) => (12 - i * 0.1).toFixed(1)).join('/')}° (ref ${re.map((i) => (12 - i * 0.1).toFixed(1)).join('/')}°)`,
+    );
+    check(
+        mean <= 0.05,
+        `sun-sweep: a luz direta no chão a ${mean.toFixed(3)} da referência na média`,
+    );
+    check(
+        ge.length === re.length && ge.every((i, k) => Math.abs(i - re[k]!) <= 1),
+        `sun-sweep: a luz começa ou termina fora da referência (${ge.join(',')} × ${re.join(',')})`,
+    );
+    finish(s);
+}
+
 async function casePanorama(): Promise<void> {
     // O panorama (o céu coberto dos raios que escapam) contra a marcha de referência na direção do texel: a
     // transmitância por direção acima do horizonte.
@@ -1422,6 +1537,7 @@ const CASES: Record<string, () => Promise<void>> = {
     types: caseTypes,
     'far-cloud': caseFarCloud,
     backlit: caseBacklit,
+    'sun-sweep': caseSunSweep,
     'fly-through': caseFlyThrough,
     'shadow-map': caseShadowMap,
     panorama: casePanorama,

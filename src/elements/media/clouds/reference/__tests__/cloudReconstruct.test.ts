@@ -20,7 +20,10 @@ describe('reconstrução temporal', () => {
             fresh: cloud,
             history: hist,
             check: hist,
-            neighbors: [{ fresh: cloud, check: hist }],
+            neighbors: [
+                { fresh: cloud, check: hist },
+                { fresh: [12, 12, 12, 0.44], check: hist },
+            ],
         });
         expect(out[0]).toBeCloseTo(11 + (10 - 11) * CLOUD_HISTORY_BLEND, 12);
         expect(out[3]).toBeCloseTo(0.42 + (0.4 - 0.42) * CLOUD_HISTORY_BLEND, 12);
@@ -69,7 +72,7 @@ describe('reconstrução temporal', () => {
         expect(cloudDivergence(sky, cloud)).toBeGreaterThan(0.2);
     });
 
-    it('o ruído de uma amostra não reprova o bloco: a média da vizinhança decide, e o histórico fica sem recorte', () => {
+    it('o ruído de uma amostra não reprova o bloco: a média da vizinhança decide; o histórico é recortado com folga', () => {
         // Arrange: a amostra do bloco diverge do histórico (o ruído do deslocamento inicial), a média dos 3 × 3 não.
         const hist: Rgba = [30, 30, 30, 0.1];
         const noisy: Rgba = [6, 6, 6, 0.5];
@@ -86,6 +89,8 @@ describe('reconstrução temporal', () => {
             ],
         });
         expect(cloudDivergence(cloud, noisy)).toBeGreaterThan(0.2);
-        expect(out).toEqual(hist);
+        // A caixa [6, 14] × [0,3; 0,5] com folga de metade: [2, 18] × [0,2; 0,6].
+        expect(out[0]).toBeCloseTo(18, 12);
+        expect(out[3]).toBeCloseTo(0.2, 12);
     });
 });
