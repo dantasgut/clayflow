@@ -69,7 +69,7 @@ import type {
 type ResourceSpec = Parameters<Application['core']['create']>[0];
 import { capture, nextGpuFrame, readBuffer, settle } from './support/extensionScenes';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
-import { caseSamples, nodeCases, type NodeCase } from './support/nodeLibraryCases';
+import { caseSamples, nodeCases, type NodeCase, type NodeValues } from './support/nodeLibraryCases';
 import { ownWork } from './support/workOwner';
 
 /** O trabalho dos casos de nó (T060g): o kernel de cada caso é um pipeline do Flow dono dele. */
@@ -1166,6 +1166,8 @@ interface CaseResult {
     /** Pior erro (`|gpu − ref| / max(1, |ref|)`) e a tolerância. */
     readonly worst: number;
     readonly tolerance: number;
+    /** Os valores da GPU por amostra (as saídas em sequência). */
+    readonly gpu: readonly (readonly number[])[];
 }
 
 /** Avalia o nó do caso na GPU (um kernel de compute que chama a função do nó) e mede contra a referência. */
@@ -1295,6 +1297,7 @@ ${writes.map((w, k) => `    node_case_out[o + ${k}u] = ${w};`).join('\n')}
     pipelines.release(kernel);
     for (const id of fields) app.world.remove(id);
     let worst = 0;
+    const gpuValues: number[][] = [];
     samples.forEach((x, i) => {
         const ref = c.reference(x);
         let slot = i * writes.length;
@@ -1309,6 +1312,7 @@ ${writes.map((w, k) => `    node_case_out[o + ${k}u] = ${w};`).join('\n')}
             slot += lanes.slots;
             (gpu[p.port] ??= []).push(...values);
         }
+        gpuValues.push(Object.values(gpu).flat());
         for (const [port, want] of Object.entries(ref)) {
             const w: readonly number[] = typeof want === 'number' ? [want] : want;
             const got = gpu[port] ?? [];
@@ -1318,7 +1322,42 @@ ${writes.map((w, k) => `    node_case_out[o + ${k}u] = ${w};`).join('\n')}
             });
         }
     });
-    return { node: c.node, worst, tolerance: c.tolerance };
+    return { node: c.node, worst, tolerance: c.tolerance, gpu: gpuValues };
+}
+
+/**
+ * Caso `noise-period` (spec 041, R3): cada nó de ruído com `period` > 0 avaliado na GPU em pares de pontos — `p` e
+ * `p + period/scale` num eixo — que devem sair iguais bit a bit (a célula periódica é inteira), além de iguais à
+ * referência u32 dentro da tolerância do nó. Pontos diádicos e escalas potências de 2: a soma é exata em f32.
+ */
+function periodCase(c: NodeCase): NodeCase {
+    // As amostras saem em sequência (k = 0, 1, …): a ímpar reaproveita a base da par anterior.
+    let last: NodeValues | undefined;
+    return {
+        ...c,
+        sample: (random, k) => {
+            if (k % 2 === 0 || last === undefined) last = c.sample(random, k);
+            const base = last;
+            // Os dois membros do par com a mesma escala e o mesmo período (o índice do par, `k >> 1`).
+            const pair = k >> 1;
+            const scale = 2 ** (pair % 3);
+            const period = 1 + (pair % 6);
+            const dyadic = (v: number): number => Math.round(v * 64) / 64;
+            const p = (base.p as readonly number[]).map(dyadic);
+            const offset = (base.offset as readonly number[]).map(dyadic);
+            const shift = k % 2 === 1 ? period / scale : 0;
+            const axis = pair % p.length;
+            return {
+                ...base,
+                p: p.map((v, a) => (a === axis ? v + shift : v)),
+                offset,
+                scale,
+                period,
+                width: 0,
+                ...('lacunarity' in base ? { lacunarity: 2 } : {}),
+            };
+        },
+    };
 }
 
 /**
@@ -1429,6 +1468,33 @@ async function partF(failures: string[]): Promise<void> {
             `(f) ${cat}: ${rs.length} nós — pior ${worst.node} ${worst.worst.toExponential(2)} (tolerância ${worst.tolerance.toExponential(0)})`,
         );
     }
+    // Ruído periódico (spec 041): pares (p, p + period/scale) iguais bit a bit na GPU.
+    const noiseNodes = nodeCases.filter(
+        (c) => c.node.startsWith('noise.') && c.derivatives !== true,
+    );
+    let pairs = 0;
+    for (const [k, c] of noiseNodes.entries()) {
+        try {
+            const r = await runNodeCase(app, periodCase(c), 5000 + k);
+            results.push(r);
+            for (let i = 0; i + 1 < r.gpu.length; i += 2) {
+                pairs++;
+                const a = r.gpu[i]!;
+                const b = r.gpu[i + 1]!;
+                if (a.some((v, j) => !Object.is(v, b[j])))
+                    failures.push(
+                        `(f) noise-period ${c.node}: par ${i / 2} difere (${a.join(',')} ≠ ${b.join(',')})`,
+                    );
+            }
+        } catch (err) {
+            failures.push(
+                `(f) noise-period ${c.node}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
+    }
+    log(
+        `(f) noise-period: ${noiseNodes.length} nós, ${pairs} pares (p, p + período) comparados bit a bit`,
+    );
     const bad = results.filter((r) => !(r.worst <= r.tolerance));
     log(
         `(f) ${results.length} de ${nodeCases.length} nós avaliados na GPU, ${nodeCases.length > 0 ? caseSamples(nodeCases[0]!, 0).length : 0} amostras cada; ${bad.length} fora da tolerância; ${derivative} de derivadas de tela conferido(s) no smoke materials`,

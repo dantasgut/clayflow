@@ -5,7 +5,11 @@ import { nodeNoise } from '../shaders';
 // biblioteca). Mesma semente, mesma saída na GPU e na referência da CPU (`reference/noise.ts`, aritmética inteira u32).
 // Valem em todos os estágios. Valor, gradiente e fBm filtram na origem pela entrada `width` (a largura do pixel ou do
 // cone do raio no espaço de `p`, ex.: `s.footprint` com `p` = posição de mundo; padrão 0 = sem filtragem, spec 034): a
-// oitava mais fina que o pixel se esvai para a média. O celular não filtra (a média dele depende do `jitter`).
+// oitava mais fina que o pixel se esvai para a média. O celular não filtra (a média dele depende do `jitter`). Todos
+// aceitam `period` (spec 041): o ruído ladrilhável, periódico a cada `period / scale` em `p`.
+
+/** Parâmetro do período (spec 041, R3): 0 = sem período; > 0 = ladrilhável a cada `period / scale` em `p`. */
+const period = { period: { type: 'u32', default: 0 } } as const;
 
 /** Parâmetros comuns: escala, deslocamento (`vec2f` ou `vec3f`) e semente. */
 function noiseParams(offset: 'vec2f' | 'vec3f') {
@@ -22,7 +26,7 @@ function lattice(name: string, p: 'vec2f' | 'vec3f'): NodeDefinition {
         name: `noise.${name}`,
         inputs: { p, width: 'f32' },
         outputs: { value: 'f32' },
-        params: { width: { type: 'f32', default: 0 }, ...noiseParams(p) },
+        params: { width: { type: 'f32', default: 0 }, ...noiseParams(p), ...period },
         code: nodeNoise,
         fn: `node_noise_${name}`,
     });
@@ -36,7 +40,7 @@ const cellular3 = defineNode({
     name: 'noise.cellular3',
     inputs: { p: 'vec3f' },
     outputs: { f1: 'f32', f2: 'f32', cell: 'f32' },
-    params: { ...noiseParams('vec3f'), jitter: { type: 'f32', default: 1 } },
+    params: { ...noiseParams('vec3f'), jitter: { type: 'f32', default: 1 }, ...period },
     code: nodeNoise,
     fn: 'node_noise_cellular3',
 });
@@ -55,6 +59,7 @@ const fbm3 = defineNode({
         octaves: { type: 'u32', default: 5 },
         lacunarity: { type: 'f32', default: 2 },
         gain: { type: 'f32', default: 0.5 },
+        ...period,
     },
     code: nodeNoise,
     fn: 'node_noise_fbm3',
