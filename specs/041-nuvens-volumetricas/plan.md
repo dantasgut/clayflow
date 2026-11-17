@@ -20,7 +20,7 @@ virtual) e a 037 (canal temporal)
    panorama (R11, R12).
 5. **Composição (C4)**: `SkyCompositeFlow` sobre a cor e a profundidade da cena, atrás da névoa: a perspectiva aérea em
    toda cena com `Sky` e as nuvens quando há `CloudLayer` (R13).
-6. **Perfis e limites**: `RENDER_PROFILES.clouds`; nenhuma ligação de storage a mais nos estágios da luz (R15).
+6. **Perfis e limites**: `RENDER_PROFILES.clouds`; a contagem de ligações por estágio registrada antes e depois e verificada contra os limites do adaptador (R15).
 7. **Verificação**: referência f64 (`cloudModel.ts` e o traçador com rastreamento delta), calibração das oitavas, smoke
    `clouds`, bench `clouds/*`, vídeos no claflow-web (R16, R17).
 
@@ -35,7 +35,7 @@ virtual) e a 037 (canal temporal)
 **Testing**: Vitest 4 — referência u32 dos ruídos com `period` (bit a bit e periodicidade exata), perfil de altura,
 fase de J&dE (normalização, valores do artigo), aproximação por oitavas contra o traçador (erro registrado), mapa de
 transmitância (`T(p)` contra a integral), reprojeção pelo vento, empacotamento do `CloudLayer`, contagem de ligações
-por estágio (≤ 10 storage), contribuições compostas (`sky_cover`, `light_transmission`); smokes de navegador (fonte e
+por estágio (registrada e verificada contra os limites do adaptador), contribuições compostas (`sky_cover`, `light_transmission`); smokes de navegador (fonte e
 `--dist`): `clouds` (novo) e todos os existentes; `bench:check` com as cenas `clouds/*`; `npm run ci`
 
 **Target Platform**: Chrome/Edge com WebGPU; piso Apple M4 (`apple-metal-3`); nada específico de fabricante
@@ -47,7 +47,7 @@ baixo; cena sem camada: zero; com a camada e sem céu visível: ≤ 0,3 ms; só 
 
 **Constraints**: Resource + evento + Flow, sem helpers, sem `core.create` em Flow; nada na CPU (os volumes e mapas são
 escritos por kernel); estado entre quadros só pelo canal 037; laços de GPU com teto constante; produção não importa
-`reference/`; ≤ 10 buffers de storage por estágio (nenhum a mais no forward, na refração e na GI); cada símbolo WGSL
+`reference/`; os limites de ligação são os do adaptador (`PlatformAdapter.limitsCap`), verificados pela composição real; cada símbolo WGSL
 uma vez; AAA sem falsear (nenhuma imagem de nuvem)
 
 **Scale/Scope**: C3 (nós de ruído, céu, mídia/nuvens, pontos, perfis); C4 (composição, estágios padrão); referência;
@@ -155,7 +155,7 @@ O `CloudFlow` é um Flow com duas partes de trabalho (`FlowWork`), uma em cada f
 
 | #   | Risco                                                                                                                                                                                                        | Mitigação                                                                                                                                                                                                                                                                                   |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Limite de 10 buffers de storage por estágio** (M4): o contribuinte de `light_transmission` entra em todo pipeline que lê a luz, inclusive o `refraction_path`, já perto do teto                            | Tudo das nuvens que outros estágios leem é textura amostrada + um uniforme (R15). A contagem por estágio é medida na Fase 1 e depois de cada contribuição; se o limite de texturas amostradas (16) apertar, os dados da sombra e do panorama vão para as camadas de uma textura só.         |
+| 1   | **Ligações por estágio**: o contribuinte de `light_transmission` entra em todo pipeline que lê a luz, inclusive o `refraction_path`, o estágio com mais ligações                                             | A contagem por estágio é medida na Fase 1 e depois de cada contribuição e verificada contra os limites do adaptador pela composição real (`flowBinding/limits.ts`); a forma de cada dado (textura amostrada ou buffer) se escolhe pelo custo e pela filtragem.                              |
 | 2   | A aproximação por oitavas não chegar a 5 % do traçador em toda região (SC-001)                                                                                                                               | Calibrar a, b, c contra o traçador na Fase 2; se a borda fina não fechar, o erro é medido por região e o critério é ajustado com racional escrito (memória "princípio dos limiares"), sem falsear a imagem.                                                                                 |
 | 3   | Rastro ou sal e pimenta na reconstrução com vento forte e câmera rápida (a lição dos blocos 2 × 2 da 034)                                                                                                    | Reprojeção pela profundidade da nuvem e pelo vento, gradiente temporal da 034, smoke de antisserrilhado com nuvens e vento.                                                                                                                                                                 |
 | 4   | Orçamento de 3 ms estourar no M4                                                                                                                                                                             | Medida por passe desde a primeira marcha; tetos por perfil; a marcha em duas velocidades e a saída antecipada; o panorama e a sombra fatiados.                                                                                                                                              |

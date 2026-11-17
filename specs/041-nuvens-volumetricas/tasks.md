@@ -18,9 +18,9 @@ smokes um de cada vez (`--headless --timeout 400`, 600 no `globalIllumination`, 
 
 **Regras para toda tarefa de GPU** (marcadas **[GPU]**):
 
-- **Ligações**: a contagem de buffers de storage, texturas de storage e texturas amostradas por estágio do pipeline
-  novo ou tocado, antes e depois, registrada na tarefa. Os pipelines que leem a luz (forward, injeção dos froxels,
-  traçado da GI, `refraction_path`) não ganham nenhum buffer de storage.
+- **Ligações**: a contagem de buffers de storage, texturas de storage, texturas amostradas e uniformes por estágio do
+  pipeline novo ou tocado, antes e depois, registrada na tarefa (medida) e verificada contra os limites do adaptador
+  pela composição real (`scene/systems/flowBinding/limits.ts`).
 - **Teste AAA**: matemática nova tem teste contra a referência f64 de `elements/media/clouds/reference/` (Arrange-Act-
   Assert, sem falsear).
 - **Tempo**: o tempo de GPU do passe medido no M4, perfil alto, contra o orçamento de [research.md R17](./research.md).
@@ -37,7 +37,7 @@ smokes um de cada vez (`--headless --timeout 400`, 600 no `globalIllumination`, 
 **Purpose**: ramo, medida de partida e o ruído ladrilhável de que tudo depende.
 
 - [ ] T001 Conferir o ramo `feature/041-nuvens-volumetricas` a partir do `develop` (`c1f3dc05`) e registrar o estado de partida em `specs/041-nuvens-volumetricas/baseline.md`: `npm run ci`, os 45 smokes pelo fonte e com `--dist`, `bench:check`.
-- [ ] T002 [GPU] Medir a contagem de ligações por estágio (storage, storage texture, amostradas, uniformes) do forward, de `media_froxel_inject`, de `gi_probe_trace`/`gi_screen_trace`/`gi_cache_trace` e de `refraction_path`, pela composição real (`scene/systems/flowBinding/limits.ts`), num teste novo `src/presentation/flows/__tests__/bindingCounts.test.ts` que falha se algum desses estágios ganhar buffer de storage; registrar os números em `specs/041-nuvens-volumetricas/baseline.md`.
+- [ ] T002 [GPU] Medir a contagem de ligações por estágio (storage, storage texture, amostradas, uniformes) do forward, de `media_froxel_inject`, de `gi_probe_trace`/`gi_screen_trace`/`gi_cache_trace` e de `refraction_path`, pela composição real (`scene/systems/flowBinding/limits.ts`), num teste novo `src/presentation/flows/__tests__/bindingCounts.test.ts` que registra a contagem e verifica a composição real contra os limites do adaptador (sem congelar a contagem); registrar os números em `specs/041-nuvens-volumetricas/baseline.md`.
 - [ ] T003 [P] Referência u32 do ruído com período: parâmetro `period` em gradiente, valor, fBm e celular 3D em `src/elements/nodes/reference/noise.ts`, com testes em `src/elements/nodes/reference/__tests__/noisePeriod.test.ts` (periodicidade exata `f(p + period/scale) = f(p)` bit a bit e igualdade com o ruído atual em `period = 0`).
 - [ ] T004 [GPU] `period` nos ruídos da GPU: `src/elements/gpu/wgsl/math/noise.wgsl` e os nós em `src/elements/nodes/noise/index.ts` (parâmetro `period`, padrão 0); teste GPU contra a referência u32 no smoke `src/__smokes__/nodeGraphs.ts` (caso novo `noise-period`, bit a bit); `nodeGraphs` e `materials` sem regressão.
 
@@ -117,7 +117,7 @@ na água mostra as nuvens, a névoa perto fica na frente das nuvens sem halo, e 
 esmaecem igual.
 
 - [ ] T029 [GPU] [US3] Mapa de transmitância visto do sol em `src/elements/gpu/wgsl/clouds/cloud_shadow.wgsl` e na parte `shadow` do `CloudFlow`: 512², 32 km, encaixe no texel, 48 passos, metade das linhas por quadro (série 037 reprojetada pelo vento e pela câmera); teste contra `T(p)` da referência (smoke `clouds`, caso `shadow-map`); tempo ≤ 0,4 ms.
-- [ ] T030 [GPU] [US3] Contribuição a `light_transmission` (ordem 25, só a luz do sol do `Sky`) em `src/elements/media/clouds/points.ts`: uma textura amostrada e um uniforme; contagem de ligações do forward, `media_froxel_inject`, traçado da GI e `refraction_path` antes/depois (T002: nenhum buffer de storage a mais); a autossombra longa da própria nuvem pelo mapa (`cloud_light.wgsl`).
+- [ ] T030 [GPU] [US3] Contribuição a `light_transmission` (ordem 25, só a luz do sol do `Sky`) em `src/elements/media/clouds/points.ts`: uma textura amostrada e um uniforme (pela filtragem bilinear da sombra); contagem de ligações do forward, `media_froxel_inject`, traçado da GI e `refraction_path` antes/depois, registrada e verificada contra os limites do adaptador (T002); a autossombra longa da própria nuvem pelo mapa (`cloud_light.wgsl`).
 - [ ] T031 [GPU] [US3] Panorama das nuvens 256 × 128 em `src/elements/gpu/wgsl/clouds/cloud_panorama.wgsl` e na parte `shadow` do `CloudFlow`: 32 passos, 3 de luz, ¼ dos texels por quadro (série 037, recomeça com a câmera a ¼ da espessura); contribuição a `sky_cover` em `src/elements/media/clouds/points.ts`; teste contra a referência por direção (smoke `clouds`, caso `panorama`); tempo ≤ 0,3 ms.
 - [ ] T032 [US3] Smoke `src/__smokes__/clouds.ts`, casos `ground-shadow` (SC-004, borda suave, sombra que anda com o vento), `overcast-ambient` (a luz ambiente e a GI caem na proporção da referência; o sol direto quase some), `water-reflection` (o reflexo na água pelo `refraction_path` mostra as nuvens), `fog-in-front` (névoa perto, nuvens longe, sem halo nem borda dupla), `mountain-and-cloud` (montanha e nuvem a 10 km esmaecem igual, US3 cenário 5).
 - [ ] T033 [US3] Os smokes da luz sem regressão com nuvens desligadas e as contagens de ligações de T030: `globalIllumination`, `giNoise`, `fog`, `refraction`, `fluidSurface`, `wetting`, `limits`, `adapterLimits`.

@@ -17,7 +17,7 @@
 | Ruídos nos nós                          | `elements/nodes/noise/index.ts`, `gpu/wgsl/math/noise.wgsl`, `nodes/reference/noise.ts`   | Valor, gradiente (Perlin), fBm, celular 3D (Worley: f1, f2), com referência inteira u32 bit a bit. **Sem período**: nenhum ruído é ladrilhável.                                                                                                                                                                                                       |
 | Funções de extensão                     | `elements/extension/*Function.ts` (`DensityFunction` no ponto `fog_density`)              | O padrão para "WGSL ou grafo" avaliado na GPU, sem recompilar ao mudar valores.                                                                                                                                                                                                                                                                       |
 | Perfis                                  | `elements/render/Renderer.ts` (`RENDER_PROFILES`)                                         | Tabela alto/médio/baixo; a 041 acrescenta as nuvens a ela.                                                                                                                                                                                                                                                                                            |
-| Limites                                 | `core/gpu/GpuContext.ts` (`ENGINE_DRAWING_LIMITS`), `scene/systems/flowBinding/limits.ts` | Pedidos no máximo do adaptador; no M4 pelo Chrome: 10 buffers de storage e 8 texturas de storage por estágio; um pipeline acima falha com `limit-exceeded`.                                                                                                                                                                                           |
+| Limites                                 | `core/gpu/GpuContext.ts` (`ENGINE_DRAWING_LIMITS`), `scene/systems/flowBinding/limits.ts` | Pedidos no máximo do adaptador (`PlatformAdapter.limitsCap`); a verificação da composição real de cada estágio contra esses limites está em `flowBinding/limits.ts`.                                                                                                                                                                                  |
 | Traçador de referência                  | `elements/lighting/reference/pathTracer.ts`, `scene/reference/atmosphere.ts`              | Meios em caixa com densidade por função e HG; céu por tabela; atmosfera f64. Falta: fase arbitrária, rastreamento delta com majorante para meios de quilômetros.                                                                                                                                                                                      |
 
 ## Decisões
@@ -153,7 +153,7 @@ fora do orçamento); a tabela de Mie completa (textura extra, ganho pequeno sobr
 **Decisão**: duas irradiâncias por quadro, do céu (de cima) e do chão (de baixo: albedo do chão × sol transmitido ×
 cosseno + céu), integradas da vista do céu por um kernel de 1 grupo num alvo 2 × 1 `rgba16float`; na nuvem, a
 mistura pela fração de altura atenuada pela densidade acima e abaixo (o termo de Hillaire 2016), × o albedo de
-espalhamento. Lida como textura (não buffer), para não gastar ligação de storage.
+espalhamento. Lida como textura amostrada: o leitor interpola entre as duas irradiâncias com filtragem de hardware.
 
 **Racional**: o céu azul acima e a luz rebatida do chão por baixo dão a base cinza-azulada e o topo claro (US1);
 integrar na GPU segue a regra "nada na CPU".
@@ -248,16 +248,18 @@ visível: ≤ 0,3 ms).
 ### R15 — Perfis e limites
 
 **Decisão**: `RENDER_PROFILES` ganha `clouds`: passos (96/64/48), passos de luz (6/5/4), oitavas (3/2/2), panorama
-(256×128 / 192×96 / 128×64), sombra (512²·32 km / 256²·16 km / 256²·16 km), cobertura (64/32/32 km). Todos os alvos das
-nuvens são **texturas amostradas** (as tabelas, o histórico, a sombra, o panorama); as saídas dos kernels são
-texturas de storage (≤ 3 por kernel). Buffers de storage por estágio: a marcha usa só `cameras` e `lights` (2). O
-contribuinte de `light_transmission` acrescenta **uma textura amostrada e um uniforme** a cada pipeline que lê a luz
-(forward, injeção dos froxels, traçado da GI e da refração) — nenhum buffer de storage. O teste de limites (`limits`,
-`adapterLimits`, `ForwardFlow.perEntity`) mede a contagem por estágio antes e depois, e o `deviceFloor` roda com as
-nuvens.
+(256×128 / 192×96 / 128×64), sombra (512²·32 km / 256²·16 km / 256²·16 km), cobertura (64/32/32 km). Os alvos das
+nuvens que outros estágios leem (a sombra, o panorama, as irradiâncias, a tabela aérea) são **texturas amostradas**:
+pelo mérito, a leitura é filtrada pelo hardware (bilinear na sombra e no panorama, trilinear na tabela 3D) e cai no
+cache de textura, mais barato que a interpolação manual de um buffer. As saídas dos kernels são texturas de storage.
+O contribuinte de `light_transmission` acrescenta uma textura amostrada, um amostrador e um uniforme a cada pipeline
+que lê a luz (forward, injeção dos froxels, traçado da GI e da refração). A contagem de ligações por estágio (buffers
+e texturas de storage, texturas amostradas, uniformes) é registrada antes e depois e verificada contra os limites do
+adaptador pela composição real (`flowBinding/limits.ts`, testes `bindingCounts`, `limits`, `adapterLimits`); o
+`deviceFloor` roda com as nuvens.
 
-**Racional**: o limite de 10 buffers de storage por estágio no M4 derrubou a 034 da 4090; as nuvens não podem
-acrescentar nenhum ao forward, ao `refraction_path` nem ao traçado da GI.
+**Racional**: o motor pede o máximo do adaptador; o que se controla é que a composição real caiba no que o adaptador
+dá, medido e testado, e que cada dado tenha a forma de menor custo.
 
 ### R16 — Referência f64
 
