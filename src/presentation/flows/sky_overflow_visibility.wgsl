@@ -7,9 +7,12 @@
 /** Peso do quadro novo na fração visível acumulada (~8 quadros de memória). */
 const SKY_OVERFLOW_VISIBILITY_BLEND: f32 = 0.125;
 
-var<workgroup> sky_overflow_visible: array<vec2f, 64>;
+/** Invocações do grupo: os pontos da grade 8 × 8 sobre o disco (a redução em árvore pede a potência de 2). */
+const SKY_OVERFLOW_VISIBILITY_LANES: u32 = 64u;
 
-@compute @workgroup_size(64)
+var<workgroup> sky_overflow_visible: array<vec2f, SKY_OVERFLOW_VISIBILITY_LANES>;
+
+@compute @workgroup_size(SKY_OVERFLOW_VISIBILITY_LANES)
 fn sky_overflow_visibility_main(@builtin(local_invocation_index) li: u32) {
     let size = vec2f(sky_overflow_depth_size());
     let disk = sky_overflow_disk(size);
