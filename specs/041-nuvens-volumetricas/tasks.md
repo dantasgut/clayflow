@@ -201,6 +201,19 @@ analítica) no norte, no sul e no equador; a torre e a bigorna; a faixa entre um
   contra 72,76 (−7 %). É a física acelerada: a borda esfarrapada de um cúmulo passa pelo sol (24 m de vento por quadro), e a
   câmera a 2 m via só os primeiros metros de chão. A cena nova põe a câmera a 60 m: a sombra anda pelo terreno.
 
+- [x] T061 [US5] O vídeo `tempestade` regravado (claflow-web `44dca11`, porta 5184; 7200 quadros a 2 s, 4 h em 120 s;
+  `scratchpad/041-video/rodada8/tempestade.mp4`, 28,4 MB recomprimido de 110,8 MB; conferência do codificador 50,98 dB no
+  brilho, 46,01 dB em RGB; GPU 158 ms por quadro, quase tudo o `ShadowFlow` do terreno com a câmera a 60 m — as nuvens
+  ~6 ms). Brilho médio por quadro (160 × 90): imagem maior salto 0,41 nível, céu 0,51, chão 1,45; nenhum salto > 2 e
+  nenhuma alternância (antes: chão 8,63, 90 saltos > 2). Smokes depois da mudança, um por vez: `clouds` caso a caso passa
+  (`noon` 2,7 %, `backlit` 4,6 %, `types` 3,3/3,3/3,0 %, `far-cloud` 4,4 %, `storm` luz 1,4 % e T 0,007, `pressure-wind`
+  0,00/255, `weather-timing` estado 0,064 ms e mapa +0,008 ms, os demais), exceto `sunset` 13,6 % (o aberto de antes,
+  igual); `sky` passa; `antialiasing`: `cloudsMotion` 0,10/0,72/1,16 %, e o `waterOrbit` falhou uma vez com outra carga na
+  máquina (26,8 %) e passou sozinho (2,89/2,82/3,17 %). **Em aberto**: nas torres em crescimento (30–90 s do vídeo) a
+  parede da torre mostra estrias verticais e, numa delas, um disco claro achatado onde a lâmina da bigorna corta a torre; o
+  grão das bordas ralas ficou menor (2 s por quadro), não sumiu; a base do cúmulo-nimbo ficou cinza, não chumbo (o ambiente
+  local da estimativa das oitavas, `prior`, não é atenuado pela nuvem acima e abaixo e pesa ≥ 20 % contra o cache).
+
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
 ---
