@@ -707,14 +707,38 @@ export const cloudShadowKernel = wgslModule({
 
 /**
  * A visibilidade do sol no ar além da tabela aérea pelo mapa visto do sol (R19): o ponto a `t_km` da câmera na direção
- * `dir` (a posição da câmera do quadro, `clouds.eye`), `e^(−τ)` — as nuvens além de 32 km com o ar na frente sombreado
- * como até 32 km (a tabela). Lugar `sky_aerial_far_visibility` da marcha e do panorama.
+ * `dir` (a posição da câmera do quadro, `clouds.eye`) — as nuvens além de 32 km com o ar na frente sombreado como até
+ * 32 km (a tabela). A transmitância `e^(−τ)` de cada um dos quatro texels vizinhos, e a bilinear delas (não de τ): a
+ * 50–100 km o texel do mapa tem quilômetros, e a média de τ numa borda de sombra (0 de um lado, dezenas do outro) dava
+ * a transmitância de quase 0 onde metade do texel tem sol (`far-cloud`: 7 % abaixo da referência). Lugar
+ * `sky_aerial_far_visibility` da marcha e do panorama; teto: 8 leituras.
  */
 const cloudAerialFarVisibility = wgslModule({
     name: 'cloud_aerial_far_visibility',
     requires: [cloudParamsResource, cloudShadowLookup],
-    source: `fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
-    return exp(-cloud_shadow_depth(clouds.eye.xyz + dir * (t_km * 1000.0)));
+    source: `fn cloud_far_knot(t: vec2i, k: u32) -> f32 {
+    if (k == 0u) { return 0.0; }
+    let j = min(k, 16u) - 1u;
+    return textureLoad(cloud_shadow_tex, vec3i(t, i32(j / 4u)), 0)[j % 4u];
+}
+
+fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
+    let c = cloud_shadow_column(clouds.eye.xyz + dir * (t_km * 1000.0));
+    if (c.w <= 0.0) { return 1.0; }
+    let k = min(u32(floor(c.z)), 15u);
+    let f = c.z - f32(k);
+    let size = vec2i(textureDimensions(cloud_shadow_tex).xy);
+    let p = c.xy * vec2f(size) - 0.5;
+    let b = vec2i(floor(p));
+    let w = p - floor(p);
+    var t = 0.0;
+    for (var i = 0; i < 4; i++) {
+        let o = vec2i(i & 1, i >> 1);
+        let q = clamp(b + o, vec2i(0), size - 1);
+        let wt = select(1.0 - w.x, w.x, o.x == 1) * select(1.0 - w.y, w.y, o.y == 1);
+        t += wt * exp(-mix(cloud_far_knot(q, k), cloud_far_knot(q, k + 1u), f));
+    }
+    return t;
 }`,
 });
 
