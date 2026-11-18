@@ -157,7 +157,6 @@ export const skyAerialKernel = wgslModule({
     name: 'sky_aerial',
     source: skyAerialSource,
     requires: [
-        WORKGROUP_SIZE.module,
         SKY_AERIAL_RANGE.module,
         viewSpace,
         skyAtmosphere,

@@ -20,10 +20,32 @@ fn cloud_coverage_at(xz: vec2f) -> vec3f {
 }
 
 /**
+ * O teto da densidade relativa em qualquer ponto: a densidade é no máximo a cobertura local × a densidade relativa (a
+ * forma e a erosão só a reduzem: `remap(base, 1 − cov, 1)·cov ≤ cov` com `base ≤ 1`, e a erosão `(c − e)/(1 − e) ≤ c`).
+ * Sem função de cobertura, a cobertura local é `g(c, tipo) + 0,4·(u − 0,5)` com `u < 1` — o teto `g + 0,2` (mais um
+ * degrau do mapa de 8 bits); com função, 1. É o majorante do rastreamento delta dos caminhos do cache de espalhamento:
+ * com a cobertura 0,5, ~0,63 — 37 % menos colisões nulas, sem viés.
+ */
+fn cloud_density_bound() -> f32 {
+    if (clouds.flags.w != 0u) { return 1.0; }
+    let k = clamp(clouds.layer.y * 2.0, 0.0, 1.0);
+    let g = mix(cloud_coverage_inverse(clouds.layer.x, true), cloud_coverage_inverse(clouds.layer.x, false), k);
+    return clamp(g + 0.5 * CLOUD_COVERAGE_SPREAD + 1.0 / 255.0, 0.0, 1.0);
+}
+
+/**
  * A densidade da forma sem o detalhe (`detail` falso: a marcha grossa no vazio e a sombra longa) ou com a erosão
  * (`detail` verdadeiro).
  */
 fn cloud_density(p: vec3f, detail: bool) -> f32 {
+    return cloud_density_above(p, detail, -1.0);
+}
+
+/**
+ * A densidade com a erosão só quando a da forma sem ela passa de `floor`: abaixo, devolve a da forma (≤ `floor`) sem ler
+ * o volume de detalhe — a erosão só reduz, então o rastreamento delta decide a colisão nula pelo teste da forma.
+ */
+fn cloud_density_above(p: vec3f, detail: bool, floor: f32) -> f32 {
     let h = cloud_height_fraction(p);
     if (h <= 0.0 || h >= 1.0) { return 0.0; }
     let cov = cloud_coverage_at(p.xz);
@@ -38,7 +60,7 @@ fn cloud_density(p: vec3f, detail: bool) -> f32 {
     var c = base;
     if (cov.x < 1.0) { c = cloud_remap(base, 1.0 - cov.x, 1.0, 0.0, 1.0) * cov.x; }
     if (c <= 0.0) { return 0.0; }
-    if (!detail) { return c * max(cov.z, 0.0); }
+    if (!detail || c * max(cov.z, 0.0) <= floor) { return c * max(cov.z, 0.0); }
     let pd = (p - clouds.detail.xyz) / clouds.detail.w;
     let d = textureSampleLevel(cloud_detail_tex, cloud_noise_sampler, pd, 0.0);
     let hf = d.g * 0.625 + d.b * 0.25 + d.a * 0.125;

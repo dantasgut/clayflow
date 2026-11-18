@@ -16,7 +16,6 @@ import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
-import { CLOUD_COVERAGE_SIZE } from './schemas';
 import {
     cloudAmbientKernel,
     cloudCoverageAt,
@@ -24,6 +23,7 @@ import {
     cloudCoverageKernel,
     cloudOutputs,
     cloudPanoramaKernel,
+    cloudScatterFilterKernel,
     cloudScatterKernel,
     cloudScatterSlots,
     cloudScatterSunSlots,
@@ -57,6 +57,11 @@ const AMBIENT = compute('cloud_ambient', cloudAmbientKernel, 'cloud_ambient_main
 const SHADOW = compute('cloud_shadow', cloudShadowKernel, 'cloud_shadow_main');
 const PANORAMA = compute('cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main');
 const SCATTER = compute('cloud_scatter', cloudScatterKernel, 'cloud_scatter_main');
+const SCATTER_FILTER = compute(
+    'cloud_scatter_filter',
+    cloudScatterFilterKernel,
+    'cloud_scatter_filter_main',
+);
 
 /** Ids dos alvos que o estágio escreve, na ordem das saídas. */
 const TARGETS = ['coverage', 'ambient', 'shadow', 'panorama'] as const;
@@ -100,7 +105,20 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 slotsResolved: 'ignore',
                 entitiesChanged: 'ignore',
                 slotChanged: 'ignore',
-                slotLost: 'ignore',
+                // A camada saiu: os pipelines e as saídas privadas ligadas às texturas dela saem junto (o filtro do
+                // cache lê a série, que some com ela — a C2 refaria o grupo com a saída destruída).
+                slotLost: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA])
+                            c.release(p.id);
+                        if (this.coverage !== undefined) c.release(this.coverage);
+                        this.coverage = undefined;
+                        this.prepared = false;
+                        this.views = [];
+                        this.active = false;
+                    },
+                },
                 pipelinesCompiled: 'ignore',
                 pipelineRejected: 'ignore',
                 bindGroupReplaced: 'ignore',
@@ -109,22 +127,32 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         };
     }
 
-    /** A cobertura, as irradiâncias, a sombra e o panorama, nesta ordem (cada um lê o anterior). */
+    /**
+     * A cobertura, as irradiâncias, a sombra, o cache filtrado (da fatia do quadro anterior), o panorama e, por último,
+     * os caminhos do cache. Os caminhos são longos e em série (a latência de cada um, não a vazão, faz o tempo do
+     * passe): com a marcha e o panorama lendo o cache do quadro anterior, nada do quadro espera por eles, e a GPU os
+     * sobrepõe ao resto do quadro.
+     */
     dispatch(frame: Frame, bound: BoundFlow<CloudLightSlots>): void {
         if (!this.active || this.coverage === undefined) return;
         const cloud = bound.slots.cloud.resource as CloudLayer;
         const q = cloud.quality;
         // Despacho linear (um texel por invocação); as irradiâncias, um grupo só.
         const steps: [string, string, number][] = [
-            [this.coverage, 'CloudLightFlow.coverage', CLOUD_COVERAGE_SIZE * CLOUD_COVERAGE_SIZE],
+            [this.coverage, 'CloudLightFlow.coverage', q.coverageSize * q.coverageSize],
             [AMBIENT.id, 'CloudLightFlow.ambient', WORKGROUP_SIZE.value],
             [SHADOW.id, 'CloudLightFlow.shadow', q.shadow.size * q.shadow.size],
+            [
+                SCATTER_FILTER.id,
+                'CloudLightFlow.scatterFilter',
+                q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
+            ],
+            [PANORAMA.id, 'CloudLightFlow.panorama', q.panorama[0] * q.panorama[1]],
             [
                 SCATTER.id,
                 'CloudLightFlow.scatter',
                 q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
             ],
-            [PANORAMA.id, 'CloudLightFlow.panorama', q.panorama[0] * q.panorama[1]],
         ];
         const ready = steps.map(([id]) => bound.pipelines.get(id));
         if (ready.some((p) => p?.role !== 'compute' || !p.ready)) return;
@@ -160,6 +188,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         for (const id of TARGETS) this.resources.ensureAllocated(cloud, id);
         this.resources.ensureAllocated(cloud, 'scatter');
         this.resources.ensureAllocated(cloud, 'scatterSun');
+        this.resources.ensureAllocated(cloud, 'scatterFiltered');
         const views = TARGETS.map((id) => c.bound.slots.cloud.textureViewOf(id));
         if (views.some((v) => v === undefined)) {
             this.active = false;
@@ -176,7 +205,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             );
             this.views = views;
             if (!this.prepared) {
-                for (const p of [AMBIENT, SHADOW, SCATTER, PANORAMA]) c.prepare(p);
+                for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA]) c.prepare(p);
                 this.prepared = true;
             }
         }

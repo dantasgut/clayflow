@@ -18,6 +18,7 @@ import {
     CLOUD_SCATTER_SNAP,
     type Application,
     type CloudLayer,
+    CloudLayer as CloudLayerClass,
 } from 'clayflow/web';
 import { settleFrames } from './support/extensionScenes';
 import {
@@ -109,7 +110,7 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
     const detail = await readCloudVolume(s.app, layer, 'detail');
     const radii = s.sky.data.radii;
     const half = layer.quality.coverageExtent / 2;
-    const MAP = 512;
+    const MAP = layer.quality.coverageSize;
     // O centro do mapa: a câmera encaixada no texel (o empacotamento do `CloudNoiseFlow`).
     const texel = (2 * half) / MAP;
     const eye = s.camera.data.position;
@@ -287,7 +288,8 @@ async function scatterLookupOf(
     layer: CloudLayer,
     model: CloudModel,
 ): Promise<{ kT: number; light: (x: Vec3, prior: Vec3) => Vec3 } | undefined> {
-    const tex = s.app.resources.channelOf(layer, 'scatter')?.texture(0);
+    // O cache que a marcha lê: a fatia do quadro filtrada no espaço (binomial 3 × 3 × 3).
+    const tex = s.app.resources.textureOf(layer, 'scatterFiltered');
     if (tex === undefined) return undefined;
     const grid = await readTexture(s.app, tex, 'rgba16float');
     const E = s.sky.data.sunIlluminance[1] ?? 1;
@@ -763,13 +765,11 @@ async function passTimes(
         samples.push({ ...e.passesMs });
         spans.push(e.spanMs);
     });
-    await settleFrames(app, frames);
+    await busyFrames(app, frames);
+    // Os quadros gravados chegam ao perfilador 1–3 quadros depois.
+    await busyFrames(app, 4);
     off();
     const keys = new Set(samples.flatMap((x) => Object.keys(x)));
-    const median = (v: number[]): number => {
-        const a = [...v].sort((x, y) => x - y);
-        return a[Math.floor(a.length / 2)] ?? 0;
-    };
     const passes: Record<string, number> = {};
     for (const k of keys)
         if (/Cloud|SkyComposite|sky_aerial/.test(k))
@@ -778,57 +778,103 @@ async function passTimes(
     return { total, span: median(spans), passes };
 }
 
-/** Tempo do quadro na GPU (mediana do span) de uma cena de 1280 × 720. */
-async function frameSpan(o: Parameters<typeof cloudScene>[0]): Promise<number> {
-    const s = await cloudScene({ width: 1280, height: 720, profiling: true, ...o });
-    await settleFrames(s.app, 60);
-    const t = await passTimes(s.app, 120);
+const median = (v: readonly number[]): number => {
+    const a = [...v].sort((x, y) => x - y);
+    return a[Math.floor(a.length / 2)] ?? 0;
+};
+
+/**
+ * Quadros com a GPU ocupada: o seguinte é gravado assim que a GPU aceita (`readyForFrame`), sem esperar o quadro da
+ * tela. No ritmo de 60 Hz, um quadro de 4–5 ms deixa a GPU ociosa a maior parte do tempo e o M4 baixa o relógio dela: as
+ * passagens das nuvens mediam até 1,5 × mais (o perfil baixo sozinho, ou os primeiros ~15 s de um app), e as da tela,
+ * limitadas pela banda, quase não mudavam — a diferença com e sem a camada saía do estado do relógio, não do custo.
+ */
+async function busyFrames(app: Application, frames: number): Promise<void> {
+    await app.whenReady({ timeoutMs: 60_000 });
+    for (let i = 0; i < frames; i++) {
+        app.step(0);
+        do await new Promise((r) => setTimeout(r, 0));
+        while (!app.readyForFrame());
+    }
+}
+
+/**
+ * O custo das nuvens pelo método do bench: um app só, aquecido com a GPU ocupada (`TIMING_WARMUP` quadros), as
+ * medidas com e sem a camada intercaladas (a camada entra e sai pelo mundo) e a mediana das repetições. Devolve as
+ * diferenças por repetição (ms) e os passes medianos com a camada.
+ */
+const TIMING_WARMUP = 600;
+const TIMING_REPS = 5;
+async function cloudCost(profile: 'high' | 'medium' | 'low'): Promise<{
+    diffs: number[];
+    withSpan: number[];
+    passes: Record<string, number>;
+    quality: unknown;
+}> {
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        profile,
+        profiling: true,
+        clouds: false,
+        target: [1000, 400, 300],
+    });
+    const values = { coverage: 0.5, wind: [10, 0] };
+    let layer: CloudLayer | undefined;
+    await settleFrames(s.app, 30);
+    const insert = (): void => {
+        layer = new CloudLayerClass(values);
+        s.app.world.insert(layer);
+    };
+    insert();
+    await busyFrames(s.app, TIMING_WARMUP);
+    const quality = layer?.quality;
+    const diffs: number[] = [];
+    const withSpan: number[] = [];
+    const perPass: Record<string, number>[] = [];
+    for (let r = 0; r < TIMING_REPS; r++) {
+        const order = r % 2 === 0 ? [true, false] : [false, true];
+        const span: Record<string, number> = {};
+        for (const has of order) {
+            if (has && layer === undefined) insert();
+            if (!has && layer !== undefined) {
+                s.app.world.remove(layer);
+                layer = undefined;
+            }
+            await busyFrames(s.app, 60);
+            const t = await passTimes(s.app, 90);
+            span[has ? 'with' : 'without'] = t.span;
+            if (has) perPass.push(t.passes);
+        }
+        diffs.push(span.with! - span.without!);
+        withSpan.push(span.with!);
+    }
     finish(s);
-    return t.span;
+    const passes: Record<string, number> = {};
+    for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
+        passes[k] = median(perPass.map((x) => x[k] ?? 0));
+    return { diffs, withSpan, passes, quality };
 }
 
 async function caseTiming(): Promise<void> {
     const limits = { high: 3, medium: 2, low: 1.2 } as const;
-    // O custo real pelo tempo do quadro (o perfilador por passe conta a sobreposição de passes seguidos no TBDR).
-    const view = { target: [1000, 400, 300] as const };
-    for (const profile of ['low', 'high', 'medium', 'low'] as const) {
-        const sky = await frameSpan({ ...view, profile, clouds: false });
-        const withClouds = await frameSpan({
-            ...view,
-            profile,
-            clouds: { coverage: 0.5, wind: [10, 0] },
-        });
+    const only = new URLSearchParams(location.search).get('profiles');
+    for (const profile of ['high', 'medium', 'low'] as const) {
+        if (only !== null && !only.split('_').includes(profile)) continue;
+        const c = await cloudCost(profile);
+        const d = median(c.diffs);
+        log(`timing ${profile}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${profile}: quadro com nuvens ${withClouds.toFixed(3)} ms, só o céu ${sky.toFixed(3)} ms — nuvens ${(withClouds - sky).toFixed(3)} ms`,
-        );
-        check(
-            withClouds - sky <= limits[profile],
-            `timing ${profile}: nuvens ${(withClouds - sky).toFixed(3)} ms > ${limits[profile]} ms (SC-005)`,
-        );
-    }
-    for (const [profile, clouds] of [
-        ['high', true],
-        ['high', false],
-        ['low', true],
-    ] as const) {
-        const s = await cloudScene({
-            width: 1280,
-            height: 720,
-            profile,
-            profiling: true,
-            clouds: clouds ? { coverage: 0.5, wind: [10, 0] } : false,
-            target: [1000, 400, 300],
-        });
-        await settleFrames(s.app, 60);
-        const t = await passTimes(s.app, 120);
-        log(
-            `timing ${profile}${clouds ? '' : ' (só o céu)'} por passe (quadro ${t.span.toFixed(3)} ms; soma ${t.total.toFixed(3)} ms, conta sobreposição): ${Object.entries(
-                t.passes,
+            `timing ${profile}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
+                c.passes,
             )
                 .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
                 .join(', ')}`,
         );
-        finish(s);
+        check(
+            d <= limits[profile],
+            `timing ${profile}: nuvens ${d.toFixed(3)} ms > ${limits[profile]} ms (SC-005)`,
+        );
     }
 }
 

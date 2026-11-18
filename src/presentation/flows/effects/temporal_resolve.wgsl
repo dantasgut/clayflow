@@ -9,7 +9,8 @@
 // histórico tem. Parado, a luz direta que chega ao ponto (o alvo da luz da cena: a radiância sobre a refletância, sem a
 // textura) comparada à do quadro anterior separa a mudança de iluminação — a sombra ou a luz que passa sobre a superfície
 // parada — do detalhe menor que o pixel: o histórico é reiluminado pela razão da luz total e tratado como em movimento.
-// A máscara reativa (`taa_reactive`, no modo temporal) recomeça o histórico onde o que o pixel mostra mudou sem que o
+// No fundo, o histórico mais claro que a vizinhança (o disco do sol que anda no céu, sem vetor de movimento) é tratado
+// como em movimento. A máscara reativa (`taa_reactive`, no modo temporal) recomeça o histórico onde o que o pixel mostra mudou sem que o
 // vetor de movimento o leve até lá: o conteúdo visto pelo vidro, cuja imagem a lente desloca e inverte.
 // Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_light (r direta, g total), taa_history,
 // taa_history_distance, taa_history_light, taa_depth, taa_motion, taa_reactive, src_smp.
@@ -196,6 +197,8 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     var wsum = 0.0;
     var light_lo = light.r;
     var light_hi = light.r;
+    var luma_lo = 3.4e38;
+    var luma_hi = 0.0;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
@@ -205,6 +208,9 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             // outra, e a luz acumulada é a mistura das duas.
             light_lo = min(light_lo, direct);
             light_hi = max(light_hi, direct);
+            let luma = ycocg(rgb).x;
+            luma_lo = min(luma_lo, luma);
+            luma_hi = max(luma_hi, luma);
             // Só em movimento a caixa e a reconstrução valem: parado, sem as leituras da profundidade.
             if (stirred > 0.0) {
                 let near = view_depth(textureLoad(taa_depth, q, 0), cam.projection);
@@ -231,7 +237,21 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0 && depth < 1.0);
     let ratio = clamp(light.g / max(prev_light.g, 1e-4), 0.0, 16.0);
     let relighted = history.rgb * mix(1.0, ratio, relit);
-    stirred = max(stirred, relit);
+    // Mudança no fundo (o céu, sem vetor de movimento para o que anda nele: o disco do sol que desce, a luz do céu que
+    // muda com ele): o histórico parado guardava o disco por ~64 quadros — um rastro do sol (o traço vertical acima dele
+    // no vídeo do pôr do sol, `solposto`). O histórico do fundo mais claro que o mais claro da vizinhança 3 × 3 de agora
+    // por mais que a fração da mudança de iluminação é tratado como em movimento (recortado, o quadro novo entrando
+    // depressa); abaixo, o detalhe menor que o pixel (a borda de uma nuvem, o disco do sol parado) segue acumulando. Só o
+    // lado claro: no fundo também cai o que não escreve profundidade (a água turva, cuja amostra de um quadro é ruidosa e
+    // fica abaixo da média acumulada — recortar os dois lados a deixava turva, 27 % de erro no `antialiasing`).
+    let history_luma = ycocg(history.rgb).x;
+    let sky_beyond = (history_luma - luma_hi) / max(history_luma, 1e-4);
+    let sky_changed = select(
+        0.0,
+        smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, sky_beyond),
+        frames > 0.0 && depth >= 1.0,
+    );
+    stirred = max(stirred, max(relit, sky_changed));
     let reconstructed = mix(current, filtered / wsum, stirred);
     let mean = m1 / count;
     let sigma = sqrt(max(m2 / count - mean * mean, vec3f(0.0)));

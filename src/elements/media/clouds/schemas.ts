@@ -49,8 +49,6 @@ export const CLOUD_SHAPE_SIZE = 128;
 export const CLOUD_DETAIL_SIZE = 32;
 /** Nós de profundidade ótica por coluna do mapa visto do sol (R11; 4 por camada do volume). */
 export const CLOUD_SHADOW_KNOTS = 16;
-/** Texels por lado do mapa de cobertura (R4). */
-export const CLOUD_COVERAGE_SIZE = 512;
 
 /**
  * Coeficientes das oitavas do espalhamento múltiplo (R8: `Σ bⁱ σs e^(−aⁱ τ) p(cⁱ g)`), calibrados contra o traçador de
@@ -77,11 +75,16 @@ export interface CloudQuality {
      * distância (como o pixel da câmera), até as nuvens do horizonte.
      */
     readonly shadow: { readonly size: number; readonly extent: number; readonly near: number };
-    /** Lado (m) do mapa de cobertura. */
+    /**
+     * Lado (m) e texels por lado do mapa de cobertura. O mapa cobre a grade do cache de espalhamento e quase todo o
+     * alcance da marcha: fora dele a densidade avalia o campo da cobertura no ponto (o fBm procedural, ~4 × o custo
+     * do passo da marcha e dos caminhos — medido: o mapa de 64 km deixava os caminhos das sondas distantes nele).
+     */
     readonly coverageExtent: number;
+    readonly coverageSize: number;
     /**
      * Cache de espalhamento (T023, R8): sondas por lado (x, altitude, z), a fração dos grupos de sondas que caminham por
-     * quadro (1/`stride`) e o teto de colisões por caminho.
+     * quadro (1/`stride`, até `CLOUD_SCATTER_SUN_RING`) e o teto de colisões por caminho.
      */
     readonly scatter: {
         readonly size: readonly [number, number, number];
@@ -90,6 +93,11 @@ export interface CloudQuality {
     };
 }
 
+/**
+ * Teto de `stride` do cache de espalhamento: o anel da série `scatterSun` guarda o sol com que cada fase de grupos
+ * caminhou pela última vez (um texel por fase).
+ */
+export const CLOUD_SCATTER_SUN_RING = 16;
 /** Teto de colisões por caminho do cache de espalhamento (o perfil escolhe até ele). */
 export const CLOUD_SCATTER_MAX_COLLISIONS = 48;
 /**

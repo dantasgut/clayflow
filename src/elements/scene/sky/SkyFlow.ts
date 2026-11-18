@@ -153,9 +153,10 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
             frame.compute('SkyFlow.sky_aerial', (pass) => {
                 pass.bind.setPipeline(aerial.spec);
                 aerial.bindTo(pass.bind);
+                // Um grupo de `SKY_AERIAL_SIZE[2]` invocações (as fatias) por coluna.
                 pass.dispatch.invocations(
-                    SKY_AERIAL_SIZE[0] * SKY_AERIAL_SIZE[1],
-                    WORKGROUP_SIZE.value,
+                    SKY_AERIAL_SIZE[0] * SKY_AERIAL_SIZE[1] * SKY_AERIAL_SIZE[2],
+                    SKY_AERIAL_SIZE[2],
                 );
             });
     }

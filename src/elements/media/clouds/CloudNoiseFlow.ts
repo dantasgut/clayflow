@@ -21,7 +21,6 @@ import { Sky } from '../../scene/sky/Sky';
 import { Transform } from '../../scene/Transform';
 import { CloudLayer, cloudPhaseParams, cloudPhaseTruncation } from './CloudLayer';
 import {
-    CLOUD_COVERAGE_SIZE,
     CLOUD_DETAIL_SIZE,
     CLOUD_OCTAVES,
     CLOUD_SCATTER_EXTENT,
@@ -221,7 +220,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const speed = Math.hypot(d.wind[0]!, d.wind[1]!);
         const windDir = speed > 1e-9 ? [d.wind[0]! / speed, d.wind[1]! / speed] : [1, 0];
         // O quadrado de cobertura e o mapa visto do sol encaixados no texel (a câmera andando não faz tremer).
-        const covTexel = q.coverageExtent / CLOUD_COVERAGE_SIZE;
+        const covTexel = q.coverageExtent / q.coverageSize;
         const covCenter = [
             Math.round((eye[0] ?? 0) / covTexel) * covTexel,
             Math.round((eye[2] ?? 0) / covTexel) * covTexel,
@@ -290,7 +289,12 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 sunDir: [sun[0]!, sun[1]!, sun[2]!, 0],
                 sunWarp: [x0u, ku, x0v, kv],
                 march: [q.steps, q.lightSteps, time?.frame ?? 0, cameraSlot],
-                flags: [valid ? 1 : 0, shapeSlot, coverageSlot, 0],
+                flags: [
+                    valid ? 1 : 0,
+                    shapeSlot,
+                    coverageSlot,
+                    cloud.coverageFunction === undefined ? 0 : 1,
+                ],
                 timing: [time?.dt ?? 0, q.panoramaSteps, 0, 0],
                 eye: [eye[0] ?? 0, eye[1] ?? 0, eye[2] ?? 0, 0],
                 scatterGrid: [

@@ -30,6 +30,7 @@ import cloudScatterLookupSource from '../../gpu/wgsl/clouds/cloud_scatter_lookup
 import cloudScatterGridSource from '../../gpu/wgsl/clouds/cloud_scatter_grid.wgsl?raw';
 import cloudSunSource from '../../gpu/wgsl/clouds/cloud_sun.wgsl?raw';
 import cloudScatterSource from '../../gpu/wgsl/clouds/cloud_scatter.wgsl?raw';
+import cloudScatterFilterSource from '../../gpu/wgsl/clouds/cloud_scatter_filter.wgsl?raw';
 import { nodeNoise } from '../../nodes/shaders';
 
 // Módulos das nuvens volumétricas (spec 041): os recursos da `CloudLayer` (resolvers `CloudLayer.*`), os pontos das
@@ -87,6 +88,8 @@ export const cloudResources = Object.freeze({
     shadow: sampled('cloud_shadow_tex', 'shadow', '3d'),
     panorama: sampled('cloud_panorama_tex', 'panorama'),
     view: sampled('cloud_view_tex', 'view'),
+    /** O cache de espalhamento filtrado no espaço (o que a marcha e o panorama leem). */
+    scatterFiltered: sampled('cloud_scatter_filtered_tex', 'scatterFiltered', '3d'),
     trace: sampled('cloud_trace', 'trace'),
     traceDepth: sampled('cloud_trace_depth', 'traceDepth'),
     noiseSampler: wgslResource({
@@ -191,6 +194,17 @@ export const cloudOutputs = Object.freeze({
     traceDepth: out('cloud_trace_depth_out', 'r32float'),
     view: out('cloud_view_out', 'rgba16float'),
     panorama: out('cloud_panorama_out', 'rgba16float'),
+    /**
+     * O cache filtrado, escrito pelo consumidor da camada (não pela ligação privada do estágio): o grupo do filtro
+     * também lê a série do cache, e a C2 o refaz quando a série muda (a camada que sai, o perfil que redimensiona) —
+     * com a saída resolvida pela camada, a vista é a do descritor de agora.
+     */
+    scatterFiltered: wgslResource({
+        name: 'cloud_scatter_filtered_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.scatterFiltered' },
+    }),
 });
 
 // ── Pontos das funções ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -395,14 +409,14 @@ export const cloudSun = wgslModule({
 export const cloudScatterGrid = wgslModule({
     name: 'cloud_scatter_grid',
     source: cloudScatterGridSource,
-    requires: [cloudCommon, cloudParamsResource],
+    requires: [cloudCommon, cloudParamsResource, camerasResource, xformRigid],
 });
 
-/** A leitura do cache de espalhamento (T023). */
+/** A leitura do cache de espalhamento filtrado (T023). */
 export const cloudScatterLookup = wgslModule({
     name: 'cloud_scatter_lookup',
     source: cloudScatterLookupSource,
-    requires: [cloudScatterGrid, sky, cloudParamsResource, R.scatterNow, R.clampSampler],
+    requires: [cloudScatterGrid, sky, cloudParamsResource, R.scatterFiltered, R.clampSampler],
 });
 
 /** A luz e a marcha (teto constante de passos). */
@@ -609,6 +623,22 @@ export const cloudScatterKernel = wgslModule({
         R.scatterOut,
         R.scatterSunPrevious,
         R.scatterSunOut,
+    ],
+});
+
+/**
+ * O cache de espalhamento filtrado no espaço (T023): a fatia do quadro anterior (a última completa: os caminhos do quadro
+ * vêm depois, sobrepostos ao resto dele) pelo filtro binomial 3 × 3 × 3.
+ */
+export const cloudScatterFilterKernel = wgslModule({
+    name: 'cloud_scatter_filter',
+    source: cloudScatterFilterSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        cloudScatterGrid,
+        R.scatterPrevious,
+        R.clampSampler,
+        cloudOutputs.scatterFiltered,
     ],
 });
 

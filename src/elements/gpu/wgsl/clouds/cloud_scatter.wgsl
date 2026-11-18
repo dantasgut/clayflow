@@ -5,8 +5,9 @@
 // truncado (δ-M), o próximo evento ao sol em cada colisão pelo mapa visto do sol, o céu ao sair por cima, o chão (com a
 // sombra das nuvens) ao sair por baixo — que estima a luz que chega à sonda espalhada pela fase na direção da câmera.
 // A média tem janela `clouds.scatterParams.y` caminhos; o histórico recomeça no corte da câmera, quando a série não vale
-// ou quando o centro da grade muda, e esquece na proporção do ângulo que o sol andou desde o quadro anterior (a série
-// `cloud_scatter_sun`: `e^(−Δ/CLOUD_SCATTER_SUN_MEMORY)`; o sol parado não esquece). A marcha soma o espalhamento simples
+// ou quando o centro da grade muda, e, quando a sonda caminha, esquece na proporção do ângulo que o sol andou desde o
+// caminho anterior dela (o anel da série `cloud_scatter_sun`, um sol por fase: `e^(−Δ/CLOUD_SCATTER_SUN_MEMORY)`; o sol
+// parado não esquece). A marcha soma o espalhamento simples
 // exato e esta luz × σs.
 // Teto constante: `CLOUD_SCATTER_STEPS` passos por caminho (nulos, reais e saltos) e `CLOUD_PHASE_TRIES` tentativas em
 // cada amostra da fase — o orçamento total por invocação é `CLOUD_SCATTER_STEPS × (1 + 2·CLOUD_PHASE_TRIES)`.
@@ -21,6 +22,8 @@ const CLOUD_PHASE_TRIES: u32 = 8u;
 const RANDOM_STREAM_CLOUD_SCATTER: u32 = RANDOM_STREAM_USER + 41u;
 /** Ângulo (rad) do sol que reduz a média das sondas a 1/e: 0,25° (o sol que anda depressa cai nas oitavas, sem o ruído de poucos caminhos). */
 const CLOUD_SCATTER_SUN_MEMORY: f32 = 0.0043633231;
+/** Texels do anel do sol (`CLOUD_SCATTER_SUN_RING`): o teto do `stride`. */
+const CLOUD_SCATTER_SUN_RING: u32 = 16u;
 
 fn cloud_scatter_rand(state: ptr<function, u32>) -> f32 {
     return random_unit(random_next(state));
@@ -75,7 +78,7 @@ fn cloud_scatter_walk(x0: vec3f, dcam: vec3f, collisions: u32, state: ptr<functi
     let albedo = clouds.layer.w;
     let k_t = 1.0 - albedo * cut.y;
     let albedo_t = albedo * (1.0 - cut.y) / k_t;
-    let majorant = clouds.layer.z * k_t;
+    let majorant = clouds.layer.z * k_t * cloud_density_bound();
     let r = clouds.shell.x;
     let top = clouds.shell.z;
     let base = clouds.shell.y;
@@ -111,8 +114,9 @@ fn cloud_scatter_walk(x0: vec3f, dcam: vec3f, collisions: u32, state: ptr<functi
         x = x + d * (-log(1.0 - cloud_scatter_rand(state)) / majorant);
         let a2 = cloud_altitude(x);
         if (a2 >= top || a2 <= base) { continue; }
-        let sigma = cloud_density(x, true) * clouds.layer.z * k_t;
-        if (cloud_scatter_rand(state) >= sigma / majorant) { continue; }
+        // Colisão nula pela forma sem o detalhe quando ela já fica abaixo do sorteio (o detalhe só reduz).
+        let u = cloud_scatter_rand(state) * majorant / (clouds.layer.z * k_t);
+        if (cloud_density_above(x, true, u) <= u) { continue; }
         thr *= albedo_t;
         let ph = cloud_phase_truncated(dot(d, sun));
         if (ph > 0.0) {
@@ -140,12 +144,6 @@ fn cloud_scatter_active(g: vec3u, size: vec3u) -> bool {
     return false;
 }
 
-/** O centro da grade de uma posição da câmera (o mesmo encaixe do empacotamento). */
-fn cloud_scatter_center(eye: vec3f) -> vec2f {
-    let s = clouds.scatterParams.w;
-    return floor(eye.xz / s + 0.5) * s;
-}
-
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn cloud_scatter_main(
     @builtin(global_invocation_id) gid3: vec3u,
@@ -157,22 +155,30 @@ fn cloud_scatter_main(
     if (i >= size.x * size.y * size.z) { return; }
     let g = vec3u(i % size.x, (i / size.x) % size.y, i / (size.x * size.y));
     let work = clouds.scatterWork;
-    let cam = cameras[clouds.march.w];
-    // A posição da câmera no quadro anterior (a vista anterior é rígida): o centro da grade que ela dava.
-    let prev_eye = rigid_inverse(cam.previousView)[3].xyz;
-    let moved = any(cloud_scatter_center(prev_eye) != clouds.scatterGrid.xy);
-    let valid = clouds.scatterParams.z > 0.5 && cam.history.x < 0.5 && !moved;
+    let valid = cloud_scatter_history_valid();
     let sun = sky.sunDirection.xyz;
-    if (i == 0u) { textureStore(cloud_scatter_sun_out, vec2u(0u, 0u), vec4f(sun, 1.0)); }
-    let prev_sun = textureLoad(cloud_scatter_sun_prev, vec2u(0u, 0u), 0);
-    var keep = 1.0;
-    if (prev_sun.w > 0.5) {
-        keep = exp(-acos(clamp(dot(prev_sun.xyz, sun), -1.0, 1.0)) / CLOUD_SCATTER_SUN_MEMORY);
+    let stride = clamp(work.x, 1u, CLOUD_SCATTER_SUN_RING);
+    let phase = work.z % stride;
+    // O anel do sol (série `cloud_scatter_sun`, um texel por fase): a fase que caminha neste quadro grava o sol de agora,
+    // as outras seguem.
+    if (i < CLOUD_SCATTER_SUN_RING) {
+        let kept = textureLoad(cloud_scatter_sun_prev, vec2u(i, 0u), 0);
+        textureStore(cloud_scatter_sun_out, vec2u(i, 0u), select(kept, vec4f(sun, 1.0), i == phase));
     }
     var q = vec4f(0.0);
-    if (valid) { q = textureLoad(cloud_scatter_prev, g, 0) * keep; }
+    if (valid) { q = textureLoad(cloud_scatter_prev, g, 0); }
     let group = wid.x + wid.y * nwg.x;
-    if ((group + work.z) % max(work.x, 1u) == 0u) {
+    if ((group + work.z) % stride == 0u) {
+        // O sol que anda esquece a média na proporção do ângulo desde o caminho anterior desta sonda (o sol gravado pela
+        // fase dela, `stride` quadros atrás): entre os caminhos a sonda fica como está. Esquecer a cada quadro fazia o
+        // peso das sondas um dente de serra com a fase do grupo (a fase muda com a camada de altitude): estrias
+        // horizontais nas nuvens do crepúsculo. O ângulo pela corda (`2·asin(|a − b|/2)`), não por `acos(a·b)`: o sol
+        // do vídeo anda 0,005–0,03° por quadro, e `1 − cos` disso fica abaixo da resolução do f32 perto de 1.
+        let last = textureLoad(cloud_scatter_sun_prev, vec2u(phase, 0u), 0);
+        if (last.w > 0.5) {
+            let chord = length(last.xyz - sun);
+            q *= exp(-2.0 * asin(clamp(0.5 * chord, 0.0, 1.0)) / CLOUD_SCATTER_SUN_MEMORY);
+        }
         if (cloud_scatter_active(g, size)) {
             let x = cloud_scatter_probe(g, size);
             let dcam = normalize(x - clouds.eye.xyz);

@@ -12,8 +12,8 @@ import {
 import { CloudShapeFunction, type CloudShapeOptions } from '../../extension/CloudShapeFunction';
 import { defaultCloudShapeGraph } from './defaultShape';
 import {
-    CLOUD_COVERAGE_SIZE,
     CLOUD_DETAIL_SIZE,
+    CLOUD_SCATTER_SUN_RING,
     CLOUD_SHADOW_KNOTS,
     CLOUD_SHAPE_SIZE,
     CloudSchema,
@@ -75,7 +75,8 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     panorama: [256, 128],
     panoramaSteps: 32,
     shadow: { size: 256, extent: 400_000, near: 3_000 },
-    coverageExtent: 64_000,
+    coverageExtent: 256_000,
+    coverageSize: 1024,
     scatter: { size: [160, 32, 160], stride: 8, collisions: 48 },
 };
 
@@ -303,6 +304,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             q.panorama[0] !== quality.panorama[0]
             || q.panorama[1] !== quality.panorama[1]
             || q.shadow.size !== quality.shadow.size
+            || q.coverageSize !== quality.coverageSize
             || q.scatter.size.some((v, k) => v !== quality.scatter.size[k]);
         if (resized) this.redescribe(this.getDescriptors(), { ...this.rawData, quality });
         else this.data.quality = quality;
@@ -376,7 +378,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             { id: 'params', role: 'uniform', schema: CloudLayer.schema },
             volume('shape', CLOUD_SHAPE_SIZE),
             volume('detail', CLOUD_DETAIL_SIZE),
-            target('coverage', 'rgba8unorm', [CLOUD_COVERAGE_SIZE, CLOUD_COVERAGE_SIZE]),
+            target('coverage', 'rgba8unorm', [q.coverageSize, q.coverageSize]),
             target('ambient', 'rgba16float', [2, 1]),
             // O mapa visto do sol: 16 nós de profundidade ótica por coluna, 4 por camada (spec 041, R11).
             {
@@ -415,13 +417,32 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 },
                 history: { depth: 2, filtered: true },
             },
-            // A direção do sol com que o cache foi atualizado no quadro anterior (série da 037): o sol que anda esquece a
-            // média das sondas na proporção do ângulo (T023).
+            // O cache filtrado no espaço (o binomial 3 × 3 × 3 da fatia do quadro), o que a marcha e o panorama leem.
+            {
+                id: 'scatterFiltered',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    dimension: '3d',
+                    width: q.scatter.size[0],
+                    height: q.scatter.size[1],
+                    depthOrArrayLayers: q.scatter.size[2],
+                    access: 'write-only',
+                },
+            },
+            // A direção do sol com que cada fase de grupos de sondas caminhou pela última vez (um texel por fase, série da
+            // 037): o sol que anda esquece a média da sonda na proporção do ângulo desde o caminho anterior dela (T023).
             {
                 id: 'scatterSun',
                 role: 'storage-texture',
                 allocation: 'onDemand',
-                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                textureShape: {
+                    format: 'rgba32float',
+                    width: CLOUD_SCATTER_SUN_RING,
+                    height: 1,
+                    access: 'write-only',
+                },
                 history: { depth: 2 },
             },
             sampler('noiseSampler', 'repeat'),
