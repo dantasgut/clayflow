@@ -524,3 +524,21 @@ de 2294 a 3394 m (10–90 %, 1,1 km), espessura p90 1313 → 1638 m. A cobertura
 O contraste na imagem do `nuvens` (meio-dia, exposição −13) não mudou: luminância apresentada das nuvens p95/p5 1,17
 antes e depois — em aberto; o branco fica no alto da curva de tom (p5 0,80) e o modelo de oitavas calibrado (T023)
 clareia a base (a difusão local não representa a luz que entra pelas laterais).
+
+### R17 (revisto) — os tempos pelo método do bench (2026-11-17)
+
+- **Medir com a GPU ocupada.** No ritmo de 60 Hz, com quadros de 3–6 ms, o M4 baixa o relógio da GPU: as passagens das
+  nuvens (limitadas pela latência e pela ULA) mediam até 1,5 × mais nos primeiros ~15 s de um app e no perfil baixo
+  sozinho, e as da tela (limitadas pela banda) quase não mudavam. A diferença "com − sem a camada" saía do relógio. O
+  caso `timing` grava o quadro seguinte assim que a GPU aceita, aquece 600 quadros e intercala com e sem a camada.
+- **Os 15,4 ms do vídeo `nuvens`** eram a soma dos passes (`totalMs`, que conta a sobreposição) no ritmo de 60 Hz; o
+  intervalo do quadro era ~9,7 ms: 6,3 ms das nuvens (o cache de espalhamento 4,9, a marcha 2,4, o mapa visto do sol
+  0,8, sobrepostos) e 3,3 ms do resto.
+- **A causa do custo**: fora do mapa de cobertura (64 km), a densidade avaliava o fBm procedural da cobertura e do tipo
+  a cada passo — os caminhos das sondas (grade de ±64 km) e a marcha distante. O mapa passou a 256 km (1024² no alto:
+  250 m por texel; o fBm mais fino tem 2 km). Os caminhos: o majorante pelo teto da densidade (`g + 0,2`: ~37 % menos
+  colisões nulas, sem viés) e a colisão nula decidida pela forma sem o detalhe. Os caminhos são latência (um caminho de
+  256 passos em série; o tempo do passe não muda com metade das sondas): despachados por último, com a marcha lendo o
+  cache do quadro anterior, a GPU os sobrepõe.
+- **Resultado** (caso `timing`): alto 2,76 ms, médio 1,60, baixo 1,59 (o baixo fica nos passes de tela iguais aos três
+  perfis: a marcha em ¼, a reconstrução, o aumento, a composição).
