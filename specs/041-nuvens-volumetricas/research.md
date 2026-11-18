@@ -760,6 +760,10 @@ meio dia), mas o fundo guarda no máximo `SKY_SUN_DISK_MAX` (60 000; o alvo é m
 - O excesso vai para `FrameTargets.overflow` (sob demanda, em unidades de 65 536): o `SkyOverflowFlow`, depois da
   composição das nuvens, desenha um retângulo em volta do disco com a cobertura do pixel pela distância angular (a energia
   não depende do deslocamento da amostra), só no fundo, × a névoa dos volumes e × a transmitância das nuvens no pixel.
+- A fração visível do disco (o fundo × a transmitância das nuvens, a média em 8 × 8 pontos dele) é acumulada pela série
+  `Sky.sunVisibility` (peso 1/8, como a cor na resolução temporal): pixel a pixel, a energia do disco seguia o
+  deslocamento da amostra na silhueta do relevo e o ruído da marcha, e o clarão piscava (`pordosol`, quadros 276–277: 16
+  níveis, 6,7 % da imagem alternando; depois, alternância máxima 0,31 %).
 - O `Bloom` virou o espalhamento da lente com a energia conservada: `(1 − G)·cor + G·espalhada`, sem limiar, `G` = 4 %
   (o véu de uma objetiva boa, 1–4 %), a função de espalhamento θ⁻³ (o termo de espalhamento de Spencer et al. 1995) pela
   pirâmide de 7 níveis de Jimenez (2014) com o peso da energia por oitava (`c = 2^(2 − p)` = 0,5). A pirâmide guarda a
