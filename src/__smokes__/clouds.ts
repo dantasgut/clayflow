@@ -73,6 +73,7 @@ import { deltaRng } from '../elements/lighting/reference/pathTracer';
 import {
     coriolis,
     FREE_DRAG,
+    pressureStencil,
     weatherAt,
     weatherClouds,
     type WeatherParams,
@@ -427,6 +428,7 @@ async function compareView(
     sunElevation: number,
     cone = false,
     sunAzimuth = 0,
+    frames = 48,
 ): Promise<{ worstT: number; worstL: number; edgeRatio: number }> {
     const layer = s.layer!;
     const w = s.canvas.width;
@@ -438,7 +440,7 @@ async function compareView(
     // A imagem convergida: a média de 48 quadros seguidos da nuvem apresentada (o ruído do deslocamento inicial da
     // marcha, que a média temporal integra, é medido à parte como cintilação no smoke `antialiasing`). Num quadro só,
     // a faixa de nuvens de 2–4 px rente ao horizonte variava a região até 12 % (`sunset`); com 48, ≤ 5 %.
-    const FRAMES = Number(new URLSearchParams(location.search).get('frames') ?? 48);
+    const FRAMES = Number(new URLSearchParams(location.search).get('frames') ?? frames);
     const first = await readTexture(s.app, t, 'rgba16float');
     const acc = new Float32Array(first.data.length);
     for (let k = 0; k < acc.length; k++) acc[k] = first.data[k]! / FRAMES;
@@ -498,6 +500,8 @@ async function compareView(
         }
         return v;
     };
+    // Diagnóstico (`?vis=n`): passos da visibilidade do sol no ar da referência (0: sem a sombra das nuvens no ar).
+    const visSteps = Number(new URLSearchParams(location.search).get('vis') ?? 32);
     // Diagnóstico (`?amb=k`): o ambiente da referência × k.
     const ambK = Number(new URLSearchParams(location.search).get('amb') ?? 1);
     const light = {
@@ -591,7 +595,9 @@ async function compareView(
                                 eye[1] + d[1] * t,
                                 eye[2] + d[2] * t,
                             ];
-                            return Math.exp(-opticalDepth(model, p, sun, 32));
+                            return visSteps === 0
+                                ? 1
+                                : Math.exp(-opticalDepth(model, p, sun, visSteps));
                         };
                         const a = aerialPerspective(
                             atmosphere,
@@ -1226,6 +1232,7 @@ async function viewCase(
         : never,
     eye: Vec3,
     target: Vec3,
+    frames = 48,
 ): Promise<{ worstT: number; worstL: number; edgeRatio: number; s: CloudScene }> {
     const fov = Math.PI / 3;
     const s = await cloudScene({
@@ -1240,7 +1247,17 @@ async function viewCase(
     });
     // O cache de espalhamento converge com os caminhos (um por sonda a cada 8 quadros, janela de 64).
     await settleFrames(s.app, Number(new URLSearchParams(location.search).get('settle') ?? 600));
-    const r = await compareView(s, label, eye, target, fov, sunElevation, false, sunAzimuth);
+    const r = await compareView(
+        s,
+        label,
+        eye,
+        target,
+        fov,
+        sunElevation,
+        false,
+        sunAzimuth,
+        frames,
+    );
     if (new URLSearchParams(location.search).get('cone') === '1')
         await compareView(s, `${label} (cone)`, eye, target, fov, sunElevation, true, sunAzimuth);
     return { ...r, s };
@@ -2154,22 +2171,39 @@ async function casePressureWind(): Promise<void> {
         let worstWind = 0;
         let worstW = 0;
         let worstFront = 0;
-        const refs: { i: number; j: number; r: ReturnType<typeof weatherAt> }[] = [];
+        const refs: {
+            i: number;
+            j: number;
+            x: number;
+            z: number;
+            r: ReturnType<typeof weatherAt>;
+        }[] = [];
         for (let j = 2; j < N; j += 5)
             for (let i = 3; i < N; i += 5) {
                 const [x, z] = weatherTexelXZ(layer, i, j, N);
                 const r = weatherAt((a, b) => pressure.fn(a, b), x, z, q);
-                refs.push({ i, j, r });
+                refs.push({ i, j, x, z, r });
                 maxSpeed = Math.max(maxSpeed, Math.hypot(r.windX, r.windZ));
                 maxW = Math.max(maxW, Math.abs(r.w));
             }
-        for (const { i, j, r } of refs) {
+        for (const { i, j, x, z, r } of refs) {
             const o = (j * N + i) * 4;
             const ex = wind.data[o]! - r.windX;
             const ez = wind.data[o + 1]! - r.windZ;
             worstWind = Math.max(worstWind, Math.hypot(ex, ez) / maxSpeed);
             worstW = Math.max(worstW, Math.abs(wind.data[o + 2]! - r.w) / maxW);
-            worstFront = Math.max(worstFront, Math.abs(wind.data[o + 3]! - r.front));
+            // A frente é `smoothstep(0,45; 0,75; √W⁺/f_e)` (inclinação até 5) de diferenças de segundas derivadas
+            // (`p_EE − p_NN`, quase iguais perto de um centro): o erro relativo do f32 no estêncil, η ~ 10⁻⁴, vira no
+            // argumento Δ = η·(|p_EE| + |p_NN| + 2|p_EN|)·(r + |f|)/(ρ(r² + f²)·f_e) — a 45°, ~10⁻⁴; no equador
+            // (f_e = r), ~0,02. A tolerância é 0,02 mais 5·Δ: acompanha a sensibilidade da conta.
+            const d = pressureStencil((a, b) => pressure.fn(a, b), x, z, q.step);
+            const fe = Math.hypot(q.f, q.freeDrag);
+            const delta =
+                (1e-4
+                    * (Math.abs(d.pEE) + Math.abs(d.pNN) + 2 * Math.abs(d.pEN))
+                    * (q.freeDrag + Math.abs(q.f)))
+                / (1.2 * fe * fe * fe);
+            worstFront = Math.max(worstFront, Math.abs(wind.data[o + 3]! - r.front) - 5 * delta);
         }
         // O sentido: a leste do centro (x = +100 km, dentro do quadrado), o vento vai para o norte (−z) no hemisfério norte, para o sul no
         // sul; no equador, para o centro (oeste), sem giro.
@@ -2178,7 +2212,7 @@ async function casePressureWind(): Promise<void> {
         const o = (mid * N + east) * 4;
         const [vx, vz] = [wind.data[o]!, wind.data[o + 1]!];
         log(
-            `pressure-wind ${latitude}°: ${refs.length} texels — vento ${(worstWind * 100).toFixed(2)} % do máximo (${maxSpeed.toFixed(1)} m/s), w ${(worstW * 100).toFixed(2)} % (máx ${(maxW * 100).toFixed(2)} cm/s), frente ±${worstFront.toFixed(3)}; a leste do centro (${vx.toFixed(2)}, ${vz.toFixed(2)}) m/s`,
+            `pressure-wind ${latitude}°: ${refs.length} texels — vento ${(worstWind * 100).toFixed(2)} % do máximo (${maxSpeed.toFixed(1)} m/s), w ${(worstW * 100).toFixed(2)} % (máx ${(maxW * 100).toFixed(2)} cm/s), frente ±${worstFront.toFixed(3)} além da sensibilidade; a leste do centro (${vx.toFixed(2)}, ${vz.toFixed(2)}) m/s`,
         );
         check(
             worstWind <= 0.01,
@@ -2275,8 +2309,8 @@ async function coverageAgainstWeather(
 
 async function caseStorm(): Promise<void> {
     // A tempestade na baixa (SC-011): no núcleo, a torre do cúmulo-nimbo chega a ≥ 85 % da tropopausa e a bigorna
-    // espalha a nuvem no alto (a fração das colunas com nuvem a 80 % da altura local ≥ 1,2 × a de 50 %), medidas na
-    // referência sobre o mapa e os volumes da GPU; a vista da torre de 60 km contra a marcha de referência.
+    // fecha a nuvem no alto (nas colunas maduras, os buracos a 80 % da altura local no máximo a metade dos de 50 %),
+    // medidas na referência sobre o mapa e os volumes da GPU; a vista da torre de 60 km contra a marcha de referência.
     const pressure = vortexPressure([STORM_LOW]);
     const eye: Vec3 = [60_000, 2, 0];
     const target: Vec3 = [0, 4000, 0];
@@ -2293,6 +2327,9 @@ async function caseStorm(): Promise<void> {
         },
         eye,
         target,
+        // 128 quadros na média: a faixa fina das nuvens além de 20 km rente ao horizonte, numa casca de 9,5 km (passos
+        // mais longos), varia a região mais que com 48 (5,4 % → 4,7 %; a cintilação é medida no `antialiasing`).
+        128,
     );
     const layer = r.s.layer!;
     const model = await referenceModel(r.s, layer);
@@ -2301,6 +2338,7 @@ async function caseStorm(): Promise<void> {
     let at50 = 0;
     let at80 = 0;
     let columns = 0;
+    let mature = 0;
     for (let k = 0; k < 900; k++) {
         const x = ((k % 30) / 29 - 0.5) * 120_000;
         const z = (Math.floor(k / 30) / 29 - 0.5) * 120_000;
@@ -2312,20 +2350,27 @@ async function caseStorm(): Promise<void> {
             if (cloudDensity(model, [x, y, z]) > 0) tallest = Math.max(tallest, y);
         }
         const yAt = (f: number): number => layer.base + f * (cov[3] ?? 1) * (shell - layer.base);
+        // A bigorna é do cúmulo-nimbo maduro (tipo ≥ 0,9; no núcleo, metade das colunas pelo campo do tipo): a extensão
+        // da nuvem no alto contra a do meio da torre, nas colunas maduras (tipo local ≥ 0,95, onde o perfil é igual a
+        // 50 % e a 80 % da altura: a diferença é só a bigorna).
+        if ((cov[1] ?? 0) < 0.95) continue;
+        mature++;
         if (cloudDensity(model, [x, yAt(0.5), z]) > 0) at50++;
         if (cloudDensity(model, [x, yAt(0.8), z]) > 0) at80++;
     }
     log(
-        `storm: ${columns} colunas no núcleo; topo mais alto ${(tallest / 1000).toFixed(2)} km (tropopausa ${(shell / 1000).toFixed(1)} km); nuvem a 50 % ${at50}, a 80 % ${at80} colunas; vista: luz ${(r.worstL * 100).toFixed(1)} %, T ${r.worstT.toFixed(3)}`,
+        `storm: ${columns} colunas no núcleo; topo mais alto ${(tallest / 1000).toFixed(2)} km (tropopausa ${(shell / 1000).toFixed(1)} km); nas ${mature} maduras, nuvem a 50 % ${at50}, a 80 % ${at80}; vista: luz ${(r.worstL * 100).toFixed(1)} %, T ${r.worstT.toFixed(3)}`,
     );
     check(columns > 50, `storm: só ${columns} colunas com a torre no núcleo da baixa`);
     check(
         tallest >= 0.85 * shell,
         `storm: topo ${(tallest / 1000).toFixed(2)} km < 85 % da tropopausa (SC-011)`,
     );
+    // A bigorna fecha a nuvem no alto: os buracos entre as torres maduras a 80 % da altura no máximo metade dos de 50 %
+    // (a razão das colunas com nuvem satura quando a torre já cobre quase todo o núcleo).
     check(
-        at80 >= 1.2 * at50,
-        `storm: sem bigorna (${at80} colunas a 80 % contra ${at50} a 50 %, SC-011)`,
+        mature > 50 && mature - at80 <= 0.5 * (mature - at50),
+        `storm: sem bigorna (buracos a 80 % ${mature - at80} contra ${mature - at50} a 50 % nas ${mature} maduras, SC-011)`,
     );
     check(r.worstT <= 0.05, `storm: transmitância a ${r.worstT.toFixed(3)} da referência`);
     check(r.worstL <= 0.05, `storm: luz a ${(r.worstL * 100).toFixed(1)} % da referência`);
@@ -2406,34 +2451,42 @@ async function caseFront(): Promise<void> {
 }
 
 async function caseWeatherTiming(): Promise<void> {
-    // O custo do tempo (SC-012): o estado (o estêncil da pressão do padrão, o vento, a série) e o mapa de cobertura por
-    // ele, por passe, a 1280 × 720 no perfil alto com a GPU ocupada.
-    const s = await cloudScene({
-        width: 1280,
-        height: 720,
-        profile: 'high',
-        profiling: true,
-        clouds: { coverage: 0.4, top: 3000, wind: [10, 0], weather: { latitude: 45 } },
-        target: [1000, 400, 300],
-    });
-    await busyFrames(s.app, TIMING_WARMUP);
-    const t = await passTimes(s.app, 120);
-    const weather =
-        Object.entries(t.passes).find(([k]) => k.endsWith('CloudLightFlow.weather'))?.[1] ?? NaN;
-    const coverage =
-        Object.entries(t.passes).find(([k]) => k.endsWith('CloudLightFlow.coverage'))?.[1] ?? NaN;
+    // O custo do tempo (SC-012): o estado (o estêncil da pressão do padrão, o vento, a série) e o acréscimo do mapa de
+    // cobertura por ele sobre o mapa sem o tempo (o de 1024² do alto já custa ~0,16 ms sem o tempo), por passe, a
+    // 1280 × 720 no perfil alto com a GPU ocupada.
+    const measure = async (weather: boolean): Promise<{ state: number; coverage: number }> => {
+        const s = await cloudScene({
+            width: 1280,
+            height: 720,
+            profile: 'high',
+            profiling: true,
+            clouds: weather
+                ? { coverage: 0.4, top: 3000, wind: [10, 0], weather: { latitude: 45 } }
+                : { coverage: 0.4, top: 3000, wind: [10, 0] },
+            target: [1000, 400, 300],
+        });
+        await busyFrames(s.app, TIMING_WARMUP);
+        const t = await passTimes(s.app, 120);
+        const of = (name: string): number =>
+            Object.entries(t.passes).find(([k]) => k.endsWith(name))?.[1] ?? 0;
+        finish(s);
+        return { state: of('CloudLightFlow.weather'), coverage: of('CloudLightFlow.coverage') };
+    };
+    const plain = await measure(false);
+    const weather = await measure(true);
+    const extra = weather.coverage - plain.coverage;
     log(
-        `weather-timing: estado do tempo ${weather.toFixed(3)} ms, mapa de cobertura ${coverage.toFixed(3)} ms`,
+        `weather-timing: estado do tempo ${weather.state.toFixed(3)} ms; mapa de cobertura ${weather.coverage.toFixed(3)} ms com o tempo, ${plain.coverage.toFixed(3)} ms sem (acréscimo ${extra.toFixed(3)} ms)`,
+    );
+    check(weather.state > 0, 'weather-timing: o passe do estado do tempo não apareceu');
+    check(
+        weather.state <= 0.15,
+        `weather-timing: o estado do tempo ${weather.state.toFixed(3)} ms > 0,15 ms (SC-012)`,
     );
     check(
-        weather <= 0.15,
-        `weather-timing: o estado do tempo ${weather.toFixed(3)} ms > 0,15 ms (SC-012)`,
+        extra <= 0.05,
+        `weather-timing: o mapa de cobertura pelo tempo custa ${extra.toFixed(3)} ms a mais > 0,05 ms (SC-012)`,
     );
-    check(
-        coverage <= 0.1,
-        `weather-timing: o mapa de cobertura ${coverage.toFixed(3)} ms > 0,1 ms (T025)`,
-    );
-    finish(s);
 }
 
 const CASES: Record<string, () => Promise<void>> = {

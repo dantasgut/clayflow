@@ -1,4 +1,5 @@
 import { wgslModule } from '../../../scene/shaders/WgslModule';
+import type { BindablePoint } from '../../../scene/shaders/bindPoints';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
@@ -260,6 +261,22 @@ export const skyAerialKernel = wgslModule({
 });
 
 /**
+ * A visibilidade do sol no ar do trecho além da tabela (`sky_aerial_far`; spec 041, R18/R19): pronta, 1 (sem o que tapa o
+ * sol). Quem tem a sombra das nuvens à mão (a marcha e o panorama das nuvens) troca pelo mapa visto do sol — as nuvens
+ * além de 32 km com o ar na frente delas sombreado como a tabela faz até 32 km.
+ */
+const skyAerialFarVisibilityReady = wgslModule({
+    name: 'sky_aerial_far_visibility_ready',
+    source: 'fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {\n    return 1.0;\n}',
+});
+
+/** Lugar da visibilidade do sol no trecho além da tabela (`bindPoints`). */
+export const skyAerialFarVisibilityPoint: BindablePoint = {
+    name: 'sky_aerial_far_visibility',
+    ready: skyAerialFarVisibilityReady,
+};
+
+/**
  * Leitura da perspectiva aérea (spec 041, R10): `sky_aerial(uv, dir, d)` pela tabela até 32 km e pela razão das
  * transmitâncias além; `sky_aerial_far` sem a tabela.
  */
@@ -275,6 +292,7 @@ export const skyAerialLookup = wgslModule({
         skyAerialLut,
         skyAerialTransmittanceLut,
         skySampler,
+        skyAerialFarVisibilityReady,
     ],
 });
 

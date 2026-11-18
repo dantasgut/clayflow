@@ -5,7 +5,13 @@ import { wgslResource, type WgslResource } from '../../../scene/shaders/WgslReso
 import { slot } from '../../../scene/flows/slots';
 import { camerasResource } from '../../scene/resources';
 import { cameraSpace } from '../../scene/flows/shaders';
-import { sky, skyAerialLookup, skyParamsResource } from '../../scene/sky/shaders';
+import {
+    sky,
+    skyAerialFarVisibilityPoint,
+    skyAerialLookup,
+    skyParamsResource,
+} from '../../scene/sky/shaders';
+import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { color, constants, random, viewSpace, xformRigid } from '../../gpu/shaders/math';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { CloudSchema } from './schemas';
@@ -699,8 +705,25 @@ export const cloudShadowKernel = wgslModule({
     ],
 });
 
-/** Marcha principal (sem e com amostras na profundidade da cena). */
-export const cloudMarchKernel = {
+/**
+ * A visibilidade do sol no ar além da tabela aérea pelo mapa visto do sol (R19): o ponto a `t_km` da câmera na direção
+ * `dir` (a posição da câmera do quadro, `clouds.eye`), `e^(−τ)` — as nuvens além de 32 km com o ar na frente sombreado
+ * como até 32 km (a tabela). Lugar `sky_aerial_far_visibility` da marcha e do panorama.
+ */
+const cloudAerialFarVisibility = wgslModule({
+    name: 'cloud_aerial_far_visibility',
+    requires: [cloudParamsResource, cloudShadowLookup],
+    source: `fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
+    return exp(-cloud_shadow_depth(clouds.eye.xyz + dir * (t_km * 1000.0)));
+}`,
+});
+
+/** A marcha e o panorama com a sombra das nuvens no ar além da tabela. */
+const withFarShadow = (m: WgslModule): WgslModule =>
+    bindPoints(m, new Map([[skyAerialFarVisibilityPoint, cloudAerialFarVisibility]]));
+
+/** Marcha principal (sem e com amostras na profundidade da cena), antes da sombra no ar além da tabela. */
+const cloudMarchBase = {
     single: wgslModule({
         name: 'cloud_march',
         source: cloudMarchSource,
@@ -739,6 +762,12 @@ export const cloudMarchKernel = {
             cloudOutputs.traceDepth,
         ],
     }),
+} as const;
+
+/** Marcha principal (sem e com amostras na profundidade da cena). */
+export const cloudMarchKernel = {
+    single: withFarShadow(cloudMarchBase.single),
+    multisampled: withFarShadow(cloudMarchBase.multisampled),
 } as const;
 
 /** Reconstrução temporal no alvo de ¼ (sem e com amostras na profundidade da cena). */
@@ -844,18 +873,20 @@ export const cloudScatterFilterKernel = wgslModule({
 });
 
 /** Panorama das nuvens vistas da câmera. */
-export const cloudPanoramaKernel = wgslModule({
-    name: 'cloud_panorama',
-    source: cloudPanoramaSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        constants,
-        cloudLight,
-        skyAerialLookup,
-        cloudParamsResource,
-        cloudOutputs.panorama,
-    ],
-});
+export const cloudPanoramaKernel = withFarShadow(
+    wgslModule({
+        name: 'cloud_panorama',
+        source: cloudPanoramaSource,
+        requires: [
+            WORKGROUP_SIZE.module,
+            constants,
+            cloudLight,
+            skyAerialLookup,
+            cloudParamsResource,
+            cloudOutputs.panorama,
+        ],
+    }),
+);
 
 // ── Contribuições ───────────────────────────────────────────────────────────────────────────────────────────────────
 
