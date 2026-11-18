@@ -1,6 +1,6 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResource } from '../../scene/shaders/WgslResource';
-import { sky, skySunTrack } from '../../elements/scene/sky/shaders';
+import { sky, skySunTrack, skySunVisibility } from '../../elements/scene/sky/shaders';
 import { cloudResources } from '../../elements/media/clouds/shaders';
 import { SCENE_FOG_BACKGROUND, sceneFogReady } from '../../elements/scene/points/media';
 import { refractionScreen } from '../../elements/lighting/refraction/shaders';
@@ -8,6 +8,8 @@ import { cameraSpace } from '../../elements/scene/flows/shaders';
 import skyCompositeSource from './sky_composite.wgsl?raw';
 import skyReactiveSource from './sky_reactive.wgsl?raw';
 import skyOverflowSource from './sky_overflow.wgsl?raw';
+import skyOverflowCommonSource from './sky_overflow_common.wgsl?raw';
+import skyOverflowVisibilitySource from './sky_overflow_visibility.wgsl?raw';
 import bloomSource from './effects/bloom.wgsl?raw';
 import { sharedConstant } from '../../scene/shaders/SharedConstant';
 import { OVERFLOW_UNIT } from '../app/FrameTargets';
@@ -940,28 +942,53 @@ fn sky_overflow_depth_size() -> vec2u {
     });
 
 /** Módulos do excesso do disco do sol: o shader (pelas amostras da profundidade e com ou sem nuvens) e a profundidade. */
-const skyOverflowModules = [false, true].flatMap((multisampled) =>
+const skyOverflowCommon = [false, true].map((multisampled) =>
+    wgslModule({
+        name: multisampled ? 'sky_overflow_common_ms' : 'sky_overflow_common',
+        source: skyOverflowCommonSource,
+        requires: [
+            viewSpace,
+            constants,
+            sky,
+            camerasResource,
+            skyOverflowDepthModule(multisampled),
+        ],
+    }),
+);
+
+const skyOverflowModules = [false, true].map((multisampled) =>
+    wgslModule({
+        name: `sky_overflow${multisampled ? '_ms' : ''}`,
+        source: skyOverflowSource,
+        requires: [
+            skyOverflowCommon[multisampled ? 1 : 0]!,
+            sceneFogReady,
+            SCENE_FOG_BACKGROUND.module,
+            OVERFLOW_UNIT_CONSTANT.module,
+            skySunVisibility.current,
+        ],
+    }),
+);
+
+const skyOverflowVisibilityModules = [false, true].flatMap((multisampled) =>
     [false, true].map((clouds) =>
         wgslModule({
-            name: `sky_overflow${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`,
-            source: skyOverflowSource,
+            name: `sky_overflow_visibility${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`,
+            source: skyOverflowVisibilitySource,
             requires: [
-                viewSpace,
-                constants,
-                sky,
-                camerasResource,
-                sceneFogReady,
-                SCENE_FOG_BACKGROUND.module,
-                OVERFLOW_UNIT_CONSTANT.module,
-                skyOverflowDepthModule(multisampled),
+                skyOverflowCommon[multisampled ? 1 : 0]!,
                 clouds ? SKY_DISK_COVER.clouds : SKY_DISK_COVER.clear,
+                skySunVisibility.previous,
+                skySunVisibility.out,
             ],
         }),
     ),
 );
 export const skyOverflow = {
-    module: (multisampled: boolean, clouds: boolean): WgslModule =>
-        skyOverflowModules[(multisampled ? 2 : 0) + (clouds ? 1 : 0)]!,
+    module: (multisampled: boolean): WgslModule => skyOverflowModules[multisampled ? 1 : 0]!,
+    /** A fração visível do disco (compute, um grupo), com ou sem as nuvens na frente dele. */
+    visibility: (multisampled: boolean, clouds: boolean): WgslModule =>
+        skyOverflowVisibilityModules[(multisampled ? 2 : 0) + (clouds ? 1 : 0)]!,
     depth: SKY_OVERFLOW_DEPTH,
 } as const;
 

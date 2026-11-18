@@ -179,6 +179,16 @@ export class Sky extends Entity<SkyData> implements Resource {
                 textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
                 history: { depth: 2 },
             },
+            // A fração do disco do sol que se vê da câmera (spec 041), série temporal da 037: a média no disco (o que
+            // está na frente dele, as nuvens) acumulada como a cor na resolução temporal — o excesso de energia do disco
+            // no espalhamento da lente não acompanha o deslocamento da amostra nem o ruído da marcha das nuvens.
+            {
+                id: 'sunVisibility',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                history: { depth: 2 },
+            },
             {
                 id: 'sampler',
                 role: 'sampler',

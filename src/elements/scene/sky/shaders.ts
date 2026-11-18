@@ -113,6 +113,36 @@ export const skySunTrack = Object.freeze({
     }),
 });
 
+/** Slot do canal temporal da fração visível do disco do sol (`Sky.sunVisibility`, spec 037/041). */
+export const skySunVisibilitySlots = Object.freeze({
+    skySunVisibility: slot.channel(SkySchema, 'sunVisibility'),
+});
+
+/**
+ * A fração visível do disco do sol pela série `Sky.sunVisibility` (spec 041): a escrita do quadro, a lida dele (pelo
+ * excesso do disco) e a do quadro anterior (acumulada).
+ */
+export const skySunVisibility = Object.freeze({
+    out: wgslResource({
+        name: 'sky_sun_visibility_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunVisibility', lag: 0 },
+    }),
+    current: wgslResource({
+        name: 'sky_sun_visibility',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunVisibility', lag: 0 },
+    }),
+    previous: wgslResource({
+        name: 'sky_sun_visibility_prev',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunVisibility', lag: 1 },
+    }),
+});
+
 /** Saídas dos kernels das tabelas (as texturas do `Sky`), privadas do `SkyFlow`. */
 export const skyOutputs = Object.freeze({
     transmittance: out('sky_transmittance_out'),

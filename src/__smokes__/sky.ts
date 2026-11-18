@@ -632,12 +632,7 @@ async function caseCrepuscular(): Promise<void> {
         const img = await readTexture(app, t, 'rgba16float');
         const lum: number[] = [];
         for (let k = 0; k < 32 * 32; k++)
-            lum.push(
-                (0.2126 * img.data[k * 4]!
-                    + 0.7152 * img.data[k * 4 + 1]!
-                    + 0.0722 * img.data[k * 4 + 2]!)
-                    * SUN_LUX,
-            );
+            lum.push(luminanceLinear(img.data.subarray(k * 4, k * 4 + 3)) * SUN_LUX);
         deficits.push(lum);
         dispose(app, canvas);
     }

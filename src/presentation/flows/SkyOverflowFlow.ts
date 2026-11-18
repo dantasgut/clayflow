@@ -4,9 +4,16 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { Flow } from '../../scene/flows/Flow';
-import { slot, type SingletonSlot, type SlotMap, type TextureSlot } from '../../scene/flows/slots';
+import {
+    slot,
+    type ChannelSlot,
+    type SingletonSlot,
+    type SlotMap,
+    type TextureSlot,
+} from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Sky } from '../../elements/scene/sky/Sky';
+import { skySunVisibilitySlots } from '../../elements/scene/sky/shaders';
 import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
 import { FrameTargets, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
 import { skyOverflow } from './shaders';
@@ -23,18 +30,22 @@ export interface SkyOverflowSlots extends SlotMap {
     readonly depth: TextureSlot<true>;
     /** A camada de nuvens: o disco atrás delas passa atenuado pela transmitância delas no pixel. */
     readonly cloud: SingletonSlot<true>;
+    /** A fração visível do disco, série temporal (spec 037): a anterior lida, a do quadro escrita. */
+    readonly skySunVisibility: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<SkyOverflowSlots>;
 
-const pipelineId = (multisampled: boolean, clouds: boolean): string =>
-    `sky_overflow${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`;
+const overflowId = (multisampled: boolean): string => `sky_overflow${multisampled ? '_ms' : ''}`;
+const visibilityId = (multisampled: boolean, clouds: boolean): string =>
+    `sky_overflow_visibility${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`;
 
 /**
  * SkyOverflowFlow — o disco do sol acima do teto da cor (spec 041; Camada 4). A radiância física do disco (~10⁹ nits ao
  * meio dia) passa do teto do alvo meio-float da cor (65504; o fundo guarda `SKY_SUN_DISK_MAX`): na fase `forward`, depois
- * da composição das nuvens, um retângulo em volta do disco escreve o excesso em `FrameTargets.overflow` (em unidades de
- * `OVERFLOW_UNIT`), com a cobertura do pixel pelo disco e atenuado pela névoa dos volumes e pelas nuvens na frente dele —
+ * da composição das nuvens, a fração visível do disco (a média no disco do que está na frente dele, acumulada pela série
+ * `Sky.sunVisibility`) e um retângulo em volta do disco que escreve o excesso em `FrameTargets.overflow` (em unidades de
+ * `OVERFLOW_UNIT`), com a cobertura do pixel pelo disco, a névoa dos volumes e a fração visível —
  * o espalhamento da lente (`Bloom`) soma a energia inteira do sol e o `PostFlow` limpa o alvo depois de ler. Sem disco,
  * nada.
  */
@@ -46,6 +57,7 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
         overflow: slot.texture(FrameTargets.schema, 'overflow', { optional: true }),
         depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
         cloud: slot.singleton(CloudLayer.schema, { optional: true }),
+        ...skySunVisibilitySlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -53,8 +65,8 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
 
     private readonly resources: ResourceDirectory;
     private readonly prepared = new Set<string>();
-    /** O pipeline do quadro, ou `undefined` sem disco ou sem os alvos. */
-    private current: string | undefined;
+    /** Os pipelines do quadro (a fração visível e o excesso), ou `undefined` sem disco ou sem os alvos. */
+    private current: readonly [string, string] | undefined;
     /** A profundidade ligada (outra = religa). */
     private boundDepth: unknown;
 
@@ -99,8 +111,16 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
     /** O retângulo do disco no alvo do excesso. */
     dispatch(frame: Frame, bound: BoundFlow<SkyOverflowSlots>): void {
         const overflow = bound.slots.overflow;
-        const p = this.current === undefined ? undefined : bound.pipelines.get(this.current);
-        if (overflow === undefined || p?.role !== 'render' || !p.ready) return;
+        if (this.current === undefined || overflow === undefined) return;
+        const v = bound.pipelines.get(this.current[0]);
+        const p = bound.pipelines.get(this.current[1]);
+        if (v?.role !== 'compute' || !v.ready || p?.role !== 'render' || !p.ready) return;
+        frame.compute('SkyOverflowFlow.visibility', (pass) => {
+            pass.bind.setPipeline(v.spec);
+            v.bindTo(pass.bind);
+            pass.dispatch.invocations(64, 64);
+        });
+        bound.slots.skySunVisibility.written();
         frame.render(
             { colorAttachments: [{ view: overflow.view, loadOp: 'load', storeOp: 'store' }] },
             'SkyOverflowFlow',
@@ -120,6 +140,7 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
         const depth = c.bound.slots.depth;
         if (sky.data.sunDisk !== 1 || targets === undefined || depth === undefined) return;
         this.resources.ensureAllocated(targets, 'overflow');
+        this.resources.ensureAllocated(sky, 'sunVisibility');
         if (c.bound.slots.overflow === undefined) return;
         const multisampled = targets.samples > 1;
         if (depth.view !== this.boundDepth) {
@@ -136,25 +157,34 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
         const cloud = c.bound.slots.cloud?.resource;
         const clouds =
             cloud !== undefined && this.resources.textureViewOf(cloud, 'view') !== undefined;
-        const id = pipelineId(multisampled, clouds);
+        const ids = [visibilityId(multisampled, clouds), overflowId(multisampled)] as const;
         // A variante que saiu (as nuvens entraram ou saíram) é solta: esperaria pelas texturas de quem saiu.
         for (const old of this.prepared)
-            if (old !== id) {
+            if (!ids.includes(old as never)) {
                 c.release(old);
                 this.prepared.delete(old);
             }
-        if (!this.prepared.has(id)) {
-            this.prepared.add(id);
+        if (!this.prepared.has(ids[0])) {
+            this.prepared.add(ids[0]);
             c.prepare({
-                id,
+                id: ids[0],
+                role: 'compute',
+                shader: skyOverflow.visibility(multisampled, clouds),
+                entryPoints: ['sky_overflow_visibility_main'],
+            });
+        }
+        if (!this.prepared.has(ids[1])) {
+            this.prepared.add(ids[1]);
+            c.prepare({
+                id: ids[1],
                 role: 'render',
-                shader: skyOverflow.module(multisampled, clouds),
+                shader: skyOverflow.module(multisampled),
                 entryPoints: ['sky_overflow_vs', 'sky_overflow_fs'],
                 topology: 'triangle-list',
                 cullMode: 'none',
                 colorTargets: [{ format: SCENE_COLOR_FORMAT }],
             });
         }
-        this.current = id;
+        this.current = ids;
     }
 }
