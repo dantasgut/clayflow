@@ -10,7 +10,8 @@
 levantamento, "Sim" para escrever a spec. Escopo levantado: camada de nuvens em altitude por marcha de raio própria;
 modelo de densidade (cobertura, altura por tipo, forma por ruído, erosão de borda, vento); luz da nuvem (autossombra,
 múltiplo espalhamento, fase de dois lobos, escurecimento de borda); integração com sombra no chão, céu, iluminação global,
-refração, reflexo e névoa; validação contra referência e limite de tempo no Apple M4.
+refração, reflexo e névoa; validação contra referência e limite de tempo no Apple M4. Acréscimo (2026-11-17): "Se fizer
+sentido considere zonas de baixa e alta pressão para formação de nuvens com tempestades" — o tempo (US5, FR-023–FR-028).
 
 ## Contexto e Problema
 
@@ -122,6 +123,38 @@ por pixel com a câmera girando.
    acima dos limites do smoke de antisserrilhado.
 3. **Given** o perfil baixo, **When** medido, **Then** o custo cai e a imagem continua sem faixas nem blocos.
 
+---
+
+### User Story 5 - O tempo: baixas, altas e tempestades (Priority: P2)
+
+Quem monta a cena liga o tempo na camada de nuvens: um campo de pressão em escala sinótica (centenas de km), do padrão
+da biblioteca ou de um grafo de nós da cena, com sistemas de alta e baixa que nascem, crescem, se desfazem e se
+deslocam. Nas baixas o ar converge e sobe: a cobertura aumenta e os cúmulos viram cúmulos-nimbos, torres até a
+tropopausa com o topo em bigorna. Nas altas o ar desce: o céu limpa ou fica com cúmulos rasos e estratos. Onde os
+sistemas se encontram, uma faixa de nuvens (a frente). O vento das nuvens sai da pressão — gira em volta das baixas no
+sentido anti-horário no hemisfério norte e horário no sul, pela latitude da cena — e leva as nuvens.
+
+**Why this priority**: o céu de um mundo vivo muda com o tempo; sem ele, a cobertura é um número ou um mapa pintado e
+uma tempestade não tem de onde nascer.
+
+**Independent Test**: uma cena com o tempo e uma baixa gaussiana conhecida: o vento da GPU contra a referência f64 (e a
+referência contra a solução analítica do vórtice), o sentido do giro no norte, no sul e no equador, a torre e a bigorna
+na baixa, a faixa entre uma baixa e uma alta, o custo; e o vídeo de uma tempestade se formando vista de longe.
+
+**Acceptance Scenarios**:
+
+1. **Given** uma baixa a 45° N, **When** o tempo é calculado, **Then** o vento das nuvens gira no sentido anti-horário
+   em volta dela com a velocidade do vento gradiente da referência, e a 45° S no horário.
+2. **Given** a mesma baixa no equador, **When** o tempo é calculado, **Then** o vento desce o gradiente da pressão
+   (atrito), finito, e muda continuamente com a latitude ao cruzar o equador.
+3. **Given** uma baixa que se aprofunda, **When** o tempo passa, **Then** as nuvens no centro dela crescem até a
+   tropopausa e abrem a bigorna no alto, em torno do tempo de formação, e o céu em volta (a subsidência) limpa.
+4. **Given** uma alta, **When** a cena é desenhada, **Then** a cobertura é menor que a do tempo bom e as nuvens são
+   rasas.
+5. **Given** uma baixa e uma alta vizinhas, **When** a cena é desenhada, **Then** uma faixa de nuvens fica entre elas.
+6. **Given** um grafo de nós da cena para a pressão, **When** ligado ao tempo, **Then** ele substitui o padrão, avaliado
+   na GPU.
+
 ### Edge Cases
 
 - Câmera dentro da nuvem (névoa densa) e acima da camada: nenhum corte, nenhum salto na transição.
@@ -134,6 +167,16 @@ por pixel com a câmera girando.
   pelas janelas), dentro do teto da SC-005.
 - GPU com limites menores (perfil de dispositivo mínimo): as nuvens abrem e funcionam com qualidade menor, sem erro.
 - Corte de câmera: o histórico é recomeçado sem rastro do quadro anterior.
+- O tempo no equador (f = 0): o vento continua finito e contínuo na latitude (o atrito; sem giro espontâneo), e os
+  sistemas do padrão ficam fracos (a anomalia escala com a rotação). Nos polos, f máximo.
+- Uma alta com gradiente forte demais para a curvatura (sem equilíbrio regular do vento gradiente): o vento fica no
+  teto do equilíbrio, sem estourar.
+- Tempo acelerado (Δt de segundos a minutos por quadro): a evolução do estado é estável (o relaxamento é exato para
+  qualquer Δt; a advecção é semi-Lagrangiana).
+- A função de pressão devolve valor não finito: vale 0. O tempo ligado ou desligado com a cena rodando, e outra camada no
+  mesmo quadro: os estágios se refazem sem esperar recurso que saiu.
+- A câmera fora do quadrado do tempo ou andando rápido: o estado recomeça onde não havia fatia anterior; além do
+  quadrado (256 km), o tempo bom.
 
 ## Requirements _(mandatory)_
 
@@ -197,6 +240,28 @@ por pixel com a câmera girando.
   com ou sem camada de nuvens, pela mesma tabela da atmosfera; as referências de imagem das cenas ao ar livre que
   mudarem são regravadas e relatadas com a comparação antes/depois.
 
+**Tempo (US5)**
+
+- **FR-023**: O motor MUST oferecer um campo de pressão em escala sinótica calculado na GPU, dado por um grafo de nós
+  ou WGSL trocável pela cena; o padrão da biblioteca MUST gerar sistemas de alta e baixa que se deslocam com o vento de
+  condução, nascem, crescem e se desfazem no tempo, contínuos no espaço e no tempo.
+- **FR-024**: O campo MUST ditar a cobertura, o tipo e a altura do topo das nuvens: a convergência e a subida nas
+  baixas (a relação de Ekman na camada limite) levam a mais cobertura e ao cúmulo-nimbo, torre até a tropopausa com o
+  topo em bigorna; a subsidência nas altas leva a céu limpo ou nuvens rasas; a deformação onde os sistemas se encontram
+  leva a uma faixa de nuvens (frente).
+- **FR-025**: O vento das nuvens MUST ser derivado da pressão — o equilíbrio do vento gradiente com atrito (o
+  geostrófico, o gradiente e o de atrito como limites), pelo parâmetro de Coriolis f = 2Ω sin φ da latitude da cena,
+  com o sentido do giro de cada hemisfério e o equador contínuo — somado ao vento de condução; ele MUST deslocar as
+  nuvens (o estado do tempo) e a reprojeção temporal.
+- **FR-026**: A evolução do tempo entre quadros MUST passar pelo canal temporal da spec 037 (o estado, trazido pelo
+  vento e relaxado para o que o tempo dita com o tempo de formação), sem estado fora dele; laços com teto constante;
+  nada na CPU.
+- **FR-027**: MUST existir referência f64 do tempo (pressão, derivadas, vento, Ekman, frente, mapeamento, relaxamento,
+  bigorna) com testes contra soluções analíticas (o vórtice gaussiano), separada do código de produção, e casos no smoke
+  pelo caminho de autoria contra ela.
+- **FR-028**: Sem o tempo, a camada MUST ser a de antes (nenhum pipeline novo, a mesma imagem); a API (`CloudLayer.weather`,
+  `CloudPressureFunction`) é aditiva, validada e documentada.
+
 ### Key Entities
 
 - **Camada de nuvens**: altitudes da base e do topo, cobertura, tipo, densidade, albedo, vento; pertence ao céu da cena.
@@ -205,6 +270,9 @@ por pixel com a câmera girando.
 - **Mapa de transmitância visto do sol**: a fração da luz direcional que atravessa as nuvens, lida por quem recebe a
   luz do sol.
 - **Histórico das nuvens**: a imagem acumulada entre quadros, pelo canal temporal da 037.
+- **Campo de pressão**: a anomalia de pressão (Pa) no plano e no tempo, por grafo de nós ou o padrão de sistemas.
+- **Estado do tempo**: cobertura pedida, tipo e topo no quadrado do tempo, série temporal da 037, trazido pelo vento das
+  nuvens e relaxado para o que a pressão dita; ao lado, o vento das nuvens, a subida e a frente.
 
 ## Success Criteria _(mandatory)_
 
@@ -226,6 +294,17 @@ por pixel com a câmera girando.
 - **SC-009**: Perspectiva aérea na geometria: luz espalhada e transmitância até superfícies a 2, 10 e 30 km dentro de 5 %
   da referência da atmosfera; com só o céu (sem nuvens), o custo novo fica até 0,25 ms no M4, perfil alto.
 
+- **SC-010**: Vento do tempo: a referência f64 a 0,1 % da solução analítica do vento gradiente de um vórtice gaussiano
+  (baixa e alta, regular e no teto, nos dois hemisférios); a GPU a 1 % do máximo da referência no vento e na subida
+  (45° N, 45° S, equador), com o sentido do giro certo; no equador, o vento desce o gradiente.
+- **SC-011**: Tempestade: no núcleo de uma baixa, o topo das nuvens chega a 85 % da tropopausa e a bigorna espalha a
+  nuvem no alto (a fração das colunas com nuvem a 80 % da altura local ≥ 1,2 × a de 50 %); a imagem dela a 5 % da
+  referência (SC-001); numa alta, a cobertura local abaixo da do lado da baixa.
+- **SC-012**: Custo do tempo no Apple M4, perfil alto, 1280 × 720: o estado ≤ 0,15 ms (≤ 1 % do quadro de 60 Hz) e o
+  mapa de cobertura por ele ≤ 0,1 ms; sem o tempo, custo zero.
+- **SC-013**: Vídeo de uma tempestade se formando numa baixa sobre o terreno, vista de longe com o tempo acelerado,
+  gravado e enviado, sem saltos nem cortes.
+
 ## Assumptions
 
 - A atmosfera física, o canal temporal da 037, o mapa de sombra virtual, a iluminação global e a refração da 034 estão
@@ -234,6 +313,8 @@ por pixel com a câmera girando.
 - O Apple M4 é o piso de desempenho; a RTX 4090 só confirma que nada é específico do Mac.
 - Unidades físicas: altitudes em metros/quilômetros, extinção em 1/m, vento em m/s.
 - Fora do escopo: o custo da refração da 034 (32 ms na lente, 81 ms na água funda no perfil alto), tratado em paralelo;
-  chuva e precipitação; raios e relâmpagos; simulação de dinâmica de fluidos das nuvens (formação, convecção).
+  chuva e precipitação; raios e relâmpagos; simulação de dinâmica de fluidos das nuvens e da atmosfera (formação,
+  convecção resolvida). O tempo (US5) é diagnóstico: a pressão é dada (padrão ou grafo), o vento e a subida vêm dela
+  pelos equilíbrios clássicos, e a convecção é parametrizada pela convergência na camada limite.
 - Políticas do projeto valem integralmente: Resource + evento + Flow, sem helpers, sem alocação de GPU em Flow, nada
   na CPU, laços de GPU com teto constante, produção sem importar as referências, multiplataforma, AAA sem falsear.

@@ -297,6 +297,150 @@ por amostra densa e 6 de luz em ~25 % delas → ~25 milhões de leituras por qua
 de textura. Médio: ≤ 2 ms; baixo: ≤ 1,2 ms. Só o céu, sem nuvens (a perspectiva aérea na geometria): tabela +
 composição ≈ 0,2 ms (SC-009). A medida por passe entra no bench (cena `clouds/*`) e no smoke.
 
+### R19 — O tempo: pressão, vento e tempestades (2026-11-18)
+
+**Pedido** (o usuário, 2026-11-17): "Se fizer sentido considere zonas de baixa e alta pressão para formação de nuvens
+com tempestades". Faz sentido: hoje a cobertura é um número, um mapa ou um grafo sem causa; o tempo dá a causa — a
+pressão — e dela saem, pelos equilíbrios clássicos da meteorologia dinâmica, o vento, a subida e a descida do ar e,
+com elas, onde há nuvens, de que tipo e até que altura. Fora do escopo: chuva, raios, dinâmica de fluidos da atmosfera
+e convecção resolvida (o modelo é diagnóstico: a pressão é dada; a convecção é parametrizada pela convergência).
+
+**Decisão**:
+
+1. **Campo de pressão** p(x, z, t) (Pa, a anomalia em torno da média), no ponto novo `cloud_pressure`
+   (`fn pressure_fn(xz, time, data) -> f32`, WGSL ou grafo; `CloudPressureFunction`), avaliado no referencial que anda
+   com o **vento de condução** (o `wind` da camada: a corrente que leva os sistemas, a do nível de ~500–700 hPa). Sem
+   função, o **padrão de sistemas** da biblioteca (`cloud_pressure_default.wgsl`): um reticulado de células de lado `L`
+   (`weather.scale`, padrão 1500 km), no máximo um sistema por célula, cada um o núcleo de suporte compacto
+   `A·(1 − d²/R²)³` (C²: o laplaciano, que dá a subida, é contínuo; a soma das 3 × 3 células é exata porque R ≤ L e o
+   centro fica no miolo da célula). A vida: a geração `floor(t/T + φ)` sorteia centro, tipo e força; o envelope
+   `sin²(π·idade)` nasce de zero, cresce e se desfaz — a troca de geração acontece com o sistema extinto, sem salto
+   (`T` = `weather.lifetime`, padrão 2 dias). Baixas com R = 0,75 L e amplitude `A` (padrão 1200 Pa); altas com R = L e
+   no máximo o teto do equilíbrio regular `0,8·ρ f_e² R²/24` (no centro de `A(1 − d²/R²)³`, |G|·κ = 6A/(ρR²) ≤ f²/4,
+   Holton §3.2.5) — largas e de gradiente fraco, como na atmosfera. A amplitude escala com a rotação, `A(φ) =
+   A₄₅·f_e(φ)/f_e(45°)` (a análise de escala do equilíbrio, Δp ~ ρ f U L: o vento característico fica o mesmo em toda
+   latitude, e perto do equador os sistemas são fracos, como lá são).
+
+2. **Coriolis**: f = 2Ω sin φ, Ω = 7,2921159·10⁻⁵ rad/s, φ = `weather.latitude` (padrão 45°). Plano f (um f para a
+   cena: os sistemas visíveis cabem em ~3° de latitude). Convenção: leste = +x, norte = −z (mão direita com y para cima).
+
+3. **Vento equilibrado**: das derivadas pelo estêncil de 9 pontos (lado `L/64`; erro O(h²/L²) ~ 2·10⁻⁴), com
+   G = −∇p/ρ (ρ = 1,2 kg/m³) em complexo (leste + i·norte), o equilíbrio estacionário entre o gradiente, Coriolis, a
+   centrífuga da curvatura das isóbaras e um atrito linear r:
+
+   `U = G / (r + i·a)`, a = f + κ_e·u_t, com u_t (a componente ao longo das isóbaras) a raiz regular de
+   `u_t (r² + a²) = |G|·a`.
+
+   Limites: κ = 0 → Guldberg–Mohn (1876), `U = G/(r + i f)`, o vento cruza as isóbaras para a baixa com o ângulo
+   atan(r/f); r → 0 → o **vento gradiente** (Holton §3.2, `V = −fR/2 + √(f²R²/4 + R·∂p/∂n/ρ)` na baixa); r → 0 e
+   κ → 0 → o **geostrófico** `u_g = −∂p/∂N/(ρf)`, `v_g = ∂p/∂E/(ρf)`; f → 0 → o **antitríptico** (o vento desce o
+   gradiente). O sentido do giro sai do sinal de f: u_t(−f) = −u_t(f) — anti-horário em volta da baixa no norte, horário
+   no sul. A curvatura das isóbaras `κ = (p_NN p_E² − 2 p_EN p_E p_N + p_EE p_N²)/|∇p|³` (positiva no anti-horário em
+   volta da baixa) entra como `κ_e = κ·f²/(f² + r²)`: perto do equador o escoamento sinótico é dominado pelo atrito e
+   não entra no ramo ciclostrófico espontâneo (a bifurcação de u_t em f = 0 daria um salto; os ciclones não se formam a
+   menos de ~5° do equador porque f ≈ 0, Gray 1968) — o vento é contínuo na latitude (teste: passos de 0,05° entre −3° e
+   3°). A raiz: no referencial f > 0, φ(0) = −|G|f ≤ 0 e φ(|G|/2r) = |G|(r − a)²/(2r) ≥ 0 — há sempre raiz; o intervalo
+   encolhe a |G|/f no ciclone e a 2|G|/f no anticiclone regular; varredura de 16 intervalos e bisseção de 24 no primeiro
+   que muda de sinal (a menor raiz: o ramo regular; teto constante). Sem raiz regular no anticiclone, o teto `a = f/2`,
+   `u_t = f/(2|κ_e|)` (a outra raiz, com a ≈ 0, daria |G|/r, sem sentido físico). Atritos: o da atmosfera livre r =
+   10⁻⁵ s⁻¹ (~1 dia; regulariza o equador) no vento das nuvens; o da camada limite `weather.friction` (padrão
+   6·10⁻⁵ s⁻¹: o vento perto do chão cruza as isóbaras a ~30° a 45°, o valor típico sobre terra) na subida. Conferido
+   na referência contra a solução analítica do vórtice gaussiano a 0,1 % (baixa e alta, regular e no teto, 45° N/S,
+   20°).
+
+4. **Subida (Ekman)**: a divergência do vento com atrito no plano f é `∇·U = −r∇²p/(ρ(r² + f²))` (o termo de Coriolis
+   não diverge); a continuidade na camada limite de espessura H = 1 km sobe o ar até o topo dela:
+   **`w = H·r·∇²p/(ρ(r² + f²))`** — positivo nas baixas (convergência), negativo nas altas (subsidência), finito no
+   equador. Com r ≪ f, `w = (H r/f)·ζ_g`, a forma do bombeamento de Ekman `w = √(K/2f)·ζ_g` (Holton, cap. 8) com o
+   modelo de lâmina (`H r/f = √(K/2f)`). Na baixa padrão (1200 Pa, R = 1125 km, 45°): ~4 cm/s no centro, a escala
+   sinótica.
+
+5. **Frentes**: onde os sistemas se encontram a deformação do vento domina a rotação — o parâmetro de Okubo–Weiss
+   `W = s_n² + s_s² − ζ²` (Okubo 1970; Weiss 1991) do vento de Guldberg–Mohn, das segundas derivadas da pressão. A
+   intensidade `smoothstep(0,45; 0,75; √max(W, 0)/f_e)`, calibrada na referência: em volta de um sistema isolado do
+   padrão, ≤ 0,41 (nenhuma faixa); entre uma baixa e uma alta vizinhas, 0,62; entre duas baixas, 0,81. A faixa só onde
+   o ar não desce (`F·(1 − descida)`): a faixa frontal é de convergência; no anel em volta de um vórtice intenso (Ro ≳ 1)
+   a deformação também domina, mas lá o ar desce (−0,2 a −0,8 m/s na baixa de mesoescala da cena `tempestade`). A
+   frontogênese de verdade pede um campo de temperatura (Petterssen 1936), que o modelo não tem: a deformação é o
+   indicador cinemático da zona frontal.
+
+6. **Do tempo às nuvens** (`weatherClouds`): com `lift = smoothstep(0; 2 cm/s; w)` e `sink = smoothstep(0; 1 cm/s; −w)`,
+   a subida leva a cobertura pedida a `max(c₀, 0,75)`, o tipo ao cúmulo-nimbo (1) e o topo à tropopausa (1); a
+   subsidência leva a cobertura a `c₀/4`, o tipo a `min(t₀, 0,25)` (estratocúmulo sob a inversão) e o topo a 0,6 do
+   tempo bom; a frente, a cobertura a 0,85, o topo a 0,55 da casca e o tipo a 0,3 (estratiforme espesso, onde não há
+   subida). `c₀`, `t₀` e o topo do tempo bom são os da camada (`coverage`, `type`, `top`): com o tempo, a casca vai da
+   base à **tropopausa** (`weather.tropopause`, padrão 11 km — a latitude média; 16–17 km nos trópicos) e o topo do
+   tempo bom é a fração `(top − base)/(tropopausa − base)`. A convergência como gatilho da convecção profunda é a
+   parametrização clássica (Charney & Eliassen 1964; Kuo 1974): o modelo não resolve a convecção, decide onde ela
+   acontece.
+
+7. **Evolução (série da 037)**: o estado (cobertura pedida, tipo, topo) num quadrado de 128² texels (~2 km) centrado na
+   câmera, do lado do mapa de cobertura, é **série temporal** (`weather`, `rgba32float`, `history: { depth: 2 }`): a
+   fatia anterior lida em `x − U·Δt` (semi-Lagrangiano: estável para qualquer Δt, inclusive o tempo acelerado) relaxa
+   para o alvo com o tempo de formação τ (`weather.formation`, padrão 20 min — a vida de uma célula convectiva):
+   `s = alvo + (antes − alvo)·e^(−Δt/τ)` — as nuvens se formam e se desfazem em τ e andam com o vento local, girando em
+   volta das baixas. 32 bits porque o passo por quadro é ~10⁻⁵ (Δt/τ a 60 Hz): em 16 bits (2,4·10⁻⁴ perto de 0,5) se
+   perderia. O centro do quadrado é calculado no shader pela vista (o de agora) e pela vista anterior (o da fatia
+   anterior), a mesma conta nos dois lados — nada guardado fora da 037. Sem histórico (primeiro quadro, corte, fora da
+   fatia anterior), o alvo.
+
+8. **O cúmulo-nimbo**: a torre até a tropopausa pelo **topo local** — o canal A do mapa de cobertura, a fração de altura
+   do topo das nuvens na casca: o perfil de altura vai da base ao topo local (`h_l = h/topo`), não ao da casca; sem o
+   tempo, 1 (o resultado de antes). A **bigorna** pelo `anvil bias` do Nubis (Schneider 2017): perto do topo da torre
+   (h_l 0,65–0,85) a cobertura sobe como `c^e`, `e = 1 − 0,6·a`, `a = smoothstep(0,9; 1; tipo)` — só o cúmulo-nimbo
+   maduro (o ar que sobe na torre sai para os lados onde a estabilidade da tropopausa o para: Houze 2014, cap. 8). Com
+   tipo < 0,9, nada muda (as cenas sem o tempo, tipo 0,5 ± 0,4, não mudam); o teto do rastreamento delta passa a
+   `teto^e` quando o tipo local alcança 0,9.
+
+9. **O vento na marcha e no deslocamento**: o estado do tempo anda com o vento local (item 7); a reconstrução temporal
+   reprojeta pelo vento do quadrado do tempo no ponto da nuvem (lugar `cloud_wind_at`; sem o tempo, o uniforme). O ruído
+   de forma segue com o vento de condução (exato, módulo o período, R6): é a turbulência de pequena escala; a estrutura
+   sinótica (onde há nuvens, o tipo, a altura) é a que gira com o vento local.
+
+10. **Fora do quadrado** (256 km de lado no alto, o do mapa de cobertura): o tempo bom (a densidade fora do mapa usa a
+    cobertura, o tipo e o topo do tempo bom); na borda (1/16 do lado) o estado cede ao tempo bom, sem costura. As torres
+    de uma tempestade a mais de 128 km da câmera não aparecem — limite do quadrado, registrado (o horizonte das torres
+    de 11 km fica a ~370 km).
+
+**Racional**: os equilíbrios (geostrófico, gradiente, Guldberg–Mohn, Ekman) são a física de primeira ordem da escala
+sinótica, com solução fechada por ponto — trabalho fixo por texel, sem simulação de fluido; o estado pela 037 dá a
+inércia das nuvens (formar e desfazer leva tempo) e o transporte pelo vento local, sem estado fora do canal; o grafo de
+pressão deixa a cena desenhar o tempo (uma frente fria, um ciclone) e o padrão dá um tempo plausível sem autoria.
+
+**Alternativas rejeitadas**: (a) simular a atmosfera (equações primitivas, convecção resolvida) — fora do escopo, ordens
+de grandeza além do orçamento; (b) mapas de tempo autorados misturados no tempo (o caminho do Nubis) — sem causa física,
+o vento não sai da pressão; (c) só o geostrófico — diverge no equador e ignora a curvatura (erra 30–50 % numa baixa
+intensa); (d) o estado em 16 bits — o relaxamento se perde; (e) o estado na CPU — proibido; (f) a deformação total
+`D = √(s_n² + s_s²)` como frente — acende um anel em volta de todo vórtice; (g) o vento local no ruído de forma por
+mapa de fluxo de duas fases — dobraria a leitura mais cara da marcha e só imita o transporte por uma janela de tempo.
+
+**Como a indústria trata o tempo e o cúmulo-nimbo**:
+
+- **Decima / Nubis** (Schneider & Vos 2015; Schneider 2017, 2022, 2023): o _weather map_ é autorado ou procedural — em
+  Horizon Zero Dawn, cobertura, precipitação e tipo de nuvem por canal; o Nubis de 2017 acrescenta a altura e o
+  `anvil bias` (a cobertura elevada a um expoente menor que 1 no alto da nuvem) para o cúmulo-nimbo; em Horizon Forbidden
+  West, as tempestades são volumes de nuvem modelados (voxels) — não há pressão nem vento derivado: o tempo é direção de
+  arte, misturada no tempo.
+- **Unreal Engine 5** (Volumetric Cloud Component, Hillaire 2020): a densidade é um material que o usuário escreve (em
+  geral lendo um _weather map_ de cobertura e tipo e um perfil vertical); a camada tem altitude e espessura; o vento e o
+  tempo são parâmetros do material — sistemas de tempo são de terceiros e também autorais.
+- **Frostbite** (Hillaire 2016): a distribuição das nuvens por uma textura de tempo (cobertura e tipo) pintada ou
+  procedural, o perfil vertical por tipo numa textura; sem dinâmica.
+
+Nenhuma das três deriva o vento da pressão nem forma a tempestade pela convergência: o motor passa a ter a causa, e o
+grafo de pressão ocupa o lugar do mapa autorado (a cena ainda desenha o tempo, agora pela pressão).
+
+**Ligações** (inferência do layout pela composição real): `cloud_weather_map` — storage 1 (`cameras`), amostradas 1 (a
+fatia anterior), storage textures 2 (o estado, o vento), uniformes 1, mais o pool da função de pressão quando ela tem
+parâmetros; `cloud_coverage_weather` — storage 1, amostradas 1, storage texture 1, uniforme 1 (o do mapa de cobertura
+sem o tempo: uniforme 1, storage texture 1); a reconstrução com o tempo — +1 amostrada (o vento) e +1 amostrador
+(antes: amostradas 5, uniforme 1, storage 1, storage textures 2). As marchas, a sombra, o panorama e os caminhos não
+mudam de ligações (o topo local vem do canal A do mapa de cobertura que eles já leem).
+
+**Custo estimado** (a medir, SC-012): o estado 128² × (9 avaliações da pressão × 9 células do padrão + 40 avaliações da
+raiz do vento) ≈ 1,3 M núcleos e 0,7 M avaliações por quadro — ~0,02–0,05 ms no M4; o mapa de cobertura pelo tempo, o
+de hoje mais 4 leituras por texel (~0,03 → ~0,04 ms).
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,
@@ -313,6 +457,23 @@ composição ≈ 0,2 ms (SC-009). A medida por passe entra no bench (cena `cloud
 - Unreal Engine, "Volumetric Cloud Component"
   ([documentação](https://dev.epicgames.com/documentation/unreal-engine/volumetric-cloud-component-in-unreal-engine)):
   marcha em resolução reduzida com reconstrução temporal, _Beer shadow map_, captura do céu com nuvens.
+- Holton & Hakim, _An Introduction to Dynamic Meteorology_, 5.ª ed., Academic Press, 2013 (§2.4 o vento
+  geostrófico, §3.2 o vento gradiente e o teto do anticiclone, cap. 8 a camada de Ekman e o bombeamento) (R19).
+- Guldberg & Mohn, _Études sur les mouvements de l'atmosphère_, 1876 (o equilíbrio com atrito linear) (R19).
+- Charney & Eliassen, "On the growth of the hurricane depression", _J. Atmos. Sci._ 21, 1964; Kuo, "Further studies of
+  the parameterization of the influence of cumulus convection on large-scale flow", _J. Atmos. Sci._ 31, 1974 (a
+  convergência como gatilho da convecção) (R19).
+- Okubo, "Horizontal dispersion of floatable particles in the vicinity of velocity singularities such as convergences",
+  _Deep-Sea Research_ 17, 1970; Weiss, "The dynamics of enstrophy transfer in two-dimensional hydrodynamics", _Physica D_
+  48, 1991 (o parâmetro de Okubo–Weiss) (R19).
+- Petterssen, "Contribution to the theory of frontogenesis", _Geofysiske Publikasjoner_ 11, 1936 (a deformação e as
+  frentes) (R19).
+- Gray, "Global view of the origin of tropical disturbances and storms", _Mon. Wea. Rev._ 96, 1968 (os ciclones longe
+  do equador) (R19).
+- Houze, _Cloud Dynamics_, 2.ª ed., Academic Press, 2014 (cap. 8, o cúmulo-nimbo e a bigorna na tropopausa) (R19).
+- Schneider, "Nubis, Evolved: Real-Time Volumetric Clouds for Skies, Environments, and VFX", SIGGRAPH 2022 Advances;
+  Schneider, "Nubis³: Methods (and madness) to model and render immersive real-time voxel-based clouds", SIGGRAPH 2023
+  Advances (as tempestades por volumes modelados) (R19).
 
 ## Implementação — decisões e medidas (2026-11-17)
 

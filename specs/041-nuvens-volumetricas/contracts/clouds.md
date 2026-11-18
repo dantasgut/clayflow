@@ -28,7 +28,39 @@ export interface CloudLayerValues {
   readonly shapeScale?: number;
   /** Metros por período do volume de detalhe. Default 1800. */
   readonly detailScale?: number;
+  /**
+   * O tempo (R19): o campo de pressão dita a cobertura, o tipo, o topo e o vento das nuvens. Com ele, `coverage`
+   * (número), `type` e `top` são o tempo bom; a casca vai da base à tropopausa. Sem ele, a camada de antes.
+   */
+  readonly weather?: CloudWeatherValues;
 }
+
+/** O tempo das nuvens (R19). Leste = +x, norte = −z. */
+export interface CloudWeatherSettings {
+  /** Latitude (graus, −90 a 90): f = 2Ω sin φ e o sentido do giro. Default 45. */
+  readonly latitude: number;
+  /** Lado das células do padrão (m); também a escala do estêncil (`scale/64`). Default 1 500 000. */
+  readonly scale: number;
+  /** Amplitude das baixas do padrão a 45° (Pa); escala com a rotação na latitude. Default 1200. */
+  readonly amplitude: number;
+  /** Vida de um sistema do padrão (s). Default 172 800. */
+  readonly lifetime: number;
+  /** Atrito linear da camada limite (1/s). Default 6·10⁻⁵. */
+  readonly friction: number;
+  /** Tempo de formação das nuvens (s). Default 1200. */
+  readonly formation: number;
+  /** Tropopausa (m acima do chão; > `top`): o topo da casca. Default 11 000. */
+  readonly tropopause: number;
+  /** Semente do padrão (inteiro ≥ 0). Default 0. */
+  readonly seed: number;
+}
+
+export interface CloudWeatherValues extends Partial<CloudWeatherSettings> {
+  /** Campo de pressão: grafo de nós ou WGSL do ponto `cloud_pressure`. Default: o padrão de sistemas. */
+  readonly pressure?: CloudPressureOptions;
+}
+
+export const CLOUD_WEATHER_DEFAULTS: CloudWeatherSettings;
 
 /**
  * Camada de nuvens volumétricas (Camada 3, spec 041): um meio participante entre duas altitudes sobre o planeta do
@@ -40,11 +72,18 @@ export interface CloudLayerValues {
 export class CloudLayer extends Entity<CloudLayerData> implements Resource {
   constructor(values?: CloudLayerValues);
   // getters/setters de todos os campos de CloudLayerValues
+  /** O tempo, ou `undefined`; atribuir (parcial) liga ou ajusta, `undefined` desliga (a função de pressão é a da criação). */
+  weather: CloudWeatherSettings | undefined;
+  /** A função de pressão (com `weather.pressure`). */
+  readonly pressureFunction: CloudPressureFunction | undefined;
+  /** O topo da casca: a tropopausa com o tempo, `top` sem. */
+  readonly shellTop: number;
 }
 ```
 
 Erros: `RangeError` para `top ≤ base`, cobertura/tipo/albedo fora de [0, 1], `dropletDiameter` fora de [5, 50],
-valores não finitos. Sem `Sky` na cena: aviso único (`consumerMissing`, a prontidão da 034) e nada é desenhado.
+valores não finitos; com o tempo: latitude fora de [−90, 90], escala/vida/atrito/formação ≤ 0, amplitude < 0,
+tropopausa ≤ `top`, semente não inteira, cobertura por função. Sem `Sky` na cena: aviso único (`consumerMissing`, a prontidão da 034) e nada é desenhado.
 
 ## Funções de extensão
 
@@ -55,6 +94,9 @@ export class CloudShapeFunction extends ExtensionFunction {}
 export class CloudCoverageFunction extends ExtensionFunction {}
 export type CloudShapeOptions = ExtensionFunctionOptions;
 export type CloudCoverageOptions = ExtensionFunctionOptions;
+/** `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32` — a anomalia de pressão (Pa), R19. */
+export class CloudPressureFunction extends ExtensionFunction {}
+export type CloudPressureOptions = ExtensionFunctionOptions;
 ```
 
 Grafos de nós valem nos dois (como em `DensityFunction`). O grafo de forma deve usar ruídos com `period` para o
@@ -87,6 +129,15 @@ nada). As referências de imagem afetadas são regravadas e relatadas.
 
 `RENDER_PROFILES[profile].clouds`: `{ steps, lightSteps, octaves, panorama: [w, h], shadow: { size, extent },
 coverageExtent, scatter: { size: [x, altitude, z], stride, collisions } }` (o cache de espalhamento, T023) (valores em [research.md R15](../research.md)). Os tetos de custo são do perfil; a `CloudLayer` só descreve o meio.
+
+## O tempo (R19)
+
+Com `weather`, o `CloudLightFlow` despacha `CloudLightFlow.weather` (o estado, série da 037, e o vento das nuvens) antes
+do mapa de cobertura, que passa a ser escrito pelo estado (`cloud_coverage_weather`); a reconstrução temporal reprojeta
+pelo vento do tempo (`cloud_wind_at`). Sem `weather`, nenhum pipeline novo e o mesmo WGSL das marchas. A densidade lê o
+topo local (canal A do mapa; 1 sem o tempo) e tem a bigorna do cúmulo-nimbo maduro (tipo ≥ 0,9) em todo caso.
+Exportados: `CloudLayer.weather`, `CloudWeatherSettings`, `CloudWeatherValues`, `CLOUD_WEATHER_DEFAULTS`,
+`CloudPressureFunction`, `CloudPressureOptions`, `cloudPressurePoint`, `CLOUD_WEATHER_SIZE`.
 
 ## Eventos
 

@@ -155,6 +155,34 @@ girando e vento no smoke de antisserrilhado, o interior com a camada (≤ 0,3 ms
 
 ---
 
+## Phase 8: User Story 5 — O tempo: baixas, altas e tempestades (Priority: P2)
+
+**Goal**: um campo de pressão sinótico (padrão ou grafo) dita a cobertura, o tipo e o topo das nuvens e o vento que as
+leva: tempestades (cúmulos-nimbos até a tropopausa, com bigorna) nas baixas, céu limpo nas altas, faixas nas frentes
+(FR-023–FR-028, R19).
+
+**Independent Test**: uma baixa gaussiana conhecida: o vento da GPU contra a referência f64 (e esta contra a solução
+analítica) no norte, no sul e no equador; a torre e a bigorna; a faixa entre uma baixa e uma alta; o custo; o vídeo
+`tempestade` (SC-010–SC-013).
+
+- [x] T045 [P] [US5] Referência f64 do tempo em `src/elements/media/clouds/reference/cloudWeather.ts`: o padrão de sistemas (núcleo C², vida sin², altas com o teto do equilíbrio regular, amplitude por f_e), o estêncil de 9 pontos, o vento equilibrado `U = G/(r + i(f + κ_e u_t))`, Ekman, Okubo–Weiss e a frente, o mapeamento para cobertura/tipo/topo e o relaxamento; testes AAA em `reference/__tests__/cloudWeather.test.ts`. — **Feito (`4864cc59`, `08db3cdc`): 21 testes — o vórtice gaussiano contra o vento gradiente analítico a 0,1 % (baixa e alta regular a 45° N/S, alta no teto fR/2, baixa a 20°), o sentido do giro nos dois hemisférios, Guldberg–Mohn (ângulo atan(r/f)), o equador (antitríptico, contínuo em passos de 0,05° entre −3° e 3°, norte e sul espelhados), Ekman contra o laplaciano fechado e a forma (H r/f)·ζ_g, Okubo–Weiss (rotação e deformação puras), a frente (sistema isolado 0, par baixa–alta > 0,5; calibrada: isolado ≤ 0,41, par 0,62, duas baixas 0,81 → faixa 0,45–0,75), a faixa suprimida na subsidência, o relaxamento (semigrupo), o padrão contínuo no tempo (10 min ≤ 1,2 % da amplitude em 4 vidas) e no espaço (laplaciano contínuo na borda das células).**
+- [x] T046 [P] [US5] O topo local e a bigorna na referência (`cloudModel.ts`: o quarto canal da cobertura, `anvilExponent`), com testes. — **Feito (`4864cc59`): sem o quarto canal, o resultado de antes (bit a bit); a bigorna só com tipo ≥ 0,9, `c^e` contra a conta fechada.**
+- [ ] T047 [GPU] [US5] O kernel do tempo (`gpu/wgsl/clouds/cloud_weather.wgsl`, `cloud_pressure_default.wgsl`, `cloud_weather_grid.wgsl`, `cloud_weather_map.wgsl`) no `CloudLightFlow` (`CloudLightFlow.weather`, antes do mapa de cobertura): o estado como série da 037 (`weather`, `rgba32float`, 128²) trazido pelo vento e relaxado, e o vento/subida/frente (`weatherWind`); o centro do quadrado calculado no shader pela vista e pela vista anterior. — **Código feito (`d60a8abc`, `08db3cdc`), WGSL validado pelo naga (CPU) e a composição nos testes (`shaders.test.ts`: laços de teto constante — 9 células, varredura de 16, bisseção de 24); ligações: storage 1, amostradas 1, storage textures 2, uniforme 1 (+ o pool da função de pressão com parâmetros). Falta na GPU: o teste contra a referência (T052) e o tempo (T055).**
+- [ ] T048 [GPU] [US5] O mapa de cobertura pelo estado (`cloud_coverage_weather.wgsl`: as células de cúmulos por cima, o topo local no canal A, a borda cedendo ao tempo bom) e a densidade com o topo local e a bigorna (`cloud_density.wgsl`, `cloud_common.wgsl`; o teto do rastreamento delta com a bigorna). — **Código feito (`d60a8abc`); sem o tempo e com tipo < 0,9 a densidade é a de antes (o canal A é 1 e o expoente 1, sem `pow`). Ligações do mapa com o tempo: storage 1, amostradas 1, storage texture 1, uniforme 1 (sem: uniforme 1, storage texture 1); as marchas, a sombra, o panorama e os caminhos não mudam. Falta na GPU: T052, T053 e a regressão do `clouds` (T055).**
+- [ ] T049 [GPU] [US5] A reconstrução temporal pelo vento do tempo (lugar `cloud_wind_at`; `cloud_wind_weather.wgsl`). — **Código feito (`d60a8abc`); sem o tempo, o mesmo vento uniforme. Ligações: +1 amostrada e +1 amostrador com o tempo. Falta na GPU: o `antialiasing` com o tempo e o vídeo (T055, T056).**
+- [x] T050 [US5] API: `CloudLayer.weather` (valores, padrões `CLOUD_WEATHER_DEFAULTS`, validação com `RangeError`, ligar/ajustar/desligar), `shellTop`, `pressureFunction`, a `CloudPressureFunction` (ponto `cloud_pressure`), o empacotamento no `CloudNoiseFlow` (f, atritos, amplitude na latitude, teto das altas, topo do tempo bom, estêncil, validade do estado), o consumidor `CloudLayer.weatherWind`, JSDoc e exportações; testes. — **Feito (`d60a8abc`): `weather.test.ts` (padrões, validação, ligar/desligar, descritores, o uniforme contra a referência, o ciclo de vida: ligar, trocar a função de pressão e desligar, pronto em cada passo).**
+- [x] T051 [US5] Achado: o `SkyCompositeFlow` com outra camada no mesmo quadro (o A/B sem quadro entre as duas) esperava a vista da camada antiga — refaz os pipelines quando a camada muda. — **Feito (`d60a8abc`): caso novo no `lifecycle.test.ts`.**
+- [ ] T052 [GPU] [US5] Smoke `clouds`, caso `pressure-wind`: o vento, a subida e a frente da GPU contra a referência numa baixa gaussiana a 45° N, 45° S e no equador (≤ 1 % do máximo; o sentido do giro; no equador, descendo o gradiente) e o mapa de cobertura pelo tempo contra o mapeamento (≤ 3/255) (SC-010). — **Caso escrito (`cb2defba`), não rodado.**
+- [ ] T053 [GPU] [US5] Smoke `clouds`, caso `storm`: a torre ≥ 85 % da tropopausa e a bigorna (colunas a 80 % ≥ 1,2 × as de 50 %) sobre o mapa e os volumes da GPU, e a vista de 60 km contra a marcha de referência (≤ 5 %) (SC-011). — **Caso escrito (`cb2defba`), não rodado.**
+- [ ] T054 [GPU] [US5] Smoke `clouds`, caso `front`: a faixa entre uma baixa e uma alta (frente ≥ 0,5, a referência ±0,02) e a alta mais limpa que a baixa. — **Caso escrito (`cb2defba`), não rodado.**
+- [ ] T055 [GPU] [US5] Tempo e regressão: caso `weather-timing` (o estado ≤ 0,15 ms, o mapa de cobertura ≤ 0,1 ms no alto, SC-012); o `clouds` inteiro (o topo local e a bigorna: `types` com tipo 1 muda junto com a referência), `sky`, `antialiasing` (`cloudsMotion`), `limits`, `adapterLimits`, `readiness`, `deviceFloor` sem regressão. — **Caso escrito (`cb2defba`), não rodado.**
+- [ ] T056 [US5] Cena `tempestade` no claflow-web (uma baixa de mesoescala se aprofundando a 70 km sobre o terreno gramado, vista de longe, câmera parada, tempo a 1080 ×) e o vídeo (porta 5184) (SC-013). — **Cena feita (claflow-web `d58e538`), não gravada.**
+- [x] T057 [P] [US5] Docs: spec (US5, FR-023–FR-028, SC-010–SC-013, casos de borda), research R19, data-model, contrato, plan, guia `clay-engine-doc/docs/guides/clouds.md` (o tempo). — **Feito.**
+
+**Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
+
+---
+
 ## Dependencies & Execution Order
 
 - **Setup (Fase 1)**: T001 → T002; T003 → T004. T003 pode começar junto com T001.
@@ -168,7 +196,9 @@ girando e vento no smoke de antisserrilhado, o interior com a camada (≤ 0,3 ms
 - **US3 (Fase 5)**: depende de US1 (marcha) e de T013 (`sky_cover`); independe da US2. T029 → T030; T031 em paralelo
   com T029; T032 e T033 fecham.
 - **US4 (Fase 6)**: depende de US1–US3 (mede tudo). T034 primeiro; T035–T038 depois, T038 em paralelo.
-- **Fechamento (Fase 7)**: depende de todas as histórias.
+- **Fechamento (Fase 7)**: depende de todas as histórias (inclusive a US5).
+- **US5 (Fase 8)**: depende de US1–US3 (marcha, densidade, mapa de cobertura, reconstrução). T045 e T046 primeiro (a
+  referência antes do shader); T047 → T048 → T049; T050 junto; T052–T055 depois dos kernels; T056 por último.
 
 ### Parallel Example
 
