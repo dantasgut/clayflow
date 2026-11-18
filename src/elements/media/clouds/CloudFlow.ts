@@ -56,7 +56,7 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     private views: readonly unknown[] = [];
     private march: string | undefined;
     private upsample: string | undefined;
-    private prepared = false;
+    private reconstruct: string | undefined;
     private active = false;
     /** A camada das ligações privadas. */
     private layer: CloudLayer | undefined;
@@ -103,7 +103,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<CloudSlots>): void {
         if (!this.active || this.march === undefined || this.upsample === undefined) return;
         const march = bound.pipelines.get(this.march);
-        const reconstruct = bound.pipelines.get('cloud_reconstruct');
+        if (this.reconstruct === undefined) return;
+        const reconstruct = bound.pipelines.get(this.reconstruct);
         const upsample = bound.pipelines.get(this.upsample);
         if (
             march?.role !== 'compute'
@@ -146,10 +147,10 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     /** Solta os pipelines e as ligações (sem céu nada roda). */
     private release(c: Ctx): void {
         this.active = false;
-        if (this.prepared) c.release('cloud_reconstruct');
+        if (this.reconstruct !== undefined) c.release(this.reconstruct);
         if (this.march !== undefined) c.release(this.march);
         if (this.upsample !== undefined) c.release(this.upsample);
-        this.prepared = false;
+        this.reconstruct = undefined;
         this.march = undefined;
         this.upsample = undefined;
         this.views = [];
@@ -198,22 +199,24 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
             );
             this.views = sources;
         }
-        if (!this.prepared) {
-            c.prepare({
-                id: 'cloud_reconstruct',
-                role: 'compute',
-                shader: cloudReconstructKernel,
-                entryPoints: ['cloud_reconstruct_main'],
-            });
-            this.prepared = true;
-        }
         const variant = multisampled ? 'ms' : '1';
         const marchId = `cloud_march:${variant}`;
         if (marchId !== this.march) {
             if (this.march !== undefined) c.release(this.march);
+            if (this.reconstruct !== undefined) c.release(this.reconstruct);
             if (this.upsample !== undefined) c.release(this.upsample);
             this.march = marchId;
+            this.reconstruct = `cloud_reconstruct:${variant}`;
             this.upsample = `cloud_upsample:${variant}`;
+            // A reconstrução lê a profundidade da cena (a superfície de cada texel), como a marcha e o aumento.
+            c.prepare({
+                id: this.reconstruct,
+                role: 'compute',
+                shader: multisampled
+                    ? cloudReconstructKernel.multisampled
+                    : cloudReconstructKernel.single,
+                entryPoints: ['cloud_reconstruct_main'],
+            });
             c.prepare({
                 id: this.march,
                 role: 'compute',

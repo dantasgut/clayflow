@@ -6,11 +6,13 @@
 // céu):
 //   final = Sfog + Tfog·(Sc + Tc·(L·Ta + Sa)) = cor·Tc + Sfog·(1 − Tc) + Tfog·Sc
 // Dois passes com mistura do hardware: o produto `cor·Tc` (`sky_composite_multiply_fs`, mistura `dst·src`) e a soma do
-// resto (`sky_composite_add_fs`, mistura `src + dst`). Com o alvo da luz que chega (sem MSAA, a resolução temporal), as
-// mesmas misturas no brilho dele (`*_light_fs`): no fundo a luz é a radiância, e a composta fica igual ao brilho da cor
-// composta (spec 041).
+// resto (`sky_composite_add_fs`, mistura `src + dst`). A luz que chega (o alvo da resolução temporal) fica a do céu atrás
+// das nuvens: no fundo, a radiância do céu — lisa, sem o ruído da marcha —, por cuja mudança a resolução temporal
+// reilumina o histórico do fundo (o crepúsculo); com o brilho da nuvem nela, a reiluminação contínua levava o histórico
+// à faixa 3 × 3 de agora a cada quadro (um recorte justo no fundo), e o detalhe da nuvem menor que o texel da marcha
+// acendia e apagava (spec 041).
 // Requer: refraction_screen (o triângulo), sky_composite_cloud, camera_space, scene_fog, SCENE_FOG_BACKGROUND, sky,
-// cameras, constants, sky_composite_depth, color.
+// cameras, constants, sky_composite_depth.
 
 // O pixel em que a composição não muda a cor guardada não escreve — o custo da passagem é a banda de ler e escrever a
 // cor. O produto: `1 − Tc < 2⁻¹²` é menos de meio ULP do `rgba16float` (11 bits de mantissa): a cor arredondada não muda.
@@ -51,26 +53,4 @@ fn sky_composite_multiply_fs(@builtin(position) frag: vec4f) -> @location(0) vec
 @fragment
 fn sky_composite_add_fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
     return sky_composite_add(frag);
-}
-
-struct SkyCompositeLightOut {
-    @location(0) color: vec4f,
-    @location(1) light: vec2f,
-}
-
-/** O fundo do pixel (nenhuma superfície): só nele a luz que chega é a radiância; na superfície ela não muda. */
-fn sky_composite_background(frag: vec4f) -> bool {
-    return sky_composite_depth(vec2i(frag.xy)) >= 1.0;
-}
-
-@fragment
-fn sky_composite_multiply_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
-    let k = sky_composite_multiply(frag);
-    return SkyCompositeLightOut(k, vec2f(select(1.0, k.r, sky_composite_background(frag))));
-}
-
-@fragment
-fn sky_composite_add_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
-    let sum = sky_composite_add(frag);
-    return SkyCompositeLightOut(sum, vec2f(select(0.0, ycocg(sum.rgb).x, sky_composite_background(frag))));
 }

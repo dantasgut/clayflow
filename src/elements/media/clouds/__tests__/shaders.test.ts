@@ -32,7 +32,8 @@ const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_shadow', cloudShadowKernel, 'cloud_shadow_main'],
     ['cloud_march', cloudMarchKernel.single, 'cloud_march_main'],
     ['cloud_march_ms', cloudMarchKernel.multisampled, 'cloud_march_main'],
-    ['cloud_reconstruct', cloudReconstructKernel, 'cloud_reconstruct_main'],
+    ['cloud_reconstruct', cloudReconstructKernel.single, 'cloud_reconstruct_main'],
+    ['cloud_reconstruct_ms', cloudReconstructKernel.multisampled, 'cloud_reconstruct_main'],
     ['cloud_upsample', cloudUpsampleKernel.single, 'cloud_upsample_main'],
     ['cloud_upsample_ms', cloudUpsampleKernel.multisampled, 'cloud_upsample_main'],
     ['cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main'],
@@ -50,9 +51,9 @@ describe('módulos das nuvens', () => {
         expect(layout).toBeDefined();
     });
 
-    it('a composição das nuvens monta nas duas variantes de amostras, com e sem a luz que chega', () => {
+    it('a composição das nuvens monta nas duas variantes de amostras, sem escrever a luz que chega', () => {
         for (const ms of [false, true])
-            for (const entry of ['sky_composite_add_fs', 'sky_composite_add_light_fs']) {
+            for (const entry of ['sky_composite_multiply_fs', 'sky_composite_add_fs']) {
                 const composed = composeWgsl(skyComposite.module(ms));
                 const layout = new LayoutInferencer().infer(composed, [
                     'refraction_screen_vs',
@@ -62,6 +63,8 @@ describe('módulos das nuvens', () => {
                 expect(composed.spec.source).toContain('cloud_view_tex');
                 // A atmosfera da geometria é do `scene_fog` (o `Sky`), não da composição.
                 expect(composed.spec.source).not.toContain('sky_aerial_lut');
+                // A luz que chega fica a do céu atrás das nuvens (a resolução temporal reilumina o fundo por ela).
+                expect(composed.spec.source).not.toContain('_light_fs');
             }
     });
 

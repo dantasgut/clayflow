@@ -22,6 +22,7 @@ import cloudBayerSource from '../../gpu/wgsl/clouds/cloud_march_bayer.wgsl?raw';
 import cloudMarchSource from '../../gpu/wgsl/clouds/cloud_march.wgsl?raw';
 import cloudReconstructSource from '../../gpu/wgsl/clouds/cloud_reconstruct.wgsl?raw';
 import cloudUpsampleSource from '../../gpu/wgsl/clouds/cloud_upsample.wgsl?raw';
+import cloudSceneLimitSource from '../../gpu/wgsl/clouds/cloud_scene_limit.wgsl?raw';
 import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
 import cloudTransmissionSource from '../../gpu/wgsl/clouds/cloud_transmission.wgsl?raw';
@@ -129,9 +130,16 @@ export const cloudResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'cloudMarchDepth', lag: 1 },
     }),
+    /** A profundidade da nuvem e a superfície até onde o valor foi marchado, a do quadro (no aumento). */
+    marchDepthNow: wgslResource({
+        name: 'cloud_march_depth_now',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudMarchDepth', lag: 0 },
+    }),
     marchDepthOut: wgslResource({
         name: 'cloud_march_depth_out',
-        binding: { storageTexture: { format: 'r32float', access: 'write' } },
+        binding: { storageTexture: { format: 'rg32float', access: 'write' } },
         frequency: 'stage',
         provider: { slot: 'cloudMarchDepth', lag: 0 },
     }),
@@ -191,7 +199,7 @@ export const cloudOutputs = Object.freeze({
     ambient: out('cloud_ambient_out', 'rgba16float'),
     shadow: out('cloud_shadow_out', 'rgba16float', '3d'),
     trace: out('cloud_trace_out', 'rgba16float'),
-    traceDepth: out('cloud_trace_depth_out', 'r32float'),
+    traceDepth: out('cloud_trace_depth_out', 'rg32float'),
     view: out('cloud_view_out', 'rgba16float'),
     panorama: out('cloud_panorama_out', 'rgba16float'),
     /**
@@ -468,6 +476,16 @@ fn cloud_scene_depth_size() -> vec2u {
     }),
 } as const;
 
+/**
+ * A superfície por trás das nuvens: a distância de um pixel da tela e a menor de um texel do alvo reconstruído (lê
+ * `cloud_scene_depth`, sem e com amostras, que o kernel traz).
+ */
+const sceneLimit = wgslModule({
+    name: 'cloud_scene_limit',
+    source: cloudSceneLimitSource,
+    requires: [bayer, viewSpace, cameraSpace, camerasResource],
+});
+
 // ── Kernels ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Volumes de ruído pela função de forma (lugar `cloud_shape_at`). */
@@ -519,6 +537,7 @@ export const cloudMarchKernel = {
             WORKGROUP_SIZE.module,
             bayer,
             cloudLight,
+            sceneLimit,
             sceneDepth.single,
             viewSpace,
             cameraSpace,
@@ -537,6 +556,7 @@ export const cloudMarchKernel = {
             WORKGROUP_SIZE.module,
             bayer,
             cloudLight,
+            sceneLimit,
             sceneDepth.multisampled,
             viewSpace,
             cameraSpace,
@@ -550,27 +570,35 @@ export const cloudMarchKernel = {
     }),
 } as const;
 
-/** Reconstrução temporal no alvo de ¼. */
-export const cloudReconstructKernel = wgslModule({
-    name: 'cloud_reconstruct',
-    source: cloudReconstructSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        color,
-        bayer,
-        viewSpace,
-        cameraSpace,
-        cloudParamsResource,
-        camerasResource,
-        R.trace,
-        R.traceDepth,
-        R.marchPrevious,
-        R.marchDepthPrevious,
-        R.clampSampler,
-        R.marchOut,
-        R.marchDepthOut,
-    ],
-});
+/** Reconstrução temporal no alvo de ¼ (sem e com amostras na profundidade da cena). */
+const reconstructRequires = [
+    WORKGROUP_SIZE.module,
+    color,
+    bayer,
+    sceneLimit,
+    viewSpace,
+    cameraSpace,
+    cloudParamsResource,
+    camerasResource,
+    R.trace,
+    R.traceDepth,
+    R.marchPrevious,
+    R.marchDepthPrevious,
+    R.marchOut,
+    R.marchDepthOut,
+];
+export const cloudReconstructKernel = {
+    single: wgslModule({
+        name: 'cloud_reconstruct',
+        source: cloudReconstructSource,
+        requires: [...reconstructRequires, sceneDepth.single],
+    }),
+    multisampled: wgslModule({
+        name: 'cloud_reconstruct_ms',
+        source: cloudReconstructSource,
+        requires: [...reconstructRequires, sceneDepth.multisampled],
+    }),
+} as const;
 
 /** Aumento para a tela (sem e com amostras). */
 export const cloudUpsampleKernel = {
@@ -580,12 +608,14 @@ export const cloudUpsampleKernel = {
         requires: [
             WORKGROUP_SIZE.module,
             bayer,
+            sceneLimit,
             sceneDepth.single,
             viewSpace,
             cameraSpace,
             cloudParamsResource,
             camerasResource,
             R.marchNow,
+            R.marchDepthNow,
             cloudOutputs.view,
         ],
     }),
@@ -595,12 +625,14 @@ export const cloudUpsampleKernel = {
         requires: [
             WORKGROUP_SIZE.module,
             bayer,
+            sceneLimit,
             sceneDepth.multisampled,
             viewSpace,
             cameraSpace,
             cloudParamsResource,
             camerasResource,
             R.marchNow,
+            R.marchDepthNow,
             cloudOutputs.view,
         ],
     }),

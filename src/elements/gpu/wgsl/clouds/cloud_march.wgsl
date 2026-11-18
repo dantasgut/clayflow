@@ -4,37 +4,11 @@
 // superfície opaca mais próxima dos S × S pixels da tela que ele cobre (a profundidade da cena depois da água), com o
 // deslocamento inicial por ruído azul no tempo (sequência R2 por pixel). A nuvem sai com a perspectiva aérea até a profundidade dela:
 // `Sc = L·Ta(dc) + (1 − Tc)·Sa(dc)`. Uma invocação por bloco; saídas `cloud_trace_out` (rgb, a = Tc) e
-// `cloud_trace_depth_out` (a profundidade da nuvem, m; 0 sem nuvem).
+// `cloud_trace_depth_out` (r: a profundidade da nuvem, m, 0 sem nuvem; g: a distância da superfície até onde o pixel
+// marchado foi — a reconstrução e o aumento só juntam valores da mesma superfície).
 // Despacho linear: um bloco por invocação.
-// Requer: WORKGROUP_SIZE, cloud_march_bayer, cloud_light, cloud_scene_depth, camera_space, sky_aerial_lookup, random, clouds, cameras,
+// Requer: WORKGROUP_SIZE, cloud_march_bayer, cloud_light, cloud_scene_limit, cloud_scene_depth, camera_space, sky_aerial_lookup, random, clouds, cameras,
 // cloud_trace_out, cloud_trace_depth_out.
-
-/** Distância (m) da câmera `slot` até a superfície opaca no pixel `px` (∞ no fundo). */
-fn cloud_surface_distance(slot: u32, px: vec2i, size: vec2f) -> f32 {
-    let z = cloud_scene_depth(px);
-    if (z >= 1.0) { return 1e30; }
-    let cam = cameras[slot];
-    let ndc = pixel_to_ndc(vec2f(px) + 0.5, size);
-    let w = cam.inverseUnjitteredViewProjection * vec4f(ndc, z, 1.0);
-    return length(w.xyz / w.w - cam.position.xyz);
-}
-
-/**
- * A menor distância à superfície entre os S × S pixels da tela do pixel `q` do alvo reconstruído (S a escala dele; teto
- * constante de 16 leituras).
- */
-fn cloud_block_distance(slot: u32, q: vec2u) -> f32 {
-    let size = vec2i(cloud_scene_depth_size());
-    let scale = i32(cloud_march_scale());
-    let base = vec2i(q) * scale;
-    var d = 1e30;
-    for (var k = 0; k < 16; k++) {
-        if (k >= scale * scale) { break; }
-        let px = min(base + vec2i(k % scale, k / scale), size - 1);
-        d = min(d, cloud_surface_distance(slot, px, vec2f(size)));
-    }
-    return d;
-}
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -65,5 +39,5 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
         color = color * aerial.transmittance + (1.0 - s.transmittance) * aerial.scattered * sky.sunIlluminance.rgb;
     }
     textureStore(cloud_trace_out, g.xy, vec4f(color, s.transmittance));
-    textureStore(cloud_trace_depth_out, g.xy, vec4f(s.depth, 0.0, 0.0, 0.0));
+    textureStore(cloud_trace_depth_out, g.xy, vec4f(s.depth, min(limit, CLOUD_SKY_DISTANCE), 0.0, 0.0));
 }

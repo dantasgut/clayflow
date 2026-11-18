@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     CLOUD_HISTORY_BLEND,
+    CLOUD_SKY_DISTANCE,
     cloudDivergence,
+    cloudFreshForSurface,
     reconstructTexel,
     type Rgba,
 } from '../cloudReconstruct';
@@ -92,5 +94,26 @@ describe('reconstrução temporal', () => {
         // A caixa [6, 14] × [0,3; 0,5] com folga de metade: [2, 18] × [0,2; 0,6].
         expect(out[0]).toBeCloseTo(18, 12);
         expect(out[3]).toBeCloseTo(0.2, 12);
+    });
+
+    it('superfície: o valor do bloco marchado no céu não entra no pixel do chão, nem o histórico do céu', () => {
+        // Arrange: o pixel do chão a 2,5 km; o bloco foi marchado no céu, o vizinho de baixo no chão a 1,4 km.
+        const limits = [CLOUD_SKY_DISTANCE, CLOUD_SKY_DISTANCE, 1400, 900];
+        // Act
+        const pick = cloudFreshForSurface(2500, limits);
+        const out = reconstructTexel({
+            marched: false,
+            valid: true,
+            fresh: sky,
+            surface: 2500,
+            historySurface: CLOUD_SKY_DISTANCE,
+            history: cloud,
+            check: cloud,
+            neighbors: [{ fresh: cloud, check: cloud }],
+        });
+        // Assert: o chão mais parecido (1,4 km, o dobro está dentro da tolerância) e o histórico do céu largado.
+        expect(pick).toBe(2);
+        expect(cloudFreshForSurface(CLOUD_SKY_DISTANCE, limits)).toBe(0);
+        expect(out).toEqual(sky);
     });
 });

@@ -4,6 +4,8 @@
 // em volta diverge da média dos valores exatos deles além da tolerância: Schied et al. 2018; a lição dos blocos 2 × 2
 // da 034), quando o histórico sai da tela ou quando a série não vale (corte, recriação, primeiro quadro): aí, o valor do
 // bloco. O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura.
+// A superfície: o histórico só vale marchado até a mesma superfície do pixel agora, e o valor do bloco só é o do pixel
+// marchado se este for da mesma superfície (senão, o do bloco vizinho mais parecido, `cloudFreshForSurface`).
 
 import { luminance as rec709 } from '../../../math/reference/color';
 
@@ -15,6 +17,33 @@ export const CLOUD_GRADIENT_TOLERANCE = 0.2;
 export const CLOUD_BOX_PAD = 0.5;
 /** Peso do valor novo no pixel marchado (média exponencial sobre o histórico recortado). */
 export const CLOUD_HISTORY_BLEND = 0.25;
+/** Distância guardada do fundo (nenhuma superfície), m. */
+export const CLOUD_SKY_DISTANCE = 1e7;
+/** Diferença relativa até a qual duas distâncias de superfície são a mesma superfície para as nuvens. */
+export const CLOUD_SURFACE_AGREE = 1;
+
+/** A diferença relativa entre duas distâncias de superfície (m). */
+export function cloudSurfaceDiffers(a: number, b: number): number {
+    return Math.abs(a - b) / Math.max(Math.min(a, b), 1);
+}
+
+/**
+ * O índice do valor exato da mesma superfície de `own`: o do próprio bloco (índice 0) se ele concorda; senão, o dos
+ * candidatos (o bloco e os 3 × 3 em volta, `limits[k]`, a superfície até onde cada um foi marchado) mais parecido.
+ */
+export function cloudFreshForSurface(own: number, limits: readonly number[]): number {
+    let pick = 0;
+    let best = cloudSurfaceDiffers(limits[0]!, own);
+    if (best <= CLOUD_SURFACE_AGREE) return 0;
+    limits.forEach((l, k) => {
+        const r = cloudSurfaceDiffers(l, own);
+        if (r < best) {
+            best = r;
+            pick = k;
+        }
+    });
+    return pick;
+}
 
 const luminance = (c: Rgba): number => rec709([c[0], c[1], c[2]]);
 
@@ -31,8 +60,11 @@ export interface ReconstructInput {
     readonly marched: boolean;
     /** A série vale (escrita no quadro anterior, sem corte). */
     readonly valid: boolean;
-    /** O valor exato do bloco. */
+    /** O valor exato do bloco (já o da mesma superfície, `cloudFreshForSurface`). */
     readonly fresh: Rgba;
+    /** A superfície do pixel agora e a do histórico dele (m; ausentes: a mesma). */
+    readonly surface?: number;
+    readonly historySurface?: number;
     /** O histórico reprojetado no pixel (undefined: fora da tela). */
     readonly history: Rgba | undefined;
     /** O histórico reprojetado no pixel marchado do bloco (undefined: fora da tela). */
@@ -50,6 +82,12 @@ const mean = (v: readonly Rgba[]): Rgba =>
 /** O valor reconstruído do pixel. */
 export function reconstructTexel(i: ReconstructInput): Rgba {
     if (!i.valid || i.history === undefined || i.check === undefined) return i.fresh;
+    if (
+        i.surface !== undefined
+        && i.historySurface !== undefined
+        && cloudSurfaceDiffers(i.historySurface, i.surface) > CLOUD_SURFACE_AGREE
+    )
+        return i.fresh;
     const seen = i.neighbors.filter((n) => n.check !== undefined);
     if (seen.length === 0) return i.fresh;
     const divergence = cloudDivergence(

@@ -400,9 +400,10 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             // A marcha: um valor por bloco 2 × 2 do alvo reconstruído (¼ da tela; 1/16 no perfil baixo) e a série
             // reconstruída (spec 037).
             target('trace', 'rgba16float', 2 * q.marchScale),
-            target('traceDepth', 'r32float', 2 * q.marchScale),
+            // A profundidade da nuvem e a superfície até onde o valor foi marchado (r, g).
+            target('traceDepth', 'rg32float', 2 * q.marchScale),
             target('march', 'rgba16float', q.marchScale, { depth: 2, filtered: true }),
-            target('marchDepth', 'r32float', q.marchScale, { depth: 2 }),
+            target('marchDepth', 'rg32float', q.marchScale, { depth: 2 }),
             target('view', 'rgba16float', 1),
             // O cache de espalhamento (T023, R8): por sonda, a soma da luz dos caminhos (em unidades da iluminância do
             // sol, rgb) e quantos (a), série temporal da 037 (o quadro lê a fatia anterior e escreve a sua), lida filtrada.

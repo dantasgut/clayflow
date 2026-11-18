@@ -1,7 +1,9 @@
 // Resolução temporal (spec 034, R3): a cor da cena deste quadro (com a amostra deslocada dentro do pixel) somada ao
 // histórico reprojetado. A posição do ponto do pixel no quadro anterior vem do vetor de movimento do objeto (passe de
 // movimento do forward) ou, no fundo, da câmera; o histórico é lido com Catmull–Rom (5 leituras bilineares). Desoclusão
-// (a distância à câmera guardada no quadro anterior difere em mais de 5 %), corte de câmera, primeiro quadro e ponto
+// (a distância à câmera guardada no quadro anterior difere em mais de 5 % — parado, mais o quanto ela muda num pixel
+// em volta),
+// corte de câmera, primeiro quadro e ponto
 // que sai da tela recomeçam o histórico. Parado na tela, sem recorte: o detalhe menor que o pixel converge para a
 // integral do pixel. Perto de movimento, a caixa da variância da vizinhança 3 × 3 recorta o histórico, e o quadro atual
 // entra reconstruído das amostras vizinhas. Média exponencial na radiância linear, sem viés. No modo de acumulação, média
@@ -110,6 +112,30 @@ fn taa_reproject(pixel: vec2i, uv: vec2f) -> TaaReprojection {
     return TaaReprojection(prev_uv, world, depth, uv + motion.zw);
 }
 
+/** Distância da câmera ao ponto do pixel `pixel` (o centro dele, sem o deslocamento da amostra; no fundo, o plano distante). */
+fn taa_pixel_distance(pixel: vec2i, size: vec2f) -> f32 {
+    let cam = cameras[taa_params.cameraSlot];
+    let q = clamp(pixel, vec2i(0), vec2i(size) - 1);
+    let ndc = uv_to_ndc((vec2f(q) + 0.5) / size);
+    let w = projective_inverse(cam.unjitteredViewProjection) * vec4f(ndc, textureLoad(taa_depth, q, 0), 1.0);
+    return length(w.xyz / w.w - cam.position.xyz);
+}
+
+/**
+ * Quanto a distância do ponto muda num pixel em volta deste (m): em cada eixo, a menor das duas diferenças para os
+ * vizinhos (na silhueta, a do lado da mesma superfície). A amostra deslocada anda até um pixel entre dois quadros: num
+ * chão visto rente (perto do horizonte, a distância dobra de uma linha para a seguinte), a distância da amostra varia
+ * muito mais que 5 % sem desoclusão nenhuma — o teste recomeçava o histórico ali a cada quadro e a borda do chão contra
+ * o céu tremia.
+ */
+fn taa_distance_slope(pixel: vec2i, size: vec2f, here: f32) -> f32 {
+    let e = abs(taa_pixel_distance(pixel + vec2i(1, 0), size) - here);
+    let w = abs(taa_pixel_distance(pixel - vec2i(1, 0), size) - here);
+    let n = abs(taa_pixel_distance(pixel - vec2i(0, 1), size) - here);
+    let s = abs(taa_pixel_distance(pixel + vec2i(0, 1), size) - here);
+    return min(e, w) + min(n, s);
+}
+
 /**
  * Quanto o pixel se move na tela: 0 parado (abaixo de 0,01 pixel por quadro), 1 a partir de 0,1 pixel — com o histórico
  * reamostrado a cada quadro numa posição fracionária, o histórico longo de parado só vale sem movimento. Conta o maior
@@ -171,12 +197,17 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     // histórico ainda é recortado.
     var stirred = max(moving, prev_moving);
     let reach = select(1, 0, stirred > 0.0);
+    // A tolerância: 5 % mais, parado, o quanto a distância muda num pixel (a amostra deslocada numa superfície vista
+    // rente). Em movimento, só os 5 %: o ponto reprojetado é o do mesmo lugar da superfície, e a folga deixaria passar o
+    // histórico do que andou (o meio turvo da água com a câmera girando, `waterOrbit` do `antialiasing`).
+    let tolerance = 0.05 * distance
+        + select(0.0, taa_distance_slope(pixel, size, distance), stirred <= 0.0 && depth < 1.0);
     var occluded = true;
     for (var dy = -reach; dy <= reach; dy++) {
         for (var dx = -reach; dx <= reach; dx++) {
             let q = clamp(prev_pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
             let prev_distance = textureLoad(taa_history_distance, q, 0).r;
-            if (abs(prev_distance - distance) <= 0.05 * distance) { occluded = false; }
+            if (abs(prev_distance - distance) <= tolerance) { occluded = false; }
         }
     }
     // O conteúdo traçado mudou (máscara reativa acima de ¾): como uma desoclusão. Na acumulação ninguém a escreve.
@@ -242,11 +273,12 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     // trás até passar o limiar e saltava — o chão andava em degraus de dois quadros (medido no `solposto`, 19° e 4,4°).
     // A mudança grande (a luz direta acumulada mais de 10–20 % fora da faixa: uma sombra que passa) é também tratada
     // como em movimento na superfície — recortada, com o quadro novo entrando depressa — e reiluminada pela luz do pixel
-    // (a textura integrada fica; a sombra que passou sai, a luz rebatida fica). No fundo (o céu e as nuvens, cuja luz é
-    // a própria radiância, spec 041) só reiluminado: o histórico de 64 quadros em radiância linear guardava por segundos
-    // o céu e as nuvens do crepúsculo, que escurecem ~100× com a sombra da Terra; recortado, ele perdia a acumulação das
-    // nuvens (os blocos da marcha). No fundo a luz é a radiância de agora, com o ruído do quadro: a faixa é a da
-    // vizinhança, não a do pixel.
+    // (a textura integrada fica; a sombra que passou sai, a luz rebatida fica). No fundo (o céu e as nuvens, spec 041) só
+    // reiluminado: o histórico de 64 quadros em radiância linear guardava por segundos o céu e as nuvens do crepúsculo,
+    // que escurecem ~100× com a sombra da Terra; recortado, ele perdia a acumulação das nuvens (os blocos da marcha). No
+    // fundo a luz é a radiância do céu atrás das nuvens (a composição delas não a muda): lisa, ela segue o crepúsculo sem
+    // levar o histórico das nuvens à faixa 3 × 3 de cada quadro — o detalhe da nuvem menor que o texel da marcha, que
+    // aparece em uns quadros e não em outros, é integrado como qualquer detalhe menor que o pixel.
     let prev_light = textureLoad(taa_history_light, prev_pixel, 0).rg;
     let beyond = max(prev_light.r - light_hi.r, light_lo.r - prev_light.r) / max(max(light_hi.r, prev_light.r), 1e-4);
     let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0);

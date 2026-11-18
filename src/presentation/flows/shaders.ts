@@ -833,7 +833,6 @@ function skyCompositeModule(multisampled: boolean): WgslModule {
             SCENE_FOG_BACKGROUND.module,
             sky,
             constants,
-            color,
             camerasResource,
             multisampled
                 ? SKY_COMPOSITE_DEPTH_MODULES.multisampled
