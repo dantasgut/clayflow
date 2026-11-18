@@ -2155,9 +2155,9 @@ async function casePressureWind(): Promise<void> {
             worstW = Math.max(worstW, Math.abs(wind.data[o + 2]! - r.w) / maxW);
             worstFront = Math.max(worstFront, Math.abs(wind.data[o + 3]! - r.front));
         }
-        // O sentido: a leste do centro (x = +350 km), o vento vai para o norte (−z) no hemisfério norte, para o sul no
+        // O sentido: a leste do centro (x = +100 km, dentro do quadrado), o vento vai para o norte (−z) no hemisfério norte, para o sul no
         // sul; no equador, para o centro (oeste), sem giro.
-        const east = Math.round((350_000 / layer.quality.coverageExtent + 0.5) * N - 0.5);
+        const east = Math.round((100_000 / layer.quality.coverageExtent + 0.5) * N - 0.5);
         const mid = N / 2;
         const o = (mid * N + east) * 4;
         const [vx, vz] = [wind.data[o]!, wind.data[o + 1]!];
