@@ -8,7 +8,14 @@
 //   - noon: a nuvem vista do chão (luz espalhada e transmitância por região) contra a marcha de referência (SC-001), com
 //     a luz das sondas do cache de espalhamento lida da GPU (`?settle=` quadros antes; `?dump=W` grava blocos da imagem);
 //   - scatter-cache: as sondas do cache de espalhamento (T023) contra caminhos f64 nas mesmas sondas (viés ≤ 5 %);
-//   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005).
+//   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005);
+//   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
+//     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
+//     contra o mapeamento da referência (SC-010, R18);
+//   - storm: a tempestade numa baixa — a torre do cúmulo-nimbo até a tropopausa e a bigorna (SC-011), e a vista dela
+//     contra a marcha de referência;
+//   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
+//   - weather-timing: o custo do tempo (o estado e o mapa de cobertura por ele) a 1280 × 720 no perfil alto (SC-012).
 // Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
 import {
     CLOUD_OCTAVES,
@@ -49,6 +56,7 @@ import {
     sphereSpan,
     coverageField,
     typeField,
+    cloudDensity,
     defaultShape,
     jdeParams,
     marchCloud,
@@ -62,6 +70,13 @@ import {
     type ScatterGrid,
 } from '../elements/media/clouds/reference/cloudScatter';
 import { deltaRng } from '../elements/lighting/reference/pathTracer';
+import {
+    coriolis,
+    FREE_DRAG,
+    weatherAt,
+    weatherClouds,
+    type WeatherParams,
+} from '../elements/media/clouds/reference/cloudWeather';
 import { luminance } from '../elements/math/reference/color';
 import {
     aerialPerspective,
@@ -109,6 +124,9 @@ const quantize = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) *
 async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudModel> {
     const shape = await readCloudVolume(s.app, layer, 'shape');
     const detail = await readCloudVolume(s.app, layer, 'detail');
+    // Com o tempo (R18), o mapa de cobertura é o da GPU (a mesma representação dos dois lados; o mapa em si é conferido
+    // contra a referência do tempo no caso `pressure-wind`).
+    if (layer.weather !== undefined) return weatherReferenceModel(s, layer, shape, detail);
     const radii = s.sky.data.radii;
     const half = layer.quality.coverageExtent / 2;
     const MAP = layer.quality.coverageSize;
@@ -160,6 +178,66 @@ async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudMo
                 (at(x0, z0)[k] * (1 - ax) + at(x0 + 1, z0)[k] * ax) * (1 - az)
                 + (at(x0, z0 + 1)[k] * (1 - ax) + at(x0 + 1, z0 + 1)[k] * ax) * az;
             return [lerp(0), lerp(1), 1];
+        },
+        density: layer.density,
+        albedo: layer.albedo,
+        shape,
+        detail,
+        shapeScale: layer.shapeScale,
+        detailScale: layer.detailScale,
+        shapeOffset: [0, 0, 0],
+        detailOffset: [0, 0, 0],
+        windDir: speed > 0 ? [wind[0] / speed, wind[1] / speed] : [1, 0],
+    };
+}
+
+/** O modelo da referência com o tempo: o mapa de cobertura lido da GPU (4 canais, bilinear) e, fora dele, o tempo bom. */
+async function weatherReferenceModel(
+    s: CloudScene,
+    layer: CloudLayer,
+    shape: CloudModel['shape'],
+    detail: CloudModel['detail'],
+): Promise<CloudModel> {
+    const radii = s.sky.data.radii;
+    const half = layer.quality.coverageExtent / 2;
+    const tex = s.app.resources.textureOf(layer, 'coverage');
+    if (tex === undefined) throw new Error('mapa de cobertura não alocado');
+    const map = await readTexture(s.app, tex, 'rgba8unorm');
+    const MAP = map.width;
+    const texel = (2 * half) / MAP;
+    const eye = s.camera.data.position;
+    const center = [
+        Math.round((eye[0] ?? 0) / texel) * texel,
+        Math.round((eye[2] ?? 0) / texel) * texel,
+    ];
+    const c = layer.coverage;
+    const t = layer.type;
+    const fairTop = Math.min(1, (layer.top - layer.base) / (layer.shellTop - layer.base));
+    const wind = layer.wind;
+    const speed = Math.hypot(wind[0], wind[1]);
+    return {
+        groundRadius: ((radii[0] ?? 6360) + (radii[3] ?? 0.2)) * 1000,
+        base: layer.base,
+        top: layer.shellTop,
+        coverage: (x, z) => {
+            if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
+                return [coverageField(x, z, c, t), typeField(x, z, t), 1, fairTop];
+            const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
+            const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
+            const x0 = Math.floor(fx);
+            const z0 = Math.floor(fz);
+            const ax = fx - x0;
+            const az = fz - z0;
+            const at = (i: number, j: number, k: number): number =>
+                map.data[
+                    (Math.min(MAP - 1, Math.max(0, j)) * MAP + Math.min(MAP - 1, Math.max(0, i)))
+                        * 4
+                        + k
+                ]!;
+            const lerp = (k: number): number =>
+                (at(x0, z0, k) * (1 - ax) + at(x0 + 1, z0, k) * ax) * (1 - az)
+                + (at(x0, z0 + 1, k) * (1 - ax) + at(x0 + 1, z0 + 1, k) * ax) * az;
+            return [lerp(0), lerp(1), lerp(2), lerp(3)];
         },
         density: layer.density,
         albedo: layer.albedo,
@@ -1978,6 +2056,370 @@ async function caseSunTransmittance(): Promise<void> {
     finish(s);
 }
 
+// ── o tempo: pressão, vento e tempestades (R18) ──────────────────────────────────────────────────────────────────────
+
+/** Uma soma de vórtices gaussianos `A·e^(−|x − c|²/2σ²)` (Pa), em WGSL (o ponto `cloud_pressure`) e na referência. */
+interface Vortex {
+    readonly amplitude: number;
+    readonly sigma: number;
+    readonly x: number;
+    readonly z: number;
+}
+
+function vortexPressure(vortices: readonly Vortex[]): {
+    code: string;
+    fn: (x: number, z: number) => number;
+} {
+    const f = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${v}`);
+    const terms = vortices.map(
+        (v) =>
+            `${f(v.amplitude)} * exp(-dot(xz - vec2f(${f(v.x)}, ${f(v.z)}), xz - vec2f(${f(v.x)}, ${f(v.z)})) / ${(2 * v.sigma * v.sigma).toExponential(6)})`,
+    );
+    return {
+        code: `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {\n    return ${terms.join(' + ')};\n}`,
+        fn: (x, z) =>
+            vortices.reduce(
+                (sum, v) =>
+                    sum
+                    + v.amplitude
+                        * Math.exp(-((x - v.x) ** 2 + (z - v.z) ** 2) / (2 * v.sigma * v.sigma)),
+                0,
+            ),
+    };
+}
+
+/** A baixa das tempestades dos casos: 1800 Pa, σ = 350 km, centrada na origem. */
+const STORM_LOW: Vortex = { amplitude: -1800, sigma: 350_000, x: 0, z: 0 };
+
+/** Os parâmetros do kernel do tempo como a camada os empacota (o vento de condução nulo, o tempo parado). */
+function weatherParamsOf(layer: CloudLayer): WeatherParams {
+    const w = layer.weather!;
+    return {
+        f: coriolis(w.latitude),
+        freeDrag: FREE_DRAG,
+        friction: w.friction,
+        step: w.scale / 64,
+        steering: [0, 0],
+        time: 0,
+    };
+}
+
+/** O quadrado do tempo: o texel (i, j) → (x, z) do mundo, com a câmera na origem (o centro encaixado é 0). */
+function weatherTexelXZ(layer: CloudLayer, i: number, j: number, size: number): [number, number] {
+    const extent = layer.quality.coverageExtent;
+    return [((i + 0.5) / size - 0.5) * extent, ((j + 0.5) / size - 0.5) * extent];
+}
+
+async function casePressureWind(): Promise<void> {
+    // O vento das nuvens, a subida e a frente da GPU (o quadrado do tempo, `weatherWind`) contra a referência f64 numa
+    // baixa gaussiana, no norte, no sul e no equador; o sentido do giro; o mapa de cobertura contra o mapeamento.
+    const pressure = vortexPressure([STORM_LOW]);
+    for (const latitude of [45, -45, 0]) {
+        const s = await cloudScene({
+            width: 128,
+            height: 72,
+            clouds: {
+                coverage: 0.4,
+                type: 0.5,
+                top: 3000,
+                wind: [0, 0],
+                weather: { latitude, pressure: { code: pressure.code } },
+            },
+        });
+        await settleFrames(s.app, 12);
+        const layer = s.layer!;
+        const tex = s.app.resources.textureOf(layer, 'weatherWind');
+        if (tex === undefined) throw new Error('pressure-wind: vento do tempo não alocado');
+        const wind = await readTexture(s.app, tex, 'rgba16float');
+        const q = weatherParamsOf(layer);
+        const N = wind.width;
+        let maxSpeed = 0;
+        let maxW = 0;
+        let worstWind = 0;
+        let worstW = 0;
+        let worstFront = 0;
+        const refs: { i: number; j: number; r: ReturnType<typeof weatherAt> }[] = [];
+        for (let j = 2; j < N; j += 5)
+            for (let i = 3; i < N; i += 5) {
+                const [x, z] = weatherTexelXZ(layer, i, j, N);
+                const r = weatherAt((a, b) => pressure.fn(a, b), x, z, q);
+                refs.push({ i, j, r });
+                maxSpeed = Math.max(maxSpeed, Math.hypot(r.windX, r.windZ));
+                maxW = Math.max(maxW, Math.abs(r.w));
+            }
+        for (const { i, j, r } of refs) {
+            const o = (j * N + i) * 4;
+            const ex = wind.data[o]! - r.windX;
+            const ez = wind.data[o + 1]! - r.windZ;
+            worstWind = Math.max(worstWind, Math.hypot(ex, ez) / maxSpeed);
+            worstW = Math.max(worstW, Math.abs(wind.data[o + 2]! - r.w) / maxW);
+            worstFront = Math.max(worstFront, Math.abs(wind.data[o + 3]! - r.front));
+        }
+        // O sentido: a leste do centro (x = +350 km), o vento vai para o norte (−z) no hemisfério norte, para o sul no
+        // sul; no equador, para o centro (oeste), sem giro.
+        const east = Math.round((350_000 / layer.quality.coverageExtent + 0.5) * N - 0.5);
+        const mid = N / 2;
+        const o = (mid * N + east) * 4;
+        const [vx, vz] = [wind.data[o]!, wind.data[o + 1]!];
+        log(
+            `pressure-wind ${latitude}°: ${refs.length} texels — vento ${(worstWind * 100).toFixed(2)} % do máximo (${maxSpeed.toFixed(1)} m/s), w ${(worstW * 100).toFixed(2)} % (máx ${(maxW * 100).toFixed(2)} cm/s), frente ±${worstFront.toFixed(3)}; a leste do centro (${vx.toFixed(2)}, ${vz.toFixed(2)}) m/s`,
+        );
+        check(
+            worstWind <= 0.01,
+            `pressure-wind ${latitude}°: vento a ${(worstWind * 100).toFixed(2)} % (SC-010)`,
+        );
+        check(
+            worstW <= 0.01,
+            `pressure-wind ${latitude}°: subida a ${(worstW * 100).toFixed(2)} % (SC-010)`,
+        );
+        check(worstFront <= 0.02, `pressure-wind ${latitude}°: frente a ${worstFront.toFixed(3)}`);
+        if (latitude > 0)
+            check(vz < -1, `pressure-wind 45° N: giro não anti-horário (vz ${vz.toFixed(2)})`);
+        if (latitude < 0)
+            check(vz > 1, `pressure-wind 45° S: giro não horário (vz ${vz.toFixed(2)})`);
+        if (latitude === 0)
+            check(
+                vx < 0 && Math.abs(vz) < 0.05 * Math.abs(vx),
+                `pressure-wind equador: o vento não desce o gradiente (${vx.toFixed(2)}, ${vz.toFixed(2)})`,
+            );
+        // O mapa de cobertura: o estado (parado: o alvo) em cada texel do tempo, bilinear, e as células por cima.
+        if (latitude === 45) await coverageAgainstWeather(s, pressure.fn, q);
+        finish(s);
+    }
+}
+
+/** O mapa de cobertura da GPU contra o mapeamento da referência (o estado parado é o alvo; R18). */
+async function coverageAgainstWeather(
+    s: CloudScene,
+    fn: (x: number, z: number) => number,
+    q: WeatherParams,
+): Promise<void> {
+    const layer = s.layer!;
+    const tex = s.app.resources.textureOf(layer, 'coverage');
+    if (tex === undefined) throw new Error('mapa de cobertura não alocado');
+    const map = await readTexture(s.app, tex, 'rgba8unorm');
+    const extent = layer.quality.coverageExtent;
+    const W = 128;
+    const fair = {
+        coverage: layer.coverage,
+        type: layer.type,
+        top: (layer.top - layer.base) / (layer.shellTop - layer.base),
+    };
+    const cache = new Map<number, ReturnType<typeof weatherClouds>>();
+    const stateAt = (i: number, j: number): ReturnType<typeof weatherClouds> => {
+        const ci = Math.min(W - 1, Math.max(0, i));
+        const cj = Math.min(W - 1, Math.max(0, j));
+        const key = cj * W + ci;
+        let v = cache.get(key);
+        if (v === undefined) {
+            const [x, z] = weatherTexelXZ(layer, ci, cj, W);
+            const r = weatherAt((a, b) => fn(a, b), x, z, q);
+            v = weatherClouds(r.w, r.front, fair);
+            cache.set(key, v);
+        }
+        return v;
+    };
+    let worst = 0;
+    let storm = 0;
+    for (let k = 0; k < 400; k++) {
+        const i = Math.floor(map.width * 0.07) + ((k * 97) % Math.floor(map.width * 0.86));
+        const j = Math.floor(map.height * 0.07) + ((k * 53 + 11) % Math.floor(map.height * 0.86));
+        const x = ((i + 0.5) / map.width - 0.5) * extent;
+        const z = ((j + 0.5) / map.height - 0.5) * extent;
+        const fx = (x / extent + 0.5) * W - 0.5;
+        const fz = (z / extent + 0.5) * W - 0.5;
+        const x0 = Math.floor(fx);
+        const z0 = Math.floor(fz);
+        const ax = fx - x0;
+        const az = fz - z0;
+        const lerp = (key: 'coverage' | 'type' | 'top'): number =>
+            (stateAt(x0, z0)[key] * (1 - ax) + stateAt(x0 + 1, z0)[key] * ax) * (1 - az)
+            + (stateAt(x0, z0 + 1)[key] * (1 - ax) + stateAt(x0 + 1, z0 + 1)[key] * ax) * az;
+        const sc = lerp('coverage');
+        const st = lerp('type');
+        const ref = [
+            quantize(coverageField(x, z, sc, st)),
+            quantize(typeField(x, z, st)),
+            1,
+            quantize(lerp('top')),
+        ];
+        const o = (j * map.width + i) * 4;
+        for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(map.data[o + c]! - ref[c]!));
+        if (map.data[o + 3]! > 0.95) storm++;
+    }
+    log(
+        `pressure-wind: mapa de cobertura pelo tempo — 400 texels, pior ${(worst * 255).toFixed(2)}/255; ${storm} com a torre até a tropopausa`,
+    );
+    check(
+        worst <= 3 / 255 + 1e-6,
+        `pressure-wind: mapa de cobertura a ${(worst * 255).toFixed(2)}/255 do mapeamento`,
+    );
+    check(storm > 0, 'pressure-wind: nenhum texel com a torre até a tropopausa na baixa');
+}
+
+async function caseStorm(): Promise<void> {
+    // A tempestade na baixa (SC-011): no núcleo, a torre do cúmulo-nimbo chega a ≥ 85 % da tropopausa e a bigorna
+    // espalha a nuvem no alto (a fração das colunas com nuvem a 80 % da altura local ≥ 1,2 × a de 50 %), medidas na
+    // referência sobre o mapa e os volumes da GPU; a vista da torre de 60 km contra a marcha de referência.
+    const pressure = vortexPressure([STORM_LOW]);
+    const eye: Vec3 = [60_000, 2, 0];
+    const target: Vec3 = [0, 4000, 0];
+    const r = await viewCase(
+        'storm',
+        45,
+        0,
+        {
+            coverage: 0.35,
+            type: 0.5,
+            top: 3000,
+            wind: [0, 0],
+            weather: { latitude: 45, pressure: { code: pressure.code } },
+        },
+        eye,
+        target,
+    );
+    const layer = r.s.layer!;
+    const model = await referenceModel(r.s, layer);
+    const shell = layer.shellTop;
+    let tallest = 0;
+    let at50 = 0;
+    let at80 = 0;
+    let columns = 0;
+    for (let k = 0; k < 900; k++) {
+        const x = ((k % 30) / 29 - 0.5) * 120_000;
+        const z = (Math.floor(k / 30) / 29 - 0.5) * 120_000;
+        const cov = model.coverage(x, z) as readonly number[];
+        if ((cov[3] ?? 1) < 0.95) continue;
+        columns++;
+        for (let h = 0.3; h < 1; h += 0.01) {
+            const y = layer.base + h * (shell - layer.base);
+            if (cloudDensity(model, [x, y, z]) > 0) tallest = Math.max(tallest, y);
+        }
+        const yAt = (f: number): number => layer.base + f * (cov[3] ?? 1) * (shell - layer.base);
+        if (cloudDensity(model, [x, yAt(0.5), z]) > 0) at50++;
+        if (cloudDensity(model, [x, yAt(0.8), z]) > 0) at80++;
+    }
+    log(
+        `storm: ${columns} colunas no núcleo; topo mais alto ${(tallest / 1000).toFixed(2)} km (tropopausa ${(shell / 1000).toFixed(1)} km); nuvem a 50 % ${at50}, a 80 % ${at80} colunas; vista: luz ${(r.worstL * 100).toFixed(1)} %, T ${r.worstT.toFixed(3)}`,
+    );
+    check(columns > 50, `storm: só ${columns} colunas com a torre no núcleo da baixa`);
+    check(
+        tallest >= 0.85 * shell,
+        `storm: topo ${(tallest / 1000).toFixed(2)} km < 85 % da tropopausa (SC-011)`,
+    );
+    check(
+        at80 >= 1.2 * at50,
+        `storm: sem bigorna (${at80} colunas a 80 % contra ${at50} a 50 %, SC-011)`,
+    );
+    check(r.worstT <= 0.05, `storm: transmitância a ${r.worstT.toFixed(3)} da referência`);
+    check(r.worstL <= 0.05, `storm: luz a ${(r.worstL * 100).toFixed(1)} % da referência`);
+    finish(r.s);
+}
+
+async function caseFront(): Promise<void> {
+    // Uma baixa e uma alta vizinhas: a faixa da frente entre elas (Okubo–Weiss) com a cobertura pedida ≥ 0,8, e a alta
+    // com o céu mais limpo que o tempo bom (a subsidência).
+    const pressure = vortexPressure([
+        { amplitude: -1500, sigma: 300_000, x: -350_000, z: 0 },
+        { amplitude: 700, sigma: 450_000, x: 350_000, z: 0 },
+    ]);
+    const s = await cloudScene({
+        width: 128,
+        height: 72,
+        clouds: {
+            coverage: 0.4,
+            type: 0.5,
+            top: 3000,
+            wind: [0, 0],
+            weather: { latitude: 45, pressure: { code: pressure.code } },
+        },
+    });
+    await settleFrames(s.app, 12);
+    const layer = s.layer!;
+    const tex = s.app.resources.textureOf(layer, 'weatherWind');
+    const cov = s.app.resources.textureOf(layer, 'coverage');
+    if (tex === undefined || cov === undefined)
+        throw new Error('front: alvos do tempo não alocados');
+    const wind = await readTexture(s.app, tex, 'rgba16float');
+    const map = await readTexture(s.app, cov, 'rgba8unorm');
+    const q = weatherParamsOf(layer);
+    const N = wind.width;
+    let peak = 0;
+    let peakX = 0;
+    let worst = 0;
+    for (let j = 0; j < N; j += 4)
+        for (let i = 0; i < N; i += 2) {
+            const o = (j * N + i) * 4;
+            const [x, z] = weatherTexelXZ(layer, i, j, N);
+            const r = weatherAt((a, b) => pressure.fn(a, b), x, z, q);
+            worst = Math.max(worst, Math.abs(wind.data[o + 3]! - r.front));
+            if (wind.data[o + 3]! > peak) {
+                peak = wind.data[o + 3]!;
+                peakX = x;
+            }
+        }
+    // A cobertura pedida média (canal R, a cobertura local) na metade da alta contra a da baixa.
+    let high = 0;
+    let low = 0;
+    let nh = 0;
+    let nl = 0;
+    for (let j = 0; j < map.height; j += 3)
+        for (let i = 0; i < map.width; i += 3) {
+            const v = map.data[(j * map.width + i) * 4]!;
+            if (i > map.width * 0.75) {
+                high += v;
+                nh++;
+            }
+            if (i < map.width * 0.25) {
+                low += v;
+                nl++;
+            }
+        }
+    high /= nh;
+    low /= nl;
+    log(
+        `front: frente máxima ${peak.toFixed(2)} em x = ${(peakX / 1000).toFixed(0)} km (a referência ±${worst.toFixed(3)}); cobertura local média ${high.toFixed(3)} do lado da alta, ${low.toFixed(3)} do lado da baixa`,
+    );
+    check(worst <= 0.02, `front: frente a ${worst.toFixed(3)} da referência`);
+    check(peak >= 0.5, `front: sem faixa (máximo ${peak.toFixed(2)})`);
+    check(
+        high < low,
+        `front: a alta (${high.toFixed(3)}) não mais limpa que a baixa (${low.toFixed(3)})`,
+    );
+    finish(s);
+}
+
+async function caseWeatherTiming(): Promise<void> {
+    // O custo do tempo (SC-012): o estado (o estêncil da pressão do padrão, o vento, a série) e o mapa de cobertura por
+    // ele, por passe, a 1280 × 720 no perfil alto com a GPU ocupada.
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        profile: 'high',
+        profiling: true,
+        clouds: { coverage: 0.4, top: 3000, wind: [10, 0], weather: { latitude: 45 } },
+        target: [1000, 400, 300],
+    });
+    await busyFrames(s.app, TIMING_WARMUP);
+    const t = await passTimes(s.app, 120);
+    const weather =
+        Object.entries(t.passes).find(([k]) => k.endsWith('CloudLightFlow.weather'))?.[1] ?? NaN;
+    const coverage =
+        Object.entries(t.passes).find(([k]) => k.endsWith('CloudLightFlow.coverage'))?.[1] ?? NaN;
+    log(
+        `weather-timing: estado do tempo ${weather.toFixed(3)} ms, mapa de cobertura ${coverage.toFixed(3)} ms`,
+    );
+    check(
+        weather <= 0.15,
+        `weather-timing: o estado do tempo ${weather.toFixed(3)} ms > 0,15 ms (SC-012)`,
+    );
+    check(
+        coverage <= 0.1,
+        `weather-timing: o mapa de cobertura ${coverage.toFixed(3)} ms > 0,1 ms (T025)`,
+    );
+    finish(s);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     coverage: caseCoverage,
     'sun-transmittance': caseSunTransmittance,
@@ -2006,6 +2448,10 @@ const CASES: Record<string, () => Promise<void>> = {
     noon: caseNoon,
     'scatter-cache': caseScatterCache,
     timing: caseTiming,
+    'pressure-wind': casePressureWind,
+    storm: caseStorm,
+    front: caseFront,
+    'weather-timing': caseWeatherTiming,
 };
 
 async function main(): Promise<void> {
