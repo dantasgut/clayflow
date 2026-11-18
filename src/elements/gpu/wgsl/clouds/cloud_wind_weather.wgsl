@@ -1,4 +1,4 @@
-// O vento das nuvens pelo tempo (spec 041, R18): no lugar do vento uniforme da camada, o do quadrado do tempo
+// O vento das nuvens pelo tempo (spec 041, R19): no lugar do vento uniforme da camada, o do quadrado do tempo
 // (`weatherWind.xy`: o equilibrado com a pressão mais o de condução) no ponto; fora do quadrado, o de condução. Lido pela
 // reconstrução temporal (onde a nuvem estava no quadro anterior) — o estado do tempo anda com ele.
 // Requer: clouds, cloud_weather_grid, cloud_weather_wind_tex, cloud_clamp_sampler.

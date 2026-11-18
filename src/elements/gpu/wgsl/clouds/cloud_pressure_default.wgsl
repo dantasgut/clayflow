@@ -1,4 +1,4 @@
-// O campo de pressão padrão das nuvens (spec 041, R18): sistemas de alta e baixa em escala sinótica num reticulado de
+// O campo de pressão padrão das nuvens (spec 041, R19): sistemas de alta e baixa em escala sinótica num reticulado de
 // células de lado `clouds.weatherPattern.x` (m), no máximo um por célula, no referencial que anda com o vento de condução.
 // Cada sistema é o núcleo de suporte compacto `A·(1 − d²/R²)³` (C²: o laplaciano, que dá a subida, é contínuo) com o
 // centro sorteado no miolo da célula — a soma das 3 × 3 células vizinhas é exata (o raio é no máximo um lado). A vida:

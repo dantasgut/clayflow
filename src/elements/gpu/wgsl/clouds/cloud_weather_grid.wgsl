@@ -1,4 +1,4 @@
-// O quadrado do tempo das nuvens (spec 041, R18): centrado na câmera, encaixado no texel dele (lado
+// O quadrado do tempo das nuvens (spec 041, R19): centrado na câmera, encaixado no texel dele (lado
 // `clouds.weatherMap.z` em `clouds.weatherMap.y` texels). O centro é calculado aqui, da posição da câmera — o de agora
 // pela vista e o do quadro em que a fatia anterior da série foi escrita pela vista anterior —, a mesma conta nos dois
 // lados (a série lida no lugar em que foi escrita, sem estado fora da 037).

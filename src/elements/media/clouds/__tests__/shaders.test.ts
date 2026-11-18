@@ -109,7 +109,7 @@ describe('módulos das nuvens', () => {
         expect(source).not.toContain('cloud_shape_at_ready');
     });
 
-    it('o tempo (R18): o padrão de sistemas no lugar pronto; a função de pressão do usuário no lugar dele', () => {
+    it('o tempo (R19): o padrão de sistemas no lugar pronto; a função de pressão do usuário no lugar dele', () => {
         // Arrange
         const plain = composeWgsl(cloudWeatherKernel).spec.source;
         const layer = new CloudLayer({

@@ -15,7 +15,7 @@
 // blocos.
 // Espelho de `reference/cloudReconstruct.ts`.
 // Despacho linear: um texel por invocação.
-// O vento da reprojeção é `cloud_wind_at` (o uniforme da camada; com o tempo, o do quadrado do tempo no ponto, R18).
+// O vento da reprojeção é `cloud_wind_at` (o uniforme da camada; com o tempo, o do quadrado do tempo no ponto, R19).
 // Requer: WORKGROUP_SIZE, color, cloud_march_bayer, cloud_scene_limit, cloud_scene_depth, camera_space, clouds, cameras,
 // cloud_wind_at, cloud_trace, cloud_trace_depth, cloud_march_prev,
 // cloud_march_depth_prev, cloud_march_out, cloud_march_depth_out.

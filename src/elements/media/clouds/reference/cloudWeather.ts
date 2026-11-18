@@ -1,4 +1,4 @@
-// Referência f64 do tempo das nuvens (spec 041, R18): o campo de pressão em escala sinótica (o padrão de sistemas de
+// Referência f64 do tempo das nuvens (spec 041, R19): o campo de pressão em escala sinótica (o padrão de sistemas de
 // alta e baixa que nascem, crescem e se desfazem), as derivadas pelo estêncil de 9 pontos, o vento equilibrado com a
 // pressão (o vento gradiente com atrito linear: geostrófico, gradiente, ciclostrófico e antitríptico como limites), a
 // velocidade vertical no topo da camada limite pela convergência do vento com atrito (a relação de Ekman), o parâmetro de
@@ -205,13 +205,13 @@ export interface BalancedWind {
 }
 
 /**
- * O vento equilibrado com a pressão, com a curvatura das isóbaras e com atrito linear `r` (spec 041, R18):
+ * O vento equilibrado com a pressão, com a curvatura das isóbaras e com atrito linear `r` (spec 041, R19):
  *
  *   U = G / (r + i·a),  a = f + κ_e·u_t,  G = −∇p/ρ (complexo em leste + i·norte),
  *
  * onde u_t (a componente ao longo das isóbaras) resolve `u_t (r² + a²) = |G|·a`. É o equilíbrio estacionário entre a
  * força do gradiente, a de Coriolis, a centrífuga da curvatura e o atrito. Limites: κ = 0 → Guldberg–Mohn (com r → 0, o
- * geostrófico); r → 0 → o vento gradiente (Holton, Eq. 3.15); f → 0 → antitríptico (o vento desce o gradiente). A
+ * geostrófico); r → 0 → o vento gradiente (Holton, §3.2); f → 0 → antitríptico (o vento desce o gradiente). A
  * curvatura vale `κ_e = κ·f²/(f² + r²)`: perto do equador o escoamento sinótico é dominado pelo atrito e não entra no
  * ramo ciclostrófico espontâneo (os ciclones não se formam a menos de ~5° do equador) — o vento é contínuo na latitude.
  *
@@ -322,7 +322,7 @@ export interface WeatherClouds {
 }
 
 /**
- * O mapeamento do tempo para as nuvens (spec 041, R18): a subida `w > 0` (convergência numa baixa) leva a cobertura a
+ * O mapeamento do tempo para as nuvens (spec 041, R19): a subida `w > 0` (convergência numa baixa) leva a cobertura a
  * `max(c₀, 0,75)`, o tipo ao cúmulo-nimbo e o topo à tropopausa; a subsidência (`w < 0`, numa alta) leva a cobertura a
  * ¼, o tipo a no máximo 0,25 (estratocúmulo) e o topo a 0,6 do tempo bom (a inversão abaixa); a frente, onde o ar não
  * desce, leva a cobertura a 0,85, o topo a 0,55 da casca e o tipo a 0,3 (estratiforme espesso) onde não há subida.
@@ -417,8 +417,8 @@ export function weatherRelax(
 // Solução analítica do vórtice gaussiano (os testes)
 
 /**
- * O vento gradiente (sem atrito) de um vórtice gaussiano `p = A·e^(−d²/2σ²)` à distância `d` do centro (Holton, Eq.
- * 3.15, a raiz regular): positivo = anti-horário. Baixa (A < 0), hemisfério norte: `V = −fd/2 + √(f²d²/4 + d·∂p/∂d/ρ)`;
+ * O vento gradiente (sem atrito) de um vórtice gaussiano `p = A·e^(−d²/2σ²)` à distância `d` do centro (Holton, §3.2,
+ * a raiz regular): positivo = anti-horário. Baixa (A < 0), hemisfério norte: `V = −fd/2 + √(f²d²/4 + d·∂p/∂d/ρ)`;
  * no sul, o oposto; alta: a raiz regular `V = fd/2 − √(f²d²/4 − d·|∂p/∂d|/ρ)` (com o sinal de f), ou o teto `fd/2`.
  */
 export function gaussianGradientWind(

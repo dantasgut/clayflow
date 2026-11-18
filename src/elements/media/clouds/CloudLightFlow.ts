@@ -44,7 +44,7 @@ export interface CloudLightSlots extends SlotMap {
     readonly cloudScatter: ChannelSlot<false>;
     /** O sol do cache de espalhamento no quadro anterior (T023). */
     readonly cloudScatterSun: ChannelSlot<false>;
-    /** O estado do tempo (spec 037; R18): a fatia anterior lida no lugar trazido pelo vento, a do quadro escrita. */
+    /** O estado do tempo (spec 037; R19): a fatia anterior lida no lugar trazido pelo vento, a do quadro escrita. */
     readonly cloudWeather: ChannelSlot<false>;
 }
 
@@ -75,7 +75,7 @@ const SCATTER_FILTER = compute(
 const TARGETS = ['coverage', 'ambient', 'shadow', 'panorama'] as const;
 
 /**
- * CloudLightFlow — a luz das nuvens que outros estágios leem (spec 041, R4, R9, R11, R12, R18; fase `shadow`, antes das
+ * CloudLightFlow — a luz das nuvens que outros estágios leem (spec 041, R4, R9, R11, R12, R19; fase `shadow`, antes das
  * sondas da GI e da névoa): com o tempo, o estado dele (série da 037) e o vento das nuvens pelo campo de pressão; o mapa
  * de cobertura pelo tempo, pela função de cobertura ou pelos valores globais, as irradiâncias do céu e do
  * chão, o mapa de transmitância visto do sol (a sombra das nuvens em `light_transmission`) e o panorama das nuvens (o
@@ -98,7 +98,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     private readonly resources: ResourceDirectory;
     private views: readonly (TextureViewSpec | undefined)[] = [];
     private coverage: string | undefined;
-    /** O pipeline do tempo (pelo módulo composto com a função de pressão), ou `undefined` sem o tempo (R18). */
+    /** O pipeline do tempo (pelo módulo composto com a função de pressão), ou `undefined` sem o tempo (R19). */
     private weather: string | undefined;
     private weatherView: TextureViewSpec | undefined;
     private prepared = false;
@@ -253,7 +253,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             }
         }
         this.syncWeather(c, cloud);
-        // O mapa de cobertura pelo tempo (R18), ou composto com a função de cobertura da camada (ou o pronto: os valores
+        // O mapa de cobertura pelo tempo (R19), ou composto com a função de cobertura da camada (ou o pronto: os valores
         // globais).
         const composite = cloud.coverageFunction?.composite;
         const weather = cloud.weather !== undefined;
@@ -281,7 +281,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     }
 
     /**
-     * O tempo (R18): com ele, o estado e o vento das nuvens alocados, a saída do vento ligada e o kernel do tempo composto
+     * O tempo (R19): com ele, o estado e o vento das nuvens alocados, a saída do vento ligada e o kernel do tempo composto
      * com a função de pressão da camada (ou o pronto: o padrão de sistemas); sem ele, nada (o pipeline solto).
      */
     private syncWeather(c: Ctx, cloud: CloudLayer): void {

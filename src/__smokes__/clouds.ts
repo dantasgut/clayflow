@@ -11,7 +11,7 @@
 //   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005);
 //   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
 //     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
-//     contra o mapeamento da referência (SC-010, R18);
+//     contra o mapeamento da referência (SC-010, R19);
 //   - storm: a tempestade numa baixa — a torre do cúmulo-nimbo até a tropopausa e a bigorna (SC-011), e a vista dela
 //     contra a marcha de referência;
 //   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
@@ -124,7 +124,7 @@ const quantize = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) *
 async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudModel> {
     const shape = await readCloudVolume(s.app, layer, 'shape');
     const detail = await readCloudVolume(s.app, layer, 'detail');
-    // Com o tempo (R18), o mapa de cobertura é o da GPU (a mesma representação dos dois lados; o mapa em si é conferido
+    // Com o tempo (R19), o mapa de cobertura é o da GPU (a mesma representação dos dois lados; o mapa em si é conferido
     // contra a referência do tempo no caso `pressure-wind`).
     if (layer.weather !== undefined) return weatherReferenceModel(s, layer, shape, detail);
     const radii = s.sky.data.radii;
@@ -2056,7 +2056,7 @@ async function caseSunTransmittance(): Promise<void> {
     finish(s);
 }
 
-// ── o tempo: pressão, vento e tempestades (R18) ──────────────────────────────────────────────────────────────────────
+// ── o tempo: pressão, vento e tempestades (R19) ──────────────────────────────────────────────────────────────────────
 
 /** Uma soma de vórtices gaussianos `A·e^(−|x − c|²/2σ²)` (Pa), em WGSL (o ponto `cloud_pressure`) e na referência. */
 interface Vortex {
@@ -2188,7 +2188,7 @@ async function casePressureWind(): Promise<void> {
     }
 }
 
-/** O mapa de cobertura da GPU contra o mapeamento da referência (o estado parado é o alvo; R18). */
+/** O mapa de cobertura da GPU contra o mapeamento da referência (o estado parado é o alvo; R19). */
 async function coverageAgainstWeather(
     s: CloudScene,
     fn: (x: number, z: number) => number,

@@ -44,7 +44,7 @@ function counterclockwise(x: number, z: number, east: number, north: number): nu
     return (-n / d) * east + (e / d) * north;
 }
 
-describe('cloudWeather — vento equilibrado (R18)', () => {
+describe('cloudWeather — vento equilibrado (R19)', () => {
     const sigma = 400e3;
     const radii = [100e3, 250e3, 400e3, 600e3, 900e3];
 
@@ -56,7 +56,7 @@ describe('cloudWeather — vento equilibrado (R18)', () => {
         ['alta anômala (teto fR/2), norte', 1000, 45],
         ['baixa a 20° N', -1500, 20],
     ])(
-        '%s: o vento gradiente do vórtice gaussiano é o analítico (Holton 3.15)',
+        '%s: o vento gradiente do vórtice gaussiano é o analítico (Holton §3.2)',
         (_n, amplitude, lat) => {
             // Arrange
             const f = coriolis(lat);
@@ -140,7 +140,7 @@ describe('cloudWeather — vento equilibrado (R18)', () => {
     });
 });
 
-describe('cloudWeather — subida, subsidência e frentes (R18)', () => {
+describe('cloudWeather — subida, subsidência e frentes (R19)', () => {
     it('Ekman: w no centro da baixa gaussiana = H·r·∇²p/(ρ(r² + f²)) > 0; na alta, < 0', () => {
         // Arrange
         const sigma = 400e3;
@@ -259,7 +259,7 @@ describe('cloudWeather — subida, subsidência e frentes (R18)', () => {
     });
 });
 
-describe('cloudWeather — o padrão de sistemas (R18)', () => {
+describe('cloudWeather — o padrão de sistemas (R19)', () => {
     const f = coriolis(45);
     const pattern: PressurePattern = {
         scale: 1.5e6,
@@ -324,7 +324,7 @@ describe('cloudWeather — o padrão de sistemas (R18)', () => {
     });
 });
 
-describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R18)', () => {
+describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
     /** Camada homogênea (volumes constantes) com cobertura, tipo e topo fixos. */
     const model = (coverage: number, type: number, top?: number): CloudModel => {
         const one = buildVolume(() => [1, 1, 1, 1], 2);

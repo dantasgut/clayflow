@@ -1,4 +1,4 @@
-// Densidade das nuvens (spec 041, R3–R6, R18): a cobertura (o mapa centrado na câmera; fora dele, os valores globais),
+// Densidade das nuvens (spec 041, R3–R6, R19): a cobertura (o mapa centrado na câmera; fora dele, os valores globais),
 // o perfil de altura pelo tipo até o topo local (o canal A do mapa: a torre do cúmulo-nimbo, o cúmulo raso; 1 sem o
 // tempo), a bigorna do cúmulo-nimbo maduro, a forma pelo volume periódico (Perlin-Worley remapeado pelo fBm de Worley) deslocado
 // pelo vento e inclinado pela altura, e a erosão das bordas pelo volume de detalhe (com o vento, derivando para cima). Densidade relativa
@@ -62,7 +62,7 @@ fn cloud_density_above(p: vec3f, detail: bool, floor: f32) -> f32 {
     if (h <= 0.0 || h >= 1.0) { return 0.0; }
     let cov = cloud_coverage_at(p.xz);
     if (cov.x <= 0.0) { return 0.0; }
-    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R18), não ao da casca.
+    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R19), não ao da casca.
     let hl = select(h / max(cov.w, 1e-3), h, cov.w >= 1.0);
     if (hl >= 1.0) { return 0.0; }
     let profile = cloud_height_profile(hl, cov.y);

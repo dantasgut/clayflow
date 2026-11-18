@@ -220,7 +220,7 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         }
         const variant = multisampled ? 'ms' : '1';
         const marchId = `cloud_march:${variant}`;
-        // Com o tempo (R18), a reconstrução reprojeta pelo vento do quadrado do tempo no ponto da nuvem (o estado do tempo
+        // Com o tempo (R19), a reconstrução reprojeta pelo vento do quadrado do tempo no ponto da nuvem (o estado do tempo
         // anda com ele); sem, pelo vento uniforme da camada.
         const weather = cloud.weather !== undefined;
         const reconstructId = `cloud_reconstruct:${variant}${weather ? ':weather' : ''}`;

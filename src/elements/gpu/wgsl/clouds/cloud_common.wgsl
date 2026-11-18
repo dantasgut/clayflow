@@ -85,7 +85,7 @@ fn cloud_height_profile(h: f32, t: f32) -> f32 {
 }
 
 /**
- * O expoente da cobertura na bigorna do cúmulo-nimbo (spec 041, R18; o `anvil bias` do Nubis, Schneider 2017): perto do
+ * O expoente da cobertura na bigorna do cúmulo-nimbo (spec 041, R19; o `anvil bias` do Nubis, Schneider 2017): perto do
  * topo da torre (fração de altura local 0,65–0,85) a cobertura sobe como `c^e`, e = 1 − 0,6·a, `a` a força pelo tipo
  * (só o cúmulo-nimbo maduro, tipo 0,9–1). 1 sem bigorna. Espelho de `anvilExponent` em `cloudModel.ts`.
  */

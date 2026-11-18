@@ -50,7 +50,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
         ] as const
     ).map((id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` })),
     // A camada de nuvens (spec 041): o uniforme, os volumes, os mapas, a marcha, o cache de espalhamento filtrado, o vento
-    // do tempo (R18) e os amostradores.
+    // do tempo (R19) e os amostradores.
     ...(
         [
             'params',

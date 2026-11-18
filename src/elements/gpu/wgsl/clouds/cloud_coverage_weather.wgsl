@@ -1,4 +1,4 @@
-// O mapa de cobertura pelo tempo (spec 041, R18): no lugar da função de cobertura, o estado do tempo da série (`weather`,
+// O mapa de cobertura pelo tempo (spec 041, R19): no lugar da função de cobertura, o estado do tempo da série (`weather`,
 // a fatia do quadro: cobertura pedida, tipo, topo — a escala sinótica, trazida pelo vento local e relaxada) lido em cada
 // texel do quadrado de cobertura, e as células de cúmulos (os campos da cobertura e do tipo, no referencial do vento de
 // condução, como sem o tempo) sobre ele. O canal A é a fração de altura do topo das nuvens na casca (a torre do

@@ -9,11 +9,11 @@ import { CloudLayer, CLOUD_WEATHER_DEFAULTS } from '../CloudLayer';
 import { CLOUD_EARTH_OMEGA, CLOUD_WEATHER_SIZE } from '../schemas';
 import { coriolis, highAmplitudeCap, patternAmplitude } from '../reference/cloudWeather';
 
-// O tempo das nuvens (spec 041, R18): a API da `CloudLayer` (valores, validação, a função de pressão), os descritores
+// O tempo das nuvens (spec 041, R19): a API da `CloudLayer` (valores, validação, a função de pressão), os descritores
 // (o estado como série da 037), o uniforme empacotado contra a referência e o ciclo de vida dos estágios (ligar,
 // desligar e trocar a função de pressão deixam o motor pronto).
 
-describe('CloudLayer — o tempo (R18)', () => {
+describe('CloudLayer — o tempo (R19)', () => {
     it('padrões, a casca até a tropopausa e a função de pressão anexada', () => {
         // Act
         const plain = new CloudLayer();
@@ -105,7 +105,7 @@ async function scene() {
     return { s, world, settle, pending };
 }
 
-describe('o tempo nos estágios (R18)', () => {
+describe('o tempo nos estágios (R19)', () => {
     it('o uniforme: f, os atritos, o padrão na latitude e o topo do tempo bom, iguais à referência', async () => {
         // Arrange
         const { world, settle, pending } = await scene();

@@ -8,7 +8,7 @@ import { cloudPressurePoint } from '../media/clouds/shaders';
 export type CloudPressureOptions = ExtensionFunctionOptions;
 
 /**
- * Função do ponto `cloud_pressure` (spec 041, R18) — o campo de pressão em escala sinótica que dita o tempo das nuvens,
+ * Função do ponto `cloud_pressure` (spec 041, R19) — o campo de pressão em escala sinótica que dita o tempo das nuvens,
  * em WGSL ou por um grafo de nós:
  *
  * ```wgsl

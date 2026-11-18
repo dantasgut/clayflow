@@ -81,7 +81,7 @@ export function profileLimits(t: number): [number, number, number, number] {
 }
 
 /**
- * A bigorna do cúmulo-nimbo (spec 041, R18; Schneider 2017, o `anvil bias` do Nubis): perto do topo da torre (a fração
+ * A bigorna do cúmulo-nimbo (spec 041, R19; Schneider 2017, o `anvil bias` do Nubis): perto do topo da torre (a fração
  * de altura local na faixa `height`) a cobertura sobe como `c^e`, e = 1 − (1 − `exponent`)·a, `a` a força da bigorna
  * pelo tipo (só o cúmulo-nimbo maduro, tipo ≥ 0,9) — a nuvem se espalha na tropopausa (o ar que sobe na torre sai para
  * os lados onde a estabilidade o para). Com tipo < 0,9 nada muda.
@@ -293,7 +293,7 @@ export function cloudDensity(m: CloudModel, x: Vec3): number {
     const cv = m.coverage(x[0], x[2]);
     const [c0, t, dr] = cv;
     if (c0 <= 0) return 0;
-    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R18), não ao da casca.
+    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R19), não ao da casca.
     const hl = h / Math.max(cv.length > 3 ? (cv as Vec4)[3] : 1, 1e-3);
     if (hl >= 1) return 0;
     const H = heightProfile(hl, t);

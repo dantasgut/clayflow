@@ -1,4 +1,4 @@
-// O estado do tempo das nuvens (spec 041, R18), série temporal da 037 (`weather`: a fatia anterior lida pelo atraso 1, a
+// O estado do tempo das nuvens (spec 041, R19), série temporal da 037 (`weather`: a fatia anterior lida pelo atraso 1, a
 // do quadro escrita): em cada texel do quadrado do tempo, a pressão pela função de pressão (ponto `cloud_pressure`; o
 // padrão de sistemas da biblioteca sem ela) no referencial que anda com o vento de condução, as derivadas pelo estêncil,
 // o vento das nuvens (o equilibrado com o atrito da atmosfera livre, mais o de condução), a subida pela camada limite

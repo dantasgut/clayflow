@@ -60,7 +60,7 @@ export interface CloudNoiseSlots extends SlotMap {
     readonly cloudMarch: ChannelSlot<false>;
     /** A série do cache de espalhamento (a validade dele). */
     readonly cloudScatter: ChannelSlot<false>;
-    /** A série do estado do tempo (a validade dele; R18). */
+    /** A série do estado do tempo (a validade dele; R19). */
     readonly cloudWeather: ChannelSlot<false>;
 }
 
@@ -324,7 +324,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
     }
 
     /**
-     * Os campos do tempo no uniforme (spec 041, R18): f = 2Ω sin φ, os atritos e o tempo de formação; o padrão de sistemas
+     * Os campos do tempo no uniforme (spec 041, R19): f = 2Ω sin φ, os atritos e o tempo de formação; o padrão de sistemas
      * (o lado das células, a amplitude das baixas na latitude — a dada a 45° × f_e(φ)/f_e(45°), a anomalia escala com a
      * rotação — e o teto das altas pelo equilíbrio regular, 0,8·ρ f_e² R²/24, e a vida); o quadrado do tempo (o topo do
      * tempo bom como fração da casca, os texels, o lado — o do quadrado de cobertura — e o estêncil); as marcas. Sem o

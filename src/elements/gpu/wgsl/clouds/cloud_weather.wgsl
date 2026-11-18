@@ -1,4 +1,4 @@
-// O tempo das nuvens (spec 041, R18): as derivadas do campo de pressão pelo estêncil de 9 pontos, o vento equilibrado
+// O tempo das nuvens (spec 041, R19): as derivadas do campo de pressão pelo estêncil de 9 pontos, o vento equilibrado
 // com a pressão (o vento gradiente com atrito linear: geostrófico, gradiente, ciclostrófico e antitríptico como
 // limites), a velocidade vertical no topo da camada limite pela convergência do vento com atrito (Ekman), o parâmetro de
 // Okubo–Weiss (a frente: onde os sistemas se encontram) e o mapeamento para a cobertura, o tipo e o topo das nuvens.

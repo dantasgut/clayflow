@@ -27,7 +27,7 @@ import {
 import { cloudLightTransmission, cloudSkyCover } from './shaders';
 
 /**
- * O tempo das nuvens (spec 041, R18): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
+ * O tempo das nuvens (spec 041, R19): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
  * que tipo e até que altura, e o vento que as leva. Sem `pressure`, o padrão de sistemas de alta e baixa da biblioteca
  * (nascem, crescem e se desfazem, levados pelo vento de condução — o `wind` da camada). Leste = +x, norte = −z.
  */
@@ -93,7 +93,7 @@ export interface CloudLayerValues {
     /** Metros por período do volume de detalhe. Default 1800. */
     readonly detailScale?: number;
     /**
-     * O tempo (spec 041, R18): o campo de pressão dita a cobertura, o tipo, o topo e o vento das nuvens. Com ele, `coverage`
+     * O tempo (spec 041, R19): o campo de pressão dita a cobertura, o tipo, o topo e o vento das nuvens. Com ele, `coverage`
      * (número), `type` e `top` são o tempo bom; a casca vai da base à tropopausa. Sem ele, a camada de hoje.
      */
     readonly weather?: CloudWeatherValues;
@@ -117,7 +117,7 @@ export interface CloudLayerData {
     quality: CloudQuality;
     /** 1 quando os alvos que as contribuições leem existem (a sombra, o panorama); escrito só quando muda. */
     active: number;
-    /** O tempo (R18), ou `undefined` sem ele. */
+    /** O tempo (R19), ou `undefined` sem ele. */
     weather: CloudWeatherSettings | undefined;
 }
 
@@ -387,7 +387,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
     }
 
     /**
-     * O tempo (spec 041, R18), ou `undefined` sem ele. Atribuir valores (parciais: o resto fica) liga ou ajusta o tempo
+     * O tempo (spec 041, R19), ou `undefined` sem ele. Atribuir valores (parciais: o resto fica) liga ou ajusta o tempo
      * no quadro seguinte, sem recompilar; `undefined` o desliga. A função de pressão é a da criação (`weather.pressure`).
      */
     get weather(): CloudWeatherSettings | undefined {
@@ -570,7 +570,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 },
                 history: { depth: 2 },
             },
-            // O tempo (R18): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o
+            // O tempo (R19): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o
             // relaxamento a e^(−Δt/τ) por quadro muda ~10⁻⁵: em 16 bits se perderia), e o vento das nuvens, a subida e a
             // frente dele (`rgba16float`, lido filtrado na reconstrução).
             {
