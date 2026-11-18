@@ -80,6 +80,22 @@ export function profileLimits(t: number): [number, number, number, number] {
     return [0, 1, 2, 3].map((i) => mix(a[i]!, b[i]!, k)) as [number, number, number, number];
 }
 
+/**
+ * A bigorna do cúmulo-nimbo (spec 041, R18; Schneider 2017, o `anvil bias` do Nubis): perto do topo da torre (a fração
+ * de altura local na faixa `height`) a cobertura sobe como `c^e`, e = 1 − (1 − `exponent`)·a, `a` a força da bigorna
+ * pelo tipo (só o cúmulo-nimbo maduro, tipo ≥ 0,9) — a nuvem se espalha na tropopausa (o ar que sobe na torre sai para
+ * os lados onde a estabilidade o para). Com tipo < 0,9 nada muda.
+ */
+export const CLOUD_ANVIL = { type: [0.9, 1.0], height: [0.65, 0.85], exponent: 0.4 } as const;
+
+/** O expoente da cobertura na bigorna para a fração de altura local `h` e o tipo `t` (1 sem bigorna). */
+export function anvilExponent(h: number, t: number): number {
+    const a =
+        smoothstep(CLOUD_ANVIL.type[0], CLOUD_ANVIL.type[1], t)
+        * smoothstep(CLOUD_ANVIL.height[0], CLOUD_ANVIL.height[1], h);
+    return 1 - (1 - CLOUD_ANVIL.exponent) * a;
+}
+
 /** O perfil de altura: a rampa de subida na base × a de descida no topo, em [0, 1]. */
 export function heightProfile(h: number, t: number): number {
     if (h < 0 || h > 1) return 0;
@@ -240,8 +256,11 @@ export interface CloudModel {
     readonly groundRadius: number;
     readonly base: number;
     readonly top: number;
-    /** Cobertura, tipo e densidade relativa no ponto horizontal (m) — o mapa de cobertura (ou os valores globais). */
-    readonly coverage: (x: number, z: number) => Vec3;
+    /**
+     * Cobertura, tipo, densidade relativa e (opcional) a fração de altura do topo das nuvens na casca no ponto horizontal
+     * (m) — o mapa de cobertura (ou os valores globais). Sem o quarto valor, o topo é o da casca (1).
+     */
+    readonly coverage: (x: number, z: number) => Vec3 | Vec4;
     /** Extinção (1/m) na densidade 1. */
     readonly density: number;
     readonly albedo: number;
@@ -271,10 +290,15 @@ export function heightFraction(m: CloudModel, x: Vec3): number {
 export function cloudDensity(m: CloudModel, x: Vec3): number {
     const h = heightFraction(m, x);
     if (h <= 0 || h >= 1) return 0;
-    const [c, t, dr] = m.coverage(x[0], x[2]);
-    if (c <= 0) return 0;
-    const H = heightProfile(h, t);
+    const cv = m.coverage(x[0], x[2]);
+    const [c0, t, dr] = cv;
+    if (c0 <= 0) return 0;
+    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R18), não ao da casca.
+    const hl = h / Math.max(cv.length > 3 ? (cv as Vec4)[3] : 1, 1e-3);
+    if (hl >= 1) return 0;
+    const H = heightProfile(hl, t);
     if (H <= 0) return 0;
+    const c = c0 ** anvilExponent(hl, t);
     const skew = CLOUD_SKEW * (m.top - m.base) * h;
     const ps: Vec3 = [
         (x[0] - m.shapeOffset[0] - m.windDir[0] * skew) / m.shapeScale,
@@ -293,7 +317,7 @@ export function cloudDensity(m: CloudModel, x: Vec3): number {
     ];
     const d = sampleVolume(m.detail, pd);
     const hf = d[1] * 0.625 + d[2] * 0.25 + d[3] * 0.125;
-    const hfm = mix(hf, 1 - hf, clamp01(h * 10));
+    const hfm = mix(hf, 1 - hf, clamp01(hl * 10));
     return Math.max(0, remap(cov, hfm * CLOUD_EROSION, 1, 0, 1)) * Math.max(0, dr);
 }
 
