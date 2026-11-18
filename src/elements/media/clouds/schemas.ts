@@ -7,7 +7,7 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
  * (cobertura, tipo, extinção, albedo), a fase (g_HG, g_D, α, w_D), as oitavas (quantas, a, b, c), os deslocamentos do
  * vento da forma e do detalhe (m, reduzidos módulo o período em f64; `w` a escala), o vento (direção unitária xz e
  * velocidade xz em m/s), o mapa de cobertura (centro xz, lado, tempo) e o deslocamento dele, o referencial do mapa
- * visto do sol (centro e lado; direita e a distância da origem dos raios; cima; a direção do sol; a deformação: escala e
+ * visto do sol (centro e lado; direita e cima, com o índice do encaixe do centro em `w` — a linha de cada coluna no reticulado do mundo; a origem de cada coluna é a saída da casca do lado do sol, calculada no shader —; a direção do sol; a deformação: escala e
  * alcance em asinh na direita e em cima), a marcha (passos,
  * passos de luz, quadro de Bayer, slot da câmera), as marcas (histórico válido, slots das funções de forma e de
  * cobertura), os tempos (Δt, passos do panorama), a posição da câmera do panorama e o cache de espalhamento (T023): a

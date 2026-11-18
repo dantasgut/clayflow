@@ -506,33 +506,84 @@ export type ShadowTexel = readonly number[];
 /** Nós por coluna (o volume da GPU: 4 camadas × 4 canais). */
 export const SHADOW_KNOTS = 16;
 
+/** O espaçamento (m) do pente do mapa no nível 0 (`CLOUD_SHADOW_SPACING`): os níveis são `2ⁿ` vezes ele. */
+export const SHADOW_SPACING = 1;
+/** O nível mais fino do pente (`CLOUD_SHADOW_MIN_LEVEL`): `2⁶` vezes o espaçamento do nível 0. */
+export const SHADOW_MIN_LEVEL = 6;
+
 /**
- * Texel do mapa ao longo do raio que desce do sol a partir de `o` (acima da camada) na direção `dir` (do sol para
- * baixo), pelo primeiro trecho da casca em `steps` passos (múltiplo de `knots`): τ ao fim de cada trecho.
+ * Texel do mapa ao longo do raio que desce do sol a partir de `o` (do lado do sol, fora da camada) na direção `dir` (do
+ * sol para baixo), pelo primeiro trecho da casca: τ ao fim de cada um dos `knots` trechos iguais. Espelho de
+ * `cloud_shadow_main`: as amostras são um pente fixo no mundo — nos planos perpendiculares ao sol a `m·Δ` da origem do
+ * mundo (`σ = −p·dir`), cada uma no meio da sua célula `[mΔ − Δ/2, mΔ + Δ/2]` recortada ao trecho —, com
+ * `Δ = SHADOW_SPACING·2ⁿ` o menor com no máximo `steps` amostras no trecho (nunca abaixo do nível `SHADOW_MIN_LEVEL`); o pente de `2Δ` (as amostras pares) é o do
+ * nível seguinte, e o texel mistura os dois pela posição do comprimento na oitava (contínuo no ângulo do sol: o pente
+ * em frações do trecho escorregava pela nuvem com o sol baixo).
  */
 export function shadowTexel(
     m: CloudModel,
     o: Vec3,
     dir: Vec3,
-    steps = 64,
+    steps = 192,
     knots = SHADOW_KNOTS,
 ): ShadowTexel {
-    const out = new Array<number>(knots).fill(0);
+    const fine = new Array<number>(knots).fill(0);
+    const coarse = new Array<number>(knots).fill(0);
     const segs = shellSegments(m, o, dir, Infinity);
-    if (segs.length === 0) return out;
+    if (segs.length === 0) return fine;
     const [start, end] = segs[0]!;
-    const dt = (end - start) / steps;
-    const per = steps / knots;
-    let tau = 0;
-    for (let i = 0; i < steps; i++) {
-        const t = start + (i + 0.5) * dt;
-        tau +=
-            cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t])
-            * m.density
-            * dt;
-        if ((i + 1) % per === 0) out[(i + 1) / per - 1] = tau;
+    // σ do ponto a `t` da origem: a distância ao plano pela origem do mundo perpendicular ao sol.
+    const sigmaO = -(o[0] * dir[0] + o[1] * dir[1] + o[2] * dir[2]);
+    const hi = sigmaO - start;
+    const lo = sigmaO - end;
+    const len = hi - lo;
+    const x = Math.max(Math.log2(len / (steps * SHADOW_SPACING)), SHADOW_MIN_LEVEL - 1);
+    const n = Math.max(Math.ceil(x), SHADOW_MIN_LEVEL);
+    const blend = x - (n - 1);
+    const dl = SHADOW_SPACING * 2 ** n;
+    const knotLen = len / knots;
+    const extinction = (s: number): number => {
+        const t = sigmaO - s;
+        return (
+            cloudDensity(m, [o[0] + dir[0] * t, o[1] + dir[1] * t, o[2] + dir[2] * t]) * m.density
+        );
+    };
+    const m0 = Math.floor(hi / dl) + 1;
+    let sumF = 0;
+    let sumC = 0;
+    let kf = 0;
+    let kc = 0;
+    for (let i = 0; i < steps + 4; i++) {
+        const k = m0 - i;
+        const s = k * dl;
+        if (s + dl <= lo) break;
+        let rf = 0;
+        const fa = Math.max(s - 0.5 * dl, lo);
+        const fb = Math.min(s + 0.5 * dl, hi);
+        if (fb > fa) {
+            rf = extinction(0.5 * (fa + fb));
+            while (kf < knots && hi - (kf + 1) * knotLen >= fa) {
+                fine[kf] = sumF + rf * (fb - (hi - (kf + 1) * knotLen));
+                kf++;
+            }
+            sumF += rf * (fb - fa);
+        }
+        if ((k & 1) === 0) {
+            const ca = Math.max(s - dl, lo);
+            const cb = Math.min(s + dl, hi);
+            if (cb > ca) {
+                const rc = ca > s - dl || cb < s + dl ? extinction(0.5 * (ca + cb)) : rf;
+                while (kc < knots && hi - (kc + 1) * knotLen >= ca) {
+                    coarse[kc] = sumC + rc * (cb - (hi - (kc + 1) * knotLen));
+                    kc++;
+                }
+                sumC += rc * (cb - ca);
+            }
+        }
     }
-    return out;
+    for (let k = kf; k < knots; k++) fine[k] = sumF;
+    for (let k = kc; k < knots; k++) coarse[k] = sumC;
+    return fine.map((f, k) => f + (coarse[k]! - f) * blend);
 }
 
 /** τ acumulado da entrada do lado do sol até o nó `k` (0…n) do texel. */

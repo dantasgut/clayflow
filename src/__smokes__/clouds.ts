@@ -46,6 +46,7 @@ import {
     coneSunDepth,
     opticalDepth,
     shellSegments,
+    sphereSpan,
     coverageField,
     typeField,
     defaultShape,
@@ -1377,6 +1378,167 @@ function groundMapT(
     return Math.exp(-tau);
 }
 
+/**
+ * τ das nuvens até o sol num ponto `q` como a GPU o lê do mapa (`cloud_shadow_column` e os nós, bilinear): a coluna pelo
+ * ponto do plano do mapa de `q`, com a origem na saída do topo da casca do lado do sol (`cloud_sun_entry`).
+ */
+function mapDepthAt(
+    map: { width: number; height: number; depth: number; data: Float32Array },
+    p: CloudLayer['data']['params'][number],
+    model: CloudModel,
+    q: Vec3,
+): number {
+    const c0 = p.sunFrame!;
+    const right = p.sunRight!;
+    const up = p.sunUp!;
+    const sun = p.sunDir! as unknown as Vec3;
+    const wp = p.sunWarp!;
+    const rel = [q[0] - c0[0]!, q[1] - c0[1]!, q[2] - c0[2]!];
+    const dot3 = (a: readonly number[], b: readonly number[]): number =>
+        a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+    const u = (Math.asinh(dot3(rel, right) / wp[0]!) / wp[1]!) * 0.5 + 0.5;
+    const v = (Math.asinh(dot3(rel, up) / wp[2]!) / wp[3]!) * 0.5 + 0.5;
+    const sigma = dot3(rel, sun);
+    const q0: Vec3 = [q[0] - sun[0] * sigma, q[1] - sun[1] * sigma, q[2] - sun[2] * sigma];
+    const span = sphereSpan(model, q0, sun, model.groundRadius + model.top);
+    const entry = span === undefined ? 0 : Math.max(span[1], 0) + 1;
+    const o: Vec3 = [q0[0] + sun[0] * entry, q0[1] + sun[1] * entry, q0[2] + sun[2] * entry];
+    const segs = shellSegments(model, o, [-sun[0], -sun[1], -sun[2]], Infinity);
+    if (segs.length === 0) return 0;
+    const [a, b] = segs[0]!;
+    const s = Math.min(1, Math.max(0, (entry - sigma - a) / (b - a))) * 16;
+    const k = Math.min(Math.floor(s), 15);
+    const fx = u * map.width - 0.5;
+    const fy = v * map.height - 0.5;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const knot = (n: number): number => {
+        if (n === 0) return 0;
+        const z = Math.floor((n - 1) / 4);
+        const ch = (n - 1) % 4;
+        const at = (i: number, j: number): number =>
+            map.data[
+                (z * map.height * map.width
+                    + Math.min(map.height - 1, Math.max(0, j)) * map.width
+                    + Math.min(map.width - 1, Math.max(0, i)))
+                    * 4
+                    + ch
+            ]!;
+        const ax = fx - x0;
+        const ay = fy - y0;
+        return (
+            (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay)
+            + (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay
+        );
+    };
+    return knot(k) + (knot(k + 1) - knot(k)) * (s - k);
+}
+
+async function caseSunLow(): Promise<void> {
+    // O sol baixo descendo devagar (o `solposto`, de 6° a 3° a 0,02° por passo): a luz direta no chão pelo mapa, quadro a
+    // quadro, contra a integral da referência. As amostras do mapa em frações do trecho escorregavam pela nuvem quando
+    // o comprimento do trecho mudava com o sol (um passo inteiro a cada ~0,06°), e τ oscilava nesse período — no vídeo
+    // acelerado, o chão piscava quadro a quadro. Medida: a variação total da série perto da da referência e a diferença
+    // média.
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 6,
+        sunAzimuth: az,
+        clouds: { coverage: 0.4, type: 0.5, wind: [0, 0] },
+    });
+    await settleFrames(s.app, 20);
+    const layer = s.layer!;
+    const model = await referenceModel(s, layer);
+    const gpu: number[] = [];
+    const ref: number[] = [];
+    for (let k = 0; k <= 150; k++) {
+        const el = 6 - k * 0.02;
+        s.sun.data.direction = sunTravel(el, az);
+        await settleFrames(s.app, 1);
+        const t = s.app.resources.textureOf(layer, 'shadow');
+        if (t === undefined) throw new Error('mapa visto do sol não alocado');
+        const map = await readTexture(s.app, t, 'rgba16float');
+        gpu.push(groundMapT(map, layer.data.params[0]!, [8, 0, 6]));
+        ref.push(Math.exp(-opticalDepth(model, [8, 0, 6], sunToward(el, az), 1024)));
+    }
+    const variation = (v: number[]): number =>
+        v.slice(1).reduce((a, x, i) => a + Math.abs(x - v[i]!), 0);
+    const turns = (v: number[]): number =>
+        v
+            .slice(2)
+            .filter(
+                (x, i) =>
+                    (x - v[i + 1]!) * (v[i + 1]! - v[i]!) < 0 && Math.abs(x - v[i + 1]!) > 0.02,
+            ).length;
+    const mean = gpu.reduce((a, g, i) => a + Math.abs(g - ref[i]!), 0) / gpu.length;
+    log(
+        `sun-low: T do chão de 6° a 3° (a cada 0,02°) — variação total GPU ${variation(gpu).toFixed(3)}, ref ${variation(ref).toFixed(3)}; voltas GPU ${turns(gpu)}, ref ${turns(ref)}; diferença média ${mean.toFixed(3)}`,
+    );
+    check(
+        variation(gpu) <= 1.25 * variation(ref) + 0.05,
+        `sun-low: variação total da luz no chão ${variation(gpu).toFixed(3)} contra ${variation(ref).toFixed(3)} da referência (oscila)`,
+    );
+    check(
+        turns(gpu) <= turns(ref) + 2,
+        `sun-low: ${turns(gpu)} voltas na luz do chão contra ${turns(ref)} da referência`,
+    );
+    check(
+        mean <= 0.05,
+        `sun-low: a luz direta no chão a ${mean.toFixed(3)} da referência na média`,
+    );
+    finish(s);
+}
+
+async function caseSunBelow(): Promise<void> {
+    // O sol abaixo do horizonte (−0,3° e −0,8°): as nuvens altas ainda o veem por cima do chão. O mapa visto do sol ficava
+    // vazio com o sol abaixo do horizonte (τ = 0: as nuvens e o chão que as vê acendiam num quadro, no `solposto` a
+    // −0,03°). τ de pontos na camada pelo mapa contra a integral da referência.
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 1,
+        sunAzimuth: az,
+        clouds: { coverage: 0.4, type: 0.5, wind: [0, 0] },
+    });
+    await settleFrames(s.app, 20);
+    const layer = s.layer!;
+    const model = await referenceModel(s, layer);
+    for (const el of [-0.3, -0.8]) {
+        s.sun.data.direction = sunTravel(el, az);
+        await settleFrames(s.app, 2);
+        const t = s.app.resources.textureOf(layer, 'shadow');
+        if (t === undefined) throw new Error('mapa visto do sol não alocado');
+        const map = await readTexture(s.app, t, 'rgba16float');
+        const p = layer.data.params[0]!;
+        let diff = 0;
+        let empty = 0;
+        let n = 0;
+        for (let k = 0; k < 60; k++) {
+            const x = (((k * 0.618034) % 1) - 0.5) * 8000;
+            const z = (((k * 0.754878) % 1) - 0.5) * 8000;
+            const y = model.base + (((k * 0.414214) % 1) * 0.9 + 0.05) * (model.top - model.base);
+            const q: Vec3 = [x, y, z];
+            const exact = Math.exp(-opticalDepth(model, q, sunToward(el, az), 4096));
+            const gpu = Math.exp(-mapDepthAt(map, p, model, q));
+            diff += Math.abs(gpu - exact);
+            if (gpu > 0.99 && exact < 0.5) empty++;
+            n++;
+        }
+        diff /= n;
+        log(
+            `sun-below: sol a ${el}° — T na camada pelo mapa a ${diff.toFixed(3)} da referência na média; ${empty} de ${n} pontos sem a sombra que a referência tem`,
+        );
+        check(
+            diff <= 0.05,
+            `sun-below: sol a ${el}°, T na camada a ${diff.toFixed(3)} da referência`,
+        );
+    }
+    finish(s);
+}
+
 async function caseSunSweep(): Promise<void> {
     // O pôr do sol do `pordosol` (claflow-web): o sol descendo de 12° a 1° no azimute (0,8; 0,6) e a luz direta no chão
     // da câmera — a transmitância das nuvens até o sol pelo mapa, quadro a quadro, contra a integral da referência. Os
@@ -1834,6 +1996,8 @@ const CASES: Record<string, () => Promise<void>> = {
     'far-cloud': caseFarCloud,
     backlit: caseBacklit,
     'sun-sweep': caseSunSweep,
+    'sun-low': caseSunLow,
+    'sun-below': caseSunBelow,
     'fly-through': caseFlyThrough,
     'shadow-map': caseShadowMap,
     panorama: casePanorama,

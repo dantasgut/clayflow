@@ -56,6 +56,17 @@ fn cloud_shell_segments(o: vec3f, d: vec3f, t_max: f32) -> vec4f {
     return vec4f(s0, s1);
 }
 
+/**
+ * A distância (m), na direção `sun` (para o sol), do ponto `q` até a saída do topo da casca do lado do sol: a origem do
+ * raio que desce do sol pela coluna de `q` no mapa visto do sol, com o sol acima ou abaixo do horizonte. 0 quando a
+ * coluna não cruza o topo da casca ou o cruza só do outro lado.
+ */
+fn cloud_sun_entry(q: vec3f, sun: vec3f) -> f32 {
+    let s = cloud_sphere(q, sun, clouds.shell.x + clouds.shell.z);
+    if (s.x > s.y) { return 0.0; }
+    return max(s.y, 0.0) + 1.0;
+}
+
 /** Limites [subida0, subida1, descida0, descida1] do perfil no tipo `t` (estrato 0 → cúmulo 0,5 → cúmulo-nimbo 1). */
 fn cloud_profile_limits(t: f32) -> vec4f {
     let stratus = vec4f(0.0, 0.1, 0.2, 0.3);

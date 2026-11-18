@@ -42,6 +42,12 @@ const TAA_FILTER_SHARPNESS: f32 = 4.0;
  * mais que esta fração (o dobro: inteira). Abaixo, a variação da amostra deslocada numa penumbra ou numa aresta.
  */
 const TAA_LIGHT_CHANGE: f32 = 0.1;
+/**
+ * Folga (fração) da faixa da luz da vizinhança 3 × 3 dentro da qual a luz acumulada fica como está: a variação de uma
+ * amostra deslocada que as nove de agora não pegam (um detalhe de luz menor que o pixel). Fora dela, o histórico é
+ * reiluminado continuamente até a borda da faixa.
+ */
+const TAA_LIGHT_TOLERANCE: f32 = 0.02;
 /** Quadros máximos do histórico no modo de acumulação. */
 const TAA_MAX_FRAMES: f32 = 4096.0;
 
@@ -200,17 +206,17 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     var count = 0.0;
     var filtered = vec3f(0.0);
     var wsum = 0.0;
-    var light_lo = light.r;
-    var light_hi = light.r;
+    var light_lo = light;
+    var light_hi = light;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let q = clamp(pixel + vec2i(dx, dy), vec2i(0), vec2i(dims) - 1);
             let rgb = taa_finite(textureLoad(src_tex, q, 0).rgb);
-            let direct = textureLoad(taa_light, q, 0).r;
+            let lq = textureLoad(taa_light, q, 0).rg;
             // A faixa da luz com todos os vizinhos: numa silhueta, a amostra deslocada cai ora numa superfície, ora na
             // outra, e a luz acumulada é a mistura das duas.
-            light_lo = min(light_lo, direct);
-            light_hi = max(light_hi, direct);
+            light_lo = min(light_lo, lq);
+            light_hi = max(light_hi, lq);
             // Só em movimento a caixa e a reconstrução valem: parado, sem as leituras da profundidade.
             if (stirred > 0.0) {
                 let near = view_depth(textureLoad(taa_depth, q, 0), cam.projection);
@@ -229,21 +235,30 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             wsum += w;
         }
     }
-    // Mudança de iluminação: a luz direta acumulada com o histórico fora da faixa da vizinhança de agora. Na superfície,
-    // o histórico é reiluminado pela razão da luz total (a textura integrada fica; a sombra que passou sai, a luz
-    // rebatida fica) e, como em movimento, recortado com o quadro novo entrando depressa. No fundo (o céu e as nuvens,
-    // cuja luz é a própria radiância, spec 041) só reiluminado: o histórico de 64 quadros em radiância linear guardava
-    // por segundos o céu e as nuvens do crepúsculo, que escurecem ~100× com a sombra da Terra (a média dominada pelos
-    // quadros claros); recortado, ele perdia a acumulação das nuvens (os blocos da marcha).
+    // Mudança de iluminação: a luz acumulada com o histórico levada à faixa da vizinhança 3 × 3 de agora (com a folga
+    // `TAA_LIGHT_TOLERANCE`), e o histórico reiluminado pela mesma razão — contínuo: a luz que muda devagar (o sol que
+    // desce, a sombra de uma nuvem que chega) é acompanhada quadro a quadro. Antes a reiluminação só entrava com a luz
+    // acumulada 10–20 % fora da faixa: com a luz caindo ~3 % por quadro, o histórico parado (1/64 por quadro) ficava para
+    // trás até passar o limiar e saltava — o chão andava em degraus de dois quadros (medido no `solposto`, 19° e 4,4°).
+    // A mudança grande (a luz direta acumulada mais de 10–20 % fora da faixa: uma sombra que passa) é também tratada
+    // como em movimento na superfície — recortada, com o quadro novo entrando depressa — e reiluminada pela luz do pixel
+    // (a textura integrada fica; a sombra que passou sai, a luz rebatida fica). No fundo (o céu e as nuvens, cuja luz é
+    // a própria radiância, spec 041) só reiluminado: o histórico de 64 quadros em radiância linear guardava por segundos
+    // o céu e as nuvens do crepúsculo, que escurecem ~100× com a sombra da Terra; recortado, ele perdia a acumulação das
+    // nuvens (os blocos da marcha). No fundo a luz é a radiância de agora, com o ruído do quadro: a faixa é a da
+    // vizinhança, não a do pixel.
     let prev_light = textureLoad(taa_history_light, prev_pixel, 0).rg;
-    let beyond = max(prev_light.r - light_hi, light_lo - prev_light.r) / max(max(light_hi, prev_light.r), 1e-4);
+    let beyond = max(prev_light.r - light_hi.r, light_lo.r - prev_light.r) / max(max(light_hi.r, prev_light.r), 1e-4);
     let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0);
-    // No fundo a luz é a radiância de agora, com o ruído do quadro (os blocos da marcha das nuvens): a razão é a da luz
-    // acumulada trazida só até a faixa da vizinhança 3 × 3 de agora, não até a do pixel.
     let background = depth >= 1.0;
-    let relight_to = select(light.g, clamp(prev_light.r, light_lo, light_hi), background);
-    let ratio = clamp(relight_to / max(prev_light.g, 1e-4), 0.0, 16.0);
-    var relighted = history.rgb * mix(1.0, ratio, relit);
+    let kept = clamp(prev_light, light_lo * (1.0 - TAA_LIGHT_TOLERANCE), light_hi * (1.0 + TAA_LIGHT_TOLERANCE));
+    // A luz acumulada depois da reiluminação (direta, total).
+    let relight_to = select(mix(kept, light, relit), vec2f(kept.r), background);
+    // A razão contínua só com luz acumulada mensurável (a de um ponto sem luz, ~0, não diz quanto a luz mudou: dividir pelo
+    // piso escureceria o histórico a cada quadro); sem ela, só a mudança grande reilumina, como antes.
+    let raw_ratio = clamp(relight_to.y / max(prev_light.g, 1e-4), 0.0, 16.0);
+    let ratio = select(select(mix(1.0, raw_ratio, relit), raw_ratio, prev_light.g > 1e-4), 1.0, frames <= 0.0);
+    var relighted = history.rgb * ratio;
     if (background) {
         // No fundo a cor da luz muda com ela (o céu e as nuvens do branco ao laranja e ao violeta): a croma reiluminada é
         // a da vizinhança de agora (de baixa frequência), sobre o brilho do histórico reiluminado (o detalhe dele).
@@ -265,7 +280,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     out.color = vec4f(taa_finite(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0)), 1.0);
     out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);
     // A luz acumulada como a cor: reiluminada, ela é a de agora.
-    out.light = select(light, mix(mix(prev_light, select(light, vec2f(relight_to), background), relit), light, alpha), frames > 0.0);
+    out.light = select(light, mix(relight_to, light, alpha), frames > 0.0);
     return out;
 }
 

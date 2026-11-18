@@ -16,6 +16,9 @@ import {
     shadowTexel,
     shadowTransmittance,
     shellSegments,
+    SHADOW_KNOTS,
+    shadowKnot,
+    sphereSpan,
     typeField,
     type CloudModel,
     type Vec3,
@@ -187,15 +190,66 @@ describe('transmitância e mapa visto do sol', () => {
             const [a, b] = shellSegments(m, o, down, Infinity)[0]!;
             const exact = opticalDepth(m, q, sun, 4096);
             // Act
-            const marched = shadowDepthMarched(m, q, sun, shadowTexel(m, o, down, 64), far, a, b);
-            const linear4 = shadowDepth(shadowTexel(m, o, down, 64, 4), far, a, b);
+            const marched = shadowDepthMarched(m, q, sun, shadowTexel(m, o, down), far, a, b);
+            const linear4 = shadowDepth(shadowTexel(m, o, down, 192, 4), far, a, b);
             // Assert (relativo, com piso de 0,5 de τ)
             worst16 = Math.max(worst16, Math.abs(marched - exact) / Math.max(exact, 0.5));
             worst4 = Math.max(worst4, Math.abs(linear4 - exact) / Math.max(exact, 0.5));
         }
-        // Medido: 16 nós com o pedaço marchado ≤ 0,5 %; quatro nós lineares, 19 %.
+        // Medido: 16 nós com o pedaço marchado 1,0 % (o pente fixo no mundo, até 128 amostras); quatro nós lineares, 20 %.
         expect(worst16).toBeLessThan(0.02);
         expect(worst4).toBeGreaterThan(0.1);
+    });
+
+    it('com o sol baixo descendo, τ do chão pelo mapa segue a integral sem oscilar (o pente não escorrega)', () => {
+        // Arrange: estrutura de 300 m ao longo do raio do sol (menor que o passo do mapa no trecho de ~30 km a 4,4°): o
+        // pente em frações do trecho escorregava um passo inteiro a cada ~0,06° e τ oscilava nesse período.
+        const base = flatModel(1, 0.5);
+        const m: CloudModel = {
+            ...base,
+            top: 4000,
+            coverage: (x) => [0.6 + 0.4 * Math.sin((2 * Math.PI * x) / 300), 0.5, 1],
+        };
+        const far = 400_000;
+        const texelTau: number[] = [];
+        const exactTau: number[] = [];
+        for (let k = 0; k <= 120; k++) {
+            const e = ((4.6 - k * 0.005) * Math.PI) / 180;
+            const sun: Vec3 = [Math.cos(e), Math.sin(e), 0];
+            const down: Vec3 = [-sun[0], -sun[1], -sun[2]];
+            const o: Vec3 = [sun[0] * far, sun[1] * far, 0];
+            // Act
+            const texel = shadowTexel(m, o, down);
+            texelTau.push(shadowKnot(texel, SHADOW_KNOTS));
+            exactTau.push(opticalDepth(m, [0, 0, 0], sun, 16384));
+        }
+        // Assert: a variação total da série do mapa perto da exata (a oscilação somaria dezenas de vezes τ).
+        const variation = (v: number[]): number =>
+            v.slice(1).reduce((a, x, i) => a + Math.abs(x - v[i]!), 0);
+        const worst = Math.max(
+            ...texelTau.map((t, i) => Math.abs(t - exactTau[i]!) / exactTau[i]!),
+        );
+        expect(variation(texelTau)).toBeLessThan(1.5 * variation(exactTau) + 0.05 * exactTau[0]!);
+        expect(worst).toBeLessThan(0.05);
+    });
+
+    it('com o sol abaixo do horizonte, o texel de uma coluna que cruza a camada não fica vazio', () => {
+        // Arrange: o sol a −0,5°; um ponto da camada a 3 km sobre a câmera recebe o sol rasante por cima do chão.
+        const m = flatModel(0.5, 0.5);
+        const e = (-0.5 * Math.PI) / 180;
+        const sun: Vec3 = [Math.cos(e), Math.sin(e), 0];
+        const down: Vec3 = [-sun[0], -sun[1], -sun[2]];
+        const q: Vec3 = [0, 2400, 0];
+        // A origem da coluna: a saída do topo da casca do lado do sol (`cloud_sun_entry`).
+        const exit = sphereSpan(m, q, sun, m.groundRadius + m.top)![1];
+        const o: Vec3 = [q[0] + sun[0] * (exit + 1), q[1] + sun[1] * (exit + 1), q[2]];
+        // Act
+        const texel = shadowTexel(m, o, down);
+        const [a, b] = shellSegments(m, o, down, Infinity)[0]!;
+        const tau = shadowDepth(texel, exit + 1, a, b);
+        // Assert
+        expect(tau).toBeGreaterThan(1);
+        expect(Math.abs(tau - opticalDepth(m, q, sun, 8192)) / tau).toBeLessThan(0.05);
     });
 
     it('a marcha sem nuvem deixa tudo passar; com nuvem espessa, quase nada', () => {

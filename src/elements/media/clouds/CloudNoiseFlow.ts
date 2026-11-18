@@ -247,19 +247,15 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         // O centro encaixado no texel de perto (a câmera andando não faz tremer).
         const tu = (2 * x0u * ku) / q.shadow.size;
         const tv = (2 * x0v * kv) / q.shadow.size;
-        const sx = Math.round(dot(eye, right) / tu) * tu;
-        const sy = Math.round((dot(eye, up) + vMid) / tv) * tv;
+        const iu = Math.round(dot(eye, right) / tu);
+        const iv = Math.round((dot(eye, up) + vMid) / tv);
+        const sx = iu * tu;
+        const sy = iv * tv;
         const center = [
             right[0]! * sx + up[0]! * sy,
             right[1]! * sx + up[1]! * sy,
             right[2]! * sx + up[2]! * sy,
         ];
-        // A origem dos raios acima do topo em todo texel: o texel mais baixo fica `|up_y|·alcance` abaixo do centro.
-        const far = Math.min(
-            (d.top + 1000 - Math.min(center[1]!, 0) + upY * (half * upH + band * upY))
-                / Math.max(sun[1]!, 0.02),
-            2e6,
-        );
         const valid = c.bound.slots.cloudMarch.age(1) === 1;
         const scatterValid = c.bound.slots.cloudScatter.age(1) === 1;
         // O centro da grade do cache de espalhamento encaixado (o shader refaz o encaixe da posição anterior da câmera).
@@ -284,8 +280,8 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 coverageMap: [covCenter[0]!, covCenter[1]!, q.coverageExtent, t],
                 coverageOffset: [wind.coverage[0], wind.coverage[1], 0, 0],
                 sunFrame: [center[0]!, center[1]!, center[2]!, q.shadow.extent],
-                sunRight: [right[0]!, right[1]!, right[2]!, far],
-                sunUp: [up[0]!, up[1]!, up[2]!, 0],
+                sunRight: [right[0]!, right[1]!, right[2]!, iu],
+                sunUp: [up[0]!, up[1]!, up[2]!, iv],
                 sunDir: [sun[0]!, sun[1]!, sun[2]!, 0],
                 sunWarp: [x0u, ku, x0v, kv],
                 march: [q.steps, q.lightSteps, time?.frame ?? 0, cameraSlot],
