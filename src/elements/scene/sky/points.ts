@@ -6,7 +6,14 @@ import {
     sceneEnvironmentPoint,
     skyCoverReady,
 } from '../points/lighting';
-import { sky, skyAerialLookup, skyAmbientTexture, skyParamsResource } from './shaders';
+import {
+    sky,
+    skyAerialLookup,
+    skyAerialShadowLut,
+    skyAmbientTexture,
+    skyParamsResource,
+    skySampler,
+} from './shaders';
 import { camerasResource } from '../resources';
 import { viewSpace } from '../../gpu/shaders/math';
 import { NONE } from '../../../scene/shaders/engineConstants';
@@ -35,6 +42,28 @@ const skyBackground = wgslModule({
     requires: [sky],
     source: `fn scene_background(dir: vec3f) -> vec3f {
     return sky_background(dir);
+}`,
+});
+
+/**
+ * O céu com a sombra do que tapa o sol no ar (spec 041, raios crepusculares): a vista do céu integra a atmosfera sem
+ * sombra; o déficit da tabela da perspectiva aérea (a luz simples que o ar sombreado deixa de espalhar até o fim da
+ * atmosfera, por coluna da tela da câmera ativa) sai dela. A direção projetada pela câmera ativa: o fundo da câmera cai
+ * na tela; a de um raio refletido ou refratado perto da câmera, fora da tela, lê a coluna da borda, e o déficit some a
+ * meia tela além dela (atrás da câmera, nada) — o ar que esse raio atravessa é o mesmo que a câmera vê na mesma direção.
+ */
+const skyBackgroundShadowed = wgslModule({
+    name: 'sky_scene_background_shadowed',
+    requires: [sky, skyParamsResource, skyAerialShadowLut, skySampler, camerasResource, viewSpace],
+    source: `fn scene_background(dir: vec3f) -> vec3f {
+    let l = sky_background(dir);
+    let c = cameras[sky.cameraSlot].unjitteredViewProjection * vec4f(dir, 0.0);
+    if (c.w <= 1e-6) { return l; }
+    let uv = ndc_to_uv(c.xy / c.w);
+    let outside = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
+    let fade = 1.0 - smoothstep(0.0, 0.5, outside);
+    let deficit = textureSampleLevel(sky_aerial_shadow_lut, sky_sampler, clamp(uv, vec2f(0.0), vec2f(1.0)), 0.0).rgb;
+    return max(l - deficit * sky.sunIlluminance.rgb * fade, vec3f(0.0));
 }`,
 });
 
@@ -83,7 +112,10 @@ const skyFog = wgslModule({
     if (d <= 0.0 || d >= 0.5 * SCENE_FOG_BACKGROUND) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
     let c = cam.unjitteredViewProjection * vec4f(p, 1.0);
     let uv = clamp(ndc_to_uv(c.xy / max(c.w, 1e-6)), vec2f(0.0), vec2f(1.0));
-    let a = sky_aerial(uv, v / d, d);
+    // O ar acaba no chão do planeta: um ponto abaixo dele (a cena abaixo da altitude 0) lê a tabela no chão, onde a
+    // coluna dele termina — as colunas vizinhas, que a leitura interpola, terminam em outras distâncias.
+    let r0 = sky_bottom() + max(sky.radii.w + cam.position.y * 0.001, 0.001);
+    let a = sky_aerial(uv, v / d, min(d, sky_segment(r0, v.y / d) * 1000.0));
     return SceneFog(a.scattered * sky.sunIlluminance.rgb, a.transmittance);
 }`,
 });
@@ -144,7 +176,12 @@ export function skyContributions(
             build: () => (lights() ? skyAmbient : undefined),
         },
         { point: lightTransmissionPoint, order: 20, pools: [], build: () => skyLightTransmission },
-        { point: sceneBackgroundPoint, order: 0, pools: [], build: () => skyBackground },
+        {
+            point: sceneBackgroundPoint,
+            order: 0,
+            pools: [],
+            build: () => (aerial() ? skyBackgroundShadowed : skyBackground),
+        },
         {
             point: sceneEnvironmentPoint,
             order: 0,

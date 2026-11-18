@@ -47,12 +47,14 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { SkyAerialFlow } from '../../elements/scene/sky/SkyAerialFlow';
 import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
 import { CloudNoiseFlow } from '../../elements/media/clouds/CloudNoiseFlow';
 import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
 import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
 import { SkyCompositeFlow } from './SkyCompositeFlow';
 import { SkyReactiveFlow } from './SkyReactiveFlow';
+import { SkyOverflowFlow } from './SkyOverflowFlow';
 import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
@@ -474,6 +476,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'shadow',
         priority: -1,
     });
+    // A perspectiva aérea da câmera (spec 041) depois da luz das nuvens (a sombra delas no ar: os raios crepusculares) e
+    // antes de quem a lê (o desenho, a marcha das nuvens).
+    const skyAerialRegistration = flows.register((ctx) => new SkyAerialFlow(ctx), {
+        type: 'skyAerial',
+        phase: 'shadow',
+        priority: -1.5,
+    });
     // A luz do céu nas superfícies sem GI (spec 041), depois da luz das nuvens (o céu coberto) e antes do desenho.
     const skyAmbientRegistration = flows.register((ctx) => new SkyAmbientFlow(ctx), {
         type: 'skyAmbient',
@@ -570,8 +579,15 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -70,
     });
+    // O disco do sol acima do teto da cor (spec 041) depois da composição das nuvens (o que as nuvens tapam dele), para o
+    // espalhamento da lente no pós.
+    const skyOverflowRegistration = flows.register((ctx) => new SkyOverflowFlow(ctx), {
+        type: 'skyOverflow',
+        phase: 'forward',
+        priority: -70.5,
+    });
     // A máscara reativa do disco do sol (spec 041) depois do fundo, antes da resolução temporal que a lê.
-    const skyReactiveRegistration = flows.register(() => new SkyReactiveFlow(), {
+    const skyReactiveRegistration = flows.register((ctx) => new SkyReactiveFlow(ctx), {
         type: 'skyReactive',
         phase: 'forward',
         priority: -71,
@@ -646,6 +662,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             raySceneRegistration,
             shadowRegistration,
             cloudLightRegistration,
+            skyAerialRegistration,
             skyAmbientRegistration,
             probeRegistration,
             causticsRegistration,
@@ -660,6 +677,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             refractionMotionRegistration,
             cloudRegistration,
             skyCompositeRegistration,
+            skyOverflowRegistration,
             skyReactiveRegistration,
             postRegistration,
             debugRegistration,

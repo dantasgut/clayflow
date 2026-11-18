@@ -3,6 +3,7 @@ import { renderScene } from '../../../../presentation/flows/__tests__/helpers/re
 import { DirectionalLight } from '../../DirectionalLight';
 import { Sky, SKY_TRANSMITTANCE_SIZE } from '../Sky';
 import { SkyFlow } from '../SkyFlow';
+import { SkyAerialFlow } from '../SkyAerialFlow';
 import { Camera } from '../../Camera';
 import { Transform } from '../../Transform';
 import { CameraFlow } from '../../flows/CameraFlow';
@@ -83,10 +84,20 @@ describe('Sky e SkyFlow (spec 033, T017)', () => {
             phase: 'transform',
             priority: 10,
         });
+        s.scene.flows.register((ctx) => new SkyAerialFlow(ctx), {
+            type: 'skyAerial',
+            phase: 'shadow',
+        });
         expect(s.sky.data.aerial).toBe(0);
         for (let i = 0; i < 3; i++) s.step();
-        expect(s.computes()).toContain('SkyFlow.sky_aerial');
+        expect(s.computes()).toContain('SkyAerialFlow.sky_aerial');
         expect(s.sky.data.aerial).toBe(1);
+        // O déficit da sombra no fundo (spec 041, raios crepusculares): com a tabela escrita, o fundo o tira do céu.
+        const background = s.sky
+            .getSceneContributions()
+            .find((c) => c.point.name === 'scene_background')!
+            .build(() => undefined)!;
+        expect(composeWgsl(background).spec.source).toContain('sky_aerial_shadow_lut');
     });
 
     it('turbidez multiplica os aerossóis (Mie)', () => {

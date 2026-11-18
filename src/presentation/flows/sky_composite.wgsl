@@ -6,11 +6,14 @@
 // céu):
 //   final = Sfog + Tfog·(Sc + Tc·(L·Ta + Sa)) = cor·Tc + Sfog·(1 − Tc) + Tfog·Sc
 // Dois passes com mistura do hardware: o produto `cor·Tc` (`sky_composite_multiply_fs`, mistura `dst·src`) e a soma do
-// resto (`sky_composite_add_fs`, mistura `src + dst`). A luz que chega (o alvo da resolução temporal) fica a do céu atrás
-// das nuvens: no fundo, a radiância do céu — lisa, sem o ruído da marcha —, por cuja mudança a resolução temporal
-// reilumina o histórico do fundo (o crepúsculo); com o brilho da nuvem nela, a reiluminação contínua levava o histórico
-// à faixa 3 × 3 de agora a cada quadro (um recorte justo no fundo), e o detalhe da nuvem menor que o texel da marcha
-// acendia e apagava (spec 041).
+// resto (`sky_composite_add_fs`, mistura `src + dst`).
+// A luz que chega no fundo com nuvens (spec 041, o traço na nuvem acima do sol no `solposto`): o histórico parado da
+// resolução temporal (64 quadros, sem recorte) é reiluminado pela razão da luz que chega; com a luz do céu atrás das
+// nuvens nela, a mudança da luz das próprias nuvens (o sol descendo, o pico de frente andando com ele) não era seguida —
+// o histórico ficava ~1 s para trás, e onde a máscara do disco recomeçava aparecia a nuvem de agora no meio da atrasada:
+// um traço claro (ou escuro) ao longo do caminho do sol. Com o alvo da luz, os mesmos dois passes o levam a
+// `luz·Tc' + Y(Sc')` — a nuvem passa-baixa (`sky_composite_cloud_low`: a média 3 × 3 a 3 pixels, mais larga que o texel
+// da marcha), lisa: o detalhe menor que o texel não entra na faixa 3 × 3 da reiluminação, e a mudança da nuvem entra.
 // Requer: refraction_screen (o triângulo), sky_composite_cloud, camera_space, scene_fog, SCENE_FOG_BACKGROUND, sky,
 // cameras, constants, sky_composite_depth.
 
@@ -24,6 +27,41 @@ fn sky_composite_fog(frag: vec4f) -> SceneFog {
     let size = vec2f(sky_composite_depth_size());
     let ray = camera_ray(sky.cameraSlot, floor(frag.xy) + 0.5, size);
     return scene_fog(ray.origin + ray.dir * SCENE_FOG_BACKGROUND);
+}
+
+/** A nuvem passa-baixa no pixel: a média de 3 × 3 leituras a 3 pixels (a luz e a transmitância). */
+fn sky_composite_cloud_low(px: vec2i) -> vec4f {
+    let size = vec2i(sky_composite_depth_size());
+    var sum = vec4f(0.0);
+    for (var k = 0; k < 9; k++) {
+        let q = clamp(px + 3 * vec2i(k % 3 - 1, k / 3 - 1), vec2i(0), size - 1);
+        sum += sky_composite_cloud(vec2u(q));
+    }
+    return sum / 9.0;
+}
+
+struct SkyCompositeLightOut {
+    @location(0) color: vec4f,
+    @location(1) light: vec4f,
+}
+
+@fragment
+fn sky_composite_multiply_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
+    let k = sky_composite_cloud(vec2u(frag.xy)).a;
+    let low = sky_composite_cloud_low(vec2i(frag.xy)).a;
+    if (min(k, low) > 1.0 - SKY_COMPOSITE_EPS) { discard; }
+    return SkyCompositeLightOut(vec4f(vec3f(k), 1.0), vec4f(low, low, 0.0, 1.0));
+}
+
+@fragment
+fn sky_composite_add_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
+    let cloud = sky_composite_cloud(vec2u(frag.xy));
+    let low = sky_composite_cloud_low(vec2i(frag.xy));
+    let fog = sky_composite_fog(frag);
+    let sum = fog.scattered * (1.0 - cloud.a) + fog.transmittance * cloud.rgb;
+    // O brilho como o do fundo na luz que chega (o Y do YCoCg).
+    let y = min(dot(fog.scattered * (1.0 - low.a) + fog.transmittance * low.rgb, vec3f(0.25, 0.5, 0.25)), 60000.0);
+    return SkyCompositeLightOut(vec4f(sum, 0.0), vec4f(y, y, 0.0, 0.0));
 }
 
 fn sky_composite_multiply(frag: vec4f) -> vec4f {

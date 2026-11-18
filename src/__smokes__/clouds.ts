@@ -578,14 +578,30 @@ async function compareView(
                     );
                     let c: Vec3 = r.scattered;
                     if (r.transmittance < 1) {
+                        // A atmosfera na frente da nuvem com a sombra das nuvens no ar (R18, os raios crepusculares): o
+                        // ponto do caminho (km do centro do planeta, a câmera em (0, R + altitude, 0)) volta ao da cena
+                        // pela distância percorrida, e a luz simples ali × a transmitância das nuvens até o sol.
+                        const alt = 0.2 + eye[1] / 1000;
+                        const visibility = (x: Vec3): number => {
+                            const t =
+                                Math.hypot(x[0], x[1] - (atmosphere.bottomRadius + alt), x[2])
+                                * 1000;
+                            const p: Vec3 = [
+                                eye[0] + d[0] * t,
+                                eye[1] + d[1] * t,
+                                eye[2] + d[2] * t,
+                            ];
+                            return Math.exp(-opticalDepth(model, p, sun, 32));
+                        };
                         const a = aerialPerspective(
                             atmosphere,
-                            0.2 + eye[1] / 1000,
+                            alt,
                             d,
                             sun,
                             r.depth / 1000,
                             48,
                             ms,
+                            visibility,
                         );
                         airSum +=
                             ((1 - r.transmittance)

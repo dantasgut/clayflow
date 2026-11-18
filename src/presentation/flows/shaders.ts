@@ -7,6 +7,10 @@ import { refractionScreen } from '../../elements/lighting/refraction/shaders';
 import { cameraSpace } from '../../elements/scene/flows/shaders';
 import skyCompositeSource from './sky_composite.wgsl?raw';
 import skyReactiveSource from './sky_reactive.wgsl?raw';
+import skyOverflowSource from './sky_overflow.wgsl?raw';
+import bloomSource from './effects/bloom.wgsl?raw';
+import { sharedConstant } from '../../scene/shaders/SharedConstant';
+import { OVERFLOW_UNIT } from '../app/FrameTargets';
 import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
@@ -543,6 +547,16 @@ export const effectResources = {
         frequency: 'draw',
         provider: 'private',
     }),
+    /**
+     * A radiância acima do teto da cor da cena (`FrameTargets.overflow`, spec 041), em unidades de `OVERFLOW_UNIT`: lida
+     * pelos passes de efeito que a declaram (`EffectStage.overflow`).
+     */
+    overflow: wgslResource({
+        name: 'post_overflow_tex',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'draw',
+        provider: 'private',
+    }),
 } as const;
 
 /** Triângulo de tela cheia (`VsOut`, `vs_fullscreen`) dos passes de tela. */
@@ -857,12 +871,133 @@ const skyReactiveDepth = wgslResource({
     provider: 'private',
 });
 
-/** Módulos da máscara reativa do disco: o shader e a profundidade da cena. */
-export const skyReactive = {
-    module: wgslModule({
-        name: 'sky_reactive',
-        source: skyReactiveSource,
-        requires: [viewSpace, sky, skySunTrack.previous, camerasResource, skyReactiveDepth],
+/**
+ * O que as nuvens fazem no pixel do disco do sol (spec 041): a luz delas (rgb) e a transmitância (a) da nuvem aumentada
+ * da `CloudLayer`; sem camada, nada na frente (`(0, 0, 0, 1)`).
+ */
+const SKY_DISK_COVER = {
+    clouds: wgslModule({
+        name: 'sky_disk_cover_clouds',
+        requires: [cloudResources.view],
+        source: 'fn sky_disk_cover(px: vec2u) -> vec4f {\n    return textureLoad(cloud_view_tex, px, 0);\n}',
     }),
+    clear: wgslModule({
+        name: 'sky_disk_cover_clear',
+        source: 'fn sky_disk_cover(px: vec2u) -> vec4f {\n    return vec4f(0.0, 0.0, 0.0, 1.0);\n}',
+    }),
+} as const;
+
+/** Módulos da máscara reativa do disco: o shader (com ou sem as nuvens na frente do disco) e a profundidade da cena. */
+const skyReactiveModules = [false, true].map((clouds) =>
+    wgslModule({
+        name: clouds ? 'sky_reactive_clouds' : 'sky_reactive',
+        source: skyReactiveSource,
+        requires: [
+            viewSpace,
+            color,
+            sky,
+            skySunTrack.previous,
+            camerasResource,
+            skyReactiveDepth,
+            clouds ? SKY_DISK_COVER.clouds : SKY_DISK_COVER.clear,
+        ],
+    }),
+);
+export const skyReactive = {
+    module: (clouds: boolean): WgslModule => skyReactiveModules[clouds ? 1 : 0]!,
     depth: skyReactiveDepth,
+} as const;
+
+/** A unidade do alvo da radiância acima do teto da cor (`FrameTargets.overflow`, spec 041). */
+export const OVERFLOW_UNIT_CONSTANT = sharedConstant('OVERFLOW_UNIT', OVERFLOW_UNIT, 'f32');
+
+// O disco do sol acima do teto da cor (spec 041): o excesso para o espalhamento da lente.
+
+const skyOverflowDepthResource = (multisampled: boolean): WgslResource =>
+    wgslResource({
+        name: 'sky_overflow_depth_tex',
+        binding: { texture: { sample: 'depth', ...(multisampled ? { multisampled: true } : {}) } },
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+const SKY_OVERFLOW_DEPTH = {
+    single: skyOverflowDepthResource(false),
+    multisampled: skyOverflowDepthResource(true),
+} as const;
+
+const skyOverflowDepthModule = (multisampled: boolean): WgslModule =>
+    wgslModule({
+        name: multisampled ? 'sky_overflow_depth_ms' : 'sky_overflow_depth',
+        requires: [multisampled ? SKY_OVERFLOW_DEPTH.multisampled : SKY_OVERFLOW_DEPTH.single],
+        source: `fn sky_overflow_depth(px: vec2i) -> f32 {
+    return textureLoad(sky_overflow_depth_tex, px, 0);
+}
+
+fn sky_overflow_depth_size() -> vec2u {
+    return textureDimensions(sky_overflow_depth_tex);
+}`,
+    });
+
+/** Módulos do excesso do disco do sol: o shader (pelas amostras da profundidade e com ou sem nuvens) e a profundidade. */
+const skyOverflowModules = [false, true].flatMap((multisampled) =>
+    [false, true].map((clouds) =>
+        wgslModule({
+            name: `sky_overflow${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`,
+            source: skyOverflowSource,
+            requires: [
+                viewSpace,
+                constants,
+                sky,
+                camerasResource,
+                sceneFogReady,
+                SCENE_FOG_BACKGROUND.module,
+                OVERFLOW_UNIT_CONSTANT.module,
+                skyOverflowDepthModule(multisampled),
+                clouds ? SKY_DISK_COVER.clouds : SKY_DISK_COVER.clear,
+            ],
+        }),
+    ),
+);
+export const skyOverflow = {
+    module: (multisampled: boolean, clouds: boolean): WgslModule =>
+        skyOverflowModules[(multisampled ? 2 : 0) + (clouds ? 1 : 0)]!,
+    depth: SKY_OVERFLOW_DEPTH,
+} as const;
+
+// O espalhamento da lente (spec 041): a pirâmide do `Bloom`.
+
+/** O nível de baixo já somado (a subida) ou o último da subida (o passe principal). */
+const bloomLower = wgslResource({
+    name: 'bloom_lo_tex',
+    binding: { texture: { sample: 'f32' } },
+    frequency: 'draw',
+    provider: 'private',
+});
+
+/** O excesso acima do teto da cor (radiância absoluta), quando a cena o tem; sem ele, nada. */
+const bloomOverflowRead = wgslModule({
+    name: 'bloom_overflow_read',
+    requires: [effectResources.overflow, effectResources.sampler, OVERFLOW_UNIT_CONSTANT.module],
+    source: `fn bloom_overflow(uv: vec2f) -> vec3f {
+    return textureSampleLevel(post_overflow_tex, src_smp, uv, 0.0).rgb * OVERFLOW_UNIT;
+}`,
+});
+const bloomOverflowNone = wgslModule({
+    name: 'bloom_overflow_none',
+    source: 'fn bloom_overflow(uv: vec2f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+const bloomVariants = [false, true].map((overflow) =>
+    wgslModule({
+        name: overflow ? 'bloom_overflow' : 'bloom',
+        source: bloomSource,
+        requires: [effectsBase, bloomLower, overflow ? bloomOverflowRead : bloomOverflowNone],
+    }),
+);
+
+/** Módulos do `Bloom`: o shader (com ou sem o excesso da radiância) e o nível de baixo lido pela subida. */
+export const bloomModules = {
+    module: (overflow: boolean): WgslModule => bloomVariants[overflow ? 1 : 0]!,
+    lower: bloomLower,
 } as const;

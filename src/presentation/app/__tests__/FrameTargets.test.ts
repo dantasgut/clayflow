@@ -27,6 +27,13 @@ describe('FrameTargets', () => {
                 role: 'texture',
                 textureShape: { format: 'rg16float', sizeFromCanvas: true },
             },
+            // A radiância acima do teto da cor (spec 041): o disco do sol para o espalhamento da lente, sob demanda.
+            {
+                id: 'overflow',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true },
+            },
             {
                 id: 'depth',
                 role: 'texture',
@@ -40,6 +47,7 @@ describe('FrameTargets', () => {
             new FrameTargets().getDescriptors().map((d) => [d.id, d.textureShape?.sampleCount]),
         ).toEqual([
             ['color', undefined],
+            ['overflow', undefined],
             ['depth', 4],
             ['samples', 4],
         ]);

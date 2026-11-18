@@ -4,11 +4,17 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot, type SingletonSlot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
+import {
+    slot,
+    type SingletonSlot,
+    type SlotMap,
+    type TargetSlot,
+    type TextureSlot,
+} from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Sky } from '../../elements/scene/sky/Sky';
 import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
-import { FrameTargets } from '../app/FrameTargets';
+import { FrameTargets, LIGHT_FORMAT } from '../app/FrameTargets';
 import { skyComposite } from './shaders';
 
 /** Slots da composição do céu. */
@@ -19,6 +25,11 @@ export interface SkyCompositeSlots extends SlotMap {
     readonly cloud: SingletonSlot<false>;
     /** Cor e profundidade da cena. */
     readonly target: TargetSlot;
+    /**
+     * A luz que chega (`FrameTargets.light`, sem MSAA): os dois passes a levam também à das nuvens passa-baixa — a
+     * resolução temporal reilumina o histórico do fundo pela mudança da luz das nuvens (spec 041).
+     */
+    readonly light: TextureSlot<true>;
 }
 
 type Ctx = TransitionContext<SkyCompositeSlots>;
@@ -41,6 +52,7 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
             depth: { schema: FrameTargets.schema, descId: 'depth' },
             samples: { schema: FrameTargets.schema, descId: 'samples' },
         }),
+        light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -95,9 +107,16 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         const target = bound.slots.target;
         const resolved = target.color;
         if (resolved === 'none' || resolved === 'canvas') return;
-        // A luz que chega (o alvo da resolução temporal) fica a do céu atrás das nuvens: ver `sky_composite.wgsl`.
+        // Com o alvo da luz que chega (a resolução temporal), os passes o levam também à das nuvens passa-baixa: ver
+        // `sky_composite.wgsl`.
+        const light = this.prepared[0].endsWith(':light') ? bound.slots.light : undefined;
         const renderTarget: RenderTarget = {
-            colorAttachments: [{ view: resolved, loadOp: 'load', storeOp: 'store' }],
+            colorAttachments: [
+                { view: resolved, loadOp: 'load', storeOp: 'store' },
+                ...(light === undefined
+                    ? []
+                    : [{ view: light.view, loadOp: 'load' as const, storeOp: 'store' as const }]),
+            ],
         };
         frame.render(renderTarget, 'SkyCompositeFlow', (pass) => {
             pass.bind.setPipeline(multiply.spec);
@@ -144,7 +163,8 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
             this.boundDepth = depth;
         }
         const format = target.format ?? this.core.canvasFormat;
-        const key = `${format}:${target.sampleCount}:resolved`;
+        const light = c.bound.slots.light !== undefined;
+        const key = `${format}:${target.sampleCount}:resolved${light ? ':light' : ''}`;
         const ids = [`sky_composite_multiply:${key}`, `sky_composite_add:${key}`] as const;
         if (this.prepared?.[0] === ids[0]) return;
         if (this.prepared !== undefined) for (const id of this.prepared) c.release(id);
@@ -155,10 +175,16 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
                 id,
                 role: 'render',
                 shader,
-                entryPoints: ['refraction_screen_vs', entry],
+                entryPoints: [
+                    'refraction_screen_vs',
+                    light ? entry.replace('_fs', '_light_fs') : entry,
+                ],
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format, blend }],
+                colorTargets: [
+                    { format, blend },
+                    ...(light ? [{ format: LIGHT_FORMAT, blend }] : []),
+                ],
                 multisample: { count: 1 },
             });
         };

@@ -26,7 +26,7 @@ async function scene(mode: 'temporal' | 'msaa', samples: 1 | 4) {
         phase: 'transform',
         priority: -55,
     });
-    s.scene.flows.register(() => new SkyReactiveFlow(), {
+    s.scene.flows.register((ctx) => new SkyReactiveFlow(ctx), {
         type: 'skyReactive',
         phase: 'forward',
         priority: -71,

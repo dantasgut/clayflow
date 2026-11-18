@@ -13,6 +13,9 @@ import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Sky } from '../../elements/scene/sky/Sky';
 import { skySunTrackSlots } from '../../elements/scene/sky/shaders';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
+import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
+import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
+import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import { FrameTargets } from '../app/FrameTargets';
 import { skyReactive } from './shaders';
 
@@ -28,12 +31,14 @@ export interface SkyReactiveSlots extends SlotMap {
     readonly depth: TextureSlot<true>;
     /** O antisserrilhado da cena: só o temporal guarda histórico. */
     readonly antialiasing: SingletonSlot<true>;
+    /** A camada de nuvens: o disco atrás delas só marca onde a luz dele passa (spec 041). */
+    readonly cloud: SingletonSlot<true>;
 }
 
 type Ctx = TransitionContext<SkyReactiveSlots>;
 
-/** Id do pipeline. */
-const PIPELINE = 'sky_reactive';
+/** Id do pipeline (com ou sem as nuvens na frente do disco). */
+const pipelineId = (clouds: boolean): string => (clouds ? 'sky_reactive_clouds' : 'sky_reactive');
 
 /**
  * SkyReactiveFlow — a máscara reativa do disco do sol (spec 041; Camada 4).
@@ -54,24 +59,42 @@ export class SkyReactiveFlow extends Flow<SkyReactiveSlots, 'idle'> {
         reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
         depth: slot.texture(FrameTargets.schema, 'depth', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
+        cloud: slot.singleton(CloudLayer.schema, { optional: true }),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
 
-    /** Pipeline preparado. */
-    private prepared = false;
+    /** Pipelines preparados. */
+    private readonly prepared = new Set<string>();
+    /** O pipeline do quadro. */
+    private current = pipelineId(false);
+    private readonly resources: ResourceDirectory;
     /** A profundidade ligada (outra = religa: redimensionamento). */
     private boundDepth: unknown;
 
-    constructor() {
+    constructor(ctx: FlowContext) {
         super();
+        this.resources = ctx.resources;
         this.transitions = {
             '*': {
                 slotsResolved: 'ignore',
-                slotChanged: 'ignore',
+                slotChanged: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        for (const id of this.prepared) c.release(id);
+                        this.prepared.clear();
+                    },
+                },
                 poolReallocated: 'ignore',
-                slotLost: 'ignore',
+                // A camada de nuvens saiu ou trocou: a variante ligada às texturas dela é solta.
+                slotLost: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        for (const id of this.prepared) c.release(id);
+                        this.prepared.clear();
+                    },
+                },
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
                 canvasReconfigured: 'ignore',
@@ -89,7 +112,7 @@ export class SkyReactiveFlow extends Flow<SkyReactiveSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<SkyReactiveSlots>): void {
         const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
         const mask = bound.slots.reactive;
-        const prepared = bound.pipelines.get(PIPELINE);
+        const prepared = bound.pipelines.get(this.current);
         if (
             aa?.mode !== 'temporal'
             || mask === undefined
@@ -118,12 +141,23 @@ export class SkyReactiveFlow extends Flow<SkyReactiveSlots, 'idle'> {
             c.bind(new Map<WgslResource, BindingSource>([[skyReactive.depth, depth.view]]));
             this.boundDepth = depth.view;
         }
-        if (this.prepared) return;
-        this.prepared = true;
+        // Com as nuvens (a vista delas alocada), o disco atrás delas só marca onde a luz dele passa.
+        const cloud = c.bound.slots.cloud?.resource;
+        const clouds =
+            cloud !== undefined && this.resources.textureViewOf(cloud, 'view') !== undefined;
+        this.current = pipelineId(clouds);
+        // A variante que saiu (as nuvens entraram ou saíram) é solta: esperaria pelas texturas de quem saiu.
+        for (const old of this.prepared)
+            if (old !== this.current) {
+                c.release(old);
+                this.prepared.delete(old);
+            }
+        if (this.prepared.has(this.current)) return;
+        this.prepared.add(this.current);
         c.prepare({
-            id: PIPELINE,
+            id: this.current,
             role: 'render',
-            shader: skyReactive.module,
+            shader: skyReactive.module(clouds),
             entryPoints: ['sky_reactive_vs', 'sky_reactive_fs'],
             topology: 'triangle-list',
             cullMode: 'none',

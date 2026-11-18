@@ -64,7 +64,7 @@ describe('módulos das nuvens', () => {
         expect(layout).toBeDefined();
     });
 
-    it('a composição das nuvens monta nas duas variantes de amostras, sem escrever a luz que chega', () => {
+    it('a composição das nuvens monta nas duas variantes de amostras, com e sem o alvo da luz que chega', () => {
         for (const ms of [false, true])
             for (const entry of ['sky_composite_multiply_fs', 'sky_composite_add_fs']) {
                 const composed = composeWgsl(skyComposite.module(ms));
@@ -76,8 +76,8 @@ describe('módulos das nuvens', () => {
                 expect(composed.spec.source).toContain('cloud_view_tex');
                 // A atmosfera da geometria é do `scene_fog` (o `Sky`), não da composição.
                 expect(composed.spec.source).not.toContain('sky_aerial_lut');
-                // A luz que chega fica a do céu atrás das nuvens (a resolução temporal reilumina o fundo por ela).
-                expect(composed.spec.source).not.toContain('_light_fs');
+                // A luz que chega (spec 041): as variantes com o alvo dela a levam à das nuvens passa-baixa.
+                expect(composed.spec.source).toContain(`${entry.replace('_fs', '_light_fs')}(`);
             }
     });
 

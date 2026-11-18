@@ -157,6 +157,19 @@ export class Sky extends Entity<SkyData> implements Resource {
                     },
                 }),
             ),
+            // O déficit da sombra no fundo (spec 041, raios crepusculares): por coluna da tabela, a luz simples que o ar
+            // sombreado deixa de espalhar até o fim da atmosfera; quem desenha o fundo o tira do céu.
+            {
+                id: 'aerialShadow',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    width: SKY_AERIAL_SIZE[0],
+                    height: SKY_AERIAL_SIZE[1],
+                    access: 'write-only',
+                },
+            },
             // A direção para o sol de cada quadro (xyz; spec 041), série temporal da 037: quem guarda entre quadros o que
             // o disco do sol mostrava (a resolução temporal, pela máscara reativa) lê onde ele estava no quadro anterior.
             {

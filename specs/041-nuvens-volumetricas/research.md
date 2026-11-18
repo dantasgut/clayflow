@@ -703,3 +703,120 @@ clareia a base (a difusão local não representa a luz que entra pelas laterais)
   cache do quadro anterior, a GPU os sobrepõe.
 - **Resultado** (caso `timing`): alto 2,76 ms, médio 1,60, baixo 1,59 (o baixo fica nos passes de tela iguais aos três
   perfis: a marcha em ¼, a reconstrução, o aumento, a composição).
+
+### R18 — Raios crepusculares e anticrepusculares (2026-11-18)
+
+**Pedido.** O pôr do sol do claflow-web não mostrava feixes de luz e sombra no ar entre as nuvens. A perspectiva aérea
+(R10, a tabela 32³) integrava a luz simples do sol em todo ponto do ar, sem saber das nuvens que o tapam.
+
+**Como as engines fazem.** Frostbite (Hillaire 2020) e a Unreal 5 integram o espalhamento da atmosfera ao longo do raio da
+câmera com a visibilidade do sol em cada ponto: a Unreal amostra o mapa de sombra das nuvens (`VolumetricCloudShadowMap`,
+"cloud shadow on atmosphere") no volume da perspectiva aérea (32 × 32 × 16 por padrão) e sombreia só a parte simples (a
+múltipla, que é a luz do céu, fica); a névoa volumétrica (froxels) faz o mesmo perto com o mapa de sombra da geometria.
+
+**As duas formas avaliadas no motor.**
+
+1. *Os froxels da névoa perto e a tabela além.* Os froxels (160 × 90 × 128) já estão presos à câmera e já leem
+   `light_visibility` (a sombra da geometria): dariam a sombra do terreno no ar perto. Mas só existem com um `FogVolume`
+   e cobrem dezenas de metros a poucas centenas; os feixes das nuvens estão a 2–150 km. Pôr o ar da atmosfera como meio
+   dos froxels (sempre alocados com um `Sky`, a extinção de Rayleigh e Mie injetada, a perspectiva aérea emendada no fim
+   deles) é uma peça estrutural nova — ver a proposta abaixo.
+2. *A tabela da perspectiva aérea com a sombra* (escolhida). A tabela já cobre a tela da câmera e 32 km em fatias
+   quadráticas; a luz simples de cada subpasso passa a ser × a visibilidade do sol no ponto do ar
+   (`sky_aerial_visibility`: o ponto `light_transmission` sem a parte da própria atmosfera — a sombra das nuvens pelo mapa
+   visto do sol, com a penumbra do disco). A tabela passa para a fase `shadow` (`SkyAerialFlow`, prioridade −1,5), depois
+   da `CloudLightFlow`, que escreve o mapa do quadro; nada de mapa do quadro anterior.
+
+**O fundo.** A vista do céu (192 × 108, simétrica no azimute) não pode ter a sombra. A tabela grava, por coluna, o déficit
+da sombra no fundo (`Sky.aerialShadow`, 32 × 32): a luz simples que o ar sombreado deixa de espalhar, da câmera até o fim
+da atmosfera ou do mapa visto do sol (150 km; o mapa cobre ±200 km), atenuada até a câmera — a tabela até 32 km e o resto
+em 32 trechos iguais, a primeira invocação do grupo soma. O fundo da cena (`scene_background` do `Sky`) tira o déficit da
+radiância do céu pela coluna da direção na tela da câmera ativa (um raio refletido fora da tela lê a borda, e o déficit
+some meia tela além). A composição das nuvens não muda: o fundo atrás delas já vem com o déficit, a perspectiva aérea na
+frente delas vem da tabela sombreada.
+
+**Medidas.**
+- Referência f64 (`aerialColumn`, o espelho do kernel, contra `aerialPerspective` com a mesma visibilidade e passos de
+  ~1,6 m): duas nuvens (caixas de 1,5–2,5 km, extinção 3/km) com o sol a 10° de lado; o ar sob elas perde mais de 40 %
+  da luz por km, o feixe entre elas é o do céu limpo (diferença < 10⁻⁶); a coluna segue a integral exata a 1,35 % (pior
+  fatia, aos 12,5 km: o subpasso corta a borda da sombra); o déficit até 150 km a 2,5 % dele (`crepuscularRays.test.ts`).
+- Os subpassos (4 por fatia) cortados no fim da atmosfera (o subpasso que cruza o chão do planeta vai só até ele) e a
+  leitura da tabela de um ponto abaixo do chão do planeta no chão (as colunas vizinhas terminavam em outras distâncias):
+  no smoke `sky`, `aerial-geometry` (a placa a 30 km fica abaixo do chão do planeta), 4 subpassos pelo meio davam 7,1 %
+  (2 passavam por acaso, 8,19 contra 8,09 de luz espalhada); com o corte e a leitura no chão, 8,09 contra 8,09.
+
+**Proposta (peça estrutural, não feita): a sombra do terreno no ar.** As colinas sombreiam o ar perto do chão com o sol
+baixo. O mapa de sombra virtual só tem páginas onde há pixels da tela; um ponto do ar cai em páginas que ninguém pediu. A
+forma da Unreal é a névoa volumétrica: os froxels com o ar da atmosfera como meio (o `Sky` contribuindo a extinção e o
+espalhamento de Rayleigh e Mie a `fog_density`/à injeção, a luz pelo `light_visibility` e pelo `light_transmission`), a
+tabela começando onde os froxels terminam (`sky_aerial` a partir da última fatia), e os froxels alocados com o `Sky` e
+não só com um `FogVolume`. Precisa da decisão sobre o custo (~0,3 ms dos froxels em toda cena com céu).
+
+### R18 (cont.) — o sol, o chão e a cor do céu no pôr do sol do claflow-web (2026-11-18)
+
+**O sol.** O disco já tinha o tamanho real (raio 0,004675 rad, 0,536°) e a radiância física (`E·T/(π r²)`, ~10⁹ nits ao
+meio dia), mas o fundo guarda no máximo `SKY_SUN_DISK_MAX` (60 000; o alvo é meio-float): a energia do disco era cortada
+~25 000 vezes, e nenhum espalhamento da lente podia mostrar o clarão (o `Bloom` era um desfoque 5 × 5 com limiar).
+- O excesso vai para `FrameTargets.overflow` (sob demanda, em unidades de 65 536): o `SkyOverflowFlow`, depois da
+  composição das nuvens, desenha um retângulo em volta do disco com a cobertura do pixel pela distância angular (a energia
+  não depende do deslocamento da amostra), só no fundo, × a névoa dos volumes e × a transmitância das nuvens no pixel.
+- O `Bloom` virou o espalhamento da lente com a energia conservada: `(1 − G)·cor + G·espalhada`, sem limiar, `G` = 4 %
+  (o véu de uma objetiva boa, 1–4 %), a função de espalhamento θ⁻³ (o termo de espalhamento de Spencer et al. 1995) pela
+  pirâmide de 7 níveis de Jimenez (2014) com o peso da energia por oitava (`c = 2^(2 − p)` = 0,5). A pirâmide guarda a
+  radiância × 2⁻¹⁵ e soma o excesso: o clarão tem a energia inteira do sol. Contrato novo dos efeitos de vários passes
+  (`EffectStage`, `EffectTexture`: as texturas de trabalho no `PostWork`, por descritor), e o `PostFlow` limpa o excesso
+  depois de ler.
+- A auréola de Mie vem da vista do céu (a fase de Cornette-Shanks com g = 0,8, a tabela densa em volta do azimute do sol);
+  com os aerossóis de um fim de tarde no campo (turbidez 8 nas cenas do pôr do sol: profundidade ótica vertical ~0,04 a
+  550 nm; a de Hillaire, 0,005, é ar de montanha com ~200 km de visibilidade) ela fica do tamanho da das fotos.
+- **O traço vertical claro na nuvem acima do sol aos 5 s** (`solposto`): a resolução temporal guarda o fundo parado por 64
+  quadros sem recorte e o reilumina pela razão da luz que chega; no fundo a luz era a do céu atrás das nuvens, e a luz das
+  próprias nuvens (o sol descendo, o pico de frente da fase andando com ele) ficava ~1 s para trás. A máscara reativa do
+  disco recomeça o histórico por onde o disco passa: ali aparecia a nuvem de agora no meio da atrasada — um traço do largo
+  do disco (12 px) ao longo do caminho do sol, claro com a nuvem clareando, escuro (a 2°) com ela escurecendo. Correção
+  pela causa: a composição das nuvens leva também a luz que chega à das nuvens passa-baixa (`luz·Tc' + Y(Sc')`, a média 3
+  × 3 a 3 px, mais larga que o texel da marcha: o detalhe menor que ele não entra na faixa da reiluminação); e a máscara
+  do disco só onde a luz dele que passa pelas nuvens pesa no pixel (1/64).
+
+**O chão.** As normais e N·L estavam certos; o relevo é que era raso: até ~2 km as colinas tinham 4–9 m em comprimentos
+de 1,6 km (encostas de ~1 %), e o chão saía chapado com qualquer sol. A cena ganhou colinas de 400–900 m com ±22 m
+(encostas de 15–25 %) e ondulações de 120–250 m (±4 m), com um vale largo no rumo do sol e do lado oposto (o horizonte
+do sol baixo e o da sombra da Terra abertos). A exposição seguia o fotômetro de luz incidente inteiro até 11°: o chão
+ficava com o mesmo brilho do meio dia até o fim da tarde. Agora segue metade da mudança do fotômetro em todas as
+elevações (a regra do "sunny 16" seguida em parte, como no lapso de tempo do dia para a noite): do meio dia a 20° a imagem
+escurece 0,9 EV, a 5° 2,1 EV, no horizonte 3,4 EV, a −4° 5,5 EV.
+
+**A cor do céu com o ângulo.** A tabela da vista do céu segue a referência f64 (smoke `sky`, `colors`: razão R/B a ≤ 1 %
+com o sol a 60°, 20° e 4°). Medido na referência (cd/m², xy CIE, temperatura de cor; turbidez 1):
+
+| sol | horizonte do lado do sol (2°) | zênite | horizonte oposto (5°) |
+| --- | --- | --- | --- |
+| 60° | 9521, (0,279; 0,308), 9200 K | 1511, (0,228; 0,232) | 6935, (0,257; 0,281) |
+| 20° | 12439, (0,321; 0,347), 6000 K | 762, (0,227; 0,231) | 6383, (0,271; 0,301) |
+| 10° | 16533, (0,374; 0,384), 4200 K | 538, (0,234; 0,239) | 4962, (0,290; 0,325) |
+| 3° | 11013, (0,461; 0,413), 2700 K | 282, (0,256; 0,262) | 2395, (0,351; 0,375) |
+| 0° | 3556, (0,522; 0,392), 1900 K | 127, (0,280; 0,271) | 747, (0,429; 0,382) |
+| −2° | 684, (0,484; 0,393), 2200 K | 44, (0,285; 0,258) | 77, (0,430; 0,316) |
+| −4° | 204, (0,486; 0,395), 2200 K | 8, (0,285; 0,243) | 5, (0,266; 0,231) |
+
+Os valores publicados de céu limpo (zênite de ~100–300 cd/m² com o sol no horizonte e ~10 cd/m² a −4°; o zênite azul e o
+"purple light" no crepúsculo pela banda de Chappuis do ozônio, cuja absorção — 0,65/1,881/0,085 × 10⁻³ por km no pico,
+~300 DU — está na referência) batem na ordem de grandeza e na cor. A tabela está certa; o que a imagem perdia era a curva
+de tom: o AgX leva os realces saturados ao branco — o horizonte do lado do sol a 1° (2100 K, x 0,50 y 0,40) saía a
+~4200 K na tela (248/215/165), e as nuvens douradas do sol baixo quase brancas. As cenas das nuvens passam à curva
+Khronos PBR Neutral (o motor já a tinha: identidade até ~0,76, guarda a matiz e a saturação até perto do branco): o mesmo
+horizonte sai 253/213/169 com a exposição dele, e a nuvem ao sol a 3° fica laranja (251/189/115 contra 233/205/136).
+
+**Custo medido (M4, `solposto`, passes):** a tabela da perspectiva aérea com a sombra fica abaixo de 0,25 ms (fora dos
+12 passes mais caros); o `Bloom` (15 passes) idem; a composição com o alvo da luz 1,4 ms (antes 1,5); o excesso do sol e
+a máscara reativa ~1,3 ms cada no relógio do passe (um retângulo de dezenas de pixels: o tempo é o do passe de desenho
+vazio no M4). Fora destas mudanças, o `ShadowFlow` (o mapa de sombra do terreno) mede ~45 ms por quadro nestas cenas do
+claflow-web — com o relevo novo e sem ele (medido com as colinas zeradas): está em aberto, não é desta rodada.
+
+**A referência das nuvens com a sombra no ar.** A perspectiva aérea na frente das nuvens do smoke `clouds` passa a ter a
+mesma sombra na referência f64 (a luz simples × `e^(−τ)` das nuvens até o sol, `opticalDepth` do modelo). No `sunset`, a
+razão mediana GPU/referência das 32 regiões fica 0,990 (com a referência sem a sombra, a pior região dava 70 %: GPU 7,75
+contra 26,0 nits), mas quatro regiões de nuvem rala a ~15 km rente ao horizonte (T 0,81) têm o ar menos sombreado na GPU que na referência
+(8,8 contra 2,5 nits; a pior luz a 203 % pela medida da SC-001): em aberto. Candidatos: a referência é um raio só para o
+centro do sol (a GPU faz a média da penumbra do disco pelo mapa) e o mapa visto do sol guarda só o primeiro trecho da casca
+do lado do sol.

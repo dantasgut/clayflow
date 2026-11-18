@@ -13,7 +13,7 @@ import skySource from '../../gpu/wgsl/sky/sky.wgsl?raw';
 import skyAerialSource from '../../gpu/wgsl/sky/sky_aerial.wgsl?raw';
 import skyAerialLookupSource from '../../gpu/wgsl/sky/sky_aerial_lookup.wgsl?raw';
 import skyAmbientSource from '../../gpu/wgsl/sky/sky_ambient.wgsl?raw';
-import { sceneEnvironmentReady } from '../points/lighting';
+import { lightTransmissionReady, sceneEnvironmentReady } from '../points/lighting';
 import { camerasResource } from '../resources';
 import { constants, viewSpace } from '../../gpu/shaders/math';
 
@@ -59,6 +59,11 @@ export const skyAerialTransmittanceLut = lut3d(
     'sky_aerial_transmittance_lut',
     'Sky.aerialTransmittance',
 );
+/**
+ * O déficit da sombra no fundo (resolver `Sky.aerialShadow`, spec 041): por coluna da tabela, a luz simples que o ar
+ * sombreado deixa de espalhar da câmera até o fim da atmosfera.
+ */
+export const skyAerialShadowLut = lut('sky_aerial_shadow_lut', 'Sky.aerialShadow');
 
 /** Amostrador linear das tabelas (resolver `Sky.sampler`). */
 export const skySampler = wgslResource({
@@ -115,6 +120,7 @@ export const skyOutputs = Object.freeze({
     view: out('sky_view_out'),
     aerial: out3d('sky_aerial_out'),
     aerialTransmittance: out3d('sky_aerial_transmittance_out'),
+    aerialShadow: out('sky_aerial_shadow_out'),
     ambient: out('sky_ambient_out'),
 });
 
@@ -184,7 +190,28 @@ export const sky = wgslModule({
 /** Alcance (km) da tabela da perspectiva aérea, compartilhado pelo kernel e pela leitura. */
 const SKY_AERIAL_RANGE = sharedConstant('SKY_AERIAL_RANGE', SKY_AERIAL_RANGE_KM, 'f32');
 
-/** Kernel da tabela da perspectiva aérea (spec 041, R10): pela câmera ativa (`sky.cameraSlot`). */
+/**
+ * A visibilidade do sol num ponto do ar (spec 041, raios crepusculares): a luz do sol que chega a `p` pelo ponto
+ * `light_transmission` (a atmosfera do `Sky` e o que mais tapa o sol: a sombra das nuvens) sem a parte da atmosfera
+ * (`sky_sun_transmittance`, a contribuição do `Sky` ao mesmo ponto) — a tabela da perspectiva aérea já integra a
+ * atmosfera até o sol pela curvatura do planeta. Onde a atmosfera não deixa o sol chegar (abaixo do horizonte), a luz
+ * simples já é 0 e a visibilidade fica 1.
+ */
+export const skyAerialVisibility = wgslModule({
+    name: 'sky_aerial_visibility',
+    requires: [sky, skyParamsResource, lightTransmissionReady],
+    source: `fn sky_aerial_visibility(p: vec3f) -> vec3f {
+    let atmosphere = sky_sun_transmittance(p);
+    let all = light_transmission(sky.sunSlot, p);
+    let ratio = clamp(all / max(atmosphere, vec3f(1e-12)), vec3f(0.0), vec3f(1.0));
+    return select(vec3f(1.0), ratio, atmosphere > vec3f(1e-9));
+}`,
+});
+
+/**
+ * Kernel da tabela da perspectiva aérea (spec 041, R10): pela câmera ativa (`sky.cameraSlot`), com a sombra do que tapa
+ * o sol no ar e o déficit dela no fundo.
+ */
 export const skyAerialKernel = wgslModule({
     name: 'sky_aerial',
     source: skyAerialSource,
@@ -195,8 +222,10 @@ export const skyAerialKernel = wgslModule({
         skyLookup,
         skyParamsResource,
         camerasResource,
+        skyAerialVisibility,
         skyOutputs.aerial,
         skyOutputs.aerialTransmittance,
+        skyOutputs.aerialShadow,
     ],
 });
 

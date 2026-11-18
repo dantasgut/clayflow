@@ -46,6 +46,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'sampler',
             'aerial',
             'aerialTransmittance',
+            'aerialShadow',
             'ambient',
         ] as const
     ).map((id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` })),

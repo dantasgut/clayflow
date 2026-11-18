@@ -40,6 +40,12 @@ export const SCENE_COLOR_FORMAT: GPUTextureFormat = 'rgba16float';
 export const LIGHT_FORMAT: GPUTextureFormat = 'rg16float';
 
 /**
+ * Unidade do alvo da radiância acima do teto da cor (`overflow`, spec 041): ele guarda o excesso dividido por ela (o disco
+ * do sol, ~10⁹ nits, cabe no meio-float de 16 bits, máx. 65504).
+ */
+export const OVERFLOW_UNIT = 65536;
+
+/**
  * Alvos da cena do quadro (Camada 4): a cor (`color`, HDR em `rgba16float`, lida pelo pós e pela apresentação) e a
  * profundidade (`depth`, `depth24plus`), do tamanho do canvas e recriadas pela C2 quando ele muda. Com MSAA (spec 008,
  * `samples: 4`, o padrão), também a cor multiamostrada (`samples`): os passes da cena desenham nela e resolvem na
@@ -99,6 +105,16 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                       },
                   ]
                 : []),
+            // A radiância acima do teto da cor (spec 041): o meio-float guarda até 65504 e o disco do sol tem ~10⁹ nits —
+            // quem desenha uma fonte mais forte que o alvo põe aqui o excesso (em unidades de `OVERFLOW_UNIT`), já
+            // atenuado pelo que está na frente dela; o espalhamento da lente (o `Bloom`) soma a energia inteira e limpa o
+            // alvo depois de ler. Alocado quando alguém o pede.
+            {
+                id: 'overflow',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true },
+            },
             {
                 id: 'depth',
                 role: 'texture',

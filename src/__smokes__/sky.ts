@@ -10,6 +10,9 @@
 //   - colors: o azul de dia e o laranja à tarde — com o sol a 60°, 20° e 4°, a cor do céu perto do sol e no zênite e a
 //     da luz do sol que chega ao chão e a 3 km (a altura das nuvens) contra a referência f64: a razão vermelho/azul a
 //     ≤ 5 % da referência e crescendo com o sol baixando.
+//   - crepuscular: com uma `CloudLayer` e o sol a 6° de lado para a câmera, o déficit da sombra das nuvens no ar
+//     (`Sky.aerialShadow`, a luz simples que o ar sombreado deixa de espalhar até o fim da atmosfera) existe e varia de
+//     coluna para coluna (os feixes de luz e de sombra); sem a camada, é zero.
 // Para rodar: `npm run smoke -- sky [--query case=reference]`. Resultado: `SKY SMOKE PASSED` ou `FAIL: …`.
 import {
     Application,
@@ -31,7 +34,7 @@ import {
     sunTransmittance,
     type Vec3,
 } from '../elements/scene/reference/atmosphere';
-import { BoxGeometry, FogVolume, nodes } from 'clayflow/web';
+import { BoxGeometry, CloudLayer, FogVolume, nodes } from 'clayflow/web';
 import { readTexture } from './support/cloudScenes';
 import { materialGraph } from './support/materialScenes';
 import { settleFrames } from './support/extensionScenes';
@@ -610,6 +613,46 @@ async function caseColors(): Promise<void> {
             );
 }
 
+async function caseCrepuscular(): Promise<void> {
+    // Os raios crepusculares (spec 041, R18): o déficit da sombra das nuvens por coluna da tabela da perspectiva aérea.
+    const deficits: number[][] = [];
+    for (const clouds of [false, true]) {
+        const { app, canvas } = await skyApp();
+        const sun = new DirectionalLight({ direction: sunTravel(6), intensity: SUN_LUX });
+        app.world.insert(sun);
+        const sky = new Sky({ sun, sunDisk: false, night: [0, 0, 0] });
+        app.world.insert(sky);
+        if (clouds) app.world.insert(new CloudLayer({ coverage: 0.5, density: 0.08 }));
+        // Rente ao chão, de lado para o sol (as sombras cortam o raio da câmera), 5° acima do horizonte.
+        perspectiveCamera(app, [0.3, 0.09, 1], Math.PI / 3);
+        await settleFrames(app, 60);
+        await renderHdr(app, 400);
+        const t = app.resources.textureOf(sky, 'aerialShadow');
+        if (t === undefined) throw new Error('crepuscular: o déficit não foi alocado');
+        const img = await readTexture(app, t, 'rgba16float');
+        const lum: number[] = [];
+        for (let k = 0; k < 32 * 32; k++)
+            lum.push(
+                (0.2126 * img.data[k * 4]!
+                    + 0.7152 * img.data[k * 4 + 1]!
+                    + 0.0722 * img.data[k * 4 + 2]!)
+                    * SUN_LUX,
+            );
+        deficits.push(lum);
+        dispose(app, canvas);
+    }
+    const [clear, shaded] = deficits as [number[], number[]];
+    const mean = shaded.reduce((a, b) => a + b, 0) / shaded.length;
+    const sd = Math.sqrt(shaded.reduce((a, b) => a + (b - mean) ** 2, 0) / shaded.length);
+    const max = Math.max(...shaded);
+    const clearMax = Math.max(...clear.map(Math.abs));
+    log(
+        `crepuscular: déficit do fundo com nuvens média ${mean.toFixed(1)} nits, máx. ${max.toFixed(1)}, desvio entre colunas ${sd.toFixed(1)}; sem nuvens máx. ${clearMax.toExponential(2)}`,
+    );
+    check(clearMax === 0, `crepuscular: déficit sem nuvens ${clearMax}`);
+    check(mean > 0 && sd > 0.1 * mean, `crepuscular: sem feixes (média ${mean}, desvio ${sd})`);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     reference: caseReference,
     sunset: caseSunset,
@@ -618,6 +661,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'aerial-table': caseAerialTable,
     'aerial-geometry': caseAerialGeometry,
     colors: caseColors,
+    crepuscular: caseCrepuscular,
 };
 
 async function main(): Promise<void> {

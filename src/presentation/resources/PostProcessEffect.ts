@@ -4,6 +4,7 @@ import type { Resource } from '../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import type { WgslModule } from '../../scene/shaders/WgslModule';
+import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { EffectParamsSchema } from '../flows/renderSchemas';
 
 /**
@@ -24,6 +25,41 @@ export interface PostProcessOptions {
      * Bloom usa para threshold/knee/intensity, Vignette para center+radius).
      */
     aux?: readonly [number, number, number];
+}
+
+/**
+ * Textura de trabalho de um efeito de vários passes (spec 041): do tamanho do canvas dividido por `divisor`, em
+ * `rgba16float`. Declarada no trabalho do `PostFlow` (a C2 a aloca e a recria quando o canvas muda).
+ */
+export interface EffectTexture {
+    /** Id da textura no efeito. */
+    readonly id: string;
+    /** O canvas dividido por este fator (arredondado para cima). */
+    readonly divisor: number;
+}
+
+/**
+ * O que um passe de um efeito lê: a origem do efeito (`'source'`, a cena ou o efeito anterior) ou uma das texturas de
+ * trabalho dele (pelo id).
+ */
+export type EffectRead = readonly [resource: WgslResource, from: string];
+
+/**
+ * Um passe de um efeito antes do principal (spec 041: a pirâmide do espalhamento da lente): desenha a textura de
+ * trabalho `target` do efeito com o fragmento `entry`, lendo `reads`. Com `overflow`, lê também a radiância acima do
+ * teto da cor da cena (`FrameTargets.overflow`) — o módulo do efeito na variante com ela.
+ */
+export interface EffectStage {
+    /** Id do passe no efeito. */
+    readonly id: string;
+    /** Fragmento. */
+    readonly entry: string;
+    /** A textura de trabalho desenhada. */
+    readonly target: string;
+    /** As leituras. */
+    readonly reads: readonly EffectRead[];
+    /** Lê o excesso da radiância (quando a cena o tem). */
+    readonly overflow?: boolean;
 }
 
 /** Dado de um `PostProcessEffect`. */
@@ -76,7 +112,15 @@ export abstract class PostProcessEffect extends Entity<PostProcessData> implemen
      * }
      * ```
      */
-    fragmentModule?(): WgslModule;
+    fragmentModule?(overflow?: boolean): WgslModule;
+
+    /**
+     * Efeitos de vários passes (spec 041): as texturas de trabalho, os passes que as desenham antes do principal (na
+     * ordem) e o que o principal lê delas (além da origem). Sem eles, um passe só.
+     */
+    textures?(): readonly EffectTexture[];
+    stages?(): readonly EffectStage[];
+    mainReads?(): readonly EffectRead[];
 
     /** True se o effect deve participar do chain neste frame. Lê `data.enabled`. */
     get isEnabled(): boolean {
