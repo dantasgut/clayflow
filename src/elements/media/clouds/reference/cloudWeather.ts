@@ -324,8 +324,8 @@ export interface WeatherClouds {
 /**
  * O mapeamento do tempo para as nuvens (spec 041, R18): a subida `w > 0` (convergência numa baixa) leva a cobertura a
  * `max(c₀, 0,75)`, o tipo ao cúmulo-nimbo e o topo à tropopausa; a subsidência (`w < 0`, numa alta) leva a cobertura a
- * ¼, o tipo a no máximo 0,25 (estratocúmulo) e o topo a 0,6 do tempo bom (a inversão abaixa); a frente leva a cobertura
- * a 0,85, o topo a 0,55 da casca e o tipo a 0,3 (estratiforme espesso) onde não há subida.
+ * ¼, o tipo a no máximo 0,25 (estratocúmulo) e o topo a 0,6 do tempo bom (a inversão abaixa); a frente, onde o ar não
+ * desce, leva a cobertura a 0,85, o topo a 0,55 da casca e o tipo a 0,3 (estratiforme espesso) onde não há subida.
  */
 export function weatherClouds(w: number, front: number, fair: FairWeather): WeatherClouds {
     const lift = smoothstep(0, WEATHER_LIFT, w);
@@ -337,9 +337,12 @@ export function weatherClouds(w: number, front: number, fair: FairWeather): Weat
     );
     let type = mix(mix(fair.type, Math.min(fair.type, 0.25), sink), 1, lift);
     let top = mix(mix(fair.top, 0.6 * fair.top, sink), 1, lift);
-    coverage = mix(coverage, Math.max(coverage, 0.85), front);
-    type = mix(type, 0.3, front * (1 - lift));
-    top = mix(top, Math.max(top, 0.55), front);
+    // A frente só onde o ar não desce: a faixa frontal é de convergência (a subida frontal); no anel de subsidência em
+    // volta de um vórtice intenso a deformação também domina (Okubo–Weiss > 0), mas lá não há nuvem frontal.
+    const band = front * (1 - sink);
+    coverage = mix(coverage, Math.max(coverage, 0.85), band);
+    type = mix(type, 0.3, band * (1 - lift));
+    top = mix(top, Math.max(top, 0.55), band);
     return { coverage: clamp01(coverage), type: clamp01(type), top: clamp01(top) };
 }
 

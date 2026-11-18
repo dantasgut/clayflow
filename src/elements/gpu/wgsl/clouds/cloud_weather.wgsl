@@ -136,8 +136,10 @@ fn cloud_weather_clouds(w: f32, front: f32, fair: vec3f) -> vec3f {
     var c = mix(mix(fair.x, 0.25 * fair.x, sink), max(fair.x, 0.75), lift);
     var t = mix(mix(fair.y, min(fair.y, 0.25), sink), 1.0, lift);
     var z = mix(mix(fair.z, 0.6 * fair.z, sink), 1.0, lift);
-    c = mix(c, max(c, 0.85), front);
-    t = mix(t, 0.3, front * (1.0 - lift));
-    z = mix(z, max(z, 0.55), front);
+    // A frente só onde o ar não desce (a faixa frontal é de convergência).
+    let band = front * (1.0 - sink);
+    c = mix(c, max(c, 0.85), band);
+    t = mix(t, 0.3, band * (1.0 - lift));
+    z = mix(z, max(z, 0.55), band);
     return clamp(vec3f(c, t, z), vec3f(0.0), vec3f(1.0));
 }

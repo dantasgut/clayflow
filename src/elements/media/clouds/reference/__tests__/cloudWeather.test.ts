@@ -223,6 +223,8 @@ describe('cloudWeather — subida, subsidência e frentes (R18)', () => {
         expect(front.coverage).toBeCloseTo(0.85, 9);
         expect(front.type).toBeCloseTo(0.3, 9);
         expect(front.top).toBeCloseTo(0.55, 9);
+        // na subsidência, sem faixa frontal (o anel em volta de um vórtice intenso)
+        expect(weatherClouds(-0.05, 1, fair)).toEqual(high);
     });
 
     it('o estado relaxa para o alvo como e^(−Δt/τ), e dois meios passos são um passo', () => {
