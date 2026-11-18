@@ -1,6 +1,7 @@
-// Marcha principal das nuvens (spec 041, R1, R2, R10): no alvo de ¼ da tela (½ × ½), um pixel de cada bloco 2 × 2 por
+// Marcha principal das nuvens (spec 041, R1, R2, R10): no alvo reconstruído (¼ da tela, ½ × ½; no perfil baixo 1/16,
+// ¼ × ¼ — `cloud_march_scale`), um pixel de cada bloco 2 × 2 por
 // quadro na ordem de Bayer (`clouds.march.z`): o raio da câmera por um ponto do pixel que muda a cada marcha, até a
-// superfície opaca mais próxima dos 2 × 2 pixels da tela que ele cobre (a profundidade da cena depois da água), com o
+// superfície opaca mais próxima dos S × S pixels da tela que ele cobre (a profundidade da cena depois da água), com o
 // deslocamento inicial por ruído azul no tempo (sequência R2 por pixel). A nuvem sai com a perspectiva aérea até a profundidade dela:
 // `Sc = L·Ta(dc) + (1 − Tc)·Sa(dc)`. Uma invocação por bloco; saídas `cloud_trace_out` (rgb, a = Tc) e
 // `cloud_trace_depth_out` (a profundidade da nuvem, m; 0 sem nuvem).
@@ -18,13 +19,18 @@ fn cloud_surface_distance(slot: u32, px: vec2i, size: vec2f) -> f32 {
     return length(w.xyz / w.w - cam.position.xyz);
 }
 
-/** A menor distância à superfície entre os 2 × 2 pixels da tela do pixel `q` do alvo de ¼. */
+/**
+ * A menor distância à superfície entre os S × S pixels da tela do pixel `q` do alvo reconstruído (S a escala dele; teto
+ * constante de 16 leituras).
+ */
 fn cloud_block_distance(slot: u32, q: vec2u) -> f32 {
     let size = vec2i(cloud_scene_depth_size());
-    let base = vec2i(q) * 2;
+    let scale = i32(cloud_march_scale());
+    let base = vec2i(q) * scale;
     var d = 1e30;
-    for (var k = 0; k < 4; k++) {
-        let px = min(base + vec2i(k & 1, k >> 1), size - 1);
+    for (var k = 0; k < 16; k++) {
+        if (k >= scale * scale) { break; }
+        let px = min(base + vec2i(k % scale, k / scale), size - 1);
         d = min(d, cloud_surface_distance(slot, px, vec2f(size)));
     }
     return d;
@@ -45,7 +51,8 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let k = f32(clouds.march.z / 4u);
     let hp = vec2f(f32(hash2(q + vec2u(7u, 13u)) >> 8u), f32(hash2(q + vec2u(29u, 3u)) >> 8u)) / 16777216.0;
     let sub = fract(hp + k * vec2f(0.7548776662, 0.5698402910));
-    let center = vec2f(q) * 2.0 + sub * 2.0;
+    let scale = f32(cloud_march_scale());
+    let center = (vec2f(q) + sub) * scale;
     let ray = camera_ray(slot, center, full);
     let limit = cloud_block_distance(slot, q);
     // Ruído azul no tempo: a sequência R2 deslocada pelo hash do pixel.

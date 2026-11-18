@@ -436,7 +436,11 @@ export const cloudLight = wgslModule({
     ],
 });
 
-const bayer = wgslModule({ name: 'cloud_march_bayer', source: cloudBayerSource });
+const bayer = wgslModule({
+    name: 'cloud_march_bayer',
+    source: cloudBayerSource,
+    requires: [cloudParamsResource],
+});
 
 /** A profundidade da cena no kernel (sem e com amostras): `cloud_scene_depth(px)` e o tamanho. */
 const sceneDepth = {
@@ -575,6 +579,7 @@ export const cloudUpsampleKernel = {
         source: cloudUpsampleSource,
         requires: [
             WORKGROUP_SIZE.module,
+            bayer,
             sceneDepth.single,
             viewSpace,
             cameraSpace,
@@ -589,6 +594,7 @@ export const cloudUpsampleKernel = {
         source: cloudUpsampleSource,
         requires: [
             WORKGROUP_SIZE.module,
+            bayer,
             sceneDepth.multisampled,
             viewSpace,
             cameraSpace,

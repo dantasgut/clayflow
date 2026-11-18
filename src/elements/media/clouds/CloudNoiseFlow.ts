@@ -295,7 +295,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                     coverageSlot,
                     cloud.coverageFunction === undefined ? 0 : 1,
                 ],
-                timing: [time?.dt ?? 0, q.panoramaSteps, 0, 0],
+                timing: [time?.dt ?? 0, q.panoramaSteps, q.marchScale, 0],
                 eye: [eye[0] ?? 0, eye[1] ?? 0, eye[2] ?? 0, 0],
                 scatterGrid: [
                     scatterCenter[0]!,

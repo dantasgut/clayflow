@@ -58,6 +58,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     private upsample: string | undefined;
     private prepared = false;
     private active = false;
+    /** A camada das ligações privadas. */
+    private layer: CloudLayer | undefined;
 
     /** `targets`: o schema dos alvos do quadro (`FrameTargets`), de onde vem a profundidade da cena. */
     constructor(ctx: FlowContext, targets: StructSchema) {
@@ -79,7 +81,14 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                 },
                 slotsResolved: 'ignore',
                 entitiesChanged: 'ignore',
-                slotChanged: 'ignore',
+                // A camada redescrita (o perfil mudou o tamanho dos alvos): as saídas privadas são religadas às texturas novas
+                // antes de os grupos serem refeitos (o `framePrepare` viria depois, com o grupo já pedindo a vista destruída).
+                slotChanged: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        this.prepare(c);
+                    },
+                },
                 slotLost: 'ignore',
                 pipelinesCompiled: 'ignore',
                 pipelineRejected: 'ignore',
@@ -109,8 +118,10 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         if (depth === undefined) return;
         const w = depth.texture.width;
         const h = depth.texture.height;
-        const quarter = [Math.ceil(w / 2), Math.ceil(h / 2)];
-        const blocks = [Math.ceil(w / 4), Math.ceil(h / 4)];
+        // O alvo reconstruído (S pixels da tela por texel, pelo perfil) e um bloco 2 × 2 dele por invocação da marcha.
+        const scale = (bound.slots.cloud.resource as CloudLayer).quality.marchScale;
+        const quarter = [Math.ceil(w / scale), Math.ceil(h / scale)];
+        const blocks = [Math.ceil(w / (2 * scale)), Math.ceil(h / (2 * scale))];
         frame.compute('CloudFlow.march', (pass) => {
             pass.bind.setPipeline(march.spec);
             march.bindTo(pass.bind);
@@ -153,6 +164,12 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
             this.release(c);
             return;
         }
+        // Outra camada (a troca, o A/B do tempo): as ligações privadas eram das saídas da anterior — soltas antes de o
+        // grupo ser refeito.
+        if (cloud !== this.layer) {
+            this.release(c);
+            this.layer = cloud;
+        }
         this.active = depth !== undefined;
         if (!this.active || depth === undefined) return;
         for (const id of ['trace', 'traceDepth', 'march', 'marchDepth', 'view'])
@@ -161,7 +178,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
             c.bound.slots.cloud.textureViewOf(id),
         );
         if (views.some((v) => v === undefined)) {
-            this.active = false;
+            // As saídas ainda não alocadas (a camada entrou ou foi redescrita): nada ligado a uma vista que não existe.
+            this.release(c);
             return;
         }
         const multisampled = (depth.texture.sampleCount ?? 1) > 1;

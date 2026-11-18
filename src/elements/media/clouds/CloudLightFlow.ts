@@ -104,7 +104,14 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 },
                 slotsResolved: 'ignore',
                 entitiesChanged: 'ignore',
-                slotChanged: 'ignore',
+                // A camada redescrita (o perfil mudou o tamanho dos alvos): as saídas privadas são religadas às texturas novas
+                // antes de os grupos serem refeitos (o `framePrepare` viria depois, com o grupo já pedindo a vista destruída).
+                slotChanged: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        this.prepare(c);
+                    },
+                },
                 // A camada saiu: os pipelines e as saídas privadas ligadas às texturas dela saem junto (o filtro do
                 // cache lê a série, que some com ela — a C2 refaria o grupo com a saída destruída).
                 slotLost: {

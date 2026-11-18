@@ -74,7 +74,14 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
                 slotsResolved: 'ignore',
                 slotChanged: 'ignore',
                 poolReallocated: 'ignore',
-                slotLost: 'ignore',
+                // A camada (ou o céu) saiu: os pipelines, ligados às texturas dela, saem junto — uma camada nova os prepara
+                // de novo quando a vista dela existe (senão esperariam a vista da nova antes de ela ser alocada).
+                slotLost: {
+                    to: 'idle',
+                    run: (_e, c) => {
+                        this.release(c);
+                    },
+                },
                 pipelinesCompiled: 'ignore',
                 bindGroupReplaced: 'ignore',
                 canvasReconfigured: 'ignore',
@@ -119,13 +126,22 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         });
     }
 
+    /** Solta os pipelines (sem a vista da camada, nada a compor). */
+    private release(c: Ctx): void {
+        if (this.prepared !== undefined) for (const id of this.prepared) c.release(id);
+        this.prepared = undefined;
+        this.boundDepth = undefined;
+    }
+
     /** Liga a profundidade da cena e prepara os pipelines do alvo e das amostras. */
     private prepare(c: Ctx): void {
         const cloud = c.bound.slots.cloud.resource;
         const target = c.bound.slots.target;
         const depth = target.depth;
-        if (depth === undefined || this.resources.textureViewOf(cloud, 'view') === undefined)
+        if (depth === undefined || this.resources.textureViewOf(cloud, 'view') === undefined) {
+            this.release(c);
             return;
+        }
         const multisampled = target.sampleCount > 1;
         // A composição desenha na cor resolvida: uma amostra (a profundidade, essa sim, é a multiamostrada).
         if (depth !== this.boundDepth) {

@@ -75,7 +75,14 @@ export async function cloudScene(o: CloudSceneOptions = {}): Promise<CloudScene>
     });
     const errors: string[] = [];
     app.events.on('engineError', (e) => errors.push(`${e.stage}: ${e.message}`));
-    if (o.profile !== undefined) app.defaults.renderer.profile = o.profile;
+    // O perfil da cena, ou o da página (`--query profile=low`: os casos de exatidão no perfil baixo, T035).
+    const pageProfile = new URLSearchParams(location.search).get('profile');
+    const profile =
+        o.profile
+        ?? (pageProfile === 'high' || pageProfile === 'medium' || pageProfile === 'low'
+            ? pageProfile
+            : undefined);
+    if (profile !== undefined) app.defaults.renderer.profile = profile;
     const sun = new DirectionalLight({
         direction: sunTravel(o.sunElevation ?? 60, o.sunAzimuth ?? 0),
         intensity: o.sunLux ?? 1000,

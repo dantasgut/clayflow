@@ -83,6 +83,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             coverageExtent: 256_000,
             coverageSize: 1024,
             scatter: { size: [160, 32, 160], stride: 8, collisions: 48 },
+            marchScale: 2,
         },
     },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
@@ -107,6 +108,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             coverageExtent: 256_000,
             coverageSize: 512,
             scatter: { size: [128, 24, 128], stride: 8, collisions: 32 },
+            marchScale: 2,
         },
     },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
@@ -131,6 +133,9 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             coverageExtent: 256_000,
             coverageSize: 512,
             scatter: { size: [96, 16, 96], stride: 8, collisions: 24 },
+            // A marcha, a reconstrução e o aumento custavam ~1,3 ms iguais nos três perfis: no baixo, o alvo reconstruído
+            // a 1/16 da tela (a marcha a 1/64 por quadro).
+            marchScale: 4,
         },
     },
 };

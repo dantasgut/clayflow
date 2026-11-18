@@ -3,6 +3,7 @@ import type {
     BindGroupSpec,
     EngineCore,
     StorageBufferSpec,
+    TextureViewSpec,
 } from '../../../core/contracts/index';
 import type { BindableBufferSpec, ResolvedSource } from '../../consumers/ResolvedSource';
 import type { ConsumerResolverRegistry } from '../../consumers/ConsumerResolverRegistry';
@@ -69,6 +70,8 @@ export interface FlowResourceHost extends ResourceDirectory, InstanceListHost {
     poolEntityBySlot(poolKey: string, slot: number): EntityId | undefined;
     /** Põe o pool na arena `kind` (T060i): o pipeline o acessa pela arena com `pools` no descritor. */
     poolIntoArena(poolKey: string, kind?: PoolArenaKind): void;
+    /** A vista foi destruída pelo dono (a textura saiu) e não recriada: a fonte privada que a guarda espera. */
+    isRetired(view: TextureViewSpec): boolean;
 }
 
 /** O que o runtime de um Flow usa da cena. */
@@ -859,6 +862,9 @@ export class FlowRuntime {
         if (provider === 'private') {
             const priv =
                 this.pipelinePrivates.get(state.id)?.get(declared) ?? this.privates.get(declared);
+            // A vista guardada saiu com a textura (redescrição do Resource): espera o Flow religar a nova.
+            if (priv !== undefined && isTextureView(priv) && this.host.resources.isRetired(priv))
+                return undefined;
             if (priv !== undefined) return normalizeSource(priv);
             throw new FlowBindingError(
                 `recurso privado '${entry.name}' (@group(${group}) @binding(${entry.binding})) do pipeline '${state.id}' do Flow '${this.flow.type}' sem fonte: ligue-o com ctx.bind.`,
@@ -1402,4 +1408,9 @@ function announceRejection(
             pipeline: state.id,
         });
     }
+}
+
+/** A fonte é uma vista de textura (`TextureViewSpec`). */
+function isTextureView(source: BindingSource): source is TextureViewSpec {
+    return (source as { kind?: string }).kind === 'textureview';
 }

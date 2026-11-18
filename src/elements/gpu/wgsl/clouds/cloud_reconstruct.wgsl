@@ -1,4 +1,4 @@
-// Reconstrução temporal das nuvens (spec 041, R2): o alvo de ¼ da tela, série temporal da 037 (`march` e `marchDepth`,
+// Reconstrução temporal das nuvens (spec 041, R2): o alvo reconstruído (¼ da tela; 1/16 no perfil baixo), série temporal da 037 (`march` e `marchDepth`,
 // lidas pelo atraso 1). Os pixels do bloco vêm do histórico reprojetado pela posição da nuvem (a câmera atual e a
 // profundidade da nuvem do quadro anterior) e pelo vento (onde a nuvem estava: o ponto menos o vento × Δt); o pixel
 // marchado mistura o valor exato a ele (média exponencial). O gradiente temporal da 034, filtrado nos 3 × 3 blocos em
@@ -27,7 +27,7 @@ fn cloud_history_at(q: vec2u, full: vec2f) -> vec4f {
     let slot = clouds.march.w;
     let cam = cameras[slot];
     let prev_depth = textureLoad(cloud_march_depth_prev, q, 0).r;
-    let ray = camera_ray(slot, vec2f(q) * 2.0 + 1.0, full);
+    let ray = camera_ray(slot, (vec2f(q) + 0.5) * f32(cloud_march_scale()), full);
     let d = select(1e7, prev_depth, prev_depth > 0.0);
     let world = ray.origin + ray.dir * d;
     let before = world - vec3f(clouds.wind.z, 0.0, clouds.wind.w) * clouds.timing.x;
@@ -59,7 +59,7 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let marched = b * 2u + cloud_bayer(clouds.march.z);
     var out = fresh;
     var depth = fresh_depth;
-    let full = vec2f(size * 2u);
+    let full = vec2f(size * cloud_march_scale());
     if (clouds.flags.x == 1u && cameras[clouds.march.w].history.x < 0.5) {
         let hist = cloud_history_at(q, full);
         let check = cloud_history_at(min(marched, size - 1u), full);

@@ -91,6 +91,12 @@ export interface CloudQuality {
         readonly stride: number;
         readonly collisions: number;
     };
+    /**
+     * Pixels da tela por lado de um texel do alvo reconstruído das nuvens (spec 041, T035): 2 (¼ da tela) ou 4 (1/16, o
+     * perfil baixo). A marcha anda um texel por bloco 2 × 2 dele a cada quadro (1/16 ou 1/64 da tela), e o aumento leva
+     * à tela pela profundidade.
+     */
+    readonly marchScale: 2 | 4;
 }
 
 /**

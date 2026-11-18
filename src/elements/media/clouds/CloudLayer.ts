@@ -78,6 +78,7 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     coverageExtent: 256_000,
     coverageSize: 1024,
     scatter: { size: [160, 32, 160], stride: 8, collisions: 48 },
+    marchScale: 2,
 };
 
 /** Os quatro parâmetros da fase de Jendersie & d'Eon (2023, Eq. 4–7) pelo diâmetro das gotículas (µm). */
@@ -305,6 +306,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             || q.panorama[1] !== quality.panorama[1]
             || q.shadow.size !== quality.shadow.size
             || q.coverageSize !== quality.coverageSize
+            || q.marchScale !== quality.marchScale
             || q.scatter.size.some((v, k) => v !== quality.scatter.size[k]);
         if (resized) this.redescribe(this.getDescriptors(), { ...this.rawData, quality });
         else this.data.quality = quality;
@@ -395,11 +397,12 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 },
             },
             target('panorama', 'rgba16float', q.panorama),
-            // A marcha: um valor por bloco 2 × 2 do alvo de ¼ (1/16 da tela) e a série reconstruída (spec 037).
-            target('trace', 'rgba16float', 4),
-            target('traceDepth', 'r32float', 4),
-            target('march', 'rgba16float', 2, { depth: 2, filtered: true }),
-            target('marchDepth', 'r32float', 2, { depth: 2 }),
+            // A marcha: um valor por bloco 2 × 2 do alvo reconstruído (¼ da tela; 1/16 no perfil baixo) e a série
+            // reconstruída (spec 037).
+            target('trace', 'rgba16float', 2 * q.marchScale),
+            target('traceDepth', 'r32float', 2 * q.marchScale),
+            target('march', 'rgba16float', q.marchScale, { depth: 2, filtered: true }),
+            target('marchDepth', 'r32float', q.marchScale, { depth: 2 }),
             target('view', 'rgba16float', 1),
             // O cache de espalhamento (T023, R8): por sonda, a soma da luz dos caminhos (em unidades da iluminância do
             // sol, rgb) e quantos (a), série temporal da 037 (o quadro lê a fatia anterior e escreve a sua), lida filtrada.

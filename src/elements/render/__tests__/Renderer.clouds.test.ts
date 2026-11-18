@@ -17,7 +17,14 @@ describe('Renderer — nuvens', () => {
             lightSteps: 5,
             octaves: 3,
         });
-        expect(RENDER_PROFILES.low.clouds).toMatchObject({ steps: 48, lightSteps: 4, octaves: 3 });
+        expect(RENDER_PROFILES.low.clouds).toMatchObject({
+            steps: 48,
+            lightSteps: 4,
+            octaves: 3,
+            marchScale: 4,
+        });
+        expect(RENDER_PROFILES.high.clouds.marchScale).toBe(2);
+        expect(RENDER_PROFILES.medium.clouds.marchScale).toBe(2);
         expect(RENDER_PROFILES.high.clouds.panorama).toEqual([256, 128]);
         expect(RENDER_PROFILES.low.clouds.shadow).toEqual({
             size: 128,
@@ -36,6 +43,13 @@ describe('Renderer — nuvens', () => {
         expect(layer.getDescriptors().find((d) => d.id === 'panorama')?.textureShape?.width).toBe(
             128,
         );
+        // No baixo, o alvo reconstruído a 1/16 da tela e a marcha a 1/64 (T035); no alto, ¼ e 1/16.
+        const divisor = (id: string): number | undefined =>
+            layer.getDescriptors().find((d) => d.id === id)?.textureShape?.canvasDivisor;
+        expect([divisor('march'), divisor('marchDepth'), divisor('trace')]).toEqual([4, 4, 8]);
+        renderer.profile = 'high';
+        expect([divisor('march'), divisor('trace')]).toEqual([2, 4]);
+        renderer.profile = 'low';
         renderer.release(layer);
         renderer.profile = 'high';
         expect(layer.quality.steps).toBe(48);
