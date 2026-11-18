@@ -50,16 +50,18 @@ describe('módulos das nuvens', () => {
         expect(layout).toBeDefined();
     });
 
-    it('a composição da tela monta nas quatro variantes (amostras × nuvens)', () => {
+    it('a composição das nuvens monta nas duas variantes de amostras, com e sem a luz que chega', () => {
         for (const ms of [false, true])
-            for (const clouds of [false, true]) {
-                const composed = composeWgsl(skyComposite.module(ms, clouds));
+            for (const entry of ['sky_composite_add_fs', 'sky_composite_add_light_fs']) {
+                const composed = composeWgsl(skyComposite.module(ms));
                 const layout = new LayoutInferencer().infer(composed, [
                     'refraction_screen_vs',
-                    'sky_composite_multiply_fs',
+                    entry,
                 ]);
                 expect(layout).toBeDefined();
-                expect(composed.spec.source.includes('cloud_view_tex')).toBe(clouds);
+                expect(composed.spec.source).toContain('cloud_view_tex');
+                // A atmosfera da geometria é do `scene_fog` (o `Sky`), não da composição.
+                expect(composed.spec.source).not.toContain('sky_aerial_lut');
             }
     });
 

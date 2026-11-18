@@ -132,10 +132,28 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
 
     override dispose(): void {}
 
+    /** Solta os pipelines e as ligações (sem céu nada roda). */
+    private release(c: Ctx): void {
+        this.active = false;
+        if (this.prepared) c.release('cloud_reconstruct');
+        if (this.march !== undefined) c.release(this.march);
+        if (this.upsample !== undefined) c.release(this.upsample);
+        this.prepared = false;
+        this.march = undefined;
+        this.upsample = undefined;
+        this.views = [];
+    }
+
     private prepare(c: Ctx): void {
         const cloud = c.bound.slots.cloud.resource as CloudLayer;
         const depth = c.bound.slots.sceneDepth;
-        this.active = c.bound.slots.sky !== undefined && depth !== undefined;
+        if (c.bound.slots.sky === undefined) {
+            // O céu saiu: os pipelines (que leem o uniforme dele) saem junto — nenhum fica esperando, e o motor fica
+            // pronto; voltando, são preparados de novo.
+            this.release(c);
+            return;
+        }
+        this.active = depth !== undefined;
         if (!this.active || depth === undefined) return;
         for (const id of ['trace', 'traceDepth', 'march', 'marchDepth', 'view'])
             this.resources.ensureAllocated(cloud, id);

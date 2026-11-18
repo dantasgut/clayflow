@@ -6,11 +6,18 @@ import {
     sceneEnvironmentPoint,
     skyCoverReady,
 } from '../points/lighting';
-import { sky, skyAmbientTexture, skyParamsResource } from './shaders';
+import { sky, skyAerialLookup, skyAmbientTexture, skyParamsResource } from './shaders';
+import { camerasResource } from '../resources';
+import { viewSpace } from '../../gpu/shaders/math';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../../material/pbr/shaders';
 import { sceneDirectLightingPoint, lightTransmissionReady } from '../points/lighting';
-import { sceneAmbientPoint } from '../points/media';
+import {
+    SCENE_FOG_BACKGROUND,
+    sceneAmbientPoint,
+    sceneFogPoint,
+    sceneFogType,
+} from '../points/media';
 
 /** A luz do sol atenuada pela atmosfera (as outras luzes passam sem mudança). */
 const skyLightTransmission = wgslModule({
@@ -54,6 +61,34 @@ const skyEnvironmentCovered = wgslModule({
 });
 
 /**
+ * A perspectiva aérea (spec 041, R10, R13): a atmosfera entre a câmera ativa e o ponto, pela tabela 32³ na coluna da
+ * tela dele (a luz espalhada, em unidades da iluminância do sol, e a transmitância por canal). Atrás da névoa dos
+ * volumes (ordem maior: composta depois dela). O fundo (o ponto a `SCENE_FOG_BACKGROUND`) não recebe nada: a
+ * atmosfera inteira já está na vista do céu.
+ */
+const skyFog = wgslModule({
+    name: 'sky_scene_fog',
+    requires: [
+        sceneFogType,
+        SCENE_FOG_BACKGROUND.module,
+        skyAerialLookup,
+        skyParamsResource,
+        camerasResource,
+        viewSpace,
+    ],
+    source: `fn scene_fog(p: vec3f) -> SceneFog {
+    let cam = cameras[sky.cameraSlot];
+    let v = p - cam.position.xyz;
+    let d = length(v);
+    if (d <= 0.0 || d >= 0.5 * SCENE_FOG_BACKGROUND) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
+    let c = cam.unjitteredViewProjection * vec4f(p, 1.0);
+    let uv = clamp(ndc_to_uv(c.xy / max(c.w, 1e-6)), vec2f(0.0), vec2f(1.0));
+    let a = sky_aerial(uv, v / d, d);
+    return SceneFog(a.scattered * sky.sunIlluminance.rgb, a.transmittance);
+}`,
+});
+
+/**
  * Contribuições do `Sky` (spec 033, R4): a transmitância do sol, o fundo e o ambiente — com algo cobrindo o céu
  * (`covered`, spec 041), o ambiente lê `sky_cover`; sem, o módulo de antes (o mesmo WGSL). Com `lights` (sem iluminação
  * global, spec 041), a luz do céu nas superfícies e nos meios.
@@ -86,8 +121,16 @@ const skyAmbient = wgslModule({
 export function skyContributions(
     covered: () => boolean,
     lights: () => boolean = () => false,
+    aerial: () => boolean = () => false,
 ): readonly SceneContribution[] {
     return [
+        // Atrás da névoa dos volumes (ordem 0): a composição "na frente de" põe a névoa na frente.
+        {
+            point: sceneFogPoint,
+            order: 10,
+            pools: [],
+            build: () => (aerial() ? skyFog : undefined),
+        },
         {
             point: sceneDirectLightingPoint,
             order: 10,

@@ -125,7 +125,7 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
     // A névoa entre a câmera e o ponto (ponto de cena `scene_fog`; sem névoa, nada muda).
     let fog = scene_fog(in.world_position);
     var out: ForwardOut;
-    out.color = vec4<f32>(color * fog.a + fog.rgb, c.opacity);
+    out.color = vec4<f32>(color * fog.transmittance + fog.scattered, c.opacity);
     // A luz que chega ao ponto (spec 034): o brilho refletido sobre o da refletância, a textura se cancela. A direta
     // separa na resolução temporal a sombra ou a luz que muda sobre a superfície parada (a rebatida fica fora: o ruído
     // dela, em manchas maiores que a vizinhança, pareceria luz mudando); a razão das totais reilumina o histórico.

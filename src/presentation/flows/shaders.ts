@@ -1,8 +1,8 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResource } from '../../scene/shaders/WgslResource';
-import { sky, skyAerialLookup, skySunTrack } from '../../elements/scene/sky/shaders';
+import { sky, skySunTrack } from '../../elements/scene/sky/shaders';
 import { cloudResources } from '../../elements/media/clouds/shaders';
-import { sceneFogReady } from '../../elements/scene/points/media';
+import { SCENE_FOG_BACKGROUND, sceneFogReady } from '../../elements/scene/points/media';
 import { refractionScreen } from '../../elements/lighting/refraction/shaders';
 import { cameraSpace } from '../../elements/scene/flows/shaders';
 import skyCompositeSource from './sky_composite.wgsl?raw';
@@ -778,7 +778,7 @@ export const ui = wgslModule({
     ],
 });
 
-// Composição do céu na tela (spec 041, R13): a perspectiva aérea, a névoa e as nuvens sobre a cor da cena.
+// Composição das nuvens na tela (spec 041, R13): as nuvens e a névoa na frente delas sobre a cor da cena.
 
 const skyCompositeDepthResource = (multisampled: boolean): WgslResource =>
     wgslResource({
@@ -814,29 +814,23 @@ const SKY_COMPOSITE_DEPTH_MODULES = {
     ),
 } as const;
 
-/** A nuvem no pixel: nenhuma (`(0, 1)`) ou a aumentada da `CloudLayer`. */
-const SKY_COMPOSITE_CLOUD = {
-    none: wgslModule({
-        name: 'sky_composite_cloud_none',
-        source: 'fn sky_composite_cloud(px: vec2u) -> vec4f {\n    return vec4f(0.0, 0.0, 0.0, 1.0);\n}',
-    }),
-    clouds: wgslModule({
-        name: 'sky_composite_cloud',
-        requires: [cloudResources.view],
-        source: 'fn sky_composite_cloud(px: vec2u) -> vec4f {\n    return textureLoad(cloud_view_tex, px, 0);\n}',
-    }),
-} as const;
+/** A nuvem aumentada da `CloudLayer` no pixel (a luz e a transmitância). */
+const SKY_COMPOSITE_CLOUD = wgslModule({
+    name: 'sky_composite_cloud',
+    requires: [cloudResources.view],
+    source: 'fn sky_composite_cloud(px: vec2u) -> vec4f {\n    return textureLoad(cloud_view_tex, px, 0);\n}',
+});
 
-function skyCompositeModule(multisampled: boolean, clouds: boolean): WgslModule {
+function skyCompositeModule(multisampled: boolean): WgslModule {
     return wgslModule({
-        name: `sky_composite${multisampled ? '_ms' : ''}${clouds ? '_clouds' : ''}`,
+        name: `sky_composite${multisampled ? '_ms' : ''}`,
         source: skyCompositeSource,
         requires: [
             refractionScreen,
-            clouds ? SKY_COMPOSITE_CLOUD.clouds : SKY_COMPOSITE_CLOUD.none,
-            skyAerialLookup,
+            SKY_COMPOSITE_CLOUD,
             cameraSpace,
             sceneFogReady,
+            SCENE_FOG_BACKGROUND.module,
             sky,
             constants,
             color,
@@ -848,7 +842,7 @@ function skyCompositeModule(multisampled: boolean, clouds: boolean): WgslModule 
     });
 }
 
-/** Módulos da composição do céu: o shader (pelas amostras e pela presença das nuvens) e a profundidade da cena. */
+/** Módulos da composição das nuvens: o shader (pelas amostras da profundidade) e a profundidade da cena. */
 export const skyComposite = {
     module: skyCompositeModule,
     depth: SKY_COMPOSITE_DEPTH,

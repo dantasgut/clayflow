@@ -3,6 +3,10 @@ import { renderScene } from '../../../../presentation/flows/__tests__/helpers/re
 import { DirectionalLight } from '../../DirectionalLight';
 import { Sky, SKY_TRANSMITTANCE_SIZE } from '../Sky';
 import { SkyFlow } from '../SkyFlow';
+import { Camera } from '../../Camera';
+import { Transform } from '../../Transform';
+import { CameraFlow } from '../../flows/CameraFlow';
+import { composeWgsl } from '../../../../scene/shaders/composeWgsl';
 
 // Céu físico (spec 033, T017): descritores, sol copiado da luz, tabelas da atmosfera só quando ela muda, a vista do céu
 // a cada quadro, contribuições.
@@ -61,6 +65,28 @@ describe('Sky e SkyFlow (spec 033, T017)', () => {
             'scene_direct_lighting',
             'scene_environment',
         ]);
+        // A perspectiva aérea na geometria (spec 041): em `scene_fog`, atrás da névoa dos volumes (ordem 0).
+        sky.setAerial(true);
+        const fog = sky.getSceneContributions().find((c) => c.point.name === 'scene_fog')!;
+        expect(fog.order).toBeGreaterThan(0);
+        const module = fog.build(() => undefined)!;
+        expect(composeWgsl(module).spec.source).toContain('fn scene_fog(p: vec3f) -> SceneFog');
+        sky.setAerial(false);
+        expect(fog.build(() => undefined)).toBeUndefined();
+    });
+
+    it('a perspectiva aérea entra em `scene_fog` depois que a tabela da câmera foi escrita (spec 041)', async () => {
+        const s = await skyScene();
+        s.scene.world.insert(new Camera().add(new Transform({ position: [0, 0, 5, 1] })));
+        s.scene.flows.register((ctx) => new CameraFlow(ctx), {
+            type: 'camera',
+            phase: 'transform',
+            priority: 10,
+        });
+        expect(s.sky.data.aerial).toBe(0);
+        for (let i = 0; i < 3; i++) s.step();
+        expect(s.computes()).toContain('SkyFlow.sky_aerial');
+        expect(s.sky.data.aerial).toBe(1);
     });
 
     it('turbidez multiplica os aerossóis (Mie)', () => {

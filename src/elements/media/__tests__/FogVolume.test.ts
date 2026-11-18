@@ -123,7 +123,9 @@ describe('FogVolume (spec 033, T055)', () => {
         ]);
         froxels.setActive(true);
         const modules = contributions.map((c) => c.build(() => undefined)!);
-        expect(composeWgsl(modules[0]!).spec.source).toContain('fn scene_fog(p: vec3f) -> vec4f');
+        expect(composeWgsl(modules[0]!).spec.source).toContain(
+            'fn scene_fog(p: vec3f) -> SceneFog',
+        );
         expect(composeWgsl(modules[1]!).spec.source).toContain(
             'fn ray_volume_transmittance(origin: vec3f, dir: vec3f, t_max: f32, time: f32) -> vec3f',
         );

@@ -57,6 +57,11 @@ export interface SkyData {
      * 041); fora do uniforme, escrito só quando muda.
      */
     ambient?: number;
+    /**
+     * 1 quando a tabela da perspectiva aérea da câmera ativa foi escrita: a atmosfera entra em `scene_fog` (spec 041);
+     * fora do uniforme, escrito só quando muda.
+     */
+    aerial?: number;
 }
 
 /** Espalhamento e extinção de Mie ao nível do chão (1/km) com turbidez 1. */
@@ -71,7 +76,7 @@ const MIE_EXTINCTION = 4.44e-3;
  * `scene_background`) e a fonte dos raios que escapam da iluminação global (`sky_radiance`). As tabelas
  * (`rgba16float`) são geradas na GPU pelo `SkyFlow`: transmitância e múltiplo espalhamento quando a atmosfera muda, a
  * vista do céu a cada quadro. Com câmera, também a perspectiva aérea (spec 041): toda a geometria da cena recebe a
- * atmosfera entre a câmera e ela na composição da tela (`SkyCompositeFlow`). Sem `Sky`, a cena fica como na 011 (o
+ * atmosfera entre a câmera e ela pelo ponto `scene_fog` (atrás da névoa dos volumes), no desenho de cada superfície. Sem `Sky`, a cena fica como na 011 (o
  * hemisfério e o fundo de limpeza).
  */
 export class Sky extends Entity<SkyData> implements Resource {
@@ -102,6 +107,7 @@ export class Sky extends Entity<SkyData> implements Resource {
             cover: 0,
             cameraSlot: 0,
             ambient: 0,
+            aerial: 0,
         };
     }
 
@@ -195,6 +201,15 @@ export class Sky extends Entity<SkyData> implements Resource {
         if ((this.rawData.ambient ?? 0) !== ambient) this.data.ambient = ambient;
     }
 
+    /**
+     * Liga ou desliga a perspectiva aérea na geometria (`scene_fog`): ligada quando a tabela da câmera ativa foi
+     * escrita no quadro (o `SkyFlow`), desligada sem câmera. Escrito só quando muda.
+     */
+    setAerial(on: boolean): void {
+        const aerial = on ? 1 : 0;
+        if ((this.rawData.aerial ?? 0) !== aerial) this.data.aerial = aerial;
+    }
+
     /** Se o céu ilumina as superfícies. */
     get lightsSurfaces(): boolean {
         return this.rawData.ambient === 1;
@@ -208,5 +223,6 @@ export class Sky extends Entity<SkyData> implements Resource {
     private readonly contributions = skyContributions(
         () => this.rawData.cover === 1,
         () => this.rawData.ambient === 1,
+        () => this.rawData.aerial === 1,
     );
 }

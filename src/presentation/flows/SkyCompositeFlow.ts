@@ -19,10 +19,10 @@ import { skyComposite } from './shaders';
 
 /** Slots da composição do céu. */
 export interface SkyCompositeSlots extends SlotMap {
-    /** O céu (a perspectiva aérea, a câmera). */
+    /** O céu (a câmera ativa, o sol). */
     readonly sky: SingletonSlot<false>;
-    /** A camada de nuvens, quando há (a nuvem aumentada). */
-    readonly cloud: SingletonSlot<true>;
+    /** A camada de nuvens (a nuvem aumentada): sem ela, o estágio não existe. */
+    readonly cloud: SingletonSlot<false>;
     /** Cor e profundidade da cena. */
     readonly target: TargetSlot;
     /**
@@ -35,18 +35,18 @@ export interface SkyCompositeSlots extends SlotMap {
 type Ctx = TransitionContext<SkyCompositeSlots>;
 
 /**
- * SkyCompositeFlow — a atmosfera e as nuvens na tela (spec 041, R10, R13; Camada 4). Na fase `forward`, depois da água e
- * da marcha das nuvens, antes da resolução temporal, com um `Sky` na cena: dois triângulos de tela cheia sobre a cor
- * resolvida da cena (com MSAA, depois da resolução: as amostras não são mais lidas) — o produto pela transmitância da nuvem e da atmosfera até a
- * superfície (mistura `dst·src`, por canal) e a soma da luz delas, atrás da névoa dos froxels (mistura aditiva). A
- * perspectiva aérea vale para toda a geometria, com ou sem `CloudLayer`; com ela, a nuvem aumentada entra na mesma
- * fórmula. Sem `Sky`, nada.
+ * SkyCompositeFlow — as nuvens na tela (spec 041, R13; Camada 4). Na fase `forward`, depois da água e da marcha das
+ * nuvens, antes da resolução temporal, com um `Sky` e uma `CloudLayer` na cena: dois triângulos de tela cheia sobre a
+ * cor resolvida da cena (com MSAA, depois da resolução: as amostras não são mais lidas) — o produto pela transmitância
+ * da nuvem (mistura `dst·src`) e a soma da luz dela e da névoa na frente dela (mistura aditiva). A perspectiva aérea da
+ * geometria não passa por aqui: é a contribuição do `Sky` a `scene_fog`, no desenho de cada superfície (a passagem a
+ * mais sobre a cor em toda cena com céu custava ~0,3 ms na `fog`). Sem `CloudLayer`, o estágio não existe.
  */
 export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
     readonly type = 'SkyCompositeFlow';
     readonly slots: SkyCompositeSlots = {
         sky: slot.singleton(Sky.schema),
-        cloud: slot.singleton(CloudLayer.schema, { optional: true }),
+        cloud: slot.singleton(CloudLayer.schema),
         target: slot.target({
             color: { schema: FrameTargets.schema, descId: 'color' },
             depth: { schema: FrameTargets.schema, descId: 'depth' },
@@ -119,14 +119,13 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         });
     }
 
-    /** Liga a profundidade da cena e prepara os pipelines do alvo, das amostras e da presença das nuvens. */
+    /** Liga a profundidade da cena e prepara os pipelines do alvo e das amostras. */
     private prepare(c: Ctx): void {
-        const sky = c.bound.slots.sky.resource;
+        const cloud = c.bound.slots.cloud.resource;
         const target = c.bound.slots.target;
         const depth = target.depth;
-        if (depth === undefined || this.resources.textureViewOf(sky, 'aerial') === undefined) {
+        if (depth === undefined || this.resources.textureViewOf(cloud, 'view') === undefined)
             return;
-        }
         const multisampled = target.sampleCount > 1;
         // A composição desenha na cor resolvida: uma amostra (a profundidade, essa sim, é a multiamostrada).
         if (depth !== this.boundDepth) {
@@ -140,18 +139,15 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
             );
             this.boundDepth = depth;
         }
-        const cloud = c.bound.slots.cloud?.resource;
-        const clouds =
-            cloud !== undefined && this.resources.textureViewOf(cloud, 'view') !== undefined;
         const format = target.format ?? this.core.canvasFormat;
         const lit = !multisampled && c.bound.slots.light !== undefined;
-        const key = `${format}:${target.sampleCount}${clouds ? ':clouds' : ''}${lit ? ':light' : ''}:resolved`;
+        const key = `${format}:${target.sampleCount}${lit ? ':light' : ''}:resolved`;
         const ids = [`sky_composite_multiply:${key}`, `sky_composite_add:${key}`] as const;
         if (this.prepared?.[0] === ids[0]) return;
         if (this.prepared !== undefined) for (const id of this.prepared) c.release(id);
         this.prepared = ids;
         this.lit = lit;
-        const shader = skyComposite.module(multisampled, clouds);
+        const shader = skyComposite.module(multisampled);
         const pipeline = (id: string, entry: string, blend: GPUBlendState): void => {
             c.prepare({
                 id,

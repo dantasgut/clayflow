@@ -9,7 +9,7 @@ import { camerasResource, lightsResource } from '../scene/resources';
 import { lightIncoming } from '../scene/points/lightContributions';
 import { lightTransmissionReady, lightVisibilityReady } from '../scene/points/lighting';
 import { rayVolumeScatterTypes } from '../raytrace/points';
-import { sceneAmbientReady } from '../scene/points/media';
+import { sceneAmbientReady, sceneFogType } from '../scene/points/media';
 import { FroxelsSchema, FROXEL_HISTORY, MEDIA_MARCH_STEPS } from './schemas';
 import densityFnReadySource from '../gpu/wgsl/media/media_density_fn_ready.wgsl?raw';
 import densityCheckSource from '../gpu/wgsl/media/media_density_check.wgsl?raw';
@@ -198,7 +198,7 @@ export const mediaVolumesPoint: BindablePoint = {
 export const mediaLookup = wgslModule({
     name: 'media_lookup',
     source: mediaLookupSource,
-    requires: [mediaCommon, R.scatter, R.sampler],
+    requires: [mediaCommon, R.scatter, R.sampler, sceneFogType],
 });
 
 /** Transmitância dos volumes nos raios (`ray_volume_transmittance`). */

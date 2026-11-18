@@ -110,13 +110,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 slotLost: {
                     to: 'idle',
                     run: (_e, c) => {
-                        for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA])
-                            c.release(p.id);
-                        if (this.coverage !== undefined) c.release(this.coverage);
-                        this.coverage = undefined;
-                        this.prepared = false;
-                        this.views = [];
-                        this.active = false;
+                        this.release(c);
                     },
                 },
                 pipelinesCompiled: 'ignore',
@@ -175,14 +169,29 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
 
     override dispose(): void {}
 
+    /**
+     * Solta os pipelines e as saídas ligadas (a camada ou o céu saiu): nenhum fica esperando o que saiu — o uniforme do
+     * céu, as texturas da camada —, e o motor fica pronto; voltando, tudo é preparado de novo.
+     */
+    private release(c: Ctx): void {
+        if (this.prepared)
+            for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA]) c.release(p.id);
+        if (this.coverage !== undefined) c.release(this.coverage);
+        this.coverage = undefined;
+        this.prepared = false;
+        this.views = [];
+        this.active = false;
+    }
+
     private prepare(c: Ctx): void {
         const cloud = c.bound.slots.cloud.resource as CloudLayer;
         const sky = c.bound.slots.sky?.resource as Sky | undefined;
-        this.active = sky !== undefined;
         if (sky === undefined) {
             cloud.setActive(false);
+            if (this.prepared || this.coverage !== undefined) this.release(c);
             return;
         }
+        this.active = true;
         for (const id of TARGETS) this.resources.ensureAllocated(cloud, id);
         this.resources.ensureAllocated(cloud, 'scatter');
         this.resources.ensureAllocated(cloud, 'scatterSun');

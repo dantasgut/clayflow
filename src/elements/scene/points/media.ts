@@ -1,21 +1,40 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
+import { sharedConstant } from '../../../scene/shaders/SharedConstant';
 
 // Pontos de cena dos meios participantes (spec 033, R12): quem desenha uma superfície chama `scene_fog` no ponto dela
-// (a névoa entre a câmera e o ponto) sem conhecer quem a implementa — hoje os froxels dos `FogVolume`; quem ilumina um
+// (a névoa entre a câmera e o ponto) sem conhecer quem a implementa — os froxels dos `FogVolume` e a perspectiva aérea do
+// `Sky` (spec 041, atrás da névoa); quem ilumina um
 // ponto do meio (os froxels) chama `scene_ambient` (a radiância média que chega de todas as direções) sem conhecer a
 // luz ambiente — o hemisfério ou as sondas da iluminação global; quem sombreia uma superfície sólida chama
 // `scene_wetness` (a película de água nela e a água nos poros dela, spec 034) e quem refrata nela `scene_wetness_slope`
 // (a inclinação dessa película) sem conhecer quem a simula. Sem contribuinte, fica o pronto.
 
 /**
- * `fn scene_fog(p: vec3f) -> vec4f` — a névoa entre a câmera ativa e o ponto `p` (mundo): a luz espalhada para a câmera
- * no caminho (rgb) e a transmitância do caminho (a). Quem desenha compõe `cor · a + rgb`; pronto: sem névoa
- * (`vec4f(0, 0, 0, 1)`).
+ * O que `scene_fog` devolve (spec 041): a luz espalhada para a câmera no caminho (`scattered`) e a transmitância do
+ * caminho por canal (`transmittance`: a da atmosfera é cromática — o Rayleigh tira mais o azul). Quem desenha compõe
+ * `cor · transmittance + scattered`.
+ */
+export const sceneFogType = wgslModule({
+    name: 'scene_fog_type',
+    source: 'struct SceneFog {\n    scattered: vec3f,\n    transmittance: vec3f,\n}',
+});
+
+/**
+ * Distância (m) do ponto que quem desenha o fundo (nenhuma superfície) passa a `scene_fog`: o fundo está no infinito,
+ * além de toda a névoa; um contribuinte cujo meio já está na luz do fundo (a atmosfera, na vista do céu) não soma nada a
+ * partir de metade dela.
+ */
+export const SCENE_FOG_BACKGROUND = sharedConstant('SCENE_FOG_BACKGROUND', 1e7, 'f32');
+
+/**
+ * `fn scene_fog(p: vec3f) -> SceneFog` — o que há entre a câmera ativa e o ponto `p` (mundo): a névoa dos volumes, a
+ * atmosfera (spec 041); pronto: nada (`SceneFog(0, 1)`).
  */
 export const sceneFogReady = wgslModule({
     name: 'scene_fog_ready',
-    source: 'fn scene_fog(p: vec3f) -> vec4f {\n    return vec4f(0.0, 0.0, 0.0, 1.0);\n}',
+    requires: [sceneFogType],
+    source: 'fn scene_fog(p: vec3f) -> SceneFog {\n    return SceneFog(vec3f(0.0), vec3f(1.0));\n}',
 });
 
 /**
@@ -81,13 +100,13 @@ export const sceneFogPoint: ContributionPoint = {
         memo(`fog:${modules.map((m) => m.name).join('+')}`, () =>
             wgslModule({
                 name: `scene_fog:${modules.map((m) => m.name).join('+')}`,
-                requires: modules,
-                source: `fn scene_fog(p: vec3f) -> vec4f {
-    var fog = vec4f(0.0, 0.0, 0.0, 1.0);
+                requires: [sceneFogType, ...modules],
+                source: `fn scene_fog(p: vec3f) -> SceneFog {
+    var fog = SceneFog(vec3f(0.0), vec3f(1.0));
 ${modules
     .map(
         (_, k) => `    let f${k} = scene_fog_${k}(p);
-    fog = vec4f(fog.rgb + fog.a * f${k}.rgb, fog.a * f${k}.a);`,
+    fog = SceneFog(fog.scattered + fog.transmittance * f${k}.scattered, fog.transmittance * f${k}.transmittance);`,
     )
     .join('\n')}
     return fog;

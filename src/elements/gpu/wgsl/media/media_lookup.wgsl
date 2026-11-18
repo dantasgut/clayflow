@@ -1,7 +1,7 @@
 // A névoa no desenho (spec 033, R12; ponto `scene_fog`): os froxels integrados guardam, no texel da fatia k, a luz
 // espalhada para a câmera e a transmitância do caminho da câmera até o fim da fatia. A leitura é bicúbica no plano
 // (B-spline por 4 leituras trilineares) e linear na profundidade: sem os degraus da grade nem blocos. Antes do fim da primeira fatia, a fração dela.
-// Requer: froxels, cameras, media_common, froxel_scatter, froxel_sampler.
+// Requer: froxels, cameras, media_common, froxel_scatter, froxel_sampler, scene_fog_type.
 
 /**
  * B-spline cúbica no plano da tela por 4 leituras trilineares (Sigg e Hadwiger) e linear entre as fatias (spec 034,
@@ -33,13 +33,14 @@ fn froxel_tricubic(uvw: vec3f) -> vec4f {
     return sum;
 }
 
-fn scene_fog(p: vec3f) -> vec4f {
+fn scene_fog(p: vec3f) -> SceneFog {
     let none = vec4f(0.0, 0.0, 0.0, 1.0);
-    if (froxels.depth.w == 0.0) { return none; }
+    if (froxels.depth.w == 0.0) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
     let cam = cameras[froxels.grid.w];
     let f = froxel_locate(cam.view, cam.unjitteredViewProjection, p);
-    if (f.z <= 0.0) { return none; }
+    if (f.z <= 0.0) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
     let n = f32(froxels.grid.z);
     let fog = froxel_tricubic(vec3f(f.xy, clamp((f.z - 0.5) / n, 0.5 / n, 1.0 - 0.5 / n)));
-    return select(fog, mix(none, fog, f.z), f.z < 1.0);
+    let out = select(fog, mix(none, fog, f.z), f.z < 1.0);
+    return SceneFog(out.rgb, vec3f(out.a));
 }

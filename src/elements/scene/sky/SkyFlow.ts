@@ -161,7 +161,8 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
         if (run(VIEW, SKY_VIEW_SIZE)) bound.slots.skySunTrack.written();
         // A perspectiva aérea (spec 041, R10), da câmera ativa, a cada quadro.
         const aerial = bound.pipelines.get(AERIAL.id);
-        if (this.aerial && aerial?.role === 'compute' && aerial.ready)
+        const sky = bound.slots.sky.resource as Sky;
+        if (this.aerial && aerial?.role === 'compute' && aerial.ready) {
             frame.compute('SkyFlow.sky_aerial', (pass) => {
                 pass.bind.setPipeline(aerial.spec);
                 aerial.bindTo(pass.bind);
@@ -171,6 +172,9 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
                     SKY_AERIAL_SIZE[2],
                 );
             });
+            // A tabela escrita: a atmosfera entra na geometria (`scene_fog`).
+            sky.setAerial(true);
+        } else if (!this.aerial) sky.setAerial(false);
     }
 
     /** Liga as saídas às texturas do céu, copia o sol e decide se as tabelas da atmosfera são regeneradas. */

@@ -5,7 +5,7 @@
 // estágio não desenha (fica a limpeza). Com o alvo da luz que chega (sem MSAA, a resolução temporal), o fundo escreve nele
 // a própria radiância (brilho YCoCg, direta e toda): no céu tudo é luz — a resolução temporal reilumina o histórico do
 // fundo quando ela muda (spec 041: o céu e as nuvens do crepúsculo escurecem ~100× em segundos).
-// Requer: cameras, camera_space, forward_frame, scene_background, scene_fog, color.
+// Requer: cameras, camera_space, forward_frame, scene_background, scene_fog, SCENE_FOG_BACKGROUND, color.
 
 struct BackgroundOut {
     @builtin(position) clip: vec4f,
@@ -24,9 +24,9 @@ fn background_color(in: BackgroundOut) -> vec3f {
     let cam = cameras[forward_frame.cameraSlot];
     // A direção do raio da câmera pelo pixel (sem o deslocamento da amostra; ortográfica: a direção da vista).
     let dir = camera_ray_ndc(forward_frame.cameraSlot, in.ndc).dir;
-    // O fundo atrás de toda a névoa (o ponto bem além da última fatia dos froxels).
-    let fog = scene_fog(cam.position.xyz + dir * 1e5);
-    return scene_background(dir) * fog.a + fog.rgb;
+    // O fundo atrás de toda a névoa (o ponto no infinito: além da última fatia dos froxels; a atmosfera já está nele).
+    let fog = scene_fog(cam.position.xyz + dir * SCENE_FOG_BACKGROUND);
+    return scene_background(dir) * fog.transmittance + fog.scattered;
 }
 
 @fragment
