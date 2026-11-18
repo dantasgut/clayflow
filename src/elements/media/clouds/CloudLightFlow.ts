@@ -16,18 +16,24 @@ import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
+import { CLOUD_WEATHER_SIZE } from './schemas';
 import {
     cloudAmbientKernel,
     cloudCoverageAt,
     cloudCoverageAtPoint,
     cloudCoverageKernel,
+    cloudCoverageWeatherKernel,
     cloudOutputs,
+    cloudPressureAt,
+    cloudPressureAtPoint,
     cloudPanoramaKernel,
     cloudScatterFilterKernel,
     cloudScatterKernel,
     cloudScatterSlots,
     cloudScatterSunSlots,
     cloudShadowKernel,
+    cloudWeatherKernel,
+    cloudWeatherSlots,
 } from './shaders';
 
 /** Slots do estágio da luz das nuvens. */
@@ -38,6 +44,8 @@ export interface CloudLightSlots extends SlotMap {
     readonly cloudScatter: ChannelSlot<false>;
     /** O sol do cache de espalhamento no quadro anterior (T023). */
     readonly cloudScatterSun: ChannelSlot<false>;
+    /** O estado do tempo (spec 037; R18): a fatia anterior lida no lugar trazido pelo vento, a do quadro escrita. */
+    readonly cloudWeather: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudLightSlots>;
@@ -67,8 +75,9 @@ const SCATTER_FILTER = compute(
 const TARGETS = ['coverage', 'ambient', 'shadow', 'panorama'] as const;
 
 /**
- * CloudLightFlow — a luz das nuvens que outros estágios leem (spec 041, R4, R9, R11, R12; fase `shadow`, antes das sondas
- * da GI e da névoa): o mapa de cobertura pela função de cobertura (ou os valores globais), as irradiâncias do céu e do
+ * CloudLightFlow — a luz das nuvens que outros estágios leem (spec 041, R4, R9, R11, R12, R18; fase `shadow`, antes das
+ * sondas da GI e da névoa): com o tempo, o estado dele (série da 037) e o vento das nuvens pelo campo de pressão; o mapa
+ * de cobertura pelo tempo, pela função de cobertura ou pelos valores globais, as irradiâncias do céu e do
  * chão, o mapa de transmitância visto do sol (a sombra das nuvens em `light_transmission`) e o panorama das nuvens (o
  * céu coberto em `sky_cover`), cada um inteiro a cada quadro. Com tudo pronto, liga as contribuições da camada e a
  * leitura de `sky_cover` no ambiente do `Sky`. Sem `Sky`, nada.
@@ -80,6 +89,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         sky: slot.singleton(Sky.schema, { optional: true }),
         ...cloudScatterSlots,
         ...cloudScatterSunSlots,
+        ...cloudWeatherSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -88,6 +98,9 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     private readonly resources: ResourceDirectory;
     private views: readonly (TextureViewSpec | undefined)[] = [];
     private coverage: string | undefined;
+    /** O pipeline do tempo (pelo módulo composto com a função de pressão), ou `undefined` sem o tempo (R18). */
+    private weather: string | undefined;
+    private weatherView: TextureViewSpec | undefined;
     private prepared = false;
     private active = false;
 
@@ -137,7 +150,18 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         const cloud = bound.slots.cloud.resource as CloudLayer;
         const q = cloud.quality;
         // Despacho linear (um texel por invocação); as irradiâncias, um grupo só.
+        const weather: [string, string, number][] =
+            this.weather === undefined
+                ? []
+                : [
+                      [
+                          this.weather,
+                          'CloudLightFlow.weather',
+                          CLOUD_WEATHER_SIZE * CLOUD_WEATHER_SIZE,
+                      ],
+                  ];
         const steps: [string, string, number][] = [
+            ...weather,
             [this.coverage, 'CloudLightFlow.coverage', q.coverageSize * q.coverageSize],
             [AMBIENT.id, 'CloudLightFlow.ambient', WORKGROUP_SIZE.value],
             [SHADOW.id, 'CloudLightFlow.shadow', q.shadow.size * q.shadow.size],
@@ -168,6 +192,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 bound.slots.cloudScatter.written();
                 bound.slots.cloudScatterSun.written();
             }
+            // O estado do tempo escrito: a série gira (o mapa de cobertura lê a fatia do quadro).
+            if (id === this.weather) bound.slots.cloudWeather.written();
         });
         // Os alvos do quadro existem: as contribuições (a sombra, o céu coberto) passam a valer.
         cloud.setActive(true);
@@ -184,7 +210,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         if (this.prepared)
             for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA]) c.release(p.id);
         if (this.coverage !== undefined) c.release(this.coverage);
+        if (this.weather !== undefined) c.release(this.weather);
         this.coverage = undefined;
+        this.weather = undefined;
+        this.weatherView = undefined;
         this.prepared = false;
         this.views = [];
         this.active = false;
@@ -223,21 +252,66 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 this.prepared = true;
             }
         }
-        // O mapa de cobertura composto com a função de cobertura da camada (ou o pronto: os valores globais).
+        this.syncWeather(c, cloud);
+        // O mapa de cobertura pelo tempo (R18), ou composto com a função de cobertura da camada (ou o pronto: os valores
+        // globais).
         const composite = cloud.coverageFunction?.composite;
-        const id =
-            composite === undefined ? 'cloud_coverage' : `cloud_coverage:${composite.module.name}`;
+        const weather = cloud.weather !== undefined;
+        const id = weather
+            ? 'cloud_coverage:weather'
+            : composite === undefined
+              ? 'cloud_coverage'
+              : `cloud_coverage:${composite.module.name}`;
         if (id !== this.coverage) {
             if (this.coverage !== undefined) c.release(this.coverage);
-            const shader =
-                composite === undefined
-                    ? cloudCoverageKernel
-                    : bindPoints(
-                          cloudCoverageKernel,
-                          new Map([[cloudCoverageAtPoint, cloudCoverageAt(composite)]]),
-                      );
-            c.prepare(compute(id, shader, 'cloud_coverage_main'));
+            if (weather)
+                c.prepare(compute(id, cloudCoverageWeatherKernel, 'cloud_coverage_weather_main'));
+            else {
+                const shader =
+                    composite === undefined
+                        ? cloudCoverageKernel
+                        : bindPoints(
+                              cloudCoverageKernel,
+                              new Map([[cloudCoverageAtPoint, cloudCoverageAt(composite)]]),
+                          );
+                c.prepare(compute(id, shader, 'cloud_coverage_main'));
+            }
             this.coverage = id;
         }
+    }
+
+    /**
+     * O tempo (R18): com ele, o estado e o vento das nuvens alocados, a saída do vento ligada e o kernel do tempo composto
+     * com a função de pressão da camada (ou o pronto: o padrão de sistemas); sem ele, nada (o pipeline solto).
+     */
+    private syncWeather(c: Ctx, cloud: CloudLayer): void {
+        if (cloud.weather === undefined) {
+            if (this.weather !== undefined) c.release(this.weather);
+            this.weather = undefined;
+            this.weatherView = undefined;
+            return;
+        }
+        this.resources.ensureAllocated(cloud, 'weather');
+        this.resources.ensureAllocated(cloud, 'weatherWind');
+        const view = c.bound.slots.cloud.textureViewOf('weatherWind');
+        if (view === undefined) return;
+        if (view !== this.weatherView) {
+            c.bind(new Map<WgslResource, BindingSource>([[cloudOutputs.weatherWind, view]]));
+            this.weatherView = view;
+        }
+        const composite = cloud.pressureFunction?.composite;
+        const id =
+            composite === undefined ? 'cloud_weather' : `cloud_weather:${composite.module.name}`;
+        if (id === this.weather) return;
+        if (this.weather !== undefined) c.release(this.weather);
+        const shader =
+            composite === undefined
+                ? cloudWeatherKernel
+                : bindPoints(
+                      cloudWeatherKernel,
+                      new Map([[cloudPressureAtPoint, cloudPressureAt(composite)]]),
+                  );
+        c.prepare(compute(id, shader, 'cloud_weather_main'));
+        this.weather = id;
     }
 }

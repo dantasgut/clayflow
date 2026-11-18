@@ -15,8 +15,9 @@
 // blocos.
 // Espelho de `reference/cloudReconstruct.ts`.
 // Despacho linear: um texel por invocação.
+// O vento da reprojeção é `cloud_wind_at` (o uniforme da camada; com o tempo, o do quadrado do tempo no ponto, R18).
 // Requer: WORKGROUP_SIZE, color, cloud_march_bayer, cloud_scene_limit, cloud_scene_depth, camera_space, clouds, cameras,
-// cloud_trace, cloud_trace_depth, cloud_march_prev,
+// cloud_wind_at, cloud_trace, cloud_trace_depth, cloud_march_prev,
 // cloud_march_depth_prev, cloud_march_out, cloud_march_depth_out.
 
 /** Folga da caixa do recorte do histórico (fração da largura dela). */
@@ -42,7 +43,8 @@ fn cloud_history_at(q: vec2u, full: vec2f, surface: f32) -> vec4f {
     let ray = camera_ray(slot, (vec2f(q) + 0.5) * f32(cloud_march_scale()), full);
     let d = select(1e7, prev_depth, prev_depth > 0.0);
     let world = ray.origin + ray.dir * d;
-    let before = world - vec3f(clouds.wind.z, 0.0, clouds.wind.w) * clouds.timing.x;
+    let wind = cloud_wind_at(world.xz);
+    let before = world - vec3f(wind.x, 0.0, wind.y) * clouds.timing.x;
     let clip = cam.previousViewProjection * vec4f(before, 1.0);
     if (clip.w <= 0.0) { return vec4f(0.0, 0.0, 0.0, -1.0); }
     let uv = ndc_to_uv(clip.xy / clip.w);

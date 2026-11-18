@@ -10,16 +10,63 @@ import {
     type CloudCoverageOptions,
 } from '../../extension/CloudCoverageFunction';
 import { CloudShapeFunction, type CloudShapeOptions } from '../../extension/CloudShapeFunction';
+import {
+    CloudPressureFunction,
+    type CloudPressureOptions,
+} from '../../extension/CloudPressureFunction';
 import { defaultCloudShapeGraph } from './defaultShape';
 import {
     CLOUD_DETAIL_SIZE,
     CLOUD_SCATTER_SUN_RING,
     CLOUD_SHADOW_KNOTS,
     CLOUD_SHAPE_SIZE,
+    CLOUD_WEATHER_SIZE,
     CloudSchema,
     type CloudQuality,
 } from './schemas';
 import { cloudLightTransmission, cloudSkyCover } from './shaders';
+
+/**
+ * O tempo das nuvens (spec 041, R18): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
+ * que tipo e até que altura, e o vento que as leva. Sem `pressure`, o padrão de sistemas de alta e baixa da biblioteca
+ * (nascem, crescem e se desfazem, levados pelo vento de condução — o `wind` da camada). Leste = +x, norte = −z.
+ */
+export interface CloudWeatherSettings {
+    /** Latitude da cena (graus, −90 a 90): o parâmetro de Coriolis f = 2Ω sin φ e o sentido do giro. Default 45. */
+    readonly latitude: number;
+    /** Padrão: lado das células (m), no máximo um sistema por célula; também a escala do estêncil. Default 1 500 000. */
+    readonly scale: number;
+    /** Padrão: amplitude das baixas a 45° (Pa); escala com a rotação na latitude da cena. Default 1200. */
+    readonly amplitude: number;
+    /** Padrão: vida de um sistema (s), do nascimento ao fim. Default 172 800 (2 dias). */
+    readonly lifetime: number;
+    /** Atrito linear da camada limite (1/s): o vento cruza as isóbaras perto do chão e converge nas baixas. Default 6·10⁻⁵. */
+    readonly friction: number;
+    /** Tempo de formação (s): as nuvens se formam e se desfazem em direção ao que o tempo dita nesse tempo. Default 1200. */
+    readonly formation: number;
+    /** Tropopausa (m acima do chão; > `top`): o topo da casca, aonde chega a torre do cúmulo-nimbo. Default 11 000. */
+    readonly tropopause: number;
+    /** Padrão: semente (inteiro ≥ 0). Default 0. */
+    readonly seed: number;
+}
+
+/** Valores de autoria do tempo (todos opcionais) e a função de pressão (grafo de nós ou WGSL do ponto `cloud_pressure`). */
+export interface CloudWeatherValues extends Partial<CloudWeatherSettings> {
+    /** Campo de pressão: grafo de nós ou WGSL do ponto `cloud_pressure`. Default: o padrão de sistemas da biblioteca. */
+    readonly pressure?: CloudPressureOptions;
+}
+
+/** Os padrões do tempo. */
+export const CLOUD_WEATHER_DEFAULTS: CloudWeatherSettings = {
+    latitude: 45,
+    scale: 1_500_000,
+    amplitude: 1200,
+    lifetime: 172_800,
+    friction: 6e-5,
+    formation: 1200,
+    tropopause: 11_000,
+    seed: 0,
+};
 
 /** Valores de autoria de uma `CloudLayer` (spec 041). */
 export interface CloudLayerValues {
@@ -45,6 +92,11 @@ export interface CloudLayerValues {
     readonly shapeScale?: number;
     /** Metros por período do volume de detalhe. Default 1800. */
     readonly detailScale?: number;
+    /**
+     * O tempo (spec 041, R18): o campo de pressão dita a cobertura, o tipo, o topo e o vento das nuvens. Com ele, `coverage`
+     * (número), `type` e `top` são o tempo bom; a casca vai da base à tropopausa. Sem ele, a camada de hoje.
+     */
+    readonly weather?: CloudWeatherValues;
 }
 
 /** Dado de uma `CloudLayer`: os valores de autoria, a qualidade do perfil e o uniforme empacotado pelos estágios. */
@@ -65,6 +117,8 @@ export interface CloudLayerData {
     quality: CloudQuality;
     /** 1 quando os alvos que as contribuições leem existem (a sombra, o panorama); escrito só quando muda. */
     active: number;
+    /** O tempo (R18), ou `undefined` sem ele. */
+    weather: CloudWeatherSettings | undefined;
 }
 
 /** A qualidade do perfil alto (o padrão antes do `Renderer` adotar a camada). */
@@ -151,6 +205,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
     readonly shapeFunction: CloudShapeFunction;
     /** A função de cobertura (com a opção `coverage` de função ou grafo), anexada à entidade da camada. */
     readonly coverageFunction: CloudCoverageFunction | undefined;
+    /** A função de pressão do tempo (com a opção `weather.pressure`), anexada à entidade da camada. */
+    readonly pressureFunction: CloudPressureFunction | undefined;
 
     constructor(values: CloudLayerValues = {}) {
         super();
@@ -169,7 +225,12 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             detailScale: values.detailScale ?? 1800,
             quality: CLOUD_QUALITY_HIGH,
             active: 0,
+            weather: CloudLayer.weatherOf(values.weather),
         };
+        if (values.weather !== undefined && typeof coverage !== 'number')
+            throw new RangeError(
+                'CloudLayer: com o tempo (weather), a cobertura é um número (o tempo bom); o tempo dita o resto',
+            );
         CloudLayer.check(this.rawData);
         this.shapeFunction = new CloudShapeFunction(
             values.shape ?? { graph: defaultCloudShapeGraph() },
@@ -178,6 +239,23 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         this.coverageFunction =
             typeof coverage === 'number' ? undefined : new CloudCoverageFunction(coverage);
         if (this.coverageFunction !== undefined) this.add(this.coverageFunction);
+        const pressure = values.weather?.pressure;
+        this.pressureFunction =
+            pressure === undefined ? undefined : new CloudPressureFunction(pressure);
+        if (this.pressureFunction !== undefined) this.add(this.pressureFunction);
+    }
+
+    /** Os valores do tempo completos pelos padrões (sem a função de pressão), ou `undefined`. */
+    private static weatherOf(
+        values: Partial<CloudWeatherSettings> | undefined,
+    ): CloudWeatherSettings | undefined {
+        if (values === undefined) return undefined;
+        const out: Record<string, number> = { ...CLOUD_WEATHER_DEFAULTS };
+        for (const key of Object.keys(CLOUD_WEATHER_DEFAULTS)) {
+            const v = (values as Record<string, unknown>)[key];
+            if (v !== undefined) out[key] = v as number;
+        }
+        return out as unknown as CloudWeatherSettings;
     }
 
     /** Confere os intervalos do contrato (lança `RangeError` nomeando o valor). */
@@ -208,6 +286,25 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         check(
             finite(d.detailScale) && d.detailScale > 0,
             `detailScale ${d.detailScale} deve ser > 0`,
+        );
+        const w = d.weather;
+        if (w === undefined) return;
+        check(
+            finite(w.latitude) && w.latitude >= -90 && w.latitude <= 90,
+            `latitude ${w.latitude} em [−90, 90]`,
+        );
+        check(finite(w.scale) && w.scale > 0, `escala do tempo ${w.scale} deve ser > 0`);
+        check(finite(w.amplitude) && w.amplitude >= 0, `amplitude ${w.amplitude} deve ser ≥ 0`);
+        check(finite(w.lifetime) && w.lifetime > 0, `vida ${w.lifetime} deve ser > 0`);
+        check(finite(w.friction) && w.friction > 0, `atrito ${w.friction} deve ser > 0`);
+        check(finite(w.formation) && w.formation > 0, `formação ${w.formation} deve ser > 0`);
+        check(
+            finite(w.tropopause) && w.tropopause > d.top,
+            `tropopausa ${w.tropopause} deve ser > topo ${d.top}`,
+        );
+        check(
+            Number.isInteger(w.seed) && w.seed >= 0 && w.seed <= 0xffffffff,
+            `semente ${w.seed} deve ser inteira em [0, 2³²)`,
         );
     }
 
@@ -287,6 +384,30 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
     }
     set detailScale(v: number) {
         this.set({ detailScale: v });
+    }
+
+    /**
+     * O tempo (spec 041, R18), ou `undefined` sem ele. Atribuir valores (parciais: o resto fica) liga ou ajusta o tempo
+     * no quadro seguinte, sem recompilar; `undefined` o desliga. A função de pressão é a da criação (`weather.pressure`).
+     */
+    get weather(): CloudWeatherSettings | undefined {
+        return this.rawData.weather;
+    }
+    set weather(v: Partial<CloudWeatherSettings> | undefined) {
+        if (v !== undefined && this.coverageFunction !== undefined)
+            throw new RangeError(
+                'CloudLayer: com o tempo (weather), a cobertura é um número (o tempo bom); o tempo dita o resto',
+            );
+        this.set({
+            weather: CloudLayer.weatherOf(
+                v === undefined ? undefined : { ...this.rawData.weather, ...v },
+            ),
+        });
+    }
+
+    /** O topo da casca (m): a tropopausa com o tempo, o `top` sem ele. */
+    get shellTop(): number {
+        return this.rawData.weather?.tropopause ?? this.rawData.top;
     }
 
     /** A qualidade atual (do perfil do `Renderer`). */
@@ -449,6 +570,22 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 },
                 history: { depth: 2 },
             },
+            // O tempo (R18): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o
+            // relaxamento a e^(−Δt/τ) por quadro muda ~10⁻⁵: em 16 bits se perderia), e o vento das nuvens, a subida e a
+            // frente dele (`rgba16float`, lido filtrado na reconstrução).
+            {
+                id: 'weather',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba32float',
+                    width: CLOUD_WEATHER_SIZE,
+                    height: CLOUD_WEATHER_SIZE,
+                    access: 'write-only',
+                },
+                history: { depth: 2 },
+            },
+            target('weatherWind', 'rgba16float', [CLOUD_WEATHER_SIZE, CLOUD_WEATHER_SIZE]),
             sampler('noiseSampler', 'repeat'),
             sampler('clampSampler', 'clamp-to-edge'),
         ];

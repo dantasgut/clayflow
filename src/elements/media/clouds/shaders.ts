@@ -32,6 +32,12 @@ import cloudScatterGridSource from '../../gpu/wgsl/clouds/cloud_scatter_grid.wgs
 import cloudSunSource from '../../gpu/wgsl/clouds/cloud_sun.wgsl?raw';
 import cloudScatterSource from '../../gpu/wgsl/clouds/cloud_scatter.wgsl?raw';
 import cloudScatterFilterSource from '../../gpu/wgsl/clouds/cloud_scatter_filter.wgsl?raw';
+import cloudPressureDefaultSource from '../../gpu/wgsl/clouds/cloud_pressure_default.wgsl?raw';
+import cloudWeatherSource from '../../gpu/wgsl/clouds/cloud_weather.wgsl?raw';
+import cloudWeatherGridSource from '../../gpu/wgsl/clouds/cloud_weather_grid.wgsl?raw';
+import cloudWeatherMapSource from '../../gpu/wgsl/clouds/cloud_weather_map.wgsl?raw';
+import cloudCoverageWeatherSource from '../../gpu/wgsl/clouds/cloud_coverage_weather.wgsl?raw';
+import cloudWindWeatherSource from '../../gpu/wgsl/clouds/cloud_wind_weather.wgsl?raw';
 import { nodeNoise } from '../../nodes/shaders';
 
 // Módulos das nuvens volumétricas (spec 041): os recursos da `CloudLayer` (resolvers `CloudLayer.*`), os pontos das
@@ -72,6 +78,11 @@ export const cloudHistorySlots = Object.freeze({
 /** Slot do canal temporal do cache de espalhamento (spec 037; T023). */
 export const cloudScatterSlots = Object.freeze({
     cloudScatter: slot.channel(CloudSchema, 'scatter'),
+});
+
+/** Slot do canal temporal do estado do tempo (spec 037; R18). */
+export const cloudWeatherSlots = Object.freeze({
+    cloudWeather: slot.channel(CloudSchema, 'weather'),
 });
 
 /** Slot do canal temporal do sol do cache de espalhamento (T023). */
@@ -174,6 +185,27 @@ export const cloudResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'cloudScatterSun', lag: 0 },
     }),
+    /** O estado do tempo (R18): a fatia anterior (lida no lugar trazido pelo vento), a do quadro e a escrita. */
+    weatherPrevious: wgslResource({
+        name: 'cloud_weather_prev',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudWeather', lag: 1 },
+    }),
+    weatherNow: wgslResource({
+        name: 'cloud_weather_now',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudWeather', lag: 0 },
+    }),
+    weatherOut: wgslResource({
+        name: 'cloud_weather_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'cloudWeather', lag: 0 },
+    }),
+    /** O vento das nuvens, a subida e a frente do quadrado do tempo (R18). */
+    weatherWind: sampled('cloud_weather_wind_tex', 'weatherWind'),
     /** A profundidade da cena (sem e com amostras), privada do estágio da marcha. */
     sceneDepth: wgslResource({
         name: 'cloud_scene_depth_tex',
@@ -202,6 +234,7 @@ export const cloudOutputs = Object.freeze({
     traceDepth: out('cloud_trace_depth_out', 'rg32float'),
     view: out('cloud_view_out', 'rgba16float'),
     panorama: out('cloud_panorama_out', 'rgba16float'),
+    weatherWind: out('cloud_weather_wind_out', 'rgba16float'),
     /**
      * O cache filtrado, escrito pelo consumidor da camada (não pela ligação privada do estágio): o grupo do filtro
      * também lê a série do cache, e a C2 o refaz quando a série muda (a camada que sai, o perfil que redimensiona) —
@@ -250,6 +283,30 @@ fn coverage_fn(xz: vec2f, time: f32, data: CoverageFnParams) -> vec3f {
 }`,
 });
 
+/** O campo de pressão padrão (R18): o padrão de sistemas de alta e baixa, pelos valores do tempo da camada. */
+const pressureDefault = wgslModule({
+    name: 'cloud_pressure_default',
+    source: cloudPressureDefaultSource,
+    requires: [constants, cloudParamsResource, random],
+});
+
+/** Função pronta do ponto `cloud_pressure`: o padrão de sistemas da biblioteca. */
+const pressureFnReady = wgslModule({
+    name: 'cloud_pressure_fn_ready',
+    requires: [pressureDefault],
+    source: `struct PressureFnParams {
+    _unused: u32,
+}
+
+fn pressure_fn_params(slot: u32) -> PressureFnParams {
+    return PressureFnParams(0u);
+}
+
+fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {
+    return cloud_pressure_default(xz, time);
+}`,
+});
+
 const checkOut = (name: string): WgslResource =>
     wgslResource({
         name,
@@ -276,6 +333,16 @@ const coverageCheck = wgslModule({
 fn cloud_coverage_check_main() {
     let i = cloud_coverage_check_out[0];
     cloud_coverage_check_out[1] = vec4f(coverage_fn(i.xy, i.z, coverage_fn_params(0u)), 0.0);
+}`,
+});
+
+const pressureCheck = wgslModule({
+    name: 'cloud_pressure_check',
+    requires: [pressureFnReady, checkOut('cloud_pressure_check_out')],
+    source: `@compute @workgroup_size(1)
+fn cloud_pressure_check_main() {
+    let i = cloud_pressure_check_out[0];
+    cloud_pressure_check_out[1] = vec4f(pressure_fn(i.xy, i.z, pressure_fn_params(0u)), 0.0, 0.0, 0.0);
 }`,
 });
 
@@ -313,6 +380,23 @@ export const cloudCoveragePoint = wgslPoint({
     hosts: () => [coverageCheck],
 });
 
+/**
+ * Ponto `cloud_pressure` (spec 041, R18): `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32` — a
+ * anomalia de pressão (Pa) no ponto horizontal (m, no referencial que anda com o vento de condução) no tempo simulado.
+ */
+export const cloudPressurePoint = wgslPoint({
+    name: 'cloud_pressure',
+    required: {
+        name: 'pressure_fn',
+        params: ['vec2f', 'f32', POINT_PARAMS],
+        returns: 'f32',
+        names: ['xz', 'time', 'data'],
+    },
+    paramsAlias: 'PressureFnParams',
+    ready: pressureFnReady,
+    hosts: () => [pressureCheck],
+});
+
 /** `cloud_shape_at` pronto (sem função de forma): o meio homogêneo. */
 const shapeAtReady = wgslModule({
     name: 'cloud_shape_at_ready',
@@ -333,6 +417,20 @@ const coverageAtReady = wgslModule({
     source: 'fn cloud_coverage_fn_at(xz: vec2f, time: f32, slot: u32) -> vec3f {\n    return vec3f(cloud_coverage_field(xz, clouds.layer.x, clouds.layer.y), cloud_type_field(xz, clouds.layer.y), 1.0);\n}',
 });
 
+/** `cloud_pressure_fn_at` pronto (sem função de pressão): o padrão de sistemas. */
+const pressureAtReady = wgslModule({
+    name: 'cloud_pressure_fn_at_ready',
+    requires: [pressureDefault],
+    source: 'fn cloud_pressure_fn_at(xz: vec2f, time: f32, slot: u32) -> f32 {\n    return cloud_pressure_default(xz, time);\n}',
+});
+
+/** `cloud_wind_at` pronto (sem o tempo): o vento uniforme da camada. */
+const windAtReady = wgslModule({
+    name: 'cloud_wind_at_ready',
+    requires: [cloudParamsResource],
+    source: 'fn cloud_wind_at(xz: vec2f) -> vec2f {\n    return clouds.wind.zw;\n}',
+});
+
 /** Lugar da função de forma no kernel dos volumes (o estágio troca o pronto pela composta, `bindPoints`). */
 export const cloudShapeAtPoint: BindablePoint = { name: 'cloud_shape_at', ready: shapeAtReady };
 /** Lugar da função de cobertura no kernel do mapa. */
@@ -340,6 +438,14 @@ export const cloudCoverageAtPoint: BindablePoint = {
     name: 'cloud_coverage_fn_at',
     ready: coverageAtReady,
 };
+
+/** Lugar da função de pressão no kernel do tempo. */
+export const cloudPressureAtPoint: BindablePoint = {
+    name: 'cloud_pressure_fn_at',
+    ready: pressureAtReady,
+};
+/** Lugar do vento das nuvens na reconstrução temporal (o uniforme; com o tempo, o do quadrado do tempo). */
+export const cloudWindAtPoint: BindablePoint = { name: 'cloud_wind_at', ready: windAtReady };
 
 /** O módulo que chama a função composta `functionName` com o carregador `loaderName` no lugar do pronto. */
 export function cloudShapeAt(fn: {
@@ -364,6 +470,19 @@ export function cloudCoverageAt(fn: {
         name: `cloud_coverage_fn_at_${fn.module.name}`,
         requires: [fn.module],
         source: `fn cloud_coverage_fn_at(xz: vec2f, time: f32, slot: u32) -> vec3f {\n    return ${fn.functionName}(xz, time, ${fn.loaderName}(slot));\n}`,
+    });
+}
+
+/** Idem para a pressão. */
+export function cloudPressureAt(fn: {
+    module: WgslModule;
+    functionName: string;
+    loaderName: string;
+}): WgslModule {
+    return wgslModule({
+        name: `cloud_pressure_fn_at_${fn.module.name}`,
+        requires: [fn.module],
+        source: `fn cloud_pressure_fn_at(xz: vec2f, time: f32, slot: u32) -> f32 {\n    return ${fn.functionName}(xz, time, ${fn.loaderName}(slot));\n}`,
     });
 }
 
@@ -486,6 +605,27 @@ const sceneLimit = wgslModule({
     requires: [bayer, viewSpace, cameraSpace, camerasResource],
 });
 
+/** O tempo (R18): o estêncil da pressão, o vento equilibrado, Ekman, a frente e o mapeamento para as nuvens. */
+export const cloudWeather = wgslModule({
+    name: 'cloud_weather',
+    source: cloudWeatherSource,
+    requires: [cloudParamsResource, pressureAtReady],
+});
+
+/** O quadrado do tempo centrado na câmera (R18). */
+export const cloudWeatherGrid = wgslModule({
+    name: 'cloud_weather_grid',
+    source: cloudWeatherGridSource,
+    requires: [cloudParamsResource, camerasResource, xformRigid],
+});
+
+/** O vento das nuvens pelo quadrado do tempo (R18), no lugar `cloud_wind_at`. */
+export const cloudWindWeather = wgslModule({
+    name: 'cloud_wind_weather',
+    source: cloudWindWeatherSource,
+    requires: [cloudParamsResource, cloudWeatherGrid, R.weatherWind, R.clampSampler],
+});
+
 // ── Kernels ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Volumes de ruído pela função de forma (lugar `cloud_shape_at`). */
@@ -506,6 +646,37 @@ export const cloudCoverageKernel = wgslModule({
     name: 'cloud_coverage',
     source: cloudCoverageSource,
     requires: [WORKGROUP_SIZE.module, cloudParamsResource, coverageAtReady, cloudOutputs.coverage],
+});
+
+/** O estado do tempo (série 037) e o vento das nuvens pela função de pressão (lugar `cloud_pressure_fn_at`; R18). */
+export const cloudWeatherKernel = wgslModule({
+    name: 'cloud_weather_map',
+    source: cloudWeatherMapSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        cloudParamsResource,
+        camerasResource,
+        cloudWeather,
+        cloudWeatherGrid,
+        R.weatherPrevious,
+        R.weatherOut,
+        cloudOutputs.weatherWind,
+    ],
+});
+
+/** Mapa de cobertura pelo estado do tempo (R18). */
+export const cloudCoverageWeatherKernel = wgslModule({
+    name: 'cloud_coverage_weather',
+    source: cloudCoverageWeatherSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        cloudParamsResource,
+        camerasResource,
+        coverageField,
+        cloudWeatherGrid,
+        R.weatherNow,
+        cloudOutputs.coverage,
+    ],
 });
 
 /** Irradiâncias do céu e do chão. */
@@ -586,6 +757,7 @@ const reconstructRequires = [
     R.marchDepthPrevious,
     R.marchOut,
     R.marchDepthOut,
+    windAtReady,
 ];
 export const cloudReconstructKernel = {
     single: wgslModule({

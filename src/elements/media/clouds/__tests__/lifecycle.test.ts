@@ -93,6 +93,19 @@ describe('ciclo de vida do céu e das nuvens (spec 041)', () => {
         }
     });
 
+    it('trocar a CloudLayer por outra no mesmo quadro (sem quadro entre as duas): pronto', async () => {
+        const { world, sun, settle, pending } = await scene();
+        world.insert(new Sky({ sun }));
+        const first = new CloudLayer({ coverage: 0.4 });
+        world.insert(first);
+        await settle();
+        expect(pending()).toEqual([]);
+        world.remove(first);
+        world.insert(new CloudLayer({ coverage: 0.4 }));
+        await settle();
+        expect(pending()).toEqual([]);
+    });
+
     it('perfil baixo (o alvo reconstruído a 1/16, T035): a camada entra, troca de perfil e sai, pronto em cada passo', async () => {
         const { s, world, sun, settle, pending } = await scene('low');
         world.insert(new Sky({ sun }));

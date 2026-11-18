@@ -13,7 +13,11 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
  * cobertura), os tempos (Δt, passos do panorama), a posição da câmera do panorama e o cache de espalhamento (T023): a
  * grade das sondas (centro xz, escala e alcance do asinh), os parâmetros (peso da estimativa das oitavas, teto da média,
  * validade do histórico, lado do encaixe do centro), a truncagem da fase (cosseno do corte, fração do núcleo, chance da
- * HG, acumulada da HG até o corte) e o trabalho (passo da escolha dos grupos, colisões, quadro).
+ * HG, acumulada da HG até o corte) e o trabalho (passo da escolha dos grupos, colisões, quadro); o tempo (R18): f
+ * (1/s), o atrito da atmosfera livre e o da camada limite (1/s) e o tempo de formação (s); o padrão de sistemas (lado
+ * das células, amplitude das baixas e teto das altas em Pa, vida em s); o quadrado do tempo (o topo do tempo bom como
+ * fração da casca — 1 sem o tempo —, texels por lado, lado em m, lado do estêncil em m); as marcas (tempo ligado, slot
+ * da função de pressão, histórico do estado válido, semente).
  */
 export const CloudSchema = new StructSchema(
     'CloudLayer',
@@ -40,6 +44,10 @@ export const CloudSchema = new StructSchema(
         scatterParams: FieldType.vec4f,
         phaseCut: FieldType.vec4f,
         scatterWork: FieldType.vec4u,
+        weather: FieldType.vec4f,
+        weatherPattern: FieldType.vec4f,
+        weatherMap: FieldType.vec4f,
+        weatherFlags: FieldType.vec4u,
     },
     { addressSpace: 'uniform' },
 );
@@ -104,6 +112,15 @@ export interface CloudQuality {
  * caminhou pela última vez (um texel por fase).
  */
 export const CLOUD_SCATTER_SUN_RING = 16;
+/** Texels por lado do quadrado do tempo (R18): ~2 km no quadrado de 256 km, a escala sinótica com folga. */
+export const CLOUD_WEATHER_SIZE = 128;
+/** O lado do estêncil das derivadas da pressão: a escala dos sistemas sobre este número (O(h²/L²) ~ 2·10⁻⁴). */
+export const CLOUD_WEATHER_STENCIL = 64;
+/** Atrito linear da atmosfera livre (1/s), o mesmo `FREE_DRAG` da referência. */
+export const CLOUD_WEATHER_FREE_DRAG = 1e-5;
+/** Velocidade angular da Terra (rad/s). */
+export const CLOUD_EARTH_OMEGA = 7.2921159e-5;
+
 /** Teto de colisões por caminho do cache de espalhamento (o perfil escolhe até ele). */
 export const CLOUD_SCATTER_MAX_COLLISIONS = 48;
 /**

@@ -1,5 +1,6 @@
-// Densidade das nuvens (spec 041, R3–R6): a cobertura (o mapa centrado na câmera; fora dele, os valores globais), o
-// perfil de altura pelo tipo, a forma pelo volume periódico (Perlin-Worley remapeado pelo fBm de Worley) deslocado
+// Densidade das nuvens (spec 041, R3–R6, R18): a cobertura (o mapa centrado na câmera; fora dele, os valores globais),
+// o perfil de altura pelo tipo até o topo local (o canal A do mapa: a torre do cúmulo-nimbo, o cúmulo raso; 1 sem o
+// tempo), a bigorna do cúmulo-nimbo maduro, a forma pelo volume periódico (Perlin-Worley remapeado pelo fBm de Worley) deslocado
 // pelo vento e inclinado pela altura, e a erosão das bordas pelo volume de detalhe (com o vento, derivando para cima). Densidade relativa
 // (≥ 0); a extinção é ela × `clouds.layer.z`. Espelho de `cloudDensity` em `cloudModel.ts`.
 // Requer: cloud_coverage_field, cloud_common, clouds, cloud_shape_tex, cloud_detail_tex, cloud_coverage_tex, cloud_noise_sampler,
@@ -8,15 +9,23 @@
 const CLOUD_EROSION: f32 = 0.35;
 const CLOUD_SKEW: f32 = 0.5;
 
-/** Cobertura, tipo e densidade relativa no ponto horizontal `xz` (m): o mapa e, fora dele, os campos da cobertura e do tipo. */
-fn cloud_coverage_at(xz: vec2f) -> vec3f {
+/**
+ * Cobertura, tipo, densidade relativa e a fração de altura do topo das nuvens na casca no ponto horizontal `xz` (m): o
+ * mapa e, fora dele, os campos da cobertura e do tipo com o topo do tempo bom (`clouds.weatherMap.x`; 1 sem o tempo).
+ */
+fn cloud_coverage_at(xz: vec2f) -> vec4f {
     let m = clouds.coverageMap;
     let uv = (xz - m.xy) / m.z + 0.5;
     if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) {
         let w = xz - clouds.coverageOffset.xy;
-        return vec3f(cloud_coverage_field(w, clouds.layer.x, clouds.layer.y), cloud_type_field(w, clouds.layer.y), 1.0);
+        return vec4f(
+            cloud_coverage_field(w, clouds.layer.x, clouds.layer.y),
+            cloud_type_field(w, clouds.layer.y),
+            1.0,
+            clouds.weatherMap.x,
+        );
     }
-    return textureSampleLevel(cloud_coverage_tex, cloud_clamp_sampler, uv, 0.0).rgb;
+    return textureSampleLevel(cloud_coverage_tex, cloud_clamp_sampler, uv, 0.0);
 }
 
 /**
@@ -30,7 +39,10 @@ fn cloud_density_bound() -> f32 {
     if (clouds.flags.w != 0u) { return 1.0; }
     let k = clamp(clouds.layer.y * 2.0, 0.0, 1.0);
     let g = mix(cloud_coverage_inverse(clouds.layer.x, true), cloud_coverage_inverse(clouds.layer.x, false), k);
-    return clamp(g + 0.5 * CLOUD_COVERAGE_SPREAD + 1.0 / 255.0, 0.0, 1.0);
+    let bound = clamp(g + 0.5 * CLOUD_COVERAGE_SPREAD + 1.0 / 255.0, 0.0, 1.0);
+    // A bigorna sobe a cobertura (`c^e`, e < 1) onde o tipo local passa de 0,9: o teto é o da menor potência alcançável.
+    let e = cloud_anvil_exponent(1.0, clamp(clouds.layer.y + 0.5 * CLOUD_TYPE_SPREAD, 0.0, 1.0));
+    return select(pow(bound, e), bound, e >= 1.0);
 }
 
 /**
@@ -50,20 +62,25 @@ fn cloud_density_above(p: vec3f, detail: bool, floor: f32) -> f32 {
     if (h <= 0.0 || h >= 1.0) { return 0.0; }
     let cov = cloud_coverage_at(p.xz);
     if (cov.x <= 0.0) { return 0.0; }
-    let profile = cloud_height_profile(h, cov.y);
+    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R18), não ao da casca.
+    let hl = select(h / max(cov.w, 1e-3), h, cov.w >= 1.0);
+    if (hl >= 1.0) { return 0.0; }
+    let profile = cloud_height_profile(hl, cov.y);
     if (profile <= 0.0) { return 0.0; }
+    let e = cloud_anvil_exponent(hl, cov.y);
+    let cx = select(pow(cov.x, e), cov.x, e >= 1.0);
     let skew = CLOUD_SKEW * clouds.shell.w * h;
     let ps = (p - clouds.shape.xyz - vec3f(clouds.wind.x * skew, 0.0, clouds.wind.y * skew)) / clouds.shape.w;
     let s = textureSampleLevel(cloud_shape_tex, cloud_noise_sampler, ps, 0.0);
     let low = s.g * 0.625 + s.b * 0.25 + s.a * 0.125;
     let base = cloud_remap(s.r, low - 1.0, 1.0, 0.0, 1.0) * profile;
     var c = base;
-    if (cov.x < 1.0) { c = cloud_remap(base, 1.0 - cov.x, 1.0, 0.0, 1.0) * cov.x; }
+    if (cx < 1.0) { c = cloud_remap(base, 1.0 - cx, 1.0, 0.0, 1.0) * cx; }
     if (c <= 0.0) { return 0.0; }
     if (!detail || c * max(cov.z, 0.0) <= floor) { return c * max(cov.z, 0.0); }
     let pd = (p - clouds.detail.xyz) / clouds.detail.w;
     let d = textureSampleLevel(cloud_detail_tex, cloud_noise_sampler, pd, 0.0);
     let hf = d.g * 0.625 + d.b * 0.25 + d.a * 0.125;
-    let hfm = mix(hf, 1.0 - hf, clamp(h * 10.0, 0.0, 1.0));
+    let hfm = mix(hf, 1.0 - hf, clamp(hl * 10.0, 0.0, 1.0));
     return max(0.0, cloud_remap(c, hfm * CLOUD_EROSION, 1.0, 0.0, 1.0)) * max(cov.z, 0.0);
 }

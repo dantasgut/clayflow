@@ -8,10 +8,13 @@ import { CloudLayer } from '../CloudLayer';
 import {
     cloudAmbientKernel,
     cloudCoverageKernel,
+    cloudCoverageWeatherKernel,
     cloudLightTransmission,
     cloudMarchKernel,
     cloudNoiseKernel,
     cloudPanoramaKernel,
+    cloudPressureAt,
+    cloudPressureAtPoint,
     cloudReconstructKernel,
     cloudScatterKernel,
     cloudShadowKernel,
@@ -19,6 +22,9 @@ import {
     cloudShapeAtPoint,
     cloudSkyCover,
     cloudUpsampleKernel,
+    cloudWeatherKernel,
+    cloudWindAtPoint,
+    cloudWindWeather,
 } from '../shaders';
 
 // Módulos das nuvens (spec 041, T017): cada kernel monta (cada símbolo uma vez, recursos resolvidos) e o layout das
@@ -39,6 +45,13 @@ const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main'],
     ['cloud_scatter', cloudScatterKernel, 'cloud_scatter_main'],
     ['sky_aerial', skyAerialKernel, 'sky_aerial_main'],
+    ['cloud_weather_map', cloudWeatherKernel, 'cloud_weather_main'],
+    ['cloud_coverage_weather', cloudCoverageWeatherKernel, 'cloud_coverage_weather_main'],
+    [
+        'cloud_reconstruct com o tempo',
+        bindPoints(cloudReconstructKernel.single, new Map([[cloudWindAtPoint, cloudWindWeather]])),
+        'cloud_reconstruct_main',
+    ],
 ];
 
 describe('módulos das nuvens', () => {
@@ -94,6 +107,45 @@ describe('módulos das nuvens', () => {
         );
         expect(source).toContain('node_noise_cellular3');
         expect(source).not.toContain('cloud_shape_at_ready');
+    });
+
+    it('o tempo (R18): o padrão de sistemas no lugar pronto; a função de pressão do usuário no lugar dele', () => {
+        // Arrange
+        const plain = composeWgsl(cloudWeatherKernel).spec.source;
+        const layer = new CloudLayer({
+            weather: {
+                pressure: {
+                    code: 'fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {\n    return -1500.0 * exp(-dot(xz, xz) / 3.2e11);\n}',
+                },
+            },
+        });
+        const composite = layer.pressureFunction!.composite!;
+        // Act
+        const user = composeWgsl(
+            bindPoints(
+                cloudWeatherKernel,
+                new Map([[cloudPressureAtPoint, cloudPressureAt(composite)]]),
+            ),
+        ).spec.source;
+        // Assert
+        expect(plain).toContain('fn cloud_pressure_default(');
+        expect(user).toContain(
+            `return ${composite.functionName}(xz, time, ${composite.loaderName}(slot));`,
+        );
+        expect(user).not.toContain('cloud_pressure_fn_at_ready');
+        // laços de teto constante: as 9 células, a varredura e a bisseção do vento
+        expect(plain).toContain('for (var k = 0u; k < 9u; k++)');
+        expect(plain).toContain('for (var k = 1u; k <= CLOUD_WIND_SCAN; k++)');
+        expect(plain).toContain('for (var k = 0u; k < CLOUD_WIND_BISECT; k++)');
+        expect(plain).not.toMatch(/\bwhile\b|\bloop\b/);
+    });
+
+    it('sem o tempo, a reconstrução reprojeta pelo vento uniforme (o lugar pronto)', () => {
+        const source = composeWgsl(cloudReconstructKernel.single).spec.source;
+        expect(source).toContain(
+            'fn cloud_wind_at(xz: vec2f) -> vec2f {\n    return clouds.wind.zw;\n}',
+        );
+        expect(source).not.toContain('cloud_weather_wind_tex');
     });
 
     it('todo laço da marcha tem teto constante (o orçamento total é passos × (1 + passos de luz))', () => {

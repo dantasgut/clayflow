@@ -50,6 +50,8 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
     private readonly resources: ResourceDirectory;
     private prepared: readonly [string, string] | undefined;
     private boundDepth: unknown;
+    /** A camada dos pipelines preparados (outra no mesmo quadro — a troca, o A/B — os prepara de novo). */
+    private layer: unknown;
 
     constructor(ctx: FlowContext) {
         super();
@@ -117,6 +119,11 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
     /** Liga a profundidade da cena e prepara os pipelines do alvo e das amostras. */
     private prepare(c: Ctx): void {
         const cloud = c.bound.slots.cloud.resource;
+        // Outra camada no lugar da anterior sem quadro entre as duas (o `slotLost` não vem): os grupos eram da anterior.
+        if (cloud !== this.layer) {
+            this.release(c);
+            this.layer = cloud;
+        }
         const target = c.bound.slots.target;
         const depth = target.depth;
         if (depth === undefined || this.resources.textureViewOf(cloud, 'view') === undefined) {

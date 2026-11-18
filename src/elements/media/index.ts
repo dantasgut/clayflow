@@ -12,8 +12,11 @@ export { FROXEL_AMBIENT_GRID, FROXEL_GRID, FroxelsSchema, FogGridSchema } from '
 export { fogDensityPoint, mediaResources } from './shaders';
 export {
     CLOUD_QUALITY_HIGH,
+    CLOUD_WEATHER_DEFAULTS,
     CloudLayer,
     cloudPhaseParams,
+    type CloudWeatherSettings,
+    type CloudWeatherValues,
     type CloudLayerData,
     type CloudLayerValues,
     type CloudWindOffsets,
@@ -30,6 +33,7 @@ export {
     CLOUD_SCATTER_PRIOR,
     CLOUD_SCATTER_SNAP,
     CLOUD_SCATTER_WINDOW,
+    CLOUD_WEATHER_SIZE,
     type CloudQuality,
 } from './clouds/schemas';
-export { cloudCoveragePoint, cloudShapePoint } from './clouds/shaders';
+export { cloudCoveragePoint, cloudPressurePoint, cloudShapePoint } from './clouds/shaders';

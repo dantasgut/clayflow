@@ -23,7 +23,10 @@ import {
     cloudReconstructKernel,
     cloudResources,
     cloudUpsampleKernel,
+    cloudWindAtPoint,
+    cloudWindWeather,
 } from './shaders';
+import { bindPoints } from '../../../scene/shaders/bindPoints';
 
 /** Slots do estágio da marcha das nuvens. */
 export interface CloudSlots extends SlotMap {
@@ -156,6 +159,22 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         this.views = [];
     }
 
+    /** A reconstrução (sem e com amostras), com o vento do tempo no lugar `cloud_wind_at` quando há tempo. */
+    private prepareReconstruct(c: Ctx, id: string, multisampled: boolean, weather: boolean): void {
+        const kernel = multisampled
+            ? cloudReconstructKernel.multisampled
+            : cloudReconstructKernel.single;
+        c.prepare({
+            id,
+            role: 'compute',
+            shader: weather
+                ? bindPoints(kernel, new Map([[cloudWindAtPoint, cloudWindWeather]]))
+                : kernel,
+            entryPoints: ['cloud_reconstruct_main'],
+        });
+        this.reconstruct = id;
+    }
+
     private prepare(c: Ctx): void {
         const cloud = c.bound.slots.cloud.resource as CloudLayer;
         const depth = c.bound.slots.sceneDepth;
@@ -201,22 +220,22 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         }
         const variant = multisampled ? 'ms' : '1';
         const marchId = `cloud_march:${variant}`;
+        // Com o tempo (R18), a reconstrução reprojeta pelo vento do quadrado do tempo no ponto da nuvem (o estado do tempo
+        // anda com ele); sem, pelo vento uniforme da camada.
+        const weather = cloud.weather !== undefined;
+        const reconstructId = `cloud_reconstruct:${variant}${weather ? ':weather' : ''}`;
+        if (marchId === this.march && reconstructId !== this.reconstruct) {
+            if (this.reconstruct !== undefined) c.release(this.reconstruct);
+            this.prepareReconstruct(c, reconstructId, multisampled, weather);
+        }
         if (marchId !== this.march) {
             if (this.march !== undefined) c.release(this.march);
             if (this.reconstruct !== undefined) c.release(this.reconstruct);
             if (this.upsample !== undefined) c.release(this.upsample);
             this.march = marchId;
-            this.reconstruct = `cloud_reconstruct:${variant}`;
             this.upsample = `cloud_upsample:${variant}`;
             // A reconstrução lê a profundidade da cena (a superfície de cada texel), como a marcha e o aumento.
-            c.prepare({
-                id: this.reconstruct,
-                role: 'compute',
-                shader: multisampled
-                    ? cloudReconstructKernel.multisampled
-                    : cloudReconstructKernel.single,
-                entryPoints: ['cloud_reconstruct_main'],
-            });
+            this.prepareReconstruct(c, reconstructId, multisampled, weather);
             c.prepare({
                 id: this.march,
                 role: 'compute',

@@ -29,11 +29,16 @@ import {
     CLOUD_SCATTER_SNAP,
     CLOUD_SCATTER_WINDOW,
     CLOUD_SHAPE_SIZE,
+    CLOUD_EARTH_OMEGA,
+    CLOUD_WEATHER_FREE_DRAG,
+    CLOUD_WEATHER_SIZE,
+    CLOUD_WEATHER_STENCIL,
 } from './schemas';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import {
     cloudHistorySlots,
     cloudScatterSlots,
+    cloudWeatherSlots,
     cloudNoiseKernel,
     cloudOutputs,
     cloudShapeAt,
@@ -55,6 +60,8 @@ export interface CloudNoiseSlots extends SlotMap {
     readonly cloudMarch: ChannelSlot<false>;
     /** A série do cache de espalhamento (a validade dele). */
     readonly cloudScatter: ChannelSlot<false>;
+    /** A série do estado do tempo (a validade dele; R18). */
+    readonly cloudWeather: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudNoiseSlots>;
@@ -92,6 +99,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         time: slot.singleton(Time.schema, { optional: true }),
         cloudMarch: cloudHistorySlots.cloudMarch,
         cloudScatter: cloudScatterSlots.cloudScatter,
+        cloudWeather: cloudWeatherSlots.cloudWeather,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -215,7 +223,9 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const t = time?.simulated ?? 0;
         const eye = this.cameraPosition(c);
         const groundRadius = ((s.radii[0] ?? 6360) + (s.radii[3] ?? 0.2)) * 1000;
-        const thickness = d.top - d.base;
+        // Com o tempo, a casca vai à tropopausa (a torre do cúmulo-nimbo) e o topo do tempo bom é uma fração dela.
+        const shellTop = cloud.shellTop;
+        const thickness = shellTop - d.base;
         const wind = cloud.windOffsets(t);
         const speed = Math.hypot(d.wind[0]!, d.wind[1]!);
         const windDir = speed > 1e-9 ? [d.wind[0]! / speed, d.wind[1]! / speed] : [1, 0];
@@ -235,7 +245,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const half = q.shadow.extent / 2;
         const ey = eye[1] ?? 0;
         const lo = Math.min(ey, 0) - 1000;
-        const hi = Math.max(ey, d.top) + 1000;
+        const hi = Math.max(ey, shellTop) + 1000;
         const band = (hi - lo) / 2;
         const upH = Math.hypot(up[0]!, up[2]!);
         const upY = Math.abs(up[1]!);
@@ -268,9 +278,10 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
             cloud.coverageFunction === undefined
                 ? 0
                 : this.functionSlot(cloud, cloud.coverageFunction);
+        const weather = this.weatherParams(c, cloud, thickness);
         d.params = [
             {
-                shell: [groundRadius, d.base, d.top, thickness],
+                shell: [groundRadius, d.base, shellTop, thickness],
                 layer: [d.coverage, d.type, d.density, d.albedo],
                 phase: cloudPhaseParams(d.dropletDiameter),
                 octaves: [q.octaves, CLOUD_OCTAVES.a, CLOUD_OCTAVES.b, CLOUD_OCTAVES.c],
@@ -289,7 +300,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                     valid ? 1 : 0,
                     shapeSlot,
                     coverageSlot,
-                    cloud.coverageFunction === undefined ? 0 : 1,
+                    cloud.coverageFunction === undefined && d.weather === undefined ? 0 : 1,
                 ],
                 timing: [time?.dt ?? 0, q.panoramaSteps, q.marchScale, 0],
                 eye: [eye[0] ?? 0, eye[1] ?? 0, eye[2] ?? 0, 0],
@@ -307,14 +318,63 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 ],
                 phaseCut: cloudPhaseTruncation(d.dropletDiameter),
                 scatterWork: [q.scatter.stride, q.scatter.collisions, time?.frame ?? 0, 0],
+                ...weather,
             },
         ];
+    }
+
+    /**
+     * Os campos do tempo no uniforme (spec 041, R18): f = 2Ω sin φ, os atritos e o tempo de formação; o padrão de sistemas
+     * (o lado das células, a amplitude das baixas na latitude — a dada a 45° × f_e(φ)/f_e(45°), a anomalia escala com a
+     * rotação — e o teto das altas pelo equilíbrio regular, 0,8·ρ f_e² R²/24, e a vida); o quadrado do tempo (o topo do
+     * tempo bom como fração da casca, os texels, o lado — o do quadrado de cobertura — e o estêncil); as marcas. Sem o
+     * tempo, só o topo do tempo bom (1: a casca inteira) — a densidade fora do mapa o lê.
+     */
+    private weatherParams(
+        c: Ctx,
+        cloud: CloudLayer,
+        thickness: number,
+    ): Record<'weather' | 'weatherPattern' | 'weatherMap' | 'weatherFlags', number[]> {
+        const w = cloud.data.weather;
+        const q = cloud.data.quality;
+        if (w === undefined)
+            return {
+                weather: [0, CLOUD_WEATHER_FREE_DRAG, 0, 1],
+                weatherPattern: [1, 0, 0, 1],
+                weatherMap: [1, CLOUD_WEATHER_SIZE, q.coverageExtent, 1],
+                weatherFlags: [0, 0, 0, 0],
+            };
+        const f = 2 * CLOUD_EARTH_OMEGA * Math.sin((w.latitude * Math.PI) / 180);
+        const r = CLOUD_WEATHER_FREE_DRAG;
+        const fe = Math.hypot(f, r);
+        const fe45 = Math.hypot(2 * CLOUD_EARTH_OMEGA * Math.SQRT1_2, r);
+        const amplitude = (w.amplitude * fe) / fe45;
+        const highCap = (0.8 * 1.2 * fe * fe * w.scale * w.scale) / 24;
+        const valid = c.bound.slots.cloudWeather.age(1) === 1;
+        const pressureSlot =
+            cloud.pressureFunction === undefined
+                ? 0
+                : this.functionSlot(cloud, cloud.pressureFunction);
+        return {
+            weather: [f, r, w.friction, w.formation],
+            weatherPattern: [w.scale, amplitude, highCap, w.lifetime],
+            weatherMap: [
+                Math.min(1, (cloud.data.top - cloud.data.base) / thickness),
+                CLOUD_WEATHER_SIZE,
+                q.coverageExtent,
+                w.scale / CLOUD_WEATHER_STENCIL,
+            ],
+            weatherFlags: [1, pressureSlot, valid ? 1 : 0, w.seed],
+        };
     }
 
     /** Slot do registro de parâmetros de uma função da camada no pool da forma dela. */
     private functionSlot(
         cloud: CloudLayer,
-        fn: CloudLayer['shapeFunction'] | NonNullable<CloudLayer['coverageFunction']>,
+        fn:
+            | CloudLayer['shapeFunction']
+            | NonNullable<CloudLayer['coverageFunction']>
+            | NonNullable<CloudLayer['pressureFunction']>,
     ): number {
         const id = this.world.entityIdOfResource(cloud);
         const schema = fn.getDescriptors()[0]?.schema;
