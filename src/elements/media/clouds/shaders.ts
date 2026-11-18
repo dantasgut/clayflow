@@ -626,20 +626,11 @@ export const cloudScatterKernel = wgslModule({
     ],
 });
 
-/**
- * O cache de espalhamento filtrado no espaço (T023): a fatia do quadro anterior (a última completa: os caminhos do quadro
- * vêm depois, sobrepostos ao resto dele) pelo filtro binomial 3 × 3 × 3.
- */
+/** O cache de espalhamento filtrado no espaço (T023): a fatia do quadro pelo filtro binomial 3 × 3 × 3. */
 export const cloudScatterFilterKernel = wgslModule({
     name: 'cloud_scatter_filter',
     source: cloudScatterFilterSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        cloudScatterGrid,
-        R.scatterPrevious,
-        R.clampSampler,
-        cloudOutputs.scatterFiltered,
-    ],
+    requires: [WORKGROUP_SIZE.module, R.scatterNow, R.clampSampler, cloudOutputs.scatterFiltered],
 });
 
 /** Panorama das nuvens vistas da câmera. */

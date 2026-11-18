@@ -128,10 +128,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     }
 
     /**
-     * A cobertura, as irradiâncias, a sombra, o cache filtrado (da fatia do quadro anterior), o panorama e, por último,
-     * os caminhos do cache. Os caminhos são longos e em série (a latência de cada um, não a vazão, faz o tempo do
-     * passe): com a marcha e o panorama lendo o cache do quadro anterior, nada do quadro espera por eles, e a GPU os
-     * sobrepõe ao resto do quadro.
+     * A cobertura, as irradiâncias, a sombra, os caminhos do cache, o cache filtrado (da fatia que os caminhos acabaram de
+     * escrever) e o panorama, nesta ordem.
      */
     dispatch(frame: Frame, bound: BoundFlow<CloudLightSlots>): void {
         if (!this.active || this.coverage === undefined) return;
@@ -143,16 +141,16 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             [AMBIENT.id, 'CloudLightFlow.ambient', WORKGROUP_SIZE.value],
             [SHADOW.id, 'CloudLightFlow.shadow', q.shadow.size * q.shadow.size],
             [
+                SCATTER.id,
+                'CloudLightFlow.scatter',
+                q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
+            ],
+            [
                 SCATTER_FILTER.id,
                 'CloudLightFlow.scatterFilter',
                 q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
             ],
             [PANORAMA.id, 'CloudLightFlow.panorama', q.panorama[0] * q.panorama[1]],
-            [
-                SCATTER.id,
-                'CloudLightFlow.scatter',
-                q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
-            ],
         ];
         const ready = steps.map(([id]) => bound.pipelines.get(id));
         if (ready.some((p) => p?.role !== 'compute' || !p.ready)) return;
