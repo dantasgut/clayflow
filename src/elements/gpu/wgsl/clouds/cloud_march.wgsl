@@ -32,7 +32,9 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     // Ruído azul no tempo: a sequência R2 deslocada pelo hash do pixel.
     let h = f32(hash2(q) >> 8u) / 16777216.0;
     let jitter = fract(h + f32(clouds.march.z) * 0.61803398875);
-    let s = cloud_integrate(ray.origin, ray.dir, limit, clouds.march.x, clouds.march.y, jitter);
+    // O ângulo do pixel da marcha (S pixels da tela): a pegada do detalhe.
+    let pixel = length(camera_ray(slot, center + vec2f(scale, 0.0), full).dir - ray.dir);
+    let s = cloud_integrate(ray.origin, ray.dir, limit, clouds.march.x, clouds.march.y, jitter, pixel);
     var color = s.scattered;
     if (s.transmittance < 1.0) {
         let aerial = sky_aerial(center / full, ray.dir, s.depth);

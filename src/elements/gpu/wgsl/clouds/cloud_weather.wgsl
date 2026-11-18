@@ -143,3 +143,26 @@ fn cloud_weather_clouds(w: f32, front: f32, fair: vec3f) -> vec3f {
     z = mix(z, max(z, 0.55), band);
     return clamp(vec3f(c, t, z), vec3f(0.0), vec3f(1.0));
 }
+
+/** O tempo de vida da bigorna em tempos de formação: o gelo da bigorna sublima devagar (horas). */
+const CLOUD_ANVIL_PERSISTENCE: f32 = 4.0;
+
+/**
+ * A fonte da bigorna pelo estado (cobertura, tipo, topo): só onde a torre já chegou à tropopausa (topo ≥ 0,85 da casca) e
+ * é cúmulo-nimbo (tipo ≥ 0,85). Ver `anvilSource` na referência.
+ */
+fn cloud_weather_anvil_source(state: vec3f) -> f32 {
+    return smoothstep(0.85, 1.0, state.z) * smoothstep(0.85, 1.0, state.y);
+}
+
+/**
+ * A bigorna depois de `dt` (s): a de antes `before` (trazida pelo vento da alta troposfera; < 0 sem histórico: a fonte)
+ * cresce para a fonte do estado no tempo de formação `formation` e, acima dela, se desfaz em
+ * `CLOUD_ANVIL_PERSISTENCE × formation`. Ver `anvilRelax` na referência.
+ */
+fn cloud_weather_anvil(before: f32, state: vec3f, dt: f32, formation: f32) -> f32 {
+    let source = cloud_weather_anvil_source(state);
+    if (before < 0.0) { return source; }
+    let tau = select(CLOUD_ANVIL_PERSISTENCE * formation, formation, source > before);
+    return clamp(source + (before - source) * exp(-dt / tau), 0.0, 1.0);
+}

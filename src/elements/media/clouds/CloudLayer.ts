@@ -48,6 +48,11 @@ export interface CloudWeatherSettings {
     readonly tropopause: number;
     /** Padrão: semente (inteiro ≥ 0). Default 0. */
     readonly seed: number;
+    /**
+     * O vento da alta troposfera como múltiplo do vento da camada (o cisalhamento, ≥ 0): leva a bigorna do cúmulo-nimbo
+     * para longe da torre. Default 2,5 (nas latitudes médias o vento perto da tropopausa é ~2–3 × o de 700 hPa).
+     */
+    readonly shear: number;
 }
 
 /** Valores de autoria do tempo (todos opcionais) e a função de pressão (grafo de nós ou WGSL do ponto `cloud_pressure`). */
@@ -66,6 +71,7 @@ export const CLOUD_WEATHER_DEFAULTS: CloudWeatherSettings = {
     formation: 1200,
     tropopause: 11_000,
     seed: 0,
+    shear: 2.5,
 };
 
 /** Valores de autoria de uma `CloudLayer` (spec 041). */
@@ -186,6 +192,8 @@ export interface CloudWindOffsets {
     readonly shape: readonly [number, number, number];
     readonly detail: readonly [number, number, number];
     readonly coverage: readonly [number, number];
+    /** A bigorna (com o tempo): o vento da alta troposfera `cisalhamento·vento·t` (x, z), módulo o período da forma. */
+    readonly anvil: readonly [number, number];
 }
 
 /**
@@ -302,6 +310,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             finite(w.tropopause) && w.tropopause > d.top,
             `tropopausa ${w.tropopause} deve ser > topo ${d.top}`,
         );
+        check(finite(w.shear) && w.shear >= 0, `cisalhamento ${w.shear} deve ser ≥ 0`);
         check(
             Number.isInteger(w.seed) && w.seed >= 0 && w.seed <= 0xffffffff,
             `semente ${w.seed} deve ser inteira em [0, 2³²)`,
@@ -436,13 +445,14 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
     /**
      * Os deslocamentos do vento no tempo simulado `time` (s), em f64 (spec 041, R6): a forma `vento·t` e o detalhe
      * `vento·t` com a deriva vertical `0,1·|vento|·t` reduzidos módulo o período do volume (o volume é periódico: a
-     * redução não salta) e a cobertura
-     * `vento·t` (o referencial da função de cobertura).
+     * redução não salta), a cobertura `vento·t` (o referencial da função de cobertura) e a bigorna, levada pelo vento
+     * da alta troposfera (`cisalhamento·vento·t`; R19).
      */
     windOffsets(time: number): CloudWindOffsets {
         const [wx, wz] = [this.rawData.wind[0]!, this.rawData.wind[1]!];
         const s = this.rawData.shapeScale;
         const d = this.rawData.detailScale;
+        const k = this.rawData.weather?.shear ?? 1;
         return {
             shape: [wrap(wx * time, s), 0, wrap(wz * time, s)],
             // O detalhe anda com o vento e deriva para cima a 0,1·|vento|: a forma muda aos poucos sem desviar o
@@ -453,6 +463,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 wrap(wz * time, d),
             ],
             coverage: [wx * time, wz * time],
+            anvil: [wrap(k * wx * time, s), wrap(k * wz * time, s)],
         };
     }
 

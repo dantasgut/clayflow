@@ -81,19 +81,38 @@ export function profileLimits(t: number): [number, number, number, number] {
 }
 
 /**
- * A bigorna do cúmulo-nimbo (spec 041, R19; Schneider 2017, o `anvil bias` do Nubis): perto do topo da torre (a fração
- * de altura local na faixa `height`) a cobertura sobe como `c^e`, e = 1 − (1 − `exponent`)·a, `a` a força da bigorna
- * pelo tipo (só o cúmulo-nimbo maduro, tipo ≥ 0,9) — a nuvem se espalha na tropopausa (o ar que sobe na torre sai para
- * os lados onde a estabilidade o para). Com tipo < 0,9 nada muda.
+ * A água da torre (spec 041, R19): o fator da extinção na altitude `alt` (m) com o topo do tempo bom `fair` (m). Acima do
+ * topo do tempo bom a água adiabática cresce com a altura (~1–3 g/m³ no núcleo do cúmulo-nimbo contra ~0,3–0,5 no cúmulo
+ * raso): o fator vai de 1 a 1 + `gain` em `depth` metros; da glaciação em diante (`glaciation`, m: −20 °C a −38 °C na
+ * atmosfera padrão) os cristais de gelo maiores o trazem de volta a 1. Sem o tempo (o topo do tempo bom é o da casca), 1.
  */
-export const CLOUD_ANVIL = { type: [0.9, 1.0], height: [0.65, 0.85], exponent: 0.4 } as const;
+export const CLOUD_WATER = { gain: 2, depth: 3000, glaciation: [5500, 8500] } as const;
 
-/** O expoente da cobertura na bigorna para a fração de altura local `h` e o tipo `t` (1 sem bigorna). */
-export function anvilExponent(h: number, t: number): number {
-    const a =
-        smoothstep(CLOUD_ANVIL.type[0], CLOUD_ANVIL.type[1], t)
-        * smoothstep(CLOUD_ANVIL.height[0], CLOUD_ANVIL.height[1], h);
-    return 1 - (1 - CLOUD_ANVIL.exponent) * a;
+export function towerWater(alt: number, fair: number): number {
+    const liquid = 1 + CLOUD_WATER.gain * clamp01((alt - fair) / CLOUD_WATER.depth);
+    return mix(liquid, 1, smoothstep(CLOUD_WATER.glaciation[0], CLOUD_WATER.glaciation[1], alt));
+}
+
+/**
+ * A bigorna do cúmulo-nimbo (spec 041, R19): a lâmina de gelo no nível de equilíbrio — `depth` metros com o topo
+ * `ceiling` metros abaixo da tropopausa (as torres mais fortes passam acima: o topo saliente) —, extinção `water` × a da
+ * camada (IWC ~0,1 g/m³, raio efetivo ~30 µm), levada pelo vento da alta troposfera.
+ */
+export const CLOUD_ANVIL = { depth: 2000, ceiling: 800, water: 0.25 } as const;
+
+/** O perfil vertical da bigorna na altitude `alt` (m) com a tropopausa `top` (m): base plana, topo arredondado. */
+export function anvilProfile(alt: number, top: number): number {
+    const x = (alt - (top - CLOUD_ANVIL.ceiling - CLOUD_ANVIL.depth)) / CLOUD_ANVIL.depth;
+    if (x <= 0 || x >= 1) return 0;
+    return smoothstep(0, 0.25, x) * (1 - smoothstep(0.7, 1, x));
+}
+
+/**
+ * A fração do caminho entre o topo do tempo bom e o do estado a que sobe a torre de tipo local `t`: as células mais
+ * fortes (≥ 0,95) vão à tropopausa, as de 0,55 ficam no topo do tempo bom.
+ */
+export function towerReach(t: number): number {
+    return smoothstep(0.55, 0.95, t);
 }
 
 /** O perfil de altura: a rampa de subida na base × a de descida no topo, em [0, 1]. */
@@ -273,6 +292,14 @@ export interface CloudModel {
     readonly detailOffset: Vec3;
     /** Direção unitária do vento no plano (x, z) — a inclinação do topo. */
     readonly windDir: readonly [number, number];
+    /**
+     * O tempo (R19): o topo do tempo bom como fração da casca e o deslocamento (m, x e z) da bigorna. Com ele, o terceiro
+     * valor da cobertura é a cobertura da bigorna (a densidade relativa é 1) e o quarto, o topo do estado.
+     */
+    readonly weather?: {
+        readonly fairTop: number;
+        readonly anvilOffset: readonly [number, number];
+    };
 }
 
 /** Altitude (m acima do chão da cena) de um ponto. */
@@ -286,39 +313,87 @@ export function heightFraction(m: CloudModel, x: Vec3): number {
     return (altitude(m, x) - m.base) / (m.top - m.base);
 }
 
-/** Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`). */
-export function cloudDensity(m: CloudModel, x: Vec3): number {
-    const h = heightFraction(m, x);
-    if (h <= 0 || h >= 1) return 0;
-    const cv = m.coverage(x[0], x[2]);
-    const [c0, t, dr] = cv;
-    if (c0 <= 0) return 0;
-    // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R19), não ao da casca.
-    const hl = h / Math.max(cv.length > 3 ? (cv as Vec4)[3] : 1, 1e-3);
-    if (hl >= 1) return 0;
-    const H = heightProfile(hl, t);
-    if (H <= 0) return 0;
-    const c = c0 ** anvilExponent(hl, t);
-    const skew = CLOUD_SKEW * (m.top - m.base) * h;
-    const ps: Vec3 = [
-        (x[0] - m.shapeOffset[0] - m.windDir[0] * skew) / m.shapeScale,
-        (x[1] - m.shapeOffset[1]) / m.shapeScale,
-        (x[2] - m.shapeOffset[2] - m.windDir[1] * skew) / m.shapeScale,
-    ];
+/** A forma sem erosão da cobertura `c` no ponto `ps` do volume com o perfil `profile`. */
+function shapeCover(m: CloudModel, ps: Vec3, c: number, profile: number): number {
     const s = sampleVolume(m.shape, ps);
     const lowFbm = s[1] * 0.625 + s[2] * 0.25 + s[3] * 0.125;
-    const base = remap(s[0], lowFbm - 1, 1, 0, 1) * H;
-    const cov = c >= 1 ? base : remap(base, 1 - c, 1, 0, 1) * c;
-    if (cov <= 0) return 0;
+    const base = remap(s[0], lowFbm - 1, 1, 0, 1) * profile;
+    return c >= 1 ? base : remap(base, 1 - c, 1, 0, 1) * c;
+}
+
+/**
+ * O peso de um canal do detalhe cuja oitava mais fina tem células de `cell` metros na pegada `fp` do pixel da marcha: 1
+ * com a célula de duas pegadas ou mais, 0 com uma ou menos (0 sem pegada: o detalhe inteiro).
+ */
+export function detailWeight(cell: number, fp: number): number {
+    return fp > 0 ? clamp01(cell / fp - 1) : 1;
+}
+
+/**
+ * A erosão das bordas pelo volume de detalhe na fração de altura local `hl`, com os canais B e A cedendo ao mais grosso
+ * quando a oitava mais fina deles (o período/32 e /64) fica abaixo da pegada `fp` (m).
+ */
+function erode(m: CloudModel, x: Vec3, c: number, hl: number, fp: number): number {
     const pd: Vec3 = [
         (x[0] - m.detailOffset[0]) / m.detailScale,
         (x[1] - m.detailOffset[1]) / m.detailScale,
         (x[2] - m.detailOffset[2]) / m.detailScale,
     ];
     const d = sampleVolume(m.detail, pd);
-    const hf = d[1] * 0.625 + d[2] * 0.25 + d[3] * 0.125;
+    const b = mix(d[1], d[2], detailWeight(m.detailScale / 32, fp));
+    const a = mix(b, d[3], detailWeight(m.detailScale / 64, fp));
+    const hf = d[1] * 0.625 + b * 0.25 + a * 0.125;
     const hfm = mix(hf, 1 - hf, clamp01(hl * 10));
-    return Math.max(0, remap(cov, hfm * CLOUD_EROSION, 1, 0, 1)) * Math.max(0, dr);
+    return Math.max(0, remap(c, hfm * CLOUD_EROSION, 1, 0, 1));
+}
+
+/**
+ * Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`): a torre (o perfil até o topo local, a forma,
+ * a erosão e a água) e, com o tempo, a bigorna; a maior das duas. `footprint` (m): a pegada do pixel da marcha (o detalhe
+ * abaixo dela cede ao mais grosso; 0: o detalhe inteiro).
+ */
+export function cloudDensity(m: CloudModel, x: Vec3, footprint = 0): number {
+    const h = heightFraction(m, x);
+    if (h <= 0 || h >= 1) return 0;
+    const cv = m.coverage(x[0], x[2]);
+    const [c0, t, dr] = cv;
+    const w = m.weather;
+    const alt = m.base + h * (m.top - m.base);
+    let result = 0;
+    if (c0 > 0) {
+        const fair = w?.fairTop ?? 1;
+        let top = cv.length > 3 ? (cv as Vec4)[3] : 1;
+        if (w !== undefined && top > fair) top = fair + (top - fair) * towerReach(t);
+        // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto (o tempo, R19), não ao da casca.
+        const hl = top >= 1 ? h : h / Math.max(top, 1e-3);
+        const H = hl < 1 ? heightProfile(hl, t) : 0;
+        if (H > 0) {
+            const skew = CLOUD_SKEW * (m.top - m.base) * h;
+            const ps: Vec3 = [
+                (x[0] - m.shapeOffset[0] - m.windDir[0] * skew) / m.shapeScale,
+                (x[1] - m.shapeOffset[1]) / m.shapeScale,
+                (x[2] - m.shapeOffset[2] - m.windDir[1] * skew) / m.shapeScale,
+            ];
+            const c = shapeCover(m, ps, c0, H);
+            const k =
+                towerWater(alt, m.base + fair * (m.top - m.base))
+                * (w === undefined ? Math.max(0, dr) : 1);
+            if (c > 0) result = erode(m, x, c, hl, footprint) * k;
+        }
+    }
+    if (w !== undefined && dr > 0) {
+        const H = anvilProfile(alt, m.top);
+        if (H > 0) {
+            const pa: Vec3 = [
+                (x[0] - w.anvilOffset[0]) / m.shapeScale,
+                x[1] / m.shapeScale,
+                (x[2] - w.anvilOffset[1]) / m.shapeScale,
+            ];
+            const c = shapeCover(m, pa, dr, H);
+            if (c > 0) result = Math.max(result, erode(m, x, c, 1, footprint) * CLOUD_ANVIL.water);
+        }
+    }
+    return result;
 }
 
 /** Interseção do raio com a esfera de raio `r` centrada em (0, −R, 0): [t0, t1] ou nada. */
@@ -421,10 +496,10 @@ export interface CloudLighting {
 
 /**
  * A profundidade ótica até o sol pelo cone curto do shader (`cloud_sun_depth`): `steps` trechos de comprimento
- * `espessura/48 · 0,5 · 1,5^i`, a densidade no meio de cada um, e o resto até a saída da casca integrado.
+ * `espessura/48 · 0,5 · 1,5^i` (a espessura do tempo bom), a densidade no meio de cada um, e o resto até a saída da casca integrado.
  */
 export function coneSunDepth(m: CloudModel, x: Vec3, sun: Vec3, steps = 6): number {
-    const base = (m.top - m.base) / 48;
+    const base = ((m.top - m.base) * (m.weather?.fairTop ?? 1)) / 48;
     let tau = 0;
     let t = 0;
     for (let i = 0; i < steps; i++) {
@@ -452,7 +527,8 @@ export interface CloudMarch {
  * Marcha de referência da camada pelo modelo de oitavas (o que o shader aproxima com passos grossos e a autossombra
  * curta): `steps` passos por trecho da casca até `tMax`, a profundidade ótica até o sol integrada até a saída da casca
  * com `sunSteps` passos, o ambiente pela fração de altura (céu em cima, chão embaixo), a integral analítica por passo
- * (Hillaire 2016: `S·(1 − e^(−σt·dt))/σt`).
+ * (Hillaire 2016: `S·(1 − e^(−σt·dt))/σt`). `pixel` (rad): o ângulo do pixel da marcha da GPU — a pegada do detalhe na
+ * amostra da vista (`cloudDensity`); 0, o detalhe inteiro.
  */
 export function marchCloud(
     m: CloudModel,
@@ -464,6 +540,7 @@ export function marchCloud(
     octaves: CloudOctaves,
     steps = 256,
     sunSteps = 64,
+    pixel = 0,
 ): CloudMarch {
     let T = 1;
     const L = [0, 0, 0];
@@ -475,7 +552,7 @@ export function marchCloud(
         for (let i = 0; i < steps; i++) {
             const t = a + (i + 0.5) * dt;
             const x: Vec3 = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
-            const rho = cloudDensity(m, x);
+            const rho = cloudDensity(m, x, t * pixel);
             if (rho <= 0) continue;
             const sigmaT = rho * m.density;
             const tau = light.sunDepth?.(x) ?? opticalDepth(m, x, light.sunDir, sunSteps);

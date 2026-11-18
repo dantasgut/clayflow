@@ -143,7 +143,7 @@ describe('módulos das nuvens', () => {
     it('sem o tempo, a reconstrução reprojeta pelo vento uniforme (o lugar pronto)', () => {
         const source = composeWgsl(cloudReconstructKernel.single).spec.source;
         expect(source).toContain(
-            'fn cloud_wind_at(xz: vec2f) -> vec2f {\n    return clouds.wind.zw;\n}',
+            'fn cloud_wind_at(p: vec3f) -> vec2f {\n    return clouds.wind.zw;\n}',
         );
         expect(source).not.toContain('cloud_weather_wind_tex');
     });

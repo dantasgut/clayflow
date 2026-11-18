@@ -43,7 +43,7 @@ fn cloud_history_at(q: vec2u, full: vec2f, surface: f32) -> vec4f {
     let ray = camera_ray(slot, (vec2f(q) + 0.5) * f32(cloud_march_scale()), full);
     let d = select(1e7, prev_depth, prev_depth > 0.0);
     let world = ray.origin + ray.dir * d;
-    let wind = cloud_wind_at(world.xz);
+    let wind = cloud_wind_at(world);
     let before = world - vec3f(wind.x, 0.0, wind.y) * clouds.timing.x;
     let clip = cam.previousViewProjection * vec4f(before, 1.0);
     if (clip.w <= 0.0) { return vec4f(0.0, 0.0, 0.0, -1.0); }

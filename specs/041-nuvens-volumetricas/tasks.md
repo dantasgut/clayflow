@@ -179,6 +179,28 @@ analítica) no norte, no sul e no equador; a torre e a bigorna; a faixa entre um
 - [x] T056 [US5] Cena `tempestade` no claflow-web (uma baixa de mesoescala se aprofundando a 70 km sobre o terreno gramado, vista de longe, câmera parada, tempo a 1080 ×) e o vídeo (porta 5184) (SC-013). — **Cena feita (claflow-web `d58e538`), não gravada.** **Gravado (2026-11-18, porta 5184; `/private/tmp/claude-501/-Users-dantasgut-Documents-dev-geom-diff-calc-clayflow/0db1165c-31da-4a98-aebf-d257d0e29a91/scratchpad/041-video/rodada7/tempestade.mp4`, 18,8 MB recomprimido de 78 MB; folha `tempestade-folha.png`): 3600 quadros a 4 s cada (4 h em 60 s), a baixa a 55 km; conferência do codificador 50,59 dB no brilho e 45,61 dB em RGB; GPU 43 ms por quadro (o `ShadowFlow` do terreno, ~45 ms, aberto antes). Nos quadros: os cúmulos rasos, o céu limpando pela subsidência, a massa crescendo até a tropopausa com a base escura e o topo alto achatado (a bigorna a 55 km) e indo para leste. Brilho médio por quadro (160 × 90): imagem maior salto 2,45 níveis, 4 quadros > 2, nenhuma alternância; céu ≤ 1,01, nenhum > 2; chão maior 8,4, 89 quadros > 2, 1 alternância (as sombras das nuvens passando a 25–55 m por quadro); pixels destoantes (|p − mediana de 5| > 8) 5–76 por quadro. A primeira gravação, a 18 s por quadro (6 h em 20 s), saía granulada nas bordas finas (a reconstrução largava o histórico: 100–250 m por quadro) e com o chão alternando (33 alternâncias): a cena passou a 4 s por quadro. Em aberto: grão fino nas bordas ralas das nuvens que mudam de forma depressa, visível nos quadros parados.**
 - [x] T057 [P] [US5] Docs: spec (US5, FR-023–FR-028, SC-010–SC-013, casos de borda), research R19, data-model, contrato, plan, guia `clay-engine-doc/docs/guides/clouds.md` (o tempo). — **Feito.**
 
+- [x] T058 [GPU] [US5] A aparência do cúmulo-nimbo (o vídeo `tempestade` da rodada 7: banco branco de topo liso, base
+  clara): o alcance da torre pelo tipo local (`cloud_tower_reach`), a água da torre na extinção (`cloud_tower_water`: 1 → 3
+  nos 3 km acima do topo do tempo bom, 1 de novo na glaciação), a bigorna como o quarto canal do estado do tempo (nasce
+  onde a torre chegou à tropopausa, trazida pelo vento da alta troposfera `weather.shear`, desfeita em 4 tempos de
+  formação; uma lâmina de gelo de 2 km, 800 m abaixo da tropopausa, extinção 0,25) no lugar do `anvil bias`; a referência
+  f64 junto (`towerWater`, `towerReach`, `anvilProfile`, `anvilSource`, `anvilRelax`); a reconstrução reprojeta a faixa
+  da bigorna pelo vento de cima. Ver research.md, R19 (revisto).
+- [x] T059 [GPU] [US5] O grão das bordas ralas: o passo e o cone da luz pela espessura do tempo bom; a ocupação do raio
+  pelo topo das colunas (32 trechos, o piso pela parte ocupada, os vazios pulados); o detalhe pela pegada do pixel da
+  marcha (`cloud_footprint`, `detailWeight`; a referência com o ângulo do pixel da GPU). Isolado por experimento (a mesma
+  cena, a borda de baixo de um cúmulo, passa-alta 5 × 5): a reprojeção pelo vento da camada no lugar do vento do tempo
+  0,96 → 0,96 (não é); a marcha só fina 0,96 (não é); o cache de espalhamento desligado 1,39 (não é: o cache tira ruído);
+  o detalhe pela pegada 0,96 → 1,00 na região, o temporal 0,59 → 0,53; o relógio a 2 s por quadro 0,77, a 1 s 0,64, a
+  1/60 s liso em 60 quadros — a causa é a reconstrução temporal (~7 amostras por pixel) que não acumula com a nuvem
+  mudando a cada quadro do tempo acelerado; a cena passa a 2 s por quadro.
+- [x] T060 [GPU] [US5] O chão que pisca (o `tempestade` da rodada 7): caso `storm-ground` (a mesma camada, o sol e a baixa;
+  1 quadro = 4 s), a transmitância até o sol no chão da câmera da GPU contra a referência f64 no mesmo quadro: aos 2,7–3,7
+  s do vídeo a GPU sobe de 0,00 a 0,79 e desce a 0,08, a referência de 0,00 a 1,00 e a 0,06; aos 14,7–15,7 s as duas vão
+  e voltam (GPU 1,00 → 0,49 → 0,86 → 0,36 → 0,73; referência 1,00 → 0,56 → 1,00 → 0,40 → 0,61); luz somada GPU 67,35
+  contra 72,76 (−7 %). É a física acelerada: a borda esfarrapada de um cúmulo passa pelo sol (24 m de vento por quadro), e a
+  câmera a 2 m via só os primeiros metros de chão. A cena nova põe a câmera a 60 m: a sombra anda pelo terreno.
+
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
 ---

@@ -16,7 +16,7 @@ fn cloud_panorama_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let phi = uv.x * 2.0 * PI;
     let theta = uv.y * PI;
     let dir = vec3f(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi));
-    let s = cloud_integrate(clouds.eye.xyz, dir, 1e30, u32(clouds.timing.y), 3u, 0.5);
+    let s = cloud_integrate(clouds.eye.xyz, dir, 1e30, u32(clouds.timing.y), 3u, 0.5, 0.0);
     var color = s.scattered;
     if (s.transmittance < 1.0) {
         let a = sky_aerial_far(dir, 0.0, SkyAerial(vec3f(0.0), vec3f(1.0)), s.depth * 0.001);

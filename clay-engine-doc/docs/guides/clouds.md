@@ -84,8 +84,11 @@ new CloudLayer({
 - **Vento**: o equilíbrio do vento gradiente com atrito pela latitude (f = 2Ω sin φ): anti-horário em volta das baixas no
   norte, horário no sul, descendo o gradiente no equador; soma-se ao vento de condução e leva as nuvens.
 - **Subida e descida**: a convergência do vento com atrito na camada limite (`friction`; a relação de Ekman) sobe o ar
-  nas baixas — mais cobertura e cúmulos-nimbos até a tropopausa, com a bigorna — e o desce nas altas — céu limpo ou
-  nuvens rasas; onde os sistemas se encontram, uma faixa de nuvens (a frente).
+  nas baixas — mais cobertura e torres de alturas diferentes (só as células mais fortes chegam à tropopausa; a água
+  condensada da torre escurece a base) — e o desce nas altas — céu limpo ou nuvens rasas; onde os sistemas se encontram,
+  uma faixa de nuvens (a frente).
+- **Bigorna**: onde a torre chega à tropopausa nasce uma lâmina de gelo de 2 km logo abaixo dela, levada pelo vento da
+  alta troposfera (`shear` × o vento da camada; padrão 2,5) para longe da torre e desfeita em horas.
 - **Evolução**: as nuvens se formam e se desfazem em `formation` segundos (o estado é série temporal da spec 037) e
   andam com o vento local. `layer.weather = { … }` ajusta no quadro seguinte; `undefined` desliga.
 - **Limites**: o tempo vale no quadrado do mapa de cobertura (256 km); além dele, o tempo bom. Sem chuva, raios nem

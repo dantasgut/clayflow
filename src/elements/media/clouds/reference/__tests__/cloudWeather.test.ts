@@ -22,11 +22,14 @@ import {
     type PressurePattern,
 } from '../cloudWeather';
 import {
-    anvilExponent,
+    CLOUD_ANVIL,
+    CLOUD_WATER,
+    anvilProfile,
     buildVolume,
     cloudDensity,
-    heightProfile,
     remap,
+    towerReach,
+    towerWater,
     type CloudModel,
 } from '../cloudModel';
 
@@ -357,25 +360,64 @@ describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
         expect(at(low, 0.1)).toBeCloseTo(at(a, 0.4), 12);
     });
 
-    it('a bigorna: o cúmulo-nimbo maduro se espalha perto do topo; tipo ≤ 0,9 sem mudança', () => {
-        // Arrange: com a forma 1 e o detalhe 0, a densidade é `erosão(remap(H, 1 − c, 1, 0, 1)·c)`, c a cobertura
-        // depois da bigorna, H o perfil
-        const expected = (c: number, h: number, t: number): number => {
-            const H = heightProfile(h, t);
-            const cov = remap(H, 1 - c, 1, 0, 1) * c;
-            return Math.max(0, remap(cov, Math.min(h * 10, 1) * 0.35, 1, 0, 1));
+    it('a água da torre: 1 até o topo do tempo bom, 1 + ganho 3 km acima, 1 de novo depois da glaciação', () => {
+        // Act / Assert
+        expect(towerWater(2000, 2800)).toBe(1);
+        expect(towerWater(2800 + CLOUD_WATER.depth / 2, 2800)).toBeCloseTo(
+            1 + CLOUD_WATER.gain / 2,
+            12,
+        );
+        expect(towerWater(CLOUD_WATER.glaciation[1], 2800)).toBe(1);
+        // sem o tempo (o topo do tempo bom é o da casca), 1 em toda a casca
+        for (const a of [1500, 4000, 7000, 11_000]) expect(towerWater(a, 11_500)).toBe(1);
+        const a = model(0.6, 1);
+        const w = { ...a, weather: { fairTop: 0.2, anvilOffset: [0, 0] as const } };
+        // Com o tempo, a torre mais forte e o topo do estado na casca: a densidade a 5 km é a de sem o tempo × a água
+        // (forma 1, detalhe 0), o dobro (1,5 km acima do topo do tempo bom, antes da glaciação)
+        expect(towerWater(5000, 3500)).toBeCloseTo(2, 12);
+        expect(at(w, 0.35)).toBeCloseTo(at(a, 0.35) * 2, 12);
+    });
+
+    it('a torre sobe até o topo do estado só na célula mais forte (o alcance pelo tipo local)', () => {
+        // Arrange: topo do estado 1, tempo bom 0,2
+        const tower = (type: number): CloudModel => ({
+            ...model(0.6, type, 1),
+            coverage: () => [0.6, type, 0, 1],
+            weather: { fairTop: 0.2, anvilOffset: [0, 0] },
+        });
+        const highest = (m: CloudModel): number => {
+            let h = 0;
+            for (let k = 1; k < 1000; k++) if (at(m, k / 1000) > 0) h = k / 1000;
+            return h;
         };
         // Act / Assert
-        expect(anvilExponent(0.5, 1)).toBe(1);
-        expect(anvilExponent(0.9, 0.9)).toBe(1);
-        expect(anvilExponent(0.9, 1)).toBeCloseTo(0.4, 12);
-        for (const h of [0.3, 0.7, 0.8, 0.85, 0.9]) {
-            const cb = at(model(0.5, 1), h);
-            expect(cb).toBeCloseTo(expected(0.5 ** anvilExponent(h, 1), h, 1), 12);
-            expect(cb).toBeGreaterThanOrEqual(expected(0.5, h, 1));
-            expect(at(model(0.5, 0.9), h)).toBeCloseTo(expected(0.5, h, 0.9), 12);
+        expect(towerReach(0.95)).toBe(1);
+        expect(towerReach(0.55)).toBe(0);
+        expect(highest(tower(1))).toBeGreaterThan(0.85);
+        expect(highest(tower(0.75))).toBeLessThan(0.2 + 0.8 * towerReach(0.75) + 1e-3);
+        expect(highest(tower(0.5))).toBeLessThanOrEqual(0.2);
+    });
+
+    it('a bigorna: a lâmina abaixo da tropopausa pela cobertura dela, sem nuvem de torre embaixo', () => {
+        // Arrange: sem cobertura de torre e com a bigorna 0,8 (o terceiro valor com o tempo)
+        const m: CloudModel = {
+            ...model(0, 1, 1),
+            coverage: () => [0, 1, 0.8, 1],
+            weather: { fairTop: 0.2, anvilOffset: [0, 0] },
+        };
+        const alt = (h: number): number => 1500 + h * 10_000;
+        // Act / Assert: a forma 1 com o perfil P dá `remap(P, 0,2, 1)·0,8` × a água do gelo, depois da erosão 1 − hf (0 → 1)
+        for (const h of [0.5, 0.75, 0.8, 0.85, 0.9, 0.95]) {
+            const P = anvilProfile(alt(h), 11_500);
+            const c = P > 0 ? Math.max(0, remap(P, 0.2, 1, 0, 1) * 0.8) : 0;
+            const eroded = Math.max(0, remap(c, 0.35, 1, 0, 1));
+            expect(at(m, h)).toBeCloseTo(eroded * CLOUD_ANVIL.water, 12);
         }
-        // na faixa da bigorna, a nuvem é mais larga: mais densidade que sem ela
-        expect(at(model(0.5, 1), 0.85)).toBeGreaterThan(1.2 * expected(0.5, 0.85, 1));
+        expect(at(m, 0.5)).toBe(0);
+        expect(at(m, 0.85)).toBeGreaterThan(0);
+        // sem o tempo o terceiro valor é a densidade relativa: nada de bigorna
+        const plain: CloudModel = { ...m, coverage: m.coverage };
+        delete (plain as { weather?: unknown }).weather;
+        expect(at(plain, 0.85)).toBe(0);
     });
 });

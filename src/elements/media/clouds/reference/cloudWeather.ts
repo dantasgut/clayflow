@@ -413,6 +413,30 @@ export function weatherRelax(
     };
 }
 
+/** O tempo de vida da bigorna em tempos de formação (o gelo sublima devagar: horas). */
+export const ANVIL_PERSISTENCE = 4;
+
+/** A fonte da bigorna pelo estado: só onde a torre chegou à tropopausa (topo ≥ 0,85) e é cúmulo-nimbo (tipo ≥ 0,85). */
+export function anvilSource(state: WeatherClouds): number {
+    return smoothstep(0.85, 1, state.top) * smoothstep(0.85, 1, state.type);
+}
+
+/**
+ * A bigorna depois de `dt` (s): a de antes (trazida pelo vento da alta troposfera; `undefined` sem histórico: a fonte)
+ * cresce para a fonte no tempo de formação e, acima dela, se desfaz em `ANVIL_PERSISTENCE` tempos de formação.
+ */
+export function anvilRelax(
+    before: number | undefined,
+    state: WeatherClouds,
+    dt: number,
+    formation: number,
+): number {
+    const source = anvilSource(state);
+    if (before === undefined) return source;
+    const tau = source > before ? formation : ANVIL_PERSISTENCE * formation;
+    return clamp01(source + (before - source) * Math.exp(-dt / tau));
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Solução analítica do vórtice gaussiano (os testes)
 

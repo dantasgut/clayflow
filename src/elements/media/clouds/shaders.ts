@@ -434,7 +434,7 @@ const pressureAtReady = wgslModule({
 const windAtReady = wgslModule({
     name: 'cloud_wind_at_ready',
     requires: [cloudParamsResource],
-    source: 'fn cloud_wind_at(xz: vec2f) -> vec2f {\n    return clouds.wind.zw;\n}',
+    source: 'fn cloud_wind_at(p: vec3f) -> vec2f {\n    return clouds.wind.zw;\n}',
 });
 
 /** Lugar da função de forma no kernel dos volumes (o estágio troca o pronto pela composta, `bindPoints`). */
@@ -629,7 +629,7 @@ export const cloudWeatherGrid = wgslModule({
 export const cloudWindWeather = wgslModule({
     name: 'cloud_wind_weather',
     source: cloudWindWeatherSource,
-    requires: [cloudParamsResource, cloudWeatherGrid, R.weatherWind, R.clampSampler],
+    requires: [cloudParamsResource, cloudCommon, cloudWeatherGrid, R.weatherWind, R.clampSampler],
 });
 
 // ── Kernels ─────────────────────────────────────────────────────────────────────────────────────────────────────────

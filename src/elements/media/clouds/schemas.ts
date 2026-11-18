@@ -17,7 +17,8 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
  * (1/s), o atrito da atmosfera livre e o da camada limite (1/s) e o tempo de formação (s); o padrão de sistemas (lado
  * das células, amplitude das baixas e teto das altas em Pa, vida em s); o quadrado do tempo (o topo do tempo bom como
  * fração da casca — 1 sem o tempo —, texels por lado, lado em m, lado do estêncil em m); as marcas (tempo ligado, slot
- * da função de pressão, histórico do estado válido, semente).
+ * da função de pressão, histórico do estado válido, semente); a bigorna (o vento da alta troposfera em m/s, x e z, e o
+ * deslocamento dela em m, módulo o período da forma).
  */
 export const CloudSchema = new StructSchema(
     'CloudLayer',
@@ -48,6 +49,7 @@ export const CloudSchema = new StructSchema(
         weatherPattern: FieldType.vec4f,
         weatherMap: FieldType.vec4f,
         weatherFlags: FieldType.vec4u,
+        anvil: FieldType.vec4f,
     },
     { addressSpace: 'uniform' },
 );

@@ -14,6 +14,8 @@
 //     contra o mapeamento da referência (SC-010, R19);
 //   - storm: a tempestade numa baixa — a torre do cúmulo-nimbo até a tropopausa e a bigorna (SC-011), e a vista dela
 //     contra a marcha de referência;
+//   - storm-ground: a luz do sol no chão da câmera sob o tempo acelerado (a `tempestade` da rodada 7), quadro a quadro,
+//     contra a referência no mesmo quadro, e o deslocamento da sombra numa linha no rumo do vento;
 //   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
 //   - weather-timing: o custo do tempo (o estado e o mapa de cobertura por ele) a 1280 × 720 no perfil alto (SC-012).
 // Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
@@ -27,7 +29,7 @@ import {
     type CloudLayer,
     CloudLayer as CloudLayerClass,
 } from 'clayflow/web';
-import { settleFrames } from './support/extensionScenes';
+import { nextGpuFrame, settleFrames } from './support/extensionScenes';
 import {
     cloudScene,
     sunTravel,
@@ -75,6 +77,7 @@ import {
     FREE_DRAG,
     pressureStencil,
     weatherAt,
+    anvilSource,
     weatherClouds,
     type WeatherParams,
 } from '../elements/media/clouds/reference/cloudWeather';
@@ -122,12 +125,12 @@ function ms(r: number, muS: number): Vec3 {
 const quantize = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255) / 255;
 
 /** O modelo da referência com os volumes lidos da GPU e os valores da camada (a cobertura quantizada como no mapa). */
-async function referenceModel(s: CloudScene, layer: CloudLayer): Promise<CloudModel> {
+async function referenceModel(s: CloudScene, layer: CloudLayer, time = 0): Promise<CloudModel> {
     const shape = await readCloudVolume(s.app, layer, 'shape');
     const detail = await readCloudVolume(s.app, layer, 'detail');
     // Com o tempo (R19), o mapa de cobertura é o da GPU (a mesma representação dos dois lados; o mapa em si é conferido
     // contra a referência do tempo no caso `pressure-wind`).
-    if (layer.weather !== undefined) return weatherReferenceModel(s, layer, shape, detail);
+    if (layer.weather !== undefined) return weatherReferenceModel(s, layer, shape, detail, time);
     const radii = s.sky.data.radii;
     const half = layer.quality.coverageExtent / 2;
     const MAP = layer.quality.coverageSize;
@@ -198,8 +201,11 @@ async function weatherReferenceModel(
     layer: CloudLayer,
     shape: CloudModel['shape'],
     detail: CloudModel['detail'],
+    time: number,
 ): Promise<CloudModel> {
     const radii = s.sky.data.radii;
+    // Os deslocamentos do vento no tempo simulado (os casos de relógio parado: 0).
+    const offsets = layer.windOffsets(time);
     const half = layer.quality.coverageExtent / 2;
     const tex = s.app.resources.textureOf(layer, 'coverage');
     if (tex === undefined) throw new Error('mapa de cobertura não alocado');
@@ -222,7 +228,7 @@ async function weatherReferenceModel(
         top: layer.shellTop,
         coverage: (x, z) => {
             if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
-                return [coverageField(x, z, c, t), typeField(x, z, t), 1, fairTop];
+                return [coverageField(x, z, c, t), typeField(x, z, t), 0, fairTop];
             const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
             const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
             const x0 = Math.floor(fx);
@@ -246,9 +252,10 @@ async function weatherReferenceModel(
         detail,
         shapeScale: layer.shapeScale,
         detailScale: layer.detailScale,
-        shapeOffset: [0, 0, 0],
-        detailOffset: [0, 0, 0],
+        shapeOffset: offsets.shape,
+        detailOffset: offsets.detail,
         windDir: speed > 0 ? [wind[0] / speed, wind[1] / speed] : [1, 0],
+        weather: { fairTop, anvilOffset: offsets.anvil },
     };
 }
 
@@ -433,6 +440,7 @@ async function compareView(
     const layer = s.layer!;
     const w = s.canvas.width;
     const h = s.canvas.height;
+    const marchScale = layer.quality.marchScale;
     const t = s.app.resources.textureOf(layer, 'view');
     const amb = s.app.resources.textureOf(layer, 'ambient');
     if (t === undefined || amb === undefined)
@@ -569,6 +577,9 @@ async function compareView(
                     const px = x0 + ((sx + 0.5) / n) * (x1 - x0) - 0.5;
                     const py = y0 + ((sy + 0.5) / ny) * (y1 - y0) - 0.5;
                     const d = pixelDir(px, py, w, h, eye, target, fov);
+                    // O ângulo do pixel da marcha da GPU (S pixels da tela): a pegada do detalhe na amostra da vista.
+                    const side = pixelDir(px + marchScale, py, w, h, eye, target, fov);
+                    const pixel = Math.hypot(side[0] - d[0], side[1] - d[1], side[2] - d[2]);
                     const r = marchCloud(
                         model,
                         eye,
@@ -579,6 +590,7 @@ async function compareView(
                         octaves,
                         256,
                         64,
+                        pixel,
                     );
                     let c: Vec3 = r.scattered;
                     if (r.transmittance < 1) {
@@ -2282,15 +2294,17 @@ async function coverageAgainstWeather(
         const z0 = Math.floor(fz);
         const ax = fx - x0;
         const az = fz - z0;
-        const lerp = (key: 'coverage' | 'type' | 'top'): number =>
-            (stateAt(x0, z0)[key] * (1 - ax) + stateAt(x0 + 1, z0)[key] * ax) * (1 - az)
-            + (stateAt(x0, z0 + 1)[key] * (1 - ax) + stateAt(x0 + 1, z0 + 1)[key] * ax) * az;
+        const value = (i: number, j: number, key: 'coverage' | 'type' | 'top' | 'anvil'): number =>
+            key === 'anvil' ? anvilSource(stateAt(i, j)) : stateAt(i, j)[key];
+        const lerp = (key: 'coverage' | 'type' | 'top' | 'anvil'): number =>
+            (value(x0, z0, key) * (1 - ax) + value(x0 + 1, z0, key) * ax) * (1 - az)
+            + (value(x0, z0 + 1, key) * (1 - ax) + value(x0 + 1, z0 + 1, key) * ax) * az;
         const sc = lerp('coverage');
         const st = lerp('type');
         const ref = [
             quantize(coverageField(x, z, sc, st)),
             quantize(typeField(x, z, st)),
-            1,
+            quantize(lerp('anvil')),
             quantize(lerp('top')),
         ];
         const o = (j * map.width + i) * 4;
@@ -2489,6 +2503,122 @@ async function caseWeatherTiming(): Promise<void> {
     );
 }
 
+async function caseStormGround(): Promise<void> {
+    // A luz do sol no chão da câmera sob o tempo acelerado (a `tempestade` da rodada 7 do claflow-web: 1 quadro = 4 s, o
+    // sol a 35° no azimute (0,8; 0,6), a baixa de 4 hPa a 55 km): o chão do vídeo subia e descia inteiro em ~0,2 s. Em
+    // cada quadro das janelas em que isso acontecia, a transmitância até o sol no chão (0, 0, 0) pelo mapa da GPU contra a
+    // integral da referência f64 sobre o mapa de cobertura e os volumes da GPU no mesmo quadro (a mesma representação);
+    // e, numa linha de 2 km no rumo do vento, o deslocamento do padrão de sombra de um quadro ao outro (a sombra andando)
+    // e o que sobra depois dele (a nuvem nascendo ou sumindo).
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const pressure = `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {
+    let d = xz - vec2f(-57600.0, -55000.0);
+    return -400.0 * smoothstep(3600.0, 14400.0, time) * exp(-dot(d, d) / 1.8e9);
+}`;
+    const s = await cloudScene({
+        width: 256,
+        height: 144,
+        sunElevation: 35,
+        sunAzimuth: az,
+        clouds: {
+            coverage: 0.3,
+            type: 0.5,
+            base: 1200,
+            top: 2800,
+            wind: [6, 0],
+            density: 0.08,
+            weather: {
+                latitude: 40,
+                scale: 192_000,
+                formation: 1800,
+                tropopause: 11_000,
+                pressure: { code: pressure },
+            },
+        },
+        eye: [0, 2, 0],
+        target: [0, 200, -1000],
+    });
+    const layer = s.layer!;
+    s.app.time.scale = 240;
+    s.app.time.fixedDt = 4;
+    await s.app.whenReady({ timeoutMs: 60_000 });
+    const q = new URLSearchParams(location.search);
+    const windows = (q.get('windows') ?? '160-220,880-940')
+        .split(',')
+        .map((w) => w.split('-').map(Number) as [number, number]);
+    const last = Math.max(...windows.map((w) => w[1]));
+    const sun = sunToward(35, az);
+    const line = Array.from({ length: 41 }, (_, k) => -1000 + 50 * k);
+    let worst = 0;
+    let sumG = 0;
+    let sumR = 0;
+    const rows: number[][] = [];
+    const frames: number[] = [];
+    for (let frame = -600; frame <= last; frame++) {
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+        const w = windows.find(([a, b]) => frame >= a && frame <= b);
+        if (w === undefined) continue;
+        const time = s.app.time.simulated;
+        const t = s.app.resources.textureOf(layer, 'shadow');
+        if (t === undefined) throw new Error('mapa visto do sol não alocado');
+        const map = await readTexture(s.app, t, 'rgba16float');
+        const params = layer.data.params[0]!;
+        const model = await referenceModel(s, layer, time);
+        const g = groundMapT(map, params, [0, 0, 0]);
+        const r = Math.exp(-opticalDepth(model, [0, 0, 0], sun, 512));
+        const row = line.map((x) => groundMapT(map, params, [x, 0, 0]));
+        worst = Math.max(worst, Math.abs(g - r));
+        sumG += g;
+        sumR += r;
+        log(
+            `storm-ground ${frame} (${(frame / 60).toFixed(2)} s): T GPU ${g.toFixed(3)} ref ${r.toFixed(3)}; linha x −1..1 km ${row
+                .filter((_, k) => k % 4 === 0)
+                .map((v) => v.toFixed(2))
+                .join(' ')}`,
+        );
+        rows.push(row);
+        frames.push(frame);
+    }
+    // O deslocamento do padrão entre quadros seguidos (em passos de 50 m) e o que sobra.
+    const shifts: string[] = [];
+    for (let k = 1; k < rows.length; k++) {
+        if (frames[k]! !== frames[k - 1]! + 1) continue;
+        const a = rows[k - 1]!;
+        const b = rows[k]!;
+        let best = 0;
+        let bestErr = Infinity;
+        for (let sft = -4; sft <= 4; sft++) {
+            let e = 0;
+            let n = 0;
+            for (let i = 4; i < a.length - 4; i++) {
+                e += (b[i]! - a[i - sft]!) ** 2;
+                n++;
+            }
+            if (e / n < bestErr) {
+                bestErr = e / n;
+                best = sft;
+            }
+        }
+        let e0 = 0;
+        for (let i = 4; i < a.length - 4; i++) e0 += (b[i]! - a[i]!) ** 2;
+        shifts.push(
+            `${best * 50}m:${Math.sqrt(e0 / (a.length - 8)).toFixed(3)}→${Math.sqrt(bestErr).toFixed(3)}`,
+        );
+    }
+    log(
+        `storm-ground: deslocamento por quadro (m: rms parado → depois do deslocamento) ${shifts.join(' ')}`,
+    );
+    log(
+        `storm-ground: pior diferença GPU−ref ${worst.toFixed(3)}; luz somada GPU ${sumG.toFixed(2)}, ref ${sumR.toFixed(2)}`,
+    );
+    check(
+        Math.abs(sumG / Math.max(sumR, 1e-6) - 1) <= 0.1,
+        `storm-ground: luz somada ${sumG.toFixed(2)} contra ${sumR.toFixed(2)} da referência`,
+    );
+    finish(s);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     coverage: caseCoverage,
     'sun-transmittance': caseSunTransmittance,
@@ -2519,6 +2649,7 @@ const CASES: Record<string, () => Promise<void>> = {
     timing: caseTiming,
     'pressure-wind': casePressureWind,
     storm: caseStorm,
+    'storm-ground': caseStormGround,
     front: caseFront,
     'weather-timing': caseWeatherTiming,
 };

@@ -34,6 +34,7 @@ casca vai da base à tropopausa):
 | `formation`  | s (tempo de formação das nuvens)                         | 1200            | > 0                               |
 | `tropopause` | m acima do chão (o topo da casca)                        | 11 000          | > `top`                           |
 | `seed`       | inteiro (o padrão)                                       | 0               | [0, 2³²)                          |
+| `shear`      | × o vento da camada (o vento da alta troposfera: a bigorna) | 2,5          | ≥ 0                               |
 
 Com o tempo, a cobertura por função é `RangeError` (o tempo dita a cobertura). `layer.weather = {…}` (parcial) liga ou
 ajusta no quadro seguinte; `undefined` desliga.

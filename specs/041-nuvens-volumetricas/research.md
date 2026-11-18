@@ -441,6 +441,58 @@ mudam de ligações (o topo local vem do canal A do mapa de cobertura que eles j
 raiz do vento) ≈ 1,3 M núcleos e 0,7 M avaliações por quadro — ~0,02–0,05 ms no M4; o mapa de cobertura pelo tempo, o
 de hoje mais 4 leituras por texel (~0,03 → ~0,04 ms).
 
+### R19 (revisto) — a aparência do cúmulo-nimbo, o grão e o chão que pisca (2026-11-18)
+
+O vídeo `tempestade` da rodada 7 passava nos testes, mas a tempestade madura era um banco branco largo e baixo, de topo
+liso, sem torre nem bigorna em leque, com a base clara; o céu não escurecia; o chão da câmera subia e descia inteiro; e
+as bordas ralas e as nuvens finas do alto saíam granuladas. Causas, isoladas uma a uma:
+
+- **O topo liso e largo.** No mapeamento do tempo, toda a área da subida (raio de ~40 km na baixa de σ = 30 km) virava
+  cobertura ≥ 0,75, tipo 1 e o topo do estado 1: todas as colunas iam à tropopausa, e o `anvil bias` (a cobertura elevada a
+  `c^0,4` a 65–85 % da altura) alargava o topo de cada uma — um muro de 80 km de topo plano. Nas tempestades reais
+  (e nas de Horizon Forbidden West, MSFS, UE5) há torres de alturas diferentes (cúmulos congestos entre células que furam
+  a tropopausa) e uma bigorna de gelo que é outra nuvem: fina (1–3 km), no nível de equilíbrio, levada pelo vento da alta
+  troposfera para longe da torre. Correção: (1) **o alcance da torre** — o topo do estado é o teto; a coluna sobe a
+  `fair + (z − fair)·smoothstep(0,55; 0,95; tipo local)` (`cloud_tower_reach`/`towerReach`): só a célula mais forte vai à
+  tropopausa; (2) **a bigorna como estado próprio** — o quarto canal da série do tempo: nasce onde o estado já tem a torre
+  na tropopausa e é cúmulo-nimbo (`smoothstep(0,85; 1; topo)·smoothstep(0,85; 1; tipo)`), é trazida pelo vento da alta
+  troposfera (`weather.shear` × o vento da camada; padrão 2,5) e se desfaz em 4 tempos de formação (o gelo sublima em
+  horas); na densidade, uma lâmina de 2 km com o topo 800 m abaixo da tropopausa (as torres mais fortes passam por cima:
+  o topo saliente), a forma pelo volume deslocado com o vento de cima e a extinção do gelo (0,25 × a da camada: IWC
+  ~0,1 g/m³, raio efetivo ~30 µm). O `anvil bias` saiu.
+- **A base clara.** A extinção era a mesma para todo tipo: a densidade 1 do cúmulo raso. A água condensada de uma torre
+  cresce com a altura acima da base (adiabática: ~1–3 g/m³ no núcleo de um cúmulo-nimbo contra 0,3–0,5 no cúmulo raso;
+  σ ≈ 1,5·LWC/(ρ_w·r_e)): **a água da torre** (`cloud_tower_water`/`towerWater`) sobe o fator da extinção de 1 a 3 nos 3 km
+  acima do topo do tempo bom e o devolve a 1 na glaciação (5,5–8,5 km: −20 °C a −38 °C na atmosfera padrão, cristais
+  maiores). Sem o tempo o topo do tempo bom é o da casca e o fator é 1 (nada muda nas outras cenas). O majorante do
+  rastreamento delta com o tempo passa a 3.
+- **O enquadramento.** A torre a 55 km com o sol atrás da câmera: a face vista era a iluminada (branca, como nas fotos com
+  o sol nas costas) e a 10° de altura no quadro. A cena nova: o sol de fim de tarde a 20°, 50° à direita da torre (fora do
+  quadro: o lado virado para a câmera fica na sombra), o sistema chegando de 65 km a 12 km (a câmera debaixo dele no fim) e
+  a câmera a 60 m sobre as colinas olhando 12° para cima.
+- **O grão.** Dois achados. (1) O passo da marcha era `espessura da casca/64` com o piso `trecho/passos`: com o tempo a
+  casca vai à tropopausa (9,8 km contra 1,6 km), o passo perto subia de 25 m para 153 m e o piso de um raio a 30° de 19 m
+  para 153 m. Corrigido: o passo e o cone da luz pela espessura do tempo bom (`cloud_layer_thickness`) e a ocupação do raio
+  (`cloud_ray_occupancy`: 32 trechos iguais marcados pelo topo das colunas no mapa de cobertura, com os vizinhos; o piso
+  pela parte ocupada e os trechos vazios pulados, cada pulo um passo do orçamento; sem o tempo o raio fica ocupado onde há
+  cobertura: a marcha de antes). E o detalhe pela pegada do pixel da marcha (`cloud_footprint`: os canais B e A cedem ao
+  mais grosso quando a oitava mais fina deles fica abaixo dela; a referência com o ângulo do pixel da GPU). (2) Mas o grão
+  das bordas ralas ficou: medido na borda de baixo de um cúmulo (o passa-alta 5 × 5 na região, a mesma cena e o mesmo
+  quadro), a reprojeção pelo vento da camada no lugar do vento do tempo não muda (0,96), a marcha só com o passo fino não
+  muda (0,96), o cache de espalhamento desligado piora (1,39), o detalhe pela pegada tira 10 % do ruído que muda de um
+  quadro ao outro (0,59 → 0,53); o relógio mais lento é o que tira: 0,77 a 2 s por quadro, 0,64 a 1 s, e a 1/60 s a borda
+  fica lisa em 60 quadros. A causa é a reconstrução temporal (a média exponencial de peso 0,25, cada pixel marchado a cada
+  4 quadros: ~7 amostras) que não acumula quando a forma muda a cada quadro do tempo acelerado; cada pixel fica com o
+  ruído do deslocamento inicial de uma amostra. A `tempestade` passa a 2 s por quadro (4 h em 120 s). Em aberto no motor:
+  a reconstrução de uma série muito acelerada (o detalhe que anda com o vento local, ou mais amostras quando o histórico é
+  largado).
+- **O chão que pisca** (caso `storm-ground`, a cena da rodada 7 a 4 s por quadro): a transmitância até o sol no chão da
+  câmera, GPU contra a referência f64 no mesmo quadro, sobe e desce junto nas duas (2,7–3,7 s do vídeo: 0 → 0,79 → 0,08 na
+  GPU, 0 → 1,00 → 0,06 na referência; 14,7–15,7 s: as duas vão e voltam entre 0,36 e 1,00), luz somada −7 %: é a borda
+  esfarrapada de um cúmulo passando pelo sol, a 24 m de vento por quadro, e a câmera a 2 m via só os primeiros metros de
+  chão (o quarto de baixo do quadro inteiro numa sombra só). Na cena nova a câmera fica a 60 m e o chão visível vai de
+  ~200 m a ~6 km.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,

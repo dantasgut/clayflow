@@ -53,6 +53,8 @@ export interface CloudWeatherSettings {
   readonly tropopause: number;
   /** Semente do padrão (inteiro ≥ 0). Default 0. */
   readonly seed: number;
+  /** O vento da alta troposfera como múltiplo do vento da camada (≥ 0): leva a bigorna. Default 2,5. */
+  readonly shear: number;
 }
 
 export interface CloudWeatherValues extends Partial<CloudWeatherSettings> {

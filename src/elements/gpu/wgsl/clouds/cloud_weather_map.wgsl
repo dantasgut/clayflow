@@ -7,12 +7,14 @@
 // `s = alvo + (antes − alvo)·e^(−Δt/τ)` — as nuvens se formam e se desfazem em τ e andam com o vento local, girando em
 // volta das baixas. Sem histórico (primeiro quadro, corte, fora da fatia anterior), o alvo. Ao lado, o vento das nuvens,
 // a subida e a frente (`weatherWind`), lidos pela reconstrução temporal (a reprojeção pelo vento local) e pelos testes.
+// O quarto canal é a cobertura da bigorna (`cloud_weather_anvil`): nasce onde a torre chegou à tropopausa, é trazida pelo
+// vento da alta troposfera (`clouds.anvil.xy`) e se desfaz devagar.
 // Espelho de `weatherAt` e `weatherRelax` em `reference/cloudWeather.ts`.
 // Despacho linear: um texel por invocação.
 // Requer: WORKGROUP_SIZE, clouds, cameras, cloud_weather, cloud_weather_grid, cloud_weather_prev, cloud_weather_out,
 // cloud_weather_wind_out.
 
-/** A fatia anterior em `xz` (bilinear pelos texels; `w` < 0 fora dela). */
+/** A fatia anterior em `xz` (bilinear pelos texels, os quatro canais), ou −1 fora dela. */
 fn cloud_weather_before(xz: vec2f, center: vec2f) -> vec4f {
     let size = vec2i(textureDimensions(cloud_weather_prev));
     let p = cloud_weather_uv(xz, center) * vec2f(size) - 0.5;
@@ -24,7 +26,7 @@ fn cloud_weather_before(xz: vec2f, center: vec2f) -> vec4f {
     let b = textureLoad(cloud_weather_prev, vec2i(top.x, base.y), 0);
     let c = textureLoad(cloud_weather_prev, vec2i(base.x, top.y), 0);
     let d = textureLoad(cloud_weather_prev, top, 0);
-    return vec4f(mix(mix(a.xyz, b.xyz, f.x), mix(c.xyz, d.xyz, f.x), f.y), 1.0);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -44,12 +46,15 @@ fn cloud_weather_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let front = cloud_front(d, q.x, q.y);
     let goal = cloud_weather_clouds(w, front, vec3f(clouds.layer.x, clouds.layer.y, clouds.weatherMap.x));
     var state = goal;
+    var anvil = cloud_weather_anvil_source(goal);
     let cam = cameras[clouds.march.w];
     if (clouds.weatherFlags.z != 0u && cam.history.x < 0.5) {
         let dt = clouds.timing.x;
         let before = cloud_weather_before(xz - wind * dt, cloud_weather_center_before());
-        if (before.w >= 0.0) { state = goal + (before.xyz - goal) * exp(-dt / q.w); }
+        if (before.x >= 0.0) { state = goal + (before.xyz - goal) * exp(-dt / q.w); }
+        let aloft = cloud_weather_before(xz - clouds.anvil.xy * dt, cloud_weather_center_before());
+        anvil = cloud_weather_anvil(select(-1.0, aloft.w, aloft.x >= 0.0), state, dt, q.w);
     }
-    textureStore(cloud_weather_out, g, vec4f(state, 1.0));
+    textureStore(cloud_weather_out, g, vec4f(state, anvil));
     textureStore(cloud_weather_wind_out, g, vec4f(wind, w, front));
 }

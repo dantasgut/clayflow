@@ -85,10 +85,47 @@ fn cloud_height_profile(h: f32, t: f32) -> f32 {
 }
 
 /**
- * O expoente da cobertura na bigorna do cúmulo-nimbo (spec 041, R19; o `anvil bias` do Nubis, Schneider 2017): perto do
- * topo da torre (fração de altura local 0,65–0,85) a cobertura sobe como `c^e`, e = 1 − 0,6·a, `a` a força pelo tipo
- * (só o cúmulo-nimbo maduro, tipo 0,9–1). 1 sem bigorna. Espelho de `anvilExponent` em `cloudModel.ts`.
+ * A água da torre (spec 041, R19): o fator da extinção na altitude `alt` (m acima do chão) pela água condensada. No
+ * cúmulo de tempo bom a densidade 1 é a extinção da camada; acima do topo do tempo bom (`fair`, m acima do chão), a torre
+ * do cúmulo-nimbo condensa mais (a água adiabática cresce com a altura acima da base: ~1–3 g/m³ no núcleo de um
+ * cúmulo-nimbo contra ~0,3–0,5 no cúmulo raso) — o fator sobe de 1 a 1 + `CLOUD_WATER_GAIN` nos `CLOUD_WATER_DEPTH`
+ * metros acima dele — e, da glaciação em diante (−20 °C a −38 °C: 5,5–8,5 km na atmosfera padrão), a água vira gelo de
+ * cristais maiores e o fator volta a 1. Sem o tempo, o topo do tempo bom é o da casca: o fator é 1 em toda parte.
+ * Espelho de `towerWater` em `cloudModel.ts`.
  */
-fn cloud_anvil_exponent(h: f32, t: f32) -> f32 {
-    return 1.0 - 0.6 * smoothstep(0.9, 1.0, t) * smoothstep(0.65, 0.85, h);
+const CLOUD_WATER_GAIN: f32 = 2.0;
+const CLOUD_WATER_DEPTH: f32 = 3000.0;
+const CLOUD_GLACIATION_LOW: f32 = 5500.0;
+const CLOUD_GLACIATION_HIGH: f32 = 8500.0;
+
+fn cloud_tower_water(alt: f32, fair: f32) -> f32 {
+    let liquid = 1.0 + CLOUD_WATER_GAIN * clamp((alt - fair) / CLOUD_WATER_DEPTH, 0.0, 1.0);
+    return mix(liquid, 1.0, smoothstep(CLOUD_GLACIATION_LOW, CLOUD_GLACIATION_HIGH, alt));
+}
+
+/**
+ * A bigorna do cúmulo-nimbo (spec 041, R19): o ar da torre para no nível de equilíbrio (a tropopausa, o topo da casca),
+ * sai para os lados e é levado pelo vento da alta troposfera — uma lâmina de gelo de `CLOUD_ANVIL_DEPTH` metros com o
+ * topo `CLOUD_ANVIL_CEILING` metros abaixo da tropopausa (as torres mais fortes passam acima dela: o topo saliente). Os
+ * cristais de gelo (IWC ~0,1 g/m³, raio efetivo ~30 µm) extinguem `CLOUD_ANVIL_WATER` da extinção da camada.
+ * Espelho de `CLOUD_ANVIL` e `anvilProfile` em `cloudModel.ts`.
+ */
+const CLOUD_ANVIL_DEPTH: f32 = 2000.0;
+const CLOUD_ANVIL_CEILING: f32 = 800.0;
+const CLOUD_ANVIL_WATER: f32 = 0.25;
+
+/** O perfil vertical da bigorna na altitude `alt` (m) com a tropopausa `top` (m): base plana, topo arredondado. */
+fn cloud_anvil_profile(alt: f32, top: f32) -> f32 {
+    let x = (alt - (top - CLOUD_ANVIL_CEILING - CLOUD_ANVIL_DEPTH)) / CLOUD_ANVIL_DEPTH;
+    if (x <= 0.0 || x >= 1.0) { return 0.0; }
+    return smoothstep(0.0, 0.25, x) * (1.0 - smoothstep(0.7, 1.0, x));
+}
+
+/**
+ * A fração do caminho entre o topo do tempo bom e o topo do tempo a que a torre de tipo local `t` sobe (spec 041, R19):
+ * a convecção profunda não sobe por igual — as células mais fortes (tipo local ≥ 0,95) vão à tropopausa, as de tipo 0,55
+ * ficam no topo do tempo bom (cúmulos congestos entre elas). Espelho de `towerReach` em `cloudModel.ts`.
+ */
+fn cloud_tower_reach(t: f32) -> f32 {
+    return smoothstep(0.55, 0.95, t);
 }

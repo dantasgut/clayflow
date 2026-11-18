@@ -36,7 +36,7 @@ struct CloudSample {
  */
 fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     let sun = sky.sunDirection.xyz;
-    let base = clouds.shell.w / 48.0;
+    let base = cloud_layer_thickness() / 48.0;
     var tau = 0.0;
     var t = 0.0;
     let n = min(light_steps, CLOUD_MAX_LIGHT_STEPS);
@@ -90,18 +90,62 @@ fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32) -> 
 }
 
 /**
- * Marcha da camada pelo raio `o + t·d` até `t_max` (a superfície opaca): `steps` passos no máximo (teto
- * `CLOUD_MAX_STEPS`), passo que cresce com a distância e cobre o trecho, grosso no vazio (só a forma) e fino com
- * densidade, deslocamento inicial `jitter` ∈ [0, 1) de um passo; saída antecipada com transmitância < 0,01.
+ * A espessura (m) da camada que dita o passo da marcha e o cone da luz: a do tempo bom (o topo e a base da camada; sem o
+ * tempo, a casca). Com o tempo a casca vai à tropopausa, mas os cúmulos rasos têm a escala de antes: o passo pela casca
+ * inteira (153 m numa de 9,8 km, contra 25 m) amostrava as bordas finas com 6 × menos passos (o grão da `tempestade`).
  */
-fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32, jitter: f32) -> CloudSample {
+fn cloud_layer_thickness() -> f32 {
+    return clouds.shell.w * clouds.weatherMap.x;
+}
+
+/** Trechos do raio (bins iguais entre a entrada e a saída da casca) com a ocupação marcada num u32. */
+const CLOUD_RAY_BINS: u32 = 32u;
+
+/**
+ * A ocupação do raio `o + t·d` em [t0, t1] (spec 041, R19): `CLOUD_RAY_BINS` trechos iguais; um trecho está ocupado se a
+ * altura do raio nele fica abaixo do topo das colunas das pontas (`cloud_column_top`: o teto da nuvem na coluna, pelo mapa
+ * de cobertura) e dentro da casca; os vizinhos de um ocupado também (uma coluna alta entre as pontas). Com a casca até a
+ * tropopausa, quase todo o raio passa acima das nuvens: o piso do passo pela parte ocupada (não pelo raio inteiro) e o
+ * pulo dos trechos vazios. Sem o tempo, o topo é o da casca e o raio inteiro fica ocupado onde há cobertura.
+ */
+fn cloud_ray_occupancy(o: vec3f, d: vec3f, t0: f32, t1: f32) -> u32 {
+    let bin = (t1 - t0) / f32(CLOUD_RAY_BINS);
+    var x = o + d * t0;
+    var h0 = cloud_height_fraction(x);
+    var top0 = cloud_column_top(cloud_coverage_at(x.xz));
+    var mask = 0u;
+    for (var k = 0u; k < CLOUD_RAY_BINS; k++) {
+        x = o + d * (t0 + f32(k + 1u) * bin);
+        let h1 = cloud_height_fraction(x);
+        let top1 = cloud_column_top(cloud_coverage_at(x.xz));
+        let lo = min(h0, h1);
+        let hi = max(h0, h1);
+        if (hi > 0.0 && lo < 1.0 && lo < max(top0, top1)) { mask |= 1u << k; }
+        h0 = h1;
+        top0 = top1;
+    }
+    return mask | (mask << 1u) | (mask >> 1u);
+}
+
+/**
+ * Marcha da camada pelo raio `o + t·d` até `t_max` (a superfície opaca): `steps` passos no máximo (teto
+ * `CLOUD_MAX_STEPS`), passo que cresce com a distância e cobre a parte ocupada do raio (`cloud_ray_occupancy`), grosso no
+ * vazio (só a forma) e fino com densidade, os trechos sem nuvem pulados, deslocamento inicial `jitter` ∈ [0, 1) de um
+ * passo; saída antecipada com transmitância < 0,01. `pixel` é o ângulo (rad) do pixel da marcha: a pegada da amostra
+ * da vista (`cloud_footprint`); 0 sem ela.
+ */
+fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32, jitter: f32, pixel: f32) -> CloudSample {
     var result = CloudSample(vec3f(0.0), 1.0, 0.0);
     let segs = cloud_shell_segments(o, d, t_max);
     if (segs.y <= segs.x) { return result; }
     let n = max(min(steps, CLOUD_MAX_STEPS), 1u);
-    let total = (segs.y - segs.x) + max(segs.w - segs.z, 0.0);
-    let base = clouds.shell.w / 64.0;
-    let floor_step = total / f32(n);
+    let t_last = select(segs.y, segs.w, segs.w > segs.z);
+    let mask = cloud_ray_occupancy(o, d, segs.x, t_last);
+    if (mask == 0u) { return result; }
+    let bin = (t_last - segs.x) / f32(CLOUD_RAY_BINS);
+    let occupied = f32(countOneBits(mask)) * bin;
+    let base = cloud_layer_thickness() / 64.0;
+    let floor_step = occupied / f32(n);
     let cos_theta = dot(d, sky.sunDirection.xyz);
     // A grade dos passos deslocada de `jitter` passo para trás da entrada da casca (com o primeiro passo começando em
     // `entrada + jitter·passo`, o trecho antes dele nunca era amostrado). Fora da casca a densidade é zero.
@@ -118,14 +162,24 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
         if (t >= end) {
             if (!second) { break; }
             second = false;
-            t = segs.z;
+            t = max(t, segs.z);
             seg_start = segs.z;
             end = segs.w;
         }
-        // O passo fino cresce com a distância e não fica abaixo do piso que cobre o trecho; o grosso (só a forma, no
-        // vazio) é o dobro do fino sem o piso, nunca menos que o piso — quando o piso manda (raios longos, rente ao
-        // horizonte), o passo grosso pularia pedaços de nuvem do tamanho dele (−9 % de luz a 17–30 km, medido na marcha emulada em f64) e a
-        // marcha fica fina.
+        // O trecho vazio: pula para o próximo ocupado (o salto conta como um passo), na velocidade grossa.
+        let b = u32(clamp(floor((t - segs.x) / bin), 0.0, f32(CLOUD_RAY_BINS - 1u)));
+        if ((mask & (1u << b)) == 0u) {
+            let ahead = mask & ~((2u << b) - 1u);
+            if (ahead == 0u) { break; }
+            t = segs.x + f32(firstTrailingBit(ahead)) * bin;
+            fine = false;
+            empty = 0u;
+            continue;
+        }
+        // O passo fino cresce com a distância e não fica abaixo do piso que cobre a parte ocupada; o grosso (só a forma,
+        // no vazio) é o dobro do fino sem o piso, nunca menos que o piso — quando o piso manda (raios longos, rente ao
+        // horizonte), o passo grosso pularia pedaços de nuvem do tamanho dele (−9 % de luz a 17–30 km, medido na marcha
+        // emulada em f64) e a marcha fica fina.
         let near_step = base * (1.0 + t / 8000.0);
         let fine_step = max(near_step, floor_step);
         let coarse_step = max(2.0 * near_step, floor_step);
@@ -144,7 +198,9 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             t += ds;
             continue;
         }
+        cloud_footprint = (t + 0.5 * ds) * pixel;
         let rho = cloud_density(x, true);
+        cloud_footprint = 0.0;
         if (rho > 0.0) {
             empty = 0u;
             let sigma_t = rho * clouds.layer.z;

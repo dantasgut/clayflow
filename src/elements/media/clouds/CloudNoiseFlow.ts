@@ -319,6 +319,11 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 phaseCut: cloudPhaseTruncation(d.dropletDiameter),
                 scatterWork: [q.scatter.stride, q.scatter.collisions, time?.frame ?? 0, 0],
                 ...weather,
+                anvil: [
+                    (d.weather?.shear ?? 1) * d.wind[0]!,
+                    (d.weather?.shear ?? 1) * d.wind[1]!,
+                    ...wind.anvil,
+                ],
             },
         ];
     }
