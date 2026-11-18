@@ -6,7 +6,13 @@ import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDesc
 import { Flow } from '../../../scene/flows/Flow';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../../scene/flows/FlowTransitions';
-import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../../scene/flows/slots';
+import {
+    slot,
+    type ChannelSlot,
+    type PoolSlot,
+    type SingletonSlot,
+    type SlotMap,
+} from '../../../scene/flows/slots';
 import { NONE, WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import type { World } from '../../../scene/world/World';
 import { Camera } from '../Camera';
@@ -22,6 +28,7 @@ import {
     skyAerialKernel,
     skyMultiscatterKernel,
     skyOutputs,
+    skySunTrackSlots,
     skyTransmittanceKernel,
     skyViewKernel,
 } from './shaders';
@@ -34,12 +41,15 @@ export interface SkySlots extends SlotMap {
     readonly camera: SingletonSlot<true>;
     /** As matrizes das câmeras (o slot da ativa). */
     readonly cameras: PoolSlot<true>;
+    /** A direção do sol de cada quadro, série temporal (spec 037): escrita com a vista do céu. */
+    readonly skySunTrack: ChannelSlot<false>;
 }
 
 const slots: SkySlots = {
     sky: slot.singleton(Sky.schema),
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+    ...skySunTrackSlots,
 };
 
 type Ctx = TransitionContext<SkySlots>;
@@ -76,7 +86,8 @@ const ATMOSPHERE_FIELDS = ['rayleigh', 'mie', 'ozone', 'radii', 'ground'] as con
  * Estágio do céu físico (spec 033, R4): a cada quadro copia do sol (`DirectionalLight` do `Sky`) a direção (para ele), a
  * iluminância e o slot no pool `Light` para os parâmetros do céu; regenera a transmitância e o múltiplo espalhamento
  * quando a atmosfera muda (e na primeira vez), a vista do céu a cada quadro (o sol se move sem recompilar nada) e, com
- * câmera, a tabela da perspectiva aérea dela (spec 041). Fase `transform`, depois da câmera, antes da iluminação global
+ * câmera, a tabela da perspectiva aérea dela (spec 041); com a vista, a direção do sol na série `Sky.sunTrack` (spec 041,
+ * a máscara reativa do disco). Fase `transform`, depois da câmera, antes da iluminação global
  * e do desenho.
  */
 export class SkyFlow extends Flow<SkySlots, 'idle'> {
@@ -146,7 +157,8 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
                 return;
             this.tables = false;
         }
-        run(VIEW, SKY_VIEW_SIZE);
+        // A vista do céu grava também a direção do sol do quadro: a série gira.
+        if (run(VIEW, SKY_VIEW_SIZE)) bound.slots.skySunTrack.written();
         // A perspectiva aérea (spec 041, R10), da câmera ativa, a cada quadro.
         const aerial = bound.pipelines.get(AERIAL.id);
         if (this.aerial && aerial?.role === 'compute' && aerial.ready)
@@ -164,6 +176,7 @@ export class SkyFlow extends Flow<SkySlots, 'idle'> {
     /** Liga as saídas às texturas do céu, copia o sol e decide se as tabelas da atmosfera são regeneradas. */
     private prepare(c: Ctx): void {
         const sky = c.bound.slots.sky.resource as Sky;
+        this.resources.ensureAllocated(sky, 'sunTrack');
         const views = (['transmittance', 'multiscatter', 'view'] as const).map((id) =>
             c.bound.slots.sky.textureViewOf(id),
         );

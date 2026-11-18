@@ -834,8 +834,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
 
     /**
      * O anexo da luz que chega no passe principal (spec 034): presente com o alvo `FrameTargets.light` (sem MSAA). Só o
-     * fragmento do forward o escreve; o fundo, a profundidade, os sprites e o arame o declaram sem escrever (fica o
-     * zero da limpeza ou o da superfície de antes).
+     * fragmento do forward e o fundo (a radiância dele, spec 041) o escrevem; a profundidade, os sprites e o arame o
+     * declaram sem escrever (fica o zero da limpeza ou o da superfície de antes).
      */
     private lightTargets(ctx: Ctx, write: boolean): GPUColorTargetState[] {
         if (ctx.bound.slots.light === undefined) return [];
@@ -858,17 +858,19 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private prepareBackground(ctx: Ctx): void {
         const format = ctx.bound.slots.target.format ?? this.core.canvasFormat;
         const samples = ctx.bound.slots.target.sampleCount;
-        const id = `forward:background:${format}:${samples}`;
+        // Com o alvo da luz que chega, o fundo escreve nele a própria radiância (spec 041).
+        const light = ctx.bound.slots.light !== undefined;
+        const id = `forward:background:${format}:${samples}${light ? ':light' : ''}`;
         if (this.backgroundId === id) return;
         if (this.backgroundId !== undefined) ctx.release(this.backgroundId);
         ctx.prepare({
             id,
             role: 'render',
             shader: forwardBackground,
-            entryPoints: ['vs_background', 'fs_background'],
+            entryPoints: ['vs_background', light ? 'fs_background_light' : 'fs_background'],
             topology: 'triangle-list',
             cullMode: 'none',
-            colorTargets: [{ format }, ...this.lightTargets(ctx, false)],
+            colorTargets: [{ format }, ...this.lightTargets(ctx, true)],
             depth: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
             multisample: { count: samples },
         });

@@ -8,9 +8,12 @@
 // uniforme dos quadros desde o corte, sem recorte (a referência de imagem parada). O alfa guarda quantos quadros o
 // histórico tem. Parado, a luz direta que chega ao ponto (o alvo da luz da cena: a radiância sobre a refletância, sem a
 // textura) comparada à do quadro anterior separa a mudança de iluminação — a sombra ou a luz que passa sobre a superfície
-// parada — do detalhe menor que o pixel: o histórico é reiluminado pela razão da luz total e tratado como em movimento.
-// A máscara reativa (`taa_reactive`, no modo temporal) recomeça o histórico onde o que o pixel mostra mudou sem que o
-// vetor de movimento o leve até lá: o conteúdo visto pelo vidro, cuja imagem a lente desloca e inverte.
+// parada — do detalhe menor que o pixel: o histórico é reiluminado pela razão da luz total e tratado como em movimento
+// (no fundo, cuja luz é a radiância dele, só reiluminado).
+// A máscara reativa (`taa_reactive`, no modo temporal) marca onde o que o pixel mostra mudou sem que o vetor de movimento
+// o leve até lá: acima de ¾ (o conteúdo visto pelo vidro, cuja imagem a lente desloca e inverte; o fundo que o disco do
+// sol acabou de deixar, spec 041) o histórico recomeça; entre ¼ e ¾ (o disco do sol de agora) ele é tratado como em movimento — recortado pela caixa da
+// vizinhança, o quadro novo entrando depressa — sem recomeçar.
 // Requer: fullscreen, CameraMatrices (cameras), taa_params, src_tex (cor), taa_light (r direta, g total), taa_history,
 // taa_history_distance, taa_history_light, taa_depth, taa_motion, taa_reactive, src_smp.
 
@@ -170,8 +173,11 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             if (abs(prev_distance - distance) <= 0.05 * distance) { occluded = false; }
         }
     }
-    // O conteúdo traçado mudou (máscara reativa): como uma desoclusão. Na acumulação ninguém a escreve.
-    let reacted = taa_params.mode != TAA_ACCUMULATE && textureLoad(taa_reactive, pixel, 0).r > 0.5;
+    // O conteúdo traçado mudou (máscara reativa acima de ¾): como uma desoclusão. Na acumulação ninguém a escreve.
+    let reactive = select(0.0, textureLoad(taa_reactive, pixel, 0).r, taa_params.mode != TAA_ACCUMULATE);
+    let reacted = reactive > 0.75;
+    // O que anda sem vetor de movimento (entre ¼ e ¾: o disco do sol no fundo): como em movimento, sem recomeçar.
+    stirred = max(stirred, select(0.0, 1.0, reactive > 0.25 && !reacted));
     let prev_frames = textureLoad(taa_history_distance, prev_pixel, 0).b;
     let frames = select(0.0, prev_frames, inside && !occluded && !reacted && !temporal_cut(cam.history));
     var out: TaaOut;
@@ -223,15 +229,29 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
             wsum += w;
         }
     }
-    // Mudança de iluminação na superfície (não no fundo): a luz direta acumulada com o histórico fora da faixa da
-    // vizinhança de agora. O histórico é reiluminado pela razão da luz total (a textura integrada fica; a sombra que
-    // passou sai, a luz rebatida fica) e, como em movimento, recortado com o quadro novo entrando depressa.
+    // Mudança de iluminação: a luz direta acumulada com o histórico fora da faixa da vizinhança de agora. Na superfície,
+    // o histórico é reiluminado pela razão da luz total (a textura integrada fica; a sombra que passou sai, a luz
+    // rebatida fica) e, como em movimento, recortado com o quadro novo entrando depressa. No fundo (o céu e as nuvens,
+    // cuja luz é a própria radiância, spec 041) só reiluminado: o histórico de 64 quadros em radiância linear guardava
+    // por segundos o céu e as nuvens do crepúsculo, que escurecem ~100× com a sombra da Terra (a média dominada pelos
+    // quadros claros); recortado, ele perdia a acumulação das nuvens (os blocos da marcha).
     let prev_light = textureLoad(taa_history_light, prev_pixel, 0).rg;
     let beyond = max(prev_light.r - light_hi, light_lo - prev_light.r) / max(max(light_hi, prev_light.r), 1e-4);
-    let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0 && depth < 1.0);
-    let ratio = clamp(light.g / max(prev_light.g, 1e-4), 0.0, 16.0);
-    let relighted = history.rgb * mix(1.0, ratio, relit);
-    stirred = max(stirred, relit);
+    let relit = select(0.0, smoothstep(TAA_LIGHT_CHANGE, 2.0 * TAA_LIGHT_CHANGE, beyond), frames > 0.0);
+    // No fundo a luz é a radiância de agora, com o ruído do quadro (os blocos da marcha das nuvens): a razão é a da luz
+    // acumulada trazida só até a faixa da vizinhança 3 × 3 de agora, não até a do pixel.
+    let background = depth >= 1.0;
+    let relight_to = select(light.g, clamp(prev_light.r, light_lo, light_hi), background);
+    let ratio = clamp(relight_to / max(prev_light.g, 1e-4), 0.0, 16.0);
+    var relighted = history.rgb * mix(1.0, ratio, relit);
+    if (background) {
+        // No fundo a cor da luz muda com ela (o céu e as nuvens do branco ao laranja e ao violeta): a croma reiluminada é
+        // a da vizinhança de agora (de baixa frequência), sobre o brilho do histórico reiluminado (o detalhe dele).
+        let h = ycocg(relighted);
+        let now = select(h.yz / max(h.x, 1e-6), m1.yz / max(m1.x, 1e-6), m1.x > 1e-6);
+        relighted = ycocg_inverse(vec3f(h.x, mix(h.yz, h.x * now, relit)));
+    }
+    stirred = max(stirred, select(relit, 0.0, background));
     let reconstructed = mix(current, filtered / wsum, stirred);
     let mean = m1 / count;
     let sigma = sqrt(max(m2 / count - mean * mean, vec3f(0.0)));
@@ -245,7 +265,7 @@ fn fs_temporal_resolve(in: VsOut) -> TaaOut {
     out.color = vec4f(taa_finite(select(reconstructed, mix(clipped, reconstructed, alpha), frames > 0.0)), 1.0);
     out.state.z = min(frames + 1.0, TAA_MAX_FRAMES);
     // A luz acumulada como a cor: reiluminada, ela é a de agora.
-    out.light = select(light, mix(mix(prev_light, light, relit), light, alpha), frames > 0.0);
+    out.light = select(light, mix(mix(prev_light, select(light, vec2f(relight_to), background), relit), light, alpha), frames > 0.0);
     return out;
 }
 

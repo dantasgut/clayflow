@@ -4,11 +4,17 @@ import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/fl
 import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { RenderFlow } from '../../scene/flows/RenderFlow';
-import { slot, type SingletonSlot, type SlotMap, type TargetSlot } from '../../scene/flows/slots';
+import {
+    slot,
+    type SingletonSlot,
+    type SlotMap,
+    type TargetSlot,
+    type TextureSlot,
+} from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
 import { Sky } from '../../elements/scene/sky/Sky';
 import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
-import { FrameTargets } from '../app/FrameTargets';
+import { FrameTargets, LIGHT_FORMAT } from '../app/FrameTargets';
 import { skyComposite } from './shaders';
 
 /** Slots da composição do céu. */
@@ -19,6 +25,11 @@ export interface SkyCompositeSlots extends SlotMap {
     readonly cloud: SingletonSlot<true>;
     /** Cor e profundidade da cena. */
     readonly target: TargetSlot;
+    /**
+     * A luz que chega a cada pixel (`FrameTargets.light`, sem MSAA): no fundo, a radiância — a composição a mantém igual
+     * ao brilho da cor composta (a resolução temporal reilumina o histórico do fundo por ela, spec 041).
+     */
+    readonly light: TextureSlot<true>;
 }
 
 type Ctx = TransitionContext<SkyCompositeSlots>;
@@ -41,6 +52,7 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
             depth: { schema: FrameTargets.schema, descId: 'depth' },
             samples: { schema: FrameTargets.schema, descId: 'samples' },
         }),
+        light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -49,6 +61,8 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
     private readonly core: EngineCore;
     private readonly resources: ResourceDirectory;
     private prepared: readonly [string, string] | undefined;
+    /** Os pipelines preparados escrevem a luz que chega. */
+    private lit = false;
     private boundDepth: unknown;
 
     constructor(ctx: FlowContext) {
@@ -86,8 +100,14 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         const target = bound.slots.target;
         const resolved = target.color;
         if (resolved === 'none' || resolved === 'canvas') return;
+        const light = this.lit ? bound.slots.light : undefined;
         const renderTarget: RenderTarget = {
-            colorAttachments: [{ view: resolved, loadOp: 'load', storeOp: 'store' }],
+            colorAttachments: [
+                { view: resolved, loadOp: 'load', storeOp: 'store' },
+                ...(light === undefined
+                    ? []
+                    : [{ view: light.view, loadOp: 'load' as const, storeOp: 'store' as const }]),
+            ],
         };
         frame.render(renderTarget, 'SkyCompositeFlow', (pass) => {
             pass.bind.setPipeline(multiply.spec);
@@ -124,21 +144,36 @@ export class SkyCompositeFlow extends RenderFlow<SkyCompositeSlots, 'idle'> {
         const clouds =
             cloud !== undefined && this.resources.textureViewOf(cloud, 'view') !== undefined;
         const format = target.format ?? this.core.canvasFormat;
-        const key = `${format}:${target.sampleCount}${clouds ? ':clouds' : ''}:resolved`;
+        const lit = !multisampled && c.bound.slots.light !== undefined;
+        const key = `${format}:${target.sampleCount}${clouds ? ':clouds' : ''}${lit ? ':light' : ''}:resolved`;
         const ids = [`sky_composite_multiply:${key}`, `sky_composite_add:${key}`] as const;
         if (this.prepared?.[0] === ids[0]) return;
         if (this.prepared !== undefined) for (const id of this.prepared) c.release(id);
         this.prepared = ids;
+        this.lit = lit;
         const shader = skyComposite.module(multisampled, clouds);
         const pipeline = (id: string, entry: string, blend: GPUBlendState): void => {
             c.prepare({
                 id,
                 role: 'render',
                 shader,
-                entryPoints: ['refraction_screen_vs', entry],
+                entryPoints: [
+                    'refraction_screen_vs',
+                    lit ? entry.replace(/_fs$/, '_light_fs') : entry,
+                ],
                 topology: 'triangle-list',
                 cullMode: 'none',
-                colorTargets: [{ format, blend }],
+                colorTargets: [
+                    { format, blend },
+                    ...(lit
+                        ? [
+                              {
+                                  format: LIGHT_FORMAT,
+                                  blend: { color: blend.color, alpha: blend.color },
+                              },
+                          ]
+                        : []),
+                ],
                 multisample: { count: 1 },
             });
         };

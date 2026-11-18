@@ -1,11 +1,12 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResource } from '../../scene/shaders/WgslResource';
-import { sky, skyAerialLookup } from '../../elements/scene/sky/shaders';
+import { sky, skyAerialLookup, skySunTrack } from '../../elements/scene/sky/shaders';
 import { cloudResources } from '../../elements/media/clouds/shaders';
 import { sceneFogReady } from '../../elements/scene/points/media';
 import { refractionScreen } from '../../elements/lighting/refraction/shaders';
 import { cameraSpace } from '../../elements/scene/flows/shaders';
 import skyCompositeSource from './sky_composite.wgsl?raw';
+import skyReactiveSource from './sky_reactive.wgsl?raw';
 import { slot } from '../../scene/flows/slots';
 import { TemporalAntialiasing } from '../../elements/scene/TemporalAntialiasing';
 import shadowDepthSource from './shadow_depth.wgsl?raw';
@@ -838,6 +839,7 @@ function skyCompositeModule(multisampled: boolean, clouds: boolean): WgslModule 
             sceneFogReady,
             sky,
             constants,
+            color,
             camerasResource,
             multisampled
                 ? SKY_COMPOSITE_DEPTH_MODULES.multisampled
@@ -850,4 +852,24 @@ function skyCompositeModule(multisampled: boolean, clouds: boolean): WgslModule 
 export const skyComposite = {
     module: skyCompositeModule,
     depth: SKY_COMPOSITE_DEPTH,
+} as const;
+
+// Máscara reativa do disco do sol (spec 041): onde o disco está ou estava no quadro anterior, no fundo.
+
+/** A profundidade da cena (sem MSAA: a máscara só existe sem ele), privada do estágio. */
+const skyReactiveDepth = wgslResource({
+    name: 'sky_reactive_depth_tex',
+    binding: { texture: { sample: 'depth' } },
+    frequency: 'stage',
+    provider: 'private',
+});
+
+/** Módulos da máscara reativa do disco: o shader e a profundidade da cena. */
+export const skyReactive = {
+    module: wgslModule({
+        name: 'sky_reactive',
+        source: skyReactiveSource,
+        requires: [viewSpace, sky, skySunTrack.previous, camerasResource, skyReactiveDepth],
+    }),
+    depth: skyReactiveDepth,
 } as const;

@@ -6,8 +6,10 @@
 //   final = cor·Tc·Ta + Sfog·(1 − Tc·Ta) + Tfog·(Sc + Tc·Sa)
 // (a cor da cena já é `Sfog + Tfog·L`). Dois passes com mistura do hardware: o produto `cor·(Tc·Ta)` por canal
 // (`sky_composite_multiply_fs`, mistura `dst·src`) e a soma do resto (`sky_composite_add_fs`, mistura `src + dst`).
+// Com o alvo da luz que chega (sem MSAA, a resolução temporal), as mesmas misturas no brilho dele (`*_light_fs`): no fundo
+// a luz é a radiância, e a composta fica igual ao brilho da cor composta (spec 041).
 // Requer: refraction_screen (o triângulo), sky_composite_cloud, sky_aerial_lookup, camera_space, scene_fog, sky,
-// cameras, constants, sky_composite_depth.
+// cameras, constants, sky_composite_depth, color.
 
 /** O ponto da superfície do pixel, a direção e a perspectiva aérea até ele (o fundo: no infinito, `(0, 1)`). */
 struct SkyCompositeSurface {
@@ -36,15 +38,45 @@ fn sky_composite_surface(frag: vec4f) -> SkyCompositeSurface {
 // A soma: abaixo de 2⁻¹² da radiância de uma superfície branca ao sol (E/π), a escala que a exposição da cena mostra.
 // O produto não lê a névoa (só a soma precisa dela).
 const SKY_COMPOSITE_EPS: f32 = 1.0 / 4096.0;
-@fragment
-fn sky_composite_multiply_fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+fn sky_composite_multiply(frag: vec4f) -> vec4f {
     let k = sky_composite_cloud(vec2u(frag.xy)).a * sky_composite_surface(frag).aerial.transmittance;
     if (all(k > vec3f(1.0 - SKY_COMPOSITE_EPS))) { discard; }
     return vec4f(k, 1.0);
 }
 
 @fragment
+fn sky_composite_multiply_fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+    return sky_composite_multiply(frag);
+}
+
+struct SkyCompositeLightOut {
+    @location(0) color: vec4f,
+    @location(1) light: vec2f,
+}
+
+/** O fundo do pixel (nenhuma superfície): só nele a luz que chega é a radiância; na superfície ela não muda. */
+fn sky_composite_background(frag: vec4f) -> bool {
+    return sky_composite_depth(vec2i(frag.xy)) >= 1.0;
+}
+
+@fragment
+fn sky_composite_multiply_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
+    let k = sky_composite_multiply(frag);
+    return SkyCompositeLightOut(k, vec2f(select(1.0, ycocg(k.rgb).x, sky_composite_background(frag))));
+}
+
+@fragment
+fn sky_composite_add_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
+    let sum = sky_composite_add(frag);
+    return SkyCompositeLightOut(sum, vec2f(select(0.0, ycocg(sum.rgb).x, sky_composite_background(frag))));
+}
+
+@fragment
 fn sky_composite_add_fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+    return sky_composite_add(frag);
+}
+
+fn sky_composite_add(frag: vec4f) -> vec4f {
     let surface = sky_composite_surface(frag);
     let cloud = sky_composite_cloud(vec2u(frag.xy));
     let k = cloud.a * surface.aerial.transmittance;

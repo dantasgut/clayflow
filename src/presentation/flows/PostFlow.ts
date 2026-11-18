@@ -334,6 +334,23 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             taaHistory.written();
             taaState.written();
             taaLight.written();
+            // A máscara reativa lida: limpa para o quadro seguinte (quem a escreve mistura pelo máximo, spec 041).
+            const reactive = bound.slots.reactive;
+            if (reactive !== undefined)
+                frame.render(
+                    {
+                        colorAttachments: [
+                            {
+                                view: reactive.view,
+                                loadOp: 'clear',
+                                clearValue: [0, 0, 0, 0],
+                                storeOp: 'store',
+                            },
+                        ],
+                    },
+                    'PostFlow.reactiveClear',
+                    () => {},
+                );
             // Nitidez adaptativa ao movimento, fora do histórico; sem efeitos, já apresentada no canvas (G2).
             const sharpen = bound.pipelines.get(this.taaFinal);
             if (sharpen?.role !== 'render' || !sharpen.ready) return;

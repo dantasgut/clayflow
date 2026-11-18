@@ -133,6 +133,7 @@ export const forwardBackground = wgslModule({
     name: 'forward_background',
     source: forwardBackgroundSource,
     requires: [
+        color,
         cameraSpace,
         viewSpace,
         sceneBackgroundReady,

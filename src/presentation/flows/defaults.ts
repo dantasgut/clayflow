@@ -52,6 +52,7 @@ import { CloudNoiseFlow } from '../../elements/media/clouds/CloudNoiseFlow';
 import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
 import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
 import { SkyCompositeFlow } from './SkyCompositeFlow';
+import { SkyReactiveFlow } from './SkyReactiveFlow';
 import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
@@ -569,6 +570,12 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -70,
     });
+    // A máscara reativa do disco do sol (spec 041) depois do fundo, antes da resolução temporal que a lê.
+    const skyReactiveRegistration = flows.register(() => new SkyReactiveFlow(), {
+        type: 'skyReactive',
+        phase: 'forward',
+        priority: -71,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -653,6 +660,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             refractionMotionRegistration,
             cloudRegistration,
             skyCompositeRegistration,
+            skyReactiveRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

@@ -2,6 +2,7 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
+import { slot } from '../../../scene/flows/slots';
 import { SKY_AERIAL_RANGE_KM, SkySchema } from './SkySchema';
 import skyAtmosphereSource from '../../gpu/wgsl/sky/sky_atmosphere.wgsl?raw';
 import skyLookupSource from '../../gpu/wgsl/sky/sky_lookup.wgsl?raw';
@@ -83,6 +84,30 @@ const out3d = (name: string): ReturnType<typeof wgslResource> =>
         provider: 'private',
     });
 
+/** Slot do canal temporal da direção do sol (`Sky.sunTrack`, spec 037/041). */
+export const skySunTrackSlots = Object.freeze({
+    skySunTrack: slot.channel(SkySchema, 'sunTrack'),
+});
+
+/**
+ * A direção para o sol pela série `Sky.sunTrack` (spec 041): a escrita do quadro (pela vista do céu) e a do quadro
+ * anterior (lida por quem guarda entre quadros o que o disco mostrava).
+ */
+export const skySunTrack = Object.freeze({
+    out: wgslResource({
+        name: 'sky_sun_track_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunTrack', lag: 0 },
+    }),
+    previous: wgslResource({
+        name: 'sky_sun_track_prev',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunTrack', lag: 1 },
+    }),
+});
+
 /** Saídas dos kernels das tabelas (as texturas do `Sky`), privadas do `SkyFlow`. */
 export const skyOutputs = Object.freeze({
     transmittance: out('sky_transmittance_out'),
@@ -137,7 +162,14 @@ export const skyMultiscatterKernel = wgslModule({
 export const skyViewKernel = wgslModule({
     name: 'sky_view',
     source: skyViewSource,
-    requires: [WORKGROUP_SIZE.module, skyAtmosphere, skyLookup, skyParamsResource, skyOutputs.view],
+    requires: [
+        WORKGROUP_SIZE.module,
+        skyAtmosphere,
+        skyLookup,
+        skyParamsResource,
+        skyOutputs.view,
+        skySunTrack.out,
+    ],
 });
 
 /**

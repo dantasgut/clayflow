@@ -61,6 +61,8 @@ describe('PostFlow — apresentação', () => {
         const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
         expect(passes.map((p) => p.label)).toEqual([
             'PostFlow.temporalResolve',
+            // A máscara reativa lida, limpa para o quadro seguinte.
+            'PostFlow.reactiveClear',
             'PostFlow.present',
         ]);
         const fragments = pipelines(s.creates());
@@ -131,6 +133,8 @@ describe('PostFlow — apresentação', () => {
         const passes = s.step().filter((p) => p.label.startsWith('PostFlow'));
         expect(passes.map((p) => p.label)).toEqual([
             'PostFlow.temporalResolve',
+            // A máscara reativa lida, limpa para o quadro seguinte.
+            'PostFlow.reactiveClear',
             'PostFlow.temporalSharpen',
             'PostFlow.Bloom',
             'PostFlow.present',

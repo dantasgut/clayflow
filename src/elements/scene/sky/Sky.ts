@@ -151,6 +151,15 @@ export class Sky extends Entity<SkyData> implements Resource {
                     },
                 }),
             ),
+            // A direção para o sol de cada quadro (xyz; spec 041), série temporal da 037: quem guarda entre quadros o que
+            // o disco do sol mostrava (a resolução temporal, pela máscara reativa) lê onde ele estava no quadro anterior.
+            {
+                id: 'sunTrack',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                history: { depth: 2 },
+            },
             {
                 id: 'sampler',
                 role: 'sampler',
