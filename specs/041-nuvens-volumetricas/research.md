@@ -600,7 +600,7 @@ páginas de 8³ numa série por páginas de buffer (as palavras globais — a ge
 sol e o quadro do último caminho, a geração, quantas sondas tinham nuvem — e as sondas). Antes, a série de duas fatias
 copiava a grade inteira a cada quadro (os ⅞ que não caminhavam) e o filtro refazia todas as sondas; e o anel do sol por
 fase de grupos (`scatterSun`) saiu: o sol é do registro da página. Por quadro, a escolha (um grupo) põe na lista as
-páginas pela idade × a proximidade da câmera (metade a 32 km) × 2 vista × ⅛ sem nuvem (a que nunca caminhou nesta geração primeiro), até o
+páginas pela idade × ⅛ sem nuvem × a raiz de (proximidade da câmera, metade a 32 km, × 2 vista) — a câmera só desempata: com a proximidade e a visibilidade inteiras, as páginas distantes caminhavam menos, esqueciam a média com o sol andando e caíam nas oitavas (`far-cloud` 11,1 → 10,5 %, `overcast-ambient` 15 %) (a que nunca caminhou nesta geração primeiro), até o
 orçamento (200/96/36 páginas: o mesmo número de sondas que caminhava com a fração fixa de ⅛); a geração sobe quando a
 grade recomeça (o corte, o centro que muda), e as páginas de outra geração valem zero. O filtro refaz só as sondas cuja
 vizinhança tem uma página que caminhou (na geração nova, todas), lendo o cache por uma vista só de leitura (com os

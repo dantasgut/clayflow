@@ -193,7 +193,9 @@ fn cloud_scatter_key(p: u32, size: vec3u, gen: u32) -> u32 {
     let near = 1.0 / (1.0 + d / CLOUD_SCATTER_NEAR_WEIGHT);
     let cloudy = select(0.125, 1.0, cloud_scatter_header(p, 5u) > 0u);
     let vis = select(1.0, 2.0, cloud_scatter_visible(p, size));
-    let pr = f32(max(age, 1u)) * near * cloudy * vis;
+    // A câmera só desempata (√ dos pesos): com o sol andando, a página que caminha menos esquece a média pelo ângulo e
+    // cai nas oitavas — as nuvens do contraluz escureciam no `pordosol` com a proximidade e a visibilidade inteiras.
+    let pr = f32(max(age, 1u)) * cloudy * sqrt(near * vis);
     if (pr < 1.0) { return select(0u, 1u, age > 0u); }
     return clamp(1u + u32(floor(log2(pr))), 1u, CLOUD_SCATTER_KEY_FRESH - 1u);
 }
