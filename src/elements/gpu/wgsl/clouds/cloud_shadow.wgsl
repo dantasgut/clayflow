@@ -38,8 +38,6 @@ const CLOUD_SHADOW_SPACING: f32 = 1.0;
 const CLOUD_SHADOW_MIN_LEVEL: f32 = 6.0;
 /** Alcance (m) do deslocamento do pente por coluna. */
 const CLOUD_SHADOW_SHIFT: f32 = 65536.0;
-/** Invocações do grupo do desenho de uma página. */
-const CLOUD_SHADOW_PAGE_GROUP: u32 = 256u;
 
 /** Hash inteiro (Wang/PCG) da coluna no reticulado do texel global. */
 fn cloud_shadow_hash(v: vec2i) -> u32 {
@@ -152,27 +150,6 @@ fn cloud_shadow_segment_length(x: vec2f) -> f32 {
     return max(segs.y - segs.x, 0.0);
 }
 
-/** A palavra `w` do registro da página física `slot`. */
-fn cloud_shadow_meta_index(slot: u32, w: u32) -> u32 {
-    return slot * CLOUD_SHADOW_RECORD_WORDS + w;
-}
-
-fn cloud_shadow_meta_f(slot: u32, w: u32) -> f32 {
-    return bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[cloud_shadow_meta_index(slot, w)]));
-}
-
-fn cloud_shadow_meta_set_f(slot: u32, w: u32, v: f32) {
-    atomicStore(&cloud_shadow_pages_meta[cloud_shadow_meta_index(slot, w)], bitcast<u32>(v));
-}
-
-fn cloud_shadow_meta_u(slot: u32, w: u32) -> u32 {
-    return atomicLoad(&cloud_shadow_pages_meta[cloud_shadow_meta_index(slot, w)]);
-}
-
-fn cloud_shadow_meta_set_u(slot: u32, w: u32, v: u32) {
-    atomicStore(&cloud_shadow_pages_meta[cloud_shadow_meta_index(slot, w)], v);
-}
-
 /**
  * O registro da página física `slot` vale para a página que a janela do quadro põe nela: carimbada na época da série, a
  * mesma página global, a mesma assinatura do conteúdo e a mesma célula do pivô.
@@ -180,21 +157,16 @@ fn cloud_shadow_meta_set_u(slot: u32, w: u32, v: u32) {
 fn cloud_shadow_meta_current(slot: u32) -> bool {
     let g = cloud_shadow_slot_page(slot);
     return cloud_shadow_stamps[slot] == cloud_shadow_clock.x
-        && bitcast<i32>(cloud_shadow_meta_u(slot, 4u)) == g.x
-        && bitcast<i32>(cloud_shadow_meta_u(slot, 5u)) == g.y
-        && cloud_shadow_meta_u(slot, 7u) == clouds.sunPages.y
-        && cloud_shadow_meta_u(slot, 14u) == clouds.sunPages.z
-        && cloud_shadow_meta_u(slot, 15u) == clouds.sunPages.w;
+        && bitcast<i32>(atomicLoad(&cloud_shadow_pages_meta[slot].page_x)) == g.x
+        && bitcast<i32>(atomicLoad(&cloud_shadow_pages_meta[slot].page_y)) == g.y
+        && atomicLoad(&cloud_shadow_pages_meta[slot].signature) == clouds.sunPages.y
+        && atomicLoad(&cloud_shadow_pages_meta[slot].pivot_x) == clouds.sunPages.z
+        && atomicLoad(&cloud_shadow_pages_meta[slot].pivot_y) == clouds.sunPages.w;
 }
 
 var<workgroup> cloud_shadow_wg_tau: array<f32, 1156>;
 var<workgroup> cloud_shadow_wg_max: array<atomic<u32>, 4>;
 var<workgroup> cloud_shadow_wg_chosen: u32;
-
-/** A palavra do nó `l` (0…3: os nós 4, 8, 12 e 16) do texel `t` no registro da página física `slot`. */
-fn cloud_shadow_summary_index(slot: u32, t: u32, l: u32) -> u32 {
-    return cloud_shadow_meta_index(slot, CLOUD_SHADOW_META_WORDS + t * 4u + l);
-}
 
 /** O desenho da página física `slot` (as 256 invocações do grupo). */
 fn cloud_shadow_draw(slot: u32, lid: u32) {
@@ -216,7 +188,7 @@ fn cloud_shadow_draw(slot: u32, lid: u32) {
             let v = vec4f(col.knots[l * 4u], col.knots[l * 4u + 1u], col.knots[l * 4u + 2u], col.knots[l * 4u + 3u]);
             textureStore(cloud_shadow_out, vec3u(origin + tt, l), v);
             cloud_shadow_wg_tau[t * 4u + l] = v.w;
-            atomicStore(&cloud_shadow_pages_meta[cloud_shadow_summary_index(slot, t, l)], bitcast<u32>(v.w));
+            atomicStore(&cloud_shadow_pages_meta[slot].knots[t * 4u + l], bitcast<u32>(v.w));
         }
         // O maior |ΔT| entre nós seguidos por metro ao longo da coluna.
         var along = 0.0;
@@ -251,20 +223,24 @@ fn cloud_shadow_draw(slot: u32, lid: u32) {
     workgroupBarrier();
     if (lid != 0u) { return; }
     let sun = clouds.sunDir.xyz;
-    cloud_shadow_meta_set_f(slot, 0u, sun.x);
-    cloud_shadow_meta_set_f(slot, 1u, sun.y);
-    cloud_shadow_meta_set_f(slot, 2u, sun.z);
-    cloud_shadow_meta_set_f(slot, 3u, clouds.coverageMap.w);
-    cloud_shadow_meta_set_u(slot, 4u, bitcast<u32>(g.x));
-    cloud_shadow_meta_set_u(slot, 5u, bitcast<u32>(g.y));
-    cloud_shadow_meta_set_u(slot, 6u, clouds.march.z);
-    cloud_shadow_meta_set_u(slot, 7u, clouds.sunPages.y);
-    for (var w = 0u; w < 4u; w++) { cloud_shadow_meta_set_u(slot, 8u + w, atomicLoad(&cloud_shadow_wg_max[w])); }
+    let rec = &cloud_shadow_pages_meta[slot];
+    atomicStore(&(*rec).sun_x, bitcast<u32>(sun.x));
+    atomicStore(&(*rec).sun_y, bitcast<u32>(sun.y));
+    atomicStore(&(*rec).sun_z, bitcast<u32>(sun.z));
+    atomicStore(&(*rec).time, bitcast<u32>(clouds.coverageMap.w));
+    atomicStore(&(*rec).page_x, bitcast<u32>(g.x));
+    atomicStore(&(*rec).page_y, bitcast<u32>(g.y));
+    atomicStore(&(*rec).frame, clouds.march.z);
+    atomicStore(&(*rec).signature, clouds.sunPages.y);
+    atomicStore(&(*rec).gradient, atomicLoad(&cloud_shadow_wg_max[0]));
+    atomicStore(&(*rec).along, atomicLoad(&cloud_shadow_wg_max[1]));
+    atomicStore(&(*rec).len, atomicLoad(&cloud_shadow_wg_max[2]));
+    atomicStore(&(*rec).lever, atomicLoad(&cloud_shadow_wg_max[3]));
     let center = (vec2f(g) + 0.5) * f32(CLOUD_SHADOW_PAGE) * texel;
-    cloud_shadow_meta_set_f(slot, 12u, cloud_shadow_segment_length(center));
-    cloud_shadow_meta_set_u(slot, 13u, 0u);
-    cloud_shadow_meta_set_u(slot, 14u, clouds.sunPages.z);
-    cloud_shadow_meta_set_u(slot, 15u, clouds.sunPages.w);
+    atomicStore(&(*rec).center_len, bitcast<u32>(cloud_shadow_segment_length(center)));
+    atomicStore(&(*rec).measured, 0u);
+    atomicStore(&(*rec).pivot_x, clouds.sunPages.z);
+    atomicStore(&(*rec).pivot_y, clouds.sunPages.w);
     // O carimbo da série do atlas: a página escrita na época atual.
     cloud_shadow_stamps[slot] = cloud_shadow_clock.x;
 }
@@ -279,7 +255,12 @@ fn cloud_shadow_probe(slot: u32, j: u32) {
     let g = cloud_shadow_slot_page(slot);
     let t = cloud_shadow_probe_texel(slot, clouds.march.z, j);
     let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
-    let sun = vec3f(cloud_shadow_meta_f(slot, 0u), cloud_shadow_meta_f(slot, 1u), cloud_shadow_meta_f(slot, 2u));
+    let rec = &cloud_shadow_pages_meta[slot];
+    let sun = vec3f(
+        bitcast<f32>(atomicLoad(&(*rec).sun_x)),
+        bitcast<f32>(atomicLoad(&(*rec).sun_y)),
+        bitcast<f32>(atomicLoad(&(*rec).sun_z)),
+    );
     let col = cloud_shadow_column_knots(
         cloud_shadow_texel_plane_aspect(k, g, tt, cloud_shadow_aspect(sun)),
         cloud_shadow_line(k, g, tt),
@@ -288,10 +269,10 @@ fn cloud_shadow_probe(slot: u32, j: u32) {
     );
     var d = 0.0;
     for (var l = 0u; l < 4u; l++) {
-        let kept = bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[cloud_shadow_summary_index(slot, t, l)]));
+        let kept = bitcast<f32>(atomicLoad(&(*rec).knots[t * 4u + l]));
         d = max(d, abs(exp(-kept) - exp(-col.knots[l * 4u + 3u])));
     }
-    atomicMax(&cloud_shadow_pages_meta[cloud_shadow_meta_index(slot, 13u)], bitcast<u32>(d));
+    atomicMax(&(*rec).measured, bitcast<u32>(d));
 }
 
 @compute @workgroup_size(CLOUD_SHADOW_PAGE_GROUP)
@@ -336,13 +317,18 @@ const CLOUD_SHADOW_KEY_MANDATORY: u32 = 15u;
  * muda a transmitância de 1/e).
  */
 fn cloud_shadow_error(slot: u32, k: u32, g: vec2i) -> f32 {
-    let sun_r = vec3f(cloud_shadow_meta_f(slot, 0u), cloud_shadow_meta_f(slot, 1u), cloud_shadow_meta_f(slot, 2u));
-    let dt = max(clouds.coverageMap.w - cloud_shadow_meta_f(slot, 3u), 0.0);
-    let gradient = cloud_shadow_meta_f(slot, 8u);
-    let along = cloud_shadow_meta_f(slot, 9u);
-    let len = cloud_shadow_meta_f(slot, 10u);
-    let lever = cloud_shadow_meta_f(slot, 11u);
-    let center_len = cloud_shadow_meta_f(slot, 12u);
+    let rec = &cloud_shadow_pages_meta[slot];
+    let sun_r = vec3f(
+        bitcast<f32>(atomicLoad(&(*rec).sun_x)),
+        bitcast<f32>(atomicLoad(&(*rec).sun_y)),
+        bitcast<f32>(atomicLoad(&(*rec).sun_z)),
+    );
+    let dt = max(clouds.coverageMap.w - bitcast<f32>(atomicLoad(&(*rec).time)), 0.0);
+    let gradient = bitcast<f32>(atomicLoad(&(*rec).gradient));
+    let along = bitcast<f32>(atomicLoad(&(*rec).along));
+    let len = bitcast<f32>(atomicLoad(&(*rec).len));
+    let lever = bitcast<f32>(atomicLoad(&(*rec).lever));
+    let center_len = bitcast<f32>(atomicLoad(&(*rec).center_len));
     let br = cloud_shadow_basis(sun_r);
     let dr = clouds.sunRight.xyz - br[0];
     let du = clouds.sunUp.xyz - br[1];
@@ -395,11 +381,11 @@ fn cloud_shadow_key(slot: u32) -> u32 {
     if (!cloud_shadow_meta_current(slot)) { return CLOUD_SHADOW_KEY_MANDATORY; }
     let k = cloud_shadow_slot_level(slot);
     let g = cloud_shadow_slot_page(slot);
-    let age = clouds.march.z - cloud_shadow_meta_u(slot, 6u);
-    let measured = bitcast<f32>(cloud_shadow_meta_u(slot, 13u));
+    let age = clouds.march.z - atomicLoad(&cloud_shadow_pages_meta[slot].frame);
+    let measured = bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].measured));
     let e = max(cloud_shadow_error(slot, k, g), measured);
     if (e <= CLOUD_SHADOW_TOLERANCE) { return select(0u, 1u, age >= CLOUD_SHADOW_MAX_AGE); }
-    let vis = cloud_shadow_visible(k, g, cloud_shadow_meta_f(slot, 11u));
+    let vis = cloud_shadow_visible(k, g, bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].lever)));
     let p = e / CLOUD_SHADOW_TOLERANCE * f32(max(age, 1u)) * exp2(f32(CLOUD_SHADOW_LEVELS - 1u - k) * 0.5)
         * select(1.0, 4.0, vis);
     return clamp(1u + u32(floor(log2(p))), 1u, CLOUD_SHADOW_KEY_MANDATORY - 1u);

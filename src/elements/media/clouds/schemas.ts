@@ -1,5 +1,5 @@
 import { FieldType } from '../../../scene/descriptors/FieldType';
-import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import { type FieldSpec, StructSchema, fieldArray } from '../../../scene/descriptors/StructSchema';
 
 /**
  * Uniforme da camada de nuvens (spec 041, R1–R12), escrito pelos estágios das nuvens a cada quadro (empacotamento dos
@@ -68,7 +68,7 @@ export const CLOUD_SHADOW_KNOTS = 16;
 /** Texels por lado do interior de uma página. */
 export const CLOUD_SHADOW_PAGE = 16;
 /** Texels por lado de uma página física (o interior e a coluna da vizinha em +x e +y). */
-export const CLOUD_SHADOW_STRIDE = 17;
+export const CLOUD_SHADOW_STRIDE = CLOUD_SHADOW_PAGE + 1;
 /** Páginas por lado de um nível. */
 export const CLOUD_SHADOW_PAGES = 8;
 /** Níveis do mapa (o último cobre ~5900 texels do primeiro: ±294 km com texels de 50 m). */
@@ -80,11 +80,55 @@ export const CLOUD_SHADOW_SLOT_COUNT =
     CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * CLOUD_SHADOW_PAGES;
 /** Lado do atlas em texels. */
 export const CLOUD_SHADOW_ATLAS = CLOUD_SHADOW_SLOTS_X * CLOUD_SHADOW_STRIDE;
-/** Palavras dos campos do registro de uma página física (`cloud_shadow_pages_meta`). */
-export const CLOUD_SHADOW_META_WORDS = 16;
-/** Palavras do registro de uma página física: os campos e os nós 4, 8, 12 e 16 de cada texel (o que as provas comparam). */
-export const CLOUD_SHADOW_RECORD_WORDS =
-    CLOUD_SHADOW_META_WORDS + 4 * CLOUD_SHADOW_STRIDE * CLOUD_SHADOW_STRIDE;
+
+/**
+ * Os campos do registro de uma página física do mapa visto do sol (`cloud_shadow.wgsl`), na ordem do struct: o sol do
+ * desenho (`f32`), o tempo da forma no desenho (s), a página global, o quadro do desenho, a assinatura do conteúdo, as
+ * medidas (o maior |ΔT| entre texels por metro, o maior ao longo da coluna por metro, o maior trecho e a maior alavanca,
+ * em m), o trecho no centro da página (m), o erro medido pelas provas e a célula do pivô; depois, os nós 4, 8, 12 e 16
+ * de cada texel (o que as provas comparam).
+ */
+const SHADOW_PAGE_FIELDS: readonly (readonly [string, 'f' | 'i' | 'u'])[] = [
+    ['sun_x', 'f'],
+    ['sun_y', 'f'],
+    ['sun_z', 'f'],
+    ['time', 'f'],
+    ['page_x', 'i'],
+    ['page_y', 'i'],
+    ['frame', 'u'],
+    ['signature', 'u'],
+    ['gradient', 'f'],
+    ['along', 'f'],
+    ['len', 'f'],
+    ['lever', 'f'],
+    ['center_len', 'f'],
+    ['measured', 'f'],
+    ['pivot_x', 'u'],
+    ['pivot_y', 'u'],
+];
+
+function shadowPageFields(view: boolean): Record<string, FieldSpec> {
+    const scalar = { f: FieldType.f32, i: FieldType.i32, u: FieldType.u32 } as const;
+    const fields: Record<string, FieldSpec> = {};
+    for (const [name, kind] of SHADOW_PAGE_FIELDS)
+        fields[name] = view ? scalar[kind] : FieldType.atomicU32;
+    fields.knots = fieldArray(
+        view ? FieldType.f32 : FieldType.atomicU32,
+        4 * CLOUD_SHADOW_STRIDE * CLOUD_SHADOW_STRIDE,
+    );
+    return fields;
+}
+
+/**
+ * O registro de uma página física do mapa visto do sol, escrito pelo desenho e pelas provas (`atomic<u32>`: as provas
+ * somam o erro medido com `atomicMax` e a escolha lê o registro no mesmo quadro). Série por páginas `shadowPages`.
+ */
+export const CloudShadowPageSchema = new StructSchema('CloudShadowPage', shadowPageFields(false));
+/** O mesmo registro, lido pelos consumidores do mapa (só leitura, os campos pelos tipos). */
+export const CloudShadowPageViewSchema = new StructSchema(
+    'CloudShadowPageView',
+    shadowPageFields(true),
+);
 /** Lado (m) da grade do pivô do plano no referencial das nuvens: a câmera que cruza a linha refaz o mapa. */
 export const CLOUD_SHADOW_PIVOT = 16_000;
 /**

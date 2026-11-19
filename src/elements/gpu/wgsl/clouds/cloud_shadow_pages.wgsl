@@ -27,10 +27,6 @@ const CLOUD_SHADOW_SLOTS_X: u32 = 23u;
 const CLOUD_SHADOW_SLOT_COUNT: u32 = 512u;
 /** Lado do atlas em texels. */
 const CLOUD_SHADOW_ATLAS: f32 = 391.0;
-/** Palavras dos campos do registro de uma página (`cloud_shadow_pages_meta`); depois deles, os nós guardados. */
-const CLOUD_SHADOW_META_WORDS: u32 = 16u;
-/** Palavras do registro de uma página: os campos e os nós 4, 8, 12 e 16 de cada texel. */
-const CLOUD_SHADOW_RECORD_WORDS: u32 = 1172u;
 /** Colunas de prova por página por quadro. */
 const CLOUD_SHADOW_PROBES: u32 = 4u;
 

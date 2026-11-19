@@ -42,12 +42,7 @@ struct CloudShadowColumnAt {
 
 /** O sol com que a página física `slot` foi desenhada (o do quadro, se ela ainda não foi). */
 fn cloud_shadow_page_sun(slot: u32) -> vec3f {
-    let w = slot * CLOUD_SHADOW_RECORD_WORDS;
-    let s = vec3f(
-        bitcast<f32>(cloud_shadow_records[w]),
-        bitcast<f32>(cloud_shadow_records[w + 1u]),
-        bitcast<f32>(cloud_shadow_records[w + 2u]),
-    );
+    let s = vec3f(cloud_shadow_records[slot].sun_x, cloud_shadow_records[slot].sun_y, cloud_shadow_records[slot].sun_z);
     return select(clouds.sunDir.xyz, s, dot(s, s) > 0.25);
 }
 

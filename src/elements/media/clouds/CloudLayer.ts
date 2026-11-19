@@ -19,7 +19,6 @@ import { GpuWordSchema } from '../../gpu/compute/schemas';
 import {
     CLOUD_DETAIL_SIZE,
     CLOUD_SHADOW_ATLAS,
-    CLOUD_SHADOW_RECORD_WORDS,
     CLOUD_SHADOW_SLOT_COUNT,
     CLOUD_SHADOW_STRIDE,
     CLOUD_SCATTER_GLOBAL_WORDS,
@@ -29,6 +28,7 @@ import {
     CLOUD_SHAPE_SIZE,
     CLOUD_WEATHER_SIZE,
     CloudSchema,
+    CloudShadowPageSchema,
     type CloudQuality,
 } from './schemas';
 import { cloudLightTransmission, cloudSkyCover } from './shaders';
@@ -549,10 +549,10 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             {
                 id: 'shadowPages',
                 role: 'storage-rw',
-                schema: GpuWordSchema,
-                count: CLOUD_SHADOW_SLOT_COUNT * CLOUD_SHADOW_RECORD_WORDS,
+                schema: CloudShadowPageSchema,
+                count: CLOUD_SHADOW_SLOT_COUNT,
                 upload: 'never',
-                history: { depth: 1, pages: { record: CLOUD_SHADOW_RECORD_WORDS * 4 } },
+                history: { depth: 1, pages: { record: CloudShadowPageSchema.stride } },
             },
             // A lista das páginas do quadro (a contagem e as páginas físicas), refeita a cada quadro.
             {

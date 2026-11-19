@@ -14,7 +14,8 @@ import {
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import { color, constants, random, viewSpace, xformRigid } from '../../gpu/shaders/math';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
-import { CloudSchema } from './schemas';
+import { sharedConstant } from '../../../scene/shaders/SharedConstant';
+import { CloudSchema, CloudShadowPageSchema, CloudShadowPageViewSchema } from './schemas';
 import cloudCommonSource from '../../gpu/wgsl/clouds/cloud_common.wgsl?raw';
 import cloudPhaseSource from '../../gpu/wgsl/clouds/cloud_phase.wgsl?raw';
 import cloudDensitySource from '../../gpu/wgsl/clouds/cloud_density.wgsl?raw';
@@ -246,7 +247,7 @@ export const cloudResources = Object.freeze({
     shadowPages: wgslResource({
         name: 'cloud_shadow_pages_meta',
         binding: { storage: 'read_write' },
-        type: { wgsl: 'atomic<u32>', array: true },
+        type: { schema: CloudShadowPageSchema, array: true },
         frequency: 'stage',
         provider: { slot: 'cloudShadowPages', lag: 0 },
     }),
@@ -269,7 +270,7 @@ export const cloudResources = Object.freeze({
     shadowRecords: wgslResource({
         name: 'cloud_shadow_records',
         binding: { storage: 'read' },
-        type: { wgsl: 'u32', array: true },
+        type: { schema: CloudShadowPageViewSchema, array: true },
         frequency: 'frame',
         provider: { consumer: 'CloudLayer.shadowPages' },
     }),
@@ -593,6 +594,9 @@ export const cloudDensity = wgslModule({
     ],
 });
 
+/** Invocações do grupo do desenho de uma página do mapa visto do sol (um grupo por página física). */
+export const CLOUD_SHADOW_PAGE_GROUP = sharedConstant('CLOUD_SHADOW_PAGE_GROUP', 256, 'u32');
+
 /** O endereçamento do mapa visto do sol por páginas (os níveis, a janela, o atlas). */
 export const cloudShadowPages = wgslModule({
     name: 'cloud_shadow_pages',
@@ -791,6 +795,7 @@ const cloudShadowBase = wgslModule({
     source: cloudShadowSource,
     requires: [
         WORKGROUP_SIZE.module,
+        CLOUD_SHADOW_PAGE_GROUP.module,
         cloudCommon,
         cloudDensity,
         cloudShadowPages,

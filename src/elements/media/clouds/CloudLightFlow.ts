@@ -30,6 +30,7 @@ import {
     cloudScatterFilterKernel,
     cloudScatterKernel,
     cloudScatterSlots,
+    CLOUD_SHADOW_PAGE_GROUP,
     cloudShadowKernel,
     cloudShadowSlots,
     cloudWeatherKernel,
@@ -224,7 +225,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 frame.compute('CloudLightFlow.shadow', (pass) => {
                     pass.bind.setPipeline(draw.spec);
                     draw.bindTo(pass.bind);
-                    pass.dispatch.workgroups(CLOUD_SHADOW_SLOT_COUNT);
+                    pass.dispatch.invocations(
+                        CLOUD_SHADOW_SLOT_COUNT * CLOUD_SHADOW_PAGE_GROUP.value,
+                        CLOUD_SHADOW_PAGE_GROUP.value,
+                    );
                 });
                 bound.slots.cloudShadow.written();
                 bound.slots.cloudShadowPages.written();

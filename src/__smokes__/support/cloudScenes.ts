@@ -20,8 +20,8 @@ import {
     CLOUD_SCATTER_GLOBAL_WORDS,
     CLOUD_SCATTER_HEADER_WORDS,
     CLOUD_SCATTER_PAGE,
-    CLOUD_SHADOW_RECORD_WORDS,
     CLOUD_SHADOW_SLOT_COUNT,
+    CloudShadowPageViewSchema,
 } from '../../elements/media/clouds/schemas';
 
 /** Uma cena de nuvens. */
@@ -166,7 +166,7 @@ export async function readTexture(
 
 /**
  * O mapa visto do sol por páginas lido da GPU (spec 041, R11 revisto): o atlas e o sol do desenho de cada página física
- * (as três primeiras palavras do registro da série `shadowPages`).
+ * (os campos `sun_*` do registro da série `shadowPages`).
  */
 export async function readShadowMap(app: Application, layer: CloudLayer): Promise<ShadowAtlas> {
     const t = app.resources.textureOf(layer, 'shadow');
@@ -175,8 +175,10 @@ export async function readShadowMap(app: Application, layer: CloudLayer): Promis
     const atlas = await readTexture(app, t, 'rgba16float');
     const raw = await readBuffer(app, b, 'cloud_shadow_pages');
     const suns = new Float32Array(CLOUD_SHADOW_SLOT_COUNT * 3);
+    const words = CloudShadowPageViewSchema.stride / 4;
+    const sun = CloudShadowPageViewSchema.offsetOf('sun_x') / 4;
     for (let i = 0; i < CLOUD_SHADOW_SLOT_COUNT; i++)
-        for (let c = 0; c < 3; c++) suns[i * 3 + c] = raw[i * CLOUD_SHADOW_RECORD_WORDS + c]!;
+        for (let c = 0; c < 3; c++) suns[i * 3 + c] = raw[i * words + sun + c]!;
     return { ...atlas, suns };
 }
 
