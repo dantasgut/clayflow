@@ -1844,6 +1844,11 @@ async function caseOvercastAmbient(): Promise<void> {
     const pano = await readTexture(s.app, t, 'rgba16float');
     const shadow = await readShadowMap(s.app, layer);
     const model = await referenceModel(s, layer);
+    // A luz múltipla da referência é a do panorama da GPU: o cache de espalhamento lido da GPU (a mesma representação;
+    // as sondas contra os caminhos f64 no `scatter-cache`) sobre a estimativa das oitavas, como nos casos de vista. Só
+    // com as oitavas a referência ficava 18,9 % abaixo do cache convergido (as oitavas erram até 50 % do transporte, R8):
+    // a diferença medida era a do modelo, não a do panorama.
+    const scatter = await scatterLookupOf(s, layer, model);
     const sun = sunToward(60);
     const lux = s.sun.data.intensity;
     const amb = s.app.resources.textureOf(layer, 'ambient');
@@ -1853,6 +1858,7 @@ async function caseOvercastAmbient(): Promise<void> {
         sun: sunTransmittance(atmosphere, 1.4, sun).map((v) => v * lux) as unknown as Vec3,
         ambientUp: [ambient.data[0]!, ambient.data[1]!, ambient.data[2]!] as Vec3,
         ambientDown: [ambient.data[4]!, ambient.data[5]!, ambient.data[6]!] as Vec3,
+        ...(scatter === undefined ? {} : { scatter }),
     };
     let clear = 0;
     let gpu = 0;
