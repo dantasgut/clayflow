@@ -1,6 +1,9 @@
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import { FieldType } from '../../../scene/descriptors/FieldType';
 import { StructSchema } from '../../../scene/descriptors/StructSchema';
+import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
+import { lightTransmissionPoint } from '../../scene/points/lighting';
+import { surfaceShadowTransmission } from '../shaders/surfaceShadow';
 import { Collider } from './Collider';
 
 /** Modo do colisor de superfície: altura sobre o plano xz local (terreno) ou distância com sinal (superfície geral). */
@@ -45,6 +48,27 @@ export interface SurfaceColliderOptions {
     readonly steps?: number;
     /** Resolução `[nu, nv]` da grade em que a superfície é avaliada para o campo. Padrão: a do campo (xz) ou 2 × n. */
     readonly sampling?: readonly [number, number];
+    /**
+     * A superfície projeta a sombra das luzes direcionais pelo campo de alturas (só no modo `'height'`; padrão falso):
+     * a pirâmide de máximos do campo, construída com ele (só quando a geometria muda), e a visibilidade do disco da luz
+     * pela marcha nela, contribuição ao ponto `light_transmission` (`surface_shadow.wgsl`). Com ela, a superfície sai do
+     * mapa de sombra virtual: a sombra dela não depende da direção da luz para existir (o sol andando não redesenha nada).
+     */
+    readonly castsShadow?: boolean;
+}
+
+/**
+ * A pirâmide de máximos do campo de alturas de `nx × nz` nós (a sombra, `castsShadow`): o lado `P` (a potência de dois
+ * ≥ o maior número de células), os níveis 1…K (o nível k tem `(P >> k)²` células, cada uma o máximo dos nós que cobre:
+ * `2^k` células de nó por eixo, com as bordas), o início do nível k (`(P² − (P >> (k − 1))²) / 3`) e o total de floats.
+ */
+export function surfaceShadowPyramid(
+    nx: number,
+    nz: number,
+): { readonly side: number; readonly levels: number; readonly floats: number } {
+    let side = 2;
+    while (side < Math.max(nx - 1, nz - 1)) side *= 2;
+    return { side, levels: Math.log2(side), floats: (side * side - 1) / 3 };
 }
 
 /** Dado de um `SurfaceCollider` (layout de `SurfaceCollider.schema`). */
@@ -67,8 +91,8 @@ export interface SurfaceColliderData {
     band: number;
     /** Folga de contato (m). */
     margin: number;
-    /** Preenchimento do layout. */
-    _pad0: number;
+    /** A superfície projeta a sombra pelo campo (1) ou não (0). */
+    shadow: number;
     /** Preenchimento do layout. */
     _pad1: number;
     /** Preenchimento do layout. */
@@ -76,7 +100,7 @@ export interface SurfaceColliderData {
 }
 
 const RES_MIN = 2;
-const RES_MAX_HEIGHT = 2048;
+const RES_MAX_HEIGHT = 4096;
 const RES_MAX_DISTANCE = 256;
 
 /**
@@ -100,7 +124,7 @@ export class SurfaceCollider extends Collider<SurfaceColliderData> {
         copy_stride: FieldType.u32,
         band: FieldType.u32,
         margin: FieldType.f32,
-        _pad0: FieldType.f32,
+        shadow: FieldType.u32,
         _pad1: FieldType.f32,
         _pad2: FieldType.f32,
     });
@@ -126,6 +150,9 @@ export class SurfaceCollider extends Collider<SurfaceColliderData> {
         const steps = options.steps ?? SURFACE_COLLIDER_STEPS;
         if (!Number.isInteger(steps) || steps < 1 || steps > 16)
             throw new RangeError(`SurfaceCollider: cópias ${steps} fora de [1, 16].`);
+        const shadow = options.castsShadow === true;
+        if (shadow && mode !== 'height')
+            throw new RangeError('SurfaceCollider: a sombra pelo campo pede o modo `height`.');
         this.sampling = options.sampling ?? (mode === 'height' ? [nx, nz] : [2 * nx, 2 * nx]);
         for (const n of this.sampling) {
             if (!Number.isInteger(n) || n < RES_MIN || n > 4096)
@@ -141,7 +168,7 @@ export class SurfaceCollider extends Collider<SurfaceColliderData> {
             copy_stride: SURFACE_COLLIDER_HEADER + nx * ny * nz,
             band,
             margin,
-            _pad0: 0,
+            shadow: shadow ? 1 : 0,
             _pad1: 0,
             _pad2: 0,
         };
@@ -150,6 +177,16 @@ export class SurfaceCollider extends Collider<SurfaceColliderData> {
     /** Modo do colisor. */
     get mode(): SurfaceColliderMode {
         return this.data.mode === SURFACE_COLLIDER_MODE_INDEX.distance ? 'distance' : 'height';
+    }
+
+    /** A superfície projeta a sombra pelo campo de alturas? */
+    get castsShadow(): boolean {
+        return this.data.shadow === 1;
+    }
+
+    /** Floats da pirâmide de máximos depois das cópias (0 sem a sombra). */
+    get pyramidFloats(): number {
+        return this.castsShadow ? surfaceShadowPyramid(this.data.nx, this.data.nz).floats : 0;
     }
 
     /** Células do campo (uma cópia). */
@@ -173,10 +210,32 @@ export class SurfaceCollider extends Collider<SurfaceColliderData> {
                 schema: SurfaceCollider.cellSchema,
                 storage: 'pool',
                 upload: 'never',
-                count: this.data.copies * this.data.copy_stride,
+                count: this.data.copies * this.data.copy_stride + this.pyramidFloats,
             },
         ];
     }
+
+    /**
+     * A sombra pelo campo (`castsShadow`): contribuição ao ponto `light_transmission` das luzes direcionais que projetam
+     * sombra, lendo o campo a partir do slot da entidade no pool.
+     */
+    getSceneContributions(): readonly SceneContribution[] {
+        return this.contributions;
+    }
+
+    private readonly contributions: readonly SceneContribution[] = [
+        {
+            point: lightTransmissionPoint,
+            order: 20,
+            pools: [SurfaceCollider.cellSchema],
+            build: (slotOf) => {
+                const first = slotOf(SurfaceCollider.cellSchema);
+                return this.rawData.shadow !== 1 || first === undefined
+                    ? undefined
+                    : surfaceShadowTransmission(first);
+            },
+        },
+    ];
 }
 
 function resolutionOf(

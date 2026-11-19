@@ -42,7 +42,7 @@ import { PerStepUniforms } from '../../gpu/compute/PerStepUniforms';
 import { wordBuffer } from '../../gpu/compute/schemas';
 import { Parent } from '../../scene/Parent';
 import { Transform } from '../../scene/Transform';
-import { SurfaceCollider } from '../colliders/SurfaceCollider';
+import { SurfaceCollider, surfaceShadowPyramid } from '../colliders/SurfaceCollider';
 import {
     SurfaceBakeParamsSchema,
     surfaceColliderBuild,
@@ -103,6 +103,17 @@ interface Shape {
     readonly copies: number;
     /** Passos do jump flooding (do maior para 1, e mais um de 1). */
     readonly jfa: readonly number[];
+    /** A pirâmide de máximos da sombra (`castsShadow`): o início no campo, o lado e os níveis; `undefined` sem ela. */
+    readonly pyramid:
+        | { readonly first: number; readonly side: number; readonly levels: number }
+        | undefined;
+}
+
+/** As passadas da construção da forma (a pirâmide da sombra depois do campo de alturas). */
+function buildEntries(shape: Shape): readonly string[] {
+    return shape.pyramid === undefined
+        ? BUILD_ENTRIES[shape.mode]
+        : [...BUILD_ENTRIES[shape.mode], 'scb_pyramid'];
 }
 
 /** Estado de um colisor: forma, rascunho, parâmetros e o que construir no quadro (a amostragem fica em `pointPipelines`). */
@@ -257,7 +268,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 const p = bound.pipelines.get(buildId(st.id, entry));
                 return p?.role === 'compute' && p.ready ? p : undefined;
             };
-            const entries = BUILD_ENTRIES[st.shape.mode].map(build);
+            const entries = buildEntries(st.shape).map(build);
             if (entries.some((p) => p === undefined)) continue;
             const s = st.shape;
             const run = (p: PreparedCompute, region: number, count: number): void => {
@@ -273,9 +284,22 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             run(points, 0, s.samples);
             run(header!, 0, 1);
             if (s.mode === 'height') {
-                const [height, finish] = rest;
+                const [height, finish, pyramid] = rest;
                 run(height!, 0, s.tris);
                 run(finish!, 0, s.cells);
+                // A pirâmide da sombra, nível a nível (só da última cópia do quadro).
+                if (s.pyramid !== undefined && pyramid !== undefined) {
+                    for (let level = 1; level <= s.pyramid.levels; level++) {
+                        const dim = s.pyramid.side >> level;
+                        frame.compute('SurfaceColliderFlow', (pass) => {
+                            pass.bind.setPipeline(pyramid.spec);
+                            pyramid.bindTo(pass.bind, {
+                                draw: [st.bake.offset(1 + s.jfa.length + level)],
+                            });
+                            pass.dispatch.invocations(dim * dim, WORKGROUP);
+                        });
+                    }
+                }
             } else {
                 const [seed, seedId, jfa, finish] = rest;
                 run(seed!, 0, s.tris);
@@ -328,7 +352,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             for (const { id: pid } of this.pointPipelines.bindable(id, next)) {
                 ctx.bind(prefixed(pid, [...shared, [surfaceResources.params, st.surfaceParams]]));
             }
-            for (const entryName of BUILD_ENTRIES[shape.mode]) {
+            for (const entryName of buildEntries(shape)) {
                 const pid = buildId(id, entryName);
                 ctx.bind(
                     prefixed(pid, [
@@ -460,18 +484,23 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
                 pass_step: 0,
                 parity: 0,
                 margin: collider.data.margin,
+                pyramid_first: s.pyramid?.first ?? 0,
+                pyramid_side: s.pyramid?.side ?? 0,
                 t0: [...t.subarray(0, 4)],
                 t1: [...t.subarray(4, 8)],
                 t2: [...t.subarray(8, 12)],
                 t3: [...t.subarray(12, 16)],
             };
-            const regions = 2 + s.jfa.length;
+            const levels = s.pyramid?.levels ?? 0;
+            const regions = 2 + s.jfa.length + levels;
             if (st.bake.reserve(regions)) this.dirty = true;
             st.bake.write(0, base);
             s.jfa.forEach((step, p) => {
                 st.bake.write(1 + p, { ...base, pass_step: step, parity: p % 2 });
             });
             st.bake.write(1 + s.jfa.length, { ...base, parity: s.jfa.length % 2 });
+            for (let level = 1; level <= levels; level++)
+                st.bake.write(1 + s.jfa.length + level, { ...base, pass_step: level });
             st.bake.flush(regions);
         }
         // Buffer de parâmetros recriado: religa no próximo quadro (os bind groups do quadro já foram feitos).
@@ -517,7 +546,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
             id: name('bake'),
             schema: SurfaceBakeParamsSchema,
         });
-        bake.reserve(2 + shape.jfa.length);
+        bake.reserve(2 + shape.jfa.length + (shape.pyramid?.levels ?? 0));
         const own = (id: string): StorageBufferSpec =>
             this.pools.bufferOf(this.work.work, id) as StorageBufferSpec;
         return {
@@ -538,7 +567,7 @@ export class SurfaceColliderFlow extends Flow<SurfaceColliderSlots, 'idle'> {
 
     /** Libera as passadas da construção do colisor (a amostragem é de `pointPipelines`). */
     private releaseBuild(ctx: Ctx, st: ColliderState): void {
-        for (const entry of BUILD_ENTRIES[st.shape.mode]) ctx.release(buildId(st.id, entry));
+        for (const entry of buildEntries(st.shape)) ctx.release(buildId(st.id, entry));
     }
 
     /** Tira o rascunho e os parâmetros do colisor do trabalho (a C2 os libera). */
@@ -571,8 +600,14 @@ function shapeOf(c: SurfaceCollider): Shape {
         for (let s = 2 ** Math.ceil(Math.log2(n)) / 2; s >= 1; s /= 2) jfa.push(s);
         jfa.push(1);
     }
+    const pyramid = c.castsShadow
+        ? {
+              first: c.data.copies * c.data.copy_stride,
+              ...surfaceShadowPyramid(c.data.nx, c.data.nz),
+          }
+        : undefined;
     return {
-        key: `${mode}:${c.data.nx}x${c.data.ny}x${c.data.nz}:${nu}x${nv}:${c.data.copies}`,
+        key: `${mode}:${c.data.nx}x${c.data.ny}x${c.data.nz}:${nu}x${nv}:${c.data.copies}:${pyramid === undefined ? 0 : 1}`,
         mode,
         nu,
         nv,
@@ -581,5 +616,6 @@ function shapeOf(c: SurfaceCollider): Shape {
         cells,
         copies: c.data.copies,
         jfa,
+        pyramid,
     };
 }

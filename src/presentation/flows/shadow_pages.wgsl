@@ -250,7 +250,12 @@ fn sp_update_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workg
         sp_table_store(
             m,
             texel,
-            vec4u(gx, gy, SV_ALLOCATED | select(0u, SV_RENDERED, rendered) | (age << SV_AGE_SHIFT) | phys, old.w),
+            vec4u(
+                gx,
+                gy,
+                SV_ALLOCATED | select(0u, SV_RENDERED | (old.z & SV_OCCUPIED), rendered) | (age << SV_AGE_SHIFT) | phys,
+                old.w,
+            ),
         );
         if (!rendered) { sp_need(i, SP_NEED_RENDER, phys); }
         return;
@@ -807,4 +812,47 @@ fn ss_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
             }
         }
     }
+}
+
+// ---- 10. a ocupação das páginas desenhadas ----
+
+var<workgroup> sp_occupied: atomic<u32>;
+
+/**
+ * Um grupo por posição da lista das sujas, depois do desenho: a página tem algum texel antes do fundo (1)? A entrada da
+ * tabela ganha `SV_OCCUPIED` (ou o perde): a leitura dá 1 sem a busca dos bloqueadores onde nenhuma página em volta tem
+ * o que projeta (o terreno com a sombra pelo campo de alturas fora do mapa deixa a maioria das páginas vazias).
+ */
+@compute @workgroup_size(256)
+fn sp_occupancy_main(@builtin(workgroup_id) wid: vec3u, @builtin(local_invocation_index) lid: u32) {
+    let d = wid.x;
+    // Sem saída antes das barreiras (o fluxo uniforme do grupo): a posição fora da lista não lê nem escreve.
+    let live = d < sp.budget && d < atomicLoad(&sp_scratch[SP_DIRTY_COUNT]);
+    let m = shadow_matrices[sp.casterSlot];
+    let r = sp.dirtyBase + d * 4u;
+    var head = 0u;
+    var g = vec2i(0);
+    if (live) {
+        head = atomicLoad(&sp_scratch[r]);
+        g = vec2i(bitcast<i32>(atomicLoad(&sp_scratch[r + 1u])), bitcast<i32>(atomicLoad(&sp_scratch[r + 2u])));
+    }
+    let phys = head & 0xFFFFu;
+    let k = head >> 16u;
+    if (lid == 0u) { atomicStore(&sp_occupied, 0u); }
+    workgroupBarrier();
+    if (live) {
+        let first = sv_page_word(m, phys, vec2u(0u));
+        var any_texel = false;
+        for (var t = lid; t < SV_STRIDE * SV_STRIDE; t += 256u) {
+            any_texel = any_texel || sp_atlas[first + t] != 0x3f800000u;
+        }
+        if (any_texel) { atomicStore(&sp_occupied, 1u); }
+    }
+    workgroupBarrier();
+    if (lid != 0u || !live) { return; }
+    let slot = sv_slot(m, k, g);
+    let w = sv_table_word(m, slot);
+    let z = sp_atlas[w + 2u];
+    if (sp_atlas[w] != bitcast<u32>(g.x) || sp_atlas[w + 1u] != bitcast<u32>(g.y) || (z & SV_PHYS_MASK) != phys) { return; }
+    sp_atlas[w + 2u] = select(z & ~SV_OCCUPIED, z | SV_OCCUPIED, atomicLoad(&sp_occupied) != 0u);
 }
