@@ -159,44 +159,7 @@ fn scb_header_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_work
         bake_field[base + 59u] = bitcast<f32>(bake.copy_stride);
         bake_field[base + 60u] = bitcast<f32>(bake.mode);
         bake_field[base + 61u] = bake.margin;
-        // A pirâmide de máximos da sombra (`surface_shadow.wgsl`): o início, relativo ao campo, e o lado (0 sem ela).
-        bake_field[base + 62u] = bitcast<f32>(bake.pyramid_first);
-        bake_field[base + 63u] = bitcast<f32>(bake.pyramid_side);
     }
-}
-
-// Um nível da pirâmide de máximos da sombra (`pass_step`: 1…log2 P), da última cópia do quadro: o nível 1 pelo máximo dos
-// 3 × 3 nós de cada célula (2 × 2 células de nó com as bordas: o máximo da bilinear nelas), os demais pelo dos 4 filhos.
-// Nó sem altura (fora da superfície) não entra; célula sem nó, sem altura.
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn scb_pyramid_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
-    let level = bake.pass_step;
-    let side = bake.pyramid_side;
-    let dim = side >> level;
-    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (level == 0u || dim == 0u || i >= dim * dim) { return; }
-    let cx = i % dim;
-    let cz = i / dim;
-    let pyr = bake.field_first + bake.pyramid_first;
-    var m = -3.0e38;
-    if (level == 1u) {
-        let base = scb_base(bake.copies - 1u) + SCB_HEADER;
-        for (var dz = 0u; dz < 3u; dz++) {
-            for (var dx = 0u; dx < 3u; dx++) {
-                let x = 2u * cx + dx;
-                let z = 2u * cz + dz;
-                if (x < bake.nx && z < bake.nz) { m = max(m, bake_field[base + x + bake.nx * z]); }
-            }
-        }
-    } else {
-        let d = side >> (level - 2u);
-        let src = pyr + (side * side - d * d) / 3u;
-        let sd = side >> (level - 1u);
-        let a = src + 2u * cx + sd * 2u * cz;
-        m = max(max(bake_field[a], bake_field[a + 1u]), max(bake_field[a + sd], bake_field[a + sd + 1u]));
-    }
-    let d1 = side >> (level - 1u);
-    bake_field[pyr + (side * side - d1 * d1) / 3u + cx + dim * cz] = m;
 }
 
 // Altura: cada triângulo da amostragem escreve nos nós xz que cobre a altura interpolada (máximo entre triângulos).

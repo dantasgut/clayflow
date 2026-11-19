@@ -17,8 +17,7 @@ import { Transform } from '../../scene/Transform';
 /**
  * Parâmetros de uma passada da construção de um colisor de superfície (spec 010; uma região por passada, offset
  * dinâmico): amostragem, cópias e os tempos delas, grade e modo, faixa do campo, o slot do `Transform` (o TRS calculado
- * na GPU, ou a matriz do pool de mundo com função ou hierarquia), no jump flooding o passo e a metade lida, e a pirâmide
- * de máximos da sombra (o início e o lado; na construção de um nível, o nível em `pass_step`).
+ * na GPU, ou a matriz do pool de mundo com função ou hierarquia) e, no jump flooding, o passo e a metade lida.
  */
 export const SurfaceBakeParamsSchema = new StructSchema(
     'SurfaceBakeParams',
@@ -41,10 +40,8 @@ export const SurfaceBakeParamsSchema = new StructSchema(
         pass_step: FieldType.u32,
         parity: FieldType.u32,
         margin: FieldType.f32,
-        /** Início da pirâmide de máximos (a sombra), relativo ao início do campo; 0 sem ela. */
-        pyramid_first: FieldType.u32,
-        /** Lado da pirâmide (potência de dois; 0 sem ela). */
-        pyramid_side: FieldType.u32,
+        _pad1: FieldType.u32,
+        _pad2: FieldType.u32,
         t0: FieldType.vec4f,
         t1: FieldType.vec4f,
         t2: FieldType.vec4f,

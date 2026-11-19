@@ -9,9 +9,7 @@
 //     (SC-002);
 //   - solvers: XPBD, FEM e emissor (que antes não colidiam) sobre o vale;
 //   - terreno animado: corpos e fluido acompanham; mesmo estado a 30/60/144 Hz (SC-008);
-//   - lago: água da 017 forma um lago no vale, nível estável, superfície e cáusticas na imagem (SC-002a);
-//   - sombra: a sombra das colinas pelo campo de alturas (spec 041, rodada 13) e pelo mapa de sombra virtual, vistas de
-//     cima, contra a visibilidade exata do disco do sol no campo analítico (referência f64).
+//   - lago: água da 017 forma um lago no vale, nível estável, superfície e cáusticas na imagem (SC-002a).
 // O estado de cada caso é comparado bit a bit (hash) com a fixture `parametricSurfaces-<perfil>.json`; `--record` roda
 // cada caso duas vezes (exige determinismo) e grava.
 //
@@ -40,8 +38,6 @@ import { lumaLinear, toPng } from './support/images';
 import { hashBytes } from './support/fluidMeasures';
 import { waterLook } from './support/waterScene';
 import { block, rng } from './support/particleScenes';
-import { readHdrTexture } from './support/imageMeasures';
-import { exactSurfaceVisibility } from '../elements/physics/colliders/reference/surfaceShadow';
 import {
     insertValley,
     LAKE_VALLEY,
@@ -63,7 +59,7 @@ let profileName = 'unknown';
 /** Erros capturados dos estágios: qualquer um reprova o smoke. */
 const engineErrors: string[] = [];
 
-async function createApp(size = 64, antialias: 'msaa' | 'off' = 'msaa'): Promise<Application> {
+async function createApp(size = 64): Promise<Application> {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
@@ -71,7 +67,7 @@ async function createApp(size = 64, antialias: 'msaa' | 'off' = 'msaa'): Promise
     const app = await Application.create({
         // Antisserrilhado com que as medidas deste smoke foram calibradas (MSAA, o padrão antes da 034; o
         // temporal, padrão agora, tem o smoke `antialiasing`).
-        antialias,
+        antialias: 'msaa',
         canvas,
         scene: createScene(),
         autoResize: false,
@@ -536,76 +532,6 @@ async function readDiff(app: Application, id: EntityId, count: number): Promise<
 }
 
 const CASES: Record<string, Case> = {
-    /**
-     * A sombra das colinas com o sol baixo (spec 041, rodada 13): pelo campo de alturas do colisor (`castsShadow`) e pelo
-     * mapa de sombra virtual, contra a visibilidade exata do disco do sol no campo analítico (f64), por pixel da vista de
-     * cima. Critério: o erro médio pelo campo ≤ 3 % e não maior que o do mapa virtual; os pixels errados (|ΔV| > 0,25)
-     * não mais que os do mapa.
-     */
-    async shadow() {
-        const c = collector();
-        const size = 256;
-        const elevations = [3, 8, 20];
-        const field = await hillsVisibility(true, elevations, size);
-        const vsm = await hillsVisibility(false, elevations, size);
-        const px = 2000 / size;
-        elevations.forEach((el, k) => {
-            const e = (el * Math.PI) / 180;
-            const a = (37 * Math.PI) / 180;
-            const l: [number, number, number] = [
-                Math.cos(e) * Math.cos(a),
-                Math.sin(e),
-                Math.cos(e) * Math.sin(a),
-            ];
-            let n = 0;
-            let errField = 0;
-            let errVsm = 0;
-            let badField = 0;
-            let badVsm = 0;
-            let shaded = 0;
-            for (let y = 2; y < size - 2; y++)
-                for (let x = 2; x < size - 2; x++) {
-                    const i = x + size * y;
-                    const vf = field[k]![i]!;
-                    const vv = vsm[k]![i]!;
-                    if (!Number.isFinite(vf) || !Number.isFinite(vv)) continue;
-                    const wx = -1000 + (x + 0.5) * px;
-                    const wz = -1000 + (y + 0.5) * px;
-                    const ref = exactSurfaceVisibility(
-                        hillsHeight,
-                        [-1000, 1000, -1000, 1000],
-                        [wx, hillsHeight(wx, wz), wz],
-                        l,
-                        SUN_RADIUS,
-                        1,
-                    );
-                    n++;
-                    if (ref < 0.5) shaded++;
-                    const df = Math.abs(Math.min(1, Math.max(0, vf)) - ref);
-                    const dv = Math.abs(Math.min(1, Math.max(0, vv)) - ref);
-                    errField += df;
-                    errVsm += dv;
-                    if (df > 0.25) badField++;
-                    if (dv > 0.25) badVsm++;
-                }
-            const mf = c.measure(`sol ${el}°: erro médio pelo campo`, errField / n);
-            const mv = c.measure(`sol ${el}°: erro médio pelo mapa virtual`, errVsm / n);
-            c.measure(`sol ${el}°: pixels na sombra (%)`, (100 * shaded) / n);
-            c.measure(`sol ${el}°: pixels errados pelo campo (%)`, (100 * badField) / n);
-            c.measure(`sol ${el}°: pixels errados pelo mapa virtual (%)`, (100 * badVsm) / n);
-            c.check(mf <= 0.03, `sol ${el}°: erro médio pelo campo ${mf.toFixed(4)} > 0,03`);
-            c.check(
-                mf <= mv,
-                `sol ${el}°: o campo (${mf.toFixed(4)}) pior que o mapa virtual (${mv.toFixed(4)})`,
-            );
-            c.check(
-                badField <= badVsm,
-                `sol ${el}°: ${badField} pixels errados pelo campo contra ${badVsm} pelo mapa`,
-            );
-        });
-        return c.result();
-    },
-
     /** Campo de alturas do vale contra a fórmula: erro nos nós cobertos, caixa e cópias. */
     async field() {
         const c = collector();
@@ -1586,105 +1512,6 @@ const CASES: Record<string, Case> = {
         return c.result();
     },
 };
-
-/** As colinas do caso `shadow` (m): gaussianas de 25–55 m e ondulações de ±6 m em 60–100 m, num quadrado de 2 km. */
-const HILLS_CODE = /* wgsl */ `
-fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
-    let x = 1000.0 * v;
-    let z = 1000.0 * u;
-    var h = 6.0 * sin(x / 97.0) * cos(z / 73.0) + 3.0 * sin((x + 2.0 * z) / 61.0);
-    h += 40.0 * exp(-((x + 400.0) * (x + 400.0) + (z + 300.0) * (z + 300.0)) / 64800.0);
-    h += 55.0 * exp(-((x - 300.0) * (x - 300.0) + (z + 100.0) * (z + 100.0)) / 125000.0);
-    h += 30.0 * exp(-((x + 100.0) * (x + 100.0) + (z - 500.0) * (z - 500.0)) / 39200.0);
-    h += 25.0 * exp(-((x - 500.0) * (x - 500.0) + (z - 600.0) * (z - 600.0)) / 28800.0);
-    return vec3f(x, h, z);
-}`;
-
-function hillsHeight(x: number, z: number): number {
-    let h = 6 * Math.sin(x / 97) * Math.cos(z / 73) + 3 * Math.sin((x + 2 * z) / 61);
-    h += 40 * Math.exp(-((x + 400) ** 2 + (z + 300) ** 2) / 64800);
-    h += 55 * Math.exp(-((x - 300) ** 2 + (z + 100) ** 2) / 125000);
-    h += 30 * Math.exp(-((x + 100) ** 2 + (z - 500) ** 2) / 39200);
-    h += 25 * Math.exp(-((x - 500) ** 2 + (z - 600) ** 2) / 28800);
-    return h;
-}
-
-/** O raio angular do sol (rad). */
-const SUN_RADIUS = 0.004675;
-
-/**
- * A visibilidade do sol por pixel das colinas vistas de cima (ortográfica, 2 km em `size` pixels), para cada elevação:
- * (A − C)/(B − C), com A a cena com a sombra, B sem projetar (`castShadow` 0) e C sem o sol — o que não é do sol (o
- * ambiente) sai, e o resto (a resposta do material, N·L) se cancela. Pixels de N·L pequeno (B − C ≤ 5 % do máximo) ficam
- * fora (NaN).
- */
-async function hillsVisibility(
-    byField: boolean,
-    elevations: readonly number[],
-    size: number,
-): Promise<Float32Array[]> {
-    // Sem antisserrilhado: o valor de cada pixel é o do centro dele (a referência é por ponto).
-    const app = await createApp(size, 'off');
-    app.world.insert(
-        new Camera({ projection: 'orthographic', orthoHeight: 2000, near: 1, far: 2000 }).add(
-            new Transform({
-                position: [0, 800, 0, 1],
-                rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2],
-            }),
-        ),
-    );
-    const sun = new DirectionalLight({
-        direction: [0, -1, 0, 0],
-        intensity: 10,
-        castShadow: true,
-        angularRadius: SUN_RADIUS,
-    });
-    app.world.insert(sun);
-    app.world.insert(
-        new clayflow.ParametricSurface({ domain: [-1, 1, -1, 1], resolution: [513, 513] })
-            .add(new clayflow.SurfaceFunction({ code: HILLS_CODE }))
-            .add(new clayflow.SurfaceCollider({ resolution: 1025, steps: 1, castsShadow: byField }))
-            .add(new clayflow.StandardMaterial({ albedo: [1, 1, 1, 1], roughness: 1, metallic: 0 }))
-            .add(new Transform()),
-    );
-    await settle(app);
-    const color = async (): Promise<Float32Array> => {
-        await settleFrames(app, 40);
-        const t = app.resources.textureOf(app.defaults.targets, 'color');
-        if (t === undefined) throw new Error('cor da cena não alocada');
-        return (await readHdrTexture(app, t)).data;
-    };
-    const dir = (el: number): number[] => {
-        const e = (el * Math.PI) / 180;
-        const a = (37 * Math.PI) / 180;
-        return [-Math.cos(e) * Math.cos(a), -Math.sin(e), -Math.cos(e) * Math.sin(a), 0];
-    };
-    const lit: Float32Array[] = [];
-    for (const el of elevations) {
-        sun.data.direction = dir(el);
-        lit.push(await color());
-    }
-    sun.data.castShadow = 0;
-    const open: Float32Array[] = [];
-    for (const el of elevations) {
-        sun.data.direction = dir(el);
-        open.push(await color());
-    }
-    sun.data.intensity = 0;
-    const dark = await color();
-    app.dispose();
-    return elevations.map((_, k) => {
-        const out = new Float32Array(size * size);
-        let max = 0;
-        for (let i = 0; i < size * size; i++)
-            max = Math.max(max, open[k]![i * 4 + 1]! - dark[i * 4 + 1]!);
-        for (let i = 0; i < size * size; i++) {
-            const b = open[k]![i * 4 + 1]! - dark[i * 4 + 1]!;
-            out[i] = b > 0.05 * max ? (lit[k]![i * 4 + 1]! - dark[i * 4 + 1]!) / b : NaN;
-        }
-        return out;
-    });
-}
 
 interface Manifest {
     readonly profile: string;

@@ -13,11 +13,6 @@ const SV_MAX_LEVELS: u32 = 16u;
 /** Estados da página na tabela (palavra z): alocada (tem página física) e desenhada (pode ser lida). */
 const SV_ALLOCATED: u32 = 0x80000000u;
 const SV_RENDERED: u32 = 0x40000000u;
-/**
- * A página desenhada tem o que projeta (algum texel antes do fundo): sem ele, nada na página tapa a luz e a busca dos
- * bloqueadores e o filtro dela dão 1 sem ler o atlas (`sv_region_empty`).
- */
-const SV_OCCUPIED: u32 = 0x20000000u;
 const SV_PHYS_MASK: u32 = 0xFFFFu;
 const SV_AGE_SHIFT: u32 = 16u;
 const SV_AGE_MASK: u32 = 0xFFu;

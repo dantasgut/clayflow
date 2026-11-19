@@ -68,25 +68,6 @@ fn shadow_virtual_volume(
     return 1.0;
 }
 
-/**
- * As páginas do nível `k` que o quadrado de meio lado `radius` em volta de `q` toca (até 3 × 3) estão todas desenhadas e
- * sem nada que projete (`SV_OCCUPIED`)? Então nada ali tapa a luz: a busca dos bloqueadores e o filtro dariam 1.
- */
-fn sv_region_empty(m: ShadowMatrix, k: u32, q: vec2f, radius: f32) -> bool {
-    let page = sv_page_size(m, k);
-    let g0 = vec2i(floor((q - vec2f(radius)) / page));
-    let g1 = vec2i(floor((q + vec2f(radius)) / page));
-    if (any(g1 - g0 > vec2i(2))) { return false; }
-    for (var i = 0u; i < 9u; i++) {
-        let g = g0 + vec2i(i32(i % 3u), i32(i / 3u));
-        if (any(g > g1)) { continue; }
-        if (!sv_in_window(m, k, g)) { return false; }
-        let e = shadow_table_entry(m, sv_slot(m, k, g));
-        if (!sv_readable(e, g) || (e.z & SV_OCCUPIED) != 0u) { return false; }
-    }
-    return true;
-}
-
 /** Primeiro nível desde `first` com a página de `q` desenhada (na janela); `levels` se nenhum. */
 fn sv_readable_level(m: ShadowMatrix, first: u32, q: vec2f) -> u32 {
     let levels = sv_levels(m);
@@ -202,10 +183,6 @@ fn shadow_virtual_visibility(
     let turn = mat2x2f(r.x, r.y, -r.y, r.x);
     // A meia largura da penumbra (m) pelo disco da luz; sem disco, a do texel.
     let spread = tan(max(angular_radius, 0.0));
-    // Nenhuma página ao alcance da busca (ou do filtro de um texel) com o que projeta: iluminado, sem ler o atlas.
-    if (sv_region_empty(m, k0, pl.xy, select(3.0 * t0, spread * 2.0 * m.depthRange + 3.0 * t0, spread > 0.0))) {
-        return 1.0;
-    }
     var penumbra = 0.0;
     if (spread > 0.0) {
         let b = sv_blockers(m, k0, pl, slope, spread, spread * 2.0 * m.depthRange, turn, bias_texels);

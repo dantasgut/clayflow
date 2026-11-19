@@ -38,7 +38,6 @@ import { Geometry } from '../../elements/geometry/Geometry';
 import { Material } from '../../elements/material/Material';
 import { PointSpriteMaterial } from '../../elements/material/PointSpriteMaterial';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
-import { SurfaceCollider } from '../../elements/physics/colliders/SurfaceCollider';
 import { SHADOW_MAX_LEVELS, SHADOW_PAGE_STRIDE, ShadowMap } from '../../elements/scene/ShadowMap';
 import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { Transform } from '../../elements/scene/Transform';
@@ -317,16 +316,14 @@ function drawsTriangles(key: string): boolean {
 /**
  * Chave do grupo de profundidade: geometria (chave de conteúdo) e orientação das faces — `two` para o material de dois
  * lados (as duas faces projetam sombra; T061a). A entidade cujo material não projeta sombra (spec 008: linhas e
- * sprites, salvo opção do material) vai para um grupo `no-shadow`, não desenhado; sem material, projeta. A superfície
- * de altura que projeta a sombra pelo campo do colisor (`SurfaceCollider` com `castsShadow`, spec 041) também: a sombra
- * dela entra por `light_transmission`, independente da direção da luz.
+ * sprites, salvo opção do material) vai para um grupo `no-shadow`, não desenhado; sem material, projeta.
  */
 export function shadowGroupKey(entry: EntityEntry, world: World): string {
     const geometry = entry.get(Geometry).contentKey ?? `entity:${entry.entityId}`;
-    const resources = world.resourcesOf(entry.entityId);
-    const material = resources.find((r) => r instanceof Material) as Material | undefined;
-    const byField = resources.some((r) => r instanceof SurfaceCollider && r.castsShadow);
-    const casts = (material === undefined || material.castsShadow) && !byField;
+    const material = world.resourcesOf(entry.entityId).find((r) => r instanceof Material) as
+        | Material
+        | undefined;
+    const casts = material === undefined || material.castsShadow;
     const faces =
         material?.doubleSided === true ? 'two' : entry.get(Transform).mirrored ? 'cw' : 'ccw';
     // Os vértices como sprites que projetam: o raio na chave (as instâncias de um grupo dividem o raio).
@@ -442,10 +439,7 @@ const PAGE_STEPS = [
     'sp_pairs_main',
     'sp_clusters_main',
     'sp_cluster_box_main',
-    'sp_occupancy_main',
 ] as const;
-/** A etapa da ocupação das páginas desenhadas (depois do desenho, num passe à parte). */
-const OCCUPANCY_STEP = PAGE_STEPS.indexOf('sp_occupancy_main');
 /** A etapa das listas dos grupos em aglomerados (despachada por grupo, com a região dele). */
 const CLUSTERS_STEP = PAGE_STEPS.indexOf('sp_clusters_main');
 /** A etapa da caixa da geometria de um grupo em aglomerados pelas dos aglomerados (por grupo, com a região dele). */
@@ -754,13 +748,6 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 pass.draw.indirect(args, c.groups * INDIRECT_WORDS * 4);
             }
         });
-        // A ocupação das páginas desenhadas (um grupo por posição da lista das sujas).
-        frame.compute('ShadowFlow.occupancy', (pass) => {
-            const step = steps[OCCUPANCY_STEP]!;
-            pass.bind.setPipeline(step.spec);
-            step.bindTo(pass.bind);
-            pass.dispatch.workgroups(SHADOW_PAGE_BUDGET);
-        });
         atlas.written();
         bound.slots.rects?.written();
         bound.slots.clusterBoxes?.written();
@@ -1016,10 +1003,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const content = groups.map((g) => `${g.key}:${g.first}:${g.count}`).join(';');
         // A geometria escrita pela GPU deforma só nos quadros em que o produtor a escreve (`produced`, spec 031): a
         // superfície parada (a malha adaptativa com a câmera parada) não suja as páginas a cada quadro.
-        // Só o que é desenhado se deforma para o mapa (o grupo fora do desenho não suja páginas).
-        const deforming = groups.map(
-            (g) => drawsTriangles(g.key) && this.deformingNow(g.representative.get(Geometry)),
-        );
+        const deforming = groups.map((g) => this.deformingNow(g.representative.get(Geometry)));
         const moving = deforming.map((d) => (d ? 1 : 0)).join('');
         const plans = [...this.clusterPlans]
             .map(([g, p]) => `${g}:${p.first}:${p.count}:${p.pipeline}:${p.ready}`)
@@ -1249,9 +1233,6 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsGroupsOf = [];
         this.clusterKernels = new Map();
         ctx.bound.slots.casters.groups.forEach((group, index) => {
-            // O grupo que não projeta (nem sprites) não é desenhado: sem caixa (a malha adaptativa do terreno com a
-            // sombra pelo campo refazia a caixa dos vértices inteiros a cada quadro).
-            if (!drawsTriangles(group.key)) return;
             const vertices = this.resources.bufferOf(
                 group.representative.get(Geometry),
                 'vertices',
