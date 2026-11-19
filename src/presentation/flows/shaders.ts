@@ -112,6 +112,7 @@ export const shadowPageChannels = Object.freeze({
     requests: 'requests',
     atlas: 'atlas',
     rects: 'rects',
+    clusterBoxes: 'clusterBoxes',
 });
 
 /** Recursos das páginas do mapa de sombra virtual (spec 034, T060), privados do `ShadowFlow` salvo as séries. */
@@ -204,6 +205,32 @@ export const shadowResources = {
         frequency: 'stage',
         provider: { slot: shadowPageChannels.atlas, part: 'clock' },
     }),
+    /**
+     * As caixas dos aglomerados das malhas grandes (6 `f32` cada, no espaço do objeto), série por páginas (uma página
+     * por aglomerado): a caixa carimbada na época atual segue; refeita só quando a geometria se deforma, o cache
+     * recomeça ou a série é interrompida.
+     */
+    clusterBoxes: wgslResource({
+        name: 'sp_cluster_boxes',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'f32', array: true },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.clusterBoxes, lag: 0 },
+    }),
+    clusterStamps: wgslResource({
+        name: 'sp_cluster_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.clusterBoxes, part: 'stamps' },
+    }),
+    clusterClock: wgslResource({
+        name: 'sp_cluster_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: shadowPageChannels.clusterBoxes, part: 'clock' },
+    }),
     /** Lista de instâncias dos grupos de profundidade (slot `casters`). */
     instances: wgslResource({
         name: 'instances',
@@ -246,6 +273,9 @@ export const shadowPages = wgslModule({
         shadowResources.rectsPrevious,
         shadowResources.atlasStamps,
         shadowResources.atlasClock,
+        shadowResources.clusterBoxes,
+        shadowResources.clusterStamps,
+        shadowResources.clusterClock,
         shadowResources.instances,
         shadowResources.spritePoints,
         shadowResources.spriteSource,

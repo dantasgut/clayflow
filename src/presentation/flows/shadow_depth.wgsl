@@ -78,7 +78,10 @@ fn shadow_cluster_vs(@builtin(vertex_index) v: u32, @builtin(instance_index) ins
     if (instance >= shadow_group.listCap) { return out; }
     let entry = sp_scratch_read[shadow_group.listBase + instance];
     let i = (entry & SP_CLUSTER_MASK) * SP_CLUSTER_TRIS * 3u + v;
-    if (i >= shadow_group.indexCount) { return out; }
+    // Os índices do quadro: a capacidade ou, na malha adaptativa, a contagem dela (`countWord`).
+    var indexCount = shadow_group.indexCount;
+    if (shadow_group.countWord != 0u) { indexCount = min(indexCount, sp_scratch_read[shadow_group.countWord]); }
+    if (i >= indexCount) { return out; }
     let base = sp_scratch_read[sp.groupPairsBase + shadow_group.group * 4u + 1u];
     let pair = sp_pairs_read[base + (entry >> SP_CLUSTER_SHIFT)];
     let k = shadow_cluster_indices[i] * 8u;
