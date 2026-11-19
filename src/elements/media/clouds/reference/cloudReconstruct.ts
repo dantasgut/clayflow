@@ -4,7 +4,8 @@
 // em volta diverge da média dos valores exatos deles além da tolerância mais o ruído esperado da média — o erro padrão
 // das amostras, R19: Schied et al. 2018; a lição dos blocos 2 × 2
 // da 034), quando o histórico sai da tela ou quando a série não vale (corte, recriação, primeiro quadro): aí, o valor do
-// bloco. O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura.
+// bloco. O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura, na
+// medida da incerteza da reprojeção (`clip`: 0 com a câmera parada ou girando, 1 com a paralaxe de um texel ou mais).
 // A superfície: o histórico só vale marchado até a mesma superfície do pixel agora, e o valor do bloco só é o do pixel
 // marchado se este for da mesma superfície (senão, o do bloco vizinho mais parecido, `cloudFreshForSurface`).
 
@@ -96,6 +97,11 @@ export interface ReconstructInput {
      * dele (undefined: fora da tela, fica de fora da média).
      */
     readonly neighbors: readonly { readonly fresh: Rgba; readonly check: Rgba | undefined }[];
+    /**
+     * Quanto o histórico é recortado pela caixa (0…1, `cloud_reprojection_clip`): o deslocamento da reprojeção entre as
+     * profundidades do trecho da nuvem. Ausente: 1 (a câmera que anda).
+     */
+    readonly clip?: number;
 }
 
 const mean = (v: readonly Rgba[]): Rgba =>
@@ -123,7 +129,8 @@ export function reconstructTexel(i: ReconstructInput): Rgba {
         const lo = Math.min(...box.map((n) => n[c]!));
         const hi = Math.max(...box.map((n) => n[c]!));
         const pad = CLOUD_BOX_PAD * (hi - lo);
-        return Math.min(hi + pad, Math.max(lo - pad, i.history![c]!));
+        const h = i.history![c]!;
+        return h + (Math.min(hi + pad, Math.max(lo - pad, h)) - h) * (i.clip ?? 1);
     });
     if (!i.marched) return clamped as unknown as Rgba;
     return [0, 1, 2, 3].map(

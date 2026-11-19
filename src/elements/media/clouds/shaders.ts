@@ -892,6 +892,7 @@ export const cloudMarchKernel = {
 const reconstructRequires = [
     WORKGROUP_SIZE.module,
     color,
+    cloudCommon,
     bayer,
     sceneLimit,
     viewSpace,
@@ -926,6 +927,7 @@ export const cloudUpsampleKernel = {
         source: cloudUpsampleSource,
         requires: [
             WORKGROUP_SIZE.module,
+            cloudCommon,
             bayer,
             sceneLimit,
             sceneDepth.single,
@@ -943,6 +945,7 @@ export const cloudUpsampleKernel = {
         source: cloudUpsampleSource,
         requires: [
             WORKGROUP_SIZE.module,
+            cloudCommon,
             bayer,
             sceneLimit,
             sceneDepth.multisampled,

@@ -122,6 +122,33 @@ describe('reconstrução temporal', () => {
         expect(out[3]).toBeCloseTo(0.2, 12);
     });
 
+    it('reprojeção exata (câmera parada ou girando): o detalhe claro fora da caixa de uma amostra por bloco fica', () => {
+        // Arrange: o histórico do pixel guarda a borda prateada (60) que as amostras dos 3 × 3 blocos deste quadro não
+        // pegaram; nos pixels marchados o histórico concorda com elas (o gradiente aprova).
+        const hist: Rgba = [60, 60, 60, 0.1];
+        const dark: Rgba = [8, 8, 8, 0.1];
+        const dim: Rgba = [10, 10, 10, 0.1];
+        const input = {
+            marched: false,
+            valid: true,
+            fresh: dark,
+            history: hist,
+            check: dark,
+            neighbors: [
+                { fresh: dark, check: dark },
+                { fresh: dim, check: dim },
+            ],
+        };
+        // Act
+        const still = reconstructTexel({ ...input, clip: 0 });
+        const moving = reconstructTexel({ ...input, clip: 1 });
+        const half = reconstructTexel({ ...input, clip: 0.5 });
+        // Assert: parada, o histórico inteiro; andando, recortado à caixa [8, 10] com folga ([7, 11]); no meio, a média.
+        expect(still[0]).toBe(60);
+        expect(moving[0]).toBeCloseTo(11, 12);
+        expect(half[0]).toBeCloseTo(35.5, 12);
+    });
+
     it('superfície: o valor do bloco marchado no céu não entra no pixel do chão, nem o histórico do céu', () => {
         // Arrange: o pixel do chão a 2,5 km; o bloco foi marchado no céu, o vizinho de baixo no chão a 1,4 km.
         const limits = [CLOUD_SKY_DISTANCE, CLOUD_SKY_DISTANCE, 1400, 900];

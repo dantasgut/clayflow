@@ -3,10 +3,13 @@
 // profundidade da nuvem do quadro anterior) e pelo vento (onde a nuvem estava: o ponto menos o vento × Δt); o pixel
 // marchado mistura o valor exato a ele (média exponencial). O gradiente temporal da 034, filtrado nos 3 × 3 blocos em
 // volta, decide a validade: se a média dos históricos reprojetados nos pixels marchados diverge da média dos valores
-// exatos além da tolerância, os quatro do bloco largam o histórico (o valor do bloco). Sem recorte do histórico pela
-// caixa da vizinhança: ela tem uma amostra por bloco, e o detalhe fino fora dela seria recortado em três de cada quatro
-// quadros (como a Unreal, que deixa o recorte da reprojeção desligado por padrão). Sem histórico válido (corte,
-// recriação, primeiro quadro), o valor do bloco.
+// exatos além da tolerância, os quatro do bloco largam o histórico (o valor do bloco). O recorte do histórico pela caixa
+// dos valores exatos dos 3 × 3 blocos só onde a reprojeção é incerta: a profundidade da nuvem é a média de um trecho, e
+// a câmera que anda (o `voo`) leva o histórico de outro lugar; parada ou girando, a reprojeção não depende da
+// profundidade e o histórico é exato — a caixa tem uma amostra por bloco, e o detalhe claro menor que o bloco (a borda
+// prateada das nuvens a 50–100 km perto do sol baixo, a faixa rente ao horizonte) ficava fora dela em quase todo quadro e
+// era recortado (`sunset`: −35 % de luz nas linhas junto ao sol). Sem histórico válido (corte, recriação, primeiro
+// quadro), o valor do bloco.
 // A superfície (spec 041): cada texel marcha até a superfície mais próxima dos pixels da tela dele, e o valor guarda até
 // onde foi (`cloud_march_depth_out.g`). O histórico é lido só dos texels marchados até a mesma superfície de agora, e o valor do bloco
 // é o do pixel marchado dele só se este for da mesma superfície; senão, o do bloco vizinho (3 × 3) mais parecido. Na borda
@@ -16,7 +19,7 @@
 // Espelho de `reference/cloudReconstruct.ts`.
 // Despacho linear: um texel por invocação.
 // O vento da reprojeção é `cloud_wind_at` (o uniforme da camada; com o tempo, o do quadrado do tempo no ponto, R19).
-// Requer: WORKGROUP_SIZE, color, cloud_march_bayer, cloud_scene_limit, cloud_scene_depth, camera_space, clouds, cameras,
+// Requer: WORKGROUP_SIZE, color, cloud_common, cloud_march_bayer, cloud_scene_limit, cloud_scene_depth, camera_space, clouds, cameras,
 // cloud_wind_at, cloud_trace, cloud_trace_depth, cloud_march_prev,
 // cloud_march_depth_prev, cloud_march_out, cloud_march_depth_out.
 
@@ -31,24 +34,63 @@ const CLOUD_GRADIENT_TOLERANCE: f32 = 0.2;
 const CLOUD_HISTORY_BLEND: f32 = 0.25;
 
 /**
+ * Onde o ponto do pixel `q` (¼ da tela) à distância `d` (m) estava no quadro anterior (normalizado na tela; z = 1 se dentro
+ * dela): a câmera atual e o vento (o ponto menos o vento × Δt).
+ */
+fn cloud_previous_uv(q: vec2u, full: vec2f, d: f32) -> vec3f {
+    let slot = clouds.march.w;
+    let ray = camera_ray(slot, (vec2f(q) + 0.5) * f32(cloud_march_scale()), full);
+    let world = ray.origin + ray.dir * d;
+    let wind = cloud_wind_at(world);
+    let before = world - vec3f(wind.x, 0.0, wind.y) * clouds.timing.x;
+    let clip = cameras[slot].previousViewProjection * vec4f(before, 1.0);
+    if (clip.w <= 0.0) { return vec3f(0.0, 0.0, 0.0); }
+    let uv = ndc_to_uv(clip.xy / clip.w);
+    return vec3f(uv, select(0.0, 1.0, all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0))));
+}
+
+/** A profundidade guardada da nuvem no texel `q` do quadro anterior (m; sem nuvem, a do fundo). */
+fn cloud_history_depth(q: vec2u) -> f32 {
+    let prev_depth = textureLoad(cloud_march_depth_prev, q, 0).r;
+    return select(1e7, prev_depth, prev_depth > 0.0);
+}
+
+/**
+ * Fator de profundidade da incerteza da reprojeção: a profundidade guardada é a média da opacidade ao longo de um trecho
+ * da nuvem, e a luz vem de pontos até este fator mais perto ou mais longe.
+ */
+const CLOUD_DEPTH_SPREAD: f32 = 2.0;
+/** Deslocamentos (texels) da reprojeção entre as profundidades do trecho: abaixo do primeiro, o histórico é exato (sem
+ * recorte); a partir do segundo, recorte inteiro. */
+const CLOUD_PARALLAX_EXACT: f32 = 0.25;
+const CLOUD_PARALLAX_CLIP: f32 = 1.0;
+
+/**
+ * Quanto o histórico do texel `q` deve ser recortado (0…1): o deslocamento da reprojeção dele (texels do alvo) quando a
+ * profundidade vai de `d/CLOUD_DEPTH_SPREAD` a `d·CLOUD_DEPTH_SPREAD` — a paralaxe da câmera que anda (e do vento, que
+ * leva os pontos perto mais pixels que os longe). Parada ou girando, 0.
+ */
+fn cloud_reprojection_clip(q: vec2u, full: vec2f) -> f32 {
+    let d = cloud_history_depth(q);
+    let dims = vec2f(textureDimensions(cloud_march_prev));
+    let mid = cloud_previous_uv(q, full, d);
+    let near = cloud_previous_uv(q, full, d / CLOUD_DEPTH_SPREAD);
+    let far = cloud_previous_uv(q, full, d * CLOUD_DEPTH_SPREAD);
+    if (mid.z * near.z * far.z < 0.5) { return 1.0; }
+    let spread = max(length((near.xy - mid.xy) * dims), length((far.xy - mid.xy) * dims));
+    return clamp((spread - CLOUD_PARALLAX_EXACT) / (CLOUD_PARALLAX_CLIP - CLOUD_PARALLAX_EXACT), 0.0, 1.0);
+}
+
+/**
  * O histórico no pixel `q` (¼ da tela) reprojetado, só dos texels marchados até a superfície `surface` (m): a leitura
  * bilinear dos quatro vizinhos, cada um pesado pela concordância da superfície guardada com ele (com a câmera andando, a
  * leitura na silhueta do chão contra o céu misturava o valor de um ao outro); `a` < 0 quando sai da tela ou nenhum dos
  * quatro é da mesma superfície.
  */
 fn cloud_history_at(q: vec2u, full: vec2f, surface: f32) -> vec4f {
-    let slot = clouds.march.w;
-    let cam = cameras[slot];
-    let prev_depth = textureLoad(cloud_march_depth_prev, q, 0).r;
-    let ray = camera_ray(slot, (vec2f(q) + 0.5) * f32(cloud_march_scale()), full);
-    let d = select(1e7, prev_depth, prev_depth > 0.0);
-    let world = ray.origin + ray.dir * d;
-    let wind = cloud_wind_at(world);
-    let before = world - vec3f(wind.x, 0.0, wind.y) * clouds.timing.x;
-    let clip = cam.previousViewProjection * vec4f(before, 1.0);
-    if (clip.w <= 0.0) { return vec4f(0.0, 0.0, 0.0, -1.0); }
-    let uv = ndc_to_uv(clip.xy / clip.w);
-    if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let prev = cloud_previous_uv(q, full, cloud_history_depth(q));
+    if (prev.z < 0.5) { return vec4f(0.0, 0.0, 0.0, -1.0); }
+    let uv = prev.xy;
     let dims = vec2i(textureDimensions(cloud_march_prev));
     let p = uv * vec2f(dims) - 0.5;
     let base = vec2i(floor(p));
@@ -106,6 +148,12 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let blocks = textureDimensions(cloud_trace);
     let b = min(q / 2u, blocks - 1u);
     let own = min(cloud_block_distance(clouds.march.w, q), CLOUD_SKY_DISTANCE);
+    // A superfície do texel mais perto que a casca: a marcha até ela não acha nuvem (o valor exato, sem histórico).
+    if (own < cloud_shell_nearest(cameras[clouds.march.w].position.xyz)) {
+        textureStore(cloud_march_out, q, vec4f(0.0, 0.0, 0.0, 1.0));
+        textureStore(cloud_march_depth_out, q, vec4f(0.0, own, 0.0, 0.0));
+        return;
+    }
     // O valor exato da mesma superfície: o do bloco, ou o do vizinho marchado até a superfície mais parecida.
     var pick = b;
     var best = cloud_surface_differs(textureLoad(cloud_trace_depth, b, 0).g, own);
@@ -176,7 +224,7 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
             // A caixa com folga de metade da largura: uma amostra por bloco não cobre o detalhe fino (a faixa de 2–4 px
             // rente ao horizonte), que o recorte justo erodia (`sunset`, 5,8 %).
             let pad = CLOUD_BOX_PAD * (hi - lo);
-            out = clamp(hist, lo - pad, hi + pad);
+            out = mix(hist, clamp(hist, lo - pad, hi + pad), cloud_reprojection_clip(q, full));
             if (all(q == marched)) {
                 out = mix(out, fresh, CLOUD_HISTORY_BLEND);
             } else {

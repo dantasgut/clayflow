@@ -14,6 +14,15 @@ fn cloud_altitude(p: vec3f) -> f32 {
     return length(vec3f(p.x, p.y + r, p.z)) - r;
 }
 
+/**
+ * A menor distância (m) de `o` à casca (0 dentro dela): abaixo da base, até a esfera da base pela vertical; acima do
+ * topo, até a do topo. Uma superfície mais perto que isso não tem nuvem na frente.
+ */
+fn cloud_shell_nearest(o: vec3f) -> f32 {
+    let a = cloud_altitude(o);
+    return max(max(clouds.shell.y - a, a - clouds.shell.z), 0.0);
+}
+
 /** Fração de altura na camada (fora de [0, 1] fora dela). */
 fn cloud_height_fraction(p: vec3f) -> f32 {
     return (cloud_altitude(p) - clouds.shell.y) / max(clouds.shell.w, 1e-3);
