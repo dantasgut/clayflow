@@ -92,12 +92,19 @@ describe('Sky e SkyFlow (spec 033, T017)', () => {
         for (let i = 0; i < 3; i++) s.step();
         expect(s.computes()).toContain('SkyAerialFlow.sky_aerial');
         expect(s.sky.data.aerial).toBe(1);
-        // O déficit da sombra no fundo (spec 041, raios crepusculares): com a tabela escrita, o fundo o tira do céu.
-        const background = s.sky
-            .getSceneContributions()
-            .find((c) => c.point.name === 'scene_background')!
-            .build(() => undefined)!;
-        expect(composeWgsl(background).spec.source).toContain('sky_aerial_shadow_lut');
+        // O déficit da sombra no fundo (spec 041, raios crepusculares): com a tabela escrita e algo que tapa o sol no ar
+        // (a camada de nuvens liga `shadowed`), o fundo o tira do céu; sem nada que tape o sol, o déficit é zero e o
+        // fundo não o lê.
+        const background = (): string =>
+            composeWgsl(
+                s.sky
+                    .getSceneContributions()
+                    .find((c) => c.point.name === 'scene_background')!
+                    .build(() => undefined)!,
+            ).spec.source;
+        expect(background()).not.toContain('sky_aerial_shadow_lut');
+        s.sky.setShadowed(true);
+        expect(background()).toContain('sky_aerial_shadow_lut');
     });
 
     it('turbidez multiplica os aerossóis (Mie)', () => {

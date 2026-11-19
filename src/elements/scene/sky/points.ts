@@ -154,6 +154,7 @@ export function skyContributions(
     covered: () => boolean,
     lights: () => boolean = () => false,
     aerial: () => boolean = () => false,
+    shadowed: () => boolean = () => false,
 ): readonly SceneContribution[] {
     return [
         // Atrás da névoa dos volumes (ordem 0): a composição "na frente de" põe a névoa na frente.
@@ -180,7 +181,8 @@ export function skyContributions(
             point: sceneBackgroundPoint,
             order: 0,
             pools: [],
-            build: () => (aerial() ? skyBackgroundShadowed : skyBackground),
+            // O déficit da sombra no fundo só com algo que tapa o sol no ar (sem isso ele é zero).
+            build: () => (aerial() && shadowed() ? skyBackgroundShadowed : skyBackground),
         },
         {
             point: sceneEnvironmentPoint,

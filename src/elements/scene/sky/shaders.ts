@@ -1,4 +1,4 @@
-import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { BindablePoint } from '../../../scene/shaders/bindPoints';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
@@ -236,6 +236,25 @@ export const skyAerialVisibility = wgslModule({
     let all = light_transmission(sky.sunSlot, p);
     let ratio = clamp(all / max(atmosphere, vec3f(1e-12)), vec3f(0.0), vec3f(1.0));
     return select(vec3f(1.0), ratio, atmosphere > vec3f(1e-9));
+}
+
+fn sky_aerial_shadowed() -> bool {
+    return true;
+}`,
+});
+
+/**
+ * A visibilidade do sol no ar sem nada além da atmosfera que o tape (nenhuma camada de nuvens): 1, e a tabela não integra
+ * o déficit da sombra no fundo (zero).
+ */
+const skyAerialVisibilityClear = wgslModule({
+    name: 'sky_aerial_visibility_clear',
+    source: `fn sky_aerial_visibility(p: vec3f) -> vec3f {
+    return vec3f(1.0);
+}
+
+fn sky_aerial_shadowed() -> bool {
+    return false;
 }`,
 });
 
@@ -243,22 +262,28 @@ export const skyAerialVisibility = wgslModule({
  * Kernel da tabela da perspectiva aérea (spec 041, R10): pela câmera ativa (`sky.cameraSlot`), com a sombra do que tapa
  * o sol no ar e o déficit dela no fundo.
  */
-export const skyAerialKernel = wgslModule({
-    name: 'sky_aerial',
-    source: skyAerialSource,
-    requires: [
-        SKY_AERIAL_RANGE.module,
-        viewSpace,
-        skyAtmosphere,
-        skyLookup,
-        skyParamsResource,
-        camerasResource,
-        skyAerialVisibility,
-        skyOutputs.aerial,
-        skyOutputs.aerialTransmittance,
-        skyOutputs.aerialShadow,
-    ],
-});
+const skyAerialKernelOf = (name: string, visibility: WgslModule): WgslModule =>
+    wgslModule({
+        name,
+        source: skyAerialSource,
+        requires: [
+            SKY_AERIAL_RANGE.module,
+            viewSpace,
+            skyAtmosphere,
+            skyLookup,
+            skyParamsResource,
+            camerasResource,
+            visibility,
+            skyOutputs.aerial,
+            skyOutputs.aerialTransmittance,
+            skyOutputs.aerialShadow,
+        ],
+    });
+
+/** O kernel com a sombra do que tapa o sol no ar. */
+export const skyAerialKernel = skyAerialKernelOf('sky_aerial', skyAerialVisibility);
+/** O kernel sem nada além da atmosfera que tape o sol (nenhuma camada de nuvens): sem a sombra e sem o déficit. */
+export const skyAerialKernelClear = skyAerialKernelOf('sky_aerial_clear', skyAerialVisibilityClear);
 
 /**
  * A visibilidade do sol no ar do trecho além da tabela (`sky_aerial_far`; spec 041, R18/R19): pronta, 1 (sem o que tapa o

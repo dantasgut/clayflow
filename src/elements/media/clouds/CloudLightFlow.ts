@@ -243,7 +243,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         });
         // Os alvos do quadro existem: as contribuições (a sombra, o céu coberto) passam a valer.
         cloud.setActive(true);
-        (bound.slots.sky?.resource as Sky | undefined)?.setCovered(true);
+        const sky = bound.slots.sky?.resource as Sky | undefined;
+        sky?.setCovered(true);
+        // A sombra das nuvens no ar: a tabela aérea integra a visibilidade do sol e o fundo, o déficit dela.
+        sky?.setShadowed(true);
     }
 
     override dispose(): void {}
@@ -266,6 +269,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         this.prepared = false;
         this.views = [];
         this.active = false;
+        // Sem a camada, nada tapa o sol no ar: a tabela aérea e o fundo voltam à variante sem a sombra.
+        (c.bound.slots.sky?.resource as Sky | undefined)?.setShadowed(false);
     }
 
     private prepare(c: Ctx): void {

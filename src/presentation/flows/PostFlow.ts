@@ -79,8 +79,13 @@ export interface PostSlots extends SlotMap {
     readonly reactive: TextureSlot<true>;
     /** A luz que chega a cada pixel (`FrameTargets.light`: direta, total). */
     readonly light: TextureSlot<true>;
-    /** A radiância acima do teto da cor (`FrameTargets.overflow`, spec 041): lida pelos efeitos que a pedem, limpa depois. */
+    /**
+     * A radiância acima do teto da cor (`FrameTargets.overflow`, spec 041): pedida e lida pelos efeitos que a leem (o
+     * `SkyOverflowFlow` a limpa e a escreve).
+     */
     readonly overflow: TextureSlot<true>;
+    /** Os alvos da cena (o pedido do excesso). */
+    readonly targets: SingletonSlot<true>;
     /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
     readonly camera: SingletonSlot<true>;
     readonly cameras: PoolSlot<true>;
@@ -191,6 +196,8 @@ const baseSlots = {
     reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
     light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
     overflow: slot.texture(FrameTargets.schema, 'overflow', { optional: true }),
+    /** Os alvos da cena: o excesso da radiância é pedido só quando um efeito ativo o lê. */
+    targets: slot.singleton(FrameTargets.schema, { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
     ...temporalSlots,
@@ -343,28 +350,9 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         return this;
     }
 
-    /**
-     * Grava os efeitos e a apresentação preparados em `framePrepare`; depois, limpa a radiância acima do teto da cor (quem
-     * a escreve no quadro seguinte desenha só onde a fonte está, spec 041).
-     */
+    /** Grava os efeitos e a apresentação preparados em `framePrepare`. */
     dispatch(frame: Frame, bound: BoundFlow<PostSlots>): void {
         this.record(frame, bound);
-        const overflow = bound.slots.overflow;
-        if (overflow !== undefined)
-            frame.render(
-                {
-                    colorAttachments: [
-                        {
-                            view: overflow.view,
-                            loadOp: 'clear',
-                            clearValue: [0, 0, 0, 0],
-                            storeOp: 'store',
-                        },
-                    ],
-                },
-                'PostFlow.overflowClear',
-                () => {},
-            );
     }
 
     /** Os efeitos e a apresentação. */
@@ -767,6 +755,14 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             );
         for (const pass of chain)
             this.resources.writeNow(this.work, pass.params, pass.effect.paramsBytes());
+        // O excesso da radiância (o disco do sol acima do teto da cor) só existe quando um efeito ativo o lê: sem ele, o
+        // `SkyOverflowFlow` não desenha nem guarda nada.
+        const targets = ctx.bound.slots.targets?.resource as FrameTargets | undefined;
+        if (
+            targets !== undefined
+            && chain.some((p) => p.stages.some((st) => st.descriptors[1] !== undefined))
+        )
+            this.resources.ensureAllocated(targets, 'overflow');
         const overflow = ctx.bound.slots.overflow;
         this.overflowActive = overflow !== undefined;
         // Com a resolução temporal, a cadeia e a apresentação leem a imagem resolvida, não a cor crua da cena.

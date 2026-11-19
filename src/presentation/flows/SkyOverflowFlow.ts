@@ -46,8 +46,8 @@ const visibilityId = (multisampled: boolean, clouds: boolean): string =>
  * da composição das nuvens, a fração visível do disco (a média no disco do que está na frente dele, acumulada pela série
  * `Sky.sunVisibility`) e um retângulo em volta do disco que escreve o excesso em `FrameTargets.overflow` (em unidades de
  * `OVERFLOW_UNIT`), com a cobertura do pixel pelo disco, a névoa dos volumes e a fração visível —
- * o espalhamento da lente (`Bloom`) soma a energia inteira do sol e o `PostFlow` limpa o alvo depois de ler. Sem disco,
- * nada.
+ * o espalhamento da lente (`Bloom`) soma a energia inteira do sol. O passe limpa o alvo (o único que o escreve). Sem o
+ * alvo (nenhum efeito o lê: o `PostFlow` o pede) ou sem disco, nada.
  */
 export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
     readonly type = 'SkyOverflowFlow';
@@ -108,23 +108,38 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
         };
     }
 
-    /** O retângulo do disco no alvo do excesso. */
+    /**
+     * O retângulo do disco no alvo do excesso, que este passe limpa (é o único que o escreve; o espalhamento da lente o
+     * lê no fim do quadro). Sem o disco ou sem os pipelines, só a limpeza: o efeito não lê o excesso de outro quadro.
+     */
     dispatch(frame: Frame, bound: BoundFlow<SkyOverflowSlots>): void {
         const overflow = bound.slots.overflow;
-        if (this.current === undefined || overflow === undefined) return;
-        const v = bound.pipelines.get(this.current[0]);
-        const p = bound.pipelines.get(this.current[1]);
-        if (v?.role !== 'compute' || !v.ready || p?.role !== 'render' || !p.ready) return;
-        frame.compute('SkyOverflowFlow.visibility', (pass) => {
-            pass.bind.setPipeline(v.spec);
-            v.bindTo(pass.bind);
-            pass.dispatch.invocations(64, 64);
-        });
-        bound.slots.skySunVisibility.written();
+        if (overflow === undefined) return;
+        const v = this.current === undefined ? undefined : bound.pipelines.get(this.current[0]);
+        const p = this.current === undefined ? undefined : bound.pipelines.get(this.current[1]);
+        const draw = v?.role === 'compute' && v.ready && p?.role === 'render' && p.ready;
+        if (draw) {
+            frame.compute('SkyOverflowFlow.visibility', (pass) => {
+                pass.bind.setPipeline(v.spec);
+                v.bindTo(pass.bind);
+                pass.dispatch.invocations(64, 64);
+            });
+            bound.slots.skySunVisibility.written();
+        }
         frame.render(
-            { colorAttachments: [{ view: overflow.view, loadOp: 'load', storeOp: 'store' }] },
+            {
+                colorAttachments: [
+                    {
+                        view: overflow.view,
+                        loadOp: 'clear',
+                        clearValue: [0, 0, 0, 0],
+                        storeOp: 'store',
+                    },
+                ],
+            },
             'SkyOverflowFlow',
             (pass) => {
+                if (!draw) return;
                 pass.bind.setPipeline(p.spec);
                 p.bindTo(pass.bind);
                 pass.draw.vertices(6);
@@ -138,10 +153,15 @@ export class SkyOverflowFlow extends Flow<SkyOverflowSlots, 'idle'> {
         const sky = c.bound.slots.sky.resource as Sky;
         const targets = c.bound.slots.targets?.resource as FrameTargets | undefined;
         const depth = c.bound.slots.depth;
-        if (sky.data.sunDisk !== 1 || targets === undefined || depth === undefined) return;
-        this.resources.ensureAllocated(targets, 'overflow');
+        // O alvo do excesso é pedido por quem o lê (o `PostFlow`, com um efeito que leia a radiância acima do teto).
+        if (
+            sky.data.sunDisk !== 1
+            || targets === undefined
+            || depth === undefined
+            || c.bound.slots.overflow === undefined
+        )
+            return;
         this.resources.ensureAllocated(sky, 'sunVisibility');
-        if (c.bound.slots.overflow === undefined) return;
         const multisampled = targets.samples > 1;
         if (depth.view !== this.boundDepth) {
             c.bind(

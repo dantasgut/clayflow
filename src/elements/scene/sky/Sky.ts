@@ -62,6 +62,12 @@ export interface SkyData {
      * fora do uniforme, escrito só quando muda.
      */
     aerial?: number;
+    /**
+     * 1 quando algo além da atmosfera tapa o sol no ar (a sombra de uma `CloudLayer`, spec 041): a tabela aérea integra a
+     * visibilidade do sol e o déficit dela no fundo; sem isso, nem a tabela nem o fundo pagam por uma sombra que não há.
+     * Fora do uniforme, escrito só quando muda.
+     */
+    shadowed?: number;
 }
 
 /** Espalhamento e extinção de Mie ao nível do chão (1/km) com turbidez 1. */
@@ -108,6 +114,7 @@ export class Sky extends Entity<SkyData> implements Resource {
             cameraSlot: 0,
             ambient: 0,
             aerial: 0,
+            shadowed: 0,
         };
     }
 
@@ -233,6 +240,20 @@ export class Sky extends Entity<SkyData> implements Resource {
         if ((this.rawData.aerial ?? 0) !== aerial) this.data.aerial = aerial;
     }
 
+    /**
+     * Liga ou desliga a sombra do que tapa o sol no ar (spec 041: a camada de nuvens, pelo `light_transmission`): a
+     * visibilidade do sol na tabela aérea e o déficit dela no fundo. Escrito só quando muda.
+     */
+    setShadowed(on: boolean): void {
+        const shadowed = on ? 1 : 0;
+        if ((this.rawData.shadowed ?? 0) !== shadowed) this.data.shadowed = shadowed;
+    }
+
+    /** Se algo além da atmosfera tapa o sol no ar. */
+    get shadowed(): boolean {
+        return this.rawData.shadowed === 1;
+    }
+
     /** Se o céu ilumina as superfícies. */
     get lightsSurfaces(): boolean {
         return this.rawData.ambient === 1;
@@ -247,5 +268,6 @@ export class Sky extends Entity<SkyData> implements Resource {
         () => this.rawData.cover === 1,
         () => this.rawData.ambient === 1,
         () => this.rawData.aerial === 1,
+        () => this.rawData.shadowed === 1,
     );
 }

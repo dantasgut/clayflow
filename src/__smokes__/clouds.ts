@@ -881,6 +881,7 @@ async function caseScatterCache(): Promise<void> {
 async function passTimes(
     app: Application,
     frames: number,
+    pattern = /Cloud|Sky/,
 ): Promise<{ total: number; span: number; passes: Record<string, number> }> {
     const samples: Record<string, number>[] = [];
     const spans: number[] = [];
@@ -894,8 +895,7 @@ async function passTimes(
     off();
     const keys = new Set(samples.flatMap((x) => Object.keys(x)));
     const passes: Record<string, number> = {};
-    for (const k of keys)
-        if (/Cloud|Sky/.test(k)) passes[k] = median(samples.map((x) => x[k] ?? 0));
+    for (const k of keys) if (pattern.test(k)) passes[k] = median(samples.map((x) => x[k] ?? 0));
     const total = Object.values(passes).reduce((a, b) => a + b, 0);
     return { total, span: median(spans), passes };
 }
@@ -1047,9 +1047,12 @@ async function caseSkyTiming(): Promise<void> {
     await busyFrames(s.app, TIMING_WARMUP);
     const diffs: number[] = [];
     const perPass: Record<string, number>[] = [];
+    // O desenho do fundo (o céu pela vista do céu, spec 033) com e sem o `Sky`: de antes da 041.
+    const background: number[] = [];
     for (let r = 0; r < TIMING_REPS; r++) {
         const order = r % 2 === 0 ? [true, false] : [false, true];
         const span: Record<string, number> = {};
+        const forward: Record<string, number> = {};
         for (const has of order) {
             if (has && sky === undefined) {
                 sky = new SkyClass({ sun: s.sun });
@@ -1060,30 +1063,38 @@ async function caseSkyTiming(): Promise<void> {
                 sky = undefined;
             }
             await busyFrames(s.app, 60);
-            const t = await passTimes(s.app, 90);
+            const t = await passTimes(s.app, 90, /Cloud|Sky|^forward\/ForwardFlow\/ForwardFlow$/);
             span[has ? 'with' : 'without'] = t.span;
+            forward[has ? 'with' : 'without'] = t.passes['forward/ForwardFlow/ForwardFlow'] ?? 0;
             if (has) perPass.push(t.passes);
         }
         diffs.push(span.with! - span.without!);
+        background.push(forward.with! - forward.without!);
     }
     finish(s);
     const passes: Record<string, number> = {};
     for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
         passes[k] = median(perPass.map((x) => x[k] ?? 0));
-    const old = Object.entries(passes)
-        .filter(([k]) => /sky_view|SkyAmbientFlow|transmittance|multiple/.test(k))
+    // O custo novo da 041 só com o céu: os passes dela (a tabela aérea, a máscara reativa do disco, o excesso do disco).
+    // A diferença do quadro com e sem o `Sky` (`d`) é quase toda o fundo desenhado no forward — a vista do céu por pixel,
+    // spec 033, de antes da 041 (o forward com − sem ≈ `d`) —, e os passes do céu se sobrepõem a ele no perfilador: a
+    // conta "d − os passes de antes" punha o fundo de antes na conta da 041 (0,43 ms) e, somando o fundo, dava negativo.
+    // Sem nada que tape o sol no ar o fundo da 041 é o de antes (o déficit da sombra só entra com a camada, medido no
+    // `timing` das nuvens), e a perspectiva aérea por pixel só existe sobre geometria.
+    const fresh = Object.entries(passes)
+        .filter(([k]) => /SkyAerialFlow|SkyReactiveFlow|SkyOverflowFlow/.test(k))
         .reduce((a, [, v]) => a + v, 0);
     const d = median(diffs);
     log(
-        `sky-timing: só o céu ${d.toFixed(3)} ms (com − sem o Sky, mediana de ${diffs.length}; ${Math.min(...diffs).toFixed(3)}–${Math.max(...diffs).toFixed(3)}); passes de antes da 041 ${old.toFixed(3)} ms; o novo ${(d - old).toFixed(3)} ms; por passe: ${Object.entries(
+        `sky-timing: só o céu ${d.toFixed(3)} ms (com − sem o Sky, mediana de ${diffs.length}; ${Math.min(...diffs).toFixed(3)}–${Math.max(...diffs).toFixed(3)}), dos quais o fundo (forward com − sem) ${median(background).toFixed(3)}; o novo da 041 ${fresh.toFixed(3)} ms; por passe: ${Object.entries(
             passes,
         )
             .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
             .join(', ')}`,
     );
     check(
-        d - old <= 0.25,
-        `sky-timing: o custo novo do céu ${(d - old).toFixed(3)} ms > 0,25 ms (SC-009)`,
+        fresh <= 0.25,
+        `sky-timing: o custo novo do céu ${fresh.toFixed(3)} ms > 0,25 ms (SC-009)`,
     );
 }
 

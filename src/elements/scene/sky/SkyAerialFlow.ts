@@ -10,7 +10,7 @@ import { slot, type PoolSlot, type SingletonSlot, type SlotMap } from '../../../
 import type { World } from '../../../scene/world/World';
 import { Camera } from '../Camera';
 import { Sky, SKY_AERIAL_SIZE } from './Sky';
-import { skyAerialKernel, skyOutputs } from './shaders';
+import { skyAerialKernel, skyAerialKernelClear, skyOutputs } from './shaders';
 
 /** Slots do estágio da perspectiva aérea. */
 export interface SkyAerialSlots extends SlotMap {
@@ -28,6 +28,13 @@ const AERIAL: PipelineDescriptor = {
     id: 'sky_aerial',
     role: 'compute',
     shader: skyAerialKernel,
+    entryPoints: ['sky_aerial_main'],
+};
+/** A tabela sem nada além da atmosfera que tape o sol: sem a visibilidade e sem o déficit do fundo. */
+const AERIAL_CLEAR: PipelineDescriptor = {
+    id: 'sky_aerial_clear',
+    role: 'compute',
+    shader: skyAerialKernelClear,
     entryPoints: ['sky_aerial_main'],
 };
 
@@ -57,6 +64,8 @@ export class SkyAerialFlow extends Flow<SkyAerialSlots, 'idle'> {
     private readonly world: World;
     /** Tabelas ligadas às saídas (outras = religa). */
     private bound: readonly (TextureViewSpec | undefined)[] = [];
+    /** As variantes do kernel preparadas. */
+    private readonly prepared = new Set<string>();
     /** Há câmera e as tabelas: a perspectiva aérea é gravada neste quadro. */
     private active = false;
 
@@ -85,7 +94,7 @@ export class SkyAerialFlow extends Flow<SkyAerialSlots, 'idle'> {
     /** A tabela da câmera ativa, a cada quadro. */
     dispatch(frame: Frame, bound: BoundFlow<SkyAerialSlots>): void {
         const sky = bound.slots.sky.resource as Sky;
-        const p = bound.pipelines.get(AERIAL.id);
+        const p = bound.pipelines.get(sky.shadowed ? AERIAL.id : AERIAL_CLEAR.id);
         if (!this.active || p?.role !== 'compute' || !p.ready) {
             if (!this.active) sky.setAerial(false);
             return;
@@ -122,8 +131,13 @@ export class SkyAerialFlow extends Flow<SkyAerialSlots, 'idle'> {
                     [skyOutputs.aerialShadow, views[2]!],
                 ]),
             );
-            if (this.bound.length === 0) c.prepare(AERIAL);
             this.bound = views;
+        }
+        // A variante pela sombra no ar (a camada de nuvens a liga): preparada quando é pedida a primeira vez.
+        const variant = sky.shadowed ? AERIAL : AERIAL_CLEAR;
+        if (!this.prepared.has(variant.id)) {
+            this.prepared.add(variant.id);
+            c.prepare(variant);
         }
         if (sky.data.cameraSlot !== cameraSlot) sky.data.cameraSlot = cameraSlot;
         this.active = true;

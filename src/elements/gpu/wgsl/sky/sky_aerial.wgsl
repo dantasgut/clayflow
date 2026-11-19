@@ -130,7 +130,11 @@ fn sky_aerial_main(
     // O resto do déficit do fundo: de `SKY_AERIAL_RANGE` ao fim da atmosfera (ou do mapa), o trecho k de 32 iguais.
     let end = max(min(ray.seg, SKY_AERIAL_SHADOW_RANGE), SKY_AERIAL_RANGE);
     let step = (end - SKY_AERIAL_RANGE) / f32(SKY_AERIAL_SLICES);
-    let rest = sky_aerial_span(ray, SKY_AERIAL_RANGE + f32(k) * step, SKY_AERIAL_RANGE + f32(k + 1u) * step);
+    // Sem nada que tape o sol no ar (`sky_aerial_shadowed`), o déficit é zero: o resto não é integrado.
+    var rest = SkyAerialSpan(vec3f(0.0), vec3f(0.0), vec3f(1.0));
+    if (sky_aerial_shadowed()) {
+        rest = sky_aerial_span(ray, SKY_AERIAL_RANGE + f32(k) * step, SKY_AERIAL_RANGE + f32(k + 1u) * step);
+    }
     sky_aerial_rest_def[k] = rest.deficit;
     sky_aerial_rest_tr[k] = rest.transmittance;
     workgroupBarrier();
