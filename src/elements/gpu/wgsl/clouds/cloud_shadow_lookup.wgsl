@@ -131,6 +131,41 @@ fn cloud_shadow_depth(p: vec3f) -> f32 {
     return mix(cloud_shadow_knot(c, k), cloud_shadow_knot(c, k + 1u), c.knot - f32(k));
 }
 
+/** O nó `k` (0…16) do texel `t` do atlas. */
+fn cloud_shadow_knot_texel(t: vec2i, k: u32) -> f32 {
+    if (k == 0u) { return 0.0; }
+    let j = min(k, 16u) - 1u;
+    return textureLoad(cloud_shadow_tex, vec3i(t, i32(j / 4u)), 0)[j % 4u];
+}
+
+/**
+ * A transmitância `e^(−τ)` no ponto normalizado `uv` do atlas entre os nós `k` e `k + 1` (fração `f`): a bilinear das
+ * transmitâncias dos quatro texels, não a de τ. Numa borda de sombra (τ 0 num texel, dezenas no vizinho) a média de τ
+ * dá quase 0 onde metade da pegada tem sol (`e^(−τ̄) ≤ mean e^(−τ)`, Jensen); com texels de centenas de metros longe da
+ * câmera, isso escurecia o ar e a nuvem rala na borda de cada sombra (`far-cloud`). O par do filtro fica na página
+ * física. Teto: 8 leituras.
+ */
+fn cloud_shadow_transmittance_uv(uv: vec2f, k: u32, f: f32) -> f32 {
+    let p = uv * CLOUD_SHADOW_ATLAS - 0.5;
+    let b = vec2i(floor(p));
+    let w = p - floor(p);
+    var t = 0.0;
+    for (var i = 0; i < 4; i++) {
+        let o = vec2i(i & 1, i >> 1);
+        let q = b + o;
+        let wt = select(1.0 - w.x, w.x, o.x == 1) * select(1.0 - w.y, w.y, o.y == 1);
+        t += wt * exp(-mix(cloud_shadow_knot_texel(q, k), cloud_shadow_knot_texel(q, k + 1u), f));
+    }
+    return t;
+}
+
+/** A transmitância na coluna `c` entre os nós `k` e `k + 1` (fração `f`), nos dois níveis da mistura. */
+fn cloud_shadow_transmittance_column(c: CloudShadowColumnAt, k: u32, f: f32) -> f32 {
+    let a = cloud_shadow_transmittance_uv(c.a, k, f);
+    if (c.blend <= 0.0) { return a; }
+    return mix(a, cloud_shadow_transmittance_uv(c.b, k, f), c.blend);
+}
+
 /** Leituras do disco do sol (pontos de Vogel, fixos: sem ruído entre quadros). */
 const CLOUD_SHADOW_DISK_TAPS: u32 = 16u;
 /** Profundidade ótica do centro de nuvem padrão (o meio do trecho) na média que acha a distância da nuvem. */
@@ -184,7 +219,8 @@ fn cloud_shadow_transmittance_disk(p: vec3f, radius: f32) -> f32 {
     let centroid = (moment + CLOUD_SHADOW_BLOCKER_PRIOR * 0.5 * kn) / (tau + CLOUD_SHADOW_BLOCKER_PRIOR);
     let dist = max(far.knot - centroid, 0.0) / CLOUD_SHADOW_LOOKUP_KNOTS * far.len;
     let r = dist * tan(radius);
-    if (r < 1.0) { return exp(-tau); }
+    // A penumbra menor que o texel do nível: as leituras do disco cairiam na mesma pegada — a transmitância dela.
+    if (r < cloud_shadow_texel_size(far.level).x) { return cloud_shadow_transmittance_column(far, k, f); }
     let k0 = far.level;
     var t = 0.0;
     for (var i = 0u; i < CLOUD_SHADOW_DISK_TAPS; i++) {

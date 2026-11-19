@@ -828,34 +828,11 @@ export const cloudShadowKernel = {
 const cloudAerialFarVisibility = wgslModule({
     name: 'cloud_aerial_far_visibility',
     requires: [cloudParamsResource, cloudShadowPages, cloudShadowLookup],
-    source: `fn cloud_far_knot(t: vec2i, k: u32) -> f32 {
-    if (k == 0u) { return 0.0; }
-    let j = min(k, 16u) - 1u;
-    return textureLoad(cloud_shadow_tex, vec3i(t, i32(j / 4u)), 0)[j % 4u];
-}
-
-fn cloud_far_transmittance(uv: vec2f, k: u32, f: f32) -> f32 {
-    let p = uv * CLOUD_SHADOW_ATLAS - 0.5;
-    let b = vec2i(floor(p));
-    let w = p - floor(p);
-    var t = 0.0;
-    for (var i = 0; i < 4; i++) {
-        let o = vec2i(i & 1, i >> 1);
-        let q = b + o;
-        let wt = select(1.0 - w.x, w.x, o.x == 1) * select(1.0 - w.y, w.y, o.y == 1);
-        t += wt * exp(-mix(cloud_far_knot(q, k), cloud_far_knot(q, k + 1u), f));
-    }
-    return t;
-}
-
-fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
+    source: `fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
     let c = cloud_shadow_column(clouds.eye.xyz + dir * (t_km * 1000.0));
     if (c.len <= 0.0) { return 1.0; }
     let k = min(u32(floor(c.knot)), 15u);
-    let f = c.knot - f32(k);
-    let a = cloud_far_transmittance(c.a, k, f);
-    if (c.blend <= 0.0) { return a; }
-    return mix(a, cloud_far_transmittance(c.b, k, f), c.blend);
+    return cloud_shadow_transmittance_column(c, k, c.knot - f32(k));
 }`,
 });
 
