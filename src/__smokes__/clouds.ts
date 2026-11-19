@@ -436,6 +436,30 @@ async function scatterLookupOf(
 
 // ── noon ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** O passo (m) da integral da visibilidade do sol no ar da referência (convergida a 0,1 % com o sol a 4°). */
+const VISIBILITY_STEP = 150;
+
+/**
+ * A profundidade ótica das nuvens de `p` até o sol na visibilidade do ar da referência: por trecho da casca, passos de
+ * `VISIBILITY_STEP` m (ao menos 32); `steps` > 0 fixa os passos. Com 32 passos fixos o trecho de ~36 km até o sol a 4°
+ * ficava com passos de 1,1 km, e a média de `e^(−τ)` ao longo do raio de vista saía clara demais (o erro de amostragem de
+ * τ clareia, Jensen): na vista estreita do `sunset` (8°), a região mais escura 9,16 nits com 32 passos, 8,10 com 64, 7,88
+ * com 128, 7,81 com 256 e 7,80 com 1024 (rodada 14). Com o sol alto o trecho tem ~3 km: os mesmos 32 passos de antes.
+ */
+function visibilityDepth(model: CloudModel, p: Vec3, sun: Vec3, steps: number): number {
+    let tau = 0;
+    for (const [a, b] of shellSegments(model, p, sun, Infinity)) {
+        const n = steps > 0 ? steps : Math.max(32, Math.ceil((b - a) / VISIBILITY_STEP));
+        const dt = (b - a) / n;
+        for (let i = 0; i < n; i++) {
+            const t = a + (i + 0.5) * dt;
+            tau +=
+                cloudDensity(model, [p[0] + sun[0] * t, p[1] + sun[1] * t, p[2] + sun[2] * t]) * dt;
+        }
+    }
+    return tau * model.density;
+}
+
 /** Compara a nuvem aumentada (`view`) com a marcha de referência num conjunto de regiões. */
 async function compareView(
     s: CloudScene,
@@ -519,8 +543,8 @@ async function compareView(
         }
         return v;
     };
-    // Diagnóstico (`?vis=n`): passos da visibilidade do sol no ar da referência (0: sem a sombra das nuvens no ar).
-    const visSteps = Number(new URLSearchParams(location.search).get('vis') ?? 32);
+    // Diagnóstico (`?vis=n`): passos fixos da visibilidade do sol no ar da referência (sem: pelo comprimento do trecho).
+    const visSteps = Number(new URLSearchParams(location.search).get('vis') ?? 0);
     // Diagnóstico (`?amb=k`): o ambiente da referência × k.
     const ambK = Number(new URLSearchParams(location.search).get('amb') ?? 1);
     const light = {
@@ -583,7 +607,9 @@ async function compareView(
             const nn = n * ny;
             // A referência de uma região leva segundos: o laço cede ao navegador (o executor lê o registro da página).
             await new Promise((r) => setTimeout(r, 0));
-            for (let sy = 0; sy < ny; sy++)
+            for (let sy = 0; sy < ny; sy++) {
+                // A visibilidade do ar convergida leva segundos por linha com o sol baixo: cede ao navegador por linha.
+                await new Promise((r) => setTimeout(r, 0));
                 for (let sx = 0; sx < n; sx++) {
                     const px = x0 + ((sx + 0.5) / n) * (x1 - x0) - 0.5;
                     const py = y0 + ((sy + 0.5) / ny) * (y1 - y0) - 0.5;
@@ -618,9 +644,7 @@ async function compareView(
                                 eye[1] + d[1] * t,
                                 eye[2] + d[2] * t,
                             ];
-                            return visSteps === 0
-                                ? 1
-                                : Math.exp(-opticalDepth(model, p, sun, visSteps));
+                            return Math.exp(-visibilityDepth(model, p, sun, visSteps));
                         };
                         const a = aerialPerspective(
                             atmosphere,
@@ -648,6 +672,7 @@ async function compareView(
                     depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / nn;
                     rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / (3 * nn);
                 }
+            }
             const rgb = rgbSum as unknown as Vec3;
             const r = {
                 transmittance: rTSum,
