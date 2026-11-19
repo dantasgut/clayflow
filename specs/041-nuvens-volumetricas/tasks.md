@@ -258,6 +258,41 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       os caminhos do cache 7 amostradas (−1: a fatia anterior e o anel do sol saíram), 2 storage, 1 só de leitura;
       `limits`, `adapterLimits` e `deviceFloor` passam. **Rodada 11 (2026-11-19)**: `far-cloud` 5,0 → 4,3 % — a sombra das nuvens pela bilinear das transmitâncias dos quatro texels, não de τ, onde a penumbra é menor que o texel (`33f4c57b`); `overcast-ambient` 10,4 % → −2,0 % — a referência passou a ter a luz múltipla do cache lido da GPU, como os casos de vista (o erro crescia com a convergência porque a referência era só as oitavas: `e9c23809`). Registro das páginas pelo schema (`CloudShadowPageSchema`) e o desenho por `invocations()` (`6cb0b766`: `noManualOffsets`, `linearDispatch`). `render`: `post-bloom` regravada (o `Bloom` de energia conservada: luz média linear 0,2479 contra 0,2456 do `forward`, a antiga 0,3075; `38728a8b`). `fog` no tempo: seis pares intercalados contra a base (`clayflow-041base`, 3cd0069c) — base 0,92/1,00/1,24/1,25/1,62/1,59 ms, atual 0,91/1,12/1,70/2,36/1,31/1,41; diferenças por par de sinal trocado (−0,31 a +1,11) e a parte dos froxels (o mesmo estágio, sem `Sky` nem camada) oscilando 0,64–1,97 nos dois: sem regressão medida; o método oscila com o relógio da GPU e os dois passam de 1,05 com a máquina quente. `clouds` caso a caso (código final): passa tudo menos `sunset` 17,0 % e `interior-timing` 0,62 ms — `noon` 2,8 %, `types` 3,1/3,3/3,0 %, `far-cloud` 4,3 %, `backlit` 5,8 % (borda/centro 0,994), `storm` 3,8 %, `scatter-cache` 0,975, `shadow-map` 0,022, `sun-low` 0,016 (0 voltas), `sun-sweep` 0,006, `sun-below` 0,032/0,000, `panorama` 0,009, `overcast-ambient` −2,0 %, `water-reflection` 84,6 %, `fly-through` 0,4/22,3 %, `timing` 2,86/1,31/0,76 ms, `sky-timing` 0,082 ms, `weather-timing` 0,064 / +0,008 ms, `pressure-wind`, `front`, `storm-ground` e os de cobertura, vento e grafo. Depois, um por vez: `sky`, `antialiasing`, `render`, `fog` (tempo incluso), `globalIllumination`, `refraction`, `limits`, `adapterLimits`, `deviceFloor`, `readiness` passam; vitest completo 2178 testes passam (291 arquivos). **Em aberto: `sunset` (T055) e `interior-timing` (T035).**
 
+- [x] T064 [GPU] A geometria por vista (R20; decisão do usuário 2026-11-19, "Na 41"): (a) a saída por vista no Resource da
+      geometria — `Geometry.requestView`/`releaseView`/`views`, `GeometryView.ts`; na `ParametricSurface` adaptativa os
+      descritores `view:<key>:vertices|indices|indirect` com o orçamento constante `adaptive.viewBudget` (padrão 262 144
+      triângulos); (b) o critério de cada vista no `SurfaceFlow` — as seis passadas por vista (nível pelo critério,
+      orçamento, prefixos, marcação, despacho, emissão indireta), o nível da luz pelo erro em texels do nível do mapa virtual
+      onde o retalho cai (`surface_adapt_light.wgsl`, lido do `ShadowMatrix`), o de câmera pelo da câmera ativa com a
+      câmera da vista (`surface_adapt_view_camera.wgsl`), a histerese e a marcação pela série dos níveis (spec 037,
+      `surface_view_levels`, `history: { depth: 2 }`), a vista rodando só quando o que define o critério muda; (c) o
+      `ShadowFlow` pedindo a vista da luz a cada geometria que projeta e desenhando-a (vértices, índices, registro indireto,
+      aglomerados e as caixas deles) desde o quadro em que ela foi produzida. A malha da câmera ativa e os pipelines dela
+      ficam (o nível dela passou a uma função, a mesma conta; `.x` do retalho leva o pedido nos bits 8–15). Referência
+      `reference/viewLod.ts` e teste `viewLod.reference.test.ts`; casos novos no `ParametricSurface.test.ts`.
+- [x] T065 [GPU] Medidas e regressão da T064 (rodada 14; research.md, R20 — medidas). `solposto`, M4, alto, GPU ocupada
+      (`readyForFrame`), 2 × 120 quadros por fase: com o sol andando, o `ShadowFlow` (soma dos passes) médio 2,05 → 0,22–0,26
+      ms a partir do quadro 735 (sol a 10°; p90 4,4 → 0,26–0,32) e 2,91 → 0,18–0,23 ms a partir do 1050 (p90 4,6 → 0,23–0,31),
+      mais a vista 0,15 ms (`SurfaceFlow.view`); parado, 0,09–0,11 → 0,06 ms e a vista não roda (o cache estático vale). GPU
+      por quadro com o sol andando a 1050: 23,6 → 18,6 ms (parado 17,2 nos dois). A sombra das colinas igual: quadros com o
+      sol a 10/5/3/1° (`solposto`) e 5/3/1° (`solpostooposto`), antes contra depois, diferença média no chão ≤ 0,031 nível,
+      p99 ≤ 0,7, sem buraco nem acne (`scratchpad/041-video/rodada14/montagem-antes-depois.png`). A malha da câmera e os
+      smokes de imagem iguais. Smokes, um por vez: `parametricSurfaces`, `render`, `virtualTextures`, `globalIllumination`
+      (timeout 600), `refraction`, `fluidSurface`, `limits`, `adapterLimits`, `deviceFloor` passam; `clouds` caso a caso passa
+      tudo menos os abertos de antes — `sunset` 15,8 % (T055, igual à rodada 12) e `interior-timing` 0,369 ms (T035) —:
+      `noon` 2,8 %, `types` 3,1/3,3/2,9 %, `far-cloud` 4,4 %, `backlit` 5,7 %, `storm` 3,8 %, `timing` 2,82/1,27/0,80 ms,
+      `weather-timing` 0,059 ms, `fly-through` 0,4/22,4 %, os de cobertura, vento, névoa, reflexo, ambiente e
+      `storm-ground`. Vitest completo: 2189 testes passam (292 arquivos).
+- [x] T066 [US5] Os vídeos `solposto` e `tempestade` regravados com a geometria por vista (claflow-web `299a4f7`, porta 5184;
+      `scratchpad/041-video/rodada14/`): `solposto` 1200 quadros, 51,15 dB brilho / 46,34 dB RGB, GPU por quadro média 15,5
+      ms (19 MB); `tempestade` 7200 quadros, 51,84/46,98 dB, média 18,8 ms (92 MB; recomprimido `tempestade-r.mp4`, 9,3 MB).
+      Variação da média por quadro (160 × 90): `solposto` — imagem maior salto 1,95, céu 0,85, nenhuma alternância; o chão
+      tem 9 saltos de 2–5,3 níveis, todos de um sinal só, nos quadros 327–335 (clareando) e 568–578 (escurecendo de 54 a 24
+      em 14 quadros): o sol entrando atrás do cúmulo e a sombra da nuvem cobrindo o chão (conferido nos quadros 568–572),
+      não a sombra do terreno; `tempestade` — imagem 0,29, céu 0,51, chão 0,92, nenhum salto > 2 e nenhuma alternância.
+- [ ] T067 [GPU] O consumidor das vistas de câmera (reflexos e outras câmeras, pedido 5 do MorphSociety, ADR 0001): o tipo
+      `'camera'` está no produtor (critério e passadas) sem consumidor nesta spec; o primeiro consumidor o exercita na GPU.
+
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
 ---

@@ -1002,3 +1002,96 @@ contra 26,0 nits), mas quatro regiões de nuvem rala a ~15 km rente ao horizonte
 (8,8 contra 2,5 nits; a pior luz a 203 % pela medida da SC-001): em aberto. Candidatos: a referência é um raio só para o
 centro do sol (a GPU faz a média da penumbra do disco pelo mapa) e o mapa visto do sol guarda só o primeiro trecho da casca
 do lado do sol.
+
+### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
+
+**Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por
+vista de sombra no Unreal, CDLOD e geoclipmaps) para o mapa de sombra virtual não receber os 4,5 M triângulos da malha da
+câmera em páginas onde cada triângulo ocupa menos de um texel. Medido antes (rodada 13): com o sol andando, `ShadowFlow`
+3,48 ms + páginas 0,25 ms, o quadro +1,4 ms contra o sol parado.
+
+**A peça geral.** Uma _vista_ é quem olha a geometria e, por isso, o critério do erro dela: a câmera ativa, a luz
+direcional com os níveis do mapa de sombra virtual e, depois, os reflexos e as outras câmeras (pedido 5 do MorphSociety,
+ADR 0001). No modelo Resource + evento + Flow:
+
+- _Quem pede e quem consome_: o consumidor da vista (o `ShadowFlow` para a luz; um reflexo ou outra câmera depois) pede à
+  geometria `requestView({ key, kind, source, error?, segment? })` no `framePrepare` dele, e a solta (`releaseView`)
+  quando a geometria deixa de ser desenhada; é o padrão `reserve` dos Resources (como `FluidField.reserve`), não um
+  helper. A geometria que se refaz por vista (a `ParametricSurface` adaptativa) guarda o pedido no dado e redescreve-se:
+  a C2 aloca os descritores novos (os que não mudam ficam) e recompõe a entidade (`entitiesRecomposed`). As demais
+  geometrias devolvem `false` e o consumidor desenha a malha de sempre.
+- _A saída por vista_ (descritores no Resource da geometria, escritos só pela GPU): `view:<key>:vertices`,
+  `view:<key>:indices` e `view:<key>:indirect` (o registro do desenho indexado, como o da câmera), com o **orçamento
+  constante** da vista (`adaptive.viewBudget`, padrão o menor entre `budget` e 262 144 triângulos: até 2 vértices e 3
+  índices por triângulo — o nível 0 tem 4 vértices em 2 triângulos —, 16 MB de vértices e 3 MB de índices no terreno). A
+  malha da câmera ativa continua a de sempre (`vertices`, `indices`, `indirect`), com o mesmo critério e os mesmos
+  pipelines. As caixas dos aglomerados ficam no consumidor (a série por páginas do `ShadowFlow`, T060a): são a estrutura
+  de aceleração do cache dele (o carimbo das caixas é o do cache das páginas), refeitas quando a vista é produzida; na
+  geometria seriam uma segunda série com o mesmo conteúdo.
+- _O produtor_ (o `SurfaceFlow`): cada vista tem o seu trabalho no `SurfaceWork` (parâmetros, retalhos, histograma e o
+  despacho indireto da emissão, uma parte por vista) e os pipelines das seis passadas (a variante por superfície e tipo).
+  Por quadro, a vista roda quando a superfície é avaliada (todos os retalhos), quando o que define o critério muda (na da
+  luz: a direção dela, o mapa e a posição da câmera ativa, o centro dos níveis; na de câmera: a posição e o campo de visão
+  dela) ou quando é nova; parada, nada roda e nada é marcado. O que roda é marcado como produzido no quadro
+  (`produced(geometria, 'view:<key>:vertices')`, spec 031): o consumidor sabe que a vista mudou sem ler de volta.
+- _O critério de cada vista_ (o nível de cada retalho, 2^l segmentos por lado):
+  - câmera: o da malha da câmera ativa (erro de corda abaixo de `tolerance` e o segmento abaixo de `screen` da altura da
+    imagem), com a câmera da vista (`surface_adapt_view_camera.wgsl`);
+  - luz: o erro medido em **texels do nível do mapa virtual onde o retalho cai** (`surface_adapt_light.wgsl`): o nível é o
+    do ponto do retalho mais perto da câmera no plano da luz (a distância de Chebyshev da caixa dos 3 × 3 pontos do
+    retalho projetados pelo `ShadowMatrix` do quadro: a mesma regra de `sv_level` com que os receptores pedem as
+    páginas — um ponto do plano da luz cai num nível só); o erro de corda κ·h²/8 fica abaixo de `error` texels (0,5: a
+    profundidade e a silhueta no mapa erram menos que o viés de 1 texel) e nenhum segmento fica abaixo de `segment`
+    texels (1: nenhum triângulo menor que o texel). Sem o referencial do quadro, o nível máximo.
+- _Refazer só o que mudou_: os níveis efetivos e as bases de cada retalho de cada vista ficam numa série da C2 (spec 037,
+  constituição VII: `surface_view_levels` no `SurfaceWork`, `history: { depth: 2 }`, um `vec4u` por retalho de cada
+  vista, a fatia do quadro e a do anterior pelo slot `levels`). Depois do orçamento e dos prefixos (os da malha da câmera,
+  as mesmas passadas), a marcação (`surface_adapt_view_mark_main`) refaz o retalho cujo nível efetivo ou cujas bases
+  mudaram, ou cujo vizinho mudou de nível (a costura); a passada seguinte escreve o despacho indireto da emissão — a
+  grade inteira se algum retalho foi marcado (a emissão pula os não marcados), nenhum grupo se nenhum. A histerese (o
+  retalho num nível mais fino só desce quando pede menos de ¾ dos segmentos do nível de baixo) lê o pedido anterior da
+  mesma série. Com o sol andando, a malha da vista é refeita pelo critério e o retalho que não mudou de nível não é
+  reescrito; a vista que não muda não suja página nenhuma (as caixas dos aglomerados iguais), e com o sol parado nada roda
+  — o cache estático das páginas (rodada 11) continua valendo.
+- _O consumidor_ (o `ShadowFlow`): pede a vista da luz a cada geometria que projeta, com `source` = a entidade do mapa;
+  desenha a vista (vértices, índices, o registro indireto, os aglomerados e as caixas) a partir do quadro em que o
+  produtor a escreveu pela primeira vez (antes, a malha de sempre); a troca muda o conteúdo dos grupos e recomeça o cache.
+  A deformação da geometria na vista é a marca de produção da vista.
+- _Atlas, arena e páginas_: as páginas são as do mapa virtual e da série das caixas, como já eram; a série dos níveis é
+  uma série de fatias (todo retalho de toda vista é lido a cada geração, não há residência a decidir); a arena de pools
+  não se aplica (nada é enviado pela CPU); nenhum atlas novo.
+- _Orçamento total dos laços_: o nível da luz tem dois laços fixos de 3 (9 pontos); a marcação, quatro vizinhos; a emissão
+  e os prefixos são os da malha da câmera (laços fixos pelo número de retalhos); nada roda na CPU além dos parâmetros.
+- _Sem o desenho indireto_ ('indirect-first-instance' ausente) a malha fica no nível máximo, maior que a capacidade da
+  vista: a vista não é gerada e o consumidor segue com a malha de sempre.
+
+Referência: `reference/viewLod.ts` (o nível do mapa da caixa, os segmentos, a histerese e a marcação) com o teste
+`viewLod.reference.test.ts` (o erro exato da interpolação da senoide em f64 abaixo de 0,5 texel do nível, o nível da
+caixa igual ao do ponto mais perto pela força bruta, a marcação dos retalhos de uma grade).
+
+**Medidas (rodada 14, M4, perfil alto, GPU ocupada por `readyForFrame`, 2 × 120 quadros por fase; `solposto` do
+claflow-web; antes = `a5a983ae` por uma árvore própria, removida depois).** Por passe (soma dos passes do `ShadowFlow`):
+
+| quadro de partida | fase | antes: médio / mediana / p90 (ms) | depois: médio / mediana / p90 (ms) | `SurfaceFlow.view` |
+|---|---|---|---|---|
+| 735 (sol a 10°) | parado | 0,11 / 0,10 / 0,11 | 0,06 / 0,06 / 0,06 | 0 |
+| 735 | andando | 2,03–2,08 / 0,11 / 4,39–4,47 | 0,22–0,26 / 0,22–0,25 / 0,26–0,32 | 0,15 |
+| 1050 (sol a −1,7°) | parado | 0,09 / 0,09 / 0,09 | 0,06 / 0,06 / 0,07 | 0 |
+| 1050 | andando | 2,91 / 4,27–4,29 / 4,63 | 0,18–0,23 / 0,20–0,28 / 0,23–0,31 | 0,15 |
+
+A GPU por quadro (mediana do intervalo dos tempos de GPU) com o sol andando a 1050: 23,6 → 18,6 ms (parado, 17,2 nos
+dois). Antes, o cache das páginas recomeça a cada ~0,08° de giro (`cacheDirection`) e as páginas recebiam os aglomerados
+da malha da câmera (4,5 M triângulos); depois, os da vista da luz. Com o sol parado nada da vista roda (0 ms) e o cache
+estático vale (o `ShadowFlow` parado caiu de 0,09–0,11 a 0,06 ms: menos aglomerados nas caixas e nas listas).
+
+_A sombra igual_: quadros com o sol a 10°, 5°, 3° e 1° (`solposto`, 200 quadros parados em cada) e a 5°, 3° e 1°
+(`solpostooposto`, de costas para o sol, as encostas acesas e as sombras das colinas à vista), antes contra depois: a
+diferença média no chão ≤ 0,031 nível de 8 bits, p99 ≤ 0,7, nenhum pixel do chão com diferença > 8 no `solpostooposto` e
+≤ 0,01 % no `solposto` (o ruído da resolução temporal); sem buraco nem acne (montagem
+`scratchpad/041-video/rodada14/montagem-antes-depois.png`).
+
+_Um defeito achado no caminho_: a primeira versão ligava o mesmo buffer substituto às arestas e à geometria diferencial
+das vistas; duas ligações graváveis do mesmo buffer no despacho invalidam o passe — e os quadros em que a vista rodava
+saíam inteiros inválidos sem `engineError` (o chão sumia; o tempo do `ShadowRequestFlow` ia a 2 ms e o intervalo a 6 ms).
+Corrigido com um substituto próprio para as arestas. Em aberto (fora desta peça): o erro de validação do passe não chega
+ao `engineError`.
