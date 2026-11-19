@@ -17,7 +17,9 @@
 //   - storm-ground: a luz do sol no chão da câmera sob o tempo acelerado (a `tempestade` da rodada 7), quadro a quadro,
 //     contra a referência no mesmo quadro, e o deslocamento da sombra numa linha no rumo do vento;
 //   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
-//   - weather-timing: o custo do tempo (o estado e o mapa de cobertura por ele) a 1280 × 720 no perfil alto (SC-012).
+//   - weather-timing: o custo do tempo (o estado e o mapa de cobertura por ele) a 1280 × 720 no perfil alto (SC-012);
+//   - interior-timing: o custo da camada com a câmera numa sala fechada (SC-005);
+//   - sky-timing: o custo novo do céu sem a camada (SC-009).
 // Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
 import {
     CLOUD_OCTAVES,
@@ -28,6 +30,8 @@ import {
     type Application,
     type CloudLayer,
     CloudLayer as CloudLayerClass,
+    Sky as SkyClass,
+    type Sky,
 } from 'clayflow/web';
 import { nextGpuFrame, settleFrames } from './support/extensionScenes';
 import {
@@ -35,6 +39,8 @@ import {
     sunTravel,
     disposeCloudScene,
     readCloudVolume,
+    readScatterCache,
+    readShadowMap,
     readTexture,
     type CloudScene,
 } from './support/cloudScenes';
@@ -72,6 +78,12 @@ import {
     type ScatterGrid,
 } from '../elements/media/clouds/reference/cloudScatter';
 import { deltaRng } from '../elements/lighting/reference/pathTracer';
+import {
+    shadowColumnSun,
+    shadowFrameOf,
+    shadowKnotAt,
+    type ShadowAtlas,
+} from '../elements/media/clouds/reference/cloudShadowPages';
 import {
     coriolis,
     FREE_DRAG,
@@ -745,11 +757,9 @@ async function caseScatterCache(): Promise<void> {
     });
     await settleFrames(s.app, Number(q.get('settle') ?? 900));
     const layer = s.layer!;
-    const channel = s.app.resources.channelOf(layer, 'scatter');
-    const tex = channel?.texture(0);
     const amb = s.app.resources.textureOf(layer, 'ambient');
-    if (tex === undefined || amb === undefined) throw new Error('scatter-cache: cache não alocado');
-    const grid = await readTexture(s.app, tex, 'rgba16float');
+    if (amb === undefined) throw new Error('scatter-cache: cache não alocado');
+    const grid = await readScatterCache(s.app, layer);
     const ambient = await readTexture(s.app, amb, 'rgba16float');
     const model = await referenceModel(s, layer);
     const sun = sunToward(60);
@@ -885,8 +895,7 @@ async function passTimes(
     const keys = new Set(samples.flatMap((x) => Object.keys(x)));
     const passes: Record<string, number> = {};
     for (const k of keys)
-        if (/Cloud|SkyComposite|sky_aerial/.test(k))
-            passes[k] = median(samples.map((x) => x[k] ?? 0));
+        if (/Cloud|Sky/.test(k)) passes[k] = median(samples.map((x) => x[k] ?? 0));
     const total = Object.values(passes).reduce((a, b) => a + b, 0);
     return { total, span: median(spans), passes };
 }
@@ -918,7 +927,10 @@ async function busyFrames(app: Application, frames: number): Promise<void> {
  */
 const TIMING_WARMUP = 600;
 const TIMING_REPS = 5;
-async function cloudCost(profile: 'high' | 'medium' | 'low'): Promise<{
+async function cloudCost(
+    profile: 'high' | 'medium' | 'low',
+    interior = false,
+): Promise<{
     diffs: number[];
     withSpan: number[];
     passes: Record<string, number>;
@@ -930,8 +942,42 @@ async function cloudCost(profile: 'high' | 'medium' | 'low'): Promise<{
         profile,
         profiling: true,
         clouds: false,
-        target: [1000, 400, 300],
+        ...(interior ? { eye: [0, 1.6, 0] as const, target: [4, 1.4, 1] as const } : {}),
+        target: interior ? [4, 1.4, 1] : [1000, 400, 300],
     });
+    // O interior (SC-005): uma sala fechada de 10 × 3 × 10 m (seis placas) em volta da câmera — nenhum pixel do céu.
+    if (interior)
+        for (const [size, at] of [
+            [
+                [10, 0.2, 10],
+                [0, -0.1, 0],
+            ],
+            [
+                [10, 0.2, 10],
+                [0, 3.1, 0],
+            ],
+            [
+                [0.2, 3.4, 10],
+                [-5.1, 1.5, 0],
+            ],
+            [
+                [0.2, 3.4, 10],
+                [5.1, 1.5, 0],
+            ],
+            [
+                [10.4, 3.4, 0.2],
+                [0, 1.5, -5.1],
+            ],
+            [
+                [10.4, 3.4, 0.2],
+                [0, 1.5, 5.1],
+            ],
+        ] as const)
+            s.app.world.insert(
+                new BoxGeometry({ size: [...size] })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [at[0], at[1], at[2], 1] })),
+            );
     const values = { coverage: 0.5, wind: [10, 0] };
     let layer: CloudLayer | undefined;
     await settleFrames(s.app, 30);
@@ -967,6 +1013,78 @@ async function cloudCost(profile: 'high' | 'medium' | 'low'): Promise<{
     for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
         passes[k] = median(perPass.map((x) => x[k] ?? 0));
     return { diffs, withSpan, passes, quality };
+}
+
+async function caseInteriorTiming(): Promise<void> {
+    // A camada numa cena sem céu visível (SC-005): a câmera numa sala fechada; o custo com − sem a camada, pelo método
+    // do bench, no perfil alto.
+    const c = await cloudCost('high', true);
+    const d = median(c.diffs);
+    log(
+        `interior-timing: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe: ${Object.entries(
+            c.passes,
+        )
+            .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+            .join(', ')}`,
+    );
+    check(d <= 0.3, `interior-timing: nuvens ${d.toFixed(3)} ms > 0,3 ms (SC-005)`);
+}
+
+async function caseSkyTiming(): Promise<void> {
+    // Só o céu (SC-009, T011): a cena sem a camada, com e sem o `Sky` intercalados pelo método do bench; o custo novo da
+    // 041 é o da tabela aérea e da perspectiva aérea no desenho (o que fica além da vista do céu e do ambiente do céu, de
+    // antes da 041, medidos por passe).
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        profile: 'high',
+        profiling: true,
+        clouds: false,
+        target: [1000, 400, 300],
+    });
+    await settleFrames(s.app, 30);
+    let sky: Sky | undefined = s.sky;
+    await busyFrames(s.app, TIMING_WARMUP);
+    const diffs: number[] = [];
+    const perPass: Record<string, number>[] = [];
+    for (let r = 0; r < TIMING_REPS; r++) {
+        const order = r % 2 === 0 ? [true, false] : [false, true];
+        const span: Record<string, number> = {};
+        for (const has of order) {
+            if (has && sky === undefined) {
+                sky = new SkyClass({ sun: s.sun });
+                s.app.world.insert(sky);
+            }
+            if (!has && sky !== undefined) {
+                s.app.world.remove(sky);
+                sky = undefined;
+            }
+            await busyFrames(s.app, 60);
+            const t = await passTimes(s.app, 90);
+            span[has ? 'with' : 'without'] = t.span;
+            if (has) perPass.push(t.passes);
+        }
+        diffs.push(span.with! - span.without!);
+    }
+    finish(s);
+    const passes: Record<string, number> = {};
+    for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
+        passes[k] = median(perPass.map((x) => x[k] ?? 0));
+    const old = Object.entries(passes)
+        .filter(([k]) => /sky_view|SkyAmbientFlow|transmittance|multiple/.test(k))
+        .reduce((a, [, v]) => a + v, 0);
+    const d = median(diffs);
+    log(
+        `sky-timing: só o céu ${d.toFixed(3)} ms (com − sem o Sky, mediana de ${diffs.length}; ${Math.min(...diffs).toFixed(3)}–${Math.max(...diffs).toFixed(3)}); passes de antes da 041 ${old.toFixed(3)} ms; o novo ${(d - old).toFixed(3)} ms; por passe: ${Object.entries(
+            passes,
+        )
+            .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+            .join(', ')}`,
+    );
+    check(
+        d - old <= 0.25,
+        `sky-timing: o custo novo do céu ${(d - old).toFixed(3)} ms > 0,25 ms (SC-009)`,
+    );
 }
 
 async function caseTiming(): Promise<void> {
@@ -1395,14 +1513,9 @@ async function caseShadowMap(): Promise<void> {
     });
     await settleFrames(s.app, 30);
     const layer = s.layer!;
-    const t = s.app.resources.textureOf(layer, 'shadow');
-    if (t === undefined) throw new Error('mapa visto do sol não alocado');
-    const map = await readTexture(s.app, t, 'rgba16float');
+    const map = await readShadowMap(s.app, layer);
     const model = await referenceModel(s, layer);
     const p = layer.data.params[0]!;
-    const center = p.sunFrame!;
-    const right = p.sunRight!;
-    const up = p.sunUp!;
     const sun = p.sunDir! as unknown as Vec3;
     let worst = 0;
     let shaded = 0;
@@ -1412,37 +1525,8 @@ async function caseShadowMap(): Promise<void> {
         const z = (((k * 0.754878) % 1) - 0.5) * 12_000;
         const q: Vec3 = [x, 0, z];
         const exact = Math.exp(-opticalDepth(model, q, [sun[0], sun[1], sun[2]], 512));
-        const rel = [q[0] - center[0]!, q[1] - center[1]!, q[2] - center[2]!];
-        const wp = p.sunWarp!;
-        const u =
-            (Math.asinh((rel[0]! * right[0]! + rel[1]! * right[1]! + rel[2]! * right[2]!) / wp[0]!)
-                / wp[1]!)
-                * 0.5
-            + 0.5;
-        const v =
-            (Math.asinh((rel[0]! * up[0]! + rel[1]! * up[1]! + rel[2]! * up[2]!) / wp[2]!) / wp[3]!)
-                * 0.5
-            + 0.5;
-        const fx = u * map.width - 0.5;
-        const fy = v * map.height - 0.5;
-        const x0 = Math.floor(fx);
-        const y0 = Math.floor(fy);
-        // O volume: 4 camadas × 4 nós; o último nó (o trecho inteiro) é o canal a da camada 3.
-        const at = (i: number, j: number, c: number): number =>
-            map.data[
-                ((map.depth - 1) * map.height * map.width
-                    + Math.min(map.height - 1, Math.max(0, j)) * map.width
-                    + Math.min(map.width - 1, Math.max(0, i)))
-                    * 4
-                    + c
-            ]!;
-        const ax = fx - x0;
-        const ay = fy - y0;
-        const knot = (c: number): number =>
-            (at(x0, y0, c) * (1 - ax) + at(x0 + 1, y0, c) * ax) * (1 - ay)
-            + (at(x0, y0 + 1, c) * (1 - ax) + at(x0 + 1, y0 + 1, c) * ax) * ay;
         // O receptor no chão está abaixo da casca: o τ é o último nó.
-        const gpu = Math.exp(-knot(3));
+        const gpu = groundMapT(map, p, q);
         if (exact < 0.9) {
             shaded++;
             meanShade += Math.abs(gpu - exact);
@@ -1451,7 +1535,7 @@ async function caseShadowMap(): Promise<void> {
     }
     meanShade /= Math.max(shaded, 1);
     log(
-        `shadow-map: 200 pontos do chão (${shaded} sob nuvem) — diferença média sob a nuvem ${meanShade.toFixed(3)}, pior ponto ${worst.toFixed(3)} (texel perto da câmera ${((2 * p.sunWarp![0]! * p.sunWarp![1]!) / map.width).toFixed(0)} × ${((2 * p.sunWarp![2]! * p.sunWarp![3]!) / map.width).toFixed(0)} m)`,
+        `shadow-map: 200 pontos do chão (${shaded} sob nuvem) — diferença média sob a nuvem ${meanShade.toFixed(3)}, pior ponto ${worst.toFixed(3)} (texel perto da câmera ${p.sunMap![0]!.toFixed(0)} m)`,
     );
     check(
         meanShade <= 0.05,
@@ -1461,44 +1545,10 @@ async function caseShadowMap(): Promise<void> {
     void shellSegments;
 }
 
-/** A transmitância do mapa visto do sol no ponto do chão `q`, lida como a GPU a lê (o último nó, bilinear). */
-function groundMapT(
-    map: { width: number; height: number; depth: number; data: Float32Array },
-    p: CloudLayer['data']['params'][number],
-    q: Vec3,
-): number {
-    const c0 = p.sunFrame!;
-    const right = p.sunRight!;
-    const up = p.sunUp!;
-    const wp = p.sunWarp!;
-    const rel = [q[0] - c0[0]!, q[1] - c0[1]!, q[2] - c0[2]!];
-    const u =
-        (Math.asinh((rel[0]! * right[0]! + rel[1]! * right[1]! + rel[2]! * right[2]!) / wp[0]!)
-            / wp[1]!)
-            * 0.5
-        + 0.5;
-    const v =
-        (Math.asinh((rel[0]! * up[0]! + rel[1]! * up[1]! + rel[2]! * up[2]!) / wp[2]!) / wp[3]!)
-            * 0.5
-        + 0.5;
-    const fx = u * map.width - 0.5;
-    const fy = v * map.height - 0.5;
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const at = (i: number, j: number): number =>
-        map.data[
-            ((map.depth - 1) * map.height * map.width
-                + Math.min(map.height - 1, Math.max(0, j)) * map.width
-                + Math.min(map.width - 1, Math.max(0, i)))
-                * 4
-                + 3
-        ]!;
-    const ax = fx - x0;
-    const ay = fy - y0;
-    const tau =
-        (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay)
-        + (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay;
-    return Math.exp(-tau);
+/** A transmitância do mapa visto do sol no ponto do chão `q`, lida como a GPU a lê (o último nó, bilinear, os níveis). */
+function groundMapT(map: ShadowAtlas, p: CloudLayer['data']['params'][number], q: Vec3): number {
+    const f = shadowFrameOf(p);
+    return Math.exp(-shadowKnotAt(map, f, q, 16));
 }
 
 /**
@@ -1506,22 +1556,15 @@ function groundMapT(
  * ponto do plano do mapa de `q`, com a origem na saída do topo da casca do lado do sol (`cloud_sun_entry`).
  */
 function mapDepthAt(
-    map: { width: number; height: number; depth: number; data: Float32Array },
+    map: ShadowAtlas,
     p: CloudLayer['data']['params'][number],
     model: CloudModel,
     q: Vec3,
 ): number {
-    const c0 = p.sunFrame!;
-    const right = p.sunRight!;
-    const up = p.sunUp!;
-    const sun = p.sunDir! as unknown as Vec3;
-    const wp = p.sunWarp!;
-    const rel = [q[0] - c0[0]!, q[1] - c0[1]!, q[2] - c0[2]!];
-    const dot3 = (a: readonly number[], b: readonly number[]): number =>
-        a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
-    const u = (Math.asinh(dot3(rel, right) / wp[0]!) / wp[1]!) * 0.5 + 0.5;
-    const v = (Math.asinh(dot3(rel, up) / wp[2]!) / wp[3]!) * 0.5 + 0.5;
-    const sigma = dot3(rel, sun);
+    const f = shadowFrameOf(p);
+    const sun = shadowColumnSun(map, f, q);
+    const rel = [q[0] - f.pivot[0], q[1] - f.pivot[1], q[2] - f.pivot[2]];
+    const sigma = rel[0]! * sun[0] + rel[1]! * sun[1] + rel[2]! * sun[2];
     const q0: Vec3 = [q[0] - sun[0] * sigma, q[1] - sun[1] * sigma, q[2] - sun[2] * sigma];
     const span = sphereSpan(model, q0, sun, model.groundRadius + model.top);
     const entry = span === undefined ? 0 : Math.max(span[1], 0) + 1;
@@ -1531,30 +1574,8 @@ function mapDepthAt(
     const [a, b] = segs[0]!;
     const s = Math.min(1, Math.max(0, (entry - sigma - a) / (b - a))) * 16;
     const k = Math.min(Math.floor(s), 15);
-    const fx = u * map.width - 0.5;
-    const fy = v * map.height - 0.5;
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const knot = (n: number): number => {
-        if (n === 0) return 0;
-        const z = Math.floor((n - 1) / 4);
-        const ch = (n - 1) % 4;
-        const at = (i: number, j: number): number =>
-            map.data[
-                (z * map.height * map.width
-                    + Math.min(map.height - 1, Math.max(0, j)) * map.width
-                    + Math.min(map.width - 1, Math.max(0, i)))
-                    * 4
-                    + ch
-            ]!;
-        const ax = fx - x0;
-        const ay = fy - y0;
-        return (
-            (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay)
-            + (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay
-        );
-    };
-    return knot(k) + (knot(k + 1) - knot(k)) * (s - k);
+    const lo = shadowKnotAt(map, f, q, k);
+    return lo + (shadowKnotAt(map, f, q, k + 1) - lo) * (s - k);
 }
 
 async function caseSunLow(): Promise<void> {
@@ -1580,9 +1601,7 @@ async function caseSunLow(): Promise<void> {
         const el = 6 - k * 0.02;
         s.sun.data.direction = sunTravel(el, az);
         await settleFrames(s.app, 1);
-        const t = s.app.resources.textureOf(layer, 'shadow');
-        if (t === undefined) throw new Error('mapa visto do sol não alocado');
-        const map = await readTexture(s.app, t, 'rgba16float');
+        const map = await readShadowMap(s.app, layer);
         gpu.push(groundMapT(map, layer.data.params[0]!, [8, 0, 6]));
         ref.push(Math.exp(-opticalDepth(model, [8, 0, 6], sunToward(el, az), 1024)));
     }
@@ -1632,9 +1651,7 @@ async function caseSunBelow(): Promise<void> {
     for (const el of [-0.3, -0.8]) {
         s.sun.data.direction = sunTravel(el, az);
         await settleFrames(s.app, 2);
-        const t = s.app.resources.textureOf(layer, 'shadow');
-        if (t === undefined) throw new Error('mapa visto do sol não alocado');
-        const map = await readTexture(s.app, t, 'rgba16float');
+        const map = await readShadowMap(s.app, layer);
         const p = layer.data.params[0]!;
         let diff = 0;
         let empty = 0;
@@ -1685,9 +1702,7 @@ async function caseSunSweep(): Promise<void> {
         const el = 12 - k * 0.1;
         s.sun.data.direction = sunTravel(el, az);
         await settleFrames(s.app, 2);
-        const t = s.app.resources.textureOf(layer, 'shadow');
-        if (t === undefined) throw new Error('mapa visto do sol não alocado');
-        const map = await readTexture(s.app, t, 'rgba16float');
+        const map = await readShadowMap(s.app, layer);
         const g = groundMapT(map, layer.data.params[0]!, [0, 0, 0]);
         const r = Math.exp(-opticalDepth(model, [0, 0, 0], sunToward(el, az), 512));
         gpu.push(g);
@@ -1825,10 +1840,9 @@ async function caseOvercastAmbient(): Promise<void> {
     await settleFrames(s.app, 30);
     const layer = s.layer!;
     const t = s.app.resources.textureOf(layer, 'panorama');
-    const sh = s.app.resources.textureOf(layer, 'shadow');
-    if (t === undefined || sh === undefined) throw new Error('alvos das nuvens não alocados');
+    if (t === undefined) throw new Error('alvos das nuvens não alocados');
     const pano = await readTexture(s.app, t, 'rgba16float');
-    const shadow = await readTexture(s.app, sh, 'rgba16float');
+    const shadow = await readShadowMap(s.app, layer);
     const model = await referenceModel(s, layer);
     const sun = sunToward(60);
     const lux = s.sun.data.intensity;
@@ -1876,12 +1890,8 @@ async function caseOvercastAmbient(): Promise<void> {
             gpu += w * g;
             ref += w * rl;
         }
-    // O sol direto no chão: a transmitância do mapa (o último nó: o canal a da última camada) no centro.
-    const c =
-        (((shadow.depth - 1) * shadow.height + Math.floor(shadow.height / 2)) * shadow.width
-            + Math.floor(shadow.width / 2))
-        * 4;
-    const sunT = Math.exp(-shadow.data[c + 3]!);
+    // O sol direto no chão: a transmitância do mapa (o último nó) no chão da câmera.
+    const sunT = groundMapT(shadow, layer.data.params[0]!, [0, 0, 0]);
     log(
         `overcast-ambient: luz do céu encoberto/limpo — GPU ${(gpu / clear).toFixed(3)}, referência ${(ref / clear).toFixed(3)}; sol direto no chão × ${sunT.toExponential(2)}`,
     );
@@ -2560,9 +2570,7 @@ async function caseStormGround(): Promise<void> {
         const w = windows.find(([a, b]) => frame >= a && frame <= b);
         if (w === undefined) continue;
         const time = s.app.time.simulated;
-        const t = s.app.resources.textureOf(layer, 'shadow');
-        if (t === undefined) throw new Error('mapa visto do sol não alocado');
-        const map = await readTexture(s.app, t, 'rgba16float');
+        const map = await readShadowMap(s.app, layer);
         const params = layer.data.params[0]!;
         const model = await referenceModel(s, layer, time);
         const g = groundMapT(map, params, [0, 0, 0]);
@@ -2647,6 +2655,8 @@ const CASES: Record<string, () => Promise<void>> = {
     noon: caseNoon,
     'scatter-cache': caseScatterCache,
     timing: caseTiming,
+    'interior-timing': caseInteriorTiming,
+    'sky-timing': caseSkyTiming,
     'pressure-wind': casePressureWind,
     storm: caseStorm,
     'storm-ground': caseStormGround,

@@ -7,8 +7,10 @@ import { StructSchema } from '../../../scene/descriptors/StructSchema';
  * (cobertura, tipo, extinção, albedo), a fase (g_HG, g_D, α, w_D), as oitavas (quantas, a, b, c), os deslocamentos do
  * vento da forma e do detalhe (m, reduzidos módulo o período em f64; `w` a escala), o vento (direção unitária xz e
  * velocidade xz em m/s), o mapa de cobertura (centro xz, lado, tempo) e o deslocamento dele, o referencial do mapa
- * visto do sol (centro e lado; direita e cima, com o índice do encaixe do centro em `w` — a linha de cada coluna no reticulado do mundo; a origem de cada coluna é a saída da casca do lado do sol, calculada no shader —; a direção do sol; a deformação: escala e
- * alcance em asinh na direita e em cima), a marcha (passos,
+ * visto do sol por páginas (o pivô do plano — o vento × tempo mais a célula da grade do pivô —; a direita e em cima, a
+ * rotação mínima de +y ao sol, com a câmera no plano em `w`; a direção do sol; o texel do nível 0, a tolerância, o tempo
+ * da evolução da forma e o vento que sobra além do local; o orçamento de páginas por quadro, a assinatura do conteúdo e
+ * a célula do pivô — R11 revisto), a marcha (passos,
  * passos de luz, quadro de Bayer, slot da câmera), as marcas (histórico válido, slots das funções de forma e de
  * cobertura), os tempos (Δt, passos do panorama), a posição da câmera do panorama e o cache de espalhamento (T023): a
  * grade das sondas (centro xz, escala e alcance do asinh), os parâmetros (peso da estimativa das oitavas, teto da média,
@@ -36,7 +38,8 @@ export const CloudSchema = new StructSchema(
         sunRight: FieldType.vec4f,
         sunUp: FieldType.vec4f,
         sunDir: FieldType.vec4f,
-        sunWarp: FieldType.vec4f,
+        sunMap: FieldType.vec4f,
+        sunPages: FieldType.vec4u,
         march: FieldType.vec4u,
         flags: FieldType.vec4u,
         timing: FieldType.vec4f,
@@ -45,6 +48,7 @@ export const CloudSchema = new StructSchema(
         scatterParams: FieldType.vec4f,
         phaseCut: FieldType.vec4f,
         scatterWork: FieldType.vec4u,
+        scatterSize: FieldType.vec4u,
         weather: FieldType.vec4f,
         weatherPattern: FieldType.vec4f,
         weatherMap: FieldType.vec4f,
@@ -59,6 +63,39 @@ export const CLOUD_SHAPE_SIZE = 128;
 export const CLOUD_DETAIL_SIZE = 32;
 /** Nós de profundidade ótica por coluna do mapa visto do sol (R11; 4 por camada do volume). */
 export const CLOUD_SHADOW_KNOTS = 16;
+
+// O mapa visto do sol por páginas (R11 revisto; `cloud_shadow_pages.wgsl`, `reference/cloudShadowPages.ts`).
+/** Texels por lado do interior de uma página. */
+export const CLOUD_SHADOW_PAGE = 16;
+/** Texels por lado de uma página física (o interior e a coluna da vizinha em +x e +y). */
+export const CLOUD_SHADOW_STRIDE = 17;
+/** Páginas por lado de um nível. */
+export const CLOUD_SHADOW_PAGES = 8;
+/** Níveis do mapa (o último cobre ~5900 texels do primeiro: ±294 km com texels de 50 m). */
+export const CLOUD_SHADOW_LEVELS = 8;
+/** Páginas físicas por linha do atlas. */
+export const CLOUD_SHADOW_SLOTS_X = 23;
+/** Páginas no atlas (todas as janelas). */
+export const CLOUD_SHADOW_SLOT_COUNT =
+    CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * CLOUD_SHADOW_PAGES;
+/** Lado do atlas em texels. */
+export const CLOUD_SHADOW_ATLAS = CLOUD_SHADOW_SLOTS_X * CLOUD_SHADOW_STRIDE;
+/** Palavras dos campos do registro de uma página física (`cloud_shadow_pages_meta`). */
+export const CLOUD_SHADOW_META_WORDS = 16;
+/** Palavras do registro de uma página física: os campos e os nós 4, 8, 12 e 16 de cada texel (o que as provas comparam). */
+export const CLOUD_SHADOW_RECORD_WORDS =
+    CLOUD_SHADOW_META_WORDS + 4 * CLOUD_SHADOW_STRIDE * CLOUD_SHADOW_STRIDE;
+/** Lado (m) da grade do pivô do plano no referencial das nuvens: a câmera que cruza a linha refaz o mapa. */
+export const CLOUD_SHADOW_PIVOT = 16_000;
+/**
+ * Tolerância da página: a mudança prevista da transmitância até o sol (e^(−τ), o fator da luz direta) num texel —
+ * um nível de 8 bits da luz direta plena.
+ */
+export const CLOUD_SHADOW_TOLERANCE = 1 / 255;
+/** Fração de erosão do detalhe (`CLOUD_EROSION` de `cloud_density.wgsl`): a evolução da forma pela deriva dele. */
+export const CLOUD_EROSION = 0.35;
+/** Colunas de prova por página por quadro: refeitas e comparadas com o que a página guarda (a medida da mudança). */
+export const CLOUD_SHADOW_PROBES = 4;
 
 /**
  * Coeficientes das oitavas do espalhamento múltiplo (R8: `Σ bⁱ σs e^(−aⁱ τ) p(cⁱ g)`), calibrados contra o traçador de
@@ -80,11 +117,10 @@ export interface CloudQuality {
     /** Passos da marcha do panorama. */
     readonly panoramaSteps: number;
     /**
-     * Mapa visto do sol: texels por lado, o lado coberto (m) e a escala perto da câmera (m): as coordenadas do plano do sol
-     * são deformadas por `asinh(x/near)` — texels de ~`2·near·asinh(extent/2/near)/size` perto da câmera, crescendo com a
-     * distância (como o pixel da câmera), até as nuvens do horizonte.
+     * Mapa visto do sol por páginas (R11 revisto): o texel do nível 0 (m; cada nível dobra, até ±~2000 texels dele) e o
+     * orçamento de páginas refeitas por quadro (as que entram na janela ou mudam de conteúdo passam dele).
      */
-    readonly shadow: { readonly size: number; readonly extent: number; readonly near: number };
+    readonly shadow: { readonly texel: number; readonly budget: number };
     /**
      * Lado (m) e texels por lado do mapa de cobertura. O mapa cobre a grade do cache de espalhamento e quase todo o
      * alcance da marcha: fora dele a densidade avalia o campo da cobertura no ponto (o fBm procedural, ~4 × o custo
@@ -93,12 +129,12 @@ export interface CloudQuality {
     readonly coverageExtent: number;
     readonly coverageSize: number;
     /**
-     * Cache de espalhamento (T023, R8): sondas por lado (x, altitude, z), a fração dos grupos de sondas que caminham por
-     * quadro (1/`stride`, até `CLOUD_SCATTER_SUN_RING`) e o teto de colisões por caminho.
+     * Cache de espalhamento (T023, R8; páginas, R11 revisto): sondas por lado (x, altitude, z; múltiplos de
+     * `CLOUD_SCATTER_PAGE`), o orçamento de páginas de sondas que caminham por quadro e o teto de colisões por caminho.
      */
     readonly scatter: {
         readonly size: readonly [number, number, number];
-        readonly stride: number;
+        readonly budget: number;
         readonly collisions: number;
     };
     /**
@@ -109,11 +145,11 @@ export interface CloudQuality {
     readonly marchScale: 2 | 4;
 }
 
-/**
- * Teto de `stride` do cache de espalhamento: o anel da série `scatterSun` guarda o sol com que cada fase de grupos
- * caminhou pela última vez (um texel por fase).
- */
-export const CLOUD_SCATTER_SUN_RING = 16;
+/** Sondas por lado de uma página do cache de espalhamento (`cloud_scatter_pages.wgsl`). */
+export const CLOUD_SCATTER_PAGE = 8;
+/** Palavras globais e do registro de cada página antes das sondas no cache de espalhamento. */
+export const CLOUD_SCATTER_GLOBAL_WORDS = 4;
+export const CLOUD_SCATTER_HEADER_WORDS = 8;
 /** Texels por lado do quadrado do tempo (R19): ~2 km no quadrado de 256 km, a escala sinótica com folga. */
 export const CLOUD_WEATHER_SIZE = 128;
 /** O lado do estêncil das derivadas da pressão: a escala dos sistemas sobre este número (O(h²/L²) ~ 2·10⁻⁴). */

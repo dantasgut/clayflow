@@ -22,7 +22,10 @@ import { Transform } from '../../scene/Transform';
 import { CloudLayer, cloudPhaseParams, cloudPhaseTruncation } from './CloudLayer';
 import {
     CLOUD_DETAIL_SIZE,
+    CLOUD_EROSION,
     CLOUD_OCTAVES,
+    CLOUD_SHADOW_PIVOT,
+    CLOUD_SHADOW_TOLERANCE,
     CLOUD_SCATTER_EXTENT,
     CLOUD_SCATTER_NEAR,
     CLOUD_SCATTER_PRIOR,
@@ -37,7 +40,6 @@ import {
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import {
     cloudHistorySlots,
-    cloudScatterSlots,
     cloudWeatherSlots,
     cloudNoiseKernel,
     cloudOutputs,
@@ -58,13 +60,21 @@ export interface CloudNoiseSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** A série da marcha (a validade do histórico do quadro). */
     readonly cloudMarch: ChannelSlot<false>;
-    /** A série do cache de espalhamento (a validade dele). */
-    readonly cloudScatter: ChannelSlot<false>;
     /** A série do estado do tempo (a validade dele; R19). */
     readonly cloudWeather: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudNoiseSlots>;
+
+/** Hash FNV-1a de 32 bits de um texto. */
+function fnv1a(text: string): number {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+    return h >>> 0;
+}
+
+/** Tempo (s) da evolução da forma com uma função de cobertura (ela pode variar no tempo; o mapa é medido pelas provas). */
+const CLOUD_SHADOW_COVERAGE_EVOLUTION = 600;
 
 /** Normaliza (x, y, z); `fallback` se nulo. */
 function unit(v: readonly number[], fallback: readonly number[]): number[] {
@@ -98,7 +108,6 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
         time: slot.singleton(Time.schema, { optional: true }),
         cloudMarch: cloudHistorySlots.cloudMarch,
-        cloudScatter: cloudScatterSlots.cloudScatter,
         cloudWeather: cloudWeatherSlots.cloudWeather,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
@@ -229,45 +238,44 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const wind = cloud.windOffsets(t);
         const speed = Math.hypot(d.wind[0]!, d.wind[1]!);
         const windDir = speed > 1e-9 ? [d.wind[0]! / speed, d.wind[1]! / speed] : [1, 0];
-        // O quadrado de cobertura e o mapa visto do sol encaixados no texel (a câmera andando não faz tremer).
+        // O quadrado de cobertura encaixado no texel no referencial das nuvens (o vento × tempo mais um número inteiro de
+        // texels): os texels andam com as nuvens, e a nuvem que o vento leva não muda de forma ao passar pela grade (com a
+        // grade presa ao mundo, a interpolação da cobertura mudava a cada quadro — e o mapa visto do sol por páginas,
+        // preso às nuvens, era refeito à toa). A câmera andando não faz tremer.
         const covTexel = q.coverageExtent / q.coverageSize;
         const covCenter = [
-            Math.round((eye[0] ?? 0) / covTexel) * covTexel,
-            Math.round((eye[2] ?? 0) / covTexel) * covTexel,
+            wind.coverage[0] + Math.round(((eye[0] ?? 0) - wind.coverage[0]) / covTexel) * covTexel,
+            wind.coverage[1] + Math.round(((eye[2] ?? 0) - wind.coverage[1]) / covTexel) * covTexel,
         ];
         const sun = unit(s.sunDirection, [0, 1, 0]);
-        const right = unit(Math.abs(sun[1]!) < 0.99 ? cross([0, 1, 0], sun) : [1, 0, 0], [1, 0, 0]);
+        // O plano do mapa visto do sol por páginas (R11 revisto): a base pela rotação mínima de +y ao sol (contínua com o
+        // sol andando); o pivô anda com o vento (o conteúdo das páginas fica preso às nuvens) mais a célula da grade do pivô que
+        // contém a câmera no referencial das nuvens (cruzada a linha, as páginas mudam de lugar no plano: a assinatura do
+        // pivô as refaz); a câmera no plano.
+        const k = 1 / Math.max(1 + sun[1]!, 1e-6);
+        const right = [sun[1]! + sun[2]! * sun[2]! * k, -sun[0]!, -sun[0]! * sun[2]! * k];
         const up = cross(sun, right);
-        // O plano do sol deformado por asinh em volta da câmera (texels finos perto, crescendo com a distância, até as
-        // nuvens do horizonte). Na direita (horizontal), a escala `near`; em cima, a mesma escala na parte horizontal de
-        // `up` mais a meia faixa da casca (do chão − 1 km ao topo + 1 km) na parte vertical — com o sol baixo, `up` é
-        // quase vertical e a casca é uma faixa estreita do plano, com texels finos na altitude.
-        const half = q.shadow.extent / 2;
-        const ey = eye[1] ?? 0;
-        const lo = Math.min(ey, 0) - 1000;
-        const hi = Math.max(ey, shellTop) + 1000;
-        const band = (hi - lo) / 2;
-        const upH = Math.hypot(up[0]!, up[2]!);
-        const upY = Math.abs(up[1]!);
-        const x0u = q.shadow.near;
-        const ku = Math.asinh(half / x0u);
-        const x0v = q.shadow.near * upH + band * upY;
-        const kv = Math.asinh((half * upH + band * upY) / x0v);
-        const vMid = ((hi + lo) / 2 - ey) * up[1]!;
-        // O centro encaixado no texel de perto (a câmera andando não faz tremer).
-        const tu = (2 * x0u * ku) / q.shadow.size;
-        const tv = (2 * x0v * kv) / q.shadow.size;
-        const iu = Math.round(dot(eye, right) / tu);
-        const iv = Math.round((dot(eye, up) + vMid) / tv);
-        const sx = iu * tu;
-        const sy = iv * tv;
-        const center = [
-            right[0]! * sx + up[0]! * sy,
-            right[1]! * sx + up[1]! * sy,
-            right[2]! * sx + up[2]! * sy,
+        const cell = [
+            Math.round(((eye[0] ?? 0) - wind.coverage[0]) / CLOUD_SHADOW_PIVOT),
+            Math.round(((eye[2] ?? 0) - wind.coverage[1]) / CLOUD_SHADOW_PIVOT),
         ];
+        const pivot = [
+            wind.coverage[0] + cell[0]! * CLOUD_SHADOW_PIVOT,
+            0,
+            wind.coverage[1] + cell[1]! * CLOUD_SHADOW_PIVOT,
+        ];
+        const rel = [
+            (eye[0] ?? 0) - pivot[0]!,
+            (eye[1] ?? 0) - pivot[1]!,
+            (eye[2] ?? 0) - pivot[2]!,
+        ];
+        // O centro das janelas no plano: a câmera, levada em cima até o meio da faixa entre o chão e o topo da casca na
+        // parte vertical de `up` — com o sol baixo, `up` é quase vertical e as colunas que cortam as nuvens ficam a
+        // 1,5–4 km da câmera no plano: os níveis finos ficam nelas e no chão, não no ar acima da casca.
+        const ey = eye[1] ?? 0;
+        const band = (Math.max(ey, shellTop) + 1000 + Math.min(ey, 0) - 1000) / 2 - ey;
+        const shadowMap = this.shadowMapParams(cloud, sky, groundRadius, speed);
         const valid = c.bound.slots.cloudMarch.age(1) === 1;
-        const scatterValid = c.bound.slots.cloudScatter.age(1) === 1;
         // O centro da grade do cache de espalhamento encaixado (o shader refaz o encaixe da posição anterior da câmera).
         const scatterCenter = [
             Math.floor((eye[0] ?? 0) / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP,
@@ -290,11 +298,12 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 wind: [windDir[0]!, windDir[1]!, d.wind[0]!, d.wind[1]!],
                 coverageMap: [covCenter[0]!, covCenter[1]!, q.coverageExtent, t],
                 coverageOffset: [wind.coverage[0], wind.coverage[1], 0, 0],
-                sunFrame: [center[0]!, center[1]!, center[2]!, q.shadow.extent],
-                sunRight: [right[0]!, right[1]!, right[2]!, iu],
-                sunUp: [up[0]!, up[1]!, up[2]!, iv],
+                sunFrame: [pivot[0]!, pivot[1]!, pivot[2]!, 0],
+                sunRight: [right[0]!, right[1]!, right[2]!, dot(rel, right)],
+                sunUp: [up[0]!, up[1]!, up[2]!, dot(rel, up) + band * up[1]!],
                 sunDir: [sun[0]!, sun[1]!, sun[2]!, 0],
-                sunWarp: [x0u, ku, x0v, kv],
+                sunMap: shadowMap.map,
+                sunPages: [shadowMap.budget, shadowMap.signature, cell[0]! >>> 0, cell[1]! >>> 0],
                 march: [q.steps, q.lightSteps, time?.frame ?? 0, cameraSlot],
                 flags: [
                     valid ? 1 : 0,
@@ -313,11 +322,13 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 scatterParams: [
                     CLOUD_SCATTER_PRIOR,
                     CLOUD_SCATTER_WINDOW,
-                    scatterValid ? 1 : 0,
+                    // O cache é série por páginas: as páginas que valem são as carimbadas na época (o shader).
+                    1,
                     CLOUD_SCATTER_SNAP,
                 ],
                 phaseCut: cloudPhaseTruncation(d.dropletDiameter),
-                scatterWork: [q.scatter.stride, q.scatter.collisions, time?.frame ?? 0, 0],
+                scatterWork: [q.scatter.budget, q.scatter.collisions, time?.frame ?? 0, 0],
+                scatterSize: [...q.scatter.size, 0],
                 ...weather,
                 anvil: [
                     (d.weather?.shear ?? 1) * d.wind[0]!,
@@ -326,6 +337,57 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 ],
             },
         ];
+    }
+
+    /**
+     * O mapa visto do sol por páginas (R11 revisto): o texel do nível 0, a tolerância, o tempo em que a evolução da forma
+     * muda a transmitância de 1/e (a deriva do detalhe pelo vento — um texel do volume de detalhe a 0,1·|vento|, a
+     * erosão de 35 % —, o tempo de formação com o tempo, 600 s com uma função de cobertura, que pode variar no tempo; 0
+     * sem evolução) e o vento que sobra além do local (a bigorna levada pelo vento de cima); o orçamento de páginas por
+     * quadro e a assinatura do conteúdo (FNV-1a dos valores que mudam as colunas: mudou, o mapa é refeito inteiro).
+     */
+    private shadowMapParams(
+        cloud: CloudLayer,
+        sky: Sky,
+        groundRadius: number,
+        speed: number,
+    ): { map: number[]; budget: number; signature: number } {
+        const d = cloud.data;
+        const q = d.quality;
+        const drift = 0.1 * speed;
+        const detail = drift > 0 ? d.detailScale / CLOUD_DETAIL_SIZE / drift / CLOUD_EROSION : 0;
+        const limits = [
+            detail,
+            d.weather?.formation ?? 0,
+            cloud.coverageFunction === undefined ? 0 : CLOUD_SHADOW_COVERAGE_EVOLUTION,
+        ].filter((v) => v > 0);
+        const evolution = limits.length === 0 ? 0 : Math.min(...limits);
+        const extra = d.weather === undefined ? 0 : Math.max(d.weather.shear - 1, 0) * speed;
+        const signature = fnv1a(
+            JSON.stringify([
+                groundRadius,
+                d.base,
+                d.top,
+                cloud.shellTop,
+                d.coverage,
+                d.type,
+                d.density,
+                d.wind,
+                d.shapeScale,
+                d.detailScale,
+                d.weather ?? null,
+                q.shadow.texel,
+                this.wanted ?? '',
+                cloud.coverageFunction?.data ?? null,
+                cloud.pressureFunction?.data ?? null,
+                sky.data.radii,
+            ]),
+        );
+        return {
+            map: [q.shadow.texel, CLOUD_SHADOW_TOLERANCE, evolution, extra],
+            budget: q.shadow.budget,
+            signature,
+        };
     }
 
     /**

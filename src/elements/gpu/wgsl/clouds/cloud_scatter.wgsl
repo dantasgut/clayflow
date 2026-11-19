@@ -1,20 +1,25 @@
-// Cache de espalhamento das nuvens (spec 041, T023, R8): o transporte não local da luz na camada. Cada invocação é uma
-// sonda da grade (`cloud_scatter_lookup`): lê a fatia anterior da série (a soma e a contagem dos caminhos), e nos
-// quadros em que é a vez do grupo dela (um a cada `clouds.scatterWork.x`) e há nuvem em volta (a forma sem o detalhe na
-// sonda ou nas seis vizinhas), soma um caminho aleatório — rastreamento delta (Novák 2018) no meio com o pico de frente
-// truncado (δ-M), o próximo evento ao sol em cada colisão pelo mapa visto do sol, o céu ao sair por cima, o chão (com a
-// sombra das nuvens) ao sair por baixo — que estima a luz que chega à sonda espalhada pela fase na direção da câmera.
-// A média tem janela `clouds.scatterParams.y` caminhos; o histórico recomeça no corte da câmera, quando a série não vale
-// ou quando o centro da grade muda, e, quando a sonda caminha, esquece na proporção do ângulo que o sol andou desde o
-// caminho anterior dela (o anel da série `cloud_scatter_sun`, um sol por fase: `e^(−Δ/CLOUD_SCATTER_SUN_MEMORY)`; o sol
-// parado não esquece). A marcha soma o espalhamento simples
-// exato e esta luz × σs.
+// Cache de espalhamento das nuvens (spec 041, T023, R8; páginas, R11 revisto): o transporte não local da luz na camada.
+// As sondas da grade (`cloud_scatter_grid`) ficam em páginas de 8 × 8 × 8 numa série por páginas de buffer (a soma da luz
+// dos caminhos em unidades da iluminância do sol e a contagem, quatro palavras por sonda; antes das páginas, o registro de
+// cada uma: o sol e o quadro do último caminho, a geração da grade e quantas sondas têm nuvem). Por quadro:
+//   1. `cloud_scatter_select_main` (um grupo): a fila das páginas — a que nunca caminhou nesta geração, e as demais pela
+//      idade × a proximidade da câmera × vista pela câmera × com nuvem — e as do orçamento (`clouds.scatterWork.x`); a
+//      geração sobe quando a grade recomeça (o corte da câmera, a série que não vale, o centro da grade que muda), e as
+//      páginas de outra geração valem zero. Para cada escolhida, o esquecimento pelo ângulo que o sol andou desde o
+//      caminho anterior dela (`e^(−Δ/CLOUD_SCATTER_SUN_MEMORY)`; o sol parado não esquece).
+//   2. `cloud_scatter_main` (uma sonda por invocação nas páginas escolhidas): se há nuvem na sonda ou numa das seis
+//      vizinhas (a forma sem o detalhe), soma um caminho — rastreamento delta (Novák 2018) no meio com o pico de frente
+//      truncado (δ-M), o próximo evento ao sol em cada colisão pelo mapa visto do sol, o céu ao sair por cima, o chão (com
+//      a sombra das nuvens) ao sair por baixo — que estima a luz que chega à sonda espalhada pela fase na direção da
+//      câmera. A média tem janela `clouds.scatterParams.y` caminhos.
+//   3. `cloud_scatter_filter_main` (`cloud_scatter_filter.wgsl`): o filtro binomial das sondas cuja vizinhança mudou.
+// A marcha soma o espalhamento simples exato e esta luz × σs.
 // Teto constante: `CLOUD_SCATTER_STEPS` passos por caminho (nulos, reais e saltos) e `CLOUD_PHASE_TRIES` tentativas em
-// cada amostra da fase — o orçamento total por invocação é `CLOUD_SCATTER_STEPS × (1 + 2·CLOUD_PHASE_TRIES)`.
-// Despacho linear: uma sonda por invocação.
-// Requer: WORKGROUP_SIZE, constants, random, xform_rigid, cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup,
-// cloud_scatter_grid, sky_query, clouds, cameras, cloud_ambient_tex, cloud_scatter_prev, cloud_scatter_out,
-// cloud_scatter_sun_prev, cloud_scatter_sun_out.
+// cada amostra da fase — o orçamento total por invocação é `CLOUD_SCATTER_STEPS × (1 + 2·CLOUD_PHASE_TRIES)`; a escolha,
+// `CLOUD_SCATTER_SELECT_CHUNK` páginas por invocação.
+// Requer: WORKGROUP_SIZE, constants, random, xform_rigid, cloud_common, cloud_sun, cloud_density, cloud_phase,
+// cloud_shadow_lookup, cloud_scatter_grid, cloud_scatter_pages, sky_query, clouds, cameras, page_alloc,
+// cloud_ambient_tex, cloud_scatter_cache, cloud_scatter_work, cloud_scatter_stamps, cloud_scatter_clock.
 
 const CLOUD_SCATTER_STEPS: u32 = 256u;
 const CLOUD_SCATTER_COLLISIONS: u32 = 48u;
@@ -22,8 +27,6 @@ const CLOUD_PHASE_TRIES: u32 = 8u;
 const RANDOM_STREAM_CLOUD_SCATTER: u32 = RANDOM_STREAM_USER + 41u;
 /** Ângulo (rad) do sol que reduz a média das sondas a 1/e: 0,25° (o sol que anda depressa cai nas oitavas, sem o ruído de poucos caminhos). */
 const CLOUD_SCATTER_SUN_MEMORY: f32 = 0.0043633231;
-/** Texels do anel do sol (`CLOUD_SCATTER_SUN_RING`): o teto do `stride`. */
-const CLOUD_SCATTER_SUN_RING: u32 = 16u;
 
 fn cloud_scatter_rand(state: ptr<function, u32>) -> f32 {
     return random_unit(random_next(state));
@@ -144,53 +147,163 @@ fn cloud_scatter_active(g: vec3u, size: vec3u) -> bool {
     return false;
 }
 
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn cloud_scatter_main(
-    @builtin(global_invocation_id) gid3: vec3u,
-    @builtin(num_workgroups) nwg: vec3u,
-    @builtin(workgroup_id) wid: vec3u,
-) {
-    let size = textureDimensions(cloud_scatter_out);
-    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= size.x * size.y * size.z) { return; }
-    let g = vec3u(i % size.x, (i / size.x) % size.y, i / (size.x * size.y));
-    let work = clouds.scatterWork;
-    let valid = cloud_scatter_history_valid();
+// ---- 1. a escolha ----
+
+/**
+ * Peso da distância (m) do centro da página à câmera na fila: metade a `CLOUD_SCATTER_NEAR_WEIGHT` (suave: a nuvem a 10–20
+ * km enche o horizonte da tela; com metade a 4 km, as distantes caminhavam 4 × menos e a luz delas ficava na estimativa
+ * das oitavas — `far-cloud` 4,8 → 11,1 %).
+ */
+const CLOUD_SCATTER_NEAR_WEIGHT: f32 = 32000.0;
+/** A fila da página que nunca caminhou nesta geração. */
+const CLOUD_SCATTER_KEY_FRESH: u32 = 15u;
+const CLOUD_SCATTER_SELECT_CHUNK: u32 = 8u;
+
+var<workgroup> cloud_scatter_wg_hist: array<atomic<u32>, 16>;
+var<workgroup> cloud_scatter_wg_cut: vec2u;
+var<workgroup> cloud_scatter_wg_gen: u32;
+
+/** A caixa (as sondas dos cantos) da página `p` toca o frustum da câmera? */
+fn cloud_scatter_visible(p: u32, size: vec3u) -> bool {
+    let vp = cameras[clouds.march.w].viewProjection;
+    let lo = cloud_scatter_page_origin(p, size);
+    let hi = min(lo + vec3u(CLOUD_SCATTER_PAGE - 1u), size - 1u);
+    var below = vec3u(0u);
+    var above = vec3u(0u);
+    for (var c = 0u; c < 8u; c++) {
+        let g = select(lo, hi, vec3<bool>((c & 1u) != 0u, (c & 2u) != 0u, (c & 4u) != 0u));
+        let clip = vp * vec4f(cloud_scatter_probe(g, size), 1.0);
+        below += vec3u(vec3<bool>(clip.x < -clip.w, clip.y < -clip.w, clip.z < 0.0));
+        above += vec3u(vec3<bool>(clip.x > clip.w, clip.y > clip.w, clip.z > clip.w));
+    }
+    return !(any(below == vec3u(8u)) || any(above == vec3u(8u)));
+}
+
+/**
+ * A fila da página `p` (0: fora; 1…14 pela prioridade em oitavas; 15: nunca caminhou nesta geração): os quadros desde o
+ * último caminho × a proximidade da câmera × 2 vista × 1/8 sem nuvem (a que não tem nuvem caminha às vezes, para achar a
+ * que o vento traz).
+ */
+fn cloud_scatter_key(p: u32, size: vec3u, gen: u32) -> u32 {
+    if (!cloud_scatter_page_current(p, gen)) { return CLOUD_SCATTER_KEY_FRESH; }
+    let age = clouds.scatterWork.z - cloud_scatter_header(p, 3u);
+    let g = cloud_scatter_page_origin(p, size) + vec3u(CLOUD_SCATTER_PAGE / 2u);
+    let c = cloud_scatter_probe(min(g, size - 1u), size);
+    let d = max(abs(c.x - clouds.eye.x), abs(c.z - clouds.eye.z));
+    let near = 1.0 / (1.0 + d / CLOUD_SCATTER_NEAR_WEIGHT);
+    let cloudy = select(0.125, 1.0, cloud_scatter_header(p, 5u) > 0u);
+    let vis = select(1.0, 2.0, cloud_scatter_visible(p, size));
+    let pr = f32(max(age, 1u)) * near * cloudy * vis;
+    if (pr < 1.0) { return select(0u, 1u, age > 0u); }
+    return clamp(1u + u32(floor(log2(pr))), 1u, CLOUD_SCATTER_KEY_FRESH - 1u);
+}
+
+@compute @workgroup_size(CLOUD_SCATTER_SELECT_GROUP)
+fn cloud_scatter_select_main(@builtin(local_invocation_index) lid: u32) {
+    let size = clouds_scatter_size();
+    let pages = cloud_scatter_page_count(size);
+    if (lid < 16u) { atomicStore(&cloud_scatter_wg_hist[lid], 0u); }
+    if (lid == 0u) {
+        // A geração da grade: sobe quando o histórico não vale (o corte, a série, o centro que mudou).
+        var gen = cloud_scatter_global(0u);
+        if (!cloud_scatter_history_valid()) { gen++; }
+        cloud_scatter_wg_gen = gen;
+    }
+    let gen = workgroupUniformLoad(&cloud_scatter_wg_gen);
+    var keys: array<u32, CLOUD_SCATTER_SELECT_CHUNK>;
+    for (var j = 0u; j < CLOUD_SCATTER_SELECT_CHUNK; j++) {
+        let p = lid * CLOUD_SCATTER_SELECT_CHUNK + j;
+        keys[j] = 0u;
+        if (p < pages) { keys[j] = cloud_scatter_key(p, size, gen); }
+        if (keys[j] > 0u) { atomicAdd(&cloud_scatter_wg_hist[keys[j]], 1u); }
+    }
+    workgroupBarrier();
+    if (lid == 0u) {
+        var left = clouds.scatterWork.x;
+        var cut = vec2u(16u, 0u);
+        for (var b = CLOUD_SCATTER_KEY_FRESH; b >= 1u; b--) {
+            if (left == 0u) { break; }
+            let c = atomicLoad(&cloud_scatter_wg_hist[b]);
+            cut = vec2u(b, min(c, left));
+            left -= cut.y;
+        }
+        cloud_scatter_wg_cut = cut;
+    }
+    let cut = workgroupUniformLoad(&cloud_scatter_wg_cut);
+    var at_cut = 0u;
+    for (var j = 0u; j < CLOUD_SCATTER_SELECT_CHUNK; j++) { at_cut += select(0u, 1u, keys[j] == cut.x); }
+    var rank = pa_exclusive(lid, at_cut);
+    var chosen: array<bool, CLOUD_SCATTER_SELECT_CHUNK>;
+    var count = 0u;
+    for (var j = 0u; j < CLOUD_SCATTER_SELECT_CHUNK; j++) {
+        chosen[j] = keys[j] > cut.x;
+        if (keys[j] == cut.x) {
+            chosen[j] = keys[j] > 0u && rank < cut.y;
+            rank++;
+        }
+        count += select(0u, 1u, chosen[j]);
+    }
+    var at = pa_exclusive(lid, count);
     let sun = sky.sunDirection.xyz;
-    let stride = clamp(work.x, 1u, CLOUD_SCATTER_SUN_RING);
-    let phase = work.z % stride;
-    // O anel do sol (série `cloud_scatter_sun`, um texel por fase): a fase que caminha neste quadro grava o sol de agora,
-    // as outras seguem.
-    if (i < CLOUD_SCATTER_SUN_RING) {
-        let kept = textureLoad(cloud_scatter_sun_prev, vec2u(i, 0u), 0);
-        textureStore(cloud_scatter_sun_out, vec2u(i, 0u), select(kept, vec4f(sun, 1.0), i == phase));
-    }
-    var q = vec4f(0.0);
-    if (valid) { q = textureLoad(cloud_scatter_prev, g, 0); }
-    let group = wid.x + wid.y * nwg.x;
-    if ((group + work.z) % stride == 0u) {
-        // O sol que anda esquece a média na proporção do ângulo desde o caminho anterior desta sonda (o sol gravado pela
-        // fase dela, `stride` quadros atrás): entre os caminhos a sonda fica como está. Esquecer a cada quadro fazia o
-        // peso das sondas um dente de serra com a fase do grupo (a fase muda com a camada de altitude): estrias
-        // horizontais nas nuvens do crepúsculo. O ângulo pela corda (`2·asin(|a − b|/2)`), não por `acos(a·b)`: o sol
-        // do vídeo anda 0,005–0,03° por quadro, e `1 − cos` disso fica abaixo da resolução do f32 perto de 1.
-        let last = textureLoad(cloud_scatter_sun_prev, vec2u(phase, 0u), 0);
-        if (last.w > 0.5) {
-            let chord = length(last.xyz - sun);
-            q *= exp(-2.0 * asin(clamp(0.5 * chord, 0.0, 1.0)) / CLOUD_SCATTER_SUN_MEMORY);
+    let reset = gen != cloud_scatter_global(0u);
+    for (var j = 0u; j < CLOUD_SCATTER_SELECT_CHUNK; j++) {
+        let p = lid * CLOUD_SCATTER_SELECT_CHUNK + j;
+        if (p >= pages) { break; }
+        // A marca do filtro: a página que caminha muda; na geração nova, todas (as de outra geração valem zero).
+        atomicStore(&cloud_scatter_work[cloud_scatter_work_dirty(p)], select(0u, 1u, chosen[j] || reset));
+        if (!chosen[j]) { continue; }
+        // O esquecimento pelo ângulo que o sol andou desde o caminho anterior da página (pela corda: `1 − cos` de
+        // 0,005–0,03° fica abaixo da resolução do f32); a página de outra geração começa do zero.
+        var forget = 0.0;
+        if (cloud_scatter_page_current(p, gen)) {
+            let last = vec3f(cloud_scatter_header_f(p, 0u), cloud_scatter_header_f(p, 1u), cloud_scatter_header_f(p, 2u));
+            forget = exp(-2.0 * asin(clamp(0.5 * length(last - sun), 0.0, 1.0)) / CLOUD_SCATTER_SUN_MEMORY);
         }
-        if (cloud_scatter_active(g, size)) {
-            let x = cloud_scatter_probe(g, size);
-            let dcam = normalize(x - clouds.eye.xyz);
-            var state = random_seed(RANDOM_STREAM_CLOUD_SCATTER, i, work.z);
-            let s = cloud_scatter_walk(x, dcam, work.y, &state) / max(sky.sunIlluminance.g, 1e-6);
-            // A média com janela: a soma e a contagem escaladas para a contagem não passar do teto.
-            let n = q.a + 1.0;
-            let keep = min(n, clouds.scatterParams.y) / n;
-            q = vec4f((q.rgb + s) * keep, n * keep);
-        } else {
-            q = vec4f(0.0);
-        }
+        atomicStore(&cloud_scatter_work[CLOUD_SCATTER_WORK_LIST + at * 2u], p);
+        atomicStore(&cloud_scatter_work[CLOUD_SCATTER_WORK_LIST + at * 2u + 1u], bitcast<u32>(forget));
+        at++;
+        cloud_scatter_set_header_f(p, 0u, sun.x);
+        cloud_scatter_set_header_f(p, 1u, sun.y);
+        cloud_scatter_set_header_f(p, 2u, sun.z);
+        cloud_scatter_set_header(p, 3u, clouds.scatterWork.z);
+        cloud_scatter_set_header(p, 4u, gen);
+        cloud_scatter_set_header(p, 5u, 0u);
+        cloud_scatter_stamps[p] = cloud_scatter_clock.x;
     }
-    textureStore(cloud_scatter_out, g, q);
+    workgroupBarrier();
+    if (lid == CLOUD_SCATTER_SELECT_GROUP - 1u) { atomicStore(&cloud_scatter_work[0], at); }
+    if (lid == 0u) { cloud_scatter_set_global(0u, gen); }
+}
+
+// ---- 2. os caminhos ----
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn cloud_scatter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let size = clouds_scatter_size();
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    let e = i / CLOUD_SCATTER_PAGE_PROBES;
+    if (e >= atomicLoad(&cloud_scatter_work[0])) { return; }
+    let p = atomicLoad(&cloud_scatter_work[CLOUD_SCATTER_WORK_LIST + e * 2u]);
+    let forget = bitcast<f32>(atomicLoad(&cloud_scatter_work[CLOUD_SCATTER_WORK_LIST + e * 2u + 1u]));
+    let l = i % CLOUD_SCATTER_PAGE_PROBES;
+    let g = cloud_scatter_page_origin(p, size)
+        + vec3u(l % CLOUD_SCATTER_PAGE, (l / CLOUD_SCATTER_PAGE) % CLOUD_SCATTER_PAGE, l / (CLOUD_SCATTER_PAGE * CLOUD_SCATTER_PAGE));
+    if (any(g >= size)) { return; }
+    let w = cloud_scatter_probe_word(p, l);
+    var q = cloud_scatter_load(w) * forget;
+    if (cloud_scatter_active(g, size)) {
+        atomicAdd(&cloud_scatter_cache[cloud_scatter_header_word(p, 5u)], 1u);
+        let x = cloud_scatter_probe(g, size);
+        let dcam = normalize(x - clouds.eye.xyz);
+        let id = g.x + size.x * (g.y + size.y * g.z);
+        var state = random_seed(RANDOM_STREAM_CLOUD_SCATTER, id, clouds.scatterWork.z);
+        let s = cloud_scatter_walk(x, dcam, clouds.scatterWork.y, &state) / max(sky.sunIlluminance.g, 1e-6);
+        // A média com janela: a soma e a contagem escaladas para a contagem não passar do teto.
+        let n = q.a + 1.0;
+        let keep = min(n, clouds.scatterParams.y) / n;
+        q = vec4f((q.rgb + s) * keep, n * keep);
+    } else {
+        q = vec4f(0.0);
+    }
+    cloud_scatter_store(w, q);
 }

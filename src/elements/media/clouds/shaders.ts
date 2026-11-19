@@ -19,6 +19,7 @@ import cloudCommonSource from '../../gpu/wgsl/clouds/cloud_common.wgsl?raw';
 import cloudPhaseSource from '../../gpu/wgsl/clouds/cloud_phase.wgsl?raw';
 import cloudDensitySource from '../../gpu/wgsl/clouds/cloud_density.wgsl?raw';
 import cloudShadowLookupSource from '../../gpu/wgsl/clouds/cloud_shadow_lookup.wgsl?raw';
+import cloudShadowPagesSource from '../../gpu/wgsl/clouds/cloud_shadow_pages.wgsl?raw';
 import cloudLightSource from '../../gpu/wgsl/clouds/cloud_light.wgsl?raw';
 import cloudNoiseSource from '../../gpu/wgsl/clouds/cloud_noise.wgsl?raw';
 import cloudCoverageSource from '../../gpu/wgsl/clouds/cloud_coverage.wgsl?raw';
@@ -37,6 +38,7 @@ import cloudScatterLookupSource from '../../gpu/wgsl/clouds/cloud_scatter_lookup
 import cloudScatterGridSource from '../../gpu/wgsl/clouds/cloud_scatter_grid.wgsl?raw';
 import cloudSunSource from '../../gpu/wgsl/clouds/cloud_sun.wgsl?raw';
 import cloudScatterSource from '../../gpu/wgsl/clouds/cloud_scatter.wgsl?raw';
+import cloudScatterPagesSource from '../../gpu/wgsl/clouds/cloud_scatter_pages.wgsl?raw';
 import cloudScatterFilterSource from '../../gpu/wgsl/clouds/cloud_scatter_filter.wgsl?raw';
 import cloudPressureDefaultSource from '../../gpu/wgsl/clouds/cloud_pressure_default.wgsl?raw';
 import cloudWeatherSource from '../../gpu/wgsl/clouds/cloud_weather.wgsl?raw';
@@ -45,6 +47,7 @@ import cloudWeatherMapSource from '../../gpu/wgsl/clouds/cloud_weather_map.wgsl?
 import cloudCoverageWeatherSource from '../../gpu/wgsl/clouds/cloud_coverage_weather.wgsl?raw';
 import cloudWindWeatherSource from '../../gpu/wgsl/clouds/cloud_wind_weather.wgsl?raw';
 import { nodeNoise } from '../../nodes/shaders';
+import { pageAlloc } from '../../gpu/shaders/pageAlloc';
 
 // Módulos das nuvens volumétricas (spec 041): os recursos da `CloudLayer` (resolvers `CloudLayer.*`), os pontos das
 // funções de forma (`cloud_shape`) e de cobertura (`cloud_coverage`), a densidade, a fase, a luz e a marcha, os kernels
@@ -81,19 +84,24 @@ export const cloudHistorySlots = Object.freeze({
     cloudMarchDepth: slot.channel(CloudSchema, 'marchDepth'),
 });
 
-/** Slot do canal temporal do cache de espalhamento (spec 037; T023). */
+/**
+ * Slots das séries por páginas do mapa visto do sol (spec 034 T060a; R11 revisto): o atlas (os carimbos e o relógio) e o
+ * registro das páginas.
+ */
+export const cloudShadowSlots = Object.freeze({
+    cloudShadow: slot.channel(CloudSchema, 'shadow'),
+    cloudShadowPages: slot.channel(CloudSchema, 'shadowPages'),
+});
+
+/** Slots das séries por páginas do cache de espalhamento e do cache filtrado (spec 034 T060a; T023). */
 export const cloudScatterSlots = Object.freeze({
     cloudScatter: slot.channel(CloudSchema, 'scatter'),
+    cloudScatterFiltered: slot.channel(CloudSchema, 'scatterFiltered'),
 });
 
 /** Slot do canal temporal do estado do tempo (spec 037; R19). */
 export const cloudWeatherSlots = Object.freeze({
     cloudWeather: slot.channel(CloudSchema, 'weather'),
-});
-
-/** Slot do canal temporal do sol do cache de espalhamento (T023). */
-export const cloudScatterSunSlots = Object.freeze({
-    cloudScatterSun: slot.channel(CloudSchema, 'scatterSun'),
 });
 
 /** Recursos da camada. */
@@ -160,36 +168,58 @@ export const cloudResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'cloudMarchDepth', lag: 0 },
     }),
-    /** O cache de espalhamento: a fatia do quadro (lida filtrada na marcha e no panorama), a anterior e a escrita. */
-    scatterNow: wgslResource({
-        name: 'cloud_scatter_tex',
-        binding: { texture: { sample: 'f32', dimension: '3d' } },
+    /** O cache de espalhamento por páginas (série por páginas de buffer: os registros das páginas e as sondas). */
+    scatterCache: wgslResource({
+        name: 'cloud_scatter_cache',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
         frequency: 'stage',
         provider: { slot: 'cloudScatter', lag: 0 },
     }),
-    scatterPrevious: wgslResource({
-        name: 'cloud_scatter_prev',
-        binding: { texture: { sample: 'f32', dimension: '3d' } },
-        frequency: 'stage',
-        provider: { slot: 'cloudScatter', lag: 1 },
-    }),
-    scatterOut: wgslResource({
-        name: 'cloud_scatter_out',
-        binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
+    /** O mesmo cache lido pelo filtro (só leitura, em `vec4f`). */
+    scatterCacheRead: wgslResource({
+        name: 'cloud_scatter_cache_read',
+        binding: { storage: 'read' },
+        type: { wgsl: 'vec4f', array: true },
         frequency: 'stage',
         provider: { slot: 'cloudScatter', lag: 0 },
     }),
-    scatterSunPrevious: wgslResource({
-        name: 'cloud_scatter_sun_prev',
-        binding: { texture: { sample: 'f32' } },
+    scatterStamps: wgslResource({
+        name: 'cloud_scatter_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
         frequency: 'stage',
-        provider: { slot: 'cloudScatterSun', lag: 1 },
+        provider: { slot: 'cloudScatter', part: 'stamps' },
     }),
-    scatterSunOut: wgslResource({
-        name: 'cloud_scatter_sun_out',
-        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+    scatterClock: wgslResource({
+        name: 'cloud_scatter_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
         frequency: 'stage',
-        provider: { slot: 'cloudScatterSun', lag: 0 },
+        provider: { slot: 'cloudScatter', part: 'clock' },
+    }),
+    /** Os carimbos e o relógio da série por páginas do cache filtrado. */
+    scatterFilteredStamps: wgslResource({
+        name: 'cloud_scatter_filtered_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatterFiltered', part: 'stamps' },
+    }),
+    scatterFilteredClock: wgslResource({
+        name: 'cloud_scatter_filtered_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'cloudScatterFiltered', part: 'clock' },
+    }),
+    /** O trabalho do quadro do cache (a contagem, a lista das páginas escolhidas e as marcas do filtro). */
+    scatterWork: wgslResource({
+        name: 'cloud_scatter_work',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.scatterWork' },
     }),
     /** O estado do tempo (R19): a fatia anterior (lida no lugar trazido pelo vento), a do quadro e a escrita. */
     weatherPrevious: wgslResource({
@@ -212,6 +242,45 @@ export const cloudResources = Object.freeze({
     }),
     /** O vento das nuvens, a subida e a frente do quadrado do tempo (R19). */
     weatherWind: sampled('cloud_weather_wind_tex', 'weatherWind'),
+    /** O registro das páginas do mapa visto do sol (a série por páginas, `cloud_shadow.wgsl`). */
+    shadowPages: wgslResource({
+        name: 'cloud_shadow_pages_meta',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudShadowPages', lag: 0 },
+    }),
+    /** Os carimbos das páginas do atlas (a época em que cada uma foi escrita) e o relógio da série (`vec4u`: a época). */
+    shadowStamps: wgslResource({
+        name: 'cloud_shadow_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudShadow', part: 'stamps' },
+    }),
+    shadowClock: wgslResource({
+        name: 'cloud_shadow_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'cloudShadow', part: 'clock' },
+    }),
+    /** O registro das páginas do mapa visto do sol, lido pelos consumidores (o sol do desenho de cada página). */
+    shadowRecords: wgslResource({
+        name: 'cloud_shadow_records',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.shadowPages' },
+    }),
+    /** As marcas das páginas do quadro (a contagem e uma palavra por página física). */
+    shadowWork: wgslResource({
+        name: 'cloud_shadow_work',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.shadowWork' },
+    }),
     /** A profundidade da cena (sem e com amostras), privada do estágio da marcha. */
     sceneDepth: wgslResource({
         name: 'cloud_scene_depth_tex',
@@ -524,11 +593,25 @@ export const cloudDensity = wgslModule({
     ],
 });
 
+/** O endereçamento do mapa visto do sol por páginas (os níveis, a janela, o atlas). */
+export const cloudShadowPages = wgslModule({
+    name: 'cloud_shadow_pages',
+    source: cloudShadowPagesSource,
+    requires: [cloudParamsResource],
+});
+
 /** A transmitância até o sol pelo mapa visto do sol. */
 export const cloudShadowLookup = wgslModule({
     name: 'cloud_shadow_lookup',
     source: cloudShadowLookupSource,
-    requires: [cloudCommon, cloudParamsResource, R.shadow, R.clampSampler],
+    requires: [
+        cloudCommon,
+        cloudShadowPages,
+        cloudParamsResource,
+        R.shadow,
+        R.clampSampler,
+        R.shadowRecords,
+    ],
 });
 
 /** A luz do sol que chega a um ponto da camada (a atmosfera até ele). */
@@ -543,6 +626,13 @@ export const cloudScatterGrid = wgslModule({
     name: 'cloud_scatter_grid',
     source: cloudScatterGridSource,
     requires: [cloudCommon, cloudParamsResource, camerasResource, xformRigid],
+});
+
+/** As páginas do cache de espalhamento (T023; R11 revisto). */
+export const cloudScatterPages = wgslModule({
+    name: 'cloud_scatter_pages',
+    source: cloudScatterPagesSource,
+    requires: [cloudParamsResource, R.scatterCache, R.scatterStamps, R.scatterClock],
 });
 
 /** A leitura do cache de espalhamento filtrado (T023). */
@@ -692,18 +782,35 @@ export const cloudAmbientKernel = wgslModule({
     requires: [WORKGROUP_SIZE.module, constants, sky, skyParamsResource, cloudOutputs.ambient],
 });
 
-/** Mapa de transmitância visto do sol. */
-export const cloudShadowKernel = wgslModule({
+/**
+ * O mapa de transmitância visto do sol por páginas: a escolha do quadro (`cloud_shadow_select_main`, o vento local no
+ * lugar `cloud_wind_at`) e o desenho das escolhidas com as provas das demais (`cloud_shadow_main`).
+ */
+const cloudShadowBase = wgslModule({
     name: 'cloud_shadow',
     source: cloudShadowSource,
     requires: [
         WORKGROUP_SIZE.module,
         cloudCommon,
         cloudDensity,
+        cloudShadowPages,
         cloudParamsResource,
+        camerasResource,
+        pageAlloc,
+        windAtReady,
         cloudOutputs.shadow,
+        R.shadowPages,
+        R.shadowStamps,
+        R.shadowClock,
+        R.shadowWork,
     ],
 });
+
+/** O mapa visto do sol sem o tempo e com ele (o vento local das nuvens pelo quadrado do tempo). */
+export const cloudShadowKernel = {
+    plain: cloudShadowBase,
+    weather: bindPoints(cloudShadowBase, new Map([[cloudWindAtPoint, cloudWindWeather]])),
+} as const;
 
 /**
  * A visibilidade do sol no ar além da tabela aérea pelo mapa visto do sol (R19): o ponto a `t_km` da câmera na direção
@@ -711,34 +818,39 @@ export const cloudShadowKernel = wgslModule({
  * 32 km (a tabela). A transmitância `e^(−τ)` de cada um dos quatro texels vizinhos, e a bilinear delas (não de τ): a
  * 50–100 km o texel do mapa tem quilômetros, e a média de τ numa borda de sombra (0 de um lado, dezenas do outro) dava
  * a transmitância de quase 0 onde metade do texel tem sol (`far-cloud`: 7 % abaixo da referência). Lugar
- * `sky_aerial_far_visibility` da marcha e do panorama; teto: 8 leituras.
+ * `sky_aerial_far_visibility` da marcha e do panorama; os dois níveis da mistura do mapa por páginas; teto: 16 leituras.
  */
 const cloudAerialFarVisibility = wgslModule({
     name: 'cloud_aerial_far_visibility',
-    requires: [cloudParamsResource, cloudShadowLookup],
+    requires: [cloudParamsResource, cloudShadowPages, cloudShadowLookup],
     source: `fn cloud_far_knot(t: vec2i, k: u32) -> f32 {
     if (k == 0u) { return 0.0; }
     let j = min(k, 16u) - 1u;
     return textureLoad(cloud_shadow_tex, vec3i(t, i32(j / 4u)), 0)[j % 4u];
 }
 
-fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
-    let c = cloud_shadow_column(clouds.eye.xyz + dir * (t_km * 1000.0));
-    if (c.w <= 0.0) { return 1.0; }
-    let k = min(u32(floor(c.z)), 15u);
-    let f = c.z - f32(k);
-    let size = vec2i(textureDimensions(cloud_shadow_tex).xy);
-    let p = c.xy * vec2f(size) - 0.5;
+fn cloud_far_transmittance(uv: vec2f, k: u32, f: f32) -> f32 {
+    let p = uv * CLOUD_SHADOW_ATLAS - 0.5;
     let b = vec2i(floor(p));
     let w = p - floor(p);
     var t = 0.0;
     for (var i = 0; i < 4; i++) {
         let o = vec2i(i & 1, i >> 1);
-        let q = clamp(b + o, vec2i(0), size - 1);
+        let q = b + o;
         let wt = select(1.0 - w.x, w.x, o.x == 1) * select(1.0 - w.y, w.y, o.y == 1);
         t += wt * exp(-mix(cloud_far_knot(q, k), cloud_far_knot(q, k + 1u), f));
     }
     return t;
+}
+
+fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {
+    let c = cloud_shadow_column(clouds.eye.xyz + dir * (t_km * 1000.0));
+    if (c.len <= 0.0) { return 1.0; }
+    let k = min(u32(floor(c.knot)), 15u);
+    let f = c.knot - f32(k);
+    let a = cloud_far_transmittance(c.a, k, f);
+    if (c.blend <= 0.0) { return a; }
+    return mix(a, cloud_far_transmittance(c.b, k, f), c.blend);
 }`,
 });
 
@@ -882,18 +994,26 @@ export const cloudScatterKernel = wgslModule({
         cloudParamsResource,
         camerasResource,
         R.ambient,
-        R.scatterPrevious,
-        R.scatterOut,
-        R.scatterSunPrevious,
-        R.scatterSunOut,
+        pageAlloc,
+        cloudScatterPages,
+        R.scatterWork,
     ],
 });
 
-/** O cache de espalhamento filtrado no espaço (T023): a fatia do quadro pelo filtro binomial 3 × 3 × 3. */
+/** O cache de espalhamento filtrado no espaço (T023): as sondas cuja vizinhança caminhou, pelo filtro binomial. */
 export const cloudScatterFilterKernel = wgslModule({
     name: 'cloud_scatter_filter',
     source: cloudScatterFilterSource,
-    requires: [WORKGROUP_SIZE.module, R.scatterNow, R.clampSampler, cloudOutputs.scatterFiltered],
+    requires: [
+        WORKGROUP_SIZE.module,
+        cloudParamsResource,
+        cloudScatterPages,
+        R.scatterCacheRead,
+        R.scatterWork,
+        R.scatterFilteredStamps,
+        R.scatterFilteredClock,
+        cloudOutputs.scatterFiltered,
+    ],
 });
 
 /** Panorama das nuvens vistas da câmera. */

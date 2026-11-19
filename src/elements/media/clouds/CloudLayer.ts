@@ -15,9 +15,16 @@ import {
     type CloudPressureOptions,
 } from '../../extension/CloudPressureFunction';
 import { defaultCloudShapeGraph } from './defaultShape';
+import { GpuWordSchema } from '../../gpu/compute/schemas';
 import {
     CLOUD_DETAIL_SIZE,
-    CLOUD_SCATTER_SUN_RING,
+    CLOUD_SHADOW_ATLAS,
+    CLOUD_SHADOW_RECORD_WORDS,
+    CLOUD_SHADOW_SLOT_COUNT,
+    CLOUD_SHADOW_STRIDE,
+    CLOUD_SCATTER_GLOBAL_WORDS,
+    CLOUD_SCATTER_HEADER_WORDS,
+    CLOUD_SCATTER_PAGE,
     CLOUD_SHADOW_KNOTS,
     CLOUD_SHAPE_SIZE,
     CLOUD_WEATHER_SIZE,
@@ -134,10 +141,10 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     octaves: 3,
     panorama: [256, 128],
     panoramaSteps: 32,
-    shadow: { size: 256, extent: 400_000, near: 3_000 },
+    shadow: { texel: 50, budget: 128 },
     coverageExtent: 256_000,
     coverageSize: 1024,
-    scatter: { size: [160, 32, 160], stride: 8, collisions: 48 },
+    scatter: { size: [160, 32, 160], budget: 200, collisions: 48 },
     marchScale: 2,
 };
 
@@ -434,7 +441,6 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         const resized =
             q.panorama[0] !== quality.panorama[0]
             || q.panorama[1] !== quality.panorama[1]
-            || q.shadow.size !== quality.shadow.size
             || q.coverageSize !== quality.coverageSize
             || q.marchScale !== quality.marchScale
             || q.scatter.size.some((v, k) => v !== quality.scatter.size[k]);
@@ -469,6 +475,12 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
 
     getDescriptors(): readonly GPUDescriptor[] {
         const q = this.rawData.quality;
+        const scatterPages =
+            (q.scatter.size[0] / CLOUD_SCATTER_PAGE)
+            * (q.scatter.size[1] / CLOUD_SCATTER_PAGE)
+            * (q.scatter.size[2] / CLOUD_SCATTER_PAGE);
+        const scatterHeader =
+            CLOUD_SCATTER_GLOBAL_WORDS + scatterPages * CLOUD_SCATTER_HEADER_WORDS;
         const volume = (id: string, size: number): GPUDescriptor => ({
             id,
             role: 'storage-texture',
@@ -514,7 +526,9 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             volume('detail', CLOUD_DETAIL_SIZE),
             target('coverage', 'rgba8unorm', [q.coverageSize, q.coverageSize]),
             target('ambient', 'rgba16float', [2, 1]),
-            // O mapa visto do sol: 16 nós de profundidade ótica por coluna, 4 por camada (spec 041, R11).
+            // O mapa visto do sol por páginas (spec 041, R11 revisto): 16 nós de profundidade ótica por coluna, 4 por
+            // camada, no atlas das páginas dos níveis — série por páginas (o alvo só; a C2 guarda o carimbo de cada
+            // página física e a época): só as páginas inválidas são refeitas, as demais seguem onde estão.
             {
                 id: 'shadow',
                 role: 'storage-texture',
@@ -522,11 +536,31 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 textureShape: {
                     format: 'rgba16float',
                     dimension: '3d',
-                    width: q.shadow.size,
-                    height: q.shadow.size,
+                    width: CLOUD_SHADOW_ATLAS,
+                    height: CLOUD_SHADOW_ATLAS,
                     depthOrArrayLayers: CLOUD_SHADOW_KNOTS / 4,
                     access: 'write-only',
                 },
+                history: { depth: 1, pages: { tile: [CLOUD_SHADOW_STRIDE, CLOUD_SHADOW_STRIDE] } },
+            },
+            // O registro de cada página física do mapa (o sol, o tempo e o quadro do desenho, a página global, a
+            // assinatura do conteúdo, a célula do pivô, as medidas e os nós que as provas comparam — `cloud_shadow.wgsl`),
+            // série por páginas.
+            {
+                id: 'shadowPages',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: CLOUD_SHADOW_SLOT_COUNT * CLOUD_SHADOW_RECORD_WORDS,
+                upload: 'never',
+                history: { depth: 1, pages: { record: CLOUD_SHADOW_RECORD_WORDS * 4 } },
+            },
+            // A lista das páginas do quadro (a contagem e as páginas físicas), refeita a cada quadro.
+            {
+                id: 'shadowWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: 4 + CLOUD_SHADOW_SLOT_COUNT,
+                upload: 'never',
             },
             target('panorama', 'rgba16float', q.panorama),
             // A marcha: um valor por bloco 2 × 2 do alvo reconstruído (¼ da tela; 1/16 no perfil baixo) e a série
@@ -537,23 +571,23 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             target('march', 'rgba16float', q.marchScale, { depth: 2, filtered: true }),
             target('marchDepth', 'rg32float', q.marchScale, { depth: 2 }),
             target('view', 'rgba16float', 1),
-            // O cache de espalhamento (T023, R8): por sonda, a soma da luz dos caminhos (em unidades da iluminância do
-            // sol, rgb) e quantos (a), série temporal da 037 (o quadro lê a fatia anterior e escreve a sua), lida filtrada.
+            // O cache de espalhamento por páginas (T023, R8; R11 revisto): as palavras globais (a geração da grade), o
+            // registro de cada página de 8³ sondas (o sol e o quadro do último caminho, a geração, as sondas com nuvem) e
+            // as sondas (a soma da luz dos caminhos em unidades da iluminância do sol e quantos), série por páginas de
+            // buffer: só as páginas escolhidas no quadro caminham, as demais seguem onde estão.
             {
                 id: 'scatter',
-                role: 'storage-texture',
-                allocation: 'onDemand',
-                textureShape: {
-                    format: 'rgba16float',
-                    dimension: '3d',
-                    width: q.scatter.size[0],
-                    height: q.scatter.size[1],
-                    depthOrArrayLayers: q.scatter.size[2],
-                    access: 'write-only',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: scatterHeader + scatterPages * CLOUD_SCATTER_PAGE ** 3 * 4,
+                upload: 'never',
+                history: {
+                    depth: 1,
+                    pages: { record: CLOUD_SCATTER_PAGE ** 3 * 16, offset: scatterHeader * 4 },
                 },
-                history: { depth: 2, filtered: true },
             },
-            // O cache filtrado no espaço (o binomial 3 × 3 × 3 da fatia do quadro), o que a marcha e o panorama leem.
+            // O cache filtrado no espaço (o binomial 3 × 3 × 3), o que a marcha e o panorama leem: série por páginas
+            // (refeitas só as sondas cuja vizinhança caminhou).
             {
                 id: 'scatterFiltered',
                 role: 'storage-texture',
@@ -566,20 +600,19 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                     depthOrArrayLayers: q.scatter.size[2],
                     access: 'write-only',
                 },
-            },
-            // A direção do sol com que cada fase de grupos de sondas caminhou pela última vez (um texel por fase, série da
-            // 037): o sol que anda esquece a média da sonda na proporção do ângulo desde o caminho anterior dela (T023).
-            {
-                id: 'scatterSun',
-                role: 'storage-texture',
-                allocation: 'onDemand',
-                textureShape: {
-                    format: 'rgba32float',
-                    width: CLOUD_SCATTER_SUN_RING,
-                    height: 1,
-                    access: 'write-only',
+                history: {
+                    depth: 1,
+                    pages: { tile: [CLOUD_SCATTER_PAGE, CLOUD_SCATTER_PAGE, CLOUD_SCATTER_PAGE] },
                 },
-                history: { depth: 2 },
+            },
+            // O trabalho do quadro do cache: a contagem, a lista das páginas escolhidas (a página e o esquecimento) e a
+            // marca de cada página para o filtro.
+            {
+                id: 'scatterWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: 4 + 3 * scatterPages,
+                upload: 'never',
             },
             // O tempo (R19): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o
             // relaxamento a e^(−Δt/τ) por quadro muda ~10⁻⁵: em 16 bits se perderia), e o vento das nuvens, a subida e a

@@ -13,7 +13,16 @@ import {
     type TextureSpec,
 } from 'clayflow/web';
 import { halfToFloat } from './imageMeasures';
+import { readBuffer } from './extensionScenes';
 import type { CloudVolume } from '../../elements/media/clouds/reference/cloudModel';
+import type { ShadowAtlas } from '../../elements/media/clouds/reference/cloudShadowPages';
+import {
+    CLOUD_SCATTER_GLOBAL_WORDS,
+    CLOUD_SCATTER_HEADER_WORDS,
+    CLOUD_SCATTER_PAGE,
+    CLOUD_SHADOW_RECORD_WORDS,
+    CLOUD_SHADOW_SLOT_COUNT,
+} from '../../elements/media/clouds/schemas';
 
 /** Uma cena de nuvens. */
 export interface CloudScene {
@@ -153,6 +162,51 @@ export async function readTexture(
                     format === 'rgba8unorm' ? u8[row + x]! / 255 : halfToFloat(u16[row / 2 + x]!);
             }
     return { width, height, depth, data };
+}
+
+/**
+ * O mapa visto do sol por páginas lido da GPU (spec 041, R11 revisto): o atlas e o sol do desenho de cada página física
+ * (as três primeiras palavras do registro da série `shadowPages`).
+ */
+export async function readShadowMap(app: Application, layer: CloudLayer): Promise<ShadowAtlas> {
+    const t = app.resources.textureOf(layer, 'shadow');
+    const b = app.resources.bufferOf(layer, 'shadowPages');
+    if (t === undefined || b === undefined) throw new Error('mapa visto do sol não alocado');
+    const atlas = await readTexture(app, t, 'rgba16float');
+    const raw = await readBuffer(app, b, 'cloud_shadow_pages');
+    const suns = new Float32Array(CLOUD_SHADOW_SLOT_COUNT * 3);
+    for (let i = 0; i < CLOUD_SHADOW_SLOT_COUNT; i++)
+        for (let c = 0; c < 3; c++) suns[i * 3 + c] = raw[i * CLOUD_SHADOW_RECORD_WORDS + c]!;
+    return { ...atlas, suns };
+}
+
+/**
+ * O cache de espalhamento lido da GPU como uma grade (x mais rápido, depois a altitude, depois z; 4 valores por sonda: a
+ * soma da luz e a contagem): as sondas das páginas da série por páginas `scatter` (T023; R11 revisto).
+ */
+export async function readScatterCache(
+    app: Application,
+    layer: CloudLayer,
+): Promise<{ width: number; height: number; depth: number; data: Float32Array }> {
+    const b = app.resources.bufferOf(layer, 'scatter');
+    if (b === undefined) throw new Error('cache de espalhamento não alocado');
+    const raw = await readBuffer(app, b, 'cloud_scatter_cache');
+    const [w, h, d] = layer.quality.scatter.size;
+    const P = CLOUD_SCATTER_PAGE;
+    const n = [w / P, h / P, d / P];
+    const pages = n[0]! * n[1]! * n[2]!;
+    const base = CLOUD_SCATTER_GLOBAL_WORDS + pages * CLOUD_SCATTER_HEADER_WORDS;
+    const data = new Float32Array(w * h * d * 4);
+    for (let z = 0; z < d; z++)
+        for (let y = 0; y < h; y++)
+            for (let x = 0; x < w; x++) {
+                const p =
+                    Math.floor(x / P) + n[0]! * (Math.floor(y / P) + n[1]! * Math.floor(z / P));
+                const l = (x % P) + P * ((y % P) + P * (z % P));
+                const o = base + (p * P ** 3 + l) * 4;
+                for (let c = 0; c < 4; c++) data[((z * h + y) * w + x) * 4 + c] = raw[o + c]!;
+            }
+    return { width: w, height: h, depth: d, data };
 }
 
 /** Um volume da camada lido da GPU, na representação da referência. */

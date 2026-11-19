@@ -16,7 +16,7 @@ import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
-import { CLOUD_WEATHER_SIZE } from './schemas';
+import { CLOUD_SCATTER_PAGE, CLOUD_SHADOW_SLOT_COUNT, CLOUD_WEATHER_SIZE } from './schemas';
 import {
     cloudAmbientKernel,
     cloudCoverageAt,
@@ -30,8 +30,8 @@ import {
     cloudScatterFilterKernel,
     cloudScatterKernel,
     cloudScatterSlots,
-    cloudScatterSunSlots,
     cloudShadowKernel,
+    cloudShadowSlots,
     cloudWeatherKernel,
     cloudWeatherSlots,
 } from './shaders';
@@ -40,12 +40,16 @@ import {
 export interface CloudLightSlots extends SlotMap {
     readonly cloud: SingletonSlot<false>;
     readonly sky: SingletonSlot<true>;
-    /** O cache de espalhamento (spec 037; T023): a fatia anterior lida, a do quadro escrita. */
+    /** O cache de espalhamento por páginas (T023; série por páginas: os registros e as sondas, os carimbos). */
     readonly cloudScatter: ChannelSlot<false>;
-    /** O sol do cache de espalhamento no quadro anterior (T023). */
-    readonly cloudScatterSun: ChannelSlot<false>;
+    /** O cache filtrado (série por páginas: os carimbos). */
+    readonly cloudScatterFiltered: ChannelSlot<false>;
     /** O estado do tempo (spec 037; R19): a fatia anterior lida no lugar trazido pelo vento, a do quadro escrita. */
     readonly cloudWeather: ChannelSlot<false>;
+    /** O atlas do mapa visto do sol, série por páginas (os carimbos e o relógio; R11 revisto). */
+    readonly cloudShadow: ChannelSlot<false>;
+    /** O registro das páginas do mapa visto do sol, série por páginas. */
+    readonly cloudShadowPages: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudLightSlots>;
@@ -62,9 +66,24 @@ const compute = (
 });
 
 const AMBIENT = compute('cloud_ambient', cloudAmbientKernel, 'cloud_ambient_main');
-const SHADOW = compute('cloud_shadow', cloudShadowKernel, 'cloud_shadow_main');
+/** As partes do mapa visto do sol por páginas (a escolha do quadro; o desenho e as provas), sem e com o tempo. */
+const shadowParts = (weather: boolean): readonly PipelineDescriptor[] => {
+    const shader = weather ? cloudShadowKernel.weather : cloudShadowKernel.plain;
+    const tag = weather ? ':weather' : '';
+    return [
+        compute(`cloud_shadow_select${tag}`, shader, 'cloud_shadow_select_main'),
+        compute(`cloud_shadow${tag}`, shader, 'cloud_shadow_main'),
+    ];
+};
 const PANORAMA = compute('cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main');
+const SCATTER_SELECT = compute(
+    'cloud_scatter_select',
+    cloudScatterKernel,
+    'cloud_scatter_select_main',
+);
 const SCATTER = compute('cloud_scatter', cloudScatterKernel, 'cloud_scatter_main');
+/** Sondas por página do cache de espalhamento (8³). */
+const SCATTER_PAGE_PROBES = CLOUD_SCATTER_PAGE ** 3;
 const SCATTER_FILTER = compute(
     'cloud_scatter_filter',
     cloudScatterFilterKernel,
@@ -88,8 +107,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         cloud: slot.singleton(CloudLayer.schema),
         sky: slot.singleton(Sky.schema, { optional: true }),
         ...cloudScatterSlots,
-        ...cloudScatterSunSlots,
         ...cloudWeatherSlots,
+        ...cloudShadowSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -101,6 +120,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     /** O pipeline do tempo (pelo módulo composto com a função de pressão), ou `undefined` sem o tempo (R19). */
     private weather: string | undefined;
     private weatherView: TextureViewSpec | undefined;
+    /** As partes do mapa visto do sol preparadas (sem ou com o tempo), ou `undefined`. */
+    private shadow: readonly PipelineDescriptor[] | undefined;
     private prepared = false;
     private active = false;
 
@@ -142,8 +163,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
     }
 
     /**
-     * A cobertura, as irradiâncias, a sombra, os caminhos do cache, o cache filtrado (da fatia que os caminhos acabaram de
-     * escrever) e o panorama, nesta ordem.
+     * A cobertura, as irradiâncias, o mapa visto do sol por páginas, a escolha e os caminhos das páginas do cache, o cache
+     * filtrado (as sondas cuja vizinhança caminhou) e o panorama, nesta ordem.
      */
     dispatch(frame: Frame, bound: BoundFlow<CloudLightSlots>): void {
         if (!this.active || this.coverage === undefined) return;
@@ -164,12 +185,9 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             ...weather,
             [this.coverage, 'CloudLightFlow.coverage', q.coverageSize * q.coverageSize],
             [AMBIENT.id, 'CloudLightFlow.ambient', WORKGROUP_SIZE.value],
-            [SHADOW.id, 'CloudLightFlow.shadow', q.shadow.size * q.shadow.size],
-            [
-                SCATTER.id,
-                'CloudLightFlow.scatter',
-                q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
-            ],
+            // A escolha das páginas do cache (um grupo) e os caminhos das escolhidas (até o orçamento).
+            [SCATTER_SELECT.id, 'CloudLightFlow.scatterSelect', 0],
+            [SCATTER.id, 'CloudLightFlow.scatter', q.scatter.budget * SCATTER_PAGE_PROBES],
             [
                 SCATTER_FILTER.id,
                 'CloudLightFlow.scatterFilter',
@@ -178,19 +196,43 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             [PANORAMA.id, 'CloudLightFlow.panorama', q.panorama[0] * q.panorama[1]],
         ];
         const ready = steps.map(([id]) => bound.pipelines.get(id));
-        if (ready.some((p) => p?.role !== 'compute' || !p.ready)) return;
+        const parts = (this.shadow ?? []).map((d) => bound.pipelines.get(d.id));
+        if (
+            this.shadow === undefined
+            || [...ready, ...parts].some((p) => p?.role !== 'compute' || !p.ready)
+        )
+            return;
+        const [select, draw] = parts;
         steps.forEach(([id, label, count], k) => {
             const p = ready[k]!;
             if (p.role !== 'compute') return;
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
                 p.bindTo(pass.bind);
-                pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
+                if (count === 0) pass.dispatch.workgroups(1);
+                else pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
-            // O cache de espalhamento escrito: a série gira (o panorama e a marcha leem a fatia do quadro).
-            if (id === SCATTER.id) {
+            // O mapa visto do sol por páginas depois das irradiâncias (antes dos caminhos do cache, que o leem): a escolha
+            // marca as páginas do quadro (as provas do quadro anterior entram nela), e um grupo por página física desenha
+            // as marcadas e prova as demais.
+            if (id === AMBIENT.id && select?.role === 'compute' && draw?.role === 'compute') {
+                frame.compute('CloudLightFlow.shadowSelect', (pass) => {
+                    pass.bind.setPipeline(select.spec);
+                    select.bindTo(pass.bind);
+                    pass.dispatch.workgroups(1);
+                });
+                frame.compute('CloudLightFlow.shadow', (pass) => {
+                    pass.bind.setPipeline(draw.spec);
+                    draw.bindTo(pass.bind);
+                    pass.dispatch.workgroups(CLOUD_SHADOW_SLOT_COUNT);
+                });
+                bound.slots.cloudShadow.written();
+                bound.slots.cloudShadowPages.written();
+            }
+            // As páginas do cache e do cache filtrado escritas no quadro (carimbadas na época da série).
+            if (id === SCATTER_FILTER.id) {
                 bound.slots.cloudScatter.written();
-                bound.slots.cloudScatterSun.written();
+                bound.slots.cloudScatterFiltered.written();
             }
             // O estado do tempo escrito: a série gira (o mapa de cobertura lê a fatia do quadro).
             if (id === this.weather) bound.slots.cloudWeather.written();
@@ -208,7 +250,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
      */
     private release(c: Ctx): void {
         if (this.prepared)
-            for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA]) c.release(p.id);
+            for (const p of [AMBIENT, SCATTER_SELECT, SCATTER, SCATTER_FILTER, PANORAMA])
+                c.release(p.id);
+        for (const p of this.shadow ?? []) c.release(p.id);
+        this.shadow = undefined;
         if (this.coverage !== undefined) c.release(this.coverage);
         if (this.weather !== undefined) c.release(this.weather);
         this.coverage = undefined;
@@ -230,8 +275,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         this.active = true;
         for (const id of TARGETS) this.resources.ensureAllocated(cloud, id);
         this.resources.ensureAllocated(cloud, 'scatter');
-        this.resources.ensureAllocated(cloud, 'scatterSun');
+        this.resources.ensureAllocated(cloud, 'scatterWork');
         this.resources.ensureAllocated(cloud, 'scatterFiltered');
+        this.resources.ensureAllocated(cloud, 'shadowPages');
+        this.resources.ensureAllocated(cloud, 'shadowWork');
         const views = TARGETS.map((id) => c.bound.slots.cloud.textureViewOf(id));
         if (views.some((v) => v === undefined)) {
             this.active = false;
@@ -248,11 +295,19 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             );
             this.views = views;
             if (!this.prepared) {
-                for (const p of [AMBIENT, SHADOW, SCATTER, SCATTER_FILTER, PANORAMA]) c.prepare(p);
+                for (const p of [AMBIENT, SCATTER_SELECT, SCATTER, SCATTER_FILTER, PANORAMA])
+                    c.prepare(p);
                 this.prepared = true;
             }
         }
         this.syncWeather(c, cloud);
+        // O mapa visto do sol pelo vento local das nuvens com o tempo (a escolha do quadro lê o vento que sobra).
+        const parts = shadowParts(cloud.weather !== undefined);
+        if (this.shadow?.[0]?.id !== parts[0]!.id) {
+            for (const p of this.shadow ?? []) c.release(p.id);
+            for (const p of parts) c.prepare(p);
+            this.shadow = parts;
+        }
         // O mapa de cobertura pelo tempo (R19), ou composto com a função de cobertura da camada (ou o pronto: os valores
         // globais).
         const composite = cloud.coverageFunction?.composite;

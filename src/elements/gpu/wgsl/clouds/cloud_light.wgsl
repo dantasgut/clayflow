@@ -49,16 +49,16 @@ fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     }
     let q = p + sun * t;
     let c = cloud_shadow_column(q);
-    if (c.w <= 0.0) { return tau * clouds.layer.z; }
-    let k = u32(floor(c.z));
+    if (c.len <= 0.0) { return tau * clouds.layer.z; }
+    let k = u32(floor(c.knot));
     // O perfil escolhe menos passos de luz; o pedaço segue: 4 no alto (6 de cone), 3 no médio, 2 no baixo.
     let m = clamp(n, 4u, 6u) - 2u;
-    let dt = (c.z - f32(k)) / 16.0 * c.w / f32(m);
+    let dt = (c.knot - f32(k)) / 16.0 * c.len / f32(m);
     for (var i = 0u; i < CLOUD_SHADOW_PARTIAL_STEPS; i++) {
         if (i >= m) { break; }
         tau += cloud_density(q + sun * ((f32(i) + 0.5) * dt), true) * dt;
     }
-    return tau * clouds.layer.z + cloud_shadow_knot(c.xy, k);
+    return tau * clouds.layer.z + cloud_shadow_knot(c, k);
 }
 
 /**

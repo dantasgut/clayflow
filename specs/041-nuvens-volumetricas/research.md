@@ -318,7 +318,7 @@ e convecção resolvida (o modelo é diagnóstico: a pressão é dada; a convec�
    (`T` = `weather.lifetime`, padrão 2 dias). Baixas com R = 0,75 L e amplitude `A` (padrão 1200 Pa); altas com R = L e
    no máximo o teto do equilíbrio regular `0,8·ρ f_e² R²/24` (no centro de `A(1 − d²/R²)³`, |G|·κ = 6A/(ρR²) ≤ f²/4,
    Holton §3.2.5) — largas e de gradiente fraco, como na atmosfera. A amplitude escala com a rotação, `A(φ) =
-   A₄₅·f_e(φ)/f_e(45°)` (a análise de escala do equilíbrio, Δp ~ ρ f U L: o vento característico fica o mesmo em toda
+A₄₅·f_e(φ)/f_e(45°)` (a análise de escala do equilíbrio, Δp ~ ρ f U L: o vento característico fica o mesmo em toda
    latitude, e perto do equador os sistemas são fracos, como lá são).
 
 2. **Coriolis**: f = 2Ω sin φ, Ω = 7,2921159·10⁻⁵ rad/s, φ = `weather.latitude` (padrão 45°). Plano f (um f para a
@@ -537,6 +537,78 @@ Os defeitos apontados no vídeo `tempestade` da rodada 8, isolados um a um na me
   o quadro 0,15 (p99,9 13,5 → 10). As saídas sugeridas antes (mexer na reconstrução por amostras, ou o detalhe com o vento
   local) não atacam a causa: a reprojeção pelo vento da camada não mudava (0,96) e a cobertura em 16 bits também não.
   Em aberto: o grão restante é o de ~7 amostras por pixel sem o histórico longo numa série acelerada.
+
+### R11 (revisto) — o mapa visto do sol e o cache de espalhamento por páginas (2026-11-19)
+
+**Pergunta do usuário**: "Não dá para usar atlas, páginas ou arena?" Sim — as duas estruturas refeitas inteiras (o mapa) ou
+por fração fixa (o cache) a cada quadro passam para as peças que a 034 consolidou: a série por páginas da C2
+(`history: { depth: 1, pages }`: o carimbo de cada página e o relógio de época), o endereçamento toroidal da tabela do mapa
+de sombra virtual e a soma de prefixos comum (`page_alloc.wgsl`) para a escolha em ordem. Nenhuma estrutura paralela: o
+atlas é o descritor `shadow` da camada, o registro das páginas é o descritor `shadowPages`, o cache é o descritor
+`scatter`; a arena de pools não se aplica (nada é enviado pela CPU).
+
+**O mapa visto do sol** (`cloud_shadow_pages.wgsl`, `cloud_shadow.wgsl`, `cloud_shadow_lookup.wgsl`; referência
+`reference/cloudShadowPages.ts`):
+
+- _Mapa de recortes_ no plano perpendicular ao sol: 8 níveis, texel de 50 m no primeiro (cada nível dobra), 8 × 8
+  páginas de 16² texels por nível em volta da câmera, presas à página (endereço toroidal `g mod 8`, como a tabela da
+  034); 512 páginas, o último nível cobre ±294 km. Todas as páginas da janela ficam residentes (os receptores — o chão, a
+  névoa, a GI, a marcha, a tabela aérea — estão em toda parte, não só onde há pixels de superfície); o atlas tem 23 × 23
+  lugares de 17² texels (a coluna da vizinha em +x e +y: o par do filtro bilinear nunca cruza para a página física ao
+  lado). A deformação asinh do mapa antigo não serve a páginas (a câmera que anda desloca todos os texels por frações); o
+  recorte dá páginas inteiras ao andar e texel/distância entre 1/46 e 1/92. Medido: com 6 × 6 páginas (1/30–1/60) o ar e
+  as nuvens a 25–60 km ficavam com texels de 1,6 km e o τ interpolado entre colunas de nuvem e de céu escurecia o ar
+  (`far-cloud` 11,1 %; T do mapa 0,12 contra 0,85 exata a 30 km); com 8 × 8, 5,1 %. Texels anisotrópicos (finos na
+  altitude, como o mapa antigo, com a direita horizontal) foram tentados e desfeitos: `sun-low` foi a 0,080.
+- _Referencial das nuvens_: o plano passa pelo pivô (o vento × tempo mais a célula de 16 km que contém a câmera no
+  referencial das nuvens); o conteúdo de uma página não muda com o vento uniforme. O mapa de cobertura passou a ter a
+  grade no mesmo referencial (os texels andam com as nuvens): com a grade presa ao mundo, a nuvem mudava de forma ao
+  passar por ela, e o mapa preso às nuvens era refeito à toa. A base do plano é a rotação mínima de +y ao sol (contínua
+  até o sol a −90°; `cross(y, sol)` trocava de eixo a 82° e refaria o mapa inteiro). O centro das janelas fica na faixa
+  da casca na parte vertical do plano: com o sol baixo as colunas das nuvens ficam a 1,5–4 km da câmera no plano e
+  precisavam dos níveis finos (`sun-below` a −0,3°: 0,074 → 0,045).
+- _Cada página com o seu sol_: o registro guarda o sol do desenho; o consumidor escolhe a página pelo plano do quadro e
+  lê o ponto pelo plano do sol da página (a mesma coluna que ela guardou). Sem isso, a página de alguns quadros atrás lia
+  a coluna de outro lugar com o sol andando (voltas na luz do chão: `sun-low` 4 contra 1 da referência; com ela, 0–1).
+- _Invalidação_: obrigatória (no mesmo quadro, acima do orçamento) a página sem carimbo na época da série, que entrou na
+  janela, de outro conteúdo (a assinatura FNV-1a dos valores que mudam as colunas) ou de outra célula do pivô. As demais,
+  pela mudança da transmitância desde o desenho — a maior entre a **prevista** (o deslocamento lateral das linhas: o plano
+  girando nos cantos da página e a coluna inclinando até a ponta do trecho mais longe do plano, mais o vento que sobra —
+  o local menos o da camada —, × o gradiente de T medido entre texels vizinhos com fator 2; o deslocamento dos nós pelo
+  comprimento do trecho; a evolução da forma pela deriva do detalhe, o tempo de formação ou 600 s com função de
+  cobertura) e a **medida** (4 colunas de prova por página por quadro, embaralhadas, refeitas com o sol da página e
+  comparadas com os nós 4, 8, 12 e 16 guardados no registro). Tolerância: 1/255 em T (um nível de 8 bits da luz direta
+  plena). Teto da idade: 240 quadros.
+- _Prioridade e orçamento_: a fila em oitavas de (mudança/tolerância) × quadros desde o desenho × √2 por nível mais fino
+  × 4 vista pela câmera; até o orçamento (128/96/64 páginas por quadro no alto/médio/baixo, 25/19/12,5 % do atlas), da fila
+  mais alta à mais baixa e, dentro do corte, pela ordem da página (somas de prefixos no grupo: independe dos atômicos).
+  As provas das páginas não escolhidas correm no mesmo passe do desenho (um grupo por página física): a latência de uma
+  coluna, sem um passe a mais na cadeia (num passe à parte, 0,19 ms de latência com só 1000 colunas).
+- _Reserva grossa_: no recorte todos os níveis ficam residentes — o mais grosso cobre ±294 km — e a página que entra na
+  janela é desenhada no mesmo quadro: nunca se lê página ausente.
+- _O que a referência f64 mostrou_ (`cloudShadowPages.test.ts`, cúmulos em células, páginas nos níveis 0, 2 e 4): o mapa
+  por colunas pontuais tem detalhe menor que o texel — com o sol andando 0,005°/quadro a 15°, o próprio mapa refeito a cada
+  quadro muda até 180 níveis num texel por quadro (p50 33), e a 0,05°/quadro a 8°, 255. A previsão pelo gradiente medido
+  entre texels vizinhos não alcança essa mudança subtexel; o esquema é conservador nisso (com o sol andando, as páginas
+  com nuvem passam da tolerância a cada quadro) e a medida pelas provas cobre o resto. Parado, nenhuma página é refeita e
+  o que se lê é o refeito (erro 0); com orçamento para todas, o erro fica na tolerância; com ⅓, perto do que o mapa
+  refeito muda por quadro. Em aberto (peça própria): o mapa pré-filtrado (a média de T na pegada do texel), que tiraria o
+  serrilhado temporal dos níveis grossos que o mapa antigo também tinha.
+
+**O cache de espalhamento** (`cloud_scatter_pages.wgsl`, `cloud_scatter.wgsl`, `cloud_scatter_filter.wgsl`): as sondas em
+páginas de 8³ numa série por páginas de buffer (as palavras globais — a geração da grade —, o registro de cada página — o
+sol e o quadro do último caminho, a geração, quantas sondas tinham nuvem — e as sondas). Antes, a série de duas fatias
+copiava a grade inteira a cada quadro (os ⅞ que não caminhavam) e o filtro refazia todas as sondas; e o anel do sol por
+fase de grupos (`scatterSun`) saiu: o sol é do registro da página. Por quadro, a escolha (um grupo) põe na lista as
+páginas pela idade × a proximidade da câmera (metade a 32 km) × 2 vista × ⅛ sem nuvem (a que nunca caminhou nesta geração primeiro), até o
+orçamento (200/96/36 páginas: o mesmo número de sondas que caminhava com a fração fixa de ⅛); a geração sobe quando a
+grade recomeça (o corte, o centro que muda), e as páginas de outra geração valem zero. O filtro refaz só as sondas cuja
+vizinhança tem uma página que caminhou (na geração nova, todas), lendo o cache por uma vista só de leitura (com os
+atômicos dos caminhos, 0,24 ms; com a vista, 0,15).
+
+**Ordem do quadro**: a mesma (fase `shadow`, prioridade −1): cobertura → irradiâncias → escolha e desenho das páginas do
+mapa → escolha, caminhos e filtro do cache → panorama. A marcha lê o cache filtrado do quadro (ler o do quadro anterior
+devolvia as estrias do crepúsculo, ver o filtro; não testado de novo nesta rodada).
 
 ## Fontes
 
@@ -820,12 +892,12 @@ múltipla, que é a luz do céu, fica); a névoa volumétrica (froxels) faz o me
 
 **As duas formas avaliadas no motor.**
 
-1. *Os froxels da névoa perto e a tabela além.* Os froxels (160 × 90 × 128) já estão presos à câmera e já leem
+1. _Os froxels da névoa perto e a tabela além._ Os froxels (160 × 90 × 128) já estão presos à câmera e já leem
    `light_visibility` (a sombra da geometria): dariam a sombra do terreno no ar perto. Mas só existem com um `FogVolume`
    e cobrem dezenas de metros a poucas centenas; os feixes das nuvens estão a 2–150 km. Pôr o ar da atmosfera como meio
    dos froxels (sempre alocados com um `Sky`, a extinção de Rayleigh e Mie injetada, a perspectiva aérea emendada no fim
    deles) é uma peça estrutural nova — ver a proposta abaixo.
-2. *A tabela da perspectiva aérea com a sombra* (escolhida). A tabela já cobre a tela da câmera e 32 km em fatias
+2. _A tabela da perspectiva aérea com a sombra_ (escolhida). A tabela já cobre a tela da câmera e 32 km em fatias
    quadráticas; a luz simples de cada subpasso passa a ser × a visibilidade do sol no ponto do ar
    (`sky_aerial_visibility`: o ponto `light_transmission` sem a parte da própria atmosfera — a sombra das nuvens pelo mapa
    visto do sol, com a penumbra do disco). A tabela passa para a fase `shadow` (`SkyAerialFlow`, prioridade −1,5), depois
@@ -840,6 +912,7 @@ some meia tela além). A composição das nuvens não muda: o fundo atrás delas
 frente delas vem da tabela sombreada.
 
 **Medidas.**
+
 - Referência f64 (`aerialColumn`, o espelho do kernel, contra `aerialPerspective` com a mesma visibilidade e passos de
   ~1,6 m): duas nuvens (caixas de 1,5–2,5 km, extinção 3/km) com o sol a 10° de lado; o ar sob elas perde mais de 40 %
   da luz por km, o feixe entre elas é o do céu limpo (diferença < 10⁻⁶); a coluna segue a integral exata a 1,35 % (pior
@@ -861,6 +934,7 @@ não só com um `FogVolume`. Precisa da decisão sobre o custo (~0,3 ms dos frox
 **O sol.** O disco já tinha o tamanho real (raio 0,004675 rad, 0,536°) e a radiância física (`E·T/(π r²)`, ~10⁹ nits ao
 meio dia), mas o fundo guarda no máximo `SKY_SUN_DISK_MAX` (60 000; o alvo é meio-float): a energia do disco era cortada
 ~25 000 vezes, e nenhum espalhamento da lente podia mostrar o clarão (o `Bloom` era um desfoque 5 × 5 com limiar).
+
 - O excesso vai para `FrameTargets.overflow` (sob demanda, em unidades de 65 536): o `SkyOverflowFlow`, depois da
   composição das nuvens, desenha um retângulo em volta do disco com a cobertura do pixel pela distância angular (a energia
   não depende do deslocamento da amostra), só no fundo, × a névoa dos volumes e × a transmitância das nuvens no pixel.
@@ -897,15 +971,15 @@ escurece 0,9 EV, a 5° 2,1 EV, no horizonte 3,4 EV, a −4° 5,5 EV.
 **A cor do céu com o ângulo.** A tabela da vista do céu segue a referência f64 (smoke `sky`, `colors`: razão R/B a ≤ 1 %
 com o sol a 60°, 20° e 4°). Medido na referência (cd/m², xy CIE, temperatura de cor; turbidez 1):
 
-| sol | horizonte do lado do sol (2°) | zênite | horizonte oposto (5°) |
-| --- | --- | --- | --- |
-| 60° | 9521, (0,279; 0,308), 9200 K | 1511, (0,228; 0,232) | 6935, (0,257; 0,281) |
-| 20° | 12439, (0,321; 0,347), 6000 K | 762, (0,227; 0,231) | 6383, (0,271; 0,301) |
-| 10° | 16533, (0,374; 0,384), 4200 K | 538, (0,234; 0,239) | 4962, (0,290; 0,325) |
-| 3° | 11013, (0,461; 0,413), 2700 K | 282, (0,256; 0,262) | 2395, (0,351; 0,375) |
-| 0° | 3556, (0,522; 0,392), 1900 K | 127, (0,280; 0,271) | 747, (0,429; 0,382) |
-| −2° | 684, (0,484; 0,393), 2200 K | 44, (0,285; 0,258) | 77, (0,430; 0,316) |
-| −4° | 204, (0,486; 0,395), 2200 K | 8, (0,285; 0,243) | 5, (0,266; 0,231) |
+| sol | horizonte do lado do sol (2°) | zênite               | horizonte oposto (5°) |
+| --- | ----------------------------- | -------------------- | --------------------- |
+| 60° | 9521, (0,279; 0,308), 9200 K  | 1511, (0,228; 0,232) | 6935, (0,257; 0,281)  |
+| 20° | 12439, (0,321; 0,347), 6000 K | 762, (0,227; 0,231)  | 6383, (0,271; 0,301)  |
+| 10° | 16533, (0,374; 0,384), 4200 K | 538, (0,234; 0,239)  | 4962, (0,290; 0,325)  |
+| 3°  | 11013, (0,461; 0,413), 2700 K | 282, (0,256; 0,262)  | 2395, (0,351; 0,375)  |
+| 0°  | 3556, (0,522; 0,392), 1900 K  | 127, (0,280; 0,271)  | 747, (0,429; 0,382)   |
+| −2° | 684, (0,484; 0,393), 2200 K   | 44, (0,285; 0,258)   | 77, (0,430; 0,316)    |
+| −4° | 204, (0,486; 0,395), 2200 K   | 8, (0,285; 0,243)    | 5, (0,266; 0,231)     |
 
 Os valores publicados de céu limpo (zênite de ~100–300 cd/m² com o sol no horizonte e ~10 cd/m² a −4°; o zênite azul e o
 "purple light" no crepúsculo pela banda de Chappuis do ozônio, cuja absorção — 0,65/1,881/0,085 × 10⁻³ por km no pico,

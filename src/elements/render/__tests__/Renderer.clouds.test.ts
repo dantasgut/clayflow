@@ -26,11 +26,11 @@ describe('Renderer — nuvens', () => {
         expect(RENDER_PROFILES.high.clouds.marchScale).toBe(2);
         expect(RENDER_PROFILES.medium.clouds.marchScale).toBe(2);
         expect(RENDER_PROFILES.high.clouds.panorama).toEqual([256, 128]);
-        expect(RENDER_PROFILES.low.clouds.shadow).toEqual({
-            size: 128,
-            extent: 400_000,
-            near: 3_000,
-        });
+        // O mapa visto do sol por páginas (R11 revisto): o mesmo atlas, o orçamento de páginas por quadro pelo perfil.
+        expect(RENDER_PROFILES.low.clouds.shadow).toEqual({ texel: 50, budget: 64 });
+        expect(RENDER_PROFILES.high.clouds.shadow.budget).toBeGreaterThan(
+            RENDER_PROFILES.low.clouds.shadow.budget,
+        );
     });
 
     it('a camada adotada segue o perfil', () => {
