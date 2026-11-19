@@ -92,7 +92,7 @@ fn cloud_detail_weight(cell: f32, fp: f32) -> f32 {
  * 16 células por período e três oitavas cada: a mais fina com o período/16, /32 e /64), cada um cedendo ao mais grosso
  * quando a oitava mais fina dele fica abaixo da pegada (`cloud_footprint`).
  */
-fn cloud_erode(p: vec3f, c: f32, hl: f32) -> f32 {
+fn cloud_erode(p: vec3f, c: f32, hl: f32, strength: f32) -> f32 {
     let pd = (p - clouds.detail.xyz) / clouds.detail.w;
     let d = textureSampleLevel(cloud_detail_tex, cloud_noise_sampler, pd, 0.0);
     let period = clouds.detail.w;
@@ -100,16 +100,40 @@ fn cloud_erode(p: vec3f, c: f32, hl: f32) -> f32 {
     let a = mix(b, d.a, cloud_detail_weight(period / 64.0, cloud_footprint));
     let hf = d.g * 0.625 + b * 0.25 + a * 0.125;
     let hfm = mix(hf, 1.0 - hf, clamp(hl * 10.0, 0.0, 1.0));
-    return max(0.0, cloud_remap(c, hfm * CLOUD_EROSION, 1.0, 0.0, 1.0));
+    return max(0.0, cloud_remap(c, hfm * strength, 1.0, 0.0, 1.0));
+}
+
+/** O fBm de Worley da forma (os canais G, B e A do volume): as bolhas de 3 km, 1,5 km e 750 m no período de 12 km. */
+fn cloud_shape_low(s: vec4f) -> f32 {
+    return s.g * 0.625 + s.b * 0.25 + s.a * 0.125;
+}
+
+/** A forma (sem erosão) da cobertura `cx` com a amostra `s` do volume e o perfil `profile`. */
+fn cloud_shape_cover_sample(s: vec4f, cx: f32, profile: f32) -> f32 {
+    let base = cloud_remap(s.r, cloud_shape_low(s) - 1.0, 1.0, 0.0, 1.0) * profile;
+    if (cx < 1.0) { return cloud_remap(base, 1.0 - cx, 1.0, 0.0, 1.0) * cx; }
+    return base;
+}
+
+/**
+ * A força da erosão das bordas na coluna de topo local `top` com o topo do tempo bom `fair` (frações da casca; spec 041,
+ * R19): `CLOUD_EROSION` nos cúmulos do tempo bom e nas torres; abaixo do topo do tempo bom (a subsidência baixa a
+ * inversão), os cúmulos rasos ficam menores, não achatados — a largura de um cúmulo é da ordem da profundidade dele (Plank
+ * 1969) —, e a erosão sobe com a fração perdida da profundidade, até `CLOUD_SHALLOW_EROSION`: o volume de detalhe (células
+ * de 450 m, 225 m e 112 m) parte o corpo em cúmulos humildes. Sem isso, o perfil inteiro espremido em menos de 1 km sob a
+ * inversão e a largura das células de 8 km da cobertura: panquecas lisas de 5–10 km de topo claro e base escura — os
+ * discos achatados do vídeo `tempestade` da rodada 8. Sem o tempo o topo é o do tempo bom: `CLOUD_EROSION`.
+ */
+const CLOUD_SHALLOW_EROSION: f32 = 0.9;
+
+fn cloud_shallow_erosion(top: f32, fair: f32) -> f32 {
+    let lost = clamp(1.0 - top / max(fair, 1e-3), 0.0, 1.0);
+    return mix(CLOUD_EROSION, CLOUD_SHALLOW_EROSION, smoothstep(0.0, 0.4, lost));
 }
 
 /** A forma (sem erosão) da cobertura `cx` no ponto `ps` do volume com o perfil `profile`. */
 fn cloud_shape_cover(ps: vec3f, cx: f32, profile: f32) -> f32 {
-    let s = textureSampleLevel(cloud_shape_tex, cloud_noise_sampler, ps, 0.0);
-    let low = s.g * 0.625 + s.b * 0.25 + s.a * 0.125;
-    let base = cloud_remap(s.r, low - 1.0, 1.0, 0.0, 1.0) * profile;
-    if (cx < 1.0) { return cloud_remap(base, 1.0 - cx, 1.0, 0.0, 1.0) * cx; }
-    return base;
+    return cloud_shape_cover_sample(textureSampleLevel(cloud_shape_tex, cloud_noise_sampler, ps, 0.0), cx, profile);
 }
 
 /**
@@ -124,24 +148,37 @@ fn cloud_density_above(p: vec3f, detail: bool, floor: f32) -> f32 {
     let weather = cloud_weather_on();
     var result = 0.0;
     if (cov.x > 0.0) {
+        let skew = CLOUD_SKEW * clouds.shell.w * h;
+        let ps = (p - clouds.shape.xyz - vec3f(clouds.wind.x * skew, 0.0, clouds.wind.y * skew)) / clouds.shape.w;
         // O topo local: o da casca sem o tempo; com ele, o do estado, que a torre só alcança na célula mais forte.
         let fair = clouds.weatherMap.x;
         var top = cov.w;
-        if (weather && top > fair) { top = fair + (top - fair) * cloud_tower_reach(cov.y); }
+        var cx = cov.x;
+        let tower = weather && top > fair;
+        // A amostra da forma: antes do perfil na coluna da torre (as térmicas a usam), depois dele nas outras (o vazio
+        // acima do topo não lê o volume).
+        var s = vec4f(0.0);
+        if (tower) {
+            s = textureSampleLevel(cloud_shape_tex, cloud_noise_sampler, ps, 0.0);
+            // As térmicas da torre (`cloud_tower_thermal`): o tipo e a cobertura locais acima do topo do tempo bom variam
+            // com as bolhas do volume da forma — o topo e as paredes da torre em couve-flor, não o campo 2D extrudado.
+            let th = cloud_tower_thermal(cloud_shape_low(s), clamp((h - fair) / (top - fair), 0.0, 1.0));
+            top = fair + (top - fair) * cloud_tower_reach(cov.y + th.x);
+            cx = clamp(cx + th.y, 0.0, 1.0);
+        }
         // A fração de altura local: o perfil vai da base ao topo das nuvens no ponto, não ao da casca.
         let hl = select(h / max(top, 1e-3), h, top >= 1.0);
         let profile = select(0.0, cloud_height_profile(hl, cov.y), hl < 1.0);
-        if (profile > 0.0) {
-            let skew = CLOUD_SKEW * clouds.shell.w * h;
-            let ps = (p - clouds.shape.xyz - vec3f(clouds.wind.x * skew, 0.0, clouds.wind.y * skew)) / clouds.shape.w;
+        if (profile > 0.0 && cx > 0.0) {
             let alt = clouds.shell.y + h * clouds.shell.w;
             let k = cloud_tower_water(alt, clouds.shell.y + fair * clouds.shell.w) * select(max(cov.z, 0.0), 1.0, weather);
-            let c = cloud_shape_cover(ps, cov.x, profile);
+            if (!tower) { s = textureSampleLevel(cloud_shape_tex, cloud_noise_sampler, ps, 0.0); }
+            let c = cloud_shape_cover_sample(s, cx, profile);
             if (c > 0.0) {
                 if (!detail || c * k <= floor) {
                     result = c * k;
                 } else {
-                    result = cloud_erode(p, c, hl) * k;
+                    result = cloud_erode(p, c, hl, select(CLOUD_EROSION, cloud_shallow_erosion(top, fair), weather)) * k;
                 }
             }
         }
@@ -154,7 +191,7 @@ fn cloud_density_above(p: vec3f, detail: bool, floor: f32) -> f32 {
             let c = cloud_shape_cover(pa, cov.z, profile);
             if (c > 0.0) {
                 var a = c * CLOUD_ANVIL_WATER;
-                if (detail && a > floor) { a = cloud_erode(p, c, 1.0) * CLOUD_ANVIL_WATER; }
+                if (detail && a > floor) { a = cloud_erode(p, c, 1.0, CLOUD_EROSION) * CLOUD_ANVIL_WATER; }
                 result = max(result, a);
             }
         }

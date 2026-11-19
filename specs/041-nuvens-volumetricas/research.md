@@ -493,6 +493,51 @@ as bordas ralas e as nuvens finas do alto saíam granuladas. Causas, isoladas um
   chão (o quarto de baixo do quadro inteiro numa sombra só). Na cena nova a câmera fica a 60 m e o chão visível vai de
   ~200 m a ~6 km.
 
+### R19 (rodada 9) — os discos, os pontos claros, a base cinza e o grão (2026-11-18)
+
+Os defeitos apontados no vídeo `tempestade` da rodada 8, isolados um a um na mesma cena sem o terreno (o quadro 4500,
+75 s do vídeo; cada hipótese pela troca de uma peça):
+
+- **Os discos e a risca.** Não é a bigorna (sem ela, o disco e a risca ficam), nem o alcance da torre (com alcance 1 em
+  toda coluna, também), nem a água da torre, nem a ocupação do raio, nem o cache de espalhamento, nem o mapa visto do sol
+  (com a marcha ao sol de força bruta, ficam). Com τ = 0 até o sol somem: é luz. Com o sol a 45° o disco fica no mesmo
+  lugar: é forma. Vista de 3,5 km de altura: o disco é um cúmulo raso, chato e largo (5–10 km, < 1 km de altura) na frente
+  da torre, sob a inversão baixada pela subsidência em volta da baixa (topo 0,6 × o do tempo bom), visto de baixo com o
+  topo aceso pelo sol baixo — o perfil inteiro espremido na camada fina com a largura das células de 8 km da cobertura:
+  uma panqueca. A risca é uma fenda reta entre duas colunas da torre (a fatia vertical da densidade: colunas de paredes
+  lisas, o campo 2D extrudado) por onde o sol entra. Correções: (1) **os cúmulos rasos menores, não achatados** — a
+  largura de um cúmulo é da ordem da profundidade (Plank 1969); sob a inversão baixada a erosão sobe com a fração perdida
+  da profundidade (`cloud_shallow_erosion`, até 0,9) e o volume de detalhe parte o corpo em cúmulos humildes; (2) **as
+  térmicas** — o tipo e a cobertura locais acima do topo do tempo bom variam com o fBm de Worley da forma
+  (`cloud_tower_thermal`: ±0,5 × o desvio do fBm de Worley da média no tipo, ±0,6 × na cobertura no alto): paredes e topo em couve-flor, sem fendas retas;
+  (3) **a convecção trimodal** (Johnson et al. 1999): o alcance da torre com o modo congesto (`cloud_tower_reach`: 0,4 do
+  caminho, parado no congelamento) entre o raso e o profundo; (4) **o topo glaciado é o gelo da bigorna**
+  (`cloud_tower_water`: depois da glaciação o fator vai a `CLOUD_ANVIL_WATER`, não a 1) — a torre e a bigorna que sai
+  dela são o mesmo meio, sem a fronteira de 4 × na extinção onde a lâmina cortava a torre.
+- **A base cinza.** O ambiente local da estimativa das oitavas (céu × h + chão × (1 − h)) não via a nuvem: na base de uma
+  torre de 10 km recebia o céu inteiro, e a estimativa pesa ≥ 20 % contra as sondas (`CLOUD_SCATTER_PRIOR` 16 contra a
+  janela 64). Agora o céu e o chão chegam pela transmitância difusa (duas correntes, Bohren 1987: `1/(1 + ¾(1 − g)τ)`,
+  g = 0,85) — a maior entre a da coluna acima (a cobertura local do mapa × o trecho até o topo da coluna) e a do caminho
+  até o sol (o τ que a luz já calculou: a parede vê o céu de lado) (`cloud_ambient_occlusion`, `cloud_ambient_local`;
+  `ambientLocal` na referência). A coluna é lida na primeira amostra com densidade de cada raio e a cada 8 depois: com 5
+  amostras do volume (3 acima, 2 abaixo, o chão pelo mapa visto do sol) o `timing` alto ia a 3,98 ms (orçamento 3), e
+  uma amostra do volume no meio do trecho deixava manchas de 1 km na base (acerta ou erra os buracos da forma). Contra o
+  traçador f64 (rastreamento delta δ-M, 8000 caminhos) num cilindro de 3 km de raio da base à tropopausa, sol a 40°: a
+  razão base/topo iluminado é 0,077 no traçador, 0,038 na marcha das oitavas (era 0,386 sem a oclusão: a base 5 × a
+  verdade, cinza); na GPU os caminhos das sondas pesam ≥ 80 % e trazem a luz que vaza pelos lados.
+- **Os pontos claros e o grão.** O gradiente temporal da reconstrução comparava as médias dos 3 × 3 blocos (histórico
+  contra valor exato) com a tolerância fixa 0,2; na borda rala, com cada amostra ora na nuvem ora fora, a média de 9
+  amostras diverge só pelo ruído e o bloco largava o histórico a cada marcha: o pixel com o valor de uma amostra (os
+  pontos claros, o grão). Medido (o passa-alta temporal na borda da bigorna, 12 quadros): 0,96 nível; nunca largar, 0,57.
+  Como na A-SVGF (Schied et al. 2018) o gradiente deve medir a mudança, não o ruído da amostra: a tolerância soma o erro
+  padrão da média dos valores exatos (`cloud_gradient_noise`: o da transmitância e, onde ela varia, o da luz relativa;
+  a dispersão da luz nos blocos opacos é estrutura, não ruído, e com ela o `sunset` ia de 14,2 a 18,3 %). O fator mede o
+  meio-termo contra o atraso: com 2 desvios a borda ia a 0,76 e o quadro inteiro de 0,19 a 0,12 nível, mas o histórico
+  mantido atrasava a luz do `storm` com o tempo andando (1,6 → 5,1 %, acima dos 5 %); com ½ desvio, 3,9 % e a borda 0,89,
+  o quadro 0,15 (p99,9 13,5 → 10). As saídas sugeridas antes (mexer na reconstrução por amostras, ou o detalhe com o vento
+  local) não atacam a causa: a reprojeção pelo vento da camada não mudava (0,96) e a cobertura em 16 bits também não.
+  Em aberto: o grão restante é o de ~7 amostras por pixel sem o histórico longo numa série acelerada.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,
@@ -509,6 +554,13 @@ as bordas ralas e as nuvens finas do alto saíam granuladas. Causas, isoladas um
 - Unreal Engine, "Volumetric Cloud Component"
   ([documentação](https://dev.epicgames.com/documentation/unreal-engine/volumetric-cloud-component-in-unreal-engine)):
   marcha em resolução reduzida com reconstrução temporal, _Beer shadow map_, captura do céu com nuvens.
+- Johnson, Rickenbach, Rutledge, Ciesielski & Schubert, "Trimodal Characteristics of Tropical Convection", J. Climate 12,
+  1999 (os rasos, os congestos no congelamento e os profundos) (R19).
+- Plank, "The Size Distribution of Cumulus Clouds in Representative Florida Populations", J. Appl. Meteor. 8, 1969 (a
+  largura dos cúmulos da ordem da profundidade) (R19).
+- Bohren, "Multiple scattering of light and some of its observable consequences", Am. J. Phys. 55, 1987 (a transmitância
+  difusa de uma camada sem absorção, duas correntes) (R19).
+- Schied et al., "Gradient Estimation for Real-Time Adaptive Temporal Filtering", HPG 2018 (o gradiente temporal) (R19).
 - Holton & Hakim, _An Introduction to Dynamic Meteorology_, 5.ª ed., Academic Press, 2013 (§2.4 o vento
   geostrófico, §3.2 o vento gradiente e o teto do anticiclone, cap. 8 a camada de Ekman e o bombeamento) (R19).
 - Guldberg & Mohn, _Études sur les mouvements de l'atmosphère_, 1876 (o equilíbrio com atrito linear) (R19).

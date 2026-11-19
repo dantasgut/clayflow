@@ -68,6 +68,27 @@ fn cloud_history_at(q: vec2u, full: vec2f, surface: f32) -> vec4f {
     return sum / weight;
 }
 
+/**
+ * O ruído esperado na divergência das médias dos 3 × 3 blocos (spec 041, R19): o erro padrão da média dos `n` valores
+ * exatos (uma amostra cada, com o deslocamento inicial e o ponto do pixel aleatórios), na mesma medida de
+ * `cloud_divergence`, × `CLOUD_GRADIENT_NOISE` desvios — o da transmitância e, só onde ela varia entre os blocos (a
+ * borda: `min(1, 4σ_a)`), o da luz relativa. A dispersão da luz nos blocos opacos é a estrutura da imagem, não o ruído
+ * da amostra: com ela inteira na tolerância, o histórico ficava com o sol que anda (o `sunset`, 14,2 → 18,3 %). O gradiente temporal mede a mudança da nuvem, não o ruído da
+ * amostra (na A-SVGF de Schied et al. 2018 a mesma semente cancela o ruído; aqui a tolerância o descarta): na borda rala,
+ * com as amostras ora na nuvem ora fora, a média de 9 diverge do histórico só pelo ruído, e o bloco largava o histórico a
+ * cada marcha — o grão das bordas ralas com o tempo acelerado (a borda de um cúmulo na `tempestade`: o passa-alta temporal
+ * 0,96 → 0,57 nível sem largar nunca). O fator é o meio-termo medido contra o atraso: com 2 desvios a borda ia a 0,76, mas
+ * no `storm` (o tempo andando) o histórico mantido atrasava a luz (1,6 → 5,1 %); com ½, 3,9 %. `mean` a média (rgb, a), `sq` as médias dos quadrados (brilho, a).
+ */
+const CLOUD_GRADIENT_NOISE: f32 = 0.5;
+
+fn cloud_gradient_noise(mean: vec4f, sq: vec2f, n: f32) -> f32 {
+    let lm = luminance(mean.rgb);
+    let sl = sqrt(max(sq.x - lm * lm, 0.0));
+    let sa = sqrt(max(sq.y - mean.a * mean.a, 0.0));
+    return CLOUD_GRADIENT_NOISE * (sa + 0.5 * sl / max(lm, 1e-4) * min(1.0, 4.0 * sa)) / sqrt(max(n, 1.0));
+}
+
 /** Divergência entre o histórico e o valor exato (relativa na luz, absoluta na transmitância). */
 fn cloud_divergence(a: vec4f, b: vec4f) -> f32 {
     let la = luminance(a.rgb);
@@ -116,6 +137,8 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         // Os vizinhos cujo histórico sai da tela ficam de fora da média.
         var fresh_sum = vec4f(0.0);
         var check_sum = vec4f(0.0);
+        // A dispersão dos valores exatos dos blocos (o brilho e a transmitância): o ruído de uma amostra.
+        var fresh_sq = vec2f(0.0);
         var n = 0.0;
         for (var k = 0; k < 9; k++) {
             let nb = vec2u(clamp(vec2i(b) + vec2i(k % 3 - 1, k / 3 - 1), vec2i(0), vec2i(blocks) - 1));
@@ -125,12 +148,18 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
                 textureLoad(cloud_trace_depth, nb, 0).g,
             );
             if (h.a >= 0.0) {
-                fresh_sum += textureLoad(cloud_trace, nb, 0);
+                let v = textureLoad(cloud_trace, nb, 0);
+                fresh_sum += v;
                 check_sum += h;
+                let lv = luminance(v.rgb);
+                fresh_sq += vec2f(lv * lv, v.a * v.a);
                 n += 1.0;
             }
         }
-        let agrees = n > 0.0 && cloud_divergence(check_sum / max(n, 1.0), fresh_sum / max(n, 1.0)) <= CLOUD_GRADIENT_TOLERANCE;
+        let fresh_mean = fresh_sum / max(n, 1.0);
+        let agrees = n > 0.0
+            && cloud_divergence(check_sum / max(n, 1.0), fresh_mean)
+                <= CLOUD_GRADIENT_TOLERANCE + cloud_gradient_noise(fresh_mean, fresh_sq / max(n, 1.0), n);
         if (hist.a >= 0.0 && check.a >= 0.0 && agrees) {
             limit = own;
             // O histórico recortado pela caixa dos valores exatos dos 3 × 3 blocos: com a câmera andando dentro da nuvem

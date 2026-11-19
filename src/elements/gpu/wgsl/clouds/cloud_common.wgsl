@@ -90,7 +90,9 @@ fn cloud_height_profile(h: f32, t: f32) -> f32 {
  * do cúmulo-nimbo condensa mais (a água adiabática cresce com a altura acima da base: ~1–3 g/m³ no núcleo de um
  * cúmulo-nimbo contra ~0,3–0,5 no cúmulo raso) — o fator sobe de 1 a 1 + `CLOUD_WATER_GAIN` nos `CLOUD_WATER_DEPTH`
  * metros acima dele — e, da glaciação em diante (−20 °C a −38 °C: 5,5–8,5 km na atmosfera padrão), a água vira gelo de
- * cristais maiores e o fator volta a 1. Sem o tempo, o topo do tempo bom é o da casca: o fator é 1 em toda parte.
+ * cristais maiores (raio efetivo ~30 µm contra ~10 µm das gotas): o fator cai ao do gelo da bigorna
+ * (`CLOUD_ANVIL_WATER`) — o topo da torre e a bigorna que sai dele são o mesmo meio, sem a fronteira de 4 × na
+ * extinção onde a lâmina cortava a torre. Sem o tempo, o topo do tempo bom é o da casca: o fator é 1 em toda parte.
  * Espelho de `towerWater` em `cloudModel.ts`.
  */
 const CLOUD_WATER_GAIN: f32 = 2.0;
@@ -99,8 +101,11 @@ const CLOUD_GLACIATION_LOW: f32 = 5500.0;
 const CLOUD_GLACIATION_HIGH: f32 = 8500.0;
 
 fn cloud_tower_water(alt: f32, fair: f32) -> f32 {
-    let liquid = 1.0 + CLOUD_WATER_GAIN * clamp((alt - fair) / CLOUD_WATER_DEPTH, 0.0, 1.0);
-    return mix(liquid, 1.0, smoothstep(CLOUD_GLACIATION_LOW, CLOUD_GLACIATION_HIGH, alt));
+    let rise = clamp((alt - fair) / CLOUD_WATER_DEPTH, 0.0, 1.0);
+    let liquid = 1.0 + CLOUD_WATER_GAIN * rise;
+    // O gelo da torre é o da bigorna (o mesmo ar que sai pelo topo): a torre e a bigorna, um meio contínuo.
+    let ice = mix(1.0, CLOUD_ANVIL_WATER, rise);
+    return mix(liquid, ice, smoothstep(CLOUD_GLACIATION_LOW, CLOUD_GLACIATION_HIGH, alt));
 }
 
 /**
@@ -123,9 +128,35 @@ fn cloud_anvil_profile(alt: f32, top: f32) -> f32 {
 
 /**
  * A fração do caminho entre o topo do tempo bom e o topo do tempo a que a torre de tipo local `t` sobe (spec 041, R19):
- * a convecção profunda não sobe por igual — as células mais fortes (tipo local ≥ 0,95) vão à tropopausa, as de tipo 0,55
- * ficam no topo do tempo bom (cúmulos congestos entre elas). Espelho de `towerReach` em `cloudModel.ts`.
+ * a convecção sob a subida é trimodal (Johnson et al. 1999) — os cúmulos rasos no topo do tempo bom, os congestos parados
+ * na camada estável do congelamento (`CLOUD_CONGESTUS_REACH` do caminho: ~6 km com a tropopausa a 11 km) e os
+ * cúmulos-nimbos na tropopausa —, cada célula pela força dela (o tipo local, com as térmicas). Só com o modo raso e o
+ * profundo (`smoothstep(0,55; 0,95; t)`), as células fracas da subida ficavam todas no topo do tempo bom com a cobertura
+ * da subida (0,75): um convés liso e chato em volta da tempestade, o disco claro do vídeo `tempestade` da rodada 8.
+ * Espelho de `towerReach` em `cloudModel.ts`.
  */
+const CLOUD_CONGESTUS_REACH: f32 = 0.4;
+
 fn cloud_tower_reach(t: f32) -> f32 {
-    return smoothstep(0.55, 0.95, t);
+    return CLOUD_CONGESTUS_REACH * smoothstep(0.3, 0.65, t) + (1.0 - CLOUD_CONGESTUS_REACH) * smoothstep(0.65, 0.95, t);
 }
+
+/**
+ * As térmicas da torre do cúmulo-nimbo (spec 041, R19): a convecção profunda sobe em bolhas, não em colunas de força
+ * constante — cada bolha leva o ar a uma altura e se espalha um pouco ao parar. Pelo fBm de Worley da forma `low` (as
+ * bolhas de 3 km, 1,5 km e 750 m), o desvio do tipo local (`x`: o alcance da bolha, ±`CLOUD_TOWER_THERMAL_REACH`/2) e da
+ * cobertura local (`y`: a largura, ±`CLOUD_TOWER_THERMAL_WIDTH`/2, crescendo com a fração `above` da subida acima do
+ * topo do tempo bom). Sem elas, o campo 2D extrudado: paredes verticais lisas de 8 km e fendas retas por onde o sol baixo
+ * acendia discos e riscas nas paredes de dentro (o vídeo `tempestade` da rodada 8). Espelho de `towerThermal` em
+ * `cloudModel.ts`.
+ */
+const CLOUD_TOWER_THERMAL_REACH: f32 = 0.5;
+const CLOUD_TOWER_THERMAL_WIDTH: f32 = 0.6;
+/** A média do fBm de Worley invertido da forma (o centro das térmicas). */
+const CLOUD_TOWER_THERMAL_MEAN: f32 = 0.55;
+
+fn cloud_tower_thermal(low: f32, above: f32) -> vec2f {
+    let b = low - CLOUD_TOWER_THERMAL_MEAN;
+    return vec2f(CLOUD_TOWER_THERMAL_REACH * b, CLOUD_TOWER_THERMAL_WIDTH * b * above);
+}
+

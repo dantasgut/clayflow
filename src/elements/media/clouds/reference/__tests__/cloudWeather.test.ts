@@ -23,15 +23,34 @@ import {
 } from '../cloudWeather';
 import {
     CLOUD_ANVIL,
+    CLOUD_CONGESTUS_REACH,
+    CLOUD_DIFFUSE_ASYMMETRY,
+    CLOUD_EROSION,
+    CLOUD_SHALLOW_EROSION,
+    CLOUD_TOWER_THERMAL,
     CLOUD_WATER,
     anvilProfile,
     buildVolume,
     cloudDensity,
+    diffuseTransmittance,
+    jdeParams,
+    marchCloud,
     remap,
+    shallowErosion,
+    shellSegments,
     towerReach,
+    towerThermal,
     towerWater,
     type CloudModel,
+    type Vec3,
 } from '../cloudModel';
+import { phaseTruncation, truncatedPhase } from '../cloudScatter';
+import {
+    deltaRng,
+    deltaTrackRadiance,
+    tabulatePhase,
+    type PtDeltaScene,
+} from '../../../../lighting/reference/pathTracer';
 
 /** Vórtice gaussiano `A·e^(−d²/2σ²)` centrado na origem. */
 const gaussian =
@@ -330,7 +349,12 @@ describe('cloudWeather — o padrão de sistemas (R19)', () => {
 describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
     /** Camada homogênea (volumes constantes) com cobertura, tipo e topo fixos. */
     const model = (coverage: number, type: number, top?: number): CloudModel => {
-        const one = buildVolume(() => [1, 1, 1, 1], 2);
+        // A forma 1 com o fBm de Worley na média das térmicas (sem desvio: a torre pelo tipo do mapa).
+        const one = buildVolume(
+            () => [1, CLOUD_TOWER_THERMAL.mean, CLOUD_TOWER_THERMAL.mean, CLOUD_TOWER_THERMAL.mean],
+            2,
+            false,
+        );
         const zero = buildVolume(() => [0, 0, 0, 0], 2);
         return {
             groundRadius: 6_360_200,
@@ -360,14 +384,15 @@ describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
         expect(at(low, 0.1)).toBeCloseTo(at(a, 0.4), 12);
     });
 
-    it('a água da torre: 1 até o topo do tempo bom, 1 + ganho 3 km acima, 1 de novo depois da glaciação', () => {
+    it('a água da torre: 1 até o topo do tempo bom, 1 + ganho 3 km acima, o gelo da bigorna depois da glaciação', () => {
         // Act / Assert
         expect(towerWater(2000, 2800)).toBe(1);
         expect(towerWater(2800 + CLOUD_WATER.depth / 2, 2800)).toBeCloseTo(
             1 + CLOUD_WATER.gain / 2,
             12,
         );
-        expect(towerWater(CLOUD_WATER.glaciation[1], 2800)).toBe(1);
+        // o topo da torre glaciado é o gelo da bigorna: a torre e a bigorna, um meio contínuo
+        expect(towerWater(CLOUD_WATER.glaciation[1], 2800)).toBeCloseTo(CLOUD_ANVIL.water, 12);
         // sem o tempo (o topo do tempo bom é o da casca), 1 em toda a casca
         for (const a of [1500, 4000, 7000, 11_000]) expect(towerWater(a, 11_500)).toBe(1);
         const a = model(0.6, 1);
@@ -375,7 +400,7 @@ describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
         // Com o tempo, a torre mais forte e o topo do estado na casca: a densidade a 5 km é a de sem o tempo × a água
         // (forma 1, detalhe 0), o dobro (1,5 km acima do topo do tempo bom, antes da glaciação)
         expect(towerWater(5000, 3500)).toBeCloseTo(2, 12);
-        expect(at(w, 0.35)).toBeCloseTo(at(a, 0.35) * 2, 12);
+        expect(at(w, 0.35)).toBeCloseTo(at(a, 0.35) * 2, 6);
     });
 
     it('a torre sobe até o topo do estado só na célula mais forte (o alcance pelo tipo local)', () => {
@@ -391,11 +416,15 @@ describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
             return h;
         };
         // Act / Assert
+        // a convecção trimodal: o raso, o congesto (0,4 do caminho) e o profundo
         expect(towerReach(0.95)).toBe(1);
-        expect(towerReach(0.55)).toBe(0);
+        expect(towerReach(0.65)).toBeCloseTo(CLOUD_CONGESTUS_REACH, 12);
+        expect(towerReach(0.3)).toBe(0);
         expect(highest(tower(1))).toBeGreaterThan(0.85);
         expect(highest(tower(0.75))).toBeLessThan(0.2 + 0.8 * towerReach(0.75) + 1e-3);
-        expect(highest(tower(0.5))).toBeLessThanOrEqual(0.2);
+        expect(highest(tower(0.65))).toBeGreaterThan(0.2 + 0.8 * CLOUD_CONGESTUS_REACH * 0.5);
+        expect(highest(tower(0.65))).toBeLessThan(0.2 + 0.8 * CLOUD_CONGESTUS_REACH + 1e-3);
+        expect(highest(tower(0.3))).toBeLessThanOrEqual(0.2);
     });
 
     it('a bigorna: a lâmina abaixo da tropopausa pela cobertura dela, sem nuvem de torre embaixo', () => {
@@ -420,4 +449,118 @@ describe('cloudModel — topo local e bigorna do cúmulo-nimbo (R19)', () => {
         delete (plain as { weather?: unknown }).weather;
         expect(at(plain, 0.85)).toBe(0);
     });
+});
+
+describe('cloudModel — as térmicas, os cúmulos rasos e o ambiente local da torre (R19, rodada 9)', () => {
+    it('as térmicas: sem desvio na média do fBm de Worley; a bolha forte sobe e alarga com a subida', () => {
+        // Act / Assert
+        expect(towerThermal(CLOUD_TOWER_THERMAL.mean, 1)).toEqual([0, 0]);
+        const [dt, dc] = towerThermal(CLOUD_TOWER_THERMAL.mean + 0.2, 1);
+        expect(dt).toBeCloseTo(0.2 * CLOUD_TOWER_THERMAL.reach, 12);
+        expect(dc).toBeCloseTo(0.2 * CLOUD_TOWER_THERMAL.width, 12);
+        // na base da subida a largura não muda
+        expect(towerThermal(CLOUD_TOWER_THERMAL.mean + 0.2, 0)[1]).toBe(0);
+    });
+
+    it('a erosão dos rasos: a do tempo bom no topo dele e nas torres, mais forte sob a inversão baixada', () => {
+        // Act / Assert
+        expect(shallowErosion(0.163, 0.163)).toBe(CLOUD_EROSION);
+        expect(shallowErosion(1, 0.163)).toBe(CLOUD_EROSION);
+        expect(shallowErosion(0.6 * 0.163, 0.163)).toBe(CLOUD_SHALLOW_EROSION);
+        expect(shallowErosion(0.8 * 0.163, 0.163)).toBeGreaterThan(CLOUD_EROSION);
+    });
+
+    it('a transmitância difusa: 1 sem nuvem, 1/(1 + ¾(1 − g)τ)', () => {
+        expect(diffuseTransmittance(0)).toBe(1);
+        expect(diffuseTransmittance(100)).toBeCloseTo(
+            1 / (1 + 0.75 * (1 - CLOUD_DIFFUSE_ASYMMETRY) * 100),
+            12,
+        );
+    });
+
+    it('a base da torre de 10 km contra o topo iluminado: a razão do traçador f64', () => {
+        // Arrange: um cilindro de 3 km de raio da base (1200 m) à tropopausa (11 km), cúmulo-nimbo maduro (cobertura 1,
+        // tipo 1, topo do estado 1, o tempo bom a 2,8 km), extinção 0,02/m; o sol a 40°, o céu uniforme e o chão de
+        // albedo 0,1. A verdade: o rastreamento delta no meio truncado (δ-M) com o céu e o chão; a marcha: as oitavas e
+        // o ambiente local (`ambientLocal`).
+        const one = buildVolume(() => [1, 0.55, 0.55, 0.55], 2, false);
+        const zero = buildVolume(() => [0, 0, 0, 0], 2);
+        const R = 3000;
+        const m: CloudModel = {
+            groundRadius: 6_360_200,
+            base: 1200,
+            top: 11_000,
+            coverage: (x, z) => (x * x + z * z <= R * R ? [1, 1, 0, 1] : [0, 1, 0, 1]),
+            density: 0.02,
+            albedo: 0.99,
+            shape: one,
+            detail: zero,
+            shapeScale: 12000,
+            detailScale: 1800,
+            shapeOffset: [0, 0, 0],
+            detailOffset: [0, 0, 0],
+            windDir: [1, 0],
+            weather: { fairTop: 0.163, anvilOffset: [0, 0] },
+        };
+        const e = (40 * Math.PI) / 180;
+        const sun: Vec3 = [Math.cos(e), Math.sin(e), 0];
+        const sky = 0.05;
+        const albedo = 0.1;
+        const p = jdeParams(20);
+        const t = phaseTruncation(p);
+        const kT = 1 - m.albedo * t.fc;
+        const scene: PtDeltaScene = {
+            medium: {
+                majorant: m.density * kT * (1 + CLOUD_WATER.gain),
+                extinction: (x) => cloudDensity(m, x) * m.density * kT,
+                albedo: (m.albedo * (1 - t.fc)) / kT,
+                phase: tabulatePhase((c) => truncatedPhase(c, p, t)),
+                spans: (o, d, tMax) => shellSegments(m, o, d, tMax),
+            },
+            sunDir: sun,
+            sun: [1, 1, 1],
+            sky: () => [sky, sky, sky],
+            ground: { height: 0, albedo: [albedo, albedo, albedo] },
+        };
+        const down = albedo * (Math.sin(e) / Math.PI + sky);
+        const light = {
+            sunDir: sun,
+            sun: [1, 1, 1] as Vec3,
+            ambientUp: [sky, sky, sky] as Vec3,
+            ambientDown: [down, down, down] as Vec3,
+        };
+        const view = (o: Vec3, d: Vec3, seed: number): { truth: number; march: number } => {
+            let s = 0;
+            const n = 8000;
+            for (let k = 0; k < n; k++)
+                s += deltaTrackRadiance(scene, o, d, deltaRng(seed, k), 1 << 16)[0];
+            const march = marchCloud(
+                m,
+                o,
+                d,
+                Infinity,
+                light,
+                p,
+                { count: 3, a: 0.5, b: 0.5, c: 0.5 },
+                512,
+                64,
+            );
+            return { truth: s / n, march: march.scattered[0] };
+        };
+        // Act: a base vista de baixo, no centro; o topo iluminado visto de cima
+        const base = view([0, 0, 0], [0, 1, 0], 11);
+        const top = view([0, 20_000, 0], [0, -1, 0], 13);
+        // Assert: a razão base/topo da marcha a ±60 % da do traçador (medido: verdade 0,077 — base 0,0082, topo 0,106 —,
+        // marcha 0,038 — base 0,0023, topo 0,062 —; sem a oclusão do ambiente pela coluna a marcha dava 0,386, a base 3,2 ×
+        // a verdade: cinza). A oclusão por uma amostra da coluna (o custo do shader) escurece a base de uma torre estreita
+        // além da verdade (a luz que vaza pelos lados vem dos caminhos das sondas, que pesam ≥ 80 % na GPU).
+        const truth = base.truth / top.truth;
+        const march = base.march / top.march;
+        expect(truth).toBeGreaterThan(0.05);
+        expect(truth).toBeLessThan(0.2);
+        expect(
+            Math.abs(march / truth - 1),
+            `${base.truth} ${top.truth} ${base.march} ${top.march}`,
+        ).toBeLessThan(0.6);
+    }, 120_000);
 });

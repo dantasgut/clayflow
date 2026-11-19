@@ -1,7 +1,8 @@
 // Referência da reconstrução temporal das nuvens (spec 041, R2; `cloud_reconstruct.wgsl`): por pixel do alvo de ¼, o
 // histórico reprojetado (o pixel marchado no quadro mistura o valor do bloco a ele, média exponencial) — salvo quando o
 // gradiente temporal filtrado reprova o bloco (a média dos históricos reprojetados nos pixels marchados dos 3 × 3 blocos
-// em volta diverge da média dos valores exatos deles além da tolerância: Schied et al. 2018; a lição dos blocos 2 × 2
+// em volta diverge da média dos valores exatos deles além da tolerância mais o ruído esperado da média — o erro padrão
+// das amostras, R19: Schied et al. 2018; a lição dos blocos 2 × 2
 // da 034), quando o histórico sai da tela ou quando a série não vale (corte, recriação, primeiro quadro): aí, o valor do
 // bloco. O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura.
 // A superfície: o histórico só vale marchado até a mesma superfície do pixel agora, e o valor do bloco só é o do pixel
@@ -46,6 +47,27 @@ export function cloudFreshForSurface(own: number, limits: readonly number[]): nu
 }
 
 const luminance = (c: Rgba): number => rec709([c[0], c[1], c[2]]);
+
+/** Desvios do erro padrão da média dos valores exatos que o gradiente temporal descarta como ruído (R19). */
+export const CLOUD_GRADIENT_NOISE = 0.5;
+
+/**
+ * O ruído esperado na divergência das médias de `fresh` (uma amostra por bloco): o erro padrão da média da transmitância
+ * e, onde ela varia (a borda), o da luz relativa, × `CLOUD_GRADIENT_NOISE`. Espelho de `cloud_gradient_noise`.
+ */
+export function cloudGradientNoise(fresh: readonly Rgba[]): number {
+    const n = fresh.length;
+    const lm = fresh.reduce((s, x) => s + luminance(x), 0) / n;
+    const am = fresh.reduce((s, x) => s + x[3], 0) / n;
+    const sl = Math.sqrt(
+        Math.max(fresh.reduce((s, x) => s + luminance(x) ** 2, 0) / n - lm * lm, 0),
+    );
+    const sa = Math.sqrt(Math.max(fresh.reduce((s, x) => s + x[3] ** 2, 0) / n - am * am, 0));
+    return (
+        (CLOUD_GRADIENT_NOISE * (sa + ((0.5 * sl) / Math.max(lm, 1e-4)) * Math.min(1, 4 * sa)))
+        / Math.sqrt(n)
+    );
+}
 
 /** Divergência: metade da diferença relativa da luz mais a diferença da transmitância. */
 export function cloudDivergence(a: Rgba, b: Rgba): number {
@@ -94,7 +116,8 @@ export function reconstructTexel(i: ReconstructInput): Rgba {
         mean(seen.map((n) => n.check!)),
         mean(seen.map((n) => n.fresh)),
     );
-    if (divergence > CLOUD_GRADIENT_TOLERANCE) return i.fresh;
+    if (divergence > CLOUD_GRADIENT_TOLERANCE + cloudGradientNoise(seen.map((n) => n.fresh)))
+        return i.fresh;
     const box = [i.fresh, ...i.neighbors.map((n) => n.fresh)];
     const clamped = [0, 1, 2, 3].map((c) => {
         const lo = Math.min(...box.map((n) => n[c]!));

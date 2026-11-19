@@ -6,7 +6,8 @@
 // até o ponto, o ambiente do céu (em cima) e do chão (embaixo) pela fração de altura, e a integral analítica do passo
 // (Hillaire 2016). A marcha tem teto constante de passos (`CLOUD_MAX_STEPS`, o perfil escolhe menos) e de passos de luz
 // (`CLOUD_MAX_LIGHT_STEPS`) e do pedaço até o nó do mapa (`CLOUD_SHADOW_PARTIAL_STEPS`): o orçamento total por
-// invocação é `CLOUD_MAX_STEPS × (1 + CLOUD_MAX_LIGHT_STEPS + CLOUD_SHADOW_PARTIAL_STEPS)`.
+// invocação é `CLOUD_MAX_STEPS × (2 + CLOUD_MAX_LIGHT_STEPS + CLOUD_SHADOW_PARTIAL_STEPS)` (a coluna do ambiente
+// local, uma amostra).
 // Espelho de `marchCloud` em `cloudModel.ts`.
 // Requer: cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup, cloud_scatter_lookup, sky_query,
 // clouds, cloud_ambient_tex.
@@ -60,8 +61,49 @@ fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     return tau * clouds.layer.z + cloud_shadow_knot(c.xy, k);
 }
 
+/**
+ * A transmitância difusa de uma camada de profundidade ótica `tau` sem absorção (duas correntes, Eddington: Bohren 1987,
+ * `1/(1 + ¾(1 − g)τ)`, g o parâmetro de assimetria das gotículas): a fração da luz difusa que atravessa a nuvem.
+ */
+const CLOUD_DIFFUSE_ASYMMETRY: f32 = 0.85;
+
+fn cloud_diffuse_transmittance(tau: f32) -> f32 {
+    return 1.0 / (1.0 + 0.75 * (1.0 - CLOUD_DIFFUSE_ASYMMETRY) * tau);
+}
+
+/**
+ * O ambiente local da estimativa das oitavas em `p` (spec 041, R19): o céu (em cima) e o chão (embaixo) pela fração de
+ * altura, atenuados pela própria nuvem: pela maior das transmitâncias difusas da coluna acima do ponto e do caminho até
+ * o sol (`tau_sun`, já calculado: a parede da torre vê o céu e o chão de lado; a coluna, a luz que passa por cima). A
+ * coluna (`cloud_ambient_occlusion`): a cobertura local × o trecho até o topo da coluna, lida na primeira amostra com
+ * densidade de cada raio e a cada `CLOUD_AMBIENT_REUSE` depois (a coluna muda devagar ao longo do raio; com 5 amostras e
+ * o chão pelo mapa visto do sol, o perfil alto passava de 3 ms). Sem a oclusão, a base de um cúmulo-nimbo de 10 km
+ * recebia o céu inteiro na estimativa, que pesa ≥ 20 % contra os caminhos das sondas (`CLOUD_SCATTER_PRIOR` em 64 + 16):
+ * a base cinza, não chumbo. Espelho de `ambientLocal` em `cloudModel.ts`.
+ */
+const CLOUD_AMBIENT_REUSE: u32 = 8u;
+
+/**
+ * A transmitância difusa da coluna de nuvem acima de `p`: a profundidade ótica pela cobertura local do mapa (a fração do
+ * ar com nuvem na coluna, o campo liso de 250 m) do ponto ao topo da coluna. Uma amostra do volume no meio do trecho
+ * acertava ou errava os buracos da forma de uma coluna à outra: manchas de 1 km na base do cúmulo-nimbo.
+ */
+fn cloud_ambient_occlusion(p: vec3f) -> f32 {
+    let cov = cloud_coverage_at(p.xz);
+    let top = clouds.shell.y + cloud_column_top(cov) * clouds.shell.w;
+    let above = max(top - cloud_altitude(p), 0.0);
+    return cloud_diffuse_transmittance(max(cov.x, 0.0) * above * clouds.layer.z);
+}
+
+fn cloud_ambient_local(p: vec3f, tau_sun: f32, occ: f32) -> vec3f {
+    let h = clamp(cloud_height_fraction(p), 0.0, 1.0);
+    let up = textureLoad(cloud_ambient_tex, vec2u(0u, 0u), 0).rgb;
+    let down = textureLoad(cloud_ambient_tex, vec2u(1u, 0u), 0).rgb;
+    return (up * h + down * (1.0 - h)) * max(occ, cloud_diffuse_transmittance(tau_sun));
+}
+
 /** Luz espalhada para a câmera por unidade de comprimento num ponto de extinção `sigma_t` (o sol e o ambiente). */
-fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32) -> vec3f {
+fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32, occ: f32) -> vec3f {
     let tau = cloud_sun_depth(p, light_steps);
     let o = clouds.octaves;
     let count = min(u32(o.x), CLOUD_MAX_OCTAVES);
@@ -82,10 +124,7 @@ fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32) -> 
         anisotropy *= o.w;
     }
     let sun = sky.sunIlluminance.rgb * cloud_sun_atmosphere(p);
-    let h = clamp(cloud_height_fraction(p), 0.0, 1.0);
-    let ambient = textureLoad(cloud_ambient_tex, vec2u(0u, 0u), 0).rgb * h
-        + textureLoad(cloud_ambient_tex, vec2u(1u, 0u), 0).rgb * (1.0 - h);
-    let multiple = cloud_scatter_light(p, s * sun + ambient);
+    let multiple = cloud_scatter_light(p, s * sun + cloud_ambient_local(p, tau, occ));
     return sigma_t * clouds.layer.w * (single * sun + multiple);
 }
 
@@ -157,6 +196,9 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
     var empty = 0u;
     var weight = 0.0;
     var depth_sum = 0.0;
+    // A coluna do ambiente local, relida a cada `CLOUD_AMBIENT_REUSE` amostras com densidade.
+    var occ = 1.0;
+    var lit = 0u;
     for (var i = 0u; i < CLOUD_MAX_STEPS; i++) {
         if (i >= n) { break; }
         if (t >= end) {
@@ -205,7 +247,9 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             empty = 0u;
             let sigma_t = rho * clouds.layer.z;
             let step_t = exp(-sigma_t * ds);
-            let light = cloud_inscatter(x, sigma_t, cos_theta, light_steps);
+            if (lit % CLOUD_AMBIENT_REUSE == 0u) { occ = cloud_ambient_occlusion(x); }
+            lit++;
+            let light = cloud_inscatter(x, sigma_t, cos_theta, light_steps, occ);
             result.scattered += result.transmittance * light * (1.0 - step_t) / sigma_t;
             let alpha = result.transmittance * (1.0 - step_t);
             depth_sum += alpha * (t + 0.5 * ds);

@@ -214,6 +214,32 @@ analítica) no norte, no sul e no equador; a torre e a bigorna; a faixa entre um
   grão das bordas ralas ficou menor (2 s por quadro), não sumiu; a base do cúmulo-nimbo ficou cinza, não chumbo (o ambiente
   local da estimativa das oitavas, `prior`, não é atenuado pela nuvem acima e abaixo e pesa ≥ 20 % contra o cache).
 
+- [x] T062 [GPU] [US5] Os defeitos da rodada 8 (`tempestade`), isolados na mesma cena sem o terreno (o quadro 4500), um a
+  um, e corrigidos pela física (research.md, R19 rodada 9): (1) **os discos** não eram a bigorna, o alcance, a água, a
+  ocupação, o cache nem o mapa do sol (cada um trocado, o disco ficava): eram cúmulos rasos espremidos sob a inversão
+  baixada pela subsidência (panquecas de 5–10 km vistas de baixo, o topo aceso pelo sol baixo) — a erosão dos rasos sobe
+  com a profundidade perdida (`cloud_shallow_erosion`); a risca, uma fenda reta entre colunas extrudadas — as térmicas
+  (`cloud_tower_thermal`) e a convecção trimodal (`cloud_tower_reach` com o modo congesto); o topo glaciado da torre com o
+  gelo da bigorna (`cloud_tower_water`), sem a fronteira de 4 × na extinção; (2) **a base cinza**: o ambiente local pela
+  transmitância difusa (duas correntes) da coluna acima (a cobertura local até o topo dela) e do caminho ao sol
+  (`cloud_ambient_occlusion`, `cloud_ambient_local`); contra o traçador f64 numa torre de 10 km a razão base/topo é 0,077,
+  a marcha das oitavas 0,038 (era 0,386); (3)–(4) **os pontos claros e o grão**: o gradiente temporal com o erro padrão
+  da média dos valores exatos (`cloud_gradient_noise`, ½ desvio: o meio-termo contra o atraso no `storm`). A referência
+  junto (`towerThermal`, `towerReach`, `towerWater`, `shallowErosion`, `ambientLocal`, `cloudGradientNoise`) e testes.
+  Smokes, um por vez (código final): `clouds` caso a caso passa — `noon` 2,8 %, `backlit` 4,7 %, `types` 3,4/2,2/2,3 %
+  (384 s, perto do prazo de 400 s: a referência paga o ambiente local), `far-cloud` 4,8 %, `storm` 3,9 % (vista; 840
+  colunas, topo 10,05 km), `scatter-cache` 0,982, `timing` alto 2,84 / médio 1,33 / baixo 0,77 ms, `pressure-wind`,
+  `front`, `weather-timing`, `storm-ground` e os demais —, exceto `sunset` 14,7 % (o aberto, 13,6 % na rodada 8; tarefa
+  seguinte); `sky` passa; `antialiasing` passa sozinho (`cloudsMotion` 0,06/0,47/0,34 %; na série, o `waterOrbit` da água
+  turva falhou uma vez, 9,7 %, e passou na repetição). Vídeo (claflow-web, porta 5184; `scratchpad/041-video/rodada9/
+  tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilho, 46,85 dB em RGB; GPU 129 ms por
+  quadro na mediana): saltos de brilho por quadro iguais (imagem 0,44, céu 0,57, chão 0,88; nenhum > 2, nenhuma
+  alternância); o passa-alta temporal no céu e nas nuvens 0,247 → 0,183 nível (p99,9 16,6 → 10,4); pixels destoantes
+  por quadro 715 → 331 na mediana; a base aos 105/118 s 116/110 → 100/96 níveis. **Em aberto**: um lóbulo claro menor
+  ainda aparece na frente da torre aos 60–75 s (agora um cúmulo, não a panqueca) e uma prega vertical na parede da torre;
+  o grão das bordas ralas diminuiu, não sumiu (~7 amostras por pixel numa série acelerada); a base de uma torre estreita
+  sai 0,5 × a do traçador na marcha das oitavas (na GPU os caminhos das sondas pesam ≥ 80 %).
+
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
 ---

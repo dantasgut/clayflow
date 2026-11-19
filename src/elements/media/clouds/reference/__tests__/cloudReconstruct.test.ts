@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+    CLOUD_GRADIENT_TOLERANCE,
     CLOUD_HISTORY_BLEND,
     CLOUD_SKY_DISTANCE,
     cloudDivergence,
+    cloudGradientNoise,
     cloudFreshForSurface,
     reconstructTexel,
     type Rgba,
@@ -56,22 +58,46 @@ describe('reconstrução temporal', () => {
     });
 
     it('gradiente temporal: a vizinhança que mudou larga o histórico (sem sal e pimenta)', () => {
-        // Arrange: nos pixels marchados o histórico era céu, agora é nuvem.
+        // Arrange: nos pixels marchados dos 3 × 3 blocos o histórico era céu, agora é nuvem em 7 deles.
         const out = reconstructTexel({
             marched: false,
             valid: true,
             fresh: cloud,
             history: sky,
             check: sky,
-            neighbors: [
-                { fresh: cloud, check: sky },
-                { fresh: cloud, check: sky },
-                { fresh: sky, check: sky },
-            ],
+            neighbors: [...Array<number>(9).keys()].map((k) => ({
+                fresh: k < 7 ? cloud : sky,
+                check: sky,
+            })),
         });
         // Assert
         expect(out).toEqual(cloud);
         expect(cloudDivergence(sky, cloud)).toBeGreaterThan(0.2);
+    });
+
+    it('o ruído da borda rala não reprova o bloco: a divergência dentro do erro padrão da média fica com o histórico', () => {
+        // Arrange: a borda rala — as amostras dos 3 × 3 blocos ora na nuvem fina (a = 0,7), ora fora (o céu), o histórico
+        // a média delas; a média dos valores exatos (5 de 9 na nuvem) diverge da do histórico (4 de 9) além da
+        // tolerância, dentro do ruído de 9 amostras (R19).
+        const thin: Rgba = [6, 6, 6, 0.7];
+        const avg = (k: number): Rgba => [(6 * k) / 9, (6 * k) / 9, (6 * k) / 9, 1 - (0.3 * k) / 9];
+        const fresh = [...Array<number>(9).keys()].map((k) => (k < 5 ? thin : sky));
+        const neighbors = fresh.map((f) => ({ fresh: f, check: avg(4) }));
+        const out = reconstructTexel({
+            marched: false,
+            valid: true,
+            fresh: thin,
+            history: avg(4),
+            check: avg(4),
+            neighbors,
+        });
+        // Assert: a divergência passa da tolerância, a reconstrução fica com o histórico (dentro da caixa)
+        const mean = (k: number): Rgba => avg(k);
+        expect(cloudDivergence(mean(4), mean(5))).toBeGreaterThan(0.1);
+        expect(cloudDivergence(mean(4), mean(5))).toBeLessThan(
+            CLOUD_GRADIENT_TOLERANCE + cloudGradientNoise(fresh),
+        );
+        expect(out).toEqual(avg(4));
     });
 
     it('o ruído de uma amostra não reprova o bloco: a média da vizinhança decide; o histórico é recortado com folga', () => {
