@@ -5,6 +5,7 @@ import type {
     AnyBufferSpec,
     EngineCore,
     Frame,
+    IndirectBufferSpec,
     StorageBufferSpec,
     UniformBufferSpec,
 } from '../../scene/contracts/gpu';
@@ -25,6 +26,7 @@ import type { FlowContext } from '../../scene/flows/FlowRegistry';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import {
     slot,
+    type ChannelSlot,
     type EntitiesSlot,
     type PoolSlot,
     type SingletonSlot,
@@ -38,13 +40,19 @@ import type { EntityId } from '../../scene/world/EntityId';
 import type { World } from '../../scene/world/World';
 import type { EventBus } from '../../scene/events/EventBus';
 import { Camera } from '../scene/Camera';
+import { DirectionalLight } from '../scene/DirectionalLight';
+import { ShadowMap } from '../scene/ShadowMap';
 import { Transform } from '../scene/Transform';
+import { geometryViewDescriptor, type GeometryView } from './GeometryView';
 import { SpaceFunction } from '../extension/SpaceFunction';
 import { SurfaceFunction } from '../extension/SurfaceFunction';
 import { ParametricSurface, SURFACE_PRESET_INDEX, type AdaptiveConfig } from './ParametricSurface';
 import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
 import {
+    SURFACE_VIEW_LEVELS_SLOT,
     surfaceAdapt,
+    surfaceAdaptLight,
+    surfaceAdaptViewCamera,
     surfaceEval,
     surfaceEvalDiff,
     surfaceJet,
@@ -59,6 +67,13 @@ import {
 
 const WORKGROUP_SIZE = ENGINE_WORKGROUP_SIZE.value;
 const NONE = ENGINE_NONE.value;
+
+/** A assinatura das vistas pedidas de uma superfície (outra = sincronizar). */
+function viewsKeyOf(surface: ParametricSurface): string {
+    return surface.views
+        .map((v) => `${v.key}:${v.kind}:${v.source}:${v.error}:${v.segment}`)
+        .join(';');
+}
 
 /** A câmera andou mais que `limit` (ou mudou o campo de visão) desde a última geração? */
 function cameraMoved(
@@ -92,6 +107,10 @@ export interface SurfaceSlots extends SlotMap {
     readonly worlds: PoolSlot<true>;
     /** O espaço de trabalho do estágio: o substituto dos pools ausentes da malha adaptativa (spec 039). */
     readonly work: WorkSlot<SurfaceWork>;
+    /** Os referenciais dos mapas de sombra virtuais (as vistas da luz; spec 041, R20). */
+    readonly shadows: PoolSlot<true>;
+    /** A série dos níveis das vistas (spec 037): o registro de cada retalho no quadro e no anterior. */
+    readonly levels: ChannelSlot<true>;
 }
 
 /**
@@ -102,6 +121,61 @@ export interface SurfaceSlots extends SlotMap {
  */
 class SurfaceWork extends FlowWork {
     static readonly schema = new StructSchema('SurfaceWork', {});
+    /** Registros (um `vec4u` por retalho de cada vista) da série dos níveis das vistas. */
+    levelsCapacity = 1;
+}
+
+/** O descritor da série dos níveis das vistas no `SurfaceWork` (spec 041, R20). */
+const LEVELS = 'surface_view_levels';
+
+/**
+ * Passadas de uma vista (spec 041, R20), na ordem: o nível pelo critério da vista, o orçamento e os prefixos da malha
+ * adaptativa, a marcação dos retalhos que mudaram, o despacho da emissão e a emissão (indireta).
+ */
+const VIEW_ENTRIES = ['level', 'budget', 'scan', 'mark', 'args', 'emit'] as const;
+
+/** A função de entrada de uma passada de uma vista do tipo `kind`. */
+function viewEntry(kind: GeometryView['kind'], entry: (typeof VIEW_ENTRIES)[number]): string {
+    switch (entry) {
+        case 'level':
+            return kind === 'light'
+                ? 'surface_adapt_light_level_main'
+                : 'surface_adapt_view_camera_level_main';
+        case 'mark':
+            return 'surface_adapt_view_mark_main';
+        case 'args':
+            return 'surface_adapt_view_args_main';
+        default:
+            return `surface_adapt_${entry}_main`;
+    }
+}
+
+/** Id do pipeline de uma passada de uma vista (a variante tem o da emissão como principal). */
+function viewPassId(emitId: string, entry: (typeof VIEW_ENTRIES)[number]): string {
+    return `${emitId.slice(0, -'#emit'.length)}#${entry}`;
+}
+
+/**
+ * Uma vista de uma superfície adaptativa (spec 041, R20): o trabalho dela (parâmetros, retalhos, histograma e o despacho
+ * indireto da emissão), o primeiro registro na série dos níveis e as entradas da última geração.
+ */
+interface ViewState {
+    /** Chave nos pipelines das vistas (`<entidade>|<vista>`). */
+    readonly key: string;
+    view: GeometryView;
+    readonly part: WorkPart;
+    readonly params: UniformBufferSpec;
+    readonly patches: StorageBufferSpec;
+    readonly hist: StorageBufferSpec;
+    readonly dispatch: IndirectBufferSpec;
+    /** Primeiro registro da vista na série dos níveis. */
+    levelsBase: number;
+    /** O que define o critério na última geração (a luz, o mapa, a câmera); outro = refazer. */
+    inputs: string | undefined;
+    /** Refazer todos os retalhos na próxima geração (vista nova, pipeline novo). */
+    stale: boolean;
+    /** Gerar neste quadro (decidido no `framePrepare`). */
+    run: boolean;
 }
 
 /** Passadas da malha adaptativa (entradas do `surface_adapt.wgsl`), na ordem. */
@@ -124,6 +198,10 @@ interface SurfaceState {
     stale: boolean;
     /** Avaliar neste quadro (decidido no `framePrepare`). */
     evaluate: boolean;
+    /** As vistas além da câmera ativa (spec 041, R20), pela chave da vista. */
+    readonly views: Map<string, ViewState>;
+    /** As vistas pedidas na última sincronização (a assinatura). */
+    viewsKey: string;
     /** Malha adaptativa: parâmetros, retalhos, histograma e a câmera da última geração. */
     adapt:
         | {
@@ -163,6 +241,10 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
      * passadas, com a emissão como principal), ativo ao compilar.
      */
     private readonly evalPipelines = new ExtensionPipelines<EntityId>();
+    /** Pipelines das vistas (spec 041, R20): as seis passadas de cada vista de cada superfície. */
+    private readonly viewPipelines = new ExtensionPipelines<string>();
+    /** A disposição da série dos níveis mudou (vistas novas ou que saíram): o registro anterior não vale. */
+    private levelsMoved = true;
     private dirty = true;
 
     constructor(ctx: FlowContext) {
@@ -173,7 +255,16 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         this.events = ctx.events;
         const work = new SurfaceWork();
         this.work = work;
-        work.use({ descriptors: () => [wordBuffer('surface_adapt_pool_dummy', 256)] });
+        work.use({
+            descriptors: () => [
+                wordBuffer('surface_adapt_pool_dummy', 256),
+                // O substituto das arestas do arame nas vistas (sem arame): outro buffer que o da geometria diferencial —
+                // duas ligações graváveis do mesmo buffer no despacho invalidam o passe.
+                wordBuffer('surface_view_edges_dummy', 256),
+                // A série dos níveis das vistas (spec 037): a fatia do quadro e a do anterior.
+                { ...wordBuffer(LEVELS, work.levelsCapacity * 16), history: { depth: 2 } },
+            ],
+        });
         this.slots = {
             surfaces: slot.entities({
                 all: [ParametricSurface],
@@ -187,6 +278,11 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
             cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
             worlds: slot.pool(Transform.worldSchema.name, { optional: true }),
             work: slot.work(() => work),
+            shadows: slot.pool(ShadowMap.matrixSchema.name, { optional: true }),
+            // O nome do slot é o do provedor das fatias nos shaders (`SURFACE_VIEW_LEVELS_SLOT`).
+            [SURFACE_VIEW_LEVELS_SLOT]: slot.channel(SurfaceWork.schema, LEVELS, {
+                optional: true,
+            }),
         };
         const changed = {
             to: 'idle' as const,
@@ -224,18 +320,26 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                             const st = this.states.get(id);
                             if (st !== undefined) st.stale = true;
                         }
+                        for (const key of this.viewPipelines.compiled(e.pipeline, c)) {
+                            for (const st of this.states.values()) {
+                                for (const v of st.views.values())
+                                    if (v.key === key) v.stale = true;
+                            }
+                        }
                     },
                 },
                 pipelineRejected: {
                     to: 'idle',
                     run: (e, c) => {
-                        if (e.type === 'pipelineRejected')
-                            this.evalPipelines.rejected(e.pipeline, c);
+                        if (e.type !== 'pipelineRejected') return;
+                        this.evalPipelines.rejected(e.pipeline, c);
+                        this.viewPipelines.rejected(e.pipeline, c);
                     },
                 },
                 framePrepare: {
                     to: 'idle',
                     run: (_e, c) => {
+                        this.watchViews(c);
                         this.sync(c);
                         this.writeParams(c);
                     },
@@ -244,8 +348,57 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         };
     }
 
-    /** Uma avaliação por superfície marcada neste quadro. */
+    /** Uma avaliação por superfície marcada neste quadro e as vistas a refazer. */
     dispatch(frame: Frame, bound: BoundFlow<SurfaceSlots>): void {
+        this.dispatchSurfaces(frame, bound);
+        let wrote = false;
+        for (const st of this.states.values())
+            for (const v of st.views.values()) wrote = this.dispatchView(frame, bound, v) || wrote;
+        if (wrote) bound.slots.levels?.written();
+    }
+
+    /**
+     * As passadas de uma vista (spec 041, R20): o nível pelo critério dela, o orçamento, os prefixos, a marcação dos
+     * retalhos que mudaram, o despacho e a emissão indireta (nenhum grupo quando nenhum retalho mudou).
+     */
+    private dispatchView(frame: Frame, bound: BoundFlow<SurfaceSlots>, v: ViewState): boolean {
+        if (!v.run) return false;
+        const active = this.viewPipelines.active(v.key);
+        if (active === undefined) return false;
+        const ps = VIEW_ENTRIES.map((e) => bound.pipelines.get(viewPassId(active.id, e)));
+        if (ps.some((p) => p?.role !== 'compute' || !p.ready)) return false;
+        const [level, budget, scan, mark, args, emit] = ps as PreparedCompute[];
+        const st = [...this.states.values()].find((s) => s.views.get(v.view.key) === v);
+        const surface =
+            st === undefined
+                ? undefined
+                : bound.slots.surfaces.entry(st.id)?.get(ParametricSurface);
+        const a = surface?.adaptive;
+        if (a === undefined) return false;
+        const patches = a.patches[0] * a.patches[1];
+        frame.clear(v.hist);
+        frame.compute('SurfaceFlow.view', (pass) => {
+            const run = (p: PreparedCompute, count: number | 'one'): void => {
+                pass.bind.setPipeline(p.spec);
+                p.bindTo(pass.bind);
+                if (count === 'one') pass.dispatch.workgroups(1);
+                else pass.dispatch.invocations(count, WORKGROUP_SIZE);
+            };
+            run(level!, patches);
+            run(budget!, 'one');
+            run(scan!, 'one');
+            run(mark!, patches);
+            run(args!, 'one');
+            pass.bind.setPipeline(emit!.spec);
+            emit!.bindTo(pass.bind);
+            pass.dispatch.workgroupsIndirect(v.dispatch, 0);
+        });
+        v.stale = false;
+        return true;
+    }
+
+    /** As superfícies: a grade uniforme ou a malha adaptativa da câmera ativa. */
+    private dispatchSurfaces(frame: Frame, bound: BoundFlow<SurfaceSlots>): void {
         for (const st of this.states.values()) {
             const active = this.evalPipelines.active(st.id);
             if (!st.evaluate || active === undefined) continue;
@@ -299,6 +452,172 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         this.states.clear();
     }
 
+    /** As vistas pedidas de cada superfície mudaram (o consumidor pediu ou soltou uma): sincroniza. */
+    private watchViews(ctx: Ctx): void {
+        for (const entry of ctx.bound.slots.surfaces.entries) {
+            const st = this.states.get(entry.entityId);
+            if (st === undefined) continue;
+            if (viewsKeyOf(entry.get(ParametricSurface)) !== st.viewsKey) this.dirty = true;
+        }
+    }
+
+    /**
+     * O trabalho de uma vista (spec 041, R20): os parâmetros da passada, os retalhos, o histograma e o despacho indireto
+     * da emissão.
+     */
+    private viewPart(id: EntityId, key: string, a: AdaptiveConfig): WorkPart {
+        const tag = `${id}:${key}`;
+        return {
+            descriptors: () => [
+                {
+                    id: `surface_view_params:${tag}`,
+                    role: 'uniform',
+                    schema: SurfaceAdaptParamsSchema,
+                    upload: 'never',
+                },
+                wordBuffer(`surface_view_patches:${tag}`, a.patches[0] * a.patches[1] * 16),
+                wordBuffer(`surface_view_hist:${tag}`, 64),
+                wordBuffer(`surface_view_dispatch:${tag}`, 16, 'indirect'),
+            ],
+        };
+    }
+
+    /**
+     * As vistas da superfície (spec 041, R20): cria o trabalho das novas, tira o das que saíram e liga e prepara os
+     * pipelines das seis passadas de cada uma (o nível pelo tipo da vista; o resto, os da malha adaptativa).
+     */
+    private syncViews(
+        ctx: Ctx,
+        st: SurfaceState,
+        surface: ParametricSurface,
+        surfaceKey: string,
+        impls: Map<BindablePoint, WgslModule>,
+        extra: Record<string, unknown>,
+    ): void {
+        const a = surface.adaptive;
+        const views = a === undefined ? [] : surface.views;
+        st.viewsKey = viewsKeyOf(surface);
+        const wanted = new Set(views.map((v) => v.key));
+        for (const [k, v] of [...st.views]) {
+            if (wanted.has(k)) continue;
+            this.work.drop(v.part);
+            this.viewPipelines.forget(ctx, v.key);
+            st.views.delete(k);
+            this.levelsMoved = true;
+        }
+        if (a === undefined) return;
+        for (const view of views) {
+            let v = st.views.get(view.key);
+            if (v === undefined) {
+                const part = this.viewPart(st.id, view.key, a);
+                this.work.use(part);
+                const own = <T>(name: string): T =>
+                    this.resources.bufferOf(this.work, `${name}:${st.id}:${view.key}`) as T;
+                v = {
+                    key: `${st.id}|${view.key}`,
+                    view,
+                    part,
+                    params: own<UniformBufferSpec>('surface_view_params'),
+                    patches: own<StorageBufferSpec>('surface_view_patches'),
+                    hist: own<StorageBufferSpec>('surface_view_hist'),
+                    dispatch: own<IndirectBufferSpec>('surface_view_dispatch'),
+                    levelsBase: 0,
+                    inputs: undefined,
+                    stale: true,
+                    run: false,
+                };
+                st.views.set(view.key, v);
+                this.levelsMoved = true;
+            }
+            v.view = view;
+            v.stale = true;
+            const vertices = this.resources.bufferOf(
+                surface,
+                geometryViewDescriptor(view.key, 'vertices'),
+            );
+            const indices = this.resources.bufferOf(
+                surface,
+                geometryViewDescriptor(view.key, 'indices'),
+            );
+            const draw = this.resources.bufferOf(
+                surface,
+                geometryViewDescriptor(view.key, 'indirect'),
+            );
+            if (vertices === undefined || indices === undefined || draw === undefined) continue;
+            const key = `${surfaceKey}|${view.kind}`;
+            const emitId = `surface_view:${st.id}:${view.key}:${key}#emit`;
+            const next: PipelineVariant = {
+                key,
+                id: emitId,
+                ids: VIEW_ENTRIES.map((e) => viewPassId(emitId, e)),
+            };
+            const state = v;
+            for (const { id: pid } of this.viewPipelines.bindable(v.key, next)) {
+                for (const e of VIEW_ENTRIES) {
+                    const at = (resource: WgslResource): BindingKey => ({
+                        pipeline: viewPassId(pid, e),
+                        resource,
+                    });
+                    ctx.bind(
+                        new Map<BindingKey, BindingSource>([
+                            [at(R.params), st.params],
+                            [at(R.adapt), state.params],
+                            [at(R.adaptPatches), state.patches],
+                            [at(R.adaptHist), state.hist],
+                            [at(R.adaptVertices), vertices as BindingSource],
+                            [at(R.adaptIndices), indices as BindingSource],
+                            [at(R.adaptEdges), this.dummyEdges],
+                            [at(R.adaptDraw), draw as BindingSource],
+                            [at(R.diff), this.dummyPool],
+                            [at(R.adaptViewDispatch), state.dispatch as BindingSource],
+                        ]),
+                    );
+                }
+            }
+            this.viewPipelines.select(v.key, next, ({ id: pipelineId }) => {
+                const base = view.kind === 'light' ? surfaceAdaptLight : surfaceAdaptViewCamera;
+                const shader = impls.size === 0 ? base : bindPoints(base, impls);
+                return VIEW_ENTRIES.map(
+                    (e) =>
+                        ctx.prepare({
+                            id: viewPassId(pipelineId, e),
+                            role: 'compute',
+                            shader,
+                            entryPoints: [viewEntry(view.kind, e)],
+                            ...extra,
+                        }).ready,
+                ).every(Boolean);
+            });
+        }
+    }
+
+    /**
+     * A disposição da série dos níveis: cada vista com a sua faixa (um registro por retalho), na ordem das superfícies;
+     * a capacidade cresce por dobra (a série é realocada e recomeça).
+     */
+    private layoutLevels(): void {
+        let base = 0;
+        for (const st of this.states.values()) {
+            for (const v of st.views.values()) {
+                const surface = this.world
+                    .resourcesOf(st.id)
+                    .find((r): r is ParametricSurface => r instanceof ParametricSurface);
+                const a = surface?.adaptive;
+                if (a === undefined) continue;
+                if (v.levelsBase !== base) this.levelsMoved = true;
+                v.levelsBase = base;
+                base += a.patches[0] * a.patches[1];
+            }
+        }
+        let cap = Math.max(1, this.work.levelsCapacity);
+        while (cap < base) cap *= 2;
+        if (cap !== this.work.levelsCapacity) {
+            this.work.levelsCapacity = cap;
+            this.work.refresh();
+            this.levelsMoved = true;
+        }
+    }
+
     /**
      * O trabalho de uma superfície: os parâmetros (`SurfaceParams`) e, na malha adaptativa, os da passada
      * (`SurfaceAdaptParams`), os retalhos (um vec4 por retalho) e o histograma dos níveis — escritos pela GPU ou pelo
@@ -337,6 +656,11 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
         return this.resources.bufferOf(this.work, 'surface_adapt_pool_dummy') as StorageBufferSpec;
     }
 
+    /** O substituto das arestas nas vistas (descritor do `SurfaceWork`). */
+    private get dummyEdges(): StorageBufferSpec {
+        return this.resources.bufferOf(this.work, 'surface_view_edges_dummy') as StorageBufferSpec;
+    }
+
     /** Superfícies presentes: estado, bindings e pipeline (pela função, ou pela pronta). */
     private sync(ctx: Ctx): void {
         if (!this.dirty) return;
@@ -364,6 +688,8 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     params: own<UniformBufferSpec>('surface_params'),
                     stale: true,
                     evaluate: false,
+                    views: new Map(),
+                    viewsKey: '',
                     adapt: undefined,
                 };
                 if (a !== undefined) {
@@ -451,13 +777,31 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                     ...extra,
                 }).ready;
             });
+            const viewImpls = new Map<BindablePoint, WgslModule>();
+            if (fn !== undefined) viewImpls.set(surfacePoint, fn.module);
+            if (fn?.analytic === true) viewImpls.set(surfaceTangents, surfaceTangentsAnalytic);
+            if (jet !== undefined) viewImpls.set(surfaceJet, jet);
+            this.syncViews(
+                ctx,
+                st,
+                surface,
+                key,
+                viewImpls,
+                fn === undefined ? {} : { verify: true, extensions: [fn] },
+            );
         }
         for (const [id, st] of [...this.states]) {
             if (present.has(id)) continue;
+            for (const v of st.views.values()) {
+                this.work.drop(v.part);
+                this.viewPipelines.forget(ctx, v.key);
+                this.levelsMoved = true;
+            }
             this.work.drop(st.part);
             this.states.delete(id);
         }
         this.evalPipelines.retain(ctx, present);
+        this.layoutLevels();
     }
 
     /** Fontes das passadas da malha adaptativa (pelo id da emissão). */
@@ -606,5 +950,105 @@ export class SurfaceFlow extends Flow<SurfaceSlots, 'idle'> {
                 }),
             );
         }
+        this.writeViews(ctx, cameraPos, indirect, spaced);
+    }
+
+    /**
+     * O que define o critério da vista no quadro: na da luz, a direção dela, o mapa (primeiro nível, páginas, tamanho) e
+     * a câmera ativa (o centro dos níveis); na de câmera, a posição e o campo de visão dela.
+     */
+    private viewInputs(view: GeometryView, cameraPos: readonly number[] | undefined): string {
+        if (view.kind === 'camera')
+            return JSON.stringify(this.cameraPositionOf(view.source) ?? null);
+        const resources = this.world.resourcesOf(view.source);
+        const light = resources.find((r): r is DirectionalLight => r instanceof DirectionalLight);
+        const map = resources.find((r): r is ShadowMap => r instanceof ShadowMap);
+        return JSON.stringify([
+            light?.data.direction ?? null,
+            map === undefined
+                ? null
+                : [map.data.firstLevelRadius, map.data.pagesPerLevel, map.data.size],
+            cameraPos ?? null,
+        ]);
+    }
+
+    /**
+     * As vistas no quadro (spec 041, R20): uma vista é refeita quando a superfície é avaliada (todos os retalhos), quando
+     * o que define o critério muda ou quando é nova; se uma é refeita, todas são (a série dos níveis gira junto). Os
+     * parâmetros das que rodam são escritos e a saída é marcada como produzida no quadro.
+     */
+    private writeViews(
+        ctx: Ctx,
+        cameraPos: readonly number[] | undefined,
+        indirect: boolean,
+        spaced: boolean,
+    ): void {
+        const { surfaces, cameras, shadows, worlds, levels } = ctx.bound.slots;
+        const valid = !this.levelsMoved && levels?.age(1) !== undefined;
+        let any = false;
+        const plan: { st: SurfaceState; v: ViewState; force: boolean; inputs: string }[] = [];
+        for (const st of this.states.values()) {
+            const surface = surfaces.entry(st.id)?.get(ParametricSurface);
+            if (surface === undefined) continue;
+            for (const v of st.views.values()) {
+                const inputs = this.viewInputs(v.view, cameraPos);
+                const force = v.stale || st.stale || surface.data.animated || spaced || !valid;
+                plan.push({ st, v, force, inputs });
+                if (force || inputs !== v.inputs) any = true;
+            }
+        }
+        for (const { st, v, force, inputs } of plan) {
+            const surface = surfaces.entry(st.id)!.get(ParametricSurface);
+            const a = surface.adaptive!;
+            // Sem o desenho indireto, a malha fica no nível máximo (a capacidade inteira, maior que a da vista): a vista
+            // não é gerada e o consumidor segue com a malha de sempre.
+            const ready = indirect && this.viewReady(ctx, v);
+            v.run = any && ready;
+            ctx.produced(surface, geometryViewDescriptor(v.view.key, 'vertices'), v.run);
+            if (!v.run) continue;
+            v.inputs = inputs;
+            const slot =
+                v.view.kind === 'light'
+                    ? shadows?.slotOf(v.view.source)
+                    : cameras?.slotOf(v.view.source);
+            const [pu, pv] = a.patches;
+            this.resources.writeNow(
+                this.work,
+                `surface_view_params:${st.id}:${v.view.key}`,
+                SurfaceAdaptParamsSchema.pack({
+                    patches_u: pu,
+                    patches_v: pv,
+                    max_level: a.maxLevel,
+                    budget: a.viewBudget,
+                    camera_slot: NONE,
+                    transform_slot: worlds?.slotOf(st.id) ?? NONE,
+                    diff_first: 0,
+                    force_max: indirect ? 0 : 1,
+                    periodic_u: a.periodic[0] ? 1 : 0,
+                    periodic_v: a.periodic[1] ? 1 : 0,
+                    side: a.side,
+                    view: 1,
+                    tolerance: a.tolerance,
+                    screen: a.screen,
+                    view_error: v.view.error,
+                    view_segment: v.view.segment,
+                    view_slot: slot ?? NONE,
+                    levels_base: v.levelsBase,
+                    levels_valid: valid ? 1 : 0,
+                    force: force ? 1 : 0,
+                }),
+            );
+        }
+        if (plan.some((p) => p.v.run)) this.levelsMoved = false;
+    }
+
+    /** As seis passadas da vista estão prontas? */
+    private viewReady(ctx: Ctx, v: ViewState): boolean {
+        const active = this.viewPipelines.active(v.key);
+        if (active === undefined) return false;
+        return VIEW_ENTRIES.every((e) => {
+            const p = ctx.bound.pipelines.get(viewPassId(active.id, e));
+            return p?.role === 'compute' && p.ready;
+        });
     }
 }

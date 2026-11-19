@@ -33,8 +33,13 @@ import {
     type WorkSlot,
 } from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
+import type { EntityId } from '../../scene/world/EntityId';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
+import {
+    geometryViewDescriptor,
+    type GeometryViewPart,
+} from '../../elements/geometry/GeometryView';
 import { Material } from '../../elements/material/Material';
 import { PointSpriteMaterial } from '../../elements/material/PointSpriteMaterial';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
@@ -150,6 +155,12 @@ interface SpriteKernels {
     readonly pairs: string;
     readonly generation: string;
 }
+
+/**
+ * A vista da luz (spec 041, R20) que o estágio pede às geometrias que se refazem por vista (a malha adaptativa): a malha
+ * pelo erro em texels do nível do mapa onde cada retalho cai, com orçamento constante, no lugar da malha da câmera.
+ */
+const LIGHT_VIEW = 'light';
 
 /** Bits da palavra de grupo de cada instância (ver `shadow_pages_constants.wgsl`). */
 const SKIP = 0x80000000;
@@ -520,6 +531,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     private readonly spriteKernels = new Map<AnyBufferSpec, SpriteKernels>();
     private spritesKey = '';
     private spritePrepared = false;
+    /** As geometrias com a vista da luz pedida e as que já a têm produzida (o mapa desenha a vista delas). */
+    private readonly viewed = new Set<Geometry>();
+    private readonly lightViews = new Set<Geometry>();
 
     constructor(ctx: FlowContext, options: ShadowFlowOptions = {}) {
         super();
@@ -708,7 +722,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 if (!drawsTriangles(group.key)) return;
                 const entry = group.representative;
                 const geometry = entry.get(Geometry);
-                const vertices = this.resources.bufferOf(geometry, 'vertices');
+                const vertices = this.casterBuffer(geometry, 'vertices');
                 if (vertices?.subkind !== 'vertex') return;
                 const plan = this.clusterPlans.get(index);
                 if (plan?.ready === true) {
@@ -732,7 +746,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 }
                 pipeline.bindTo(pass.bind, { draw: [this.groupDraws.offset(index)] });
                 pass.geometry.vertex(0, vertices);
-                const indices = this.resources.bufferOf(geometry, 'indices');
+                const indices = this.casterBuffer(geometry, 'indices');
                 const offset = index * INDIRECT_WORDS * 4;
                 if (indices?.subkind === 'index') {
                     pass.geometry.index(indices);
@@ -807,6 +821,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.indirectSources.clear();
         this.spriteKernels.clear();
         this.spriteSources = [];
+        this.viewed.clear();
+        this.lightViews.clear();
     }
 
     /** O quadro: as capacidades, os grupos, as caixas, as ligações privadas e os parâmetros. */
@@ -826,6 +842,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         }
         const instances = Math.max(1, ...groups.map((g) => g.first + g.count));
         const { pagesPerLevel, atlasPages } = map.data;
+        this.requestLightViews(ctx, id!);
         const clusters = this.planClusters(ctx);
         const points = sprites.reduce((n, src) => n + src.count, 0);
         this.ensureCapacity(
@@ -851,6 +868,46 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             this.spritePrepared = true;
         }
         this.writeParams(ctx, casterSlot);
+    }
+
+    /**
+     * A vista da luz (spec 041, R20): cada geometria que projeta e se refaz por vista recebe o pedido da vista da luz do
+     * mapa (`source`: a entidade do mapa; o produtor lê o referencial dela); a que deixou de projetar a solta. O mapa passa
+     * a desenhar a vista quando o produtor a escreveu pela primeira vez (antes, a malha de sempre); a troca recomeça o
+     * cache (o conteúdo dos grupos muda).
+     */
+    private requestLightViews(ctx: Ctx, source: EntityId): void {
+        const casting = new Set<Geometry>();
+        for (const group of ctx.bound.slots.casters.groups) {
+            if (!drawsTriangles(group.key)) continue;
+            const geometry = group.representative.get(Geometry);
+            casting.add(geometry);
+            if (geometry.requestView({ key: LIGHT_VIEW, kind: 'light', source }))
+                this.regroup = true;
+            if (!geometry.views.some((v) => v.key === LIGHT_VIEW)) {
+                this.lightViews.delete(geometry);
+                continue;
+            }
+            this.viewed.add(geometry);
+            if (this.resources.isProduced(geometry, geometryViewDescriptor(LIGHT_VIEW, 'vertices')))
+                this.lightViews.add(geometry);
+        }
+        for (const geometry of [...this.viewed]) {
+            if (casting.has(geometry)) continue;
+            geometry.releaseView(LIGHT_VIEW);
+            this.viewed.delete(geometry);
+            this.lightViews.delete(geometry);
+        }
+    }
+
+    /** O descritor da parte que o mapa desenha da geometria: o da vista da luz, quando produzida; senão, o de sempre. */
+    private casterDesc(geometry: Geometry, part: GeometryViewPart): string {
+        return this.lightViews.has(geometry) ? geometryViewDescriptor(LIGHT_VIEW, part) : part;
+    }
+
+    /** O buffer da parte que o mapa desenha da geometria (`casterDesc`). */
+    private casterBuffer(geometry: Geometry, part: GeometryViewPart): AnyBufferSpec | undefined {
+        return this.resources.bufferOf(geometry, this.casterDesc(geometry, part));
     }
 
     /**
@@ -935,11 +992,11 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         | undefined {
         if (!drawsTriangles(group.key) || group.count > CLUSTER_MAX_INSTANCES) return undefined;
         const geometry = group.representative.get(Geometry);
-        const vertices = this.resources.bufferOf(geometry, 'vertices');
-        const indices = this.resources.bufferOf(geometry, 'indices');
+        const vertices = this.casterBuffer(geometry, 'vertices');
+        const indices = this.casterBuffer(geometry, 'indices');
         if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') return undefined;
         if (geometry.indexFormat !== 'uint32') return undefined;
-        const indirect = this.resources.bufferOf(geometry, 'indirect');
+        const indirect = this.casterBuffer(geometry, 'indirect');
         const countSource = adaptive && indirect?.subkind === 'indirect' ? indirect : undefined;
         const triangles = Math.floor(indices.count / 3);
         if (triangles < CLUSTER_MIN_TRIANGLES || Math.ceil(triangles / CLUSTER_TRIS) > CLUSTER_MAX)
@@ -1000,7 +1057,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsGroups.reserve(groups.length);
         // Os grupos (o conteúdo: muda o que é desenhado — o cache recomeça) e os buffers (realocados voltam vazios: os
         // grupos são reescritos, as páginas seguem valendo).
-        const content = groups.map((g) => `${g.key}:${g.first}:${g.count}`).join(';');
+        // A geometria desenhada pela vista da luz (`v`): a troca muda o que é desenhado.
+        const content = groups
+            .map(
+                (g) =>
+                    `${g.key}:${g.first}:${g.count}${this.lightViews.has(g.representative.get(Geometry)) ? ':v' : ''}`,
+            )
+            .join(';');
         // A geometria escrita pela GPU deforma só nos quadros em que o produtor a escreve (`produced`, spec 031): a
         // superfície parada (a malha adaptativa com a câmera parada) não suja as páginas a cada quadro.
         const deforming = groups.map((g) => this.deformingNow(g.representative.get(Geometry)));
@@ -1024,7 +1087,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const adaptive = this.core.capabilities().features.includes('indirect-first-instance');
         groups.forEach((group, index) => {
             if (!adaptive) return;
-            const source = this.resources.bufferOf(group.representative.get(Geometry), 'indirect');
+            const source = this.casterBuffer(group.representative.get(Geometry), 'indirect');
             if (source?.subkind === 'indirect' && drawsTriangles(group.key))
                 this.indirectSources.set(index, source);
         });
@@ -1051,7 +1114,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             const word = index | (skip ? SKIP : 0) | (deforming[index] === true ? DEFORMING : 0);
             for (let j = 0; j < group.count; j++)
                 words[c.groups * 4 + group.first + j] = word >>> 0;
-            const indices = this.resources.bufferOf(geometry, 'indices');
+            const indices = this.casterBuffer(geometry, 'indices');
             const count = indices?.subkind === 'index' ? indices.count : geometry.vertexCount;
             args.set([list !== 0 ? CLUSTER_TRIS * 3 : count, 0, 0, 0, 0], index * INDIRECT_WORDS);
             const countWord =
@@ -1106,6 +1169,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
      * troca o conteúdo e recomeça o cache).
      */
     private deformingNow(geometry: Geometry): boolean {
+        // A vista da luz: deformada no quadro em que o produtor a refez (só os aglomerados cuja caixa mudou sujam).
+        if (this.lightViews.has(geometry))
+            return this.resources.isProduced(geometry, this.casterDesc(geometry, 'vertices'));
         return (
             this.resources.hasGpuWriter(geometry, 'vertices')
             && this.resources.isProduced(geometry, 'vertices')
@@ -1233,10 +1299,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsGroupsOf = [];
         this.clusterKernels = new Map();
         ctx.bound.slots.casters.groups.forEach((group, index) => {
-            const vertices = this.resources.bufferOf(
-                group.representative.get(Geometry),
-                'vertices',
-            );
+            const vertices = this.casterBuffer(group.representative.get(Geometry), 'vertices');
             if (vertices === undefined || vertices.subkind === 'staging') {
                 // A geometria ainda sem buffer (alocado no envio do quadro): tenta de novo no próximo.
                 if (drawsTriangles(group.key)) this.boundsDirty = true;
@@ -1264,7 +1327,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             }
             this.boundsGroupsOf.push({ group: index, kernel: b.kernel });
             // Os aglomerados da malha grande: o kernel das caixas ligado aos vértices e aos índices dela.
-            const indices = this.resources.bufferOf(group.representative.get(Geometry), 'indices');
+            const indices = this.casterBuffer(group.representative.get(Geometry), 'indices');
             if (!this.clusterPlans.has(index) || indices?.subkind !== 'index') return;
             usedIndices.add(indices);
             const tag = `${generation}:${this.idOf(vertices)}`;

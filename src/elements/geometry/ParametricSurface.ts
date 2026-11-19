@@ -1,6 +1,12 @@
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import { Geometry, type GeometryData } from './Geometry';
 import { triangleEdges } from './geometryContent';
+import {
+    geometryViewDescriptor,
+    resolveGeometryView,
+    type GeometryView,
+    type GeometryViewRequest,
+} from './GeometryView';
 import { SurfaceGeometry } from './SurfaceGeometry';
 import { SurfaceDiffSchema } from './SurfaceSchemas';
 
@@ -50,6 +56,12 @@ export interface AdaptiveOptions {
     readonly periodic?: readonly [boolean, boolean];
     /** Deslocamento da câmera (m) que refaz a malha. Default 0,05. */
     readonly refreshDistance?: number;
+    /**
+     * Teto de triângulos de cada vista pedida além da câmera ativa (spec 041, R20: a vista da luz no mapa de sombra
+     * virtual, outras câmeras): o orçamento constante da saída da vista (vértices até o dobro, índices o triplo). Default:
+     * o menor entre `budget` e 262 144.
+     */
+    readonly viewBudget?: number;
 }
 
 /** Malha adaptativa resolvida (valores efetivos). */
@@ -68,6 +80,8 @@ export interface AdaptiveConfig {
     readonly periodic: readonly [boolean, boolean];
     /** Deslocamento da câmera que refaz a malha (m). */
     readonly refreshDistance: number;
+    /** Teto de triângulos de cada vista além da câmera ativa. */
+    readonly viewBudget: number;
     /** Vértices por lado de um retalho no nível máximo (2^L + 1). */
     readonly side: number;
     /** Vértices com todos os retalhos no nível máximo (capacidade). */
@@ -96,6 +110,8 @@ export interface ParametricSurfaceData extends GeometryData {
     vertexCount: number;
     /** Índices (na adaptativa, a capacidade). */
     indexCount: number;
+    /** Vistas pedidas além da câmera ativa (só na adaptativa; spec 041, R20). */
+    views?: GeometryView[];
 }
 
 const PRESET_DOMAIN: Record<SurfacePreset, [number, number, number, number]> = {
@@ -271,7 +287,76 @@ export class ParametricSurface extends Geometry<ParametricSurfaceData> {
                 count: a.vertexCapacity,
             },
             ...this.historyDescriptors(vertices),
+            ...this.viewDescriptors(a),
         ];
+    }
+
+    /**
+     * A saída de cada vista pedida (spec 041, R20), escrita só pela GPU: vértices e índices com o orçamento constante da
+     * vista (`viewBudget` triângulos: até 2 vértices e 3 índices por triângulo — o nível 0 tem 4 vértices em 2
+     * triângulos) e o registro indireto (o desenho indexado no registro 0, como o da câmera).
+     */
+    private viewDescriptors(a: AdaptiveConfig): GPUDescriptor[] {
+        const vertexCount = Math.min(a.vertexCapacity, 2 * a.viewBudget);
+        const indexCount = Math.min(a.indexCapacity, 3 * a.viewBudget);
+        return (this.rawData.views ?? []).flatMap((v): GPUDescriptor[] => [
+            {
+                id: geometryViewDescriptor(v.key, 'vertices'),
+                role: 'vertex',
+                schema: ParametricSurface.vertexStruct,
+                count: vertexCount,
+                upload: 'never',
+            },
+            {
+                id: geometryViewDescriptor(v.key, 'indices'),
+                role: 'index',
+                count: indexCount,
+                upload: 'never',
+                indexFormat: 'uint32',
+            },
+            {
+                id: geometryViewDescriptor(v.key, 'indirect'),
+                role: 'indirect',
+                count: 2,
+                upload: 'never',
+            },
+        ]);
+    }
+
+    override get views(): readonly GeometryView[] {
+        return this.rawData.views ?? [];
+    }
+
+    /**
+     * Pede a vista (spec 041, R20): só a malha adaptativa se refaz por vista (a uniforme devolve `false`). Nova, ou com
+     * outro critério ou entidade, os descritores são refeitos pela C2 (`redescribe`: os que não mudam ficam) e o
+     * `SurfaceFlow` passa a refazê-la; igual, nada muda.
+     */
+    override requestView(request: GeometryViewRequest): boolean {
+        if (this.adaptive === undefined) return false;
+        const view = resolveGeometryView(request);
+        const views = this.rawData.views ?? [];
+        const i = views.findIndex((v) => v.key === view.key);
+        const old = i < 0 ? undefined : views[i]!;
+        if (
+            old?.kind === view.kind
+            && old.source === view.source
+            && old.error === view.error
+            && old.segment === view.segment
+        )
+            return false;
+        const next = i < 0 ? [...views, view] : views.map((v, j) => (j === i ? view : v));
+        this.redescribe(this.getDescriptors(), { ...this.rawData, views: next });
+        return true;
+    }
+
+    override releaseView(key: string): void {
+        const views = this.rawData.views ?? [];
+        if (!views.some((v) => v.key === key)) return;
+        this.redescribe(this.getDescriptors(), {
+            ...this.rawData,
+            views: views.filter((v) => v.key !== key),
+        });
     }
 
     get vertexCount(): number {
@@ -328,6 +413,11 @@ function adaptiveOf(o: AdaptiveOptions, preset: SurfacePreset): AdaptiveConfig {
             throw new RangeError(`ParametricSurface: ${name} ${v} inválida (> 0).`);
     }
     const side = n + 1;
+    const viewBudget = o.viewBudget ?? Math.min(budget, full, 1 << 18);
+    if (!Number.isInteger(viewBudget) || viewBudget < 2 * p * q)
+        throw new RangeError(
+            `ParametricSurface: orçamento das vistas ${viewBudget} abaixo de 2 triângulos por retalho.`,
+        );
     return {
         patches: [p, q],
         maxLevel,
@@ -336,6 +426,7 @@ function adaptiveOf(o: AdaptiveOptions, preset: SurfacePreset): AdaptiveConfig {
         screen,
         periodic: o.periodic ?? PRESET_PERIODIC[preset],
         refreshDistance,
+        viewBudget: Math.min(viewBudget, full),
         side,
         vertexCapacity: p * q * side * side,
         indexCapacity: p * q * 6 * n * n,

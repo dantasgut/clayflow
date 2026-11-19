@@ -173,14 +173,15 @@ describe('malha adaptativa (spec 010)', () => {
         });
         const cameraTransform = new Transform({ position: [0, 1, 3, 1] });
         s.scene.world.insert(new Camera().add(cameraTransform));
-        s.scene.world.insert(new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true }));
+        const light = new DirectionalLight({ direction: [0, -1, 0, 0], castShadow: true });
+        s.scene.world.insert(light);
         const surface = new ParametricSurface({
             preset: 'terrain',
             adaptive: { patches: [4, 4], maxLevel: 2, refreshDistance: 0.1 },
         });
         s.scene.world.insert(surface.add(new StandardMaterial()).add(new Transform()));
         const adapt = () => s.computes().filter((l) => l.startsWith('SurfaceFlow.adapt'));
-        return { ...s, surface, cameraTransform, adapt };
+        return { ...s, surface, cameraTransform, adapt, light };
     }
 
     it('gera na entrada (4 passadas), não repete parada, refaz quando a câmera anda além do limiar', async () => {
@@ -192,6 +193,11 @@ describe('malha adaptativa (spec 010)', () => {
             'SurfaceFlow.adapt.scan',
             'SurfaceFlow.adapt.emit',
         ]);
+        // A vista da luz entra (o estágio de sombra a pede, spec 041): os descritores dela realocam o pool da geometria
+        // diferencial e a malha da câmera é refeita uma vez, igual.
+        s.step();
+        expect(s.adapt()).toHaveLength(4);
+        expect(s.computes().filter((l) => l === 'SurfaceFlow.view')).toHaveLength(1);
         s.step();
         expect(s.adapt()).toEqual([]);
         s.cameraTransform.data.position = [0.05, 1, 3, 1];
@@ -200,6 +206,49 @@ describe('malha adaptativa (spec 010)', () => {
         s.cameraTransform.data.position = [0.5, 1, 3, 1];
         s.step();
         expect(s.adapt()).toHaveLength(4);
+    });
+
+    it('vista da luz (spec 041, R20): pedida pela sombra, refeita só quando a luz ou a câmera mudam; o mapa a desenha', async () => {
+        const s = await adaptiveScene(['indirect-first-instance']);
+        const views = () => s.computes().filter((l) => l === 'SurfaceFlow.view');
+        s.step();
+        s.step();
+        expect(s.surface.views.map((v) => [v.key, v.kind, v.error, v.segment])).toEqual([
+            ['light', 'light', 0.5, 1],
+        ]);
+        const descriptors = new Map(s.surface.getDescriptors().map((d) => [d.id, d]));
+        const a = s.surface.adaptive!;
+        expect(descriptors.get('view:light:vertices')).toMatchObject({
+            role: 'vertex',
+            count: Math.min(a.vertexCapacity, 2 * a.viewBudget),
+            upload: 'never',
+        });
+        expect(descriptors.get('view:light:indices')).toMatchObject({
+            role: 'index',
+            count: Math.min(a.indexCapacity, 3 * a.viewBudget),
+        });
+        expect(descriptors.get('view:light:indirect')).toMatchObject({
+            role: 'indirect',
+            count: 2,
+        });
+        // Parada: nem a câmera nem a vista.
+        s.step();
+        expect(views()).toEqual([]);
+        expect(s.adapt()).toEqual([]);
+        // A luz gira: só a vista dela (a malha da câmera fica).
+        s.light.data.direction = [0.3, -1, 0, 0];
+        s.step();
+        expect(views()).toHaveLength(1);
+        expect(s.adapt()).toEqual([]);
+        s.step();
+        expect(views()).toEqual([]);
+        // O mapa desenha a vista: os vértices do desenho da sombra são os da vista.
+        const viewVertices = s.scene.resourceSystem.bufferOf(s.surface, 'view:light:vertices');
+        const cameraVertices = s.scene.resourceSystem.bufferOf(s.surface, 'vertices');
+        const shadowVertices = s.draws('ShadowFlow').map((d) => d.vertex);
+        expect(shadowVertices.length).toBeGreaterThan(0);
+        expect(shadowVertices.every((v) => v === viewVertices)).toBe(true);
+        expect(shadowVertices.some((v) => v === cameraVertices)).toBe(false);
     });
 
     it('forward e sombra desenham pelo registro indireto (contagem copiada antes do passe)', async () => {
