@@ -105,12 +105,6 @@ fn cloud_shadow_texel_plane(k: u32, g: vec2i, t: vec2u) -> vec2f {
     return (vec2f(gt) + 0.5) * cloud_shadow_texel_size(k);
 }
 
-/** O mesmo pelo texel do plano de um sol com a razão `a` (a página desenhada com outro sol). */
-fn cloud_shadow_texel_plane_aspect(k: u32, g: vec2i, t: vec2u, a: f32) -> vec2f {
-    let gt = g * i32(CLOUD_SHADOW_PAGE) + vec2i(t);
-    return (vec2f(gt) + 0.5) * cloud_shadow_texel_aspect(k, a);
-}
-
 /** O nível que cobre `x` (o menor, com a borda) e o peso do seguinte na faixa de mistura (os 30 % de fora). */
 fn cloud_shadow_level(x: vec2f) -> vec2f {
     let c = abs(x - cloud_shadow_camera());

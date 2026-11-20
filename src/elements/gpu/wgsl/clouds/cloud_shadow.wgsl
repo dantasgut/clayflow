@@ -246,8 +246,12 @@ fn cloud_shadow_draw(slot: u32, lid: u32) {
 }
 
 /**
- * A prova `j` da página física `slot`: a coluna refeita com o sol do desenho da página (a mesma coluna; a mudança do sol
- * é da previsão) contra os nós guardados no registro — a evolução da forma e do tempo, medida.
+ * A prova `j` da página física `slot`: a coluna do texel refeita como o desenho do quadro a faria (o sol e o plano de
+ * agora) contra os nós guardados no registro — a mudança inteira do que a página mostra, medida: a evolução da forma, o
+ * tempo e o sol andando. A previsão pela geometria só vê a nuvem que já está na página (o gradiente medido nela): a
+ * página desenhada sem nuvem, com o sol descendo, passava a mostrar sol onde a coluna nova já cortava a nuvem vizinha e
+ * só era refeita pela idade (`CLOUD_SHADOW_MAX_AGE`: ~12° de sol no vídeo do pôr do sol) — o chão aceso sob as nuvens
+ * de 3,5–6 km no `solposto-chao` (R21 rodada 24). Espelho das provas do esquema em `cloudShadowPages.test.ts`.
  */
 fn cloud_shadow_probe(slot: u32, j: u32) {
     if (!cloud_shadow_meta_current(slot)) { return; }
@@ -256,16 +260,11 @@ fn cloud_shadow_probe(slot: u32, j: u32) {
     let t = cloud_shadow_probe_texel(slot, clouds.march.z, j);
     let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
     let rec = &cloud_shadow_pages_meta[slot];
-    let sun = vec3f(
-        bitcast<f32>(atomicLoad(&(*rec).sun_x)),
-        bitcast<f32>(atomicLoad(&(*rec).sun_y)),
-        bitcast<f32>(atomicLoad(&(*rec).sun_z)),
-    );
     let col = cloud_shadow_column_knots(
-        cloud_shadow_texel_plane_aspect(k, g, tt, cloud_shadow_aspect(sun)),
+        cloud_shadow_texel_plane(k, g, tt),
         cloud_shadow_line(k, g, tt),
-        sun,
-        cloud_shadow_basis(sun),
+        clouds.sunDir.xyz,
+        mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
     );
     var d = 0.0;
     for (var l = 0u; l < 4u; l++) {

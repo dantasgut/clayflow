@@ -14,6 +14,8 @@
 //     contra o mapeamento da referência (SC-010, R19);
 //   - storm: a tempestade numa baixa — a torre do cúmulo-nimbo até a tropopausa e a bigorna (SC-011), e a vista dela
 //     contra a marcha de referência;
+//   - ground-shadow: a sombra das nuvens no chão visto pela câmera da `solposto-chao` (quadro 300, `?frame=`), o mapa
+//     visto do sol contra a integral f64 numa grade de 630 pontos de 60 m a 6 km, por faixa de distância;
 //   - storm-ground: a luz do sol no chão da câmera sob o tempo acelerado (a `tempestade` da rodada 7), quadro a quadro,
 //     contra a referência no mesmo quadro, e o deslocamento da sombra numa linha no rumo do vento;
 //   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
@@ -93,6 +95,8 @@ import { deltaRng } from '../elements/lighting/reference/pathTracer';
 import {
     shadowColumnSun,
     shadowFrameOf,
+    shadowLevel,
+    shadowPlane,
     shadowKnotAt,
     type ShadowAtlas,
 } from '../elements/media/clouds/reference/cloudShadowPages';
@@ -206,8 +210,9 @@ async function referenceModel(s: CloudScene, layer: CloudLayer, time = 0): Promi
         detail,
         shapeScale: layer.shapeScale,
         detailScale: layer.detailScale,
-        shapeOffset: [0, 0, 0],
-        detailOffset: [0, 0, 0],
+        // Os deslocamentos do vento no tempo simulado do quadro (os casos de relógio parado: 0).
+        shapeOffset: layer.windOffsets(time).shape,
+        detailOffset: layer.windOffsets(time).detail,
         windDir: speed > 0 ? [wind[0] / speed, wind[1] / speed] : [1, 0],
     };
 }
@@ -1955,6 +1960,11 @@ async function caseShadowMap(): Promise<void> {
     void shellSegments;
 }
 
+/** O nível do mapa visto do sol que cobre `p` e o peso do seguinte. */
+function shadowLevelOf(f: ReturnType<typeof shadowFrameOf>, p: Vec3): [number, number] {
+    return shadowLevel(f, shadowPlane(f, p));
+}
+
 /** A transmitância do mapa visto do sol no ponto do chão `q`, lida como a GPU a lê (o último nó, bilinear, os níveis). */
 function groundMapT(map: ShadowAtlas, p: CloudLayer['data']['params'][number], q: Vec3): number {
     const f = shadowFrameOf(p);
@@ -1986,6 +1996,95 @@ function mapDepthAt(
     const k = Math.min(Math.floor(s), 15);
     const lo = shadowKnotAt(map, f, q, k);
     return lo + (shadowKnotAt(map, f, q, k + 1) - lo) * (s - k);
+}
+
+async function caseGroundShadow(): Promise<void> {
+    // A sombra das nuvens no chão visto pela câmera (a `solposto-chao` do claflow-web no quadro 300: o sol de 60° descendo
+    // pela curva do vídeo, cúmulos de cobertura 0,4 e tipo 0,5, vento (6, 2), a câmera a 40 m olhando 2° abaixo do
+    // horizonte para o lado do sol). Numa grade de pontos do chão visível (60 m–6 km, ±40° do eixo da vista) a
+    // transmitância até o sol como a GPU a lê do mapa visto do sol contra a integral f64 na mesma camada, no mesmo
+    // instante do vento (a mesma representação: os volumes e o mapa de cobertura da GPU).
+    const q = new URLSearchParams(location.search);
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const elOf = (i: number): number => -4 + 64 * (1 - i / 1199) ** 1.6;
+    const frame = Number(q.get('frame') ?? 300);
+    const warmup = Number(q.get('warmup') ?? 600);
+    const eye: Vec3 = [0, 40, 0];
+    const s = await cloudScene({
+        width: 320,
+        height: 180,
+        sunElevation: elOf(0),
+        sunAzimuth: az,
+        clouds: { coverage: 0.4, type: 0.5, wind: [6, 2], density: 0.08 },
+        eye,
+        target: [800, 40 - 1000 * Math.tan((2 * Math.PI) / 180), 600],
+    });
+    const layer = s.layer!;
+    const texel = q.get('texel');
+    if (texel !== null) {
+        const ql = layer.quality;
+        layer.fromRenderer({ ...ql, shadow: { ...ql.shadow, texel: Number(texel) } });
+    }
+    await s.app.whenReady({ timeoutMs: 60_000 });
+    for (let i = -warmup; i <= frame; i++) {
+        s.sun.data.direction = sunTravel(elOf(Math.max(i, 0)), az);
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+    }
+    const time = s.app.time.simulated;
+    const map = await readShadowMap(s.app, layer);
+    const params = layer.data.params[0]!;
+    const model = await referenceModel(s, layer, time);
+    const sd = params.sunDir!;
+    const sun: Vec3 = [sd[0]!, sd[1]!, sd[2]!];
+    const f = shadowFrameOf(params);
+    const rows: { d: number; g: number; r: number; k: number }[] = [];
+    const view = Math.atan2(0.6, 0.8);
+    for (let i = 0; i < 30; i++) {
+        const d = 60 * 100 ** (i / 29);
+        for (let j = 0; j < 21; j++) {
+            const a = view + (((j / 20) * 80 - 40) * Math.PI) / 180;
+            const p: Vec3 = [d * Math.cos(a), 0, d * Math.sin(a)];
+            const g = groundMapT(map, params, p);
+            const r = Math.exp(-opticalDepth(model, p, sun, 512));
+            const [k] = shadowLevelOf(f, p);
+            rows.push({ d, g, r, k });
+        }
+    }
+    const bins = [60, 250, 500, 1000, 2000, 3500, 6001];
+    const report: string[] = [];
+    let worstBin = 0;
+    for (let b = 0; b + 1 < bins.length; b++) {
+        const r = rows.filter((x) => x.d >= bins[b]! && x.d < bins[b + 1]!);
+        const mean = (v: number[]): number => v.reduce((a, x) => a + x, 0) / Math.max(v.length, 1);
+        const g = r.map((x) => x.g);
+        const ref = r.map((x) => x.r);
+        const mg = mean(g);
+        const mr = mean(ref);
+        const cov = mean(r.map((x) => (x.g - mg) * (x.r - mr)));
+        const sg = Math.sqrt(mean(g.map((x) => (x - mg) ** 2)));
+        const sr = Math.sqrt(mean(ref.map((x) => (x - mr) ** 2)));
+        worstBin = Math.max(worstBin, mean(r.map((x) => Math.abs(x.g - x.r))));
+        report.push(
+            `${bins[b]}–${bins[b + 1]} m (${r.length} pts, níveis ${[...new Set(r.map((x) => x.k))].join('/')}): T média GPU ${mg.toFixed(3)} f64 ${mr.toFixed(3)}; sombra (T<0,5) GPU ${(mean(g.map((x) => (x < 0.5 ? 1 : 0))) * 100).toFixed(0)} % f64 ${(mean(ref.map((x) => (x < 0.5 ? 1 : 0))) * 100).toFixed(0)} %; |Δ| médio ${mean(r.map((x) => Math.abs(x.g - x.r))).toFixed(3)}; correlação ${(cov / Math.max(sg * sr, 1e-9)).toFixed(2)}`,
+        );
+    }
+    const mad = rows.reduce((a, x) => a + Math.abs(x.g - x.r), 0) / rows.length;
+    log(
+        `ground-shadow: quadro ${frame} (sol a ${elOf(frame).toFixed(1)}°, t = ${time.toFixed(2)} s, texel ${params.sunMap![0]} m), ${rows.length} pontos do chão; |Δ| médio ${mad.toFixed(3)}`,
+    );
+    for (const line of report) log(`ground-shadow: ${line}`);
+    if (q.get('dump') === '1')
+        log(
+            `ground-shadow: pontos ${JSON.stringify(rows.map((x) => [Math.round(x.d), +x.g.toFixed(3), +x.r.toFixed(3), x.k]))}`,
+        );
+    // Por faixa de distância: a página desenhada sem nuvem com o sol mais alto, lida até a idade máxima, acendia a faixa
+    // de 3,5–6 km (|Δ| 0,143 nela, 0,032 no todo) — a média do todo não a pegava.
+    check(
+        worstBin <= 0.05,
+        `ground-shadow: a luz do sol no chão a ${worstBin.toFixed(3)} da f64 na pior faixa de distância (> 0,05)`,
+    );
+    finish(s);
 }
 
 async function caseSunLow(): Promise<void> {
@@ -3105,6 +3204,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'sun-below': caseSunBelow,
     'fly-through': caseFlyThrough,
     'shadow-map': caseShadowMap,
+    'ground-shadow': caseGroundShadow,
     panorama: casePanorama,
     'noise-volumes': caseNoiseVolumes,
     ambient: caseAmbient,
