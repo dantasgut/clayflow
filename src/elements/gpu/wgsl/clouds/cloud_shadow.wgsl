@@ -153,19 +153,11 @@ fn cloud_shadow_segment_length(x: vec2f) -> f32 {
 
 /**
  * O registro da página física `slot` vale para a página que a janela do quadro põe nela: carimbada na época da série, a
- * mesma página global, a mesma assinatura do conteúdo, a mesma célula do pivô e a mesma razão do texel (o degrau de
- * `cloud_shadow_aspect` do sol do desenho e do de agora).
+ * mesma página global, a mesma assinatura do conteúdo e a mesma célula do pivô.
  */
 fn cloud_shadow_meta_current(slot: u32) -> bool {
     let g = cloud_shadow_slot_page(slot);
-    let rec = &cloud_shadow_pages_meta[slot];
-    let drawn = vec3f(
-        bitcast<f32>(atomicLoad(&(*rec).sun_x)),
-        bitcast<f32>(atomicLoad(&(*rec).sun_y)),
-        bitcast<f32>(atomicLoad(&(*rec).sun_z)),
-    );
     return cloud_shadow_stamps[slot] == cloud_shadow_clock.x
-        && cloud_shadow_aspect(drawn) == cloud_shadow_aspect(clouds.sunDir.xyz)
         && bitcast<i32>(atomicLoad(&cloud_shadow_pages_meta[slot].page_x)) == g.x
         && bitcast<i32>(atomicLoad(&cloud_shadow_pages_meta[slot].page_y)) == g.y
         && atomicLoad(&cloud_shadow_pages_meta[slot].signature) == clouds.sunPages.y
@@ -386,8 +378,7 @@ fn cloud_shadow_main(
         cloud_shadow_wg_probe_go = select(
             0u,
             1u,
-            cloud_shadow_probes_now(slot, clouds.march.z) && cloud_shadow_slot_active(slot)
-                && cloud_shadow_meta_current(slot),
+            cloud_shadow_probes_now(slot, clouds.march.z) && cloud_shadow_meta_current(slot),
         );
     }
     if (workgroupUniformLoad(&cloud_shadow_wg_probe_go) == 0u) { return; }
@@ -475,7 +466,6 @@ fn cloud_shadow_visible(k: u32, g: vec2i, lever: f32) -> bool {
  * `CLOUD_SHADOW_MAX_AGE` entra na fila 1.
  */
 fn cloud_shadow_key(slot: u32) -> u32 {
-    if (!cloud_shadow_slot_active(slot)) { return 0u; }
     if (!cloud_shadow_meta_current(slot)) { return CLOUD_SHADOW_KEY_MANDATORY; }
     let k = cloud_shadow_slot_level(slot);
     let g = cloud_shadow_slot_page(slot);

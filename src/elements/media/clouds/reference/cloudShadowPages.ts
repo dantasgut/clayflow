@@ -52,35 +52,19 @@ export function shadowTexelSize(t0: number, k: number): number {
     return t0 * 2 ** k;
 }
 
-/** A menor razão do texel à direita pelo em cima (o sol rasante; `CLOUD_SHADOW_ASPECT_MIN`). */
-export const CLOUD_SHADOW_ASPECT_MIN = 0.2;
-/** A elevação do sol (°) a partir da qual o texel é quadrado: a razão contínua é `tan(el)/tan(19°)`. */
-export const CLOUD_SHADOW_ASPECT_ELEVATION = 19;
+/** A razão do texel à direita pelo em cima (`CLOUD_SHADOW_ASPECT`). */
+export const CLOUD_SHADOW_ASPECT = 0.2;
 
 /**
- * A razão `r` do texel à direita pelo em cima (espelho de `cloud_shadow_aspect`). Com o sol baixo a vizinha em cima é o
- * mesmo caminho deslocado ao longo de si, e a à direita é outro caminho de ~30 km pelo detalhe: a resolução que falta é
- * a à direita, na medida de `tan(el)/tan(19°)` (0,2 a 4°). Em degraus (1, ½, 0,2), nunca acima da contínua: a razão que
- * mudasse a cada quadro escalaria o texel em torno do pivô; no degrau, a janela inteira é refeita no mesmo quadro.
+ * A razão `r` do texel à direita pelo em cima (espelho de `cloud_shadow_aspect`): a mesma em toda elevação do sol (com o
+ * sol baixo a vizinha em cima é o mesmo caminho deslocado ao longo de si, e a à direita é outro caminho de ~30 km pelo
+ * detalhe; a razão que mudasse com o sol escalaria o texel global em torno do pivô a cada quadro, e em degraus mudaria a
+ * resolução do mapa inteiro num quadro: o `solposto` saltava 7,9 níveis no céu no degrau de ~9,8°).
  */
 export function shadowAspect(band: number, sun: Vec3): number {
     void band;
-    const y = Math.min(1, Math.max(-1, sun[1]));
-    const c =
-        y
-        / Math.max(Math.sqrt(Math.max(1 - y * y, 0)), 1e-6)
-        / Math.tan((CLOUD_SHADOW_ASPECT_ELEVATION * Math.PI) / 180);
-    if (c >= 1) return 1;
-    if (c >= 0.5) return 0.5;
-    return CLOUD_SHADOW_ASPECT_MIN;
-}
-
-/**
- * A página desenhada com o sol `drawn` vale com o sol `now`? (o degrau da razão no registro: a parte de
- * `cloud_shadow_meta_current` que vem do sol)
- */
-export function shadowAspectCurrent(f: ShadowFrame, drawn: Vec3): boolean {
-    return shadowAspect(f.band, drawn) === shadowAspect(f.band, f.sun);
+    void sun;
+    return CLOUD_SHADOW_ASPECT;
 }
 
 /** Páginas da janela à direita com a razão `r` (espelho de `cloud_shadow_pages_x`): o raio útil em metros do em cima. */
@@ -103,7 +87,8 @@ function texelOf(f: ShadowFrame, k: number, sun = f.sun): [number, number] {
 
 /** As páginas da janela do quadro (à direita, em cima). */
 export function shadowWindowPages(f: ShadowFrame): [number, number] {
-    return [shadowPagesX(shadowAspect(f.band, f.sun)), CLOUD_SHADOW_PAGES];
+    void f;
+    return [CLOUD_SHADOW_PAGES_X, CLOUD_SHADOW_PAGES];
 }
 
 const cross = (a: Vec3, b: Vec3): Vec3 => [
