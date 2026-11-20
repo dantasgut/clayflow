@@ -47,6 +47,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'aerial',
             'aerialTransmittance',
             'aerialShadow',
+            'aerialShadowFar',
             'ambient',
         ] as const
     ).map((id) => new SingletonResolver(SkySchema, id, { name: `Sky.${id}` })),
@@ -131,6 +132,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'reachMax',
             'state',
             'dispatch',
+            'open',
         ] as const
     ).map((id) => new SingletonResolver(FroxelsSchema, id, { name: `Froxels.${id}` })),
 ];

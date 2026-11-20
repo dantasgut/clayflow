@@ -20,7 +20,7 @@
 // cada uma — `L = La + Ta·Lb`, `T = Ta·Tb` —, e a primeira invocação soma o resto ao déficit (32 parcelas).
 // Despacho linear: `SKY_AERIAL_SLICES` invocações por coluna, grupos de `SKY_AERIAL_SLICES`.
 // Requer: SKY_AERIAL_RANGE, view_space, sky_atmosphere, sky_lookup, sky, cameras, sky_aerial_visibility, sky_aerial_out,
-// sky_aerial_transmittance_out, sky_aerial_shadow_out.
+// sky_aerial_transmittance_out, sky_aerial_shadow_out, sky_aerial_shadow_far_out.
 
 const SKY_AERIAL_SLICES: u32 = 32u;
 const SKY_AERIAL_SUBSTEPS: u32 = 4u;
@@ -159,13 +159,15 @@ fn sky_aerial_main(
         textureStore(sky_aerial_transmittance_out, vec3u(g, k), vec4f(sky_aerial_tr[k], 1.0));
         if (k == 0u) {
             let last = SKY_AERIAL_SLICES - 1u;
-            var deficit = sky_aerial_def[last];
+            var far = vec3f(0.0);
             var throughput = sky_aerial_tr[last];
             for (var j = 0u; j < SKY_AERIAL_SLICES; j++) {
-                deficit += throughput * sky_aerial_rest_def[j];
+                far += throughput * sky_aerial_rest_def[j];
                 throughput *= sky_aerial_rest_tr[j];
             }
-            textureStore(sky_aerial_shadow_out, g, vec4f(deficit, 1.0));
+            textureStore(sky_aerial_shadow_out, g, vec4f(sky_aerial_def[last] + far, 1.0));
+            // Só além da tabela (R21 rodada 16): com os froxels integrando o trecho perto.
+            textureStore(sky_aerial_shadow_far_out, g, vec4f(far, 1.0));
         }
     }
 }

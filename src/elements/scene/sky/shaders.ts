@@ -65,6 +65,8 @@ export const skyAerialTransmittanceLut = lut3d(
  * sombreado deixa de espalhar da câmera até o fim da atmosfera.
  */
 export const skyAerialShadowLut = lut('sky_aerial_shadow_lut', 'Sky.aerialShadow');
+/** O déficit só além do alcance da tabela (resolver `Sky.aerialShadowFar`, R21 rodada 16): o de perto está nos froxels. */
+export const skyAerialShadowFarLut = lut('sky_aerial_shadow_far_lut', 'Sky.aerialShadowFar');
 
 /** Amostrador linear das tabelas (resolver `Sky.sampler`). */
 export const skySampler = wgslResource({
@@ -152,6 +154,7 @@ export const skyOutputs = Object.freeze({
     aerial: out3d('sky_aerial_out'),
     aerialTransmittance: out3d('sky_aerial_transmittance_out'),
     aerialShadow: out('sky_aerial_shadow_out'),
+    aerialShadowFar: out('sky_aerial_shadow_far_out'),
     ambient: out('sky_ambient_out'),
 });
 
@@ -280,6 +283,7 @@ const skyAerialKernelOf = (name: string, visibility: WgslModule): WgslModule =>
             skyOutputs.aerial,
             skyOutputs.aerialTransmittance,
             skyOutputs.aerialShadow,
+            skyOutputs.aerialShadowFar,
         ],
     });
 

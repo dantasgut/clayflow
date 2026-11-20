@@ -730,6 +730,37 @@ fotos — no `raios` há listras diagonais fracas sob o cúmulo; no `solposto`, 
 como um ponto através da nuvem espessa no `raios`. A peça (o ar com as sombras finas perto da câmera, a emenda exata, a
 decisão da GPU) está medida contra a referência; a intensidade dos feixes na imagem ainda não chega às fotos.
 
+#### R21, rodada 16 — o que impedia os feixes, o disco através da nuvem e a emenda no fundo (2026-11-20)
+
+- _O disco do sol através de um cúmulo espesso_ (`raios`): a marcha das nuvens parava com T < 0,01 e devolvia esse T; o
+  disco no teto do alvo (60 000) passava como 600 nits por cima de uma nuvem cinza de algumas centenas — um ponto branco.
+  Um cúmulo tem τ ~ 20–50 (T ~ 10⁻⁹ ou menos): na saída antecipada o resto da nuvem conta como opaco (T = 0); a fração
+  visível do disco e o excesso dele leem o mesmo T.
+- _Os feixes, isolados antes de propor_ (caso novo `beam-air` do smoke `clouds`: a cena da `raios` com e sem nuvens, a
+  grade dos froxels lida por coluna):
+  - a referência f64 dá o ar à sombra com 2–3 % da luz do ar ao sol nesse caminho, e o feixe (a luz do ar ao sol menos a da
+    sombra) como 60–77 % da radiância do pixel a 5–20° do sol — os feixes têm de ser fortes;
+  - a sombra das nuvens chega aos froxels: o ar até ~2 km da câmera ganha 2,5–4 % da luz sem nuvens, a razão da
+    referência; a resolução não é o gargalo (fatias de 0,2–1 km a 2–10 km, a coluna de froxel ~20 m a 3 km, o texel do mapa
+    visto do sol ~25–45 m ali; a penumbra do disco, ~10 m);
+  - o que faltava: o ar sob a base das nuvens pesava pouco — a névoa seca da cena (0,08/km, ~39 km de visibilidade) é rala
+    para o ar das fotos (úmido, 10–20 km de visibilidade: 0,2–0,4/km), e quase toda a luz do ar vinha das fatias de 2–14
+    km, acima da base, aceso. A densidade é parâmetro da cena: `raios` passa a 0,25/km até 1,2 km (~15 km de visibilidade)
+    e `solposto` a 0,15/km até 600 m.
+- _A mancha verde-ciano junto ao sol no pôr do sol_: no fundo, a emenda tirava da vista do céu o trecho perto pela tabela
+  da perspectiva aérea (colunas de ~2° interpoladas) e somava os froxels; a vista do céu e a tabela são duas discretizações
+  do mesmo trecho, e ao pôr do sol esse trecho é 85 % do azul do céu no horizonte (0,0017 de 0,0020, referência f64) — a
+  diferença entre elas vira canal negativo. Não é arredondamento (a conta mostra a diferença das tabelas, não do meio-float):
+  os froxels passam a integrar também a luz do meio sem nenhuma sombra (`U`, ponto `scene_medium_open`, por coluna na
+  textura `Froxels.open`) e o fundo fica `vista do céu − déficit além de 32 km − U + S`, sem leitura grossa do trecho perto
+  (o déficit da sombra das nuvens só além do alcance: `Sky.aerialShadowFar`). Teste f64 com uma colina na frente do sol
+  (o sol a 0,5°, o ar dos primeiros 5 km na sombra dela): a forma nova a 0,23 % da integral exata, a antiga a 0,44 %, nenhum
+  canal negativo.
+- _O `interior-timing` bimodal_: a troca da camada vira as flags que compõem os pontos de cena só no despacho seguinte, e a
+  janela de medida caía nas trocas dos pipelines grandes (o quadro sem a camada de 1,7 a 3,5 ms). O caso espera o motor
+  pronto de novo antes de medir: 0,002–0,119 ms (mediana 0,010; a base dava 0,378) — as nuvens não custam nada com o meio
+  desligado pela GPU numa sala fechada.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,

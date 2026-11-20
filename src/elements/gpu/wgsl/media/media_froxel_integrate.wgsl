@@ -2,11 +2,12 @@
 // acumuladas — em cada fatia, a integral exata do meio homogêneo nela (Hillaire: (S − S·e^(−σΔ))/σ), Δ o comprimento
 // do raio na fatia — gravadas no texel da fatia (o caminho até o fim dela). A reprojeção do quadro seguinte lê a vista
 // e a vista-projeção anteriores da câmera (spec 037).
-// O meio contínuo (spec 041, R21: a atmosfera, `scene_medium_extinction`) soma à extinção dos volumes a dele, por canal
+// O meio contínuo (spec 041, R21: a atmosfera, `scene_medium_open`) soma à extinção dos volumes a dele, por canal
 // (o Rayleigh tira mais o azul), no meio da fatia: a luz espalhada é atenuada pelas duas; a transmitância gravada (a) é
-// só a dos volumes — a do meio contínuo, quem soma o resto dele (a perspectiva aérea do `Sky`) a aplica inteira.
-// Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_froxel_state, scene_medium_extinction,
-// froxel_history (o do quadro),
+// só a dos volumes — a do meio contínuo, quem soma o resto dele (a perspectiva aérea do `Sky`) a aplica inteira. Por
+// coluna, a luz do meio sem nenhuma sombra até o fim da grade (`froxel_open_out`): o que o fundo tira da vista do céu.
+// Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_froxel_state, scene_medium_open,
+// froxel_history (o do quadro), froxel_open_out,
 // froxel_scatter_out.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -26,13 +27,22 @@ fn froxel_integrate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     var scattered = vec3f(0.0);
     var through = vec3f(1.0);
     var transmittance = 1.0;
+    // A luz do meio contínuo sem nenhuma sombra, atenuada só por ele (R21 rodada 16): o que a vista do céu tem do trecho.
+    var open = vec3f(0.0);
+    var through_open = vec3f(1.0);
+    let ray = normalize(froxel_world(cam, froxel_view_point(ndc, 1.0, proj)) - cam.position.xyz);
     var z0 = froxel_slice_depth(0.0);
     for (var k = 0u; k < dims.z; k++) {
         let z1 = froxel_slice_depth(f32(k + 1u));
         let v = textureLoad(froxel_history, vec3u(cell, k), 0);
         let dt = (z1 - z0) * stretch;
-        let medium = scene_medium_extinction(froxel_world(cam, froxel_view_point(ndc, 0.5 * (z0 + z1), proj)));
-        let sigma = vec3f(v.a) + medium;
+        let medium = scene_medium_open(froxel_world(cam, froxel_view_point(ndc, 0.5 * (z0 + z1), proj)), ray);
+        let sigma = vec3f(v.a) + medium.extinction;
+        let xo = medium.extinction * dt;
+        let ao = exp(-xo);
+        open += through_open * medium.radiance * dt
+            * select((1.0 - ao) / max(xo, vec3f(1e-30)), 1.0 - xo * (0.5 - xo / 6.0), xo < vec3f(1e-3));
+        through_open *= ao;
         let x = sigma * dt;
         let a = exp(-x);
         // (1 − e^(−x))/x pela série com x pequeno: a atmosfera nas fatias de centímetros (x ~ 10⁻⁷) perde a precisão do
@@ -44,4 +54,5 @@ fn froxel_integrate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
         textureStore(froxel_scatter_out, vec3u(cell, k), vec4f(scattered, transmittance));
         z0 = z1;
     }
+    textureStore(froxel_open_out, cell, vec4f(open, 1.0));
 }

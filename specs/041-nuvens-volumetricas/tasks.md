@@ -314,7 +314,9 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
 - [ ] T074 [GPU] O `timing` alto das nuvens em 3,05–3,41 ms contra 3 ms (base 2,82): 0,1 ms da sombra das nuvens nos
       froxels e ~0,15 da marcha com os meios perto da câmera medidos; ~0,25 ms não atribuídos (R21, medidas). O
       `interior-timing` com repetições bimodais (mediana 0,03–0,37 ms).
-- [ ] T075 [GPU] `solposto` (rodada 15): a luz cai num quadro quando o sol entra atrás do cúmulo (632 → 633; na rodada 14,
+- [ ] T075 [GPU] (rodada 16: o salto 632→633 não se repete — maior salto 1,86; o disco através do cúmulo corrigido; a
+      emenda do fundo refeita; segue aberta a faixa ciano na borda da nuvem contra o clarão do sol e os feixes ainda suaves
+      contra as fotos) `solposto` (rodada 15): a luz cai num quadro quando o sol entra atrás do cúmulo (632 → 633; na rodada 14,
       ~20 quadros) e a mancha verde-ciano junto ao sol no horizonte aos 13 s; e os feixes ainda fracos contra as fotos de
       referência (R21, vídeos).
 - [ ] T076 [US5] O vídeo `tempestade` da rodada 15 (não gravado: a série de GPU parou por um Chrome em estado E quando

@@ -4,6 +4,7 @@ import {
     aerialPerspective,
     earthAtmosphere,
     multipleScattering,
+    skyRadiance,
     type SunVisibility,
     type Vec3,
 } from '../../../scene/reference/atmosphere';
@@ -157,5 +158,60 @@ describe('a atmosfera nos froxels (spec 041, R21)', () => {
         expect(twice).toBeGreaterThan(
             1.5 * luminance(nearFarAerial(fx, table, reach, 32).scattered),
         );
+    });
+
+    it('o fundo ao pôr do sol com uma colina na frente do sol: a vista do céu menos o trecho perto sem sombra dos froxels', () => {
+        // O sol a 0,5°, o pixel a 1° de altura e 1° de azimute dele, o ar dos primeiros 5 km na sombra de uma colina
+        // (rodada 16): o fundo é a vista do céu − U (o trecho perto sem sombra, integrado pelos froxels) + S (o mesmo
+        // trecho com a sombra). A emenda antiga tirava o trecho perto pela tabela (a coluna interpolada entre as de 0° e
+        // 2°, o passo da tabela na tela) — outra discretização do que a vista do céu tem dele.
+        const dirOf = (el: number, az: number): Vec3 => {
+            const e = (el * Math.PI) / 180;
+            const a = (az * Math.PI) / 180;
+            return [Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)];
+        };
+        const low = {
+            ...earthAtmosphere(8),
+            haze: { scattering: 0.045, extinction: 0.05, scale: 0.5 },
+        };
+        const msLow = new Map<string, Vec3>();
+        const msOf = (r: number, mu: number): Vec3 => {
+            const key = `${Math.round(r * 4)}:${Math.round(mu * 100)}`;
+            let v = msLow.get(key);
+            if (v === undefined) {
+                v = multipleScattering(
+                    low,
+                    Math.round(r * 4) / 4,
+                    Math.round(mu * 100) / 100,
+                    16,
+                    12,
+                );
+                msLow.set(key, v);
+            }
+            return v;
+        };
+        const sunLow = dirOf(0.5, 0);
+        const v = dirOf(1, 1);
+        const alt = 0.002;
+        const shade: SunVisibility = (x) => (Math.hypot(x[0], x[2]) < 5 ? 0 : 1);
+        const sky = skyRadiance(low, alt, v, sunLow, 192, msOf);
+        const lit = froxelAtmosphereColumn(low, alt, v, sunLow, msOf, () => 1, { samples: 8 });
+        const shaded = froxelAtmosphereColumn(low, alt, v, sunLow, msOf, shade, { samples: 8 });
+        const U = froxelLookup(lit, 32);
+        const Sn = froxelLookup(shaded, 32);
+        const background: Vec3 = [0, 1, 2].map((c) => sky[c]! - U[c]! + Sn[c]!) as unknown as Vec3;
+        const exact = aerialPerspective(low, alt, v, sunLow, 1e4, 8000, msOf, shade).scattered;
+        const n0 = aerialPerspective(low, alt, dirOf(1, 0), sunLow, 32, 400, msOf).scattered;
+        const n2 = aerialPerspective(low, alt, dirOf(1, 2), sunLow, 32, 400, msOf).scattered;
+        const old: Vec3 = [0, 1, 2].map(
+            (c) => sky[c]! - 0.5 * (n0[c]! + n2[c]!) + Sn[c]!,
+        ) as unknown as Vec3;
+        const err = (x: Vec3): number =>
+            Math.max(...[0, 1, 2].map((c) => Math.abs(x[c]! - exact[c]!) / exact[c]!));
+        console.log(
+            `fundo com colina: novo ${background.map((x) => x.toFixed(5)).join('/')}, antigo ${old.map((x) => x.toFixed(5)).join('/')}, exato ${exact.map((x) => x.toFixed(5)).join('/')}; erro novo ${(err(background) * 100).toFixed(2)} %, antigo ${(err(old) * 100).toFixed(2)} %`,
+        );
+        for (let c = 0; c < 3; c++) expect(background[c]!).toBeGreaterThan(0);
+        expect(err(background)).toBeLessThan(0.02);
     });
 });

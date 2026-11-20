@@ -201,6 +201,19 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
                 count: 4,
                 upload: 'never',
             },
+            // Por coluna, a luz que o meio contínuo espalha até o fim da grade sem nenhuma sombra (R21 rodada 16): o que o
+            // fundo tira da vista do céu, na resolução da grade.
+            {
+                id: 'open',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    width: this.rawData.grid[0],
+                    height: this.rawData.grid[1],
+                    access: 'write-only',
+                },
+            },
             // A luz ambiente (o hemisfério, a luz rebatida) numa grade mais grossa, lida na injeção.
             volume('ambient', froxelAmbientGrid(this.rawData.grid)),
             {

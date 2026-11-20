@@ -45,6 +45,7 @@ import {
     type CloudScene,
 } from './support/cloudScenes';
 import { readHdrTexture } from './support/imageMeasures';
+import { luminanceLinear } from './support/images';
 import {
     BoxGeometry,
     FogVolume,
@@ -883,7 +884,7 @@ async function passTimes(
     app: Application,
     frames: number,
     pattern = /Cloud|Sky|Froxel/,
-): Promise<{ total: number; span: number; passes: Record<string, number> }> {
+): Promise<{ total: number; span: number; passes: Record<string, number>; spread: string }> {
     const samples: Record<string, number>[] = [];
     const spans: number[] = [];
     const off = app.events.on('gpuFrameTimed', (e) => {
@@ -898,7 +899,9 @@ async function passTimes(
     const passes: Record<string, number> = {};
     for (const k of keys) if (pattern.test(k)) passes[k] = median(samples.map((x) => x[k] ?? 0));
     const total = Object.values(passes).reduce((a, b) => a + b, 0);
-    return { total, span: median(spans), passes };
+    const sorted = [...spans].sort((a, b) => a - b);
+    const spread = `${sorted[0]?.toFixed(2)}/${median(spans).toFixed(2)}/${sorted[sorted.length - 1]?.toFixed(2)} (${spans.length})`;
+    return { total, span: median(spans), passes, spread };
 }
 
 /** O tempo do passe dos froxels entre os passes medidos. */
@@ -947,6 +950,8 @@ async function cloudCost(
     deltas: string;
     /** O texel do alcance (a distância, a decisão do seguinte e a deste) em cada fase. */
     reach: string;
+    /** Os intervalos de quadro de cada fase (mínimo/mediana/máximo e quantos). */
+    spreads: string;
     quality: unknown;
 }> {
     const s = await cloudScene({
@@ -1009,6 +1014,7 @@ async function cloudCost(
     const allWith: Record<string, number>[] = [];
     const allWithout: Record<string, number>[] = [];
     const reach: string[] = [];
+    const spreads: string[] = [];
     for (let r = 0; r < TIMING_REPS; r++) {
         const order = r % 2 === 0 ? [true, false] : [false, true];
         const span: Record<string, number> = {};
@@ -1019,8 +1025,15 @@ async function cloudCost(
                 layer = undefined;
             }
             await busyFrames(s.app, 60);
+            // De novo pronto antes de medir (spec 041, R21 rodada 16): a troca da camada vira as flags que compõem os pontos
+            // de cena (a sombra no ar, o céu coberto) só no despacho seguinte, e as trocas dos pipelines grandes (o desenho, a
+            // injeção dos froxels) começam depois do primeiro `whenReady` — medido no meio delas, o quadro sem a camada
+            // saía de 1,7 a 3,5 ms no interior (repetições bimodais).
+            await s.app.whenReady({ timeoutMs: 60_000 });
+            await busyFrames(s.app, 30);
             const t = await passTimes(s.app, 90);
             span[has ? 'with' : 'without'] = t.span;
+            spreads.push(`${has ? 'com' : 'sem'} ${t.spread}`);
             // A decisão da GPU sobre a atmosfera nos froxels (spec 041, R21): o texel do alcance do último quadro.
             const froxels = s.app.world.findResource(Froxels.schema, Froxels);
             const channel =
@@ -1061,6 +1074,7 @@ async function cloudCost(
         froxelsWithout: median(froxelsWithout),
         deltas,
         reach: reach.join(', '),
+        spreads: spreads.join(', '),
     };
 }
 
@@ -1070,7 +1084,7 @@ async function caseInteriorTiming(): Promise<void> {
     const c = await cloudCost('high', true);
     const d = median(c.diffs);
     log(
-        `interior-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; alcance ${c.reach}; maiores diferenças por passe ${c.deltas}`,
+        `interior-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; quadros com/sem ${c.withSpan.map((w, k) => `${w.toFixed(2)}/${(w - c.diffs[k]!).toFixed(2)}`).join(' ')}; janelas ${c.spreads}; alcance ${c.reach}; maiores diferenças por passe ${c.deltas}`,
     );
     log(
         `interior-timing: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe: ${Object.entries(
@@ -1159,7 +1173,7 @@ async function caseTiming(): Promise<void> {
         const d = median(c.diffs);
         log(`timing ${profile}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${profile}: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; maiores diferenças por passe ${c.deltas}`,
+            `timing ${profile}: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
         );
         log(
             `timing ${profile}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
@@ -1191,6 +1205,74 @@ async function cloudView(
     const t = s.app.resources.textureOf(s.layer!, 'view');
     if (t === undefined) throw new Error('view não alocado');
     return readTexture(s.app, t, 'rgba16float');
+}
+
+/**
+ * O ar sob as nuvens nos froxels (spec 041, R21 rodada 16): uma cena como a `raios` do claflow-web (o sol a 38°, a câmera
+ * a 2 m olhando 10° abaixo dele, cúmulos de 1,3 a 2,9 km, turbidez 2 e névoa seca de 0,25/km até 1,2 km) com e sem nuvens
+ * (cobertura 0): a luz que os froxels integram até o fim deles (a última fatia) em linhas de colunas da grade, a razão
+ * com/sem nuvens (a sombra delas no ar) e, numa coluna, o ganho fatia a fatia. A referência f64 dá o ar à sombra com
+ * ~3 % da luz do ar ao sol nesse caminho: as colunas sob a nuvem têm de cair perto disso.
+ */
+async function caseBeamAir(): Promise<void> {
+    const v = (28 * Math.PI) / 180;
+    const view = {
+        width: 640,
+        height: 360,
+        sunElevation: 38,
+        eye: [0, 2, 0] as const,
+        target: [1000 * Math.cos(v), 2 + 1000 * Math.sin(v), 0] as const,
+        fov: Math.PI / 3,
+    };
+    const grids: Float32Array[] = [];
+    let dims: number[] = [];
+    for (const coverage of [0.5, 0]) {
+        const s = await cloudScene({
+            ...view,
+            clouds: { coverage, type: 0.45, wind: [0, 0], base: 1300, top: 2900 },
+        });
+        s.sky.turbidity = 2;
+        s.sky.haze = { extinction: 0.25, scaleHeight: 1.2 };
+        await settleFrames(s.app, 150);
+        const froxels = s.app.world.findResource(Froxels.schema, Froxels)!;
+        const t = s.app.resources.textureOf(froxels, 'scatter');
+        if (t === undefined) throw new Error('beam-air: froxels não alocados');
+        const img = await readTexture(s.app, t, 'rgba16float');
+        dims = [img.width, img.height, img.depth];
+        grids.push(img.data);
+        log(
+            `beam-air: cobertura ${coverage} — névoa seca ${JSON.stringify(s.sky.haze)}, turbidez ${s.sky.turbidity.toFixed(2)}, grade ${dims.join('×')}, fatias até ${froxels.data.params[0]!.depth![1]!.toFixed(0)} m`,
+        );
+        finish(s);
+    }
+    const [W, H, Z] = dims as [number, number, number];
+    const at = (g: Float32Array, x: number, y: number, z: number): number => {
+        const o = ((z * H + y) * W + x) * 4;
+        return luminanceLinear([g[o]!, g[o + 1]!, g[o + 2]!]);
+    };
+    const [cl, clear] = grids as [Float32Array, Float32Array];
+    for (const y of [15, 30, 45, 60, 75]) {
+        const r: number[] = [];
+        for (let x = 0; x < W; x++)
+            r.push(at(cl, x, y, Z - 1) / Math.max(at(clear, x, y, Z - 1), 1e-9));
+        const sorted = [...r].sort((a, b) => a - b);
+        const q = (f: number): number => sorted[Math.floor(f * (sorted.length - 1))]!;
+        let edges = 0;
+        for (let x = 1; x < W; x++) if (Math.abs(r[x]! - r[x - 1]!) > 0.1) edges++;
+        log(
+            `beam-air: linha ${y}/${H} — luz do ar com/sem nuvens: mín ${q(0).toFixed(3)}, p10 ${q(0.1).toFixed(3)}, mediana ${q(0.5).toFixed(3)}, p90 ${q(0.9).toFixed(3)}, máx ${q(1).toFixed(3)}; bordas (salto > 0,1 entre colunas) ${edges}; sem nuvens ${at(clear, W >> 1, y, Z - 1).toFixed(2)} nits`,
+        );
+    }
+    // A coluna do meio, fatia a fatia: o ganho com e sem nuvens (de 10 em 10 fatias).
+    const x = W >> 1;
+    const y = 45;
+    const gains: string[] = [];
+    for (let z = 10; z < Z; z += 10) {
+        const g1 = at(cl, x, y, z) - at(cl, x, y, z - 10);
+        const g0 = at(clear, x, y, z) - at(clear, x, y, z - 10);
+        gains.push(`${z}: ${g1.toFixed(3)}/${g0.toFixed(3)}`);
+    }
+    log(`beam-air: coluna ${x},${y} — ganho a cada 10 fatias com/sem nuvens ${gains.join(' ')}`);
 }
 
 async function caseClearSky(): Promise<void> {
@@ -2735,6 +2817,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'fog-in-front': caseFogInFront,
     'water-reflection': caseWaterReflection,
     'clear-sky': caseClearSky,
+    'beam-air': caseBeamAir,
     'overcast-stratus': caseOvercastStratus,
     'coverage-mask': caseCoverageMask,
     wind: caseWind,

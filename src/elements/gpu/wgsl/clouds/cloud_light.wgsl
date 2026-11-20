@@ -170,7 +170,7 @@ fn cloud_ray_occupancy(o: vec3f, d: vec3f, t0: f32, t1: f32) -> u32 {
  * Marcha da camada pelo raio `o + t·d` até `t_max` (a superfície opaca): `steps` passos no máximo (teto
  * `CLOUD_MAX_STEPS`), passo que cresce com a distância e cobre a parte ocupada do raio (`cloud_ray_occupancy`), grosso no
  * vazio (só a forma) e fino com densidade, os trechos sem nuvem pulados, deslocamento inicial `jitter` ∈ [0, 1) de um
- * passo; saída antecipada com transmitância < 0,01. `pixel` é o ângulo (rad) do pixel da marcha: a pegada da amostra
+ * passo; saída antecipada com transmitância < 0,01 (o resto da nuvem conta como opaco: T = 0). `pixel` é o ângulo (rad) do pixel da marcha: a pegada da amostra
  * da vista (`cloud_footprint`); 0 sem ela.
  */
 fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32, jitter: f32, pixel: f32) -> CloudSample {
@@ -255,7 +255,13 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             depth_sum += alpha * (t + 0.5 * ds);
             weight += alpha;
             result.transmittance *= step_t;
-            if (result.transmittance < CLOUD_EARLY_EXIT) { break; }
+            // Saída antecipada (spec 041, R21 rodada 16): o resto da nuvem conta como opaco. Devolver o T da saída (até
+            // 0,01) deixava passar 1 % do fundo — o disco do sol (60 000 no alvo, ~10⁹ nits de verdade) aparecia como
+            // um ponto branco através de um cúmulo de τ ~ 20–50 (T ~ 10⁻⁹ ou menos).
+            if (result.transmittance < CLOUD_EARLY_EXIT) {
+                result.transmittance = 0.0;
+                break;
+            }
         } else {
             empty++;
             if (empty >= CLOUD_EMPTY_TO_COARSE) { fine = false; }

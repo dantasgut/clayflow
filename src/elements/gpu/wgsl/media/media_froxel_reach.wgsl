@@ -5,7 +5,7 @@
 // dos volumes ou com a profundidade ótica do ar no caminho mais longo (a extinção do meio na câmera × a distância) acima
 // de `FROXEL_REACH_TAU` — abaixo dela a luz dele fica abaixo de 0,1 % da do caminho, e os froxels não o refazem (a tabela
 // do `Sky` soma tudo). O texel do canal: (alcance, decisão do seguinte, decisão deste, 0).
-// Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_froxel_state, scene_medium_extinction,
+// Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_froxel_state, scene_medium_open,
 // froxel_reach_depth_at, froxel_reach_max, froxel_reach_out.
 
 const FROXEL_REACH_TAU: f32 = 1e-3;
@@ -58,7 +58,7 @@ fn froxel_reach_final_main() {
             d = max(d, distance(w.xyz / w.w, cam.position.xyz));
         }
     }
-    let e = scene_medium_extinction(cam.position.xyz);
+    let e = scene_medium_open(cam.position.xyz, vec3f(0.0, 1.0, 0.0)).extinction;
     let next = froxels.counts.x > 0u || max(e.r, max(e.g, e.b)) * d > FROXEL_REACH_TAU;
     let now = froxel_medium_state().x;
     textureStore(froxel_reach_out, vec2u(0u), vec4f(d, select(0.0, 1.0, next), select(0.0, 1.0, now), 0.0));

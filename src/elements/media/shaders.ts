@@ -12,7 +12,7 @@ import { rayVolumeScatterTypes } from '../raytrace/points';
 import {
     sceneAmbientReady,
     sceneFogType,
-    sceneMediumExtinctionReady,
+    sceneMediumOpenReady,
     sceneMediumReady,
     sceneNearFogType,
 } from '../scene/points/media';
@@ -176,6 +176,19 @@ export const mediaResources = Object.freeze({
     /** A decisão do quadro: a escrita (no começo da grade) e a leitura. */
     stateOut,
     state: stateTexture,
+    /** A luz do meio contínuo sem sombra por coluna (R21 rodada 16): a escrita (na integração) e a leitura. */
+    openOut: wgslResource({
+        name: 'froxel_open_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    open: wgslResource({
+        name: 'froxel_open',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: { consumer: 'Froxels.open' },
+    }),
 });
 
 const R = mediaResources;
@@ -287,24 +300,27 @@ export const mediaNearFog = wgslModule({
     name: 'media_near_fog',
     requires: [mediaFroxelFog, sceneNearFogType],
     source: `fn scene_near_fog(p: vec3f) -> SceneNearFog {
-    return SceneNearFog(froxel_fog(p), 0.0);
+    return SceneNearFog(froxel_fog(p), 0.0, vec3f(0.0));
 }`,
 });
 
 /**
  * Os meios perto da câmera com o meio contínuo na grade (spec 041, R21): a leitura e o alcance dela ao longo do raio da
- * câmera para o ponto — a última fatia é o plano da profundidade da vista `froxels.depth.y`.
+ * câmera para o ponto — a última fatia é o plano da profundidade da vista `froxels.depth.y` — e a luz do meio sem sombra
+ * até o fim da grade na coluna do ponto (`open`, o que o fundo tira da vista do céu).
  */
 export const mediaNearFogMedium = wgslModule({
     name: 'media_near_fog_medium',
-    requires: [mediaFroxelFog, sceneNearFogType],
+    requires: [mediaFroxelFog, sceneNearFogType, R.open],
     source: `fn scene_near_fog(p: vec3f) -> SceneNearFog {
     let fog = froxel_fog(p);
-    if (!froxel_in_use()) { return SceneNearFog(fog, 0.0); }
+    if (!froxel_in_use()) { return SceneNearFog(fog, 0.0, vec3f(0.0)); }
     let cam = cameras[froxels.grid.w];
     let z = -(cam.view * vec4f(p, 1.0)).z;
-    if (z <= 0.0) { return SceneNearFog(fog, 0.0); }
-    return SceneNearFog(fog, froxels.depth.y * distance(p, cam.position.xyz) / z);
+    if (z <= 0.0) { return SceneNearFog(fog, 0.0, vec3f(0.0)); }
+    let f = froxel_locate(cam.view, cam.unjitteredViewProjection, p);
+    let open = textureSampleLevel(froxel_open, froxel_sampler, clamp(f.xy, vec2f(0.0), vec2f(1.0)), 0.0).rgb;
+    return SceneNearFog(fog, froxels.depth.y * distance(p, cam.position.xyz) / z, open);
 }`,
 });
 
@@ -434,9 +450,10 @@ export const froxelIntegrate = wgslModule({
         WORKGROUP_SIZE.module,
         mediaCommon,
         froxelState,
-        sceneMediumExtinctionReady,
+        sceneMediumOpenReady,
         R.historyCurrent,
         R.scatterOut,
+        R.openOut,
     ],
 });
 
@@ -508,7 +525,7 @@ const reachKernels = [false, true].map((multisampled) =>
             WORKGROUP_SIZE.module,
             mediaCommon,
             froxelState,
-            sceneMediumExtinctionReady,
+            sceneMediumOpenReady,
             reachDepthRead(multisampled),
             reachMax,
             reachPrevious,

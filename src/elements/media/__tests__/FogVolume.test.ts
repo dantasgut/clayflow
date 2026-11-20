@@ -100,6 +100,7 @@ describe('FogVolume (spec 033, T055)', () => {
             'state',
             'dispatch',
             'reachMax',
+            'open',
             'ambient',
             'sampler',
         ]);

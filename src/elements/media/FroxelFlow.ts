@@ -97,7 +97,16 @@ const RECORD_VEC4 = 8;
 /** Passo (razão) em que a distância da última fatia é arredondada: mudanças menores não invalidam o histórico. */
 const FAR_STEP = 1.25;
 /** Os volumes da grade, a escrever antes da injeção. */
-const GRIDS = ['scatter', 'current', 'history', 'ambient', 'reach', 'reachMax', 'state'] as const;
+const GRIDS = [
+    'scatter',
+    'current',
+    'history',
+    'ambient',
+    'reach',
+    'reachMax',
+    'state',
+    'open',
+] as const;
 
 /** Cópia de uma grade de densidade para o buffer dos meios (no início do quadro). */
 interface GridCopy {
@@ -266,7 +275,7 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
             c.prepare(compute(resolveId(format), froxelResolveFor(format), 'froxel_resolve_main'));
         }
         this.resources.ensurePool(Light.schema);
-        const views = (['scatter', 'ambient', 'current', 'state'] as const).map((id) =>
+        const views = (['scatter', 'ambient', 'current', 'state', 'open'] as const).map((id) =>
             c.bound.slots.froxels.textureViewOf(id),
         );
         if (views.some((v) => v === undefined)) {
@@ -281,6 +290,7 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
                     [R.ambientOut, views[1]!],
                     [R.currentOut, views[2]!],
                     [R.stateOut, views[3]!],
+                    [R.openOut, views[4]!],
                 ]),
             );
             if (!this.prepared) {

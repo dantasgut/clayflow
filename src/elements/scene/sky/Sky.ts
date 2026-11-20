@@ -217,6 +217,18 @@ export class Sky extends Entity<SkyData> implements Resource {
             ),
             // O déficit da sombra no fundo (spec 041, raios crepusculares): por coluna da tabela, a luz simples que o ar
             // sombreado deixa de espalhar até o fim da atmosfera; quem desenha o fundo o tira do céu.
+            // Só além do alcance da tabela (R21 rodada 16): o fundo com os froxels integrando o trecho perto.
+            {
+                id: 'aerialShadowFar',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    width: SKY_AERIAL_SIZE[0],
+                    height: SKY_AERIAL_SIZE[1],
+                    access: 'write-only',
+                },
+            },
             {
                 id: 'aerialShadow',
                 role: 'storage-texture',

@@ -11,6 +11,7 @@ import {
     sky,
     skyAerialLookup,
     skyAerialShadowLut,
+    skyAerialShadowFarLut,
     skyAmbientTexture,
     skyAtmosphere,
     skyLookup,
@@ -32,7 +33,7 @@ import {
     sceneAmbientPoint,
     sceneFogPoint,
     sceneFogType,
-    sceneMediumExtinctionPoint,
+    sceneMediumOpenPoint,
     sceneMediumPoint,
     sceneMediumType,
     sceneNearFogReady,
@@ -75,6 +76,32 @@ const skyBackgroundShadowed = wgslModule({
     let outside = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
     let fade = 1.0 - smoothstep(0.0, 0.5, outside);
     let deficit = textureSampleLevel(sky_aerial_shadow_lut, sky_sampler, clamp(uv, vec2f(0.0), vec2f(1.0)), 0.0).rgb;
+    return max(l - deficit * sky.sunIlluminance.rgb * fade, vec3f(0.0));
+}`,
+});
+
+/**
+ * O fundo com a sombra no ar e os froxels integrando o trecho perto (spec 041, R21 rodada 16): só o déficit além do
+ * alcance da tabela — o de perto já está nos froxels (com as sombras finas).
+ */
+const skyBackgroundShadowedFar = wgslModule({
+    name: 'sky_scene_background_shadowed_far',
+    requires: [
+        sky,
+        skyParamsResource,
+        skyAerialShadowFarLut,
+        skySampler,
+        camerasResource,
+        viewSpace,
+    ],
+    source: `fn scene_background(dir: vec3f) -> vec3f {
+    let l = sky_background(dir);
+    let c = cameras[sky.cameraSlot].unjitteredViewProjection * vec4f(dir, 0.0);
+    if (c.w <= 1e-6) { return l; }
+    let uv = ndc_to_uv(c.xy / c.w);
+    let outside = max(max(-uv.x, uv.x - 1.0), max(-uv.y, uv.y - 1.0));
+    let fade = 1.0 - smoothstep(0.0, 0.5, outside);
+    let deficit = textureSampleLevel(sky_aerial_shadow_far_lut, sky_sampler, clamp(uv, vec2f(0.0), vec2f(1.0)), 0.0).rgb;
     return max(l - deficit * sky.sunIlluminance.rgb * fade, vec3f(0.0));
 }`,
 });
@@ -192,14 +219,24 @@ const skyMedium = wgslModule({
 }`,
 });
 
-/** A extinção da atmosfera no ponto do ar (1/m), até o alcance da tabela (spec 041, R21). */
-const skyMediumExtinction = wgslModule({
-    name: 'sky_scene_medium_extinction',
-    requires: [skyMediumFrame, skyAtmosphere],
-    source: `fn scene_medium_extinction(p: vec3f) -> vec3f {
+/**
+ * A atmosfera no ponto do ar sem nenhuma sombra (spec 041, R21 rodada 16: `scene_medium_open`): a extinção e a luz
+ * simples e múltipla como a vista do céu as integra, até o alcance da tabela — os froxels somam com ela o trecho perto
+ * que o fundo tira da vista do céu, na resolução deles.
+ */
+const skyMediumOpen = wgslModule({
+    name: 'sky_scene_medium_open',
+    requires: [sceneMediumType, skyMediumFrame, skyAtmosphere, skyLookup, skyParamsResource],
+    source: `fn scene_medium_open(p: vec3f, view: vec3f) -> SceneMedium {
     let f = sky_medium_frame(p);
-    if (f.w == 0.0) { return vec3f(0.0); }
-    return sky_medium(length(f.xyz) - sky_bottom()).extinction * 0.001;
+    if (f.w == 0.0) { return SceneMedium(vec3f(0.0), vec3f(0.0)); }
+    let rx = length(f.xyz);
+    let m = sky_medium(rx - sky_bottom());
+    let mu_s = dot(f.xyz, sky.sunDirection.xyz) / rx;
+    let c = dot(view, sky.sunDirection.xyz);
+    let free = (m.rayleigh * sky_rayleigh_phase(c) + vec3f(m.mie * sky_mie_phase(c))) * sky_transmittance(rx, mu_s);
+    let multi = m.scattering * sky_multiscatter(rx, mu_s);
+    return SceneMedium(m.extinction * 0.001, (free + multi) * sky.sunIlluminance.rgb * 0.001);
 }`,
 });
 
@@ -233,15 +270,17 @@ const skyFogFar = wgslModule({
     let r0 = sky_bottom() + max(sky.radii.w + cam.position.y * 0.001, 0.001);
     // O ar acaba no chão do planeta (como na leitura de sempre).
     let end = sky_segment(r0, v.y / d) * 1000.0;
-    let reach = min(min(scene_near_fog(p).reach, SKY_AERIAL_RANGE * 1000.0), end);
+    let near = scene_near_fog(p);
+    let reach = min(min(near.reach, SKY_AERIAL_RANGE * 1000.0), end);
     if (d >= 0.5 * SCENE_FOG_BACKGROUND) {
-        let near = sky_aerial(uv, v / d, reach);
-        return SceneFog(-near.scattered * sky.sunIlluminance.rgb, vec3f(1.0));
+        // O fundo: a vista do céu tem o trecho perto sem sombra; sai o que os froxels integram dele sem sombra, na
+        // resolução deles (rodada 16: a tabela grossa no lugar deixava o azul negativo perto do sol no pôr do sol).
+        return SceneFog(-near.open, vec3f(1.0));
     }
     let to = min(d, end);
     let a = sky_aerial(uv, v / d, to);
-    let near = sky_aerial(uv, v / d, min(reach, to));
-    return SceneFog(max(a.scattered - near.scattered, vec3f(0.0)) * sky.sunIlluminance.rgb, a.transmittance);
+    let start = sky_aerial(uv, v / d, min(reach, to));
+    return SceneFog(max(a.scattered - start.scattered, vec3f(0.0)) * sky.sunIlluminance.rgb, a.transmittance);
 }`,
 });
 
@@ -299,10 +338,10 @@ export function skyContributions(
             build: () => (aerial() ? skyMedium : undefined),
         },
         {
-            point: sceneMediumExtinctionPoint,
+            point: sceneMediumOpenPoint,
             order: 10,
             pools: [],
-            build: () => (aerial() ? skyMediumExtinction : undefined),
+            build: () => (aerial() ? skyMediumOpen : undefined),
         },
         {
             point: sceneDirectLightingPoint,
@@ -322,7 +361,12 @@ export function skyContributions(
             order: 0,
             pools: [],
             // O déficit da sombra no fundo só com algo que tapa o sol no ar (sem isso ele é zero).
-            build: () => (aerial() && shadowed() ? skyBackgroundShadowed : skyBackground),
+            build: () =>
+                aerial() && shadowed()
+                    ? near()
+                        ? skyBackgroundShadowedFar
+                        : skyBackgroundShadowed
+                    : skyBackground,
         },
         {
             point: sceneEnvironmentPoint,

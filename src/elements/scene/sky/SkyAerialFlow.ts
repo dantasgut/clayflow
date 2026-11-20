@@ -39,7 +39,7 @@ const AERIAL_CLEAR: PipelineDescriptor = {
 };
 
 /** Ids das tabelas escritas, na ordem das saídas. */
-const TABLES = ['aerial', 'aerialTransmittance', 'aerialShadow'] as const;
+const TABLES = ['aerial', 'aerialTransmittance', 'aerialShadow', 'aerialShadowFar'] as const;
 
 /**
  * SkyAerialFlow — a perspectiva aérea da câmera ativa (spec 041, R10; fase `shadow`, depois da luz das nuvens e antes do
@@ -129,6 +129,7 @@ export class SkyAerialFlow extends Flow<SkyAerialSlots, 'idle'> {
                     [skyOutputs.aerial, views[0]!],
                     [skyOutputs.aerialTransmittance, views[1]!],
                     [skyOutputs.aerialShadow, views[2]!],
+                    [skyOutputs.aerialShadowFar, views[3]!],
                 ]),
             );
             this.bound = views;
