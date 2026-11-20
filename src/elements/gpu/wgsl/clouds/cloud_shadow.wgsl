@@ -152,12 +152,27 @@ fn cloud_shadow_segment_length(x: vec2f) -> f32 {
 }
 
 /**
- * O registro da página física `slot` vale para a página que a janela do quadro põe nela: carimbada na época da série, a
- * mesma página global, a mesma assinatura do conteúdo e a mesma célula do pivô.
+ * Os mapas do quadro como a escolha os deixou no registro de estado (`CLOUD_SHADOW_STATE_SLOT`; o desenho e as provas
+ * correm depois dela no quadro).
  */
-fn cloud_shadow_meta_current(slot: u32) -> bool {
-    let g = cloud_shadow_slot_page(slot);
+fn cloud_shadow_maps() -> CloudShadowMaps {
+    let rec = &cloud_shadow_pages_meta[CLOUD_SHADOW_STATE_SLOT];
+    return CloudShadowMaps(
+        min(atomicLoad(&(*rec).page_x), 2u),
+        min(atomicLoad(&(*rec).page_y), 2u),
+        bitcast<f32>(atomicLoad(&(*rec).time)),
+    );
+}
+
+/**
+ * O registro da página física `slot` vale para a página que a janela do degrau `m` põe nela: carimbada na época da série,
+ * desenhada no mesmo degrau, a mesma página global, a mesma assinatura do conteúdo e a mesma célula do pivô.
+ */
+fn cloud_shadow_meta_current(slot: u32, m: u32) -> bool {
+    if (m == CLOUD_SHADOW_STEP_NONE) { return false; }
+    let g = cloud_shadow_slot_page(slot, m);
     return cloud_shadow_stamps[slot] == cloud_shadow_clock.x
+        && atomicLoad(&cloud_shadow_pages_meta[slot].step) == m
         && bitcast<i32>(atomicLoad(&cloud_shadow_pages_meta[slot].page_x)) == g.x
         && bitcast<i32>(atomicLoad(&cloud_shadow_pages_meta[slot].page_y)) == g.y
         && atomicLoad(&cloud_shadow_pages_meta[slot].signature) == clouds.sunPages.y
@@ -169,18 +184,18 @@ var<workgroup> cloud_shadow_wg_tau: array<f32, 1156>;
 var<workgroup> cloud_shadow_wg_max: array<atomic<u32>, 4>;
 var<workgroup> cloud_shadow_wg_chosen: u32;
 
-/** O desenho da página física `slot` (as 256 invocações do grupo). */
-fn cloud_shadow_draw(slot: u32, lid: u32) {
+/** O desenho da página física `slot` do degrau `m` (as 256 invocações do grupo). */
+fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
     let k = cloud_shadow_slot_level(slot);
-    let g = cloud_shadow_slot_page(slot);
+    let g = cloud_shadow_slot_page(slot, m);
     let origin = cloud_shadow_slot_origin(slot);
-    let texel = cloud_shadow_texel_size(k);
+    let texel = cloud_shadow_step_texel(k, m);
     for (var r = 0u; r < 2u; r++) {
         let t = lid + r * CLOUD_SHADOW_PAGE_GROUP;
         if (t >= CLOUD_SHADOW_PAGE_TEXELS) { break; }
         let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
         let col = cloud_shadow_column_knots(
-            cloud_shadow_texel_plane(k, g, tt),
+            cloud_shadow_texel_plane(k, g, tt, m),
             cloud_shadow_line(k, g, tt),
             clouds.sunDir.xyz,
             mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
@@ -242,6 +257,7 @@ fn cloud_shadow_draw(slot: u32, lid: u32) {
     atomicStore(&(*rec).measured, 0u);
     atomicStore(&(*rec).pivot_x, clouds.sunPages.z);
     atomicStore(&(*rec).pivot_y, clouds.sunPages.w);
+    atomicStore(&(*rec).step, m);
     // O carimbo da série do atlas: a página escrita na época atual.
     cloud_shadow_stamps[slot] = cloud_shadow_clock.x;
 }
@@ -314,11 +330,11 @@ var<workgroup> cloud_shadow_wg_probe_go: u32;
  * provas do esquema em `cloudShadowPages.test.ts`. A coluna numa invocação só (um laço de até 196 amostras) com 4 das
  * 256 ativas custava, com o sol a 4°, mais que o resto do passe.
  */
-fn cloud_shadow_probes(slot: u32, lid: u32) {
+fn cloud_shadow_probes(slot: u32, lid: u32, m: u32) {
     let j = lid / CLOUD_SHADOW_PROBE_LANES;
     let sub = lid % CLOUD_SHADOW_PROBE_LANES;
     let k = cloud_shadow_slot_level(slot);
-    let g = cloud_shadow_slot_page(slot);
+    let g = cloud_shadow_slot_page(slot, m);
     let rec = &cloud_shadow_pages_meta[slot];
     let t = cloud_shadow_probe_texel(slot, clouds.march.z, min(j, CLOUD_SHADOW_PROBES - 1u));
     let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
@@ -326,7 +342,7 @@ fn cloud_shadow_probes(slot: u32, lid: u32) {
     for (var e = 0u; e < 9u; e++) { part[e] = 0.0; }
     if (j < CLOUD_SHADOW_PROBES) {
         part = cloud_shadow_probe_part(
-            cloud_shadow_texel_plane(k, g, tt),
+            cloud_shadow_texel_plane(k, g, tt, m),
             cloud_shadow_line(k, g, tt),
             clouds.sunDir.xyz,
             mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
@@ -361,16 +377,23 @@ fn cloud_shadow_main(
     @builtin(local_invocation_index) lid: u32,
 ) {
     let slot = wid.x + wid.y * nwg.x;
+    // A marca do quadro e o degrau da página física nos mapas do quadro (uniformes no grupo: as barreiras do desenho).
     if (lid == 0u) {
         var chosen = 0u;
-        if (slot < CLOUD_SHADOW_SLOT_COUNT) { chosen = atomicLoad(&cloud_shadow_work[4u + slot]); }
-        cloud_shadow_wg_chosen = chosen;
+        var step = CLOUD_SHADOW_STEP_NONE;
+        if (slot < CLOUD_SHADOW_SLOT_COUNT) {
+            chosen = atomicLoad(&cloud_shadow_work[4u + slot]);
+            step = cloud_shadow_slot_step(slot, cloud_shadow_maps());
+        }
+        cloud_shadow_wg_chosen = min(chosen, 1u) | (step << 1u);
     }
     if (lid < 4u) { atomicStore(&cloud_shadow_wg_max[lid], 0u); }
-    let chosen = workgroupUniformLoad(&cloud_shadow_wg_chosen);
-    if (slot >= CLOUD_SHADOW_SLOT_COUNT) { return; }
+    let mark = workgroupUniformLoad(&cloud_shadow_wg_chosen);
+    let chosen = mark & 1u;
+    let m = mark >> 1u;
+    if (slot >= CLOUD_SHADOW_SLOT_COUNT || m == CLOUD_SHADOW_STEP_NONE) { return; }
     if (chosen != 0u) {
-        cloud_shadow_draw(slot, lid);
+        cloud_shadow_draw(slot, lid, m);
         return;
     }
     // As provas, em rodízio, das páginas que valem (a condição uniforme no grupo: as barreiras da soma).
@@ -378,11 +401,11 @@ fn cloud_shadow_main(
         cloud_shadow_wg_probe_go = select(
             0u,
             1u,
-            cloud_shadow_probes_now(slot, clouds.march.z) && cloud_shadow_meta_current(slot),
+            cloud_shadow_probes_now(slot, clouds.march.z) && cloud_shadow_meta_current(slot, m),
         );
     }
     if (workgroupUniformLoad(&cloud_shadow_wg_probe_go) == 0u) { return; }
-    cloud_shadow_probes(slot, lid);
+    cloud_shadow_probes(slot, lid, m);
 }
 
 // ---- a escolha do quadro ----
@@ -404,7 +427,7 @@ const CLOUD_SHADOW_KEY_MANDATORY: u32 = 15u;
  * mudando de comprimento) × o gradiente ao longo da coluna; e a evolução da forma (`clouds.sunMap.z`: o tempo em que ela
  * muda a transmitância de 1/e).
  */
-fn cloud_shadow_error(slot: u32, k: u32, g: vec2i) -> f32 {
+fn cloud_shadow_error(slot: u32, k: u32, g: vec2i, m: u32) -> f32 {
     let rec = &cloud_shadow_pages_meta[slot];
     let sun_r = vec3f(
         bitcast<f32>(atomicLoad(&(*rec).sun_x)),
@@ -420,7 +443,7 @@ fn cloud_shadow_error(slot: u32, k: u32, g: vec2i) -> f32 {
     let br = cloud_shadow_basis(sun_r);
     let dr = clouds.sunRight.xyz - br[0];
     let du = clouds.sunUp.xyz - br[1];
-    let t = cloud_shadow_texel_size(k);
+    let t = cloud_shadow_step_texel(k, m);
     let lo = vec2f(g * i32(CLOUD_SHADOW_PAGE)) * t;
     let hi = lo + f32(CLOUD_SHADOW_STRIDE) * t;
     var shift = 0.0;
@@ -441,9 +464,9 @@ fn cloud_shadow_error(slot: u32, k: u32, g: vec2i) -> f32 {
 }
 
 /** A coluna da página (o retângulo no plano e o trecho até a distância das pontas) toca o frustum da câmera? */
-fn cloud_shadow_visible(k: u32, g: vec2i, lever: f32) -> bool {
+fn cloud_shadow_visible(k: u32, g: vec2i, lever: f32, m: u32) -> bool {
     let vp = cameras[clouds.march.w].viewProjection;
-    let t = cloud_shadow_texel_size(k);
+    let t = cloud_shadow_step_texel(k, m);
     let lo = vec2f(g * i32(CLOUD_SHADOW_PAGE)) * t;
     let hi = lo + f32(CLOUD_SHADOW_STRIDE) * t;
     let reach = max(lever, clouds.shell.w);
@@ -460,46 +483,98 @@ fn cloud_shadow_visible(k: u32, g: vec2i, lever: f32) -> bool {
 }
 
 /**
- * A fila da página física `slot` (0: vale; 1…14: inválida, pela prioridade em oitavas; 15: tem de ser desenhada no
- * quadro). A prioridade (espelho de `shadowPagePriority`): a mudança (a maior entre a prevista e a medida pelas provas)
- * em tolerâncias × os quadros desde o desenho × √2 por nível mais fino × 4 vista pela câmera. A página mais velha que
- * `CLOUD_SHADOW_MAX_AGE` entra na fila 1.
+ * A fila da página física `slot` do degrau `m` nos mapas `maps` (0: vale ou fora dos mapas; 1…14: inválida, pela
+ * prioridade em oitavas; 15: tem de ser desenhada no quadro). A prioridade (espelho de `shadowPagePriority`): a mudança
+ * (a maior entre a prevista e a medida pelas provas) em tolerâncias × os quadros desde o desenho × √2 por nível mais fino
+ * × 4 vista pela câmera. A página mais velha que `CLOUD_SHADOW_MAX_AGE` entra na fila 1. A página sem registro que vale
+ * de um mapa lido no quadro é obrigatória; a do mapa novo da troca de degrau, que ainda não é lido (peso 0), entra na
+ * fila `CLOUD_SHADOW_KEY_PREPARE`, dentro do orçamento: o mapa novo é desenhado ao longo de alguns quadros.
  */
-fn cloud_shadow_key(slot: u32) -> u32 {
-    if (!cloud_shadow_meta_current(slot)) { return CLOUD_SHADOW_KEY_MANDATORY; }
+fn cloud_shadow_key(slot: u32, m: u32, maps: CloudShadowMaps) -> u32 {
+    if (m == CLOUD_SHADOW_STEP_NONE) { return 0u; }
+    if (!cloud_shadow_meta_current(slot, m)) {
+        return select(CLOUD_SHADOW_KEY_PREPARE, CLOUD_SHADOW_KEY_MANDATORY, cloud_shadow_step_weight(maps, m) > 0.0);
+    }
     let k = cloud_shadow_slot_level(slot);
-    let g = cloud_shadow_slot_page(slot);
+    let g = cloud_shadow_slot_page(slot, m);
     let age = clouds.march.z - atomicLoad(&cloud_shadow_pages_meta[slot].frame);
     let measured = bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].measured));
-    let e = max(cloud_shadow_error(slot, k, g), measured);
+    let e = max(cloud_shadow_error(slot, k, g, m), measured);
     if (e <= CLOUD_SHADOW_TOLERANCE) { return select(0u, 1u, age >= CLOUD_SHADOW_MAX_AGE); }
-    let vis = cloud_shadow_visible(k, g, bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].lever)));
+    let vis = cloud_shadow_visible(k, g, bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].lever)), m);
     let p = e / CLOUD_SHADOW_TOLERANCE * f32(max(age, 1u)) * exp2(f32(CLOUD_SHADOW_LEVELS - 1u - k) * 0.5)
         * select(1.0, 4.0, vis);
     return clamp(1u + u32(floor(log2(p))), 1u, CLOUD_SHADOW_KEY_MANDATORY - 1u);
 }
 
-/** Páginas físicas por invocação na escolha do quadro (até 2048 páginas). */
-const CLOUD_SHADOW_SELECT_CHUNK: u32 = 8u;
+/**
+ * Os mapas do quadro antes da escolha (espelho de `shadowMapsBegin`): sem estado na época da série, o degrau do sol, só
+ * ele; a troca que chegou ao peso 1 termina (o `leaving` sai); parado num degrau, o sol que pede o vizinho começa a troca
+ * (o `entering` novo com peso 0: as páginas dele são desenhadas dentro do orçamento até o mapa inteiro valer) e o que pede o
+ * degrau a dois passos troca de uma vez (as páginas físicas dos dois se sobrepõem; só o sol que salta mais de 9° num
+ * quadro); na troca, o sol que volta ao `leaving` inverte a troca (o peso complementar: o mapa de onde seguiu residente e
+ * mantido).
+ */
+fn cloud_shadow_maps_begin() -> CloudShadowMaps {
+    let sun = clouds.sunDir.xyz;
+    if (cloud_shadow_stamps[CLOUD_SHADOW_STATE_SLOT] != cloud_shadow_clock.x) {
+        let s = cloud_shadow_step_of(cloud_shadow_continuous(sun), 1.0);
+        return CloudShadowMaps(s, s, 1.0);
+    }
+    var maps = cloud_shadow_maps();
+    if (maps.leaving != maps.entering && maps.weight >= 1.0) { maps.leaving = maps.entering; }
+    let wanted = cloud_shadow_step_target(maps.entering, sun);
+    if (maps.leaving == maps.entering) {
+        if (wanted != maps.entering) {
+            if (max(wanted, maps.entering) - min(wanted, maps.entering) == 1u) {
+                return CloudShadowMaps(maps.entering, wanted, 0.0);
+            }
+            return CloudShadowMaps(wanted, wanted, 1.0);
+        }
+        return CloudShadowMaps(maps.entering, maps.entering, 1.0);
+    }
+    if (wanted == maps.leaving) { return CloudShadowMaps(maps.entering, maps.leaving, 1.0 - maps.weight); }
+    return maps;
+}
+
+/** Páginas físicas por invocação na escolha do quadro (até 3072 páginas). */
+const CLOUD_SHADOW_SELECT_CHUNK: u32 = 12u;
+/** A fila das páginas do mapa novo da troca de degrau (o meio das 14: as que mudaram muito no mapa lido passam antes). */
+const CLOUD_SHADOW_KEY_PREPARE: u32 = 8u;
 
 var<workgroup> cloud_shadow_wg_hist: array<atomic<u32>, 16>;
 var<workgroup> cloud_shadow_wg_cut: vec2u;
+var<workgroup> cloud_shadow_wg_maps: CloudShadowMaps;
+var<workgroup> cloud_shadow_wg_pending: atomic<u32>;
 
 /**
  * As páginas do quadro (um grupo de `CLOUD_SHADOW_PAGE_GROUP` invocações, `CLOUD_SHADOW_SELECT_CHUNK` páginas físicas
- * seguidas por invocação): as obrigatórias todas e, até o orçamento (`clouds.sunPages.x`), as inválidas da fila mais
- * alta à mais baixa; dentro da fila do corte, pela ordem da página física (soma de prefixos no grupo: o que entra no
- * quadro não depende da ordem dos atômicos). Grava a marca de cada página física e quantas.
+ * seguidas por invocação): os mapas do quadro (`cloud_shadow_maps_begin`); as obrigatórias todas e, até o orçamento
+ * (`clouds.sunPages.x`), as inválidas da fila mais alta à mais baixa; dentro da fila do corte, pela ordem da página física
+ * (soma de prefixos no grupo: o que entra no quadro não depende da ordem dos atômicos). Grava a marca de cada página
+ * física e quantas, e o estado dos mapas: na troca, com todas as páginas do mapa novo valendo depois do desenho do
+ * quadro, o peso dele sobe `1/CLOUD_SHADOW_STEP_FRAMES` (o estado entre quadros na série do registro, carimbado).
  */
 @compute @workgroup_size(CLOUD_SHADOW_PAGE_GROUP)
 fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
     if (lid < 16u) { atomicStore(&cloud_shadow_wg_hist[lid], 0u); }
+    if (lid == 0u) {
+        cloud_shadow_wg_maps = cloud_shadow_maps_begin();
+        atomicStore(&cloud_shadow_wg_pending, 0u);
+    }
     workgroupBarrier();
+    let maps = cloud_shadow_wg_maps;
     var keys: array<u32, CLOUD_SHADOW_SELECT_CHUNK>;
+    var fresh = 0u;
     for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) {
         let slot = lid * CLOUD_SHADOW_SELECT_CHUNK + j;
         keys[j] = 0u;
-        if (slot < CLOUD_SHADOW_SLOT_COUNT) { keys[j] = cloud_shadow_key(slot); }
+        if (slot < CLOUD_SHADOW_SLOT_COUNT) {
+            let m = cloud_shadow_slot_step(slot, maps);
+            keys[j] = cloud_shadow_key(slot, m, maps);
+            // As páginas do mapa novo que ainda não valem (a marca para a contagem depois do corte).
+            if (maps.leaving != maps.entering && m == maps.entering && !cloud_shadow_meta_current(slot, m)) { fresh |= 1u << j; }
+        }
         if (keys[j] > 0u) { atomicAdd(&cloud_shadow_wg_hist[keys[j]], 1u); }
     }
     workgroupBarrier();
@@ -521,6 +596,7 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
     for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) { at_cut += select(0u, 1u, keys[j] == cut.x); }
     var rank = pa_exclusive(lid, at_cut);
     var count = 0u;
+    var pending = 0u;
     for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) {
         let slot = lid * CLOUD_SHADOW_SELECT_CHUNK + j;
         var chosen = keys[j] > cut.x;
@@ -531,8 +607,21 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
         if (slot < CLOUD_SHADOW_SLOT_COUNT) {
             atomicStore(&cloud_shadow_work[4u + slot], select(0u, 1u, chosen));
             count += select(0u, 1u, chosen);
+            if ((fresh & (1u << j)) != 0u && !chosen) { pending++; }
         }
     }
+    if (pending > 0u) { atomicAdd(&cloud_shadow_wg_pending, pending); }
     let at = pa_exclusive(lid, count);
     if (lid == CLOUD_SHADOW_PAGE_GROUP - 1u) { atomicStore(&cloud_shadow_work[0], at + count); }
+    workgroupBarrier();
+    if (lid != 0u) { return; }
+    var next = maps;
+    if (next.leaving != next.entering && atomicLoad(&cloud_shadow_wg_pending) == 0u) {
+        next.weight = min(next.weight + 1.0 / CLOUD_SHADOW_STEP_FRAMES, 1.0);
+    }
+    let rec = &cloud_shadow_pages_meta[CLOUD_SHADOW_STATE_SLOT];
+    atomicStore(&(*rec).page_x, next.leaving);
+    atomicStore(&(*rec).page_y, next.entering);
+    atomicStore(&(*rec).time, bitcast<u32>(next.weight));
+    cloud_shadow_stamps[CLOUD_SHADOW_STATE_SLOT] = cloud_shadow_clock.x;
 }

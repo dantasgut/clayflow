@@ -3,7 +3,8 @@
 // texel a profundidade ótica acumulada ao fim de cada um dos 16 trechos iguais do primeiro trecho da casca ao longo do
 // raio que desce do sol (4 camadas × 4 nós) — lido com filtro (a borda da sombra é suave; o par do filtro fica sempre na
 // página física). Na faixa de fora de cada nível (os 8 % de fora do raio útil), a mistura com o seguinte: a resolução
-// muda sem costura. O trecho da coluna do ponto é recalculado pela casca. Na superfície, τ é linear entre os nós e
+// muda sem costura; na troca de degrau da razão do texel à direita (`CloudShadowMaps`), a mistura dos dois mapas pelo
+// peso do quadro: a resolução do mapa muda ao longo de `CLOUD_SHADOW_STEP_FRAMES` quadros, não num. O trecho da coluna do ponto é recalculado pela casca. Na superfície, τ é linear entre os nós e
 // `T(p) = exp(−τ(p))`; a marcha da nuvem lê o nó do lado do sol (`cloud_shadow_knot`) e integra ela mesma o pedaço do
 // trecho até o ponto (em `cloud_light`). Fora do mapa, a borda dele. A luz do sol nas superfícies
 // (`cloud_shadow_transmittance_disk`) é a média sobre o disco do sol: a penumbra da nuvem distante. A página é escolhida
@@ -13,21 +14,24 @@
 const CLOUD_SHADOW_LOOKUP_KNOTS: f32 = 16.0;
 
 /**
- * A página de um ponto num nível: a física, a global e o sol com que foi desenhada. A página é escolhida pelo plano do
- * quadro; o ponto é lido pelo plano do sol dela — a página refeita há alguns quadros (o orçamento, com o sol andando)
- * mostra a sombra como era no desenho dela, sem ler a coluna de outro lugar.
+ * A página de um ponto num nível de um degrau: a física, a global, o sol com que foi desenhada e a razão do texel à
+ * direita do degrau. A página é escolhida pelo plano do quadro; o ponto é lido pelo plano do sol dela — a página refeita
+ * há alguns quadros (o orçamento, com o sol andando) mostra a sombra como era no desenho dela, sem ler a coluna de outro
+ * lugar.
  */
 struct CloudShadowPageAt {
     slot: u32,
     g: vec2i,
     sun: vec3f,
     basis: mat2x3f,
+    aspect: f32,
 }
 
 /**
  * A coluna do mapa que passa por um ponto: as páginas e as coordenadas no atlas nos dois níveis da mistura
- * (normalizadas) e o peso do segundo, a posição do ponto ao longo do trecho da casca em nós (0 na entrada do lado do
- * sol, 16 na saída; pelo sol da página do primeiro nível) e o comprimento do trecho (m; 0 sem casca).
+ * (normalizadas) do mapa `entering` do quadro e o peso do segundo nível; na troca de degrau, as do mapa `leaving` (`qa`, `qb`,
+ * `c`, `d`) e o peso dele (`other`; 0 fora da troca); a posição do ponto ao longo do trecho da casca em nós (0 na
+ * entrada do lado do sol, 16 na saída; pelo sol da página do primeiro nível) e o comprimento do trecho (m; 0 sem casca).
  */
 struct CloudShadowColumnAt {
     level: u32,
@@ -36,8 +40,19 @@ struct CloudShadowColumnAt {
     a: vec2f,
     b: vec2f,
     blend: f32,
+    qa: CloudShadowPageAt,
+    qb: CloudShadowPageAt,
+    c: vec2f,
+    d: vec2f,
+    other: f32,
     knot: f32,
     len: f32,
+}
+
+/** Os mapas do quadro (o registro de estado que a escolha do quadro gravou). */
+fn cloud_shadow_maps() -> CloudShadowMaps {
+    let r = cloud_shadow_records[CLOUD_SHADOW_STATE_SLOT];
+    return CloudShadowMaps(u32(clamp(r.page_x, 0, 2)), u32(clamp(r.page_y, 0, 2)), clamp(r.time, 0.0, 1.0));
 }
 
 /** O sol com que a página física `slot` foi desenhada (o do quadro, se ela ainda não foi). */
@@ -46,17 +61,17 @@ fn cloud_shadow_page_sun(slot: u32) -> vec3f {
     return select(clouds.sunDir.xyz, s, dot(s, s) > 0.25);
 }
 
-/** A página do ponto `x` do plano do quadro no nível `k` (presa à janela). */
-fn cloud_shadow_page_at(x: vec2f, k: u32) -> CloudShadowPageAt {
-    let t = cloud_shadow_texel_size(k);
-    let w = vec2f(cloud_shadow_window(k));
+/** A página do ponto `x` do plano do quadro no nível `k` do degrau `m` (presa à janela dele). */
+fn cloud_shadow_page_at(x: vec2f, k: u32, m: u32) -> CloudShadowPageAt {
+    let t = cloud_shadow_step_texel(k, m);
+    let w = vec2f(cloud_shadow_window(k, m));
     let P = f32(CLOUD_SHADOW_PAGE);
-    let N = vec2f(cloud_shadow_window_pages());
+    let N = vec2f(cloud_shadow_window_pages(m));
     let X = clamp(x / t, w * P + 0.5, (w + N) * P - 0.5);
     let g = vec2i(clamp(floor((X - 0.5) / P), w, w + N - 1.0));
-    let slot = cloud_shadow_slot(k, g);
+    let slot = cloud_shadow_slot(k, g, m);
     let sun = cloud_shadow_page_sun(slot);
-    return CloudShadowPageAt(slot, g, sun, cloud_shadow_basis(sun));
+    return CloudShadowPageAt(slot, g, sun, cloud_shadow_basis(sun), cloud_shadow_step_aspect(m));
 }
 
 /**
@@ -68,7 +83,7 @@ fn cloud_shadow_page_uv(p: vec3f, pg: CloudShadowPageAt, k: u32, offset: vec2f) 
     let x = vec2f(dot(rel, pg.basis[0]), dot(rel, pg.basis[1])) + offset;
     let P = f32(CLOUD_SHADOW_PAGE);
     let lo = vec2f(pg.g) * P;
-    let X = clamp(x / cloud_shadow_texel_aspect(k, cloud_shadow_aspect(pg.sun)), lo + 0.5, lo + P + 0.5);
+    let X = clamp(x / cloud_shadow_texel_aspect(k, pg.aspect), lo + 0.5, lo + P + 0.5);
     return (vec2f(cloud_shadow_slot_origin(pg.slot)) + X - lo) / CLOUD_SHADOW_ATLAS;
 }
 
@@ -78,15 +93,32 @@ fn cloud_shadow_column_far(p: vec3f) -> CloudShadowColumnAt {
     let x = cloud_shadow_plane(p);
     let lv = cloud_shadow_level(x);
     let k = u32(lv.x);
+    let maps = cloud_shadow_maps();
     c.level = k;
-    c.pa = cloud_shadow_page_at(x, k);
+    c.pa = cloud_shadow_page_at(x, k, maps.entering);
     c.a = cloud_shadow_page_uv(p, c.pa, k, vec2f(0.0));
     c.pb = c.pa;
     c.b = c.a;
     c.blend = lv.y;
     if (lv.y > 0.0) {
-        c.pb = cloud_shadow_page_at(x, k + 1u);
+        c.pb = cloud_shadow_page_at(x, k + 1u, maps.entering);
         c.b = cloud_shadow_page_uv(p, c.pb, k + 1u, vec2f(0.0));
+    }
+    c.qa = c.pa;
+    c.qb = c.pb;
+    c.c = c.a;
+    c.d = c.b;
+    c.other = 0.0;
+    if (maps.leaving != maps.entering && maps.weight < 1.0) {
+        c.other = 1.0 - maps.weight;
+        c.qa = cloud_shadow_page_at(x, k, maps.leaving);
+        c.c = cloud_shadow_page_uv(p, c.qa, k, vec2f(0.0));
+        c.qb = c.qa;
+        c.d = c.c;
+        if (lv.y > 0.0) {
+            c.qb = cloud_shadow_page_at(x, k + 1u, maps.leaving);
+            c.d = cloud_shadow_page_uv(p, c.qb, k + 1u, vec2f(0.0));
+        }
     }
     // A origem da coluna como a página a tem: do ponto do plano do mapa, a saída do topo da casca do lado do sol.
     let sun = c.pa.sun;
@@ -116,11 +148,21 @@ fn cloud_shadow_knot_uv(uv: vec2f, k: u32) -> f32 {
     return textureSampleLevel(cloud_shadow_tex, cloud_clamp_sampler, vec3f(uv, layer), 0.0)[j % 4u];
 }
 
-/** A profundidade ótica acumulada da entrada do lado do sol até o nó `k` (0…16) na coluna `c`. */
+/** O nó `k` (0…16) nos dois níveis da mistura (os pontos `a`, `b` do atlas, o peso `blend` do segundo). */
+fn cloud_shadow_knot_levels(a: vec2f, b: vec2f, blend: f32, k: u32) -> f32 {
+    let v = cloud_shadow_knot_uv(a, k);
+    if (blend <= 0.0) { return v; }
+    return mix(v, cloud_shadow_knot_uv(b, k), blend);
+}
+
+/**
+ * A profundidade ótica acumulada da entrada do lado do sol até o nó `k` (0…16) na coluna `c`: nos dois níveis e, na
+ * troca de degrau, nos dois mapas.
+ */
 fn cloud_shadow_knot(c: CloudShadowColumnAt, k: u32) -> f32 {
-    let a = cloud_shadow_knot_uv(c.a, k);
-    if (c.blend <= 0.0) { return a; }
-    return mix(a, cloud_shadow_knot_uv(c.b, k), c.blend);
+    let v = cloud_shadow_knot_levels(c.a, c.b, c.blend, k);
+    if (c.other <= 0.0) { return v; }
+    return mix(v, cloud_shadow_knot_levels(c.c, c.d, c.blend, k), c.other);
 }
 
 /** Profundidade ótica das nuvens de `p` até o sol, linear entre os nós (a superfície). */
@@ -159,11 +201,21 @@ fn cloud_shadow_transmittance_uv(uv: vec2f, k: u32, f: f32) -> f32 {
     return t;
 }
 
-/** A transmitância na coluna `c` entre os nós `k` e `k + 1` (fração `f`), nos dois níveis da mistura. */
+/** A transmitância entre os nós `k` e `k + 1` (fração `f`) nos dois níveis da mistura (os pontos `a`, `b` do atlas). */
+fn cloud_shadow_transmittance_levels(a: vec2f, b: vec2f, blend: f32, k: u32, f: f32) -> f32 {
+    let v = cloud_shadow_transmittance_uv(a, k, f);
+    if (blend <= 0.0) { return v; }
+    return mix(v, cloud_shadow_transmittance_uv(b, k, f), blend);
+}
+
+/**
+ * A transmitância na coluna `c` entre os nós `k` e `k + 1` (fração `f`), nos dois níveis da mistura e, na troca de
+ * degrau, nos dois mapas.
+ */
 fn cloud_shadow_transmittance_column(c: CloudShadowColumnAt, k: u32, f: f32) -> f32 {
-    let a = cloud_shadow_transmittance_uv(c.a, k, f);
-    if (c.blend <= 0.0) { return a; }
-    return mix(a, cloud_shadow_transmittance_uv(c.b, k, f), c.blend);
+    let v = cloud_shadow_transmittance_levels(c.a, c.b, c.blend, k, f);
+    if (c.other <= 0.0) { return v; }
+    return mix(v, cloud_shadow_transmittance_levels(c.c, c.d, c.blend, k, f), c.other);
 }
 
 /** Leituras do disco do sol (pontos de Vogel, fixos: sem ruído entre quadros). */
@@ -186,7 +238,7 @@ fn cloud_shadow_layers(uv: vec2f) -> array<vec4f, 4> {
  * distância de `p` ao centro da nuvem na coluna (o centro dos nós até `p` ponderado por τ). Com o sol baixo a nuvem que
  * tapa o sol fica a 20–40 km do chão e a penumbra tem 100–200 m; com o sol pontual, a borda da nuvem passava pelo sol
  * num quadro do vídeo acelerado (o sol real leva ~0,5° para sair de trás dela). As leituras do disco nos mesmos dois
- * níveis do centro. Teto: 8 + 4·`CLOUD_SHADOW_DISK_TAPS` leituras e 16 nós.
+ * níveis do centro. Teto: 16 + 8·`CLOUD_SHADOW_DISK_TAPS` leituras e 16 nós (a metade fora da troca de degrau).
  */
 fn cloud_shadow_transmittance_disk(p: vec3f, radius: f32) -> f32 {
     let far = cloud_shadow_column_far(p);
@@ -196,9 +248,15 @@ fn cloud_shadow_transmittance_disk(p: vec3f, radius: f32) -> f32 {
     let f = kn - f32(k);
     let la = cloud_shadow_layers(far.a);
     let lb = cloud_shadow_layers(far.b);
+    var lc = la;
+    var ld = lb;
+    if (far.other > 0.0) {
+        lc = cloud_shadow_layers(far.c);
+        ld = cloud_shadow_layers(far.d);
+    }
     var knots: array<f32, 17>;
     for (var l = 0u; l < 4u; l++) {
-        let v = mix(la[l], lb[l], far.blend);
+        let v = mix(mix(la[l], lb[l], far.blend), mix(lc[l], ld[l], far.blend), far.other);
         knots[l * 4u + 1u] = v.x;
         knots[l * 4u + 2u] = v.y;
         knots[l * 4u + 3u] = v.z;
@@ -221,7 +279,7 @@ fn cloud_shadow_transmittance_disk(p: vec3f, radius: f32) -> f32 {
     let r = dist * tan(radius);
     // A penumbra menor que o texel do nível (o lado maior: o texel à direita é mais fino) — as leituras do disco cairiam
     // na pegada da leitura bilinear: a transmitância dela.
-    if (r < cloud_shadow_texel_size(far.level).y) { return cloud_shadow_transmittance_column(far, k, f); }
+    if (r < cloud_shadow_texel_aspect(far.level, 1.0).y) { return cloud_shadow_transmittance_column(far, k, f); }
     let k0 = far.level;
     var t = 0.0;
     for (var i = 0u; i < CLOUD_SHADOW_DISK_TAPS; i++) {
@@ -234,7 +292,18 @@ fn cloud_shadow_transmittance_disk(p: vec3f, radius: f32) -> f32 {
             let ub = cloud_shadow_page_uv(p, far.pb, k0 + 1u, o);
             ta = mix(ta, mix(cloud_shadow_knot_uv(ub, k), cloud_shadow_knot_uv(ub, k + 1u), f), far.blend);
         }
-        t += exp(-ta);
+        var tt = exp(-ta);
+        // Na troca de degrau, o mesmo ponto do disco no mapa de onde, pelo peso dele.
+        if (far.other > 0.0) {
+            let uc = cloud_shadow_page_uv(p, far.qa, k0, o);
+            var tc = mix(cloud_shadow_knot_uv(uc, k), cloud_shadow_knot_uv(uc, k + 1u), f);
+            if (far.blend > 0.0) {
+                let ud = cloud_shadow_page_uv(p, far.qb, k0 + 1u, o);
+                tc = mix(tc, mix(cloud_shadow_knot_uv(ud, k), cloud_shadow_knot_uv(ud, k + 1u), f), far.blend);
+            }
+            tt = mix(tt, exp(-tc), far.other);
+        }
+        t += tt;
     }
     return t / f32(CLOUD_SHADOW_DISK_TAPS);
 }

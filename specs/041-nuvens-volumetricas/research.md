@@ -586,20 +586,32 @@ atlas é o descritor `shadow` da camada, o registro das páginas é o descritor 
   coluna, sem um passe a mais na cadeia (num passe à parte, 0,19 ms de latência com só 1000 colunas).
 - _Reserva grossa_: no recorte todos os níveis ficam residentes — o mais grosso cobre ±294 km — e a página que entra na
   janela é desenhada no mesmo quadro: nunca se lê página ausente.
-- _O texel à direita fino_ (T055, rodadas 14, 15 e 21 do `sunset`): com o sol baixo a vizinha em cima é a mesma coluna
-  deslocada ao longo de si (~Δ/tan(el)) e a resolução em cima sobra; a à direita é outra coluna de ~30 km pelo detalhe, e a
-  bilinear de τ entre elas escurecia a borda prateada das nuvens a 50–100 km rente ao sol (em f64, o mapa emulado a 10,1 %
-  da exata; o texel à direita ÷2 a 5,6 %, ÷4 a 4,4 %; em cima ÷2 ou ÷4 sem mudança). O texel à direita é 0,2 × o em cima
-  em toda elevação (`cloud_shadow_aspect`, espelho `shadowAspect`), com 32 páginas físicas à direita por nível (a janela
-  tem o mesmo raio útil em metros nos dois eixos; 2048 páginas, atlas de 782² × 4 camadas), as provas em rodízio e
-  repartidas: o mapa (escolha + desenho) 0,09 ms a 60° e 0,16 ms a 4° no perfil alto. A razão pela elevação foi medida e
-  desfeita duas vezes no `solposto` (o sol de 60° a −4°): contínua (`tan(el)/tan(19°)`, rodada 15), o texel escalava em
-  torno do pivô a cada quadro e as páginas longe dele passavam da tolerância mais depressa que o orçamento as refazia (o
-  chão 27 níveis num quadro); em degraus (1 / ½ / 0,2 nunca acima da contínua, a janela de 8 / 14 / 32 páginas à
-  direita, a página de outro degrau inválida e a janela inteira refeita no quadro do degrau; rodada 21), o mapa muda de
-  resolução num quadro e a imagem salta no degrau de ~9,8° 7,9 níveis no céu, 6,7 no horizonte e 4,8 no chão, e 1,9 / 4,5
-  / 3,6 no de 19° (fora dos degraus, 0,8 / 1,3 / 1,6). A faixa de mistura dos níveis passou aos 8 % de fora do raio útil
-  (30 → 15 → 8 %).
+- _O texel à direita fino, em degraus com a troca misturada_ (T055, rodadas 14, 15, 21 e 35 do `sunset`): com o sol baixo
+  a vizinha em cima é a mesma coluna deslocada ao longo de si (~Δ/tan(el)) e a resolução em cima sobra; a à direita é outra
+  coluna de ~30 km pelo detalhe, e a bilinear de τ entre elas escurecia a borda prateada das nuvens a 50–100 km rente ao
+  sol (em f64, o mapa emulado a 10,1 % da exata; o texel à direita ÷2 a 5,6 %, ÷4 a 4,4 %; em cima ÷2 ou ÷4 sem mudança).
+  Com o sol alto o texel quadrado: com 0,2 em toda elevação a borda do feixe de um vão a 35° (`beam-gap`) saía 11,8 px
+  mais larga que a f64. A razão em degraus 1 / ½ / 0,2 pela contínua `tan(el)/tan(19°)` (`cloud_shadow_step_aspect`,
+  espelho `shadowStepAspect`), nunca acima dela (o degrau mais fino logo abaixo do limiar; o mais grosso só com a
+  contínua 5 % acima: `CLOUD_SHADOW_STEP_HYSTERESIS`), com a janela de 8 / 14 / 32 páginas à direita. Cada degrau tem o
+  seu lugar nas 46 páginas físicas à direita do nível (0,2 nas 32 primeiras, ½ nas 14 seguintes, 1 nas 8 primeiras; 2944
+  páginas, atlas de 935² × 4 camadas): dois degraus vizinhos ficam residentes juntos. **A troca** (`CloudShadowMaps`: o
+  degrau de onde, o para onde e o peso; espelho `shadowMapsBegin`/`shadowMapsEnd`): o sol que pede o degrau vizinho
+  começa a troca com peso 0; as páginas do mapa novo entram na fila `CLOUD_SHADOW_KEY_PREPARE` (o meio das 14) dentro do
+  orçamento de páginas por quadro (o de 0,2 em 16 quadros a 128 por quadro); com todas valendo depois do desenho do
+  quadro, o peso sobe 1/32 por quadro (`CLOUD_SHADOW_STEP_FRAMES`) e a leitura mistura os dois mapas — o nó (a marcha),
+  a transmitância (o chão e as superfícies, as leituras do disco também) e, no ar, um dos dois por quadro pelo peso
+  (`light_volume_visibility`); no peso 1 o de onde sai. O sol que volta ao de onde inverte a troca (o peso complementar:
+  o mapa de onde seguiu mantido); o que salta dois degraus num quadro troca de uma vez (as páginas de 1 e 0,2 se
+  sobrepõem). O estado entre quadros é o registro logo depois das páginas na série `shadowPages` (`CLOUD_SHADOW_STATE_SLOT`,
+  carimbado; sem carimbo na época, o degrau do sol), gravado pela escolha do quadro. Medido no `solposto` (o sol de 60° a
+  −4°): no degrau de ~9,8° o maior salto por quadro 0,38 nível no céu, 0,45 no horizonte e 0,22 no chão (a troca de uma
+  vez, rodada 21: 7,9 / 6,7 / 4,8); no de 19°, 0,82 / 1,03 no céu e no horizonte, e o chão cai 35 níveis em 14 quadros
+  com o sol entrando atrás da nuvem (o vídeo da troca de uma vez cai junto, nos mesmos quadros). Referência f64 e testes
+  (`cloudShadowPages.test.ts`: os mapas disjuntos e o endereçamento de cada degrau; a troca quadro a quadro — o mapa novo
+  em `⌈2048/128⌉` quadros, a rampa de 1/N, a folga, a inversão, o salto de dois degraus; o que se lê muda por quadro no
+  máximo 1/N da diferença dos dois mapas nas colunas f64 de cúmulos em células). O mapa (escolha + desenho) 0,11 ms a
+  60° no perfil alto (≤ 0,4). A faixa de mistura dos níveis nos 8 % de fora do raio útil (30 → 15 → 8 %).
 - _O que a referência f64 mostrou_ (`cloudShadowPages.test.ts`, cúmulos em células, páginas nos níveis 0, 2 e 4): o mapa
   por colunas pontuais tem detalhe menor que o texel — com o sol andando 0,005°/quadro a 15°, o próprio mapa refeito a cada
   quadro muda até 180 níveis num texel por quadro (p50 33), e a 0,05°/quadro a 8°, 255. A previsão pelo gradiente medido

@@ -47,31 +47,136 @@ export const CLOUD_SHADOW_GRADIENT_SAFETY = 2;
 /** Quadros sem desenho em que a página ainda vale, no máximo (o teto da idade). */
 export const CLOUD_SHADOW_MAX_AGE = 240;
 
-/** Texel (m, em cima) do nível `k`; à direita, × a razão do sol (`shadowAspect`). */
+/** Texel (m, em cima) do nível `k`; à direita, × a razão do degrau (`shadowStepAspect`). */
 export function shadowTexelSize(t0: number, k: number): number {
     return t0 * 2 ** k;
 }
 
-/** A razão do texel à direita pelo em cima (`CLOUD_SHADOW_ASPECT`). */
-export const CLOUD_SHADOW_ASPECT = 0.2;
+/** A menor razão do texel à direita pelo em cima (o sol rasante; `CLOUD_SHADOW_ASPECT_MIN`). */
+export const CLOUD_SHADOW_ASPECT_MIN = 0.2;
+/** A elevação do sol (°) a partir da qual o texel é quadrado: a razão contínua é `tan(el)/tan(19°)`. */
+export const CLOUD_SHADOW_ASPECT_ELEVATION = 19;
+/** A folga da volta a um degrau mais grosso (`CLOUD_SHADOW_STEP_HYSTERESIS`): a contínua 5 % acima do limiar. */
+export const CLOUD_SHADOW_STEP_HYSTERESIS = 1.05;
+/** Quadros da mistura de um degrau ao vizinho (`CLOUD_SHADOW_STEP_FRAMES`). */
+export const CLOUD_SHADOW_STEP_FRAMES = 32;
+/** A página física fora dos mapas do quadro (`CLOUD_SHADOW_STEP_NONE`; os degraus são 0: 1, 1: ½, 2: 0,2). */
+export const CLOUD_SHADOW_STEP_NONE = 3;
+
+/** A razão do texel à direita pelo em cima do degrau `m` (espelho de `cloud_shadow_step_aspect`). */
+export function shadowStepAspect(m: number): number {
+    return m === 0 ? 1 : m === 1 ? 0.5 : CLOUD_SHADOW_ASPECT_MIN;
+}
+
+/** A razão contínua `tan(el)/tan(19°)` do sol (espelho de `cloud_shadow_continuous`). */
+export function shadowContinuous(sun: Vec3): number {
+    const y = Math.min(1, Math.max(-1, sun[1]));
+    return (
+        y
+        / Math.max(Math.sqrt(Math.max(1 - y * y, 0)), 1e-6)
+        / Math.tan((CLOUD_SHADOW_ASPECT_ELEVATION * Math.PI) / 180)
+    );
+}
+
+/** O degrau da razão contínua `c` com os limiares × `h` (espelho de `cloud_shadow_step_of`). */
+export function shadowStepOf(c: number, h = 1): number {
+    if (c >= h) return 0;
+    if (c >= 0.5 * h) return 1;
+    return 2;
+}
 
 /**
- * A razão `r` do texel à direita pelo em cima (espelho de `cloud_shadow_aspect`): a mesma em toda elevação do sol (com o
- * sol baixo a vizinha em cima é o mesmo caminho deslocado ao longo de si, e a à direita é outro caminho de ~30 km pelo
- * detalhe; a razão que mudasse com o sol escalaria o texel global em torno do pivô a cada quadro, e em degraus mudaria a
- * resolução do mapa inteiro num quadro: o `solposto` saltava 7,9 níveis no céu no degrau de ~9,8°).
+ * O degrau que o sol pede com o mapa no degrau `now` (espelho de `cloud_shadow_step_target`): o mais fino logo que a
+ * contínua cai abaixo do limiar (a razão nunca acima da contínua), o mais grosso só com a folga.
+ */
+export function shadowStepTarget(now: number, sun: Vec3): number {
+    const c = shadowContinuous(sun);
+    const fine = shadowStepOf(c);
+    if (fine > now) return fine;
+    return Math.min(now, shadowStepOf(c, CLOUD_SHADOW_STEP_HYSTERESIS));
+}
+
+/**
+ * A razão `r` do texel à direita pelo em cima do mapa parado no degrau do sol (sem histórico: o degrau dos limiares, o
+ * que o estado sem carimbo assume). Com o sol baixo a vizinha em cima é o mesmo caminho deslocado ao longo de si, e a à
+ * direita é outro caminho de ~30 km pelo detalhe: a resolução que falta é a à direita, na medida de `tan(el)/tan(19°)`
+ * (0,2 a 4°). Em degraus (1, ½, 0,2), nunca acima da contínua: a razão que mudasse a cada quadro escalaria o texel em
+ * torno do pivô; a troca de degrau mistura os dois mapas ao longo de `CLOUD_SHADOW_STEP_FRAMES` quadros (`ShadowMaps`).
  */
 export function shadowAspect(band: number, sun: Vec3): number {
     void band;
-    void sun;
-    return CLOUD_SHADOW_ASPECT;
+    return shadowStepAspect(shadowStepOf(shadowContinuous(sun)));
 }
 
-/** Páginas da janela à direita com a razão `r` (espelho de `cloud_shadow_pages_x`): o raio útil em metros do em cima. */
-export function shadowPagesX(r: number): number {
+/**
+ * Os mapas do quadro (espelho de `CloudShadowMaps`): o degrau de onde, o para onde e o peso do para onde na leitura (com
+ * os dois iguais, só ele).
+ */
+export interface ShadowMaps {
+    readonly leaving: number;
+    readonly entering: number;
+    readonly weight: number;
+}
+
+/** Os mapas parados no degrau do sol (o estado sem carimbo na série). */
+export function shadowMapsOf(sun: Vec3): ShadowMaps {
+    const s = shadowStepOf(shadowContinuous(sun));
+    return { leaving: s, entering: s, weight: 1 };
+}
+
+/** O peso do degrau `m` na leitura (espelho de `cloud_shadow_step_weight`). */
+export function shadowStepWeight(maps: ShadowMaps, m: number): number {
+    if (maps.leaving === maps.entering) return m === maps.entering ? 1 : 0;
+    if (m === maps.entering) return maps.weight;
+    if (m === maps.leaving) return 1 - maps.weight;
+    return 0;
+}
+
+/**
+ * Os mapas do quadro antes da escolha (espelho de `cloud_shadow_maps_begin`): sem estado, o degrau do sol; a troca que
+ * chegou ao peso 1 termina; parado, o sol que pede o degrau vizinho começa a troca (peso 0) e o que pede o degrau a dois
+ * passos troca de uma vez; na troca, o sol que volta ao de onde a inverte (o peso complementar).
+ */
+export function shadowMapsBegin(prev: ShadowMaps | undefined, sun: Vec3): ShadowMaps {
+    if (prev === undefined) return shadowMapsOf(sun);
+    const maps =
+        prev.leaving !== prev.entering && prev.weight >= 1
+            ? { ...prev, leaving: prev.entering }
+            : prev;
+    const wanted = shadowStepTarget(maps.entering, sun);
+    if (maps.leaving === maps.entering) {
+        if (wanted === maps.entering) return { leaving: wanted, entering: wanted, weight: 1 };
+        if (Math.abs(wanted - maps.entering) === 1)
+            return { leaving: maps.entering, entering: wanted, weight: 0 };
+        return { leaving: wanted, entering: wanted, weight: 1 };
+    }
+    if (wanted === maps.leaving)
+        return { leaving: maps.entering, entering: maps.leaving, weight: 1 - maps.weight };
+    return maps;
+}
+
+/**
+ * O estado gravado depois da escolha (espelho do fim de `cloud_shadow_select_main`): na troca, com todas as páginas do
+ * mapa novo valendo depois do desenho do quadro (`pending` 0: nenhuma inválida fora das escolhidas), o peso sobe
+ * `1/CLOUD_SHADOW_STEP_FRAMES`.
+ */
+export function shadowMapsEnd(maps: ShadowMaps, pending: number): ShadowMaps {
+    if (maps.leaving === maps.entering || pending > 0) return maps;
+    return { ...maps, weight: Math.min(maps.weight + 1 / CLOUD_SHADOW_STEP_FRAMES, 1) };
+}
+
+/**
+ * Páginas da janela à direita do degrau `m` (espelho de `cloud_shadow_step_pages`): o raio útil em metros do em cima
+ * (8, 14 e 32).
+ */
+export function shadowStepPages(m: number): number {
     const useful = (CLOUD_SHADOW_PAGES / 2 - 1) * CLOUD_SHADOW_PAGE - 2;
-    const half = Math.ceil((useful / r + 2) / CLOUD_SHADOW_PAGE) + 1;
-    return Math.min(2 * half, CLOUD_SHADOW_PAGES_X);
+    return 2 * (Math.ceil((useful / shadowStepAspect(m) + 2) / CLOUD_SHADOW_PAGE) + 1);
+}
+
+/** A primeira página física à direita do degrau `m` no nível (espelho de `cloud_shadow_step_base`). */
+export function shadowStepBase(m: number): number {
+    return m === 1 ? shadowStepPages(2) : 0;
 }
 
 /** Raio útil (m, Chebyshev, o mesmo nos dois eixos) do nível `k` em volta da câmera: a janela menos a borda. */
@@ -79,16 +184,19 @@ export function shadowUsable(t0: number, k: number): number {
     return ((CLOUD_SHADOW_PAGES / 2 - 1) * CLOUD_SHADOW_PAGE - 2) * shadowTexelSize(t0, k);
 }
 
-/** O texel (m, à direita e em cima) do nível `k` no quadro `f`. */
-function texelOf(f: ShadowFrame, k: number, sun = f.sun): [number, number] {
+/** O degrau `m` dado ou o do mapa para onde do quadro. */
+const stepOf = (f: ShadowFrame, m?: number): number =>
+    m ?? (f.maps ?? shadowMapsOf(f.sun)).entering;
+
+/** O texel (m, à direita e em cima) do nível `k` no degrau `m` (o para onde do quadro, sem ele). */
+function texelOf(f: ShadowFrame, k: number, m?: number): [number, number] {
     const t = shadowTexelSize(f.texel, k);
-    return [t * shadowAspect(f.band, sun), t];
+    return [t * shadowStepAspect(stepOf(f, m)), t];
 }
 
-/** As páginas da janela do quadro (à direita, em cima). */
-export function shadowWindowPages(f: ShadowFrame): [number, number] {
-    void f;
-    return [CLOUD_SHADOW_PAGES_X, CLOUD_SHADOW_PAGES];
+/** As páginas da janela do degrau `m` (à direita, em cima; o para onde do quadro, sem ele). */
+export function shadowWindowPages(f: ShadowFrame, m?: number): [number, number] {
+    return [shadowStepPages(stepOf(f, m)), CLOUD_SHADOW_PAGES];
 }
 
 const cross = (a: Vec3, b: Vec3): Vec3 => [
@@ -124,6 +232,8 @@ export interface ShadowFrame {
     readonly band: number;
     /** A câmera no plano (m). */
     readonly camera: readonly [number, number];
+    /** Os mapas do quadro (sem eles, parados no degrau do sol). */
+    readonly maps?: ShadowMaps;
 }
 
 /** Coordenadas (m) de `p` no plano do mapa. */
@@ -132,10 +242,10 @@ export function shadowPlane(f: ShadowFrame, p: Vec3): [number, number] {
     return [dot(rel, f.right), dot(rel, f.up)];
 }
 
-/** Primeira página global da janela do nível `k`. */
-export function shadowWindow(f: ShadowFrame, k: number): [number, number] {
-    const t = texelOf(f, k);
-    const n = shadowWindowPages(f);
+/** Primeira página global da janela do nível `k` no degrau `m` (o para onde do quadro, sem ele). */
+export function shadowWindow(f: ShadowFrame, k: number, m?: number): [number, number] {
+    const t = texelOf(f, k, m);
+    const n = shadowWindowPages(f, m);
     return [
         Math.floor(f.camera[0] / (CLOUD_SHADOW_PAGE * t[0])) - n[0] / 2,
         Math.floor(f.camera[1] / (CLOUD_SHADOW_PAGE * t[1])) - n[1] / 2,
@@ -147,12 +257,13 @@ const mod = (a: number, n: number): number => ((a % n) + n) % n;
 /** As páginas físicas de um nível. */
 const LEVEL_SLOTS = CLOUD_SHADOW_PAGES_X * CLOUD_SHADOW_PAGES;
 
-/** A página física da página global `g` do nível `k` (endereço toroidal, 32 × 8 por nível). */
-export function shadowSlot(k: number, g: readonly [number, number]): number {
+/** A página física da página global `g` do nível `k` no degrau `m` (endereço toroidal na janela do degrau). */
+export function shadowSlot(k: number, g: readonly [number, number], m: number): number {
     return (
         k * LEVEL_SLOTS
         + mod(g[1], CLOUD_SHADOW_PAGES) * CLOUD_SHADOW_PAGES_X
-        + mod(g[0], CLOUD_SHADOW_PAGES_X)
+        + shadowStepBase(m)
+        + mod(g[0], shadowStepPages(m))
     );
 }
 
@@ -164,23 +275,38 @@ export function shadowSlotOrigin(slot: number): [number, number] {
     ];
 }
 
+/** O degrau da página física `slot` nos mapas `maps` (espelho de `cloud_shadow_slot_step`). */
+export function shadowSlotStep(slot: number, maps: ShadowMaps): number {
+    const col = (slot % LEVEL_SLOTS) % CLOUD_SHADOW_PAGES_X;
+    const has = (m: number): boolean => maps.leaving === m || maps.entering === m;
+    if (col >= shadowStepBase(1)) return has(1) ? 1 : CLOUD_SHADOW_STEP_NONE;
+    if (has(2)) return 2;
+    if (has(0) && col < shadowStepPages(0)) return 0;
+    return CLOUD_SHADOW_STEP_NONE;
+}
+
 /**
- * A página global que a janela do quadro põe na página física `slot` e se ela está na janela (com o sol alto a janela tem
- * menos páginas à direita que as físicas).
+ * A página global que a janela do quadro põe na página física `slot`, o degrau dela e se ela está nos mapas do quadro
+ * (espelho de `cloud_shadow_slot_step` e `cloud_shadow_slot_page`).
  */
 export function shadowSlotPage(
     f: ShadowFrame,
     slot: number,
-): { level: number; page: [number, number]; active: boolean } {
+): { level: number; step: number; page: [number, number]; active: boolean } {
     const k = Math.floor(slot / LEVEL_SLOTS);
+    const step = shadowSlotStep(slot, f.maps ?? shadowMapsOf(f.sun));
+    if (step === CLOUD_SHADOW_STEP_NONE) return { level: k, step, page: [0, 0], active: false };
     const r = slot % LEVEL_SLOTS;
-    const s = [r % CLOUD_SHADOW_PAGES_X, Math.floor(r / CLOUD_SHADOW_PAGES_X)];
-    const w = shadowWindow(f, k);
+    const s = [
+        (r % CLOUD_SHADOW_PAGES_X) - shadowStepBase(step),
+        Math.floor(r / CLOUD_SHADOW_PAGES_X),
+    ];
+    const w = shadowWindow(f, k, step);
     const page: [number, number] = [
-        w[0] + mod(s[0]! - w[0], CLOUD_SHADOW_PAGES_X),
+        w[0] + mod(s[0]! - w[0], shadowStepPages(step)),
         w[1] + mod(s[1]! - w[1], CLOUD_SHADOW_PAGES),
     ];
-    return { level: k, page, active: page[0] - w[0] < shadowWindowPages(f)[0] };
+    return { level: k, step, page, active: true };
 }
 
 /** O nível (o menor que cobre `x` com a borda) e o peso do seguinte na faixa de mistura (os 8 % de fora). */
@@ -196,19 +322,21 @@ export function shadowLevel(f: ShadowFrame, x: readonly [number, number]): [numb
 }
 
 /**
- * Coordenadas (texels, contínuas) no atlas do ponto `x` do plano no nível `k`: o texel global preso à janela, a página
- * pela posição do par do filtro (os dois texels do filtro na mesma página física, o segundo podendo ser a coluna da
- * vizinha) e o canto da página física.
+ * Coordenadas (texels, contínuas) no atlas do ponto `x` do plano no nível `k` do degrau `m` (o para onde do quadro, sem
+ * ele): o texel global preso à janela, a página pela posição do par do filtro (os dois texels do filtro na mesma página
+ * física, o segundo podendo ser a coluna da vizinha) e o canto da página física.
  */
 export function shadowAtlasTexel(
     f: ShadowFrame,
     x: readonly [number, number],
     k: number,
+    m?: number,
 ): [number, number] {
-    const t = texelOf(f, k);
-    const w = shadowWindow(f, k);
+    const step = stepOf(f, m);
+    const t = texelOf(f, k, step);
+    const w = shadowWindow(f, k, step);
     const P = CLOUD_SHADOW_PAGE;
-    const N = shadowWindowPages(f);
+    const N = shadowWindowPages(f, step);
     const out: number[] = [];
     const page: [number, number] = [0, 0];
     for (let a = 0; a < 2; a++) {
@@ -217,13 +345,13 @@ export function shadowAtlasTexel(
         page[a] = g;
         out.push(X - g * P);
     }
-    const o = shadowSlotOrigin(shadowSlot(k, page));
+    const o = shadowSlotOrigin(shadowSlot(k, page, step));
     return [o[0] + out[0]!, o[1] + out[1]!];
 }
 
 /**
- * O mapa lido de volta: `rgba16float` de `CLOUD_SHADOW_ATLAS²` × 4 camadas (4 nós por camada) e, opcional, o sol do
- * desenho de cada página física (3 por página; o registro da série).
+ * O mapa lido de volta: `rgba16float` de `CLOUD_SHADOW_ATLAS²` × 4 camadas (4 nós por camada) e, opcionais, o sol do
+ * desenho de cada página física (3 por página; o registro da série) e os mapas do quadro (o registro de estado).
  */
 export interface ShadowAtlas {
     readonly width: number;
@@ -231,6 +359,7 @@ export interface ShadowAtlas {
     readonly depth: number;
     readonly data: Float32Array;
     readonly suns?: Float32Array;
+    readonly maps?: ShadowMaps;
 }
 
 /** O nó `n` (1…16; 0 é a entrada: τ 0) do atlas no texel contínuo `p`, bilinear. */
@@ -267,45 +396,62 @@ export function shadowPageSun(map: ShadowAtlas, f: ShadowFrame, slot: number): V
     return v[0] * v[0] + v[1] * v[1] + v[2] * v[2] > 0.25 ? v : f.sun;
 }
 
+/** Os mapas do quadro como a GPU os leu (o registro de estado lido; sem ele, os do quadro ou parados no degrau do sol). */
+function mapsOf(map: ShadowAtlas, f: ShadowFrame): ShadowMaps {
+    return map.maps ?? f.maps ?? shadowMapsOf(f.sun);
+}
+
 /**
- * O texel contínuo no atlas de `p` no nível `k` (espelho de `cloud_shadow_page_at` e `cloud_shadow_page_uv`): a página
- * escolhida pelo plano do quadro, o ponto lido pelo plano do sol do desenho dela.
+ * O texel contínuo no atlas de `p` no nível `k` do degrau `m` (espelho de `cloud_shadow_page_at` e
+ * `cloud_shadow_page_uv`): a página escolhida pelo plano do quadro, o ponto lido pelo plano do sol do desenho dela.
  */
 export function shadowPageTexel(
     map: ShadowAtlas,
     f: ShadowFrame,
     p: Vec3,
     k: number,
+    m = mapsOf(map, f).entering,
 ): { texel: [number, number]; sun: Vec3 } {
     const x = shadowPlane(f, p);
-    const t = texelOf(f, k);
-    const w = shadowWindow(f, k);
+    const t = texelOf(f, k, m);
+    const w = shadowWindow(f, k, m);
     const P = CLOUD_SHADOW_PAGE;
-    const N = shadowWindowPages(f);
+    const N = shadowWindowPages(f, m);
     const g = [0, 1].map((a) => {
         const X = Math.min(Math.max(x[a]! / t[a]!, w[a]! * P + 0.5), (w[a]! + N[a]!) * P - 0.5);
         return Math.min(Math.max(Math.floor((X - 0.5) / P), w[a]!), w[a]! + N[a]! - 1);
     }) as [number, number];
-    const slot = shadowSlot(k, g);
+    const slot = shadowSlot(k, g, m);
     const sun = shadowPageSun(map, f, slot);
     const b = shadowBasis(sun);
     const xr = shadowPlane({ ...f, right: b.right, up: b.up }, p);
-    const tr = texelOf(f, k, sun);
     const o = shadowSlotOrigin(slot);
     const texel = [0, 1].map((a) => {
         const lo = g[a]! * P;
-        const X = Math.min(Math.max(xr[a]! / tr[a]!, lo + 0.5), lo + P + 0.5);
+        const X = Math.min(Math.max(xr[a]! / t[a]!, lo + 0.5), lo + P + 0.5);
         return o[a]! + X - lo;
     }) as [number, number];
     return { texel, sun };
 }
 
-/** O nó `n` em `p` como a GPU o lê: os dois níveis misturados na faixa de transição, cada página pelo sol dela. */
-export function shadowKnotAt(map: ShadowAtlas, f: ShadowFrame, p: Vec3, n: number): number {
+/** O nó `n` em `p` num degrau: os dois níveis misturados na faixa de transição, cada página pelo sol dela. */
+function shadowKnotStep(map: ShadowAtlas, f: ShadowFrame, p: Vec3, n: number, m: number): number {
     const [k, b] = shadowLevel(f, shadowPlane(f, p));
-    const a = shadowAtlasKnot(map, shadowPageTexel(map, f, p, k).texel, n);
+    const a = shadowAtlasKnot(map, shadowPageTexel(map, f, p, k, m).texel, n);
     if (b <= 0) return a;
-    return a + (shadowAtlasKnot(map, shadowPageTexel(map, f, p, k + 1).texel, n) - a) * b;
+    return a + (shadowAtlasKnot(map, shadowPageTexel(map, f, p, k + 1, m).texel, n) - a) * b;
+}
+
+/**
+ * O nó `n` em `p` como a GPU o lê (espelho de `cloud_shadow_knot`): os dois níveis misturados na faixa de transição e,
+ * na troca de degrau, os dois mapas pelo peso.
+ */
+export function shadowKnotAt(map: ShadowAtlas, f: ShadowFrame, p: Vec3, n: number): number {
+    const maps = mapsOf(map, f);
+    const a = shadowKnotStep(map, f, p, n, maps.entering);
+    if (maps.leaving === maps.entering || maps.weight >= 1) return a;
+    const b = shadowKnotStep(map, f, p, n, maps.leaving);
+    return a + (b - a) * (1 - maps.weight);
 }
 
 /** O sol da página do primeiro nível da mistura em `p` (a posição ao longo da coluna é medida por ele). */

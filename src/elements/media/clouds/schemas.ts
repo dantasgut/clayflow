@@ -74,15 +74,24 @@ export const CLOUD_SHADOW_PAGE = 16;
 export const CLOUD_SHADOW_STRIDE = CLOUD_SHADOW_PAGE + 1;
 /** Páginas de um nível em cima (e à direita com o texel quadrado). */
 export const CLOUD_SHADOW_PAGES = 8;
-/** Páginas físicas de um nível à direita (a janela tem 32 com o texel à direita de 0,2: `cloud_shadow_aspect`). */
-export const CLOUD_SHADOW_PAGES_X = 32;
+/**
+ * Páginas físicas de um nível à direita: as janelas de dois degraus vizinhos da razão do texel à direita lado a lado (o
+ * de 0,2 com 32, o de ½ com 14; o de 1, com 8, nas primeiras: `cloud_shadow_step_base`).
+ */
+export const CLOUD_SHADOW_PAGES_X = 46;
 /** Níveis do mapa (o último cobre ~5900 texels do primeiro: ±294 km com texels de 50 m). */
 export const CLOUD_SHADOW_LEVELS = 8;
 /** Páginas físicas por linha do atlas. */
-export const CLOUD_SHADOW_SLOTS_X = 46;
-/** Páginas no atlas (todas as janelas). */
+export const CLOUD_SHADOW_SLOTS_X = 55;
+/** Páginas no atlas (os lugares dos degraus em todos os níveis). */
 export const CLOUD_SHADOW_SLOT_COUNT =
     CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES_X * CLOUD_SHADOW_PAGES;
+/**
+ * O registro do estado dos mapas (o degrau de onde, o para onde e o peso: `CloudShadowMaps`), logo depois dos das páginas
+ * na série `shadowPages` (`page_x`, `page_y`, `time`); o carimbo é o do lugar do atlas de mesmo índice, que nenhuma página
+ * usa.
+ */
+export const CLOUD_SHADOW_STATE_SLOT = CLOUD_SHADOW_SLOT_COUNT;
 /** Lado do atlas em texels. */
 export const CLOUD_SHADOW_ATLAS = CLOUD_SHADOW_SLOTS_X * CLOUD_SHADOW_STRIDE;
 
@@ -115,7 +124,8 @@ export function cloudCoverageSlotCount(levels: number): number {
  * Os campos do registro de uma página física do mapa visto do sol (`cloud_shadow.wgsl`), na ordem do struct: o sol do
  * desenho (`f32`), o tempo da forma no desenho (s), a página global, o quadro do desenho, a assinatura do conteúdo, as
  * medidas (o maior |ΔT| entre texels por metro, o maior ao longo da coluna por metro, o maior trecho e a maior alavanca,
- * em m), o trecho no centro da página (m), o erro medido pelas provas e a célula do pivô; depois, os nós 4, 8, 12 e 16
+ * em m), o trecho no centro da página (m), o erro medido pelas provas, a célula do pivô e o degrau da razão do texel à
+ * direita com que foi desenhada; depois, os nós 4, 8, 12 e 16
  * de cada texel (o que as provas comparam).
  */
 const SHADOW_PAGE_FIELDS: readonly (readonly [string, 'f' | 'i' | 'u'])[] = [
@@ -135,6 +145,7 @@ const SHADOW_PAGE_FIELDS: readonly (readonly [string, 'f' | 'i' | 'u'])[] = [
     ['measured', 'f'],
     ['pivot_x', 'u'],
     ['pivot_y', 'u'],
+    ['step', 'u'],
 ];
 
 function shadowPageFields(view: boolean): Record<string, FieldSpec> {

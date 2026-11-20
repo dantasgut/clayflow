@@ -21,6 +21,7 @@ import {
     CLOUD_SCATTER_HEADER_WORDS,
     CLOUD_SCATTER_PAGE,
     CLOUD_SHADOW_SLOT_COUNT,
+    CLOUD_SHADOW_STATE_SLOT,
     CloudShadowPageViewSchema,
 } from '../../elements/media/clouds/schemas';
 
@@ -170,8 +171,9 @@ export async function readTexture(
 }
 
 /**
- * O mapa visto do sol por páginas lido da GPU (spec 041, R11 revisto): o atlas e o sol do desenho de cada página física
- * (os campos `sun_*` do registro da série `shadowPages`).
+ * O mapa visto do sol por páginas lido da GPU (spec 041, R11 revisto): o atlas, o sol do desenho de cada página física
+ * (os campos `sun_*` do registro da série `shadowPages`) e os mapas do quadro (o registro de estado
+ * `CLOUD_SHADOW_STATE_SLOT`: o degrau de onde, o para onde e o peso).
  */
 export async function readShadowMap(app: Application, layer: CloudLayer): Promise<ShadowAtlas> {
     const t = app.resources.textureOf(layer, 'shadow');
@@ -184,7 +186,14 @@ export async function readShadowMap(app: Application, layer: CloudLayer): Promis
     const sun = CloudShadowPageViewSchema.offsetOf('sun_x') / 4;
     for (let i = 0; i < CLOUD_SHADOW_SLOT_COUNT; i++)
         for (let c = 0; c < 3; c++) suns[i * 3 + c] = raw[i * words + sun + c]!;
-    return { ...atlas, suns };
+    const ints = new Int32Array(raw.buffer, raw.byteOffset, raw.length);
+    const state = CLOUD_SHADOW_STATE_SLOT * words;
+    const maps = {
+        leaving: ints[state + CloudShadowPageViewSchema.offsetOf('page_x') / 4]!,
+        entering: ints[state + CloudShadowPageViewSchema.offsetOf('page_y') / 4]!,
+        weight: raw[state + CloudShadowPageViewSchema.offsetOf('time') / 4]!,
+    };
+    return { ...atlas, suns, maps };
 }
 
 /**

@@ -17,11 +17,21 @@ import {
     CLOUD_SHADOW_SLOT_COUNT,
     CLOUD_SHADOW_STRIDE,
     CLOUD_SHADOW_LEVELS,
+    CLOUD_SHADOW_STEP_FRAMES,
+    CLOUD_SHADOW_STEP_NONE,
     shadowAspect,
     shadowAtlasTexel,
     shadowBasis,
+    shadowContinuous,
     shadowLevel,
-    shadowPagesX,
+    shadowMapsBegin,
+    shadowMapsEnd,
+    shadowMapsOf,
+    shadowStepAspect,
+    shadowStepBase,
+    shadowStepOf,
+    shadowStepPages,
+    shadowStepWeight,
     shadowPageCorners,
     shadowPageError,
     shadowPagePriority,
@@ -35,6 +45,7 @@ import {
     shadowUsable,
     shadowWindow,
     type ShadowFrame,
+    type ShadowMaps,
 } from '../cloudShadowPages';
 
 const rad = Math.PI / 180;
@@ -179,48 +190,264 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
         expect(worstJump).toBeLessThan(2 * 0.05 * rad);
     });
 
-    it('cada página da janela tem uma página física só, e a janela que anda guarda as que ficam', () => {
-        for (const el of [30, 6, 4, -0.5]) {
-            // Arrange
-            const f = frameOf(sunOf(el, 10), [1234, -5678]);
-            const g = frameOf(sunOf(el, 10), [1234 + 1700, -5678 - 900]);
-            const nx = shadowPagesX(shadowAspect(0, f.sun));
-            // Act
-            const slots = new Set<number>();
-            let active = 0;
-            for (let s = 0; s < CLOUD_SHADOW_SLOT_COUNT; s++) {
-                const a = shadowSlotPage(f, s);
-                slots.add(shadowSlot(a.level, a.page));
-                // Assert: o endereço toroidal da página que a janela põe no slot é o próprio slot.
-                expect(shadowSlot(a.level, a.page)).toBe(s);
-                // A página está nas páginas físicas do nível; as ativas, na janela.
-                const w = shadowWindow(f, a.level);
-                expect(a.page[0] - w[0]).toBeGreaterThanOrEqual(0);
-                expect(a.page[0] - w[0]).toBeLessThan(CLOUD_SHADOW_PAGES_X);
-                expect(a.page[1] - w[1]).toBeLessThan(CLOUD_SHADOW_PAGES);
-                expect(a.active).toBe(a.page[0] - w[0] < nx);
-                if (a.active) active++;
-                // Na janela que andou, a página que segue nela fica no mesmo slot (não é redesenhada).
-                const b = shadowSlotPage(g, s);
-                const wb = shadowWindow(g, a.level);
-                const stays =
-                    a.active
-                    && a.page[0] >= wb[0]
-                    && a.page[0] < wb[0] + nx
-                    && a.page[1] >= wb[1]
-                    && a.page[1] < wb[1] + CLOUD_SHADOW_PAGES;
-                if (stays) expect(b.page).toEqual(a.page);
+    it('cada página da janela de cada mapa tem uma página física só, os mapas de degraus vizinhos não se sobrepõem, e a janela que anda guarda as que ficam', () => {
+        const states: ShadowMaps[] = [
+            { leaving: 0, entering: 0, weight: 1 },
+            { leaving: 1, entering: 1, weight: 1 },
+            { leaving: 2, entering: 2, weight: 1 },
+            { leaving: 0, entering: 1, weight: 0.3 },
+            { leaving: 1, entering: 2, weight: 0 },
+            { leaving: 2, entering: 1, weight: 0.7 },
+        ];
+        for (const maps of states)
+            for (const el of [30, 12, 4]) {
+                // Arrange
+                const f = { ...frameOf(sunOf(el, 10), [1234, -5678]), maps };
+                const g = { ...frameOf(sunOf(el, 10), [1234 + 1700, -5678 - 900]), maps };
+                const steps = [...new Set([maps.leaving, maps.entering])];
+                // Act
+                const slots = new Set<number>();
+                let active = 0;
+                for (let s = 0; s < CLOUD_SHADOW_SLOT_COUNT; s++) {
+                    const a = shadowSlotPage(f, s);
+                    if (!a.active) continue;
+                    active++;
+                    // Assert: o endereço toroidal da página que a janela do degrau põe no slot é o próprio slot.
+                    expect(steps).toContain(a.step);
+                    expect(shadowSlot(a.level, a.page, a.step)).toBe(s);
+                    slots.add(s);
+                    // A página está na janela do degrau.
+                    const w = shadowWindow(f, a.level, a.step);
+                    expect(a.page[0] - w[0]).toBeGreaterThanOrEqual(0);
+                    expect(a.page[0] - w[0]).toBeLessThan(shadowStepPages(a.step));
+                    expect(a.page[1] - w[1]).toBeGreaterThanOrEqual(0);
+                    expect(a.page[1] - w[1]).toBeLessThan(CLOUD_SHADOW_PAGES);
+                    // Na janela que andou, a página que segue nela fica no mesmo slot (não é redesenhada).
+                    const b = shadowSlotPage(g, s);
+                    const wb = shadowWindow(g, a.level, a.step);
+                    const stays =
+                        a.page[0] >= wb[0]
+                        && a.page[0] < wb[0] + shadowStepPages(a.step)
+                        && a.page[1] >= wb[1]
+                        && a.page[1] < wb[1] + CLOUD_SHADOW_PAGES;
+                    if (stays) expect(b.page).toEqual(a.page);
+                }
+                // Os mapas do quadro inteiros e disjuntos: cada degrau com as suas páginas da janela em todos os níveis.
+                const want = steps.reduce(
+                    (n, m) => n + CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * shadowStepPages(m),
+                    0,
+                );
+                expect(active).toBe(want);
+                expect(slots.size).toBe(want);
             }
-            expect(slots.size).toBe(CLOUD_SHADOW_SLOT_COUNT);
-            expect(active).toBe(CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * nx);
-            // O texel à direita de 0,2 em toda elevação: as 32 páginas físicas à direita na janela.
-            expect(shadowAspect(0, f.sun)).toBe(0.2);
-            expect(nx).toBe(CLOUD_SHADOW_PAGES_X);
-        }
-        expect(CLOUD_SHADOW_SLOT_COUNT).toBeLessThanOrEqual(
+        // As janelas: 8, 14 e 32 páginas à direita; os degraus vizinhos lado a lado nas físicas.
+        expect([0, 1, 2].map(shadowStepPages)).toEqual([8, 14, 32]);
+        expect(shadowStepBase(1) + shadowStepPages(1)).toBeLessThanOrEqual(CLOUD_SHADOW_PAGES_X);
+        expect(shadowStepBase(2) + shadowStepPages(2)).toBeLessThanOrEqual(shadowStepBase(1));
+        expect(shadowStepBase(0) + shadowStepPages(0)).toBeLessThanOrEqual(shadowStepBase(1));
+        // O registro de estado logo depois das páginas, num lugar do atlas que nenhuma página usa.
+        expect(CLOUD_SHADOW_SLOT_COUNT + 1).toBeLessThanOrEqual(
             (CLOUD_SHADOW_ATLAS / CLOUD_SHADOW_STRIDE) ** 2,
         );
     });
+
+    it('a razão do texel à direita em degraus pela elevação, nunca acima da contínua tan(el)/tan(19°)', () => {
+        // Arrange
+        const t19 = Math.tan(19 * rad);
+        let steps = 0;
+        let prev = shadowAspect(0, sunOf(-2, 0));
+        // Act: o sol do horizonte ao zênite em centésimos de grau.
+        for (let el = -2; el <= 90; el += 0.01) {
+            const sun = sunOf(el, 37);
+            const r = shadowAspect(0, sun);
+            // Assert: um dos degraus, nunca mais grosso que a contínua, e o raio útil em metros nos dois eixos coberto
+            // pelas páginas da janela à direita.
+            expect([1, 0.5, 0.2]).toContain(r);
+            if (el > 0)
+                expect(r).toBeLessThanOrEqual(Math.max(Math.tan(el * rad) / t19, 0.2) + 1e-12);
+            expect(r).toBeGreaterThanOrEqual(prev);
+            const useful = (CLOUD_SHADOW_PAGES / 2 - 1) * CLOUD_SHADOW_PAGE - 2;
+            const nx = shadowStepPages(shadowStepOf(shadowContinuous(sun)));
+            expect(shadowStepAspect(shadowStepOf(shadowContinuous(sun)))).toBe(r);
+            expect((nx / 2 - 1) * CLOUD_SHADOW_PAGE).toBeGreaterThanOrEqual(useful / r + 2);
+            expect(nx).toBeLessThanOrEqual(CLOUD_SHADOW_PAGES_X);
+            if (r !== prev) steps++;
+            prev = r;
+        }
+        // Dois degraus no caminho (0,2 → ½ a ~9,8°, ½ → 1 a 19°); o sol rasante do `sunset` (4°) com 0,2, o meio-dia quadrado.
+        expect(steps).toBe(2);
+        expect(shadowAspect(0, sunOf(4, 0))).toBe(0.2);
+        expect(shadowAspect(0, sunOf(9.7, 0))).toBe(0.2);
+        expect(shadowAspect(0, sunOf(9.9, 0))).toBe(0.5);
+        expect(shadowAspect(0, sunOf(18.9, 0))).toBe(0.5);
+        expect(shadowAspect(0, sunOf(19.1, 0))).toBe(1);
+        expect(shadowAspect(0, sunOf(60, 0))).toBe(1);
+    });
+
+    it('a troca de degrau: o mapa novo desenhado dentro do orçamento, a mistura em N quadros, a folga, a inversão', () => {
+        // Arrange: o sol do `solposto` descendo pelo degrau de ~9,8° (0,035°/quadro) e voltando.
+        const elOf = (c: number) => (Math.atan(c * Math.tan(19 * rad)) * 180) / Math.PI;
+        const down = elOf(0.5);
+        // As páginas do mapa novo desenhadas pelo orçamento: 2048 do degrau de 0,2 a 128 por quadro.
+        const pagesOf = (m: number) =>
+            CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * shadowStepPages(m);
+        const budget = 128;
+        let maps: ShadowMaps | undefined;
+        let drawn = 0;
+        const log: { el: number; maps: ShadowMaps }[] = [];
+        // Act
+        for (let fr = 0; fr < 400; fr++) {
+            const el = down + 2 - 0.035 * fr;
+            const sun = sunOf(el, 30);
+            const begun = shadowMapsBegin(maps, sun);
+            if (begun.leaving !== begun.entering && begun.weight === 0 && maps?.weight !== 0)
+                drawn = 0;
+            if (begun.leaving !== begun.entering)
+                drawn = Math.min(drawn + budget, pagesOf(begun.entering));
+            maps = shadowMapsEnd(begun, pagesOf(begun.entering) - drawn);
+            log.push({ el, maps });
+        }
+        // Assert: parado em ½ acima do degrau, a troca para 0,2 começa logo abaixo dele (nunca acima da contínua), o
+        // mapa novo fica pronto em 16 quadros com peso 0 e o peso sobe 1/N por quadro até 1.
+        const start = log.findIndex((r) => r.maps.entering === 2);
+        expect(log[start - 1]!.maps).toEqual({ leaving: 1, entering: 1, weight: 1 });
+        expect(log[start]!.el).toBeLessThan(down);
+        expect(log[start - 1]!.el).toBeGreaterThanOrEqual(down);
+        const weights = log.slice(start).map((r) => r.maps.weight);
+        const ramp = weights.findIndex((w) => w > 0);
+        expect(ramp).toBe(Math.ceil(pagesOf(2) / budget) - 1);
+        for (let i = 1; i < weights.length; i++) {
+            expect(weights[i]! - weights[i - 1]!).toBeLessThanOrEqual(
+                1 / CLOUD_SHADOW_STEP_FRAMES + 1e-12,
+            );
+            expect(weights[i]!).toBeGreaterThanOrEqual(weights[i - 1]!);
+        }
+        const done = weights.findIndex((w) => w >= 1);
+        expect(done - ramp).toBe(CLOUD_SHADOW_STEP_FRAMES - 1);
+        expect(log.at(-1)!.maps).toEqual({ leaving: 2, entering: 2, weight: 1 });
+        // A folga: o sol que sobe logo acima do limiar não volta a ½; com a contínua 5 % acima, volta.
+        const s2: ShadowMaps = { leaving: 2, entering: 2, weight: 1 };
+        expect(shadowMapsBegin(s2, sunOf(elOf(0.51), 0))).toEqual(s2);
+        expect(shadowMapsBegin(s2, sunOf(elOf(0.53), 0))).toEqual({
+            leaving: 2,
+            entering: 1,
+            weight: 0,
+        });
+        // A inversão: no meio da troca, o sol que volta ao de onde troca os papéis com o peso complementar.
+        const mid: ShadowMaps = { leaving: 1, entering: 2, weight: 0.25 };
+        expect(shadowMapsBegin(mid, sunOf(elOf(0.6), 0))).toEqual({
+            leaving: 2,
+            entering: 1,
+            weight: 0.75,
+        });
+        expect(shadowMapsBegin(mid, sunOf(elOf(0.45), 0))).toEqual(mid);
+        // O sol que salta dois degraus num quadro troca de uma vez (as páginas físicas de 1 e 0,2 se sobrepõem).
+        const s0: ShadowMaps = { leaving: 0, entering: 0, weight: 1 };
+        expect(shadowMapsBegin(s0, sunOf(4, 0))).toEqual(s2);
+        // Sem estado (a época da série), o degrau do sol.
+        expect(shadowMapsBegin(undefined, sunOf(4, 0))).toEqual(shadowMapsOf(sunOf(4, 0)));
+        expect(shadowMapsOf(sunOf(60, 0))).toEqual(s0);
+        // Os pesos da leitura: os dois mapas somam 1; fora da troca, só o para onde.
+        for (const m of [mid, s2])
+            expect([0, 1, 2].reduce((n, k) => n + shadowStepWeight(m, k), 0)).toBeCloseTo(1, 12);
+        expect(shadowStepWeight(s2, 1)).toBe(0);
+        expect(CLOUD_SHADOW_STEP_NONE).toBe(3);
+    });
+
+    it('na troca de degrau o que se lê muda por quadro 1/N da diferença dos dois mapas (f64, cúmulos em células)', () => {
+        // Arrange: o sol no degrau de ~9,8°, pontos do chão perto da câmera (nível 0); a transmitância lida do mapa
+        // de ½ e do de 0,2 (a bilinear dos texels das colunas f64 de cada um) e a mistura pelo estado quadro a quadro. A
+        // nuvem rala em células de ~200 m de bordas vivas (as colunas de ~15 km pela casca com o sol a 9,8° com τ de
+        // ordem 1; a borda menor que o texel à direita de ½ é o que a razão fina resolve).
+        const m: CloudModel = {
+            ...cellModel(),
+            density: 0.0004,
+            coverage: (x, z) => [
+                Math.min(
+                    1,
+                    Math.max(
+                        0,
+                        0.5
+                            + 3
+                                * Math.sin((2 * Math.PI * x) / 410)
+                                * Math.sin((2 * Math.PI * z) / 530),
+                    ),
+                ),
+                0.5,
+                1,
+            ],
+        };
+        const el = (Math.atan(0.5 * Math.tan(19 * rad)) * 180) / Math.PI;
+        const sun = sunOf(el - 0.01, 30);
+        const f = frameOf(sun);
+        const down: Vec3 = [-sun[0], -sun[1], -sun[2]];
+        const cache = new Map<string, number>();
+        /** T ao fim da coluna do texel global (i, j) do nível 0 com a razão `a` à direita. */
+        const texelT = (i: number, j: number, a: number): number => {
+            const key = `${a}:${i}:${j}`;
+            const hit = cache.get(key);
+            if (hit !== undefined) return hit;
+            const x = (i + 0.5) * f.texel * a;
+            const y = (j + 0.5) * f.texel;
+            const o0: Vec3 = [
+                f.right[0] * x + f.up[0] * y,
+                f.right[1] * x + f.up[1] * y,
+                f.right[2] * x + f.up[2] * y,
+            ];
+            const span = sphereSpan(m, o0, sun, m.groundRadius + m.top);
+            const entry = span === undefined ? 0 : Math.max(span[1], 0) + 1;
+            const o: Vec3 = [
+                o0[0] + sun[0] * entry,
+                o0[1] + sun[1] * entry,
+                o0[2] + sun[2] * entry,
+            ];
+            const t = Math.exp(-shadowTexel(m, o, down, 96)[15]!);
+            cache.set(key, t);
+            return t;
+        };
+        /** A transmitância lida no ponto `x` do plano com a razão `a` (a bilinear das transmitâncias). */
+        const read = (x: readonly [number, number], a: number): number => {
+            const X = x[0] / (f.texel * a) - 0.5;
+            const Y = x[1] / f.texel - 0.5;
+            const i = Math.floor(X);
+            const j = Math.floor(Y);
+            const u = X - i;
+            const v = Y - j;
+            return (
+                (texelT(i, j, a) * (1 - u) + texelT(i + 1, j, a) * u) * (1 - v)
+                + (texelT(i, j + 1, a) * (1 - u) + texelT(i + 1, j + 1, a) * u) * v
+            );
+        };
+        const points: [number, number][] = Array.from({ length: 120 }, (_, n) => [
+            (((n * 0.618034) % 1) - 0.5) * 4000,
+            (((n * 0.754878) % 1) - 0.5) * 4000,
+        ]);
+        const half = points.map((x) => read(x, shadowStepAspect(1)));
+        const fine = points.map((x) => read(x, shadowStepAspect(2)));
+        let gap = 0;
+        points.forEach((_, n) => (gap = Math.max(gap, Math.abs(fine[n]! - half[n]!))));
+        // Act: a troca de ½ para 0,2 (o mapa novo pronto), quadro a quadro.
+        let maps: ShadowMaps = { leaving: 1, entering: 1, weight: 1 };
+        let prev = half;
+        let jump = 0;
+        for (let fr = 0; fr < 2 * CLOUD_SHADOW_STEP_FRAMES; fr++) {
+            maps = shadowMapsEnd(shadowMapsBegin(maps, sun), 0);
+            const now = points.map(
+                (_, n) =>
+                    half[n]! * shadowStepWeight(maps, 1) + fine[n]! * shadowStepWeight(maps, 2),
+            );
+            now.forEach((t, n) => (jump = Math.max(jump, Math.abs(t - prev[n]!))));
+            prev = now;
+        }
+        console.log(
+            `troca de degrau (f64): a diferença entre os mapas de ½ e 0,2 até ${(gap * 255).toFixed(1)} níveis de T; o maior salto por quadro na mistura ${(jump * 255).toFixed(2)} níveis`,
+        );
+        // Assert: o mapa novo inteiro no fim, e o salto por quadro 1/N da diferença (a troca de uma vez saltava ela toda).
+        expect(maps).toEqual({ leaving: 2, entering: 2, weight: 1 });
+        prev.forEach((t, n) => expect(t).toBeCloseTo(fine[n]!, 12));
+        expect(gap).toBeGreaterThan(CLOUD_SHADOW_TOLERANCE);
+        expect(jump).toBeLessThanOrEqual(gap / CLOUD_SHADOW_STEP_FRAMES + 1e-12);
+    }, 60_000);
 
     it.each([20, 4])(
         'o par do filtro fica na página física, e o nível cobre o ponto com a borda até o último (sol a %s°)',
@@ -240,8 +467,6 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
                 maxLevelUsed = Math.max(maxLevelUsed, k);
                 for (const level of blend > 0 ? [k, k + 1] : [k]) {
                     const p = shadowAtlasTexel(f, x, level);
-                    const slot = shadowSlot(level, [0, 0]);
-                    void slot;
                     // Assert: os dois texels do filtro (floor(p − ½) e +1) na mesma página física.
                     const lx =
                         p[0] - 0.5 - Math.floor(p[0] / CLOUD_SHADOW_STRIDE) * CLOUD_SHADOW_STRIDE;
@@ -259,7 +484,9 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
                         const X = x[0] / t;
                         expect(X).toBeGreaterThanOrEqual(w[0] * CLOUD_SHADOW_PAGE + 0.5);
                         expect(X).toBeLessThanOrEqual(
-                            (w[0] + shadowPagesX(shadowAspect(0, f.sun))) * CLOUD_SHADOW_PAGE - 0.5,
+                            (w[0] + shadowStepPages(shadowStepOf(shadowContinuous(f.sun))))
+                                * CLOUD_SHADOW_PAGE
+                                - 0.5,
                         );
                     }
                 }
@@ -307,7 +534,7 @@ describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f
             const stored = renderPage(m, f0, p.k, p.g);
             return {
                 ...p,
-                slot: shadowSlot(p.k, p.g),
+                slot: shadowSlot(p.k, p.g, shadowStepOf(shadowContinuous(f0.sun))),
                 stored,
                 last: stored,
                 rec: recordOf(f0, stored, p.k, p.g),

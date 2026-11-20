@@ -593,13 +593,15 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 history: { depth: 1, pages: { tile: [CLOUD_SHADOW_STRIDE, CLOUD_SHADOW_STRIDE] } },
             },
             // O registro de cada página física do mapa (o sol, o tempo e o quadro do desenho, a página global, a
-            // assinatura do conteúdo, a célula do pivô, as medidas e os nós que as provas comparam — `cloud_shadow.wgsl`),
-            // série por páginas.
+            // assinatura do conteúdo, a célula do pivô, o degrau, as medidas e os nós que as provas comparam —
+            // `cloud_shadow.wgsl`) e o estado dos mapas na troca de degrau (o de onde, o para onde e o peso), série por
+            // páginas: o estado entre quadros da mistura dos dois mapas é dela.
             {
                 id: 'shadowPages',
                 role: 'storage-rw',
                 schema: CloudShadowPageSchema,
-                count: CLOUD_SHADOW_SLOT_COUNT,
+                // As páginas e o registro do estado dos mapas (`CLOUD_SHADOW_STATE_SLOT`).
+                count: CLOUD_SHADOW_SLOT_COUNT + 1,
                 upload: 'never',
                 history: { depth: 1, pages: { record: CloudShadowPageSchema.stride } },
             },
