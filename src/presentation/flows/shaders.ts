@@ -4,7 +4,6 @@ import { sky, skySunTrack, skySunVisibility } from '../../elements/scene/sky/sha
 import { cloudResources } from '../../elements/media/clouds/shaders';
 import { SCENE_FOG_BACKGROUND, sceneFogReady } from '../../elements/scene/points/media';
 import { refractionScreen } from '../../elements/lighting/refraction/shaders';
-import { cameraSpace } from '../../elements/scene/flows/shaders';
 import skyCompositeSource from './sky_composite.wgsl?raw';
 import skyReactiveSource from './sky_reactive.wgsl?raw';
 import skyOverflowSource from './sky_overflow.wgsl?raw';
@@ -874,9 +873,6 @@ function skyCompositeModule(multisampled: boolean): WgslModule {
         requires: [
             refractionScreen,
             SKY_COMPOSITE_CLOUD,
-            cameraSpace,
-            sceneFogReady,
-            SCENE_FOG_BACKGROUND.module,
             sky,
             constants,
             camerasResource,

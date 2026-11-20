@@ -31,6 +31,15 @@ export interface AtmosphereParams {
     readonly ozoneHalfWidth: number;
     /** Albedo do chão (para o múltiplo espalhamento). */
     readonly groundAlbedo: Vec3;
+    /**
+     * Névoa seca perto do chão (spec 041, R21): espalhamento e extinção ao nível do chão (1/km) e altura de escala (km),
+     * com a fase de Mie. Ausente: nenhuma.
+     */
+    readonly haze?: {
+        readonly scattering: number;
+        readonly extinction: number;
+        readonly scale: number;
+    };
 }
 
 /** Terra (Hillaire 2020, tabela 1). `turbidity` multiplica o Mie (1 = céu limpo). */
@@ -70,10 +79,11 @@ export interface Medium {
 export function mediumAt(p: AtmosphereParams, h: number): Medium {
     const dr = Math.exp(-h / p.rayleighScale);
     const dm = Math.exp(-h / p.mieScale);
+    const dh = p.haze === undefined ? 0 : Math.exp(-Math.max(h, 0) / p.haze.scale);
     const dz = Math.max(0, 1 - Math.abs(h - p.ozoneCenter) / p.ozoneHalfWidth);
     const rayleigh = scale(p.rayleighScattering, dr);
-    const mie = p.mieScattering * dm;
-    const mieExt = p.mieExtinction * dm;
+    const mie = p.mieScattering * dm + (p.haze?.scattering ?? 0) * dh;
+    const mieExt = p.mieExtinction * dm + (p.haze?.extinction ?? 0) * dh;
     const ozone = scale(p.ozoneAbsorption, dz);
     return {
         rayleigh,

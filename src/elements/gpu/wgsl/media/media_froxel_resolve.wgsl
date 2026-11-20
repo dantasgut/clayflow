@@ -5,7 +5,8 @@
 // sem elas o passe cabe no orçamento da névoa): com a câmera andando, o feixe de sol ficava com a borda mole e atrasada,
 // e o que a vizinhança do quadro não sustenta sai. A Catmull-Rom no lugar da trilinear foi medida e piorou o padrão da
 // grade no resíduo entre quadros (`fogWalk`: 0,13 % do pico contra 0,05 %).
-// Requer: WORKGROUP_SIZE, FROXEL_HISTORY, froxels, cameras, media_common, temporal, froxel_current, froxel_sampler,
+// Requer: WORKGROUP_SIZE, FROXEL_HISTORY, froxels, cameras, media_common, media_froxel_state, temporal, froxel_current,
+// froxel_sampler,
 // froxel_history, froxel_history_out.
 
 /** Desvios da vizinhança do quadro em volta da média que o histórico pode guardar. */
@@ -16,12 +17,15 @@ fn froxel_resolve_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let dims = froxels.grid.xyz;
     if (i >= dims.x * dims.y * dims.z) { return; }
+    // Sem o meio nem névoa neste quadro (spec 041, R21), nada a acumular; recomeçando, sem o histórico.
+    let state = froxel_medium_state();
+    if (!state.x) { return; }
     let cell = vec3u(i % dims.x, (i / dims.x) % dims.y, i / (dims.x * dims.y));
     let current = textureLoad(froxel_current, cell, 0);
     var out = current;
     // Sem histórico no corte de câmera (`history.x`, spec 037) ou com o acúmulo desligado.
     let cam = cameras[froxels.grid.w];
-    if (froxels.counts.w == 1u && !temporal_cut(cam.history)) {
+    if ((froxels.counts.w & 1u) == 1u && state.y && !temporal_cut(cam.history)) {
         let uv_c = (vec2f(cell.xy) + 0.5) / vec2f(dims.xy);
         let center = froxel_world(cam, froxel_view_point(uv_to_ndc(uv_c), froxel_slice_depth(f32(cell.z) + 0.5),
             froxel_projection(cam)));

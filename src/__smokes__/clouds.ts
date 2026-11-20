@@ -48,6 +48,7 @@ import { readHdrTexture } from './support/imageMeasures';
 import {
     BoxGeometry,
     FogVolume,
+    Froxels,
     graphArgument,
     NodeGraph,
     nodes,
@@ -881,7 +882,7 @@ async function caseScatterCache(): Promise<void> {
 async function passTimes(
     app: Application,
     frames: number,
-    pattern = /Cloud|Sky/,
+    pattern = /Cloud|Sky|Froxel/,
 ): Promise<{ total: number; span: number; passes: Record<string, number> }> {
     const samples: Record<string, number>[] = [];
     const spans: number[] = [];
@@ -899,6 +900,12 @@ async function passTimes(
     const total = Object.values(passes).reduce((a, b) => a + b, 0);
     return { total, span: median(spans), passes };
 }
+
+/** O tempo do passe dos froxels entre os passes medidos. */
+const froxelMs = (passes: Record<string, number>): number =>
+    Object.entries(passes)
+        .filter(([k]) => k.includes('Froxel'))
+        .reduce((a, [, v]) => a + v, 0);
 
 const median = (v: readonly number[]): number => {
     const a = [...v].sort((x, y) => x - y);
@@ -934,6 +941,12 @@ async function cloudCost(
     diffs: number[];
     withSpan: number[];
     passes: Record<string, number>;
+    /** O passe dos froxels sem a camada (mediana, ms). */
+    froxelsWithout: number;
+    /** Os passes que mais mudam com − sem a camada (todos os passes). */
+    deltas: string;
+    /** O texel do alcance (a distância, a decisão do seguinte e a deste) em cada fase. */
+    reach: string;
     quality: unknown;
 }> {
     const s = await cloudScene({
@@ -991,6 +1004,11 @@ async function cloudCost(
     const diffs: number[] = [];
     const withSpan: number[] = [];
     const perPass: Record<string, number>[] = [];
+    // Os froxels sem a camada (spec 041, R21: a atmosfera neles com e sem a sombra das nuvens).
+    const froxelsWithout: number[] = [];
+    const allWith: Record<string, number>[] = [];
+    const allWithout: Record<string, number>[] = [];
+    const reach: string[] = [];
     for (let r = 0; r < TIMING_REPS; r++) {
         const order = r % 2 === 0 ? [true, false] : [false, true];
         const span: Record<string, number> = {};
@@ -1003,7 +1021,21 @@ async function cloudCost(
             await busyFrames(s.app, 60);
             const t = await passTimes(s.app, 90);
             span[has ? 'with' : 'without'] = t.span;
+            // A decisão da GPU sobre a atmosfera nos froxels (spec 041, R21): o texel do alcance do último quadro.
+            const froxels = s.app.world.findResource(Froxels.schema, Froxels);
+            const channel =
+                froxels === undefined ? undefined : s.app.resources.channelOf(froxels, 'reach');
+            const reachTex = channel?.texture(0);
+            if (reachTex !== undefined) {
+                const r = (await readTexture(s.app, reachTex, 'rgba32float')).data;
+                reach.push(
+                    `${has ? 'com' : 'sem'} ${r[0]!.toExponential(1)} m/${r[1]}/${r[2]} (${channel!.frames} q)`,
+                );
+            } else reach.push(`${has ? 'com' : 'sem'} sem canal (${String(channel?.allocated)})`);
+            const all = await passTimes(s.app, 30, /./);
+            (has ? allWith : allWithout).push(all.passes);
             if (has) perPass.push(t.passes);
+            else froxelsWithout.push(froxelMs(t.passes));
         }
         diffs.push(span.with! - span.without!);
         withSpan.push(span.with!);
@@ -1012,7 +1044,24 @@ async function cloudCost(
     const passes: Record<string, number> = {};
     for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
         passes[k] = median(perPass.map((x) => x[k] ?? 0));
-    return { diffs, withSpan, passes, quality };
+    const deltas = [...new Set([...allWith, ...allWithout].flatMap((x) => Object.keys(x)))]
+        .map((k): [string, number] => [
+            k,
+            median(allWith.map((x) => x[k] ?? 0)) - median(allWithout.map((x) => x[k] ?? 0)),
+        ])
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+        .slice(0, 8)
+        .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v >= 0 ? '+' : ''}${v.toFixed(3)}`)
+        .join(', ');
+    return {
+        diffs,
+        withSpan,
+        passes,
+        quality,
+        froxelsWithout: median(froxelsWithout),
+        deltas,
+        reach: reach.join(', '),
+    };
 }
 
 async function caseInteriorTiming(): Promise<void> {
@@ -1020,6 +1069,9 @@ async function caseInteriorTiming(): Promise<void> {
     // do bench, no perfil alto.
     const c = await cloudCost('high', true);
     const d = median(c.diffs);
+    log(
+        `interior-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; alcance ${c.reach}; maiores diferenças por passe ${c.deltas}`,
+    );
     log(
         `interior-timing: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe: ${Object.entries(
             c.passes,
@@ -1107,6 +1159,9 @@ async function caseTiming(): Promise<void> {
         const d = median(c.diffs);
         log(`timing ${profile}: qualidade ${JSON.stringify(c.quality)}`);
         log(
+            `timing ${profile}: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; maiores diferenças por passe ${c.deltas}`,
+        );
+        log(
             `timing ${profile}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
                 c.passes,
             )
@@ -1150,11 +1205,20 @@ async function caseClearSky(): Promise<void> {
     const cb = await sceneColor(b);
     finish(b);
     let worst = 0;
+    let at = 0;
+    let sum = 0;
     for (let k = 0; k < ca.length; k++)
-        if (k % 4 !== 3)
-            worst = Math.max(worst, Math.abs(cb[k]! - ca[k]!) / Math.max(ca[k]!, 1e-3));
+        if (k % 4 !== 3) {
+            const d = Math.abs(cb[k]! - ca[k]!) / Math.max(ca[k]!, 1e-3);
+            sum += d;
+            if (d > worst) {
+                worst = d;
+                at = k;
+            }
+        }
+    const px = Math.floor(at / 4);
     log(
-        `clear-sky: cobertura 0 contra o céu sem camada — pior diferença relativa ${worst.toExponential(2)}`,
+        `clear-sky: cobertura 0 contra o céu sem camada — pior diferença relativa ${worst.toExponential(2)} (pixel ${px % view.width}, ${Math.floor(px / view.width)}: ${ca[at]!.toFixed(3)} contra ${cb[at]!.toFixed(3)}), média ${(sum / ((ca.length * 3) / 4)).toExponential(2)}`,
     );
     check(
         worst <= 1e-3,
@@ -1933,13 +1997,17 @@ async function caseFogInFront(): Promise<void> {
         clouds: { coverage: 0.5, wind: [0, 0] as [number, number] },
         target: [1000, 450, 200] as const,
     };
+    // Quadros até a captura (`--query settle=N`): 180 — com a névoa, a marcha das nuvens compõe os meios perto da câmera
+    // até a nuvem (spec 041, R21) e é refeita quando a névoa entra; a reconstrução temporal dela (a média de ~64 quadros)
+    // não assenta em 60 (resíduo 4,5 % aos 60, 0,83 % aos 180).
+    const settle = Number(new URLSearchParams(location.search).get('settle') ?? 180);
     const a = await cloudScene(view);
-    await settleFrames(a.app, 60);
+    await settleFrames(a.app, settle);
     const ca = await sceneColor(a);
     finish(a);
     const b = await cloudScene(view);
     b.app.world.insert(new FogVolume({ shape: { sphere: 30 }, center: [0, 2, 0], density: 0.004 }));
-    await settleFrames(b.app, 60);
+    await settleFrames(b.app, settle);
     const cb = await sceneColor(b);
     finish(b);
     // Médias de blocos de 8 × 8 px no verde (a escala de um halo; tira o ruído do deslocamento da amostra do AA), e o
@@ -1971,11 +2039,26 @@ async function caseFogInFront(): Promise<void> {
     const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
     const icpt = (sy - slope * sx) / n;
     let worst = 0;
+    let at = 0;
     const mean = sy / n;
-    for (let k = 0; k < n; k++)
-        worst = Math.max(worst, Math.abs(xb[k]! - (icpt + slope * xa[k]!)) / mean);
+    for (let k = 0; k < n; k++) {
+        const r = Math.abs(xb[k]! - (icpt + slope * xa[k]!)) / mean;
+        if (r > worst) {
+            worst = r;
+            at = k;
+        }
+    }
+    const map: string[] = [];
+    for (let k = 0; k < n; k++) {
+        const r = (xb[k]! - (icpt + slope * xa[k]!)) / mean;
+        if (Math.abs(r) > 0.01)
+            map.push(
+                `${k % 40},${Math.floor(k / 40)}:${(r * 100).toFixed(1)}(${xa[k]!.toFixed(1)})`,
+            );
+    }
+    log(`fog-in-front: blocos com resíduo > 1 % (x,y:%(sem)) ${map.join(' ')}`);
     log(
-        `fog-in-front: com névoa = ${icpt.toFixed(3)} + ${slope.toFixed(4)} × sem névoa; pior resíduo por bloco de 8 × 8 px ${(worst * 100).toFixed(2)} % da média`,
+        `fog-in-front: com névoa = ${icpt.toFixed(3)} + ${slope.toFixed(4)} × sem névoa; pior resíduo por bloco de 8 × 8 px ${(worst * 100).toFixed(2)} % da média (bloco ${at % 40}, ${Math.floor(at / 40)}: sem ${xa[at]!.toFixed(3)}, com ${xb[at]!.toFixed(3)}, esperado ${(icpt + slope * xa[at]!).toFixed(3)})`,
     );
     check(slope < 0.999, 'fog-in-front: a névoa não atenuou as nuvens');
     check(
@@ -2684,7 +2767,8 @@ const CASES: Record<string, () => Promise<void>> = {
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     for (const [name, run] of Object.entries(CASES)) {
-        if (only !== null && only !== name) continue;
+        // Um caso ou vários separados por `_`.
+        if (only !== null && !only.split('_').includes(name)) continue;
         await run();
     }
     failures.push(...new Set(engineErrors));

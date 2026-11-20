@@ -12,6 +12,7 @@ import {
     skyParamsResource,
 } from '../../scene/sky/shaders';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
+import { sceneNearFogReady } from '../../scene/points/media';
 import { color, constants, random, viewSpace, xformRigid } from '../../gpu/shaders/math';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
@@ -34,6 +35,7 @@ import cloudSceneLimitSource from '../../gpu/wgsl/clouds/cloud_scene_limit.wgsl?
 import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
 import cloudTransmissionSource from '../../gpu/wgsl/clouds/cloud_transmission.wgsl?raw';
+import cloudVolumeVisibilitySource from '../../gpu/wgsl/clouds/cloud_volume_visibility.wgsl?raw';
 import cloudCoverageFieldSource from '../../gpu/wgsl/clouds/cloud_coverage_field.wgsl?raw';
 import cloudScatterLookupSource from '../../gpu/wgsl/clouds/cloud_scatter_lookup.wgsl?raw';
 import cloudScatterGridSource from '../../gpu/wgsl/clouds/cloud_scatter_grid.wgsl?raw';
@@ -854,6 +856,7 @@ const cloudMarchBase = {
             viewSpace,
             cameraSpace,
             skyAerialLookup,
+            sceneNearFogReady,
             random,
             cloudParamsResource,
             camerasResource,
@@ -873,6 +876,7 @@ const cloudMarchBase = {
             viewSpace,
             cameraSpace,
             skyAerialLookup,
+            sceneNearFogReady,
             random,
             cloudParamsResource,
             camerasResource,
@@ -1024,6 +1028,13 @@ export const cloudSkyCover = wgslModule({
     name: 'cloud_sky_cover',
     source: cloudCoverSource,
     requires: [constants, R.panorama, R.noiseSampler],
+});
+
+/** `light_volume_visibility` pela sombra das nuvens num ponto do ar (spec 041, R21; uma amostra por quadro). */
+export const cloudVolumeVisibility = wgslModule({
+    name: 'cloud_volume_visibility',
+    source: cloudVolumeVisibilitySource,
+    requires: [constants, random, skyParamsResource, cloudParamsResource, cloudShadowLookup],
 });
 
 /** `light_transmission` pela sombra das nuvens (só a luz do sol do `Sky`). */

@@ -327,9 +327,24 @@ async function compareScene(
         `${name}: luz indireta motor/referência por região — ${report.join(', ')}; pior ${(worst * 100).toFixed(1)} %`,
     );
     check(pairs.size === scene.regions.size, `${name}: só ${pairs.size} regiões visíveis`);
-    // Só soma: nenhuma região fica mais escura com a iluminação global.
+    // Só soma: nenhuma região fica mais escura com a iluminação global — até a precisão do alvo da cena (meio-float: 11
+    // bits de mantissa, 2⁻¹⁰ do valor; spec 041, R21: o ar perto da câmera no céu da janela vem dos froxels, e as duas
+    // montagens arredondam diferente — 8 nits a 10 952, um passo do meio-float ali).
+    let darkest = 0;
+    let darkAt = 0;
+    total.data.forEach((v, k) => {
+        if (k % 4 !== 3 && direct.data[k]! - v > darkest) {
+            darkest = direct.data[k]! - v;
+            darkAt = k;
+        }
+    });
+    log(
+        `${name}: maior queda com a iluminação global ${darkest.toExponential(2)} (pixel ${Math.floor(darkAt / 4) % total.width}, ${Math.floor(darkAt / 4 / total.width)}: direta ${direct.data[darkAt]!.toFixed(4)}, total ${total.data[darkAt]!.toFixed(4)})`,
+    );
     check(
-        [...total.data].every((v, k) => k % 4 === 3 || v >= direct.data[k]! - 1e-3),
+        [...total.data].every(
+            (v, k) => k % 4 === 3 || v >= direct.data[k]! - Math.max(1e-3, direct.data[k]! / 1024),
+        ),
         `${name}: alguma superfície ficou mais escura com a iluminação global`,
     );
     if (extra !== undefined) extra(engine, ref);

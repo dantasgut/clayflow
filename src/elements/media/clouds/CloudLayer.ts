@@ -4,7 +4,11 @@ import type { Resource } from '../../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
-import { lightTransmissionPoint, skyCoverPoint } from '../../scene/points/lighting';
+import {
+    lightTransmissionPoint,
+    lightVolumeVisibilityPoint,
+    skyCoverPoint,
+} from '../../scene/points/lighting';
 import {
     CloudCoverageFunction,
     type CloudCoverageOptions,
@@ -31,7 +35,7 @@ import {
     CloudShadowPageSchema,
     type CloudQuality,
 } from './schemas';
-import { cloudLightTransmission, cloudSkyCover } from './shaders';
+import { cloudLightTransmission, cloudSkyCover, cloudVolumeVisibility } from './shaders';
 
 /**
  * O tempo das nuvens (spec 041, R19): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
@@ -655,6 +659,13 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             order: 25,
             pools: [],
             build: () => (this.rawData.active === 1 ? cloudLightTransmission : undefined),
+        },
+        {
+            // A sombra nos pontos do ar dos froxels (spec 041, R21): uma amostra por quadro.
+            point: lightVolumeVisibilityPoint,
+            order: 25,
+            pools: [],
+            build: () => (this.rawData.active === 1 ? cloudVolumeVisibility : undefined),
         },
         {
             point: skyCoverPoint,

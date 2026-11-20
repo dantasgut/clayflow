@@ -9,7 +9,15 @@ import { camerasResource, lightsResource } from '../scene/resources';
 import { lightIncoming } from '../scene/points/lightContributions';
 import { lightTransmissionReady, lightVisibilityReady } from '../scene/points/lighting';
 import { rayVolumeScatterTypes } from '../raytrace/points';
-import { sceneAmbientReady, sceneFogType } from '../scene/points/media';
+import {
+    sceneAmbientReady,
+    sceneFogType,
+    sceneMediumExtinctionReady,
+    sceneMediumReady,
+    sceneNearFogType,
+} from '../scene/points/media';
+import froxelReachSource from '../gpu/wgsl/media/media_froxel_reach.wgsl?raw';
+import froxelStateSource from '../gpu/wgsl/media/media_froxel_state.wgsl?raw';
 import { FroxelsSchema, FROXEL_HISTORY, MEDIA_MARCH_STEPS } from './schemas';
 import densityFnReadySource from '../gpu/wgsl/media/media_density_fn_ready.wgsl?raw';
 import densityCheckSource from '../gpu/wgsl/media/media_density_check.wgsl?raw';
@@ -93,6 +101,57 @@ const historyOut = (format: GPUTextureFormat): WgslResource =>
         provider: { slot: 'froxelHistory', lag: 0 },
     });
 
+/** O slot do canal do alcance (spec 041, R21): a distância vista e a decisão do meio contínuo, quadro a quadro. */
+export const froxelReachSlot = Object.freeze({
+    froxelReach: slot.channel(FroxelsSchema, 'reach'),
+});
+
+/** O alcance do quadro anterior (lido pela grade e pela redução) e a escrita do quadro (pela redução). */
+const reachPrevious = wgslResource({
+    name: 'froxel_reach_prev',
+    binding: { texture: { sample: 'f32' } },
+    frequency: 'stage',
+    provider: { slot: 'froxelReach', lag: 1 },
+});
+const reachOut = wgslResource({
+    name: 'froxel_reach_out',
+    binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+    frequency: 'stage',
+    provider: { slot: 'froxelReach', lag: 0 },
+});
+/** A palavra do máximo da redução (resolver `Froxels.reachMax`). */
+const reachMax = wgslResource({
+    name: 'froxel_reach_max',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'atomic<u32>', array: true },
+    frequency: 'frame',
+    provider: { consumer: 'Froxels.reachMax' },
+});
+
+/** A decisão do quadro (spec 041, R21; resolver `Froxels.state`): lida por quem consulta a grade. */
+const stateTexture = wgslResource({
+    name: 'froxel_state',
+    binding: { texture: { sample: 'f32' } },
+    frequency: 'frame',
+    provider: { consumer: 'Froxels.state' },
+});
+/** A escrita da decisão no começo da grade (privada do estágio). */
+const stateOut = wgslResource({
+    name: 'froxel_state_out',
+    binding: { storageTexture: { format: 'rgba8unorm', access: 'write' } },
+    frequency: 'stage',
+    provider: 'private',
+});
+
+/** Os argumentos do despacho indireto da grade (resolver `Froxels.dispatch`), escritos pela decisão do quadro. */
+const dispatchArgs = wgslResource({
+    name: 'froxel_dispatch',
+    binding: { storage: 'read_write' },
+    type: { wgsl: 'u32', array: true },
+    frequency: 'frame',
+    provider: { consumer: 'Froxels.dispatch' },
+});
+
 /** Recursos dos meios. */
 export const mediaResources = Object.freeze({
     params,
@@ -114,6 +173,9 @@ export const mediaResources = Object.freeze({
     /** O quadro da injeção (antes do acúmulo): a saída dela e a leitura do acúmulo (T058). */
     currentOut: out3d('froxel_current_out'),
     current: texture3d('froxel_current', 'Froxels.current'),
+    /** A decisão do quadro: a escrita (no começo da grade) e a leitura. */
+    stateOut,
+    state: stateTexture,
 });
 
 const R = mediaResources;
@@ -181,6 +243,13 @@ const mediaCommon = wgslModule({
     requires: [cameraMath, viewSpace, random, hashAddress, params, camerasResource],
 });
 
+/** Se o meio contínuo conta neste quadro e no anterior (spec 041, R21), pelo canal do alcance. */
+const froxelState = wgslModule({
+    name: 'media_froxel_state',
+    source: froxelStateSource,
+    requires: [params, reachPrevious],
+});
+
 /** Volumes no buffer dos meios: forma, borda, densidade, trecho do raio e transmitância. */
 export const mediaVolumes = wgslModule({
     name: 'media_volumes',
@@ -194,11 +263,49 @@ export const mediaVolumesPoint: BindablePoint = {
     ready: mediaVolumes,
 };
 
-/** A névoa no desenho (`scene_fog`): leitura tricúbica dos froxels integrados. */
+/** A leitura tricúbica dos froxels integrados (`froxel_fog`). */
+const mediaFroxelFog = wgslModule({
+    name: 'media_froxel_fog',
+    source: mediaLookupSource,
+    requires: [mediaCommon, R.scatter, R.sampler, R.state, sceneFogType],
+});
+
+/** A névoa no desenho (`scene_fog`): a leitura dos froxels integrados. */
 export const mediaLookup = wgslModule({
     name: 'media_lookup',
-    source: mediaLookupSource,
-    requires: [mediaCommon, R.scatter, R.sampler, sceneFogType],
+    requires: [mediaFroxelFog, sceneFogType],
+    source: `fn scene_fog(p: vec3f) -> SceneFog {
+    return froxel_fog(p);
+}`,
+});
+
+/**
+ * Os meios perto da câmera (`scene_near_fog`, spec 041 R21): a leitura dos froxels até o ponto; sem o meio contínuo na
+ * grade, alcance 0.
+ */
+export const mediaNearFog = wgslModule({
+    name: 'media_near_fog',
+    requires: [mediaFroxelFog, sceneNearFogType],
+    source: `fn scene_near_fog(p: vec3f) -> SceneNearFog {
+    return SceneNearFog(froxel_fog(p), 0.0);
+}`,
+});
+
+/**
+ * Os meios perto da câmera com o meio contínuo na grade (spec 041, R21): a leitura e o alcance dela ao longo do raio da
+ * câmera para o ponto — a última fatia é o plano da profundidade da vista `froxels.depth.y`.
+ */
+export const mediaNearFogMedium = wgslModule({
+    name: 'media_near_fog_medium',
+    requires: [mediaFroxelFog, sceneNearFogType],
+    source: `fn scene_near_fog(p: vec3f) -> SceneNearFog {
+    let fog = froxel_fog(p);
+    if (!froxel_in_use()) { return SceneNearFog(fog, 0.0); }
+    let cam = cameras[froxels.grid.w];
+    let z = -(cam.view * vec4f(p, 1.0)).z;
+    if (z <= 0.0) { return SceneNearFog(fog, 0.0); }
+    return SceneNearFog(fog, froxels.depth.y * distance(p, cam.position.xyz) / z);
+}`,
 });
 
 /** Transmitância dos volumes nos raios (`ray_volume_transmittance`). */
@@ -264,6 +371,17 @@ export const mediaLightTransmission = wgslModule({
     requires: [NONE.module, mediaVolumes, lightsResource, lightIncoming],
 });
 
+/** A névoa dos volumes entre um ponto do ar e a fonte (`light_volume_visibility`, spec 041 R21): a do `light_transmission`. */
+export const mediaVolumeVisibility = wgslModule({
+    name: 'media_volume_visibility',
+    source: `fn light_volume_visibility(light: u32, p: vec3f) -> vec3f {
+    if (light == NONE) { return vec3f(1.0); }
+    let inc = light_incoming(lights[light], p);
+    return vec3f(fog_transmittance(p, inc.l, min(inc.dist, 1e6)));
+}`,
+    requires: [NONE.module, mediaVolumes, lightsResource, lightIncoming],
+});
+
 /** Injeção nos froxels: o quadro, sem o acúmulo (o do `media_froxel_resolve`, T058). */
 export const froxelInject = wgslModule({
     name: 'media_froxel_inject',
@@ -277,6 +395,8 @@ export const froxelInject = wgslModule({
         lightIncoming,
         lightVisibilityReady,
         lightTransmissionReady,
+        sceneMediumReady,
+        froxelState,
         R.ambient,
         R.sampler,
         R.currentOut,
@@ -297,6 +417,7 @@ function resolve(format: GPUTextureFormat): WgslModule {
             WORKGROUP_SIZE.module,
             HISTORY.module,
             mediaCommon,
+            froxelState,
             R.current,
             R.sampler,
             R.historyPrevious,
@@ -309,7 +430,38 @@ function resolve(format: GPUTextureFormat): WgslModule {
 export const froxelIntegrate = wgslModule({
     name: 'media_froxel_integrate',
     source: froxelIntegrateSource,
-    requires: [WORKGROUP_SIZE.module, mediaCommon, R.historyCurrent, R.scatterOut],
+    requires: [
+        WORKGROUP_SIZE.module,
+        mediaCommon,
+        froxelState,
+        sceneMediumExtinctionReady,
+        R.historyCurrent,
+        R.scatterOut,
+    ],
+});
+
+/** A decisão do quadro no texel lido pelo desenho (a primeira invocação da grade; spec 041, R21). */
+export const froxelDecide = wgslModule({
+    name: 'media_froxel_decide',
+    requires: [WORKGROUP_SIZE.module, params, froxelState, R.stateOut, dispatchArgs],
+    source: `/** Os grupos de um despacho linear de \`n\` invocações (como o \`invocations\` da C2; 65 535 por eixo, o mínimo do WebGPU). */
+fn froxel_groups(n: u32, at: u32) {
+    let groups = (n + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+    let x = min(groups, 65535u);
+    froxel_dispatch[at] = x;
+    froxel_dispatch[at + 1u] = select(0u, (groups + x - 1u) / max(x, 1u), groups > 0u);
+    froxel_dispatch[at + 2u] = select(0u, 1u, groups > 0u);
+}
+
+@compute @workgroup_size(1)
+fn froxel_decide_main() {
+    let s = froxel_medium_state();
+    textureStore(froxel_state_out, vec2u(0u), vec4f(select(0.0, 1.0, s.x), select(0.0, 1.0, s.y), 0.0, 1.0));
+    // Sem o meio nem névoa neste quadro, a injeção, o acúmulo e a integração não despacham nenhum grupo.
+    let d = froxels.grid.xyz;
+    froxel_groups(select(0u, d.x * d.y * d.z, s.x), 0u);
+    froxel_groups(select(0u, d.x * d.y, s.x), 4u);
+}`,
 });
 
 /** A luz ambiente na grade grossa (antes da injeção). */
@@ -318,6 +470,60 @@ export const froxelAmbient = wgslModule({
     source: froxelAmbientSource,
     requires: [WORKGROUP_SIZE.module, mediaCommon, sceneAmbientReady, R.ambientOut],
 });
+
+/** A profundidade da cena lida pela redução do alcance (com e sem MSAA), privada do estágio que a liga. */
+export const froxelReachDepth = Object.freeze({
+    single: wgslResource({
+        name: 'froxel_reach_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    multisampled: wgslResource({
+        name: 'froxel_reach_depth',
+        binding: { texture: { sample: 'depth', multisampled: true } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+});
+
+const reachDepthRead = (multisampled: boolean): WgslModule =>
+    wgslModule({
+        name: `media_froxel_reach_depth${multisampled ? '_ms' : ''}`,
+        requires: [multisampled ? froxelReachDepth.multisampled : froxelReachDepth.single],
+        source: `fn froxel_reach_depth_at(px: vec2u) -> f32 {
+    return textureLoad(froxel_reach_depth, px, 0);
+}
+
+fn froxel_reach_depth_size() -> vec2u {
+    return textureDimensions(froxel_reach_depth);
+}`,
+    });
+
+const reachKernels = [false, true].map((multisampled) =>
+    wgslModule({
+        name: `media_froxel_reach${multisampled ? '_ms' : ''}`,
+        source: froxelReachSource,
+        requires: [
+            WORKGROUP_SIZE.module,
+            mediaCommon,
+            froxelState,
+            sceneMediumExtinctionReady,
+            reachDepthRead(multisampled),
+            reachMax,
+            reachPrevious,
+            reachOut,
+        ],
+    }),
+);
+
+/**
+ * A redução do alcance (spec 041, R21): a maior distância da profundidade da cena e a decisão do meio contínuo do quadro
+ * seguinte (`froxel_reach_reduce_main`, um pixel por invocação, e `froxel_reach_final_main`, uma invocação).
+ */
+export function froxelReachKernel(multisampled: boolean): WgslModule {
+    return reachKernels[multisampled ? 1 : 0]!;
+}
 
 const resolves = new Map<GPUTextureFormat, WgslModule>();
 

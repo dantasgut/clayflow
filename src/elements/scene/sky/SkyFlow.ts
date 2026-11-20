@@ -59,7 +59,7 @@ const VIEW: PipelineDescriptor = {
 };
 
 /** Campos da atmosfera que, mudando, regeneram as tabelas de transmitância e de múltiplo espalhamento. */
-const ATMOSPHERE_FIELDS = ['rayleigh', 'mie', 'ozone', 'radii', 'ground'] as const;
+const ATMOSPHERE_FIELDS = ['rayleigh', 'mie', 'ozone', 'radii', 'ground', 'haze'] as const;
 
 /**
  * Estágio do céu físico (spec 033, R4): a cada quadro copia do sol (`DirectionalLight` do `Sky`) a direção (para ele), a

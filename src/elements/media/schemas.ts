@@ -56,7 +56,8 @@ export const FogGridSchema = new StructSchema('FogGrid', { value: FieldType.f32 
 /**
  * Parâmetros dos froxels (uniform, R12): `grid` = (x, y, z, slot da câmera); `depth` = (distância da primeira fatia, da
  * última, ln(última/primeira), 1 com névoa no quadro); `frame` = (jitter x, y, z em [0, 1), tempo); `counts` = (slots do
- * pool dos volumes, slots das luzes, quadro, 1 com histórico válido). A câmera (matrizes e posição) vem do pool
+ * pool dos volumes, slots das luzes, quadro, bits de validade: 1 o histórico, 2 o alcance do quadro anterior — spec
+ * 041, R21). A câmera (matrizes e posição) vem do pool
  * `CameraMatrices` pelo slot.
  */
 export const FroxelsSchema = new StructSchema(

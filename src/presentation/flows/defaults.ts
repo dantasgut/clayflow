@@ -54,6 +54,7 @@ import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
 import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
 import { SkyCompositeFlow } from './SkyCompositeFlow';
 import { SkyReactiveFlow } from './SkyReactiveFlow';
+import { FroxelReachFlow } from './FroxelReachFlow';
 import { SkyOverflowFlow } from './SkyOverflowFlow';
 import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
@@ -587,6 +588,13 @@ function createPresentationDefaults(flows: FlowRegistry): {
         priority: -70.5,
     });
     // A máscara reativa do disco do sol (spec 041) depois do fundo, antes da resolução temporal que a lê.
+    // O alcance da câmera (spec 041, R21) depois do pós (a profundidade da cena ainda é a do quadro): a decisão da GPU
+    // sobre a atmosfera nos froxels do quadro seguinte, sem um passe de computação entre os de desenho.
+    const froxelReachRegistration = flows.register((ctx) => new FroxelReachFlow(ctx), {
+        type: 'froxelReach',
+        phase: 'post',
+        priority: -10,
+    });
     const skyReactiveRegistration = flows.register((ctx) => new SkyReactiveFlow(ctx), {
         type: 'skyReactive',
         phase: 'forward',
@@ -679,6 +687,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             skyCompositeRegistration,
             skyOverflowRegistration,
             skyReactiveRegistration,
+            froxelReachRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

@@ -13,13 +13,18 @@ struct SkyMedium {
     mie: f32,
 }
 
+/**
+ * O meio à altura `h`: Rayleigh, Mie (o aerossol de fundo e a névoa seca perto do chão, `sky.haze`, com a mesma fase; spec
+ * 041, R21) e ozônio.
+ */
 fn sky_medium(h: f32) -> SkyMedium {
     let dr = exp(-h / sky.rayleigh.w);
     let dm = exp(-h / sky.mie.z);
+    let dh = exp(-max(h, 0.0) / sky.haze.z);
     let dz = max(0.0, 1.0 - abs(h - sky.ozone.w) / sky.radii.z);
     let rayleigh = sky.rayleigh.xyz * dr;
-    let mie = sky.mie.x * dm;
-    let mie_ext = sky.mie.y * dm;
+    let mie = sky.mie.x * dm + sky.haze.x * dh;
+    let mie_ext = sky.mie.y * dm + sky.haze.y * dh;
     let ozone = sky.ozone.xyz * dz;
     return SkyMedium(rayleigh + vec3f(mie), rayleigh + vec3f(mie_ext) + ozone, rayleigh, mie);
 }

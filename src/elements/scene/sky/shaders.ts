@@ -218,8 +218,11 @@ export const sky = wgslModule({
     requires: [skyAtmosphere, skyLookup, skyParamsResource, skyViewLut, skySampler],
 });
 
-/** Alcance (km) da tabela da perspectiva aérea, compartilhado pelo kernel e pela leitura. */
-const SKY_AERIAL_RANGE = sharedConstant('SKY_AERIAL_RANGE', SKY_AERIAL_RANGE_KM, 'f32');
+/**
+ * Alcance (km) da tabela da perspectiva aérea, compartilhado pelo kernel, pela leitura e pelo meio da atmosfera nos
+ * froxels (spec 041, R21: o meio vai até ele, a tabela soma o resto).
+ */
+export const SKY_AERIAL_RANGE = sharedConstant('SKY_AERIAL_RANGE', SKY_AERIAL_RANGE_KM, 'f32');
 
 /**
  * A visibilidade do sol num ponto do ar (spec 041, raios crepusculares): a luz do sol que chega a `p` pelo ponto
@@ -247,7 +250,7 @@ fn sky_aerial_shadowed() -> bool {
  * A visibilidade do sol no ar sem nada além da atmosfera que o tape (nenhuma camada de nuvens): 1, e a tabela não integra
  * o déficit da sombra no fundo (zero).
  */
-const skyAerialVisibilityClear = wgslModule({
+export const skyAerialVisibilityClear = wgslModule({
     name: 'sky_aerial_visibility_clear',
     source: `fn sky_aerial_visibility(p: vec3f) -> vec3f {
     return vec3f(1.0);

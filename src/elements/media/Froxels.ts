@@ -14,8 +14,8 @@ import {
     rayVolumeScatterPoint,
     rayVolumeTransmittancePoint,
 } from '../raytrace/points';
-import { lightTransmissionPoint } from '../scene/points/lighting';
-import { sceneFogPoint } from '../scene/points/media';
+import { lightTransmissionPoint, lightVolumeVisibilityPoint } from '../scene/points/lighting';
+import { sceneFogPoint, sceneNearFogPoint } from '../scene/points/media';
 import type { HistoryPrecision } from '../scene/TemporalAntialiasing';
 import { FROXEL_GRID, FroxelsSchema, froxelAmbientGrid } from './schemas';
 import { composeDensityFunctions } from './composeDensity';
@@ -23,15 +23,21 @@ import {
     fogDensityAtPoint,
     mediaLightTransmission,
     mediaLookup,
+    mediaNearFog,
+    mediaNearFogMedium,
     mediaRayMediaTransmittance,
     mediaRayScatter,
     mediaRayTransmittance,
+    mediaVolumeVisibility,
     mediaVolumes,
     mediaVolumesPoint,
 } from './shaders';
 
 /** vec4f do buffer dos meios (o tamanho do descritor). */
 export const FogMediaWordSchema = new StructSchema('FogMediaWord', { value: FieldType.vec4f });
+
+/** Palavra do máximo da distância vista (spec 041, R21: o `atomicMax` da redução da profundidade). */
+export const FroxelReachWordSchema = new StructSchema('FroxelReachWord', { value: FieldType.u32 });
 
 /** Dado dos `Froxels`: o uniform (escrito pelo estágio), a capacidade do buffer dos meios e se há névoa na cena. */
 export interface FroxelsData {
@@ -40,6 +46,12 @@ export interface FroxelsData {
     capacity: number;
     /** 1 com algum `FogVolume` na cena (as contribuições valem); 0 sem. Escrito só quando muda. */
     active: number;
+    /**
+     * 1 quando a grade integra o meio contínuo da cena (`scene_medium`: a atmosfera do `Sky`, spec 041 R21) além dos
+     * volumes: a névoa no desenho vale mesmo sem `FogVolume`, e os meios perto da câmera dizem até onde o integram.
+     * Escrito só quando muda.
+     */
+    medium?: number;
     /** Revisão da composição das funções de densidade (sobe a cada mudança do conjunto). */
     revision: number;
     /** Precisão dos históricos da névoa (spec 037, R6): 0 half, 1 full. */
@@ -76,6 +88,7 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             params: [FroxelsSchema.applyDefaults({}) as Record<string, number[]>],
             capacity: 64,
             active: 0,
+            medium: 0,
             revision: 0,
             historyPrecision: 0,
             grid: FROXEL_GRID,
@@ -155,6 +168,39 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
                 ...volume('history'),
                 history: { depth: 2, precision: this.historyPrecision, filtered: true },
             },
+            // Até onde a câmera vê (spec 041, R21), série temporal da 037: no fim do quadro, a maior distância da
+            // profundidade da cena (o fundo, infinita) e se o meio contínuo conta no quadro seguinte (`(alcance, decisão
+            // do seguinte, decisão deste, 0)`); a grade do quadro seguinte a lê. A palavra do máximo da redução.
+            {
+                id: 'reach',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                history: { depth: 2 },
+            },
+            // A decisão do quadro (lida pelo desenho): escrita no começo da grade a partir do alcance.
+            {
+                id: 'state',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba8unorm', width: 1, height: 1, access: 'write-only' },
+            },
+            // Os argumentos do despacho indireto da injeção, do acúmulo e da integração (spec 041, R21): a decisão do
+            // quadro os escreve — sem o meio nem névoa, nenhum grupo.
+            {
+                id: 'dispatch',
+                role: 'indirect',
+                schema: FroxelReachWordSchema,
+                count: 8,
+                upload: 'never',
+            },
+            {
+                id: 'reachMax',
+                role: 'storage-rw',
+                schema: FroxelReachWordSchema,
+                count: 4,
+                upload: 'never',
+            },
             // A luz ambiente (o hemisfério, a luz rebatida) numa grade mais grossa, lida na injeção.
             volume('ambient', froxelAmbientGrid(this.rawData.grid)),
             {
@@ -183,6 +229,17 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
     setActive(on: boolean): void {
         const active = on ? 1 : 0;
         if (this.rawData.active !== active) this.data.active = active;
+    }
+
+    /** Liga ou desliga o meio contínuo na grade (estado `medium`, escrito só quando muda; spec 041, R21). */
+    setMedium(on: boolean): void {
+        const medium = on ? 1 : 0;
+        if ((this.rawData.medium ?? 0) !== medium) this.data.medium = medium;
+    }
+
+    /** Se a grade está em uso (névoa ou o meio contínuo): a leitura no desenho e os meios perto da câmera valem. */
+    get lookup(): boolean {
+        return this.rawData.active === 1 || this.rawData.medium === 1;
     }
 
     /** Troca as funções de densidade (a composição muda: as contribuições e os kernels são refeitos). */
@@ -229,7 +286,19 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             point: sceneFogPoint,
             order: 0,
             pools: [],
-            build: () => (this.rawData.active === 1 ? mediaLookup : undefined),
+            build: () => (this.lookup ? mediaLookup : undefined),
+        },
+        {
+            // Os meios perto da câmera (spec 041, R21): a mesma leitura e até onde a grade integra o meio contínuo.
+            point: sceneNearFogPoint,
+            order: 0,
+            pools: [],
+            build: () =>
+                this.lookup
+                    ? this.rawData.medium === 1
+                        ? mediaNearFogMedium
+                        : mediaNearFog
+                    : undefined,
         },
         {
             point: rayVolumeTransmittancePoint,
@@ -262,6 +331,13 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             pools: [],
             build: () =>
                 this.rawData.active === 1 ? this.withDensity(mediaLightTransmission) : undefined,
+        },
+        {
+            point: lightVolumeVisibilityPoint,
+            order: 10,
+            pools: [],
+            build: () =>
+                this.rawData.active === 1 ? this.withDensity(mediaVolumeVisibility) : undefined,
         },
     ];
 }

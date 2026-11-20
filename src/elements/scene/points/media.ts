@@ -115,6 +115,123 @@ ${modules
         ),
 };
 
+/**
+ * O meio contínuo da cena num ponto (spec 041, R21): a extinção (rgb, 1/m) e a luz que ele espalha para quem olha na
+ * direção `view` (rgb, radiância por metro: a luz simples das fontes dele, já com a sombra delas, e a múltipla).
+ */
+export const sceneMediumType = wgslModule({
+    name: 'scene_medium_type',
+    source: 'struct SceneMedium {\n    extinction: vec3f,\n    radiance: vec3f,\n}',
+});
+
+/**
+ * `fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium` — o meio que enche o espaço em volta da câmera
+ * (a atmosfera do `Sky`, spec 041 R21) numa célula de quem o integra: o meio (a densidade, as fases, a luz que chega sem
+ * sombra) no centro `center` dela, a visibilidade das fontes (as sombras: as bordas dos feixes) no ponto sorteado `p`,
+ * visto na direção `view` (unitária, da câmera para o centro). A parte lisa sem ruído e só a sombra amostrada: o acúmulo
+ * temporal faz a média dela na célula. Quem integra os meios perto da câmera (os froxels) o soma aos volumes de névoa;
+ * pronto: nada.
+ */
+export const sceneMediumReady = wgslModule({
+    name: 'scene_medium_ready',
+    requires: [sceneMediumType],
+    source: 'fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {\n    return SceneMedium(vec3f(0.0), vec3f(0.0));\n}',
+});
+
+/** `fn scene_medium_extinction(p: vec3f) -> vec3f` — só a extinção (rgb, 1/m) do mesmo meio; pronto: 0. */
+export const sceneMediumExtinctionReady = wgslModule({
+    name: 'scene_medium_extinction_ready',
+    source: 'fn scene_medium_extinction(p: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * O que `scene_near_fog` devolve (spec 041, R21): os meios integrados perto da câmera até o ponto (`fog`: a luz
+ * espalhada e a transmitância dos volumes de névoa) e até onde, ao longo do raio da câmera para o ponto, eles já
+ * integram o meio contínuo de `scene_medium` (`reach`, m; 0 quando não o integram).
+ */
+export const sceneNearFogType = wgslModule({
+    name: 'scene_near_fog_type',
+    requires: [sceneFogType],
+    source: 'struct SceneNearFog {\n    fog: SceneFog,\n    reach: f32,\n}',
+});
+
+/**
+ * `fn scene_near_fog(p: vec3f) -> SceneNearFog` — os meios perto da câmera ativa entre ela e `p` (os froxels) e até
+ * onde eles integram o meio contínuo: quem soma o resto do meio além deles (a perspectiva aérea do `Sky`, a marcha
+ * das nuvens) começa ali, sem contar a luz duas vezes; pronto: nada e alcance 0.
+ */
+export const sceneNearFogReady = wgslModule({
+    name: 'scene_near_fog_ready',
+    requires: [sceneNearFogType],
+    source: 'fn scene_near_fog(p: vec3f) -> SceneNearFog {\n    return SceneNearFog(SceneFog(vec3f(0.0), vec3f(1.0)), 0.0);\n}',
+});
+
+/** Meio contínuo: a soma dos contribuintes (extinção e luz espalhada somam). */
+export const sceneMediumPoint: ContributionPoint = {
+    name: 'scene_medium',
+    ready: sceneMediumReady,
+    functionName: 'scene_medium',
+    combine: (modules) =>
+        memo(`medium:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_medium:${modules.map((m) => m.name).join('+')}`,
+                requires: [sceneMediumType, ...modules],
+                source: `fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {
+    var m = SceneMedium(vec3f(0.0), vec3f(0.0));
+${modules
+    .map(
+        (_, k) => `    let m${k} = scene_medium_${k}(p, center, view);
+    m = SceneMedium(m.extinction + m${k}.extinction, m.radiance + m${k}.radiance);`,
+    )
+    .join('\n')}
+    return m;
+}`,
+            }),
+        ),
+};
+
+/** Extinção do meio contínuo: a soma dos contribuintes. */
+export const sceneMediumExtinctionPoint: ContributionPoint = {
+    name: 'scene_medium_extinction',
+    ready: sceneMediumExtinctionReady,
+    functionName: 'scene_medium_extinction',
+    combine: (modules) =>
+        memo(`medium_extinction:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_medium_extinction:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn scene_medium_extinction(p: vec3f) -> vec3f {\n    return ${modules
+                    .map((_, k) => `scene_medium_extinction_${k}(p)`)
+                    .join(' + ')};\n}`,
+            }),
+        ),
+};
+
+/** Meios perto da câmera: os contribuintes em ordem, cada um à frente do seguinte; o alcance é o maior. */
+export const sceneNearFogPoint: ContributionPoint = {
+    name: 'scene_near_fog',
+    ready: sceneNearFogReady,
+    functionName: 'scene_near_fog',
+    combine: (modules) =>
+        memo(`near_fog:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_near_fog:${modules.map((m) => m.name).join('+')}`,
+                requires: [sceneNearFogType, ...modules],
+                source: `fn scene_near_fog(p: vec3f) -> SceneNearFog {
+    var near = SceneNearFog(SceneFog(vec3f(0.0), vec3f(1.0)), 0.0);
+${modules
+    .map(
+        (_, k) => `    let n${k} = scene_near_fog_${k}(p);
+    near = SceneNearFog(SceneFog(near.fog.scattered + near.fog.transmittance * n${k}.fog.scattered,
+        near.fog.transmittance * n${k}.fog.transmittance), max(near.reach, n${k}.reach));`,
+    )
+    .join('\n')}
+    return near;
+}`,
+            }),
+        ),
+};
+
 /** Radiância ambiente: a soma dos contribuintes. */
 export const sceneAmbientPoint: ContributionPoint = {
     name: 'scene_ambient',

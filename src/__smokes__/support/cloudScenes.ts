@@ -128,11 +128,11 @@ export function disposeCloudScene(s: CloudScene): void {
 export async function readTexture(
     app: Application,
     texture: TextureSpec,
-    format: 'rgba8unorm' | 'rgba16float',
+    format: 'rgba8unorm' | 'rgba16float' | 'rgba32float',
 ): Promise<{ width: number; height: number; depth: number; data: Float32Array }> {
     const { width, height } = texture;
     const depth = texture.depthOrArrayLayers ?? 1;
-    const texel = format === 'rgba8unorm' ? 4 : 8;
+    const texel = format === 'rgba8unorm' ? 4 : format === 'rgba16float' ? 8 : 16;
     const bytesPerRow = Math.ceil((width * texel) / 256) * 256;
     const staging = app.core.create<StagingBufferSpec>({
         kind: 'buffer',
@@ -153,13 +153,18 @@ export async function readTexture(
     const data = new Float32Array(width * height * depth * 4);
     const u8 = new Uint8Array(raw);
     const u16 = new Uint16Array(raw);
+    const f32 = new Float32Array(raw);
     for (let z = 0; z < depth; z++)
         for (let y = 0; y < height; y++)
             for (let x = 0; x < width * 4; x++) {
                 const o = (z * height + y) * width * 4 + x;
                 const row = z * height * bytesPerRow + y * bytesPerRow;
                 data[o] =
-                    format === 'rgba8unorm' ? u8[row + x]! / 255 : halfToFloat(u16[row / 2 + x]!);
+                    format === 'rgba8unorm'
+                        ? u8[row + x]! / 255
+                        : format === 'rgba16float'
+                          ? halfToFloat(u16[row / 2 + x]!)
+                          : f32[row / 4 + x]!;
             }
     return { width, height, depth, data };
 }

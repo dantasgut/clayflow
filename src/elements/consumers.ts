@@ -118,8 +118,19 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
     // O filtro de sinal traçado (spec 034): o uniform (ligado, quadros da média).
     new SingletonResolver(TemporalFilter.schema, 'params', { name: 'TemporalFilter.params' }),
     // Os froxels dos meios participantes (spec 033, R12): parâmetros, o buffer dos meios, a névoa integrada, o quadro da
-    // injeção (lido no acúmulo, spec 034 T058), a luz ambiente e o amostrador (o histórico é um canal temporal, ligado pelo slot do estágio; spec 037).
-    ...(['params', 'media', 'scatter', 'current', 'ambient', 'sampler'] as const).map(
-        (id) => new SingletonResolver(FroxelsSchema, id, { name: `Froxels.${id}` }),
-    ),
+    // injeção (lido no acúmulo, spec 034 T058), a luz ambiente, o amostrador e a palavra do máximo da distância vista
+    // (spec 041, R21) (o histórico e o alcance são canais temporais, ligados pelo slot do estágio; spec 037).
+    ...(
+        [
+            'params',
+            'media',
+            'scatter',
+            'current',
+            'ambient',
+            'sampler',
+            'reachMax',
+            'state',
+            'dispatch',
+        ] as const
+    ).map((id) => new SingletonResolver(FroxelsSchema, id, { name: `Froxels.${id}` })),
 ];

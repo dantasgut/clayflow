@@ -7,10 +7,13 @@ import {
     skyCoverReady,
 } from '../points/lighting';
 import {
+    SKY_AERIAL_RANGE,
     sky,
     skyAerialLookup,
     skyAerialShadowLut,
     skyAmbientTexture,
+    skyAtmosphere,
+    skyLookup,
     skyParamsResource,
     skySampler,
 } from './shaders';
@@ -18,12 +21,21 @@ import { camerasResource } from '../resources';
 import { viewSpace } from '../../gpu/shaders/math';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../../material/pbr/shaders';
-import { sceneDirectLightingPoint, lightTransmissionReady } from '../points/lighting';
+import {
+    sceneDirectLightingPoint,
+    lightTransmissionReady,
+    lightVisibilityReady,
+    lightVolumeVisibilityReady,
+} from '../points/lighting';
 import {
     SCENE_FOG_BACKGROUND,
     sceneAmbientPoint,
     sceneFogPoint,
     sceneFogType,
+    sceneMediumExtinctionPoint,
+    sceneMediumPoint,
+    sceneMediumType,
+    sceneNearFogReady,
 } from '../points/media';
 
 /** A luz do sol atenuada pela atmosfera (as outras luzes passam sem mudança). */
@@ -121,6 +133,119 @@ const skyFog = wgslModule({
 });
 
 /**
+ * O ponto do ar no sistema do planeta (km, centro na origem, +y para cima) como a tabela da perspectiva aérea o vê: o
+ * centro do planeta sob a câmera ativa. Dentro da atmosfera e até o alcance da tabela (spec 041, R21: o meio perto da
+ * câmera vai até ele; a tabela soma o resto); fora, `w` = 0.
+ */
+const skyMediumFrame = wgslModule({
+    name: 'sky_medium_frame',
+    requires: [SKY_AERIAL_RANGE.module, skyAtmosphere, skyParamsResource, camerasResource],
+    source: `fn sky_medium_frame(p: vec3f) -> vec4f {
+    let cam = cameras[sky.cameraSlot];
+    let v = (p - cam.position.xyz) * 0.001;
+    let r0 = sky_bottom() + max(sky.radii.w + cam.position.y * 0.001, 0.001);
+    let x = vec3f(0.0, r0, 0.0) + v;
+    let inside = dot(v, v) <= SKY_AERIAL_RANGE * SKY_AERIAL_RANGE && length(x) >= sky_bottom()
+        && length(x) <= sky_top();
+    return vec4f(x, select(0.0, 1.0, inside));
+}`,
+});
+
+/**
+ * A atmosfera como meio dos froxels (spec 041, R21): no centro da célula, a extinção de Rayleigh, Mie, névoa seca e
+ * ozônio, e a luz que ele espalha para a câmera — a simples do sol (as fases de Rayleigh e de Cornette-Shanks, a
+ * transmitância da atmosfera até o sol pela curvatura do planeta, como a tabela) × o que mais a tapa no ar
+ * (`light_volume_visibility`: as nuvens, uma amostra da penumbra por quadro; a névoa dos volumes) × a sombra do terreno e
+ * dos objetos (`light_visibility`, o mapa de sombra virtual, com a penumbra do disco do sol), mais a múltipla (Ψms, sem
+ * sombra, como a tabela); as sombras no ponto sorteado da célula (a parte lisa no centro dela: sem o ruído da densidade
+ * que muda ~13 % numa fatia de 10 % da distância). O mesmo integrando da tabela da perspectiva aérea: a emenda no fim dos
+ * froxels não muda de meio. Só até o alcance da tabela.
+ */
+const skyMedium = wgslModule({
+    name: 'sky_scene_medium',
+    requires: [
+        sceneMediumType,
+        skyMediumFrame,
+        skyAtmosphere,
+        skyLookup,
+        skyParamsResource,
+        sky,
+        lightVolumeVisibilityReady,
+        lightVisibilityReady,
+    ],
+    source: `fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {
+    let f = sky_medium_frame(center);
+    if (f.w == 0.0) { return SceneMedium(vec3f(0.0), vec3f(0.0)); }
+    let rx = length(f.xyz);
+    let m = sky_medium(rx - sky_bottom());
+    let mu_s = dot(f.xyz, sky.sunDirection.xyz) / rx;
+    let c = dot(view, sky.sunDirection.xyz);
+    let free = (m.rayleigh * sky_rayleigh_phase(c) + vec3f(m.mie * sky_mie_phase(c))) * sky_transmittance(rx, mu_s);
+    // A sombra do terreno e dos objetos primeiro; a das nuvens (a coluna no mapa visto do sol) só onde o sol chega.
+    var single = vec3f(0.0);
+    if (any(free > vec3f(0.0))) {
+        let terrain = light_visibility(sky.sunSlot, p, vec3f(0.0));
+        if (terrain > 0.0) { single = free * terrain * light_volume_visibility(sky.sunSlot, p); }
+    }
+    let multi = m.scattering * sky_multiscatter(rx, mu_s);
+    return SceneMedium(m.extinction * 0.001, (single + multi) * sky.sunIlluminance.rgb * 0.001);
+}`,
+});
+
+/** A extinção da atmosfera no ponto do ar (1/m), até o alcance da tabela (spec 041, R21). */
+const skyMediumExtinction = wgslModule({
+    name: 'sky_scene_medium_extinction',
+    requires: [skyMediumFrame, skyAtmosphere],
+    source: `fn scene_medium_extinction(p: vec3f) -> vec3f {
+    let f = sky_medium_frame(p);
+    if (f.w == 0.0) { return vec3f(0.0); }
+    return sky_medium(length(f.xyz) - sky_bottom()).extinction * 0.001;
+}`,
+});
+
+/**
+ * A perspectiva aérea além dos meios perto da câmera (spec 041, R21): os froxels integram a atmosfera da câmera até o
+ * fim deles (`scene_near_fog`, o alcance ao longo do raio, até o da tabela); a tabela soma só o resto, a diferença da
+ * luz espalhada dela entre o fim deles e o ponto — a luz não é contada duas vezes e, no fim dos froxels, a parte longe
+ * começa do zero (sem emenda). A transmitância é a da tabela inteira (os froxels guardam só a da névoa dos volumes). No
+ * fundo (a atmosfera inteira na vista do céu), tira-se da luz o trecho que os froxels integram (luz espalhada negativa:
+ * quem compõe soma).
+ */
+const skyFogFar = wgslModule({
+    name: 'sky_scene_fog_far',
+    requires: [
+        sceneFogType,
+        sceneNearFogReady,
+        SCENE_FOG_BACKGROUND.module,
+        SKY_AERIAL_RANGE.module,
+        skyAerialLookup,
+        skyParamsResource,
+        camerasResource,
+        viewSpace,
+    ],
+    source: `fn scene_fog(p: vec3f) -> SceneFog {
+    let cam = cameras[sky.cameraSlot];
+    let v = p - cam.position.xyz;
+    let d = length(v);
+    if (d <= 0.0) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
+    let c = cam.unjitteredViewProjection * vec4f(p, 1.0);
+    let uv = clamp(ndc_to_uv(c.xy / max(c.w, 1e-6)), vec2f(0.0), vec2f(1.0));
+    let r0 = sky_bottom() + max(sky.radii.w + cam.position.y * 0.001, 0.001);
+    // O ar acaba no chão do planeta (como na leitura de sempre).
+    let end = sky_segment(r0, v.y / d) * 1000.0;
+    let reach = min(min(scene_near_fog(p).reach, SKY_AERIAL_RANGE * 1000.0), end);
+    if (d >= 0.5 * SCENE_FOG_BACKGROUND) {
+        let near = sky_aerial(uv, v / d, reach);
+        return SceneFog(-near.scattered * sky.sunIlluminance.rgb, vec3f(1.0));
+    }
+    let to = min(d, end);
+    let a = sky_aerial(uv, v / d, to);
+    let near = sky_aerial(uv, v / d, min(reach, to));
+    return SceneFog(max(a.scattered - near.scattered, vec3f(0.0)) * sky.sunIlluminance.rgb, a.transmittance);
+}`,
+});
+
+/**
  * Contribuições do `Sky` (spec 033, R4): a transmitância do sol, o fundo e o ambiente — com algo cobrindo o céu
  * (`covered`, spec 041), o ambiente lê `sky_cover`; sem, o módulo de antes (o mesmo WGSL). Com `lights` (sem iluminação
  * global, spec 041), a luz do céu nas superfícies e nos meios.
@@ -155,14 +280,29 @@ export function skyContributions(
     lights: () => boolean = () => false,
     aerial: () => boolean = () => false,
     shadowed: () => boolean = () => false,
+    near: () => boolean = () => false,
 ): readonly SceneContribution[] {
     return [
-        // Atrás da névoa dos volumes (ordem 0): a composição "na frente de" põe a névoa na frente.
+        // Atrás da névoa dos volumes (ordem 0): a composição "na frente de" põe a névoa na frente. Com a atmosfera nos
+        // froxels (spec 041, R21), só o trecho além deles.
         {
             point: sceneFogPoint,
             order: 10,
             pools: [],
-            build: () => (aerial() ? skyFog : undefined),
+            build: () => (aerial() ? (near() ? skyFogFar : skyFog) : undefined),
+        },
+        // A atmosfera como meio dos froxels perto da câmera (spec 041, R21), com a tabela escrita (a câmera ativa).
+        {
+            point: sceneMediumPoint,
+            order: 10,
+            pools: [],
+            build: () => (aerial() ? skyMedium : undefined),
+        },
+        {
+            point: sceneMediumExtinctionPoint,
+            order: 10,
+            pools: [],
+            build: () => (aerial() ? skyMediumExtinction : undefined),
         },
         {
             point: sceneDirectLightingPoint,

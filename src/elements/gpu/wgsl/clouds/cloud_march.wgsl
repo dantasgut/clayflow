@@ -2,12 +2,14 @@
 // ¼ × ¼ — `cloud_march_scale`), um pixel de cada bloco 2 × 2 por
 // quadro na ordem de Bayer (`clouds.march.z`): o raio da câmera por um ponto do pixel que muda a cada marcha, até a
 // superfície opaca mais próxima dos S × S pixels da tela que ele cobre (a profundidade da cena depois da água), com o
-// deslocamento inicial por ruído azul no tempo (sequência R2 por pixel). A nuvem sai com a perspectiva aérea até a profundidade dela:
-// `Sc = L·Ta(dc) + (1 − Tc)·Sa(dc)`. Uma invocação por bloco; saídas `cloud_trace_out` (rgb, a = Tc) e
+// deslocamento inicial por ruído azul no tempo (sequência R2 por pixel). A nuvem sai com o que está na frente dela até a
+// profundidade dela — os meios perto da câmera (`scene_near_fog`) e a perspectiva aérea além deles (spec 041, R21):
+// `Sc = L·Tn·Ta(dc) + (1 − Tc)·(Sn + Tn·(Sa(dc) − Sa(alcance)))`. Uma invocação por bloco; saídas `cloud_trace_out` (rgb, a = Tc) e
 // `cloud_trace_depth_out` (r: a profundidade da nuvem, m, 0 sem nuvem; g: a distância da superfície até onde o pixel
 // marchado foi — a reconstrução e o aumento só juntam valores da mesma superfície).
 // Despacho linear: um bloco por invocação.
-// Requer: WORKGROUP_SIZE, cloud_march_bayer, cloud_light, cloud_scene_limit, cloud_scene_depth, camera_space, sky_aerial_lookup, random, clouds, cameras,
+// Requer: WORKGROUP_SIZE, cloud_march_bayer, cloud_light, cloud_scene_limit, cloud_scene_depth, camera_space, sky_aerial_lookup,
+// scene_near_fog, random, clouds, cameras,
 // cloud_trace_out, cloud_trace_depth_out.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -37,8 +39,21 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let s = cloud_integrate(ray.origin, ray.dir, limit, clouds.march.x, clouds.march.y, jitter, pixel);
     var color = s.scattered;
     if (s.transmittance < 1.0) {
-        let aerial = sky_aerial(center / full, ray.dir, s.depth);
-        color = color * aerial.transmittance + (1.0 - s.transmittance) * aerial.scattered * sky.sunIlluminance.rgb;
+        // O que está entre a câmera e a nuvem (spec 041, R21): os meios perto da câmera (os froxels: a névoa dos volumes
+        // e, quando a grade a integra, a atmosfera até o fim dela, com as sombras do terreno e das nuvens) e a tabela da
+        // perspectiva aérea só do fim deles até a nuvem (a diferença da luz espalhada dela) — a luz não é contada duas
+        // vezes. Sem a atmosfera na grade, o alcance é 0 e fica a tabela inteira.
+        let uv = center / full;
+        let near = scene_near_fog(ray.origin + ray.dir * s.depth);
+        let reach = min(near.reach, min(s.depth, SKY_AERIAL_RANGE * 1000.0));
+        let aerial = sky_aerial(uv, ray.dir, s.depth);
+        var front = near.fog.scattered;
+        // A nuvem além do fim dos froxels: a tabela soma o trecho dele até ela (antes dele, nada a somar).
+        if (reach < s.depth) {
+            let start = sky_aerial(uv, ray.dir, reach);
+            front += near.fog.transmittance * max(aerial.scattered - start.scattered, vec3f(0.0)) * sky.sunIlluminance.rgb;
+        }
+        color = color * near.fog.transmittance * aerial.transmittance + (1.0 - s.transmittance) * front;
     }
     textureStore(cloud_trace_out, g.xy, vec4f(color, s.transmittance));
     textureStore(cloud_trace_depth_out, g.xy, vec4f(s.depth, min(limit, CLOUD_SKY_DISTANCE), 0.0, 0.0));

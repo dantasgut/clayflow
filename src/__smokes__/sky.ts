@@ -1,4 +1,7 @@
 // Spec 033 — Smoke do céu físico (US2, SC-003).
+//   - beams (spec 041, R21): a atmosfera nos froxels com a sombra do terreno — uma colina opaca entre o sol baixo e o
+//     raio da câmera: o ar na sombra dela deixa de espalhar o sol; a luz que falta no fundo (com a colina menos sem ela)
+//     contra a referência f64 (a mesma diferença pela integral contínua com a mesma visibilidade).
 //
 // As medidas leem a radiância linear do alvo HDR da cena (antes da apresentação):
 //   - reference: o céu desenhado (o fundo) com o sol a 60° contra a integração numérica do modelo de Hillaire na CPU, em
@@ -421,8 +424,12 @@ async function caseAerialGeometry(): Promise<void> {
             ),
         );
         if (fog) app.world.insert(new FogVolume({ shape: { box: [40, 40, 40] }, density: 0.01 }));
-        const distances = [2000, 10_000, 30_000];
-        const rows = [0.06, 0.0, -0.06];
+        // 40 km além do fim dos froxels (spec 041, R21: os froxels até 32 km e a tabela só do fim deles até a placa).
+        const distances = [2000, 10_000, 30_000, 40_000];
+        // A placa de 30 km a 150 m acima da câmera (spec 041, R21): a −900 m (dentro do planeta, abaixo do chão dele) a
+        // leitura dos froxels — B-spline no plano da tela — mistura colunas vizinhas cujos raios acabam no chão do planeta
+        // de 5,7 a 8,2 km (9,3 % da referência); geometria abaixo do chão do planeta não existe numa cena.
+        const rows = [0.06, 0.0, -0.025, 0.12];
         distances.forEach((d, k) => {
             for (const [side, lum] of [
                 [-0.05, 100],
@@ -648,6 +655,111 @@ async function caseCrepuscular(): Promise<void> {
     check(mean > 0 && sd > 0.1 * mean, `crepuscular: sem feixes (média ${mean}, desvio ${sd})`);
 }
 
+async function caseBeams(): Promise<void> {
+    // Os feixes de luz e de sombra no ar (spec 041, R21): o sol a 10°, 30° à direita da vista (o espalhamento para a frente
+    // dos aerossóis), a turbidez 8 com névoa seca (0,2/km, 500 m); uma colina opaca (caixa de 0,4 × 0,8 × 2 km) entre o sol
+    // e o raio do centro da tela — o ar dele de ~2 a ~4 km fica na sombra. A diferença do fundo no centro (sem a colina
+    // menos com ela) é a luz simples que o ar sombreado deixa de espalhar, contra a mesma diferença na referência.
+    const elevation = (10 * Math.PI) / 180;
+    const azimuth = (30 * Math.PI) / 180;
+    const toward: Vec3 = [
+        Math.cos(elevation) * Math.sin(azimuth),
+        Math.sin(elevation),
+        Math.cos(elevation) * Math.cos(azimuth),
+    ];
+    const haze = { extinction: 0.2, scaleHeight: 0.5, albedo: 0.9 };
+    const atmosphere = {
+        ...earthAtmosphere(8),
+        haze: { scattering: 0.18, extinction: 0.2, scale: 0.5 },
+    };
+    const lift = Math.PI / 180;
+    const view: Vec3 = [0, Math.sin(lift), Math.cos(lift)];
+    const fov = Math.PI / 3;
+    const centers: number[] = [];
+    for (const hill of [false, true]) {
+        const { app, canvas } = await skyApp();
+        app.world.remove(app.defaults.ambient);
+        const sun = new DirectionalLight({
+            direction: [-toward[0], -toward[1], -toward[2], 0],
+            intensity: SUN_LUX,
+            castShadow: true,
+        });
+        app.world.insert(sun);
+        app.world.insert(new Sky({ sun, sunDisk: false, night: [0, 0, 0], turbidity: 8, haze }));
+        app.world.insert(
+            new Camera({ fov, aspect: 1, aspectMode: 'fixed', near: 0.5, far: 100_000 }).add(
+                new Transform({
+                    position: [0, 0, 0, 1],
+                    rotation: Transform.lookRotation([0, 0, 0], view),
+                }),
+            ),
+        );
+        if (hill)
+            app.world.insert(
+                new BoxGeometry({ size: [400, 800, 2000] })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [500, 0, 3850, 1] })),
+            );
+        await settleFrames(app, 90);
+        const img = await renderHdr(app, 300);
+        // A média 3 × 3 no centro (o raio da vista).
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++)
+            for (let dx = -1; dx <= 1; dx++)
+                sum += luminanceLinear(hdrAt(img, SIZE / 2 + dx, SIZE / 2 + dy));
+        centers.push(sum / 9);
+        dispose(app, canvas);
+    }
+    const msCache = new Map<string, Vec3>();
+    const ms = (r: number, muS: number): Vec3 => {
+        const key = `${Math.round(r * 4)}:${Math.round(muS * 100)}`;
+        let v = msCache.get(key);
+        if (v === undefined) {
+            v = multipleScattering(
+                atmosphere,
+                Math.round(r * 4) / 4,
+                Math.round(muS * 100) / 100,
+                16,
+                12,
+            );
+            msCache.set(key, v);
+        }
+        return v;
+    };
+    const R = atmosphere.bottomRadius;
+    const box = {
+        // A câmera em y = 0 está a 0,2 km (a altitude do `Sky`): a colina de −400 a 400 m.
+        min: [0.3, R + 0.2 - 0.4, 2.85] as Vec3,
+        max: [0.7, R + 0.2 + 0.4, 4.85] as Vec3,
+    };
+    const blocked = (x: Vec3): number => {
+        // O ponto (km, sistema do planeta com a câmera em (0, R + 0,2, 0)) vê o sol? A corda do raio na caixa.
+        let t0 = 0;
+        let t1 = Infinity;
+        for (let c = 0; c < 3; c++) {
+            if (Math.abs(toward[c]!) < 1e-12) {
+                if (x[c]! < box.min[c]! || x[c]! > box.max[c]!) return 1;
+                continue;
+            }
+            const a = (box.min[c]! - x[c]!) / toward[c]!;
+            const e = (box.max[c]! - x[c]!) / toward[c]!;
+            t0 = Math.max(t0, Math.min(a, e));
+            t1 = Math.min(t1, Math.max(a, e));
+        }
+        return t1 > t0 ? 0 : 1;
+    };
+    const free = aerialPerspective(atmosphere, 0.2, view, toward, 8, 4800, ms).scattered;
+    const shaded = aerialPerspective(atmosphere, 0.2, view, toward, 8, 4800, ms, blocked).scattered;
+    const refDeficit = (luminanceLinear(free) - luminanceLinear(shaded)) * SUN_LUX;
+    const gpuDeficit = centers[0]! - centers[1]!;
+    const error = Math.abs(gpuDeficit - refDeficit) / refDeficit;
+    log(
+        `beams: fundo no centro sem/com a colina ${centers[0]!.toFixed(3)}/${centers[1]!.toFixed(3)} nits — a luz que o ar na sombra deixa de espalhar ${gpuDeficit.toFixed(3)} nits (referência ${refDeficit.toFixed(3)}, ${(error * 100).toFixed(1)} %; ${((100 * gpuDeficit) / centers[0]!).toFixed(1)} % do fundo)`,
+    );
+    check(gpuDeficit > 0, `beams: a colina não sombreia o ar (${gpuDeficit.toFixed(3)} nits)`);
+    check(error <= 0.05, `beams: a sombra no ar a ${(error * 100).toFixed(1)} % da referência`);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     reference: caseReference,
     sunset: caseSunset,
@@ -657,6 +769,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'aerial-geometry': caseAerialGeometry,
     colors: caseColors,
     crepuscular: caseCrepuscular,
+    beams: caseBeams,
 };
 
 async function main(): Promise<void> {

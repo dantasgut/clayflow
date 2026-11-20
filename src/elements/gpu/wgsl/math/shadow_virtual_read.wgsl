@@ -32,15 +32,42 @@ fn shadow_page_compare(m: ShadowMatrix, phys: u32, p: vec2f, reference: f32) -> 
 }
 
 /**
- * Visibilidade da luz num ponto de volume (a névoa: sem superfície, normal 0) pelo mapa virtual: os pontos do volume não
- * pedem páginas finas — a busca começa dois níveis abaixo do mais grosso (a reserva no frustum), mais fina que os
- * froxels —, uma amostra deslocada dentro do texel pela sequência do antisserrilhado (o filtro temporal do volume faz a
- * média). Fora dos níveis ou sem página, 1.
+ * Como `shadow_page_compare`, devolvendo também a profundidade (espaço da luz, m) do bloqueador mais perto da luz entre as
+ * quatro lidas (y; `z_page` é a referência da página): a estimativa da distância do ponto ao que o tapa.
+ */
+fn shadow_page_compare_blocker(m: ShadowMatrix, phys: u32, p: vec2f, reference: f32, z_page: f32) -> vec2f {
+    let x = p - 0.5;
+    let base = floor(x);
+    let f = x - base;
+    let b = vec2i(base);
+    var lit = 0.0;
+    var nearest = 1.0;
+    for (var k = 0u; k < 4u; k++) {
+        let o = vec2i(i32(k & 1u), i32(k >> 1u));
+        let t = vec2u(clamp(b + o, vec2i(0), vec2i(i32(SV_STRIDE) - 1)));
+        let depth = bitcast<f32>(shadow_atlas[sv_page_word(m, phys, t)]);
+        let w = mix(vec2f(1.0) - f, f, vec2f(o));
+        lit += select(0.0, 1.0, reference < depth) * w.x * w.y;
+        nearest = min(nearest, depth);
+    }
+    return vec2f(lit, (nearest - 0.5) * 2.0 * m.depthRange + z_page);
+}
+
+/**
+ * Visibilidade da luz num ponto de volume (a névoa, o ar: sem superfície, normal 0) pelo mapa virtual: os pontos do
+ * volume não pedem páginas finas — a busca começa dois níveis abaixo do mais grosso (a reserva no frustum), mais fina
+ * que os froxels —, uma amostra deslocada dentro do texel pela sequência do antisserrilhado (o filtro temporal do volume
+ * faz a média). A penumbra do disco da luz (raio angular `angular_radius`, rad; spec 041 R21): com um bloqueador entre
+ * as quatro profundidades lidas, a meia largura dela no ponto é (z do ponto − z do bloqueador) × tan do raio angular; se
+ * passa de meio texel, a amostra vai a um ponto do disco dela (a sequência do quadro, girada) — o filtro temporal do
+ * volume faz a média no disco (PCSS de uma amostra por quadro). O bloqueador é procurado só no texel do ponto: do lado
+ * aceso, a penumbra vai até um texel da borda. Fora dos níveis ou sem página, 1.
  */
 fn shadow_virtual_volume(
     m: ShadowMatrix,
     world_pos: vec3f,
     bias_texels: f32,
+    angular_radius: f32,
 ) -> f32 {
     let levels = sv_levels(m);
     if (levels == 0u) { return 1.0; }
@@ -58,8 +85,20 @@ fn shadow_virtual_volume(
         if (all(r >= vec2i(0)) && all(r < vec2i(n))) {
             let e = shadow_table_entry(m, sv_slot(m, k, g));
             if (sv_readable(e, g)) {
-                let reference = clamp(sv_depth(m, p.z, bitcast<f32>(e.w)) - bias_texels * t / (2.0 * m.depthRange), 0.0, 0.99999);
-                return shadow_page_compare(m, e.z & SV_PHYS_MASK, 1.0 + (q - vec2f(g) * page) / t, reference);
+                let z0 = bitcast<f32>(e.w);
+                let reference = clamp(sv_depth(m, p.z, z0) - bias_texels * t / (2.0 * m.depthRange), 0.0, 0.99999);
+                let c = shadow_page_compare_blocker(m, e.z & SV_PHYS_MASK, 1.0 + (q - vec2f(g) * page) / t, reference, z0);
+                let radius = max(p.z - bias_texels * t - c.y, 0.0) * tan(max(angular_radius, 0.0));
+                if (radius <= 0.5 * t) { return c.x; }
+                let rot = m.kernelRotation;
+                let o = mat2x2f(rot.x, rot.y, -rot.y, rot.x) * sv_concentric(clamp(m.texelJitter * 2.0, vec2f(-1.0), vec2f(1.0))) * radius;
+                let q2 = p.xy + o;
+                let g2 = sv_page_of(m, k, q2);
+                if (!sv_in_window(m, k, g2)) { return c.x; }
+                let e2 = shadow_table_entry(m, sv_slot(m, k, g2));
+                if (!sv_readable(e2, g2)) { return c.x; }
+                let reference2 = clamp(sv_depth(m, p.z, bitcast<f32>(e2.w)) - bias_texels * t / (2.0 * m.depthRange), 0.0, 0.99999);
+                return shadow_page_compare(m, e2.z & SV_PHYS_MASK, 1.0 + (q2 - vec2f(g2) * page) / t, reference2);
             }
         }
         k++;
@@ -169,7 +208,7 @@ fn shadow_virtual_visibility(
     let levels = sv_levels(m);
     if (levels == 0u) { return 1.0; }
     if (all(normal == vec3f(0.0))) {
-        return shadow_virtual_volume(m, world_pos, bias_texels);
+        return shadow_virtual_volume(m, world_pos, bias_texels, angular_radius);
     }
     let q0 = sv_light(m, world_pos).xy;
     let k0 = sv_readable_level(m, sv_level(m, q0), q0);
