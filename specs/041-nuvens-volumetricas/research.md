@@ -586,6 +586,21 @@ atlas é o descritor `shadow` da camada, o registro das páginas é o descritor 
   coluna, sem um passe a mais na cadeia (num passe à parte, 0,19 ms de latência com só 1000 colunas).
 - _Reserva grossa_: no recorte todos os níveis ficam residentes — o mais grosso cobre ±294 km — e a página que entra na
   janela é desenhada no mesmo quadro: nunca se lê página ausente.
+- _O texel à direita pela elevação do sol_ (T055, rodadas 14, 15 e 21 do `sunset`): com o sol baixo a vizinha em cima
+  é a mesma coluna deslocada ao longo de si (~Δ/tan(el)) e a resolução em cima sobra; a à direita é outra coluna de ~30 km
+  pelo detalhe, e a bilinear de τ entre elas escurecia a borda prateada das nuvens a 50–100 km rente ao sol (em f64, o
+  mapa emulado a 10,1 % da exata; o texel à direita ÷2 a 5,6 %, ÷4 a 4,4 %; em cima ÷2 ou ÷4 sem mudança). O texel à
+  direita é `r` × o em cima, com `r` em degraus pela razão contínua `tan(el)/tan(19°)` e nunca acima dela: 1 a partir de
+  19°, ½ a partir de ~9,8°, 0,2 abaixo (`cloud_shadow_aspect`, espelho `shadowAspect`). A janela tem o mesmo raio útil em
+  metros nos dois eixos: 8, 14 ou 32 páginas à direita (`cloud_shadow_pages_x`) das 32 físicas por nível — o atlas é o do
+  sol rasante (2048 páginas, 782² × 4 camadas) em toda elevação, e com o sol alto as páginas físicas fora da janela não
+  são desenhadas, provadas nem lidas (`cloud_shadow_slot_active`). A razão contínua foi medida e desfeita (rodada 15): o
+  texel escalava em torno do pivô a cada quadro do pôr do sol e as páginas longe dele passavam da tolerância mais depressa
+  que o orçamento as refazia (`solposto`: o chão 27 níveis num quadro). Em degraus, a página desenhada com a outra razão
+  não vale (`cloud_shadow_meta_current` compara o degrau do sol do desenho com o de agora) e a janela inteira é refeita no
+  mesmo quadro, como a que entra — dois quadros num pôr do sol inteiro. A referência testa os degraus, a monotonia, a
+  cobertura do raio útil pelas páginas e a invalidação no degrau (`cloudShadowPages.test.ts`). A faixa de mistura dos
+  níveis passou aos 8 % de fora do raio útil (30 → 15 → 8 %).
 - _O que a referência f64 mostrou_ (`cloudShadowPages.test.ts`, cúmulos em células, páginas nos níveis 0, 2 e 4): o mapa
   por colunas pontuais tem detalhe menor que o texel — com o sol andando 0,005°/quadro a 15°, o próprio mapa refeito a cada
   quadro muda até 180 níveis num texel por quadro (p50 33), e a 0,05°/quadro a 8°, 255. A previsão pelo gradiente medido

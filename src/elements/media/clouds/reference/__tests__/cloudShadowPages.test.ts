@@ -18,6 +18,7 @@ import {
     CLOUD_SHADOW_STRIDE,
     CLOUD_SHADOW_LEVELS,
     shadowAspect,
+    shadowAspectCurrent,
     shadowAtlasTexel,
     shadowBasis,
     shadowLevel,
@@ -180,7 +181,13 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
     });
 
     it('cada página da janela tem uma página física só, e a janela que anda guarda as que ficam', () => {
-        for (const el of [30, 6, 4, -0.5]) {
+        for (const [el, ratio, pagesX] of [
+            [30, 1, 8],
+            [12, 0.5, 14],
+            [6, 0.2, CLOUD_SHADOW_PAGES_X],
+            [4, 0.2, CLOUD_SHADOW_PAGES_X],
+            [-0.5, 0.2, CLOUD_SHADOW_PAGES_X],
+        ] as const) {
             // Arrange
             const f = frameOf(sunOf(el, 10), [1234, -5678]);
             const g = frameOf(sunOf(el, 10), [1234 + 1700, -5678 - 900]);
@@ -213,13 +220,73 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
             }
             expect(slots.size).toBe(CLOUD_SHADOW_SLOT_COUNT);
             expect(active).toBe(CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * nx);
-            // O texel à direita de 0,2 em toda elevação: as 32 páginas físicas à direita na janela.
-            expect(shadowAspect(0, f.sun)).toBe(0.2);
-            expect(nx).toBe(CLOUD_SHADOW_PAGES_X);
+            // A razão do degrau da elevação e as páginas da janela à direita (as físicas são o orçamento do sol rasante).
+            expect(shadowAspect(0, f.sun)).toBe(ratio);
+            expect(nx).toBe(pagesX);
         }
         expect(CLOUD_SHADOW_SLOT_COUNT).toBeLessThanOrEqual(
             (CLOUD_SHADOW_ATLAS / CLOUD_SHADOW_STRIDE) ** 2,
         );
+    });
+
+    it('a razão do texel à direita em degraus pela elevação, nunca acima da contínua tan(el)/tan(19°)', () => {
+        // Arrange
+        const t19 = Math.tan(19 * rad);
+        let steps = 0;
+        let prev = shadowAspect(0, sunOf(-2, 0));
+        // Act: o sol do horizonte ao zênite em centésimos de grau.
+        for (let el = -2; el <= 90; el += 0.01) {
+            const sun = sunOf(el, 37);
+            const r = shadowAspect(0, sun);
+            // Assert: um dos degraus, nunca mais grosso que a contínua, e o raio útil em metros nos dois eixos coberto
+            // pelas páginas da janela à direita.
+            expect([1, 0.5, 0.2]).toContain(r);
+            if (el > 0)
+                expect(r).toBeLessThanOrEqual(Math.max(Math.tan(el * rad) / t19, 0.2) + 1e-12);
+            expect(r).toBeGreaterThanOrEqual(prev);
+            const useful = (CLOUD_SHADOW_PAGES / 2 - 1) * CLOUD_SHADOW_PAGE - 2;
+            expect((shadowPagesX(r) / 2 - 1) * CLOUD_SHADOW_PAGE).toBeGreaterThanOrEqual(
+                useful / r + 2,
+            );
+            expect(shadowPagesX(r)).toBeLessThanOrEqual(CLOUD_SHADOW_PAGES_X);
+            if (r !== prev) steps++;
+            prev = r;
+        }
+        // Dois degraus no caminho (0,2 → ½ a ~9,8°, ½ → 1 a 19°); o sol rasante do `sunset` (4°) com 0,2, o meio-dia quadrado.
+        expect(steps).toBe(2);
+        expect(shadowAspect(0, sunOf(4, 0))).toBe(0.2);
+        expect(shadowAspect(0, sunOf(9.7, 0))).toBe(0.2);
+        expect(shadowAspect(0, sunOf(9.9, 0))).toBe(0.5);
+        expect(shadowAspect(0, sunOf(18.9, 0))).toBe(0.5);
+        expect(shadowAspect(0, sunOf(19.1, 0))).toBe(1);
+        expect(shadowAspect(0, sunOf(60, 0))).toBe(1);
+    });
+
+    it('no degrau a página desenhada com a outra razão não vale; entre degraus o sol que anda não a invalida por isso', () => {
+        // Arrange
+        const at = (el: number) => frameOf(sunOf(el, 10));
+        // Act / Assert
+        expect(shadowAspectCurrent(at(18.9), sunOf(19.1, 10))).toBe(false);
+        expect(shadowAspectCurrent(at(9.9), sunOf(9.7, 10))).toBe(false);
+        expect(shadowAspectCurrent(at(15), sunOf(11, 10))).toBe(true);
+        expect(shadowAspectCurrent(at(30), sunOf(80, 10))).toBe(true);
+        expect(shadowAspectCurrent(at(4), sunOf(-0.5, 10))).toBe(true);
+        // O texel da janela segue a razão: à direita × r, em cima o do nível.
+        for (const el of [60, 12, 4]) {
+            const f = at(el);
+            const r = shadowAspect(0, f.sun);
+            const x: [number, number] = [f.camera[0] + 333, f.camera[1] - 211];
+            const w = shadowWindow(f, 0);
+            const p = shadowAtlasTexel(f, x, 0);
+            const g = [
+                Math.floor((x[0] / (50 * r) - 0.5) / CLOUD_SHADOW_PAGE),
+                Math.floor((x[1] / 50 - 0.5) / CLOUD_SHADOW_PAGE),
+            ] as [number, number];
+            const o = shadowSlotOrigin(shadowSlot(0, g));
+            expect(p[0] - o[0]).toBeCloseTo(x[0] / (50 * r) - g[0] * CLOUD_SHADOW_PAGE, 9);
+            expect(p[1] - o[1]).toBeCloseTo(x[1] / 50 - g[1] * CLOUD_SHADOW_PAGE, 9);
+            expect(g[0] - w[0]).toBeLessThan(shadowPagesX(r));
+        }
     });
 
     it.each([20, 4])(

@@ -2,7 +2,7 @@
 // (`cloud_shadow_pages`: os níveis em volta da câmera no plano do sol, o endereço toroidal das páginas no atlas) — por
 // texel a profundidade ótica acumulada ao fim de cada um dos 16 trechos iguais do primeiro trecho da casca ao longo do
 // raio que desce do sol (4 camadas × 4 nós) — lido com filtro (a borda da sombra é suave; o par do filtro fica sempre na
-// página física). Na faixa de fora de cada nível (os 15 % de fora do raio útil), a mistura com o seguinte: a resolução
+// página física). Na faixa de fora de cada nível (os 8 % de fora do raio útil), a mistura com o seguinte: a resolução
 // muda sem costura. O trecho da coluna do ponto é recalculado pela casca. Na superfície, τ é linear entre os nós e
 // `T(p) = exp(−τ(p))`; a marcha da nuvem lê o nó do lado do sol (`cloud_shadow_knot`) e integra ela mesma o pedaço do
 // trecho até o ponto (em `cloud_light`). Fora do mapa, a borda dele. A luz do sol nas superfícies

@@ -438,6 +438,8 @@ async function scatterLookupOf(
 
 /** O passo (m) da integral da visibilidade do sol no ar da referência (convergida a 0,1 % com o sol a 4°). */
 const VISIBILITY_STEP = 150;
+/** A profundidade ótica acima da qual a visibilidade do sol no ar da referência é zero (e^(−16) < 10⁻⁷). */
+const VISIBILITY_TAU_CAP = 16;
 
 /**
  * A profundidade ótica das nuvens de `p` até o sol na visibilidade do ar da referência: por trecho da casca, passos de
@@ -448,6 +450,9 @@ const VISIBILITY_STEP = 150;
  */
 function visibilityDepth(model: CloudModel, p: Vec3, sun: Vec3, steps: number): number {
     let tau = 0;
+    // Além de τ = 16 (e^(−τ) < 10⁻⁷) o resto da coluna não muda a visibilidade: a marcha para (o custo da referência com o
+    // sol baixo era o das colunas que cruzam os cúmulos inteiros).
+    const cap = VISIBILITY_TAU_CAP / model.density;
     for (const [a, b] of shellSegments(model, p, sun, Infinity)) {
         const n = steps > 0 ? steps : Math.max(32, Math.ceil((b - a) / VISIBILITY_STEP));
         const dt = (b - a) / n;
@@ -455,6 +460,7 @@ function visibilityDepth(model: CloudModel, p: Vec3, sun: Vec3, steps: number): 
             const t = a + (i + 0.5) * dt;
             tau +=
                 cloudDensity(model, [p[0] + sun[0] * t, p[1] + sun[1] * t, p[2] + sun[2] * t]) * dt;
+            if (tau > cap) return tau * model.density;
         }
     }
     return tau * model.density;
@@ -557,143 +563,212 @@ async function compareView(
     };
     const phase = jdeParams(layer.dropletDiameter);
     const octaves = { count: layer.quality.octaves, ...CLOUD_OCTAVES };
-    // Regiões de 60 × 68 px a 480 × 270: a média por região da SC-001 (o aumento de ¼ borra a borda em ~4 px).
+    // Regiões de 60 × 68 px a 480 × 270: a média por região da SC-001. A nuvem da GPU é a do alvo reconstruído (um texel
+    // por `marchScale`² pixels: ¼ da tela no perfil alto) aumentada pela bilinear com o peso da superfície
+    // (`cloud_upsample`): o pixel da tela é a média ponderada dos 4 texels vizinhos, e cada texel guarda a média da área
+    // dele (`cloud_previous_uv`). A referência compara na mesma representação (T055, rodada 21): por texel, a média dos
+    // raios na área dele; por região, os texels pesados como o aumento os pesa nos pixels da região. Na imagem nítida, a
+    // faixa clara de 1–2 px rente ao horizonte (as nuvens a 50–100 km, `sunset`) que cai na borda de uma região passava em
+    // parte à vizinha pelo aumento (perfil por linha de pixel da GPU igual ao da referência reduzida a ¼ e aumentada) —
+    // a resolução do perfil, não a luz. O erro contra a imagem nítida vai no registro (`nítida`).
     const cols = 8;
     const rows = 4;
+    const S = marchScale;
+    const marchTex = s.app.resources.textureOf(layer, 'march');
+    const tw = marchTex?.width ?? Math.ceil(w / S);
+    const th = marchTex?.height ?? Math.ceil(h / S);
+    // Os raios por texel: 1 (S²/4 no perfil baixo); nas linhas de texel rente ao horizonte (0–3° de elevação) a faixa das
+    // nuvens a 100 km tem 2–4 px de altura: 2 raios por linha de pixel.
+    const mx = Math.max(1, S / 2);
+    const sin3 = Math.sin((3 * Math.PI) / 180);
+    const texels = new Map<
+        number,
+        {
+            rgb: Vec3;
+            t: number;
+            depth: number;
+            raw: number;
+            air: number;
+            inside: { x: number; y: number; l: number; a: number }[];
+        }
+    >();
+    const texelOf = async (qx: number, qy: number) => {
+        const key = qy * tw + qx;
+        const known = texels.get(key);
+        if (known !== undefined) return known;
+        const elevAt = (py: number): number =>
+            pixelDir(qx * S + S / 2 - 0.5, py, w, h, eye, target, fov)[1];
+        const horizon = elevAt(qy * S + S - 0.5) < sin3 && elevAt(qy * S - 0.5) > -0.02;
+        const my = horizon ? 2 * S : mx;
+        const nn = mx * my;
+        let rgbSum = [0, 0, 0];
+        let tSum = 0;
+        let depthSum = 0;
+        let rawSum = 0;
+        let airSum = 0;
+        const inside: { x: number; y: number; l: number; a: number }[] = [];
+        // A referência de um texel rente ao horizonte leva dezenas de ms: cede ao navegador (o executor lê o registro).
+        if (horizon || key % 64 === 0) await new Promise((r) => setTimeout(r, 0));
+        for (let sy = 0; sy < my; sy++)
+            for (let sx = 0; sx < mx; sx++) {
+                const px = qx * S - 0.5 + ((sx + 0.5) / mx) * S;
+                const py = qy * S - 0.5 + ((sy + 0.5) / my) * S;
+                const d = pixelDir(px, py, w, h, eye, target, fov);
+                // O ângulo do pixel da marcha da GPU (S pixels da tela): a pegada do detalhe na amostra da vista.
+                const side = pixelDir(px + marchScale, py, w, h, eye, target, fov);
+                const pixel = Math.hypot(side[0] - d[0], side[1] - d[1], side[2] - d[2]);
+                const r = marchCloud(
+                    model,
+                    eye,
+                    d,
+                    Infinity,
+                    cone ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) } : light,
+                    phase,
+                    octaves,
+                    256,
+                    64,
+                    pixel,
+                );
+                let c: Vec3 = r.scattered;
+                if (r.transmittance < 1) {
+                    // A atmosfera na frente da nuvem com a sombra das nuvens no ar (R18, os raios crepusculares): o
+                    // ponto do caminho (km do centro do planeta, a câmera em (0, R + altitude, 0)) volta ao da cena
+                    // pela distância percorrida, e a luz simples ali × a transmitância das nuvens até o sol.
+                    const alt = 0.2 + eye[1] / 1000;
+                    const visibility = (x: Vec3): number => {
+                        const t =
+                            Math.hypot(x[0], x[1] - (atmosphere.bottomRadius + alt), x[2]) * 1000;
+                        const p: Vec3 = [eye[0] + d[0] * t, eye[1] + d[1] * t, eye[2] + d[2] * t];
+                        return Math.exp(-visibilityDepth(model, p, sun, visSteps));
+                    };
+                    const a = aerialPerspective(
+                        atmosphere,
+                        alt,
+                        d,
+                        sun,
+                        r.depth / 1000,
+                        48,
+                        ms,
+                        visibility,
+                    );
+                    airSum +=
+                        ((1 - r.transmittance)
+                            * lux
+                            * (a.scattered[0] + a.scattered[1] + a.scattered[2]))
+                        / (3 * nn);
+                    c = [0, 1, 2].map(
+                        (k) =>
+                            c[k]! * a.transmittance[k]!
+                            + (1 - r.transmittance) * a.scattered[k]! * lux,
+                    ) as unknown as Vec3;
+                }
+                rgbSum = rgbSum.map((v, k) => v + c[k]! / nn);
+                tSum += r.transmittance / nn;
+                depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / nn;
+                rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / (3 * nn);
+                inside.push({
+                    x: Math.floor(px + 0.5),
+                    y: Math.floor(py + 0.5),
+                    l: (c[0] + c[1] + c[2]) / 3,
+                    // A fração da área do texel que o raio representa.
+                    a: 1 / nn,
+                });
+            }
+        const v = {
+            rgb: rgbSum as unknown as Vec3,
+            t: tSum,
+            depth: depthSum,
+            raw: rawSum,
+            air: airSum,
+            inside,
+        };
+        texels.set(key, v);
+        return v;
+    };
     let worstT = 0;
     let worstL = 0;
+    let worstSharp = 0;
     let peak = 0;
     const samples: {
         gT: number;
         rT: number;
         gL: number;
         rL: number;
+        sharp: number;
         depth: number;
         raw: number;
         air: number;
+        at: string;
     }[] = [];
     for (let j = 0; j < rows; j++)
         for (let i = 0; i < cols; i++) {
-            // A região (o bloco da grade): a média de todos os pixels da GPU e a de 32 × 32 raios da referência nele.
+            // A região (o bloco da grade): a média de todos os pixels da GPU e a dos texels da referência pesados como o
+            // aumento os pesa nos pixels dela.
             const x0 = Math.floor((i / cols) * w);
             const x1 = Math.floor(((i + 1) / cols) * w);
             const y0 = Math.floor((j / rows) * h);
             const y1 = Math.floor(((j + 1) / rows) * h);
-            let rgbSum = [0, 0, 0];
-            let rTSum = 0;
-            let depthSum = 0;
-            let rawSum = 0;
-            let airSum = 0;
             let gL = 0;
             let gT = 0;
+            const weights = new Map<number, number>();
+            const N = (x1 - x0) * (y1 - y0);
             for (let py = y0; py < y1; py++)
                 for (let px = x0; px < x1; px++) {
                     const o = (py * w + px) * 4;
                     gL += (view.data[o]! + view.data[o + 1]! + view.data[o + 2]!) / 3;
                     gT += view.data[o + 3]!;
-                }
-            gL /= (x1 - x0) * (y1 - y0);
-            gT /= (x1 - x0) * (y1 - y0);
-            // 32 × 32 raios por região: com 16 × 16, a média da referência numa região com borda de nuvem ou com a faixa
-            // fina do horizonte errava ela mesma (`far-cloud`, a mesma imagem da GPU: pior transmitância 0,027 → 0,007,
-            // pior luz 5,1 → 2,9 % com 32 × 32).
-            // Na região que contém o horizonte (rente a ele, a 0–3° de elevação), a faixa das nuvens a 100 km tem 2–4 px de
-            // altura: 2 raios por linha de pixel (com 32 linhas, a área da faixa na referência errava até a metade).
-            const n = 32;
-            const elev = (py: number): number =>
-                pixelDir((x0 + x1) / 2, py, w, h, eye, target, fov)[1];
-            const horizon = elev(y1) < Math.sin((3 * Math.PI) / 180) && elev(y0) > -0.02;
-            const ny = horizon ? 2 * (y1 - y0) : n;
-            const nn = n * ny;
-            // A referência de uma região leva segundos: o laço cede ao navegador (o executor lê o registro da página).
-            await new Promise((r) => setTimeout(r, 0));
-            for (let sy = 0; sy < ny; sy++) {
-                // A visibilidade do ar convergida leva segundos por linha com o sol baixo: cede ao navegador por linha.
-                await new Promise((r) => setTimeout(r, 0));
-                for (let sx = 0; sx < n; sx++) {
-                    const px = x0 + ((sx + 0.5) / n) * (x1 - x0) - 0.5;
-                    const py = y0 + ((sy + 0.5) / ny) * (y1 - y0) - 0.5;
-                    const d = pixelDir(px, py, w, h, eye, target, fov);
-                    // O ângulo do pixel da marcha da GPU (S pixels da tela): a pegada do detalhe na amostra da vista.
-                    const side = pixelDir(px + marchScale, py, w, h, eye, target, fov);
-                    const pixel = Math.hypot(side[0] - d[0], side[1] - d[1], side[2] - d[2]);
-                    const r = marchCloud(
-                        model,
-                        eye,
-                        d,
-                        Infinity,
-                        cone ? { ...light, sunDepth: (x) => coneSunDepth(model, x, sun) } : light,
-                        phase,
-                        octaves,
-                        256,
-                        64,
-                        pixel,
-                    );
-                    let c: Vec3 = r.scattered;
-                    if (r.transmittance < 1) {
-                        // A atmosfera na frente da nuvem com a sombra das nuvens no ar (R18, os raios crepusculares): o
-                        // ponto do caminho (km do centro do planeta, a câmera em (0, R + altitude, 0)) volta ao da cena
-                        // pela distância percorrida, e a luz simples ali × a transmitância das nuvens até o sol.
-                        const alt = 0.2 + eye[1] / 1000;
-                        const visibility = (x: Vec3): number => {
-                            const t =
-                                Math.hypot(x[0], x[1] - (atmosphere.bottomRadius + alt), x[2])
-                                * 1000;
-                            const p: Vec3 = [
-                                eye[0] + d[0] * t,
-                                eye[1] + d[1] * t,
-                                eye[2] + d[2] * t,
-                            ];
-                            return Math.exp(-visibilityDepth(model, p, sun, visSteps));
-                        };
-                        const a = aerialPerspective(
-                            atmosphere,
-                            alt,
-                            d,
-                            sun,
-                            r.depth / 1000,
-                            48,
-                            ms,
-                            visibility,
-                        );
-                        airSum +=
-                            ((1 - r.transmittance)
-                                * lux
-                                * (a.scattered[0] + a.scattered[1] + a.scattered[2]))
-                            / (3 * nn);
-                        c = [0, 1, 2].map(
-                            (k) =>
-                                c[k]! * a.transmittance[k]!
-                                + (1 - r.transmittance) * a.scattered[k]! * lux,
-                        ) as unknown as Vec3;
+                    // Os 4 texels do aumento (`cloud_upsample`: o centro do pixel no alvo reconstruído, presos à borda).
+                    const cx = (px + 0.5) / S - 0.5;
+                    const cy = (py + 0.5) / S - 0.5;
+                    const bx = Math.floor(cx);
+                    const by = Math.floor(cy);
+                    for (let k = 0; k < 4; k++) {
+                        const ox = k & 1;
+                        const oy = k >> 1;
+                        const wgt = (ox ? cx - bx : 1 - (cx - bx)) * (oy ? cy - by : 1 - (cy - by));
+                        if (wgt <= 0) continue;
+                        const qx = Math.min(Math.max(bx + ox, 0), tw - 1);
+                        const qy = Math.min(Math.max(by + oy, 0), th - 1);
+                        const key = qy * tw + qx;
+                        weights.set(key, (weights.get(key) ?? 0) + wgt / N);
                     }
-                    rgbSum = rgbSum.map((v, k) => v + c[k]! / nn);
-                    rTSum += r.transmittance / nn;
-                    depthSum += (Number.isFinite(r.depth) ? r.depth : 0) / nn;
-                    rawSum += (r.scattered[0] + r.scattered[1] + r.scattered[2]) / (3 * nn);
                 }
+            gL /= N;
+            gT /= N;
+            const ref = { rgb: [0, 0, 0], t: 0, depth: 0, raw: 0, air: 0 };
+            let sharpL = 0;
+            let sharpN = 0;
+            for (const [key, wgt] of weights) {
+                const v = await texelOf(key % tw, Math.floor(key / tw));
+                for (let k = 0; k < 3; k++) ref.rgb[k]! += v.rgb[k]! * wgt;
+                ref.t += v.t * wgt;
+                ref.depth += v.depth * wgt;
+                ref.raw += v.raw * wgt;
+                ref.air += v.air * wgt;
+                for (const r of v.inside)
+                    if (r.x >= x0 && r.x < x1 && r.y >= y0 && r.y < y1) {
+                        sharpL += r.l * r.a;
+                        sharpN += r.a;
+                    }
             }
-            const rgb = rgbSum as unknown as Vec3;
-            const r = {
-                transmittance: rTSum,
-                depth: depthSum,
-                scattered: [rawSum, rawSum, rawSum] as Vec3,
-            };
-            const rL = (rgb[0] + rgb[1] + rgb[2]) / 3;
+            const rL = (ref.rgb[0]! + ref.rgb[1]! + ref.rgb[2]!) / 3;
             peak = Math.max(peak, rL);
             samples.push({
                 gT,
-                rT: r.transmittance,
+                rT: ref.t,
                 gL,
                 rL,
-                depth: r.depth,
-                raw: (r.scattered[0] + r.scattered[1] + r.scattered[2]) / 3,
-                air: airSum,
+                sharp: sharpN > 0 ? sharpL / sharpN : rL,
+                depth: ref.depth,
+                raw: ref.raw,
+                air: ref.air,
+                at: `[${i},${j}]`,
             });
         }
     for (const x of samples) {
         worstT = Math.max(worstT, Math.abs(x.gT - x.rT));
         worstL = Math.max(worstL, Math.abs(x.gL - x.rL) / Math.max(x.rL, 0.1 * peak));
+        worstSharp = Math.max(worstSharp, Math.abs(x.gL - x.sharp) / Math.max(x.sharp, 0.1 * peak));
     }
     const cloudy = samples.filter((x) => x.rT < 0.95).length;
     // A razão da região mais clara pela mediana das regiões de nuvem espessa (o brilho da borda contra o sol), da
@@ -720,10 +795,10 @@ async function compareView(
         .sort((a, b) => Math.abs(b.gL / b.rL - 1) - Math.abs(a.gL / a.rL - 1))
         .slice(0, 4))
         log(
-            `${label}:   GPU ${x.gL.toFixed(2)} ref ${x.rL.toFixed(2)} (sem a atmosfera ${x.raw.toFixed(2)}, ar ${x.air.toFixed(2)}), T ${x.gT.toFixed(3)}/${x.rT.toFixed(3)}, nuvem a ${(x.depth / 1000).toFixed(1)} km`,
+            `${label}:   ${x.at} GPU ${x.gL.toFixed(2)} ref ${x.rL.toFixed(2)} (nítida ${x.sharp.toFixed(2)}; sem a atmosfera ${x.raw.toFixed(2)}, ar ${x.air.toFixed(2)}), T ${x.gT.toFixed(3)}/${x.rT.toFixed(3)}, nuvem a ${(x.depth / 1000).toFixed(1)} km`,
         );
     log(
-        `${label}: ${samples.length} regiões (${cloudy} com nuvem): pior transmitância ${worstT.toFixed(3)}, pior luz ${(worstL * 100).toFixed(1)} % (pico de referência ${peak.toFixed(1)} nits)`,
+        `${label}: ${samples.length} regiões (${cloudy} com nuvem): pior transmitância ${worstT.toFixed(3)}, pior luz ${(worstL * 100).toFixed(1)} % (contra a imagem nítida ${(worstSharp * 100).toFixed(1)} %; pico de referência ${peak.toFixed(1)} nits)`,
     );
     log(`${label}: razão borda/centro GPU sobre a referência ${edgeRatio.toFixed(3)}`);
     return { worstT, worstL, edgeRatio };

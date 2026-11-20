@@ -2,9 +2,10 @@
 // às provas, à escolha do quadro e à leitura. Espelho de `reference/cloudShadowPages.ts`.
 //
 // Um mapa de recortes no plano perpendicular ao sol: `CLOUD_SHADOW_LEVELS` níveis, o texel do nível `k` é
-// `clouds.sunMap.x·2ᵏ` em cima e `CLOUD_SHADOW_ASPECT` vezes isso à direita (`cloud_shadow_aspect`), e cada nível tem
-// `CLOUD_SHADOW_PAGES` páginas de `CLOUD_SHADOW_PAGE²` texels em cima e `CLOUD_SHADOW_PAGES_X` à direita em volta da
-// câmera (a janela presa à página): o raio útil é o mesmo em metros nos dois eixos. O plano passa pelo pivô
+// `clouds.sunMap.x·2ᵏ` em cima e a razão do sol (`cloud_shadow_aspect`: 1, ½ ou 0,2 pela elevação) vezes isso à
+// direita, e cada nível tem `CLOUD_SHADOW_PAGES` páginas de `CLOUD_SHADOW_PAGE²` texels em cima e as da razão à direita
+// (`cloud_shadow_pages_x`: 8, 14 ou 32 das `CLOUD_SHADOW_PAGES_X` físicas) em volta da câmera (a janela presa à
+// página): o raio útil é o mesmo em metros nos dois eixos. O plano passa pelo pivô
 // `clouds.sunFrame.xyz` — o vento × tempo mais a célula da grade do pivô —: o conteúdo de uma página anda com as
 // nuvens, e o vento uniforme não a invalida. A base do plano (`sunRight`, `sunUp`) é a rotação mínima de +y ao sol
 // (contínua: o sol que anda gira o plano aos poucos); a câmera no plano em `sunRight.w`, `sunUp.w`. Endereço toroidal (`g mod N`, como a tabela do mapa de sombra virtual da 034); todas as
@@ -20,10 +21,12 @@ const CLOUD_SHADOW_STRIDE: u32 = 17u;
 const CLOUD_SHADOW_PAGE_TEXELS: u32 = 289u;
 /** Páginas de um nível em cima. */
 const CLOUD_SHADOW_PAGES: u32 = 8u;
-/** Páginas físicas de um nível à direita (as da janela com o texel à direita de 0,2: 32). */
+/** Páginas físicas de um nível à direita (as da janela com o texel à direita de 0,2: 32; o orçamento em toda elevação). */
 const CLOUD_SHADOW_PAGES_X: u32 = 32u;
-/** A razão do texel à direita pelo em cima (`cloud_shadow_aspect`). */
-const CLOUD_SHADOW_ASPECT: f32 = 0.2;
+/** A menor razão do texel à direita pelo em cima (o sol rasante: `cloud_shadow_aspect`). */
+const CLOUD_SHADOW_ASPECT_MIN: f32 = 0.2;
+/** tan da elevação do sol acima da qual o texel é quadrado (19°): a razão contínua é `tan(el)/tan(19°)`. */
+const CLOUD_SHADOW_ASPECT_TAN: f32 = 0.344327613;
 /** Níveis do mapa. */
 const CLOUD_SHADOW_LEVELS: u32 = 8u;
 /** Páginas físicas por linha do atlas. */
@@ -47,26 +50,38 @@ fn cloud_shadow_probes_now(slot: u32, frame: u32) -> bool {
 }
 
 /**
- * A razão `r` do texel à direita pelo em cima (para o sol `s`: a mesma em toda elevação). Os nós de uma coluna estão em
+ * A razão `r` do texel à direita pelo em cima para o sol `s` (espelho de `shadowAspect`). Os nós de uma coluna estão em
  * frações do trecho dela, e com o sol baixo a vizinha em cima é o mesmo caminho deslocado ao longo de si
  * (~Δ/tan(elevação)): a resolução em cima sobra. A vizinha à direita é outro caminho de ~30 km pelo detalhe de ~56 m, e a
  * bilinear de τ entre elas (que reduz a variância de τ) escurecia a borda prateada das nuvens a 50–100 km rente ao sol
  * (`sunset`; medido em f64: o texel à direita ÷2 leva o erro do mapa de 10,1 a 5,6 %, em cima ÷2 ou ÷4 não muda nada;
- * na GPU, 5,4 % com ¼ e 5,3 % com 0,2). Constante: com a razão pelo ângulo do sol (1 acima de 19°, 0,2 a 4°) o texel
- * global escalava em torno do pivô a cada quadro do pôr do sol (~0,4 % por quadro a 15°), as páginas longe dele passavam
- * da tolerância mais depressa que o orçamento as refazia, e a leitura presa à página velha saltava quando ela era refeita
- * (`solposto`: o chão 27 níveis num quadro; a base, 5). Espelho de `shadowAspect`.
+ * na GPU, 5,4 % com ¼ e 5,3 % com 0,2). A razão contínua `tan(el)/tan(19°)` (0,2 a 4°, 1 a 19°) em degraus — 1 a partir
+ * de 19°, ½ a partir de ~9,8° (a contínua ½), 0,2 abaixo —, nunca acima da contínua: a razão que mudasse a cada quadro
+ * escalaria o texel em torno do pivô (o pôr do sol, ~0,4 % por quadro a 15°; as páginas longe dele passavam da tolerância
+ * mais depressa que o orçamento as refazia, `solposto`: o chão 27 níveis num quadro). No degrau a página desenhada com a
+ * outra razão não vale (`cloud_shadow_meta_current`) e a janela inteira é refeita no mesmo quadro, como a que entra.
  */
 fn cloud_shadow_aspect(s: vec3f) -> f32 {
-    return CLOUD_SHADOW_ASPECT;
+    let el = clamp(s.y, -1.0, 1.0);
+    let c = el / max(sqrt(max(1.0 - el * el, 0.0)), 1e-6) / CLOUD_SHADOW_ASPECT_TAN;
+    if (c >= 1.0) { return 1.0; }
+    if (c >= 0.5) { return 0.5; }
+    return CLOUD_SHADOW_ASPECT_MIN;
 }
 
 /**
- * As páginas da janela (à direita, em cima): à direita, as que dão o raio útil em metros do em cima com o texel
- * `CLOUD_SHADOW_ASPECT` (`(4 − 1)·16 − 2` texels em cima, `46/0,2 + 2` à direita: 2 × ⌈232/16 + 1⌉ = 32).
+ * As páginas da janela à direita com a razão `r` (espelho de `shadowPagesX`): as que dão o raio útil em metros do em
+ * cima (`(4 − 1)·16 − 2 = 46` texels em cima, `46/r + 2` à direita: 2 × (⌈(46/r + 2)/16⌉ + 1) — 8, 14 e 32).
  */
+fn cloud_shadow_pages_x(r: f32) -> u32 {
+    let useful = f32((CLOUD_SHADOW_PAGES / 2u - 1u) * CLOUD_SHADOW_PAGE - 2u);
+    let half = u32(ceil((useful / r + 2.0) / f32(CLOUD_SHADOW_PAGE))) + 1u;
+    return min(2u * half, CLOUD_SHADOW_PAGES_X);
+}
+
+/** As páginas da janela do quadro (à direita, em cima). */
 fn cloud_shadow_window_pages() -> vec2u {
-    return vec2u(CLOUD_SHADOW_PAGES_X, CLOUD_SHADOW_PAGES);
+    return vec2u(cloud_shadow_pages_x(cloud_shadow_aspect(clouds.sunDir.xyz)), CLOUD_SHADOW_PAGES);
 }
 
 /** Texel (m, à direita e em cima) do nível `k` com a razão `a` à direita. */
@@ -126,6 +141,15 @@ fn cloud_shadow_slot_level(slot: u32) -> u32 {
     return slot / CLOUD_SHADOW_LEVEL_SLOTS;
 }
 
+/**
+ * A página física `slot` está na janela do quadro? Com o sol alto a janela tem menos páginas à direita que as físicas: as
+ * de fora não são desenhadas, provadas nem lidas.
+ */
+fn cloud_shadow_slot_active(slot: u32) -> bool {
+    let k = cloud_shadow_slot_level(slot);
+    return u32(cloud_shadow_slot_page(slot).x - cloud_shadow_window(k).x) < cloud_shadow_window_pages().x;
+}
+
 /** A página global que a janela do quadro põe na página física `slot` (na janela ou além dela à direita). */
 fn cloud_shadow_slot_page(slot: u32) -> vec2i {
     let n = vec2i(i32(CLOUD_SHADOW_PAGES_X), i32(CLOUD_SHADOW_PAGES));
@@ -148,7 +172,7 @@ fn cloud_shadow_texel_plane_aspect(k: u32, g: vec2i, t: vec2u, a: f32) -> vec2f 
     return (vec2f(gt) + 0.5) * cloud_shadow_texel_aspect(k, a);
 }
 
-/** O nível que cobre `x` (o menor, com a borda) e o peso do seguinte na faixa de mistura (os 15 % de fora). */
+/** O nível que cobre `x` (o menor, com a borda) e o peso do seguinte na faixa de mistura (os 8 % de fora). */
 fn cloud_shadow_level(x: vec2f) -> vec2f {
     let c = abs(x - cloud_shadow_camera());
     let d = max(c.x, c.y);
@@ -158,7 +182,7 @@ fn cloud_shadow_level(x: vec2f) -> vec2f {
     if (d > u0) { k = min(ceil(log2(d / u0)), last); }
     if (k >= last) { return vec2f(last, 0.0); }
     let r = d / cloud_shadow_usable(u32(k));
-    return vec2f(k, smoothstep(0.85, 1.0, r));
+    return vec2f(k, smoothstep(0.92, 1.0, r));
 }
 
 /** Coordenadas (texels, contínuas) no atlas do ponto `x` do plano no nível `k` (preso à janela). */

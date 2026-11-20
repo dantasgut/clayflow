@@ -52,18 +52,35 @@ export function shadowTexelSize(t0: number, k: number): number {
     return t0 * 2 ** k;
 }
 
-/** A razão do texel à direita pelo em cima (`CLOUD_SHADOW_ASPECT`). */
-export const CLOUD_SHADOW_ASPECT = 0.2;
+/** A menor razão do texel à direita pelo em cima (o sol rasante; `CLOUD_SHADOW_ASPECT_MIN`). */
+export const CLOUD_SHADOW_ASPECT_MIN = 0.2;
+/** A elevação do sol (°) a partir da qual o texel é quadrado: a razão contínua é `tan(el)/tan(19°)`. */
+export const CLOUD_SHADOW_ASPECT_ELEVATION = 19;
 
 /**
- * A razão `r` do texel à direita pelo em cima (espelho de `cloud_shadow_aspect`): a mesma em toda elevação do sol (com o
- * sol baixo a vizinha em cima é o mesmo caminho deslocado ao longo de si, e a à direita é outro caminho de ~30 km pelo
- * detalhe; a razão que mudasse com o sol escalaria o texel global em torno do pivô a cada quadro).
+ * A razão `r` do texel à direita pelo em cima (espelho de `cloud_shadow_aspect`). Com o sol baixo a vizinha em cima é o
+ * mesmo caminho deslocado ao longo de si, e a à direita é outro caminho de ~30 km pelo detalhe: a resolução que falta é
+ * a à direita, na medida de `tan(el)/tan(19°)` (0,2 a 4°). Em degraus (1, ½, 0,2), nunca acima da contínua: a razão que
+ * mudasse a cada quadro escalaria o texel em torno do pivô; no degrau, a janela inteira é refeita no mesmo quadro.
  */
 export function shadowAspect(band: number, sun: Vec3): number {
     void band;
-    void sun;
-    return CLOUD_SHADOW_ASPECT;
+    const y = Math.min(1, Math.max(-1, sun[1]));
+    const c =
+        y
+        / Math.max(Math.sqrt(Math.max(1 - y * y, 0)), 1e-6)
+        / Math.tan((CLOUD_SHADOW_ASPECT_ELEVATION * Math.PI) / 180);
+    if (c >= 1) return 1;
+    if (c >= 0.5) return 0.5;
+    return CLOUD_SHADOW_ASPECT_MIN;
+}
+
+/**
+ * A página desenhada com o sol `drawn` vale com o sol `now`? (o degrau da razão no registro: a parte de
+ * `cloud_shadow_meta_current` que vem do sol)
+ */
+export function shadowAspectCurrent(f: ShadowFrame, drawn: Vec3): boolean {
+    return shadowAspect(f.band, drawn) === shadowAspect(f.band, f.sun);
 }
 
 /** Páginas da janela à direita com a razão `r` (espelho de `cloud_shadow_pages_x`): o raio útil em metros do em cima. */
@@ -86,8 +103,7 @@ function texelOf(f: ShadowFrame, k: number, sun = f.sun): [number, number] {
 
 /** As páginas da janela do quadro (à direita, em cima). */
 export function shadowWindowPages(f: ShadowFrame): [number, number] {
-    void f;
-    return [CLOUD_SHADOW_PAGES_X, CLOUD_SHADOW_PAGES];
+    return [shadowPagesX(shadowAspect(f.band, f.sun)), CLOUD_SHADOW_PAGES];
 }
 
 const cross = (a: Vec3, b: Vec3): Vec3 => [
@@ -182,7 +198,7 @@ export function shadowSlotPage(
     return { level: k, page, active: page[0] - w[0] < shadowWindowPages(f)[0] };
 }
 
-/** O nível (o menor que cobre `x` com a borda) e o peso do seguinte na faixa de mistura (os 15 % de fora). */
+/** O nível (o menor que cobre `x` com a borda) e o peso do seguinte na faixa de mistura (os 8 % de fora). */
 export function shadowLevel(f: ShadowFrame, x: readonly [number, number]): [number, number] {
     const d = Math.max(Math.abs(x[0] - f.camera[0]), Math.abs(x[1] - f.camera[1]));
     const u0 = shadowUsable(f.texel, 0);
@@ -190,7 +206,7 @@ export function shadowLevel(f: ShadowFrame, x: readonly [number, number]): [numb
     const k = d <= u0 ? 0 : Math.min(Math.ceil(Math.log2(d / u0)), last);
     if (k >= last) return [last, 0];
     const r = d / shadowUsable(f.texel, k);
-    const t = Math.min(1, Math.max(0, (r - 0.85) / 0.15));
+    const t = Math.min(1, Math.max(0, (r - 0.92) / 0.08));
     return [k, t * t * (3 - 2 * t)];
 }
 

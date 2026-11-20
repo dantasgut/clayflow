@@ -258,7 +258,12 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             // Saída antecipada (spec 041, R21 rodada 16): o resto da nuvem conta como opaco. Devolver o T da saída (até
             // 0,01) deixava passar 1 % do fundo — o disco do sol (60 000 no alvo, ~10⁹ nits de verdade) aparecia como
             // um ponto branco através de um cúmulo de τ ~ 20–50 (T ~ 10⁻⁹ ou menos).
+            // O resto da nuvem, opticamente espesso, espalha a fonte do último passo: a integral dele até o infinito com
+            // a mesma fonte (`T·luz/σ`) — sem ela, a luz que o resto da nuvem manda à câmera sumia junto com o fundo (a
+            // borda prateada rente ao horizonte no contraluz; `sunset` 6,3 → 5,9 % com a faixa de mistura dos níveis do
+            // mapa visto do sol nos 8 % de fora, rodada 21).
             if (result.transmittance < CLOUD_EARLY_EXIT) {
+                result.scattered += result.transmittance * light / sigma_t;
                 result.transmittance = 0.0;
                 break;
             }
