@@ -1275,6 +1275,135 @@ async function caseBeamAir(): Promise<void> {
     log(`beam-air: coluna ${x},${y} — ganho a cada 10 fatias com/sem nuvens ${gains.join(' ')}`);
 }
 
+/**
+ * O feixe de um vão conhecido (spec 041, R21 rodada 17): uma camada de 700–950 m (extinção 0,3/m) encoberta, salvo um
+ * cilindro de 250 m de raio (pela função de cobertura; o mapa de cobertura tem texel de 250 m), o sol a 35°, o ar de ~13 km
+ * de visibilidade (névoa seca de 0,3/km até 1,2 km, turbidez 2) e a câmera a 2 m olhando o meio do feixe (400 m de altura)
+ * a 1 km, 30° ao lado do azimute do sol. A linha do meio da imagem atravessa o feixe: o excesso dele sobre o ar na sombra
+ * (nits) e a largura a meia altura na GPU contra a referência f64 da mesma geometria (o ar até a base da camada em cada
+ * direção, a visibilidade pela corda do raio do sol na laje fora do cilindro).
+ */
+async function caseBeamGap(): Promise<void> {
+    const gap = [1473, 500] as const;
+    const code = /* wgsl */ `fn coverage_fn(xz: vec2f, time: f32, data: CoverageFnParams) -> vec3f {
+    return vec3f(select(1.0, 0.0, distance(xz, vec2f(${gap[0]}.0, ${gap[1]}.0)) < 250.0), 0.1, 1.0);
+}`;
+    const width = 640;
+    const height = 360;
+    const fov = Math.PI / 3;
+    const mid = [866, 400, 500] as const;
+    const s = await cloudScene({
+        width,
+        height,
+        sunElevation: 35,
+        sunAzimuth: 0,
+        eye: [0, 2, 0],
+        target: mid,
+        fov,
+        clouds: { coverage: { code }, wind: [0, 0], base: 700, top: 950, density: 0.3 },
+    });
+    s.sky.turbidity = 2;
+    s.sky.haze = { extinction: 0.3, scaleHeight: 1.2 };
+    const settle = Number(new URLSearchParams(location.search).get('settle') ?? 180);
+    await settleFrames(s.app, settle);
+    const color = await sceneColor(s);
+    finish(s);
+    const y = height >> 1;
+    const gpu: number[] = [];
+    for (let x = 0; x < width; x++) {
+        const o = (y * width + x) * 4;
+        gpu.push(luminance([color[o]!, color[o + 1]!, color[o + 2]!]));
+    }
+    // As direções das colunas da linha do meio (a base da câmera de `Transform.lookRotation`).
+    const eye = [0, 0.002, 0];
+    const t = [mid[0] / 1000 - eye[0]!, mid[1] / 1000 - eye[1]!, mid[2] / 1000 - eye[2]!];
+    const tl = Math.hypot(t[0]!, t[1]!, t[2]!);
+    const z = [-t[0]! / tl, -t[1]! / tl, -t[2]! / tl];
+    const xr = [z[2]!, 0, -z[0]!];
+    const xl = Math.hypot(xr[0]!, xr[2]!);
+    const xa = [xr[0]! / xl, 0, xr[2]! / xl];
+    const ya = [
+        z[1]! * xa[2]! - z[2]! * xa[1]!,
+        z[2]! * xa[0]! - z[0]! * xa[2]!,
+        z[0]! * xa[1]! - z[1]! * xa[0]!,
+    ];
+    const f = 1 / Math.tan(fov / 2);
+    const aspect = width / height;
+    const dirOf = (px: number): Vec3 => {
+        const u = (((px + 0.5) / width) * 2 - 1) * aspect;
+        const v = 1 - ((y + 0.5) / height) * 2;
+        const d = [0, 1, 2].map((c) => xa[c]! * (u / f) + ya[c]! * (v / f) - z[c]!);
+        const l = Math.hypot(d[0]!, d[1]!, d[2]!);
+        return [d[0]! / l, d[1]! / l, d[2]! / l];
+    };
+    const atm = { ...earthAtmosphere(2), haze: { scattering: 0.27, extinction: 0.3, scale: 1.2 } };
+    const R = atm.bottomRadius;
+    const alt = 0.202;
+    const e = (35 * Math.PI) / 180;
+    const sun: Vec3 = [Math.cos(e), Math.sin(e), 0];
+    const base = R + 0.2 + 0.7;
+    const top = R + 0.2 + 0.95;
+    const visibility = (x: Vec3): number => {
+        if (x[1] >= top) return 1;
+        const t0 = Math.max(0, (base - x[1]) / sun[1]);
+        const t1 = (top - x[1]) / sun[1];
+        let tau = 0;
+        const n = 24;
+        for (let i = 0; i < n; i++) {
+            const tt = t0 + ((t1 - t0) * (i + 0.5)) / n;
+            const qx = x[0] + sun[0] * tt;
+            const qz = x[2] + sun[2] * tt;
+            if (Math.hypot(qx - gap[0] / 1000, qz - gap[1] / 1000) > 0.25)
+                tau += (300 * (t1 - t0)) / n;
+        }
+        return Math.exp(-tau);
+    };
+    const msCache = new Map<string, Vec3>();
+    const ms = (r: number, mu: number): Vec3 => {
+        const key = `${Math.round(r * 4)}:${Math.round(mu * 100)}`;
+        let v = msCache.get(key);
+        if (v === undefined) {
+            v = multipleScattering(atm, Math.round(r * 4) / 4, Math.round(mu * 100) / 100, 16, 12);
+            msCache.set(key, v);
+        }
+        return v;
+    };
+    const ref: number[] = [];
+    const cols: number[] = [];
+    for (let px = 0; px < width; px += 4) {
+        const d = dirOf(px);
+        // O ar até a base da camada (o resto é a nuvem, a mesma dentro e fora do feixe).
+        const dist = (base - (R + alt)) / Math.max(d[1], 1e-3);
+        const a = aerialPerspective(atm, alt, d, sun, dist, 1200, ms, visibility).scattered;
+        ref.push(luminance([a[0], a[1], a[2]]) * 1000);
+        cols.push(px);
+    }
+    const profile = (p: number[]): { excess: number; fwhm: number; at: number } => {
+        const sorted = [...p].sort((a, b) => a - b);
+        const floor = sorted[Math.floor(sorted.length * 0.2)]!;
+        let at = 0;
+        for (let k = 1; k < p.length; k++) if (p[k]! > p[at]!) at = k;
+        const half = floor + 0.5 * (p[at]! - floor);
+        let l = at;
+        let r = at;
+        while (l > 0 && p[l]! > half) l--;
+        while (r < p.length - 1 && p[r]! > half) r++;
+        return { excess: p[at]! - floor, fwhm: r - l, at };
+    };
+    const g = profile(cols.map((c) => gpu[c]!));
+    const rf = profile(ref);
+    const gpuFloor = [...cols.map((c) => gpu[c]!)].sort((a, b) => a - b)[
+        Math.floor(cols.length * 0.2)
+    ]!;
+    const refFloor = [...ref].sort((a, b) => a - b)[Math.floor(ref.length * 0.2)]!;
+    log(
+        `beam-gap: GPU — excesso do feixe ${g.excess.toFixed(2)} nits sobre ${gpuFloor.toFixed(2)} (×${((g.excess + gpuFloor) / gpuFloor).toFixed(2)}), largura a meia altura ${g.fwhm * 4} px na coluna ${cols[g.at]}; f64 — excesso ${rf.excess.toFixed(2)} nits sobre ${refFloor.toFixed(2)} (×${((rf.excess + refFloor) / refFloor).toFixed(2)}), largura ${rf.fwhm * 4} px na coluna ${cols[rf.at]}`,
+    );
+    log(
+        `beam-gap: perfis (de 4 em 4 px) GPU ${cols.map((c) => gpu[c]!.toFixed(1)).join(' ')} | f64 ${ref.map((v) => v.toFixed(1)).join(' ')}`,
+    );
+}
+
 async function caseClearSky(): Promise<void> {
     // Cobertura 0 com a camada contra o céu sem a camada: a mesma imagem (FR-017, US2 cenário 1).
     const view = { width: 320, height: 180, target: [1000, 300, 200] as const };
@@ -2818,6 +2947,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'water-reflection': caseWaterReflection,
     'clear-sky': caseClearSky,
     'beam-air': caseBeamAir,
+    'beam-gap': caseBeamGap,
     'overcast-stratus': caseOvercastStratus,
     'coverage-mask': caseCoverageMask,
     wind: caseWind,
