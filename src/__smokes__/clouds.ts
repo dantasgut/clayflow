@@ -59,6 +59,15 @@ import {
 import { materialGraph } from './support/materialScenes';
 import { noiseCellular3 } from '../elements/nodes/reference/noiseNodes';
 import {
+    coverageRingTexel,
+    coverageSample,
+    coverageTexelCenter,
+    coverageUsable,
+    coverageVolumeReader,
+    coverageWindow,
+    type CoverageLevels,
+} from '../elements/media/clouds/reference/cloudCoverageLevels';
+import {
     altitude as altitudeOf,
     coneSunDepth,
     opticalDepth,
@@ -138,6 +147,16 @@ function ms(r: number, muS: number): Vec3 {
 
 const quantize = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255) / 255;
 
+/** O mapa de cobertura em níveis do quadro como a camada o empacota no uniforme (R21 rodada 19). */
+function coverageLevelsOf(layer: CloudLayer): CoverageLevels {
+    const p = layer.data.params[0]!;
+    return {
+        texel: p.coverageOffset![2]!,
+        levels: p.coveragePages![3]!,
+        eye: [p.coverageMap![0]!, p.coverageMap![1]!],
+    };
+}
+
 /** O modelo da referência com os volumes lidos da GPU e os valores da camada (a cobertura quantizada como no mapa). */
 async function referenceModel(s: CloudScene, layer: CloudLayer, time = 0): Promise<CloudModel> {
     const shape = await readCloudVolume(s.app, layer, 'shape');
@@ -147,56 +166,38 @@ async function referenceModel(s: CloudScene, layer: CloudLayer, time = 0): Promi
     if (layer.weather !== undefined || layer.coverageFunction !== undefined)
         return weatherReferenceModel(s, layer, shape, detail, time);
     const radii = s.sky.data.radii;
-    const half = layer.quality.coverageExtent / 2;
-    const MAP = layer.quality.coverageSize;
-    // O centro do mapa: a câmera encaixada no texel (o empacotamento do `CloudNoiseFlow`).
-    const texel = (2 * half) / MAP;
-    const eye = s.camera.data.position;
-    const center = [
-        Math.round((eye[0] ?? 0) / texel) * texel,
-        Math.round((eye[2] ?? 0) / texel) * texel,
-    ];
-    const cache = new Map<number, [number, number]>();
-    const mapTexel = (x: number, z: number): [number, number] => {
-        const key = Math.round(x) * 1e7 + Math.round(z);
+    // O mapa de cobertura em níveis do quadro (o uniforme da camada) e, nos centros de texel, os campos quantizados a 8
+    // bits; a leitura pelos níveis como a GPU (`coverageSample`); fora do mapa, o campo no ponto.
+    const levels = coverageLevelsOf(layer);
+    const off = layer.data.params[0]!.coverageOffset!;
+    const cache = new Map<string, [number, number]>();
+    const c = layer.coverage;
+    const t = layer.type;
+    const texel = (k: number, i: number, j: number): [number, number] => {
+        const key = `${k}:${i}:${j}`;
         let v = cache.get(key);
         if (v === undefined) {
+            const [x, z] = coverageTexelCenter(levels, k, i, j);
             v = [quantize(coverageField(x, z, c, t)), quantize(typeField(x, z, t))];
             cache.set(key, v);
         }
         return v;
     };
-    const c = layer.coverage;
-    const t = layer.type;
+    // O anel de fora de cada janela leva o valor ao do nível seguinte, como o desenho da GPU.
+    const ringed = coverageRingTexel(levels, texel);
     const wind = layer.wind;
     const speed = Math.hypot(wind[0], wind[1]);
     return {
         groundRadius: ((radii[0] ?? 6360) + (radii[3] ?? 0.2)) * 1000,
         base: layer.base,
         top: layer.top,
-        // O campo da cobertura global como a GPU o lê: no mapa (512², centrado na câmera encaixada no texel), os
-        // centros de texel quantizados a 8 bits com filtro bilinear; fora dele, o campo no ponto.
         coverage: (x, z) => {
-            if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
-                return [coverageField(x, z, c, t), typeField(x, z, t), 1];
-            const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
-            const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
-            const x0 = Math.floor(fx);
-            const z0 = Math.floor(fz);
-            const at = (i: number, j: number): [number, number] => {
-                const ci = Math.min(MAP - 1, Math.max(0, i));
-                const cj = Math.min(MAP - 1, Math.max(0, j));
-                return mapTexel(
-                    center[0]! + ((ci + 0.5) / MAP - 0.5) * 2 * half,
-                    center[1]! + ((cj + 0.5) / MAP - 0.5) * 2 * half,
-                );
-            };
-            const ax = fx - x0;
-            const az = fz - z0;
-            const lerp = (k: 0 | 1): number =>
-                (at(x0, z0)[k] * (1 - ax) + at(x0 + 1, z0)[k] * ax) * (1 - az)
-                + (at(x0, z0 + 1)[k] * (1 - ax) + at(x0 + 1, z0 + 1)[k] * ax) * az;
-            return [lerp(0), lerp(1), 1];
+            const w: [number, number] = [x - off[0]!, z - off[1]!];
+            const v = coverageSample(levels, w, ringed, (p) => [
+                coverageField(p[0], p[1], c, t),
+                typeField(p[0], p[1], t),
+            ]);
+            return [v[0]!, v[1]!, 1];
         },
         density: layer.density,
         albedo: layer.albedo,
@@ -221,17 +222,13 @@ async function weatherReferenceModel(
     const radii = s.sky.data.radii;
     // Os deslocamentos do vento no tempo simulado (os casos de relógio parado: 0).
     const offsets = layer.windOffsets(time);
-    const half = layer.quality.coverageExtent / 2;
     const tex = s.app.resources.textureOf(layer, 'coverage');
     if (tex === undefined) throw new Error('mapa de cobertura não alocado');
     const map = await readTexture(s.app, tex, 'rgba8unorm');
-    const MAP = map.width;
-    const texel = (2 * half) / MAP;
-    const eye = s.camera.data.position;
-    const center = [
-        Math.round((eye[0] ?? 0) / texel) * texel,
-        Math.round((eye[2] ?? 0) / texel) * texel,
-    ];
+    // O mapa em níveis lido da GPU (4 canais, bilinear pelos níveis como a GPU); fora dele, o tempo bom.
+    const levels = coverageLevelsOf(layer);
+    const off = layer.data.params[0]!.coverageOffset!;
+    const read = coverageVolumeReader(map.data, 4);
     const c = layer.coverage;
     const t = layer.type;
     const fairTop = Math.min(1, (layer.top - layer.base) / (layer.shellTop - layer.base));
@@ -242,28 +239,15 @@ async function weatherReferenceModel(
         base: layer.base,
         top: layer.shellTop,
         coverage: (x, z) => {
-            if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
-                return layer.weather === undefined
-                    ? [coverageField(x, z, c, t), typeField(x, z, t), 1]
-                    : [coverageField(x, z, c, t), typeField(x, z, t), 0, fairTop];
-            const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
-            const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
-            const x0 = Math.floor(fx);
-            const z0 = Math.floor(fz);
-            const ax = fx - x0;
-            const az = fz - z0;
-            const at = (i: number, j: number, k: number): number =>
-                map.data[
-                    (Math.min(MAP - 1, Math.max(0, j)) * MAP + Math.min(MAP - 1, Math.max(0, i)))
-                        * 4
-                        + k
-                ]!;
-            const lerp = (k: number): number =>
-                (at(x0, z0, k) * (1 - ax) + at(x0 + 1, z0, k) * ax) * (1 - az)
-                + (at(x0, z0 + 1, k) * (1 - ax) + at(x0 + 1, z0 + 1, k) * ax) * az;
+            const w: [number, number] = [x - off[0]!, z - off[1]!];
+            const v = coverageSample(levels, w, read, (p) =>
+                layer.weather === undefined
+                    ? [coverageField(p[0], p[1], c, t), typeField(p[0], p[1], t), 1, 0]
+                    : [coverageField(p[0], p[1], c, t), typeField(p[0], p[1], t), 0, fairTop],
+            );
             // Sem o tempo (a função de cobertura): cobertura, tipo e densidade relativa.
-            if (layer.weather === undefined) return [lerp(0), lerp(1), lerp(2)];
-            return [lerp(0), lerp(1), lerp(2), lerp(3)];
+            if (layer.weather === undefined) return [v[0]!, v[1]!, v[2]!];
+            return [v[0]!, v[1]!, v[2]!, v[3]!];
         },
         density: layer.density,
         albedo: layer.albedo,
@@ -1334,11 +1318,11 @@ async function caseBeamGap(): Promise<void> {
         s.layer!.fromRenderer({
             ...q,
             shadow: { ...q.shadow, texel: texel === null ? q.shadow.texel : Number(texel) },
-            coverageSize: cov === null ? q.coverageSize : Number(cov),
+            coverage: { ...q.coverage, texel: cov === null ? q.coverage.texel : Number(cov) },
         });
     }
     log(
-        `beam-gap: sol a ${el}°, camada ${lo}–${hi} m, vão de raio ${radius} m em ${gap.join(', ')}, vento ${wind.join(', ')}, texel do mapa visto do sol ${s.layer!.quality.shadow.texel} m, mapa de cobertura ${s.layer!.quality.coverageSize}² (${(s.layer!.quality.coverageExtent / s.layer!.quality.coverageSize).toFixed(0)} m)`,
+        `beam-gap: sol a ${el}°, camada ${lo}–${hi} m, vão de raio ${radius} m em ${gap.join(', ')}, vento ${wind.join(', ')}, texel do mapa visto do sol ${s.layer!.quality.shadow.texel} m, mapa de cobertura em níveis com texel de ${s.layer!.quality.coverage.texel} m no nível 0`,
     );
     const settle = Number(query.get('settle') ?? 180);
     await settleFrames(s.app, settle);
@@ -1350,6 +1334,16 @@ async function caseBeamGap(): Promise<void> {
     const depth = froxels.data.params[0]!.depth!;
     // A nuvem da f64: o espelho da densidade (`cloudModel`) com o mapa de cobertura da GPU, a mesma representação.
     const model = await referenceModel(s, s.layer!);
+    // E a f64 exata: a mesma nuvem com a função de cobertura no ponto (o vão de borda dura, sem mapa nenhum).
+    const windShift = s.layer!.data.params[0]!.coverageOffset!;
+    const exact: CloudModel = {
+        ...model,
+        coverage: (x, z) => [
+            Math.hypot(x - windShift[0]! - gap[0], z - windShift[1]! - gap[1]) < radius ? 0 : 1,
+            0.1,
+            1,
+        ],
+    };
     const sunScene = s.layer!.data.params[0]!.sunDir! as unknown as Vec3;
     finish(s);
     const y = height >> 1;
@@ -1390,11 +1384,15 @@ async function caseBeamGap(): Promise<void> {
     const top = R + 0.2 + hi / 1000;
     // A visibilidade do sol num ponto do ar (km, centro do planeta): a profundidade ótica até o sol pela nuvem da
     // referência (m de cena, o chão em R + 0,2 km).
-    const visibility = (x: Vec3): number => {
-        if (x[1] >= top) return 1;
-        const q: Vec3 = [x[0] * 1000, (x[1] - (R + 0.2)) * 1000, x[2] * 1000];
-        return Math.exp(-opticalDepth(model, q, [sunScene[0], sunScene[1], sunScene[2]], 48));
-    };
+    const visibilityOf =
+        (m: CloudModel) =>
+        (x: Vec3): number => {
+            if (x[1] >= top) return 1;
+            const q: Vec3 = [x[0] * 1000, (x[1] - (R + 0.2)) * 1000, x[2] * 1000];
+            return Math.exp(-opticalDepth(m, q, [sunScene[0], sunScene[1], sunScene[2]], 48));
+        };
+    const visibility = visibilityOf(model);
+    const visibilityExact = visibilityOf(exact);
     const msCache = new Map<string, Vec3>();
     const ms = (r: number, mu: number): Vec3 => {
         const key = `${Math.round(r * 4)}:${Math.round(mu * 100)}`;
@@ -1407,10 +1405,14 @@ async function caseBeamGap(): Promise<void> {
     };
     // A distância (km) até a base da camada numa direção.
     const toBase = (d: Vec3): number => (base - (R + alt)) / Math.max(d[1], 1e-3);
-    const reference = (d: Vec3): number => {
-        const a = aerialPerspective(atm, alt, d, sun, toBase(d), 1200, ms, visibility).scattered;
-        return luminance([a[0], a[1], a[2]]) * 1000;
-    };
+    const referenceWith =
+        (v: (x: Vec3) => number) =>
+        (d: Vec3): number => {
+            const a = aerialPerspective(atm, alt, d, sun, toBase(d), 1200, ms, v).scattered;
+            return luminance([a[0], a[1], a[2]]) * 1000;
+        };
+    const reference = referenceWith(visibility);
+    const referenceExact = referenceWith(visibilityExact);
     // A imagem e a f64 de 4 em 4 px.
     const ref: number[] = [];
     const cols: number[] = [];
@@ -1425,6 +1427,7 @@ async function caseBeamGap(): Promise<void> {
     const gy = Math.floor((y / height) * GH);
     const airGpu: number[] = [];
     const airRef: number[] = [];
+    const airExact: number[] = [];
     for (let gx = 0; gx < GW; gx++) {
         const { d, stretch } = dirAt((gx + 0.5) / GW, (gy + 0.5) / GH);
         const viewDepth = (toBase(d) * 1000) / stretch;
@@ -1437,6 +1440,7 @@ async function caseBeamGap(): Promise<void> {
         };
         airGpu.push(at(k) + (at(k + 1) - at(k)) * (sc - k));
         airRef.push(reference(d));
+        airExact.push(referenceExact(d));
     }
     // O perfil: o fundo (o 20.º percentil), o pico, o contraste, a largura a meia altura e as bordas de 10–90 % (px).
     const profile = (
@@ -1486,9 +1490,10 @@ async function caseBeamGap(): Promise<void> {
     const pxPerCol = width / GW;
     const ag = profile(airGpu, pxPerCol);
     const ar = profile(airRef, pxPerCol);
+    const ae = profile(airExact, pxPerCol);
     log(`beam-gap: ${fmt('imagem', g)} | ${fmt('f64', rf)}`);
     log(
-        `beam-gap: só o ar (grade ${GW}×${GH}×${GZ}, linha ${gy}) ${fmt('GPU', ag)} | ${fmt('f64', ar)}`,
+        `beam-gap: só o ar (grade ${GW}×${GH}×${GZ}, linha ${gy}) ${fmt('GPU', ag)} | ${fmt('f64', ar)} | ${fmt('f64 exata', ae)}`,
     );
     log(
         `beam-gap: perfis do ar (por coluna de froxel) GPU ${airGpu.map((v) => v.toFixed(1)).join(' ')} | f64 ${airRef.map((v) => v.toFixed(1)).join(' ')}`,
@@ -1502,6 +1507,15 @@ async function caseBeamGap(): Promise<void> {
     check(
         edge <= 2 * pxPerCol,
         `beam-gap: bordas do ar ${ag.rise.toFixed(0)}/${ag.fall.toFixed(0)} px contra ${ar.rise.toFixed(0)}/${ar.fall.toFixed(0)} da f64 (> ${2 * pxPerCol} px a mais)`,
+    );
+    // Contra a f64 exata (o vão sem mapa; R21 rodada 19, T077): o mapa em níveis em volta da câmera resolve a borda.
+    const edgeExact = Math.max(ag.rise - ae.rise, ag.fall - ae.fall);
+    log(
+        `beam-gap: bordas do ar ${ag.rise.toFixed(1)}/${ag.fall.toFixed(1)} px contra ${ae.rise.toFixed(1)}/${ae.fall.toFixed(1)} da f64 exata (${edgeExact.toFixed(1)} px a mais)`,
+    );
+    check(
+        edgeExact <= 4,
+        `beam-gap: bordas do ar ${ag.rise.toFixed(1)}/${ag.fall.toFixed(1)} px contra ${ae.rise.toFixed(1)}/${ae.fall.toFixed(1)} da f64 exata (> 4 px a mais)`,
     );
 }
 
@@ -2196,21 +2210,24 @@ async function caseCoverageMap(): Promise<void> {
     const t = s.app.resources.textureOf(s.layer!, 'coverage');
     if (t === undefined) throw new Error('mapa de cobertura não alocado');
     const map = await readTexture(s.app, t, 'rgba8unorm');
-    const extent = s.layer!.quality.coverageExtent;
+    // Os texels de todos os níveis (páginas embaralhadas da janela de cada um) contra os campos no centro deles.
+    const levels = coverageLevelsOf(s.layer!);
+    const read = coverageVolumeReader(map.data, 4);
     let worst = 0;
     for (let k = 0; k < 400; k++) {
-        const i = (k * 97) % map.width;
-        const j = (k * 53 + 11) % map.height;
-        const x = ((i + 0.5) / map.width - 0.5) * extent;
-        const z = ((j + 0.5) / map.height - 0.5) * extent;
-        const ref = coverageField(x, z, 0.5, 0.4);
-        const o = (j * map.width + i) * 4;
-        worst = Math.max(worst, Math.abs(map.data[o]! - quantize(ref)));
+        const level = k % levels.levels;
+        const win = coverageWindow(levels, level);
+        // Fora do anel de fora da janela (lá o valor é levado ao do nível seguinte).
+        const i = win[0] * 16 + 16 + ((k * 97) % 480);
+        const j = win[1] * 16 + 16 + ((k * 53 + 11) % 480);
+        const [x, z] = coverageTexelCenter(levels, level, i, j);
+        const v = read(level, i, j);
+        worst = Math.max(worst, Math.abs(v[0]! - quantize(coverageField(x, z, 0.5, 0.4))));
         // O canal G: o campo do tipo em volta do tipo pedido.
-        worst = Math.max(worst, Math.abs(map.data[o + 1]! - quantize(typeField(x, z, 0.4))));
+        worst = Math.max(worst, Math.abs(v[1]! - quantize(typeField(x, z, 0.4))));
     }
     log(
-        `coverage-map: 400 texels (cobertura e tipo) contra os campos da referência — pior ${(worst * 255).toFixed(2)}/255`,
+        `coverage-map: 400 texels de ${levels.levels} níveis (cobertura e tipo) contra os campos da referência — pior ${(worst * 255).toFixed(2)}/255`,
     );
     check(worst <= 2 / 255 + 1e-6, `coverage-map: texel difere ${(worst * 255).toFixed(2)}/255`);
     finish(s);
@@ -2705,11 +2722,17 @@ async function coverageAgainstWeather(
     };
     let worst = 0;
     let storm = 0;
+    // Os texels de um nível (o mapa em níveis, R21 rodada 19) longe da borda da janela (os 86 % do meio dela).
+    const levels = coverageLevelsOf(layer);
+    // O nível de 500 m (o penúltimo: a janela de 256 km, o quadrado do tempo).
+    const last = levels.levels - 2;
+    const read = coverageVolumeReader(map.data, 4);
+    const win = coverageWindow(levels, last);
     for (let k = 0; k < 400; k++) {
-        const i = Math.floor(map.width * 0.07) + ((k * 97) % Math.floor(map.width * 0.86));
-        const j = Math.floor(map.height * 0.07) + ((k * 53 + 11) % Math.floor(map.height * 0.86));
-        const x = ((i + 0.5) / map.width - 0.5) * extent;
-        const z = ((j + 0.5) / map.height - 0.5) * extent;
+        const gi = win[0] * 16 + 36 + ((k * 97) % 440);
+        const gj = win[1] * 16 + 36 + ((k * 53 + 11) % 440);
+        const [x, z] = coverageTexelCenter(levels, last, gi, gj);
+        const texel = read(last, gi, gj);
         const fx = (x / extent + 0.5) * W - 0.5;
         const fz = (z / extent + 0.5) * W - 0.5;
         const x0 = Math.floor(fx);
@@ -2729,9 +2752,8 @@ async function coverageAgainstWeather(
             quantize(lerp('anvil')),
             quantize(lerp('top')),
         ];
-        const o = (j * map.width + i) * 4;
-        for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(map.data[o + c]! - ref[c]!));
-        if (map.data[o + 3]! > 0.95) storm++;
+        for (let c = 0; c < 4; c++) worst = Math.max(worst, Math.abs(texel[c]! - ref[c]!));
+        if (texel[3]! > 0.95) storm++;
     }
     log(
         `pressure-wind: mapa de cobertura pelo tempo — 400 texels, pior ${(worst * 255).toFixed(2)}/255; ${storm} com a torre até a tropopausa`,
@@ -2860,14 +2882,25 @@ async function caseFront(): Promise<void> {
     let low = 0;
     let nh = 0;
     let nl = 0;
-    for (let j = 0; j < map.height; j += 3)
-        for (let i = 0; i < map.width; i += 3) {
-            const v = map.data[(j * map.width + i) * 4]!;
-            if (i > map.width * 0.75) {
+    // Pelos texels de um nível do mapa em níveis (R21 rodada 19): a quarta parte de cada lado do quadrado.
+    const levels = coverageLevelsOf(layer);
+    // O nível de 500 m (o penúltimo: a janela de 256 km, o quadrado do tempo).
+    const last = levels.levels - 2;
+    const read = coverageVolumeReader(map.data, 4);
+    const win = coverageWindow(levels, last);
+    const reach = coverageUsable(levels, last);
+    for (let j = 0; j < 512; j += 3)
+        for (let i = 0; i < 512; i += 3) {
+            const [gi, gj] = [win[0] * 16 + i, win[1] * 16 + j];
+            const [x] = coverageTexelCenter(levels, last, gi, gj);
+            const dx = x - levels.eye[0];
+            if (Math.abs(dx) > reach) continue;
+            const v = read(last, gi, gj)[0]!;
+            if (dx > reach / 2) {
                 high += v;
                 nh++;
             }
-            if (i < map.width * 0.25) {
+            if (dx < -reach / 2) {
                 low += v;
                 nl++;
             }

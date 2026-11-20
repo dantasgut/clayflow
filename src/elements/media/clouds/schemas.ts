@@ -6,7 +6,9 @@ import { type FieldSpec, StructSchema, fieldArray } from '../../../scene/descrip
  * valores da `CloudLayer`, do `Sky` e da câmera): a casca (raio do chão da cena, base, topo, espessura; m), a camada
  * (cobertura, tipo, extinção, albedo), a fase (g_HG, g_D, α, w_D), as oitavas (quantas, a, b, c), os deslocamentos do
  * vento da forma e do detalhe (m, reduzidos módulo o período em f64; `w` a escala), o vento (direção unitária xz e
- * velocidade xz em m/s), o mapa de cobertura (centro xz, lado, tempo) e o deslocamento dele, o referencial do mapa
+ * velocidade xz em m/s), o mapa de cobertura em níveis (a câmera xz no referencial do vento, o lado, o tempo; o
+ * deslocamento do vento xz e o texel do nível 0; o orçamento de páginas por quadro, a assinatura do conteúdo, se o
+ * conteúdo muda no tempo e quantos níveis — R21 rodada 19), o referencial do mapa
  * visto do sol por páginas (o pivô do plano — o vento × tempo mais a célula da grade do pivô —; a direita e em cima, a
  * rotação mínima de +y ao sol, com a câmera no plano em `w`; a direção do sol; o texel do nível 0, a tolerância, o tempo
  * da evolução da forma e o vento que sobra além do local; o orçamento de páginas por quadro, a assinatura do conteúdo e
@@ -34,6 +36,7 @@ export const CloudSchema = new StructSchema(
         wind: FieldType.vec4f,
         coverageMap: FieldType.vec4f,
         coverageOffset: FieldType.vec4f,
+        coveragePages: FieldType.vec4u,
         sunFrame: FieldType.vec4f,
         sunRight: FieldType.vec4f,
         sunUp: FieldType.vec4f,
@@ -80,6 +83,31 @@ export const CLOUD_SHADOW_SLOT_COUNT =
     CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * CLOUD_SHADOW_PAGES;
 /** Lado do atlas em texels. */
 export const CLOUD_SHADOW_ATLAS = CLOUD_SHADOW_SLOTS_X * CLOUD_SHADOW_STRIDE;
+
+// O mapa de cobertura em níveis (R21 rodada 19, T077; `cloud_coverage_pages.wgsl`, `reference/cloudCoverageLevels.ts`).
+/** Texels por lado do interior de uma página do mapa de cobertura. */
+export const CLOUD_COVERAGE_PAGE = 16;
+/** Páginas por lado de um nível (a janela de 512 texels em volta da câmera). */
+export const CLOUD_COVERAGE_PAGES = 32;
+/** Texels por lado de uma camada do volume do mapa (a janela de um nível, no endereço toroidal). */
+export const CLOUD_COVERAGE_SIDE = CLOUD_COVERAGE_PAGE * CLOUD_COVERAGE_PAGES;
+/** Palavras do registro de uma página física (a página global x e y, o quadro do desenho, a assinatura, a janela x e y). */
+export const CLOUD_COVERAGE_RECORD_WORDS = 8;
+
+/**
+ * Os níveis do mapa de cobertura: do texel do nível 0 até o último cujo raio útil (`(255 − 16)` texels em volta da câmera:
+ * `cloud_coverage_usable`) cobre a metade do lado do mapa — fora dele a densidade avalia o campo procedural no ponto
+ * (com o último nível só até 119,5 km de 128, a marcha e os caminhos do cache custavam ~0,2 ms a mais: medido).
+ */
+export function cloudCoverageLevels(q: Pick<CloudQuality, 'coverage' | 'coverageExtent'>): number {
+    const usable = (255 - CLOUD_COVERAGE_PAGE) * q.coverage.texel;
+    return Math.max(1, Math.ceil(Math.log2(q.coverageExtent / 2 / usable)) + 1);
+}
+
+/** Páginas físicas do mapa de cobertura (as janelas de todos os níveis). */
+export function cloudCoverageSlotCount(levels: number): number {
+    return levels * CLOUD_COVERAGE_PAGES * CLOUD_COVERAGE_PAGES;
+}
 
 /**
  * Os campos do registro de uma página física do mapa visto do sol (`cloud_shadow.wgsl`), na ordem do struct: o sol do
@@ -166,12 +194,17 @@ export interface CloudQuality {
      */
     readonly shadow: { readonly texel: number; readonly budget: number };
     /**
-     * Lado (m) e texels por lado do mapa de cobertura. O mapa cobre a grade do cache de espalhamento e quase todo o
+     * Lado (m) do mapa de cobertura (o do último nível). O mapa cobre a grade do cache de espalhamento e quase todo o
      * alcance da marcha: fora dele a densidade avalia o campo da cobertura no ponto (o fBm procedural, ~4 × o custo
      * do passo da marcha e dos caminhos — medido: o mapa de 64 km deixava os caminhos das sondas distantes nele).
      */
     readonly coverageExtent: number;
-    readonly coverageSize: number;
+    /**
+     * O mapa de cobertura em níveis em volta da câmera (R21 rodada 19, T077): o texel do nível 0 (m; cada nível dobra,
+     * até o lado `coverageExtent` no último) e o orçamento de páginas refeitas por quadro (as que entram na janela ou
+     * mudam de conteúdo passam dele).
+     */
+    readonly coverage: { readonly texel: number; readonly budget: number };
     /**
      * Cache de espalhamento (T023, R8; páginas, R11 revisto): sondas por lado (x, altitude, z; múltiplos de
      * `CLOUD_SCATTER_PAGE`), o orçamento de páginas de sondas que caminham por quadro e o teto de colisões por caminho.

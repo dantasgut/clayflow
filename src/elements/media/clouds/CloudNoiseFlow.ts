@@ -25,6 +25,7 @@ import {
     CLOUD_EROSION,
     CLOUD_OCTAVES,
     CLOUD_SHADOW_PIVOT,
+    cloudCoverageLevels,
     CLOUD_SHADOW_TOLERANCE,
     CLOUD_SCATTER_EXTENT,
     CLOUD_SCATTER_NEAR,
@@ -238,15 +239,12 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const wind = cloud.windOffsets(t);
         const speed = Math.hypot(d.wind[0]!, d.wind[1]!);
         const windDir = speed > 1e-9 ? [d.wind[0]! / speed, d.wind[1]! / speed] : [1, 0];
-        // O quadrado de cobertura encaixado no texel no referencial das nuvens (o vento × tempo mais um número inteiro de
-        // texels): os texels andam com as nuvens, e a nuvem que o vento leva não muda de forma ao passar pela grade (com a
-        // grade presa ao mundo, a interpolação da cobertura mudava a cada quadro — e o mapa visto do sol por páginas,
-        // preso às nuvens, era refeito à toa). A câmera andando não faz tremer.
-        const covTexel = q.coverageExtent / q.coverageSize;
-        const covCenter = [
-            wind.coverage[0] + Math.round(((eye[0] ?? 0) - wind.coverage[0]) / covTexel) * covTexel,
-            wind.coverage[1] + Math.round(((eye[2] ?? 0) - wind.coverage[1]) / covTexel) * covTexel,
-        ];
+        // O mapa de cobertura em níveis (R21 rodada 19, T077): a grade no referencial das nuvens (o vento × tempo) — os
+        // texels andam com as nuvens, e a nuvem que o vento leva não muda de forma ao passar pela grade (com a grade presa
+        // ao mundo, a interpolação da cobertura mudava a cada quadro — e o mapa visto do sol por páginas, preso às nuvens,
+        // era refeito à toa). As janelas dos níveis ficam presas à página em volta da câmera nesse referencial (f64 aqui).
+        const coverageEye = [(eye[0] ?? 0) - wind.coverage[0], (eye[2] ?? 0) - wind.coverage[1]];
+        const coveragePages = this.coveragePagesParams(cloud);
         const sun = unit(s.sunDirection, [0, 1, 0]);
         // O plano do mapa visto do sol por páginas (R11 revisto): a base pela rotação mínima de +y ao sol (contínua com o
         // sol andando); o pivô anda com o vento (o conteúdo das páginas fica preso às nuvens) mais a célula da grade do pivô que
@@ -296,8 +294,9 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 shape: [...wind.shape, d.shapeScale],
                 detail: [...wind.detail, d.detailScale],
                 wind: [windDir[0]!, windDir[1]!, d.wind[0]!, d.wind[1]!],
-                coverageMap: [covCenter[0]!, covCenter[1]!, q.coverageExtent, t],
-                coverageOffset: [wind.coverage[0], wind.coverage[1], 0, 0],
+                coverageMap: [coverageEye[0]!, coverageEye[1]!, q.coverageExtent, t],
+                coverageOffset: [wind.coverage[0], wind.coverage[1], q.coverage.texel, 0],
+                coveragePages,
                 sunFrame: [pivot[0]!, pivot[1]!, pivot[2]!, 0],
                 sunRight: [right[0]!, right[1]!, right[2]!, dot(rel, right)],
                 sunUp: [up[0]!, up[1]!, up[2]!, dot(rel, up) + band * up[1]!],
@@ -346,6 +345,33 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
      * sem evolução) e o vento que sobra além do local (a bigorna levada pelo vento de cima); o orçamento de páginas por
      * quadro e a assinatura do conteúdo (FNV-1a dos valores que mudam as colunas: mudou, o mapa é refeito inteiro).
      */
+    /**
+     * As páginas do mapa de cobertura em níveis no uniforme (R21 rodada 19): o orçamento de páginas por quadro, a
+     * assinatura do conteúdo (FNV-1a dos valores que mudam os texels: a página de outra assinatura é refeita no quadro),
+     * se o conteúdo muda no tempo (a função de cobertura recebe o tempo; o tempo evolui — as páginas são refeitas pela
+     * idade) e quantos níveis.
+     */
+    private coveragePagesParams(cloud: CloudLayer): number[] {
+        const d = cloud.data;
+        const q = d.quality;
+        const signature = fnv1a(
+            JSON.stringify([
+                d.base,
+                d.top,
+                cloud.shellTop,
+                d.coverage,
+                d.type,
+                d.weather ?? null,
+                q.coverage.texel,
+                q.coverageExtent,
+                cloud.coverageFunction?.data ?? null,
+                cloud.pressureFunction?.data ?? null,
+            ]),
+        );
+        const varying = cloud.coverageFunction !== undefined || d.weather !== undefined;
+        return [q.coverage.budget, signature, varying ? 1 : 0, cloudCoverageLevels(q)];
+    }
+
     private shadowMapParams(
         cloud: CloudLayer,
         sky: Sky,

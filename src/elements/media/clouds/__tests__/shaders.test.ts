@@ -33,7 +33,8 @@ import {
 const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_noise shape', cloudNoiseKernel, 'cloud_noise_shape_main'],
     ['cloud_noise detail', cloudNoiseKernel, 'cloud_noise_detail_main'],
-    ['cloud_coverage', cloudCoverageKernel, 'cloud_coverage_main'],
+    ['cloud_coverage', cloudCoverageKernel, 'cloud_coverage_draw_main'],
+    ['cloud_coverage select', cloudCoverageKernel, 'cloud_coverage_select_main'],
     ['cloud_ambient', cloudAmbientKernel, 'cloud_ambient_main'],
     ['cloud_shadow', cloudShadowKernel.plain, 'cloud_shadow_main'],
     ['cloud_shadow select', cloudShadowKernel.plain, 'cloud_shadow_select_main'],
@@ -48,7 +49,8 @@ const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_scatter', cloudScatterKernel, 'cloud_scatter_main'],
     ['sky_aerial', skyAerialKernel, 'sky_aerial_main'],
     ['cloud_weather_map', cloudWeatherKernel, 'cloud_weather_main'],
-    ['cloud_coverage_weather', cloudCoverageWeatherKernel, 'cloud_coverage_weather_main'],
+    ['cloud_coverage_weather', cloudCoverageWeatherKernel, 'cloud_coverage_draw_main'],
+    ['cloud_coverage_weather select', cloudCoverageWeatherKernel, 'cloud_coverage_select_main'],
     [
         'cloud_reconstruct com o tempo',
         bindPoints(cloudReconstructKernel.single, new Map([[cloudWindAtPoint, cloudWindWeather]])),

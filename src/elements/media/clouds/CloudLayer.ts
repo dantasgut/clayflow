@@ -21,6 +21,9 @@ import {
 import { defaultCloudShapeGraph } from './defaultShape';
 import { GpuWordSchema } from '../../gpu/compute/schemas';
 import {
+    CLOUD_COVERAGE_PAGE,
+    CLOUD_COVERAGE_RECORD_WORDS,
+    CLOUD_COVERAGE_SIDE,
     CLOUD_DETAIL_SIZE,
     CLOUD_SHADOW_ATLAS,
     CLOUD_SHADOW_SLOT_COUNT,
@@ -33,6 +36,8 @@ import {
     CLOUD_WEATHER_SIZE,
     CloudSchema,
     CloudShadowPageSchema,
+    cloudCoverageLevels,
+    cloudCoverageSlotCount,
     type CloudQuality,
 } from './schemas';
 import { cloudLightTransmission, cloudSkyCover, cloudVolumeVisibility } from './shaders';
@@ -147,7 +152,7 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     panoramaSteps: 32,
     shadow: { texel: 50, budget: 128 },
     coverageExtent: 256_000,
-    coverageSize: 1024,
+    coverage: { texel: 31.25, budget: 128 },
     scatter: { size: [160, 32, 160], budget: 200, collisions: 48 },
     marchScale: 2,
 };
@@ -445,7 +450,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         const resized =
             q.panorama[0] !== quality.panorama[0]
             || q.panorama[1] !== quality.panorama[1]
-            || q.coverageSize !== quality.coverageSize
+            || q.coverage.texel !== quality.coverage.texel
+            || q.coverageExtent !== quality.coverageExtent
             || q.marchScale !== quality.marchScale
             || q.scatter.size.some((v, k) => v !== quality.scatter.size[k]);
         if (resized) this.redescribe(this.getDescriptors(), { ...this.rawData, quality });
@@ -485,6 +491,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             * (q.scatter.size[2] / CLOUD_SCATTER_PAGE);
         const scatterHeader =
             CLOUD_SCATTER_GLOBAL_WORDS + scatterPages * CLOUD_SCATTER_HEADER_WORDS;
+        const coverageLevels = cloudCoverageLevels(q);
+        const coverageSlots = cloudCoverageSlotCount(coverageLevels);
         const volume = (id: string, size: number): GPUDescriptor => ({
             id,
             role: 'storage-texture',
@@ -528,7 +536,44 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             { id: 'params', role: 'uniform', schema: CloudLayer.schema },
             volume('shape', CLOUD_SHAPE_SIZE),
             volume('detail', CLOUD_DETAIL_SIZE),
-            target('coverage', 'rgba8unorm', [q.coverageSize, q.coverageSize]),
+            // O mapa de cobertura em níveis em volta da câmera (R21 rodada 19, T077): uma camada de 512² texels por nível
+            // (o endereço toroidal), série por páginas (o alvo só; a C2 guarda o carimbo de cada página física e a época) — só as páginas
+            // que entram na janela, mudam de conteúdo ou, com o conteúdo que muda no tempo, as mais velhas até o
+            // orçamento são refeitas.
+            {
+                id: 'coverage',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba8unorm',
+                    width: CLOUD_COVERAGE_SIDE,
+                    height: CLOUD_COVERAGE_SIDE,
+                    depthOrArrayLayers: coverageLevels,
+                    access: 'write-only',
+                },
+                history: {
+                    depth: 1,
+                    pages: { tile: [CLOUD_COVERAGE_PAGE, CLOUD_COVERAGE_PAGE, 1] },
+                },
+            },
+            // O registro de cada página física do mapa de cobertura (a página global, o quadro do desenho, a assinatura),
+            // série por páginas.
+            {
+                id: 'coveragePages',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: coverageSlots * CLOUD_COVERAGE_RECORD_WORDS,
+                upload: 'never',
+                history: { depth: 1, pages: { record: CLOUD_COVERAGE_RECORD_WORDS * 4 } },
+            },
+            // A lista das páginas do quadro do mapa de cobertura (a contagem e as páginas físicas), refeita a cada quadro.
+            {
+                id: 'coverageWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: 4 + coverageSlots,
+                upload: 'never',
+            },
             target('ambient', 'rgba16float', [2, 1]),
             // O mapa visto do sol por páginas (spec 041, R11 revisto): 16 nós de profundidade ótica por coluna, 4 por
             // camada, no atlas das páginas dos níveis — série por páginas (o alvo só; a C2 guarda o carimbo de cada

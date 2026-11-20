@@ -1,11 +1,11 @@
-// Densidade das nuvens (spec 041, R3–R6, R19): a cobertura (o mapa centrado na câmera; fora dele, os valores globais),
+// Densidade das nuvens (spec 041, R3–R6, R19): a cobertura (o mapa em níveis em volta da câmera; fora dele, os valores globais),
 // o perfil de altura pelo tipo até o topo local (com o tempo, o topo do estado — a torre do cúmulo-nimbo, o cúmulo raso —
 // levado pela força da célula: `cloud_tower_reach`), a forma pelo volume periódico (Perlin-Worley remapeado pelo fBm de
 // Worley) deslocado pelo vento e inclinado pela altura, a erosão das bordas pelo volume de detalhe (com o vento, derivando
 // para cima), a água da torre (`cloud_tower_water`) e, com o tempo, a bigorna (o canal B do mapa: a cobertura dela,
 // trazida pelo vento da alta troposfera). Densidade relativa (≥ 0); a extinção é ela × `clouds.layer.z`. Espelho de
 // `cloudDensity` em `cloudModel.ts`.
-// Requer: cloud_coverage_field, cloud_common, clouds, cloud_shape_tex, cloud_detail_tex, cloud_coverage_tex, cloud_noise_sampler,
+// Requer: cloud_coverage_field, cloud_coverage_pages, cloud_common, clouds, cloud_shape_tex, cloud_detail_tex, cloud_coverage_tex, cloud_noise_sampler,
 // cloud_clamp_sampler.
 
 const CLOUD_EROSION: f32 = 0.35;
@@ -18,14 +18,14 @@ fn cloud_weather_on() -> bool {
 
 /**
  * Cobertura, tipo, densidade relativa (com o tempo, a cobertura da bigorna) e a fração de altura do topo das nuvens na
- * casca no ponto horizontal `xz` (m): o mapa e, fora dele, os campos da cobertura e do tipo com o topo do tempo bom
- * (`clouds.weatherMap.x`; 1 sem o tempo) — e sem bigorna.
+ * casca no ponto horizontal `xz` (m): o mapa em níveis em volta da câmera (`cloud_coverage_pages`; o nível mais fino que
+ * cobre o ponto; a passagem ao seguinte está no anel de fora de cada janela, no desenho) e, fora dele, os campos da
+ * cobertura e do tipo com o topo do tempo bom (`clouds.weatherMap.x`; 1 sem o tempo) — e sem bigorna. Uma leitura.
  */
 fn cloud_coverage_at(xz: vec2f) -> vec4f {
-    let m = clouds.coverageMap;
-    let uv = (xz - m.xy) / m.z + 0.5;
-    if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) {
-        let w = xz - clouds.coverageOffset.xy;
+    let w = xz - clouds.coverageOffset.xy;
+    let k = cloud_coverage_level(w);
+    if (k >= cloud_coverage_levels()) {
         return vec4f(
             cloud_coverage_field(w, clouds.layer.x, clouds.layer.y),
             cloud_type_field(w, clouds.layer.y),
@@ -33,7 +33,7 @@ fn cloud_coverage_at(xz: vec2f) -> vec4f {
             clouds.weatherMap.x,
         );
     }
-    return textureSampleLevel(cloud_coverage_tex, cloud_clamp_sampler, uv, 0.0);
+    return textureSampleLevel(cloud_coverage_tex, cloud_noise_sampler, cloud_coverage_uv(w, k), k, 0.0);
 }
 
 /**

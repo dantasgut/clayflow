@@ -25,6 +25,8 @@ import cloudShadowPagesSource from '../../gpu/wgsl/clouds/cloud_shadow_pages.wgs
 import cloudLightSource from '../../gpu/wgsl/clouds/cloud_light.wgsl?raw';
 import cloudNoiseSource from '../../gpu/wgsl/clouds/cloud_noise.wgsl?raw';
 import cloudCoverageSource from '../../gpu/wgsl/clouds/cloud_coverage.wgsl?raw';
+import cloudCoveragePagesSource from '../../gpu/wgsl/clouds/cloud_coverage_pages.wgsl?raw';
+import cloudCoverageDrawSource from '../../gpu/wgsl/clouds/cloud_coverage_draw.wgsl?raw';
 import cloudAmbientSource from '../../gpu/wgsl/clouds/cloud_ambient.wgsl?raw';
 import cloudShadowSource from '../../gpu/wgsl/clouds/cloud_shadow.wgsl?raw';
 import cloudBayerSource from '../../gpu/wgsl/clouds/cloud_march_bayer.wgsl?raw';
@@ -65,7 +67,11 @@ export const cloudParamsResource = wgslResource({
     provider: { consumer: 'CloudLayer.params' },
 });
 
-const sampled = (name: string, id: string, dimension: '2d' | '3d' = '2d'): WgslResource =>
+const sampled = (
+    name: string,
+    id: string,
+    dimension: '2d' | '2d_array' | '3d' = '2d',
+): WgslResource =>
     wgslResource({
         name,
         binding: { texture: { sample: 'f32', dimension } },
@@ -73,7 +79,11 @@ const sampled = (name: string, id: string, dimension: '2d' | '3d' = '2d'): WgslR
         provider: { consumer: `CloudLayer.${id}` },
     });
 
-const out = (name: string, format: GPUTextureFormat, dimension: '2d' | '3d' = '2d'): WgslResource =>
+const out = (
+    name: string,
+    format: GPUTextureFormat,
+    dimension: '2d' | '2d_array' | '3d' = '2d',
+): WgslResource =>
     wgslResource({
         name,
         binding: { storageTexture: { format, access: 'write', dimension } },
@@ -96,6 +106,15 @@ export const cloudShadowSlots = Object.freeze({
     cloudShadowPages: slot.channel(CloudSchema, 'shadowPages'),
 });
 
+/**
+ * Slots das séries por páginas do mapa de cobertura em níveis (spec 034 T060a; R21 rodada 19, T077): o atlas (os carimbos
+ * e o relógio) e o registro das páginas.
+ */
+export const cloudCoverageSlots = Object.freeze({
+    cloudCoverage: slot.channel(CloudSchema, 'coverage'),
+    cloudCoveragePages: slot.channel(CloudSchema, 'coveragePages'),
+});
+
 /** Slots das séries por páginas do cache de espalhamento e do cache filtrado (spec 034 T060a; T023). */
 export const cloudScatterSlots = Object.freeze({
     cloudScatter: slot.channel(CloudSchema, 'scatter'),
@@ -112,7 +131,7 @@ export const cloudResources = Object.freeze({
     params: cloudParamsResource,
     shape: sampled('cloud_shape_tex', 'shape', '3d'),
     detail: sampled('cloud_detail_tex', 'detail', '3d'),
-    coverage: sampled('cloud_coverage_tex', 'coverage'),
+    coverage: sampled('cloud_coverage_tex', 'coverage', '2d_array'),
     ambient: sampled('cloud_ambient_tex', 'ambient'),
     shadow: sampled('cloud_shadow_tex', 'shadow', '3d'),
     panorama: sampled('cloud_panorama_tex', 'panorama'),
@@ -245,6 +264,37 @@ export const cloudResources = Object.freeze({
     }),
     /** O vento das nuvens, a subida e a frente do quadrado do tempo (R19). */
     weatherWind: sampled('cloud_weather_wind_tex', 'weatherWind'),
+    /** O registro das páginas do mapa de cobertura em níveis (a série por páginas, `cloud_coverage_draw.wgsl`). */
+    coverageRecords: wgslResource({
+        name: 'cloud_coverage_records',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudCoveragePages', lag: 0 },
+    }),
+    /** Os carimbos das páginas do atlas do mapa de cobertura e o relógio da série. */
+    coverageStamps: wgslResource({
+        name: 'cloud_coverage_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudCoverage', part: 'stamps' },
+    }),
+    coverageClock: wgslResource({
+        name: 'cloud_coverage_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'cloudCoverage', part: 'clock' },
+    }),
+    /** A lista das páginas do quadro do mapa de cobertura (a contagem e as páginas físicas). */
+    coverageWork: wgslResource({
+        name: 'cloud_coverage_work',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.coverageWork' },
+    }),
     /** O registro das páginas do mapa visto do sol (a série por páginas, `cloud_shadow.wgsl`). */
     shadowPages: wgslResource({
         name: 'cloud_shadow_pages_meta',
@@ -305,7 +355,7 @@ const R = cloudResources;
 export const cloudOutputs = Object.freeze({
     shape: out('cloud_shape_out', 'rgba8unorm', '3d'),
     detail: out('cloud_detail_out', 'rgba8unorm', '3d'),
-    coverage: out('cloud_coverage_out', 'rgba8unorm'),
+    coverage: out('cloud_coverage_out', 'rgba8unorm', '2d_array'),
     ambient: out('cloud_ambient_out', 'rgba16float'),
     shadow: out('cloud_shadow_out', 'rgba16float', '3d'),
     trace: out('cloud_trace_out', 'rgba16float'),
@@ -580,12 +630,20 @@ export const cloudPhase = wgslModule({
     requires: [constants, cloudParamsResource],
 });
 
+/** O endereçamento do mapa de cobertura em níveis (os níveis, a janela, o atlas; R21 rodada 19). */
+export const cloudCoveragePages = wgslModule({
+    name: 'cloud_coverage_pages',
+    source: cloudCoveragePagesSource,
+    requires: [cloudParamsResource],
+});
+
 /** A densidade (cobertura, perfil, forma, erosão). */
 export const cloudDensity = wgslModule({
     name: 'cloud_density',
     source: cloudDensitySource,
     requires: [
         coverageField,
+        cloudCoveragePages,
         cloudCommon,
         cloudParamsResource,
         R.shape,
@@ -743,11 +801,31 @@ export const cloudNoiseKernel = wgslModule({
     ],
 });
 
+/** Invocações do grupo do desenho de uma página do mapa de cobertura (e da escolha do quadro). */
+export const CLOUD_COVERAGE_PAGE_GROUP = sharedConstant('CLOUD_COVERAGE_PAGE_GROUP', 256, 'u32');
+
+/** A escolha e o desenho das páginas do mapa de cobertura em níveis (R21 rodada 19), pelo `cloud_coverage_value` do kernel. */
+const cloudCoverageDraw = wgslModule({
+    name: 'cloud_coverage_draw',
+    source: cloudCoverageDrawSource,
+    requires: [
+        CLOUD_COVERAGE_PAGE_GROUP.module,
+        cloudParamsResource,
+        cloudCoveragePages,
+        pageAlloc,
+        cloudOutputs.coverage,
+        R.coverageRecords,
+        R.coverageStamps,
+        R.coverageClock,
+        R.coverageWork,
+    ],
+});
+
 /** Mapa de cobertura pela função de cobertura (lugar `cloud_coverage_fn_at`). */
 export const cloudCoverageKernel = wgslModule({
     name: 'cloud_coverage',
     source: cloudCoverageSource,
-    requires: [WORKGROUP_SIZE.module, cloudParamsResource, coverageAtReady, cloudOutputs.coverage],
+    requires: [cloudParamsResource, coverageAtReady, cloudCoverageDraw],
 });
 
 /** O estado do tempo (série 037) e o vento das nuvens pela função de pressão (lugar `cloud_pressure_fn_at`; R19). */
@@ -768,17 +846,22 @@ export const cloudWeatherKernel = wgslModule({
 
 /** Mapa de cobertura pelo estado do tempo (R19). */
 export const cloudCoverageWeatherKernel = wgslModule({
-    name: 'cloud_coverage_weather',
-    source: cloudCoverageWeatherSource,
+    name: 'cloud_coverage_weather_kernel',
     requires: [
-        WORKGROUP_SIZE.module,
-        cloudParamsResource,
-        camerasResource,
-        coverageField,
-        cloudWeatherGrid,
-        R.weatherNow,
-        cloudOutputs.coverage,
+        wgslModule({
+            name: 'cloud_coverage_weather',
+            source: cloudCoverageWeatherSource,
+            requires: [
+                cloudParamsResource,
+                camerasResource,
+                coverageField,
+                cloudWeatherGrid,
+                R.weatherNow,
+            ],
+        }),
+        cloudCoverageDraw,
     ],
+    source: 'fn cloud_coverage_value(w: vec2f) -> vec4f {\n    return cloud_coverage_weather_value(w);\n}',
 });
 
 /** Irradiâncias do céu e do chão. */

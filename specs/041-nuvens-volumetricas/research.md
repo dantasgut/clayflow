@@ -794,6 +794,65 @@ decisão da GPU) está medida contra a referência; a intensidade dos feixes na 
   borda de uma nuvem pequena junto ao sol no horizonte segue nos quadros 700 e 780 — o recorte por canal não é a causa
   (ou não é a única); os casos `sunset` (15,5 %, como antes) e `backlit` (5,6 %) não mudam com ele. Aberto em T075.
 
+#### R21, rodada 19 — o mapa de cobertura em níveis em volta da câmera; os vãos procedurais (2026-11-20)
+
+- _O mapa de cobertura em níveis_ (T077; `cloud_coverage_pages.wgsl`, `cloud_coverage_draw.wgsl`, referência
+  `reference/cloudCoverageLevels.ts`): o quadrado único de 1024² texels de 250 m (256 km), refeito inteiro a cada quadro,
+  virou um mapa de recortes no referencial do vento, como o mapa visto do sol — níveis de 512² texels em volta da câmera
+  (31,25 m no nível 0 do perfil alto, cada nível dobra; 62,5 m no médio, 125 m no baixo), páginas de 16², janela de 32²
+  páginas presa à página, endereço toroidal. O atlas é uma textura em camadas (uma por nível) lida com o endereço que se
+  repete: o texel global `i` no texel `i mod 512`, e o par bilinear do outro lado da costura é o vizinho no toro — uma
+  amostra só, sem conta de página. Série por páginas da C2 (o alvo e o registro de cada página: a página global, o quadro,
+  a assinatura, a janela), a escolha do quadro num grupo (as somas de prefixos de `page_alloc`) e o desenho pela mesma
+  função de cobertura (ou o tempo, ou os campos da camada) com orçamento constante (128/96/64 páginas): obrigatórias no
+  quadro a página que entra na janela, a de outra assinatura e a da série que recomeçou; com o conteúdo que muda no tempo
+  (a função de cobertura, o tempo), as demais pela idade (oitavas de quadros × √2 por nível mais fino); sem isso, a
+  página desenhada não muda. Nenhuma estrutura nova além do descritor `coverage` refeito, do registro e da lista do
+  quadro; o mapa visto do sol não mudou.
+- _A passagem entre níveis com uma leitura só_: com a mistura na leitura (os 30 %, depois 15 % e 5 % de fora com duas
+  leituras), a marcha e os caminhos do cache custavam ~0,3 ms a mais — o código da segunda leitura, não a frequência dela
+  (medido: sem ela, 3,26 ms; com a faixa de 5 %, 3,56). A mistura passou ao desenho: o nível `k` cobre o ponto até 255
+  texels do centro da janela (Chebyshev; o centro é o canto da página da câmera, a janela de cada nível sai da do nível 0
+  por deslocamento de bits) e o anel de páginas de fora guarda o valor levado à bilinear do nível seguinte (`smoothstep`
+  de 240 a 255 texels): na borda, o nível `k` vale o que o `k + 1` lê ali (diferença < 10⁻⁴ no teste). A página do anel é
+  refeita quando a janela anda.
+- _O alcance do último nível_: com 5 níveis o último cobria 119,5 km dos 128 do mapa antigo, e as amostras entre os dois
+  caíam no campo procedural (~4 × o custo de uma leitura): a marcha +0,2 ms. Os níveis vão até o último cobrir a metade do
+  lado do mapa: 6 no alto (1000 m, até 239 km), 5 no médio, 4 no baixo. Com isso a marcha deixou de avaliar o campo além do
+  mapa antigo também: 2,23 → 1,55 ms.
+- _Referência f64_ (`cloudCoverageLevels.test.ts`): o volume desenhado página a página e lido com o filtro do hardware é a
+  bilinear dos texels globais (< 10⁻¹²); cada página da janela tem uma página física só; o nível escolhido sempre cobre o
+  ponto; o campo liso pela leitura em níveis fica dentro do erro da bilinear do nível usado, sem salto maior que o do
+  campo em 5 m dentro do mapa (a costura com o campo no ponto além do último nível é a de antes); um vão de 80 m a 200 m da
+  câmera é resolvido (0,15 no centro; o mapa de 250 m dava > 0,9), borda de 10–90 % ≤ 1,3 texel.
+
+| medida (M4, perfil alto, GPU ocupada, `readyForFrame`)       | base (`548a0c67`, mesma sessão) | rodada 19                 |
+| ------------------------------------------------------------ | ------------------------------- | ------------------------- |
+| o mapa de cobertura (escolha + desenho, parado)              | 0,160 ms                        | 0,044 + 0,005 ms          |
+| `timing` alto (nuvens: com − sem a camada, mediana de 5)     | 3,23 ms (3,03–3,37)             | 2,66 ms (2,63–2,71)       |
+| a marcha / os caminhos do cache                              | 2,23 / 1,33 ms                  | 1,55 / 1,46 ms            |
+| `beam-gap`: bordas do ar contra a f64 exata (o vão sem mapa) | 30/71 contra 12/36 px (rod. 18) | 9/77 contra 14/74 (+3 px) |
+| `beam-gap`: contraste do ar contra a f64 com a mesma nuvem   | 2,9 %                           | 0,5 %                     |
+
+O `beam-gap` ganhou a f64 exata (a densidade com a função de cobertura no ponto, sem mapa) e o critério de ≤ 4 px além
+dela. Smokes rodados (só os casos da cobertura): `coverage-map` (6 níveis, pior 0/255), `beam-gap`, `timing` alto,
+`pressure-wind`, `front`, `noon`, `types`, `far-cloud` — passam.
+
+- _A `raios-chao` sem furo desenhado_ (claflow-web): a cobertura 0,78 num estratocúmulo (tipo 0,25) de 750–900 m, a forma
+  em 900 m e o detalhe em 220 m (os vãos de tamanhos e bordas variados saem do ruído de Perlin-Worley e da erosão), extinção
+  0,6/m, vento (2,5; −1,5) m/s, o sol a 20°, a névoa seca de 0,3/km. A regra do vão: o raio do sol cruza a camada
+  deslocando-se 150/tan 20° = 412 m, então só os vãos com raio acima de ~206 m deixam o sol passar direto (a lente acesa
+  tem 2r − 412 m: os pouco maiores dão os feixes estreitos); os de 50–400 m só passam luz pelas bordas ralas (os feixes
+  difusos) — com o sol a 15–20° e a camada de 150 m, os vãos pequenos não fazem feixe direto. A posição da câmera saiu de
+  uma vista do lado do sol para a origem (o que se vê do chão pelos vãos é o chão aceso): a câmera a 6 m em (−257, 834),
+  15° ao lado do azimute do sol, levantada 8°, na sombra, com as manchas acesas a ~100–300 m na frente dela.
+- _Vídeo_ (`scratchpad/041-video/rodada19/raios-chao.mp4`): 960 quadros, 9,0 MB, 53,2 dB brilho, 49,4 dB RGB, GPU média
+  15,6 ms; maior salto do brilho médio 0,12 nível (quadro 348), nenhuma alternância. Vê-se a base da camada com vãos
+  irregulares, feixes estreitos descendo à esquerda do centro até o horizonte, o céu azul pelos vãos à direita e as
+  manchas douradas na grama em primeiro plano, ao lado da sombra; o disco do sol aparece como um ponto pela borda rala de
+  um vão. Em aberto: os feixes perto da câmera (o ar entre ela e as manchas a 100–300 m) ficam fracos contra a base clara
+  junto ao sol — o contraste forte é o dos feixes ao horizonte.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,

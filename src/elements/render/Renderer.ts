@@ -81,7 +81,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             panoramaSteps: 32,
             shadow: { texel: 50, budget: 128 },
             coverageExtent: 256_000,
-            coverageSize: 1024,
+            coverage: { texel: 31.25, budget: 128 },
             scatter: { size: [160, 32, 160], budget: 200, collisions: 48 },
             marchScale: 2,
         },
@@ -106,7 +106,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             panoramaSteps: 24,
             shadow: { texel: 50, budget: 96 },
             coverageExtent: 256_000,
-            coverageSize: 512,
+            coverage: { texel: 62.5, budget: 96 },
             scatter: { size: [128, 24, 128], budget: 96, collisions: 32 },
             marchScale: 2,
         },
@@ -131,7 +131,7 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             panoramaSteps: 16,
             shadow: { texel: 50, budget: 64 },
             coverageExtent: 256_000,
-            coverageSize: 512,
+            coverage: { texel: 125, budget: 64 },
             scatter: { size: [96, 16, 96], budget: 36, collisions: 24 },
             // A marcha, a reconstrução e o aumento custavam ~1,3 ms iguais nos três perfis: no baixo, o alvo reconstruído
             // a 1/16 da tela (a marcha a 1/64 por quadro).

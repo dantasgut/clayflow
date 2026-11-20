@@ -311,7 +311,9 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       canal `Froxels.reach` da 037), a decisão `σ_ext·d > 10⁻³` ou névoa, o texel `Froxels.state` lido pelo desenho e o
       despacho indireto da grade (`Froxels.dispatch`); o ponto `light_volume_visibility` com a sombra das nuvens de uma
       amostra por quadro (`cloud_volume_visibility.wgsl`) e a da névoa. `interior-timing` 0,378 → 0,03–0,18 ms.
-- [ ] T074 [GPU] O `timing` alto das nuvens em 3,05–3,41 ms contra 3 ms (base 2,82): 0,1 ms da sombra das nuvens nos
+- [ ] T074 [GPU] (rodada 19: com o mapa de cobertura em níveis até 239 km, o `timing` alto passa — 2,66 ms, mediana de 5,
+      2,63–2,71, contra 3,23 da base na mesma sessão; os médio e baixo e o `interior-timing` não foram medidos nesta
+      rodada) O `timing` alto das nuvens em 3,05–3,41 ms contra 3 ms (base 2,82): 0,1 ms da sombra das nuvens nos
       froxels e ~0,15 da marcha com os meios perto da câmera medidos; ~0,25 ms não atribuídos (R21, medidas). O
       `interior-timing` com repetições bimodais (mediana 0,03–0,37 ms).
 - [ ] T075 [GPU] (rodada 16: o salto 632→633 não se repete — maior salto 1,86; o disco através do cúmulo corrigido; a
@@ -321,9 +323,10 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       referência (R21, vídeos).
 - [ ] T076 [US5] O vídeo `tempestade` da rodada 15 (não gravado: a série de GPU parou por um Chrome em estado E quando
       outro smoke começou junto).
-- [ ] T077 [GPU] O mapa de cobertura em níveis em volta da câmera (R21 rodada 18): o texel de 250 m dá ~250 m de rampa na
-      borda de um vão autorado e funde vãos próximos (`beam-gap`: a borda de subida 30 px, 16 px com 62,5 m, 12 px na f64).
-      Pelas páginas da C2, como o mapa visto do sol; sem estrutura paralela.
+- [x] T077 [GPU] O mapa de cobertura em níveis em volta da câmera (R21 rodadas 18–19): níveis de 512² texels (31,25 m no
+      nível 0 do alto) por páginas da C2 no endereço toroidal, uma leitura por ponto (a passagem entre níveis no anel de
+      fora de cada janela, no desenho), orçamento constante pela mesma função de cobertura; o mapa 0,160 → 0,049 ms; o
+      `beam-gap` a +3 px da f64 exata; referência `reference/cloudCoverageLevels.ts` e `cloudCoverageLevels.test.ts`.
 - [x] T078 O `beam-gap` mede o ar sozinho (a grade dos froxels até a base da camada) contra a f64 com a mesma nuvem (o
       espelho da densidade com o mapa de cobertura da GPU): contraste a 2,9 %, bordas ≤ 4 px além (R21 rodada 18); a
       `raios-chao` refeita (o morro, os vãos pela geometria) e gravada.
