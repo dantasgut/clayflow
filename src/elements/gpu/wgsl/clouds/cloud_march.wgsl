@@ -12,6 +12,11 @@
 // scene_near_fog, random, clouds, cameras,
 // cloud_trace_out, cloud_trace_depth_out.
 
+/** O raio da câmera `slot` pelo ponto `px` (pixels da tela de `size`) sem o deslocamento do antisserrilhado temporal. */
+fn cloud_ray_at(slot: u32, px: vec2f, size: vec2f) -> RayCamera {
+    return camera_ray_ndc(slot, pixel_to_ndc(px, size) + cameras[slot].jitter.xy);
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let blocks = textureDimensions(cloud_trace_out);
@@ -29,13 +34,18 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let sub = fract(hp + k * vec2f(0.7548776662, 0.5698402910));
     let scale = f32(cloud_march_scale());
     let center = (vec2f(q) + sub) * scale;
-    let ray = camera_ray(slot, center, full);
+    // O raio sem o deslocamento do antisserrilhado temporal (`camera_ray` dá o da amostra deslocada; `cloud_ray_at`): o
+    // texel guarda a média da área dele na tela sem o deslocamento, como a reprojeção do histórico a lê
+    // (`cloud_previous_uv`). Com o raio deslocado ±½ pixel da tela a cada quadro, a área marchada andava com o
+    // deslocamento e a faixa clara de 1–2 px rente ao horizonte (as nuvens a 40–70 km junto ao sol baixo) passava em parte
+    // às linhas vizinhas: a linha dela −16 % de luz (`sunset`, região [3,3]: 5,8 → 4,4 %).
+    let ray = cloud_ray_at(slot, center, full);
     let limit = cloud_block_distance(slot, q);
     // Ruído azul no tempo: a sequência R2 deslocada pelo hash do pixel.
     let h = f32(hash2(q) >> 8u) / 16777216.0;
     let jitter = fract(h + f32(clouds.march.z) * 0.61803398875);
     // O ângulo do pixel da marcha (S pixels da tela): a pegada do detalhe.
-    let pixel = length(camera_ray(slot, center + vec2f(scale, 0.0), full).dir - ray.dir);
+    let pixel = length(cloud_ray_at(slot, center + vec2f(scale, 0.0), full).dir - ray.dir);
     let s = cloud_integrate(ray.origin, ray.dir, limit, clouds.march.x, clouds.march.y, jitter, pixel);
     var color = s.scattered;
     if (s.transmittance < 1.0) {
