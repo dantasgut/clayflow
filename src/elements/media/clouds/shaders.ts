@@ -186,7 +186,7 @@ export const cloudResources = Object.freeze({
     }),
     marchDepthOut: wgslResource({
         name: 'cloud_march_depth_out',
-        binding: { storageTexture: { format: 'rg32float', access: 'write' } },
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
         frequency: 'stage',
         provider: { slot: 'cloudMarchDepth', lag: 0 },
     }),

@@ -982,6 +982,8 @@ async function cloudCost(
         profile,
         profiling: true,
         clouds: false,
+        // `?el=`: a elevação do sol (graus; o mapa visto do sol afina o texel à direita com o sol baixo).
+        sunElevation: Number(new URLSearchParams(location.search).get('el') ?? 60),
         ...(interior ? { eye: [0, 1.6, 0] as const, target: [4, 1.4, 1] as const } : {}),
         target: interior ? [4, 1.4, 1] : [1000, 400, 300],
     });

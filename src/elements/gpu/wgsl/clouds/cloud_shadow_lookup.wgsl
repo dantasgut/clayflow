@@ -2,7 +2,7 @@
 // (`cloud_shadow_pages`: os níveis em volta da câmera no plano do sol, o endereço toroidal das páginas no atlas) — por
 // texel a profundidade ótica acumulada ao fim de cada um dos 16 trechos iguais do primeiro trecho da casca ao longo do
 // raio que desce do sol (4 camadas × 4 nós) — lido com filtro (a borda da sombra é suave; o par do filtro fica sempre na
-// página física). Na faixa de fora de cada nível (os 30 % de fora do raio útil), a mistura com o seguinte: a resolução
+// página física). Na faixa de fora de cada nível (os 15 % de fora do raio útil), a mistura com o seguinte: a resolução
 // muda sem costura. O trecho da coluna do ponto é recalculado pela casca. Na superfície, τ é linear entre os nós e
 // `T(p) = exp(−τ(p))`; a marcha da nuvem lê o nó do lado do sol (`cloud_shadow_knot`) e integra ela mesma o pedaço do
 // trecho até o ponto (em `cloud_light`). Fora do mapa, a borda dele. A luz do sol nas superfícies
@@ -51,7 +51,7 @@ fn cloud_shadow_page_at(x: vec2f, k: u32) -> CloudShadowPageAt {
     let t = cloud_shadow_texel_size(k);
     let w = vec2f(cloud_shadow_window(k));
     let P = f32(CLOUD_SHADOW_PAGE);
-    let N = f32(CLOUD_SHADOW_PAGES);
+    let N = vec2f(cloud_shadow_window_pages());
     let X = clamp(x / t, w * P + 0.5, (w + N) * P - 0.5);
     let g = vec2i(clamp(floor((X - 0.5) / P), w, w + N - 1.0));
     let slot = cloud_shadow_slot(k, g);
@@ -219,8 +219,9 @@ fn cloud_shadow_transmittance_disk(p: vec3f, radius: f32) -> f32 {
     let centroid = (moment + CLOUD_SHADOW_BLOCKER_PRIOR * 0.5 * kn) / (tau + CLOUD_SHADOW_BLOCKER_PRIOR);
     let dist = max(far.knot - centroid, 0.0) / CLOUD_SHADOW_LOOKUP_KNOTS * far.len;
     let r = dist * tan(radius);
-    // A penumbra menor que o texel do nível: as leituras do disco cairiam na mesma pegada — a transmitância dela.
-    if (r < cloud_shadow_texel_size(far.level).x) { return cloud_shadow_transmittance_column(far, k, f); }
+    // A penumbra menor que o texel do nível (o lado maior: o texel à direita é mais fino) — as leituras do disco cairiam
+    // na pegada da leitura bilinear: a transmitância dela.
+    if (r < cloud_shadow_texel_size(far.level).y) { return cloud_shadow_transmittance_column(far, k, f); }
     let k0 = far.level;
     var t = 0.0;
     for (var i = 0u; i < CLOUD_SHADOW_DISK_TAPS; i++) {

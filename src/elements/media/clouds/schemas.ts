@@ -72,15 +72,17 @@ export const CLOUD_SHADOW_KNOTS = 16;
 export const CLOUD_SHADOW_PAGE = 16;
 /** Texels por lado de uma página física (o interior e a coluna da vizinha em +x e +y). */
 export const CLOUD_SHADOW_STRIDE = CLOUD_SHADOW_PAGE + 1;
-/** Páginas por lado de um nível. */
+/** Páginas de um nível em cima (e à direita com o texel quadrado). */
 export const CLOUD_SHADOW_PAGES = 8;
+/** Páginas físicas de um nível à direita (a janela tem 32 com o texel à direita de 0,2: `cloud_shadow_aspect`). */
+export const CLOUD_SHADOW_PAGES_X = 32;
 /** Níveis do mapa (o último cobre ~5900 texels do primeiro: ±294 km com texels de 50 m). */
 export const CLOUD_SHADOW_LEVELS = 8;
 /** Páginas físicas por linha do atlas. */
-export const CLOUD_SHADOW_SLOTS_X = 23;
+export const CLOUD_SHADOW_SLOTS_X = 46;
 /** Páginas no atlas (todas as janelas). */
 export const CLOUD_SHADOW_SLOT_COUNT =
-    CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * CLOUD_SHADOW_PAGES;
+    CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES_X * CLOUD_SHADOW_PAGES;
 /** Lado do atlas em texels. */
 export const CLOUD_SHADOW_ATLAS = CLOUD_SHADOW_SLOTS_X * CLOUD_SHADOW_STRIDE;
 

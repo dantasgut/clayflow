@@ -21,6 +21,7 @@ import {
     CLOUD_SHADOW_LEVELS,
     CLOUD_SHADOW_PAGE,
     CLOUD_SHADOW_PAGES,
+    CLOUD_SHADOW_PAGES_X,
     CLOUD_SHADOW_PROBES,
     CLOUD_SHADOW_SLOTS_X,
     CLOUD_SHADOW_STRIDE,
@@ -32,6 +33,7 @@ export {
     CLOUD_SHADOW_LEVELS,
     CLOUD_SHADOW_PAGE,
     CLOUD_SHADOW_PAGES,
+    CLOUD_SHADOW_PAGES_X,
     CLOUD_SHADOW_PIVOT,
     CLOUD_SHADOW_PROBES,
     CLOUD_SHADOW_SLOT_COUNT,
@@ -45,21 +47,47 @@ export const CLOUD_SHADOW_GRADIENT_SAFETY = 2;
 /** Quadros sem desenho em que a página ainda vale, no máximo (o teto da idade). */
 export const CLOUD_SHADOW_MAX_AGE = 240;
 
-/** Texel (m, à direita) do nível `k`; em cima, × a razão do sol (`shadowAspect`). */
+/** Texel (m, em cima) do nível `k`; à direita, × a razão do sol (`shadowAspect`). */
 export function shadowTexelSize(t0: number, k: number): number {
     return t0 * 2 ** k;
 }
 
-/** A razão entre o texel em cima e o à direita (espelho de `cloud_shadow_aspect`: texels quadrados). */
+/** A razão do texel à direita pelo em cima (`CLOUD_SHADOW_ASPECT`). */
+export const CLOUD_SHADOW_ASPECT = 0.2;
+
+/**
+ * A razão `r` do texel à direita pelo em cima (espelho de `cloud_shadow_aspect`): a mesma em toda elevação do sol (com o
+ * sol baixo a vizinha em cima é o mesmo caminho deslocado ao longo de si, e a à direita é outro caminho de ~30 km pelo
+ * detalhe; a razão que mudasse com o sol escalaria o texel global em torno do pivô a cada quadro).
+ */
 export function shadowAspect(band: number, sun: Vec3): number {
     void band;
     void sun;
-    return 1;
+    return CLOUD_SHADOW_ASPECT;
 }
 
-/** Raio útil (m, Chebyshev) do nível `k` em volta da câmera: a janela menos a borda do filtro e da penumbra. */
+/** Páginas da janela à direita com a razão `r` (espelho de `cloud_shadow_pages_x`): o raio útil em metros do em cima. */
+export function shadowPagesX(r: number): number {
+    const useful = (CLOUD_SHADOW_PAGES / 2 - 1) * CLOUD_SHADOW_PAGE - 2;
+    const half = Math.ceil((useful / r + 2) / CLOUD_SHADOW_PAGE) + 1;
+    return Math.min(2 * half, CLOUD_SHADOW_PAGES_X);
+}
+
+/** Raio útil (m, Chebyshev, o mesmo nos dois eixos) do nível `k` em volta da câmera: a janela menos a borda. */
 export function shadowUsable(t0: number, k: number): number {
     return ((CLOUD_SHADOW_PAGES / 2 - 1) * CLOUD_SHADOW_PAGE - 2) * shadowTexelSize(t0, k);
+}
+
+/** O texel (m, à direita e em cima) do nível `k` no quadro `f`. */
+function texelOf(f: ShadowFrame, k: number, sun = f.sun): [number, number] {
+    const t = shadowTexelSize(f.texel, k);
+    return [t * shadowAspect(f.band, sun), t];
+}
+
+/** As páginas da janela do quadro (à direita, em cima). */
+export function shadowWindowPages(f: ShadowFrame): [number, number] {
+    void f;
+    return [CLOUD_SHADOW_PAGES_X, CLOUD_SHADOW_PAGES];
 }
 
 const cross = (a: Vec3, b: Vec3): Vec3 => [
@@ -105,18 +133,26 @@ export function shadowPlane(f: ShadowFrame, p: Vec3): [number, number] {
 
 /** Primeira página global da janela do nível `k`. */
 export function shadowWindow(f: ShadowFrame, k: number): [number, number] {
-    const s = CLOUD_SHADOW_PAGE * shadowTexelSize(f.texel, k);
-    const h = CLOUD_SHADOW_PAGES / 2;
-    const a = shadowAspect(f.band, f.sun);
-    return [Math.floor(f.camera[0] / s) - h, Math.floor(f.camera[1] / (s * a)) - h];
+    const t = texelOf(f, k);
+    const n = shadowWindowPages(f);
+    return [
+        Math.floor(f.camera[0] / (CLOUD_SHADOW_PAGE * t[0])) - n[0] / 2,
+        Math.floor(f.camera[1] / (CLOUD_SHADOW_PAGE * t[1])) - n[1] / 2,
+    ];
 }
 
 const mod = (a: number, n: number): number => ((a % n) + n) % n;
 
-/** A página física da página global `g` do nível `k` (endereço toroidal). */
+/** As páginas físicas de um nível. */
+const LEVEL_SLOTS = CLOUD_SHADOW_PAGES_X * CLOUD_SHADOW_PAGES;
+
+/** A página física da página global `g` do nível `k` (endereço toroidal, 32 × 8 por nível). */
 export function shadowSlot(k: number, g: readonly [number, number]): number {
-    const n = CLOUD_SHADOW_PAGES;
-    return k * n * n + mod(g[1], n) * n + mod(g[0], n);
+    return (
+        k * LEVEL_SLOTS
+        + mod(g[1], CLOUD_SHADOW_PAGES) * CLOUD_SHADOW_PAGES_X
+        + mod(g[0], CLOUD_SHADOW_PAGES_X)
+    );
 }
 
 /** Texel do canto da página física `slot` no atlas. */
@@ -127,30 +163,34 @@ export function shadowSlotOrigin(slot: number): [number, number] {
     ];
 }
 
-/** A página global que a janela do quadro põe na página física `slot`. */
+/**
+ * A página global que a janela do quadro põe na página física `slot` e se ela está na janela (com o sol alto a janela tem
+ * menos páginas à direita que as físicas).
+ */
 export function shadowSlotPage(
     f: ShadowFrame,
     slot: number,
-): { level: number; page: [number, number] } {
-    const n = CLOUD_SHADOW_PAGES;
-    const k = Math.floor(slot / (n * n));
-    const s = [slot % n, Math.floor((slot % (n * n)) / n)];
+): { level: number; page: [number, number]; active: boolean } {
+    const k = Math.floor(slot / LEVEL_SLOTS);
+    const r = slot % LEVEL_SLOTS;
+    const s = [r % CLOUD_SHADOW_PAGES_X, Math.floor(r / CLOUD_SHADOW_PAGES_X)];
     const w = shadowWindow(f, k);
-    return { level: k, page: [w[0] + mod(s[0]! - w[0], n), w[1] + mod(s[1]! - w[1], n)] };
+    const page: [number, number] = [
+        w[0] + mod(s[0]! - w[0], CLOUD_SHADOW_PAGES_X),
+        w[1] + mod(s[1]! - w[1], CLOUD_SHADOW_PAGES),
+    ];
+    return { level: k, page, active: page[0] - w[0] < shadowWindowPages(f)[0] };
 }
 
-/** O nível (o menor que cobre `x` com a borda) e o peso do seguinte na faixa de mistura (os 30 % de fora). */
+/** O nível (o menor que cobre `x` com a borda) e o peso do seguinte na faixa de mistura (os 15 % de fora). */
 export function shadowLevel(f: ShadowFrame, x: readonly [number, number]): [number, number] {
-    const d = Math.max(
-        Math.abs(x[0] - f.camera[0]),
-        Math.abs(x[1] - f.camera[1]) / shadowAspect(f.band, f.sun),
-    );
+    const d = Math.max(Math.abs(x[0] - f.camera[0]), Math.abs(x[1] - f.camera[1]));
     const u0 = shadowUsable(f.texel, 0);
     const last = CLOUD_SHADOW_LEVELS - 1;
     const k = d <= u0 ? 0 : Math.min(Math.ceil(Math.log2(d / u0)), last);
     if (k >= last) return [last, 0];
     const r = d / shadowUsable(f.texel, k);
-    const t = Math.min(1, Math.max(0, (r - 0.7) / 0.3));
+    const t = Math.min(1, Math.max(0, (r - 0.85) / 0.15));
     return [k, t * t * (3 - 2 * t)];
 }
 
@@ -164,16 +204,15 @@ export function shadowAtlasTexel(
     x: readonly [number, number],
     k: number,
 ): [number, number] {
-    const t0 = shadowTexelSize(f.texel, k);
-    const t = [t0, t0 * shadowAspect(f.band, f.sun)];
+    const t = texelOf(f, k);
     const w = shadowWindow(f, k);
     const P = CLOUD_SHADOW_PAGE;
-    const N = CLOUD_SHADOW_PAGES;
+    const N = shadowWindowPages(f);
     const out: number[] = [];
     const page: [number, number] = [0, 0];
     for (let a = 0; a < 2; a++) {
-        const X = Math.min(Math.max(x[a]! / t[a]!, w[a]! * P + 0.5), (w[a]! + N) * P - 0.5);
-        const g = Math.min(Math.max(Math.floor((X - 0.5) / P), w[a]!), w[a]! + N - 1);
+        const X = Math.min(Math.max(x[a]! / t[a]!, w[a]! * P + 0.5), (w[a]! + N[a]!) * P - 0.5);
+        const g = Math.min(Math.max(Math.floor((X - 0.5) / P), w[a]!), w[a]! + N[a]! - 1);
         page[a] = g;
         out.push(X - g * P);
     }
@@ -238,20 +277,19 @@ export function shadowPageTexel(
     k: number,
 ): { texel: [number, number]; sun: Vec3 } {
     const x = shadowPlane(f, p);
-    const t0 = shadowTexelSize(f.texel, k);
-    const t = [t0, t0 * shadowAspect(f.band, f.sun)];
+    const t = texelOf(f, k);
     const w = shadowWindow(f, k);
     const P = CLOUD_SHADOW_PAGE;
-    const N = CLOUD_SHADOW_PAGES;
+    const N = shadowWindowPages(f);
     const g = [0, 1].map((a) => {
-        const X = Math.min(Math.max(x[a]! / t[a]!, w[a]! * P + 0.5), (w[a]! + N) * P - 0.5);
-        return Math.min(Math.max(Math.floor((X - 0.5) / P), w[a]!), w[a]! + N - 1);
+        const X = Math.min(Math.max(x[a]! / t[a]!, w[a]! * P + 0.5), (w[a]! + N[a]!) * P - 0.5);
+        return Math.min(Math.max(Math.floor((X - 0.5) / P), w[a]!), w[a]! + N[a]! - 1);
     }) as [number, number];
     const slot = shadowSlot(k, g);
     const sun = shadowPageSun(map, f, slot);
     const b = shadowBasis(sun);
     const xr = shadowPlane({ ...f, right: b.right, up: b.up }, p);
-    const tr = [t0, t0 * shadowAspect(f.band, sun)];
+    const tr = texelOf(f, k, sun);
     const o = shadowSlotOrigin(slot);
     const texel = [0, 1].map((a) => {
         const lo = g[a]! * P;
@@ -361,7 +399,7 @@ export function shadowPageError(
     return CLOUD_SHADOW_GRADIENT_SAFETY * rec.gradient * lateral + rec.along * knots + evolution;
 }
 
-/** Os cantos (m, no plano) da página global `g` do nível `k`, com a coluna da vizinha. */
+/** Os cantos (m, no plano) da página global `g` do nível `k`, com a coluna da vizinha (`aspect`: a razão à direita). */
 export function shadowPageCorners(
     t0: number,
     k: number,
@@ -370,10 +408,10 @@ export function shadowPageCorners(
 ): [number, number][] {
     const t = shadowTexelSize(t0, k);
     const P = CLOUD_SHADOW_PAGE;
-    const x0 = g[0] * P * t;
-    const y0 = g[1] * P * t * aspect;
-    const x1 = x0 + (P + 1) * t;
-    const y1 = y0 + (P + 1) * t * aspect;
+    const x0 = g[0] * P * t * aspect;
+    const y0 = g[1] * P * t;
+    const x1 = x0 + (P + 1) * t * aspect;
+    const y1 = y0 + (P + 1) * t;
     return [
         [x0, y0],
         [x1, y0],
@@ -427,6 +465,14 @@ export function shadowPageStats(
         length: Math.max(0, ...lengths),
         lever: Math.max(0, ...levers),
     };
+}
+
+/** Quadros entre as provas de uma página, em rodízio pela página física (`CLOUD_SHADOW_PROBE_PERIOD`). */
+export const CLOUD_SHADOW_PROBE_PERIOD = 8;
+
+/** A página física `slot` prova no quadro `frame`? (espelho de `cloud_shadow_probes_now`) */
+export function shadowProbesNow(slot: number, frame: number): boolean {
+    return (slot + frame) % CLOUD_SHADOW_PROBE_PERIOD === 0;
 }
 
 /** Hash inteiro (o de `cloud_shadow_hash`, de 32 bits). */

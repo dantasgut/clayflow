@@ -13,6 +13,7 @@ import {
     CLOUD_SHADOW_TOLERANCE,
     CLOUD_SHADOW_PAGE,
     CLOUD_SHADOW_PAGES,
+    CLOUD_SHADOW_PAGES_X,
     CLOUD_SHADOW_SLOT_COUNT,
     CLOUD_SHADOW_STRIDE,
     CLOUD_SHADOW_LEVELS,
@@ -20,11 +21,13 @@ import {
     shadowAtlasTexel,
     shadowBasis,
     shadowLevel,
+    shadowPagesX,
     shadowPageCorners,
     shadowPageError,
     shadowPagePriority,
     shadowPageStats,
     shadowProbeTexel,
+    shadowProbesNow,
     shadowSlot,
     shadowSlotOrigin,
     shadowSlotPage,
@@ -87,8 +90,8 @@ function renderPage(
     k: number,
     g: readonly [number, number],
 ): { taus: number[][]; lengths: number[]; levers: number[] } {
-    const t = shadowTexelSize(f.texel, k);
-    const ta = t * shadowAspect(f.band, f.sun);
+    const ta = shadowTexelSize(f.texel, k);
+    const t = ta * shadowAspect(f.band, f.sun);
     const S = CLOUD_SHADOW_STRIDE;
     const taus: number[][] = [];
     const lengths: number[] = [];
@@ -132,8 +135,8 @@ function centerLength(
     g: readonly [number, number],
 ): number {
     const t = shadowTexelSize(f.texel, k);
-    const x = (g[0] + 0.5) * CLOUD_SHADOW_PAGE * t;
-    const y = (g[1] + 0.5) * CLOUD_SHADOW_PAGE * t * shadowAspect(f.band, f.sun);
+    const x = (g[0] + 0.5) * CLOUD_SHADOW_PAGE * t * shadowAspect(f.band, f.sun);
+    const y = (g[1] + 0.5) * CLOUD_SHADOW_PAGE * t;
     const o0: Vec3 = [
         f.right[0] * x + f.up[0] * y,
         f.right[1] * x + f.up[1] * y,
@@ -177,81 +180,98 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
     });
 
     it('cada página da janela tem uma página física só, e a janela que anda guarda as que ficam', () => {
-        // Arrange
-        const f = frameOf(sunOf(30, 10), [1234, -5678]);
-        const g = frameOf(sunOf(30, 10), [1234 + 1700, -5678 - 900]);
-        // Act
-        const slots = new Set<number>();
-        for (let s = 0; s < CLOUD_SHADOW_SLOT_COUNT; s++) {
-            const a = shadowSlotPage(f, s);
-            slots.add(shadowSlot(a.level, a.page));
-            // Assert: o endereço toroidal da página que a janela põe no slot é o próprio slot.
-            expect(shadowSlot(a.level, a.page)).toBe(s);
-            // A página está na janela do nível dela.
-            const w = shadowWindow(f, a.level);
-            expect(a.page[0] - w[0]).toBeGreaterThanOrEqual(0);
-            expect(a.page[0] - w[0]).toBeLessThan(CLOUD_SHADOW_PAGES);
-            // Na janela que andou, a página que segue nela fica no mesmo slot (não é redesenhada).
-            const b = shadowSlotPage(g, s);
-            const wb = shadowWindow(g, a.level);
-            const stays =
-                a.page[0] >= wb[0]
-                && a.page[0] < wb[0] + CLOUD_SHADOW_PAGES
-                && a.page[1] >= wb[1]
-                && a.page[1] < wb[1] + CLOUD_SHADOW_PAGES;
-            if (stays) expect(b.page).toEqual(a.page);
+        for (const el of [30, 6, 4, -0.5]) {
+            // Arrange
+            const f = frameOf(sunOf(el, 10), [1234, -5678]);
+            const g = frameOf(sunOf(el, 10), [1234 + 1700, -5678 - 900]);
+            const nx = shadowPagesX(shadowAspect(0, f.sun));
+            // Act
+            const slots = new Set<number>();
+            let active = 0;
+            for (let s = 0; s < CLOUD_SHADOW_SLOT_COUNT; s++) {
+                const a = shadowSlotPage(f, s);
+                slots.add(shadowSlot(a.level, a.page));
+                // Assert: o endereço toroidal da página que a janela põe no slot é o próprio slot.
+                expect(shadowSlot(a.level, a.page)).toBe(s);
+                // A página está nas páginas físicas do nível; as ativas, na janela.
+                const w = shadowWindow(f, a.level);
+                expect(a.page[0] - w[0]).toBeGreaterThanOrEqual(0);
+                expect(a.page[0] - w[0]).toBeLessThan(CLOUD_SHADOW_PAGES_X);
+                expect(a.page[1] - w[1]).toBeLessThan(CLOUD_SHADOW_PAGES);
+                expect(a.active).toBe(a.page[0] - w[0] < nx);
+                if (a.active) active++;
+                // Na janela que andou, a página que segue nela fica no mesmo slot (não é redesenhada).
+                const b = shadowSlotPage(g, s);
+                const wb = shadowWindow(g, a.level);
+                const stays =
+                    a.active
+                    && a.page[0] >= wb[0]
+                    && a.page[0] < wb[0] + nx
+                    && a.page[1] >= wb[1]
+                    && a.page[1] < wb[1] + CLOUD_SHADOW_PAGES;
+                if (stays) expect(b.page).toEqual(a.page);
+            }
+            expect(slots.size).toBe(CLOUD_SHADOW_SLOT_COUNT);
+            expect(active).toBe(CLOUD_SHADOW_LEVELS * CLOUD_SHADOW_PAGES * nx);
+            // O texel à direita de 0,2 em toda elevação: as 32 páginas físicas à direita na janela.
+            expect(shadowAspect(0, f.sun)).toBe(0.2);
+            expect(nx).toBe(CLOUD_SHADOW_PAGES_X);
         }
-        expect(slots.size).toBe(CLOUD_SHADOW_SLOT_COUNT);
         expect(CLOUD_SHADOW_SLOT_COUNT).toBeLessThanOrEqual(
             (CLOUD_SHADOW_ATLAS / CLOUD_SHADOW_STRIDE) ** 2,
         );
     });
 
-    it('o par do filtro fica na página física, e o nível cobre o ponto com a borda até o último', () => {
-        // Arrange
-        const f = frameOf(sunOf(20, 50), [321, 77]);
-        let maxLevelUsed = 0;
-        // Act
-        for (let i = 0; i < 4000; i++) {
-            const r = 50 * 1.0035 ** i;
-            const a = i * 2.39996;
-            const x: [number, number] = [
-                f.camera[0] + r * Math.cos(a),
-                f.camera[1] + r * Math.sin(a),
-            ];
-            const [k, blend] = shadowLevel(f, x);
-            maxLevelUsed = Math.max(maxLevelUsed, k);
-            for (const level of blend > 0 ? [k, k + 1] : [k]) {
-                const p = shadowAtlasTexel(f, x, level);
-                const slot = shadowSlot(level, [0, 0]);
-                void slot;
-                // Assert: os dois texels do filtro (floor(p − ½) e +1) na mesma página física.
-                const lx =
-                    p[0] - 0.5 - Math.floor(p[0] / CLOUD_SHADOW_STRIDE) * CLOUD_SHADOW_STRIDE;
-                const ly =
-                    p[1] - 0.5 - Math.floor(p[1] / CLOUD_SHADOW_STRIDE) * CLOUD_SHADOW_STRIDE;
-                expect(lx).toBeGreaterThanOrEqual(0);
-                expect(lx).toBeLessThanOrEqual(CLOUD_SHADOW_PAGE);
-                expect(ly).toBeGreaterThanOrEqual(0);
-                expect(ly).toBeLessThanOrEqual(CLOUD_SHADOW_PAGE);
-                // Dentro do raio útil, o ponto não é preso à borda da janela.
-                const d = Math.max(Math.abs(x[0] - f.camera[0]), Math.abs(x[1] - f.camera[1]));
-                if (d <= shadowUsable(f.texel, level)) {
-                    const t = shadowTexelSize(f.texel, level);
-                    const w = shadowWindow(f, level);
-                    const X = x[0] / t;
-                    expect(X).toBeGreaterThanOrEqual(w[0] * CLOUD_SHADOW_PAGE + 0.5);
-                    expect(X).toBeLessThanOrEqual(
-                        (w[0] + CLOUD_SHADOW_PAGES) * CLOUD_SHADOW_PAGE - 0.5,
-                    );
+    it.each([20, 4])(
+        'o par do filtro fica na página física, e o nível cobre o ponto com a borda até o último (sol a %s°)',
+        (el) => {
+            // Arrange
+            const f = frameOf(sunOf(el, 50), [321, 77]);
+            let maxLevelUsed = 0;
+            // Act
+            for (let i = 0; i < 4000; i++) {
+                const r = 50 * 1.0035 ** i;
+                const a = i * 2.39996;
+                const x: [number, number] = [
+                    f.camera[0] + r * Math.cos(a),
+                    f.camera[1] + r * Math.sin(a),
+                ];
+                const [k, blend] = shadowLevel(f, x);
+                maxLevelUsed = Math.max(maxLevelUsed, k);
+                for (const level of blend > 0 ? [k, k + 1] : [k]) {
+                    const p = shadowAtlasTexel(f, x, level);
+                    const slot = shadowSlot(level, [0, 0]);
+                    void slot;
+                    // Assert: os dois texels do filtro (floor(p − ½) e +1) na mesma página física.
+                    const lx =
+                        p[0] - 0.5 - Math.floor(p[0] / CLOUD_SHADOW_STRIDE) * CLOUD_SHADOW_STRIDE;
+                    const ly =
+                        p[1] - 0.5 - Math.floor(p[1] / CLOUD_SHADOW_STRIDE) * CLOUD_SHADOW_STRIDE;
+                    expect(lx).toBeGreaterThanOrEqual(0);
+                    expect(lx).toBeLessThanOrEqual(CLOUD_SHADOW_PAGE);
+                    expect(ly).toBeGreaterThanOrEqual(0);
+                    expect(ly).toBeLessThanOrEqual(CLOUD_SHADOW_PAGE);
+                    // Dentro do raio útil, o ponto não é preso à borda da janela.
+                    const d = Math.max(Math.abs(x[0] - f.camera[0]), Math.abs(x[1] - f.camera[1]));
+                    if (d <= shadowUsable(f.texel, level)) {
+                        const t = shadowTexelSize(f.texel, level) * shadowAspect(0, f.sun);
+                        const w = shadowWindow(f, level);
+                        const X = x[0] / t;
+                        expect(X).toBeGreaterThanOrEqual(w[0] * CLOUD_SHADOW_PAGE + 0.5);
+                        expect(X).toBeLessThanOrEqual(
+                            (w[0] + shadowPagesX(shadowAspect(0, f.sun))) * CLOUD_SHADOW_PAGE - 0.5,
+                        );
+                    }
                 }
             }
-        }
-        // O último nível alcança ±192 km com o texel de 50 m (o horizonte do sol baixo).
-        expect(maxLevelUsed).toBe(CLOUD_SHADOW_LEVELS - 1);
-        expect(shadowUsable(50, CLOUD_SHADOW_LEVELS - 1)).toBeGreaterThan(190_000);
-        expect(shadowSlotOrigin(CLOUD_SHADOW_SLOT_COUNT - 1)[1]).toBeLessThan(CLOUD_SHADOW_ATLAS);
-    });
+            // O último nível alcança ±192 km com o texel de 50 m (o horizonte do sol baixo).
+            expect(maxLevelUsed).toBe(CLOUD_SHADOW_LEVELS - 1);
+            expect(shadowUsable(50, CLOUD_SHADOW_LEVELS - 1)).toBeGreaterThan(190_000);
+            expect(shadowSlotOrigin(CLOUD_SHADOW_SLOT_COUNT - 1)[1]).toBeLessThan(
+                CLOUD_SHADOW_ATLAS,
+            );
+        },
+    );
 });
 
 describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f64)', () => {
@@ -340,7 +360,9 @@ describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f
                     renders++;
                     return;
                 }
-                // As provas das páginas não refeitas: os nós 4, 8, 12 e 16 de colunas embaralhadas, lidos na escolha seguinte.
+                // As provas das páginas não refeitas (em rodízio): os nós 4, 8, 12 e 16 de colunas embaralhadas, lidos na
+                // escolha seguinte.
+                if (!shadowProbesNow(p.slot, frame)) return;
                 for (let j = 0; j < CLOUD_SHADOW_PROBES; j++) {
                     const t = shadowProbeTexel(p.slot, frame, j);
                     p.measured = Math.max(
@@ -398,6 +420,7 @@ describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f
         const runs = [
             { name: 'lento (0,005°/quadro a 15°)', rate: 0.005, e: 15 },
             { name: 'vídeo (0,05°/quadro a 8°)', rate: 0.05, e: 8 },
+            { name: 'pôr do sol (0,05°/quadro a 6°)', rate: 0.05, e: 6 },
         ];
         // Act
         const out = runs.flatMap((run) =>

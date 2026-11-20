@@ -8,6 +8,8 @@
 // medida da incerteza da reprojeção (`clip`: 0 com a câmera parada ou girando, 1 com a paralaxe de um texel ou mais).
 // A superfície: o histórico só vale marchado até a mesma superfície do pixel agora, e o valor do bloco só é o do pixel
 // marchado se este for da mesma superfície (senão, o do bloco vizinho mais parecido, `cloudFreshForSurface`).
+// O ruído esperado inclui o temporal de cada pixel (o segundo momento guardado na série `marchDepth`): a amostra de um
+// pixel de ¼ numa faixa de 1–2 px oscila muito mais que a dispersão entre os blocos mostra.
 
 import { luminance as rec709 } from '../../../math/reference/color';
 
@@ -70,6 +72,47 @@ export function cloudGradientNoise(fresh: readonly Rgba[]): number {
     );
 }
 
+/** Desvios do erro padrão temporal (o segundo momento guardado por pixel) na tolerância (`CLOUD_TEMPORAL_NOISE`). */
+export const CLOUD_TEMPORAL_NOISE = 2;
+
+/**
+ * O segundo momento temporal guardado num pixel (média exponencial do brilho² e da transmitância² dos valores exatos).
+ */
+export type Moments = readonly [number, number];
+
+/** O segundo momento de um valor (o brilho² e a transmitância²). */
+export function cloudMomentsOf(v: Rgba): Moments {
+    return [luminance(v) ** 2, v[3] ** 2];
+}
+
+/**
+ * O ruído temporal esperado na divergência das médias: o erro padrão da média de uma amostra por bloco, pela variância
+ * temporal no pixel marchado de cada um (o segundo momento guardado menos o quadrado do histórico), em unidades de
+ * `cloudDivergence`, × `CLOUD_TEMPORAL_NOISE`. Espelho do `temporal_noise` de `cloud_reconstruct_main`.
+ */
+export function cloudTemporalNoise(
+    seen: readonly {
+        readonly fresh: Rgba;
+        readonly check: Rgba;
+        readonly moments?: Moments | undefined;
+    }[],
+): number {
+    const n = seen.length;
+    let vl = 0;
+    let va = 0;
+    for (const x of seen) {
+        if (x.moments === undefined) continue;
+        vl += Math.max(x.moments[0] - luminance(x.check) ** 2, 0);
+        va += Math.max(x.moments[1] - x.check[3] ** 2, 0);
+    }
+    const lc = seen.reduce((s, x) => s + luminance(x.check), 0) / n;
+    const lf = seen.reduce((s, x) => s + luminance(x.fresh), 0) / n;
+    return (
+        CLOUD_TEMPORAL_NOISE
+        * ((0.5 * (Math.sqrt(vl) / n)) / Math.max(Math.max(lc, lf), 1e-4) + Math.sqrt(va) / n)
+    );
+}
+
 /** Divergência: metade da diferença relativa da luz mais a diferença da transmitância. */
 export function cloudDivergence(a: Rgba, b: Rgba): number {
     const la = luminance(a);
@@ -96,7 +139,12 @@ export interface ReconstructInput {
      * Os 3 × 3 blocos em volta (o próprio incluso): o valor exato de cada um e o histórico reprojetado no pixel marchado
      * dele (undefined: fora da tela, fica de fora da média).
      */
-    readonly neighbors: readonly { readonly fresh: Rgba; readonly check: Rgba | undefined }[];
+    readonly neighbors: readonly {
+        readonly fresh: Rgba;
+        readonly check: Rgba | undefined;
+        /** O segundo momento temporal guardado no pixel marchado dele (ausente: sem). */
+        readonly moments?: Moments;
+    }[];
     /**
      * Quanto o histórico é recortado pela caixa (0…1, `cloud_reprojection_clip`): o deslocamento da reprojeção entre as
      * profundidades do trecho da nuvem. Ausente: 1 (a câmera que anda).
@@ -116,13 +164,20 @@ export function reconstructTexel(i: ReconstructInput): Rgba {
         && cloudSurfaceDiffers(i.historySurface, i.surface) > CLOUD_SURFACE_AGREE
     )
         return i.fresh;
-    const seen = i.neighbors.filter((n) => n.check !== undefined);
+    const seen = i.neighbors.flatMap((n) =>
+        n.check === undefined ? [] : [{ fresh: n.fresh, check: n.check, moments: n.moments }],
+    );
     if (seen.length === 0) return i.fresh;
     const divergence = cloudDivergence(
-        mean(seen.map((n) => n.check!)),
+        mean(seen.map((n) => n.check)),
         mean(seen.map((n) => n.fresh)),
     );
-    if (divergence > CLOUD_GRADIENT_TOLERANCE + cloudGradientNoise(seen.map((n) => n.fresh)))
+    if (
+        divergence
+        > CLOUD_GRADIENT_TOLERANCE
+            + cloudGradientNoise(seen.map((n) => n.fresh))
+            + cloudTemporalNoise(seen)
+    )
         return i.fresh;
     const box = [i.fresh, ...i.neighbors.map((n) => n.fresh)];
     const clamped = [0, 1, 2, 3].map((c) => {

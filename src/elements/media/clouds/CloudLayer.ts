@@ -618,7 +618,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             // A profundidade da nuvem e a superfície até onde o valor foi marchado (r, g).
             target('traceDepth', 'rg32float', 2 * q.marchScale),
             target('march', 'rgba16float', q.marchScale, { depth: 2, filtered: true }),
-            target('marchDepth', 'rg32float', q.marchScale, { depth: 2 }),
+            // A profundidade e a superfície (r, g) e o segundo momento temporal do valor (b: o brilho², a: a transmitância²).
+            target('marchDepth', 'rgba32float', q.marchScale, { depth: 2 }),
             target('view', 'rgba16float', 1),
             // O cache de espalhamento por páginas (T023, R8; R11 revisto): as palavras globais (a geração da grade), o
             // registro de cada página de 8³ sondas (o sol e o quadro do último caminho, a geração, as sondas com nuvem) e

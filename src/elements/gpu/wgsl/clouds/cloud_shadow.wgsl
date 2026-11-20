@@ -16,14 +16,15 @@
 // mistura os dois pela posição do comprimento na oitava — contínuo no ângulo do sol (o pente em frações do trecho
 // escorregava pela nuvem com o sol baixo, e o chão piscava no vídeo acelerado).
 // Teto constante por coluna: `CLOUD_SHADOW_STEPS + 4` amostras e 2 × `CLOUD_SHADOW_KNOTS` nós gravados; o desenho faz até
-// 2 colunas por invocação (289 texels, 256 invocações), a prova 1.
+// 2 colunas por invocação (289 texels, 256 invocações); a prova reparte a coluna por 32 invocações (até 7 amostras cada).
 //
 // Um grupo por página física. A escolhida no quadro é desenhada: os texels e o registro dela — o sol, o tempo e o quadro
 // do desenho, a página global, a assinatura do conteúdo e a célula do pivô, as medidas (o maior |ΔT| entre texels
 // vizinhos por metro, nos nós 4, 8, 12 e 16, com a coluna da vizinha; o maior |ΔT| entre nós seguidos por metro ao longo
 // da coluna; o maior comprimento do trecho; a maior distância das pontas do trecho ao plano; o comprimento do trecho no
 // centro da página) e os nós 4, 8, 12 e 16 de cada texel (o que as provas comparam) — e o carimbo da série do atlas (a
-// época atual). Nas demais, `CLOUD_SHADOW_PROBES` colunas de prova (texels embaralhados por quadro) refeitas e
+// época atual). Nas demais, a cada `CLOUD_SHADOW_PROBE_PERIOD` quadros (em rodízio), `CLOUD_SHADOW_PROBES` colunas de
+// prova (texels embaralhados por quadro) refeitas e
 // comparadas com o registro: a maior diferença de T fica no registro até a página ser refeita — a mudança medida, que a
 // escolha do quadro seguinte lê. A prova junto do desenho tem a latência de uma coluna, sem um passe a mais na cadeia.
 // Requer: WORKGROUP_SIZE, cloud_common, cloud_density, cloud_shadow_pages, clouds, cameras, page_alloc, cloud_wind_at,
@@ -245,31 +246,110 @@ fn cloud_shadow_draw(slot: u32, lid: u32) {
     cloud_shadow_stamps[slot] = cloud_shadow_clock.x;
 }
 
+/** Invocações por coluna de prova: a coluna repartida pelo pente (as amostras `i ≡ sub` mod 32, no máximo 7 por invocação). */
+const CLOUD_SHADOW_PROBE_LANES: u32 = 32u;
+
 /**
- * A prova `j` da página física `slot`: a coluna do texel refeita como o desenho do quadro a faria (o sol e o plano de
- * agora) contra os nós guardados no registro — a mudança inteira do que a página mostra, medida: a evolução da forma, o
- * tempo e o sol andando. A previsão pela geometria só vê a nuvem que já está na página (o gradiente medido nela): a
- * página desenhada sem nuvem, com o sol descendo, passava a mostrar sol onde a coluna nova já cortava a nuvem vizinha e
- * só era refeita pela idade (`CLOUD_SHADOW_MAX_AGE`: ~12° de sol no vídeo do pôr do sol) — o chão aceso sob as nuvens
- * de 3,5–6 km no `solposto-chao` (R21 rodada 24). Espelho das provas do esquema em `cloudShadowPages.test.ts`.
+ * A parte de uma invocação (`sub`) da coluna de prova de coordenadas `x` (m) no plano do sol `sun` (a base `basis`):
+ * τ do pente fino (0…3) e do grosso (4…7) nos nós 4, 8, 12 e 16 — a soma, nas células do pente da invocação, de
+ * `r·max(0, b − max(a, nó))` (a célula `[a, b]` recortada ao trecho, `r` a extinção no meio dela) — e a mistura dos dois
+ * pentes (8). A mesma conta de `cloud_shadow_column_knots`, em outra ordem de soma.
  */
-fn cloud_shadow_probe(slot: u32, j: u32) {
-    if (!cloud_shadow_meta_current(slot)) { return; }
+fn cloud_shadow_probe_part(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f, sub: u32) -> array<f32, 9> {
+    var out: array<f32, 9>;
+    for (var e = 0u; e < 9u; e++) { out[e] = 0.0; }
+    let o0 = clouds.sunFrame.xyz + basis[0] * x.x + basis[1] * x.y;
+    let entry = cloud_sun_entry(o0, sun);
+    let segs = cloud_shell_segments(o0 + sun * entry, -sun, 1e9);
+    if (segs.y <= segs.x) { return out; }
+    let hi = entry - segs.x;
+    let lo = entry - segs.y;
+    let len = hi - lo;
+    let lv = max(log2(len / (f32(CLOUD_SHADOW_STEPS) * CLOUD_SHADOW_SPACING)), CLOUD_SHADOW_MIN_LEVEL - 1.0);
+    let n = max(ceil(lv), CLOUD_SHADOW_MIN_LEVEL);
+    out[8] = lv - (n - 1.0);
+    let dl = CLOUD_SHADOW_SPACING * exp2(n);
+    let knot_len = len / f32(CLOUD_SHADOW_KNOTS);
+    let phi = f32(cloud_shadow_hash(line) & 0xffffu) / 65536.0 * CLOUD_SHADOW_SHIFT;
+    let m0 = i32(floor((hi - phi) / dl)) + 1;
+    for (var i = sub; i < CLOUD_SHADOW_STEPS + 4u; i += CLOUD_SHADOW_PROBE_LANES) {
+        let m = m0 - i32(i);
+        let s = f32(m) * dl + phi;
+        if (s + dl <= lo) { break; }
+        var rf = 0.0;
+        let fa = max(s - 0.5 * dl, lo);
+        let fb = min(s + 0.5 * dl, hi);
+        if (fb > fa) {
+            rf = cloud_shadow_extinction(o0, sun, 0.5 * (fa + fb));
+            for (var q = 0u; q < 4u; q++) {
+                let at = hi - f32(4u * q + 4u) * knot_len;
+                out[q] += rf * max(0.0, fb - max(fa, at));
+            }
+        }
+        if ((m & 1) == 0) {
+            let ca = max(s - dl, lo);
+            let cb = min(s + dl, hi);
+            if (cb > ca) {
+                var rc = rf;
+                if (ca > s - dl || cb < s + dl) { rc = cloud_shadow_extinction(o0, sun, 0.5 * (ca + cb)); }
+                for (var q = 0u; q < 4u; q++) {
+                    let at = hi - f32(4u * q + 4u) * knot_len;
+                    out[4u + q] += rc * max(0.0, cb - max(ca, at));
+                }
+            }
+        }
+    }
+    return out;
+}
+
+var<workgroup> cloud_shadow_wg_probe_go: u32;
+
+/**
+ * As `CLOUD_SHADOW_PROBES` provas da página física `slot` (as 256 invocações do grupo, `CLOUD_SHADOW_PROBE_LANES` por
+ * coluna): a coluna do texel refeita como o desenho do quadro a faria (o sol e o plano de agora) contra os nós guardados
+ * no registro — a mudança inteira do que a página mostra, medida: a evolução da forma, o tempo e o sol andando. A
+ * previsão pela geometria só vê a nuvem que já está na página (o gradiente medido nela): a página desenhada sem nuvem,
+ * com o sol descendo, passava a mostrar sol onde a coluna nova já cortava a nuvem vizinha e só era refeita pela idade
+ * (`CLOUD_SHADOW_MAX_AGE`) — o chão aceso sob as nuvens de 3,5–6 km no `solposto-chao` (R21 rodada 24). Espelho das
+ * provas do esquema em `cloudShadowPages.test.ts`. A coluna numa invocação só (um laço de até 196 amostras) com 4 das
+ * 256 ativas custava, com o sol a 4°, mais que o resto do passe.
+ */
+fn cloud_shadow_probes(slot: u32, lid: u32) {
+    let j = lid / CLOUD_SHADOW_PROBE_LANES;
+    let sub = lid % CLOUD_SHADOW_PROBE_LANES;
     let k = cloud_shadow_slot_level(slot);
     let g = cloud_shadow_slot_page(slot);
-    let t = cloud_shadow_probe_texel(slot, clouds.march.z, j);
-    let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
     let rec = &cloud_shadow_pages_meta[slot];
-    let col = cloud_shadow_column_knots(
-        cloud_shadow_texel_plane(k, g, tt),
-        cloud_shadow_line(k, g, tt),
-        clouds.sunDir.xyz,
-        mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
-    );
+    let t = cloud_shadow_probe_texel(slot, clouds.march.z, min(j, CLOUD_SHADOW_PROBES - 1u));
+    let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
+    var part: array<f32, 9>;
+    for (var e = 0u; e < 9u; e++) { part[e] = 0.0; }
+    if (j < CLOUD_SHADOW_PROBES) {
+        part = cloud_shadow_probe_part(
+            cloud_shadow_texel_plane(k, g, tt),
+            cloud_shadow_line(k, g, tt),
+            clouds.sunDir.xyz,
+            mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
+            sub,
+        );
+        for (var e = 0u; e < 8u; e++) { cloud_shadow_wg_tau[lid * 8u + e] = part[e]; }
+    }
+    workgroupBarrier();
+    // A soma das partes de cada coluna em árvore (5 passos).
+    for (var w = CLOUD_SHADOW_PROBE_LANES / 2u; w > 0u; w /= 2u) {
+        if (j < CLOUD_SHADOW_PROBES && sub < w) {
+            for (var e = 0u; e < 8u; e++) {
+                cloud_shadow_wg_tau[lid * 8u + e] += cloud_shadow_wg_tau[(lid + w) * 8u + e];
+            }
+        }
+        workgroupBarrier();
+    }
+    if (j >= CLOUD_SHADOW_PROBES || sub != 0u) { return; }
     var d = 0.0;
     for (var l = 0u; l < 4u; l++) {
+        let tau = mix(cloud_shadow_wg_tau[lid * 8u + l], cloud_shadow_wg_tau[lid * 8u + 4u + l], part[8]);
         let kept = bitcast<f32>(atomicLoad(&(*rec).knots[t * 4u + l]));
-        d = max(d, abs(exp(-kept) - exp(-col.knots[l * 4u + 3u])));
+        d = max(d, abs(exp(-kept) - exp(-tau)));
     }
     atomicMax(&(*rec).measured, bitcast<u32>(d));
 }
@@ -293,7 +373,16 @@ fn cloud_shadow_main(
         cloud_shadow_draw(slot, lid);
         return;
     }
-    if (lid < CLOUD_SHADOW_PROBES) { cloud_shadow_probe(slot, lid); }
+    // As provas, em rodízio, das páginas que valem (a condição uniforme no grupo: as barreiras da soma).
+    if (lid == 0u) {
+        cloud_shadow_wg_probe_go = select(
+            0u,
+            1u,
+            cloud_shadow_probes_now(slot, clouds.march.z) && cloud_shadow_meta_current(slot),
+        );
+    }
+    if (workgroupUniformLoad(&cloud_shadow_wg_probe_go) == 0u) { return; }
+    cloud_shadow_probes(slot, lid);
 }
 
 // ---- a escolha do quadro ----
@@ -390,8 +479,8 @@ fn cloud_shadow_key(slot: u32) -> u32 {
     return clamp(1u + u32(floor(log2(p))), 1u, CLOUD_SHADOW_KEY_MANDATORY - 1u);
 }
 
-/** Páginas físicas por invocação na escolha do quadro (até 512 páginas). */
-const CLOUD_SHADOW_SELECT_CHUNK: u32 = 2u;
+/** Páginas físicas por invocação na escolha do quadro (até 2048 páginas). */
+const CLOUD_SHADOW_SELECT_CHUNK: u32 = 8u;
 
 var<workgroup> cloud_shadow_wg_hist: array<atomic<u32>, 16>;
 var<workgroup> cloud_shadow_wg_cut: vec2u;

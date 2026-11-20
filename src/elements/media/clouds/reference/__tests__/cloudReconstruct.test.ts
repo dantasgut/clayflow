@@ -6,6 +6,7 @@ import {
     cloudDivergence,
     cloudGradientNoise,
     cloudFreshForSurface,
+    cloudMomentsOf,
     reconstructTexel,
     type Rgba,
 } from '../cloudReconstruct';
@@ -168,5 +169,58 @@ describe('reconstrução temporal', () => {
         expect(pick).toBe(2);
         expect(cloudFreshForSurface(CLOUD_SKY_DISTANCE, limits)).toBe(0);
         expect(out).toEqual(sky);
+    });
+
+    it('o ruído temporal do pixel (a faixa fina) não reprova o bloco; a mudança da nuvem ainda reprova', () => {
+        // Arrange: a faixa clara de 1–2 px dentro do pixel de ¼: a amostra acerta a faixa (luz 40) em ¼ dos quadros e o
+        // céu (luz 4) nos outros; o histórico é a média (13) e o segundo momento o das amostras.
+        const bright: [number, number, number, number] = [40, 40, 40, 0.6];
+        const dim: [number, number, number, number] = [4, 4, 4, 0.95];
+        const avg = [0, 1, 2, 3].map((c) => 0.25 * bright[c]! + 0.75 * dim[c]!) as unknown as [
+            number,
+            number,
+            number,
+            number,
+        ];
+        const mb = cloudMomentsOf(bright);
+        const md = cloudMomentsOf(dim);
+        const moments: [number, number] = [
+            0.25 * mb[0] + 0.75 * md[0],
+            0.25 * mb[1] + 0.75 * md[1],
+        ];
+        const input = (fresh: typeof bright, withMoments: boolean) => ({
+            marched: false,
+            valid: true,
+            fresh,
+            history: avg,
+            check: avg,
+            neighbors: [...Array<number>(9).keys()].map((k) => ({
+                fresh: k < 5 ? fresh : avg,
+                check: avg,
+                ...(withMoments ? { moments } : {}),
+            })),
+        });
+        // Act: neste quadro 5 dos 9 blocos acertaram a faixa (o ruído da amostra).
+        const kept = reconstructTexel(input(bright, true));
+        const lost = reconstructTexel(input(bright, false));
+        // Assert: com o ruído temporal o pixel fica com o histórico; sem ele, o bloco largava o histórico.
+        expect(kept).toEqual(avg);
+        expect(lost).toEqual(bright);
+        // A nuvem que muda de verdade (o histórico sem variância, céu limpo que vira nuvem) ainda reprova.
+        const sky: [number, number, number, number] = [5, 5, 5, 1];
+        const cloud: [number, number, number, number] = [30, 30, 30, 0.2];
+        const changed = reconstructTexel({
+            marched: false,
+            valid: true,
+            fresh: cloud,
+            history: sky,
+            check: sky,
+            neighbors: [...Array<number>(9).keys()].map((k) => ({
+                fresh: k < 7 ? cloud : sky,
+                check: sky,
+                moments: cloudMomentsOf(sky),
+            })),
+        });
+        expect(changed).toEqual(cloud);
     });
 });
