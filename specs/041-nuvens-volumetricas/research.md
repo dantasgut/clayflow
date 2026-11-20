@@ -761,6 +761,39 @@ decisão da GPU) está medida contra a referência; a intensidade dos feixes na 
   pronto de novo antes de medir: 0,002–0,119 ms (mediana 0,010; a base dava 0,378) — as nuvens não custam nada com o meio
   desligado pela GPU numa sala fechada.
 
+#### R21, rodada 18 — a borda do feixe é a da nuvem; os raios chegando ao chão (2026-11-20)
+
+- _A borda macia do `beam-gap`, isolada_: o caso passa a medir também o ar sozinho (a grade dos froxels lida até a base da
+  camada em cada coluna, contra a f64 na direção do centro da coluna) e a largura de cada borda (10–90 % do excesso). Contra
+  a f64 do cilindro ideal (a laje cheia de 700–950 m com borda dura), o ar da GPU tinha 3,5 × o excesso e bordas de 30/71 px
+  contra 12/36. Mas essa f64 não é a nuvem que a GPU desenha: o estrato tem perfil de altura e erosão, e o vão sai do mapa
+  de cobertura (texel de 250 m, bilinear). Com a visibilidade da f64 pela profundidade ótica até o sol no espelho f64 da
+  densidade (`cloudModel`) com o mapa de cobertura lido da GPU — a mesma representação; `referenceModel` passa a usar o mapa
+  da GPU também com a função de cobertura —, o ar da GPU fica a 2,9 % da f64 no contraste (1,818 contra 1,872) e as bordas a
+  30/71 contra 26/69 px. Os froxels (acúmulo, sorteio no froxel), o mapa visto do sol (texel de 50 m, a leitura bilinear
+  sorteada) e a penumbra juntos somam ≤ 4 px à borda; ela é a do próprio vão. Com o mapa de cobertura de 4096² (62,5 m), a
+  borda de subida cai de 30 para 16 px (a f64, 12) — a causa é a resolução do mapa de cobertura (256 km em 1024 texels),
+  não o mapa visto do sol. Critérios novos no caso: contraste do ar a ≤ 15 % da f64 e bordas a ≤ 2 colunas de froxel (8 px)
+  além das da f64 — passam. Chaves de ensaio do caso: `el`, `base`, `top`, `r`, `ss`/`ds`, `wx`/`wz`, `texel`, `cov`. Na
+  geometria da `raios-chao` (sol a 30°, camada 800–1000 m, vão de 400 m) o ar dá contraste 4,84 contra 5,05 da f64 (4 %).
+- _A resolução do mapa de cobertura_ (aberto, T077): um vão autorado de algumas centenas de metros tem ~2–3 texels; a borda
+  dele fica com ~250 m de rampa, e os vãos de 400 m perto um do outro se fundem. O caminho é o do mapa visto do sol — níveis
+  em volta da câmera por páginas no canal paginado da C2, sem estrutura paralela.
+- _A cena `raios-chao`_ (claflow-web): três coisas medidas impediam os feixes chegando ao chão. (1) De 5 m sobre o chão
+  plano, as manchas a 0,7–1,5 km ficam a menos de 0,5° abaixo do horizonte e as lombas de ±4 m a 120–250 m as escondem;
+  a câmera passa ao alto de um morro (o chão a 74 m, na borda do vale largo do rumo do sol), de onde o vale fica 4–7° abaixo
+  do horizonte. (2) A mancha a uma distância d tem o vão a d do meio da linha do sol na camada: com d < r + ~250 m, a borda
+  macia do vão chega à linha do sol e o disco aparece através da nuvem; as manchas ficam a ≥ 750 m. (3) A luz espalhada pela
+  névoa cai com o ângulo ao sol (a fase de Mie a 10° é ~4–5 × a de 30°): os feixes para o lado (a ~30° do sol) existem no
+  ar mas quase não se destacam da base da camada; os fortes são os das manchas perto do rumo do sol. Os vãos de 720–800 m
+  numa camada de 200 m (a lente acesa de 2r − 346 m) ficam a ≥ 900 m um do outro. Quadro conferido: contraste linear
+  dentro/fora dos feixes 3,2 junto aos vãos e 2,1 junto ao chão; o vale aceso a ~2 × a sombra.
+- _Vídeos_ (`scratchpad/041-video/rodada18/`): `raios-chao` 960 quadros, 9,7 MB, 54,0 dB, GPU média 14,3 ms; maior salto da
+  região dos feixes 0,21 nível, do vale 0,54, nenhuma alternância. `solposto` 1200 quadros, 19,2 MB, 51,2 dB: com o recorte
+  do histórico das nuvens pela reta até o centro da caixa (alteração na árvore, não registrada), a mancha ciano/magenta na
+  borda de uma nuvem pequena junto ao sol no horizonte segue nos quadros 700 e 780 — o recorte por canal não é a causa
+  (ou não é a única); os casos `sunset` (15,5 %, como antes) e `backlit` (5,6 %) não mudam com ele. Aberto em T075.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,

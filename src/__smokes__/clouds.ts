@@ -142,9 +142,10 @@ const quantize = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) *
 async function referenceModel(s: CloudScene, layer: CloudLayer, time = 0): Promise<CloudModel> {
     const shape = await readCloudVolume(s.app, layer, 'shape');
     const detail = await readCloudVolume(s.app, layer, 'detail');
-    // Com o tempo (R19), o mapa de cobertura é o da GPU (a mesma representação dos dois lados; o mapa em si é conferido
-    // contra a referência do tempo no caso `pressure-wind`).
-    if (layer.weather !== undefined) return weatherReferenceModel(s, layer, shape, detail, time);
+    // Com o tempo (R19) ou com a função de cobertura, o mapa de cobertura é o da GPU (a mesma representação dos dois lados;
+    // o mapa em si é conferido contra a referência do tempo no caso `pressure-wind` e contra a função no `user-graph`).
+    if (layer.weather !== undefined || layer.coverageFunction !== undefined)
+        return weatherReferenceModel(s, layer, shape, detail, time);
     const radii = s.sky.data.radii;
     const half = layer.quality.coverageExtent / 2;
     const MAP = layer.quality.coverageSize;
@@ -242,7 +243,9 @@ async function weatherReferenceModel(
         top: layer.shellTop,
         coverage: (x, z) => {
             if (Math.abs(x - center[0]!) > half || Math.abs(z - center[1]!) > half)
-                return [coverageField(x, z, c, t), typeField(x, z, t), 0, fairTop];
+                return layer.weather === undefined
+                    ? [coverageField(x, z, c, t), typeField(x, z, t), 1]
+                    : [coverageField(x, z, c, t), typeField(x, z, t), 0, fairTop];
             const fx = ((x - center[0]!) / (2 * half) + 0.5) * MAP - 0.5;
             const fz = ((z - center[1]!) / (2 * half) + 0.5) * MAP - 0.5;
             const x0 = Math.floor(fx);
@@ -258,6 +261,8 @@ async function weatherReferenceModel(
             const lerp = (k: number): number =>
                 (at(x0, z0, k) * (1 - ax) + at(x0 + 1, z0, k) * ax) * (1 - az)
                 + (at(x0, z0 + 1, k) * (1 - ax) + at(x0 + 1, z0 + 1, k) * ax) * az;
+            // Sem o tempo (a função de cobertura): cobertura, tipo e densidade relativa.
+            if (layer.weather === undefined) return [lerp(0), lerp(1), lerp(2)];
             return [lerp(0), lerp(1), lerp(2), lerp(3)];
         },
         density: layer.density,
@@ -269,7 +274,9 @@ async function weatherReferenceModel(
         shapeOffset: offsets.shape,
         detailOffset: offsets.detail,
         windDir: speed > 0 ? [wind[0] / speed, wind[1] / speed] : [1, 0],
-        weather: { fairTop, anvilOffset: offsets.anvil },
+        ...(layer.weather === undefined
+            ? {}
+            : { weather: { fairTop, anvilOffset: offsets.anvil } }),
     };
 }
 
@@ -1276,37 +1283,74 @@ async function caseBeamAir(): Promise<void> {
 }
 
 /**
- * O feixe de um vão conhecido (spec 041, R21 rodada 17): uma camada de 700–950 m (extinção 0,3/m) encoberta, salvo um
- * cilindro de 250 m de raio (pela função de cobertura; o mapa de cobertura tem texel de 250 m), o sol a 35°, o ar de ~13 km
- * de visibilidade (névoa seca de 0,3/km até 1,2 km, turbidez 2) e a câmera a 2 m olhando o meio do feixe (400 m de altura)
- * a 1 km, 30° ao lado do azimute do sol. A linha do meio da imagem atravessa o feixe: o excesso dele sobre o ar na sombra
- * (nits) e a largura a meia altura na GPU contra a referência f64 da mesma geometria (o ar até a base da camada em cada
- * direção, a visibilidade pela corda do raio do sol na laje fora do cilindro).
+ * O feixe de um vão conhecido (spec 041, R21 rodadas 17–18): uma camada de 700–950 m (extinção 0,3/m) encoberta, salvo um
+ * cilindro de 250 m de raio (pela função de cobertura), o sol a 35°, o ar de ~13 km de visibilidade (névoa seca de 0,3/km
+ * até 1,2 km, turbidez 2) e a câmera a 2 m olhando o meio do feixe (400 m de altura) a 1 km, 30° ao lado do azimute do
+ * sol. A linha do meio atravessa o feixe; três perfis: a imagem (o ar e a nuvem atrás), o ar sozinho lido da grade dos
+ * froxels até a base da camada em cada coluna e a referência f64 da mesma geometria (o ar até a base da camada, a
+ * visibilidade pela profundidade ótica até o sol no espelho f64 da densidade com o mapa de cobertura da GPU — a mesma
+ * nuvem; o cilindro ideal da laje cheia não é a nuvem que a GPU desenha: o estrato tem perfil de altura e erosão). Mede o contraste do feixe (pico/fundo − 1), a largura a
+ * meia altura e a largura de cada borda (10–90 % do excesso, px). O critério: o contraste do ar na grade a ≤ 15 % do da
+ * f64 e as bordas do ar a ≤ 2 colunas de froxel (8 px) mais que as da f64. A query `texel` (m) troca o texel do mapa
+ * visto do sol e `cov` o tamanho do mapa de cobertura (os ensaios da borda, R21 rodada 18).
  */
 async function caseBeamGap(): Promise<void> {
-    const gap = [1473, 500] as const;
+    // As chaves dos ensaios (R21 rodada 18): a elevação do sol, a camada, o raio do vão, as escalas da forma e o vento.
+    const query = new URLSearchParams(location.search);
+    const num = (k: string, v: number): number => Number(query.get(k) ?? v);
+    const el = num('el', 35);
+    const [lo, hi] = [num('base', 700), num('top', 950)];
+    const radius = num('r', 250);
+    const wind: [number, number] = [num('wx', 0), num('wz', 0)];
+    const scales = query.has('ss')
+        ? { shapeScale: num('ss', 12000), detailScale: num('ds', 1800) }
+        : {};
+    // O vão 30° ao lado da vista; o meio do feixe a 400 m de altura e a 1 km da câmera.
+    const tanEl = Math.tan((el * Math.PI) / 180);
+    const mid = [866, 400, 500] as const;
+    const gap = [Math.round(866 + (0.5 * (lo + hi) - 400) / tanEl), 500] as const;
     const code = /* wgsl */ `fn coverage_fn(xz: vec2f, time: f32, data: CoverageFnParams) -> vec3f {
-    return vec3f(select(1.0, 0.0, distance(xz, vec2f(${gap[0]}.0, ${gap[1]}.0)) < 250.0), 0.1, 1.0);
+    return vec3f(select(1.0, 0.0, distance(xz, vec2f(${gap[0]}.0, ${gap[1]}.0)) < ${radius.toFixed(1)}), 0.1, 1.0);
 }`;
     const width = 640;
     const height = 360;
     const fov = Math.PI / 3;
-    const mid = [866, 400, 500] as const;
     const s = await cloudScene({
         width,
         height,
-        sunElevation: 35,
+        sunElevation: el,
         sunAzimuth: 0,
         eye: [0, 2, 0],
         target: mid,
         fov,
-        clouds: { coverage: { code }, wind: [0, 0], base: 700, top: 950, density: 0.3 },
+        clouds: { coverage: { code }, wind, base: lo, top: hi, density: 0.3, ...scales },
     });
     s.sky.turbidity = 2;
     s.sky.haze = { extinction: 0.3, scaleHeight: 1.2 };
-    const settle = Number(new URLSearchParams(location.search).get('settle') ?? 180);
+    const texel = query.get('texel');
+    const cov = query.get('cov');
+    if (texel !== null || cov !== null) {
+        const q = s.layer!.quality;
+        s.layer!.fromRenderer({
+            ...q,
+            shadow: { ...q.shadow, texel: texel === null ? q.shadow.texel : Number(texel) },
+            coverageSize: cov === null ? q.coverageSize : Number(cov),
+        });
+    }
+    log(
+        `beam-gap: sol a ${el}°, camada ${lo}–${hi} m, vão de raio ${radius} m em ${gap.join(', ')}, vento ${wind.join(', ')}, texel do mapa visto do sol ${s.layer!.quality.shadow.texel} m, mapa de cobertura ${s.layer!.quality.coverageSize}² (${(s.layer!.quality.coverageExtent / s.layer!.quality.coverageSize).toFixed(0)} m)`,
+    );
+    const settle = Number(query.get('settle') ?? 180);
     await settleFrames(s.app, settle);
     const color = await sceneColor(s);
+    const froxels = s.app.world.findResource(Froxels.schema, Froxels)!;
+    const grid = s.app.resources.textureOf(froxels, 'scatter');
+    if (grid === undefined) throw new Error('beam-gap: froxels não alocados');
+    const air = await readTexture(s.app, grid, 'rgba16float');
+    const depth = froxels.data.params[0]!.depth!;
+    // A nuvem da f64: o espelho da densidade (`cloudModel`) com o mapa de cobertura da GPU, a mesma representação.
+    const model = await referenceModel(s, s.layer!);
+    const sunScene = s.layer!.data.params[0]!.sunDir! as unknown as Vec3;
     finish(s);
     const y = height >> 1;
     const gpu: number[] = [];
@@ -1314,7 +1358,7 @@ async function caseBeamGap(): Promise<void> {
         const o = (y * width + x) * 4;
         gpu.push(luminance([color[o]!, color[o + 1]!, color[o + 2]!]));
     }
-    // As direções das colunas da linha do meio (a base da câmera de `Transform.lookRotation`).
+    // A base da câmera de `Transform.lookRotation` (km).
     const eye = [0, 0.002, 0];
     const t = [mid[0] / 1000 - eye[0]!, mid[1] / 1000 - eye[1]!, mid[2] / 1000 - eye[2]!];
     const tl = Math.hypot(t[0]!, t[1]!, t[2]!);
@@ -1329,34 +1373,27 @@ async function caseBeamGap(): Promise<void> {
     ];
     const f = 1 / Math.tan(fov / 2);
     const aspect = width / height;
-    const dirOf = (px: number): Vec3 => {
-        const u = (((px + 0.5) / width) * 2 - 1) * aspect;
-        const v = 1 - ((y + 0.5) / height) * 2;
-        const d = [0, 1, 2].map((c) => xa[c]! * (u / f) + ya[c]! * (v / f) - z[c]!);
+    // A direção pelo ponto normalizado da tela (u, v em [0, 1], v para baixo) e o comprimento do raio por unidade de
+    // profundidade da vista.
+    const dirAt = (u: number, v: number): { d: Vec3; stretch: number } => {
+        const px = (u * 2 - 1) * aspect;
+        const py = 1 - v * 2;
+        const d = [0, 1, 2].map((c) => xa[c]! * (px / f) + ya[c]! * (py / f) - z[c]!);
         const l = Math.hypot(d[0]!, d[1]!, d[2]!);
-        return [d[0]! / l, d[1]! / l, d[2]! / l];
+        return { d: [d[0]! / l, d[1]! / l, d[2]! / l], stretch: l };
     };
     const atm = { ...earthAtmosphere(2), haze: { scattering: 0.27, extinction: 0.3, scale: 1.2 } };
     const R = atm.bottomRadius;
     const alt = 0.202;
-    const e = (35 * Math.PI) / 180;
-    const sun: Vec3 = [Math.cos(e), Math.sin(e), 0];
-    const base = R + 0.2 + 0.7;
-    const top = R + 0.2 + 0.95;
+    const sun: Vec3 = [sunScene[0], sunScene[1], sunScene[2]];
+    const base = R + 0.2 + lo / 1000;
+    const top = R + 0.2 + hi / 1000;
+    // A visibilidade do sol num ponto do ar (km, centro do planeta): a profundidade ótica até o sol pela nuvem da
+    // referência (m de cena, o chão em R + 0,2 km).
     const visibility = (x: Vec3): number => {
         if (x[1] >= top) return 1;
-        const t0 = Math.max(0, (base - x[1]) / sun[1]);
-        const t1 = (top - x[1]) / sun[1];
-        let tau = 0;
-        const n = 24;
-        for (let i = 0; i < n; i++) {
-            const tt = t0 + ((t1 - t0) * (i + 0.5)) / n;
-            const qx = x[0] + sun[0] * tt;
-            const qz = x[2] + sun[2] * tt;
-            if (Math.hypot(qx - gap[0] / 1000, qz - gap[1] / 1000) > 0.25)
-                tau += (300 * (t1 - t0)) / n;
-        }
-        return Math.exp(-tau);
+        const q: Vec3 = [x[0] * 1000, (x[1] - (R + 0.2)) * 1000, x[2] * 1000];
+        return Math.exp(-opticalDepth(model, q, [sunScene[0], sunScene[1], sunScene[2]], 48));
     };
     const msCache = new Map<string, Vec3>();
     const ms = (r: number, mu: number): Vec3 => {
@@ -1368,39 +1405,103 @@ async function caseBeamGap(): Promise<void> {
         }
         return v;
     };
+    // A distância (km) até a base da camada numa direção.
+    const toBase = (d: Vec3): number => (base - (R + alt)) / Math.max(d[1], 1e-3);
+    const reference = (d: Vec3): number => {
+        const a = aerialPerspective(atm, alt, d, sun, toBase(d), 1200, ms, visibility).scattered;
+        return luminance([a[0], a[1], a[2]]) * 1000;
+    };
+    // A imagem e a f64 de 4 em 4 px.
     const ref: number[] = [];
     const cols: number[] = [];
     for (let px = 0; px < width; px += 4) {
-        const d = dirOf(px);
-        // O ar até a base da camada (o resto é a nuvem, a mesma dentro e fora do feixe).
-        const dist = (base - (R + alt)) / Math.max(d[1], 1e-3);
-        const a = aerialPerspective(atm, alt, d, sun, dist, 1200, ms, visibility).scattered;
-        ref.push(luminance([a[0], a[1], a[2]]) * 1000);
+        ref.push(reference(dirAt((px + 0.5) / width, (y + 0.5) / height).d));
         cols.push(px);
     }
-    const profile = (p: number[]): { excess: number; fwhm: number; at: number } => {
+    // O ar sozinho: por coluna de froxel da linha que contém a do meio, a luz espalhada acumulada até a base da camada
+    // (o texel k guarda o caminho até o fim da fatia k; entre os fins de fatia, linear na fatia contínua) e a f64 na
+    // direção do centro da coluna.
+    const [GW, GH, GZ] = [air.width, air.height, air.depth];
+    const gy = Math.floor((y / height) * GH);
+    const airGpu: number[] = [];
+    const airRef: number[] = [];
+    for (let gx = 0; gx < GW; gx++) {
+        const { d, stretch } = dirAt((gx + 0.5) / GW, (gy + 0.5) / GH);
+        const viewDepth = (toBase(d) * 1000) / stretch;
+        const sc = (Math.log(viewDepth / depth[0]!) / depth[2]!) * GZ;
+        const k = Math.min(Math.floor(sc), GZ - 1);
+        const at = (j: number): number => {
+            if (j <= 0) return 0;
+            const o = (((j - 1) * GH + gy) * GW + gx) * 4;
+            return luminanceLinear([air.data[o]!, air.data[o + 1]!, air.data[o + 2]!]);
+        };
+        airGpu.push(at(k) + (at(k + 1) - at(k)) * (sc - k));
+        airRef.push(reference(d));
+    }
+    // O perfil: o fundo (o 20.º percentil), o pico, o contraste, a largura a meia altura e as bordas de 10–90 % (px).
+    const profile = (
+        p: number[],
+        step: number,
+    ): {
+        excess: number;
+        floor: number;
+        contrast: number;
+        fwhm: number;
+        at: number;
+        rise: number;
+        fall: number;
+    } => {
         const sorted = [...p].sort((a, b) => a - b);
         const floor = sorted[Math.floor(sorted.length * 0.2)]!;
         let at = 0;
         for (let k = 1; k < p.length; k++) if (p[k]! > p[at]!) at = k;
-        const half = floor + 0.5 * (p[at]! - floor);
-        let l = at;
-        let r = at;
-        while (l > 0 && p[l]! > half) l--;
-        while (r < p.length - 1 && p[r]! > half) r++;
-        return { excess: p[at]! - floor, fwhm: r - l, at };
+        const excess = p[at]! - floor;
+        const cross = (level: number, dir: number): number => {
+            // A posição (em amostras, contínua) onde o perfil cruza `floor + level·excess` saindo do pico.
+            let k = at;
+            while (k + dir >= 0 && k + dir < p.length && p[k + dir]! > floor + level * excess)
+                k += dir;
+            const a = p[k]!;
+            const b = p[k + dir] ?? a;
+            const frac = a === b ? 0 : (a - (floor + level * excess)) / (a - b);
+            return k + dir * Math.min(Math.max(frac, 0), 1);
+        };
+        return {
+            excess,
+            floor,
+            contrast: excess / floor,
+            fwhm: (cross(0.5, 1) - cross(0.5, -1)) * step,
+            at,
+            rise: (cross(0.9, -1) - cross(0.1, -1)) * step,
+            fall: (cross(0.1, 1) - cross(0.9, 1)) * step,
+        };
     };
-    const g = profile(cols.map((c) => gpu[c]!));
-    const rf = profile(ref);
-    const gpuFloor = [...cols.map((c) => gpu[c]!)].sort((a, b) => a - b)[
-        Math.floor(cols.length * 0.2)
-    ]!;
-    const refFloor = [...ref].sort((a, b) => a - b)[Math.floor(ref.length * 0.2)]!;
+    const fmt = (name: string, p: ReturnType<typeof profile>): string =>
+        `${name} — fundo ${p.floor.toFixed(2)} nits, excesso ${p.excess.toFixed(2)} (contraste ${p.contrast.toFixed(3)}), largura a meia altura ${p.fwhm.toFixed(0)} px, bordas ${p.rise.toFixed(0)}/${p.fall.toFixed(0)} px`;
+    const g = profile(
+        cols.map((c) => gpu[c]!),
+        4,
+    );
+    const rf = profile(ref, 4);
+    const pxPerCol = width / GW;
+    const ag = profile(airGpu, pxPerCol);
+    const ar = profile(airRef, pxPerCol);
+    log(`beam-gap: ${fmt('imagem', g)} | ${fmt('f64', rf)}`);
     log(
-        `beam-gap: GPU — excesso do feixe ${g.excess.toFixed(2)} nits sobre ${gpuFloor.toFixed(2)} (×${((g.excess + gpuFloor) / gpuFloor).toFixed(2)}), largura a meia altura ${g.fwhm * 4} px na coluna ${cols[g.at]}; f64 — excesso ${rf.excess.toFixed(2)} nits sobre ${refFloor.toFixed(2)} (×${((rf.excess + refFloor) / refFloor).toFixed(2)}), largura ${rf.fwhm * 4} px na coluna ${cols[rf.at]}`,
+        `beam-gap: só o ar (grade ${GW}×${GH}×${GZ}, linha ${gy}) ${fmt('GPU', ag)} | ${fmt('f64', ar)}`,
     );
     log(
-        `beam-gap: perfis (de 4 em 4 px) GPU ${cols.map((c) => gpu[c]!.toFixed(1)).join(' ')} | f64 ${ref.map((v) => v.toFixed(1)).join(' ')}`,
+        `beam-gap: perfis do ar (por coluna de froxel) GPU ${airGpu.map((v) => v.toFixed(1)).join(' ')} | f64 ${airRef.map((v) => v.toFixed(1)).join(' ')}`,
+    );
+    const off = Math.abs(ag.contrast / ar.contrast - 1);
+    check(
+        off <= 0.15,
+        `beam-gap: contraste do ar ${ag.contrast.toFixed(3)} contra ${ar.contrast.toFixed(3)} da f64 (${(off * 100).toFixed(1)} % > 15 %)`,
+    );
+    const edge = Math.max(ag.rise - ar.rise, ag.fall - ar.fall);
+    check(
+        edge <= 2 * pxPerCol,
+        `beam-gap: bordas do ar ${ag.rise.toFixed(0)}/${ag.fall.toFixed(0)} px contra ${ar.rise.toFixed(0)}/${ar.fall.toFixed(0)} da f64 (> ${2 * pxPerCol} px a mais)`,
     );
 }
 
