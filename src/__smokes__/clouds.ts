@@ -50,6 +50,7 @@ import {
     BoxGeometry,
     FogVolume,
     Froxels,
+    FROXEL_RADIANCE_UNIT,
     graphArgument,
     NodeGraph,
     nodes,
@@ -1182,6 +1183,12 @@ async function caseTiming(): Promise<void> {
 
 // ── céu limpo, encoberto, máscara ────────────────────────────────────────────────────────────────────────────────────
 
+/** A luz dos froxels lida da GPU em unidades da cena (a grade a guarda ÷ `FROXEL_RADIANCE_UNIT`; T075). */
+function froxelRadiance(data: Float32Array): void {
+    for (let i = 0; i < data.length; i += 4)
+        for (let c = 0; c < 3; c++) data[i + c]! *= FROXEL_RADIANCE_UNIT;
+}
+
 /** A cor HDR da cena (antes da apresentação). */
 async function sceneColor(s: CloudScene): Promise<Float32Array> {
     const t = s.app.resources.textureOf(s.app.defaults.targets, 'color');
@@ -1229,6 +1236,7 @@ async function caseBeamAir(): Promise<void> {
         const t = s.app.resources.textureOf(froxels, 'scatter');
         if (t === undefined) throw new Error('beam-air: froxels não alocados');
         const img = await readTexture(s.app, t, 'rgba16float');
+        froxelRadiance(img.data);
         dims = [img.width, img.height, img.depth];
         grids.push(img.data);
         log(
@@ -1331,6 +1339,7 @@ async function caseBeamGap(): Promise<void> {
     const grid = s.app.resources.textureOf(froxels, 'scatter');
     if (grid === undefined) throw new Error('beam-gap: froxels não alocados');
     const air = await readTexture(s.app, grid, 'rgba16float');
+    froxelRadiance(air.data);
     const depth = froxels.data.params[0]!.depth!;
     // A nuvem da f64: o espelho da densidade (`cloudModel`) com o mapa de cobertura da GPU, a mesma representação.
     const model = await referenceModel(s, s.layer!);

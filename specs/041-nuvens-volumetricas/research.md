@@ -853,6 +853,41 @@ dela. Smokes rodados (só os casos da cobertura): `coverage-map` (6 níveis, pio
   um vão. Em aberto: os feixes perto da câmera (o ar entre ela e as manchas a 100–300 m) ficam fracos contra a base clara
   junto ao sol — o contraste forte é o dos feixes ao horizonte.
 
+#### R21, rodada 20 — a faixa ciano/magenta junto ao sol; a `raios-chao` com a camada rasa (2026-11-20)
+
+- _A faixa ciano/magenta na borda das nuvens contra o clarão do sol baixo_ (T075; `solposto`, quadros 700 e 780),
+  isolada no quadro exato (a cena pelo gravador com passo fixo, os alvos lidos da GPU, sem vídeo): a nuvem aumentada
+  (`CloudLayer.view`) e o alvo de ¼ (`march`) são laranjas e lisos na borda; a faixa está no fundo visto pelo vão ralo
+  (T 0,96–0,99), e igual sem a resolução temporal (`aa=off`) — não é a reconstrução, o aumento, a composição, o excesso do
+  disco nem o bloom. O fundo com os froxels é `vista do céu − U + S` (rodada 16) e, a 7° do sol a 11,7°, as duas
+  parcelas grandes passavam do teto: a vista do céu saía limitada a 60 000 por canal em `sky_background` e a luz do trecho
+  perto sem sombra (`Froxels.open`, rgba16float) saturava em 65 504 — o vermelho de verdade é 98 500 (lido depois da
+  correção). A diferença de duas parcelas cortadas deixava cada canal errado de um jeito: na linha que atravessa a faixa,
+  o fundo ia de (3292, 828, 5676) (magenta) a (2718, 3750, 5450) (ciano) e (−1291, 5485, 4114) (vermelho negativo) em
+  ~80 px — a nuvem em volta, (12 808, 8768, 4944).
+- _A correção, na causa_: (1) a luz integrada dos froxels (`scatter` e `open`) é gravada em unidades de
+  `FROXEL_RADIANCE_UNIT` = 64 (só o expoente muda: a precisão relativa do meio-float é a mesma; o teto vai a ~4 × 10⁶,
+  acima da fase de frente do Mie com g = 0,8 × a iluminância do sol; quem lê — `froxel_fog`, `scene_near_fog` e os
+  smokes `clouds` e `fog` — multiplica de volta); (2) o céu em volta do disco não é limitado em `sky_background` (o
+  disco continua no teto, o excesso vai ao `SkyOverflowFlow` como antes): o fundo limita a soma em `forward_background`
+  (`BACKGROUND_MAX` = 60 000, o teto de antes). No mesmo quadro o fundo pelo vão fica (11 912, 8878, 5641), liso, e a
+  menor cor da cena é positiva; a faixa some nos quadros 700 e 780.
+- _Smokes_ (só os casos ligados): `clouds` `beam-air`, `beam-gap` (o ar a 0,5 % da f64 com a mesma nuvem, bordas +3 px
+  da exata, como na rodada 19), `clear-sky` (0), `fog-in-front`, `backlit` (5,6 %), `sun-low` — passam; `sunset` segue
+  em 15,9 % (15,5 % na base desde a rodada 16, o pico da referência 32,0 → 32,2 nits: a mesma região, aberto); `sky`
+  inteiro passa (`beams` a 0,1 % da referência, `crepuscular`); `fog` `beam` passa (erro médio 1,5 %, pior 2,9 %).
+- _A `raios-chao` com a camada rasa_ (uma tentativa, só configuração; não registrada, o diff em
+  `scratchpad/r20-raios-chao.diff`): camada de 80 m (720–800 m), cobertura 0,6 (0,72 no primeiro mapa), tipo 0,15, forma
+  700 m, detalhe 160 m, densidade 0,6, sol a 20°, névoa seca 0,4/km até 1 km; o lugar da câmera escolhido por uma vista de
+  cima do chão (a 640 m, abaixo da base) com o relevo da cena: (−160, 830), na sombra pelo mapa, manchas a 50–300 m no
+  rumo de 10–15° do sol. O quadro de prova não tem feixes perto da câmera: o disco do sol aparece direto (a câmera está ao
+  sol) e o céu em volta é um véu claro. Medidas: no mapa visto de cima, o chão "aceso" contra o "à sombra" fica em 1,35 ×
+  (sRGB do verde, ~1,9 × linear) — com uma camada de 80 m a cobertura 0,6–0,72 dá sobretudo nuvem rala, não vãos limpos
+  com sombra escura; no quadro, a variação fina do ar (8 px contra a média de 81 px, por linha entre o chão e a base) é
+  0,8–3,3 % rms, e o chão perto, p90/p10 = 1,2–1,5 linear. A causa: sem sombra escura sob a camada não há feixe (o feixe
+  é a luz do ar ao sol menos a da sombra); a camada rasa com o perfil do estrato e a erosão fica translúcida nas bordas, e
+  a luz que passa pela nuvem rala ilumina o ar todo. Não gravado.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,

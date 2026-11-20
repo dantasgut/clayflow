@@ -6,9 +6,10 @@
 // (o Rayleigh tira mais o azul), no meio da fatia: a luz espalhada é atenuada pelas duas; a transmitância gravada (a) é
 // só a dos volumes — a do meio contínuo, quem soma o resto dele (a perspectiva aérea do `Sky`) a aplica inteira. Por
 // coluna, a luz do meio sem nenhuma sombra até o fim da grade (`froxel_open_out`): o que o fundo tira da vista do céu.
+// As duas luzes gravadas em unidades de `FROXEL_RADIANCE_UNIT` (T075: perto do sol baixo elas passam do meio-float).
 // Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_froxel_state, scene_medium_open,
 // froxel_history (o do quadro), froxel_open_out,
-// froxel_scatter_out.
+// froxel_scatter_out, FROXEL_RADIANCE_UNIT.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn froxel_integrate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -51,8 +52,8 @@ fn froxel_integrate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
         scattered += through * s;
         through *= a;
         transmittance *= exp(-v.a * dt);
-        textureStore(froxel_scatter_out, vec3u(cell, k), vec4f(scattered, transmittance));
+        textureStore(froxel_scatter_out, vec3u(cell, k), vec4f(scattered / FROXEL_RADIANCE_UNIT, transmittance));
         z0 = z1;
     }
-    textureStore(froxel_open_out, cell, vec4f(open, 1.0));
+    textureStore(froxel_open_out, cell, vec4f(open / FROXEL_RADIANCE_UNIT, 1.0));
 }

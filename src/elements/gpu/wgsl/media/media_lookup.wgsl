@@ -4,7 +4,9 @@
 // (B-spline por 4 leituras trilineares) e linear na profundidade: sem os degraus da grade nem blocos. Antes do fim da primeira fatia, a fração dela.
 // Com o meio contínuo na grade (a atmosfera, R21), a transmitância guardada é só a dos volumes; a do meio fica com quem
 // soma o resto dele (a perspectiva aérea do `Sky`).
-// Requer: froxels, cameras, media_common, froxel_scatter, froxel_sampler, froxel_state, scene_fog_type.
+// A luz guardada em unidades de `FROXEL_RADIANCE_UNIT` (spec 041, T075).
+// Requer: froxels, cameras, media_common, froxel_scatter, froxel_sampler, froxel_state, scene_fog_type,
+// FROXEL_RADIANCE_UNIT.
 
 /**
  * B-spline cúbica no plano da tela por 4 leituras trilineares (Sigg e Hadwiger) e linear entre as fatias (spec 034,
@@ -55,5 +57,5 @@ fn froxel_fog(p: vec3f) -> SceneFog {
     let n = f32(froxels.grid.z);
     let fog = froxel_tricubic(vec3f(f.xy, clamp((f.z - 0.5) / n, 0.5 / n, 1.0 - 0.5 / n)));
     let out = select(fog, mix(none, fog, f.z), f.z < 1.0);
-    return SceneFog(out.rgb, vec3f(out.a));
+    return SceneFog(out.rgb * FROXEL_RADIANCE_UNIT, vec3f(out.a));
 }

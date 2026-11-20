@@ -20,6 +20,16 @@ export const FROXEL_AMBIENT_GRID = froxelAmbientGrid(FROXEL_GRID);
 export const FROXEL_NEAR = 0.1;
 /** Peso do histórico no acúmulo dos froxels (reprojetado; o quadro novo entra com o resto). */
 export const FROXEL_HISTORY = 0.9;
+/**
+ * Unidade da luz integrada dos froxels (`Froxels.scatter` e `Froxels.open`, rgba16float; spec 041, R21 rodada 20, T075):
+ * os alvos guardam a luz espalhada até cada fatia ÷ esta unidade. A atmosfera perto do sol baixo, sem sombra, passa do
+ * máximo do meio-float (65504) — a luz do Mie a poucos graus do sol chega a ~3,6 × a iluminância dele (a fase de
+ * frente com g = 0,8) — e o canal saturado deixava a emenda do fundo (a vista do céu − a luz do trecho perto sem sombra +
+ * a com sombra) com cada canal errado de um jeito: a faixa ciano/magenta na borda das nuvens contra o clarão do sol. Com
+ * 64, o teto fica em ~4 × 10⁶; a precisão relativa do meio-float não muda (só o expoente), e o menor valor normal passa
+ * a ~0,004 (a luz da névoa à noite fica nos subnormais, passo de ~4 × 10⁻⁶).
+ */
+export const FROXEL_RADIANCE_UNIT = 64;
 /** Passos da marcha nos meios de densidade variável (raios e a luz que chega aos froxels). */
 export const MEDIA_MARCH_STEPS = 8;
 

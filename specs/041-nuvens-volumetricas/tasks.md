@@ -316,7 +316,10 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       rodada) O `timing` alto das nuvens em 3,05–3,41 ms contra 3 ms (base 2,82): 0,1 ms da sombra das nuvens nos
       froxels e ~0,15 da marcha com os meios perto da câmera medidos; ~0,25 ms não atribuídos (R21, medidas). O
       `interior-timing` com repetições bimodais (mediana 0,03–0,37 ms).
-- [ ] T075 [GPU] (rodada 16: o salto 632→633 não se repete — maior salto 1,86; o disco através do cúmulo corrigido; a
+- [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
+      do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
+      unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
+      rodada 20) (rodada 16: o salto 632→633 não se repete — maior salto 1,86; o disco através do cúmulo corrigido; a
       emenda do fundo refeita; segue aberta a faixa ciano na borda da nuvem contra o clarão do sol — rodada 18: o recorte do histórico pela reta
       até o centro da caixa não a tira, quadros 700 e 780 do `solposto` — e os feixes ainda suaves contra as fotos) `solposto` (rodada 15): a luz cai num quadro quando o sol entra atrás do cúmulo (632 → 633; na rodada 14,
       ~20 quadros) e a mancha verde-ciano junto ao sol no horizonte aos 13 s; e os feixes ainda fracos contra as fotos de

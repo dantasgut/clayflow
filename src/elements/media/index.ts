@@ -8,7 +8,13 @@ export {
 } from './FogVolume';
 export { Froxels, FogMediaWordSchema, type FroxelsData } from './Froxels';
 export { FroxelFlow, type FroxelSlots } from './FroxelFlow';
-export { FROXEL_AMBIENT_GRID, FROXEL_GRID, FroxelsSchema, FogGridSchema } from './schemas';
+export {
+    FROXEL_AMBIENT_GRID,
+    FROXEL_GRID,
+    FROXEL_RADIANCE_UNIT,
+    FroxelsSchema,
+    FogGridSchema,
+} from './schemas';
 export { fogDensityPoint, mediaResources } from './shaders';
 export {
     CLOUD_QUALITY_HIGH,

@@ -7,6 +7,13 @@
 // fundo quando ela muda (spec 041: o céu e as nuvens do crepúsculo escurecem ~100× em segundos).
 // Requer: cameras, camera_space, forward_frame, scene_background, scene_fog, SCENE_FOG_BACKGROUND, color.
 
+/**
+ * Teto da cor do fundo: o alvo da cena é meio-float (máx. 65504), com a folga do alvo da luz que chega. O limite vale para
+ * a soma, não para as parcelas (spec 041, T075): o céu e a luz do trecho perto que a névoa tira dele passam do teto perto
+ * do sol baixo, e a diferença de parcelas já limitadas sai com cada canal errado de um jeito.
+ */
+const BACKGROUND_MAX: f32 = 60000.0;
+
 struct BackgroundOut {
     @builtin(position) clip: vec4f,
     @location(0) ndc: vec2f,
@@ -26,7 +33,7 @@ fn background_color(in: BackgroundOut) -> vec3f {
     let dir = camera_ray_ndc(forward_frame.cameraSlot, in.ndc).dir;
     // O fundo atrás de toda a névoa (o ponto no infinito: além da última fatia dos froxels; a atmosfera já está nele).
     let fog = scene_fog(cam.position.xyz + dir * SCENE_FOG_BACKGROUND);
-    return scene_background(dir) * fog.transmittance + fog.scattered;
+    return min(scene_background(dir) * fog.transmittance + fog.scattered, vec3f(BACKGROUND_MAX));
 }
 
 @fragment

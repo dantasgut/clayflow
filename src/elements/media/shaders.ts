@@ -18,7 +18,7 @@ import {
 } from '../scene/points/media';
 import froxelReachSource from '../gpu/wgsl/media/media_froxel_reach.wgsl?raw';
 import froxelStateSource from '../gpu/wgsl/media/media_froxel_state.wgsl?raw';
-import { FroxelsSchema, FROXEL_HISTORY, MEDIA_MARCH_STEPS } from './schemas';
+import { FroxelsSchema, FROXEL_HISTORY, FROXEL_RADIANCE_UNIT, MEDIA_MARCH_STEPS } from './schemas';
 import densityFnReadySource from '../gpu/wgsl/media/media_density_fn_ready.wgsl?raw';
 import densityCheckSource from '../gpu/wgsl/media/media_density_check.wgsl?raw';
 import mediaCommonSource from '../gpu/wgsl/media/media_common.wgsl?raw';
@@ -43,6 +43,7 @@ import {
 
 const MEDIA_STEPS = sharedConstant('MEDIA_MARCH_STEPS', MEDIA_MARCH_STEPS, 'u32');
 const HISTORY = sharedConstant('FROXEL_HISTORY', FROXEL_HISTORY, 'f32');
+const RADIANCE_UNIT = sharedConstant('FROXEL_RADIANCE_UNIT', FROXEL_RADIANCE_UNIT, 'f32');
 
 /** Parâmetros dos froxels (resolver `Froxels.params`). */
 const params = wgslResource({
@@ -280,7 +281,7 @@ export const mediaVolumesPoint: BindablePoint = {
 const mediaFroxelFog = wgslModule({
     name: 'media_froxel_fog',
     source: mediaLookupSource,
-    requires: [mediaCommon, R.scatter, R.sampler, R.state, sceneFogType],
+    requires: [mediaCommon, R.scatter, R.sampler, R.state, sceneFogType, RADIANCE_UNIT.module],
 });
 
 /** A névoa no desenho (`scene_fog`): a leitura dos froxels integrados. */
@@ -311,7 +312,7 @@ export const mediaNearFog = wgslModule({
  */
 export const mediaNearFogMedium = wgslModule({
     name: 'media_near_fog_medium',
-    requires: [mediaFroxelFog, sceneNearFogType, R.open],
+    requires: [mediaFroxelFog, sceneNearFogType, R.open, RADIANCE_UNIT.module],
     source: `fn scene_near_fog(p: vec3f) -> SceneNearFog {
     let fog = froxel_fog(p);
     if (!froxel_in_use()) { return SceneNearFog(fog, 0.0, vec3f(0.0)); }
@@ -319,7 +320,8 @@ export const mediaNearFogMedium = wgslModule({
     let z = -(cam.view * vec4f(p, 1.0)).z;
     if (z <= 0.0) { return SceneNearFog(fog, 0.0, vec3f(0.0)); }
     let f = froxel_locate(cam.view, cam.unjitteredViewProjection, p);
-    let open = textureSampleLevel(froxel_open, froxel_sampler, clamp(f.xy, vec2f(0.0), vec2f(1.0)), 0.0).rgb;
+    let open = textureSampleLevel(froxel_open, froxel_sampler, clamp(f.xy, vec2f(0.0), vec2f(1.0)), 0.0).rgb
+        * FROXEL_RADIANCE_UNIT;
     return SceneNearFog(fog, froxels.depth.y * distance(p, cam.position.xyz) / z, open);
 }`,
 });
@@ -454,6 +456,7 @@ export const froxelIntegrate = wgslModule({
         R.historyCurrent,
         R.scatterOut,
         R.openOut,
+        RADIANCE_UNIT.module,
     ],
 });
 

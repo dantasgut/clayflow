@@ -26,6 +26,7 @@ import {
     Froxels,
     FROXEL_AMBIENT_GRID,
     FROXEL_GRID,
+    FROXEL_RADIANCE_UNIT,
     GlobalIllumination,
     Transform,
     type StagingBufferSpec,
@@ -138,7 +139,13 @@ async function open(
             if (texture === undefined) throw new Error('alvo HDR não alocado');
             return readHdrTexture(app, texture);
         },
-        froxels: () => read3d(app, 'scatter', FROXEL_GRID),
+        // A grade guarda a luz ÷ `FROXEL_RADIANCE_UNIT` (spec 041, T075): de volta às unidades da cena.
+        froxels: async () => {
+            const data = await read3d(app, 'scatter', FROXEL_GRID);
+            for (let i = 0; i < data.length; i += 4)
+                for (let c = 0; c < 3; c++) data[i + c]! *= FROXEL_RADIANCE_UNIT;
+            return data;
+        },
         ambient: () => read3d(app, 'ambient', FROXEL_AMBIENT_GRID),
         close() {
             app.dispose();
