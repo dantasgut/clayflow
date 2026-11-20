@@ -610,6 +610,126 @@ atômicos dos caminhos, 0,24 ms; com a vista, 0,15).
 mapa → escolha, caminhos e filtro do cache → panorama. A marcha lê o cache filtrado do quadro (ler o do quadro anterior
 devolvia as estrias do crepúsculo, ver o filtro; não testado de novo nesta rodada).
 
+### R21 — Raios de sol de verdade: a atmosfera como meio dos froxels (2026-11-19)
+
+**Pedido.** Os feixes de luz e de sombra no ar saindo dos vãos das nuvens e passando entre colinas (as duas fotos de
+referência do usuário: o pôr do sol sobre o mar e o céu azul com névoa). Os da R18 saíram fracos: a luz do ar vinha só da
+tabela de Hillaire (32 × 32 colunas na tela: ~2° por coluna, mais larga que um feixe) com a sombra das nuvens, e sem a
+sombra do terreno.
+
+**Desenho (combinado com o usuário; o padrão da névoa volumétrica da Unreal 5 com o céu de Hillaire e o mapa de sombra
+das nuvens, pela arquitetura do motor).**
+
+- _Pontos novos de cena_ (`scene/points/media.ts`): `scene_medium(p, view) -> SceneMedium` (a extinção rgb e a luz que o
+  meio contínuo espalha para a câmera, com as fontes e a sombra delas já nele), `scene_medium_extinction(p)` (só a extinção:
+  o que a integração lê) e `scene_near_fog(p) -> SceneNearFog` (os meios perto da câmera entre ela e o ponto, e até onde,
+  ao longo do raio, eles já integram o meio contínuo). Resource + ponto: quem integra perto não conhece o céu; o céu não
+  conhece os froxels.
+- _O `Sky` contribui o meio_ (com a tabela da câmera escrita): Rayleigh, Mie, ozônio e a névoa seca nova (`Sky.haze`:
+  uma camada de aerossol com `e^(−h/H)` e a fase de Mie, a camada de mistura do fim de tarde; em `sky_medium`, logo em
+  todas as tabelas e na referência `mediumAt`), no ponto do ar pelo mesmo sistema do planeta da tabela (o centro sob a
+  câmera ativa). A luz simples: as fases de Rayleigh e de Cornette-Shanks × a transmitância até o sol pela curvatura (como
+  a tabela) × a sombra do terreno e dos objetos (`light_visibility`: o mapa de sombra virtual) × o que mais tapa o sol no
+  ar (`light_volume_visibility`, ponto novo: as nuvens e a névoa dos volumes; só onde o sol passa pelo terreno). A
+  múltipla (Ψms) sem sombra, como a tabela e a Unreal. Só até o alcance da tabela (32 km, radial). A parte lisa (a
+  densidade, as fases, a transmitância até o sol, Ψms) no centro do froxel e só as sombras no ponto sorteado: com a
+  densidade no ponto sorteado, o céu variava ±1,2 % de um quadro para o outro (a densidade de Mie muda ~13 % numa fatia de
+  10 % da distância subindo 10°) e a cobertura 0 diferia 2,4 % do céu sem camada; no centro, 0,3 % em 8 quadros (a
+  convergência) e 5,7 × 10⁻⁴.
+- _A sombra das nuvens num ponto do ar_ (`light_volume_visibility`, `cloud_volume_visibility.wgsl`): a superfície
+  (`light_transmission`) faz a média do disco do sol em 16 pontos e a bilinear de `e^(−τ)` texel a texel (até 72
+  leituras); o froxel acumula no tempo e leva uma amostra por quadro — um ponto do disco da penumbra (o raio pela
+  distância ao meio do trecho da casca na coluna), um dos dois níveis da mistura pela fração dela e um texel do par
+  bilinear pelos pesos dele, sorteados pela sequência R2 do quadro deslocada pelo hash do ponto (a média temporal de
+  `e^(−τ)`, sem o viés de Jensen). Duas leituras.
+- _A decisão da GPU: o meio só onde ele conta_ (`FroxelReachFlow`, fase `post`; canal `Froxels.reach` da 037): no fim do
+  quadro, a maior profundidade da cena (blocos de 4 × 4 por invocação, `atomicMax` por grupo) vira, pelo canto mais
+  esticado da tela, a maior distância vista (o fundo: infinita); o meio conta no quadro seguinte com névoa dos volumes ou
+  com `σ_ext(câmera) × distância > 10⁻³` (abaixo disso a luz do ar no caminho mais longo fica abaixo de 0,1 % da dele).
+  Numa sala fechada de 10 m, τ ≈ 4 × 10⁻⁴: nada roda. No começo da grade, a decisão do quadro (lida do canal) vai a um
+  texel lido pelo desenho (`froxel_state`) e aos argumentos do despacho indireto da injeção, do acúmulo e da integração
+  (nenhum grupo sem o meio); sem ele, a leitura dos froxels devolve nada e alcance 0 — a tabela do `Sky` soma a
+  perspectiva aérea inteira, como antes desta peça (sem salto ao voltar, só os feixes finos que faltam por um quadro).
+  Ao voltar, o histórico recomeça (a decisão do quadro anterior está no texel do canal).
+- _Os froxels integram o meio_ (`FroxelFlow` com o slot opcional do `Sky`): com a tabela escrita, a grade existe mesmo sem
+  `FogVolume` e vai até 32 km (a profundidade da vista da última fatia, até o plano distante da câmera); a injeção soma
+  `scene_medium(p, raio)` à luz dos volumes no mesmo ponto sorteado (o acúmulo temporal e o recorte pela vizinhança da
+  T058 valem para os dois); a integração soma à extinção cinza dos volumes a do meio, por canal, no meio da fatia
+  (`(1 − e^(−x))/x` pela série com x pequeno: as fatias de centímetros perdiam a precisão do f32), e grava a transmitância
+  só dos volumes. A luz ambiente da grade grossa só é calculada com volumes de névoa (a do meio é a Ψms dele).
+- _A passagem perto/longe — escolha: a grade longe soma só o trecho além dos froxels, pela diferença da luz espalhada da
+  própria tabela_ (`sky_scene_fog_far`): `S = Sfroxels(min(d, a)) + Tvol·(Sa(d) − Sa(min(d, a)))·E`, a transmitância a da
+  tabela inteira (`Tvol·Ta(d)`), com `a` o alcance dos froxels no raio (`scene_near_fog.reach`, até 32 km). No fundo (a
+  atmosfera inteira na vista do céu), a luz espalhada sai negativa: `−Sa(a)·E` (o trecho que os froxels refazem com as
+  sombras finas). Por que a diferença e não a tabela começando onde os froxels acabam: a tabela é lida também pela marcha e
+  pelo panorama das nuvens, pelos reflexos e pelo déficit do fundo da R18, sempre desde a câmera; refazê-la desde o fim dos
+  froxels mudaria todos esses consumidores, e a diferença de duas leituras da mesma coluna é exatamente a integral dela
+  entre os dois pontos (zero em `d = a`: sem degrau; a luz do trecho perto nunca entra duas vezes). A transmitância da
+  atmosfera fica inteira com a tabela porque a grade guarda um canal só de extinção (cinza) e a do ar é cromática; dentro
+  da grade a integração usa a cromática para atenuar a luz espalhada.
+- _As nuvens_: a marcha passa a compor o que está na frente da nuvem pelos meios perto da câmera e a tabela só do fim deles
+  até a nuvem (`Sc = L·Tn·Ta(dc) + (1 − Tc)·(Sn + Tn·(Sa(dc) − Sa(alcance)))`), e a composição fica `cor·Tc + Sc` (a névoa
+  dos volumes deixou de entrar ali pela frente da nuvem inteira). Sem a atmosfera na grade, o alcance é 0 e a conta é a de
+  antes com a névoa dos volumes até a nuvem (`cor·Tc + Sfog·(1 − Tc) + Tfog·Sc` da R13 = `cor·Tc + Sc'`). Com a atmosfera
+  nos froxels e a composição antiga, o ar atrás de uma nuvem a menos de 32 km ficaria na frente dela.
+- _A penumbra do disco do sol no ar_ (`shadow_virtual_volume`): com um bloqueador entre as quatro profundidades lidas, a
+  meia largura da penumbra no ponto é `(z − z_bloqueador)·tan(raio do sol)`; se passa de meio texel, a amostra vai a um
+  ponto do disco dela (a sequência do quadro, girada) e o acúmulo temporal dos froxels faz a média (PCSS de uma amostra por
+  quadro). Limite: o bloqueador é procurado só no texel do ponto, então do lado aceso a penumbra vai até um texel da borda
+  (com o sol a 0,27°, a penumbra a 1 km do bloqueador tem 4,7 m, menor que o texel dos níveis do volume).
+- _Proibido e não usado_: desfoque radial em tela, qualquer falso de pós-processo, tabela de resposta por direção da luz.
+  A luz e a sombra no ar são calculadas a cada quadro contra o mapa de sombra virtual (da geometria) e o mapa visto do sol
+  (das nuvens), as estruturas de aceleração derivadas da geometria de agora.
+- _Laços_: a integração tem o laço fixo das fatias; a injeção chama o meio uma vez por froxel; a penumbra, no máximo duas
+  leituras do mapa. Nada na CPU além do uniforme.
+
+**Referência f64** (`media/reference/froxelAtmosphere.ts`, teste `froxelAtmosphere.test.ts`): o espelho de uma coluna da
+grade (128 fatias exponenciais de 0,1 m até 32 km, a fonte média em 32 pontos por fatia uniformes no índice — o limite do
+acúmulo —, a extinção por canal no meio da fatia), a leitura dos froxels e da tabela como a GPU, e a emenda. Turbidez 8 com
+névoa seca de 0,2/km a 500 m; o sol a 10°, 30° à direita da vista; uma colina opaca entre o sol e o raio de 2 a 4 km:
+
+- o feixe: a razão da luz que o ar acrescenta na sombra (2,4–3,6 km) e ao sol logo depois (4,4–5,6 km), 0,2848 nos
+  froxels contra 0,2817 na integral contínua (1,1 %); na sombra fica 20 % da luz do ar livre (a múltipla);
+- a coluna contra a integral contínua de 50 m a 32 km: pior 1,28 % (aos 4,2 km, a fatia com a borda da sombra);
+- a emenda com os froxels até 12 km e a tabela além: pior 0,14 % contra a integral até 31,5 km, degrau no fim dos froxels
+  0,004 %; contar a luz duas vezes daria 0,0948 contra 0,0531 a 32 km.
+
+**Medidas na GPU** (M4, perfil alto, GPU ocupada por `readyForFrame`, intervalo de quadro; a base é `7a42cbc9` numa
+árvore própria, removida depois):
+
+| medida                                                                                                   | base         | R21                                         |
+| -------------------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------- |
+| smoke `sky`, `beams` (a luz que o ar na sombra de uma colina deixa de espalhar, contra a referência f64) | —            | 14,00 contra 14,05 nits (0,3 %)             |
+| `sky`, `aerial-geometry` (S e T até placas a 2, 10, 30 e 40 km contra a referência)                      | ≤ 5 %        | pior 1,0 % (40 km: além dos froxels)        |
+| quadro sem a camada no caso `timing` (só o céu; a atmosfera nos froxels)                                 | 2,50 ms      | 2,83 ms (+0,33)                             |
+| `timing` alto (nuvens: com − sem a camada)                                                               | 2,82 ms      | 3,19–3,41 ms (mediana de 5, várias rodadas) |
+| `interior-timing` (a camada numa sala fechada)                                                           | 0,378 ms     | 0,03–0,18 ms (o meio não roda)              |
+| `fog`, os froxels a 1280 × 720                                                                           | 0,64–0,78 ms | 0,78 ms                                     |
+| `clear-sky` (cobertura 0 contra o céu sem camada)                                                        | ≤ 10⁻³       | 0                                           |
+
+Do acréscimo do `timing` alto, medido por partes: a sombra das nuvens nos froxels 0,1 ms (sem ela, 6,08 contra 6,19 ms de
+quadro com a camada), a marcha das nuvens com os meios perto da câmera ~0,15 ms; o resto (~0,25 ms) não foi atribuído —
+as medidas por passe se sobrepõem nesta GPU, e mover os froxels antes da luz das nuvens ou a redução do alcance para o
+pós não mudou o quadro. Em aberto (T074).
+
+Outros smokes: `sky` (todos os casos), `fog` (froxels 0,78 ms, o feixe a 1,4 %), `render`, `virtualTextures`,
+`parametricSurfaces` e `globalIllumination` passam — este com o critério "a luz global só soma" até a precisão do alvo
+meio-float (2⁻¹⁰ do valor: 8 nits a 10 952 no céu da janela, um passo do meio-float ali, com o ar perto da câmera vindo
+dos froxels); `clouds`: tudo menos `timing` alto (acima) e `sunset` 15,5 % (aberto antes, 15,8 %); `fog-in-front` passa
+com a captura aos 180 quadros (a marcha das nuvens é refeita quando a névoa entra; 4,5 % aos 60, 0,83 % aos 180).
+
+**Vídeos** (`scratchpad/041-video/rodada15/`): `solposto` 1200 quadros (51,0 dB brilho, 46,4 dB RGB; GPU média 16,6 ms) e
+`raios` (céu azul contra o sol, 900 quadros, 51,6/47,9 dB, 13,9 ms); a `tempestade` não foi gravada (o gravador caiu
+quando outro smoke começou na mesma GPU e um Chrome ficou em estado E; a série parou pela regra). Variação quadro a
+quadro: `raios` maior salto 0,19 nível, nenhuma alternância; `solposto` um salto só, quadros 632 → 633 (imagem 127,8 →
+112,9, chão 88 → 67, céu 159 → 148): o sol entra atrás do cúmulo e a luz cai num quadro — na rodada 14 a mesma passagem
+levava ~20 quadros (560–580, chão 92 → 70). Em aberto (T075), com a mancha verde-ciano junto ao sol no horizonte aos 13 s
+(nova; provável radiância negativa do fundo — a vista do céu menos o trecho perto pela tabela mais os froxels, com o ar
+perto da câmera sombreado pelas colinas que a tabela não sombreia). **Contra as fotos**: os feixes não aparecem como nas
+fotos — no `raios` há listras diagonais fracas sob o cúmulo; no `solposto`, nenhum feixe visível; o disco do sol aparece
+como um ponto através da nuvem espessa no `raios`. A peça (o ar com as sombras finas perto da câmera, a emenda exata, a
+decisão da GPU) está medida contra a referência; a intensidade dos feixes na imagem ainda não chega às fotos.
+
 ## Fontes
 
 - Schneider & Vos, "The Real-Time Volumetric Cloudscapes of Horizon Zero Dawn", SIGGRAPH 2015 Advances; Schneider,
@@ -1072,12 +1192,12 @@ caixa igual ao do ponto mais perto pela força bruta, a marcação dos retalhos 
 **Medidas (rodada 14, M4, perfil alto, GPU ocupada por `readyForFrame`, 2 × 120 quadros por fase; `solposto` do
 claflow-web; antes = `a5a983ae` por uma árvore própria, removida depois).** Por passe (soma dos passes do `ShadowFlow`):
 
-| quadro de partida | fase | antes: médio / mediana / p90 (ms) | depois: médio / mediana / p90 (ms) | `SurfaceFlow.view` |
-|---|---|---|---|---|
-| 735 (sol a 10°) | parado | 0,11 / 0,10 / 0,11 | 0,06 / 0,06 / 0,06 | 0 |
-| 735 | andando | 2,03–2,08 / 0,11 / 4,39–4,47 | 0,22–0,26 / 0,22–0,25 / 0,26–0,32 | 0,15 |
-| 1050 (sol a −1,7°) | parado | 0,09 / 0,09 / 0,09 | 0,06 / 0,06 / 0,07 | 0 |
-| 1050 | andando | 2,91 / 4,27–4,29 / 4,63 | 0,18–0,23 / 0,20–0,28 / 0,23–0,31 | 0,15 |
+| quadro de partida  | fase    | antes: médio / mediana / p90 (ms) | depois: médio / mediana / p90 (ms) | `SurfaceFlow.view` |
+| ------------------ | ------- | --------------------------------- | ---------------------------------- | ------------------ |
+| 735 (sol a 10°)    | parado  | 0,11 / 0,10 / 0,11                | 0,06 / 0,06 / 0,06                 | 0                  |
+| 735                | andando | 2,03–2,08 / 0,11 / 4,39–4,47      | 0,22–0,26 / 0,22–0,25 / 0,26–0,32  | 0,15               |
+| 1050 (sol a −1,7°) | parado  | 0,09 / 0,09 / 0,09                | 0,06 / 0,06 / 0,07                 | 0                  |
+| 1050               | andando | 2,91 / 4,27–4,29 / 4,63           | 0,18–0,23 / 0,20–0,28 / 0,23–0,31  | 0,15               |
 
 A GPU por quadro (mediana do intervalo dos tempos de GPU) com o sol andando a 1050: 23,6 → 18,6 ms (parado, 17,2 nos
 dois). Antes, o cache das páginas recomeça a cada ~0,08° de giro (`cacheDirection`) e as páginas recebiam os aglomerados

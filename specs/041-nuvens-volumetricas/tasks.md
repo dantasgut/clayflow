@@ -293,6 +293,33 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
 - [ ] T067 [GPU] O consumidor das vistas de câmera (reflexos e outras câmeras, pedido 5 do MorphSociety, ADR 0001): o tipo
       `'camera'` está no produtor (critério e passadas) sem consumidor nesta spec; o primeiro consumidor o exercita na GPU.
 
+- [x] T068 [GPU] Os pontos de cena do meio contínuo (R21): `scene_medium`, `scene_medium_extinction` e `scene_near_fog`
+      (`scene/points/media.ts`); o `Sky` contribui a atmosfera como meio (Rayleigh, Mie, ozônio e a névoa seca nova
+      `Sky.haze` em `sky_medium` e em `mediumAt`; a luz simples × `light_visibility` × `light_volume_visibility`, a múltipla
+      Ψms; a parte lisa no centro do froxel, as sombras no ponto sorteado) até o alcance da tabela; os `Froxels` contribuem
+      `scene_near_fog` (a leitura `froxel_fog` e o alcance do meio).
+- [x] T069 [GPU] Os froxels integram a atmosfera (R21): o `FroxelFlow` com o slot do `Sky` (a grade sem `FogVolume`, até 32
+      km), a injeção soma `scene_medium`, a integração atenua por canal com `scene_medium_extinction` (a série em x pequeno)
+      e grava a transmitância só dos volumes; a luz ambiente da grade grossa só com volumes.
+- [x] T070 [GPU] A emenda perto/longe (R21): `sky_scene_fog_far` (a tabela só do fim dos froxels ao ponto, pela diferença
+      da luz espalhada; no fundo, negativa), a marcha das nuvens com `scene_near_fog` e a composição `cor·Tc + Sc`.
+- [x] T071 [GPU] A penumbra do disco do sol nos pontos de volume do mapa de sombra virtual (`shadow_virtual_volume`, R21).
+- [x] T072 Referência f64 `media/reference/froxelAtmosphere.ts` e teste `froxelAtmosphere.test.ts` (o feixe atrás de um
+      bloqueador: razão dentro/fora 0,2848 contra 0,2817; a coluna a ≤ 1,28 % da integral contínua; a emenda a 0,14 % e degrau
+      0,004 %).
+- [x] T073 [GPU] A decisão da GPU sobre o meio (R21): o `FroxelReachFlow` (a maior profundidade da cena → a distância vista;
+      canal `Froxels.reach` da 037), a decisão `σ_ext·d > 10⁻³` ou névoa, o texel `Froxels.state` lido pelo desenho e o
+      despacho indireto da grade (`Froxels.dispatch`); o ponto `light_volume_visibility` com a sombra das nuvens de uma
+      amostra por quadro (`cloud_volume_visibility.wgsl`) e a da névoa. `interior-timing` 0,378 → 0,03–0,18 ms.
+- [ ] T074 [GPU] O `timing` alto das nuvens em 3,05–3,41 ms contra 3 ms (base 2,82): 0,1 ms da sombra das nuvens nos
+      froxels e ~0,15 da marcha com os meios perto da câmera medidos; ~0,25 ms não atribuídos (R21, medidas). O
+      `interior-timing` com repetições bimodais (mediana 0,03–0,37 ms).
+- [ ] T075 [GPU] `solposto` (rodada 15): a luz cai num quadro quando o sol entra atrás do cúmulo (632 → 633; na rodada 14,
+      ~20 quadros) e a mancha verde-ciano junto ao sol no horizonte aos 13 s; e os feixes ainda fracos contra as fotos de
+      referência (R21, vídeos).
+- [ ] T076 [US5] O vídeo `tempestade` da rodada 15 (não gravado: a série de GPU parou por um Chrome em estado E quando
+      outro smoke começou junto).
+
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
 ---
