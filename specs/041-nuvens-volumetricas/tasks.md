@@ -337,7 +337,34 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       orçamento dos caminhos do cache e do desenho das páginas do mapa por necessidade e custo (a mudança medida, o
       sol e o vento desde o caminho; o custo de cada página no registro), e o interior sem os caminhos e o panorama
       quando nenhum consumidor os lê. `weather-timing` 0,106–0,112 ms > 0,05 também no `64b743b3` (anterior a esta
-      rodada).
+      rodada). **Rodada 2026-11-21 b — o orçamento por necessidade e por custo** (`f0b8db70`, `7cef3bcf`, `df1453f7`). (1) O cache
+      de espalhamento: o registro de cada página (série 037) guarda o que o último caminho viu (o sol, o deslocamento do
+      vento, a câmera, o tempo, a assinatura do conteúdo, os caminhos efetivos); a página caminha quando a mudança (o
+      esquecimento do sol, o vento pelo espaçamento das sondas, o ângulo da câmera pelo corte da fase, a evolução, a
+      assinatura) ou a falta para encher a janela passa de um caminho da janela; prioridade mudança × idade × nuvem ×
+      √(proximidade × vista), teto de páginas constante; o panorama vira série de uma página, refeito só quando o cache
+      caminha, a série não vale ou o que ele viu mudou; o filtro sai cedo sem página marcada (`reference/cloudScatterPages.ts`).
+      O caso de tempo espera a camada que entra encher o cache (páginas × janela ÷ orçamento quadros: o transitório da
+      entrada, ~10 s a 60 Hz) e mede o regime. (2) O mapa visto do sol: o custo do desenho no registro (amostras, as com
+      nuvem × 4) e o orçamento em custo (`budget` páginas de referência de 289 × 192 amostras vazias; `shadowSelectByCost`).
+      (4) O `weather-timing`: o passe era o desenho do mapa de cobertura, refeito pela idade em quadros com o tempo
+      parado; agora pelo tempo simulado desde o desenho (`coveragePageKey`). (3) A marcha: o pulo pela faixa de altura
+      em que a coluna pode ter nuvem (o perfil acima de `1 − cobertura`, exato na f64) tirou 8 % (1,65 → 1,52 ms), mas a
+      transmitância perto da câmera saiu 0,46 contra 0 da referência em `noon`, `backlit` e `types` (causa não isolada):
+      desfeito (o diff em `scratchpad/t074b/item3-band-skip.diff`). Medidas (M4, 1280 × 720; antes → depois): `timing`
+      alto 4,49 → **2,52 ms** ✓, médio 2,90 → **1,69** ✓, baixo 1,83 → **1,08** ✓, `inside-timing` 3,41 → **2,59** ✓,
+      `weather-timing` acréscimo 0,106 → **0,000–0,001** ✓; `high-sun` 6,47 → **6,30–6,63** ✗ (por passe: caminhos do
+      cache 1,53–1,64 — o sol que anda muda todas as páginas, o teto —, marcha 1,71–1,79, desenho do mapa 1,67–1,75 (era
+      1,84–2,04), froxels 0,59, panorama 0,38, tabela aérea 0,29, filtro 0,16, reconstrução 0,13: só os caminhos, a
+      marcha e os froxels já passam de 3 ms), `interior-timing` 3,03 → **1,0–2,0** ✗ (a GPU baixa o relógio com o quadro
+      leve: repetições 0,45–1,56; os caminhos e o panorama ~0; restam a composição 0,26–0,39 e a máscara do disco
+      0,24–0,37, passes de desenho de tela cheia, a tabela aérea 0,12–0,18, o filtro, as escolhas e a reconstrução — a
+      peça que falta é a da rodada 12: a composição e a máscara como compute sobre a lista de blocos com céu, por
+      despacho indireto). Em rodadas longas o M4 esquenta e todos os passes ficam 1,5–4 × mais lentos (o `sky_view`
+      0,021 → 0,09 ms): `inside` e `interior` medidos sozinhos. Casos de imagem: `noon` 1,0 %, `backlit` 4,1 % (borda/centro
+      1,019), `types` 1,4/1,7/1,6 %, `sunset` 3,6 %, `storm` 2,4 %, `far-cloud` 2,6 %, `beam-gap` +3,0 px, `panorama`
+      0,008, `scatter-cache` 0,963, `dusk-blocks` matiz 0,0176 (degrau 1,015, alta frequência 2,52 %), `sun-sweep` 0,005,
+      `shadow-map` 0,020, `ground-shadow` 0,010; vitest de media/clouds passa.
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
