@@ -400,6 +400,48 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       `dusk-blocks` matiz 0,0176, `scatter-cache` 0,963, `panorama` 0,008 — passam; vitest de media/clouds passa (o
       `wgslSymbols` falha já na base: `cloud_shadow_maps` em dois arquivos, de `64d084e1`). Em aberto na T074: `high-sun` e
       `high-wind` (a peça do item 2 acima).
+      **Rodada 2026-11-21 d — o cache sem a luz do sol, a grade no referencial das nuvens, o panorama pela mudança medida, o
+      mapa pela pegada do pixel** (`39fd0bfd`, `aee58558`, `68ade00a`, `865202e4`, `41adbdb9`, `6b5aa983`; R8 e R11 da T074 no
+      research.md). (1) **O cache em partes**: a sonda guarda a parte do sol por unidade da luz do sol que chega a ela (a
+      iluminância no topo × a transmitância da atmosfera até a sonda) e a do céu por unidade da irradiância do céu; a leitura
+      as devolve com o sol e o céu de agora (`scatterNormalize`/`scatterRecompose`; o alvo filtrado com as duas metades na
+      altura). A memória pela sensibilidade medida na f64 (`scatterMemory.ts`): com o sol entre 2° e 8°, 4,1 %/° em partes
+      contra 26 %/° na forma de antes (perto do horizonte, a 0,5–1,5°, também ~4,2 %/°); a câmera 5,2 %/°; o atraso igual ao
+      ruído da sonda filtrada com a janela cheia (4,7 %) — **1,14°** no sol (eram 0,25°) e **0,90°** na câmera. A grade no
+      referencial das nuvens (o vento não muda as sondas; só o que sobra, a bigorna) e, quando o centro muda, o transporte
+      da grade de antes à de agora (a filtrada de antes no ponto de cada sonda nova × a razão das áreas): só o que entra pela
+      borda recomeça. Dois orçamentos: o de encher a janela (`scatter.budget`) e o da mudança (`scatter.motion`, 40/24/10;
+      o orçamento pela velocidade do sol foi medido e desfeito: no `dusk-blocks` o matiz ia de 0,040 a 0,058–0,066). (3) **O
+      panorama pela mudança medida**: a cada 8 quadros, 64 texels refeitos e comparados na escolha seguinte com o desenho
+      guardado (a luz relativa média e a transmitância média, 2 %); as provas a cada 8 quadros porque a marcha de um texel tem
+      a latência do desenho inteiro (64 texels custavam 0,36 ms). (2) **O mapa pela pegada do pixel** (`shadowScreenError`):
+      o pixel maior que o texel faz a média dos texels (× texel/pegada; a altura da tela no uniforme). O desconto do
+      deslocamento abaixo de meio pixel e a tolerância de 2 % fora da vista (`68ade00a`) foram desfeitos (`6b5aa983`): a
+      página velha não se move abaixo do pixel, salta no redesenho, e as páginas fora do quadro alimentam os caminhos do
+      cache — o degrau dos blocos do `dusk-blocks` ia a 1,041 (isolado por experimento: 1,017 sem elas). Com o vento o mapa
+      já anda com o referencial das nuvens; o que o refaz é a evolução do detalhe. **O `sunset`** (3,6 → 4,4 % desde
+      `68a47bb1`): a faixa do pulo do vazio era a das pontas do trecho, e nos trechos de quilômetros rente ao horizonte o
+      campo passa entre elas (sem o pulo, 3,6 %); a faixa do trecho pelo maior gradiente medido dos campos
+      (`columnBandSpan`): **3,6 %**, a marcha no alto parado 1,706 ms (1,703 antes). (4) O `wgslSymbols` passa (o desenho do
+      mapa lê os mapas do quadro por `cloud_shadow_maps_meta`); a luz que chega em `rgba16float` contra `rg16float`: o
+      `cost` do `antialiasing` (sem nuvens, AA temporal, 1280 × 720) 5,811 contra 5,781 ms o quadro (+0,03 ms; o
+      antisserrilhado 0,460 contra 0,463), o `timing` do `fog` 0,83 contra 0,84 ms (MSAA, sem o alvo da luz) — fica em
+      `rgba16float`. Medidas finais (M4, 1280 × 720, cada caso sozinho): `timing` alto **2,66 ms** ✓, médio **0,85** ✓
+      (repetições −0,25…1,56: o quadro leve baixa o relógio), baixo **0,31** ✓, `inside-timing` **2,00** ✓,
+      `interior-timing` **0,10** ✓, `weather-timing` acréscimo 0,001 ✓, `sky-timing` o novo 0,071 ✓; **`high-sun` 6,40 →
+      5,15 ✗** (caminhos 1,51 → 0,57, panorama 0,37 → 0,01, desenho do mapa 1,65 → 1,67 com 90–112 páginas por quadro,
+      marcha 1,76 → 1,78, froxels 0,57, tabela aérea 0,28) e **`high-wind` 4,12 → 3,57 ✗** (caminhos 0,81 → 0,57, mapa 0,31 →
+      0,30, panorama 0,36 → 0,01, marcha 1,70). Parado com o sol a 5°, 2,93 ms (a marcha 1,80). Rodados seguidos, os casos de
+      tempo saíram com todos os passes 12–25 % mais lentos (o alto 3,47, o médio 2,36): o relógio da GPU; medidos de novo
+      sozinhos. Casos de imagem: `noon` 1,0 %, `backlit` 4,1 % (borda/centro 1,019), `types` 1,5/1,7/1,6 %, `sunset` 3,6 %,
+      `storm` 2,4 %, `far-cloud` 2,6 %, `beam-gap` +3,0 px, `dusk-blocks` degrau 1,017, matiz 0,0403, alta frequência 2,50 %,
+      brilho −9,5 % (era −19 %), `scatter-cache` 0,965, `panorama` 0,008, `sun-sweep` 0,005, `shadow-map` 0,020,
+      `ground-shadow`, `wind` e `fly-through` passam; vitest completo passa. **Em aberto na T074: `high-sun` e `high-wind`**
+      (o teto de 3 ms). O que falta, estrutural: (a) os caminhos do cache custam ~0,24 ms fixos (a latência de um caminho de
+      até 48 colisões) + ~6,3 µs por página, ~0,57 ms com qualquer página andando — o caminho continuado entre quadros (o
+      estado na série, alguns passos por quadro) daria o custo da vazão; (b) o desenho do mapa com o sol baixo andando: 90–112
+      páginas por quadro de mudança real (as sombras perto da câmera; as colunas de ~36 km giram ~2 m por quadro); (c) com o
+      sol baixo parado o quadro já fica em 2,93 ms (a marcha).
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21

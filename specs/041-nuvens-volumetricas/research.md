@@ -1307,6 +1307,70 @@ contra 26,0 nits), mas quatro regiões de nuvem rala a ~15 km rente ao horizonte
 centro do sol (a GPU faz a média da penumbra do disco pelo mapa) e o mapa visto do sol guarda só o primeiro trecho da casca
 do lado do sol.
 
+### R8 (T074, 2026-11-21) — a luz das sondas em partes, as memórias pela sensibilidade medida, a grade no referencial das nuvens
+
+**O que mudava o cache com o sol andando.** A sonda guardava a luz em unidades da iluminância do sol no topo: a cor e o
+brilho do sol baixo (a transmitância da atmosfera até a sonda) entravam no que a página guarda e mudavam ~26 %/° entre 2°
+e 8° — a memória de 0,25° vinha disso, e a 0,25°/s ela pedia o teto de páginas todo quadro.
+
+**A medida (f64, `reference/__tests__/scatterMemory.ts`).** A nuvem da calibração (o cilindro de 1 km, extinção 0,02/m,
+albedo 0,99) com a atmosfera da Terra (a luz do sol em cada colisão atenuada até ela, o céu da atmosfera de referência
+tabelado por direção, o chão), 8 sondas × 3 câmeras (contra o sol, de frente, de baixo), na resolução da grade (o
+binomial 3 × 3 × 3 a 100 m, como o filtro), com os mesmos caminhos (as mesmas sementes) a ±0,5°. A sensibilidade de cada
+sonda é o pior canal de `|q(θ+δ) − q(θ−δ)|/(2δ·q)`; a do conjunto, a média pela luminância:
+
+| sol | em unidades do sol no topo (antes) | ÷ a transmitância até a sonda | em partes (sol ÷ a luz que chega, céu ÷ a irradiância) | câmera |
+| --- | --- | --- | --- | --- |
+| 2° | 41,4 %/° | 65,9 | 4,35 | 4,23 |
+| 4° | 27,8 | 19,2 | 2,52 | 3,71 |
+| 6° | 19,5 | 9,6 | 3,64 | 4,84 |
+| 8° | 15,1 | 8,1 | 6,01 | 8,15 |
+
+Dividir tudo pela transmitância só não basta: a parte do céu não segue a luz do sol que chega à sonda (com o sol a 2° ela
+piora). Em partes, o que sobra é a geometria (a sombra das nuvens que anda com o sol, a fase para a câmera): 4,1 %/° de
+média. O ruído da sonda filtrada com a janela cheia: um caminho tem 1,64 × a média (desvio relativo, média pela
+luminância), × √(Σw²/64) do binomial = 4,7 %. A memória iguala o atraso ao ruído: 4,7/4,13 = **1,14°** no sol (eram
+0,25°: o atraso de 6,5 % na forma de antes) e 4,7/5,23 = **0,90°** na câmera; o esquecimento é `e^(−(Δθ_sol/M_sol +
+Δθ_câmera/M_câmera))`. O teste reduzido (`scatterMemory.test.ts`, 16 caminhos) reproduz as duas memórias a ±40 %.
+
+**A grade no referencial das nuvens.** O centro é a câmera menos o deslocamento do vento, encaixado a 4 km, de volta ao
+mundo: as sondas andam com as nuvens e o vento não muda o que guardam (só o que sobra além dele, a bigorna; a evolução do
+detalhe segue pela idade). Quando o centro muda (a câmera, nesse referencial, cruza o encaixe: a 10 m/s, a cada 400 s), a
+grade de antes é levada à de agora — a sonda nova lê a filtrada de antes no seu ponto × `min(1, A_agora/A_antes)` (as
+áreas da sonda no plano: a de antes mais espaçada vale menos caminhos) — e só o que entra pela borda recomeça.
+
+**Os dois orçamentos e a latência.** As páginas que mudaram desde o último caminho caminham no orçamento da mudança
+(`scatter.motion`), as novas e as paradas que não encheram no de encher (`scatter.budget`). Medido no M4: o passe dos
+caminhos custa ~0,24 ms fixos (a latência de um caminho de até 48 colisões) + ~6,3 µs por página; com 40 páginas por
+quadro, 0,57 ms com o sol andando ou com o vento (a câmera vista das sondas que andam). O fixo é da latência: menos
+páginas não o tiram — a peça que falta é o caminho continuado entre quadros (o estado do caminho na série, alguns passos
+por quadro), em que o custo por quadro é o da vazão.
+
+**O panorama.** Refeito pela mudança medida: a cada 8 quadros, 64 texels sorteados refeitos e comparados na escolha
+seguinte com o desenho guardado (a luz relativa média e a transmitância média, 2 %). A média, não a maior: o ruído de
+poucos caminhos das páginas que caminham muda cada texel, e o que o panorama dá é a soma de muitos. A marcha de um texel
+tem a latência do desenho inteiro (64 texels custavam 0,36 ms, o mesmo que os 32 768): as provas a cada 8 quadros.
+
+### R11 (T074, 2026-11-21) — o mapa visto do sol pela pegada do pixel; a faixa do pulo do vazio pelo trecho
+
+**O mapa.** A tolerância de 1/255 da transmitância valia igual para toda página. Agora, na vista da câmera, o pixel maior
+que o texel faz a média dos texels: a mudança da página × texel/pegada (a pegada do pixel na coluna do centro da página
+mais perto da câmera). Medidos e desfeitos: o desconto do deslocamento abaixo de meio pixel (a página velha não se move
+abaixo do pixel — salta no redesenho, e o salto da luz é o que o gradiente temporal da reconstrução vê) e a tolerância de
+2 % fora da vista (as páginas fora do quadro alimentam os caminhos do cache de espalhamento, e o salto delas chega à luz
+vista): com eles, o degrau dos blocos do `dusk-blocks` ia a 1,041 (sem, 1,017). Com o sol a 0,25°/s entre 2° e 8°, 90–112
+páginas desenhadas por quadro — as colunas de ~36 km giram ~2 m por quadro no fim do trecho, e as sombras no chão e no ar
+perto da câmera mudam mais de um nível por quadro: o desenho segue 1,67 ms. Com o vento (o mapa anda com o referencial das
+nuvens), 4–9 páginas por quadro pela evolução do detalhe, 0,30 ms.
+
+**A faixa do pulo do vazio.** O pulo da marcha pela faixa de altura em que a coluna pode ter nuvem (`68a47bb1`) usava a
+faixa das pontas do trecho com 0,05 de folga na cobertura; nos trechos de quilômetros do raio rente ao horizonte, o campo
+da cobertura (8 km) e o do tipo (3 km) passam entre as pontas além da folga: o `sunset` foi de 3,6 a 4,4 % (sem o pulo,
+3,6). A faixa do trecho usa a cobertura mais alta que um campo de gradiente até G alcança entre as pontas,
+`(c0 + c1 + G·len)/2`, e o tipo no intervalo dele; G pelo maior gradiente medido na f64 (3,5·10⁻⁴/m na cobertura,
+1,7·10⁻³/m no tipo, em 200 000 pontos) × 1,5. Com uma função de cobertura (gradiente desconhecido) ou o tempo, da base ao
+topo das colunas.
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por
