@@ -1332,7 +1332,12 @@ async function cloudCost(
                 if (wb !== undefined) {
                     const words = new Uint32Array((await readBuffer(s.app, wb, 'cloud_scatter_work')).buffer);
                     const f = new Float32Array(words.buffer);
-                    work.push(`${words[0]}/${words[1]}/${f[6]!.toFixed(4)}/${words[7]}`);
+                    const sb = s.app.resources.bufferOf(layer, 'shadowWork');
+                    const shadowDrawn =
+                        sb === undefined
+                            ? -1
+                            : new Uint32Array((await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer)[0]!;
+                    work.push(`${words[0]}/${words[1]}/${f[6]!.toFixed(4)}/${words[7]}/${shadowDrawn}`);
                 }
             }
             const all = await passTimes(s.app, 30, /./, moveSun, dt);
@@ -1496,7 +1501,7 @@ async function caseTiming(): Promise<void> {
         const d = median(c.diffs);
         log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${name}: cache (páginas/panorama/mudança/porquê) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+            `timing ${name}: cache (páginas/panorama/mudança/porquê/páginas do mapa) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
         );
         log(
             `timing ${name}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(

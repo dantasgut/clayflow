@@ -11,7 +11,9 @@ import {
     type PoolSlot,
     type SingletonSlot,
     type SlotMap,
+    type TextureSlot,
 } from '../../../scene/flows/slots';
+import type { StructSchema } from '../../../scene/descriptors/StructSchema';
 import { bindPoints } from '../../../scene/shaders/bindPoints';
 import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { Time } from '../../../scene/time/Time';
@@ -63,6 +65,8 @@ export interface CloudNoiseSlots extends SlotMap {
     readonly time: SingletonSlot<true>;
     /** A série da marcha (a validade do histórico do quadro). */
     readonly cloudMarch: ChannelSlot<false>;
+    /** A profundidade da cena (a altura da tela: a pegada do pixel no mapa visto do sol; T074). */
+    readonly sceneDepth: TextureSlot<true>;
     /** A série do estado do tempo (a validade dele; R19). */
     readonly cloudWeather: ChannelSlot<false>;
 }
@@ -118,7 +122,8 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
     private wanted = '';
     private active = false;
 
-    constructor(ctx: FlowContext) {
+    /** `targets`: o schema dos alvos do quadro (`FrameTargets`), de onde vem a profundidade da cena (a altura da tela). */
+    constructor(ctx: FlowContext, targets: StructSchema) {
         super();
         this.resources = ctx.resources;
         this.world = ctx.world;
@@ -130,6 +135,7 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
             time: slot.singleton(Time.schema, { optional: true }),
             cloudMarch: cloudHistorySlots.cloudMarch,
             cloudWeather: cloudWeatherSlots.cloudWeather,
+            sceneDepth: slot.texture(targets, 'depth', { optional: true }),
         };
         this.transitions = {
             '*': {
@@ -321,7 +327,13 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                     coverageSlot,
                     cloud.coverageFunction === undefined && d.weather === undefined ? 0 : 1,
                 ],
-                timing: [time?.dt ?? 0, q.panoramaSteps, q.marchScale, 0],
+                // A altura da tela (px): a pegada do pixel na escolha do mapa visto do sol (0 sem a profundidade).
+                timing: [
+                    time?.dt ?? 0,
+                    q.panoramaSteps,
+                    q.marchScale,
+                    c.bound.slots.sceneDepth?.texture.height ?? 0,
+                ],
                 eye: [eye[0] ?? 0, eye[1] ?? 0, eye[2] ?? 0, 0],
                 scatterGrid: [
                     scatterCenter[0]!,

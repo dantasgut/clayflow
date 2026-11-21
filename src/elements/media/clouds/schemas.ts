@@ -187,6 +187,12 @@ export const CLOUD_SHADOW_TOLERANCE = 1 / 255;
  * média) além da qual ele é refeito.
  */
 export const CLOUD_PANORAMA_TOLERANCE = 0.02;
+/**
+ * Tolerância da página do mapa visto do sol fora da vista da câmera (T074): os que a leem — o panorama, os caminhos do
+ * cache de espalhamento e o ambiente — guardam com a tolerância do panorama (a mais estrita deles; a do cache, o atraso
+ * igual ao ruído da janela, é 4,7 %).
+ */
+export const CLOUD_SHADOW_HIDDEN_TOLERANCE = CLOUD_PANORAMA_TOLERANCE;
 /** Fração de erosão do detalhe (`CLOUD_EROSION` de `cloud_density.wgsl`): a evolução da forma pela deriva dele. */
 export const CLOUD_EROSION = 0.35;
 /** Colunas de prova por página por quadro: refeitas e comparadas com o que a página guarda (a medida da mudança). */

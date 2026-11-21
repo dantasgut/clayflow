@@ -451,11 +451,14 @@ function createPresentationDefaults(flows: FlowRegistry): {
     // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
     // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
     // Nuvens (spec 041): o uniforme do quadro e os volumes de ruído, depois da câmera e do céu.
-    const cloudNoiseRegistration = flows.register((ctx) => new CloudNoiseFlow(ctx), {
-        type: 'cloudNoise',
-        phase: 'transform',
-        priority: -56,
-    });
+    const cloudNoiseRegistration = flows.register(
+        (ctx) => new CloudNoiseFlow(ctx, FrameTargets.schema),
+        {
+            type: 'cloudNoise',
+            phase: 'transform',
+            priority: -56,
+        },
+    );
     const fluidFieldRegistration = flows.register((ctx) => new FluidFieldFlow(ctx), {
         type: 'fluidField',
         phase: 'transform',
