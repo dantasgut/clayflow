@@ -8,7 +8,11 @@ describe('FrameTargets', () => {
             {
                 id: 'color',
                 role: 'texture',
-                textureShape: { format: 'rgba16float', sizeFromCanvas: true, storage: 'read-write' },
+                textureShape: {
+                    format: 'rgba16float',
+                    sizeFromCanvas: true,
+                    storage: 'read-write',
+                },
             },
             // Vetores de movimento do antisserrilhado temporal (spec 034), só sem MSAA.
             {
@@ -25,7 +29,11 @@ describe('FrameTargets', () => {
             {
                 id: 'light',
                 role: 'texture',
-                textureShape: { format: 'rgba16float', sizeFromCanvas: true, storage: 'read-write' },
+                textureShape: {
+                    format: 'rgba16float',
+                    sizeFromCanvas: true,
+                    storage: 'read-write',
+                },
             },
             // A radiância acima do teto da cor (spec 041): o disco do sol para o espalhamento da lente, sob demanda.
             {

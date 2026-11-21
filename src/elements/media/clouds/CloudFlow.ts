@@ -184,7 +184,6 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
 
     override dispose(): void {}
 
-
     /** Solta os pipelines e as ligações (sem céu nada roda). */
     private release(c: Ctx): void {
         this.active = false;

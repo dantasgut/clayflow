@@ -30,7 +30,10 @@ function image(width: number, height: number, fill: (o: number) => number): Rgba
 function sparseView(width: number, height: number, white: number, seed: number): Rgba {
     const r = rng(seed);
     const view = image(width, height, (o) => (o % 4 === 3 ? 1 : 0));
-    const blobs = Array.from({ length: 5 }, () => [r() * width, r() * height, 2 + r() * 9] as const);
+    const blobs = Array.from(
+        { length: 5 },
+        () => [r() * width, r() * height, 2 + r() * 9] as const,
+    );
     for (let y = 0; y < height; y++)
         for (let x = 0; x < width; x++) {
             const o = (y * width + x) * 4;
@@ -59,8 +62,14 @@ describe('a lista dos blocos da composição das nuvens (T074)', () => {
             const r = rng(seed + 100);
             const color = image(w, h, () => 1000 * r());
             const light = image(w, h, (o) => (o % 4 < 2 ? 500 * r() : 0));
-            const screen = { color: image(w, h, (o) => color.data[o]!), light: image(w, h, (o) => light.data[o]!) };
-            const tiles = { color: image(w, h, (o) => color.data[o]!), light: image(w, h, (o) => light.data[o]!) };
+            const screen = {
+                color: image(w, h, (o) => color.data[o]!),
+                light: image(w, h, (o) => light.data[o]!),
+            };
+            const tiles = {
+                color: image(w, h, (o) => color.data[o]!),
+                light: image(w, h, (o) => light.data[o]!),
+            };
             // Act
             composeScreen(screen.color, screen.light, view);
             const tw = Math.ceil(w / tile);
@@ -72,8 +81,12 @@ describe('a lista dos blocos da composição das nuvens (T074)', () => {
             expect(list.length).toBeLessThan(tw * th);
             for (let o = 0; o < screen.color.data.length; o++) {
                 const tol = COMPOSE_EPS * white;
-                expect(Math.abs(tiles.color.data[o]! - screen.color.data[o]!)).toBeLessThanOrEqual(tol);
-                expect(Math.abs(tiles.light.data[o]! - screen.light.data[o]!)).toBeLessThanOrEqual(tol);
+                expect(Math.abs(tiles.color.data[o]! - screen.color.data[o]!)).toBeLessThanOrEqual(
+                    tol,
+                );
+                expect(Math.abs(tiles.light.data[o]! - screen.light.data[o]!)).toBeLessThanOrEqual(
+                    tol,
+                );
             }
         }
     });
@@ -101,7 +114,11 @@ describe('a lista dos blocos da composição das nuvens (T074)', () => {
             return light;
         };
         const screenLight = image(w, h, (o) => (o % 4 < 2 ? 50 : 0));
-        composeScreen(image(w, h, () => 100), screenLight, view);
+        composeScreen(
+            image(w, h, () => 100),
+            screenLight,
+            view,
+        );
         // Assert: a lista leva o bloco vizinho (o 1) e acerta a luz no pixel 10 (a 3 px da nuvem); só a marca, não.
         expect(list.map(([x]) => x)).toEqual([0, 1]);
         const o = 10 * 4;

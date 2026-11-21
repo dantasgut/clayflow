@@ -65,7 +65,12 @@ export function scatterForget(seen: ScatterSeen, now: ScatterNow, at: Vec3): num
  * que sobra além do referencial das nuvens (o deslocamento pelo espaçamento), a evolução (o tempo pelo da evolução) e o
  * conteúdo (outra assinatura: 1). O vento das nuvens não entra: a grade anda com elas.
  */
-export function scatterChange(seen: ScatterSeen, now: ScatterNow, at: Vec3, spacing: number): number {
+export function scatterChange(
+    seen: ScatterSeen,
+    now: ScatterNow,
+    at: Vec3,
+    spacing: number,
+): number {
     let c = 1 - scatterForget(seen, now, at);
     const dt = Math.max(now.time - seen.time, 0);
     c = Math.max(c, (now.extraWind * dt) / spacing);
@@ -167,7 +172,11 @@ export function scatterPanoramaChange(
  * O panorama a refazer: a série que não vale, outro conteúdo (a assinatura) ou a mudança medida nas provas passou da
  * tolerância. As páginas do cache que caminham não o refazem: a luz delas chega ao panorama quando a mudança medida pede.
  */
-export function scatterPanoramaRedo(valid: boolean, sameContent: boolean, measured: number): boolean {
+export function scatterPanoramaRedo(
+    valid: boolean,
+    sameContent: boolean,
+    measured: number,
+): boolean {
     return !valid || !sameContent || measured > CLOUD_PANORAMA_TOLERANCE;
 }
 

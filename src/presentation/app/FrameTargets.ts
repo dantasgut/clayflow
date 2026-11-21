@@ -79,7 +79,11 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                 id: 'color',
                 role: 'texture',
                 // Composta por compute nos blocos com nuvem (spec 041, T074), quando o device permite.
-                textureShape: { format: SCENE_COLOR_FORMAT, sizeFromCanvas: true, storage: 'read-write' },
+                textureShape: {
+                    format: SCENE_COLOR_FORMAT,
+                    sizeFromCanvas: true,
+                    storage: 'read-write',
+                },
             },
             // Vetores de movimento (spec 034): o deslocamento em uv do ponto de cada pixel desde o quadro anterior (rg) e
             // o do que está atrás dele (ba: difere de rg só sob um transmissivo, cuja cor é a do que está atrás),

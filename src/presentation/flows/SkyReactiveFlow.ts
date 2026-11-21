@@ -1,5 +1,4 @@
-import type { Frame } from '../../scene/contracts/gpu';
-import type { IndirectBufferSpec } from '../../core/contracts/specs/IndirectBufferSpec';
+import type { Frame, IndirectBufferSpec } from '../../scene/contracts/gpu';
 import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
 import type { FlowTransitions } from '../../scene/flows/FlowTransitions';
 import { Flow } from '../../scene/flows/Flow';
@@ -128,7 +127,8 @@ export class SkyReactiveFlow extends Flow<SkyReactiveSlots, 'idle'> {
         const aa = bound.slots.antialiasing?.resource as TemporalAntialiasing | undefined;
         const mask = bound.slots.reactive;
         const prepared = this.current.map((id) => bound.pipelines.get(id));
-        if (aa?.mode !== 'temporal' || mask === undefined || prepared.some((p) => !p?.ready)) return;
+        if (aa?.mode !== 'temporal' || mask === undefined || prepared.some((p) => !p?.ready))
+            return;
         if (prepared.length === 2) {
             const [rect, tiles] = prepared;
             const work = this.work;
@@ -175,8 +175,7 @@ export class SkyReactiveFlow extends Flow<SkyReactiveSlots, 'idle'> {
         // Por compute quando a máscara alocada é ligável como storage (o device permite o `r8unorm` de leitura e escrita).
         const mask = c.bound.slots.reactive;
         const storage =
-            mask !== undefined
-            && (mask.texture.usage & GPUTextureUsage.STORAGE_BINDING) !== 0;
+            mask !== undefined && (mask.texture.usage & GPUTextureUsage.STORAGE_BINDING) !== 0;
         const sky = c.bound.slots.sky.resource;
         if (storage) this.resources.ensureAllocated(sky, 'diskWork');
         const work = storage

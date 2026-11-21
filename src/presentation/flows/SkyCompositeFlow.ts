@@ -1,6 +1,10 @@
-import type { EngineCore, Frame, RenderTarget } from '../../scene/contracts/gpu';
-import type { IndirectBufferSpec } from '../../core/contracts/specs/IndirectBufferSpec';
-import type { TextureViewSpec } from '../../core/contracts/specs/TextureViewSpec';
+import type {
+    EngineCore,
+    Frame,
+    IndirectBufferSpec,
+    RenderTarget,
+    TextureViewSpec,
+} from '../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { Resource } from '../../scene/contracts/Resource';
 import type { BindingSource, BoundFlow, TransitionContext } from '../../scene/flows/FlowBinding';
