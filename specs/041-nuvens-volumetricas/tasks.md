@@ -497,6 +497,40 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       **Em aberto na T074: `high-sun` e `high-wind`** — o mapa visto do sol por coluna com a previsão por texel (1,56 ms
       com o sol andando) e os caminhos do cache continuados entre quadros (0,57 ms); a margem do `sunset` (4,0 %, na meta)
       e do degrau do `dusk-blocks` (1,029) não mudou.
+      **Rodada 2026-11-21 g — o mapa por coluna (medido, não usado), os caminhos continuados (medidos, desfeitos), o
+      `sunset` recuperado** (`596fb6e5`; R8/R11 da T074, rodada g, no research.md). (1) **O `sunset` e o degrau**: o que
+      piorou o `sunset` de 3,6 para 4,0 % foi o pedaço até o meio nó (2488a334), não o pulo da faixa nem o pente: até o meio
+      nó em 2 passos 4,0 %, em 3 passos 4,0, com o meio nó a pelo menos meio trecho 4,5, até o nó inteiro em 4 passos 3,7,
+      em 3 passos **3,6** — fica o nó inteiro em 3 passos no alto, e os nós do meio saem do atlas (8 → 4 camadas). O degrau do
+      `dusk-blocks` 1,029 → **1,025** (o caso é determinístico: o mesmo valor em duas rodadas), matiz 0,049 (≤ 0,05, a
+      margem caiu de 0,037); sem o volume de τ até o sol na marcha, 1,040 (o volume ajuda). Os 1,017 da rodada d não voltaram:
+      a causa que sobra não foi isolada. (2) **O mapa visto do sol por coluna** (o registro de cada texel — o sol do desenho
+      dele, o fator ao longo, o erro medido —, a escolha das colunas pelo erro previsto na tela acima de ½ tolerância, as
+      mantidas no erro da página): implementado, medido e desfeito. Com o sol a 0,25°/s entre 2° e 8° **todas** as colunas
+      das páginas escolhidas passam da metade da tolerância a cada quadro (GPU: 93 páginas, 26 860 colunas = 289 por página;
+      f64, cúmulos em células e esparsos: 100 % das colunas) — a ponta do trecho fica a 15–120 km do plano, e 7·10⁻⁵ rad
+      por quadro a desloca 1–9 m: com 1/255 de tolerância só a coluna com |ΔT| < ~0,02 por texel ficaria, e com o sol baixo
+      toda coluna de ~36 km atravessa nuvem. A demanda é a do próprio sol (a sombra anda 2–3 m por quadro), não a da página:
+      o mapa com o sol andando só cai mudando o que se guarda (a reprojeção das colunas pelo deslocamento de cada trecho, o
+      mapa pré-filtrado) ou a tolerância pela tela com o antisserrilhado temporal. (3) **Os caminhos do cache continuados
+      entre quadros** (16 passos por quadro, o estado na série `scatterPaths` da 037, o lugar na fatia por grupo, só as
+      páginas da mudança, a página espera os caminhos dela pela contagem, o último marca o filtro; f64 com teste: o caminho em
+      pedaços soma a mesma luz que inteiro): os caminhos 0,57 → 0,35 ms e o `high-wind` 3,27 → 3,06 ms, mas o atraso da luz
+      das sondas (os caminhos acabam 1–16 quadros depois da escolha) levou o degrau do `dusk-blocks` a 1,028–1,034 (falha a
+      1,03) e, marcando o filtro só no fim da caminhada, o matiz a 0,061: desfeito (o código em
+      `scratchpad/t074g/continued-paths.diff`). Medidas (M4, 1280 × 720, o código final, rodados em seguida): `high-sun`
+      **4,76 ms** ✗ (o mapa 1,44, a marcha 1,49, os caminhos 0,57, froxels 0,56, tabela aérea 0,28), `high-wind` **3,27** ✗
+      (a marcha 1,36, os caminhos 0,57, o mapa 0,27), `timing` alto **2,32** ✓; médio, baixo, `inside-timing` e
+      `interior-timing` saíram quentes no fim da série (2,02/1,27/5,26/3,21 ms com repetições de −0,2 a 6,7); de novo, cada um
+      sozinho logo depois (a GPU ainda quente da série): `inside-timing` **1,97** ✓, baixo **−0,47** ✓ (repetições
+      −1,3…0,6), médio **2,27** ✗ (1,78–2,43), `interior-timing` **1,20** ✗ (0,93–1,62) — no médio e no baixo o código da marcha
+      é o mesmo de antes (o pedaço segue em 2 e 1 passos; só a leitura do nó inteiro no lugar do meio nó), e no interior a
+      marcha mede 0,04–0,08 ms: o que muda entre as rodadas é o relógio da GPU com o quadro leve (o 0,85/0,31/0,10 da rodada d
+      foi com a GPU fria); medir frio de novo antes de fechar. Casos de imagem (rodados com os caminhos continuados; depois de
+      desfeitos, `sunset` 3,6 % e `dusk-blocks` 1,025 de novo): `noon` 1,1 %, `backlit` 3,7 % (borda/centro 1,018), `types`, `sunset` 3,6 %, `storm`
+      2,4 %, `far-cloud` 2,7 %, `beam-gap` +3,0 px, `scatter-cache` 0,965, `panorama`, `sun-sweep` 0,005, `shadow-map` 0,020,
+      `ground-shadow` 0,010, `wind` e `fly-through` passam; vitest de media/clouds passa. **Em aberto na T074: `high-sun` e
+      `high-wind`**, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21

@@ -1423,6 +1423,44 @@ em todos os níveis o `sunset` foi a 6,5 % (o cone só, 4,0 %; o resto até 2 pi
 a célula até a pegada do pixel da marcha; o cone em todos. No anel de fora de cada janela o nível seguinte entra pela
 distância à borda (no último, o cone), sem degrau de luz.
 
+### R8/R11 (T074, 2026-11-21 g) — o mapa por coluna e os caminhos continuados (medidos, desfeitos); o pedaço até o nó inteiro
+
+**O `sunset` (3,6 → 4,0 % desde 2488a334).** O pedaço marchado de cada passo com nuvem ia só até o meio nó do mapa (os
+nós do meio dos trechos nas camadas 4…7): metade do comprimento marchado ao longo da coluna do ponto, e o τ do resto vinha
+mais do mapa filtrado entre colunas vizinhas (outra linha de ~30 km pelo detalhe). Medido na GPU (pior região): até o meio
+nó em 2 passos 4,0 %; em 3 passos 4,0 (o espaçamento não é o que conta); com o meio nó a pelo menos meio trecho do fim do
+cone (mais marchado, espaçamento maior) 4,5; até o nó inteiro em 4 passos 3,7; em 3 passos 3,6. Decisão: o nó inteiro em 3
+passos no alto; os nós do meio saem do atlas. A f64 de uma coluna só (sem o filtro entre colunas) não vê a diferença: lá o
+meio nó em 2 passos erra o τ 1,70 % contra 2,34 %.
+
+**O degrau do `dusk-blocks`.** O caso é determinístico (o mesmo valor em rodadas seguidas do mesmo código): 1,029 → 1,025
+com o pedaço até o nó inteiro; sem o volume de τ até o sol na marcha, 1,040. O pior quadro é sempre o do sol a −0,67°. Os
+1,017 da rodada d (antes de ee205471/2488a334 e do volume) não voltaram; a causa que sobra não foi isolada.
+
+**O mapa visto do sol por coluna (implementado, medido e desfeito).** O registro de cada texel (o sol do desenho da coluna,
+o fator ao longo — o maior |ΔT| entre nós × 16 —, o erro medido pelas provas); a página escolhida refaz só as colunas de
+erro previsto na tela acima de ½ tolerância — o deslocamento lateral do sol delas ao de agora (o plano girando no ponto
+do texel, a coluna inclinando até a ponta mais longe do plano) × o gradiente do texel aos quatro vizinhos com o fator 2, e
+o deslocamento dos nós × o fator ao longo — e o erro das mantidas soma ao da página na escolha (a soma limita o de cada
+texel). Com o sol a 0,25°/s entre 2° e 8°, todas as colunas passam: na GPU 93 páginas e 26 860 colunas por quadro (289 por
+página); na f64 (cúmulos em células, densos ou esparsos, sol a 5° e 15°), 100 %. Razão: a alavanca (a ponta do trecho ao
+plano) é de 15–120 km e o sol anda 7·10⁻⁵ rad por quadro, 1–9 m na nuvem; com o fator 2 e ½ de 1/255, só a coluna com
+|ΔT| < ~0,02 por texel ficaria, e com o sol baixo toda coluna de ~36 km atravessa nuvem. A sombra anda de verdade 2–3 m
+por quadro: o que o mapa refaz é a mudança física. O que pode baixar o custo com o sol andando é mudar o que se guarda —
+as colunas reprojetadas pelo deslocamento de cada trecho (a mudança pelo sol é uma rotação conhecida; o erro de segunda
+ordem, mas a leitura do atlas não pode ser feita no mesmo passe que o escreve) ou o mapa pré-filtrado — ou a tolerância
+pela tela com o antisserrilhado temporal (o `dusk-blocks` mede o salto).
+
+**Os caminhos continuados (implementados, medidos e desfeitos).** O caminho anda até 16 passos por quadro e o que não acaba
+guarda o estado (16 palavras) na série `scatterPaths` (canal 037, a fatia anterior lida); um passe antes dos novos os
+continua e soma na sonda quando acaba; só as páginas da mudança continuam (as de encher a janela acabam no quadro: com
+todas, o cache não enchia no transitório e o alto parado medido ia a 4,2 ms); a página espera os caminhos dela pela
+contagem; os grupos sem trabalho saem juntos antes das barreiras (sem isso, 0,61 + 0,47 ms no alto parado). f64: o caminho
+em pedaços soma a mesma luz que inteiro com o mesmo gerador. No `high-wind`: os caminhos 0,57 → 0,35 ms (com 32 passos
+0,37, com 24 0,38: o passe dos que seguem tem o custo da vazão, ~0,24 ms — o "custo fixo" era trabalho, não só latência),
+o caso 3,27 → 3,06 ms. Mas a luz das sondas chega 1–16 quadros depois da escolha: com o sol rápido do `dusk-blocks` o
+degrau dos blocos foi a 1,028–1,034 (falha a 1,03) e, com o filtro marcado só no fim da caminhada, o matiz a 0,061.
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por
