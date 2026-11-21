@@ -170,7 +170,7 @@ fn cloud_shadow_segment_length(x: vec2f) -> f32 {
  * Os mapas do quadro como a escolha os deixou no registro de estado (`CLOUD_SHADOW_STATE_SLOT`; o desenho e as provas
  * correm depois dela no quadro).
  */
-fn cloud_shadow_maps() -> CloudShadowMaps {
+fn cloud_shadow_maps_meta() -> CloudShadowMaps {
     let rec = &cloud_shadow_pages_meta[CLOUD_SHADOW_STATE_SLOT];
     return CloudShadowMaps(
         min(atomicLoad(&(*rec).page_x), 2u),
@@ -400,7 +400,7 @@ fn cloud_shadow_main(
         var step = CLOUD_SHADOW_STEP_NONE;
         if (slot < CLOUD_SHADOW_SLOT_COUNT) {
             chosen = atomicLoad(&cloud_shadow_work[4u + slot]);
-            step = cloud_shadow_slot_step(slot, cloud_shadow_maps());
+            step = cloud_shadow_slot_step(slot, cloud_shadow_maps_meta());
         }
         cloud_shadow_wg_chosen = min(chosen, 1u) | (step << 1u);
     }
@@ -545,7 +545,7 @@ fn cloud_shadow_maps_begin() -> CloudShadowMaps {
         let s = cloud_shadow_step_of(cloud_shadow_continuous(sun), 1.0);
         return CloudShadowMaps(s, s, 1.0);
     }
-    var maps = cloud_shadow_maps();
+    var maps = cloud_shadow_maps_meta();
     if (maps.leaving != maps.entering && maps.weight >= 1.0) { maps.leaving = maps.entering; }
     let wanted = cloud_shadow_step_target(maps.entering, sun);
     if (maps.leaving == maps.entering) {
