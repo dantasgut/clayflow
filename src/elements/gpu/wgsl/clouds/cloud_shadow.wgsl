@@ -416,8 +416,11 @@ const CLOUD_SHADOW_TOLERANCE: f32 = 0.003921569;
 const CLOUD_SHADOW_GRADIENT_SAFETY: f32 = 2.0;
 /** Quadros sem desenho em que a página ainda vale, no máximo. */
 const CLOUD_SHADOW_MAX_AGE: u32 = 240u;
-/** A fila da página que precisa ser desenhada no quadro (a que entra na janela, sem carimbo, de outro conteúdo). */
-const CLOUD_SHADOW_KEY_MANDATORY: u32 = 15u;
+/**
+ * A fila da página que precisa ser desenhada no quadro (a que entra na janela, sem carimbo, de outro conteúdo); as
+ * inválidas ficam nas filas 1…46, em meias oitavas da prioridade (`cloud_shadow_key`).
+ */
+const CLOUD_SHADOW_KEY_MANDATORY: u32 = 47u;
 
 /**
  * A mudança prevista da transmitância de um texel da página física `slot` desde o desenho (espelho de
@@ -483,10 +486,14 @@ fn cloud_shadow_visible(k: u32, g: vec2i, lever: f32, m: u32) -> bool {
 }
 
 /**
- * A fila da página física `slot` do degrau `m` nos mapas `maps` (0: vale ou fora dos mapas; 1…14: inválida, pela
- * prioridade em oitavas; 15: tem de ser desenhada no quadro). A prioridade (espelho de `shadowPagePriority`): a mudança
- * (a maior entre a prevista e a medida pelas provas) em tolerâncias × os quadros desde o desenho × √2 por nível mais fino
- * × 4 vista pela câmera. A página mais velha que `CLOUD_SHADOW_MAX_AGE` entra na fila 1. A página sem registro que vale
+ * A fila da página física `slot` do degrau `m` nos mapas `maps` (0: vale ou fora dos mapas; 1…46: inválida, pela
+ * prioridade em meias oitavas, `shadowPageKey`; 47: tem de ser desenhada no quadro). A prioridade (espelho de
+ * `shadowPagePriority`): a mudança (a maior entre a prevista e a medida pelas provas, no máximo 1: a transmitância não
+ * muda mais que isso) em tolerâncias × os quadros desde o desenho × √2 por nível mais fino × 4 vista pela câmera — até
+ * 255 × 240 × 2^3,5 × 4 ≈ 2^21,4, dentro das 46 filas. Com 14 filas de uma oitava, o sol que anda (o pôr do sol do
+ * `solposto`: o plano gira e as colunas de ~30 km varrem dezenas de texels por quadro) punha quase todas as páginas na
+ * fila de cima, a ordem da página física decidia dentro dela, e as de índice alto esperavam até `CLOUD_SHADOW_MAX_AGE`:
+ * a luz das nuvens ficava dezenas de quadros atrás do sol (o laranja do sol mais alto contra o rosado da cena parada). A página mais velha que `CLOUD_SHADOW_MAX_AGE` entra na fila 1. A página sem registro que vale
  * de um mapa lido no quadro é obrigatória; a do mapa novo da troca de degrau, que ainda não é lido (peso 0), entra na
  * fila `CLOUD_SHADOW_KEY_PREPARE`, dentro do orçamento: o mapa novo é desenhado ao longo de alguns quadros.
  */
@@ -499,12 +506,12 @@ fn cloud_shadow_key(slot: u32, m: u32, maps: CloudShadowMaps) -> u32 {
     let g = cloud_shadow_slot_page(slot, m);
     let age = clouds.march.z - atomicLoad(&cloud_shadow_pages_meta[slot].frame);
     let measured = bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].measured));
-    let e = max(cloud_shadow_error(slot, k, g, m), measured);
+    let e = min(max(cloud_shadow_error(slot, k, g, m), measured), 1.0);
     if (e <= CLOUD_SHADOW_TOLERANCE) { return select(0u, 1u, age >= CLOUD_SHADOW_MAX_AGE); }
     let vis = cloud_shadow_visible(k, g, bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].lever)), m);
     let p = e / CLOUD_SHADOW_TOLERANCE * f32(max(age, 1u)) * exp2(f32(CLOUD_SHADOW_LEVELS - 1u - k) * 0.5)
         * select(1.0, 4.0, vis);
-    return clamp(1u + u32(floor(log2(p))), 1u, CLOUD_SHADOW_KEY_MANDATORY - 1u);
+    return clamp(1u + u32(floor(2.0 * log2(p))), 1u, CLOUD_SHADOW_KEY_MANDATORY - 1u);
 }
 
 /**
@@ -539,10 +546,13 @@ fn cloud_shadow_maps_begin() -> CloudShadowMaps {
 
 /** Páginas físicas por invocação na escolha do quadro (até 3072 páginas). */
 const CLOUD_SHADOW_SELECT_CHUNK: u32 = 12u;
-/** A fila das páginas do mapa novo da troca de degrau (o meio das 14: as que mudaram muito no mapa lido passam antes). */
-const CLOUD_SHADOW_KEY_PREPARE: u32 = 8u;
+/**
+ * A fila das páginas do mapa novo da troca de degrau (a prioridade 2⁷, a de antes das meias oitavas: as que mudaram muito
+ * no mapa lido passam antes).
+ */
+const CLOUD_SHADOW_KEY_PREPARE: u32 = 15u;
 
-var<workgroup> cloud_shadow_wg_hist: array<atomic<u32>, 16>;
+var<workgroup> cloud_shadow_wg_hist: array<atomic<u32>, 48>;
 var<workgroup> cloud_shadow_wg_cut: vec2u;
 var<workgroup> cloud_shadow_wg_maps: CloudShadowMaps;
 var<workgroup> cloud_shadow_wg_pending: atomic<u32>;
@@ -557,7 +567,7 @@ var<workgroup> cloud_shadow_wg_pending: atomic<u32>;
  */
 @compute @workgroup_size(CLOUD_SHADOW_PAGE_GROUP)
 fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
-    if (lid < 16u) { atomicStore(&cloud_shadow_wg_hist[lid], 0u); }
+    if (lid < 48u) { atomicStore(&cloud_shadow_wg_hist[lid], 0u); }
     if (lid == 0u) {
         cloud_shadow_wg_maps = cloud_shadow_maps_begin();
         atomicStore(&cloud_shadow_wg_pending, 0u);

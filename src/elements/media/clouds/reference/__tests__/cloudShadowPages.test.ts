@@ -9,6 +9,8 @@ import {
 } from '../cloudModel';
 import {
     CLOUD_SHADOW_ATLAS,
+    CLOUD_SHADOW_KEY_MANDATORY,
+    CLOUD_SHADOW_MAX_AGE,
     CLOUD_SHADOW_PROBES,
     CLOUD_SHADOW_TOLERANCE,
     CLOUD_SHADOW_PAGE,
@@ -34,6 +36,7 @@ import {
     shadowStepWeight,
     shadowPageCorners,
     shadowPageError,
+    shadowPageKey,
     shadowPagePriority,
     shadowPageStats,
     shadowProbeTexel,
@@ -501,6 +504,50 @@ describe('mapa visto do sol por páginas: endereçamento', () => {
     );
 });
 
+describe('mapa visto do sol por páginas: as filas da escolha', () => {
+    it('a maior prioridade fica abaixo da fila das obrigatórias e as filas crescem com ela', () => {
+        // Arrange
+        const top = shadowPagePriority(5, 0, true, CLOUD_SHADOW_MAX_AGE);
+        const priorities = Array.from({ length: 200 }, (_, i) => 2 ** (i * 0.11));
+        // Act
+        const keys = priorities.map(shadowPageKey);
+        // Assert
+        expect(shadowPageKey(top)).toBeLessThan(CLOUD_SHADOW_KEY_MANDATORY - 1);
+        keys.slice(1).forEach((k, i) => expect(k).toBeGreaterThanOrEqual(keys[i]!));
+        expect(shadowPageKey(2 ** 7)).toBe(15);
+    });
+
+    /**
+     * O sol que anda: todas as páginas com a mudança plena a cada quadro, `budget` por quadro, as filas e a ordem da página
+     * física como na GPU. Devolve a maior idade de uma página na escolha.
+     */
+    function starvation(key: (p: number) => number, pages: number, budget: number): number {
+        const age = new Array<number>(pages).fill(0);
+        let worst = 0;
+        for (let frame = 0; frame < 600; frame++) {
+            for (let i = 0; i < pages; i++) age[i]!++;
+            const order = age
+                .map((a, i) => ({ i, k: key(shadowPagePriority(1, 3, true, a)) }))
+                .sort((a, b) => b.k - a.k || a.i - b.i);
+            for (const { i } of order.slice(0, budget)) age[i] = 0;
+            worst = Math.max(worst, ...age);
+        }
+        return worst;
+    }
+
+    it('com o sol andando, nenhuma página espera muito mais que páginas ÷ orçamento quadros', () => {
+        // Arrange: 2048 páginas (8 níveis × 8 × 32 com o sol rasante), 128 por quadro; as 14 filas de uma oitava de antes.
+        const octaves = (p: number): number =>
+            Math.min(Math.max(1 + Math.floor(Math.log2(p)), 1), 14);
+        // Act
+        const now = starvation(shadowPageKey, 2048, 128);
+        const before = starvation(octaves, 2048, 128);
+        // Assert: na meia oitava as idades de 1,41× se separam; com a fila de cima saturada, a ordem física decidia.
+        expect(now).toBeLessThanOrEqual(2 * (2048 / 128));
+        expect(before).toBeGreaterThan(CLOUD_SHADOW_MAX_AGE / 2);
+    });
+});
+
 describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f64)', () => {
     /**
      * O esquema quadro a quadro (espelho de `cloud_shadow_probe_main` e `cloud_shadow_select_main`): por página, a
@@ -576,7 +623,12 @@ describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f
                 if (e > CLOUD_SHADOW_TOLERANCE)
                     wanted.push({ i, priority: shadowPagePriority(e, p.k, true, p.age) });
             });
-            wanted.sort((a, b) => b.priority - a.priority || a.i - b.i);
+            // As filas da GPU (meias oitavas, `shadowPageKey`) e, dentro de uma, a ordem da página física.
+            wanted.sort(
+                (a, b) =>
+                    shadowPageKey(b.priority) - shadowPageKey(a.priority)
+                    || state[a.i]!.slot - state[b.i]!.slot,
+            );
             const chosen = new Set(wanted.slice(0, budget).map((w) => w.i));
             state.forEach((p, i) => {
                 if (chosen.has(i)) {

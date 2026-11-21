@@ -648,9 +648,10 @@ export function shadowProbeTexel(slot: number, frame: number, j: number): number
 }
 
 /**
- * A prioridade de uma página inválida (`cloud_shadow_select_main`): a mudança prevista em tolerâncias × os quadros
- * desde o desenho (a página que espera sobe na fila: nenhuma fica para sempre fora do orçamento), × √2 por nível mais
- * fino (perto da câmera primeiro) e × 4 vista pela câmera. Na fila, em oitavas (`floor(log2)`), da maior à menor.
+ * A prioridade de uma página inválida (`cloud_shadow_select_main`): a mudança prevista em tolerâncias (no máximo 1: a
+ * transmitância não muda mais que isso) × os quadros desde o desenho (a página que espera sobe na fila: nenhuma fica
+ * para sempre fora do orçamento), × √2 por nível mais fino (perto da câmera primeiro) e × 4 vista pela câmera. Na fila,
+ * em meias oitavas (`shadowPageKey`), da maior à menor.
  */
 export function shadowPagePriority(
     error: number,
@@ -659,9 +660,25 @@ export function shadowPagePriority(
     age: number,
 ): number {
     return (
-        (error / CLOUD_SHADOW_TOLERANCE)
+        (Math.min(error, 1) / CLOUD_SHADOW_TOLERANCE)
         * Math.max(age, 1)
         * 2 ** ((CLOUD_SHADOW_LEVELS - 1 - level) / 2)
         * (visible ? 4 : 1)
+    );
+}
+
+/** A fila das páginas que têm de ser desenhadas no quadro; as inválidas ficam nas filas 1…`CLOUD_SHADOW_KEY_MANDATORY − 1`. */
+export const CLOUD_SHADOW_KEY_MANDATORY = 47;
+
+/**
+ * A fila de uma página inválida pela prioridade (`cloud_shadow_key`): meias oitavas, `1 + ⌊2·log2 p⌋`, de 1 a
+ * `CLOUD_SHADOW_KEY_MANDATORY − 1`. A escolha do quadro toma as filas da maior à menor e, dentro da fila do corte, pela
+ * ordem da página física. A maior prioridade (a mudança 1, `CLOUD_SHADOW_MAX_AGE` quadros, o nível 0 e vista) fica
+ * abaixo da última fila: as filas não saturam, e a idade ordena as páginas que mudam juntas (o sol que anda).
+ */
+export function shadowPageKey(priority: number): number {
+    return Math.min(
+        Math.max(1 + Math.floor(2 * Math.log2(Math.max(priority, 1e-30))), 1),
+        CLOUD_SHADOW_KEY_MANDATORY - 1,
     );
 }
