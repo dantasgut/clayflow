@@ -31,6 +31,8 @@ import {
     CLOUD_SCATTER_NEAR,
     CLOUD_SCATTER_PRIOR,
     CLOUD_SCATTER_SNAP,
+    CLOUD_SCATTER_SUN_MEMORY,
+    CLOUD_SCATTER_VIEW_MEMORY,
     CLOUD_SCATTER_WINDOW,
     CLOUD_SHAPE_SIZE,
     CLOUD_EARTH_OMEGA,
@@ -102,15 +104,7 @@ const dot = (a: readonly number[], b: readonly number[]): number =>
  */
 export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
     readonly type = 'CloudNoiseFlow';
-    readonly slots: CloudNoiseSlots = {
-        cloud: slot.singleton(CloudLayer.schema),
-        sky: slot.singleton(Sky.schema, { optional: true }),
-        camera: slot.singleton(Camera.schema, { optional: true }),
-        cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
-        time: slot.singleton(Time.schema, { optional: true }),
-        cloudMarch: cloudHistorySlots.cloudMarch,
-        cloudWeather: cloudWeatherSlots.cloudWeather,
-    };
+    readonly slots: CloudNoiseSlots;
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
     protected readonly transitions: FlowTransitions<'idle', Ctx>;
@@ -128,6 +122,15 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         super();
         this.resources = ctx.resources;
         this.world = ctx.world;
+        this.slots = {
+            cloud: slot.singleton(CloudLayer.schema),
+            sky: slot.singleton(Sky.schema, { optional: true }),
+            camera: slot.singleton(Camera.schema, { optional: true }),
+            cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
+            time: slot.singleton(Time.schema, { optional: true }),
+            cloudMarch: cloudHistorySlots.cloudMarch,
+            cloudWeather: cloudWeatherSlots.cloudWeather,
+        };
         this.transitions = {
             '*': {
                 framePrepare: {
@@ -274,10 +277,18 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
         const band = (Math.max(ey, shellTop) + 1000 + Math.min(ey, 0) - 1000) / 2 - ey;
         const shadowMap = this.shadowMapParams(cloud, sky, groundRadius, speed);
         const valid = c.bound.slots.cloudMarch.age(1) === 1;
-        // O centro da grade do cache de espalhamento encaixado (o shader refaz o encaixe da posição anterior da câmera).
+        // O centro da grade do cache de espalhamento no referencial das nuvens (T074; `scatterGridCenter` da referência): a
+        // câmera menos o deslocamento do vento, encaixada, e de volta ao mundo — as sondas andam com as nuvens. O centro no
+        // referencial vai junto: o shader o compara com o do cache (o transporte da grade de antes quando muda).
+        const scatterLocal = [
+            Math.floor(((eye[0] ?? 0) - wind.coverage[0]) / CLOUD_SCATTER_SNAP + 0.5)
+                * CLOUD_SCATTER_SNAP,
+            Math.floor(((eye[2] ?? 0) - wind.coverage[1]) / CLOUD_SCATTER_SNAP + 0.5)
+                * CLOUD_SCATTER_SNAP,
+        ];
         const scatterCenter = [
-            Math.floor((eye[0] ?? 0) / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP,
-            Math.floor((eye[2] ?? 0) / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP,
+            scatterLocal[0]! + wind.coverage[0],
+            scatterLocal[1]! + wind.coverage[1],
         ];
         const shapeSlot = this.functionSlot(cloud, cloud.shapeFunction);
         const coverageSlot =
@@ -332,7 +343,13 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                     time?.frame ?? 0,
                     this.scatterSignature(cloud, sky, shadowMap.signature),
                 ],
-                scatterSize: [...q.scatter.size, 0],
+                scatterSize: [...q.scatter.size, q.scatter.motion],
+                scatterMemory: [
+                    CLOUD_SCATTER_SUN_MEMORY,
+                    CLOUD_SCATTER_VIEW_MEMORY,
+                    scatterLocal[0]!,
+                    scatterLocal[1]!,
+                ],
                 ...weather,
                 anvil: [
                     (d.weather?.shear ?? 1) * d.wind[0]!,

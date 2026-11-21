@@ -131,6 +131,59 @@ export interface ScatterLight {
     readonly sky: (d: Vec3) => Vec3;
     /** A radiância do chão no ponto onde o caminho o encontra (o caminho para ali). */
     readonly ground: (x: Vec3) => Vec3;
+    /**
+     * A parte do sol na radiância do chão (o resto é a do céu; T074: as duas partes guardadas cada uma pela sua luz).
+     * Ausente: o chão todo na parte do céu.
+     */
+    readonly groundSun?: (x: Vec3) => Vec3;
+}
+
+/** As duas partes da luz de um caminho (T074): a do sol (os próximos eventos ao sol e o sol no chão) e a do céu. */
+export interface ScatterParts {
+    readonly sun: number[];
+    readonly sky: number[];
+}
+
+/** O piso da transmitância da atmosfera até a sonda na parte do sol guardada (a sonda na sombra da Terra). */
+export const CLOUD_SCATTER_SUN_FLOOR = 1e-3;
+/** O piso da irradiância do céu na parte do céu guardada (unidades da cena; a noite sem céu). */
+export const CLOUD_SCATTER_SKY_FLOOR = 1e-9;
+
+/**
+ * A luz de uma sonda como o cache a guarda (T074; espelho de `cloud_scatter_main`): a parte do sol por unidade da
+ * iluminância do sol que chega à sonda (`sun × atmosphere`, a transmitância da atmosfera até ela com o piso) e a do céu
+ * por unidade da irradiância do céu de cima (`sky`) — a cor e o brilho do sol baixo, que mudam depressa com o ângulo, saem do
+ * que a página guarda e entram na leitura com o sol e o céu de agora (`scatterRecompose`).
+ */
+export function scatterNormalize(
+    parts: ScatterParts,
+    sun: Vec3,
+    atmosphere: Vec3,
+    sky: Vec3,
+): ScatterParts {
+    return {
+        sun: [0, 1, 2].map(
+            (c) => parts.sun[c]! / (sun[c]! * Math.max(atmosphere[c]!, CLOUD_SCATTER_SUN_FLOOR)),
+        ),
+        sky: [0, 1, 2].map((c) => parts.sky[c]! / Math.max(sky[c]!, CLOUD_SCATTER_SKY_FLOOR)),
+    };
+}
+
+/**
+ * A luz guardada de volta na unidade da cena com o sol (`sun` a iluminância no topo, `atmosphere` a transmitância até o
+ * ponto lido) e o céu (`sky`, a irradiância de cima) de agora.
+ */
+export function scatterRecompose(
+    stored: ScatterParts,
+    sun: Vec3,
+    atmosphere: Vec3,
+    sky: Vec3,
+): Vec3 {
+    return [0, 1, 2].map(
+        (c) =>
+            stored.sun[c]! * sun[c]! * Math.max(atmosphere[c]!, CLOUD_SCATTER_SUN_FLOOR)
+            + stored.sky[c]! * Math.max(sky[c]!, CLOUD_SCATTER_SKY_FLOOR),
+    ) as unknown as Vec3;
 }
 
 /** Tetos do caminho: colisões reais e passos (todos: nulos, reais e saltos), como no shader. */
@@ -142,7 +195,8 @@ export const CLOUD_SCATTER_STEPS = 256;
  * `dcam` com a chance `fc` (o núcleo transmitido) ou a fase truncada em volta dela; rastreamento delta no meio truncado
  * (extinção `σt·(1 − ω·fc)`, albedo `ω(1 − fc)/(1 − ω·fc)`, majorante a extinção na densidade 1), o próximo evento ao sol
  * em cada colisão (a fase truncada, a profundidade ótica truncada até ele), o céu ao sair por cima ou pelo lado, o chão
- * ao sair por baixo. Devolve a luz que chega a `x0` na direção amostrada (a estimativa da luz da sonda).
+ * ao sair por baixo. Devolve a luz que chega a `x0` na direção amostrada (a estimativa da luz da sonda); com `parts`,
+ * soma nele as duas partes (o sol e o céu, `ScatterParts`).
  */
 export function scatterWalk(
     m: CloudModel,
@@ -154,6 +208,7 @@ export function scatterWalk(
     rng: () => number,
     collisions = CLOUD_SCATTER_COLLISIONS,
     steps = CLOUD_SCATTER_STEPS,
+    parts?: ScatterParts,
 ): Vec3 {
     const kT = 1 - m.albedo * t.fc;
     const albedo = (m.albedo * (1 - t.fc)) / kT;
@@ -167,8 +222,17 @@ export function scatterWalk(
     let thr = 1;
     const L = [0, 0, 0];
     let hits = 0;
-    const add = (v: Vec3, w: number): void => {
-        for (let c = 0; c < 3; c++) L[c]! += v[c]! * w;
+    const add = (v: Vec3, w: number, sun = false): void => {
+        for (let c = 0; c < 3; c++) {
+            L[c]! += v[c]! * w;
+            if (parts !== undefined) (sun ? parts.sun : parts.sky)[c]! += v[c]! * w;
+        }
+    };
+    const ground = (xg: Vec3, w: number): void => {
+        const g = light.ground(xg);
+        const gs = light.groundSun?.(xg) ?? [0, 0, 0];
+        add(gs, w, true);
+        add([g[0] - gs[0], g[1] - gs[1], g[2] - gs[2]], w);
     };
     for (let s = 0; s < steps; s++) {
         const alt = altitude(m, x);
@@ -193,12 +257,9 @@ export function scatterWalk(
             if (rising < 0) {
                 // Abaixo da camada descendo: o chão (ou o céu, se o raio passar do horizonte do planeta).
                 const g = sphereSpan(m, x, d, R);
-                if (g !== undefined && g[0] > 0) {
-                    add(
-                        light.ground([x[0] + d[0] * g[0], x[1] + d[1] * g[0], x[2] + d[2] * g[0]]),
-                        thr,
-                    );
-                } else add(light.sky(d), thr);
+                if (g !== undefined && g[0] > 0)
+                    ground([x[0] + d[0] * g[0], x[1] + d[1] * g[0], x[2] + d[2] * g[0]], thr);
+                else add(light.sky(d), thr);
                 return L as unknown as Vec3;
             }
             const span = sphereSpan(m, x, d, R + m.base);
@@ -215,7 +276,7 @@ export function scatterWalk(
         thr *= albedo;
         const c = d[0] * light.sunDir[0] + d[1] * light.sunDir[1] + d[2] * light.sunDir[2];
         const ph = truncatedPhase(c, p, t);
-        if (ph > 0) add(light.sunAt(x), thr * Math.exp(-light.sunDepth(x) * kT) * ph);
+        if (ph > 0) add(light.sunAt(x), thr * Math.exp(-light.sunDepth(x) * kT) * ph, true);
         d = rotateAround(d, sampleTruncatedCos(p, t, rng), 2 * Math.PI * rng());
         if (++hits >= collisions) return L as unknown as Vec3;
     }
@@ -325,4 +386,45 @@ export function marchScatter(
         }
     }
     return { scattered: L as unknown as Vec3, transmittance: T };
+}
+
+/**
+ * O centro (mundo, x e z) da grade das sondas no referencial das nuvens (T074; espelho do empacotamento em
+ * `CloudNoiseFlow`): a câmera nesse referencial (`eye − offset`, o deslocamento do vento) encaixada a `snap`, de volta ao
+ * mundo. As sondas andam com as nuvens: o vento não muda o que elas guardam (o conteúdo à volta de cada uma é o mesmo), e
+ * a grade só troca de centro quando a câmera, nesse referencial, cruza o encaixe.
+ */
+export function scatterGridCenter(
+    eye: readonly [number, number],
+    offset: readonly [number, number],
+    snap: number,
+): [number, number] {
+    const at = (e: number, o: number): number => Math.floor((e - o) / snap + 0.5) * snap + o;
+    return [at(eye[0], offset[0]), at(eye[1], offset[1])];
+}
+
+/** A área (m²) de uma sonda no plano no ponto `x` da grade `g` (o produto dos espaçamentos nos dois eixos). */
+export function scatterCellArea(g: ScatterGrid, x: Vec3): number {
+    const s = (v: number, c: number, n: number): number => {
+        const a = Math.asinh((v - c) / g.x0) / g.reach;
+        return (g.x0 * g.reach * Math.cosh(g.reach * a) * 2) / n;
+    };
+    return s(x[0], g.center[0], g.size[0]) * s(x[2], g.center[1], g.size[2]);
+}
+
+/**
+ * O peso da sonda levada da grade de antes à de agora quando o centro muda (T074; espelho de `cloud_scatter_carry`): a
+ * contagem filtrada da de antes no ponto × `min(1, A_agora/A_antes)` (as áreas da sonda no plano) — a sonda de antes mais
+ * espaçada guarda a luz de uma área maior, e vale menos caminhos na sonda mais fina de agora; mais fina, vale inteira.
+ * Fora da grade de antes, 0 (a sonda que entra pela borda começa do zero).
+ */
+export function scatterCarryWeight(
+    now: ScatterGrid,
+    before: ScatterGrid,
+    m: CloudModel,
+    x: Vec3,
+): number {
+    const f = scatterGridCoords(m, before, x);
+    if (f[0] < 0 || f[0] > before.size[0] || f[2] < 0 || f[2] > before.size[2]) return 0;
+    return Math.min(1, scatterCellArea(now, x) / scatterCellArea(before, x));
 }

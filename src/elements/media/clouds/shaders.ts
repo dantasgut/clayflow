@@ -726,7 +726,14 @@ export const cloudScatterPages = wgslModule({
 export const cloudScatterLookup = wgslModule({
     name: 'cloud_scatter_lookup',
     source: cloudScatterLookupSource,
-    requires: [cloudScatterGrid, sky, cloudParamsResource, R.scatterFiltered, R.clampSampler],
+    requires: [
+        cloudScatterGrid,
+        sky,
+        cloudParamsResource,
+        R.scatterFiltered,
+        R.clampSampler,
+        R.ambient,
+    ],
 });
 
 /** A luz e a marcha (teto constante de passos). */
@@ -1162,6 +1169,8 @@ export const cloudScatterKernel = wgslModule({
         cloudSun,
         cloudShadowLookup,
         cloudScatterGrid,
+        cloudScatterLookup,
+        color,
         sky,
         cloudParamsResource,
         camerasResource,
@@ -1169,6 +1178,7 @@ export const cloudScatterKernel = wgslModule({
         pageAlloc,
         cloudScatterPages,
         R.scatterWork,
+        R.panorama,
         R.panoramaStamps,
         R.panoramaClock,
     ],
@@ -1198,10 +1208,13 @@ export const cloudPanoramaKernel = withFarShadow(
         requires: [
             WORKGROUP_SIZE.module,
             constants,
+            random,
+            color,
             cloudLight,
             skyAerialLookup,
             cloudParamsResource,
             cloudOutputs.panorama,
+            cloudScatterPages,
             R.scatterWork,
             R.panoramaStamps,
             R.panoramaClock,

@@ -20,6 +20,7 @@ import {
     CLOUD_SCATTER_GLOBAL_WORDS,
     CLOUD_SCATTER_HEADER_WORDS,
     CLOUD_SCATTER_PAGE,
+    CLOUD_SCATTER_PROBE_WORDS,
     CLOUD_SHADOW_SLOT_COUNT,
     CLOUD_SHADOW_STATE_SLOT,
     CloudShadowPageViewSchema,
@@ -197,8 +198,9 @@ export async function readShadowMap(app: Application, layer: CloudLayer): Promis
 }
 
 /**
- * O cache de espalhamento lido da GPU como uma grade (x mais rápido, depois a altitude, depois z; 4 valores por sonda: a
- * soma da luz e a contagem): as sondas das páginas da série por páginas `scatter` (T023; R11 revisto).
+ * O cache de espalhamento lido da GPU como uma grade (x mais rápido, depois a altitude, depois z; 8 valores por sonda: a
+ * soma da parte do sol por unidade da luz do sol que chega à sonda, a contagem, a soma da parte do céu por unidade da
+ * irradiância do céu e uma livre — T074): as sondas das páginas da série por páginas `scatter` (T023; R11 revisto).
  */
 export async function readScatterCache(
     app: Application,
@@ -212,15 +214,16 @@ export async function readScatterCache(
     const n = [w / P, h / P, d / P];
     const pages = n[0]! * n[1]! * n[2]!;
     const base = CLOUD_SCATTER_GLOBAL_WORDS + pages * CLOUD_SCATTER_HEADER_WORDS;
-    const data = new Float32Array(w * h * d * 4);
+    const W = CLOUD_SCATTER_PROBE_WORDS;
+    const data = new Float32Array(w * h * d * W);
     for (let z = 0; z < d; z++)
         for (let y = 0; y < h; y++)
             for (let x = 0; x < w; x++) {
                 const p =
                     Math.floor(x / P) + n[0]! * (Math.floor(y / P) + n[1]! * Math.floor(z / P));
                 const l = (x % P) + P * ((y % P) + P * (z % P));
-                const o = base + (p * P ** 3 + l) * 4;
-                for (let c = 0; c < 4; c++) data[((z * h + y) * w + x) * 4 + c] = raw[o + c]!;
+                const o = base + (p * P ** 3 + l) * W;
+                for (let c = 0; c < W; c++) data[((z * h + y) * w + x) * W + c] = raw[o + c]!;
             }
     return { width: w, height: h, depth: d, data };
 }

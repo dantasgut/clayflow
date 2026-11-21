@@ -1,6 +1,7 @@
-// O cache de espalhamento filtrado (spec 041, T023, R8; páginas, R11 revisto): a soma dos caminhos e a contagem de cada
-// sonda com as vizinhas pelo filtro binomial 3 × 3 × 3 (1, 2, 1)³/64 (a borda presa, como o amostrador antes), lida das
-// páginas que valem (as de outra geração, zero): o que a marcha e o panorama leem. Só as sondas cuja vizinhança tem uma
+// O cache de espalhamento filtrado (spec 041, T023, R8; páginas, R11 revisto): as somas dos caminhos (a parte do sol e a
+// contagem na metade de baixo do alvo, a parte do céu na de cima: `y` e `y + size.y`; T074) de cada sonda com as vizinhas
+// pelo filtro binomial 3 × 3 × 3 (1, 2, 1)³/64 (a borda presa, como o amostrador antes), lidas das páginas que valem (as
+// de outra geração, zero): o que a marcha e o panorama leem. Só as sondas cuja vizinhança tem uma
 // página marcada no quadro (a que caminhou; todas na geração nova) são refeitas — o resto do alvo segue como está (a
 // série por páginas do alvo filtrado). A soma e a contagem filtradas juntas mantêm a média com o peso das oitavas
 // (`cloud_scatter_light`) e a sonda sem caminhos (contagem 0) fora dela. Com o sol que anda depressa (os vídeos do pôr
@@ -22,8 +23,9 @@ fn cloud_scatter_read_page_current(p: u32, gen: u32) -> bool {
     return cloud_scatter_stamps[p] == cloud_scatter_clock.x && bitcast<u32>(cloud_scatter_cache_read[h].x) == gen;
 }
 
-fn cloud_scatter_read_probe(p: u32, l: u32) -> vec4f {
-    return cloud_scatter_cache_read[cloud_scatter_probe_word(p, l) / 4u];
+fn cloud_scatter_read_probe(p: u32, l: u32) -> CloudScatterProbe {
+    let w = cloud_scatter_probe_word(p, l) / 4u;
+    return CloudScatterProbe(cloud_scatter_cache_read[w], cloud_scatter_cache_read[w + 1u]);
 }
 
 /** A página marcada no quadro que a vizinhança 3 × 3 × 3 da sonda `g` toca? */
@@ -54,15 +56,21 @@ fn cloud_scatter_filter_main(@builtin(global_invocation_id) gid3: vec3u, @builti
     let g = vec3u(i % size.x, (i / size.x) % size.y, i / (size.x * size.y));
     if (!cloud_scatter_filter_touched(g, size)) { return; }
     let gen = cloud_scatter_read_generation();
-    var s = vec4f(0.0);
+    var sun = vec4f(0.0);
+    var sky = vec4f(0.0);
     for (var c = 0u; c < 27u; c++) {
         let o = vec3i(i32(c % 3u), i32((c / 3u) % 3u), i32(c / 9u)) - 1;
         let w = f32((2 - abs(o.x)) * (2 - abs(o.y)) * (2 - abs(o.z)));
         let q = vec3u(clamp(vec3i(g) + o, vec3i(0), vec3i(size) - 1));
         let pl = cloud_scatter_page_of(q, size);
-        if (cloud_scatter_read_page_current(pl.x, gen)) { s += w * cloud_scatter_read_probe(pl.x, pl.y); }
+        if (cloud_scatter_read_page_current(pl.x, gen)) {
+            let v = cloud_scatter_read_probe(pl.x, pl.y);
+            sun += w * v.sun;
+            sky += w * v.sky;
+        }
     }
-    textureStore(cloud_scatter_filtered_out, g, s / 64.0);
+    textureStore(cloud_scatter_filtered_out, g, sun / 64.0);
+    textureStore(cloud_scatter_filtered_out, g + vec3u(0u, size.y, 0u), vec4f(sky.rgb / 64.0, sun.a / 64.0));
     let own = cloud_scatter_page_of(g, size);
     if (own.y == 0u) { cloud_scatter_filtered_stamps[own.x] = cloud_scatter_filtered_clock.x; }
 }

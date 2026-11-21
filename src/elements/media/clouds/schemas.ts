@@ -17,7 +17,9 @@ import { type FieldSpec, StructSchema, fieldArray } from '../../../scene/descrip
  * cobertura), os tempos (Δt, passos do panorama), a posição da câmera do panorama e o cache de espalhamento (T023): a
  * grade das sondas (centro xz, escala e alcance do asinh), os parâmetros (peso da estimativa das oitavas, teto da média,
  * validade do histórico, lado do encaixe do centro), a truncagem da fase (cosseno do corte, fração do núcleo, chance da
- * HG, acumulada da HG até o corte) e o trabalho (passo da escolha dos grupos, colisões, quadro); o tempo (R19): f
+ * HG, acumulada da HG até o corte), o trabalho (o orçamento de encher a janela, colisões, quadro, assinatura), as sondas
+ * por eixo (com o orçamento da mudança em `w`) e as memórias da média no ângulo do sol e da câmera (rad) com o centro da
+ * grade no referencial das nuvens (T074); o tempo (R19): f
  * (1/s), o atrito da atmosfera livre e o da camada limite (1/s) e o tempo de formação (s); o padrão de sistemas (lado
  * das células, amplitude das baixas e teto das altas em Pa, vida em s); o quadrado do tempo (o topo do tempo bom como
  * fração da casca — 1 sem o tempo —, texels por lado, lado em m, lado do estêncil em m); as marcas (tempo ligado, slot
@@ -52,6 +54,7 @@ export const CloudSchema = new StructSchema(
         phaseCut: FieldType.vec4f,
         scatterWork: FieldType.vec4u,
         scatterSize: FieldType.vec4u,
+        scatterMemory: FieldType.vec4f,
         weather: FieldType.vec4f,
         weatherPattern: FieldType.vec4f,
         weatherMap: FieldType.vec4f,
@@ -179,6 +182,11 @@ export const CLOUD_SHADOW_PIVOT = 16_000;
  * um nível de 8 bits da luz direta plena.
  */
 export const CLOUD_SHADOW_TOLERANCE = 1 / 255;
+/**
+ * Tolerância do panorama (T074): a mudança medida nas provas (a luz relativa média, pela luminância, e a transmitância
+ * média) além da qual ele é refeito.
+ */
+export const CLOUD_PANORAMA_TOLERANCE = 0.02;
 /** Fração de erosão do detalhe (`CLOUD_EROSION` de `cloud_density.wgsl`): a evolução da forma pela deriva dele. */
 export const CLOUD_EROSION = 0.35;
 /** Colunas de prova por página por quadro: refeitas e comparadas com o que a página guarda (a medida da mudança). */
@@ -222,11 +230,14 @@ export interface CloudQuality {
     readonly coverage: { readonly texel: number; readonly budget: number };
     /**
      * Cache de espalhamento (T023, R8; páginas, R11 revisto): sondas por lado (x, altitude, z; múltiplos de
-     * `CLOUD_SCATTER_PAGE`), o orçamento de páginas de sondas que caminham por quadro e o teto de colisões por caminho.
+     * `CLOUD_SCATTER_PAGE`), o orçamento de páginas de sondas que caminham por quadro para encher a janela (as novas, as
+     * que não encheram), o orçamento das que caminham pela mudança (o sol, a câmera, o vento que sobra, a evolução; T074:
+     * o regime com o sol andando, no teto de tempo do perfil) e o teto de colisões por caminho.
      */
     readonly scatter: {
         readonly size: readonly [number, number, number];
         readonly budget: number;
+        readonly motion: number;
         readonly collisions: number;
     };
     /**
@@ -243,8 +254,13 @@ export const CLOUD_SCATTER_PAGE = 8;
  * Palavras globais (a geração da grade e o registro do panorama) e do registro de cada página (o que o último caminho
  * viu: `cloud_scatter_pages.wgsl`) antes das sondas no cache de espalhamento (T074).
  */
-export const CLOUD_SCATTER_GLOBAL_WORDS = 16;
+export const CLOUD_SCATTER_GLOBAL_WORDS = 224;
 export const CLOUD_SCATTER_HEADER_WORDS = 16;
+/**
+ * Palavras por sonda do cache de espalhamento (T074): a soma da parte do sol (por unidade da luz do sol que chega à
+ * sonda) e a contagem, a soma da parte do céu (por unidade da irradiância do céu) e uma livre.
+ */
+export const CLOUD_SCATTER_PROBE_WORDS = 8;
 /** Texels por lado do quadrado do tempo (R19): ~2 km no quadrado de 256 km, a escala sinótica com folga. */
 export const CLOUD_WEATHER_SIZE = 128;
 /** O lado do estêncil das derivadas da pressão: a escala dos sistemas sobre este número (O(h²/L²) ~ 2·10⁻⁴). */
@@ -263,6 +279,20 @@ export const CLOUD_SCATTER_MAX_COLLISIONS = 48;
 export const CLOUD_SCATTER_PRIOR = 16;
 /** Teto da média móvel da sonda (caminhos): a janela em que a luz acompanha o sol e as nuvens que mudam. */
 export const CLOUD_SCATTER_WINDOW = 64;
+/**
+ * A memória da média das sondas no ângulo do sol (rad; T074): a média esquece `e^(−Δθ/memória)` a cada caminho. Pela
+ * sensibilidade medida da luz guardada ao ângulo (`reference/__tests__/scatterMemory.ts`, f64; a parte do sol ÷ a luz do
+ * sol que chega à sonda e a do céu ÷ a irradiância do céu): 4,1 %/° na média pela luminância com o sol entre 2° e 8° (2°
+ * 4,4; 4° 2,5; 6° 3,6; 8° 6,0) — contra 26 %/° da luz em unidades do sol no topo, a forma de antes. O atraso da média é
+ * ~a memória, e o erro dele, sensibilidade × memória: igualado ao ruído da sonda filtrada com a janela cheia (4,7 %: um
+ * caminho 1,64 × a média, × √(Σw²/64) do binomial) — 4,7/4,13 = 1,14°. Com a forma de antes, os 0,25° davam 6,5 %.
+ */
+export const CLOUD_SCATTER_SUN_MEMORY = (1.14 * Math.PI) / 180;
+/**
+ * A memória no ângulo da câmera vista da sonda (rad; T074): a mesma medida com a câmera subindo — 5,2 %/° (2° 4,2; 4° 3,7;
+ * 6° 4,8; 8° 8,2) — e o mesmo erro: 4,7/5,23 = 0,90°.
+ */
+export const CLOUD_SCATTER_VIEW_MEMORY = (0.9 * Math.PI) / 180;
 /** Lado (m) do encaixe do centro da grade: a câmera que cruza esse lado recomeça as sondas. */
 export const CLOUD_SCATTER_SNAP = 4000;
 /** Escala (m) do asinh do plano da grade: perto da câmera, sondas de ~`2·escala·alcance/lado`. */

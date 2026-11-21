@@ -123,8 +123,9 @@ fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32, occ
         attenuation *= o.y;
         anisotropy *= o.w;
     }
-    let sun = sky.sunIlluminance.rgb * cloud_sun_atmosphere(p);
-    let multiple = cloud_scatter_light(p, s * sun + cloud_ambient_local(p, tau, occ));
+    let atm = cloud_sun_atmosphere(p);
+    let sun = sky.sunIlluminance.rgb * atm;
+    let multiple = cloud_scatter_light(p, s * sun + cloud_ambient_local(p, tau, occ), atm);
     return sigma_t * clouds.layer.w * (single * sun + multiple);
 }
 

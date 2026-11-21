@@ -31,6 +31,7 @@ import {
     CLOUD_SCATTER_GLOBAL_WORDS,
     CLOUD_SCATTER_HEADER_WORDS,
     CLOUD_SCATTER_PAGE,
+    CLOUD_SCATTER_PROBE_WORDS,
     CLOUD_SHADOW_KNOTS,
     CLOUD_SHAPE_SIZE,
     CLOUD_WEATHER_SIZE,
@@ -153,7 +154,7 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     shadow: { texel: 50, budget: 128 },
     coverageExtent: 256_000,
     coverage: { texel: 31.25, budget: 128 },
-    scatter: { size: [160, 32, 160], budget: 200, collisions: 48 },
+    scatter: { size: [160, 32, 160], budget: 200, motion: 40, collisions: 48 },
     marchScale: 2,
 };
 
@@ -644,11 +645,14 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 id: 'scatter',
                 role: 'storage-rw',
                 schema: GpuWordSchema,
-                count: scatterHeader + scatterPages * CLOUD_SCATTER_PAGE ** 3 * 4,
+                count: scatterHeader + scatterPages * CLOUD_SCATTER_PAGE ** 3 * CLOUD_SCATTER_PROBE_WORDS,
                 upload: 'never',
                 history: {
                     depth: 1,
-                    pages: { record: CLOUD_SCATTER_PAGE ** 3 * 16, offset: scatterHeader * 4 },
+                    pages: {
+                        record: CLOUD_SCATTER_PAGE ** 3 * CLOUD_SCATTER_PROBE_WORDS * 4,
+                        offset: scatterHeader * 4,
+                    },
                 },
             },
             // O cache filtrado no espaço (o binomial 3 × 3 × 3), o que a marcha e o panorama leem: série por páginas
@@ -661,7 +665,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                     format: 'rgba16float',
                     dimension: '3d',
                     width: q.scatter.size[0],
-                    height: q.scatter.size[1],
+                    // A parte do sol e a contagem na metade de baixo, a parte do céu na de cima (T074).
+                    height: 2 * q.scatter.size[1],
                     depthOrArrayLayers: q.scatter.size[2],
                     access: 'write-only',
                 },
@@ -676,7 +681,7 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 id: 'scatterWork',
                 role: 'storage-rw',
                 schema: GpuWordSchema,
-                count: 4 + 3 * scatterPages,
+                count: 8 + 3 * scatterPages,
                 upload: 'never',
             },
             // O tempo (R19): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o

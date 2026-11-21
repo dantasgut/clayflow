@@ -43,7 +43,7 @@ import {
     Sky as SkyClass,
     type Sky,
 } from 'clayflow/web';
-import { nextGpuFrame, settleFrames } from './support/extensionScenes';
+import { nextGpuFrame, readBuffer, settleFrames } from './support/extensionScenes';
 import {
     cloudScene,
     sunTravel,
@@ -95,11 +95,13 @@ import {
 } from '../elements/media/clouds/reference/cloudModel';
 import {
     phaseTruncation,
+    scatterGridCenter,
     scatterProbePosition,
     scatterWalk,
     type ScatterGrid,
 } from '../elements/media/clouds/reference/cloudScatter';
 import { deltaRng } from '../elements/lighting/reference/pathTracer';
+import { CLOUD_SCATTER_PROBE_WORDS } from '../elements/media/clouds/schemas';
 import {
     shadowColumnSun,
     shadowFrameOf,
@@ -398,17 +400,34 @@ async function scatterLookupOf(
     const tex = s.app.resources.textureOf(layer, 'scatterFiltered');
     if (tex === undefined) return undefined;
     const grid = await readTexture(s.app, tex, 'rgba16float');
-    const E = s.sky.data.sunIlluminance[1] ?? 1;
+    // As duas partes (T074): a do sol por unidade da luz do sol que chega ao ponto e a contagem na metade de baixo, a do
+    // céu por unidade da irradiância do céu na de cima; de volta à unidade da cena pelo sol e o céu do quadro.
+    const E = s.sky.data.sunIlluminance;
+    const amb = s.app.resources.textureOf(layer, 'ambient');
+    const up = amb === undefined ? [0, 0, 0] : (await readTexture(s.app, amb, 'rgba16float')).data;
+    const sd = s.sky.data.sunDirection;
+    const sl = Math.hypot(sd[0] ?? 0, sd[1] ?? 1, sd[2] ?? 0);
+    const sunDir: Vec3 = [(sd[0] ?? 0) / sl, (sd[1] ?? 1) / sl, (sd[2] ?? 0) / sl];
+    const R = model.groundRadius;
+    const atm = (x: Vec3): Vec3 => {
+        const r = Math.hypot(x[0], x[1] + R, x[2]);
+        const mu = (x[0] * sunDir[0] + (x[1] + R) * sunDir[1] + x[2] * sunDir[2]) / r;
+        return transmittanceToTop(atmosphere, atmosphere.bottomRadius + 0.2 + (r - R) / 1000, mu);
+    };
     const eye = s.camera.data.position;
-    const snap = (v: number): number =>
-        Math.floor(v / CLOUD_SCATTER_SNAP + 0.5) * CLOUD_SCATTER_SNAP;
-    const cx = snap(eye[0] ?? 0);
-    const cz = snap(eye[2] ?? 0);
+    // A grade no referencial das nuvens (`scatterGridCenter`): a câmera menos o deslocamento do vento, encaixada.
+    const offset = layer.windOffsets(s.app.time.simulated).coverage;
+    const [cx, cz] = scatterGridCenter(
+        [eye[0] ?? 0, eye[2] ?? 0],
+        [offset[0], offset[1]],
+        CLOUD_SCATTER_SNAP,
+    );
     const reach = Math.asinh(CLOUD_SCATTER_EXTENT / CLOUD_SCATTER_NEAR);
-    const size = [grid.width, grid.height, grid.depth];
+    const size = [grid.width, grid.height / 2, grid.depth];
     const trunc = phaseTruncation(jdeParams(layer.dropletDiameter));
+    // O índice na textura inteira (as duas metades na altura).
     const at = (i: number, j: number, k: number, c: number): number =>
-        grid.data[((k * size[1]! + j) * size[0]! + i) * 4 + c]!;
+        grid.data[((k * grid.height + j) * size[0]! + i) * 4 + c]!;
     return {
         kT: 1 - model.albedo * trunc.fc,
         light: (x, prior) => {
@@ -419,9 +438,12 @@ async function scatterLookupOf(
                 1,
                 Math.max(0, (altitudeOf(model, x) - model.base) / (model.top - model.base)),
             );
-            const f = [u * size[0]! - 0.5, h * size[1]! - 0.5, w * size[2]! - 0.5];
+            // A altitude presa a meio texel dentro de cada metade, como a GPU.
+            const fy = Math.min(Math.max(h * size[1]!, 0.5), size[1]! - 0.5) - 0.5;
+            const f = [u * size[0]! - 0.5, fy, w * size[2]! - 0.5];
             const b = f.map(Math.floor);
             const q = [0, 0, 0, 0];
+            const k2 = [0, 0, 0];
             for (let dz = 0; dz < 2; dz++)
                 for (let dy = 0; dy < 2; dy++)
                     for (let dx = 0; dx < 2; dx++) {
@@ -433,10 +455,16 @@ async function scatterLookupOf(
                         const j = Math.min(size[1]! - 1, Math.max(0, b[1]! + dy));
                         const k = Math.min(size[2]! - 1, Math.max(0, b[2]! + dz));
                         for (let c = 0; c < 4; c++) q[c]! += wt * at(i, j, k, c);
+                        for (let c = 0; c < 3; c++) k2[c]! += wt * at(i, j + size[1]!, k, c);
                     }
             const n0 = CLOUD_SCATTER_PRIOR;
+            const t = atm(x);
             return [0, 1, 2].map(
-                (c) => (q[c]! * E + n0 * prior[c]!) / (Math.max(q[3]!, 0) + n0),
+                (c) =>
+                    (q[c]! * (E[c] ?? 1) * Math.max(t[c]!, 1e-3)
+                        + k2[c]! * Math.max(up[c]!, 1e-9)
+                        + n0 * prior[c]!)
+                    / (Math.max(q[3]!, 0) + n0),
             ) as unknown as Vec3;
         },
     };
@@ -917,14 +945,31 @@ async function caseScatterCache(): Promise<void> {
     };
     const size = [grid.width, grid.height, grid.depth] as const;
     const g: ScatterGrid = { size, center: [0, 0], x0: 2000, reach: Math.asinh(32) };
-    const E = s.sky.data.sunIlluminance[1] ?? lux;
     // As sondas convergidas (≥ 48 caminhos) no campo de visão, espalhadas.
     const fwd = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
     const fl = Math.hypot(...fwd);
     const picks: { x: Vec3; n: number; v: number }[] = [];
     const total = size[0] * size[1] * size[2];
+    const W = CLOUD_SCATTER_PROBE_WORDS;
+    const Es = s.sky.data.sunIlluminance;
+    {
+        let walked = 0;
+        let full = 0;
+        let most = 0;
+        const hist = [0, 0, 0, 0, 0, 0, 0, 0];
+        for (let i = 0; i < total; i++) {
+            const n = grid.data[i * W + 3]!;
+            if (n > 0) walked++;
+            if (n >= 48) full++;
+            hist[Math.min(7, Math.floor(n / 8))]!++;
+            most = Math.max(most, n);
+        }
+        log(
+            `scatter-cache: sondas com caminhos ${walked} de ${total}, ≥ 48: ${full}, maior contagem ${most.toFixed(1)}; por oitavos da janela ${hist.join(' ')}`,
+        );
+    }
     for (let i = 0; i < total && picks.length < Number(q.get('probes') ?? 120); i += 397) {
-        const n = grid.data[i * 4 + 3]!;
+        const n = grid.data[i * W + 3]!;
         if (n < 48) continue;
         const gi = i % size[0];
         const gj = Math.floor(i / size[0]) % size[1];
@@ -937,8 +982,16 @@ async function caseScatterCache(): Promise<void> {
             || (rel[0] * fwd[0]! + rel[1] * fwd[1]! + rel[2] * fwd[2]!) / (dist * fl) < 0.5
         )
             continue;
-        const sum = luminance([grid.data[i * 4]!, grid.data[i * 4 + 1]!, grid.data[i * 4 + 2]!]);
-        picks.push({ x, n, v: (sum / n) * E });
+        // As duas partes de volta à unidade da cena (T074): o sol pela luz que chega à sonda, o céu pela irradiância.
+        const t = sunAt(x);
+        const sum = luminance(
+            [0, 1, 2].map(
+                (c) =>
+                    grid.data[i * W + c]! * (Es[c] ?? lux) * Math.max(t[c]! / lux, 1e-3)
+                    + grid.data[i * W + 4 + c]! * Math.max(up[c]!, 1e-9),
+            ) as unknown as Vec3,
+        );
+        picks.push({ x, n, v: sum / n });
     }
     const walks = Number(q.get('walks') ?? 1000);
     let sumG = 0;
@@ -1140,6 +1193,8 @@ async function cloudCost(
     deltas: string;
     /** O texel do alcance (a distância, a decisão do seguinte e a deste) em cada fase. */
     reach: string;
+    /** O trabalho do cache no fim de cada fase com a camada (páginas/panorama/mudança dele/porquê). */
+    work: string;
     /** Os intervalos de quadro de cada fase (mínimo/mediana/máximo e quantos). */
     spreads: string;
     quality: unknown;
@@ -1231,6 +1286,7 @@ async function cloudCost(
     const allWithout: Record<string, number>[] = [];
     const reach: string[] = [];
     const spreads: string[] = [];
+    const work: string[] = [];
     for (let r = 0; r < TIMING_REPS; r++) {
         // Sempre com e depois sem a camada (T074): o quadro sem a camada (~1,2 ms no alto) fica abaixo do tempo da CPU
         // por quadro (~2,3 ms) e a GPU fica ociosa entre eles — o M4 baixa o relógio dela em algumas centenas de ms, e todos
@@ -1269,6 +1325,16 @@ async function cloudCost(
                     `${has ? 'com' : 'sem'} ${r[0]!.toExponential(1)} m/${r[1]}/${r[2]} (${channel!.frames} q)`,
                 );
             } else reach.push(`${has ? 'com' : 'sem'} sem canal (${String(channel?.allocated)})`);
+            // O trabalho do cache no último quadro (T074): páginas que caminharam, o panorama refeito, a mudança medida dele
+            // e o porquê (1 a série, 2 o conteúdo, 4 a mudança).
+            if (has && layer !== undefined) {
+                const wb = s.app.resources.bufferOf(layer, 'scatterWork');
+                if (wb !== undefined) {
+                    const words = new Uint32Array((await readBuffer(s.app, wb, 'cloud_scatter_work')).buffer);
+                    const f = new Float32Array(words.buffer);
+                    work.push(`${words[0]}/${words[1]}/${f[6]!.toFixed(4)}/${words[7]}`);
+                }
+            }
             const all = await passTimes(s.app, 30, /./, moveSun, dt);
             (has ? allWith : allWithout).push(all.passes);
             if (has) perPass.push(t.passes);
@@ -1298,6 +1364,7 @@ async function cloudCost(
         froxelsWithout: median(froxelsWithout),
         deltas,
         reach: reach.join(', '),
+        work: work.join(' '),
         spreads: spreads.join(', '),
     };
 }
@@ -1429,7 +1496,7 @@ async function caseTiming(): Promise<void> {
         const d = median(c.diffs);
         log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${name}: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+            `timing ${name}: cache (páginas/panorama/mudança/porquê) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
         );
         log(
             `timing ${name}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
