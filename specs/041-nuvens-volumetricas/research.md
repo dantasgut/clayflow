@@ -1371,6 +1371,27 @@ da cobertura (8 km) e o do tipo (3 km) passam entre as pontas além da folga: o 
 1,7·10⁻³/m no tipo, em 200 000 pontos) × 1,5. Com uma função de cobertura (gradiente desconhecido) ou o tempo, da base ao
 topo das colunas.
 
+### R11 (T074, 2026-11-21 e) — a coluna repartida, os nós do meio dos trechos, a marcha medida por partes
+
+**A marcha por partes** (`high-sun`, 1,77 ms, cada parte tirada e medida): o cone 0,60, o pedaço até o nó 0,49, a leitura
+do nó 0,17, o detalhe nas amostras da luz 0,27, a ocupação 0,10, a leitura do cache 0,08. Por raio: 39 passos, 7,1 com
+nuvem (o maior de 32 vizinhos: 10,9), 14 grossos, 18 finos vazios; 48 % saem pela transmitância. A luz por passo segue o
+número de amostras da densidade; o que muda por raio (a luz barata com T < 0,1, 32 % dos passos com nuvem) não rende: o
+grupo SIMD paga o caminho mais caro. A marcha em dois laços (Aila e Laine 2009) e o despacho em ladrilhos 8 × 8 também não.
+
+**Os nós do meio**: o pente grava 32 nós; os 16 da coluna nas camadas 0…3 (o que a superfície, o ar, as provas e o
+registro leem), os do meio de cada trecho nas 4…7. O pedaço da marcha vai só até o meio nó, em 2 passos com o mesmo
+espaçamento: em f64 o erro médio de τ ao longo de uma coluna de 36 km a 4° sai 1,70 % contra 2,34 %; a marcha −0,12 ms, o
+desenho +0,1 ms.
+
+**O desenho da página**: as 33 colunas além das 256 invocações repartidas em 7 partes seguidas do pente — a soma das
+partes é a coluna em qualquer repartição (τ de um nó: a extinção × o pedaço da célula acima dele) —, 1,67 → 1,43 ms. O
+redesenho em quatro fases entrelaçadas (um quarto dos texels por quadro, os quatro do filtro de fases diferentes) custava
+1/4, mas as fases desenhadas com sóis de até 3 quadros atrás, lidas pelo sol da página, deixavam o degrau dos blocos do
+`dusk-blocks` em 1,049: desfeito. A demanda com o sol andando: ~500 páginas por quadro acima de 1/255; das colunas refeitas,
+48 % mudam menos que isso; a previsão por texel (o maior |ΔT| aos vizinhos × o deslocamento das colunas) pula 32 % delas e
+erra 2,5 % acima de 4/255 — a peça seguinte, com a idade por texel no registro.
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por

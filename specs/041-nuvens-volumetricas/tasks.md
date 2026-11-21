@@ -442,6 +442,37 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       estado na série, alguns passos por quadro) daria o custo da vazão; (b) o desenho do mapa com o sol baixo andando: 90–112
       páginas por quadro de mudança real (as sombras perto da câmera; as colunas de ~36 km giram ~2 m por quadro); (c) com o
       sol baixo parado o quadro já fica em 2,93 ms (a marcha).
+      **Rodada 2026-11-21 e — a coluna repartida, os nós do meio, o que não coube** (`ee205471`, `2488a334`; R8 e R11 da
+      T074 no research.md). Medido antes por passe e por partes (o passe tirado, M4, `high-sun`, 5,12 ms): na marcha 1,77
+      ms, o cone 0,60, o pedaço até o nó 0,49, a leitura do nó 0,17, a luz sem o detalhe 0,27 a menos, a ocupação 0,10, o
+      cache de espalhamento na leitura 0,08; 7,1 passos com nuvem por raio (máximo por grupo de 32: 10,9), 48 % com a saída
+      antecipada, 52 % dos passos com nuvem com T < 0,3. (1) **O desenho do mapa**: as 289 colunas de uma página em 256
+      invocações; as 33 que sobram repartidas em 7 partes do pente (τ de um nó é a soma, nas células acima dele, da extinção
+      × o pedaço acima do nó: a soma das partes é a coluna), 1,67 → 1,43 ms, imagem igual (espelho `shadowCombPart`,
+      `shadowCombSplit` com teste). (2) **Os nós do meio dos trechos** nas camadas 4…7 do atlas: a marcha integra só até o
+      meio nó do lado do sol em 2 passos (erro médio de τ em f64 1,70 % contra 2,34 %): a marcha 1,695 → 1,580 ms no
+      `high-wind`, o desenho do mapa +0,1 ms pelas camadas a mais. Medidos e desfeitos: a luz de nível de detalhe pela
+      transmitância (o mapa só com T < 0,1: 32 % dos passos com nuvem, nenhum ganho — o grupo SIMD paga o mais caro), a
+      marcha em dois laços ("while-while", Aila e Laine 2009: igual), o despacho em ladrilhos 8 × 8 (−0,04), mais passos
+      finos depois da nuvem (`CLOUD_EMPTY_TO_COARSE` 12/48: −0,12/−0,23 ms, `sunset` 4,4/4,9 %), o desenho em quatro fases
+      entrelaçadas (o mapa com 1/4 do custo por quadro: o degrau do `dusk-blocks` 1,049 — as fases com sóis diferentes
+      lidas pelo sol da página) e a cauda do caminho do cache pelo próprio cache com 12 colisões (−0,07 ms). Medidas finais
+      (M4, 1280 × 720, cada caso sozinho, a GPU fria): `high-sun` 5,15 → **4,91–4,94 ms** ✗ (o mapa 1,54–1,58, a marcha
+      1,64, os caminhos 0,57, froxels +0,36 com a camada, tabela aérea 0,28), `high-wind` 3,57 → **3,41** ✗ (a marcha 1,58,
+      os caminhos 0,57, o mapa 0,29–0,36, froxels +0,36), `timing` alto **2,54** ✓ (a marcha 1,59). Rodados em seguida os
+      casos de tempo saem 20–40 % mais lentos (o relógio da GPU): médio, baixo, `inside-timing` e `interior-timing` não
+      foram medidos frios nesta rodada. Casos de imagem (o código final): `noon` 1,0 %, `backlit` 4,3 %, `types` passa,
+      `sunset` 4,0 %, `storm` 2,4 %, `far-cloud` 2,6 %, `beam-gap` +3,0 px, `dusk-blocks` degrau 1,029, matiz 0,0364,
+      `scatter-cache` 0,965, `panorama` 0,008, `sun-sweep` 0,005, `shadow-map` 0,020, `ground-shadow` 0,010, `wind` e
+      `fly-through` passam; vitest de media/clouds passa. **Em aberto na T074: `high-sun` e `high-wind`.** O que falta: a
+      marcha (−0,5 ms no mínimo: o piso parado com o sol a 5° segue ~2,9 ms) não tem mais o que tirar sem mudar a imagem —
+      a luz por passo é proporcional às amostras da densidade (~0,1 ms por amostra do cone por passo), e cortes por raio
+      não rendem com o grupo SIMD; a peça que falta é a luz do sol perto do ponto sem marchar (um volume de τ até o sol no
+      referencial do sol perto da câmera, refeito por páginas como o mapa) ou o volume da forma com níveis de detalhe para
+      as amostras longas da luz. O mapa com o sol andando: a demanda (~500 páginas por quadro acima da tolerância, 48 % das
+      colunas refeitas mudam menos de 1/255) pede o redesenho por coluna com a previsão por texel (o gradiente dos vizinhos
+      × o deslocamento: 32 % das colunas puladas, 2,5 % delas erradas acima de 4/255, medido) com a idade por texel. Os
+      caminhos do cache continuados entre quadros (o estado do caminho na série) não foram feitos.
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
