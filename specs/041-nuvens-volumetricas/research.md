@@ -1461,6 +1461,44 @@ em pedaços soma a mesma luz que inteiro com o mesmo gerador. No `high-wind`: os
 o caso 3,27 → 3,06 ms. Mas a luz das sondas chega 1–16 quadros depois da escolha: com o sol rápido do `dusk-blocks` o
 degrau dos blocos foi a 1,028–1,034 (falha a 1,03) e, com o filtro marcado só no fim da caminhada, o matiz a 0,061.
 
+### R11 (T074, 2026-11-21 h) — o desenho do mapa visto do sol repartido entre grupos; a demanda do sol no ritmo real medida
+
+**O passe do desenho era limitado pela latência, não pelo total.** Com o sol no ritmo real (`high-sun`, 0,004°/s) o mapa
+desenhava ~100 páginas por quadro (o orçamento de 128 páginas de referência) em 1,60 ms. Medido: as mesmas páginas
+desenhadas duas vezes no mesmo passe custam 2,21 ms (+0,6 ms para o dobro do trabalho); com a densidade trocada por uma
+função barata, 6,4 µs por página contra 10,7 — mais da metade do passe era a cadeia de amostras de uma coluna (até 196
+numa invocação, com a página num grupo só) e a estrutura em volta dela, não a densidade.
+
+**O que mudou.** A escolha do quadro grava a lista compacta das páginas escolhidas (`cloud_shadow_work`, depois das
+marcas) e zera as medidas delas no registro; um passe de uma invocação (`cloud_shadow_args.wgsl`) escreve os argumentos
+do despacho indireto num buffer à parte (`CloudLayer.shadowArgs`: o buffer do despacho indireto não pode estar ligado
+para escrita no passe que ele despacha); o desenho (`cloud_shadow_draw_main`) faz 5 grupos por página, cada um com 58
+colunas em 4 partes seguidas do pente (a soma das partes é a coluna, `shadowCombSplit`; as medidas e o custo somados no
+grupo e depois no registro); depois, um grupo por página física (`cloud_shadow_main`) fecha o registro das desenhadas — o
+gradiente entre vizinhos pelos nós 4, 8, 12 e 16 que o registro já guarda, o sol, o tempo, o carimbo — e prova as demais,
+como antes. A imagem é a mesma conta (só a ordem da soma muda). Partes × colunas por grupo, medidas no `high-sun`: 15 × 17
+→ 1,07 ms, 7 × 36 → 1,00, 4 × 64 → 0,93, 4 × 58 (balanceado) → 0,91–0,92, 2 × 128 → 0,95. Medidos e desfeitos: os nós de
+cada parte na memória do grupo em vez da lista privada (14,5 KB de memória do grupo: 1,04 ms, pior) e os atômicos do
+custo e das medidas direto no registro (sem diferença: 0,925).
+
+**A demanda medida (a escolha conta as páginas acima de 4, 16 e 64 tolerâncias; o smoke `timing` a registra).** No ritmo
+real, ~1670 das ~2048 páginas passam de 1/255 por quadro, ~1110 de 4/255, ~180 de 16/255 e ~5 de 64/255; com o sol a
+0,25°/s, ~1600–1780 passam de 64/255. O orçamento decide o custo nos dois casos: ~100 páginas por quadro.
+
+**Por que a, b e c não baixam a demanda abaixo do orçamento (f64, cúmulos em células, sol a 5°, 1,2·10⁻⁶ rad por
+quadro).** O erro de verdade da página velha lida como a GPU a lê (pelo plano do sol dela) contra a coluna nova pelo mesmo
+ponto: no nível 0, 0,6–1,4 nível de 8 bits por quadro; nos níveis 3–7, 1–17 por quadro (o detalhe menor que o texel
+cruza o centro dele). O pente preso a planos fixos do mundo em vez do plano do sol e o pente fino de 16 m dão o mesmo: é
+a mudança física, não a amostragem. (b) A reprojeção pelo sol novo já é o que a leitura faz; a previsão honesta dela (o
+gradiente por eixo, o giro do plano só como cobertura da página, as provas no ponto que a leitura lê) baixa a demanda
+acima de 4/255 de ~1110 para ~960 — segue acima do orçamento; desfeita (sem ganho de custo). (a) A tolerância pela tela:
+a pegada do pixel na coluna mais perto da câmera (1,8–3,7 m × 2ᵏ) fica abaixo do texel à direita (10 m × 2ᵏ) em todos os
+níveis, e o fator texel/pegada não reduz nada; pelo disco do sol (a penumbra que a leitura das superfícies faz), a luz
+muda até (2/π)(Δθ/tan α)·C por quadro — 0,04 nível por quadro no contraste pleno, um nível a cada ~24 quadros, ~85 páginas
+por quadro —, e a marcha lê o sol pontual (o erro dela é o cru). (c) O mapa pré-filtrado pelo disco tem o mesmo limite
+físico (um nível a cada ~24 quadros no contraste pleno) e a filtragem cruza páginas desenhadas em quadros diferentes. Com
+1 nível de 8 bits nenhum dos três chega às ~25 páginas por quadro que o teto de 3 ms pede.
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por

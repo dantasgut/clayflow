@@ -593,6 +593,32 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       `high-wind` **3,21** (a marcha 1,35, os caminhos 0,57, o mapa 0,26), registrados. **Em aberto na T074: o `high-sun`
       no ritmo real (o mapa visto do sol), o `interior-timing` (os passes fixos da camada sem céu), o degrau do
       `dusk-blocks` ≤ 1,02 e a margem do matiz.**
+      **Rodada 2026-11-21 h — o desenho do mapa repartido entre grupos; a demanda do sol no ritmo real medida**
+      (`62dbf057`; R11 da T074, rodada h, no research.md). (1) Medido: o desenho do mapa era limitado pela latência da
+      cadeia de amostras de uma coluna (as mesmas ~100 páginas desenhadas duas vezes: 1,60 → 2,21 ms; com a densidade
+      trocada por uma função barata, 6,4 µs por página contra 10,7). Feito: a escolha grava a lista compacta das páginas
+      do quadro, um passe de uma invocação escreve os argumentos do despacho indireto (`CloudLayer.shadowArgs`, buffer à
+      parte), o desenho faz 5 grupos por página com 58 colunas em 4 partes do pente cada, e um grupo por página física fecha
+      o registro e prova as demais. A imagem é a mesma conta. Medidos e desfeitos: 15, 7 e 2 partes (1,07/1,00/0,95 ms
+      contra 0,92), os nós das partes na memória do grupo (1,04) e os atômicos sem a redução no grupo (igual). (2) A
+      demanda (a escolha agora a conta; o smoke `timing` a registra): no ritmo real ~1670 das ~2048 páginas acima de
+      1/255 por quadro, ~1110 acima de 4/255, ~180 acima de 16/255; com 0,25°/s, ~1600–1780 acima de 64/255 — o orçamento
+      (~100 páginas por quadro) decide o custo nos dois. (3) Os candidatos, medidos em f64 (o erro de verdade da página
+      velha lida pelo sol dela contra a coluna nova pelo mesmo ponto, sol a 5°: 0,6–1,4 nível de 8 bits por quadro no nível
+      0, 1–17 nos níveis 3–7; o pente preso a planos fixos do mundo e o pente fino de 16 m dão o mesmo — é a mudança
+      física): (b) a reprojeção pelo sol novo já é o que a leitura faz, e a previsão honesta dela (o gradiente por eixo, o
+      giro do plano só como cobertura, as provas no ponto da leitura) baixa a demanda acima de 4/255 de ~1110 para ~960 —
+      desfeita, sem ganho de custo; (a) a tolerância pela tela: a pegada do pixel na coluna fica abaixo do texel em todos
+      os níveis (o fator texel/pegada não reduz nada) e, pelo disco do sol, a luz muda até 0,04 nível por quadro no
+      contraste pleno (um nível a cada ~24 quadros, ~85 páginas por quadro), com a marcha no sol pontual; (c) o mapa
+      pré-filtrado pelo disco tem o mesmo limite físico. Com 1 nível de 8 bits nenhum dos três chega às ~25 páginas por
+      quadro do teto. Medidas (M4, 1280 × 720, rodados em seguida): `high-sun` 4,19 → **3,49 ms** ✗ (o mapa: escolha 0,09
+      + desenho 0,92 + fim do registro 0,09 = 1,10 ms, eram 0,09 + 1,60; a marcha 1,38, froxels 0,56, `FroxelReachFlow`
+      0,42, tabela aérea 0,26), `high-sun-fast` 4,76 → **4,10** (o desenho 0,73), `high-wind` 3,21 → **3,22**, `timing`
+      médio **0,97** ✓. Casos de imagem (os mesmos valores de antes): `sunset` 3,6 %, `dusk-blocks` degrau 1,025, matiz
+      0,0491, `sun-below`, `shadow-map` 0,020, `ground-shadow` 0,010; vitest de media/clouds passa. **Em aberto na T074:
+      o `high-sun` no ritmo real (−0,5 ms: o desenho de ~100 páginas por quadro que a tolerância de 1/255 pede), o
+      `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.**
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
