@@ -365,6 +365,41 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       1,019), `types` 1,4/1,7/1,6 %, `sunset` 3,6 %, `storm` 2,4 %, `far-cloud` 2,6 %, `beam-gap` +3,0 px, `panorama`
       0,008, `scatter-cache` 0,963, `dusk-blocks` matiz 0,0176 (degrau 1,015, alta frequência 2,52 %), `sun-sweep` 0,005,
       `shadow-map` 0,020, `ground-shadow` 0,010; vitest de media/clouds passa.
+      **Rodada 2026-11-21 c — a composição e a máscara por blocos, o pulo da faixa, os critérios do sol e do vento**
+      (`99bd0a8a`, `c1a8e4cf`, `68a47bb1`). (1) **A peça da rodada 12**: o aumento marca cada bloco de 8 × 8 pixels em
+      que a composição muda a cor (a mesma regra do descarte por pixel), um passe monta a lista (o bloco ou um dos 8
+      vizinhos marcado: a passa-baixa 3 × 3 a 3 pixels da luz que chega alcança o bloco ao lado) e os argumentos do
+      despacho indireto; a composição lê e escreve a cor e a luz só nos blocos da lista; a máscara do disco: uma invocação
+      acha o retângulo dos dois discos e grava o despacho da marcação (`Sky.diskWork`). Tudo na GPU, sem leitura na CPU;
+      sem nuvem nem disco à vista, zero grupos. Com `texture-formats-tier2` (pedida como opcional): a cor, a luz e a
+      máscara com storage de leitura e escrita (`TextureShape.storage`); sem ela, os passes de desenho de antes. A luz que
+      chega passa a `rgba16float` (o `rg16float` não tem storage de leitura e escrita). Referência f64 da lista e da
+      composição por blocos com teste (`reference/cloudTiles.ts`). Interior: composição 0,259 → **0,004 ms**, máscara
+      0,244 → **0,012 ms**; ao ar livre 0,064 ms. A tabela aérea só quando lida **não feita**: a decisão viria do alcance
+      do quadro anterior (série 037) e o quadro que passa a ver longe leria a tabela de outro quadro. (2) **O sol no ciclo
+      de dia de um jogo**: `high-sun` a 0,25°/s; `high-sun-lapse` (1,3°/s) registrado sem teto; `high-wind` com o tempo
+      simulado andando (o vento de 10 m/s). **Não cabem**: `high-sun` **6,40 ms** (caminhos do cache 1,51, desenho do
+      mapa visto do sol 1,65, panorama 0,37, marcha 1,76, froxels 0,56, tabela aérea 0,28) e `high-wind` **4,12 ms**
+      (caminhos 0,81, panorama 0,36, mapa 0,31, marcha 1,71). Causa: com a memória de 0,25° do cache e a janela de 64, manter
+      a média pede 64 caminhos por sonda a cada 0,25° de sol — a 0,25°/s ~1 caminho por sonda por quadro, contra o teto de
+      200 das 1600 páginas: o teto todo quadro, também a 0,25°/s; o mapa visto do sol, a 1/255 de transmitância com as
+      colunas de ~30 km do sol baixo, desloca 2–3 m por quadro e passa da tolerância em todo quadro; o panorama é refeito
+      sempre que alguma página caminha. A peça que falta (estrutural): o cache guardado pela transmitância da atmosfera até
+      a sonda (a mudança rápida da cor do sol baixo, que impõe os 0,25°, aplicada na leitura com o sol de agora) e a memória
+      pela sensibilidade medida da luz espalhada ao ângulo; a tolerância do mapa pela pegada da página na tela; o panorama
+      pela própria mudança. (3) **O pulo pela faixa de altura** reaplicado: a causa da transmitância 0,47 contra 0 era o
+      `t` do pulo na borda do trecho — em f32 `(t − entrada)/trecho` saía às vezes um ULP abaixo, o trecho de antes (vazio)
+      de novo, o pulo de volta e o passo gasto até o teto (~metade dos raios sem nuvem); o trecho do último pulo guardado,
+      espelho em f32 (`rayBin`) com teste. (4) `weather-timing` sozinho: estado **0,064 ms**, acréscimo 0,000 ✓ (o 0,151
+      era a GPU quente da rodada longa). Medidas finais (M4, 1280 × 720, cada caso sozinho): `timing` alto **2,59 ms** ✓,
+      médio **0,86** ✓, baixo **0,07** ✓ (médio e baixo com repetições negativas: o quadro leve baixa o relógio),
+      `inside-timing` **0,40** ✓, `interior-timing` **0,16** ✓ (repetições −0,20…1,67: o quadro sem a camada no relógio
+      baixo; pela soma dos passes das nuvens no interior, ~0,5 ms — a luz das nuvens 0,29, a marcha, a reconstrução e o
+      aumento 0,16, a tabela aérea +0,08), `weather-timing` ✓, `high-sun` ✗, `high-wind` ✗. Casos de imagem (o código final): `noon` 0,9 %, `backlit`
+      4,3 % (borda/centro 1,019), `types` 1,5/1,7/1,6 %, `sunset` 4,4 %, `storm` 2,4 %, `far-cloud` 2,6 %, `beam-gap` +3,0 px,
+      `dusk-blocks` matiz 0,0176, `scatter-cache` 0,963, `panorama` 0,008 — passam; vitest de media/clouds passa (o
+      `wgslSymbols` falha já na base: `cloud_shadow_maps` em dois arquivos, de `64d084e1`). Em aberto na T074: `high-sun` e
+      `high-wind` (a peça do item 2 acima).
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
