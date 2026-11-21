@@ -1,5 +1,5 @@
 import type { BindingSource, BoundFlow, TransitionContext } from '../../../scene/flows/FlowBinding';
-import type { Frame } from '../../../scene/contracts/gpu';
+import type { Frame, IndirectBufferSpec } from '../../../scene/contracts/gpu';
 import type { ResourceDirectory } from '../../../scene/contracts/ResourceDirectory';
 import { Flow } from '../../../scene/flows/Flow';
 import type { FlowContext } from '../../../scene/flows/FlowRegistry';
@@ -16,7 +16,6 @@ import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
-import type { IndirectBufferSpec } from '../../../core/contracts/specs/IndirectBufferSpec';
 import {
     CLOUD_TILE,
     cloudHistorySlots,
