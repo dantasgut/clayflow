@@ -558,8 +558,12 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       até o centro da caixa não a tira, quadros 700 e 780 do `solposto` — e os feixes ainda suaves contra as fotos) `solposto` (rodada 15): a luz cai num quadro quando o sol entra atrás do cúmulo (632 → 633; na rodada 14,
       ~20 quadros) e a mancha verde-ciano junto ao sol no horizonte aos 13 s; e os feixes ainda fracos contra as fotos de
       referência (R21, vídeos).
-- [ ] T076 [US5] O vídeo `tempestade` da rodada 15 (não gravado: a série de GPU parou por um Chrome em estado E quando
-      outro smoke começou junto).
+- [x] T076 [US5] O vídeo `tempestade` da rodada 15 (não gravado: a série de GPU parou por um Chrome em estado E quando
+      outro smoke começou junto). — **Gravado no fechamento (2026-11-21, `b44e90ab`^, claflow-web porta 5184,
+      `scratchpad/041-video/rodada38/`)**: o quadro de prova antes (`prova/tempestade-q0.png`: cúmulos rasos, céu e chão
+      sem defeito); 7200 quadros, brilho 51,81 dB, RGB 47,31 dB contra o exato, GPU por quadro média 20,2 ms (mediana 21,2,
+      p95 24,9); 95 MB recomprimido em `tempestade-r.mp4` (12,9 MB, CRF 20); conferido o quadro aos 100 s (a base escura do
+      sistema sobre a câmera, a faixa clara no horizonte).
 - [x] T077 [GPU] O mapa de cobertura em níveis em volta da câmera (R21 rodadas 18–19): níveis de 512² texels (31,25 m no
       nível 0 do alto) por páginas da C2 no endereço toroidal, uma leitura por ponto (a passagem entre níveis no anel de
       fora de cada janela, no desenho), orçamento constante pela mesma função de cobertura; o mapa 0,160 → 0,049 ms; o
