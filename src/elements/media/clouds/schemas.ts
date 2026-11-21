@@ -124,8 +124,9 @@ export function cloudCoverageSlotCount(levels: number): number {
  * Os campos do registro de uma página física do mapa visto do sol (`cloud_shadow.wgsl`), na ordem do struct: o sol do
  * desenho (`f32`), o tempo da forma no desenho (s), a página global, o quadro do desenho, a assinatura do conteúdo, as
  * medidas (o maior |ΔT| entre texels por metro, o maior ao longo da coluna por metro, o maior trecho e a maior alavanca,
- * em m), o trecho no centro da página (m), o erro medido pelas provas, a célula do pivô e o degrau da razão do texel à
- * direita com que foi desenhada; depois, os nós 4, 8, 12 e 16
+ * em m), o trecho no centro da página (m), o erro medido pelas provas, a célula do pivô, o degrau da razão do texel à
+ * direita com que foi desenhada e o custo do desenho (as amostras da densidade, as com nuvem × `CLOUD_SHADOW_CLOUDY_COST`;
+ * T074); depois, os nós 4, 8, 12 e 16
  * de cada texel (o que as provas comparam).
  */
 const SHADOW_PAGE_FIELDS: readonly (readonly [string, 'f' | 'i' | 'u'])[] = [
@@ -146,6 +147,7 @@ const SHADOW_PAGE_FIELDS: readonly (readonly [string, 'f' | 'i' | 'u'])[] = [
     ['pivot_x', 'u'],
     ['pivot_y', 'u'],
     ['step', 'u'],
+    ['cost', 'u'],
 ];
 
 function shadowPageFields(view: boolean): Record<string, FieldSpec> {

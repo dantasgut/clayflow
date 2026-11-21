@@ -682,3 +682,45 @@ export function shadowPageKey(priority: number): number {
         CLOUD_SHADOW_KEY_MANDATORY - 1,
     );
 }
+
+/** O custo de uma amostra com nuvem em amostras vazias no desenho de uma coluna (`CLOUD_SHADOW_CLOUDY_COST`, T074). */
+export const CLOUD_SHADOW_CLOUDY_COST = 4;
+/** O custo de referência de uma página: os 289 texels com 192 amostras vazias (`CLOUD_SHADOW_PAGE_REF_COST`). */
+export const CLOUD_SHADOW_PAGE_REF_COST = 289 * 192;
+
+/** O custo do desenho de uma coluna com `samples` amostras, `cloudy` delas com nuvem (1 a mais: a coluna fora da casca). */
+export function shadowColumnCost(samples: number, cloudy: number): number {
+    return 1 + samples - cloudy + CLOUD_SHADOW_CLOUDY_COST * cloudy;
+}
+
+/**
+ * As páginas do quadro pelo custo (espelho do corte de `cloud_shadow_select_main`, T074): as obrigatórias todas e, da fila
+ * mais alta à mais baixa, as inválidas até o orçamento de custo (`budget` páginas de referência); dentro da fila do corte,
+ * pela ordem da página física, entra a que começa antes do custo que sobra. `pages`: a fila (0: fora) e o custo previsto
+ * de cada uma, na ordem física. Devolve os índices escolhidos.
+ */
+export function shadowSelectByCost(
+    pages: readonly { readonly key: number; readonly cost: number }[],
+    budget: number,
+): number[] {
+    const hist = new Array<number>(CLOUD_SHADOW_KEY_MANDATORY + 1).fill(0);
+    for (const p of pages) if (p.key > 0) hist[p.key]! += p.cost;
+    let left = budget * CLOUD_SHADOW_PAGE_REF_COST;
+    let cut: [number, number] = [CLOUD_SHADOW_KEY_MANDATORY, hist[CLOUD_SHADOW_KEY_MANDATORY]!];
+    left -= Math.min(left, cut[1]);
+    for (let b = CLOUD_SHADOW_KEY_MANDATORY - 1; b >= 1; b--) {
+        if (left === 0) break;
+        cut = [b, Math.min(hist[b]!, left)];
+        left -= cut[1];
+    }
+    const out: number[] = [];
+    let spent = 0;
+    pages.forEach((p, i) => {
+        if (p.key > cut[0]) out.push(i);
+        else if (p.key === cut[0] && p.key > 0) {
+            if (cut[0] === CLOUD_SHADOW_KEY_MANDATORY || spent < cut[1]) out.push(i);
+            spent += p.cost;
+        }
+    });
+    return out;
+}

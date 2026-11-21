@@ -37,6 +37,8 @@ import {
     shadowPageCorners,
     shadowPageError,
     shadowPageKey,
+    shadowSelectByCost,
+    CLOUD_SHADOW_PAGE_REF_COST,
     shadowPagePriority,
     shadowPageStats,
     shadowProbeTexel,
@@ -720,4 +722,32 @@ describe('mapa visto do sol por páginas: o esquema de invalidação no tempo (f
         for (const r of out.filter((x) => x.budget < pages.length))
             expect(r.p50).toBeLessThanOrEqual(3 * r.step.p50 + CLOUD_SHADOW_TOLERANCE);
     }, 120_000);
+});
+
+describe('mapa visto do sol por páginas: o orçamento por custo (T074)', () => {
+    it('as obrigatórias sempre; as demais da fila mais alta até o custo; páginas baratas passam em maior número', () => {
+        // Arrange: 8 obrigatórias caras, 64 inválidas na fila 20 (metade de custo 1/4 da referência, metade de 2×).
+        const R = CLOUD_SHADOW_PAGE_REF_COST;
+        const pages = [
+            ...Array.from({ length: 8 }, () => ({ key: CLOUD_SHADOW_KEY_MANDATORY, cost: 3 * R })),
+            ...Array.from({ length: 64 }, (_, i) => ({ key: 20, cost: i % 2 === 0 ? R / 4 : 2 * R })),
+            ...Array.from({ length: 16 }, () => ({ key: 0, cost: R })),
+        ];
+        // Act
+        const few = shadowSelectByCost(pages, 4);
+        const some = shadowSelectByCost(pages, 32);
+        const cheap = shadowSelectByCost(
+            pages.map((p) => (p.key === 20 ? { ...p, cost: R / 4 } : p)),
+            32,
+        );
+        // Assert: com o orçamento abaixo das obrigatórias, só elas.
+        expect(few).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+        // 32 − 24 = 8 referências na fila 20: as que começam antes de 8R pela ordem física (custo somado ≤ 8R + a última).
+        const spent = some.filter((i) => i >= 8).reduce((a, i) => a + pages[i]!.cost, 0);
+        expect(spent).toBeGreaterThanOrEqual(8 * R);
+        expect(spent - 2 * R).toBeLessThan(8 * R);
+        expect(some.every((i) => pages[i]!.key > 0)).toBe(true);
+        // Baratas: 32 de 1/4 cabem em 8 referências.
+        expect(cheap.filter((i) => i >= 8).length).toBe(32);
+    });
 });

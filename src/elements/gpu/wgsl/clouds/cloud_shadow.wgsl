@@ -50,12 +50,22 @@ fn cloud_shadow_extinction(o0: vec3f, sun: vec3f, s: f32) -> f32 {
     return cloud_density(o0 + sun * s, true) * clouds.layer.z;
 }
 
-/** Uma coluna: τ ao fim dos 16 nós, o comprimento do trecho e a maior distância das pontas dele ao plano. */
+/**
+ * Uma coluna: τ ao fim dos 16 nós, o comprimento do trecho, a maior distância das pontas dele ao plano e o custo (as
+ * amostras da densidade, as com nuvem × `CLOUD_SHADOW_CLOUDY_COST`).
+ */
 struct CloudShadowColumn {
     knots: array<f32, 16>,
     len: f32,
     lever: f32,
+    cost: u32,
 }
+
+/**
+ * O custo de uma amostra com nuvem em amostras vazias (T074): a vazia lê só a cobertura; a com nuvem, os volumes da forma
+ * e do detalhe e a erosão.
+ */
+const CLOUD_SHADOW_CLOUDY_COST: u32 = 4u;
 
 /**
  * A coluna do texel de coordenadas `x` (m) no plano do sol `sun` (a base `basis`), `line` o texel global (com o nível)
@@ -63,6 +73,7 @@ struct CloudShadowColumn {
  */
 fn cloud_shadow_column_knots(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f) -> CloudShadowColumn {
     var out: CloudShadowColumn;
+    out.cost = 1u;
     let o0 = clouds.sunFrame.xyz + basis[0] * x.x + basis[1] * x.y;
     let entry = cloud_sun_entry(o0, sun);
     let segs = cloud_shell_segments(o0 + sun * entry, -sun, 1e9);
@@ -101,6 +112,7 @@ fn cloud_shadow_column_knots(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f) 
             let fb = min(s + 0.5 * dl, hi);
             if (fb > fa) {
                 rf = cloud_shadow_extinction(o0, sun, 0.5 * (fa + fb));
+                out.cost += select(1u, CLOUD_SHADOW_CLOUDY_COST, rf > 0.0);
                 for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
                     if (kf >= CLOUD_SHADOW_KNOTS) { break; }
                     let at = hi - f32(kf + 1u) * knot_len;
@@ -116,7 +128,10 @@ fn cloud_shadow_column_knots(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f) 
                 if (cb > ca) {
                     // No meio do trecho a célula par inteira tem a amostra da fina no centro; nas pontas, a do meio dela.
                     var rc = rf;
-                    if (ca > s - dl || cb < s + dl) { rc = cloud_shadow_extinction(o0, sun, 0.5 * (ca + cb)); }
+                    if (ca > s - dl || cb < s + dl) {
+                        rc = cloud_shadow_extinction(o0, sun, 0.5 * (ca + cb));
+                        out.cost += select(1u, CLOUD_SHADOW_CLOUDY_COST, rc > 0.0);
+                    }
                     for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
                         if (kc >= CLOUD_SHADOW_KNOTS) { break; }
                         let at = hi - f32(kc + 1u) * knot_len;
@@ -181,7 +196,7 @@ fn cloud_shadow_meta_current(slot: u32, m: u32) -> bool {
 }
 
 var<workgroup> cloud_shadow_wg_tau: array<f32, 1156>;
-var<workgroup> cloud_shadow_wg_max: array<atomic<u32>, 4>;
+var<workgroup> cloud_shadow_wg_max: array<atomic<u32>, 5>;
 var<workgroup> cloud_shadow_wg_chosen: u32;
 
 /** O desenho da página física `slot` do degrau `m` (as 256 invocações do grupo). */
@@ -219,6 +234,7 @@ fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
         atomicMax(&cloud_shadow_wg_max[1], bitcast<u32>(along));
         atomicMax(&cloud_shadow_wg_max[2], bitcast<u32>(col.len));
         atomicMax(&cloud_shadow_wg_max[3], bitcast<u32>(col.lever));
+        atomicAdd(&cloud_shadow_wg_max[4], col.cost);
     }
     workgroupBarrier();
     // O maior |ΔT| entre texels vizinhos (+x e +y, dentro da página física) nos nós 4, 8, 12 e 16.
@@ -258,6 +274,7 @@ fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
     atomicStore(&(*rec).pivot_x, clouds.sunPages.z);
     atomicStore(&(*rec).pivot_y, clouds.sunPages.w);
     atomicStore(&(*rec).step, m);
+    atomicStore(&(*rec).cost, atomicLoad(&cloud_shadow_wg_max[4]));
     // O carimbo da série do atlas: a página escrita na época atual.
     cloud_shadow_stamps[slot] = cloud_shadow_clock.x;
 }
@@ -387,7 +404,7 @@ fn cloud_shadow_main(
         }
         cloud_shadow_wg_chosen = min(chosen, 1u) | (step << 1u);
     }
-    if (lid < 4u) { atomicStore(&cloud_shadow_wg_max[lid], 0u); }
+    if (lid < 5u) { atomicStore(&cloud_shadow_wg_max[lid], 0u); }
     let mark = workgroupUniformLoad(&cloud_shadow_wg_chosen);
     let chosen = mark & 1u;
     let m = mark >> 1u;
@@ -554,6 +571,20 @@ const CLOUD_SHADOW_KEY_PREPARE: u32 = 15u;
 
 var<workgroup> cloud_shadow_wg_hist: array<atomic<u32>, 48>;
 var<workgroup> cloud_shadow_wg_cut: vec2u;
+
+/**
+ * O custo de referência de uma página (T074; as unidades do registro, `CloudShadowColumn.cost`): os 289 texels com
+ * `CLOUD_SHADOW_PAGE_REF_SAMPLES` amostras vazias. O orçamento do quadro é `clouds.sunPages.x` páginas dele; a página que
+ * ainda não tem custo medido (nunca desenhada no registro) conta como ela.
+ */
+const CLOUD_SHADOW_PAGE_REF_SAMPLES: u32 = 192u;
+const CLOUD_SHADOW_PAGE_REF_COST: u32 = 289u * CLOUD_SHADOW_PAGE_REF_SAMPLES;
+
+/** O custo previsto do desenho da página física `slot` do degrau `m` (o do último desenho; sem ele, o de referência). */
+fn cloud_shadow_page_cost(slot: u32, m: u32) -> u32 {
+    if (!cloud_shadow_meta_current(slot, m)) { return CLOUD_SHADOW_PAGE_REF_COST; }
+    return max(atomicLoad(&cloud_shadow_pages_meta[slot].cost), CLOUD_SHADOW_PAGE_TEXELS);
+}
 var<workgroup> cloud_shadow_wg_maps: CloudShadowMaps;
 var<workgroup> cloud_shadow_wg_pending: atomic<u32>;
 
@@ -575,22 +606,26 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
     workgroupBarrier();
     let maps = cloud_shadow_wg_maps;
     var keys: array<u32, CLOUD_SHADOW_SELECT_CHUNK>;
+    var costs: array<u32, CLOUD_SHADOW_SELECT_CHUNK>;
     var fresh = 0u;
     for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) {
         let slot = lid * CLOUD_SHADOW_SELECT_CHUNK + j;
         keys[j] = 0u;
+        costs[j] = 0u;
         if (slot < CLOUD_SHADOW_SLOT_COUNT) {
             let m = cloud_shadow_slot_step(slot, maps);
             keys[j] = cloud_shadow_key(slot, m, maps);
+            if (keys[j] > 0u) { costs[j] = cloud_shadow_page_cost(slot, m); }
             // As páginas do mapa novo que ainda não valem (a marca para a contagem depois do corte).
             if (maps.leaving != maps.entering && m == maps.entering && !cloud_shadow_meta_current(slot, m)) { fresh |= 1u << j; }
         }
-        if (keys[j] > 0u) { atomicAdd(&cloud_shadow_wg_hist[keys[j]], 1u); }
+        // A fila soma o custo previsto das páginas dela (T074: o orçamento é de custo, não de páginas).
+        if (keys[j] > 0u) { atomicAdd(&cloud_shadow_wg_hist[keys[j]], costs[j]); }
     }
     workgroupBarrier();
     if (lid == 0u) {
-        // O corte: a fila e quantas dela entram.
-        var left = clouds.sunPages.x;
+        // O corte: a fila e o custo dela que entra (as obrigatórias todas; as demais até o orçamento de custo).
+        var left = clouds.sunPages.x * CLOUD_SHADOW_PAGE_REF_COST;
         var cut = vec2u(CLOUD_SHADOW_KEY_MANDATORY, atomicLoad(&cloud_shadow_wg_hist[CLOUD_SHADOW_KEY_MANDATORY]));
         left -= min(left, cut.y);
         for (var b = CLOUD_SHADOW_KEY_MANDATORY - 1u; b >= 1u; b--) {
@@ -602,17 +637,19 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
         cloud_shadow_wg_cut = cut;
     }
     let cut = workgroupUniformLoad(&cloud_shadow_wg_cut);
+    // Na fila do corte, pela ordem da página física: entra a que começa antes do custo que sobra (a soma dos custos das
+    // anteriores da fila abaixo dele).
     var at_cut = 0u;
-    for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) { at_cut += select(0u, 1u, keys[j] == cut.x); }
-    var rank = pa_exclusive(lid, at_cut);
+    for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) { at_cut += select(0u, costs[j], keys[j] == cut.x); }
+    var spent = pa_exclusive(lid, at_cut);
     var count = 0u;
     var pending = 0u;
     for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) {
         let slot = lid * CLOUD_SHADOW_SELECT_CHUNK + j;
         var chosen = keys[j] > cut.x;
         if (keys[j] == cut.x) {
-            chosen = keys[j] > 0u && rank < cut.y;
-            rank++;
+            chosen = keys[j] > 0u && (cut.x == CLOUD_SHADOW_KEY_MANDATORY || spent < cut.y);
+            spent += costs[j];
         }
         if (slot < CLOUD_SHADOW_SLOT_COUNT) {
             atomicStore(&cloud_shadow_work[4u + slot], select(0u, 1u, chosen));
