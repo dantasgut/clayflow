@@ -53,6 +53,11 @@ import {
     type ShadowMaps,
     shadowPixelFootprint,
     shadowScreenError,
+    CLOUD_SHADOW_KNOTS,
+    CLOUD_SHADOW_STEPS,
+    shadowComb,
+    shadowCombPart,
+    shadowCombSplit,
 } from '../cloudShadowPages';
 
 const rad = Math.PI / 180;
@@ -732,7 +737,10 @@ describe('mapa visto do sol por páginas: o orçamento por custo (T074)', () => 
         const R = CLOUD_SHADOW_PAGE_REF_COST;
         const pages = [
             ...Array.from({ length: 8 }, () => ({ key: CLOUD_SHADOW_KEY_MANDATORY, cost: 3 * R })),
-            ...Array.from({ length: 64 }, (_, i) => ({ key: 20, cost: i % 2 === 0 ? R / 4 : 2 * R })),
+            ...Array.from({ length: 64 }, (_, i) => ({
+                key: 20,
+                cost: i % 2 === 0 ? R / 4 : 2 * R,
+            })),
             ...Array.from({ length: 16 }, () => ({ key: 0, cost: R })),
         ];
         // Act
@@ -770,5 +778,61 @@ describe('mapa visto do sol: a mudança projetada na tela (T074)', () => {
         expect(eFar).toBeCloseTo((0.04 * 50) / far, 12);
         expect(eHidden).toBe(0.04);
         expect(shadowPixelFootprint(2000, p11, 0)).toBe(0);
+    });
+});
+
+describe('mapa visto do sol: a coluna repartida entre invocações (T074)', () => {
+    it('a soma das partes de qualquer repartição é a coluna numa invocação só, nos 16 nós', () => {
+        // Arrange: colunas curtas (o sol alto) e longas (o sol rasante), com nuvens em células de 150–900 m (bordas no meio
+        // das células do pente) e deslocamentos do pente em toda a faixa.
+        let seed = 12345;
+        const rnd = (): number => {
+            seed = (seed * 1103515245 + 12345) % 2147483648;
+            return seed / 2147483648;
+        };
+        const columns = Array.from({ length: 300 }, () => {
+            const len = 300 + rnd() * 35_000;
+            const lo = -20_000 + rnd() * 20_000;
+            const phi = rnd() * 65_536;
+            const cell = 150 + rnd() * 750;
+            const shift = rnd() * cell;
+            const extinction = (s: number): number => {
+                const u = Math.sin(((s + shift) * Math.PI) / cell);
+                return u > 0.3 ? 0.02 * (u - 0.3) : 0;
+            };
+            return { comb: shadowComb(lo + len, lo, phi), extinction };
+        });
+        // Act
+        let worst = 0;
+        let samples = 0;
+        for (const { comb, extinction } of columns) {
+            const whole = shadowCombPart(comb, extinction, 0, CLOUD_SHADOW_STEPS + 4);
+            samples = Math.max(samples, whole.samples);
+            for (let parts = 2; parts <= 8; parts++) {
+                const split = shadowCombSplit(comb, extinction, parts);
+                for (let k = 0; k < CLOUD_SHADOW_KNOTS; k++)
+                    worst = Math.max(
+                        worst,
+                        Math.abs(split[k]! - whole.knots[k]!) / Math.max(whole.knots[15]!, 1e-9),
+                    );
+            }
+        }
+        // Assert: a mesma conta (só a ordem da soma muda), e o teto de amostras do pente.
+        expect(worst).toBeLessThan(1e-12);
+        expect(samples).toBeLessThanOrEqual(
+            CLOUD_SHADOW_STEPS + 4 + (CLOUD_SHADOW_STEPS + 4) / 2 + 2,
+        );
+    });
+
+    it('os nós crescem ao longo da coluna e o último é a integral da extinção no pente', () => {
+        // Arrange: uma nuvem de 2 km no meio de um trecho de 28 km (o sol a ~5°).
+        const comb = shadowComb(14_000, -14_000, 777);
+        const extinction = (s: number): number => (Math.abs(s) < 1000 ? 0.01 : 0);
+        // Act
+        const { knots } = shadowCombPart(comb, extinction, 0, CLOUD_SHADOW_STEPS + 4);
+        // Assert
+        for (let k = 1; k < CLOUD_SHADOW_KNOTS; k++)
+            expect(knots[k]!).toBeGreaterThanOrEqual(knots[k - 1]! - 1e-12);
+        expect(Math.abs(knots[15]! - 20) / 20).toBeLessThan(0.1);
     });
 });

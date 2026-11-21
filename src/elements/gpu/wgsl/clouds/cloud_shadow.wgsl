@@ -15,8 +15,9 @@
 // `CLOUD_SHADOW_STEPS` amostras no trecho; o pente de `2Δ` (as amostras pares) é o do nível seguinte, e o resultado
 // mistura os dois pela posição do comprimento na oitava — contínuo no ângulo do sol (o pente em frações do trecho
 // escorregava pela nuvem com o sol baixo, e o chão piscava no vídeo acelerado).
-// Teto constante por coluna: `CLOUD_SHADOW_STEPS + 4` amostras e 2 × `CLOUD_SHADOW_KNOTS` nós gravados; o desenho faz até
-// 2 colunas por invocação (289 texels, 256 invocações); a prova reparte a coluna por 32 invocações (até 7 amostras cada).
+// Teto constante por coluna: `CLOUD_SHADOW_STEPS + 4` amostras e 2 × `CLOUD_SHADOW_KNOTS` nós gravados; o desenho faz as
+// 256 primeiras colunas uma por invocação e reparte as 33 que sobram em 7 partes seguidas do pente (a soma das partes é a
+// coluna; T074); a prova reparte a coluna por 32 invocações (até 7 amostras cada).
 //
 // Um grupo por página física. A escolhida no quadro é desenhada: os texels e o registro dela — o sol, o tempo e o quadro
 // do desenho, a página global, a assinatura do conteúdo e a célula do pivô, as medidas (o maior |ΔT| entre texels
@@ -51,6 +52,155 @@ fn cloud_shadow_extinction(o0: vec3f, sun: vec3f, s: f32) -> f32 {
 }
 
 /**
+ * O pente de uma coluna (o que todas as partes dela compartilham): a origem no plano, o trecho em distância ao plano (de
+ * `hi`, a entrada do lado do sol, a `lo`), o nível do pente e a mistura com o seguinte, o deslocamento `phi` e a primeira
+ * amostra `m0`, e quantas amostras o trecho tem (`count`, a estimativa que reparte a coluna em partes).
+ */
+struct CloudShadowComb {
+    o0: vec3f,
+    hi: f32,
+    lo: f32,
+    len: f32,
+    lever: f32,
+    blend: f32,
+    dl: f32,
+    knot_len: f32,
+    phi: f32,
+    m0: i32,
+    count: u32,
+}
+
+/**
+ * O pente da coluna do texel de coordenadas `x` (m) no plano do sol `sun` (a base `basis`), `line` o texel global (com o
+ * nível) que fixa o deslocamento do pente. Sem casca, `len` 0 (e `count` 0).
+ */
+fn cloud_shadow_comb(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f) -> CloudShadowComb {
+    var c: CloudShadowComb;
+    c.o0 = clouds.sunFrame.xyz + basis[0] * x.x + basis[1] * x.y;
+    let entry = cloud_sun_entry(c.o0, sun);
+    let segs = cloud_shell_segments(c.o0 + sun * entry, -sun, 1e9);
+    if (segs.y <= segs.x) { return c; }
+    // O trecho em distância ao plano do mapa: de `hi` (a entrada, do lado do sol) a `lo`.
+    c.hi = entry - segs.x;
+    c.lo = entry - segs.y;
+    c.len = c.hi - c.lo;
+    c.lever = max(abs(c.hi), abs(c.lo));
+    // O nível pelo teto de amostras, nunca abaixo de `CLOUD_SHADOW_MIN_LEVEL` (com o sol alto o trecho é curto e o
+    // pente mais fino que o texel do volume de detalhe só custaria).
+    let lv = max(log2(c.len / (f32(CLOUD_SHADOW_STEPS) * CLOUD_SHADOW_SPACING)), CLOUD_SHADOW_MIN_LEVEL - 1.0);
+    let n = max(ceil(lv), CLOUD_SHADOW_MIN_LEVEL);
+    c.blend = lv - (n - 1.0);
+    c.dl = CLOUD_SHADOW_SPACING * exp2(n);
+    c.knot_len = c.len / f32(CLOUD_SHADOW_KNOTS);
+    // O deslocamento do pente desta coluna (fixo no texel global), o mesmo em todos os níveis (o pente par continua o
+    // do nível seguinte).
+    c.phi = f32(cloud_shadow_hash(line) & 0xffffu) / 65536.0 * CLOUD_SHADOW_SHIFT;
+    // A primeira amostra cuja célula do pente par pode tocar o trecho: `mΔ + φ − Δ < hi`.
+    c.m0 = i32(floor((c.hi - c.phi) / c.dl)) + 1;
+    // As amostras até a última cuja célula par toca o trecho (`mΔ + φ + Δ > lo`).
+    c.count = u32(clamp(ceil(f32(c.m0) + 1.0 + (c.phi - c.lo) / c.dl), 0.0, f32(CLOUD_SHADOW_STEPS + 4u)));
+    return c;
+}
+
+/**
+ * A parte de uma coluna nas amostras `[i0, i1)` do pente (T074): τ de cada um dos 16 nós só pelas células da parte (a
+ * mistura dos dois pentes) e o custo dela (as amostras da densidade, as com nuvem × `CLOUD_SHADOW_CLOUDY_COST`). τ de um nó
+ * é a soma, nas células acima dele, da extinção × o pedaço da célula acima do nó: a soma das partes é a coluna inteira,
+ * em qualquer repartição — o nó acima da parte recebe 0 dela, o abaixo, a soma dela, e o do meio, o pedaço. Com a parte
+ * inteira (`[0, ∞)`) é a mesma conta, na mesma ordem, da coluna numa invocação só.
+ */
+struct CloudShadowPart {
+    knots: array<f32, 16>,
+    cost: u32,
+}
+
+fn cloud_shadow_comb_part(c: CloudShadowComb, sun: vec3f, i0: u32, i1: u32) -> CloudShadowPart {
+    var out: CloudShadowPart;
+    var fine: array<f32, CLOUD_SHADOW_KNOTS>;
+    var coarse: array<f32, CLOUD_SHADOW_KNOTS>;
+    for (var k = 0u; k < CLOUD_SHADOW_KNOTS; k++) {
+        fine[k] = 0.0;
+        coarse[k] = 0.0;
+        out.knots[k] = 0.0;
+    }
+    out.cost = 0u;
+    if (c.len <= 0.0) { return out; }
+    let dl = c.dl;
+    let hi = c.hi;
+    let lo = c.lo;
+    var sum_f = 0.0;
+    var sum_c = 0.0;
+    var kf = 0u;
+    var kc = 0u;
+    // Os nós acima da primeira célula da parte não recebem nada dela: o primeiro nó dela é o primeiro abaixo da ponta de
+    // cima da primeira célula com trecho (na parte inicial, a entrada `hi`: o nó 0).
+    var kf_set = false;
+    var kc_set = false;
+    let last = min(i1, CLOUD_SHADOW_STEPS + 4u);
+    for (var i = i0; i < CLOUD_SHADOW_STEPS + 4u; i++) {
+        if (i >= last) { break; }
+        let m = c.m0 - i32(i);
+        let s = f32(m) * dl + c.phi;
+        if (s + dl <= lo) { break; }
+        var rf = 0.0;
+        let fa = max(s - 0.5 * dl, lo);
+        let fb = min(s + 0.5 * dl, hi);
+        if (fb > fa) {
+            if (!kf_set) {
+                kf_set = true;
+                for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
+                    if (hi - f32(kf + 1u) * c.knot_len < fb) { break; }
+                    kf++;
+                }
+            }
+            rf = cloud_shadow_extinction(c.o0, sun, 0.5 * (fa + fb));
+            out.cost += select(1u, CLOUD_SHADOW_CLOUDY_COST, rf > 0.0);
+            for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
+                if (kf >= CLOUD_SHADOW_KNOTS) { break; }
+                let at = hi - f32(kf + 1u) * c.knot_len;
+                if (at < fa) { break; }
+                fine[kf] = sum_f + rf * (fb - at);
+                kf++;
+            }
+            sum_f += rf * (fb - fa);
+        }
+        if ((m & 1) == 0) {
+            let ca = max(s - dl, lo);
+            let cb = min(s + dl, hi);
+            if (cb > ca) {
+                if (!kc_set) {
+                    kc_set = true;
+                    for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
+                        if (hi - f32(kc + 1u) * c.knot_len < cb) { break; }
+                        kc++;
+                    }
+                }
+                // No meio do trecho a célula par inteira tem a amostra da fina no centro; nas pontas, a do meio dela.
+                var rc = rf;
+                if (ca > s - dl || cb < s + dl) {
+                    rc = cloud_shadow_extinction(c.o0, sun, 0.5 * (ca + cb));
+                    out.cost += select(1u, CLOUD_SHADOW_CLOUDY_COST, rc > 0.0);
+                }
+                for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
+                    if (kc >= CLOUD_SHADOW_KNOTS) { break; }
+                    let at = hi - f32(kc + 1u) * c.knot_len;
+                    if (at < ca) { break; }
+                    coarse[kc] = sum_c + rc * (cb - at);
+                    kc++;
+                }
+                sum_c += rc * (cb - ca);
+            }
+        }
+    }
+    for (var k = 0u; k < CLOUD_SHADOW_KNOTS; k++) {
+        if (k >= kf) { fine[k] = sum_f; }
+        if (k >= kc) { coarse[k] = sum_c; }
+        out.knots[k] = mix(fine[k], coarse[k], c.blend);
+    }
+    return out;
+}
+
+/**
  * Uma coluna: τ ao fim dos 16 nós, o comprimento do trecho, a maior distância das pontas dele ao plano e o custo (as
  * amostras da densidade, as com nuvem × `CLOUD_SHADOW_CLOUDY_COST`).
  */
@@ -69,86 +219,16 @@ const CLOUD_SHADOW_CLOUDY_COST: u32 = 4u;
 
 /**
  * A coluna do texel de coordenadas `x` (m) no plano do sol `sun` (a base `basis`), `line` o texel global (com o nível)
- * que fixa o deslocamento do pente.
+ * que fixa o deslocamento do pente, numa invocação só.
  */
 fn cloud_shadow_column_knots(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f) -> CloudShadowColumn {
     var out: CloudShadowColumn;
-    out.cost = 1u;
-    let o0 = clouds.sunFrame.xyz + basis[0] * x.x + basis[1] * x.y;
-    let entry = cloud_sun_entry(o0, sun);
-    let segs = cloud_shell_segments(o0 + sun * entry, -sun, 1e9);
-    var fine: array<f32, CLOUD_SHADOW_KNOTS>;
-    var coarse: array<f32, CLOUD_SHADOW_KNOTS>;
-    var blend = 0.0;
-    if (segs.y > segs.x) {
-        // O trecho em distância ao plano do mapa: de `hi` (a entrada, do lado do sol) a `lo`.
-        let hi = entry - segs.x;
-        let lo = entry - segs.y;
-        let len = hi - lo;
-        out.len = len;
-        out.lever = max(abs(hi), abs(lo));
-        // O nível pelo teto de amostras, nunca abaixo de `CLOUD_SHADOW_MIN_LEVEL` (com o sol alto o trecho é curto e o
-        // pente mais fino que o texel do volume de detalhe só custaria).
-        let lv = max(log2(len / (f32(CLOUD_SHADOW_STEPS) * CLOUD_SHADOW_SPACING)), CLOUD_SHADOW_MIN_LEVEL - 1.0);
-        let n = max(ceil(lv), CLOUD_SHADOW_MIN_LEVEL);
-        blend = lv - (n - 1.0);
-        let dl = CLOUD_SHADOW_SPACING * exp2(n);
-        let knot_len = len / f32(CLOUD_SHADOW_KNOTS);
-        // O deslocamento do pente desta coluna (fixo no texel global), o mesmo em todos os níveis (o pente par continua o
-        // do nível seguinte).
-        let phi = f32(cloud_shadow_hash(line) & 0xffffu) / 65536.0 * CLOUD_SHADOW_SHIFT;
-        // A primeira amostra cuja célula do pente par pode tocar o trecho: `mΔ + φ − Δ < hi`.
-        let m0 = i32(floor((hi - phi) / dl)) + 1;
-        var sum_f = 0.0;
-        var sum_c = 0.0;
-        var kf = 0u;
-        var kc = 0u;
-        for (var i = 0u; i < CLOUD_SHADOW_STEPS + 4u; i++) {
-            let m = m0 - i32(i);
-            let s = f32(m) * dl + phi;
-            if (s + dl <= lo) { break; }
-            var rf = 0.0;
-            let fa = max(s - 0.5 * dl, lo);
-            let fb = min(s + 0.5 * dl, hi);
-            if (fb > fa) {
-                rf = cloud_shadow_extinction(o0, sun, 0.5 * (fa + fb));
-                out.cost += select(1u, CLOUD_SHADOW_CLOUDY_COST, rf > 0.0);
-                for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
-                    if (kf >= CLOUD_SHADOW_KNOTS) { break; }
-                    let at = hi - f32(kf + 1u) * knot_len;
-                    if (at < fa) { break; }
-                    fine[kf] = sum_f + rf * (fb - at);
-                    kf++;
-                }
-                sum_f += rf * (fb - fa);
-            }
-            if ((m & 1) == 0) {
-                let ca = max(s - dl, lo);
-                let cb = min(s + dl, hi);
-                if (cb > ca) {
-                    // No meio do trecho a célula par inteira tem a amostra da fina no centro; nas pontas, a do meio dela.
-                    var rc = rf;
-                    if (ca > s - dl || cb < s + dl) {
-                        rc = cloud_shadow_extinction(o0, sun, 0.5 * (ca + cb));
-                        out.cost += select(1u, CLOUD_SHADOW_CLOUDY_COST, rc > 0.0);
-                    }
-                    for (var r = 0u; r < CLOUD_SHADOW_KNOTS; r++) {
-                        if (kc >= CLOUD_SHADOW_KNOTS) { break; }
-                        let at = hi - f32(kc + 1u) * knot_len;
-                        if (at < ca) { break; }
-                        coarse[kc] = sum_c + rc * (cb - at);
-                        kc++;
-                    }
-                    sum_c += rc * (cb - ca);
-                }
-            }
-        }
-        for (var k = 0u; k < CLOUD_SHADOW_KNOTS; k++) {
-            if (k >= kf) { fine[k] = sum_f; }
-            if (k >= kc) { coarse[k] = sum_c; }
-        }
-    }
-    for (var k = 0u; k < CLOUD_SHADOW_KNOTS; k++) { out.knots[k] = mix(fine[k], coarse[k], blend); }
+    let c = cloud_shadow_comb(x, line, sun, basis);
+    let part = cloud_shadow_comb_part(c, sun, 0u, CLOUD_SHADOW_STEPS + 4u);
+    out.knots = part.knots;
+    out.len = c.len;
+    out.lever = c.lever;
+    out.cost = 1u + part.cost;
     return out;
 }
 
@@ -198,55 +278,122 @@ fn cloud_shadow_meta_current(slot: u32, m: u32) -> bool {
 var<workgroup> cloud_shadow_wg_tau: array<f32, 1156>;
 var<workgroup> cloud_shadow_wg_max: array<atomic<u32>, 5>;
 var<workgroup> cloud_shadow_wg_chosen: u32;
+/** As partes das colunas repartidas, somadas em ordem (as 33 que sobram × 16 nós). */
+var<workgroup> cloud_shadow_wg_acc: array<f32, 528>;
 
-/** O desenho da página física `slot` do degrau `m` (as 256 invocações do grupo). */
+/**
+ * Partes por coluna das que sobram das 256 primeiras no desenho (T074): as 33 colunas × 7 partes em 231 invocações. Numa
+ * invocação cada, a segunda rodada do grupo custava uma coluna inteira com 33 das 256 ativas.
+ */
+const CLOUD_SHADOW_REST_PARTS: u32 = 7u;
+
+/**
+ * O texel `t` da página física `slot` (nível `k`, página global `g`, origem no atlas `origin`) com os nós `knots`: grava o
+ * atlas, o nó 4·l + 4 de cada camada no registro e no grupo (as medidas entre vizinhos), e as medidas da coluna (o maior
+ * |ΔT| ao longo dela por metro, o trecho, a alavanca) nos máximos do grupo.
+ */
+fn cloud_shadow_store_column(slot: u32, origin: vec2u, t: u32, knots: array<f32, 16>, len: f32, lever: f32) {
+    let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
+    for (var l = 0u; l < CLOUD_SHADOW_KNOTS / 4u; l++) {
+        let v = vec4f(knots[l * 4u], knots[l * 4u + 1u], knots[l * 4u + 2u], knots[l * 4u + 3u]);
+        textureStore(cloud_shadow_out, vec3u(origin + tt, l), v);
+        cloud_shadow_wg_tau[t * 4u + l] = v.w;
+        atomicStore(&cloud_shadow_pages_meta[slot].knots[t * 4u + l], bitcast<u32>(v.w));
+    }
+    // O maior |ΔT| entre nós seguidos por metro ao longo da coluna.
+    var along = 0.0;
+    if (len > 0.0) {
+        var prev = 1.0;
+        for (var n = 0u; n < CLOUD_SHADOW_KNOTS; n++) {
+            let tn = exp(-knots[n]);
+            along = max(along, (prev - tn) / (len / f32(CLOUD_SHADOW_KNOTS)));
+            prev = tn;
+        }
+    }
+    atomicMax(&cloud_shadow_wg_max[1], bitcast<u32>(along));
+    atomicMax(&cloud_shadow_wg_max[2], bitcast<u32>(len));
+    atomicMax(&cloud_shadow_wg_max[3], bitcast<u32>(lever));
+}
+
+/**
+ * As colunas `first + c` (`c < count`) repartidas em `parts` partes seguidas do pente, uma por invocação (`lid = c·parts +
+ * p`): cada parte soma a dela nos nós do grupo, em ordem (`parts` barreiras: a soma não depende do agendamento), e a parte 0
+ * grava a coluna. `parts` e `count` uniformes no grupo. Espelho de `shadowCombSplit`.
+ */
+fn cloud_shadow_draw_split(slot: u32, lid: u32, k: u32, g: vec2i, m: u32, origin: vec2u, first: u32, count: u32, parts: u32) {
+    let c = lid / parts;
+    let p = lid % parts;
+    let live = c < count;
+    let t = first + c;
+    var comb: CloudShadowComb;
+    var part: CloudShadowPart;
+    let sun = clouds.sunDir.xyz;
+    if (live) {
+        let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
+        comb = cloud_shadow_comb(
+            cloud_shadow_texel_plane(k, g, tt, m),
+            cloud_shadow_line(k, g, tt),
+            sun,
+            mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
+        );
+        let n = comb.count;
+        let i0 = p * n / parts;
+        let i1 = select((p + 1u) * n / parts, CLOUD_SHADOW_STEPS + 4u, p + 1u == parts);
+        part = cloud_shadow_comb_part(comb, sun, i0, i1);
+        atomicAdd(&cloud_shadow_wg_max[4], part.cost + select(0u, 1u, p == 0u));
+    }
+    for (var q = 0u; q < CLOUD_SHADOW_REST_PARTS; q++) {
+        if (q >= parts) { break; }
+        if (live && p == q) {
+            for (var n = 0u; n < CLOUD_SHADOW_KNOTS; n++) {
+                let at = c * CLOUD_SHADOW_KNOTS + n;
+                cloud_shadow_wg_acc[at] = select(cloud_shadow_wg_acc[at] + part.knots[n], part.knots[n], q == 0u);
+            }
+        }
+        workgroupBarrier();
+    }
+    if (live && p == 0u) {
+        var knots: array<f32, 16>;
+        for (var n = 0u; n < CLOUD_SHADOW_KNOTS; n++) { knots[n] = cloud_shadow_wg_acc[c * CLOUD_SHADOW_KNOTS + n]; }
+        cloud_shadow_store_column(slot, origin, t, knots, comb.len, comb.lever);
+    }
+}
+
+/**
+ * O desenho da página física `slot` do degrau `m` (as 256 invocações do grupo): as 256 primeiras colunas uma por
+ * invocação, as 33 que sobram em 7 partes cada; o registro: o sol, o tempo e o quadro do desenho, a página e o conteúdo,
+ * as medidas e o custo.
+ */
 fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
     let k = cloud_shadow_slot_level(slot);
     let g = cloud_shadow_slot_page(slot, m);
     let origin = cloud_shadow_slot_origin(slot);
     let texel = cloud_shadow_step_texel(k, m);
-    for (var r = 0u; r < 2u; r++) {
-        let t = lid + r * CLOUD_SHADOW_PAGE_GROUP;
-        if (t >= CLOUD_SHADOW_PAGE_TEXELS) { break; }
-        let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
-        let col = cloud_shadow_column_knots(
-            cloud_shadow_texel_plane(k, g, tt, m),
-            cloud_shadow_line(k, g, tt),
-            clouds.sunDir.xyz,
-            mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
-        );
-        for (var l = 0u; l < CLOUD_SHADOW_KNOTS / 4u; l++) {
-            let v = vec4f(col.knots[l * 4u], col.knots[l * 4u + 1u], col.knots[l * 4u + 2u], col.knots[l * 4u + 3u]);
-            textureStore(cloud_shadow_out, vec3u(origin + tt, l), v);
-            cloud_shadow_wg_tau[t * 4u + l] = v.w;
-            atomicStore(&cloud_shadow_pages_meta[slot].knots[t * 4u + l], bitcast<u32>(v.w));
-        }
-        // O maior |ΔT| entre nós seguidos por metro ao longo da coluna.
-        var along = 0.0;
-        if (col.len > 0.0) {
-            var prev = 1.0;
-            for (var n = 0u; n < CLOUD_SHADOW_KNOTS; n++) {
-                let tn = exp(-col.knots[n]);
-                along = max(along, (prev - tn) / (col.len / f32(CLOUD_SHADOW_KNOTS)));
-                prev = tn;
-            }
-        }
-        atomicMax(&cloud_shadow_wg_max[1], bitcast<u32>(along));
-        atomicMax(&cloud_shadow_wg_max[2], bitcast<u32>(col.len));
-        atomicMax(&cloud_shadow_wg_max[3], bitcast<u32>(col.lever));
-        atomicAdd(&cloud_shadow_wg_max[4], col.cost);
-    }
+    let rec = &cloud_shadow_pages_meta[slot];
+    let tt = vec2u(lid % CLOUD_SHADOW_STRIDE, lid / CLOUD_SHADOW_STRIDE);
+    let col = cloud_shadow_column_knots(
+        cloud_shadow_texel_plane(k, g, tt, m),
+        cloud_shadow_line(k, g, tt),
+        clouds.sunDir.xyz,
+        mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
+    );
+    cloud_shadow_store_column(slot, origin, lid, col.knots, col.len, col.lever);
+    atomicAdd(&cloud_shadow_wg_max[4], col.cost);
+    cloud_shadow_draw_split(
+        slot, lid, k, g, m, origin, CLOUD_SHADOW_PAGE_GROUP, CLOUD_SHADOW_PAGE_TEXELS - CLOUD_SHADOW_PAGE_GROUP,
+        CLOUD_SHADOW_REST_PARTS,
+    );
     workgroupBarrier();
     // O maior |ΔT| entre texels vizinhos (+x e +y, dentro da página física) nos nós 4, 8, 12 e 16.
     for (var r = 0u; r < 2u; r++) {
         let t = lid + r * CLOUD_SHADOW_PAGE_GROUP;
         if (t >= CLOUD_SHADOW_PAGE_TEXELS) { break; }
-        let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
+        let ts = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
         var d = 0.0;
         for (var l = 0u; l < 4u; l++) {
             let a = exp(-cloud_shadow_wg_tau[t * 4u + l]);
-            if (tt.x + 1u < CLOUD_SHADOW_STRIDE) { d = max(d, abs(a - exp(-cloud_shadow_wg_tau[(t + 1u) * 4u + l]))); }
-            if (tt.y + 1u < CLOUD_SHADOW_STRIDE) {
+            if (ts.x + 1u < CLOUD_SHADOW_STRIDE) { d = max(d, abs(a - exp(-cloud_shadow_wg_tau[(t + 1u) * 4u + l]))); }
+            if (ts.y + 1u < CLOUD_SHADOW_STRIDE) {
                 d = max(d, abs(a - exp(-cloud_shadow_wg_tau[(t + CLOUD_SHADOW_STRIDE) * 4u + l])));
             }
         }
@@ -255,7 +402,6 @@ fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
     workgroupBarrier();
     if (lid != 0u) { return; }
     let sun = clouds.sunDir.xyz;
-    let rec = &cloud_shadow_pages_meta[slot];
     atomicStore(&(*rec).sun_x, bitcast<u32>(sun.x));
     atomicStore(&(*rec).sun_y, bitcast<u32>(sun.y));
     atomicStore(&(*rec).sun_z, bitcast<u32>(sun.z));

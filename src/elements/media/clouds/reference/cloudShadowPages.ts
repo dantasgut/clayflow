@@ -746,3 +746,146 @@ export function shadowSelectByCost(
     });
     return out;
 }
+
+/** Teto de amostras do pente fino no trecho (`CLOUD_SHADOW_STEPS`; o grosso, as pares, tem metade). */
+export const CLOUD_SHADOW_STEPS = 192;
+/** O nível mais fino do pente (`CLOUD_SHADOW_MIN_LEVEL`): `2⁶` m. */
+export const CLOUD_SHADOW_MIN_LEVEL = 6;
+/** Nós por coluna. */
+export const CLOUD_SHADOW_KNOTS = 16;
+
+/**
+ * O pente de uma coluna (espelho de `cloud_shadow_comb`, T074): o trecho em distância ao plano do mapa (de `hi`, a entrada
+ * do lado do sol, a `lo`), o nível do pente (`dl`, o espaçamento das amostras) e a mistura `blend` com o seguinte, o
+ * deslocamento `phi`, a primeira amostra `m0` e a estimativa `count` das amostras (a que reparte a coluna em partes).
+ */
+export interface ShadowComb {
+    readonly hi: number;
+    readonly lo: number;
+    readonly len: number;
+    readonly blend: number;
+    readonly dl: number;
+    readonly knotLen: number;
+    readonly phi: number;
+    readonly m0: number;
+    readonly count: number;
+}
+
+/** O pente do trecho `[lo, hi]` (m do plano) com o deslocamento `phi` (m). */
+export function shadowComb(hi: number, lo: number, phi: number): ShadowComb {
+    const len = hi - lo;
+    const lv = Math.max(Math.log2(len / CLOUD_SHADOW_STEPS), CLOUD_SHADOW_MIN_LEVEL - 1);
+    const n = Math.max(Math.ceil(lv), CLOUD_SHADOW_MIN_LEVEL);
+    const dl = 2 ** n;
+    const m0 = Math.floor((hi - phi) / dl) + 1;
+    const count = Math.min(
+        Math.max(Math.ceil(m0 + 1 + (phi - lo) / dl), 0),
+        CLOUD_SHADOW_STEPS + 4,
+    );
+    return {
+        hi,
+        lo,
+        len,
+        blend: lv - (n - 1),
+        dl,
+        knotLen: len / CLOUD_SHADOW_KNOTS,
+        phi,
+        m0,
+        count,
+    };
+}
+
+/**
+ * A parte de uma coluna nas amostras `[i0, i1)` do pente (espelho de `cloud_shadow_comb_part`, T074): τ dos 16 nós só
+ * pelas células da parte, a mistura dos pentes fino e grosso (`extinction(s)` a extinção a `s` m do plano). τ de um nó é
+ * a soma, nas células acima dele, da extinção × o pedaço da célula acima do nó: o nó acima da parte recebe 0, o abaixo, a
+ * soma dela, o do meio, o pedaço — a soma das partes de qualquer repartição é a coluna inteira. Devolve os nós e quantas
+ * amostras da densidade a parte leu.
+ */
+export function shadowCombPart(
+    c: ShadowComb,
+    extinction: (s: number) => number,
+    i0: number,
+    i1: number,
+): { knots: number[]; samples: number } {
+    const K = CLOUD_SHADOW_KNOTS;
+    const fine = new Array<number>(K).fill(0);
+    const coarse = new Array<number>(K).fill(0);
+    let samples = 0;
+    if (c.len <= 0) return { knots: fine, samples };
+    const { dl, hi, lo } = c;
+    let sumF = 0;
+    let sumC = 0;
+    let kf = 0;
+    let kc = 0;
+    let kfSet = false;
+    let kcSet = false;
+    const last = Math.min(i1, CLOUD_SHADOW_STEPS + 4);
+    const at = (k: number): number => hi - (k + 1) * c.knotLen;
+    for (let i = i0; i < last; i++) {
+        const m = c.m0 - i;
+        const s = m * dl + c.phi;
+        if (s + dl <= lo) break;
+        let rf = 0;
+        const fa = Math.max(s - 0.5 * dl, lo);
+        const fb = Math.min(s + 0.5 * dl, hi);
+        if (fb > fa) {
+            if (!kfSet) {
+                kfSet = true;
+                while (kf < K && at(kf) >= fb) kf++;
+            }
+            rf = extinction(0.5 * (fa + fb));
+            samples++;
+            while (kf < K && at(kf) >= fa) {
+                fine[kf] = sumF + rf * (fb - at(kf));
+                kf++;
+            }
+            sumF += rf * (fb - fa);
+        }
+        if (((m % 2) + 2) % 2 === 0) {
+            const ca = Math.max(s - dl, lo);
+            const cb = Math.min(s + dl, hi);
+            if (cb > ca) {
+                if (!kcSet) {
+                    kcSet = true;
+                    while (kc < K && at(kc) >= cb) kc++;
+                }
+                let rc = rf;
+                if (ca > s - dl || cb < s + dl) {
+                    rc = extinction(0.5 * (ca + cb));
+                    samples++;
+                }
+                while (kc < K && at(kc) >= ca) {
+                    coarse[kc] = sumC + rc * (cb - at(kc));
+                    kc++;
+                }
+                sumC += rc * (cb - ca);
+            }
+        }
+    }
+    for (let k = 0; k < K; k++) {
+        if (k >= kf) fine[k] = sumF;
+        if (k >= kc) coarse[k] = sumC;
+    }
+    return { knots: fine.map((f, k) => f + (coarse[k]! - f) * c.blend), samples };
+}
+
+/**
+ * A coluna repartida em `parts` partes seguidas do pente (espelho de `cloud_shadow_draw_split`): a parte `p` nas amostras
+ * `[p·n/parts, (p + 1)·n/parts)` (`n` a estimativa do pente; a última até o teto), somadas em ordem.
+ */
+export function shadowCombSplit(
+    c: ShadowComb,
+    extinction: (s: number) => number,
+    parts: number,
+): number[] {
+    const out = new Array<number>(CLOUD_SHADOW_KNOTS).fill(0);
+    for (let p = 0; p < parts; p++) {
+        const i0 = Math.floor((p * c.count) / parts);
+        const i1 =
+            p + 1 === parts ? CLOUD_SHADOW_STEPS + 4 : Math.floor(((p + 1) * c.count) / parts);
+        const part = shadowCombPart(c, extinction, i0, i1);
+        for (let k = 0; k < CLOUD_SHADOW_KNOTS; k++) out[k]! += part.knots[k]!;
+    }
+    return out;
+}
