@@ -871,6 +871,13 @@ export function shadowCombPart(
 }
 
 /**
+ * Partes por coluna no desenho (espelho de `CLOUD_SHADOW_DRAW_PARTS`, T074 rodada h): a página em 5 grupos de 58 colunas,
+ * cada coluna em 4 partes seguidas do pente. Com uma coluna por invocação, o passe era limitado pela latência da cadeia de
+ * amostras de uma coluna.
+ */
+export const CLOUD_SHADOW_DRAW_PARTS = 4;
+
+/**
  * A coluna repartida em `parts` partes seguidas do pente (espelho de `cloud_shadow_draw_split`): a parte `p` nas amostras
  * `[p·n/parts, (p + 1)·n/parts)` (`n` a estimativa do pente; a última até o teto), somadas em ordem.
  */

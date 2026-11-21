@@ -1344,12 +1344,19 @@ async function cloudCost(
                     );
                     const f = new Float32Array(words.buffer);
                     const sb = s.app.resources.bufferOf(layer, 'shadowWork');
-                    const shadowDrawn =
-                        sb === undefined
-                            ? -1
-                            : new Uint32Array(
-                                  (await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer,
-                              )[0]!;
+                    // As páginas do mapa visto do sol desenhadas no quadro e quantas por nível (a marca de cada página
+                    // física em `4 + slot`; 46 × 8 páginas físicas por nível, `CLOUD_SHADOW_LEVEL_SLOTS`) e a demanda: as
+                    // acima de 4, 16 e 64 tolerâncias (`d`, `m`, `x`).
+                    let shadowDrawn = '-1';
+                    if (sb !== undefined) {
+                        const sw = new Uint32Array(
+                            (await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer,
+                        );
+                        const perLevel = new Array<number>(8).fill(0);
+                        for (let slot = 0; slot < 8 * 46 * 8; slot++)
+                            if (sw[4 + slot] !== 0) perLevel[Math.floor(slot / (46 * 8))]!++;
+                        shadowDrawn = `${sw[0]}[${perLevel.join(',')}]d${sw[1]}m${sw[2]}x${sw[3]}`;
+                    }
                     // O volume de τ até o sol (T074): as páginas desenhadas no quadro e as que valem na leitura (o cone, o resto).
                     const vb = s.app.resources.bufferOf(layer, 'sunVolumeWork');
                     let volume = '-';

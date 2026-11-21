@@ -15,21 +15,22 @@
 // `CLOUD_SHADOW_STEPS` amostras no trecho; o pente de `2Δ` (as amostras pares) é o do nível seguinte, e o resultado
 // mistura os dois pela posição do comprimento na oitava — contínuo no ângulo do sol (o pente em frações do trecho
 // escorregava pela nuvem com o sol baixo, e o chão piscava no vídeo acelerado).
-// Teto constante por coluna: `CLOUD_SHADOW_STEPS + 4` amostras e `CLOUD_SHADOW_COMB_KNOTS` nós gravados; o desenho faz as
-// 256 primeiras colunas uma por invocação e reparte as 33 que sobram em 7 partes seguidas do pente (a soma das partes é a
-// coluna; T074); a prova reparte a coluna por 32 invocações (até 7 amostras cada).
+// Teto constante por coluna: `CLOUD_SHADOW_STEPS + 4` amostras e `CLOUD_SHADOW_COMB_KNOTS` nós gravados; o desenho
+// (`cloud_shadow_draw_main`, despacho indireto pela lista da escolha) faz `CLOUD_SHADOW_DRAW_ROWS` grupos por página, cada
+// um com `CLOUD_SHADOW_DRAW_COLUMNS` colunas repartidas em `CLOUD_SHADOW_DRAW_PARTS` partes seguidas do pente (a soma das
+// partes é a coluna; T074); a prova reparte a coluna por 32 invocações (até 7 amostras cada).
 //
-// Um grupo por página física. A escolhida no quadro é desenhada: os texels e o registro dela — o sol, o tempo e o quadro
-// do desenho, a página global, a assinatura do conteúdo e a célula do pivô, as medidas (o maior |ΔT| entre texels
-// vizinhos por metro, nos nós 4, 8, 12 e 16, com a coluna da vizinha; o maior |ΔT| entre nós seguidos por metro ao longo
-// da coluna; o maior comprimento do trecho; a maior distância das pontas do trecho ao plano; o comprimento do trecho no
-// centro da página) e os nós 4, 8, 12 e 16 de cada texel (o que as provas comparam) — e o carimbo da série do atlas (a
-// época atual). Nas demais, a cada `CLOUD_SHADOW_PROBE_PERIOD` quadros (em rodízio), `CLOUD_SHADOW_PROBES` colunas de
-// prova (texels embaralhados por quadro) refeitas e
-// comparadas com o registro: a maior diferença de T fica no registro até a página ser refeita — a mudança medida, que a
-// escolha do quadro seguinte lê. A prova junto do desenho tem a latência de uma coluna, sem um passe a mais na cadeia.
-// Requer: WORKGROUP_SIZE, cloud_common, cloud_density, cloud_shadow_pages, clouds, cameras, page_alloc, cloud_wind_at,
-// cloud_shadow_out, cloud_shadow_pages_meta, cloud_shadow_work, cloud_shadow_stamps, cloud_shadow_clock.
+// Depois do desenho, um grupo por página física (`cloud_shadow_main`). A desenhada no quadro fecha o registro — o sol, o
+// tempo e o quadro do desenho, a página global, a assinatura do conteúdo e a célula do pivô, as medidas (o maior |ΔT|
+// entre texels vizinhos por metro, nos nós 4, 8, 12 e 16, com a coluna da vizinha; o maior |ΔT| entre nós seguidos por
+// metro ao longo da coluna; o maior comprimento do trecho; a maior distância das pontas do trecho ao plano; o comprimento
+// do trecho no centro da página) e os nós 4, 8, 12 e 16 de cada texel (o que as provas comparam) — e o carimbo da série do
+// atlas (a época atual). Nas demais, a cada `CLOUD_SHADOW_PROBE_PERIOD` quadros (em rodízio), `CLOUD_SHADOW_PROBES`
+// colunas de prova (texels embaralhados por quadro) refeitas e comparadas com o registro: a maior diferença de T fica no
+// registro até a página ser refeita — a mudança medida, que a escolha do quadro seguinte lê.
+// Requer: WORKGROUP_SIZE, CLOUD_SHADOW_DRAW_ROWS, cloud_common, cloud_density, cloud_shadow_pages, clouds, cameras,
+// page_alloc, cloud_wind_at, cloud_shadow_out, cloud_shadow_pages_meta, cloud_shadow_work, cloud_shadow_stamps,
+// cloud_shadow_clock.
 
 /** Teto de amostras do pente fino no trecho (o grosso, as pares, tem metade). */
 const CLOUD_SHADOW_STEPS: u32 = 192u;
@@ -204,36 +205,10 @@ fn cloud_shadow_comb_part(c: CloudShadowComb, sun: vec3f, i0: u32, i1: u32) -> C
 }
 
 /**
- * Uma coluna: τ ao fim dos 16 nós do pente (`CLOUD_SHADOW_COMB_KNOTS`), o comprimento do trecho, a maior distância das pontas dele ao plano e o custo (as
- * amostras da densidade, as com nuvem × `CLOUD_SHADOW_CLOUDY_COST`).
- */
-struct CloudShadowColumn {
-    knots: array<f32, 16>,
-    len: f32,
-    lever: f32,
-    cost: u32,
-}
-
-/**
  * O custo de uma amostra com nuvem em amostras vazias (T074): a vazia lê só a cobertura; a com nuvem, os volumes da forma
  * e do detalhe e a erosão.
  */
 const CLOUD_SHADOW_CLOUDY_COST: u32 = 4u;
-
-/**
- * A coluna do texel de coordenadas `x` (m) no plano do sol `sun` (a base `basis`), `line` o texel global (com o nível)
- * que fixa o deslocamento do pente, numa invocação só.
- */
-fn cloud_shadow_column_knots(x: vec2f, line: vec2i, sun: vec3f, basis: mat2x3f) -> CloudShadowColumn {
-    var out: CloudShadowColumn;
-    let c = cloud_shadow_comb(x, line, sun, basis);
-    let part = cloud_shadow_comb_part(c, sun, 0u, CLOUD_SHADOW_STEPS + 4u);
-    out.knots = part.knots;
-    out.len = c.len;
-    out.lever = c.lever;
-    out.cost = 1u + part.cost;
-    return out;
-}
 
 /** O texel global (com o nível no deslocamento) do texel `t` (0…16 por eixo) da página `g` do nível `k`. */
 fn cloud_shadow_line(k: u32, g: vec2i, t: vec2u) -> vec2i {
@@ -281,28 +256,35 @@ fn cloud_shadow_meta_current(slot: u32, m: u32) -> bool {
 var<workgroup> cloud_shadow_wg_tau: array<f32, 1156>;
 var<workgroup> cloud_shadow_wg_max: array<atomic<u32>, 5>;
 var<workgroup> cloud_shadow_wg_chosen: u32;
-/** As partes das colunas repartidas, somadas em ordem (as 33 que sobram × 16 nós do pente). */
-var<workgroup> cloud_shadow_wg_acc: array<f32, 528>;
+/** As partes das colunas do grupo, somadas em ordem (`CLOUD_SHADOW_DRAW_COLUMNS` colunas × 16 nós do pente). */
+var<workgroup> cloud_shadow_wg_acc: array<f32, 928>;
 
 /**
- * Partes por coluna das que sobram das 256 primeiras no desenho (T074): as 33 colunas × 7 partes em 231 invocações. Numa
- * invocação cada, a segunda rodada do grupo custava uma coluna inteira com 33 das 256 ativas.
+ * Partes por coluna no desenho (T074, rodada h): a página em 5 grupos de 58 colunas, cada coluna em 4 partes seguidas do
+ * pente (232 invocações por grupo). Com a página num grupo só e uma coluna por invocação, o passe era limitado pela
+ * latência da cadeia de amostras de uma coluna (até 196 amostras): o dobro das páginas por quadro custava +0,6 ms sobre
+ * 1,6. Medido com o sol no ritmo real (~100 páginas por quadro): 15 partes × 17 colunas 1,07 ms, 7 × 36 1,00, 4 × 64 0,93,
+ * 2 × 128 0,95 (a parte também refaz o pente da coluna e passa pelas barreiras da soma).
  */
-const CLOUD_SHADOW_REST_PARTS: u32 = 7u;
+const CLOUD_SHADOW_DRAW_PARTS: u32 = 4u;
+/** Colunas por grupo no desenho (`CLOUD_SHADOW_DRAW_ROWS` grupos por página, a constante compartilhada). */
+const CLOUD_SHADOW_DRAW_COLUMNS: u32 = 58u;
+/** A lista compacta das páginas do quadro em `cloud_shadow_work` (depois da contagem e das marcas). */
+const CLOUD_SHADOW_LIST: u32 = 4u + CLOUD_SHADOW_SLOT_COUNT;
 
 /**
- * O texel `t` da página física `slot` (nível `k`, página global `g`, origem no atlas `origin`) com os nós `knots`: grava o
- * atlas, o nó 4·l + 4 de cada camada no registro e no grupo (as medidas entre vizinhos), e as medidas da coluna (o maior
+ * O texel `t` da página física `slot` (origem no atlas `origin`) com os nós `knots`: grava o atlas, o nó 4·l + 4 de cada
+ * camada no registro (o que as provas comparam e o fim do desenho mede entre vizinhos), e as medidas da coluna (o maior
  * |ΔT| ao longo dela por metro, o trecho, a alavanca) nos máximos do grupo.
  */
 fn cloud_shadow_store_column(slot: u32, origin: vec2u, t: u32, knots: array<f32, 16>, len: f32, lever: f32) {
+    let rec = &cloud_shadow_pages_meta[slot];
     let tt = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
     for (var l = 0u; l < CLOUD_SHADOW_KNOTS / 4u; l++) {
         let b = l * 4u;
         let v = vec4f(knots[b], knots[b + 1u], knots[b + 2u], knots[b + 3u]);
         textureStore(cloud_shadow_out, vec3u(origin + tt, l), v);
-        cloud_shadow_wg_tau[t * 4u + l] = v.w;
-        atomicStore(&cloud_shadow_pages_meta[slot].knots[t * 4u + l], bitcast<u32>(v.w));
+        atomicStore(&(*rec).knots[t * 4u + l], bitcast<u32>(v.w));
     }
     // O maior |ΔT| entre nós seguidos (os da coluna) por metro ao longo dela.
     var along = 0.0;
@@ -322,7 +304,8 @@ fn cloud_shadow_store_column(slot: u32, origin: vec2u, t: u32, knots: array<f32,
 /**
  * As colunas `first + c` (`c < count`) repartidas em `parts` partes seguidas do pente, uma por invocação (`lid = c·parts +
  * p`): cada parte soma a dela nos nós do grupo, em ordem (`parts` barreiras: a soma não depende do agendamento), e a parte 0
- * grava a coluna. `parts` e `count` uniformes no grupo. Espelho de `shadowCombSplit`.
+ * grava a coluna; as medidas e o custo somados no grupo e depois no registro. `parts` e `count` uniformes no grupo.
+ * Espelho de `shadowCombSplit`.
  */
 fn cloud_shadow_draw_split(slot: u32, lid: u32, k: u32, g: vec2i, m: u32, origin: vec2u, first: u32, count: u32, parts: u32) {
     let c = lid / parts;
@@ -346,7 +329,7 @@ fn cloud_shadow_draw_split(slot: u32, lid: u32, k: u32, g: vec2i, m: u32, origin
         part = cloud_shadow_comb_part(comb, sun, i0, i1);
         atomicAdd(&cloud_shadow_wg_max[4], part.cost + select(0u, 1u, p == 0u));
     }
-    for (var q = 0u; q < CLOUD_SHADOW_REST_PARTS; q++) {
+    for (var q = 0u; q < CLOUD_SHADOW_DRAW_PARTS; q++) {
         if (q >= parts) { break; }
         if (live && p == q) {
             for (var n = 0u; n < CLOUD_SHADOW_COMB_KNOTS; n++) {
@@ -361,44 +344,70 @@ fn cloud_shadow_draw_split(slot: u32, lid: u32, k: u32, g: vec2i, m: u32, origin
         for (var n = 0u; n < CLOUD_SHADOW_COMB_KNOTS; n++) { knots[n] = cloud_shadow_wg_acc[c * CLOUD_SHADOW_COMB_KNOTS + n]; }
         cloud_shadow_store_column(slot, origin, t, knots, comb.len, comb.lever);
     }
+    // As medidas e o custo do grupo no registro (zerados pela escolha do quadro; os grupos da página os juntam).
+    workgroupBarrier();
+    if (lid == 0u) {
+        let rec = &cloud_shadow_pages_meta[slot];
+        atomicMax(&(*rec).along, atomicLoad(&cloud_shadow_wg_max[1]));
+        atomicMax(&(*rec).len, atomicLoad(&cloud_shadow_wg_max[2]));
+        atomicMax(&(*rec).lever, atomicLoad(&cloud_shadow_wg_max[3]));
+        atomicAdd(&(*rec).cost, atomicLoad(&cloud_shadow_wg_max[4]));
+    }
 }
 
 /**
- * O desenho da página física `slot` do degrau `m` (as 256 invocações do grupo): as 256 primeiras colunas uma por
- * invocação, as 33 que sobram em 7 partes cada; o registro: o sol, o tempo e o quadro do desenho, a página e o conteúdo,
- * as medidas e o custo.
+ * O desenho das páginas do quadro (despacho indireto: `CLOUD_SHADOW_DRAW_ROWS` grupos por página da lista compacta que a
+ * escolha grava): o grupo desenha `CLOUD_SHADOW_DRAW_COLUMNS` colunas seguidas da página física, em
+ * `CLOUD_SHADOW_DRAW_PARTS` partes cada. O registro (o sol, o tempo, a página, o gradiente entre vizinhos e o carimbo) é
+ * gravado depois, em `cloud_shadow_main`.
  */
-fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
+@compute @workgroup_size(CLOUD_SHADOW_PAGE_GROUP)
+fn cloud_shadow_draw_main(
+    @builtin(workgroup_id) wid: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
+    let i = wid.x / CLOUD_SHADOW_DRAW_ROWS;
+    let row = wid.x % CLOUD_SHADOW_DRAW_ROWS;
+    if (lid < 5u) { atomicStore(&cloud_shadow_wg_max[lid], 0u); }
+    if (lid == 0u) {
+        let slot = min(atomicLoad(&cloud_shadow_work[CLOUD_SHADOW_LIST + i]), CLOUD_SHADOW_SLOT_COUNT);
+        var step = CLOUD_SHADOW_STEP_NONE;
+        if (slot < CLOUD_SHADOW_SLOT_COUNT) { step = cloud_shadow_slot_step(slot, cloud_shadow_maps_meta()); }
+        cloud_shadow_wg_chosen = slot | (step << 16u);
+    }
+    let mark = workgroupUniformLoad(&cloud_shadow_wg_chosen);
+    let slot = mark & 0xffffu;
+    let m = mark >> 16u;
+    if (slot >= CLOUD_SHADOW_SLOT_COUNT || m == CLOUD_SHADOW_STEP_NONE) { return; }
+    let first = row * CLOUD_SHADOW_DRAW_COLUMNS;
+    cloud_shadow_draw_split(
+        slot, lid, cloud_shadow_slot_level(slot), cloud_shadow_slot_page(slot, m), m, cloud_shadow_slot_origin(slot),
+        first, min(CLOUD_SHADOW_DRAW_COLUMNS, CLOUD_SHADOW_PAGE_TEXELS - first), CLOUD_SHADOW_DRAW_PARTS,
+    );
+}
+
+/**
+ * O fim do desenho da página física `slot` do degrau `m` (as 256 invocações do grupo), depois de `cloud_shadow_draw_main`:
+ * o maior |ΔT| entre texels vizinhos pelos nós 4, 8, 12 e 16 do registro, e o registro — o sol, o tempo e o quadro do
+ * desenho, a página e o conteúdo, a célula do pivô, o degrau — e o carimbo da série do atlas.
+ */
+fn cloud_shadow_finish(slot: u32, lid: u32, m: u32) {
     let k = cloud_shadow_slot_level(slot);
     let g = cloud_shadow_slot_page(slot, m);
-    let origin = cloud_shadow_slot_origin(slot);
     let texel = cloud_shadow_step_texel(k, m);
     let rec = &cloud_shadow_pages_meta[slot];
-    let tt = vec2u(lid % CLOUD_SHADOW_STRIDE, lid / CLOUD_SHADOW_STRIDE);
-    let col = cloud_shadow_column_knots(
-        cloud_shadow_texel_plane(k, g, tt, m),
-        cloud_shadow_line(k, g, tt),
-        clouds.sunDir.xyz,
-        mat2x3f(clouds.sunRight.xyz, clouds.sunUp.xyz),
-    );
-    cloud_shadow_store_column(slot, origin, lid, col.knots, col.len, col.lever);
-    atomicAdd(&cloud_shadow_wg_max[4], col.cost);
-    cloud_shadow_draw_split(
-        slot, lid, k, g, m, origin, CLOUD_SHADOW_PAGE_GROUP, CLOUD_SHADOW_PAGE_TEXELS - CLOUD_SHADOW_PAGE_GROUP,
-        CLOUD_SHADOW_REST_PARTS,
-    );
-    workgroupBarrier();
-    // O maior |ΔT| entre texels vizinhos (+x e +y, dentro da página física) nos nós 4, 8, 12 e 16.
     for (var r = 0u; r < 2u; r++) {
         let t = lid + r * CLOUD_SHADOW_PAGE_GROUP;
         if (t >= CLOUD_SHADOW_PAGE_TEXELS) { break; }
         let ts = vec2u(t % CLOUD_SHADOW_STRIDE, t / CLOUD_SHADOW_STRIDE);
         var d = 0.0;
         for (var l = 0u; l < 4u; l++) {
-            let a = exp(-cloud_shadow_wg_tau[t * 4u + l]);
-            if (ts.x + 1u < CLOUD_SHADOW_STRIDE) { d = max(d, abs(a - exp(-cloud_shadow_wg_tau[(t + 1u) * 4u + l]))); }
+            let a = exp(-bitcast<f32>(atomicLoad(&(*rec).knots[t * 4u + l])));
+            if (ts.x + 1u < CLOUD_SHADOW_STRIDE) {
+                d = max(d, abs(a - exp(-bitcast<f32>(atomicLoad(&(*rec).knots[(t + 1u) * 4u + l])))));
+            }
             if (ts.y + 1u < CLOUD_SHADOW_STRIDE) {
-                d = max(d, abs(a - exp(-cloud_shadow_wg_tau[(t + CLOUD_SHADOW_STRIDE) * 4u + l])));
+                d = max(d, abs(a - exp(-bitcast<f32>(atomicLoad(&(*rec).knots[(t + CLOUD_SHADOW_STRIDE) * 4u + l])))));
             }
         }
         atomicMax(&cloud_shadow_wg_max[0], bitcast<u32>(d / min(texel.x, texel.y)));
@@ -415,16 +424,12 @@ fn cloud_shadow_draw(slot: u32, lid: u32, m: u32) {
     atomicStore(&(*rec).frame, clouds.march.z);
     atomicStore(&(*rec).signature, clouds.sunPages.y);
     atomicStore(&(*rec).gradient, atomicLoad(&cloud_shadow_wg_max[0]));
-    atomicStore(&(*rec).along, atomicLoad(&cloud_shadow_wg_max[1]));
-    atomicStore(&(*rec).len, atomicLoad(&cloud_shadow_wg_max[2]));
-    atomicStore(&(*rec).lever, atomicLoad(&cloud_shadow_wg_max[3]));
     let center = (vec2f(g) + 0.5) * f32(CLOUD_SHADOW_PAGE) * texel;
     atomicStore(&(*rec).center_len, bitcast<u32>(cloud_shadow_segment_length(center)));
     atomicStore(&(*rec).measured, 0u);
     atomicStore(&(*rec).pivot_x, clouds.sunPages.z);
     atomicStore(&(*rec).pivot_y, clouds.sunPages.w);
     atomicStore(&(*rec).step, m);
-    atomicStore(&(*rec).cost, atomicLoad(&cloud_shadow_wg_max[4]));
     // O carimbo da série do atlas: a página escrita na época atual.
     cloud_shadow_stamps[slot] = cloud_shadow_clock.x;
 }
@@ -560,7 +565,7 @@ fn cloud_shadow_main(
     let m = mark >> 1u;
     if (slot >= CLOUD_SHADOW_SLOT_COUNT || m == CLOUD_SHADOW_STEP_NONE) { return; }
     if (chosen != 0u) {
-        cloud_shadow_draw(slot, lid, m);
+        cloud_shadow_finish(slot, lid, m);
         return;
     }
     // As provas, em rodízio, das páginas que valem (a condição uniforme no grupo: as barreiras da soma).
@@ -701,6 +706,10 @@ fn cloud_shadow_key(slot: u32, m: u32, maps: CloudShadowMaps) -> u32 {
     let raw = min(max(cloud_shadow_error(slot, k, g, m), measured), 1.0);
     let e = cloud_shadow_screen_error(raw, k, g, m, lever, vis);
     if (e <= CLOUD_SHADOW_TOLERANCE) { return select(0u, 1u, age >= CLOUD_SHADOW_MAX_AGE); }
+    // A demanda do quadro (lida pelo smoke `timing`): as páginas acima de 4, 16 e 64 tolerâncias.
+    atomicAdd(&cloud_shadow_work[1], select(0u, 1u, e > 4.0 * CLOUD_SHADOW_TOLERANCE));
+    atomicAdd(&cloud_shadow_work[2], select(0u, 1u, e > 16.0 * CLOUD_SHADOW_TOLERANCE));
+    atomicAdd(&cloud_shadow_work[3], select(0u, 1u, e > 64.0 * CLOUD_SHADOW_TOLERANCE));
     let p = e / CLOUD_SHADOW_TOLERANCE * f32(max(age, 1u)) * exp2(f32(CLOUD_SHADOW_LEVELS - 1u - k) * 0.5)
         * select(1.0, 4.0, vis);
     return clamp(1u + u32(floor(2.0 * log2(p))), 1u, CLOUD_SHADOW_KEY_MANDATORY - 1u);
@@ -748,8 +757,8 @@ var<workgroup> cloud_shadow_wg_hist: array<atomic<u32>, 48>;
 var<workgroup> cloud_shadow_wg_cut: vec2u;
 
 /**
- * O custo de referência de uma página (T074; as unidades do registro, `CloudShadowColumn.cost`): os 289 texels com
- * `CLOUD_SHADOW_PAGE_REF_SAMPLES` amostras vazias. O orçamento do quadro é `clouds.sunPages.x` páginas dele; a página que
+ * O custo de referência de uma página (T074; as unidades do registro, `CloudShadowPart.cost` somado nas partes): os 289
+ * texels com `CLOUD_SHADOW_PAGE_REF_SAMPLES` amostras vazias. O orçamento do quadro é `clouds.sunPages.x` páginas dele; a página que
  * ainda não tem custo medido (nunca desenhada no registro) conta como ela.
  */
 const CLOUD_SHADOW_PAGE_REF_SAMPLES: u32 = 192u;
@@ -777,6 +786,9 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
     if (lid == 0u) {
         cloud_shadow_wg_maps = cloud_shadow_maps_begin();
         atomicStore(&cloud_shadow_wg_pending, 0u);
+        atomicStore(&cloud_shadow_work[1], 0u);
+        atomicStore(&cloud_shadow_work[2], 0u);
+        atomicStore(&cloud_shadow_work[3], 0u);
     }
     workgroupBarrier();
     let maps = cloud_shadow_wg_maps;
@@ -819,6 +831,7 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
     var spent = pa_exclusive(lid, at_cut);
     var count = 0u;
     var pending = 0u;
+    var marks = 0u;
     for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) {
         let slot = lid * CLOUD_SHADOW_SELECT_CHUNK + j;
         var chosen = keys[j] > cut.x;
@@ -829,12 +842,30 @@ fn cloud_shadow_select_main(@builtin(local_invocation_index) lid: u32) {
         if (slot < CLOUD_SHADOW_SLOT_COUNT) {
             atomicStore(&cloud_shadow_work[4u + slot], select(0u, 1u, chosen));
             count += select(0u, 1u, chosen);
+            if (chosen) { marks |= 1u << j; }
             if ((fresh & (1u << j)) != 0u && !chosen) { pending++; }
         }
     }
     if (pending > 0u) { atomicAdd(&cloud_shadow_wg_pending, pending); }
     let at = pa_exclusive(lid, count);
-    if (lid == CLOUD_SHADOW_PAGE_GROUP - 1u) { atomicStore(&cloud_shadow_work[0], at + count); }
+    // A lista compacta das páginas do quadro (a ordem da página física) e os máximos e o custo do registro de cada uma
+    // zerados para o desenho, que os acumula entre grupos.
+    var n = 0u;
+    for (var j = 0u; j < CLOUD_SHADOW_SELECT_CHUNK; j++) {
+        if ((marks & (1u << j)) == 0u) { continue; }
+        let slot = lid * CLOUD_SHADOW_SELECT_CHUNK + j;
+        atomicStore(&cloud_shadow_work[CLOUD_SHADOW_LIST + at + n], slot);
+        n++;
+        let rec = &cloud_shadow_pages_meta[slot];
+        atomicStore(&(*rec).along, 0u);
+        atomicStore(&(*rec).len, 0u);
+        atomicStore(&(*rec).lever, 0u);
+        atomicStore(&(*rec).cost, 0u);
+    }
+    if (lid == CLOUD_SHADOW_PAGE_GROUP - 1u) {
+        // A contagem (os argumentos do despacho indireto do desenho saem dela em `cloud_shadow_args_main`).
+        atomicStore(&cloud_shadow_work[0], at + count);
+    }
     workgroupBarrier();
     if (lid != 0u) { return; }
     var next = maps;

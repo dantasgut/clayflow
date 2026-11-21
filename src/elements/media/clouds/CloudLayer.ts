@@ -617,12 +617,21 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 upload: 'never',
                 history: { depth: 1, pages: { record: CloudShadowPageSchema.stride } },
             },
-            // A lista das páginas do quadro (a contagem e as páginas físicas), refeita a cada quadro.
+            // As páginas do quadro, refeitas a cada quadro: a contagem, a marca de cada página física e a lista compacta
+            // das marcadas.
             {
                 id: 'shadowWork',
                 role: 'storage-rw',
                 schema: GpuWordSchema,
-                count: 4 + CLOUD_SHADOW_SLOT_COUNT,
+                count: 4 + 2 * CLOUD_SHADOW_SLOT_COUNT,
+                upload: 'never',
+            },
+            // Os argumentos do despacho indireto do desenho das páginas do quadro (T074).
+            {
+                id: 'shadowArgs',
+                role: 'indirect',
+                schema: GpuWordSchema,
+                count: 4,
                 upload: 'never',
             },
             // O panorama, série por páginas de uma página só (T074): refeito no quadro em que o que ele mostra muda.

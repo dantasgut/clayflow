@@ -34,6 +34,7 @@ import cloudMarchSource from '../../gpu/wgsl/clouds/cloud_march.wgsl?raw';
 import cloudReconstructSource from '../../gpu/wgsl/clouds/cloud_reconstruct.wgsl?raw';
 import cloudUpsampleSource from '../../gpu/wgsl/clouds/cloud_upsample.wgsl?raw';
 import cloudTilesSource from '../../gpu/wgsl/clouds/cloud_tiles.wgsl?raw';
+import cloudShadowArgsSource from '../../gpu/wgsl/clouds/cloud_shadow_args.wgsl?raw';
 import cloudSceneLimitSource from '../../gpu/wgsl/clouds/cloud_scene_limit.wgsl?raw';
 import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
@@ -414,6 +415,14 @@ export const cloudResources = Object.freeze({
         frequency: 'frame',
         provider: { consumer: 'CloudLayer.shadowWork' },
     }),
+    /** Os argumentos do despacho indireto do desenho do mapa visto do sol (T074). */
+    shadowArgs: wgslResource({
+        name: 'cloud_shadow_args',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.shadowArgs' },
+    }),
     /** A profundidade da cena (sem e com amostras), privada do estágio da marcha. */
     sceneDepth: wgslResource({
         name: 'cloud_scene_depth_tex',
@@ -745,6 +754,11 @@ export const cloudDensity = wgslModule({
 
 /** Invocações do grupo do desenho de uma página do mapa visto do sol (um grupo por página física). */
 export const CLOUD_SHADOW_PAGE_GROUP = sharedConstant('CLOUD_SHADOW_PAGE_GROUP', 256, 'u32');
+/**
+ * Grupos do desenho do mapa visto do sol por página (T074): os argumentos do despacho indireto (`cloud_shadow_args`) e o
+ * desenho (`cloud_shadow_draw_main`) o compartilham.
+ */
+export const CLOUD_SHADOW_DRAW_ROWS = sharedConstant('CLOUD_SHADOW_DRAW_ROWS', 5, 'u32');
 
 /** O endereçamento do mapa visto do sol por páginas (os níveis, a janela, o atlas). */
 export const cloudShadowPages = wgslModule({
@@ -1007,6 +1021,7 @@ const cloudShadowBase = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         CLOUD_SHADOW_PAGE_GROUP.module,
+        CLOUD_SHADOW_DRAW_ROWS.module,
         cloudCommon,
         cloudDensity,
         cloudShadowPages,
@@ -1020,6 +1035,13 @@ const cloudShadowBase = wgslModule({
         R.shadowClock,
         R.shadowWork,
     ],
+});
+
+/** Os argumentos do despacho indireto do desenho do mapa visto do sol pela contagem da escolha (T074). */
+export const cloudShadowArgsKernel = wgslModule({
+    name: 'cloud_shadow_args_kernel',
+    source: cloudShadowArgsSource,
+    requires: [CLOUD_SHADOW_DRAW_ROWS.module, R.shadowWork, R.shadowArgs],
 });
 
 /** O mapa visto do sol sem o tempo e com ele (o vento local das nuvens pelo quadrado do tempo). */

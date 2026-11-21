@@ -40,6 +40,7 @@ import {
     cloudScatterSlots,
     CLOUD_SHADOW_PAGE_GROUP,
     CLOUD_SUN_VOLUME_DRAW_GROUP,
+    cloudShadowArgsKernel,
     cloudShadowKernel,
     cloudShadowSlots,
     cloudSunVolumeKernel,
@@ -88,12 +89,17 @@ const compute = (
 });
 
 const AMBIENT = compute('cloud_ambient', cloudAmbientKernel, 'cloud_ambient_main');
-/** As partes do mapa visto do sol por páginas (a escolha do quadro; o desenho e as provas), sem e com o tempo. */
+/**
+ * As partes do mapa visto do sol por páginas (a escolha do quadro; o desenho das escolhidas, por despacho indireto; o fim
+ * do registro delas e as provas das demais), sem e com o tempo.
+ */
 const shadowParts = (weather: boolean): readonly PipelineDescriptor[] => {
     const shader = weather ? cloudShadowKernel.weather : cloudShadowKernel.plain;
     const tag = weather ? ':weather' : '';
     return [
         compute(`cloud_shadow_select${tag}`, shader, 'cloud_shadow_select_main'),
+        compute(`cloud_shadow_args${tag}`, cloudShadowArgsKernel, 'cloud_shadow_args_main'),
+        compute(`cloud_shadow_draw${tag}`, shader, 'cloud_shadow_draw_main'),
         compute(`cloud_shadow${tag}`, shader, 'cloud_shadow_main'),
     ];
 };
@@ -277,7 +283,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             )
         )
             return;
-        const [select, draw] = parts;
+        const [select, args, draw, finish] = parts;
         const [coverageSelect, coverageDraw] = coverage;
         const [volumeKeys, volumeSelect, volumeDraw] = volume;
         steps.forEach(([id, label, count], k) => {
@@ -313,17 +319,35 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 else pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
             });
             // O mapa visto do sol por páginas depois das irradiâncias (antes dos caminhos do cache, que o leem): a escolha
-            // marca as páginas do quadro (as provas do quadro anterior entram nela), e um grupo por página física desenha
-            // as marcadas e prova as demais.
-            if (id === AMBIENT.id && select?.role === 'compute' && draw?.role === 'compute') {
+            // marca as páginas do quadro (as provas do quadro anterior entram nela) e grava a lista delas; o desenho, por
+            // despacho indireto, faz um grupo por linha de cada página da lista; depois, um grupo por página física fecha o
+            // registro das desenhadas e prova as demais.
+            const shadowArgs = this.resources.bufferOf(cloud, 'shadowArgs');
+            if (
+                id === AMBIENT.id
+                && select?.role === 'compute'
+                && args?.role === 'compute'
+                && draw?.role === 'compute'
+                && finish?.role === 'compute'
+                && shadowArgs?.subkind === 'indirect'
+            ) {
                 frame.compute('CloudLightFlow.shadowSelect', (pass) => {
                     pass.bind.setPipeline(select.spec);
                     select.bindTo(pass.bind);
                     pass.dispatch.workgroups(1);
+                    pass.bind.setPipeline(args.spec);
+                    args.bindTo(pass.bind);
+                    pass.dispatch.workgroups(1);
                 });
+                // O desenho: as linhas das páginas da lista que a escolha gravou.
                 frame.compute('CloudLightFlow.shadow', (pass) => {
                     pass.bind.setPipeline(draw.spec);
                     draw.bindTo(pass.bind);
+                    pass.dispatch.workgroupsIndirect(shadowArgs, 0);
+                });
+                frame.compute('CloudLightFlow.shadowFinish', (pass) => {
+                    pass.bind.setPipeline(finish.spec);
+                    finish.bindTo(pass.bind);
                     pass.dispatch.invocations(
                         CLOUD_SHADOW_SLOT_COUNT * CLOUD_SHADOW_PAGE_GROUP.value,
                         CLOUD_SHADOW_PAGE_GROUP.value,
@@ -415,6 +439,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         this.resources.ensureAllocated(cloud, 'scatterFiltered');
         this.resources.ensureAllocated(cloud, 'shadowPages');
         this.resources.ensureAllocated(cloud, 'shadowWork');
+        this.resources.ensureAllocated(cloud, 'shadowArgs');
         this.resources.ensureAllocated(cloud, 'coveragePages');
         this.resources.ensureAllocated(cloud, 'coverageWork');
         this.resources.ensureAllocated(cloud, 'sunVolume');

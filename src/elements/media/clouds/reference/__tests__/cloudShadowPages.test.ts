@@ -53,6 +53,7 @@ import {
     type ShadowMaps,
     shadowPixelFootprint,
     shadowScreenError,
+    CLOUD_SHADOW_DRAW_PARTS,
     CLOUD_SHADOW_KNOTS,
     CLOUD_SHADOW_STEPS,
     shadowComb,
@@ -809,7 +810,7 @@ describe('mapa visto do sol: a coluna repartida entre invocações (T074)', () =
         for (const { comb, extinction } of columns) {
             const whole = shadowCombPart(comb, extinction, 0, CLOUD_SHADOW_STEPS + 4);
             samples = Math.max(samples, whole.samples);
-            for (let parts = 2; parts <= 8; parts++) {
+            for (const parts of [2, 3, CLOUD_SHADOW_DRAW_PARTS, 5, 6, 7, 8, 15]) {
                 const split = shadowCombSplit(comb, extinction, parts);
                 for (let k = 0; k < CLOUD_SHADOW_KNOTS; k++)
                     worst = Math.max(

@@ -72,6 +72,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'weatherWind',
             'coverageWork',
             'shadowWork',
+            'shadowArgs',
             'shadowPages',
             'scatterWork',
             'sunVolume',
