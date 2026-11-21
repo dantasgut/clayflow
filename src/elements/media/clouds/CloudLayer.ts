@@ -34,6 +34,12 @@ import {
     CLOUD_SCATTER_PROBE_WORDS,
     CLOUD_SHADOW_ATLAS_LAYERS,
     CLOUD_SHAPE_SIZE,
+    CLOUD_SUN_VOLUME_LEVELS,
+    CLOUD_SUN_VOLUME_PAGE_COUNT,
+    CLOUD_SUN_VOLUME_PAGES,
+    CLOUD_SUN_VOLUME_RECORD_WORDS,
+    CLOUD_SUN_VOLUME_STRIDE,
+    CLOUD_SUN_VOLUME_WORK_WORDS,
     CLOUD_WEATHER_SIZE,
     CloudSchema,
     CloudShadowPageSchema,
@@ -41,7 +47,12 @@ import {
     cloudCoverageSlotCount,
     type CloudQuality,
 } from './schemas';
-import { CLOUD_TILE, cloudLightTransmission, cloudSkyCover, cloudVolumeVisibility } from './shaders';
+import {
+    CLOUD_TILE,
+    cloudLightTransmission,
+    cloudSkyCover,
+    cloudVolumeVisibility,
+} from './shaders';
 
 /**
  * O tempo das nuvens (spec 041, R19): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
@@ -645,7 +656,9 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 id: 'scatter',
                 role: 'storage-rw',
                 schema: GpuWordSchema,
-                count: scatterHeader + scatterPages * CLOUD_SCATTER_PAGE ** 3 * CLOUD_SCATTER_PROBE_WORDS,
+                count:
+                    scatterHeader
+                    + scatterPages * CLOUD_SCATTER_PAGE ** 3 * CLOUD_SCATTER_PROBE_WORDS,
                 upload: 'never',
                 history: {
                     depth: 1,
@@ -682,6 +695,55 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 role: 'storage-rw',
                 schema: GpuWordSchema,
                 count: 8 + 3 * scatterPages,
+                upload: 'never',
+            },
+            // O volume de τ até o sol perto da câmera (T074): os nós de cada página física (9³: as células e o nó da vizinha)
+            // de cada nível, o τ do trecho do cone (r) e o resto da luz (g), os níveis um depois do outro em z — série por
+            // páginas (o atlas só; a C2 guarda o carimbo de cada página física e a época): só as páginas que entram na
+            // janela ou mudam além da tolerância são refeitas.
+            {
+                id: 'sunVolume',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    dimension: '3d',
+                    width: CLOUD_SUN_VOLUME_PAGES[0] * CLOUD_SUN_VOLUME_STRIDE,
+                    height: CLOUD_SUN_VOLUME_PAGES[1] * CLOUD_SUN_VOLUME_STRIDE,
+                    depthOrArrayLayers:
+                        CLOUD_SUN_VOLUME_LEVELS
+                        * CLOUD_SUN_VOLUME_PAGES[2]
+                        * CLOUD_SUN_VOLUME_STRIDE,
+                    access: 'write-only',
+                },
+                history: {
+                    depth: 1,
+                    pages: {
+                        tile: [
+                            CLOUD_SUN_VOLUME_STRIDE,
+                            CLOUD_SUN_VOLUME_STRIDE,
+                            CLOUD_SUN_VOLUME_STRIDE,
+                        ],
+                    },
+                },
+            },
+            // O registro de cada página física do volume (a página global, a assinatura, o sol e o tempo do desenho, as taxas
+            // medidas da mudança das duas partes, os τ médios e os nós de prova), série por páginas.
+            {
+                id: 'sunVolumePages',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: CLOUD_SUN_VOLUME_PAGE_COUNT * CLOUD_SUN_VOLUME_RECORD_WORDS,
+                upload: 'never',
+                history: { depth: 1, pages: { record: CLOUD_SUN_VOLUME_RECORD_WORDS * 4 } },
+            },
+            // O trabalho do quadro do volume: a contagem, as filas, a lista das páginas escolhidas, as marcas de validade das
+            // duas partes e a fila de cada página.
+            {
+                id: 'sunVolumeWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: CLOUD_SUN_VOLUME_WORK_WORDS,
                 upload: 'never',
             },
             // O tempo (R19): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o

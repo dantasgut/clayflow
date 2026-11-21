@@ -101,7 +101,11 @@ import {
     type ScatterGrid,
 } from '../elements/media/clouds/reference/cloudScatter';
 import { deltaRng } from '../elements/lighting/reference/pathTracer';
-import { CLOUD_SCATTER_PROBE_WORDS } from '../elements/media/clouds/schemas';
+import {
+    CLOUD_SCATTER_PROBE_WORDS,
+    CLOUD_SUN_VOLUME_VALID_WORDS,
+    CLOUD_SUN_VOLUME_WORK_VALID,
+} from '../elements/media/clouds/schemas';
 import {
     shadowColumnSun,
     shadowFrameOf,
@@ -1337,7 +1341,22 @@ async function cloudCost(
                         sb === undefined
                             ? -1
                             : new Uint32Array((await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer)[0]!;
-                    work.push(`${words[0]}/${words[1]}/${f[6]!.toFixed(4)}/${words[7]}/${shadowDrawn}`);
+                    // O volume de τ até o sol (T074): as páginas desenhadas no quadro e as que valem na leitura (o cone, o resto).
+                    const vb = s.app.resources.bufferOf(layer, 'sunVolumeWork');
+                    let volume = '-';
+                    if (vb !== undefined) {
+                        const v = new Uint32Array((await readBuffer(s.app, vb, 'cloud_sun_volume_work')).buffer);
+                        const bits = (from: number): number => {
+                            let n = 0;
+                            for (let k = from; k < from + CLOUD_SUN_VOLUME_VALID_WORDS; k++)
+                                for (let b = v[k]!; b !== 0; b &= b - 1) n++;
+                            return n;
+                        };
+                        volume = `${v[0]}+${bits(CLOUD_SUN_VOLUME_WORK_VALID)}+${bits(CLOUD_SUN_VOLUME_WORK_VALID + CLOUD_SUN_VOLUME_VALID_WORDS)}`;
+                    }
+                    work.push(
+                        `${words[0]}/${words[1]}/${f[6]!.toFixed(4)}/${words[7]}/${shadowDrawn}/${volume}`,
+                    );
                 }
             }
             const all = await passTimes(s.app, 30, /./, moveSun, dt);
@@ -1501,7 +1520,7 @@ async function caseTiming(): Promise<void> {
         const d = median(c.diffs);
         log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${name}: cache (páginas/panorama/mudança/porquê/páginas do mapa) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+            `timing ${name}: cache (páginas/panorama/mudança/porquê/páginas do mapa/volume de τ desenhadas+cone+resto) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
         );
         log(
             `timing ${name}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(

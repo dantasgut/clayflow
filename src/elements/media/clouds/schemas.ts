@@ -24,7 +24,9 @@ import { type FieldSpec, StructSchema, fieldArray } from '../../../scene/descrip
  * das células, amplitude das baixas e teto das altas em Pa, vida em s); o quadrado do tempo (o topo do tempo bom como
  * fração da casca — 1 sem o tempo —, texels por lado, lado em m, lado do estêncil em m); as marcas (tempo ligado, slot
  * da função de pressão, histórico do estado válido, semente); a bigorna (o vento da alta troposfera em m/s, x e z, e o
- * deslocamento dela em m, módulo o período da forma).
+ * deslocamento dela em m, módulo o período da forma); o volume de τ até o sol perto da câmera (T074): o lado da célula no
+ * plano (0: desligado), o comprimento do trecho que cada nó integra, o ponto do cone onde a leitura entra e o tempo da
+ * evolução da cobertura (0 sem evolução); a página da câmera na janela (x, z, em i32), o orçamento e a assinatura.
  */
 export const CloudSchema = new StructSchema(
     'CloudLayer',
@@ -60,6 +62,8 @@ export const CloudSchema = new StructSchema(
         weatherMap: FieldType.vec4f,
         weatherFlags: FieldType.vec4u,
         anvil: FieldType.vec4f,
+        sunVolume: FieldType.vec4f,
+        sunVolumeGrid: FieldType.vec4u,
     },
     { addressSpace: 'uniform' },
 );
@@ -304,3 +308,81 @@ export const CLOUD_SCATTER_SNAP = 4000;
 export const CLOUD_SCATTER_NEAR = 2000;
 /** Alcance (m) da grade a partir da câmera (meio lado). */
 export const CLOUD_SCATTER_EXTENT = 64_000;
+
+// O volume de τ até o sol perto da câmera (T074; `cloud_sun_volume*.wgsl`, `reference/cloudSunVolume.ts`).
+/** Células por lado de uma página do volume de τ até o sol (os nós de uma página física: `CLOUD_SUN_VOLUME_PAGE + 1`). */
+export const CLOUD_SUN_VOLUME_PAGE = 8;
+/** Nós por lado de uma página física: as células e o nó da vizinha em +x, +y e +z (a leitura filtra dentro da página). */
+export const CLOUD_SUN_VOLUME_STRIDE = CLOUD_SUN_VOLUME_PAGE + 1;
+/**
+ * Páginas da janela de um nível em volta da câmera (x, altitude, z): no plano, o endereço toroidal; na altitude, a casca
+ * inteira em todo nível.
+ */
+export const CLOUD_SUN_VOLUME_PAGES = [20, 8, 20] as const;
+/**
+ * Níveis do volume: o nível `k` tem células de `CLOUD_SUN_VOLUME_CELL · 2^k` m no plano (a altura igual em todos) e a
+ * janela de ±4·2^k km — até ±64 km no último (medido: da marcha do `high-sun`, a luz até 8 km custa 0,04 ms, de 8 a 32
+ * km 0,11 e de 32 a 128 km 0,15).
+ */
+export const CLOUD_SUN_VOLUME_LEVELS = 5;
+/** Páginas de um nível e do volume (as físicas, uma por página da janela). */
+export const CLOUD_SUN_VOLUME_LEVEL_PAGES =
+    CLOUD_SUN_VOLUME_PAGES[0] * CLOUD_SUN_VOLUME_PAGES[1] * CLOUD_SUN_VOLUME_PAGES[2];
+export const CLOUD_SUN_VOLUME_PAGE_COUNT = CLOUD_SUN_VOLUME_LEVELS * CLOUD_SUN_VOLUME_LEVEL_PAGES;
+/**
+ * O lado (m) da célula no plano do nível 0: o τ do cone filtrado entre nós a 50 m (39 m na altura, a casca padrão em 64
+ * células) erra 2,5 % contra os 3,8 % do cone de 6 amostras que ele substitui; a 100 m, 5,3–6,2 %; a 200 m, 11 % (f64,
+ * `cloudSunVolume.test.ts`).
+ */
+export const CLOUD_SUN_VOLUME_CELL = 50;
+/**
+ * O maior lado da célula do resto da luz, em pegadas do pixel da marcha no ponto lido (o nível 0 sempre): o resto carrega
+ * a sombra de uma nuvem sobre a outra pelo mapa visto do sol, de bordas nítidas com o sol baixo, e a célula grossa a borra
+ * (`sunset` 4,0 → 6,5 % com o resto em todos os níveis, 4,3 % até 2 pixels; com o cone só, 4,0 %). O cone, em todos.
+ */
+export const CLOUD_SUN_VOLUME_REST_FOOTPRINT = 1;
+/**
+ * O maior lado (m) da célula na altura (a casca em `CLOUD_SUN_VOLUME_PAGE · páginas` células): numa casca mais alta (o
+ * tempo, que a leva à tropopausa) o volume erraria mais que o cone, e a marcha segue o cone.
+ */
+export const CLOUD_SUN_VOLUME_MAX_SPACING = 64;
+/** Amostras da densidade por nó ao longo do trecho do cone (no meio de partes iguais; f64: 12 e 24 erram igual). */
+export const CLOUD_SUN_VOLUME_SAMPLES = 12;
+/** Páginas desenhadas por quadro (o orçamento constante). */
+export const CLOUD_SUN_VOLUME_BUDGET = 128;
+/** Palavras do registro de uma página (`cloud_sun_volume.wgsl`): a página, o que o desenho viu, as taxas e as provas. */
+export const CLOUD_SUN_VOLUME_RECORD_WORDS = 80;
+/** Nós de prova por página (o registro guarda as duas partes deles; o desenho seguinte compara). */
+export const CLOUD_SUN_VOLUME_PROBES = 32;
+/**
+ * A mudança estimada de τ (a média nos nós de prova) a partir da qual a página entra na fila do desenho, e a partir da
+ * qual ela não vale (a marcha segue o cone) no nível 0: ~⅓ e ~1 vez o erro de τ do próprio volume (~0,065 na média, f64);
+ * cada nível dobra as duas, como o erro da interpolação.
+ */
+export const CLOUD_SUN_VOLUME_TOLERANCE = 0.02;
+export const CLOUD_SUN_VOLUME_INVALID = 0.06;
+/**
+ * A taxa da mudança do τ do cone (|Δτ| médio por metro do deslocamento do fim do trecho: `L·Δθ_sol` mais a deriva do
+ * detalhe) da página ainda sem medida, e o piso da medida (a página sem nuvem também muda quando o sol vira para a nuvem
+ * vizinha): medida na f64, 0,025/° com o sol a 4° e 30° (trecho de 490 m: 0,0029/m) e 0,0029/m na deriva — o piso, ¼ dela.
+ */
+export const CLOUD_SUN_VOLUME_RATE = 0.0029;
+export const CLOUD_SUN_VOLUME_RATE_FLOOR = 0.0007;
+/**
+ * O braço (m) do sol na mudança do resto da luz (o pedaço até o meio nó e o nó do mapa visto do sol, que percorrem a
+ * coluna de quilômetros até o sol): o deslocamento dele é `braço·Δθ_sol` mais a deriva; a taxa é medida por página, e a
+ * de partida põe 1° em ~0,5 de τ (o resto só vale depois de medido parado).
+ */
+export const CLOUD_SUN_VOLUME_REST_ARM = 10_000;
+export const CLOUD_SUN_VOLUME_REST_RATE = 0.003;
+/** A vida mínima (s) do resto redesenhado no ritmo medido da mudança dele para ele entrar na fila do desenho. */
+export const CLOUD_SUN_VOLUME_REST_LIFE = 2;
+/** As palavras do trabalho do quadro do volume: a contagem, as filas, a lista, as marcas das duas partes e as filas por página. */
+export const CLOUD_SUN_VOLUME_WORK_HIST = 4;
+export const CLOUD_SUN_VOLUME_WORK_LIST = CLOUD_SUN_VOLUME_WORK_HIST + 32;
+export const CLOUD_SUN_VOLUME_WORK_VALID = CLOUD_SUN_VOLUME_WORK_LIST + CLOUD_SUN_VOLUME_BUDGET;
+export const CLOUD_SUN_VOLUME_VALID_WORDS = Math.ceil(CLOUD_SUN_VOLUME_PAGE_COUNT / 32);
+export const CLOUD_SUN_VOLUME_WORK_KEYS =
+    CLOUD_SUN_VOLUME_WORK_VALID + 2 * CLOUD_SUN_VOLUME_VALID_WORDS;
+export const CLOUD_SUN_VOLUME_WORK_WORDS =
+    CLOUD_SUN_VOLUME_WORK_KEYS + Math.ceil(CLOUD_SUN_VOLUME_PAGE_COUNT / 4);

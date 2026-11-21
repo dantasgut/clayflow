@@ -5,17 +5,15 @@
 // espalhamento múltiplo por oitavas (Wrenninge 2013: `Σ bⁱ σs e^(−aⁱ τ) p(cⁱ g)`), a luz do sol atenuada pela atmosfera
 // até o ponto, o ambiente do céu (em cima) e do chão (embaixo) pela fração de altura, e a integral analítica do passo
 // (Hillaire 2016). A marcha tem teto constante de passos (`CLOUD_MAX_STEPS`, o perfil escolhe menos) e de passos de luz
-// (`CLOUD_MAX_LIGHT_STEPS`) e do pedaço até o nó do mapa (`CLOUD_SHADOW_PARTIAL_STEPS`): o orçamento total por
-// invocação é `CLOUD_MAX_STEPS × (2 + CLOUD_MAX_LIGHT_STEPS + CLOUD_SHADOW_PARTIAL_STEPS)` (a coluna do ambiente
-// local, uma amostra).
+// (`CLOUD_MAX_LIGHT_STEPS`) e do pedaço até o nó do mapa (`CLOUD_SHADOW_PARTIAL_STEPS`, `cloud_sun_rest`): o orçamento
+// total por invocação é `CLOUD_MAX_STEPS × (2 + CLOUD_MAX_LIGHT_STEPS + CLOUD_SHADOW_PARTIAL_STEPS)` (a coluna do
+// ambiente local, uma amostra); com o volume de τ até o sol (T074), uma amostra do cone e uma leitura do volume.
 // Espelho de `marchCloud` em `cloudModel.ts`.
-// Requer: cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup, cloud_scatter_lookup, sky_query,
-// clouds, cloud_ambient_tex.
+// Requer: cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup, cloud_scatter_lookup,
+// cloud_sun_rest, cloud_sun_volume_lookup, sky_query, clouds, cloud_ambient_tex.
 
 const CLOUD_MAX_STEPS: u32 = 128u;
 const CLOUD_MAX_LIGHT_STEPS: u32 = 6u;
-/** Passos do pedaço do trecho do mapa visto do sol entre o fim do cone e o meio nó do lado do sol. */
-const CLOUD_SHADOW_PARTIAL_STEPS: u32 = 2u;
 const CLOUD_MAX_OCTAVES: u32 = 3u;
 /** Amostras vazias seguidas que devolvem a marcha à velocidade grossa. */
 const CLOUD_EMPTY_TO_COARSE: u32 = 6u;
@@ -35,34 +33,42 @@ struct CloudSample {
  * nó, lido do mapa (a integral da coluna da entrada da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região
  * contra τ exato): 16 nós com a marcha do pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %. O
  * pedaço até o meio nó em 2 passos erra em τ 1,70 % contra 2,34 % do até o nó inteiro em 4 (`cloudShadowPages.test.ts`).
+ * Perto da câmera (T074), o cone além da primeira amostra pelo volume de τ até o sol (`cloud_sun_volume_at`: os nós a
+ * 50 m, refeitos pela mudança medida), onde a página dele vale e os passos são os do volume (os da marcha do perfil): em
+ * f64, 2,4–3,0 % de erro no τ do cone contra 3,7 % das 6 amostras (`cloudSunVolume.test.ts`), com uma amostra da
+ * densidade e oito leituras do volume no lugar de seis amostras.
  */
 fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     let sun = sky.sunDirection.xyz;
     let base = cloud_layer_thickness() / 48.0;
-    var tau = 0.0;
-    var t = 0.0;
     let n = min(light_steps, CLOUD_MAX_LIGHT_STEPS);
+    // O volume (os passos dele são os da marcha do perfil): a primeira amostra do cone no ponto (a borda escura, que os
+    // nós alisariam) e o resto do cone pelos nós; o resto da luz também, onde ele vale.
+    var volume = vec3f(-1.0, -1.0, 0.0);
+    if (light_steps == clouds.march.y) {
+        volume = cloud_sun_volume_at(p + sun * clouds.sunVolume.z, cloud_light_footprint);
+    }
+    let d0 = clouds.sunVolume.z;
+    if (volume.x >= 0.0 && volume.z >= 1.0) {
+        let tau = cloud_density(p + sun * (0.5 * d0), true) * d0 * clouds.layer.z + volume.x;
+        if (volume.y >= 0.0) { return tau + volume.y; }
+        return tau + cloud_sun_rest(p + sun * (d0 + clouds.sunVolume.y), n);
+    }
+    var rho = 0.0;
+    var t = 0.0;
     for (var i = 0u; i < CLOUD_MAX_LIGHT_STEPS; i++) {
         if (i >= n) { break; }
         let len = base * 0.5 * pow(1.5, f32(i));
-        tau += cloud_density(p + sun * (t + 0.5 * len), true) * len;
+        rho += cloud_density(p + sun * (t + 0.5 * len), true) * len;
         t += len;
     }
-    let q = p + sun * t;
-    let c = cloud_shadow_column(q);
-    if (c.len <= 0.0) { return tau * clouds.layer.z; }
-    // O meio nó do lado do sol (T074: os nós da coluna e os do meio dos trechos): o pedaço tem no máximo meio trecho, e
-    // metade das amostras de antes o percorre com o mesmo espaçamento.
-    let kh = 2.0 * c.knot;
-    let h = u32(floor(kh));
-    // O perfil escolhe menos passos de luz; o pedaço segue: 2 no alto (6 de cone) e no médio, 1 no baixo.
-    let m = max((clamp(n, 4u, 6u) - 1u) / 2u, 1u);
-    let dt = (kh - f32(h)) / (2.0 * CLOUD_SHADOW_LOOKUP_KNOTS) * c.len / f32(m);
-    for (var i = 0u; i < CLOUD_SHADOW_PARTIAL_STEPS; i++) {
-        if (i >= m) { break; }
-        tau += cloud_density(q + sun * ((f32(i) + 0.5) * dt), true) * dt;
+    var tau = rho * clouds.layer.z;
+    // No anel de fora do último nível (ou com a página seguinte que não vale), o volume sai aos poucos para o cone.
+    if (volume.x >= 0.0) {
+        let near = cloud_density(p + sun * (0.5 * d0), true) * d0 * clouds.layer.z + volume.x;
+        tau = mix(tau, near, volume.z);
     }
-    return tau * clouds.layer.z + cloud_shadow_half_knot(c, h);
+    return tau + cloud_sun_rest(p + sun * t, n);
 }
 
 /**
@@ -270,6 +276,8 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             let step_t = exp(-sigma_t * ds);
             if (lit % CLOUD_AMBIENT_REUSE == 0u) { occ = cloud_ambient_occlusion(x); }
             lit++;
+            // A pegada do pixel da marcha no ponto: o nível do volume de τ até o sol que a luz pode ler (T074).
+            cloud_light_footprint = (t + 0.5 * ds) * pixel;
             let light = cloud_inscatter(x, sigma_t, cos_theta, light_steps, occ);
             result.scattered += result.transmittance * light * (1.0 - step_t) / sigma_t;
             let alpha = result.transmittance * (1.0 - step_t);

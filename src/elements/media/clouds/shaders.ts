@@ -52,6 +52,10 @@ import cloudWeatherGridSource from '../../gpu/wgsl/clouds/cloud_weather_grid.wgs
 import cloudWeatherMapSource from '../../gpu/wgsl/clouds/cloud_weather_map.wgsl?raw';
 import cloudCoverageWeatherSource from '../../gpu/wgsl/clouds/cloud_coverage_weather.wgsl?raw';
 import cloudWindWeatherSource from '../../gpu/wgsl/clouds/cloud_wind_weather.wgsl?raw';
+import cloudSunVolumeGridSource from '../../gpu/wgsl/clouds/cloud_sun_volume_grid.wgsl?raw';
+import cloudSunVolumeLookupSource from '../../gpu/wgsl/clouds/cloud_sun_volume_lookup.wgsl?raw';
+import cloudSunVolumeSource from '../../gpu/wgsl/clouds/cloud_sun_volume.wgsl?raw';
+import cloudSunRestSource from '../../gpu/wgsl/clouds/cloud_sun_rest.wgsl?raw';
 import { nodeNoise } from '../../nodes/shaders';
 import { pageAlloc } from '../../gpu/shaders/pageAlloc';
 
@@ -124,6 +128,15 @@ export const cloudScatterSlots = Object.freeze({
     cloudPanorama: slot.channel(CloudSchema, 'panorama'),
 });
 
+/**
+ * Slots das séries por páginas do volume de τ até o sol perto da câmera (spec 034 T060a; T074): o atlas (os carimbos e o
+ * relógio) e o registro das páginas.
+ */
+export const cloudSunVolumeSlots = Object.freeze({
+    cloudSunVolume: slot.channel(CloudSchema, 'sunVolume'),
+    cloudSunVolumePages: slot.channel(CloudSchema, 'sunVolumePages'),
+});
+
 /** Slot do canal temporal do estado do tempo (spec 037; R19). */
 export const cloudWeatherSlots = Object.freeze({
     cloudWeather: slot.channel(CloudSchema, 'weather'),
@@ -141,6 +154,52 @@ export const cloudResources = Object.freeze({
     view: sampled('cloud_view_tex', 'view'),
     /** O cache de espalhamento filtrado no espaço (o que a marcha e o panorama leem). */
     scatterFiltered: sampled('cloud_scatter_filtered_tex', 'scatterFiltered', '3d'),
+    /** O volume de τ até o sol perto da câmera (T074; o cone e o resto da luz de cada nó, filtrado dentro da página). */
+    sunVolume: wgslResource({
+        name: 'cloud_sun_volume_tex',
+        binding: { texture: { sample: 'f32', dimension: '3d' } },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.sunVolume' },
+    }),
+    /** As marcas de validade das páginas do volume no quadro (o trabalho da escolha, só leitura). */
+    sunVolumeValid: wgslResource({
+        name: 'cloud_sun_volume_valid',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.sunVolumeWork' },
+    }),
+    /** O trabalho do quadro do volume (a contagem, a lista das páginas escolhidas e as marcas de validade). */
+    sunVolumeWork: wgslResource({
+        name: 'cloud_sun_volume_work',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.sunVolumeWork' },
+    }),
+    /** O registro das páginas do volume (a série por páginas, `cloud_sun_volume.wgsl`). */
+    sunVolumeRecords: wgslResource({
+        name: 'cloud_sun_volume_records',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudSunVolumePages', lag: 0 },
+    }),
+    /** Os carimbos das páginas do atlas do volume e o relógio da série. */
+    sunVolumeStamps: wgslResource({
+        name: 'cloud_sun_volume_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudSunVolume', part: 'stamps' },
+    }),
+    sunVolumeClock: wgslResource({
+        name: 'cloud_sun_volume_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'cloudSunVolume', part: 'clock' },
+    }),
     trace: sampled('cloud_trace', 'trace'),
     traceDepth: sampled('cloud_trace_depth', 'traceDepth'),
     /** O histórico no pixel marchado de cada bloco e a variância temporal dele (T080). */
@@ -391,6 +450,13 @@ export const cloudOutputs = Object.freeze({
      * também lê a série do cache, e a C2 o refaz quando a série muda (a camada que sai, o perfil que redimensiona) —
      * com a saída resolvida pela camada, a vista é a do descritor de agora.
      */
+    /** O atlas do volume de τ até o sol, escrito pelo consumidor da camada (a série por páginas; T074). */
+    sunVolume: wgslResource({
+        name: 'cloud_sun_volume_out',
+        binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.sunVolume' },
+    }),
     scatterFiltered: wgslResource({
         name: 'cloud_scatter_filtered_out',
         binding: { storageTexture: { format: 'rgba16float', access: 'write', dimension: '3d' } },
@@ -736,6 +802,34 @@ export const cloudScatterLookup = wgslModule({
     ],
 });
 
+/** A grade do volume de τ até o sol perto da câmera (T074). */
+export const cloudSunVolumeGrid = wgslModule({
+    name: 'cloud_sun_volume_grid',
+    source: cloudSunVolumeGridSource,
+    requires: [cloudCommon, cloudParamsResource],
+});
+
+/** A leitura do volume de τ até o sol (T074). */
+export const cloudSunVolumeLookup = wgslModule({
+    name: 'cloud_sun_volume_lookup',
+    source: cloudSunVolumeLookupSource,
+    requires: [
+        cloudSunVolumeGrid,
+        cloudCommon,
+        cloudParamsResource,
+        R.sunVolume,
+        R.sunVolumeValid,
+        R.clampSampler,
+    ],
+});
+
+/** O resto da profundidade ótica até o sol depois do cone (o pedaço até o meio nó e o nó do mapa visto do sol). */
+export const cloudSunRest = wgslModule({
+    name: 'cloud_sun_rest',
+    source: cloudSunRestSource,
+    requires: [cloudDensity, cloudShadowLookup, sky, cloudParamsResource],
+});
+
 /** A luz e a marcha (teto constante de passos). */
 export const cloudLight = wgslModule({
     name: 'cloud_light',
@@ -746,6 +840,8 @@ export const cloudLight = wgslModule({
         cloudPhase,
         cloudShadowLookup,
         cloudScatterLookup,
+        cloudSunRest,
+        cloudSunVolumeLookup,
         cloudSun,
         sky,
         cloudParamsResource,
@@ -1221,6 +1317,26 @@ export const cloudPanoramaKernel = withFarShadow(
         ],
     }),
 );
+
+/** O volume de τ até o sol perto da câmera (T074): as filas das páginas, a escolha do quadro e o desenho. */
+export const cloudSunVolumeKernel = wgslModule({
+    name: 'cloud_sun_volume',
+    source: cloudSunVolumeSource,
+    requires: [
+        cloudSunVolumeGrid,
+        cloudSunRest,
+        cloudCommon,
+        cloudDensity,
+        sky,
+        cloudParamsResource,
+        pageAlloc,
+        cloudOutputs.sunVolume,
+        R.sunVolumeWork,
+        R.sunVolumeRecords,
+        R.sunVolumeStamps,
+        R.sunVolumeClock,
+    ],
+});
 
 // ── Contribuições ───────────────────────────────────────────────────────────────────────────────────────────────────
 

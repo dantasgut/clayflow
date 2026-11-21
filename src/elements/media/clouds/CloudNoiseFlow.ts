@@ -37,6 +37,11 @@ import {
     CLOUD_SCATTER_VIEW_MEMORY,
     CLOUD_SCATTER_WINDOW,
     CLOUD_SHAPE_SIZE,
+    CLOUD_SUN_VOLUME_BUDGET,
+    CLOUD_SUN_VOLUME_CELL,
+    CLOUD_SUN_VOLUME_MAX_SPACING,
+    CLOUD_SUN_VOLUME_PAGE,
+    CLOUD_SUN_VOLUME_PAGES,
     CLOUD_EARTH_OMEGA,
     CLOUD_WEATHER_FREE_DRAG,
     CLOUD_WEATHER_SIZE,
@@ -302,6 +307,13 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 ? 0
                 : this.functionSlot(cloud, cloud.coverageFunction);
         const weather = this.weatherParams(c, cloud, thickness);
+        const sunVolume = this.sunVolumeParams(
+            cloud,
+            thickness,
+            eye,
+            wind.coverage,
+            shadowMap.signature,
+        );
         d.params = [
             {
                 shell: [groundRadius, d.base, shellTop, thickness],
@@ -368,8 +380,53 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                     (d.weather?.shear ?? 1) * d.wind[1]!,
                     ...wind.anvil,
                 ],
+                ...sunVolume,
             },
         ];
+    }
+
+    /**
+     * O volume de τ até o sol perto da câmera no uniforme (T074; `cloud_sun_volume_grid.wgsl`): o lado da célula no plano
+     * (0 com o tempo — a casca até a tropopausa daria células de ~150 m na altura, que erram mais que o cone — ou com a
+     * casca acima de `CLOUD_SUN_VOLUME_MAX_SPACING` por célula), o trecho que cada nó integra (o cone de `lightSteps`
+     * trechos menos a primeira amostra), o ponto do cone onde a leitura entra (o fim da primeira amostra) e o tempo da
+     * evolução da cobertura (a função de cobertura recebe o tempo: 600 s, como o mapa visto do sol; 0 sem ela); a página
+     * da câmera no referencial das nuvens (x, z; i32), o orçamento e a assinatura (o conteúdo do mapa visto do sol e os
+     * passos de luz).
+     */
+    private sunVolumeParams(
+        cloud: CloudLayer,
+        thickness: number,
+        eye: readonly number[],
+        offset: readonly [number, number],
+        shadow: number,
+    ): Record<'sunVolume' | 'sunVolumeGrid', number[]> {
+        const d = cloud.data;
+        const layers = CLOUD_SUN_VOLUME_PAGES[1] * CLOUD_SUN_VOLUME_PAGE;
+        const on = d.weather === undefined && thickness / layers <= CLOUD_SUN_VOLUME_MAX_SPACING;
+        const steps = Math.min(d.quality.lightSteps, 6);
+        const base = thickness / 48;
+        const length = base * (1.5 ** steps - 1) - 0.5 * base;
+        // A página da câmera no nível 0 (a dos níveis seguintes, pela metade a cada nível, no shader).
+        const page = CLOUD_SUN_VOLUME_CELL * CLOUD_SUN_VOLUME_PAGE;
+        const camera = [
+            Math.floor(((eye[0] ?? 0) - offset[0]) / page),
+            Math.floor(((eye[2] ?? 0) - offset[1]) / page),
+        ];
+        return {
+            sunVolume: [
+                on ? CLOUD_SUN_VOLUME_CELL : 0,
+                length,
+                0.5 * base,
+                cloud.coverageFunction === undefined ? 0 : CLOUD_SHADOW_COVERAGE_EVOLUTION,
+            ],
+            sunVolumeGrid: [
+                camera[0]! >>> 0,
+                camera[1]! >>> 0,
+                CLOUD_SUN_VOLUME_BUDGET,
+                fnv1a(JSON.stringify([shadow, steps, CLOUD_SUN_VOLUME_CELL])),
+            ],
+        };
     }
 
     /**

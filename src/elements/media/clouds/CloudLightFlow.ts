@@ -16,7 +16,13 @@ import type { WgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
-import { CLOUD_SCATTER_PAGE, CLOUD_SHADOW_SLOT_COUNT, CLOUD_WEATHER_SIZE } from './schemas';
+import {
+    CLOUD_SCATTER_PAGE,
+    CLOUD_SHADOW_SLOT_COUNT,
+    CLOUD_SUN_VOLUME_BUDGET,
+    CLOUD_SUN_VOLUME_VALID_WORDS,
+    CLOUD_WEATHER_SIZE,
+} from './schemas';
 import {
     cloudAmbientKernel,
     CLOUD_COVERAGE_PAGE_GROUP,
@@ -35,6 +41,8 @@ import {
     CLOUD_SHADOW_PAGE_GROUP,
     cloudShadowKernel,
     cloudShadowSlots,
+    cloudSunVolumeKernel,
+    cloudSunVolumeSlots,
     cloudWeatherKernel,
     cloudWeatherSlots,
 } from './shaders';
@@ -59,6 +67,10 @@ export interface CloudLightSlots extends SlotMap {
     readonly cloudCoverage: ChannelSlot<false>;
     /** O registro das páginas do mapa de cobertura, série por páginas. */
     readonly cloudCoveragePages: ChannelSlot<false>;
+    /** O atlas do volume de τ até o sol perto da câmera, série por páginas (os carimbos e o relógio; T074). */
+    readonly cloudSunVolume: ChannelSlot<false>;
+    /** O registro das páginas do volume de τ até o sol, série por páginas. */
+    readonly cloudSunVolumePages: ChannelSlot<false>;
 }
 
 type Ctx = TransitionContext<CloudLightSlots>;
@@ -99,6 +111,25 @@ const coverageParts = (
               compute(id, shader, 'cloud_coverage_draw_main'),
           ];
 const PANORAMA = compute('cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main');
+/**
+ * O volume de τ até o sol perto da câmera (T074): as filas das páginas (32 por invocação), a escolha do quadro (um grupo)
+ * e o desenho delas (um grupo por página do orçamento).
+ */
+const SUN_VOLUME_KEYS = compute(
+    'cloud_sun_volume_keys',
+    cloudSunVolumeKernel,
+    'cloud_sun_volume_keys_main',
+);
+const SUN_VOLUME_SELECT = compute(
+    'cloud_sun_volume_select',
+    cloudSunVolumeKernel,
+    'cloud_sun_volume_select_main',
+);
+const SUN_VOLUME_DRAW = compute(
+    'cloud_sun_volume',
+    cloudSunVolumeKernel,
+    'cloud_sun_volume_draw_main',
+);
 const SCATTER_SELECT = compute(
     'cloud_scatter_select',
     cloudScatterKernel,
@@ -112,6 +143,18 @@ const SCATTER_FILTER = compute(
     cloudScatterFilterKernel,
     'cloud_scatter_filter_main',
 );
+
+/** Os pipelines fixos do estágio (os que não mudam com o tempo nem com a função de cobertura). */
+const LIGHT_PIPELINES = [
+    AMBIENT,
+    SUN_VOLUME_KEYS,
+    SUN_VOLUME_SELECT,
+    SUN_VOLUME_DRAW,
+    SCATTER_SELECT,
+    SCATTER,
+    SCATTER_FILTER,
+    PANORAMA,
+] as const;
 
 /** Ids dos alvos que o estágio escreve, na ordem das saídas. */
 const TARGETS = ['coverage', 'ambient', 'shadow', 'panorama'] as const;
@@ -133,6 +176,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         ...cloudWeatherSlots,
         ...cloudShadowSlots,
         ...cloudCoverageSlots,
+        ...cloudSunVolumeSlots,
     };
     override readonly bindings: ReadonlyMap<WgslResource, BindingSource> = new Map();
     protected readonly initialState = 'idle' as const;
@@ -221,14 +265,20 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         ];
         const ready = steps.map(([id]) => bound.pipelines.get(id));
         const parts = (this.shadow ?? []).map((d) => bound.pipelines.get(d.id));
+        const volume = [SUN_VOLUME_KEYS, SUN_VOLUME_SELECT, SUN_VOLUME_DRAW].map((d) =>
+            bound.pipelines.get(d.id),
+        );
         const coverage = coverageParts(this.coverage).map((d) => bound.pipelines.get(d.id));
         if (
             this.shadow === undefined
-            || [...ready, ...parts, ...coverage].some((p) => p?.role !== 'compute' || !p.ready)
+            || [...ready, ...parts, ...coverage, ...volume].some(
+                (p) => p?.role !== 'compute' || !p.ready,
+            )
         )
             return;
         const [select, draw] = parts;
         const [coverageSelect, coverageDraw] = coverage;
+        const [volumeKeys, volumeSelect, volumeDraw] = volume;
         steps.forEach(([id, label, count], k) => {
             const p = ready[k]!;
             if (p.role !== 'compute') return;
@@ -280,6 +330,31 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 });
                 bound.slots.cloudShadow.written();
                 bound.slots.cloudShadowPages.written();
+                // O volume de τ até o sol perto da câmera (T074), depois do mapa (o resto da luz o lê) e antes do panorama e da
+                // marcha, que o leem: as filas, a escolha das páginas do quadro e o desenho das escolhidas.
+                if (
+                    volumeKeys?.role === 'compute'
+                    && volumeSelect?.role === 'compute'
+                    && volumeDraw?.role === 'compute'
+                ) {
+                    frame.compute('CloudLightFlow.sunVolumeKeys', (pass) => {
+                        pass.bind.setPipeline(volumeKeys.spec);
+                        volumeKeys.bindTo(pass.bind);
+                        pass.dispatch.invocations(CLOUD_SUN_VOLUME_VALID_WORDS, 64);
+                    });
+                    frame.compute('CloudLightFlow.sunVolumeSelect', (pass) => {
+                        pass.bind.setPipeline(volumeSelect.spec);
+                        volumeSelect.bindTo(pass.bind);
+                        pass.dispatch.workgroups(1);
+                    });
+                    frame.compute('CloudLightFlow.sunVolume', (pass) => {
+                        pass.bind.setPipeline(volumeDraw.spec);
+                        volumeDraw.bindTo(pass.bind);
+                        pass.dispatch.workgroups(CLOUD_SUN_VOLUME_BUDGET);
+                    });
+                    bound.slots.cloudSunVolume.written();
+                    bound.slots.cloudSunVolumePages.written();
+                }
             }
             // As páginas do cache e do cache filtrado escritas no quadro (carimbadas na época da série).
             if (id === SCATTER_FILTER.id) {
@@ -306,9 +381,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
      * céu, as texturas da camada —, e o motor fica pronto; voltando, tudo é preparado de novo.
      */
     private release(c: Ctx): void {
-        if (this.prepared)
-            for (const p of [AMBIENT, SCATTER_SELECT, SCATTER, SCATTER_FILTER, PANORAMA])
-                c.release(p.id);
+        if (this.prepared) for (const p of LIGHT_PIPELINES) c.release(p.id);
         for (const p of this.shadow ?? []) c.release(p.id);
         this.shadow = undefined;
         for (const p of coverageParts(this.coverage)) c.release(p.id);
@@ -340,6 +413,9 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         this.resources.ensureAllocated(cloud, 'shadowWork');
         this.resources.ensureAllocated(cloud, 'coveragePages');
         this.resources.ensureAllocated(cloud, 'coverageWork');
+        this.resources.ensureAllocated(cloud, 'sunVolume');
+        this.resources.ensureAllocated(cloud, 'sunVolumePages');
+        this.resources.ensureAllocated(cloud, 'sunVolumeWork');
         const views = TARGETS.map((id) => c.bound.slots.cloud.textureViewOf(id));
         if (views.some((v) => v === undefined)) {
             this.active = false;
@@ -356,8 +432,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             );
             this.views = views;
             if (!this.prepared) {
-                for (const p of [AMBIENT, SCATTER_SELECT, SCATTER, SCATTER_FILTER, PANORAMA])
-                    c.prepare(p);
+                for (const p of LIGHT_PIPELINES) c.prepare(p);
                 this.prepared = true;
             }
         }
