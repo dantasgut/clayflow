@@ -151,7 +151,48 @@ girando e vento no smoke de antisserrilhado, o interior com a camada (≤ 0,3 ms
 - [x] T040 [P] Guia `clay-engine-doc/docs/guides/clouds.md` (camada, tipos, cobertura por grafo, vento, perspectiva aérea, custos por perfil) e JSDoc em todos os exports novos (`npm run doc:coverage`). — **Guia escrito (`clay-engine-doc/docs/guides/clouds.md`); `doc:coverage` passa.**
 - [x] T041 [P] `specs/ROADMAP.md` (a 041 e o que ela fecha) e `specs/PENDENCIAS.md` (o que ficar fora: chuva, raios, dinâmica de formação, névoa local dentro da nuvem se o caso `fog-in-front` mostrar erro). — **Feito: ROADMAP e PENDENCIAS.**
 - [ ] T042 Smokes 3× seguidas pelo fonte e 3× com `--dist` (os 45 e o `clouds`), um de cada vez, com a pausa de 90 s depois dos longos, 0 erros de página; `npm run ci` verde.
+      **Fechamento (2026-11-21) — a bateria uma vez pelo fonte** (headless, porta 5181, 900 s por smoke; `--dist` não rodada):
+      passam `adapterLimits`, `antialiasing`, `bigMesh`, `caustics`, `churn`, `computeKernels`, `contactSet`, `deviceFloor`,
+      `dispatchCost`, `drawCulling`, `energy`, `extensionPoints`, `fluidBehavior`, `fluidSurface`, `giNoise`,
+      `globalIllumination` (552 s), `gpuTiming`, `hdr`, `integration`, `lighting`, `limits`, `materials`, `multiApp`,
+      `nodeGraphs`, `parametricSurfaces`, `particles`, `pointCloud`, `rayScene`, `readiness`, `render`, `rigidContacts`,
+      `scale1m`, `sky`, `softEnergy`, `softSurface`, `stress60s`, `time`, `trajectories`, `transforms`, `virtualTextures`,
+      `wetting`. Falhas e o que foi feito: (1) `shaderLibrary` e `refraction` — erros do WebGPU sem escopo, do próprio smoke,
+      que o executor passou a reprovar na T081: o struct vazio do `ForwardWork` na conferência de layout e a leitura da luz
+      que chega com 4 bytes por pixel (o alvo é `rgba16float` desde a T074) — corrigidos (`8e285447`), os dois passam
+      (`refraction` 415 s). (2) `fog` 1,51 ms (≤ 1,05) logo depois do `fluidSurface`: sozinho 1,39 e 1,19 com a GPU quente;
+      no A/B contra a árvore da T081 (`aff4a497`, `npm ci` próprio) em seguida, T081 0,92 e o ramo **1,01 ✓** — o código dos
+      froxels não mudou desde a T081. (3) `fluidField` (água, sem `Sky`) falha no tempo: no A/B, a árvore da T081 dá a
+      água 43,2/52,1 ms no alto, 32,7/31,8 no médio, 34,8/29,8 no baixo (tetos 45/30/28, calibrados num M4 Max) e o ramo
+      56,1/60,7/55,0 no alto, 53,5/43,2/33,4 no médio. Causa medida: os alvos da cena ligáveis como storage de leitura e
+      escrita (a cor, a luz que chega e a máscara reativa, T074: a composição das nuvens e a máscara do disco por compute)
+      tiram a compressão do alvo de desenho — o ramo sem o uso dá 49,3/31,9/29,7, e as duas features novas sozinhas na
+      árvore da T081 46,9/30,3/29,0 (não pesam). O storage sob demanda (os `FrameTargets` redescritos pela entrada de
+      `CloudLayer`/`Sky`) deu 43,0/31,7/32,4, mas a cor realocada com a cena montada deixa o `PostFlow` esperando
+      `src_tex` (a vista guardada pela `discriminator`, que não muda; só a troca do canvas religa os consumidores): os 38
+      casos do `clouds` com camada não ficaram prontos — desfeito (`8d1387b4`). **Em aberto**: a peça estrutural (os
+      consumidores dos alvos religando na redescrição, ou o uso de storage decidido antes da alocação) e os tetos do
+      `fluidField` no médio e no baixo, que já falham na T081. (4) `clouds` inteiro passa de 900 s numa página: rodado caso a
+      caso — passam todos menos `timing` `high-sun` (4,59 ms, T074) e `interior-timing` (2,26 quente; frio 0,317/0,383/0,200,
+      T074/T035); `sun-below` falhava desde `670f5203` (T080, bisseção: o pulo de 0,5° do sol se redesenha em 3–4 quadros
+      pela fila de prioridade; com 2 quadros 0,125, com 4/8/30 0,000) — o caso lê depois de 4 quadros (`872b4b2d`). Em série
+      no `timing`: alto 2,32 ✓, médio 1,74 ✓, baixo 1,15 ✓. (5) `videoScenes` não é smoke (a página do gravador antigo pede
+      `?scene=`). Vitest completo (299 arquivos, 2254 testes), `tsc`, `eslint` (0 erros; `SkyCompositeFlow` e
+      `SkyReactiveFlow` importavam a Camada 1, corrigido em `374a35a7`), `prettier`, `check:circular`, `doc:coverage` e
+      `build:lib` passam; `linearDispatch.test` reprovava o despacho do volume de τ (corrigido em `b44e90ab`).
 - [ ] T043 `bench:check` contra o baseline: nenhuma cena existente regride > 10 % de GPU além do custo da perspectiva aérea medido (T011) nas cenas com `Sky`; baseline regravado com a máquina livre, com o racional registrado em `specs/041-nuvens-volumetricas/baseline.md`.
+      **Fechamento (2026-11-21)**: `bench:check` (50,6 min) reprovado contra o baseline do Chrome 157 (`c80e4f79`, do
+      `develop`): GPU `rigid-bodies/1k` +22 %, `particles/4k` +23 %, `instances/10k` +11 %, `graph-geometry/static` +10 %;
+      CPU `instances/100k` 0,14 → 0,67, `surfaces` 0,14 → 0,62–0,67. A/B na mesma sessão (só clayflow, headless) contra o
+      `develop` em árvore própria: na GPU todas as cenas reprovadas a ±1,5 % (`instances` 10k/100k, `rigid-bodies` 1k/10k,
+      `particles` 4k/4k-cohesion, `surfaces`), menos `graph-geometry/static`, que oscila 0,37–0,59 ms entre execuções do mesmo
+      código; o CPU alto do `instances/100k` e do `surfaces` está também no `develop` de hoje (0,57 e 0,49–0,51): a máquina,
+      não o ramo. Regressão real do ramo: em `surfaces` o CPU +0,11–0,15 ms (`develop` 0,49/0,51, o ramo sem o storage dos
+      alvos 0,51/0,55, o ramo 0,62/0,67 em duas execuções) — a mesma causa do `fluidField` na T042 (os alvos ligáveis como
+      storage), em aberto com ela. As cenas com `Sky` (o +1,6 ms por desenho da T081): `global-illumination/off` GPU 5,53 →
+      **4,15 ms** (−25 %) — o custo da perspectiva aérea não aparece como regressão no bench. As cenas `clouds` (`noon`,
+      `sunset`, `flight`) não estão no baseline. **Em aberto**: o baseline não foi regravado (gravá-lo agora esconderia a
+      regressão do storage dos alvos).
 - [ ] T044 Conferir as caixas deste arquivo contra o código e abrir o PR do ramo para o `develop` (com a confirmação do usuário).
 
 ---
@@ -241,7 +282,7 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       o grão das bordas ralas diminuiu, não sumiu (~7 amostras por pixel numa série acelerada); a base de uma torre estreita
       sai 0,5 × a do traçador na marcha das oitavas (na GPU os caminhos das sondas pesam ≥ 80 %).
 
-- [ ] T063 [GPU] O mapa visto do sol e o cache de espalhamento por páginas (`2fce34af`; research.md, R11 revisto): os tempos
+- [x] T063 [GPU] O mapa visto do sol e o cache de espalhamento por páginas (`2fce34af`; research.md, R11 revisto): os tempos
       na T029/T035/T011. Smokes, um por vez, depois da mudança: `clouds` caso a caso passa — `noon` 3,0 %, `types`
       3,4/3,6/3,2 %, `storm` 3,8 %, `backlit` borda/centro 1,009, `scatter-cache` 1,022, `panorama` 0,009, `fly-through`,
       `fog-in-front` 0,05 %, `water-reflection` 85,3 %, `pressure-wind`, `front`, `storm-ground`, `weather-timing` (estado 0,064
@@ -284,6 +325,8 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       `noon` 2,8 %, `types` 3,1/3,3/2,9 %, `far-cloud` 4,4 %, `backlit` 5,7 %, `storm` 3,8 %, `timing` 2,82/1,27/0,80 ms,
       `weather-timing` 0,059 ms, `fly-through` 0,4/22,4 %, os de cobertura, vento, névoa, reflexo, ambiente e
       `storm-ground`. Vitest completo: 2189 testes passam (292 arquivos).
+      **Fechada no fechamento (2026-11-21)**: os abertos da rodada 10 passam caso a caso no código final — `far-cloud` 2,7 %
+      (≤ 5), `overcast-ambient` 4,938 contra 4,995 (1,1 %), `sunset` 3,6 %.
 - [x] T066 [US5] Os vídeos `solposto` e `tempestade` regravados com a geometria por vista (claflow-web `299a4f7`, porta 5184;
       `scratchpad/041-video/rodada14/`): `solposto` 1200 quadros, 51,15 dB brilho / 46,34 dB RGB, GPU por quadro média 15,5
       ms (19 MB); `tempestade` 7200 quadros, 51,84/46,98 dB, média 18,8 ms (92 MB; recomprimido `tempestade-r.mp4`, 9,3 MB).
