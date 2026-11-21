@@ -5,7 +5,9 @@ import {
     CLOUD_SKY_DISTANCE,
     cloudDivergence,
     cloudGradientNoise,
+    cloudFreshAt,
     cloudFreshForSurface,
+    cloudHistoryReset,
     cloudMomentsOf,
     reconstructTexel,
     type Rgba,
@@ -222,5 +224,53 @@ describe('reconstrução temporal', () => {
             })),
         });
         expect(changed).toEqual(cloud);
+    });
+
+    it('o bloco que larga o histórico: cada texel com o valor exato interpolado no lugar dele, não o do bloco nos quatro', () => {
+        // Arrange: o sol rente ao horizonte escurece a base (o histórico 24, agora 8 em todos os blocos); o bloco do texel
+        // foi marchado com uma amostra escura (2: o ruído de uma amostra) e o vizinho da direita com 14. O texel fica a
+        // meio caminho entre os dois marchados na linha (fração ½, 0).
+        const hist: Rgba = [24, 24, 24, 0.1];
+        const samples = [
+            { value: [2, 2, 2, 0.1] as Rgba, surface: CLOUD_SKY_DISTANCE },
+            { value: [14, 14, 14, 0.1] as Rgba, surface: CLOUD_SKY_DISTANCE },
+            { value: [99, 99, 99, 0.1] as Rgba, surface: CLOUD_SKY_DISTANCE },
+            { value: [99, 99, 99, 0.1] as Rgba, surface: CLOUD_SKY_DISTANCE },
+        ];
+        // Act
+        const here = cloudFreshAt([0.5, 0], samples, CLOUD_SKY_DISTANCE, samples[0]!.value);
+        const out = reconstructTexel({
+            marched: false,
+            valid: true,
+            fresh: samples[0]!.value,
+            here,
+            history: hist,
+            check: hist,
+            neighbors: [...Array<number>(9).keys()].map(() => ({
+                fresh: [8, 8, 8, 0.1] as Rgba,
+                check: hist,
+            })),
+        });
+        // Assert: a média dos dois marchados da linha (8), não a amostra do bloco (2); as linhas de baixo (fração 0) não
+        // entram.
+        expect(here[0]).toBeCloseTo(8, 12);
+        expect(out[0]).toBeCloseTo(8, 12);
+        // O marchado do bloco (fração 0) é o valor dele; um vizinho de outra superfície fica de fora.
+        expect(cloudFreshAt([0, 0], samples, CLOUD_SKY_DISTANCE, sky)[0]).toBe(2);
+        const ground = samples.map((x, k) => (k === 1 ? { ...x, surface: 900 } : x));
+        expect(cloudFreshAt([0.5, 0], ground, CLOUD_SKY_DISTANCE, sky)[0]).toBe(2);
+    });
+
+    it('a rampa do gradiente: nada até a tolerância, tudo a 1,5 × ela; no meio, o histórico recortado e o valor exato', () => {
+        expect(cloudHistoryReset(0.2, 0.25)).toBe(0);
+        expect(cloudHistoryReset(0.25, 0.25)).toBe(0);
+        expect(cloudHistoryReset(0.3125, 0.25)).toBeCloseTo(0.5, 12);
+        expect(cloudHistoryReset(0.375, 0.25)).toBe(1);
+        expect(cloudHistoryReset(2, 0.25)).toBe(1);
+        // Blocos vizinhos com divergências pouco diferentes em volta da tolerância saem parecidos (sem o degrau de tudo
+        // ou nada entre um bloco e o outro).
+        expect(
+            Math.abs(cloudHistoryReset(0.26, 0.25) - cloudHistoryReset(0.24, 0.25)),
+        ).toBeLessThan(0.1);
     });
 });

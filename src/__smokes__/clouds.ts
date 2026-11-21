@@ -8,6 +8,9 @@
 //   - noon: a nuvem vista do chão (luz espalhada e transmitância por região) contra a marcha de referência (SC-001), com
 //     a luz das sondas do cache de espalhamento lida da GPU (`?settle=` quadros antes; `?dump=W` grava blocos da imagem);
 //   - scatter-cache: as sondas do cache de espalhamento (T023) contra caminhos f64 nas mesmas sondas (viés ≤ 5 %);
+//   - dusk-blocks: o mosaico nas nuvens escuras do pôr do sol, com o sol descendo depressa rente ao horizonte — o degrau
+//     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels e o erro de alta frequência contra a mesma cena
+//     parada e convergida;
 //   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005);
 //   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
 //     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
@@ -2360,6 +2363,193 @@ async function caseSunSweep(): Promise<void> {
     finish(s);
 }
 
+/**
+ * A razão do degrau na borda dos blocos da marcha (2·S pixels da tela: o bloco 2 × 2 do alvo reconstruído de S pixels da
+ * tela por texel, `marchScale`) pelo degrau na borda entre dois texels dentro do bloco, nos pixels com nuvem da vista
+ * aumentada (o brilho; `alpha` a transmitância). As duas bordas são iguais no aumento bilinear (texel a texel); só a
+ * reconstrução distingue o bloco — com o bloco largando o histórico, os quatro texels dele saíam com uma amostra só e o
+ * degrau na borda do bloco crescia. Devolve a razão em x e em y.
+ */
+function blockEdgeRatio(
+    view: { width: number; height: number; data: Float32Array },
+    scale: number,
+): [number, number] {
+    const { width: w, height: h, data } = view;
+    const block = 2 * scale;
+    const lum = (i: number): number =>
+        luminance([data[i * 4]!, data[i * 4 + 1]!, data[i * 4 + 2]!]);
+    const cloudy = (i: number): boolean => data[i * 4 + 3]! < 0.9;
+    // O degrau relativo entre dois pixels vizinhos (a luz das nuvens varia em ordens de grandeza entre o lado ao sol e a
+    // base na sombra).
+    const step = (a: number, b: number): number =>
+        Math.abs(lum(a) - lum(b)) / Math.max(0.5 * (lum(a) + lum(b)), 1e-6);
+    const sums = [0, 0, 0, 0];
+    const counts = [0, 0, 0, 0];
+    for (let y = 1; y < h - 1; y++)
+        for (let x = 1; x < w - 1; x++) {
+            const i = y * w + x;
+            // A borda do bloco (entre o último pixel de um bloco e o primeiro do seguinte) e a borda entre os dois texels
+            // dentro do bloco (S − 1 → S).
+            for (const [axis, at, next] of [
+                [0, x, i + 1],
+                [1, y, i + w],
+            ] as const) {
+                const phase = at % block;
+                const edge = phase === block - 1 ? 0 : phase === scale - 1 ? 1 : -1;
+                if (edge < 0 || !cloudy(i) || !cloudy(next)) continue;
+                sums[axis * 2 + edge]! += step(i, next);
+                counts[axis * 2 + edge]!++;
+            }
+        }
+    const mean = (k: number): number => sums[k]! / Math.max(counts[k]!, 1);
+    return [mean(0) / Math.max(mean(1), 1e-9), mean(2) / Math.max(mean(3), 1e-9)];
+}
+
+/**
+ * O erro de alta frequência da vista `a` contra a vista `b` (a mesma cena convergida): nos pixels com nuvem nas duas, o
+ * passa-alta do brilho (menos a média 5 × 5) de cada uma relativo à média local, e o erro quadrático médio da diferença.
+ * O mosaico, o ruído e a grade da reconstrução entram; o atraso da luz (baixa frequência), não.
+ */
+function highPassError(
+    a: { width: number; height: number; data: Float32Array },
+    b: { width: number; height: number; data: Float32Array },
+): number {
+    const { width: w, height: h } = a;
+    const lum = (v: Float32Array, i: number): number =>
+        luminance([v[i * 4]!, v[i * 4 + 1]!, v[i * 4 + 2]!]);
+    const hp = (v: Float32Array, x: number, y: number): number => {
+        let sum = 0;
+        for (let dy = -2; dy <= 2; dy++)
+            for (let dx = -2; dx <= 2; dx++) sum += lum(v, (y + dy) * w + x + dx);
+        const m = sum / 25;
+        return (lum(v, y * w + x) - m) / Math.max(m, 1e-6);
+    };
+    let e = 0;
+    let n = 0;
+    for (let y = 2; y < h - 2; y++)
+        for (let x = 2; x < w - 2; x++) {
+            const i = y * w + x;
+            if (a.data[i * 4 + 3]! >= 0.9 || b.data[i * 4 + 3]! >= 0.9) continue;
+            e += (hp(a.data, x, y) - hp(b.data, x, y)) ** 2;
+            n++;
+        }
+    return Math.sqrt(e / Math.max(n, 1));
+}
+
+/**
+ * A grade periódica de 2·S pixels (o bloco da marcha) na vista aumentada: o brilho relativo à média 9 × 9 em volta, nos
+ * pixels com nuvem na janela inteira (sem a borda contra o céu), médio por fase (x mod 2S, y mod 2S); devolve o pico a pico das médias. Sem estrutura presa à grade
+ * dos blocos, as fases têm a mesma média (o detalhe da nuvem cai em todas).
+ */
+function latticePattern(
+    view: { width: number; height: number; data: Float32Array },
+    scale: number,
+): number {
+    const { width: w, height: h, data } = view;
+    const period = 2 * scale;
+    // A imagem integral do brilho e da máscara de nuvem: a média 9 × 9 em O(1) por pixel.
+    const integral = new Float64Array((w + 1) * (h + 1));
+    const cloudy = new Float64Array((w + 1) * (h + 1));
+    for (let y = 0; y < h; y++) {
+        let row = 0;
+        let rowCloud = 0;
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            row += luminance([data[i]!, data[i + 1]!, data[i + 2]!]);
+            rowCloud += data[i + 3]! < 0.9 ? 1 : 0;
+            integral[(y + 1) * (w + 1) + x + 1] = integral[y * (w + 1) + x + 1]! + row;
+            cloudy[(y + 1) * (w + 1) + x + 1] = cloudy[y * (w + 1) + x + 1]! + rowCloud;
+        }
+    }
+    const window9 = (t: Float64Array, x: number, y: number): number =>
+        t[(y + 5) * (w + 1) + x + 5]!
+        - t[(y - 4) * (w + 1) + x + 5]!
+        - t[(y + 5) * (w + 1) + x - 4]!
+        + t[(y - 4) * (w + 1) + x - 4]!;
+    const sums = new Float64Array(period * period);
+    const counts = new Float64Array(period * period);
+    for (let y = 4; y < h - 4; y++)
+        for (let x = 4; x < w - 4; x++) {
+            const i = (y * w + x) * 4;
+            if (window9(cloudy, x, y) < 81) continue;
+            const box = window9(integral, x, y) / 81;
+            if (box <= 1e-6) continue;
+            const k = (y % period) * period + (x % period);
+            sums[k]! += luminance([data[i]!, data[i + 1]!, data[i + 2]!]) / box - 1;
+            counts[k]!++;
+        }
+    const means = [...sums].map((v, k) => v / Math.max(counts[k]!, 1));
+    return Math.max(...means) - Math.min(...means);
+}
+
+async function caseDuskBlocks(): Promise<void> {
+    // O mosaico nas nuvens escuras do pôr do sol (o `solposto` do claflow-web perto do quadro 1000), a câmera no chão
+    // olhando para o lado do sol no azimute (0,8; 0,6). A luz das nuvens muda depressa e o gradiente temporal larga o
+    // histórico; o bloco que o largava saía com a amostra do pixel marchado nos quatro texels (blocos de 4 × 4 px com uma
+    // amostra cada: o mosaico na base escura e a borda dos vãos em degraus). Medidas: o degrau na borda dos blocos pelo
+    // degrau entre dois texels dentro deles (`blockEdgeRatio`; 1 sem estrutura de bloco) e o erro de alta frequência
+    // contra a mesma cena parada e convergida. A grade periódica dos blocos (`latticePattern`: os quatro texels do bloco
+    // com idades de 0 a 3 quadros na média exponencial, com a luz mudando) fica registrada: ~2–3 % do brilho linear aqui,
+    // abaixo do ruído no vídeo (< 0,5 nível de 8 bits no `solposto`).
+    const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
+    const a = (az * Math.PI) / 180;
+    // A cena do `solposto`: cúmulos de 0,08/m, o vento de 6 m/s, o ar de fim de tarde (turbidez 8, névoa seca de 0,15/km
+    // até 600 m) e o relógio de 1/60 s por quadro (as nuvens andam com o vento entre os quadros).
+    const s = await cloudScene({
+        width: 1280,
+        height: 720,
+        sunElevation: 2,
+        sunAzimuth: az,
+        sunLux: 100_000,
+        clouds: { coverage: 0.4, type: 0.5, density: 0.08, wind: [6, 2] },
+        eye: [0, 2, 0],
+        target: [1000 * Math.cos(a), 260, 1000 * Math.sin(a)],
+        fov: Math.PI / 3,
+    });
+    s.sky.turbidity = 8;
+    s.sky.haze = { extinction: 0.15, scaleHeight: 0.6 };
+    // O sol do `solposto` (a elevação −4° + 64° (1 − i/1199)^1,6 no quadro i) do quadro 700 (≈ 9°) ao 1010 (≈ −0,5°),
+    // andando o tempo todo como no vídeo: as sondas do cache de espalhamento esquecem os caminhos com o sol que anda
+    // (`CLOUD_SCATTER_SUN_MEMORY`), e a luz da base na sombra muda a cada quadro.
+    const elevation = (i: number): number => -4 + 64 * (1 - i / 1199) ** 1.6;
+    s.sun.data.direction = sunTravel(elevation(700), az);
+    await settleFrames(s.app, 120);
+    const scale = s.layer!.quality.marchScale;
+    const ratios: [number, number, number][] = [];
+    const grids: number[] = [];
+    for (let i = 700; i <= 1010; i++) {
+        s.sun.data.direction = sunTravel(elevation(i), az);
+        s.app.step(1 / 60);
+        await nextGpuFrame(s.app);
+        if (i >= 950 && i % 20 === 10) {
+            const view = await cloudView(s);
+            ratios.push([elevation(i), ...blockEdgeRatio(view, scale)]);
+            grids.push(latticePattern(view, scale));
+        }
+    }
+    // A mesma cena parada (o sol e o vento): a reconstrução converge; o erro de alta frequência do quadro em movimento.
+    const moving = await cloudView(s);
+    await settleFrames(s.app, 192);
+    const still = await cloudView(s);
+    const hf = highPassError(moving, still);
+    const worst = Math.max(...ratios.flatMap(([, x, y]) => [x, y]));
+    log(
+        `dusk-blocks: degrau na borda dos blocos / entre texels (x, y) — ${ratios.map(([e, x, y]) => `sol a ${e.toFixed(2)}°: ${x.toFixed(3)}, ${y.toFixed(3)}`).join(' | ')}`,
+    );
+    log(
+        `dusk-blocks: a grade de ${2 * scale} px (pico a pico das médias por fase, % do brilho local) ${grids.map((g) => (g * 100).toFixed(2)).join(', ')}; erro de alta frequência (5 × 5) do quadro em movimento contra a mesma cena parada e convergida ${(hf * 100).toFixed(2)} %`,
+    );
+    check(
+        worst <= 1.1,
+        `dusk-blocks: o degrau na borda dos blocos a ${worst.toFixed(3)} × o entre texels (mosaico)`,
+    );
+    check(
+        hf <= 0.04,
+        `dusk-blocks: erro de alta frequência a ${(hf * 100).toFixed(2)} % da cena convergida`,
+    );
+    finish(s);
+}
+
 async function casePanorama(): Promise<void> {
     // O panorama (o céu coberto dos raios que escapam) contra a marcha de referência na direção do texel: a
     // transmitância por direção acima do horizonte.
@@ -3302,6 +3492,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'far-cloud': caseFarCloud,
     backlit: caseBacklit,
     'sun-sweep': caseSunSweep,
+    'dusk-blocks': caseDuskBlocks,
     'sun-low': caseSunLow,
     'sun-below': caseSunBelow,
     'fly-through': caseFlyThrough,

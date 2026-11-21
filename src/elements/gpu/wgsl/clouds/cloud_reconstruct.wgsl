@@ -3,13 +3,15 @@
 // profundidade da nuvem do quadro anterior) e pelo vento (onde a nuvem estava: o ponto menos o vento × Δt); o pixel
 // marchado mistura o valor exato a ele (média exponencial). O gradiente temporal da 034, filtrado nos 3 × 3 blocos em
 // volta, decide a validade: se a média dos históricos reprojetados nos pixels marchados diverge da média dos valores
-// exatos além da tolerância, os quatro do bloco largam o histórico (o valor do bloco). O recorte do histórico pela caixa
+// exatos além da tolerância, o bloco larga o histórico (em rampa: `cloud_history_reset`) e os pixels dele tomam o valor
+// exato interpolado no lugar de cada um entre os pixels marchados dos blocos vizinhos (`cloud_fresh_at`), com o histórico
+// que fica recortado pela caixa. O recorte do histórico pela caixa
 // dos valores exatos dos 3 × 3 blocos só onde a reprojeção é incerta: a profundidade da nuvem é a média de um trecho, e
 // a câmera que anda (o `voo`) leva o histórico de outro lugar; parada ou girando, a reprojeção não depende da
 // profundidade e o histórico é exato — a caixa tem uma amostra por bloco, e o detalhe claro menor que o bloco (a borda
 // prateada das nuvens a 50–100 km perto do sol baixo, a faixa rente ao horizonte) ficava fora dela em quase todo quadro e
 // era recortado (`sunset`: −35 % de luz nas linhas junto ao sol). Sem histórico válido (corte, recriação, primeiro
-// quadro), o valor do bloco.
+// quadro), o valor exato interpolado.
 // A superfície (spec 041): cada texel marcha até a superfície mais próxima dos pixels da tela dele, e o valor guarda até
 // onde foi (`cloud_march_depth_out.g`). O histórico é lido só dos texels marchados até a mesma superfície de agora, e o valor do bloco
 // é o do pixel marchado dele só se este for da mesma superfície; senão, o do bloco vizinho (3 × 3) mais parecido. Na borda
@@ -165,6 +167,45 @@ fn cloud_divergence(a: vec4f, b: vec4f) -> f32 {
     return abs(la - lb) / max(max(la, lb), 1e-4) * 0.5 + abs(a.a - b.a);
 }
 
+/**
+ * O valor exato no texel `q` do alvo reconstruído: a interpolação bilinear dos pixels marchados neste quadro (um por
+ * bloco 2 × 2, todos no mesmo lugar do bloco — `cloud_bayer` —: uma grade regular de passo 2 texels), só dos marchados
+ * até a superfície `own` (m); no pixel marchado, o valor dele. Sem nenhum da mesma superfície, `fallback` (o do bloco
+ * vizinho mais parecido). O valor de um pixel marchado copiado nos quatro texels do bloco (o vizinho mais próximo) dava
+ * blocos de 2·S pixels da tela com uma amostra cada onde o bloco larga o histórico — o mosaico na base escura das nuvens
+ * do pôr do sol, com o sol andando (`solposto`, quadro 1000), e a borda dos vãos em degraus.
+ */
+fn cloud_fresh_at(q: vec2u, own: f32, fallback: vec4f) -> vec4f {
+    let blocks = vec2i(textureDimensions(cloud_trace));
+    let rel = vec2i(q) - vec2i(cloud_bayer(clouds.march.z));
+    let b0 = vec2i(floor(vec2f(rel) * 0.5));
+    // A fração na grade dos marchados: 0 no marchado do bloco, ½ entre dois.
+    let f = vec2f(rel - 2 * b0) * 0.5;
+    var sum = vec4f(0.0);
+    var weight = 0.0;
+    for (var k = 0; k < 4; k++) {
+        let o = vec2i(k & 1, k >> 1);
+        let bil = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1);
+        if (bil <= 0.0) { continue; }
+        let nb = clamp(b0 + o, vec2i(0), blocks - 1);
+        let same = cloud_surface_differs(textureLoad(cloud_trace_depth, nb, 0).g, own) <= CLOUD_SURFACE_AGREE;
+        let w = select(0.0, bil, same);
+        sum += textureLoad(cloud_trace, nb, 0) * w;
+        weight += w;
+    }
+    if (weight < 1e-3) { return fallback; }
+    return sum / weight;
+}
+
+/**
+ * Quanto o bloco larga o histórico (0…1) pela divergência `d` das médias dos 3 × 3 blocos e a tolerância `allowance`
+ * (a fixa mais o ruído esperado): nada até a tolerância, tudo a 1,5 × ela. O degrau (tudo ou nada) dava blocos vizinhos
+ * em estados opostos onde a luz muda depressa (o sol rente ao horizonte): uns com o histórico, outros com o valor exato.
+ */
+fn cloud_history_reset(d: f32, allowance: f32) -> f32 {
+    return clamp(2.0 * (d / max(allowance, 1e-6) - 1.0), 0.0, 1.0);
+}
+
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let size = textureDimensions(cloud_march_out);
@@ -197,7 +238,8 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
     let fresh = textureLoad(cloud_trace, pick, 0);
     let fresh_depth = textureLoad(cloud_trace_depth, pick, 0);
     let marched = b * 2u + cloud_bayer(clouds.march.z);
-    var out = fresh;
+    let here = cloud_fresh_at(q, own, fresh);
+    var out = here;
     var depth = fresh_depth.r;
     var limit = fresh_depth.g;
     let full = vec2f(size * cloud_march_scale());
@@ -249,12 +291,11 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         let st = sqrt(temporal) / max(n, 1.0);
         let temporal_noise = CLOUD_TEMPORAL_NOISE
             * (0.5 * st.x / max(max(luminance(check_mean.rgb), luminance(fresh_mean.rgb)), 1e-4) + st.y);
-        let agrees = n > 0.0
-            && cloud_divergence(check_mean, fresh_mean)
-                <= CLOUD_GRADIENT_TOLERANCE + cloud_gradient_noise(fresh_mean, fresh_sq / max(n, 1.0), n)
-                    + temporal_noise;
-        if (hist.a >= 0.0 && check.a >= 0.0 && agrees) {
-            limit = own;
+        let allowance = CLOUD_GRADIENT_TOLERANCE + cloud_gradient_noise(fresh_mean, fresh_sq / max(n, 1.0), n)
+            + temporal_noise;
+        let reset = select(1.0, cloud_history_reset(cloud_divergence(check_mean, fresh_mean), allowance), n > 0.0);
+        if (hist.a >= 0.0 && check.a >= 0.0) {
+            limit = select(own, fresh_depth.g, reset >= 0.5);
             // O histórico recortado pela caixa dos valores exatos dos 3 × 3 blocos: com a câmera andando dentro da nuvem
             // (`voo` do claflow-web), a reprojeção pela profundidade da nuvem erra e, sem o recorte, o histórico velho
             // ficava em manchas de blocos.
@@ -269,10 +310,13 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
             // A caixa com folga de metade da largura: uma amostra por bloco não cobre o detalhe fino (a faixa de 2–4 px
             // rente ao horizonte), que o recorte justo erodia (`sunset`, 5,8 %).
             let pad = CLOUD_BOX_PAD * (hi - lo);
-            out = mix(hist, clamp(hist, lo - pad, hi + pad), cloud_reprojection_clip(q, full));
+            // O bloco que larga o histórico: o histórico recortado inteiro pela caixa (o que fica dele não sai dela) e o
+            // valor exato interpolado no lugar do texel, na medida de `reset`.
+            out = mix(hist, clamp(hist, lo - pad, hi + pad), max(cloud_reprojection_clip(q, full), reset));
+            out = mix(out, here, reset);
             if (all(q == marched)) {
                 out = mix(out, fresh, CLOUD_HISTORY_BLEND);
-            } else {
+            } else if (reset < 0.5) {
                 depth = textureLoad(cloud_march_depth_prev, q, 0).r;
             }
         }

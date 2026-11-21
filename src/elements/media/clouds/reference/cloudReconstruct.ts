@@ -3,8 +3,10 @@
 // gradiente temporal filtrado reprova o bloco (a média dos históricos reprojetados nos pixels marchados dos 3 × 3 blocos
 // em volta diverge da média dos valores exatos deles além da tolerância mais o ruído esperado da média — o erro padrão
 // das amostras, R19: Schied et al. 2018; a lição dos blocos 2 × 2
-// da 034), quando o histórico sai da tela ou quando a série não vale (corte, recriação, primeiro quadro): aí, o valor do
-// bloco. O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura, na
+// da 034; em rampa, `cloudHistoryReset`), quando o histórico sai da tela ou quando a série não vale (corte, recriação,
+// primeiro quadro): aí, o valor exato interpolado no lugar do pixel entre os marchados dos blocos vizinhos
+// (`cloudFreshAt`), não o do pixel marchado do bloco copiado nos quatro (o mosaico de blocos de 2·S px com uma amostra
+// cada nas nuvens escuras do pôr do sol). O histórico é recortado pela caixa dos valores exatos dos 3 × 3 blocos, com folga de metade da largura, na
 // medida da incerteza da reprojeção (`clip`: 0 com a câmera parada ou girando, 1 com a paralaxe de um texel ou mais).
 // A superfície: o histórico só vale marchado até a mesma superfície do pixel agora, e o valor do bloco só é o do pixel
 // marchado se este for da mesma superfície (senão, o do bloco vizinho mais parecido, `cloudFreshForSurface`).
@@ -120,6 +122,40 @@ export function cloudDivergence(a: Rgba, b: Rgba): number {
     return (Math.abs(la - lb) / Math.max(Math.max(la, lb), 1e-4)) * 0.5 + Math.abs(a[3] - b[3]);
 }
 
+/**
+ * O valor exato no pixel pela interpolação bilinear dos pixels marchados dos blocos vizinhos (a grade regular de passo 2
+ * pixels de ¼): `f` a fração do pixel nessa grade (0 no marchado do bloco, ½ entre dois), `samples` os quatro marchados
+ * em volta na ordem (0, 0), (1, 0), (0, 1), (1, 1) com a superfície até onde cada um foi; só os da superfície `own` contam.
+ * Sem nenhum, `fallback`. Espelho de `cloud_fresh_at`.
+ */
+export function cloudFreshAt(
+    f: readonly [number, number],
+    samples: readonly { readonly value: Rgba; readonly surface: number }[],
+    own: number,
+    fallback: Rgba,
+): Rgba {
+    const sum = [0, 0, 0, 0];
+    let weight = 0;
+    samples.forEach((s, k) => {
+        const ox = k & 1;
+        const oy = k >> 1;
+        const bil = (ox === 1 ? f[0] : 1 - f[0]) * (oy === 1 ? f[1] : 1 - f[1]);
+        if (bil <= 0 || cloudSurfaceDiffers(s.surface, own) > CLOUD_SURFACE_AGREE) return;
+        for (let c = 0; c < 4; c++) sum[c]! += s.value[c]! * bil;
+        weight += bil;
+    });
+    if (weight < 1e-3) return fallback;
+    return sum.map((v) => v / weight) as unknown as Rgba;
+}
+
+/**
+ * Quanto o bloco larga o histórico (0…1) pela divergência `d` e a tolerância `allowance`: nada até ela, tudo a 1,5 × ela.
+ * Espelho de `cloud_history_reset`.
+ */
+export function cloudHistoryReset(d: number, allowance: number): number {
+    return Math.min(1, Math.max(0, 2 * (d / Math.max(allowance, 1e-6) - 1)));
+}
+
 /** Entradas de um pixel. */
 export interface ReconstructInput {
     /** O pixel é o marchado do bloco neste quadro. */
@@ -128,6 +164,8 @@ export interface ReconstructInput {
     readonly valid: boolean;
     /** O valor exato do bloco (já o da mesma superfície, `cloudFreshForSurface`). */
     readonly fresh: Rgba;
+    /** O valor exato interpolado no lugar do pixel (`cloudFreshAt`; no marchado, o dele). Ausente: `fresh`. */
+    readonly here?: Rgba;
     /** A superfície do pixel agora e a do histórico dele (m; ausentes: a mesma). */
     readonly surface?: number;
     readonly historySurface?: number;
@@ -157,38 +195,39 @@ const mean = (v: readonly Rgba[]): Rgba =>
 
 /** O valor reconstruído do pixel. */
 export function reconstructTexel(i: ReconstructInput): Rgba {
-    if (!i.valid || i.history === undefined || i.check === undefined) return i.fresh;
+    const here = i.here ?? i.fresh;
+    if (!i.valid || i.history === undefined || i.check === undefined) return here;
     if (
         i.surface !== undefined
         && i.historySurface !== undefined
         && cloudSurfaceDiffers(i.historySurface, i.surface) > CLOUD_SURFACE_AGREE
     )
-        return i.fresh;
+        return here;
     const seen = i.neighbors.flatMap((n) =>
         n.check === undefined ? [] : [{ fresh: n.fresh, check: n.check, moments: n.moments }],
     );
-    if (seen.length === 0) return i.fresh;
+    if (seen.length === 0) return here;
     const divergence = cloudDivergence(
         mean(seen.map((n) => n.check)),
         mean(seen.map((n) => n.fresh)),
     );
-    if (
-        divergence
-        > CLOUD_GRADIENT_TOLERANCE
+    const reset = cloudHistoryReset(
+        divergence,
+        CLOUD_GRADIENT_TOLERANCE
             + cloudGradientNoise(seen.map((n) => n.fresh))
-            + cloudTemporalNoise(seen)
-    )
-        return i.fresh;
+            + cloudTemporalNoise(seen),
+    );
     const box = [i.fresh, ...i.neighbors.map((n) => n.fresh)];
-    const clamped = [0, 1, 2, 3].map((c) => {
-        const lo = Math.min(...box.map((n) => n[c]!));
-        const hi = Math.max(...box.map((n) => n[c]!));
-        const pad = CLOUD_BOX_PAD * (hi - lo);
+    const lo = [0, 1, 2, 3].map((c) => Math.min(...box.map((n) => n[c]!)));
+    const hi = [0, 1, 2, 3].map((c) => Math.max(...box.map((n) => n[c]!)));
+    const kept = [0, 1, 2, 3].map((c) => {
+        const pad = CLOUD_BOX_PAD * (hi[c]! - lo[c]!);
         const h = i.history![c]!;
-        return h + (Math.min(hi + pad, Math.max(lo - pad, h)) - h) * (i.clip ?? 1);
+        return (
+            h
+            + (Math.min(hi[c]! + pad, Math.max(lo[c]! - pad, h)) - h) * Math.max(i.clip ?? 1, reset)
+        );
     });
-    if (!i.marched) return clamped as unknown as Rgba;
-    return [0, 1, 2, 3].map(
-        (c) => clamped[c]! + (i.fresh[c]! - clamped[c]!) * CLOUD_HISTORY_BLEND,
-    ) as unknown as Rgba;
+    const step = i.marched ? kept.map((k, c) => k + (i.fresh[c]! - k) * CLOUD_HISTORY_BLEND) : kept;
+    return step.map((v, c) => v * (1 - reset) + here[c]! * reset) as unknown as Rgba;
 }

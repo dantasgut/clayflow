@@ -333,6 +333,16 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
 - [x] T078 O `beam-gap` mede o ar sozinho (a grade dos froxels até a base da camada) contra a f64 com a mesma nuvem (o
       espelho da densidade com o mapa de cobertura da GPU): contraste a 2,9 %, bordas ≤ 4 px além (R21 rodada 18); a
       `raios-chao` refeita (o morro, os vãos pela geometria) e gravada.
+- [x] T079 [GPU] O mosaico nas nuvens escuras do pôr do sol (rodada 36; `solposto` quadro 1000, `solposto-chao`,
+      `raios-chao`, `tempestade`): blocos de 4 × 4 px (o bloco 2 × 2 do alvo de ¼) com uma amostra cada onde o gradiente
+      temporal larga o histórico — o valor do pixel marchado copiado nos quatro texels. Provado no quadro: com o
+      gradiente desligado o mosaico some. A reconstrução passa a dar a cada texel o valor exato interpolado entre os
+      pixels marchados dos blocos vizinhos (`cloud_fresh_at`) e a largar o histórico em rampa (`cloud_history_reset`, de 1
+      a 1,5 × a tolerância), com o histórico que fica recortado pela caixa; referência `cloudReconstruct.ts` e testes. Caso
+      `dusk-blocks` (o sol do `solposto` andando, 1280 × 720): o degrau na borda dos blocos / entre texels 1,317 → 1,069, o
+      erro de alta frequência contra a cena parada convergida 4,42 → 3,59 %; `sunset` 3,9 → 3,7 %. Fica registrada a grade
+      de 4 px das idades dos texels na média exponencial (2–3 % do brilho linear no caso, < 0,5 nível de 8 bits no vídeo):
+      propagar a mudança dos marchados aos outros texels é instável (o modo xadrez se amplifica) e foi descartado.
 
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
