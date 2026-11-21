@@ -1318,11 +1318,19 @@ export const cloudPanoramaKernel = withFarShadow(
     }),
 );
 
+/** Invocações do grupo do desenho de uma página do volume de τ até o sol (um grupo por página da lista do quadro). */
+export const CLOUD_SUN_VOLUME_DRAW_GROUP = sharedConstant(
+    'CLOUD_SUN_VOLUME_DRAW_GROUP',
+    256,
+    'u32',
+);
+
 /** O volume de τ até o sol perto da câmera (T074): as filas das páginas, a escolha do quadro e o desenho. */
 export const cloudSunVolumeKernel = wgslModule({
     name: 'cloud_sun_volume',
     source: cloudSunVolumeSource,
     requires: [
+        CLOUD_SUN_VOLUME_DRAW_GROUP.module,
         cloudSunVolumeGrid,
         cloudSunRest,
         cloudCommon,

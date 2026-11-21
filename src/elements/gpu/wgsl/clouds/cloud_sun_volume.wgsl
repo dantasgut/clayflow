@@ -30,7 +30,6 @@ const CLOUD_SUN_VOLUME_KEYS_CHUNK: u32 = 32u;
 const CLOUD_SUN_VOLUME_SELECT_GROUP: u32 = 256u;
 /** Páginas por invocação da escolha (duas palavras de marcas de cada parte, só dela). */
 const CLOUD_SUN_VOLUME_SELECT_CHUNK: u32 = 64u;
-const CLOUD_SUN_VOLUME_DRAW_GROUP: u32 = 256u;
 const CLOUD_SUN_VOLUME_NODES: u32 = 729u;
 const CLOUD_SUN_VOLUME_PROBES: u32 = 32u;
 /** Índices dos nós de prova: os múltiplos deste entre os 9³ (`sunVolumeProbeNodes`). */
@@ -260,12 +259,15 @@ fn cloud_sun_volume_rate(delta: f32, motion: f32, before: f32) -> f32 {
 @compute @workgroup_size(CLOUD_SUN_VOLUME_DRAW_GROUP)
 fn cloud_sun_volume_draw_main(
     @builtin(workgroup_id) wid: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
     @builtin(local_invocation_index) lid: u32,
 ) {
     if (lid == 0u) {
+        // Um grupo por entrada da lista do quadro (o índice linear do grupo: o despacho por invocações pode dobrar em y).
+        let entry = wid.x + wid.y * nwg.x;
         var slot = CLOUD_SUN_VOLUME_PAGE_COUNT;
-        if (wid.x < min(atomicLoad(&cloud_sun_volume_work[0]), CLOUD_SUN_VOLUME_LIST)) {
-            slot = atomicLoad(&cloud_sun_volume_work[CLOUD_SUN_VOLUME_WORK_LIST + wid.x]);
+        if (entry < min(atomicLoad(&cloud_sun_volume_work[0]), CLOUD_SUN_VOLUME_LIST)) {
+            slot = atomicLoad(&cloud_sun_volume_work[CLOUD_SUN_VOLUME_WORK_LIST + entry]);
         }
         var measure = 0u;
         var before = vec4f(0.0);

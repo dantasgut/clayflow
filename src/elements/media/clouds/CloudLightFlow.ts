@@ -39,6 +39,7 @@ import {
     cloudScatterKernel,
     cloudScatterSlots,
     CLOUD_SHADOW_PAGE_GROUP,
+    CLOUD_SUN_VOLUME_DRAW_GROUP,
     cloudShadowKernel,
     cloudShadowSlots,
     cloudSunVolumeKernel,
@@ -350,7 +351,10 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                     frame.compute('CloudLightFlow.sunVolume', (pass) => {
                         pass.bind.setPipeline(volumeDraw.spec);
                         volumeDraw.bindTo(pass.bind);
-                        pass.dispatch.workgroups(CLOUD_SUN_VOLUME_BUDGET);
+                        pass.dispatch.invocations(
+                            CLOUD_SUN_VOLUME_BUDGET * CLOUD_SUN_VOLUME_DRAW_GROUP.value,
+                            CLOUD_SUN_VOLUME_DRAW_GROUP.value,
+                        );
                     });
                     bound.slots.cloudSunVolume.written();
                     bound.slots.cloudSunVolumePages.written();
