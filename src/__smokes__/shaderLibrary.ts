@@ -908,6 +908,10 @@ function probeProgram(schema: StructSchema): { wgsl: string; probes: Probe[] } {
     return { wgsl: lines.join('\n    '), probes };
 }
 
+/**
+ * Os schemas com struct na GPU. Os sem campo (o Resource de trabalho de um Flow, como `ForwardWork`, só com canais) não
+ * têm layout a conferir: o WGSL não aceita struct vazio.
+ */
 const SCHEMAS: readonly StructSchema[] = [
     ...Object.values(Bodies).filter(
         (s): s is StructSchema => typeof s === 'object' && 'wgslName' in s,
@@ -932,7 +936,7 @@ const SCHEMAS: readonly StructSchema[] = [
     ShadowMap.matrixSchema,
     ParticlePhysics.schema,
     ...Object.values(Render),
-];
+].filter((schema) => schema.fields.size > 0);
 
 async function runLayout(app: Application, schema: StructSchema, index: number): Promise<void> {
     const { wgsl, probes } = probeProgram(schema);
@@ -954,12 +958,22 @@ fn probe_main() {
     ${wgsl}
 }`,
     });
+    const errors = engineErrors.length;
     const kernel = pipelines.kernel({
         discriminator: `shaderlib_layout_${index}`,
         shader: module,
         entryPoint: 'probe_main',
         bindings: new Map([[probeOut, buf]]),
     });
+    await app.core.withErrorScope('validation', () => undefined);
+    // O pipeline inválido (o struct gerado que não compila) é falha do schema, não um despacho de pipeline inválido.
+    if (pipelines.compute(kernel) === undefined || engineErrors.length > errors) {
+        failures.push(
+            `(c) ${schema.name}: o kernel da sonda não compilou (${engineErrors.slice(errors).join('; ') || 'o pipeline não ficou pronto'})`,
+        );
+        pipelines.release(kernel);
+        return;
+    }
     app.core.record('shaderlib-layout', (frame) => {
         frame.clear(buf);
         frame.compute('shaderlib.layout', (pass) => {
