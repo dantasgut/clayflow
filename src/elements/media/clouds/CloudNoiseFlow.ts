@@ -326,7 +326,12 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                     CLOUD_SCATTER_SNAP,
                 ],
                 phaseCut: cloudPhaseTruncation(d.dropletDiameter),
-                scatterWork: [q.scatter.budget, q.scatter.collisions, time?.frame ?? 0, 0],
+                scatterWork: [
+                    q.scatter.budget,
+                    q.scatter.collisions,
+                    time?.frame ?? 0,
+                    this.scatterSignature(cloud, sky, shadowMap.signature),
+                ],
                 scatterSize: [...q.scatter.size, 0],
                 ...weather,
                 anvil: [
@@ -336,6 +341,31 @@ export class CloudNoiseFlow extends Flow<CloudNoiseSlots, 'idle'> {
                 ],
             },
         ];
+    }
+
+    /**
+     * A assinatura do que as sondas do cache de espalhamento e o panorama guardam além do sol, do vento, da câmera e do
+     * tempo (T074; FNV-1a): o conteúdo do mapa visto do sol, a luz das gotículas (o albedo, o diâmetro), a qualidade e a
+     * atmosfera sem a direção do sol. Outra assinatura, a página caminha e o panorama é refeito.
+     */
+    private scatterSignature(cloud: CloudLayer, sky: Sky, shadow: number): number {
+        const d = cloud.data;
+        const s = sky.data;
+        return fnv1a(
+            JSON.stringify([
+                shadow,
+                d.albedo,
+                d.dropletDiameter,
+                d.quality,
+                s.sunIlluminance,
+                s.rayleigh,
+                s.mie,
+                s.ozone,
+                s.ground,
+                s.night,
+                s.haze,
+            ]),
+        );
     }
 
     /**

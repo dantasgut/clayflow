@@ -119,6 +119,8 @@ export const cloudCoverageSlots = Object.freeze({
 export const cloudScatterSlots = Object.freeze({
     cloudScatter: slot.channel(CloudSchema, 'scatter'),
     cloudScatterFiltered: slot.channel(CloudSchema, 'scatterFiltered'),
+    /** O panorama, série de uma página (T074: refeito só quando o que mostra muda). */
+    cloudPanorama: slot.channel(CloudSchema, 'panorama'),
 });
 
 /** Slot do canal temporal do estado do tempo (spec 037; R19). */
@@ -238,7 +240,22 @@ export const cloudResources = Object.freeze({
         frequency: 'stage',
         provider: { slot: 'cloudScatterFiltered', part: 'clock' },
     }),
-    /** O trabalho do quadro do cache (a contagem, a lista das páginas escolhidas e as marcas do filtro). */
+    /** Os carimbos e o relógio da série do panorama (uma página; T074). */
+    panoramaStamps: wgslResource({
+        name: 'cloud_panorama_stamps',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: { slot: 'cloudPanorama', part: 'stamps' },
+    }),
+    panoramaClock: wgslResource({
+        name: 'cloud_panorama_clock',
+        binding: { uniform: true },
+        type: { wgsl: 'vec4u' },
+        frequency: 'stage',
+        provider: { slot: 'cloudPanorama', part: 'clock' },
+    }),
+    /** O trabalho do quadro do cache (a contagem, o panorama a refazer, a lista das páginas escolhidas e as marcas do filtro). */
     scatterWork: wgslResource({
         name: 'cloud_scatter_work',
         binding: { storage: 'read_write' },
@@ -1081,6 +1098,8 @@ export const cloudScatterKernel = wgslModule({
         pageAlloc,
         cloudScatterPages,
         R.scatterWork,
+        R.panoramaStamps,
+        R.panoramaClock,
     ],
 });
 
@@ -1112,6 +1131,9 @@ export const cloudPanoramaKernel = withFarShadow(
             skyAerialLookup,
             cloudParamsResource,
             cloudOutputs.panorama,
+            R.scatterWork,
+            R.panoramaStamps,
+            R.panoramaClock,
         ],
     }),
 );

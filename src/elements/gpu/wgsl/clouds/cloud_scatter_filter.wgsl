@@ -49,7 +49,8 @@ fn cloud_scatter_filter_touched(g: vec3u, size: vec3u) -> bool {
 fn cloud_scatter_filter_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let size = clouds_scatter_size();
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= size.x * size.y * size.z) { return; }
+    // Nenhuma página caminhou nem recomeçou no quadro: o alvo filtrado segue como está.
+    if (i >= size.x * size.y * size.z || atomicLoad(&cloud_scatter_work[CLOUD_SCATTER_WORK_ANY]) == 0u) { return; }
     let g = vec3u(i % size.x, (i / size.x) % size.y, i / (size.x * size.y));
     if (!cloud_scatter_filter_touched(g, size)) { return; }
     let gen = cloud_scatter_read_generation();

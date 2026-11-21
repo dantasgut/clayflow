@@ -613,7 +613,11 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 count: 4 + CLOUD_SHADOW_SLOT_COUNT,
                 upload: 'never',
             },
-            target('panorama', 'rgba16float', q.panorama),
+            // O panorama, série por páginas de uma página só (T074): refeito no quadro em que o que ele mostra muda.
+            target('panorama', 'rgba16float', q.panorama, {
+                depth: 1,
+                pages: { tile: [q.panorama[0], q.panorama[1]] },
+            }),
             // A marcha: um valor por bloco 2 × 2 do alvo reconstruído (¼ da tela; 1/16 no perfil baixo) e a série
             // reconstruída (spec 037).
             target('trace', 'rgba16float', 2 * q.marchScale),

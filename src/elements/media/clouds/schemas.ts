@@ -237,9 +237,12 @@ export interface CloudQuality {
 
 /** Sondas por lado de uma página do cache de espalhamento (`cloud_scatter_pages.wgsl`). */
 export const CLOUD_SCATTER_PAGE = 8;
-/** Palavras globais e do registro de cada página antes das sondas no cache de espalhamento. */
-export const CLOUD_SCATTER_GLOBAL_WORDS = 4;
-export const CLOUD_SCATTER_HEADER_WORDS = 8;
+/**
+ * Palavras globais (a geração da grade e o registro do panorama) e do registro de cada página (o que o último caminho
+ * viu: `cloud_scatter_pages.wgsl`) antes das sondas no cache de espalhamento (T074).
+ */
+export const CLOUD_SCATTER_GLOBAL_WORDS = 16;
+export const CLOUD_SCATTER_HEADER_WORDS = 16;
 /** Texels por lado do quadrado do tempo (R19): ~2 km no quadrado de 256 km, a escala sinótica com folga. */
 export const CLOUD_WEATHER_SIZE = 128;
 /** O lado do estêncil das derivadas da pressão: a escala dos sistemas sobre este número (O(h²/L²) ~ 2·10⁻⁴). */

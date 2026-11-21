@@ -32,8 +32,10 @@ import {
     CLOUD_OCTAVES,
     CLOUD_SCATTER_EXTENT,
     CLOUD_SCATTER_NEAR,
+    CLOUD_SCATTER_PAGE,
     CLOUD_SCATTER_PRIOR,
     CLOUD_SCATTER_SNAP,
+    CLOUD_SCATTER_WINDOW,
     type Application,
     type CloudLayer,
     CloudLayer as CloudLayerClass,
@@ -1083,6 +1085,16 @@ interface CloudCostOptions {
     readonly movingSun?: boolean;
 }
 
+/**
+ * Quadros para a camada que entra encher o cache de espalhamento no teto (T074): as páginas (todas com nuvem, o pior
+ * caso) × a janela da média ÷ as páginas por quadro, e uma passada a mais (as que nunca caminharam).
+ */
+function fillFrames(q: CloudLayer['quality'] | undefined): number {
+    if (q === undefined) return 60;
+    const pages = q.scatter.size.reduce((a, v) => a * Math.ceil(v / CLOUD_SCATTER_PAGE), 1);
+    return Math.ceil((pages * (CLOUD_SCATTER_WINDOW + 1)) / Math.max(q.scatter.budget, 1)) + 60;
+}
+
 /** O ponto de maior cobertura (referência f64) a ±4 km da origem, no passo de 50 m. */
 function densestColumn(coverage: number, type: number): [number, number] {
     let best: [number, number] = [0, 0];
@@ -1214,7 +1226,10 @@ async function cloudCost(
                 s.app.world.remove(layer);
                 layer = undefined;
             }
-            await busyFrames(s.app, 60, moveSun);
+            // A camada que entra enche o cache de espalhamento (T074: as páginas caminham por necessidade — a que nunca
+            // caminhou, a que não encheu a janela, a que mudou): páginas × janela ÷ orçamento quadros no teto, o transitório
+            // da entrada; a medida é a do regime (parado, as páginas cheias não caminham; com o sol andando, o teto).
+            await busyFrames(s.app, has ? fillFrames(layer?.quality) : 60, moveSun);
             // De novo pronto antes de medir (spec 041, R21 rodada 16): a troca da camada vira as flags que compõem os pontos
             // de cena (a sombra no ar, o céu coberto) só no despacho seguinte, e as trocas dos pipelines grandes (o desenho, a
             // injeção dos froxels) começam depois do primeiro `whenReady` — medido no meio delas, o quadro sem a camada

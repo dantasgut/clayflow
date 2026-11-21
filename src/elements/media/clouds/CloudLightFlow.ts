@@ -47,6 +47,8 @@ export interface CloudLightSlots extends SlotMap {
     readonly cloudScatter: ChannelSlot<false>;
     /** O cache filtrado (série por páginas: os carimbos). */
     readonly cloudScatterFiltered: ChannelSlot<false>;
+    /** O panorama (série de uma página: o carimbo; T074). */
+    readonly cloudPanorama: ChannelSlot<false>;
     /** O estado do tempo (spec 037; R19): a fatia anterior lida no lugar trazido pelo vento, a do quadro escrita. */
     readonly cloudWeather: ChannelSlot<false>;
     /** O atlas do mapa visto do sol, série por páginas (os carimbos e o relógio; R11 revisto). */
@@ -284,6 +286,8 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
                 bound.slots.cloudScatter.written();
                 bound.slots.cloudScatterFiltered.written();
             }
+            // O panorama (a página única carimbada no quadro em que é refeito).
+            if (id === PANORAMA.id) bound.slots.cloudPanorama.written();
             // O estado do tempo escrito: a série gira (o mapa de cobertura lê a fatia do quadro).
             if (id === this.weather) bound.slots.cloudWeather.written();
         });

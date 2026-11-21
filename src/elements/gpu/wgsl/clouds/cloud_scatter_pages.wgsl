@@ -1,16 +1,34 @@
-// As páginas do cache de espalhamento das nuvens (spec 041, T023; R11 revisto): as sondas da grade em páginas de
+// As páginas do cache de espalhamento das nuvens (spec 041, T023; R11 revisto; T074): as sondas da grade em páginas de
 // `CLOUD_SCATTER_PAGE³` numa série por páginas de buffer (`cloud_scatter_cache`, palavras): primeiro as palavras
-// globais (a geração da grade), depois o registro de cada página (o sol e o quadro do último caminho, a geração, quantas
-// sondas tinham nuvem) e então as sondas, quatro palavras cada (a soma da luz em unidades da iluminância do sol e a
+// globais (a geração da grade; o registro do panorama: o sol, o deslocamento do vento, a câmera, o tempo e a assinatura
+// do último desenho dele), depois o registro de cada página (`CLOUD_SCATTER_H_*`: o sol, o quadro, o deslocamento do
+// vento, a câmera, o tempo e a assinatura do último caminho, a geração, quantas sondas tinham nuvem e os caminhos
+// efetivos da página) e então as sondas, quatro palavras cada (a soma da luz em unidades da iluminância do sol e a
 // contagem). A página vale (as sondas dela) com o carimbo da série na época atual e a geração da grade de agora; senão,
-// zero. O trabalho do quadro (`cloud_scatter_work`): a contagem, a lista das páginas escolhidas (a página e o
-// esquecimento) e a marca de cada página para o filtro.
+// zero. O trabalho do quadro (`cloud_scatter_work`): a contagem, o panorama a refazer, se alguma página caminha, a
+// lista das páginas escolhidas (a página e o esquecimento) e a marca de cada página para o filtro.
 // Requer: clouds, cloud_scatter_cache, cloud_scatter_stamps, cloud_scatter_clock.
 
 const CLOUD_SCATTER_PAGE: u32 = 8u;
 const CLOUD_SCATTER_PAGE_PROBES: u32 = 512u;
-const CLOUD_SCATTER_GLOBAL_WORDS: u32 = 4u;
-const CLOUD_SCATTER_HEADER_WORDS: u32 = 8u;
+const CLOUD_SCATTER_GLOBAL_WORDS: u32 = 16u;
+const CLOUD_SCATTER_HEADER_WORDS: u32 = 16u;
+// As palavras do registro de uma página.
+const CLOUD_SCATTER_H_SUN: u32 = 0u;
+const CLOUD_SCATTER_H_FRAME: u32 = 3u;
+const CLOUD_SCATTER_H_GEN: u32 = 4u;
+const CLOUD_SCATTER_H_CLOUDY: u32 = 5u;
+const CLOUD_SCATTER_H_OFFSET: u32 = 6u;
+const CLOUD_SCATTER_H_PATHS: u32 = 8u;
+const CLOUD_SCATTER_H_EYE: u32 = 9u;
+const CLOUD_SCATTER_H_TIME: u32 = 12u;
+const CLOUD_SCATTER_H_SIGNATURE: u32 = 13u;
+// As palavras globais: a geração da grade e o registro do panorama (o mesmo arranjo do de uma página, a partir de 1).
+const CLOUD_SCATTER_G_GEN: u32 = 0u;
+const CLOUD_SCATTER_G_PANORAMA: u32 = 1u;
+// As palavras do trabalho do quadro antes da lista: a contagem, o panorama a refazer, alguma página marcada no filtro.
+const CLOUD_SCATTER_WORK_PANORAMA: u32 = 1u;
+const CLOUD_SCATTER_WORK_ANY: u32 = 2u;
 /** O começo da lista das páginas escolhidas no trabalho do quadro. */
 const CLOUD_SCATTER_WORK_LIST: u32 = 4u;
 /** Invocações do grupo da escolha. */
