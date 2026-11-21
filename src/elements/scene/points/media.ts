@@ -1,6 +1,7 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
+import { NONE } from '../../../scene/shaders/engineConstants';
 
 // Pontos de cena dos meios participantes (spec 033, R12): quem desenha uma superfície chama `scene_fog` no ponto dela
 // (a névoa entre a câmera e o ponto) sem conhecer quem a implementa — os froxels dos `FogVolume` e a perspectiva aérea do
@@ -117,11 +118,15 @@ ${modules
 
 /**
  * O meio contínuo da cena num ponto (spec 041, R21): a extinção (rgb, 1/m) e a luz que ele espalha para quem olha na
- * direção `view` (rgb, radiância por metro: a luz simples das fontes dele, já com a sombra delas, e a múltipla).
+ * direção `view` (rgb, radiância por metro: a luz simples das fontes dele, já com a sombra delas, e a múltipla), e a
+ * visibilidade da fonte `light` que ele calculou no ponto sorteado (`light_visibility`, a sombra do terreno e dos objetos;
+ * `NONE` quando não calculou nenhuma) — quem integra o meio junto com volumes de névoa reusa essa leitura para a mesma
+ * fonte no mesmo ponto, em vez de refazê-la.
  */
 export const sceneMediumType = wgslModule({
     name: 'scene_medium_type',
-    source: 'struct SceneMedium {\n    extinction: vec3f,\n    radiance: vec3f,\n}',
+    requires: [NONE.module],
+    source: 'struct SceneMedium {\n    extinction: vec3f,\n    radiance: vec3f,\n    light: u32,\n    visibility: f32,\n}',
 });
 
 /**
@@ -129,13 +134,13 @@ export const sceneMediumType = wgslModule({
  * (a atmosfera do `Sky`, spec 041 R21) numa célula de quem o integra: o meio (a densidade, as fases, a luz que chega sem
  * sombra) no centro `center` dela, a visibilidade das fontes (as sombras: as bordas dos feixes) no ponto sorteado `p`,
  * visto na direção `view` (unitária, da câmera para o centro). A parte lisa sem ruído e só a sombra amostrada: o acúmulo
- * temporal faz a média dela na célula. Quem integra os meios perto da câmera (os froxels) o soma aos volumes de névoa;
- * pronto: nada.
+ * temporal faz a média dela na célula. Quem integra os meios perto da câmera (os froxels) o soma aos volumes de névoa e
+ * reusa a sombra que ele leu (`light`, `visibility`) para a mesma fonte no mesmo ponto; pronto: nada.
  */
 export const sceneMediumReady = wgslModule({
     name: 'scene_medium_ready',
     requires: [sceneMediumType],
-    source: 'fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {\n    return SceneMedium(vec3f(0.0), vec3f(0.0));\n}',
+    source: 'fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {\n    return SceneMedium(vec3f(0.0), vec3f(0.0), NONE, 1.0);\n}',
 });
 
 /**
@@ -147,7 +152,7 @@ export const sceneMediumReady = wgslModule({
 export const sceneMediumOpenReady = wgslModule({
     name: 'scene_medium_open_ready',
     requires: [sceneMediumType],
-    source: 'fn scene_medium_open(p: vec3f, view: vec3f) -> SceneMedium {\n    return SceneMedium(vec3f(0.0), vec3f(0.0));\n}',
+    source: 'fn scene_medium_open(p: vec3f, view: vec3f) -> SceneMedium {\n    return SceneMedium(vec3f(0.0), vec3f(0.0), NONE, 1.0);\n}',
 });
 
 /**
@@ -173,7 +178,7 @@ export const sceneNearFogReady = wgslModule({
     source: 'fn scene_near_fog(p: vec3f) -> SceneNearFog {\n    return SceneNearFog(SceneFog(vec3f(0.0), vec3f(1.0)), 0.0, vec3f(0.0));\n}',
 });
 
-/** Meio contínuo: a soma dos contribuintes (extinção e luz espalhada somam). */
+/** Meio contínuo: a soma dos contribuintes (extinção e luz espalhada somam; a visibilidade é a do primeiro que a calculou). */
 export const sceneMediumPoint: ContributionPoint = {
     name: 'scene_medium',
     ready: sceneMediumReady,
@@ -184,11 +189,13 @@ export const sceneMediumPoint: ContributionPoint = {
                 name: `scene_medium:${modules.map((m) => m.name).join('+')}`,
                 requires: [sceneMediumType, ...modules],
                 source: `fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {
-    var m = SceneMedium(vec3f(0.0), vec3f(0.0));
+    var m = SceneMedium(vec3f(0.0), vec3f(0.0), NONE, 1.0);
 ${modules
     .map(
         (_, k) => `    let m${k} = scene_medium_${k}(p, center, view);
-    m = SceneMedium(m.extinction + m${k}.extinction, m.radiance + m${k}.radiance);`,
+    let v${k} = m.light == NONE && m${k}.light != NONE;
+    m = SceneMedium(m.extinction + m${k}.extinction, m.radiance + m${k}.radiance, select(m.light, m${k}.light, v${k}),
+        select(m.visibility, m${k}.visibility, v${k}));`,
     )
     .join('\n')}
     return m;
@@ -208,11 +215,11 @@ export const sceneMediumOpenPoint: ContributionPoint = {
                 name: `scene_medium_open:${modules.map((m) => m.name).join('+')}`,
                 requires: [sceneMediumType, ...modules],
                 source: `fn scene_medium_open(p: vec3f, view: vec3f) -> SceneMedium {
-    var m = SceneMedium(vec3f(0.0), vec3f(0.0));
+    var m = SceneMedium(vec3f(0.0), vec3f(0.0), NONE, 1.0);
 ${modules
     .map(
         (_, k) => `    let m${k} = scene_medium_open_${k}(p, view);
-    m = SceneMedium(m.extinction + m${k}.extinction, m.radiance + m${k}.radiance);`,
+    m = SceneMedium(m.extinction + m${k}.extinction, m.radiance + m${k}.radiance, NONE, 1.0);`,
     )
     .join('\n')}
     return m;

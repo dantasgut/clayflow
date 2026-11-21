@@ -5,7 +5,8 @@
 // resultado do quadro (espalhado rgb, extinção) vai a `froxel_current_out`; o acúmulo no histórico é do passe seguinte
 // (`media_froxel_resolve`, com o recorte pela vizinhança, spec 034 T058). O ponto sorteado segue a sequência de Halton
 // do quadro deslocada por froxel. O meio contínuo da cena (`scene_medium`, spec 041 R21: a atmosfera) soma a luz que
-// espalha no mesmo ponto; a extinção guardada (a) é só a dos volumes (cinza), a do meio (por canal) é da integração.
+// espalha no mesmo ponto; a extinção guardada (a) é só a dos volumes (cinza), a do meio (por canal) é da integração. A
+// sombra da fonte que o meio leu no ponto (`SceneMedium.light`: o sol da atmosfera) serve à névoa dos volumes nele.
 // Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_volumes, lights, light_incoming, light_visibility,
 // light_transmission, scene_medium, media_froxel_state, froxel_ambient, froxel_sampler, froxel_current_out.
 
@@ -64,7 +65,8 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     // A parte lisa dele no centro do froxel (sem ruído), as sombras no ponto sorteado.
     let center = froxel_world(cam, froxel_view_point(uv_to_ndc((vec2f(cell.xy) + 0.5) / vec2f(dims.xy)),
         froxel_slice_depth(f32(cell.z) + 0.5), froxel_projection(cam)));
-    var scattered = scene_medium(p, center, normalize(center - cam.position.xyz)).radiance;
+    let medium = scene_medium(p, center, normalize(center - cam.position.xyz));
+    var scattered = medium.radiance;
     if (sigma_t > 0.0) {
         let g = g_sum / max(sigma_s.r + sigma_s.g + sigma_s.b, 1e-12);
         var incoming = textureSampleLevel(froxel_ambient, froxel_sampler,
@@ -73,7 +75,10 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
         for (var l = 0u; l < lights_n; l++) {
             let inc = light_incoming(lights[l], p);
             if (all(inc.radiance <= vec3f(0.0))) { continue; }
-            let radiance = inc.radiance * light_visibility(l, p, vec3f(0.0)) * light_transmission(l, p);
+            // A sombra da fonte que o meio já leu neste ponto (o sol da atmosfera) não é refeita.
+            var visibility = medium.visibility;
+            if (l != medium.light) { visibility = light_visibility(l, p, vec3f(0.0)); }
+            let radiance = inc.radiance * visibility * light_transmission(l, p);
             incoming += radiance * froxel_phase(dot(inc.l, ray), g);
         }
         scattered += sigma_s * incoming + emission;

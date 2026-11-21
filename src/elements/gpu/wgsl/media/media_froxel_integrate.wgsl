@@ -45,13 +45,15 @@ fn froxel_integrate_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
             * select((1.0 - ao) / max(xo, vec3f(1e-30)), 1.0 - xo * (0.5 - xo / 6.0), xo < vec3f(1e-3));
         through_open *= ao;
         let x = sigma * dt;
-        let a = exp(-x);
+        // e^(−x) = e^(−σ_v·Δ)·e^(−σ_m·Δ): a dos volumes (a transmitância gravada) × a do meio, já calculada.
+        let tv = exp(-v.a * dt);
+        let a = tv * ao;
         // (1 − e^(−x))/x pela série com x pequeno: a atmosfera nas fatias de centímetros (x ~ 10⁻⁷) perde a precisão do
         // f32 em 1 − e^(−x).
         let s = v.rgb * dt * select((1.0 - a) / max(x, vec3f(1e-30)), 1.0 - x * (0.5 - x / 6.0), x < vec3f(1e-3));
         scattered += through * s;
         through *= a;
-        transmittance *= exp(-v.a * dt);
+        transmittance *= tv;
         textureStore(froxel_scatter_out, vec3u(cell, k), vec4f(scattered / FROXEL_RADIANCE_UNIT, transmittance));
         z0 = z1;
     }

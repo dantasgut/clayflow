@@ -202,20 +202,24 @@ const skyMedium = wgslModule({
     ],
     source: `fn scene_medium(p: vec3f, center: vec3f, view: vec3f) -> SceneMedium {
     let f = sky_medium_frame(center);
-    if (f.w == 0.0) { return SceneMedium(vec3f(0.0), vec3f(0.0)); }
+    if (f.w == 0.0) { return SceneMedium(vec3f(0.0), vec3f(0.0), NONE, 1.0); }
     let rx = length(f.xyz);
     let m = sky_medium(rx - sky_bottom());
     let mu_s = dot(f.xyz, sky.sunDirection.xyz) / rx;
     let c = dot(view, sky.sunDirection.xyz);
     let free = (m.rayleigh * sky_rayleigh_phase(c) + vec3f(m.mie * sky_mie_phase(c))) * sky_transmittance(rx, mu_s);
-    // A sombra do terreno e dos objetos primeiro; a das nuvens (a coluna no mapa visto do sol) só onde o sol chega.
+    // A sombra do terreno e dos objetos primeiro; a das nuvens (a coluna no mapa visto do sol) só onde o sol chega. A do
+    // terreno volta com o meio: a névoa dos volumes no mesmo ponto não a refaz para o sol.
     var single = vec3f(0.0);
+    var light = NONE;
+    var terrain = 1.0;
     if (any(free > vec3f(0.0))) {
-        let terrain = light_visibility(sky.sunSlot, p, vec3f(0.0));
+        terrain = light_visibility(sky.sunSlot, p, vec3f(0.0));
+        light = sky.sunSlot;
         if (terrain > 0.0) { single = free * terrain * light_volume_visibility(sky.sunSlot, p); }
     }
     let multi = m.scattering * sky_multiscatter(rx, mu_s);
-    return SceneMedium(m.extinction * 0.001, (single + multi) * sky.sunIlluminance.rgb * 0.001);
+    return SceneMedium(m.extinction * 0.001, (single + multi) * sky.sunIlluminance.rgb * 0.001, light, terrain);
 }`,
 });
 
@@ -229,14 +233,14 @@ const skyMediumOpen = wgslModule({
     requires: [sceneMediumType, skyMediumFrame, skyAtmosphere, skyLookup, skyParamsResource],
     source: `fn scene_medium_open(p: vec3f, view: vec3f) -> SceneMedium {
     let f = sky_medium_frame(p);
-    if (f.w == 0.0) { return SceneMedium(vec3f(0.0), vec3f(0.0)); }
+    if (f.w == 0.0) { return SceneMedium(vec3f(0.0), vec3f(0.0), NONE, 1.0); }
     let rx = length(f.xyz);
     let m = sky_medium(rx - sky_bottom());
     let mu_s = dot(f.xyz, sky.sunDirection.xyz) / rx;
     let c = dot(view, sky.sunDirection.xyz);
     let free = (m.rayleigh * sky_rayleigh_phase(c) + vec3f(m.mie * sky_mie_phase(c))) * sky_transmittance(rx, mu_s);
     let multi = m.scattering * sky_multiscatter(rx, mu_s);
-    return SceneMedium(m.extinction * 0.001, (free + multi) * sky.sunIlluminance.rgb * 0.001);
+    return SceneMedium(m.extinction * 0.001, (free + multi) * sky.sunIlluminance.rgb * 0.001, NONE, 1.0);
 }`,
 });
 

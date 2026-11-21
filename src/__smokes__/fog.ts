@@ -769,9 +769,10 @@ async function timingApp(
 /**
  * O custo da névoa a 1280×720 no cômodo da janela com a luz rebatida, em duas partes medidas com o tempo de parede por
  * quadro (a GPU como gargalo; o tempo de GPU do quadro desta máquina repete leituras velhas e oscila em patamares do
- * relógio): (a) os froxels — na mesma aplicação, o estágio despachado 41 vezes por quadro contra 21 (o `dispatch`
- * envolvido só no teste), (T₄₁ − T₂₁)/20; (b) o que é por pixel (a leitura no desenho, a névoa na luz das superfícies e
- * dos raios) — com e sem névoa em 4K, onde ele domina, (T_com − T_sem − froxels)/9 para 1280×720. A soma ≤ 1,05 ms.
+ * relógio): (a) os froxels (os volumes e, com o `Sky` da janela, a atmosfera como meio deles, spec 041 R21) — na
+ * mesma aplicação, o estágio despachado 41 vezes por quadro contra 21 (o `dispatch` envolvido só no teste), (T₄₁ − T₂₁)/20; (b) o que é por pixel (a leitura no desenho, a névoa na luz das superfícies e
+ * dos raios) — com e sem névoa em 4K, onde ele domina, (T_com − T_sem − froxels)/9 para 1280×720. A mediana de três
+ * rodadas de cada; a soma ≤ 1,05 ms.
  */
 async function timing(): Promise<void> {
     const t = await timingApp(1280, 720, true);
@@ -781,8 +782,11 @@ async function timing(): Promise<void> {
     proto.dispatch = function (this: unknown, ...args: unknown[]): void {
         for (let k = 0; k < repeat; k++) original.apply(this, args);
     };
+    // Três rodadas e a mediana (spec 041, T081): a interferência do relógio da GPU só soma tempo, e com o máximo de duas
+    // uma rodada lenta reprovava sozinha (0,99 contra 0,79 ms na mesma página).
+    const middle = (v: readonly number[]): number => [...v].sort((a, b) => a - b)[v.length >> 1]!;
     const froxelCosts: number[] = [];
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < 3; round++) {
         repeat = 21;
         const low = await t.perFrame(60);
         repeat = 41;
@@ -795,10 +799,10 @@ async function timing(): Promise<void> {
     proto.dispatch = original;
     t.app.dispose();
     t.canvas.remove();
-    const froxels = Math.max(...froxelCosts);
-    // Por pixel: com e sem névoa em 4K, alternando duas vezes.
+    const froxels = middle(froxelCosts);
+    // Por pixel: com e sem névoa em 4K, alternando três vezes.
     const pixelCosts: number[] = [];
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < 3; round++) {
         const times: number[] = [];
         for (const withFog of [true, false]) {
             const a = await timingApp(3840, 2160, withFog);
@@ -812,7 +816,7 @@ async function timing(): Promise<void> {
             `timing: 4K — tempo por quadro com névoa ${times[0]!.toFixed(2)} ms, sem ${times[1]!.toFixed(2)} ms → por pixel a 1280×720 ${perPixel.toFixed(2)} ms`,
         );
     }
-    const perPixel = Math.max(...pixelCosts);
+    const perPixel = middle(pixelCosts);
     const cost = froxels + perPixel;
     log(
         `timing: a névoa a 1280×720 custa ${cost.toFixed(2)} ms (froxels ${froxels.toFixed(2)} + por pixel ${perPixel.toFixed(2)})`,
