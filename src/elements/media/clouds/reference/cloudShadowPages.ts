@@ -26,7 +26,6 @@ import {
     CLOUD_SHADOW_SLOTS_X,
     CLOUD_SHADOW_STRIDE,
     CLOUD_SHADOW_TOLERANCE,
-    CLOUD_SHADOW_HIDDEN_TOLERANCE,
 } from '../schemas';
 
 export {
@@ -532,23 +531,6 @@ export function shadowPageError(
     now: ShadowPageNow,
     corners: readonly (readonly [number, number])[],
 ): number {
-    const e = shadowPageErrorParts(rec, now, corners);
-    return e.lateral + e.other;
-}
-
-/** As partes da mudança prevista: a do deslocamento lateral (ΔT), a dos nós e da evolução (ΔT) e o deslocamento (m). */
-export interface ShadowPageErrorParts {
-    readonly lateral: number;
-    readonly other: number;
-    readonly displacement: number;
-}
-
-/** A mudança prevista em partes (espelho de `cloud_shadow_error`; `shadowPageError` é a soma). */
-export function shadowPageErrorParts(
-    rec: ShadowPageRecord,
-    now: ShadowPageNow,
-    corners: readonly (readonly [number, number])[],
-): ShadowPageErrorParts {
     const dt = Math.max(now.time - rec.time, 0);
     let frame = 0;
     for (const c of corners) frame = Math.max(frame, basisShift(rec.sun, now.sun, c));
@@ -561,11 +543,7 @@ export function shadowPageErrorParts(
     const knots =
         rec.centerLength > 0 ? rec.length * Math.abs(now.centerLength / rec.centerLength - 1) : 0;
     const evolution = now.evolution > 0 ? (dt / now.evolution) * Math.exp(-1) : 0;
-    return {
-        lateral: CLOUD_SHADOW_GRADIENT_SAFETY * rec.gradient * lateral,
-        other: rec.along * knots + evolution,
-        displacement: lateral,
-    };
+    return CLOUD_SHADOW_GRADIENT_SAFETY * rec.gradient * lateral + rec.along * knots + evolution;
 }
 
 /** A pegada (m) de um pixel da tela a `distance` m da câmera (`P11` o termo [1][1] da projeção, `height` a altura em px). */
@@ -574,33 +552,20 @@ export function shadowPixelFootprint(distance: number, p11: number, height: numb
 }
 
 /**
- * O deslocamento na tela (px) abaixo do qual o desenho deslocado da página não é visto (T074): a amostra temporal da
- * imagem reconstrói o movimento abaixo do pixel, e a meia largura do pixel é a resolução da posição na tela.
- */
-export const CLOUD_SHADOW_PIXEL_TOLERANCE = 0.5;
-
-/**
  * A mudança da página na unidade da tolerância de base (`CLOUD_SHADOW_TOLERANCE`; T074; espelho de
- * `cloud_shadow_screen_error`), projetada na tela. Na vista da câmera (`footprint` a pegada do pixel na coluna mais perto
- * dela): a parte lateral — o desenho que a página mostra deslocado pelo sol que anda e pelo vento que sobra — conta pela
- * fração do deslocamento na tela (`min(1, px / CLOUD_SHADOW_PIXEL_TOLERANCE)`), e a medida pelas provas também quando a
- * prevista é lateral; os nós e a evolução contam inteiros; e o pixel maior que o texel faz a média dos texels
- * (`× min(1, texel/pegada)`). Fora da vista, a maior mudança na tolerância de quem a lê (`CLOUD_SHADOW_HIDDEN_TOLERANCE`).
+ * `cloud_shadow_screen_error`), projetada na tela: na vista da câmera (`footprint` a pegada do pixel na coluna mais perto
+ * dela), o pixel maior que o texel faz a média dos texels (`× min(1, texel/pegada)`). Sem desconto para o deslocamento
+ * abaixo do pixel (a página velha salta no redesenho) nem tolerância maior fora da vista (as páginas fora do quadro
+ * alimentam os caminhos do cache de espalhamento, e o salto delas chega à luz vista: o degrau do `dusk-blocks`).
  */
 export function shadowScreenError(
-    parts: ShadowPageErrorParts,
-    measured: number,
+    error: number,
     visible: boolean,
     texel: number,
     footprint: number,
 ): number {
-    const total = Math.min(Math.max(parts.lateral + parts.other, measured), 1);
-    if (!visible) return (total * CLOUD_SHADOW_TOLERANCE) / CLOUD_SHADOW_HIDDEN_TOLERANCE;
-    if (footprint <= 0) return total;
-    const w = Math.min(1, parts.displacement / footprint / CLOUD_SHADOW_PIXEL_TOLERANCE);
-    const probe = parts.lateral >= parts.other ? measured * w : measured;
-    const e = Math.min(Math.max(parts.lateral * w + parts.other, probe), 1);
-    return footprint > texel ? (e * texel) / footprint : e;
+    if (!visible) return error;
+    return footprint > texel ? (error * texel) / footprint : error;
 }
 
 /** Os cantos (m, no plano) da página global `g` do nível `k`, com a coluna da vizinha (`aspect`: a razão à direita). */

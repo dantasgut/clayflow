@@ -429,11 +429,6 @@ fn cloud_shadow_main(
 
 /** Tolerância da página: a mudança prevista da transmitância até o sol num texel (um nível de 8 bits da luz plena). */
 const CLOUD_SHADOW_TOLERANCE: f32 = 0.003921569;
-/**
- * Tolerância da página fora da vista da câmera (`CLOUD_SHADOW_HIDDEN_TOLERANCE`): a de quem a lê — o panorama (a mais
- * estrita), os caminhos do cache de espalhamento, o ambiente.
- */
-const CLOUD_SHADOW_HIDDEN_TOLERANCE: f32 = 0.02;
 /** Fator de segurança do gradiente medido entre texels vizinhos. */
 const CLOUD_SHADOW_GRADIENT_SAFETY: f32 = 2.0;
 /** Quadros sem desenho em que a página ainda vale, no máximo. */
@@ -444,23 +439,15 @@ const CLOUD_SHADOW_MAX_AGE: u32 = 240u;
  */
 const CLOUD_SHADOW_KEY_MANDATORY: u32 = 47u;
 
-/** As partes da mudança prevista: a do deslocamento lateral (ΔT), a dos nós e da evolução (ΔT) e o deslocamento (m). */
-struct CloudShadowError {
-    lateral: f32,
-    other: f32,
-    displacement: f32,
-}
-
 /**
  * A mudança prevista da transmitância de um texel da página física `slot` desde o desenho (espelho de
  * `shadowPageError`): o deslocamento lateral das linhas do mapa — o plano girando nos cantos da página e a coluna
  * inclinando até a ponta do trecho mais longe do plano, mais o vento que sobra (o local das nuvens no centro da página,
  * `cloud_wind_at`, menos o da camada) — × o gradiente medido com o fator de segurança; o deslocamento dos nós (o trecho
  * mudando de comprimento) × o gradiente ao longo da coluna; e a evolução da forma (`clouds.sunMap.z`: o tempo em que ela
- * muda a transmitância de 1/e). Em partes (`shadowPageErrorParts`): a lateral, a dos nós e da evolução, e o
- * deslocamento.
+ * muda a transmitância de 1/e).
  */
-fn cloud_shadow_error(slot: u32, k: u32, g: vec2i, m: u32) -> CloudShadowError {
+fn cloud_shadow_error(slot: u32, k: u32, g: vec2i, m: u32) -> f32 {
     let rec = &cloud_shadow_pages_meta[slot];
     let sun_r = vec3f(
         bitcast<f32>(atomicLoad(&(*rec).sun_x)),
@@ -493,7 +480,7 @@ fn cloud_shadow_error(slot: u32, k: u32, g: vec2i, m: u32) -> CloudShadowError {
     if (center_len > 0.0) { knots = len * abs(cloud_shadow_segment_length(center) / center_len - 1.0); }
     var evolution = 0.0;
     if (clouds.sunMap.z > 0.0) { evolution = dt / clouds.sunMap.z * exp(-1.0); }
-    return CloudShadowError(CLOUD_SHADOW_GRADIENT_SAFETY * gradient * lateral, along * knots + evolution, lateral);
+    return CLOUD_SHADOW_GRADIENT_SAFETY * gradient * lateral + along * knots + evolution;
 }
 
 /** A coluna da página (o retângulo no plano e o trecho até a distância das pontas) toca o frustum da câmera? */
@@ -515,30 +502,17 @@ fn cloud_shadow_visible(k: u32, g: vec2i, lever: f32, m: u32) -> bool {
     return !(any(below == vec3u(8u)) || any(above == vec3u(8u)));
 }
 
-/** O deslocamento na tela (px) abaixo do qual o desenho deslocado da página não é visto (`CLOUD_SHADOW_PIXEL_TOLERANCE`). */
-const CLOUD_SHADOW_PIXEL_TOLERANCE: f32 = 0.5;
-
 /**
- * A mudança da página na unidade da tolerância de base (espelho de `shadowScreenError`; T074), projetada na tela. Na vista
+ * A mudança da página na unidade da tolerância de base (espelho de `shadowScreenError`; T074), projetada na tela: na vista
  * (a pegada do pixel na coluna do centro da página mais perto da câmera, pela projeção e a altura da tela,
- * `clouds.timing.w`): a parte lateral — o desenho deslocado pelo sol que anda e pelo vento que sobra — pela fração do
- * deslocamento na tela abaixo de `CLOUD_SHADOW_PIXEL_TOLERANCE` (a amostra temporal reconstrói o movimento abaixo do
- * pixel), a medida pelas provas também quando a prevista é lateral, os nós e a evolução inteiros, e o pixel maior que o
- * texel pela média dos texels. Fora da vista, a maior mudança na tolerância de quem a lê.
+ * `clouds.timing.w`), o pixel maior que o texel faz a média dos texels — × texel/pegada. Sem desconto para o deslocamento
+ * abaixo do pixel (a página velha não se move abaixo do pixel: salta no redesenho, e o salto da luz é o que o gradiente
+ * temporal da reconstrução vê) nem tolerância maior fora da vista (as páginas fora do quadro alimentam os caminhos do cache
+ * de espalhamento, e o salto delas chega à luz vista: com 2 % ali, o degrau dos blocos do `dusk-blocks` ia a 1,041).
  */
-fn cloud_shadow_screen_error(
-    parts: CloudShadowError,
-    measured: f32,
-    k: u32,
-    g: vec2i,
-    m: u32,
-    lever: f32,
-    visible: bool,
-) -> f32 {
-    let total = min(max(parts.lateral + parts.other, measured), 1.0);
-    if (!visible) { return total * CLOUD_SHADOW_TOLERANCE / CLOUD_SHADOW_HIDDEN_TOLERANCE; }
+fn cloud_shadow_screen_error(e: f32, k: u32, g: vec2i, m: u32, lever: f32, visible: bool) -> f32 {
     let h = clouds.timing.w;
-    if (h <= 0.0) { return total; }
+    if (!visible || h <= 0.0) { return e; }
     let cam = cameras[clouds.march.w];
     let t = cloud_shadow_step_texel(k, m);
     let center = (vec2f(g) + 0.5) * f32(CLOUD_SHADOW_PAGE) * t;
@@ -547,9 +521,6 @@ fn cloud_shadow_screen_error(
     let reach = max(lever, clouds.shell.w);
     let q = o + sun * clamp(dot(clouds.eye.xyz - o, sun), -reach, reach);
     let footprint = max(length(clouds.eye.xyz - q), 1.0) * 2.0 / (cam.projection[1][1] * h);
-    let w = min(1.0, parts.displacement / footprint / CLOUD_SHADOW_PIXEL_TOLERANCE);
-    let probe = select(measured, measured * w, parts.lateral >= parts.other);
-    let e = min(max(parts.lateral * w + parts.other, probe), 1.0);
     let texel = min(t.x, t.y);
     return select(e, e * texel / footprint, footprint > texel);
 }
@@ -577,7 +548,8 @@ fn cloud_shadow_key(slot: u32, m: u32, maps: CloudShadowMaps) -> u32 {
     let measured = bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].measured));
     let lever = bitcast<f32>(atomicLoad(&cloud_shadow_pages_meta[slot].lever));
     let vis = cloud_shadow_visible(k, g, lever, m);
-    let e = cloud_shadow_screen_error(cloud_shadow_error(slot, k, g, m), measured, k, g, m, lever, vis);
+    let raw = min(max(cloud_shadow_error(slot, k, g, m), measured), 1.0);
+    let e = cloud_shadow_screen_error(raw, k, g, m, lever, vis);
     if (e <= CLOUD_SHADOW_TOLERANCE) { return select(0u, 1u, age >= CLOUD_SHADOW_MAX_AGE); }
     let p = e / CLOUD_SHADOW_TOLERANCE * f32(max(age, 1u)) * exp2(f32(CLOUD_SHADOW_LEVELS - 1u - k) * 0.5)
         * select(1.0, 4.0, vis);

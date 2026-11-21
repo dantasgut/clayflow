@@ -51,11 +51,9 @@ import {
     shadowWindow,
     type ShadowFrame,
     type ShadowMaps,
-    CLOUD_SHADOW_PIXEL_TOLERANCE,
     shadowPixelFootprint,
     shadowScreenError,
 } from '../cloudShadowPages';
-import { CLOUD_SHADOW_HIDDEN_TOLERANCE } from '../../schemas';
 
 const rad = Math.PI / 180;
 const sunOf = (elevation: number, azimuth: number): Vec3 => [
@@ -757,28 +755,20 @@ describe('mapa visto do sol por páginas: o orçamento por custo (T074)', () => 
 });
 
 describe('mapa visto do sol: a mudança projetada na tela (T074)', () => {
-    it('o deslocamento abaixo de meio pixel conta pela fração dele; a evolução inteira; fora da vista, quem lê', () => {
+    it('na vista, o pixel maior que o texel reduz o erro a texel/pegada; fora da vista, o erro inteiro', () => {
         // Arrange: 1280 × 720 com 60° na vertical (P11 = 1/tan 30°); o texel de 50 m.
         const p11 = 1 / Math.tan(Math.PI / 6);
         const near = shadowPixelFootprint(2000, p11, 720);
         const far = shadowPixelFootprint(200_000, p11, 720);
-        // O sol andou: 2 m de deslocamento (0,04 de ΔT); a evolução 0,001.
-        const lateral = { lateral: 0.04, other: 0.001, displacement: 2 };
-        const evolve = { lateral: 0, other: 0.02, displacement: 0 };
         // Act
-        const eNear = shadowScreenError(lateral, 0.03, true, 50, near);
-        const eSub = shadowScreenError({ ...lateral, displacement: 0.4 }, 0.03, true, 50, near);
-        const eEvolve = shadowScreenError(evolve, 0.02, true, 50, near);
-        const eFar = shadowScreenError(evolve, 0.02, true, 50, far);
-        const eHidden = shadowScreenError(lateral, 0.03, false, 50, near);
-        // Assert: a 2 km o pixel tem ~3,2 m: 2 m são 0,62 px (inteiro); 0,4 m, 0,12 px (a fração 0,25 dele).
+        const eNear = shadowScreenError(0.04, true, 50, near);
+        const eFar = shadowScreenError(0.04, true, 50, far);
+        const eHidden = shadowScreenError(0.04, false, 50, near);
+        // Assert: a 2 km o pixel tem ~3,2 m (o erro inteiro, também o deslocamento abaixo do pixel); a 200 km, ~321 m.
         expect(near).toBeCloseTo((2000 * 2 * Math.tan(Math.PI / 6)) / 720, 9);
-        expect(eNear).toBeCloseTo(0.041, 12);
-        const w = 0.4 / near / CLOUD_SHADOW_PIXEL_TOLERANCE;
-        expect(eSub).toBeCloseTo(Math.max(0.04 * w + 0.001, 0.03 * w), 12);
-        expect(eEvolve).toBe(0.02);
-        expect(eFar).toBeCloseTo((0.02 * 50) / far, 12);
-        expect(eHidden).toBeCloseTo((0.041 * CLOUD_SHADOW_TOLERANCE) / CLOUD_SHADOW_HIDDEN_TOLERANCE, 12);
+        expect(eNear).toBe(0.04);
+        expect(eFar).toBeCloseTo((0.04 * 50) / far, 12);
+        expect(eHidden).toBe(0.04);
         expect(shadowPixelFootprint(2000, p11, 0)).toBe(0);
     });
 });
