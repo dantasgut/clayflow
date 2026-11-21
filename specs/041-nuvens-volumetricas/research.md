@@ -1392,6 +1392,37 @@ redesenho em quatro fases entrelaçadas (um quarto dos texels por quadro, os qua
 48 % mudam menos que isso; a previsão por texel (o maior |ΔT| aos vizinhos × o deslocamento das colunas) pula 32 % delas e
 erra 2,5 % acima de 4/255 — a peça seguinte, com a idade por texel no registro.
 
+### R7/R11 (T074, 2026-11-21 f) — os níveis de detalhe na luz (medidos e não usados), o volume de τ até o sol perto da câmera
+
+**Os níveis de detalhe do volume da forma na luz (f64, `cloudSunVolume.test.ts`, os volumes da forma padrão).** A pirâmide
+(a média 2 × 2 × 2 do volume periódico, `buildVolumeLevels`; a leitura trilinear entre níveis, `sampleVolumeLevel`) lida
+pela largura da amostra (`volumeLod`) piora o τ do cone: a média num cubo de lado `len` tira a variação lateral, e a luz
+pede a integral na linha. Na camada padrão (400 pontos com nuvem, sol a 4°/30°/70°): o cone de 6 amostras 4,3/3,5/3,2 %;
+com o nível pela largura inteira 8,4/6,6/6,4 %; pela metade da largura 4,0/3,1 % (o único ganho, no mesmo número de
+amostras); 4 amostras do mesmo comprimento 9,9–10,2 %, com o nível pela metade 7,9–8,0 %; o detalhe cedendo pela largura
+(o `cloud_footprint` da vista nas amostras da luz) piora sempre (11–15 %). O pedaço até o meio nó (até 1125 m): 2 amostras
+|Δτ| 0,19, com o nível 0,15; 1 amostra 0,43, com o nível 0,28. Os níveis não deixam a luz com menos amostras no mesmo
+erro — a peça que corta amostras é a de baixo; a referência guarda a pirâmide e o teste, a GPU não a monta.
+
+**O volume de τ até o sol.** Nós no referencial das nuvens, em 5 níveis (o nível `k` com células de `50·2^k` m no plano; a
+casca em 64 células na altura, 39 m na padrão, em todos), páginas de 8³ células (9³ nós: o da vizinha em cada eixo, a
+leitura filtra dentro da página) numa janela toroidal de 20 × 8 × 20 páginas por nível (±4·2^k km, até ±64 km), no atlas
+`rgba16float` (os níveis em z; 93 MB). Cada nó guarda (r) o τ do cone além da primeira amostra (12 amostras no meio de
+partes iguais) e (g) o resto da luz do fim dele (`cloud_sun_rest`: o pedaço até o meio nó e o nó do mapa visto do sol). A
+marcha faz a primeira amostra do cone no ponto (a borda escura, que os nós alisariam) e lê o resto do cone no volume; o
+resto da luz também, onde vale. Medido em f64 (texel 50 m, 39 m na altura): o τ do cone 2,4–3,1 % contra 3,7–3,9 % das 6
+amostras; a 100 m, 5,3–6,2 %; a 200 m, 11 %. As páginas pelo registro da série 037 (a página global, a assinatura, o sol e
+o tempo do desenho, as taxas medidas e 32 nós de prova das duas partes) e o carimbo do atlas: valem desenhadas para a
+janela de agora, na época atual, com a mudança estimada (a taxa medida × o deslocamento desde o desenho — no cone,
+`L·Δθ_sol` mais a deriva do detalhe; no resto, `10 km·Δθ_sol` mais a deriva) abaixo de `0,06·2^k`; a fila pela mudança
+acima de `0,02·2^k` (o resto só quando o redesenho dele dura 2 s no ritmo medido); o orçamento de 128 páginas por quadro.
+A taxa de partida do cone, a medida na f64: 0,0029/m (0,025/° com o trecho de 490 m, e o mesmo por metro de deriva).
+**Onde a marcha gasta a luz** (o volume ligado por partes, `high-sun`): até 8 km 0,04 ms, de 8 a 32 km 0,11, de 32 a 128
+km 0,15 — por isso os níveis. **O resto em células grossas borra a sombra de uma nuvem na outra** com o sol baixo: com ele
+em todos os níveis o `sunset` foi a 6,5 % (o cone só, 4,0 %; o resto até 2 pixels da marcha, 4,3 %): o resto vale só com
+a célula até a pegada do pixel da marcha; o cone em todos. No anel de fora de cada janela o nível seguinte entra pela
+distância à borda (no último, o cone), sem degrau de luz.
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por

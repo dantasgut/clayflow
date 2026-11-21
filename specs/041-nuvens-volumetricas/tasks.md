@@ -473,6 +473,30 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       colunas refeitas mudam menos de 1/255) pede o redesenho por coluna com a previsão por texel (o gradiente dos vizinhos
       × o deslocamento: 32 % das colunas puladas, 2,5 % delas erradas acima de 4/255, medido) com a idade por texel. Os
       caminhos do cache continuados entre quadros (o estado do caminho na série) não foram feitos.
+      **Rodada 2026-11-21 f — os níveis de detalhe na luz (medidos, não usados) e o volume de τ até o sol** (R7/R11 da
+      T074, rodada f, no research.md). (1) **Os níveis de detalhe do volume da forma**: a pirâmide e a leitura por nível
+      na referência f64 (`buildVolumeLevels`, `sampleVolumeLevel`, `volumeLod`; teste em `cloudSunVolume.test.ts`). Lidos
+      pela largura das amostras da luz, pioram o τ (a média num cubo, e a luz pede a integral na linha): o cone de 6
+      amostras 4,3 → 8,4 % (pela metade da largura 4,0 %); 4 amostras 9,9 %, com os níveis 7,9 %; o pedaço até o meio nó
+      em 1 amostra |Δτ| 0,28 contra 0,19 das 2 — os níveis não cortam amostras no mesmo erro, e a GPU não os monta. (2) **O
+      volume de τ até o sol** (`cloud_sun_volume*.wgsl`, `cloud_sun_rest.wgsl`, referência `cloudSunVolume.ts`): nós no
+      referencial das nuvens em 5 níveis (células de 50·2^k m, 39 m na altura; janelas toroidais de 20 × 8 × 20 páginas de
+      8³, até ±64 km; atlas `rgba16float`, série por páginas, e o registro das páginas na série 037), cada nó com o τ do cone
+      além da primeira amostra e o resto da luz (o pedaço até o meio nó e o nó do mapa visto do sol); a marcha faz a
+      primeira amostra no ponto e lê o resto; as páginas refeitas pela mudança estimada com a taxa medida entre desenhos
+      (32 nós de prova), as filas, a escolha (128 por quadro) e o desenho em três passes (0,04 + 0,04 + 0,01–0,06 ms). Em
+      f64 o τ do cone pelo volume erra 2,4–3,1 % contra 3,7 % do cone. O resto vale só com a célula até a pegada do pixel
+      da marcha (em todos os níveis, o `sunset` ia a 6,5 %); no anel de fora de cada janela o nível seguinte entra (no
+      último, o cone). Medidas (M4, 1280 × 720): `timing` alto 2,54 → **2,33 ms** ✓ (a marcha 1,59 → 1,31); `high-wind`
+      3,41 → **3,18–3,25** ✗ (a marcha 1,58 → 1,26–1,32); `high-sun` 4,91 → **4,84** ✗ (a marcha 1,64 → 1,43; o resto não
+      vale com o sol andando, o cone sim: 16 000 páginas valendo, 3–7 desenhadas por quadro; o mapa 1,56, os caminhos
+      0,57, froxels 0,56). Casos de imagem: `sunset` 4,0 %, `dusk-blocks` degrau 1,029, matiz 0,037, `backlit` 3,9 %
+      (borda/centro 1,017), `noon` 1,1 %, `types`, `storm` 2,4 %, `far-cloud` 2,7 %, `beam-gap` +3,0 px, `scatter-cache`
+      0,965, `panorama` 0,008, `sun-sweep` 0,005, `shadow-map` 0,020, `ground-shadow` 0,010, `wind` e `fly-through`
+      passam; vitest de media/clouds passa. Médio, baixo, `inside-timing` e `interior-timing` não medidos nesta rodada.
+      **Em aberto na T074: `high-sun` e `high-wind`** — o mapa visto do sol por coluna com a previsão por texel (1,56 ms
+      com o sol andando) e os caminhos do cache continuados entre quadros (0,57 ms); a margem do `sunset` (4,0 %, na meta)
+      e do degrau do `dusk-blocks` (1,029) não mudou.
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
