@@ -9,6 +9,8 @@ import {
     COVERAGE_BAND,
     COVERAGE_REACH,
     coverageLevel,
+    coveragePageKey,
+    COVERAGE_KEY_MANDATORY,
     coverageReach,
     coverageRingTexel,
     coverageSample,
@@ -208,5 +210,25 @@ describe('mapa de cobertura em níveis (T077)', () => {
         expect(coverageLevel(m, w)).toBe(5);
         expect(coverageSample(m, w, texelOf(m, smooth), () => [0.123])[0]).toBe(0.123);
         expect(CLOUD_COVERAGE_PAGE * CLOUD_COVERAGE_PAGES).toBe(512);
+    });
+});
+
+describe('mapa de cobertura em níveis: a fila das páginas (T074)', () => {
+    it('com o tempo parado nenhuma página é refeita; com ele andando, pela idade, o nível fino antes', () => {
+        // Arrange / Act
+        const still = coveragePageKey(true, true, 0, 0, 10);
+        const fixed = coveragePageKey(true, false, 5, 0, 10);
+        const stale = coveragePageKey(false, true, 0, 3, 10);
+        const young = coveragePageKey(true, true, 1 / 60, 9, 10);
+        const old = coveragePageKey(true, true, 64 / 60, 9, 10);
+        const fine = coveragePageKey(true, true, 64 / 60, 0, 10);
+        // Assert
+        expect(still).toBe(0);
+        expect(fixed).toBe(0);
+        expect(stale).toBe(COVERAGE_KEY_MANDATORY);
+        expect(young).toBe(1);
+        expect(old).toBe(7);
+        expect(fine).toBeGreaterThan(old);
+        expect(fine).toBeLessThan(COVERAGE_KEY_MANDATORY);
     });
 });

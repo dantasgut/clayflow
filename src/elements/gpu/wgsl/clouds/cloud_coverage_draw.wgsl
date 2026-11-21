@@ -8,9 +8,11 @@
 // a mesma página global e a mesma assinatura do conteúdo (os valores da camada e das funções) e, no anel de fora da
 // janela (o valor levado ao do nível seguinte), a mesma janela. As que não valem (a que
 // entra na janela, o conteúdo que mudou, a série que recomeçou) são desenhadas no mesmo quadro, acima do orçamento; com o
-// conteúdo que muda no tempo (`clouds.coveragePages.z`: a função de cobertura ou o tempo), as demais são refeitas pela
-// idade, até o orçamento — a fila em oitavas de (quadros desde o desenho × √2 por nível mais fino); dentro do corte, pela
-// ordem da página física (somas de prefixos no grupo: independe dos atômicos). Sem isso, a página desenhada não muda.
+// conteúdo que muda no tempo (`clouds.coveragePages.z`: a função de cobertura ou o tempo), as demais são refeitas pelo
+// tempo simulado desde o desenho (T074: o conteúdo só muda com ele — com o tempo parado, nada a refazer), até o orçamento
+// — a fila em oitavas de (o tempo desde o desenho em quadros de `CLOUD_COVERAGE_RATE` Hz × √2 por nível mais fino);
+// dentro do corte, pela ordem da página física (somas de prefixos no grupo: independe dos atômicos). Sem isso, a página
+// desenhada não muda.
 // Teto constante: a escolha percorre `CLOUD_COVERAGE_SELECT_CHUNK` páginas por invocação; o desenho, no máximo todas as
 // páginas físicas (`CLOUD_COVERAGE_MAX_SLOTS`), 1 texel por invocação (`CLOUD_COVERAGE_PAGE_GROUP` = 16²).
 // Requer: CLOUD_COVERAGE_PAGE_GROUP, clouds, cloud_coverage_pages, page_alloc, cloud_coverage_value, cloud_coverage_out,
@@ -20,8 +22,13 @@
 const CLOUD_COVERAGE_MAX_SLOTS: u32 = 8192u;
 /** Páginas físicas por invocação na escolha do quadro. */
 const CLOUD_COVERAGE_SELECT_CHUNK: u32 = 32u;
-/** Palavras do registro de uma página física: a página global x e y, o quadro do desenho, a assinatura, a janela x e y. */
+/**
+ * Palavras do registro de uma página física: a página global x e y, o quadro do desenho, a assinatura, a janela x e y, o
+ * tempo simulado do desenho.
+ */
 const CLOUD_COVERAGE_RECORD: u32 = 8u;
+/** A taxa (Hz) que converte o tempo simulado desde o desenho em quadros na fila (a de 60 Hz: com o tempo real, a idade). */
+const CLOUD_COVERAGE_RATE: f32 = 60.0;
 /** A fila da página que precisa ser desenhada no quadro. */
 const CLOUD_COVERAGE_KEY_MANDATORY: u32 = 15u;
 
@@ -61,6 +68,7 @@ fn cloud_coverage_draw(slot: u32, lid: u32) {
     let win = cloud_coverage_window(k);
     cloud_coverage_records[o + 4u] = bitcast<u32>(win.x);
     cloud_coverage_records[o + 5u] = bitcast<u32>(win.y);
+    cloud_coverage_records[o + 6u] = bitcast<u32>(clouds.coverageMap.w);
     // O carimbo da série do atlas: a página escrita na época atual.
     cloud_coverage_stamps[slot] = cloud_coverage_clock.x;
 }
@@ -108,16 +116,18 @@ fn cloud_coverage_current(slot: u32) -> bool {
 }
 
 /**
- * A fila da página física `slot` (0: vale; 1…14: refeita pela idade, em oitavas de quadros desde o desenho × √2 por nível
- * mais fino; 15: tem de ser desenhada no quadro).
+ * A fila da página física `slot` (0: vale; 1…14: refeita pelo tempo simulado desde o desenho, em oitavas dele em quadros
+ * de `CLOUD_COVERAGE_RATE` Hz × √2 por nível mais fino; 15: tem de ser desenhada no quadro). Espelho de
+ * `coveragePageKey`.
  */
 fn cloud_coverage_key(slot: u32) -> u32 {
     if (!cloud_coverage_current(slot)) { return CLOUD_COVERAGE_KEY_MANDATORY; }
     if (clouds.coveragePages.z == 0u) { return 0u; }
-    let age = clouds.march.z - cloud_coverage_records[slot * CLOUD_COVERAGE_RECORD + 2u];
-    if (age == 0u) { return 0u; }
+    let drawn = bitcast<f32>(cloud_coverage_records[slot * CLOUD_COVERAGE_RECORD + 6u]);
+    let age = abs(clouds.coverageMap.w - drawn) * CLOUD_COVERAGE_RATE;
+    if (age <= 0.0) { return 0u; }
     let k = cloud_coverage_slot_level(slot);
-    let p = f32(age) * exp2(f32(cloud_coverage_levels() - 1u - k) * 0.5);
+    let p = max(age, 1.0) * exp2(f32(cloud_coverage_levels() - 1u - k) * 0.5);
     return clamp(1u + u32(floor(log2(p))), 1u, CLOUD_COVERAGE_KEY_MANDATORY - 1u);
 }
 

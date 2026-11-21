@@ -259,3 +259,28 @@ export function volumeBilinearRepeat(
             + (at(i, j + 1, n) * (1 - ax) + at(i + 1, j + 1, n) * ax) * ay,
     );
 }
+
+/** A fila da página que tem de ser desenhada no quadro (espelho de `CLOUD_COVERAGE_KEY_MANDATORY`). */
+export const COVERAGE_KEY_MANDATORY = 15;
+/** A taxa (Hz) que converte o tempo simulado desde o desenho em quadros na fila (`CLOUD_COVERAGE_RATE`). */
+export const COVERAGE_RATE = 60;
+
+/**
+ * A fila de uma página física na escolha do quadro (espelho de `cloud_coverage_key`, T074): a que não vale, obrigatória;
+ * com o conteúdo fixo, 0; com o que muda no tempo, pelo tempo simulado desde o desenho (`elapsed`, s) em quadros de
+ * `COVERAGE_RATE` Hz × √2 por nível mais fino, em oitavas — com o tempo parado o conteúdo não muda e nada é refeito.
+ */
+export function coveragePageKey(
+    current: boolean,
+    varying: boolean,
+    elapsed: number,
+    level: number,
+    levels: number,
+): number {
+    if (!current) return COVERAGE_KEY_MANDATORY;
+    if (!varying) return 0;
+    const age = Math.abs(elapsed) * COVERAGE_RATE;
+    if (age <= 0) return 0;
+    const p = Math.max(age, 1) * 2 ** ((levels - 1 - level) * 0.5);
+    return Math.min(Math.max(1 + Math.floor(Math.log2(p)), 1), COVERAGE_KEY_MANDATORY - 1);
+}
