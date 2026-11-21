@@ -148,8 +148,8 @@ const CLOUD_RAY_BINS: u32 = 32u;
  * tropopausa, quase todo o raio passa acima das nuvens: o piso do passo pela parte ocupada (não pelo raio inteiro) e o
  * pulo dos trechos vazios. Sem o tempo, o topo é o da casca e o raio inteiro fica ocupado onde há cobertura.
  * Devolve as duas máscaras: `x` pelo topo das colunas (o piso do passo, como antes) e `y` pela faixa de altura em que a
- * coluna pode ter nuvem (`cloud_column_band`: sem o tempo, o perfil acima de `1 − cobertura`; T074) — o pulo do vazio,
- * sem mudar o passo.
+ * coluna pode ter nuvem no trecho (`cloud_column_band_span`: sem o tempo, o perfil acima de `1 − cobertura` com a cobertura
+ * e o tipo que o campo alcança entre as pontas; T074) — o pulo do vazio, sem mudar o passo.
  */
 fn cloud_ray_occupancy(o: vec3f, d: vec3f, t0: f32, t1: f32) -> vec2u {
     let bin = (t1 - t0) / f32(CLOUD_RAY_BINS);
@@ -166,9 +166,8 @@ fn cloud_ray_occupancy(o: vec3f, d: vec3f, t0: f32, t1: f32) -> vec2u {
         let hi = max(h0, h1);
         if (hi > 0.0 && lo < 1.0 && lo < max(cloud_column_top(cov0), cloud_column_top(cov1))) {
             mask |= 1u << k;
-            let b0 = cloud_column_band(cov0);
-            let b1 = cloud_column_band(cov1);
-            if (hi > min(b0.x, b1.x) && lo < max(b0.y, b1.y)) { band_mask |= 1u << k; }
+            let band = cloud_column_band_span(cov0, cov1, bin);
+            if (hi > band.x && lo < band.y) { band_mask |= 1u << k; }
         }
         h0 = h1;
         cov0 = cov1;

@@ -441,6 +441,37 @@ export function columnBand(c: number, t: number, top = 1, slack = CLOUD_BAND_SLA
 }
 
 /**
+ * O maior gradiente (1/m) dos campos da cobertura e do tipo (T074): o medido na f64 (`cloudModel.test.ts`, 400 000 pontos
+ * em ±200 km: 3,5·10⁻⁴ e 1,7·10⁻³) × 1,5 — a folga da medida por amostras e da leitura bilinear do mapa em níveis, que
+ * pode passar do gradiente do campo em até √2 na diagonal do texel.
+ */
+export const CLOUD_COVERAGE_GRADIENT = 5.3e-4;
+export const CLOUD_TYPE_GRADIENT = 2.6e-3;
+
+/**
+ * A faixa de altura (frações da casca) em que pode haver nuvem num trecho de `len` m do raio entre as colunas `a` e `b`
+ * (a cobertura e o tipo nas pontas; espelho de `cloud_column_band_span`, T074): o campo de gradiente até `G` passa no
+ * trecho, no máximo, de `(f0 + f1 + G·len)/2` e, no mínimo, de `(f0 + f1 − G·len)/2` — a faixa da cobertura mais alta do
+ * trecho (`columnBand`, a de baixo cai e a de cima sobe com a cobertura) com o tipo no intervalo do trecho (a de baixo,
+ * `l.y·s`, é a menor numa das pontas do intervalo: `l.y` sobe até o cúmulo e desce; a de cima sobe com o tipo). As pontas
+ * sozinhas (a faixa de antes) deixavam de fora a nuvem entre elas nos trechos de quilômetros do raio rente ao horizonte.
+ */
+export function columnBandSpan(
+    a: readonly [number, number],
+    b: readonly [number, number],
+    len: number,
+    top = 1,
+): [number, number] {
+    const c = Math.min((a[0] + b[0] + CLOUD_COVERAGE_GRADIENT * len) / 2, 1);
+    if (c <= 0) return [1, 0];
+    const t0 = clamp01((a[1] + b[1] - CLOUD_TYPE_GRADIENT * len) / 2);
+    const t1 = clamp01((a[1] + b[1] + CLOUD_TYPE_GRADIENT * len) / 2);
+    const lo = columnBand(c, t0, top);
+    const hi = columnBand(c, t1, top);
+    return [Math.min(lo[0], hi[0]), hi[1]];
+}
+
+/**
  * Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`): a torre (o perfil até o topo local, a forma,
  * a erosão e a água) e, com o tempo, a bigorna; a maior das duas. `footprint` (m): a pegada do pixel da marcha (o detalhe
  * abaixo dela cede ao mais grosso; 0: o detalhe inteiro).

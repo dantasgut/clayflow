@@ -76,6 +76,34 @@ fn cloud_column_band(cov: vec4f) -> vec2f {
 }
 
 /**
+ * O maior gradiente (1/m) dos campos da cobertura e do tipo (`CLOUD_COVERAGE_GRADIENT`, `CLOUD_TYPE_GRADIENT` da
+ * referência): o medido na f64 × 1,5 (a medida por amostras e a leitura bilinear do mapa em níveis).
+ */
+const CLOUD_COVERAGE_GRADIENT: f32 = 5.3e-4;
+const CLOUD_TYPE_GRADIENT: f32 = 2.6e-3;
+
+/**
+ * A faixa de altura (frações da casca) em que pode haver nuvem num trecho de `len` m do raio entre as colunas `a` e `b`
+ * (espelho de `columnBandSpan`; T074): a cobertura mais alta que o campo alcança no trecho, `(c0 + c1 + G·len)/2`, com o
+ * tipo no intervalo dele (a de baixo, a menor das pontas do intervalo; a de cima, a do tipo mais alto). As pontas sozinhas
+ * deixavam de fora a nuvem entre elas nos trechos de quilômetros rente ao horizonte (`sunset` 3,6 → 4,4 %). Com o tempo
+ * ou com uma função de cobertura (o gradiente dela não é conhecido), da base ao topo das colunas.
+ */
+fn cloud_column_band_span(a: vec4f, b: vec4f, len: f32) -> vec2f {
+    if (cloud_weather_on() || clouds.flags.w != 0u) {
+        return vec2f(0.0, max(cloud_column_top(a), cloud_column_top(b)));
+    }
+    let c = min(0.5 * (a.x + b.x + CLOUD_COVERAGE_GRADIENT * len), 1.0);
+    if (c <= 0.0) { return vec2f(1.0, 0.0); }
+    let t0 = clamp(0.5 * (a.y + b.y - CLOUD_TYPE_GRADIENT * len), 0.0, 1.0);
+    let t1 = clamp(0.5 * (a.y + b.y + CLOUD_TYPE_GRADIENT * len), 0.0, 1.0);
+    let top = max(a.w, b.w);
+    let lo = cloud_column_band(vec4f(c, t0, 0.0, top));
+    let hi = cloud_column_band(vec4f(c, t1, 0.0, top));
+    return vec2f(min(lo.x, hi.x), hi.y);
+}
+
+/**
  * O teto da densidade relativa em qualquer ponto: a forma e a erosão só reduzem a cobertura local (`remap(base, 1 − cov,
  * 1)·cov ≤ cov` com `base ≤ 1`, e a erosão `(c − e)/(1 − e) ≤ c`). Sem função de cobertura nem tempo, a cobertura local é
  * `g(c, tipo) + 0,4·(u − 0,5)` com `u < 1` — o teto `g + 0,2` (mais um degrau do mapa de 8 bits); com função, 1; com o

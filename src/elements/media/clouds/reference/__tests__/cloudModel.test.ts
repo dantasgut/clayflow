@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildVolume,
+    CLOUD_COVERAGE_GRADIENT,
+    CLOUD_COVERAGE_SPREAD,
+    CLOUD_TYPE_GRADIENT,
     cloudDensity,
     columnBand,
+    columnBandSpan,
+    coverageField,
+    coverageUniform,
     drainePhase,
     rayBin,
     rayBinStart,
@@ -316,6 +322,71 @@ describe('a faixa de altura da coluna (T074: o pulo do vazio na marcha)', () => 
             expect(shi).toBeGreaterThanOrEqual(hi);
         }
         expect(columnBand(0, 0.5)[0]).toBeGreaterThan(columnBand(0, 0.5)[1]);
+    });
+});
+
+describe('a faixa de altura num trecho do raio (T074: o pulo do vazio com o campo entre as pontas)', () => {
+    it('os gradientes dos campos da cobertura e do tipo ficam abaixo das constantes', () => {
+        // Arrange: 200 000 pontos em ±200 km, a diferença central de 1 m numa direção sorteada.
+        let seed = 1;
+        const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        let gc = 0;
+        let gt = 0;
+        // Act
+        for (let i = 0; i < 200_000; i++) {
+            const x = (rnd() - 0.5) * 400_000;
+            const z = (rnd() - 0.5) * 400_000;
+            const a = 2 * Math.PI * rnd();
+            const dx = Math.cos(a);
+            const dz = Math.sin(a);
+            const c =
+                Math.abs(coverageUniform(x + dx, z + dz) - coverageUniform(x - dx, z - dz)) / 2;
+            const t = Math.abs(typeField(x + dx, z + dz, 0.5) - typeField(x - dx, z - dz, 0.5)) / 2;
+            gc = Math.max(gc, c * CLOUD_COVERAGE_SPREAD);
+            gt = Math.max(gt, t);
+        }
+        // Assert: a folga de 1,5 (as amostras e a leitura bilinear do mapa) fica acima do medido.
+        expect(gc).toBeLessThan(CLOUD_COVERAGE_GRADIENT / 1.4);
+        expect(gt).toBeLessThan(CLOUD_TYPE_GRADIENT / 1.4);
+        expect(gc).toBeGreaterThan(CLOUD_COVERAGE_GRADIENT / 2);
+    });
+
+    it('a nuvem entre as pontas de trechos de até 8 km fica dentro da faixa do trecho; a das pontas sozinha a perde', () => {
+        // Arrange: trechos horizontais sorteados, o campo amostrado a cada 10 m entre as pontas.
+        let seed = 7;
+        const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        let missed = 0;
+        let missedEnds = 0;
+        for (let i = 0; i < 4000; i++) {
+            const len = 100 + rnd() * 7900;
+            const x0 = (rnd() - 0.5) * 200_000;
+            const z0 = (rnd() - 0.5) * 200_000;
+            const a = 2 * Math.PI * rnd();
+            const c = 0.3 + 0.4 * rnd();
+            const tp = rnd();
+            const at = (s: number): [number, number] => {
+                const x = x0 + Math.cos(a) * s;
+                const z = z0 + Math.sin(a) * s;
+                return [coverageField(x, z, c, tp), typeField(x, z, tp)];
+            };
+            const p0 = at(0);
+            const p1 = at(len);
+            // Act
+            const span = columnBandSpan(p0, p1, len);
+            const b0 = columnBand(p0[0], p0[1]);
+            const b1 = columnBand(p1[0], p1[1]);
+            const ends: [number, number] = [Math.min(b0[0], b1[0]), Math.max(b0[1], b1[1])];
+            for (let s = 0; s <= len; s += 10) {
+                const [cs, ts] = at(s);
+                const [lo, hi] = columnBand(cs, ts, 1, 0);
+                if (lo >= hi) continue;
+                if (lo < span[0] - 1e-9 || hi > span[1] + 1e-9) missed++;
+                if (lo < ends[0] - 1e-9 || hi > ends[1] + 1e-9) missedEnds++;
+            }
+        }
+        // Assert
+        expect(missed).toBe(0);
+        expect(missedEnds).toBeGreaterThan(0);
     });
 });
 
