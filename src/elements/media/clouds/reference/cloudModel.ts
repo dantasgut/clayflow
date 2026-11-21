@@ -222,6 +222,68 @@ export function sampleVolume(v: CloudVolume, u: Vec3): Vec4 {
     return out as unknown as Vec4;
 }
 
+/**
+ * A pirâmide de níveis de detalhe de um volume periódico (spec 041, T074; espelho de `cloud_noise_level_main`): o nível
+ * `k + 1` é a média 2 × 2 × 2 do nível `k` (o lado par: os oito texels do bloco, sem borda — o volume é periódico),
+ * quantizada a 8 bits como a escrita no `rgba8unorm` (o nível seguinte parte do valor quantizado). Devolve `levels`
+ * volumes, o primeiro o próprio `v`.
+ */
+export function buildVolumeLevels(v: CloudVolume, levels: number, quantize = true): CloudVolume[] {
+    const out: CloudVolume[] = [v];
+    for (let k = 1; k < levels; k++) {
+        const src = out[k - 1]!;
+        const n = src.size >> 1;
+        if (n < 1) break;
+        const data = new Float32Array(n * n * n * 4);
+        for (let z = 0; z < n; z++)
+            for (let y = 0; y < n; y++)
+                for (let x = 0; x < n; x++) {
+                    const o = ((z * n + y) * n + x) * 4;
+                    for (let c = 0; c < 4; c++) {
+                        let s = 0;
+                        for (let d = 0; d < 8; d++) {
+                            const i =
+                                (((2 * z + (d >> 2)) * src.size + 2 * y + ((d >> 1) & 1)) * src.size
+                                    + 2 * x
+                                    + (d & 1))
+                                * 4;
+                            s += src.data[i + c]!;
+                        }
+                        data[o + c] = quantize ? Math.round((s / 8) * 255) / 255 : s / 8;
+                    }
+                }
+        out.push({ size: n, data });
+    }
+    return out;
+}
+
+/**
+ * Leitura trilinear com repetição no nível `lod` da pirâmide (`textureSampleLevel` com `repeat`, filtro linear e
+ * `mipmapFilter: 'linear'`): a mistura linear dos dois níveis vizinhos, `lod` preso em [0, níveis − 1].
+ */
+export function sampleVolumeLevel(levels: readonly CloudVolume[], u: Vec3, lod: number): Vec4 {
+    const l = Math.min(Math.max(lod, 0), levels.length - 1);
+    const k = Math.floor(l);
+    const f = l - k;
+    const a = sampleVolume(levels[k]!, u);
+    if (f <= 0 || k + 1 >= levels.length) return a;
+    const b = sampleVolume(levels[k + 1]!, u);
+    return [
+        a[0] + (b[0] - a[0]) * f,
+        a[1] + (b[1] - a[1]) * f,
+        a[2] + (b[2] - a[2]) * f,
+        a[3] + (b[3] - a[3]) * f,
+    ];
+}
+
+/**
+ * O nível de detalhe de uma amostra de comprimento `length` (m) num volume de `size` texels por período `scale` (m): a
+ * amostra cobre `length/texel` texels — `log2` disso, 0 abaixo de um texel (espelho de `cloud_volume_lod`).
+ */
+export function volumeLod(length: number, scale: number, size: number): number {
+    return length > 0 ? Math.max(Math.log2((length * size) / scale), 0) : 0;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Campo da cobertura global (R4)
 
@@ -318,6 +380,12 @@ export interface CloudModel {
     readonly albedo: number;
     readonly shape: CloudVolume;
     readonly detail: CloudVolume;
+    /**
+     * As pirâmides de níveis de detalhe da forma e do detalhe (`buildVolumeLevels`, T074): as amostras longas da luz leem o
+     * nível pela largura delas. Sem elas, o volume inteiro em todo comprimento.
+     */
+    readonly shapeLevels?: readonly CloudVolume[];
+    readonly detailLevels?: readonly CloudVolume[];
     readonly shapeScale: number;
     readonly detailScale: number;
     /** Deslocamentos (m) da forma e do detalhe: `vento · tempo` (no detalhe, mais a deriva vertical). */
@@ -359,8 +427,20 @@ function shapeCoverSample(s: Vec4, c: number, profile: number): number {
 }
 
 /** A forma sem erosão da cobertura `c` no ponto `ps` do volume com o perfil `profile`. */
-function shapeCover(m: CloudModel, ps: Vec3, c: number, profile: number): number {
-    return shapeCoverSample(sampleVolume(m.shape, ps), c, profile);
+function shapeCover(m: CloudModel, ps: Vec3, c: number, profile: number, length = 0): number {
+    return shapeCoverSample(shapeAt(m, ps, length), c, profile);
+}
+
+/** A amostra da forma em `ps` com a largura `length` (m; o nível pela pirâmide, espelho de `cloud_shape_sample`). */
+function shapeAt(m: CloudModel, ps: Vec3, length: number): Vec4 {
+    if (m.shapeLevels === undefined || length <= 0) return sampleVolume(m.shape, ps);
+    return sampleVolumeLevel(m.shapeLevels, ps, volumeLod(length, m.shapeScale, m.shape.size));
+}
+
+/** A amostra do detalhe em `pd` com a largura `length` (m; espelho de `cloud_detail_sample`). */
+function detailAt(m: CloudModel, pd: Vec3, length: number): Vec4 {
+    if (m.detailLevels === undefined || length <= 0) return sampleVolume(m.detail, pd);
+    return sampleVolumeLevel(m.detailLevels, pd, volumeLod(length, m.detailScale, m.detail.size));
 }
 
 /**
@@ -382,13 +462,14 @@ function erode(
     hl: number,
     fp: number,
     strength = CLOUD_EROSION,
+    length = 0,
 ): number {
     const pd: Vec3 = [
         (x[0] - m.detailOffset[0]) / m.detailScale,
         (x[1] - m.detailOffset[1]) / m.detailScale,
         (x[2] - m.detailOffset[2]) / m.detailScale,
     ];
-    const d = sampleVolume(m.detail, pd);
+    const d = detailAt(m, pd, length);
     const b = mix(d[1], d[2], detailWeight(m.detailScale / 32, fp));
     const a = mix(b, d[3], detailWeight(m.detailScale / 64, fp));
     const hf = d[1] * 0.625 + b * 0.25 + a * 0.125;
@@ -430,7 +511,12 @@ export function smoothstepInverse(y: number): number {
  * onde o perfil fica em `1 − c` ou abaixo — a subida e a descida do perfil cortadas nesse nível (`slack` de folga na
  * cobertura). Vazia (de baixo > de cima) sem cobertura.
  */
-export function columnBand(c: number, t: number, top = 1, slack = CLOUD_BAND_SLACK): [number, number] {
+export function columnBand(
+    c: number,
+    t: number,
+    top = 1,
+    slack = CLOUD_BAND_SLACK,
+): [number, number] {
     if (c <= 0) return [1, 0];
     const th = 1 - c - slack;
     if (th <= 0) return [0, top];
@@ -474,9 +560,16 @@ export function columnBandSpan(
 /**
  * Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`): a torre (o perfil até o topo local, a forma,
  * a erosão e a água) e, com o tempo, a bigorna; a maior das duas. `footprint` (m): a pegada do pixel da marcha (o detalhe
- * abaixo dela cede ao mais grosso; 0: o detalhe inteiro).
+ * abaixo dela cede ao mais grosso; 0: o detalhe inteiro). `length` (m): a largura da amostra nas pirâmides de níveis de
+ * detalhe do modelo (`shapeLevels`, `detailLevels`; T074, a medida dos níveis na luz); 0 ou sem pirâmide: o volume inteiro.
  */
-export function cloudDensity(m: CloudModel, x: Vec3, footprint = 0, detail = true): number {
+export function cloudDensity(
+    m: CloudModel,
+    x: Vec3,
+    footprint = 0,
+    detail = true,
+    length = 0,
+): number {
     const h = heightFraction(m, x);
     if (h <= 0 || h >= 1) return 0;
     const cv = m.coverage(x[0], x[2]);
@@ -496,7 +589,7 @@ export function cloudDensity(m: CloudModel, x: Vec3, footprint = 0, detail = tru
         ];
         // A amostra da forma: antes do perfil na torre (as térmicas), depois dele nas outras colunas (como o shader).
         const tower = w !== undefined && top > fair;
-        let s: Vec4 | undefined = tower ? sampleVolume(m.shape, ps) : undefined;
+        let s: Vec4 | undefined = tower ? shapeAt(m, ps, length) : undefined;
         if (tower) {
             // As térmicas da torre (R19): o tipo e a cobertura locais variam com as bolhas da forma.
             const [dt, dc] = towerThermal(shapeLow(s!), clamp01((h - fair) / (top - fair)));
@@ -507,13 +600,13 @@ export function cloudDensity(m: CloudModel, x: Vec3, footprint = 0, detail = tru
         const hl = top >= 1 ? h : h / Math.max(top, 1e-3);
         const H = hl < 1 ? heightProfile(hl, t) : 0;
         if (H > 0 && cx > 0) {
-            s ??= sampleVolume(m.shape, ps);
+            s ??= shapeAt(m, ps, length);
             const c = shapeCoverSample(s, cx, H);
             const k =
                 towerWater(alt, m.base + fair * (m.top - m.base))
                 * (w === undefined ? Math.max(0, dr) : 1);
             const strength = w === undefined ? CLOUD_EROSION : shallowErosion(top, fair);
-            if (c > 0) result = (detail ? erode(m, x, c, hl, footprint, strength) : c) * k;
+            if (c > 0) result = (detail ? erode(m, x, c, hl, footprint, strength, length) : c) * k;
         }
     }
     if (w !== undefined && dr > 0) {
@@ -524,11 +617,12 @@ export function cloudDensity(m: CloudModel, x: Vec3, footprint = 0, detail = tru
                 x[1] / m.shapeScale,
                 (x[2] - w.anvilOffset[1]) / m.shapeScale,
             ];
-            const c = shapeCover(m, pa, dr, H);
+            const c = shapeCover(m, pa, dr, H, length);
             if (c > 0)
                 result = Math.max(
                     result,
-                    (detail ? erode(m, x, c, 1, footprint) : c) * CLOUD_ANVIL.water,
+                    (detail ? erode(m, x, c, 1, footprint, CLOUD_EROSION, length) : c)
+                        * CLOUD_ANVIL.water,
                 );
         }
     }
