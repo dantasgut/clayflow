@@ -2518,7 +2518,10 @@ async function caseSunLow(): Promise<void> {
 async function caseSunBelow(): Promise<void> {
     // O sol abaixo do horizonte (−0,3° e −0,8°): as nuvens altas ainda o veem por cima do chão. O mapa visto do sol ficava
     // vazio com o sol abaixo do horizonte (τ = 0: as nuvens e o chão que as vê acendiam num quadro, no `solposto` a
-    // −0,03°). τ de pontos na camada pelo mapa contra a integral da referência.
+    // −0,03°). τ de pontos na camada pelo mapa contra a integral da referência, 4 quadros depois do pulo de 0,5° do sol (2
+    // min do sol real): desde a fila das páginas por prioridade (T080, `670f5203`) o pulo se redesenha em 3–4 quadros
+    // dentro do orçamento — com 2 quadros, a −0,8°, 0,125 (6 de 60 pontos ainda com a página de antes); com 4, 8 e 30,
+    // 0,000 (medido no fechamento da 041). O caso mede o mapa abaixo do horizonte, não a latência de um salto do sol.
     const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
     const s = await cloudScene({
         width: 256,
@@ -2532,7 +2535,7 @@ async function caseSunBelow(): Promise<void> {
     const model = await referenceModel(s, layer);
     for (const el of [-0.3, -0.8]) {
         s.sun.data.direction = sunTravel(el, az);
-        await settleFrames(s.app, 2);
+        await settleFrames(s.app, 4);
         const map = await readShadowMap(s.app, layer);
         const p = layer.data.params[0]!;
         let diff = 0;
@@ -2583,7 +2586,7 @@ async function caseSunSweep(): Promise<void> {
     for (let k = 0; k <= 110; k++) {
         const el = 12 - k * 0.1;
         s.sun.data.direction = sunTravel(el, az);
-        await settleFrames(s.app, 2);
+        await settleFrames(s.app, 4);
         const map = await readShadowMap(s.app, layer);
         const g = groundMapT(map, layer.data.params[0]!, [0, 0, 0]);
         const r = Math.exp(-opticalDepth(model, [0, 0, 0], sunToward(el, az), 512));
