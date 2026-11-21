@@ -47,6 +47,34 @@ fn cloud_column_top(cov: vec4f) -> f32 {
     return top;
 }
 
+/** A inversa do smoothstep em [0, 1]: o x com `smoothstep(0, 1, x) = y`. */
+fn cloud_smoothstep_inverse(y: f32) -> f32 {
+    return 0.5 - sin(asin(clamp(1.0 - 2.0 * y, -1.0, 1.0)) / 3.0);
+}
+
+/**
+ * A folga da cobertura na faixa da coluna (`cloud_column_band`): a cobertura entre as pontas de um trecho da marcha pode
+ * passar da das pontas (o campo de 8 km, o degrau do mapa de 8 bits).
+ */
+const CLOUD_BAND_SLACK: f32 = 0.05;
+
+/**
+ * A faixa de altura (frações da casca: de baixo, de cima) em que a coluna de cobertura `cov` pode ter nuvem (T074; espelho
+ * de `columnBand` em `cloudModel.ts`). Sem o tempo, a forma é `remap(base, 1 − c, 1)·c` com `base ≤ perfil`: nula onde o
+ * perfil do tipo local fica em `1 − c` ou abaixo — a subida e a descida dele cortadas nesse nível (com a folga
+ * `CLOUD_BAND_SLACK` na cobertura). Com o tempo (a torre e a bigorna mudam a cobertura e o topo), da base ao topo da
+ * coluna (`cloud_column_top`). Vazia (de baixo > de cima) sem cobertura.
+ */
+fn cloud_column_band(cov: vec4f) -> vec2f {
+    if (cloud_weather_on()) { return vec2f(0.0, cloud_column_top(cov)); }
+    if (cov.x <= 0.0) { return vec2f(1.0, 0.0); }
+    let th = 1.0 - cov.x - CLOUD_BAND_SLACK;
+    if (th <= 0.0) { return vec2f(0.0, cov.w); }
+    let l = cloud_profile_limits(cov.y);
+    let s = cloud_smoothstep_inverse(th);
+    return vec2f(l.x + (l.y - l.x) * s, l.z + (l.w - l.z) * (1.0 - s)) * min(cov.w, 1.0);
+}
+
 /**
  * O teto da densidade relativa em qualquer ponto: a forma e a erosão só reduzem a cobertura local (`remap(base, 1 − cov,
  * 1)·cov ≤ cov` com `base ≤ 1`, e a erosão `(c − e)/(1 − e) ≤ c`). Sem função de cobertura nem tempo, a cobertura local é

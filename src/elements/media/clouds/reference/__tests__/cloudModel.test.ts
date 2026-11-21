@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
     buildVolume,
     cloudDensity,
+    columnBand,
     drainePhase,
+    rayBin,
+    rayBinStart,
     heightProfile,
     hgPhase,
     jdeParams,
@@ -287,5 +290,52 @@ describe('transmitância e mapa visto do sol', () => {
         expect(thick.scattered[0]).toBeGreaterThan(0);
         expect(thick.depth).toBeGreaterThan(1500);
         expect(thick.depth).toBeLessThan(2500);
+    });
+});
+
+describe('a faixa de altura da coluna (T074: o pulo do vazio na marcha)', () => {
+    it('fora da faixa (sem folga) a densidade é nula, mesmo com a forma no máximo; logo dentro, não', () => {
+        // Arrange: a forma no máximo (volume 1: base = perfil), o detalhe nulo.
+        const cases: [number, number][] = [];
+        for (const c of [0.1, 0.25, 0.4, 0.55, 0.7, 0.9])
+            for (const t of [0, 0.2, 0.5, 0.8, 1]) cases.push([c, t]);
+        for (const [c, t] of cases) {
+            const m = flatModel(c, t);
+            const at = (h: number): number =>
+                cloudDensity(m, [0, m.base + h * (m.top - m.base), 0], 0, false);
+            // Act
+            const [lo, hi] = columnBand(c, t, 1, 0);
+            // Assert
+            for (let h = 0.0025; h < 1; h += 0.005) {
+                if (h < lo - 1e-6 || h > hi + 1e-6) expect(at(h)).toBe(0);
+            }
+            if (hi - lo > 0.02) expect(at(0.5 * (lo + hi))).toBeGreaterThan(0);
+            // A folga só alarga.
+            const [slo, shi] = columnBand(c, t);
+            expect(slo).toBeLessThanOrEqual(lo);
+            expect(shi).toBeGreaterThanOrEqual(hi);
+        }
+        expect(columnBand(0, 0.5)[0]).toBeGreaterThan(columnBand(0, 0.5)[1]);
+    });
+});
+
+describe('o trecho do raio depois do pulo do vazio (T074)', () => {
+    it('em f32 a borda do pulo cai às vezes no trecho de antes; com o trecho do pulo, nunca', () => {
+        // Arrange: entradas na casca e trechos de raios reais (centenas de metros a dezenas de km).
+        let below = 0;
+        let total = 0;
+        for (let t0 = 1500; t0 < 60_000; t0 *= 1.37)
+            for (let bin = 37; bin < 4000; bin *= 1.91)
+                for (let k = 1; k < 32; k++) {
+                    // Act
+                    const t = rayBinStart(t0, bin, k);
+                    total++;
+                    if (rayBin(t, t0, bin) < k) below++;
+                    // Assert
+                    expect(rayBin(t, t0, bin, k)).toBe(k);
+                }
+        // Sem o trecho do pulo, uma parte das bordas volta ao trecho de antes (o laço de pulos que gastava os passos).
+        expect(below).toBeGreaterThan(0);
+        expect(below).toBeLessThan(total);
     });
 });

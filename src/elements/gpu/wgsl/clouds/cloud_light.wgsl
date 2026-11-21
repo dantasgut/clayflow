@@ -146,24 +146,33 @@ const CLOUD_RAY_BINS: u32 = 32u;
  * de cobertura) e dentro da casca; os vizinhos de um ocupado também (uma coluna alta entre as pontas). Com a casca até a
  * tropopausa, quase todo o raio passa acima das nuvens: o piso do passo pela parte ocupada (não pelo raio inteiro) e o
  * pulo dos trechos vazios. Sem o tempo, o topo é o da casca e o raio inteiro fica ocupado onde há cobertura.
+ * Devolve as duas máscaras: `x` pelo topo das colunas (o piso do passo, como antes) e `y` pela faixa de altura em que a
+ * coluna pode ter nuvem (`cloud_column_band`: sem o tempo, o perfil acima de `1 − cobertura`; T074) — o pulo do vazio,
+ * sem mudar o passo.
  */
-fn cloud_ray_occupancy(o: vec3f, d: vec3f, t0: f32, t1: f32) -> u32 {
+fn cloud_ray_occupancy(o: vec3f, d: vec3f, t0: f32, t1: f32) -> vec2u {
     let bin = (t1 - t0) / f32(CLOUD_RAY_BINS);
     var x = o + d * t0;
     var h0 = cloud_height_fraction(x);
-    var top0 = cloud_column_top(cloud_coverage_at(x.xz));
+    var cov0 = cloud_coverage_at(x.xz);
     var mask = 0u;
+    var band_mask = 0u;
     for (var k = 0u; k < CLOUD_RAY_BINS; k++) {
         x = o + d * (t0 + f32(k + 1u) * bin);
         let h1 = cloud_height_fraction(x);
-        let top1 = cloud_column_top(cloud_coverage_at(x.xz));
+        let cov1 = cloud_coverage_at(x.xz);
         let lo = min(h0, h1);
         let hi = max(h0, h1);
-        if (hi > 0.0 && lo < 1.0 && lo < max(top0, top1)) { mask |= 1u << k; }
+        if (hi > 0.0 && lo < 1.0 && lo < max(cloud_column_top(cov0), cloud_column_top(cov1))) {
+            mask |= 1u << k;
+            let b0 = cloud_column_band(cov0);
+            let b1 = cloud_column_band(cov1);
+            if (hi > min(b0.x, b1.x) && lo < max(b0.y, b1.y)) { band_mask |= 1u << k; }
+        }
         h0 = h1;
-        top0 = top1;
+        cov0 = cov1;
     }
-    return mask | (mask << 1u) | (mask >> 1u);
+    return vec2u(mask | (mask << 1u) | (mask >> 1u), band_mask | (band_mask << 1u) | (band_mask >> 1u));
 }
 
 /**
@@ -179,10 +188,13 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
     if (segs.y <= segs.x) { return result; }
     let n = max(min(steps, CLOUD_MAX_STEPS), 1u);
     let t_last = select(segs.y, segs.w, segs.w > segs.z);
-    let mask = cloud_ray_occupancy(o, d, segs.x, t_last);
+    let masks = cloud_ray_occupancy(o, d, segs.x, t_last);
+    // O piso do passo pela ocupação pelo topo das colunas; o pulo pela faixa em que a nuvem pode existir (os trechos fora
+    // dela têm densidade nula: pulá-los não muda a integral).
+    let mask = masks.y;
     if (mask == 0u) { return result; }
     let bin = (t_last - segs.x) / f32(CLOUD_RAY_BINS);
-    let occupied = f32(countOneBits(mask)) * bin;
+    let occupied = f32(countOneBits(masks.x)) * bin;
     let base = cloud_layer_thickness() / 64.0;
     let floor_step = occupied / f32(n);
     let cos_theta = dot(d, sky.sunDirection.xyz);
@@ -199,6 +211,10 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
     // A coluna do ambiente local, relida a cada `CLOUD_AMBIENT_REUSE` amostras com densidade.
     var occ = 1.0;
     var lit = 0u;
+    // O trecho do último pulo: o `t` do pulo é a borda do trecho e `(t − entrada)/trecho` em f32 pode sair um ULP abaixo
+    // dela — o trecho de antes (vazio) de novo, o pulo de volta para a mesma borda e o passo gasto, até o teto (T074: a
+    // metade dos raios saía sem nuvem, `noon` com a transmitância 0,47 contra 0). O `t` só cresce: o trecho nunca volta.
+    var at_bin = 0u;
     for (var i = 0u; i < CLOUD_MAX_STEPS; i++) {
         if (i >= n) { break; }
         if (t >= end) {
@@ -209,11 +225,12 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             end = segs.w;
         }
         // O trecho vazio: pula para o próximo ocupado (o salto conta como um passo), na velocidade grossa.
-        let b = u32(clamp(floor((t - segs.x) / bin), 0.0, f32(CLOUD_RAY_BINS - 1u)));
+        let b = max(u32(clamp(floor((t - segs.x) / bin), 0.0, f32(CLOUD_RAY_BINS - 1u))), at_bin);
         if ((mask & (1u << b)) == 0u) {
             let ahead = mask & ~((2u << b) - 1u);
             if (ahead == 0u) { break; }
-            t = segs.x + f32(firstTrailingBit(ahead)) * bin;
+            at_bin = firstTrailingBit(ahead);
+            t = segs.x + f32(at_bin) * bin;
             fine = false;
             empty = 0u;
             continue;

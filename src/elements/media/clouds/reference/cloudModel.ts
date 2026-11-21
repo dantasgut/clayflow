@@ -396,6 +396,50 @@ function erode(
     return Math.max(0, remap(c, hfm * strength, 1, 0, 1));
 }
 
+/** Trechos iguais do raio na ocupação da marcha (`CLOUD_RAY_BINS`). */
+export const CLOUD_RAY_BINS = 32;
+
+/**
+ * O trecho do raio em `t` na marcha da GPU, em f32 (espelho de `cloud_integrate`, T074): `floor((t − t0)/trecho)` limitado
+ * a [0, trechos − 1] e nunca abaixo do trecho do último pulo `atBin` — o `t` do pulo é a borda do trecho, e a conta em
+ * f32 pode sair um ULP abaixo dela (o trecho de antes, vazio: o pulo de volta à mesma borda, o passo gasto).
+ */
+export function rayBin(t: number, t0: number, bin: number, atBin = 0): number {
+    const f = Math.fround;
+    const k = Math.floor(f(f(f(t) - f(t0)) / f(bin)));
+    return Math.max(Math.min(Math.max(k, 0), CLOUD_RAY_BINS - 1), atBin);
+}
+
+/** O `t` do pulo para o trecho `k` (a borda dele), em f32. */
+export function rayBinStart(t0: number, bin: number, k: number): number {
+    const f = Math.fround;
+    return f(f(t0) + f(f(k) * f(bin)));
+}
+
+/** A folga da cobertura na faixa da coluna (`CLOUD_BAND_SLACK`). */
+export const CLOUD_BAND_SLACK = 0.05;
+
+/** A inversa do smoothstep em [0, 1]. */
+export function smoothstepInverse(y: number): number {
+    return 0.5 - Math.sin(Math.asin(Math.min(Math.max(1 - 2 * y, -1), 1)) / 3);
+}
+
+/**
+ * A faixa de altura (frações da casca: de baixo, de cima) em que a coluna de cobertura `c`, tipo `t` e topo `top` pode ter
+ * nuvem sem o tempo (espelho de `cloud_column_band`, T074): a forma `remap(base, 1 − c, 1)·c` com `base ≤ perfil` é nula
+ * onde o perfil fica em `1 − c` ou abaixo — a subida e a descida do perfil cortadas nesse nível (`slack` de folga na
+ * cobertura). Vazia (de baixo > de cima) sem cobertura.
+ */
+export function columnBand(c: number, t: number, top = 1, slack = CLOUD_BAND_SLACK): [number, number] {
+    if (c <= 0) return [1, 0];
+    const th = 1 - c - slack;
+    if (th <= 0) return [0, top];
+    const l = profileLimits(t);
+    const s = smoothstepInverse(th);
+    const k = Math.min(top, 1);
+    return [(l[0] + (l[1] - l[0]) * s) * k, (l[2] + (l[3] - l[2]) * (1 - s)) * k];
+}
+
 /**
  * Densidade relativa (≥ 0) da nuvem em `x` (a extinção é ela × `density`): a torre (o perfil até o topo local, a forma,
  * a erosão e a água) e, com o tempo, a bigorna; a maior das duas. `footprint` (m): a pegada do pixel da marcha (o detalhe
