@@ -11,7 +11,8 @@
 //   - dusk-blocks: o mosaico nas nuvens escuras do pôr do sol, com o sol descendo depressa rente ao horizonte — o degrau
 //     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels, o erro de alta frequência e o atraso da cor
 //     (matiz e brilho) contra a mesma cena parada e convergida;
-//   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005);
+//   - timing: o custo por passe das nuvens a 1280 × 720 nos três perfis e no alto com o sol andando (`high-sun`, T080;
+//     `?profiles=high_high-sun`) (SC-005);
 //   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
 //     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
 //     contra o mapeamento da referência (SC-010, R19);
@@ -24,6 +25,7 @@
 //   - front: a faixa de nuvens entre uma baixa e uma alta (Okubo–Weiss) e o céu limpo na subsidência da alta;
 //   - weather-timing: o custo do tempo (o estado e o mapa de cobertura por ele) a 1280 × 720 no perfil alto (SC-012);
 //   - interior-timing: o custo da camada com a câmera numa sala fechada (SC-005);
+//   - inside-timing: o custo da camada com a câmera dentro da nuvem, no perfil alto (SC-005, T074);
 //   - sky-timing: o custo novo do céu sem a camada (SC-009).
 // Para rodar: `npm run smoke -- clouds --headless --timeout 400`. Resultado: `CLOUDS SMOKE PASSED` ou `FAIL: …`.
 import {
@@ -984,23 +986,31 @@ async function passTimes(
     app: Application,
     frames: number,
     pattern = /Cloud|Sky|Froxel/,
+    each?: () => void,
 ): Promise<{ total: number; span: number; passes: Record<string, number>; spread: string }> {
     const samples: Record<string, number>[] = [];
     const spans: number[] = [];
+    const phases: Record<string, number>[] = [];
     const off = app.events.on('gpuFrameTimed', (e) => {
         samples.push({ ...e.passesMs });
         spans.push(e.spanMs);
+        phases.push({ ...e.phasesMs });
     });
-    await busyFrames(app, frames);
+    const t0 = performance.now();
+    await busyFrames(app, frames, each);
+    const wall = (performance.now() - t0) / frames;
     // Os quadros gravados chegam ao perfilador 1–3 quadros depois.
-    await busyFrames(app, 4);
+    await busyFrames(app, 4, each);
     off();
     const keys = new Set(samples.flatMap((x) => Object.keys(x)));
     const passes: Record<string, number> = {};
     for (const k of keys) if (pattern.test(k)) passes[k] = median(samples.map((x) => x[k] ?? 0));
     const total = Object.values(passes).reduce((a, b) => a + b, 0);
     const sorted = [...spans].sort((a, b) => a - b);
-    const spread = `${sorted[0]?.toFixed(2)}/${median(spans).toFixed(2)}/${sorted[sorted.length - 1]?.toFixed(2)} (${spans.length})`;
+    const ph = [...new Set(phases.flatMap((x) => Object.keys(x)))]
+        .map((k) => `${k} ${median(phases.map((x) => x[k] ?? 0)).toFixed(2)}`)
+        .join(' ');
+    const spread = `${sorted[0]?.toFixed(2)}/${median(spans).toFixed(2)}/${sorted[sorted.length - 1]?.toFixed(2)} (${spans.length}; parede ${wall.toFixed(2)} ms/quadro; ${ph})`;
     return { total, span: median(spans), passes, spread };
 }
 
@@ -1020,26 +1030,77 @@ const median = (v: readonly number[]): number => {
  * tela. No ritmo de 60 Hz, um quadro de 4–5 ms deixa a GPU ociosa a maior parte do tempo e o M4 baixa o relógio dela: as
  * passagens das nuvens mediam até 1,5 × mais (o perfil baixo sozinho, ou os primeiros ~15 s de um app), e as da tela,
  * limitadas pela banda, quase não mudavam — a diferença com e sem a camada saía do estado do relógio, não do custo.
+ * A espera é a do bench (`frameRetired`), e a cessão ao navegador por `MessageChannel`: o `setTimeout(0)` aninhado é
+ * levado a 4 ms pelo navegador depois de cinco níveis, e os quadros abaixo disso (o interior, o médio, o baixo) saíam a
+ * 250 Hz com a GPU ociosa entre eles — o relógio dela caía e as repetições ficavam bimodais (T074: o quadro sem a camada
+ * de 1,3 a 3,9 ms na mesma fase).
+ * `each`: chamado antes de cada quadro (o caso com o sol andando).
  */
-async function busyFrames(app: Application, frames: number): Promise<void> {
+async function busyFrames(app: Application, frames: number, each?: () => void): Promise<void> {
     await app.whenReady({ timeoutMs: 60_000 });
+    const yieldTask = (): Promise<void> =>
+        new Promise((resolve) => {
+            const ch = new MessageChannel();
+            ch.port1.onmessage = () => {
+                resolve();
+            };
+            ch.port2.postMessage(0);
+        });
     for (let i = 0; i < frames; i++) {
+        each?.();
         app.step(0);
-        do await new Promise((r) => setTimeout(r, 0));
-        while (!app.readyForFrame());
+        await yieldTask();
+        if (!app.readyForFrame())
+            await new Promise<void>((resolve) => {
+                const off = app.events.on('frameRetired', () => {
+                    if (!app.readyForFrame()) return;
+                    off();
+                    resolve();
+                });
+            });
     }
 }
 
 /**
  * O custo das nuvens pelo método do bench: um app só, aquecido com a GPU ocupada (`TIMING_WARMUP` quadros), as
- * medidas com e sem a camada intercaladas (a camada entra e sai pelo mundo) e a mediana das repetições. Devolve as
- * diferenças por repetição (ms) e os passes medianos com a camada.
+ * medidas com e sem a camada (a camada entra e sai pelo mundo; a sem logo depois da com, no mesmo relógio da GPU) e a
+ * mediana das repetições. Devolve as diferenças por repetição (ms) e os passes medianos com a camada.
  */
 const TIMING_WARMUP = 600;
 const TIMING_REPS = 5;
+/** O sol que anda no caso `timing` (`high-sun`): a 1,3°/s entre 2° e 8° (o degrau 0,2 do mapa visto do sol), à frente da câmera. */
+const TIMING_SUN_RATE = 1.3;
+const TIMING_SUN_BAND = [2, 8] as const;
+
+/**
+ * Onde a câmera fica no caso de tempo: no chão olhando o céu (padrão), numa sala fechada (`interior`, SC-005) ou dentro
+ * da nuvem (`inside`: na casca, no ponto de maior cobertura da referência a ±4 km da origem, a 1/5 da altura da casca).
+ */
+interface CloudCostOptions {
+    readonly interior?: boolean;
+    readonly inside?: boolean;
+    /** O sol andando (`TIMING_SUN_RATE`, de 1/60 s por quadro) nas duas fases. */
+    readonly movingSun?: boolean;
+}
+
+/** O ponto de maior cobertura (referência f64) a ±4 km da origem, no passo de 50 m. */
+function densestColumn(coverage: number, type: number): [number, number] {
+    let best: [number, number] = [0, 0];
+    let top = -1;
+    for (let x = -4000; x <= 4000; x += 50)
+        for (let z = -4000; z <= 4000; z += 50) {
+            const c = coverageField(x, z, coverage, type);
+            if (c > top) {
+                top = c;
+                best = [x, z];
+            }
+        }
+    return best;
+}
+
 async function cloudCost(
     profile: 'high' | 'medium' | 'low',
-    interior = false,
+    o: CloudCostOptions = {},
 ): Promise<{
     diffs: number[];
     withSpan: number[];
@@ -1054,6 +1115,11 @@ async function cloudCost(
     spreads: string;
     quality: unknown;
 }> {
+    const interior = o.interior === true;
+    const values = { coverage: 0.5, wind: [10, 0] };
+    const [ix, iz] = densestColumn(values.coverage, 0.5);
+    // A 1/5 da casca padrão (1500–4000 m): o corpo do cúmulo.
+    const insideY = 1500 + 0.2 * 2500;
     const s = await cloudScene({
         width: 1280,
         height: 720,
@@ -1061,10 +1127,28 @@ async function cloudCost(
         profiling: true,
         clouds: false,
         // `?el=`: a elevação do sol (graus; o mapa visto do sol afina o texel à direita com o sol baixo).
-        sunElevation: Number(new URLSearchParams(location.search).get('el') ?? 60),
-        ...(interior ? { eye: [0, 1.6, 0] as const, target: [4, 1.4, 1] as const } : {}),
-        target: interior ? [4, 1.4, 1] : [1000, 400, 300],
+        sunElevation: o.movingSun
+            ? TIMING_SUN_BAND[1]
+            : Number(new URLSearchParams(location.search).get('el') ?? 60),
+        ...(interior ? { eye: [0, 1.6, 0] as const } : {}),
+        ...(o.inside ? { eye: [ix, insideY, iz] as const } : {}),
+        target: interior
+            ? [4, 1.4, 1]
+            : o.inside
+              ? [ix + 1000, insideY + 100, iz + 300]
+              : [1000, 400, 300],
     });
+    // O sol andando: um triângulo na elevação a `TIMING_SUN_RATE` °/s (1/60 s por quadro), azimute 0 (à frente).
+    let sunFrame = 0;
+    const span = TIMING_SUN_BAND[1] - TIMING_SUN_BAND[0];
+    const moveSun = o.movingSun
+        ? (): void => {
+              const d = (sunFrame++ * TIMING_SUN_RATE) / 60;
+              const t = d % (2 * span);
+              const e = TIMING_SUN_BAND[1] - (t <= span ? t : 2 * span - t);
+              s.sun.data.direction = sunTravel(e, 0);
+          }
+        : undefined;
     // O interior (SC-005): uma sala fechada de 10 × 3 × 10 m (seis placas) em volta da câmera — nenhum pixel do céu.
     if (interior)
         for (const [size, at] of [
@@ -1098,7 +1182,6 @@ async function cloudCost(
                     .add(new StandardMaterial())
                     .add(new Transform({ position: [at[0], at[1], at[2], 1] })),
             );
-    const values = { coverage: 0.5, wind: [10, 0] };
     let layer: CloudLayer | undefined;
     await settleFrames(s.app, 30);
     const insert = (): void => {
@@ -1106,7 +1189,7 @@ async function cloudCost(
         s.app.world.insert(layer);
     };
     insert();
-    await busyFrames(s.app, TIMING_WARMUP);
+    await busyFrames(s.app, TIMING_WARMUP, moveSun);
     const quality = layer?.quality;
     const diffs: number[] = [];
     const withSpan: number[] = [];
@@ -1118,7 +1201,12 @@ async function cloudCost(
     const reach: string[] = [];
     const spreads: string[] = [];
     for (let r = 0; r < TIMING_REPS; r++) {
-        const order = r % 2 === 0 ? [true, false] : [false, true];
+        // Sempre com e depois sem a camada (T074): o quadro sem a camada (~1,2 ms no alto) fica abaixo do tempo da CPU
+        // por quadro (~2,3 ms) e a GPU fica ociosa entre eles — o M4 baixa o relógio dela em algumas centenas de ms, e todos
+        // os passes ficam ~2,3 × mais lentos por igual (as fases medidas: 0,45/1,28/0,59 → 1,00/3,07/1,32 ms). Medido logo
+        // depois da fase com a camada (limitada pela GPU, no relógio cheio), o sem a camada fica no mesmo relógio; com a
+        // ordem alternada, a fase sem que vinha depois de outra sem saía no relógio baixo e a diferença perdia ~1,6 ms.
+        const order = [true, false];
         const span: Record<string, number> = {};
         for (const has of order) {
             if (has && layer === undefined) insert();
@@ -1126,14 +1214,14 @@ async function cloudCost(
                 s.app.world.remove(layer);
                 layer = undefined;
             }
-            await busyFrames(s.app, 60);
+            await busyFrames(s.app, 60, moveSun);
             // De novo pronto antes de medir (spec 041, R21 rodada 16): a troca da camada vira as flags que compõem os pontos
             // de cena (a sombra no ar, o céu coberto) só no despacho seguinte, e as trocas dos pipelines grandes (o desenho, a
             // injeção dos froxels) começam depois do primeiro `whenReady` — medido no meio delas, o quadro sem a camada
             // saía de 1,7 a 3,5 ms no interior (repetições bimodais).
             await s.app.whenReady({ timeoutMs: 60_000 });
-            await busyFrames(s.app, 30);
-            const t = await passTimes(s.app, 90);
+            await busyFrames(s.app, 30, moveSun);
+            const t = await passTimes(s.app, 90, undefined, moveSun);
             span[has ? 'with' : 'without'] = t.span;
             spreads.push(`${has ? 'com' : 'sem'} ${t.spread}`);
             // A decisão da GPU sobre a atmosfera nos froxels (spec 041, R21): o texel do alcance do último quadro.
@@ -1147,7 +1235,7 @@ async function cloudCost(
                     `${has ? 'com' : 'sem'} ${r[0]!.toExponential(1)} m/${r[1]}/${r[2]} (${channel!.frames} q)`,
                 );
             } else reach.push(`${has ? 'com' : 'sem'} sem canal (${String(channel?.allocated)})`);
-            const all = await passTimes(s.app, 30, /./);
+            const all = await passTimes(s.app, 30, /./, moveSun);
             (has ? allWith : allWithout).push(all.passes);
             if (has) perPass.push(t.passes);
             else froxelsWithout.push(froxelMs(t.passes));
@@ -1183,7 +1271,7 @@ async function cloudCost(
 async function caseInteriorTiming(): Promise<void> {
     // A camada numa cena sem céu visível (SC-005): a câmera numa sala fechada; o custo com − sem a camada, pelo método
     // do bench, no perfil alto.
-    const c = await cloudCost('high', true);
+    const c = await cloudCost('high', { interior: true });
     const d = median(c.diffs);
     log(
         `interior-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; quadros com/sem ${c.withSpan.map((w, k) => `${w.toFixed(2)}/${(w - c.diffs[k]!).toFixed(2)}`).join(' ')}; janelas ${c.spreads}; alcance ${c.reach}; maiores diferenças por passe ${c.deltas}`,
@@ -1196,6 +1284,23 @@ async function caseInteriorTiming(): Promise<void> {
             .join(', ')}`,
     );
     check(d <= 0.3, `interior-timing: nuvens ${d.toFixed(3)} ms > 0,3 ms (SC-005)`);
+}
+
+async function caseInsideTiming(): Promise<void> {
+    // A câmera dentro da nuvem (o corpo do cúmulo, a 1/5 da casca), no perfil alto: o mesmo teto do alto (SC-005).
+    const c = await cloudCost('high', { inside: true });
+    const d = median(c.diffs);
+    log(
+        `inside-timing: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+    );
+    log(
+        `inside-timing: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe: ${Object.entries(
+            c.passes,
+        )
+            .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+            .join(', ')}`,
+    );
+    check(d <= 3, `inside-timing: nuvens ${d.toFixed(3)} ms > 3 ms (SC-005)`);
 }
 
 async function caseSkyTiming(): Promise<void> {
@@ -1267,26 +1372,28 @@ async function caseSkyTiming(): Promise<void> {
 }
 
 async function caseTiming(): Promise<void> {
-    const limits = { high: 3, medium: 2, low: 1.2 } as const;
+    // `high-sun`: o perfil alto com o sol andando (T080: o mapa visto do sol redesenha as páginas com nuvem a cada quadro).
+    const limits = { high: 3, medium: 2, low: 1.2, 'high-sun': 3 } as const;
     const only = new URLSearchParams(location.search).get('profiles');
-    for (const profile of ['high', 'medium', 'low'] as const) {
-        if (only !== null && !only.split('_').includes(profile)) continue;
-        const c = await cloudCost(profile);
+    for (const name of ['high', 'medium', 'low', 'high-sun'] as const) {
+        if (only !== null && !only.split('_').includes(name)) continue;
+        const profile = name === 'high-sun' ? 'high' : name;
+        const c = await cloudCost(profile, { movingSun: name === 'high-sun' });
         const d = median(c.diffs);
-        log(`timing ${profile}: qualidade ${JSON.stringify(c.quality)}`);
+        log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${profile}: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+            `timing ${name}: froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
         );
         log(
-            `timing ${profile}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
+            `timing ${name}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
                 c.passes,
             )
                 .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
                 .join(', ')}`,
         );
         check(
-            d <= limits[profile],
-            `timing ${profile}: nuvens ${d.toFixed(3)} ms > ${limits[profile]} ms (SC-005)`,
+            d <= limits[name],
+            `timing ${name}: nuvens ${d.toFixed(3)} ms > ${limits[name]} ms (SC-005)`,
         );
     }
 }
@@ -3574,6 +3681,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'scatter-cache': caseScatterCache,
     timing: caseTiming,
     'interior-timing': caseInteriorTiming,
+    'inside-timing': caseInsideTiming,
     'sky-timing': caseSkyTiming,
     'pressure-wind': casePressureWind,
     storm: caseStorm,

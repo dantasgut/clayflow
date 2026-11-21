@@ -317,6 +317,27 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       rodada) O `timing` alto das nuvens em 3,05–3,41 ms contra 3 ms (base 2,82): 0,1 ms da sombra das nuvens nos
       froxels e ~0,15 da marcha com os meios perto da câmera medidos; ~0,25 ms não atribuídos (R21, medidas). O
       `interior-timing` com repetições bimodais (mediana 0,03–0,37 ms).
+      **Rodada 2026-11-21 — o método de tempo escondia ~1,6 ms; os tempos reais.** Causa das repetições bimodais: o
+      `busyFrames` do smoke cedia por `setTimeout(0)`, que o navegador leva a 4 ms depois de cinco níveis — a GPU ficava
+      ociosa entre quadros e o M4 baixava o relógio; e o quadro sem a camada (~1,24 ms no alto) fica abaixo do tempo da
+      CPU por quadro (~2,3 ms) mesmo sem o teto: medido longe da fase com a camada, todos os passes saíam ~2,3 × mais
+      lentos por igual (fases 0,45/1,28/0,59 → 1,00/3,07/1,32 ms) e a diferença com − sem perdia ~1,6 ms. Corrigido no
+      smoke: a espera do bench (`frameRetired`) com a cessão por `MessageChannel`, e a fase sem a camada sempre logo
+      depois da com (no mesmo relógio); as repetições ficam estáveis (alto 4,465–4,501). Casos novos: `inside-timing`
+      (a câmera no corpo do cúmulo, ≤ 3 ms) e `timing` `high-sun` (o sol a 1,3°/s entre 2° e 8°, ≤ 3 ms; T080).
+      Medidas (M4, 1280 × 720): `timing` alto **4,49 ms** (> 3), médio **2,90** (> 2), baixo **1,83** (> 1,2),
+      `high-sun` **6,47** (> 3; o sol parado a 5°: 4,75), `interior-timing` **3,03** (> 0,3), `inside-timing` **3,41**
+      (> 3). Os passes de compute rodam em série nesta GPU (a escolha, o filtro e o panorama antes dos caminhos do cache,
+      para tirá-los da cadeia da marcha: 4,48 ms, igual — desfeito), então a soma deles é o custo. Por passe no alto:
+      caminhos do cache **1,52 ms** (vazão: 200 → 50 páginas por quadro, 0,56 ms; teto de colisões 48 → 12, 1,35; → 1,
+      0,82), marcha **1,65** (128 → 64 passos, 1,0), froxels 0,57, panorama 0,36, filtro 0,13, reconstrução 0,13; com o
+      sol andando, o desenho do mapa visto do sol **1,84** (parado, 0,07). O passe que estoura o orçamento do R17 é o dos
+      caminhos do cache de espalhamento (T023, 1,5 ms, depois do R17), que o método antigo não mostrava; no interior
+      ele, o panorama, a composição e a máscara do disco seguem sem céu visível. Em aberto: a peça estrutural — o
+      orçamento dos caminhos do cache e do desenho das páginas do mapa por necessidade e custo (a mudança medida, o
+      sol e o vento desde o caminho; o custo de cada página no registro), e o interior sem os caminhos e o panorama
+      quando nenhum consumidor os lê. `weather-timing` 0,106–0,112 ms > 0,05 também no `64b743b3` (anterior a esta
+      rodada).
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
