@@ -7,6 +7,8 @@ import type {
     EngineCore,
     FrameProfilingGranularity,
     ShaderMessage,
+    UncapturedErrorHandler,
+    UncapturedErrorInfo,
 } from '../contracts/EngineCore';
 import type { DeviceCapabilities, DeviceOptions } from '../contracts/DeviceOptions';
 import type { PlatformAdapter, PresentationSurface } from '../contracts/PlatformAdapter';
@@ -54,6 +56,20 @@ function bufferUsage(spec: BufferSpec): number {
 
 function bufferByteSize(spec: AnyBufferSpec): number {
     return spec.byteSize;
+}
+
+/** O tipo do erro do device no vocabulário dos filtros do escopo (pela classe do erro, quando o ambiente a define). */
+function errorInfoOf(error: GPUError): UncapturedErrorInfo {
+    const is = (name: string): boolean => {
+        const ctor = (globalThis as Record<string, unknown>)[name];
+        return typeof ctor === 'function' && error instanceof (ctor as abstract new () => unknown);
+    };
+    const filter: GPUErrorFilter = is('GPUOutOfMemoryError')
+        ? 'out-of-memory'
+        : is('GPUInternalError')
+          ? 'internal'
+          : 'validation';
+    return { filter, message: error.message };
 }
 
 /**
@@ -157,6 +173,7 @@ export class GpuEngineCore implements EngineCore {
     private profilingUnsupportedWarned = false;
     private currentFrame: GpuFrame | null = null;
     private readonly deviceLostHandlers = new Set<DeviceLostHandler>();
+    private readonly uncapturedErrorHandlers = new Set<UncapturedErrorHandler>();
     /** Submits ainda em execução na GPU; a geração descarta conclusões de um device anterior. */
     private inFlight = 0;
     private inFlightGeneration = 0;
@@ -229,6 +246,7 @@ export class GpuEngineCore implements EngineCore {
         this.profilerSystem.attach(created.device);
         this.warnIfProfilingUnsupported();
         this.watchDeviceLost(created.device);
+        this.watchUncapturedErrors(created.device);
     }
 
     onDeviceLost(handler: DeviceLostHandler): () => void {
@@ -247,6 +265,28 @@ export class GpuEngineCore implements EngineCore {
             });
         }
         await this.initialize(surface ?? this.lastSurface ?? undefined, options);
+    }
+
+    onUncapturedError(handler: UncapturedErrorHandler): () => void {
+        this.uncapturedErrorHandlers.add(handler);
+        return () => {
+            this.uncapturedErrorHandlers.delete(handler);
+        };
+    }
+
+    /**
+     * Os erros que nenhum escopo capturou (`uncapturederror`): a criação de um recurso, uma escrita na fila ou um
+     * quadro gravado sem `captureErrors` — sem quem os ouça, só um aviso do navegador, e o quadro inválido some calado.
+     */
+    private watchUncapturedErrors(device: GPUDevice): void {
+        device.addEventListener('uncapturederror', (event) => {
+            if (this.context?.device !== device) return;
+            this.handleUncapturedError(errorInfoOf(event.error));
+        });
+    }
+
+    protected handleUncapturedError(info: UncapturedErrorInfo): void {
+        for (const handler of this.uncapturedErrorHandlers) handler(info);
     }
 
     private watchDeviceLost(device: GPUDevice): void {

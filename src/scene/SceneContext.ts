@@ -97,6 +97,15 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
     const unsubscribeDeviceLost = core.onDeviceLost((info) => {
         events.emit('deviceLost', { reason: info.reason, message: info.message });
     });
+    // Um erro do device fora de qualquer escopo (a criação de um recurso, uma escrita na fila, o quadro sem
+    // `captureErrors`) vira `engineError` como os do escopo do quadro: sem isso, ele só aparece como aviso do navegador.
+    const unsubscribeUncaptured = core.onUncapturedError((info) => {
+        events.emit('engineError', {
+            stage: 'uncaptured',
+            filter: info.filter,
+            message: info.message,
+        });
+    });
     const unsubscribeFrameRetired = core.onFrameRetired((framesInFlight) => {
         events.emit('frameRetired', { framesInFlight });
     });
@@ -123,6 +132,7 @@ export function createScene(options: CreateSceneOptions = {}): SceneContext {
             executionSystem.dispose();
             resourceSystem.dispose();
             unsubscribeDeviceLost();
+            unsubscribeUncaptured();
             unsubscribeFrameRetired();
             core.shutdown();
         },
