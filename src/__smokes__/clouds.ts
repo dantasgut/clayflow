@@ -11,9 +11,10 @@
 //   - dusk-blocks: o mosaico nas nuvens escuras do pôr do sol, com o sol descendo depressa rente ao horizonte — o degrau
 //     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels, o erro de alta frequência e o atraso da cor
 //     (matiz e brilho) contra a mesma cena parada e convergida;
-//   - timing: o custo por passe das nuvens a 1280 × 720 nos três perfis e no alto com o sol andando no ciclo de dia de
-//     um jogo (`high-sun`, 0,25°/s, T080), com o vento levando as nuvens (`high-wind`, o tempo simulado andando) e, sem
-//     teto, com o sol do lapso de tempo de vídeo (`high-sun-lapse`, 1,3°/s) (`?profiles=high_high-sun`) (SC-005);
+//   - timing: o custo por passe das nuvens a 1280 × 720 nos três perfis e no alto com o sol andando no ritmo real
+//     (`high-sun`, 360° por dia ≈ 0,004°/s, T074); registrados sem teto: o sol no ciclo de dia de um jogo
+//     (`high-sun-fast`, 0,25°/s, T080), o vento levando as nuvens (`high-wind`, o tempo simulado andando, 10 m/s) e o sol
+//     do lapso de tempo de vídeo (`high-sun-lapse`, 1,3°/s) (`?profiles=high_high-sun`) (SC-005);
 //   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
 //     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
 //     contra o mapeamento da referência (SC-010, R19);
@@ -1136,11 +1137,13 @@ async function busyFrames(
 const TIMING_WARMUP = 600;
 const TIMING_REPS = 5;
 /**
- * O sol que anda no caso `timing` (`high-sun`, T080): entre 2° e 8° (o degrau 0,2 do mapa visto do sol), à frente da
- * câmera, no ciclo de dia de um jogo — 24 min por dia, 360° / 1440 s = 0,25°/s; o teto de 3 ms vale nele. O lapso de
- * tempo de vídeo (1,3°/s, `high-sun-lapse`) fica registrado, sem teto.
+ * O sol que anda no caso `timing`: entre 2° e 8° (o degrau 0,2 do mapa visto do sol), à frente da câmera. O teto de 3 ms
+ * vale no ritmo real (`high-sun`, 360° / 86 400 s ≈ 0,004°/s, T074). Ficam registrados, sem teto: o ciclo de dia de um
+ * jogo (`high-sun-fast`, 24 min por dia, 360° / 1440 s = 0,25°/s, T080) e o lapso de tempo de vídeo (1,3°/s,
+ * `high-sun-lapse`) — o teto deles é a tarefa "sol rápido e vento ≤ 3 ms", transferida para a spec de desempenho.
  */
-const TIMING_SUN_RATE = 0.25;
+const TIMING_SUN_RATE = 360 / 86400;
+const TIMING_SUN_FAST_RATE = 0.25;
 const TIMING_SUN_LAPSE_RATE = 1.3;
 /** O tempo simulado por quadro no caso com o vento andando (`high-wind`: o vento de 10 m/s da camada, a 60 Hz). */
 const TIMING_WIND_STEP = 1 / 60;
@@ -1215,9 +1218,10 @@ async function cloudCost(
         profiling: true,
         clouds: false,
         // `?el=`: a elevação do sol (graus; o mapa visto do sol afina o texel à direita com o sol baixo).
-        sunElevation: o.sunRate !== undefined
-            ? TIMING_SUN_BAND[1]
-            : Number(new URLSearchParams(location.search).get('el') ?? 60),
+        sunElevation:
+            o.sunRate !== undefined
+                ? TIMING_SUN_BAND[1]
+                : Number(new URLSearchParams(location.search).get('el') ?? 60),
         ...(interior ? { eye: [0, 1.6, 0] as const } : {}),
         ...(o.inside ? { eye: [ix, insideY, iz] as const } : {}),
         target: interior
@@ -1231,14 +1235,15 @@ async function cloudCost(
     const span = TIMING_SUN_BAND[1] - TIMING_SUN_BAND[0];
     const rate = o.sunRate;
     const dt = o.simulated === true ? TIMING_WIND_STEP : 0;
-    const moveSun = rate !== undefined
-        ? (): void => {
-              const d = (sunFrame++ * rate) / 60;
-              const t = d % (2 * span);
-              const e = TIMING_SUN_BAND[1] - (t <= span ? t : 2 * span - t);
-              s.sun.data.direction = sunTravel(e, 0);
-          }
-        : undefined;
+    const moveSun =
+        rate !== undefined
+            ? (): void => {
+                  const d = (sunFrame++ * rate) / 60;
+                  const t = d % (2 * span);
+                  const e = TIMING_SUN_BAND[1] - (t <= span ? t : 2 * span - t);
+                  s.sun.data.direction = sunTravel(e, 0);
+              }
+            : undefined;
     // O interior (SC-005): uma sala fechada de 10 × 3 × 10 m (seis placas) em volta da câmera — nenhum pixel do céu.
     if (interior)
         for (const [size, at] of [
@@ -1334,18 +1339,24 @@ async function cloudCost(
             if (has && layer !== undefined) {
                 const wb = s.app.resources.bufferOf(layer, 'scatterWork');
                 if (wb !== undefined) {
-                    const words = new Uint32Array((await readBuffer(s.app, wb, 'cloud_scatter_work')).buffer);
+                    const words = new Uint32Array(
+                        (await readBuffer(s.app, wb, 'cloud_scatter_work')).buffer,
+                    );
                     const f = new Float32Array(words.buffer);
                     const sb = s.app.resources.bufferOf(layer, 'shadowWork');
                     const shadowDrawn =
                         sb === undefined
                             ? -1
-                            : new Uint32Array((await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer)[0]!;
+                            : new Uint32Array(
+                                  (await readBuffer(s.app, sb, 'cloud_shadow_work')).buffer,
+                              )[0]!;
                     // O volume de τ até o sol (T074): as páginas desenhadas no quadro e as que valem na leitura (o cone, o resto).
                     const vb = s.app.resources.bufferOf(layer, 'sunVolumeWork');
                     let volume = '-';
                     if (vb !== undefined) {
-                        const v = new Uint32Array((await readBuffer(s.app, vb, 'cloud_sun_volume_work')).buffer);
+                        const v = new Uint32Array(
+                            (await readBuffer(s.app, vb, 'cloud_sun_volume_work')).buffer,
+                        );
                         const bits = (from: number): number => {
                             let n = 0;
                             for (let k = from; k < from + CLOUD_SUN_VOLUME_VALID_WORDS; k++)
@@ -1497,23 +1508,35 @@ async function caseSkyTiming(): Promise<void> {
 }
 
 async function caseTiming(): Promise<void> {
-    // `high-sun`: o perfil alto com o sol andando no ciclo de dia de um jogo (0,25°/s; T080: o mapa visto do sol e o cache
-    // de espalhamento refeitos pela mudança); `high-wind`: com o tempo simulado andando (o vento de 10 m/s leva as
-    // nuvens); `high-sun-lapse`: o sol a 1,3°/s (lapso de tempo de vídeo), registrado, sem teto.
+    // `high-sun`: o perfil alto com o sol andando no ritmo real (≈ 0,004°/s; o mapa visto do sol e o cache de
+    // espalhamento refeitos pela mudança), teto de 3 ms. Registrados sem teto (a tarefa "sol rápido e vento ≤ 3 ms",
+    // transferida para a spec de desempenho): `high-sun-fast`, o sol no ciclo de dia de um jogo (0,25°/s, T080);
+    // `high-wind`, o tempo simulado andando (o vento de 10 m/s leva as nuvens); `high-sun-lapse`, o sol a 1,3°/s (lapso
+    // de tempo de vídeo).
     const limits = {
         high: 3,
         medium: 2,
         low: 1.2,
         'high-sun': 3,
-        'high-wind': 3,
+        'high-sun-fast': Infinity,
+        'high-wind': Infinity,
         'high-sun-lapse': Infinity,
     } as const;
     const only = new URLSearchParams(location.search).get('profiles');
-    for (const name of ['high', 'medium', 'low', 'high-sun', 'high-wind', 'high-sun-lapse'] as const) {
+    for (const name of [
+        'high',
+        'medium',
+        'low',
+        'high-sun',
+        'high-sun-fast',
+        'high-wind',
+        'high-sun-lapse',
+    ] as const) {
         if (only !== null && !only.split('_').includes(name)) continue;
         const profile = name === 'medium' || name === 'low' ? name : 'high';
         const c = await cloudCost(profile, {
             ...(name === 'high-sun' ? { sunRate: TIMING_SUN_RATE } : {}),
+            ...(name === 'high-sun-fast' ? { sunRate: TIMING_SUN_FAST_RATE } : {}),
             ...(name === 'high-sun-lapse' ? { sunRate: TIMING_SUN_LAPSE_RATE } : {}),
             ...(name === 'high-wind' ? { simulated: true } : {}),
         });

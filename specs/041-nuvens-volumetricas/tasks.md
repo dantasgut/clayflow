@@ -531,6 +531,25 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       2,4 %, `far-cloud` 2,7 %, `beam-gap` +3,0 px, `scatter-cache` 0,965, `panorama`, `sun-sweep` 0,005, `shadow-map` 0,020,
       `ground-shadow` 0,010, `wind` e `fly-through` passam; vitest de media/clouds passa. **Em aberto na T074: `high-sun` e
       `high-wind`**, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.
+      **Fechamento (2026-11-21, escolha do usuário "Fechar a 041") — o critério do sol andando.** No caso `timing` o teto de
+      3 ms do `high-sun` passa a valer com o sol no ritmo real (360° por dia, ≈ 0,004°/s, entre 8° e 2°); o sol do ciclo de
+      jogo (`high-sun-fast`, 0,25°/s) e o vento de 10 m/s (`high-wind`) ficam medidos e registrados, sem teto — o teto deles
+      vai para a T082, transferida para a próxima spec de desempenho. Medidas (M4, 1280 × 720, a GPU fria, cada caso
+      sozinho): médio **0,544 ms** ✓ (−0,29…0,93); `interior-timing` **0,317 / 0,383 / 0,200 ms** em três execuções
+      seguidas (repetições −0,74…1,35: a diferença com − sem fica no ruído do relógio) — ✗ em duas de três contra 0,3. Os
+      passes da camada que rodam na sala fechada sem nenhum pixel de céu: `CloudLightFlow` ~0,46 ms somados (a escolha e o
+      desenho do mapa visto do sol 0,064 + 0,068 com 0 páginas desenhadas, as chaves e a escolha do volume de τ 0,038 +
+      0,040, o filtro do cache 0,058, a escolha da cobertura 0,045), `CloudFlow` ~0,16 (o aumento 0,053, o `check` 0,035, a
+      reconstrução 0,027, a marcha 0,041) e a tabela aérea +0,11 com a camada; maiores diferenças por passe medidas:
+      `sky_aerial` +0,108, `shadowSelect` +0,093, `shadow` +0,089. Rodados em seguida: `high-sun` no ritmo real **4,18 ms**
+      ✗ (4,17–4,44; o mapa visto do sol **1,61** com ~100 páginas desenhadas por quadro — o mesmo número do sol a
+      0,25°/s —, a marcha 1,39, froxels 0,57, `FroxelReachFlow` 0,30, tabela aérea 0,26): com o sol baixo, a tolerância de
+      1/255 por texel e as colunas de 15–120 km, 1,2·10⁻⁶ rad por quadro desloca a ponta do trecho 2–15 cm e o erro
+      previsto passa da tolerância em poucos quadros — o mapa é refeito a ~1/16 das páginas por quadro mesmo no ritmo
+      real; `high-sun-fast` **4,76** (o mapa 1,48, a marcha 1,49, os caminhos 0,57, froxels 0,56, tabela aérea 0,28) e
+      `high-wind` **3,21** (a marcha 1,35, os caminhos 0,57, o mapa 0,26), registrados. **Em aberto na T074: o `high-sun`
+      no ritmo real (o mapa visto do sol), o `interior-timing` (os passes fixos da camada sem céu), o degrau do
+      `dusk-blocks` ≤ 1,02 e a margem do matiz.**
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21
@@ -619,6 +638,22 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       contexto do Dawn, `- While …`). Conferido com uma página descartável (cópia fora do tamanho do buffer, sem
       `captureErrors`): 2 `engineError` e o smoke reprovado. Nos casos rodados nesta tarefa, nenhum erro sem
       escopo.
+
+- [ ] T082 [GPU] **Transferida para a próxima spec de desempenho** — sol rápido e vento ≤ 3 ms no perfil alto
+      (`high-sun-fast`, o sol a 0,25°/s do ciclo de dia de um jogo, e `high-wind`, o vento de 10 m/s; hoje sem teto no caso
+      `timing`, T074). Medidas de partida (M4, 1280 × 720, `596fb6e5`): `high-sun-fast` **4,76 ms** — o mapa visto do sol
+      1,44, a marcha 1,49, os caminhos do cache 0,57, froxels 0,56, tabela aérea 0,28; `high-wind` **3,27** — a marcha 1,36,
+      os caminhos 0,57, o mapa 0,27 (no fechamento: 4,76 e 3,21). Já tentado e desfeito (R7/R8/R11 da T074 no research.md):
+      rodada e — a luz de nível de detalhe pela transmitância (sem ganho, o grupo SIMD paga o mais caro), a marcha em dois
+      laços (igual), o despacho em ladrilhos 8 × 8 (−0,04), mais passos finos depois da nuvem (−0,12/−0,23 ms, `sunset`
+      4,4/4,9 %), o desenho do mapa em quatro fases entrelaçadas (degrau do `dusk-blocks` 1,049), a cauda do caminho do cache
+      pelo próprio cache (−0,07); rodada f — os níveis de detalhe do volume da forma na luz (medidos, não cortam amostras);
+      rodada g — o mapa visto do sol por coluna com a previsão por texel (com o sol a 0,25°/s todas as colunas passam da
+      metade da tolerância a cada quadro) e os caminhos do cache continuados entre quadros (0,57 → 0,35 ms, `high-wind` 3,06,
+      mas o degrau do `dusk-blocks` 1,028–1,034 e o matiz 0,061; `scratchpad/t074g/continued-paths.diff`). O que falta é
+      estrutural: o mapa com o sol andando mudando o que se guarda (a reprojeção das colunas pelo deslocamento de cada trecho
+      ou o mapa pré-filtrado) ou a tolerância pela tela com o antisserrilhado temporal; os caminhos continuados sem o atraso
+      da luz das sondas.
 
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
