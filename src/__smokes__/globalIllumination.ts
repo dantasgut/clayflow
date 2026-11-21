@@ -1269,7 +1269,10 @@ async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('case');
     for (const [name, run] of Object.entries(CASES)) {
         if (only !== null && only !== name) continue;
+        const t0 = performance.now();
         await run();
+        // O tempo de cada caso (o smoke inteiro passa perto do teto do executor: onde ele cresce).
+        log(`${name}: caso em ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     }
     failures.push(...new Set(engineErrors));
     if (failures.length > 0) log(`FAIL: ${failures.join(' | ')}`);

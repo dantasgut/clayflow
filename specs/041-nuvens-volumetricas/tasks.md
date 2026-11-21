@@ -14,7 +14,8 @@ shader que eles validam.
 **Regras para toda tarefa**: Resource + evento + Flow, sem helpers, sem `core.create` em Flow; C3/C4 só pela C2; cada
 símbolo WGSL uma vez; nada na CPU (volumes e mapas escritos por kernel); estado entre quadros só pelo canal temporal da
 037; laço de GPU com teto constante; produção não importa `reference/`; nenhuma imagem de nuvem no lugar da física;
-smokes um de cada vez (`--headless --timeout 400`, 600 no `globalIllumination`, porta 5181; vídeo na 5184).
+smokes um de cada vez (`--headless --timeout 400`, 900 no `globalIllumination` — medido na T081: 492 s no ramo, 412 no
+`develop`, e as referências da CPU dele variam 2,7× com a máquina —, porta 5181; vídeo na 5184).
 
 **Regras para toda tarefa de GPU** (marcadas **[GPU]**):
 
@@ -367,6 +368,43 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       (≤ 3 %), grade 1,9 → 0,6–1,2 % (parada 0,26), matiz contra a cena parada 0,95 → 0,018 (critério novo ≤ 0,05).
       Casos: sunset 3,6 %, noon 1,3 %, backlit 4,0 %, types 2,0/1,7/1,5 %, storm 2,4 %, beam-gap +3,0 px, timing alto
       2,76 ms. Aberto: o brilho do cache de espalhamento com o sol andando (3).
+
+- [x] T081 [GPU] As regressões do gate da rodada 16 (2026-11-20, `r16all`), uma por vez, medidas contra o
+      `develop` numa árvore própria (`npm ci` próprio, removida ao fim). (1) `fog-in-front` 6,5 %: determinístico
+      e sem depender dos casos de antes (sozinho, 6,53 % também no `eb1804f4`). Bisseção pelo mesmo caso:
+      antes da R21 0,05–0,08 % (rodada 15) → `35879b61` (a atmosfera como meio dos froxels) 2,24 % → `eb1804f4` (raios rodada 16)
+      6,53 % (o bloco 13, 18; aos 400 quadros ainda 4,2 %: não é só convergência) → `c03e0755` 2,50 % → `eeb10d4b`
+      (a reconstrução das nuvens reprojetada sem o deslocamento do AA temporal) 0,62 % → `c54938dd` (o raio da
+      marcha sem ele) 0,31 %. Já corrigido no ramo; com as peças abaixo, 0,29 % aos 180 quadros e 0,27 % aos 400.
+      (2) O tempo da névoa: o passe mais caro é a injeção dos froxels — a atmosfera como meio deles (`35879b61`,
+      R21) na cena da janela (que tem `Sky`). Na mesma página com os kernels trocados (o relógio da GPU muda entre
+      execuções; o A/B intercalado entre árvores deu develop 0,82/1,16/1,66 contra o ramo 0,85/1,08/3,21 e não
+      separa 0,2 ms): kernels do develop 0,62–0,64 ms, do ramo 0,85–0,88; a injeção antiga sozinha 0,65–0,70, a
+      integração antiga −0,03; sem a sombra do terreno no ar −0,12, sem a das nuvens/névoa no ar −0,03. Corrigido
+      o trabalho repetido (`aff4a497`): dentro da névoa o `light_visibility` do sol era lido duas vezes no mesmo
+      ponto — `SceneMedium` devolve a fonte e a visibilidade que o meio leu e o laço das luzes a reusa; a
+      integração tira e^(−σΔ) do produto das transmitâncias já calculadas. 0,85/0,85/0,88 → 0,79/0,79/0,83 ms; o
+      resto (~0,17 ms) é a atmosfera nos froxels que o R21 decidiu (~0,3 ms previstos). O `timing` passa a tomar a
+      mediana de três rodadas (com o máximo de duas, uma rodada lenta reprovava sozinha: 0,99 contra 0,79 na mesma
+      página): 0,86 ms ≤ 1,05; os casos de imagem do `fog` iguais. (3) GI: o tempo esgotado (600 s, no último
+      caso) não é custo novo nas sondas: o `globalIllumination` inteiro com o tempo de cada caso (registro novo no
+      smoke), um por vez — `develop` 412 s, ramo 492 s. Os kernels da GI iguais (alto 21,4 → 20,8 ms, médio 6,3 →
+      5,9, baixo 3,8 → 3,8: nuvens e céu nas sondas não pesam). Dos +80 s: as referências da CPU (código igual)
+      +38 s — o mesmo `cornell` mede 16,6–41 s entre execuções; na rodada 16, a `window` 104 s contra 39 hoje, e
+      as sondas do `budget` 551 contra 391 ms (a máquina 1,5–2,7× mais lenta: o tempo passou de 600 no último
+      caso, `furnace`, de 6 s); o `budget` +23 s e as cenas com `Sky` (`window`, `skyfloor`) +8 s cada, pelo céu
+      da 041 no desenho (o desenho sem GI do `budget`, 11×, 54 → 72 ms: +1,6 ms por desenho a 1280 × 720 com o ar
+      nos froxels e a perspectiva aérea; a parte da GI por pixel 0–0,7 → 1,2–2,1 ms) — custo da perspectiva aérea
+      a conferir na T043 (`bench:check` nas cenas com `Sky`). O teto do executor passa a 900 s para este smoke
+      (medido: 492 s com a máquina normal). (4) O erro de validação engolido (R20, "o erro de validação do passe
+      não chega ao `engineError`"): sem `captureErrors` (o padrão: o gravador do claflow-web, as apps), o quadro
+      inválido e os erros de criação e de escrita iam ao `uncapturederror` do device, que ninguém ouvia — o Chrome
+      os escrevia como aviso e o executor só olhava os erros. Corrigido (`2b78dcb5`): o core ouve
+      `uncapturederror` (`EngineCore.onUncapturedError`), a cena o emite como `engineError` (`stage:
+      'uncaptured'`), e o executor dos smokes reprova a página que escreve um erro do WebGPU (o aviso com o
+      contexto do Dawn, `- While …`). Conferido com uma página descartável (cópia fora do tamanho do buffer, sem
+      `captureErrors`): 2 `engineError` e o smoke reprovado. Nos casos rodados nesta tarefa, nenhum erro sem
+      escopo.
 
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 
