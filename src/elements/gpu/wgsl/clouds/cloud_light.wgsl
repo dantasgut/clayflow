@@ -14,8 +14,8 @@
 
 const CLOUD_MAX_STEPS: u32 = 128u;
 const CLOUD_MAX_LIGHT_STEPS: u32 = 6u;
-/** Passos do pedaço do trecho do mapa visto do sol entre o fim do cone e o nó do lado do sol. */
-const CLOUD_SHADOW_PARTIAL_STEPS: u32 = 4u;
+/** Passos do pedaço do trecho do mapa visto do sol entre o fim do cone e o meio nó do lado do sol. */
+const CLOUD_SHADOW_PARTIAL_STEPS: u32 = 2u;
 const CLOUD_MAX_OCTAVES: u32 = 3u;
 /** Amostras vazias seguidas que devolvem a marcha à velocidade grossa. */
 const CLOUD_EMPTY_TO_COARSE: u32 = 6u;
@@ -30,10 +30,11 @@ struct CloudSample {
 }
 
 /**
- * Profundidade ótica da nuvem de `p` até o sol: o cone curto; do fim dele, o pedaço do trecho do mapa até o nó do lado
- * do sol, integrado aqui (`CLOUD_SHADOW_PARTIAL_STEPS` passos); e o nó, lido do mapa (a integral da coluna da entrada
- * da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região contra τ exato): 16 nós com a marcha do
- * pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %.
+ * Profundidade ótica da nuvem de `p` até o sol: o cone curto; do fim dele, o pedaço do trecho do mapa até o meio nó do
+ * lado do sol (os 16 nós e os do meio dos trechos, T074), integrado aqui (`CLOUD_SHADOW_PARTIAL_STEPS` passos); e o meio
+ * nó, lido do mapa (a integral da coluna da entrada da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região
+ * contra τ exato): 16 nós com a marcha do pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %. O
+ * pedaço até o meio nó em 2 passos erra em τ 1,70 % contra 2,34 % do até o nó inteiro em 4 (`cloudShadowPages.test.ts`).
  */
 fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     let sun = sky.sunDirection.xyz;
@@ -50,15 +51,18 @@ fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     let q = p + sun * t;
     let c = cloud_shadow_column(q);
     if (c.len <= 0.0) { return tau * clouds.layer.z; }
-    let k = u32(floor(c.knot));
-    // O perfil escolhe menos passos de luz; o pedaço segue: 4 no alto (6 de cone), 3 no médio, 2 no baixo.
-    let m = clamp(n, 4u, 6u) - 2u;
-    let dt = (c.knot - f32(k)) / 16.0 * c.len / f32(m);
+    // O meio nó do lado do sol (T074: os nós da coluna e os do meio dos trechos): o pedaço tem no máximo meio trecho, e
+    // metade das amostras de antes o percorre com o mesmo espaçamento.
+    let kh = 2.0 * c.knot;
+    let h = u32(floor(kh));
+    // O perfil escolhe menos passos de luz; o pedaço segue: 2 no alto (6 de cone) e no médio, 1 no baixo.
+    let m = max((clamp(n, 4u, 6u) - 1u) / 2u, 1u);
+    let dt = (kh - f32(h)) / (2.0 * CLOUD_SHADOW_LOOKUP_KNOTS) * c.len / f32(m);
     for (var i = 0u; i < CLOUD_SHADOW_PARTIAL_STEPS; i++) {
         if (i >= m) { break; }
         tau += cloud_density(q + sun * ((f32(i) + 0.5) * dt), true) * dt;
     }
-    return tau * clouds.layer.z + cloud_shadow_knot(c, k);
+    return tau * clouds.layer.z + cloud_shadow_half_knot(c, h);
 }
 
 /**

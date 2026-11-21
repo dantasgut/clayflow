@@ -58,6 +58,9 @@ import {
     shadowComb,
     shadowCombPart,
     shadowCombSplit,
+    CLOUD_SHADOW_COMB_KNOTS,
+    shadowHalfKnotAt,
+    shadowPartialSteps,
 } from '../cloudShadowPages';
 
 const rad = Math.PI / 180;
@@ -834,5 +837,65 @@ describe('mapa visto do sol: a coluna repartida entre invocações (T074)', () =
         for (let k = 1; k < CLOUD_SHADOW_KNOTS; k++)
             expect(knots[k]!).toBeGreaterThanOrEqual(knots[k - 1]! - 1e-12);
         expect(Math.abs(knots[15]! - 20) / 20).toBeLessThan(0.1);
+    });
+});
+
+describe('mapa visto do sol: os nós do meio dos trechos (T074)', () => {
+    it('cada nó do pente tem um lugar só no atlas, e os nós da coluna ficam nas camadas 0…3 como antes', () => {
+        // Act
+        const places = Array.from({ length: CLOUD_SHADOW_COMB_KNOTS }, (_, i) =>
+            shadowHalfKnotAt(i + 1),
+        );
+        // Assert
+        expect(new Set(places.map(([l, c]) => l * 4 + c)).size).toBe(CLOUD_SHADOW_COMB_KNOTS);
+        for (let j = 1; j <= CLOUD_SHADOW_KNOTS; j++)
+            expect(shadowHalfKnotAt(2 * j)).toEqual([Math.floor((j - 1) / 4), (j - 1) % 4]);
+        for (const [l] of places) expect(l).toBeLessThan(8);
+    });
+
+    it('o pedaço até o meio nó com a metade dos passos erra o mesmo que o pedaço até o nó inteiro (f64, sol a 4°)', () => {
+        // Arrange: a coluna de 36 km do sol a 4°, cúmulos de 300–900 m (a extinção da camada); pontos ao longo dela.
+        const len = 36_000;
+        const extinction = (s: number): number => {
+            const u = Math.sin((s * Math.PI) / 610) * Math.sin((s * Math.PI) / 2300 + 1);
+            return u > 0.2 ? 0.03 * (u - 0.2) : 0;
+        };
+        const integral = (a: number, b: number): number => {
+            const n = Math.max(1, Math.ceil((b - a) / 2));
+            let t = 0;
+            for (let i = 0; i < n; i++)
+                t += extinction(a + ((i + 0.5) * (b - a)) / n) * ((b - a) / n);
+            return t;
+        };
+        // O pedaço de `q` (a `x` m da entrada) até o nó `k` de `nodes` do lado do sol em `m` passos, mais o nó exato.
+        const tau = (x: number, nodes: number, m: number): number => {
+            const knot = (x / len) * nodes;
+            const k = Math.floor(knot);
+            const dt = (((knot - k) / nodes) * len) / m;
+            let t = integral(0, (k / nodes) * len);
+            for (let i = 0; i < m; i++) t += extinction(x - (i + 0.5) * dt) * dt;
+            return t;
+        };
+        const m = 4;
+        const half = shadowPartialSteps(6);
+        // Act
+        let errWhole = 0;
+        let errHalf = 0;
+        let n = 0;
+        for (let x = 500; x < len; x += 37) {
+            const exact = integral(0, x);
+            if (exact < 0.05) continue;
+            errWhole += Math.abs(tau(x, CLOUD_SHADOW_KNOTS, m) - exact) / exact;
+            errHalf += Math.abs(tau(x, CLOUD_SHADOW_COMB_KNOTS, half) - exact) / exact;
+            n++;
+        }
+        // Assert: 2 passos no alto, e o erro médio relativo de τ no máximo o de antes (o mesmo espaçamento).
+        expect(half).toBe(2);
+        expect(shadowPartialSteps(5)).toBe(2);
+        expect(shadowPartialSteps(4)).toBe(1);
+        console.log(
+            `o pedaço do mapa: erro médio de τ até o nó inteiro em ${m} passos ${((errWhole / n) * 100).toFixed(2)} %, até o meio nó em ${half} ${((errHalf / n) * 100).toFixed(2)} % (${n} pontos)`,
+        );
+        expect(errHalf / n).toBeLessThanOrEqual((errWhole / n) * 1.05);
     });
 });

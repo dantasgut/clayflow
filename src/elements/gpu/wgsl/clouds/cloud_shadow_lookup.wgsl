@@ -12,6 +12,8 @@
 // Requer: cloud_common, cloud_shadow_pages, clouds, cloud_shadow_tex, cloud_clamp_sampler, cloud_shadow_records.
 
 const CLOUD_SHADOW_LOOKUP_KNOTS: f32 = 16.0;
+/** As camadas do atlas: as 4 dos nós da coluna e as 4 dos nós do meio dos trechos (T074). */
+const CLOUD_SHADOW_ATLAS_LAYERS: f32 = 8.0;
 
 /**
  * A página de um ponto num nível de um degrau: a física, a global, o sol com que foi desenhada e a razão do texel à
@@ -144,8 +146,29 @@ fn cloud_shadow_column(p: vec3f) -> CloudShadowColumnAt {
 fn cloud_shadow_knot_uv(uv: vec2f, k: u32) -> f32 {
     if (k == 0u) { return 0.0; }
     let j = min(k, 16u) - 1u;
-    let layer = (f32(j / 4u) + 0.5) * 0.25;
+    let layer = (f32(j / 4u) + 0.5) / CLOUD_SHADOW_ATLAS_LAYERS;
     return textureSampleLevel(cloud_shadow_tex, cloud_clamp_sampler, vec3f(uv, layer), 0.0)[j % 4u];
+}
+
+/**
+ * O meio nó `h` (0…32: o par é o nó `h/2` da coluna, o ímpar o do meio do trecho entre os nós `(h − 1)/2` e `(h + 1)/2`,
+ * nas camadas 4…7) num ponto normalizado do atlas (T074).
+ */
+fn cloud_shadow_half_knot_uv(uv: vec2f, h: u32) -> f32 {
+    if ((h & 1u) == 0u) { return cloud_shadow_knot_uv(uv, h / 2u); }
+    let j = min((h - 1u) / 2u, 15u);
+    let layer = (f32(4u + j / 4u) + 0.5) / CLOUD_SHADOW_ATLAS_LAYERS;
+    return textureSampleLevel(cloud_shadow_tex, cloud_clamp_sampler, vec3f(uv, layer), 0.0)[j % 4u];
+}
+
+/** O meio nó `h` (0…32) na coluna `c`: nos dois níveis e, na troca de degrau, nos dois mapas. */
+fn cloud_shadow_half_knot(c: CloudShadowColumnAt, h: u32) -> f32 {
+    var v = cloud_shadow_half_knot_uv(c.a, h);
+    if (c.blend > 0.0) { v = mix(v, cloud_shadow_half_knot_uv(c.b, h), c.blend); }
+    if (c.other <= 0.0) { return v; }
+    var w = cloud_shadow_half_knot_uv(c.c, h);
+    if (c.blend > 0.0) { w = mix(w, cloud_shadow_half_knot_uv(c.d, h), c.blend); }
+    return mix(v, w, c.other);
 }
 
 /** O nó `k` (0…16) nos dois níveis da mistura (os pontos `a`, `b` do atlas, o peso `blend` do segundo). */
@@ -227,7 +250,7 @@ const CLOUD_SHADOW_BLOCKER_PRIOR: f32 = 0.1;
 fn cloud_shadow_layers(uv: vec2f) -> array<vec4f, 4> {
     var v: array<vec4f, 4>;
     for (var l = 0u; l < 4u; l++) {
-        v[l] = textureSampleLevel(cloud_shadow_tex, cloud_clamp_sampler, vec3f(uv, (f32(l) + 0.5) * 0.25), 0.0);
+        v[l] = textureSampleLevel(cloud_shadow_tex, cloud_clamp_sampler, vec3f(uv, (f32(l) + 0.5) / CLOUD_SHADOW_ATLAS_LAYERS), 0.0);
     }
     return v;
 }
