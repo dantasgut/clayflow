@@ -28,11 +28,10 @@ struct CloudSample {
 }
 
 /**
- * Profundidade ótica da nuvem de `p` até o sol: o cone curto; do fim dele, o pedaço do trecho do mapa até o meio nó do
- * lado do sol (os 16 nós e os do meio dos trechos, T074), integrado aqui (`CLOUD_SHADOW_PARTIAL_STEPS` passos); e o meio
- * nó, lido do mapa (a integral da coluna da entrada da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região
- * contra τ exato): 16 nós com a marcha do pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %. O
- * pedaço até o meio nó em 2 passos erra em τ 1,70 % contra 2,34 % do até o nó inteiro em 4 (`cloudShadowPages.test.ts`).
+ * Profundidade ótica da nuvem de `p` até o sol: o cone curto; do fim dele, o pedaço do trecho do mapa até o nó do lado
+ * do sol, integrado aqui (`CLOUD_SHADOW_PARTIAL_STEPS` passos, `cloud_sun_rest`); e o nó, lido do mapa (a integral da
+ * coluna da entrada da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região contra τ exato): 16 nós com a
+ * marcha do pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %.
  * Perto da câmera (T074), o cone além da primeira amostra pelo volume de τ até o sol (`cloud_sun_volume_at`: os nós a
  * 50 m, refeitos pela mudança medida), onde a página dele vale e os passos são os do volume (os da marcha do perfil): em
  * f64, 2,4–3,0 % de erro no τ do cone contra 3,7 % das 6 amostras (`cloudSunVolume.test.ts`), com uma amostra da

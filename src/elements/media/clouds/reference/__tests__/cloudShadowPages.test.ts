@@ -58,8 +58,6 @@ import {
     shadowComb,
     shadowCombPart,
     shadowCombSplit,
-    CLOUD_SHADOW_COMB_KNOTS,
-    shadowHalfKnotAt,
     shadowPartialSteps,
 } from '../cloudShadowPages';
 
@@ -840,20 +838,8 @@ describe('mapa visto do sol: a coluna repartida entre invocações (T074)', () =
     });
 });
 
-describe('mapa visto do sol: os nós do meio dos trechos (T074)', () => {
-    it('cada nó do pente tem um lugar só no atlas, e os nós da coluna ficam nas camadas 0…3 como antes', () => {
-        // Act
-        const places = Array.from({ length: CLOUD_SHADOW_COMB_KNOTS }, (_, i) =>
-            shadowHalfKnotAt(i + 1),
-        );
-        // Assert
-        expect(new Set(places.map(([l, c]) => l * 4 + c)).size).toBe(CLOUD_SHADOW_COMB_KNOTS);
-        for (let j = 1; j <= CLOUD_SHADOW_KNOTS; j++)
-            expect(shadowHalfKnotAt(2 * j)).toEqual([Math.floor((j - 1) / 4), (j - 1) % 4]);
-        for (const [l] of places) expect(l).toBeLessThan(8);
-    });
-
-    it('o pedaço até o meio nó com a metade dos passos erra o mesmo que o pedaço até o nó inteiro (f64, sol a 4°)', () => {
+describe('mapa visto do sol: o pedaço marchado até o nó (T074)', () => {
+    it('o pedaço até o nó do lado do sol nos passos do perfil, contra o até o meio nó (f64, sol a 4°)', () => {
         // Arrange: a coluna de 36 km do sol a 4°, cúmulos de 300–900 m (a extinção da camada); pontos ao longo dela.
         const len = 36_000;
         const extinction = (s: number): number => {
@@ -876,8 +862,8 @@ describe('mapa visto do sol: os nós do meio dos trechos (T074)', () => {
             for (let i = 0; i < m; i++) t += extinction(x - (i + 0.5) * dt) * dt;
             return t;
         };
-        const m = 4;
-        const half = shadowPartialSteps(6);
+        const m = shadowPartialSteps(6);
+        const half = 2;
         // Act
         let errWhole = 0;
         let errHalf = 0;
@@ -886,11 +872,12 @@ describe('mapa visto do sol: os nós do meio dos trechos (T074)', () => {
             const exact = integral(0, x);
             if (exact < 0.05) continue;
             errWhole += Math.abs(tau(x, CLOUD_SHADOW_KNOTS, m) - exact) / exact;
-            errHalf += Math.abs(tau(x, CLOUD_SHADOW_COMB_KNOTS, half) - exact) / exact;
+            errHalf += Math.abs(tau(x, 2 * CLOUD_SHADOW_KNOTS, half) - exact) / exact;
             n++;
         }
-        // Assert: 2 passos no alto, e o erro médio relativo de τ no máximo o de antes (o mesmo espaçamento).
-        expect(half).toBe(2);
+        // Assert: 3 passos no alto, 2 no médio, 1 no baixo; numa coluna só, o meio nó em 2 passos erra o τ no máximo o
+        // mesmo — o que a GPU mediu contra ele é o mapa filtrado entre colunas (o `sunset`), que esta coluna não tem.
+        expect(m).toBe(3);
         expect(shadowPartialSteps(5)).toBe(2);
         expect(shadowPartialSteps(4)).toBe(1);
         console.log(

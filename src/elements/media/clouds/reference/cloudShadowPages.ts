@@ -890,27 +890,12 @@ export function shadowCombSplit(
     return out;
 }
 
-/** Os nós do pente de uma coluna: os da coluna e os do meio de cada trecho entre eles (`CLOUD_SHADOW_COMB_KNOTS`). */
-export const CLOUD_SHADOW_COMB_KNOTS = 2 * CLOUD_SHADOW_KNOTS;
-
 /**
- * Onde o atlas guarda o nó `n` (1…32) do pente (espelho de `cloud_shadow_store_column` e `cloud_shadow_half_knot_uv`,
- * T074): o par `2j` é o nó `j` da coluna (a camada `(j − 1)/4`, o canal `(j − 1) mod 4`); o ímpar `2j + 1`, o do meio do
- * trecho entre os nós `j` e `j + 1` (a camada `4 + j/4`, o canal `j mod 4`). Devolve a camada e o canal.
- */
-export function shadowHalfKnotAt(n: number): [number, number] {
-    if (n % 2 === 0) {
-        const j = n / 2 - 1;
-        return [Math.floor(j / 4), j % 4];
-    }
-    const j = (n - 1) / 2;
-    return [4 + Math.floor(j / 4), j % 4];
-}
-
-/**
- * Os passos do pedaço até o meio nó do lado do sol pelos passos de luz do perfil (espelho de `cloud_sun_depth`): 2 no
- * alto (6) e no médio (5), 1 no baixo (4) — a metade dos de antes até o nó inteiro, com o mesmo espaçamento.
+ * Os passos do pedaço até o nó do lado do sol pelos passos de luz do perfil (espelho de `cloud_sun_rest`): 3 no alto (6),
+ * 2 no médio (5), 1 no baixo (4). Até o meio nó (os nós do meio dos trechos no atlas, T074 rodada e) em 2 passos o τ em f64
+ * errava 1,70 % contra 2,34 % numa coluna só, mas o resto vinha mais do mapa filtrado entre colunas: o `sunset` na GPU ia
+ * a 4,0 % (até o nó inteiro em 4 passos, 3,7; em 3, 3,6) — desfeito.
  */
 export function shadowPartialSteps(lightSteps: number): number {
-    return Math.max(Math.floor((Math.min(Math.max(lightSteps, 4), 6) - 1) / 2), 1);
+    return Math.min(Math.max(lightSteps, 4), 6) - 3;
 }

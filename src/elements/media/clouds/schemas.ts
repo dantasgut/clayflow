@@ -73,11 +73,8 @@ export const CLOUD_SHAPE_SIZE = 128;
 export const CLOUD_DETAIL_SIZE = 32;
 /** Nós de profundidade ótica por coluna do mapa visto do sol (R11; 4 por camada do volume). */
 export const CLOUD_SHADOW_KNOTS = 16;
-/**
- * As camadas do atlas do mapa visto do sol (T074): 4 com os nós da coluna (4 por camada) e 4 com os nós do meio de cada
- * trecho entre eles — a marcha integra ela mesma só o pedaço até o meio nó do lado do sol.
- */
-export const CLOUD_SHADOW_ATLAS_LAYERS = 8;
+/** As camadas do atlas do mapa visto do sol: os nós da coluna, 4 por camada. */
+export const CLOUD_SHADOW_ATLAS_LAYERS = CLOUD_SHADOW_KNOTS / 4;
 
 // O mapa visto do sol por páginas (R11 revisto; `cloud_shadow_pages.wgsl`, `reference/cloudShadowPages.ts`).
 /** Texels por lado do interior de uma página. */

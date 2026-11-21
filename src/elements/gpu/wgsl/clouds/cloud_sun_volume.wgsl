@@ -1,7 +1,7 @@
 // O volume de τ até o sol perto da câmera (spec 041, T074): as filas das páginas, a escolha do quadro e o desenho. Cada
 // nó guarda (r) a profundidade ótica do trecho de `clouds.sunVolume.y` m dele para o sol — a parte do cone curto da luz
 // além da primeira amostra (`cloud_sun_depth`), a densidade com o detalhe no meio de `CLOUD_SUN_VOLUME_SAMPLES` partes
-// iguais — e (g) o resto da luz do fim do trecho (`cloud_sun_rest`: o pedaço até o meio nó e o nó do mapa visto do sol,
+// iguais — e (g) o resto da luz do fim do trecho (`cloud_sun_rest`: o pedaço até o nó e o nó do mapa visto do sol,
 // desenhado antes no quadro): uma aceleração da geometria de agora, refeita quando o que ela guarda muda além da
 // tolerância. O registro de cada página (série por páginas da 037, `cloud_sun_volume_records`) guarda a página global, a
 // assinatura do conteúdo, o sol e o tempo do desenho, as taxas medidas da mudança das duas partes (|Δτ| médio dos nós de

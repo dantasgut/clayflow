@@ -1,6 +1,6 @@
 // A leitura do volume de τ até o sol perto da câmera (spec 041, T074): no nível mais fino cuja janela contém o ponto, a
 // interpolação trilinear dos nós da página que contém o ponto (o amostrador dentro da página física, que tem o nó da
-// vizinha): o τ do trecho do cone (r) e o resto da luz do fim dele (g: o pedaço até o meio nó e o nó do mapa visto do sol,
+// vizinha): o τ do trecho do cone (r) e o resto da luz do fim dele (g: o pedaço até o nó e o nó do mapa visto do sol,
 // `cloud_sun_rest`; só com a célula até `CLOUD_SUN_VOLUME_REST_FOOTPRINT` pegadas do pixel da marcha ali, `footprint`) —
 // cada um onde a página vale para ele no quadro (as marcas da escolha); senão −1. Espelho de
 // `sunVolumeLookup` em `reference/cloudSunVolume.ts`.
