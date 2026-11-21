@@ -11,8 +11,9 @@
 //   - dusk-blocks: o mosaico nas nuvens escuras do pôr do sol, com o sol descendo depressa rente ao horizonte — o degrau
 //     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels, o erro de alta frequência e o atraso da cor
 //     (matiz e brilho) contra a mesma cena parada e convergida;
-//   - timing: o custo por passe das nuvens a 1280 × 720 nos três perfis e no alto com o sol andando (`high-sun`, T080;
-//     `?profiles=high_high-sun`) (SC-005);
+//   - timing: o custo por passe das nuvens a 1280 × 720 nos três perfis e no alto com o sol andando no ciclo de dia de
+//     um jogo (`high-sun`, 0,25°/s, T080), com o vento levando as nuvens (`high-wind`, o tempo simulado andando) e, sem
+//     teto, com o sol do lapso de tempo de vídeo (`high-sun-lapse`, 1,3°/s) (`?profiles=high_high-sun`) (SC-005);
 //   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
 //     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
 //     contra o mapeamento da referência (SC-010, R19);
@@ -989,6 +990,7 @@ async function passTimes(
     frames: number,
     pattern = /Cloud|Sky|Froxel/,
     each?: () => void,
+    dt = 0,
 ): Promise<{ total: number; span: number; passes: Record<string, number>; spread: string }> {
     const samples: Record<string, number>[] = [];
     const spans: number[] = [];
@@ -999,10 +1001,10 @@ async function passTimes(
         phases.push({ ...e.phasesMs });
     });
     const t0 = performance.now();
-    await busyFrames(app, frames, each);
+    await busyFrames(app, frames, each, dt);
     const wall = (performance.now() - t0) / frames;
     // Os quadros gravados chegam ao perfilador 1–3 quadros depois.
-    await busyFrames(app, 4, each);
+    await busyFrames(app, 4, each, dt);
     off();
     const keys = new Set(samples.flatMap((x) => Object.keys(x)));
     const passes: Record<string, number> = {};
@@ -1036,9 +1038,15 @@ const median = (v: readonly number[]): number => {
  * levado a 4 ms pelo navegador depois de cinco níveis, e os quadros abaixo disso (o interior, o médio, o baixo) saíam a
  * 250 Hz com a GPU ociosa entre eles — o relógio dela caía e as repetições ficavam bimodais (T074: o quadro sem a camada
  * de 1,3 a 3,9 ms na mesma fase).
- * `each`: chamado antes de cada quadro (o caso com o sol andando).
+ * `each`: chamado antes de cada quadro (o caso com o sol andando). `dt`: o tempo simulado de cada quadro (s; 0 = parado;
+ * o caso com o vento andando, `high-wind`).
  */
-async function busyFrames(app: Application, frames: number, each?: () => void): Promise<void> {
+async function busyFrames(
+    app: Application,
+    frames: number,
+    each?: () => void,
+    dt = 0,
+): Promise<void> {
     await app.whenReady({ timeoutMs: 60_000 });
     const yieldTask = (): Promise<void> =>
         new Promise((resolve) => {
@@ -1050,7 +1058,7 @@ async function busyFrames(app: Application, frames: number, each?: () => void): 
         });
     for (let i = 0; i < frames; i++) {
         each?.();
-        app.step(0);
+        app.step(dt);
         await yieldTask();
         if (!app.readyForFrame())
             await new Promise<void>((resolve) => {
@@ -1070,8 +1078,15 @@ async function busyFrames(app: Application, frames: number, each?: () => void): 
  */
 const TIMING_WARMUP = 600;
 const TIMING_REPS = 5;
-/** O sol que anda no caso `timing` (`high-sun`): a 1,3°/s entre 2° e 8° (o degrau 0,2 do mapa visto do sol), à frente da câmera. */
-const TIMING_SUN_RATE = 1.3;
+/**
+ * O sol que anda no caso `timing` (`high-sun`, T080): entre 2° e 8° (o degrau 0,2 do mapa visto do sol), à frente da
+ * câmera, no ciclo de dia de um jogo — 24 min por dia, 360° / 1440 s = 0,25°/s; o teto de 3 ms vale nele. O lapso de
+ * tempo de vídeo (1,3°/s, `high-sun-lapse`) fica registrado, sem teto.
+ */
+const TIMING_SUN_RATE = 0.25;
+const TIMING_SUN_LAPSE_RATE = 1.3;
+/** O tempo simulado por quadro no caso com o vento andando (`high-wind`: o vento de 10 m/s da camada, a 60 Hz). */
+const TIMING_WIND_STEP = 1 / 60;
 const TIMING_SUN_BAND = [2, 8] as const;
 
 /**
@@ -1081,8 +1096,10 @@ const TIMING_SUN_BAND = [2, 8] as const;
 interface CloudCostOptions {
     readonly interior?: boolean;
     readonly inside?: boolean;
-    /** O sol andando (`TIMING_SUN_RATE`, de 1/60 s por quadro) nas duas fases. */
-    readonly movingSun?: boolean;
+    /** O sol andando (°/s, de 1/60 s por quadro) nas duas fases. */
+    readonly sunRate?: number;
+    /** O tempo simulado andando (`TIMING_WIND_STEP` por quadro: o vento leva as nuvens) nas duas fases. */
+    readonly simulated?: boolean;
 }
 
 /**
@@ -1139,7 +1156,7 @@ async function cloudCost(
         profiling: true,
         clouds: false,
         // `?el=`: a elevação do sol (graus; o mapa visto do sol afina o texel à direita com o sol baixo).
-        sunElevation: o.movingSun
+        sunElevation: o.sunRate !== undefined
             ? TIMING_SUN_BAND[1]
             : Number(new URLSearchParams(location.search).get('el') ?? 60),
         ...(interior ? { eye: [0, 1.6, 0] as const } : {}),
@@ -1150,12 +1167,14 @@ async function cloudCost(
               ? [ix + 1000, insideY + 100, iz + 300]
               : [1000, 400, 300],
     });
-    // O sol andando: um triângulo na elevação a `TIMING_SUN_RATE` °/s (1/60 s por quadro), azimute 0 (à frente).
+    // O sol andando: um triângulo na elevação a `o.sunRate` °/s (1/60 s por quadro), azimute 0 (à frente).
     let sunFrame = 0;
     const span = TIMING_SUN_BAND[1] - TIMING_SUN_BAND[0];
-    const moveSun = o.movingSun
+    const rate = o.sunRate;
+    const dt = o.simulated === true ? TIMING_WIND_STEP : 0;
+    const moveSun = rate !== undefined
         ? (): void => {
-              const d = (sunFrame++ * TIMING_SUN_RATE) / 60;
+              const d = (sunFrame++ * rate) / 60;
               const t = d % (2 * span);
               const e = TIMING_SUN_BAND[1] - (t <= span ? t : 2 * span - t);
               s.sun.data.direction = sunTravel(e, 0);
@@ -1201,7 +1220,7 @@ async function cloudCost(
         s.app.world.insert(layer);
     };
     insert();
-    await busyFrames(s.app, TIMING_WARMUP, moveSun);
+    await busyFrames(s.app, TIMING_WARMUP, moveSun, dt);
     const quality = layer?.quality;
     const diffs: number[] = [];
     const withSpan: number[] = [];
@@ -1229,14 +1248,14 @@ async function cloudCost(
             // A camada que entra enche o cache de espalhamento (T074: as páginas caminham por necessidade — a que nunca
             // caminhou, a que não encheu a janela, a que mudou): páginas × janela ÷ orçamento quadros no teto, o transitório
             // da entrada; a medida é a do regime (parado, as páginas cheias não caminham; com o sol andando, o teto).
-            await busyFrames(s.app, has ? fillFrames(layer?.quality) : 60, moveSun);
+            await busyFrames(s.app, has ? fillFrames(layer?.quality) : 60, moveSun, dt);
             // De novo pronto antes de medir (spec 041, R21 rodada 16): a troca da camada vira as flags que compõem os pontos
             // de cena (a sombra no ar, o céu coberto) só no despacho seguinte, e as trocas dos pipelines grandes (o desenho, a
             // injeção dos froxels) começam depois do primeiro `whenReady` — medido no meio delas, o quadro sem a camada
             // saía de 1,7 a 3,5 ms no interior (repetições bimodais).
             await s.app.whenReady({ timeoutMs: 60_000 });
-            await busyFrames(s.app, 30, moveSun);
-            const t = await passTimes(s.app, 90, undefined, moveSun);
+            await busyFrames(s.app, 30, moveSun, dt);
+            const t = await passTimes(s.app, 90, undefined, moveSun, dt);
             span[has ? 'with' : 'without'] = t.span;
             spreads.push(`${has ? 'com' : 'sem'} ${t.spread}`);
             // A decisão da GPU sobre a atmosfera nos froxels (spec 041, R21): o texel do alcance do último quadro.
@@ -1250,7 +1269,7 @@ async function cloudCost(
                     `${has ? 'com' : 'sem'} ${r[0]!.toExponential(1)} m/${r[1]}/${r[2]} (${channel!.frames} q)`,
                 );
             } else reach.push(`${has ? 'com' : 'sem'} sem canal (${String(channel?.allocated)})`);
-            const all = await passTimes(s.app, 30, /./, moveSun);
+            const all = await passTimes(s.app, 30, /./, moveSun, dt);
             (has ? allWith : allWithout).push(all.passes);
             if (has) perPass.push(t.passes);
             else froxelsWithout.push(froxelMs(t.passes));
@@ -1387,13 +1406,26 @@ async function caseSkyTiming(): Promise<void> {
 }
 
 async function caseTiming(): Promise<void> {
-    // `high-sun`: o perfil alto com o sol andando (T080: o mapa visto do sol redesenha as páginas com nuvem a cada quadro).
-    const limits = { high: 3, medium: 2, low: 1.2, 'high-sun': 3 } as const;
+    // `high-sun`: o perfil alto com o sol andando no ciclo de dia de um jogo (0,25°/s; T080: o mapa visto do sol e o cache
+    // de espalhamento refeitos pela mudança); `high-wind`: com o tempo simulado andando (o vento de 10 m/s leva as
+    // nuvens); `high-sun-lapse`: o sol a 1,3°/s (lapso de tempo de vídeo), registrado, sem teto.
+    const limits = {
+        high: 3,
+        medium: 2,
+        low: 1.2,
+        'high-sun': 3,
+        'high-wind': 3,
+        'high-sun-lapse': Infinity,
+    } as const;
     const only = new URLSearchParams(location.search).get('profiles');
-    for (const name of ['high', 'medium', 'low', 'high-sun'] as const) {
+    for (const name of ['high', 'medium', 'low', 'high-sun', 'high-wind', 'high-sun-lapse'] as const) {
         if (only !== null && !only.split('_').includes(name)) continue;
-        const profile = name === 'high-sun' ? 'high' : name;
-        const c = await cloudCost(profile, { movingSun: name === 'high-sun' });
+        const profile = name === 'medium' || name === 'low' ? name : 'high';
+        const c = await cloudCost(profile, {
+            ...(name === 'high-sun' ? { sunRate: TIMING_SUN_RATE } : {}),
+            ...(name === 'high-sun-lapse' ? { sunRate: TIMING_SUN_LAPSE_RATE } : {}),
+            ...(name === 'high-wind' ? { simulated: true } : {}),
+        });
         const d = median(c.diffs);
         log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
