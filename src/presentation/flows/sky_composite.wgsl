@@ -14,23 +14,9 @@
 // um traço claro (ou escuro) ao longo do caminho do sol. Com o alvo da luz, os mesmos dois passes o levam a
 // `luz·Tc' + Y(Sc')` — a nuvem passa-baixa (`sky_composite_cloud_low`: a média 3 × 3 a 3 pixels, mais larga que o texel
 // da marcha), lisa: o detalhe menor que o texel não entra na faixa 3 × 3 da reiluminação, e a mudança da nuvem entra.
-// Requer: refraction_screen (o triângulo), sky_composite_cloud, sky, constants, sky_composite_depth.
-
-// O pixel em que a composição não muda a cor guardada não escreve — o custo da passagem é a banda de ler e escrever a
-// cor. O produto: `1 − Tc < 2⁻¹²` é menos de meio ULP do `rgba16float` (11 bits de mantissa): a cor arredondada não muda.
-// A soma: abaixo de 2⁻¹² da radiância de uma superfície branca ao sol (E/π), a escala que a exposição da cena mostra.
-const SKY_COMPOSITE_EPS: f32 = 1.0 / 4096.0;
-
-/** A nuvem passa-baixa no pixel: a média de 3 × 3 leituras a 3 pixels (a luz e a transmitância). */
-fn sky_composite_cloud_low(px: vec2i) -> vec4f {
-    let size = vec2i(sky_composite_depth_size());
-    var sum = vec4f(0.0);
-    for (var k = 0; k < 9; k++) {
-        let q = clamp(px + 3 * vec2i(k % 3 - 1, k / 3 - 1), vec2i(0), size - 1);
-        sum += sky_composite_cloud(vec2u(q));
-    }
-    return sum / 9.0;
-}
+// O passe de desenho: o caminho do device sem storage de leitura e escrita da cor da cena; com ele, a composição por
+// compute sobre a lista dos blocos com nuvem (`sky_composite_tiles.wgsl`).
+// Requer: refraction_screen (o triângulo), sky_composite_common, sky_composite_cloud, sky, constants, sky_composite_depth.
 
 struct SkyCompositeLightOut {
     @location(0) color: vec4f,
@@ -40,7 +26,7 @@ struct SkyCompositeLightOut {
 @fragment
 fn sky_composite_multiply_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
     let k = sky_composite_cloud(vec2u(frag.xy)).a;
-    let low = sky_composite_cloud_low(vec2i(frag.xy)).a;
+    let low = sky_composite_cloud_low(vec2i(frag.xy), vec2i(sky_composite_depth_size())).a;
     if (min(k, low) > 1.0 - SKY_COMPOSITE_EPS) { discard; }
     return SkyCompositeLightOut(vec4f(vec3f(k), 1.0), vec4f(low, low, 0.0, 1.0));
 }
@@ -48,7 +34,7 @@ fn sky_composite_multiply_light_fs(@builtin(position) frag: vec4f) -> SkyComposi
 @fragment
 fn sky_composite_add_light_fs(@builtin(position) frag: vec4f) -> SkyCompositeLightOut {
     let cloud = sky_composite_cloud(vec2u(frag.xy));
-    let low = sky_composite_cloud_low(vec2i(frag.xy));
+    let low = sky_composite_cloud_low(vec2i(frag.xy), vec2i(sky_composite_depth_size()));
     // O brilho como o do fundo na luz que chega (o Y do YCoCg).
     let y = clamp(dot(low.rgb, vec3f(0.25, 0.5, 0.25)), 0.0, 60000.0);
     return SkyCompositeLightOut(vec4f(cloud.rgb, 0.0), vec4f(y, y, 0.0, 0.0));

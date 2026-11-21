@@ -1,11 +1,16 @@
 import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource, type WgslResource } from '../../scene/shaders/WgslResource';
 import { sky, skySunTrack, skySunVisibility } from '../../elements/scene/sky/shaders';
-import { cloudResources } from '../../elements/media/clouds/shaders';
+import { CLOUD_TILE, cloudResources, cloudTiles } from '../../elements/media/clouds/shaders';
 import { SCENE_FOG_BACKGROUND, sceneFogReady } from '../../elements/scene/points/media';
 import { refractionScreen } from '../../elements/lighting/refraction/shaders';
 import skyCompositeSource from './sky_composite.wgsl?raw';
+import skyCompositeCommonSource from './sky_composite_common.wgsl?raw';
+import skyCompositeTilesSource from './sky_composite_tiles.wgsl?raw';
 import skyReactiveSource from './sky_reactive.wgsl?raw';
+import skyReactiveDrawSource from './sky_reactive_draw.wgsl?raw';
+import skyReactiveRectSource from './sky_reactive_rect.wgsl?raw';
+import skyReactiveTilesSource from './sky_reactive_tiles.wgsl?raw';
 import skyOverflowSource from './sky_overflow.wgsl?raw';
 import skyOverflowCommonSource from './sky_overflow_common.wgsl?raw';
 import skyOverflowVisibilitySource from './sky_overflow_visibility.wgsl?raw';
@@ -866,12 +871,20 @@ const SKY_COMPOSITE_CLOUD = wgslModule({
     source: 'fn sky_composite_cloud(px: vec2u) -> vec4f {\n    return textureLoad(cloud_view_tex, px, 0);\n}',
 });
 
+/** A regra e a nuvem passa-baixa, comuns ao passe de desenho e ao compute por blocos. */
+const SKY_COMPOSITE_COMMON = wgslModule({
+    name: 'sky_composite_common',
+    source: skyCompositeCommonSource,
+    requires: [SKY_COMPOSITE_CLOUD],
+});
+
 function skyCompositeModule(multisampled: boolean): WgslModule {
     return wgslModule({
         name: `sky_composite${multisampled ? '_ms' : ''}`,
         source: skyCompositeSource,
         requires: [
             refractionScreen,
+            SKY_COMPOSITE_COMMON,
             SKY_COMPOSITE_CLOUD,
             sky,
             constants,
@@ -883,10 +896,87 @@ function skyCompositeModule(multisampled: boolean): WgslModule {
     });
 }
 
-/** Módulos da composição das nuvens: o shader (pelas amostras da profundidade) e a profundidade da cena. */
+/** A cor da cena e a luz que chega lidas e escritas no mesmo despacho (a composição por blocos; T074). */
+const SKY_COMPOSITE_RW = {
+    color: wgslResource({
+        name: 'sky_composite_color',
+        binding: { storageTexture: { format: 'rgba16float', access: 'read_write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    light: wgslResource({
+        name: 'sky_composite_light',
+        binding: { storageTexture: { format: 'rgba16float', access: 'read_write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+} as const;
+
+/** O pixel da composição por blocos (`sky_composite_tile`): só a cor, ou a cor e a luz que chega. */
+const SKY_COMPOSITE_TILE = {
+    plain: wgslModule({
+        name: 'sky_composite_tile',
+        requires: [SKY_COMPOSITE_COMMON, sky, constants],
+        source: `/** A cor do pixel composta: o produto pela transmitância e a soma da luz, cada um acima da precisão. */
+fn sky_composite_tile(px: vec2u, size: vec2i, cloud: vec4f, color: vec3f) -> vec3f {
+    var c = color;
+    if (cloud.a <= 1.0 - SKY_COMPOSITE_EPS) { c *= cloud.a; }
+    let white = max(max(sky.sunIlluminance.r, sky.sunIlluminance.g), sky.sunIlluminance.b) / PI;
+    if (any(abs(cloud.rgb) >= vec3f(SKY_COMPOSITE_EPS * white))) { c += cloud.rgb; }
+    return c;
+}`,
+    }),
+    light: wgslModule({
+        name: 'sky_composite_tile_light',
+        requires: [SKY_COMPOSITE_COMMON, SKY_COMPOSITE_RW.light],
+        source: `/**
+ * A cor do pixel composta e a luz que chega levada à das nuvens passa-baixa (luz·Tc' + Y(Sc'), ver
+ * sky_composite.wgsl): o produto quando a transmitância do pixel ou a passa-baixa passa da precisão; a soma sempre.
+ */
+fn sky_composite_tile(px: vec2u, size: vec2i, cloud: vec4f, color: vec3f) -> vec3f {
+    let low = sky_composite_cloud_low(vec2i(px), size);
+    var c = color;
+    var l = textureLoad(sky_composite_light, px);
+    if (min(cloud.a, low.a) <= 1.0 - SKY_COMPOSITE_EPS) {
+        c *= cloud.a;
+        l = vec4f(l.rg * low.a, 0.0, l.a);
+    }
+    // O brilho como o do fundo na luz que chega (o Y do YCoCg).
+    let y = clamp(dot(low.rgb, vec3f(0.25, 0.5, 0.25)), 0.0, 60000.0);
+    textureStore(sky_composite_light, px, vec4f(l.rg + y, l.b, l.a));
+    return c + cloud.rgb;
+}`,
+    }),
+} as const;
+
+/** A composição por compute sobre a lista dos blocos com nuvem (com ou sem a luz que chega). */
+const SKY_COMPOSITE_TILES = [false, true].map((light) =>
+    wgslModule({
+        name: `sky_composite_tiles${light ? '_light' : ''}`,
+        source: skyCompositeTilesSource,
+        requires: [
+            SKY_COMPOSITE_COMMON,
+            CLOUD_TILE.module,
+            cloudTiles.list,
+            cloudTiles.argsRead,
+            SKY_COMPOSITE_RW.color,
+            light ? SKY_COMPOSITE_TILE.light : SKY_COMPOSITE_TILE.plain,
+        ],
+    }),
+);
+
+/**
+ * Módulos da composição das nuvens: o passe de desenho (pelas amostras da profundidade) e a profundidade da cena; o
+ * compute por blocos (com ou sem a luz que chega), a cor e a luz lidas e escritas e a lista dos blocos (privados).
+ */
 export const skyComposite = {
     module: skyCompositeModule,
     depth: SKY_COMPOSITE_DEPTH,
+    tiles: (light: boolean): WgslModule => SKY_COMPOSITE_TILES[light ? 1 : 0]!,
+    color: SKY_COMPOSITE_RW.color,
+    light: SKY_COMPOSITE_RW.light,
+    list: cloudTiles.list,
+    args: cloudTiles.argsRead,
 } as const;
 
 // Máscara reativa do disco do sol (spec 041): onde o disco está ou estava no quadro anterior, no fundo.
@@ -915,8 +1005,40 @@ const SKY_DISK_COVER = {
     }),
 } as const;
 
-/** Módulos da máscara reativa do disco: o shader (com ou sem as nuvens na frente do disco) e a profundidade da cena. */
-const skyReactiveModules = [false, true].map((clouds) =>
+/** O lado do bloco da marcação da máscara reativa por compute (pixels; spec 041, T074). */
+export const SKY_REACTIVE_TILE = sharedConstant('SKY_REACTIVE_TILE', 8, 'u32');
+
+/**
+ * As palavras da marcação por compute (`Sky.diskWork`): os grupos do despacho indireto, a origem do retângulo dos discos e
+ * os discos — escritas pelo passe do retângulo, lidas (e o despacho) pelo da marcação.
+ */
+const skyReactiveWork = {
+    write: wgslResource({
+        name: 'sky_reactive_work',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    read: wgslResource({
+        name: 'sky_reactive_work_read',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+} as const;
+
+/** A máscara reativa lida e escrita no mesmo despacho (`FrameTargets.reactive` com storage de leitura e escrita). */
+const skyReactiveMask = wgslResource({
+    name: 'sky_reactive_mask',
+    binding: { storageTexture: { format: 'r8unorm', access: 'read_write' } },
+    frequency: 'stage',
+    provider: 'private',
+});
+
+/** As funções da máscara reativa do disco (com ou sem as nuvens na frente do disco). */
+const skyReactiveCommon = [false, true].map((clouds) =>
     wgslModule({
         name: clouds ? 'sky_reactive_clouds' : 'sky_reactive',
         source: skyReactiveSource,
@@ -931,9 +1053,39 @@ const skyReactiveModules = [false, true].map((clouds) =>
         ],
     }),
 );
+const skyReactiveVariants = [false, true].map((clouds) => {
+    const common = skyReactiveCommon[clouds ? 1 : 0]!;
+    const suffix = clouds ? '_clouds' : '';
+    return {
+        draw: wgslModule({
+            name: `sky_reactive_draw${suffix}`,
+            source: skyReactiveDrawSource,
+            requires: [common],
+        }),
+        rect: wgslModule({
+            name: `sky_reactive_rect${suffix}`,
+            source: skyReactiveRectSource,
+            requires: [common, SKY_REACTIVE_TILE.module, skyReactiveWork.write],
+        }),
+        tiles: wgslModule({
+            name: `sky_reactive_tiles${suffix}`,
+            source: skyReactiveTilesSource,
+            requires: [common, SKY_REACTIVE_TILE.module, skyReactiveWork.read, skyReactiveMask],
+        }),
+    };
+});
+
+/**
+ * Módulos da máscara reativa do disco (com ou sem as nuvens na frente do disco): o passe de desenho (`draw`), e o
+ * caminho por compute — o retângulo dos discos (`rect`) e a marcação por blocos pelo despacho indireto (`tiles`) —, e
+ * os recursos privados (a profundidade da cena, a máscara lida e escrita, as palavras do despacho).
+ */
 export const skyReactive = {
-    module: (clouds: boolean): WgslModule => skyReactiveModules[clouds ? 1 : 0]!,
+    module: (clouds: boolean): { draw: WgslModule; rect: WgslModule; tiles: WgslModule } =>
+        skyReactiveVariants[clouds ? 1 : 0]!,
     depth: skyReactiveDepth,
+    mask: skyReactiveMask,
+    work: skyReactiveWork,
 } as const;
 
 /** A unidade do alvo da radiância acima do teto da cor (`FrameTargets.overflow`, spec 041). */

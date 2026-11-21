@@ -33,6 +33,7 @@ import cloudBayerSource from '../../gpu/wgsl/clouds/cloud_march_bayer.wgsl?raw';
 import cloudMarchSource from '../../gpu/wgsl/clouds/cloud_march.wgsl?raw';
 import cloudReconstructSource from '../../gpu/wgsl/clouds/cloud_reconstruct.wgsl?raw';
 import cloudUpsampleSource from '../../gpu/wgsl/clouds/cloud_upsample.wgsl?raw';
+import cloudTilesSource from '../../gpu/wgsl/clouds/cloud_tiles.wgsl?raw';
 import cloudSceneLimitSource from '../../gpu/wgsl/clouds/cloud_scene_limit.wgsl?raw';
 import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
@@ -1036,13 +1037,74 @@ export const cloudReconstructKernel = {
     }),
 } as const;
 
+/** O lado do bloco da tela da lista da composição das nuvens (pixels; T074): um grupo de `CLOUD_TILE`² invocações. */
+export const CLOUD_TILE = sharedConstant('CLOUD_TILE', 8, 'u32');
+
+/**
+ * A lista dos blocos da tela com nuvem (T074), privada dos estágios que a escrevem (o aumento, a lista) e a leem (a
+ * composição): as marcas por bloco, a lista empacotada e as palavras do despacho indireto (0–2 os grupos, 3 a contagem).
+ */
+export const cloudTiles = Object.freeze({
+    marksOut: wgslResource({
+        name: 'cloud_tiles_out',
+        binding: { storageTexture: { format: 'r32uint', access: 'write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    marks: wgslResource({
+        name: 'cloud_tiles',
+        binding: { texture: { sample: 'u32' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    listOut: wgslResource({
+        name: 'cloud_tile_list_out',
+        binding: { storageTexture: { format: 'r32uint', access: 'write' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    list: wgslResource({
+        name: 'cloud_tile_list',
+        binding: { texture: { sample: 'u32' } },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    args: wgslResource({
+        name: 'cloud_tile_args',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'atomic<u32>', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+    /** As palavras lidas pela composição (a contagem), com o mesmo buffer como o despacho indireto. */
+    argsRead: wgslResource({
+        name: 'cloud_tile_args_read',
+        binding: { storage: 'read' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'stage',
+        provider: 'private',
+    }),
+});
+
+/** A lista dos blocos com nuvem e os argumentos do despacho da composição (T074). */
+export const cloudTilesKernel = wgslModule({
+    name: 'cloud_tiles_kernel',
+    source: cloudTilesSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        CLOUD_TILE.module,
+        cloudTiles.marks,
+        cloudTiles.listOut,
+        cloudTiles.args,
+    ],
+});
+
 /** Aumento para a tela (sem e com amostras). */
 export const cloudUpsampleKernel = {
     single: wgslModule({
         name: 'cloud_upsample',
         source: cloudUpsampleSource,
         requires: [
-            WORKGROUP_SIZE.module,
             cloudCommon,
             bayer,
             sceneLimit,
@@ -1054,13 +1116,17 @@ export const cloudUpsampleKernel = {
             R.marchNow,
             R.marchDepthNow,
             cloudOutputs.view,
+            CLOUD_TILE.module,
+            constants,
+            skyParamsResource,
+            cloudTiles.marksOut,
+            cloudTiles.args,
         ],
     }),
     multisampled: wgslModule({
         name: 'cloud_upsample_ms',
         source: cloudUpsampleSource,
         requires: [
-            WORKGROUP_SIZE.module,
             cloudCommon,
             bayer,
             sceneLimit,
@@ -1072,6 +1138,11 @@ export const cloudUpsampleKernel = {
             R.marchNow,
             R.marchDepthNow,
             cloudOutputs.view,
+            CLOUD_TILE.module,
+            constants,
+            skyParamsResource,
+            cloudTiles.marksOut,
+            cloudTiles.args,
         ],
     }),
 } as const;

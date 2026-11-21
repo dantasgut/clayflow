@@ -19,7 +19,7 @@ import {
     type CloudPressureOptions,
 } from '../../extension/CloudPressureFunction';
 import { defaultCloudShapeGraph } from './defaultShape';
-import { GpuWordSchema } from '../../gpu/compute/schemas';
+import { GpuWordSchema, wordBuffer } from '../../gpu/compute/schemas';
 import {
     CLOUD_COVERAGE_PAGE,
     CLOUD_COVERAGE_RECORD_WORDS,
@@ -40,7 +40,7 @@ import {
     cloudCoverageSlotCount,
     type CloudQuality,
 } from './schemas';
-import { cloudLightTransmission, cloudSkyCover, cloudVolumeVisibility } from './shaders';
+import { CLOUD_TILE, cloudLightTransmission, cloudSkyCover, cloudVolumeVisibility } from './shaders';
 
 /**
  * O tempo das nuvens (spec 041, R19): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
@@ -631,6 +631,11 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             // A profundidade e a superfície (r, g) e o segundo momento temporal do valor (b: o brilho², a: a transmitância²).
             target('marchDepth', 'rgba32float', q.marchScale, { depth: 2 }),
             target('view', 'rgba16float', 1),
+            // A lista dos blocos da tela com nuvem (T074): a marca de cada bloco de `CLOUD_TILE`² pixels (o aumento), a lista
+            // empacotada (um texel por bloco da lista) e as palavras do despacho indireto da composição.
+            target('tiles', 'r32uint', CLOUD_TILE.value),
+            target('tileList', 'r32uint', CLOUD_TILE.value),
+            { ...wordBuffer('tileArgs', 4 * 4, 'indirect'), allocation: 'onDemand' },
             // O cache de espalhamento por páginas (T023, R8; R11 revisto): as palavras globais (a geração da grade), o
             // registro de cada página de 8³ sondas (o sol e o quadro do último caminho, a geração, as sondas com nuvem) e
             // as sondas (a soma da luz dos caminhos em unidades da iluminância do sol e quantos), série por páginas de

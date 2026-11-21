@@ -86,7 +86,7 @@ fn forward_view_dir(cam: CameraMatrices, p: vec3f) -> vec3f {
 // ele, a saída 1 é descartada).
 struct ForwardOut {
     @location(0) color: vec4<f32>,
-    @location(1) light: vec2<f32>,
+    @location(1) light: vec4<f32>,
 }
 
 @fragment
@@ -130,6 +130,6 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
     // separa na resolução temporal a sombra ou a luz que muda sobre a superfície parada (a rebatida fica fora: o ruído
     // dela, em manchas maiores que a vizinhança, pareceria luz mudando); a razão das totais reilumina o histórico.
     let albedo = max(ycocg(closure_albedo(c)).x, 1e-3);
-    out.light = min(vec2<f32>(ycocg(direct).x, ycocg(lit).x) / albedo, vec2<f32>(60000.0));
+    out.light = vec4<f32>(min(vec2<f32>(ycocg(direct).x, ycocg(lit).x) / albedo, vec2<f32>(60000.0)), 0.0, 0.0);
     return out;
 }

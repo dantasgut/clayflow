@@ -16,6 +16,7 @@ export const SKY_VIEW_SIZE = [192, 108] as const;
 /** Tabela da perspectiva aérea (spec 041, R10): colunas na tela × fatias de distância. */
 export const SKY_AERIAL_SIZE = [32, 32, 32] as const;
 import { SKY_AERIAL_RANGE_KM } from './SkySchema';
+import { wordBuffer } from '../../gpu/compute/schemas';
 export { SKY_AERIAL_RANGE_KM };
 
 /** Raio angular do sol visto da Terra (rad). */
@@ -259,6 +260,9 @@ export class Sky extends Entity<SkyData> implements Resource {
                 textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
                 history: { depth: 2 },
             },
+            // A marcação da máscara reativa do disco por compute (spec 041, T074): os grupos do despacho indireto, a origem
+            // do retângulo dos dois discos e os discos, escritos pela GPU a cada quadro (`sky_reactive_rect.wgsl`).
+            { ...wordBuffer('diskWork', 16 * 4, 'indirect'), allocation: 'onDemand' },
             {
                 id: 'sampler',
                 role: 'sampler',

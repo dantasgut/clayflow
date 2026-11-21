@@ -89,11 +89,11 @@ describe('SkyReactiveFlow (spec 041)', () => {
             .flatMap((p) => p.vertexDraws)
             .find((d) => d.pipeline.fragment?.entryPoint === 'fs_background_light')!;
         expect(background).toBeDefined();
-        // Cor e luz (rg16float), as duas escritas.
+        // Cor e luz (rgba16float), as duas escritas.
         expect(background.pipeline.fragment?.targets.map((t) => t.writeMask)).toEqual([
             undefined,
             undefined,
         ]);
-        expect(background.pipeline.fragment?.targets[1]?.format).toBe('rg16float');
+        expect(background.pipeline.fragment?.targets[1]?.format).toBe('rgba16float');
     });
 });

@@ -11,6 +11,7 @@
 // Atrás das nuvens (spec 041): o disco que a nuvem tapa não deixa rastro no histórico; a máscara só onde a luz do disco
 // que passa pelas nuvens pesa no pixel (`SKY_REACTIVE_SHARE`). (O traço vertical na nuvem acima do sol no `solposto` era
 // outra coisa: o histórico das nuvens sem reiluminação — ver `sky_composite.wgsl`.)
+// Funções comuns ao passe de desenho (`sky_reactive_draw.wgsl`) e ao de compute por blocos (`sky_reactive_tiles.wgsl`).
 // Requer: cameras, view_space, color, sky, sky_sun_track_prev, sky_reactive_depth_tex, sky_disk_cover.
 
 /** Valores da máscara (a resolução temporal, `taa_reactive`): recortado como em movimento; recomeça. */
@@ -20,14 +21,6 @@ const SKY_REACTIVE_RESTART: f32 = 1.0;
 const SKY_REACTIVE_MARGIN: f32 = 3.0;
 /** A fração do pixel que a luz do disco atrás das nuvens precisa ter para recomeçar: abaixo, o rastro some na média. */
 const SKY_REACTIVE_SHARE: f32 = 1.0 / 64.0;
-
-struct SkyReactiveOut {
-    @builtin(position) clip: vec4f,
-    /** Os centros dos dois discos em pixels (o de agora em xy, o anterior em zw). */
-    @location(0) @interpolate(flat) centers: vec4f,
-    /** O raio com a margem (pixels). */
-    @location(1) @interpolate(flat) radius: f32,
-}
 
 /** O ponto no infinito na direção `dir` em pixels pela câmera, e se ele está à frente dela (w > 0). */
 fn sky_reactive_project(vp: mat4x4f, dir: vec3f, size: vec2f) -> vec3f {
@@ -47,9 +40,14 @@ fn sky_reactive_radius(vp: mat4x4f, dir: vec3f, center: vec2f, size: vec2f, r: f
     return max(length(pu.xy - center), length(pv.xy - center));
 }
 
-@vertex
-fn sky_reactive_vs(@builtin(vertex_index) vid: u32) -> SkyReactiveOut {
-    let size = vec2f(textureDimensions(sky_reactive_depth_tex));
+/** Os dois discos na tela: os centros em pixels (o de agora em xy, o anterior em zw) e o raio com a margem (`r`, < 0 sem disco). */
+struct SkyReactiveDisks {
+    centers: vec4f,
+    radius: f32,
+}
+
+/** Os discos de agora e do quadro anterior (a série `Sky.sunTrack`) pela câmera sem o deslocamento, na tela `size`. */
+fn sky_reactive_disks(size: vec2f) -> SkyReactiveDisks {
     let vp = cameras[sky.cameraSlot].unjitteredViewProjection;
     let now = sky.sunDirection.xyz;
     let stored = textureLoad(sky_sun_track_prev, vec2u(0u), 0);
@@ -57,44 +55,30 @@ fn sky_reactive_vs(@builtin(vertex_index) vid: u32) -> SkyReactiveOut {
     let before = select(now, stored.xyz, stored.a > 0.5);
     let p0 = sky_reactive_project(vp, now, size);
     let p1 = sky_reactive_project(vp, before, size);
-    var out: SkyReactiveOut;
-    // Fora da tela (atrás da câmera ou sem disco): um triângulo degenerado.
-    out.clip = vec4f(2.0, 2.0, 2.0, 1.0);
-    out.centers = vec4f(0.0);
-    out.radius = 0.0;
-    if (sky.sunDisk == 0u || p0.z < 0.0 || p1.z < 0.0) { return out; }
+    // Fora da tela (atrás da câmera) ou sem disco: nenhum.
+    if (sky.sunDisk == 0u || p0.z < 0.0 || p1.z < 0.0) { return SkyReactiveDisks(vec4f(0.0), -1.0); }
     let r = sky.sunIlluminance.w;
     let radius = max(sky_reactive_radius(vp, now, p0.xy, size, r), sky_reactive_radius(vp, before, p1.xy, size, r))
         + SKY_REACTIVE_MARGIN;
-    let lo = min(p0.xy, p1.xy) - radius;
-    let hi = max(p0.xy, p1.xy) + radius;
-    // Dois triângulos do retângulo (0 1 2, 2 1 3).
-    var corners = array<vec2f, 6>(
-        vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
-        vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0),
-    );
-    let corner = corners[vid % 6u];
-    let px = mix(lo, hi, corner);
-    out.clip = vec4f(uv_to_ndc(px / size), 0.0, 1.0);
-    out.centers = vec4f(p0.xy, p1.xy);
-    out.radius = radius;
-    return out;
+    return SkyReactiveDisks(vec4f(p0.xy, p1.xy), radius);
 }
 
-@fragment
-fn sky_reactive_fs(in: SkyReactiveOut) -> @location(0) vec4f {
+/**
+ * O valor da máscara no pixel `px` (o centro em `at`) do fundo com os discos `d`: `SKY_REACTIVE_STIR` sobre o de agora,
+ * `SKY_REACTIVE_RESTART` onde só o anterior estava, 0 fora deles, fora do fundo ou onde a luz do disco que passa pelas
+ * nuvens não pesa no pixel.
+ */
+fn sky_reactive_mark(px: vec2u, at: vec2f, d: SkyReactiveDisks) -> f32 {
     // Só o fundo (onde nada foi desenhado): a superfície tem o vetor de movimento dela.
-    if (textureLoad(sky_reactive_depth_tex, vec2i(in.clip.xy), 0) < 1.0) { discard; }
-    let now = length(in.clip.xy - in.centers.xy);
-    let before = length(in.clip.xy - in.centers.zw);
+    if (textureLoad(sky_reactive_depth_tex, vec2i(px), 0) < 1.0) { return 0.0; }
+    let now = length(at - d.centers.xy);
+    let before = length(at - d.centers.zw);
+    if (now > d.radius && before > d.radius) { return 0.0; }
     // A luz do disco que passa pelas nuvens no pixel contra a luz delas.
-    let cover = sky_disk_cover(vec2u(in.clip.xy));
+    let cover = sky_disk_cover(px);
     let r = sky.sunIlluminance.w;
     let disk = luminance(min(sky.sunIlluminance.rgb * sky_sun_transmittance(vec3f(0.0)) / (PI * r * r), vec3f(SKY_SUN_DISK_MAX)))
         * cover.a;
-    let visible = disk >= SKY_REACTIVE_SHARE * (disk + luminance(cover.rgb));
-    if (now <= in.radius && visible) { return vec4f(SKY_REACTIVE_STIR, 0.0, 0.0, 1.0); }
-    if (before <= in.radius && visible) { return vec4f(SKY_REACTIVE_RESTART, 0.0, 0.0, 1.0); }
-    discard;
-    return vec4f(0.0);
+    if (disk < SKY_REACTIVE_SHARE * (disk + luminance(cover.rgb))) { return 0.0; }
+    return select(SKY_REACTIVE_RESTART, SKY_REACTIVE_STIR, now <= d.radius);
 }

@@ -43,11 +43,11 @@ fn fs_background(in: BackgroundOut) -> @location(0) vec4f {
 
 struct BackgroundLightOut {
     @location(0) color: vec4f,
-    @location(1) light: vec2f,
+    @location(1) light: vec4f,
 }
 
 @fragment
 fn fs_background_light(in: BackgroundOut) -> BackgroundLightOut {
     let c = background_color(in);
-    return BackgroundLightOut(vec4f(c, 1.0), vec2f(min(ycocg(c).x, 60000.0)));
+    return BackgroundLightOut(vec4f(c, 1.0), vec4f(vec2f(min(ycocg(c).x, 60000.0)), 0.0, 0.0));
 }

@@ -2275,7 +2275,13 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 width: size.width,
                 height: size.height,
                 format,
-                usage: textureUsage(desc.role, format, shape.sampleCount ?? 1),
+                usage:
+                    textureUsage(desc.role, format, shape.sampleCount ?? 1)
+                    | (shape.storage === 'read-write'
+                    && (shape.sampleCount ?? 1) === 1
+                    && readWriteStorageFormat(this.core.capabilities().features, format)
+                        ? GPUTextureUsage.STORAGE_BINDING
+                        : 0),
                 ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
                 ...(shape.depthOrArrayLayers !== undefined
                     ? { depthOrArrayLayers: shape.depthOrArrayLayers }
@@ -3251,6 +3257,34 @@ function textureUsage(
         return U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST;
     if (isDepthOrStencil(format)) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;
     return U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+}
+
+/** Formatos com storage de leitura e escrita pela feature `texture-formats-tier2` (o `r32*` é do núcleo). */
+const READ_WRITE_TIER2: ReadonlySet<GPUTextureFormat> = new Set<GPUTextureFormat>([
+    'r8unorm',
+    'r8uint',
+    'r8sint',
+    'rgba8unorm',
+    'rgba8uint',
+    'rgba8sint',
+    'r16uint',
+    'r16sint',
+    'r16float',
+    'rgba16uint',
+    'rgba16sint',
+    'rgba16float',
+    'rgba32uint',
+    'rgba32sint',
+    'rgba32float',
+]);
+
+/** O device liga o formato como storage de leitura e escrita (`texture_storage_2d<f, read_write>`). */
+function readWriteStorageFormat(
+    features: readonly GPUFeatureName[],
+    format: GPUTextureFormat,
+): boolean {
+    if (format === 'r32float' || format === 'r32uint' || format === 'r32sint') return true;
+    return features.includes('texture-formats-tier2') && READ_WRITE_TIER2.has(format);
 }
 
 /** Níveis de mip da cadeia completa de uma textura `width`×`height` (até 1×1). */
