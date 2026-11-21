@@ -188,7 +188,6 @@ export function registerPresentationDefaults(
                       raySceneForTransmissives(options.world, events, renderer),
                       warnRaySceneUnsupported(options.world, events, renderer),
                       followRenderer(options.world, events, renderer),
-                      composeTargetsBySky(options.world, events, frameTargets),
                   ];
                   return () => {
                       for (const off of offs) off();
@@ -326,26 +325,6 @@ function followRenderer(world: World, events: EventBus, renderer: SceneRenderer)
     return events.on('resourcesChanged', (e) => {
         for (const r of e.removed) if (follows(r)) renderer.release(r);
         for (const r of e.added) if (follows(r)) renderer.adopt(r);
-    });
-}
-
-/**
- * O storage dos alvos por evento (spec 041, T074): com uma `CloudLayer` na cena, a cor e a luz que chega ligáveis como
- * storage de leitura e escrita (a composição das nuvens por compute sobre a lista de blocos); com um `Sky`, a máscara
- * reativa (a máscara do disco do sol por compute). Sem eles, os alvos ficam sem o uso (a compressão do alvo de desenho
- * vale). Devolve o cancelamento.
- */
-function composeTargetsBySky(world: World, events: EventBus, targets: FrameTargets): () => void {
-    const update = (): void => {
-        targets.setStorage(
-            world.queryBySchemaName(CloudLayer.schema.name).length > 0,
-            world.queryBySchemaName(Sky.schema.name).length > 0,
-        );
-    };
-    update();
-    return events.on('resourcesChanged', (e) => {
-        if ([...e.added, ...e.removed].some((r) => r instanceof CloudLayer || r instanceof Sky))
-            update();
     });
 }
 

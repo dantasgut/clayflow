@@ -26,14 +26,11 @@ export interface FrameTargetsOptions {
 
 /**
  * Dado dos `FrameTargets`, lido pelo desenho a cada quadro: o passe de profundidade e o descarte pela GPU (1 ligado, 0
- * desligado); e quais alvos pedem o uso de storage de leitura e escrita (`composeColor`: a cor e a luz que chega;
- * `composeReactive`: a máscara reativa — 1 pede, 0 não), trocado por `setStorage`.
+ * desligado).
  */
 export interface FrameTargetsData {
     depthPrepass: number;
     culling: number;
-    composeColor: number;
-    composeReactive: number;
 }
 
 /** Formato da cor da cena (spec 011): ponto flutuante de 16 bits por canal — nada é cortado em [0, 1] antes da apresentação. */
@@ -72,40 +69,20 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
         this.data = {
             depthPrepass: options.depthPrepass === true ? 1 : 0,
             culling: options.culling === false ? 0 : 1,
-            composeColor: 0,
-            composeReactive: 0,
         };
-    }
-
-    /**
-     * O uso de storage de leitura e escrita dos alvos (spec 041, T074): a composição das nuvens por compute sobre a lista
-     * de blocos lê e escreve a cor e a luz que chega (`color`), a máscara do disco do sol escreve a máscara reativa
-     * (`reactive`). Pedido só por quem compõe — o uso de storage tira da textura a compressão sem perdas do alvo de
-     * desenho em GPUs que a têm (medido no `fluidField`, sem `Sky`: a água no perfil alto ~+6–10 ms com a cor ligável
-     * como storage). Os estágios padrão o trocam pela entrada e saída de `CloudLayer` e `Sky`. Mudar realoca os alvos
-     * (o histórico que os lê recomeça); sem mudança, nada.
-     */
-    setStorage(color: boolean, reactive: boolean): void {
-        const composeColor = color ? 1 : 0;
-        const composeReactive = reactive ? 1 : 0;
-        const raw = this.rawData;
-        if (raw.composeColor === composeColor && raw.composeReactive === composeReactive) return;
-        this.redescribe(this.getDescriptors(), { ...raw, composeColor, composeReactive });
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
         const samples = this.samples;
-        const composeColor = this.rawData.composeColor === 1;
-        const composeReactive = this.rawData.composeReactive === 1;
         return [
             {
                 id: 'color',
                 role: 'texture',
-                // Composta por compute nos blocos com nuvem (spec 041, T074), quando há nuvens e o device permite.
+                // Composta por compute nos blocos com nuvem (spec 041, T074), quando o device permite.
                 textureShape: {
                     format: SCENE_COLOR_FORMAT,
                     sizeFromCanvas: true,
-                    ...(composeColor ? { storage: 'read-write' as const } : {}),
+                    storage: 'read-write',
                 },
             },
             // Vetores de movimento (spec 034): o deslocamento em uv do ponto de cada pixel desde o quadro anterior (rg) e
@@ -127,7 +104,7 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                           textureShape: {
                               format: 'r8unorm' as const,
                               sizeFromCanvas: true,
-                              ...(composeReactive ? { storage: 'read-write' as const } : {}),
+                              storage: 'read-write' as const,
                           },
                       },
                       // A luz que chega ao ponto de cada pixel (spec 034), sem a textura (a radiância refletida sobre a
@@ -140,7 +117,7 @@ export class FrameTargets extends Entity<FrameTargetsData> implements Resource {
                           textureShape: {
                               format: LIGHT_FORMAT,
                               sizeFromCanvas: true,
-                              ...(composeColor ? { storage: 'read-write' as const } : {}),
+                              storage: 'read-write' as const,
                           },
                       },
                   ]
