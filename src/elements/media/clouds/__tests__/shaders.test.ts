@@ -43,6 +43,8 @@ const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_march_ms', cloudMarchKernel.multisampled, 'cloud_march_main'],
     ['cloud_reconstruct', cloudReconstructKernel.single, 'cloud_reconstruct_main'],
     ['cloud_reconstruct_ms', cloudReconstructKernel.multisampled, 'cloud_reconstruct_main'],
+    ['cloud_check', cloudReconstructKernel.single, 'cloud_check_main'],
+    ['cloud_check_ms', cloudReconstructKernel.multisampled, 'cloud_check_main'],
     ['cloud_upsample', cloudUpsampleKernel.single, 'cloud_upsample_main'],
     ['cloud_upsample_ms', cloudUpsampleKernel.multisampled, 'cloud_upsample_main'],
     ['cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main'],

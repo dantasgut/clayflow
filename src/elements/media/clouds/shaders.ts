@@ -140,6 +140,9 @@ export const cloudResources = Object.freeze({
     scatterFiltered: sampled('cloud_scatter_filtered_tex', 'scatterFiltered', '3d'),
     trace: sampled('cloud_trace', 'trace'),
     traceDepth: sampled('cloud_trace_depth', 'traceDepth'),
+    /** O histórico no pixel marchado de cada bloco e a variância temporal dele (T080). */
+    check: sampled('cloud_check', 'check'),
+    checkNoise: sampled('cloud_check_noise', 'checkNoise'),
     noiseSampler: wgslResource({
         name: 'cloud_noise_sampler',
         binding: { sampler: 'filtering' },
@@ -360,6 +363,8 @@ export const cloudOutputs = Object.freeze({
     shadow: out('cloud_shadow_out', 'rgba16float', '3d'),
     trace: out('cloud_trace_out', 'rgba16float'),
     traceDepth: out('cloud_trace_depth_out', 'rg32float'),
+    check: out('cloud_check_out', 'rgba16float'),
+    checkNoise: out('cloud_check_noise_out', 'rg32float'),
     view: out('cloud_view_out', 'rgba16float'),
     panorama: out('cloud_panorama_out', 'rgba16float'),
     weatherWind: out('cloud_weather_wind_out', 'rgba16float'),
@@ -975,7 +980,10 @@ export const cloudMarchKernel = {
     multisampled: withFarShadow(cloudMarchBase.multisampled),
 } as const;
 
-/** Reconstrução temporal no alvo de ¼ (sem e com amostras na profundidade da cena). */
+/**
+ * Reconstrução temporal no alvo de ¼ (sem e com amostras na profundidade da cena): `cloud_check_main` (o histórico nos
+ * marchados, um bloco por invocação) e `cloud_reconstruct_main`.
+ */
 const reconstructRequires = [
     WORKGROUP_SIZE.module,
     color,
@@ -992,6 +1000,10 @@ const reconstructRequires = [
     R.marchDepthPrevious,
     R.marchOut,
     R.marchDepthOut,
+    R.check,
+    R.checkNoise,
+    cloudOutputs.check,
+    cloudOutputs.checkNoise,
     windAtReady,
 ];
 export const cloudReconstructKernel = {

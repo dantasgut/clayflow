@@ -619,6 +619,10 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             target('trace', 'rgba16float', 2 * q.marchScale),
             // A profundidade da nuvem e a superfície até onde o valor foi marchado (r, g).
             target('traceDepth', 'rg32float', 2 * q.marchScale),
+            // O histórico reprojetado no pixel marchado de cada bloco e a variância temporal guardada com ele (brilho e
+            // transmitância), do passe por bloco, que a janela do gradiente de cada texel lê (T080).
+            target('check', 'rgba16float', 2 * q.marchScale),
+            target('checkNoise', 'rg32float', 2 * q.marchScale),
             target('march', 'rgba16float', q.marchScale, { depth: 2, filtered: true }),
             // A profundidade e a superfície (r, g) e o segundo momento temporal do valor (b: o brilho², a: a transmitância²).
             target('marchDepth', 'rgba32float', q.marchScale, { depth: 2 }),

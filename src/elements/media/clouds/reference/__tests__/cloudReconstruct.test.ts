@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
     CLOUD_GRADIENT_TOLERANCE,
     CLOUD_HISTORY_BLEND,
+    CLOUD_FOLLOW_CHANGE,
+    CLOUD_HISTORY_FOLLOW,
     CLOUD_SKY_DISTANCE,
     cloudDivergence,
     cloudGradientNoise,
+    cloudGradientWeight,
+    cloudHistoryFollow,
     cloudFreshAt,
     cloudFreshForSurface,
     cloudHistoryReset,
@@ -93,6 +97,8 @@ describe('reconstrução temporal', () => {
             history: avg(4),
             check: avg(4),
             neighbors,
+            // Só a decisão do gradiente (o seguimento do desvio medido tem o seu teste).
+            follow: 0,
         });
         // Assert: a divergência passa da tolerância, a reconstrução fica com o histórico (dentro da caixa)
         const mean = (k: number): Rgba => avg(k);
@@ -196,6 +202,8 @@ describe('reconstrução temporal', () => {
             fresh,
             history: avg,
             check: avg,
+            // Só a decisão do gradiente (o seguimento do desvio medido tem o seu teste).
+            follow: 0,
             neighbors: [...Array<number>(9).keys()].map((k) => ({
                 fresh: k < 5 ? fresh : avg,
                 check: avg,
@@ -272,5 +280,195 @@ describe('reconstrução temporal', () => {
         expect(
             Math.abs(cloudHistoryReset(0.26, 0.25) - cloudHistoryReset(0.24, 0.25)),
         ).toBeLessThan(0.1);
+    });
+});
+
+/** O pixel marchado do bloco no quadro (`cloud_bayer`). */
+const bayer = (frame: number): [number, number] =>
+    (
+        [
+            [0, 0],
+            [1, 1],
+            [1, 0],
+            [0, 1],
+        ] as const
+    )[frame & 3] as [number, number];
+
+/**
+ * A reconstrução de uma grade de `B × B` blocos (2B × 2B texels, a câmera parada: o histórico de cada texel é o dele)
+ * quadro a quadro, com a luz exata `light(x, y, t)` amostrada sem ruído no marchado de cada bloco. A janela do gradiente
+ * de cada texel pelos pesos `weight` (a do motor, `cloudGradientWeight`, ou outra para comparar). Devolve o histórico.
+ */
+function runGrid(
+    blocks: number,
+    frames: number,
+    light: (x: number, y: number, t: number) => number,
+    start: (x: number, y: number) => number,
+    weight: (o: [number, number], f: [number, number], q: [number, number]) => number,
+    follow = CLOUD_HISTORY_FOLLOW,
+): number[] {
+    const N = 2 * blocks;
+    let h = Array.from({ length: N * N }, (_, i) => start(i % N, Math.floor(i / N)));
+    const clampB = (v: number): number => Math.min(Math.max(v, 0), blocks - 1);
+    for (let t = 1; t <= frames; t++) {
+        const [bx, by] = bayer(t);
+        const fresh = (cx: number, cy: number): Rgba => {
+            const v = light(2 * cx + bx, 2 * cy + by, t);
+            return [v, v, v, 0.5];
+        };
+        const check = (cx: number, cy: number): Rgba => {
+            const v = h[(2 * cy + by) * N + 2 * cx + bx]!;
+            return [v, v, v, 0.5];
+        };
+        const next = h.slice();
+        for (let y = 0; y < N; y++)
+            for (let x = 0; x < N; x++) {
+                const b = [Math.floor(x / 2), Math.floor(y / 2)];
+                const rel = [x - bx, y - by];
+                const b0 = [Math.floor(rel[0]! / 2), Math.floor(rel[1]! / 2)];
+                const f: [number, number] = [
+                    (rel[0]! - 2 * b0[0]!) / 2,
+                    (rel[1]! - 2 * b0[1]!) / 2,
+                ];
+                const neighbors = [];
+                for (let k = 0; k < 16; k++) {
+                    const o: [number, number] = [(k % 4) - 1, Math.floor(k / 4) - 1];
+                    const w = weight(o, f, [x, y]);
+                    if (w <= 0) continue;
+                    const nx = clampB(b0[0]! + o[0]);
+                    const ny = clampB(b0[1]! + o[1]);
+                    neighbors.push({ fresh: fresh(nx, ny), check: check(nx, ny), weight: w });
+                }
+                const box = [];
+                for (let k = 0; k < 9; k++)
+                    box.push(
+                        fresh(clampB(b[0]! + (k % 3) - 1), clampB(b[1]! + Math.floor(k / 3) - 1)),
+                    );
+                const v = h[y * N + x]!;
+                next[y * N + x] = reconstructTexel({
+                    marched: x === 2 * b[0]! + bx && y === 2 * b[1]! + by,
+                    valid: true,
+                    fresh: fresh(b[0]!, b[1]!),
+                    history: [v, v, v, 0.5],
+                    check: check(b[0]!, b[1]!),
+                    neighbors,
+                    box,
+                    clip: 0,
+                    follow,
+                })[0];
+            }
+        h = next;
+    }
+    return h;
+}
+
+describe('reconstrução temporal: o histórico segue o desvio medido (a grade de idades)', () => {
+    const B = 8;
+    const N = 2 * B;
+    const base = (x: number, y: number): number => 10 + 2 * Math.sin(x / 3) + 1.5 * Math.cos(y / 4);
+    const window = (o: [number, number], f: [number, number]): number => cloudGradientWeight(o, f);
+
+    it('a janela anda com o texel e não tem resposta negativa em frequência nenhuma', () => {
+        // Arrange: os pesos num eixo no marchado (fração 0) e entre dois (½).
+        const axis = (f: number): number[] =>
+            [-1, 0, 1, 2].map(
+                (o) => cloudGradientWeight([o, 0], [f, 0]) / cloudGradientWeight([0, 0], [f, 0]),
+            );
+        // Act / Assert: [1, 2, 1] e [1, 3, 3, 1]
+        expect(axis(0)).toEqual([0.5, 1, 0.5, 0]);
+        expect(axis(0.5).map((v) => v * 1.5)).toEqual([0.5, 1.5, 1.5, 0.5]);
+        for (const f of [0, 0.5])
+            for (let k = 0; k <= 64; k++) {
+                const w = (Math.PI * k) / 64;
+                const r = [-1, 0, 1, 2].reduce(
+                    (s, o) => s + cloudGradientWeight([o, 0], [f, 0]) * Math.cos(w * (o - f)),
+                    0,
+                );
+                expect(r).toBeGreaterThanOrEqual(-1e-12);
+            }
+    });
+
+    it('a luz que muda: o histórico ~1 quadro atrás e os quatro texels do bloco com a mesma idade', () => {
+        // Arrange: a luz sobe 0,5 % por quadro (o sol que anda), dentro da tolerância do gradiente (nenhum bloco larga).
+        const r = 0.005;
+        const light = (x: number, y: number, t: number): number => base(x, y) * (1 + r * t);
+        const frames = 200;
+        const measure = (h: number[]): { lag: number; spread: number } => {
+            let lag = 0;
+            let spread = 0;
+            for (let by = 1; by < B - 1; by++)
+                for (let bx = 1; bx < B - 1; bx++) {
+                    const e = [0, 1, 2, 3].map((k) => {
+                        const x = 2 * bx + (k & 1);
+                        const y = 2 * by + (k >> 1);
+                        return (light(x, y, frames) - h[y * N + x]!) / (base(x, y) * r);
+                    });
+                    lag += e.reduce((s, v) => s + v, 0) / 4;
+                    spread += Math.max(...e) - Math.min(...e);
+                }
+            const n = (B - 2) ** 2;
+            return { lag: lag / n, spread: spread / n };
+        };
+        // Act
+        const now = measure(runGrid(B, frames, light, base, window));
+        const before = measure(runGrid(B, frames, light, base, window, 0));
+        // Assert: sem seguir, ~13 quadros atrás e as idades de 0 a 3 quadros no bloco (a grade de 2·S px); seguindo ½, ~1
+        // quadro e ~0,2.
+        expect(before.lag).toBeGreaterThan(12);
+        expect(before.spread).toBeGreaterThan(2.5);
+        expect(now.lag).toBeLessThan(1.2);
+        expect(now.spread).toBeLessThan(0.3);
+    });
+
+    it('estável: o erro em faixas de blocos alternados se apaga com a janela; com a média 3 × 3 de pesos iguais, cresce', () => {
+        // Arrange: a luz parada, o histórico com ±5 % em colunas de blocos alternadas.
+        const light = (x: number, y: number): number => base(x, y);
+        const start = (x: number, y: number): number =>
+            base(x, y) * (1 + 0.05 * (Math.floor(x / 2) % 2 === 0 ? 1 : -1));
+        // A média 3 × 3 de pesos iguais em volta do bloco (o desenho que amplificava a faixa).
+        const box = (o: [number, number]): number => (o[0] <= 1 && o[1] <= 1 ? 1 : 0);
+        const error = (h: number[]): number =>
+            Math.max(...h.map((v, i) => Math.abs(v / base(i % N, Math.floor(i / N)) - 1)));
+        // Act: 40 quadros (10 voltas do rodízio).
+        const alone = error(runGrid(B, 40, light, start, window, 0));
+        const smooth = error(runGrid(B, 40, light, start, window));
+        const flat = error(runGrid(B, 40, light, start, box));
+        // Assert: com a janela, o erro cai de 5 % a < 1 % (só a média exponencial: ~0,3 %); com a média de pesos iguais,
+        // cresce.
+        expect(alone).toBeLessThan(0.0035);
+        expect(smooth).toBeLessThan(0.01);
+        expect(flat).toBeGreaterThan(0.05);
+    });
+
+    it('o ruído da média contra a mudança esperada: o ganho cai a ½ com σ = τ e quase some na faixa ruidosa', () => {
+        const at = (noise: number): number =>
+            cloudHistoryFollow([12, 12, 12, 1], [10, 10, 10, 1], noise)[0] - 1;
+        expect(at(CLOUD_FOLLOW_CHANGE) / at(0)).toBeCloseTo(0.5, 12);
+        expect(at(0.65) / at(0)).toBeLessThan(0.03);
+    });
+
+    it('sem viés pelo ruído: o fator médio sobre amostras ruidosas é 1 (a razão F/C sobe)', () => {
+        // Arrange: F uma média de amostras ruidosas (σ 10 %) e C o histórico (variância α/(2 − α) da de F), a mesma média.
+        let seed = 12345;
+        const rand = (): number => {
+            seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+            return seed / 2 ** 32;
+        };
+        const gauss = (): number =>
+            Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
+        const s = 0.1;
+        const sc = s * Math.sqrt(CLOUD_HISTORY_BLEND / (2 - CLOUD_HISTORY_BLEND));
+        let sum = 0;
+        let naive = 0;
+        const n = 1_000_000;
+        for (let k = 0; k < n; k++) {
+            const f = 10 * (1 + s * gauss());
+            const c = 10 * (1 + sc * gauss());
+            sum += cloudHistoryFollow([f, f, f, 1], [c, c, c, 1], 0, 1)[0] - 1;
+            naive += f / c - 1;
+        }
+        // Assert: o viés da razão F/C é a variância relativa do histórico (~0,14 %); o do fator, abaixo do erro da média.
+        expect(Math.abs(sum / n)).toBeLessThan(3e-4);
+        expect(naive / n - sum / n).toBeGreaterThan(1e-3);
     });
 });

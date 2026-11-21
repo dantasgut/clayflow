@@ -57,17 +57,27 @@ const luminance = (c: Rgba): number => rec709([c[0], c[1], c[2]]);
 export const CLOUD_GRADIENT_NOISE = 0.5;
 
 /**
- * O ruído esperado na divergência das médias de `fresh` (uma amostra por bloco): o erro padrão da média da transmitância
- * e, onde ela varia (a borda), o da luz relativa, × `CLOUD_GRADIENT_NOISE`. Espelho de `cloud_gradient_noise`.
+ * O ruído esperado na divergência das médias de `fresh` (uma amostra por bloco, pesos `weights` da janela): o erro padrão
+ * da média ponderada (com o número efetivo de amostras, `(Σw)²/Σw²`) da transmitância e, onde ela varia (a borda), o da
+ * luz relativa, × `CLOUD_GRADIENT_NOISE`. Espelho de `cloud_gradient_noise`.
  */
-export function cloudGradientNoise(fresh: readonly Rgba[]): number {
-    const n = fresh.length;
-    const lm = fresh.reduce((s, x) => s + luminance(x), 0) / n;
-    const am = fresh.reduce((s, x) => s + x[3], 0) / n;
+export function cloudGradientNoise(
+    fresh: readonly Rgba[],
+    weights: readonly number[] = fresh.map(() => 1),
+): number {
+    const w = weights.reduce((s, x) => s + x, 0);
+    const n = w ** 2 / weights.reduce((s, x) => s + x * x, 0);
+    const lm = fresh.reduce((s, x, k) => s + luminance(x) * weights[k]!, 0) / w;
+    const am = fresh.reduce((s, x, k) => s + x[3] * weights[k]!, 0) / w;
     const sl = Math.sqrt(
-        Math.max(fresh.reduce((s, x) => s + luminance(x) ** 2, 0) / n - lm * lm, 0),
+        Math.max(
+            fresh.reduce((s, x, k) => s + luminance(x) ** 2 * weights[k]!, 0) / w - lm * lm,
+            0,
+        ),
     );
-    const sa = Math.sqrt(Math.max(fresh.reduce((s, x) => s + x[3] ** 2, 0) / n - am * am, 0));
+    const sa = Math.sqrt(
+        Math.max(fresh.reduce((s, x, k) => s + x[3] ** 2 * weights[k]!, 0) / w - am * am, 0),
+    );
     return (
         (CLOUD_GRADIENT_NOISE * (sa + ((0.5 * sl) / Math.max(lm, 1e-4)) * Math.min(1, 4 * sa)))
         / Math.sqrt(n)
@@ -97,22 +107,85 @@ export function cloudTemporalNoise(
         readonly fresh: Rgba;
         readonly check: Rgba;
         readonly moments?: Moments | undefined;
+        readonly weight?: number | undefined;
     }[],
 ): number {
-    const n = seen.length;
     let vl = 0;
     let va = 0;
+    let w = 0;
+    let lc = 0;
+    let lf = 0;
     for (const x of seen) {
+        const k = x.weight ?? 1;
+        w += k;
+        lc += luminance(x.check) * k;
+        lf += luminance(x.fresh) * k;
         if (x.moments === undefined) continue;
-        vl += Math.max(x.moments[0] - luminance(x.check) ** 2, 0);
-        va += Math.max(x.moments[1] - x.check[3] ** 2, 0);
+        vl += Math.max(x.moments[0] - luminance(x.check) ** 2, 0) * k * k;
+        va += Math.max(x.moments[1] - x.check[3] ** 2, 0) * k * k;
     }
-    const lc = seen.reduce((s, x) => s + luminance(x.check), 0) / n;
-    const lf = seen.reduce((s, x) => s + luminance(x.fresh), 0) / n;
     return (
         CLOUD_TEMPORAL_NOISE
-        * ((0.5 * (Math.sqrt(vl) / n)) / Math.max(Math.max(lc, lf), 1e-4) + Math.sqrt(va) / n)
+        * ((0.5 * (Math.sqrt(vl) / w)) / Math.max(Math.max(lc / w, lf / w), 1e-4)
+            + Math.sqrt(va) / w)
     );
+}
+
+/**
+ * Peso de um bloco na janela do gradiente temporal de um texel (espelho do laço de `cloud_reconstruct_main`): `o` o
+ * deslocamento do bloco (−1…2) a partir do bloco do marchado à esquerda/acima do texel e `f` a fração do texel na grade
+ * dos marchados (0 no marchado, ½ entre dois); o produto de `max(2 − |o − f|, 0)` nos dois eixos — [1, 2, 1] no
+ * marchado, [1, 3, 3, 1] entre dois. A janela anda com o texel (contínua de um texel ao vizinho, sem degrau na borda do
+ * bloco) e a resposta em frequência dela não é negativa em nenhuma: o seguimento do histórico (`cloudHistoryFollow`)
+ * amortece todo modo do erro entre os blocos. Na média 3 × 3 de pesos iguais a resposta na frequência de Nyquist é −⅓
+ * num eixo: a faixa de blocos alternados se amplificava a cada quadro (o degrau de 6–9 × na borda dos blocos).
+ */
+export function cloudGradientWeight(
+    o: readonly [number, number],
+    f: readonly [number, number],
+): number {
+    return Math.max(2 - Math.abs(o[0] - f[0]), 0) * Math.max(2 - Math.abs(o[1] - f[1]), 0);
+}
+
+/**
+ * Quanto do desvio medido entre as médias dos valores exatos e dos históricos nos marchados da janela o histórico de
+ * todos os texels segue no quadro, sem ruído (`CLOUD_HISTORY_FOLLOW`). Um texel do bloco 2 × 2 é marchado a cada quatro
+ * quadros: com a luz mudando (o sol que anda), os quatro ficavam com idades de 0 a 3 quadros na média exponencial — a
+ * grade de 2·S pixels — e o histórico ~13 quadros atrás da luz. Seguindo ½, ~1 quadro atrás e as idades a ~0,2 quadro
+ * de mudança uma da outra.
+ */
+export const CLOUD_HISTORY_FOLLOW = 0.5;
+
+/**
+ * A mudança relativa da luz por quadro que o seguimento espera (`CLOUD_FOLLOW_CHANGE`, τ): o ganho é `β·τ²/(τ² + σ²)`,
+ * `σ` o erro padrão relativo da média dos valores exatos da janela — onde o ruído de uma amostra domina (a faixa clara
+ * de 1–2 px rente ao horizonte), o histórico não segue o ruído.
+ */
+export const CLOUD_FOLLOW_CHANGE = 0.1;
+
+/**
+ * O fator de cada canal da luz que o histórico segue (espelho de `cloud_history_follow`): `1 + g·(F − C)/D`, `F` e `C`
+ * as médias ponderadas dos valores exatos e dos históricos nos marchados, `g = β·τ²/(τ² + σ²)` (`noise` = σ) e o
+ * denominador `D = C + (α/2)(F − C)`, sem viés pelo ruído: na razão `F/C` o histórico ruidoso no denominador puxava o
+ * fator para cima (`E[1/C] > 1/E[C]`); com o peso α/2 do valor exato, os termos de segunda ordem de `F` e de `C` se
+ * cancelam (a variância do histórico na média exponencial é α/(2 − α) da de uma amostra). Sem limite que corte só um
+ * lado (a cauda de cima cortada puxava a luz para baixo); nunca negativo.
+ */
+export function cloudHistoryFollow(
+    freshMean: Rgba,
+    checkMean: Rgba,
+    noise = 0,
+    follow = CLOUD_HISTORY_FOLLOW,
+): [number, number, number] {
+    const eps = 1e-3 * Math.max(luminance(checkMean), 1e-6) + 1e-9;
+    const tau2 = CLOUD_FOLLOW_CHANGE ** 2;
+    const gain = (follow * tau2) / (tau2 + noise * noise);
+    return [0, 1, 2].map((c) => {
+        const f = freshMean[c]!;
+        const h = checkMean[c]!;
+        const d = h + 0.5 * CLOUD_HISTORY_BLEND * (f - h) + eps;
+        return Math.max(0, 1 + (gain * (f - h)) / d);
+    }) as [number, number, number];
 }
 
 /** Divergência: metade da diferença relativa da luz mais a diferença da transmitância. */
@@ -182,16 +255,21 @@ export interface ReconstructInput {
         readonly check: Rgba | undefined;
         /** O segundo momento temporal guardado no pixel marchado dele (ausente: sem). */
         readonly moments?: Moments;
+        /** O peso na janela do gradiente (`cloudGradientWeight`; ausente: 1). */
+        readonly weight?: number;
     }[];
+    /**
+     * Os valores exatos da caixa do recorte (os 3 × 3 blocos em volta do bloco do texel). Ausente: os de `neighbors`.
+     */
+    readonly box?: readonly Rgba[];
+    /** Quanto o histórico segue o desvio medido (`CLOUD_HISTORY_FOLLOW` se ausente). */
+    readonly follow?: number;
     /**
      * Quanto o histórico é recortado pela caixa (0…1, `cloud_reprojection_clip`): o deslocamento da reprojeção entre as
      * profundidades do trecho da nuvem. Ausente: 1 (a câmera que anda).
      */
     readonly clip?: number;
 }
-
-const mean = (v: readonly Rgba[]): Rgba =>
-    [0, 1, 2, 3].map((c) => v.reduce((s, x) => s + x[c]!, 0) / v.length) as unknown as Rgba;
 
 /** O valor reconstruído do pixel. */
 export function reconstructTexel(i: ReconstructInput): Rgba {
@@ -204,25 +282,44 @@ export function reconstructTexel(i: ReconstructInput): Rgba {
     )
         return here;
     const seen = i.neighbors.flatMap((n) =>
-        n.check === undefined ? [] : [{ fresh: n.fresh, check: n.check, moments: n.moments }],
+        n.check === undefined
+            ? []
+            : [{ fresh: n.fresh, check: n.check, moments: n.moments, weight: n.weight ?? 1 }],
     );
     if (seen.length === 0) return here;
-    const divergence = cloudDivergence(
-        mean(seen.map((n) => n.check)),
-        mean(seen.map((n) => n.fresh)),
-    );
+    const weights = seen.map((n) => n.weight);
+    const w = weights.reduce((s, x) => s + x, 0);
+    const wmean = (v: readonly Rgba[]): Rgba =>
+        [0, 1, 2, 3].map(
+            (c) => v.reduce((s, x, k) => s + x[c]! * weights[k]!, 0) / w,
+        ) as unknown as Rgba;
+    const freshMean = wmean(seen.map((n) => n.fresh));
+    const checkMean = wmean(seen.map((n) => n.check));
+    const divergence = cloudDivergence(checkMean, freshMean);
     const reset = cloudHistoryReset(
         divergence,
         CLOUD_GRADIENT_TOLERANCE
-            + cloudGradientNoise(seen.map((n) => n.fresh))
+            + cloudGradientNoise(
+                seen.map((n) => n.fresh),
+                weights,
+            )
             + cloudTemporalNoise(seen),
     );
-    const box = [i.fresh, ...i.neighbors.map((n) => n.fresh)];
+    // O erro padrão relativo da média do brilho na janela, pela variância temporal guardada (× w²).
+    let vl = 0;
+    for (const x of seen)
+        if (x.moments !== undefined)
+            vl += Math.max(x.moments[0] - luminance(x.check) ** 2, 0) * x.weight ** 2;
+    const relative =
+        Math.sqrt(vl) / w / Math.max(Math.max(luminance(checkMean), luminance(freshMean)), 1e-4);
+    const follow = cloudHistoryFollow(freshMean, checkMean, relative, i.follow);
+    const history = [0, 1, 2, 3].map((c) => i.history![c]! * (c < 3 ? follow[c]! : 1));
+    const box = [i.fresh, ...(i.box ?? i.neighbors.map((n) => n.fresh))];
     const lo = [0, 1, 2, 3].map((c) => Math.min(...box.map((n) => n[c]!)));
     const hi = [0, 1, 2, 3].map((c) => Math.max(...box.map((n) => n[c]!)));
     const kept = [0, 1, 2, 3].map((c) => {
         const pad = CLOUD_BOX_PAD * (hi[c]! - lo[c]!);
-        const h = i.history![c]!;
+        const h = history[c]!;
         return (
             h
             + (Math.min(hi[c]! + pad, Math.max(lo[c]! - pad, h)) - h) * Math.max(i.clip ?? 1, reset)

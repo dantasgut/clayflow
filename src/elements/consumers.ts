@@ -64,6 +64,8 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'panorama',
             'trace',
             'traceDepth',
+            'check',
+            'checkNoise',
             'view',
             'scatterFiltered',
             'weatherWind',

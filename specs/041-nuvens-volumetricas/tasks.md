@@ -343,6 +343,30 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       erro de alta frequência contra a cena parada convergida 4,42 → 3,59 %; `sunset` 3,9 → 3,7 %. Fica registrada a grade
       de 4 px das idades dos texels na média exponencial (2–3 % do brilho linear no caso, < 0,5 nível de 8 bits no vídeo):
       propagar a mudança dos marchados aos outros texels é instável (o modo xadrez se amplifica) e foi descartado.
+- [x] T080 [GPU] A grade de 4 px e o atraso da cor no pôr do sol em movimento (rodada 37; `solposto` quadro 1000). Medido
+      no `dusk-blocks` antes de desenhar: três atrasos isolados. (1) O mapa visto do sol: a fila da escolha das páginas em
+      14 oitavas saturava com o sol andando (o plano gira, colunas de ~30 km) — quase todas na fila de cima, a ordem da
+      página física decidia e as de índice alto esperavam até `CLOUD_SHADOW_MAX_AGE`; com o mapa inteiro refeito por quadro
+      o matiz atrasado ln(R/B) caía de 0,95 a ~0. Corrigido: 46 filas em meias oitavas e a mudança limitada a 1
+      (`shadowPageKey`; teste: com 2048 páginas e 128 por quadro nenhuma espera mais que 32 quadros, antes > 120). O passe do
+      mapa em movimento a 1,3° de sol: 0,93 → ~2,2 ms (as 128 páginas por quadro agora são as vistas e com nuvem, não as
+      baratas de índice baixo); parado, nada muda (`timing` alto 2,76 ms). (2) O histórico: um texel por bloco marchado a
+      cada 4 quadros, média exponencial ~13 quadros atrás e as idades de 0 a 3 quadros no bloco (a grade). O histórico de
+      todos os texels segue o desvio medido entre as médias dos valores exatos e dos históricos nos marchados
+      (`cloud_history_follow`: β = ½ × o ganho τ²/(τ² + σ²), τ = 10 %/quadro contra o erro padrão relativo da média, e o
+      denominador C + (α/2)(F − C) sem viés), numa janela que anda com o texel e sem resposta negativa em frequência
+      (`cloud_gradient_weight`, [1,2,1]/[1,3,3,1]; a média 3 × 3 de pesos iguais amplificava faixas de blocos — degrau 6–9 ×);
+      o gradiente e a rampa do recorte pela mesma janela. Passe novo por bloco `cloud_check_main` (o histórico no marchado e
+      a variância temporal, alvos `check`/`checkNoise`): reconstrução 0,234 → 0,038 + 0,126 ms. Seguindo sempre (sem o
+      ganho), o `sunset` caía a 7,6 %; com τ = 0,2, 5,4 %. Referência `cloudReconstruct.ts` (`cloudGradientWeight`,
+      `cloudHistoryFollow`) e testes (a grade de blocos em f64: atraso 13 → < 1,2 quadro, idades 3 → < 0,3; a faixa
+      alternada se apaga com a janela e cresce com a média de pesos iguais; o fator sem viés). (3) O cache de espalhamento
+      (fica registrado): em movimento a luz ~19 % abaixo da cena parada — o sol que anda esquece os caminhos das sondas e
+      a luz delas cai nas oitavas (`CLOUD_SCATTER_PRIOR`), mais escuras na base à sombra; com 8 × o orçamento de páginas do
+      cache, −8 %. `dusk-blocks`: degrau na borda dos blocos 1,069 → 1,024 (≤ 1,03), alta frequência 3,59 → 2,57 %
+      (≤ 3 %), grade 1,9 → 0,6–1,2 % (parada 0,26), matiz contra a cena parada 0,95 → 0,018 (critério novo ≤ 0,05).
+      Casos: sunset 3,6 %, noon 1,3 %, backlit 4,0 %, types 2,0/1,7/1,5 %, storm 2,4 %, beam-gap +3,0 px, timing alto
+      2,76 ms. Aberto: o brilho do cache de espalhamento com o sol andando (3).
 
 **Checkpoint**: US5 completa quando T047–T049 e T052–T056 fecharem na GPU.
 

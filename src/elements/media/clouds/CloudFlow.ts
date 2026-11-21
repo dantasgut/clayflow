@@ -60,6 +60,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     private march: string | undefined;
     private upsample: string | undefined;
     private reconstruct: string | undefined;
+    /** O passe por bloco do histórico nos marchados (o mesmo módulo da reconstrução). */
+    private check: string | undefined;
     private active = false;
     /** A camada das ligações privadas. */
     private layer: CloudLayer | undefined;
@@ -106,14 +108,17 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     dispatch(frame: Frame, bound: BoundFlow<CloudSlots>): void {
         if (!this.active || this.march === undefined || this.upsample === undefined) return;
         const march = bound.pipelines.get(this.march);
-        if (this.reconstruct === undefined) return;
+        if (this.reconstruct === undefined || this.check === undefined) return;
         const reconstruct = bound.pipelines.get(this.reconstruct);
+        const check = bound.pipelines.get(this.check);
         const upsample = bound.pipelines.get(this.upsample);
         if (
             march?.role !== 'compute'
             || !march.ready
             || reconstruct?.role !== 'compute'
             || !reconstruct.ready
+            || check?.role !== 'compute'
+            || !check.ready
             || upsample?.role !== 'compute'
             || !upsample.ready
         )
@@ -129,6 +134,11 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         frame.compute('CloudFlow.march', (pass) => {
             pass.bind.setPipeline(march.spec);
             march.bindTo(pass.bind);
+            pass.dispatch.invocations(blocks[0]! * blocks[1]!, WORKGROUP_SIZE.value);
+        });
+        frame.compute('CloudFlow.check', (pass) => {
+            pass.bind.setPipeline(check.spec);
+            check.bindTo(pass.bind);
             pass.dispatch.invocations(blocks[0]! * blocks[1]!, WORKGROUP_SIZE.value);
         });
         frame.compute('CloudFlow.reconstruct', (pass) => {
@@ -151,27 +161,32 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     private release(c: Ctx): void {
         this.active = false;
         if (this.reconstruct !== undefined) c.release(this.reconstruct);
+        if (this.check !== undefined) c.release(this.check);
         if (this.march !== undefined) c.release(this.march);
         if (this.upsample !== undefined) c.release(this.upsample);
         this.reconstruct = undefined;
+        this.check = undefined;
         this.march = undefined;
         this.upsample = undefined;
         this.views = [];
     }
 
-    /** A reconstrução (sem e com amostras), com o vento do tempo no lugar `cloud_wind_at` quando há tempo. */
+    /**
+     * A reconstrução e o passe por bloco do histórico nos marchados (sem e com amostras), com o vento do tempo no lugar
+     * `cloud_wind_at` quando há tempo.
+     */
     private prepareReconstruct(c: Ctx, id: string, multisampled: boolean, weather: boolean): void {
         const kernel = multisampled
             ? cloudReconstructKernel.multisampled
             : cloudReconstructKernel.single;
-        c.prepare({
-            id,
-            role: 'compute',
-            shader: weather
-                ? bindPoints(kernel, new Map([[cloudWindAtPoint, cloudWindWeather]]))
-                : kernel,
-            entryPoints: ['cloud_reconstruct_main'],
-        });
+        const shader = weather
+            ? bindPoints(kernel, new Map([[cloudWindAtPoint, cloudWindWeather]]))
+            : kernel;
+        if (this.check !== undefined) c.release(this.check);
+        const check = id.replace('cloud_reconstruct', 'cloud_check');
+        c.prepare({ id: check, role: 'compute', shader, entryPoints: ['cloud_check_main'] });
+        c.prepare({ id, role: 'compute', shader, entryPoints: ['cloud_reconstruct_main'] });
+        this.check = check;
         this.reconstruct = id;
     }
 
@@ -192,9 +207,17 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         }
         this.active = depth !== undefined;
         if (!this.active || depth === undefined) return;
-        for (const id of ['trace', 'traceDepth', 'march', 'marchDepth', 'view'])
+        for (const id of [
+            'trace',
+            'traceDepth',
+            'check',
+            'checkNoise',
+            'march',
+            'marchDepth',
+            'view',
+        ])
             this.resources.ensureAllocated(cloud, id);
-        const views = (['trace', 'traceDepth', 'view'] as const).map((id) =>
+        const views = (['trace', 'traceDepth', 'view', 'check', 'checkNoise'] as const).map((id) =>
             c.bound.slots.cloud.textureViewOf(id),
         );
         if (views.some((v) => v === undefined)) {
@@ -210,6 +233,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                     [cloudOutputs.trace, views[0]!],
                     [cloudOutputs.traceDepth, views[1]!],
                     [cloudOutputs.view, views[2]!],
+                    [cloudOutputs.check, views[3]!],
+                    [cloudOutputs.checkNoise, views[4]!],
                     [
                         multisampled ? cloudResources.sceneDepthMs : cloudResources.sceneDepth,
                         depth.view,

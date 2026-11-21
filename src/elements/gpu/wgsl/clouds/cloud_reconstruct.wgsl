@@ -23,7 +23,11 @@
 // O vento da reprojeção é `cloud_wind_at` (o uniforme da camada; com o tempo, o do quadrado do tempo no ponto, R19).
 // Requer: WORKGROUP_SIZE, color, cloud_common, cloud_march_bayer, cloud_scene_limit, cloud_scene_depth, camera_space, clouds, cameras,
 // cloud_wind_at, cloud_trace, cloud_trace_depth, cloud_march_prev,
-// cloud_march_depth_prev, cloud_march_out, cloud_march_depth_out.
+// cloud_march_depth_prev, cloud_march_out, cloud_march_depth_out, cloud_check, cloud_check_noise, cloud_check_out,
+// cloud_check_noise_out.
+// Dois pontos de entrada: `cloud_check_main` (um bloco por invocação, depois da marcha: o histórico reprojetado no pixel
+// marchado do bloco e a variância temporal guardada com ele) e `cloud_reconstruct_main` (um texel por invocação), que lê
+// a janela do gradiente nos blocos sem refazer as reprojeções (antes, cada texel refazia as dos 3 × 3 blocos).
 
 /** Folga da caixa do recorte do histórico (fração da largura dela). */
 const CLOUD_BOX_PAD: f32 = 0.5;
@@ -34,6 +38,22 @@ const CLOUD_GRADIENT_TOLERANCE: f32 = 0.2;
  * inicial aleatório entra aos poucos, e o ruído do deslocamento não cintila a cada vez que o bloco é marchado.
  */
 const CLOUD_HISTORY_BLEND: f32 = 0.25;
+/**
+ * Quanto do desvio medido entre as médias dos valores exatos e dos históricos nos marchados da janela o histórico de todos
+ * os texels segue no quadro (`cloud_history_follow`). Um texel do bloco 2 × 2 é marchado a cada quatro quadros: com a luz
+ * mudando (o sol que anda no `solposto`), os quatro texels ficavam com idades de 0 a 3 quadros na média exponencial — a
+ * grade de 2·S px a olho no alto alaranjado das nuvens — e o histórico ~13 quadros atrás da luz. Seguindo ½ por quadro
+ * (sem ruído), ~1 quadro atrás e as idades do bloco a ~0,2 quadro de mudança uma da outra.
+ */
+const CLOUD_HISTORY_FOLLOW: f32 = 0.5;
+/**
+ * A mudança relativa da luz por quadro que o seguimento espera (o ganho de Kalman `τ²/(τ² + σ²)` contra o erro padrão
+ * relativo `σ` da média dos valores exatos da janela, pela variância temporal guardada): onde o ruído de uma amostra
+ * domina (a faixa clara de 1–2 px rente ao horizonte, que a amostra ora acerta ora não), o histórico não segue o ruído —
+ * seguindo sempre, a luz junto ao sol no `sunset` caía 3,7 → 7,6 % abaixo da referência (o histórico ruidoso largado e
+ * recortado pela caixa).
+ */
+const CLOUD_FOLLOW_CHANGE: f32 = 0.1;
 
 /**
  * Onde o ponto do pixel `q` (¼ da tela) à distância `d` (m) estava no quadro anterior (normalizado na tela; z = 1 se dentro
@@ -198,6 +218,63 @@ fn cloud_fresh_at(q: vec2u, own: f32, fallback: vec4f) -> vec4f {
 }
 
 /**
+ * O peso do bloco `o` (−1…2 a partir do bloco do marchado à esquerda/acima do texel) na janela do gradiente de um texel à
+ * fração `f` da grade dos marchados (0 no marchado, ½ entre dois): `max(2 − |o − f|, 0)` nos dois eixos — [1, 2, 1] e
+ * [1, 3, 3, 1]. A janela anda com o texel (o gradiente e o seguimento contínuos de um texel ao vizinho, sem degrau na
+ * borda do bloco) e a resposta em frequência dela não é negativa: o seguimento amortece todo modo do erro entre os
+ * blocos. A média 3 × 3 de pesos iguais em volta do bloco tem −⅓ na frequência de Nyquist num eixo — a faixa de blocos
+ * alternados crescia a cada quadro (o degrau de 6–9 × na borda dos blocos) — e dava o mesmo gradiente aos quatro texels
+ * do bloco (o degrau na borda dele onde o bloco larga o histórico em parte). Espelho de `cloudGradientWeight`.
+ */
+fn cloud_gradient_weight(o: vec2i, f: vec2f) -> f32 {
+    let w = max(vec2f(2.0) - abs(vec2f(o) - f), vec2f(0.0));
+    return w.x * w.y;
+}
+
+/**
+ * O fator de cada canal da luz que o histórico segue (espelho de `cloudHistoryFollow`): `1 + β·(F − C)/D` com `F` e `C`
+ * as médias ponderadas dos valores exatos e dos históricos nos marchados da janela e `D = C + (α/2)(F − C)` — o
+ * denominador sem viés pelo ruído (na razão `F/C`, `E[1/C] > 1/E[C]` puxava o fator para cima; com o peso α/2 do valor
+ * exato os termos de segunda ordem de `F` e de `C` se cancelam, a variância do histórico na média exponencial sendo
+ * α/(2 − α) da de uma amostra), × o ganho `β·τ²/(τ² + σ²)` (`noise` = σ, o erro padrão relativo da média dos valores
+ * exatos). Sem limite que corte só um lado: a cauda de cima (a amostra que acerta o detalhe claro) cortada puxava a luz
+ * para baixo; o fator nunca passa de `1 − β/(1 − α/2)` para baixo.
+ */
+fn cloud_history_follow(fresh_mean: vec4f, check_mean: vec4f, noise: f32) -> vec3f {
+    let eps = 1e-3 * max(luminance(check_mean.rgb), 1e-6) + 1e-9;
+    let d = check_mean.rgb + 0.5 * CLOUD_HISTORY_BLEND * (fresh_mean.rgb - check_mean.rgb) + eps;
+    let tau2 = CLOUD_FOLLOW_CHANGE * CLOUD_FOLLOW_CHANGE;
+    let gain = CLOUD_HISTORY_FOLLOW * tau2 / (tau2 + noise * noise);
+    return max(vec3f(1.0) + gain * (fresh_mean.rgb - check_mean.rgb) / d, vec3f(0.0));
+}
+
+/**
+ * O histórico no pixel marchado de cada bloco (um bloco por invocação, depois da marcha): reprojetado até a superfície
+ * guardada com o valor exato do bloco (`a` < 0: nenhum, ou sem série válida) e a variância temporal de uma amostra nele
+ * (o segundo momento guardado menos o quadrado do histórico: o brilho e a transmitância).
+ */
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn cloud_check_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+    let blocks = textureDimensions(cloud_trace);
+    let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
+    if (i >= blocks.x * blocks.y) { return; }
+    let nb = vec2u(i % blocks.x, i / blocks.x);
+    var value = vec4f(0.0, 0.0, 0.0, -1.0);
+    var variance = vec2f(0.0);
+    if (clouds.flags.x == 1u && cameras[clouds.march.w].history.x < 0.5) {
+        let size = textureDimensions(cloud_march_prev);
+        let full = vec2f(size * cloud_march_scale());
+        let mq = min(nb * 2u + cloud_bayer(clouds.march.z), size - 1u);
+        let hn = cloud_history_at(mq, full, textureLoad(cloud_trace_depth, nb, 0).g);
+        value = hn.value;
+        let lh = luminance(value.rgb);
+        variance = max(hn.moments - vec2f(lh * lh, value.a * value.a), vec2f(0.0));
+    }
+    textureStore(cloud_check_out, nb, value);
+    textureStore(cloud_check_noise_out, nb, vec4f(variance, 0.0, 0.0));
+}
+
+/**
  * Quanto o bloco larga o histórico (0…1) pela divergência `d` das médias dos 3 × 3 blocos e a tolerância `allowance`
  * (a fixa mais o ruído esperado): nada até a tolerância, tudo a 1,5 × ela. O degrau (tudo ou nada) dava blocos vizinhos
  * em estados opostos onde a luz muda depressa (o sol rente ao horizonte): uns com o histórico, outros com o valor exato.
@@ -255,46 +332,56 @@ fn cloud_reconstruct_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(n
         if (hist.a >= 0.0) {
             moments = select(hh.moments, mix(hh.moments, fresh_m, CLOUD_HISTORY_BLEND), all(q == marched));
         }
-        // O pixel marchado do bloco foi marchado até a superfície guardada com o valor exato do bloco.
-        let check = cloud_history_at(min(marched, size - 1u), full, textureLoad(cloud_trace_depth, b, 0).g).value;
-        // O gradiente temporal filtrado (Schied et al. 2018, A-SVGF): a divergência entre as médias dos 3 × 3 blocos em
-        // volta — o valor exato de cada um e o histórico reprojetado no pixel marchado dele —, não a de uma amostra só:
-        // o ruído do deslocamento inicial da marcha numa amostra reprovava o bloco na nuvem fina e na borda, e o bloco
-        // trocado pela amostra do pixel marchado puxava a borda para o vizinho (smoke `clouds`: `noon` 7 %, `sunset` 9 %).
-        // Os vizinhos cujo histórico sai da tela ficam de fora da média.
+        // O histórico no pixel marchado do bloco (até a superfície guardada com o valor exato dele), do passe por bloco.
+        let check = textureLoad(cloud_check, b, 0);
+        // O gradiente temporal filtrado (Schied et al. 2018, A-SVGF): a divergência entre as médias ponderadas dos blocos
+        // da janela do texel (`cloud_gradient_weight`) — o valor exato de cada um e o histórico reprojetado no pixel
+        // marchado dele —, não a de uma amostra só: o ruído do deslocamento inicial da marcha numa amostra reprovava o
+        // bloco na nuvem fina e na borda, e o bloco trocado pela amostra do pixel marchado puxava a borda para o vizinho
+        // (smoke `clouds`: `noon` 7 %, `sunset` 9 %). Os blocos cujo histórico sai da tela ficam de fora da média; o ruído
+        // esperado pelo número efetivo de amostras da média ponderada, `(Σw)²/Σw²`.
         var fresh_sum = vec4f(0.0);
         var check_sum = vec4f(0.0);
         // A dispersão dos valores exatos dos blocos (o brilho e a transmitância): o ruído de uma amostra.
         var fresh_sq = vec2f(0.0);
-        // A soma das variâncias temporais de uma amostra nos pixels marchados (o brilho e a transmitância).
+        // A soma das variâncias temporais de uma amostra nos pixels marchados (o brilho e a transmitância), × w².
         var temporal = vec2f(0.0);
-        var n = 0.0;
-        for (var k = 0; k < 9; k++) {
-            let nb = vec2u(clamp(vec2i(b) + vec2i(k % 3 - 1, k / 3 - 1), vec2i(0), vec2i(blocks) - 1));
-            let mq = min(nb * 2u + cloud_bayer(clouds.march.z), size - 1u);
-            let ms = textureLoad(cloud_trace_depth, nb, 0).g;
-            let hn = cloud_history_at(mq, full, ms);
-            let h = hn.value;
+        var wsum = 0.0;
+        var w2sum = 0.0;
+        let rel = vec2i(q) - vec2i(cloud_bayer(clouds.march.z));
+        let b0 = vec2i(floor(vec2f(rel) * 0.5));
+        let fr = vec2f(rel - 2 * b0) * 0.5;
+        for (var k = 0; k < 16; k++) {
+            let o = vec2i(k % 4 - 1, k / 4 - 1);
+            let w = cloud_gradient_weight(o, fr);
+            if (w <= 0.0) { continue; }
+            let nb = vec2u(clamp(b0 + o, vec2i(0), vec2i(blocks) - 1));
+            let h = textureLoad(cloud_check, nb, 0);
             if (h.a >= 0.0) {
                 let v = textureLoad(cloud_trace, nb, 0);
-                fresh_sum += v;
-                check_sum += h;
+                fresh_sum += v * w;
+                check_sum += h * w;
                 let lv = luminance(v.rgb);
-                fresh_sq += vec2f(lv * lv, v.a * v.a);
-                let lh = luminance(h.rgb);
-                temporal += max(hn.moments - vec2f(lh * lh, h.a * h.a), vec2f(0.0));
-                n += 1.0;
+                fresh_sq += vec2f(lv * lv, v.a * v.a) * w;
+                temporal += textureLoad(cloud_check_noise, nb, 0).rg * (w * w);
+                wsum += w;
+                w2sum += w * w;
             }
         }
-        let fresh_mean = fresh_sum / max(n, 1.0);
-        let check_mean = check_sum / max(n, 1.0);
-        let st = sqrt(temporal) / max(n, 1.0);
-        let temporal_noise = CLOUD_TEMPORAL_NOISE
-            * (0.5 * st.x / max(max(luminance(check_mean.rgb), luminance(fresh_mean.rgb)), 1e-4) + st.y);
-        let allowance = CLOUD_GRADIENT_TOLERANCE + cloud_gradient_noise(fresh_mean, fresh_sq / max(n, 1.0), n)
+        let n = select(0.0, wsum * wsum / max(w2sum, 1e-9), wsum > 0.0);
+        let fresh_mean = fresh_sum / max(wsum, 1e-9);
+        let check_mean = check_sum / max(wsum, 1e-9);
+        let st = sqrt(temporal) / max(wsum, 1e-9);
+        // O erro padrão relativo da média do brilho na janela (de uma amostra por bloco).
+        let relative = st.x / max(max(luminance(check_mean.rgb), luminance(fresh_mean.rgb)), 1e-4);
+        let temporal_noise = CLOUD_TEMPORAL_NOISE * (0.5 * relative + st.y);
+        let allowance = CLOUD_GRADIENT_TOLERANCE + cloud_gradient_noise(fresh_mean, fresh_sq / max(wsum, 1e-9), n)
             + temporal_noise;
         let reset = select(1.0, cloud_history_reset(cloud_divergence(check_mean, fresh_mean), allowance), n > 0.0);
+        // O histórico segue o desvio medido (a mudança da luz que os três texels não marchados do bloco não viram).
+        let follow = select(vec3f(1.0), cloud_history_follow(fresh_mean, check_mean, relative), n > 0.0);
         if (hist.a >= 0.0 && check.a >= 0.0) {
+            let hist = vec4f(hist.rgb * follow, hist.a);
             limit = select(own, fresh_depth.g, reset >= 0.5);
             // O histórico recortado pela caixa dos valores exatos dos 3 × 3 blocos: com a câmera andando dentro da nuvem
             // (`voo` do claflow-web), a reprojeção pela profundidade da nuvem erra e, sem o recorte, o histórico velho

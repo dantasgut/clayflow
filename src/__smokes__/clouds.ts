@@ -9,8 +9,8 @@
 //     a luz das sondas do cache de espalhamento lida da GPU (`?settle=` quadros antes; `?dump=W` grava blocos da imagem);
 //   - scatter-cache: as sondas do cache de espalhamento (T023) contra caminhos f64 nas mesmas sondas (viés ≤ 5 %);
 //   - dusk-blocks: o mosaico nas nuvens escuras do pôr do sol, com o sol descendo depressa rente ao horizonte — o degrau
-//     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels e o erro de alta frequência contra a mesma cena
-//     parada e convergida;
+//     na borda dos blocos 2 × 2 da reconstrução pelo degrau entre texels, o erro de alta frequência e o atraso da cor
+//     (matiz e brilho) contra a mesma cena parada e convergida;
 //   - timing: o custo por passe das nuvens a 1280 × 720 no perfil alto (SC-005);
 //   - pressure-wind: o vento das nuvens, a subida e a frente do quadrado do tempo contra a referência f64
 //     (`reference/cloudWeather.ts`) numa baixa gaussiana a 45° N, 45° S e no equador, e o mapa de cobertura pelo tempo
@@ -2482,6 +2482,61 @@ function latticePattern(
     return Math.max(...means) - Math.min(...means);
 }
 
+/**
+ * O atraso da cor da vista `a` contra a vista `b` (a mesma cena parada e convergida): em ladrilhos de 16 × 16 px com nuvem
+ * nos dois, a média do RGB de cada um; devolve o erro relativo do RGB dos ladrilhos (pela energia: a baixa frequência, o
+ * ruído do cache de espalhamento incluso), a diferença do matiz `ln(R/B)` (o laranja do sol mais alto contra o rosado) e
+ * a do brilho (`level`: a razão das somas − 1), pesadas pelo brilho da cena parada. A luz que fica atrás do sol que anda
+ * desvia o matiz e o brilho no mesmo sentido em toda a imagem; o ruído, não.
+ */
+function colorLag(
+    a: { width: number; height: number; data: Float32Array },
+    b: { width: number; height: number; data: Float32Array },
+): { rgb: number; hue: number; level: number } {
+    const { width: w, height: h } = a;
+    const tile = 16;
+    let e = 0;
+    let ref = 0;
+    let la = 0;
+    let hue = 0;
+    let weight = 0;
+    for (let ty = 0; ty + tile <= h; ty += tile)
+        for (let tx = 0; tx + tile <= w; tx += tile) {
+            const ma = [0, 0, 0];
+            const mb = [0, 0, 0];
+            let ok = true;
+            for (let y = ty; y < ty + tile && ok; y++)
+                for (let x = tx; x < tx + tile; x++) {
+                    const i = (y * w + x) * 4;
+                    if (a.data[i + 3]! >= 0.9 || b.data[i + 3]! >= 0.9) {
+                        ok = false;
+                        break;
+                    }
+                    for (let c = 0; c < 3; c++) {
+                        ma[c]! += a.data[i + c]!;
+                        mb[c]! += b.data[i + c]!;
+                    }
+                }
+            if (!ok) continue;
+            for (let c = 0; c < 3; c++) {
+                e += (ma[c]! - mb[c]!) ** 2;
+                ref += mb[c]! ** 2;
+            }
+            const lb = luminance(mb as [number, number, number]);
+            la += luminance(ma as [number, number, number]);
+            hue +=
+                lb
+                * (Math.log(Math.max(ma[0]!, 1e-9) / Math.max(ma[2]!, 1e-9))
+                    - Math.log(Math.max(mb[0]!, 1e-9) / Math.max(mb[2]!, 1e-9)));
+            weight += lb;
+        }
+    return {
+        rgb: Math.sqrt(e / Math.max(ref, 1e-30)),
+        hue: hue / Math.max(weight, 1e-30),
+        level: la / Math.max(weight, 1e-30) - 1,
+    };
+}
+
 async function caseDuskBlocks(): Promise<void> {
     // O mosaico nas nuvens escuras do pôr do sol (o `solposto` do claflow-web perto do quadro 1000), a câmera no chão
     // olhando para o lado do sol no azimute (0,8; 0,6). A luz das nuvens muda depressa e o gradiente temporal larga o
@@ -2489,8 +2544,9 @@ async function caseDuskBlocks(): Promise<void> {
     // amostra cada: o mosaico na base escura e a borda dos vãos em degraus). Medidas: o degrau na borda dos blocos pelo
     // degrau entre dois texels dentro deles (`blockEdgeRatio`; 1 sem estrutura de bloco) e o erro de alta frequência
     // contra a mesma cena parada e convergida. A grade periódica dos blocos (`latticePattern`: os quatro texels do bloco
-    // com idades de 0 a 3 quadros na média exponencial, com a luz mudando) fica registrada: ~2–3 % do brilho linear aqui,
-    // abaixo do ruído no vídeo (< 0,5 nível de 8 bits no `solposto`).
+    // com idades de 0 a 3 quadros na média exponencial, com a luz mudando; T080: o histórico de todos os texels segue o
+    // desvio medido) fica registrada. O atraso da cor (`colorLag`): o matiz e o brilho dos ladrilhos de 16 px contra a
+    // cena parada — o mapa visto do sol e o histórico atrás do sol que anda (T080).
     const az = (Math.atan2(0.6, 0.8) * 180) / Math.PI;
     const a = (az * Math.PI) / 180;
     // A cena do `solposto`: cúmulos de 0,08/m, o vento de 6 m/s, o ar de fim de tarde (turbidez 8, névoa seca de 0,15/km
@@ -2531,22 +2587,35 @@ async function caseDuskBlocks(): Promise<void> {
     const moving = await cloudView(s);
     await settleFrames(s.app, 192);
     const still = await cloudView(s);
+    const lag = colorLag(moving, still);
     const hf = highPassError(moving, still);
     const worst = Math.max(...ratios.flatMap(([, x, y]) => [x, y]));
     log(
         `dusk-blocks: degrau na borda dos blocos / entre texels (x, y) — ${ratios.map(([e, x, y]) => `sol a ${e.toFixed(2)}°: ${x.toFixed(3)}, ${y.toFixed(3)}`).join(' | ')}`,
     );
     log(
-        `dusk-blocks: a grade de ${2 * scale} px (pico a pico das médias por fase, % do brilho local) ${grids.map((g) => (g * 100).toFixed(2)).join(', ')}; erro de alta frequência (5 × 5) do quadro em movimento contra a mesma cena parada e convergida ${(hf * 100).toFixed(2)} %`,
+        `dusk-blocks: a grade de ${2 * scale} px (pico a pico das médias por fase, % do brilho local) ${grids.map((g) => (g * 100).toFixed(2)).join(', ')} (parada ${(latticePattern(still, scale) * 100).toFixed(2)}); erro de alta frequência (5 × 5) do quadro em movimento contra a mesma cena parada e convergida ${(hf * 100).toFixed(2)} %`,
+    );
+    log(
+        `dusk-blocks: a cor em movimento contra a cena parada — matiz ln(R/B) ${lag.hue.toFixed(4)}, brilho ${(lag.level * 100).toFixed(2)} %, RGB dos ladrilhos de 16 px ${(lag.rgb * 100).toFixed(1)} %`,
     );
     check(
-        worst <= 1.1,
+        worst <= 1.03,
         `dusk-blocks: o degrau na borda dos blocos a ${worst.toFixed(3)} × o entre texels (mosaico)`,
     );
     check(
-        hf <= 0.04,
+        hf <= 0.03,
         `dusk-blocks: erro de alta frequência a ${(hf * 100).toFixed(2)} % da cena convergida`,
     );
+    // O atraso da cor (o mapa visto do sol e o histórico atrás do sol que anda): com a fila do mapa saturada e o
+    // histórico ~13 quadros atrás, o matiz saía 0,95 acima (o laranja) e o RGB dos ladrilhos a 260 %.
+    check(
+        Math.abs(lag.hue) <= 0.05,
+        `dusk-blocks: o matiz em movimento a ${lag.hue.toFixed(4)} do da cena parada (atraso da cor)`,
+    );
+    // O brilho fica registrado: em movimento, ~19 % abaixo da cena parada pelo cache de espalhamento — o sol que anda
+    // esquece os caminhos das sondas (`CLOUD_SCATTER_SUN_MEMORY`) e a luz delas cai na estimativa das oitavas
+    // (`CLOUD_SCATTER_PRIOR`), mais escura na base à sombra (com 8 × o orçamento de páginas do cache, −8 %).
     finish(s);
 }
 
