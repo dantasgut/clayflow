@@ -13,6 +13,8 @@ import {
     lightTransmissionReady,
     lightVisibilityPoint,
     lightVisibilityReady,
+    sceneAmbientLightingPoint,
+    sceneAmbientLightingReady,
     sceneDirectLightingPoint,
     sceneIndirectLightingPoint,
     sceneDirectLightingReady,
@@ -25,6 +27,7 @@ import {
     hemisphereBackground,
     hemisphereBackgroundContribution,
     hemisphereContribution,
+    hemisphereRayLightingContribution,
     LIGHT_LIMIT,
     poolLightContribution,
 } from '../lightContributions';
@@ -133,7 +136,22 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
             hemisphereAmbientContribution.point,
             hemisphereEnvironmentContribution.point,
             hemisphereBackgroundContribution(() => true).point,
+            hemisphereRayLightingContribution.point,
         ]);
+        // Nos acertos dos raios (a refração), a mesma luz ambiente do desenho, num ponto próprio: os raios calculam a
+        // luz das fontes com a sombra por raio, sem `scene_direct_lighting`.
+        expect(contributions[4]!.point).toBe(sceneAmbientLightingPoint);
+        const drawn = hemisphereContribution.build(() => undefined)!;
+        const traced = contributions[4]!.build(() => undefined)!;
+        expect(traced).toBe(hemisphereRayLightingContribution.build(() => undefined));
+        expect(traced.source).toContain(
+            'fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f',
+        );
+        expect(traced.source).toContain('return hemisphere_lighting(c, p, n, v);');
+        expect(drawn.source).toContain('return hemisphere_lighting(c, p, n, v);');
+        expect(traced.requires).toEqual(drawn.requires);
+        expect(() => composeWgsl(traced)).not.toThrow();
+        expect(sceneAmbientLightingReady.source).toContain('return vec3f(0.0);');
         expect(contributions[0]!.order).toBe(hemisphereContribution.order);
         expect(contributions[0]!.build(() => undefined)).toBe(
             hemisphereContribution.build(() => undefined),
@@ -149,6 +167,7 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         const off = env.getSceneContributions();
         expect(off[0]!.build(() => undefined)).toBeUndefined();
         expect(off[1]!.build(() => undefined)).toBeUndefined();
+        expect(off[4]!.build(() => undefined)).toBeUndefined();
         expect(off[2]).toBe(hemisphereEnvironmentContribution);
         expect(contributions[3]!.point).toBe(hemisphereBackgroundContribution(() => true).point);
         // O fundo só com `background` (padrão desligado: a cor da limpeza); trocável depois de criado.
@@ -175,8 +194,11 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         );
         expect(hemisphereContribution.order).toBeGreaterThan(poolLightContribution.order);
         const m = hemisphereContribution.build(() => undefined)!;
-        expect(m.source).toContain('closure_ambient(');
-        expect(m.source).toContain('light_transmission(NONE, p)');
+        // O corpo é o do módulo comum ao desenho e aos acertos dos raios (`hemisphere_lighting`).
+        expect(m.source).toContain('return hemisphere_lighting(c, p, n, v);');
+        const shared = m.requires.find((r) => r.name === 'hemisphere_lighting')!;
+        expect(shared.source).toContain('closure_ambient(');
+        expect(shared.source).toContain('light_transmission(NONE, p)');
         expect(() => composeWgsl(m)).not.toThrow();
     });
 

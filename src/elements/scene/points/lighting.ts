@@ -40,6 +40,19 @@ export const sceneCausticLightingReady = wgslModule({
 });
 
 /**
+ * `fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` sob a
+ * luz ambiente sem oclusão da cena (o hemisfério; o céu sem a iluminação global) — a que os acertos dos raios (a
+ * refração) somam à luz direta das fontes, que eles calculam com a sombra por raio (o desenho a recebe em
+ * `scene_direct_lighting`); pronto: 0. Sem ela, o ponto opaco visto por um raio ficava só com as fontes: preto do lado
+ * contra a luz, onde o mesmo ponto desenhado tem a luz ambiente.
+ */
+export const sceneAmbientLightingReady = wgslModule({
+    name: 'scene_ambient_lighting_ready',
+    requires: [closure],
+    source: 'fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
  * `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` sob toda a
  * luz da cena: a direta mais a rebatida. O desenho com o antisserrilhado temporal lê as duas em separado (spec 034: a
  * luz que muda sobre a superfície parada é a direta; o ruído da rebatida tem o acúmulo próprio).
@@ -140,6 +153,12 @@ export const sceneIndirectLightingPoint = lightingPoint(
 export const sceneCausticLightingPoint = lightingPoint(
     'scene_caustic_lighting',
     sceneCausticLightingReady,
+);
+
+/** Luz ambiente sem oclusão nos acertos dos raios: a soma das contribuições (o hemisfério, o céu sem a GI). */
+export const sceneAmbientLightingPoint = lightingPoint(
+    'scene_ambient_lighting',
+    sceneAmbientLightingReady,
 );
 
 /** Visibilidade da luz: o produto dos contribuintes, em ordem. */

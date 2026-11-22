@@ -9,7 +9,11 @@ import {
 import { sky, skyAmbientTexture, skyParamsResource } from './shaders';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { closure, closureEval } from '../../material/pbr/shaders';
-import { sceneDirectLightingPoint, lightTransmissionReady } from '../points/lighting';
+import {
+    sceneAmbientLightingPoint,
+    sceneDirectLightingPoint,
+    lightTransmissionReady,
+} from '../points/lighting';
 import { sceneAmbientPoint } from '../points/media';
 
 /** A luz do sol atenuada pela atmosfera (as outras luzes passam sem mudança). */
@@ -56,19 +60,37 @@ const skyEnvironmentCovered = wgslModule({
 /**
  * Contribuições do `Sky` (spec 033, R4): a transmitância do sol, o fundo e o ambiente — com algo cobrindo o céu
  * (`covered`, spec 041), o ambiente lê `sky_cover`; sem, o módulo de antes (o mesmo WGSL). Com `lights` (sem iluminação
- * global, spec 041), a luz do céu nas superfícies e nos meios.
+ * global, spec 041), a luz do céu nas superfícies (no desenho e nos acertos dos raios) e nos meios.
  */
 /**
  * A luz do céu nas superfícies sem iluminação global (spec 041): o céu e o chão médios do `SkyAmbientFlow` (o céu
  * coberto pelas nuvens incluso) pelo `closure_ambient`, atenuados pelo meio da luz ambiente.
  */
-const skyLighting = wgslModule({
-    name: 'scene_lighting_sky',
+const skySurfaceLighting = wgslModule({
+    name: 'sky_surface_lighting',
     requires: [closure, closureEval, NONE.module, skyAmbientTexture, lightTransmissionReady],
-    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    source: `fn sky_surface_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     let up = textureLoad(sky_ambient_tex, vec2u(0u, 0u), 0).rgb;
     let down = textureLoad(sky_ambient_tex, vec2u(1u, 0u), 0).rgb;
     return closure_ambient(c, n, v, up, down, vec3f(0.0, 1.0, 0.0)) * light_transmission(NONE, p);
+}`,
+});
+
+/** A luz do céu no desenho (`scene_direct_lighting`). */
+const skyLighting = wgslModule({
+    name: 'scene_lighting_sky',
+    requires: [closure, skySurfaceLighting],
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return sky_surface_lighting(c, p, n, v);
+}`,
+});
+
+/** A luz do céu nos acertos dos raios (`scene_ambient_lighting`): a mesma do desenho. */
+const skyRayLighting = wgslModule({
+    name: 'scene_ambient_lighting_sky',
+    requires: [closure, skySurfaceLighting],
+    source: `fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return sky_surface_lighting(c, p, n, v);
 }`,
 });
 
@@ -93,6 +115,12 @@ export function skyContributions(
             order: 10,
             pools: [],
             build: () => (lights() ? skyLighting : undefined),
+        },
+        {
+            point: sceneAmbientLightingPoint,
+            order: 10,
+            pools: [],
+            build: () => (lights() ? skyRayLighting : undefined),
         },
         {
             point: sceneAmbientPoint,

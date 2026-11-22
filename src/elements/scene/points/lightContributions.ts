@@ -12,6 +12,7 @@ import { lightsResource } from '../resources';
 import {
     lightTransmissionReady,
     lightVisibilityReady,
+    sceneAmbientLightingPoint,
     sceneBackgroundPoint,
     sceneDirectLightingPoint,
     sceneEnvironmentPoint,
@@ -110,14 +111,32 @@ const poolLights = wgslModule({
 });
 
 /** O hemisfério céu/chão (radiâncias × intensidade), pelo ponto de transmissão com a luz ambiente (`NONE`). */
-const hemisphereLight = wgslModule({
-    name: 'scene_lighting_hemisphere',
+const hemisphereLighting = wgslModule({
+    name: 'hemisphere_lighting',
     requires: [closure, closureEval, NONE.module, hemisphereResource, lightTransmissionReady],
-    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    source: `fn hemisphere_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
     let k = hemisphere.intensity;
     let up = normalize(hemisphere.up.xyz);
     return closure_ambient(c, n, v, hemisphere.skyColor.rgb * k, hemisphere.groundColor.rgb * k, up)
         * light_transmission(NONE, p);
+}`,
+});
+
+/** O hemisfério no desenho (`scene_direct_lighting`). */
+const hemisphereLight = wgslModule({
+    name: 'scene_lighting_hemisphere',
+    requires: [closure, hemisphereLighting],
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return hemisphere_lighting(c, p, n, v);
+}`,
+});
+
+/** O hemisfério nos acertos dos raios (`scene_ambient_lighting`): a mesma luz do desenho. */
+const hemisphereRayLight = wgslModule({
+    name: 'scene_ambient_lighting_hemisphere',
+    requires: [closure, hemisphereLighting],
+    source: `fn scene_ambient_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    return hemisphere_lighting(c, p, n, v);
 }`,
 });
 
@@ -150,6 +169,17 @@ export const hemisphereContribution: SceneContribution = {
     order: 10,
     pools: [],
     build: () => hemisphereLight,
+};
+
+/**
+ * Contribuição do hemisfério ao ponto `scene_ambient_lighting`: a luz ambiente dele nos pontos opacos que os raios
+ * atingem (a refração), a mesma do desenho.
+ */
+export const hemisphereRayLightingContribution: SceneContribution = {
+    point: sceneAmbientLightingPoint,
+    order: 10,
+    pools: [],
+    build: () => hemisphereRayLight,
 };
 
 /** O hemisfério como radiância média de todas as direções (céu e chão, metade cada), pelo meio da luz ambiente. */

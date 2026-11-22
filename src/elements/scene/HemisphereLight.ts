@@ -10,6 +10,7 @@ import {
     hemisphereBackgroundContribution,
     hemisphereContribution,
     hemisphereEnvironmentContribution,
+    hemisphereRayLightingContribution,
 } from './points/lightContributions';
 
 /** Valores de uma `HemisphereLight`. */
@@ -105,8 +106,8 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
     }
 
     /**
-     * O hemisfério no ponto `scene_direct_lighting`, para os meios participantes em `scene_ambient` (spec 033; os dois só
-     * com `lighting`) e, para
+     * O hemisfério no ponto `scene_direct_lighting`, nos acertos dos raios em `scene_ambient_lighting`, para os meios
+     * participantes em `scene_ambient` (spec 033; os três só com `lighting`) e, para
      * quem traça raios, em `scene_environment` (o ambiente visto ao escapar, spec 034 T065f) e, o mesmo céu e chão, em
      * `scene_background` (o fundo visível, T066) quando `background` está ligado.
      */
@@ -116,12 +117,19 @@ export class HemisphereLight extends Entity<HemisphereLightData> implements Reso
             this.ambientContribution,
             hemisphereEnvironmentContribution,
             this.backgroundContribution,
+            this.rayLightingContribution,
         ];
     }
 
     private readonly lightingContribution: SceneContribution = {
         ...hemisphereContribution,
         build: (resolve) => (this.lights ? hemisphereContribution.build(resolve) : undefined),
+    };
+
+    private readonly rayLightingContribution: SceneContribution = {
+        ...hemisphereRayLightingContribution,
+        build: (resolve) =>
+            this.lights ? hemisphereRayLightingContribution.build(resolve) : undefined,
     };
 
     private readonly ambientContribution: SceneContribution = {

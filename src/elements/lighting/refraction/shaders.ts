@@ -57,7 +57,11 @@ import {
     rayVolumeTypes,
 } from '../../raytrace/points';
 import { cameraSpace } from '../../scene/flows/shaders';
-import { sceneEnvironmentReady, sceneIndirectLightingReady } from '../../scene/points/lighting';
+import {
+    sceneAmbientLightingReady,
+    sceneEnvironmentReady,
+    sceneIndirectLightingReady,
+} from '../../scene/points/lighting';
 import {
     sceneAmbientReady,
     sceneFogReady,
@@ -301,6 +305,7 @@ export const refractionPath = wgslModule({
         closureEval,
         sceneEnvironmentReady,
         sceneIndirectLightingReady,
+        sceneAmbientLightingReady,
         sceneAmbientReady,
         sceneWetnessSlopeReady,
         sceneWetnessMovingReady,
