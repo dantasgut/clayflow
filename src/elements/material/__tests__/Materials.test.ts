@@ -34,6 +34,8 @@ const NAMES = [
     'skin',
     'wax',
     'marble',
+    'jade',
+    'milk',
 ] as const satisfies readonly MaterialName[];
 
 /** Os nós de dentro do material pronto: identificador → nome da definição. */
@@ -45,7 +47,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 23 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 25 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -170,7 +172,7 @@ describe('Materials (spec 011, US5)', () => {
             expect(has(name, 'bsdf.conductor')).toBe(true);
         expect(inner('metalPolished')).toEqual({ out: 'bsdf.conductor' });
         expect(has('glass', 'bsdf.transmission') && has('glass', 'bsdf.dielectric')).toBe(true);
-        for (const name of ['skin', 'wax', 'marble', 'porcelain'] as const)
+        for (const name of ['skin', 'wax', 'marble', 'porcelain', 'jade', 'milk'] as const)
             expect(has(name, 'bsdf.subsurface') && has(name, 'bsdf.dielectric')).toBe(true);
         for (const name of [
             'woodRaw',
@@ -229,11 +231,22 @@ describe('Materials (spec 011, US5)', () => {
         f0.forEach((v, k) => {
             expect(v).toBeCloseTo([0.912, 0.914, 0.92][k]!, 6);
         });
-        for (const name of ['skin', 'wax', 'marble', 'porcelain'] as const) {
+        for (const name of ['skin', 'wax', 'marble', 'porcelain', 'milk'] as const) {
             const [r, g, b] = nodes.material[name].params.radius!.default as number[];
             expect(r).toBeGreaterThan(g!);
             expect(g).toBeGreaterThan(b!);
         }
+        // O raio é o caminho livre médio em mm (décimos de milímetro a poucos milímetros) e a escala do mundo é 1.
+        for (const name of ['skin', 'wax', 'marble', 'porcelain', 'jade', 'milk'] as const) {
+            for (const mm of nodes.material[name].params.radius!.default as number[]) {
+                expect(mm).toBeGreaterThan(0.1);
+                expect(mm).toBeLessThan(5);
+            }
+            expect(value(name, 'scale')).toBe(1);
+        }
+        // O jade espalha mais longe no verde.
+        const jade = nodes.material.jade.params.radius!.default as number[];
+        expect(jade[1]).toBeGreaterThan(jade[0]!);
     });
 
     it('a estrutura de cada material é um padrão por pixel sobre o uv, com o relevo na normal', () => {

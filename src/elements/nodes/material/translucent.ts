@@ -9,13 +9,19 @@ import { pattern } from '../pattern';
 import { PATTERN_SCALE, patternLinks, patternSpace, SAMPLE_INPUT, SPACE_LINKS } from './pattern';
 
 // Materiais em que a luz entra no corpo (spec 011, R11): o vidro (transmissão com refração) e os de subsuperfície
-// (pele, cera, mármore, porcelana) — um especular de dielétrico sobre `bsdf.subsurface`. O raio de espalhamento por
-// canal é o livre caminho médio difuso l_d = 1/√(3 σ_a σ_t′) normalizado pelo maior canal, com os coeficientes medidos
-// por Jensen et al. 2001 ("A Practical Model for Subsurface Light Transport", tabela 2) onde há medida.
+// (pele, cera, mármore, porcelana, jade, leite) — um especular de dielétrico sobre `bsdf.subsurface`. A subsuperfície
+// segue o perfil de difusão de Christensen e Burley 2015 ("Approximate Reflectance Profiles for Efficient Subsurface
+// Scattering"): `color` é o albedo da superfície (a refletância difusa total R_d) e `radius` o caminho livre médio do
+// espalhamento por canal em milímetros, ℓ = 1/(σ_s′ + σ_a), com os coeficientes medidos por Jensen et al. 2001 ("A
+// Practical Model for Subsurface Light Transport", tabela 2) onde há medida — a pele, o mármore e o leite; a cera, a
+// porcelana e o jade são estimados (sem medida tabelada). `scale` é a escala do mundo em unidades por metro (1: uma
+// unidade é um metro): o raio em mm só aparece quando o objeto tem poucos centímetros na cena.
 
 /** Valores de um material de subsuperfície. */
 interface SubsurfaceValues {
+    /** Albedo da superfície (R_d). */
     readonly color: readonly [number, number, number];
+    /** Caminho livre médio por canal, em mm. */
     readonly radius: readonly [number, number, number];
     readonly roughness: number;
     readonly ior: number;
@@ -41,6 +47,7 @@ function scattering(name: string, v: SubsurfaceValues): NodeDefinition {
             expose: [
                 ['body.color', 'color'],
                 ['body.radius', 'radius'],
+                ['body.scale', 'scale'],
                 ['specular.roughness', 'roughness'],
                 ['specular.ior', 'ior'],
             ],
@@ -49,34 +56,63 @@ function scattering(name: string, v: SubsurfaceValues): NodeDefinition {
 }
 
 /**
- * `material.skin` — pele: IOR 1,4 (epiderme; a faixa dos tecidos moles, 1,36–1,45), rugosidade 0,45; raio (1, 0,37,
- * 0,19) — o l_d da "skin1" de Jensen et al. 2001 (σ_s′ 0,74, 0,88, 1,01 e σ_a 0,032, 0,17, 0,48 /mm): o vermelho
- * espalha mais longe. Parâmetros: `color`, `radius`, `roughness`, `ior`.
+ * `material.skin` — pele clara: IOR 1,4 (epiderme; a faixa dos tecidos moles, 1,36–1,45), rugosidade 0,45; albedo
+ * (0,63, 0,44, 0,34) e caminho livre médio (0,91, 0,60, 0,52) mm — a "skin2" de Jensen et al. 2001 (σ_s′ 1,09, 1,59,
+ * 1,79 e σ_a 0,013, 0,070, 0,145 /mm): o vermelho espalha mais longe (o perfil dele decai em 0,66 e 2,0 mm; o do azul em
+ * 0,22 e 0,67 mm) — o terminador avermelhado e a orelha acesa contra o sol. Parâmetros: `color`, `radius` (mm), `scale`
+ * (unidades por metro), `roughness`, `ior`.
  */
 export const skin = scattering('material.skin', {
-    color: [0.8, 0.55, 0.45],
-    radius: [1, 0.37, 0.19],
+    color: [0.63, 0.44, 0.34],
+    radius: [0.91, 0.6, 0.52],
     roughness: 0.45,
     ior: 1.4,
 });
 
 /**
- * `material.wax` — cera (parafina): IOR 1,44 (parafina sólida, n_D 1,44), rugosidade 0,3; sem medida tabelada do
- * espalhamento — o raio (1, 0,7, 0,45) é estimado (corpo claro, quente na contraluz). Parâmetros: os de `skin`.
+ * `material.wax` — cera (parafina de vela): IOR 1,44 (parafina sólida, n_D 1,44), rugosidade 0,3; sem medida tabelada do
+ * espalhamento — albedo (0,9, 0,82, 0,62) e caminho livre médio (2,8, 2,0, 1,2) mm estimados para que uma vela de 2 cm
+ * deixe passar cerca de 7 % do vermelho e quase nada do azul (o corpo claro, laranja na contraluz). Parâmetros: os de
+ * `skin`.
  */
 export const wax = scattering('material.wax', {
     color: [0.9, 0.82, 0.62],
-    radius: [1, 0.7, 0.45],
+    radius: [2.8, 2.0, 1.2],
     roughness: 0.3,
     ior: 1.44,
 });
 
 /**
- * `material.marble` — mármore polido: IOR 1,5 e raio (1, 0,65, 0,46) — o l_d do mármore de Jensen et al. 2001 (σ_s′
- * 2,19, 2,62, 3,00 e σ_a 0,0021, 0,0041, 0,0071 /mm, η 1,5); rugosidade 0,1. Os veios: as linhas em que um
+ * `material.jade` — jade (nefrita) polido: IOR 1,61, rugosidade 0,08; sem medida tabelada — albedo (0,36, 0,62, 0,38) e
+ * caminho livre médio (0,9, 1,8, 1,0) mm estimados: o verde é o canal que espalha mais longe (a placa fina acende verde
+ * na contraluz). Parâmetros: os de `skin`.
+ */
+export const jade = scattering('material.jade', {
+    color: [0.36, 0.62, 0.38],
+    radius: [0.9, 1.8, 1.0],
+    roughness: 0.08,
+    ior: 1.61,
+});
+
+/**
+ * `material.milk` — leite integral: IOR 1,35, rugosidade 0,03; albedo (0,91, 0,88, 0,76) e caminho livre médio (0,39,
+ * 0,31, 0,26) mm — o "wholemilk" de Jensen et al. 2001 (σ_s′ 2,55, 3,21, 3,77 e σ_a 0,0011, 0,0024, 0,014 /mm). Quase sem
+ * absorção: nesse albedo o perfil de Burley perde a cauda longa (a referência mede 6 % de desvio na fração acumulada).
+ * Serve também de sabão branco ou plástico leitoso. Parâmetros: os de `skin`.
+ */
+export const milk = scattering('material.milk', {
+    color: [0.91, 0.88, 0.76],
+    radius: [0.39, 0.31, 0.26],
+    roughness: 0.03,
+    ior: 1.35,
+});
+
+/**
+ * `material.marble` — mármore polido: IOR 1,5, albedo (0,83, 0,79, 0,75) e caminho livre médio (0,46, 0,38, 0,33) mm — o
+ * mármore de Jensen et al. 2001 (σ_s′ 2,19, 2,62, 3,00 e σ_a 0,0021, 0,0041, 0,0071 /mm, η 1,5); rugosidade 0,1. Os veios: as linhas em que um
  * `pattern.grain` de cinco oitavas (2,5 por unidade do padrão) passa por zero — finas, ramificadas, de cor `vein_color`
  * — sobre o corpo `color`, com nuvens largas do mesmo grão escurecendo de leve. Parâmetros: `color`, `vein_color`,
- * `radius`, `roughness`, `ior`, `pattern_scale`.
+ * `radius` (mm), `scale` (unidades por metro), `roughness`, `ior`, `pattern_scale`.
  */
 export const marble = Subgraph.point(
     new NodeGraph({
@@ -90,7 +126,7 @@ export const marble = Subgraph.point(
             clouded: math.scale3,
             veined: math.mix3,
             vein_color: math.value3.with({ value: [0.2, 0.2, 0.23] }),
-            body: bsdf.subsurface.with({ radius: [1, 0.65, 0.46] }),
+            body: bsdf.subsurface.with({ radius: [0.46, 0.38, 0.33] }),
             specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.1 }),
             out: closure.add,
         },
@@ -118,6 +154,7 @@ export const marble = Subgraph.point(
             ['stone.value', 'color'],
             ['vein_color.value', 'vein_color'],
             ['body.radius', 'radius'],
+            ['body.scale', 'scale'],
             ['specular.roughness', 'roughness'],
             ['specular.ior', 'ior'],
             PATTERN_SCALE,
@@ -126,9 +163,10 @@ export const marble = Subgraph.point(
 );
 
 /**
- * `material.porcelain` — porcelana esmaltada: corpo vitrificado levemente translúcido (raio curto e quase neutro,
- * estimado: sem medida tabelada) sob um esmalte liso de IOR 1,5 (vidro de silicato), rugosidade 0,05. Parâmetros: os
- * de `skin`.
+ * `material.porcelain` — porcelana esmaltada: corpo vitrificado levemente translúcido — albedo (0,9, 0,9, 0,87) e
+ * caminho livre médio curto e quase neutro, (0,3, 0,27, 0,22) mm, estimado (sem medida tabelada): só a borda fina de uma
+ * xícara deixa passar luz — sob um esmalte liso de IOR 1,5 (vidro de silicato), rugosidade 0,05. Parâmetros: os de
+ * `skin`.
  */
 export const porcelain = scattering('material.porcelain', {
     color: [0.9, 0.9, 0.87],

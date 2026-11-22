@@ -29,7 +29,9 @@ export type MaterialName =
     | 'metalOxidized'
     | 'skin'
     | 'wax'
-    | 'marble';
+    | 'marble'
+    | 'jade'
+    | 'milk';
 
 /**
  * Fábrica de um material pronto: os valores dos parâmetros expostos do nó (os que faltam ficam no padrão documentado)
@@ -60,8 +62,13 @@ function factory(definition: NodeDefinition): MaterialFactory {
  *
  * Madeira: `woodRaw`, `woodVarnishedGloss`, `woodVarnishedMatte`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`.
- * Metais: `metalPolished`, `metalBrushed`, `carPaint`, `metalOxidized`. Translúcidos: `glass`, `skin`, `wax`, `marble`.
- * Os valores físicos e as fontes estão na documentação de cada nó.
+ * Metais: `metalPolished`, `metalBrushed`, `carPaint`, `metalOxidized`. Translúcidos: `glass`, `skin`, `wax`, `marble`,
+ * `jade`, `milk`. Os valores físicos e as fontes estão na documentação de cada nó.
+ *
+ * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`) têm o raio de espalhamento em milímetros
+ * (`radius`) e a escala do mundo em unidades por metro (`scale`, 1 por padrão): a luz se difunde sob a superfície e
+ * atravessa as partes finas na medida do tamanho real do objeto — `Materials.wax({ scale: 100 })` numa cena em
+ * centímetros.
  *
  * A estrutura de cada um (o veio da madeira, a trama dos tecidos, o grão do couro, os riscos do metal escovado, os
  * flocos da pintura, a ferrugem, os veios do mármore) é calculada por pixel pelos nós `nodes.pattern.*` sobre o uv do
@@ -94,4 +101,6 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     skin: factory(material.skin),
     wax: factory(material.wax),
     marble: factory(material.marble),
+    jade: factory(material.jade),
+    milk: factory(material.milk),
 });
