@@ -1196,6 +1196,8 @@ async function cloudCost(
     passes: Record<string, number>;
     /** O passe dos froxels sem a camada (mediana, ms). */
     froxelsWithout: number;
+    /** Os passes sem a camada (medianas, ms). */
+    passesWithout: Record<string, number>;
     /** Os passes que mais mudam com − sem a camada (todos os passes). */
     deltas: string;
     /** O texel do alcance (a distância, a decisão do seguinte e a deste) em cada fase. */
@@ -1289,6 +1291,7 @@ async function cloudCost(
     const diffs: number[] = [];
     const withSpan: number[] = [];
     const perPass: Record<string, number>[] = [];
+    const perPassWithout: Record<string, number>[] = [];
     // Os froxels sem a camada (spec 041, R21: a atmosfera neles com e sem a sombra das nuvens).
     const froxelsWithout: number[] = [];
     const allWith: Record<string, number>[] = [];
@@ -1380,7 +1383,10 @@ async function cloudCost(
             const all = await passTimes(s.app, 30, /./, moveSun, dt);
             (has ? allWith : allWithout).push(all.passes);
             if (has) perPass.push(t.passes);
-            else froxelsWithout.push(froxelMs(t.passes));
+            else {
+                froxelsWithout.push(froxelMs(t.passes));
+                perPassWithout.push(t.passes);
+            }
         }
         diffs.push(span.with! - span.without!);
         withSpan.push(span.with!);
@@ -1389,6 +1395,9 @@ async function cloudCost(
     const passes: Record<string, number> = {};
     for (const k of new Set(perPass.flatMap((x) => Object.keys(x))))
         passes[k] = median(perPass.map((x) => x[k] ?? 0));
+    const passesWithout: Record<string, number> = {};
+    for (const k of new Set(perPassWithout.flatMap((x) => Object.keys(x))))
+        passesWithout[k] = median(perPassWithout.map((x) => x[k] ?? 0));
     const deltas = [...new Set([...allWith, ...allWithout].flatMap((x) => Object.keys(x)))]
         .map((k): [string, number] => [
             k,
@@ -1404,6 +1413,7 @@ async function cloudCost(
         passes,
         quality,
         froxelsWithout: median(froxelsWithout),
+        passesWithout,
         deltas,
         reach: reach.join(', '),
         work: work.join(' '),
@@ -1550,7 +1560,11 @@ async function caseTiming(): Promise<void> {
         const d = median(c.diffs);
         log(`timing ${name}: qualidade ${JSON.stringify(c.quality)}`);
         log(
-            `timing ${name}: cache (páginas/panorama/mudança/porquê/páginas do mapa/volume de τ desenhadas+cone+resto) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}`,
+            `timing ${name}: cache (páginas/panorama/mudança/porquê/páginas do mapa/volume de τ desenhadas+cone+resto) ${c.work}; froxels com/sem a camada ${froxelMs(c.passes).toFixed(3)}/${c.froxelsWithout.toFixed(3)} ms; repetições ${c.diffs.map((v) => v.toFixed(3)).join(' ')}; janelas ${c.spreads}; maiores diferenças por passe ${c.deltas}; sem a camada por passe: ${Object.entries(
+                c.passesWithout,
+            )
+                .map(([k, v]) => `${k.replace(/^.*\//, '')} ${v.toFixed(3)}`)
+                .join(', ')}`,
         );
         log(
             `timing ${name}: nuvens ${d.toFixed(3)} ms (com − sem a camada, mediana de ${c.diffs.length}; ${Math.min(...c.diffs).toFixed(3)}–${Math.max(...c.diffs).toFixed(3)}); quadro com nuvens ${median(c.withSpan).toFixed(3)} ms; por passe (conta sobreposição): ${Object.entries(
