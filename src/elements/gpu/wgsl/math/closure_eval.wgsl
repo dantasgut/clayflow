@@ -36,12 +36,13 @@ fn closure_has(bit: u32) -> bool {
     return (CLOSURE_LOBES & bit) != 0u;
 }
 
-// A fração de espelho do especular de base: a da rugosidade, menos a anisotropia (o lobo esticado do metal escovado
-// não é um espelho: fica com a luz indireta da cena).
+// A fração de espelho do especular de base: a da rugosidade do eixo estreito do lobo. No lobo anisotrópico (o metal
+// escovado) o eixo estreito tem α · (1 − |anisotropia|) — a rugosidade vezes √(1 − |anisotropia|) —, e o raio do
+// reflexo é sorteado no eixo largo (`closure_specular_sample`); no isotrópico, a rugosidade.
 fn closure_base_mirror(c: Closure) -> f32 {
-    var m = closure_mirror(c.specular_roughness);
-    if (closure_has(CLOSURE_ANISOTROPY)) { m *= 1.0 - clamp(abs(c.specular_anisotropy), 0.0, 1.0); }
-    return m;
+    var r = c.specular_roughness;
+    if (closure_has(CLOSURE_ANISOTROPY)) { r *= sqrt(1.0 - clamp(abs(c.specular_anisotropy), 0.0, 1.0)); }
+    return closure_mirror(r);
 }
 
 // Tabela DFG em (μ = n·v, rugosidade): (A, B, albedo do sheen).
@@ -300,10 +301,37 @@ fn closure_coat_mirrors(c: Closure) -> bool {
     return closure_has(CLOSURE_COAT) && c.coat_weight > 0.0 && closure_mirror(c.coat_roughness) > 0.0;
 }
 
-// Direção do raio do reflexo traçado: a especular dominante do verniz, se ele é liso, senão a da base.
-fn closure_reflected_dir(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+// O eixo estreito do lobo anisotrópico do especular de base (a direção das ranhuras: a tangente com a anisotropia
+// positiva, a bitangente com a negativa), unitário e tangente à normal do lobo; zero no lobo isotrópico.
+fn closure_specular_groove(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+    if (!closure_has(CLOSURE_ANISOTROPY) || abs(c.specular_anisotropy) <= 1e-3) { return vec3f(0.0); }
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let t0 = select(closure_default_tangent(nb), c.tangent, dot(c.tangent, c.tangent) > 1e-12);
+    let t = normalize(t0 - nb * dot(nb, t0));
+    return select(cross(nb, t), t, c.specular_anisotropy > 0.0);
+}
+
+// Direção do raio do reflexo traçado do especular de base, com o sorteio `u` em [0, 1) (spec 011, T117): no lobo
+// isotrópico, a especular dominante; no anisotrópico, a refletida por uma micronormal inclinada no eixo largo do lobo —
+// a inclinação s = α_l · q / √(1 − q²), q = 2u − 1 (a marginal da distribuição GGX das inclinações nesse eixo, α_l =
+// α · (1 + |anisotropia|); q preso em ± 0,96: a cauda além de 3,4 α_l fica de fora) —, sem inclinação no eixo estreito.
+// Um raio por pixel: o lobo alongado sai amostrado no espaço (e no tempo, onde o sorteio muda de quadro a quadro).
+fn closure_specular_sample(c: Closure, n: vec3f, v: vec3f, u: f32) -> vec3f {
+    let groove = closure_specular_groove(c, n, v);
+    if (dot(groove, groove) == 0.0) { return closure_specular_dir(c, n, v); }
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let wide = cross(nb, groove);
+    let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
+    let q = clamp(2.0 * u - 1.0, -0.96, 0.96);
+    let slope = r * r * (1.0 + min(abs(c.specular_anisotropy), 1.0)) * q / sqrt(1.0 - q * q);
+    return reflect(-v, normalize(nb - slope * wide));
+}
+
+// Direção do raio do reflexo traçado: a especular dominante do verniz, se ele é liso, senão a da base (com o sorteio
+// `u` do lobo anisotrópico).
+fn closure_reflected_dir(c: Closure, n: vec3f, v: vec3f, u: f32) -> vec3f {
     if (closure_coat_mirrors(c)) { return closure_coat_dir(c, n, v); }
-    return closure_specular_dir(c, n, v);
+    return closure_specular_sample(c, n, v, u);
 }
 
 // Resposta do fechamento, para `v`, à radiância unitária que chega pelo raio refletido (spec 011, T114): a parte lisa

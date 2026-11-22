@@ -5,7 +5,9 @@
 // do verniz) e a normal da face, em coordenadas octaédricas; e, no alvo `reflectance`, o peso do lobo: o que ele
 // devolve a quem vê por unidade de radiância que chega por essa direção, com a névoa até o ponto. O traçado da
 // refração parte dali (`refraction_chain_roots_main`) e a composição soma radiância × peso à cor do desenho. Onde o
-// lobo é áspero, nenhum pedido (nenhum raio): fica a luz indireta da cena. Atrás de outro opaco, nenhum (a profundidade
+// lobo é áspero, nenhum pedido (nenhum raio): fica a luz indireta da cena. O lobo anisotrópico (o metal escovado) é
+// estreito num eixo e largo no outro: o raio dele sai sorteado no eixo largo (`closure_specular_sample`), um por pixel,
+// com o sorteio de `reflection_request_draw`. Atrás de outro opaco, nenhum (a profundidade
 // dos opacos, com a folga da inclinação da superfície no pixel: com MSAA ela é a da amostra 0, não a do centro).
 // Requer: forward (vértice, câmeras, `forward_surface`); `view_space`; `closure_eval`; `scene_fog`; `scene_depth`.
 
@@ -23,6 +25,24 @@ fn reflection_request_oct(v: vec3f) -> u32 {
     return q.x | (q.y << 16u);
 }
 
+/**
+ * O sorteio em [0, 1) do pixel para o lobo anisotrópico. `along` é a direção das ranhuras na tela (pixels por unidade
+ * do mundo; zero: sem direção): os pixels de uma mesma linha ao longo dela tiram o mesmo valor e as linhas vizinhas
+ * cobrem [0, 1) por igual (a sequência da razão áurea no índice da linha) — o reflexo sai em fios finos ao longo da
+ * escova, como as ranhuras o devolvem. Sem direção, o ruído de gradiente intercalado (Jimenez 2014). O valor é
+ * deslocado pelo desvio de subpixel da câmera: com o antisserrilhado temporal o desvio muda a cada quadro (uma
+ * sequência de baixa discrepância) e a resolução temporal acumula o lobo; sem ele, o sorteio é fixo no pixel.
+ */
+fn reflection_request_draw(pixel: vec2f, jitter: vec2f, along: vec2f) -> f32 {
+    var base = fract(52.9829189 * fract(dot(floor(pixel), vec2f(0.06711056, 0.00583715))));
+    let l2 = dot(along, along);
+    if (l2 > 1e-20) {
+        let across = vec2f(-along.y, along.x) * inverseSqrt(l2);
+        base = fract(floor(dot(pixel, across)) * 0.61803399);
+    }
+    return fract(base + jitter.x + 0.5);
+}
+
 @fragment
 fn fs_reflection_request(in: VsOut, @builtin(front_facing) front: bool) -> ReflectionRequestOut {
     let surface = forward_surface(in, front);
@@ -37,7 +57,13 @@ fn fs_reflection_request(in: VsOut, @builtin(front_facing) front: bool) -> Refle
     // A direção refletida fica do lado de fora da face (a normal interpolada ou a do relevo podem levá-la para dentro:
     // o raio acertava a própria malha, e o reflexo rasante saía preto).
     let face = select(surface.n, normalize(facet) * sign(dot(facet, v)), dot(facet, facet) > 0.0 && dot(facet, v) != 0.0);
-    let mirrored = closure_reflected_dir(surface.c, surface.n, v);
+    // A direção das ranhuras na tela: o passo em pixels que anda no mundo ao longo delas.
+    let groove = closure_specular_groove(surface.c, surface.n, v);
+    let px = dpdx(in.world_position);
+    let py = dpdy(in.world_position);
+    let along = vec2f(dot(groove, px) / max(dot(px, px), 1e-20), dot(groove, py) / max(dot(py, py), 1e-20));
+    let mirrored = closure_reflected_dir(surface.c, surface.n, v,
+        reflection_request_draw(in.clip_position.xy, cam.jitter.zw, along));
     let dir = normalize(mirrored + face * max(0.02 - dot(mirrored, face), 0.0));
     let to = in.world_position - cam.position.xyz;
     let ahead = dot(to, -normalize(cam.inverseView[2].xyz));
