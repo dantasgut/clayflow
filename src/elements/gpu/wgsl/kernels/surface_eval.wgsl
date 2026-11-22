@@ -3,7 +3,8 @@
 // du × dv; depois o espaço (`space_map`/`space_normal`, identidade sem `SpaceFunction`). Escreve posição, normal e (u, v)
 // no vertex buffer da geometria. Ponto ou normal não finitos mantêm o vértice anterior; tangentes degeneradas (polos)
 // usam as de um pouco para dentro do domínio em v.
-// Requer: struct SurfaceParams; surface_at (com os pontos surface, surface_tangents e space; os registros das funções
+// O ponto é o deslocado (`surface_displaced_at`, spec 011: igual ao de `surface_at` sem `DisplacementFunction`).
+// Requer: struct SurfaceParams; surface_displaced_at (com os pontos surface, surface_tangents e space; os registros das funções
 // chegam com os módulos delas).
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -25,7 +26,8 @@ fn surface_eval_main(
     let data = surface_fn_params(surface_params.record_slot);
     let o = i;
     let prev = vec3f(surface_vertices[o].nx, surface_vertices[o].ny, surface_vertices[o].nz);
-    let at = surface_at(u, v, sv, time, data, prev);
+    let spacing = vec2f(1.0 / f32(max(nu - 1u, 1u)), 1.0 / f32(max(nv - 1u, 1u)));
+    let at = surface_displaced_at(u, v, su, sv, spacing, time, data, prev);
     if (!at.finite) { return; }
     let x = at.position;
     let m = at.normal;

@@ -10,6 +10,8 @@ import surfaceTangentsNumericSource from '../gpu/wgsl/kernels/surface_tangents_n
 import surfaceTangentsAnalyticSource from '../gpu/wgsl/kernels/surface_tangents_analytic.wgsl?raw';
 import spaceReadySource from '../gpu/wgsl/kernels/space_ready.wgsl?raw';
 import surfaceAtSource from '../gpu/wgsl/kernels/surface_at.wgsl?raw';
+import surfaceDisplacedAtSource from '../gpu/wgsl/kernels/surface_displaced_at.wgsl?raw';
+import displacementFnReadySource from '../gpu/wgsl/kernels/displacement_fn_ready.wgsl?raw';
 import surfaceEvalSource from '../gpu/wgsl/kernels/surface_eval.wgsl?raw';
 import surfaceEvalDiffSource from '../gpu/wgsl/kernels/surface_eval_diff.wgsl?raw';
 import surfaceAdaptSource from '../gpu/wgsl/kernels/surface_adapt.wgsl?raw';
@@ -22,6 +24,7 @@ import surfaceJetMappedSource from '../gpu/wgsl/kernels/surface_jet_mapped.wgsl?
 import surfaceJetNumericSource from '../gpu/wgsl/kernels/surface_jet_numeric.wgsl?raw';
 import surfaceJetPresetSource from '../gpu/wgsl/kernels/surface_jet_preset.wgsl?raw';
 import { combineSpaceFunctions } from '../extension/combineSpace';
+import { surfaceSampleType } from '../material/point/types/shaders';
 import { MeshVertexSchema } from './MeshVertexSchema';
 import { SurfaceAdaptParamsSchema, SurfaceDiffSchema, SurfaceParamsSchema } from './SurfaceSchemas';
 
@@ -121,12 +124,29 @@ export const surfaceAt = wgslModule({
     requires: [surfaceFnReady, surfaceTangentsNumeric, spaceReady, finite, R.params],
 });
 
+/** Função pronta do ponto `displacement`: sem deslocamento. */
+export const displacementFnReady = wgslModule({
+    name: 'displacement_fn_ready',
+    source: displacementFnReadySource,
+    requires: [surfaceSampleType],
+});
+
+/**
+ * Ponto deslocado de uma superfície (spec 011): o de `surface_at` movido ao longo da normal pela altura do ponto
+ * `displacement`, com o passo da malha como largura do filtro dos padrões.
+ */
+export const surfaceDisplacedAt = wgslModule({
+    name: 'surface_displaced_at',
+    source: surfaceDisplacedAtSource,
+    requires: [surfaceAt, surfaceSampleType, displacementFnReady, R.params],
+});
+
 /** Avaliação de uma superfície paramétrica na grade (posição, normal, uv), com o espaço da cena. */
 export const surfaceEval = wgslModule({
     name: 'surface_eval',
     source: surfaceEvalSource,
     // `noise` e `linalg` ficam à mão das funções do usuário.
-    requires: [noise, linalg, surfaceAt, WORKGROUP_SIZE.module, R.params, R.vertices],
+    requires: [noise, linalg, surfaceDisplacedAt, WORKGROUP_SIZE.module, R.params, R.vertices],
     structs: [SurfaceParamsSchema],
 });
 
@@ -183,7 +203,7 @@ export const surfaceEvalDiff = wgslModule({
     requires: [
         noise,
         linalg,
-        surfaceAt,
+        surfaceDisplacedAt,
         surfaceJetNumeric,
         surfaceForms,
         WORKGROUP_SIZE.module,
@@ -201,7 +221,7 @@ export const surfaceAdapt = wgslModule({
     requires: [
         noise,
         linalg,
-        surfaceAt,
+        surfaceDisplacedAt,
         surfaceJetNumeric,
         surfaceForms,
         NONE.module,
@@ -250,6 +270,26 @@ export const surfacePoint = wgslPoint({
     ],
     paramsAlias: 'SurfaceFnParams',
     ready: surfaceFnReady,
+    hosts: () => [surfaceEval, surfaceEvalDiff, surfaceAdapt],
+});
+
+/**
+ * Ponto `displacement` (spec 011): `fn displacement_fn(s: SurfaceSample, data: DisplacementFnParams) -> f32` — a altura
+ * (nas unidades da superfície) que desloca cada vértice de uma `ParametricSurface` ao longo da normal. `s` é a amostra
+ * de superfície do ponto `material` preenchida para o vértice: uv, posição e normal locais, tangentes do uv e, como
+ * derivadas do uv, o passo da malha — os padrões (`pattern.*` sobre `surface.uvSpace`) filtram o que a malha não
+ * resolve. Pronto: zero (sem deslocamento).
+ */
+export const displacementPoint = wgslPoint({
+    name: 'displacement',
+    required: {
+        name: 'displacement_fn',
+        params: ['SurfaceSample', POINT_PARAMS],
+        returns: 'f32',
+        names: ['s', 'data'],
+    },
+    paramsAlias: 'DisplacementFnParams',
+    ready: displacementFnReady,
     hosts: () => [surfaceEval, surfaceEvalDiff, surfaceAdapt],
 });
 

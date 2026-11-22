@@ -15,7 +15,7 @@ export const SurfaceDiffSchema = new StructSchema('SurfaceDiff', {
 
 /**
  * Parâmetros da avaliação de uma superfície (spec 009): grade, domínio, tempo, passos das diferenças centrais, slot do
- * registro da função e a superfície pronta (tipo e valores).
+ * registro da função, a superfície pronta (tipo e valores) e o slot do registro da função de deslocamento (spec 011).
  */
 export const SurfaceParamsSchema = new StructSchema(
     'SurfaceParams',
@@ -34,6 +34,8 @@ export const SurfaceParamsSchema = new StructSchema(
         /** Primeiro slot do pool `SurfaceDiff` da superfície (spec 010; 0 sem geometria diferencial). */
         diff_first: FieldType.u32,
         preset_a: FieldType.vec4f,
+        /** Slot do registro da `DisplacementFunction` da superfície (spec 011; 0 sem ela). */
+        displacement_slot: FieldType.u32,
     },
     { addressSpace: 'uniform' },
 );

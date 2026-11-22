@@ -2,7 +2,8 @@
 // (posição, normal, uv por `surface_at`) e, no pool `SurfaceDiff` (a partir de `surface_params.diff_first`), métrica,
 // segunda forma, curvaturas e direção principal pelo jato do lugar `surface_jet`. Jato degenerado (polos) usa o de um
 // pouco para dentro do domínio em v; o que ainda não for finito fica zero.
-// Requer: structs SurfaceParams, SurfaceDiff; surface_at; surface_jet; surface_forms (os registros das funções chegam
+// O ponto é o deslocado (`surface_displaced_at`, spec 011); a geometria diferencial é a da superfície sem o deslocamento.
+// Requer: structs SurfaceParams, SurfaceDiff; surface_displaced_at; surface_jet; surface_forms (os registros das funções chegam
 // com os módulos delas).
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -30,7 +31,8 @@ fn surface_eval_diff_main(
     surface_diff[surface_params.diff_first + i] = forms;
     let o = i;
     let prev = vec3f(surface_vertices[o].nx, surface_vertices[o].ny, surface_vertices[o].nz);
-    let at = surface_at(u, v, sv, time, data, prev);
+    let spacing = vec2f(1.0 / f32(max(nu - 1u, 1u)), 1.0 / f32(max(nv - 1u, 1u)));
+    let at = surface_displaced_at(u, v, su, sv, spacing, time, data, prev);
     if (!at.finite) { return; }
     surface_vertices[o].px = at.position.x;
     surface_vertices[o].py = at.position.y;
