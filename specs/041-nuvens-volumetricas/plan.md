@@ -107,6 +107,8 @@ src/elements/extension/CloudShapeFunction.ts, CloudCoverageFunction.ts (NOVOS)  
 src/elements/gpu/wgsl/clouds/*.wgsl (NOVOS)                                             # cloud_common, cloud_density, cloud_phase, cloud_light,
                                                                                         # cloud_noise, cloud_coverage, cloud_ambient, cloud_shadow,
                                                                                         # cloud_march, cloud_reconstruct, cloud_upsample, cloud_panorama
+                                                                                        # cloud_integrate, cloud_light_list, cloud_light_samples,
+                                                                                        # cloud_light_args, cloud_march_ray, cloud_march_compose (T074)
 src/elements/media/clouds/reference/cloudModel.ts (NOVO) + __tests__                    # espelho f64 (R16)
 src/elements/media/clouds/reference/cloudWeather.ts (NOVO) + __tests__                  # o tempo em f64 (R19)
 src/elements/extension/CloudPressureFunction.ts (NOVO)                                  # ponto cloud_pressure (R19)

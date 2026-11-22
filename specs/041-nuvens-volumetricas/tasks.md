@@ -647,6 +647,28 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       compõe), fica estimada em 0,50 ms contra 0,83 — −0,2 a −0,25 ms líquidos, não medido; sozinha não garante os 3 ms.
       **Em aberto na T074: o `high-sun` no ritmo real (3,26 ms), o `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e
       a margem do matiz.**
+      **Rodada 2026-11-21 j — a luz das amostras da marcha num passe próprio: `high-sun` 3,25 → 2,73–2,78 ms ✓ (teto 3)**
+      (`7acfc2d5`; R11 da T074, rodada j, no research.md). O mapa visto do sol não foi tocado. Feito (a mesma conta, em
+      outra ordem): a marcha da tela (`cloud_march.wgsl`) só acha as amostras com nuvem e grava cada uma na lista do
+      quadro pela contagem atômica (`cloud_light_list.wgsl`, a implementação do ponto `cloud_sample_light`: o ponto, o
+      peso na soma do raio `T·(1 − e^(−σ·ds))` — mais o resto na saída antecipada —, a pegada, a coluna do ambiente, o
+      cosseno com o sol e a amostra anterior do raio); um passe de uma invocação grava os argumentos do despacho
+      indireto e zera a contagem (`cloud_light_args.wgsl`, `CloudLayer.lightArgs`); o passe da luz calcula uma amostra
+      por invocação (`cloud_light_samples.wgsl`, `cloud_radiance`); a composição (`cloud_march_compose.wgsl`) soma as do
+      raio pela cadeia (teto `CLOUD_MAX_STEPS`) e põe na frente a névoa e a perspectiva aérea. A lista tem o teto do alvo
+      dela (16 amostras por raio na média: `lightListA`/`lightListB`/`lightList`, `rgba32float`, 44 MB em 1280 × 720);
+      a amostra que não cabe tem a luz calculada no próprio laço — nenhuma fica sem luz. O panorama segue pelo pronto do
+      ponto (a luz no laço); `cloud_light.wgsl` ficou com a luz e a marcha por raio foi para `cloud_integrate.wgsl`; a
+      referência f64 não muda (a mesma integral). Medidas (M4, 1280 × 720, a GPU fria, mediana de 5): `high-sun` 3,245 →
+      **2,781** (2,774–2,811) e, noutra execução, **2,732** (2,699–2,812) ✓ — a marcha 1,370 → 0,47 + a luz 0,26 + a
+      composição 0,14 = 0,87 ms (o estimado era −0,2 a −0,25; saiu −0,47 a −0,51); `high-sun-fast` 3,90 → **3,36**,
+      `high-wind` 2,95 → **2,42**, `inside-timing` **1,32** ✓. O `timing` médio hoje oscila entre repetições (−1,06 a
+      1,72 com o código novo; 1,29 a 2,05 com o de partida, medido em seguida na mesma máquina — a diferença com − sem
+      de um quadro leve); por passe, a marcha do médio 1,00 → 0,30–0,36 + 0,14–0,16 + 0,11–0,13. Casos de imagem (os
+      mesmos valores): `sunset` 3,6 %, `dusk-blocks` degrau 1,025 e matiz 0,0491, `sun-below`, `ground-shadow` 0,010,
+      `far-cloud` 2,7 %, `fog-in-front` 0,29 %, `scatter-cache`; vitest de media/clouds passa. As escolhas de páginas
+      (0,04 ms cada) não foram tocadas: o teto fechou sem elas. **O `high-sun` passa. Em aberto na T074: o
+      `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.**
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21

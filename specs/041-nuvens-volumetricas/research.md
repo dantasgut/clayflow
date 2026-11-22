@@ -1551,6 +1551,52 @@ com − sem 0,15, a tabela aérea 0,067, as escolhas 0,17, a reconstrução e o 
 `high-sun-fast` 4,10 → 3,90; `high-wind` 3,22 → 2,95; médio 0,69. Os casos de imagem com os valores de antes (`sunset`
 3,6 %, `dusk-blocks` 1,025 e 0,0491, `shadow-map` 0,020, `ground-shadow` 0,010, `far-cloud` 2,7 %).
 
+### R11 (T074, 2026-11-21 j) — a luz das amostras da marcha num passe próprio
+
+**O que era.** Na marcha, o grupo de 64 raios pagava a luz em cada iteração em que algum raio dele tinha nuvem: o maior
+do grupo (12,9 amostras em média), não a média (7,1). A luz inteira custava 0,83 ms de 1,37.
+
+**O que mudou (a mesma conta, em outra ordem).** A soma do raio é `Σ pesoᵢ · luzᵢ`, com `pesoᵢ = T·(1 − e^(−σ·ds))` (o σ
+da fonte e o da integral do passo se cancelam; na saída antecipada o peso leva também o resto, `T·e^(−σ·ds)`) e `luzᵢ` a
+luz por unidade de profundidade ótica (`cloud_radiance`). Três passes:
+
+1. a marcha (`cloud_march.wgsl`, `cloud_integrate.wgsl`) acha as amostras com nuvem e grava cada uma na lista do quadro
+   pela contagem atômica (`cloud_light_list.wgsl`): o ponto e o peso; a pegada do pixel, a coluna do ambiente, o cosseno
+   com o sol e o índice da amostra anterior do mesmo raio (−1 na primeira). O raio guarda a última;
+2. um passe de uma invocação grava os grupos do despacho indireto e a contagem do quadro e zera a contagem atômica
+   (`cloud_light_args.wgsl`); o passe da luz (`cloud_light_samples.wgsl`) calcula uma amostra por invocação e grava
+   `peso · luz` e o índice da anterior;
+3. a composição (`cloud_march_compose.wgsl`) segue a cadeia do raio (teto `CLOUD_MAX_STEPS`), soma, e põe na frente os
+   meios perto da câmera e a perspectiva aérea (o que a marcha fazia no fim).
+
+A lista é do quadro (não é estado entre quadros). O teto dela é o tamanho do alvo: um texel por amostra, 16 por raio na
+média (3 alvos `rgba32float` de `marchScale / 2` pixels da tela por texel: 44 MB em 1280 × 720; ~400 MB em 4K no perfil
+alto — a reduzir se pesar: 8 valores por amostra cabem em menos com o raio relido do índice). O índice vai em f32 (exato
+até 2²⁴, `CLOUD_LIGHT_LIST_MAX`). A amostra que não cabe tem a luz calculada no próprio laço e somada ali (`cloud_ray`):
+nenhuma fica sem luz. No `high-sun` a cena usa ~411 mil de 921 mil lugares. O panorama segue com a luz no laço (o pronto do
+ponto `cloud_sample_light`).
+
+**Medidas (M4, 1280 × 720, a GPU fria, mediana de 5).**
+
+| passe                       | antes | depois |
+| --------------------------- | ----- | ------ |
+| `CloudFlow.march`           | 1,370 | 0,47   |
+| `CloudFlow.light`           | —     | 0,26   |
+| `CloudFlow.compose`         | —     | 0,14   |
+| soma                        | 1,370 | 0,87   |
+| `high-sun` (com − sem)      | 3,245 | 2,78 e 2,73 (duas execuções) |
+| `high-sun-fast`             | 3,90  | 3,36   |
+| `high-wind`                 | 2,95  | 2,42   |
+
+A estimativa da rodada (i) era 0,83 → 0,50 na luz (−0,2 a −0,25 líquidos); saiu −0,50: fora do laço a marcha só com a
+densidade também ficou mais barata do que a medida dela com a luz tirada (0,53 → 0,47, com as gravações da lista).
+`inside-timing` 1,32. O `timing` do perfil médio oscila hoje entre repetições nas duas versões (novo −1,06 a 1,72; o de
+partida, medido em seguida, 1,29 a 2,05): a diferença com − sem de um quadro leve; por passe, a marcha dele 1,00 → 0,30–0,36
++ 0,14–0,16 + 0,11–0,13. Os casos de imagem com os valores de antes: `sunset` 3,6 %, `dusk-blocks` 1,025 e 0,0491,
+`sun-below`, `ground-shadow` 0,010, `far-cloud` 2,7 %, `fog-in-front` 0,29 %, `scatter-cache`.
+
+**Não feito.** As escolhas de páginas repartidas entre invocações (0,04 ms cada): o teto fechou sem elas.
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por
