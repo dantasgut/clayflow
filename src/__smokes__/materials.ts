@@ -44,6 +44,11 @@
 //     os quadros da rodada 9 (T118): `cascas` e `telhados` (esferas grandes deslocadas), `folhas`, `rolhas`, o metal
 //     escovado sobre o fundo escuro em `metais-2` (sem ruído ao longo da escova), o gelo com a parede xadrez atrás (o
 //     fundo aparece através dele) e os brilhos pontuais da pintura e da neve;
+//     os quadros da rodada 10 (T119): `cascas` e `folhas` na esfera de parametrização frontal (o uv não aperta nos
+//     polos), com o deslocamento em várias escalas — o contorno das cascas irregular, o realce da folha cerosa em
+//     pedaços e a fosca sem pico —, `pintura` com o floco físico (a fina sem grão longe do realce, a de floco grosso
+//     com ele) e `madeira-clara` (o freixo cru sem e com a subsuperfície, sem e com o deslocamento: o terminador mais
+//     macio com a difusão);
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
@@ -1369,7 +1374,7 @@ interface GalleryLayout {
 /** O quadro grande: uma fileira só (a da frente) de esferas de raio 0,95. */
 const GALLERY_BIG: GalleryLayout = { radius: 0.95, dx: 2.25, z: [-1.55, 0.3] };
 /** O quadro grande de três esferas. */
-const GALLERY_BIG3: GalleryLayout = { radius: 0.8, dx: 1.72, z: [-1.55, 0.3] };
+const GALLERY_BIG3: GalleryLayout = { radius: 0.74, dx: 1.62, z: [-1.55, 0.3] };
 
 /** A galeria: um quadro por família, 3 colunas × 2 fileiras; o vidro ao lado do lugar vazio (a parede à vista). */
 const GALLERY: readonly GalleryFamily[] = [
@@ -1402,8 +1407,15 @@ const GALLERY: readonly GalleryFamily[] = [
         ],
         backlit: true,
     },
-    // A pintura de carro metálica em duas cores: no prata o metal sob o verniz é inconfundível.
-    { name: 'pintura', rows: [[], ['carPaint', 'carPaintSilver']], plain: true },
+    // A pintura de carro metálica de floco fino em duas cores (no prata o metal sob o verniz é inconfundível) e a de
+    // floco grosso.
+    {
+        name: 'pintura',
+        rows: [[], ['carPaint', 'carPaintSilver', 'carPaintFlake']],
+        plain: true,
+        // O raio e as fileiras dos quadros só de esferas, com as colunas mais juntas (três esferas cabem no quadro).
+        layout: { radius: 0.68, dx: 1.5, z: [-1.55, 1.3] },
+    },
     // Os metais puros e os de acabamento (spec 011, T117).
     {
         name: 'metais',
@@ -1462,13 +1474,6 @@ const GALLERY: readonly GalleryFamily[] = [
         plain: true,
         backdrop: 'ice',
     },
-    // A folha verde e a seca, em esferas grandes (spec 011, T118): a luz de recorte, por trás, atravessa o limbo.
-    {
-        name: 'folhas',
-        rows: [[], ['leaf', 'leafDry']],
-        plain: true,
-        layout: GALLERY_BIG,
-    },
     // A cortiça: a rolha natural e a aglomerada, em esferas grandes.
     { name: 'rolhas', rows: [[], ['corkStopper', 'cork']], plain: true, layout: GALLERY_BIG },
 ];
@@ -1497,6 +1502,11 @@ function galleryValues(
     return {
         ...('pattern_scale' in params ? { pattern_scale: [...pattern] } : {}),
         ...('scale' in params ? { scale } : {}),
+        // O tamanho de uma unidade do padrão em metros (os flocos da pintura, em micrômetros): meia volta da esfera
+        // de raio 0,68 — uma bola de 25 cm — a 5,5 unidades por metro.
+        ...('pattern_size' in params
+            ? { pattern_size: (Math.PI * GALLERY_PLAIN_R) / GALLERY_RELIEF_SCALE }
+            : {}),
     };
 }
 
@@ -2316,11 +2326,49 @@ async function galleryRelief(width: number, height: number): Promise<void> {
     );
 }
 
+/** O que um quadro de esferas deslocadas mede a mais: a imagem HDR, os centros das peças e o raio delas. */
+type DisplacedMeasure = (
+    img: HdrImage,
+    at: ReadonlyMap<string, Vec3>,
+    radius: number,
+    /** O mesmo quadro com a subsuperfície desligada no renderizador (nos quadros `subsurface`). */
+    plain?: HdrImage,
+) => void;
+
+/** Uma peça de um quadro de esferas deslocadas: o rótulo, o material, os valores a mais e se tem o deslocamento. */
+interface DisplacedPiece {
+    readonly label: string;
+    readonly name: DisplacedName;
+    readonly values?: Readonly<Record<string, number | number[]>>;
+    /** Falso: a mesma esfera sem a `DisplacementFunction` (o relevo só na normal). */
+    readonly displaced?: boolean;
+}
+
 /** Um quadro de esferas deslocadas: o nome, as duas fileiras e a disposição. */
 interface DisplacedFrame {
     readonly name: string;
     readonly rows: readonly [readonly DisplacedName[], readonly DisplacedName[]];
     readonly layout: GalleryLayout;
+    /** No lugar das fileiras: as peças da fileira da frente, cada uma com o seu rótulo e os seus valores. */
+    readonly pieces?: readonly DisplacedPiece[];
+    /** A escala do mundo (unidades por metro); o padrão: `RELIEF_SCALE`. */
+    readonly scale?: number;
+    /** As repetições do padrão por unidade de uv; o padrão: (2, 1) na esfera pronta e (1, 1) na frontal. */
+    readonly pattern?: readonly [number, number];
+    /** Valores a mais de um material do quadro (por cima dos do quadro). */
+    readonly values?: Readonly<
+        Partial<Record<DisplacedName, Readonly<Record<string, number | number[]>>>>
+    >;
+    /**
+     * A esfera de parametrização frontal (`FRONT_SPHERE_CODE`): o uv não aperta nos polos — o padrão tem o mesmo
+     * tamanho na face toda voltada para a câmera. O padrão: a esfera pronta (longitude e latitude).
+     */
+    readonly front?: boolean;
+    /** O menor desvio do contorno (px) de cada peça; o padrão: 0,2. */
+    readonly rough?: number;
+    /** O quadro tem materiais com subsuperfície: lido de novo com a difusão desligada (a medida do que ela muda). */
+    readonly subsurface?: boolean;
+    readonly measure?: DisplacedMeasure;
 }
 type DisplacedName =
     | 'sandstone'
@@ -2331,11 +2379,224 @@ type DisplacedName =
     | 'woodRough'
     | 'driedMud'
     | 'roofTile'
-    | 'roofSlate';
+    | 'roofSlate'
+    | 'leaf'
+    | 'leafMatte'
+    | 'leafDry'
+    | 'woodAsh';
+
+/**
+ * A esfera de parametrização frontal (spec 011, T119): o quadrado do uv vai ao disco (a grade elíptica: x = a √(1 −
+ * b²/2), y = b √(1 − a²/2), suave) e o disco à esfera pela projeção azimutal de área igual de Lambert, com o centro do
+ * uv no ponto da esfera voltado para +z e a borda do quadrado inteira no ponto oposto. Na esfera de longitude e
+ * latitude o uv converge nos polos (as placas de uma casca apertam ali, como numa pinha); nesta, uma unidade de uv mede
+ * 4 raios no centro e a área se conserva do disco à esfera — o padrão tem o mesmo tamanho em toda a face à vista, e o
+ * ponto em que o uv degenera fica atrás.
+ */
+const FRONT_SPHERE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    let a = clamp(2.0 * u - 1.0, -1.0, 1.0);
+    let b = clamp(2.0 * v - 1.0, -1.0, 1.0);
+    let d = vec2f(a * sqrt(1.0 - 0.5 * b * b), b * sqrt(1.0 - 0.5 * a * a));
+    let r2 = min(dot(d, d), 1.0);
+    let k = 2.0 * sqrt(1.0 - r2);
+    return data.radius * vec3f(d.x * k, d.y * k, 1.0 - 2.0 * r2);
+}`;
+
+/**
+ * Escala do mundo do quadro das folhas (unidades por metro): as esferas de raio 0,74 são bolas de 7 cm — a lâmina
+ * (uma unidade de uv: 4 raios) tem 14 cm de largura, a de uma magnólia ou de um fícus grande, com a nervura central no
+ * meio da face à vista.
+ */
+const LEAF_SCALE = 21;
+
+/**
+ * Escala do mundo do quadro das cascas (unidades por metro): as esferas de raio 0,74 são troncos de 42 cm — com 1,5
+ * repetição do padrão por unidade de uv, as placas do carvalho têm 5,6 cm de largura e as fissuras, 16 mm de fundura
+ * (7,5 % do raio). A bétula, um tronco mais fino, de 27 cm (as tiras enroladas, de 4 mm, a 3 % do raio).
+ */
+const BARK_SCALE = 3.5;
+
+/**
+ * Escala do mundo do quadro da madeira clara (unidades por metro): as esferas de raio 0,48 são contas de 2,9 cm — o
+ * caminho livre médio do espalhamento (1 mm) é 7 % do raio e o relevo (0,25 mm), 2 %; com 1,5 repetição do padrão por
+ * unidade de uv (4 raios: 5,8 cm), uma unidade do padrão são 3,9 cm de madeira — anéis de uns 3 mm, vasos de 0,2 mm.
+ */
+const WOOD_BEAD_SCALE = 33;
+
+/** As peças do quadro da madeira clara: sem e com a subsuperfície, sem e com o deslocamento. */
+const WOOD_PLAIN = 'sem SSS, relevo na normal';
+const WOOD_SSS = 'com SSS, relevo na normal';
+const WOOD_MOVED = 'sem SSS, deslocada';
+const WOOD_BOTH = 'com SSS, deslocada';
+
+/**
+ * O realce de uma luz numa esfera: o pico sobre a mediana da janela e o número de pedaços dele — os componentes de pelo
+ * menos 6 pixels com mais de 4 vezes a mediana (o que é claramente especular).
+ */
+function highlightPieces(
+    img: HdrImage,
+    c: Vec3,
+    radius: number,
+    light: Vec3,
+): { ratio: number; pieces: number } {
+    // O ponto da esfera em que a normal é a bissetriz da luz e de quem vê; a janela: 0,4 do raio em pixels.
+    const v = unit3(sub3(GALLERY_EYE, c));
+    const l = unit3(light);
+    const h = unit3([l[0] + v[0], l[1] + v[1], l[2] + v[2]]);
+    const [px, py] = galleryPixel(
+        [c[0] + radius * h[0], c[1] + radius * h[1], c[2] + radius * h[2]],
+        img.width,
+        img.height,
+    ).map(Math.round) as [number, number];
+    const focal = img.height / 2 / Math.tan(GALLERY_FOV / 2);
+    const half = Math.round(
+        (0.4 * focal * radius)
+            / dot3(sub3(c, GALLERY_EYE), unit3(sub3(GALLERY_TARGET, GALLERY_EYE))),
+    );
+    const side = 2 * half + 1;
+    const values = new Float32Array(side * side);
+    for (let j = 0; j < side; j++)
+        for (let i = 0; i < side; i++)
+            values[j * side + i] = lum(hdrAt(img, px + i - half, py + j - half));
+    const sorted = [...values].sort((a, b) => a - b);
+    const peak = sorted[sorted.length - 1]!;
+    const median = Math.max(sorted[sorted.length >> 1]!, 1e-6);
+    // Os pedaços: componentes (vizinhança de 8) de pelo menos 6 pixels acima do limiar.
+    const level = 4 * median;
+    const seen = new Uint8Array(side * side);
+    let pieces = 0;
+    for (let start = 0; start < values.length; start++) {
+        if (seen[start] === 1 || values[start]! < level) continue;
+        const stack = [start];
+        seen[start] = 1;
+        let size = 0;
+        while (stack.length > 0) {
+            const k = stack.pop()!;
+            size++;
+            const x = k % side;
+            const y = (k - x) / side;
+            for (let dy = -1; dy <= 1; dy++)
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue;
+                    const n = ny * side + nx;
+                    if (seen[n] === 1 || values[n]! < level) continue;
+                    seen[n] = 1;
+                    stack.push(n);
+                }
+        }
+        if (size >= 6) pieces++;
+    }
+    return { ratio: peak / median, pieces };
+}
+
+/** As medidas do quadro das folhas: o realce da cerosa em pedaços, a fosca sem pico, as cores. */
+const measureLeaves: DisplacedMeasure = (img, at, radius) => {
+    const glossy = highlightPieces(img, at.get('leaf')!, radius, RELIEF_KEY);
+    const matte = highlightPieces(img, at.get('leafMatte')!, radius, RELIEF_KEY);
+    const dry = highlightPieces(img, at.get('leafDry')!, radius, RELIEF_KEY);
+    log(
+        `gallery folhas: realce da luz principal (pico / mediana da janela de 0,4 do raio; pedaços de 6 px ou mais acima de 4 × a mediana) — leaf ${glossy.ratio.toFixed(1)}× em ${glossy.pieces} pedaços, leafMatte ${matte.ratio.toFixed(2)}× (${matte.pieces}), leafDry ${dry.ratio.toFixed(2)}× (${dry.pieces})`,
+    );
+    check(
+        glossy.pieces > 1,
+        `gallery folhas: o realce da folha cerosa é um só (${glossy.pieces} pedaço)`,
+    );
+    check(
+        glossy.ratio > 2 * matte.ratio,
+        `gallery folhas: a folha cerosa não brilha mais que a fosca (${glossy.ratio} × ${matte.ratio})`,
+    );
+    check(matte.ratio < 3, `gallery folhas: a folha fosca tem pico especular (${matte.ratio})`);
+    // A cor média no disco de 0,6 do raio.
+    const mean = (name: DisplacedName): Vec3 => {
+        const c = at.get(name)!;
+        const [cx, cy] = galleryPixel(c, img.width, img.height).map(Math.round) as [number, number];
+        const focal = img.height / 2 / Math.tan(GALLERY_FOV / 2);
+        const rp =
+            (0.6 * focal * radius)
+            / dot3(sub3(c, GALLERY_EYE), unit3(sub3(GALLERY_TARGET, GALLERY_EYE)));
+        const sum = [0, 0, 0];
+        let count = 0;
+        for (let dy = -Math.floor(rp); dy <= rp; dy += 2)
+            for (let dx = -Math.floor(rp); dx <= rp; dx += 2) {
+                if (dx * dx + dy * dy > rp * rp) continue;
+                hdrAt(img, cx + dx, cy + dy).forEach((value, k) => (sum[k]! += value));
+                count++;
+            }
+        return sum.map((value) => value / Math.max(count, 1)) as unknown as Vec3;
+    };
+    const fmt = (c: Vec3): string => c.map((x) => x.toFixed(3)).join(', ');
+    const green = mean('leaf');
+    const grey = mean('leafMatte');
+    const brown = mean('leafDry');
+    log(
+        `gallery folhas: cor média na esfera — cerosa (${fmt(green)}), fosca (${fmt(grey)}), seca (${fmt(brown)})`,
+    );
+    check(green[1] > 1.2 * green[0], 'gallery folhas: a folha não é verde');
+    check(grey[1] > grey[0], 'gallery folhas: a folha fosca não é verde');
+    check(brown[0] > 1.2 * brown[1], 'gallery folhas: a folha seca não é castanha');
+};
+
+/**
+ * As medidas do quadro da madeira clara, na esfera lisa com a subsuperfície, do mesmo quadro com a difusão ligada e
+ * desligada no renderizador (os mesmos pixels): a luz passa do terminador da luz principal, a queda através dele fica
+ * mais suave e o lado iluminado não muda. A esfera de raio zero, ao lado, não muda com a difusão.
+ */
+const measureWood: DisplacedMeasure = (img, at, radius, plain) => {
+    if (plain === undefined) return;
+    const key = unit3(RELIEF_KEY);
+    /** A luminância média numa janela de 9 × 9 no ponto do terminador de n·l = `x` mais voltado para quem vê. */
+    const band = (from: HdrImage, label: string, x: number): number => {
+        const c = at.get(label)!;
+        const v = unit3(sub3(GALLERY_EYE, c));
+        const along = dot3(v, key);
+        const t = unit3([v[0] - along * key[0], v[1] - along * key[1], v[2] - along * key[2]]);
+        const w = Math.sqrt(1 - x * x);
+        const n: Vec3 = [x * key[0] + w * t[0], x * key[1] + w * t[1], x * key[2] + w * t[2]];
+        const [px, py] = galleryPixel(
+            [c[0] + radius * n[0], c[1] + radius * n[1], c[2] + radius * n[2]],
+            from.width,
+            from.height,
+        ).map(Math.round) as [number, number];
+        let sum = 0;
+        for (let dy = -4; dy <= 4; dy++)
+            for (let dx = -4; dx <= 4; dx++) sum += lum(hdrAt(from, px + dx, py + dy)) / 81;
+        return sum;
+    };
+    const past = { on: band(img, WOOD_SSS, -0.08), off: band(plain, WOOD_SSS, -0.08) };
+    const lit = { on: band(img, WOOD_SSS, 0.5), off: band(plain, WOOD_SSS, 0.5) };
+    // A queda da luz através do terminador (de n·l = 0,15 a −0,15): mais suave com a subsuperfície.
+    const drop = {
+        on: band(img, WOOD_SSS, 0.15) - band(img, WOOD_SSS, -0.15),
+        off: band(plain, WOOD_SSS, 0.15) - band(plain, WOOD_SSS, -0.15),
+    };
+    const zero = { on: band(img, WOOD_PLAIN, -0.08), off: band(plain, WOOD_PLAIN, -0.08) };
+    log(
+        `gallery madeira-clara: esfera com a subsuperfície, difusão ligada / desligada — depois do terminador (n·l = −0,08) ${past.on.toFixed(4)} / ${past.off.toFixed(4)} (${(past.on / Math.max(past.off, 1e-6)).toFixed(3)}×); queda de n·l = 0,15 a −0,15 ${drop.on.toFixed(4)} / ${drop.off.toFixed(4)}; lado iluminado (n·l = 0,5) ${lit.on.toFixed(4)} / ${lit.off.toFixed(4)}; esfera de raio zero, depois do terminador ${zero.on.toFixed(4)} / ${zero.off.toFixed(4)}`,
+    );
+    check(
+        past.on > 1.01 * past.off,
+        `gallery madeira-clara: a luz não passa do terminador com a subsuperfície (${past.on} × ${past.off})`,
+    );
+    check(
+        drop.on < drop.off,
+        `gallery madeira-clara: o terminador não fica mais macio com a subsuperfície (${drop.on} × ${drop.off})`,
+    );
+    check(
+        Math.abs(lit.on - lit.off) < 0.1 * lit.off,
+        `gallery madeira-clara: a subsuperfície mudou o lado iluminado (${lit.on} × ${lit.off})`,
+    );
+    check(
+        Math.abs(zero.on - zero.off) < 0.05 * zero.off,
+        `gallery madeira-clara: a esfera de raio zero mudou com a difusão (${zero.on} × ${zero.off})`,
+    );
+};
 
 /**
  * Os quadros do deslocamento: os materiais de relevo em milímetros e a madeira bruta (`deslocamento`), as cascas
- * (`cascas`) e os telhados (`telhados`), estes dois em esferas grandes (spec 011, T118).
+ * (`cascas`), os telhados (`telhados`) e as folhas (`folhas`), estes em esferas grandes (spec 011, T118 e T119); as
+ * cascas e as folhas na esfera de parametrização frontal.
  */
 const DISPLACED: readonly DisplacedFrame[] = [
     {
@@ -2343,8 +2604,46 @@ const DISPLACED: readonly DisplacedFrame[] = [
         rows: [['sandstone', 'brick', 'driedMud'], ['woodRough']],
         layout: { radius: GALLERY_PLAIN_R, dx: GALLERY_DX, z: GALLERY_PLAIN_Z },
     },
-    { name: 'cascas', rows: [[], ['bark', 'barkPine', 'barkBirch']], layout: GALLERY_BIG3 },
+    {
+        name: 'cascas',
+        rows: [[], ['bark', 'barkPine', 'barkBirch']],
+        layout: GALLERY_BIG3,
+        scale: BARK_SCALE,
+        pattern: [1.5, 1.5],
+        values: { barkBirch: { scale: RELIEF_SCALE, pattern_scale: [1, 1] } },
+        front: true,
+        rough: 1,
+    },
     { name: 'telhados', rows: [[], ['roofTile', 'roofSlate']], layout: GALLERY_BIG },
+    {
+        name: 'folhas',
+        rows: [[], ['leaf', 'leafMatte', 'leafDry']],
+        layout: GALLERY_BIG3,
+        scale: LEAF_SCALE,
+        front: true,
+        rough: 0.1,
+        measure: measureLeaves,
+    },
+    // A madeira clara e fosca (o freixo cru) em contas de 2,9 cm: sem e com a subsuperfície (o raio zero e o do
+    // material), sem e com o deslocamento — o que cada um acrescenta.
+    {
+        name: 'madeira-clara',
+        rows: [[], []],
+        pieces: [
+            { label: WOOD_PLAIN, name: 'woodAsh', values: { radius: [0, 0, 0] }, displaced: false },
+            { label: WOOD_SSS, name: 'woodAsh', displaced: false },
+            { label: WOOD_MOVED, name: 'woodAsh', values: { radius: [0, 0, 0] } },
+            { label: WOOD_BOTH, name: 'woodAsh' },
+        ],
+        // As colunas a 2,4 raios: a sombra de uma esfera não cai na vizinha.
+        layout: { radius: 0.48, dx: 1.16, z: [-1.55, 0.3] },
+        scale: WOOD_BEAD_SCALE,
+        pattern: [1.5, 1.5],
+        front: true,
+        rough: 0.1,
+        subsurface: true,
+        measure: measureWood,
+    },
 ];
 
 /**
@@ -2399,22 +2698,59 @@ async function galleryDisplaced(
     );
     galleryWall(app, [0, 5, -6], [40, 20], neutral(0.12));
     const R = frame.layout.radius;
+    const front = frame.front === true;
     const tilt = [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)];
-    const at = new Map<DisplacedName, Vec3>();
-    frame.rows.forEach((row, j) => {
-        row.forEach((name, i) => {
-            const c: Vec3 = [(i - (row.length - 1) / 2) * frame.layout.dx, R, frame.layout.z[j]!];
-            at.set(name, c);
-            const values = { pattern_scale: [2, 1], scale: RELIEF_SCALE };
-            app.world.insert(
-                new ParametricSurface({ preset: 'sphere', params: [R], adaptive: RELIEF_MESH })
-                    .add(new StandardMaterial())
-                    .add(new Transform({ position: [...c, 1], rotation: tilt }))
-                    .add(Materials[name](values))
-                    .add(Displacements[name](values)),
-            );
-        });
-    });
+    const at = new Map<string, Vec3>();
+    const moved = new Set<string>();
+    // As peças: as do quadro, na fileira da frente, ou uma por material das duas fileiras.
+    const pieces: { piece: DisplacedPiece; c: Vec3 }[] =
+        frame.pieces !== undefined
+            ? frame.pieces.map((piece, i) => ({
+                  piece,
+                  c: [(i - (frame.pieces!.length - 1) / 2) * frame.layout.dx, R, frame.layout.z[1]],
+              }))
+            : frame.rows.flatMap((row, j) =>
+                  row.map((name, i) => ({
+                      piece: { label: name, name },
+                      c: [
+                          (i - (row.length - 1) / 2) * frame.layout.dx,
+                          R,
+                          frame.layout.z[j]!,
+                      ] as Vec3,
+                  })),
+              );
+    for (const { piece, c } of pieces) {
+        const { name } = piece;
+        at.set(piece.label, c);
+        // Na esfera pronta o uv dá a volta em 2πR e vai de polo a polo em πR: (2, 1) repetições; na frontal, uma
+        // unidade de uv mede o mesmo nos dois eixos.
+        const values = {
+            pattern_scale: [...(frame.pattern ?? (front ? [1, 1] : [2, 1]))],
+            scale: frame.scale ?? RELIEF_SCALE,
+            ...frame.values?.[name],
+        };
+        const ball = front
+            ? new ParametricSurface({
+                  domain: [0, 1, 0, 1],
+                  adaptive: { ...RELIEF_MESH, patches: [24, 24], periodic: [false, false] },
+              }).add(
+                  new SurfaceFunction({
+                      code: FRONT_SPHERE_CODE,
+                      params: { radius: 'f32' },
+                      values: { radius: R },
+                  }),
+              )
+            : new ParametricSurface({ preset: 'sphere', params: [R], adaptive: RELIEF_MESH });
+        ball.add(new StandardMaterial())
+            // O eixo +z da esfera frontal (o centro do uv) inclinado 35° para cima: voltado para a câmera.
+            .add(new Transform({ position: [...c, 1], rotation: tilt }))
+            .add(Materials[name]({ ...values, ...piece.values }));
+        if (piece.displaced !== false) {
+            ball.add(Displacements[name](values));
+            moved.add(piece.label);
+        }
+        app.world.insert(ball);
+    }
     const started = performance.now();
     const img = await renderHdr(app, GALLERY_FRAMES, 1500);
     const ready = performance.now() - started;
@@ -2434,6 +2770,21 @@ async function galleryDisplaced(
         app.step(0);
         await writeFixture(`zzGallery-${frame.name}.png`, await toPng(capture(canvas)));
         for (const label of labels) label.visible = false;
+    }
+    // O mesmo quadro com a subsuperfície desligada no renderizador: o que a difusão muda, e o custo dos passes dela.
+    let plain: HdrImage | undefined;
+    if (frame.subsurface === true) {
+        app.defaults.renderer.subsurface.enabled = false;
+        plain = await renderHdr(app, 30, 600);
+        samples.length = 0;
+        for (let i = 0; i < 60; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        samples.sort((a, b) => a - b);
+        log(
+            `gallery ${frame.name}: GPU ${(samples[samples.length >> 1] ?? NaN).toFixed(2)} ms por quadro sem a subsuperfície`,
+        );
     }
     disposeApp(app, canvas);
     let bad = 0;
@@ -2477,16 +2828,19 @@ async function galleryDisplaced(
         }
         const deviation = Math.sqrt(sum / Math.max(count, 1));
         rough.push(`${name} ${deviation.toFixed(2)} (${count})`);
-        // Sem meta apertada: o contorno encontrado em pelo menos um terço das direções e fora de um círculo.
-        check(count >= 20, `gallery ${frame.name}: contorno de ${name} não encontrado (${count})`);
+        // Sem meta apertada: o contorno encontrado em pelo menos 15 direções (a casca escura some contra o fundo do
+        // lado da sombra) e fora de um círculo.
+        if (!moved.has(name)) continue;
+        check(count >= 15, `gallery ${frame.name}: contorno de ${name} não encontrado (${count})`);
         check(
-            deviation > 0.2,
+            deviation > (frame.rough ?? 0.2),
             `gallery ${frame.name}: o contorno de ${name} segue um círculo (${deviation.toFixed(2)} px)`,
         );
     }
     log(
         `gallery ${frame.name}: contorno (desvio do raio, px, e direções medidas) — ${rough.join(', ')}`,
     );
+    frame.measure?.(img, at, R, plain);
 }
 
 /**
@@ -3484,37 +3838,37 @@ async function caseGallery(): Promise<void> {
     };
     const fmt3 = (v: Vec3): string => v.map((c) => c.toFixed(3)).join(', ');
     if (shots.has('pintura')) {
-        // A pintura metálica nas esferas grandes: o granulado dos flocos longe do realce do sol (a face voltada para
-        // quem vê, do lado da sombra), nas duas cores — a base é metal, o grão cobre a peça toda.
+        // A pintura metálica nas esferas grandes, longe do realce do sol (a face voltada para quem vê, do lado da
+        // sombra): a de floco fino (20 µm: centenas de flocos por pixel) é lisa — sem grão —, a de floco grosso
+        // (400 µm) tem o granulado pela peça toda.
         const shot = shots.get('pintura')!;
         const red = plate('carPaint', shot);
         const silver = plate('carPaintSilver', shot);
+        const coarse = plate('carPaintFlake', shot);
         log(
-            `gallery pintura: granulado dos flocos longe do realce (desvio / média em 49 × 49 px) — vermelha ${red.contrast.toFixed(3)}, prata ${silver.contrast.toFixed(3)}; cor média — vermelha (${fmt3(red.mean)}), prata (${fmt3(silver.mean)})`,
+            `gallery pintura: granulado longe do realce (desvio / média em 49 × 49 px) — vermelha ${red.contrast.toFixed(3)}, prata ${silver.contrast.toFixed(3)}, floco grosso ${coarse.contrast.toFixed(3)}; cor média — vermelha (${fmt3(red.mean)}), prata (${fmt3(silver.mean)}), floco grosso (${fmt3(coarse.mean)})`,
+        );
+        // Sem meta apertada: o teto do grão da pintura fina é um quarto do granulado de antes (2,4) e o da grossa.
+        check(
+            red.contrast < 0.3 && silver.contrast < 0.3,
+            `gallery pintura: a pintura de floco fino tem grão longe do realce (${red.contrast} e ${silver.contrast})`,
         );
         check(
-            red.contrast > 0.02 && silver.contrast > 0.02,
-            `gallery pintura: sem o granulado dos flocos longe do realce (${red.contrast} e ${silver.contrast})`,
+            coarse.contrast > 2 * Math.max(red.contrast, silver.contrast),
+            `gallery pintura: a de floco grosso não tem mais grão que a fina (${coarse.contrast})`,
         );
-        // Os brilhos pontuais fora do realce (a janela a meio caminho entre o realce do sol e o centro da esfera): os
-        // flocos alinhados acendem em pontos várias vezes acima da média da janela.
-        const beside = (name: MaterialName): Vec3 => {
-            const { v } = view(shot.center.get(name)!);
-            const h = unit3([sun[0] + v[0], sun[1] + v[1], sun[2] + v[2]]);
-            return unit3([
-                0.5 * h[0] + 0.5 * v[0],
-                0.5 * h[1] + 0.5 * v[1],
-                0.5 * h[2] + 0.5 * v[2],
-            ]);
-        };
-        const redGlint = plate('carPaint', shot, beside('carPaint')).peak;
-        const silverGlint = plate('carPaintSilver', shot, beside('carPaintSilver')).peak;
+        // Os pontos isolados na mesma janela (o maior valor sobre a média): na fina, nenhum muito acima da média; na
+        // grossa, os flocos alinhados acendem um a um.
         log(
-            `gallery pintura: brilhos pontuais fora do realce (maior valor / média em 49 × 49 px) — vermelha ${redGlint.toFixed(2)}×, prata ${silverGlint.toFixed(2)}×`,
+            `gallery pintura: pontos isolados longe do realce (maior valor / média em 49 × 49 px) — vermelha ${red.peak.toFixed(2)}×, prata ${silver.peak.toFixed(2)}×, floco grosso ${coarse.peak.toFixed(2)}×`,
         );
         check(
-            redGlint > 2 && silverGlint > 2,
-            `gallery pintura: sem brilhos pontuais fora do realce (${redGlint} e ${silverGlint})`,
+            red.peak < 3 && silver.peak < 3,
+            `gallery pintura: pontos isolados longe do realce na pintura de floco fino (${red.peak} e ${silver.peak})`,
+        );
+        check(
+            coarse.peak > 2 * Math.max(red.peak, silver.peak),
+            `gallery pintura: a de floco grosso sem brilhos pontuais longe do realce (${coarse.peak})`,
         );
         // A prata é neutra e a vermelha, saturada.
         check(
@@ -3660,14 +4014,6 @@ async function caseGallery(): Promise<void> {
         check(spread > 1.04, `gallery organicos: a madrepérola não muda de cor (${spread})`);
         // Os brilhos pontuais da neve: pontos várias vezes acima da média, longe do realce.
         check(sparkle > 1.5, `gallery organicos: a neve não tem brilhos pontuais (${sparkle})`);
-    }
-    if (shots.has('folhas')) {
-        structure('folhas', ['leaf', 'leafDry'], () => 0.015);
-        const green = plate('leaf').mean;
-        const dry = plate('leafDry').mean;
-        log(`gallery folhas: cor média na esfera — verde (${fmt3(green)}), seca (${fmt3(dry)})`);
-        check(green[1] > 1.2 * green[0], 'gallery folhas: a folha não é verde');
-        check(dry[0] > 1.2 * dry[1], 'gallery folhas: a folha seca não é castanha');
     }
     if (shots.has('rolhas')) structure('rolhas', ['corkStopper', 'cork'], () => 0.03);
     if (shots.has('metais-2')) {

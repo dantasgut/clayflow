@@ -71,6 +71,9 @@ const NAMES = [
     'corkStopper',
     'leaf',
     'leafDry',
+    'leafMatte',
+    'carPaintFlake',
+    'woodAsh',
     'roofTile',
     'roofSlate',
     'paper',
@@ -91,7 +94,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 68 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 71 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -208,8 +211,15 @@ describe('Materials (spec 011, US5)', () => {
         });
         expect(subgraphOrigin(nodes.material.carPaint)!.graph.links).toEqual(
             expect.arrayContaining([
-                // Cada floco com a inclinação dele na normal da base; o verniz com a normal própria.
+                // O espaço dos flocos: o do padrão vezes os flocos por unidade dele (o tamanho físico do floco).
+                ['flake_scale.value', 'flake_uv.scale'],
+                ['flake_uv.p', 'flake.p'],
+                ['flake_uv.p', 'sparkle.p'],
+                // Cada floco com a inclinação dele na normal da base, só quando ele aparece; o verniz com a normal
+                // própria.
                 ['flake.random', 'tilt.gradient'],
+                ['resolved.value', 'seen_slope.b'],
+                ['seen_slope.value', 'tilt.strength'],
                 ['tilt.value', 'layer_of_flakes.normal'],
                 ['wave.value', 'coat_surface.normal'],
                 // O pigmento e os flocos dividem a base; o verniz por cima.
@@ -235,10 +245,23 @@ describe('Materials (spec 011, US5)', () => {
         expect(Materials.carPaint().lobeMask).toBe(
             LOBES.diffuse | LOBES.specular | LOBES.anisotropy | LOBES.coat | LOBES.glint,
         );
-        // Flocos pequenos (perto do pixel a um palmo), verniz espelhado e casca de laranja leve.
+        // Floco automotivo fino (de 10 a 30 µm), verniz espelhado e casca de laranja leve; o de floco grosso tem
+        // plaquetas dez vezes maiores, mais inclinadas.
         const paint = nodes.material.carPaint.params;
         expect(paint.coat_roughness!.default).toBeLessThanOrEqual(0.05);
         expect(paint.orange_peel!.default).toBeLessThanOrEqual(0.001);
+        for (const name of ['carPaint', 'carPaintSilver'] as const) {
+            const size = nodes.material[name].params.flake_size!.default as number;
+            expect(size).toBeGreaterThanOrEqual(10);
+            expect(size).toBeLessThanOrEqual(30);
+            expect(nodes.material[name].params.pattern_size!.default).toBeGreaterThan(0);
+        }
+        const coarse = nodes.material.carPaintFlake.params;
+        expect(coarse.flake_size!.default).toBeGreaterThanOrEqual(
+            10 * (paint.flake_size!.default as number),
+        );
+        expect(coarse.flake_tilt!.default).toBeGreaterThan(paint.flake_tilt!.default as number);
+        expect(coarse.flake_density!.default).toBeLessThan(paint.flake_density!.default as number);
     });
 
     it('nós de cada família: tecidos com brilho de fibra, metais condutores, vidro com transmissão, subsuperfície', () => {
@@ -536,6 +559,8 @@ describe('Materials (spec 011, US5)', () => {
             corkStopper: 'pattern.dents',
             leaf: 'pattern.veins',
             leafDry: 'pattern.veins',
+            leafMatte: 'pattern.veins',
+            woodAsh: 'relief.woodAsh',
             roofTile: 'pattern.shingles',
             roofSlate: 'pattern.shingles',
             cork: 'pattern.cells',
@@ -559,6 +584,10 @@ describe('Materials (spec 011, US5)', () => {
             'driedMud',
             'roofTile',
             'roofSlate',
+            'leaf',
+            'leafMatte',
+            'leafDry',
+            'woodAsh',
         ] as const) {
             expect(has(name, 'surface.reliefNormal'), name).toBe(true);
             expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });
@@ -598,26 +627,74 @@ describe('Materials (spec 011, US5)', () => {
         expect(rgb('ice', 'scatter')).toEqual([0, 0, 0]);
         expect(Materials.ice().lobeMask & LOBES.transmission).toBe(LOBES.transmission);
         // Os brilhos pontuais: a pintura, a neve e a areia ligam `pattern.glints` a `closure.glints`.
-        for (const name of ['carPaint', 'carPaintSilver', 'snow', 'sand'] as const) {
+        for (const name of [
+            'carPaint',
+            'carPaintSilver',
+            'carPaintFlake',
+            'snow',
+            'sand',
+        ] as const) {
             expect(has(name, 'pattern.glints') && has(name, 'closure.glints'), name).toBe(true);
             expect(Materials[name]().lobeMask & LOBES.glint).toBe(LOBES.glint);
-            expect(nodes.material[name].params.sparkle_roughness!.default).toBeLessThan(0.3);
+            expect(nodes.material[name].params.sparkle_roughness!.default).toBeLessThanOrEqual(0.3);
         }
         // O metal escovado é opaco: um condutor só, anisotrópico, sem transmissão.
         expect(Materials.metalBrushed().lobeMask & LOBES.transmission).toBe(0);
         expect(nodes.material.metalBrushed.params.anisotropy!.default).toBeGreaterThanOrEqual(0.8);
-        // A folha é parede fina (a luz de trás atravessa) sob a cutícula; a seca é mais fosca.
-        for (const name of ['leaf', 'leafDry'] as const) {
+        // A folha é parede fina (a luz de trás atravessa) sob a cutícula de rugosidade variável (lisa no meio das
+        // almofadas, fosca nas vênulas), com o relevo em milímetros; a seca é mais fosca e a fosca não tem realce.
+        for (const name of ['leaf', 'leafMatte', 'leafDry'] as const) {
             expect(inner(name)).toMatchObject({
                 through: 'bsdf.translucent',
                 cuticle: 'bsdf.dielectric',
-                relief: 'surface.bump',
+                pad: 'pattern.cells',
+                height: `relief.${name}`,
+                normal: 'surface.reliefNormal',
             });
-            expect(nodes.material[name].params.translucency!.default).toBeGreaterThan(0.2);
+            expect(subgraphOrigin(nodes.material[name])!.graph.links).toEqual(
+                expect.arrayContaining([
+                    ['pad.height', 'gloss.x'],
+                    ['rough.value', 'cuticle.roughness'],
+                    ['height.value', 'normal.relief'],
+                ]),
+            );
+            const p = nodes.material[name].params;
+            expect(p.translucency!.default).toBeGreaterThan(0.2);
+            expect(p.vein_roughness!.default).toBeGreaterThan(p.roughness!.default as number);
+            for (const height of ['vein_height', 'bulge_height', 'pad_height', 'wave_height'])
+                expect(p, `${name}.${height}`).toHaveProperty(height);
         }
         expect(nodes.material.leafDry.params.roughness!.default).toBeGreaterThan(
             nodes.material.leaf.params.roughness!.default as number,
         );
+        expect(nodes.material.leaf.params.roughness!.default).toBeLessThan(0.3);
+        expect(nodes.material.leafMatte.params.roughness!.default).toBeGreaterThan(0.75);
+        expect(has('leafMatte', 'bsdf.sheen')).toBe(true);
+        expect(has('leaf', 'bsdf.sheen')).toBe(false);
+        // Na face de cima as nervuras são sulcos; na folha seca, salientes.
+        expect(nodes.material.leaf.params.vein_height!.default).toBeLessThan(0);
+        expect(nodes.material.leafDry.params.vein_height!.default).toBeGreaterThan(0);
+        // O freixo cru: o corpo é subsuperfície (raio curto, mais longo no vermelho), fosco, com o relevo em
+        // milímetros e o lobo alongado pela fibra.
+        expect(inner('woodAsh')).toMatchObject({
+            rings: 'pattern.rings',
+            body: 'bsdf.subsurface',
+            specular: 'bsdf.dielectric',
+            height: 'relief.woodAsh',
+            normal: 'surface.reliefNormal',
+        });
+        const ash = nodes.material.woodAsh.params;
+        const radius = ash.radius!.default as number[];
+        expect(radius[0]).toBeGreaterThan(radius[1]!);
+        expect(radius[1]).toBeGreaterThan(radius[2]!);
+        expect(radius[0]).toBeLessThanOrEqual(1.5);
+        expect(radius[2]).toBeGreaterThanOrEqual(0.3);
+        expect(ash.roughness!.default).toBeGreaterThan(0.5);
+        expect(ash.anisotropy!.default).toBeGreaterThan(0);
+        expect(Materials.woodAsh().lobeMask & LOBES.subsurface).toBe(LOBES.subsurface);
+        const light = (name: MaterialName): number =>
+            rgb(name, 'color').reduce((sum, c) => sum + c, 0);
+        expect(light('woodAsh')).toBeGreaterThan(light('woodOak'));
         const green = rgb('leaf', 'color');
         expect(green[1]).toBeGreaterThan(2 * green[0]!);
         const dry = rgb('leafDry', 'color');
