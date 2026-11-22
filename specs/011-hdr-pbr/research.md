@@ -333,3 +333,35 @@ acertos dos raios) o lobo é o perfil integrado: o difuso de albedo `color`.
 **Limites conhecidos**: a difusão é na tela (o que está fora dela não entra; peças diferentes no mesmo plano trocam
 luz); só as luzes direcionais com sombra atravessam; a espessura é ao longo da direção da luz; acima de A = 0,9 o
 perfil perde a cauda longa (0,065 na fração acumulada com A = 0,93).
+
+### R16 — Reflexo nítido dos opacos lisos (T114)
+
+**Decisão**: o reflexo do lobo especular liso de um opaco (o metal polido, o verniz, o plástico brilhante) vem de um
+raio por pixel na direção refletida, traçado pela cadeia da refração — o mesmo pedido por pixel, a mesma fila, a mesma
+reconstrução em meia resolução —, e somado à cor do desenho pelo peso do lobo. O desenho só escolhe os pixels (o lobo
+liso, pela rugosidade do fechamento no ponto) e grava a direção e o peso; o passe principal deixa de fora a parte lisa
+da especular indireta.
+
+**Racional**: a luz indireta especular vinha das sondas da luz global (um mapa octaédrico de 8 × 8 por sonda) ou do
+hemisfério de duas cores — sem imagem dos objetos. A cadeia da refração já segue um raio qualquer pela cena com o
+material avaliado por classe, a luz direta com sombra no ponto atingido, a luz rebatida, o céu no escape e os
+transmissivos no caminho: o reflexo de um opaco é o mesmo caminho começando na superfície em vez de na câmera. Custo
+fixo por pixel liso; sem pixel liso, a fila fica vazia.
+
+**Alternativas**:
+
+- **Uma segunda cadeia só para o reflexo** (outro Resource, outro estágio): a mesma coisa duas vezes — os estados dos
+  caminhos e a onda dos acertos em dobro na memória. Descartada (estrutura paralela equivalente).
+- **Reflexo no espaço da tela**: não vê o que está fora do quadro nem atrás dos objetos (o céu acima, o vizinho
+  encoberto); o motor não copia a tela para a refração pelo mesmo motivo.
+- **Sondas de reflexo de resolução maior**: imagem pré-calculada consultada, com paralaxe errada perto dos objetos.
+- **Decidir no material (uma marca de "liso")**: a rugosidade é valor do grafo, pode vir de um padrão (a ferrugem tem
+  metal liso e óxido áspero no mesmo objeto): a decisão é por pixel.
+- **Somar no desenho principal lendo o traçado do quadro anterior**: um quadro de atraso e nenhuma reprojeção. A soma
+  depois do traçado, no mesmo quadro, não tem atraso.
+
+**Limites conhecidos**: um reflexo só (o ponto atingido responde com a luz indireta no lobo liso dele); só entidades
+com função `material`; a cena precisa da estrutura de raios (a da luz global ou a dos transmissivos) — sem ela o lobo
+fica com a luz indireta; com MSAA o reflexo tem uma amostra por pixel e a soma vale para o pixel inteiro (a borda do
+objeto coberta em parte fica com a luz indireta removida nas amostras sem pedido); a rugosidade entre 0,08 e 0,16
+mistura um espelho com a luz indireta em vez de amostrar o lobo.

@@ -237,10 +237,10 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | `porcelain` | dielétrico + subsuperfície | `color` (0,9; 0,9; 0,87), `radius` (0,3; 0,27; 0,22) mm, `scale` 1, `roughness` 0,05, `ior` 1,5 | esmalte de silicato; raio estimado (curto: só a borda fina deixa passar luz) |
 | `plasticMatte` | dielétrico + difuso; a textura de molde (grão fino em relevo) | `roughness` 0,6, `ior` 1,49, `relief`, `pattern_scale` | polipropileno/PMMA, n_D 1,49 |
 | `plasticGloss` | dielétrico + difuso, liso | `roughness` 0,08, `ior` 1,49 | PMMA, n_D 1,49 |
-| `metalPolished` | condutor, liso: o que se vê é o reflexo do ambiente — com `GlobalIllumination` na cena, a radiância das sondas na direção do reflexo (um reflexo borrado: o céu, o chão, os vizinhos); sem ela, só o hemisfério céu/chão | `color` (F0 0,912; 0,914; 0,920), `edge_tint` (F82 0,970; 0,979; 0,988), `roughness` 0,05, `anisotropy` 0, `tangent` | alumínio do exemplo OpenPBR do MaterialX |
+| `metalPolished` | condutor, liso: o que se vê é o reflexo do ambiente — nítido (o céu, o horizonte, o chão, os vizinhos) pelo reflexo traçado numa cena com a estrutura de raios (ver "Reflexo nítido dos lisos"); sem ela, borrado (as sondas da `GlobalIllumination` ou o hemisfério céu/chão) | `color` (F0 0,912; 0,914; 0,920), `edge_tint` (F82 0,970; 0,979; 0,988), `roughness` 0,05, `anisotropy` 0, `tangent` | alumínio do exemplo OpenPBR do MaterialX |
 | `metalBrushed` | condutor anisotrópico com a tangente ao longo de u; os riscos da escova (`pattern.grain` alongado 125 : 1) na rugosidade e na normal | `color`, `edge_tint`, `roughness` 0,14, `scratch_roughness` 0,36, `anisotropy` 0,8, `relief`, `pattern_scale` | alumínio de `open_pbr_aluminum_brushed.mtlx` |
-| `carPaint` | flocos de condutor (`pattern.cells`), cada um com a inclinação e o tom dele, sob dielétrico em camada com a casca de laranja (`pattern.grain` na normal do verniz) | `base_color` (0,6; 0,02; 0,02), `base_edge_tint`, `base_roughness` 0,3, `flake_tilt` 0,1, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,6, `coat_weight` 1, `orange_peel`, `pattern_scale` | verniz de `open_pbr_carpaint.mtlx` |
-| `metalOxidized` | condutor misturado ao óxido (dielétrico + difuso) em manchas (`pattern.grain` de quatro oitavas mais o avanço `oxidation`), a ferrugem com o relevo granulado | `color` (F0 do ferro 0,562; 0,565; 0,578), `roughness` 0,45, `oxide_color`, `oxide_roughness` 0,9, `oxidation` 0,7, `relief`, `pattern_scale` | Real-Time Rendering 4ª ed., tabela 9.2 |
+| `carPaint` | três camadas: o pigmento (difuso saturado e escuro), os flocos de condutor pequenos (`pattern.cells`, 240 por unidade do padrão), cada um com a inclinação e o tom dele — brilhos pontuais em volta do realce —, e o verniz espelhado em camada com a casca de laranja leve (`pattern.grain` na normal dele); a cor vai da clara de frente (`flake_color`) à escura e saturada rasante (`flake_edge_tint`) | `base_color` (0,36; 0,008; 0,012), `flake_color` (0,62; 0,02; 0,025), `flake_edge_tint` (0,22; 0; 0,01), `flake_roughness` 0,18, `flake_weight` 0,6, `flake_tilt` 0,24, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,5, `coat_weight` 1, `orange_peel` 0,0005, `pattern_scale` | base de condutor sob verniz de `open_pbr_carpaint.mtlx`; pigmento difuso sob os flocos |
+| `metalOxidized` | chapa de aço com ferrugem: o metal que sobra liso e refletivo (escurece e fica áspero perto da ferrugem) misturado ao óxido em pó (difuso, do quase preto ao castanho, ao alaranjado e a pontos amarelados) pela máscara — manchas largas (`pattern.grain` de cinco oitavas), riscos que escorrem ao longo de v e pites (`pattern.cells`), mais o avanço `oxidation`; a ferrugem em relevo: a crosta granulada (`relief`) e a borda inchada (`swell`) | `color` (F0 do ferro 0,562; 0,565; 0,578), `roughness` 0,13 (o metal limpo), `oxide_color` (0,26; 0,085; 0,022), `oxide_roughness` 0,95, `oxidation` 0,55, `relief`, `swell`, `pattern_scale` | Real-Time Rendering 4ª ed., tabela 9.2 |
 | `glass` | dielétrico + transmissão | `ior` 1,52, `roughness` 0, `color`, `depth` 0, `abbe` 58 | vidro sodo-cálcico |
 | `skin` | dielétrico + subsuperfície | `color` (0,63; 0,44; 0,34), `radius` (0,91; 0,60; 0,52) mm, `scale` 1, `roughness` 0,45, `ior` 1,4 | Jensen et al. 2001 (skin2: R_d e ℓ = 1/(σ_s′ + σ_a)) |
 | `wax` | dielétrico + subsuperfície | `color` (0,9; 0,82; 0,62), `radius` (2,8; 2,0; 1,2) mm, `scale` 1, `roughness` 0,3, `ior` 1,44 | parafina, n_D 1,44; raio estimado (uma vela de 2 cm deixa passar ~7 % do vermelho) |
@@ -254,6 +254,28 @@ padrões seguem o uv da geometria: onde ele converge (os polos da esfera) o padr
 ali. `plasticGloss`, `metalPolished`, `porcelain`, `skin`, `wax`, `jade`, `milk` e `glass` são lisos (o que se vê neles é
 a luz e o ambiente). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
 ([Refração](./refraction.md)).
+
+## Reflexo nítido dos lisos (spec 011, T114)
+
+O metal polido, o verniz, o plástico brilhante e o esmalte mostram o ambiente como um espelho: o céu, o horizonte, o
+chão e os vizinhos, com as bordas nítidas. Numa cena com a estrutura de raios (`RayScene`: a da `GlobalIllumination`
+ou a dos transmissivos), cada pixel de um opaco cujo lobo especular (ou o verniz) é liso pede um raio na direção
+refletida — pela normal do lobo, com o relevo e a casca de laranja — e o que o raio acha (o opaco com a luz direta, a
+sombra e a luz rebatida dele; o céu; o que se vê através de um vidro) entra no lugar da luz indireta da cena naquele
+lobo, pelo peso dele (o Fresnel do metal por canal, os 4 % do verniz que crescem para a borda).
+
+- **Quanto de espelho**: rugosidade até 0,08, todo o lobo pelo raio; de 0,08 a 0,16, a mistura com a luz indireta; acima,
+  só a luz indireta (as sondas, o hemisfério). O lobo anisotrópico (o metal escovado) não é espelho.
+- **O sol** não vem pelo raio: é a luz direta no lobo (o realce), como antes — no metal polido, o ponto que estoura.
+- **Custo**: um raio por bloco de 2 × 2 pixels lisos por quadro (parado, cada pixel fica com o valor exato dele em até 6
+  quadros). Sem `RayScene` ou com `renderer.lightPaths.reflection = false`, nada roda e o lobo fica com a luz indireta.
+- **Limites**: um reflexo só (o espelho visto num espelho mostra a luz indireta do segundo); as bordas do que é
+  refletido se alisam pelo antisserrilhado temporal (com MSAA ficam em degraus, uma amostra por pixel); só entidades com
+  função `material` (o `StandardMaterial` de constantes fica com a luz indireta).
+
+```ts
+app.defaults.renderer.lightPaths.reflection = false; // desliga o reflexo traçado dos opacos
+```
 
 ## Subsuperfície: a luz que entra no corpo
 
