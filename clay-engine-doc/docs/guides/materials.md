@@ -107,7 +107,7 @@ Um lobo cada. Toda entrada aceita um valor (o parâmetro de mesmo nome) ou uma l
 | `closure.layer`           | o especular de `top` como verniz sobre `base`, atenuando-a pelo que reflete e por `top_color`, com `top_weight` |
 | `closure.thinFilm`        | filme fino (iridescência) de `thickness` nm e `ior` sobre o especular de base                              |
 | `closure.opacity`         | opacidade `alpha` em [0, 1]: o material vai ao passe dos transmissivos                                     |
-| `closure.normal`          | normal própria dos lobos de base (de um nó, como `surface.ripple`, ou de um campo)                          |
+| `closure.normal`          | normal própria dos lobos de base (de um nó, como `surface.ripple` ou `surface.bump`, ou de um campo)        |
 | `closure.mediumPriority`  | prioridade do meio na sobreposição de volumes transmissivos (o vidro dentro da água)                       |
 | `closure.thinWalled`      | a transmissão como parede fina, de espessura zero (vidraça, bolha)                                         |
 
@@ -208,35 +208,49 @@ Um valor para um parâmetro que o material não expõe lança `NodeGraphError`. 
 compartilham o pipeline; os valores são por entidade. Os grafos serializam (`toJSON`/`fromJSON` com o
 `defaultNodeRegistry`).
 
-| Material | Nós | Parâmetros (padrão) | Fonte dos valores |
-| -------- | --- | ------------------- | ----------------- |
-| `woodRaw` | dielétrico + difuso | `color` (0,45; 0,28; 0,15), `roughness` 0,7, `ior` 1,53, `diffuse_roughness` 0,6 | celulose, n_D 1,53–1,55 |
-| `woodVarnishedGloss` | `woodRaw` sob dielétrico em camada | `base_color`, `base_roughness`, `coat_color` (1; 0,85; 0,6), `coat_roughness` 0,04, `coat_ior` 1,5, `coat_weight` 1 | verniz de poliuretano, n ≈ 1,5 |
-| `woodVarnishedMatte` | o mesmo | `coat_roughness` 0,35, `coat_color` (1; 0,92; 0,75) | verniz com fosqueante |
-| `cotton` | difuso + brilho de fibra | `color`, `sheen_color` 0,25, `sheen_roughness` 0,9, `diffuse_roughness` 1 | Estevez e Kulla 2017 (sheen "Charlie") |
-| `wool` | o mesmo | `sheen_color` 0,6, `sheen_roughness` 0,8 | idem |
-| `velvet` | o mesmo | `color` (0,2; 0,02; 0,06), `sheen_color` (1; 0,6; 0,7), `sheen_roughness` 0,3 | idem (pelo ereto: rugosidade baixa) |
-| `denim` | o mesmo | `color` índigo, `sheen_roughness` 0,85 | idem |
-| `silk` | difuso + dielétrico anisotrópico + brilho de fibra | `color`, `roughness` 0,3, `anisotropy` 0,8, `tangent`, `ior` 1,56, `sheen_color`, `sheen_roughness` | fibroína, n ≈ 1,56 |
-| `sheerFabric` | difuso misturado à parede fina translúcida + brilho de fibra | `color`, `translucency` 0,6, `sheen_color`, `sheen_roughness` | — |
-| `leather` | dielétrico + difuso | `roughness` 0,5, `ior` 1,5 | colágeno e acabamento, n ≈ 1,5 |
-| `rubber` | dielétrico + difuso | `color` 0,03, `roughness` 0,75, `ior` 1,519 | poli-isopreno, n_D 1,519 |
-| `ceramic` | dielétrico + difuso | `roughness` 0,25, `ior` 1,5 | esmalte de silicato |
+Cada material tem a **estrutura** que o nome promete, calculada por pixel na GPU pelos nós de padrão
+(`pattern.weave`, `pattern.cells`, `pattern.rings`, `pattern.grain` — ver [Grafos de nós](./node-graphs.md)) sobre o uv
+do objeto (o padrão anda com o objeto), com o relevo na normal (`surface.bump`), filtrado pela largura do pixel (de
+longe o detalhe vai à média, sem serrilhar) e sem emenda onde o uv dá a volta. Os que têm padrão expõem
+`pattern_scale` (`vec2f`, repetições do padrão por unidade de uv; (1, 1)): numa esfera, `(2, 1)` deixa o padrão
+quadrado no equador; numa peça maior, um valor maior mantém o tamanho do fio ou do veio.
+
+```ts
+entity.add(Materials.denim({ pattern_scale: [2, 1] })); // numa esfera
+entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1: o veio do mesmo tamanho nos dois sentidos
+```
+
+| Material | Estrutura (nós) | Parâmetros (padrão) | Fonte dos valores |
+| -------- | --------------- | ------------------- | ----------------- |
+| `woodRaw` | dielétrico + difuso; anéis de crescimento (`pattern.rings`, a fibra ao longo de u) na cor do lenho inicial ao tardio, fibra e poros (`pattern.grain` alongado), o lenho tardio e a fibra em relevo | `color` (0,45; 0,28; 0,15), `late_color` (0,17; 0,085; 0,035), `roughness` 0,7, `ior` 1,53, `diffuse_roughness` 0,6, `relief`, `fiber_relief`, `pattern_scale` | celulose, n_D 1,53–1,55 |
+| `woodVarnishedGloss` | `woodRaw` (anéis, fibra e poros) sob dielétrico em camada: o verniz liso por cima do veio, com o realce próprio; o verniz molha a madeira (a base sem especular próprio, a cor mais escura e saturada) | `base_color`, `base_late_color`, `base_roughness`, `coat_color` (1; 0,8; 0,5), `coat_roughness` 0,04, `coat_ior` 1,5, `coat_weight` 1, `pattern_scale` | verniz de poliuretano, n ≈ 1,5 |
+| `woodVarnishedMatte` | o mesmo | `coat_roughness` 0,35, `coat_color` (1; 0,9; 0,7) | verniz com fosqueante |
+| `cotton` | difuso + brilho de fibra; tela 1/1 (`pattern.weave`, 110 fios) com o relevo dos fios | `color` (urdidura), `weft_color` (trama), `sheen_color` 0,25, `sheen_roughness` 0,9, `diffuse_roughness` 1, `relief`, `pattern_scale` | Estevez e Kulla 2017 (sheen "Charlie") |
+| `wool` | o mesmo; tela de fio grosso (60 fios), felpuda e mesclada (`pattern.grain`) | `sheen_roughness` 0,8 | idem |
+| `denim` | o mesmo; sarja 3/1 (120 fios): a urdidura índigo por cima da trama crua, na diagonal | `color` índigo, `weft_color` cru, `sheen_roughness` 0,85 | idem |
+| `velvet` | difuso + brilho de fibra; o pelo penteado — `pattern.grain` largo inclina a normal do pelo (as manchas claras e escuras) e um fino dá o granulado | `color` (0,16; 0,012; 0,045), `sheen_color` (0,8; 0,14; 0,28), `sheen_roughness` 0,3, `diffuse_roughness`, `nap`, `pile`, `pattern_scale` | idem (pelo ereto: rugosidade baixa) |
+| `silk` | difuso + dielétrico anisotrópico + brilho de fibra; cetim 4/1 (150 fios), a tangente do brilho na direção do fio à vista | `color`, `weft_color`, `roughness` 0,3, `anisotropy` 0,8, `ior` 1,56, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale` | fibroína, n ≈ 1,56 |
+| `sheerFabric` | difuso misturado à parede fina translúcida + brilho de fibra; tela aberta (60 fios, metade do passo sem fio): a luz passa inteira pelos vãos | `color`, `weft_color`, `translucency` 0,5, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale` | — |
+| `leather` | dielétrico + difuso; o grão (`pattern.cells`, 64 células com sulcos) em relevo, fosco nos sulcos e liso nos platôs, com rugas largas | `color`, `roughness` 0,42 (os platôs), `ior` 1,5, `diffuse_roughness`, `relief`, `pattern_scale` | colágeno e acabamento, n ≈ 1,5 |
+| `rubber` | dielétrico + difuso; grão fino de relevo leve | `color` 0,03, `roughness` 0,75, `ior` 1,519, `relief`, `pattern_scale` | poli-isopreno, n_D 1,519 |
+| `ceramic` | corpo difuso com as pintas do ferro (`pattern.cells`) sob o esmalte em camada, de espessura irregular | `color`, `roughness` 0,08 (o esmalte), `ior` 1,5, `diffuse_roughness`, `glaze_color`, `pattern_scale` | esmalte de silicato |
 | `porcelain` | dielétrico + subsuperfície | `color`, `radius` (0,3; 0,27; 0,22), `roughness` 0,05, `ior` 1,5 | esmalte de silicato; raio estimado |
-| `plasticMatte` | dielétrico + difuso | `roughness` 0,6, `ior` 1,49 | polipropileno/PMMA, n_D 1,49 |
-| `plasticGloss` | dielétrico + difuso | `roughness` 0,08, `ior` 1,49 | PMMA, n_D 1,49 |
-| `metalPolished` | condutor | `color` (F0 0,912; 0,914; 0,920), `edge_tint` (F82 0,970; 0,979; 0,988), `roughness` 0,05, `anisotropy` 0, `tangent` | alumínio do exemplo OpenPBR do MaterialX |
-| `metalBrushed` | condutor anisotrópico | `roughness` 0,2, `anisotropy` 0,9 | `open_pbr_aluminum_brushed.mtlx` |
-| `carPaint` | condutor sob dielétrico em camada | `base_color` (0,6; 0,02; 0,02), `base_edge_tint`, `base_roughness` 0,35, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,6, `coat_weight` 1 | verniz de `open_pbr_carpaint.mtlx` |
-| `metalOxidized` | condutor misturado ao óxido (dielétrico + difuso) | `color` (F0 do ferro 0,562; 0,565; 0,578), `roughness` 0,45, `oxide_color`, `oxide_roughness` 0,9, `oxidation` 0,7 | Real-Time Rendering 4ª ed., tabela 9.2 |
+| `plasticMatte` | dielétrico + difuso; a textura de molde (grão fino em relevo) | `roughness` 0,6, `ior` 1,49, `relief`, `pattern_scale` | polipropileno/PMMA, n_D 1,49 |
+| `plasticGloss` | dielétrico + difuso, liso | `roughness` 0,08, `ior` 1,49 | PMMA, n_D 1,49 |
+| `metalPolished` | condutor, liso | `color` (F0 0,912; 0,914; 0,920), `edge_tint` (F82 0,970; 0,979; 0,988), `roughness` 0,05, `anisotropy` 0, `tangent` | alumínio do exemplo OpenPBR do MaterialX |
+| `metalBrushed` | condutor anisotrópico com a tangente ao longo de u; os riscos da escova (`pattern.grain` alongado 125 : 1) na rugosidade e na normal | `color`, `edge_tint`, `roughness` 0,14, `scratch_roughness` 0,36, `anisotropy` 0,8, `relief`, `pattern_scale` | alumínio de `open_pbr_aluminum_brushed.mtlx` |
+| `carPaint` | flocos de condutor (`pattern.cells`), cada um com a inclinação e o tom dele, sob dielétrico em camada com a casca de laranja (`pattern.grain` na normal do verniz) | `base_color` (0,6; 0,02; 0,02), `base_edge_tint`, `base_roughness` 0,3, `flake_tilt` 0,1, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,6, `coat_weight` 1, `orange_peel`, `pattern_scale` | verniz de `open_pbr_carpaint.mtlx` |
+| `metalOxidized` | condutor misturado ao óxido (dielétrico + difuso) em manchas (`pattern.grain` de quatro oitavas mais o avanço `oxidation`), a ferrugem com o relevo granulado | `color` (F0 do ferro 0,562; 0,565; 0,578), `roughness` 0,45, `oxide_color`, `oxide_roughness` 0,9, `oxidation` 0,7, `relief`, `pattern_scale` | Real-Time Rendering 4ª ed., tabela 9.2 |
 | `glass` | dielétrico + transmissão | `ior` 1,52, `roughness` 0, `color`, `depth` 0, `abbe` 58 | vidro sodo-cálcico |
 | `skin` | dielétrico + subsuperfície | `color`, `radius` (1; 0,37; 0,19), `roughness` 0,45, `ior` 1,4 | Jensen et al. 2001 (skin1) |
 | `wax` | dielétrico + subsuperfície | `radius` (1; 0,7; 0,45), `roughness` 0,3, `ior` 1,44 | parafina, n_D 1,44; raio estimado |
-| `marble` | dielétrico + subsuperfície | `radius` (1; 0,65; 0,46), `roughness` 0,1, `ior` 1,5 | Jensen et al. 2001 (mármore) |
+| `marble` | dielétrico + subsuperfície; os veios (as linhas em que um `pattern.grain` de cinco oitavas passa por zero) na cor do corpo | `color`, `vein_color`, `radius` (1; 0,65; 0,46), `roughness` 0,1, `ior` 1,5, `pattern_scale` | Jensen et al. 2001 (mármore) |
 
-As versões da biblioteca são uniformes (sem veios, trama ou flocos): o padrão entra ligando um nó à entrada do
-material (a cor da madeira a um ruído, a `oxidation` do metal a uma máscara, a `tangent` do metal escovado ou da seda
-a `geometry.tangentUv`). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
+O relevo usa as tangentes do uv da amostra (`dpdu`, `dpdv`), que existem no desenho; nos acertos dos raios (a
+iluminação global, o que se vê através de um vidro, o `sheerFabric`) o padrão de cor continua e o relevo some. Os
+padrões seguem o uv da geometria: onde ele converge (os polos da esfera) o padrão aperta, e a filtragem o leva à média
+ali. `plasticGloss`, `metalPolished`, `porcelain`, `skin`, `wax` e `glass` são lisos (o que se vê neles é a luz e o
+ambiente). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
 ([Refração](./refraction.md)).
 
 ## Imagens nos materiais: texturas virtuais (spec 034, T060c)
