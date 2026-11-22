@@ -160,33 +160,68 @@ export const metalBrushed = Subgraph.point(
     },
 );
 
-/** Valores de uma pintura metálica: o F0 e a tinta da borda dos flocos tingidos e o pigmento do fundo. */
+/** Valores de uma pintura metálica: o F0 e a tinta da borda dos flocos tingidos, o pigmento do fundo e o floco. */
 interface PaintValues {
     readonly color: Rgb;
     readonly edge_tint: Rgb;
     readonly base_color: Rgb;
+    /** O tamanho do floco (µm), os flocos por área de floco e a inclinação máxima dele (a tangente). */
+    readonly flake_size: number;
+    readonly flake_density: number;
+    readonly flake_tilt: number;
+    /** A rugosidade da distribuição das orientações dos flocos e a do lobo de cada floco. */
+    readonly flake_roughness: number;
+    readonly sparkle_roughness: number;
 }
 
 /**
  * Sub-grafo da pintura de carro metálica: a base é metal — as plaquetas de alumínio no aglutinante tingido, um
- * condutor colorido de lobo médio que cobre `flake_weight` da base, sobre um resto de pigmento difuso escuro —, com a
- * normal de cada floco inclinada, e por cima o verniz, um dielétrico liso em camada com a normal própria.
+ * condutor colorido de lobo médio que cobre `flake_weight` da base, sobre um resto de pigmento difuso escuro —, e por
+ * cima o verniz, um dielétrico liso em camada com a normal própria. Os flocos têm tamanho físico: `flake_size`
+ * micrômetros, `flake_density` flocos por área de floco, numa peça em que uma unidade do padrão mede `pattern_size`
+ * metros — o espaço dos flocos (`flake_uv`) é o do padrão vezes os flocos por unidade dele. Menores que o pixel, são
+ * os brilhos pontuais (`pattern.glints` e `closure.glints`: a contagem dos alinhados com cada luz); maiores (de muito
+ * perto), cada um aparece com a sua inclinação e o seu tom (`pattern.cells`).
  */
 function paint(name: string, v: PaintValues): NodeDefinition {
     return Subgraph.point(
         new NodeGraph({
             nodes: {
                 ...patternSpace(),
-                flake: pattern.cells.with({ scale: 230, jitter: 1, crease: 0.1, seed: 8 }),
+                // Flocos por unidade do padrão (por lado): `pattern_size` · 10⁶ / `flake_size` · √`flake_density`.
+                size: math.value.with({ value: 0.5 }),
+                micron: math.value.with({ value: v.flake_size }),
+                density: math.value.with({ value: v.flake_density }),
+                mega: math.value.with({ value: 1e6 }),
+                span: math.mul,
+                pitch: math.div,
+                packed: math.sqrt,
+                per_unit: math.mul,
+                repeats: math.split2,
+                flakes_u: math.mul,
+                flakes_v: math.mul,
+                flake_scale: math.combine2,
+                flake_uv: surface.uvSpace,
+                flake: pattern.cells.with({ scale: 1, jitter: 1, crease: 0.1, seed: 8 }),
                 // Os flocos menores que o pixel: a contagem dos alinhados com cada luz (os brilhos pontuais).
-                sparkle: pattern.glints.with({ scale: 2800, seed: 10 }),
-                glinting: closure.glints.with({ roughness: 0.16 }),
+                sparkle: pattern.glints.with({ scale: 1, seed: 10 }),
+                glinting: closure.glints.with({ roughness: v.sparkle_roughness }),
+                // O floco resolvido (mais de dois pixels de lado): 1; menor que o pixel: 0 — o tom e a inclinação de
+                // cada floco só aparecem quando ele aparece (abaixo do pixel, a média deles é o lobo do condutor).
+                resolved: map.range.with({ in_min: 0.4, in_max: 0.9, out_min: 1, out_max: 0 }),
                 peel: pattern.grain.with({ scale: [7, 7], octaves: 2, seed: 9 }),
                 pigment: math.value3.with({ value: [...v.color] }),
                 tone: map.range.with({ out_min: 0.65, out_max: 1.35 }),
+                even: math.value.with({ value: 1 }),
+                seen_tone: math.mix,
                 tinted: math.scale3,
-                tilt: surface.bump.with({ strength: 0.26 }),
-                flakes: bsdf.conductor.with({ roughness: 0.36, edge_tint: [...v.edge_tint] }),
+                slope: math.value.with({ value: v.flake_tilt }),
+                seen_slope: math.mul,
+                tilt: surface.bump,
+                flakes: bsdf.conductor.with({
+                    roughness: v.flake_roughness,
+                    edge_tint: [...v.edge_tint],
+                }),
                 layer_of_flakes: closure.normal,
                 body: bsdf.diffuse.with({ color: [...v.base_color], roughness: 0.5 }),
                 base: closure.mix.with({ t: 0.92 }),
@@ -197,12 +232,42 @@ function paint(name: string, v: PaintValues): NodeDefinition {
             },
             links: [
                 ...SPACE_LINKS,
-                ...patternLinks('flake', 'peel', 'sparkle'),
+                ...patternLinks('peel'),
+                ['size.value', 'span.a'],
+                ['mega.value', 'span.b'],
+                ['span.value', 'pitch.a'],
+                ['micron.value', 'pitch.b'],
+                ['density.value', 'packed.x'],
+                ['pitch.value', 'per_unit.a'],
+                ['packed.value', 'per_unit.b'],
+                ['uv.wrap', 'repeats.v'],
+                ['repeats.x', 'flakes_u.a'],
+                ['per_unit.value', 'flakes_u.b'],
+                ['repeats.y', 'flakes_v.a'],
+                ['per_unit.value', 'flakes_v.b'],
+                ['flakes_u.value', 'flake_scale.x'],
+                ['flakes_v.value', 'flake_scale.y'],
+                ['flake_scale.value', 'flake_uv.scale'],
+                ...(['flake', 'sparkle'] as const).flatMap((id): [string, string][] => [
+                    ['flake_uv.p', `${id}.p`],
+                    ['flake_uv.width', `${id}.width`],
+                    ['flake_uv.wrap', `${id}.wrap`],
+                ]),
+                ['flake_uv.width', 'resolved.x'],
                 ['flake.cell', 'tone.x'],
+                ['even.value', 'seen_tone.a'],
+                ['tone.value', 'seen_tone.b'],
+                ['resolved.value', 'seen_tone.t'],
                 ['pigment.value', 'tinted.v'],
-                ['tone.value', 'tinted.s'],
+                ['seen_tone.value', 'tinted.s'],
                 ['tinted.value', 'flakes.color'],
-                ...bumpLinks('tilt', 'flake.random'),
+                ['slope.value', 'seen_slope.a'],
+                ['resolved.value', 'seen_slope.b'],
+                ['s.normal', 'tilt.normal'],
+                ['flake_uv.du', 'tilt.du'],
+                ['flake_uv.dv', 'tilt.dv'],
+                ['flake.random', 'tilt.gradient'],
+                ['seen_slope.value', 'tilt.strength'],
                 ['flakes.value', 'glinting.c'],
                 ['sparkle.cells', 'glinting.cells'],
                 ['sparkle.count', 'glinting.count'],
@@ -227,9 +292,11 @@ function paint(name: string, v: PaintValues): NodeDefinition {
                 ['flakes.edge_tint', 'flake_edge_tint'],
                 ['flakes.roughness', 'flake_roughness'],
                 ['base.t', 'flake_weight'],
-                ['tilt.strength', 'flake_tilt'],
-                ['sparkle.scale', 'sparkle_scale'],
+                ['micron.value', 'flake_size'],
+                ['density.value', 'flake_density'],
+                ['slope.value', 'flake_tilt'],
                 ['glinting.roughness', 'sparkle_roughness'],
+                ['size.value', 'pattern_size'],
                 ['out.top_color', 'coat_color'],
                 ['coat.roughness', 'coat_roughness'],
                 ['coat.ior', 'coat_ior'],
@@ -246,27 +313,33 @@ function paint(name: string, v: PaintValues): NodeDefinition {
  * engines (o Principled BSDF do Blender com `metallic` 1 e `coat` 1 de normal própria; o verniz de duas normais da
  * Unreal; as três camadas — base, flocos, verniz — do V-Ray e do Arnold). A base são as plaquetas de alumínio no
  * aglutinante tingido: um condutor da cor da tinta (`flake_color`, o F0: o alumínio vezes a cor do aglutinante na ida e
- * na volta) de lobo médio (`flake_roughness`, 0,36) que cobre `flake_weight` (0,92) da base — o brilho largo e claro
- * que segue a luz, a cara de metal —, sobre um resto de pigmento difuso escuro (`base_color`). Cada floco
- * (`pattern.cells`: 230 por unidade do padrão) tem a normal inclinada alguns graus (`flake_tilt`, a tangente máxima
- * dividida pelo tamanho de uma unidade do padrão: até cerca de 8° numa esfera de raio 0,55) e o seu tom (± 35 %):
- * juntos alargam o lobo e dão o granulado que cintila pela peça toda. De longe, onde o floco é menor que o pixel, o
- * que se vê são os brilhos pontuais (`pattern.glints` e `closure.glints`): os flocos finos (`sparkle_scale`, 2800 por
- * unidade do padrão), espelhos pequenos (`sparkle_roughness`, 0,16) orientados pela distribuição do lobo — a contagem
- * dos alinhados com o sol em cada pixel, sorteada de forma estável no objeto, dá pontos fortes e ralos longe do realce
- * e o chuvisco denso dentro dele, com a mesma energia do lobo liso. A cor muda com o ângulo (o flop): clara e
- * metálica perto da direção do reflexo; fora dela e no rasante, escura e saturada (`flake_edge_tint`, a tinta da borda
- * — o caminho mais longo no aglutinante). Por cima, o verniz: um dielétrico liso em camada (IOR 1,5, rugosidade 0,02: o
- * reflexo nítido do ambiente) com a normal própria — lisa, separada da dos flocos, com a casca de laranja muito leve
- * (`pattern.grain` largo, `orange_peel` a altura em unidades do padrão). Valores de partida do exemplo
- * `open_pbr_carpaint.mtlx` do MaterialX (a base de condutor sob o verniz). Parâmetros: `base_color`, `flake_color`,
- * `flake_edge_tint`, `flake_roughness`, `flake_weight`, `flake_tilt`, `sparkle_scale`, `sparkle_roughness`,
- * `coat_color`, `coat_roughness`, `coat_ior`, `coat_weight`, `orange_peel`, `pattern_scale`.
+ * na volta) de lobo médio (`flake_roughness`, 0,38: a distribuição das orientações dos flocos) que cobre `flake_weight`
+ * (0,92) da base — o brilho largo, liso e sedoso que segue a luz, a cara de metal —, sobre um resto de pigmento difuso
+ * escuro (`base_color`). O floco é o automotivo fino: `flake_size` 20 µm (as plaquetas de alumínio das tintas de carro
+ * têm de 10 a 30 µm), `flake_density` 1 (flocos por área de floco: a cobertura), numa peça em que uma unidade do padrão
+ * mede `pattern_size` metros (0,5) — 25 000 flocos por unidade do padrão. A um metro são centenas de flocos por pixel:
+ * a contagem dos alinhados com a luz (`pattern.glints` e `closure.glints`; cada floco um espelho pequeno,
+ * `sparkle_roughness` 0,16) vai à média e o que se vê é o lobo liso, sem grão nem ponto isolado longe do realce; só de
+ * muito perto, junto do realce, sobra um cintilar fino. Mais perto ainda, com o floco maior que o pixel, cada um
+ * aparece (`pattern.cells`) com a normal inclinada (`flake_tilt`, a tangente da inclinação máxima: 0,1, cerca de 6°) e
+ * o seu tom (± 35 %). A cor muda com o ângulo (o flop): clara e metálica perto da direção do reflexo; fora dela e no
+ * rasante, escura e saturada (`flake_edge_tint`, a tinta da borda — o caminho mais longo no aglutinante). Por cima, o
+ * verniz: um dielétrico liso em camada (IOR 1,5, rugosidade 0,02: o reflexo nítido do ambiente) com a normal própria —
+ * lisa, separada da dos flocos, com a casca de laranja muito leve (`pattern.grain` largo, `orange_peel` a altura em
+ * unidades do padrão). Valores de partida do exemplo `open_pbr_carpaint.mtlx` do MaterialX (a base de condutor sob o
+ * verniz). Parâmetros: `base_color`, `flake_color`, `flake_edge_tint`, `flake_roughness`, `flake_weight`,
+ * `flake_size`, `flake_density`, `flake_tilt`, `sparkle_roughness`, `pattern_size`, `coat_color`, `coat_roughness`,
+ * `coat_ior`, `coat_weight`, `orange_peel`, `pattern_scale`.
  */
 export const carPaint = paint('material.carPaint', {
     color: [0.56, 0.035, 0.03],
     edge_tint: [0.3, 0.01, 0.015],
     base_color: [0.2, 0.006, 0.008],
+    flake_size: 15,
+    flake_density: 6,
+    flake_tilt: 0.1,
+    flake_roughness: 0.38,
+    sparkle_roughness: 0.3,
 });
 
 /**
@@ -278,6 +351,29 @@ export const carPaintSilver = paint('material.carPaintSilver', {
     color: [0.72, 0.73, 0.75],
     edge_tint: [0.45, 0.45, 0.47],
     base_color: [0.1, 0.1, 0.105],
+    flake_size: 15,
+    flake_density: 6,
+    flake_tilt: 0.1,
+    flake_roughness: 0.38,
+    sparkle_roughness: 0.3,
+});
+
+/**
+ * `material.carPaintFlake` — pintura de floco grosso (o "metal flake" dos capacetes, dos barcos e dos carros
+ * personalizados), azul: a receita de `carPaint` com plaquetas de 400 µm (`flake_size`) e mais inclinadas
+ * (`flake_tilt` 0,26). A um metro são poucos flocos por pixel: os alinhados com a luz acendem um a um — pontos fortes
+ * e ralos pela peça toda, o chuvisco denso no realce —, e de perto cada floco aparece com o seu tom. Parâmetros: os de
+ * `carPaint`.
+ */
+export const carPaintFlake = paint('material.carPaintFlake', {
+    color: [0.06, 0.16, 0.56],
+    edge_tint: [0.01, 0.04, 0.3],
+    base_color: [0.004, 0.012, 0.1],
+    flake_size: 300,
+    flake_density: 3,
+    flake_tilt: 0.26,
+    flake_roughness: 0.5,
+    sparkle_roughness: 0.18,
 });
 
 /**
