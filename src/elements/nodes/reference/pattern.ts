@@ -514,6 +514,226 @@ export function patternDents(
     };
 }
 
+/** `node_pattern_shingle_cross`: o perfil transversal da telha de capa e canal — (altura em [0, 1], ∂/∂u). */
+function shingleCross(u: number): V2 {
+    const a = Math.abs(2 * u - 1);
+    const side = u >= 0.5 ? 2 : -2;
+    const c = 0.62;
+    const half = 1.57079633;
+    if (a < c) {
+        const x = (half * a) / c;
+        return [0.3 + 0.7 * Math.cos(x), ((-0.7 * Math.sin(x) * half) / c) * side];
+    }
+    const x = (half * (a - c)) / (1 - c);
+    return [0.3 * (1 - Math.sin(x)), ((-0.3 * Math.cos(x) * half) / (1 - c)) * side];
+}
+
+/** `pattern.shingles`: as fiadas sobrepostas (altura, gradiente, valor da telha à vista, vão, posição na fiada). */
+export function patternShingles(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: readonly number[],
+    shift: number,
+    gap: number,
+    bevel: number,
+    profile: number,
+    irregularity: number,
+    seed: number,
+): { height: number; gradient: number[]; tile: number; gap: number; along: number } {
+    const fx = fit(scale[0]!, wrap[0]!, 1);
+    const fy = fit(Math.abs(scale[1]!), wrap[1]!, shift !== 0 ? 2 : 1);
+    const per: V2 = [fx[1], fy[1]];
+    const up = scale[1]! < 0 ? -1 : 1;
+    const qy = f32(f32(p[1]! * fy[0]) * up);
+    const row = Math.floor(qy);
+    const v = qy - row;
+    const qx = f32(f32(p[0]! * fx[0]) + shift * row);
+    const col = Math.floor(qx);
+    const u = qx - col;
+    const h = cellHash(col, row, per, seed);
+    const qx0 = f32(f32(p[0]! * fx[0]) + shift * (row - 1));
+    const col0 = Math.floor(qx0);
+    const u0 = qx0 - col0;
+    const h0 = cellHash(col0, row - 1, per, seed);
+    const aspect = fy[0] / fx[0];
+    const foot = (Math.min(0.9, Math.max(0, irregularity)) * (pcgHash(h) >>> 8)) / 16777216;
+    const ex = (0.5 - Math.abs(u - 0.5)) * aspect - 0.5 * Math.max(gap, 0);
+    const ey = v - foot;
+    const d = Math.min(ex, ey);
+    const bw = Math.max(bevel, 1e-4);
+    const t = clamp01(d / bw);
+    const own = smooth(t);
+    const toward: V2 = ex < ey ? [(u >= 0.5 ? -1 : 1) * fy[0], 0] : [0, fy[0]];
+    const steep = (6 * t * (1 - t)) / bw;
+    const dOwn: V2 = [steep * toward[0], steep * toward[1]];
+    const pf = clamp01(profile);
+    const c = shingleCross(u);
+    const c0 = shingleCross(u0);
+    const flat = 0.5 * (own - v + 1);
+    const dFlat: V2 = [0.5 * dOwn[0], 0.5 * (dOwn[1] - fy[0])];
+    const curved = mix(c0[0], c[0], own);
+    const dCurved: V2 = [
+        mix(c0[1], c[1], own) * fx[0] + (c[0] - c0[0]) * dOwn[0],
+        (c[0] - c0[0]) * dOwn[1],
+    ];
+    const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
+    return {
+        height: mix(0.5, mix(flat, curved, pf), k),
+        gradient: [k * mix(dFlat[0], dCurved[0], pf), k * up * mix(dFlat[1], dCurved[1], pf)],
+        tile: mix(0.5, unit24(d > 0 ? h : h0), k),
+        gap: k * (d <= 0 ? 1 : 0),
+        along: v,
+    };
+}
+
+/** `node_pattern_cell_edge`: a borda da célula de Voronoi em `q` — (distância, normal, valor da célula). */
+function cellEdge(q: V2, per: V2, seed: number): { edge: number; normal: V2; cell: number } {
+    const ix = Math.floor(q[0]);
+    const iy = Math.floor(q[1]);
+    const f: V2 = [q[0] - ix, q[1] - iy];
+    const point = (ox: number, oy: number): { r: V2; h: number } => {
+        const h = cellHash(ix + ox, iy + oy, per, seed);
+        return {
+            r: [
+                ox + 0.5 + 0.5 * hashSigned(h) - f[0],
+                oy + 0.5 + 0.5 * hashSigned(pcgHash(h)) - f[1],
+            ],
+            h,
+        };
+    };
+    let best = 1e30;
+    let r1: V2 = [0, 0];
+    let o1: V2 = [0, 0];
+    let h1 = 0;
+    for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+            const c = point(dx, dy);
+            const d = c.r[0] * c.r[0] + c.r[1] * c.r[1];
+            if (d < best) {
+                best = d;
+                r1 = c.r;
+                o1 = [dx, dy];
+                h1 = c.h;
+            }
+        }
+    let edge = 1e30;
+    let normal: V2 = [0, 0];
+    for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const c = point(o1[0] + dx, o1[1] + dy);
+            const dr: V2 = [c.r[0] - r1[0], c.r[1] - r1[1]];
+            const l2 = dr[0] * dr[0] + dr[1] * dr[1];
+            if (l2 <= 1e-12) continue;
+            const dn: V2 = [dr[0] / Math.sqrt(l2), dr[1] / Math.sqrt(l2)];
+            const d = 0.5 * ((r1[0] + c.r[0]) * dn[0] + (r1[1] + c.r[1]) * dn[1]);
+            if (d < edge) {
+                edge = d;
+                normal = dn;
+            }
+        }
+    return { edge, normal, cell: unit24(h1) };
+}
+
+/** `pattern.veins`: as nervuras da folha (altura, gradiente, principais, distância à central, valor da aréola). */
+export function patternVeins(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: readonly number[],
+    veins: number,
+    slope: number,
+    curve: number,
+    thickness: number,
+    fine: number,
+    seed: number,
+): { height: number; gradient: number[]; main: number; across: number; cell: number } {
+    const fx = fit(scale[0]!, wrap[0]!, 1);
+    const fy = fit(scale[1]!, wrap[1]!, 1);
+    const len = fy[0] / fx[0];
+    const qx = f32(p[0]! * fx[0]);
+    const qy = f32(p[1]! * fy[0]);
+    const xb = (qx - Math.floor(qx)) * len;
+    const yb = qy - Math.floor(qy) - 0.5;
+    const ay = Math.abs(yb);
+    const sy = yb >= 0 ? 1 : -1;
+    const w0 = Math.max(thickness, 1e-4);
+    const t0 = clamp01(ay / w0);
+    const m0 = 1 - smooth(t0);
+    const g0: V2 = [0, ((-6 * t0 * (1 - t0)) / w0) * sy * fy[0]];
+    const n = Math.max(Math.round(veins), 1);
+    const sp = len / n;
+    const sl = Math.max(slope, 1e-3);
+    const s = (xb - ay / sl - curve * ay * ay) / sp + (yb < 0 ? 0.5 : 0);
+    const fs = s - Math.floor(s) - 0.5;
+    const ds = -1 / sl - 2 * curve * ay;
+    const gl = Math.sqrt(1 + ds * ds);
+    const d1 = (Math.abs(fs) * sp) / gl;
+    const taper = 0.5 * (1 - 1.4 * ay);
+    const w1 = w0 * Math.max(taper, 0.12);
+    const dw1 = taper > 0.12 ? -0.7 * w0 : 0;
+    const t1 = clamp01(d1 / w1);
+    const m1 = 1 - smooth(t1);
+    const sign = fs >= 0 ? 1 : -1;
+    const dt1: V2 = [
+        sign / gl / w1,
+        ((sign * ds) / gl + (2 * curve * d1 * ds) / (gl * gl) - (d1 * dw1) / w1) / w1,
+    ];
+    const g1: V2 = [-6 * t1 * (1 - t1) * dt1[0] * fy[0], -6 * t1 * (1 - t1) * dt1[1] * sy * fy[0]];
+    let m2 = 0;
+    let g2: V2 = [0, 0];
+    let cell = 0.5;
+    if (fine > 0) {
+        const vx = fit(fine, wrap[0]!, 1);
+        const vy = fit(fine, wrap[1]!, 1);
+        const e = cellEdge([f32(p[0]! * vx[0]), f32(p[1]! * vy[0])], [vx[1], vy[1]], seed);
+        const t2 = clamp01(e.edge / 0.12);
+        const k2 = width > 0 ? band(width * Math.max(Math.abs(vx[0]), Math.abs(vy[0]))) : 1;
+        m2 = k2 * (1 - smooth(t2));
+        const steep = (k2 * 6 * t2 * (1 - t2)) / 0.12;
+        g2 = [steep * e.normal[0] * vx[0], steep * e.normal[1] * vy[0]];
+        cell = mix(0.5, e.cell, k2);
+    }
+    const k1 = width > 0 ? band((width * fy[0]) / Math.min(sp, 1)) : 1;
+    let height = k1 * m0;
+    let gradient: V2 = [k1 * g0[0], k1 * g0[1]];
+    if (0.7 * k1 * m1 > height) {
+        height = 0.7 * k1 * m1;
+        gradient = [0.7 * k1 * g1[0], 0.7 * k1 * g1[1]];
+    }
+    if (0.35 * m2 > height) {
+        height = 0.35 * m2;
+        gradient = [0.35 * g2[0], 0.35 * g2[1]];
+    }
+    return { height, gradient: [...gradient], main: k1 * Math.max(m0, m1), across: 2 * ay, cell };
+}
+
+/** `pattern.glints`: as células do sorteio dos brilhos pontuais em dois níveis, a mistura e a contagem de flocos. */
+export function patternGlints(
+    p: readonly number[],
+    width: number,
+    scale: number,
+    seed: number,
+): { cells: number[]; count: number } {
+    const w = f32(width * Math.abs(scale));
+    const t = clamp01((w - 0.2) / 0.3);
+    const k = smooth(t);
+    if (k <= 0) return { cells: [0, 0, 0], count: 0 };
+    const lod = Math.max(f32(Math.log2(w)) + 0.5, 0);
+    const level = Math.floor(lod);
+    const side = 2 ** level;
+    const q: V2 = [f32(p[0]! * scale), f32(p[1]! * scale)];
+    const ha = cellHash(Math.floor(q[0] / side), Math.floor(q[1] / side), [0, 0], seed + 2 * level);
+    const hb = cellHash(
+        Math.floor(q[0] / (2 * side)),
+        Math.floor(q[1] / (2 * side)),
+        [0, 0],
+        seed + 2 * level + 2,
+    );
+    return { cells: [unit24(ha), unit24(hb), lod - level], count: (side * side) / k };
+}
+
 /** `pattern.weave`: a trama (altura, gradiente, urdidura à vista, valor do fio, vão). */
 export function patternWeave(
     p: readonly number[],
@@ -923,6 +1143,81 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.jitter),
                 num(x.seed),
             ),
+    },
+    {
+        node: 'pattern.shingles',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [
+                [2, 4],
+                [4, -4],
+                [1, 2],
+                [8, 4],
+            ][k % 4]!,
+            shift: [0.5, 0, 0.25][k % 3]!,
+            gap: uniform(r, 0, 0.2),
+            bevel: uniform(r, 0.05, 0.3),
+            profile: k % 2 === 0 ? 0 : uniform(r, 0, 1),
+            irregularity: k % 5 === 0 ? 0 : uniform(r, 0, 0.4),
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternShingles(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                vec(x.scale),
+                num(x.shift),
+                num(x.gap),
+                num(x.bevel),
+                num(x.profile),
+                num(x.irregularity),
+                num(x.seed),
+            ),
+    },
+    {
+        node: 'pattern.veins',
+        // O gradiente das nervuras divide pela meia largura delas (até 1 / 0,005 nas secundárias junto da margem).
+        tolerance: 5e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [
+                [0.5, 1],
+                [1, 2],
+                [0.25, 1],
+                [1, 4],
+            ][k % 4]!,
+            veins: [5, 8, 3][k % 3]!,
+            slope: uniform(r, 0.5, 1.5),
+            curve: k % 2 === 0 ? 0 : uniform(r, 0, 2),
+            thickness: uniform(r, 0.04, 0.1),
+            fine: [0, 8, 16][k % 3]!,
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternVeins(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                vec(x.scale),
+                num(x.veins),
+                num(x.slope),
+                num(x.curve),
+                num(x.thickness),
+                num(x.fine),
+                num(x.seed),
+            ),
+    },
+    {
+        node: 'pattern.glints',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [8, 32, 128, 16][k % 4]!,
+            seed: k % 5,
+        }),
+        reference: (x) => patternGlints(vec(x.p), num(x.width), num(x.scale), num(x.seed)),
     },
     {
         node: 'pattern.weave',

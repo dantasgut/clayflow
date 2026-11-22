@@ -277,8 +277,87 @@ const dents = defineNode({
 });
 
 /**
+ * Fiadas sobrepostas (o telhado): telhas, placas de ardósia ou escamas em fiadas ao longo de `p.x`, cada uma deitada
+ * sobre a fiada de baixo — `scale` (telhas por unidade de `p.x`, fiadas por unidade de `p.y`; negativo em y: o pé das
+ * telhas para o lado de `p.y` maior), cada fiada deslocada
+ * `shift` telha (0,5: as juntas desencontradas; 0: as colunas da telha de capa e canal). A telha é um plano inclinado,
+ * grossa no pé (a borda de baixo, à vista) e enfiada sob a fiada de cima: a altura cai do pé ao topo e desce um degrau
+ * para a telha de baixo — o dente de serra que faz a sombra de cada fiada. `gap` o vão lateral entre duas telhas e
+ * `bevel` a borda arredondada, em alturas de fiada; `irregularity` o recuo do pé de cada telha, ao acaso (fração da
+ * fiada); `profile` (0 a 1) a fração da altura que vem do perfil da telha de capa e canal (a capa convexa, o canal
+ * côncavo entre duas). Saídas: `height` em [0, 1] e o `gradient`; `tile` o valor em [0, 1] da telha à vista; `gap` 1
+ * onde a que se vê é a de baixo (no vão, sob o pé recuado); `along` a posição na fiada (0 no pé, 1 no topo).
+ */
+const shingles = defineNode({
+    name: 'pattern.shingles',
+    inputs: { ...RELIEF_INPUTS, scale: 'vec2f' },
+    outputs: { height: 'f32', gradient: 'vec2f', tile: 'f32', gap: 'f32', along: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [2, 4] },
+        shift: { type: 'f32', default: 0.5 },
+        gap: { type: 'f32', default: 0.04 },
+        bevel: { type: 'f32', default: 0.08 },
+        profile: { type: 'f32', default: 0 },
+        irregularity: { type: 'f32', default: 0 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_shingles',
+});
+
+/**
+ * Nervuras (a folha): a nervura central ao longo de `p.x`, as secundárias que saem dela dos dois lados, alternadas, e a
+ * rede fina das vênulas. `scale`: lâminas por unidade de `p.x` (o comprimento) e de `p.y` (a largura; a nervura
+ * central no meio de cada lâmina). `veins` secundárias de cada lado por comprimento de lâmina (inteiro); saem com a
+ * inclinação `slope` (a tangente do ângulo com a central) e curvam para a ponta com `curve`. `thickness` a meia
+ * largura da central, em larguras da lâmina (as secundárias têm a metade e afinam até a margem); `fine` as células da
+ * rede de vênulas por unidade de `p` (0: sem). Saídas: `height` em [0, 1] (1 na crista da central, 0,7 na das
+ * secundárias, 0,35 na das vênulas, 0 no limbo) e o `gradient`; `main` a central e as secundárias em [0, 1]; `across`
+ * a distância à central (0 nela, 1 na margem); `cell` o valor em [0, 1] da aréola entre as vênulas.
+ */
+const veins = defineNode({
+    name: 'pattern.veins',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', main: 'f32', across: 'f32', cell: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [0.5, 1] },
+        veins: { type: 'f32', default: 7 },
+        slope: { type: 'f32', default: 1 },
+        curve: { type: 'f32', default: 1 },
+        thickness: { type: 'f32', default: 0.03 },
+        fine: { type: 'f32', default: 30 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_veins',
+});
+
+/**
+ * Brilhos pontuais: as células do sorteio dos flocos menores que o pixel (os flocos da pintura metálica, os cristais
+ * da neve, os grãos da areia) — a entrada de `closure.glints`. `scale` flocos por unidade de `p` (por lado). A célula
+ * do pixel é a de uma grade de 0,7 a 1,4 pixel de lado (2ⁿ flocos) e a do nível seguinte, de lado dobrado, com a
+ * mistura contínua entre os dois; fixa em `p` (o objeto): os brilhos não andam com a câmera. Saídas: `cells` (o valor
+ * em [0, 1] da célula em cada nível e a mistura) e `count`, o número de flocos na célula do primeiro nível — 0 com os
+ * flocos maiores que 2 pixels (resolvidos pelo padrão) e sem a largura do pixel.
+ */
+const glints = defineNode({
+    name: 'pattern.glints',
+    inputs: RELIEF_INPUTS,
+    outputs: { cells: 'vec3f', count: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'f32', default: 1 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_glints',
+});
+
+/**
  * Padrões: o xadrez em 2D (superfícies planas, uv) e em 3D (sólido); e os padrões com relevo — a trama de tecido, o
- * tricô, as células com sulcos, os anéis de crescimento (com os nós da madeira), os tijolos, as tábuas do assoalho, as fissuras da casca, as mossas, o grão e o
+ * tricô, as células com sulcos, os anéis de crescimento (com os nós da madeira), os tijolos, as tábuas do assoalho, as fissuras da casca, as mossas, as fiadas sobrepostas do telhado, as nervuras da folha, as células dos brilhos pontuais, o grão e o
  * limiar com gradiente.
  */
 export const pattern = {
@@ -293,5 +372,8 @@ export const pattern = {
     planks,
     fissures,
     dents,
+    shingles,
+    veins,
+    glints,
     threshold,
 } as const;

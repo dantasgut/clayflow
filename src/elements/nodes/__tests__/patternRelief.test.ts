@@ -4,13 +4,17 @@ import {
     patternCells,
     patternDents,
     patternFissures,
+    patternGlints,
     patternGrain,
     patternKnit,
     patternPlanks,
     patternRings,
+    patternShingles,
     patternThreshold,
+    patternVeins,
     patternWeave,
 } from '../reference/pattern';
+import { glintCount } from '../../material/reference/closureNodes';
 import {
     surfaceBump,
     surfaceDirection,
@@ -622,5 +626,189 @@ describe('padrões com relevo (spec 011)', () => {
         const far = patternFissures([0.37, 0.61], 1, [0, 0], [8, 2], 1, 0.3, 1);
         expect(far.height).toBeCloseTo(0.7, 6);
         expect(far.plate).toBe(0.5);
+    });
+    it('fiadas sobrepostas: o dente de serra de cada fiada, o vão com a telha de baixo, o perfil de capa e canal, gradiente = derivada', () => {
+        const flat = (p: readonly [number, number], irregularity = 0) =>
+            patternShingles(p, 0, [0, 0], [2, 4], 0.5, 0.08, 0.1, 0, irregularity, 3);
+        // No meio de uma telha da fiada 1 (x = 0,5: a fiada está deslocada meia telha): a altura cai de perto de 1 (logo acima do pé) a 0,5 (o topo da parte à vista); a posição
+        // na fiada vai de 0 a 1.
+        const foot = flat([0.5, 0.25 + 0.25 * 0.15]);
+        const top = flat([0.5, 0.25 + 0.25 * 0.98]);
+        expect(foot.along).toBeCloseTo(0.15, 6);
+        expect(foot.height).toBeCloseTo(0.5 * (1 - 0.15 + 1), 6);
+        expect(top.height).toBeCloseTo(0.5 * (1 - 0.98 + 1), 6);
+        expect(foot.gap).toBe(0);
+        // No degrau do pé a altura desce à da telha de baixo (que ali está em 0,5): o salto é meio — uma espessura.
+        expect(flat([0.5, 0.25 + 1e-4]).height).toBeLessThan(0.52);
+        // No vão lateral aparece a telha de baixo, uma espessura abaixo, com o valor dela.
+        const gap = flat([0.25 + 0.001, 0.25 + 0.125]);
+        expect(gap.gap).toBe(1);
+        expect(gap.height).toBeCloseTo(0.5 * (1 - 0.5), 6);
+        expect(gap.tile).not.toBe(flat([0.5, 0.25 + 0.125]).tile);
+        // A fiada de cima deslocada meia telha: o vão dela cai no meio da telha desta.
+        expect(flat([0.5, 0.5 + 0.125]).gap).toBe(1);
+        // O pé recuado ao acaso: com `irregularity` 0,5, a um quarto da fiada ainda se vê a de baixo em parte delas.
+        let recessed = 0;
+        for (let k = 0; k < 40; k++) recessed += flat([0.5 + 0.5 * k, 0.25 + 0.25 * 0.25], 0.5).gap;
+        expect(recessed).toBeGreaterThan(4);
+        expect(recessed).toBeLessThan(40);
+        // O sentido: com a escala negativa em y, o pé fica do lado de p.y maior.
+        const down = patternShingles(
+            [0.25, 0.5 - 0.25 * 0.15],
+            0,
+            [0, 0],
+            [2, -4],
+            0.5,
+            0.08,
+            0.1,
+            0,
+            0,
+            3,
+        );
+        expect(down.along).toBeCloseTo(0.15, 6);
+        expect(down.gradient[1]).toBeGreaterThan(0);
+        expect(foot.gradient[1]).toBeLessThan(0);
+        // O perfil de capa e canal: a capa (o meio da telha) acima do canal (a borda).
+        const cap = patternShingles([0.25, 0.375], 0, [0, 0], [2, 4], 0, 0, 0.1, 1, 0, 3);
+        const pan = patternShingles([0.5 - 0.01, 0.375], 0, [0, 0], [2, 4], 0, 0, 0.1, 1, 0, 3);
+        expect(cap.height).toBeCloseTo(1, 6);
+        expect(pan.height).toBeLessThan(0.05);
+        for (const [profile, tolerance] of [
+            [0, 1],
+            [0.7, 1],
+        ] as const)
+            checkGradient(
+                (p) => {
+                    const o = patternShingles(p, 0, [0, 0], [2, 4], 0.5, 0.1, 0.3, profile, 0.2, 1);
+                    return { h: o.height, g: o.gradient };
+                },
+                tolerance,
+                25,
+            );
+        // Fecha no período; abaixo do pixel, a média.
+        const here = patternShingles([0.37, 0.61], 0, [2, 4], [2, 4], 0.5, 0.1, 0.2, 0.3, 0.2, 1);
+        const round = patternShingles([2.37, 4.61], 0, [2, 4], [2, 4], 0.5, 0.1, 0.2, 0.3, 0.2, 1);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.tile).toBe(here.tile);
+        const far = patternShingles([0.37, 0.61], 1, [0, 0], [2, 4], 0.5, 0.1, 0.2, 0.3, 0.2, 1);
+        expect(far.height).toBe(0.5);
+        expect(far.tile).toBe(0.5);
+        expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
+    });
+    it('nervuras: a central no meio da lâmina, as secundárias alternadas e inclinadas, as vênulas, gradiente = derivada', () => {
+        const at = (p: readonly [number, number], fine = 0, curve = 0) =>
+            patternVeins(p, 0, [0, 0], [0.5, 1], 4, 1, curve, 0.05, fine, 2);
+        // A nervura central: a crista em y = 0,5 (o meio da lâmina), em todo o comprimento.
+        for (const x of [0.1, 0.7, 1.3, 1.9]) {
+            const mid = at([x, 0.5]);
+            expect(mid.height).toBeCloseTo(1, 6);
+            expect(mid.main).toBeCloseTo(1, 6);
+            expect(mid.across).toBeCloseTo(0, 6);
+        }
+        expect(at([0.3, 0.999]).across).toBeCloseTo(0.998, 3);
+        // As secundárias: quatro por comprimento (2 unidades de p), inclinadas 45° — a crista em x = 1/4 + k / 2 + |y|;
+        // do outro lado da central, deslocadas meio espaço (x = k / 2 + |y|).
+        const up = at([0.75 + 0.2, 0.5 + 0.2]);
+        expect(up.height).toBeCloseTo(0.7, 4);
+        expect(at([0.75 + 0.2 + 0.25, 0.5 + 0.2]).height).toBe(0);
+        expect(at([0.5 + 0.2, 0.5 - 0.2]).height).toBeCloseTo(0.7, 4);
+        expect(at([0.75 + 0.2, 0.5 - 0.2]).height).toBe(0);
+        // A curva leva a nervura para a ponta: a mesma crista fica mais adiante em x.
+        expect(at([0.75 + 0.2 + 0.04, 0.5 + 0.2], 0, 1).height).toBeCloseTo(0.7, 4);
+        // As vênulas: a rede fina entre as principais, mais baixa (até 0,35), com o valor da aréola.
+        let net = 0;
+        let highest = 0;
+        for (const p of POINTS) {
+            const o = at(p, 12);
+            expect(o.height).toBeGreaterThanOrEqual(0);
+            expect(o.height).toBeLessThanOrEqual(1);
+            if (o.main === 0 && o.height > 0) {
+                net++;
+                highest = Math.max(highest, o.height);
+            }
+        }
+        expect(net).toBeGreaterThan(5);
+        expect(highest).toBeLessThanOrEqual(0.35 + 1e-9);
+        for (const curve of [0, 1.5])
+            checkGradient(
+                (p) => {
+                    const o = patternVeins(p, 0, [0, 0], [0.5, 1], 4, 1, curve, 0.2, 6, 2);
+                    return { h: o.height, g: o.gradient };
+                },
+                1,
+                15,
+            );
+        // Fecha no período (a lâmina inteira e as vênulas); abaixo do pixel as nervuras somem.
+        const here = patternVeins([0.37, 0.61], 0, [2, 1], [0.5, 1], 4, 1, 1, 0.05, 8, 2);
+        const round = patternVeins([2.37, 1.61], 0, [2, 1], [0.5, 1], 4, 1, 1, 0.05, 8, 2);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.cell).toBe(here.cell);
+        const far = patternVeins([0.7, 0.5], 2, [0, 0], [0.5, 1], 4, 1, 1, 0.05, 8, 2);
+        expect(far.height).toBe(0);
+        expect(far.cell).toBe(0.5);
+    });
+    it('brilhos pontuais: a célula do pixel em dois níveis, contínua na troca de nível, fixa no objeto', () => {
+        // Sem a largura do pixel, ou com os flocos resolvidos (mais de 5 pixels por floco): sem sorteio.
+        expect(patternGlints([0.3, 0.7], 0, 64, 1).count).toBe(0);
+        expect(patternGlints([0.3, 0.7], 0.15 / 64, 64, 1).count).toBe(0);
+        // Um pixel de 6 flocos de lado: o nível 3 (células de 8 flocos de lado, 64 flocos) e o seguinte, de 256.
+        const a = patternGlints([0.3, 0.7], 6 / 64, 64, 1);
+        expect(a.count).toBe(64);
+        expect(a.cells[2]).toBeCloseTo(Math.log2(6) + 0.5 - 3, 6);
+        // A célula é fixa em p: o mesmo valor em toda a célula do primeiro nível, outro na vizinha.
+        const same = patternGlints([0.3 + 0.01, 0.7 + 0.01], 6 / 64, 64, 1);
+        expect(same.cells[0]).toBe(a.cells[0]);
+        expect(patternGlints([0.3 + 0.125, 0.7], 6 / 64, 64, 1).cells[0]).not.toBe(a.cells[0]);
+        // A troca de nível é contínua: o segundo nível logo antes de uma potência de 2 é o primeiro logo depois.
+        const before = patternGlints([0.3, 0.7], (2 ** 2.5 - 1e-3) / 64, 64, 1);
+        const after = patternGlints([0.3, 0.7], (2 ** 2.5 + 1e-3) / 64, 64, 1);
+        expect(before.cells[2]).toBeGreaterThan(0.99);
+        expect(after.cells[2]).toBeLessThan(0.01);
+        expect(after.cells[0]).toBe(before.cells[1]);
+        expect(after.count).toBe(4 * before.count);
+        // Os valores das células cobrem [0, 1].
+        let low = 1;
+        let high = 0;
+        for (const p of POINTS) {
+            const c = patternGlints(p, 2 / 64, 64, 4).cells[0]!;
+            low = Math.min(low, c);
+            high = Math.max(high, c);
+        }
+        expect(low).toBeLessThan(0.1);
+        expect(high).toBeGreaterThan(0.9);
+    });
+    it('brilhos pontuais: a contagem dos flocos alinhados tem a média e a variância da binomial', () => {
+        // Sorteios igualmente espaçados em [0, 1): a média da contagem é N · p (a energia do lobo) e a variância, a da
+        // Poisson (poucos alinhados) ou da binomial (muitos).
+        const moments = (count: number, p: number): [number, number] => {
+            const n = 20000;
+            let sum = 0;
+            let squares = 0;
+            for (let k = 0; k < n; k++) {
+                const c = glintCount(count, p, (k + 0.5) / n);
+                sum += c;
+                squares += c * c;
+            }
+            const mean = sum / n;
+            return [mean, squares / n - mean * mean];
+        };
+        for (const [count, p] of [
+            [16, 0.002],
+            [64, 0.01],
+            [64, 0.06],
+            [256, 0.05],
+            [4096, 0.02],
+        ] as const) {
+            const [mean, variance] = moments(count, p);
+            expect(mean / (count * p)).toBeCloseTo(1, 1);
+            const expected = count * p >= 8 ? count * p * (1 - p) : count * p;
+            expect(variance / expected).toBeGreaterThan(0.85);
+            expect(variance / expected).toBeLessThan(1.15);
+        }
+        // Poucos flocos e pouca chance: quase sempre nenhum, às vezes um — os pontos ralos longe do realce.
+        expect(glintCount(16, 0.002, 0.5)).toBe(0);
+        expect(glintCount(16, 0.002, 0.99)).toBe(1);
+        // A contagem nunca passa do número de flocos.
+        expect(glintCount(4, 0.9, 0.999999)).toBeLessThanOrEqual(4);
     });
 });

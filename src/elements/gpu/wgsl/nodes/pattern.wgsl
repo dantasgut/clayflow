@@ -81,6 +81,27 @@ struct NodePatternDents {
     cell: f32,
 }
 
+struct NodePatternShingles {
+    height: f32,
+    gradient: vec2f,
+    tile: f32,
+    gap: f32,
+    along: f32,
+}
+
+struct NodePatternVeins {
+    height: f32,
+    gradient: vec2f,
+    main: f32,
+    across: f32,
+    cell: f32,
+}
+
+struct NodePatternGlints {
+    cells: vec3f,
+    count: f32,
+}
+
 struct NodePatternWeave {
     height: f32,
     gradient: vec2f,
@@ -701,5 +722,235 @@ fn node_pattern_fissures(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, jitter
         mix(1.0 - min(cw, 1.0), t * t * (3.0 - 2.0 * t), k),
         k * (6.0 * t * (1.0 - t) / cw) * slope,
         mix(0.5, f32(h1 >> 8u) / 16777215.0, k),
+    );
+}
+
+// O perfil transversal de uma telha de capa e canal em `u` (0 a 1 através da telha): (altura em [0, 1], ∂/∂u) — a capa
+// convexa no meio (62 % da largura, de 0,3 a 1) e o canal côncavo entre duas capas (de 0,3 a 0).
+fn node_pattern_shingle_cross(u: f32) -> vec2f {
+    let a = abs(2.0 * u - 1.0);
+    let side = select(-2.0, 2.0, u >= 0.5);
+    let c = 0.62;
+    if (a < c) {
+        let x = 1.57079633 * a / c;
+        return vec2f(0.3 + 0.7 * cos(x), -0.7 * sin(x) * 1.57079633 / c * side);
+    }
+    let x = 1.57079633 * (a - c) / (1.0 - c);
+    return vec2f(0.3 * (1.0 - sin(x)), -0.3 * cos(x) * 1.57079633 / (1.0 - c) * side);
+}
+
+/**
+ * Fiadas sobrepostas (spec 011, T118): o telhado — telhas, placas de ardósia, escamas — em fiadas ao longo de `p.x`,
+ * cada telha deitada sobre a fiada de baixo. `scale`: telhas por unidade de `p.x` e fiadas por unidade de `p.y` (negativo:
+ * o pé das telhas para o lado de `p.y` maior); cada
+ * fiada deslocada `shift` telha em relação à de baixo (0,5: as juntas desencontradas da ardósia; 0: as colunas da
+ * telha de capa e canal). A telha é um plano inclinado: grossa no pé (a borda de baixo, `p.y` menor, à vista) e
+ * enfiada sob a fiada de cima — em espessuras, a altura cai de 1 no pé a 0 no topo da parte à vista, e no degrau do pé
+ * desce para a telha de baixo, que ali está em 0: o dente de serra que faz a sombra de cada fiada. No vão lateral entre
+ * duas telhas (`gap`, em alturas de fiada) e sob o pé recuado (`irregularity`: cada telha recua o pé até essa fração da
+ * fiada, ao acaso) aparece a telha de baixo, uma espessura abaixo. A borda sobe arredondada em `bevel` (alturas de
+ * fiada). `profile` (0 a 1) é a fração da altura que vem do perfil transversal da telha de capa e canal (a capa
+ * convexa, o canal côncavo entre duas capas); 0: a placa plana. Saídas: `height` em [0, 1] e o gradiente ∂/∂p; `tile`
+ * o valor em [0, 1] da telha à vista; `gap` 1 onde a que se vê é a de baixo; `along` a posição na fiada (0 no pé, 1 no
+ * topo). Abaixo do pixel: a altura a 0,5, `tile` a 0,5, `gap` e o gradiente a zero.
+ */
+fn node_pattern_shingles(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, shift: f32, gap: f32, bevel: f32,
+    profile: f32, irregularity: f32, seed: u32) -> NodePatternShingles {
+    let fx = node_pattern_fit(scale.x, wrap.x, 1.0);
+    let fy = node_pattern_fit(abs(scale.y), wrap.y, select(1.0, 2.0, shift != 0.0));
+    let fr = vec2f(fx.x, fy.x);
+    let per = vec2f(fx.y, fy.y);
+    // `scale.y` negativo: o pé das telhas para o lado de `p.y` maior.
+    let up = select(1.0, -1.0, scale.y < 0.0);
+    let qy = p.y * fr.y * up;
+    let row = floor(qy);
+    let v = qy - row;
+    // A telha desta fiada e a da fiada de baixo no ponto.
+    let qx = p.x * fr.x + shift * row;
+    let col = floor(qx);
+    let u = qx - col;
+    let h = node_pattern_hash(vec2f(col, row), per, seed);
+    let qx0 = p.x * fr.x + shift * (row - 1.0);
+    let col0 = floor(qx0);
+    let u0 = qx0 - col0;
+    let h0 = node_pattern_hash(vec2f(col0, row - 1.0), per, seed);
+    // A distância à borda da telha desta fiada, em alturas de fiada: aos lados (o vão) e ao pé (recuado).
+    let aspect = fr.y / fr.x;
+    let foot = clamp(irregularity, 0.0, 0.9) * f32(pcg_hash(h) >> 8u) / 16777216.0;
+    let ex = (0.5 - abs(u - 0.5)) * aspect - 0.5 * max(gap, 0.0);
+    let ey = v - foot;
+    let d = min(ex, ey);
+    let bw = max(bevel, 1e-4);
+    let t = clamp(d / bw, 0.0, 1.0);
+    let own = t * t * (3.0 - 2.0 * t);
+    let toward = select(vec2f(0.0, fr.y), vec2f(select(1.0, -1.0, u >= 0.5) * fr.y, 0.0), ex < ey);
+    let d_own = (6.0 * t * (1.0 - t) / bw) * toward;
+    let pf = clamp(profile, 0.0, 1.0);
+    let c = node_pattern_shingle_cross(u);
+    let c0 = node_pattern_shingle_cross(u0);
+    let flat = 0.5 * (own - v + 1.0);
+    let d_flat = 0.5 * (d_own - vec2f(0.0, fr.y));
+    let curved = mix(c0.x, c.x, own);
+    let d_curved = vec2f(mix(c0.y, c.y, own) * fr.x, 0.0) + (c.x - c0.x) * d_own;
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    let seen = select(h0, h, d > 0.0);
+    return NodePatternShingles(
+        mix(0.5, mix(flat, curved, pf), k),
+        k * mix(d_flat, d_curved, pf) * vec2f(1.0, up),
+        mix(0.5, f32(seen >> 8u) / 16777215.0, k),
+        k * select(0.0, 1.0, d <= 0.0),
+        v,
+    );
+}
+
+// A borda da célula de Voronoi em `q` (células de período `per`): (distância à borda, a normal dela, o valor em [0, 1]
+// da célula) — a mediatriz mais próxima entre o ponto da célula e os das 5 × 5 em volta.
+fn node_pattern_cell_edge(q: vec2f, per: vec2f, seed: u32) -> vec4f {
+    let i = floor(q);
+    let f = q - i;
+    var best = 1e30;
+    var r1 = vec2f(0.0);
+    var o1 = vec2f(0.0);
+    var h1 = 0u;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let o = vec2f(f32(dx), f32(dy));
+            let c = node_pattern_cell_point(i, o, f, per, seed, 1.0);
+            let d = dot(c.r, c.r);
+            if (d < best) {
+                best = d;
+                r1 = c.r;
+                o1 = o;
+                h1 = c.h;
+            }
+        }
+    }
+    var edge = 1e30;
+    var nrm = vec2f(0.0);
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            if (dx == 0 && dy == 0) { continue; }
+            let c = node_pattern_cell_point(i, o1 + vec2f(f32(dx), f32(dy)), f, per, seed, 1.0);
+            let dr = c.r - r1;
+            let l2 = dot(dr, dr);
+            if (l2 > 1e-12) {
+                let dn = dr * inverseSqrt(l2);
+                let d = dot(0.5 * (r1 + c.r), dn);
+                if (d < edge) {
+                    edge = d;
+                    nrm = dn;
+                }
+            }
+        }
+    }
+    return vec4f(edge, nrm, f32(h1 >> 8u) / 16777215.0);
+}
+
+/**
+ * Nervuras (spec 011, T118): a folha — a nervura central ao longo de `p.x`, as secundárias que saem dela dos dois
+ * lados, alternadas, e a rede fina das vênulas. `scale`: lâminas por unidade de `p.x` (o comprimento) e de `p.y` (a
+ * largura; a nervura central no meio de cada lâmina). `veins` secundárias de cada lado por comprimento de lâmina
+ * (inteiro: fecha no período); saem com a inclinação `slope` (a tangente do ângulo com a nervura central) e curvam
+ * para a ponta com `curve` (o avanço ao longo da lâmina, em larguras, pelo quadrado da distância à nervura central).
+ * `thickness` é a meia largura da nervura central, em larguras da lâmina; as secundárias têm a metade e afinam até a
+ * margem. As vênulas são as bordas de um Voronoi de `fine` células por unidade de `p` (0: sem vênulas). Saídas:
+ * `height` em [0, 1] — 1 na crista da nervura central, 0,7 na das secundárias, 0,35 na das vênulas, 0 no limbo —, com
+ * o gradiente ∂/∂p; `main` a nervura central e as secundárias em [0, 1]; `across` a distância à nervura central (0
+ * nela, 1 na margem da lâmina); `cell` o valor em [0, 1] da aréola (o limbo entre as vênulas). Abaixo do pixel as
+ * nervuras somem (a altura e o gradiente a zero, `cell` a 0,5), as vênulas antes das principais.
+ */
+fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f32, slope: f32, curve: f32,
+    thickness: f32, fine: f32, seed: u32) -> NodePatternVeins {
+    let fx = node_pattern_fit(scale.x, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale.y, wrap.y, 1.0);
+    let fr = vec2f(fx.x, fy.x);
+    // A posição na lâmina em larguras dela: ao longo (0 a `len`) e através (−0,5 a 0,5, a nervura central em 0).
+    let len = fr.y / fr.x;
+    let qx = p.x * fr.x;
+    let qy = p.y * fr.y;
+    let xb = (qx - floor(qx)) * len;
+    let yb = qy - floor(qy) - 0.5;
+    let ay = abs(yb);
+    let sy = select(-1.0, 1.0, yb >= 0.0);
+    // A nervura central.
+    let w0 = max(thickness, 1e-4);
+    let t0 = clamp(ay / w0, 0.0, 1.0);
+    let m0 = 1.0 - t0 * t0 * (3.0 - 2.0 * t0);
+    let g0 = (-6.0 * t0 * (1.0 - t0) / w0) * vec2f(0.0, sy * fr.y);
+    // As secundárias: as curvas s = constante, s = x − |y| / slope − curve · y², uma a cada `len` / `veins`.
+    let n = max(round(veins), 1.0);
+    let sp = len / n;
+    let sl = max(slope, 1e-3);
+    let s = (xb - ay / sl - curve * ay * ay) / sp + select(0.0, 0.5, yb < 0.0);
+    let fs = s - floor(s) - 0.5;
+    let ds = -1.0 / sl - 2.0 * curve * ay;
+    let gl = sqrt(1.0 + ds * ds);
+    let d1 = abs(fs) * sp / gl;
+    let taper = 0.5 * (1.0 - 1.4 * ay);
+    let w1 = w0 * max(taper, 0.12);
+    let dw1 = select(0.0, -0.7 * w0, taper > 0.12);
+    let t1 = clamp(d1 / w1, 0.0, 1.0);
+    let m1 = 1.0 - t1 * t1 * (3.0 - 2.0 * t1);
+    // ∂t1/∂(x, |y|): a distância pela curva, pela inclinação dela (que muda com |y|) e pela largura (que afina).
+    let dt1 = vec2f(select(-1.0, 1.0, fs >= 0.0) / gl,
+        select(-1.0, 1.0, fs >= 0.0) * ds / gl + 2.0 * curve * d1 * ds / (gl * gl) - d1 * dw1 / w1) / w1;
+    let g1 = (-6.0 * t1 * (1.0 - t1)) * vec2f(dt1.x, dt1.y * sy) * fr.y;
+    // As vênulas.
+    var m2 = 0.0;
+    var g2 = vec2f(0.0);
+    var cell = 0.5;
+    var k2 = 0.0;
+    if (fine > 0.0) {
+        let vx = node_pattern_fit(fine, wrap.x, 1.0);
+        let vy = node_pattern_fit(fine, wrap.y, 1.0);
+        let vr = vec2f(vx.x, vy.x);
+        let e = node_pattern_cell_edge(p * vr, vec2f(vx.y, vy.y), seed);
+        let t2 = clamp(e.x / 0.12, 0.0, 1.0);
+        k2 = select(1.0, node_pattern_band(width * max(abs(vr.x), abs(vr.y))), width > 0.0);
+        m2 = k2 * (1.0 - t2 * t2 * (3.0 - 2.0 * t2));
+        g2 = k2 * (6.0 * t2 * (1.0 - t2) / 0.12) * e.yz * vr;
+        cell = mix(0.5, e.w, k2);
+    }
+    // O detalhe das principais pela largura do pixel em espaços entre secundárias.
+    let k1 = select(1.0, node_pattern_band(width * fr.y / min(sp, 1.0)), width > 0.0);
+    let main = max(m0, m1);
+    var height = k1 * m0;
+    var gradient = k1 * g0;
+    if (0.7 * k1 * m1 > height) {
+        height = 0.7 * k1 * m1;
+        gradient = 0.7 * k1 * g1;
+    }
+    if (0.35 * m2 > height) {
+        height = 0.35 * m2;
+        gradient = 0.35 * g2;
+    }
+    return NodePatternVeins(height, gradient, k1 * main, 2.0 * ay, cell);
+}
+
+/**
+ * Brilhos pontuais (spec 011, T118): as células do sorteio dos flocos menores que o pixel — a entrada de
+ * `closure.glints`. `scale` flocos por unidade de `p` (por lado: `scale`² por unidade de área). A célula do pixel é a de
+ * uma grade de lado 2ⁿ flocos, n = ⌊log₂(largura do pixel em flocos) + ½⌋ ≥ 0 — de 0,7 a 1,4 pixel de lado — e a do
+ * nível seguinte, de lado dobrado; a mistura entre os dois níveis é a fração de n (a troca de nível com a distância é
+ * contínua: o segundo nível de uma distância é o primeiro da seguinte). Saídas: `cells` (o valor em [0, 1] da célula
+ * em cada nível e a mistura) e `count`, o número de flocos na célula do primeiro nível (4ⁿ; a do segundo tem o
+ * quádruplo). A célula é fixa em `p` (o objeto): os brilhos não andam com a câmera. Com os flocos maiores que 2 pixels
+ * (resolvidos pelo padrão, com a normal de cada um) não há sorteio — `count` 0 —, e na transição `count` cresce (a
+ * contagem vai à média). Sem a largura do pixel (0): `count` 0. `wrap` não entra: as células são um sorteio, sem
+ * emenda que se veja.
+ */
+fn node_pattern_glints(p: vec2f, width: f32, wrap: vec2f, scale: f32, seed: u32) -> NodePatternGlints {
+    let w = width * abs(scale);
+    let k = smoothstep(0.2, 0.5, w);
+    if (k <= 0.0) { return NodePatternGlints(vec3f(0.0), 0.0); }
+    let lod = max(log2(w) + 0.5, 0.0);
+    let level = floor(lod);
+    let side = exp2(level);
+    let q = p * scale;
+    let ha = node_pattern_hash(floor(q / side), vec2f(0.0), seed + 2u * u32(level));
+    let hb = node_pattern_hash(floor(q / (2.0 * side)), vec2f(0.0), seed + 2u * u32(level) + 2u);
+    return NodePatternGlints(
+        vec3f(f32(ha >> 8u) / 16777215.0, f32(hb >> 8u) / 16777215.0, lod - level),
+        side * side / k,
     );
 }
