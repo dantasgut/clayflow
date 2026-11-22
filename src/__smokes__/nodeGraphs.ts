@@ -20,8 +20,11 @@
 //       grafo de conjunto) e imagem bit a bit igual à do grafo original;
 //   (f) biblioteca base (US5): cada nó de ponto da biblioteca avaliado na GPU (um kernel de compute por nó, chamando a
 //       função do nó) contra a referência da CPU (`elements/nodes/reference/library.ts`) com a tolerância do nó.
+//   (g) grafo de material (spec 011, T079): a madeira envernizada do contrato — difuso sob um dielétrico em camada, a
+//       rugosidade do verniz por ruído — contra o mesmo grafo com o verniz liso e com o áspero; e um grafo inválido (um
+//       nó do usuário que não compila): a entidade desenha com o material pronto e a cena anuncia `extensionRejected`.
 //
-// Para rodar: `npm run smoke -- nodeGraphs [--query part=a.b.c.d.e.f]`. Resultado: `NODEGRAPHS SMOKE PASSED` ou `FAIL: …`.
+// Para rodar: `npm run smoke -- nodeGraphs [--query part=a.b.c.d.e.f.g]`. Resultado: `NODEGRAPHS SMOKE PASSED` ou `FAIL: …`.
 import { srgbEncode } from '../elements/math/reference/color';
 import {
     Application,
@@ -43,6 +46,7 @@ import {
     nodes,
     ParametricSurface,
     SetGraph,
+    SphereGeometry,
     StandardMaterial,
     StructSchema,
     Subgraph,
@@ -68,6 +72,9 @@ import type {
 /** Spec de recurso do núcleo (o que `create` recebe). */
 type ResourceSpec = Parameters<Application['core']['create']>[0];
 import { capture, nextGpuFrame, readBuffer, settle } from './support/extensionScenes';
+import { hdrAt, type HdrImage } from './support/imageMeasures';
+import { luminanceLinear } from './support/images';
+import { frontCamera, frontPixel, renderHdr } from './support/materialScenes';
 import { setGraphReference, smokeSetGraph } from './support/nodeGraphReference';
 import { caseSamples, nodeCases, type NodeCase, type NodeValues } from './support/nodeLibraryCases';
 import { ownWork } from './support/workOwner';
@@ -108,6 +115,8 @@ function log(msg: string): void {
 
 /** Erros dos estágios e rejeições: qualquer um reprova. */
 const engineErrors: string[] = [];
+/** A parte (g) espera a rejeição do grafo inválido: enquanto ligado, as rejeições não reprovam. */
+let expectRejections = false;
 
 const SIZE = 128;
 
@@ -127,9 +136,10 @@ async function createApp(profiling = false, width = SIZE, height = SIZE): Promis
         ...(profiling ? { profiling: 'frame' as const } : {}),
     });
     app.events.on('engineError', (e) => engineErrors.push(`${e.stage}/${e.filter}: ${e.message}`));
-    app.events.on('extensionRejected', (e) =>
-        engineErrors.push(`extensionRejected ${e.point}:${e.line}: ${e.message}`),
-    );
+    app.events.on('extensionRejected', (e) => {
+        if (!expectRejections)
+            engineErrors.push(`extensionRejected ${e.point}:${e.line}: ${e.message}`);
+    });
     return app;
 }
 
@@ -1527,6 +1537,203 @@ async function partF(failures: string[]): Promise<void> {
     if (changed < 1000) failures.push('(f) o campo da cena não chega à cor (field.sample)');
 }
 
+/**
+ * A madeira envernizada do contrato da 011 (`contracts/rendering.md`): difuso sob um dielétrico em camada, com a cor de
+ * absorção âmbar; a rugosidade do verniz pelo ruído (0,02 a 0,2) — ou fixa, para a comparação.
+ */
+function varnishedWood(roughness: 'noise' | number): NodeGraph {
+    const { input, bsdf, closure, noise, map, output } = nodes;
+    const byNoise = roughness === 'noise';
+    return new NodeGraph({
+        nodes: {
+            ...(byNoise
+                ? {
+                      s: input.surfaceSample(),
+                      n: noise.gradient3.with({ scale: 6 }),
+                      r: map.range.with({ in_min: -1, in_max: 1, out_min: 0.02, out_max: 0.2 }),
+                  }
+                : {}),
+            wood: bsdf.diffuse.with({ color: [0.45, 0.28, 0.15] }),
+            coat: bsdf.dielectric.with({ ior: 1.5, ...(byNoise ? {} : { roughness }) }),
+            l: closure.layer.with({ top_color: [1, 0.85, 0.6] }),
+            out: output.closure,
+        },
+        links: [
+            ...(byNoise
+                ? ([
+                      ['s.world_position', 'n.p'],
+                      ['n.value', 'r.x'],
+                      ['r.value', 'coat.roughness'],
+                  ] as const)
+                : []),
+            ['coat.value', 'l.top'],
+            ['wood.value', 'l.base'],
+            ['l.value', 'out.closure'],
+        ],
+        output: 'out.value',
+    });
+}
+
+/** Nó do usuário que passa na conferência da assinatura e não compila (tipo errado no corpo). */
+const brokenNode = defineNode({
+    name: 'smoke.broken',
+    inputs: { c: 'Closure' },
+    outputs: { value: 'Closure' },
+    code: wgslModule({
+        name: 'smoke_broken_node',
+        source: /* wgsl */ `
+fn smoke_broken(c: Closure) -> Closure {
+    let k: f32 = 1u;
+    return c;
+}`,
+    }),
+    fn: 'smoke_broken',
+    contexts: ['fragment'],
+});
+
+async function partG(failures: string[]): Promise<void> {
+    const W = 256;
+    const height = 2;
+    const R = 0.8;
+    const l = [0.35, 0.3, 1];
+    const scene = async (): Promise<Application> => {
+        const app = await createApp(false, W, W);
+        app.world.remove(app.defaults.ambient);
+        frontCamera(app, height);
+        app.world.insert(
+            new DirectionalLight({ direction: [-l[0]!, -l[1]!, -l[2]!, 0], intensity: 3 }),
+        );
+        return app;
+    };
+    const ball = (app: Application, fn: MaterialFunction | undefined) => {
+        const entity = new SphereGeometry({
+            radius: R,
+            latSegments: 96,
+            lonSegments: 192,
+        })
+            .add(new StandardMaterial({ albedo: [0.8, 0.1, 0.1, 1], roughness: 0.6 }))
+            .add(new Transform());
+        if (fn !== undefined) entity.add(fn);
+        app.world.insert(entity);
+        return entity;
+    };
+    const lum = (img: HdrImage, x: number, y: number): number => luminanceLinear(hdrAt(img, x, y));
+
+    // Madeira envernizada: o verniz pelo ruído, contra o verniz liso (0,02) e o áspero (0,2) do mesmo grafo.
+    {
+        const app = await scene();
+        const shots: HdrImage[] = [];
+        for (const roughness of ['noise', 0.02, 0.2] as const) {
+            const entity = ball(app, new MaterialFunction({ graph: varnishedWood(roughness) }));
+            shots.push(await renderHdr(app, 1, 500));
+            app.world.remove(entity);
+        }
+        app.dispose();
+        app.canvas.remove();
+        const [noisy, smooth, rough] = shots as [HdrImage, HdrImage, HdrImage];
+        // O realce: a normal na meia direção entre a luz e o observador (+z).
+        const len = Math.hypot(l[0]!, l[1]!, l[2]!);
+        const hl = Math.hypot(l[0]! / len, l[1]! / len, l[2]! / len + 1);
+        const [hx, hy] = frontPixel((R * l[0]!) / len / hl, (R * l[1]!) / len / hl, height, W, W);
+        const peak = (img: HdrImage): number => {
+            let top = 0;
+            for (let dy = -8; dy <= 8; dy++)
+                for (let dx = -8; dx <= 8; dx++) top = Math.max(top, lum(img, hx + dx, hy + dy));
+            return top;
+        };
+        const [pn, ps, pr] = [peak(noisy), peak(smooth), peak(rough)];
+        // Fora do realce (longe da meia direção): a madeira sob o verniz, a mesma nos três.
+        const [dx, dy] = frontPixel(-0.3, -0.3, height, W, W);
+        const wood = hdrAt(noisy, dx, dy);
+        const base = lum(noisy, dx, dy) / lum(smooth, dx, dy);
+        // O verniz pelo ruído não é nenhum dos dois fixos: pixels da esfera que diferem dos dois.
+        let own = 0;
+        const [cx, cy] = frontPixel(0, 0, height, W, W);
+        const rr = Math.floor(((0.95 * R) / height) * W);
+        for (let y = -rr; y <= rr; y++)
+            for (let x = -rr; x <= rr; x++) {
+                if (x * x + y * y > rr * rr) continue;
+                const v = lum(noisy, cx + x, cy + y);
+                const tol = 0.02 * v + 1e-3;
+                if (
+                    Math.abs(v - lum(smooth, cx + x, cy + y)) > tol
+                    && Math.abs(v - lum(rough, cx + x, cy + y)) > tol
+                )
+                    own++;
+            }
+        log(
+            `(g) madeira envernizada (grafo do contrato): pico do realce ${pn.toFixed(2)} com o verniz pelo ruído, entre o áspero ${pr.toFixed(2)} e o liso ${ps.toFixed(2)}; ${own} pixels diferentes dos dois; madeira fora do realce (${wood.map((v) => v.toFixed(3)).join(', ')}), ${base.toFixed(3)}× a do verniz liso`,
+        );
+        if (!(ps > 2 * pr))
+            failures.push(`(g) o verniz liso não tem realce mais nítido (${ps} × ${pr})`);
+        if (!(pn >= 0.9 * pr && pn <= 1.1 * ps))
+            failures.push(`(g) o realce do verniz por ruído fora dos dois extremos (${pn})`);
+        if (own < 50) failures.push(`(g) o ruído não chega à rugosidade do verniz (${own} pixels)`);
+        if (!(wood[0] > wood[1] && wood[1] > wood[2] && wood[2] > 0))
+            failures.push(`(g) a madeira sob o verniz não tem a cor dela (${wood.join(', ')})`);
+        if (!(base > 0.9 && base < 1.1))
+            failures.push(`(g) a base muda com a rugosidade do verniz (${base})`);
+    }
+
+    // Grafo inválido: desenha com o material pronto (as constantes do StandardMaterial) e a cena anuncia a rejeição.
+    {
+        const invalid = new NodeGraph({
+            nodes: {
+                wood: nodes.bsdf.diffuse.with({ color: [0.1, 0.8, 0.1] }),
+                bad: brokenNode,
+                out: nodes.output.closure,
+            },
+            links: [
+                ['wood.value', 'bad.c'],
+                ['bad.value', 'out.closure'],
+            ],
+            output: 'out.value',
+        });
+        const shots: ImageData[] = [];
+        const rejected: { point: string; line: number; message: string }[] = [];
+        expectRejections = true;
+        const before = engineErrors.length;
+        for (const withGraph of [false, true]) {
+            const app = await scene();
+            app.events.on('extensionRejected', (e) =>
+                rejected.push({ point: e.point, line: e.line, message: e.message }),
+            );
+            ball(app, withGraph ? new MaterialFunction({ graph: invalid }) : undefined);
+            await settle(app, 500);
+            for (let k = 0; k < 4; k++) app.step(1 / 60);
+            shots.push(capture(app.canvas));
+            app.dispose();
+            app.canvas.remove();
+        }
+        expectRejections = false;
+        const [ready, broken] = shots as [ImageData, ImageData];
+        let worst = 0;
+        let lit = 0;
+        for (let k = 0; k < ready.data.length; k += 4) {
+            for (let c = 0; c < 3; c++)
+                worst = Math.max(worst, Math.abs(ready.data[k + c]! - broken.data[k + c]!));
+            // A esfera: o que difere do fundo (o canto da imagem).
+            if (
+                Math.abs(ready.data[k]! - ready.data[0]!)
+                    + Math.abs(ready.data[k + 1]! - ready.data[1]!)
+                    + Math.abs(ready.data[k + 2]! - ready.data[2]!)
+                > 30
+            )
+                lit++;
+        }
+        const first = rejected[0];
+        log(
+            `(g) grafo inválido: ${rejected.length} rejeição(ões)${first === undefined ? '' : ` — ponto '${first.point}', linha ${first.line}: ${first.message.split('\n')[0]!.slice(0, 80)}`}; imagem com o material pronto: maior diferença ${worst} por canal em ${lit} pixels da esfera; ${engineErrors.length - before} erro(s) do motor`,
+        );
+        if (rejected.length === 0) failures.push('(g) o grafo inválido não foi anunciado');
+        else if (first!.point !== 'material')
+            failures.push(`(g) rejeição no ponto '${first!.point}', não em 'material'`);
+        if (lit < 1000) failures.push(`(g) a esfera com o material pronto não aparece (${lit})`);
+        if (worst > 1)
+            failures.push(`(g) o grafo inválido não desenha com o material pronto (${worst})`);
+    }
+}
+
 async function main(): Promise<void> {
     const only = new URLSearchParams(location.search).get('part');
     const parts: Record<string, (f: string[]) => Promise<void>> = {
@@ -1536,6 +1743,7 @@ async function main(): Promise<void> {
         d: partD,
         e: partE,
         f: partF,
+        g: partG,
     };
     const failures: string[] = [];
     for (const [name, run] of Object.entries(parts)) {
