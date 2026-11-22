@@ -619,6 +619,34 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       0,0491, `sun-below`, `shadow-map` 0,020, `ground-shadow` 0,010; vitest de media/clouds passa. **Em aberto na T074:
       o `high-sun` no ritmo real (−0,5 ms: o desenho de ~100 páginas por quadro que a tolerância de 1/255 pede), o
       `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.**
+      **Rodada 2026-11-21 i — o que rodava sem precisar fora do mapa: `high-sun` 3,54 → 3,26 ms (ainda ✗)**
+      (`d8cf7f1f`, `7be0cb50`, `6c0cbea6`; R11 da T074, rodada i, no research.md). O mapa visto do sol não foi tocado.
+      Medido antes, cada passe ou parte tirado (M4, 1280 × 720, `high-sun` 3,54): a sombra das nuvens na tabela aérea
+      0,24 ms (o disco do sol 0,16, o resto do déficit além de 32 km 0,07); a sombra das nuvens nos froxels 0,14; os
+      despachos dos caminhos e do filtro do cache parado 0,09; o `FroxelReachFlow` **0** (o tempo que aparece nele é
+      sobreposição com os passes vizinhos: tirado, o quadro não muda); na marcha (1,38): só a densidade 0,53, a luz 0,83
+      — dela o resto até o sol (`cloud_sun_rest`) 0,42 (o pedaço marchado 0,24, a coluna e o nó 0,18) —, a integral aérea
+      além da tabela 0,08 (a sombra nela 0,04). Feito (a imagem é a mesma conta): (1) a tabela aérea não lê a sombra nas
+      fatias que os froxels integram no quadro — quem lê a tabela soma só a diferença dela além deles, e a sombra se
+      anulava (o ponto `scene_near_medium_depth`; o `SkyAerialFlow` depois do `FroxelFlow`): 0,264 → 0,111 ms; (2) os
+      caminhos e o filtro do cache por despacho indireto (`cloud_scatter_args.wgsl`, `CloudLayer.scatterArgs`): 0,087 →
+      0,007; (3) no mapa visto do sol, os nós k e k + 1 da mesma camada numa leitura, o segundo nível só na mistura e a
+      coluna do ponto antes da entrada na casca sem páginas nem coordenadas: a tabela 0,111 → 0,067, a marcha −0,02.
+      Medidos e desfeitos: as irradiâncias do ambiente lidas uma vez por raio (igual), a soma de prefixos das escolhas em
+      série por uma invocação (pior: 0,042 → 0,048 por escolha — a cadeia longa numa invocação custa mais que as 17
+      barreiras), a marcha em grupos de 16, 128 e 256 invocações (1,76 / 1,41 / 1,45 contra 1,37 com 64). Medidas
+      finais: `high-sun` **3,26 ms** ✗ (3,24–3,29; o mapa 1,09, a marcha 1,37, froxels com − sem 0,15, a tabela aérea
+      0,067), `high-sun-fast` 4,10 → **3,90**, `high-wind` 3,22 → **2,95**, `timing` médio **0,69** ✓. Casos (os mesmos
+      valores): `sunset` 3,6 %, `dusk-blocks` degrau 1,025 e matiz 0,0491, `sun-below`, `shadow-map` 0,020,
+      `ground-shadow` 0,010, `far-cloud` 2,7 %, `fog-in-front` 0,32 %, `beam-air`, `beam-gap`, `scatter-cache`; `sky`
+      (`aerial-table`, `aerial-geometry`, `crepuscular`, `beams`) e `fog` (`gi`) passam; vitest de media, scene/sky e
+      scene/points passa. **O que falta (0,26 ms) e onde está**: a luz da marcha paga o maior número de amostras com nuvem
+      do grupo de 64 raios (12,9 em média) e não a média (7,1 por raio; 411 mil amostras por quadro): uma luz por raio
+      dentro do laço custa 0,355 ms, a mesma luz depois do laço 0,070. A luz num passe próprio, uma amostra por invocação
+      (a lista compacta pela contagem atômica, despacho indireto; a marcha só com a densidade, um terceiro passe soma e
+      compõe), fica estimada em 0,50 ms contra 0,83 — −0,2 a −0,25 ms líquidos, não medido; sozinha não garante os 3 ms.
+      **Em aberto na T074: o `high-sun` no ritmo real (3,26 ms), o `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e
+      a margem do matiz.**
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21

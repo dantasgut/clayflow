@@ -1499,6 +1499,58 @@ por quadro —, e a marcha lê o sol pontual (o erro dela é o cru). (c) O mapa 
 físico (um nível a cada ~24 quadros no contraste pleno) e a filtragem cruza páginas desenhadas em quadros diferentes. Com
 1 nível de 8 bits nenhum dos três chega às ~25 páginas por quadro que o teto de 3 ms pede.
 
+### R11 (T074, 2026-11-21 i) — fora do mapa: o que rodava sem precisar, e onde a marcha gasta a luz
+
+**O método.** O `timing` mede o quadro com − sem a camada; o tempo por passe conta sobreposição (o `FroxelReachFlow`
+aparece com 0,33–0,42 ms com a camada e 0,16 sem, e tirado não muda o quadro: custo real zero). Cada parte foi tirada e o
+quadro medido (`high-sun`, 3,54 ms de partida, a GPU fria — depois de ~5 execuções seguidas o M4 esquenta e tudo sobe 20–40 %).
+
+| parte tirada                                                             | ganho no quadro |
+| ------------------------------------------------------------------------ | --------------- |
+| a sombra das nuvens na tabela aérea (a variante sem sombra)              | 0,24 ms         |
+| — só as leituras do disco do sol nela                                    | 0,16            |
+| — só o resto do déficit além de 32 km                                    | 0,07            |
+| a sombra das nuvens na injeção dos froxels                               | 0,14            |
+| os despachos dos caminhos e do filtro do cache (parado)                  | 0,09            |
+| o `FroxelReachFlow`                                                      | 0,00            |
+| a luz da marcha inteira (fica a densidade: 0,53 de 1,38)                 | 0,83            |
+| — o resto até o sol (`cloud_sun_rest`) na marcha                         | 0,42            |
+| — só o pedaço marchado dele                                              | 0,24            |
+| a integral aérea além da tabela na composição da marcha                  | 0,08            |
+| — só a sombra nela                                                       | 0,04            |
+
+**O que mudou (a mesma conta na imagem).** (1) Os froxels integram a atmosfera até o alcance da tabela (32 km): quem lê a
+tabela (`scene_fog` do `Sky`, a marcha) soma `tabela(d) − tabela(alcance)` e o fundo usa só o déficit além da tabela — a
+sombra das fatias antes do plano da última fatia dos froxels entrava igual nas duas leituras. O ponto
+`scene_near_medium_depth(câmera)` (pronto: 0; os `Froxels` contribuem com `froxels.depth.y` quando a grade está em uso no
+quadro) diz ao kernel da tabela quais fatias saem sem a visibilidade; o `SkyAerialFlow` passou para depois do
+`FroxelFlow` (lê a decisão do quadro; nada entre os dois lê a tabela). Sem froxels, ou com a decisão do quadro contra a
+atmosfera neles, todas as fatias com a sombra, como antes. (2) Os caminhos e o filtro do cache por despacho indireto:
+sem página a caminhar nem marcada, zero grupos (eram 102 mil + 819 mil invocações que só liam a contagem). (3) No mapa
+visto do sol: os nós k e k + 1 ficam na mesma camada do atlas em 3 de 4 casos — uma leitura; o segundo nível só é lido na
+faixa de mistura; a coluna de um ponto antes da entrada na casca (o ar acima das nuvens) sai antes das páginas e das
+coordenadas, com τ = 0.
+
+**Medido e desfeito.** As irradiâncias do ambiente lidas uma vez por raio em vez de três leituras por amostra: igual. A
+soma de prefixos das escolhas (`pa_exclusive`, 17 barreiras) feita em série por uma invocação entre duas barreiras: pior
+(0,042 → 0,048 ms por escolha; ~25 ns por passo da cadeia numa invocação só). O grupo da marcha com 16, 128 e 256
+invocações: 1,76 / 1,41 / 1,45 ms contra 1,37 com 64.
+
+**Onde a marcha gasta a luz.** Por quadro: 57 600 raios, 40 081 com nuvem, 411 mil amostras com nuvem — 7,1 por raio,
+10,3 por raio com nuvem, e o maior do grupo de 64 raios 12,9 em média (o maior de todos 42). Uma luz por raio com nuvem
+dentro do laço (na primeira amostra) custa 0,355 ms; a mesma luz depois do laço, 0,070: dentro do laço o grupo paga a luz
+em cada iteração em que algum raio dele a faz. A luz inteira (0,83 ms) vale 11,9 dessas rodadas — o maior do grupo, não
+a média; por isso os dois laços na mesma invocação da rodada e deram igual. Com a luz num passe próprio, uma amostra por
+invocação numa lista compacta (7,1 rodadas equivalentes), a estimativa é 0,50 ms: −0,33 bruto, −0,2 a −0,25 líquido com
+os dois passes a mais (não implementado, não medido). As escolhas (`coverageSelect`, `sunVolumeKeys`/`Select`,
+`scatterSelect`, 0,04 ms cada, e a do mapa) são um grupo com 32 páginas em série por invocação: o mesmo padrão, ganho
+pequeno por peça.
+
+**Medidas (M4, 1280 × 720).** `high-sun` 3,54 → **3,26 ms** (teto 3): o mapa 1,09 (não tocado), a marcha 1,37, froxels
+com − sem 0,15, a tabela aérea 0,067, as escolhas 0,17, a reconstrução e o aumento 0,24, a composição 0,06;
+`high-sun-fast` 4,10 → 3,90; `high-wind` 3,22 → 2,95; médio 0,69. Os casos de imagem com os valores de antes (`sunset`
+3,6 %, `dusk-blocks` 1,025 e 0,0491, `shadow-map` 0,020, `ground-shadow` 0,010, `far-cloud` 2,7 %).
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por
