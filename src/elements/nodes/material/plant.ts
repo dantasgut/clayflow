@@ -14,8 +14,20 @@ import {
     patternSpace,
     SAMPLE_INPUT,
     SPACE_LINKS,
+    type Link,
 } from './pattern';
-import { BARK_OAK, BARK_PINE, relief, type BarkPatterns } from './relief';
+import {
+    BARK_OAK,
+    BARK_PINE,
+    LEAF_DRY,
+    LEAF_GREEN,
+    LEAF_MATTE,
+    leafPads,
+    leafVeins,
+    relief,
+    type BarkPatterns,
+    type LeafPatterns,
+} from './relief';
 
 // Plantas (spec 011, T118): as cascas grossas (carvalho e pinheiro), a folha (verde e seca) e a rolha de cortiça
 // natural. A estrutura é calculada por pixel pelos nós de padrão sobre o uv (`pattern_scale` repetições por unidade de
@@ -171,9 +183,10 @@ function fissured(
  * blocos por quebras em volta do tronco; na parede da fissura aparece a casca interna, castanho-avermelhada
  * (`inner_color`), e o fundo é escuro (`furrow_color`: a cor cai com a fundura); o líquen em manchas largas e ralas
  * (`lichen_color`, cinza-esverdeado, só nas faces; `lichen` a cobertura, 0,24); fosca (rugosidade 0,95). O relevo é o
- * de `relief.bark`, em milímetros — as fissuras (`furrow_depth`, 12), as cristas (`ridge_height`, 3,4) e as escamas
- * (`scale_height`, 1,6), com `scale` unidades do mundo por metro —, na normal; com `Displacements.bark()` na entidade
- * de uma `ParametricSurface`, na geometria. Parâmetros: `color`, `ridge_color`, `furrow_color`, `inner_color`,
+ * de `relief.bark`, em milímetros e em várias escalas — as fissuras (`furrow_depth`, 16), as cristas (`ridge_height`,
+ * 3,4) e as escamas em degraus (`scale_height`, 2,8), com `scale` unidades do mundo por metro —, na normal; com
+ * `Displacements.bark()` na entidade de uma `ParametricSurface`, na geometria (a silhueta irregular, a sombra dentro
+ * das fissuras e entre as escamas). Parâmetros: `color`, `ridge_color`, `furrow_color`, `inner_color`,
  * `lichen_color`, `lichen`, `roughness`, `furrow_depth`, `ridge_height`, `scale_height`, `scale`, `pattern_scale`.
  */
 export const bark = fissured('material.bark', relief.bark, BARK_OAK, {
@@ -224,53 +237,64 @@ interface LeafValues {
     readonly translucency: number;
     readonly margin: number;
     readonly spots: number;
-    /** A rugosidade da cutícula, o relevo das nervuras e o amassado da lâmina (unidades do padrão). */
+    /**
+     * A rugosidade da cutícula no meio das almofadas do limbo e a das nervuras e vênulas; o quanto ela sobe nas
+     * manchas foscas e na margem.
+     */
     readonly roughness: number;
-    readonly relief: number;
-    readonly crumple: number;
-    readonly seed: number;
+    readonly vein_roughness: number;
+    readonly dull: number;
+    /** A penugem (o brilho de fibra dos tricomas), nas folhas que a têm: a cor e a rugosidade. */
+    readonly down?: { readonly color: Rgb; readonly roughness: number };
 }
 
 /**
  * Sub-grafo de uma folha: o limbo com as nervuras (`pattern.veins`: a central ao longo de u, as secundárias e a rede
- * de vênulas) em relevo e na cor, de parede fina — a luz de trás atravessa espalhada (`bsdf.translucent`), menos nas
- * nervuras, mais grossas —, sob a cutícula (um dielétrico de cera).
+ * de vênulas) na cor e em relevo — o de `reliefNode`, em milímetros: as nervuras, as almofadas do limbo entre as
+ * vênulas e a ondulação da lâmina, na normal —, de parede fina — a luz de trás atravessa espalhada
+ * (`bsdf.translucent`), menos nas nervuras, mais grossas —, sob a cutícula (um dielétrico de cera) de rugosidade
+ * variável: lisa no meio das almofadas, fosca nas vênulas, nas nervuras, na margem e em manchas largas — o realce
+ * aparece em pedaços, um por almofada inclinada para a luz, cortado pelas nervuras.
  */
-function leafOf(name: string, v: LeafValues): NodeDefinition {
+function leafOf(
+    name: string,
+    reliefNode: NodeDefinition,
+    p: LeafPatterns,
+    v: LeafValues,
+): NodeDefinition {
+    const downy = v.down !== undefined;
     return Subgraph.point(
         new NodeGraph({
             nodes: {
                 ...patternSpace(),
-                veins: pattern.veins.with({
-                    scale: [0.5, 1],
-                    veins: 11,
-                    slope: 0.8,
-                    curve: 1.5,
-                    thickness: 0.018,
-                    fine: 44,
-                    seed: v.seed,
-                }),
+                veins: pattern.veins.with(leafVeins(p)),
+                pad: pattern.cells.with(leafPads(p)),
                 mottle: pattern.grain.with({
                     scale: [3, 3],
                     octaves: 4,
                     gain: 0.55,
-                    seed: v.seed + 1,
+                    seed: p.seed + 1,
                 }),
-                speck: pattern.grain.with({ scale: [13, 13], octaves: 3, seed: v.seed + 2 }),
-                skin: pattern.grain.with({ scale: [170, 170], octaves: 2, seed: v.seed + 3 }),
-                fold: pattern.grain.with({ scale: [2.5, 5], octaves: 3, seed: v.seed + 4 }),
+                speck: pattern.grain.with({ scale: [13, 13], octaves: 3, seed: p.seed + 2 }),
+                skin: pattern.grain.with({ scale: [170, 170], octaves: 2, seed: p.seed + 3 }),
+                bloom: pattern.grain.with({
+                    scale: [4.5, 4.5],
+                    octaves: 3,
+                    gain: 0.6,
+                    seed: p.seed + 5,
+                }),
                 green: math.value3.with({ value: [...v.color] }),
                 yellow: math.value3.with({ value: [...v.edge] }),
                 rib: math.value3.with({ value: [...v.vein] }),
                 brown: math.value3.with({ value: [...v.spot] }),
                 light: math.value3.with({ value: [...v.through] }),
-                // O limbo: cada aréola com o seu tom (± 7 %) e as manchas largas (± 16 %).
-                areole: map.range.with({ out_min: 0.93, out_max: 1.07 }),
+                // O limbo: cada aréola com o seu tom (± 9 %) e as manchas largas (± 18 %).
+                areole: map.range.with({ out_min: 0.91, out_max: 1.09 }),
                 blotch: map.range.with({
                     in_min: -0.6,
                     in_max: 0.6,
-                    out_min: 0.84,
-                    out_max: 1.16,
+                    out_min: 0.82,
+                    out_max: 1.18,
                 }),
                 shade: math.mul,
                 limb: math.scale3,
@@ -281,7 +305,10 @@ function leafOf(name: string, v: LeafValues): NodeDefinition {
                 edged: math.mix3,
                 spot: map.range.with({ in_min: 0.42, in_max: 0.56, out_min: 0, out_max: v.spots }),
                 spotted: math.mix3,
-                ribbed: map.range.with({ out_min: 0, out_max: 0.65 }),
+                // As nervuras mais claras: a central e as secundárias cheias, a rede de vênulas só de leve.
+                ribbed: map.range.with({ out_min: 0, out_max: 0.42 }),
+                netted: map.range.with({ out_min: 0, out_max: 0.3 }),
+                paler: math.add,
                 veined: math.mix3,
                 body: bsdf.diffuse.with({ roughness: 0.5 }),
                 // A luz que atravessa: a cor do limbo contra a luz, mais escura nas nervuras (mais grossas).
@@ -289,16 +316,44 @@ function leafOf(name: string, v: LeafValues): NodeDefinition {
                 lit: math.scale3,
                 through: bsdf.translucent,
                 mixed: closure.mix.with({ t: v.translucency }),
-                cuticle: bsdf.dielectric.with({ ior: 1.45, roughness: v.roughness }),
+                // A cutícula: lisa no meio da almofada, fosca na vênula; mais fosca nas manchas e na margem.
+                gloss: map.range.with({
+                    in_min: 0,
+                    in_max: 0.4,
+                    out_min: v.vein_roughness,
+                    out_max: v.roughness,
+                }),
+                patchy: map.range.with({
+                    in_min: -0.05,
+                    in_max: 0.45,
+                    out_min: 0,
+                    out_max: v.dull,
+                }),
+                worn: map.range.with({ in_min: 0.55, in_max: 1, out_min: 0, out_max: v.dull }),
+                rough_a: math.add,
+                rough_b: math.add,
+                rough: math.clamp,
+                cuticle: bsdf.dielectric.with({ ior: 1.45 }),
                 sum: closure.add,
-                crumple: surface.bump.with({ strength: v.crumple }),
-                relief: surface.bump.with({ strength: v.relief }),
+                ...(v.down !== undefined
+                    ? {
+                          down: bsdf.sheen.with({
+                              color: [...v.down.color],
+                              roughness: v.down.roughness,
+                          }),
+                          coated: closure.add,
+                      }
+                    : {}),
+                tile: math.value2.with({ value: [1, 1] }),
+                height: reliefNode,
+                normal: surface.reliefNormal,
                 fine_relief: surface.bump.with({ strength: 0.0003 }),
                 out: closure.normal,
             },
             links: [
                 ...SPACE_LINKS,
-                ...patternLinks('veins', 'mottle', 'speck', 'skin', 'fold'),
+                ...patternLinks('veins', 'pad', 'mottle', 'speck', 'skin', 'bloom'),
+                ['tile.value', 'uv.scale'],
                 ['veins.cell', 'areole.x'],
                 ['mottle.value', 'blotch.x'],
                 ['areole.value', 'shade.a'],
@@ -316,10 +371,13 @@ function leafOf(name: string, v: LeafValues): NodeDefinition {
                 ['edged.value', 'spotted.a'],
                 ['brown.value', 'spotted.b'],
                 ['spot.value', 'spotted.t'],
-                ['veins.height', 'ribbed.x'],
+                ['veins.main', 'ribbed.x'],
+                ['veins.height', 'netted.x'],
+                ['ribbed.value', 'paler.a'],
+                ['netted.value', 'paler.b'],
                 ['spotted.value', 'veined.a'],
                 ['rib.value', 'veined.b'],
-                ['ribbed.value', 'veined.t'],
+                ['paler.value', 'veined.t'],
                 ['veined.value', 'body.color'],
                 ['veins.height', 'thick.x'],
                 ['light.value', 'lit.v'],
@@ -327,12 +385,28 @@ function leafOf(name: string, v: LeafValues): NodeDefinition {
                 ['lit.value', 'through.color'],
                 ['body.value', 'mixed.a'],
                 ['through.value', 'mixed.b'],
+                ['pad.height', 'gloss.x'],
+                ['bloom.value', 'patchy.x'],
+                ['veins.across', 'worn.x'],
+                ['gloss.value', 'rough_a.a'],
+                ['patchy.value', 'rough_a.b'],
+                ['rough_a.value', 'rough_b.a'],
+                ['worn.value', 'rough_b.b'],
+                ['rough_b.value', 'rough.x'],
+                ['rough.value', 'cuticle.roughness'],
                 ['cuticle.value', 'sum.a'],
                 ['mixed.value', 'sum.b'],
-                ...bumpLinks('crumple', 'fold.gradient'),
-                ...bumpLinks('relief', 'veins.gradient', 'crumple.value'),
-                ...bumpLinks('fine_relief', 'skin.gradient', 'relief.value'),
-                ['sum.value', 'out.c'],
+                ...(downy
+                    ? ([
+                          ['down.value', 'coated.a'],
+                          ['sum.value', 'coated.b'],
+                      ] as Link[])
+                    : []),
+                ['s.value', 'height.s'],
+                ['tile.value', 'height.pattern_scale'],
+                ['height.value', 'normal.relief'],
+                ...bumpLinks('fine_relief', 'skin.gradient', 'normal.value'),
+                [downy ? 'coated.value' : 'sum.value', 'out.c'],
                 ['fine_relief.value', 'out.normal'],
             ],
             output: 'out.value',
@@ -347,50 +421,81 @@ function leafOf(name: string, v: LeafValues): NodeDefinition {
                 ['brown.value', 'spot_color'],
                 ['light.value', 'transmission_color'],
                 ['mixed.t', 'translucency'],
-                ['cuticle.roughness', 'roughness'],
-                ['relief.strength', 'relief'],
-                ['crumple.strength', 'crumple'],
-                PATTERN_SCALE,
+                ['gloss.out_max', 'roughness'],
+                ['gloss.out_min', 'vein_roughness'],
+                ...(downy ? ([['down.color', 'down_color']] as const) : []),
+                ['height.vein_height', 'vein_height'],
+                ['height.bulge_height', 'bulge_height'],
+                ['height.pad_height', 'pad_height'],
+                ['height.wave_height', 'wave_height'],
+                ['normal.scale', 'scale'],
+                ['tile.value', 'pattern_scale'],
             ],
         },
     );
 }
 
 /**
- * `material.leaf` — folha verde (a face de cima): o limbo verde-escuro (`color`), cada aréola com o seu tom e manchas
- * largas, a margem amarelada em manchas (`edge_color`), umas pintas castanhas (`spot_color`) e as nervuras mais claras
- * (`vein_color`) — a central ao longo de u, onze secundárias de cada lado, alternadas e curvas para a ponta, e a rede
- * fina das vênulas (`pattern.veins`: uma lâmina a cada duas unidades do padrão ao longo de u) —, em relevo: na face de
- * cima as nervuras são sulcos e o limbo estufa entre elas (`relief`, negativo, a altura em unidades do padrão). A
- * cutícula é cera (IOR 1,45, rugosidade 0,3: o brilho largo e acetinado). A folha é uma parede fina: `translucency`
- * (0,42) da luz de trás atravessa espalhada, verde-amarelada (`transmission_color`), menos nas nervuras, mais grossas
- * — contra a luz, o limbo acende e as nervuras ficam escuras. A face de baixo (mais clara e fosca) é a mesma superfície
- * vista por trás: com `roughness` maior e `color` mais clara num segundo material. Parâmetros: `color`, `edge_color`,
- * `vein_color`, `spot_color`, `transmission_color`, `translucency`, `roughness`, `relief`, `crumple`,
- * `pattern_scale`.
+ * `material.leaf` — folha verde cerosa (a face de cima; o cafeeiro, a magnólia, o louro): o limbo verde-escuro (`color`), cada
+ * aréola com o seu tom e manchas largas, a margem amarelada em manchas (`edge_color`), umas pintas castanhas
+ * (`spot_color`) e as nervuras mais claras e amareladas (`vein_color`) — a central ao longo de u, onze secundárias de
+ * cada lado, alternadas e curvas para a ponta, e a rede fina das vênulas (`pattern.veins`: uma lâmina a cada duas
+ * unidades do padrão ao longo de u). O relevo é o de `relief.leaf`, em milímetros — as nervuras afundadas
+ * (`vein_height`, −0,35) num vale largo, com o limbo estufado entre duas secundárias (`bulge_height`, −0,9), o limbo
+ * abaulado em almofadas entre as vênulas (`pad_height`, 0,18) e a ondulação da lâmina (`wave_height`, 1,2), com
+ * `scale` unidades do mundo por metro —, na normal; com `Displacements.leaf()` na entidade de uma
+ * `ParametricSurface`, na geometria. A cutícula é cera (IOR 1,45) de rugosidade variável: lisa no meio de cada
+ * almofada (`roughness`, 0,2), fosca nas vênulas e nas nervuras (`vein_roughness`, 0,45), mais fosca em manchas
+ * largas e na margem (até + 0,3). Cada trecho do limbo tem a sua inclinação: o realce não é um só — aparece em
+ * pedaços, entre as nervuras, nas almofadas alinhadas com a luz, e muda de lugar com o ângulo. A folha é uma parede
+ * fina: `translucency` (0,42) da luz de trás atravessa espalhada, verde-amarelada (`transmission_color`), menos nas
+ * nervuras, mais grossas — contra a luz, o limbo acende e as nervuras ficam escuras. Parâmetros: `color`,
+ * `edge_color`, `vein_color`, `spot_color`, `transmission_color`, `translucency`, `roughness`, `vein_roughness`,
+ * `vein_height`, `bulge_height`, `pad_height`, `wave_height`, `scale`, `pattern_scale`.
  */
-export const leaf = leafOf('material.leaf', {
+export const leaf = leafOf('material.leaf', relief.leaf, LEAF_GREEN, {
     color: [0.05, 0.15, 0.025],
     edge: [0.34, 0.36, 0.06],
-    vein: [0.3, 0.42, 0.14],
+    vein: [0.36, 0.44, 0.13],
     spot: [0.2, 0.12, 0.04],
     through: [0.45, 0.62, 0.08],
     translucency: 0.42,
     margin: 0.75,
     spots: 0.5,
-    roughness: 0.26,
-    relief: -0.016,
-    crumple: 0.012,
-    seed: 251,
+    roughness: 0.2,
+    vein_roughness: 0.45,
+    dull: 0.3,
+});
+
+/**
+ * `material.leafMatte` — folha fosca (sálvia, a folha do carvalho, a face de baixo de muitas): verde-acinzentada
+ * (`color`), sem realce especular — a cutícula é áspera no limbo todo (`roughness`, 0,82; `vein_roughness`, 0,9) —,
+ * com a penugem leve dos tricomas (`down_color`: o brilho de fibra de `bsdf.sheen`, que clareia a folha no rasante). O
+ * limbo é empolado: almofadas miúdas e altas entre as vênulas (`relief.leafMatte`: `pad_height`, 0,15 mm), as
+ * nervuras afundadas e claras. Deixa passar menos luz (`translucency`, 0,3). Parâmetros: os de `leaf` e `down_color`.
+ */
+export const leafMatte = leafOf('material.leafMatte', relief.leafMatte, LEAF_MATTE, {
+    color: [0.085, 0.14, 0.065],
+    edge: [0.16, 0.2, 0.09],
+    vein: [0.26, 0.32, 0.18],
+    spot: [0.16, 0.14, 0.07],
+    through: [0.4, 0.55, 0.14],
+    translucency: 0.3,
+    margin: 0.5,
+    spots: 0.25,
+    roughness: 0.82,
+    vein_roughness: 0.9,
+    dull: 0.1,
+    down: { color: [0.14, 0.16, 0.14], roughness: 0.55 },
 });
 
 /**
  * `material.leafDry` — folha seca de outono: castanho-alaranjada (`color`), a margem mais escura e queimada
  * (`edge_color`), muitas pintas (`spot_color`), as nervuras claras e salientes (a lâmina encolheu entre elas:
- * `relief` positivo), a lâmina amassada (`crumple`) e fosca (rugosidade 0,6); ainda deixa passar a luz, alaranjada
- * (`translucency`, 0,3). Parâmetros: os de `leaf`.
+ * `relief.leafDry`, `vein_height` 0,45 mm), a lâmina amassada (`wave_height`, 1,5 mm) e fosca (rugosidade 0,6); ainda
+ * deixa passar a luz, alaranjada (`translucency`, 0,3). Parâmetros: os de `leaf`.
  */
-export const leafDry = leafOf('material.leafDry', {
+export const leafDry = leafOf('material.leafDry', relief.leafDry, LEAF_DRY, {
     color: [0.36, 0.16, 0.045],
     edge: [0.16, 0.07, 0.025],
     vein: [0.5, 0.33, 0.14],
@@ -400,9 +505,8 @@ export const leafDry = leafOf('material.leafDry', {
     margin: 0.85,
     spots: 0.75,
     roughness: 0.6,
-    relief: 0.014,
-    crumple: 0.03,
-    seed: 261,
+    vein_roughness: 0.75,
+    dull: 0.15,
 });
 
 /**

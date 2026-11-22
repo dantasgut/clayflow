@@ -27,6 +27,7 @@ export type MaterialName =
     | 'metalBrushed'
     | 'carPaint'
     | 'carPaintSilver'
+    | 'carPaintFlake'
     | 'glass'
     | 'metalOxidized'
     | 'skin'
@@ -57,6 +58,7 @@ export type MaterialName =
     | 'woodPine'
     | 'woodMahogany'
     | 'woodOakVarnished'
+    | 'woodAsh'
     | 'woodFloorPlanks'
     | 'woodFloorHerringbone'
     | 'bark'
@@ -65,6 +67,7 @@ export type MaterialName =
     | 'cork'
     | 'corkStopper'
     | 'leaf'
+    | 'leafMatte'
     | 'leafDry'
     | 'roofTile'
     | 'roofSlate'
@@ -104,22 +107,22 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * uma máscara, ligar a rugosidade a um ruído), use o nó `nodes.material.<nome>` num `NodeGraph` próprio.
  *
  * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`, as espécies `woodOak`, `woodWalnut`,
- * `woodPine`, `woodMahogany`, `woodOakVarnished`, os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
- * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
+ * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
+ * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafMatte`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
  * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
- * `aluminiumAnodized`, `castIron`, `bronzePatina`, `metalOxidized`, `carPaint`, `carPaintSilver`, `carbonFiber`. Pedra, construção e
+ * `aluminiumAnodized`, `castIron`, `bronzePatina`, `metalOxidized`, `carPaint`, `carPaintSilver`, `carPaintFlake`, `carbonFiber`. Pedra, construção e
  * terra: `concrete`, `granite`, `sandstone`, `brick`, `plaster`, `asphalt`, `tile`, `terracotta`, `driedMud`, `sand`.
  * Transparentes e translúcidos: `glass`, `ice`, `skin`, `wax`, `marble`, `jade`, `milk`, `soap`, `ivory`, `snow`. Iridescente:
  * `motherOfPearl`. Os valores físicos e as fontes estão na documentação de cada nó.
  *
- * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`, `soap`, `ivory`, `snow`) têm o raio de espalhamento em milímetros
+ * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`, `soap`, `ivory`, `snow`, `woodAsh`) têm o raio de espalhamento em milímetros
  * (`radius`) e a escala do mundo em unidades por metro (`scale`, 1 por padrão): a luz se difunde sob a superfície e
  * atravessa as partes finas na medida do tamanho real do objeto — `Materials.wax({ scale: 100 })` numa cena em
  * centímetros.
  *
  * Os de relevo em milímetros (`woodRough`, `leather`, `wool`, `sandstone`, `brick`, `bark`, `barkPine`, `barkBirch`, `driedMud`,
- * `roofTile`, `roofSlate`) têm as alturas em milímetros e a mesma escala do mundo
+ * `roofTile`, `roofSlate`, `leaf`, `leafMatte`, `leafDry`, `woodAsh`) têm as alturas em milímetros e a mesma escala do mundo
  * (`scale`): o relevo inclina a normal no material e, com a `DisplacementFunction` de mesmo nome (`Displacements`) na
  * entidade de uma `ParametricSurface`, move a geometria — os mesmos valores nos dois.
  *
@@ -151,6 +154,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     metalBrushed: factory(material.metalBrushed),
     carPaint: factory(material.carPaint),
     carPaintSilver: factory(material.carPaintSilver),
+    carPaintFlake: factory(material.carPaintFlake),
     glass: factory(material.glass),
     metalOxidized: factory(material.metalOxidized),
     skin: factory(material.skin),
@@ -181,6 +185,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     woodPine: factory(material.woodPine),
     woodMahogany: factory(material.woodMahogany),
     woodOakVarnished: factory(material.woodOakVarnished),
+    woodAsh: factory(material.woodAsh),
     woodFloorPlanks: factory(material.woodFloorPlanks),
     woodFloorHerringbone: factory(material.woodFloorHerringbone),
     bark: factory(material.bark),
@@ -189,6 +194,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     cork: factory(material.cork),
     corkStopper: factory(material.corkStopper),
     leaf: factory(material.leaf),
+    leafMatte: factory(material.leafMatte),
     leafDry: factory(material.leafDry),
     roofTile: factory(material.roofTile),
     roofSlate: factory(material.roofSlate),

@@ -1,5 +1,6 @@
 import { NodeGraph } from '../../../scene/graph/NodeGraph';
 import { Subgraph } from '../../../scene/graph/Subgraph';
+import { map } from '../map';
 import { math } from '../math';
 import { pattern } from '../pattern';
 import { surface } from '../surface';
@@ -341,7 +342,10 @@ export interface BarkPatterns {
     readonly flakes: { scale: number[]; octaves: number; gain: number; seed: number };
 }
 
-/** As alturas (mm) do relevo de uma casca: fissuras, quebras, fissuras menores, escamas, cristas e grão fino. */
+/**
+ * As alturas (mm) do relevo de uma casca: fissuras, quebras, fissuras menores, escamas (a mais alta), cristas, grão
+ * fino e o abaulado das placas.
+ */
 interface BarkHeights {
     readonly furrow: number;
     readonly breaks: number;
@@ -396,7 +400,12 @@ function barkRelief(name: string, v: BarkPatterns, h: BarkHeights) {
                 plate_relief: surface.relief.with({ height: h.furrow, level: 1 }),
                 break_relief: surface.relief.with({ height: h.breaks, level: 1 }),
                 check_relief: surface.relief.with({ height: h.checks, level: 1 }),
-                scale_relief: surface.relief.with({ height: h.scales, level: 1 }),
+                // Cada escama é um platô no seu nível (de 0,3 a 1 da altura), com o sulco entre duas no nível zero:
+                // a face das placas em degraus, com sombra própria entre as escamas.
+                scale_top: math.value.with({ value: h.scales }),
+                scale_level: map.range.with({ out_min: 0.3, out_max: 1 }),
+                scale_lift: math.mul,
+                scale_relief: surface.relief,
                 flake_relief: surface.relief.with({ height: h.flakes }),
                 fine_relief: surface.relief.with({ height: h.fine }),
                 swell_relief: surface.relief.with({ height: h.swell }),
@@ -413,6 +422,10 @@ function barkRelief(name: string, v: BarkPatterns, h: BarkHeights) {
                 ...reliefLinks('plate_relief', 'plates.height', 'plates.gradient'),
                 ...reliefLinks('break_relief', 'breaks.height', 'breaks.gradient'),
                 ...reliefLinks('check_relief', 'checks.height', 'checks.gradient'),
+                ['scales.cell', 'scale_level.x'],
+                ['scale_level.value', 'scale_lift.a'],
+                ['scale_top.value', 'scale_lift.b'],
+                ['scale_lift.value', 'scale_relief.height'],
                 ...reliefLinks('scale_relief', 'scales.height', 'scales.gradient'),
                 ...reliefLinks('flake_relief', 'flakes.value', 'flakes.gradient'),
                 ...reliefLinks('fine_relief', 'fine.value', 'fine.gradient'),
@@ -438,7 +451,7 @@ function barkRelief(name: string, v: BarkPatterns, h: BarkHeights) {
             expose: [
                 ['plate_relief.height', 'furrow_depth'],
                 ['flake_relief.height', 'ridge_height'],
-                ['scale_relief.height', 'scale_height'],
+                ['scale_top.value', 'scale_height'],
                 PATTERN_SCALE,
             ],
         },
@@ -446,34 +459,35 @@ function barkRelief(name: string, v: BarkPatterns, h: BarkHeights) {
 }
 
 /**
- * `relief.bark` — o relevo da casca grossa do carvalho: placas compridas ao longo de v (o eixo do tronco), de face
- * plana, separadas por fissuras fundas que se ramificam e se juntam (`pattern.fissures`; `furrow_depth`, 12 mm, de
- * parede inclinada) e cortadas em blocos por quebras em volta do tronco (5 mm); dentro das placas, fissuras menores
- * (2,6 mm), as escamas (as lascas da face: `scale_height`, 1,6 mm no sulco entre duas), as cristas ásperas ao longo
- * do tronco (`ridge_height`, 3,4 mm), o grão fino (0,6 mm) e as placas abauladas (3 mm). Parâmetros: `furrow_depth`,
- * `ridge_height`, `scale_height`, `pattern_scale`.
+ * `relief.bark` — o relevo da casca grossa do carvalho, em várias escalas: placas compridas ao longo de v (o eixo do
+ * tronco) separadas por fissuras fundas que se ramificam e se juntam (`pattern.fissures`; `furrow_depth`, 16 mm, de
+ * parede inclinada) e cortadas em blocos por quebras em volta do tronco (6 mm); dentro das placas, fissuras menores
+ * (3,5 mm); a face das placas em degraus — cada escama é um platô no seu nível (`scale_height`, de 0,8 a 2,8 mm
+ * acima do sulco entre duas) —, as cristas ásperas ao longo do tronco (`ridge_height`, 3,4 mm), o grão fino (0,6 mm)
+ * e as placas abauladas (3 mm). Parâmetros: `furrow_depth`, `ridge_height`, `scale_height`, `pattern_scale`.
  */
 const bark = barkRelief('relief.bark', BARK_OAK, {
-    furrow: 12,
-    breaks: 5,
-    checks: 2.6,
-    scales: 1.6,
+    furrow: 16,
+    breaks: 6,
+    checks: 3.5,
+    scales: 2.8,
     flakes: 3.4,
     fine: 0.6,
     swell: 3,
 });
 
 /**
- * `relief.barkPine` — o relevo da casca do pinheiro: placas largas e chatas separadas por fissuras estreitas e fundas
- * (`furrow_depth`, 9 mm) e por quebras em volta do tronco (5 mm), cobertas de escamas grandes em camadas — a borda de
- * cada escama é um degrau (`scale_height`, 1,8 mm) —, com as lascas (1,5 mm), as cristas (`ridge_height`, 1,2 mm) e o
- * grão fino (0,5 mm). Parâmetros: `furrow_depth`, `ridge_height`, `scale_height`, `pattern_scale`.
+ * `relief.barkPine` — o relevo da casca do pinheiro: placas largas separadas por fissuras estreitas e fundas
+ * (`furrow_depth`, 12 mm) e por quebras em volta do tronco (5 mm), cobertas de escamas grandes em camadas — cada
+ * escama é um platô no seu nível, com a borda em degrau (`scale_height`, de 1 a 3,4 mm) —, com as fissuras menores
+ * (2 mm), as cristas (`ridge_height`, 1,2 mm) e o grão fino (0,5 mm).
+ * Parâmetros: os de `relief.bark`.
  */
 const barkPine = barkRelief('relief.barkPine', BARK_PINE, {
-    furrow: 9,
+    furrow: 12,
     breaks: 5,
-    checks: 1.5,
-    scales: 1.8,
+    checks: 2,
+    scales: 3.4,
     flakes: 1.2,
     fine: 0.5,
     swell: 3,
@@ -575,10 +589,14 @@ export const BIRCH_LENTICELS = { scale: [7, 64], octaves: 2, gain: 0.5, seed: 97
 /** Os níveis do grão entre os quais a casca vira lenticela. */
 export const BIRCH_DASH = { low: 0.34, high: 0.46 };
 
+/** Os níveis do grão em que a tira solta volta a assentar, da borda para dentro (a borda fica enrolada, levantada). */
+export const BIRCH_SETTLE = { low: 0.27, high: 0.36 };
+
 /**
  * `relief.barkBirch` — o relevo da casca de bétula: lisa, com as tiras de casca fina que descascam em volta do tronco
- * (`peel_height`, 1,4 mm: a borda da tira levantada, viva), as lenticelas salientes (`lenticel_height`, 0,5 mm) e a
- * ondulação leve do tronco (0,6 mm). Parâmetros: `peel_height`, `lenticel_height`, `pattern_scale`.
+ * — a borda de cada tira enrolada, levantada da superfície (`peel_height`, 4 mm), e o resto da tira solto, a um quarto
+ * disso —, as lenticelas salientes (`lenticel_height`, 1,2 mm) e a ondulação do tronco (`swell_height`, 2 mm).
+ * Parâmetros: `peel_height`, `lenticel_height`, `swell_height`, `pattern_scale`.
  */
 const barkBirch = Subgraph.point(
     new NodeGraph({
@@ -586,13 +604,20 @@ const barkBirch = Subgraph.point(
             ...patternSpace(),
             peel: pattern.grain.with(BIRCH_PEEL),
             strip: pattern.threshold.with(BIRCH_EDGE),
+            settle: pattern.threshold.with(BIRCH_SETTLE),
             mark: pattern.grain.with(BIRCH_LENTICELS),
             dash: pattern.threshold.with(BIRCH_DASH),
             swell: pattern.grain.with({ scale: [3, 5], octaves: 3, seed: 98 }),
-            peel_relief: surface.relief.with({ height: 1.4 }),
-            dash_relief: surface.relief.with({ height: 0.5 }),
-            swell_relief: surface.relief.with({ height: 0.6 }),
-            sum: math.add3,
+            // A borda sobe a altura toda na beira da tira e desce três quartos dela para dentro.
+            curl: math.value.with({ value: 4 }),
+            back: math.mul,
+            down: math.value.with({ value: -0.75 }),
+            peel_relief: surface.relief,
+            settle_relief: surface.relief,
+            dash_relief: surface.relief.with({ height: 1.2 }),
+            swell_relief: surface.relief.with({ height: 2 }),
+            sum_a: math.add3,
+            sum_b: math.add3,
             out: math.add3,
         },
         links: [
@@ -600,15 +625,24 @@ const barkBirch = Subgraph.point(
             ...patternLinks('peel', 'mark', 'swell'),
             ['peel.value', 'strip.value'],
             ['peel.gradient', 'strip.gradient'],
+            ['peel.value', 'settle.value'],
+            ['peel.gradient', 'settle.gradient'],
             ['mark.value', 'dash.value'],
             ['mark.gradient', 'dash.gradient'],
+            ['curl.value', 'back.a'],
+            ['down.value', 'back.b'],
+            ['curl.value', 'peel_relief.height'],
+            ['back.value', 'settle_relief.height'],
             ...reliefLinks('peel_relief', 'strip.value', 'strip.gradient'),
+            ...reliefLinks('settle_relief', 'settle.value', 'settle.gradient'),
             ...reliefLinks('dash_relief', 'dash.value', 'dash.gradient'),
             ...reliefLinks('swell_relief', 'swell.value', 'swell.gradient'),
-            ['peel_relief.value', 'sum.a'],
-            ['dash_relief.value', 'sum.b'],
-            ['sum.value', 'out.a'],
-            ['swell_relief.value', 'out.b'],
+            ['peel_relief.value', 'sum_a.a'],
+            ['settle_relief.value', 'sum_a.b'],
+            ['dash_relief.value', 'sum_b.a'],
+            ['swell_relief.value', 'sum_b.b'],
+            ['sum_a.value', 'out.a'],
+            ['sum_b.value', 'out.b'],
         ],
         output: 'out.value',
     }),
@@ -616,8 +650,9 @@ const barkBirch = Subgraph.point(
         name: 'relief.barkBirch',
         ...SAMPLE_INPUT,
         expose: [
-            ['peel_relief.height', 'peel_height'],
+            ['curl.value', 'peel_height'],
             ['dash_relief.height', 'lenticel_height'],
+            ['swell_relief.height', 'swell_height'],
             PATTERN_SCALE,
         ],
     },
@@ -680,6 +715,228 @@ const driedMud = Subgraph.point(
     },
 );
 
+/** As nervuras de uma folha (`pattern.veins`): a rede de vênulas (`fine` células por unidade do padrão) e a semente. */
+export interface LeafPatterns {
+    readonly fine: number;
+    readonly seed: number;
+}
+
+/** As nervuras da folha da biblioteca: a central, onze secundárias de cada lado e a rede de `fine` vênulas. */
+export function leafVeins(v: LeafPatterns): Record<string, number | number[]> {
+    return {
+        scale: [0.5, 1],
+        veins: 11,
+        slope: 0.8,
+        curve: 1.5,
+        thickness: 0.018,
+        fine: v.fine,
+        seed: v.seed,
+    };
+}
+
+/**
+ * As almofadas do limbo: as células da rede de vênulas (o mesmo Voronoi de `pattern.veins`, pela mesma semente) com a
+ * altura subindo da vênula ao meio da aréola.
+ */
+export function leafPads(v: LeafPatterns): Record<string, number> {
+    return { scale: v.fine, jitter: 1, crease: 0.5, seed: v.seed };
+}
+
+/** A ondulação larga do limbo (um grão do tamanho do espaço entre duas secundárias). */
+export function leafWave(v: LeafPatterns): Record<string, number | number[]> {
+    return { scale: [2.5, 5], octaves: 3, seed: v.seed + 4 };
+}
+
+/** As folhas da biblioteca: a cerosa, a fosca (rede de vênulas mais miúda: o limbo empolado) e a seca. */
+export const LEAF_GREEN: LeafPatterns = { fine: 36, seed: 251 };
+export const LEAF_MATTE: LeafPatterns = { fine: 48, seed: 281 };
+export const LEAF_DRY: LeafPatterns = { fine: 36, seed: 261 };
+
+/**
+ * O relevo de uma folha: as nervuras central e secundárias (`vein`, mm na crista da central e 0,7 disso nas
+ * secundárias; negativo: sulcos, a face de cima), o vale largo em volta delas — o limbo abaulado entre duas
+ * secundárias (`bulge`, mm do fundo do vale ao alto do limbo) —, as almofadas do limbo entre as vênulas (`pad`, mm da
+ * vênula ao meio da aréola) e a ondulação larga da lâmina (`wave`, mm). As vênulas não têm sulco próprio: são o vale
+ * entre duas almofadas, que a malha resolve.
+ */
+function leafRelief(
+    name: string,
+    v: LeafPatterns,
+    h: { vein: number; bulge: number; pad: number; wave: number },
+) {
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                ...patternSpace(),
+                veins: pattern.veins.with({ ...leafVeins(v), fine: 0 }),
+                // As mesmas nervuras com seis vezes a largura: o vale em que cada uma corre.
+                valley: pattern.veins.with({ ...leafVeins(v), fine: 0, thickness: 0.11 }),
+                pad: pattern.cells.with(leafPads(v)),
+                wave: pattern.grain.with(leafWave(v)),
+                vein_relief: surface.relief.with({ height: h.vein }),
+                valley_relief: surface.relief.with({ height: h.bulge, level: 1 }),
+                pad_relief: surface.relief.with({ height: h.pad }),
+                wave_relief: surface.relief.with({ height: h.wave }),
+                sum_a: math.add3,
+                sum_b: math.add3,
+                out: math.add3,
+            },
+            links: [
+                ...SPACE_LINKS,
+                ...patternLinks('veins', 'valley', 'pad', 'wave'),
+                ...reliefLinks('vein_relief', 'veins.height', 'veins.gradient'),
+                ...reliefLinks('valley_relief', 'valley.height', 'valley.gradient'),
+                ...reliefLinks('pad_relief', 'pad.height', 'pad.gradient'),
+                ...reliefLinks('wave_relief', 'wave.value', 'wave.gradient'),
+                ['vein_relief.value', 'sum_a.a'],
+                ['valley_relief.value', 'sum_a.b'],
+                ['pad_relief.value', 'sum_b.a'],
+                ['wave_relief.value', 'sum_b.b'],
+                ['sum_a.value', 'out.a'],
+                ['sum_b.value', 'out.b'],
+            ],
+            output: 'out.value',
+        }),
+        {
+            name,
+            ...SAMPLE_INPUT,
+            expose: [
+                ['vein_relief.height', 'vein_height'],
+                ['valley_relief.height', 'bulge_height'],
+                ['pad_relief.height', 'pad_height'],
+                ['wave_relief.height', 'wave_height'],
+                PATTERN_SCALE,
+            ],
+        },
+    );
+}
+
+/**
+ * `relief.leaf` — o relevo da folha cerosa (a face de cima; o cafeeiro, a magnólia, o louro): as nervuras central e
+ * secundárias afundadas (`vein_height`, −0,35 mm na central, −0,25 nas secundárias) no fundo de um vale largo — o
+ * limbo estufa entre duas secundárias (`bulge_height`, −0,9 mm: a fundura do vale; a folha do cafeeiro é assim,
+ * acolchoada) —, o limbo abaulado em almofadas entre as vênulas (`pad_height`, 0,18 mm: cada almofada com a sua
+ * inclinação, até uns 8° numa lâmina de 14 cm de largura) e a ondulação larga da lâmina (`wave_height`, 1,2 mm). Medidas estimadas (a lâmina de uma
+ * folha coriácea tem de 0,3 a 0,6 mm de espessura). Parâmetros: `vein_height`, `bulge_height`, `pad_height`,
+ * `wave_height`, `pattern_scale`.
+ */
+const leaf = leafRelief('relief.leaf', LEAF_GREEN, {
+    vein: -0.35,
+    bulge: -0.9,
+    pad: 0.18,
+    wave: 1.2,
+});
+
+/**
+ * `relief.leafMatte` — o relevo da folha fosca (sálvia, a face de baixo do carvalho): o limbo empolado — as almofadas
+ * altas entre as vênulas (`pad_height`, 0,15 mm) —, as nervuras afundadas (`vein_height`, −0,3 mm; `bulge_height`,
+ * −0,3 mm) e a lâmina ondulada (`wave_height`, 1 mm). Medidas estimadas. Parâmetros: os de `relief.leaf`.
+ */
+const leafMatte = leafRelief('relief.leafMatte', LEAF_MATTE, {
+    vein: -0.3,
+    bulge: -0.3,
+    pad: 0.15,
+    wave: 1,
+});
+
+/**
+ * `relief.leafDry` — o relevo da folha seca: a lâmina encolheu entre as nervuras, que ficam salientes (`vein_height`,
+ * 0,45 mm; `bulge_height`, 0,3 mm: o limbo afunda entre duas), as aréolas afundam (`pad_height`, −0,06 mm) e a
+ * lâmina amassa (`wave_height`, 1,5 mm). Medidas estimadas. Parâmetros: os de `relief.leaf`.
+ */
+const leafDry = leafRelief('relief.leafDry', LEAF_DRY, {
+    vein: 0.45,
+    bulge: 0.3,
+    pad: -0.06,
+    wave: 1.5,
+});
+
+/** O deslocamento do padrão do freixo no uv (a medula fora do meio da peça: os arcos dos anéis de um lado). */
+export const ASH_OFFSET = [0.31, -0.45] as const;
+
+/**
+ * Os anéis do freixo (`pattern.rings`): 30 por unidade do padrão, de largura irregular e linha torta, sem nós. Uma
+ * unidade do padrão são uns 4 cm de madeira (anéis de 3 mm, vasos de 0,2 mm).
+ */
+export const ASH_RINGS = {
+    scale: 30,
+    depth: 0.14,
+    distortion: 0.16,
+    distortion_scale: [1.2, 1.8],
+    irregularity: 1,
+    waviness: 0.03,
+    waviness_scale: [2.2, 5],
+    seed: 41,
+};
+
+/** A fibra do freixo (um grão alongado ao longo do veio). */
+export const ASH_FIBER = { scale: [2.5, 110], octaves: 2, seed: 43 };
+
+/** Os vasos do freixo (um grão alongado ao longo do veio: acima do nível, o poro aberto). */
+export const ASH_PORE = { scale: [6, 60], octaves: 2, seed: 47 };
+
+/** Os níveis do grão entre os quais a face vira poro (1 na face, 0 no fundo do poro). */
+export const ASH_PIT = { low: 0.5, high: 0.25 };
+
+/** O quanto o poro abre ao longo do anel: inteiro no lenho inicial (o anel poroso), quase nada no tardio. */
+export const ASH_EARLY = { in_min: 0.1, in_max: 0.7, out_min: 1, out_max: 0.12 };
+
+/**
+ * `relief.woodAsh` — o relevo do freixo cru, lixado e escovado de leve: o lenho tardio, mais duro, fica saliente
+ * (`ring_height`, 0,12 mm entre o lenho inicial e a crista do anel); os vasos grandes do lenho inicial ficam abertos,
+ * em sulcos curtos ao longo do veio (`pore_depth`, 0,25 mm no lenho inicial, quase nada no tardio: o freixo tem o anel
+ * poroso); a fibra levantada risca a face (`fiber_height`, 0,08 mm). Medidas estimadas (os vasos do lenho inicial do
+ * freixo têm de 0,15 a 0,35 mm de diâmetro). Parâmetros: `ring_height`, `pore_depth`, `fiber_height`,
+ * `pattern_scale`.
+ */
+const woodAsh = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(ASH_OFFSET),
+            rings: pattern.rings.with(ASH_RINGS),
+            fiber: pattern.grain.with(ASH_FIBER),
+            pore: pattern.grain.with(ASH_PORE),
+            pit: pattern.threshold.with(ASH_PIT),
+            early: map.range.with(ASH_EARLY),
+            deep: math.value.with({ value: 0.25 }),
+            open: math.mul,
+            ring_relief: surface.relief.with({ height: 0.12, level: 0.5 }),
+            fiber_relief: surface.relief.with({ height: 0.08 }),
+            pore_relief: surface.relief.with({ level: 1 }),
+            sum: math.add3,
+            out: math.add3,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('rings', 'fiber', 'pore'),
+            ['pore.value', 'pit.value'],
+            ['pore.gradient', 'pit.gradient'],
+            ['rings.value', 'early.x'],
+            ['early.value', 'open.a'],
+            ['deep.value', 'open.b'],
+            ['open.value', 'pore_relief.height'],
+            ...reliefLinks('ring_relief', 'rings.value', 'rings.gradient'),
+            ...reliefLinks('fiber_relief', 'fiber.value', 'fiber.gradient'),
+            ...reliefLinks('pore_relief', 'pit.value', 'pit.gradient'),
+            ['ring_relief.value', 'sum.a'],
+            ['fiber_relief.value', 'sum.b'],
+            ['sum.value', 'out.a'],
+            ['pore_relief.value', 'out.b'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'relief.woodAsh',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['ring_relief.height', 'ring_height'],
+            ['deep.value', 'pore_depth'],
+            ['fiber_relief.height', 'fiber_height'],
+            PATTERN_SCALE,
+        ],
+    },
+);
+
 /**
  * Relevos dos materiais prontos (spec 011): sub-grafos de ponto que devolvem o relevo (`vec3f`: altura em milímetros e
  * as derivadas no uv) da amostra de superfície — a entrada de `surface.reliefNormal` no material e de
@@ -697,4 +954,8 @@ export const relief = {
     driedMud,
     roofTile,
     roofSlate,
+    leaf,
+    leafMatte,
+    leafDry,
+    woodAsh,
 } as const;

@@ -17,7 +17,19 @@ import {
     SPACE_LINKS,
     type Link,
 } from './pattern';
-import { BIRCH_DASH, BIRCH_EDGE, BIRCH_LENTICELS, BIRCH_PEEL, relief } from './relief';
+import {
+    ASH_EARLY,
+    ASH_FIBER,
+    ASH_OFFSET,
+    ASH_PIT,
+    ASH_PORE,
+    ASH_RINGS,
+    BIRCH_DASH,
+    BIRCH_EDGE,
+    BIRCH_LENTICELS,
+    BIRCH_PEEL,
+    relief,
+} from './relief';
 
 // Espécies de madeira, assoalhos, casca e cortiça (spec 011, T117). Cada espécie tem a sua cor, o seu veio e a sua
 // figura, calculados por pixel (`pattern.rings`: o corte tangencial do tronco com a fibra ao longo de u;
@@ -523,13 +535,135 @@ export const woodFloorHerringbone = species('material.woodFloorHerringbone', {
 });
 
 /**
+ * `material.woodAsh` — freixo cru: madeira clara e fosca, lixada e escovada de leve, sem verniz nem cera. Creme
+ * (`color`), com o veio discreto e irregular — o lenho tardio pouco mais escuro (`late_color`), cada anel com o seu
+ * tom, faixas largas, a fibra fina — e os vasos abertos do lenho inicial em tracinhos escuros ao longo do veio
+ * (`pore_color`; o freixo tem o anel poroso). A madeira clara é translúcida a curta distância: a luz entra, espalha-se
+ * nas fibras e sai perto — o corpo é `bsdf.subsurface`, com o caminho livre médio `radius` de (1,1, 0,7, 0,35) mm,
+ * mais longo no vermelho (valores estimados: ordem de 1 mm, sem medida publicada do freixo; Marschner et al. 2005,
+ * "Measuring and Modeling the Appearance of Finished Wood", medem o espalhamento sob a superfície da madeira e a
+ * anisotropia dele pela fibra), e `scale` unidades do mundo por metro — é o que dá o aspecto macio da madeira crua,
+ * e uma peça fina deixa passar luz. Sem verniz, a interface é a da celulose (IOR 1,5) de lobo largo (`roughness`,
+ * 0,62) e alongado através da fibra (`anisotropy`, 0,6, a tangente ao longo do veio: o realce de fibra de Marschner
+ * et al., aqui no lobo da interface). O relevo é o de `relief.woodAsh`, em milímetros — o lenho tardio saliente
+ * (`ring_height`, 0,12), os poros abertos (`pore_depth`, 0,25) e a fibra levantada (`fiber_height`, 0,08) —, na
+ * normal; com `Displacements.woodAsh()` na entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`,
+ * `late_color`, `pore_color`, `roughness`, `anisotropy`, `radius`, `ring_height`, `pore_depth`, `fiber_height`,
+ * `scale`, `pattern_scale`.
+ */
+export const woodAsh = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(ASH_OFFSET),
+            rings: pattern.rings.with(ASH_RINGS),
+            fiber: pattern.grain.with(ASH_FIBER),
+            thread: pattern.grain.with({ scale: [7, 300], octaves: 2, seed: 44 }),
+            pore: pattern.grain.with(ASH_PORE),
+            pit: pattern.threshold.with(ASH_PIT),
+            figure: pattern.grain.with({ scale: [1.1, 8], octaves: 3, gain: 0.55, seed: 45 }),
+            broad: pattern.grain.with({ scale: [0.45, 2.4], octaves: 3, gain: 0.55, seed: 46 }),
+            tone: color.ramp.with({
+                color_a: [0.66, 0.53, 0.37],
+                color_b: [0.5, 0.36, 0.21],
+                low: 0.68,
+                high: 1,
+            }),
+            year: map.range.with({ out_min: 0.93, out_max: 1.07 }),
+            wide: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.9, out_max: 1.1 }),
+            band: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+            streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
+            hair: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+            shade_a: math.mul,
+            shade_b: math.mul,
+            shade_c: math.mul,
+            shade: math.mul,
+            lit: math.scale3,
+            // Os vasos abertos: escuros no fundo, só no lenho inicial.
+            early: map.range.with(ASH_EARLY),
+            hollow: map.range.with({ out_min: 0.75, out_max: 0 }),
+            pore_mask: math.mul,
+            pore_color: math.value3.with({ value: [0.2, 0.13, 0.07] }),
+            pored: math.mix3,
+            world: math.value.with({ value: 1 }),
+            body: bsdf.subsurface.with({ radius: [1.1, 0.7, 0.35] }),
+            specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.62, anisotropy: 0.6 }),
+            sum: closure.add,
+            tile: math.value2.with({ value: [1, 1] }),
+            height: relief.woodAsh,
+            normal: surface.reliefNormal,
+            out: closure.normal,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('rings', 'fiber', 'thread', 'pore', 'figure', 'broad'),
+            ['tile.value', 'uv.scale'],
+            ['pore.value', 'pit.value'],
+            ['pore.gradient', 'pit.gradient'],
+            ['rings.value', 'tone.t'],
+            ['rings.ring', 'year.x'],
+            ['broad.value', 'wide.x'],
+            ['figure.value', 'band.x'],
+            ['fiber.value', 'streak.x'],
+            ['thread.value', 'hair.x'],
+            ['year.value', 'shade_a.a'],
+            ['wide.value', 'shade_a.b'],
+            ['band.value', 'shade_b.a'],
+            ['streak.value', 'shade_b.b'],
+            ['shade_a.value', 'shade_c.a'],
+            ['shade_b.value', 'shade_c.b'],
+            ['shade_c.value', 'shade.a'],
+            ['hair.value', 'shade.b'],
+            ['tone.color', 'lit.v'],
+            ['shade.value', 'lit.s'],
+            ['rings.value', 'early.x'],
+            ['pit.value', 'hollow.x'],
+            ['early.value', 'pore_mask.a'],
+            ['hollow.value', 'pore_mask.b'],
+            ['lit.value', 'pored.a'],
+            ['pore_color.value', 'pored.b'],
+            ['pore_mask.value', 'pored.t'],
+            ['pored.value', 'body.color'],
+            ['world.value', 'body.scale'],
+            ['uv.du', 'specular.tangent'],
+            ['specular.value', 'sum.a'],
+            ['body.value', 'sum.b'],
+            ['s.value', 'height.s'],
+            ['tile.value', 'height.pattern_scale'],
+            ['height.value', 'normal.relief'],
+            ['world.value', 'normal.scale'],
+            ['sum.value', 'out.c'],
+            ['normal.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.woodAsh',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['tone.color_a', 'color'],
+            ['tone.color_b', 'late_color'],
+            ['pore_color.value', 'pore_color'],
+            ['specular.roughness', 'roughness'],
+            ['specular.anisotropy', 'anisotropy'],
+            ['body.radius', 'radius'],
+            ['height.ring_height', 'ring_height'],
+            ['height.pore_depth', 'pore_depth'],
+            ['height.fiber_height', 'fiber_height'],
+            ['world.value', 'scale'],
+            ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
+
+/**
  * `material.barkBirch` — casca de bétula: lisa, branca e acetinada (`color`; a betulina, rugosidade 0,45), manchada de
  * leve em faixas em volta do tronco, com as lenticelas — traços curtos, escuros e salientes em volta do tronco
  * (`lenticel_color`) — e as tiras de casca fina que descascam: sob a tira solta aparece a camada de baixo, rosada
- * (`under_color`), e a borda levantada faz sombra. O relevo é o de `relief.barkBirch`, em milímetros — a borda das
- * tiras (`peel_height`, 1,4) e as lenticelas (`lenticel_height`, 0,5), com `scale` unidades do mundo por metro —, na
- * normal; com `Displacements.barkBirch()` na entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`,
- * `under_color`, `lenticel_color`, `roughness`, `peel_height`, `lenticel_height`, `scale`, `pattern_scale`.
+ * (`under_color`), e a borda levantada faz sombra. O relevo é o de `relief.barkBirch`, em milímetros — a borda
+ * enrolada das tiras (`peel_height`, 4), as lenticelas (`lenticel_height`, 1,2) e a ondulação do tronco
+ * (`swell_height`, 2), com `scale` unidades do mundo por metro —, na normal; com `Displacements.barkBirch()` na
+ * entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`, `under_color`, `lenticel_color`,
+ * `roughness`, `peel_height`, `lenticel_height`, `swell_height`, `scale`, `pattern_scale`.
  */
 export const barkBirch = Subgraph.point(
     new NodeGraph({
@@ -596,6 +730,7 @@ export const barkBirch = Subgraph.point(
             ['specular.roughness', 'roughness'],
             ['height.peel_height', 'peel_height'],
             ['height.lenticel_height', 'lenticel_height'],
+            ['height.swell_height', 'swell_height'],
             ['normal.scale', 'scale'],
             ['tile.value', 'pattern_scale'],
         ],

@@ -2,6 +2,7 @@ import { cotton, denim, sheerFabric, silk, velvet, wool } from './fabric';
 import {
     brass,
     carPaint,
+    carPaintFlake,
     carPaintSilver,
     chrome,
     copper,
@@ -13,7 +14,7 @@ import {
 import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
 import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
-import { bark, barkPine, corkStopper, leaf, leafDry } from './plant';
+import { bark, barkPine, corkStopper, leaf, leafDry, leafMatte } from './plant';
 import { roofSlate, roofTile } from './roof';
 import {
     ceramic,
@@ -41,6 +42,7 @@ import { woodVarnishedGloss, woodVarnishedMatte } from './wood';
 import {
     barkBirch,
     cork,
+    woodAsh,
     woodFloorHerringbone,
     woodFloorPlanks,
     woodMahogany,
@@ -51,7 +53,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 68 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 71 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -78,6 +80,7 @@ export const material = {
     metalBrushed,
     carPaint,
     carPaintSilver,
+    carPaintFlake,
     glass,
     metalOxidized,
     skin,
@@ -108,6 +111,7 @@ export const material = {
     woodPine,
     woodMahogany,
     woodOakVarnished,
+    woodAsh,
     woodFloorPlanks,
     woodFloorHerringbone,
     bark,
@@ -116,6 +120,7 @@ export const material = {
     cork,
     corkStopper,
     leaf,
+    leafMatte,
     leafDry,
     roofTile,
     roofSlate,
