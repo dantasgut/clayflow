@@ -51,14 +51,26 @@ T003, T107 e T108, cada uma com a nota **Entrega** (o registro e os números med
 
 Ficam 7 abertas: a US6 (T095–T100, a comparação com o Three.js no bench) e T112 (vídeos).
 
+Corrigidos depois (2026-11-22), com a medida no caso `gallery` do smoke `materials`:
+
+- a borda preta do `sheerFabric`: os pontos opacos atingidos pelos raios da refração não recebiam a luz ambiente da cena
+  sem a iluminação global (o hemisfério só contribuía para o desenho). Ponto de cena novo `scene_ambient_lighting`, com o
+  hemisfério e o céu; do lado contra o sol o tecido fino passou de 0 a 0,156 (algodão, pelo forward: 0,096), e um difuso
+  com lobo de opacidade dá o mesmo valor do forward (0,0984);
+- o grão do vidro com dispersão (`abbe` 58): na interface lisa com a dispersão adiada o lobo saía pela roleta de
+  Fresnel, e o vermelho e o azul, ao repetir o trecho do verde, sorteavam cada um o seu (pontos verdes e rosa; o fim do
+  caminho mudava de quadro para quadro e o filtro temporal recomeçava). Agora os lobos seguem sem sorteio enquanto o
+  lobo menor tem a vaga 4 do pixel. Pontos de grão no meio das casas vistas pelo vidro: 7,50 % → 0,11 % (limite 0,5 %).
+
 Achados no caminho, fora do escopo destas tarefas (em `specs/PENDENCIAS.md`):
 
-- uma superfície sem transmissão desenhada pelo traçado da refração (lobo de opacidade ou de translucidez) fica preta
-  na parte voltada contra a luz; o `sheerFabric` da galeria mostra;
-- o vidro com dispersão (`abbe` 58) fica granulado depois de 32 quadros parados;
+- a borda da esfera de vidro serrilha a parede comprimida pela lente, com ou sem dispersão (o material não é filtrado
+  na largura que a refração dá ao pixel);
+- `refraction_node_at` não grava a rugosidade da interface sem dispersão (visto no código; não medido);
 - os dois pedidos da refração da água gravam a distância até a posição da câmera, como o do forward gravava (corrigido
   só o do forward, `924d3987`);
-- com o antisserrilhado temporal, a galeria mostra anéis nos dielétricos rugosos (visto num quadro; não investigado).
+- com o antisserrilhado temporal, a galeria mostra anéis nos dielétricos rugosos (visto num quadro; não investigado:
+  são desenhados pelo forward, outra causa).
 
 ## Format: `[ID] [P?] [Story] Description`
 

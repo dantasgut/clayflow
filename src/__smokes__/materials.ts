@@ -20,8 +20,9 @@
 //   - sanitize: fechamento com NaN não chega ao HDR;
 //   - gallery (US5): os 23 materiais prontos (`Materials.*`) em esferas sob a mesma luz, diante de uma parede xadrez —
 //     madeira crua sem realce nítido e envernizada com realce nítido, veludo com a borda mais clara que o centro, metal
-//     escovado com o realce alongado, vidro transparente com o xadrez refratado (`--query case=gallery&shot=1` grava o
-//     quadro em `fixtures/zzGallery.png`);
+//     escovado com o realce alongado, vidro transparente com o xadrez refratado e sem grão no meio das casas, tecido
+//     fino com a luz ambiente do lado contra o sol (`--query case=gallery&shot=1` grava o quadro em
+//     `fixtures/zzGallery.png`);
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
@@ -1286,6 +1287,62 @@ async function caseGallery(): Promise<void> {
     );
     check(through > 0.5 * wall, `gallery: o vidro não é transparente (${through} × ${wall})`);
     check(differ / n > 0.15, `gallery: o xadrez não aparece refratado (${differ} de ${n})`);
+
+    // Vidro sem grão: a dispersão (`abbe` 58) aparece como franja nas bordas do xadrez, não como pontos soltos dentro
+    // das casas. No disco de 0,7 do raio (fora dele a esfera comprime a parede inteira em poucos pixels: o serrilhado da
+    // imagem reduzida, com ou sem dispersão), o pixel no meio de uma casa — ao menos 20 dos 25 pixels da janela 5 × 5
+    // com a luminância a menos de 10 % da casa clara da mediana da janela — é um ponto de grão quando um canal dele
+    // foge mais que isso da mediana do canal na janela. As franjas ficam nas bordas (janela dividida), fora da conta.
+    // Medido: 7,50 % (299 de 3989) com a roleta de Fresnel na interface lisa que dispersa, cada canal com o seu sorteio;
+    // 0,11 % (5 de 4482) com os lobos sem sorteio. O limite de 0,5 % fica 15× abaixo do defeito.
+    const disc = Math.round(0.7 * r);
+    const tolerance = 0.1 * wall;
+    const median = (v: number[]): number => v.sort((a, b) => a - b)[v.length >> 1]!;
+    let dots = 0;
+    let flat = 0;
+    for (let dy = -disc; dy <= disc; dy++) {
+        for (let dx = -disc; dx <= disc; dx++) {
+            if (dx * dx + dy * dy > disc * disc) continue;
+            const window: [number, number, number][] = [];
+            for (let oy = -2; oy <= 2; oy++)
+                for (let ox = -2; ox <= 2; ox++)
+                    window.push(hdrAt(img, gx + dx + ox, gy + dy + oy));
+            const lums = window.map(lum);
+            const mid = median([...lums]);
+            if (lums.filter((v) => Math.abs(v - mid) <= tolerance).length < 20) continue;
+            flat++;
+            const own = window[12]!;
+            const off = [0, 1, 2].some(
+                (k) => Math.abs(own[k]! - median(window.map((c) => c[k]!))) > tolerance,
+            );
+            if (off) dots++;
+        }
+    }
+    log(
+        `gallery: vidro — ${dots} pontos de grão em ${flat} pixels no meio das casas, no disco de 0,7 do raio (${((100 * dots) / flat).toFixed(2)} %)`,
+    );
+    check(flat > 2000, `gallery: o vidro quase não tem casas lisas para medir o grão (${flat})`);
+    check(dots / flat < 0.005, `gallery: o vidro tem grão (${dots} pontos em ${flat})`);
+
+    // Tecido fino (desenhado pelo traçado da refração: lobo translúcido) do lado contra o sol: a luz ambiente da cena,
+    // como no algodão (desenhado pelo forward) — a 10° do limbo, na direção oposta à do sol na tela, onde o sol não
+    // chega. Sem a luz ambiente nos acertos dos raios, o tecido fino dava 0 ali (a borda preta).
+    const away = (name: MaterialName): number => {
+        const [x, y] = center.get(name)!;
+        const k = (R * Math.cos(Math.PI / 18)) / Math.hypot(l[0]!, l[1]!);
+        const [qx, qy] = frontPixel(x - k * l[0]!, y - k * l[1]!, height, W, H);
+        return lum(hdrAt(img, qx, qy));
+    };
+    const sheer = away('sheerFabric');
+    const cottonAway = away('cotton');
+    log(
+        `gallery: lado contra o sol (a 10° do limbo) — tecido fino ${sheer.toFixed(4)}, algodão ${cottonAway.toFixed(4)}`,
+    );
+    check(sheer > 0, `gallery: o tecido fino fica preto do lado contra o sol (${sheer})`);
+    check(
+        sheer > 0.5 * cottonAway,
+        `gallery: o tecido fino recebe menos da metade da luz ambiente do algodão (${sheer} × ${cottonAway})`,
+    );
 }
 
 async function caseLibraryCompose(): Promise<void> {
