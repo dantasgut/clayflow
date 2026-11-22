@@ -41,6 +41,9 @@
 //     esfera deslocada deixa de ser um círculo e o relevo faz sombra em si mesmo — e o custo de GPU; `&displace=0` o
 //     mesmo quadro sem deslocamento) e o quadro dos panos (`panos`, T116: cada tecido num pano caído sobre uma bola,
 //     com pregas, e a amostra plana ampliada — o brilho da seda desce pelas dobras);
+//     os quadros da rodada 9 (T118): `cascas` e `telhados` (esferas grandes deslocadas), `folhas`, `rolhas`, o metal
+//     escovado sobre o fundo escuro em `metais-2` (sem ruído ao longo da escova), o gelo com a parede xadrez atrás (o
+//     fundo aparece através dele) e os brilhos pontuais da pintura e da neve;
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
@@ -1348,7 +1351,25 @@ interface GalleryFamily {
      * novas (spec 011, T117).
      */
     readonly plain?: boolean;
+    /** Outra disposição das esferas (o padrão: a do quadro, pelo `plain`). */
+    readonly layout?: GalleryLayout;
+    /** A intensidade da luz de recorte, sem sombra (o padrão: 1,2) — a contraluz das folhas. */
+    readonly rim?: number;
+    /** O material que tem a parede xadrez atrás (o que se vê através dele); o vidro sempre tem. */
+    readonly backdrop?: MaterialName;
 }
+
+/** A disposição das esferas de um quadro: o raio, o passo das colunas e o z das duas fileiras. */
+interface GalleryLayout {
+    readonly radius: number;
+    readonly dx: number;
+    readonly z: readonly [number, number];
+}
+
+/** O quadro grande: uma fileira só (a da frente) de esferas de raio 0,95. */
+const GALLERY_BIG: GalleryLayout = { radius: 0.95, dx: 2.25, z: [-1.55, 0.3] };
+/** O quadro grande de três esferas. */
+const GALLERY_BIG3: GalleryLayout = { radius: 0.8, dx: 1.72, z: [-1.55, 0.3] };
 
 /** A galeria: um quadro por família, 3 colunas × 2 fileiras; o vidro ao lado do lugar vazio (a parede à vista). */
 const GALLERY: readonly GalleryFamily[] = [
@@ -1392,7 +1413,12 @@ const GALLERY: readonly GalleryFamily[] = [
         ],
         plain: true,
     },
-    { name: 'metais-2', rows: [[], ['castIron', 'bronzePatina', 'carbonFiber']], plain: true },
+    // O metal escovado também aqui, sobre o fundo escuro (no quadro `plasticos-metais` ele reflete a placa clara).
+    {
+        name: 'metais-2',
+        rows: [['metalBrushed'], ['castIron', 'bronzePatina', 'carbonFiber']],
+        plain: true,
+    },
     {
         name: 'pedra',
         rows: [
@@ -1409,25 +1435,23 @@ const GALLERY: readonly GalleryFamily[] = [
         ],
         plain: true,
     },
-    // As espécies de madeira (enceradas e envernizadas) e a cortiça.
+    // As espécies de madeira (enceradas e envernizadas).
     {
         name: 'madeiras',
         rows: [
             ['woodPine', 'woodOak', 'woodWalnut'],
-            ['woodOakVarnished', 'woodMahogany', 'cork'],
+            ['woodOakVarnished', 'woodMahogany'],
         ],
         plain: true,
     },
-    // Os assoalhos (réguas e espinha de peixe), a casca e o papel.
+    // Os assoalhos (réguas e espinha de peixe) e o papel.
     {
         name: 'assoalhos',
-        rows: [
-            ['bark', 'barkBirch', 'paper'],
-            ['woodFloorPlanks', 'woodFloorHerringbone'],
-        ],
+        rows: [['paper'], ['woodFloorPlanks', 'woodFloorHerringbone']],
         plain: true,
     },
-    // Os de subsuperfície novos e a madrepérola, em contraluz (contas de 2,6 cm).
+    // Os de subsuperfície novos e a madrepérola, em contraluz (contas de 2,6 cm); o gelo, transparente, com a parede
+    // xadrez atrás.
     {
         name: 'organicos',
         rows: [
@@ -1436,7 +1460,17 @@ const GALLERY: readonly GalleryFamily[] = [
         ],
         backlit: true,
         plain: true,
+        backdrop: 'ice',
     },
+    // A folha verde e a seca, em esferas grandes (spec 011, T118): a luz de recorte, por trás, atravessa o limbo.
+    {
+        name: 'folhas',
+        rows: [[], ['leaf', 'leafDry']],
+        plain: true,
+        layout: GALLERY_BIG,
+    },
+    // A cortiça: a rolha natural e a aglomerada, em esferas grandes.
+    { name: 'rolhas', rows: [[], ['corkStopper', 'cork']], plain: true, layout: GALLERY_BIG },
 ];
 
 /**
@@ -1707,13 +1741,16 @@ async function galleryShot(
     app.world.insert(
         new DirectionalLight({
             direction: [...GALLERY_RIM.map((c) => -c), 0],
-            intensity: backlit ? 5 : 1.2,
+            intensity: backlit ? 5 : (family.rim ?? 1.2),
             ...(backlit ? { castShadow: true } : {}),
         }),
     );
     // Chão e fundo neutros (escuros nos quadros só de esferas).
     const plain = family.plain === true;
-    const radius = plain ? GALLERY_PLAIN_R : GALLERY_R;
+    const radius = family.layout?.radius ?? (plain ? GALLERY_PLAIN_R : GALLERY_R);
+    const rowZ =
+        family.layout?.z ?? (plain ? GALLERY_PLAIN_Z : ([-GALLERY_DZ, GALLERY_DZ] as const));
+    const dx = family.layout?.dx ?? GALLERY_DX;
     app.world.insert(
         new PlaneGeometry({ size: [40, 40] })
             .add(new StandardMaterial())
@@ -1727,9 +1764,9 @@ async function galleryShot(
     family.rows.forEach((row, j) => {
         row.forEach((name, i) => {
             const at: Vec3 = [
-                (i - (row.length - 1) / 2) * GALLERY_DX,
+                (i - (row.length - 1) / 2) * dx,
                 plain ? radius - 0.1 : radius,
-                plain ? GALLERY_PLAIN_Z[j]! : j === 0 ? -GALLERY_DZ : GALLERY_DZ,
+                rowZ[j]!,
             ];
             center.set(name ?? 'empty', at);
             if (name === null) return;
@@ -1755,15 +1792,23 @@ async function galleryShot(
             );
         });
     });
-    if (center.has('glass')) {
+    const seenThrough = family.backdrop ?? (center.has('glass') ? 'glass' : undefined);
+    if (seenThrough !== undefined) {
         // Atrás do vidro e do lugar vazio, a parede xadrez: o centro do vidro não cai num vértice do xadrez (a imagem
-        // invertida pela esfera seria igual à direta).
-        const glass = center.get('glass')!;
-        const empty = center.get('empty')!;
+        // invertida pela esfera seria igual à direta). Atrás de outro transparente (`backdrop`), só atrás dele.
+        const glass = center.get(seenThrough)!;
+        const empty = center.get('empty') ?? glass;
         galleryWall(
             app,
-            [(glass[0] + empty[0]) / 2, 1.1, GALLERY_WALL_Z],
-            [8 * GALLERY_CELL, 6 * GALLERY_CELL],
+            [
+                (glass[0] + empty[0]) / 2,
+                1.1,
+                seenThrough === 'glass' ? GALLERY_WALL_Z : glass[2] - 0.95,
+            ],
+            [
+                (center.has('empty') ? 8 : 6) * GALLERY_CELL,
+                (center.has('empty') ? 6 : 8) * GALLERY_CELL,
+            ],
             materialGraph(
                 {
                     s: nodes.input.surfaceSample(),
@@ -2271,20 +2316,48 @@ async function galleryRelief(width: number, height: number): Promise<void> {
     );
 }
 
-/** As peças do quadro do deslocamento: os materiais de relevo em milímetros novos e a madeira bruta, as duas fileiras. */
-const DISPLACED: readonly [readonly DisplacedName[], readonly DisplacedName[]] = [
-    ['sandstone', 'brick', 'driedMud'],
-    ['woodRough', 'bark', 'barkBirch'],
-];
-type DisplacedName = 'sandstone' | 'brick' | 'bark' | 'barkBirch' | 'woodRough' | 'driedMud';
+/** Um quadro de esferas deslocadas: o nome, as duas fileiras e a disposição. */
+interface DisplacedFrame {
+    readonly name: string;
+    readonly rows: readonly [readonly DisplacedName[], readonly DisplacedName[]];
+    readonly layout: GalleryLayout;
+}
+type DisplacedName =
+    | 'sandstone'
+    | 'brick'
+    | 'bark'
+    | 'barkPine'
+    | 'barkBirch'
+    | 'woodRough'
+    | 'driedMud'
+    | 'roofTile'
+    | 'roofSlate';
 
 /**
- * O quadro do deslocamento dos materiais novos (spec 011, T117), a 5,5 unidades por metro: cada material numa esfera
- * paramétrica de malha adaptativa (`RELIEF_MESH`) com a `DisplacementFunction` de mesmo nome — o relevo em milímetros
- * na geometria (a silhueta, a sombra das juntas, das rachaduras e dos sulcos) —, sob a luz rasante com sombra. As
+ * Os quadros do deslocamento: os materiais de relevo em milímetros e a madeira bruta (`deslocamento`), as cascas
+ * (`cascas`) e os telhados (`telhados`), estes dois em esferas grandes (spec 011, T118).
+ */
+const DISPLACED: readonly DisplacedFrame[] = [
+    {
+        name: 'deslocamento',
+        rows: [['sandstone', 'brick', 'driedMud'], ['woodRough']],
+        layout: { radius: GALLERY_PLAIN_R, dx: GALLERY_DX, z: GALLERY_PLAIN_Z },
+    },
+    { name: 'cascas', rows: [[], ['bark', 'barkPine', 'barkBirch']], layout: GALLERY_BIG3 },
+    { name: 'telhados', rows: [[], ['roofTile', 'roofSlate']], layout: GALLERY_BIG },
+];
+
+/**
+ * Um quadro do deslocamento (spec 011, T117 e T118), a 5,5 unidades por metro: cada material numa esfera paramétrica
+ * de malha adaptativa (`RELIEF_MESH`) com a `DisplacementFunction` de mesmo nome — o relevo em milímetros na geometria
+ * (a silhueta, a sombra das juntas, das rachaduras, dos sulcos e das fiadas) —, sob a luz rasante com sombra. As
  * medidas: desenhado, sem valores não finitos, e o contorno de cada esfera deixa de ser um círculo.
  */
-async function galleryDisplaced(width: number, height: number): Promise<void> {
+async function galleryDisplaced(
+    frame: DisplacedFrame,
+    width: number,
+    height: number,
+): Promise<void> {
     const query = new URLSearchParams(location.search);
     const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
     const samples: number[] = [];
@@ -2325,12 +2398,12 @@ async function galleryDisplaced(width: number, height: number): Promise<void> {
             .add(neutral(0.12)),
     );
     galleryWall(app, [0, 5, -6], [40, 20], neutral(0.12));
-    const R = GALLERY_PLAIN_R;
+    const R = frame.layout.radius;
     const tilt = [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)];
     const at = new Map<DisplacedName, Vec3>();
-    DISPLACED.forEach((row, j) => {
+    frame.rows.forEach((row, j) => {
         row.forEach((name, i) => {
-            const c: Vec3 = [(i - (row.length - 1) / 2) * GALLERY_DX, R, GALLERY_PLAIN_Z[j]!];
+            const c: Vec3 = [(i - (row.length - 1) / 2) * frame.layout.dx, R, frame.layout.z[j]!];
             at.set(name, c);
             const values = { pattern_scale: [2, 1], scale: RELIEF_SCALE };
             app.world.insert(
@@ -2359,16 +2432,16 @@ async function galleryDisplaced(width: number, height: number): Promise<void> {
             await nextGpuFrame(app);
         }
         app.step(0);
-        await writeFixture('zzGallery-deslocamento.png', await toPng(capture(canvas)));
+        await writeFixture(`zzGallery-${frame.name}.png`, await toPng(capture(canvas)));
         for (const label of labels) label.visible = false;
     }
     disposeApp(app, canvas);
     let bad = 0;
     for (let k = 0; k < img.data.length; k++) if (!Number.isFinite(img.data[k]!)) bad++;
     log(
-        `gallery deslocamento: ${at.size} peças deslocadas, ${width}×${height}; pronto em ${(ready / 1000).toFixed(1)} s; GPU ${gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos`,
+        `gallery ${frame.name}: ${at.size} peças deslocadas, ${width}×${height}; pronto em ${(ready / 1000).toFixed(1)} s; GPU ${gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos`,
     );
-    check(bad === 0, `gallery deslocamento: ${bad} valores não finitos no alvo HDR`);
+    check(bad === 0, `gallery ${frame.name}: ${bad} valores não finitos no alvo HDR`);
     // O contorno de cada esfera: o raio em que a luminância passa do fundo escuro à peça, em 120 direções do arco de
     // cima; o desvio padrão dele em torno da média móvel (± 5 direções) — zero num círculo.
     const focal = height / 2 / Math.tan(GALLERY_FOV / 2);
@@ -2405,14 +2478,14 @@ async function galleryDisplaced(width: number, height: number): Promise<void> {
         const deviation = Math.sqrt(sum / Math.max(count, 1));
         rough.push(`${name} ${deviation.toFixed(2)} (${count})`);
         // Sem meta apertada: o contorno encontrado em pelo menos um terço das direções e fora de um círculo.
-        check(count >= 20, `gallery deslocamento: contorno de ${name} não encontrado (${count})`);
+        check(count >= 20, `gallery ${frame.name}: contorno de ${name} não encontrado (${count})`);
         check(
             deviation > 0.2,
-            `gallery deslocamento: o contorno de ${name} segue um círculo (${deviation.toFixed(2)} px)`,
+            `gallery ${frame.name}: o contorno de ${name} segue um círculo (${deviation.toFixed(2)} px)`,
         );
     }
     log(
-        `gallery deslocamento: contorno (desvio do raio, px, e direções medidas) — ${rough.join(', ')}`,
+        `gallery ${frame.name}: contorno (desvio do raio, px, e direções medidas) — ${rough.join(', ')}`,
     );
 }
 
@@ -2853,7 +2926,8 @@ async function caseGallery(): Promise<void> {
     // O quadro dos panos (os tecidos caídos sobre uma bola, com pregas, e a amostra plana ampliada) também.
     if (only === null || only === 'panos') await galleryCloth(W, H);
     // O quadro do deslocamento dos materiais novos (as esferas deslocadas sob a luz rasante) também.
-    if (only === null || only === 'deslocamento') await galleryDisplaced(W, H);
+    for (const frame of DISPLACED)
+        if (only === null || only === frame.name) await galleryDisplaced(frame, W, H);
     /** O quadro em que o material está (ou `undefined`, com `family=` de outra família). */
     const shotOf = (name: MaterialName | 'empty'): GalleryShot | undefined =>
         [...shots.values()].find((shot) => shot.center.has(name));
@@ -3379,8 +3453,9 @@ async function caseGallery(): Promise<void> {
     const plate = (
         name: MaterialName,
         shot: GalleryShot = shotOf(name)!,
+        n: Vec3 = facing(name),
     ): { mean: Vec3; contrast: number; peak: number } => {
-        const [x, y] = onSphere(shot, name, facing(name));
+        const [x, y] = onSphere(shot, name, n);
         const mean = [0, 0, 0];
         for (let dy = -24; dy <= 24; dy++)
             for (let dx = -24; dx <= 24; dx++)
@@ -3420,6 +3495,26 @@ async function caseGallery(): Promise<void> {
         check(
             red.contrast > 0.02 && silver.contrast > 0.02,
             `gallery pintura: sem o granulado dos flocos longe do realce (${red.contrast} e ${silver.contrast})`,
+        );
+        // Os brilhos pontuais fora do realce (a janela a meio caminho entre o realce do sol e o centro da esfera): os
+        // flocos alinhados acendem em pontos várias vezes acima da média da janela.
+        const beside = (name: MaterialName): Vec3 => {
+            const { v } = view(shot.center.get(name)!);
+            const h = unit3([sun[0] + v[0], sun[1] + v[1], sun[2] + v[2]]);
+            return unit3([
+                0.5 * h[0] + 0.5 * v[0],
+                0.5 * h[1] + 0.5 * v[1],
+                0.5 * h[2] + 0.5 * v[2],
+            ]);
+        };
+        const redGlint = plate('carPaint', shot, beside('carPaint')).peak;
+        const silverGlint = plate('carPaintSilver', shot, beside('carPaintSilver')).peak;
+        log(
+            `gallery pintura: brilhos pontuais fora do realce (maior valor / média em 49 × 49 px) — vermelha ${redGlint.toFixed(2)}×, prata ${silverGlint.toFixed(2)}×`,
+        );
+        check(
+            redGlint > 2 && silverGlint > 2,
+            `gallery pintura: sem brilhos pontuais fora do realce (${redGlint} e ${silverGlint})`,
         );
         // A prata é neutra e a vermelha, saturada.
         check(
@@ -3490,15 +3585,13 @@ async function caseGallery(): Promise<void> {
         structure('terra', ['asphalt', 'terracotta', 'driedMud', 'sand'], () => 0.02);
     if (shots.has('metais-2')) structure('metais-2', ['carbonFiber'], () => 0.015);
     if (shots.has('assoalhos'))
-        structure(
-            'assoalhos',
-            ['woodFloorPlanks', 'woodFloorHerringbone', 'bark', 'barkBirch', 'paper'],
-            (name) => (name === 'paper' ? 0.002 : 0.03),
+        structure('assoalhos', ['woodFloorPlanks', 'woodFloorHerringbone', 'paper'], (name) =>
+            name === 'paper' ? 0.002 : 0.03,
         );
     if (shots.has('madeiras')) {
         structure(
             'madeiras',
-            ['woodOak', 'woodWalnut', 'woodPine', 'woodMahogany', 'woodOakVarnished', 'cork'],
+            ['woodOak', 'woodWalnut', 'woodPine', 'woodMahogany', 'woodOakVarnished'],
             () => 0.03,
         );
         // As espécies têm cores distintas: o pinho é o mais claro, a nogueira a mais escura, o mogno o mais vermelho.
@@ -3524,7 +3617,24 @@ async function caseGallery(): Promise<void> {
         log(
             `gallery organicos: cor média na esfera — gelo (${fmt3(body[0]!)}), sabão (${fmt3(body[1]!)}), marfim (${fmt3(body[2]!)}), neve (${fmt3(body[3]!)}), madrepérola (${fmt3(body[4]!)})`,
         );
-        check(body[0]![2] > body[0]![0], 'gallery organicos: o gelo não é azulado');
+        // O gelo é transparente: a parede xadrez atrás dele aparece através da esfera — no disco central (60 % do
+        // raio) há casas claras e escuras do xadrez refratado: o décimo percentil da luminância fica abaixo de 60 % do
+        // nonagésimo (uma bola opaca pintada, de trincas claras sobre um corpo claro, não tem a parte escura).
+        const iceShot = shotOf('ice')!;
+        const [ix, iy] = onSphere(iceShot, 'ice', view(iceShot.center.get('ice')!).v);
+        const reach = Math.floor(0.6 * view(iceShot.center.get('ice')!).r * (iceShot.radius / R));
+        const through: number[] = [];
+        for (let dy = -reach; dy <= reach; dy += 2)
+            for (let dx = -reach; dx <= reach; dx += 2)
+                if (dx * dx + dy * dy <= reach * reach)
+                    through.push(lum(hdrAt(iceShot.img, ix + dx, iy + dy)));
+        through.sort((p, q) => p - q);
+        const seen =
+            through[Math.floor(0.1 * through.length)]! / through[Math.floor(0.9 * through.length)]!;
+        log(
+            `gallery organicos: gelo — luminância no disco central, décimo / nonagésimo percentil ${seen.toFixed(3)} (o xadrez atrás, através dele)`,
+        );
+        check(seen < 0.6, `gallery organicos: o gelo não deixa ver o fundo (${seen})`);
         check(body[1]![1] > body[1]![0], 'gallery organicos: o sabão não tem a cor do corante');
         check(body[2]![0] > body[2]![2], 'gallery organicos: o marfim não é quente');
         check(
@@ -3548,6 +3658,36 @@ async function caseGallery(): Promise<void> {
             `gallery organicos: neve — maior valor / média na esfera ${sparkle.toFixed(2)}×; madrepérola — vermelho / verde, do décimo ao nonagésimo percentil ${spread.toFixed(3)}×`,
         );
         check(spread > 1.04, `gallery organicos: a madrepérola não muda de cor (${spread})`);
+        // Os brilhos pontuais da neve: pontos várias vezes acima da média, longe do realce.
+        check(sparkle > 1.5, `gallery organicos: a neve não tem brilhos pontuais (${sparkle})`);
+    }
+    if (shots.has('folhas')) {
+        structure('folhas', ['leaf', 'leafDry'], () => 0.015);
+        const green = plate('leaf').mean;
+        const dry = plate('leafDry').mean;
+        log(`gallery folhas: cor média na esfera — verde (${fmt3(green)}), seca (${fmt3(dry)})`);
+        check(green[1] > 1.2 * green[0], 'gallery folhas: a folha não é verde');
+        check(dry[0] > 1.2 * dry[1], 'gallery folhas: a folha seca não é castanha');
+    }
+    if (shots.has('rolhas')) structure('rolhas', ['corkStopper', 'cork'], () => 0.03);
+    if (shots.has('metais-2')) {
+        // O metal escovado é liso ao longo da escova (os círculos de latitude: na face voltada para a câmera, a
+        // horizontal da tela): a diferença entre pixels vizinhos ao longo dela, sobre a média, fora do realce — o
+        // reflexo vem das sondas, sem o ruído de um raio sorteado por pixel (que passava de 0,2).
+        const shot = shots.get('metais-2')!;
+        const [bx, by] = onSphere(shot, 'metalBrushed', facing('metalBrushed'));
+        let step = 0;
+        let sum = 0;
+        for (let dy = -20; dy <= 20; dy++)
+            for (let dx = -20; dx < 20; dx++) {
+                const a = lum(hdrAt(shot.img, bx + dx, by + dy));
+                step += Math.abs(lum(hdrAt(shot.img, bx + dx + 1, by + dy)) - a);
+                sum += a;
+            }
+        log(
+            `gallery metais-2: metal escovado — diferença média entre vizinhos ao longo da escova / média ${(step / sum).toFixed(4)}`,
+        );
+        check(step / sum < 0.06, `gallery metais-2: o metal escovado tem ruído (${step / sum})`);
     }
 }
 
