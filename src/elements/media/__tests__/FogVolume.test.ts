@@ -12,7 +12,11 @@ import {
 import { Camera } from '../../scene/Camera';
 import { DirectionalLight } from '../../scene/DirectionalLight';
 import { lightTransmissionPoint, lightVolumeVisibilityPoint } from '../../scene/points/lighting';
-import { sceneFogPoint, sceneNearFogPoint } from '../../scene/points/media';
+import {
+    sceneFogPoint,
+    sceneNearFogPoint,
+    sceneNearMediumDepthPoint,
+} from '../../scene/points/media';
 import { Transform } from '../../scene/Transform';
 import { DensityFunction } from '../../extension/DensityFunction';
 import { FogVolume } from '../FogVolume';
@@ -120,8 +124,10 @@ describe('FogVolume (spec 033, T055)', () => {
             rayVolumeScatterPoint,
             lightTransmissionPoint,
             lightVolumeVisibilityPoint,
+            sceneNearMediumDepthPoint,
         ]);
         expect(contributions.map((c) => c.build(() => undefined))).toEqual([
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -153,6 +159,13 @@ describe('FogVolume (spec 033, T055)', () => {
         expect(composeWgsl(modules[5]!).spec.source).toContain(
             'fn light_transmission(light: u32, p: vec3f) -> vec3f',
         );
+        // Até onde a grade integra o meio contínuo no quadro (spec 041, T074): só com ele na grade.
+        expect(contributions[7]!.build(() => undefined)).toBeUndefined();
+        froxels.setMedium(true);
+        expect(composeWgsl(contributions[7]!.build(() => undefined)!).spec.source).toContain(
+            'fn scene_near_medium_depth(camera: u32) -> f32',
+        );
+        froxels.setMedium(false);
         // Com uma função de densidade: a composição troca a pronta pelo `switch`.
         const fn = new DensityFunction({ code: NOISE, params: { k: 'f32' } });
         froxels.setDensityFunctions([fn.composite!]);

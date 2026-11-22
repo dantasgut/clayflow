@@ -253,7 +253,7 @@ export class FroxelFlow extends Flow<FroxelSlots, 'idle'> {
         const fogs = c.bound.slots.fogs.entries;
         const cameraSlot = this.cameraSlot(c);
         const sky = c.bound.slots.sky?.resource as Sky | undefined;
-        // A atmosfera como meio (R21): com a tabela da câmera ativa escrita (o `SkyAerialFlow`, antes nesta fase).
+        // A atmosfera como meio (R21): com a tabela da câmera ativa escrita (o `SkyAerialFlow`, depois da grade nesta fase).
         const medium = sky !== undefined && sky.aerial && cameraSlot !== undefined;
         this.fogCount = fogs.length;
         this.active = (fogs.length > 0 || medium) && cameraSlot !== undefined;

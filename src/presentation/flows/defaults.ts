@@ -480,13 +480,6 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'shadow',
         priority: -1,
     });
-    // A perspectiva aérea da câmera (spec 041) depois da luz das nuvens (a sombra delas no ar: os raios crepusculares) e
-    // antes de quem a lê (o desenho, a marcha das nuvens).
-    const skyAerialRegistration = flows.register((ctx) => new SkyAerialFlow(ctx), {
-        type: 'skyAerial',
-        phase: 'shadow',
-        priority: -1.5,
-    });
     // A luz do céu nas superfícies sem GI (spec 041), depois da luz das nuvens (o céu coberto) e antes do desenho.
     const skyAmbientRegistration = flows.register((ctx) => new SkyAmbientFlow(ctx), {
         type: 'skyAmbient',
@@ -510,6 +503,14 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'froxels',
         phase: 'shadow',
         priority: -30,
+    });
+    // A perspectiva aérea da câmera (spec 041) depois da luz das nuvens (a sombra delas no ar: os raios crepusculares) e
+    // da névoa (a decisão do quadro dos froxels: as fatias que eles integram saem sem a sombra, T074), antes de quem a
+    // lê (o desenho, a marcha das nuvens).
+    const skyAerialRegistration = flows.register((ctx) => new SkyAerialFlow(ctx), {
+        type: 'skyAerial',
+        phase: 'shadow',
+        priority: -31,
     });
     // Texturas virtuais dos materiais (spec 034, T060c) antes do desenho: as cargas no atlas, a tabela renovada pelos
     // pedidos do quadro anterior e a fatia de agora dos pedidos zerada para o desenho. Sem `VirtualTextures`, pendente.

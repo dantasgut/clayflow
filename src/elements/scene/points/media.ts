@@ -178,6 +178,17 @@ export const sceneNearFogReady = wgslModule({
     source: 'fn scene_near_fog(p: vec3f) -> SceneNearFog {\n    return SceneNearFog(SceneFog(vec3f(0.0), vec3f(1.0)), 0.0, vec3f(0.0));\n}',
 });
 
+/**
+ * `fn scene_near_medium_depth(camera: u32) -> f32` — a profundidade da vista (m) da câmera do slot `camera` até onde os
+ * meios perto dela integram o meio contínuo de `scene_medium` neste quadro (o plano da última fatia dos froxels; ao longo
+ * de um raio, o `reach` de `scene_near_fog` nunca fica abaixo dela); 0 quando não o integram. Quem tabela o mesmo meio
+ * pela câmera (a perspectiva aérea do `Sky`) não refaz o que só entra por diferenças a partir dali; pronto: 0.
+ */
+export const sceneNearMediumDepthReady = wgslModule({
+    name: 'scene_near_medium_depth_ready',
+    source: 'fn scene_near_medium_depth(camera: u32) -> f32 {\n    return 0.0;\n}',
+});
+
 /** Meio contínuo: a soma dos contribuintes (extinção e luz espalhada somam; a visibilidade é a do primeiro que a calculou). */
 export const sceneMediumPoint: ContributionPoint = {
     name: 'scene_medium',
@@ -248,6 +259,23 @@ ${modules
     )
     .join('\n')}
     return near;
+}`,
+            }),
+        ),
+};
+
+/** A profundidade até onde os meios perto da câmera integram o meio contínuo: a maior dos contribuintes. */
+export const sceneNearMediumDepthPoint: ContributionPoint = {
+    name: 'scene_near_medium_depth',
+    ready: sceneNearMediumDepthReady,
+    functionName: 'scene_near_medium_depth',
+    combine: (modules) =>
+        memo(`near_medium_depth:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `scene_near_medium_depth:${modules.map((m) => m.name).join('+')}`,
+                requires: [...modules],
+                source: `fn scene_near_medium_depth(camera: u32) -> f32 {
+    return ${modules.map((_, k) => `scene_near_medium_depth_${k}(camera)`).reduce((a, v) => `max(${a}, ${v})`)};
 }`,
             }),
         ),

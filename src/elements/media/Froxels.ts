@@ -15,7 +15,7 @@ import {
     rayVolumeTransmittancePoint,
 } from '../raytrace/points';
 import { lightTransmissionPoint, lightVolumeVisibilityPoint } from '../scene/points/lighting';
-import { sceneFogPoint, sceneNearFogPoint } from '../scene/points/media';
+import { sceneFogPoint, sceneNearFogPoint, sceneNearMediumDepthPoint } from '../scene/points/media';
 import type { HistoryPrecision } from '../scene/TemporalAntialiasing';
 import { FROXEL_GRID, FroxelsSchema, froxelAmbientGrid } from './schemas';
 import { composeDensityFunctions } from './composeDensity';
@@ -25,6 +25,7 @@ import {
     mediaLookup,
     mediaNearFog,
     mediaNearFogMedium,
+    mediaNearMediumDepth,
     mediaRayMediaTransmittance,
     mediaRayScatter,
     mediaRayTransmittance,
@@ -351,6 +352,15 @@ export class Froxels extends Entity<FroxelsData> implements Resource {
             pools: [],
             build: () =>
                 this.rawData.active === 1 ? this.withDensity(mediaVolumeVisibility) : undefined,
+        },
+        {
+            // Até onde a grade integra o meio contínuo no quadro (T074): a tabela da perspectiva aérea não refaz a sombra
+            // do trecho que só entra por diferenças.
+            point: sceneNearMediumDepthPoint,
+            order: 0,
+            pools: [],
+            build: () =>
+                this.lookup && this.rawData.medium === 1 ? mediaNearMediumDepth : undefined,
         },
     ];
 }

@@ -42,12 +42,13 @@ const AERIAL_CLEAR: PipelineDescriptor = {
 const TABLES = ['aerial', 'aerialTransmittance', 'aerialShadow', 'aerialShadowFar'] as const;
 
 /**
- * SkyAerialFlow — a perspectiva aérea da câmera ativa (spec 041, R10; fase `shadow`, depois da luz das nuvens e antes do
- * ambiente do céu, das sondas e do desenho): a tabela 32³ da luz espalhada e da transmitância da câmera até cada fatia,
+ * SkyAerialFlow — a perspectiva aérea da câmera ativa (spec 041, R10; fase `shadow`, depois da luz das nuvens e da névoa
+ * e antes do desenho): a tabela 32³ da luz espalhada e da transmitância da câmera até cada fatia,
  * com a luz simples sombreada pelo que tapa o sol no ar (`light_transmission`: a sombra das nuvens pelo mapa visto do sol
  * do quadro, escrito pela `CloudLightFlow` — os raios crepusculares), e o déficit dessa sombra no fundo, por coluna. Com a
- * tabela escrita, a atmosfera entra na geometria (`scene_fog`) e o déficit no fundo (`scene_background`). Sem câmera,
- * nada.
+ * tabela escrita, a atmosfera entra na geometria (`scene_fog`) e o déficit no fundo (`scene_background`). As fatias que os
+ * meios perto da câmera integram no quadro (`scene_near_medium_depth`: os froxels, que decidem antes nesta fase) saem sem
+ * a sombra: quem lê a tabela soma só a diferença dela além deles (T074). Sem câmera, nada.
  */
 export class SkyAerialFlow extends Flow<SkyAerialSlots, 'idle'> {
     readonly type = 'SkyAerialFlow';

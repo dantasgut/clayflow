@@ -326,6 +326,19 @@ export const mediaNearFogMedium = wgslModule({
 }`,
 });
 
+/**
+ * Até onde a grade integra o meio contínuo neste quadro (`scene_near_medium_depth`, spec 041 T074): a profundidade da
+ * vista da última fatia (`froxels.depth.y`) na câmera da grade, com a grade em uso (a decisão do quadro); senão 0.
+ */
+export const mediaNearMediumDepth = wgslModule({
+    name: 'media_near_medium_depth',
+    requires: [mediaFroxelFog],
+    source: `fn scene_near_medium_depth(camera: u32) -> f32 {
+    if (camera != froxels.grid.w || !froxel_in_use()) { return 0.0; }
+    return froxels.depth.y;
+}`,
+});
+
 /** Transmitância dos volumes nos raios (`ray_volume_transmittance`). */
 export const mediaRayTransmittance = wgslModule({
     name: 'media_ray_transmittance',

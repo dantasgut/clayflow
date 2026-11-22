@@ -15,6 +15,7 @@ import skyAerialSource from '../../gpu/wgsl/sky/sky_aerial.wgsl?raw';
 import skyAerialLookupSource from '../../gpu/wgsl/sky/sky_aerial_lookup.wgsl?raw';
 import skyAmbientSource from '../../gpu/wgsl/sky/sky_ambient.wgsl?raw';
 import { lightTransmissionReady, sceneEnvironmentReady } from '../points/lighting';
+import { sceneNearMediumDepthReady } from '../points/media';
 import { camerasResource } from '../resources';
 import { constants, viewSpace } from '../../gpu/shaders/math';
 
@@ -280,6 +281,7 @@ const skyAerialKernelOf = (name: string, visibility: WgslModule): WgslModule =>
             skyParamsResource,
             camerasResource,
             visibility,
+            sceneNearMediumDepthReady,
             skyOutputs.aerial,
             skyOutputs.aerialTransmittance,
             skyOutputs.aerialShadow,

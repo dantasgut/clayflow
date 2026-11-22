@@ -15,11 +15,18 @@
 // e o resto até `SKY_AERIAL_SHADOW_RANGE`, onde termina o mapa visto do sol, em 32 trechos iguais), atenuada até a
 // câmera. Quem desenha o fundo o subtrai da radiância do céu.
 //
+// Com os meios perto da câmera integrando a atmosfera neste quadro (`scene_near_medium_depth`: os froxels, com as
+// sombras finas, até o plano da última fatia deles), quem lê a tabela soma só a diferença dela a partir do fim deles
+// (`scene_near_fog`, nunca antes desse plano) e o fundo só o déficit além da tabela: nas fatias que acabam antes do plano a
+// sombra entra igual nas duas leituras e se anula — a visibilidade do sol não é lida nelas (a luz simples inteira, o
+// déficit zero). Sem eles (ou sem a atmosfera neles no quadro), todas as fatias com a sombra.
+//
 // Um grupo de 32 invocações por coluna, uma por fatia: cada uma integra a sua fatia (a luz que ela espalha, o déficit e a
 // transmitância) e um trecho do resto; a varredura do grupo (Hillis–Steele, 5 rodadas) compõe as fatias da câmera até
 // cada uma — `L = La + Ta·Lb`, `T = Ta·Tb` —, e a primeira invocação soma o resto ao déficit (32 parcelas).
 // Despacho linear: `SKY_AERIAL_SLICES` invocações por coluna, grupos de `SKY_AERIAL_SLICES`.
-// Requer: SKY_AERIAL_RANGE, view_space, sky_atmosphere, sky_lookup, sky, cameras, sky_aerial_visibility, sky_aerial_out,
+// Requer: SKY_AERIAL_RANGE, view_space, sky_atmosphere, sky_lookup, sky, cameras, sky_aerial_visibility,
+// scene_near_medium_depth, sky_aerial_out,
 // sky_aerial_transmittance_out, sky_aerial_shadow_out, sky_aerial_shadow_far_out.
 
 const SKY_AERIAL_SLICES: u32 = 32u;
@@ -54,9 +61,10 @@ struct SkyAerialRay {
 
 /**
  * O trecho [`t0`, `t1`] km em `SKY_AERIAL_SUBSTEPS` subpassos (pelo meio de cada um), cortado no fim da atmosfera (o topo
- * ou o chão do planeta: o subpasso que o cruza vai só até ele).
+ * ou o chão do planeta: o subpasso que o cruza vai só até ele). `shadowed`: com a visibilidade do sol em cada subpasso;
+ * sem ela, a luz simples inteira (o trecho que os meios perto da câmera integram).
  */
-fn sky_aerial_span(ray: SkyAerialRay, t0: f32, t1: f32) -> SkyAerialSpan {
+fn sky_aerial_span(ray: SkyAerialRay, t0: f32, t1: f32, shadowed: bool) -> SkyAerialSpan {
     let step = (t1 - t0) / f32(SKY_AERIAL_SUBSTEPS);
     var throughput = vec3f(1.0);
     var lum = vec3f(0.0);
@@ -73,7 +81,8 @@ fn sky_aerial_span(ray: SkyAerialRay, t0: f32, t1: f32) -> SkyAerialSpan {
         let integ = select(vec3f(dt), (1.0 - step_t) / max(m.extinction, vec3f(1e-12)), m.extinction > vec3f(0.0));
         let mu_s = dot(x, ray.sun) / rx;
         let free = (m.rayleigh * ray.pr + vec3f(m.mie * ray.pm)) * sky_transmittance(rx, mu_s);
-        let single = free * sky_aerial_visibility(ray.origin + ray.world * (mid * 1000.0));
+        var single = free;
+        if (shadowed) { single = free * sky_aerial_visibility(ray.origin + ray.world * (mid * 1000.0)); }
         let multi = m.scattering * sky_multiscatter(rx, mu_s);
         lum += throughput * (single + multi) * integ;
         deficit += throughput * (free - single) * integ;
@@ -123,17 +132,19 @@ fn sky_aerial_main(
     // A fatia k: de D·(k/32)² a D·((k + 1)/32)².
     let s0 = f32(k) / f32(SKY_AERIAL_SLICES);
     let s1 = f32(k + 1u) / f32(SKY_AERIAL_SLICES);
-    let slice = sky_aerial_span(ray, SKY_AERIAL_RANGE * s0 * s0, SKY_AERIAL_RANGE * s1 * s1);
+    // A fatia que acaba antes do plano até onde os meios perto da câmera integram a atmosfera: sem a sombra.
+    let end = SKY_AERIAL_RANGE * s1 * s1;
+    let slice = sky_aerial_span(ray, SKY_AERIAL_RANGE * s0 * s0, end, end * 1000.0 > scene_near_medium_depth(sky.cameraSlot));
     sky_aerial_lum[k] = slice.lum;
     sky_aerial_def[k] = slice.deficit;
     sky_aerial_tr[k] = slice.transmittance;
     // O resto do déficit do fundo: de `SKY_AERIAL_RANGE` ao fim da atmosfera (ou do mapa), o trecho k de 32 iguais.
-    let end = max(min(ray.seg, SKY_AERIAL_SHADOW_RANGE), SKY_AERIAL_RANGE);
-    let step = (end - SKY_AERIAL_RANGE) / f32(SKY_AERIAL_SLICES);
+    let rest_end = max(min(ray.seg, SKY_AERIAL_SHADOW_RANGE), SKY_AERIAL_RANGE);
+    let step = (rest_end - SKY_AERIAL_RANGE) / f32(SKY_AERIAL_SLICES);
     // Sem nada que tape o sol no ar (`sky_aerial_shadowed`), o déficit é zero: o resto não é integrado.
     var rest = SkyAerialSpan(vec3f(0.0), vec3f(0.0), vec3f(1.0));
     if (sky_aerial_shadowed()) {
-        rest = sky_aerial_span(ray, SKY_AERIAL_RANGE + f32(k) * step, SKY_AERIAL_RANGE + f32(k + 1u) * step);
+        rest = sky_aerial_span(ray, SKY_AERIAL_RANGE + f32(k) * step, SKY_AERIAL_RANGE + f32(k + 1u) * step, true);
     }
     sky_aerial_rest_def[k] = rest.deficit;
     sky_aerial_rest_tr[k] = rest.transmittance;
