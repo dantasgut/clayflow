@@ -12,10 +12,12 @@ export const ClosureSchema = new StructSchema('Closure', {
     diffuse_weight: FieldType.f32,
     diffuse_color: FieldType.vec3f,
     diffuse_roughness: FieldType.f32,
-    // Subsuperfície no modelo (difuso com "wrap" por canal).
+    // Subsuperfície: o albedo da superfície, o caminho livre médio do espalhamento por canal (mm) e a escala do mundo
+    // (unidades por metro) — o perfil de difusão de Burley.
     subsurface_weight: FieldType.f32,
     subsurface_color: FieldType.vec3f,
     subsurface_radius: FieldType.vec3f,
+    subsurface_scale: FieldType.f32,
     // Especular de base: parte dielétrica (F0 do IOR, tinta) e parte condutora (F0 e tinta F82), mesma microgeometria.
     dielectric_weight: FieldType.f32,
     dielectric_ior: FieldType.f32,

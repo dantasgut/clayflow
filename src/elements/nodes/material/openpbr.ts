@@ -171,6 +171,8 @@ const EXPOSED: readonly (readonly [string, string])[] = [
         'geometry_thin_walled',
     ].map((name) => [`${name}.value`, name] as const),
     ['diffuse.roughness', 'base_diffuse_roughness'],
+    // O raio da subsuperfície é o caminho livre médio em mm; a escala do mundo (unidades por metro) o leva à cena.
+    ['subsurface.scale', 'subsurface_scale'],
 ];
 
 /**

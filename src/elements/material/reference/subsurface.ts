@@ -1,4 +1,4 @@
-// Referência f64 do espalhamento sob a superfície (spec 011, T094): o perfil de difusão normalizado de Christensen e
+// Referência f64 do espalhamento sob a superfície (spec 011, T113): o perfil de difusão normalizado de Christensen e
 // Burley 2015 ("Approximate Reflectance Profiles for Efficient Subsurface Scattering") — o que o desenho amostra — e um
 // Monte Carlo de passeio aleatório (espalhamento isotrópico, sem diferença de índice na superfície, a configuração do
 // artigo) num meio semi-infinito e numa placa, a verdade contra a qual o perfil e a transmissão pela espessura são

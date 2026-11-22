@@ -3,6 +3,7 @@ import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import closureSource from '../../gpu/wgsl/math/closure.wgsl?raw';
 import closureEvalSource from '../../gpu/wgsl/math/closure_eval.wgsl?raw';
+import subsurfaceSource from '../../gpu/wgsl/math/subsurface.wgsl?raw';
 import pbrDfgBuildSource from '../../gpu/wgsl/kernels/pbr_dfg_build.wgsl?raw';
 import { basis, bsdf, finite } from '../../gpu/shaders/math';
 import { materialPointTypes } from '../point/types/shaders';
@@ -18,6 +19,18 @@ export const closure = wgslModule({
     source: closureSource,
     requires: [materialPointTypes, finite],
     structs: [ClosureSchema],
+});
+
+/**
+ * Perfil de difusão da subsuperfície (spec 011, T113; Christensen e Burley 2015): o fator de forma pelo albedo, o
+ * comprimento por canal em unidades do mundo (o caminho livre médio em mm do fechamento pela escala do mundo), a
+ * densidade radial, a amostragem pela inversa exata e a transmissão pela espessura. Espelho f64 em
+ * `material/reference/subsurface.ts`.
+ */
+export const subsurface = wgslModule({
+    name: 'subsurface',
+    source: subsurfaceSource,
+    requires: [closure],
 });
 
 /** A tabela DFG do `PbrTables` (resolver `PbrTables.dfg`), lida pelo avaliador do fechamento. */

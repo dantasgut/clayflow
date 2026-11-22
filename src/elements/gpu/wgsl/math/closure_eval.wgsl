@@ -157,8 +157,10 @@ fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> ve
     if (closure_has(CLOSURE_DIFFUSE) && c.diffuse_weight > 0.0 && nl > 0.0) {
         under += c.diffuse_weight * bsdf_oren_nayar_energy(c.diffuse_color, c.diffuse_roughness, nl, nv, dot(l, v));
     }
-    if (closure_has(CLOSURE_SUBSURFACE) && c.subsurface_weight > 0.0) {
-        under += c.subsurface_weight * bsdf_burley_wrap(c.subsurface_color, c.subsurface_radius, nl_raw);
+    if (closure_has(CLOSURE_SUBSURFACE) && c.subsurface_weight > 0.0 && nl > 0.0) {
+        // O perfil de difusão integrado (a luz que entra no ponto e sai em volta dele, somada): o difuso de albedo
+        // `subsurface_color`. A difusão entre pixels e a luz que atravessa são do passe de subsuperfície do desenho.
+        under += c.subsurface_weight * c.subsurface_color * (nl / PI);
     }
     if (closure_has(CLOSURE_TRANSLUCENT) && c.translucent_weight > 0.0) {
         under += c.translucent_weight * c.translucent_color / PI * max(-nl_raw, 0.0);
@@ -276,6 +278,16 @@ fn closure_ambient(c: Closure, n: vec3f, v: vec3f, sky: vec3f, ground: vec3f, up
         closure_hemisphere(nc, sky, ground, up),
     );
     return closure_indirect(c, n, v, light);
+}
+
+// O que do lobo de subsuperfície sai para `v` por unidade de luz difundida que chega por dentro ao ponto (irradiância
+// sobre π): o peso e o albedo pelo que atravessa o especular dielétrico, o verniz e o sheen de cima — os fatores do lobo
+// em `closure_eval` e `closure_indirect` (o passe de subsuperfície do desenho sai por eles).
+fn closure_subsurface_exit(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+    if (!closure_has(CLOSURE_SUBSURFACE) || c.subsurface_weight <= 0.0) { return vec3f(0.0); }
+    let nv = max(dot(closure_lobe_normal(c.normal, n, v), v), 1e-4);
+    return c.subsurface_weight * c.subsurface_color * closure_under_dielectric(c, nv) * closure_coat_pass(c, nv)
+        * closure_sheen_pass(c, nv);
 }
 
 // Emissão que sai do fechamento: atenuada pelo verniz e pelo sheen de cima.

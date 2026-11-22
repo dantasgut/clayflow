@@ -36,6 +36,7 @@ fn closure_zero() -> Closure {
     c.transmission_color = vec3f(1.0);
     c.transmission_ior = 1.5;
     c.opacity = 1.0;
+    c.subsurface_scale = 1.0;
     return c;
 }
 
@@ -157,13 +158,16 @@ fn closure_sheen(color: vec3f, roughness: f32) -> Closure {
     return c;
 }
 
-// Subsuperfície no modelo (pele, cera, mármore): cor e raio de espalhamento por canal (em [0, 1], o avanço do
-// terminador). O passe de espalhamento na tela é da 014.
-fn closure_subsurface(color: vec3f, radius: vec3f) -> Closure {
+// Subsuperfície (pele, cera, mármore): o albedo da superfície `color` (a refletância difusa total), o caminho livre
+// médio do espalhamento por canal `radius`, em milímetros, e a escala do mundo `scale` (unidades do mundo por metro; ≤ 0
+// vale 1). No ponto, o lobo responde como o perfil de difusão integrado (o difuso de albedo `color`); a difusão entre
+// pixels e a luz que atravessa as partes finas são do passe de subsuperfície do desenho (módulo `subsurface`).
+fn closure_subsurface(color: vec3f, radius: vec3f, scale: f32) -> Closure {
     var c = closure_zero();
     c.subsurface_weight = 1.0;
     c.subsurface_color = clamp(color, vec3f(0.0), vec3f(1.0));
-    c.subsurface_radius = clamp(radius, vec3f(0.0), vec3f(1.0));
+    c.subsurface_radius = max(radius, vec3f(0.0));
+    c.subsurface_scale = select(1.0, scale, scale > 0.0);
     return c;
 }
 
@@ -224,6 +228,7 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.subsurface_weight = a.subsurface_weight + b.subsurface_weight;
     o.subsurface_color = closure_merge3(a.subsurface_color, a.subsurface_weight, b.subsurface_color, b.subsurface_weight);
     o.subsurface_radius = closure_merge3(a.subsurface_radius, a.subsurface_weight, b.subsurface_radius, b.subsurface_weight);
+    o.subsurface_scale = closure_merge1(a.subsurface_scale, a.subsurface_weight, b.subsurface_scale, b.subsurface_weight);
     o.dielectric_weight = a.dielectric_weight + b.dielectric_weight;
     o.dielectric_ior = closure_merge1(a.dielectric_ior, a.dielectric_weight, b.dielectric_ior, b.dielectric_weight);
     o.dielectric_tint = closure_merge3(a.dielectric_tint, a.dielectric_weight, b.dielectric_tint, b.dielectric_weight);
@@ -347,8 +352,10 @@ fn closure_sanitize(c: Closure) -> Closure {
     o.diffuse_weight = select(0.0, max(c.diffuse_weight, 0.0), ok_d);
     o.diffuse_color = select(vec3f(0.0), max(c.diffuse_color, vec3f(0.0)), ok_d);
     o.diffuse_roughness = select(0.0, clamp(c.diffuse_roughness, 0.0, 1.0), ok_d);
-    let ok_s = finite3(vec3f(c.subsurface_weight, 0.0, 0.0)) && finite3(c.subsurface_color) && finite3(c.subsurface_radius);
+    let ok_s = finite3(vec3f(c.subsurface_weight, c.subsurface_scale, 0.0)) && finite3(c.subsurface_color) && finite3(c.subsurface_radius);
     o.subsurface_weight = select(0.0, max(c.subsurface_weight, 0.0), ok_s);
+    o.subsurface_radius = select(vec3f(0.0), max(c.subsurface_radius, vec3f(0.0)), ok_s);
+    o.subsurface_scale = select(1.0, c.subsurface_scale, ok_s && c.subsurface_scale > 0.0);
     let ok_sp = finite3(vec3f(c.dielectric_weight, c.dielectric_ior, c.conductor_weight))
         && finite3(vec3f(c.specular_roughness, c.specular_anisotropy, 0.0))
         && finite3(c.dielectric_tint) && finite3(c.conductor_f0) && finite3(c.conductor_tint) && finite3(c.tangent);

@@ -64,7 +64,11 @@ function randomClosure(r: () => number): number[] {
             case 4:
                 return closureSheen(v3(vector(r, 3, 0, 1)), uniform(r, 0, 1));
             case 5:
-                return closureSubsurface(v3(vector(r, 3, 0, 1)), v3(vector(r, 3, 0, 1)));
+                return closureSubsurface(
+                    v3(vector(r, 3, 0, 1)),
+                    v3(vector(r, 3, 0, 3)),
+                    uniform(r, 0.5, 200),
+                );
             case 6:
                 return closureTranslucent(v3(vector(r, 3, 0, 1)));
             default:
@@ -166,8 +170,14 @@ const bsdfCases: readonly NodeCase[] = [
     {
         node: 'bsdf.subsurface',
         tolerance: 1e-5,
-        sample: (r) => ({ color: vector(r, 3, 0, 1), radius: vector(r, 3, 0, 1.2) }),
-        reference: (x) => ({ value: flat(closureSubsurface(v3(vec(x.color)), v3(vec(x.radius)))) }),
+        sample: (r) => ({
+            color: vector(r, 3, 0, 1),
+            radius: vector(r, 3, 0, 3),
+            scale: uniform(r, 0.5, 200),
+        }),
+        reference: (x) => ({
+            value: flat(closureSubsurface(v3(vec(x.color)), v3(vec(x.radius)), num(x.scale))),
+        }),
     },
     {
         node: 'bsdf.emission',

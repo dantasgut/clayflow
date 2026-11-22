@@ -13,6 +13,7 @@ export const CLOSURE_FIELDS = [
     ['subsurface_weight', 1],
     ['subsurface_color', 3],
     ['subsurface_radius', 3],
+    ['subsurface_scale', 1],
     ['dielectric_weight', 1],
     ['dielectric_ior', 1],
     ['dielectric_tint', 3],
@@ -103,6 +104,7 @@ export function closureZero(): Closure {
         transmission_color: [1, 1, 1],
         transmission_ior: 1.5,
         opacity: 1,
+        subsurface_scale: 1,
     };
 }
 
@@ -194,11 +196,12 @@ export const closureSheen = (color: Vec3, roughness: number): Closure => ({
     sheen_roughness: clamp(roughness, 0.03, 1),
 });
 
-export const closureSubsurface = (color: Vec3, radius: Vec3): Closure => ({
+export const closureSubsurface = (color: Vec3, radius: Vec3, scale: number): Closure => ({
     ...closureZero(),
     subsurface_weight: 1,
     subsurface_color: c3(color),
-    subsurface_radius: c3(radius),
+    subsurface_radius: max03(radius),
+    subsurface_scale: scale > 0 ? scale : 1,
 });
 
 export const closureEmission = (color: Vec3, luminance: number): Closure => ({
@@ -273,6 +276,12 @@ export function closureAdd(a: Closure, b: Closure): Closure {
             a.subsurface_radius,
             a.subsurface_weight,
             b.subsurface_radius,
+            b.subsurface_weight,
+        ),
+        subsurface_scale: merge1(
+            a.subsurface_scale,
+            a.subsurface_weight,
+            b.subsurface_scale,
             b.subsurface_weight,
         ),
         dielectric_weight: a.dielectric_weight + b.dielectric_weight,

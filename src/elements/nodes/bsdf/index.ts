@@ -103,12 +103,17 @@ const sheen = defineNode({
     tags: ['lobe:sheen'],
 });
 
-/** Subsuperfície no modelo (pele, cera, mármore): cor e raio de espalhamento por canal em [0, 1]. */
+/**
+ * Subsuperfície (pele, cera, mármore) pelo perfil de difusão de Christensen e Burley 2015: `color` é o albedo da
+ * superfície (a refletância difusa total), `radius` o caminho livre médio do espalhamento por canal em **milímetros** e
+ * `scale` a escala do mundo em unidades por metro (1: uma unidade é um metro; 100: a cena está em centímetros). O
+ * desenho difunde a luz entre os pixels por esse perfil e deixa passar a que atravessa as partes finas.
+ */
 const subsurface = defineNode({
     name: 'bsdf.subsurface',
-    inputs: { color: 'vec3f', radius: 'vec3f' },
+    inputs: { color: 'vec3f', radius: 'vec3f', scale: 'f32' },
     outputs: { value: 'Closure' },
-    params: { color: v3([0.8, 0.5, 0.4]), radius: v3([1, 0.4, 0.2]) },
+    params: { color: v3([0.8, 0.5, 0.4]), radius: v3([1, 0.5, 0.25]), scale: f(1) },
     code: nodeBsdf,
     fn: 'node_bsdf_subsurface',
     tags: ['lobe:subsurface'],

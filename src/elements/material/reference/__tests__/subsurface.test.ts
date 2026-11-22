@@ -12,7 +12,7 @@ import {
     randomWalk,
 } from '../subsurface';
 
-// Referência do espalhamento sob a superfície (spec 011, T094): o perfil de Christensen e Burley 2015 conferido contra
+// Referência do espalhamento sob a superfície (spec 011, T113): o perfil de Christensen e Burley 2015 conferido contra
 // o passeio aleatório (a verdade). As tolerâncias são o erro do ajuste do artigo (o perfil é uma aproximação de duas
 // exponenciais: o artigo relata 5–8 % de erro relativo médio) mais o ruído do Monte Carlo, que com N caminhos é da ordem
 // de 1/√N na fração acumulada (0,003 com 100 mil) — o que domina é o ajuste, medido aqui.

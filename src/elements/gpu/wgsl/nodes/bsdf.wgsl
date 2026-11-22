@@ -27,8 +27,8 @@ fn node_bsdf_sheen(color: vec3f, roughness: f32) -> Closure {
     return closure_sheen(color, roughness);
 }
 
-fn node_bsdf_subsurface(color: vec3f, radius: vec3f) -> Closure {
-    return closure_subsurface(color, radius);
+fn node_bsdf_subsurface(color: vec3f, radius: vec3f, scale: f32) -> Closure {
+    return closure_subsurface(color, radius, scale);
 }
 
 fn node_bsdf_emission(color: vec3f, luminance: f32) -> Closure {
