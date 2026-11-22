@@ -194,6 +194,15 @@ girando e vento no smoke de antisserrilhado, o interior com a camada (≤ 0,3 ms
       `sunset`, `flight`) não estão no baseline. **Em aberto**: o baseline não foi regravado (gravá-lo agora esconderia a
       regressão do storage dos alvos).
 - [ ] T044 Conferir as caixas deste arquivo contra o código e abrir o PR do ramo para o `develop` (com a confirmação do usuário).
+      **Fechamento (2026-11-22, o usuário: "Quero fechar a 41 e iniciar a próxima").** A spec fecha com estas caixas
+      abertas, listadas no PR: T035 (o `interior-timing` oscila em torno de 0,3 ms: 0,317 / 0,383 / 0,200), T042 e T043 (a
+      bateria completa e o `bench:check` não são mais rodados sem pedido do usuário — regra de 2026-11-21; ficam como estão,
+      com o achado do `fluidField` não verificado), T067 (o tipo de vista `'camera'` sem consumidor — pedido 5 do
+      MorphSociety, ADR 0001), T074 (o `high-sun` passa: 2,78 ms depois das rodadas h–k; restam o `interior-timing`, o
+      degrau do `dusk-blocks` 1,025 contra ≤ 1,02 e a margem do matiz 0,049), T075 (os feixes suaves contra as fotos de
+      referência) e T082 (o sol rápido 3,36 ms e o vento 2,42 ms, medidos na rodada j; o teto do sol rápido vai para a spec
+      curta de desempenho). Também fica para depois: o caminho de estouro da lista da luz (rodada k) não foi exercitado
+      por nenhum caso.
 
 ---
 
