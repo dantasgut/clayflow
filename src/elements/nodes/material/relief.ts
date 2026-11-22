@@ -327,64 +327,241 @@ const brick = Subgraph.point(
     },
 );
 
-/** As placas da casca grossa (`pattern.fissures`): 14 por unidade do padrão em volta do tronco, 2,3 ao longo dele. */
-export const BARK_PLATES = { scale: [14, 2.3], jitter: 1, crease: 0.3, seed: 91 };
+/** Os padrões de uma casca fissurada, partilhados pelo relevo e pela cor do material. */
+export interface BarkPatterns {
+    /** As placas compridas ao longo do tronco e as fissuras fundas entre elas (`pattern.fissures`). */
+    readonly plates: { scale: number[]; jitter: number; crease: number; seed: number };
+    /** As quebras em volta do tronco, que cortam as placas em blocos (`pattern.fissures` deitado). */
+    readonly breaks: { scale: number[]; jitter: number; crease: number; seed: number };
+    /** As fissuras menores dentro das placas. */
+    readonly checks: { scale: number[]; jitter: number; crease: number; seed: number };
+    /** As escamas da face das placas (`pattern.cells`: o sulco entre duas é a borda da lasca). */
+    readonly scales: { scale: number; jitter: number; crease: number; seed: number };
+    /** As cristas ásperas da face (um grão alongado ao longo do tronco). */
+    readonly flakes: { scale: number[]; octaves: number; gain: number; seed: number };
+}
 
-/** As fissuras menores dentro das placas. */
-export const BARK_CHECKS = { scale: [26, 5], jitter: 1, crease: 0.3, seed: 95 };
-
-/** As cristas ásperas da face das placas (um grão alongado ao longo do tronco). */
-export const BARK_FLAKES = { scale: [46, 7], octaves: 3, gain: 0.6, seed: 92 };
+/** As alturas (mm) do relevo de uma casca: fissuras, quebras, fissuras menores, escamas, cristas e grão fino. */
+interface BarkHeights {
+    readonly furrow: number;
+    readonly breaks: number;
+    readonly checks: number;
+    readonly scales: number;
+    readonly flakes: number;
+    readonly fine: number;
+    readonly swell: number;
+}
 
 /**
- * `relief.bark` — o relevo da casca grossa fissurada (carvalho, pinheiro velho): placas compridas ao longo de v (o eixo
- * do tronco) separadas por fissuras fundas que se ramificam e se juntam (`pattern.fissures`; `furrow_depth`, 9 mm, de
- * parede inclinada), fissuras menores dentro das placas (3 mm), a face em cristas ásperas ao longo do tronco
- * (`ridge_height`, 3,4 mm) e as placas abauladas por um grão largo (2,5 mm). Parâmetros: `furrow_depth`,
- * `ridge_height`, `pattern_scale`.
+ * A casca do carvalho: 10 placas por unidade do padrão em volta do tronco e 4,5 ao longo dele (a parede da fissura
+ * ocupa um quarto da placa), quebradas em blocos, com escamas miúdas.
  */
-const bark = Subgraph.point(
-    new NodeGraph({
-        nodes: {
-            ...patternSpace(),
-            plates: pattern.fissures.with(BARK_PLATES),
-            checks: pattern.fissures.with(BARK_CHECKS),
-            flakes: pattern.grain.with(BARK_FLAKES),
-            swell: pattern.grain.with({ scale: [5, 3], octaves: 2, seed: 93 }),
-            plate_relief: surface.relief.with({ height: 9, level: 1 }),
-            check_relief: surface.relief.with({ height: 3, level: 1 }),
-            flake_relief: surface.relief.with({ height: 3.4 }),
-            swell_relief: surface.relief.with({ height: 2.5 }),
-            sum_a: math.add3,
-            sum_b: math.add3,
-            out: math.add3,
+export const BARK_OAK: BarkPatterns = {
+    plates: { scale: [10, 4.5], jitter: 1, crease: 0.26, seed: 91 },
+    breaks: { scale: [4, 11], jitter: 1, crease: 0.08, seed: 90 },
+    checks: { scale: [30, 8], jitter: 1, crease: 0.25, seed: 95 },
+    scales: { scale: 54, jitter: 1, crease: 0.4, seed: 89 },
+    flakes: { scale: [50, 8], octaves: 3, gain: 0.6, seed: 92 },
+};
+
+/**
+ * A casca do pinheiro: placas largas (7 por unidade do padrão em volta do tronco, 2,6 ao longo), chatas, de fissura
+ * estreita, cobertas de escamas grandes e finas em camadas (22 por unidade), com a borda de cada uma em degrau.
+ */
+export const BARK_PINE: BarkPatterns = {
+    plates: { scale: [7, 2.6], jitter: 1, crease: 0.1, seed: 111 },
+    breaks: { scale: [2.5, 6], jitter: 1, crease: 0.06, seed: 112 },
+    checks: { scale: [16, 9], jitter: 1, crease: 0.12, seed: 113 },
+    scales: { scale: 22, jitter: 1, crease: 0.12, seed: 114 },
+    flakes: { scale: [20, 9], octaves: 3, gain: 0.6, seed: 115 },
+};
+
+/** O relevo de uma casca fissurada: a soma dos padrões dela, cada um com a sua altura em milímetros. */
+function barkRelief(name: string, v: BarkPatterns, h: BarkHeights) {
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                ...patternSpace(),
+                plates: pattern.fissures.with(v.plates),
+                breaks: pattern.fissures.with(v.breaks),
+                checks: pattern.fissures.with(v.checks),
+                scales: pattern.cells.with(v.scales),
+                flakes: pattern.grain.with(v.flakes),
+                fine: pattern.grain.with({
+                    scale: [150, 150],
+                    octaves: 2,
+                    seed: v.plates.seed + 7,
+                }),
+                swell: pattern.grain.with({ scale: [5, 3], octaves: 2, seed: v.plates.seed + 2 }),
+                plate_relief: surface.relief.with({ height: h.furrow, level: 1 }),
+                break_relief: surface.relief.with({ height: h.breaks, level: 1 }),
+                check_relief: surface.relief.with({ height: h.checks, level: 1 }),
+                scale_relief: surface.relief.with({ height: h.scales, level: 1 }),
+                flake_relief: surface.relief.with({ height: h.flakes }),
+                fine_relief: surface.relief.with({ height: h.fine }),
+                swell_relief: surface.relief.with({ height: h.swell }),
+                sum_a: math.add3,
+                sum_b: math.add3,
+                sum_c: math.add3,
+                sum_d: math.add3,
+                sum_e: math.add3,
+                out: math.add3,
+            },
+            links: [
+                ...SPACE_LINKS,
+                ...patternLinks('plates', 'breaks', 'checks', 'scales', 'flakes', 'fine', 'swell'),
+                ...reliefLinks('plate_relief', 'plates.height', 'plates.gradient'),
+                ...reliefLinks('break_relief', 'breaks.height', 'breaks.gradient'),
+                ...reliefLinks('check_relief', 'checks.height', 'checks.gradient'),
+                ...reliefLinks('scale_relief', 'scales.height', 'scales.gradient'),
+                ...reliefLinks('flake_relief', 'flakes.value', 'flakes.gradient'),
+                ...reliefLinks('fine_relief', 'fine.value', 'fine.gradient'),
+                ...reliefLinks('swell_relief', 'swell.value', 'swell.gradient'),
+                ['plate_relief.value', 'sum_a.a'],
+                ['break_relief.value', 'sum_a.b'],
+                ['check_relief.value', 'sum_b.a'],
+                ['scale_relief.value', 'sum_b.b'],
+                ['flake_relief.value', 'sum_c.a'],
+                ['fine_relief.value', 'sum_c.b'],
+                ['sum_a.value', 'sum_d.a'],
+                ['sum_b.value', 'sum_d.b'],
+                ['sum_c.value', 'sum_e.a'],
+                ['swell_relief.value', 'sum_e.b'],
+                ['sum_d.value', 'out.a'],
+                ['sum_e.value', 'out.b'],
+            ],
+            output: 'out.value',
+        }),
+        {
+            name,
+            ...SAMPLE_INPUT,
+            expose: [
+                ['plate_relief.height', 'furrow_depth'],
+                ['flake_relief.height', 'ridge_height'],
+                ['scale_relief.height', 'scale_height'],
+                PATTERN_SCALE,
+            ],
         },
-        links: [
-            ...SPACE_LINKS,
-            ...patternLinks('plates', 'checks', 'flakes', 'swell'),
-            ...reliefLinks('plate_relief', 'plates.height', 'plates.gradient'),
-            ...reliefLinks('check_relief', 'checks.height', 'checks.gradient'),
-            ...reliefLinks('flake_relief', 'flakes.value', 'flakes.gradient'),
-            ...reliefLinks('swell_relief', 'swell.value', 'swell.gradient'),
-            ['plate_relief.value', 'sum_a.a'],
-            ['check_relief.value', 'sum_a.b'],
-            ['flake_relief.value', 'sum_b.a'],
-            ['swell_relief.value', 'sum_b.b'],
-            ['sum_a.value', 'out.a'],
-            ['sum_b.value', 'out.b'],
-        ],
-        output: 'out.value',
-    }),
-    {
-        name: 'relief.bark',
-        ...SAMPLE_INPUT,
-        expose: [
-            ['plate_relief.height', 'furrow_depth'],
-            ['flake_relief.height', 'ridge_height'],
-            PATTERN_SCALE,
-        ],
-    },
-);
+    );
+}
+
+/**
+ * `relief.bark` — o relevo da casca grossa do carvalho: placas compridas ao longo de v (o eixo do tronco), de face
+ * plana, separadas por fissuras fundas que se ramificam e se juntam (`pattern.fissures`; `furrow_depth`, 12 mm, de
+ * parede inclinada) e cortadas em blocos por quebras em volta do tronco (5 mm); dentro das placas, fissuras menores
+ * (2,6 mm), as escamas (as lascas da face: `scale_height`, 1,6 mm no sulco entre duas), as cristas ásperas ao longo
+ * do tronco (`ridge_height`, 3,4 mm), o grão fino (0,6 mm) e as placas abauladas (3 mm). Parâmetros: `furrow_depth`,
+ * `ridge_height`, `scale_height`, `pattern_scale`.
+ */
+const bark = barkRelief('relief.bark', BARK_OAK, {
+    furrow: 12,
+    breaks: 5,
+    checks: 2.6,
+    scales: 1.6,
+    flakes: 3.4,
+    fine: 0.6,
+    swell: 3,
+});
+
+/**
+ * `relief.barkPine` — o relevo da casca do pinheiro: placas largas e chatas separadas por fissuras estreitas e fundas
+ * (`furrow_depth`, 9 mm) e por quebras em volta do tronco (5 mm), cobertas de escamas grandes em camadas — a borda de
+ * cada escama é um degrau (`scale_height`, 1,8 mm) —, com as lascas (1,5 mm), as cristas (`ridge_height`, 1,2 mm) e o
+ * grão fino (0,5 mm). Parâmetros: `furrow_depth`, `ridge_height`, `scale_height`, `pattern_scale`.
+ */
+const barkPine = barkRelief('relief.barkPine', BARK_PINE, {
+    furrow: 9,
+    breaks: 5,
+    checks: 1.5,
+    scales: 1.8,
+    flakes: 1.2,
+    fine: 0.5,
+    swell: 3,
+});
+
+/** As telhas de barro de capa e canal (`pattern.shingles`): 14 colunas por 9 fiadas, o pé para `p.y` maior. */
+export const ROOF_TILES = {
+    scale: [14, -9],
+    shift: 0,
+    gap: 0,
+    bevel: 0.08,
+    profile: 0.5,
+    irregularity: 0.1,
+    seed: 121,
+};
+
+/** As placas de ardósia (`pattern.shingles`): 9 por 12 fiadas, com as juntas desencontradas. */
+export const ROOF_SLATES = {
+    scale: [9, -12],
+    shift: 0.5,
+    gap: 0.05,
+    bevel: 0.05,
+    profile: 0,
+    irregularity: 0.14,
+    seed: 131,
+};
+
+/** A face áspera do barro cozido. */
+export const ROOF_CLAY = { scale: [90, 90], octaves: 3, gain: 0.6, seed: 122 };
+
+/** A clivagem da ardósia: lascas finas ao longo da placa (um grão alongado no sentido da queda). */
+export const ROOF_CLEAVAGE = { scale: [26, 5], octaves: 4, gain: 0.55, seed: 132 };
+
+/** O relevo de um telhado: as fiadas sobrepostas (`lift`, mm entre o fundo e o topo) e a face (`face`, mm). */
+function roofRelief(
+    name: string,
+    courses: typeof ROOF_TILES,
+    face: typeof ROOF_CLAY,
+    lift: number,
+    faceHeight: number,
+) {
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                ...patternSpace(),
+                courses: pattern.shingles.with(courses),
+                face: pattern.grain.with(face),
+                course_relief: surface.relief.with({ height: lift }),
+                face_relief: surface.relief.with({ height: faceHeight }),
+                out: math.add3,
+            },
+            links: [
+                ...SPACE_LINKS,
+                ...patternLinks('courses', 'face'),
+                ...reliefLinks('course_relief', 'courses.height', 'courses.gradient'),
+                ...reliefLinks('face_relief', 'face.value', 'face.gradient'),
+                ['course_relief.value', 'out.a'],
+                ['face_relief.value', 'out.b'],
+            ],
+            output: 'out.value',
+        }),
+        {
+            name,
+            ...SAMPLE_INPUT,
+            expose: [
+                ['course_relief.height', 'lift'],
+                ['face_relief.height', 'face_height'],
+                ['courses.scale', 'tiles'],
+                PATTERN_SCALE,
+            ],
+        },
+    );
+}
+
+/**
+ * `relief.roofTile` — o relevo do telhado de telha de barro de capa e canal: as fiadas sobrepostas
+ * (`pattern.shingles`, com o perfil da capa convexa e do canal côncavo; `lift`, 18 mm do fundo do canal da telha de baixo ao topo da
+ * capa no pé da telha: metade do degrau da fiada, metade do perfil) e a face áspera do barro (`face_height`, 0,7 mm). `tiles`: colunas e fiadas por unidade do
+ * padrão (negativo em y: o pé para o lado de v maior). Parâmetros: `lift`, `face_height`, `tiles`, `pattern_scale`.
+ */
+const roofTile = roofRelief('relief.roofTile', ROOF_TILES, ROOF_CLAY, 18, 0.7);
+
+/**
+ * `relief.roofSlate` — o relevo do telhado de ardósia: placas planas em fiadas desencontradas, cada uma deitada sobre
+ * a de baixo (`lift`, 9 mm: duas espessuras de placa), com o pé de cada placa recuado ao acaso e o vão entre duas, e a
+ * clivagem da pedra na face (`face_height`, 0,9 mm). Parâmetros: `lift`, `face_height`, `tiles`, `pattern_scale`.
+ */
+const roofSlate = roofRelief('relief.roofSlate', ROOF_SLATES, ROOF_CLEAVAGE, 9, 0.9);
 
 /** As tiras da bétula que descascam (`pattern.grain` alongado em volta do tronco): acima do nível, a tira solta. */
 export const BIRCH_PEEL = { scale: [1.3, 9], octaves: 4, gain: 0.55, seed: 96 };
@@ -515,6 +692,9 @@ export const relief = {
     sandstone,
     brick,
     bark,
+    barkPine,
     barkBirch,
     driedMud,
+    roofTile,
+    roofSlate,
 } as const;

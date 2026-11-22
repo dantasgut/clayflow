@@ -65,8 +65,14 @@ const NAMES = [
     'woodFloorPlanks',
     'woodFloorHerringbone',
     'bark',
+    'barkPine',
     'barkBirch',
     'cork',
+    'corkStopper',
+    'leaf',
+    'leafDry',
+    'roofTile',
+    'roofSlate',
     'paper',
     'carbonFiber',
     'ice',
@@ -85,7 +91,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 62 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 68 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -146,22 +152,31 @@ describe('Materials (spec 011, US5)', () => {
         expect(() => Materials.woodRaw({ coat_color: [1, 0, 0] })).toThrow(/coat_color/);
     });
 
-    it('madeira envernizada = madeira crua sob um dielétrico liso em camada', () => {
+    it('madeira envernizada = madeira sem especular próprio sob um dielétrico em camada que acompanha o poro', () => {
         for (const name of ['woodVarnishedGloss', 'woodVarnishedMatte'] as const) {
-            expect(inner(name)).toEqual({
-                s: 'argumento',
-                wood: 'material.woodRaw',
+            expect(inner(name)).toMatchObject({
+                rings: 'pattern.rings',
+                pore: 'pattern.grain',
+                body: 'bsdf.diffuse',
                 coat: 'bsdf.dielectric',
+                pore_relief: 'surface.bump',
+                coat_fiber: 'surface.bump',
+                coat_surface: 'closure.normal',
                 out: 'closure.layer',
             });
             const graph = subgraphOrigin(nodes.material[name])!.graph;
             expect(graph.links).toEqual(
                 expect.arrayContaining([
-                    ['s.value', 'wood.s'],
-                    ['coat.value', 'out.top'],
-                    ['wood.value', 'out.base'],
+                    // A normal do verniz desce nos poros e ondula com a fibra fina.
+                    ['open.gradient', 'pore_relief.gradient'],
+                    ['thread.gradient', 'coat_fiber.gradient'],
+                    ['pore_relief.value', 'coat_fiber.normal'],
+                    ['coat_surface.value', 'out.top'],
+                    ['grained.value', 'out.base'],
                 ]),
             );
+            // O verniz molha a madeira: a base não tem especular próprio (IOR 1).
+            expect(graph.node('specular').values).toMatchObject({ ior: 1 });
             expect(Materials[name]().lobeMask & LOBES.coat).toBe(LOBES.coat);
         }
         const gloss = nodes.material.woodVarnishedGloss.params;
@@ -171,11 +186,13 @@ describe('Materials (spec 011, US5)', () => {
         expect(matte.coat_roughness!.default).toBeGreaterThan(
             gloss.coat_roughness!.default as number,
         );
-        // A base é a madeira crua, com os valores dela.
-        expect(gloss.base_color!.default).toEqual(nodes.material.woodRaw.params.color!.default);
-        expect(gloss.base_roughness!.default).toBe(
-            nodes.material.woodRaw.params.roughness!.default,
-        );
+        expect(gloss.pore_relief!.default).toBeGreaterThan(0);
+        for (const p of ['base_color', 'base_late_color', 'base_roughness', 'coat_color'])
+            expect(gloss).toHaveProperty(p);
+        // O anel é uma linha de pouco contraste: o lenho tardio tem mais de 60 % do tom do inicial.
+        const early = gloss.base_color!.default as number[];
+        const late = gloss.base_late_color!.default as number[];
+        expect(late[0]! / early[0]!).toBeGreaterThan(0.6);
     });
 
     it('pintura de carro = pigmento difuso e flocos de condutor inclinados sob um dielétrico em camada, com a casca de laranja', () => {
@@ -202,8 +219,21 @@ describe('Materials (spec 011, US5)', () => {
                 ['base.value', 'out.base'],
             ]),
         );
+        // Os flocos menores que o pixel: os brilhos pontuais sobre o condutor, antes da normal dos flocos.
+        expect(inner('carPaint')).toMatchObject({
+            sparkle: 'pattern.glints',
+            glinting: 'closure.glints',
+        });
+        expect(subgraphOrigin(nodes.material.carPaint)!.graph.links).toEqual(
+            expect.arrayContaining([
+                ['flakes.value', 'glinting.c'],
+                ['sparkle.cells', 'glinting.cells'],
+                ['sparkle.count', 'glinting.count'],
+                ['glinting.value', 'layer_of_flakes.c'],
+            ]),
+        );
         expect(Materials.carPaint().lobeMask).toBe(
-            LOBES.diffuse | LOBES.specular | LOBES.anisotropy | LOBES.coat,
+            LOBES.diffuse | LOBES.specular | LOBES.anisotropy | LOBES.coat | LOBES.glint,
         );
         // Flocos pequenos (perto do pixel a um palmo), verniz espelhado e casca de laranja leve.
         const paint = nodes.material.carPaint.params;
@@ -456,7 +486,7 @@ describe('Materials (spec 011, US5)', () => {
             expect(back.values()).toEqual(graph.values());
         }
     });
-    it('materiais novos (T117): metais por canal, pintura de base metálica, madeiras com nós, assoalhos e relevos', () => {
+    it('materiais novos (T117, T118): metais por canal, pintura de base metálica, madeiras, assoalhos, relevos, gelo, folha, rolha e telhados', () => {
         const has = (name: MaterialName, node: string): boolean =>
             Object.values(inner(name)).includes(node);
         const rgb = (name: MaterialName, p: string): number[] =>
@@ -501,7 +531,13 @@ describe('Materials (spec 011, US5)', () => {
             driedMud: 'relief.driedMud',
             sand: 'pattern.cells',
             bark: 'pattern.fissures',
+            barkPine: 'pattern.fissures',
             barkBirch: 'relief.barkBirch',
+            corkStopper: 'pattern.dents',
+            leaf: 'pattern.veins',
+            leafDry: 'pattern.veins',
+            roofTile: 'pattern.shingles',
+            roofSlate: 'pattern.shingles',
             cork: 'pattern.cells',
             woodPine: 'pattern.rings',
             woodFloorPlanks: 'pattern.planks',
@@ -509,12 +545,21 @@ describe('Materials (spec 011, US5)', () => {
             carbonFiber: 'pattern.weave',
             motherOfPearl: 'closure.thinFilm',
             paper: 'bsdf.translucent',
-            snow: 'pattern.cells',
+            snow: 'pattern.glints',
         };
         for (const [name, node] of Object.entries(promised) as [MaterialName, string][])
             expect(has(name, node), name).toBe(true);
         // Os de relevo em milímetros têm a escala do mundo e o deslocamento de mesmo nome.
-        for (const name of ['sandstone', 'brick', 'bark', 'barkBirch', 'driedMud'] as const) {
+        for (const name of [
+            'sandstone',
+            'brick',
+            'bark',
+            'barkPine',
+            'barkBirch',
+            'driedMud',
+            'roofTile',
+            'roofSlate',
+        ] as const) {
             expect(has(name, 'surface.reliefNormal'), name).toBe(true);
             expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });
             expect(Displacements[name]().graph!.node('relief').definition).toBe(nodes.relief[name]);
@@ -533,13 +578,56 @@ describe('Materials (spec 011, US5)', () => {
         expect(planks('woodFloorHerringbone').node('planks').values).toMatchObject({
             arrangement: 1,
         });
-        // Os de subsuperfície novos: o gelo espalha mais longe no azul; o marfim, curto e quente.
-        for (const name of ['ice', 'soap', 'ivory', 'snow'] as const)
+        // Os de subsuperfície novos; o marfim, curto e quente.
+        for (const name of ['soap', 'ivory', 'snow'] as const)
             expect(has(name, 'bsdf.subsurface'), name).toBe(true);
-        const ice = rgb('ice', 'radius');
-        expect(ice[2]).toBeGreaterThan(ice[0]!);
         const ivory = rgb('ivory', 'radius');
         expect(Math.max(...ivory)).toBeLessThan(0.5);
+        // O gelo é transparente (IOR 1,31): transmissão traçada, a absorção mais forte no vermelho, as falhas opacas
+        // misturadas por máscara; o espalhamento do meio é parâmetro (0 por padrão).
+        expect(inner('ice')).toMatchObject({
+            refraction: 'bsdf.transmission',
+            milky: 'closure.mediumScatter',
+            frost: 'bsdf.diffuse',
+            inside: 'closure.mix',
+            specular: 'bsdf.dielectric',
+        });
+        expect(nodes.material.ice.params.ior!.default).toBe(1.31);
+        const tint = rgb('ice', 'color');
+        expect(tint[2]).toBeGreaterThan(tint[0]!);
+        expect(rgb('ice', 'scatter')).toEqual([0, 0, 0]);
+        expect(Materials.ice().lobeMask & LOBES.transmission).toBe(LOBES.transmission);
+        // Os brilhos pontuais: a pintura, a neve e a areia ligam `pattern.glints` a `closure.glints`.
+        for (const name of ['carPaint', 'carPaintSilver', 'snow', 'sand'] as const) {
+            expect(has(name, 'pattern.glints') && has(name, 'closure.glints'), name).toBe(true);
+            expect(Materials[name]().lobeMask & LOBES.glint).toBe(LOBES.glint);
+            expect(nodes.material[name].params.sparkle_roughness!.default).toBeLessThan(0.3);
+        }
+        // O metal escovado é opaco: um condutor só, anisotrópico, sem transmissão.
+        expect(Materials.metalBrushed().lobeMask & LOBES.transmission).toBe(0);
+        expect(nodes.material.metalBrushed.params.anisotropy!.default).toBeGreaterThanOrEqual(0.8);
+        // A folha é parede fina (a luz de trás atravessa) sob a cutícula; a seca é mais fosca.
+        for (const name of ['leaf', 'leafDry'] as const) {
+            expect(inner(name)).toMatchObject({
+                through: 'bsdf.translucent',
+                cuticle: 'bsdf.dielectric',
+                relief: 'surface.bump',
+            });
+            expect(nodes.material[name].params.translucency!.default).toBeGreaterThan(0.2);
+        }
+        expect(nodes.material.leafDry.params.roughness!.default).toBeGreaterThan(
+            nodes.material.leaf.params.roughness!.default as number,
+        );
+        const green = rgb('leaf', 'color');
+        expect(green[1]).toBeGreaterThan(2 * green[0]!);
+        const dry = rgb('leafDry', 'color');
+        expect(dry[0]).toBeGreaterThan(2 * dry[1]!);
+        // Os telhados: a telha de barro tem o perfil de capa e canal; a ardósia é plana, com as juntas desencontradas.
+        const courses = (name: MaterialName) =>
+            subgraphOrigin(nodes.material[name])!.graph.node('courses').values;
+        expect(courses('roofTile').profile).toBeGreaterThan(0);
+        expect(courses('roofTile').shift).toBe(0);
+        expect(courses('roofSlate')).toMatchObject({ profile: 0, shift: 0.5 });
         // O tecido fino tem cobertura parcial nos vãos.
         expect(has('sheerFabric', 'closure.opacity')).toBe(true);
     });

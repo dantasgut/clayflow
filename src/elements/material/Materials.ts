@@ -60,8 +60,14 @@ export type MaterialName =
     | 'woodFloorPlanks'
     | 'woodFloorHerringbone'
     | 'bark'
+    | 'barkPine'
     | 'barkBirch'
     | 'cork'
+    | 'corkStopper'
+    | 'leaf'
+    | 'leafDry'
+    | 'roofTile'
+    | 'roofSlate'
     | 'paper'
     | 'carbonFiber'
     | 'ice'
@@ -98,20 +104,22 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * uma máscara, ligar a rugosidade a um ruído), use o nó `nodes.material.<nome>` num `NodeGraph` próprio.
  *
  * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`, as espécies `woodOak`, `woodWalnut`,
- * `woodPine`, `woodMahogany`, `woodOakVarnished`, os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark` e `barkBirch` e a cortiça `cork`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
+ * `woodPine`, `woodMahogany`, `woodOakVarnished`, os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
+ * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
  * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
  * `aluminiumAnodized`, `castIron`, `bronzePatina`, `metalOxidized`, `carPaint`, `carPaintSilver`, `carbonFiber`. Pedra, construção e
  * terra: `concrete`, `granite`, `sandstone`, `brick`, `plaster`, `asphalt`, `tile`, `terracotta`, `driedMud`, `sand`.
- * Translúcidos: `glass`, `skin`, `wax`, `marble`, `jade`, `milk`, `ice`, `soap`, `ivory`, `snow`. Iridescente:
+ * Transparentes e translúcidos: `glass`, `ice`, `skin`, `wax`, `marble`, `jade`, `milk`, `soap`, `ivory`, `snow`. Iridescente:
  * `motherOfPearl`. Os valores físicos e as fontes estão na documentação de cada nó.
  *
- * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`, `ice`, `soap`, `ivory`, `snow`) têm o raio de espalhamento em milímetros
+ * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`, `soap`, `ivory`, `snow`) têm o raio de espalhamento em milímetros
  * (`radius`) e a escala do mundo em unidades por metro (`scale`, 1 por padrão): a luz se difunde sob a superfície e
  * atravessa as partes finas na medida do tamanho real do objeto — `Materials.wax({ scale: 100 })` numa cena em
  * centímetros.
  *
- * Os de relevo em milímetros (`woodRough`, `leather`, `wool`, `sandstone`, `brick`, `bark`, `barkBirch`, `driedMud`) têm as alturas em milímetros e a mesma escala do mundo
+ * Os de relevo em milímetros (`woodRough`, `leather`, `wool`, `sandstone`, `brick`, `bark`, `barkPine`, `barkBirch`, `driedMud`,
+ * `roofTile`, `roofSlate`) têm as alturas em milímetros e a mesma escala do mundo
  * (`scale`): o relevo inclina a normal no material e, com a `DisplacementFunction` de mesmo nome (`Displacements`) na
  * entidade de uma `ParametricSurface`, move a geometria — os mesmos valores nos dois.
  *
@@ -176,8 +184,14 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     woodFloorPlanks: factory(material.woodFloorPlanks),
     woodFloorHerringbone: factory(material.woodFloorHerringbone),
     bark: factory(material.bark),
+    barkPine: factory(material.barkPine),
     barkBirch: factory(material.barkBirch),
     cork: factory(material.cork),
+    corkStopper: factory(material.corkStopper),
+    leaf: factory(material.leaf),
+    leafDry: factory(material.leafDry),
+    roofTile: factory(material.roofTile),
+    roofSlate: factory(material.roofSlate),
     paper: factory(material.paper),
     carbonFiber: factory(material.carbonFiber),
     ice: factory(material.ice),

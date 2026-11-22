@@ -13,6 +13,8 @@ import {
 import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
 import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
+import { bark, barkPine, corkStopper, leaf, leafDry } from './plant';
+import { roofSlate, roofTile } from './roof';
 import {
     ceramic,
     leather,
@@ -37,7 +39,6 @@ import {
 import { glass, jade, marble, milk, porcelain, skin, wax } from './translucent';
 import { woodVarnishedGloss, woodVarnishedMatte } from './wood';
 import {
-    bark,
     barkBirch,
     cork,
     woodFloorHerringbone,
@@ -50,7 +51,7 @@ import {
 } from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 62 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 68 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -110,8 +111,14 @@ export const material = {
     woodFloorPlanks,
     woodFloorHerringbone,
     bark,
+    barkPine,
     barkBirch,
     cork,
+    corkStopper,
+    leaf,
+    leafDry,
+    roofTile,
+    roofSlate,
     paper,
     carbonFiber,
     ice,

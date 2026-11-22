@@ -103,21 +103,26 @@ export const brass = metal('material.brass', 0.07, 0, [0.91, 0.778, 0.423], [0.9
 export const chrome = metal('material.chrome', 0.02, 0, [0.549, 0.556, 0.554], [0.75, 0.75, 0.81]);
 
 /**
- * `material.metalBrushed` — metal escovado (alumínio): anisotropia 0,9 com a tangente ao longo de u — a direção da
- * escova — e os riscos dela (`pattern.grain` alongado 125 : 1 ao longo de u): cada risco muda a rugosidade (de
- * `roughness`, 0,16, a `scratch_roughness`, 0,4) e inclina a normal através da escova (`relief`, a altura em unidades
- * do padrão) — o realce se alonga perpendicular aos riscos e se quebra em fios. O lobo é estreito ao longo da escova
- * (um espelho) e largo através dela: numa cena com a estrutura de raios, o reflexo do ambiente vem traçado, um raio
- * por pixel sorteado no eixo largo — o ambiente esticado perpendicular à escova. Parâmetros: `color` (F0), `edge_tint`
- * (F82), `roughness`, `scratch_roughness`, `anisotropy`, `relief`, `pattern_scale`.
+ * `material.metalBrushed` — metal escovado (alumínio, inox): opaco, cinza-claro, com a escova ao longo de u. O lobo é
+ * anisotrópico (0,9, a tangente ao longo da escova): rugosidade 0,08 ao longo dela e 0,35 através (α 0,006 × 0,12) — o
+ * realce do sol se estica numa faixa perpendicular à escova. Os riscos (`pattern.grain` alongado 125 : 1 ao longo de u,
+ * mais as faixas largas de passadas da lixa, 75 : 1) mudam a rugosidade de risco para risco (de `roughness`, 0,21, a
+ * `scratch_roughness`, 0,31) e inclinam a normal através da escova (`relief`, a altura em unidades do padrão): a faixa
+ * do realce se quebra em fios. O reflexo do ambiente não é traçado: o eixo largo do lobo é áspero
+ * (`closure_base_mirror`) e ele vem da radiância das sondas, já filtrada — borrado, sem imagem de espelho e sem ruído,
+ * também no antisserrilhado por amostras. Parâmetros: `color` (F0), `edge_tint` (F82), `roughness`,
+ * `scratch_roughness`, `anisotropy`, `relief`, `pattern_scale`.
  */
 export const metalBrushed = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
             scratch: pattern.grain.with({ scale: [1.2, 150], octaves: 2, gain: 0.7, seed: 6 }),
-            rough: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.16, out_max: 0.4 }),
-            relief: surface.bump.with({ strength: 0.001 }),
+            pass: pattern.grain.with({ scale: [0.6, 45], octaves: 2, gain: 0.6, seed: 16 }),
+            both: math.add,
+            rough: map.range.with({ in_min: -0.9, in_max: 0.9, out_min: 0.21, out_max: 0.31 }),
+            relief: surface.bump.with({ strength: 0.0012 }),
+            pass_relief: surface.bump.with({ strength: 0.0012 }),
             metal: bsdf.conductor.with({
                 color: [...ALUMINIUM_F0],
                 edge_tint: [...ALUMINIUM_F82],
@@ -127,13 +132,16 @@ export const metalBrushed = Subgraph.point(
         },
         links: [
             ...SPACE_LINKS,
-            ...patternLinks('scratch'),
-            ['scratch.value', 'rough.x'],
+            ...patternLinks('scratch', 'pass'),
+            ['scratch.value', 'both.a'],
+            ['pass.value', 'both.b'],
+            ['both.value', 'rough.x'],
             ['rough.value', 'metal.roughness'],
             ['uv.du', 'metal.tangent'],
             ...bumpLinks('relief', 'scratch.gradient'),
+            ...bumpLinks('pass_relief', 'pass.gradient', 'relief.value'),
             ['metal.value', 'out.c'],
-            ['relief.value', 'out.normal'],
+            ['pass_relief.value', 'out.normal'],
         ],
         output: 'out.value',
     }),
@@ -170,6 +178,9 @@ function paint(name: string, v: PaintValues): NodeDefinition {
             nodes: {
                 ...patternSpace(),
                 flake: pattern.cells.with({ scale: 230, jitter: 1, crease: 0.1, seed: 8 }),
+                // Os flocos menores que o pixel: a contagem dos alinhados com cada luz (os brilhos pontuais).
+                sparkle: pattern.glints.with({ scale: 2800, seed: 10 }),
+                glinting: closure.glints.with({ roughness: 0.16 }),
                 peel: pattern.grain.with({ scale: [7, 7], octaves: 2, seed: 9 }),
                 pigment: math.value3.with({ value: [...v.color] }),
                 tone: map.range.with({ out_min: 0.65, out_max: 1.35 }),
@@ -186,13 +197,16 @@ function paint(name: string, v: PaintValues): NodeDefinition {
             },
             links: [
                 ...SPACE_LINKS,
-                ...patternLinks('flake', 'peel'),
+                ...patternLinks('flake', 'peel', 'sparkle'),
                 ['flake.cell', 'tone.x'],
                 ['pigment.value', 'tinted.v'],
                 ['tone.value', 'tinted.s'],
                 ['tinted.value', 'flakes.color'],
                 ...bumpLinks('tilt', 'flake.random'),
-                ['flakes.value', 'layer_of_flakes.c'],
+                ['flakes.value', 'glinting.c'],
+                ['sparkle.cells', 'glinting.cells'],
+                ['sparkle.count', 'glinting.count'],
+                ['glinting.value', 'layer_of_flakes.c'],
                 ['tilt.value', 'layer_of_flakes.normal'],
                 ['body.value', 'base.a'],
                 ['layer_of_flakes.value', 'base.b'],
@@ -214,6 +228,8 @@ function paint(name: string, v: PaintValues): NodeDefinition {
                 ['flakes.roughness', 'flake_roughness'],
                 ['base.t', 'flake_weight'],
                 ['tilt.strength', 'flake_tilt'],
+                ['sparkle.scale', 'sparkle_scale'],
+                ['glinting.roughness', 'sparkle_roughness'],
                 ['out.top_color', 'coat_color'],
                 ['coat.roughness', 'coat_roughness'],
                 ['coat.ior', 'coat_ior'],
@@ -234,14 +250,18 @@ function paint(name: string, v: PaintValues): NodeDefinition {
  * que segue a luz, a cara de metal —, sobre um resto de pigmento difuso escuro (`base_color`). Cada floco
  * (`pattern.cells`: 230 por unidade do padrão) tem a normal inclinada alguns graus (`flake_tilt`, a tangente máxima
  * dividida pelo tamanho de uma unidade do padrão: até cerca de 8° numa esfera de raio 0,55) e o seu tom (± 35 %):
- * juntos alargam o lobo e dão o granulado que cintila pela peça toda. A cor muda com o ângulo (o flop): clara e
+ * juntos alargam o lobo e dão o granulado que cintila pela peça toda. De longe, onde o floco é menor que o pixel, o
+ * que se vê são os brilhos pontuais (`pattern.glints` e `closure.glints`): os flocos finos (`sparkle_scale`, 2800 por
+ * unidade do padrão), espelhos pequenos (`sparkle_roughness`, 0,16) orientados pela distribuição do lobo — a contagem
+ * dos alinhados com o sol em cada pixel, sorteada de forma estável no objeto, dá pontos fortes e ralos longe do realce
+ * e o chuvisco denso dentro dele, com a mesma energia do lobo liso. A cor muda com o ângulo (o flop): clara e
  * metálica perto da direção do reflexo; fora dela e no rasante, escura e saturada (`flake_edge_tint`, a tinta da borda
  * — o caminho mais longo no aglutinante). Por cima, o verniz: um dielétrico liso em camada (IOR 1,5, rugosidade 0,02: o
  * reflexo nítido do ambiente) com a normal própria — lisa, separada da dos flocos, com a casca de laranja muito leve
  * (`pattern.grain` largo, `orange_peel` a altura em unidades do padrão). Valores de partida do exemplo
  * `open_pbr_carpaint.mtlx` do MaterialX (a base de condutor sob o verniz). Parâmetros: `base_color`, `flake_color`,
- * `flake_edge_tint`, `flake_roughness`, `flake_weight`, `flake_tilt`, `coat_color`, `coat_roughness`, `coat_ior`,
- * `coat_weight`, `orange_peel`, `pattern_scale`.
+ * `flake_edge_tint`, `flake_roughness`, `flake_weight`, `flake_tilt`, `sparkle_scale`, `sparkle_roughness`,
+ * `coat_color`, `coat_roughness`, `coat_ior`, `coat_weight`, `orange_peel`, `pattern_scale`.
  */
 export const carPaint = paint('material.carPaint', {
     color: [0.56, 0.035, 0.03],

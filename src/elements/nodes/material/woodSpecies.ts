@@ -17,15 +17,7 @@ import {
     SPACE_LINKS,
     type Link,
 } from './pattern';
-import {
-    BARK_FLAKES,
-    BARK_PLATES,
-    BIRCH_DASH,
-    BIRCH_EDGE,
-    BIRCH_LENTICELS,
-    BIRCH_PEEL,
-    relief,
-} from './relief';
+import { BIRCH_DASH, BIRCH_EDGE, BIRCH_LENTICELS, BIRCH_PEEL, relief } from './relief';
 
 // Espécies de madeira, assoalhos, casca e cortiça (spec 011, T117). Cada espécie tem a sua cor, o seu veio e a sua
 // figura, calculados por pixel (`pattern.rings`: o corte tangencial do tronco com a fibra ao longo de u;
@@ -36,7 +28,10 @@ import {
 // que atravessam a tábua (`knots`, `knot_size` de `pattern.rings`: os anéis desviam em volta do nó e fecham dentro
 // dele, o miolo escuro `knot_color`). O acabamento: encerada (a interface de celulose e cera, IOR 1,5, acetinada, com o
 // relevo da fibra na normal) ou envernizada — um dielétrico em camada (`closure.layer`, IOR 1,5) que acompanha o poro
-// aberto: a normal do verniz desce em cada poro e o realce quebra em tracinhos ao longo da fibra. Os assoalhos são as
+// aberto e a fibra: a normal do verniz desce em cada poro e ondula com a fibra fina, e o realce quebra em tracinhos ao
+// longo dela. Nas envernizadas a figura é a do corte tangencial: o anel é uma linha fina e escura (o lenho tardio
+// estreito) sobre o lenho claro, de espaçamento muito irregular — a fundura do corte varia ao longo da tábua
+// (`distortion`) e as linhas são curvas de nível dela, com ovais e catedrais —, com pouco contraste. Os assoalhos são as
 // mesmas madeiras em tábuas (`pattern.planks`): cada peça com os seus anéis, na sua direção, e o seu tom.
 
 type Rgb = readonly [number, number, number];
@@ -66,7 +61,15 @@ interface SpeciesValues {
     readonly fleck_scale: readonly [number, number];
     /** A rugosidade da interface da madeira (encerada) e, com verniz, a dele, a cor de absorção e a fundura do poro. */
     readonly roughness: number;
-    readonly coat?: { readonly roughness: number; readonly color: Rgb; readonly pore: number };
+    readonly coat?: {
+        readonly roughness: number;
+        readonly color: Rgb;
+        readonly pore: number;
+        /** O quanto o verniz acompanha a fibra fina (a altura, em unidades do padrão; 0 = liso). */
+        readonly fiber?: number;
+    };
+    /** Os nomes dos parâmetros expostos (o padrão: os de `woodPine`). */
+    readonly expose?: readonly (readonly [string, string])[];
     /** As tábuas do assoalho (`pattern.planks`) e a variação do tom de peça para peça (± a fração). */
     readonly planks?: Readonly<Record<string, number>>;
     readonly plank_tone?: number;
@@ -78,7 +81,7 @@ interface SpeciesValues {
  * (sem especular próprio) sob o verniz em camada, com o poro aberto na normal dele. Com `planks`, os padrões leem a
  * coordenada de cada tábua e a junta entra na cor e na normal do verniz.
  */
-function species(name: string, v: SpeciesValues): NodeDefinition {
+export function species(name: string, v: SpeciesValues): NodeDefinition {
     const floor = v.planks !== undefined;
     const coated = v.coat !== undefined;
     const grains = ['rings', 'fiber', 'thread', 'pore', 'fleck', 'figure', 'broad'];
@@ -182,6 +185,7 @@ function species(name: string, v: SpeciesValues): NodeDefinition {
                 // O verniz: a normal dele desce nos poros abertos (e na junta das tábuas).
                 open: pattern.threshold.with({ low: 0.5, high: 0.2 }),
                 pore_relief: surface.bump.with({ strength: v.coat?.pore ?? 0 }),
+                coat_fiber: surface.bump.with({ strength: v.coat?.fiber ?? 0 }),
                 joint_relief: surface.bump.with({ strength: floor ? 0.004 : 0 }),
                 coat: bsdf.dielectric.with({ ior: 1.5, roughness: v.coat?.roughness ?? 0.3 }),
                 coat_surface: closure.normal,
@@ -242,10 +246,11 @@ function species(name: string, v: SpeciesValues): NodeDefinition {
                 ['pore.value', 'open.value'],
                 ['pore.gradient', 'open.gradient'],
                 ...bumpLinks('pore_relief', 'open.gradient'),
+                ...bumpLinks('coat_fiber', 'thread.gradient', 'pore_relief.value'),
                 ...bumpLinks(
                     'joint_relief',
                     floor ? 'planks.gradient' : 'open.gradient',
-                    'pore_relief.value',
+                    'coat_fiber.value',
                 ),
                 ['coat.value', 'coat_surface.c'],
                 ['joint_relief.value', 'coat_surface.normal'],
@@ -257,7 +262,7 @@ function species(name: string, v: SpeciesValues): NodeDefinition {
         {
             name,
             ...SAMPLE_INPUT,
-            expose: [
+            expose: v.expose ?? [
                 ['tone.color_a', 'color'],
                 ['tone.color_b', 'late_color'],
                 ['knot_color.value', 'knot_color'],
@@ -351,111 +356,114 @@ export const woodOak = species('material.woodOak', {
 });
 
 /**
- * `material.woodWalnut` — nogueira oleada: castanho-chocolate (`color`) com veios quase pretos (`late_color`), o veio
- * ondulado, as faixas claras e escuras ao longo da fibra (± 26 %) e os poros escuros e compridos espalhados; 76 anéis
- * por unidade do padrão; acetinada. Parâmetros: os de `woodPine`.
+ * `material.woodWalnut` — nogueira oleada: castanho-chocolate (`color`) com as linhas dos anéis mais escuras
+ * (`late_color`), finas e de espaçamento irregular — a figura do corte tangencial, com ovais e catedrais —, as faixas
+ * claras e escuras ao longo da fibra (± 24 %), as manchas largas e os poros escuros e compridos espalhados; acetinada.
+ * Parâmetros: os de `woodPine`.
  */
 export const woodWalnut = species('material.woodWalnut', {
-    color: [0.24, 0.135, 0.07],
-    late_color: [0.085, 0.045, 0.024],
+    color: [0.215, 0.125, 0.07],
+    late_color: [0.13, 0.072, 0.04],
     knot_color: [0.03, 0.016, 0.01],
     offset: [0.41, -0.36],
     rings: {
-        scale: 76,
-        depth: 0.14,
-        distortion: 0.15,
-        distortion_scale: [1.6, 2.6],
+        scale: 78,
+        depth: 0.2,
+        distortion: 0.3,
+        distortion_scale: [0.8, 2.3],
         irregularity: 1,
-        waviness: 0.03,
-        waviness_scale: [2, 5],
+        waviness: 0.01,
+        waviness_scale: [1.3, 24],
         seed: 5,
         knots: 0.8,
         knot_size: 0.03,
         knot_rings: 4,
     },
-    late_start: 0.15,
-    year: 0.2,
-    broad: 0.22,
-    figure: 0.26,
-    streak: 0.2,
-    fine: 0.12,
+    late_start: 0.5,
+    year: 0.16,
+    broad: 0.24,
+    figure: 0.24,
+    streak: 0.18,
+    fine: 0.14,
     pore_scale: [9, 150],
-    pore: 0.8,
+    pore: 0.75,
     fleck: 0,
     fleck_scale: [16, 210],
     roughness: 0.42,
 });
 
 /**
- * `material.woodOakVarnished` — carvalho escurecido e envernizado: a madeira tingida de castanho-escuro (`color`,
- * `late_color`), os anéis em arcos e as faixas largas de cor, sob um verniz brilhante (rugosidade 0,07, âmbar) que
- * acompanha o poro aberto — a normal do verniz desce em cada vaso (`pore_relief`, a altura em unidades do padrão): o
- * realce quebra em tracinhos ao longo da fibra. Parâmetros: os de `woodPine`.
+ * `material.woodOakVarnished` — carvalho escurecido e envernizado: a madeira tingida de castanho-escuro (`color`), as
+ * linhas dos anéis pouco mais escuras (`late_color`), finas e irregulares, as faixas largas de cor e os vasos — poros
+ * alongados e escuros, muitos, ao longo da fibra —, sob um verniz âmbar acetinado-brilhante (rugosidade 0,1: o realce
+ * do sol é uma mancha larga) que acompanha o poro aberto e a fibra — a normal do verniz desce em cada vaso
+ * (`pore_relief`, a altura em unidades do padrão) e ondula com a fibra fina: a mancha do realce sai cortada em
+ * tracinhos ao longo da fibra. Parâmetros: os de `woodPine`.
  */
 export const woodOakVarnished = species('material.woodOakVarnished', {
-    color: [0.3, 0.16, 0.07],
-    late_color: [0.1, 0.05, 0.022],
+    color: [0.2, 0.105, 0.046],
+    late_color: [0.135, 0.068, 0.029],
     knot_color: [0.04, 0.02, 0.01],
     offset: [0.58, -0.33],
     rings: {
-        scale: 80,
-        depth: 0.14,
-        distortion: 0.12,
-        distortion_scale: [1.1, 1.8],
+        scale: 84,
+        depth: 0.2,
+        distortion: 0.32,
+        distortion_scale: [0.7, 2.2],
         irregularity: 1,
-        waviness: 0.02,
-        waviness_scale: [2.5, 7],
+        waviness: 0.009,
+        waviness_scale: [1.2, 26],
         seed: 17,
         knots: 0,
     },
-    late_start: 0.3,
-    year: 0.18,
-    broad: 0.24,
-    figure: 0.14,
-    streak: 0.18,
-    fine: 0.12,
-    pore_scale: [9, 130],
-    pore: 0.8,
-    fleck: 0.12,
+    late_start: 0.55,
+    year: 0.12,
+    broad: 0.22,
+    figure: 0.12,
+    streak: 0.22,
+    fine: 0.2,
+    pore_scale: [10, 210],
+    pore: 0.92,
+    fleck: 0.1,
     fleck_scale: [22, 260],
     roughness: 0.6,
-    coat: { roughness: 0.07, color: [1, 0.82, 0.6], pore: 0.0045 },
+    coat: { roughness: 0.13, color: [1, 0.82, 0.6], pore: 0.0034, fiber: 0.0003 },
 });
 
 /**
- * `material.woodMahogany` — mogno envernizado: laranja-avermelhado (`color`), de veio fino com as catedrais (130 anéis
- * por unidade do padrão, a medula perto do corte), as faixas da grã revessa ao longo da fibra, os pontinhos escuros
- * dos poros, sob um verniz brilhante e liso (rugosidade 0,04, alaranjado) com o poro de leve aberto; sem nós.
- * Parâmetros: os de `woodPine`.
+ * `material.woodMahogany` — mogno envernizado: laranja-avermelhado (`color`) com as linhas dos anéis castanhas
+ * (`late_color`), finas, onduladas e de espaçamento irregular — as catedrais e os ovais do corte tangencial —, as
+ * faixas da grã revessa ao longo da fibra, os tracinhos escuros dos poros, sob um verniz brilhante (rugosidade 0,06,
+ * alaranjado) com o poro de leve aberto; sem nós. Parâmetros: os de `woodPine`.
  */
 export const woodMahogany = species('material.woodMahogany', {
-    color: [0.5, 0.16, 0.05],
-    late_color: [0.33, 0.09, 0.03],
+    color: [0.5, 0.165, 0.05],
+    late_color: [0.33, 0.1, 0.032],
     knot_color: [0.06, 0.02, 0.012],
     offset: [0.27, -0.4],
     rings: {
-        scale: 130,
-        depth: 0.1,
-        distortion: 0.12,
-        distortion_scale: [1, 1.5],
+        scale: 92,
+        depth: 0.18,
+        distortion: 0.34,
+        distortion_scale: [0.6, 2],
         irregularity: 1,
-        waviness: 0.012,
-        waviness_scale: [2, 6],
+        waviness: 0.008,
+        waviness_scale: [1.1, 24],
         seed: 13,
         knots: 0,
     },
-    late_start: 0.5,
-    year: 0.2,
+    late_start: 0.6,
+    year: 0.14,
     broad: 0.2,
-    figure: 0.26,
-    streak: 0.16,
-    fine: 0.12,
-    pore_scale: [26, 300],
-    pore: 0.7,
+    figure: 0.22,
+    streak: 0.2,
+    fine: 0.18,
+    pore_scale: [12, 230],
+    pore: 0.85,
     fleck: 0,
     fleck_scale: [16, 210],
     roughness: 0.5,
-    coat: { roughness: 0.04, color: [1, 0.72, 0.45], pore: 0.0012 },
+    coat: { roughness: 0.07, color: [1, 0.72, 0.45], pore: 0.002, fiber: 0.00016 },
 });
 
 /** O carvalho dos assoalhos: os anéis com poucos arcos (a medula longe), o tom variando de tábua para tábua. */
@@ -513,104 +521,6 @@ export const woodFloorHerringbone = species('material.woodFloorHerringbone', {
     ...FLOOR_OAK,
     planks: { scale: 24, length: 4, arrangement: 1, gap: 0.03, bevel: 0.05, seed: 33 },
 });
-
-/**
- * `material.bark` — casca de árvore grossa e fissurada (carvalho, pinheiro velho): as placas compridas ao longo de v (o
- * eixo do tronco), cinza-acastanhadas (`color`), cada uma de um tom (± 22 %), mais claras nas cristas altas
- * (`ridge_color`), separadas por fissuras fundas que se ramificam e se juntam, escuras e avermelhadas no fundo
- * (`furrow_color`: a cor cai com a fundura), com o líquen em manchas largas e ralas (`lichen_color`, verde-acinzentado,
- * só nas faces; `lichen` a cobertura, 0,25); fosca (rugosidade 0,95). O relevo é o de `relief.bark`, em milímetros — as
- * fissuras (`furrow_depth`, 9) e as cristas (`ridge_height`, 3,4), com `scale` unidades do mundo por metro —, na
- * normal; com `Displacements.bark()` na entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`,
- * `ridge_color`, `furrow_color`, `lichen_color`, `lichen`, `roughness`, `furrow_depth`, `ridge_height`, `scale`,
- * `pattern_scale`.
- */
-export const bark = Subgraph.point(
-    new NodeGraph({
-        nodes: {
-            ...patternSpace(),
-            plates: pattern.fissures.with(BARK_PLATES),
-            flakes: pattern.grain.with(BARK_FLAKES),
-            moss: pattern.grain.with({ scale: [5, 4], octaves: 5, gain: 0.6, seed: 94 }),
-            grey: math.value3.with({ value: [0.2, 0.155, 0.12] }),
-            pale: math.value3.with({ value: [0.34, 0.29, 0.24] }),
-            furrow: math.value3.with({ value: [0.035, 0.02, 0.014] }),
-            green: math.value3.with({ value: [0.3, 0.36, 0.24] }),
-            raised: map.range.with({ in_min: -0.1, in_max: 0.6 }),
-            face: math.mix3,
-            plate_tone: map.range.with({ out_min: 0.78, out_max: 1.22 }),
-            face_lit: math.scale3,
-            // O líquen: nas manchas em que o grão largo passa de um nível, só nas faces altas.
-            cover: math.value.with({ value: 0.25 }),
-            level: map.range.with({ out_min: 0.75, out_max: -0.25 }),
-            patch_a: math.sub,
-            patch: map.range.with({ in_min: 0, in_max: 0.25, out_min: 0, out_max: 0.8 }),
-            on_face: math.mul,
-            mossy: math.mix3,
-            tile: math.value2.with({ value: [1, 1] }),
-            height: relief.bark,
-            depth: math.split3,
-            cavity: map.range.with({ in_min: -7, in_max: -0.5 }),
-            skin: math.mix3,
-            body: bsdf.diffuse.with({ roughness: 1 }),
-            specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.95 }),
-            sum: closure.add,
-            normal: surface.reliefNormal,
-            out: closure.normal,
-        },
-        links: [
-            ...SPACE_LINKS,
-            ...patternLinks('plates', 'flakes', 'moss'),
-            ['tile.value', 'uv.scale'],
-            ['flakes.value', 'raised.x'],
-            ['grey.value', 'face.a'],
-            ['pale.value', 'face.b'],
-            ['raised.value', 'face.t'],
-            ['plates.plate', 'plate_tone.x'],
-            ['face.value', 'face_lit.v'],
-            ['plate_tone.value', 'face_lit.s'],
-            ['cover.value', 'level.x'],
-            ['moss.value', 'patch_a.a'],
-            ['level.value', 'patch_a.b'],
-            ['patch_a.value', 'patch.x'],
-            ['patch.value', 'on_face.a'],
-            ['plates.height', 'on_face.b'],
-            ['face_lit.value', 'mossy.a'],
-            ['green.value', 'mossy.b'],
-            ['on_face.value', 'mossy.t'],
-            ['s.value', 'height.s'],
-            ['tile.value', 'height.pattern_scale'],
-            ['height.value', 'depth.v'],
-            ['depth.x', 'cavity.x'],
-            ['furrow.value', 'skin.a'],
-            ['mossy.value', 'skin.b'],
-            ['cavity.value', 'skin.t'],
-            ['skin.value', 'body.color'],
-            ['specular.value', 'sum.a'],
-            ['body.value', 'sum.b'],
-            ['height.value', 'normal.relief'],
-            ['sum.value', 'out.c'],
-            ['normal.value', 'out.normal'],
-        ],
-        output: 'out.value',
-    }),
-    {
-        name: 'material.bark',
-        ...SAMPLE_INPUT,
-        expose: [
-            ['grey.value', 'color'],
-            ['pale.value', 'ridge_color'],
-            ['furrow.value', 'furrow_color'],
-            ['green.value', 'lichen_color'],
-            ['cover.value', 'lichen'],
-            ['specular.roughness', 'roughness'],
-            ['height.furrow_depth', 'furrow_depth'],
-            ['height.ridge_height', 'ridge_height'],
-            ['normal.scale', 'scale'],
-            ['tile.value', 'pattern_scale'],
-        ],
-    },
-);
 
 /**
  * `material.barkBirch` — casca de bétula: lisa, branca e acetinada (`color`; a betulina, rugosidade 0,45), manchada de

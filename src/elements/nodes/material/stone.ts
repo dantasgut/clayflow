@@ -723,9 +723,11 @@ export const driedMud = Subgraph.point(
  * `material.sand` — areia seca de praia: os grãos (`pattern.cells`: 170 por unidade do padrão), cada um de uma cor — o
  * quartzo claro (`color`), o amarelado (`warm_color`) e os minerais pesados escuros (`dark_color`, um grão em vinte e cinco) —
  * e em relevo (`relief`, em unidades do padrão): cada grão tem a sua faceta e brilha num ponto quando alinha com o sol
- * (interface de quartzo, IOR 1,544, rugosidade 0,4); as marcas onduladas do vento (`pattern.grain` alongado ao longo
+ * (interface de quartzo, IOR 1,544, rugosidade 0,4) — de longe, com o grão menor que o pixel, pelos brilhos pontuais
+ * (`pattern.glints`, 420 facetas por unidade do padrão; `sparkle_roughness`, 0,18, a do espelho de cada faceta); as marcas onduladas do vento (`pattern.grain` alongado ao longo
  * de u: `ripple`, a altura em unidades do padrão) dão a sombra larga, com os grãos escuros juntos nos vales.
- * Parâmetros: `color`, `warm_color`, `dark_color`, `roughness`, `relief`, `ripple`, `pattern_scale`.
+ * Parâmetros: `color`, `warm_color`, `dark_color`, `roughness`, `sparkle_roughness`, `relief`, `ripple`,
+ * `pattern_scale`.
  */
 export const sand = Subgraph.point(
     new NodeGraph({
@@ -750,12 +752,15 @@ export const sand = Subgraph.point(
             ripple: surface.bump.with({ strength: 0.007 }),
             body: bsdf.diffuse.with({ roughness: 0.8 }),
             specular: bsdf.dielectric.with({ ior: 1.544, roughness: 0.4 }),
+            // As facetas de quartzo menores que o pixel: os brilhos pontuais da areia ao sol.
+            glitter: pattern.glints.with({ scale: 420, seed: 173 }),
+            glinting: closure.glints.with({ roughness: 0.18 }),
             sum: closure.add,
             out: closure.normal,
         },
         links: [
             ...SPACE_LINKS,
-            ...patternLinks('grain', 'wind'),
+            ...patternLinks('grain', 'wind', 'glitter'),
             ['grain.cell', 'pick.x'],
             ['wind.value', 'valley.x'],
             ['grain.cell', 'level.a'],
@@ -774,7 +779,10 @@ export const sand = Subgraph.point(
             ...bumpLinks('ripple', 'wind.gradient'),
             ...bumpLinks('facet', 'grain.gradient', 'ripple.value'),
             ...bumpLinks('tilt', 'grain.random', 'facet.value'),
-            ['specular.value', 'sum.a'],
+            ['specular.value', 'glinting.c'],
+            ['glitter.cells', 'glinting.cells'],
+            ['glitter.count', 'glinting.count'],
+            ['glinting.value', 'sum.a'],
             ['body.value', 'sum.b'],
             ['sum.value', 'out.c'],
             ['tilt.value', 'out.normal'],
@@ -789,6 +797,7 @@ export const sand = Subgraph.point(
             ['warm.value', 'warm_color'],
             ['heavy.value', 'dark_color'],
             ['specular.roughness', 'roughness'],
+            ['glinting.roughness', 'sparkle_roughness'],
             ['facet.strength', 'relief'],
             ['ripple.strength', 'ripple'],
             PATTERN_SCALE,
