@@ -4,22 +4,103 @@ import type { Resource } from '../../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../../scene/descriptors/PipelineDescriptor';
 import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
-import { lightTransmissionPoint, skyCoverPoint } from '../../scene/points/lighting';
+import {
+    lightTransmissionPoint,
+    lightVolumeVisibilityPoint,
+    skyCoverPoint,
+} from '../../scene/points/lighting';
 import {
     CloudCoverageFunction,
     type CloudCoverageOptions,
 } from '../../extension/CloudCoverageFunction';
 import { CloudShapeFunction, type CloudShapeOptions } from '../../extension/CloudShapeFunction';
-import { defaultCloudShapeGraph } from './defaultShape';
 import {
-    CLOUD_COVERAGE_SIZE,
+    CloudPressureFunction,
+    type CloudPressureOptions,
+} from '../../extension/CloudPressureFunction';
+import { defaultCloudShapeGraph } from './defaultShape';
+import { GpuWordSchema, wordBuffer } from '../../gpu/compute/schemas';
+import {
+    CLOUD_COVERAGE_PAGE,
+    CLOUD_COVERAGE_RECORD_WORDS,
+    CLOUD_COVERAGE_SIDE,
     CLOUD_DETAIL_SIZE,
-    CLOUD_SHADOW_KNOTS,
+    CLOUD_SHADOW_ATLAS,
+    CLOUD_SHADOW_SLOT_COUNT,
+    CLOUD_SHADOW_STRIDE,
+    CLOUD_SCATTER_GLOBAL_WORDS,
+    CLOUD_SCATTER_HEADER_WORDS,
+    CLOUD_SCATTER_PAGE,
+    CLOUD_SCATTER_PROBE_WORDS,
+    CLOUD_SHADOW_ATLAS_LAYERS,
     CLOUD_SHAPE_SIZE,
+    CLOUD_SUN_VOLUME_LEVELS,
+    CLOUD_SUN_VOLUME_PAGE_COUNT,
+    CLOUD_SUN_VOLUME_PAGES,
+    CLOUD_SUN_VOLUME_RECORD_WORDS,
+    CLOUD_SUN_VOLUME_STRIDE,
+    CLOUD_SUN_VOLUME_WORK_WORDS,
+    CLOUD_WEATHER_SIZE,
     CloudSchema,
+    CloudShadowPageSchema,
+    cloudCoverageLevels,
+    cloudCoverageSlotCount,
     type CloudQuality,
 } from './schemas';
-import { cloudLightTransmission, cloudSkyCover } from './shaders';
+import {
+    CLOUD_TILE,
+    cloudLightTransmission,
+    cloudSkyCover,
+    cloudVolumeVisibility,
+} from './shaders';
+
+/**
+ * O tempo das nuvens (spec 041, R19): um campo de pressão em escala sinótica (centenas de km) dita onde há nuvens, de
+ * que tipo e até que altura, e o vento que as leva. Sem `pressure`, o padrão de sistemas de alta e baixa da biblioteca
+ * (nascem, crescem e se desfazem, levados pelo vento de condução — o `wind` da camada). Leste = +x, norte = −z.
+ */
+export interface CloudWeatherSettings {
+    /** Latitude da cena (graus, −90 a 90): o parâmetro de Coriolis f = 2Ω sin φ e o sentido do giro. Default 45. */
+    readonly latitude: number;
+    /** Padrão: lado das células (m), no máximo um sistema por célula; também a escala do estêncil. Default 1 500 000. */
+    readonly scale: number;
+    /** Padrão: amplitude das baixas a 45° (Pa); escala com a rotação na latitude da cena. Default 1200. */
+    readonly amplitude: number;
+    /** Padrão: vida de um sistema (s), do nascimento ao fim. Default 172 800 (2 dias). */
+    readonly lifetime: number;
+    /** Atrito linear da camada limite (1/s): o vento cruza as isóbaras perto do chão e converge nas baixas. Default 6·10⁻⁵. */
+    readonly friction: number;
+    /** Tempo de formação (s): as nuvens se formam e se desfazem em direção ao que o tempo dita nesse tempo. Default 1200. */
+    readonly formation: number;
+    /** Tropopausa (m acima do chão; > `top`): o topo da casca, aonde chega a torre do cúmulo-nimbo. Default 11 000. */
+    readonly tropopause: number;
+    /** Padrão: semente (inteiro ≥ 0). Default 0. */
+    readonly seed: number;
+    /**
+     * O vento da alta troposfera como múltiplo do vento da camada (o cisalhamento, ≥ 0): leva a bigorna do cúmulo-nimbo
+     * para longe da torre. Default 2,5 (nas latitudes médias o vento perto da tropopausa é ~2–3 × o de 700 hPa).
+     */
+    readonly shear: number;
+}
+
+/** Valores de autoria do tempo (todos opcionais) e a função de pressão (grafo de nós ou WGSL do ponto `cloud_pressure`). */
+export interface CloudWeatherValues extends Partial<CloudWeatherSettings> {
+    /** Campo de pressão: grafo de nós ou WGSL do ponto `cloud_pressure`. Default: o padrão de sistemas da biblioteca. */
+    readonly pressure?: CloudPressureOptions;
+}
+
+/** Os padrões do tempo. */
+export const CLOUD_WEATHER_DEFAULTS: CloudWeatherSettings = {
+    latitude: 45,
+    scale: 1_500_000,
+    amplitude: 1200,
+    lifetime: 172_800,
+    friction: 6e-5,
+    formation: 1200,
+    tropopause: 11_000,
+    seed: 0,
+    shear: 2.5,
+};
 
 /** Valores de autoria de uma `CloudLayer` (spec 041). */
 export interface CloudLayerValues {
@@ -45,6 +126,11 @@ export interface CloudLayerValues {
     readonly shapeScale?: number;
     /** Metros por período do volume de detalhe. Default 1800. */
     readonly detailScale?: number;
+    /**
+     * O tempo (spec 041, R19): o campo de pressão dita a cobertura, o tipo, o topo e o vento das nuvens. Com ele, `coverage`
+     * (número), `type` e `top` são o tempo bom; a casca vai da base à tropopausa. Sem ele, a camada de hoje.
+     */
+    readonly weather?: CloudWeatherValues;
 }
 
 /** Dado de uma `CloudLayer`: os valores de autoria, a qualidade do perfil e o uniforme empacotado pelos estágios. */
@@ -65,6 +151,8 @@ export interface CloudLayerData {
     quality: CloudQuality;
     /** 1 quando os alvos que as contribuições leem existem (a sombra, o panorama); escrito só quando muda. */
     active: number;
+    /** O tempo (R19), ou `undefined` sem ele. */
+    weather: CloudWeatherSettings | undefined;
 }
 
 /** A qualidade do perfil alto (o padrão antes do `Renderer` adotar a camada). */
@@ -74,8 +162,11 @@ export const CLOUD_QUALITY_HIGH: CloudQuality = {
     octaves: 3,
     panorama: [256, 128],
     panoramaSteps: 32,
-    shadow: { size: 256, extent: 400_000, near: 3_000 },
-    coverageExtent: 64_000,
+    shadow: { texel: 50, budget: 128 },
+    coverageExtent: 256_000,
+    coverage: { texel: 31.25, budget: 128 },
+    scatter: { size: [160, 32, 160], budget: 200, motion: 40, collisions: 48 },
+    marchScale: 2,
 };
 
 /** Os quatro parâmetros da fase de Jendersie & d'Eon (2023, Eq. 4–7) pelo diâmetro das gotículas (µm). */
@@ -89,6 +180,38 @@ export function cloudPhaseParams(diameter: number): [number, number, number, num
     ];
 }
 
+/**
+ * A truncagem da fase pelo diâmetro (spec 041, T023, R8; δ-M, Wiscombe 1977): o pico de frente a menos de `degrees` é
+ * tratado como transmitido nos caminhos do cache de espalhamento. Devolve [cosseno do corte, fração da fase no núcleo
+ * `fc`, chance da HG entre as partes de fora, acumulada da HG até o corte] — a HG pela acumulada fechada, a de Draine pela
+ * integral numérica (empacotamento de parâmetros, como `cloudPhaseParams`).
+ */
+export function cloudPhaseTruncation(
+    diameter: number,
+    degrees = 2,
+): [number, number, number, number] {
+    const [gHG, gD, alpha, wD] = cloudPhaseParams(diameter);
+    const cosCut = Math.cos((degrees * Math.PI) / 180);
+    const hg = (c: number, g: number): number => {
+        const d = 1 + g * g - 2 * g * c;
+        return (1 - g * g) / (4 * Math.PI * d * Math.sqrt(d));
+    };
+    const cdf = (mu: number, g: number): number =>
+        ((1 - g * g) / (2 * g)) * (1 / Math.sqrt(1 + g * g - 2 * g * mu) - 1 / (1 + g));
+    const coreHG = 1 - cdf(cosCut, gHG);
+    const draine = (c: number): number =>
+        (hg(c, gD) * (1 + alpha * c * c)) / (1 + (alpha * (1 + 2 * gD * gD)) / 3);
+    let coreD = 0;
+    const n = 2000;
+    for (let i = 0; i < n; i++) {
+        const c0 = 1 - (1 - cosCut) * (i / n) ** 2;
+        const c1 = 1 - (1 - cosCut) * ((i + 1) / n) ** 2;
+        coreD += 0.5 * (draine(c0) + draine(c1)) * (c0 - c1) * 2 * Math.PI;
+    }
+    const fc = (1 - wD) * coreHG + wD * coreD;
+    return [cosCut, fc, ((1 - wD) * (1 - coreHG)) / (1 - fc), 1 - coreHG];
+}
+
 /** Resto em [0, period) (f64). */
 const wrap = (v: number, period: number): number => ((v % period) + period) % period;
 
@@ -97,6 +220,8 @@ export interface CloudWindOffsets {
     readonly shape: readonly [number, number, number];
     readonly detail: readonly [number, number, number];
     readonly coverage: readonly [number, number];
+    /** A bigorna (com o tempo): o vento da alta troposfera `cisalhamento·vento·t` (x, z), módulo o período da forma. */
+    readonly anvil: readonly [number, number];
 }
 
 /**
@@ -116,6 +241,8 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
     readonly shapeFunction: CloudShapeFunction;
     /** A função de cobertura (com a opção `coverage` de função ou grafo), anexada à entidade da camada. */
     readonly coverageFunction: CloudCoverageFunction | undefined;
+    /** A função de pressão do tempo (com a opção `weather.pressure`), anexada à entidade da camada. */
+    readonly pressureFunction: CloudPressureFunction | undefined;
 
     constructor(values: CloudLayerValues = {}) {
         super();
@@ -134,7 +261,12 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             detailScale: values.detailScale ?? 1800,
             quality: CLOUD_QUALITY_HIGH,
             active: 0,
+            weather: CloudLayer.weatherOf(values.weather),
         };
+        if (values.weather !== undefined && typeof coverage !== 'number')
+            throw new RangeError(
+                'CloudLayer: com o tempo (weather), a cobertura é um número (o tempo bom); o tempo dita o resto',
+            );
         CloudLayer.check(this.rawData);
         this.shapeFunction = new CloudShapeFunction(
             values.shape ?? { graph: defaultCloudShapeGraph() },
@@ -143,6 +275,23 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         this.coverageFunction =
             typeof coverage === 'number' ? undefined : new CloudCoverageFunction(coverage);
         if (this.coverageFunction !== undefined) this.add(this.coverageFunction);
+        const pressure = values.weather?.pressure;
+        this.pressureFunction =
+            pressure === undefined ? undefined : new CloudPressureFunction(pressure);
+        if (this.pressureFunction !== undefined) this.add(this.pressureFunction);
+    }
+
+    /** Os valores do tempo completos pelos padrões (sem a função de pressão), ou `undefined`. */
+    private static weatherOf(
+        values: Partial<CloudWeatherSettings> | undefined,
+    ): CloudWeatherSettings | undefined {
+        if (values === undefined) return undefined;
+        const out: Record<string, number> = { ...CLOUD_WEATHER_DEFAULTS };
+        for (const key of Object.keys(CLOUD_WEATHER_DEFAULTS)) {
+            const v = (values as Record<string, unknown>)[key];
+            if (v !== undefined) out[key] = v as number;
+        }
+        return out as unknown as CloudWeatherSettings;
     }
 
     /** Confere os intervalos do contrato (lança `RangeError` nomeando o valor). */
@@ -173,6 +322,26 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         check(
             finite(d.detailScale) && d.detailScale > 0,
             `detailScale ${d.detailScale} deve ser > 0`,
+        );
+        const w = d.weather;
+        if (w === undefined) return;
+        check(
+            finite(w.latitude) && w.latitude >= -90 && w.latitude <= 90,
+            `latitude ${w.latitude} em [−90, 90]`,
+        );
+        check(finite(w.scale) && w.scale > 0, `escala do tempo ${w.scale} deve ser > 0`);
+        check(finite(w.amplitude) && w.amplitude >= 0, `amplitude ${w.amplitude} deve ser ≥ 0`);
+        check(finite(w.lifetime) && w.lifetime > 0, `vida ${w.lifetime} deve ser > 0`);
+        check(finite(w.friction) && w.friction > 0, `atrito ${w.friction} deve ser > 0`);
+        check(finite(w.formation) && w.formation > 0, `formação ${w.formation} deve ser > 0`);
+        check(
+            finite(w.tropopause) && w.tropopause > d.top,
+            `tropopausa ${w.tropopause} deve ser > topo ${d.top}`,
+        );
+        check(finite(w.shear) && w.shear >= 0, `cisalhamento ${w.shear} deve ser ≥ 0`);
+        check(
+            Number.isInteger(w.seed) && w.seed >= 0 && w.seed <= 0xffffffff,
+            `semente ${w.seed} deve ser inteira em [0, 2³²)`,
         );
     }
 
@@ -254,6 +423,30 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         this.set({ detailScale: v });
     }
 
+    /**
+     * O tempo (spec 041, R19), ou `undefined` sem ele. Atribuir valores (parciais: o resto fica) liga ou ajusta o tempo
+     * no quadro seguinte, sem recompilar; `undefined` o desliga. A função de pressão é a da criação (`weather.pressure`).
+     */
+    get weather(): CloudWeatherSettings | undefined {
+        return this.rawData.weather;
+    }
+    set weather(v: Partial<CloudWeatherSettings> | undefined) {
+        if (v !== undefined && this.coverageFunction !== undefined)
+            throw new RangeError(
+                'CloudLayer: com o tempo (weather), a cobertura é um número (o tempo bom); o tempo dita o resto',
+            );
+        this.set({
+            weather: CloudLayer.weatherOf(
+                v === undefined ? undefined : { ...this.rawData.weather, ...v },
+            ),
+        });
+    }
+
+    /** O topo da casca (m): a tropopausa com o tempo, o `top` sem ele. */
+    get shellTop(): number {
+        return this.rawData.weather?.tropopause ?? this.rawData.top;
+    }
+
     /** A qualidade atual (do perfil do `Renderer`). */
     get quality(): CloudQuality {
         return this.rawData.quality;
@@ -269,7 +462,10 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
         const resized =
             q.panorama[0] !== quality.panorama[0]
             || q.panorama[1] !== quality.panorama[1]
-            || q.shadow.size !== quality.shadow.size;
+            || q.coverage.texel !== quality.coverage.texel
+            || q.coverageExtent !== quality.coverageExtent
+            || q.marchScale !== quality.marchScale
+            || q.scatter.size.some((v, k) => v !== quality.scatter.size[k]);
         if (resized) this.redescribe(this.getDescriptors(), { ...this.rawData, quality });
         else this.data.quality = quality;
     }
@@ -277,13 +473,14 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
     /**
      * Os deslocamentos do vento no tempo simulado `time` (s), em f64 (spec 041, R6): a forma `vento·t` e o detalhe
      * `vento·t` com a deriva vertical `0,1·|vento|·t` reduzidos módulo o período do volume (o volume é periódico: a
-     * redução não salta) e a cobertura
-     * `vento·t` (o referencial da função de cobertura).
+     * redução não salta), a cobertura `vento·t` (o referencial da função de cobertura) e a bigorna, levada pelo vento
+     * da alta troposfera (`cisalhamento·vento·t`; R19).
      */
     windOffsets(time: number): CloudWindOffsets {
         const [wx, wz] = [this.rawData.wind[0]!, this.rawData.wind[1]!];
         const s = this.rawData.shapeScale;
         const d = this.rawData.detailScale;
+        const k = this.rawData.weather?.shear ?? 1;
         return {
             shape: [wrap(wx * time, s), 0, wrap(wz * time, s)],
             // O detalhe anda com o vento e deriva para cima a 0,1·|vento|: a forma muda aos poucos sem desviar o
@@ -294,11 +491,20 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 wrap(wz * time, d),
             ],
             coverage: [wx * time, wz * time],
+            anvil: [wrap(k * wx * time, s), wrap(k * wz * time, s)],
         };
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
         const q = this.rawData.quality;
+        const scatterPages =
+            (q.scatter.size[0] / CLOUD_SCATTER_PAGE)
+            * (q.scatter.size[1] / CLOUD_SCATTER_PAGE)
+            * (q.scatter.size[2] / CLOUD_SCATTER_PAGE);
+        const scatterHeader =
+            CLOUD_SCATTER_GLOBAL_WORDS + scatterPages * CLOUD_SCATTER_HEADER_WORDS;
+        const coverageLevels = cloudCoverageLevels(q);
+        const coverageSlots = cloudCoverageSlotCount(coverageLevels);
         const volume = (id: string, size: number): GPUDescriptor => ({
             id,
             role: 'storage-texture',
@@ -342,9 +548,48 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             { id: 'params', role: 'uniform', schema: CloudLayer.schema },
             volume('shape', CLOUD_SHAPE_SIZE),
             volume('detail', CLOUD_DETAIL_SIZE),
-            target('coverage', 'rgba8unorm', [CLOUD_COVERAGE_SIZE, CLOUD_COVERAGE_SIZE]),
+            // O mapa de cobertura em níveis em volta da câmera (R21 rodada 19, T077): uma camada de 512² texels por nível
+            // (o endereço toroidal), série por páginas (o alvo só; a C2 guarda o carimbo de cada página física e a época) — só as páginas
+            // que entram na janela, mudam de conteúdo ou, com o conteúdo que muda no tempo, as mais velhas até o
+            // orçamento são refeitas.
+            {
+                id: 'coverage',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba8unorm',
+                    width: CLOUD_COVERAGE_SIDE,
+                    height: CLOUD_COVERAGE_SIDE,
+                    depthOrArrayLayers: coverageLevels,
+                    access: 'write-only',
+                },
+                history: {
+                    depth: 1,
+                    pages: { tile: [CLOUD_COVERAGE_PAGE, CLOUD_COVERAGE_PAGE, 1] },
+                },
+            },
+            // O registro de cada página física do mapa de cobertura (a página global, o quadro do desenho, a assinatura),
+            // série por páginas.
+            {
+                id: 'coveragePages',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: coverageSlots * CLOUD_COVERAGE_RECORD_WORDS,
+                upload: 'never',
+                history: { depth: 1, pages: { record: CLOUD_COVERAGE_RECORD_WORDS * 4 } },
+            },
+            // A lista das páginas do quadro do mapa de cobertura (a contagem e as páginas físicas), refeita a cada quadro.
+            {
+                id: 'coverageWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: 4 + coverageSlots,
+                upload: 'never',
+            },
             target('ambient', 'rgba16float', [2, 1]),
-            // O mapa visto do sol: 16 nós de profundidade ótica por coluna, 4 por camada (spec 041, R11).
+            // O mapa visto do sol por páginas (spec 041, R11 revisto): 16 nós de profundidade ótica por coluna, 4 por
+            // camada, no atlas das páginas dos níveis — série por páginas (o alvo só; a C2 guarda o carimbo de cada
+            // página física e a época): só as páginas inválidas são refeitas, as demais seguem onde estão.
             {
                 id: 'shadow',
                 role: 'storage-texture',
@@ -352,19 +597,209 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 textureShape: {
                     format: 'rgba16float',
                     dimension: '3d',
-                    width: q.shadow.size,
-                    height: q.shadow.size,
-                    depthOrArrayLayers: CLOUD_SHADOW_KNOTS / 4,
+                    width: CLOUD_SHADOW_ATLAS,
+                    height: CLOUD_SHADOW_ATLAS,
+                    depthOrArrayLayers: CLOUD_SHADOW_ATLAS_LAYERS,
                     access: 'write-only',
                 },
+                history: { depth: 1, pages: { tile: [CLOUD_SHADOW_STRIDE, CLOUD_SHADOW_STRIDE] } },
             },
-            target('panorama', 'rgba16float', q.panorama),
-            // A marcha: um valor por bloco 2 × 2 do alvo de ¼ (1/16 da tela) e a série reconstruída (spec 037).
-            target('trace', 'rgba16float', 4),
-            target('traceDepth', 'r32float', 4),
-            target('march', 'rgba16float', 2, { depth: 2, filtered: true }),
-            target('marchDepth', 'r32float', 2, { depth: 2 }),
+            // O registro de cada página física do mapa (o sol, o tempo e o quadro do desenho, a página global, a
+            // assinatura do conteúdo, a célula do pivô, o degrau, as medidas e os nós que as provas comparam —
+            // `cloud_shadow.wgsl`) e o estado dos mapas na troca de degrau (o de onde, o para onde e o peso), série por
+            // páginas: o estado entre quadros da mistura dos dois mapas é dela.
+            {
+                id: 'shadowPages',
+                role: 'storage-rw',
+                schema: CloudShadowPageSchema,
+                // As páginas e o registro do estado dos mapas (`CLOUD_SHADOW_STATE_SLOT`).
+                count: CLOUD_SHADOW_SLOT_COUNT + 1,
+                upload: 'never',
+                history: { depth: 1, pages: { record: CloudShadowPageSchema.stride } },
+            },
+            // As páginas do quadro, refeitas a cada quadro: a contagem, a marca de cada página física e a lista compacta
+            // das marcadas.
+            {
+                id: 'shadowWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: 4 + 2 * CLOUD_SHADOW_SLOT_COUNT,
+                upload: 'never',
+            },
+            // Os argumentos do despacho indireto do desenho das páginas do quadro (T074).
+            {
+                id: 'shadowArgs',
+                role: 'indirect',
+                schema: GpuWordSchema,
+                count: 4,
+                upload: 'never',
+            },
+            // O panorama, série por páginas de uma página só (T074): refeito no quadro em que o que ele mostra muda.
+            target('panorama', 'rgba16float', q.panorama, {
+                depth: 1,
+                pages: { tile: [q.panorama[0], q.panorama[1]] },
+            }),
+            // A marcha: um valor por bloco 2 × 2 do alvo reconstruído (¼ da tela; 1/16 no perfil baixo) e a série
+            // reconstruída (spec 037).
+            target('trace', 'rgba16float', 2 * q.marchScale),
+            // A profundidade da nuvem e a superfície até onde o valor foi marchado (r, g) e o primeiro lugar do raio na
+            // lista da luz e quantas amostras ele tem nela (b, a; T074).
+            target('traceDepth', 'rgba32float', 2 * q.marchScale),
+            // A luz das amostras da marcha num passe próprio (T074): o raio marchado (a luz das amostras fora da lista e
+            // a transmitância), a lista do quadro — 16 amostras por raio no teto (um texel por amostra; `marchScale / 2`
+            // pixels da tela por texel), quatro palavras por amostra (uma camada `r32uint` cada, 16 bytes): a marcha
+            // grava a distância no raio, o peso, a coluna do ambiente e o raio, e o passe da luz grava a luz no lugar
+            // das três primeiras (leitura e escrita no mesmo despacho: o `r32uint` do núcleo) — e as palavras do
+            // despacho indireto dele (os grupos, a contagem atômica e a contagem do quadro).
+            target('ray', 'rgba32float', 2 * q.marchScale),
+            {
+                id: 'lightList',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'r32uint',
+                    sizeFromCanvas: true,
+                    canvasDivisor: q.marchScale / 2,
+                    depthOrArrayLayers: 4,
+                    access: 'read-write',
+                },
+            },
+            { ...wordBuffer('lightArgs', 8 * 4, 'indirect'), allocation: 'onDemand' },
+            // O histórico reprojetado no pixel marchado de cada bloco e a variância temporal guardada com ele (brilho e
+            // transmitância), do passe por bloco, que a janela do gradiente de cada texel lê (T080).
+            target('check', 'rgba16float', 2 * q.marchScale),
+            target('checkNoise', 'rg32float', 2 * q.marchScale),
+            target('march', 'rgba16float', q.marchScale, { depth: 2, filtered: true }),
+            // A profundidade e a superfície (r, g) e o segundo momento temporal do valor (b: o brilho², a: a transmitância²).
+            target('marchDepth', 'rgba32float', q.marchScale, { depth: 2 }),
             target('view', 'rgba16float', 1),
+            // A lista dos blocos da tela com nuvem (T074): a marca de cada bloco de `CLOUD_TILE`² pixels (o aumento), a lista
+            // empacotada (um texel por bloco da lista) e as palavras do despacho indireto da composição.
+            target('tiles', 'r32uint', CLOUD_TILE.value),
+            target('tileList', 'r32uint', CLOUD_TILE.value),
+            { ...wordBuffer('tileArgs', 4 * 4, 'indirect'), allocation: 'onDemand' },
+            // O cache de espalhamento por páginas (T023, R8; R11 revisto): as palavras globais (a geração da grade), o
+            // registro de cada página de 8³ sondas (o sol e o quadro do último caminho, a geração, as sondas com nuvem) e
+            // as sondas (a soma da luz dos caminhos em unidades da iluminância do sol e quantos), série por páginas de
+            // buffer: só as páginas escolhidas no quadro caminham, as demais seguem onde estão.
+            {
+                id: 'scatter',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count:
+                    scatterHeader
+                    + scatterPages * CLOUD_SCATTER_PAGE ** 3 * CLOUD_SCATTER_PROBE_WORDS,
+                upload: 'never',
+                history: {
+                    depth: 1,
+                    pages: {
+                        record: CLOUD_SCATTER_PAGE ** 3 * CLOUD_SCATTER_PROBE_WORDS * 4,
+                        offset: scatterHeader * 4,
+                    },
+                },
+            },
+            // O cache filtrado no espaço (o binomial 3 × 3 × 3), o que a marcha e o panorama leem: série por páginas
+            // (refeitas só as sondas cuja vizinhança caminhou).
+            {
+                id: 'scatterFiltered',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    dimension: '3d',
+                    width: q.scatter.size[0],
+                    // A parte do sol e a contagem na metade de baixo, a parte do céu na de cima (T074).
+                    height: 2 * q.scatter.size[1],
+                    depthOrArrayLayers: q.scatter.size[2],
+                    access: 'write-only',
+                },
+                history: {
+                    depth: 1,
+                    pages: { tile: [CLOUD_SCATTER_PAGE, CLOUD_SCATTER_PAGE, CLOUD_SCATTER_PAGE] },
+                },
+            },
+            // O trabalho do quadro do cache: a contagem, a lista das páginas escolhidas (a página e o esquecimento) e a
+            // marca de cada página para o filtro.
+            {
+                id: 'scatterWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: 8 + 3 * scatterPages,
+                upload: 'never',
+            },
+            // Os argumentos dos despachos indiretos dos caminhos e do filtro do cache (T074): quatro palavras cada.
+            {
+                id: 'scatterArgs',
+                role: 'indirect',
+                schema: GpuWordSchema,
+                count: 8,
+                upload: 'never',
+            },
+            // O volume de τ até o sol perto da câmera (T074): os nós de cada página física (9³: as células e o nó da vizinha)
+            // de cada nível, o τ do trecho do cone (r) e o resto da luz (g), os níveis um depois do outro em z — série por
+            // páginas (o atlas só; a C2 guarda o carimbo de cada página física e a época): só as páginas que entram na
+            // janela ou mudam além da tolerância são refeitas.
+            {
+                id: 'sunVolume',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    dimension: '3d',
+                    width: CLOUD_SUN_VOLUME_PAGES[0] * CLOUD_SUN_VOLUME_STRIDE,
+                    height: CLOUD_SUN_VOLUME_PAGES[1] * CLOUD_SUN_VOLUME_STRIDE,
+                    depthOrArrayLayers:
+                        CLOUD_SUN_VOLUME_LEVELS
+                        * CLOUD_SUN_VOLUME_PAGES[2]
+                        * CLOUD_SUN_VOLUME_STRIDE,
+                    access: 'write-only',
+                },
+                history: {
+                    depth: 1,
+                    pages: {
+                        tile: [
+                            CLOUD_SUN_VOLUME_STRIDE,
+                            CLOUD_SUN_VOLUME_STRIDE,
+                            CLOUD_SUN_VOLUME_STRIDE,
+                        ],
+                    },
+                },
+            },
+            // O registro de cada página física do volume (a página global, a assinatura, o sol e o tempo do desenho, as taxas
+            // medidas da mudança das duas partes, os τ médios e os nós de prova), série por páginas.
+            {
+                id: 'sunVolumePages',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: CLOUD_SUN_VOLUME_PAGE_COUNT * CLOUD_SUN_VOLUME_RECORD_WORDS,
+                upload: 'never',
+                history: { depth: 1, pages: { record: CLOUD_SUN_VOLUME_RECORD_WORDS * 4 } },
+            },
+            // O trabalho do quadro do volume: a contagem, as filas, a lista das páginas escolhidas, as marcas de validade das
+            // duas partes e a fila de cada página.
+            {
+                id: 'sunVolumeWork',
+                role: 'storage-rw',
+                schema: GpuWordSchema,
+                count: CLOUD_SUN_VOLUME_WORK_WORDS,
+                upload: 'never',
+            },
+            // O tempo (R19): o estado (cobertura pedida, tipo, topo) no quadrado do tempo, série da 037 em 32 bits (o
+            // relaxamento a e^(−Δt/τ) por quadro muda ~10⁻⁵: em 16 bits se perderia), e o vento das nuvens, a subida e a
+            // frente dele (`rgba16float`, lido filtrado na reconstrução).
+            {
+                id: 'weather',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba32float',
+                    width: CLOUD_WEATHER_SIZE,
+                    height: CLOUD_WEATHER_SIZE,
+                    access: 'write-only',
+                },
+                history: { depth: 2 },
+            },
+            target('weatherWind', 'rgba16float', [CLOUD_WEATHER_SIZE, CLOUD_WEATHER_SIZE]),
             sampler('noiseSampler', 'repeat'),
             sampler('clampSampler', 'clamp-to-edge'),
         ];
@@ -390,6 +825,13 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             order: 25,
             pools: [],
             build: () => (this.rawData.active === 1 ? cloudLightTransmission : undefined),
+        },
+        {
+            // A sombra nos pontos do ar dos froxels (spec 041, R21): uma amostra por quadro.
+            point: lightVolumeVisibilityPoint,
+            order: 25,
+            pools: [],
+            build: () => (this.rawData.active === 1 ? cloudVolumeVisibility : undefined),
         },
         {
             point: skyCoverPoint,

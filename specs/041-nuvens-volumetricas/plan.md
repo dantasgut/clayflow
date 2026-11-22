@@ -23,6 +23,12 @@ virtual) e a 037 (canal temporal)
 6. **Perfis e limites**: `RENDER_PROFILES.clouds`; a contagem de ligações por estágio registrada antes e depois e verificada contra os limites do adaptador (R15).
 7. **Verificação**: referência f64 (`cloudModel.ts` e o traçador com rastreamento delta), calibração das oitavas, smoke
    `clouds`, bench `clouds/*`, vídeos no claflow-web (R16, R17).
+8. **O tempo (C3; US5, R19)**: `CloudLayer.weather` e a `CloudPressureFunction` (ponto `cloud_pressure`, o padrão de
+   sistemas sem ela); no `CloudLightFlow`, o kernel do tempo (estêncil da pressão, vento gradiente com atrito, Ekman,
+   Okubo–Weiss, o estado pela série 037 trazido pelo vento e relaxado) antes do mapa de cobertura, que passa a ser escrito
+   pelo estado com o topo local no canal A; a densidade com o topo local e a bigorna; a reconstrução pelo vento do tempo
+   (lugar `cloud_wind_at`). Referência `reference/cloudWeather.ts`; casos `pressure-wind`, `storm`, `front`,
+   `weather-timing`; a cena `tempestade`.
 
 ## Technical Context
 
@@ -63,7 +69,7 @@ smoke; bench; cenas e vídeos no claflow-web; docs
 | **IV. ECS e Flows**             | `CloudNoiseFlow`, `CloudFlow`, `SkyCompositeFlow` com fase e prioridade declaradas; recálculo dos volumes pela revisão do recurso (evento de mudança de slot), não por chamada                                        | ✅     |
 | **V. Testes**                   | Referência f64 com testes AAA para cada função nova; smoke `clouds` contra o traçador; limites medidos                                                                                                                | ✅     |
 | **VI. Documentação**            | Guia "Nuvens volumétricas", JSDoc em todos os exports, ROADMAP e PENDENCIAS                                                                                                                                           | ✅     |
-| **VII. Série temporal**         | Marcha, profundidade da nuvem, sombra e panorama são séries da 037; o deslocamento do vento é função do relógio simulado (não estado); nenhum pingue-pongue privado                                                   | ✅     |
+| **VII. Série temporal**         | Marcha, profundidade da nuvem, sombra e panorama são séries da 037; o deslocamento do vento é função do relógio simulado (não estado); nenhum pingue-pongue privado; o estado do tempo (R19) é série da 037, com o centro do quadrado recalculado no shader pela vista anterior | ✅     |
 | **Restrições técnicas**         | Sem dependências; API só aditiva (`CloudLayer`, opção `period` nos ruídos, ponto `sky_cover`)                                                                                                                         | ✅     |
 | **Quality gates**               | `npm run ci` + smokes (fonte e `--dist`, 3 rodadas) + `bench:check`                                                                                                                                                   | ✅     |
 
@@ -101,7 +107,13 @@ src/elements/extension/CloudShapeFunction.ts, CloudCoverageFunction.ts (NOVOS)  
 src/elements/gpu/wgsl/clouds/*.wgsl (NOVOS)                                             # cloud_common, cloud_density, cloud_phase, cloud_light,
                                                                                         # cloud_noise, cloud_coverage, cloud_ambient, cloud_shadow,
                                                                                         # cloud_march, cloud_reconstruct, cloud_upsample, cloud_panorama
+                                                                                        # cloud_integrate, cloud_light_list, cloud_light_samples,
+                                                                                        # cloud_light_args, cloud_march_ray, cloud_march_compose (T074)
 src/elements/media/clouds/reference/cloudModel.ts (NOVO) + __tests__                    # espelho f64 (R16)
+src/elements/media/clouds/reference/cloudWeather.ts (NOVO) + __tests__                  # o tempo em f64 (R19)
+src/elements/extension/CloudPressureFunction.ts (NOVO)                                  # ponto cloud_pressure (R19)
+src/elements/gpu/wgsl/clouds/cloud_weather*.wgsl, cloud_pressure_default.wgsl,          # o tempo (R19)
+  cloud_coverage_weather.wgsl, cloud_wind_weather.wgsl (NOVOS)
 src/elements/lighting/reference/pathTracer.ts                                           # fase arbitrária, rastreamento delta (R16)
 src/elements/render/Renderer.ts                                                         # RENDER_PROFILES.clouds (R15)
 src/presentation/flows/SkyCompositeFlow.ts (NOVO), sky_composite.wgsl (NOVO)            # perspectiva aérea + nuvens (R10, R13)
@@ -122,6 +134,7 @@ refração.
 | ------------------------------------------------------- | ----------- | ----------------------------------------------------- | ---------------------------------------------------------- |
 | `CloudNoiseFlow`                                        | `transform` | `SkyFlow`                                             | a GI                                                       |
 | `CloudFlow` (cobertura, irradiâncias, sombra, panorama) | `shadow`    | `SkyFlow`, `ShadowFlow`                               | `ProbeFlow`, `FroxelFlow` (que leem a sombra e o ambiente) |
+| `CloudLightFlow.weather` (o estado do tempo, R19)       | `shadow`    | o uniforme do quadro (`CloudNoiseFlow`)               | o mapa de cobertura (mesmo Flow, despachado antes)         |
 | `CloudFlow` (marcha, reconstrução)                      | `forward`   | a água (a última superfície que escreve profundidade) | `SkyCompositeFlow`                                         |
 | `SkyCompositeFlow` (com `Sky`, com ou sem nuvens)       | `forward`   | `CloudFlow`, a água                                   | a resolução temporal                                       |
 
@@ -162,6 +175,7 @@ O `CloudFlow` é um Flow com duas partes de trabalho (`FlowWork`), uma em cada f
 | 5   | Névoa e nuvem sobrepostas (câmera dentro da nuvem com névoa local) violam a ordem "névoa na frente" da composição (R13)                                                                                      | Caso coberto no smoke; erro medido; se relevante, a marcha da nuvem lê a transmitância dos froxels no ponto (eles já estão ligados no estágio).                                                                                                                                             |
 | 6   | A perspectiva aérea em toda a geometria (FR-022) muda a imagem de todas as cenas com `Sky` e acrescenta ≈ 0,2 ms às cenas do bench com céu (`global-illumination`), o que pode passar de 10 % numa cena leve | Mudança correta: as fixtures são regravadas e relatadas com a montagem antes/depois, e o baseline das cenas com `Sky` é regravado com o custo medido e o racional (o custo novo é a atmosfera, não uma regressão); a referência da atmosfera até 2, 10 e 30 km (SC-009) prova a imagem nova |
 | 7   | Precisão do deslocamento do vento em sessões longas                                                                                                                                                          | Redução módulo o período em f64 no empacotamento (R6); teste de 24 h simuladas.                                                                                                                                                                                                             |
+| 8   | O tempo (R19): o vento por raiz numérica em f32 e as derivadas por diferenças finitas na GPU; a torre até a tropopausa numa casca de ~10 km (passos mais longos para as nuvens rasas do tempo bom)                | Teto constante na raiz (16 + 24), estêncil `L/64` (erro ~2·10⁻⁴), o caso `pressure-wind` contra a referência a 1 %; `storm` mede a torre e a bigorna e a imagem contra a referência; o custo no `weather-timing` (SC-012). |
 
 ## Complexity Tracking
 
@@ -172,3 +186,5 @@ O `CloudFlow` é um Flow com duas partes de trabalho (`FlowWork`), uma em cada f
 | Mapa de transmitância visto do sol | A sombra parcial em todos os receptores por um ponto só                         | Marchar até o sol em cada receptor (caro, repetido em vários estágios)          |
 | Panorama das nuvens                | Os raios que escapam (GI, refração, reflexo) veem as nuvens sem marchar cada um | Marchar por raio (milhares de raios das sondas)                                 |
 | Rastreamento delta no traçador     | Verdade para calibrar o múltiplo espalhamento em meios de quilômetros           | Marcha de 512 passos do traçador atual (viés e custo em meios densos e grandes) |
+| Estado do tempo pela série 037     | As nuvens se formam e se desfazem em τ e andam com o vento local (US5)           | O alvo direto a cada quadro (sem inércia e sem o transporte pelo vento local)   |
+| Vento gradiente com atrito         | Curvatura nas baixas intensas e o equador contínuo (FR-025)                      | Só o geostrófico (diverge no equador; erra 30–50 % numa baixa intensa)          |

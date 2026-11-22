@@ -79,8 +79,11 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             octaves: 3,
             panorama: [256, 128],
             panoramaSteps: 32,
-            shadow: { size: 256, extent: 400_000, near: 3_000 },
-            coverageExtent: 64_000,
+            shadow: { texel: 50, budget: 128 },
+            coverageExtent: 256_000,
+            coverage: { texel: 31.25, budget: 128 },
+            scatter: { size: [160, 32, 160], budget: 200, motion: 40, collisions: 48 },
+            marchScale: 2,
         },
     },
     // O xadrez no médio e no baixo: parado, 1,6 % dos pixels diferem da imagem sem ele (nas bordas), acima do limite da
@@ -101,8 +104,11 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             octaves: 3,
             panorama: [192, 96],
             panoramaSteps: 24,
-            shadow: { size: 192, extent: 400_000, near: 3_000 },
-            coverageExtent: 32_000,
+            shadow: { texel: 50, budget: 96 },
+            coverageExtent: 256_000,
+            coverage: { texel: 62.5, budget: 96 },
+            scatter: { size: [128, 24, 128], budget: 96, motion: 24, collisions: 32 },
+            marchScale: 2,
         },
     },
     // Teto 4: com 3, o caminho vidro → água → vidro não fecha e a energia restante vira preto (medido no tanque). As
@@ -123,8 +129,13 @@ export const RENDER_PROFILES: Readonly<Record<RenderProfile, ProfileValues>> = {
             octaves: 3,
             panorama: [128, 64],
             panoramaSteps: 16,
-            shadow: { size: 128, extent: 400_000, near: 3_000 },
-            coverageExtent: 32_000,
+            shadow: { texel: 50, budget: 64 },
+            coverageExtent: 256_000,
+            coverage: { texel: 125, budget: 64 },
+            scatter: { size: [96, 16, 96], budget: 36, motion: 10, collisions: 24 },
+            // A marcha, a reconstrução e o aumento custavam ~1,3 ms iguais nos três perfis: no baixo, o alvo reconstruído
+            // a 1/16 da tela (a marcha a 1/64 por quadro).
+            marchScale: 4,
         },
     },
 };

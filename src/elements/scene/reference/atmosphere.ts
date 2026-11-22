@@ -31,6 +31,15 @@ export interface AtmosphereParams {
     readonly ozoneHalfWidth: number;
     /** Albedo do chão (para o múltiplo espalhamento). */
     readonly groundAlbedo: Vec3;
+    /**
+     * Névoa seca perto do chão (spec 041, R21): espalhamento e extinção ao nível do chão (1/km) e altura de escala (km),
+     * com a fase de Mie. Ausente: nenhuma.
+     */
+    readonly haze?: {
+        readonly scattering: number;
+        readonly extinction: number;
+        readonly scale: number;
+    };
 }
 
 /** Terra (Hillaire 2020, tabela 1). `turbidity` multiplica o Mie (1 = céu limpo). */
@@ -70,10 +79,11 @@ export interface Medium {
 export function mediumAt(p: AtmosphereParams, h: number): Medium {
     const dr = Math.exp(-h / p.rayleighScale);
     const dm = Math.exp(-h / p.mieScale);
+    const dh = p.haze === undefined ? 0 : Math.exp(-Math.max(h, 0) / p.haze.scale);
     const dz = Math.max(0, 1 - Math.abs(h - p.ozoneCenter) / p.ozoneHalfWidth);
     const rayleigh = scale(p.rayleighScattering, dr);
-    const mie = p.mieScattering * dm;
-    const mieExt = p.mieExtinction * dm;
+    const mie = p.mieScattering * dm + (p.haze?.scattering ?? 0) * dh;
+    const mieExt = p.mieExtinction * dm + (p.haze?.extinction ?? 0) * dh;
     const ozone = scale(p.ozoneAbsorption, dz);
     return {
         rayleigh,
@@ -265,10 +275,17 @@ export interface AerialPerspective {
 }
 
 /**
+ * A visibilidade do sol num ponto do ar além da atmosfera (spec 041, raios crepusculares): o ponto em km no sistema do
+ * planeta (centro na origem, +y para cima); 1 ao sol, 0 na sombra de uma nuvem opaca, `e^(−τ)` atrás de uma rala.
+ */
+export type SunVisibility = (x: Vec3) => number;
+
+/**
  * Perspectiva aérea (spec 041, R10; Hillaire 2020, §5.4): a luz espalhada (simples de Rayleigh e Mie com a
  * transmitância do sol, mais o múltiplo Ψms) e a transmitância da câmera, a `altitude` km, até a distância `distance` km
  * na direção `view`, cortada no topo e no chão da atmosfera. Por unidade de iluminância do sol; a superfície no ponto
- * fica de fora (`L' = L · T + S`). Distância infinita acima do horizonte = `skyRadiance`.
+ * fica de fora (`L' = L · T + S`). Distância infinita acima do horizonte = `skyRadiance`. Com `visibility`, a luz simples
+ * de cada ponto × a visibilidade do sol ali (a sombra das nuvens no ar: os raios crepusculares); o múltiplo fica.
  */
 export function aerialPerspective(
     p: AtmosphereParams,
@@ -278,6 +295,7 @@ export function aerialPerspective(
     distance: number,
     steps = 128,
     ms?: (r: number, muS: number) => Vec3,
+    visibility?: SunVisibility,
 ): AerialPerspective {
     const r = p.bottomRadius + altitude;
     const pos: Vec3 = [0, r, 0];
@@ -298,10 +316,108 @@ export function aerialPerspective(
         ) as unknown as Vec3;
         const muSx = dot(x, sun) / rx;
         const sunT = transmittanceToTop(p, rx, muSx, 64);
-        const single = mul(add(scale(m.rayleigh, pr), [m.mie * pm, m.mie * pm, m.mie * pm]), sunT);
+        const v = visibility === undefined ? 1 : visibility(x);
+        const single = scale(
+            mul(add(scale(m.rayleigh, pr), [m.mie * pm, m.mie * pm, m.mie * pm]), sunT),
+            v,
+        );
         const multi = mul(m.scattering, msOf(rx, muSx));
         lum = add(lum, mul(mul(throughput, add(single, multi)), integ));
         throughput = mul(throughput, stepT);
     }
     return { scattered: lum, transmittance: throughput };
+}
+
+/** Uma coluna da tabela da perspectiva aérea com a sombra (o que o kernel `sky_aerial` grava). */
+export interface AerialColumn {
+    /** A luz espalhada da câmera até o fim de cada fatia (por unidade de iluminância do sol). */
+    readonly scattered: readonly Vec3[];
+    /** A transmitância da câmera até o fim de cada fatia. */
+    readonly transmittance: readonly Vec3[];
+    /** A distância (km) do fim de cada fatia. */
+    readonly distance: readonly number[];
+    /** O déficit da sombra no fundo: a luz simples que o ar sombreado deixa de espalhar até `shadowRange` km. */
+    readonly deficit: Vec3;
+}
+
+/**
+ * Espelho f64 de uma coluna do kernel `sky_aerial` (spec 041, raios crepusculares): `slices` fatias em distribuição
+ * quadrática até `range` km, `substeps` subpassos pelo meio de cada uma (o que cruza o fim da atmosfera vai só até ele), a luz simples × a visibilidade do sol no meio
+ * do subpasso; o déficit da sombra até `shadowRange` km (o resto além de `range` em `slices` trechos iguais). A integral
+ * exata é `aerialPerspective` com a mesma visibilidade e passos finos.
+ */
+export function aerialColumn(
+    p: AtmosphereParams,
+    altitude: number,
+    view: Vec3,
+    sun: Vec3,
+    ms: (r: number, muS: number) => Vec3,
+    visibility: SunVisibility,
+    range = 32,
+    slices = 32,
+    substeps = 4,
+    shadowRange = 150,
+): AerialColumn {
+    const r = p.bottomRadius + altitude;
+    const pos: Vec3 = [0, r, 0];
+    const seg = segmentLength(p, r, view[1]);
+    const cosTheta = dot(view, sun);
+    const pr = rayleighPhase(cosTheta);
+    const pm = miePhase(cosTheta, p.mieG);
+    const span = (t0: number, t1: number): { lum: Vec3; deficit: Vec3; tr: Vec3 } => {
+        const step = (t1 - t0) / substeps;
+        let tr: Vec3 = [1, 1, 1];
+        let lum: Vec3 = [0, 0, 0];
+        let deficit: Vec3 = [0, 0, 0];
+        for (let j = 0; j < substeps; j++) {
+            // O subpasso cortado no fim da atmosfera (o topo ou o chão).
+            const a = t0 + j * step;
+            const dt = Math.max(Math.min(a + step, seg) - a, 0);
+            if (dt <= 0) break;
+            const mid = a + 0.5 * dt;
+            const x = add(pos, scale(view, mid));
+            const rx = len(x);
+            const m = mediumAt(p, rx - p.bottomRadius);
+            const stepT = exp3(scale(m.extinction, -dt));
+            const integ: Vec3 = [0, 1, 2].map((c) =>
+                m.extinction[c]! > 0 ? (1 - stepT[c]!) / m.extinction[c]! : dt,
+            ) as unknown as Vec3;
+            const muSx = dot(x, sun) / rx;
+            const free = mul(
+                add(scale(m.rayleigh, pr), [m.mie * pm, m.mie * pm, m.mie * pm]),
+                transmittanceToTop(p, rx, muSx, 64),
+            );
+            const single = scale(free, visibility(x));
+            const multi = mul(m.scattering, ms(rx, muSx));
+            lum = add(lum, mul(mul(tr, add(single, multi)), integ));
+            deficit = add(deficit, mul(mul(tr, add(free, scale(single, -1))), integ));
+            tr = mul(tr, stepT);
+        }
+        return { lum, deficit, tr };
+    };
+    const scattered: Vec3[] = [];
+    const transmittance: Vec3[] = [];
+    const distance: number[] = [];
+    let lum: Vec3 = [0, 0, 0];
+    let deficit: Vec3 = [0, 0, 0];
+    let tr: Vec3 = [1, 1, 1];
+    for (let k = 0; k < slices; k++) {
+        const t0 = range * (k / slices) ** 2;
+        const t1 = range * ((k + 1) / slices) ** 2;
+        const s = span(t0, t1);
+        lum = add(lum, mul(tr, s.lum));
+        deficit = add(deficit, mul(tr, s.deficit));
+        tr = mul(tr, s.tr);
+        scattered.push(lum);
+        transmittance.push(tr);
+        distance.push(t1);
+    }
+    const end = Math.max(Math.min(seg, shadowRange), range);
+    const step = (end - range) / slices;
+    for (let k = 0; k < slices; k++) {
+        const s = span(range + k * step, range + (k + 1) * step);
+        deficit = add(deficit, mul(tr, s.deficit));
+        tr = mul(tr, s.tr);
+    }
+    return { scattered, transmittance, distance, deficit };
 }

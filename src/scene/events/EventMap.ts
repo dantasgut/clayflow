@@ -316,12 +316,13 @@ export interface ProfilerStatsPayload {
 
 /**
  * Payload do evento `engineError` — emitido quando `Application.captureErrors`
- * está ligado e um WebGPU validation error é capturado durante o frame.
+ * está ligado e um WebGPU validation error é capturado durante o frame, e sempre
+ * que o device reporta um erro que nenhum escopo capturou (`stage: 'uncaptured'`).
  * O GameLoop continua o próximo frame normalmente; o app decide como reagir
  * (logar, suspender flow, mostrar toast).
  */
 export interface EngineErrorPayload {
-    /** Stage onde o erro foi capturado (e.g. 'frame', 'create', 'createAsync'). */
+    /** Stage onde o erro foi capturado (e.g. 'frame', 'create', 'createAsync', 'uncaptured'). */
     readonly stage: string;
     /** Filtro do error scope GPU ('validation' | 'out-of-memory' | 'internal'). */
     readonly filter: GPUErrorFilter;
@@ -430,7 +431,7 @@ export interface EventMap {
     entitiesRecomposed: EntitiesRecomposedPayload;
     /** DebugFlow emite (throttled 250ms) com FPS + frame time + stages timestamps. */
     profilerStats: ProfilerStatsPayload;
-    /** ExecutionSystem emite quando captureErrors=true e há erro WebGPU. */
+    /** ExecutionSystem emite quando captureErrors=true e há erro WebGPU; a cena, a cada erro do device sem escopo. */
     engineError: EngineErrorPayload;
     /** Core emite quando GPU device é perdido — recovery via Application.requestNewDevice. */
     deviceLost: DeviceLostPayload;

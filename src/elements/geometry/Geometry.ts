@@ -4,6 +4,7 @@ import type { Resource } from '../../scene/contracts/Resource';
 import type { GPUDescriptor } from '../../scene/descriptors/GPUDescriptor';
 import type { PipelineDescriptor } from '../../scene/descriptors/PipelineDescriptor';
 import { contentKeyOf } from './geometryContent';
+import type { GeometryView, GeometryViewRequest } from './GeometryView';
 
 /** Maior contagem de vértices endereçável por índices `uint16` (spec 004, R12). */
 const MAX_UINT16_VERTICES = 65_535;
@@ -40,6 +41,26 @@ export abstract class Geometry<TData extends GeometryData = GeometryData>
     getPipelineDescriptors(): readonly PipelineDescriptor[] {
         return [];
     }
+
+    /**
+     * Vistas adaptativas pedidas (spec 041, R20): a geometria refeita por vista (a malha adaptativa) guarda os pedidos e
+     * declara a saída de cada um; as demais não têm vistas.
+     */
+    get views(): readonly GeometryView[] {
+        return [];
+    }
+
+    /**
+     * Pede a vista `request` (o consumidor dela, no `framePrepare`): a geometria que se refaz por vista acrescenta os
+     * descritores da vista (ou troca o critério ou a entidade dela) e devolve `true` quando algo mudou; as demais devolvem
+     * `false` e o consumidor usa a malha de sempre.
+     */
+    requestView(_request: GeometryViewRequest): boolean {
+        return false;
+    }
+
+    /** Solta a vista `key` (o consumidor não a usa mais): os descritores dela saem. */
+    releaseView(_key: string): void {}
 
     /**
      * Chave de conteúdo (spec 007): geometrias com a mesma chave compartilham os buffers de vértice e índice na GPU (a

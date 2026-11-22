@@ -19,6 +19,7 @@ function installGpu() {
                     features: new Set(desc.requiredFeatures),
                     limits: { maxBindGroups: 8, minUniformBufferOffsetAlignment: 256 },
                     lost: new Promise(() => undefined),
+                    addEventListener: () => undefined,
                     destroy: vi.fn(),
                     createQuerySet: vi.fn(() => ({ destroy: vi.fn() })),
                     createBuffer: vi.fn(() => ({ destroy: vi.fn() })),

@@ -9,3 +9,4 @@ export { DensityFunction } from './DensityFunction';
 export type { MaterialFunctionOptions } from './MaterialFunction';
 export { CloudShapeFunction, type CloudShapeOptions } from './CloudShapeFunction';
 export { CloudCoverageFunction, type CloudCoverageOptions } from './CloudCoverageFunction';
+export { CloudPressureFunction, type CloudPressureOptions } from './CloudPressureFunction';

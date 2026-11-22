@@ -1,7 +1,12 @@
-// A névoa no desenho (spec 033, R12; ponto `scene_fog`): os froxels integrados guardam, no texel da fatia k, a luz
+// A névoa no desenho (spec 033, R12; `froxel_fog`, a leitura que o ponto `scene_fog` e os meios perto da câmera —
+// `scene_near_fog`, spec 041 R21 — usam): os froxels integrados guardam, no texel da fatia k, a luz
 // espalhada para a câmera e a transmitância do caminho da câmera até o fim da fatia. A leitura é bicúbica no plano
 // (B-spline por 4 leituras trilineares) e linear na profundidade: sem os degraus da grade nem blocos. Antes do fim da primeira fatia, a fração dela.
-// Requer: froxels, cameras, media_common, froxel_scatter, froxel_sampler.
+// Com o meio contínuo na grade (a atmosfera, R21), a transmitância guardada é só a dos volumes; a do meio fica com quem
+// soma o resto dele (a perspectiva aérea do `Sky`).
+// A luz guardada em unidades de `FROXEL_RADIANCE_UNIT` (spec 041, T075).
+// Requer: froxels, cameras, media_common, froxel_scatter, froxel_sampler, froxel_state, scene_fog_type,
+// FROXEL_RADIANCE_UNIT.
 
 /**
  * B-spline cúbica no plano da tela por 4 leituras trilineares (Sigg e Hadwiger) e linear entre as fatias (spec 034,
@@ -33,13 +38,24 @@ fn froxel_tricubic(uvw: vec3f) -> vec4f {
     return sum;
 }
 
-fn scene_fog(p: vec3f) -> vec4f {
+/**
+ * A grade vale neste quadro (spec 041, R21): há névoa ou meio contínuo e a decisão do quadro (`froxel_state`, escrita no
+ * começo da grade pelo canal do alcance) diz que ela foi integrada — sem isso, nada (a perspectiva aérea do `Sky` soma
+ * tudo, como sem os froxels).
+ */
+fn froxel_in_use() -> bool {
+    return froxels.depth.w != 0.0 && textureLoad(froxel_state, vec2u(0u), 0).x > 0.5;
+}
+
+/** O que os froxels guardam entre a câmera ativa e o ponto `p` (mundo). */
+fn froxel_fog(p: vec3f) -> SceneFog {
     let none = vec4f(0.0, 0.0, 0.0, 1.0);
-    if (froxels.depth.w == 0.0) { return none; }
+    if (!froxel_in_use()) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
     let cam = cameras[froxels.grid.w];
     let f = froxel_locate(cam.view, cam.unjitteredViewProjection, p);
-    if (f.z <= 0.0) { return none; }
+    if (f.z <= 0.0) { return SceneFog(vec3f(0.0), vec3f(1.0)); }
     let n = f32(froxels.grid.z);
     let fog = froxel_tricubic(vec3f(f.xy, clamp((f.z - 0.5) / n, 0.5 / n, 1.0 - 0.5 / n)));
-    return select(fog, mix(none, fog, f.z), f.z < 1.0);
+    let out = select(fog, mix(none, fog, f.z), f.z < 1.0);
+    return SceneFog(out.rgb * FROXEL_RADIANCE_UNIT, vec3f(out.a));
 }

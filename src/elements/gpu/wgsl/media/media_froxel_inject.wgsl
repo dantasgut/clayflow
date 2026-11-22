@@ -4,9 +4,11 @@
 // ambiente isotrópica (a grade grossa `froxel_ambient`: o hemisfério ou a luz rebatida das sondas) e a emissão. O
 // resultado do quadro (espalhado rgb, extinção) vai a `froxel_current_out`; o acúmulo no histórico é do passe seguinte
 // (`media_froxel_resolve`, com o recorte pela vizinhança, spec 034 T058). O ponto sorteado segue a sequência de Halton
-// do quadro deslocada por froxel.
+// do quadro deslocada por froxel. O meio contínuo da cena (`scene_medium`, spec 041 R21: a atmosfera) soma a luz que
+// espalha no mesmo ponto; a extinção guardada (a) é só a dos volumes (cinza), a do meio (por canal) é da integração. A
+// sombra da fonte que o meio leu no ponto (`SceneMedium.light`: o sol da atmosfera) serve à névoa dos volumes nele.
 // Requer: WORKGROUP_SIZE, froxels, cameras, media_common, media_volumes, lights, light_incoming, light_visibility,
-// light_transmission, froxel_ambient, froxel_sampler, froxel_current_out.
+// light_transmission, scene_medium, media_froxel_state, froxel_ambient, froxel_sampler, froxel_current_out.
 
 /** Fase de Henyey-Greenstein (cosseno entre a direção para a luz e a do raio da câmera). */
 fn froxel_phase(cos_theta: f32, g: f32) -> f32 {
@@ -19,6 +21,8 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     let dims = froxels.grid.xyz;
     if (i >= dims.x * dims.y * dims.z) { return; }
+    // O meio contínuo não conta neste quadro e não há névoa (R21): a integração grava a grade longe.
+    if (!froxel_medium_state().x) { return; }
     let cell = vec3u(i % dims.x, (i / dims.x) % dims.y, i / (dims.x * dims.y));
     let cam = cameras[froxels.grid.w];
     // A sequência do quadro (Halton) girada por froxel (Cranley-Patterson): cada froxel percorre os seus pontos sem
@@ -56,7 +60,13 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
         g_sum += v.optics.y * (s.r + s.g + s.b);
         emission += v.emission.rgb * d;
     }
-    var current = vec4f(0.0);
+    // O meio contínuo (`scene_medium`: a atmosfera do `Sky`, spec 041 R21) no mesmo ponto: a luz que ele espalha para a
+    // câmera (as fontes dele com a sombra delas, e a múltipla). A extinção dele é analítica e entra na integração.
+    // A parte lisa dele no centro do froxel (sem ruído), as sombras no ponto sorteado.
+    let center = froxel_world(cam, froxel_view_point(uv_to_ndc((vec2f(cell.xy) + 0.5) / vec2f(dims.xy)),
+        froxel_slice_depth(f32(cell.z) + 0.5), froxel_projection(cam)));
+    let medium = scene_medium(p, center, normalize(center - cam.position.xyz));
+    var scattered = medium.radiance;
     if (sigma_t > 0.0) {
         let g = g_sum / max(sigma_s.r + sigma_s.g + sigma_s.b, 1e-12);
         var incoming = textureSampleLevel(froxel_ambient, froxel_sampler,
@@ -65,10 +75,13 @@ fn froxel_inject_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_w
         for (var l = 0u; l < lights_n; l++) {
             let inc = light_incoming(lights[l], p);
             if (all(inc.radiance <= vec3f(0.0))) { continue; }
-            let radiance = inc.radiance * light_visibility(l, p, vec3f(0.0)) * light_transmission(l, p);
+            // A sombra da fonte que o meio já leu neste ponto (o sol da atmosfera) não é refeita.
+            var visibility = medium.visibility;
+            if (l != medium.light) { visibility = light_visibility(l, p, vec3f(0.0)); }
+            let radiance = inc.radiance * visibility * light_transmission(l, p);
             incoming += radiance * froxel_phase(dot(inc.l, ray), g);
         }
-        current = vec4f(sigma_s * incoming + emission, sigma_t);
+        scattered += sigma_s * incoming + emission;
     }
-    textureStore(froxel_current_out, cell, current);
+    textureStore(froxel_current_out, cell, vec4f(scattered, sigma_t));
 }

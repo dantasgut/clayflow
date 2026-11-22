@@ -101,8 +101,15 @@ async function main(): Promise<number> {
                 },
             );
             const page = await context.newPage();
+            // Erros do WebGPU que nenhum escopo capturou: o Chrome os escreve como aviso, com o contexto do Dawn
+            // (`- While …`) — o smoke falha, mesmo que a página não ouça `engineError`.
+            const gpuErrors: string[] = [];
             page.on('console', (msg) => {
                 if (msg.type() === 'error') console.error(`  [console] ${msg.text()}`);
+                else if (msg.type() === 'warning' && /\n\s*- While /.test(msg.text())) {
+                    gpuErrors.push(msg.text());
+                    console.error(`  [webgpu] ${msg.text()}`);
+                }
             });
             page.on('pageerror', (err) => {
                 console.error(`  [pageerror] ${err.message}`);
@@ -128,8 +135,13 @@ async function main(): Promise<number> {
                 }
                 await page.waitForTimeout(250);
             }
+            if (outcome === 'passed' && gpuErrors.length > 0) outcome = 'failed';
             const secs = ((Date.now() - started) / 1000).toFixed(1);
             for (const line of text.split('\n')) if (line.length > 0) console.log(`  ${line}`);
+            if (gpuErrors.length > 0)
+                console.log(
+                    `  ${gpuErrors.length} erro(s) do WebGPU sem escopo (avisos do console)`,
+                );
             console.log(`${outcome === 'passed' ? '✔' : '✘'} ${name}: ${outcome} em ${secs} s`);
             if (outcome !== 'passed') failed.push(name);
             await context.close().catch(() => undefined);

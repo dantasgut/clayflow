@@ -3,12 +3,16 @@ import { FrameTargets } from '../FrameTargets';
 import { renderScene } from '../../flows/__tests__/helpers/renderHarness';
 
 describe('FrameTargets', () => {
-    it('descritores (spec 011, 034): cor HDR rgba16float, movimento rgba16float, máscara reativa r8unorm, luz rg16float e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
+    it('descritores (spec 011, 034): cor HDR rgba16float, movimento rgba16float, máscara reativa r8unorm, luz rgba16float (as três com storage de leitura e escrita quando o device permite) e profundidade depth24plus, do tamanho do canvas (sem MSAA)', () => {
         expect(new FrameTargets({ samples: 1 }).getDescriptors()).toEqual([
             {
                 id: 'color',
                 role: 'texture',
-                textureShape: { format: 'rgba16float', sizeFromCanvas: true },
+                textureShape: {
+                    format: 'rgba16float',
+                    sizeFromCanvas: true,
+                    storage: 'read-write',
+                },
             },
             // Vetores de movimento do antisserrilhado temporal (spec 034), só sem MSAA.
             {
@@ -20,12 +24,23 @@ describe('FrameTargets', () => {
             {
                 id: 'reactive',
                 role: 'texture',
-                textureShape: { format: 'r8unorm', sizeFromCanvas: true },
+                textureShape: { format: 'r8unorm', sizeFromCanvas: true, storage: 'read-write' },
             },
             {
                 id: 'light',
                 role: 'texture',
-                textureShape: { format: 'rg16float', sizeFromCanvas: true },
+                textureShape: {
+                    format: 'rgba16float',
+                    sizeFromCanvas: true,
+                    storage: 'read-write',
+                },
+            },
+            // A radiância acima do teto da cor (spec 041): o disco do sol para o espalhamento da lente, sob demanda.
+            {
+                id: 'overflow',
+                role: 'texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba16float', sizeFromCanvas: true },
             },
             {
                 id: 'depth',
@@ -40,6 +55,7 @@ describe('FrameTargets', () => {
             new FrameTargets().getDescriptors().map((d) => [d.id, d.textureShape?.sampleCount]),
         ).toEqual([
             ['color', undefined],
+            ['overflow', undefined],
             ['depth', 4],
             ['samples', 4],
         ]);

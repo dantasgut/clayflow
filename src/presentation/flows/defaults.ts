@@ -47,11 +47,15 @@ import { FroxelFlow } from '../../elements/media/FroxelFlow';
 import { EnergyFlow } from '../../elements/physics/energy/EnergyFlow';
 import { SoftEnergyFlow } from '../../elements/physics/energy/SoftEnergyFlow';
 import { SkyFlow } from '../../elements/scene/sky/SkyFlow';
+import { SkyAerialFlow } from '../../elements/scene/sky/SkyAerialFlow';
 import { CloudLayer } from '../../elements/media/clouds/CloudLayer';
 import { CloudNoiseFlow } from '../../elements/media/clouds/CloudNoiseFlow';
 import { CloudLightFlow } from '../../elements/media/clouds/CloudLightFlow';
 import { CloudFlow } from '../../elements/media/clouds/CloudFlow';
 import { SkyCompositeFlow } from './SkyCompositeFlow';
+import { SkyReactiveFlow } from './SkyReactiveFlow';
+import { FroxelReachFlow } from './FroxelReachFlow';
+import { SkyOverflowFlow } from './SkyOverflowFlow';
 import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
@@ -447,11 +451,14 @@ function createPresentationDefaults(flows: FlowRegistry): {
     // escrevem, o `framePrepare` dela vê as marcas de produção do quadro. Sem `RayScene` na cena fica pendente.
     // Campo dos fluidos (spec 033, R11) depois da física, antes da estrutura de raios (a caixa do volume).
     // Nuvens (spec 041): o uniforme do quadro e os volumes de ruído, depois da câmera e do céu.
-    const cloudNoiseRegistration = flows.register((ctx) => new CloudNoiseFlow(ctx), {
-        type: 'cloudNoise',
-        phase: 'transform',
-        priority: -56,
-    });
+    const cloudNoiseRegistration = flows.register(
+        (ctx) => new CloudNoiseFlow(ctx, FrameTargets.schema),
+        {
+            type: 'cloudNoise',
+            phase: 'transform',
+            priority: -56,
+        },
+    );
     const fluidFieldRegistration = flows.register((ctx) => new FluidFieldFlow(ctx), {
         type: 'fluidField',
         phase: 'transform',
@@ -496,6 +503,14 @@ function createPresentationDefaults(flows: FlowRegistry): {
         type: 'froxels',
         phase: 'shadow',
         priority: -30,
+    });
+    // A perspectiva aérea da câmera (spec 041) depois da luz das nuvens (a sombra delas no ar: os raios crepusculares) e
+    // da névoa (a decisão do quadro dos froxels: as fatias que eles integram saem sem a sombra, T074), antes de quem a
+    // lê (o desenho, a marcha das nuvens).
+    const skyAerialRegistration = flows.register((ctx) => new SkyAerialFlow(ctx), {
+        type: 'skyAerial',
+        phase: 'shadow',
+        priority: -31,
     });
     // Texturas virtuais dos materiais (spec 034, T060c) antes do desenho: as cargas no atlas, a tabela renovada pelos
     // pedidos do quadro anterior e a fatia de agora dos pedidos zerada para o desenho. Sem `VirtualTextures`, pendente.
@@ -569,6 +584,26 @@ function createPresentationDefaults(flows: FlowRegistry): {
         phase: 'forward',
         priority: -70,
     });
+    // O disco do sol acima do teto da cor (spec 041) depois da composição das nuvens (o que as nuvens tapam dele), para o
+    // espalhamento da lente no pós.
+    const skyOverflowRegistration = flows.register((ctx) => new SkyOverflowFlow(ctx), {
+        type: 'skyOverflow',
+        phase: 'forward',
+        priority: -70.5,
+    });
+    // A máscara reativa do disco do sol (spec 041) depois do fundo, antes da resolução temporal que a lê.
+    // O alcance da câmera (spec 041, R21) depois do pós (a profundidade da cena ainda é a do quadro): a decisão da GPU
+    // sobre a atmosfera nos froxels do quadro seguinte, sem um passe de computação entre os de desenho.
+    const froxelReachRegistration = flows.register((ctx) => new FroxelReachFlow(ctx), {
+        type: 'froxelReach',
+        phase: 'post',
+        priority: -10,
+    });
+    const skyReactiveRegistration = flows.register((ctx) => new SkyReactiveFlow(ctx), {
+        type: 'skyReactive',
+        phase: 'forward',
+        priority: -71,
+    });
     const postRegistration = flows.register((ctx) => new PostFlow(ctx), {
         type: 'post',
         phase: 'post',
@@ -639,6 +674,7 @@ function createPresentationDefaults(flows: FlowRegistry): {
             raySceneRegistration,
             shadowRegistration,
             cloudLightRegistration,
+            skyAerialRegistration,
             skyAmbientRegistration,
             probeRegistration,
             causticsRegistration,
@@ -653,6 +689,9 @@ function createPresentationDefaults(flows: FlowRegistry): {
             refractionMotionRegistration,
             cloudRegistration,
             skyCompositeRegistration,
+            skyOverflowRegistration,
+            skyReactiveRegistration,
+            froxelReachRegistration,
             postRegistration,
             debugRegistration,
             uiRegistration,

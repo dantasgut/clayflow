@@ -20,7 +20,9 @@
 //      ordem e escreve a contagem de instâncias de cada desenho indireto, `sp_pairs_main` escreve cada par no trecho do
 //      seu grupo;
 //   8. as malhas grandes em aglomerados: `sp_cluster_bounds_main` (um despacho por geometria) dá a caixa de cada
-//      aglomerado, e `sp_clusters_main` (um despacho por grupo) monta a lista dos pares (aglomerado, página suja);
+//      aglomerado (na malha adaptativa, só os dos índices do quadro), `sp_cluster_box_main` a da geometria pelas deles
+//      (no lugar da etapa 1), e `sp_clusters_main` (um despacho por grupo) monta a lista dos pares (aglomerado, página
+//      suja);
 //   9. os sprites que projetam (esferas impostoras, um despacho por fonte de pontos): `ss_rect_main`, antes da tabela,
 //      dá o retângulo da fonte no plano da luz e a põe entre as dinâmicas; `ss_pairs_main`, depois das sujas, monta a
 //      lista (sprite, página suja) pelas páginas que o disco de cada um alcança em cada nível.
@@ -63,6 +65,20 @@ fn sp_overlap(a: vec4f, b: vec4f) -> bool {
     return a.x <= b.z && b.x <= a.z && a.y <= b.w && b.y <= a.w;
 }
 
+/** Põe o retângulo `u` (o de antes unido ao de agora, no plano da luz) na lista das dinâmicas; cheia, tudo é tocado. */
+fn sp_push_dynamic(u: vec4f) {
+    let d = atomicAdd(&sp_scratch[SP_DYNAMIC_COUNT], 1u);
+    if (d >= sp.dynamicCap) {
+        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
+        return;
+    }
+    let o = sp.dynamicBase + d * 4u;
+    sp_set_f(o, u.x);
+    sp_set_f(o + 1u, u.y);
+    sp_set_f(o + 2u, u.z);
+    sp_set_f(o + 3u, u.w);
+}
+
 // ---- 1. a caixa de uma geometria ----
 
 @compute @workgroup_size(256)
@@ -95,6 +111,11 @@ fn sp_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
             sp_set_f(b + 3u + c, -3.0e38);
         }
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u], 0u);
+        // A caixa da geometria em aglomerados, vazia (os mínimos no topo, os máximos no fundo da ordem de `sp_order`).
+        for (var c = 0u; c < 3u; c++) {
+            atomicStore(&sp_scratch[sp.groupBoxBase + i * 6u + c], 0xFFFFFFFFu);
+            atomicStore(&sp_scratch[sp.groupBoxBase + i * 6u + 3u + c], 0u);
+        }
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u + 2u], 0u);
         atomicStore(&sp_scratch[sp.groupPairsBase + i * 4u + 3u], 0u);
     }
@@ -137,21 +158,14 @@ fn sp_instances_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wo
     sp_rects_out[j] = rect;
     if (sp.reset != 0u || m.direction.w != 0.0) { return; }
     let before = sp_rects_previous[j];
+    // A geometria deformada neste quadro suja a instância inteira — salvo a em aglomerados (a lista do grupo, palavra
+    // 2), cujos aglomerados que mudaram entram sozinhos (`sp_cluster_bounds_main`).
+    let clustered = sp_groups[(word & SP_GROUP_MASK) * 4u + 2u] != 0u;
     let moved = any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))))
-        || (word & SP_DEFORMING) != 0u;
+        || ((word & SP_DEFORMING) != 0u && !clustered);
     if (!moved) { return; }
-    let d = atomicAdd(&sp_scratch[SP_DYNAMIC_COUNT], 1u);
-    if (d >= sp.dynamicCap) {
-        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
-        return;
-    }
     // O de antes e o de agora: as páginas onde a instância estava e onde está.
-    let u = vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw));
-    let o = sp.dynamicBase + d * 4u;
-    sp_set_f(o, u.x);
-    sp_set_f(o + 1u, u.y);
-    sp_set_f(o + 2u, u.z);
-    sp_set_f(o + 3u, u.w);
+    sp_push_dynamic(vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
 }
 
 // ---- 4. a tabela ----
@@ -454,32 +468,160 @@ fn sp_pairs_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgr
 // instância por par (aglomerado, par instância × página suja) da lista do grupo, com os vértices lidos pelos índices.
 // A profundidade vai ao atlas pelo mínimo atômico: a ordem da lista não muda a imagem.
 
-/** A caixa de cada aglomerado de uma geometria (uma invocação por aglomerado), dos índices dele. */
+/**
+ * Os índices da malha no quadro: a capacidade, ou, na malha cuja contagem vem da GPU (a adaptativa), a do quadro (a
+ * palavra `countWord`, copiada do registro indireto da geometria antes das etapas).
+ */
+fn sp_cluster_index_count() -> u32 {
+    if (sp_geometry.countWord == 0u) { return sp_geometry.indexCount; }
+    return min(sp_geometry.indexCount, atomicLoad(&sp_scratch[sp_geometry.countWord]));
+}
+
+/** A caixa (lo, hi) do aglomerado global `g` na série das caixas. */
+fn sp_cluster_box(g: u32) -> array<vec3f, 2> {
+    let b = g * 6u;
+    return array<vec3f, 2>(
+        vec3f(sp_cluster_boxes[b], sp_cluster_boxes[b + 1u], sp_cluster_boxes[b + 2u]),
+        vec3f(sp_cluster_boxes[b + 3u], sp_cluster_boxes[b + 4u], sp_cluster_boxes[b + 5u]),
+    );
+}
+
+/** O retângulo no plano da luz da caixa (lo, hi) do objeto na matriz de mundo `world`; vazio se a caixa é vazia. */
+fn sp_box_rect(m: ShadowMatrix, world: mat4x4f, lo: vec3f, hi: vec3f) -> vec4f {
+    var rect = vec4f(3.0e38, 3.0e38, -3.0e38, -3.0e38);
+    if (any(lo > hi)) { return rect; }
+    for (var c = 0u; c < 8u; c++) {
+        let corner = select(lo, hi, vec3<bool>((c & 1u) != 0u, (c & 2u) != 0u, (c & 4u) != 0u));
+        let q = sv_light(m, (world * vec4f(corner, 1.0)).xyz).xy;
+        rect = vec4f(min(rect.xy, q), max(rect.zw, q));
+    }
+    return rect;
+}
+
+/**
+ * A caixa de cada aglomerado de uma geometria (uma invocação por aglomerado), dos índices dele; o aglomerado além dos
+ * índices do quadro fica com a caixa vazia (fora das listas). As caixas são uma série por páginas (uma página por
+ * aglomerado, no espaço do objeto): a carimbada na época atual segue, e só é refeita quando a geometria se deforma
+ * neste quadro (o produtor a escreveu), quando o cache recomeça (grupos mudados) ou quando a série foi interrompida.
+ * Na deformação, o aglomerado cuja caixa mudou entra nas dinâmicas (a caixa de antes unida à de agora, em cada
+ * instância do grupo): só as páginas que ele toca são redesenhadas — a malha reescrita igual (a adaptativa refeita com
+ * a câmera, nos retalhos que não mudaram de nível) não suja nada. Sem a caixa de antes (a série interrompida), tudo é
+ * tocado.
+ */
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn sp_cluster_bounds_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
+fn sp_cluster_bounds_main(
+    @builtin(global_invocation_id) gid3: vec3u,
+    @builtin(num_workgroups) nwg: vec3u,
+    @builtin(local_invocation_index) lid: u32,
+) {
     let c = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (c >= sp_geometry.clusterCount) { return; }
-    let count = arrayLength(&bounds_vertices) / 8u;
-    let first = c * SP_CLUSTER_TRIS * 3u;
-    let end = min(first + SP_CLUSTER_TRIS * 3u, sp_geometry.indexCount);
+    let inside = c < sp_geometry.clusterCount;
+    let g = sp_geometry.clusterFirst + c;
+    let deforming = (sp_groups[sp.instanceGroupBase + sp_groups[sp_geometry.group * 4u]] & SP_DEFORMING) != 0u;
     var lo = vec3f(3.0e38);
     var hi = vec3f(-3.0e38);
-    for (var k = 0u; k < SP_CLUSTER_TRIS * 3u; k++) {
-        let i = first + k;
-        if (i >= end) { break; }
-        let v = sp_cluster_indices[i];
-        if (v >= count) { continue; }
-        let p = vec3f(bounds_vertices[v * 8u], bounds_vertices[v * 8u + 1u], bounds_vertices[v * 8u + 2u]);
-        lo = min(lo, p);
-        hi = max(hi, p);
+    if (inside) {
+        let stamped = sp_cluster_stamps[g] == sp_cluster_clock.x;
+        let old = sp_cluster_box(g);
+        lo = old[0];
+        hi = old[1];
+        if (sp.reset != 0u || deforming || !stamped) {
+            sp_cluster_stamps[g] = sp_cluster_clock.x;
+            let count = arrayLength(&bounds_vertices) / 8u;
+            let first = c * SP_CLUSTER_TRIS * 3u;
+            let end = min(first + SP_CLUSTER_TRIS * 3u, sp_cluster_index_count());
+            lo = vec3f(3.0e38);
+            hi = vec3f(-3.0e38);
+            for (var k = 0u; k < SP_CLUSTER_TRIS * 3u; k++) {
+                let i = first + k;
+                if (i >= end) { break; }
+                let v = sp_cluster_indices[i];
+                if (v >= count) { continue; }
+                let p = vec3f(bounds_vertices[v * 8u], bounds_vertices[v * 8u + 1u], bounds_vertices[v * 8u + 2u]);
+                lo = min(lo, p);
+                hi = max(hi, p);
+            }
+            sp_cluster_moved(deforming, stamped, old, lo, hi);
+            let b = g * 6u;
+            sp_cluster_boxes[b] = lo.x;
+            sp_cluster_boxes[b + 1u] = lo.y;
+            sp_cluster_boxes[b + 2u] = lo.z;
+            sp_cluster_boxes[b + 3u] = hi.x;
+            sp_cluster_boxes[b + 4u] = hi.y;
+            sp_cluster_boxes[b + 5u] = hi.z;
+        }
     }
-    let b = sp.clusterBoundsBase + (sp_geometry.clusterFirst + c) * 6u;
-    sp_set_f(b, lo.x);
-    sp_set_f(b + 1u, lo.y);
-    sp_set_f(b + 2u, lo.z);
-    sp_set_f(b + 3u, hi.x);
-    sp_set_f(b + 4u, hi.y);
-    sp_set_f(b + 5u, hi.z);
+    // A caixa da geometria: a união das dos aglomerados, no grupo de trabalho e depois entre os grupos (o mínimo e o
+    // máximo atômicos sobre a ordem dos bits, `sp_order`); `sp_cluster_box_main` a escreve em `boundsBase`.
+    sp_cb_lo[lid] = lo;
+    sp_cb_hi[lid] = hi;
+    for (var s = WORKGROUP_SIZE / 2u; s > 0u; s >>= 1u) {
+        workgroupBarrier();
+        if (lid < s) {
+            sp_cb_lo[lid] = min(sp_cb_lo[lid], sp_cb_lo[lid + s]);
+            sp_cb_hi[lid] = max(sp_cb_hi[lid], sp_cb_hi[lid + s]);
+        }
+    }
+    if (lid != 0u || any(sp_cb_lo[0] > sp_cb_hi[0])) { return; }
+    let w = sp.groupBoxBase + sp_geometry.group * 6u;
+    for (var a = 0u; a < 3u; a++) {
+        atomicMin(&sp_scratch[w + a], sp_order(sp_cb_lo[0][a]));
+        atomicMax(&sp_scratch[w + 3u + a], sp_order(sp_cb_hi[0][a]));
+    }
+}
+
+/**
+ * Na deformação, o aglomerado cuja caixa mudou entra nas dinâmicas (a caixa de antes unida à de agora, em cada
+ * instância do grupo); sem a caixa de antes (a série interrompida), tudo é tocado. No recomeço, nada (tudo é refeito).
+ */
+fn sp_cluster_moved(deforming: bool, stamped: bool, old: array<vec3f, 2>, lo: vec3f, hi: vec3f) {
+    let m = shadow_matrices[sp.casterSlot];
+    if (!deforming || sp.reset != 0u || m.direction.w != 0.0) { return; }
+    if (!stamped) {
+        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
+        return;
+    }
+    let empty = any(lo > hi) && any(old[0] > old[1]);
+    if (empty || (all(old[0] == lo) && all(old[1] == hi))) { return; }
+    let group = sp_geometry.group;
+    let firstInstance = sp_groups[group * 4u];
+    let instancesN = min(sp_groups[group * 4u + 1u], SP_CLUSTER_MAX_INSTANCES);
+    for (var j = 0u; j < SP_CLUSTER_MAX_INSTANCES; j++) {
+        if (j >= instancesN) { break; }
+        let world = worlds[instances[firstInstance + j].world].world;
+        let a = sp_box_rect(m, world, old[0], old[1]);
+        let r = sp_box_rect(m, world, lo, hi);
+        sp_push_dynamic(vec4f(min(a.xy, r.xy), max(a.zw, r.zw)));
+    }
+}
+
+var<workgroup> sp_cb_lo: array<vec3f, WORKGROUP_SIZE>;
+var<workgroup> sp_cb_hi: array<vec3f, WORKGROUP_SIZE>;
+
+/** O `f32` em `u32` na mesma ordem (o mínimo e o máximo atômicos dos inteiros valem para os reais). */
+fn sp_order(f: f32) -> u32 {
+    let b = bitcast<u32>(f);
+    return select(b | 0x80000000u, ~b, (b & 0x80000000u) != 0u);
+}
+
+fn sp_unorder(u: u32) -> f32 {
+    return bitcast<f32>(select(~u, u & 0x7FFFFFFFu, (u & 0x80000000u) != 0u));
+}
+
+/**
+ * A caixa da geometria de um grupo em aglomerados (uma invocação), da união das caixas dos aglomerados (o
+ * `sp_cluster_bounds_main` deste quadro) — só os triângulos do quadro, sem varrer o buffer de vértices inteiro (a malha
+ * adaptativa tem a capacidade do nível máximo). Sem aglomerado, a caixa fica vazia.
+ */
+@compute @workgroup_size(1)
+fn sp_cluster_box_main() {
+    let w = sp.groupBoxBase + sp_geometry.group * 6u;
+    // Sem contribuição, o máximo segue no fundo da ordem (0): a caixa fica vazia.
+    if (atomicLoad(&sp_scratch[w + 3u]) == 0u) { return; }
+    let b = sp.boundsBase + sp_geometry.group * 6u;
+    for (var a = 0u; a < 6u; a++) {
+        sp_set_f(b + a, sp_unorder(atomicLoad(&sp_scratch[w + a])));
+    }
 }
 
 /**
@@ -530,10 +672,14 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let firstInstance = sp_groups[group * 4u];
     let instancesN = min(sp_groups[group * 4u + 1u], SP_CLUSTER_MAX_INSTANCES);
     let cap = sp_geometry.clusterCount * SP_CLUSTER_SLOTS;
+    let o = sp.groupPairsBase + group * 4u;
+    let n = min(atomicLoad(&sp_scratch[o + 3u]), SP_CLUSTER_PAIR_LIMIT);
+    // Sem páginas sujas no grupo, nada a listar.
+    if (n == 0u) { return; }
     let m = shadow_matrices[sp.casterSlot];
-    let b = sp.clusterBoundsBase + (sp_geometry.clusterFirst + c) * 6u;
-    let lo = vec3f(sp_f(b), sp_f(b + 1u), sp_f(b + 2u));
-    let hi = vec3f(sp_f(b + 3u), sp_f(b + 4u), sp_f(b + 5u));
+    let box = sp_cluster_box(sp_geometry.clusterFirst + c);
+    let lo = box[0];
+    let hi = box[1];
     if (any(lo > hi)) { return; }
     let h = 0.5 * (hi - lo);
     var shapes: array<SpClusterShape, SP_CLUSTER_MAX_INSTANCES>;
@@ -548,9 +694,7 @@ fn sp_clusters_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
             (to_light * vec4f(0.0, 0.0, h.z, 0.0)).xy,
         );
     }
-    let o = sp.groupPairsBase + group * 4u;
     let base = atomicLoad(&sp_scratch[o + 1u]);
-    let n = min(atomicLoad(&sp_scratch[o + 3u]), SP_CLUSTER_PAIR_LIMIT);
     for (var p = 0u; p < SP_CLUSTER_PAIR_LIMIT; p++) {
         if (p >= n) { break; }
         let pair = sp_pairs[base + p];
@@ -621,17 +765,7 @@ fn ss_rect_main(@builtin(local_invocation_index) lid: u32) {
     let before = sp_rects_previous[slot];
     let moved = ss_source.dynamic != 0u || any(abs(before - rect) > vec4f(1.0e-5 * (1.0 + abs(rect))));
     if (!moved) { return; }
-    let d = atomicAdd(&sp_scratch[SP_DYNAMIC_COUNT], 1u);
-    if (d >= sp.dynamicCap) {
-        atomicStore(&sp_scratch[SP_OVERFLOW], 1u);
-        return;
-    }
-    let u = vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw));
-    let o = sp.dynamicBase + d * 4u;
-    sp_set_f(o, u.x);
-    sp_set_f(o + 1u, u.y);
-    sp_set_f(o + 2u, u.z);
-    sp_set_f(o + 3u, u.w);
+    sp_push_dynamic(vec4f(min(before.xy, rect.xy), max(before.zw, rect.zw)));
 }
 
 /**

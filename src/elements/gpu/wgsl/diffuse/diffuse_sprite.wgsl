@@ -92,14 +92,14 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
             closure_diffuse(material.spray_color.rgb, 0.0),
             closure_dielectric(1.33, vec3f(1.0), 0.05, 0.0, vec3f(0.0)),
         );
-        return vec4f(scene_lighting(c, p, n, v) * fog.a + fog.rgb, 1.0);
+        return vec4f(scene_lighting(c, p, n, v) * fog.transmittance + fog.scattered, 1.0);
     }
     if (in.kind < 1.5) {
         // Espuma: some com a vida (descarte pontilhado) e é mais rala na borda; difusa e translúcida.
         let keep = in.life * (1.0 - r2 * 0.6);
         if (diffuse_dither(in.clip_position.xy, in.id) > keep) { discard; }
         let c = closure_add(closure_diffuse(material.foam_color.rgb, 1.0), closure_scale(closure_translucent(material.foam_color.rgb), 0.4));
-        return vec4f(scene_lighting(c, p, n, v) * fog.a + fog.rgb, 1.0);
+        return vec4f(scene_lighting(c, p, n, v) * fog.transmittance + fog.scattered, 1.0);
     }
     // Bolha: anel (centro vazado) que reflete como água.
     if (r2 < 0.55) { discard; }
@@ -107,5 +107,5 @@ fn fs_main(in: DiffuseOut) -> @location(0) vec4f {
         closure_scale(closure_diffuse(material.bubble_color.rgb, 0.0), 0.3),
         closure_dielectric(1.33, vec3f(1.0), 0.05, 0.0, vec3f(0.0)),
     );
-    return vec4f(scene_lighting(c, p, n, v) * fog.a + fog.rgb, 1.0);
+    return vec4f(scene_lighting(c, p, n, v) * fog.transmittance + fog.scattered, 1.0);
 }

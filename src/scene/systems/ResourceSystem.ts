@@ -339,6 +339,8 @@ const INDIRECT_RECORD_BYTES = 20;
  *     com `record`).
  */
 export class ResourceSystem implements ResourceDirectory, FlowAllocator {
+    /** As vistas que este sistema destruiu (ver `isRetired`). */
+    private readonly retiredViews = new WeakSet<TextureViewSpec>();
     private readonly stateRegistry = new ResourceStateHandlerRegistry();
     /**
      * As arenas de pools da C2 (T060i): a da CPU (os pools que a CPU envia e que algum shader lê pela arena) e a da GPU
@@ -1071,6 +1073,20 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
 
     textureOf(resource: Resource, descId: string): TextureSpec | undefined {
         return this.allocations.get(resource)?.get(descId)?.texture;
+    }
+
+    /**
+     * A vista foi destruída por este sistema (a textura dela saiu: redescrição, troca de tamanho, remoção) e não foi
+     * recriada. Quem guardou a vista para ligar (uma fonte privada de Flow) espera em vez de montar o grupo com ela —
+     * o Flow religa a nova no `framePrepare`.
+     */
+    isRetired(view: TextureViewSpec): boolean {
+        return this.retiredViews.has(view);
+    }
+
+    private retire(view: TextureViewSpec): void {
+        this.retiredViews.add(view);
+        this.core.destroy(view);
     }
 
     textureViewOf(resource: Resource, descId: string): TextureViewSpec | undefined {
@@ -2259,7 +2275,13 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 width: size.width,
                 height: size.height,
                 format,
-                usage: textureUsage(desc.role, format, shape.sampleCount ?? 1),
+                usage:
+                    textureUsage(desc.role, format, shape.sampleCount ?? 1)
+                    | (shape.storage === 'read-write'
+                    && (shape.sampleCount ?? 1) === 1
+                    && readWriteStorageFormat(this.core.capabilities().features, format)
+                        ? GPUTextureUsage.STORAGE_BINDING
+                        : 0),
                 ...(shape.dimension !== undefined ? { dimension: shape.dimension } : {}),
                 ...(shape.depthOrArrayLayers !== undefined
                     ? { depthOrArrayLayers: shape.depthOrArrayLayers }
@@ -2278,6 +2300,7 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
                 format,
                 ...(shape.viewDimension !== undefined ? { dimension: shape.viewDimension } : {}),
             });
+            this.retiredViews.delete(view);
             return { texture, view };
         };
         const history = desc.history;
@@ -3092,11 +3115,11 @@ export class ResourceSystem implements ResourceDirectory, FlowAllocator {
         this.releasePaged(channel);
         if (channel !== undefined) {
             for (const slice of channel.allSlices()) {
-                if (slice.view !== undefined) this.core.destroy(slice.view);
+                if (slice.view !== undefined) this.retire(slice.view);
                 if (slice.texture !== undefined) this.core.destroy(slice.texture);
             }
         } else {
-            if (allocation.view !== undefined) this.core.destroy(allocation.view);
+            if (allocation.view !== undefined) this.retire(allocation.view);
             if (allocation.texture !== undefined) this.core.destroy(allocation.texture);
         }
         delete allocation.view;
@@ -3234,6 +3257,34 @@ function textureUsage(
         return U.STORAGE_BINDING | U.TEXTURE_BINDING | U.COPY_SRC | U.COPY_DST;
     if (isDepthOrStencil(format)) return U.RENDER_ATTACHMENT | U.TEXTURE_BINDING;
     return U.TEXTURE_BINDING | U.COPY_DST | U.COPY_SRC | U.RENDER_ATTACHMENT;
+}
+
+/** Formatos com storage de leitura e escrita pela feature `texture-formats-tier2` (o `r32*` é do núcleo). */
+const READ_WRITE_TIER2: ReadonlySet<GPUTextureFormat> = new Set<GPUTextureFormat>([
+    'r8unorm',
+    'r8uint',
+    'r8sint',
+    'rgba8unorm',
+    'rgba8uint',
+    'rgba8sint',
+    'r16uint',
+    'r16sint',
+    'r16float',
+    'rgba16uint',
+    'rgba16sint',
+    'rgba16float',
+    'rgba32uint',
+    'rgba32sint',
+    'rgba32float',
+]);
+
+/** O device liga o formato como storage de leitura e escrita (`texture_storage_2d<f, read_write>`). */
+function readWriteStorageFormat(
+    features: readonly GPUFeatureName[],
+    format: GPUTextureFormat,
+): boolean {
+    if (format === 'r32float' || format === 'r32uint' || format === 'r32sint') return true;
+    return features.includes('texture-formats-tier2') && READ_WRITE_TIER2.has(format);
 }
 
 /** Níveis de mip da cadeia completa de uma textura `width`×`height` (até 1×1). */

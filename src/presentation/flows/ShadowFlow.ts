@@ -33,8 +33,13 @@ import {
     type WorkSlot,
 } from '../../scene/flows/slots';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
+import type { EntityId } from '../../scene/world/EntityId';
 import type { World } from '../../scene/world/World';
 import { Geometry } from '../../elements/geometry/Geometry';
+import {
+    geometryViewDescriptor,
+    type GeometryViewPart,
+} from '../../elements/geometry/GeometryView';
 import { Material } from '../../elements/material/Material';
 import { PointSpriteMaterial } from '../../elements/material/PointSpriteMaterial';
 import { ParticleBody } from '../../elements/physics/bodies/ParticleBody';
@@ -42,7 +47,7 @@ import { SHADOW_MAX_LEVELS, SHADOW_PAGE_STRIDE, ShadowMap } from '../../elements
 import { castingShadowMap } from '../../elements/scene/shadowCaster';
 import { Transform } from '../../elements/scene/Transform';
 import { PerStepUniforms } from '../../elements/gpu/compute/PerStepUniforms';
-import { wordBuffer } from '../../elements/gpu/compute/schemas';
+import { GpuWordSchema, wordBuffer } from '../../elements/gpu/compute/schemas';
 import { vertexBoundsResource } from '../../elements/gpu/shaders/vertexBounds';
 import {
     ShadowBoundsGeometrySchema,
@@ -71,6 +76,8 @@ export interface ShadowSlots extends SlotMap {
     readonly atlas: ChannelSlot<false>;
     /** A série dos retângulos das instâncias no plano da luz (quem se moveu). */
     readonly rects: ChannelSlot<true>;
+    /** A série por páginas das caixas dos aglomerados das malhas grandes (refeitas só quando a geometria muda). */
+    readonly clusterBoxes: ChannelSlot<true>;
     /** Corpos de partículas desenhados como sprites (os que projetam: `castsShadow` do material). */
     readonly sprites: EntitiesSlot;
     /** O espaço de trabalho do passe (spec 039). */
@@ -92,9 +99,10 @@ const STATE_WORDS = 32;
 const INDIRECT_WORDS = 5;
 /**
  * Malhas grandes em aglomerados (ver `shadow_pages.wgsl`, etapa 8): a geometria indexada em `uint32` de pelo menos
- * tantos triângulos, num grupo de até `CLUSTER_MAX_INSTANCES` instâncias, é desenhada por aglomerados de
- * `CLUSTER_TRIS` triângulos — cada um só nas páginas sujas que a forma dele, vista da luz, toca — em vez da malha
- * inteira em cada página suja (o custo deixa de ser triângulos × páginas).
+ * tantos triângulos (na malha adaptativa, a capacidade do nível máximo; a contagem do quadro vem da GPU), num grupo de
+ * até `CLUSTER_MAX_INSTANCES` instâncias, é desenhada por aglomerados de `CLUSTER_TRIS` triângulos — cada um só nas
+ * páginas sujas que a forma dele, vista da luz, toca — em vez da malha inteira em cada página suja (o custo deixa de
+ * ser triângulos × páginas).
  */
 const CLUSTER_MIN_TRIANGLES = 16384;
 const CLUSTER_TRIS = 32;
@@ -105,13 +113,15 @@ const CLUSTER_SLOTS = 32;
 const CLUSTER_MAX = 1 << 20;
 
 /**
- * Um grupo em aglomerados: o primeiro aglomerado (global), quantos, os índices da malha, o pipeline do desenho (ligado
+ * Um grupo em aglomerados: o primeiro aglomerado (global), quantos, os índices da malha (a capacidade), o registro
+ * indireto da geometria cuja contagem vem da GPU (a malha adaptativa; senão `undefined`), o pipeline do desenho (ligado
  * aos vértices e aos índices da geometria) e se o pipeline e o kernel das caixas estão prontos.
  */
 interface ClusterPlan {
     readonly first: number;
     readonly count: number;
     readonly indexCount: number;
+    readonly countSource: AnyBufferSpec | undefined;
     readonly pipeline: string;
     readonly ready: boolean;
 }
@@ -146,6 +156,12 @@ interface SpriteKernels {
     readonly generation: string;
 }
 
+/**
+ * A vista da luz (spec 041, R20) que o estágio pede às geometrias que se refazem por vista (a malha adaptativa): a malha
+ * pelo erro em texels do nível do mapa onde cada retalho cai, com orçamento constante, no lugar da malha da câmera.
+ */
+const LIGHT_VIEW = 'light';
+
 /** Bits da palavra de grupo de cada instância (ver `shadow_pages_constants.wgsl`). */
 const SKIP = 0x80000000;
 const DEFORMING = 0x40000000;
@@ -157,6 +173,9 @@ const ARGS = 'shadow_pages_args';
 const PAIRS = 'shadow_pages_pairs';
 const SPRITES = 'shadow_pages_sprites';
 const RECTS = 'rects';
+const CLUSTER_BOXES = 'clusterBoxes';
+/** Palavras de uma caixa de aglomerado (6 `f32`): o registro da página na série das caixas. */
+const CLUSTER_BOX_WORDS = 6;
 /**
  * O anexo do desenho das páginas (T060h): o passe de desenho do WebGPU pede um; a escrita dele fica desligada (a
  * profundidade vai ao atlas em buffer). Do tamanho de uma página com a borda.
@@ -189,8 +208,9 @@ function layoutOf(c: Capacity): {
     rectsBase: number;
     groupPairsBase: number;
     needBase: number;
-    clusterBoundsBase: number;
+    groupBoxBase: number;
     clusterListBase: number;
+    countBase: number;
     words: number;
 } {
     const physical = c.atlasPages * c.atlasPages;
@@ -203,8 +223,11 @@ function layoutOf(c: Capacity): {
     const rectsBase = boundsBase + c.groups * 6;
     const groupPairsBase = rectsBase + c.instances * 4;
     const needBase = groupPairsBase + c.groups * 4;
-    const clusterBoundsBase = needBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel;
-    const clusterListBase = clusterBoundsBase + c.clusters * 6;
+    // A caixa de cada grupo em aglomerados, pelo mínimo e o máximo atômicos (6 palavras por grupo).
+    const groupBoxBase = needBase + SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel;
+    const clusterListBase = groupBoxBase + c.groups * 6;
+    // A contagem de índices do quadro de cada grupo em aglomerados com contagem da GPU (copiada antes das etapas).
+    const countBase = clusterListBase + c.clusterList;
     return {
         keepBase,
         freeBase,
@@ -215,9 +238,10 @@ function layoutOf(c: Capacity): {
         rectsBase,
         groupPairsBase,
         needBase,
-        clusterBoundsBase,
+        groupBoxBase,
         clusterListBase,
-        words: clusterListBase + c.clusterList,
+        countBase,
+        words: countBase + c.groups,
     };
 }
 
@@ -260,6 +284,18 @@ class ShadowWork extends FlowWork {
                     // Os retângulos das instâncias e depois os das fontes de sprites (um `vec4f` cada), série de duas
                     // fatias: os de agora e os de antes.
                     { ...wordBuffer(RECTS, (c.instances + c.sprites) * 16), history: { depth: 2 } },
+                    // As caixas dos aglomerados (no espaço do objeto), série por páginas: uma página por aglomerado.
+                    {
+                        ...wordBuffer(
+                            CLUSTER_BOXES,
+                            c.clusters * CLUSTER_BOX_WORDS * GpuWordSchema.stride,
+                        ),
+                        count: c.clusters * CLUSTER_BOX_WORDS,
+                        history: {
+                            depth: 1,
+                            pages: { record: CLUSTER_BOX_WORDS * GpuWordSchema.stride },
+                        },
+                    },
                     {
                         id: RASTER,
                         role: 'texture',
@@ -326,6 +362,7 @@ function slotsOf(world: World, work: ShadowWork): ShadowSlots {
         requests: slot.channel(ShadowMap.schema, 'requests', { select }),
         atlas: slot.channel(ShadowMap.schema, 'atlas', { select }),
         rects: slot.channel(ShadowWork.schema, RECTS, { optional: true }),
+        clusterBoxes: slot.channel(ShadowWork.schema, CLUSTER_BOXES, { optional: true }),
         sprites: slot.entities({ all: [ParticleBody, PointSpriteMaterial] }),
     };
 }
@@ -412,9 +449,12 @@ const PAGE_STEPS = [
     'sp_pairs_base_main',
     'sp_pairs_main',
     'sp_clusters_main',
+    'sp_cluster_box_main',
 ] as const;
 /** A etapa das listas dos grupos em aglomerados (despachada por grupo, com a região dele). */
 const CLUSTERS_STEP = PAGE_STEPS.indexOf('sp_clusters_main');
+/** A etapa da caixa da geometria de um grupo em aglomerados pelas dos aglomerados (por grupo, com a região dele). */
+const CLUSTER_BOX_STEP = PAGE_STEPS.indexOf('sp_cluster_box_main');
 
 /** Opções do `ShadowFlow`. */
 export interface ShadowFlowOptions {
@@ -491,6 +531,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     private readonly spriteKernels = new Map<AnyBufferSpec, SpriteKernels>();
     private spritesKey = '';
     private spritePrepared = false;
+    /** As geometrias com a vista da luz pedida e as que já a têm produzida (o mapa desenha a vista delas). */
+    private readonly viewed = new Set<Geometry>();
+    private readonly lightViews = new Set<Geometry>();
 
     constructor(ctx: FlowContext, options: ShadowFlowOptions = {}) {
         super();
@@ -593,8 +636,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         const c = this.work.capacity;
         const physical = c.atlasPages * c.atlasPages;
         const entries = SHADOW_MAX_LEVELS * c.pagesPerLevel * c.pagesPerLevel;
-        for (const [record, source] of this.indirectSources)
-            frame.copy(source, args, 4, 0, record * INDIRECT_WORDS * 4);
+        this.copyIndexCounts(frame, args);
         frame.compute('ShadowFlow.pages', (pass) => {
             const run = (index: number, invocations: number): void => {
                 const step = steps[index]!;
@@ -604,7 +646,9 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             };
             // O início do quadro (os contadores, as caixas vazias) e as caixas das geometrias, cada uma no seu grupo.
             run(0, Math.max(STATE_WORDS, physical, this.groupCount));
+            // O grupo em aglomerados pronto tem a caixa pelas dos aglomerados (abaixo), sem varrer os vértices.
             for (const b of this.boundsGroupsOf) {
+                if (this.clusterPlans.get(b.group)?.ready === true) continue;
                 this.work.pipelines.use(pass.bind, b.kernel, {
                     draw: [this.boundsGroups.offset(b.group)],
                 });
@@ -618,6 +662,13 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                     draw: [this.boundsGroups.offset(group)],
                 });
                 pass.dispatch.invocations(plan.count, WORKGROUP_SIZE);
+            }
+            const box = steps[CLUSTER_BOX_STEP];
+            for (const [group, plan] of this.clusterPlans) {
+                if (!plan.ready || box === undefined) continue;
+                pass.bind.setPipeline(box.spec);
+                box.bindTo(pass.bind, { draw: [this.boundsGroups.offset(group)] });
+                pass.dispatch.workgroups(1);
             }
             const once = (index: number, workgroups: number): void => {
                 const step = steps[index]!;
@@ -671,7 +722,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 if (!drawsTriangles(group.key)) return;
                 const entry = group.representative;
                 const geometry = entry.get(Geometry);
-                const vertices = this.resources.bufferOf(geometry, 'vertices');
+                const vertices = this.casterBuffer(geometry, 'vertices');
                 if (vertices?.subkind !== 'vertex') return;
                 const plan = this.clusterPlans.get(index);
                 if (plan?.ready === true) {
@@ -695,7 +746,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 }
                 pipeline.bindTo(pass.bind, { draw: [this.groupDraws.offset(index)] });
                 pass.geometry.vertex(0, vertices);
-                const indices = this.resources.bufferOf(geometry, 'indices');
+                const indices = this.casterBuffer(geometry, 'indices');
                 const offset = index * INDIRECT_WORDS * 4;
                 if (indices?.subkind === 'index') {
                     pass.geometry.index(indices);
@@ -713,6 +764,26 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         });
         atlas.written();
         bound.slots.rects?.written();
+        bound.slots.clusterBoxes?.written();
+    }
+
+    /**
+     * A contagem de índices do quadro da malha adaptativa (o registro indireto da geometria, escrito pela GPU): no
+     * registro do desenho inteiro ou, no grupo em aglomerados, na palavra dele no `sp_scratch` (o registro dos
+     * aglomerados desenha um aglomerado por instância).
+     */
+    private copyIndexCounts(frame: Frame, args: AnyBufferSpec): void {
+        for (const [record, source] of this.indirectSources) {
+            if (this.clusterPlans.get(record)?.ready === true) continue;
+            frame.copy(source, args, 4, 0, record * INDIRECT_WORDS * 4);
+        }
+        const scratch = this.resources.bufferOf(this.work, SCRATCH);
+        if (scratch === undefined) return;
+        const { countBase } = layoutOf(this.work.capacity);
+        for (const [group, plan] of this.clusterPlans) {
+            if (!plan.ready || plan.countSource === undefined) continue;
+            frame.copy(plan.countSource, scratch, 4, 0, (countBase + group) * 4);
+        }
     }
 
     /**
@@ -750,6 +821,8 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.indirectSources.clear();
         this.spriteKernels.clear();
         this.spriteSources = [];
+        this.viewed.clear();
+        this.lightViews.clear();
     }
 
     /** O quadro: as capacidades, os grupos, as caixas, as ligações privadas e os parâmetros. */
@@ -769,6 +842,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         }
         const instances = Math.max(1, ...groups.map((g) => g.first + g.count));
         const { pagesPerLevel, atlasPages } = map.data;
+        this.requestLightViews(ctx, id!);
         const clusters = this.planClusters(ctx);
         const points = sprites.reduce((n, src) => n + src.count, 0);
         this.ensureCapacity(
@@ -797,8 +871,49 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     }
 
     /**
-     * Os grupos em aglomerados: a geometria indexada em `uint32` de pelo menos `CLUSTER_MIN_TRIANGLES`, sem contagem
-     * vinda da GPU (a malha adaptativa), num grupo que projeta com até `CLUSTER_MAX_INSTANCES` instâncias. Cada um tem o
+     * A vista da luz (spec 041, R20): cada geometria que projeta e se refaz por vista recebe o pedido da vista da luz do
+     * mapa (`source`: a entidade do mapa; o produtor lê o referencial dela); a que deixou de projetar a solta. O mapa passa
+     * a desenhar a vista quando o produtor a escreveu pela primeira vez (antes, a malha de sempre); a troca recomeça o
+     * cache (o conteúdo dos grupos muda).
+     */
+    private requestLightViews(ctx: Ctx, source: EntityId): void {
+        const casting = new Set<Geometry>();
+        for (const group of ctx.bound.slots.casters.groups) {
+            if (!drawsTriangles(group.key)) continue;
+            const geometry = group.representative.get(Geometry);
+            casting.add(geometry);
+            if (geometry.requestView({ key: LIGHT_VIEW, kind: 'light', source }))
+                this.regroup = true;
+            if (!geometry.views.some((v) => v.key === LIGHT_VIEW)) {
+                this.lightViews.delete(geometry);
+                continue;
+            }
+            this.viewed.add(geometry);
+            if (this.resources.isProduced(geometry, geometryViewDescriptor(LIGHT_VIEW, 'vertices')))
+                this.lightViews.add(geometry);
+        }
+        for (const geometry of [...this.viewed]) {
+            if (casting.has(geometry)) continue;
+            geometry.releaseView(LIGHT_VIEW);
+            this.viewed.delete(geometry);
+            this.lightViews.delete(geometry);
+        }
+    }
+
+    /** O descritor da parte que o mapa desenha da geometria: o da vista da luz, quando produzida; senão, o de sempre. */
+    private casterDesc(geometry: Geometry, part: GeometryViewPart): string {
+        return this.lightViews.has(geometry) ? geometryViewDescriptor(LIGHT_VIEW, part) : part;
+    }
+
+    /** O buffer da parte que o mapa desenha da geometria (`casterDesc`). */
+    private casterBuffer(geometry: Geometry, part: GeometryViewPart): AnyBufferSpec | undefined {
+        return this.resources.bufferOf(geometry, this.casterDesc(geometry, part));
+    }
+
+    /**
+     * Os grupos em aglomerados: a geometria indexada em `uint32` de pelo menos `CLUSTER_MIN_TRIANGLES` (na malha
+     * adaptativa, a capacidade; a contagem do quadro vem do registro indireto dela), num grupo que projeta com até
+     * `CLUSTER_MAX_INSTANCES` instâncias. Cada um tem o
      * pipeline do desenho ligado aos vértices e aos índices da geometria (preparado aqui; os que saíram são liberados) e
      * fica pronto quando o pipeline e o kernel das caixas estão prontos — até lá, o grupo vai inteiro a cada página,
      * como os outros. Devolve os aglomerados e as palavras das listas.
@@ -813,7 +928,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         groups.forEach((group, index) => {
             const buffers = this.clusterBuffersOf(group, adaptive);
             if (buffers === undefined) return;
-            const { vertices, indices } = buffers;
+            const { vertices, indices, countSource } = buffers;
             const triangles = Math.floor(indices.count / 3);
             const count = Math.ceil(triangles / CLUSTER_TRIS);
             const faces = group.key.endsWith('|two')
@@ -845,6 +960,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
                 first: clusters,
                 count,
                 indexCount: triangles * 3,
+                countSource,
                 pipeline: id,
                 ready,
             });
@@ -861,25 +977,31 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
     }
 
     /**
-     * Os vértices e os índices da geometria do grupo, se ele vai em aglomerados (ver `planClusters`); senão,
-     * `undefined`.
+     * Os vértices e os índices da geometria do grupo, se ele vai em aglomerados (ver `planClusters`), e o registro
+     * indireto com a contagem do quadro (a malha adaptativa com 'indirect-first-instance'); senão, `undefined`.
      */
     private clusterBuffersOf(
         group: DrawGroup,
         adaptive: boolean,
-    ): { vertices: AnyBufferSpec; indices: IndexBufferSpec } | undefined {
+    ):
+        | {
+              vertices: AnyBufferSpec;
+              indices: IndexBufferSpec;
+              countSource: AnyBufferSpec | undefined;
+          }
+        | undefined {
         if (!drawsTriangles(group.key) || group.count > CLUSTER_MAX_INSTANCES) return undefined;
         const geometry = group.representative.get(Geometry);
-        const vertices = this.resources.bufferOf(geometry, 'vertices');
-        const indices = this.resources.bufferOf(geometry, 'indices');
+        const vertices = this.casterBuffer(geometry, 'vertices');
+        const indices = this.casterBuffer(geometry, 'indices');
         if (vertices?.subkind !== 'vertex' || indices?.subkind !== 'index') return undefined;
         if (geometry.indexFormat !== 'uint32') return undefined;
-        if (adaptive && this.resources.bufferOf(geometry, 'indirect')?.subkind === 'indirect')
-            return undefined;
+        const indirect = this.casterBuffer(geometry, 'indirect');
+        const countSource = adaptive && indirect?.subkind === 'indirect' ? indirect : undefined;
         const triangles = Math.floor(indices.count / 3);
         if (triangles < CLUSTER_MIN_TRIANGLES || Math.ceil(triangles / CLUSTER_TRIS) > CLUSTER_MAX)
             return undefined;
-        return { vertices, indices };
+        return { vertices, indices, countSource };
     }
 
     /** Capacidades do trabalho (por dobra); mudadas, a C2 realoca e o cache recomeça. */
@@ -935,7 +1057,17 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsGroups.reserve(groups.length);
         // Os grupos (o conteúdo: muda o que é desenhado — o cache recomeça) e os buffers (realocados voltam vazios: os
         // grupos são reescritos, as páginas seguem valendo).
-        const content = groups.map((g) => `${g.key}:${g.first}:${g.count}`).join(';');
+        // A geometria desenhada pela vista da luz (`v`): a troca muda o que é desenhado.
+        const content = groups
+            .map(
+                (g) =>
+                    `${g.key}:${g.first}:${g.count}${this.lightViews.has(g.representative.get(Geometry)) ? ':v' : ''}`,
+            )
+            .join(';');
+        // A geometria escrita pela GPU deforma só nos quadros em que o produtor a escreve (`produced`, spec 031): a
+        // superfície parada (a malha adaptativa com a câmera parada) não suja as páginas a cada quadro.
+        const deforming = groups.map((g) => this.deformingNow(g.representative.get(Geometry)));
+        const moving = deforming.map((d) => (d ? 1 : 0)).join('');
         const plans = [...this.clusterPlans]
             .map(([g, p]) => `${g}:${p.first}:${p.count}:${p.pipeline}:${p.ready}`)
             .join(';');
@@ -948,13 +1080,14 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             this.boundsGroups.generation,
             content,
             plans,
+            moving,
         ].join(';');
         this.indirectSources.clear();
         // Sem 'indirect-first-instance' a malha adaptativa fica no nível máximo: a contagem é a da capacidade.
         const adaptive = this.core.capabilities().features.includes('indirect-first-instance');
         groups.forEach((group, index) => {
             if (!adaptive) return;
-            const source = this.resources.bufferOf(group.representative.get(Geometry), 'indirect');
+            const source = this.casterBuffer(group.representative.get(Geometry), 'indirect');
             if (source?.subkind === 'indirect' && drawsTriangles(group.key))
                 this.indirectSources.set(index, source);
         });
@@ -973,19 +1106,22 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             // Fora do desenho só o que não projeta; a geometria ainda sem vértices fica com a caixa vazia (zerada a cada
             // quadro) até o kernel dela rodar.
             const skip = !drawsTriangles(group.key);
-            const deforming = this.resources.hasGpuWriter(geometry, 'vertices');
             const plan = this.clusterPlans.get(index);
             // O grupo em aglomerados pronto: a lista dele (a palavra 2, nunca 0) e o desenho de um aglomerado por
             // instância; os outros, a malha inteira por instância.
             const list = plan?.ready === true ? clusterListBase + plan.first * CLUSTER_SLOTS : 0;
             words.set([group.first, group.count, list, index], index * 4);
-            const word = index | (skip ? SKIP : 0) | (deforming ? DEFORMING : 0);
+            const word = index | (skip ? SKIP : 0) | (deforming[index] === true ? DEFORMING : 0);
             for (let j = 0; j < group.count; j++)
                 words[c.groups * 4 + group.first + j] = word >>> 0;
-            const indices = this.resources.bufferOf(geometry, 'indices');
+            const indices = this.casterBuffer(geometry, 'indices');
             const count = indices?.subkind === 'index' ? indices.count : geometry.vertexCount;
             args.set([list !== 0 ? CLUSTER_TRIS * 3 : count, 0, 0, 0, 0], index * INDIRECT_WORDS);
-            this.writeRegions(index, list, plan);
+            const countWord =
+                plan?.ready === true && plan.countSource !== undefined
+                    ? layoutOf(c).countBase + index
+                    : 0;
+            this.writeRegions(index, list, plan, countWord);
         });
         this.resources.writeNow(this.work, GROUPS, words);
         this.resources.writeNow(this.work, ARGS, args);
@@ -1003,7 +1139,12 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
      * As regiões do grupo `index`: a do desenho (a lista dos aglomerados, se pronto) e a das caixas e das listas (os
      * aglomerados dele).
      */
-    private writeRegions(index: number, list: number, plan: ClusterPlan | undefined): void {
+    private writeRegions(
+        index: number,
+        list: number,
+        plan: ClusterPlan | undefined,
+        countWord: number,
+    ): void {
         const count = plan?.count ?? 0;
         const indexCount = plan?.indexCount ?? 0;
         this.groupDraws.write(index, {
@@ -1011,13 +1152,30 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             listBase: list,
             listCap: count * CLUSTER_SLOTS,
             indexCount,
+            countWord,
         });
         this.boundsGroups.write(index, {
             group: index,
             clusterFirst: plan?.first ?? 0,
             clusterCount: count,
             indexCount,
+            countWord,
         });
+    }
+
+    /**
+     * A geometria se deforma neste quadro? A escrita pela GPU, só quando o produtor a escreveu agora (as marcas de
+     * produção vêm do `framePrepare` dele, registrado antes deste estágio); a enviada pela CPU, nunca (a mudança dela
+     * troca o conteúdo e recomeça o cache).
+     */
+    private deformingNow(geometry: Geometry): boolean {
+        // A vista da luz: deformada no quadro em que o produtor a refez (só os aglomerados cuja caixa mudou sujam).
+        if (this.lightViews.has(geometry))
+            return this.resources.isProduced(geometry, this.casterDesc(geometry, 'vertices'));
+        return (
+            this.resources.hasGpuWriter(geometry, 'vertices')
+            && this.resources.isProduced(geometry, 'vertices')
+        );
     }
 
     /** O conteúdo dos grupos escrito (as chaves, primeiras instâncias e contagens). */
@@ -1141,10 +1299,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
         this.boundsGroupsOf = [];
         this.clusterKernels = new Map();
         ctx.bound.slots.casters.groups.forEach((group, index) => {
-            const vertices = this.resources.bufferOf(
-                group.representative.get(Geometry),
-                'vertices',
-            );
+            const vertices = this.casterBuffer(group.representative.get(Geometry), 'vertices');
             if (vertices === undefined || vertices.subkind === 'staging') {
                 // A geometria ainda sem buffer (alocado no envio do quadro): tenta de novo no próximo.
                 if (drawsTriangles(group.key)) this.boundsDirty = true;
@@ -1172,7 +1327,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             }
             this.boundsGroupsOf.push({ group: index, kernel: b.kernel });
             // Os aglomerados da malha grande: o kernel das caixas ligado aos vértices e aos índices dela.
-            const indices = this.resources.bufferOf(group.representative.get(Geometry), 'indices');
+            const indices = this.casterBuffer(group.representative.get(Geometry), 'indices');
             if (!this.clusterPlans.has(index) || indices?.subkind !== 'index') return;
             usedIndices.add(indices);
             const tag = `${generation}:${this.idOf(vertices)}`;
@@ -1366,7 +1521,7 @@ export class ShadowFlow extends Flow<ShadowSlots, 'idle'> {
             instanceGroupBase: this.work.capacity.groups * 4,
             groupPairsBase: layout.groupPairsBase,
             needBase: layout.needBase,
-            clusterBoundsBase: layout.clusterBoundsBase,
+            groupBoxBase: layout.groupBoxBase,
             spriteRecord: this.work.capacity.groups,
             spriteCap: this.work.capacity.spriteList,
         };

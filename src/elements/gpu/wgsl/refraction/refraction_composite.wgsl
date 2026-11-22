@@ -11,7 +11,7 @@
 
 struct RefractionCompositeOut {
     @location(0) color: vec4f,
-    @location(1) light: vec2f,
+    @location(1) light: vec4f,
     @builtin(frag_depth) depth: f32,
 }
 
@@ -21,8 +21,8 @@ fn refraction_composed(px: vec2u, request: vec2u, traced: vec3f) -> RefractionCo
     let ray = camera_ray(refraction.camera_slot, vec2f(px) + 0.5, size);
     let fog = scene_fog(ray.origin + ray.dir * bitcast<f32>(request.x));
     var out: RefractionCompositeOut;
-    out.color = vec4f(traced * fog.a + fog.rgb, 1.0);
-    out.light = vec2f(0.0);
+    out.color = vec4f(traced * fog.transmittance + fog.scattered, 1.0);
+    out.light = vec4f(0.0);
     out.depth = textureLoad(refraction_request_depth, px, 0);
     return out;
 }

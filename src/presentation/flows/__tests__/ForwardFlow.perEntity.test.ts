@@ -53,8 +53,9 @@ describe('ForwardFlow/ShadowFlow — custo por entidade', () => {
         const growth = /^(shadow_pages_|shadow_bounds:|rects:|wgsl:shadow_pages|forward_cull)/;
         // Os grupos de ligação dos pipelines do descarte, refeitos com os buffers realocados (14 a mais): por dobra. A
         // etapa das listas das malhas grandes em aglomerados (`sp_clusters_main`, T064) liga os pools das instâncias e
-        // das matrizes de mundo: o grupo dela refeito quando eles crescem (1 a mais), por pool.
-        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(136);
+        // das matrizes de mundo: o grupo dela refeito quando eles crescem (1 a mais), por pool. A etapa da caixa da
+        // geometria em aglomerados (`sp_cluster_box_main`, spec 041) religa o trabalho que cresce (1 a mais), por dobra.
+        expect(s.creates().filter((c) => !growth.test(discOf(c))).length).toBeLessThan(137);
         expect(s.creates().filter((c) => growth.test(discOf(c))).length).toBeLessThan(20);
         expect(
             s

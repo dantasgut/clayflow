@@ -16,11 +16,17 @@ export interface GpuContext {
     readonly capabilities: DeviceCapabilities;
 }
 
-/** Features opcionais que o motor usa quando o adaptador oferece (profiling de GPU). */
-/** Features opcionais do motor: medida de tempo da GPU e a filtragem de float32 (os históricos `full`, spec 037). */
+/**
+ * Features opcionais do motor: medida de tempo da GPU, a filtragem de float32 (os históricos `full`, spec 037) e os
+ * formatos de textura de storage além do núcleo (spec 041, T074: a leitura e a escrita no mesmo despacho da cor da cena,
+ * da luz que chega e da máscara reativa — a composição das nuvens e a máscara do disco por compute sobre a lista de
+ * blocos; sem elas, os passes de desenho de antes).
+ */
 const ENGINE_OPTIONAL_FEATURES: readonly GPUFeatureName[] = [
     'timestamp-query',
     'float32-filterable',
+    'texture-formats-tier1',
+    'texture-formats-tier2',
 ];
 
 /** Limites com que as cenas do motor escalam: pedidos no máximo do adaptador. */

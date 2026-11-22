@@ -38,7 +38,7 @@ import {
 } from '../../elements/scene/TemporalAntialiasing';
 import type { ResourceDirectory } from '../../scene/contracts/ResourceDirectory';
 import type { WgslResource } from '../../scene/shaders/WgslResource';
-import type { PostProcessEffect } from '../resources/PostProcessEffect';
+import type { EffectRead, PostProcessEffect } from '../resources/PostProcessEffect';
 import { ToneMapping, operatorIndex } from '../resources/ToneMapping';
 import { FrameTargets, SCENE_COLOR_FORMAT } from '../app/FrameTargets';
 import {
@@ -79,6 +79,13 @@ export interface PostSlots extends SlotMap {
     readonly reactive: TextureSlot<true>;
     /** A luz que chega a cada pixel (`FrameTargets.light`: direta, total). */
     readonly light: TextureSlot<true>;
+    /**
+     * A radiância acima do teto da cor (`FrameTargets.overflow`, spec 041): pedida e lida pelos efeitos que a leem (o
+     * `SkyOverflowFlow` a limpa e a escreve).
+     */
+    readonly overflow: TextureSlot<true>;
+    /** Os alvos da cena (o pedido do excesso). */
+    readonly targets: SingletonSlot<true>;
     /** A câmera ativa e o pool das matrizes (o deslocamento, a anterior e o corte). */
     readonly camera: SingletonSlot<true>;
     readonly cameras: PoolSlot<true>;
@@ -97,6 +104,9 @@ const PRESENT_PARAMS = 'post_present_params';
 const PINGPONG = ['post_pp_a', 'post_pp_b'] as const;
 const TAA_OUT = 'post_pp_taa_out';
 const effectParamsId = (effect: PostProcessEffect): string => `post_params:${effect.name}`;
+/** Id no trabalho da textura `id` do efeito (efeitos de vários passes, spec 041). */
+const effectTextureId = (effect: PostProcessEffect, id: string): string =>
+    `post_fx:${effect.name}:${id}`;
 
 /**
  * Resource de trabalho do `PostFlow` (spec 039): os parâmetros da resolução temporal e da apresentação, o sampler, um
@@ -154,6 +164,22 @@ class PostWork extends FlowWork {
                           }),
                       )
                     : []),
+                // As texturas de trabalho dos efeitos de vários passes (spec 041: a pirâmide do espalhamento da lente).
+                ...(this.sized
+                    ? this.effects.flatMap((e) =>
+                          (e.textures?.() ?? []).map(
+                              (t): GPUDescriptor => ({
+                                  id: effectTextureId(e, t.id),
+                                  role: 'texture',
+                                  textureShape: {
+                                      format: SCENE_COLOR_FORMAT,
+                                      sizeFromCanvas: true,
+                                      canvasDivisor: t.divisor,
+                                  },
+                              }),
+                          ),
+                      )
+                    : []),
             ],
         });
     }
@@ -169,6 +195,9 @@ const baseSlots = {
     motion: slot.texture(FrameTargets.schema, 'motion', { optional: true }),
     reactive: slot.texture(FrameTargets.schema, 'reactive', { optional: true }),
     light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
+    overflow: slot.texture(FrameTargets.schema, 'overflow', { optional: true }),
+    /** Os alvos da cena: o excesso da radiância é pedido só quando um efeito ativo o lê. */
+    targets: slot.singleton(FrameTargets.schema, { optional: true }),
     camera: slot.singleton(Camera.schema, { optional: true }),
     cameras: slot.pool(Camera.matricesSchema.name, { optional: true }),
     ...temporalSlots,
@@ -176,13 +205,29 @@ const baseSlots = {
 
 type Ctx = TransitionContext<PostSlots>;
 
+/** Um passe de um efeito de vários passes (spec 041): o pipeline, a textura de trabalho desenhada e as leituras. */
+interface StagePass {
+    readonly pipeline: string;
+    /** O descritor sem e com o excesso da radiância (só os passes que o leem têm as duas variantes). */
+    readonly descriptors: readonly [PipelineDescriptor, PipelineDescriptor | undefined];
+    /** Id no trabalho da textura desenhada. */
+    readonly target: string;
+    readonly reads: readonly EffectRead[];
+}
+
 /** Pipeline e uniform de parâmetros de um efeito (o id do uniform no trabalho). */
 interface EffectPass {
     readonly pipeline: string;
     readonly descriptor: PipelineDescriptor;
     readonly params: string;
+    /** Os passes antes do principal e o que o principal lê das texturas de trabalho. */
+    readonly stages: readonly StagePass[];
+    readonly mainReads: readonly EffectRead[];
+    readonly effect: PostProcessEffect;
     /** Já preparado pela C2 (depois de a origem ser ligada). */
     prepared: boolean;
+    /** A variante dos passes preparada (com ou sem o excesso), ou `undefined` antes da primeira. */
+    stagesOverflow: boolean | undefined;
 }
 
 /** Apresentação padrão sem `ToneMapping` na cena. */
@@ -236,6 +281,10 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
      */
     private taaFinal = '';
     private readonly taaPrepared = new Set<string>();
+    /** Os pipelines dos passes dos efeitos de vários passes já preparados. */
+    private readonly stagePrepared = new Set<string>();
+    /** O excesso da radiância existe neste quadro: os passes que o leem usam a variante com ele. */
+    private overflowActive = false;
 
     constructor(ctx: FlowContext) {
         super();
@@ -303,6 +352,11 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
 
     /** Grava os efeitos e a apresentação preparados em `framePrepare`. */
     dispatch(frame: Frame, bound: BoundFlow<PostSlots>): void {
+        this.record(frame, bound);
+    }
+
+    /** Os efeitos e a apresentação. */
+    private record(frame: Frame, bound: BoundFlow<PostSlots>): void {
         const canvas = this.colorView(frame, bound.slots.target);
         if (canvas === undefined || this.presentPipeline === '') return;
         const { taaHistory, taaState, taaLight } = bound.slots;
@@ -334,6 +388,23 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             taaHistory.written();
             taaState.written();
             taaLight.written();
+            // A máscara reativa lida: limpa para o quadro seguinte (quem a escreve mistura pelo máximo, spec 041).
+            const reactive = bound.slots.reactive;
+            if (reactive !== undefined)
+                frame.render(
+                    {
+                        colorAttachments: [
+                            {
+                                view: reactive.view,
+                                loadOp: 'clear',
+                                clearValue: [0, 0, 0, 0],
+                                storeOp: 'store',
+                            },
+                        ],
+                    },
+                    'PostFlow.reactiveClear',
+                    () => {},
+                );
             // Nitidez adaptativa ao movimento, fora do histórico; sem efeitos, já apresentada no canvas (G2).
             const sharpen = bound.pipelines.get(this.taaFinal);
             if (sharpen?.role !== 'render' || !sharpen.ready) return;
@@ -361,6 +432,25 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         const passes = [...this.chain.map((p) => p.pipeline), this.presentPipeline];
         for (let i = 0; i < passes.length; i++) {
             const id = passes[i]!;
+            // Os passes antes do principal (efeitos de vários passes, spec 041), cada um na sua textura de trabalho.
+            for (const stage of this.chain[i]?.stages ?? []) {
+                const sp = bound.pipelines.get(this.stageId(stage));
+                const view = this.workView(stage.target);
+                if (sp?.role !== 'render' || !sp.ready || view === undefined) return;
+                frame.render(
+                    {
+                        colorAttachments: [
+                            { view, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' },
+                        ],
+                    },
+                    `PostFlow.${stage.pipeline.slice(5)}`,
+                    (p) => {
+                        p.bind.setPipeline(sp.spec);
+                        sp.bindTo(p.bind);
+                        p.draw.vertices(3);
+                    },
+                );
+            }
             const prepared = bound.pipelines.get(id);
             if (prepared?.role !== 'render' || !prepared.ready) return;
             const isLast = i === passes.length - 1;
@@ -381,6 +471,18 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
     /** O pingue-pongue, o sampler e os uniforms são do `PostWork` (a C2 os libera com ele). */
     override dispose(): void {
         this.passes.clear();
+    }
+
+    /** A vista da textura de trabalho `id` (já com o prefixo do efeito), ou `undefined` antes de a C2 a alocar. */
+    private workView(id: string): TextureViewSpec | undefined {
+        return this.resources.textureViewOf(this.work, id);
+    }
+
+    /** O pipeline do passe na variante deste quadro (com ou sem o excesso da radiância). */
+    private stageId(stage: StagePass): string {
+        return this.overflowActive && stage.descriptors[1] !== undefined
+            ? stage.descriptors[1].id
+            : stage.descriptors[0].id;
     }
 
     /** O uniform do trabalho `id` alocado pela C2. */
@@ -529,12 +631,57 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             topology: 'triangle-list',
             colorTargets: [{ format: SCENE_COLOR_FORMAT }],
         };
+        // Os passes antes do principal (spec 041): um pipeline por passe (e, nos que leem o excesso da radiância, a
+        // variante com ele), todos com o uniform do efeito.
+        const stages = (effect.stages?.() ?? []).map((st): StagePass => {
+            const variant = (overflow: boolean): PipelineDescriptor => ({
+                id: `${id}:${st.id}${overflow ? ':overflow' : ''}`,
+                role: 'render',
+                shader: effect.fragmentModule?.(overflow) ?? effectsBase,
+                entryPoints: ['vs_fullscreen', st.entry],
+                topology: 'triangle-list',
+                colorTargets: [{ format: SCENE_COLOR_FORMAT }],
+            });
+            return {
+                pipeline: `${id}:${st.id}`,
+                descriptors: [variant(false), st.overflow === true ? variant(true) : undefined],
+                target: effectTextureId(effect, st.target),
+                reads: st.reads.map(([r, from]) => [
+                    r,
+                    from === 'source' ? from : effectTextureId(effect, from),
+                ]),
+            };
+        });
+        const uniform = this.uniform(params);
         ctx.bind(
             new Map<BindingKey, BindingSource>([
-                [{ pipeline: id, resource: effectResources.params }, this.uniform(params)],
+                [{ pipeline: id, resource: effectResources.params }, uniform],
+                ...stages.flatMap((st) =>
+                    st.descriptors
+                        .filter((d): d is PipelineDescriptor => d !== undefined)
+                        .map((d): [BindingKey, BindingSource] => [
+                            { pipeline: d.id, resource: effectResources.params },
+                            uniform,
+                        ]),
+                ),
             ]),
         );
-        const pass = { pipeline: id, descriptor, params, prepared: false };
+        const mainReads = (effect.mainReads?.() ?? []).map(
+            ([r, from]): EffectRead => [
+                r,
+                from === 'source' ? from : effectTextureId(effect, from),
+            ],
+        );
+        const pass: EffectPass = {
+            pipeline: id,
+            descriptor,
+            params,
+            stages,
+            mainReads,
+            effect,
+            prepared: false,
+            stagesOverflow: undefined,
+        };
         this.passes.set(effect, pass);
         return pass;
     }
@@ -598,9 +745,26 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
         );
 
         const enabled = this.effects.filter((e) => e.isEnabled);
-        const chain = enabled.map((e) => this.passOf(e, ctx));
-        for (let i = 0; i < enabled.length; i++)
-            this.resources.writeNow(this.work, chain[i]!.params, enabled[i]!.paramsBytes());
+        // Um efeito de vários passes entra quando as texturas de trabalho dele existem (a C2 as aloca depois do pedido).
+        const chain = enabled
+            .map((e) => this.passOf(e, ctx))
+            .filter((p) =>
+                [...p.stages.map((st) => st.target), ...p.mainReads.map(([, f]) => f)].every(
+                    (t) => t === 'source' || this.workView(t) !== undefined,
+                ),
+            );
+        for (const pass of chain)
+            this.resources.writeNow(this.work, pass.params, pass.effect.paramsBytes());
+        // O excesso da radiância (o disco do sol acima do teto da cor) só existe quando um efeito ativo o lê: sem ele, o
+        // `SkyOverflowFlow` não desenha nem guarda nada.
+        const targets = ctx.bound.slots.targets?.resource as FrameTargets | undefined;
+        if (
+            targets !== undefined
+            && chain.some((p) => p.stages.some((st) => st.descriptors[1] !== undefined))
+        )
+            this.resources.ensureAllocated(targets, 'overflow');
+        const overflow = ctx.bound.slots.overflow;
+        this.overflowActive = overflow !== undefined;
         // Com a resolução temporal, a cadeia e a apresentação leem a imagem resolvida, não a cor crua da cena.
         const resolved = this.prepareTemporal(ctx, chain.length === 0);
         this.chain = chain;
@@ -619,14 +783,30 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
                     ? samples.view
                     : scene
                 : this.pingpong.views[(chain.length - 1) % 2]!;
-        const key = `${chain.map((p) => p.pipeline).join('|')}>${present.id}#${scene.discriminator ?? ''}#${presentSource.discriminator ?? ''}`;
+        const workKey = chain
+            .flatMap((p) => p.stages.map((st) => this.workView(st.target)?.discriminator ?? ''))
+            .join(',');
+        const key = `${chain.map((p) => p.pipeline).join('|')}>${present.id}#${scene.discriminator ?? ''}#${presentSource.discriminator ?? ''}#${workKey}#${overflow?.view.discriminator ?? '-'}`;
         if (key !== this.chainKey) {
             const sources = new Map<BindingKey, BindingSource>();
             chain.forEach((pass, i) => {
-                sources.set(
-                    { pipeline: pass.pipeline, resource: effectResources.source },
-                    i === 0 ? scene : this.pingpong!.views[(i - 1) % 2]!,
-                );
+                const source = i === 0 ? scene : this.pingpong!.views[(i - 1) % 2]!;
+                const view = (from: string): TextureViewSpec =>
+                    from === 'source' ? source : this.workView(from)!;
+                sources.set({ pipeline: pass.pipeline, resource: effectResources.source }, source);
+                for (const [r, from] of pass.mainReads)
+                    sources.set({ pipeline: pass.pipeline, resource: r }, view(from));
+                for (const st of pass.stages)
+                    for (const d of st.descriptors) {
+                        if (d === undefined) continue;
+                        for (const [r, from] of st.reads)
+                            sources.set({ pipeline: d.id, resource: r }, view(from));
+                        if (d === st.descriptors[1] && overflow !== undefined)
+                            sources.set(
+                                { pipeline: d.id, resource: effectResources.overflow },
+                                overflow.view,
+                            );
+                    }
             });
             sources.set(
                 {
@@ -639,6 +819,19 @@ export class PostFlow extends RenderFlow<PostSlots, 'idle'> {
             this.chainKey = key;
         }
         for (const pass of chain) {
+            if (pass.stagesOverflow !== this.overflowActive) {
+                for (const st of pass.stages) {
+                    const d =
+                        this.overflowActive && st.descriptors[1] !== undefined
+                            ? st.descriptors[1]
+                            : st.descriptors[0];
+                    if (!this.stagePrepared.has(d.id)) {
+                        ctx.prepare(d);
+                        this.stagePrepared.add(d.id);
+                    }
+                }
+                pass.stagesOverflow = this.overflowActive;
+            }
             if (pass.prepared) continue;
             ctx.prepare(pass.descriptor);
             pass.prepared = true;

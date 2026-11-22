@@ -3,7 +3,7 @@ import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
 import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
-import { sceneFogReady, sceneWetnessReady } from '../scene/points/media';
+import { SCENE_FOG_BACKGROUND, sceneFogReady, sceneWetnessReady } from '../scene/points/media';
 import { closure, closureEval } from './pbr/shaders';
 import {
     camerasResource,
@@ -133,6 +133,8 @@ export const forwardBackground = wgslModule({
     name: 'forward_background',
     source: forwardBackgroundSource,
     requires: [
+        SCENE_FOG_BACKGROUND.module,
+        color,
         cameraSpace,
         viewSpace,
         sceneBackgroundReady,

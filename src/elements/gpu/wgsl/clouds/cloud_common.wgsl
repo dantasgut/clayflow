@@ -3,6 +3,9 @@
 // perfil de altura por tipo (R5). Espelho de `elements/media/clouds/reference/cloudModel.ts`.
 // Requer: clouds.
 
+/** O teto de passos da marcha por raio (o perfil escolhe menos): o das amostras com luz de um raio também. */
+const CLOUD_MAX_STEPS: u32 = 128u;
+
 /** O intervalo [l0, h0] levado a [l1, h1], sem saturar. */
 fn cloud_remap(v: f32, l0: f32, h0: f32, l1: f32, h1: f32) -> f32 {
     return l1 + (v - l0) * (h1 - l1) / (h0 - l0);
@@ -12,6 +15,15 @@ fn cloud_remap(v: f32, l0: f32, h0: f32, l1: f32, h1: f32) -> f32 {
 fn cloud_altitude(p: vec3f) -> f32 {
     let r = clouds.shell.x;
     return length(vec3f(p.x, p.y + r, p.z)) - r;
+}
+
+/**
+ * A menor distância (m) de `o` à casca (0 dentro dela): abaixo da base, até a esfera da base pela vertical; acima do
+ * topo, até a do topo. Uma superfície mais perto que isso não tem nuvem na frente.
+ */
+fn cloud_shell_nearest(o: vec3f) -> f32 {
+    let a = cloud_altitude(o);
+    return max(max(clouds.shell.y - a, a - clouds.shell.z), 0.0);
 }
 
 /** Fração de altura na camada (fora de [0, 1] fora dela). */
@@ -56,6 +68,17 @@ fn cloud_shell_segments(o: vec3f, d: vec3f, t_max: f32) -> vec4f {
     return vec4f(s0, s1);
 }
 
+/**
+ * A distância (m), na direção `sun` (para o sol), do ponto `q` até a saída do topo da casca do lado do sol: a origem do
+ * raio que desce do sol pela coluna de `q` no mapa visto do sol, com o sol acima ou abaixo do horizonte. 0 quando a
+ * coluna não cruza o topo da casca ou o cruza só do outro lado.
+ */
+fn cloud_sun_entry(q: vec3f, sun: vec3f) -> f32 {
+    let s = cloud_sphere(q, sun, clouds.shell.x + clouds.shell.z);
+    if (s.x > s.y) { return 0.0; }
+    return max(s.y, 0.0) + 1.0;
+}
+
 /** Limites [subida0, subida1, descida0, descida1] do perfil no tipo `t` (estrato 0 → cúmulo 0,5 → cúmulo-nimbo 1). */
 fn cloud_profile_limits(t: f32) -> vec4f {
     let stratus = vec4f(0.0, 0.1, 0.2, 0.3);
@@ -72,3 +95,80 @@ fn cloud_height_profile(h: f32, t: f32) -> f32 {
     let l = cloud_profile_limits(t);
     return smoothstep(l.x, l.y, h) * (1.0 - smoothstep(l.z, l.w, h));
 }
+
+/**
+ * A água da torre (spec 041, R19): o fator da extinção na altitude `alt` (m acima do chão) pela água condensada. No
+ * cúmulo de tempo bom a densidade 1 é a extinção da camada; acima do topo do tempo bom (`fair`, m acima do chão), a torre
+ * do cúmulo-nimbo condensa mais (a água adiabática cresce com a altura acima da base: ~1–3 g/m³ no núcleo de um
+ * cúmulo-nimbo contra ~0,3–0,5 no cúmulo raso) — o fator sobe de 1 a 1 + `CLOUD_WATER_GAIN` nos `CLOUD_WATER_DEPTH`
+ * metros acima dele — e, da glaciação em diante (−20 °C a −38 °C: 5,5–8,5 km na atmosfera padrão), a água vira gelo de
+ * cristais maiores (raio efetivo ~30 µm contra ~10 µm das gotas): o fator cai ao do gelo da bigorna
+ * (`CLOUD_ANVIL_WATER`) — o topo da torre e a bigorna que sai dele são o mesmo meio, sem a fronteira de 4 × na
+ * extinção onde a lâmina cortava a torre. Sem o tempo, o topo do tempo bom é o da casca: o fator é 1 em toda parte.
+ * Espelho de `towerWater` em `cloudModel.ts`.
+ */
+const CLOUD_WATER_GAIN: f32 = 2.0;
+const CLOUD_WATER_DEPTH: f32 = 3000.0;
+const CLOUD_GLACIATION_LOW: f32 = 5500.0;
+const CLOUD_GLACIATION_HIGH: f32 = 8500.0;
+
+fn cloud_tower_water(alt: f32, fair: f32) -> f32 {
+    let rise = clamp((alt - fair) / CLOUD_WATER_DEPTH, 0.0, 1.0);
+    let liquid = 1.0 + CLOUD_WATER_GAIN * rise;
+    // O gelo da torre é o da bigorna (o mesmo ar que sai pelo topo): a torre e a bigorna, um meio contínuo.
+    let ice = mix(1.0, CLOUD_ANVIL_WATER, rise);
+    return mix(liquid, ice, smoothstep(CLOUD_GLACIATION_LOW, CLOUD_GLACIATION_HIGH, alt));
+}
+
+/**
+ * A bigorna do cúmulo-nimbo (spec 041, R19): o ar da torre para no nível de equilíbrio (a tropopausa, o topo da casca),
+ * sai para os lados e é levado pelo vento da alta troposfera — uma lâmina de gelo de `CLOUD_ANVIL_DEPTH` metros com o
+ * topo `CLOUD_ANVIL_CEILING` metros abaixo da tropopausa (as torres mais fortes passam acima dela: o topo saliente). Os
+ * cristais de gelo (IWC ~0,1 g/m³, raio efetivo ~30 µm) extinguem `CLOUD_ANVIL_WATER` da extinção da camada.
+ * Espelho de `CLOUD_ANVIL` e `anvilProfile` em `cloudModel.ts`.
+ */
+const CLOUD_ANVIL_DEPTH: f32 = 2000.0;
+const CLOUD_ANVIL_CEILING: f32 = 800.0;
+const CLOUD_ANVIL_WATER: f32 = 0.25;
+
+/** O perfil vertical da bigorna na altitude `alt` (m) com a tropopausa `top` (m): base plana, topo arredondado. */
+fn cloud_anvil_profile(alt: f32, top: f32) -> f32 {
+    let x = (alt - (top - CLOUD_ANVIL_CEILING - CLOUD_ANVIL_DEPTH)) / CLOUD_ANVIL_DEPTH;
+    if (x <= 0.0 || x >= 1.0) { return 0.0; }
+    return smoothstep(0.0, 0.25, x) * (1.0 - smoothstep(0.7, 1.0, x));
+}
+
+/**
+ * A fração do caminho entre o topo do tempo bom e o topo do tempo a que a torre de tipo local `t` sobe (spec 041, R19):
+ * a convecção sob a subida é trimodal (Johnson et al. 1999) — os cúmulos rasos no topo do tempo bom, os congestos parados
+ * na camada estável do congelamento (`CLOUD_CONGESTUS_REACH` do caminho: ~6 km com a tropopausa a 11 km) e os
+ * cúmulos-nimbos na tropopausa —, cada célula pela força dela (o tipo local, com as térmicas). Só com o modo raso e o
+ * profundo (`smoothstep(0,55; 0,95; t)`), as células fracas da subida ficavam todas no topo do tempo bom com a cobertura
+ * da subida (0,75): um convés liso e chato em volta da tempestade, o disco claro do vídeo `tempestade` da rodada 8.
+ * Espelho de `towerReach` em `cloudModel.ts`.
+ */
+const CLOUD_CONGESTUS_REACH: f32 = 0.4;
+
+fn cloud_tower_reach(t: f32) -> f32 {
+    return CLOUD_CONGESTUS_REACH * smoothstep(0.3, 0.65, t) + (1.0 - CLOUD_CONGESTUS_REACH) * smoothstep(0.65, 0.95, t);
+}
+
+/**
+ * As térmicas da torre do cúmulo-nimbo (spec 041, R19): a convecção profunda sobe em bolhas, não em colunas de força
+ * constante — cada bolha leva o ar a uma altura e se espalha um pouco ao parar. Pelo fBm de Worley da forma `low` (as
+ * bolhas de 3 km, 1,5 km e 750 m), o desvio do tipo local (`x`: o alcance da bolha, ±`CLOUD_TOWER_THERMAL_REACH`/2) e da
+ * cobertura local (`y`: a largura, ±`CLOUD_TOWER_THERMAL_WIDTH`/2, crescendo com a fração `above` da subida acima do
+ * topo do tempo bom). Sem elas, o campo 2D extrudado: paredes verticais lisas de 8 km e fendas retas por onde o sol baixo
+ * acendia discos e riscas nas paredes de dentro (o vídeo `tempestade` da rodada 8). Espelho de `towerThermal` em
+ * `cloudModel.ts`.
+ */
+const CLOUD_TOWER_THERMAL_REACH: f32 = 0.5;
+const CLOUD_TOWER_THERMAL_WIDTH: f32 = 0.6;
+/** A média do fBm de Worley invertido da forma (o centro das térmicas). */
+const CLOUD_TOWER_THERMAL_MEAN: f32 = 0.55;
+
+fn cloud_tower_thermal(low: f32, above: f32) -> vec2f {
+    let b = low - CLOUD_TOWER_THERMAL_MEAN;
+    return vec2f(CLOUD_TOWER_THERMAL_REACH * b, CLOUD_TOWER_THERMAL_WIDTH * b * above);
+}
+

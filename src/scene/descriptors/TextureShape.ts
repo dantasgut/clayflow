@@ -25,6 +25,13 @@ export interface TextureShape {
     readonly sampleCount?: 1 | 4;
     /** Acesso de shader para `storage-texture`. Default `'write-only'`. */
     readonly access?: 'write-only' | 'read-only' | 'read-write';
+    /**
+     * Textura de cor (`role: 'texture'`) também ligável como storage de leitura e escrita no mesmo despacho, quando o
+     * device permite o formato assim (o `r32*` do núcleo; os da feature `texture-formats-tier2`): quem a compõe por
+     * compute só onde há o que compor (spec 041, T074). Sem a permissão, a textura fica sem o uso — quem a lê confere o
+     * uso da textura alocada (`GPUTextureUsage.STORAGE_BINDING`) e segue pelo passe de desenho.
+     */
+    readonly storage?: 'read-write';
     /** Dimensão da view. Default: a da textura. */
     readonly viewDimension?: GPUTextureViewDimension;
     /** Tamanho igual ao do canvas; recriada a cada `canvasReconfigured`. */

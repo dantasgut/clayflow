@@ -1,167 +1,139 @@
-// Luz das nuvens e a marcha (spec 041, R1, R7–R9): em cada passo com densidade, a profundidade ótica até o sol — o cone
+// Luz das nuvens (spec 041, R1, R7–R9): num ponto com densidade, a profundidade ótica até o sol — o cone
 // curto de 6 passos crescentes × 1,5 (Schneider 2015; o crescimento × 2 dele dava trechos de 16 passos base em que o
 // ponto médio erra a borda da nuvem: −3 % de luz na mediana, medido) e, além dele, o mapa visto do sol (τ, nunca
 // refeito de T: as oitavas usam `e^(−aⁱτ)` com τ de dezenas sob o sol baixo) —, o
 // espalhamento múltiplo por oitavas (Wrenninge 2013: `Σ bⁱ σs e^(−aⁱ τ) p(cⁱ g)`), a luz do sol atenuada pela atmosfera
-// até o ponto, o ambiente do céu (em cima) e do chão (embaixo) pela fração de altura, e a integral analítica do passo
-// (Hillaire 2016). A marcha tem teto constante de passos (`CLOUD_MAX_STEPS`, o perfil escolhe menos) e de passos de luz
-// (`CLOUD_MAX_LIGHT_STEPS`) e do pedaço até o nó do mapa (`CLOUD_SHADOW_PARTIAL_STEPS`): o orçamento total por
-// invocação é `CLOUD_MAX_STEPS × (1 + CLOUD_MAX_LIGHT_STEPS + CLOUD_SHADOW_PARTIAL_STEPS)`.
-// Espelho de `marchCloud` em `cloudModel.ts`.
-// Requer: cloud_common, cloud_density, cloud_phase, cloud_shadow_lookup, sky_query, clouds, cloud_ambient_tex.
+// até o ponto e o ambiente do céu (em cima) e do chão (embaixo) pela fração de altura. Teto constante de passos de luz
+// (`CLOUD_MAX_LIGHT_STEPS`) e do pedaço até o nó do mapa (`CLOUD_SHADOW_PARTIAL_STEPS`, `cloud_sun_rest`); com o volume
+// de τ até o sol (T074), uma amostra do cone e uma leitura do volume. Quem a chama: a marcha (`cloud_integrate.wgsl`,
+// pelo ponto `cloud_sample_light`) e o passe da luz das amostras da marcha da tela (`cloud_light_samples.wgsl`).
+// Espelho da luz de `marchCloud` em `cloudModel.ts`.
+// Requer: cloud_common, cloud_sun, cloud_density, cloud_phase, cloud_shadow_lookup, cloud_scatter_lookup,
+// cloud_sun_rest, cloud_sun_volume_lookup, sky_query, clouds, cloud_ambient_tex.
 
-const CLOUD_MAX_STEPS: u32 = 128u;
 const CLOUD_MAX_LIGHT_STEPS: u32 = 6u;
-/** Passos do pedaço do trecho do mapa visto do sol entre o fim do cone e o nó do lado do sol. */
-const CLOUD_SHADOW_PARTIAL_STEPS: u32 = 4u;
 const CLOUD_MAX_OCTAVES: u32 = 3u;
-/** Amostras vazias seguidas que devolvem a marcha à velocidade grossa. */
-const CLOUD_EMPTY_TO_COARSE: u32 = 6u;
-/** Transmitância abaixo da qual a marcha para. */
-const CLOUD_EARLY_EXIT: f32 = 0.01;
-
-struct CloudSample {
-    scattered: vec3f,
-    transmittance: f32,
-    /** Profundidade média ponderada pela opacidade (m); 0 sem nuvem. */
-    depth: f32,
-}
-
-/** Transmitância da atmosfera do topo até o ponto `p` na direção do sol (pela altitude na casca do planeta). */
-fn cloud_sun_atmosphere(p: vec3f) -> vec3f {
-    let up = normalize(vec3f(p.x, p.y + clouds.shell.x, p.z));
-    let r = sky_bottom() + max(sky.radii.w + cloud_altitude(p) * 0.001, 0.001);
-    return sky_transmittance(r, clamp(dot(up, sky.sunDirection.xyz), -1.0, 1.0));
-}
 
 /**
  * Profundidade ótica da nuvem de `p` até o sol: o cone curto; do fim dele, o pedaço do trecho do mapa até o nó do lado
- * do sol, integrado aqui (`CLOUD_SHADOW_PARTIAL_STEPS` passos); e o nó, lido do mapa (a integral da coluna da entrada
- * da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região contra τ exato): 16 nós com a marcha do
- * pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %.
+ * do sol, integrado aqui (`CLOUD_SHADOW_PARTIAL_STEPS` passos, `cloud_sun_rest`); e o nó, lido do mapa (a integral da
+ * coluna da entrada da casca até ele). Medido em f64 com o sol a 4° (luz do sol por região contra τ exato): 16 nós com a
+ * marcha do pedaço erram ≤ 2,2 %; 16 nós lineares, até 14 %; 4 nós lineares, até 50 %.
+ * Perto da câmera (T074), o cone além da primeira amostra pelo volume de τ até o sol (`cloud_sun_volume_at`: os nós a
+ * 50 m, refeitos pela mudança medida), onde a página dele vale e os passos são os do volume (os da marcha do perfil): em
+ * f64, 2,4–3,0 % de erro no τ do cone contra 3,7 % das 6 amostras (`cloudSunVolume.test.ts`), com uma amostra da
+ * densidade e oito leituras do volume no lugar de seis amostras.
  */
 fn cloud_sun_depth(p: vec3f, light_steps: u32) -> f32 {
     let sun = sky.sunDirection.xyz;
-    let base = clouds.shell.w / 48.0;
-    var tau = 0.0;
-    var t = 0.0;
+    let base = cloud_layer_thickness() / 48.0;
     let n = min(light_steps, CLOUD_MAX_LIGHT_STEPS);
+    // O volume (os passos dele são os da marcha do perfil): a primeira amostra do cone no ponto (a borda escura, que os
+    // nós alisariam) e o resto do cone pelos nós; o resto da luz também, onde ele vale.
+    var volume = vec3f(-1.0, -1.0, 0.0);
+    if (light_steps == clouds.march.y) {
+        volume = cloud_sun_volume_at(p + sun * clouds.sunVolume.z, cloud_light_footprint);
+    }
+    let d0 = clouds.sunVolume.z;
+    if (volume.x >= 0.0 && volume.z >= 1.0) {
+        let tau = cloud_density(p + sun * (0.5 * d0), true) * d0 * clouds.layer.z + volume.x;
+        if (volume.y >= 0.0) { return tau + volume.y; }
+        return tau + cloud_sun_rest(p + sun * (d0 + clouds.sunVolume.y), n);
+    }
+    var rho = 0.0;
+    var t = 0.0;
     for (var i = 0u; i < CLOUD_MAX_LIGHT_STEPS; i++) {
         if (i >= n) { break; }
         let len = base * 0.5 * pow(1.5, f32(i));
-        tau += cloud_density(p + sun * (t + 0.5 * len), true) * len;
+        rho += cloud_density(p + sun * (t + 0.5 * len), true) * len;
         t += len;
     }
-    let q = p + sun * t;
-    let c = cloud_shadow_column(q);
-    if (c.w <= 0.0) { return tau * clouds.layer.z; }
-    let k = u32(floor(c.z));
-    // O perfil escolhe menos passos de luz; o pedaço segue: 4 no alto (6 de cone), 3 no médio, 2 no baixo.
-    let m = clamp(n, 4u, 6u) - 2u;
-    let dt = (c.z - f32(k)) / 16.0 * c.w / f32(m);
-    for (var i = 0u; i < CLOUD_SHADOW_PARTIAL_STEPS; i++) {
-        if (i >= m) { break; }
-        tau += cloud_density(q + sun * ((f32(i) + 0.5) * dt), true) * dt;
+    var tau = rho * clouds.layer.z;
+    // No anel de fora do último nível (ou com a página seguinte que não vale), o volume sai aos poucos para o cone.
+    if (volume.x >= 0.0) {
+        let near = cloud_density(p + sun * (0.5 * d0), true) * d0 * clouds.layer.z + volume.x;
+        tau = mix(tau, near, volume.z);
     }
-    return tau * clouds.layer.z + cloud_shadow_knot(c.xy, k);
+    return tau + cloud_sun_rest(p + sun * t, n);
 }
 
-/** Luz espalhada para a câmera por unidade de comprimento num ponto de extinção `sigma_t` (o sol e o ambiente). */
-fn cloud_inscatter(p: vec3f, sigma_t: f32, cos_theta: f32, light_steps: u32) -> vec3f {
+/**
+ * A transmitância difusa de uma camada de profundidade ótica `tau` sem absorção (duas correntes, Eddington: Bohren 1987,
+ * `1/(1 + ¾(1 − g)τ)`, g o parâmetro de assimetria das gotículas): a fração da luz difusa que atravessa a nuvem.
+ */
+const CLOUD_DIFFUSE_ASYMMETRY: f32 = 0.85;
+
+fn cloud_diffuse_transmittance(tau: f32) -> f32 {
+    return 1.0 / (1.0 + 0.75 * (1.0 - CLOUD_DIFFUSE_ASYMMETRY) * tau);
+}
+
+/**
+ * O ambiente local da estimativa das oitavas em `p` (spec 041, R19): o céu (em cima) e o chão (embaixo) pela fração de
+ * altura, atenuados pela própria nuvem: pela maior das transmitâncias difusas da coluna acima do ponto e do caminho até
+ * o sol (`tau_sun`, já calculado: a parede da torre vê o céu e o chão de lado; a coluna, a luz que passa por cima). A
+ * coluna (`cloud_ambient_occlusion`): a cobertura local × o trecho até o topo da coluna, lida na primeira amostra com
+ * densidade de cada raio e a cada `CLOUD_AMBIENT_REUSE` depois (a coluna muda devagar ao longo do raio; com 5 amostras e
+ * o chão pelo mapa visto do sol, o perfil alto passava de 3 ms). Sem a oclusão, a base de um cúmulo-nimbo de 10 km
+ * recebia o céu inteiro na estimativa, que pesa ≥ 20 % contra os caminhos das sondas (`CLOUD_SCATTER_PRIOR` em 64 + 16):
+ * a base cinza, não chumbo. Espelho de `ambientLocal` em `cloudModel.ts`.
+ */
+const CLOUD_AMBIENT_REUSE: u32 = 8u;
+
+/**
+ * A transmitância difusa da coluna de nuvem acima de `p`: a profundidade ótica pela cobertura local do mapa (a fração do
+ * ar com nuvem na coluna, o campo liso de 250 m) do ponto ao topo da coluna. Uma amostra do volume no meio do trecho
+ * acertava ou errava os buracos da forma de uma coluna à outra: manchas de 1 km na base do cúmulo-nimbo.
+ */
+fn cloud_ambient_occlusion(p: vec3f) -> f32 {
+    let cov = cloud_coverage_at(p.xz);
+    let top = clouds.shell.y + cloud_column_top(cov) * clouds.shell.w;
+    let above = max(top - cloud_altitude(p), 0.0);
+    return cloud_diffuse_transmittance(max(cov.x, 0.0) * above * clouds.layer.z);
+}
+
+fn cloud_ambient_local(p: vec3f, tau_sun: f32, occ: f32) -> vec3f {
+    let h = clamp(cloud_height_fraction(p), 0.0, 1.0);
+    let up = textureLoad(cloud_ambient_tex, vec2u(0u, 0u), 0).rgb;
+    let down = textureLoad(cloud_ambient_tex, vec2u(1u, 0u), 0).rgb;
+    return (up * h + down * (1.0 - h)) * max(occ, cloud_diffuse_transmittance(tau_sun));
+}
+
+/**
+ * Luz espalhada para a câmera em `p` por unidade de profundidade ótica (o sol e o ambiente; × a extinção, a luz por
+ * unidade de comprimento). `occ` é a coluna do ambiente local (`cloud_ambient_occlusion`); a pegada do pixel da marcha no
+ * ponto vem em `cloud_light_footprint`.
+ */
+fn cloud_radiance(p: vec3f, cos_theta: f32, light_steps: u32, occ: f32) -> vec3f {
     let tau = cloud_sun_depth(p, light_steps);
     let o = clouds.octaves;
     let count = min(u32(o.x), CLOUD_MAX_OCTAVES);
+    // A oitava 0 é o espalhamento simples exato; as demais e o ambiente local são a estimativa a que a luz das sondas do
+    // cache de espalhamento (o transporte completo por caminhos, T023) se sobrepõe à medida que os caminhos chegam.
+    // O feixe do sol no ponto: o não desviado e o desviado menos de 2° pelo pico de frente (δ-M), `e^(−(1 − ω·fc)τ)` — a
+    // luz que os caminhos das sondas não alcançam (o pico é transmitido neles).
+    let single = exp(-(1.0 - clouds.layer.w * clouds.phaseCut.y) * tau) * cloud_phase(cos_theta, 1.0);
     var s = 0.0;
-    var energy = 1.0;
-    var attenuation = 1.0;
-    var anisotropy = 1.0;
-    for (var i = 0u; i < CLOUD_MAX_OCTAVES; i++) {
+    var energy = o.z;
+    var attenuation = o.y;
+    var anisotropy = o.w;
+    for (var i = 1u; i < CLOUD_MAX_OCTAVES; i++) {
         if (i >= count) { break; }
         s += energy * exp(-attenuation * tau) * cloud_phase(cos_theta, anisotropy);
         energy *= o.z;
         attenuation *= o.y;
         anisotropy *= o.w;
     }
-    let sun = sky.sunIlluminance.rgb * cloud_sun_atmosphere(p);
-    let h = clamp(cloud_height_fraction(p), 0.0, 1.0);
-    let ambient = textureLoad(cloud_ambient_tex, vec2u(0u, 0u), 0).rgb * h
-        + textureLoad(cloud_ambient_tex, vec2u(1u, 0u), 0).rgb * (1.0 - h);
-    return sigma_t * clouds.layer.w * (s * sun + ambient);
+    let atm = cloud_sun_atmosphere(p);
+    let sun = sky.sunIlluminance.rgb * atm;
+    let multiple = cloud_scatter_light(p, s * sun + cloud_ambient_local(p, tau, occ), atm);
+    return clouds.layer.w * (single * sun + multiple);
 }
 
 /**
- * Marcha da camada pelo raio `o + t·d` até `t_max` (a superfície opaca): `steps` passos no máximo (teto
- * `CLOUD_MAX_STEPS`), passo que cresce com a distância e cobre o trecho, grosso no vazio (só a forma) e fino com
- * densidade, deslocamento inicial `jitter` ∈ [0, 1) de um passo; saída antecipada com transmitância < 0,01.
+ * A espessura (m) da camada que dita o passo da marcha e o cone da luz: a do tempo bom (o topo e a base da camada; sem o
+ * tempo, a casca). Com o tempo a casca vai à tropopausa, mas os cúmulos rasos têm a escala de antes: o passo pela casca
+ * inteira (153 m numa de 9,8 km, contra 25 m) amostrava as bordas finas com 6 × menos passos (o grão da `tempestade`).
  */
-fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32, jitter: f32) -> CloudSample {
-    var result = CloudSample(vec3f(0.0), 1.0, 0.0);
-    let segs = cloud_shell_segments(o, d, t_max);
-    if (segs.y <= segs.x) { return result; }
-    let n = max(min(steps, CLOUD_MAX_STEPS), 1u);
-    let total = (segs.y - segs.x) + max(segs.w - segs.z, 0.0);
-    let base = clouds.shell.w / 64.0;
-    let floor_step = total / f32(n);
-    let cos_theta = dot(d, sky.sunDirection.xyz);
-    // A grade dos passos deslocada de `jitter` passo para trás da entrada da casca (com o primeiro passo começando em
-    // `entrada + jitter·passo`, o trecho antes dele nunca era amostrado). Fora da casca a densidade é zero.
-    var t = segs.x - (1.0 - jitter) * max(base, floor_step);
-    var seg_start = segs.x;
-    var end = segs.y;
-    var second = segs.w > segs.z;
-    var fine = false;
-    var empty = 0u;
-    var weight = 0.0;
-    var depth_sum = 0.0;
-    for (var i = 0u; i < CLOUD_MAX_STEPS; i++) {
-        if (i >= n) { break; }
-        if (t >= end) {
-            if (!second) { break; }
-            second = false;
-            t = segs.z;
-            seg_start = segs.z;
-            end = segs.w;
-        }
-        // O passo fino cresce com a distância e não fica abaixo do piso que cobre o trecho; o grosso (só a forma, no
-        // vazio) é o dobro do fino sem o piso, nunca menos que o piso — quando o piso manda (raios longos, rente ao
-        // horizonte), o passo grosso pularia pedaços de nuvem do tamanho dele (−9 % de luz a 17–30 km, medido na marcha emulada em f64) e a
-        // marcha fica fina.
-        let near_step = base * (1.0 + t / 8000.0);
-        let fine_step = max(near_step, floor_step);
-        let coarse_step = max(2.0 * near_step, floor_step);
-        if (coarse_step <= fine_step) { fine = true; }
-        let ds = min(select(coarse_step, fine_step, fine), end - t);
-        let x = o + d * (t + 0.5 * ds);
-        if (!fine) {
-            if (cloud_density(x, false) > 0.0) {
-                // Achou nuvem: a marcha fina recomeça meio passo grosso atrás (no ponto vazio da amostra grossa
-                // anterior), onde a borda pode ter começado, sem voltar antes do trecho.
-                fine = true;
-                empty = 0u;
-                t = max(t - 0.5 * ds, seg_start);
-                continue;
-            }
-            t += ds;
-            continue;
-        }
-        let rho = cloud_density(x, true);
-        if (rho > 0.0) {
-            empty = 0u;
-            let sigma_t = rho * clouds.layer.z;
-            let step_t = exp(-sigma_t * ds);
-            let light = cloud_inscatter(x, sigma_t, cos_theta, light_steps);
-            result.scattered += result.transmittance * light * (1.0 - step_t) / sigma_t;
-            let alpha = result.transmittance * (1.0 - step_t);
-            depth_sum += alpha * (t + 0.5 * ds);
-            weight += alpha;
-            result.transmittance *= step_t;
-            if (result.transmittance < CLOUD_EARLY_EXIT) { break; }
-        } else {
-            empty++;
-            if (empty >= CLOUD_EMPTY_TO_COARSE) { fine = false; }
-        }
-        t += ds;
-    }
-    result.depth = select(0.0, depth_sum / max(weight, 1e-12), weight > 0.0);
-    return result;
+fn cloud_layer_thickness() -> f32 {
+    return clouds.shell.w * clouds.weatherMap.x;
 }

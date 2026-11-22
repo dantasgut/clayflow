@@ -15,7 +15,9 @@ export const SKY_MULTISCATTER_SIZE = [32, 32] as const;
 export const SKY_VIEW_SIZE = [192, 108] as const;
 /** Tabela da perspectiva aérea (spec 041, R10): colunas na tela × fatias de distância. */
 export const SKY_AERIAL_SIZE = [32, 32, 32] as const;
-export { SKY_AERIAL_RANGE_KM } from './SkySchema';
+import { SKY_AERIAL_RANGE_KM } from './SkySchema';
+import { wordBuffer } from '../../gpu/compute/schemas';
+export { SKY_AERIAL_RANGE_KM };
 
 /** Raio angular do sol visto da Terra (rad). */
 const SUN_ANGULAR_RADIUS = 0.004675;
@@ -34,6 +36,22 @@ export interface SkyValues {
     readonly night?: readonly number[];
     /** Desenha o disco do sol no fundo. Default `true`. */
     readonly sunDisk?: boolean;
+    /**
+     * Névoa seca perto do chão (spec 041, R21): uma camada de aerossol além do Mie de fundo, de densidade que cai com a
+     * altura (`e^(−h/H)`) e a mesma fase de Mie — a camada de mistura de uma tarde úmida ou do fim do dia, onde os feixes
+     * de luz e de sombra aparecem. Default nenhuma.
+     */
+    readonly haze?: SkyHaze;
+}
+
+/** Névoa seca perto do chão de um `Sky`. */
+export interface SkyHaze {
+    /** Extinção ao nível do chão (1/km): 0,1 é ~40 km de visibilidade só por ela, 0,4 ~10 km. */
+    readonly extinction: number;
+    /** Altura de escala (km). Default 0,5 (a camada de mistura). */
+    readonly scaleHeight?: number;
+    /** Albedo de espalhamento simples. Default 0,9 (aerossol de fim de tarde). */
+    readonly albedo?: number;
 }
 
 /** Dado de um `Sky` (layout de `Sky.schema`). */
@@ -46,6 +64,8 @@ export interface SkyData {
     radii: number[];
     ground: number[];
     night: number[];
+    /** Névoa seca: espalhamento e extinção ao nível do chão (1/km), altura de escala (km), 0. */
+    haze: number[];
     sunSlot: number;
     sunDisk: number;
     /** 1 com uma `CloudLayer` na cena: o ambiente dos raios lê `sky_cover` (spec 041). */
@@ -57,6 +77,35 @@ export interface SkyData {
      * 041); fora do uniforme, escrito só quando muda.
      */
     ambient?: number;
+    /**
+     * 1 quando a tabela da perspectiva aérea da câmera ativa foi escrita: a atmosfera entra em `scene_fog` (spec 041);
+     * fora do uniforme, escrito só quando muda.
+     */
+    aerial?: number;
+    /**
+     * 1 quando algo além da atmosfera tapa o sol no ar (a sombra de uma `CloudLayer`, spec 041): a tabela aérea integra a
+     * visibilidade do sol e o déficit dela no fundo; sem isso, nem a tabela nem o fundo pagam por uma sombra que não há.
+     * Fora do uniforme, escrito só quando muda.
+     */
+    shadowed?: number;
+    /**
+     * 1 quando os froxels integram a atmosfera perto da câmera (spec 041, R21): a perspectiva aérea na geometria e no
+     * fundo soma só o trecho além deles. Escrito só quando muda (pelo estágio dos froxels).
+     */
+    near?: number;
+}
+
+/** O registro da névoa seca (espalhamento, extinção, altura de escala, 0); validado. */
+function hazeOf(haze: SkyHaze | undefined): number[] {
+    if (haze === undefined) return [0, 0, 0.5, 0];
+    const scale = haze.scaleHeight ?? 0.5;
+    const albedo = haze.albedo ?? 0.9;
+    if (!(Number.isFinite(haze.extinction) && haze.extinction >= 0))
+        throw new RangeError(`Sky: haze.extinction ${haze.extinction} deve ser ≥ 0`);
+    if (!(Number.isFinite(scale) && scale > 0))
+        throw new RangeError(`Sky: haze.scaleHeight ${scale} deve ser > 0`);
+    if (!(albedo >= 0 && albedo <= 1)) throw new RangeError(`Sky: haze.albedo ${albedo} em [0, 1]`);
+    return [haze.extinction * albedo, haze.extinction, scale, 0];
 }
 
 /** Espalhamento e extinção de Mie ao nível do chão (1/km) com turbidez 1. */
@@ -71,7 +120,7 @@ const MIE_EXTINCTION = 4.44e-3;
  * `scene_background`) e a fonte dos raios que escapam da iluminação global (`sky_radiance`). As tabelas
  * (`rgba16float`) são geradas na GPU pelo `SkyFlow`: transmitância e múltiplo espalhamento quando a atmosfera muda, a
  * vista do céu a cada quadro. Com câmera, também a perspectiva aérea (spec 041): toda a geometria da cena recebe a
- * atmosfera entre a câmera e ela na composição da tela (`SkyCompositeFlow`). Sem `Sky`, a cena fica como na 011 (o
+ * atmosfera entre a câmera e ela pelo ponto `scene_fog` (atrás da névoa dos volumes), no desenho de cada superfície. Sem `Sky`, a cena fica como na 011 (o
  * hemisfério e o fundo de limpeza).
  */
 export class Sky extends Entity<SkyData> implements Resource {
@@ -97,11 +146,15 @@ export class Sky extends Entity<SkyData> implements Resource {
             radii: [6360, 6460, 15, values.altitude ?? 0.2],
             ground: [ground[0] ?? 0.3, ground[1] ?? 0.3, ground[2] ?? 0.3, 0],
             night: [...(values.night ?? [0.0005, 0.0008, 0.0015]), 0],
+            haze: hazeOf(values.haze),
             sunSlot: NONE.value,
             sunDisk: values.sunDisk === false ? 0 : 1,
             cover: 0,
             cameraSlot: 0,
             ambient: 0,
+            aerial: 0,
+            shadowed: 0,
+            near: 0,
         };
     }
 
@@ -114,6 +167,18 @@ export class Sky extends Entity<SkyData> implements Resource {
     set turbidity(value: number) {
         const mie = this.data.mie;
         this.data.mie = [MIE_SCATTERING * value, MIE_EXTINCTION * value, mie[2]!, mie[3]!];
+    }
+
+    /** A névoa seca perto do chão (`undefined` sem ela). */
+    get haze(): SkyHaze | undefined {
+        const h = this.rawData.haze;
+        if (h[1]! <= 0) return undefined;
+        return { extinction: h[1]!, scaleHeight: h[2]!, albedo: h[0]! / h[1]! };
+    }
+
+    /** Muda a névoa seca: as tabelas da atmosfera são regeneradas no quadro seguinte. */
+    set haze(value: SkyHaze | undefined) {
+        this.data.haze = hazeOf(value);
     }
 
     getDescriptors(): readonly GPUDescriptor[] {
@@ -151,6 +216,53 @@ export class Sky extends Entity<SkyData> implements Resource {
                     },
                 }),
             ),
+            // O déficit da sombra no fundo (spec 041, raios crepusculares): por coluna da tabela, a luz simples que o ar
+            // sombreado deixa de espalhar até o fim da atmosfera; quem desenha o fundo o tira do céu.
+            // Só além do alcance da tabela (R21 rodada 16): o fundo com os froxels integrando o trecho perto.
+            {
+                id: 'aerialShadowFar',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    width: SKY_AERIAL_SIZE[0],
+                    height: SKY_AERIAL_SIZE[1],
+                    access: 'write-only',
+                },
+            },
+            {
+                id: 'aerialShadow',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: {
+                    format: 'rgba16float',
+                    width: SKY_AERIAL_SIZE[0],
+                    height: SKY_AERIAL_SIZE[1],
+                    access: 'write-only',
+                },
+            },
+            // A direção para o sol de cada quadro (xyz; spec 041), série temporal da 037: quem guarda entre quadros o que
+            // o disco do sol mostrava (a resolução temporal, pela máscara reativa) lê onde ele estava no quadro anterior.
+            {
+                id: 'sunTrack',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                history: { depth: 2 },
+            },
+            // A fração do disco do sol que se vê da câmera (spec 041), série temporal da 037: a média no disco (o que
+            // está na frente dele, as nuvens) acumulada como a cor na resolução temporal — o excesso de energia do disco
+            // no espalhamento da lente não acompanha o deslocamento da amostra nem o ruído da marcha das nuvens.
+            {
+                id: 'sunVisibility',
+                role: 'storage-texture',
+                allocation: 'onDemand',
+                textureShape: { format: 'rgba32float', width: 1, height: 1, access: 'write-only' },
+                history: { depth: 2 },
+            },
+            // A marcação da máscara reativa do disco por compute (spec 041, T074): os grupos do despacho indireto, a origem
+            // do retângulo dos dois discos e os discos, escritos pela GPU a cada quadro (`sky_reactive_rect.wgsl`).
+            { ...wordBuffer('diskWork', 16 * 4, 'indirect'), allocation: 'onDemand' },
             {
                 id: 'sampler',
                 role: 'sampler',
@@ -186,6 +298,53 @@ export class Sky extends Entity<SkyData> implements Resource {
         if ((this.rawData.ambient ?? 0) !== ambient) this.data.ambient = ambient;
     }
 
+    /**
+     * Liga ou desliga a perspectiva aérea na geometria (`scene_fog`): ligada quando a tabela da câmera ativa foi
+     * escrita no quadro (o `SkyFlow`), desligada sem câmera. Escrito só quando muda.
+     */
+    setAerial(on: boolean): void {
+        const aerial = on ? 1 : 0;
+        if ((this.rawData.aerial ?? 0) !== aerial) this.data.aerial = aerial;
+    }
+
+    /**
+     * Liga ou desliga a sombra do que tapa o sol no ar (spec 041: a camada de nuvens, pelo `light_transmission`): a
+     * visibilidade do sol na tabela aérea e o déficit dela no fundo. Escrito só quando muda.
+     */
+    setShadowed(on: boolean): void {
+        const shadowed = on ? 1 : 0;
+        if ((this.rawData.shadowed ?? 0) !== shadowed) this.data.shadowed = shadowed;
+    }
+
+    /**
+     * Liga ou desliga a atmosfera nos froxels perto da câmera (spec 041, R21: o estágio dos froxels a integra no quadro):
+     * a perspectiva aérea da tabela passa a somar só o trecho além deles. Escrito só quando muda.
+     */
+    setNear(on: boolean): void {
+        const near = on ? 1 : 0;
+        if ((this.rawData.near ?? 0) !== near) this.data.near = near;
+    }
+
+    /** Se a perspectiva aérea da tabela começa onde os froxels terminam. */
+    get near(): boolean {
+        return this.rawData.near === 1;
+    }
+
+    /** Se a tabela da perspectiva aérea da câmera ativa está escrita (a atmosfera entra nos meios e na geometria). */
+    get aerial(): boolean {
+        return this.rawData.aerial === 1;
+    }
+
+    /** Alcance (m) até onde o meio da atmosfera entra nos froxels: o da tabela da perspectiva aérea (R21). */
+    get mediumRange(): number {
+        return SKY_AERIAL_RANGE_KM * 1000;
+    }
+
+    /** Se algo além da atmosfera tapa o sol no ar. */
+    get shadowed(): boolean {
+        return this.rawData.shadowed === 1;
+    }
+
     /** Se o céu ilumina as superfícies. */
     get lightsSurfaces(): boolean {
         return this.rawData.ambient === 1;
@@ -199,5 +358,8 @@ export class Sky extends Entity<SkyData> implements Resource {
     private readonly contributions = skyContributions(
         () => this.rawData.cover === 1,
         () => this.rawData.ambient === 1,
+        () => this.rawData.aerial === 1,
+        () => this.rawData.shadowed === 1,
+        () => this.rawData.near === 1,
     );
 }

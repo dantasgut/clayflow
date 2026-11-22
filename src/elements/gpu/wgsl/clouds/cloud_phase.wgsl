@@ -16,3 +16,11 @@ fn cloud_phase(c: f32, g_scale: f32) -> f32 {
     let p = clouds.phase;
     return (1.0 - p.w) * cloud_hg(c, p.x * g_scale) + p.w * cloud_draine(c, p.y * g_scale, p.z);
 }
+
+/** A fase truncada (o pico de frente a menos de `acos(clouds.phaseCut.x)` tratado como transmitido, δ-M), normalizada
+ * sem o núcleo: zero no núcleo. */
+fn cloud_phase_truncated(c: f32) -> f32 {
+    let cut = clouds.phaseCut;
+    if (c > cut.x) { return 0.0; }
+    return cloud_phase(c, 1.0) / (1.0 - cut.y);
+}

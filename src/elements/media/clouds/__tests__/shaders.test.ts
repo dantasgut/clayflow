@@ -8,16 +8,26 @@ import { CloudLayer } from '../CloudLayer';
 import {
     cloudAmbientKernel,
     cloudCoverageKernel,
+    cloudCoverageWeatherKernel,
+    cloudLightArgsKernel,
+    cloudLightSamplesKernel,
     cloudLightTransmission,
+    cloudMarchComposeKernel,
     cloudMarchKernel,
     cloudNoiseKernel,
     cloudPanoramaKernel,
+    cloudPressureAt,
+    cloudPressureAtPoint,
     cloudReconstructKernel,
+    cloudScatterKernel,
     cloudShadowKernel,
     cloudShapeAt,
     cloudShapeAtPoint,
     cloudSkyCover,
     cloudUpsampleKernel,
+    cloudWeatherKernel,
+    cloudWindAtPoint,
+    cloudWindWeather,
 } from '../shaders';
 
 // Módulos das nuvens (spec 041, T017): cada kernel monta (cada símbolo uma vez, recursos resolvidos) e o layout das
@@ -26,16 +36,36 @@ import {
 const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_noise shape', cloudNoiseKernel, 'cloud_noise_shape_main'],
     ['cloud_noise detail', cloudNoiseKernel, 'cloud_noise_detail_main'],
-    ['cloud_coverage', cloudCoverageKernel, 'cloud_coverage_main'],
+    ['cloud_coverage', cloudCoverageKernel, 'cloud_coverage_draw_main'],
+    ['cloud_coverage select', cloudCoverageKernel, 'cloud_coverage_select_main'],
     ['cloud_ambient', cloudAmbientKernel, 'cloud_ambient_main'],
-    ['cloud_shadow', cloudShadowKernel, 'cloud_shadow_main'],
+    ['cloud_shadow', cloudShadowKernel.plain, 'cloud_shadow_main'],
+    ['cloud_shadow select', cloudShadowKernel.plain, 'cloud_shadow_select_main'],
+    ['cloud_shadow select com o tempo', cloudShadowKernel.weather, 'cloud_shadow_select_main'],
     ['cloud_march', cloudMarchKernel.single, 'cloud_march_main'],
     ['cloud_march_ms', cloudMarchKernel.multisampled, 'cloud_march_main'],
-    ['cloud_reconstruct', cloudReconstructKernel, 'cloud_reconstruct_main'],
+    ['cloud_light_samples', cloudLightSamplesKernel.single, 'cloud_light_samples_main'],
+    ['cloud_light_samples_ms', cloudLightSamplesKernel.multisampled, 'cloud_light_samples_main'],
+    ['cloud_light_args', cloudLightArgsKernel, 'cloud_light_args_main'],
+    ['cloud_march_compose', cloudMarchComposeKernel.single, 'cloud_march_compose_main'],
+    ['cloud_march_compose_ms', cloudMarchComposeKernel.multisampled, 'cloud_march_compose_main'],
+    ['cloud_reconstruct', cloudReconstructKernel.single, 'cloud_reconstruct_main'],
+    ['cloud_reconstruct_ms', cloudReconstructKernel.multisampled, 'cloud_reconstruct_main'],
+    ['cloud_check', cloudReconstructKernel.single, 'cloud_check_main'],
+    ['cloud_check_ms', cloudReconstructKernel.multisampled, 'cloud_check_main'],
     ['cloud_upsample', cloudUpsampleKernel.single, 'cloud_upsample_main'],
     ['cloud_upsample_ms', cloudUpsampleKernel.multisampled, 'cloud_upsample_main'],
     ['cloud_panorama', cloudPanoramaKernel, 'cloud_panorama_main'],
+    ['cloud_scatter', cloudScatterKernel, 'cloud_scatter_main'],
     ['sky_aerial', skyAerialKernel, 'sky_aerial_main'],
+    ['cloud_weather_map', cloudWeatherKernel, 'cloud_weather_main'],
+    ['cloud_coverage_weather', cloudCoverageWeatherKernel, 'cloud_coverage_draw_main'],
+    ['cloud_coverage_weather select', cloudCoverageWeatherKernel, 'cloud_coverage_select_main'],
+    [
+        'cloud_reconstruct com o tempo',
+        bindPoints(cloudReconstructKernel.single, new Map([[cloudWindAtPoint, cloudWindWeather]])),
+        'cloud_reconstruct_main',
+    ],
 ];
 
 describe('módulos das nuvens', () => {
@@ -48,16 +78,20 @@ describe('módulos das nuvens', () => {
         expect(layout).toBeDefined();
     });
 
-    it('a composição da tela monta nas quatro variantes (amostras × nuvens)', () => {
+    it('a composição das nuvens monta nas duas variantes de amostras, com e sem o alvo da luz que chega', () => {
         for (const ms of [false, true])
-            for (const clouds of [false, true]) {
-                const composed = composeWgsl(skyComposite.module(ms, clouds));
+            for (const entry of ['sky_composite_multiply_fs', 'sky_composite_add_fs']) {
+                const composed = composeWgsl(skyComposite.module(ms));
                 const layout = new LayoutInferencer().infer(composed, [
                     'refraction_screen_vs',
-                    'sky_composite_multiply_fs',
+                    entry,
                 ]);
                 expect(layout).toBeDefined();
-                expect(composed.spec.source.includes('cloud_view_tex')).toBe(clouds);
+                expect(composed.spec.source).toContain('cloud_view_tex');
+                // A atmosfera da geometria é do `scene_fog` (o `Sky`), não da composição.
+                expect(composed.spec.source).not.toContain('sky_aerial_lut');
+                // A luz que chega (spec 041): as variantes com o alvo dela a levam à das nuvens passa-baixa.
+                expect(composed.spec.source).toContain(`${entry.replace('_fs', '_light_fs')}(`);
             }
     });
 
@@ -89,10 +123,82 @@ describe('módulos das nuvens', () => {
         expect(source).not.toContain('cloud_shape_at_ready');
     });
 
+    it('o tempo (R19): o padrão de sistemas no lugar pronto; a função de pressão do usuário no lugar dele', () => {
+        // Arrange
+        const plain = composeWgsl(cloudWeatherKernel).spec.source;
+        const layer = new CloudLayer({
+            weather: {
+                pressure: {
+                    code: 'fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32 {\n    return -1500.0 * exp(-dot(xz, xz) / 3.2e11);\n}',
+                },
+            },
+        });
+        const composite = layer.pressureFunction!.composite!;
+        // Act
+        const user = composeWgsl(
+            bindPoints(
+                cloudWeatherKernel,
+                new Map([[cloudPressureAtPoint, cloudPressureAt(composite)]]),
+            ),
+        ).spec.source;
+        // Assert
+        expect(plain).toContain('fn cloud_pressure_default(');
+        expect(user).toContain(
+            `return ${composite.functionName}(xz, time, ${composite.loaderName}(slot));`,
+        );
+        expect(user).not.toContain('cloud_pressure_fn_at_ready');
+        // laços de teto constante: as 9 células, a varredura e a bisseção do vento
+        expect(plain).toContain('for (var k = 0u; k < 9u; k++)');
+        expect(plain).toContain('for (var k = 1u; k <= CLOUD_WIND_SCAN; k++)');
+        expect(plain).toContain('for (var k = 0u; k < CLOUD_WIND_BISECT; k++)');
+        expect(plain).not.toMatch(/\bwhile\b|\bloop\b/);
+    });
+
+    it('sem o tempo, a reconstrução reprojeta pelo vento uniforme (o lugar pronto)', () => {
+        const source = composeWgsl(cloudReconstructKernel.single).spec.source;
+        expect(source).toContain(
+            'fn cloud_wind_at(p: vec3f) -> vec2f {\n    return clouds.wind.zw;\n}',
+        );
+        expect(source).not.toContain('cloud_weather_wind_tex');
+    });
+
     it('todo laço da marcha tem teto constante (o orçamento total é passos × (1 + passos de luz))', () => {
         const source = composeWgsl(cloudMarchKernel.single).spec.source;
         expect(source).toContain('for (var i = 0u; i < CLOUD_MAX_STEPS; i++)');
         expect(source).toContain('for (var i = 0u; i < CLOUD_MAX_LIGHT_STEPS; i++)');
         expect(source).not.toMatch(/\bwhile\b|\bloop\b/);
+    });
+
+    it('a marcha da tela adia a luz das amostras para a lista do quadro; o trecho que não cabe tem a luz calculada na marcha (T074)', () => {
+        const march = composeWgsl(cloudMarchKernel.single).spec.source;
+        const panorama = composeWgsl(cloudPanoramaKernel).spec.source;
+        // A marcha da tela: a implementação da lista no lugar do pronto — os lugares do trecho reservados de uma vez e,
+        // sem lugar, a luz das amostras dele calculada ali mesmo, com teto constante.
+        expect(march).toContain('let first = atomicAdd(&cloud_light_args[3], places);');
+        expect(march).toContain(
+            'if (first + places > min(size.x * size.y, CLOUD_LIGHT_LIST_MAX)) {',
+        );
+        expect(march).toContain('cloud_light_unlisted += s.y * cloud_radiance(');
+        expect(march).toContain('for (var k = 0u; k < CLOUD_LIGHT_CHUNK; k++)');
+        // Quatro palavras por amostra, numa textura só (`r32uint` em camadas).
+        expect(march).toContain('texture_storage_2d_array<r32uint, write>');
+        expect(march).not.toContain('sky_aerial');
+        // O panorama: o pronto, a luz no laço.
+        expect(panorama).not.toContain('cloud_light_args');
+        expect(panorama).toContain(
+            'return weight * cloud_radiance(p, cos_theta, light_steps, occ);',
+        );
+    });
+
+    it('o passe da luz calcula uma amostra por invocação e a composição soma as do raio com teto constante (T074)', () => {
+        const light = composeWgsl(cloudLightSamplesKernel.single).spec.source;
+        const compose = composeWgsl(cloudMarchComposeKernel.single).spec.source;
+        expect(light).toContain('if (i >= cloud_light_args_read[4]) { return; }');
+        // A luz gravada no lugar da amostra (leitura e escrita na mesma textura), com o raio relido pelo índice.
+        expect(light).toContain('texture_storage_2d_array<r32uint, read_write>');
+        expect(light).toContain('let r = cloud_march_ray(vec2u(ray & 0xffffu, ray >> 16u));');
+        expect(light).not.toContain('CLOUD_MAX_STEPS; i++');
+        expect(compose).toContain('for (var k = 0u; k < CLOUD_LIGHT_WALK; k++)');
+        expect(compose).not.toMatch(/\bwhile\b|\bloop\b/);
     });
 });

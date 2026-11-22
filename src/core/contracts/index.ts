@@ -22,6 +22,8 @@ export type {
     CanvasOutput,
     DeviceLostInfo,
     DeviceLostHandler,
+    UncapturedErrorInfo,
+    UncapturedErrorHandler,
     MemoryUsageReport,
     MemoryUsageEntry,
     ShaderMessage,

@@ -1298,13 +1298,14 @@ async function checkRequest(
         const read = await readBack(engine.app, {
             kind: 'texture',
             spec: light,
-            rowBytes: light.width * 4,
+            rowBytes: light.width * 8,
         });
         const halves = new Uint16Array(read.data);
         for (let y = 0; y < H; y++)
             for (let x = 0; x < W; x++) {
                 if (marked[y * W + x] !== 1) continue;
-                const k = (y * read.bytesPerRow) / 2 + x * 2;
+                // `rgba16float` (spec 041, T074): 4 meias por pixel; a luz guardada são as duas primeiras.
+                const k = (y * read.bytesPerRow) / 2 + x * 4;
                 // Meia precisão: zero (com ou sem sinal) só com expoente e mantissa nulos.
                 if ((halves[k]! & 0x7fff) !== 0 || (halves[k + 1]! & 0x7fff) !== 0) lit++;
             }

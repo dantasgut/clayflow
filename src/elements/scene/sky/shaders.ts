@@ -1,7 +1,9 @@
-import { wgslModule } from '../../../scene/shaders/WgslModule';
+import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
+import type { BindablePoint } from '../../../scene/shaders/bindPoints';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
+import { slot } from '../../../scene/flows/slots';
 import { SKY_AERIAL_RANGE_KM, SkySchema } from './SkySchema';
 import skyAtmosphereSource from '../../gpu/wgsl/sky/sky_atmosphere.wgsl?raw';
 import skyLookupSource from '../../gpu/wgsl/sky/sky_lookup.wgsl?raw';
@@ -12,7 +14,8 @@ import skySource from '../../gpu/wgsl/sky/sky.wgsl?raw';
 import skyAerialSource from '../../gpu/wgsl/sky/sky_aerial.wgsl?raw';
 import skyAerialLookupSource from '../../gpu/wgsl/sky/sky_aerial_lookup.wgsl?raw';
 import skyAmbientSource from '../../gpu/wgsl/sky/sky_ambient.wgsl?raw';
-import { sceneEnvironmentReady } from '../points/lighting';
+import { lightTransmissionReady, sceneEnvironmentReady } from '../points/lighting';
+import { sceneNearMediumDepthReady } from '../points/media';
 import { camerasResource } from '../resources';
 import { constants, viewSpace } from '../../gpu/shaders/math';
 
@@ -58,6 +61,13 @@ export const skyAerialTransmittanceLut = lut3d(
     'sky_aerial_transmittance_lut',
     'Sky.aerialTransmittance',
 );
+/**
+ * O déficit da sombra no fundo (resolver `Sky.aerialShadow`, spec 041): por coluna da tabela, a luz simples que o ar
+ * sombreado deixa de espalhar da câmera até o fim da atmosfera.
+ */
+export const skyAerialShadowLut = lut('sky_aerial_shadow_lut', 'Sky.aerialShadow');
+/** O déficit só além do alcance da tabela (resolver `Sky.aerialShadowFar`, R21 rodada 16): o de perto está nos froxels. */
+export const skyAerialShadowFarLut = lut('sky_aerial_shadow_far_lut', 'Sky.aerialShadowFar');
 
 /** Amostrador linear das tabelas (resolver `Sky.sampler`). */
 export const skySampler = wgslResource({
@@ -83,6 +93,60 @@ const out3d = (name: string): ReturnType<typeof wgslResource> =>
         provider: 'private',
     });
 
+/** Slot do canal temporal da direção do sol (`Sky.sunTrack`, spec 037/041). */
+export const skySunTrackSlots = Object.freeze({
+    skySunTrack: slot.channel(SkySchema, 'sunTrack'),
+});
+
+/**
+ * A direção para o sol pela série `Sky.sunTrack` (spec 041): a escrita do quadro (pela vista do céu) e a do quadro
+ * anterior (lida por quem guarda entre quadros o que o disco mostrava).
+ */
+export const skySunTrack = Object.freeze({
+    out: wgslResource({
+        name: 'sky_sun_track_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunTrack', lag: 0 },
+    }),
+    previous: wgslResource({
+        name: 'sky_sun_track_prev',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunTrack', lag: 1 },
+    }),
+});
+
+/** Slot do canal temporal da fração visível do disco do sol (`Sky.sunVisibility`, spec 037/041). */
+export const skySunVisibilitySlots = Object.freeze({
+    skySunVisibility: slot.channel(SkySchema, 'sunVisibility'),
+});
+
+/**
+ * A fração visível do disco do sol pela série `Sky.sunVisibility` (spec 041): a escrita do quadro, a lida dele (pelo
+ * excesso do disco) e a do quadro anterior (acumulada).
+ */
+export const skySunVisibility = Object.freeze({
+    out: wgslResource({
+        name: 'sky_sun_visibility_out',
+        binding: { storageTexture: { format: 'rgba32float', access: 'write' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunVisibility', lag: 0 },
+    }),
+    current: wgslResource({
+        name: 'sky_sun_visibility',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunVisibility', lag: 0 },
+    }),
+    previous: wgslResource({
+        name: 'sky_sun_visibility_prev',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'stage',
+        provider: { slot: 'skySunVisibility', lag: 1 },
+    }),
+});
+
 /** Saídas dos kernels das tabelas (as texturas do `Sky`), privadas do `SkyFlow`. */
 export const skyOutputs = Object.freeze({
     transmittance: out('sky_transmittance_out'),
@@ -90,6 +154,8 @@ export const skyOutputs = Object.freeze({
     view: out('sky_view_out'),
     aerial: out3d('sky_aerial_out'),
     aerialTransmittance: out3d('sky_aerial_transmittance_out'),
+    aerialShadow: out('sky_aerial_shadow_out'),
+    aerialShadowFar: out('sky_aerial_shadow_far_out'),
     ambient: out('sky_ambient_out'),
 });
 
@@ -137,7 +203,14 @@ export const skyMultiscatterKernel = wgslModule({
 export const skyViewKernel = wgslModule({
     name: 'sky_view',
     source: skyViewSource,
-    requires: [WORKGROUP_SIZE.module, skyAtmosphere, skyLookup, skyParamsResource, skyOutputs.view],
+    requires: [
+        WORKGROUP_SIZE.module,
+        skyAtmosphere,
+        skyLookup,
+        skyParamsResource,
+        skyOutputs.view,
+        skySunTrack.out,
+    ],
 });
 
 /**
@@ -149,25 +222,93 @@ export const sky = wgslModule({
     requires: [skyAtmosphere, skyLookup, skyParamsResource, skyViewLut, skySampler],
 });
 
-/** Alcance (km) da tabela da perspectiva aérea, compartilhado pelo kernel e pela leitura. */
-const SKY_AERIAL_RANGE = sharedConstant('SKY_AERIAL_RANGE', SKY_AERIAL_RANGE_KM, 'f32');
+/**
+ * Alcance (km) da tabela da perspectiva aérea, compartilhado pelo kernel, pela leitura e pelo meio da atmosfera nos
+ * froxels (spec 041, R21: o meio vai até ele, a tabela soma o resto).
+ */
+export const SKY_AERIAL_RANGE = sharedConstant('SKY_AERIAL_RANGE', SKY_AERIAL_RANGE_KM, 'f32');
 
-/** Kernel da tabela da perspectiva aérea (spec 041, R10): pela câmera ativa (`sky.cameraSlot`). */
-export const skyAerialKernel = wgslModule({
-    name: 'sky_aerial',
-    source: skyAerialSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        SKY_AERIAL_RANGE.module,
-        viewSpace,
-        skyAtmosphere,
-        skyLookup,
-        skyParamsResource,
-        camerasResource,
-        skyOutputs.aerial,
-        skyOutputs.aerialTransmittance,
-    ],
+/**
+ * A visibilidade do sol num ponto do ar (spec 041, raios crepusculares): a luz do sol que chega a `p` pelo ponto
+ * `light_transmission` (a atmosfera do `Sky` e o que mais tapa o sol: a sombra das nuvens) sem a parte da atmosfera
+ * (`sky_sun_transmittance`, a contribuição do `Sky` ao mesmo ponto) — a tabela da perspectiva aérea já integra a
+ * atmosfera até o sol pela curvatura do planeta. Onde a atmosfera não deixa o sol chegar (abaixo do horizonte), a luz
+ * simples já é 0 e a visibilidade fica 1.
+ */
+export const skyAerialVisibility = wgslModule({
+    name: 'sky_aerial_visibility',
+    requires: [sky, skyParamsResource, lightTransmissionReady],
+    source: `fn sky_aerial_visibility(p: vec3f) -> vec3f {
+    let atmosphere = sky_sun_transmittance(p);
+    let all = light_transmission(sky.sunSlot, p);
+    let ratio = clamp(all / max(atmosphere, vec3f(1e-12)), vec3f(0.0), vec3f(1.0));
+    return select(vec3f(1.0), ratio, atmosphere > vec3f(1e-9));
+}
+
+fn sky_aerial_shadowed() -> bool {
+    return true;
+}`,
 });
+
+/**
+ * A visibilidade do sol no ar sem nada além da atmosfera que o tape (nenhuma camada de nuvens): 1, e a tabela não integra
+ * o déficit da sombra no fundo (zero).
+ */
+export const skyAerialVisibilityClear = wgslModule({
+    name: 'sky_aerial_visibility_clear',
+    source: `fn sky_aerial_visibility(p: vec3f) -> vec3f {
+    return vec3f(1.0);
+}
+
+fn sky_aerial_shadowed() -> bool {
+    return false;
+}`,
+});
+
+/**
+ * Kernel da tabela da perspectiva aérea (spec 041, R10): pela câmera ativa (`sky.cameraSlot`), com a sombra do que tapa
+ * o sol no ar e o déficit dela no fundo.
+ */
+const skyAerialKernelOf = (name: string, visibility: WgslModule): WgslModule =>
+    wgslModule({
+        name,
+        source: skyAerialSource,
+        requires: [
+            SKY_AERIAL_RANGE.module,
+            viewSpace,
+            skyAtmosphere,
+            skyLookup,
+            skyParamsResource,
+            camerasResource,
+            visibility,
+            sceneNearMediumDepthReady,
+            skyOutputs.aerial,
+            skyOutputs.aerialTransmittance,
+            skyOutputs.aerialShadow,
+            skyOutputs.aerialShadowFar,
+        ],
+    });
+
+/** O kernel com a sombra do que tapa o sol no ar. */
+export const skyAerialKernel = skyAerialKernelOf('sky_aerial', skyAerialVisibility);
+/** O kernel sem nada além da atmosfera que tape o sol (nenhuma camada de nuvens): sem a sombra e sem o déficit. */
+export const skyAerialKernelClear = skyAerialKernelOf('sky_aerial_clear', skyAerialVisibilityClear);
+
+/**
+ * A visibilidade do sol no ar do trecho além da tabela (`sky_aerial_far`; spec 041, R18/R19): pronta, 1 (sem o que tapa o
+ * sol). Quem tem a sombra das nuvens à mão (a marcha e o panorama das nuvens) troca pelo mapa visto do sol — as nuvens
+ * além de 32 km com o ar na frente delas sombreado como a tabela faz até 32 km.
+ */
+const skyAerialFarVisibilityReady = wgslModule({
+    name: 'sky_aerial_far_visibility_ready',
+    source: 'fn sky_aerial_far_visibility(dir: vec3f, t_km: f32) -> f32 {\n    return 1.0;\n}',
+});
+
+/** Lugar da visibilidade do sol no trecho além da tabela (`bindPoints`). */
+export const skyAerialFarVisibilityPoint: BindablePoint = {
+    name: 'sky_aerial_far_visibility',
+    ready: skyAerialFarVisibilityReady,
+};
 
 /**
  * Leitura da perspectiva aérea (spec 041, R10): `sky_aerial(uv, dir, d)` pela tabela até 32 km e pela razão das
@@ -185,6 +326,7 @@ export const skyAerialLookup = wgslModule({
         skyAerialLut,
         skyAerialTransmittanceLut,
         skySampler,
+        skyAerialFarVisibilityReady,
     ],
 });
 

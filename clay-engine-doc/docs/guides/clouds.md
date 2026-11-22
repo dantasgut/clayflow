@@ -63,6 +63,37 @@ ponto `cloud_shape`: `fn shape_fn(p: vec3f, data: ShapeFnParams) -> vec4f`, com 
 erosão em três frequências. Os ruídos do grafo de forma devem usar o parâmetro `period` (os nós de ruído o têm): o
 volume se repete pelo céu e, sem período, a costura aparece (há aviso).
 
+### O tempo: baixas, altas e tempestades
+
+Com `weather`, um campo de pressão em escala sinótica dita onde há nuvens, de que tipo, até que altura e o vento que as
+leva. A cobertura (número), o tipo e o topo da camada passam a ser o tempo bom; a camada vai da base à tropopausa.
+
+```ts
+new CloudLayer({
+    coverage: 0.3, // o tempo bom
+    top: 2800,
+    wind: [6, 0], // o vento de condução: leva os sistemas
+    weather: { latitude: 40, tropopause: 11_000 }, // o padrão de sistemas da biblioteca
+});
+```
+
+- **Pressão**: sem `pressure`, sistemas de alta e baixa que nascem, crescem e se desfazem (`scale`, `amplitude`,
+  `lifetime`, `seed`); com `pressure` (WGSL ou grafo do ponto `cloud_pressure`), o da cena:
+  `fn pressure_fn(xz: vec2f, time: f32, data: PressureFnParams) -> f32`, a anomalia em Pa no referencial que anda com o
+  vento de condução (leste = +x, norte = −z).
+- **Vento**: o equilíbrio do vento gradiente com atrito pela latitude (f = 2Ω sin φ): anti-horário em volta das baixas no
+  norte, horário no sul, descendo o gradiente no equador; soma-se ao vento de condução e leva as nuvens.
+- **Subida e descida**: a convergência do vento com atrito na camada limite (`friction`; a relação de Ekman) sobe o ar
+  nas baixas — mais cobertura e torres de alturas diferentes (só as células mais fortes chegam à tropopausa; a água
+  condensada da torre escurece a base) — e o desce nas altas — céu limpo ou nuvens rasas; onde os sistemas se encontram,
+  uma faixa de nuvens (a frente).
+- **Bigorna**: onde a torre chega à tropopausa nasce uma lâmina de gelo de 2 km logo abaixo dela, levada pelo vento da
+  alta troposfera (`shear` × o vento da camada; padrão 2,5) para longe da torre e desfeita em horas.
+- **Evolução**: as nuvens se formam e se desfazem em `formation` segundos (o estado é série temporal da spec 037) e
+  andam com o vento local. `layer.weather = { … }` ajusta no quadro seguinte; `undefined` desliga.
+- **Limites**: o tempo vale no quadrado do mapa de cobertura (256 km); além dele, o tempo bom. Sem chuva, raios nem
+  dinâmica de fluidos: o modelo é diagnóstico (a pressão é dada; o resto sai dela).
+
 ## Como a luz entra
 
 - **Autossombra**: um cone curto de passos até o sol e, além dele, o mapa de transmitância visto do sol (a profundidade

@@ -15,7 +15,13 @@ export * from './input/index';
 export * from './ui/index';
 export type * from './plugins/index';
 export { PostProcessEffect } from './resources/PostProcessEffect';
-export type { PostProcessData, PostProcessOptions } from './resources/PostProcessEffect';
+export type {
+    EffectRead,
+    EffectStage,
+    EffectTexture,
+    PostProcessData,
+    PostProcessOptions,
+} from './resources/PostProcessEffect';
 export { ToneMapping } from './resources/ToneMapping';
 export { SceneRenderer } from './resources/SceneRenderer';
 export type {

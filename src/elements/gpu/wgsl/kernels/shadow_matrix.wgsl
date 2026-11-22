@@ -29,8 +29,10 @@ fn shadow_matrix_write(i: u32, eye: vec3f, view_projection: mat4x4f) {
     let far = max(shadow_params.far, map.firstLevelRadius);
     let levels = u32(clamp(ceil(log2(far / map.firstLevelRadius)) + 1.0, 1.0, f32(SV_MAX_LEVELS)));
     let previous = shadow_matrices_previous[r.shadowSlot];
+    // A direção com que as páginas do cache foram desenhadas (não a do quadro anterior): a luz que gira devagar não
+    // acumula desvio quadro a quadro — passado o limiar desde ela, o cache recomeça com a direção de agora.
     let same = shadow_params.previousValid != 0u
-        && dot(previous.direction.xyz, dir) > 0.999999
+        && dot(previous.cacheDirection.xyz, dir) > 0.999999
         && previous.firstLevelRadius == map.firstLevelRadius
         && previous.pagesPerLevel == map.pagesPerLevel
         && previous.atlasPages == map.atlasPages;
@@ -39,6 +41,7 @@ fn shadow_matrix_write(i: u32, eye: vec3f, view_projection: mat4x4f) {
     m.viewProjection = view_projection;
     m.camera = vec4f(camera, f32(levels));
     m.direction = vec4f(dir, select(1.0, 0.0, same));
+    m.cacheDirection = vec4f(select(dir, previous.cacheDirection.xyz, same), 0.0);
     m.kernelRotation = shadow_params.kernelRotation;
     m.texelJitter = shadow_params.texelJitter;
     m.firstLevelRadius = map.firstLevelRadius;
