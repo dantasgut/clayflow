@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { patternCells, patternGrain, patternRings, patternWeave } from '../reference/pattern';
-import { surfaceBump, surfaceUvSpace } from '../reference/surface';
+import {
+    patternCells,
+    patternGrain,
+    patternKnit,
+    patternRings,
+    patternThreshold,
+    patternWeave,
+} from '../reference/pattern';
+import {
+    surfaceBump,
+    surfaceDirection,
+    surfaceDisplacement,
+    surfaceRelief,
+    surfaceReliefNormal,
+    surfaceUvSpace,
+} from '../reference/surface';
 
 // Padrões com relevo (spec 011): o gradiente analítico de cada padrão contra a diferença finita da altura dele, o
 // fechamento sem emenda no período (`wrap`), a média abaixo do pixel (`width`) e a normal de `surface.bump`. A GPU é
@@ -234,5 +248,138 @@ describe('padrões com relevo (spec 011)', () => {
         const mirrored = surfaceBump(n, [1, 0, 0], [0, -1, 0], [0.5, 0], 1);
         expect(mirrored[0]).toBeCloseTo(tilted[0]!, 12);
         expect(surfaceBump(n, [0, 0, 0], [0, 0, 0], [3, 3], 1)).toEqual(n);
+    });
+
+    it('tricô: pontos em V espelhados na coluna, altura em [0, 1], gradiente = derivada, fecha no período', () => {
+        checkGradient(
+            (p) => {
+                const k = patternKnit(p, 0, [0, 0], 2, 1.5, 0.9, 3);
+                return { h: k.height, g: k.gradient };
+            },
+            3,
+            12,
+        );
+        for (const p of POINTS) {
+            const k = patternKnit(p, 0, [0, 0], 2, 1.5, 0.9, 3, 0.4);
+            expect(k.height).toBeGreaterThanOrEqual(0);
+            expect(k.height).toBeLessThanOrEqual(1);
+            expect(k.strand).toBeGreaterThanOrEqual(0);
+            expect(k.strand).toBeLessThanOrEqual(1);
+            expect(Math.hypot(k.fiber[0]!, k.fiber[1]!)).toBeGreaterThan(0.5);
+            // Sem fio (o fundo): sem altura e `gap` 1; com fio, `gap` 0.
+            expect(k.gap).toBe(k.height > 0 ? 0 : 1);
+        }
+        // As duas pernas do ponto: espelhadas em torno do meio da coluna (x = 0,5 da célula), a fibra para lados opostos.
+        const left = patternKnit([0.2, 0.3], 0, [0, 0], 1, 1, 1, 0);
+        const right = patternKnit([0.8, 0.3], 0, [0, 0], 1, 1, 1, 0);
+        expect(left.height).toBeCloseTo(right.height, 5);
+        expect(left.height).toBeGreaterThan(0.2);
+        expect(left.gradient[0]).toBeCloseTo(-right.gradient[0]!, 4);
+        expect(left.fiber[0]).toBeCloseTo(-right.fiber[0]!, 5);
+        expect(left.fiber[0]!).toBeLessThan(0);
+        // Fecha no período: o mesmo ponto uma volta adiante.
+        const here = patternKnit([0.37, 0.61], 0, [2, 4], 4, 1.5, 1, 1, 0.3);
+        const round = patternKnit([2.37, 4.61], 0, [2, 4], 4, 1.5, 1, 1, 0.3);
+        expect(round.height).toBeCloseTo(here.height, 5);
+        expect(round.stitch).toBe(here.stitch);
+        // Abaixo do pixel: a média, sem gradiente, a fibra ao longo das colunas.
+        const far = patternKnit([0.37, 0.61], 1, [0, 0], 4, 1.5, 1, 1, 0.3);
+        expect(far.height).toBe(0.35);
+        expect(far.strand).toBe(0.5);
+        expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
+        expect(far.fiber[0]).toBeCloseTo(0, 12);
+        expect(far.fiber[1]).toBe(1);
+    });
+
+    it('trama: a fibra do fio torcido faz o ângulo da torção no meio do fio e corre com o eixo nas bordas', () => {
+        const twist = 0.4;
+        // Tela, sem vão: o cruzamento (0, 0) é de urdidura (ao longo de p.y); o centro do fio em x = 0,5.
+        const middle = patternWeave([0.5, 0.5], 0, [0, 0], 1, 1, 1, 1, 0, 0, twist);
+        expect(middle.warp).toBe(1);
+        expect(middle.fiber[0]).toBeCloseTo(Math.sin(twist), 12);
+        expect(middle.fiber[1]).toBeCloseTo(Math.cos(twist), 12);
+        // A 0,35 do passo do meio do fio (seção 1 − 0,49): a hélice vista mais de lado, a fibra mais perto do eixo.
+        const side = patternWeave([0.5 + 0.35, 0.5], 0, [0, 0], 1, 1, 1, 1, 0, 0, twist);
+        expect(side.warp).toBe(1);
+        expect(side.fiber[0]).toBeCloseTo(Math.sin(twist) * Math.sqrt(0.51), 6);
+        // Sem torção: a fibra é o eixo do fio e não há cabos.
+        const plain = patternWeave([0.5, 0.5], 0, [0, 0], 1, 1, 1, 1, 0, 0);
+        expect(plain.fiber).toEqual([0, 1]);
+        expect(plain.strand).toBe(1);
+        // Os cabos: faixas em [0, 1] que mudam ao longo do fio.
+        const along = [0.1, 0.3, 0.5, 0.7, 0.9].map(
+            (y) => patternWeave([0.5, y], 0, [0, 0], 1, 4, 1, 2, 0, 0, twist).strand,
+        );
+        for (const v of along) {
+            expect(v).toBeGreaterThanOrEqual(0);
+            expect(v).toBeLessThanOrEqual(1);
+        }
+        expect(Math.max(...along) - Math.min(...along)).toBeGreaterThan(0.5);
+        // A direção em mundo: sobre as tangentes do padrão, normalizada; sem tangentes, zero.
+        const world = surfaceDirection([2, 0, 0], [0, 0, 3], middle.fiber);
+        expect(Math.hypot(...world)).toBeCloseTo(1, 12);
+        expect(world[0]! / world[2]!).toBeCloseTo(
+            (2 * Math.sin(twist)) / (3 * Math.cos(twist)),
+            12,
+        );
+        expect(surfaceDirection([0, 0, 0], [0, 0, 0], [1, 1])).toEqual([0, 0, 0]);
+    });
+
+    it('limiar: smoothstep do valor com o gradiente pela regra da cadeia; invertido com low > high', () => {
+        const base = (p: readonly [number, number]) =>
+            patternGrain(p, 0, [0, 0], [1.5, 3], 2, 2, 2, 0.5);
+        checkGradient(
+            (p) => {
+                const g = base(p);
+                const t = patternThreshold(g.value, g.gradient, -0.3, 0.4);
+                return { h: t.value, g: t.gradient };
+            },
+            3,
+            20,
+        );
+        expect(patternThreshold(-1, [3, 3], 0, 1)).toEqual({ value: 0, gradient: [0, 0] });
+        expect(patternThreshold(2, [3, 3], 0, 1)).toEqual({ value: 1, gradient: [0, 0] });
+        expect(patternThreshold(0.5, [1, 0], 0, 1).gradient[0]).toBeCloseTo(1.5, 12);
+        // Invertido: 1 abaixo de `high`, 0 acima de `low` (a fresta onde o grão passa de um nível).
+        expect(patternThreshold(0.2, [1, 1], 0.5, 0.3).value).toBe(1);
+        expect(patternThreshold(0.6, [1, 1], 0.5, 0.3).value).toBe(0);
+        expect(patternThreshold(0.4, [1, 0], 0.5, 0.3).gradient[0]).toBeLessThan(0);
+    });
+
+    it('relevo em milímetros: a normal é a da superfície deslocada; a altura sai na escala do mundo', () => {
+        // Um plano de 2 × 3 unidades por unidade de uv (cena a 10 unidades por metro) com a altura h(u, v) em mm.
+        const dpdu = [2, 0, 0];
+        const dpdv = [0, 0, -3];
+        const n = [0, 1, 0];
+        const scale = 10;
+        // O padrão em p = uv · (4, 8): valor 0,3, gradiente (0,5; −0,25) por unidade de p; 2 mm por unidade do padrão.
+        const relief = surfaceRelief(0.3, [0.5, -0.25], [4, 8], 2, 0.1);
+        expect(relief[0]).toBeCloseTo(0.4, 12);
+        expect(relief[1]).toBeCloseTo(2 * 0.5 * 4, 12);
+        expect(relief[2]).toBeCloseTo(2 * -0.25 * 8, 12);
+        expect(surfaceDisplacement(relief, scale)).toBeCloseTo(0.4 * 0.001 * scale, 15);
+        // A superfície deslocada: P(u, v) = u·dpdu + v·dpdv + n · H(u, v), H em unidades do mundo; a normal é
+        // (∂P/∂u × ∂P/∂v) normalizada, do lado de n.
+        const hu = relief[1]! * 0.001 * scale;
+        const hv = relief[2]! * 0.001 * scale;
+        const pu = [dpdu[0]!, hu, dpdu[2]!];
+        const pv = [dpdv[0]!, hv, dpdv[2]!];
+        const cross = [
+            pu[1]! * pv[2]! - pu[2]! * pv[1]!,
+            pu[2]! * pv[0]! - pu[0]! * pv[2]!,
+            pu[0]! * pv[1]! - pu[1]! * pv[0]!,
+        ];
+        const length = Math.hypot(...cross) * Math.sign(cross[1]!);
+        const expected = cross.map((c) => c / length);
+        const normal = surfaceReliefNormal(n, dpdu, dpdv, relief, scale);
+        normal.forEach((c, k) => {
+            expect(c).toBeCloseTo(expected[k]!, 12);
+        });
+        // Sem tangentes (os acertos dos raios): a normal; a inclinação fica presa em 4 (76°).
+        expect(surfaceReliefNormal(n, [0, 0, 0], [0, 0, 0], relief, scale)).toEqual(n);
+        const steep = surfaceReliefNormal(n, [1, 0, 0], [0, 0, -1], [0, 1e6, 0], 1);
+        expect(Math.hypot(steep[0]!, steep[2]!) / steep[1]!).toBeCloseTo(4, 9);
+        // Período nulo num eixo (escala degenerada do uvSpace): vale 1.
+        expect(surfaceRelief(1, [1, 1], [0, 2], 1, 0)).toEqual([1, 1, 2]);
     });
 });
