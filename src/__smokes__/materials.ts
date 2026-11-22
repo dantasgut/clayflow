@@ -17,12 +17,19 @@
 //     recompilar; religar recompila sem quadro sem o objeto;
 //   - material-fn-compat: a função da 009 (`SurfaceParams`) desenha igual ao material pronto;
 //   - transmission-layers: vidro atrás de vidro aparece; IOR 1 é invisível;
-//   - sanitize: fechamento com NaN não chega ao HDR.
+//   - sanitize: fechamento com NaN não chega ao HDR;
+//   - gallery (US5): os 23 materiais prontos (`Materials.*`) em esferas sob a mesma luz, diante de uma parede xadrez —
+//     madeira crua sem realce nítido e envernizada com realce nítido, veludo com a borda mais clara que o centro, metal
+//     escovado com o realce alongado, vidro transparente com o xadrez refratado (`--query case=gallery&shot=1` grava o
+//     quadro em `fixtures/zzGallery.png`);
+//   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
+//     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
     DirectionalLight,
     MaterialFunction,
+    Materials,
     NodeGraph,
     nodes,
     PlaneGeometry,
@@ -31,7 +38,7 @@ import {
     StandardMaterial,
     Transform,
 } from 'clayflow/web';
-import type { Application, LobeName } from 'clayflow/web';
+import type { Application, LobeName, MaterialName } from 'clayflow/web';
 import { capture, nextGpuFrame } from './support/extensionScenes';
 import { hdrAt, type HdrImage } from './support/imageMeasures';
 import {
@@ -44,7 +51,8 @@ import {
     renderHdr,
     renderIntegral,
 } from './support/materialScenes';
-import { luminanceLinear } from './support/images';
+import { writeFixture } from './support/fixtures';
+import { luminanceLinear, toPng } from './support/images';
 
 function log(msg: string): void {
     console.log(`[materials] ${msg}`);
@@ -1020,6 +1028,396 @@ async function caseSanitize(): Promise<void> {
     check(bad === 0, `sanitize: ${bad} valores não finitos no alvo HDR`);
 }
 
+// ── Biblioteca de materiais prontos (US5) ───────────────────────────────────────────────────────────────────────
+
+/** A galeria: 6 colunas × 4 linhas, na ordem das famílias; o vidro ao lado da casa vazia (a parede à vista). */
+const GALLERY: readonly (readonly (MaterialName | null)[])[] = [
+    ['woodRaw', 'woodVarnishedGloss', 'woodVarnishedMatte', 'leather', 'rubber', 'ceramic'],
+    ['cotton', 'wool', 'velvet', 'silk', 'denim', 'sheerFabric'],
+    ['plasticMatte', 'plasticGloss', 'metalPolished', 'metalBrushed', 'carPaint', 'metalOxidized'],
+    ['porcelain', 'skin', 'wax', 'marble', 'glass', null],
+];
+
+/**
+ * Parede difusa xadrez em z = −2 (casas de `cell` de lado, deslocadas `offset` casas em x e y), pelo grafo: o padrão é
+ * material.
+ */
+function checkerWall(app: Application, cell: number, offset: readonly [number, number]): void {
+    app.world.insert(
+        new PlaneGeometry({ size: [20, 20] })
+            .add(new StandardMaterial())
+            .add(
+                new Transform({
+                    position: [0, 0, -2, 1],
+                    rotation: [Math.sin(Math.PI / 4), 0, 0, Math.cos(Math.PI / 4)],
+                }),
+            )
+            .add(
+                materialGraph(
+                    {
+                        s: nodes.input.surfaceSample(),
+                        c: nodes.pattern.checker3.with({ scale: 1 / cell, offset: [...offset, 0] }),
+                        ramp: nodes.color.ramp.with({
+                            color_a: [0.06, 0.06, 0.07],
+                            color_b: [0.6, 0.6, 0.58],
+                        }),
+                        d: nodes.bsdf.diffuse,
+                    },
+                    [
+                        ['s.world_position', 'c.p'],
+                        ['c.value', 'ramp.t'],
+                        ['ramp.color', 'd.color'],
+                    ],
+                    'd.value',
+                ),
+            ),
+    );
+}
+
+async function caseGallery(): Promise<void> {
+    const W = 960;
+    const H = 640;
+    const height = 4.8;
+    const R = 0.5;
+    const STEP = 1.2;
+    const { app, canvas } = await materialApp(W, H, engineErrors);
+    frontCamera(app, height);
+    // A mesma luz para todos: um sol de cima, à direita e de frente, mais o ambiente padrão da cena.
+    const l = [0.35, 0.3, 1];
+    app.world.insert(
+        new DirectionalLight({ direction: [-l[0]!, -l[1]!, -l[2]!, 0], intensity: 3 }),
+    );
+    // Casas de 0,3: o passo das colunas (1,2) é um número par de casas — a parede atrás do vidro é igual à da casa vazia.
+    // O xadrez deslocado um terço e um quarto de casa: o centro do vidro não cai num vértice do xadrez (a imagem
+    // invertida pela esfera seria igual à direta).
+    checkerWall(app, 0.3, [1 / 3, 1 / 4]);
+    const center = new Map<MaterialName | 'empty', [number, number]>();
+    GALLERY.forEach((row, j) => {
+        row.forEach((name, i) => {
+            const x = (i - 2.5) * STEP;
+            const y = (1.5 - j) * STEP;
+            center.set(name ?? 'empty', [x, y]);
+            if (name !== null) sphere(app, x, y, R, Materials[name]());
+        });
+    });
+    const started = performance.now();
+    // 32 quadros: o sinal traçado do vidro (uma amostra por quadro) passa pelo filtro temporal da refração.
+    const img = await renderHdr(app, 32, 1500);
+    const ready = performance.now() - started;
+    if (new URLSearchParams(location.search).get('shot') !== null) {
+        // O canvas só vale na tarefa do quadro: um quadro e a captura, sem ceder entre os dois.
+        app.step(0);
+        await writeFixture('zzGallery.png', await toPng(capture(canvas)));
+    }
+    disposeApp(app, canvas);
+
+    const px = (name: MaterialName | 'empty'): [number, number] => {
+        const [x, y] = center.get(name)!;
+        return frontPixel(x, y, height, W, H);
+    };
+    const r = (R / height) * H;
+    // Todos desenhados, sem valores não finitos.
+    let bad = 0;
+    for (let k = 0; k < img.data.length; k++) if (!Number.isFinite(img.data[k]!)) bad++;
+    const dark = [...center.keys()].filter((name) => {
+        if (name === 'empty') return false;
+        const [x, y] = px(name);
+        let sum = 0;
+        for (let dy = -8; dy <= 8; dy += 4)
+            for (let dx = -8; dx <= 8; dx += 4) sum += lum(hdrAt(img, x + dx, y + dy));
+        return !(sum > 0);
+    });
+    log(
+        `gallery: ${center.size - 1} materiais prontos sob a mesma luz, ${W}×${H}; pronto em ${(ready / 1000).toFixed(1)} s; ${bad} valores não finitos; sem imagem: ${dark.length === 0 ? 'nenhum' : dark.join(', ')}`,
+    );
+    check(bad === 0, `gallery: ${bad} valores não finitos no alvo HDR`);
+    check(dark.length === 0, `gallery: materiais sem imagem (${dark.join(', ')})`);
+
+    // Realce do sol: a normal na meia direção entre a luz e o observador (+z).
+    const len = Math.hypot(l[0]!, l[1]!, l[2]!);
+    const hl = Math.hypot(l[0]! / len, l[1]! / len, l[2]! / len + 1);
+    const hx = l[0]! / len / hl;
+    const hy = l[1]! / len / hl;
+    /** Nitidez do realce: o pico perto da meia direção sobre a mediana do anel de 12 a 16 px em volta dele. */
+    const sharpness = (name: MaterialName): { ratio: number; peak: number } => {
+        const [cx, cy] = px(name);
+        const x0 = Math.round(cx + r * hx);
+        const y0 = Math.round(cy - r * hy);
+        let peak = 0;
+        let at: [number, number] = [x0, y0];
+        for (let dy = -6; dy <= 6; dy++)
+            for (let dx = -6; dx <= 6; dx++) {
+                const v = lum(hdrAt(img, x0 + dx, y0 + dy));
+                if (v > peak) {
+                    peak = v;
+                    at = [x0 + dx, y0 + dy];
+                }
+            }
+        const ring: number[] = [];
+        for (let dy = -16; dy <= 16; dy++)
+            for (let dx = -16; dx <= 16; dx++) {
+                const d = Math.hypot(dx, dy);
+                if (d >= 12 && d <= 16) ring.push(lum(hdrAt(img, at[0] + dx, at[1] + dy)));
+            }
+        ring.sort((a, b) => a - b);
+        return { ratio: peak / ring[ring.length >> 1]!, peak };
+    };
+    const raw = sharpness('woodRaw');
+    const gloss = sharpness('woodVarnishedGloss');
+    const matte = sharpness('woodVarnishedMatte');
+    log(
+        `gallery: realce do sol (pico / mediana do anel a 12–16 px) — madeira crua ${raw.ratio.toFixed(2)}×, verniz brilhante ${gloss.ratio.toFixed(1)}× (pico ${gloss.peak.toFixed(1)}), verniz fosco ${matte.ratio.toFixed(2)}×`,
+    );
+    check(raw.ratio < 1.3, `gallery: a madeira crua tem realce nítido (${raw.ratio})`);
+    check(gloss.ratio > 2, `gallery: a madeira envernizada não tem realce nítido (${gloss.ratio})`);
+    check(
+        gloss.ratio > matte.ratio && matte.ratio > raw.ratio,
+        `gallery: o verniz fosco não fica entre a madeira crua e o verniz brilhante (${matte.ratio})`,
+    );
+
+    // Borda do veludo: o maior valor do anel a 0,93 R sobre o centro, contra um tecido sem pelo ereto e um fosco.
+    const rim = (name: MaterialName): number => {
+        const [cx, cy] = px(name);
+        let top = 0;
+        for (let k = 0; k < 64; k++) {
+            const a = (2 * Math.PI * k) / 64;
+            top = Math.max(
+                top,
+                lum(
+                    hdrAt(
+                        img,
+                        Math.round(cx + 0.93 * r * Math.cos(a)),
+                        Math.round(cy + 0.93 * r * Math.sin(a)),
+                    ),
+                ),
+            );
+        }
+        return top / lum(hdrAt(img, cx, cy));
+    };
+    const velvet = rim('velvet');
+    const cotton = rim('cotton');
+    const rubber = rim('rubber');
+    log(
+        `gallery: borda/centro — veludo ${velvet.toFixed(2)}, algodão ${cotton.toFixed(2)}, borracha ${rubber.toFixed(2)}`,
+    );
+    check(velvet > 1.3, `gallery: a borda do veludo não brilha mais que o centro (${velvet})`);
+    check(velvet > cotton, `gallery: o veludo não tem mais borda que o algodão (${cotton})`);
+
+    // Realce alongado do metal escovado: razão dos eixos principais dos pixels acima de meio pico, na esfera.
+    const elongation = (name: MaterialName): number => {
+        const [cx, cy] = px(name);
+        const inside: [number, number, number][] = [];
+        let peak = 0;
+        const rr = Math.floor(0.95 * r);
+        for (let dy = -rr; dy <= rr; dy++)
+            for (let dx = -rr; dx <= rr; dx++) {
+                if (dx * dx + dy * dy > rr * rr) continue;
+                const v = lum(hdrAt(img, cx + dx, cy + dy));
+                inside.push([dx, dy, v]);
+                peak = Math.max(peak, v);
+            }
+        let w = 0;
+        let mx = 0;
+        let my = 0;
+        for (const [x, y, v] of inside)
+            if (v >= peak / 2) {
+                w += v;
+                mx += v * x;
+                my += v * y;
+            }
+        mx /= w;
+        my /= w;
+        let xx = 0;
+        let yy = 0;
+        let xy = 0;
+        for (const [x, y, v] of inside)
+            if (v >= peak / 2) {
+                xx += (v * (x - mx) ** 2) / w;
+                yy += (v * (y - my) ** 2) / w;
+                xy += (v * (x - mx) * (y - my)) / w;
+            }
+        // Pixel único (realce abaixo do pixel): a variância do próprio pixel (1/12) nos dois eixos.
+        xx += 1 / 12;
+        yy += 1 / 12;
+        const mean = (xx + yy) / 2;
+        const dev = Math.hypot((xx - yy) / 2, xy);
+        return Math.sqrt((mean + dev) / (mean - dev));
+    };
+    const brushed = elongation('metalBrushed');
+    const polished = elongation('metalPolished');
+    log(
+        `gallery: realce do metal (razão dos eixos) — escovado ${brushed.toFixed(2)}×, polido ${polished.toFixed(2)}×`,
+    );
+    check(brushed > 1.8, `gallery: o realce do metal escovado não é alongado (${brushed})`);
+    check(
+        brushed > polished,
+        `gallery: o metal polido é mais alongado que o escovado (${polished})`,
+    );
+
+    // Vidro: a parede aparece através dele (transparente) com o xadrez deslocado (refração) — o mesmo trecho da
+    // parede à vista na casa vazia ao lado, duas linhas de casas.
+    const [gx, gy] = px('glass');
+    const [ex, ey] = px('empty');
+    const span = Math.round(0.6 * r);
+    const cellPx = (0.3 / height) * H;
+    let through = 0;
+    let wall = 0;
+    let differ = 0;
+    let n = 0;
+    const flips = { glass: 0, wall: 0 };
+    for (const row of [-0.25, 0.25]) {
+        const dy = Math.round(row * cellPx * 2);
+        const a = profile(img, gy + dy, gx - span, gx + span + 1);
+        const b = profile(img, ey + dy, ex - span, ex + span + 1);
+        const top = Math.max(...b);
+        const low = Math.min(...b);
+        const mid = (top + low) / 2;
+        through = Math.max(through, ...a);
+        wall = Math.max(wall, top);
+        for (let k = 0; k < a.length; k++) {
+            if (a[k]! > mid !== b[k]! > mid) differ++;
+            n++;
+            if (k > 0 && a[k]! > mid !== a[k - 1]! > mid) flips.glass++;
+            if (k > 0 && b[k]! > mid !== b[k - 1]! > mid) flips.wall++;
+        }
+    }
+    log(
+        `gallery: vidro — casa clara da parede ${wall.toFixed(3)} à vista e ${through.toFixed(3)} através dele; ${((100 * differ) / n).toFixed(0)} % do trecho com a casa trocada; bordas do xadrez: ${flips.glass} através, ${flips.wall} à vista`,
+    );
+    check(through > 0.5 * wall, `gallery: o vidro não é transparente (${through} × ${wall})`);
+    check(differ / n > 0.15, `gallery: o xadrez não aparece refratado (${differ} de ${n})`);
+}
+
+async function caseLibraryCompose(): Promise<void> {
+    const W = 800;
+    const H = 400;
+    const height = 2;
+    const R = 0.8;
+    const { app, canvas } = await materialApp(W, H, engineErrors);
+    noAmbient(app);
+    frontCamera(app, height);
+    app.world.insert(new DirectionalLight({ direction: [-0.35, -0.3, -1, 0], intensity: 3 }));
+    // O grafo do quickstart: madeira crua e metal escovado, nós da biblioteca, misturados por ruído.
+    const mixed = new NodeGraph({
+        nodes: {
+            s: nodes.input.surfaceSample(),
+            a: nodes.material.woodRaw,
+            b: nodes.material.metalBrushed,
+            n: nodes.noise.gradient3.with({ scale: 3 }),
+            x: nodes.closure.mix,
+            out: nodes.output.closure,
+        },
+        links: [
+            ['s.world_position', 'n.p'],
+            ['a.value', 'x.a'],
+            ['b.value', 'x.b'],
+            ['n.value', 'x.t'],
+            ['x.value', 'out.closure'],
+        ],
+        output: 'out.value',
+    });
+    // As três esferas na mesma posição do ruído (o ruído é da posição de mundo): uma por vez, no mesmo lugar.
+    const shots: HdrImage[] = [];
+    const fns = [
+        Materials.woodRaw(),
+        Materials.metalBrushed(),
+        new MaterialFunction({ graph: mixed }),
+    ];
+    const spheres = fns.map((fn) =>
+        new SphereGeometry({ radius: R, latSegments: 96, lonSegments: 192 })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [-1, 0, 0, 1] }))
+            .add(fn),
+    );
+    // Material pronto com uma entrada ligada a outro nó: a cor do plástico brilhante vem de um xadrez (rampa de cor).
+    sphere(
+        app,
+        1,
+        0,
+        R,
+        materialGraph(
+            {
+                s: nodes.input.surfaceSample(),
+                c: nodes.pattern.checker3.with({ scale: 2 }),
+                ramp: nodes.color.ramp.with({
+                    color_a: [0.8, 0.05, 0.05],
+                    color_b: [0.05, 0.05, 0.8],
+                }),
+                p: nodes.material.plasticGloss,
+            },
+            [
+                ['s.world_position', 'c.p'],
+                ['c.value', 'ramp.t'],
+                ['ramp.color', 'p.color'],
+            ],
+            'p.value',
+        ),
+    );
+    for (const entity of spheres) {
+        app.world.insert(entity);
+        shots.push(await renderHdr(app));
+        app.world.remove(entity);
+    }
+    disposeApp(app, canvas);
+    const [wood, metal, mix] = shots as [HdrImage, HdrImage, HdrImage];
+    const [cx, cy] = frontPixel(-1, 0, height, W, H);
+    const r = Math.floor(((0.9 * R) / height) * H);
+    let total = 0;
+    let asWood = 0;
+    let asMetal = 0;
+    for (let dy = -r; dy <= r; dy += 2)
+        for (let dx = -r; dx <= r; dx += 2) {
+            if (dx * dx + dy * dy > r * r) continue;
+            const a = lum(hdrAt(wood, cx + dx, cy + dy));
+            const b = lum(hdrAt(metal, cx + dx, cy + dy));
+            const m = lum(hdrAt(mix, cx + dx, cy + dy));
+            // Só onde os dois materiais diferem o bastante para dizer qual é qual.
+            if (Math.abs(a - b) < 0.02) continue;
+            total++;
+            const t = (m - a) / (b - a);
+            if (Math.abs(t) < 0.05) asWood++;
+            else if (Math.abs(t - 1) < 0.05) asMetal++;
+        }
+    // O ruído vai de −1 a 1 e a mistura prende em [0, 1]: metade da esfera é madeira pura; no resto os dois entram
+    // (os especulares fundidos pela regra do `closure-mix`, não a média das duas imagens).
+    const blended = total - asWood - asMetal;
+    log(
+        `library-compose: madeira crua × metal escovado por ruído — de ${total} pixels: ${((100 * asWood) / total).toFixed(0)} % iguais à madeira, ${((100 * asMetal) / total).toFixed(0)} % iguais ao metal, ${((100 * blended) / total).toFixed(0)} % com os dois`,
+    );
+    check(total > 1000, `library-compose: madeira e metal não se distinguem (${total} pixels)`);
+    check(asWood / total > 0.15, `library-compose: a madeira não aparece na mistura (${asWood})`);
+    check(
+        (blended + asMetal) / total > 0.15,
+        `library-compose: o metal não aparece na mistura (${blended + asMetal})`,
+    );
+
+    // A cor ligada: casas vizinhas do xadrez (0,5 de lado) com as duas cores da rampa; o realce do plástico continua.
+    const at = (x: number, y: number): [number, number, number] => {
+        const [qx, qy] = frontPixel(1 + x, y, height, W, H);
+        return hdrAt(mix, qx, qy);
+    };
+    const one = at(-0.25, -0.25);
+    const other = at(0.25, -0.25);
+    const redBlue = (c: readonly number[]): number => c[0]! / Math.max(c[2]!, 1e-6);
+    const lo = Math.min(redBlue(one), redBlue(other));
+    const hi = Math.max(redBlue(one), redBlue(other));
+    let peak = 0;
+    const [sx, sy] = frontPixel(1, 0, height, W, H);
+    const sr = Math.floor((R / height) * H);
+    for (let dy = -sr; dy <= sr; dy++)
+        for (let dx = -sr; dx <= sr; dx++)
+            if (dx * dx + dy * dy <= sr * sr)
+                peak = Math.max(peak, lum(hdrAt(mix, sx + dx, sy + dy)));
+    log(
+        `library-compose: plástico brilhante com a cor ligada ao xadrez — vermelho/azul ${hi.toFixed(1)} numa casa e ${lo.toFixed(3)} na vizinha; pico do realce ${peak.toFixed(1)}`,
+    );
+    check(
+        hi > 4 && lo < 0.25,
+        `library-compose: a cor ligada não chega ao material (${hi}, ${lo})`,
+    );
+    check(peak > 2, `library-compose: o plástico perdeu o realce (${peak})`);
+}
+
 const CASES: Record<string, () => Promise<void>> = {
     'layer-two-highlights': caseLayer,
     'transmission-refraction': caseRefraction,
@@ -1035,6 +1433,8 @@ const CASES: Record<string, () => Promise<void>> = {
     'material-fn-compat': caseCompat,
     'transmission-layers': caseLayers,
     sanitize: caseSanitize,
+    gallery: caseGallery,
+    'library-compose': caseLibraryCompose,
 };
 
 async function main(): Promise<void> {
