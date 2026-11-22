@@ -193,7 +193,7 @@ girando e vento no smoke de antisserrilhado, o interior com a camada (≤ 0,3 ms
       **4,15 ms** (−25 %) — o custo da perspectiva aérea não aparece como regressão no bench. As cenas `clouds` (`noon`,
       `sunset`, `flight`) não estão no baseline. **Em aberto**: o baseline não foi regravado (gravá-lo agora esconderia a
       regressão do storage dos alvos).
-- [ ] T044 Conferir as caixas deste arquivo contra o código e abrir o PR do ramo para o `develop` (com a confirmação do usuário).
+- [x] T044 (PR #53) Conferir as caixas deste arquivo contra o código e abrir o PR do ramo para o `develop` (com a confirmação do usuário).
       **Fechamento (2026-11-22, o usuário: "Quero fechar a 41 e iniciar a próxima").** Todas as outras caixas fechadas.
       Transferidas para a fila, listadas no PR: os feixes mais nítidos (T075), o teto do sol rápido (T082), as regressões
       do bench em outras áreas (T043) e o consumidor da vista `'camera'` (T067). Não exercitado por nenhum caso: o
