@@ -52,8 +52,12 @@ describe('Materials (spec 011, US5)', () => {
             expect(def.name).toBe(`material.${name}`);
             expect(def.outputs).toEqual({ value: 'Closure' });
             expect(defaultNodeRegistry.get(def.name)).toBe(def);
-            // Toda entrada é um parâmetro exposto (tem valor sem ligação).
-            for (const input of Object.keys(def.inputs)) expect(def.params).toHaveProperty(input);
+            // Toda entrada tem valor sem ligação: um parâmetro exposto, ou a amostra de superfície (`s`, a do ponto
+            // `material`) nos materiais com padrão.
+            for (const input of Object.keys(def.inputs)) {
+                if (input === 's') expect(def.defaults).toEqual({ s: 's' });
+                else expect(def.params).toHaveProperty(input);
+            }
             expect(Object.keys(def.params).length).toBeGreaterThan(0);
         }
     });
@@ -83,7 +87,8 @@ describe('Materials (spec 011, US5)', () => {
         for (const name of NAMES) {
             const base = Materials[name]();
             for (const [p, { type }] of Object.entries(nodes.material[name].params)) {
-                const value = type === 'vec3f' ? [0.11, 0.22, 0.33] : 0.123;
+                const value =
+                    type === 'vec3f' ? [0.11, 0.22, 0.33] : type === 'vec2f' ? [0.11, 0.22] : 0.123;
                 const changed = Materials[name]({ [p]: value });
                 expect(changed.module).toBe(base.module);
                 for (const key of Object.keys(base.values)) {
@@ -104,6 +109,7 @@ describe('Materials (spec 011, US5)', () => {
     it('madeira envernizada = madeira crua sob um dielétrico liso em camada', () => {
         for (const name of ['woodVarnishedGloss', 'woodVarnishedMatte'] as const) {
             expect(inner(name)).toEqual({
+                s: 'argumento',
                 wood: 'material.woodRaw',
                 coat: 'bsdf.dielectric',
                 out: 'closure.layer',
@@ -111,6 +117,7 @@ describe('Materials (spec 011, US5)', () => {
             const graph = subgraphOrigin(nodes.material[name])!.graph;
             expect(graph.links).toEqual(
                 expect.arrayContaining([
+                    ['s.value', 'wood.s'],
                     ['coat.value', 'out.top'],
                     ['wood.value', 'out.base'],
                 ]),
@@ -131,16 +138,23 @@ describe('Materials (spec 011, US5)', () => {
         );
     });
 
-    it('pintura de carro = condutor sob um dielétrico em camada', () => {
-        expect(inner('carPaint')).toEqual({
+    it('pintura de carro = flocos de condutor inclinados sob um dielétrico em camada, com a casca de laranja', () => {
+        expect(inner('carPaint')).toMatchObject({
+            flake: 'pattern.cells',
+            tilt: 'surface.bump',
             flakes: 'bsdf.conductor',
+            peel: 'pattern.grain',
             coat: 'bsdf.dielectric',
             out: 'closure.layer',
         });
         expect(subgraphOrigin(nodes.material.carPaint)!.graph.links).toEqual(
             expect.arrayContaining([
-                ['coat.value', 'out.top'],
-                ['flakes.value', 'out.base'],
+                // Cada floco com a inclinação dele na normal da base; o verniz com a normal própria.
+                ['flake.random', 'tilt.gradient'],
+                ['tilt.value', 'layer_of_flakes.normal'],
+                ['wave.value', 'coat_surface.normal'],
+                ['coat_surface.value', 'out.top'],
+                ['layer_of_flakes.value', 'out.base'],
             ]),
         );
         expect(Materials.carPaint().lobeMask).toBe(LOBES.specular | LOBES.anisotropy | LOBES.coat);
@@ -162,15 +176,23 @@ describe('Materials (spec 011, US5)', () => {
             'woodRaw',
             'leather',
             'rubber',
-            'ceramic',
             'plasticMatte',
             'plasticGloss',
         ] as const)
-            expect(inner(name)).toEqual({
+            expect(inner(name)).toMatchObject({
                 body: 'bsdf.diffuse',
                 specular: 'bsdf.dielectric',
-                out: 'closure.add',
             });
+        expect(inner('plasticGloss')).toEqual({
+            body: 'bsdf.diffuse',
+            specular: 'bsdf.dielectric',
+            out: 'closure.add',
+        });
+        expect(inner('ceramic')).toMatchObject({
+            body: 'bsdf.diffuse',
+            glaze: 'bsdf.dielectric',
+            out: 'closure.layer',
+        });
         expect(Materials.glass().lobeMask & LOBES.transmission).toBe(LOBES.transmission);
         expect(Materials.woodRaw().lobeMask & LOBES.transmission).toBe(0);
     });
@@ -212,6 +234,72 @@ describe('Materials (spec 011, US5)', () => {
             expect(r).toBeGreaterThan(g!);
             expect(g).toBeGreaterThan(b!);
         }
+    });
+
+    it('a estrutura de cada material é um padrão por pixel sobre o uv, com o relevo na normal', () => {
+        const has = (name: MaterialName, node: string): boolean =>
+            Object.values(inner(name)).includes(node);
+        // O padrão que o nome promete.
+        const promised: Readonly<Partial<Record<MaterialName, string>>> = {
+            woodRaw: 'pattern.rings',
+            cotton: 'pattern.weave',
+            wool: 'pattern.weave',
+            denim: 'pattern.weave',
+            silk: 'pattern.weave',
+            sheerFabric: 'pattern.weave',
+            velvet: 'pattern.grain',
+            leather: 'pattern.cells',
+            rubber: 'pattern.grain',
+            plasticMatte: 'pattern.grain',
+            ceramic: 'pattern.cells',
+            metalBrushed: 'pattern.grain',
+            carPaint: 'pattern.cells',
+            metalOxidized: 'pattern.grain',
+            marble: 'pattern.grain',
+        };
+        for (const [name, node] of Object.entries(promised) as [MaterialName, string][]) {
+            expect(has(name, node), name).toBe(true);
+            expect(has(name, 'surface.uvSpace'), name).toBe(true);
+            // A escala do padrão no uv é parâmetro; o padrão recebe a largura do pixel e o período do espaço.
+            expect(nodes.material[name].params.pattern_scale).toEqual({
+                type: 'vec2f',
+                default: [1, 1],
+            });
+            const links = subgraphOrigin(nodes.material[name])!.graph.links;
+            expect(
+                links.some(([from]) => from === 'uv.width'),
+                name,
+            ).toBe(true);
+            expect(
+                links.some(([from]) => from === 'uv.wrap'),
+                name,
+            ).toBe(true);
+            // Vale em todos os estágios (os acertos dos raios avaliam o mesmo material).
+            expect(nodes.material[name].contexts).toEqual(['fragment', 'vertex', 'compute']);
+            expect(Materials[name]().code).not.toMatch(/\bdpd[xy]\w*\s*\(/);
+        }
+        // Com relevo na normal dos lobos de base (o mármore polido e o esmalte da cerâmica não: o da cerâmica é do
+        // esmalte).
+        for (const name of Object.keys(promised) as MaterialName[])
+            if (name !== 'marble') expect(has(name, 'surface.bump'), name).toBe(true);
+        // As madeiras envernizadas herdam o padrão da crua (usada como nó) e repassam a escala.
+        for (const name of ['woodVarnishedGloss', 'woodVarnishedMatte'] as const)
+            expect(nodes.material[name].params.pattern_scale!.default).toEqual([1, 1]);
+        // Jeans: sarja 3/1 de duas cores; seda: cetim com a tangente pelo fio à vista.
+        const weave = (name: MaterialName) =>
+            subgraphOrigin(nodes.material[name])!.graph.node('weave').values;
+        expect(weave('denim')).toMatchObject({ over: 3, under: 1, shift: 1 });
+        expect(weave('cotton')).toMatchObject({ over: 1, under: 1 });
+        expect(weave('silk')).toMatchObject({ over: 4, under: 1, shift: 2 });
+        expect(nodes.material.denim.params.color!.default).not.toEqual(
+            nodes.material.denim.params.weft_color!.default,
+        );
+        expect(subgraphOrigin(nodes.material.silk)!.graph.links).toEqual(
+            expect.arrayContaining([['thread_direction.value', 'threads.tangent']]),
+        );
+        expect(subgraphOrigin(nodes.material.metalBrushed)!.graph.links).toEqual(
+            expect.arrayContaining([['uv.du', 'metal.tangent']]),
+        );
     });
 
     it('como nó de um grafo maior: mistura por ruído e entrada ligada a outro nó', () => {
@@ -279,7 +367,8 @@ describe('Materials (spec 011, US5)', () => {
         for (const name of NAMES) {
             const [param, { type }] = Object.entries(nodes.material[name].params)[0]!;
             const graph = Materials[name]({
-                [param]: type === 'vec3f' ? [0.25, 0.5, 0.75] : 0.25,
+                [param]:
+                    type === 'vec3f' ? [0.25, 0.5, 0.75] : type === 'vec2f' ? [0.25, 0.5] : 0.25,
             }).graph!;
             const json = JSON.parse(
                 JSON.stringify(toJSON(graph, defaultNodeRegistry)),

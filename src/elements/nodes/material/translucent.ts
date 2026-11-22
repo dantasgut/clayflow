@@ -3,7 +3,10 @@ import type { NodeDefinition } from '../../../scene/graph/NodeDefinition';
 import { Subgraph } from '../../../scene/graph/Subgraph';
 import { bsdf } from '../bsdf';
 import { closure } from '../closure';
+import { map } from '../map';
 import { math } from '../math';
+import { pattern } from '../pattern';
+import { PATTERN_SCALE, patternLinks, patternSpace, SAMPLE_INPUT, SPACE_LINKS } from './pattern';
 
 // Materiais em que a luz entra no corpo (spec 011, R11): o vidro (transmissão com refração) e os de subsuperfície
 // (pele, cera, mármore, porcelana) — um especular de dielétrico sobre `bsdf.subsurface`. O raio de espalhamento por
@@ -70,14 +73,57 @@ export const wax = scattering('material.wax', {
 
 /**
  * `material.marble` — mármore polido: IOR 1,5 e raio (1, 0,65, 0,46) — o l_d do mármore de Jensen et al. 2001 (σ_s′
- * 2,19, 2,62, 3,00 e σ_a 0,0021, 0,0041, 0,0071 /mm, η 1,5); rugosidade 0,1. Parâmetros: os de `skin`.
+ * 2,19, 2,62, 3,00 e σ_a 0,0021, 0,0041, 0,0071 /mm, η 1,5); rugosidade 0,1. Os veios: as linhas em que um
+ * `pattern.grain` de cinco oitavas (2,5 por unidade do padrão) passa por zero — finas, ramificadas, de cor `vein_color`
+ * — sobre o corpo `color`, com nuvens largas do mesmo grão escurecendo de leve. Parâmetros: `color`, `vein_color`,
+ * `radius`, `roughness`, `ior`, `pattern_scale`.
  */
-export const marble = scattering('material.marble', {
-    color: [0.83, 0.79, 0.75],
-    radius: [1, 0.65, 0.46],
-    roughness: 0.1,
-    ior: 1.5,
-});
+export const marble = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(),
+            flow: pattern.grain.with({ scale: [2.5, 2.5], octaves: 5, gain: 0.55, seed: 21 }),
+            distance: math.abs,
+            vein: map.range.with({ in_min: 0, in_max: 0.07, out_min: 0.85, out_max: 0 }),
+            cloud: map.range.with({ in_min: -1, in_max: 1, out_min: 0.86, out_max: 1.08 }),
+            stone: math.value3.with({ value: [0.83, 0.79, 0.75] }),
+            clouded: math.scale3,
+            veined: math.mix3,
+            vein_color: math.value3.with({ value: [0.2, 0.2, 0.23] }),
+            body: bsdf.subsurface.with({ radius: [1, 0.65, 0.46] }),
+            specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.1 }),
+            out: closure.add,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('flow'),
+            ['flow.value', 'distance.x'],
+            ['distance.value', 'vein.x'],
+            ['flow.value', 'cloud.x'],
+            ['stone.value', 'clouded.v'],
+            ['cloud.value', 'clouded.s'],
+            ['clouded.value', 'veined.a'],
+            ['vein_color.value', 'veined.b'],
+            ['vein.value', 'veined.t'],
+            ['veined.value', 'body.color'],
+            ['specular.value', 'out.a'],
+            ['body.value', 'out.b'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.marble',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['stone.value', 'color'],
+            ['vein_color.value', 'vein_color'],
+            ['body.radius', 'radius'],
+            ['specular.roughness', 'roughness'],
+            ['specular.ior', 'ior'],
+            PATTERN_SCALE,
+        ],
+    },
+);
 
 /**
  * `material.porcelain` — porcelana esmaltada: corpo vitrificado levemente translúcido (raio curto e quase neutro,

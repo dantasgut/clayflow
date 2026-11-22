@@ -63,6 +63,11 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * Metais: `metalPolished`, `metalBrushed`, `carPaint`, `metalOxidized`. Translúcidos: `glass`, `skin`, `wax`, `marble`.
  * Os valores físicos e as fontes estão na documentação de cada nó.
  *
+ * A estrutura de cada um (o veio da madeira, a trama dos tecidos, o grão do couro, os riscos do metal escovado, os
+ * flocos da pintura, a ferrugem, os veios do mármore) é calculada por pixel pelos nós `nodes.pattern.*` sobre o uv do
+ * objeto, com o relevo na normal, filtrada pela largura do pixel. Os que têm padrão expõem `pattern_scale` (repetições
+ * por unidade de uv, por eixo; (1, 1)): numa esfera, `Materials.denim({ pattern_scale: [2, 1] })`.
+ *
  * @throws NodeGraphError (`node-signature`) valor para um parâmetro que o material não expõe.
  */
 export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object.freeze({
