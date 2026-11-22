@@ -365,3 +365,66 @@ com função `material`; a cena precisa da estrutura de raios (a da luz global o
 fica com a luz indireta; com MSAA o reflexo tem uma amostra por pixel e a soma vale para o pixel inteiro (a borda do
 objeto coberta em parte fica com a luz indireta removida nas amostras sem pedido); a rugosidade entre 0,08 e 0,16
 mistura um espelho com a luz indireta em vez de amostrar o lobo.
+
+### R17 — Deslocamento: o relevo do material como geometria (T115)
+
+**Decisão**: o relevo de um material é uma função de altura em milímetros, definida uma vez por nós
+(`surface.uvSpace` → `pattern.*` → `surface.relief`; os dos materiais prontos são os sub-grafos `nodes.relief.*`), com
+dois consumidores. No material, `surface.reliefNormal` inclina a normal por pixel. Na geometria, o ponto novo
+`displacement` (`fn displacement_fn(s: SurfaceSample, data) -> f32`) é chamado pelos kernels do `SurfaceFlow`
+(`surface_displaced_at`: a malha uniforme e a adaptativa) e move cada vértice da `ParametricSurface` ao longo da
+normal; a função é a `DisplacementFunction` da entidade, cujo grafo é o mesmo sub-grafo ligado a
+`surface.displacement`. A unidade é o milímetro, com a escala do mundo em unidades por metro (`scale`), como na
+subsuperfície (R15).
+
+**A passagem deslocamento → relevo → média**: os padrões filtram pela largura que recebem. No ponto `displacement` a
+amostra traz, no lugar das derivadas de tela do uv, o passo da malha no uv: o detalhe menor que dois segmentos não vira
+geometria. No material a largura é a do pixel: o mesmo detalhe continua na normal até ficar menor que o pixel, e daí
+vai à média. A malha adaptativa (spec 010) escolhe o nível de cada retalho pelo tamanho na tela (`screen`): de perto os
+segmentos encolhem no mundo e mais relevo passa da normal para a geometria, sem regra à parte. Na adaptativa, o passo
+de um vértice de borda é o do menor nível dos retalhos que a dividem (e no canto, dos quatro): os dois lados calculam a
+mesma altura e não abre fresta.
+
+**A normal dos vértices** continua a da superfície sem o relevo: a inclinação vem do material, do mesmo relevo, em
+todas as frequências até o pixel. Gravar a normal deslocada no vértice somaria o relevo duas vezes nas frequências que
+a malha resolve, ou obrigaria o material a avaliar o relevo duas vezes (na largura do pixel e na da malha) para
+subtrair.
+
+**Quem vê a geometria deslocada**: os vértices são gravados na GPU no buffer da geometria. O desenho, o mapa de sombra
+virtual e a estrutura de raios (que reconstrói a hierarquia da malha adaptativa quando ela é escrita) leem esse buffer:
+a silhueta, a sombra e os acertos dos raios são os da geometria deslocada. Nos acertos dos raios o material não tem as
+tangentes do uv (`dpdu`, `dpdv` zero): a normal ali é a da superfície sem o relevo. O colisor de superfície
+(`SurfaceColliderFlow`) amostra `surface_at`, sem o deslocamento.
+
+**Achado — a caixa vazia na travessia dos raios**: a malha adaptativa abaixo do nível máximo deixa triângulos vazios na
+hierarquia (a contagem é da GPU; a capacidade é a do nível máximo), com caixa invertida (mínimo > máximo). O teste de
+lâminas (`ray_box`) dava [−∞, +∞] para essa caixa: todo raio que entrava no objeto descia pela parte vazia inteira. No
+quadro do relevo (malhas no nível 4 com capacidade do nível 5: três quartos vazios) a luz rebatida custava ~40 ms
+(65,5 ms o quadro; 24,3 ms depois). A caixa vazia passou a ser um erro de acerto (`lo.x <= hi.x` no teste), na GPU e
+na referência.
+
+**Custo medido** (quadro `relevo` da galeria, 1440 × 960, M4): 9,9 ms sem deslocamento; 26,7 ms com seis superfícies
+deslocadas (~1,2 milhão de triângulos de ~1 px: o desenho ~11 ms, as páginas da sombra ~5 ms, os raios da luz rebatida
+1,4 ms). O custo é o dos triângulos pequenos no desenho e na sombra; `screen` troca geometria por normal.
+
+**Alternativas**:
+
+- **Mapa de altura em imagem** (bitmap amostrado no vértice ou no pixel): proibido (nada de bitmap de altura; o padrão
+  é material, calculado).
+- **Relevo por paralaxe no pixel** (marchar a altura no fragmento): não muda a silhueta, a sombra projetada nem o que
+  os raios acertam; um laço por pixel em toda a tela para um efeito que a geometria dá onde ela existe.
+- **`set.displace` do grafo de conjunto** (spec 031): desloca uma malha de grade fixa, sem a malha adaptativa; serve à
+  geometria por grafo, não ao relevo de um material numa superfície qualquer. Mantido como está.
+- **Tesselação no desenho** (estágio de tesselação): não existe no WebGPU; e a geometria ficaria só no desenho — a
+  sombra e os raios não a veriam.
+- **A altura dentro da `SurfaceFunction`**: obrigaria cada superfície a conhecer o material; o ponto separado deixa a
+  mesma superfície com ou sem relevo e o mesmo relevo em qualquer superfície.
+- **Função de altura duplicada** (uma no material, outra na geometria): descartada — o sub-grafo do relevo é um nó
+  usado nos dois grafos.
+
+**Limites conhecidos**: só `ParametricSurface` (as malhas de vértices fixos — `SphereGeometry`, `BoxGeometry` — ficam
+com o relevo na normal); o deslocamento é ao longo da normal (sem saliências que voltem sobre si); onde o uv converge
+(os polos da esfera) o padrão aperta e o relevo com ele; na costura de um uv periódico as duas bordas calculam a altura
+em uv 0 e 1 — iguais pelo período do padrão, a menos do arredondamento; a geometria diferencial (`SurfaceDiff`) é a da
+superfície sem o relevo; a inclinação de `surface.reliefNormal` é presa em 76°; a ferrugem (`metalOxidized`) e os
+tecidos de trama continuam com o relevo só na normal (`surface.bump`, em unidades do padrão).

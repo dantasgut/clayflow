@@ -209,8 +209,9 @@ compartilham o pipeline; os valores são por entidade. Os grafos serializam (`to
 `defaultNodeRegistry`).
 
 Cada material tem a **estrutura** que o nome promete, calculada por pixel na GPU pelos nós de padrão
-(`pattern.weave`, `pattern.cells`, `pattern.rings`, `pattern.grain` — ver [Grafos de nós](./node-graphs.md)) sobre o uv
-do objeto (o padrão anda com o objeto), com o relevo na normal (`surface.bump`), filtrado pela largura do pixel (de
+(`pattern.weave`, `pattern.knit`, `pattern.cells`, `pattern.rings`, `pattern.grain` — ver
+[Grafos de nós](./node-graphs.md)) sobre o uv do objeto (o padrão anda com o objeto), com o relevo na normal
+(`surface.bump`; nos de relevo em milímetros, `surface.reliefNormal`), filtrado pela largura do pixel (de
 longe o detalhe vai à média, sem serrilhar) e sem emenda onde o uv dá a volta. Os que têm padrão expõem
 `pattern_scale` (`vec2f`, repetições do padrão por unidade de uv; (1, 1)): numa esfera, `(2, 1)` deixa o padrão
 quadrado no equador; numa peça maior, um valor maior mantém o tamanho do fio ou do veio.
@@ -223,15 +224,16 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | Material | Estrutura (nós) | Parâmetros (padrão) | Fonte dos valores |
 | -------- | --------------- | ------------------- | ----------------- |
 | `woodRaw` | dielétrico + difuso; anéis de crescimento (`pattern.rings`, a fibra ao longo de u: corte tangencial, com os arcos da "catedral", anéis de largura irregular e linhas onduladas) na cor do lenho inicial ao tardio, fibra e poros (`pattern.grain` alongado); lixada, quase lisa — o relevo é o da fibra | `color` (0,45; 0,28; 0,15), `late_color` (0,27; 0,15; 0,07), `roughness` 0,7, `ior` 1,53, `diffuse_roughness` 0,6, `relief`, `fiber_relief`, `pattern_scale` | celulose, n_D 1,53–1,55 |
+| `woodRough` | `woodRaw` na cor, mais cinzenta e áspera (tábua serrada, exposta ao tempo), com o tom em manchas e faixas e o relevo em milímetros (`relief.woodRough`): o lenho tardio saliente, a face irregular, a fibra levantada, as frestas e os riscos ao longo do veio (escuros no fundo) e os poros abertos — na normal e, com `Displacements.woodRough()`, na geometria | `color` (0,37; 0,3; 0,23), `late_color` (0,2; 0,15; 0,105), `roughness` 0,9, `ring_height` 0,8 mm, `wear_height` 1,2 mm, `fiber_height` 0,3 mm, `crack_depth` 3 mm, `cavity` 0,25, `scale` 1, `pattern_scale` | — |
 | `woodVarnishedGloss` | `woodRaw` (anéis, fibra e poros) sob dielétrico em camada: o verniz liso por cima do veio, com o realce próprio; o verniz molha a madeira (a base sem especular próprio, a cor mais escura e saturada) | `base_color`, `base_late_color`, `base_roughness`, `coat_color` (1; 0,8; 0,5), `coat_roughness` 0,04, `coat_ior` 1,5, `coat_weight` 1, `pattern_scale` | verniz de poliuretano, n ≈ 1,5 |
 | `woodVarnishedMatte` | o mesmo | `coat_roughness` 0,35, `coat_color` (1; 0,9; 0,7) | verniz com fosqueante |
-| `cotton` | difuso + brilho de fibra; tela 1/1 (`pattern.weave`, 110 fios) com o relevo dos fios | `color` (urdidura), `weft_color` (trama), `sheen_color` 0,25, `sheen_roughness` 0,9, `diffuse_roughness` 1, `relief`, `pattern_scale` | Estevez e Kulla 2017 (sheen "Charlie") |
-| `wool` | o mesmo; tweed: sarja 2/2 de fio grosso e mole (64 fios), sem vão, com a penugem (`pattern.grain` fino) borrando o fio e mesclando o tom | `sheen_roughness` 0,9 | idem |
-| `denim` | o mesmo; sarja 3/1 (120 fios): a urdidura índigo por cima da trama crua, na diagonal | `color` índigo, `weft_color` cru, `sheen_roughness` 0,85 | idem |
+| `cotton` | difuso + brilho de fibra, sem especular (fosco e macio); tela 1/1 (`pattern.weave`, 110 fios) com o relevo dos fios torcidos (os cabos de cada fio, `strand`), a penugem (`pattern.grain` fino) borrando o contorno do fio e as faixas de fios mais grossos e mais finos ao longo da urdidura | `color` (urdidura), `weft_color` (trama), `sheen_color` 0,25, `sheen_roughness` 0,9, `diffuse_roughness` 1, `relief`, `pattern_scale` | Estevez e Kulla 2017 (sheen "Charlie") |
+| `wool` | difuso + brilho de fibra forte e largo; tricô em ponto meia (`pattern.knit`, 30 colunas de pontos em V) de fio grosso e torcido, mesclado e felpudo; o relevo em milímetros (`relief.wool`: o fio de 1,4 mm e a penugem) na normal e, com `Displacements.wool()`, na geometria | `color` (0,24; 0,15; 0,09), `sheen_color`, `sheen_roughness` 0,9, `diffuse_roughness` 1, `height` 1,4 mm, `scale` 1, `pattern_scale` | idem |
+| `denim` | difuso + brilho de fibra; sarja 3/1 (120 fios): a urdidura índigo por cima da trama crua, na diagonal; o desgaste — onde o pano dobra (a curvatura convexa da superfície, nas geometrias com geometria diferencial) o índigo da casca do fio gasta e o miolo claro aparece, em manchas | `color` índigo, `weft_color` cru, `sheen_roughness` 0,85, `wear_color` (0,3; 0,36; 0,48), `wear_low` 5, `wear_high` 22 (curvatura, por unidade) | idem |
 | `velvet` | difuso escuro + brilho de fibra, sem especular: o centro escuro e fosco, a borda rasante com um halo claro e macio; o pelo penteado — `pattern.grain` largo e suave inclina de leve a normal do pelo (o halo se desloca em regiões largas) e um fino dá o granulado | `color` (0,085; 0,006; 0,022), `sheen_color` (0,6; 0,07; 0,17), `sheen_roughness` 0,45, `diffuse_roughness`, `nap`, `pile`, `pattern_scale` | idem (pelo em pé: o brilho só de lado) |
-| `silk` | difuso + dielétrico anisotrópico + brilho de fibra; cetim 4/1 (150 fios), a tangente do brilho na direção do fio à vista | `color`, `weft_color`, `roughness` 0,3, `anisotropy` 0,8, `ior` 1,56, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale` | fibroína, n ≈ 1,56 |
+| `silk` | difuso + dielétrico anisotrópico + brilho de fibra; cetim 4/1 (150 fios), a tangente do brilho na direção da fibra do fio à vista (`fiber` da trama por `surface.direction`: o eixo do fio com a torção) — o realce corre ao longo do fio e pelas dobras do pano | `color`, `weft_color`, `roughness` 0,3, `anisotropy` 0,8, `ior` 1,56, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale` | fibroína, n ≈ 1,56 |
 | `sheerFabric` | difuso misturado à parede fina translúcida + brilho de fibra; tela aberta (60 fios, metade do passo sem fio): a luz passa inteira pelos vãos | `color`, `weft_color`, `translucency` 0,5, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale` | — |
-| `leather` | dielétrico + difuso; o grão (`pattern.cells`, 64 células com sulcos) em relevo, fosco nos sulcos e liso nos platôs, com rugas largas | `color`, `roughness` 0,42 (os platôs), `ior` 1,5, `diffuse_roughness`, `relief`, `pattern_scale` | colágeno e acabamento, n ≈ 1,5 |
+| `leather` | dielétrico + difuso; o grão (`pattern.cells`, 64 células com sulcos), fosco nos sulcos e liso nos platôs, com rugas largas; o relevo em milímetros (`relief.leather`) na normal e, com `Displacements.leather()`, na geometria | `color`, `roughness` 0,42 (os platôs), `ior` 1,5, `diffuse_roughness`, `height` 0,35 mm (os sulcos), `wrinkle_height` 0,5 mm, `scale` 1, `pattern_scale` | colágeno e acabamento, n ≈ 1,5 |
 | `rubber` | dielétrico + difuso; grão fino de relevo leve | `color` 0,03, `roughness` 0,75, `ior` 1,519, `relief`, `pattern_scale` | poli-isopreno, n_D 1,519 |
 | `ceramic` | corpo difuso com as pintas do ferro (`pattern.cells`) sob o esmalte em camada, de espessura irregular | `color`, `roughness` 0,08 (o esmalte), `ior` 1,5, `diffuse_roughness`, `glaze_color`, `pattern_scale` | esmalte de silicato |
 | `porcelain` | dielétrico + subsuperfície | `color` (0,9; 0,9; 0,87), `radius` (0,3; 0,27; 0,22) mm, `scale` 1, `roughness` 0,05, `ior` 1,5 | esmalte de silicato; raio estimado (curto: só a borda fina deixa passar luz) |
@@ -254,6 +256,70 @@ padrões seguem o uv da geometria: onde ele converge (os polos da esfera) o padr
 ali. `plasticGloss`, `metalPolished`, `porcelain`, `skin`, `wax`, `jade`, `milk` e `glass` são lisos (o que se vê neles é
 a luz e o ambiente). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
 ([Refração](./refraction.md)).
+
+## Relevo e deslocamento (spec 011, T115)
+
+O relevo na normal só inclina a luz: a superfície continua lisa, a silhueta é a da forma e o relevo não faz sombra em
+si mesmo. Nos materiais de relevo forte — `woodRough`, `leather`, `wool` — a altura é dada em **milímetros** e pode
+virar **geometria**: a mesma função de altura (`nodes.relief.<nome>`) inclina a normal no material e, pela
+`DisplacementFunction` da entidade, move os vértices de uma `ParametricSurface` na GPU.
+
+```ts
+// Uma bola de madeira bruta de 20 cm de diâmetro numa cena em que 1 unidade = 18 cm (5,5 unidades por metro).
+const values = { pattern_scale: [2, 1], scale: 5.5 };
+world.insert(
+    new ParametricSurface({
+        preset: 'sphere',
+        params: [0.55],
+        adaptive: { patches: [32, 16], maxLevel: 5, screen: 0.0022 }, // segmentos de ~2 px
+    })
+        .add(new StandardMaterial())
+        .add(new Transform({ position: [0, 0.55, 0, 1] }))
+        .add(Materials.woodRough(values)) // a cor e a normal do relevo
+        .add(Displacements.woodRough(values)), // o mesmo relevo na geometria
+);
+```
+
+- **Unidades**: as alturas são em milímetros (`ring_height`, `crack_depth`, `height`…) e `scale` é a escala do mundo
+  em unidades por metro (1: cena em metros) — a mesma convenção do raio da subsuperfície. Passe os mesmos valores
+  (`scale`, `pattern_scale`, as alturas) ao material e ao deslocamento.
+- **Onde vale**: a `DisplacementFunction` desloca `ParametricSurface` (a superfície pronta ou a de uma
+  `SurfaceFunction`; a malha uniforme ou a adaptativa). Nas malhas de vértices fixos (`SphereGeometry`, `BoxGeometry`)
+  o material sozinho dá o relevo na normal.
+- **Quando é geometria e quando é normal**: os padrões filtram pelo que quem os lê resolve. Na geometria, a largura é o
+  passo da malha: o detalhe menor que dois segmentos não entra nos vértices. No material, a largura é a do pixel: esse
+  detalhe continua na normal, e some na média quando fica menor que o pixel. Com a malha adaptativa, `screen` é a
+  fração da altura da imagem que um segmento pode ocupar (0,0022 a 960 linhas: ~2 pixels): de perto os segmentos
+  encolhem e mais relevo vira geometria; de longe o mesmo objeto fica com o relevo na normal e, mais longe, liso.
+  `maxLevel` e `patches` dão o teto (2^`maxLevel` segmentos por retalho).
+- **Quem vê**: os vértices deslocados ficam no buffer da geometria — o desenho, as sombras (o mapa de sombra virtual) e
+  os raios (a luz rebatida, o reflexo e a refração traçados) leem a mesma geometria. A normal dos vértices é a da
+  superfície sem o relevo; a inclinação vem do material (`surface.reliefNormal`), e por isso o material de mesmo nome
+  deve acompanhar o deslocamento. Nos acertos dos raios o material não tem as tangentes do uv: ali a normal é a lisa.
+  O colisor de superfície não vê o deslocamento.
+- **Custo**: a malha é refeita quando a superfície, os valores ou a câmera mudam (`refreshDistance`), não a cada
+  quadro; o desenho e os raios pagam os triângulos. Os números medidos estão em `specs/011-hdr-pbr/tasks.md` (T115).
+- **Relevo próprio**: qualquer padrão serve — `surface.relief` converte a altura e o gradiente de um padrão em
+  milímetros, relevos somam-se com `math.add3`, `surface.reliefNormal` vai ao `closure.normal` do material e
+  `surface.displacement` é a saída da `DisplacementFunction` (exemplo em [Grafos de nós](./node-graphs.md)).
+
+`Displacements` tem um deslocamento por relevo pronto: `woodRough` (`ring_height`, `wear_height`, `fiber_height`,
+`crack_depth`), `leather` (`height`, `wrinkle_height`) e `wool` (`height`, `fluff_height`), todos com `pattern_scale` e
+`scale`.
+
+## Tecidos: o fio e o pano (spec 011, T116)
+
+Os tecidos de trama (`cotton`, `denim`, `silk`, `sheerFabric`) e o tricô (`wool`) tratam o fio como um cilindro de
+fibras torcidas: a seção redonda dá a normal e a sombra entre os fios; a torção (`twist` do padrão) dá os cabos do fio
+(`strand`: as faixas em hélice, visíveis de perto) e a direção da fibra à vista (`fiber`), que é a tangente do brilho
+da seda — o realce quebra em tracinhos de fio em fio e, num pano com dobras, corre ao longo delas. A penugem (um grão
+fino em relevo e o brilho de fibra) borra o contorno do fio no algodão e na lã e dá o halo claro na borda; no veludo o
+halo aparece na borda e em cada dobra.
+
+A escala manda no que se vê. Com o fio perto do tamanho real (centenas de fios no pano), a trama fica abaixo do pixel:
+o que se lê do tecido é o caimento, o brilho, as faixas dos fios mais grossos e, no jeans, o desgaste claro nas cristas
+das dobras (a curvatura vem da geometria diferencial: use uma `ParametricSurface` com `differential: true`). Com o
+padrão ampliado (`pattern_scale` menor), aparecem o ligamento, o volume e os cabos de cada fio.
 
 ## Reflexo nítido dos lisos (spec 011, T114)
 
