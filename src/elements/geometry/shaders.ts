@@ -125,7 +125,7 @@ export const surfaceAt = wgslModule({
 });
 
 /** Função pronta do ponto `displacement`: sem deslocamento. */
-export const displacementFnReady = wgslModule({
+const displacementFnReady = wgslModule({
     name: 'displacement_fn_ready',
     source: displacementFnReadySource,
     requires: [surfaceSampleType],
@@ -135,7 +135,7 @@ export const displacementFnReady = wgslModule({
  * Ponto deslocado de uma superfície (spec 011): o de `surface_at` movido ao longo da normal pela altura do ponto
  * `displacement`, com o passo da malha como largura do filtro dos padrões.
  */
-export const surfaceDisplacedAt = wgslModule({
+const surfaceDisplacedAt = wgslModule({
     name: 'surface_displaced_at',
     source: surfaceDisplacedAtSource,
     requires: [surfaceAt, surfaceSampleType, displacementFnReady, R.params],

@@ -20,7 +20,7 @@ import {
 // normal.
 
 /** As ligações de um padrão `id` (saídas `value`/`gradient`) ao relevo `to` (`surface.relief`). */
-export function reliefLinks(to: string, value: string, gradient: string): Link[] {
+function reliefLinks(to: string, value: string, gradient: string): Link[] {
     return [
         [value, `${to}.value`],
         [gradient, `${to}.gradient`],
@@ -49,7 +49,7 @@ export const WOOD_FIBER = { scale: [3, 150], octaves: 2, seed: 3 };
 export const WOOD_WEAR = { scale: [5, 18], octaves: 3, seed: 31 };
 
 /** O grão alongado cujas cristas são as frestas da madeira seca (lentes de alguns centímetros ao longo da fibra). */
-export const WOOD_SPLIT = { scale: [4.5, 64], octaves: 2, gain: 0.35, seed: 23 };
+const WOOD_SPLIT = { scale: [4.5, 64], octaves: 2, gain: 0.35, seed: 23 };
 
 /**
  * `relief.woodRough` — o relevo da madeira bruta e envelhecida (tábua serrada exposta ao tempo): o lenho inicial, mole,
@@ -60,7 +60,7 @@ export const WOOD_SPLIT = { scale: [4.5, 64], octaves: 2, gain: 0.35, seed: 23 }
  * abertos picam a face (0,2 mm).
  * Parâmetros: `ring_height`, `wear_height`, `fiber_height`, `crack_depth`, `pattern_scale`.
  */
-export const woodRough = Subgraph.point(
+const woodRough = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(WOOD_OFFSET),
@@ -136,7 +136,7 @@ export const LEATHER_WRINKLE = { scale: [9, 9], octaves: 3, seed: 5 };
  * `relief.leather` — o relevo do couro: os sulcos entre as células do grão (`height`, 0,35 mm abaixo dos platôs) e as
  * rugas largas que ondulam a pele (`wrinkle_height`, 0,5 mm). Parâmetros: `height`, `wrinkle_height`, `pattern_scale`.
  */
-export const leather = Subgraph.point(
+const leather = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
@@ -178,7 +178,7 @@ export const WOOL_FLUFF = { scale: [150, 150], octaves: 2, seed: 4 };
  * fio) e a penugem das fibras soltas (`fluff_height`, 0,25 mm), que borra o contorno do fio. Parâmetros: `height`,
  * `fluff_height`, `pattern_scale`.
  */
-export const wool = Subgraph.point(
+const wool = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
