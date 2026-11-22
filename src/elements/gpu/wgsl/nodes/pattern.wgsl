@@ -51,6 +51,34 @@ struct NodePatternRings {
     value: f32,
     gradient: vec2f,
     ring: f32,
+    knot: f32,
+}
+
+struct NodePatternBricks {
+    height: f32,
+    gradient: vec2f,
+    brick: f32,
+    mortar: f32,
+}
+
+struct NodePatternPlanks {
+    p: vec2f,
+    height: f32,
+    gradient: vec2f,
+    plank: f32,
+    joint: f32,
+}
+
+struct NodePatternFissures {
+    height: f32,
+    gradient: vec2f,
+    plate: f32,
+}
+
+struct NodePatternDents {
+    height: f32,
+    gradient: vec2f,
+    cell: f32,
 }
 
 struct NodePatternWeave {
@@ -240,10 +268,15 @@ fn node_pattern_cells(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32
  * estreitos (`irregularity` em [0, 1]: s segue crescente com r). `value` em [0, 1] é o perfil do anel: sobe devagar do
  * lenho inicial (0) ao tardio (1, a faixa escura e dura) e cai de volta no fim — smoothstep(0; 0,7; t) · (1 −
  * smoothstep(0,88; 1; t)), t = fract(s) —, com o gradiente ∂/∂p; `ring` o valor em [0, 1] do anel (a variação de tom
- * de ano para ano). Abaixo do pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero.
+ * de ano para ano). Os nós (olhos) da madeira: `knots` células por unidade de `p`, um nó em três delas em cada dez, cada
+ * um um galho que atravessa a tábua — soma ao raio um monte gaussiano de meia largura `knot_size` (em `p`, alongado 1,6
+ * vez ao longo da fibra) e altura de `knot_rings` anéis: os anéis do tronco desviam em volta dele e, dentro, fecham em
+ * voltas concêntricas; `knot` é o miolo do nó em [0, 1] (a madeira escura e dura do galho). `knots` 0: sem nós.
+ * Abaixo do pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero.
  */
 fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32, distortion: f32,
-    distortion_scale: vec2f, seed: u32, irregularity: f32, waviness: f32, waviness_scale: vec2f) -> NodePatternRings {
+    distortion_scale: vec2f, seed: u32, irregularity: f32, waviness: f32, waviness_scale: vec2f, knots: f32,
+    knot_size: f32, knot_rings: f32) -> NodePatternRings {
     let fx = node_pattern_fit(distortion_scale.x, wrap.x, 1.0);
     let fr = vec2f(fx.x, distortion_scale.y);
     let nz = node_pattern_noise(p * fr, vec2f(fx.y, 0.0), seed);
@@ -252,8 +285,32 @@ fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32,
     let wr = vec2f(wx.x, waviness_scale.y);
     let nw = node_pattern_noise(p * wr, vec2f(wx.y, 0.0), seed + 1u);
     let r0 = max(sqrt(p.y * p.y + z * z), 1e-6);
-    let r = max(r0 + waviness * nw.x, 1e-6);
-    let dr = (vec2f(0.0, p.y) + z * distortion * nz.yz * fr) / r0 + waviness * nw.yz * wr;
+    // Os nós: um monte gaussiano por nó somado ao raio (3 × 3 células em volta), e o miolo de cada um.
+    var bump = vec3f(0.0);
+    var knot = 0.0;
+    if (knots > 0.0) {
+        let kx = node_pattern_fit(knots, wrap.x, 1.0);
+        let kf = vec2f(kx.x, knots);
+        let kq = p * kf;
+        let ki = floor(kq);
+        let sigma = max(knot_size, 1e-4);
+        let lift = knot_rings / max(scale, 1e-6);
+        for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) {
+                let c = ki + vec2f(f32(dx), f32(dy));
+                let h = node_pattern_hash(c, vec2f(kx.y, 0.0), seed + 3u);
+                if (f32(h >> 8u) / 16777215.0 >= 0.3) { continue; }
+                let h2 = pcg_hash(h);
+                let at = (c + vec2f(0.5) + 0.3 * vec2f(hash_signed(h2), hash_signed(pcg_hash(h2)))) / kf;
+                let e = (p - at) / (sigma * vec2f(1.6, 1.0));
+                let g = exp(-dot(e, e));
+                bump += lift * g * vec3f(1.0, -2.0 * e / (sigma * vec2f(1.6, 1.0)));
+                knot = max(knot, exp(-4.0 * dot(e, e)));
+            }
+        }
+    }
+    let r = max(r0 + waviness * nw.x + bump.x, 1e-6);
+    let dr = (vec2f(0.0, p.y) + z * distortion * nz.yz * fr) / r0 + waviness * nw.yz * wr + bump.yz;
     let s0 = r * scale;
     let irr = clamp(irregularity, 0.0, 1.0);
     let ni = node_pattern_noise(vec2f(s0 * 0.1875, 0.5), vec2f(0.0), seed + 2u);
@@ -268,7 +325,7 @@ fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32,
     let dv = (6.0 * ta * (1.0 - ta) / 0.7) * b - a * (6.0 * tb * (1.0 - tb) / 0.12);
     let k = select(1.0, node_pattern_band(width * abs(ds) * length(dr)), width > 0.0);
     let h = pcg_hash(bitcast<u32>(i32(ring)) ^ (seed * 0x9e3779b1u));
-    return NodePatternRings(mix(0.59, a * b, k), k * dv * ds * dr, mix(0.5, f32(h >> 8u) / 16777215.0, k));
+    return NodePatternRings(mix(0.59, a * b, k), k * dv * ds * dr, mix(0.5, f32(h >> 8u) / 16777215.0, k), knot);
 }
 
 // A urdidura passa por cima no cruzamento (i, j)? Ligamento de `over` por cima e `under` por baixo, deslocado `shift`
@@ -436,4 +493,213 @@ fn node_pattern_threshold(value: f32, gradient: vec2f, low: f32, high: f32) -> N
     let d = select(span, select(-1e-6, 1e-6, span >= 0.0), abs(span) < 1e-6);
     let t = clamp((value - low) / d, 0.0, 1.0);
     return NodePatternThreshold(t * t * (3.0 - 2.0 * t), (6.0 * t * (1.0 - t) / d) * gradient);
+}
+
+/**
+ * Tijolos (spec 011): fiadas de peças retangulares com junta — `scale` (peças por unidade de `p.x`, fiadas por unidade
+ * de `p.y`), cada fiada deslocada `shift` peça em relação à de baixo (0,5: a amarração do tijolo; 0: a grade do
+ * azulejo). A junta tem a largura `gap` (fração da altura da fiada, a mesma nos dois sentidos) e a aresta da peça sobe
+ * arredondada em `bevel` (fração da altura da fiada). Saídas: `height` em [0, 1] (0 na junta, 1 na face) e o gradiente
+ * ∂/∂p; `brick` o valor em [0, 1] da peça (o tom de tijolo para tijolo); `mortar` 1 na junta. Abaixo do pixel: a altura
+ * e a junta à média da área, `brick` a 0,5, gradiente a zero.
+ */
+fn node_pattern_bricks(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, shift: f32, gap: f32, bevel: f32, seed: u32)
+    -> NodePatternBricks {
+    let fx = node_pattern_fit(scale.x, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale.y, wrap.y, select(1.0, 2.0, shift != 0.0));
+    let fr = vec2f(fx.x, fy.x);
+    let qy = p.y * fr.y;
+    let row = floor(qy);
+    let qx = p.x * fr.x + shift * row;
+    let col = floor(qx);
+    let f = vec2f(qx - col, qy - row) - vec2f(0.5);
+    let g = clamp(gap, 0.0, 0.9);
+    // A distância à borda da peça, em alturas de fiada (a junta tem a mesma largura nos dois sentidos).
+    let aspect = fr.y / fr.x;
+    let ex = (0.5 - abs(f.x)) * aspect - 0.5 * g;
+    let ey = (0.5 - abs(f.y)) - 0.5 * g;
+    let along = ex < ey;
+    let d = min(ex, ey);
+    let bw = max(bevel, 1e-4);
+    let t = clamp(d / bw, 0.0, 1.0);
+    let toward = select(vec2f(0.0, -sign(f.y)), vec2f(-sign(f.x), 0.0), along) * fr.y;
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    let h = node_pattern_hash(vec2f(col, row), vec2f(fx.y, fy.y), seed);
+    let face = max(1.0 - g, 0.0) * max(1.0 - g / max(aspect, 1e-6), 0.0);
+    return NodePatternBricks(
+        mix(face, t * t * (3.0 - 2.0 * t), k),
+        k * (6.0 * t * (1.0 - t) / bw) * toward,
+        mix(0.5, f32(h >> 8u) / 16777215.0, k),
+        mix(1.0 - face, select(0.0, 1.0, d <= 0.0), k),
+    );
+}
+
+/**
+ * Mossas (spec 011): o metal martelado — uma calota côncava por célula de um Voronoi 2D de `scale` células por unidade
+ * de `p` (o ponto de cada uma deslocado por `jitter`): a altura é o quadrado da distância ao ponto mais próximo (o
+ * fundo da mossa no ponto, a aresta viva onde duas mossas se encontram), 2 · d² presa em 1. Saídas: `height` em [0, 1]
+ * e o gradiente ∂/∂p; `cell` o valor em [0, 1] da mossa. Abaixo do pixel: altura a 0,3, `cell` a 0,5, gradiente a zero.
+ */
+fn node_pattern_dents(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32, seed: u32) -> NodePatternDents {
+    let fx = node_pattern_fit(scale, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale, wrap.y, 1.0);
+    let fr = vec2f(fx.x, fy.x);
+    let per = vec2f(fx.y, fy.y);
+    let q = p * fr;
+    let i = floor(q);
+    let f = q - i;
+    var best = 1e30;
+    var r1 = vec2f(0.0);
+    var h1 = 0u;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let c = node_pattern_cell_point(i, vec2f(f32(dx), f32(dy)), f, per, seed, jitter);
+            let d = dot(c.r, c.r);
+            if (d < best) {
+                best = d;
+                r1 = c.r;
+                h1 = c.h;
+            }
+        }
+    }
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    let inside = 2.0 * best < 1.0;
+    return NodePatternDents(
+        mix(0.3, min(2.0 * best, 1.0), k),
+        k * select(vec2f(0.0), -4.0 * r1 * fr, inside),
+        mix(0.5, f32(h1 >> 8u) / 16777215.0, k),
+    );
+}
+
+/**
+ * Tábuas (spec 011): o assoalho — peças de madeira de 1 largura por `length` larguras, `scale` larguras por unidade de
+ * `p`. `arrangement` 0: réguas em fileiras ao longo de `p.x`, cada fileira deslocada ao acaso; 1: espinha de peixe (as peças
+ * alternam a 90°, cada uma encostada no topo da vizinha). Saídas: `p` a coordenada dentro da peça, em unidades de `p`,
+ * com o comprimento ao longo de x e um deslocamento próprio de cada peça (até 16 unidades ao longo, ± 1 através) — a entrada dos padrões do
+ * veio (`pattern.rings`, `pattern.grain`): cada tábua tem os seus anéis, na sua direção —; `height` em [0, 1] (0 na
+ * junta, 1 na face, a aresta arredondada em `bevel` larguras) e o gradiente ∂/∂p; `plank` o valor em [0, 1] da peça (o
+ * tom de tábua para tábua); `joint` 1 na junta (de largura `gap` larguras). Abaixo do pixel: a altura a 1, a junta a
+ * zero, `plank` a 0,5, gradiente a zero (a coordenada da peça não tem média: os padrões do veio filtram a deles).
+ */
+fn node_pattern_planks(p: vec2f, width: f32, wrap: vec2f, scale: f32, length: f32, arrangement: u32, gap: f32, bevel: f32,
+    seed: u32) -> NodePatternPlanks {
+    let n = max(round(length), 1.0);
+    let herring = arrangement == 1u;
+    let step = select(vec2f(n, 1.0), vec2f(2.0 * n), herring);
+    let fx = node_pattern_fit(scale, wrap.x, step.x);
+    let fy = node_pattern_fit(scale, wrap.y, step.y);
+    let fr = vec2f(fx.x, fy.x);
+    let q = p * fr;
+    // A peça: o índice dela (para o hash), a posição ao longo (em [0, n]) e através (em [0, 1]) e a direção em `p`.
+    var id = vec2f(0.0);
+    var local = vec2f(0.0);
+    var turned = false;
+    var per = vec2f(0.0);
+    if (herring) {
+        let c = floor(q);
+        let m = (c.x - c.y) - 2.0 * n * floor((c.x - c.y) / (2.0 * n));
+        turned = m >= n;
+        if (turned) {
+            let first = c.y - (2.0 * n - 1.0 - m);
+            id = vec2f(c.x, first);
+            local = vec2f(q.y - first, q.x - c.x);
+        } else {
+            id = vec2f(c.x - m, c.y);
+            local = vec2f(q.x - id.x, q.y - c.y);
+        }
+        per = vec2f(fx.y, fy.y);
+    } else {
+        let row = floor(q.y);
+        let shift = floor(n * f32(node_pattern_hash(vec2f(-7.0, row), vec2f(0.0, fy.y), seed) >> 8u) / 16777216.0);
+        let along = (q.x + shift) / n;
+        id = vec2f(floor(along), row);
+        local = vec2f((along - id.x) * n, q.y - row);
+        per = vec2f(fx.y / n, fy.y);
+    }
+    let h = node_pattern_hash(id, per, seed + select(0u, 17u, turned));
+    let h2 = pcg_hash(h);
+    // A distância à borda da peça, em larguras.
+    let ex = min(local.x, n - local.x) - 0.5 * gap;
+    let ey = min(local.y, 1.0 - local.y) - 0.5 * gap;
+    let bw = max(bevel, 1e-4);
+    let d = min(ex, ey);
+    let t = clamp(d / bw, 0.0, 1.0);
+    let toward_local = select(vec2f(0.0, select(-1.0, 1.0, local.y < 0.5)), vec2f(select(-1.0, 1.0, local.x < 0.5 * n), 0.0),
+        ex < ey);
+    let toward = select(toward_local, toward_local.yx, turned) * fr;
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    let offset = vec2f(16.0 * f32(h2 >> 8u), 2.0 * f32(pcg_hash(h2) >> 8u)) / 16777216.0 - vec2f(0.0, 1.0);
+    return NodePatternPlanks(
+        local / fr.x + offset,
+        mix(1.0, t * t * (3.0 - 2.0 * t), k),
+        k * (6.0 * t * (1.0 - t) / bw) * toward,
+        mix(0.5, f32(h >> 8u) / 16777215.0, k),
+        k * select(0.0, 1.0, d <= 0.0),
+    );
+}
+
+/**
+ * Fissuras (spec 011): a casca de árvore, o barro em tiras — placas alongadas separadas por uma rede de fissuras que
+ * se ramificam e se juntam. Um Voronoi 2D com frequência por eixo `scale` (placas por unidade de `p.x` e de `p.y`:
+ * (9, 1,8) dá placas cinco vezes mais compridas ao longo de `p.y`), o ponto de cada célula deslocado por `jitter`.
+ * `height` = smoothstep(0, `crease`, distância à borda da placa) — 0 no fundo da fissura, 1 na face —, com a distância
+ * medida em `p` e posta em células do eixo de maior frequência: a fissura tem a mesma largura em `p` em qualquer
+ * direção. Saídas: `height` em [0, 1] e o gradiente ∂/∂p; `plate` o valor em [0, 1] da placa. Abaixo do pixel: a altura
+ * à média (1 − `crease`), `plate` a 0,5, gradiente a zero.
+ */
+fn node_pattern_fissures(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, jitter: f32, crease: f32, seed: u32)
+    -> NodePatternFissures {
+    let fx = node_pattern_fit(scale.x, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale.y, wrap.y, 1.0);
+    let fr = vec2f(fx.x, fy.x);
+    let per = vec2f(fx.y, fy.y);
+    let q = p * fr;
+    let i = floor(q);
+    let f = q - i;
+    var best = 1e30;
+    var r1 = vec2f(0.0);
+    var o1 = vec2f(0.0);
+    var h1 = 0u;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let o = vec2f(f32(dx), f32(dy));
+            let c = node_pattern_cell_point(i, o, f, per, seed, jitter);
+            let d = dot(c.r, c.r);
+            if (d < best) {
+                best = d;
+                r1 = c.r;
+                o1 = o;
+                h1 = c.h;
+            }
+        }
+    }
+    let top = max(abs(fr.x), abs(fr.y));
+    var edge = 1e30;
+    var slope = vec2f(0.0);
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            if (dx == 0 && dy == 0) { continue; }
+            let c = node_pattern_cell_point(i, o1 + vec2f(f32(dx), f32(dy)), f, per, seed, jitter);
+            let dr = c.r - r1;
+            let l2 = dot(dr, dr);
+            if (l2 > 1e-12) {
+                let dn = dr * inverseSqrt(l2);
+                // A distância à mediatriz em células, levada a `p` (÷ |dn ∘ fr|) e às células do eixo mais fino.
+                let stretch = top / max(length(dn * fr), 1e-6);
+                let d = dot(0.5 * (r1 + c.r), dn) * stretch;
+                if (d < edge) {
+                    edge = d;
+                    slope = -dn * fr * stretch;
+                }
+            }
+        }
+    }
+    let cw = max(crease, 1e-4);
+    let t = clamp(edge / cw, 0.0, 1.0);
+    let k = select(1.0, node_pattern_band(width * top), width > 0.0);
+    return NodePatternFissures(
+        mix(1.0 - min(cw, 1.0), t * t * (3.0 - 2.0 * t), k),
+        k * (6.0 * t * (1.0 - t) / cw) * slope,
+        mix(0.5, f32(h1 >> 8u) / 16777215.0, k),
+    );
 }

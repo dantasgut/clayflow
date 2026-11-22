@@ -3,7 +3,7 @@
 // a largura em f64. Tolerância (`|gpu − ref| ≤ tol · max(1, |ref|)`) 1e-4: a diferença das larguras em f32 dividida pela
 // largura (≥ 0,02 célula nas amostras com filtro); sem filtro, exato.
 //
-// Padrões com relevo (spec 011: grão, células, anéis, trama): a coordenada `p · frequência` arredondada ao f32 como na
+// Padrões com relevo (spec 011: grão, células, anéis, trama, tijolos, tábuas, mossas): a coordenada `p · frequência` arredondada ao f32 como na
 // GPU (a célula e a posição dentro dela saem iguais; as amostras usam frequências exatas em f32), o resto em f64.
 // Tolerância 2e-3: os gradientes multiplicam pela frequência (até 32) o erro de f32 da posição dentro da célula (~4e-6
 // com `p` até 4 e frequência 8) vezes a inclinação dos perfis (até 12 / largura do sulco).
@@ -231,7 +231,10 @@ export function patternRings(
     irregularity = 0,
     waviness = 0,
     wavinessScale: readonly number[] = [3, 12],
-): { value: number; gradient: number[]; ring: number } {
+    knots = 0,
+    knotSize = 0.04,
+    knotRings = 6,
+): { value: number; gradient: number[]; ring: number; knot: number } {
     const fx = fit(distortionScale[0]!, wrap[0]!, 1);
     const fr: V2 = [fx[0], distortionScale[1]!];
     const nz = patternNoise([f32(p[0]! * fr[0]), f32(p[1]! * fr[1])], [fx[1], 0], seed);
@@ -241,10 +244,36 @@ export function patternRings(
     const nw = patternNoise([f32(p[0]! * wr[0]), f32(p[1]! * wr[1])], [wx[1], 0], seed + 1);
     const y = p[1]!;
     const r0 = Math.max(Math.sqrt(y * y + z * z), 1e-6);
-    const r = Math.max(r0 + waviness * nw[0], 1e-6);
+    // Os nós da madeira: um monte gaussiano por nó somado ao raio, e o miolo de cada um.
+    const bump = [0, 0, 0];
+    let knot = 0;
+    if (knots > 0) {
+        const kx = fit(knots, wrap[0]!, 1);
+        const kf: V2 = [kx[0], knots];
+        const kix = Math.floor(f32(p[0]! * kf[0]));
+        const kiy = Math.floor(f32(y * kf[1]));
+        const sigma = Math.max(knotSize, 1e-4);
+        const lift = knotRings / Math.max(scale, 1e-6);
+        for (let dy = -1; dy <= 1; dy++)
+            for (let dx = -1; dx <= 1; dx++) {
+                const h = cellHash(kix + dx, kiy + dy, [kx[1], 0], seed + 3);
+                if (unit24(h) >= 0.3) continue;
+                const h2 = pcgHash(h);
+                const ax = (kix + dx + 0.5 + 0.3 * hashSigned(h2)) / kf[0];
+                const ay = (kiy + dy + 0.5 + 0.3 * hashSigned(pcgHash(h2))) / kf[1];
+                const ex = (p[0]! - ax) / (sigma * 1.6);
+                const ey = (y - ay) / sigma;
+                const g = Math.exp(-(ex * ex + ey * ey));
+                bump[0]! += lift * g;
+                bump[1]! += (lift * g * -2 * ex) / (sigma * 1.6);
+                bump[2]! += (lift * g * -2 * ey) / sigma;
+                knot = Math.max(knot, Math.exp(-4 * (ex * ex + ey * ey)));
+            }
+    }
+    const r = Math.max(r0 + waviness * nw[0] + bump[0]!, 1e-6);
     const dr: V2 = [
-        (z * distortion * nz[1] * fr[0]) / r0 + waviness * nw[1] * wr[0],
-        (y + z * distortion * nz[2] * fr[1]) / r0 + waviness * nw[2] * wr[1],
+        (z * distortion * nz[1] * fr[0]) / r0 + waviness * nw[1] * wr[0] + bump[1]!,
+        (y + z * distortion * nz[2] * fr[1]) / r0 + waviness * nw[2] * wr[1] + bump[2]!,
     ];
     // O raio em anéis em f32, como na GPU: o anel (`floor`) e a posição dentro dele saem iguais.
     const s0 = f32(f32(r) * scale);
@@ -265,6 +294,223 @@ export function patternRings(
         value: mix(0.59, a * b, k),
         gradient: [k * dv * ds * dr[0], k * dv * ds * dr[1]],
         ring: mix(0.5, unit24(h), k),
+        knot,
+    };
+}
+
+/** `pattern.bricks`: as fiadas de peças com junta (altura, gradiente, valor da peça, junta). */
+export function patternBricks(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: readonly number[],
+    shift: number,
+    gap: number,
+    bevel: number,
+    seed: number,
+): { height: number; gradient: number[]; brick: number; mortar: number } {
+    const fx = fit(scale[0]!, wrap[0]!, 1);
+    const fy = fit(scale[1]!, wrap[1]!, shift !== 0 ? 2 : 1);
+    const qy = f32(p[1]! * fy[0]);
+    const row = Math.floor(qy);
+    const qx = f32(f32(p[0]! * fx[0]) + shift * row);
+    const col = Math.floor(qx);
+    const f: V2 = [qx - col - 0.5, qy - row - 0.5];
+    const g = Math.min(0.9, Math.max(0, gap));
+    const aspect = fy[0] / fx[0];
+    const ex = (0.5 - Math.abs(f[0])) * aspect - 0.5 * g;
+    const ey = 0.5 - Math.abs(f[1]) - 0.5 * g;
+    const d = Math.min(ex, ey);
+    const bw = Math.max(bevel, 1e-4);
+    const t = clamp01(d / bw);
+    const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
+    const slope = ((k * 6 * t * (1 - t)) / bw) * fy[0];
+    const face = Math.max(1 - g, 0) * Math.max(1 - g / Math.max(aspect, 1e-6), 0);
+    return {
+        height: mix(face, smooth(t), k),
+        gradient: ex < ey ? [-Math.sign(f[0]) * slope, 0] : [0, -Math.sign(f[1]) * slope],
+        brick: mix(0.5, unit24(cellHash(col, row, [fx[1], fy[1]], seed)), k),
+        mortar: mix(1 - face, d <= 0 ? 1 : 0, k),
+    };
+}
+
+/** `pattern.planks`: as tábuas do assoalho (coordenada da peça, altura, gradiente, valor da peça, junta). */
+export function patternPlanks(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: number,
+    length: number,
+    layout: number,
+    gap: number,
+    bevel: number,
+    seed: number,
+): { p: number[]; height: number; gradient: number[]; plank: number; joint: number } {
+    const n = Math.max(Math.round(length), 1);
+    const herring = layout === 1;
+    const fx = fit(scale, wrap[0]!, herring ? 2 * n : n);
+    const fy = fit(scale, wrap[1]!, herring ? 2 * n : 1);
+    const q: V2 = [f32(p[0]! * fx[0]), f32(p[1]! * fy[0])];
+    let id: V2;
+    let local: V2;
+    let turned = false;
+    let per: V2;
+    if (herring) {
+        const cx = Math.floor(q[0]);
+        const cy = Math.floor(q[1]);
+        const m = cx - cy - 2 * n * Math.floor((cx - cy) / (2 * n));
+        turned = m >= n;
+        if (turned) {
+            const first = cy - (2 * n - 1 - m);
+            id = [cx, first];
+            local = [q[1] - first, q[0] - cx];
+        } else {
+            id = [cx - m, cy];
+            local = [q[0] - id[0], q[1] - cy];
+        }
+        per = [fx[1], fy[1]];
+    } else {
+        const row = Math.floor(q[1]);
+        const shift = Math.floor(f32((n * (cellHash(-7, row, [0, fy[1]], seed) >>> 8)) / 16777216));
+        const along = f32(f32(q[0] + shift) / n);
+        id = [Math.floor(along), row];
+        local = [f32((along - id[0]) * n), q[1] - row];
+        per = [fx[1] / n, fy[1]];
+    }
+    const h = cellHash(id[0], id[1], per, seed + (turned ? 17 : 0));
+    const h2 = pcgHash(h);
+    const ex = Math.min(local[0], n - local[0]) - 0.5 * gap;
+    const ey = Math.min(local[1], 1 - local[1]) - 0.5 * gap;
+    const bw = Math.max(bevel, 1e-4);
+    const d = Math.min(ex, ey);
+    const t = clamp01(d / bw);
+    const towardLocal: V2 =
+        ex < ey ? [local[0] < 0.5 * n ? 1 : -1, 0] : [0, local[1] < 0.5 ? 1 : -1];
+    const toward: V2 = turned ? [towardLocal[1], towardLocal[0]] : towardLocal;
+    const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
+    const slope = (k * 6 * t * (1 - t)) / bw;
+    return {
+        p: [
+            local[0] / fx[0] + (16 * (h2 >>> 8)) / 16777216,
+            local[1] / fx[0] + (2 * (pcgHash(h2) >>> 8)) / 16777216 - 1,
+        ],
+        height: mix(1, smooth(t), k),
+        gradient: [slope * toward[0] * fx[0], slope * toward[1] * fy[0]],
+        plank: mix(0.5, unit24(h), k),
+        joint: k * (d <= 0 ? 1 : 0),
+    };
+}
+
+/** `pattern.fissures`: as placas alongadas e a rede de fissuras (altura, gradiente, valor da placa). */
+export function patternFissures(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: readonly number[],
+    jitter: number,
+    crease: number,
+    seed: number,
+): { height: number; gradient: number[]; plate: number } {
+    const fx = fit(scale[0]!, wrap[0]!, 1);
+    const fy = fit(scale[1]!, wrap[1]!, 1);
+    const per: V2 = [fx[1], fy[1]];
+    const q: V2 = [f32(p[0]! * fx[0]), f32(p[1]! * fy[0])];
+    const ix = Math.floor(q[0]);
+    const iy = Math.floor(q[1]);
+    const f: V2 = [q[0] - ix, q[1] - iy];
+    const point = (ox: number, oy: number): { r: V2; h: number } => {
+        const h = cellHash(ix + ox, iy + oy, per, seed);
+        return {
+            r: [
+                ox + 0.5 + jitter * 0.5 * hashSigned(h) - f[0],
+                oy + 0.5 + jitter * 0.5 * hashSigned(pcgHash(h)) - f[1],
+            ],
+            h,
+        };
+    };
+    let best = 1e30;
+    let r1: V2 = [0, 0];
+    let o1: V2 = [0, 0];
+    let h1 = 0;
+    for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+            const c = point(dx, dy);
+            const d = c.r[0] * c.r[0] + c.r[1] * c.r[1];
+            if (d < best) {
+                best = d;
+                r1 = c.r;
+                o1 = [dx, dy];
+                h1 = c.h;
+            }
+        }
+    const top = Math.max(Math.abs(fx[0]), Math.abs(fy[0]));
+    let edge = 1e30;
+    let slope: V2 = [0, 0];
+    for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const c = point(o1[0] + dx, o1[1] + dy);
+            const dr: V2 = [c.r[0] - r1[0], c.r[1] - r1[1]];
+            const l2 = dr[0] * dr[0] + dr[1] * dr[1];
+            if (l2 <= 1e-12) continue;
+            const dn: V2 = [dr[0] / Math.sqrt(l2), dr[1] / Math.sqrt(l2)];
+            const stretch = top / Math.max(Math.hypot(dn[0] * fx[0], dn[1] * fy[0]), 1e-6);
+            const d = 0.5 * ((r1[0] + c.r[0]) * dn[0] + (r1[1] + c.r[1]) * dn[1]) * stretch;
+            if (d < edge) {
+                edge = d;
+                slope = [-dn[0] * fx[0] * stretch, -dn[1] * fy[0] * stretch];
+            }
+        }
+    const cw = Math.max(crease, 1e-4);
+    const t = clamp01(edge / cw);
+    const k = width > 0 ? band(width * top) : 1;
+    const steep = (k * 6 * t * (1 - t)) / cw;
+    return {
+        height: mix(1 - Math.min(cw, 1), smooth(t), k),
+        gradient: [steep * slope[0], steep * slope[1]],
+        plate: mix(0.5, unit24(h1), k),
+    };
+}
+
+/** `pattern.dents`: as mossas do metal martelado (altura 2 · d² presa em 1, gradiente, valor da mossa). */
+export function patternDents(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: number,
+    jitter: number,
+    seed: number,
+): { height: number; gradient: number[]; cell: number } {
+    const fx = fit(scale, wrap[0]!, 1);
+    const fy = fit(scale, wrap[1]!, 1);
+    const per: V2 = [fx[1], fy[1]];
+    const q: V2 = [f32(p[0]! * fx[0]), f32(p[1]! * fy[0])];
+    const ix = Math.floor(q[0]);
+    const iy = Math.floor(q[1]);
+    const f: V2 = [q[0] - ix, q[1] - iy];
+    let best = 1e30;
+    let r1: V2 = [0, 0];
+    let h1 = 0;
+    for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+            const h = cellHash(ix + dx, iy + dy, per, seed);
+            const r: V2 = [
+                dx + 0.5 + jitter * 0.5 * hashSigned(h) - f[0],
+                dy + 0.5 + jitter * 0.5 * hashSigned(pcgHash(h)) - f[1],
+            ];
+            const d = r[0] * r[0] + r[1] * r[1];
+            if (d < best) {
+                best = d;
+                r1 = r;
+                h1 = h;
+            }
+        }
+    const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
+    const inside = 2 * best < 1;
+    return {
+        height: mix(0.3, Math.min(2 * best, 1), k),
+        gradient: inside ? [k * -4 * r1[0] * fx[0], k * -4 * r1[1] * fy[0]] : [0, 0],
+        cell: mix(0.5, unit24(h1), k),
     };
 }
 
@@ -558,6 +804,9 @@ export const patternCases: readonly NodeCase[] = [
                 [2, 4],
                 [1, 8],
             ][k % 2]!,
+            knots: k % 2 === 0 ? 0 : [1, 2][k % 4 === 1 ? 0 : 1]!,
+            knot_size: uniform(r, 0.05, 0.15),
+            knot_rings: uniform(r, 1, 4),
         }),
         reference: (x) =>
             patternRings(
@@ -572,6 +821,107 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.irregularity),
                 num(x.waviness),
                 vec(x.waviness_scale),
+                num(x.knots),
+                num(x.knot_size),
+                num(x.knot_rings),
+            ),
+    },
+    {
+        node: 'pattern.bricks',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [
+                [1, 2],
+                [2, 4],
+                [4, 4],
+                [2, 8],
+            ][k % 4]!,
+            shift: [0.5, 0, 0.25][k % 3]!,
+            gap: uniform(r, 0.02, 0.3),
+            bevel: uniform(r, 0.05, 0.3),
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternBricks(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                vec(x.scale),
+                num(x.shift),
+                num(x.gap),
+                num(x.bevel),
+                num(x.seed),
+            ),
+    },
+    {
+        node: 'pattern.planks',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [1, 2, 4, 8][k % 4]!,
+            length: [4, 2, 1][k % 3]!,
+            arrangement: k % 2,
+            gap: uniform(r, 0.02, 0.2),
+            bevel: uniform(r, 0.05, 0.3),
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternPlanks(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                num(x.scale),
+                num(x.length),
+                num(x.arrangement),
+                num(x.gap),
+                num(x.bevel),
+                num(x.seed),
+            ),
+    },
+    {
+        node: 'pattern.fissures',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [
+                [4, 1],
+                [8, 2],
+                [2, 2],
+                [8, 1],
+            ][k % 4]!,
+            jitter: uniform(r, 0, 1),
+            crease: uniform(r, 0.05, 0.4),
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternFissures(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                vec(x.scale),
+                num(x.jitter),
+                num(x.crease),
+                num(x.seed),
+            ),
+    },
+    {
+        node: 'pattern.dents',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [1, 2, 4, 8][k % 4]!,
+            jitter: uniform(r, 0, 1),
+            seed: k % 5,
+        }),
+        reference: (x) =>
+            patternDents(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                num(x.scale),
+                num(x.jitter),
+                num(x.seed),
             ),
     },
     {

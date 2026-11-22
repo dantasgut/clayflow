@@ -81,12 +81,14 @@ const cells = defineNode({
  * passa perto da medula; `scale` anéis por unidade de raio em média. `irregularity` (0 a 1): a largura varia de ano
  * para ano (até ± 1 anel de deslocamento); `waviness`: a ondulação do raio (em unidades de `p`) pelo ruído(p ·
  * `waviness_scale`) — as linhas tortas também longe da medula. `value` em [0, 1]: do lenho inicial (0) ao tardio (1, a
- * faixa escura e dura), com o `gradient`; `ring` o valor em [0, 1] do anel (o tom de ano para ano).
+ * faixa escura e dura), com o `gradient`; `ring` o valor em [0, 1] do anel (o tom de ano para ano). Os nós (olhos):
+ * `knots` células por unidade de `p` (0 = sem nós), um nó em três de cada dez — os anéis desviam em volta dele e fecham
+ * em `knot_rings` voltas dentro da meia largura `knot_size` (em `p`); `knot` o miolo do nó em [0, 1].
  */
 const rings = defineNode({
     name: 'pattern.rings',
     inputs: RELIEF_INPUTS,
-    outputs: { value: 'f32', gradient: 'vec2f', ring: 'f32' },
+    outputs: { value: 'f32', gradient: 'vec2f', ring: 'f32', knot: 'f32' },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 8 },
@@ -97,6 +99,9 @@ const rings = defineNode({
         irregularity: { type: 'f32', default: 0 },
         waviness: { type: 'f32', default: 0 },
         waviness_scale: { type: 'vec2f', default: [3, 12] },
+        knots: { type: 'f32', default: 0 },
+        knot_size: { type: 'f32', default: 0.04 },
+        knot_rings: { type: 'f32', default: 6 },
     },
     code: nodePattern,
     fn: 'node_pattern_rings',
@@ -184,8 +189,97 @@ const threshold = defineNode({
 });
 
 /**
+ * Tijolos: fiadas de peças retangulares com junta — `scale` (peças por unidade de `p.x`, fiadas por unidade de `p.y`),
+ * cada fiada deslocada `shift` peça (0,5: a amarração do tijolo; 0: a grade do azulejo); `gap` a largura da junta e
+ * `bevel` a da aresta arredondada, em frações da altura da fiada. Saídas: `height` em [0, 1] (0 na junta, 1 na face) e
+ * o `gradient`; `brick` o valor em [0, 1] da peça; `mortar` 1 na junta.
+ */
+const bricks = defineNode({
+    name: 'pattern.bricks',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', brick: 'f32', mortar: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [1, 2] },
+        shift: { type: 'f32', default: 0.5 },
+        gap: { type: 'f32', default: 0.1 },
+        bevel: { type: 'f32', default: 0.08 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_bricks',
+});
+
+/**
+ * Tábuas (o assoalho): peças de 1 largura por `length` larguras (inteiro), `scale` larguras por unidade de `p`.
+ * `arrangement` 0: réguas em fileiras ao longo de `p.x`, cada fileira deslocada ao acaso; 1: espinha de peixe. Saídas: `p` a
+ * coordenada dentro da peça (o comprimento ao longo de x, com um deslocamento próprio de cada peça) — a entrada dos
+ * padrões do veio: cada tábua com os seus anéis, na sua direção —; `height` em [0, 1] (0 na junta de largura `gap`, 1
+ * na face, a aresta arredondada em `bevel`, em larguras) e o `gradient`; `plank` o valor em [0, 1] da peça; `joint` 1
+ * na junta.
+ */
+const planks = defineNode({
+    name: 'pattern.planks',
+    inputs: RELIEF_INPUTS,
+    outputs: { p: 'vec2f', height: 'f32', gradient: 'vec2f', plank: 'f32', joint: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'f32', default: 4 },
+        length: { type: 'f32', default: 6 },
+        arrangement: { type: 'u32', default: 0 },
+        gap: { type: 'f32', default: 0.02 },
+        bevel: { type: 'f32', default: 0.04 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_planks',
+});
+
+/**
+ * Fissuras (a casca de árvore): placas alongadas separadas por uma rede de fissuras que se ramificam e se juntam — um
+ * Voronoi 2D com frequência por eixo `scale` (placas por unidade de `p.x` e de `p.y`), o ponto de cada célula
+ * deslocado por `jitter`. `height` = smoothstep(0, `crease`, distância à borda da placa), com a fissura da mesma
+ * largura em `p` em qualquer direção (`crease` em células do eixo de maior frequência) — 0 no fundo da fissura, 1 na
+ * face —, com o `gradient`; `plate` o valor em [0, 1] da placa.
+ */
+const fissures = defineNode({
+    name: 'pattern.fissures',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', plate: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [4, 1] },
+        jitter: { type: 'f32', default: 1 },
+        crease: { type: 'f32', default: 0.2 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_fissures',
+});
+
+/**
+ * Mossas (o metal martelado): uma calota côncava por célula de um Voronoi 2D de `scale` células por unidade de `p`
+ * (`jitter`: 0 = grade) — a altura é 2 · d² (d a distância ao ponto da célula), presa em 1: o fundo no ponto, a aresta
+ * viva onde duas mossas se encontram. Saídas: `height` em [0, 1] e o `gradient`; `cell` o valor em [0, 1] da mossa.
+ */
+const dents = defineNode({
+    name: 'pattern.dents',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', cell: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'f32', default: 1 },
+        jitter: { type: 'f32', default: 1 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_dents',
+});
+
+/**
  * Padrões: o xadrez em 2D (superfícies planas, uv) e em 3D (sólido); e os padrões com relevo — a trama de tecido, o
- * tricô, as células com sulcos, os anéis de crescimento, o grão e o limiar com gradiente.
+ * tricô, as células com sulcos, os anéis de crescimento (com os nós da madeira), os tijolos, as tábuas do assoalho, as fissuras da casca, as mossas, o grão e o
+ * limiar com gradiente.
  */
 export const pattern = {
     checker2: checker('checker2', 'vec2f'),
@@ -195,5 +289,9 @@ export const pattern = {
     rings,
     weave,
     knit,
+    bricks,
+    planks,
+    fissures,
+    dents,
     threshold,
 } as const;

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+    patternBricks,
     patternCells,
+    patternDents,
+    patternFissures,
     patternGrain,
     patternKnit,
+    patternPlanks,
     patternRings,
     patternThreshold,
     patternWeave,
@@ -381,5 +385,242 @@ describe('padrões com relevo (spec 011)', () => {
         expect(Math.hypot(steep[0]!, steep[2]!) / steep[1]!).toBeCloseTo(4, 9);
         // Período nulo num eixo (escala degenerada do uvSpace): vale 1.
         expect(surfaceRelief(1, [1, 1], [0, 2], 1, 0)).toEqual([1, 1, 2]);
+    });
+    it('anéis com nós: o nó soma voltas ao raio em volta dele, com o miolo em [0, 1] e o gradiente da derivada', () => {
+        const rings = (p: readonly [number, number], knots: number) =>
+            patternRings(p, 0, [0, 0], 4, 0.4, 0.1, [1, 0.5], 3, 0, 0, [3, 12], knots, 0.12, 3);
+        let core = 0;
+        let moved = 0;
+        for (const p of POINTS) {
+            const o = rings(p, 1);
+            expect(o.knot).toBeGreaterThanOrEqual(0);
+            expect(o.knot).toBeLessThanOrEqual(1);
+            core = Math.max(core, o.knot);
+            if (Math.abs(o.value - rings(p, 0).value) > 1e-3) moved++;
+        }
+        // Há nós na vizinhança (o miolo de algum passa de 0,9 numa grade fina) e o veio desvia em parte dos pontos —
+        // não em todos.
+        for (let j = 0; j < 80; j++)
+            for (let i = 0; i < 80; i++)
+                core = Math.max(core, rings([f32(-4 + 0.1 * i), f32(-4 + 0.1 * j)], 1).knot);
+        expect(core).toBeGreaterThan(0.9);
+        expect(moved).toBeGreaterThan(3);
+        expect(moved).toBeLessThan(POINTS.length);
+        expect(rings([0.3, 0.7], 0).knot).toBe(0);
+        checkGradient(
+            (p) => {
+                const o = rings(p, 1);
+                return { h: o.value, g: o.gradient };
+            },
+            1,
+            25,
+        );
+        // Fecha ao longo da fibra.
+        const here = patternRings(
+            [0.37, 0.61],
+            0,
+            [2, 0],
+            4,
+            0.4,
+            0.1,
+            [1, 0.5],
+            3,
+            0,
+            0,
+            [3, 12],
+            2,
+            0.12,
+            3,
+        );
+        const round = patternRings(
+            [2.37, 0.61],
+            0,
+            [2, 0],
+            4,
+            0.4,
+            0.1,
+            [1, 0.5],
+            3,
+            0,
+            0,
+            [3, 12],
+            2,
+            0.12,
+            3,
+        );
+        expect(round.value).toBeCloseTo(here.value, 4);
+        expect(round.knot).toBeCloseTo(here.knot, 4);
+    });
+
+    it('tijolos: junta em 0 e face em 1, fiadas amarradas a meio tijolo, gradiente = derivada, fecha no período', () => {
+        // No meio do tijolo, a face; no meio da junta horizontal, a junta.
+        const face = patternBricks([0.5, 0.25], 0, [0, 0], [1, 2], 0.5, 0.1, 0.1, 0);
+        expect(face.height).toBe(1);
+        expect(face.mortar).toBe(0);
+        const joint = patternBricks([0.5, 0.5], 0, [0, 0], [1, 2], 0.5, 0.1, 0.1, 0);
+        expect(joint.height).toBe(0);
+        expect(joint.mortar).toBe(1);
+        // A fiada de cima deslocada meio tijolo: a junta vertical de uma cai no meio do tijolo da outra.
+        expect(patternBricks([1, 0.25], 0, [0, 0], [1, 2], 0.5, 0.1, 0.1, 0).mortar).toBe(1);
+        expect(patternBricks([1, 0.75], 0, [0, 0], [1, 2], 0.5, 0.1, 0.1, 0).mortar).toBe(0);
+        // Em grade (o azulejo), as juntas verticais alinham.
+        expect(patternBricks([1, 0.75], 0, [0, 0], [1, 2], 0, 0.1, 0.1, 0).mortar).toBe(1);
+        // O tom muda de tijolo para tijolo.
+        const tones = new Set(
+            POINTS.map((p) => patternBricks(p, 0, [0, 0], [1, 2], 0.5, 0.1, 0.1, 0).brick),
+        );
+        expect(tones.size).toBeGreaterThan(10);
+        checkGradient(
+            (p) => {
+                const o = patternBricks(p, 0, [0, 0], [1, 2], 0.5, 0.2, 0.3, 1);
+                return { h: o.height, g: o.gradient };
+            },
+            1,
+            25,
+        );
+        const here = patternBricks([0.37, 0.61], 0, [2, 4], [2, 4], 0.5, 0.1, 0.2, 1);
+        const round = patternBricks([2.37, 4.61], 0, [2, 4], [2, 4], 0.5, 0.1, 0.2, 1);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.brick).toBe(here.brick);
+        // Abaixo do pixel: a média da área, sem gradiente.
+        const far = patternBricks([0.37, 0.61], 1, [0, 0], [2, 4], 0.5, 0.1, 0.2, 1);
+        expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
+        expect(far.brick).toBe(0.5);
+        expect(far.height + far.mortar).toBeCloseTo(1, 6);
+    });
+
+    it('mossas: o fundo no ponto da célula, a altura em [0, 1], gradiente = derivada, fecha no período', () => {
+        // Em grade (jitter 0) o ponto fica no centro da célula: fundo 0 ali, 2 · d² fora.
+        expect(patternDents([0.5, 0.5], 0, [0, 0], 1, 0, 0).height).toBe(0);
+        expect(patternDents([0.75, 0.5], 0, [0, 0], 1, 0, 0).height).toBeCloseTo(0.125, 6);
+        for (const p of POINTS) {
+            const o = patternDents(p, 0, [0, 0], 2, 0.9, 3);
+            expect(o.height).toBeGreaterThanOrEqual(0);
+            expect(o.height).toBeLessThanOrEqual(1);
+        }
+        checkGradient(
+            (p) => {
+                const o = patternDents(p, 0, [0, 0], 2, 0.9, 3);
+                return { h: o.height, g: o.gradient };
+            },
+            2,
+            40,
+        );
+        const here = patternDents([0.37, 0.61], 0, [2, 4], 4, 1, 1);
+        const round = patternDents([2.37, 4.61], 0, [2, 4], 4, 1, 1);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.cell).toBe(here.cell);
+        const far = patternDents([0.37, 0.61], 1, [0, 0], 4, 1, 1);
+        expect(far.height).toBeCloseTo(0.3, 6);
+        expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
+        expect(far.cell).toBe(0.5);
+    });
+
+    it('tábuas: réguas e espinha de peixe — a coordenada da peça corre no comprimento dela, a junta em 0, fecha no período', () => {
+        // Réguas: ao longo de x a coordenada da peça anda junto de p.x; cada peça tem o seu deslocamento.
+        const a = patternPlanks([0.3, 0.5], 0, [0, 0], 1, 4, 0, 0.05, 0.1, 2);
+        const b = patternPlanks([0.3 + 1 / 64, 0.5], 0, [0, 0], 1, 4, 0, 0.05, 0.1, 2);
+        expect(b.plank).toBe(a.plank);
+        expect(b.p[0]! - a.p[0]!).toBeCloseTo(1 / 64, 6);
+        expect(b.p[1]! - a.p[1]!).toBeCloseTo(0, 6);
+        expect(a.height).toBe(1);
+        expect(a.joint).toBe(0);
+        // Na borda da fileira, a junta.
+        expect(patternPlanks([0.3, 1], 0, [0, 0], 1, 4, 0, 0.05, 0.1, 2).joint).toBe(1);
+        // Espinha de peixe: há peças deitadas (a coordenada anda com p.x) e peças em pé (anda com p.y).
+        let flat = 0;
+        let upright = 0;
+        const tones = new Set<number>();
+        for (const p of POINTS) {
+            const here = patternPlanks(p, 0, [0, 0], 2, 3, 1, 0.02, 0.05, 5);
+            const along = patternPlanks([p[0] + 1 / 1024, p[1]], 0, [0, 0], 2, 3, 1, 0.02, 0.05, 5);
+            if (along.plank !== here.plank) continue;
+            tones.add(here.plank);
+            if (Math.abs(along.p[0]! - here.p[0]! - 1 / 1024) < 1e-5) flat++;
+            else if (Math.abs(along.p[1]! - here.p[1]! - 1 / 1024) < 1e-5) upright++;
+        }
+        expect(flat).toBeGreaterThan(8);
+        expect(upright).toBeGreaterThan(8);
+        expect(tones.size).toBeGreaterThan(10);
+        for (const arrangement of [0, 1]) {
+            checkGradient(
+                (p) => {
+                    const o = patternPlanks(p, 0, [0, 0], 2, 3, arrangement, 0.1, 0.3, 1);
+                    return { h: o.height, g: o.gradient };
+                },
+                1,
+                15,
+            );
+            const here = patternPlanks([0.37, 0.61], 0, [6, 6], 2, 3, arrangement, 0.05, 0.2, 1);
+            const round = patternPlanks([6.37, 6.61], 0, [6, 6], 2, 3, arrangement, 0.05, 0.2, 1);
+            expect(round.height).toBeCloseTo(here.height, 4);
+            expect(round.plank).toBe(here.plank);
+            expect(round.p[0]).toBeCloseTo(here.p[0]!, 4);
+        }
+        const far = patternPlanks([0.37, 0.61], 1, [0, 0], 4, 3, 1, 0.05, 0.2, 1);
+        expect(far.height).toBe(1);
+        expect(far.joint).toBe(0);
+        expect(far.plank).toBe(0.5);
+        expect(Math.hypot(far.gradient[0]!, far.gradient[1]!)).toBe(0);
+    });
+    it('fissuras: placas alongadas no eixo de menor frequência, a fissura da mesma largura em p, gradiente = derivada', () => {
+        // Com a mesma frequência nos dois eixos, é o Voronoi das células.
+        for (const p of POINTS.slice(0, 20)) {
+            const a = patternFissures(p, 0, [0, 0], [2, 2], 0.8, 0.3, 1);
+            const b = patternCells(p, 0, [0, 0], 2, 0.8, 0.3, 1);
+            expect(a.height).toBeCloseTo(b.height, 6);
+            expect(a.plate).toBe(b.cell);
+        }
+        // Placas compridas ao longo de y: andando em x troca-se de placa mais vezes que andando em y.
+        const changes = (dx: number, dy: number): number => {
+            let n = 0;
+            for (let k = 0; k < 400; k++) {
+                const a = patternFissures(
+                    [0.01 * k * dx, 0.3 + 0.01 * k * dy],
+                    0,
+                    [0, 0],
+                    [8, 1],
+                    1,
+                    0.2,
+                    2,
+                );
+                const b = patternFissures(
+                    [0.01 * (k + 1) * dx, 0.3 + 0.01 * (k + 1) * dy],
+                    0,
+                    [0, 0],
+                    [8, 1],
+                    1,
+                    0.2,
+                    2,
+                );
+                if (a.plate !== b.plate) n++;
+            }
+            return n;
+        };
+        expect(changes(1, 0)).toBeGreaterThan(2.5 * changes(0, 1));
+        // A inclinação da parede da fissura não passa da de uma fissura no eixo fino (a largura é a mesma em p).
+        let steepest = 0;
+        for (const p of POINTS) {
+            const o = patternFissures(p, 0, [0, 0], [8, 1], 1, 0.3, 2);
+            expect(o.height).toBeGreaterThanOrEqual(0);
+            expect(o.height).toBeLessThanOrEqual(1);
+            steepest = Math.max(steepest, Math.hypot(o.gradient[0]!, o.gradient[1]!));
+        }
+        expect(steepest).toBeLessThanOrEqual((1.5 / 0.3) * 8 + 1e-6);
+        checkGradient(
+            (p) => {
+                const o = patternFissures(p, 0, [0, 0], [4, 1], 0.8, 0.6, 1);
+                return { h: o.height, g: o.gradient };
+            },
+            1,
+            25,
+        );
+        const here = patternFissures([0.37, 0.61], 0, [2, 4], [4, 1], 1, 0.3, 1);
+        const round = patternFissures([2.37, 4.61], 0, [2, 4], [4, 1], 1, 0.3, 1);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.plate).toBe(here.plate);
+        const far = patternFissures([0.37, 0.61], 1, [0, 0], [8, 2], 1, 0.3, 1);
+        expect(far.height).toBeCloseTo(0.7, 6);
+        expect(far.plate).toBe(0.5);
     });
 });
