@@ -1,6 +1,7 @@
 // Spec 011 — Smoke dos materiais por nós (US3, SC-008; a US5 acrescenta a galeria e a composição da biblioteca).
 //
-// Cada caso monta uma cena pequena com câmera ortográfica de frente e lê a radiância linear do alvo HDR. Casos:
+// Cada caso monta uma cena pequena com câmera ortográfica de frente (a galeria, em perspectiva) e lê a radiância linear
+// do alvo HDR. Casos:
 //   - layer-two-highlights: dielétrico liso em camada sobre uma base com realce largo — dois realces e a base atenuada;
 //   - transmission-refraction: o padrão atrás de uma placa inclinada aparece deslocado; Fresnel rasante; Beer-Lambert
 //     pela espessura (razão entre duas placas);
@@ -18,16 +19,21 @@
 //   - material-fn-compat: a função da 009 (`SurfaceParams`) desenha igual ao material pronto;
 //   - transmission-layers: vidro atrás de vidro aparece; IOR 1 é invisível;
 //   - sanitize: fechamento com NaN não chega ao HDR;
-//   - gallery (US5): os 23 materiais prontos (`Materials.*`) em esferas sob a mesma luz, diante de uma parede xadrez —
-//     madeira crua sem realce nítido e envernizada com realce nítido, veludo com a borda mais clara que o centro, metal
-//     escovado com o realce alongado, vidro transparente com o xadrez refratado e sem grão no meio das casas, tecido
-//     fino com a luz ambiente do lado contra o sol (`--query case=gallery&shot=1` grava o quadro em
-//     `fixtures/zzGallery.png`);
+//   - gallery (US5): os 23 materiais prontos (`Materials.*`), um quadro por família (madeira e couro, tecidos, plásticos e
+//     metais, translúcidos), câmera em perspectiva, cada um numa esfera sobre uma placa do mesmo material, sob o sol, uma
+//     luz de recorte rasante e o hemisfério — a estrutura de cada um à vista (o veio da madeira crua e sob o verniz, o
+//     grão do couro, a trama do jeans e do algodão, as manchas do pelo do veludo, os flocos da pintura, a ferrugem em
+//     manchas, os veios do mármore) e as medidas de reconhecimento: madeira crua sem realce nítido e envernizada com,
+//     veludo com a borda mais clara que o centro, metal escovado com o realce alongado, vidro transparente com o xadrez
+//     refratado e sem grão no meio das casas, tecido fino com a luz ambiente do lado contra o sol; o custo de GPU por
+//     quadro de cada família (`--query case=gallery&shot=1` grava os quadros em `fixtures/zzGallery-<família>.png`;
+//     `&family=<família>` desenha só uma);
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
 import {
     BoxGeometry,
+    Camera,
     DirectionalLight,
     MaterialFunction,
     Materials,
@@ -1031,318 +1037,695 @@ async function caseSanitize(): Promise<void> {
 
 // ── Biblioteca de materiais prontos (US5) ───────────────────────────────────────────────────────────────────────
 
-/** A galeria: 6 colunas × 4 linhas, na ordem das famílias; o vidro ao lado da casa vazia (a parede à vista). */
-const GALLERY: readonly (readonly (MaterialName | null)[])[] = [
-    ['woodRaw', 'woodVarnishedGloss', 'woodVarnishedMatte', 'leather', 'rubber', 'ceramic'],
-    ['cotton', 'wool', 'velvet', 'silk', 'denim', 'sheerFabric'],
-    ['plasticMatte', 'plasticGloss', 'metalPolished', 'metalBrushed', 'carPaint', 'metalOxidized'],
-    ['porcelain', 'skin', 'wax', 'marble', 'glass', null],
+/** Uma família da galeria: o nome do quadro e os materiais, a fileira de trás e a da frente (3 colunas). */
+interface GalleryFamily {
+    readonly name: string;
+    readonly rows: readonly [readonly (MaterialName | null)[], readonly (MaterialName | null)[]];
+}
+
+/** A galeria: um quadro por família, 3 colunas × 2 fileiras; o vidro ao lado do lugar vazio (a parede à vista). */
+const GALLERY: readonly GalleryFamily[] = [
+    {
+        name: 'madeira-couro',
+        rows: [
+            ['leather', 'rubber', 'ceramic'],
+            ['woodRaw', 'woodVarnishedGloss', 'woodVarnishedMatte'],
+        ],
+    },
+    {
+        name: 'tecidos',
+        rows: [
+            ['cotton', 'wool', 'sheerFabric'],
+            ['denim', 'velvet', 'silk'],
+        ],
+    },
+    {
+        name: 'plasticos-metais',
+        rows: [
+            ['plasticMatte', 'plasticGloss', 'metalPolished'],
+            ['metalBrushed', 'carPaint', 'metalOxidized'],
+        ],
+    },
+    {
+        name: 'translucidos',
+        rows: [
+            ['marble', 'glass', null],
+            ['porcelain', 'skin', 'wax'],
+        ],
+    },
 ];
 
+/** Geometria da galeria: esferas de raio `R` sobre placas de lado `TILE`, colunas a `DX` e fileiras em z = ∓`DZ`. */
+const GALLERY_R = 0.55;
+const GALLERY_TILE = 1.4;
+const GALLERY_DX = 1.6;
+const GALLERY_DZ = 1.2;
+/** A parede atrás do vidro (z) e a casa do xadrez dela: o passo das colunas é um número par de casas. */
+const GALLERY_WALL_Z = -2.2;
+const GALLERY_CELL = 0.4;
+/** Câmera em perspectiva: posição, alvo e abertura vertical. */
+const GALLERY_EYE = [0, 5.2, 8.23] as const;
+const GALLERY_TARGET = [0, 0.45, 0] as const;
+const GALLERY_FOV = (21 * Math.PI) / 180;
+/** Direções para as luzes: o sol (de cima, à direita e de frente) e a luz de recorte (rasante, de trás à esquerda). */
+const GALLERY_SUN = [0.45, 0.8, 0.55] as const;
+const GALLERY_RIM = [-0.65, 0.22, -0.72] as const;
+/** Inclinação do eixo do uv das esferas (para trás, em torno de x). */
+const POLE_TILT = (35 * Math.PI) / 180;
+
+type Vec3 = readonly [number, number, number];
+const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a: Vec3, b: Vec3): Vec3 => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+];
+const unit3 = (a: Vec3): Vec3 => {
+    const l = Math.hypot(a[0], a[1], a[2]);
+    return [a[0] / l, a[1] / l, a[2] / l];
+};
+
+/** Pixel (fracionário) do ponto de mundo `p` na câmera da galeria, num alvo de `w` × `h`. */
+function galleryPixel(p: Vec3, w: number, h: number): [number, number] {
+    const f = unit3(sub3(GALLERY_TARGET, GALLERY_EYE));
+    const r = unit3(cross3(f, [0, 1, 0]));
+    const u = cross3(r, f);
+    const d = sub3(p, GALLERY_EYE);
+    const focal = h / 2 / Math.tan(GALLERY_FOV / 2);
+    const z = dot3(d, f);
+    return [w / 2 + (focal * dot3(d, r)) / z, h / 2 - (focal * dot3(d, u)) / z];
+}
+
+/** Um quadro da galeria medido: a imagem HDR, o centro de cada esfera no mundo e o custo de GPU por quadro. */
+interface GalleryShot {
+    readonly img: HdrImage;
+    readonly center: ReadonlyMap<MaterialName | 'empty', Vec3>;
+    readonly gpuMs: number;
+    readonly ready: number;
+}
+
 /**
- * Parede difusa xadrez em z = −2 (casas de `cell` de lado, deslocadas `offset` casas em x e y), pelo grafo: o padrão é
- * material.
+ * Parede vertical em z = `z` voltada para a câmera, com o material do grafo dado: neutra (o fundo) ou xadrez (atrás do
+ * vidro) — o padrão é material.
  */
-function checkerWall(app: Application, cell: number, offset: readonly [number, number]): void {
+function galleryWall(
+    app: Application,
+    center: Vec3,
+    size: readonly [number, number],
+    fn: MaterialFunction,
+): void {
     app.world.insert(
-        new PlaneGeometry({ size: [20, 20] })
+        new PlaneGeometry({ size: [...size] })
             .add(new StandardMaterial())
             .add(
                 new Transform({
-                    position: [0, 0, -2, 1],
+                    position: [...center, 1],
                     rotation: [Math.sin(Math.PI / 4), 0, 0, Math.cos(Math.PI / 4)],
                 }),
             )
-            .add(
-                materialGraph(
-                    {
-                        s: nodes.input.surfaceSample(),
-                        c: nodes.pattern.checker3.with({ scale: 1 / cell, offset: [...offset, 0] }),
-                        ramp: nodes.color.ramp.with({
-                            color_a: [0.06, 0.06, 0.07],
-                            color_b: [0.6, 0.6, 0.58],
-                        }),
-                        d: nodes.bsdf.diffuse,
-                    },
-                    [
-                        ['s.world_position', 'c.p'],
-                        ['c.value', 'ramp.t'],
-                        ['ramp.color', 'd.color'],
-                    ],
-                    'd.value',
-                ),
-            ),
+            .add(fn),
     );
 }
 
-async function caseGallery(): Promise<void> {
-    const W = 960;
-    const H = 640;
-    const height = 4.8;
-    const R = 0.5;
-    const STEP = 1.2;
-    const { app, canvas } = await materialApp(W, H, engineErrors);
-    frontCamera(app, height);
-    // A mesma luz para todos: um sol de cima, à direita e de frente, mais o ambiente padrão da cena.
-    const l = [0.35, 0.3, 1];
-    app.world.insert(
-        new DirectionalLight({ direction: [-l[0]!, -l[1]!, -l[2]!, 0], intensity: 3 }),
+/** Difuso de cor uniforme (o chão e o fundo neutros). */
+function neutral(value: number): MaterialFunction {
+    return materialGraph(
+        { d: nodes.bsdf.diffuse.with({ color: [value, value, value * 0.98] }) },
+        [],
+        'd.value',
     );
-    // Casas de 0,3: o passo das colunas (1,2) é um número par de casas — a parede atrás do vidro é igual à da casa vazia.
-    // O xadrez deslocado um terço e um quarto de casa: o centro do vidro não cai num vértice do xadrez (a imagem
-    // invertida pela esfera seria igual à direta).
-    checkerWall(app, 0.3, [1 / 3, 1 / 4]);
-    const center = new Map<MaterialName | 'empty', [number, number]>();
-    GALLERY.forEach((row, j) => {
+}
+
+/** Desenha um quadro da galeria (uma família) e mede o custo de GPU por quadro; `shot` grava o PNG. */
+async function galleryShot(
+    family: GalleryFamily,
+    width: number,
+    height: number,
+): Promise<GalleryShot> {
+    const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
+    const samples: number[] = [];
+    app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(
+            new Transform({
+                position: [...GALLERY_EYE, 1],
+                rotation: Transform.lookRotation([...GALLERY_EYE], [...GALLERY_TARGET]),
+            }),
+        ),
+    );
+    // A mesma luz para todos: o sol, uma luz de recorte rasante por trás (o pelo do veludo, o relevo das tramas) e o
+    // ambiente padrão da cena (o hemisfério céu/chão, o que os lisos refletem).
+    app.world.insert(
+        new DirectionalLight({ direction: [...GALLERY_SUN.map((c) => -c), 0], intensity: 3 }),
+    );
+    app.world.insert(
+        new DirectionalLight({ direction: [...GALLERY_RIM.map((c) => -c), 0], intensity: 1.2 }),
+    );
+    // Chão e fundo neutros.
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -0.1, 0, 1] }))
+            .add(neutral(0.3)),
+    );
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.3));
+    const center = new Map<MaterialName | 'empty', Vec3>();
+    // O padrão do mesmo tamanho na esfera (o uv dá a volta em 2πR e vai de polo a polo em πR) e na placa.
+    const tileScale = GALLERY_TILE / (Math.PI * GALLERY_R);
+    family.rows.forEach((row, j) => {
         row.forEach((name, i) => {
-            const x = (i - 2.5) * STEP;
-            const y = (1.5 - j) * STEP;
-            center.set(name ?? 'empty', [x, y]);
-            if (name !== null) sphere(app, x, y, R, Materials[name]());
+            const at: Vec3 = [(i - 1) * GALLERY_DX, GALLERY_R, j === 0 ? -GALLERY_DZ : GALLERY_DZ];
+            center.set(name ?? 'empty', at);
+            if (name === null) return;
+            const patterned = 'pattern_scale' in nodes.material[name].params;
+            app.world.insert(
+                new SphereGeometry({ radius: GALLERY_R, latSegments: 96, lonSegments: 192 })
+                    .add(new StandardMaterial())
+                    // O eixo do uv inclinado 35° para trás: o polo de cima (onde o uv converge) fica atrás do limbo.
+                    .add(
+                        new Transform({
+                            position: [...at, 1],
+                            rotation: [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)],
+                        }),
+                    )
+                    .add(Materials[name](patterned ? { pattern_scale: [2, 1] } : {})),
+            );
+            // A parte plana: a placa do mesmo material sob a esfera (o vidro fica sem, com a parede à vista atrás).
+            if (name === 'glass') return;
+            app.world.insert(
+                new BoxGeometry({ size: [GALLERY_TILE, 0.1, GALLERY_TILE] })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [at[0], -0.05, at[2], 1] }))
+                    .add(
+                        Materials[name](patterned ? { pattern_scale: [tileScale, tileScale] } : {}),
+                    ),
+            );
         });
     });
+    if (center.has('glass')) {
+        // Atrás do vidro e do lugar vazio, a parede xadrez: o centro do vidro não cai num vértice do xadrez (a imagem
+        // invertida pela esfera seria igual à direta).
+        const glass = center.get('glass')!;
+        const empty = center.get('empty')!;
+        galleryWall(
+            app,
+            [(glass[0] + empty[0]) / 2, 1.1, GALLERY_WALL_Z],
+            [8 * GALLERY_CELL, 6 * GALLERY_CELL],
+            materialGraph(
+                {
+                    s: nodes.input.surfaceSample(),
+                    c: nodes.pattern.checker3.with({
+                        scale: 1 / GALLERY_CELL,
+                        offset: [1 / 3, 1 / 4, 0],
+                    }),
+                    ramp: nodes.color.ramp.with({
+                        color_a: [0.06, 0.06, 0.07],
+                        color_b: [0.6, 0.6, 0.58],
+                    }),
+                    d: nodes.bsdf.diffuse,
+                },
+                [
+                    ['s.world_position', 'c.p'],
+                    ['s.footprint', 'c.width'],
+                    ['c.value', 'ramp.t'],
+                    ['ramp.color', 'd.color'],
+                ],
+                'd.value',
+            ),
+        );
+    }
     const started = performance.now();
     // 32 quadros: o sinal traçado do vidro (uma amostra por quadro) passa pelo filtro temporal da refração.
     const img = await renderHdr(app, 32, 1500);
     const ready = performance.now() - started;
+    samples.length = 0;
+    for (let i = 0; i < 60; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+    }
+    samples.sort((a, b) => a - b);
     if (new URLSearchParams(location.search).get('shot') !== null) {
         // O canvas só vale na tarefa do quadro: um quadro e a captura, sem ceder entre os dois.
         app.step(0);
-        await writeFixture('zzGallery.png', await toPng(capture(canvas)));
+        await writeFixture(`zzGallery-${family.name}.png`, await toPng(capture(canvas)));
     }
     disposeApp(app, canvas);
+    return { img, center, gpuMs: samples[samples.length >> 1] ?? NaN, ready };
+}
 
-    const px = (name: MaterialName | 'empty'): [number, number] => {
-        const [x, y] = center.get(name)!;
-        return frontPixel(x, y, height, W, H);
+async function caseGallery(): Promise<void> {
+    const W = 1440;
+    const H = 960;
+    const R = GALLERY_R;
+    const only = new URLSearchParams(location.search).get('family');
+    const shots = new Map<string, GalleryShot>();
+    for (const family of GALLERY) {
+        if (only !== null && only !== family.name) continue;
+        shots.set(family.name, await galleryShot(family, W, H));
+    }
+    /** O quadro em que o material está (ou `undefined`, com `family=` de outra família). */
+    const shotOf = (name: MaterialName | 'empty'): GalleryShot | undefined =>
+        [...shots.values()].find((shot) => shot.center.has(name));
+    const sun = unit3(GALLERY_SUN);
+    /** Raio em pixels da esfera de centro `c` e a direção para o observador a partir dele. */
+    const view = (c: Vec3): { r: number; v: Vec3 } => {
+        const d = sub3(GALLERY_EYE, c);
+        const f = unit3(sub3(GALLERY_TARGET, GALLERY_EYE));
+        return { r: ((H / 2 / Math.tan(GALLERY_FOV / 2)) * R) / -dot3(d, f), v: unit3(d) };
     };
-    const r = (R / height) * H;
-    // Todos desenhados, sem valores não finitos.
-    let bad = 0;
-    for (let k = 0; k < img.data.length; k++) if (!Number.isFinite(img.data[k]!)) bad++;
-    const dark = [...center.keys()].filter((name) => {
-        if (name === 'empty') return false;
-        const [x, y] = px(name);
+    /** Pixel do ponto da esfera `name` de normal `n`. */
+    const onSphere = (shot: GalleryShot, name: MaterialName, n: Vec3): [number, number] => {
+        const c = shot.center.get(name)!;
+        const [x, y] = galleryPixel([c[0] + R * n[0], c[1] + R * n[1], c[2] + R * n[2]], W, H);
+        return [Math.round(x), Math.round(y)];
+    };
+    /** Luminâncias da janela quadrada de lado 2·`half` + 1 em volta de (x, y). */
+    const patch = (img: HdrImage, x: number, y: number, half: number): number[][] => {
+        const rows: number[][] = [];
+        for (let dy = -half; dy <= half; dy++) {
+            const row: number[] = [];
+            for (let dx = -half; dx <= half; dx++) row.push(lum(hdrAt(img, x + dx, y + dy)));
+            rows.push(row);
+        }
+        return rows;
+    };
+
+    // Todos desenhados, sem valores não finitos; o custo de GPU de cada quadro.
+    for (const [family, shot] of shots) {
+        let bad = 0;
+        for (let k = 0; k < shot.img.data.length; k++)
+            if (!Number.isFinite(shot.img.data[k]!)) bad++;
+        const dark = [...shot.center.keys()].filter((name) => {
+            if (name === 'empty') return false;
+            const [x, y] = onSphere(shot, name, view(shot.center.get(name)!).v);
+            let sum = 0;
+            for (let dy = -8; dy <= 8; dy += 4)
+                for (let dx = -8; dx <= 8; dx += 4) sum += lum(hdrAt(shot.img, x + dx, y + dy));
+            return !(sum > 0);
+        });
+        log(
+            `gallery ${family}: ${shot.center.size - (shot.center.has('empty') ? 1 : 0)} materiais prontos, ${W}×${H}; pronto em ${(shot.ready / 1000).toFixed(1)} s; GPU ${shot.gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos; sem imagem: ${dark.length === 0 ? 'nenhum' : dark.join(', ')}`,
+        );
+        check(bad === 0, `gallery ${family}: ${bad} valores não finitos no alvo HDR`);
+        check(dark.length === 0, `gallery ${family}: materiais sem imagem (${dark.join(', ')})`);
+    }
+
+    /**
+     * Contraste da estrutura do material na janela: o desvio da luminância em torno da média local (7 × 7 pixels: sem o
+     * degradê da luz nem o realce largo) sobre a média da janela.
+     */
+    const contrast = (name: MaterialName, n: Vec3, half: number): number => {
+        const shot = shotOf(name)!;
+        const [x, y] = onSphere(shot, name, n);
+        const values = patch(shot.img, x, y, half + 3);
         let sum = 0;
-        for (let dy = -8; dy <= 8; dy += 4)
-            for (let dx = -8; dx <= 8; dx += 4) sum += lum(hdrAt(img, x + dx, y + dy));
-        return !(sum > 0);
-    });
-    log(
-        `gallery: ${center.size - 1} materiais prontos sob a mesma luz, ${W}×${H}; pronto em ${(ready / 1000).toFixed(1)} s; ${bad} valores não finitos; sem imagem: ${dark.length === 0 ? 'nenhum' : dark.join(', ')}`,
-    );
-    check(bad === 0, `gallery: ${bad} valores não finitos no alvo HDR`);
-    check(dark.length === 0, `gallery: materiais sem imagem (${dark.join(', ')})`);
-
-    // Realce do sol: a normal na meia direção entre a luz e o observador (+z).
-    const len = Math.hypot(l[0]!, l[1]!, l[2]!);
-    const hl = Math.hypot(l[0]! / len, l[1]! / len, l[2]! / len + 1);
-    const hx = l[0]! / len / hl;
-    const hy = l[1]! / len / hl;
-    /** Nitidez do realce: o pico perto da meia direção sobre a mediana do anel de 12 a 16 px em volta dele. */
-    const sharpness = (name: MaterialName): { ratio: number; peak: number } => {
-        const [cx, cy] = px(name);
-        const x0 = Math.round(cx + r * hx);
-        const y0 = Math.round(cy - r * hy);
-        let peak = 0;
-        let at: [number, number] = [x0, y0];
-        for (let dy = -6; dy <= 6; dy++)
-            for (let dx = -6; dx <= 6; dx++) {
-                const v = lum(hdrAt(img, x0 + dx, y0 + dy));
-                if (v > peak) {
-                    peak = v;
-                    at = [x0 + dx, y0 + dy];
-                }
+        let dev = 0;
+        let count = 0;
+        for (let j = 3; j < values.length - 3; j++)
+            for (let i = 3; i < values.length - 3; i++) {
+                let local = 0;
+                for (let dy = -3; dy <= 3; dy++)
+                    for (let dx = -3; dx <= 3; dx++) local += values[j + dy]![i + dx]! / 49;
+                sum += values[j]![i]!;
+                dev += (values[j]![i]! - local) ** 2;
+                count++;
             }
-        const ring: number[] = [];
-        for (let dy = -16; dy <= 16; dy++)
-            for (let dx = -16; dx <= 16; dx++) {
-                const d = Math.hypot(dx, dy);
-                if (d >= 12 && d <= 16) ring.push(lum(hdrAt(img, at[0] + dx, at[1] + dy)));
-            }
-        ring.sort((a, b) => a - b);
-        return { ratio: peak / ring[ring.length >> 1]!, peak };
+        return Math.sqrt(dev / count) / Math.max(sum / count, 1e-6);
     };
-    const raw = sharpness('woodRaw');
-    const gloss = sharpness('woodVarnishedGloss');
-    const matte = sharpness('woodVarnishedMatte');
-    log(
-        `gallery: realce do sol (pico / mediana do anel a 12–16 px) — madeira crua ${raw.ratio.toFixed(2)}×, verniz brilhante ${gloss.ratio.toFixed(1)}× (pico ${gloss.peak.toFixed(1)}), verniz fosco ${matte.ratio.toFixed(2)}×`,
-    );
-    check(raw.ratio < 1.3, `gallery: a madeira crua tem realce nítido (${raw.ratio})`);
-    check(gloss.ratio > 2, `gallery: a madeira envernizada não tem realce nítido (${gloss.ratio})`);
-    check(
-        gloss.ratio > matte.ratio && matte.ratio > raw.ratio,
-        `gallery: o verniz fosco não fica entre a madeira crua e o verniz brilhante (${matte.ratio})`,
-    );
+    /**
+     * Periodicidade na janela: a autocorrelação normalizada das linhas (sem a média de cada uma) cai até um primeiro
+     * mínimo e volta a subir no período do padrão — o quanto ela sobe depois desse mínimo (até `to` pixels). Perto de
+     * 1 num padrão que se repete; perto de 0 num ruído ou num degradê (que só caem).
+     */
+    const periodicity = (name: MaterialName, n: Vec3, half: number, to: number) => {
+        const shot = shotOf(name)!;
+        const [x, y] = onSphere(shot, name, n);
+        const rows = patch(shot.img, x, y, half).map((row) => {
+            const mean = row.reduce((a, b) => a + b, 0) / row.length;
+            return row.map((v) => v - mean);
+        });
+        const at = (lag: number): number => {
+            let num = 0;
+            let den = 0;
+            for (const row of rows) {
+                for (let k = 0; k + lag < row.length; k++) num += row[k]! * row[k + lag]!;
+                for (let k = 0; k < row.length; k++)
+                    den += (row[k]! * row[k]! * (row.length - lag)) / row.length;
+            }
+            return num / Math.max(den, 1e-12);
+        };
+        const curve = Array.from({ length: to }, (_, k) => at(k + 1));
+        let low = 0;
+        while (low + 1 < curve.length && curve[low + 1]! < curve[low]!) low++;
+        let best = { lag: low + 1, value: 0 };
+        for (let k = low + 1; k < curve.length; k++)
+            if (curve[k]! - curve[low]! > best.value)
+                best = { lag: k + 1, value: curve[k]! - curve[low]! };
+        return best;
+    };
+    /** Um ponto da esfera voltado para a câmera, girado `side` para o lado da sombra (fora do realce do sol). */
+    const facing = (name: MaterialName, side = -0.35): Vec3 => {
+        const { v } = view(shotOf(name)!.center.get(name)!);
+        return unit3([v[0] + side, v[1] - 0.15, v[2]]);
+    };
 
-    // Borda do veludo: o maior valor do anel a 0,93 R sobre o centro, contra um tecido sem pelo ereto e um fosco.
-    const rim = (name: MaterialName): number => {
-        const [cx, cy] = px(name);
-        let top = 0;
-        for (let k = 0; k < 64; k++) {
-            const a = (2 * Math.PI * k) / 64;
-            top = Math.max(
-                top,
-                lum(
-                    hdrAt(
-                        img,
-                        Math.round(cx + 0.93 * r * Math.cos(a)),
-                        Math.round(cy + 0.93 * r * Math.sin(a)),
+    if (shots.has('madeira-couro')) {
+        const shot = shots.get('madeira-couro')!;
+        /** Nitidez do realce: o pico perto da meia direção sobre a mediana do anel de 12 a 16 px em volta dele. */
+        const sharpness = (name: MaterialName): { ratio: number; peak: number } => {
+            const { v } = view(shot.center.get(name)!);
+            const h = unit3([sun[0] + v[0], sun[1] + v[1], sun[2] + v[2]]);
+            const [x0, y0] = onSphere(shot, name, h);
+            let peak = 0;
+            let at: [number, number] = [x0, y0];
+            for (let dy = -8; dy <= 8; dy++)
+                for (let dx = -8; dx <= 8; dx++) {
+                    const v = lum(hdrAt(shot.img, x0 + dx, y0 + dy));
+                    if (v > peak) {
+                        peak = v;
+                        at = [x0 + dx, y0 + dy];
+                    }
+                }
+            const ring: number[] = [];
+            for (let dy = -16; dy <= 16; dy++)
+                for (let dx = -16; dx <= 16; dx++) {
+                    const d = Math.hypot(dx, dy);
+                    if (d >= 12 && d <= 16) ring.push(lum(hdrAt(shot.img, at[0] + dx, at[1] + dy)));
+                }
+            ring.sort((a, b) => a - b);
+            return { ratio: peak / ring[ring.length >> 1]!, peak };
+        };
+        const raw = sharpness('woodRaw');
+        const gloss = sharpness('woodVarnishedGloss');
+        const matte = sharpness('woodVarnishedMatte');
+        log(
+            `gallery: realce do sol (pico / mediana do anel a 12–16 px) — madeira crua ${raw.ratio.toFixed(2)}×, verniz brilhante ${gloss.ratio.toFixed(1)}× (pico ${gloss.peak.toFixed(1)}), verniz fosco ${matte.ratio.toFixed(2)}×`,
+        );
+        // A madeira crua tem o contraste do veio no anel (o lenho tardio contra o inicial), não um realce: o pico fica
+        // dentro da faixa de tons do veio.
+        check(raw.ratio < 3, `gallery: a madeira crua tem realce nítido (${raw.ratio})`);
+        check(
+            gloss.ratio > 4 * raw.ratio,
+            `gallery: a madeira envernizada não tem realce nítido (${gloss.ratio} × ${raw.ratio})`,
+        );
+        check(
+            gloss.ratio > matte.ratio,
+            `gallery: o verniz fosco tem o realce mais nítido que o brilhante (${matte.ratio})`,
+        );
+        // O veio: o contraste entre o lenho inicial e o tardio, na madeira crua e sob o verniz; e o grão do couro.
+        const grainRaw = contrast('woodRaw', facing('woodRaw'), 24);
+        const grainGloss = contrast('woodVarnishedGloss', facing('woodVarnishedGloss'), 24);
+        const hide = contrast('leather', facing('leather'), 24);
+        const plain = contrast('rubber', facing('rubber'), 24);
+        log(
+            `gallery: contraste da estrutura (desvio / média em 49 × 49 px) — veio da madeira crua ${grainRaw.toFixed(3)}, sob o verniz ${grainGloss.toFixed(3)}; grão do couro ${hide.toFixed(3)}; borracha ${plain.toFixed(3)}`,
+        );
+        check(grainRaw > 0.08, `gallery: a madeira crua não mostra o veio (${grainRaw})`);
+        check(grainGloss > 0.08, `gallery: o veio não aparece sob o verniz (${grainGloss})`);
+        check(hide > 0.06, `gallery: o couro não mostra o grão (${hide})`);
+        check(
+            grainRaw > 2 * plain && hide > 2 * plain,
+            `gallery: a borracha tem tanto contraste quanto a madeira e o couro (${plain})`,
+        );
+    }
+
+    if (shots.has('tecidos')) {
+        const shot = shots.get('tecidos')!;
+        // Borda do veludo: o maior valor do anel a 0,93 R sobre o centro, contra um tecido sem pelo ereto.
+        const rim = (name: MaterialName): number => {
+            const c = shot.center.get(name)!;
+            const { r, v } = view(c);
+            const [cx, cy] = onSphere(shot, name, v);
+            let top = 0;
+            for (let k = 0; k < 64; k++) {
+                const a = (2 * Math.PI * k) / 64;
+                top = Math.max(
+                    top,
+                    lum(
+                        hdrAt(
+                            shot.img,
+                            Math.round(cx + 0.93 * r * Math.cos(a)),
+                            Math.round(cy + 0.93 * r * Math.sin(a)),
+                        ),
                     ),
+                );
+            }
+            // O centro: a mediana da janela (a trama e as manchas do pelo variam de pixel a pixel).
+            const middle = patch(shot.img, cx, cy, 6)
+                .flat()
+                .sort((a, b) => a - b);
+            return top / middle[middle.length >> 1]!;
+        };
+        const velvet = rim('velvet');
+        const cotton = rim('cotton');
+        log(`gallery: borda/centro — veludo ${velvet.toFixed(2)}, algodão ${cotton.toFixed(2)}`);
+        check(velvet > 1.3, `gallery: a borda do veludo não brilha mais que o centro (${velvet})`);
+        check(velvet > cotton, `gallery: o veludo não tem mais borda que o algodão (${cotton})`);
+        // A trama: o padrão se repete ao longo das linhas (os fios), no jeans e no algodão; o veludo, sem trama à
+        // vista, não se repete.
+        const denim = periodicity('denim', facing('denim'), 24, 24);
+        const plain = periodicity('cotton', facing('cotton'), 24, 24);
+        const pile = periodicity('velvet', facing('velvet'), 24, 24);
+        log(
+            `gallery: periodicidade da trama (subida da autocorrelação das linhas depois do primeiro mínimo, em 49 × 49 px) — jeans ${denim.value.toFixed(2)} a ${denim.lag} px, algodão ${plain.value.toFixed(2)} a ${plain.lag} px, veludo ${pile.value.toFixed(2)}`,
+        );
+        check(denim.value > 0.3, `gallery: o jeans não mostra a trama (${denim.value})`);
+        check(plain.value > 0.3, `gallery: o algodão não mostra a trama (${plain.value})`);
+        check(
+            pile.value < 0.5 * Math.min(denim.value, plain.value),
+            `gallery: o veludo se repete como uma trama (${pile.value})`,
+        );
+        // As manchas do pelo penteado do veludo: o brilho varia em manchas largas na faixa rasante.
+        // (O desvio inteiro sobre a média, sem tirar a média local: as manchas são mais largas que ela.)
+        const [nx, ny] = onSphere(shot, 'velvet', facing('velvet', -0.9));
+        const napValues = patch(shot.img, nx, ny, 30).flat();
+        const napMean = napValues.reduce((a, b) => a + b, 0) / napValues.length;
+        const nap =
+            Math.sqrt(napValues.reduce((a, b) => a + (b - napMean) ** 2, 0) / napValues.length)
+            / napMean;
+        log(`gallery: manchas do pelo do veludo (desvio / média em 61 × 61 px) ${nap.toFixed(3)}`);
+        check(nap > 0.1, `gallery: o veludo não mostra as manchas do pelo (${nap})`);
+        // Tecido fino (desenhado pelo traçado da refração: lobo translúcido) do lado contra o sol: a luz ambiente da
+        // cena, como no algodão (desenhado pelo forward) — sem ela nos acertos dos raios, o tecido fino dava 0 ali.
+        const away = (name: MaterialName): number => {
+            const { v } = view(shot.center.get(name)!);
+            // No plano da tela, a direção oposta à do sol, a 10° do limbo.
+            const along = dot3(sun, v);
+            const side = unit3(sub3(sun, [v[0] * along, v[1] * along, v[2] * along]));
+            const a = Math.PI / 18;
+            const n: Vec3 = [
+                v[0] * Math.sin(a) - side[0] * Math.cos(a),
+                v[1] * Math.sin(a) - side[1] * Math.cos(a),
+                v[2] * Math.sin(a) - side[2] * Math.cos(a),
+            ];
+            const [x, y] = onSphere(shot, name, n);
+            const values = patch(shot.img, x, y, 4)
+                .flat()
+                .sort((p, q) => p - q);
+            return values[values.length >> 1]!;
+        };
+        const sheer = away('sheerFabric');
+        const cottonAway = away('cotton');
+        log(
+            `gallery: lado contra o sol (a 10° do limbo) — tecido fino ${sheer.toFixed(4)}, algodão ${cottonAway.toFixed(4)}`,
+        );
+        check(sheer > 0, `gallery: o tecido fino fica preto do lado contra o sol (${sheer})`);
+        check(
+            sheer > 0.5 * cottonAway,
+            `gallery: o tecido fino recebe menos da metade da luz ambiente do algodão (${sheer} × ${cottonAway})`,
+        );
+    }
+
+    if (shots.has('plasticos-metais')) {
+        const shot = shots.get('plasticos-metais')!;
+        // Realce alongado do metal escovado: razão dos eixos principais dos pixels acima de meio pico, na esfera.
+        const elongation = (name: MaterialName): number => {
+            // Em volta do realce do sol (a normal na meia direção), fora o da luz de recorte.
+            const c = shot.center.get(name)!;
+            const { r, v } = view(c);
+            const h = unit3([sun[0] + v[0], sun[1] + v[1], sun[2] + v[2]]);
+            const [cx, cy] = onSphere(shot, name, h);
+            const inside: [number, number, number][] = [];
+            let peak = 0;
+            const rr = Math.floor(0.4 * r);
+            for (let dy = -rr; dy <= rr; dy++)
+                for (let dx = -rr; dx <= rr; dx++) {
+                    if (dx * dx + dy * dy > rr * rr) continue;
+                    const value = lum(hdrAt(shot.img, cx + dx, cy + dy));
+                    inside.push([dx, dy, value]);
+                    peak = Math.max(peak, value);
+                }
+            let w = 0;
+            let mx = 0;
+            let my = 0;
+            for (const [x, y, value] of inside)
+                if (value >= peak / 2) {
+                    w += value;
+                    mx += value * x;
+                    my += value * y;
+                }
+            mx /= w;
+            my /= w;
+            let xx = 0;
+            let yy = 0;
+            let xy = 0;
+            for (const [x, y, value] of inside)
+                if (value >= peak / 2) {
+                    xx += (value * (x - mx) ** 2) / w;
+                    yy += (value * (y - my) ** 2) / w;
+                    xy += (value * (x - mx) * (y - my)) / w;
+                }
+            // Pixel único (realce abaixo do pixel): a variância do próprio pixel (1/12) nos dois eixos.
+            xx += 1 / 12;
+            yy += 1 / 12;
+            const mean = (xx + yy) / 2;
+            const dev = Math.hypot((xx - yy) / 2, xy);
+            return Math.sqrt((mean + dev) / (mean - dev));
+        };
+        const brushed = elongation('metalBrushed');
+        const polished = elongation('metalPolished');
+        log(
+            `gallery: realce do metal (razão dos eixos) — escovado ${brushed.toFixed(2)}×, polido ${polished.toFixed(2)}×`,
+        );
+        check(brushed > 1.8, `gallery: o realce do metal escovado não é alongado (${brushed})`);
+        check(
+            brushed > polished,
+            `gallery: o metal polido é mais alongado que o escovado (${polished})`,
+        );
+        // Os flocos da pintura e as manchas da ferrugem contra o plástico brilhante liso.
+        const flakes = contrast('carPaint', facing('carPaint'), 24);
+        const rust = contrast('metalOxidized', facing('metalOxidized'), 24);
+        const smooth = contrast('plasticGloss', facing('plasticGloss'), 24);
+        log(
+            `gallery: contraste da estrutura (desvio / média em 49 × 49 px) — flocos da pintura ${flakes.toFixed(3)}, ferrugem ${rust.toFixed(3)}, plástico brilhante ${smooth.toFixed(3)}`,
+        );
+        check(flakes > 2 * smooth, `gallery: a pintura não mostra os flocos (${flakes})`);
+        check(rust > 2 * smooth, `gallery: o metal oxidado não mostra as manchas (${rust})`);
+    }
+
+    if (shots.has('translucidos')) {
+        const shot = shots.get('translucidos')!;
+        const img = shot.img;
+        // Vidro: a parede aparece através dele (transparente) com o xadrez deslocado (refração) — contra o mesmo trecho
+        // da parede à vista no lugar vazio ao lado: o ponto da parede atrás do centro do vidro e o de mesma fase do
+        // xadrez (um passo de coluna = 4 casas) atrás do lugar vazio, duas linhas de casas.
+        const glass = shot.center.get('glass')!;
+        const { r, v } = view(glass);
+        const [gx, gy] = onSphere(shot, 'glass', v);
+        const t = (GALLERY_WALL_Z - GALLERY_EYE[2]) / (glass[2] - GALLERY_EYE[2]);
+        const behind: Vec3 = [
+            GALLERY_EYE[0] + t * (glass[0] - GALLERY_EYE[0]),
+            GALLERY_EYE[1] + t * (glass[1] - GALLERY_EYE[1]),
+            GALLERY_WALL_Z,
+        ];
+        const [ex, ey] = galleryPixel([behind[0] + GALLERY_DX, behind[1], behind[2]], W, H).map(
+            Math.round,
+        ) as [number, number];
+        const cellPx =
+            galleryPixel([behind[0] + GALLERY_CELL, behind[1], behind[2]], W, H)[0]
+            - galleryPixel(behind, W, H)[0];
+        const span = Math.round(0.6 * r);
+        let through = 0;
+        let wall = 0;
+        let differ = 0;
+        let n = 0;
+        const flips = { glass: 0, wall: 0 };
+        for (const row of [-0.25, 0.25]) {
+            const dy = Math.round(row * cellPx * 2);
+            const a = profile(img, gy + dy, gx - span, gx + span + 1);
+            const b = profile(img, ey + dy, ex - span, ex + span + 1);
+            const top = Math.max(...b);
+            const low = Math.min(...b);
+            const mid = (top + low) / 2;
+            through = Math.max(through, ...a);
+            wall = Math.max(wall, top);
+            for (let k = 0; k < a.length; k++) {
+                if (a[k]! > mid !== b[k]! > mid) differ++;
+                n++;
+                if (k > 0 && a[k]! > mid !== a[k - 1]! > mid) flips.glass++;
+                if (k > 0 && b[k]! > mid !== b[k - 1]! > mid) flips.wall++;
+            }
+        }
+        log(
+            `gallery: vidro — casa clara da parede ${wall.toFixed(3)} à vista e ${through.toFixed(3)} através dele; ${((100 * differ) / n).toFixed(0)} % do trecho com a casa trocada; bordas do xadrez: ${flips.glass} através, ${flips.wall} à vista`,
+        );
+        check(through > 0.5 * wall, `gallery: o vidro não é transparente (${through} × ${wall})`);
+        check(differ / n > 0.15, `gallery: o xadrez não aparece refratado (${differ} de ${n})`);
+
+        // Vidro sem grão: a dispersão (`abbe` 58) aparece como franja nas bordas do xadrez, não como pontos soltos
+        // dentro das casas. No disco de 0,7 do raio (fora dele a esfera comprime a parede inteira em poucos pixels), o
+        // pixel no meio de uma casa — ao menos 20 dos 25 pixels da janela 5 × 5 com a luminância a menos de 10 % da
+        // casa clara da mediana da janela — é um ponto de grão quando um canal dele foge mais que isso da mediana do
+        // canal na janela. As franjas ficam nas bordas (janela dividida), fora da conta. Na câmera ortográfica da
+        // galeria anterior: 7,50 % com a roleta de Fresnel na interface lisa que dispersa; 0,11 % com os lobos sem
+        // sorteio. O limite de 0,5 % fica 15× abaixo do defeito.
+        const disc = Math.round(0.7 * r);
+        const tolerance = 0.1 * wall;
+        const median = (values: number[]): number =>
+            values.sort((a, b) => a - b)[values.length >> 1]!;
+        let dots = 0;
+        let flat = 0;
+        for (let dy = -disc; dy <= disc; dy++) {
+            for (let dx = -disc; dx <= disc; dx++) {
+                if (dx * dx + dy * dy > disc * disc) continue;
+                const window: [number, number, number][] = [];
+                for (let oy = -2; oy <= 2; oy++)
+                    for (let ox = -2; ox <= 2; ox++)
+                        window.push(hdrAt(img, gx + dx + ox, gy + dy + oy));
+                const lums = window.map(lum);
+                const mid = median([...lums]);
+                if (lums.filter((value) => Math.abs(value - mid) <= tolerance).length < 20)
+                    continue;
+                flat++;
+                const own = window[12]!;
+                const off = [0, 1, 2].some(
+                    (k) => Math.abs(own[k]! - median(window.map((c) => c[k]!))) > tolerance,
+                );
+                if (off) dots++;
+            }
+        }
+        log(
+            `gallery: vidro — ${dots} pontos de grão em ${flat} pixels no meio das casas, no disco de 0,7 do raio (${((100 * dots) / flat).toFixed(2)} %)`,
+        );
+        check(
+            flat > 2000,
+            `gallery: o vidro quase não tem casas lisas para medir o grão (${flat})`,
+        );
+        check(dots / flat < 0.005, `gallery: o vidro tem grão (${dots} pontos em ${flat})`);
+
+        // A borda do vidro: no anel do limbo (0,97 a 1,0 do raio), a variação de um pixel ao vizinho ao longo do
+        // contorno — o serrilhado que a câmera ortográfica dava ali (a largura do cone do raio era 0).
+        let jumps = 0;
+        let steps = 0;
+        let previous = -1;
+        const turns = Math.round(2 * Math.PI * r);
+        for (let k = 0; k <= turns; k++) {
+            const a = (2 * Math.PI * k) / turns;
+            const value = lum(
+                hdrAt(
+                    img,
+                    Math.round(gx + 0.985 * r * Math.cos(a)),
+                    Math.round(gy + 0.985 * r * Math.sin(a)),
                 ),
             );
+            if (previous >= 0) {
+                steps++;
+                if (Math.abs(value - previous) > 0.25 * wall) jumps++;
+            }
+            previous = value;
         }
-        return top / lum(hdrAt(img, cx, cy));
-    };
-    const velvet = rim('velvet');
-    const cotton = rim('cotton');
-    const rubber = rim('rubber');
-    log(
-        `gallery: borda/centro — veludo ${velvet.toFixed(2)}, algodão ${cotton.toFixed(2)}, borracha ${rubber.toFixed(2)}`,
-    );
-    check(velvet > 1.3, `gallery: a borda do veludo não brilha mais que o centro (${velvet})`);
-    check(velvet > cotton, `gallery: o veludo não tem mais borda que o algodão (${cotton})`);
-
-    // Realce alongado do metal escovado: razão dos eixos principais dos pixels acima de meio pico, na esfera.
-    const elongation = (name: MaterialName): number => {
-        const [cx, cy] = px(name);
-        const inside: [number, number, number][] = [];
-        let peak = 0;
-        const rr = Math.floor(0.95 * r);
-        for (let dy = -rr; dy <= rr; dy++)
-            for (let dx = -rr; dx <= rr; dx++) {
-                if (dx * dx + dy * dy > rr * rr) continue;
-                const v = lum(hdrAt(img, cx + dx, cy + dy));
-                inside.push([dx, dy, v]);
-                peak = Math.max(peak, v);
-            }
-        let w = 0;
-        let mx = 0;
-        let my = 0;
-        for (const [x, y, v] of inside)
-            if (v >= peak / 2) {
-                w += v;
-                mx += v * x;
-                my += v * y;
-            }
-        mx /= w;
-        my /= w;
-        let xx = 0;
-        let yy = 0;
-        let xy = 0;
-        for (const [x, y, v] of inside)
-            if (v >= peak / 2) {
-                xx += (v * (x - mx) ** 2) / w;
-                yy += (v * (y - my) ** 2) / w;
-                xy += (v * (x - mx) * (y - my)) / w;
-            }
-        // Pixel único (realce abaixo do pixel): a variância do próprio pixel (1/12) nos dois eixos.
-        xx += 1 / 12;
-        yy += 1 / 12;
-        const mean = (xx + yy) / 2;
-        const dev = Math.hypot((xx - yy) / 2, xy);
-        return Math.sqrt((mean + dev) / (mean - dev));
-    };
-    const brushed = elongation('metalBrushed');
-    const polished = elongation('metalPolished');
-    log(
-        `gallery: realce do metal (razão dos eixos) — escovado ${brushed.toFixed(2)}×, polido ${polished.toFixed(2)}×`,
-    );
-    check(brushed > 1.8, `gallery: o realce do metal escovado não é alongado (${brushed})`);
-    check(
-        brushed > polished,
-        `gallery: o metal polido é mais alongado que o escovado (${polished})`,
-    );
-
-    // Vidro: a parede aparece através dele (transparente) com o xadrez deslocado (refração) — o mesmo trecho da
-    // parede à vista na casa vazia ao lado, duas linhas de casas.
-    const [gx, gy] = px('glass');
-    const [ex, ey] = px('empty');
-    const span = Math.round(0.6 * r);
-    const cellPx = (0.3 / height) * H;
-    let through = 0;
-    let wall = 0;
-    let differ = 0;
-    let n = 0;
-    const flips = { glass: 0, wall: 0 };
-    for (const row of [-0.25, 0.25]) {
-        const dy = Math.round(row * cellPx * 2);
-        const a = profile(img, gy + dy, gx - span, gx + span + 1);
-        const b = profile(img, ey + dy, ex - span, ex + span + 1);
-        const top = Math.max(...b);
-        const low = Math.min(...b);
-        const mid = (top + low) / 2;
-        through = Math.max(through, ...a);
-        wall = Math.max(wall, top);
-        for (let k = 0; k < a.length; k++) {
-            if (a[k]! > mid !== b[k]! > mid) differ++;
-            n++;
-            if (k > 0 && a[k]! > mid !== a[k - 1]! > mid) flips.glass++;
-            if (k > 0 && b[k]! > mid !== b[k - 1]! > mid) flips.wall++;
-        }
+        log(
+            `gallery: vidro — borda (anel a 0,985 do raio): ${jumps} saltos de mais de um quarto da casa clara em ${steps} passos do contorno (${((100 * jumps) / steps).toFixed(1)} %)`,
+        );
+        // Os veios do mármore contra a porcelana lisa.
+        const veins = contrast('marble', facing('marble'), 24);
+        const china = contrast('porcelain', facing('porcelain'), 24);
+        log(
+            `gallery: contraste da estrutura (desvio / média em 49 × 49 px) — veios do mármore ${veins.toFixed(3)}, porcelana ${china.toFixed(3)}`,
+        );
+        check(veins > 2 * china, `gallery: o mármore não mostra os veios (${veins} × ${china})`);
     }
-    log(
-        `gallery: vidro — casa clara da parede ${wall.toFixed(3)} à vista e ${through.toFixed(3)} através dele; ${((100 * differ) / n).toFixed(0)} % do trecho com a casa trocada; bordas do xadrez: ${flips.glass} através, ${flips.wall} à vista`,
-    );
-    check(through > 0.5 * wall, `gallery: o vidro não é transparente (${through} × ${wall})`);
-    check(differ / n > 0.15, `gallery: o xadrez não aparece refratado (${differ} de ${n})`);
-
-    // Vidro sem grão: a dispersão (`abbe` 58) aparece como franja nas bordas do xadrez, não como pontos soltos dentro
-    // das casas. No disco de 0,7 do raio (fora dele a esfera comprime a parede inteira em poucos pixels: o serrilhado da
-    // imagem reduzida, com ou sem dispersão), o pixel no meio de uma casa — ao menos 20 dos 25 pixels da janela 5 × 5
-    // com a luminância a menos de 10 % da casa clara da mediana da janela — é um ponto de grão quando um canal dele
-    // foge mais que isso da mediana do canal na janela. As franjas ficam nas bordas (janela dividida), fora da conta.
-    // Medido: 7,50 % (299 de 3989) com a roleta de Fresnel na interface lisa que dispersa, cada canal com o seu sorteio;
-    // 0,11 % (5 de 4482) com os lobos sem sorteio. O limite de 0,5 % fica 15× abaixo do defeito.
-    const disc = Math.round(0.7 * r);
-    const tolerance = 0.1 * wall;
-    const median = (v: number[]): number => v.sort((a, b) => a - b)[v.length >> 1]!;
-    let dots = 0;
-    let flat = 0;
-    for (let dy = -disc; dy <= disc; dy++) {
-        for (let dx = -disc; dx <= disc; dx++) {
-            if (dx * dx + dy * dy > disc * disc) continue;
-            const window: [number, number, number][] = [];
-            for (let oy = -2; oy <= 2; oy++)
-                for (let ox = -2; ox <= 2; ox++)
-                    window.push(hdrAt(img, gx + dx + ox, gy + dy + oy));
-            const lums = window.map(lum);
-            const mid = median([...lums]);
-            if (lums.filter((v) => Math.abs(v - mid) <= tolerance).length < 20) continue;
-            flat++;
-            const own = window[12]!;
-            const off = [0, 1, 2].some(
-                (k) => Math.abs(own[k]! - median(window.map((c) => c[k]!))) > tolerance,
-            );
-            if (off) dots++;
-        }
-    }
-    log(
-        `gallery: vidro — ${dots} pontos de grão em ${flat} pixels no meio das casas, no disco de 0,7 do raio (${((100 * dots) / flat).toFixed(2)} %)`,
-    );
-    check(flat > 2000, `gallery: o vidro quase não tem casas lisas para medir o grão (${flat})`);
-    check(dots / flat < 0.005, `gallery: o vidro tem grão (${dots} pontos em ${flat})`);
-
-    // Tecido fino (desenhado pelo traçado da refração: lobo translúcido) do lado contra o sol: a luz ambiente da cena,
-    // como no algodão (desenhado pelo forward) — a 10° do limbo, na direção oposta à do sol na tela, onde o sol não
-    // chega. Sem a luz ambiente nos acertos dos raios, o tecido fino dava 0 ali (a borda preta).
-    const away = (name: MaterialName): number => {
-        const [x, y] = center.get(name)!;
-        const k = (R * Math.cos(Math.PI / 18)) / Math.hypot(l[0]!, l[1]!);
-        const [qx, qy] = frontPixel(x - k * l[0]!, y - k * l[1]!, height, W, H);
-        return lum(hdrAt(img, qx, qy));
-    };
-    const sheer = away('sheerFabric');
-    const cottonAway = away('cotton');
-    log(
-        `gallery: lado contra o sol (a 10° do limbo) — tecido fino ${sheer.toFixed(4)}, algodão ${cottonAway.toFixed(4)}`,
-    );
-    check(sheer > 0, `gallery: o tecido fino fica preto do lado contra o sol (${sheer})`);
-    check(
-        sheer > 0.5 * cottonAway,
-        `gallery: o tecido fino recebe menos da metade da luz ambiente do algodão (${sheer} × ${cottonAway})`,
-    );
 }
 
 async function caseLibraryCompose(): Promise<void> {
