@@ -428,3 +428,36 @@ com o relevo na normal); o deslocamento é ao longo da normal (sem saliências q
 em uv 0 e 1 — iguais pelo período do padrão, a menos do arredondamento; a geometria diferencial (`SurfaceDiff`) é a da
 superfície sem o relevo; a inclinação de `surface.reliefNormal` é presa em 76°; a ferrugem (`metalOxidized`) e os
 tecidos de trama continuam com o relevo só na normal (`surface.bump`, em unidades do padrão).
+
+### R18 — Variedade da biblioteca: lobo anisotrópico no reflexo, pintura metálica, tábuas e nós (T117)
+
+**O lobo anisotrópico no reflexo traçado.** O reflexo dos opacos (R16) tem um raio por pixel e nenhum acúmulo próprio: o
+filtro temporal da refração só existe com o antisserrilhado temporal e só para os pedidos dos transmissivos. O lobo do
+metal escovado é estreito num eixo e largo no outro: a fração de espelho passa a ser a do eixo estreito (a rugosidade
+vezes √(1 − |anisotropia|)) e a direção do raio é a refletida por uma micronormal sorteada no eixo largo — a marginal da
+distribuição GGX das inclinações, s = α_l · q / √(1 − q²). O sorteio é o mesmo ao longo de uma linha da escova na tela
+(a razão áurea no índice da linha através das ranhuras): o reflexo sai em fios, como as ranhuras o devolvem; deslocado
+pelo desvio de subpixel da câmera, muda a cada quadro com o antisserrilhado temporal, e a resolução temporal (o canal
+da spec 037) acumula o lobo. Alternativas descartadas: levar os pedidos de reflexo ao filtro temporal da refração (os
+guias do filtro são os do ponto atingido, que muda a cada sorteio; e não cobre o MSAA); ranhuras explícitas na normal do
+material (abaixo do pixel viram espelho). Limite: sem o antisserrilhado temporal o lobo é um fio por linha, com serrilha;
+os lobos rugosos isotrópicos continuam com a luz das sondas.
+
+**Pintura de carro.** A receita anterior (pigmento difuso + flocos esparsos + verniz) dá pérola ou laca. As outras
+engines fazem a base metálica: o Principled BSDF do Blender com `metallic` 1 e `coat` 1 de normal própria, o verniz de
+duas normais da Unreal, as três camadas do V-Ray/Arnold. Aqui: condutor da cor da tinta em 92 % da base, lobo médio
+(0,36), a normal de cada floco inclinada até ~8°, a tinta da borda escura (o flop) e o verniz em camada com a normal
+dele (o `closure.layer` já guarda a normal do verniz separada da da base). Os flocos precisam de ~2,5 px para aparecer:
+abaixo disso o filtro dos padrões os leva à média — falta um modelo estatístico de brilhos pontuais abaixo do pixel.
+
+**Tábuas.** `pattern.planks` devolve a coordenada de cada peça (com deslocamento próprio), e os padrões do veio leem
+essa coordenada: cada tábua tem os seus anéis, na sua direção, sem um nó de madeira por arranjo. A emenda do veio cai
+nas juntas. O relevo do veio não entra na normal dos assoalhos (as tangentes do uv não acompanham a peça girada): só a
+junta e o poro, na normal do verniz.
+
+**Nós da madeira.** Um monte gaussiano somado ao raio dos anéis (`pattern.rings`): onde a inclinação do monte passa da
+do raio, os anéis fecham em voltas; em volta, desviam. O gradiente continua analítico.
+
+**Fissuras da casca.** Um Voronoi com frequência por eixo (`pattern.fissures`) dá as placas alongadas e a rede que se
+ramifica e se junta; a distância à borda é levada à métrica de `p`, para a fissura ter a mesma largura em qualquer
+direção.
