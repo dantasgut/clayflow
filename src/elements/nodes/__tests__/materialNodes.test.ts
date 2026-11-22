@@ -99,7 +99,8 @@ describe('nós de material (spec 011)', () => {
 
     it('OpenPBR: um nó com os parâmetros da norma, todos os lobos, e valores por uso sem recompilar', () => {
         const p = nodes.material.openpbr;
-        expect(Object.keys(p.inputs)).toEqual([]);
+        // Cada parâmetro exposto é também uma entrada com valor (ligável); nenhuma ligação é obrigatória.
+        expect(Object.keys(p.inputs)).toEqual(Object.keys(p.params));
         expect(p.outputs).toEqual({ value: 'Closure' });
         for (const name of [
             'base_color',

@@ -14,7 +14,8 @@ export interface PointSubgraphOptions {
     readonly inputs?: Readonly<Record<string, PortType>>;
     /**
      * Parâmetros expostos (`nó.parâmetro`, nome `nó_parâmetro`; ou `['nó.parâmetro', 'nome']`, com nome próprio — spec
-     * 011: o OpenPBR expõe `base_color`): viram parâmetros do nó, com valor por uso. Os outros ficam no código.
+     * 011: o OpenPBR expõe `base_color`): viram parâmetros do nó, com valor por uso, e entradas de mesmo nome — sem
+     * ligação vale o parâmetro; ligada, a saída do outro nó. Os outros ficam no código.
      */
     readonly expose?: readonly (string | readonly [string, string])[];
 }
@@ -103,7 +104,8 @@ function exposedNames(expose: readonly (string | readonly [string, string])[]): 
 export const Subgraph = {
     /**
      * Sub-grafo de ponto: um nó cuja função é o grafo compilado (`sub_<hash>`, emitida uma vez por shader — usos
-     * repetidos compartilham o módulo). Entradas: os argumentos do grafo; saída: a do grafo; parâmetros: os expostos.
+     * repetidos compartilham o módulo). Entradas: os argumentos do grafo e os parâmetros expostos (cada um com o valor
+     * dele quando sem ligação); saída: a do grafo; parâmetros: os expostos.
      * Os estágios do nó: os comuns a todos os nós de dentro.
      *
      * @throws NodeGraphError grafo sem saída, entrada que o grafo não usa, parâmetro exposto inexistente, sem estágio
@@ -156,8 +158,11 @@ export const Subgraph = {
                 `Subgraph('${options.name}'): tipo da saída '${output}' desconhecido`,
                 [output],
             );
-        // A identidade: o grafo (forma e valores embutidos), as entradas e os expostos.
+        // A identidade: o nome, o grafo (forma e valores embutidos), as entradas e os expostos. O nome entra porque o
+        // código gerado o cita: dois sub-grafos de mesma forma e nomes diferentes (dois materiais prontos que só mudam
+        // nos valores) no mesmo grafo seriam dois módulos distintos com o mesmo nome.
         const shape = JSON.stringify({
+            name: options.name,
             nodes: Object.keys(graph.nodes),
             links: graph.links,
             output,
@@ -208,7 +213,9 @@ export const Subgraph = {
         const module = wgslModule({ name: `subgraph_${hash}`, source, requires: graph.modules() });
         const definition = defineNode({
             name: options.name,
-            inputs,
+            // Cada parâmetro exposto é também uma entrada com valor (spec 011, como nos nós de espalhamento): sem
+            // ligação vale o parâmetro; ligada, a ligação — a rugosidade de um material pronto ligada a um ruído.
+            inputs: { ...inputs, ...Object.fromEntries(keys.map((k) => [outer(k), params[k]!])) },
             outputs: { value: returns },
             params: Object.fromEntries(
                 keys.map((k) => [outer(k), { type: params[k]!, default: values[k] ?? 0 }]),

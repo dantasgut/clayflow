@@ -25,7 +25,8 @@ describe('Subgraph (spec 031, T079)', () => {
             inputs: { t: 'f32' },
             expose: ['w.amp'],
         });
-        expect(sub.inputs).toEqual({ t: 'f32' });
+        // As entradas: o argumento do grafo e o parâmetro exposto (entrada com valor, spec 011).
+        expect(sub.inputs).toEqual({ t: 'f32', w_amp: 'f32' });
         expect(sub.outputs).toEqual({ value: 'f32' });
         expect(Object.keys(sub.params)).toEqual(['w_amp']);
         expect(sub.params.w_amp!.default).toBe(2);
