@@ -111,28 +111,35 @@ export const metalBrushed = Subgraph.point(
 );
 
 /**
- * `material.carPaint` — pintura de carro metálica: a camada de flocos de alumínio tingida pelo pigmento (um condutor
- * de rugosidade 0,3) sob o verniz, um dielétrico liso em camada (IOR 1,6 e rugosidade 0,02, os valores do exemplo
- * `open_pbr_carpaint.mtlx` do MaterialX). Os flocos (`pattern.cells`: 150 por unidade do padrão) têm cada um a sua
- * inclinação (`flake_tilt`, a tangente do ângulo máximo) e o seu tom: brilhos pontuais que mudam com o ângulo, sob o
- * realce nítido do verniz; o verniz tem a casca de laranja (`pattern.grain` largo ondula a normal dele, `orange_peel`
- * a altura em unidades do padrão). Parâmetros: `base_color`, `base_edge_tint`, `base_roughness`, `flake_tilt`,
- * `coat_color`, `coat_roughness`, `coat_ior`, `coat_weight`, `orange_peel`, `pattern_scale`.
+ * `material.carPaint` — pintura de carro metálica, em três camadas: o pigmento (um difuso saturado e escuro: a cor
+ * funda), os flocos de alumínio tingidos por ele (um condutor de lobo estreito, rugosidade 0,18, que cobre `flake_weight`
+ * da base) e, por cima, o verniz — um dielétrico liso em camada (IOR 1,5, rugosidade 0,02: o reflexo nítido do
+ * ambiente). Os flocos são pequenos (`pattern.cells`: 240 por unidade do padrão, perto do pixel a um palmo) e têm cada
+ * um a sua inclinação (`flake_tilt`, a tangente do ângulo máximo) e o seu tom: brilhos pontuais que acendem e apagam com
+ * o ângulo em volta do realce largo do metal, sem manchas. A cor muda com o ângulo: de frente os flocos devolvem a cor
+ * clara (`flake_color`, o F0 deles); rasante, a tinta da borda escura e saturada (`flake_edge_tint`, o F82) — o flop. O
+ * verniz tem a casca de laranja muito leve (`pattern.grain` largo ondula a normal dele, `orange_peel` a altura em
+ * unidades do padrão). Valores de partida do exemplo `open_pbr_carpaint.mtlx` do MaterialX (a base de condutor sob o
+ * verniz), com o pigmento difuso sob os flocos como nos modelos de pintura em camadas (Ergun et al. 2016). Parâmetros:
+ * `base_color`, `flake_color`, `flake_edge_tint`, `flake_roughness`, `flake_weight`, `flake_tilt`, `coat_color`,
+ * `coat_roughness`, `coat_ior`, `coat_weight`, `orange_peel`, `pattern_scale`.
  */
 export const carPaint = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            flake: pattern.cells.with({ scale: 150, jitter: 1, crease: 0.1, seed: 8 }),
-            peel: pattern.grain.with({ scale: [14, 14], octaves: 2, seed: 9 }),
-            pigment: math.value3.with({ value: [0.6, 0.02, 0.02] }),
-            tone: map.range.with({ out_min: 0.8, out_max: 1.2 }),
+            flake: pattern.cells.with({ scale: 240, jitter: 1, crease: 0.1, seed: 8 }),
+            peel: pattern.grain.with({ scale: [7, 7], octaves: 2, seed: 9 }),
+            pigment: math.value3.with({ value: [0.62, 0.02, 0.025] }),
+            tone: map.range.with({ out_min: 0.3, out_max: 1.7 }),
             tinted: math.scale3,
-            tilt: surface.bump.with({ strength: 0.1 }),
-            flakes: bsdf.conductor.with({ roughness: 0.3 }),
+            tilt: surface.bump.with({ strength: 0.24 }),
+            flakes: bsdf.conductor.with({ roughness: 0.18, edge_tint: [0.22, 0.0, 0.01] }),
             layer_of_flakes: closure.normal,
-            wave: surface.bump.with({ strength: 0.0012 }),
-            coat: bsdf.dielectric.with({ ior: 1.6, roughness: 0.02 }),
+            body: bsdf.diffuse.with({ color: [0.36, 0.008, 0.012], roughness: 0.5 }),
+            base: closure.mix.with({ t: 0.6 }),
+            wave: surface.bump.with({ strength: 0.0005 }),
+            coat: bsdf.dielectric.with({ ior: 1.5, roughness: 0.02 }),
             coat_surface: closure.normal,
             out: closure.layer,
         },
@@ -146,11 +153,13 @@ export const carPaint = Subgraph.point(
             ...bumpLinks('tilt', 'flake.random'),
             ['flakes.value', 'layer_of_flakes.c'],
             ['tilt.value', 'layer_of_flakes.normal'],
+            ['body.value', 'base.a'],
+            ['layer_of_flakes.value', 'base.b'],
             ...bumpLinks('wave', 'peel.gradient'),
             ['coat.value', 'coat_surface.c'],
             ['wave.value', 'coat_surface.normal'],
             ['coat_surface.value', 'out.top'],
-            ['layer_of_flakes.value', 'out.base'],
+            ['base.value', 'out.base'],
         ],
         output: 'out.value',
     }),
@@ -158,9 +167,11 @@ export const carPaint = Subgraph.point(
         name: 'material.carPaint',
         ...SAMPLE_INPUT,
         expose: [
-            ['pigment.value', 'base_color'],
-            ['flakes.edge_tint', 'base_edge_tint'],
-            ['flakes.roughness', 'base_roughness'],
+            ['body.color', 'base_color'],
+            ['pigment.value', 'flake_color'],
+            ['flakes.edge_tint', 'flake_edge_tint'],
+            ['flakes.roughness', 'flake_roughness'],
+            ['base.t', 'flake_weight'],
             ['tilt.strength', 'flake_tilt'],
             ['out.top_color', 'coat_color'],
             ['coat.roughness', 'coat_roughness'],
@@ -173,68 +184,142 @@ export const carPaint = Subgraph.point(
 );
 
 /**
- * `material.metalOxidized` — metal oxidado (ferro com ferrugem): o condutor (ferro, F0 (0,562, 0,565, 0,578) —
- * Akenine-Möller et al., "Real-Time Rendering" 4ª ed., tabela 9.2; rugosidade 0,45) misturado ao óxido (dielétrico
- * opaco: hematita/goethita em pó, difuso do castanho-escuro ao alaranjado `oxide_color` sob uma interface muito rugosa)
- * em manchas: `pattern.grain` de quatro oitavas (4 manchas por unidade do padrão) mais o avanço `oxidation` em [0, 1]
- * (0,7: a ferrugem cobre a maior parte; 0 quase limpo, 1 tudo) é a máscara, e a ferrugem tem o relevo granulado dela
- * (`relief`, em unidades do padrão, pesado pela máscara). Parâmetros: `color`, `roughness`, `oxide_color`,
- * `oxide_roughness`, `oxidation`, `relief`, `pattern_scale`.
+ * `material.metalOxidized` — metal oxidado (chapa de aço com ferrugem). O metal que sobra é o condutor liso e refletivo
+ * (ferro, F0 (0,562, 0,565, 0,578) — Akenine-Möller et al., "Real-Time Rendering" 4ª ed., tabela 9.2; rugosidade 0,13),
+ * que escurece e fica áspero perto da ferrugem (a mancha que a anuncia). A ferrugem é o óxido em pó (hematita e
+ * goethita: difuso, sem brilho), de cor variada — do quase preto ao castanho, ao alaranjado `oxide_color` e a pontos
+ * amarelados (uma rampa de quatro cores por dois grãos, um largo e um fino) — e em relevo: a crosta granulada (`relief`, em unidades
+ * do padrão, pesada pela máscara) e a borda inchada, que sobe do metal para a crosta (`swell`, na faixa de transição).
+ * A máscara soma as manchas largas (`pattern.grain` de cinco oitavas), os riscos que escorrem ao longo de v
+ * (`pattern.grain` esticado: na esfera, de polo a polo) e os pites (`pattern.cells`: pontos no centro de algumas
+ * células) ao avanço `oxidation` em [0, 1] (0,55: mais da metade tomada, com metal à vista; 0 quase limpo, só pites e
+ * riscos; 1 tudo). Parâmetros: `color`, `roughness`, `oxide_color`, `oxide_roughness`, `oxidation`, `relief`, `swell`,
+ * `pattern_scale`.
  */
 export const metalOxidized = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            stain: pattern.grain.with({ scale: [4, 4], octaves: 4, gain: 0.55, seed: 13 }),
-            crust: pattern.grain.with({ scale: [70, 70], octaves: 3, seed: 14 }),
-            spread: map.range.with({
-                in_min: -1,
-                in_max: 1,
-                out_min: -6,
-                out_max: 6,
-                clamped: 0,
-            }),
-            advance: math.value.with({ value: 0.7 }),
-            bias: map.range.with({ out_min: -2, out_max: 3, clamped: 0 }),
+            // A máscara: manchas largas, riscos ao longo de v e pites, mais o avanço.
+            stain: pattern.grain.with({ scale: [3, 3], octaves: 5, gain: 0.55, seed: 13 }),
+            drip: pattern.grain.with({ scale: [46, 2.2], octaves: 2, gain: 0.5, seed: 21 }),
+            pit: pattern.cells.with({ scale: 110, jitter: 1, crease: 0.5, seed: 22 }),
+            spread: map.range.with({ in_min: -1, in_max: 1, out_min: -4, out_max: 4, clamped: 0 }),
+            run: map.range.with({ in_min: 0.12, in_max: 0.6, out_min: 0, out_max: 1.4 }),
+            run_gate: map.range.with({ in_min: -0.25, in_max: 0.35 }),
+            runs: math.mul,
+            pit_core: map.range.with({ in_min: 0.35, in_max: 0.9, out_min: 0, out_max: 1 }),
+            pit_some: map.range.with({ in_min: 0.7, in_max: 0.8, out_min: 0, out_max: 2.2 }),
+            pits: math.mul,
+            advance: math.value.with({ value: 0.55 }),
+            bias: map.range.with({ out_min: -4.6, out_max: 4.2, clamped: 0 }),
+            level_a: math.add,
+            level_b: math.add,
             level: math.add,
-            mask: math.clamp,
-            powder: color.ramp.with({
-                color_a: [0.04, 0.016, 0.01],
-                color_b: [0.17, 0.058, 0.022],
-                low: -0.5,
-                high: 0.5,
+            mask: map.range.with({ in_min: 0, in_max: 0.55 }),
+            // A cor da ferrugem: um grão largo (as zonas) e um fino (os pontos) na rampa de quatro cores.
+            zone: pattern.grain.with({ scale: [9, 9], octaves: 4, gain: 0.6, seed: 14 }),
+            crust: pattern.grain.with({ scale: [80, 80], octaves: 3, seed: 15 }),
+            zone_t: map.range.with({ in_min: -1, in_max: 1, out_min: 0.05, out_max: 0.8 }),
+            speck_t: map.range.with({ in_min: -1, in_max: 1, out_min: -0.22, out_max: 0.22 }),
+            tone: math.add,
+            dark: color.ramp.with({
+                color_a: [0.012, 0.006, 0.005],
+                color_b: [0.075, 0.026, 0.012],
+                low: 0.08,
+                high: 0.36,
             }),
-            height: math.value.with({ value: 0.0022 }),
+            orange: math.value3.with({ value: [0.26, 0.085, 0.022] }),
+            to_orange: map.range.with({ in_min: 0.36, in_max: 0.68 }),
+            warm: math.mix3,
+            yellow: math.value3.with({ value: [0.4, 0.2, 0.05] }),
+            to_yellow: map.range.with({ in_min: 0.68, in_max: 0.98 }),
+            powder: math.mix3,
+            // O metal perto da ferrugem: mais escuro (a mancha) e mais áspero.
+            near: map.range.with({ in_min: -1.6, in_max: 0, out_min: 0, out_max: 1 }),
+            clean: math.value3.with({ value: [0.562, 0.565, 0.578] }),
+            tarnished: math.value3.with({ value: [0.2, 0.13, 0.085] }),
+            metal_color: math.mix3,
+            metal_rough: map.range.with({ out_min: 0.13, out_max: 0.5 }),
+            // O relevo: a crosta granulada sobre a ferrugem e a borda inchada na transição.
+            height: math.value.with({ value: 0.0026 }),
             grown: math.mul,
             relief: surface.bump,
-            bare: bsdf.conductor.with({ color: [0.562, 0.565, 0.578], roughness: 0.45 }),
+            fall: map.range.with({ out_min: 1, out_max: 0 }),
+            band: math.mul,
+            lift: math.value.with({ value: 0.02 }),
+            raised: math.mul,
+            edge: surface.bump,
+            bare: bsdf.conductor,
             rust: bsdf.diffuse.with({ roughness: 1 }),
-            rust_interface: bsdf.dielectric.with({ ior: 1.5, roughness: 0.9 }),
+            rust_interface: bsdf.dielectric.with({
+                ior: 1.5,
+                roughness: 0.95,
+                tint: [0.3, 0.3, 0.3],
+            }),
             oxide: closure.add,
             mixed: closure.mix,
             out: closure.normal,
         },
         links: [
             ...SPACE_LINKS,
-            ...patternLinks('stain', 'crust'),
+            ...patternLinks('stain', 'drip', 'pit', 'zone', 'crust'),
             ['stain.value', 'spread.x'],
+            ['drip.value', 'run.x'],
+            ['pit.height', 'pit_core.x'],
+            ['pit.cell', 'pit_some.x'],
+            ['pit_core.value', 'pits.a'],
+            ['pit_some.value', 'pits.b'],
             ['advance.value', 'bias.x'],
-            ['spread.value', 'level.a'],
+            ['spread.value', 'level_a.a'],
+            ['run.value', 'runs.a'],
+            ['zone.value', 'run_gate.x'],
+            ['run_gate.value', 'runs.b'],
+            ['runs.value', 'level_a.b'],
+            ['level_a.value', 'level_b.a'],
+            ['pits.value', 'level_b.b'],
+            ['level_b.value', 'level.a'],
             ['bias.value', 'level.b'],
             ['level.value', 'mask.x'],
-            ['crust.value', 'powder.t'],
-            ['powder.color', 'rust.color'],
+            ['zone.value', 'zone_t.x'],
+            ['crust.value', 'speck_t.x'],
+            ['zone_t.value', 'tone.a'],
+            ['speck_t.value', 'tone.b'],
+            ['tone.value', 'dark.t'],
+            ['tone.value', 'to_orange.x'],
+            ['tone.value', 'to_yellow.x'],
+            ['dark.color', 'warm.a'],
+            ['orange.value', 'warm.b'],
+            ['to_orange.value', 'warm.t'],
+            ['warm.value', 'powder.a'],
+            ['yellow.value', 'powder.b'],
+            ['to_yellow.value', 'powder.t'],
+            ['powder.value', 'rust.color'],
+            ['level.value', 'near.x'],
+            ['clean.value', 'metal_color.a'],
+            ['tarnished.value', 'metal_color.b'],
+            ['near.value', 'metal_color.t'],
+            ['metal_color.value', 'bare.color'],
+            ['near.value', 'metal_rough.x'],
+            ['metal_rough.value', 'bare.roughness'],
             ['mask.value', 'grown.a'],
             ['height.value', 'grown.b'],
             ...bumpLinks('relief', 'crust.gradient'),
             ['grown.value', 'relief.strength'],
+            ['mask.value', 'fall.x'],
+            ['mask.value', 'band.a'],
+            ['fall.value', 'band.b'],
+            ['band.value', 'raised.a'],
+            ['lift.value', 'raised.b'],
+            ...bumpLinks('edge', 'stain.gradient', 'relief.value'),
+            ['raised.value', 'edge.strength'],
             ['rust_interface.value', 'oxide.a'],
             ['rust.value', 'oxide.b'],
             ['bare.value', 'mixed.a'],
             ['oxide.value', 'mixed.b'],
             ['mask.value', 'mixed.t'],
             ['mixed.value', 'out.c'],
-            ['relief.value', 'out.normal'],
+            ['edge.value', 'out.normal'],
         ],
         output: 'out.value',
     }),
@@ -242,12 +327,13 @@ export const metalOxidized = Subgraph.point(
         name: 'material.metalOxidized',
         ...SAMPLE_INPUT,
         expose: [
-            ['bare.color', 'color'],
-            ['bare.roughness', 'roughness'],
-            ['powder.color_b', 'oxide_color'],
+            ['clean.value', 'color'],
+            ['metal_rough.out_min', 'roughness'],
+            ['orange.value', 'oxide_color'],
             ['rust_interface.roughness', 'oxide_roughness'],
             ['advance.value', 'oxidation'],
             ['height.value', 'relief'],
+            ['lift.value', 'swell'],
             PATTERN_SCALE,
         ],
     },

@@ -140,11 +140,13 @@ describe('Materials (spec 011, US5)', () => {
         );
     });
 
-    it('pintura de carro = flocos de condutor inclinados sob um dielétrico em camada, com a casca de laranja', () => {
+    it('pintura de carro = pigmento difuso e flocos de condutor inclinados sob um dielétrico em camada, com a casca de laranja', () => {
         expect(inner('carPaint')).toMatchObject({
             flake: 'pattern.cells',
             tilt: 'surface.bump',
             flakes: 'bsdf.conductor',
+            body: 'bsdf.diffuse',
+            base: 'closure.mix',
             peel: 'pattern.grain',
             coat: 'bsdf.dielectric',
             out: 'closure.layer',
@@ -155,11 +157,20 @@ describe('Materials (spec 011, US5)', () => {
                 ['flake.random', 'tilt.gradient'],
                 ['tilt.value', 'layer_of_flakes.normal'],
                 ['wave.value', 'coat_surface.normal'],
+                // O pigmento e os flocos dividem a base; o verniz por cima.
+                ['body.value', 'base.a'],
+                ['layer_of_flakes.value', 'base.b'],
                 ['coat_surface.value', 'out.top'],
-                ['layer_of_flakes.value', 'out.base'],
+                ['base.value', 'out.base'],
             ]),
         );
-        expect(Materials.carPaint().lobeMask).toBe(LOBES.specular | LOBES.anisotropy | LOBES.coat);
+        expect(Materials.carPaint().lobeMask).toBe(
+            LOBES.diffuse | LOBES.specular | LOBES.anisotropy | LOBES.coat,
+        );
+        // Flocos pequenos (perto do pixel a um palmo), verniz espelhado e casca de laranja leve.
+        const paint = nodes.material.carPaint.params;
+        expect(paint.coat_roughness!.default).toBeLessThanOrEqual(0.05);
+        expect(paint.orange_peel!.default).toBeLessThanOrEqual(0.001);
     });
 
     it('nós de cada família: tecidos com brilho de fibra, metais condutores, vidro com transmissão, subsuperfície', () => {
