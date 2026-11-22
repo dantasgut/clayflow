@@ -885,12 +885,12 @@ export const cloudLight = wgslModule({
 const sampleLightReady = wgslModule({
     name: 'cloud_sample_light_ready',
     requires: [cloudLight],
-    source: `fn cloud_sample_light(p: vec3f, cos_theta: f32, light_steps: u32, occ: f32, weight: f32) -> vec3f {
+    source: `fn cloud_sample_light(p: vec3f, t: f32, cos_theta: f32, light_steps: u32, occ: f32, weight: f32) -> vec3f {
     return weight * cloud_radiance(p, cos_theta, light_steps, occ);
 }`,
 });
 
-/** O ponto da luz de uma amostra da marcha com o peso dela na soma do raio. */
+/** O ponto da luz de uma amostra da marcha (o ponto e a distância dele no raio) com o peso dela na soma do raio. */
 export const cloudSampleLightPoint: BindablePoint = {
     name: 'cloud_sample_light',
     ready: sampleLightReady,
@@ -911,8 +911,18 @@ export const cloudIntegrate = wgslModule({
     ],
 });
 
-/** O teto de amostras da lista da luz da marcha: o índice é guardado em f32 (exato até 2²⁴). */
+/** O teto de amostras da lista da luz da marcha: o lugar do raio nela é guardado em f32 (exato até 2²⁴). */
 export const CLOUD_LIGHT_LIST_MAX = sharedConstant('CLOUD_LIGHT_LIST_MAX', 16_777_216, 'u32');
+/**
+ * Amostras de um trecho do raio na lista da luz: as que a marcha junta antes de reservar os lugares seguidos delas (o
+ * vetor da invocação é zerado a cada raio: com 128 a marcha do perfil alto custava 0,72 ms; com 32, 0,56; com 16, 0,54
+ * — e o raio com mais amostras que o trecho leva um lugar a mais por trecho).
+ */
+export const CLOUD_LIGHT_CHUNK = sharedConstant('CLOUD_LIGHT_CHUNK', 32, 'u32');
+/** No código de um trecho (as amostras dele, até `CLOUD_LIGHT_CHUNK`): há um trecho anterior do mesmo raio. */
+export const CLOUD_LIGHT_LINKED = sharedConstant('CLOUD_LIGHT_LINKED', 64, 'u32');
+/** O raio do lugar da lista que guarda o trecho anterior (não é amostra: o passe da luz o pula). */
+export const CLOUD_LIGHT_LINK = sharedConstant('CLOUD_LIGHT_LINK', 0xffffffff, 'u32');
 
 const stagePrivate = (
     name: string,
@@ -928,24 +938,21 @@ const stagePrivate = (
     });
 
 /**
- * A lista da luz das amostras da marcha da tela (T074; privada do estágio da marcha): o que a marcha grava de cada
- * amostra (`a`: o ponto e o peso; `b`: a pegada, a coluna do ambiente, o cosseno com o sol e a amostra anterior do
- * raio), a luz que o passe da luz grava (`light`), o raio marchado (a luz das amostras fora da lista e a transmitância)
- * e as palavras do despacho indireto do passe da luz (os grupos, a contagem atômica e a contagem do quadro).
+ * A lista da luz das amostras da marcha da tela (T074; privada do estágio da marcha), quatro palavras por amostra (uma
+ * camada `r32uint` cada, o f32 pelos bits): a marcha grava a distância no raio, o peso na soma do raio, a coluna do
+ * ambiente e o raio (`listOut`); o passe da luz lê as quatro e grava a luz no lugar das três primeiras (`listRw`: o
+ * `r32uint` é de leitura e escrita no núcleo do WebGPU); a composição lê a luz (`list`). Mais o raio marchado (a luz das
+ * amostras fora da lista e a transmitância) e as palavras do despacho indireto do passe da luz (os grupos, a contagem
+ * atômica e a contagem do quadro).
  */
 export const cloudLightList = Object.freeze({
-    aOut: stagePrivate('cloud_light_list_a_out', {
-        storageTexture: { format: 'rgba32float', access: 'write' },
+    listOut: stagePrivate('cloud_light_list_out', {
+        storageTexture: { format: 'r32uint', access: 'write', dimension: '2d_array' },
     }),
-    bOut: stagePrivate('cloud_light_list_b_out', {
-        storageTexture: { format: 'rgba32float', access: 'write' },
+    listRw: stagePrivate('cloud_light_list_rw', {
+        storageTexture: { format: 'r32uint', access: 'read_write', dimension: '2d_array' },
     }),
-    a: stagePrivate('cloud_light_list_a', { texture: { sample: 'f32' } }),
-    b: stagePrivate('cloud_light_list_b', { texture: { sample: 'f32' } }),
-    lightOut: stagePrivate('cloud_light_list_out', {
-        storageTexture: { format: 'rgba32float', access: 'write' },
-    }),
-    light: stagePrivate('cloud_light_list', { texture: { sample: 'f32' } }),
+    list: stagePrivate('cloud_light_list', { texture: { sample: 'u32', dimension: '2d_array' } }),
     rayOut: stagePrivate('cloud_ray_out', {
         storageTexture: { format: 'rgba32float', access: 'write' },
     }),
@@ -968,10 +975,13 @@ const cloudLightListModule = wgslModule({
     source: cloudLightListSource,
     requires: [
         CLOUD_LIGHT_LIST_MAX.module,
+        CLOUD_LIGHT_CHUNK.module,
+        CLOUD_LIGHT_LINKED.module,
+        CLOUD_LIGHT_LINK.module,
         cloudLight,
         cloudSunVolumeLookup,
-        cloudLightList.aOut,
-        cloudLightList.bOut,
+        sky,
+        cloudLightList.listOut,
         cloudLightList.args,
     ],
 });
@@ -1243,21 +1253,31 @@ export const cloudMarchKernel = {
     multisampled: marchModule(true),
 } as const;
 
-/** O passe da luz das amostras da marcha da tela (T074): uma amostra da lista por invocação. */
-export const cloudLightSamplesKernel = wgslModule({
-    name: 'cloud_light_samples',
-    source: cloudLightSamplesSource,
-    requires: [
-        WORKGROUP_SIZE.module,
-        cloudLight,
-        cloudSunVolumeLookup,
-        cloudParamsResource,
-        cloudLightList.a,
-        cloudLightList.b,
-        cloudLightList.lightOut,
-        cloudLightList.argsRead,
-    ],
-});
+const lightSamplesModule = (ms: boolean): WgslModule =>
+    wgslModule({
+        name: ms ? 'cloud_light_samples_ms' : 'cloud_light_samples',
+        source: cloudLightSamplesSource,
+        requires: [
+            WORKGROUP_SIZE.module,
+            CLOUD_LIGHT_LINK.module,
+            ms ? marchRay.multisampled : marchRay.single,
+            cloudLight,
+            cloudSunVolumeLookup,
+            sky,
+            cloudParamsResource,
+            cloudLightList.listRw,
+            cloudLightList.argsRead,
+        ],
+    });
+
+/**
+ * O passe da luz das amostras da marcha da tela (T074): uma amostra da lista por invocação, com o raio dela relido (sem
+ * e com amostras na profundidade da cena, de onde vem o tamanho da tela).
+ */
+export const cloudLightSamplesKernel = {
+    single: lightSamplesModule(false),
+    multisampled: lightSamplesModule(true),
+} as const;
 
 /** Os argumentos do despacho indireto do passe da luz. */
 export const cloudLightArgsKernel = wgslModule({
@@ -1266,7 +1286,7 @@ export const cloudLightArgsKernel = wgslModule({
     requires: [
         WORKGROUP_SIZE.module,
         CLOUD_LIGHT_LIST_MAX.module,
-        cloudLightList.a,
+        cloudLightList.list,
         cloudLightList.args,
     ],
 });
@@ -1278,6 +1298,8 @@ const composeModule = (ms: boolean): WgslModule =>
             source: cloudMarchComposeSource,
             requires: [
                 WORKGROUP_SIZE.module,
+                CLOUD_LIGHT_CHUNK.module,
+                CLOUD_LIGHT_LINKED.module,
                 cloudCommon,
                 ms ? marchRay.multisampled : marchRay.single,
                 skyAerialLookup,
@@ -1286,7 +1308,7 @@ const composeModule = (ms: boolean): WgslModule =>
                 cloudParamsResource,
                 cloudLightList.ray,
                 R.traceDepth,
-                cloudLightList.light,
+                cloudLightList.list,
                 cloudOutputs.trace,
             ],
         }),

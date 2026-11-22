@@ -1,9 +1,9 @@
 // A marcha das nuvens por um raio (spec 041, R1, R2): passo que cresce com a distância e cobre a parte ocupada do raio,
 // grosso no vazio e fino com densidade, os trechos sem nuvem pulados, e a integral analítica do passo (Hillaire 2016).
 // Teto constante de passos (`CLOUD_MAX_STEPS`, o perfil escolhe menos). A luz de cada amostra com densidade entra pelo
-// ponto `cloud_sample_light`: o pronto a calcula ali (`cloud_radiance`; o panorama), e a marcha da tela a adia para o
-// passe da luz (`cloud_light_list.wgsl`, T074) — a soma é a mesma, em outra ordem. Espelho de `marchCloud` em
-// `cloudModel.ts`.
+// ponto `cloud_sample_light` (o ponto e a distância dele no raio): o pronto a calcula ali (`cloud_radiance`; o panorama),
+// e a marcha da tela a adia para o passe da luz (`cloud_light_list.wgsl`, T074) — a soma é a mesma, em outra ordem.
+// Espelho de `marchCloud` em `cloudModel.ts`.
 // Requer: cloud_common, cloud_density, cloud_light, cloud_sample_light, cloud_sun_volume_lookup, sky, clouds.
 
 /** Amostras vazias seguidas que devolvem a marcha à velocidade grossa. */
@@ -124,7 +124,9 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
         let coarse_step = max(2.0 * near_step, floor_step);
         if (coarse_step <= fine_step) { fine = true; }
         let ds = min(select(coarse_step, fine_step, fine), end - t);
-        let x = o + d * (t + 0.5 * ds);
+        // A distância da amostra (o meio do passo): o ponto, a pegada e o que a lista da luz guarda dela saem dela.
+        let tm = t + 0.5 * ds;
+        let x = o + d * tm;
         if (!fine) {
             if (cloud_density(x, false) > 0.0) {
                 // Achou nuvem: a marcha fina recomeça meio passo grosso atrás (no ponto vazio da amostra grossa
@@ -137,7 +139,7 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             t += ds;
             continue;
         }
-        cloud_footprint = (t + 0.5 * ds) * pixel;
+        cloud_footprint = tm * pixel;
         let rho = cloud_density(x, true);
         cloud_footprint = 0.0;
         if (rho > 0.0) {
@@ -147,7 +149,7 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             if (lit % CLOUD_AMBIENT_REUSE == 0u) { occ = cloud_ambient_occlusion(x); }
             lit++;
             // A pegada do pixel da marcha no ponto: o nível do volume de τ até o sol que a luz pode ler (T074).
-            cloud_light_footprint = (t + 0.5 * ds) * pixel;
+            cloud_light_footprint = tm * pixel;
             let alpha = result.transmittance * (1.0 - step_t);
             let rest = result.transmittance * step_t;
             // Saída antecipada (spec 041, R21 rodada 16): o resto da nuvem conta como opaco. Devolver o T da saída (até
@@ -160,8 +162,8 @@ fn cloud_integrate(o: vec3f, d: vec3f, t_max: f32, steps: u32, light_steps: u32,
             let exits = rest < CLOUD_EARLY_EXIT;
             // A luz da amostra com o peso dela na soma do raio: a integral do passo, `T·(1 − e^(−σ·ds))` (a luz por
             // unidade de profundidade ótica: o σ da fonte e o da integral se cancelam), mais o resto na saída.
-            result.scattered += cloud_sample_light(x, cos_theta, light_steps, occ, select(alpha, alpha + rest, exits));
-            depth_sum += alpha * (t + 0.5 * ds);
+            result.scattered += cloud_sample_light(x, tm, cos_theta, light_steps, occ, select(alpha, alpha + rest, exits));
+            depth_sum += alpha * tm;
             weight += alpha;
             result.transmittance = rest;
             if (exits) {

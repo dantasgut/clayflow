@@ -7,8 +7,8 @@
 // (`cloud_march_compose.wgsl`) soma as do raio e põe na frente o que está entre a câmera e a nuvem. Uma invocação por
 // bloco; saídas `cloud_ray_out` (rgb: a luz das amostras que não couberam na lista, calculada aqui; a = Tc) e
 // `cloud_trace_depth_out` (r: a profundidade da nuvem, m, 0 sem nuvem; g: a distância da superfície até onde o pixel
-// marchado foi — a reconstrução e o aumento só juntam valores da mesma superfície; b: a última amostra do raio na
-// lista, −1 sem nenhuma).
+// marchado foi — a reconstrução e o aumento só juntam valores da mesma superfície; b, a: o último trecho do raio na
+// lista — o primeiro lugar, exato em f32 até `CLOUD_LIGHT_LIST_MAX`, e o código dele, 0 sem nenhum).
 // Despacho linear: um bloco por invocação.
 // Requer: WORKGROUP_SIZE, cloud_march_ray, cloud_integrate, cloud_light_list, cloud_scene_limit, clouds,
 // cloud_ray_out, cloud_trace_depth_out.
@@ -26,9 +26,14 @@ fn cloud_march_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_wor
     let h = f32(hash2(r.q) >> 8u) / 16777216.0;
     let jitter = fract(h + f32(clouds.march.z) * 0.61803398875);
     // O ângulo do pixel da marcha (S pixels da tela): a pegada do detalhe.
-    let side = r.center + vec2f(f32(cloud_march_scale()), 0.0);
-    let pixel = length(cloud_ray_at(slot, side, vec2f(cloud_scene_depth_size())).dir - r.ray.dir);
+    let pixel = cloud_march_pixel(r);
+    cloud_light_begin(g, r.ray.origin, r.ray.dir, pixel, clouds.march.y);
     let s = cloud_integrate(r.ray.origin, r.ray.dir, limit, clouds.march.x, clouds.march.y, jitter, pixel);
-    textureStore(cloud_ray_out, g, vec4f(s.scattered, s.transmittance));
-    textureStore(cloud_trace_depth_out, g, vec4f(s.depth, min(limit, CLOUD_SKY_DISTANCE), cloud_light_head, 0.0));
+    let listed = cloud_light_end();
+    textureStore(cloud_ray_out, g, vec4f(s.scattered + listed.unlisted, s.transmittance));
+    textureStore(
+        cloud_trace_depth_out,
+        g,
+        vec4f(s.depth, min(limit, CLOUD_SKY_DISTANCE), f32(listed.chunk.x), f32(listed.chunk.y)),
+    );
 }

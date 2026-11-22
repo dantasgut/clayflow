@@ -44,7 +44,8 @@ const kernels: [string, Parameters<typeof composeWgsl>[0], string][] = [
     ['cloud_shadow select com o tempo', cloudShadowKernel.weather, 'cloud_shadow_select_main'],
     ['cloud_march', cloudMarchKernel.single, 'cloud_march_main'],
     ['cloud_march_ms', cloudMarchKernel.multisampled, 'cloud_march_main'],
-    ['cloud_light_samples', cloudLightSamplesKernel, 'cloud_light_samples_main'],
+    ['cloud_light_samples', cloudLightSamplesKernel.single, 'cloud_light_samples_main'],
+    ['cloud_light_samples_ms', cloudLightSamplesKernel.multisampled, 'cloud_light_samples_main'],
     ['cloud_light_args', cloudLightArgsKernel, 'cloud_light_args_main'],
     ['cloud_march_compose', cloudMarchComposeKernel.single, 'cloud_march_compose_main'],
     ['cloud_march_compose_ms', cloudMarchComposeKernel.multisampled, 'cloud_march_compose_main'],
@@ -168,14 +169,19 @@ describe('módulos das nuvens', () => {
         expect(source).not.toMatch(/\bwhile\b|\bloop\b/);
     });
 
-    it('a marcha da tela adia a luz das amostras para a lista do quadro; a que não cabe é calculada no laço (T074)', () => {
+    it('a marcha da tela adia a luz das amostras para a lista do quadro; o trecho que não cabe tem a luz calculada na marcha (T074)', () => {
         const march = composeWgsl(cloudMarchKernel.single).spec.source;
         const panorama = composeWgsl(cloudPanoramaKernel).spec.source;
-        // A marcha da tela: a implementação da lista no lugar do pronto, com a luz no próprio laço só no excedente.
-        expect(march).toContain('atomicAdd(&cloud_light_args[3], 1u)');
+        // A marcha da tela: a implementação da lista no lugar do pronto — os lugares do trecho reservados de uma vez e,
+        // sem lugar, a luz das amostras dele calculada ali mesmo, com teto constante.
+        expect(march).toContain('let first = atomicAdd(&cloud_light_args[3], places);');
         expect(march).toContain(
-            'if (slot >= min(size.x * size.y, CLOUD_LIGHT_LIST_MAX)) {\n        return weight * cloud_radiance(p, cos_theta, light_steps, occ);',
+            'if (first + places > min(size.x * size.y, CLOUD_LIGHT_LIST_MAX)) {',
         );
+        expect(march).toContain('cloud_light_unlisted += s.y * cloud_radiance(');
+        expect(march).toContain('for (var k = 0u; k < CLOUD_LIGHT_CHUNK; k++)');
+        // Quatro palavras por amostra, numa textura só (`r32uint` em camadas).
+        expect(march).toContain('texture_storage_2d_array<r32uint, write>');
         expect(march).not.toContain('sky_aerial');
         // O panorama: o pronto, a luz no laço.
         expect(panorama).not.toContain('cloud_light_args');
@@ -185,11 +191,14 @@ describe('módulos das nuvens', () => {
     });
 
     it('o passe da luz calcula uma amostra por invocação e a composição soma as do raio com teto constante (T074)', () => {
-        const light = composeWgsl(cloudLightSamplesKernel).spec.source;
+        const light = composeWgsl(cloudLightSamplesKernel.single).spec.source;
         const compose = composeWgsl(cloudMarchComposeKernel.single).spec.source;
         expect(light).toContain('if (i >= cloud_light_args_read[4]) { return; }');
+        // A luz gravada no lugar da amostra (leitura e escrita na mesma textura), com o raio relido pelo índice.
+        expect(light).toContain('texture_storage_2d_array<r32uint, read_write>');
+        expect(light).toContain('let r = cloud_march_ray(vec2u(ray & 0xffffu, ray >> 16u));');
         expect(light).not.toContain('CLOUD_MAX_STEPS; i++');
-        expect(compose).toContain('for (var k = 0u; k < CLOUD_MAX_STEPS; k++)');
+        expect(compose).toContain('for (var k = 0u; k < CLOUD_LIGHT_WALK; k++)');
         expect(compose).not.toMatch(/\bwhile\b|\bloop\b/);
     });
 });

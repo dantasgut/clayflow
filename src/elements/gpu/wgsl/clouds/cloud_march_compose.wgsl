@@ -1,11 +1,15 @@
 // A composição da marcha das nuvens (spec 041, R21; T074): por bloco, a luz do raio — a soma das amostras dele na lista
-// do quadro, que o passe da luz calculou (`cloud_light_samples.wgsl`; da última à primeira, teto `CLOUD_MAX_STEPS`), mais
-// a das que não couberam (`cloud_ray`) — e, na frente dela, o que está entre a câmera e a nuvem até a profundidade dela:
+// do quadro, que o passe da luz calculou (`cloud_light_samples.wgsl`; os trechos do raio do último ao primeiro, cada um
+// da última amostra à primeira, teto `CLOUD_LIGHT_WALK`), mais a das que não couberam (`cloud_ray`) — e, na frente dela, o
+// que está entre a câmera e a nuvem até a profundidade dela:
 // os meios perto da câmera (`scene_near_fog`) e a perspectiva aérea além deles:
 // `Sc = L·Tn·Ta(dc) + (1 − Tc)·(Sn + Tn·(Sa(dc) − Sa(alcance)))`. Saída `cloud_trace_out` (rgb, a = Tc).
 // Despacho linear: um bloco por invocação.
-// Requer: WORKGROUP_SIZE, cloud_common (CLOUD_MAX_STEPS), cloud_march_ray, sky_aerial_lookup, scene_near_fog, sky,
+// Requer: WORKGROUP_SIZE, cloud_common (CLOUD_MAX_STEPS), CLOUD_LIGHT_CHUNK, CLOUD_LIGHT_LINKED, cloud_march_ray, sky_aerial_lookup, scene_near_fog, sky,
 // cloud_ray, cloud_trace_depth, cloud_light_list, cloud_trace_out.
+
+/** O teto da soma de um raio: as amostras (`CLOUD_MAX_STEPS`) e as passagens de um trecho ao anterior. */
+const CLOUD_LIGHT_WALK: u32 = CLOUD_MAX_STEPS + CLOUD_MAX_STEPS / CLOUD_LIGHT_CHUNK + 1u;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn cloud_march_compose_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
@@ -19,13 +23,28 @@ fn cloud_march_compose_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let depth = trace.r;
     var color = marched.rgb;
     let size = textureDimensions(cloud_light_list);
-    var link = trace.b;
-    for (var k = 0u; k < CLOUD_MAX_STEPS; k++) {
-        if (link < 0.0) { break; }
-        let at = u32(link);
-        let v = textureLoad(cloud_light_list, vec2u(at % size.x, at / size.x), 0);
-        color += v.rgb;
-        link = v.a;
+    var first = u32(trace.b);
+    var code = u32(trace.a);
+    var left = min(code & (CLOUD_LIGHT_LINKED - 1u), CLOUD_LIGHT_CHUNK);
+    for (var k = 0u; k < CLOUD_LIGHT_WALK; k++) {
+        if (left == 0u) {
+            if (code < CLOUD_LIGHT_LINKED) { break; }
+            // O trecho anterior do raio: no lugar depois das amostras deste.
+            let slot = first + min(code & (CLOUD_LIGHT_LINKED - 1u), CLOUD_LIGHT_CHUNK);
+            let at = vec2u(slot % size.x, slot / size.x);
+            first = textureLoad(cloud_light_list, at, 0u, 0).r;
+            code = textureLoad(cloud_light_list, at, 1u, 0).r;
+            left = min(code & (CLOUD_LIGHT_LINKED - 1u), CLOUD_LIGHT_CHUNK);
+            continue;
+        }
+        left--;
+        let slot = first + left;
+        let at = vec2u(slot % size.x, slot / size.x);
+        color += vec3f(
+            bitcast<f32>(textureLoad(cloud_light_list, at, 0u, 0).r),
+            bitcast<f32>(textureLoad(cloud_light_list, at, 1u, 0).r),
+            bitcast<f32>(textureLoad(cloud_light_list, at, 2u, 0).r),
+        );
     }
     if (transmittance < 1.0) {
         // O que está entre a câmera e a nuvem (spec 041, R21): os meios perto da câmera (os froxels: a névoa dos volumes

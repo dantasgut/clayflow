@@ -39,7 +39,6 @@ import { bindPoints } from '../../../scene/shaders/bindPoints';
 const TILES_ID = 'cloud_tiles';
 const TILE_ARGS_ID = 'cloud_tile_args';
 /** Ids dos pipelines do passe da luz das amostras da marcha e dos argumentos do despacho indireto dele (T074). */
-const LIGHT_ID = 'cloud_light_samples';
 const LIGHT_ARGS_ID = 'cloud_light_args';
 
 /** Slots do estágio da marcha das nuvens. */
@@ -76,6 +75,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
     private march: string | undefined;
     /** A composição da marcha (a soma da luz das amostras de cada raio e o que está na frente da nuvem). */
     private compose: string | undefined;
+    /** O passe da luz das amostras da marcha (o raio relido: segue as amostras da profundidade da cena). */
+    private light: string | undefined;
     private upsample: string | undefined;
     private reconstruct: string | undefined;
     /** O passe por bloco do histórico nos marchados (o mesmo módulo da reconstrução). */
@@ -134,7 +135,8 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         if (this.compose === undefined || this.lightArgs === undefined) return;
         const march = bound.pipelines.get(this.march);
         const compose = bound.pipelines.get(this.compose);
-        const light = bound.pipelines.get(LIGHT_ID);
+        if (this.light === undefined) return;
+        const light = bound.pipelines.get(this.light);
         const lightArgs = bound.pipelines.get(LIGHT_ARGS_ID);
         const lightIndirect = this.lightArgs;
         if (this.reconstruct === undefined || this.check === undefined) return;
@@ -228,8 +230,10 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         if (this.check !== undefined) c.release(this.check);
         if (this.march !== undefined) c.release(this.march);
         if (this.compose !== undefined) c.release(this.compose);
+        if (this.light !== undefined) c.release(this.light);
         if (this.upsample !== undefined) c.release(this.upsample);
         this.compose = undefined;
+        this.light = undefined;
         this.reconstruct = undefined;
         this.check = undefined;
         this.march = undefined;
@@ -240,7 +244,6 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         if (this.tilesPrepared) {
             c.release(TILES_ID);
             c.release(TILE_ARGS_ID);
-            c.release(LIGHT_ID);
             c.release(LIGHT_ARGS_ID);
         }
         this.tilesPrepared = false;
@@ -294,8 +297,6 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
             'tileList',
             'tileArgs',
             'ray',
-            'lightListA',
-            'lightListB',
             'lightList',
             'lightArgs',
         ])
@@ -310,8 +311,6 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                 'tiles',
                 'tileList',
                 'ray',
-                'lightListA',
-                'lightListB',
                 'lightList',
             ] as const
         ).map((id) => c.bound.slots.cloud.textureViewOf(id));
@@ -344,12 +343,9 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                     [cloudTiles.args, this.tileArgs],
                     [cloudLightList.rayOut, views[7]!],
                     [cloudLightList.ray, views[7]!],
-                    [cloudLightList.aOut, views[8]!],
-                    [cloudLightList.a, views[8]!],
-                    [cloudLightList.bOut, views[9]!],
-                    [cloudLightList.b, views[9]!],
-                    [cloudLightList.lightOut, views[10]!],
-                    [cloudLightList.light, views[10]!],
+                    [cloudLightList.listOut, views[8]!],
+                    [cloudLightList.listRw, views[8]!],
+                    [cloudLightList.list, views[8]!],
                     [cloudLightList.args, this.lightArgs],
                     [cloudLightList.argsRead, this.lightArgs],
                     [
@@ -375,12 +371,6 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                 entryPoints: ['cloud_tile_args_main'],
             });
             c.prepare({
-                id: LIGHT_ID,
-                role: 'compute',
-                shader: cloudLightSamplesKernel,
-                entryPoints: ['cloud_light_samples_main'],
-            });
-            c.prepare({
                 id: LIGHT_ARGS_ID,
                 role: 'compute',
                 shader: cloudLightArgsKernel,
@@ -400,9 +390,11 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
         if (marchId !== this.march) {
             if (this.march !== undefined) c.release(this.march);
             if (this.compose !== undefined) c.release(this.compose);
+            if (this.light !== undefined) c.release(this.light);
             if (this.reconstruct !== undefined) c.release(this.reconstruct);
             if (this.upsample !== undefined) c.release(this.upsample);
             this.march = marchId;
+            this.light = `cloud_light_samples:${variant}`;
             this.compose = `cloud_march_compose:${variant}`;
             this.upsample = `cloud_upsample:${variant}`;
             // A reconstrução lê a profundidade da cena (a superfície de cada texel), como a marcha e o aumento.
@@ -412,6 +404,14 @@ export class CloudFlow extends Flow<CloudSlots, 'idle'> {
                 role: 'compute',
                 shader: multisampled ? cloudMarchKernel.multisampled : cloudMarchKernel.single,
                 entryPoints: ['cloud_march_main'],
+            });
+            c.prepare({
+                id: this.light,
+                role: 'compute',
+                shader: multisampled
+                    ? cloudLightSamplesKernel.multisampled
+                    : cloudLightSamplesKernel.single,
+                entryPoints: ['cloud_light_samples_main'],
             });
             c.prepare({
                 id: this.compose,

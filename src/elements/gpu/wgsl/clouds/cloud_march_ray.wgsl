@@ -1,6 +1,6 @@
 // O raio da marcha de um bloco 2 × 2 do alvo reconstruído no quadro (spec 041, R1, R2): o pixel do bloco na ordem de
-// Bayer e o ponto dele por onde o raio passa. O mesmo na marcha e na composição dela (`cloud_march.wgsl`,
-// `cloud_march_compose.wgsl`).
+// Bayer e o ponto dele por onde o raio passa. O mesmo na marcha, no passe da luz das amostras dela e na composição
+// (`cloud_march.wgsl`, `cloud_light_samples.wgsl`, `cloud_march_compose.wgsl`).
 // Requer: cloud_march_bayer, cloud_scene_depth (o tamanho da tela), camera_space, random, clouds, cameras.
 
 /** O raio da câmera `slot` pelo ponto `px` (pixels da tela de `size`) sem o deslocamento do antisserrilhado temporal. */
@@ -36,4 +36,10 @@ fn cloud_march_ray(g: vec2u) -> CloudMarchRay {
     // às linhas vizinhas: a linha dela −16 % de luz (`sunset`, região [3,3]: 5,8 → 4,4 %).
     let ray = cloud_ray_at(slot, center, full);
     return CloudMarchRay(q, center, ray);
+}
+
+/** O ângulo (rad) do pixel da marcha no raio `r` (S pixels da tela): a pegada do detalhe por metro de distância. */
+fn cloud_march_pixel(r: CloudMarchRay) -> f32 {
+    let side = r.center + vec2f(f32(cloud_march_scale()), 0.0);
+    return length(cloud_ray_at(clouds.march.w, side, vec2f(cloud_scene_depth_size())).dir - r.ray.dir);
 }
