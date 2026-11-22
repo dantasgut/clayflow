@@ -669,6 +669,27 @@ tempestade.mp4`, 27,2 MB recomprimido de 95,1 MB; conferência 51,66 dB no brilh
       `far-cloud` 2,7 %, `fog-in-front` 0,29 %, `scatter-cache`; vitest de media/clouds passa. As escolhas de páginas
       (0,04 ms cada) não foram tocadas: o teto fechou sem elas. **O `high-sun` passa. Em aberto na T074: o
       `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.**
+      **Rodada 2026-11-21 k — a memória da lista da luz: 44,2 → 14,7 MB em 1280 × 720 e 398 → 133 MB em 4K (1/3); a
+      imagem igual; `high-sun` 2,78–2,79 ms ✓ (teto 3)** (R11 da T074, rodada k, no research.md). A lista tinha três alvos
+      `rgba32float` (48 bytes por lugar: o ponto, o peso, a pegada, a coluna do ambiente, o cosseno, a amostra anterior
+      e, noutro alvo, a luz). Agora é um alvo `r32uint` de quatro camadas (`CloudLayer.lightList`, 16 bytes por lugar):
+      a marcha grava a distância no raio, o peso, a coluna do ambiente e o raio (o bloco); o passe da luz relê o raio
+      pelo índice (`cloud_march_ray`, o mesmo da marcha; o ponto, a pegada e o cosseno saem dele e da distância — os
+      mesmos valores em f32) e grava a luz no lugar das três primeiras palavras (leitura e escrita no mesmo despacho: o
+      `r32uint` do núcleo do WebGPU, nada de extensão); a amostra anterior deixou de existir — a marcha junta as amostras
+      do raio e reserva os lugares seguidos delas de uma vez (um `atomicAdd` por trecho, não por amostra), em trechos de
+      até 32 (`CLOUD_LIGHT_CHUNK`; o trecho seguinte do mesmo raio leva um lugar a mais com o anterior), e a composição
+      soma do último lugar ao primeiro (a mesma ordem de antes). Nenhum valor passou a 16 bits. O tamanho do alvo é o
+      teto da lista (16 lugares por raio × 1/16 dos pixels = um lugar por pixel da tela), não a resolução da marcha:
+      ficou como estava — o `high-sun` usa 411 mil de 921 mil, mas o teto pela ocupação de uma cena faria a cena mais
+      densa pagar a luz na marcha (o trecho que não cabe segue com a luz calculada ali: nenhuma amostra fica sem luz).
+      O custo: o vetor das amostras juntadas é zerado a cada raio — com 128 amostras a marcha ia a 0,72 ms (`high-sun`
+      2,94); com 32, 0,56; com 16, 0,54 (o mesmo dentro do ruído; ficou 32, menos trechos). Medidas (M4, 1280 × 720, a GPU
+      fria, mediana de 5, a partida medida na mesma sessão): `high-sun` 2,712 (2,662–2,903) → **2,780** (2,752–2,890) e, noutra execução, **2,792** (2,756–2,883) ✓; por passe, a
+      marcha 0,467 → 0,56, a luz 0,262 → 0,21, a composição 0,146 → 0,16 (soma 0,875 → 0,93); `inside-timing` 0,72 ✓
+      (repetições −0,07 a 1,15). Casos de imagem (os mesmos valores): `sunset` 3,6 %, `dusk-blocks` degrau 1,025 e matiz
+      0,0491, `far-cloud` 2,7 %, `fog-in-front` 0,29 %, `ground-shadow` 0,010; vitest de media/clouds passa. **Em aberto
+      na T074: o `interior-timing`, o degrau do `dusk-blocks` ≤ 1,02 e a margem do matiz.**
 - [ ] T075 [GPU] (rodada 20: a faixa ciano/magenta junto ao sol corrigida — a vista do céu limitada a 60 000 e a luz
       do trecho perto em `Froxels.open` saturada no meio-float antes da diferença do fundo; a luz dos froxels em
       unidades de `FROXEL_RADIANCE_UNIT` e o teto na soma do fundo; resta só os feixes suaves contra as fotos, R21

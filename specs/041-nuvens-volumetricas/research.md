@@ -1597,6 +1597,68 @@ partida, medido em seguida, 1,29 a 2,05): a diferença com − sem de um quadro 
 
 **Não feito.** As escolhas de páginas repartidas entre invocações (0,04 ms cada): o teto fechou sem elas.
 
+### R11 (T074, 2026-11-21 k) — a memória da lista da luz das amostras
+
+**O que era.** A lista da rodada (j) guardava 48 bytes por lugar em três alvos `rgba32float`: o ponto e o peso; a pegada,
+a coluna do ambiente, o cosseno com o sol e a amostra anterior do raio; e, num terceiro alvo, a luz e de novo a amostra
+anterior. Com um lugar por pixel da tela: 44,2 MB em 1280 × 720 e 398 MB em 3840 × 2160.
+
+**Por que o alvo tem o tamanho da tela.** Não é resolução: é o teto da lista. A marcha anda um raio por bloco de 4 × 4
+pixels (1/16 dos pixels) e a lista tem 16 lugares por raio na média — 16 × 1/16 = um lugar por pixel. O teto ficou.
+
+**O que mudou.** Um alvo só, `r32uint` de quatro camadas (16 bytes por lugar; o f32 vai pelos bits):
+
+| palavra | a marcha grava        | o passe da luz grava |
+| ------- | --------------------- | -------------------- |
+| 0       | a distância no raio   | a luz, R             |
+| 1       | o peso na soma        | a luz, G             |
+| 2       | a coluna do ambiente  | a luz, B             |
+| 3       | o raio (o bloco x, y) | —                    |
+
+- **O raio relido pelo índice.** O ponto é `origem + direção · distância`, a pegada é `distância · ângulo do pixel` e o
+  cosseno é `direção · sol`: o passe da luz refaz o raio do bloco com a mesma função da marcha (`cloud_march_ray`,
+  `cloud_march_pixel`) e chega aos mesmos valores. Sete números por amostra viraram dois (a distância e o raio).
+- **A luz no lugar da amostra.** O passe da luz lê as quatro palavras e grava a luz sobre as três primeiras: o `r32uint`
+  é formato de leitura e escrita no mesmo despacho no núcleo do WebGPU (nenhuma extensão, nada do adaptador). O terceiro
+  alvo saiu.
+- **Sem a amostra anterior.** A marcha junta as amostras do raio num vetor da invocação e reserva os lugares seguidos
+  delas de uma vez (um `atomicAdd` por trecho). O raio guarda o primeiro lugar e a contagem; a composição soma do último
+  ao primeiro, a ordem de antes. O vetor tem 32 amostras (`CLOUD_LIGHT_CHUNK`): o raio com mais que isso grava outro
+  trecho, com um lugar a mais que aponta o anterior (o raio `CLOUD_LIGHT_LINK`, que o passe da luz pula). O trecho que
+  não cabe na lista tem a luz das amostras dele calculada na marcha — nenhuma fica sem luz.
+- **Nenhum valor em 16 bits.** A distância, o peso, a coluna do ambiente e a luz seguem em f32: a imagem não muda.
+
+**Memória da lista (perfil alto).**
+
+| tela        | antes (3 × `rgba32float`) | depois (`r32uint` × 4) |
+| ----------- | ------------------------- | ---------------------- |
+| 1280 × 720  | 44,2 MB                   | 14,7 MB                |
+| 3840 × 2160 | 398,1 MB                  | 132,7 MB               |
+
+**O custo, e o que foi tentado.** O vetor das amostras juntadas é zerado a cada raio, e isso pesa na marcha:
+
+| vetor (amostras)      | `march` | `light` | `compose` | soma  | `high-sun`          |
+| --------------------- | ------- | ------- | --------- | ----- | ------------------- |
+| a partida (rodada j)  | 0,467   | 0,262   | 0,146     | 0,875 | 2,712 (2,662–2,903) |
+| 128 (o raio inteiro)  | 0,719   | 0,213   | 0,165     | 1,097 | 2,936 (2,874–3,096) |
+| 32, em trechos        | 0,562   | 0,207   | 0,163     | 0,932 | 2,780 (2,752–2,890) |
+| 16, em trechos        | 0,541   | 0,213   | 0,160     | 0,914 | 2,806 (2,743–2,834) |
+
+(M4, 1280 × 720, a GPU fria, mediana de 5, tudo na mesma sessão.) 32 e 16 dão o mesmo dentro do ruído; ficou 32 (menos
+trechos por raio). O passe da luz ficou mais barato (um alvo em vez de três); a marcha, mais cara (+0,09) — o líquido é
++0,06 ms sobre a rodada (j). A medida final do `high-sun`, noutra execução: 2,792 (2,756–2,883) — abaixo do teto de 3.
+
+**Não feito.**
+- O teto pela ocupação medida (o `high-sun` usa 411 mil de 921 mil lugares): metade do teto daria 7,4 MB e 66 MB, mas a
+  cena mais densa passaria a pagar a luz na marcha (o caminho do trecho que não cabe é correto e caro). Sem a ocupação
+  das cenas densas medida, o teto ficou.
+- Gravar a amostra direto na lista, sem o vetor (como na rodada j), com a amostra anterior numa quinta palavra: 20 bytes
+  por lugar (18,4 MB e 166 MB, 42 %) e a marcha de volta a ~0,47 ms. É a opção se os 0,06 ms fizerem falta.
+- A luz em `rgba16float`: a soma do raio sai em meio-float, mas arredondar cada parcela antes de somar muda o resultado.
+
+**Casos.** `sunset` 3,6 %, `dusk-blocks` 1,025 e 0,0491, `far-cloud` 2,7 %, `fog-in-front` 0,29 %, `ground-shadow` 0,010
+(os valores de antes); `inside-timing` 0,72 ms (repetições −0,07 a 1,15).
+
 ### R20 — A geometria por vista: a malha adaptativa refeita para cada vista (2026-11-19)
 
 **Decisão do usuário** (2026-11-19, "Na 41"): a geometria por vista entra na 041 — a prática padrão (o LOD do terreno por
