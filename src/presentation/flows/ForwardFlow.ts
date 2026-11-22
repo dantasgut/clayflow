@@ -69,6 +69,7 @@ import {
     forwardBackground,
     forwardCameraAdapter,
     forwardCameraClip,
+    forwardReflectionRequest,
     forwardRefractionRequest,
     forwardSubsurfaceApply,
     forwardSubsurfaceGather,
@@ -82,8 +83,10 @@ import {
 } from '../../elements/lighting/subsurface/Subsurface';
 import {
     Refraction,
+    REFRACTION_REFLECTANCE_FORMAT,
     REFRACTION_REQUEST_FORMAT,
 } from '../../elements/lighting/refraction/Refraction';
+import { RayScene } from '../../elements/raytrace/RayScene';
 import { LOBES, TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
 import { LIGHT_FORMAT } from '../app/FrameTargets';
 import {
@@ -164,6 +167,11 @@ export interface ForwardSlots extends SlotMap {
      * composição desenham a cor deles); sem ela, não desenham.
      */
     readonly refraction: SingletonSlot<true>;
+    /**
+     * A estrutura de raios da cena (spec 011, T114): com ela e o reflexo ligado na `Refraction`, os opacos com lobo
+     * especular marcam o pedido de reflexo nos pixels em que o lobo é liso; sem ela, o lobo fica com a luz indireta.
+     */
+    readonly rays: SingletonSlot<true>;
     /**
      * Espalhamento sob a superfície (spec 011, T113): com ele, as entidades com o lobo de subsuperfície guardam a luz que
      * entra e a difundem sobre a cor depois do passe principal; sem ele, o lobo responde só no ponto.
@@ -246,6 +254,25 @@ interface MaterialFnVariant extends PipelineVariant {
         readonly gather: { readonly ccw: string; readonly cw: string };
         readonly apply: { readonly ccw: string; readonly cw: string };
     };
+    /**
+     * Reflexo traçado (spec 011, T114), com o reflexo ligado e a estrutura de raios na cena: os pipelines do pedido de
+     * reflexo, por orientação.
+     */
+    readonly reflection?: {
+        readonly request: { readonly ccw: string; readonly cw: string };
+    };
+}
+
+/**
+ * A função `material` tem lobo especular ou verniz (spec 011, T114): onde ele é liso, o reflexo é traçado. Os
+ * transmissivos ficam de fora (o traçado da refração já segue o lobo refletido deles).
+ */
+function reflects(fn: MaterialFunction | undefined): boolean {
+    return (
+        fn !== undefined
+        && !isTransmissive(fn)
+        && (fn.lobeMask & (LOBES.specular | LOBES.coat)) !== 0
+    );
 }
 
 /** A função `material` faz da entidade um transmissivo (spec 011): lobo de transmissão, parede fina ou opacidade. */
@@ -304,6 +331,7 @@ function slotsOf(output: ForwardOutput, work: ForwardWork): ForwardSlots {
         light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
         refraction: slot.singleton(Refraction.schema, { optional: true }),
+        rays: slot.singleton(RayScene.schema, { optional: true }),
         subsurface: slot.singleton(Subsurface.schema, { optional: true }),
         work: slot.work(() => work),
         hzb: slot.channel(ForwardWork.schema, DRAW_CULL_HZB, { optional: true }),
@@ -458,9 +486,21 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             present.push(entry.entityId);
             const base = draw.pipelines;
             const name = fn.module.name;
-            const ccw = `${base.ccw}|material:${name}`;
-            const cw = `${base.cw}|material:${name}`;
             const transmissive = isTransmissive(fn);
+            // O reflexo traçado (spec 011, T114): o pedido, e — depois que o traçado produz a radiância — o passe
+            // principal sem a parte lisa da especular indireta (`CLOSURE_TRACED`), que a composição do traçado soma.
+            const mirrors = reflects(fn) && this.reflectionActive(ctx);
+            const traced = mirrors && this.reflectionTraced(ctx);
+            const ccw = `${base.ccw}|material:${name}${traced ? '|traced' : ''}`;
+            const cw = `${base.cw}|material:${name}${traced ? '|traced' : ''}`;
+            const reflection = mirrors
+                ? {
+                      request: {
+                          ccw: `${base.ccw}|material:${name}|reflection`,
+                          cw: `${base.cw}|material:${name}|reflection`,
+                      },
+                  }
+                : undefined;
             const request = transmissive && this.ensureRefractionRequest(ctx);
             const transmission = transmissive
                 ? request
@@ -480,10 +520,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             const next: MaterialFnVariant = {
                 key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}${request ? '|request' : ''}${
                     subsurface !== undefined ? `|subsurface${samples}` : ''
-                }`,
+                }${mirrors ? '|reflection' : ''}${traced ? '|traced' : ''}`,
                 // A variante passa a valer quando o pipeline `id` compila: o do pedido ou o da difusão, quando há (a
                 // entrada da refração ou da subsuperfície troca a variante de uma entidade cuja função já compilou).
-                id: transmission?.request?.ccw ?? subsurface?.gather.ccw ?? ccw,
+                // Com o reflexo já traçado, quando compila o passe principal sem a parte lisa (o pedido já existia).
+                id: traced ? ccw : (transmission?.request?.ccw ?? subsurface?.gather.ccw ?? ccw),
                 ids: [
                     ccw,
                     cw,
@@ -500,12 +541,16 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                               subsurface.apply.ccw,
                               subsurface.apply.cw,
                           ]),
+                    ...(reflection === undefined
+                        ? []
+                        : [reflection.request.ccw, reflection.request.cw]),
                 ],
                 base,
                 ccw,
                 cw,
                 ...(transmission !== undefined ? { transmission } : {}),
                 ...(subsurface !== undefined ? { subsurface } : {}),
+                ...(reflection !== undefined ? { reflection } : {}),
             };
             this.materialFns.select(entry.entityId, next, () => {
                 const variant = (baseId: string, id: string): boolean => {
@@ -520,7 +565,11 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         verify: true,
                         extensions: [...(b.extensions ?? []), fn],
                         // Os lobos da função (spec 011): o avaliador só com os que o grafo ou o código usam.
-                        constants: { ...b.constants, CLOSURE_LOBES: fn.lobeMask },
+                        constants: {
+                            ...b.constants,
+                            CLOSURE_LOBES: fn.lobeMask,
+                            ...(traced ? { CLOSURE_TRACED: 1 } : {}),
+                        },
                     };
                     const ready = ctx.prepare(descriptor).ready;
                     // Projeção de ponto da câmera ativa também sobre a variante da função.
@@ -604,6 +653,41 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     };
                     scattering(ccw, 'ccw');
                     scattering(cw, 'cw');
+                }
+                if (reflection !== undefined) {
+                    // Pedido de reflexo (spec 011, T114): sem amostras, na profundidade do pedido; o fechamento
+                    // inteiro (sem `CLOSURE_TRACED`: o peso do lobo liso sai dele).
+                    const requestReflection = (fromId: string, id: string): void => {
+                        const f = this.baseDescriptors.get(fromId)!;
+                        ctx.prepare({
+                            ...f,
+                            id,
+                            shader: bindPoints(
+                                ctx.bound.slots.target.sampleCount > 1
+                                    ? forwardReflectionRequest.multisampled
+                                    : forwardReflectionRequest.single,
+                                new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
+                            ),
+                            entryPoints: ['vs_main', 'fs_reflection_request'],
+                            constants: {
+                                ...f.constants,
+                                CLOSURE_LOBES: fn.lobeMask,
+                                CLOSURE_TRACED: 0,
+                            },
+                            colorTargets: [
+                                { format: REFRACTION_REQUEST_FORMAT },
+                                { format: REFRACTION_REFLECTANCE_FORMAT },
+                            ],
+                            depth: {
+                                format: 'depth24plus',
+                                depthWriteEnabled: true,
+                                depthCompare: 'less',
+                            },
+                            multisample: { count: 1 },
+                        });
+                    };
+                    requestReflection(ccw, reflection.request.ccw);
+                    requestReflection(cw, reflection.request.cw);
                 }
                 if (transmission?.request === undefined) return ready;
                 // Pedido da refração (spec 034): as duas faces, sem amostras, na profundidade própria.
@@ -690,6 +774,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private sceneDepthBound: TextureViewSpec | undefined;
     /** Os valores do `Subsurface` com que as variantes foram preparadas e os alvos dele ligados à difusão. */
     private subsurfaceKey = '';
+    /** O estado do reflexo traçado com que as variantes foram preparadas (ligado, com estrutura de raios, traçado). */
+    private reflectionKey = '';
     private subsurfaceBound: readonly (TextureViewSpec | undefined)[] = [];
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
@@ -749,7 +835,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         // A refração entrou ou saiu: as variantes dos transmissivos ganham ou perdem o pedido.
                         if (
                             e.type === 'slotChanged'
-                            && (e.slot === 'refraction' || e.slot === 'subsurface')
+                            && (e.slot === 'refraction'
+                                || e.slot === 'subsurface'
+                                || e.slot === 'rays')
                         )
                             this.materialFnDirty = true;
                     },
@@ -804,6 +892,7 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
                         this.watchSubsurface(c);
+                        this.watchReflection(c);
                         this.syncMaterialFunctions(c);
                         this.bindSceneDepth(c);
                         this.bindSubsurface(c);
@@ -926,7 +1015,8 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
             });
         }
         this.recordMotion(frame, bound, opaque, 'clear');
-        this.recordRefractionRequest(frame, bound, transmissive);
+        const reflected = this.recordReflectionRequest(frame, bound, opaque);
+        this.recordRefractionRequest(frame, bound, transmissive, reflected);
         if (transmissive.length > 0) this.recordMotion(frame, bound, transmissive, 'load');
         this.recordSubsurface(frame, bound, opaque);
     }
@@ -1191,22 +1281,29 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         frame: Frame,
         bound: BoundFlow<ForwardSlots>,
         groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+        reflected: boolean,
     ): void {
         const refraction = bound.slots.refraction;
         const view = refraction?.textureViewOf('request');
         const depth = refraction?.textureViewOf('requestDepth');
         if (view === undefined || depth === undefined) return;
+        // Depois do pedido de reflexo dos opacos (`reflected`), sobre o pedido e a profundidade dele: o transmissivo à
+        // frente de um opaco liso fica com o pixel.
         frame.render(
             {
                 colorAttachments: [
-                    { view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+                    reflected
+                        ? { view, loadOp: 'load', storeOp: 'store' }
+                        : { view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
                 ],
-                depthStencilAttachment: {
-                    view: depth,
-                    depthClearValue: 1,
-                    depthLoadOp: 'clear',
-                    depthStoreOp: 'store',
-                },
+                depthStencilAttachment: reflected
+                    ? { view: depth, depthLoadOp: 'load', depthStoreOp: 'store' }
+                    : {
+                          view: depth,
+                          depthClearValue: 1,
+                          depthLoadOp: 'clear',
+                          depthStoreOp: 'store',
+                      },
             },
             'ForwardFlow.refractionRequest',
             (pass) => {
@@ -1218,6 +1315,83 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 });
             },
         );
+    }
+
+    /**
+     * Pedido de reflexo (spec 011, T114): os opacos com lobo especular ou verniz desenhados de novo no pedido da
+     * refração (limpando-o) e no peso do reflexo, na profundidade do pedido — o fragmento só marca onde o lobo é liso.
+     * Devolve se o passe foi gravado (o pedido da refração então soma-se a ele). Sem entidade com o pedido, nenhum passe.
+     */
+    private recordReflectionRequest(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): boolean {
+        const refraction = bound.slots.refraction;
+        const view = refraction?.textureViewOf('request');
+        const depth = refraction?.textureViewOf('requestDepth');
+        const reflectance = refraction?.textureViewOf('reflectance');
+        if (view === undefined || depth === undefined || reflectance === undefined) return false;
+        const mirrors = groups.filter(
+            (g) => this.materialFns.active(g.representative.entityId)?.reflection !== undefined,
+        );
+        if (mirrors.length === 0) return false;
+        const cleared = (target: TextureViewSpec) => ({
+            view: target,
+            loadOp: 'clear' as const,
+            clearValue: [0, 0, 0, 0] as const,
+            storeOp: 'store' as const,
+        });
+        frame.render(
+            {
+                colorAttachments: [cleared(view), cleared(reflectance)],
+                depthStencilAttachment: {
+                    view: depth,
+                    depthClearValue: 1,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ForwardFlow.reflectionRequest',
+            (pass) => {
+                this.recordGroups(pass, bound, mirrors, 2, (entry, id) => {
+                    const v = this.materialFns.active(entry.entityId);
+                    const request = v?.reflection?.request;
+                    if (v === undefined || request === undefined) return undefined;
+                    return id === v.base.cw ? request.cw : request.ccw;
+                });
+            },
+        );
+        return true;
+    }
+
+    /**
+     * O reflexo traçado vale na cena (spec 011, T114): a `Refraction` com o reflexo ligado e a estrutura de raios.
+     * Então aloca o pedido, a profundidade dele e o peso do reflexo, e liga a profundidade dos opacos.
+     */
+    private reflectionActive(ctx: Ctx): boolean {
+        const refraction = ctx.bound.slots.refraction?.resource as Refraction | undefined;
+        if (refraction?.reflection !== true || ctx.bound.slots.rays?.resource === undefined)
+            return false;
+        if (!this.ensureRefractionRequest(ctx)) return false;
+        this.resources.ensureAllocated(refraction, 'reflectance');
+        return true;
+    }
+
+    /** O traçado já produz a radiância dos pedidos (o passe principal pode deixar a parte lisa para ele). */
+    private reflectionTraced(ctx: Ctx): boolean {
+        const refraction = ctx.bound.slots.refraction?.resource;
+        return refraction !== undefined && this.resources.isProduced(refraction, 'radiance');
+    }
+
+    /** O estado do reflexo traçado mudou (ligado, estrutura de raios, traçado): as variantes dos opacos são refeitas. */
+    private watchReflection(ctx: Ctx): void {
+        const refraction = ctx.bound.slots.refraction?.resource as Refraction | undefined;
+        const on = refraction?.reflection === true && ctx.bound.slots.rays?.resource !== undefined;
+        const key = `${on}:${on && this.reflectionTraced(ctx)}`;
+        if (key === this.reflectionKey) return;
+        this.reflectionKey = key;
+        this.materialFnDirty = true;
     }
 
     /**

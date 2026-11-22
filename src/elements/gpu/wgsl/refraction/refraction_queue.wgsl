@@ -5,7 +5,7 @@
 // A contagem vai também para o estado do quadro (`refraction_frame_out`, texel `REFRACTION_FRAME_COUNT`): o traçado
 // ignora as invocações além dela.
 // Em meia resolução (spec 039 refeita, `refraction_block.wgsl`): só o representante do bloco 2×2 no quadro entra.
-// Requer: WORKGROUP_SIZE, REFRACTION_REQUEST_VALID, REFRACTION_FRAME_COUNT, refraction_block, refraction_request,
+// Requer: WORKGROUP_SIZE, REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_REFLECT, refraction, REFRACTION_FRAME_COUNT, refraction_block, refraction_request,
 // refraction_queue_out, refraction_queue_count, refraction_frame_out.
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -16,6 +16,9 @@ fn refraction_queue_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(nu
     let pixel = vec2u(i % size.x, i / size.x);
     let rep = refraction_block_rep(pixel, size);
     if (rep.z == 0u || any(rep.xy != pixel) || !refraction_block_turn(pixel)) { return; }
+    // Cada pedido com o caminho de luz dele ligado: a refração dos transmissivos, o reflexo dos opacos lisos.
+    let reflects = (textureLoad(refraction_request, pixel, 0).y & REFRACTION_REQUEST_REFLECT) != 0u;
+    if (select(refraction.enabled, refraction.reflection, reflects) == 0u) { return; }
     let k = atomicAdd(&refraction_queue_count[0], 1u);
     textureStore(refraction_queue_out, vec2u(k % size.x, k / size.x), vec4u(i, 0u, 0u, 0u));
 }

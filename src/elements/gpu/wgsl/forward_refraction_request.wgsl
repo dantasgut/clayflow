@@ -9,12 +9,12 @@
 // Requer: forward (vértice, câmeras); `view_space`; `scene_depth`.
 
 @fragment
-fn fs_refraction_request(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec2u {
+fn fs_refraction_request(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4u {
     if (in.clip_position.z >= textureLoad(scene_depth, vec2i(in.clip_position.xy), 0)) { discard; }
     let cam = cameras[forward_frame.cameraSlot];
     let marks = select(REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_BACK_FACE, REFRACTION_REQUEST_VALID, front);
     let to = in.world_position - cam.position.xyz;
     let ahead = dot(to, -normalize(cam.inverseView[2].xyz));
     let d = select(length(to), ahead, is_orthographic(cam.projection));
-    return vec2u(bitcast<u32>(d), marks);
+    return vec4u(bitcast<u32>(d), marks, 0u, 0u);
 }

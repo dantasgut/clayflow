@@ -22,7 +22,7 @@ fn refraction_volume_mesh_vs(@builtin(vertex_index) i: u32) -> RefractionVolumeM
 }
 
 struct RefractionVolumeMeshOut {
-    @location(0) request: vec2u,
+    @location(0) request: vec4u,
 }
 
 @fragment
@@ -35,6 +35,6 @@ fn refraction_volume_mesh_fs(in: RefractionVolumeMeshVarying, @builtin(front_fac
     if (ndc < 1.0 && in.clip.z >= ndc) { discard; }
     var out: RefractionVolumeMeshOut;
     let marks = select(REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_BACK_FACE, REFRACTION_REQUEST_VALID, front);
-    out.request = vec2u(bitcast<u32>(distance(cam.position.xyz, in.world)), marks);
+    out.request = vec4u(bitcast<u32>(distance(cam.position.xyz, in.world)), marks, 0u, 0u);
     return out;
 }

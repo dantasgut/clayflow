@@ -17,11 +17,18 @@ import { Refraction } from '../../elements/lighting/refraction/Refraction';
 import {
     refractionComposite,
     refractionCompositeDenoised,
+    refractionReflection,
     refractionResources as R,
 } from '../../elements/lighting/refraction/shaders';
 import { TemporalFilter } from '../../elements/lighting/temporal/TemporalFilter';
 import { temporalFilterResources } from '../../elements/lighting/temporal/shaders';
 import { FrameTargets, LIGHT_FORMAT } from '../app/FrameTargets';
+
+/** Mistura aditiva na cor, sem tocar o alfa do alvo. */
+const ADDITIVE: GPUBlendState = {
+    color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+    alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+};
 
 /** Slots da composição da refração. */
 export interface RefractionCompositeSlots extends SlotMap {
@@ -49,6 +56,10 @@ type Ctx = TransitionContext<RefractionCompositeSlots>;
  * resolução temporal a veem). Não lê a cor da cena: o que está atrás do transmissivo vem só do raio. Só desenha no
  * quadro em que o traçado produziu a radiância; quando o filtro de sinal traçado produziu a cor filtrada
  * (`TemporalFilter.output`, com o antisserrilhado temporal), compõe ela.
+ *
+ * O reflexo traçado dos opacos lisos (spec 011, T114), quando o desenho alocou o peso dele (`reflectance`): um segundo
+ * triângulo, em mistura aditiva e sem profundidade, soma nos pixels com pedido de reflexo a radiância do raio refletido
+ * pelo peso do lobo — a cor e a profundidade do desenho ficam.
  */
 export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots, 'idle'> {
     readonly type = 'RefractionCompositeFlow';
@@ -71,6 +82,8 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
     /** Pipelines preparados (por formato e amostras do alvo): com a amostra crua e com a cor filtrada. */
     private pipeline: string | undefined;
     private denoisedPipeline: string | undefined;
+    /** O pipeline do reflexo dos opacos (com o peso do reflexo alocado). */
+    private reflectionPipeline: string | undefined;
     /** Fontes ligadas (outras = religa: redimensionamento). */
     private bound: readonly unknown[] = [];
 
@@ -137,6 +150,25 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
             prepared.bindTo(pass.bind);
             pass.draw.vertices(3);
         });
+        this.dispatchReflection(frame, bound);
+    }
+
+    /** Soma o reflexo traçado dos opacos lisos à cor da cena, nos pixels com pedido de reflexo. */
+    private dispatchReflection(frame: Frame, bound: BoundFlow<RefractionCompositeSlots>): void {
+        if (this.reflectionPipeline === undefined) return;
+        const prepared = bound.pipelines.get(this.reflectionPipeline);
+        if (prepared?.role !== 'render' || !prepared.ready) return;
+        const color = this.colorAttachment(frame, bound.slots.target, { loadOp: 'load' });
+        if (color === undefined) return;
+        frame.render(
+            { colorAttachments: [color] },
+            'RefractionCompositeFlow.reflection',
+            (pass) => {
+                pass.bind.setPipeline(prepared.spec);
+                prepared.bindTo(pass.bind);
+                pass.draw.vertices(3);
+            },
+        );
     }
 
     /**
@@ -153,7 +185,8 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
             denoiser === undefined ? undefined : this.resources.textureViewOf(denoiser, 'output');
         const [request, radiance, requestDepth] = views;
         if (request === undefined || radiance === undefined || requestDepth === undefined) return;
-        if ([...views, denoised].some((v, k) => v !== this.bound[k])) {
+        const reflectance = this.resources.textureViewOf(refraction, 'reflectance');
+        if ([...views, denoised, reflectance].some((v, k) => v !== this.bound[k])) {
             c.bind(
                 new Map<WgslResource, BindingSource>([
                     [R.request, request],
@@ -162,9 +195,10 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
                     ...(denoised === undefined
                         ? []
                         : [[temporalFilterResources.output, denoised] as const]),
+                    ...(reflectance === undefined ? [] : [[R.reflectance, reflectance] as const]),
                 ]),
             );
-            this.bound = [...views, denoised];
+            this.bound = [...views, denoised, reflectance];
         }
         const target = c.bound.slots.target;
         const format = target.format ?? this.core.canvasFormat;
@@ -186,6 +220,24 @@ export class RefractionCompositeFlow extends RenderFlow<RefractionCompositeSlots
                 multisample: { count: samples },
             });
         };
+        // O reflexo dos opacos: só a cor, somada (sem profundidade nem a luz que chega).
+        const reflectionId =
+            reflectance === undefined ? undefined : `refraction_reflection:${format}:${samples}`;
+        if (reflectionId !== this.reflectionPipeline) {
+            if (this.reflectionPipeline !== undefined) c.release(this.reflectionPipeline);
+            this.reflectionPipeline = reflectionId;
+            if (reflectionId !== undefined)
+                c.prepare({
+                    id: reflectionId,
+                    role: 'render',
+                    shader: refractionReflection,
+                    entryPoints: ['refraction_screen_vs', 'refraction_reflection_fs'],
+                    topology: 'triangle-list',
+                    cullMode: 'none',
+                    colorTargets: [{ format, blend: ADDITIVE }],
+                    multisample: { count: samples },
+                });
+        }
         const id = `refraction_composite:${format}:${samples}${lit}`;
         if (id !== this.pipeline) {
             if (this.pipeline !== undefined) c.release(this.pipeline);

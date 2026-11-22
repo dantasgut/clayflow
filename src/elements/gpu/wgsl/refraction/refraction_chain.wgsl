@@ -11,9 +11,10 @@
 // Cada rodada percorre só as vagas vivas: duas listas em pingue-pongue (a corrente e a da rodada seguinte), do tamanho
 // das vagas do bloco (nunca estouram); a onda é indexada pela posição na lista corrente.
 // Cabeçalho (`refraction_path_queue`): [0] os pixels da fila no quadro; [1] o primeiro pixel do bloco corrente; [2] a
-// lista corrente; [3] e [4] as contagens das duas listas; as listas a partir de `REFRACTION_CHAIN_HEADER`.
+// lista corrente; [3] e [4] as contagens das duas listas; [5] as rodadas feitas no bloco; as listas a partir de
+// `REFRACTION_CHAIN_HEADER`.
 // Requer: WORKGROUP_SIZE, NONE, REFRACTION_FRAME_COUNT, refraction, refraction_path, refraction_queue_in,
-// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_radiance_out,
+// refraction_frame, refraction_request, REFRACTION_REQUEST_VALID, REFRACTION_REQUEST_REFLECT, refraction_block, ray_volume_begin, ray_wave, RefractionChainState, refraction_paths, refraction_path_queue, refraction_round_count, refraction_radiance_out,
 // refraction_hit_out, refraction_hit_previous, refraction_albedo_out, refraction_noise_out, refraction_blocks,
 // refraction_stamps, refraction_splits.
 
@@ -148,6 +149,7 @@ fn refraction_chain_reset_main() {
     atomicStore(&refraction_path_queue[0], textureLoad(refraction_frame, vec2u(REFRACTION_FRAME_COUNT, 0u), 0).x);
     // O complemento de dois (−N em u32) sem a subtração, que o avaliador de constantes do naga recusa por transbordar.
     atomicStore(&refraction_path_queue[1], ~REFRACTION_CHAIN_PIXELS + 1u);
+    atomicStore(&refraction_round_count[0], 0u);
 }
 
 /** O bloco seguinte, com as listas vazias. */
@@ -157,14 +159,31 @@ fn refraction_chain_chunk_main() {
     atomicStore(&refraction_path_queue[2], 0u);
     atomicStore(&refraction_path_queue[3], 0u);
     atomicStore(&refraction_path_queue[4], 0u);
+    atomicStore(&refraction_path_queue[5], 0u);
 }
 
-/** O fim de uma rodada: a lista seguinte vira a corrente, e a outra fica vazia. */
+/**
+ * O fim de uma rodada: a lista seguinte vira a corrente, e a outra fica vazia. Com vaga viva para a rodada seguinte, as
+ * rodadas feitas no bloco vão à contagem do quadro (`refraction_round_count`: a maior entre os blocos) — o estágio a lê
+ * de volta e despacha só as rodadas que os caminhos usam.
+ */
 @compute @workgroup_size(1)
 fn refraction_chain_swap_main() {
     let next = 1u - atomicLoad(&refraction_path_queue[2]);
     atomicStore(&refraction_path_queue[2], next);
     atomicStore(&refraction_path_queue[3u + (1u - next)], 0u);
+    let done = atomicAdd(&refraction_path_queue[5], 1u) + 1u;
+    if (atomicLoad(&refraction_path_queue[3u + next]) > 0u) { atomicMax(&refraction_round_count[0], done); }
+}
+
+/** A direção unitária das coordenadas octaédricas de 16 + 16 bits `word` (as do pedido de reflexo). */
+fn refraction_request_dir(word: u32) -> vec3f {
+    let e = vec2f(f32(word & 0xFFFFu), f32(word >> 16u)) / 65535.0 * 2.0 - 1.0;
+    var v = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
+    let t = max(-v.z, 0.0);
+    v.x += select(t, -t, v.x >= 0.0);
+    v.y += select(t, -t, v.y >= 0.0);
+    return normalize(v);
 }
 
 /**
@@ -220,6 +239,19 @@ fn refraction_chain_roots_main(@builtin(global_invocation_id) gid: vec3u, @built
         p.stack = refraction_camera_stack();
         // A absorção desde o plano próximo da câmera (dentro de um meio, ela conta desde ali) até o começo do raio.
         p.weight = refraction_absorb(vec3f(1.0), refraction_current(p.stack), start);
+        if ((request.y & REFRACTION_REQUEST_REFLECT) != 0u) {
+            // O pedido de reflexo de um opaco liso (spec 011, T114): o caminho parte da superfície do pixel na direção
+            // refletida que o desenho gravou, já depois da primeira superfície (o trecho tem a névoa dos caminhos, e a
+            // interface que ele achar segue o lobo maior com o menor na vaga 4). O peso é 1: o do lobo fica com a
+            // composição (`reflectance`).
+            let d = bitcast<f32>(request.x);
+            let dir = refraction_request_dir(request.z);
+            p.travelled = d;
+            p.origin = refraction_departure(ray.origin + ray.dir * d, refraction_request_dir(request.w), dir);
+            p.dir = dir;
+            p.flags = 0u;
+            p.weight = vec3f(1.0);
+        }
         refraction_paths[REFRACTION_CHAIN_SLOTS * i + REFRACTION_SLOT_MAIN] = p;
         refraction_chain_push(0u, REFRACTION_CHAIN_SLOTS * i + REFRACTION_SLOT_MAIN);
     }

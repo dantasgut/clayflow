@@ -10,9 +10,38 @@
 
 override CLOSURE_LOBES: u32 = 2047u;
 
+// O reflexo traçado (spec 011, T114): 1 no pipeline cujos lobos especulares lisos recebem a radiância de um raio
+// refletido por pixel (o desenho dos opacos com o reflexo traçado da cena) — ali `closure_indirect` deixa de fora a
+// parte lisa da radiância especular indireta, que entra pela composição do traçado. 0 (os acertos dos raios, as sondas,
+// o desenho sem o traçado): a luz indireta inteira.
+override CLOSURE_TRACED: u32 = 0u;
+
+// Rugosidade até a qual o lobo especular é um espelho para o reflexo traçado (um raio na direção refletida) e a partir
+// da qual ele fica só com a luz indireta da cena (as sondas, o hemisfério); entre as duas, a mistura.
+const CLOSURE_MIRROR_SMOOTH: f32 = 0.08;
+const CLOSURE_MIRROR_ROUGH: f32 = 0.16;
+
+// Fração da radiância especular de um lobo de rugosidade `roughness` que vem do raio refletido (1 liso, 0 áspero).
+fn closure_mirror(roughness: f32) -> f32 {
+    return 1.0 - smoothstep(CLOSURE_MIRROR_SMOOTH, CLOSURE_MIRROR_ROUGH, roughness);
+}
+
+// A fração que este pipeline deixa para o reflexo traçado (0 sem ele).
+fn closure_traced(mirror: f32) -> f32 {
+    return select(0.0, mirror, CLOSURE_TRACED != 0u);
+}
+
 // O material usa o lobo `bit`? (constante na especialização.)
 fn closure_has(bit: u32) -> bool {
     return (CLOSURE_LOBES & bit) != 0u;
+}
+
+// A fração de espelho do especular de base: a da rugosidade, menos a anisotropia (o lobo esticado do metal escovado
+// não é um espelho: fica com a luz indireta da cena).
+fn closure_base_mirror(c: Closure) -> f32 {
+    var m = closure_mirror(c.specular_roughness);
+    if (closure_has(CLOSURE_ANISOTROPY)) { m *= 1.0 - clamp(abs(c.specular_anisotropy), 0.0, 1.0); }
+    return m;
 }
 
 // Tabela DFG em (μ = n·v, rugosidade): (A, B, albedo do sheen).
@@ -237,7 +266,7 @@ fn closure_indirect(c: Closure, n: vec3f, v: vec3f, light: IndirectLight) -> vec
     var spec = vec3f(0.0);
     if (closure_has(CLOSURE_SPECULAR) && c.dielectric_weight + c.conductor_weight > 0.0) {
         let a = c.specular_roughness * c.specular_roughness;
-        spec = closure_base_albedo(c, nv) * mix(light.specular, irr, a);
+        spec = closure_base_albedo(c, nv) * mix(light.specular * (1.0 - closure_traced(closure_base_mirror(c))), irr, a);
     }
     var under = vec3f(0.0);
     if (closure_has(CLOSURE_DIFFUSE) && c.diffuse_weight > 0.0) {
@@ -256,13 +285,46 @@ fn closure_indirect(c: Closure, n: vec3f, v: vec3f, light: IndirectLight) -> vec
         let nc = closure_lobe_normal(c.coat_normal, n, v);
         let ncv = max(dot(nc, v), 1e-4);
         let a = c.coat_roughness * c.coat_roughness;
-        coat = clamp(c.coat_weight, 0.0, 1.0) * closure_coat_albedo(c, ncv) * mix(light.coat, light.coat_diffuse, a);
+        coat = clamp(c.coat_weight, 0.0, 1.0) * closure_coat_albedo(c, ncv)
+            * mix(light.coat * (1.0 - closure_traced(closure_mirror(c.coat_roughness))), light.coat_diffuse, a);
     }
     var sheen = vec3f(0.0);
     if (closure_has(CLOSURE_SHEEN) && c.sheen_weight > 0.0) {
         sheen = clamp(c.sheen_weight, 0.0, 1.0) * c.sheen_color * closure_dfg(nv, c.sheen_roughness).z * irr;
     }
     return sheen + closure_sheen_pass(c, nv) * (coat + closure_coat_pass(c, nv) * base);
+}
+
+// O verniz é liso o bastante para o reflexo traçado (o raio refletido sai pela normal dele)?
+fn closure_coat_mirrors(c: Closure) -> bool {
+    return closure_has(CLOSURE_COAT) && c.coat_weight > 0.0 && closure_mirror(c.coat_roughness) > 0.0;
+}
+
+// Direção do raio do reflexo traçado: a especular dominante do verniz, se ele é liso, senão a da base.
+fn closure_reflected_dir(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+    if (closure_coat_mirrors(c)) { return closure_coat_dir(c, n, v); }
+    return closure_specular_dir(c, n, v);
+}
+
+// Resposta do fechamento, para `v`, à radiância unitária que chega pelo raio refletido (spec 011, T114): a parte lisa
+// dos lobos especulares — o que `closure_indirect` deixa de fora com `CLOSURE_TRACED` —, com os mesmos albedos
+// direcionais e as mesmas camadas por cima. A cor é o produto disto pela radiância que o raio achou.
+fn closure_reflected(c: Closure, n: vec3f, v: vec3f) -> vec3f {
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let nv = max(dot(nb, v), 1e-4);
+    var spec = vec3f(0.0);
+    if (closure_has(CLOSURE_SPECULAR) && c.dielectric_weight + c.conductor_weight > 0.0) {
+        let a = c.specular_roughness * c.specular_roughness;
+        spec = closure_base_albedo(c, nv) * ((1.0 - a) * closure_base_mirror(c));
+    }
+    var coat = vec3f(0.0);
+    if (closure_has(CLOSURE_COAT) && c.coat_weight > 0.0) {
+        let ncv = max(dot(closure_lobe_normal(c.coat_normal, n, v), v), 1e-4);
+        let a = c.coat_roughness * c.coat_roughness;
+        coat = vec3f(clamp(c.coat_weight, 0.0, 1.0) * closure_coat_albedo(c, ncv)
+            * ((1.0 - a) * closure_mirror(c.coat_roughness)));
+    }
+    return closure_sheen_pass(c, nv) * (coat + closure_coat_pass(c, nv) * spec);
 }
 
 // Resposta do fechamento ao hemisfério céu/chão de radiâncias `sky` e `ground` (eixo `up`): o caso particular de

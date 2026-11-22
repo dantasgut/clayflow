@@ -147,6 +147,13 @@ export interface RendererOptions {
 export interface LightPaths {
     /** A refração traçada ligada (os transmissivos mostram o que está atrás pelo traçado). */
     refraction: boolean;
+    /**
+     * O reflexo traçado dos opacos lisos ligado (spec 011, T114; default `true`): numa cena com a estrutura de raios
+     * (`RayScene`: a da luz global ou a dos transmissivos), o metal polido, o verniz e o plástico brilhante mostram o
+     * reflexo nítido do céu, do chão e dos vizinhos — um raio por pixel onde o lobo é liso. Desligado ou sem a
+     * estrutura, o lobo fica com a luz indireta da cena (as sondas, o hemisfério).
+     */
+    reflection: boolean;
     /** Interfaces de transmissão cruzadas por caminho, em 1–32. */
     transmission: number;
     /** A luz global ligada (a `GlobalIllumination` da cena roda; desligada aqui, não roda mesmo ligada nela). */
@@ -280,6 +287,12 @@ export class Renderer extends Entity {
             },
             set refraction(on: boolean) {
                 refraction.enabled = on;
+            },
+            get reflection() {
+                return refraction.reflection;
+            },
+            set reflection(on: boolean) {
+                refraction.reflection = on;
             },
             get transmission() {
                 return refraction.maxInterfaces;

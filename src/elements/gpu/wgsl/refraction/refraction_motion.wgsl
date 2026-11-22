@@ -54,7 +54,8 @@ struct RefractionMotionOut {
 fn refraction_motion_fs(@builtin(position) frag: vec4f) -> RefractionMotionOut {
     let px = vec2u(frag.xy);
     let request = textureLoad(refraction_request, px, 0);
-    if ((request.y & REFRACTION_REQUEST_VALID) == 0u) { discard; }
+    // O pedido de reflexo de um opaco fica com o movimento da superfície dele (o do desenho).
+    if ((request.y & (REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_REFLECT)) != REFRACTION_REQUEST_VALID) { discard; }
     let hit = textureLoad(refraction_hit, px, 0);
     let before = refraction_previous_point(hit);
     let m = motion_vector(before, hit.xyz, refraction.camera_slot);

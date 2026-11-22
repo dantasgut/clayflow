@@ -94,7 +94,7 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
     });
 
     it.each([1, 4] as const)(
-        'com a Refraction (spec 034, T041), %i amostra(s): pedido por pixel depois dos opacos — as duas faces, rg32uint sem amostras, profundidade própria limpa em 1; a fila compactada com despacho indireto',
+        'com a Refraction (spec 034, T041), %i amostra(s): pedido por pixel depois dos opacos — as duas faces, rgba32uint sem amostras, profundidade própria limpa em 1; a fila compactada com despacho indireto',
         async (samples) => {
             const s = await scene(true, { samples });
             const passes = s.step();
@@ -122,7 +122,7 @@ describe('ForwardFlow — transmissivos (spec 011)', () => {
             expect(request.draws).toHaveLength(1);
             const pipeline = request.draws[0]!.pipeline;
             expect(pipeline.fragment?.entryPoint).toBe('fs_refraction_request');
-            expect(pipeline.fragment?.targets).toEqual([{ format: 'rg32uint' }]);
+            expect(pipeline.fragment?.targets).toEqual([{ format: 'rgba32uint' }]);
             expect(pipeline.primitive?.cullMode).toBe('none');
             expect(pipeline.multisample?.count ?? 1).toBe(1);
             expect(pipeline.depthStencil).toMatchObject({

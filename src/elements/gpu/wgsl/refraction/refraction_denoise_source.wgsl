@@ -14,7 +14,9 @@ fn temporal_filter_source_size() -> vec2u {
 }
 
 fn temporal_filter_source_valid(q: vec2u) -> bool {
-    return (textureLoad(refraction_request, q, 0).y & REFRACTION_REQUEST_VALID) != 0u;
+    // Os pedidos dos transmissivos: o reflexo dos opacos lisos (um raio sem sorteio por pixel) vai direto à composição.
+    return (textureLoad(refraction_request, q, 0).y & (REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_REFLECT))
+        == REFRACTION_REQUEST_VALID;
 }
 
 fn temporal_filter_source_signal(q: vec2u) -> vec3f {

@@ -53,11 +53,13 @@ import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import forwardRefractionRequestSource from '../gpu/wgsl/forward_refraction_request.wgsl?raw';
+import forwardReflectionRequestSource from '../gpu/wgsl/forward_reflection_request.wgsl?raw';
 import forwardSubsurfaceIrradianceSource from '../gpu/wgsl/forward_subsurface_irradiance.wgsl?raw';
 import forwardSubsurfaceGatherSource from '../gpu/wgsl/forward_subsurface_gather.wgsl?raw';
 import forwardSubsurfaceApplySource from '../gpu/wgsl/forward_subsurface_apply.wgsl?raw';
 import {
     REFRACTION_REQUEST_BACK_FACE,
+    REFRACTION_REQUEST_REFLECT,
     REFRACTION_REQUEST_VALID,
 } from '../lighting/refraction/Refraction';
 import forwardBackgroundSource from '../gpu/wgsl/forward_background.wgsl?raw';
@@ -316,6 +318,34 @@ function refractionRequestModule(multisampled: boolean): WgslModule {
             viewSpace,
             REFRACTION_REQUEST_VALID.module,
             REFRACTION_REQUEST_BACK_FACE.module,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}
+
+/**
+ * Pedido de reflexo (spec 011, T114): o vértice do forward e o fragmento que marca, por pixel, a superfície opaca com
+ * lobo especular liso — a distância, a direção refletida, a normal geométrica e o peso do lobo —, à frente dos outros
+ * opacos (a profundidade deles, com ou sem amostras).
+ */
+export const forwardReflectionRequest = {
+    /** Alvos sem amostras. */
+    single: reflectionRequestModule(false),
+    /** Alvos com MSAA (a profundidade dos opacos com amostras; o pedido, sem). */
+    multisampled: reflectionRequestModule(true),
+} as const;
+
+function reflectionRequestModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'forward_reflection_request_ms' : 'forward_reflection_request',
+        source: forwardReflectionRequestSource,
+        requires: [
+            forward,
+            viewSpace,
+            closureEval,
+            sceneFogReady,
+            REFRACTION_REQUEST_VALID.module,
+            REFRACTION_REQUEST_REFLECT.module,
             multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
         ],
     });

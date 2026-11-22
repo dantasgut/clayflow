@@ -11,7 +11,9 @@ fn refraction_gradient_main(@builtin(global_invocation_id) gid3: vec3u, @builtin
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
     if (i >= size.x * size.y) { return; }
     let px = vec2u(i % size.x, i / size.x);
-    let requested = (textureLoad(refraction_request, px, 0).y & REFRACTION_REQUEST_VALID) != 0u;
+    // Os pedidos dos transmissivos (o reflexo dos opacos não recomeça históricos).
+    let requested = (textureLoad(refraction_request, px, 0).y & (REFRACTION_REQUEST_VALID | REFRACTION_REQUEST_REFLECT))
+        == REFRACTION_REQUEST_VALID;
     let moving = select(0.0, textureLoad(refraction_albedo, px, 0).a, requested);
     textureStore(refraction_gradient_out, px, vec4f(moving, 0.0, 0.0, 0.0));
 }
