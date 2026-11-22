@@ -44,11 +44,13 @@ import {
     BoxGeometry,
     Camera,
     DirectionalLight,
+    FontLoader,
     GlobalIllumination,
     MaterialFunction,
     Materials,
     NodeGraph,
     nodes,
+    ParametricGeometry,
     PlaneGeometry,
     PointLight,
     Sky,
@@ -56,6 +58,8 @@ import {
     SpotLight,
     StandardMaterial,
     Transform,
+    UiPanel,
+    UiText,
 } from 'clayflow/web';
 import type { Application, LobeName, MaterialName } from 'clayflow/web';
 import { capture, nextGpuFrame, settle } from './support/extensionScenes';
@@ -1330,7 +1334,36 @@ interface GalleryFamily {
     readonly rows: readonly [readonly (MaterialName | null)[], readonly (MaterialName | null)[]];
     /** A luz de recorte projeta sombra (a espessura que a luz atravessa nos materiais com subsuperfície). */
     readonly backlit?: boolean;
+    /** A forma no lugar da esfera, por material: superfícies paramétricas de curvatura variada. */
+    readonly shapes?: Readonly<Partial<Record<MaterialName, GalleryShape>>>;
 }
+
+/** Formas de curvatura variada da galeria: o toro deitado e o "capô" (um elipsoide achatado, de pontas de raio curto). */
+type GalleryShape = 'torus' | 'hood';
+
+/** As funções paramétricas das formas, apoiadas no plano y = 0 e centradas em x = z = 0. */
+const GALLERY_SHAPES: Readonly<
+    Record<GalleryShape, (u: number, v: number) => readonly [number, number, number]>
+> = {
+    // Toro de raio 0,45 e tubo de 0,21 (o tubo dá a volta em v; o uv do padrão, 2 : 1 como na esfera).
+    torus: (u, v) => {
+        const a = 2 * Math.PI * u;
+        const b = 2 * Math.PI * v;
+        const ring = 0.45 + 0.21 * Math.cos(b);
+        return [ring * Math.cos(a), 0.21 + 0.21 * Math.sin(b), ring * Math.sin(a)];
+    },
+    // Elipsoide de semieixos 0,78 × 0,3 × 0,52 com os polos do uv nas pontas (em x): o topo largo e quase plano, as
+    // bordas e as pontas de raio curto.
+    hood: (u, v) => {
+        const a = 2 * Math.PI * u;
+        const b = Math.PI * (v - 0.5);
+        return [
+            0.78 * Math.sin(b),
+            0.3 + 0.3 * Math.cos(b) * Math.cos(a),
+            -0.52 * Math.cos(b) * Math.sin(a),
+        ];
+    },
+};
 
 /** A galeria: um quadro por família, 3 colunas × 2 fileiras; o vidro ao lado do lugar vazio (a parede à vista). */
 const GALLERY: readonly GalleryFamily[] = [
@@ -1362,6 +1395,15 @@ const GALLERY: readonly GalleryFamily[] = [
             ['porcelain', 'skin', 'wax'],
         ],
         backlit: true,
+    },
+    // A pintura de carro e o metal polido em formas de curvatura variada (o reflexo do ambiente corre por elas).
+    {
+        name: 'pintura',
+        rows: [
+            [null, 'metalPolished', null],
+            [null, 'carPaint', null],
+        ],
+        shapes: { carPaint: 'hood', metalPolished: 'torus' },
     },
 ];
 
@@ -1469,13 +1511,74 @@ function neutral(value: number): MaterialFunction {
     );
 }
 
+/**
+ * Os rótulos do quadro de prova: o nome de cada material escrito junto do objeto, pelo texto da interface do motor
+ * (`UiText` sobre um `UiPanel` escuro, com o atlas de glifos do `FontLoader` ligado ao estágio da interface) — na
+ * fileira da frente, no chão diante da placa; na de trás, acima da esfera. A posição é a do ponto projetado pela câmera
+ * da galeria. Só no quadro gravado: as medidas leem o alvo HDR da cena, antes da interface. Devolve os painéis.
+ */
+async function galleryLabels(
+    app: Application,
+    center: ReadonlyMap<MaterialName | 'empty', Vec3>,
+    width: number,
+    height: number,
+): Promise<UiPanel[]> {
+    const size = 22;
+    const font = await new FontLoader().load('Helvetica Neue, Arial, sans-serif', '', {
+        fontSize: 2 * size,
+    });
+    app.defaults.ui.setFont(font);
+    const panels: UiPanel[] = [];
+    for (const [name, at] of center) {
+        if (name === 'empty') continue;
+        const front = at[2] > 0;
+        const anchor: Vec3 = front
+            ? [at[0], -0.1, at[2] + GALLERY_TILE / 2 + 0.16]
+            : [at[0], 2 * GALLERY_R + 0.2, at[2]];
+        const [x, y] = galleryPixel(anchor, width, height);
+        let textWidth = 0;
+        for (const ch of name) textWidth += (font.glyphs.get(ch)?.advance ?? size) / 2;
+        const pad = 7;
+        const panel = new UiPanel();
+        panel.bounds = {
+            x: Math.round(x - textWidth / 2 - pad),
+            // Dentro do quadro (a fileira da frente chega à borda de baixo).
+            y: Math.min(Math.round(y - size / 2 - pad), height - size - 2 * pad - 6),
+            width: Math.round(textWidth + 2 * pad),
+            height: size + 2 * pad,
+        };
+        panel.background = [0.04, 0.04, 0.05, 0.78];
+        const text = new UiText();
+        text.text = name;
+        text.fontSize = size;
+        text.color = [1, 1, 1, 1];
+        text.bounds = {
+            x: panel.bounds.x + pad,
+            y: panel.bounds.y + pad - 2,
+            width: 0,
+            height: size,
+        };
+        panel.add(text);
+        app.defaults.ui.ui.add(panel);
+        panels.push(panel);
+    }
+    return panels;
+}
+
 /** Desenha um quadro da galeria (uma família) e mede o custo de GPU por quadro; `shot` grava o PNG. */
 async function galleryShot(
     family: GalleryFamily,
     width: number,
     height: number,
 ): Promise<GalleryShot> {
-    const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
+    const query = new URLSearchParams(location.search);
+    // Diagnóstico (`aa=temporal`): o quadro no antisserrilhado temporal, o padrão do motor (as medidas são do MSAA).
+    const { app, canvas } = await materialApp(width, height, engineErrors, {
+        profiling: true,
+        ...(query.get('aa') === 'temporal' ? { antialias: 'temporal' as const } : {}),
+    });
+    // Diagnóstico (`reflection=0`): o mesmo quadro sem o reflexo traçado dos opacos (o custo de antes).
+    if (query.get('reflection') === '0') app.defaults.renderer.lightPaths.reflection = false;
     const samples: number[] = [];
     app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
     app.world.insert(
@@ -1529,18 +1632,32 @@ async function galleryShot(
             const at: Vec3 = [(i - 1) * GALLERY_DX, GALLERY_R, j === 0 ? -GALLERY_DZ : GALLERY_DZ];
             center.set(name ?? 'empty', at);
             if (name === null) return;
-            app.world.insert(
-                new SphereGeometry({ radius: GALLERY_R, latSegments: 96, lonSegments: 192 })
-                    .add(new StandardMaterial())
-                    // O eixo do uv inclinado 35° para trás: o polo de cima (onde o uv converge) fica atrás do limbo.
-                    .add(
-                        new Transform({
-                            position: [...at, 1],
-                            rotation: [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)],
-                        }),
-                    )
-                    .add(Materials[name](galleryValues(name, [2, 1]))),
-            );
+            const shape = family.shapes?.[name];
+            if (shape !== undefined) {
+                app.world.insert(
+                    new ParametricGeometry({ fn: GALLERY_SHAPES[shape], uSteps: 256, vSteps: 128 })
+                        .add(new StandardMaterial())
+                        .add(new Transform({ position: [at[0], 0, at[2], 1] }))
+                        .add(Materials[name](galleryValues(name, [2, 1]))),
+                );
+            } else
+                app.world.insert(
+                    new SphereGeometry({ radius: GALLERY_R, latSegments: 96, lonSegments: 192 })
+                        .add(new StandardMaterial())
+                        // O eixo do uv inclinado 35° para trás: o polo de cima (onde o uv converge) fica atrás do limbo.
+                        .add(
+                            new Transform({
+                                position: [...at, 1],
+                                rotation: [
+                                    Math.sin(-POLE_TILT / 2),
+                                    0,
+                                    0,
+                                    Math.cos(-POLE_TILT / 2),
+                                ],
+                            }),
+                        )
+                        .add(Materials[name](galleryValues(name, [2, 1]))),
+                );
             // A parte plana: a placa do mesmo material sob a esfera (o vidro fica sem, com a parede à vista atrás).
             if (name === 'glass') return;
             app.world.insert(
@@ -1594,12 +1711,50 @@ async function galleryShot(
         await nextGpuFrame(app);
     }
     samples.sort((a, b) => a - b);
-    if (new URLSearchParams(location.search).get('shot') !== null) {
+    const gpuMs = samples[samples.length >> 1] ?? NaN;
+    if (query.get('stages') !== null) {
+        // Diagnóstico (`stages=1`): o custo de GPU por passe (mediana de 40 quadros; os carimbos por passe alongam os
+        // passes de desenho no Apple — vale a proporção, não o total).
+        const passes = new Map<string, number[]>();
+        const off = app.events.on('gpuFrameTimed', (e) => {
+            for (const [k, v] of Object.entries(e.passesMs)) {
+                const list = passes.get(k) ?? [];
+                list.push(v);
+                passes.set(k, list);
+            }
+        });
+        app.setProfiling('passes');
+        for (let i = 0; i < 60; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        off();
+        app.setProfiling('frame');
+        const median = [...passes].map(([k, v]): [string, number] => {
+            v.sort((x, y) => x - y);
+            return [k, v[v.length >> 1] ?? 0];
+        });
+        median.sort((x, y) => y[1] - x[1]);
+        log(
+            `gallery ${family.name}: GPU por passe (ms) — ${median
+                .filter(([, v]) => v >= 0.05)
+                .map(([k, v]) => `${k} ${v.toFixed(2)}`)
+                .join('; ')}`,
+        );
+    }
+    if (query.get('shot') !== null) {
+        // O quadro de prova, depois das medidas (que leram o alvo HDR sem os rótulos): o nome de cada material junto
+        // do objeto (`galleryLabels`).
+        const labels = await galleryLabels(app, center, width, height);
+        for (let i = 0; i < 3; i++) {
+            app.step(0);
+            await nextGpuFrame(app);
+        }
         // O canvas só vale na tarefa do quadro: um quadro e a captura, sem ceder entre os dois.
         app.step(0);
         await writeFixture(`zzGallery-${family.name}.png`, await toPng(capture(canvas)));
+        for (const label of labels) label.visible = false;
     }
-    const gpuMs = samples[samples.length >> 1] ?? NaN;
     // O custo dos passes da subsuperfície: o mesmo quadro com ela desligada no renderizador.
     let gpuPlain: number | undefined;
     if (family.backlit === true) {
@@ -2215,15 +2370,55 @@ async function caseGallery(): Promise<void> {
             skyTint > 1.15 * floorTint,
             `gallery: o metal polido não reflete o céu por cima e o chão por baixo (${skyTint} × ${floorTint})`,
         );
-        // Os flocos da pintura e as manchas da ferrugem contra o plástico brilhante liso.
-        const flakes = contrast('carPaint', facing('carPaint'), 24);
+        // O reflexo nítido do metal polido (spec 011, T114): a borda mais marcada do que ele reflete (o horizonte, um
+        // vizinho) no disco de 0,7 do raio — o maior contraste entre dois pixels a 2 px um do outro, |a − b| / (a + b),
+        // fora do realce do sol (luminância até 4). Com o reflexo pelas sondas (8 × 8 direções), não há borda.
+        {
+            const c = shot.center.get('metalPolished')!;
+            const [cx, cy] = galleryPixel(c, W, H).map(Math.round) as [number, number];
+            const rr = Math.round(0.7 * view(c).r);
+            let edge = 0;
+            let peak = 0;
+            const values: number[] = [];
+            for (let dy = -rr; dy <= rr; dy++)
+                for (let dx = -rr; dx <= rr; dx++) {
+                    if (dx * dx + dy * dy > rr * rr) continue;
+                    const a = lum(hdrAt(shot.img, cx + dx, cy + dy));
+                    values.push(a);
+                    peak = Math.max(peak, a);
+                    for (const [ox, oy] of [
+                        [2, 0],
+                        [0, 2],
+                    ] as const) {
+                        const b = lum(hdrAt(shot.img, cx + dx + ox, cy + dy + oy));
+                        if (a > 4 || b > 4 || a + b < 0.02) continue;
+                        edge = Math.max(edge, Math.abs(a - b) / (a + b));
+                    }
+                }
+            values.sort((p, q) => p - q);
+            const median = values[values.length >> 1] ?? 0;
+            log(
+                `gallery: metal polido — borda refletida mais marcada (contraste a 2 px) ${edge.toFixed(3)}; pico do sol ${peak.toFixed(1)} (${(peak / Math.max(median, 1e-6)).toFixed(0)}× a mediana do disco, ${median.toFixed(3)})`,
+            );
+            check(edge > 0.15, `gallery: o metal polido não mostra o reflexo nítido (${edge})`);
+            check(peak > 20 * median, `gallery: o sol não estoura no metal polido (${peak})`);
+        }
+        // Os flocos da pintura e as manchas da ferrugem; o plástico brilhante, liso, mostra agora os vizinhos refletidos
+        // (o contraste dele é o do reflexo, não de estrutura): fica só registrado.
+        // Os flocos, onde cintilam: em volta do realce do sol (a meia direção entre o sol e quem vê).
+        const paintView = view(shot.center.get('carPaint')!).v;
+        const flakes = contrast(
+            'carPaint',
+            unit3([sun[0] + paintView[0], sun[1] + paintView[1], sun[2] + paintView[2]]),
+            24,
+        );
         const rust = contrast('metalOxidized', facing('metalOxidized'), 24);
         const smooth = contrast('plasticGloss', facing('plasticGloss'), 24);
         log(
-            `gallery: contraste da estrutura (desvio / média em 49 × 49 px) — flocos da pintura ${flakes.toFixed(3)}, ferrugem ${rust.toFixed(3)}, plástico brilhante ${smooth.toFixed(3)}`,
+            `gallery: contraste da estrutura (desvio / média em 49 × 49 px) — flocos da pintura em volta do realce ${flakes.toFixed(3)}, ferrugem ${rust.toFixed(3)}, plástico brilhante ${smooth.toFixed(3)}`,
         );
-        check(flakes > 2 * smooth, `gallery: a pintura não mostra os flocos (${flakes})`);
-        check(rust > 2 * smooth, `gallery: o metal oxidado não mostra as manchas (${rust})`);
+        check(flakes > 0.05, `gallery: a pintura não mostra os flocos (${flakes})`);
+        check(rust > 0.06, `gallery: o metal oxidado não mostra as manchas (${rust})`);
     }
 
     if (shots.has('translucidos')) {
