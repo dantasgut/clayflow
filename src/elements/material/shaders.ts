@@ -297,6 +297,7 @@ function refractionRequestModule(multisampled: boolean): WgslModule {
         source: forwardRefractionRequestSource,
         requires: [
             forward,
+            viewSpace,
             REFRACTION_REQUEST_VALID.module,
             REFRACTION_REQUEST_BACK_FACE.module,
             multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
