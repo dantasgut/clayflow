@@ -106,12 +106,24 @@ const rings = defineNode({
  * Trama de tecido: `scale` fios por unidade de `p` nos dois sentidos — a urdidura ao longo de `p.y`, a trama ao longo de
  * `p.x`. Ligamento: a urdidura passa `over` fios por cima e `under` por baixo, deslocada `shift` a cada fio (tela 1/1/1,
  * o padrão; sarja do jeans 3/1/1; cetim 4/1/2); `gap` a fração do passo sem fio. Saídas: `height` em [0, 1] e o
- * `gradient`; `warp` 1 onde o fio à vista é de urdidura; `thread` o valor em [0, 1] do fio à vista; `gap` 1 no vão.
+ * `gradient`; `warp` 1 onde o fio à vista é de urdidura; `thread` o valor em [0, 1] do fio à vista; `gap` 1 no vão;
+ * `fiber` a direção em `p` da fibra do fio à vista — o fio é um cilindro de fibras torcidas em hélice de ângulo `twist`
+ * (radianos) com o eixo dele: a tangente do brilho anisotrópico, que quebra o realce em tracinhos de fio em fio —;
+ * `strand` os cabos do fio torcido em [0, 1] (três faixas em hélice em torno do fio: 1 na crista do cabo, 0 no sulco;
+ * 1 sem torção).
  */
 const weave = defineNode({
     name: 'pattern.weave',
     inputs: RELIEF_INPUTS,
-    outputs: { height: 'f32', gradient: 'vec2f', warp: 'f32', thread: 'f32', gap: 'f32' },
+    outputs: {
+        height: 'f32',
+        gradient: 'vec2f',
+        warp: 'f32',
+        thread: 'f32',
+        gap: 'f32',
+        fiber: 'vec2f',
+        strand: 'f32',
+    },
     params: {
         ...RELIEF_VALUES,
         scale: { type: 'f32', default: 1 },
@@ -120,14 +132,60 @@ const weave = defineNode({
         shift: { type: 'u32', default: 1 },
         gap: { type: 'f32', default: 0.1 },
         seed: { type: 'u32', default: 0 },
+        twist: { type: 'f32', default: 0 },
     },
     code: nodePattern,
     fn: 'node_pattern_weave',
 });
 
 /**
- * Padrões: o xadrez em 2D (superfícies planas, uv) e em 3D (sólido); e os padrões com relevo — a trama de tecido, as
- * células com sulcos, os anéis de crescimento e o grão.
+ * Tricô (ponto meia, o direito da malha): colunas de pontos em V — `scale` colunas por unidade de `p.x` e `scale` ·
+ * `aspect` carreiras por unidade de `p.y`; cada ponto são duas pernas de fio de meia largura 0,2 · `thickness` da
+ * coluna, que sobem do meio da coluna para as bordas e passam por baixo da carreira de cima. Saídas: `height` em [0, 1]
+ * e o `gradient`; `fiber` a direção em `p` da fibra à vista (o eixo da perna com a torção `twist`, em radianos);
+ * `stitch` o valor em [0, 1] do ponto; `gap` 1 no fundo entre as pernas; `strand` os cabos do fio torcido em [0, 1].
+ */
+const knit = defineNode({
+    name: 'pattern.knit',
+    inputs: RELIEF_INPUTS,
+    outputs: {
+        height: 'f32',
+        gradient: 'vec2f',
+        fiber: 'vec2f',
+        stitch: 'f32',
+        gap: 'f32',
+        strand: 'f32',
+    },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'f32', default: 1 },
+        aspect: { type: 'f32', default: 1.4 },
+        thickness: { type: 'f32', default: 1 },
+        seed: { type: 'u32', default: 0 },
+        twist: { type: 'f32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_knit',
+});
+
+/**
+ * Limiar suave com gradiente: `value` = smoothstep(`low`; `high`; valor) e o `gradient` pela regra da cadeia sobre o
+ * gradiente de entrada (∂/∂p, de um padrão) — recorta uma faixa de um padrão sem perder a derivada (a fresta onde o
+ * grão passa de um nível, o lenho tardio saliente, a crosta da ferrugem): a entrada de `surface.relief` e de
+ * `surface.bump`. `low` > `high` inverte.
+ */
+const threshold = defineNode({
+    name: 'pattern.threshold',
+    inputs: { value: 'f32', gradient: 'vec2f' },
+    outputs: { value: 'f32', gradient: 'vec2f' },
+    params: { low: { type: 'f32', default: 0 }, high: { type: 'f32', default: 1 } },
+    code: nodePattern,
+    fn: 'node_pattern_threshold',
+});
+
+/**
+ * Padrões: o xadrez em 2D (superfícies planas, uv) e em 3D (sólido); e os padrões com relevo — a trama de tecido, o
+ * tricô, as células com sulcos, os anéis de crescimento, o grão e o limiar com gradiente.
  */
 export const pattern = {
     checker2: checker('checker2', 'vec2f'),
@@ -136,4 +194,6 @@ export const pattern = {
     cells,
     rings,
     weave,
+    knit,
+    threshold,
 } as const;

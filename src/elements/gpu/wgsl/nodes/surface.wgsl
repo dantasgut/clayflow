@@ -131,3 +131,53 @@ fn node_surface_bump(normal: vec3f, du: vec3f, dv: vec3f, gradient: vec2f, stren
     let g = (gradient.x * cross(dv, n) + gradient.y * cross(n, du)) * (sqrt(abs(det)) / det);
     return normalize(n - strength * g);
 }
+
+/**
+ * Relevo em milímetros (spec 011): a altura de um padrão — `value` com o gradiente `gradient` (∂/∂p) sobre a coordenada
+ * de `surface.uvSpace`, de escala `wrap` (∂p/∂uv; o período dela) — vira o relevo (altura, ∂altura/∂u, ∂altura/∂v), em
+ * milímetros e no uv da superfície: (`value` − `level`) · `height`, com `height` a altura em milímetros de uma unidade
+ * do padrão e `level` o nível do padrão que fica na superfície. Relevos somam-se (`math.add3`). É a entrada de
+ * `surface.reliefNormal` (a inclinação, no material) e de `surface.displacement` (a geometria).
+ */
+fn node_surface_relief(value: f32, gradient: vec2f, wrap: vec2f, height: f32, level: f32) -> vec3f {
+    let w = select(vec2f(1.0), wrap, wrap > vec2f(1e-9));
+    return vec3f((value - level) * height, height * gradient * w);
+}
+
+/**
+ * Normal do relevo (spec 011): a normal de uma superfície de tangentes `dpdu`, `dpdv` (∂posição/∂uv) deslocada pelo
+ * relevo `relief` (altura em mm e as derivadas no uv, de `surface.relief`), com `scale` unidades do mundo por metro —
+ * n' = n − H · ∇ₛh, H = `scale`/1000 e ∇ₛh = (h_u · dpdv × n + h_v · n × dpdu) / (n · dpdu × dpdv) (o gradiente de
+ * superfície de Mikkelsen 2020), com a inclinação |H · ∇ₛh| presa em 4 (76°). É a normal da geometria que
+ * `surface.displacement` gera com o mesmo relevo. Sem tangentes (zero: os acertos dos raios), a normal sem mudança.
+ */
+fn node_surface_relief_normal(normal: vec3f, dpdu: vec3f, dpdv: vec3f, relief: vec3f, scale: f32) -> vec3f {
+    let n = select(vec3f(0.0, 0.0, 1.0), normalize(normal), dot(normal, normal) > 0.0);
+    let det = dot(n, cross(dpdu, dpdv));
+    if (abs(det) < 1e-24) { return n; }
+    var g = 0.001 * scale * (relief.y * cross(dpdv, n) + relief.z * cross(n, dpdu)) / det;
+    // A inclinação fica até 4 (76°): uma parede mais íngreme que isso viraria a normal para trás da superfície.
+    let slope = length(g);
+    if (slope > 4.0) { g = g * (4.0 / slope); }
+    return normalize(n - g);
+}
+
+/**
+ * Saída do ponto `displacement` (spec 011): a altura do relevo `relief` (milímetros, de `surface.relief`) nas unidades
+ * do mundo, com `scale` unidades por metro.
+ */
+fn node_surface_displacement(relief: vec3f, scale: f32) -> f32 {
+    return relief.x * 0.001 * scale;
+}
+
+/**
+ * Direção do padrão em mundo (spec 011): a direção `direction` dada na coordenada do padrão (a fibra de
+ * `pattern.weave`/`pattern.knit`) levada às tangentes `du`, `dv` (∂posição/∂p, de `surface.uvSpace`) e normalizada — a
+ * tangente do especular anisotrópico. Sem tangentes (os acertos dos raios), zero (o lobo fica isotrópico).
+ */
+fn node_surface_direction(du: vec3f, dv: vec3f, direction: vec2f) -> vec3f {
+    let t = du * direction.x + dv * direction.y;
+    let l = length(t);
+    if (l < 1e-12) { return vec3f(0.0); }
+    return t / l;
+}

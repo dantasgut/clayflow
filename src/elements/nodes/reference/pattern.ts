@@ -279,7 +279,16 @@ export function patternWeave(
     shift: number,
     gap: number,
     seed: number,
-): { height: number; gradient: number[]; warp: number; thread: number; gap: number } {
+    twist = 0,
+): {
+    height: number;
+    gradient: number[];
+    warp: number;
+    thread: number;
+    gap: number;
+    fiber: number[];
+    strand: number;
+} {
     const ov = Math.max(over, 1);
     const m = ov + Math.max(under, 1);
     const fx = fit(scale, wrap[0]!, m);
@@ -333,13 +342,111 @@ export function patternWeave(
         warp > 0.5 ? cellHash(ix, -1, [fx[1], 0], seed) : cellHash(-1, iy, [0, fy[1]], seed);
     const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
     const grad = upper ? gTop : gLow;
+    const turn = Math.sin(twist) * Math.sqrt(Math.max(warp > 0.5 ? section[0] : section[1], 0));
+    const fiber: V2 = warp > 0.5 ? [turn, Math.cos(twist)] : [Math.cos(twist), -turn];
+    const across = Math.min(1, Math.max(-1, (warp > 0.5 ? f[0] : f[1]) / hw));
+    const along = warp > 0.5 ? q[1] : q[0];
+    const strand =
+        twist !== 0
+            ? 0.5 + 0.5 * Math.cos(3 * Math.asin(across) + Math.sign(twist) * 2 * Math.PI * along)
+            : 1;
     return {
         height: mix(0.5, upper ? hTop : hLow, k),
         gradient: [k * grad[0] * fx[0], k * grad[1] * fy[0]],
         warp: mix(ov / m, warp, k),
         thread: mix(0.5, unit24(thread), k),
         gap: mix(g * g, !inside[0] && !inside[1] ? 1 : 0, k),
+        fiber: [mix(1 - ov / m, fiber[0], k), mix(ov / m, fiber[1], k)],
+        strand: mix(twist !== 0 ? 0.5 : 1, strand, k),
     };
+}
+
+/** `pattern.knit`: o tricô em ponto meia (altura, gradiente, fibra à vista, valor do ponto, fundo). */
+export function patternKnit(
+    p: readonly number[],
+    width: number,
+    wrap: readonly number[],
+    scale: number,
+    aspect: number,
+    thickness: number,
+    seed: number,
+    twist = 0,
+): {
+    height: number;
+    gradient: number[];
+    fiber: number[];
+    stitch: number;
+    gap: number;
+    strand: number;
+} {
+    const fx = fit(scale, wrap[0]!, 1);
+    const fy = fit(f32(scale * Math.max(aspect, 1e-3)), wrap[1]!, 1);
+    const q: V2 = [f32(p[0]! * fx[0]), f32(p[1]! * fy[0])];
+    const ix = Math.floor(q[0]);
+    const iy = Math.floor(q[1]);
+    const f: V2 = [q[0] - ix, q[1] - iy];
+    const side = f[0] >= 0.5 ? 1 : -1;
+    const a = Math.abs(f[0] - 0.5);
+    const w = 0.2 * Math.min(1, Math.max(0.1, thickness));
+    let h = 0;
+    let g: V2 = [0, 0];
+    let row = 0;
+    let secBest = 0;
+    let turnBest = 0;
+    for (let r = -1; r <= 1; r++) {
+        const t = (f[1] - r + 0.25) / 1.5;
+        const d = a - (0.03 + 0.27 * t);
+        if (t <= 0 || t >= 1 || Math.abs(d) >= w) continue;
+        const sec = 1 - (d * d) / (w * w);
+        const e = 2 * t - 1;
+        const env = 1 - e * e;
+        if (sec * env > h) {
+            h = sec * env;
+            g = [
+                side * ((-2 * d) / (w * w)) * env,
+                (((2 * d) / (w * w)) * 0.27 * env - sec * 4 * e) / 1.5,
+            ];
+            row = r;
+            secBest = sec;
+            turnBest =
+                3 * Math.asin(Math.min(1, Math.max(-1, d / w)))
+                + Math.sign(twist) * side * 4 * Math.PI * t;
+        }
+    }
+    const k = width > 0 ? band(width * Math.max(Math.abs(fx[0]), Math.abs(fy[0]))) : 1;
+    const stitch = cellHash(ix, iy + row, [fx[1], fy[1]], seed);
+    const ax: V2 = [(side * 0.27) / fx[0], 1.5 / fy[0]];
+    const al = Math.hypot(ax[0], ax[1]);
+    const axis: V2 = [ax[0] / al, ax[1] / al];
+    const turn = Math.sin(twist) * Math.sqrt(Math.max(secBest, 0));
+    const c = Math.cos(twist);
+    const fiber: V2 = [axis[0] * c + axis[1] * turn, axis[1] * c - axis[0] * turn];
+    return {
+        height: mix(0.35, h, k),
+        gradient: [k * g[0] * fx[0], k * g[1] * fy[0]],
+        fiber: [mix(0, fiber[0], k), mix(1, fiber[1], k)],
+        stitch: mix(0.5, unit24(stitch), k),
+        gap: mix(0.15, h <= 0 ? 1 : 0, k),
+        strand: mix(
+            twist !== 0 ? 0.5 : 1,
+            twist !== 0 && h > 0 ? 0.5 + 0.5 * Math.cos(turnBest) : 1,
+            k,
+        ),
+    };
+}
+
+/** `pattern.threshold`: smoothstep(low; high; valor) com o gradiente pela regra da cadeia. */
+export function patternThreshold(
+    value: number,
+    gradient: readonly number[],
+    low: number,
+    high: number,
+): { value: number; gradient: number[] } {
+    const span = high - low;
+    const d = Math.abs(span) < 1e-6 ? (span >= 0 ? 1e-6 : -1e-6) : span;
+    const t = clamp01((value - low) / d);
+    const s = (6 * t * (1 - t)) / d;
+    return { value: smooth(t), gradient: [s * gradient[0]!, s * gradient[1]!] };
 }
 
 /**
@@ -478,6 +585,7 @@ export const patternCases: readonly NodeCase[] = [
             shift: [1, 1, 2, 1][k % 4]!,
             gap: uniform(r, 0, 0.5),
             seed: k % 5,
+            twist: k % 2 === 0 ? 0 : uniform(r, -0.6, 0.6),
         }),
         reference: (x) =>
             patternWeave(
@@ -490,6 +598,44 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.shift),
                 num(x.gap),
                 num(x.seed),
+                num(x.twist),
             ),
+    },
+    {
+        node: 'pattern.knit',
+        tolerance: 2e-3,
+        sample: (r, k) => ({
+            ...relief(r, k),
+            scale: [1, 2, 4, 8][k % 4]!,
+            aspect: [1, 1.5, 0.5][k % 3]!,
+            thickness: uniform(r, 0.4, 1),
+            seed: k % 5,
+            twist: k % 2 === 0 ? 0 : uniform(r, -0.6, 0.6),
+        }),
+        reference: (x) =>
+            patternKnit(
+                vec(x.p),
+                num(x.width),
+                vec(x.wrap),
+                num(x.scale),
+                num(x.aspect),
+                num(x.thickness),
+                num(x.seed),
+                num(x.twist),
+            ),
+    },
+    {
+        node: 'pattern.threshold',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            const low = uniform(r, -1, 1);
+            return {
+                value: uniform(r, -1.5, 1.5),
+                gradient: vector(r, 2, -20, 20),
+                low,
+                high: k % 9 === 8 ? low : low + uniform(r, -1, 1),
+            };
+        },
+        reference: (x) => patternThreshold(num(x.value), vec(x.gradient), num(x.low), num(x.high)),
     },
 ];

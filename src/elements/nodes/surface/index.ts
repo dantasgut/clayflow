@@ -114,5 +114,81 @@ const bump = defineNode({
     fn: 'node_surface_bump',
 });
 
-/** Superfície: métrica, curvaturas, direções principais, ondulações, o espaço dos padrões no uv e o relevo. */
-export const surface = { metric, curvature, principal, ripple, uvSpace, bump } as const;
+/**
+ * Relevo em milímetros (spec 011): a altura de um padrão (`value` e o `gradient` ∂/∂p dele, com a escala `wrap` de
+ * `surface.uvSpace`) vira o relevo (altura, ∂altura/∂u, ∂altura/∂v) em milímetros, no uv da superfície: (`value` −
+ * `level`) · `height` — `height` a altura em milímetros de uma unidade do padrão (também entrada: liga a outro nó),
+ * `level` o nível do padrão que fica na superfície (0: o relevo só sobe; 1: só desce). Relevos somam-se (`math.add3`).
+ * A mesma saída alimenta `surface.reliefNormal` (no material) e `surface.displacement` (na geometria): uma função de
+ * altura para os dois.
+ */
+const relief = defineNode({
+    name: 'surface.relief',
+    inputs: { value: 'f32', gradient: 'vec2f', wrap: 'vec2f', height: 'f32' },
+    outputs: { value: 'vec3f' },
+    params: { height: { type: 'f32', default: 1 }, level: { type: 'f32', default: 0 } },
+    code: nodeSurface,
+    fn: 'node_surface_relief',
+});
+
+/**
+ * Normal do relevo (spec 011): a normal da superfície deslocada pelo relevo `relief` (de `surface.relief`, em
+ * milímetros) com `scale` unidades do mundo por metro (1: cena em metros; a mesma convenção da subsuperfície) — a
+ * inclinação da geometria que `surface.displacement` gera com o mesmo relevo, até a largura do pixel (presa em 76°:
+ * uma parede mais íngreme viraria a normal para trás). Liga no
+ * `closure.normal`. Sem ligação, a normal e as tangentes do uv são as da amostra; sem tangentes (os acertos dos raios),
+ * devolve a normal.
+ */
+const reliefNormal = defineNode({
+    name: 'surface.reliefNormal',
+    inputs: { normal: 'vec3f', dpdu: 'vec3f', dpdv: 'vec3f', relief: 'vec3f', scale: 'f32' },
+    outputs: { value: 'vec3f' },
+    params: { scale: { type: 'f32', default: 1 } },
+    defaults: { normal: 's.normal', dpdu: 's.dpdu', dpdv: 's.dpdv' },
+    code: nodeSurface,
+    fn: 'node_surface_relief_normal',
+});
+
+/**
+ * Saída do ponto `displacement` (spec 011): a altura do relevo `relief` (milímetros) nas unidades do mundo, com `scale`
+ * unidades por metro — o que a `DisplacementFunction` devolve para mover os vértices da `ParametricSurface`.
+ */
+const displacement = defineNode({
+    name: 'surface.displacement',
+    inputs: { relief: 'vec3f', scale: 'f32' },
+    outputs: { value: 'f32' },
+    params: { scale: { type: 'f32', default: 1 } },
+    code: nodeSurface,
+    fn: 'node_surface_displacement',
+});
+
+/**
+ * Direção do padrão em mundo (spec 011): a direção `direction` na coordenada do padrão (a saída `fiber` de
+ * `pattern.weave` e de `pattern.knit`) sobre as tangentes `du`, `dv` de `surface.uvSpace`, normalizada — a `tangent`
+ * dos especulares anisotrópicos (o brilho corre ao longo da fibra). Sem tangentes, zero.
+ */
+const direction = defineNode({
+    name: 'surface.direction',
+    inputs: { du: 'vec3f', dv: 'vec3f', direction: 'vec2f' },
+    outputs: { value: 'vec3f' },
+    code: nodeSurface,
+    fn: 'node_surface_direction',
+});
+
+/**
+ * Superfície: métrica, curvaturas, direções principais, ondulações, o espaço dos padrões no uv, o relevo na normal
+ * (`bump`), o relevo em milímetros com a normal e o deslocamento dele (`relief`, `reliefNormal`, `displacement`) e a
+ * direção de um padrão em mundo (`direction`).
+ */
+export const surface = {
+    metric,
+    curvature,
+    principal,
+    ripple,
+    uvSpace,
+    bump,
+    relief,
+    reliefNormal,
+    displacement,
+    direction,
+} as const;

@@ -49,7 +49,7 @@ export const nodeNoise = wgslModule({ name: 'node_noise', source: noiseSource, r
 export const nodePattern = wgslModule({
     name: 'node_pattern',
     source: patternSource,
-    requires: [noise],
+    requires: [noise, constants],
 });
 
 /** Nós de rampa de cor (spec 031). */

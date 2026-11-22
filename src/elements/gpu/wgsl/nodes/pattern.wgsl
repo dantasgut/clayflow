@@ -8,7 +8,7 @@
 // `surface.bump`). `width` é a largura do pixel em `p`: o detalhe menor que o pixel vai à média (fator
 // `node_pattern_band`), o gradiente a zero. `wrap` é o período de `p` por eixo (0 = sem): a frequência é ajustada para
 // um número inteiro de células por período e o índice da célula dá a volta — sem emenda onde o uv fecha.
-// Requer: noise (o hash PCG).
+// Requer: noise (o hash PCG); constants (TAU).
 
 /** A onda quadrada (±1, período 2) média sobre [q − w/2, q + w/2], por eixo; exata com `w` abaixo de 1e-4. */
 fn node_pattern_square(q: vec3f, w: vec3f) -> vec3f {
@@ -59,6 +59,22 @@ struct NodePatternWeave {
     warp: f32,
     thread: f32,
     gap: f32,
+    fiber: vec2f,
+    strand: f32,
+}
+
+struct NodePatternKnit {
+    height: f32,
+    gradient: vec2f,
+    fiber: vec2f,
+    stitch: f32,
+    gap: f32,
+    strand: f32,
+}
+
+struct NodePatternThreshold {
+    value: f32,
+    gradient: vec2f,
 }
 
 // Fator do detalhe pela largura do pixel em células (`w`): 1 abaixo de 0,2 célula por pixel, 0 acima de 0,5 (duas
@@ -275,11 +291,16 @@ fn node_pattern_weave_dive(t: f32) -> vec2f {
  * parabólica; o de cima mergulha 0,55 da altura para o lado em que passa por baixo, o de baixo fica a 0,45. Saídas:
  * `height` em [0, 1] e o gradiente ∂/∂p; `warp` 1 onde o fio à vista é de urdidura, 0 de trama (as duas cores do jeans,
  * a direção do fio para o brilho anisotrópico); `thread` o valor em [0, 1] do fio à vista (a irregularidade de fio para
- * fio); `gap` 1 no vão entre os fios (o tecido aberto). Abaixo do pixel: altura a 0,5, `warp` à fração do ligamento
- * (over / (over + under)), `thread` a 0,5, `gap` à área dos vãos (`gap`²), gradiente a zero.
+ * fio); `gap` 1 no vão entre os fios (o tecido aberto); `fiber` a direção em `p` da fibra do fio à vista — o fio é um
+ * cilindro de fibras torcidas em hélice de ângulo `twist` (radianos) com o eixo: no meio do fio a fibra faz esse ângulo
+ * com o eixo, nas bordas corre junto dele (a tangente do brilho anisotrópico: o realce em tracinhos de fio em fio);
+ * `strand` os cabos do fio torcido em [0, 1] — três faixas em hélice em torno do fio, uma volta por passo (1 nas
+ * cristas dos cabos, 0 nos sulcos entre eles; 1 sem torção).
+ * Abaixo do pixel: altura a 0,5, `warp` à fração do ligamento (over / (over + under)), `thread` a 0,5, `gap` à área dos
+ * vãos (`gap`²), a fibra à média dos dois eixos pelo ligamento, `strand` a 0,5, gradiente a zero.
  */
 fn node_pattern_weave(p: vec2f, width: f32, wrap: vec2f, scale: f32, over: u32, under: u32, shift: u32, gap: f32,
-    seed: u32) -> NodePatternWeave {
+    seed: u32, twist: f32) -> NodePatternWeave {
     let ov = f32(max(over, 1u));
     let m = ov + f32(max(under, 1u));
     let sh = f32(shift);
@@ -325,11 +346,94 @@ fn node_pattern_weave(p: vec2f, width: f32, wrap: vec2f, scale: f32, over: u32, 
     let thread = node_pattern_hash(select(vec2f(-1.0, i.y), vec2f(i.x, -1.0), warp > 0.5),
         select(vec2f(0.0, fy.y), vec2f(fx.y, 0.0), warp > 0.5), seed);
     let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    // A fibra do fio à vista: a hélice de ângulo `twist` em torno do eixo do fio, vista de cima — no meio do fio faz o
+    // ângulo inteiro com o eixo, nas bordas (onde a seção vira de lado) corre junto dele.
+    let turn = sin(twist) * sqrt(max(select(section.y, section.x, warp > 0.5), 0.0));
+    let fiber = select(vec2f(cos(twist), -turn), vec2f(turn, cos(twist)), warp > 0.5);
+    let mean_warp = ov / m;
+    // Os cabos do fio torcido: três faixas em hélice em torno do fio (uma volta por passo), vistas de cima.
+    let across = clamp(select(f.y, f.x, warp > 0.5) / hw, -1.0, 1.0);
+    let along = select(q.x, q.y, warp > 0.5);
+    let strand = select(1.0, 0.5 + 0.5 * cos(3.0 * asin(across) + sign(twist) * TAU * along), twist != 0.0);
     return NodePatternWeave(
         mix(0.5, select(h_low, h_top, upper), k),
         k * select(g_low, g_top, upper) * fr,
-        mix(ov / m, warp, k),
+        mix(mean_warp, warp, k),
         mix(0.5, f32(thread >> 8u) / 16777215.0, k),
         mix(g * g, select(0.0, 1.0, !inside.x && !inside.y), k),
+        mix(vec2f(1.0 - mean_warp, mean_warp), fiber, k),
+        mix(select(1.0, 0.5, twist != 0.0), strand, k),
     );
+}
+
+/**
+ * Tricô (spec 011): malha em ponto meia vista do direito — colunas de pontos em V, `scale` colunas por unidade de `p.x`
+ * e `scale` · `aspect` carreiras por unidade de `p.y`. Cada ponto são duas pernas de fio (elipsoides alongados de meia
+ * largura 0,2 · `thickness` da coluna) que sobem do meio da coluna para as bordas e passam por baixo da carreira de
+ * cima (cada perna tem uma carreira e meia de comprimento: as de carreiras vizinhas se sobrepõem, vale a mais alta).
+ * Saídas: `height` em [0, 1] e o gradiente ∂/∂p; `fiber` a direção da fibra à vista em `p` (o eixo da perna girado
+ * pela hélice de ângulo `twist`, como em `pattern.weave`); `stitch` o valor em [0, 1] do ponto; `gap` 1 onde não há fio
+ * (o fundo entre as pernas); `strand` os cabos do fio torcido em [0, 1] (três faixas em hélice, duas voltas por perna;
+ * 1 sem torção). Abaixo do pixel: altura a 0,35, `stitch` a 0,5, `gap` a 0,15, a fibra ao longo de `p.y`, `strand` a
+ * 0,5, gradiente a zero.
+ */
+fn node_pattern_knit(p: vec2f, width: f32, wrap: vec2f, scale: f32, aspect: f32, thickness: f32, seed: u32,
+    twist: f32) -> NodePatternKnit {
+    let fx = node_pattern_fit(scale, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale * max(aspect, 1e-3), wrap.y, 1.0);
+    let fr = vec2f(fx.x, fy.x);
+    let q = p * fr;
+    let i = floor(q);
+    let f = q - i;
+    let side = select(-1.0, 1.0, f.x >= 0.5);
+    let a = abs(f.x - 0.5);
+    let w = 0.2 * clamp(thickness, 0.1, 1.0);
+    var h = 0.0;
+    var g = vec2f(0.0);
+    var row = 0.0;
+    var sec_best = 0.0;
+    var turn_best = 0.0;
+    for (var r = -1; r <= 1; r++) {
+        // A perna da carreira i.y + r: t em [0, 1] ao longo dela (um quarto de carreira para baixo e para cima).
+        let t = (f.y - f32(r) + 0.25) / 1.5;
+        let d = a - (0.03 + 0.27 * t);
+        if (t <= 0.0 || t >= 1.0 || abs(d) >= w) { continue; }
+        let sec = 1.0 - d * d / (w * w);
+        let e = 2.0 * t - 1.0;
+        let env = 1.0 - e * e;
+        if (sec * env > h) {
+            h = sec * env;
+            g = vec2f(side * (-2.0 * d / (w * w)) * env, ((2.0 * d / (w * w)) * 0.27 * env - sec * 4.0 * e) / 1.5);
+            row = f32(r);
+            sec_best = sec;
+            turn_best = 3.0 * asin(clamp(d / w, -1.0, 1.0)) + sign(twist) * side * 2.0 * TAU * t;
+        }
+    }
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    let stitch = node_pattern_hash(vec2f(i.x, i.y + row), vec2f(fx.y, fy.y), seed);
+    // O eixo da perna em `p` (sobe 1,5 carreira enquanto anda 0,27 coluna para a borda) e a hélice da fibra em torno dele.
+    let axis = normalize(vec2f(side * 0.27 / fr.x, 1.5 / fr.y));
+    let turn = sin(twist) * sqrt(max(sec_best, 0.0));
+    let fiber = axis * cos(twist) + vec2f(axis.y, -axis.x) * turn;
+    let strand = select(1.0, 0.5 + 0.5 * cos(turn_best), twist != 0.0 && h > 0.0);
+    return NodePatternKnit(
+        mix(0.35, h, k),
+        k * g * fr,
+        mix(vec2f(0.0, 1.0), fiber, k),
+        mix(0.5, f32(stitch >> 8u) / 16777215.0, k),
+        mix(0.15, select(0.0, 1.0, h <= 0.0), k),
+        mix(select(1.0, 0.5, twist != 0.0), strand, k),
+    );
+}
+
+/**
+ * Limiar suave com gradiente (spec 011): smoothstep(`low`; `high`; `value`) e o gradiente dele pela regra da cadeia
+ * sobre `gradient` (∂`value`/∂p) — recorta de um padrão uma faixa em relevo (a fresta onde o grão passa de um nível, o
+ * lenho tardio saliente, a crosta da ferrugem) sem perder a derivada. `low` > `high` inverte.
+ */
+fn node_pattern_threshold(value: f32, gradient: vec2f, low: f32, high: f32) -> NodePatternThreshold {
+    let span = high - low;
+    let d = select(span, select(-1e-6, 1e-6, span >= 0.0), abs(span) < 1e-6);
+    let t = clamp((value - low) / d, 0.0, 1.0);
+    return NodePatternThreshold(t * t * (3.0 - 2.0 * t), (6.0 * t * (1.0 - t) / d) * gradient);
 }

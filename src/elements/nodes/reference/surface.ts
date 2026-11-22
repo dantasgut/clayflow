@@ -124,6 +124,50 @@ export function surfaceBump(normal: V, du: V, dv: V, gradient: V, strength: numb
     return norm(n.map((c, i) => c - strength * (gradient[0]! * a[i]! + gradient[1]! * b[i]!) * k));
 }
 
+/** `surface.relief`: (altura, ∂/∂u, ∂/∂v) em milímetros a partir do padrão e da escala dele no uv. */
+export function surfaceRelief(
+    value: number,
+    gradient: V,
+    wrap: V,
+    height: number,
+    level: number,
+): number[] {
+    const w = wrap.map((c) => (c > 1e-9 ? c : 1));
+    return [(value - level) * height, height * gradient[0]! * w[0]!, height * gradient[1]! * w[1]!];
+}
+
+/** `surface.reliefNormal`: a normal da superfície deslocada pelo relevo (mm), `scale` unidades por metro. */
+export function surfaceReliefNormal(
+    normal: V,
+    dpdu: V,
+    dpdv: V,
+    relief: V,
+    scale: number,
+): number[] {
+    const n = dot(normal, normal) > 0 ? norm(normal) : [0, 0, 1];
+    const det = dot(n, cross(dpdu, dpdv));
+    if (Math.abs(det) < 1e-24) return n;
+    const a = cross(dpdv, n);
+    const b = cross(n, dpdu);
+    const k = (0.001 * scale) / det;
+    const g = n.map((_, i) => k * (relief[1]! * a[i]! + relief[2]! * b[i]!));
+    const slope = Math.hypot(g[0]!, g[1]!, g[2]!);
+    const limit = slope > 4 ? 4 / slope : 1;
+    return norm(n.map((c, i) => c - g[i]! * limit));
+}
+
+/** `surface.displacement`: a altura do relevo (mm) nas unidades do mundo. */
+export function surfaceDisplacement(relief: V, scale: number): number {
+    return relief[0]! * 0.001 * scale;
+}
+
+/** `surface.direction`: a direção do padrão sobre as tangentes, normalizada (zero sem tangentes). */
+export function surfaceDirection(du: V, dv: V, direction: V): number[] {
+    const t = du.map((c, i) => c * direction[0]! + dv[i]! * direction[1]!);
+    const l = Math.hypot(t[0]!, t[1]!, t[2]!);
+    return l < 1e-12 ? [0, 0, 0] : t.map((c) => c / l);
+}
+
 /** Casos dos nós `surface.*`. */
 export const surfaceCases: readonly NodeCase[] = [
     {
@@ -239,6 +283,79 @@ export const surfaceCases: readonly NodeCase[] = [
                 vec(x.gradient),
                 x.strength as number,
             ),
+        }),
+    },
+    {
+        node: 'surface.relief',
+        tolerance: 1e-5,
+        sample: (r, k) => ({
+            value: uniform(r, -1, 1),
+            gradient: vector(r, 2, -30, 30),
+            wrap: k % 7 === 6 ? [0, 3] : vector(r, 2, 0.5, 40),
+            height: uniform(r, 0, 3),
+            level: uniform(r, 0, 1),
+        }),
+        reference: (x) => ({
+            value: surfaceRelief(
+                x.value as number,
+                vec(x.gradient),
+                vec(x.wrap),
+                x.height as number,
+                x.level as number,
+            ),
+        }),
+    },
+    {
+        node: 'surface.reliefNormal',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            // Tangentes quase ortogonais à normal; um oitavo sem tangentes (os acertos dos raios).
+            const n = vector(r, 3, -1, 1);
+            const normal = dot(n, n) < 0.01 ? [0, 1, 0] : n;
+            const a = cross(normal, Math.abs(normal[0]!) < 0.6 ? [1, 0, 0] : [0, 1, 0]);
+            const b = cross(normal, a);
+            const size = uniform(r, 0.2, 3);
+            const jitter = vector(r, 3, -0.1, 0.1);
+            return {
+                normal,
+                dpdu: k % 8 === 7 ? [0, 0, 0] : a.map((c, i) => (c + jitter[i]!) * size),
+                dpdv: k % 8 === 7 ? [0, 0, 0] : b.map((c) => c * size * uniform(r, 0.5, 1.5)),
+                relief: [uniform(r, -2, 2), ...vector(r, 2, -400, 400)],
+                scale: uniform(r, 0.5, 6),
+            };
+        },
+        reference: (x) => ({
+            value: surfaceReliefNormal(
+                vec(x.normal),
+                vec(x.dpdu),
+                vec(x.dpdv),
+                vec(x.relief),
+                x.scale as number,
+            ),
+        }),
+    },
+    {
+        node: 'surface.displacement',
+        tolerance: 1e-6,
+        sample: (r) => ({
+            relief: [uniform(r, -5, 5), ...vector(r, 2, -100, 100)],
+            scale: uniform(r, 0.5, 100),
+        }),
+        reference: (x) => ({ value: surfaceDisplacement(vec(x.relief), x.scale as number) }),
+    },
+    {
+        node: 'surface.direction',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            const du = k % 8 === 7 ? [0, 0, 0] : vector(r, 3, -2, 2);
+            return {
+                du,
+                dv: k % 8 === 7 ? [0, 0, 0] : cross(du, vector(r, 3, -1, 1)),
+                direction: [uniform(r, 0.2, 1), uniform(r, 0.2, 1)],
+            };
+        },
+        reference: (x) => ({
+            value: surfaceDirection(vec(x.du), vec(x.dv), vec(x.direction)),
         }),
     },
 ];
