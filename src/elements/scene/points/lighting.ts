@@ -53,6 +53,28 @@ export const sceneAmbientLightingReady = wgslModule({
 });
 
 /**
+ * `fn scene_transmitted_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a luz que chega ao ponto `p` por
+ * dentro do corpo, vinda das fontes do lado oposto à normal `n` (spec 011, T113: a subsuperfície pelas partes finas — a
+ * orelha contra o sol), como irradiância sobre π, já atenuada pelo perfil de difusão do fechamento `c` na espessura
+ * atravessada (`light_thickness`). Lida só pelo passe de subsuperfície do desenho; pronto: nenhuma (0).
+ */
+export const sceneTransmittedLightingReady = wgslModule({
+    name: 'scene_transmitted_lighting_ready',
+    requires: [closure],
+    source: 'fn scene_transmitted_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {\n    return vec3f(0.0);\n}',
+});
+
+/**
+ * `fn light_thickness(light: u32, p: vec3f, n: vec3f) -> vec2f` — o corpo entre a luz `light` (slot no pool `Light`) e o
+ * ponto `p` de normal `n`: x a espessura atravessada ao longo da direção da luz, em unidades do mundo, e y o cosseno da
+ * luz na superfície por onde ela entra; x < 0 quando ninguém sabe (a luz sem mapa de sombra). Pronto: ninguém sabe.
+ */
+export const lightThicknessReady = wgslModule({
+    name: 'light_thickness_ready',
+    source: 'fn light_thickness(light: u32, p: vec3f, n: vec3f) -> vec2f {\n    return vec2f(-1.0, 0.0);\n}',
+});
+
+/**
  * `fn scene_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f` — a radiância refletida para `v` sob toda a
  * luz da cena: a direta mais a rebatida. O desenho com o antisserrilhado temporal lê as duas em separado (spec 034: a
  * luz que muda sobre a superfície parada é a direta; o ruído da rebatida tem o acúmulo próprio).
@@ -160,6 +182,36 @@ export const sceneAmbientLightingPoint = lightingPoint(
     'scene_ambient_lighting',
     sceneAmbientLightingReady,
 );
+
+/** Luz que atravessa o corpo até o ponto (a subsuperfície pelas partes finas): a soma das contribuições. */
+export const sceneTransmittedLightingPoint = lightingPoint(
+    'scene_transmitted_lighting',
+    sceneTransmittedLightingReady,
+);
+
+/** Espessura atravessada pela luz: a do contribuinte que a conhece (o mapa de sombra da luz), em ordem. */
+export const lightThicknessPoint: ContributionPoint = {
+    name: 'light_thickness',
+    ready: lightThicknessReady,
+    functionName: 'light_thickness',
+    combine: (modules) =>
+        memo(`thickness:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `light_thickness:${modules.map((m) => m.name).join('+')}`,
+                requires: modules,
+                source: `fn light_thickness(light: u32, p: vec3f, n: vec3f) -> vec2f {
+    var known = vec2f(-1.0, 0.0);
+${modules
+    .map(
+        (_, k) => `    let t${k} = light_thickness_${k}(light, p, n);
+    if (t${k}.x >= 0.0) { known = t${k}; }`,
+    )
+    .join('\n')}
+    return known;
+}`,
+            }),
+        ),
+};
 
 /** Visibilidade da luz: o produto dos contribuintes, em ordem. */
 export const lightVisibilityPoint: ContributionPoint = {

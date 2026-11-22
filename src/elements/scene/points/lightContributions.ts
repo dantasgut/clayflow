@@ -5,14 +5,16 @@ import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { poolLive } from '../../gpu/compute/shaders';
-import { closure, closureEval } from '../../material/pbr/shaders';
+import { closure, closureEval, subsurface } from '../../material/pbr/shaders';
 import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
 import { lightsResource } from '../resources';
 import {
+    lightThicknessReady,
     lightTransmissionReady,
     lightVisibilityReady,
     sceneAmbientLightingPoint,
+    sceneTransmittedLightingPoint,
     sceneBackgroundPoint,
     sceneDirectLightingPoint,
     sceneEnvironmentPoint,
@@ -109,6 +111,54 @@ const poolLights = wgslModule({
     return sum;
 }`,
 });
+
+/**
+ * A luz das fontes do pool que atravessa o corpo até um ponto com subsuperfície (spec 011, T113): de cada luz do lado
+ * oposto à normal cuja espessura atravessada é conhecida (`light_thickness`: a do mapa de sombra dela), a irradiância
+ * na superfície de entrada (a radiância pelo cosseno lá) atenuada pelo perfil de difusão do fechamento nessa espessura
+ * (`subsurface_transmission`, por canal), sobre π.
+ */
+const poolTransmitted = wgslModule({
+    name: 'scene_transmitted_lighting_pool',
+    requires: [
+        closure,
+        subsurface,
+        poolLive,
+        LIGHT_LIMIT.module,
+        lightsResource,
+        lightLiveResource,
+        lightIncoming,
+        lightThicknessReady,
+        lightTransmissionReady,
+    ],
+    source: `fn scene_transmitted_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    if (c.subsurface_weight <= 0.0) { return vec3f(0.0); }
+    let d = subsurface_length(c);
+    var sum = vec3f(0.0);
+    let count = min(arrayLength(&lights), LIGHT_LIMIT);
+    for (var i = 0u; i < count; i++) {
+        if (!pool_live(light_live[i >> 5u], i)) { continue; }
+        let inc = light_incoming(lights[i], p);
+        if (all(inc.radiance <= vec3f(0.0)) || dot(n, inc.l) >= 0.0) { continue; }
+        let through = light_thickness(i, p, n);
+        if (through.x < 0.0) { continue; }
+        sum = sum + inc.radiance * light_transmission(i, p) * (through.y / 3.14159265358979)
+            * subsurface_transmission(through.x, d);
+    }
+    return sum;
+}`,
+});
+
+/**
+ * Contribuição das luzes do pool ao ponto `scene_transmitted_lighting` (spec 011, T113): a luz que atravessa as partes
+ * finas dos materiais com subsuperfície. Declarada pelas luzes que projetam sombra (as que conhecem a espessura).
+ */
+export const poolTransmittedContribution: SceneContribution = {
+    point: sceneTransmittedLightingPoint,
+    order: 0,
+    pools: [Light.schema],
+    build: () => poolTransmitted,
+};
 
 /** O hemisfério céu/chão (radiâncias × intensidade), pelo ponto de transmissão com a luz ambiente (`NONE`). */
 const hemisphereLighting = wgslModule({

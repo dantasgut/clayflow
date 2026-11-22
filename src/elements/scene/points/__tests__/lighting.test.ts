@@ -9,6 +9,7 @@ import { PointLight } from '../../PointLight';
 import { ShadowMap } from '../../ShadowMap';
 import { SpotLight } from '../../SpotLight';
 import {
+    lightThicknessPoint,
     lightTransmissionPoint,
     lightTransmissionReady,
     lightVisibilityPoint,
@@ -20,6 +21,7 @@ import {
     sceneDirectLightingReady,
     sceneIndirectLightingReady,
     sceneLightingReady,
+    sceneTransmittedLightingPoint,
 } from '../lighting';
 import {
     hemisphereAmbientContribution,
@@ -30,6 +32,7 @@ import {
     hemisphereRayLightingContribution,
     LIGHT_LIMIT,
     poolLightContribution,
+    poolTransmittedContribution,
 } from '../lightContributions';
 
 describe('pontos de cena do sombreamento (spec 011, T039)', () => {
@@ -100,7 +103,7 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
 
     it('toda luz do pool contribui o mesmo laço; a que projeta sombra, também a sombra só para ela', () => {
         const casting = new DirectionalLight({ castShadow: true });
-        const [pool, visibility] = casting.getSceneContributions();
+        const [pool, visibility, thickness, transmitted] = casting.getSceneContributions();
         expect(pool).toBe(poolLightContribution);
         expect(pool!.point).toBe(sceneDirectLightingPoint);
         expect(visibility!.point).toBe(lightVisibilityPoint);
@@ -111,10 +114,23 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
         expect(shadow.source).toContain('if (light != 3u) { return 1.0; }');
         expect(shadow.source).toContain('let sm = shadow_maps[1u];');
         expect(() => composeWgsl(shadow)).not.toThrow();
+        // A espessura atravessada pela luz, do mesmo mapa, só para ela; e a luz que atravessa a subsuperfície (T113).
+        expect(thickness!.point).toBe(lightThicknessPoint);
+        const through = thickness!.build(slots(3, 1))!;
+        expect(through.source).toContain('if (light != 3u) { return vec2f(-1.0, 0.0); }');
+        expect(through.source).toContain('shadow_virtual_thickness(shadow_matrices[1u], p, n, l)');
+        expect(() => composeWgsl(through)).not.toThrow();
+        expect(thickness!.build(slots(undefined, 1))).toBeUndefined();
+        expect(transmitted).toBe(poolTransmittedContribution);
+        expect(transmitted!.point).toBe(sceneTransmittedLightingPoint);
+        expect(transmitted!.build(() => 0)!.source).toContain(
+            'subsurface_transmission(through.x, d)',
+        );
         // Slot ainda ausente ou deixou de projetar: não contribui.
         expect(visibility!.build(slots(undefined, 1))).toBeUndefined();
         casting.data.castShadow = 0;
         expect(visibility!.build(slots(3, 1))).toBeUndefined();
+        expect(thickness!.build(slots(3, 1))).toBeUndefined();
         // Sem projetar, a pontual e a spot: só o laço do pool (o mesmo módulo para todas).
         for (const light of [new DirectionalLight(), new PointLight(), new SpotLight()])
             expect(light.getSceneContributions()).toEqual([poolLightContribution]);
