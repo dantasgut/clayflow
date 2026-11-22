@@ -3,7 +3,9 @@
 // (K, H, k₁ ≥ k₂), a curvatura total √((k₁² + k₂²)/2) e o índice de forma (2/π)·atan2(k₁ + k₂, k₁ − k₂) (1 calota
 // convexa, 0 sela, −1 calota côncava); as direções principais tangentes — a de k₁ projetada no plano tangente e
 // normalizada, a de k₂ = n × d₁ (zeros em ponto umbílico ou degenerado). E as ondulações (spec 034, T065b): a normal
-// perturbada por oito trens de onda no plano perpendicular a `up`.
+// perturbada por oito trens de onda no plano perpendicular a `up`. E o espaço dos padrões de superfície (spec 011): a
+// coordenada do padrão no uv com a largura do pixel e as tangentes nela (`uv_space`), e a normal perturbada pelo gradiente
+// de uma altura dada nessa coordenada (`bump`).
 // Requer: constants.
 
 struct NodeSurfaceMetric {
@@ -87,4 +89,45 @@ fn node_surface_ripple(position: vec3f, normal: vec3f, time: f32, strength: f32,
     slope *= w / f32(NODE_SURFACE_RIPPLE_WAVES);
     let g = t1 * slope.x + t2 * slope.y;
     return normalize(n - (g - n * dot(g, n)));
+}
+
+struct NodeSurfaceUvSpace {
+    p: vec2f,
+    width: f32,
+    du: vec3f,
+    dv: vec3f,
+    wrap: vec2f,
+}
+
+/**
+ * Espaço do padrão (spec 011): a coordenada `p = uv · scale + offset` (`scale` repetições por unidade de uv, por eixo; 0
+ * num eixo vale 1), a largura do pixel ou do cone em `p` (a maior das duas derivadas de tela), as tangentes de `p` em mundo
+ * (∂posição/∂p: `dpdu / scale.x` e `dpdv / scale.y`) e o período de `p` numa volta do uv (`wrap` = |scale|: o que os
+ * padrões usam para fechar sem emenda nas superfícies em que o uv dá a volta).
+ */
+fn node_surface_uv_space(uv: vec2f, duvdx: vec2f, duvdy: vec2f, dpdu: vec3f, dpdv: vec3f, scale: vec2f,
+    offset: vec2f) -> NodeSurfaceUvSpace {
+    let s = select(vec2f(1.0), scale, abs(scale) > vec2f(1e-9));
+    return NodeSurfaceUvSpace(
+        uv * s + offset,
+        max(length(duvdx * s), length(duvdy * s)),
+        dpdu / s.x,
+        dpdv / s.y,
+        abs(s),
+    );
+}
+
+/**
+ * Relevo (spec 011): a normal perturbada pela altura `h(p)` de gradiente `gradient` (∂h/∂p) sobre a superfície de
+ * tangentes `du`, `dv` (∂posição/∂p, de `surface.uvSpace`) — n' = n − `strength` · L · ∇ₛh, com o gradiente de superfície
+ * ∇ₛh = (h_u · dv × n + h_v · n × du) / (n · du × dv) (Mikkelsen 2020, "Surface Gradient Based Bump Mapping Framework")
+ * e L = √|n · du × dv| o comprimento de uma unidade de `p` no ponto: `strength` é a altura em unidades de `p` (o relevo
+ * acompanha o tamanho do padrão, não o do objeto). Sem tangentes (zero: os acertos dos raios), a normal sem mudança.
+ */
+fn node_surface_bump(normal: vec3f, du: vec3f, dv: vec3f, gradient: vec2f, strength: f32) -> vec3f {
+    let n = select(vec3f(0.0, 0.0, 1.0), normalize(normal), dot(normal, normal) > 0.0);
+    let det = dot(n, cross(du, dv));
+    if (abs(det) < 1e-24) { return n; }
+    let g = (gradient.x * cross(dv, n) + gradient.y * cross(n, du)) * (sqrt(abs(det)) / det);
+    return normalize(n - strength * g);
 }

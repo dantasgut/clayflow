@@ -65,5 +65,54 @@ const ripple = defineNode({
     fn: 'node_surface_ripple',
 });
 
-/** Superfície: métrica, curvaturas, direções principais e ondulações. */
-export const surface = { metric, curvature, principal, ripple } as const;
+/**
+ * Espaço do padrão (spec 011): a coordenada `p` = uv · `scale` + `offset` (repetições por unidade de uv, por eixo — numa
+ * esfera, (2, 1) deixa o padrão quadrado no equador), a largura do pixel ou do cone em `p` (`width`), as tangentes de `p` em
+ * mundo (`du`, `dv`: ∂posição/∂p) e o período de `p` numa volta do uv (`wrap`) — as entradas dos padrões com relevo
+ * (`pattern.weave`, `cells`, `rings`, `grain`) e de `surface.bump`. Sem ligação, lê a amostra (`s.uv`, `s.duvdx`,
+ * `s.duvdy`, `s.dpdu`, `s.dpdv`).
+ */
+const uvSpace = defineNode({
+    name: 'surface.uvSpace',
+    inputs: {
+        uv: 'vec2f',
+        duvdx: 'vec2f',
+        duvdy: 'vec2f',
+        dpdu: 'vec3f',
+        dpdv: 'vec3f',
+        scale: 'vec2f',
+    },
+    outputs: { p: 'vec2f', width: 'f32', du: 'vec3f', dv: 'vec3f', wrap: 'vec2f' },
+    params: {
+        scale: { type: 'vec2f', default: [1, 1] },
+        offset: { type: 'vec2f', default: [0, 0] },
+    },
+    defaults: {
+        uv: 's.uv',
+        duvdx: 's.duvdx',
+        duvdy: 's.duvdy',
+        dpdu: 's.dpdu',
+        dpdv: 's.dpdv',
+    },
+    code: nodeSurface,
+    fn: 'node_surface_uv_space',
+});
+
+/**
+ * Relevo (spec 011): a normal perturbada pela altura de gradiente `gradient` (∂h/∂p, de um padrão) sobre as tangentes
+ * `du`, `dv` de `surface.uvSpace` — o gradiente de superfície de Mikkelsen (2020). `strength` é a altura em unidades de
+ * `p`: o relevo acompanha o tamanho do padrão. Liga no `closure.normal` (ou na `normal` de outro `surface.bump`, para
+ * somar dois relevos). Sem tangentes (os acertos dos raios), devolve a normal.
+ */
+const bump = defineNode({
+    name: 'surface.bump',
+    inputs: { normal: 'vec3f', du: 'vec3f', dv: 'vec3f', gradient: 'vec2f', strength: 'f32' },
+    outputs: { value: 'vec3f' },
+    params: { strength: { type: 'f32', default: 1 } },
+    defaults: { normal: 's.normal' },
+    code: nodeSurface,
+    fn: 'node_surface_bump',
+});
+
+/** Superfície: métrica, curvaturas, direções principais, ondulações, o espaço dos padrões no uv e o relevo. */
+export const surface = { metric, curvature, principal, ripple, uvSpace, bump } as const;

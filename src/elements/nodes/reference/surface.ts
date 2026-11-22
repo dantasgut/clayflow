@@ -8,8 +8,8 @@ import { uniform, vec, vector, type NodeCase } from './cases';
 type V = readonly number[];
 
 const dot = (a: V, b: V): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
-const scale = (a: V, s: number): number[] => a.map((c) => c * s);
-const norm = (a: V): number[] => scale(a, 1 / Math.sqrt(dot(a, a)));
+const scale3 = (a: V, s: number): number[] => a.map((c) => c * s);
+const norm = (a: V): number[] => scale3(a, 1 / Math.sqrt(dot(a, a)));
 const cross = (a: V, b: V): number[] => [
     a[1]! * b[2]! - a[2]! * b[1]!,
     a[2]! * b[0]! - a[0]! * b[2]!,
@@ -90,6 +90,40 @@ export function surfaceRipple(
     return norm(n.map((c, k) => c - (g[k]! - c * gn)));
 }
 
+/** `surface.uvSpace`: a coordenada do padrão, a largura do pixel nela, as tangentes e o período. */
+export function surfaceUvSpace(
+    uv: V,
+    duvdx: V,
+    duvdy: V,
+    dpdu: V,
+    dpdv: V,
+    scale: V,
+    offset: V,
+): { p: number[]; width: number; du: number[]; dv: number[]; wrap: number[] } {
+    const s = scale.map((c) => (Math.abs(c) > 1e-9 ? c : 1));
+    return {
+        p: [uv[0]! * s[0]! + offset[0]!, uv[1]! * s[1]! + offset[1]!],
+        width: Math.max(
+            Math.hypot(duvdx[0]! * s[0]!, duvdx[1]! * s[1]!),
+            Math.hypot(duvdy[0]! * s[0]!, duvdy[1]! * s[1]!),
+        ),
+        du: scale3(dpdu, 1 / s[0]!),
+        dv: scale3(dpdv, 1 / s[1]!),
+        wrap: s.map(Math.abs),
+    };
+}
+
+/** `surface.bump`: a normal perturbada pelo gradiente de superfície da altura (Mikkelsen 2020). */
+export function surfaceBump(normal: V, du: V, dv: V, gradient: V, strength: number): number[] {
+    const n = dot(normal, normal) > 0 ? norm(normal) : [0, 0, 1];
+    const det = dot(n, cross(du, dv));
+    if (Math.abs(det) < 1e-24) return n;
+    const a = cross(dv, n);
+    const b = cross(n, du);
+    const k = Math.sqrt(Math.abs(det)) / det;
+    return norm(n.map((c, i) => c - strength * (gradient[0]! * a[i]! + gradient[1]! * b[i]!) * k));
+}
+
 /** Casos dos nós `surface.*`. */
 export const surfaceCases: readonly NodeCase[] = [
     {
@@ -152,6 +186,58 @@ export const surfaceCases: readonly NodeCase[] = [
                 x.size as number,
                 x.speed as number,
                 vec(x.up),
+            ),
+        }),
+    },
+    {
+        node: 'surface.uvSpace',
+        tolerance: 1e-5,
+        sample: (r, k) => ({
+            uv: vector(r, 2, 0, 1),
+            duvdx: vector(r, 2, -0.01, 0.01),
+            duvdy: vector(r, 2, -0.01, 0.01),
+            dpdu: vector(r, 3, -2, 2),
+            dpdv: vector(r, 3, -2, 2),
+            scale: k % 7 === 6 ? [0, 3] : vector(r, 2, 0.5, 40),
+            offset: vector(r, 2, -1, 1),
+        }),
+        reference: (x) =>
+            surfaceUvSpace(
+                vec(x.uv),
+                vec(x.duvdx),
+                vec(x.duvdy),
+                vec(x.dpdu),
+                vec(x.dpdv),
+                vec(x.scale),
+                vec(x.offset),
+            ),
+    },
+    {
+        node: 'surface.bump',
+        tolerance: 1e-4,
+        sample: (r, k) => {
+            // Tangentes quase ortogonais à normal (um referencial perturbado); um oitavo sem tangentes (os acertos).
+            const n = vector(r, 3, -1, 1);
+            const normal = dot(n, n) < 0.01 ? [0, 1, 0] : n;
+            const a = cross(normal, Math.abs(normal[0]!) < 0.6 ? [1, 0, 0] : [0, 1, 0]);
+            const b = cross(normal, a);
+            const size = uniform(r, 0.05, 2);
+            const jitter = vector(r, 3, -0.1, 0.1);
+            return {
+                normal,
+                du: k % 8 === 7 ? [0, 0, 0] : a.map((c, i) => (c + jitter[i]!) * size),
+                dv: k % 8 === 7 ? [0, 0, 0] : b.map((c) => c * size * uniform(r, 0.5, 1.5)),
+                gradient: vector(r, 2, -3, 3),
+                strength: uniform(r, 0, 0.5),
+            };
+        },
+        reference: (x) => ({
+            value: surfaceBump(
+                vec(x.normal),
+                vec(x.du),
+                vec(x.dv),
+                vec(x.gradient),
+                x.strength as number,
             ),
         }),
     },
