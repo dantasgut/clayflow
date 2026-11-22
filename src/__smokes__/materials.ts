@@ -36,7 +36,11 @@
 //     com o céu refletido por cima e o chão por baixo, metal escovado com o realce alongado, vidro transparente com o xadrez
 //     refratado e sem grão no meio das casas, tecido fino com a luz ambiente do lado contra o sol; o custo de GPU por
 //     quadro de cada família (`--query case=gallery&shot=1` grava os quadros em `fixtures/zzGallery-<família>.png`;
-//     `&family=<família>` desenha só uma);
+//     `&family=<família>` desenha só uma); o quadro do relevo (`relevo`, T115: o par da madeira bruta numa
+//     `ParametricSurface` sem e com a `DisplacementFunction`, sob a luz rasante, de longe e de perto — o contorno da
+//     esfera deslocada deixa de ser um círculo e o relevo faz sombra em si mesmo — e o custo de GPU; `&displace=0` o
+//     mesmo quadro sem deslocamento) e o quadro dos panos (`panos`, T116: cada tecido num pano caído sobre uma bola,
+//     com pregas, e a amostra plana ampliada — o brilho da seda desce pelas dobras);
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
@@ -44,6 +48,7 @@ import {
     BoxGeometry,
     Camera,
     DirectionalLight,
+    Displacements,
     FontLoader,
     GlobalIllumination,
     MaterialFunction,
@@ -51,12 +56,14 @@ import {
     NodeGraph,
     nodes,
     ParametricGeometry,
+    ParametricSurface,
     PlaneGeometry,
     PointLight,
     Sky,
     SphereGeometry,
     SpotLight,
     StandardMaterial,
+    SurfaceFunction,
     Transform,
     UiPanel,
     UiText,
@@ -1413,15 +1420,24 @@ const GALLERY: readonly GalleryFamily[] = [
  */
 const GALLERY_SCALE = 55;
 
+/**
+ * Escala do mundo da galeria para os materiais de relevo em milímetros (unidades por metro): as esferas de raio 0,55
+ * são bolas de 20 cm de diâmetro — 2,5 mm de relevo são 2,5 % do raio.
+ */
+const GALLERY_RELIEF_SCALE = 5.5;
+
 /** Os valores de um material pronto na galeria: as repetições do padrão e a escala do mundo, nos que os expõem. */
 function galleryValues(
     name: MaterialName,
     pattern: readonly [number, number],
 ): Record<string, number | number[]> {
     const params = nodes.material[name].params;
+    // A escala do mundo: a das contas de 2 cm nos de subsuperfície (o raio em mm); nos de relevo em milímetros, a das
+    // bolas de 20 cm do quadro do relevo.
+    const scale = 'radius' in params ? GALLERY_SCALE : GALLERY_RELIEF_SCALE;
     return {
         ...('pattern_scale' in params ? { pattern_scale: [...pattern] } : {}),
-        ...('scale' in params ? { scale: GALLERY_SCALE } : {}),
+        ...('scale' in params ? { scale } : {}),
     };
 }
 
@@ -1458,12 +1474,21 @@ const unit3 = (a: Vec3): Vec3 => {
     return [a[0] / l, a[1] / l, a[2] / l];
 };
 
-/** Pixel (fracionário) do ponto de mundo `p` na câmera da galeria, num alvo de `w` × `h`. */
-function galleryPixel(p: Vec3, w: number, h: number): [number, number] {
-    const f = unit3(sub3(GALLERY_TARGET, GALLERY_EYE));
+/**
+ * Pixel (fracionário) do ponto de mundo `p` na câmera da galeria (ou na de posição `eye` e alvo `target`, com a mesma
+ * abertura), num alvo de `w` × `h`.
+ */
+function galleryPixel(
+    p: Vec3,
+    w: number,
+    h: number,
+    eye: Vec3 = GALLERY_EYE,
+    target: Vec3 = GALLERY_TARGET,
+): [number, number] {
+    const f = unit3(sub3(target, eye));
     const r = unit3(cross3(f, [0, 1, 0]));
     const u = cross3(r, f);
-    const d = sub3(p, GALLERY_EYE);
+    const d = sub3(p, eye);
     const focal = h / 2 / Math.tan(GALLERY_FOV / 2);
     const z = dot3(d, f);
     return [w / 2 + (focal * dot3(d, r)) / z, h / 2 - (focal * dot3(d, u)) / z];
@@ -1519,9 +1544,11 @@ function neutral(value: number): MaterialFunction {
  */
 async function galleryLabels(
     app: Application,
-    center: ReadonlyMap<MaterialName | 'empty', Vec3>,
+    center: ReadonlyMap<string, Vec3>,
     width: number,
     height: number,
+    eye: Vec3 = GALLERY_EYE,
+    target: Vec3 = GALLERY_TARGET,
 ): Promise<UiPanel[]> {
     const size = 22;
     const font = await new FontLoader().load('Helvetica Neue, Arial, sans-serif', '', {
@@ -1535,7 +1562,7 @@ async function galleryLabels(
         const anchor: Vec3 = front
             ? [at[0], -0.1, at[2] + GALLERY_TILE / 2 + 0.16]
             : [at[0], 2 * GALLERY_R + 0.2, at[2]];
-        const [x, y] = galleryPixel(anchor, width, height);
+        const [x, y] = galleryPixel(anchor, width, height, eye, target);
         let textWidth = 0;
         for (const ch of name) textWidth += (font.glyphs.get(ch)?.advance ?? size) / 2;
         const pad = 7;
@@ -1563,6 +1590,42 @@ async function galleryLabels(
         panels.push(panel);
     }
     return panels;
+}
+
+/**
+ * Diagnóstico (`stages=1`): o custo de GPU por passe do quadro `name` (mediana de 60 quadros; os carimbos por passe
+ * alongam os passes de desenho no Apple — vale a proporção, não o total).
+ */
+async function galleryStages(app: Application, name: string): Promise<void> {
+    const passes = new Map<string, number[]>();
+    const off = app.events.on('gpuFrameTimed', (e) => {
+        for (const [k, v] of Object.entries(e.passesMs)) {
+            const list = passes.get(k) ?? [];
+            list.push(v);
+            passes.set(k, list);
+        }
+    });
+    app.setProfiling('passes');
+    for (let i = 0; i < 60; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+    }
+    off();
+    app.setProfiling('frame');
+    const median = [...passes].map(([k, v]): [string, number] => {
+        v.sort((x, y) => x - y);
+        return [k, v[v.length >> 1] ?? 0];
+    });
+    median.sort((x, y) => y[1] - x[1]);
+    log(
+        `gallery ${name}: GPU por passe (ms) — ${median
+            .filter(
+                ([, v]) =>
+                    v >= (new URLSearchParams(location.search).get('stages') === 'all' ? 0 : 0.05),
+            )
+            .map(([k, v]) => `${k} ${v.toFixed(2)}`)
+            .join('; ')}`,
+    );
 }
 
 /** Desenha um quadro da galeria (uma família) e mede o custo de GPU por quadro; `shot` grava o PNG. */
@@ -1712,36 +1775,7 @@ async function galleryShot(
     }
     samples.sort((a, b) => a - b);
     const gpuMs = samples[samples.length >> 1] ?? NaN;
-    if (query.get('stages') !== null) {
-        // Diagnóstico (`stages=1`): o custo de GPU por passe (mediana de 40 quadros; os carimbos por passe alongam os
-        // passes de desenho no Apple — vale a proporção, não o total).
-        const passes = new Map<string, number[]>();
-        const off = app.events.on('gpuFrameTimed', (e) => {
-            for (const [k, v] of Object.entries(e.passesMs)) {
-                const list = passes.get(k) ?? [];
-                list.push(v);
-                passes.set(k, list);
-            }
-        });
-        app.setProfiling('passes');
-        for (let i = 0; i < 60; i++) {
-            app.step(1 / 60);
-            await nextGpuFrame(app);
-        }
-        off();
-        app.setProfiling('frame');
-        const median = [...passes].map(([k, v]): [string, number] => {
-            v.sort((x, y) => x - y);
-            return [k, v[v.length >> 1] ?? 0];
-        });
-        median.sort((x, y) => y[1] - x[1]);
-        log(
-            `gallery ${family.name}: GPU por passe (ms) — ${median
-                .filter(([, v]) => v >= 0.05)
-                .map(([k, v]) => `${k} ${v.toFixed(2)}`)
-                .join('; ')}`,
-        );
-    }
+    if (query.get('stages') !== null) await galleryStages(app, family.name);
     if (query.get('shot') !== null) {
         // O quadro de prova, depois das medidas (que leram o alvo HDR sem os rótulos): o nome de cada material junto
         // do objeto (`galleryLabels`).
@@ -1893,6 +1927,616 @@ async function subsurfaceShot(width: number, height: number): Promise<Subsurface
     return { on, off, gpuOn, gpuOff, at };
 }
 
+/** Escala do mundo do quadro do relevo (unidades por metro): a dos materiais de relevo em milímetros da galeria. */
+const RELIEF_SCALE = GALLERY_RELIEF_SCALE;
+/**
+ * A luz rasante do quadro do relevo (de onde vem): baixa, de frente e da esquerda (a sombra de uma esfera passa por
+ * trás da vizinha); projeta sombra.
+ */
+const RELIEF_KEY = [-0.5, 0.2, 0.84] as const;
+/** A câmera de perto do quadro do relevo: o par da madeira bruta, a metade da distância. */
+const RELIEF_NEAR_TARGET = [-0.8, 0.3, 1.25] as const;
+const RELIEF_NEAR_EYE = [-0.8, 0.3 + 0.5 * 4.75, 1.25 + 0.5 * 8.23] as const;
+/** A malha adaptativa das peças deslocadas: os segmentos acompanham o tamanho na tela (cerca de 2 pixels). */
+const RELIEF_MESH = { patches: [32, 16], maxLevel: 5, screen: 0.0022 } as const;
+
+/** O quadro do relevo: a imagem HDR, os centros das peças e o custo de GPU por quadro. */
+interface ReliefShot {
+    readonly img: HdrImage;
+    /** O par visto de perto (`RELIEF_NEAR_EYE`), com a sombra da luz rasante e sem ela. */
+    readonly near: HdrImage;
+    readonly nearUnshadowed: HdrImage;
+    readonly at: ReadonlyMap<string, Vec3>;
+    readonly gpuMs: number;
+    readonly ready: number;
+}
+
+/** Os nomes das peças do quadro do relevo (os rótulos). */
+const RELIEF_BUMP = 'woodRough: relevo na normal';
+const RELIEF_DISPLACED = 'woodRough: deslocamento';
+
+/**
+ * O quadro que mostra o deslocamento (spec 011, T115), a 5,5 unidades por metro (as esferas são bolas de 20 cm), sob uma
+ * luz rasante que projeta sombra: na frente, o par da madeira bruta — a mesma `ParametricSurface` com o mesmo material,
+ * sem e com a `DisplacementFunction` (o relevo só na normal; o relevo na geometria), cada uma sobre a tábua do mesmo
+ * jeito — e o couro deslocado; atrás, a madeira lixada (`woodRaw`, relevo raso na normal) e o couro só com a normal.
+ * As peças deslocadas são superfícies paramétricas de malha adaptativa (`RELIEF_MESH`). Depois, o par visto de perto
+ * (`zzGallery-relevo-perto.png`), com a sombra da luz rasante e sem ela.
+ */
+async function reliefShot(width: number, height: number): Promise<ReliefShot> {
+    const query = new URLSearchParams(location.search);
+    const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
+    const samples: number[] = [];
+    app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
+    const view = new Transform({
+        position: [...GALLERY_EYE, 1],
+        rotation: Transform.lookRotation([...GALLERY_EYE], [...GALLERY_TARGET]),
+    });
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(view),
+    );
+    // O sol alto e fraco (o céu e o preenchimento) e a luz rasante, a principal, com sombra.
+    const sun = new DirectionalLight({
+        direction: [...GALLERY_SUN.map((c) => -c), 0],
+        intensity: 0.7,
+    });
+    app.world.insert(sun);
+    app.world.insert(new Sky({ sun, sunDisk: false }));
+    // Diagnóstico (`gi=0`): sem a luz rebatida (e sem os raios dela).
+    if (query.get('gi') !== '0')
+        app.world.insert(
+            new GlobalIllumination({
+                quality: 'medium',
+                probeSpacing: 0.5,
+                center: [0, 0.6, 0],
+                screenGather: false,
+            }),
+        );
+    const key = new DirectionalLight({
+        direction: [...RELIEF_KEY.map((c) => -c), 0],
+        intensity: 4,
+        castShadow: true,
+    });
+    app.world.insert(key);
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -0.1, 0, 1] }))
+            .add(neutral(0.3)),
+    );
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.3));
+    const R = GALLERY_R;
+    const tilt = [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)];
+    const tileScale = GALLERY_TILE / (Math.PI * R);
+    const half = GALLERY_TILE / 2;
+    // Diagnóstico (`screen=<fração>`): o tamanho dos segmentos da malha na tela.
+    const mesh = {
+        ...RELIEF_MESH,
+        screen: Number(query.get('screen') ?? RELIEF_MESH.screen),
+        maxLevel: Number(query.get('level') ?? RELIEF_MESH.maxLevel),
+    };
+    /** Uma peça: a esfera e a tábua paramétricas com o material `name`, com ou sem o deslocamento dele. */
+    const piece = (
+        at: Vec3,
+        name: 'woodRough' | 'leather' | 'woodRaw',
+        displaced: boolean,
+        tile: boolean,
+    ): void => {
+        const values = (pattern: readonly [number, number]): Record<string, number | number[]> => ({
+            pattern_scale: [...pattern],
+            ...('scale' in nodes.material[name].params ? { scale: RELIEF_SCALE } : {}),
+        });
+        // Só as peças deslocadas pedem a malha fina; as outras, a grade uniforme da mesma superfície (o mesmo uv).
+        // Diagnóstico (`displace=0`): nenhuma deslocada — o custo do mesmo quadro sem o deslocamento.
+        const moved = displaced && name !== 'woodRaw' && query.get('displace') !== '0';
+        const ball = new ParametricSurface({
+            preset: 'sphere',
+            params: [R],
+            ...(moved ? { adaptive: mesh } : { resolution: [193, 97] as const }),
+        })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [...at, 1], rotation: tilt }))
+            .add(Materials[name](values([2, 1])));
+        if (moved) ball.add(Displacements[name](values([2, 1])));
+        app.world.insert(ball);
+        if (!tile) return;
+        const board = new ParametricSurface({
+            preset: 'plane',
+            domain: [-half, half, -half, half],
+            ...(moved
+                ? { adaptive: { patches: [16, 16], maxLevel: mesh.maxLevel, screen: mesh.screen } }
+                : { resolution: [2, 2] as const }),
+        })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [at[0], 0, at[2], 1] }))
+            .add(Materials[name](values([tileScale, tileScale])));
+        if (moved) board.add(Displacements[name](values([tileScale, tileScale])));
+        app.world.insert(board);
+    };
+    const front = (i: number): Vec3 => [(i - 1) * GALLERY_DX, R, GALLERY_DZ];
+    // A fileira de trás mais longe (a sombra comprida das esferas da frente passa por baixo dela).
+    const back = (i: number): Vec3 => [(i - 1) * GALLERY_DX, R - 0.1, -2.3];
+    const at = new Map<string, Vec3>([
+        [RELIEF_BUMP, front(0)],
+        [RELIEF_DISPLACED, front(1)],
+        ['leather: deslocamento', front(2)],
+        ['woodRaw (lixada)', back(0)],
+        ['leather: relevo na normal', back(2)],
+    ]);
+    piece(at.get(RELIEF_BUMP)!, 'woodRough', false, true);
+    piece(at.get(RELIEF_DISPLACED)!, 'woodRough', true, true);
+    piece(at.get('leather: deslocamento')!, 'leather', true, true);
+    // Atrás, sem tábua (o fundo do contorno das esferas da frente fica neutro).
+    piece(at.get('woodRaw (lixada)')!, 'woodRaw', false, false);
+    piece(at.get('leather: relevo na normal')!, 'leather', false, false);
+    const started = performance.now();
+    const img = await renderHdr(app, GALLERY_FRAMES, 1500);
+    const ready = performance.now() - started;
+    samples.length = 0;
+    for (let i = 0; i < 60; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+    }
+    samples.sort((a, b) => a - b);
+    const gpuMs = samples[samples.length >> 1] ?? NaN;
+    if (query.get('stages') !== null) await galleryStages(app, 'relevo');
+    if (query.get('shot') !== null) {
+        const labels = await galleryLabels(app, at, width, height);
+        for (let i = 0; i < 3; i++) {
+            app.step(0);
+            await nextGpuFrame(app);
+        }
+        app.step(0);
+        await writeFixture('zzGallery-relevo.png', await toPng(capture(canvas)));
+        for (const label of labels) label.visible = false;
+    }
+    // De perto: a câmera a meia distância do par (a malha adaptativa acompanha: os segmentos seguem o tamanho na tela).
+    view.data.position = [...RELIEF_NEAR_EYE, 1];
+    view.data.rotation = Transform.lookRotation([...RELIEF_NEAR_EYE], [...RELIEF_NEAR_TARGET]);
+    const near = await renderHdr(app, 90, 1500);
+    if (query.get('shot') !== null) {
+        const pair = new Map<string, Vec3>([
+            [RELIEF_BUMP, at.get(RELIEF_BUMP)!],
+            [RELIEF_DISPLACED, at.get(RELIEF_DISPLACED)!],
+        ]);
+        const labels = await galleryLabels(
+            app,
+            pair,
+            width,
+            height,
+            RELIEF_NEAR_EYE,
+            RELIEF_NEAR_TARGET,
+        );
+        for (let i = 0; i < 3; i++) {
+            app.step(0);
+            await nextGpuFrame(app);
+        }
+        app.step(0);
+        await writeFixture('zzGallery-relevo-perto.png', await toPng(capture(canvas)));
+        for (const label of labels) label.visible = false;
+    }
+    // A mesma vista com a luz rasante sem sombra (trocada por outra igual que não projeta): o que muda é a sombra.
+    app.world.remove(key);
+    app.world.insert(
+        new DirectionalLight({ direction: [...RELIEF_KEY.map((c) => -c), 0], intensity: 4 }),
+    );
+    const nearUnshadowed = await renderHdr(app, 60, 1500);
+    disposeApp(app, canvas);
+    return { img, near, nearUnshadowed, at, gpuMs, ready };
+}
+
+/**
+ * As medidas do quadro do relevo: o contorno da esfera deslocada deixa de ser um círculo (o da esfera só com a normal
+ * continua) e o relevo projeta sombra própria sob a luz rasante.
+ */
+async function galleryRelief(width: number, height: number): Promise<void> {
+    const shot = await reliefShot(width, height);
+    const R = GALLERY_R;
+    const focal = height / 2 / Math.tan(GALLERY_FOV / 2);
+    const forward = unit3(sub3(GALLERY_TARGET, GALLERY_EYE));
+    let bad = 0;
+    for (let k = 0; k < shot.img.data.length; k++) if (!Number.isFinite(shot.img.data[k]!)) bad++;
+    check(bad === 0, `gallery relevo: ${bad} valores não finitos no alvo HDR`);
+    /** Cor da madeira contra o fundo neutro: (r − b) / (r + b). */
+    const chroma = (x: number, y: number): number => {
+        const [r, , b] = hdrAt(shot.img, Math.round(x), Math.round(y));
+        return (r - b) / Math.max(r + b, 1e-6);
+    };
+    /**
+     * O contorno da esfera `name`: o raio (pixels, a partir do centro projetado) em que a cor passa da madeira ao
+     * fundo, em 160 direções dos dois arcos laterais de cima (5° a 50° acima da horizontal: o fundo ali é o chão
+     * neutro); devolve o desvio padrão do raio em torno da média móvel dele (± 6 direções: sem a perspectiva).
+     */
+    const limb = (name: string): { rough: number; found: number } => {
+        const c = shot.at.get(name)!;
+        const [cx, cy] = galleryPixel(c, width, height);
+        const rp = (focal * R) / dot3(sub3(c, GALLERY_EYE), forward);
+        const radii: number[][] = [[], []];
+        for (let side = 0; side < 2; side++) {
+            for (let k = 0; k < 80; k++) {
+                const a = ((5 + (45 * k) / 79) * Math.PI) / 180;
+                const dx = (side === 0 ? -1 : 1) * Math.cos(a);
+                const dy = -Math.sin(a);
+                const inside = chroma(cx + 0.88 * rp * dx, cy + 0.88 * rp * dy);
+                const outside = chroma(cx + 1.14 * rp * dx, cy + 1.14 * rp * dy);
+                if (!(inside - outside > 0.05)) continue;
+                const mid = (inside + outside) / 2;
+                // De fora para dentro, em passos de um quarto de pixel: o primeiro ponto com a cor da madeira.
+                let prev = outside;
+                for (let r = 1.14 * rp; r > 0.88 * rp; r -= 0.25) {
+                    const v = chroma(cx + r * dx, cy + r * dy);
+                    if (v >= mid) {
+                        radii[side]!.push(r + (0.25 * (v - mid)) / Math.max(v - prev, 1e-6));
+                        break;
+                    }
+                    prev = v;
+                }
+            }
+        }
+        let sum = 0;
+        let count = 0;
+        for (const arc of radii)
+            for (let k = 6; k + 6 < arc.length; k++) {
+                let mean = 0;
+                for (let d = -6; d <= 6; d++) mean += arc[k + d]! / 13;
+                sum += (arc[k]! - mean) ** 2;
+                count++;
+            }
+        return { rough: Math.sqrt(sum / Math.max(count, 1)), found: count };
+    };
+    /**
+     * A sombra própria do relevo na tábua da peça `name`, vista de perto, num trecho fora da sombra da esfera (o canto
+     * da frente, do lado da luz): a fração dos pontos que escurecem mais de um quarto com a sombra da luz rasante — a
+     * razão com a sombra / sem, abaixo de 0,75 da mediana do trecho (a mediana tira o que muda no trecho inteiro: a luz
+     * rebatida). Uma face plana não faz sombra em si mesma (o que escurece nela é o viés da sombra, deslocado pela
+     * normal do relevo); as cristas e as frestas da geometria deslocada fazem.
+     */
+    const boardShadow = (name: string): number => {
+        const c = shot.at.get(name)!;
+        const ratios: number[] = [];
+        for (let k = 0; k < 96; k++)
+            for (let i = 0; i < 96; i++) {
+                const [x, y] = galleryPixel(
+                    [c[0] - 0.62 + (0.4 * i) / 95, 0, c[2] + 0.38 + (0.28 * k) / 95],
+                    width,
+                    height,
+                    RELIEF_NEAR_EYE,
+                    RELIEF_NEAR_TARGET,
+                );
+                const lit = lum(hdrAt(shot.nearUnshadowed, Math.round(x), Math.round(y)));
+                if (lit > 0) ratios.push(lum(hdrAt(shot.near, Math.round(x), Math.round(y))) / lit);
+            }
+        const sorted = [...ratios].sort((p, q) => p - q);
+        const median = sorted[sorted.length >> 1] ?? 1;
+        return ratios.filter((r) => r < 0.75 * median).length / Math.max(ratios.length, 1);
+    };
+    const bump = limb(RELIEF_BUMP);
+    const moved = limb(RELIEF_DISPLACED);
+    const shadeBump = boardShadow(RELIEF_BUMP);
+    const shadeMoved = boardShadow(RELIEF_DISPLACED);
+    log(
+        `gallery relevo: ${shot.at.size} peças, ${width}×${height}; pronto em ${(shot.ready / 1000).toFixed(1)} s; GPU ${shot.gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos`,
+    );
+    log(
+        `gallery relevo: contorno da madeira bruta (desvio do raio, px, em ${bump.found} e ${moved.found} direções) — só normal ${bump.rough.toFixed(2)}, deslocada ${moved.rough.toFixed(2)}; sombra própria na tábua sob a luz rasante (fração dos pontos que escurecem mais de um quarto com a sombra) — só normal ${(100 * shadeBump).toFixed(2)} %, deslocada ${(100 * shadeMoved).toFixed(2)} %`,
+    );
+    if (new URLSearchParams(location.search).get('displace') === '0') return;
+    check(
+        bump.found >= 60 && moved.found >= 60,
+        `gallery relevo: contorno não encontrado (${bump.found} e ${moved.found} direções)`,
+    );
+    // Sem meta apertada: o contorno deslocado passa de 0,4 px e de uma vez e meia o liso (que é o erro da medida).
+    check(
+        moved.rough > 0.4 && moved.rough > 1.5 * bump.rough,
+        `gallery relevo: o contorno da madeira deslocada segue um círculo (${moved.rough.toFixed(2)} px; só normal ${bump.rough.toFixed(2)} px)`,
+    );
+    // Sem meta apertada: a tábua deslocada tem mais pontos na sombra do relevo que a plana (onde só o viés da sombra,
+    // deslocado pela normal do relevo, escurece alguns pontos): pelo menos uma vez e meia, e mais de 2 % dos pontos.
+    check(
+        shadeMoved > 0.02 && shadeMoved > 1.5 * shadeBump,
+        `gallery relevo: sem sombra própria do relevo na tábua deslocada (${(100 * shadeMoved).toFixed(2)} % dos pontos; só normal ${(100 * shadeBump).toFixed(2)} %)`,
+    );
+}
+
+/**
+ * Escala do mundo do quadro dos panos (unidades por metro): a bola sob o pano tem 9 cm de diâmetro e o pano, 22 cm de
+ * lado — o fio do tricô da lã (1,4 mm) aparece nesse tamanho.
+ */
+const CLOTH_SCALE = 8;
+/** O pano caído: o raio da bola, a meia largura do pano e o recuo do conjunto na placa (a amostra plana fica à frente). */
+const CLOTH_BALL = 0.36;
+const CLOTH_HALF = 0.9;
+const CLOTH_BACK = 0.28;
+/** A placa quadrada da amostra plana (o lado): com a frente livre do pano. */
+const CLOTH_TILE = 1.5;
+/**
+ * Repetições do padrão por unidade de uv. No pano, o fio perto do tamanho real: as tramas ficam abaixo do pixel (o que
+ * se vê do tecido de longe é o caimento, o brilho e a irregularidade dos fios), o tricô da lã e o pelo do veludo
+ * continuam à vista. Na amostra plana, o padrão ampliado (o fio com volume, a torção, a penugem).
+ */
+const CLOTH_PATTERN: Readonly<Partial<Record<MaterialName, number>>> = {
+    cotton: 3,
+    denim: 3,
+    silk: 3,
+    sheerFabric: 4.5,
+    wool: 1.36,
+    velvet: 1.36,
+};
+const SWATCH_PATTERN: Readonly<Partial<Record<MaterialName, number>>> = {
+    cotton: 0.18,
+    denim: 0.18,
+    silk: 0.18,
+    sheerFabric: 0.18,
+    wool: 0.36,
+    velvet: 0.6,
+};
+
+/**
+ * Um pano quadrado caído sobre uma bola (a superfície paramétrica dos panos, por função — sem simulação): o domínio
+ * (u, v) é o pano estendido (comprimento ao longo do tecido: a trama fica reta no uv), s = |(u, v)| a distância ao
+ * centro. Até o ângulo de contato o pano segue a bola; daí solta-se pela tangente e verga até a vertical (o perfil
+ * (raio, altura) em função de s, contínuo com a derivada); o que passaria da mesa (`table`) deita-se sobre ela, para
+ * fora — as pontas do pano. Como o pano não estica, o comprimento que sobra em cada volta (2π · (s − raio)) vira
+ * pregas: o raio ondula com o ângulo — quatro pregas largas com as pontas do pano nas cristas, mais pregas menores de
+ * fase irregular —, de amplitude √((s − raio) · raio) · `folds`, crescendo a partir da linha de contato; o pano não
+ * entra na bola. A normal (du × dv) aponta para fora.
+ */
+const DRAPE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    let q = vec2f(u, v);
+    let s = max(length(q), 1e-5);
+    let dir = q / s;
+    let a = atan2(q.y, q.x);
+    let R = data.radius;
+    let tc = data.contact;
+    let sc = R * tc;
+    var r = R * sin(min(s, sc) / R);
+    var y = R * (1.0 + cos(min(s, sc) / R));
+    var hang = 0.0;
+    if (s > sc) {
+        let t = s - sc;
+        let k = 0.2 * (1.0 - exp(-t / 0.2));
+        r = R * sin(tc) + cos(tc) * k;
+        y = R * (1.0 + cos(tc)) - t + (1.0 - sin(tc)) * k;
+        hang = smoothstep(0.0, 0.3, t);
+    }
+    // A mesa: o comprimento que passaria dela deita-se sobre ela, para fora (máximo suave, raio de 4 cm do pano).
+    let below = data.table - y;
+    let lay = 0.5 * (below + sqrt(below * below + 0.0016));
+    y = y + lay;
+    r = r + lay;
+    let flat = smoothstep(0.0, 0.2, lay);
+    let w = a + 0.2 * sin(3.0 * a + data.seed);
+    let f = -cos(4.0 * w) + 0.5 * cos(9.0 * w + 1.3 + data.seed) + 0.28 * cos(15.0 * w + 4.1 * data.seed);
+    let amp = data.folds * sqrt(max(s - r, 0.0) * r) * hang;
+    // Penduradas, as pregas ondulam o raio; sobre a mesa, baixam e viram rugas (a crista sobe um pouco).
+    let moved = r + amp * f * (1.0 - 0.6 * flat);
+    y = y + flat * 0.3 * amp * (0.5 + 0.5 * f);
+    let ball = sqrt(max(R * R - (y - R) * (y - R), 0.0)) + 0.008;
+    let outside = 0.5 * (moved + ball + sqrt((moved - ball) * (moved - ball) + 1e-4));
+    let rr = mix(r, outside, smoothstep(0.1, 0.5, s / sc));
+    return vec3f(dir.y * rr, y, dir.x * rr);
+}`;
+
+/** O quadro dos panos: a imagem HDR, o centro de cada pano (o topo da bola) e o custo de GPU por quadro. */
+interface ClothShot {
+    readonly img: HdrImage;
+    readonly at: ReadonlyMap<MaterialName, Vec3>;
+    readonly gpuMs: number;
+    readonly ready: number;
+}
+
+/** Os tecidos do quadro dos panos, a fileira de trás e a da frente. */
+const CLOTHS: readonly [readonly MaterialName[], readonly MaterialName[]] = [
+    ['cotton', 'wool', 'sheerFabric'],
+    ['denim', 'velvet', 'silk'],
+];
+
+/**
+ * O quadro dos panos (spec 011, T116), a 8 unidades por metro: cada tecido num pano quadrado caído sobre uma bola, com
+ * pregas (`DRAPE_CODE`: uma `ParametricSurface` com `SurfaceFunction` e a geometria diferencial — a curvatura das
+ * dobras é o que o jeans lê para o desgaste —, desenhada dos dois lados), e, à frente dele, a amostra plana do mesmo
+ * tecido ampliada (o fio com volume, a torção, a penugem). O pano de lã é de malha adaptativa com o deslocamento do
+ * tricô (`Displacements.wool`), e a amostra dela também. A luz: o sol, a luz de recorte rasante por trás com sombra (o
+ * halo das fibras, a luz que atravessa o tecido fino), o céu e a luz rebatida.
+ */
+async function clothShot(width: number, height: number): Promise<ClothShot> {
+    const query = new URLSearchParams(location.search);
+    const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
+    const samples: number[] = [];
+    app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(
+            new Transform({
+                position: [...GALLERY_EYE, 1],
+                rotation: Transform.lookRotation([...GALLERY_EYE], [...GALLERY_TARGET]),
+            }),
+        ),
+    );
+    const sun = new DirectionalLight({
+        direction: [...GALLERY_SUN.map((c) => -c), 0],
+        intensity: 2.4,
+    });
+    app.world.insert(sun);
+    app.world.insert(new Sky({ sun, sunDisk: false }));
+    app.world.insert(
+        new GlobalIllumination({
+            quality: 'medium',
+            probeSpacing: 0.5,
+            center: [0, 0.6, 0],
+            screenGather: false,
+        }),
+    );
+    // A luz de recorte projeta sombra: a que atravessa o tecido fino passa por uma camada só — onde há outra dobra
+    // (ou a bola) atrás, escurece.
+    app.world.insert(
+        new DirectionalLight({
+            direction: [...GALLERY_RIM.map((c) => -c), 0],
+            intensity: 3.5,
+            castShadow: true,
+        }),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -0.1, 0, 1] }))
+            .add(neutral(0.3)),
+    );
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.3));
+    const at = new Map<MaterialName, Vec3>();
+    const values = (name: MaterialName, pattern: number): Record<string, number | number[]> => ({
+        pattern_scale: [pattern, pattern],
+        ...('scale' in nodes.material[name].params ? { scale: CLOTH_SCALE } : {}),
+    });
+    CLOTHS.forEach((row, j) => {
+        row.forEach((name, i) => {
+            const x = (i - 1) * GALLERY_DX;
+            const z = j === 0 ? -GALLERY_DZ : GALLERY_DZ;
+            const zc = z - CLOTH_BACK;
+            at.set(name, [x, 2 * CLOTH_BALL, zc]);
+            // A bola por baixo (neutra; aparece através do tecido fino).
+            app.world.insert(
+                new SphereGeometry({ radius: CLOTH_BALL - 0.004, latSegments: 48, lonSegments: 96 })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [x, CLOTH_BALL, zc, 1] }))
+                    .add(neutral(0.3)),
+            );
+            // Diagnóstico (`displace=0`): a lã sem o deslocamento.
+            const knitted = name === 'wool' && query.get('displace') !== '0';
+            const cloth = new ParametricSurface({
+                domain: [-CLOTH_HALF, CLOTH_HALF, -CLOTH_HALF, CLOTH_HALF],
+                ...(knitted
+                    ? { adaptive: { patches: [24, 24], maxLevel: 4, screen: 0.003 } }
+                    : { resolution: [321, 321] as const, differential: true }),
+            })
+                .add(new StandardMaterial({ doubleSided: true }))
+                .add(new Transform({ position: [x, 0, zc, 1] }))
+                .add(
+                    new SurfaceFunction({
+                        code: DRAPE_CODE,
+                        params: {
+                            radius: 'f32',
+                            contact: 'f32',
+                            folds: 'f32',
+                            seed: 'f32',
+                            table: 'f32',
+                        },
+                        values: {
+                            radius: CLOTH_BALL,
+                            contact: 1.3,
+                            folds: 0.3,
+                            seed: 0.9 + 1.7 * (3 * j + i),
+                            table: 0.012,
+                        },
+                    }),
+                )
+                .add(Materials[name](values(name, CLOTH_PATTERN[name] ?? 1)));
+            if (knitted) cloth.add(Displacements.wool(values('wool', CLOTH_PATTERN.wool ?? 1)));
+            app.world.insert(cloth);
+            // A amostra plana, ampliada: a placa do mesmo tecido, com a frente livre do pano.
+            app.world.insert(
+                new BoxGeometry({ size: [CLOTH_TILE, 0.1, CLOTH_TILE] })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [x, -0.05, z, 1] }))
+                    .add(Materials[name](values(name, SWATCH_PATTERN[name] ?? 1))),
+            );
+            // A da lã, com o fio em relevo: uma face de malha adaptativa deslocada logo acima da placa.
+            if (knitted)
+                app.world.insert(
+                    new ParametricSurface({
+                        preset: 'plane',
+                        domain: [-CLOTH_TILE / 2, CLOTH_TILE / 2, -CLOTH_TILE / 2, CLOTH_TILE / 2],
+                        adaptive: { patches: [20, 20], maxLevel: 4, screen: 0.003 },
+                    })
+                        .add(new StandardMaterial())
+                        .add(new Transform({ position: [x, 0.012, z, 1] }))
+                        .add(Materials.wool(values('wool', SWATCH_PATTERN.wool ?? 1)))
+                        .add(Displacements.wool(values('wool', SWATCH_PATTERN.wool ?? 1))),
+                );
+        });
+    });
+    const started = performance.now();
+    const img = await renderHdr(app, GALLERY_FRAMES, 1500);
+    const ready = performance.now() - started;
+    samples.length = 0;
+    for (let i = 0; i < 60; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+    }
+    samples.sort((a, b) => a - b);
+    const gpuMs = samples[samples.length >> 1] ?? NaN;
+    if (query.get('stages') !== null) await galleryStages(app, 'panos');
+    if (query.get('shot') !== null) {
+        const anchors = new Map<string, Vec3>(
+            [...at].map(([name, p]) => [name, [p[0], GALLERY_R - 0.1, p[2] + CLOTH_BACK] as Vec3]),
+        );
+        const labels = await galleryLabels(app, anchors, width, height);
+        for (let i = 0; i < 3; i++) {
+            app.step(0);
+            await nextGpuFrame(app);
+        }
+        app.step(0);
+        await writeFixture('zzGallery-panos.png', await toPng(capture(canvas)));
+        for (const label of labels) label.visible = false;
+    }
+    disposeApp(app, canvas);
+    return { img, at, gpuMs, ready };
+}
+
+/** As medidas do quadro dos panos: desenhado, sem valores não finitos, e o brilho da seda ao longo das dobras. */
+async function galleryCloth(width: number, height: number): Promise<void> {
+    const shot = await clothShot(width, height);
+    let bad = 0;
+    for (let k = 0; k < shot.img.data.length; k++) if (!Number.isFinite(shot.img.data[k]!)) bad++;
+    log(
+        `gallery panos: ${shot.at.size} tecidos, ${width}×${height}; pronto em ${(shot.ready / 1000).toFixed(1)} s; GPU ${shot.gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos`,
+    );
+    check(bad === 0, `gallery panos: ${bad} valores não finitos no alvo HDR`);
+    /**
+     * As pregas da frente do pano `name` (a parte pendurada voltada para a câmera): as linhas da imagem entre as
+     * alturas 0,42 e 0,1, de x − 0,4 a x + 0,4 no raio das pregas. Devolve o realce (o maior valor sobre a mediana de
+     * cada linha, em média) e o desvio do realce de uma linha para a seguinte (a mediana de |Δx| do pixel mais claro,
+     * em pixels): um realce que desce pela dobra anda pouco de linha para linha.
+     */
+    const folds = (name: MaterialName): { highlight: number; drift: number } => {
+        const c = shot.at.get(name)!;
+        const zf = c[2] + 0.45;
+        const [x0, y0] = galleryPixel([c[0] - 0.4, 0.42, zf], width, height);
+        const [x1, y1] = galleryPixel([c[0] + 0.4, 0.1, zf], width, height);
+        let highlight = 0;
+        const peaks: number[] = [];
+        let rows = 0;
+        for (let y = Math.round(y0); y <= Math.round(y1); y++) {
+            const row: number[] = [];
+            for (let x = Math.round(x0); x <= Math.round(x1); x++)
+                row.push(lum(hdrAt(shot.img, x, y)));
+            const sorted = [...row].sort((p, q) => p - q);
+            const top = sorted[sorted.length - 1]!;
+            highlight += top / Math.max(sorted[sorted.length >> 1]!, 1e-6);
+            peaks.push(row.indexOf(top));
+            rows++;
+        }
+        const steps = peaks
+            .slice(1)
+            .map((p, k) => Math.abs(p - peaks[k]!))
+            .sort((p, q) => p - q);
+        return { highlight: highlight / Math.max(rows, 1), drift: steps[steps.length >> 1] ?? NaN };
+    };
+    const silk = folds('silk');
+    const cotton = folds('cotton');
+    log(
+        `gallery panos: pregas da frente — seda: realce (o maior valor / mediana da linha) ${silk.highlight.toFixed(2)}×, andando ${silk.drift.toFixed(1)} px por linha (mediana); algodão: ${cotton.highlight.toFixed(2)}×`,
+    );
+    // Sem meta apertada: a seda tem realce nas pregas (mais que o algodão, fosco) e ele desce por elas.
+    check(
+        silk.highlight > 1.15 * cotton.highlight,
+        `gallery panos: a seda não tem mais realce nas pregas que o algodão (${silk.highlight.toFixed(2)} × ${cotton.highlight.toFixed(2)})`,
+    );
+    check(
+        silk.drift <= 3,
+        `gallery panos: o brilho da seda não segue as dobras (${silk.drift} px por linha)`,
+    );
+}
+
 /** As medidas do quadro da subsuperfície: o que a difusão e a luz que atravessa mudam em cada peça. */
 async function gallerySubsurface(width: number, height: number): Promise<void> {
     const W = width;
@@ -2026,6 +2670,10 @@ async function caseGallery(): Promise<void> {
     }
     // O quadro da subsuperfície (as peças finas em contraluz e o par com e sem o espalhamento) tem as medidas próprias.
     if (only === null || only === 'subsuperficie') await gallerySubsurface(W, H);
+    // O quadro do relevo (o par da madeira bruta só com a normal e deslocada, sob a luz rasante) também.
+    if (only === null || only === 'relevo') await galleryRelief(W, H);
+    // O quadro dos panos (os tecidos caídos sobre uma bola, com pregas, e a amostra plana ampliada) também.
+    if (only === null || only === 'panos') await galleryCloth(W, H);
     /** O quadro em que o material está (ou `undefined`, com `family=` de outra família). */
     const shotOf = (name: MaterialName | 'empty'): GalleryShot | undefined =>
         [...shots.values()].find((shot) => shot.center.has(name));
