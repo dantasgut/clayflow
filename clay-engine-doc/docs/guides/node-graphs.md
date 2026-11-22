@@ -288,7 +288,7 @@ export const scaleMesh = defineSetNode({
 ```ts
 import { Subgraph } from 'clayflow';
 
-// Um grafo de ponto como nó: entradas = argumentos do grafo; saída = a dele; parâmetros = os expostos.
+// Um grafo de ponto como nó: entradas = argumentos do grafo e os expostos; saída = a dele; parâmetros = os expostos.
 const wave = Subgraph.point(waveGraph, { name: 'my.wave', inputs: { t: 'f32' }, expose: ['w.amp'] });
 const g = new NodeGraph({ nodes: { a: wave.with({ w_amp: 0.5 }), b: wave.with({ w_amp: 2 }), /* … */ }, /* … */ });
 
@@ -298,7 +298,9 @@ const filter = Subgraph.set(stageGraph, { name: 'my.filter', inputs: { in: 'm.in
 
 - **De ponto**: a função do nó é o grafo compilado (`sub_<hash>`), emitida uma vez por shader — usos repetidos
   compartilham o código e o pipeline; os parâmetros não expostos ficam embutidos; os estágios do nó são os comuns aos
-  nós de dentro.
+  nós de dentro. Cada parâmetro exposto é também uma **entrada** de mesmo nome (spec 011): sem ligação vale o valor do
+  uso (`wave.with({ w_amp: 0.5 })`, que muda sem recompilar); ligada, a saída do outro nó
+  (`['ruido.value', 'a.w_amp']`).
 - **De conjunto**: os nós de dentro entram no grafo de fora com o prefixo do uso; os valores expostos vêm do uso
   (`filter.with({ nó_parâmetro: v })`); conjuntos e contagens circulam sem cópia.
 
@@ -326,8 +328,9 @@ com nós próprios (como o `myWaves` acima, que depende da `wgslLib.noise`), reg
 A biblioteca fica na C3, em `src/elements/nodes`, um subdiretório por categoria (`input/`, `math/`, `map/`, `color/`,
 `noise/`, `pattern/`, `condition/`, `space/`, `field/`, `surface/`, `geometry/`, `bsdf/`, `closure/`, `output/`,
 `material/`, `set/`). É publicada por `nodes` (os nós por categoria) e `defaultNodeRegistry` (todos os nós de ponto e de
-conjunto e o sub-grafo `material.openpbr`, para a serialização; `defaultNodeRegistry.names()` lista os disponíveis). São
-**91 nós de ponto** (`pointNodes`), 12 de conjunto, o sub-grafo `material.openpbr` e as entradas de contexto.
+conjunto e os sub-grafos de `nodes.material`, para a serialização; `defaultNodeRegistry.names()` lista os disponíveis).
+São **91 nós de ponto** (`pointNodes`), 12 de conjunto, os 24 sub-grafos de `nodes.material` (o OpenPBR e os 23
+materiais prontos) e as entradas de contexto.
 
 Os nós de ponto valem em todos os estágios, salvo `output.surfaceParams`, `output.closure` e `geometry.tangentUv` (só
 `fragment`). Cada um tem a referência da
@@ -492,6 +495,7 @@ com esses lobos — mudar valores não recompila, mudar ligações recompila. Re
 | `closure.thinWalled` | a transmissão como parede fina (vidraça, bolha) |
 | `geometry.tangentUv` | tangente pelo uv (derivadas de tela), para o anisotrópico em malhas sem tangente; só `fragment` |
 | `material.openpbr` | o OpenPBR Surface 1.1 como sub-grafo de ponto (`Subgraph.point`) montado com os nós acima; parâmetros com os nomes da norma |
+| `material.<nome>` | os 23 materiais prontos (`woodRaw`, `woodVarnishedGloss`, `velvet`, `metalBrushed`, `carPaint`, `glass`, `skin`…): sub-grafos de ponto com valores físicos e parâmetros expostos — [Materiais](./materials.md#biblioteca-de-materiais-prontos-materials-nodesmaterial) |
 
 ```ts
 import { MaterialFunction, NodeGraph, nodes } from 'clayflow';

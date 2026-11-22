@@ -44,6 +44,22 @@ substituída, (c) parcial, (d) não entregue.
 
 Ficam 16 abertas, para a 035 (não criada).
 
+## Biblioteca de materiais (2026-11-22)
+
+No ramo `feature/011-biblioteca-de-materiais`, a partir do `develop` e da conferência: a US5 inteira (T090–T094), T079,
+T003, T107 e T108, cada uma com a nota **Entrega** (o registro e os números medidos).
+
+Ficam 7 abertas: a US6 (T095–T100, a comparação com o Three.js no bench) e T112 (vídeos).
+
+Achados no caminho, fora do escopo destas tarefas (em `specs/PENDENCIAS.md`):
+
+- uma superfície sem transmissão desenhada pelo traçado da refração (lobo de opacidade ou de translucidez) fica preta
+  na parte voltada contra a luz; o `sheerFabric` da galeria mostra;
+- o vidro com dispersão (`abbe` 58) fica granulado depois de 32 quadros parados;
+- os dois pedidos da refração da água gravam a distância até a posição da câmera, como o do forward gravava (corrigido
+  só o do forward, `924d3987`);
+- com o antisserrilhado temporal, a galeria mostra anéis nos dielétricos rugosos (visto num quadro; não investigado).
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: pode rodar em paralelo (arquivos diferentes, sem dependência pendente)
@@ -55,9 +71,10 @@ Ficam 16 abertas, para a 035 (não criada).
 
 - [x] T001 Registrar o estado de partida em `specs/011-hdr-pbr/baseline-check.md`: `npm run ci`, todos os smokes `--headless` (fonte e `--dist`) e `npm run bench:check` com a máquina livre (números de partida do bench, inclusive tempo do quadro a 1280×720 com MSAA 4×)
 - [x] T002 [P] Criar `src/__smokes__/support/imageMeasures.ts` com as medidas de imagem reutilizadas pelos smokes da 011: maior passo entre vizinhos e comprimento de sequências iguais (faixas), platôs com borda reta (degraus de texel), variância temporal da luminância (cintilação), energia de alta frequência nas silhuetas (serrilhado), leitura de um alvo `rgba16float` para valores lineares
-- [ ] T003 [P] Criar os smokes vazios `src/__smokes__/hdr.ts`, `src/__smokes__/lighting.ts`, `src/__smokes__/materials.ts` e `src/__smokes__/support/materialScenes.ts`, registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
+- [x] T003 [P] Criar os smokes vazios `src/__smokes__/hdr.ts`, `src/__smokes__/lighting.ts`, `src/__smokes__/materials.ts` e `src/__smokes__/support/materialScenes.ts`, registrados no runner (`bench/runner/smoke.ts`) e listados em `src/__smokes__/README.md`
   - **Reconciliação (2026-11-12, 034 T071)**: os quatro arquivos existem (`hdr.ts` em `5ef1dd46`, `lighting.ts` em `b7c2805b`, `materials.ts` e `support/materialScenes.ts` em `66d2943f`) e a página do bench carrega o smoke pelo nome (`bench/page/smoke.ts`, sem registro no runner); falta listar `hdr`, `lighting` e `materials` no inventário de `src/__smokes__/README.md`. Vai para a 035.
   - **Conferência (2026-11-17)**: (c) parcial, sem mudança: os quatro arquivos existem e a página `bench/page/smoke.ts` carrega o smoke pelo nome; o inventário de `src/__smokes__/README.md` (§ Inventário e a tabela das specs 033/034) ainda não lista `hdr`, `lighting` nem `materials`. Falta só isso.
+  - **Entrega (2026-11-22)**: `hdr.ts`, `lighting.ts` e `materials.ts` listados no inventário de `src/__smokes__/README.md` (com os casos de cada um; o `nodeGraphs.ts` com a parte (g)).
 - [x] T004 [P] Criar `src/elements/material/reference/` (referências de CPU, só para testes e smokes): `bsdf.ts` (GGX iso/aniso, Smith correlacionado, Schlick, F82, F0 do IOR, Charlie, filme fino de Belcour-Barla, Oren-Nayar energético, Burley com wrap), `tonemap.ts` (AgX, ACES de Hill, Khronos PBR Neutral, sRGB) e `dfg.ts` (integração de E(μ, α) e do albedo do sheen por Monte Carlo determinístico)
 - [x] T005 [P] Atualizar o ROADMAP §3.3 em `specs/ROADMAP.md`: a matriz normal já existe (A5); a 011 só mede
 
@@ -206,9 +223,10 @@ OpenPBR como sub-grafo.
 - [x] T076 [US3] Caso `graph-specialization`: grafo difuso + especular com custo igual ao material pronto (± ruído, por consulta de tempo da GPU) e 60 s mudando valores com zero recompilações (SC-008)
 - [x] T077 [US3] Caso `material-fn-compat`: as funções `material` da 009 (`support/extensionScenes.ts`, `parametricSurfaces`) desenham sem mudança com o especular da base
 - [x] T078 [US3] Caso `transmission-layers` (vidro atrás de vidro e verso de objeto espesso aparecem; terceira camada com a aproximação documentada) e `transmission-ior1` (IOR 1 invisível, sem divisão por zero)
-- [ ] T079 [US3] Grafo de material no smoke `src/__smokes__/nodeGraphs.ts` (madeira envernizada com verniz áspero por ruído, do contrato) e caso de grafo inválido desenhando com o material pronto e o evento da 031
+- [x] T079 [US3] Grafo de material no smoke `src/__smokes__/nodeGraphs.ts` (madeira envernizada com verniz áspero por ruído, do contrato) e caso de grafo inválido desenhando com o material pronto e o evento da 031
   - **Reconciliação (2026-11-12, 034 T071)**: o `nodeGraphs` não tem o grafo da madeira envernizada nem o caso do grafo inválido desenhando com o material pronto (o grafo de material dele é a rampa de ruído da 031). A madeira envernizada é da biblioteca (US5): vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: o `nodeGraphs.ts` não tem a madeira envernizada nem o caso do grafo inválido. A madeira envernizada existe só como grafo de teste de unidade (`src/elements/nodes/__tests__/materialNodes.test.ts:14`, verniz com rugosidade por valor, não por ruído) e como exemplo no guia `node-graphs.md`; nenhum smoke desenha o grafo inválido com o material pronto.
+  - **Entrega (2026-11-22)**: parte (g) do `nodeGraphs` (`7b195907`): o grafo do contrato com a rugosidade do verniz por ruído — pico do realce 17,42, entre o do verniz áspero (5,95) e o do liso (86,34), 697 pixels diferentes dos dois, a madeira fora do realce igual (1,000×); grafo com um nó que não compila — 1 `extensionRejected` no ponto `material`, a esfera desenhada com o material pronto (diferença 0 por canal em 33 168 pixels), 0 erros do motor. `npm run smoke -- nodeGraphs --headless --query part=c.e.g` passou.
 - [x] T080 [US3] Caso `sanitize`: função `material` devolvendo NaN/∞/negativos — nenhum NaN no alvo HDR nem na cadeia de pós
 
 **Checkpoint**: US3 verificável sozinha.
@@ -250,21 +268,26 @@ OpenPBR como sub-grafo.
 
 **Independent Test**: caso `gallery` e `library-compose` em `npm run smoke -- materials --headless`.
 
-- [ ] T090 [P] [US5] Testes em `src/elements/material/__tests__/Materials.test.ts`: cada fábrica `Materials.x()` devolve `MaterialFunction` com o grafo de um nó; parâmetro mudado altera só ele; nós e valores documentados (madeira envernizada = madeira crua sob dielétrico liso; pintura de carro = condutor sob dielétrico); serialização ida e volta
+- [x] T090 [P] [US5] Testes em `src/elements/material/__tests__/Materials.test.ts`: cada fábrica `Materials.x()` devolve `MaterialFunction` com o grafo de um nó; parâmetro mudado altera só ele; nós e valores documentados (madeira envernizada = madeira crua sob dielétrico liso; pintura de carro = condutor sob dielétrico); serialização ida e volta
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `Materials.test.ts`). US5 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: sem `src/elements/material/__tests__/Materials.test.ts` no `origin/develop` (`2fd2429e`); nenhum registro em ramo algum cita `woodRaw`/`carPaint` fora do plano e das tarefas.
-- [ ] T091 [US5] Criar os 23 sub-grafos em `src/elements/nodes/material/` (`woodRaw`, `woodVarnishedGloss`, `woodVarnishedMatte`, `cotton`, `wool`, `velvet`, `silk`, `denim`, `sheerFabric`, `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`, `metalPolished`, `metalBrushed`, `carPaint`, `glass`, `metalOxidized`, `skin`, `wax`, `marble`) com valores físicos e fonte em comentário; registrados no `NodeRegistry` padrão
+  - **Entrega (2026-11-22)**: `src/elements/material/__tests__/Materials.test.ts` (`649f68df`), 9 testes: os 23 materiais registrados; cada fábrica devolve a `MaterialFunction` de fechamento com o grafo de um nó; parâmetro mudado altera só ele e não muda o módulo; madeira envernizada = `material.woodRaw` sob `bsdf.dielectric` em `closure.layer`; pintura de carro = `bsdf.conductor` sob `bsdf.dielectric`; nós por família; valores nas faixas (IOR 1,3–1,7, rugosidades, F0 do alumínio, raios da subsuperfície); uso como nó com entrada ligada; serialização ida e volta dos 23. Vitest de `src/elements/material`, `src/elements/nodes` e `src/scene/graph`: 325 testes passam.
+- [x] T091 [US5] Criar os 23 sub-grafos em `src/elements/nodes/material/` (`woodRaw`, `woodVarnishedGloss`, `woodVarnishedMatte`, `cotton`, `wool`, `velvet`, `silk`, `denim`, `sheerFabric`, `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`, `metalPolished`, `metalBrushed`, `carPaint`, `glass`, `metalOxidized`, `skin`, `wax`, `marble`) com valores físicos e fonte em comentário; registrados no `NodeRegistry` padrão
   - **Reconciliação (2026-11-12, 034 T071)**: não feita: `src/elements/nodes/material/` tem só `index.ts` e `openpbr.ts`. US5 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: `src/elements/nodes/material/` segue só com `index.ts` e `openpbr.ts`.
-- [ ] T092 [US5] Criar `src/elements/material/Materials.ts` (fábricas → `MaterialFunction`) e exportar em `src/elements/material/index.ts` e `src/index.ts`
+  - **Entrega (2026-11-22)**: os 23 sub-grafos em `src/elements/nodes/material/` (`8670a14b`: `surface.ts`, `wood.ts`, `fabric.ts`, `metal.ts`, `translucent.ts`), com os valores e a fonte no comentário de cada um e todos no `defaultNodeRegistry`. Para a entrada ligada (US5, cenário 4), os parâmetros expostos de `Subgraph.point` passaram a ser também entradas com valor, e o nome do sub-grafo entrou na identidade do módulo (`9e694894`): dois materiais de mesma forma no mesmo grafo davam dois módulos com o mesmo nome.
+- [x] T092 [US5] Criar `src/elements/material/Materials.ts` (fábricas → `MaterialFunction`) e exportar em `src/elements/material/index.ts` e `src/index.ts`
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem `src/elements/material/Materials.ts`). US5 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: sem `src/elements/material/Materials.ts`.
-- [ ] T093 [US5] Caso `gallery` em `src/__smokes__/materials.ts`: todos os materiais sob a mesma luz; medidas de reconhecimento (madeira crua sem realce nítido, envernizada com realce nítido, veludo com borda, metal escovado com realce alongado, vidro com refração)
+  - **Entrega (2026-11-22)**: `src/elements/material/Materials.ts` (`649f68df`): `Materials.<nome>(valores)` → `MaterialFunction`; exportado em `src/elements/material/index.ts` (com `MaterialFactory` e `MaterialName`) e, por ele, em `src/index.ts`. `npm run doc:coverage` sem erros e sem aviso novo.
+- [x] T093 [US5] Caso `gallery` em `src/__smokes__/materials.ts`: todos os materiais sob a mesma luz; medidas de reconhecimento (madeira crua sem realce nítido, envernizada com realce nítido, veludo com borda, metal escovado com realce alongado, vidro com refração)
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `gallery`). US5 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: `src/__smokes__/materials.ts` sem o caso `gallery`.
-- [ ] T094 [US5] Caso `library-compose`: madeira crua e metal escovado misturados por ruído (o quickstart) e um material pronto com entrada ligada a outro nó
+  - **Entrega (2026-11-22)**: caso `gallery` (`b6c0299f`), 23 esferas sob o mesmo sol e o ambiente padrão diante de uma parede xadrez, 960×640, MSAA: realce do sol (pico sobre a mediana do anel a 12–16 px) — madeira crua 1,02×, verniz brilhante 105× (pico 31,7), verniz fosco 2,66×; borda sobre o centro — veludo 7,66, algodão 1,28, borracha 0,85; realce do metal (razão dos eixos) — escovado 9,96×, polido 1,96×; vidro — a casa clara da parede 0,639 à vista e 0,617 através dele, 62 % do trecho com a casa trocada pela refração; 0 valores não finitos, nenhum material sem imagem. O vidro fora do eixo da câmera ortográfica não refratava: o pedido da refração gravava a distância até a posição da câmera, corrigido em `924d3987` (na perspectiva, a mesma distância de antes). O smoke `materials` inteiro passou depois da correção (33 s).
+- [x] T094 [US5] Caso `library-compose`: madeira crua e metal escovado misturados por ruído (o quickstart) e um material pronto com entrada ligada a outro nó
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `library-compose`). US5 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: sem o caso `library-compose`.
+  - **Entrega (2026-11-22)**: caso `library-compose` (`b6c0299f`): o grafo do quickstart (madeira crua e metal escovado misturados por `noise.gradient3`) contra cada um sozinho no mesmo lugar — de 16 190 pixels, 70 % iguais à madeira e 30 % com os dois (o ruído vai de −1 a 1 e a mistura prende em [0, 1]); `material.plasticGloss` com a cor ligada a um xadrez por rampa — vermelho/azul 16,0 numa casa e 0,063 na vizinha, pico do realce 91,4.
 
 **Checkpoint**: US5 verificável sozinha.
 
@@ -319,12 +342,14 @@ OpenPBR como sub-grafo.
 - [x] T106 [P] Atualizar `clay-engine-doc/docs/guides/node-graphs.md` (grupos `bsdf`, `closure`, `geometry`, `color`, `material`), `post_processing.md` (HDR, sem passthrough) e `shaders.md`
   - **Reconciliação (2026-11-12, 034 T071)**: `post_processing.md` já descreve o HDR e a apresentação sem passthrough (`cb177eb7`, `bf467ff7`) e `shaders.md` o ponto `scene_lighting`; falta o `node-graphs.md` com os grupos `bsdf`, `closure`, `geometry`, `color` e `material` — hoje estão só no `materials.md` (`38515df6`), e o `node-graphs.md` ainda diz que os materiais por nós "são da 011". O `38515df6` não alterou o `node-graphs.md`. Vai para a 035.
   - **Conferência (2026-11-17)**: (a) entregue em `fcd2a794` (034 T073, 2026-11-12, depois da reconciliação): `clay-engine-doc/docs/guides/node-graphs.md` com a seção "Materiais (`nodes.bsdf`, `nodes.closure`, `nodes.material`)" (`:466`–`:493`: os nós `bsdf.*`, `closure.*`, `geometry.tangentUv`, `material.openpbr`), os nós `color.*` (`:391`–`:396`), `output.closure` (`:463`) e a contagem de 91 nós de ponto (`:330`); a frase "são da 011" saiu. `post_processing.md` e `shaders.md` já estavam feitos.
-- [ ] T107 [P] Atualizar `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: ordem dos passes (opacos → cópia com mips → transmissivos em duas camadas → água → pós → apresentação), pontos de luz por luz
+- [x] T107 [P] Atualizar `clay-engine-doc/docs/guides/architecture_resource_loaders.md`: ordem dos passes (opacos → cópia com mips → transmissivos em duas camadas → água → pós → apresentação), pontos de luz por luz
   - **Reconciliação (2026-11-12, 034 T071)**: o `architecture_resource_loaders.md` não tem a ordem dos passes nova (o `38515df6` não o alterou), e a ordem escrita aqui mudou: não há mais cópia da cena; os transmissivos e a água vão pela refração traçada (034/039). Vai para a 035, com a ordem do `Renderer` da 039.
   - **Conferência (2026-11-17)**: (c) parcial: a ordem dos passes foi escrita em `fcd2a794` (034 T073, 2026-11-12) — seção "Ordem dos passes do quadro (estágios padrão)", com a ordem real do motor; a ordem desta tarefa (cópia com mips, transmissivos em duas camadas, água) foi substituída pela refração traçada da 034/039 e não se aplica. Falta "pontos de luz por luz" nesse guia: ele não cita o `scene_lighting` e a linha do `Light` na tabela de Resources ainda diz "cor e intensidade no sombreamento: F4" (o ponto por luz está em `lighting.md:17` e `shaders.md:444`).
-- [ ] T108 `specs/ROADMAP.md` (011 implementada; 014 sem "pós direto no canvas"), `specs/PENDENCIAS.md`, JSDoc das classes públicas novas e `README.md` (API)
+  - **Entrega (2026-11-22)**: seção "Pontos de luz por luz (spec 011)" em `clay-engine-doc/docs/guides/architecture_resource_loaders.md` (os pontos de cena de luz, com assinatura, combinação e pronto, e o que cada Resource de luz contribui) e a linha do `Light` na tabela dos pools corrigida (sem "F4" nem os pontos `scene_light_direction`, que não existem mais). A ordem de passes desta tarefa (cópia com mips, transmissivos em duas camadas, água) fica **substituída** pela ordem real escrita em `fcd2a794`.
+- [x] T108 `specs/ROADMAP.md` (011 implementada; 014 sem "pós direto no canvas"), `specs/PENDENCIAS.md`, JSDoc das classes públicas novas e `README.md` (API)
   - **Reconciliação (2026-11-12, 034 T071)**: `specs/PENDENCIAS.md` reescrito na 034 T071; o JSDoc é conferido pelo `doc:coverage` do `npm run ci` (verde no `develop` com a 011: `specs/033-global-illumination/baseline-check.md`, `df93e6a8`); a G2 (pós direto no canvas) saiu na 034 T033 (`cb177eb7`). Falta o `specs/ROADMAP.md` dizer o estado da 011 na linha da F4 (implementada em parte; US5/US6 na 035) e tirar da 014 o "pós sem efeitos desenhando direto no canvas"; o `README.md` da API com os materiais. Vai para a 035.
   - **Conferência (2026-11-17)**: (c) parcial, sem mudança: `PENDENCIAS.md` e o JSDoc (o `doc:coverage` do `npm run ci`, verde na 034 T075, `37455cdd`) feitos; faltam no `specs/ROADMAP.md` o estado da 011 na linha da F4 (§3, a linha só descreve o escopo) e tirar da 014 o "pós sem efeitos desenhando direto no canvas" (ainda lá); o `README.md` da raiz segue com `webgpu-engine` e só o `StandardMaterial`, sem os materiais por nós.
+  - **Entrega (2026-11-22)**: `specs/ROADMAP.md` com o estado da 011 na linha da F4 e na da 035, e a 014 sem o "pós sem efeitos desenhando direto no canvas"; `specs/PENDENCIAS.md` com o que resta da 011; `README.md` da raiz com a receita dos materiais por nós e da biblioteca (e `clayflow/web` no lugar de `webgpu-engine`); os guias `materials.md` (a biblioteca, com a tabela dos 23) e `node-graphs.md`.
 
 ---
 

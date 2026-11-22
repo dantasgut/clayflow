@@ -27,11 +27,11 @@ npm run dev      # Vite dev server em :5173 (ou :5174)
 Edite `src/main.ts` para experimentar — o demo standalone hoje cobre os smokes da Fase E. Para incorporar a engine em outra app:
 
 ```bash
-npm install webgpu-engine
+npm install clayflow
 ```
 
 ```typescript
-import { Application } from 'webgpu-engine';
+import { Application } from 'clayflow/web';
 
 const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 const app = await Application.create({ canvas });
@@ -43,8 +43,8 @@ app.start(); // GameLoop começa a emitir frameTick
 ### 1. Cubo girando
 
 ```typescript
-import { Application, OrbitController, InteractionSystem } from 'webgpu-engine';
-import { BoxGeometry, Camera, DirectionalLight, StandardMaterial, Transform } from 'webgpu-engine';
+import { Application, OrbitController, InteractionSystem } from 'clayflow/web';
+import { BoxGeometry, Camera, DirectionalLight, StandardMaterial, Transform } from 'clayflow/web';
 
 const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
 const app = await Application.create({ canvas });
@@ -83,8 +83,8 @@ app.start();
 ### 2. RigidBody em queda livre
 
 ```typescript
-import { Application } from 'webgpu-engine';
-import { Camera, GravityField, RigidBody, LCPFlow } from 'webgpu-engine';
+import { Application } from 'clayflow/web';
+import { Camera, GravityField, RigidBody, LCPFlow } from 'clayflow/web';
 
 const app = await Application.create({ canvas });
 app.world.insert(new Camera({ aspect: canvas.width / canvas.height }));
@@ -98,7 +98,7 @@ app.start();
 ### 3. Scene com sombras + post-processing
 
 ```typescript
-import { Application, Bloom, ToneMapping, Vignette } from 'webgpu-engine';
+import { Application, Bloom, ToneMapping, Vignette } from 'clayflow/web';
 import {
   BoxGeometry,
   Camera,
@@ -106,7 +106,7 @@ import {
   PlaneGeometry,
   StandardMaterial,
   Transform,
-} from 'webgpu-engine';
+} from 'clayflow/web';
 
 const app = await Application.create({ canvas });
 
@@ -163,6 +163,53 @@ app.step(1 / 60, 120); // 2 s simulados sem o laço (headless, testes)
 console.log(app.capabilities.adapter.description); // adaptador e limites do device
 ```
 
+### 6. Materiais por nós e a biblioteca de materiais prontos
+
+O material é um grafo de nós de espalhamento (`nodes.bsdf.*`) e de composição (`nodes.closure.*`) numa
+`MaterialFunction`, anexada a uma entidade com `StandardMaterial`. A biblioteca traz 23 materiais prontos — madeira
+crua e envernizada, tecidos, couro, borracha, cerâmica, plásticos, metais, pintura de carro, vidro, pele, cera,
+mármore —, usados inteiros (`Materials.*`) ou como nós de um grafo maior (`nodes.material.*`).
+
+```typescript
+import { MaterialFunction, Materials, NodeGraph, SphereGeometry, nodes } from 'clayflow/web';
+import { StandardMaterial, Transform } from 'clayflow/web';
+
+// Material pronto, com um parâmetro exposto ajustado
+const ball = new SphereGeometry({ radius: 0.5 });
+ball.add(new StandardMaterial());
+ball.add(new Transform({ position: [-1, 0.5, 0, 1] }));
+ball.add(Materials.woodVarnishedGloss({ coat_color: [1, 0.85, 0.6] }));
+app.world.insert(ball);
+
+// Dois materiais prontos misturados por um ruído
+const mixed = new NodeGraph({
+  nodes: {
+    s: nodes.input.surfaceSample(),
+    a: nodes.material.woodRaw,
+    b: nodes.material.metalBrushed,
+    n: nodes.noise.gradient3.with({ scale: 3 }),
+    x: nodes.closure.mix,
+    out: nodes.output.closure,
+  },
+  links: [
+    ['s.world_position', 'n.p'],
+    ['a.value', 'x.a'],
+    ['b.value', 'x.b'],
+    ['n.value', 'x.t'],
+    ['x.value', 'out.closure'],
+  ],
+  output: 'out.value',
+});
+const other = new SphereGeometry({ radius: 0.5 });
+other.add(new StandardMaterial());
+other.add(new Transform({ position: [1, 0.5, 0, 1] }));
+other.add(new MaterialFunction({ graph: mixed }));
+app.world.insert(other);
+```
+
+A lista dos materiais, os parâmetros e as fontes dos valores estão no guia
+[Materiais](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/materials.md).
+
 ## Comandos
 
 ```bash
@@ -185,6 +232,7 @@ npm run doc          # TypeDoc → docs/
 ## Documentação adicional
 
 - [Arquitetura completa](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/architecture_resource_loaders.md)
+- [Materiais por nós e a biblioteca](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/materials.md)
 - [Colisões e estabilidade](https://github.com/dantasgut/clayflow/blob/develop/clay-engine-doc/docs/guides/colisoes.md)
 - TypeDoc: `npm run doc` gera em `clay-engine-doc/docs/api/`
 
