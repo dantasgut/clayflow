@@ -5,6 +5,7 @@ import type { SceneContribution } from '../../../scene/shaders/WgslPoint';
 import { sharedConstant } from '../../../scene/shaders/SharedConstant';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { poolLive } from '../../gpu/compute/shaders';
+import { constants } from '../../gpu/shaders/math';
 import { closure, closureEval, subsurface } from '../../material/pbr/shaders';
 import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
@@ -121,6 +122,7 @@ const poolLights = wgslModule({
 const poolTransmitted = wgslModule({
     name: 'scene_transmitted_lighting_pool',
     requires: [
+        constants,
         closure,
         subsurface,
         poolLive,
@@ -142,7 +144,7 @@ const poolTransmitted = wgslModule({
         if (all(inc.radiance <= vec3f(0.0)) || dot(n, inc.l) >= 0.0) { continue; }
         let through = light_thickness(i, p, n);
         if (through.x < 0.0) { continue; }
-        sum = sum + inc.radiance * light_transmission(i, p) * (through.y / 3.14159265358979)
+        sum = sum + inc.radiance * light_transmission(i, p) * (through.y / PI)
             * subsurface_transmission(through.x, d);
     }
     return sum;
