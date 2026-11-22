@@ -4,6 +4,7 @@ import { fromJSON, toJSON } from '../../../scene/graph/serialize';
 import { subgraphOrigin } from '../../../scene/graph/Subgraph';
 import { MaterialFunction } from '../../extension/MaterialFunction';
 import { defaultNodeRegistry, nodes } from '../../nodes/index';
+import { Displacements } from '../Displacements';
 import { Materials, type MaterialName } from '../Materials';
 import { LOBES } from '../pbr/lobes';
 
@@ -37,6 +38,42 @@ const NAMES = [
     'marble',
     'jade',
     'milk',
+    'carPaintSilver',
+    'gold',
+    'copper',
+    'brass',
+    'chrome',
+    'aluminiumAnodized',
+    'metalHammered',
+    'castIron',
+    'bronzePatina',
+    'concrete',
+    'granite',
+    'sandstone',
+    'brick',
+    'plaster',
+    'asphalt',
+    'tile',
+    'terracotta',
+    'driedMud',
+    'sand',
+    'woodOak',
+    'woodWalnut',
+    'woodPine',
+    'woodMahogany',
+    'woodOakVarnished',
+    'woodFloorPlanks',
+    'woodFloorHerringbone',
+    'bark',
+    'barkBirch',
+    'cork',
+    'paper',
+    'carbonFiber',
+    'ice',
+    'soap',
+    'ivory',
+    'motherOfPearl',
+    'snow',
 ] as const satisfies readonly MaterialName[];
 
 /** Os nós de dentro do material pronto: identificador → nome da definição. */
@@ -48,7 +85,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 26 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 62 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -418,5 +455,92 @@ describe('Materials (spec 011, US5)', () => {
             );
             expect(back.values()).toEqual(graph.values());
         }
+    });
+    it('materiais novos (T117): metais por canal, pintura de base metálica, madeiras com nós, assoalhos e relevos', () => {
+        const has = (name: MaterialName, node: string): boolean =>
+            Object.values(inner(name)).includes(node);
+        const rgb = (name: MaterialName, p: string): number[] =>
+            nodes.material[name].params[p]!.default as number[];
+        // Os metais puros: um condutor só, com o F0 por canal (o ouro, o cobre e o latão quentes; o cromo neutro).
+        for (const name of ['gold', 'copper', 'brass', 'chrome'] as const)
+            expect(inner(name)).toEqual({ out: 'bsdf.conductor' });
+        for (const name of ['gold', 'copper', 'brass'] as const) {
+            const [r, g, b] = rgb(name, 'color');
+            expect(r).toBeGreaterThan(g!);
+            expect(g).toBeGreaterThan(b!);
+        }
+        const chrome = rgb('chrome', 'color');
+        expect(Math.max(...chrome) - Math.min(...chrome)).toBeLessThan(0.02);
+        expect(rgb('gold', 'color')).toEqual([0.944, 0.776, 0.373]);
+        expect(rgb('copper', 'color')).toEqual([0.955, 0.638, 0.538]);
+        for (const name of [
+            'aluminiumAnodized',
+            'metalHammered',
+            'castIron',
+            'bronzePatina',
+            'carbonFiber',
+        ] as const)
+            expect(has(name, 'bsdf.conductor'), name).toBe(true);
+        expect(has('metalHammered', 'pattern.dents')).toBe(true);
+        expect(inner('aluminiumAnodized')).toMatchObject({ out: 'closure.layer' });
+        // A pintura de carro: a base é metal (o condutor cobre quase toda a base), nas duas cores.
+        for (const name of ['carPaint', 'carPaintSilver'] as const) {
+            expect(nodes.material[name].params.flake_weight!.default).toBeGreaterThanOrEqual(0.85);
+            expect(nodes.material[name].params.flake_roughness!.default).toBeGreaterThanOrEqual(
+                0.25,
+            );
+        }
+        // O padrão que o nome promete.
+        const promised: Readonly<Partial<Record<MaterialName, string>>> = {
+            concrete: 'pattern.cells',
+            granite: 'pattern.cells',
+            sandstone: 'relief.sandstone',
+            brick: 'pattern.bricks',
+            tile: 'pattern.bricks',
+            asphalt: 'pattern.cells',
+            driedMud: 'relief.driedMud',
+            sand: 'pattern.cells',
+            bark: 'pattern.fissures',
+            barkBirch: 'relief.barkBirch',
+            cork: 'pattern.cells',
+            woodPine: 'pattern.rings',
+            woodFloorPlanks: 'pattern.planks',
+            woodFloorHerringbone: 'pattern.planks',
+            carbonFiber: 'pattern.weave',
+            motherOfPearl: 'closure.thinFilm',
+            paper: 'bsdf.translucent',
+            snow: 'pattern.cells',
+        };
+        for (const [name, node] of Object.entries(promised) as [MaterialName, string][])
+            expect(has(name, node), name).toBe(true);
+        // Os de relevo em milímetros têm a escala do mundo e o deslocamento de mesmo nome.
+        for (const name of ['sandstone', 'brick', 'bark', 'barkBirch', 'driedMud'] as const) {
+            expect(has(name, 'surface.reliefNormal'), name).toBe(true);
+            expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });
+            expect(Displacements[name]().graph!.node('relief').definition).toBe(nodes.relief[name]);
+        }
+        // As madeiras: o pinho tem nós; o mogno e o carvalho escuro, verniz; os assoalhos leem a coordenada da tábua.
+        expect(nodes.material.woodPine.params.knots!.default).toBeGreaterThan(0);
+        expect(nodes.material.woodPine.params.coat_weight!.default).toBe(0);
+        for (const name of ['woodMahogany', 'woodOakVarnished', 'woodFloorPlanks'] as const)
+            expect(nodes.material[name].params.coat_weight!.default).toBe(1);
+        expect(nodes.material.woodOakVarnished.params.pore_relief!.default).toBeGreaterThan(0);
+        const planks = (name: MaterialName) => subgraphOrigin(nodes.material[name])!.graph;
+        expect(planks('woodFloorPlanks').links).toEqual(
+            expect.arrayContaining([['planks.p', 'rings.p']]),
+        );
+        expect(planks('woodFloorPlanks').node('planks').values).toMatchObject({ arrangement: 0 });
+        expect(planks('woodFloorHerringbone').node('planks').values).toMatchObject({
+            arrangement: 1,
+        });
+        // Os de subsuperfície novos: o gelo espalha mais longe no azul; o marfim, curto e quente.
+        for (const name of ['ice', 'soap', 'ivory', 'snow'] as const)
+            expect(has(name, 'bsdf.subsurface'), name).toBe(true);
+        const ice = rgb('ice', 'radius');
+        expect(ice[2]).toBeGreaterThan(ice[0]!);
+        const ivory = rgb('ivory', 'radius');
+        expect(Math.max(...ivory)).toBeLessThan(0.5);
+        // O tecido fino tem cobertura parcial nos vãos.
+        expect(has('sheerFabric', 'closure.opacity')).toBe(true);
     });
 });

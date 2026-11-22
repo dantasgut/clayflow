@@ -194,7 +194,7 @@ export const woodRaw = Subgraph.point(
  * `material.woodRough` — madeira bruta e envelhecida (tábua serrada, exposta ao tempo, sem acabamento): a madeira crua
  * (`material.woodRaw`: os anéis, a fibra e os poros na cor), mais cinzenta e áspera, com o relevo de
  * `relief.woodRough` — o lenho tardio saliente, a face irregular, a fibra levantada, as frestas ao longo do veio e os
- * poros abertos —, em milímetros: `ring_height` (0,8), `wear_height` (1,2), `fiber_height` (0,3), `crack_depth` (3),
+ * poros abertos —, em milímetros: `ring_height` (0,3), `wear_height` (1,2), `fiber_height` (0,5), `crack_depth` (3),
  * com `scale` unidades do mundo por metro (1: cena em metros). O relevo inclina a normal (`surface.reliefNormal`) e
  * escurece o fundo das frestas (a cor cai a `cavity`, 0,25, a 2 mm abaixo da face: a luz ambiente que não chega lá);
  * o tom varia em manchas largas e em faixas ao longo do veio;
@@ -206,8 +206,8 @@ export const woodRough = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(WOOD_OFFSET),
-            early: math.value3.with({ value: [0.37, 0.3, 0.23] }),
-            late: math.value3.with({ value: [0.2, 0.15, 0.105] }),
+            early: math.value3.with({ value: [0.31, 0.26, 0.21] }),
+            late: math.value3.with({ value: [0.2, 0.16, 0.125] }),
             wood: woodRaw.with({ roughness: 0.9, relief: 0, fiber_relief: 0 }),
             // A escala do padrão, uma para a cor e para o relevo.
             tile: math.value2.with({ value: [1, 1] }),

@@ -485,8 +485,10 @@ const SHEER: FabricValues = {
 /**
  * `material.sheerFabric` — tecido fino (voile, cortina): tela aberta (60 fios por unidade do padrão, metade do passo
  * sem fio) de parede fina — a luz de trás passa espalhada (`bsdf.translucent`) misturada ao difuso das fibras: pelos
- * fios, `translucency` (0,5); pelos vãos da trama, inteira. A cor vale para os dois; um brilho de fibra fraco.
- * Parâmetros: `color`, `weft_color`, `translucency`, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale`.
+ * fios, `translucency` (0,5); pelos vãos da trama, inteira. Os vãos são buracos: a cobertura cai neles a
+ * `gap_opacity` (0,15) — o que está atrás aparece através do tecido, e onde duas camadas se sobrepõem passa menos
+ * (escurece contra a luz). A cor vale para os dois; um brilho de fibra fraco. Parâmetros: `color`, `weft_color`,
+ * `translucency`, `gap_opacity`, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale`.
  */
 export const sheerFabric = Subgraph.point(
     new NodeGraph({
@@ -501,7 +503,10 @@ export const sheerFabric = Subgraph.point(
                 roughness: SHEER.sheen_roughness,
             }),
             sum: closure.add,
-            out: closure.normal,
+            surface: closure.normal,
+            // Os vãos da trama são buracos: a cobertura cai neles (o que está atrás aparece; duas camadas cobrem mais).
+            cover: map.range.with({ out_min: 1, out_max: 0.15 }),
+            out: closure.opacity,
         },
         links: [
             ...WEAVE_LINKS,
@@ -513,8 +518,11 @@ export const sheerFabric = Subgraph.point(
             ['open.value', 'cloth.t'],
             ['cloth.value', 'sum.a'],
             ['fuzz.value', 'sum.b'],
-            ['sum.value', 'out.c'],
-            ['fluff_relief.value', 'out.normal'],
+            ['sum.value', 'surface.c'],
+            ['fluff_relief.value', 'surface.normal'],
+            ['weave.gap', 'cover.x'],
+            ['surface.value', 'out.c'],
+            ['cover.value', 'out.alpha'],
         ],
         output: 'out.value',
     }),
@@ -524,6 +532,7 @@ export const sheerFabric = Subgraph.point(
         expose: [
             ...WEAVE_EXPOSE,
             ['open.out_min', 'translucency'],
+            ['cover.out_max', 'gap_opacity'],
             ['fuzz.color', 'sheen_color'],
             ['fuzz.roughness', 'sheen_roughness'],
         ],

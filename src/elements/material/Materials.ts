@@ -26,13 +26,49 @@ export type MaterialName =
     | 'metalPolished'
     | 'metalBrushed'
     | 'carPaint'
+    | 'carPaintSilver'
     | 'glass'
     | 'metalOxidized'
     | 'skin'
     | 'wax'
     | 'marble'
     | 'jade'
-    | 'milk';
+    | 'milk'
+    | 'gold'
+    | 'copper'
+    | 'brass'
+    | 'chrome'
+    | 'aluminiumAnodized'
+    | 'metalHammered'
+    | 'castIron'
+    | 'bronzePatina'
+    | 'concrete'
+    | 'granite'
+    | 'sandstone'
+    | 'brick'
+    | 'plaster'
+    | 'asphalt'
+    | 'tile'
+    | 'terracotta'
+    | 'driedMud'
+    | 'sand'
+    | 'woodOak'
+    | 'woodWalnut'
+    | 'woodPine'
+    | 'woodMahogany'
+    | 'woodOakVarnished'
+    | 'woodFloorPlanks'
+    | 'woodFloorHerringbone'
+    | 'bark'
+    | 'barkBirch'
+    | 'cork'
+    | 'paper'
+    | 'carbonFiber'
+    | 'ice'
+    | 'soap'
+    | 'ivory'
+    | 'motherOfPearl'
+    | 'snow';
 
 /**
  * Fábrica de um material pronto: os valores dos parâmetros expostos do nó (os que faltam ficam no padrão documentado)
@@ -61,17 +97,21 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * por `values.material_<parâmetro>`. Materiais com o mesmo nó compartilham o pipeline. Para compor (misturar dois por
  * uma máscara, ligar a rugosidade a um ruído), use o nó `nodes.material.<nome>` num `NodeGraph` próprio.
  *
- * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
- * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`.
- * Metais: `metalPolished`, `metalBrushed`, `carPaint`, `metalOxidized`. Translúcidos: `glass`, `skin`, `wax`, `marble`,
- * `jade`, `milk`. Os valores físicos e as fontes estão na documentação de cada nó.
+ * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`, as espécies `woodOak`, `woodWalnut`,
+ * `woodPine`, `woodMahogany`, `woodOakVarnished`, os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark` e `barkBirch` e a cortiça `cork`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
+ * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
+ * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
+ * `aluminiumAnodized`, `castIron`, `bronzePatina`, `metalOxidized`, `carPaint`, `carPaintSilver`, `carbonFiber`. Pedra, construção e
+ * terra: `concrete`, `granite`, `sandstone`, `brick`, `plaster`, `asphalt`, `tile`, `terracotta`, `driedMud`, `sand`.
+ * Translúcidos: `glass`, `skin`, `wax`, `marble`, `jade`, `milk`, `ice`, `soap`, `ivory`, `snow`. Iridescente:
+ * `motherOfPearl`. Os valores físicos e as fontes estão na documentação de cada nó.
  *
- * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`) têm o raio de espalhamento em milímetros
+ * Os de subsuperfície (`skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`, `ice`, `soap`, `ivory`, `snow`) têm o raio de espalhamento em milímetros
  * (`radius`) e a escala do mundo em unidades por metro (`scale`, 1 por padrão): a luz se difunde sob a superfície e
  * atravessa as partes finas na medida do tamanho real do objeto — `Materials.wax({ scale: 100 })` numa cena em
  * centímetros.
  *
- * Os de relevo em milímetros (`woodRough`, `leather`) têm as alturas em milímetros e a mesma escala do mundo
+ * Os de relevo em milímetros (`woodRough`, `leather`, `wool`, `sandstone`, `brick`, `bark`, `barkBirch`, `driedMud`) têm as alturas em milímetros e a mesma escala do mundo
  * (`scale`): o relevo inclina a normal no material e, com a `DisplacementFunction` de mesmo nome (`Displacements`) na
  * entidade de uma `ParametricSurface`, move a geometria — os mesmos valores nos dois.
  *
@@ -102,6 +142,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     metalPolished: factory(material.metalPolished),
     metalBrushed: factory(material.metalBrushed),
     carPaint: factory(material.carPaint),
+    carPaintSilver: factory(material.carPaintSilver),
     glass: factory(material.glass),
     metalOxidized: factory(material.metalOxidized),
     skin: factory(material.skin),
@@ -109,4 +150,39 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     marble: factory(material.marble),
     jade: factory(material.jade),
     milk: factory(material.milk),
+    gold: factory(material.gold),
+    copper: factory(material.copper),
+    brass: factory(material.brass),
+    chrome: factory(material.chrome),
+    aluminiumAnodized: factory(material.aluminiumAnodized),
+    metalHammered: factory(material.metalHammered),
+    castIron: factory(material.castIron),
+    bronzePatina: factory(material.bronzePatina),
+    concrete: factory(material.concrete),
+    granite: factory(material.granite),
+    sandstone: factory(material.sandstone),
+    brick: factory(material.brick),
+    plaster: factory(material.plaster),
+    asphalt: factory(material.asphalt),
+    tile: factory(material.tile),
+    terracotta: factory(material.terracotta),
+    driedMud: factory(material.driedMud),
+    sand: factory(material.sand),
+    woodOak: factory(material.woodOak),
+    woodWalnut: factory(material.woodWalnut),
+    woodPine: factory(material.woodPine),
+    woodMahogany: factory(material.woodMahogany),
+    woodOakVarnished: factory(material.woodOakVarnished),
+    woodFloorPlanks: factory(material.woodFloorPlanks),
+    woodFloorHerringbone: factory(material.woodFloorHerringbone),
+    bark: factory(material.bark),
+    barkBirch: factory(material.barkBirch),
+    cork: factory(material.cork),
+    paper: factory(material.paper),
+    carbonFiber: factory(material.carbonFiber),
+    ice: factory(material.ice),
+    soap: factory(material.soap),
+    ivory: factory(material.ivory),
+    motherOfPearl: factory(material.motherOfPearl),
+    snow: factory(material.snow),
 });

@@ -1,5 +1,17 @@
 import { cotton, denim, sheerFabric, silk, velvet, wool } from './fabric';
-import { carPaint, metalBrushed, metalOxidized, metalPolished } from './metal';
+import {
+    brass,
+    carPaint,
+    carPaintSilver,
+    chrome,
+    copper,
+    gold,
+    metalBrushed,
+    metalOxidized,
+    metalPolished,
+} from './metal';
+import { aluminiumAnodized, bronzePatina, castIron, metalHammered } from './metalFinish';
+import { carbonFiber, ice, ivory, motherOfPearl, paper, snow, soap } from './organic';
 import { openpbr } from './openpbr';
 import {
     ceramic,
@@ -10,11 +22,35 @@ import {
     woodRaw,
     woodRough,
 } from './surface';
+import {
+    asphalt,
+    brick,
+    concrete,
+    driedMud,
+    granite,
+    plaster,
+    sand,
+    sandstone,
+    terracotta,
+    tile,
+} from './stone';
 import { glass, jade, marble, milk, porcelain, skin, wax } from './translucent';
 import { woodVarnishedGloss, woodVarnishedMatte } from './wood';
+import {
+    bark,
+    barkBirch,
+    cork,
+    woodFloorHerringbone,
+    woodFloorPlanks,
+    woodMahogany,
+    woodOak,
+    woodOakVarnished,
+    woodPine,
+    woodWalnut,
+} from './woodSpecies';
 
 /**
- * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 26 materiais prontos — cada um um nó
+ * Materiais como sub-grafos de ponto (spec 011, R11): o OpenPBR e a biblioteca de 62 materiais prontos — cada um um nó
  * sem ligações obrigatórias que devolve o fechamento, com os parâmetros expostos (valor por uso, sem recompilar) também
  * como entradas (ligáveis a outros nós). Usados inteiros (`Materials.x()`), abertos e religados, ou como nó de um grafo
  * maior.
@@ -40,6 +76,7 @@ export const material = {
     metalPolished,
     metalBrushed,
     carPaint,
+    carPaintSilver,
     glass,
     metalOxidized,
     skin,
@@ -47,6 +84,41 @@ export const material = {
     marble,
     jade,
     milk,
+    gold,
+    copper,
+    brass,
+    chrome,
+    aluminiumAnodized,
+    metalHammered,
+    castIron,
+    bronzePatina,
+    concrete,
+    granite,
+    sandstone,
+    brick,
+    plaster,
+    asphalt,
+    tile,
+    terracotta,
+    driedMud,
+    sand,
+    woodOak,
+    woodWalnut,
+    woodPine,
+    woodMahogany,
+    woodOakVarnished,
+    woodFloorPlanks,
+    woodFloorHerringbone,
+    bark,
+    barkBirch,
+    cork,
+    paper,
+    carbonFiber,
+    ice,
+    soap,
+    ivory,
+    motherOfPearl,
+    snow,
 } as const;
 
 export { relief } from './relief';
