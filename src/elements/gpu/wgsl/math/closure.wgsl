@@ -21,6 +21,7 @@ const CLOSURE_THIN_FILM: u32 = 128u;
 const CLOSURE_ANISOTROPY: u32 = 256u;
 const CLOSURE_OPACITY: u32 = 512u;
 const CLOSURE_TRANSLUCENT: u32 = 1024u;
+const CLOSURE_GLINT: u32 = 2048u;
 
 // O struct `Closure` vem do `ClosureSchema` (gerado na montagem).
 
@@ -240,6 +241,14 @@ fn closure_add(a: Closure, b: Closure) -> Closure {
     o.specular_roughness = closure_merge_roughness(a.specular_roughness, wsa, b.specular_roughness, wsb);
     o.specular_anisotropy = closure_merge1(a.specular_anisotropy, wsa, b.specular_anisotropy, wsb);
     o.tangent = closure_merge_dir(a.tangent, wsa, b.tangent, wsb);
+    // Os brilhos pontuais são do especular de base e não se fundem (as células são um sorteio): valem os do lado que
+    // os tem; se os dois, os do lado de maior peso especular. Escolha, sem média: nenhuma divisão por peso nulo.
+    let glint_a = a.glint_count > 0.0 && wsa > 0.0;
+    let glint_b = b.glint_count > 0.0 && wsb > 0.0;
+    let from_b = glint_b && (!glint_a || wsb > wsa);
+    o.glint_cells = select(a.glint_cells, b.glint_cells, from_b);
+    o.glint_count = select(select(0.0, a.glint_count, glint_a), b.glint_count, from_b);
+    o.glint_roughness = select(a.glint_roughness, b.glint_roughness, from_b);
     o.film_weight = a.film_weight + b.film_weight;
     o.film_thickness = closure_merge1(a.film_thickness, a.film_weight, b.film_thickness, b.film_weight);
     o.film_ior = closure_merge1(a.film_ior, a.film_weight, b.film_ior, b.film_weight);
@@ -307,6 +316,18 @@ fn closure_thin_film(c: Closure, thickness_nm: f32, film_ior: f32) -> Closure {
     return o;
 }
 
+// Brilhos pontuais do especular de base (spec 011, T118): `cells` e `count` de `pattern.glints` (as células do sorteio
+// e o número de flocos na célula; `count` ≤ 0 = sem brilhos) e a rugosidade do lobo de cada floco (o espelho pequeno:
+// quanto mais lisa, menos flocos alinhados e mais forte cada brilho). A rugosidade do especular de base passa a ser a
+// distribuição das orientações dos flocos; a média dos brilhos é o lobo dela (`closure_glint`, módulo `closure_eval`).
+fn closure_glints(c: Closure, cells: vec3f, count: f32, roughness: f32) -> Closure {
+    var o = c;
+    o.glint_cells = clamp(cells, vec3f(0.0), vec3f(1.0));
+    o.glint_count = max(count, 0.0);
+    o.glint_roughness = clamp(roughness, 0.02, 1.0);
+    return o;
+}
+
 // Opacidade (recorte parcial): multiplica a cobertura por `alpha` em [0, 1].
 fn closure_opacity(c: Closure, alpha: f32) -> Closure {
     var o = c;
@@ -365,6 +386,10 @@ fn closure_sanitize(c: Closure) -> Closure {
     o.specular_roughness = select(0.5, clamp(c.specular_roughness, 0.0, 1.0), ok_sp);
     o.specular_anisotropy = select(0.0, clamp(c.specular_anisotropy, -1.0, 1.0), ok_sp);
     o.tangent = select(vec3f(0.0), c.tangent, ok_sp);
+    let ok_g = finite3(c.glint_cells) && finite3(vec3f(c.glint_count, c.glint_roughness, 0.0));
+    o.glint_count = select(0.0, max(c.glint_count, 0.0), ok_g);
+    o.glint_cells = select(vec3f(0.0), clamp(c.glint_cells, vec3f(0.0), vec3f(1.0)), ok_g);
+    o.glint_roughness = select(0.1, clamp(c.glint_roughness, 0.02, 1.0), ok_g);
     let ok_f = finite3(vec3f(c.film_weight, c.film_thickness, c.film_ior));
     o.film_weight = select(0.0, max(c.film_weight, 0.0), ok_f);
     let ok_c = finite3(vec3f(c.coat_weight, c.coat_ior, c.coat_roughness)) && finite3(c.coat_color) && finite3(c.coat_normal);

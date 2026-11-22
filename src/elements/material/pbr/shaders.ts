@@ -5,7 +5,7 @@ import closureSource from '../../gpu/wgsl/math/closure.wgsl?raw';
 import closureEvalSource from '../../gpu/wgsl/math/closure_eval.wgsl?raw';
 import subsurfaceSource from '../../gpu/wgsl/math/subsurface.wgsl?raw';
 import pbrDfgBuildSource from '../../gpu/wgsl/kernels/pbr_dfg_build.wgsl?raw';
-import { basis, bsdf, finite } from '../../gpu/shaders/math';
+import { basis, bsdf, constants, finite, random } from '../../gpu/shaders/math';
 import { materialPointTypes } from '../point/types/shaders';
 import { ClosureSchema } from './ClosureSchema';
 
@@ -56,7 +56,7 @@ export const pbrSamplerResource = wgslResource({
 export const closureEval = wgslModule({
     name: 'closure_eval',
     source: closureEvalSource,
-    requires: [closure, bsdf, basis, pbrDfgResource, pbrSamplerResource],
+    requires: [closure, bsdf, basis, constants, random, pbrDfgResource, pbrSamplerResource],
 });
 
 /** Saída do kernel da tabela DFG (a textura do `PbrTables`), privada do `PbrTablesFlow`. */

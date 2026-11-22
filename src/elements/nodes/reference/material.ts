@@ -8,6 +8,7 @@ import {
     closureDielectric,
     closureDiffuse,
     closureEmission,
+    closureGlints,
     closureLayer,
     closureMediumPriority,
     closureMediumScatter,
@@ -233,6 +234,21 @@ const closureCases: readonly NodeCase[] = [
         }),
         reference: (x) => ({
             value: flat(closureThinFilm(closureIn(x, 'c'), num(x.thickness), num(x.ior))),
+        }),
+    },
+    {
+        node: 'closure.glints',
+        tolerance: 1e-5,
+        sample: (r) => ({
+            c: randomClosure(r),
+            cells: vector(r, 3, -0.2, 1.2),
+            count: uniform(r, -4, 400),
+            roughness: uniform(r, 0, 1.2),
+        }),
+        reference: (x) => ({
+            value: flat(
+                closureGlints(closureIn(x, 'c'), v3(vec(x.cells)), num(x.count), num(x.roughness)),
+            ),
         }),
     },
     {

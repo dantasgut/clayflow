@@ -6,9 +6,9 @@
 //
 // Especialização: `CLOSURE_LOBES` (constante `override`, bits `CLOSURE_*`) é a máscara dos lobos que o material usa;
 // o pipeline a fixa na criação e os ramos dos lobos ausentes saem do código compilado. Sem especializar, todos.
-// Requer: closure, bsdf; recursos `pbr_dfg` e `pbr_sampler` (a tabela do `PbrTables`).
+// Requer: closure, bsdf, basis, random; recursos `pbr_dfg` e `pbr_sampler` (a tabela do `PbrTables`).
 
-override CLOSURE_LOBES: u32 = 2047u;
+override CLOSURE_LOBES: u32 = 4095u;
 
 // O reflexo traçado (spec 011, T114): 1 no pipeline cujos lobos especulares lisos recebem a radiância de um raio
 // refletido por pixel (o desenho dos opacos com o reflexo traçado da cena) — ali `closure_indirect` deixa de fora a
@@ -36,12 +36,13 @@ fn closure_has(bit: u32) -> bool {
     return (CLOSURE_LOBES & bit) != 0u;
 }
 
-// A fração de espelho do especular de base: a da rugosidade do eixo estreito do lobo. No lobo anisotrópico (o metal
-// escovado) o eixo estreito tem α · (1 − |anisotropia|) — a rugosidade vezes √(1 − |anisotropia|) —, e o raio do
-// reflexo é sorteado no eixo largo (`closure_specular_sample`); no isotrópico, a rugosidade.
+// A fração de espelho do especular de base: a da rugosidade do eixo largo do lobo. No lobo anisotrópico (o metal
+// escovado) o eixo largo tem α · (1 + |anisotropia|) — a rugosidade vezes √(1 + |anisotropia|): um raio só por pixel
+// não o representa (sorteado, vira ruído; na direção dominante, vira um espelho que o lobo não é), e ele fica com a
+// radiância das sondas, já filtrada, e com o realce analítico das luzes. No isotrópico, a rugosidade.
 fn closure_base_mirror(c: Closure) -> f32 {
     var r = c.specular_roughness;
-    if (closure_has(CLOSURE_ANISOTROPY)) { r *= sqrt(1.0 - clamp(abs(c.specular_anisotropy), 0.0, 1.0)); }
+    if (closure_has(CLOSURE_ANISOTROPY)) { r *= sqrt(1.0 + clamp(abs(c.specular_anisotropy), 0.0, 1.0)); }
     return closure_mirror(r);
 }
 
@@ -144,6 +145,61 @@ fn closure_specular_aa(c: Closure, variance: f32) -> Closure {
     return o;
 }
 
+// Número de flocos alinhados entre `count` flocos, cada um alinhado com a probabilidade `p`, para o sorteio `u` em
+// [0, 1): a binomial — pela Poisson de média `count · p` (a inversa da acumulada, até 24 termos) enquanto a média é
+// menor que 8, e pela normal de mesma média e variância acima disso (a inversa da normal de Abramowitz e Stegun
+// 26.2.23, erro abaixo de 4,5e-4), presa em [0, `count`].
+fn closure_glint_count(count: f32, p: f32, u: f32) -> f32 {
+    let mean = count * p;
+    if (mean >= 8.0) {
+        let q = clamp(min(u, 1.0 - u), 1e-7, 0.5);
+        let t = sqrt(-2.0 * log(q));
+        let z = (t - (2.515517 + t * (0.802853 + t * 0.010328)) / (1.0 + t * (1.432788 + t * (0.189269 + t * 0.001308))))
+            * select(-1.0, 1.0, u > 0.5);
+        return clamp(round(mean + sqrt(mean * (1.0 - p)) * z), 0.0, count);
+    }
+    var term = exp(-mean);
+    var cdf = term;
+    var k = 0.0;
+    for (var i = 1; i <= 24; i++) {
+        if (u < cdf) { break; }
+        k = f32(i);
+        term *= mean / k;
+        cdf += term;
+    }
+    return min(k, count);
+}
+
+// Brilhos pontuais (spec 011, T118): a distribuição das micronormais vista por um pixel que cobre poucos flocos — a
+// contagem discreta dos flocos alinhados com o vetor do meio `h`, em vez da densidade média `d` = D(h) (Jakob et al.
+// 2014, "Discrete Stochastic Microfacet Models"; a contagem por célula de um nível de detalhe e a mistura de dois
+// níveis de Zirr e Kaplanyan 2016, "Real-time Rendering of Procedural Multiscale Materials"). Cada floco é um espelho
+// pequeno de lobo próprio (ângulo sólido Ω = π · α_f², α_f = `glint_roughness`²) e orientação sorteada da
+// distribuição do lobo: está alinhado com a probabilidade p = D(h) · (n·h) · Ω. Dos N flocos da célula do pixel
+// (`glint_count`; 4 N no nível seguinte), k estão alinhados — k sorteado da binomial com um valor fixo da célula e da
+// caixa de `h` (de lado √Ω no plano das inclinações: outra direção, outros flocos) —, e a densidade é k / (N · (n·h) ·
+// Ω): a média é D(h) (a energia do lobo), e longe do realce, onde p é pequeno, sobram poucos pontos fortes. Com muitos
+// flocos por pixel a contagem vai à média e o lobo fica liso. Devolve a densidade no lugar de `d`.
+fn closure_glint(c: Closure, nb: vec3f, h: vec3f, d: f32) -> f32 {
+    let nh = dot(nb, h);
+    if (c.glint_count <= 0.0 || nh <= 1e-3) { return d; }
+    let af = c.glint_roughness * c.glint_roughness;
+    let omega = PI * af * af;
+    let frame = basis_duff(nb);
+    let side = sqrt(omega);
+    let box = vec2i(floor(vec2f(dot(frame[0], h), dot(frame[1], h)) / (nh * side)));
+    let salt = (bitcast<u32>(box.x) * 0x9e3779b1u) ^ (bitcast<u32>(box.y) * 0x85ebca77u);
+    var density = vec2f(0.0);
+    for (var level = 0u; level < 2u; level++) {
+        let count = c.glint_count * select(1.0, 4.0, level == 1u);
+        let p = min(d * nh * omega, 1.0);
+        let cell = u32(c.glint_cells[level] * 16777215.0);
+        let k = closure_glint_count(count, p, random_unit(pcg_hash(cell ^ pcg_hash(salt + level))));
+        density[level] = k / (count * nh * omega);
+    }
+    return mix(density.x, density.y, c.glint_cells.z);
+}
+
 // Resposta do fechamento a uma luz de direção `l` (unitária, da superfície para a luz) e radiância `radiance` que chega
 // (irradiância na normal da luz): radiância refletida para `v`. `n` é a normal geométrica de sombreamento.
 fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> vec3f {
@@ -173,7 +229,9 @@ fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> ve
                 * bsdf_v_smith_correlated_aniso(at, ab, dot(t, v), dot(b, v), dot(t, l), dot(b, l), nv, nl);
         } else {
             let a2 = alpha * alpha;
-            dv = bsdf_d_ggx(nh, a2) * bsdf_v_smith_correlated(nv, nl, a2);
+            var d = bsdf_d_ggx(nh, a2);
+            if (closure_has(CLOSURE_GLINT)) { d = closure_glint(c, nb, h, d); }
+            dv = d * bsdf_v_smith_correlated(nv, nl, a2);
         }
         let dfg = closure_dfg(nv, c.specular_roughness);
         let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
@@ -301,37 +359,10 @@ fn closure_coat_mirrors(c: Closure) -> bool {
     return closure_has(CLOSURE_COAT) && c.coat_weight > 0.0 && closure_mirror(c.coat_roughness) > 0.0;
 }
 
-// O eixo estreito do lobo anisotrópico do especular de base (a direção das ranhuras: a tangente com a anisotropia
-// positiva, a bitangente com a negativa), unitário e tangente à normal do lobo; zero no lobo isotrópico.
-fn closure_specular_groove(c: Closure, n: vec3f, v: vec3f) -> vec3f {
-    if (!closure_has(CLOSURE_ANISOTROPY) || abs(c.specular_anisotropy) <= 1e-3) { return vec3f(0.0); }
-    let nb = closure_lobe_normal(c.normal, n, v);
-    let t0 = select(closure_default_tangent(nb), c.tangent, dot(c.tangent, c.tangent) > 1e-12);
-    let t = normalize(t0 - nb * dot(nb, t0));
-    return select(cross(nb, t), t, c.specular_anisotropy > 0.0);
-}
-
-// Direção do raio do reflexo traçado do especular de base, com o sorteio `u` em [0, 1) (spec 011, T117): no lobo
-// isotrópico, a especular dominante; no anisotrópico, a refletida por uma micronormal inclinada no eixo largo do lobo —
-// a inclinação s = α_l · q / √(1 − q²), q = 2u − 1 (a marginal da distribuição GGX das inclinações nesse eixo, α_l =
-// α · (1 + |anisotropia|); q preso em ± 0,96: a cauda além de 3,4 α_l fica de fora) —, sem inclinação no eixo estreito.
-// Um raio por pixel: o lobo alongado sai amostrado no espaço (e no tempo, onde o sorteio muda de quadro a quadro).
-fn closure_specular_sample(c: Closure, n: vec3f, v: vec3f, u: f32) -> vec3f {
-    let groove = closure_specular_groove(c, n, v);
-    if (dot(groove, groove) == 0.0) { return closure_specular_dir(c, n, v); }
-    let nb = closure_lobe_normal(c.normal, n, v);
-    let wide = cross(nb, groove);
-    let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
-    let q = clamp(2.0 * u - 1.0, -0.96, 0.96);
-    let slope = r * r * (1.0 + min(abs(c.specular_anisotropy), 1.0)) * q / sqrt(1.0 - q * q);
-    return reflect(-v, normalize(nb - slope * wide));
-}
-
-// Direção do raio do reflexo traçado: a especular dominante do verniz, se ele é liso, senão a da base (com o sorteio
-// `u` do lobo anisotrópico).
-fn closure_reflected_dir(c: Closure, n: vec3f, v: vec3f, u: f32) -> vec3f {
+// Direção do raio do reflexo traçado: a especular dominante do verniz, se ele é liso, senão a da base.
+fn closure_reflected_dir(c: Closure, n: vec3f, v: vec3f) -> vec3f {
     if (closure_coat_mirrors(c)) { return closure_coat_dir(c, n, v); }
-    return closure_specular_sample(c, n, v, u);
+    return closure_specular_dir(c, n, v);
 }
 
 // Resposta do fechamento, para `v`, à radiância unitária que chega pelo raio refletido (spec 011, T114): a parte lisa

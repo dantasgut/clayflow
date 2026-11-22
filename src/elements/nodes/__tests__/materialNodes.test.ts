@@ -123,7 +123,8 @@ describe('nós de material (spec 011)', () => {
         const a = new MaterialFunction({ graph: graph({ base_metalness: 1 }) });
         const b = new MaterialFunction({ graph: graph({ coat_weight: 1, coat_roughness: 0.03 }) });
         expect(a.module).toBe(b.module);
-        expect(a.lobeMask).toBe(ALL_LOBES & ~0);
+        // Todos os lobos da norma: os brilhos pontuais (`closure.glints`) não são do OpenPBR 1.1.
+        expect(a.lobeMask).toBe(ALL_LOBES & ~LOBES.glint);
         expect(a.values.p_base_metalness).toBe(1);
     });
 });
