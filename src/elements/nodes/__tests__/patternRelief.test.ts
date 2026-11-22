@@ -127,6 +127,37 @@ describe('padrões com relevo (spec 011)', () => {
         );
     });
 
+    it('anéis: largura irregular de ano para ano e raio ondulado, com o gradiente da derivada', () => {
+        checkGradient(
+            (p) => {
+                const o = patternRings(p, 0, [0, 0], 1, 0.4, 0.2, [1, 0.5], 2, 0.9, 0.04, [1, 2]);
+                return { h: o.value, g: o.gradient };
+            },
+            1,
+            30,
+        );
+        // Ao longo de y (longe da medula, sem distorção nem ondulação): a largura de cada anel pela troca do tom.
+        const widths = (irregularity: number): number[] => {
+            const out: number[] = [];
+            let last = patternRings([0, 1], 0, [0, 0], 8, 0, 0, [1, 1], 0, irregularity).ring;
+            let start = 1;
+            for (let y = 1; y < 6; y += 1 / 1024) {
+                const tone = patternRings([0, y], 0, [0, 0], 8, 0, 0, [1, 1], 0, irregularity).ring;
+                if (tone === last) continue;
+                out.push(y - start);
+                start = y;
+                last = tone;
+            }
+            return out.slice(1);
+        };
+        const even = widths(0);
+        const uneven = widths(1);
+        expect(Math.max(...even) / Math.min(...even)).toBeLessThan(1.05);
+        expect(Math.max(...uneven) / Math.min(...uneven)).toBeGreaterThan(1.5);
+        // Em média, os mesmos `scale` anéis por unidade (± 1 anel de deslocamento em 5 unidades).
+        expect(Math.abs(uneven.length - even.length)).toBeLessThanOrEqual(2);
+    });
+
     it('trama: tela alterna urdidura e trama; a sarja 3/1 mostra três quartos de urdidura na diagonal', () => {
         // No centro de cada cruzamento o fio de cima está à vista, na altura 1.
         const at = (i: number, j: number, over: number, under: number, shift: number) =>

@@ -78,8 +78,10 @@ const cells = defineNode({
 /**
  * Anéis de crescimento: o corte de um tronco de eixo ao longo de `p.x` (a direção da fibra), com a medula em `p.y` = 0 a
  * `depth` do plano do corte; a profundidade varia `distortion` · ruído(p · `distortion_scale`) — os arcos onde o corte
- * passa perto da medula; `scale` anéis por unidade de raio. `value` em [0, 1]: do lenho inicial (0) ao tardio (1, a faixa
- * escura e dura), com o `gradient`; `ring` o valor em [0, 1] do anel (o tom de ano para ano).
+ * passa perto da medula; `scale` anéis por unidade de raio em média. `irregularity` (0 a 1): a largura varia de ano
+ * para ano (até ± 1 anel de deslocamento); `waviness`: a ondulação do raio (em unidades de `p`) pelo ruído(p ·
+ * `waviness_scale`) — as linhas tortas também longe da medula. `value` em [0, 1]: do lenho inicial (0) ao tardio (1, a
+ * faixa escura e dura), com o `gradient`; `ring` o valor em [0, 1] do anel (o tom de ano para ano).
  */
 const rings = defineNode({
     name: 'pattern.rings',
@@ -92,6 +94,9 @@ const rings = defineNode({
         distortion: { type: 'f32', default: 0.15 },
         distortion_scale: { type: 'vec2f', default: [1.5, 0.75] },
         seed: { type: 'u32', default: 0 },
+        irregularity: { type: 'f32', default: 0 },
+        waviness: { type: 'f32', default: 0 },
+        waviness_scale: { type: 'vec2f', default: [3, 12] },
     },
     code: nodePattern,
     fn: 'node_pattern_rings',

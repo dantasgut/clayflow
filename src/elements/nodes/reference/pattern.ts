@@ -215,7 +215,10 @@ export function patternCells(
     };
 }
 
-/** `pattern.rings`: o perfil dos anéis de crescimento, o gradiente e o valor do anel. */
+/**
+ * `pattern.rings`: o perfil dos anéis de crescimento, o gradiente e o valor do anel; `irregularity` a variação da
+ * largura de ano para ano, `waviness` a ondulação do raio pelo ruído(p · `wavinessScale`).
+ */
 export function patternRings(
     p: readonly number[],
     width: number,
@@ -225,16 +228,30 @@ export function patternRings(
     distortion: number,
     distortionScale: readonly number[],
     seed: number,
+    irregularity = 0,
+    waviness = 0,
+    wavinessScale: readonly number[] = [3, 12],
 ): { value: number; gradient: number[]; ring: number } {
     const fx = fit(distortionScale[0]!, wrap[0]!, 1);
     const fr: V2 = [fx[0], distortionScale[1]!];
     const nz = patternNoise([f32(p[0]! * fr[0]), f32(p[1]! * fr[1])], [fx[1], 0], seed);
     const z = depth + distortion * nz[0];
+    const wx = fit(wavinessScale[0]!, wrap[0]!, 1);
+    const wr: V2 = [wx[0], wavinessScale[1]!];
+    const nw = patternNoise([f32(p[0]! * wr[0]), f32(p[1]! * wr[1])], [wx[1], 0], seed + 1);
     const y = p[1]!;
-    const r = Math.max(Math.sqrt(y * y + z * z), 1e-6);
-    const dr: V2 = [(z * distortion * nz[1] * fr[0]) / r, (y + z * distortion * nz[2] * fr[1]) / r];
+    const r0 = Math.max(Math.sqrt(y * y + z * z), 1e-6);
+    const r = Math.max(r0 + waviness * nw[0], 1e-6);
+    const dr: V2 = [
+        (z * distortion * nz[1] * fr[0]) / r0 + waviness * nw[1] * wr[0],
+        (y + z * distortion * nz[2] * fr[1]) / r0 + waviness * nw[2] * wr[1],
+    ];
     // O raio em anéis em f32, como na GPU: o anel (`floor`) e a posição dentro dele saem iguais.
-    const s = f32(f32(r) * scale);
+    const s0 = f32(f32(r) * scale);
+    const irr = clamp01(irregularity);
+    const ni = patternNoise([f32(s0 * 0.1875), 0.5], [0, 0], seed + 2);
+    const s = f32(s0 + irr * ni[0]);
+    const ds = scale * (1 + irr * 0.1875 * ni[1]);
     const ring = Math.floor(s);
     const t = s - ring;
     const ta = clamp01(t / 0.7);
@@ -242,11 +259,11 @@ export function patternRings(
     const a = smooth(ta);
     const b = 1 - smooth(tb);
     const dv = ((6 * ta * (1 - ta)) / 0.7) * b - a * ((6 * tb * (1 - tb)) / 0.12);
-    const k = width > 0 ? band(width * Math.abs(scale) * Math.hypot(dr[0], dr[1])) : 1;
+    const k = width > 0 ? band(width * Math.abs(ds) * Math.hypot(dr[0], dr[1])) : 1;
     const h = pcgHash(((ring | 0) ^ Math.imul(seed, 0x9e3779b1)) >>> 0);
     return {
         value: mix(0.59, a * b, k),
-        gradient: [k * dv * scale * dr[0], k * dv * scale * dr[1]],
+        gradient: [k * dv * ds * dr[0], k * dv * ds * dr[1]],
         ring: mix(0.5, unit24(h), k),
     };
 }
@@ -428,6 +445,12 @@ export const patternCases: readonly NodeCase[] = [
                 [0.5, 2],
             ][k % 3]!,
             seed: k % 5,
+            irregularity: k % 2 === 0 ? 0 : uniform(r, 0, 1),
+            waviness: k % 3 === 0 ? 0 : uniform(r, 0, 0.05),
+            waviness_scale: [
+                [2, 4],
+                [1, 8],
+            ][k % 2]!,
         }),
         reference: (x) =>
             patternRings(
@@ -439,6 +462,9 @@ export const patternCases: readonly NodeCase[] = [
                 num(x.distortion),
                 vec(x.distortion_scale),
                 num(x.seed),
+                num(x.irregularity),
+                num(x.waviness),
+                vec(x.waviness_scale),
             ),
     },
     {

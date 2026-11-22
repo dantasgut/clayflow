@@ -24,7 +24,7 @@ function varnished(
         new NodeGraph({
             nodes: {
                 s: input.surfaceSample(),
-                wood: woodRaw.with({ ior: 1, relief: 0.00008, fiber_relief: 0.0005 }),
+                wood: woodRaw.with({ ior: 1, relief: 0.00001, fiber_relief: 0.00013 }),
                 coat: bsdf.dielectric.with({ ior: 1.5, roughness: coatRoughness }),
                 out: closure.layer.with({ top_color: [...coatColor] }),
             },

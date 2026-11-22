@@ -217,22 +217,32 @@ fn node_pattern_cells(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32
 
 /**
  * Anéis de crescimento (spec 011): o corte de um tronco de eixo ao longo de `p.x` (a direção da fibra), com a medula em
- * `p.y` = 0 a `depth` do plano do corte. O raio r = √(y² + z²), z = `depth` + `distortion` · ruído(p · `distortion_scale`)
- * (a profundidade do corte varia ao longo da tábua: os arcos da "catedral" onde ela passa perto da medula); `scale`
- * anéis por unidade de raio. `value` em [0, 1] é o perfil do anel: sobe devagar do lenho inicial (0) ao tardio (1, a
- * faixa escura e dura) e cai de volta no fim — smoothstep(0; 0,7; t) · (1 − smoothstep(0,88; 1; t)), t = fract(r ·
- * `scale`) —, com o gradiente ∂/∂p; `ring` o valor em [0, 1] do anel (a variação de tom de ano para ano). Abaixo do
- * pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero.
+ * `p.y` = 0 a `depth` do plano do corte. O raio r = √(y² + z²) + `waviness` · ruído(p · `waviness_scale`), z = `depth` +
+ * `distortion` · ruído(p · `distortion_scale`) (a profundidade do corte varia ao longo da tábua: os arcos da "catedral"
+ * onde ela passa perto da medula; a ondulação do raio entorta as linhas também longe dela); `scale` anéis por unidade
+ * de raio em média — a posição em anéis s = r · `scale` + `irregularity` · ruído(0,1875 · r · `scale`): anos largos e
+ * estreitos (`irregularity` em [0, 1]: s segue crescente com r). `value` em [0, 1] é o perfil do anel: sobe devagar do
+ * lenho inicial (0) ao tardio (1, a faixa escura e dura) e cai de volta no fim — smoothstep(0; 0,7; t) · (1 −
+ * smoothstep(0,88; 1; t)), t = fract(s) —, com o gradiente ∂/∂p; `ring` o valor em [0, 1] do anel (a variação de tom
+ * de ano para ano). Abaixo do pixel: o perfil à média (0,59), `ring` a 0,5, gradiente a zero.
  */
 fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32, distortion: f32,
-    distortion_scale: vec2f, seed: u32) -> NodePatternRings {
+    distortion_scale: vec2f, seed: u32, irregularity: f32, waviness: f32, waviness_scale: vec2f) -> NodePatternRings {
     let fx = node_pattern_fit(distortion_scale.x, wrap.x, 1.0);
     let fr = vec2f(fx.x, distortion_scale.y);
     let nz = node_pattern_noise(p * fr, vec2f(fx.y, 0.0), seed);
     let z = depth + distortion * nz.x;
-    let r = max(sqrt(p.y * p.y + z * z), 1e-6);
-    let dr = (vec2f(0.0, p.y) + z * distortion * nz.yz * fr) / r;
-    let s = r * scale;
+    let wx = node_pattern_fit(waviness_scale.x, wrap.x, 1.0);
+    let wr = vec2f(wx.x, waviness_scale.y);
+    let nw = node_pattern_noise(p * wr, vec2f(wx.y, 0.0), seed + 1u);
+    let r0 = max(sqrt(p.y * p.y + z * z), 1e-6);
+    let r = max(r0 + waviness * nw.x, 1e-6);
+    let dr = (vec2f(0.0, p.y) + z * distortion * nz.yz * fr) / r0 + waviness * nw.yz * wr;
+    let s0 = r * scale;
+    let irr = clamp(irregularity, 0.0, 1.0);
+    let ni = node_pattern_noise(vec2f(s0 * 0.1875, 0.5), vec2f(0.0), seed + 2u);
+    let s = s0 + irr * ni.x;
+    let ds = scale * (1.0 + irr * 0.1875 * ni.y);
     let ring = floor(s);
     let t = s - ring;
     let ta = clamp(t / 0.7, 0.0, 1.0);
@@ -240,9 +250,9 @@ fn node_pattern_rings(p: vec2f, width: f32, wrap: vec2f, scale: f32, depth: f32,
     let a = ta * ta * (3.0 - 2.0 * ta);
     let b = 1.0 - tb * tb * (3.0 - 2.0 * tb);
     let dv = (6.0 * ta * (1.0 - ta) / 0.7) * b - a * (6.0 * tb * (1.0 - tb) / 0.12);
-    let k = select(1.0, node_pattern_band(width * abs(scale) * length(dr)), width > 0.0);
+    let k = select(1.0, node_pattern_band(width * abs(ds) * length(dr)), width > 0.0);
     let h = pcg_hash(bitcast<u32>(i32(ring)) ^ (seed * 0x9e3779b1u));
-    return NodePatternRings(mix(0.59, a * b, k), k * dv * scale * dr, mix(0.5, f32(h >> 8u) / 16777215.0, k));
+    return NodePatternRings(mix(0.59, a * b, k), k * dv * ds * dr, mix(0.5, f32(h >> 8u) / 16777215.0, k));
 }
 
 // A urdidura passa por cima no cruzamento (i, j)? Ligamento de `over` por cima e `under` por baixo, deslocado `shift`

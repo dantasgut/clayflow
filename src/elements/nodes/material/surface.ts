@@ -103,10 +103,12 @@ function grained(name: string, v: OpaqueValues, scale: number, relief: number): 
 /**
  * `material.woodRaw` — madeira crua (carvalho lixado, sem acabamento): difuso áspero sob uma interface de celulose
  * muito rugosa, sem realce nítido. IOR 1,53 (celulose, n_D 1,53–1,55; `research.md` R11); rugosidade 0,7 (madeira
- * lixada). A estrutura: os anéis de crescimento (`pattern.rings`: o corte de um tronco com a fibra ao longo de u, 34
- * anéis por unidade do padrão) dão a cor do lenho inicial (`color`) ao tardio (`late_color`), com o tom variando de anel
- * para anel; a fibra (`pattern.grain` alongado 32 : 1) risca a cor e os poros a escurecem em traços curtos; o lenho
- * tardio, mais duro, fica em relevo (`relief`) e a fibra também (`fiber_relief`) — alturas em unidades do padrão.
+ * lixada). A estrutura: os anéis de crescimento (`pattern.rings`: o corte tangencial de um tronco com a fibra ao longo
+ * de u, 30 anéis por unidade do padrão em média, de largura irregular — anos largos e estreitos —, com as linhas
+ * onduladas e os arcos da "catedral" onde o corte passa perto da medula) dão a cor do lenho inicial (`color`) ao tardio
+ * (`late_color`), com o tom variando de anel para anel; a fibra (`pattern.grain` alongado 32 : 1) risca a cor e os
+ * poros a escurecem em traços finos ao longo do veio. Lixada, a peça é quase lisa: o relevo dos anéis (`relief`) é
+ * mínimo e o que se sente é a fibra (`fiber_relief`) — alturas em unidades do padrão.
  * Parâmetros: `color`, `late_color`, `roughness`, `ior`, `diffuse_roughness`, `relief`, `fiber_relief`,
  * `pattern_scale`.
  */
@@ -116,22 +118,25 @@ export const woodRaw = Subgraph.point(
             // A medula a 0,42 do padrão: os arcos dos anéis ficam no meio da peça, não na borda do uv.
             ...patternSpace([0, -0.42]),
             rings: pattern.rings.with({
-                scale: 34,
-                depth: 0.08,
-                distortion: 0.1,
-                distortion_scale: [1.6, 2.4],
+                scale: 64,
+                depth: 0.1,
+                distortion: 0.12,
+                distortion_scale: [1.2, 2],
+                irregularity: 1,
+                waviness: 0.012,
+                waviness_scale: [2.5, 6],
             }),
-            fiber: pattern.grain.with({ scale: [4, 130], octaves: 2, seed: 3 }),
-            pore: pattern.grain.with({ scale: [20, 210], octaves: 1, seed: 7 }),
+            fiber: pattern.grain.with({ scale: [3, 150], octaves: 2, seed: 3 }),
+            pore: pattern.grain.with({ scale: [10, 240], octaves: 1, seed: 7 }),
             // A faixa escura é o fim do anel: a cor só escurece no terço final do perfil.
             tone: color.ramp.with({
                 color_a: [0.45, 0.28, 0.15],
-                color_b: [0.17, 0.085, 0.035],
-                low: 0.35,
+                color_b: [0.27, 0.15, 0.07],
+                low: 0.55,
                 high: 1,
             }),
             year: map.range.with({ out_min: 0.8, out_max: 1.15 }),
-            streak: map.range.with({ in_min: -0.7, in_max: 0.7, out_min: 0.72, out_max: 1.22 }),
+            streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.72, out_max: 1.24 }),
             shade: math.mul,
             lit: math.scale3,
             pore_mask: map.range.with({ in_min: 0.25, in_max: 0.5, out_min: 0, out_max: 0.7 }),
@@ -140,8 +145,8 @@ export const woodRaw = Subgraph.point(
             body: bsdf.diffuse.with({ roughness: 0.6 }),
             specular: bsdf.dielectric.with({ ior: 1.53, roughness: 0.7 }),
             sum: closure.add,
-            relief: surface.bump.with({ strength: 0.00022 }),
-            fiber_relief: surface.bump.with({ strength: 0.0014 }),
+            relief: surface.bump.with({ strength: 0.00003 }),
+            fiber_relief: surface.bump.with({ strength: 0.0004 }),
             out: closure.normal,
         },
         links: [
