@@ -95,7 +95,7 @@ Um lobo cada. Toda entrada aceita um valor (o parâmetro de mesmo nome) ou uma l
 | `bsdf.transmission`   | `ior` (1,5), `color` (branco), `depth` (0), `abbe` (0), `roughness` (0) — a refração traçada ([Refração](./refraction.md)) |
 | `bsdf.translucent`    | `color` (0,8): parede fina translúcida (cortina, folha), a luz de trás espalhada, sem refratar o fundo  |
 | `bsdf.sheen`          | `color` (branco), `roughness` (0,3): brilho de fibra (veludo, algodão)                                  |
-| `bsdf.subsurface`     | `color` (0,8; 0,5; 0,4), `radius` por canal (1; 0,4; 0,2): pele, cera, mármore                          |
+| `bsdf.subsurface`     | `color` (0,8; 0,5; 0,4: o albedo da superfície), `radius` por canal em **mm** (1; 0,5; 0,25: o caminho livre médio), `scale` (1: unidades do mundo por metro) — pele, cera, mármore ([Subsuperfície](#subsuperfície-a-luz-que-entra-no-corpo)) |
 | `bsdf.emission`       | `color` (branco), `luminance` (1, em nits; sem teto até o limite do formato HDR)                        |
 
 ### Nós de composição (`nodes.closure`)
@@ -141,7 +141,7 @@ const paint = new MaterialFunction({
 Base (`base_weight`, `base_color`, `base_metalness`, `base_diffuse_roughness`), especular (`specular_weight`,
 `specular_color`, `specular_roughness`, `specular_ior`, `specular_anisotropy`), transmissão (`transmission_weight`,
 `transmission_color`, `transmission_depth`, `transmission_abbe`), subsuperfície (`subsurface_weight`,
-`subsurface_color`, `subsurface_radius`), verniz (`coat_weight`, `coat_color`, `coat_roughness`, `coat_ior`), fuzz
+`subsurface_color`, `subsurface_radius` em mm, `subsurface_scale` em unidades por metro), verniz (`coat_weight`, `coat_color`, `coat_roughness`, `coat_ior`), fuzz
 (`fuzz_weight`, `fuzz_color`, `fuzz_roughness`), filme fino (`thin_film_weight`, `thin_film_thickness`,
 `thin_film_ior`), emissão (`emission_luminance`, `emission_color`) e geometria (`geometry_opacity`,
 `geometry_thin_walled`).
@@ -234,7 +234,7 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | `leather` | dielétrico + difuso; o grão (`pattern.cells`, 64 células com sulcos) em relevo, fosco nos sulcos e liso nos platôs, com rugas largas | `color`, `roughness` 0,42 (os platôs), `ior` 1,5, `diffuse_roughness`, `relief`, `pattern_scale` | colágeno e acabamento, n ≈ 1,5 |
 | `rubber` | dielétrico + difuso; grão fino de relevo leve | `color` 0,03, `roughness` 0,75, `ior` 1,519, `relief`, `pattern_scale` | poli-isopreno, n_D 1,519 |
 | `ceramic` | corpo difuso com as pintas do ferro (`pattern.cells`) sob o esmalte em camada, de espessura irregular | `color`, `roughness` 0,08 (o esmalte), `ior` 1,5, `diffuse_roughness`, `glaze_color`, `pattern_scale` | esmalte de silicato |
-| `porcelain` | dielétrico + subsuperfície | `color`, `radius` (0,3; 0,27; 0,22), `roughness` 0,05, `ior` 1,5 | esmalte de silicato; raio estimado |
+| `porcelain` | dielétrico + subsuperfície | `color` (0,9; 0,9; 0,87), `radius` (0,3; 0,27; 0,22) mm, `scale` 1, `roughness` 0,05, `ior` 1,5 | esmalte de silicato; raio estimado (curto: só a borda fina deixa passar luz) |
 | `plasticMatte` | dielétrico + difuso; a textura de molde (grão fino em relevo) | `roughness` 0,6, `ior` 1,49, `relief`, `pattern_scale` | polipropileno/PMMA, n_D 1,49 |
 | `plasticGloss` | dielétrico + difuso, liso | `roughness` 0,08, `ior` 1,49 | PMMA, n_D 1,49 |
 | `metalPolished` | condutor, liso: o que se vê é o reflexo do ambiente — com `GlobalIllumination` na cena, a radiância das sondas na direção do reflexo (um reflexo borrado: o céu, o chão, os vizinhos); sem ela, só o hemisfério céu/chão | `color` (F0 0,912; 0,914; 0,920), `edge_tint` (F82 0,970; 0,979; 0,988), `roughness` 0,05, `anisotropy` 0, `tangent` | alumínio do exemplo OpenPBR do MaterialX |
@@ -242,16 +242,65 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | `carPaint` | flocos de condutor (`pattern.cells`), cada um com a inclinação e o tom dele, sob dielétrico em camada com a casca de laranja (`pattern.grain` na normal do verniz) | `base_color` (0,6; 0,02; 0,02), `base_edge_tint`, `base_roughness` 0,3, `flake_tilt` 0,1, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,6, `coat_weight` 1, `orange_peel`, `pattern_scale` | verniz de `open_pbr_carpaint.mtlx` |
 | `metalOxidized` | condutor misturado ao óxido (dielétrico + difuso) em manchas (`pattern.grain` de quatro oitavas mais o avanço `oxidation`), a ferrugem com o relevo granulado | `color` (F0 do ferro 0,562; 0,565; 0,578), `roughness` 0,45, `oxide_color`, `oxide_roughness` 0,9, `oxidation` 0,7, `relief`, `pattern_scale` | Real-Time Rendering 4ª ed., tabela 9.2 |
 | `glass` | dielétrico + transmissão | `ior` 1,52, `roughness` 0, `color`, `depth` 0, `abbe` 58 | vidro sodo-cálcico |
-| `skin` | dielétrico + subsuperfície | `color`, `radius` (1; 0,37; 0,19), `roughness` 0,45, `ior` 1,4 | Jensen et al. 2001 (skin1) |
-| `wax` | dielétrico + subsuperfície | `radius` (1; 0,7; 0,45), `roughness` 0,3, `ior` 1,44 | parafina, n_D 1,44; raio estimado |
-| `marble` | dielétrico + subsuperfície; os veios (as linhas em que um `pattern.grain` de cinco oitavas passa por zero) na cor do corpo | `color`, `vein_color`, `radius` (1; 0,65; 0,46), `roughness` 0,1, `ior` 1,5, `pattern_scale` | Jensen et al. 2001 (mármore) |
+| `skin` | dielétrico + subsuperfície | `color` (0,63; 0,44; 0,34), `radius` (0,91; 0,60; 0,52) mm, `scale` 1, `roughness` 0,45, `ior` 1,4 | Jensen et al. 2001 (skin2: R_d e ℓ = 1/(σ_s′ + σ_a)) |
+| `wax` | dielétrico + subsuperfície | `color` (0,9; 0,82; 0,62), `radius` (2,8; 2,0; 1,2) mm, `scale` 1, `roughness` 0,3, `ior` 1,44 | parafina, n_D 1,44; raio estimado (uma vela de 2 cm deixa passar ~7 % do vermelho) |
+| `marble` | dielétrico + subsuperfície; os veios (as linhas em que um `pattern.grain` de cinco oitavas passa por zero) na cor do corpo | `color`, `vein_color`, `radius` (0,46; 0,38; 0,33) mm, `scale` 1, `roughness` 0,1, `ior` 1,5, `pattern_scale` | Jensen et al. 2001 (mármore) |
+| `jade` | dielétrico + subsuperfície | `color` (0,36; 0,62; 0,38), `radius` (0,9; 1,8; 1,0) mm, `scale` 1, `roughness` 0,08, `ior` 1,61 | nefrita, n ≈ 1,61; raio estimado (o verde vai mais longe) |
+| `milk` | dielétrico + subsuperfície | `color` (0,91; 0,88; 0,76), `radius` (0,39; 0,31; 0,26) mm, `scale` 1, `roughness` 0,03, `ior` 1,35 | Jensen et al. 2001 (wholemilk); serve de sabão branco ou plástico leitoso |
 
 O relevo usa as tangentes do uv da amostra (`dpdu`, `dpdv`), que existem no desenho; nos acertos dos raios (a
 iluminação global, o que se vê através de um vidro, o `sheerFabric`) o padrão de cor continua e o relevo some. Os
 padrões seguem o uv da geometria: onde ele converge (os polos da esfera) o padrão aperta, e a filtragem o leva à média
-ali. `plasticGloss`, `metalPolished`, `porcelain`, `skin`, `wax` e `glass` são lisos (o que se vê neles é a luz e o
-ambiente). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
+ali. `plasticGloss`, `metalPolished`, `porcelain`, `skin`, `wax`, `jade`, `milk` e `glass` são lisos (o que se vê neles é
+a luz e o ambiente). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
 ([Refração](./refraction.md)).
+
+## Subsuperfície: a luz que entra no corpo
+
+Pele, cera, mármore, jade e leite não refletem a luz no ponto em que ela chega: ela entra, espalha-se dentro do corpo e
+sai em volta. O lobo `bsdf.subsurface` (e os materiais prontos `skin`, `wax`, `marble`, `porcelain`, `jade`, `milk`)
+segue o perfil de difusão de Christensen e Burley 2015, com três parâmetros:
+
+| Parâmetro | Unidade | O que é |
+| --------- | ------- | ------- |
+| `color` | — | o albedo da superfície: a fração da luz que volta, por canal (a "cor" do material sob luz uniforme) |
+| `radius` | **milímetros**, por canal | o caminho livre médio do espalhamento, ℓ = 1/(σ_s′ + σ_a): quanto a luz anda dentro do corpo; na pele o vermelho vai mais longe |
+| `scale` | unidades do mundo por metro | a escala da cena: 1 se uma unidade é um metro, 100 se é um centímetro, 1000 se é um milímetro |
+
+O raio é físico, em milímetros: ele só aparece na imagem quando o objeto tem poucos centímetros na cena. Uma cabeça de
+20 cm modelada com 0,2 unidade (`scale` 1) mostra o terminador macio e a orelha acesa; a mesma malha com 20 unidades
+precisa de `scale: 100`. Uma esfera de 1 m de pele fica igual a um difuso — como ficaria de verdade.
+
+```ts
+entity.add(Materials.skin()); // a cena em metros
+entity.add(Materials.wax({ scale: 100 })); // a cena em centímetros
+entity.add(Materials.marble({ scale: 100, radius: [0.9, 0.76, 0.66] })); // um mármore mais translúcido
+```
+
+O que o desenho faz com um material desses (sem nada a ligar: o primeiro que entra na cena liga os passes; sem
+nenhum, nada é alocado nem preparado):
+
+- **Difusão entre pixels.** A luz direta que chega a cada pixel do material (com a sombra) é espalhada pelos vizinhos
+  pelo perfil, por canal: o raio em mm vira pixels pela escala do mundo e pela profundidade. A passagem da luz para a
+  sombra fica macia e, na pele, avermelhada; uma sombra projetada sobre a cera perde a borda. Só a luz difusa é
+  espalhada — o brilho especular fica nítido por cima. A luz rebatida (`GlobalIllumination`) não é espalhada de novo: ela
+  já é lisa nessa escala.
+- **Luz que atravessa.** Em contraluz, a luz de uma `DirectionalLight` com `castShadow: true` atravessa as partes
+  finas: a espessura do corpo entre a luz e o ponto vem do mapa de sombra dela a cada quadro, e a luz sai atenuada pelo
+  mesmo perfil (¼ e^(−t/d) + ¾ e^(−t/3d), com d = ℓ/s) — a orelha acesa contra o sol, a vela, a placa fina de mármore.
+  Luzes sem sombra (pontuais, spot, o céu) não atravessam: o motor não conhece a espessura para elas.
+- **Nos raios** (o que se vê pelo vidro, a luz rebatida): o ponto com subsuperfície responde como o difuso do mesmo
+  albedo — o perfil inteiro somado no ponto, com a mesma energia.
+
+A qualidade e o custo estão no renderizador: `renderer.subsurface.enabled` (desligado, o lobo responde só no ponto) e
+`renderer.subsurface.samples` (amostras do perfil por pixel: 16, 12 e 8 nos perfis alto, médio e baixo; os conjuntos
+se alternam a cada 4 × 4 pixels, e cada pixel recebe 16 vezes esse número).
+
+Limites que valem saber: a difusão é feita na tela — duas peças diferentes encostadas e no mesmo plano trocam luz, e a
+luz que entraria por uma parte fora da tela não chega; a espessura é medida ao longo da direção da luz (uma placa
+inclinada parece mais grossa do que é); quase sem absorção (albedo acima de 0,9, o leite), o perfil de Burley perde a
+cauda longa da difusão real (6 % da energia sai mais perto do que deveria); com uma `CameraFunction` de projeção
+própria, a difusão não é desenhada.
 
 ## Imagens nos materiais: texturas virtuais (spec 034, T060c)
 

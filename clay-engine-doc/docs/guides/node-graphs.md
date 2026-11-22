@@ -331,7 +331,7 @@ A biblioteca fica na C3, em `src/elements/nodes`, um subdiretório por categoria
 `noise/`, `pattern/`, `condition/`, `space/`, `field/`, `surface/`, `geometry/`, `bsdf/`, `closure/`, `output/`,
 `material/`, `set/`). É publicada por `nodes` (os nós por categoria) e `defaultNodeRegistry` (todos os nós de ponto e de
 conjunto e os sub-grafos de `nodes.material`, para a serialização; `defaultNodeRegistry.names()` lista os disponíveis).
-São **98 nós de ponto** (`pointNodes`), 12 de conjunto, os 24 sub-grafos de `nodes.material` (o OpenPBR e os 23
+São **98 nós de ponto** (`pointNodes`), 12 de conjunto, os 26 sub-grafos de `nodes.material` (o OpenPBR e os 25
 materiais prontos) e as entradas de contexto.
 
 Os nós de ponto valem em todos os estágios, salvo `output.surfaceParams`, `output.closure` e `geometry.tangentUv` (só
@@ -532,7 +532,7 @@ com esses lobos — mudar valores não recompila, mudar ligações recompila. Re
 | `bsdf.transmission` | refração do que está atrás: `ior`, `color` a `depth` (Beer-Lambert), `abbe` (dispersão), `roughness` |
 | `bsdf.translucent` | parede fina translúcida, sem refratar o fundo |
 | `bsdf.sheen` | brilho de fibra (veludo) |
-| `bsdf.subsurface` | subsuperfície no modelo: `color`, `radius` por canal |
+| `bsdf.subsurface` | subsuperfície (perfil de Burley): `color` (albedo), `radius` por canal em mm, `scale` (unidades por metro) |
 | `bsdf.emission` | `color` × `luminance` em nits |
 | `closure.mix` | mistura `a` e `b` por `t` |
 | `closure.add` | soma os lobos (um dielétrico fica sobre o difuso) |
@@ -544,7 +544,7 @@ com esses lobos — mudar valores não recompila, mudar ligações recompila. Re
 | `closure.thinWalled` | a transmissão como parede fina (vidraça, bolha) |
 | `geometry.tangentUv` | tangente pelo uv (derivadas de tela), para o anisotrópico em malhas sem tangente; só `fragment` |
 | `material.openpbr` | o OpenPBR Surface 1.1 como sub-grafo de ponto (`Subgraph.point`) montado com os nós acima; parâmetros com os nomes da norma |
-| `material.<nome>` | os 23 materiais prontos (`woodRaw`, `woodVarnishedGloss`, `velvet`, `metalBrushed`, `carPaint`, `glass`, `skin`…): sub-grafos de ponto com valores físicos e parâmetros expostos — [Materiais](./materials.md#biblioteca-de-materiais-prontos-materials-nodesmaterial) |
+| `material.<nome>` | os 25 materiais prontos (`woodRaw`, `woodVarnishedGloss`, `velvet`, `metalBrushed`, `carPaint`, `glass`, `skin`…): sub-grafos de ponto com valores físicos e parâmetros expostos — [Materiais](./materials.md#biblioteca-de-materiais-prontos-materials-nodesmaterial) |
 
 ```ts
 import { MaterialFunction, NodeGraph, nodes } from 'clayflow';

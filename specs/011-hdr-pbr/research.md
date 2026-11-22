@@ -283,3 +283,53 @@ pela mesma montagem. As de estado ficam bit a bit (verificado).
 Galeria de materiais girando sob luz que se move; um grafo de material sendo editado (mistura madeira/metal por ruído,
 verniz trocado); água (lago da 010 e tanque da 017) com o material novo e as cáusticas por malha de perto; comparação
 lado a lado Clayflow × Three nas cenas `materials` e `water-lake`.
+
+### R15 — Espalhamento sob a superfície (T113)
+
+**Decisão**: o perfil de difusão normalizado de Christensen e Burley 2015 ("Approximate Reflectance Profiles for
+Efficient Subsurface Scattering"), R(r) = A (e^(−r/d) + e^(−r/3d)) / (8π d r) com d = ℓ/s e s = 1,9 − A + 3,5 (A − 0,8)²
+(a luz que entra difusa), parametrizado pelo albedo da superfície `color` e pelo caminho livre médio `radius` em
+**milímetros** por canal, com a escala do mundo `scale` (unidades por metro) no fechamento. No desenho, depois do passe
+principal e só para as entidades com o lobo: a luz direta que entra por pixel é guardada sem amostras, juntada em volta
+de cada ponto com amostragem por importância do perfil (número constante de amostras, o disco no plano tangente
+projetado na tela, o peso por canal pelo perfil na distância de verdade até a superfície de cada amostra) e somada à cor
+da cena menos a luz do próprio ponto. A luz que atravessa as partes finas usa a espessura do mapa de sombra da luz (da
+primeira superfície que a luz vê até o ponto) e a parte do perfil além dela, ¼ e^(−t/d) + ¾ e^(−t/3d). No ponto (e nos
+acertos dos raios) o lobo é o perfil integrado: o difuso de albedo `color`.
+
+**Racional**:
+
+- o perfil tem dois parâmetros com sentido físico (o albedo que se vê e o caminho livre médio que se mede), amostragem
+  por importância com inversa exata e a mesma curva serve à difusão e à transmissão — conferidos contra um passeio
+  aleatório (`material/reference/subsurface.ts`): a fração acumulada a menos de 0,03 para A ≤ 0,8; a transmissão pela
+  placa a menos de 0,075, e **sem** o albedo como fator (o passeio mostra que a placa fina transmite quase tudo; com o
+  albedo o modelo ficava 2 a 3 vezes abaixo);
+- o passe principal fica como é (o lobo no ponto, com MSAA e com o alvo da luz do temporal) e a difusão entra como uma
+  correção somada (o juntado menos o local): enquanto os pipelines dela compilam, ou com ela desligada, o material
+  desenha certo no ponto, com a mesma energia; a soma é feita redesenhando a geometria na profundidade do passe
+  principal, e a cobertura do MSAA vale para ela;
+- só a luz direta é juntada: medir a luz rebatida de novo no passe custava 1,5 ms dos 5,7 ms da subsuperfície no quadro
+  dos translúcidos, e ela já é lisa na escala do perfil;
+- as amostras por pixel se alternam num padrão de 4 × 4 pixels e a soma faz a média do bloco na mesma superfície: 16
+  amostras por pixel valem 256, sem grão e sem estado entre quadros (a acumulação temporal pelo canal da 037 pediria os
+  vetores de movimento, que só existem no modo temporal); a luz do próprio ponto não entra na média — a borda nítida de
+  uma sombra some exata.
+
+**Alternativas consideradas**:
+
+- **Perfil separável de Jimenez** (Jimenez et al. 2015, "Separable Subsurface Scattering"): dois passes de tela com um
+  núcleo fixo por material, sem ruído. O núcleo é um ajuste artístico (soma de gaussianas por material, não o albedo e
+  o caminho livre médio), a separação erra em superfícies curvas e em bordas de profundidade, e pede a irradiância de
+  toda a tela num alvo e os parâmetros por pixel — no forward com MSAA, alvos a mais no passe principal de toda cena.
+- **Passeio aleatório nos raios** (o volumétrico de produção): a verdade, e é a referência f64 daqui. No desenho pediria
+  raios dentro do corpo por pixel (dezenas de eventos por caminho no mármore e no leite) e acumulação temporal. Nos
+  acertos dos raios da luz rebatida seria um laço de eventos por acerto — custo fixo novo por raio —, e o que um acerto
+  desses contribui é a média do perfil: o difuso do mesmo albedo dá a mesma energia. Fica de fora.
+- **O "wrap" local de antes** (o terminador avançado por canal, raio adimensional): sem difusão entre pixels, sem a luz
+  que atravessa e sem escala física — o que o usuário viu como "nada de SSS".
+- **Parametrizar pelo caminho livre médio difuso** (a eq. 8 do artigo): equivalente; o caminho livre médio é o que as
+  tabelas de Jensen et al. 2001 dão direto (1/(σ_s′ + σ_a)).
+
+**Limites conhecidos**: a difusão é na tela (o que está fora dela não entra; peças diferentes no mesmo plano trocam
+luz); só as luzes direcionais com sombra atravessam; a espessura é ao longo da direção da luz; acima de A = 0,9 o
+perfil perde a cauda longa (0,065 na fração acumulada com A = 0,93).
