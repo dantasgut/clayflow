@@ -33,7 +33,8 @@ export const RefractionStackSchema = new StructSchema('RefractionStack', {
 /**
  * O estado de uma vaga da refração com trabalho fixo por pixel (spec 039 refeita, D1): o pixel (`NONE` vaga vazia), se
  * segue viva, o canal (−1 os três), o lado quanto aos volumes, o raio seguinte, as interfaces, o peso desde a câmera, o
- * estado do sorteio, as marcas e os passos; a luz somada, a energia truncada, a parte em movimento, o fim e o albedo
+ * estado do sorteio, as marcas e as interfaces que o canal aberto da dispersão ainda repete do trecho já percorrido
+ * pelo verde (`replay`); a luz somada, a energia truncada, a parte em movimento, o fim e o albedo
  * nele; o acerto traçado na rodada (e a dielétrica coincidente); o ângulo do pixel e a distância percorrida desde a
  * câmera; e a pilha de meios. A dispersão adiada fica à parte, na `RefractionSplitSchema` da mesma vaga: a vaga é lida
  * e gravada inteira em cada rodada, e a dispersão só conta enquanto adiada.
@@ -67,7 +68,7 @@ export const RefractionChainSchema = new StructSchema('RefractionChainState', {
     weight: FieldType.vec3f,
     flags: FieldType.u32,
     radiance: FieldType.vec3f,
-    steps: FieldType.u32,
+    replay: FieldType.u32,
     truncated: FieldType.vec3f,
     hit_instance: FieldType.u32,
     moving: FieldType.vec3f,
@@ -89,8 +90,9 @@ export const RefractionChainSchema = new StructSchema('RefractionChainState', {
 /**
  * A dispersão adiada de uma vaga (spec 039 refeita), ao lado do estado dela (`RefractionChainSchema`, o mesmo índice),
  * válida com a marca `REFRACTION_CHAIN_SPLIT`: o ponto e o lado da interface em que ela começou, as direções do vermelho
- * e do azul e o peso dos canais ali; o ângulo entre os canais agora e o afastamento acumulado deles; a pilha de meios
- * ali, de onde os canais recomeçam.
+ * e do azul e o peso dos canais ali; o ângulo entre os canais agora e o afastamento acumulado deles; as interfaces
+ * resolvidas desde ela (`steps`: as que o vermelho e o azul repetem ao abrir); a pilha de meios ali, de onde os canais
+ * recomeçam.
  */
 export const RefractionSplitSchema = new StructSchema('RefractionSplit', {
     origin: FieldType.vec3f,
@@ -100,6 +102,6 @@ export const RefractionSplitSchema = new StructSchema('RefractionSplit', {
     blue: FieldType.vec3f,
     offset: FieldType.f32,
     weight: FieldType.vec3f,
-    pad0: FieldType.u32,
+    steps: FieldType.u32,
     stack: fieldStruct(RefractionStackSchema),
 });
