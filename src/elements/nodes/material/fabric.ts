@@ -161,24 +161,24 @@ export const cotton = fabric('material.cotton', {
 });
 
 /**
- * `material.wool` — lã (flanela mesclada): tela de fio grosso (60 por unidade do padrão), mole e irregular (± 22 %),
- * com a urdidura e a trama de tons diferentes, e felpuda — a penugem das fibras (grão de relevo forte, mais alto que o
- * dos fios) quebra o contorno dos fios e mescla o tom (± 40 %); brilho de fibra mais forte que o do algodão e largo
- * (0,8). Parâmetros: os de `cotton`.
+ * `material.wool` — lã (tweed cardado): sarja 2/2 de fio grosso e mole (64 por unidade do padrão), sem vão entre os
+ * fios e quase sem sombra no fundo da trama, a urdidura e a trama de tons próximos; felpuda — a penugem das fibras
+ * soltas (grão fino, mais miúdo que o fio, em relevo) borra o contorno dos fios e mescla o tom de fibra para fibra
+ * (± 40 %); brilho de fibra forte e bem largo (0,9): o halo difuso da lã, sem realce. Parâmetros: os de `cotton`.
  */
 export const wool = fabric('material.wool', {
-    color: [0.5, 0.4, 0.3],
-    weft_color: [0.36, 0.28, 0.2],
-    sheen_color: [0.4, 0.34, 0.28],
-    sheen_roughness: 0.8,
-    threads: 60,
-    bind: [1, 1, 1],
+    color: [0.22, 0.14, 0.085],
+    weft_color: [0.18, 0.115, 0.07],
+    sheen_color: [0.4, 0.33, 0.26],
+    sheen_roughness: 0.9,
+    threads: 64,
+    bind: [2, 2, 1],
     gap: 0,
-    irregularity: 0.22,
-    hollow: 0.82,
-    relief: 0.003,
-    fluff: 0.006,
-    fluff_scale: 90,
+    irregularity: 0.12,
+    hollow: 0.88,
+    relief: 0.0007,
+    fluff: 0.0012,
+    fluff_scale: 130,
     melange: 0.4,
 });
 
@@ -205,23 +205,25 @@ export const denim = fabric('material.denim', {
 });
 
 /**
- * `material.velvet` — veludo: corpo escuro e brilho de fibra forte e estreito (pelo ereto, rugosidade 0,3) — a borda
- * mais clara que o centro. O pelo não fica todo em pé: `pattern.grain` largo (6 manchas por unidade do padrão) inclina
- * a normal do pelo (`nap`, a altura em unidades do padrão) — as manchas claras e escuras do pelo penteado, que mudam
- * com o ângulo da luz —, e um grão fino (`pile`) dá o granulado das pontas. Parâmetros: `color`, `sheen_color`,
- * `sheen_roughness`, `diffuse_roughness`, `nap`, `pile`, `pattern_scale`.
+ * `material.velvet` — veludo: o corpo é só o difuso escuro das fibras vistas de cima (sem especular: nenhum realce
+ * nítido) e o que brilha é o pelo em pé visto de lado — o brilho de fibra (`bsdf.sheen`, rugosidade 0,55: um halo
+ * claro e macio na borda rasante, o centro escuro e fosco). O pelo não fica todo em pé: `pattern.grain` largo e suave
+ * (3 manchas por unidade do padrão, uma oitava) inclina de leve a direção do pelo (`nap`, a altura em unidades do
+ * padrão) — regiões largas em que o halo se desloca e o tom clareia ou escurece um pouco, sem manchas duras —, e um
+ * grão fino (`pile`) dá o granulado das pontas. Parâmetros: `color`, `sheen_color`, `sheen_roughness`,
+ * `diffuse_roughness`, `nap`, `pile`, `pattern_scale`.
  */
 export const velvet = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            combed: pattern.grain.with({ scale: [6, 6], octaves: 2, gain: 0.4, seed: 11 }),
-            tips: pattern.grain.with({ scale: [260, 260], octaves: 1, seed: 12 }),
-            fibers: bsdf.diffuse.with({ color: [0.16, 0.012, 0.045], roughness: 1 }),
-            fuzz: bsdf.sheen.with({ color: [0.8, 0.14, 0.28], roughness: 0.3 }),
+            combed: pattern.grain.with({ scale: [3, 3], octaves: 1, seed: 11 }),
+            tips: pattern.grain.with({ scale: [300, 300], octaves: 1, seed: 12 }),
+            fibers: bsdf.diffuse.with({ color: [0.085, 0.006, 0.022], roughness: 1 }),
+            fuzz: bsdf.sheen.with({ color: [0.6, 0.07, 0.17], roughness: 0.45 }),
             sum: closure.add,
-            nap: surface.bump.with({ strength: 0.016 }),
-            pile: surface.bump.with({ strength: 0.0007 }),
+            nap: surface.bump.with({ strength: 0.022 }),
+            pile: surface.bump.with({ strength: 0.0003 }),
             out: closure.normal,
         },
         links: [
