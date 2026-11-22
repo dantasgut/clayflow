@@ -106,6 +106,7 @@ Um lobo cada. Toda entrada aceita um valor (o parâmetro de mesmo nome) ou uma l
 | `closure.mix`             | mistura `a` e `b` por `t` em [0, 1] (0 = `a`): a máscara entre dois materiais                              |
 | `closure.layer`           | o especular de `top` como verniz sobre `base`, atenuando-a pelo que reflete e por `top_color`, com `top_weight` |
 | `closure.thinFilm`        | filme fino (iridescência) de `thickness` nm e `ior` sobre o especular de base                              |
+| `closure.glints`          | brilhos pontuais do especular de base: os flocos menores que o pixel acendem um a um (`cells` e `count` de `pattern.glints`; `roughness` a do espelho de cada floco) — ver "Brilhos pontuais" |
 | `closure.opacity`         | opacidade `alpha` em [0, 1]: o material vai ao passe dos transmissivos                                     |
 | `closure.normal`          | normal própria dos lobos de base (de um nó, como `surface.ripple` ou `surface.bump`, ou de um campo)        |
 | `closure.mediumPriority`  | prioridade do meio na sobreposição de volumes transmissivos (o vidro dentro da água)                       |
@@ -148,7 +149,7 @@ Base (`base_weight`, `base_color`, `base_metalness`, `base_diffuse_roughness`), 
 
 ### Biblioteca de materiais prontos (`Materials`, `nodes.material`)
 
-Sessenta e dois materiais prontos (spec 011, US5), cada um um sub-grafo de ponto sobre os nós acima, com valores físicos
+Sessenta e oito materiais prontos (spec 011, US5), cada um um sub-grafo de ponto sobre os nós acima, com valores físicos
 publicados e os parâmetros relevantes expostos. Três usos:
 
 ```ts
@@ -209,7 +210,8 @@ compartilham o pipeline; os valores são por entidade. Os grafos serializam (`to
 `defaultNodeRegistry`).
 
 Cada material tem a **estrutura** que o nome promete, calculada por pixel na GPU pelos nós de padrão
-(`pattern.weave`, `pattern.knit`, `pattern.cells`, `pattern.rings`, `pattern.grain` — ver
+(`pattern.weave`, `pattern.knit`, `pattern.cells`, `pattern.rings`, `pattern.grain`, `pattern.shingles`,
+`pattern.veins`, `pattern.glints` — ver
 [Grafos de nós](./node-graphs.md)) sobre o uv do objeto (o padrão anda com o objeto), com o relevo na normal
 (`surface.bump`; nos de relevo em milímetros, `surface.reliefNormal`), filtrado pela largura do pixel (de
 longe o detalhe vai à média, sem serrilhar) e sem emenda onde o uv dá a volta. Os que têm padrão expõem
@@ -225,8 +227,8 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | -------- | --------------- | ------------------- | ----------------- |
 | `woodRaw` | dielétrico + difuso; anéis de crescimento (`pattern.rings`, a fibra ao longo de u: corte tangencial, com os arcos da "catedral", anéis de largura irregular e linhas onduladas) na cor do lenho inicial ao tardio, fibra e poros (`pattern.grain` alongado); lixada, quase lisa — o relevo é o da fibra | `color` (0,45; 0,28; 0,15), `late_color` (0,27; 0,15; 0,07), `roughness` 0,7, `ior` 1,53, `diffuse_roughness` 0,6, `relief`, `fiber_relief`, `pattern_scale` | celulose, n_D 1,53–1,55 |
 | `woodRough` | `woodRaw` na cor, mais cinzenta e áspera (tábua serrada, exposta ao tempo), com o tom em manchas e faixas e o relevo em milímetros (`relief.woodRough`): o lenho tardio saliente, a face irregular, a fibra levantada, as frestas e os riscos ao longo do veio (escuros no fundo) e os poros abertos — na normal e, com `Displacements.woodRough()`, na geometria | `color` (0,31; 0,26; 0,21), `late_color` (0,2; 0,16; 0,125), `roughness` 0,9, `ring_height` 0,3 mm, `wear_height` 1,2 mm, `fiber_height` 0,5 mm (mais os sulcos da fibra gasta, 2,4 mm), `crack_depth` 3 mm, `cavity` 0,25, `scale` 1, `pattern_scale` | — |
-| `woodVarnishedGloss` | `woodRaw` (anéis, fibra e poros) sob dielétrico em camada: o verniz liso por cima do veio, com o realce próprio; o verniz molha a madeira (a base sem especular próprio, a cor mais escura e saturada) | `base_color`, `base_late_color`, `base_roughness`, `coat_color` (1; 0,8; 0,5), `coat_roughness` 0,04, `coat_ior` 1,5, `coat_weight` 1, `pattern_scale` | verniz de poliuretano, n ≈ 1,5 |
-| `woodVarnishedMatte` | o mesmo | `coat_roughness` 0,35, `coat_color` (1; 0,9; 0,7) | verniz com fosqueante |
+| `woodVarnishedGloss` | carvalho claro sob verniz brilhante em camada: as linhas finas e irregulares dos anéis (a figura do corte tangencial, com ovais e catedrais, pouco contraste), as faixas de cor, a fibra e os poros alongados na cor de um difuso sem especular próprio (o verniz molha a madeira); o verniz acompanha o poro aberto e a fibra (a normal dele desce em cada poro: o realce em tracinhos) | `base_color` (0,47; 0,3; 0,15), `base_late_color` (0,35; 0,21; 0,095), `base_roughness`, `coat_color` (1; 0,8; 0,5), `coat_roughness` 0,05, `coat_ior` 1,5, `coat_weight` 1, `pore_relief` 0,0022, `pattern_scale` | verniz de poliuretano, n ≈ 1,5 |
+| `woodVarnishedMatte` | o mesmo, com o verniz acetinado e o poro mais aberto | `coat_roughness` 0,35, `coat_color` (1; 0,9; 0,7), `pore_relief` 0,0032 | verniz com fosqueante |
 | `cotton` | difuso + brilho de fibra, sem especular (fosco e macio); tela 1/1 (`pattern.weave`, 110 fios) com o relevo dos fios torcidos (os cabos de cada fio, `strand`), a penugem (`pattern.grain` fino) borrando o contorno do fio e as faixas de fios mais grossos e mais finos ao longo da urdidura | `color` (urdidura), `weft_color` (trama), `sheen_color` 0,25, `sheen_roughness` 0,9, `diffuse_roughness` 1, `relief`, `pattern_scale` | Estevez e Kulla 2017 (sheen "Charlie") |
 | `wool` | difuso + brilho de fibra forte e largo; tricô em ponto meia (`pattern.knit`, 30 colunas de pontos em V) de fio grosso e torcido, mesclado e felpudo; o relevo em milímetros (`relief.wool`: o fio de 1,4 mm e a penugem) na normal e, com `Displacements.wool()`, na geometria | `color` (0,24; 0,15; 0,09), `sheen_color`, `sheen_roughness` 0,9, `diffuse_roughness` 1, `height` 1,4 mm, `scale` 1, `pattern_scale` | idem |
 | `denim` | difuso + brilho de fibra; sarja 3/1 (120 fios): a urdidura índigo por cima da trama crua, na diagonal; o desgaste — onde o pano dobra (a curvatura convexa da superfície, nas geometrias com geometria diferencial) o índigo da casca do fio gasta e o miolo claro aparece, em manchas | `color` índigo, `weft_color` cru, `sheen_roughness` 0,85, `wear_color` (0,3; 0,36; 0,48), `wear_low` 5, `wear_high` 22 (curvatura, por unidade) | idem |
@@ -240,8 +242,8 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | `plasticMatte` | dielétrico + difuso; a textura de molde (grão fino em relevo) | `roughness` 0,6, `ior` 1,49, `relief`, `pattern_scale` | polipropileno/PMMA, n_D 1,49 |
 | `plasticGloss` | dielétrico + difuso, liso | `roughness` 0,08, `ior` 1,49 | PMMA, n_D 1,49 |
 | `metalPolished` | condutor, liso: o que se vê é o reflexo do ambiente — nítido (o céu, o horizonte, o chão, os vizinhos) pelo reflexo traçado numa cena com a estrutura de raios (ver "Reflexo nítido dos lisos"); sem ela, borrado (as sondas da `GlobalIllumination` ou o hemisfério céu/chão) | `color` (F0 0,912; 0,914; 0,920), `edge_tint` (F82 0,970; 0,979; 0,988), `roughness` 0,05, `anisotropy` 0, `tangent` | alumínio do exemplo OpenPBR do MaterialX |
-| `metalBrushed` | condutor anisotrópico com a tangente ao longo de u; os riscos da escova (`pattern.grain` alongado 125 : 1) na rugosidade e na normal; o lobo é estreito ao longo da escova e largo através dela, e o reflexo do ambiente vem traçado, sorteado no eixo largo (ver "Reflexo nítido dos lisos") | `color`, `edge_tint`, `roughness` 0,16, `scratch_roughness` 0,4, `anisotropy` 0,9, `relief`, `pattern_scale` | alumínio de `open_pbr_aluminum_brushed.mtlx` |
-| `carPaint` | metal sob verniz: a base são as plaquetas de alumínio no aglutinante tingido — um condutor da cor da tinta, de lobo médio, que cobre 92 % da base (o resto, pigmento difuso escuro) —, com a normal de cada floco (`pattern.cells`, 230 por unidade do padrão) inclinada alguns graus e o tom dele (± 35 %): o brilho largo que segue a luz e o granulado pela peça toda; clara perto do reflexo, escura e saturada fora dele (`flake_edge_tint`); por cima, o verniz espelhado em camada com a normal própria, lisa, e a casca de laranja leve | `base_color` (0,2; 0,006; 0,008), `flake_color` (0,56; 0,035; 0,03), `flake_edge_tint` (0,3; 0,01; 0,015), `flake_roughness` 0,36, `flake_weight` 0,92, `flake_tilt` 0,26, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,5, `coat_weight` 1, `orange_peel` 0,0005, `pattern_scale` | a receita das outras engines (Principled BSDF do Blender com `metallic` 1 e `coat` de normal própria; verniz de duas normais da Unreal; base, flocos e verniz do V-Ray); `open_pbr_carpaint.mtlx` |
+| `metalBrushed` | condutor anisotrópico, opaco, com a tangente ao longo de u: rugosidade 0,08 ao longo da escova e 0,35 através — o realce do sol esticado numa faixa perpendicular à escova; os riscos (`pattern.grain` alongado 125 : 1) e as passadas da lixa (75 : 1) na rugosidade e na normal quebram a faixa em fios; o ambiente vem das sondas, borrado e sem ruído (o eixo largo do lobo é áspero: sem raio — ver "Reflexo nítido dos lisos") | `color`, `edge_tint`, `roughness` 0,21, `scratch_roughness` 0,31, `anisotropy` 0,9, `relief`, `pattern_scale` | alumínio (`open_pbr_aluminum_brushed.mtlx`) |
+| `carPaint` | metal sob verniz: a base são as plaquetas de alumínio no aglutinante tingido — um condutor da cor da tinta, de lobo médio, que cobre 92 % da base (o resto, pigmento difuso escuro) —, com a normal de cada floco (`pattern.cells`, 230 por unidade do padrão) inclinada alguns graus e o tom dele (± 35 %): o brilho largo que segue a luz e o granulado pela peça toda; clara perto do reflexo, escura e saturada fora dele (`flake_edge_tint`); de longe, com o floco menor que o pixel, os brilhos pontuais (`pattern.glints` + `closure.glints`: os flocos alinhados com o sol acendem em pontos, ralos longe do realce e densos dentro dele); por cima, o verniz espelhado em camada com a normal própria, lisa, e a casca de laranja leve | `base_color` (0,2; 0,006; 0,008), `flake_color` (0,56; 0,035; 0,03), `flake_edge_tint` (0,3; 0,01; 0,015), `flake_roughness` 0,36, `flake_weight` 0,92, `flake_tilt` 0,26, `sparkle_scale` 2800, `sparkle_roughness` 0,16, `coat_color`, `coat_roughness` 0,02, `coat_ior` 1,5, `coat_weight` 1, `orange_peel` 0,0005, `pattern_scale` | a receita das outras engines (Principled BSDF do Blender com `metallic` 1 e `coat` de normal própria; verniz de duas normais da Unreal; base, flocos e verniz do V-Ray); `open_pbr_carpaint.mtlx` |
 | `carPaintSilver` | a mesma receita, prata | `flake_color` (0,72; 0,73; 0,75), `flake_edge_tint` (0,45; 0,45; 0,47), `base_color` 0,1 | alumínio pouco tingido |
 | `metalOxidized` | chapa de aço com ferrugem: o metal que sobra liso e refletivo (escurece e fica áspero perto da ferrugem) misturado ao óxido em pó (difuso, do quase preto ao castanho, ao alaranjado e a pontos amarelados) pela máscara — manchas largas (`pattern.grain` de cinco oitavas), riscos que escorrem ao longo de v e pites (`pattern.cells`), mais o avanço `oxidation`; a ferrugem em relevo: a crosta granulada (`relief`) e a borda inchada (`swell`) | `color` (F0 do ferro 0,562; 0,565; 0,578), `roughness` 0,13 (o metal limpo), `oxide_color` (0,26; 0,085; 0,022), `oxide_roughness` 0,95, `oxidation` 0,55, `relief`, `swell`, `pattern_scale` | Real-Time Rendering 4ª ed., tabela 9.2 |
 | `glass` | dielétrico + transmissão | `ior` 1,52, `roughness` 0, `color`, `depth` 0, `abbe` 58 | vidro sodo-cálcico |
@@ -268,35 +270,43 @@ entity.add(Materials.woodRaw({ pattern_scale: [3, 1] })); // um tampo de 3 × 1:
 | `tile` | azulejo esmaltado em grade (`pattern.bricks` sem deslocamento, 5 × 5): corpo sob o esmalte em camada, de borda abaulada; rejunte fosco | `color` (0,04; 0,2; 0,42), `grout_color`, `glaze_color`, `roughness` 0,04, `ior` 1,5, `bevel`, `pattern_scale` | vidro de silicato n 1,5 |
 | `terracotta` | barro queimado fosco: manchas da queima, marcas do torno, eflorescência clara, poros | `color` (0,5; 0,2; 0,1), `bloom_color`, `roughness` 0,85, `relief`, `pattern_scale` | — |
 | `driedMud` | placas de argila (`pattern.cells`) com rachaduras de retração; relevo em milímetros (`relief.driedMud`) | `color`, `roughness` 0,95, `crack_depth` 9, `face_height` 0,8, `cavity` 0,3, `scale` 1, `pattern_scale` | — |
-| `sand` | grãos (`pattern.cells`, 170) de cor própria e faceta própria, marcas onduladas do vento | `color`, `warm_color`, `dark_color`, `roughness` 0,4, `relief`, `ripple`, `pattern_scale` | quartzo n 1,544 |
+| `sand` | grãos (`pattern.cells`, 170) de cor própria e faceta própria, marcas onduladas do vento; de longe, os brilhos pontuais das facetas de quartzo (`pattern.glints`, 420) | `color`, `warm_color`, `dark_color`, `roughness` 0,4, `sparkle_roughness` 0,18, `relief`, `ripple`, `pattern_scale` | quartzo n 1,544 |
 | `woodPine` | pinho encerado: anéis largos e irregulares, bolsas de resina, **nós** com o veio desviando em volta (`knots` de `pattern.rings`) | `color`, `late_color`, `knot_color`, `knots` 3, `knot_size` 0,04, `roughness` 0,55, `coat_color`, `coat_roughness`, `coat_weight` 0, `pore_relief`, `pattern_scale` | — |
 | `woodOak` | carvalho claro fosco: anéis em arcos, vasos escuros, raios medulares | os de `woodPine`; `roughness` 0,6 | — |
-| `woodWalnut` | nogueira oleada: castanho-chocolate, veio ondulado, faixas claras e escuras, poros compridos | os de `woodPine`; `roughness` 0,42 | — |
-| `woodOakVarnished` | carvalho escurecido sob verniz brilhante em camada que acompanha o poro aberto (a normal do verniz desce em cada vaso: o realce em tracinhos) | os de `woodPine`; `coat_weight` 1, `coat_roughness` 0,07, `pore_relief` 0,0045 | verniz n 1,5 |
-| `woodMahogany` | mogno envernizado: laranja-avermelhado, veio fino com catedrais, faixas da grã revessa, poros finos | os de `woodPine`; `coat_weight` 1, `coat_roughness` 0,04 | — |
+| `woodWalnut` | nogueira oleada: castanho-chocolate, as linhas dos anéis finas e de espaçamento irregular (ovais e catedrais), faixas claras e escuras, poros compridos | os de `woodPine`; `roughness` 0,42 | — |
+| `woodOakVarnished` | carvalho escurecido sob verniz âmbar em camada: linhas de anel de pouco contraste, faixas largas de cor, muitos vasos escuros e alongados; o verniz acompanha o poro aberto e a fibra (a normal dele desce em cada vaso e ondula com a fibra fina: o realce largo cortado em tracinhos) | os de `woodPine`; `coat_weight` 1, `coat_roughness` 0,13, `pore_relief` 0,0034 | verniz n 1,5 |
+| `woodMahogany` | mogno envernizado: laranja-avermelhado, linhas de anel castanhas, finas e irregulares, faixas da grã revessa, tracinhos escuros dos poros | os de `woodPine`; `coat_weight` 1, `coat_roughness` 0,07, `pore_relief` 0,002 | — |
 | `woodFloorPlanks` | assoalho de réguas de carvalho (`pattern.planks`, 1 × 6): cada tábua com os seus anéis, nós e tom, junta escura, verniz acetinado | os de `woodPine`; `coat_roughness` 0,22 | — |
 | `woodFloorHerringbone` | taco em espinha de peixe (`pattern.planks`, 1 × 4, alternado a 90°) | os de `woodPine` | — |
-| `bark` | casca grossa fissurada: placas ao longo de v separadas por fissuras que se ramificam (`pattern.fissures`), cristas claras, fundo escuro, líquen; relevo em milímetros (`relief.bark`) | `color`, `ridge_color`, `furrow_color`, `lichen_color`, `lichen` 0,25, `roughness` 0,95, `furrow_depth` 9, `ridge_height` 3,4, `scale` 1, `pattern_scale` | — |
+| `bark` | casca de carvalho: placas escamosas ao longo de v separadas por fissuras fundas que se ramificam (`pattern.fissures`) e cortadas em blocos, cada placa e cada escama de um tom, cristas gastas claras, a casca interna avermelhada na parede da fissura, fundo escuro, líquen; relevo em milímetros (`relief.bark`) | `color`, `ridge_color`, `furrow_color`, `inner_color`, `lichen_color`, `lichen` 0,24, `roughness` 0,95, `furrow_depth` 12, `ridge_height` 3,4, `scale_height` 1,6, `scale` 1, `pattern_scale` | — |
+| `barkPine` | casca de pinheiro: placas largas e chatas cobertas de escamas em camadas (a borda de cada escama da cor da camada de baixo), fissuras estreitas e fundas de parede avermelhada; relevo em milímetros (`relief.barkPine`) | os de `bark`; `furrow_depth` 9, `ridge_height` 1,2, `scale_height` 1,8, `lichen` 0,08 | — |
 | `barkBirch` | casca de bétula: branca e acetinada, lenticelas escuras em volta do tronco, tiras que descascam sobre a camada rosada; relevo em milímetros (`relief.barkBirch`) | `color`, `under_color`, `lenticel_color`, `roughness` 0,45, `peel_height` 1,4, `lenticel_height` 0,5, `scale` 1, `pattern_scale` | — |
 | `cork` | cortiça aglomerada: grânulos (`pattern.cells`, 84) de tom próprio, lenticelas escuras, grão fino | `color`, `dark_color`, `pore_color`, `roughness` 0,9, `relief`, `pattern_scale` | — |
+| `corkStopper` | cortiça natural (a rolha): castanho-clara em faixas, as lenticelas — canais escuros e alongados, de borda irregular, afundados —, as cavidades pequenas (`pattern.dents`) e o granulado das células (`pattern.cells`, 110); fosca | `color`, `dark_color`, `lenticel_color`, `roughness` 0,9, `relief`, `pattern_scale` | — |
+| `leaf` | folha verde: o limbo com a nervura central, as secundárias alternadas e a rede de vênulas (`pattern.veins`) em relevo (sulcos na face de cima) e na cor, a margem amarelada, pintas; a cutícula de cera (dielétrico, IOR 1,45) sobre o difuso misturado à parede fina translúcida — a luz de trás atravessa verde-amarelada, menos nas nervuras | `color`, `edge_color`, `vein_color`, `spot_color`, `transmission_color`, `translucency` 0,42, `roughness` 0,26, `relief` −0,016, `crumple`, `pattern_scale` | cutina n ≈ 1,45 |
+| `leafDry` | folha seca de outono: castanho-alaranjada, a margem queimada, muitas pintas, as nervuras salientes, a lâmina amassada e fosca | os de `leaf`; `translucency` 0,3, `roughness` 0,6, `relief` 0,014 | — |
+| `roofTile` | telhado de telha de barro de capa e canal: fiadas sobrepostas (`pattern.shingles` com o perfil da capa e do canal), a queima de telha para telha, manchas escuras no pé de cada fiada, líquen; relevo em milímetros (`relief.roofTile`): a sobreposição faz sombra | `color`, `pale_color`, `dark_color`, `stain_color`, `lichen_color`, `lichen` 0,28, `roughness` 0,75, `lift` 18, `face_height` 0,7, `tiles` (14; −9), `scale` 1, `pattern_scale` | — |
+| `roofSlate` | telhado de ardósia: placas planas em fiadas desencontradas, o pé recuado ao acaso, o vão entre duas, a clivagem na face; relevo em milímetros (`relief.roofSlate`) | os de `roofTile`; `roughness` 0,45, `lift` 9, `face_height` 0,9, `tiles` (9; −12), `lichen` 0,1 | — |
 | `paper` | difuso misturado à parede fina translúcida: a formação e as fibras aparecem contra a luz | `color` 0,8, `translucency` 0,35, `relief`, `pattern_scale` | — |
-| `ice` | dielétrico liso + subsuperfície de raio longo; trincas e bolhas brancas no albedo, superfície ondulada | `color`, `flaw_color`, `radius` (5; 8; 11) mm, `scale` 1, `roughness` 0,05, `ior` 1,31, `relief`, `pattern_scale` | gelo n 1,31; o raio estimado |
+| `ice` | transparente: dielétrico liso + transmissão com refração traçada (IOR 1,31), a absorção mais forte no vermelho (azulado só na espessura); as trincas, as bolhas e a geada brancas e opacas, de borda viva, misturadas por máscara (as da face de trás aparecem refratadas); superfície ondulada. O espalhamento do meio é parâmetro (`scatter`, 0): uniforme, uma vez só e sorteado | `color` (0,74; 0,92; 0,98) a `depth` 1, `scatter` 0, `flaw_color`, `roughness` 0,04, `ior` 1,31, `relief`, `pattern_scale` | gelo n 1,31 |
 | `soap` | dielétrico acetinado + subsuperfície tingida, com as nuvens da massa | `color` (0,3; 0,66; 0,52), `swirl_color`, `radius` (1,4; 2,2; 1,7) mm, `scale` 1, `roughness` 0,3, `ior` 1,47, `relief`, `pattern_scale` | estimado |
 | `ivory` | dielétrico polido + subsuperfície curta; veio fino, manchas amareladas, fissuras da idade | `color`, `age_color`, `radius` (0,32; 0,22; 0,14) mm, `scale` 1, `roughness` 0,2, `ior` 1,54, `pattern_scale` | estimado |
 | `motherOfPearl` | filme fino (`closure.thinFilm`, 320 a 640 nm pelas faixas de crescimento) sobre um refletor parcial e o corpo leitoso | `color`, `reflectance` 0,5, `thickness_min`, `thickness_max`, `film_ior` 1,43, `roughness` 0,16, `relief`, `pattern_scale` | aragonita n 1,53–1,69, conchiolina 1,43; modelo efetivo de um filme só |
-| `snow` | subsuperfície clara sob facetas de gelo em camada (`pattern.cells`, 110), cada uma com a inclinação dela: brilhos pontuais | `color`, `radius` (1,6; 2; 2,6) mm, `scale` 1, `sparkle_roughness` 0,12, `sparkle_tilt` 1,4, `relief`, `pattern_scale` | gelo n 1,31; o raio estimado |
+| `snow` | subsuperfície clara sob as facetas de gelo: um lobo largo e fraco com os brilhos pontuais (`pattern.glints`, 520 + `closure.glints`): a faceta alinhada com o sol acende num ponto | `color`, `radius` (1,6; 2; 2,6) mm, `scale` 1, `sparkle_scale` 520, `sparkle_roughness` 0,26, `sparkle_spread` 0,6, `relief`, `pattern_scale` | gelo n 1,31; o raio estimado |
 
 O relevo usa as tangentes do uv da amostra (`dpdu`, `dpdv`), que existem no desenho; nos acertos dos raios (a
 iluminação global, o que se vê através de um vidro, o `sheerFabric`) o padrão de cor continua e o relevo some. Os
 padrões seguem o uv da geometria: onde ele converge (os polos da esfera) o padrão aperta, e a filtragem o leva à média
 ali. `plasticGloss`, `metalPolished`, `porcelain`, `skin`, `wax`, `jade`, `milk` e `glass` são lisos (o que se vê neles é
-a luz e o ambiente). `glass` e `sheerFabric` são transmissivos: o que está atrás vem da refração traçada
+a luz e o ambiente). `glass`, `ice`, `sheerFabric`, `paper`, `leaf` e `leafDry` são transmissivos: o que está atrás vem da refração traçada
 ([Refração](./refraction.md)).
 
 ## Relevo e deslocamento (spec 011, T115)
 
 O relevo na normal só inclina a luz: a superfície continua lisa, a silhueta é a da forma e o relevo não faz sombra em
-si mesmo. Nos materiais de relevo forte — `woodRough`, `leather`, `wool` — a altura é dada em **milímetros** e pode
+si mesmo. Nos materiais de relevo forte — `woodRough`, `leather`, `wool`, `sandstone`, `brick`, `driedMud`, as cascas
+(`bark`, `barkPine`, `barkBirch`) e os telhados (`roofTile`, `roofSlate`: a sobreposição de cada fiada faz sombra) — a
+altura é dada em **milímetros** e pode
 virar **geometria**: a mesma função de altura (`nodes.relief.<nome>`) inclina a normal no material e, pela
 `DisplacementFunction` da entidade, move os vértices de uma `ParametricSurface` na GPU.
 
@@ -367,7 +377,10 @@ sombra e a luz rebatida dele; o céu; o que se vê através de um vidro) entra n
 lobo, pelo peso dele (o Fresnel do metal por canal, os 4 % do verniz que crescem para a borda).
 
 - **Quanto de espelho**: rugosidade até 0,08, todo o lobo pelo raio; de 0,08 a 0,16, a mistura com a luz indireta; acima,
-  só a luz indireta (as sondas, o hemisfério). No lobo anisotrópico (o metal escovado) conta a rugosidade do eixo estreito (a rugosidade vezes √(1 − |anisotropia|)), e o raio é sorteado no eixo largo — uma micronormal da distribuição do lobo por pixel, a mesma ao longo de uma linha da escova na tela: o ambiente sai esticado perpendicular à escova, em fios finos; com o antisserrilhado temporal o sorteio muda a cada quadro e a resolução temporal alisa o lobo.
+  só a luz indireta (as sondas, o hemisfério). No lobo anisotrópico (o metal escovado) conta a rugosidade do eixo largo
+  (a rugosidade vezes √(1 + |anisotropia|)): um raio só por pixel não representa um lobo largo num eixo — sorteado, vira
+  ruído; na direção dominante, vira um espelho que o lobo não é —, e ele fica com a radiância das sondas, já filtrada,
+  e com o realce analítico das luzes: limpo com MSAA e com o antisserrilhado temporal.
 - **O sol** não vem pelo raio: é a luz direta no lobo (o realce), como antes — no metal polido, o ponto que estoura.
 - **Custo**: um raio por bloco de 2 × 2 pixels lisos por quadro (parado, cada pixel fica com o valor exato dele em até 6
   quadros). Sem `RayScene` ou com `renderer.lightPaths.reflection = false`, nada roda e o lobo fica com a luz indireta.
@@ -378,6 +391,31 @@ lobo, pelo peso dele (o Fresnel do metal por canal, os 4 % do verniz que crescem
 ```ts
 app.defaults.renderer.lightPaths.reflection = false; // desliga o reflexo traçado dos opacos
 ```
+
+## Brilhos pontuais (spec 011, T118)
+
+Os flocos da pintura metálica, os cristais da neve e as facetas de quartzo da areia são espelhos pequenos. De perto o
+padrão os resolve (cada floco com a sua normal); de longe, com o floco menor que o pixel, o filtro levava tudo à média
+e o brilho sumia. `pattern.glints` e `closure.glints` põem no lugar a contagem dos flocos alinhados com cada luz:
+
+```ts
+const sparkle = nodes.pattern.glints.with({ scale: 2800 }); // flocos por unidade do padrão
+const flakes = nodes.bsdf.conductor.with({ roughness: 0.36 }); // a distribuição das orientações dos flocos
+const glinting = nodes.closure.glints.with({ roughness: 0.16 }); // o espelho de cada floco
+// ligações: ['flakes.value', 'glinting.c'], ['sparkle.cells', 'glinting.cells'], ['sparkle.count', 'glinting.count']
+```
+
+- A rugosidade do especular passa a ser a **distribuição das orientações** dos flocos; `roughness` de `closure.glints`
+  é a do **espelho de cada floco** (o ângulo sólido Ω = π · α², α = rugosidade²). Um floco está alinhado com o vetor
+  do meio com a probabilidade p = D · (n·h) · Ω.
+- Dos N flocos da célula do pixel, k estão alinhados — k sorteado da binomial (Poisson com poucos, normal com muitos)
+  com um valor fixo da célula (no espaço do objeto: os brilhos não andam com a câmera) e da direção (outra luz, outro
+  ângulo: outros flocos) —, e a densidade do lobo é k / (N · (n·h) · Ω). A média é o lobo liso (a mesma energia); longe
+  do realce sobram poucos pontos fortes, e dentro dele o chuvisco denso. Com muitos flocos por pixel volta o lobo liso.
+- A célula é a de uma grade de 0,7 a 1,4 pixel de lado e a do nível seguinte, misturadas: a troca com a distância é
+  contínua (Jakob et al. 2014, "Discrete Stochastic Microfacet Models"; os níveis de Zirr e Kaplanyan 2016).
+- Vale no lobo isotrópico e nas luzes diretas; a luz indireta e o reflexo traçado ficam com o lobo médio. Nos acertos
+  dos raios (sem a largura do pixel) não há sorteio.
 
 ## Subsuperfície: a luz que entra no corpo
 
