@@ -35,6 +35,7 @@ import cloudReconstructSource from '../../gpu/wgsl/clouds/cloud_reconstruct.wgsl
 import cloudUpsampleSource from '../../gpu/wgsl/clouds/cloud_upsample.wgsl?raw';
 import cloudTilesSource from '../../gpu/wgsl/clouds/cloud_tiles.wgsl?raw';
 import cloudShadowArgsSource from '../../gpu/wgsl/clouds/cloud_shadow_args.wgsl?raw';
+import cloudScatterArgsSource from '../../gpu/wgsl/clouds/cloud_scatter_args.wgsl?raw';
 import cloudSceneLimitSource from '../../gpu/wgsl/clouds/cloud_scene_limit.wgsl?raw';
 import cloudPanoramaSource from '../../gpu/wgsl/clouds/cloud_panorama.wgsl?raw';
 import cloudCoverSource from '../../gpu/wgsl/clouds/cloud_cover.wgsl?raw';
@@ -323,6 +324,14 @@ export const cloudResources = Object.freeze({
         type: { wgsl: 'atomic<u32>', array: true },
         frequency: 'frame',
         provider: { consumer: 'CloudLayer.scatterWork' },
+    }),
+    /** Os argumentos dos despachos indiretos dos caminhos e do filtro do cache (T074). */
+    scatterArgs: wgslResource({
+        name: 'cloud_scatter_args',
+        binding: { storage: 'read_write' },
+        type: { wgsl: 'u32', array: true },
+        frequency: 'frame',
+        provider: { consumer: 'CloudLayer.scatterArgs' },
     }),
     /** O estado do tempo (R19): a fatia anterior (lida no lugar trazido pelo vento), a do quadro e a escrita. */
     weatherPrevious: wgslResource({
@@ -1299,6 +1308,19 @@ export const cloudScatterKernel = wgslModule({
         R.panorama,
         R.panoramaStamps,
         R.panoramaClock,
+    ],
+});
+
+/** Os argumentos dos despachos indiretos dos caminhos e do filtro do cache, pela escolha do quadro (T074). */
+export const cloudScatterArgsKernel = wgslModule({
+    name: 'cloud_scatter_args_kernel',
+    source: cloudScatterArgsSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        cloudParamsResource,
+        cloudScatterPages,
+        R.scatterWork,
+        R.scatterArgs,
     ],
 });
 

@@ -17,7 +17,6 @@ import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import { Sky } from '../../scene/sky/Sky';
 import { CloudLayer } from './CloudLayer';
 import {
-    CLOUD_SCATTER_PAGE,
     CLOUD_SHADOW_SLOT_COUNT,
     CLOUD_SUN_VOLUME_BUDGET,
     CLOUD_SUN_VOLUME_VALID_WORDS,
@@ -41,6 +40,7 @@ import {
     CLOUD_SHADOW_PAGE_GROUP,
     CLOUD_SUN_VOLUME_DRAW_GROUP,
     cloudShadowArgsKernel,
+    cloudScatterArgsKernel,
     cloudShadowKernel,
     cloudShadowSlots,
     cloudSunVolumeKernel,
@@ -142,9 +142,13 @@ const SCATTER_SELECT = compute(
     cloudScatterKernel,
     'cloud_scatter_select_main',
 );
+/** Os argumentos dos despachos indiretos dos caminhos e do filtro, pela escolha do quadro (T074). */
+const SCATTER_ARGS = compute(
+    'cloud_scatter_args',
+    cloudScatterArgsKernel,
+    'cloud_scatter_args_main',
+);
 const SCATTER = compute('cloud_scatter', cloudScatterKernel, 'cloud_scatter_main');
-/** Sondas por página do cache de espalhamento (8³). */
-const SCATTER_PAGE_PROBES = CLOUD_SCATTER_PAGE ** 3;
 const SCATTER_FILTER = compute(
     'cloud_scatter_filter',
     cloudScatterFilterKernel,
@@ -158,6 +162,7 @@ const LIGHT_PIPELINES = [
     SUN_VOLUME_SELECT,
     SUN_VOLUME_DRAW,
     SCATTER_SELECT,
+    SCATTER_ARGS,
     SCATTER,
     SCATTER_FILTER,
     PANORAMA,
@@ -260,14 +265,12 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         const steps: [string, string, number][] = [
             ...weather,
             [AMBIENT.id, 'CloudLightFlow.ambient', WORKGROUP_SIZE.value],
-            // A escolha das páginas do cache (um grupo) e os caminhos das escolhidas (até o orçamento).
+            // A escolha das páginas do cache (um grupo, e os argumentos dos dois despachos seguintes), os caminhos das
+            // escolhidas e o filtro das sondas cuja vizinhança caminhou — os dois por despacho indireto (T074: sem página a
+            // caminhar nem marcada, nenhum grupo).
             [SCATTER_SELECT.id, 'CloudLightFlow.scatterSelect', 0],
-            [SCATTER.id, 'CloudLightFlow.scatter', q.scatter.budget * SCATTER_PAGE_PROBES],
-            [
-                SCATTER_FILTER.id,
-                'CloudLightFlow.scatterFilter',
-                q.scatter.size[0] * q.scatter.size[1] * q.scatter.size[2],
-            ],
+            [SCATTER.id, 'CloudLightFlow.scatter', 0],
+            [SCATTER_FILTER.id, 'CloudLightFlow.scatterFilter', 0],
             [PANORAMA.id, 'CloudLightFlow.panorama', q.panorama[0] * q.panorama[1]],
         ];
         const ready = steps.map(([id]) => bound.pipelines.get(id));
@@ -281,6 +284,14 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             || [...ready, ...parts, ...coverage, ...volume].some(
                 (p) => p?.role !== 'compute' || !p.ready,
             )
+        )
+            return;
+        const scatterArgs = bound.pipelines.get(SCATTER_ARGS.id);
+        const scatterIndirect = this.resources.bufferOf(cloud, 'scatterArgs');
+        if (
+            scatterArgs?.role !== 'compute'
+            || !scatterArgs.ready
+            || scatterIndirect?.subkind !== 'indirect'
         )
             return;
         const [select, args, draw, finish] = parts;
@@ -315,8 +326,16 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
             frame.compute(label, (pass) => {
                 pass.bind.setPipeline(p.spec);
                 p.bindTo(pass.bind);
-                if (count === 0) pass.dispatch.workgroups(1);
+                if (id === SCATTER.id) pass.dispatch.workgroupsIndirect(scatterIndirect, 0);
+                else if (id === SCATTER_FILTER.id)
+                    pass.dispatch.workgroupsIndirect(scatterIndirect, 16);
+                else if (count === 0) pass.dispatch.workgroups(1);
                 else pass.dispatch.invocations(count, WORKGROUP_SIZE.value);
+                if (id === SCATTER_SELECT.id) {
+                    pass.bind.setPipeline(scatterArgs.spec);
+                    scatterArgs.bindTo(pass.bind);
+                    pass.dispatch.workgroups(1);
+                }
             });
             // O mapa visto do sol por páginas depois das irradiâncias (antes dos caminhos do cache, que o leem): a escolha
             // marca as páginas do quadro (as provas do quadro anterior entram nela) e grava a lista delas; o desenho, por
@@ -436,6 +455,7 @@ export class CloudLightFlow extends Flow<CloudLightSlots, 'idle'> {
         for (const id of TARGETS) this.resources.ensureAllocated(cloud, id);
         this.resources.ensureAllocated(cloud, 'scatter');
         this.resources.ensureAllocated(cloud, 'scatterWork');
+        this.resources.ensureAllocated(cloud, 'scatterArgs');
         this.resources.ensureAllocated(cloud, 'scatterFiltered');
         this.resources.ensureAllocated(cloud, 'shadowPages');
         this.resources.ensureAllocated(cloud, 'shadowWork');

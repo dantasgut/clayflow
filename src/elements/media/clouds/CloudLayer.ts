@@ -706,6 +706,14 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
                 count: 8 + 3 * scatterPages,
                 upload: 'never',
             },
+            // Os argumentos dos despachos indiretos dos caminhos e do filtro do cache (T074): quatro palavras cada.
+            {
+                id: 'scatterArgs',
+                role: 'indirect',
+                schema: GpuWordSchema,
+                count: 8,
+                upload: 'never',
+            },
             // O volume de τ até o sol perto da câmera (T074): os nós de cada página física (9³: as células e o nó da vizinha)
             // de cada nível, o τ do trecho do cone (r) e o resto da luz (g), os níveis um depois do outro em z — série por
             // páginas (o atlas só; a C2 guarda o carimbo de cada página física e a época): só as páginas que entram na

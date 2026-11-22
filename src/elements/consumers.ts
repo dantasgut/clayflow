@@ -75,6 +75,7 @@ export const ELEMENT_CONSUMERS: readonly ConsumerResolver[] = [
             'shadowArgs',
             'shadowPages',
             'scatterWork',
+            'scatterArgs',
             'sunVolume',
             'sunVolumeWork',
             'noiseSampler',

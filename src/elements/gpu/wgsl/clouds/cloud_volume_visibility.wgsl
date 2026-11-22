@@ -3,7 +3,7 @@
 // da penumbra (o raio dela pela distância ao meio do trecho da casca na coluna, × o raio angular do sol), um dos dois
 // níveis da mistura (pela fração dela), na troca de degrau um dos dois mapas (pelo peso) e um texel do par bilinear (pelos pesos dele), sorteados pela sequência R2 do
 // quadro deslocada pelo hash do ponto — a média temporal de `e^(−τ)` dessas amostras é a média da penumbra no disco, sem
-// o viés de Jensen. Duas leituras; a superfície faz até 72.
+// o viés de Jensen. Uma leitura (duas na virada de camada dos nós); a superfície faz até 72.
 // Requer: sky, clouds, random, cloud_shadow_lookup.
 
 fn light_volume_visibility(light: u32, p: vec3f) -> vec3f {
@@ -33,6 +33,6 @@ fn light_volume_visibility(light: u32, p: vec3f) -> vec3f {
     var uv = cloud_shadow_page_uv(p, pa, c.level, o);
     if (c.blend > 0.0 && h2.x < c.blend) { uv = cloud_shadow_page_uv(p, pb, c.level + 1u, o); }
     let t = vec2i(floor(uv * CLOUD_SHADOW_ATLAS - 0.5 + h2));
-    let tau = mix(cloud_shadow_knot_texel(t, k), cloud_shadow_knot_texel(t, k + 1u), f);
-    return vec3f(exp(-tau));
+    let v = cloud_shadow_knot_pair_texel(t, k);
+    return vec3f(exp(-mix(v.x, v.y, f)));
 }
