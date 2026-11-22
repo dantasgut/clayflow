@@ -16,13 +16,17 @@ import {
     SPACE_LINKS,
     type Link,
 } from './pattern';
+import { relief, WOOL_FLUFF, WOOL_KNIT } from './relief';
 
 // Tecidos (spec 011, R11): o corpo difuso das fibras mais o brilho de fibra (`bsdf.sheen`, a distribuição "Charlie" de
 // Estevez e Kulla 2017, "Production Friendly Microfacet Sheen BRDF": rugosidade baixa = pelo ereto e borda viva, o
 // veludo; alta = fibra solta e borda suave, o algodão). A trama é calculada por pixel (`pattern.weave` sobre o uv:
 // `pattern_scale` repetições por unidade de uv; numa esfera, (2, 1)): os fios de urdidura (`color`) e de trama
 // (`weft_color`) cruzados no ligamento de cada tecido, com o relevo dos fios (`relief`, em unidades do padrão), a
-// irregularidade de fio para fio e a penugem das fibras (`pattern.grain` fino).
+// irregularidade de fio para fio e a penugem das fibras (`pattern.grain` fino). Cada fio é um cilindro de fibras
+// torcidas (`twist`: a saída `fiber` da trama, levada ao mundo por `surface.direction`): a direção da fibra à vista é a
+// tangente do brilho ao longo do fio — o realce da seda quebra em tracinhos de fio em fio e corre pelas dobras do pano.
+// A lã é tricô (`pattern.knit`, pontos em V) de fio grosso, com o relevo em milímetros (`relief.wool`).
 
 /** Valores de um tecido de trama à vista. */
 interface FabricValues {
@@ -44,6 +48,10 @@ interface FabricValues {
     readonly fluff_scale: number;
     /** Variação do tom de fibra para fibra (± a fração, pelo grão da penugem): a lã mesclada. */
     readonly melange: number;
+    /** Ângulo (rad) da hélice das fibras em torno do eixo do fio: a torção. */
+    readonly twist: number;
+    /** Variação do tom em faixas ao longo da urdidura (± a fração): os fios mais grossos e mais finos, à vista de longe. */
+    readonly slub: number;
 }
 
 /** Os nós da trama colorida: os dois fios, a variação de fio para fio e a sombra do fundo — a cor em `lit.value`. */
@@ -56,8 +64,23 @@ function weaveNodes(v: FabricValues): Record<string, GraphNode> {
             under: v.bind[1],
             shift: v.bind[2],
             gap: v.gap,
+            twist: v.twist,
         }),
+        fiber_direction: surface.direction,
         fluff: pattern.grain.with({ scale: [v.fluff_scale, v.fluff_scale], octaves: 2, seed: 4 }),
+        // As faixas ao longo da urdidura: grupos de uns três fios, de uns trinta de comprimento — o que sobra da trama
+        // abaixo do pixel.
+        slub: pattern.grain.with({ scale: [v.threads / 3, v.threads / 30], octaves: 2, seed: 8 }),
+        streak: map.range.with({
+            in_min: -0.6,
+            in_max: 0.6,
+            out_min: 1 - v.slub,
+            out_max: 1 + v.slub,
+        }),
+        streaked: math.mul,
+        // Os cabos do fio torcido: os sulcos entre eles escurecem (as faixas em hélice de cada fio, de perto).
+        plied: map.range.with({ out_min: 0.74, out_max: 1.06 }),
+        twisted: math.mul,
         warp: math.value3.with({ value: [...v.color] }),
         weft: math.value3.with({ value: [...v.weft_color] }),
         yarn: math.mix3,
@@ -80,7 +103,7 @@ function weaveNodes(v: FabricValues): Record<string, GraphNode> {
 /** As ligações da trama colorida e dos dois relevos (a normal em `fluff_relief.value`). */
 const WEAVE_LINKS: readonly Link[] = [
     ...SPACE_LINKS,
-    ...patternLinks('weave', 'fluff'),
+    ...patternLinks('weave', 'fluff', 'slub'),
     ['weft.value', 'yarn.a'],
     ['warp.value', 'yarn.b'],
     ['weave.warp', 'yarn.t'],
@@ -89,12 +112,21 @@ const WEAVE_LINKS: readonly Link[] = [
     ['fluff.value', 'melange.x'],
     ['uneven.value', 'thread_shade.a'],
     ['hollow.value', 'thread_shade.b'],
-    ['thread_shade.value', 'shade.a'],
-    ['melange.value', 'shade.b'],
+    ['slub.value', 'streak.x'],
+    ['melange.value', 'streaked.a'],
+    ['streak.value', 'streaked.b'],
+    ['weave.strand', 'plied.x'],
+    ['thread_shade.value', 'twisted.a'],
+    ['plied.value', 'twisted.b'],
+    ['twisted.value', 'shade.a'],
+    ['streaked.value', 'shade.b'],
     ['yarn.value', 'lit.v'],
     ['shade.value', 'lit.s'],
     ...bumpLinks('relief', 'weave.gradient'),
     ...bumpLinks('fluff_relief', 'fluff.gradient', 'relief.value'),
+    ['uv.du', 'fiber_direction.du'],
+    ['uv.dv', 'fiber_direction.dv'],
+    ['weave.fiber', 'fiber_direction.direction'],
 ];
 
 /** Os parâmetros expostos da trama. */
@@ -141,7 +173,8 @@ function fabric(name: string, v: FabricValues): NodeDefinition {
 
 /**
  * `material.cotton` — algodão cru: tela (um fio por cima, um por baixo), 110 fios por unidade do padrão, fios irregulares
- * (± 14 %); difuso áspero e brilho de fibra fraco e largo (rugosidade 0,9). Parâmetros: `color`, `weft_color`,
+ * (± 16 %) e felpudos — a penugem das fibras soltas (grão fino em relevo) borra o contorno dos fios e mescla o tom —;
+ * fosco e macio: difuso áspero, sem especular, e brilho de fibra fraco e largo (rugosidade 0,9) na borda. Parâmetros: `color`, `weft_color`,
  * `sheen_color`, `sheen_roughness`, `diffuse_roughness`, `relief`, `pattern_scale`.
  */
 export const cotton = fabric('material.cotton', {
@@ -151,58 +184,169 @@ export const cotton = fabric('material.cotton', {
     sheen_roughness: 0.9,
     threads: 110,
     bind: [1, 1, 1],
-    gap: 0.14,
-    irregularity: 0.14,
-    hollow: 0.45,
-    relief: 0.003,
-    fluff: 0.0005,
-    fluff_scale: 260,
-    melange: 0.05,
+    gap: 0.1,
+    irregularity: 0.16,
+    hollow: 0.62,
+    relief: 0.0026,
+    fluff: 0.0011,
+    fluff_scale: 240,
+    melange: 0.14,
+    twist: 0.4,
+    slub: 0.05,
 });
 
-/**
- * `material.wool` — lã (tweed cardado): sarja 2/2 de fio grosso e mole (64 por unidade do padrão), sem vão entre os
- * fios e quase sem sombra no fundo da trama, a urdidura e a trama de tons próximos; felpuda — a penugem das fibras
- * soltas (grão fino, mais miúdo que o fio, em relevo) borra o contorno dos fios e mescla o tom de fibra para fibra
- * (± 40 %); brilho de fibra forte e bem largo (0,9): o halo difuso da lã, sem realce. Parâmetros: os de `cotton`.
- */
-export const wool = fabric('material.wool', {
-    color: [0.22, 0.14, 0.085],
-    weft_color: [0.18, 0.115, 0.07],
-    sheen_color: [0.4, 0.33, 0.26],
-    sheen_roughness: 0.9,
-    threads: 64,
-    bind: [2, 2, 1],
-    gap: 0,
-    irregularity: 0.12,
-    hollow: 0.88,
-    relief: 0.0007,
-    fluff: 0.0012,
-    fluff_scale: 130,
-    melange: 0.4,
-});
+const DENIM: FabricValues = {
+    color: [0.022, 0.04, 0.125],
+    weft_color: [0.26, 0.28, 0.33],
+    sheen_color: [0.06, 0.08, 0.14],
+    sheen_roughness: 0.85,
+    threads: 120,
+    bind: [3, 1, 1],
+    gap: 0.04,
+    irregularity: 0.25,
+    hollow: 0.42,
+    relief: 0.003,
+    fluff: 0.0008,
+    fluff_scale: 280,
+    melange: 0.16,
+    twist: 0.45,
+    slub: 0.12,
+};
 
 /**
  * `material.denim` — jeans: sarja 3/1 de algodão (120 fios por unidade do padrão) — a urdidura tingida de índigo
  * (`color`) passa três fios por cima da trama crua (`weft_color`) e um por baixo, cada fio deslocado um: a diagonal da
- * sarja, com os pontos claros da trama; fios irregulares (± 25 %); brilho de fibra fraco e largo. Parâmetros: os de
- * `cotton`.
+ * sarja, com os pontos claros da trama; fios irregulares (± 25 %); brilho de fibra fraco e largo. O desgaste: o índigo
+ * tinge só a casca do fio, e onde o pano dobra e roça (as cristas das dobras: a curvatura principal convexa da
+ * superfície, de `wear_low` a `wear_high` por unidade — só nas superfícies com geometria diferencial) a casca gasta e
+ * o miolo branco aparece (`wear_color`), em manchas irregulares pelo grão da penugem. Parâmetros: os de `cotton`, mais
+ * `wear_color`, `wear_low`, `wear_high`.
  */
-export const denim = fabric('material.denim', {
-    color: [0.025, 0.045, 0.13],
-    weft_color: [0.32, 0.34, 0.38],
-    sheen_color: [0.1, 0.13, 0.2],
-    sheen_roughness: 0.85,
-    threads: 120,
-    bind: [3, 1, 1],
-    gap: 0.08,
-    irregularity: 0.25,
-    hollow: 0.4,
-    relief: 0.003,
-    fluff: 0.0005,
-    fluff_scale: 280,
-    melange: 0.12,
-});
+export const denim = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...weaveNodes(DENIM),
+            curved: surface.curvature,
+            crest: map.range.with({ in_min: 5, in_max: 22, out_max: 0.75 }),
+            patchy: map.range.with({ in_min: -0.5, in_max: 0.3, out_min: 0.15, out_max: 1 }),
+            worn: math.mul,
+            core: math.value3.with({ value: [0.3, 0.36, 0.48] }),
+            faded: math.mix3,
+            fibers: bsdf.diffuse.with({ roughness: 1 }),
+            fuzz: bsdf.sheen.with({
+                color: [...DENIM.sheen_color],
+                roughness: DENIM.sheen_roughness,
+            }),
+            sum: closure.add,
+            out: closure.normal,
+        },
+        links: [
+            ...WEAVE_LINKS,
+            ['s.curvature', 'curved.curvature'],
+            ['curved.k1', 'crest.x'],
+            ['fluff.value', 'patchy.x'],
+            ['crest.value', 'worn.a'],
+            ['patchy.value', 'worn.b'],
+            ['lit.value', 'faded.a'],
+            ['core.value', 'faded.b'],
+            ['worn.value', 'faded.t'],
+            ['faded.value', 'fibers.color'],
+            ['fibers.value', 'sum.a'],
+            ['fuzz.value', 'sum.b'],
+            ['sum.value', 'out.c'],
+            ['fluff_relief.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.denim',
+        ...SAMPLE_INPUT,
+        expose: [
+            ...WEAVE_EXPOSE,
+            ['fuzz.color', 'sheen_color'],
+            ['fuzz.roughness', 'sheen_roughness'],
+            ['fibers.roughness', 'diffuse_roughness'],
+            ['core.value', 'wear_color'],
+            ['crest.in_min', 'wear_low'],
+            ['crest.in_max', 'wear_high'],
+        ],
+    },
+);
+
+/**
+ * `material.wool` — lã em tricô (ponto meia de fio cardado grosso): colunas de pontos em V (`pattern.knit`: 30 colunas
+ * por unidade do padrão), cada perna um fio redondo de fibras torcidas; a cor varia de ponto para ponto (± 10 %) e de
+ * fibra para fibra (a lã mesclada, ± 35 %), e escurece no fundo entre os fios; felpuda — a penugem (grão fino em
+ * relevo) borra o contorno dos fios, e o brilho de fibra forte e bem largo (0,9) é o halo difuso da lã, sem realce.
+ * O relevo é o de `relief.wool`, em milímetros — o fio (`height`, 1,4 mm) e a penugem —, com `scale` unidades do mundo
+ * por metro: na normal e, com `Displacements.wool()` na entidade de uma `ParametricSurface`, na geometria.
+ * Parâmetros: `color`, `sheen_color`, `sheen_roughness`, `diffuse_roughness`, `height`, `scale`, `pattern_scale`.
+ */
+export const wool = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(),
+            knit: pattern.knit.with(WOOL_KNIT),
+            fluff: pattern.grain.with(WOOL_FLUFF),
+            yarn: math.value3.with({ value: [0.24, 0.15, 0.09] }),
+            uneven: map.range.with({ out_min: 0.9, out_max: 1.1 }),
+            hollow: map.range.with({ in_min: 0, in_max: 0.6, out_min: 0.45, out_max: 1 }),
+            melange: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.65, out_max: 1.35 }),
+            plied: map.range.with({ out_min: 0.7, out_max: 1.08 }),
+            twisted: math.mul,
+            stitch_shade: math.mul,
+            shade: math.mul,
+            lit: math.scale3,
+            // A escala do padrão, uma para a cor e para o relevo.
+            tile: math.value2.with({ value: [1, 1] }),
+            height: relief.wool,
+            normal: surface.reliefNormal,
+            fibers: bsdf.diffuse.with({ roughness: 1 }),
+            fuzz: bsdf.sheen.with({ color: [0.42, 0.34, 0.27], roughness: 0.9 }),
+            sum: closure.add,
+            out: closure.normal,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('knit', 'fluff'),
+            ['tile.value', 'uv.scale'],
+            ['tile.value', 'height.pattern_scale'],
+            ['s.value', 'height.s'],
+            ['knit.stitch', 'uneven.x'],
+            ['knit.height', 'hollow.x'],
+            ['fluff.value', 'melange.x'],
+            ['knit.strand', 'plied.x'],
+            ['uneven.value', 'twisted.a'],
+            ['plied.value', 'twisted.b'],
+            ['twisted.value', 'stitch_shade.a'],
+            ['hollow.value', 'stitch_shade.b'],
+            ['stitch_shade.value', 'shade.a'],
+            ['melange.value', 'shade.b'],
+            ['yarn.value', 'lit.v'],
+            ['shade.value', 'lit.s'],
+            ['lit.value', 'fibers.color'],
+            ['height.value', 'normal.relief'],
+            ['fibers.value', 'sum.a'],
+            ['fuzz.value', 'sum.b'],
+            ['sum.value', 'out.c'],
+            ['normal.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.wool',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['yarn.value', 'color'],
+            ['fuzz.color', 'sheen_color'],
+            ['fuzz.roughness', 'sheen_roughness'],
+            ['fibers.roughness', 'diffuse_roughness'],
+            ['height.height', 'height'],
+            ['normal.scale', 'scale'],
+            ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
 
 /**
  * `material.velvet` — veludo: o corpo é só o difuso escuro das fibras vistas de cima (sem especular: nenhum realce
@@ -267,13 +411,16 @@ const SILK: FabricValues = {
     fluff: 0,
     fluff_scale: 300,
     melange: 0,
+    twist: 0.2,
+    slub: 0.03,
 };
 
 /**
  * `material.silk` — seda/cetim: cetim 4/1 (a urdidura flutua quatro fios por cima, 150 fios por unidade do padrão) —
- * o difuso das fibras, um especular de dielétrico anisotrópico (fios lisos e paralelos: IOR 1,56 da fibroína,
- * rugosidade 0,3, anisotropia 0,8 — `research.md` R11) com a tangente na direção do fio à vista (a urdidura ao longo
- * de v, a trama ao longo de u: o brilho corre ao longo do fio) e um brilho de fibra fraco. Parâmetros: `color`,
+ * o difuso das fibras, um especular de dielétrico anisotrópico (filamentos lisos e paralelos: IOR 1,56 da fibroína,
+ * rugosidade 0,3, anisotropia 0,8 — `research.md` R11) com a tangente na direção da fibra do fio à vista (a saída
+ * `fiber` da trama: o eixo do fio — a urdidura ao longo de v, a trama ao longo de u — com a torção de 0,2 rad: o brilho
+ * corre ao longo do fio, em tracinhos de flutuação em flutuação, e pelas dobras do pano) e um brilho de fibra fraco. Parâmetros: `color`,
  * `weft_color`, `roughness`, `anisotropy`, `ior`, `sheen_color`, `sheen_roughness`, `relief`, `pattern_scale`.
  */
 export const silk = Subgraph.point(
@@ -281,7 +428,6 @@ export const silk = Subgraph.point(
         nodes: {
             ...weaveNodes(SILK),
             fibers: bsdf.diffuse.with({ roughness: 0.5 }),
-            thread_direction: math.mix3,
             threads: bsdf.dielectric.with({ ior: 1.56, roughness: 0.3, anisotropy: 0.8 }),
             fuzz: bsdf.sheen.with({
                 color: [...SILK.sheen_color],
@@ -294,10 +440,7 @@ export const silk = Subgraph.point(
         links: [
             ...WEAVE_LINKS,
             ['lit.value', 'fibers.color'],
-            ['uv.du', 'thread_direction.a'],
-            ['uv.dv', 'thread_direction.b'],
-            ['weave.warp', 'thread_direction.t'],
-            ['thread_direction.value', 'threads.tangent'],
+            ['fiber_direction.value', 'threads.tangent'],
             ['threads.value', 'body.a'],
             ['fibers.value', 'body.b'],
             ['body.value', 'sum.a'],
@@ -335,6 +478,8 @@ const SHEER: FabricValues = {
     fluff: 0,
     fluff_scale: 300,
     melange: 0,
+    twist: 0.3,
+    slub: 0.08,
 };
 
 /**

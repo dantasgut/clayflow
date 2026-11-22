@@ -8,6 +8,7 @@ import { output } from '../nodes/output';
 /** Nome de um material pronto da biblioteca (os nós de `nodes.material`, menos o OpenPBR). */
 export type MaterialName =
     | 'woodRaw'
+    | 'woodRough'
     | 'woodVarnishedGloss'
     | 'woodVarnishedMatte'
     | 'cotton'
@@ -60,7 +61,7 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * por `values.material_<parâmetro>`. Materiais com o mesmo nó compartilham o pipeline. Para compor (misturar dois por
  * uma máscara, ligar a rugosidade a um ruído), use o nó `nodes.material.<nome>` num `NodeGraph` próprio.
  *
- * Madeira: `woodRaw`, `woodVarnishedGloss`, `woodVarnishedMatte`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
+ * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`.
  * Metais: `metalPolished`, `metalBrushed`, `carPaint`, `metalOxidized`. Translúcidos: `glass`, `skin`, `wax`, `marble`,
  * `jade`, `milk`. Os valores físicos e as fontes estão na documentação de cada nó.
@@ -69,6 +70,10 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * (`radius`) e a escala do mundo em unidades por metro (`scale`, 1 por padrão): a luz se difunde sob a superfície e
  * atravessa as partes finas na medida do tamanho real do objeto — `Materials.wax({ scale: 100 })` numa cena em
  * centímetros.
+ *
+ * Os de relevo em milímetros (`woodRough`, `leather`) têm as alturas em milímetros e a mesma escala do mundo
+ * (`scale`): o relevo inclina a normal no material e, com a `DisplacementFunction` de mesmo nome (`Displacements`) na
+ * entidade de uma `ParametricSurface`, move a geometria — os mesmos valores nos dois.
  *
  * A estrutura de cada um (o veio da madeira, a trama dos tecidos, o grão do couro, os riscos do metal escovado, os
  * flocos da pintura, a ferrugem, os veios do mármore) é calculada por pixel pelos nós `nodes.pattern.*` sobre o uv do
@@ -79,6 +84,7 @@ function factory(definition: NodeDefinition): MaterialFactory {
  */
 export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object.freeze({
     woodRaw: factory(material.woodRaw),
+    woodRough: factory(material.woodRough),
     woodVarnishedGloss: factory(material.woodVarnishedGloss),
     woodVarnishedMatte: factory(material.woodVarnishedMatte),
     cotton: factory(material.cotton),

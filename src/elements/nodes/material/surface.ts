@@ -16,6 +16,15 @@ import {
     SAMPLE_INPUT,
     SPACE_LINKS,
 } from './pattern';
+import {
+    LEATHER_GRAIN,
+    LEATHER_WRINKLE,
+    relief,
+    WOOD_FIBER,
+    WOOD_OFFSET,
+    WOOD_RINGS,
+    WOOD_WEAR,
+} from './relief';
 
 // Materiais prontos opacos de uma interface só (spec 011, R11): um especular de dielétrico sobre um difuso — a luz que
 // a interface não reflete entra, espalha no corpo e sai com a cor dele. Cada um com a estrutura que o nome promete,
@@ -116,17 +125,9 @@ export const woodRaw = Subgraph.point(
     new NodeGraph({
         nodes: {
             // A medula a 0,42 do padrão: os arcos dos anéis ficam no meio da peça, não na borda do uv.
-            ...patternSpace([0, -0.42]),
-            rings: pattern.rings.with({
-                scale: 64,
-                depth: 0.1,
-                distortion: 0.12,
-                distortion_scale: [1.2, 2],
-                irregularity: 1,
-                waviness: 0.012,
-                waviness_scale: [2.5, 6],
-            }),
-            fiber: pattern.grain.with({ scale: [3, 150], octaves: 2, seed: 3 }),
+            ...patternSpace(WOOD_OFFSET),
+            rings: pattern.rings.with(WOOD_RINGS),
+            fiber: pattern.grain.with(WOOD_FIBER),
             pore: pattern.grain.with({ scale: [10, 240], octaves: 1, seed: 7 }),
             // A faixa escura é o fim do anel: a cor só escurece no terço final do perfil.
             tone: color.ramp.with({
@@ -190,18 +191,102 @@ export const woodRaw = Subgraph.point(
 );
 
 /**
+ * `material.woodRough` — madeira bruta e envelhecida (tábua serrada, exposta ao tempo, sem acabamento): a madeira crua
+ * (`material.woodRaw`: os anéis, a fibra e os poros na cor), mais cinzenta e áspera, com o relevo de
+ * `relief.woodRough` — o lenho tardio saliente, a face irregular, a fibra levantada, as frestas ao longo do veio e os
+ * poros abertos —, em milímetros: `ring_height` (0,8), `wear_height` (1,2), `fiber_height` (0,3), `crack_depth` (3),
+ * com `scale` unidades do mundo por metro (1: cena em metros). O relevo inclina a normal (`surface.reliefNormal`) e
+ * escurece o fundo das frestas (a cor cai a `cavity`, 0,25, a 2 mm abaixo da face: a luz ambiente que não chega lá);
+ * o tom varia em manchas largas e em faixas ao longo do veio;
+ * com `Displacements.woodRough()` na entidade de uma `ParametricSurface`, o mesmo relevo move a geometria (a silhueta, a
+ * oclusão e a sombra das frestas e das cristas). Parâmetros: `color`, `late_color`, `roughness`, `ring_height`,
+ * `wear_height`, `fiber_height`, `crack_depth`, `cavity`, `scale`, `pattern_scale`.
+ */
+export const woodRough = Subgraph.point(
+    new NodeGraph({
+        nodes: {
+            ...patternSpace(WOOD_OFFSET),
+            early: math.value3.with({ value: [0.37, 0.3, 0.23] }),
+            late: math.value3.with({ value: [0.2, 0.15, 0.105] }),
+            wood: woodRaw.with({ roughness: 0.9, relief: 0, fiber_relief: 0 }),
+            // A escala do padrão, uma para a cor e para o relevo.
+            tile: math.value2.with({ value: [1, 1] }),
+            height: relief.woodRough,
+            // O fundo das frestas escurece; o tom varia em manchas largas (a face gasta) e em faixas ao longo do veio.
+            depth: math.split3,
+            cavity: map.range.with({ in_min: -2, in_max: -0.2, out_min: 0.25, out_max: 1 }),
+            wear: pattern.grain.with(WOOD_WEAR),
+            streak: pattern.grain.with({ scale: [2.2, 40], octaves: 3, seed: 37 }),
+            mottle: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.78, out_max: 1.2 }),
+            band: map.range.with({ in_min: -0.6, in_max: 0.6, out_min: 0.72, out_max: 1.25 }),
+            tone: math.mul,
+            shade: math.mul,
+            early_shaded: math.scale3,
+            late_shaded: math.scale3,
+            normal: surface.reliefNormal,
+            out: closure.normal,
+        },
+        links: [
+            ...SPACE_LINKS,
+            ...patternLinks('wear', 'streak'),
+            ['tile.value', 'uv.scale'],
+            ['s.value', 'wood.s'],
+            ['s.value', 'height.s'],
+            ['tile.value', 'wood.pattern_scale'],
+            ['tile.value', 'height.pattern_scale'],
+            ['height.value', 'depth.v'],
+            ['depth.x', 'cavity.x'],
+            ['wear.value', 'mottle.x'],
+            ['streak.value', 'band.x'],
+            ['mottle.value', 'tone.a'],
+            ['band.value', 'tone.b'],
+            ['tone.value', 'shade.a'],
+            ['cavity.value', 'shade.b'],
+            ['early.value', 'early_shaded.v'],
+            ['shade.value', 'early_shaded.s'],
+            ['late.value', 'late_shaded.v'],
+            ['shade.value', 'late_shaded.s'],
+            ['early_shaded.value', 'wood.color'],
+            ['late_shaded.value', 'wood.late_color'],
+            ['height.value', 'normal.relief'],
+            ['wood.value', 'out.c'],
+            ['normal.value', 'out.normal'],
+        ],
+        output: 'out.value',
+    }),
+    {
+        name: 'material.woodRough',
+        ...SAMPLE_INPUT,
+        expose: [
+            ['early.value', 'color'],
+            ['late.value', 'late_color'],
+            ['wood.roughness', 'roughness'],
+            ['height.ring_height', 'ring_height'],
+            ['height.wear_height', 'wear_height'],
+            ['height.fiber_height', 'fiber_height'],
+            ['height.crack_depth', 'crack_depth'],
+            ['cavity.out_min', 'cavity'],
+            ['normal.scale', 'scale'],
+            ['tile.value', 'pattern_scale'],
+        ],
+    },
+);
+
+/**
  * `material.leather` — couro curtido com acabamento: IOR 1,5 (colágeno e o filme de acabamento, n ≈ 1,5). A estrutura:
- * o grão (`pattern.cells`: 64 células por unidade do padrão, abauladas, com sulcos entre elas) em relevo (`relief`), mais escuro
- * e fosco nos sulcos (rugosidade 0,8) e liso nos platôs (`roughness`, 0,42), com rugas largas (`pattern.grain`) que
- * ondulam a superfície e variam o brilho. Parâmetros: `color`, `roughness`, `ior`, `diffuse_roughness`, `relief`,
- * `pattern_scale`.
+ * o grão (`pattern.cells`: 64 células por unidade do padrão, abauladas, com sulcos entre elas), mais escuro e fosco nos
+ * sulcos (rugosidade 0,8) e liso nos platôs (`roughness`, 0,42), com rugas largas (`pattern.grain`) que ondulam a
+ * superfície e variam o brilho. O relevo é o de `relief.leather`, em milímetros — os sulcos (`height`, 0,35) e as rugas
+ * (`wrinkle_height`, 0,5), com `scale` unidades do mundo por metro —, na normal; com `Displacements.leather()` na
+ * entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`, `roughness`, `ior`, `diffuse_roughness`,
+ * `height`, `wrinkle_height`, `scale`, `pattern_scale`.
  */
 export const leather = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            grain: pattern.cells.with({ scale: 64, jitter: 0.9, crease: 0.5 }),
-            wrinkle: pattern.grain.with({ scale: [9, 9], octaves: 3, seed: 5 }),
+            grain: pattern.cells.with(LEATHER_GRAIN),
+            wrinkle: pattern.grain.with(LEATHER_WRINKLE),
             hide: math.value3.with({ value: [0.22, 0.1, 0.05] }),
             crease_shade: map.range.with({ out_min: 0.62, out_max: 1 }),
             cell_tone: map.range.with({ out_min: 0.88, out_max: 1.1 }),
@@ -213,8 +298,10 @@ export const leather = Subgraph.point(
             body: bsdf.diffuse.with({ roughness: 0.5 }),
             specular: bsdf.dielectric.with({ ior: 1.5 }),
             sum: closure.add,
-            relief: surface.bump.with({ strength: 0.0022 }),
-            wrinkle_relief: surface.bump.with({ strength: 0.005 }),
+            // A escala do padrão, uma para a cor e para o relevo.
+            tile: math.value2.with({ value: [1, 1] }),
+            height: relief.leather,
+            normal: surface.reliefNormal,
             out: closure.normal,
         },
         links: [
@@ -234,10 +321,12 @@ export const leather = Subgraph.point(
             ['rough.value', 'specular.roughness'],
             ['specular.value', 'sum.a'],
             ['body.value', 'sum.b'],
-            ...bumpLinks('relief', 'grain.gradient'),
-            ...bumpLinks('wrinkle_relief', 'wrinkle.gradient', 'relief.value'),
+            ['s.value', 'height.s'],
+            ['tile.value', 'uv.scale'],
+            ['tile.value', 'height.pattern_scale'],
+            ['height.value', 'normal.relief'],
             ['sum.value', 'out.c'],
-            ['wrinkle_relief.value', 'out.normal'],
+            ['normal.value', 'out.normal'],
         ],
         output: 'out.value',
     }),
@@ -249,8 +338,10 @@ export const leather = Subgraph.point(
             ['gloss.out_max', 'roughness'],
             ['specular.ior', 'ior'],
             ['body.roughness', 'diffuse_roughness'],
-            ['relief.strength', 'relief'],
-            PATTERN_SCALE,
+            ['height.height', 'height'],
+            ['height.wrinkle_height', 'wrinkle_height'],
+            ['normal.scale', 'scale'],
+            ['tile.value', 'pattern_scale'],
         ],
     },
 );

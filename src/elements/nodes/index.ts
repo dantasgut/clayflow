@@ -9,7 +9,7 @@ import { bsdf } from './bsdf';
 import { closure } from './closure';
 import { geometry } from './geometry';
 import { image } from './image';
-import { material } from './material';
+import { material, relief } from './material';
 import { math } from './math';
 import { noise } from './noise';
 import { pattern } from './pattern';
@@ -55,7 +55,8 @@ const set = {
  * Biblioteca base de nós da C3 (spec 031, R12): entradas de contexto (`input`: argumentos do ponto alvo, sem código),
  * matemática, mapeamentos, rampas de cor, ruídos, condições, conversões de espaço, campo da cena, geometria diferencial e
  * saídas — nós de ponto, cada um com a referência da CPU em `reference/` e a tolerância documentada em
- * `reference/library.ts` —; a imagem virtual (`image`, spec 034 T060c: depende das `VirtualTextures` da cena) e os nós de
+ * `reference/library.ts` —; os materiais prontos (`material`) e os relevos deles (`relief`, spec 011: a altura em
+ * milímetros que inclina a normal no material e move a geometria na `DisplacementFunction`); a imagem virtual (`image`, spec 034 T060c: depende das `VirtualTextures` da cena) e os nós de
  * conjunto (`set`). Os de ponto valem em todos os estágios, salvo os que dizem o
  * contrário (`output.surfaceParams`, só `fragment`).
  */
@@ -75,6 +76,7 @@ export const nodes = {
     closure,
     output,
     material,
+    relief,
     image,
     set,
 } as const;
@@ -103,5 +105,6 @@ export const defaultNodeRegistry = new NodeRegistry([
     ...pointNodes,
     ...Object.values(set),
     ...Object.values(material),
+    ...Object.values(relief),
     ...Object.values(image),
 ]);

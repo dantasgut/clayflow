@@ -13,6 +13,11 @@ import {
 } from '../../../presentation/flows/__tests__/helpers/renderHarness';
 import { Camera } from '../../scene/Camera';
 import { DirectionalLight } from '../../scene/DirectionalLight';
+import { Displacements } from '../../material/Displacements';
+import { displacementPoint, surfaceAdapt, surfaceEval, surfaceEvalDiff } from '../shaders';
+import { bindPoints, type BindablePoint } from '../../../scene/shaders/bindPoints';
+import { composeWgsl } from '../../../scene/shaders/composeWgsl';
+import type { WgslModule } from '../../../scene/shaders/WgslModule';
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -234,5 +239,40 @@ describe('malha adaptativa (spec 010)', () => {
         expect(
             s.draws('ShadowFlow').every((d) => d.indexCount === s.surface.adaptive!.indexCapacity),
         ).toBe(true);
+    });
+});
+
+describe('deslocamento (spec 011, T115)', () => {
+    it('o ponto: a pronta devolve zero; o relevo de um material compila no ponto com os valores em milímetros', () => {
+        expect(displacementPoint.ready.source).toMatch(/return 0\.0;/);
+        const fn = Displacements.leather({ height: 0.5, scale: 5.5, pattern_scale: [2, 1] });
+        expect(fn.code).toMatch(
+            /fn displacement_fn\(s: SurfaceSample, data: DisplacementFnParams\) -> f32/,
+        );
+        expect(fn.params).toMatchObject({ relief_height: 'f32', out_scale: 'f32' });
+        expect(fn.values.relief_height).toBe(0.5);
+        expect(fn.values.out_scale).toBe(5.5);
+        expect(Object.keys(Displacements).sort()).toEqual(['leather', 'woodRough', 'wool']);
+        expect(() => Displacements.wool({ crack_depth: 1 })).toThrow(/crack_depth/);
+    });
+
+    it('os kernels da superfície (grade, geometria diferencial, adaptativa) montam com a função no lugar da pronta', () => {
+        const fn = Displacements.woodRough({ scale: 5.5 });
+        for (const kernel of [surfaceEval, surfaceEvalDiff, surfaceAdapt]) {
+            // Sem a função: o ponto deslocado com altura zero (o mesmo ponto de antes).
+            const plain = composeWgsl(kernel).spec.source;
+            expect(plain).toContain('fn surface_displaced_at');
+            expect(plain).toMatch(/fn displacement_fn\([^)]*\) -> f32 \{\s*return 0\.0;/);
+            // Com ela: o grafo do relevo (os padrões e `surface.displacement`) dentro do kernel, a pronta fora.
+            const bound = composeWgsl(
+                bindPoints(
+                    kernel,
+                    new Map<BindablePoint, WgslModule>([[displacementPoint, fn.module]]),
+                ),
+            ).spec.source;
+            expect(bound).toContain('node_surface_displacement');
+            expect(bound).toContain('node_pattern_rings');
+            expect(bound).not.toMatch(/fn displacement_fn\([^)]*\) -> f32 \{\s*return 0\.0;/);
+        }
     });
 });

@@ -12,6 +12,7 @@ import { LOBES } from '../pbr/lobes';
 
 const NAMES = [
     'woodRaw',
+    'woodRough',
     'woodVarnishedGloss',
     'woodVarnishedMatte',
     'cotton',
@@ -47,7 +48,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 25 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 26 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -267,7 +268,7 @@ describe('Materials (spec 011, US5)', () => {
         const promised: Readonly<Partial<Record<MaterialName, string>>> = {
             woodRaw: 'pattern.rings',
             cotton: 'pattern.weave',
-            wool: 'pattern.weave',
+            wool: 'pattern.knit',
             denim: 'pattern.weave',
             silk: 'pattern.weave',
             sheerFabric: 'pattern.weave',
@@ -304,12 +305,23 @@ describe('Materials (spec 011, US5)', () => {
         }
         // Com relevo na normal dos lobos de base (o mármore polido e o esmalte da cerâmica não: o da cerâmica é do
         // esmalte).
+        // No couro, na lã e na madeira bruta o relevo é em milímetros (`surface.reliefNormal` sobre o relevo de
+        // `nodes.relief`: o mesmo que a `DisplacementFunction` usa na geometria).
+        const millimetres: readonly MaterialName[] = ['leather', 'wool', 'woodRough'];
         for (const name of Object.keys(promised) as MaterialName[])
-            if (name !== 'marble') expect(has(name, 'surface.bump'), name).toBe(true);
+            if (name !== 'marble')
+                expect(
+                    has(name, millimetres.includes(name) ? 'surface.reliefNormal' : 'surface.bump'),
+                    name,
+                ).toBe(true);
+        for (const name of ['leather', 'wool', 'woodRough'] as const) {
+            expect(has(name, `relief.${name}`), name).toBe(true);
+            expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });
+        }
         // As madeiras envernizadas herdam o padrão da crua (usada como nó) e repassam a escala.
         for (const name of ['woodVarnishedGloss', 'woodVarnishedMatte'] as const)
             expect(nodes.material[name].params.pattern_scale!.default).toEqual([1, 1]);
-        // Jeans: sarja 3/1 de duas cores; seda: cetim com a tangente pelo fio à vista.
+        // Jeans: sarja 3/1 de duas cores; seda: cetim com a tangente pela fibra do fio à vista (o fio torcido).
         const weave = (name: MaterialName) =>
             subgraphOrigin(nodes.material[name])!.graph.node('weave').values;
         expect(weave('denim')).toMatchObject({ over: 3, under: 1, shift: 1 });
@@ -319,7 +331,10 @@ describe('Materials (spec 011, US5)', () => {
             nodes.material.denim.params.weft_color!.default,
         );
         expect(subgraphOrigin(nodes.material.silk)!.graph.links).toEqual(
-            expect.arrayContaining([['thread_direction.value', 'threads.tangent']]),
+            expect.arrayContaining([
+                ['weave.fiber', 'fiber_direction.direction'],
+                ['fiber_direction.value', 'threads.tangent'],
+            ]),
         );
         expect(subgraphOrigin(nodes.material.metalBrushed)!.graph.links).toEqual(
             expect.arrayContaining([['uv.du', 'metal.tangent']]),
