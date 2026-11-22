@@ -11,7 +11,12 @@
 //   - anisotropy-rotate: o realce anisotrópico se alonga perpendicular à tangente (do nó de tangente pelo uv) e gira com
 //     ela;
 //   - thin-film-angle: a cor do filme fino muda com o ângulo;
-//   - subsurface-terminator: a subsuperfície passa da linha de sombra, mais no vermelho;
+//   - subsurface-terminator: a subsuperfície passa da linha de sombra, mais no vermelho (a difusão entre pixels numa
+//     esfera de 16 mm);
+//   - sss: a subsuperfície contra a referência f64 (`material/reference/subsurface.ts`) — o perfil radial de um feixe
+//     estreito sobre uma placa (por canal, contra a convolução da fonte medida com o perfil de Burley, e a largura); a
+//     conservação da energia (a difusão não cria nem perde luz; luz uniforme não muda); a transmissão pela espessura de
+//     placas em contraluz; nada preparado sem material com subsuperfície; com MSAA e com o temporal;
 //   - emission-hdr: emissão acima de 1 chega ao HDR sem corte;
 //   - closure-mix: mistura por máscara contínua; dois especulares fundidos pela regra (α² médio);
 //   - graph-specialization: grafo difuso + especular custa o mesmo que o material pronto; 60 s mudando valores sem
@@ -19,8 +24,11 @@
 //   - material-fn-compat: a função da 009 (`SurfaceParams`) desenha igual ao material pronto;
 //   - transmission-layers: vidro atrás de vidro aparece; IOR 1 é invisível;
 //   - sanitize: fechamento com NaN não chega ao HDR;
-//   - gallery (US5): os 23 materiais prontos (`Materials.*`), um quadro por família (madeira e couro, tecidos, plásticos e
-//     metais, translúcidos), câmera em perspectiva, cada um numa esfera sobre uma placa do mesmo material, sob o sol, uma
+//   - gallery (US5): os materiais prontos (`Materials.*`), um quadro por família (madeira e couro, tecidos, plásticos e
+//     metais, translúcidos — este em contraluz, com a subsuperfície a 55 unidades por metro) e o quadro da subsuperfície
+//     (`subsuperficie`: o par de cera sem e com o espalhamento, a pele, a vela e as placas finas de mármore e de jade em
+//     contraluz, com as medidas do que a difusão muda e o custo dos passes dela), câmera em perspectiva, cada um numa
+//     esfera sobre uma placa do mesmo material, sob o sol, uma
 //     luz de recorte rasante, o céu físico e a luz rebatida da cena (o que os lisos refletem) — a estrutura de cada um
 //     à vista (o veio da madeira crua e sob o verniz, o grão do couro, a trama do jeans e do algodão, os flocos da
 //     pintura, a ferrugem em manchas, os veios do mármore) e as medidas de reconhecimento: madeira crua sem realce
@@ -45,11 +53,12 @@ import {
     PointLight,
     Sky,
     SphereGeometry,
+    SpotLight,
     StandardMaterial,
     Transform,
 } from 'clayflow/web';
 import type { Application, LobeName, MaterialName } from 'clayflow/web';
-import { capture, nextGpuFrame } from './support/extensionScenes';
+import { capture, nextGpuFrame, settle } from './support/extensionScenes';
 import { hdrAt, type HdrImage } from './support/imageMeasures';
 import {
     closureFn,
@@ -63,6 +72,11 @@ import {
 } from './support/materialScenes';
 import { writeFixture } from './support/fixtures';
 import { luminanceLinear, toPng } from './support/images';
+import {
+    burleyRadialPdf,
+    burleyShape,
+    burleyTransmission,
+} from '../elements/material/reference/subsurface';
 
 function log(msg: string): void {
     console.log(`[materials] ${msg}`);
@@ -599,14 +613,16 @@ async function caseSubsurface(): Promise<void> {
     noAmbient(app);
     frontCamera(app, height);
     app.world.insert(new DirectionalLight({ direction: [-1, 0, 0, 0], intensity: 3 }));
+    // A esfera de 0,8 unidade a 100 unidades por metro: 8 mm de raio, com o caminho livre médio de 2, 0,8 e 0,4 mm.
     sphere(
         app,
         -1,
         0,
         0.8,
-        closureFn('return closure_subsurface(vec3f(0.9, 0.6, 0.45), vec3f(1.0, 0.4, 0.2));', [
-            'subsurface',
-        ]),
+        closureFn(
+            'return closure_subsurface(vec3f(0.9, 0.6, 0.45), vec3f(2.0, 0.8, 0.4), 100.0);',
+            ['subsurface'],
+        ),
     );
     sphere(
         app,
@@ -615,7 +631,7 @@ async function caseSubsurface(): Promise<void> {
         0.8,
         closureFn('return closure_diffuse(vec3f(0.9, 0.6, 0.45), 0.0);', ['diffuse']),
     );
-    const img = await renderHdr(app);
+    const img = await renderHdr(app, 4);
     disposeApp(app, canvas);
     // Do lado escuro: n·l = −0,2 (x = −0,2 R do centro, na linha do meio).
     const at = (cx: number) => {
@@ -636,6 +652,274 @@ async function caseSubsurface(): Promise<void> {
         lum(diffuse) < 1e-3,
         `subsurface-terminator: difuso com luz no lado escuro (${lum(diffuse)})`,
     );
+}
+
+/** Material só de subsuperfície (sem especular): albedo, caminho livre médio em mm e a escala do mundo. */
+function scatterFn(albedo: Vec3, mfp: Vec3, scale: number): MaterialFunction {
+    const v = (a: Vec3): string => `vec3f(${a.map((x) => x.toFixed(6)).join(', ')})`;
+    return closureFn(`return closure_subsurface(${v(albedo)}, ${v(mfp)}, ${scale.toFixed(1)});`, [
+        'subsurface',
+    ]);
+}
+
+/** Média de cada canal em anéis de 1 px em volta de (cx, cy), até `rings` px. */
+function ringProfile(img: HdrImage, cx: number, cy: number, rings: number): number[][] {
+    const sum = Array.from({ length: rings }, () => [0, 0, 0, 0]);
+    for (let y = Math.ceil(cy - rings); y < cy + rings; y++)
+        for (let x = Math.ceil(cx - rings); x < cx + rings; x++) {
+            const k = Math.floor(Math.hypot(x + 0.5 - cx, y + 0.5 - cy));
+            if (k >= rings) continue;
+            const c = hdrAt(img, x, y);
+            const ring = sum[k]!;
+            ring[0]! += c[0];
+            ring[1]! += c[1];
+            ring[2]! += c[2];
+            ring[3]! += 1;
+        }
+    return sum.map((r) => [r[0]! / r[3]!, r[1]! / r[3]!, r[2]! / r[3]!]);
+}
+
+/**
+ * A subsuperfície contra a referência f64: o perfil radial e a largura por canal de um feixe estreito sobre uma placa,
+ * a conservação da energia, a luz uniforme e a transmissão pela espessura — com MSAA e com o temporal.
+ */
+async function caseSss(): Promise<void> {
+    const rel = (a: number, b: number): number => Math.abs(a / b - 1);
+    const pct = (x: number): string => `${(100 * x).toFixed(1)} %`;
+    // ── O perfil radial, a largura e a energia: um feixe estreito sobre uma placa, a 1000 unidades por metro (a unidade
+    // é o milímetro). O perfil decai em d e 3d, d = ℓ/s(A): 0,03, 0,02 e 0,01 unidade (12, 8 e 4 px).
+    const ALBEDO: Vec3 = [0.8, 0.6, 0.4];
+    const LENGTH: Vec3 = [0.03, 0.02, 0.01];
+    const MFP = LENGTH.map((d, k) => d * burleyShape(ALBEDO[k]!)) as unknown as Vec3;
+    const W = 480;
+    const height = 1.2;
+    const px = height / W;
+    for (const antialias of ['msaa', 'temporal'] as const) {
+        const { app, canvas } = await materialApp(W, W, engineErrors, { antialias });
+        noAmbient(app);
+        frontCamera(app, height);
+        const before = app.world.queryBySchemaName('Subsurface').length;
+        const spot = new SpotLight({
+            position: [0, 0, 0.5, 1],
+            direction: [0, 0, -1, 0],
+            intensity: 2,
+            innerCone: 0.05,
+            outerCone: 0.07,
+        });
+        app.world.insert(spot);
+        app.world.insert(
+            new PlaneGeometry({ size: [3, 3] })
+                .add(new StandardMaterial())
+                .add(
+                    new Transform({
+                        position: [0, 0, 0, 1],
+                        rotation: [Math.sin(Math.PI / 4), 0, 0, Math.cos(Math.PI / 4)],
+                    }),
+                )
+                .add(scatterFn(ALBEDO, MFP, 1000)),
+        );
+        // O temporal desloca a amostra dentro do pixel a cada quadro: a integral do pixel.
+        const shot = (): Promise<HdrImage> =>
+            antialias === 'temporal' ? renderIntegral(app, 16) : renderHdr(app, 4);
+        const on = await shot();
+        const renderer = app.defaults.renderer;
+        const allocated =
+            app.resources.textureOf(renderer.subsurfaceResource, 'irradiance') !== undefined;
+        const present = app.world.queryBySchemaName('Subsurface').length;
+        renderer.subsurface.enabled = false;
+        const off = await shot();
+        check(
+            before === 0 && present === 1 && allocated,
+            `sss ${antialias}: o Subsurface devia entrar só com o material (antes ${before}, depois ${present}, alvos ${allocated})`,
+        );
+        // A fonte medida (a imagem sem a difusão é A·E/π) e o esperado: a fonte convoluída com o perfil de cada canal,
+        // R̂(r) = pdf(r)/(2πr), com 3 × 3 pontos por pixel da fonte.
+        const rings = 200;
+        const c0 = W / 2;
+        const source = ringProfile(off, c0, c0, rings);
+        const measured = ringProfile(on, c0, c0, rings);
+        const edge = source.findIndex((s, k) => k > 2 && s[0]! < 1e-4 * source[0]![0]!);
+        const expected = (r: number, ch: number): number => {
+            const d = LENGTH[ch]! / px;
+            let sum = 0;
+            for (let y = -edge; y < edge; y++)
+                for (let x = -edge; x < edge; x++) {
+                    const e = hdrAt(off, c0 + x, c0 + y)[ch]!;
+                    if (e <= 0) continue;
+                    for (let j = 0; j < 3; j++)
+                        for (let i = 0; i < 3; i++) {
+                            const dist = Math.hypot(x + (i + 0.5) / 3 - r, y + (j + 0.5) / 3, 1e-3);
+                            sum += (e * burleyRadialPdf(dist, d)) / (2 * Math.PI * dist) / 9;
+                        }
+                }
+            return sum;
+        };
+        const width = (profile: (k: number) => number, to: number): number => {
+            let m0 = 0;
+            let m2 = 0;
+            for (let k = 0; k < to; k++) {
+                const w = profile(k) * (k + 0.5);
+                m0 += w;
+                m2 += w * (k + 0.5) ** 2;
+            }
+            return Math.sqrt(m2 / m0);
+        };
+        const widths: number[] = [];
+        for (let ch = 0; ch < 3; ch++) {
+            const want = Array.from({ length: rings }, (_, k) => expected(k + 0.5, ch));
+            // O perfil fora da fonte em faixas de 6 px, até onde o esperado cai a 10 % do valor na borda da fonte (além
+            // disso cada faixa recebe menos de ~400 amostras da fonte pequena: o ruído delas, 5 %, passa da tolerância);
+            // e a fração da energia a menos de cada raio (a medida da referência f64), em todos os raios.
+            const band = (profile: (k: number) => number, k0: number): number => {
+                let sum = 0;
+                for (let k = k0; k < k0 + 6; k++) sum += profile(k) * (k + 0.5);
+                return sum;
+            };
+            let worst = 0;
+            let at = 0;
+            let count = 0;
+            const first = band((k) => want[k]!, edge + 2);
+            for (let k = edge + 2; k + 6 < rings; k += 6) {
+                const ref = band((j) => want[j]!, k);
+                if (ref < 0.1 * first) break;
+                const err = rel(
+                    band((j) => measured[j]![ch]!, k),
+                    ref,
+                );
+                if (err > worst) [worst, at] = [err, k];
+                count++;
+            }
+            let accGot = 0;
+            let accRef = 0;
+            let totalGot = 0;
+            let totalRef = 0;
+            for (let k = 0; k < rings; k++) {
+                totalGot += measured[k]![ch]! * (k + 0.5);
+                totalRef += want[k]! * (k + 0.5);
+            }
+            let encircled = 0;
+            for (let k = 0; k < rings; k++) {
+                accGot += measured[k]![ch]! * (k + 0.5);
+                accRef += want[k]! * (k + 0.5);
+                encircled = Math.max(encircled, Math.abs(accGot / totalGot - accRef / totalRef));
+            }
+            const to = Math.min(rings, Math.round((12 * LENGTH[ch]!) / px) + edge);
+            const got = width((k) => measured[k]![ch]!, to);
+            const ref = width((k) => want[k]!, to);
+            widths.push(got * px);
+            // A energia: a soma da imagem com a difusão sobre a soma sem ela.
+            let eOn = 0;
+            let eOff = 0;
+            for (let k = 0; k < rings; k++) {
+                eOn += measured[k]![ch]! * (k + 0.5);
+                eOff += source[k]![ch]! * (k + 0.5);
+            }
+            log(
+                `sss ${antialias} canal ${'RGB'[ch]}: perfil radial em ${count} faixas de 6 px desde ${edge + 2} px — maior desvio ${pct(worst)} (em ${at} px); fração da energia por raio a menos de ${encircled.toFixed(4)}; largura (raio quadrático médio) ${(got * px).toFixed(4)} contra ${(ref * px).toFixed(4)} (${pct(rel(got, ref))}); energia com/sem difusão ${(eOn / eOff).toFixed(4)}`,
+            );
+            check(count >= 3, `sss ${antialias}: perfil do canal ${ch} sem pontos (${count})`);
+            check(worst < 0.1, `sss ${antialias}: perfil radial do canal ${ch} a ${pct(worst)}`);
+            check(
+                encircled < 0.02,
+                `sss ${antialias}: a fração da energia por raio do canal ${ch} a ${encircled} da referência`,
+            );
+            check(
+                rel(got, ref) < 0.1,
+                `sss ${antialias}: largura do canal ${ch} a ${pct(rel(got, ref))} da referência`,
+            );
+            check(
+                rel(eOn, eOff) < 0.05,
+                `sss ${antialias}: a difusão mudou a energia do canal ${ch} (${eOn / eOff})`,
+            );
+        }
+        check(
+            widths[0]! > 1.2 * widths[1]! && widths[1]! > 1.2 * widths[2]!,
+            `sss ${antialias}: a largura não cresce do azul para o vermelho (${widths.join(', ')})`,
+        );
+        // Luz uniforme: a difusão não muda nada (a soma do perfil é 1).
+        app.world.remove(spot);
+        app.world.insert(new DirectionalLight({ direction: [0.3, 0, -1, 0], intensity: 3 }));
+        const flatOff = await shot();
+        renderer.subsurface.enabled = true;
+        const flatOn = await shot();
+        let flat = 0;
+        for (let y = 100; y < W - 100; y += 7)
+            for (let x = 100; x < W - 100; x += 7)
+                for (let ch = 0; ch < 3; ch++)
+                    flat = Math.max(flat, rel(hdrAt(flatOn, x, y)[ch]!, hdrAt(flatOff, x, y)[ch]!));
+        log(`sss ${antialias}: luz uniforme — maior diferença com/sem difusão ${pct(flat)}`);
+        check(flat < 0.02, `sss ${antialias}: a difusão mudou a luz uniforme (${pct(flat)})`);
+        disposeApp(app, canvas);
+    }
+
+    // ── A transmissão pela espessura: placas de 0,3 a 2,4 mm (a 100 unidades por metro: a unidade é o centímetro) em
+    // contraluz, com a espessura pelo mapa de sombra da luz — de ½ a 4 comprimentos do perfil do vermelho. A radiância
+    // que sai pela frente é (L/π) · P(t), P a parte do perfil além da espessura. As placas ficam a mais de 20
+    // comprimentos umas das outras (faces no mesmo plano trocariam luz pela difusão na tela).
+    {
+        const WT = 640;
+        const HT = 160;
+        const view = 1.6;
+        const L = 3;
+        const D: Vec3 = [0.06, 0.04, 0.02];
+        const mfp = D.map((d, k) => 10 * d * burleyShape(ALBEDO[k]!)) as unknown as Vec3;
+        const thicknesses = [0.03, 0.06, 0.12, 0.24];
+        const { app, canvas } = await materialApp(WT, HT, engineErrors);
+        noAmbient(app);
+        frontCamera(app, view);
+        app.world.insert(
+            new DirectionalLight({ direction: [0, 0, 1, 0], intensity: L, castShadow: true }),
+        );
+        thicknesses.forEach((t, i) => {
+            app.world.insert(
+                new BoxGeometry({ size: [1, 1, t] })
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [(i - 1.5) * 1.5, 0, -t / 2, 1] }))
+                    .add(scatterFn(ALBEDO, mfp, 100)),
+            );
+        });
+        const img = await renderHdr(app, 30, 1200);
+        app.defaults.renderer.subsurface.enabled = false;
+        const dark = await renderHdr(app, 4);
+        disposeApp(app, canvas);
+        let worst = 0;
+        thicknesses.forEach((t, i) => {
+            const [x, y] = frontPixel((i - 1.5) * 1.5, 0, view, WT, HT);
+            const got = hdrAt(img, x, y);
+            const want = D.map((d) => (L / Math.PI) * burleyTransmission(t, d));
+            const errs = got.map((g, k) => rel(g, want[k]!));
+            // Abaixo de 1 % da luz que entra, a medida é o piso do formato: fora da conferência.
+            errs.forEach((e, k) => {
+                if (want[k]! > (0.01 * L) / Math.PI) worst = Math.max(worst, e);
+            });
+            log(
+                `sss transmissão ${(10 * t).toFixed(1)} mm: ${got.map((v) => v.toFixed(4)).join(', ')} contra ${want.map((v) => v.toFixed(4)).join(', ')} (${errs.map(pct).join(', ')}); sem a subsuperfície ${lum(hdrAt(dark, x, y)).toFixed(5)}`,
+            );
+            check(
+                lum(hdrAt(dark, x, y)) < 1e-4,
+                `sss: a placa de ${10 * t} mm tem luz sem a subsuperfície (${lum(hdrAt(dark, x, y))})`,
+            );
+        });
+        check(worst < 0.1, `sss: a transmissão pela espessura a ${pct(worst)} da referência`);
+    }
+
+    // ── Sem material com subsuperfície, nada entra na cena nem é alocado.
+    {
+        const { app, canvas } = await materialApp(64, 64, engineErrors);
+        frontCamera(app, 2);
+        sphere(app, 0, 0, 0.8, closureFn('return closure_diffuse(vec3f(0.8), 0.0);', ['diffuse']));
+        await renderHdr(app, 2);
+        const none = app.world.queryBySchemaName('Subsurface').length;
+        const texture = app.resources.textureOf(
+            app.defaults.renderer.subsurfaceResource,
+            'irradiance',
+        );
+        disposeApp(app, canvas);
+        log(
+            `sss: cena sem subsuperfície — ${none} Subsurface na cena, alvos ${texture === undefined ? 'não alocados' : 'alocados'}`,
+        );
+        check(none === 0 && texture === undefined, 'sss: custo sem material com subsuperfície');
+    }
 }
 
 async function caseEmission(): Promise<void> {
@@ -1044,6 +1328,8 @@ async function caseSanitize(): Promise<void> {
 interface GalleryFamily {
     readonly name: string;
     readonly rows: readonly [readonly (MaterialName | null)[], readonly (MaterialName | null)[]];
+    /** A luz de recorte projeta sombra (a espessura que a luz atravessa nos materiais com subsuperfície). */
+    readonly backlit?: boolean;
 }
 
 /** A galeria: um quadro por família, 3 colunas × 2 fileiras; o vidro ao lado do lugar vazio (a parede à vista). */
@@ -1075,8 +1361,27 @@ const GALLERY: readonly GalleryFamily[] = [
             ['marble', 'glass', null],
             ['porcelain', 'skin', 'wax'],
         ],
+        backlit: true,
     },
 ];
+
+/**
+ * Escala do mundo da galeria para os materiais com subsuperfície (unidades por metro): as esferas de raio 0,55 são
+ * contas de 2 cm de diâmetro — o raio de espalhamento, em milímetros, aparece nesse tamanho.
+ */
+const GALLERY_SCALE = 55;
+
+/** Os valores de um material pronto na galeria: as repetições do padrão e a escala do mundo, nos que os expõem. */
+function galleryValues(
+    name: MaterialName,
+    pattern: readonly [number, number],
+): Record<string, number | number[]> {
+    const params = nodes.material[name].params;
+    return {
+        ...('pattern_scale' in params ? { pattern_scale: [...pattern] } : {}),
+        ...('scale' in params ? { scale: GALLERY_SCALE } : {}),
+    };
+}
 
 /** Geometria da galeria: esferas de raio `R` sobre placas de lado `TILE`, colunas a `DX` e fileiras em z = ∓`DZ`. */
 const GALLERY_R = 0.55;
@@ -1128,6 +1433,8 @@ interface GalleryShot {
     readonly center: ReadonlyMap<MaterialName | 'empty', Vec3>;
     readonly gpuMs: number;
     readonly ready: number;
+    /** O custo de GPU por quadro com a subsuperfície desligada (só nas famílias com contraluz). */
+    readonly gpuPlain?: number;
 }
 
 /**
@@ -1182,9 +1489,12 @@ async function galleryShot(
     // A mesma luz para todos: o sol, uma luz de recorte rasante por trás (o pelo do veludo, o relevo das tramas) e o
     // ambiente — o céu físico desse sol e a luz rebatida da cena (o chão, as placas e os vizinhos), que é o que os
     // lisos refletem (a radiância das sondas na direção do reflexo).
+    // Na família em contraluz, a luz de recorte é a principal (projeta sombra: a espessura que ela atravessa nos
+    // materiais com subsuperfície vem do mapa dela) e o sol fica de preenchimento.
+    const backlit = family.backlit === true;
     const sun = new DirectionalLight({
         direction: [...GALLERY_SUN.map((c) => -c), 0],
-        intensity: 3,
+        intensity: backlit ? 1.2 : 3,
     });
     app.world.insert(sun);
     app.world.insert(new Sky({ sun, sunDisk: false }));
@@ -1197,7 +1507,11 @@ async function galleryShot(
         }),
     );
     app.world.insert(
-        new DirectionalLight({ direction: [...GALLERY_RIM.map((c) => -c), 0], intensity: 1.2 }),
+        new DirectionalLight({
+            direction: [...GALLERY_RIM.map((c) => -c), 0],
+            intensity: backlit ? 5 : 1.2,
+            ...(backlit ? { castShadow: true } : {}),
+        }),
     );
     // Chão e fundo neutros.
     app.world.insert(
@@ -1215,7 +1529,6 @@ async function galleryShot(
             const at: Vec3 = [(i - 1) * GALLERY_DX, GALLERY_R, j === 0 ? -GALLERY_DZ : GALLERY_DZ];
             center.set(name ?? 'empty', at);
             if (name === null) return;
-            const patterned = 'pattern_scale' in nodes.material[name].params;
             app.world.insert(
                 new SphereGeometry({ radius: GALLERY_R, latSegments: 96, lonSegments: 192 })
                     .add(new StandardMaterial())
@@ -1226,7 +1539,7 @@ async function galleryShot(
                             rotation: [Math.sin(-POLE_TILT / 2), 0, 0, Math.cos(-POLE_TILT / 2)],
                         }),
                     )
-                    .add(Materials[name](patterned ? { pattern_scale: [2, 1] } : {})),
+                    .add(Materials[name](galleryValues(name, [2, 1]))),
             );
             // A parte plana: a placa do mesmo material sob a esfera (o vidro fica sem, com a parede à vista atrás).
             if (name === 'glass') return;
@@ -1234,9 +1547,7 @@ async function galleryShot(
                 new BoxGeometry({ size: [GALLERY_TILE, 0.1, GALLERY_TILE] })
                     .add(new StandardMaterial())
                     .add(new Transform({ position: [at[0], -0.05, at[2], 1] }))
-                    .add(
-                        Materials[name](patterned ? { pattern_scale: [tileScale, tileScale] } : {}),
-                    ),
+                    .add(Materials[name](galleryValues(name, [tileScale, tileScale]))),
             );
         });
     });
@@ -1288,8 +1599,264 @@ async function galleryShot(
         app.step(0);
         await writeFixture(`zzGallery-${family.name}.png`, await toPng(capture(canvas)));
     }
+    const gpuMs = samples[samples.length >> 1] ?? NaN;
+    // O custo dos passes da subsuperfície: o mesmo quadro com ela desligada no renderizador.
+    let gpuPlain: number | undefined;
+    if (family.backlit === true) {
+        app.defaults.renderer.subsurface.enabled = false;
+        await settle(app, 300);
+        samples.length = 0;
+        for (let i = 0; i < 60; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        samples.sort((a, b) => a - b);
+        gpuPlain = samples[samples.length >> 1] ?? NaN;
+    }
     disposeApp(app, canvas);
-    return { img, center, gpuMs: samples[samples.length >> 1] ?? NaN, ready };
+    return { img, center, gpuMs, ready, ...(gpuPlain !== undefined ? { gpuPlain } : {}) };
+}
+
+/** O quadro da subsuperfície: as imagens HDR com e sem a difusão, os pontos medidos e o custo de GPU de cada uma. */
+interface SubsurfaceShot {
+    readonly on: HdrImage;
+    readonly off: HdrImage;
+    readonly gpuOn: number;
+    readonly gpuOff: number;
+    /** Centros (mundo) das peças: as esferas e as placas. */
+    readonly at: Readonly<Record<'waxPlain' | 'wax' | 'skin' | 'candle' | 'marble' | 'jade', Vec3>>;
+}
+
+/** Luzes do quadro da subsuperfície: a contraluz (rasante, por trás, com sombra) e a luz de lado (o terminador). */
+const SSS_BACK = [-0.22, 0.42, -0.88] as const;
+const SSS_SIDE = [-0.85, 0.35, 0.4] as const;
+/** Espessuras (unidades; a 55 por metro): a vela de 8 mm, a placa de mármore de 1,5 mm e a de jade de 2 mm. */
+const SSS_CANDLE = 0.44;
+const SSS_MARBLE = 0.0825;
+const SSS_JADE = 0.11;
+
+/**
+ * O quadro que mostra a subsuperfície (spec 011, T113), a 55 unidades por metro (as esferas são contas de 2 cm): na
+ * frente, o par de cera sem e com o espalhamento (a mesma cera com o raio zero) e a pele; atrás, uma vela de cera de
+ * 8 mm e duas placas finas em pé, de mármore (1,5 mm) e de jade (2 mm) — sob uma contraluz rasante que projeta sombra
+ * (a espessura que ela atravessa vem do mapa dela), uma luz de lado mais fraca (o terminador nas esferas) e o
+ * hemisfério baixo. Desenhado com a difusão e, depois, sem ela (`renderer.subsurface.enabled`), com o custo de GPU de
+ * cada um; `shot` grava os dois quadros.
+ */
+async function subsurfaceShot(width: number, height: number): Promise<SubsurfaceShot> {
+    const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
+    const samples: number[] = [];
+    app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(
+            new Transform({
+                position: [...GALLERY_EYE, 1],
+                rotation: Transform.lookRotation([...GALLERY_EYE], [...GALLERY_TARGET]),
+            }),
+        ),
+    );
+    app.defaults.ambient.data.intensity = 0.12;
+    app.world.insert(
+        new DirectionalLight({
+            direction: [...SSS_BACK.map((c) => -c), 0],
+            intensity: 6,
+            castShadow: true,
+        }),
+    );
+    app.world.insert(
+        new DirectionalLight({ direction: [...SSS_SIDE.map((c) => -c), 0], intensity: 1.6 }),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, 0, 0, 1] }))
+            .add(neutral(0.18)),
+    );
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.12));
+    const R = GALLERY_R;
+    const front = (i: number): Vec3 => [(i - 1) * GALLERY_DX, R, GALLERY_DZ];
+    const back = (i: number, h: number): Vec3 => [(i - 1) * GALLERY_DX, h / 2, -GALLERY_DZ];
+    const ball = (at: Vec3, fn: MaterialFunction): void => {
+        app.world.insert(
+            new SphereGeometry({ radius: R, latSegments: 96, lonSegments: 192 })
+                .add(new StandardMaterial())
+                .add(new Transform({ position: [...at, 1] }))
+                .add(fn),
+        );
+    };
+    const block = (at: Vec3, size: Vec3, fn: MaterialFunction): void => {
+        app.world.insert(
+            new BoxGeometry({ size: [...size] })
+                .add(new StandardMaterial())
+                .add(new Transform({ position: [...at, 1] }))
+                .add(fn),
+        );
+    };
+    const at = {
+        waxPlain: front(0),
+        wax: front(1),
+        skin: front(2),
+        candle: back(0, 1.7),
+        marble: back(1, 1.3),
+        jade: back(2, 1.3),
+    };
+    // O par: a mesma cera, com o raio de espalhamento zero (a luz não sai do ponto em que entra) e com o da biblioteca.
+    ball(at.waxPlain, Materials.wax({ scale: GALLERY_SCALE, radius: [0, 0, 0] }));
+    ball(at.wax, Materials.wax({ scale: GALLERY_SCALE }));
+    ball(at.skin, Materials.skin({ scale: GALLERY_SCALE }));
+    block(at.candle, [SSS_CANDLE, 1.7, SSS_CANDLE], Materials.wax({ scale: GALLERY_SCALE }));
+    block(
+        at.marble,
+        [1.2, 1.3, SSS_MARBLE],
+        Materials.marble({ scale: GALLERY_SCALE, pattern_scale: [1, 1] }),
+    );
+    block(at.jade, [1.2, 1.3, SSS_JADE], Materials.jade({ scale: GALLERY_SCALE }));
+    const gpu = async (): Promise<number> => {
+        samples.length = 0;
+        for (let i = 0; i < 60; i++) {
+            app.step(1 / 60);
+            await nextGpuFrame(app);
+        }
+        samples.sort((a, b) => a - b);
+        return samples[samples.length >> 1] ?? NaN;
+    };
+    const shot = new URLSearchParams(location.search).get('shot') !== null;
+    const save = async (name: string): Promise<void> => {
+        if (!shot) return;
+        // O canvas só vale na tarefa do quadro: um quadro e a captura, sem ceder entre os dois.
+        app.step(0);
+        await writeFixture(name, await toPng(capture(canvas)));
+    };
+    const on = await renderHdr(app, 40, 1500);
+    const gpuOn = await gpu();
+    await save('zzGallery-subsuperficie.png');
+    app.defaults.renderer.subsurface.enabled = false;
+    const off = await renderHdr(app, 8);
+    const gpuOff = await gpu();
+    await save('zzGallery-subsuperficie-sem.png');
+    disposeApp(app, canvas);
+    return { on, off, gpuOn, gpuOff, at };
+}
+
+/** As medidas do quadro da subsuperfície: o que a difusão e a luz que atravessa mudam em cada peça. */
+async function gallerySubsurface(width: number, height: number): Promise<void> {
+    const W = width;
+    const H = height;
+    const shot = await subsurfaceShot(W, H);
+    const R = GALLERY_R;
+    const pixel = (p: Vec3): [number, number] => {
+        const [x, y] = galleryPixel(p, W, H);
+        return [Math.round(x), Math.round(y)];
+    };
+    /** Média de 9 × 9 px em volta do ponto de mundo `p`, nas duas imagens. */
+    const both = (p: Vec3): { on: Vec3; off: Vec3 } => {
+        const [x, y] = pixel(p);
+        const mean = (img: HdrImage): Vec3 => {
+            const sum = [0, 0, 0];
+            for (let dy = -4; dy <= 4; dy++)
+                for (let dx = -4; dx <= 4; dx++)
+                    hdrAt(img, x + dx, y + dy).forEach((v, k) => (sum[k]! += v / 81));
+            return [sum[0]!, sum[1]!, sum[2]!];
+        };
+        return { on: mean(shot.on), off: mean(shot.off) };
+    };
+    const onSphere = (c: Vec3, n: Vec3): Vec3 => [
+        c[0] + R * n[0],
+        c[1] + R * n[1],
+        c[2] + R * n[2],
+    ];
+    const fmt = (v: Vec3): string => v.map((x) => x.toFixed(3)).join(', ');
+    let bad = 0;
+    for (const img of [shot.on, shot.off])
+        for (let k = 0; k < img.data.length; k++) if (!Number.isFinite(img.data[k]!)) bad++;
+    log(
+        `gallery subsuperficie: ${W}×${H}; GPU ${shot.gpuOn.toFixed(2)} ms por quadro com a subsuperfície e ${shot.gpuOff.toFixed(2)} ms sem (os dois passes: ${(shot.gpuOn - shot.gpuOff).toFixed(2)} ms); ${bad} valores não finitos`,
+    );
+    check(bad === 0, `gallery subsuperficie: ${bad} valores não finitos no alvo HDR`);
+    const view = unit3(sub3(GALLERY_EYE, shot.at.wax));
+    const backlight = unit3(SSS_BACK);
+    const side = unit3(SSS_SIDE);
+    // A cera em contraluz: o ponto voltado para a câmera, do lado contra a luz de lado (só o hemisfério o ilumina) —
+    // com o espalhamento, a luz que atravessa a conta acende esse lado, mais no vermelho que no azul.
+    const shade = unit3([view[0] + 0.45, view[1] - 0.25, view[2]]);
+    const lit = both(onSphere(shot.at.wax, shade));
+    const plain = both(onSphere(shot.at.waxPlain, shade));
+    log(
+        `gallery subsuperficie: cera em contraluz, lado da sombra — com o raio da biblioteca (${fmt(lit.on)}), com o raio zero (${fmt(plain.on)}); sem a difusão (${fmt(lit.off)})`,
+    );
+    check(
+        lum(lit.on) > 1.5 * lum(plain.on),
+        `gallery subsuperficie: a cera não acende em contraluz (${lum(lit.on)} × ${lum(plain.on)})`,
+    );
+    check(
+        lit.on[0] - plain.on[0] > 2 * (lit.on[2] - plain.on[2]),
+        'gallery subsuperficie: a luz que atravessa a cera não é quente (vermelho > azul)',
+    );
+    check(
+        rel3(plain.on, plain.off) < 0.02,
+        `gallery subsuperficie: a cera de raio zero mudou com a difusão (${rel3(plain.on, plain.off)})`,
+    );
+    // A vela e as placas finas: a face voltada para a câmera (contra a contraluz), com e sem a subsuperfície.
+    const face = (name: 'candle' | 'marble' | 'jade', depth: number): { on: Vec3; off: Vec3 } => {
+        const c = shot.at[name];
+        return both([c[0], c[1] + 0.2, c[2] + depth / 2]);
+    };
+    const candle = face('candle', SSS_CANDLE);
+    const marble = face('marble', SSS_MARBLE);
+    const jade = face('jade', SSS_JADE);
+    log(
+        `gallery subsuperficie: face contra a luz, com / sem — vela de 8 mm (${fmt(candle.on)}) / (${fmt(candle.off)}); mármore de 1,5 mm (${fmt(marble.on)}) / (${fmt(marble.off)}); jade de 2 mm (${fmt(jade.on)}) / (${fmt(jade.off)})`,
+    );
+    check(lum(candle.on) > 2 * lum(candle.off), 'gallery subsuperficie: a vela não acende');
+    check(
+        candle.on[0] - candle.off[0] > 2 * (candle.on[2] - candle.off[2]),
+        'gallery subsuperficie: a luz pela vela não é quente',
+    );
+    check(lum(marble.on) > 2 * lum(marble.off), 'gallery subsuperficie: o mármore fino não acende');
+    check(lum(jade.on) > 2 * lum(jade.off), 'gallery subsuperficie: o jade fino não acende');
+    check(
+        jade.on[1] - jade.off[1] > 1.5 * (jade.on[0] - jade.off[0]),
+        'gallery subsuperficie: a luz pelo jade não é verde',
+    );
+    // O terminador da luz de lado na pele: logo depois da linha de sombra dela (n·l = −0,12, num ponto voltado para a
+    // câmera e fora da contraluz), a difusão traz luz, mais vermelha que azul; do lado iluminado (n·l = 0,5) quase nada
+    // muda (a luz ali é lisa).
+    const across = unit3(cross3(side, cross3(view, side)));
+    const terminator = (nl: number): Vec3 => {
+        const s = Math.sqrt(1 - nl * nl);
+        return unit3([
+            side[0] * nl + across[0] * s,
+            side[1] * nl + across[1] * s,
+            side[2] * nl + across[2] * s,
+        ]);
+    };
+    const past = both(onSphere(shot.at.skin, terminator(-0.12)));
+    const before = both(onSphere(shot.at.skin, terminator(0.5)));
+    const gain: Vec3 = [
+        past.on[0] - past.off[0],
+        past.on[1] - past.off[1],
+        past.on[2] - past.off[2],
+    ];
+    log(
+        `gallery subsuperficie: pele, depois do terminador (n·l = −0,12) com (${fmt(past.on)}) / sem (${fmt(past.off)}) — ganho (${fmt(gain)}); antes dele (n·l = 0,5) com (${fmt(before.on)}) / sem (${fmt(before.off)}); contraluz a ${dot3(terminator(-0.12), backlight).toFixed(2)} da normal`,
+    );
+    check(
+        gain[0] > 0.004,
+        `gallery subsuperficie: a luz não passa do terminador na pele (${gain[0]})`,
+    );
+    check(
+        gain[0] > 1.5 * gain[1] && gain[1] > gain[2],
+        `gallery subsuperficie: o terminador da pele não é avermelhado (${fmt(gain)})`,
+    );
+    check(
+        rel3(before.on, before.off) < 0.05,
+        `gallery subsuperficie: a difusão mudou o lado iluminado da pele (${rel3(before.on, before.off)})`,
+    );
+}
+
+/** Maior diferença relativa entre os canais de duas cores. */
+function rel3(a: Vec3, b: Vec3): number {
+    return Math.max(...a.map((v, k) => Math.abs(v - b[k]!) / Math.max(b[k]!, 1e-6)));
 }
 
 async function caseGallery(): Promise<void> {
@@ -1302,6 +1869,8 @@ async function caseGallery(): Promise<void> {
         if (only !== null && only !== family.name) continue;
         shots.set(family.name, await galleryShot(family, W, H));
     }
+    // O quadro da subsuperfície (as peças finas em contraluz e o par com e sem o espalhamento) tem as medidas próprias.
+    if (only === null || only === 'subsuperficie') await gallerySubsurface(W, H);
     /** O quadro em que o material está (ou `undefined`, com `family=` de outra família). */
     const shotOf = (name: MaterialName | 'empty'): GalleryShot | undefined =>
         [...shots.values()].find((shot) => shot.center.has(name));
@@ -1343,7 +1912,7 @@ async function caseGallery(): Promise<void> {
             return !(sum > 0);
         });
         log(
-            `gallery ${family}: ${shot.center.size - (shot.center.has('empty') ? 1 : 0)} materiais prontos, ${W}×${H}; pronto em ${(shot.ready / 1000).toFixed(1)} s; GPU ${shot.gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos; sem imagem: ${dark.length === 0 ? 'nenhum' : dark.join(', ')}`,
+            `gallery ${family}: ${shot.center.size - (shot.center.has('empty') ? 1 : 0)} materiais prontos, ${W}×${H}; pronto em ${(shot.ready / 1000).toFixed(1)} s; GPU ${shot.gpuMs.toFixed(2)} ms por quadro (mediana)${shot.gpuPlain === undefined ? '' : `, ${shot.gpuPlain.toFixed(2)} ms sem a subsuperfície`}; ${bad} valores não finitos; sem imagem: ${dark.length === 0 ? 'nenhum' : dark.join(', ')}`,
         );
         check(bad === 0, `gallery ${family}: ${bad} valores não finitos no alvo HDR`);
         check(dark.length === 0, `gallery ${family}: materiais sem imagem (${dark.join(', ')})`);
@@ -1920,6 +2489,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'anisotropy-rotate': caseAnisotropy,
     'thin-film-angle': caseThinFilm,
     'subsurface-terminator': caseSubsurface,
+    sss: caseSss,
     'emission-hdr': caseEmission,
     'closure-mix': caseMix,
     'graph-specialization': caseSpecialization,
