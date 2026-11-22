@@ -70,13 +70,21 @@ import {
     forwardCameraAdapter,
     forwardCameraClip,
     forwardRefractionRequest,
+    forwardSubsurfaceApply,
+    forwardSubsurfaceGather,
+    forwardSubsurfaceIrradiance,
+    subsurfaceResources,
     transmissionResources,
 } from '../../elements/material/shaders';
+import {
+    Subsurface,
+    SUBSURFACE_IRRADIANCE_FORMAT,
+} from '../../elements/lighting/subsurface/Subsurface';
 import {
     Refraction,
     REFRACTION_REQUEST_FORMAT,
 } from '../../elements/lighting/refraction/Refraction';
-import { TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
+import { LOBES, TRANSMISSIVE_LOBES } from '../../elements/material/pbr/lobes';
 import { LIGHT_FORMAT } from '../app/FrameTargets';
 import {
     DRAW_CULL_HZB,
@@ -156,6 +164,11 @@ export interface ForwardSlots extends SlotMap {
      * composição desenham a cor deles); sem ela, não desenham.
      */
     readonly refraction: SingletonSlot<true>;
+    /**
+     * Espalhamento sob a superfície (spec 011, T113): com ele, as entidades com o lobo de subsuperfície guardam a luz que
+     * entra e a difundem sobre a cor depois do passe principal; sem ele, o lobo responde só no ponto.
+     */
+    readonly subsurface: SingletonSlot<true>;
     /** O espaço de trabalho do passe: parâmetros do quadro, substituto da geometria diferencial, o descarte (spec 039). */
     readonly work: WorkSlot<ForwardWork>;
     /** As séries do descarte (spec 034, T060d; no trabalho): a hierarquia de profundidade e as medidas da oclusão. */
@@ -224,12 +237,35 @@ interface MaterialFnVariant extends PipelineVariant {
     readonly transmission?: {
         readonly request?: { readonly ccw: string; readonly cw: string };
     };
+    /**
+     * Subsuperfície (spec 011, T113), com o `Subsurface` ligado na cena: os pipelines que guardam a luz que entra, os
+     * que a difundem pelo perfil e os que somam a luz difundida à cor, por orientação.
+     */
+    readonly subsurface?: {
+        readonly irradiance: { readonly ccw: string; readonly cw: string };
+        readonly gather: { readonly ccw: string; readonly cw: string };
+        readonly apply: { readonly ccw: string; readonly cw: string };
+    };
 }
 
 /** A função `material` faz da entidade um transmissivo (spec 011): lobo de transmissão, parede fina ou opacidade. */
 function isTransmissive(fn: MaterialFunction | undefined): boolean {
     return fn !== undefined && (fn.lobeMask & TRANSMISSIVE_LOBES) !== 0;
 }
+
+/** A função `material` tem o lobo de subsuperfície (spec 011, T113): a luz dela é difundida entre os pixels. */
+function scatters(fn: MaterialFunction | undefined): boolean {
+    return fn !== undefined && (fn.lobeMask & LOBES.subsurface) !== 0;
+}
+
+/** Os alvos do `Subsurface` que o desenho grava e lê. */
+const SUBSURFACE_TARGETS = ['irradiance', 'local', 'exit', 'depth', 'diffused'] as const;
+
+/** Mistura aditiva na cor, sem tocar o alfa do alvo. */
+const ADDITIVE: GPUBlendState = {
+    color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+    alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+};
 
 /** A `MaterialFunction` da entidade, se tem. */
 function materialFunctionOf(entry: EntityEntry): MaterialFunction | undefined {
@@ -268,6 +304,7 @@ function slotsOf(output: ForwardOutput, work: ForwardWork): ForwardSlots {
         light: slot.texture(FrameTargets.schema, 'light', { optional: true }),
         antialiasing: slot.singleton(TemporalAntialiasing.schema, { optional: true }),
         refraction: slot.singleton(Refraction.schema, { optional: true }),
+        subsurface: slot.singleton(Subsurface.schema, { optional: true }),
         work: slot.work(() => work),
         hzb: slot.channel(ForwardWork.schema, DRAW_CULL_HZB, { optional: true }),
         cullStats: slot.channel(ForwardWork.schema, DRAW_CULL_STATS, { optional: true }),
@@ -430,22 +467,45 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     ? { request: { ccw: `${ccw}|request`, cw: `${cw}|request` } }
                     : {}
                 : undefined;
+            // A subsuperfície (spec 011, T113): as amostras do perfil são constante do pipeline (outro valor, outro id).
+            const samples = !transmissive && scatters(fn) ? this.subsurfaceSamples(ctx) : 0;
+            const subsurface =
+                samples > 0
+                    ? {
+                          irradiance: { ccw: `${ccw}|irradiance`, cw: `${cw}|irradiance` },
+                          gather: { ccw: `${ccw}|gather${samples}`, cw: `${cw}|gather${samples}` },
+                          apply: { ccw: `${ccw}|diffused`, cw: `${cw}|diffused` },
+                      }
+                    : undefined;
             const next: MaterialFnVariant = {
-                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}${request ? '|request' : ''}`,
-                // A variante passa a valer quando o pipeline `id` compila: o do pedido, quando há (a entrada da
-                // refração troca a variante de uma entidade cuja função já compilou).
-                id: transmission?.request?.ccw ?? ccw,
+                key: `${base.ccw}|${name}${transmissive ? '|transmission' : ''}${request ? '|request' : ''}${
+                    subsurface !== undefined ? `|subsurface${samples}` : ''
+                }`,
+                // A variante passa a valer quando o pipeline `id` compila: o do pedido ou o da difusão, quando há (a
+                // entrada da refração ou da subsuperfície troca a variante de uma entidade cuja função já compilou).
+                id: transmission?.request?.ccw ?? subsurface?.gather.ccw ?? ccw,
                 ids: [
                     ccw,
                     cw,
                     ...(transmission?.request === undefined
                         ? []
                         : [transmission.request.ccw, transmission.request.cw]),
+                    ...(subsurface === undefined
+                        ? []
+                        : [
+                              subsurface.irradiance.ccw,
+                              subsurface.irradiance.cw,
+                              subsurface.gather.ccw,
+                              subsurface.gather.cw,
+                              subsurface.apply.ccw,
+                              subsurface.apply.cw,
+                          ]),
                 ],
                 base,
                 ccw,
                 cw,
                 ...(transmission !== undefined ? { transmission } : {}),
+                ...(subsurface !== undefined ? { subsurface } : {}),
             };
             this.materialFns.select(entry.entityId, next, () => {
                 const variant = (baseId: string, id: string): boolean => {
@@ -470,6 +530,81 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                 };
                 const ready = variant(base.ccw, ccw);
                 variant(base.cw, cw);
+                if (subsurface !== undefined) {
+                    // Os lobos da função mais o difuso (a sonda branca que mede a irradiância).
+                    const constants = { CLOSURE_LOBES: fn.lobeMask | LOBES.diffuse };
+                    const shaderOf = (module: WgslModule): WgslModule =>
+                        bindPoints(
+                            module,
+                            new Map([[forwardMaterial, forwardMaterialAdapter(fn.module)]]),
+                        );
+                    const unsampled = {
+                        colorTargets: [{ format: SUBSURFACE_IRRADIANCE_FORMAT }],
+                        multisample: { count: 1 as const },
+                    };
+                    const scattering = (fromId: string, to: 'ccw' | 'cw'): void => {
+                        const f = this.baseDescriptors.get(fromId)!;
+                        // A luz que entra: sem amostras, na profundidade própria.
+                        ctx.prepare({
+                            ...f,
+                            id: subsurface.irradiance[to],
+                            shader: shaderOf(
+                                ctx.bound.slots.target.sampleCount > 1
+                                    ? forwardSubsurfaceIrradiance.multisampled
+                                    : forwardSubsurfaceIrradiance.single,
+                            ),
+                            entryPoints: ['vs_main', 'fs_subsurface_irradiance'],
+                            constants,
+                            colorTargets: [
+                                ...unsampled.colorTargets,
+                                ...unsampled.colorTargets,
+                                ...unsampled.colorTargets,
+                            ],
+                            depth: {
+                                format: 'depth24plus',
+                                depthWriteEnabled: true,
+                                depthCompare: 'less',
+                            },
+                            multisample: unsampled.multisample,
+                        });
+                        // A difusão pelo perfil: sem amostras, na profundidade própria (só leitura, teste igual: só a
+                        // superfície guardada no pixel é sombreada).
+                        ctx.prepare({
+                            ...f,
+                            id: subsurface.gather[to],
+                            shader: shaderOf(forwardSubsurfaceGather),
+                            entryPoints: ['vs_main', 'fs_subsurface_gather'],
+                            constants: { ...constants, SUBSURFACE_SAMPLES: samples },
+                            ...unsampled,
+                            depth: {
+                                format: 'depth24plus',
+                                depthWriteEnabled: false,
+                                depthCompare: 'equal',
+                            },
+                        });
+                        // A soma à cor da cena, na profundidade do passe principal (teste igual).
+                        ctx.prepare({
+                            ...f,
+                            id: subsurface.apply[to],
+                            shader: shaderOf(forwardSubsurfaceApply),
+                            entryPoints: ['vs_main', 'fs_subsurface_apply'],
+                            colorTargets: [
+                                {
+                                    format: ctx.bound.slots.target.format ?? this.core.canvasFormat,
+                                    blend: ADDITIVE,
+                                },
+                                ...this.lightTargets(ctx, false),
+                            ],
+                            depth: {
+                                format: 'depth24plus',
+                                depthWriteEnabled: false,
+                                depthCompare: 'equal',
+                            },
+                        });
+                    };
+                    scattering(ccw, 'ccw');
+                    scattering(cw, 'cw');
+                }
                 if (transmission?.request === undefined) return ready;
                 // Pedido da refração (spec 034): as duas faces, sem amostras, na profundidade própria.
                 const requestLayer = (fromId: string, id: string): boolean => {
@@ -553,6 +688,9 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
     private materialFnDirty = true;
     /** A profundidade dos opacos ligada ao pedido da refração (religada quando muda). */
     private sceneDepthBound: TextureViewSpec | undefined;
+    /** Os valores do `Subsurface` com que as variantes foram preparadas e os alvos dele ligados à difusão. */
+    private subsurfaceKey = '';
+    private subsurfaceBound: readonly (TextureViewSpec | undefined)[] = [];
 
     constructor(ctx: FlowContext, options: ForwardFlowOptions = {}) {
         super();
@@ -609,7 +747,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                     run: (e, c) => {
                         this.bindDiff(c);
                         // A refração entrou ou saiu: as variantes dos transmissivos ganham ou perdem o pedido.
-                        if (e.type === 'slotChanged' && e.slot === 'refraction')
+                        if (
+                            e.type === 'slotChanged'
+                            && (e.slot === 'refraction' || e.slot === 'subsurface')
+                        )
                             this.materialFnDirty = true;
                     },
                 },
@@ -662,8 +803,10 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
                         if (this.pendingMaterials.size > 0)
                             this.prepareMaterials(c, [...this.pendingMaterials]);
                         this.checkWriters();
+                        this.watchSubsurface(c);
                         this.syncMaterialFunctions(c);
                         this.bindSceneDepth(c);
+                        this.bindSubsurface(c);
                         this.syncProjection(c);
                         this.prepareBackground(c);
                         this.prepareCulling(c);
@@ -785,6 +928,158 @@ export class ForwardFlow extends RenderFlow<ForwardSlots, 'idle'> {
         this.recordMotion(frame, bound, opaque, 'clear');
         this.recordRefractionRequest(frame, bound, transmissive);
         if (transmissive.length > 0) this.recordMotion(frame, bound, transmissive, 'load');
+        this.recordSubsurface(frame, bound, opaque);
+    }
+
+    /**
+     * Espalhamento sob a superfície (spec 011, T113): com o `Subsurface` e os alvos dele alocados, as entidades com o
+     * lobo de subsuperfície desenhadas mais três vezes depois do passe principal — a luz que entra em cada pixel (a
+     * irradiância difusa da frente e a que atravessa o corpo), sem amostras e na profundidade própria; a difusão dela
+     * pelo perfil do material, sem amostras; e a soma da luz difundida à cor da cena na profundidade do passe principal
+     * (teste igual; com MSAA, nas amostras). Sem entidade com o lobo, nenhum passe.
+     */
+    private recordSubsurface(
+        frame: Frame,
+        bound: BoundFlow<ForwardSlots>,
+        groups: BoundFlow<ForwardSlots>['slots']['renderables']['groups'],
+    ): void {
+        const subsurface = bound.slots.subsurface;
+        const target = bound.slots.target;
+        if (subsurface === undefined || target.depth === undefined) return;
+        const scattering = groups.filter(
+            (g) => this.materialFns.active(g.representative.entityId)?.subsurface !== undefined,
+        );
+        if (scattering.length === 0) return;
+        const irradiance = subsurface.textureViewOf('irradiance');
+        const local = subsurface.textureViewOf('local');
+        const exit = subsurface.textureViewOf('exit');
+        const depth = subsurface.textureViewOf('depth');
+        const diffused = subsurface.textureViewOf('diffused');
+        if (
+            irradiance === undefined
+            || local === undefined
+            || exit === undefined
+            || depth === undefined
+            || diffused === undefined
+        )
+            return;
+        const pipelineOf =
+            (pass: 'irradiance' | 'gather' | 'apply') =>
+            (entry: EntityEntry, id: string): string | undefined => {
+                const v = this.materialFns.active(entry.entityId);
+                const pipelines = v?.subsurface?.[pass];
+                if (v === undefined || pipelines === undefined) return undefined;
+                return id === v.base.cw ? pipelines.cw : pipelines.ccw;
+            };
+        const cleared = (view: TextureViewSpec) => ({
+            view,
+            loadOp: 'clear' as const,
+            clearValue: [0, 0, 0, 0] as const,
+            storeOp: 'store' as const,
+        });
+        frame.render(
+            {
+                colorAttachments: [cleared(irradiance), cleared(local), cleared(exit)],
+                depthStencilAttachment: {
+                    view: depth,
+                    depthClearValue: 1,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ForwardFlow.subsurfaceIrradiance',
+            (pass) => {
+                this.recordGroups(pass, bound, scattering, 2, pipelineOf('irradiance'));
+            },
+        );
+        frame.render(
+            {
+                colorAttachments: [cleared(diffused)],
+                // A profundidade própria só de leitura: o fragmento também a lê (a superfície de cada amostra).
+                depthStencilAttachment: { view: depth, depthReadOnly: true },
+            },
+            'ForwardFlow.subsurfaceGather',
+            (pass) => {
+                this.recordGroups(pass, bound, scattering, 2, pipelineOf('gather'));
+            },
+        );
+        const color = this.colorAttachment(frame, target, { loadOp: 'load' });
+        if (color === undefined) return;
+        const light = bound.slots.light;
+        frame.render(
+            {
+                colorAttachments: [
+                    color,
+                    ...(light === undefined
+                        ? []
+                        : [
+                              {
+                                  view: light.view,
+                                  loadOp: 'load' as const,
+                                  storeOp: 'store' as const,
+                              },
+                          ]),
+                ],
+                depthStencilAttachment: {
+                    view: target.depth,
+                    depthLoadOp: 'load',
+                    depthStoreOp: 'store',
+                },
+            },
+            'ForwardFlow.subsurfaceDiffusion',
+            (pass) => {
+                this.recordGroups(pass, bound, scattering, 2, pipelineOf('apply'));
+            },
+        );
+    }
+
+    /**
+     * As amostras do perfil com que os materiais com subsuperfície difundem (spec 011, T113): 0 sem o `Subsurface` na
+     * cena ou com ele desligado; senão aloca os alvos dele e liga a profundidade dos opacos ao passe que guarda a luz.
+     */
+    private subsurfaceSamples(ctx: Ctx): number {
+        const subsurface = ctx.bound.slots.subsurface?.resource as Subsurface | undefined;
+        if (subsurface?.enabled !== true) return 0;
+        for (const id of SUBSURFACE_TARGETS) this.resources.ensureAllocated(subsurface, id);
+        this.bindSceneDepth(ctx);
+        this.bindSubsurface(ctx);
+        return subsurface.samples;
+    }
+
+    /** Os valores do `Subsurface` mudaram (ligado, amostras): as variantes dos materiais com o lobo são refeitas. */
+    private watchSubsurface(ctx: Ctx): void {
+        const subsurface = ctx.bound.slots.subsurface?.resource as Subsurface | undefined;
+        const key = subsurface === undefined ? '' : `${subsurface.enabled}:${subsurface.samples}`;
+        if (key === this.subsurfaceKey) return;
+        this.subsurfaceKey = key;
+        this.materialFnDirty = true;
+    }
+
+    /** Os alvos do `Subsurface` ligados à difusão, religados quando mudam (alocação, redimensionamento). */
+    private bindSubsurface(ctx: Ctx): void {
+        const subsurface = ctx.bound.slots.subsurface;
+        if (subsurface === undefined) return;
+        const views = SUBSURFACE_TARGETS.map((id) => subsurface.textureViewOf(id));
+        const [irradiance, local, exit, depth, diffused] = views;
+        if (
+            irradiance === undefined
+            || local === undefined
+            || exit === undefined
+            || depth === undefined
+            || diffused === undefined
+        )
+            return;
+        if (views.every((v, k) => v === this.subsurfaceBound[k])) return;
+        ctx.bind(
+            new Map<BindingKey, BindingSource>([
+                [subsurfaceResources.irradiance, irradiance],
+                [subsurfaceResources.local, local],
+                [subsurfaceResources.exit, exit],
+                [subsurfaceResources.depth, depth],
+                [subsurfaceResources.diffused, diffused],
+            ]),
+        );
+        this.subsurfaceBound = views;
     }
 
     /**

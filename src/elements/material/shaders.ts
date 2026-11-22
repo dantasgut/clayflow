@@ -2,9 +2,13 @@ import { wgslModule, type WgslModule } from '../../scene/shaders/WgslModule';
 import { wgslResource } from '../../scene/shaders/WgslResource';
 import type { BindablePoint } from '../../scene/shaders/bindPoints';
 import { NONE } from '../../scene/shaders/engineConstants';
-import { sceneBackgroundReady, sceneLightingReady } from '../scene/points/lighting';
+import {
+    sceneBackgroundReady,
+    sceneLightingReady,
+    sceneTransmittedLightingReady,
+} from '../scene/points/lighting';
 import { sceneFogReady, sceneWetnessReady } from '../scene/points/media';
-import { closure, closureEval } from './pbr/shaders';
+import { closure, closureEval, subsurface } from './pbr/shaders';
 import {
     camerasResource,
     renderablesResource,
@@ -28,7 +32,16 @@ import {
     wireframeMaterialsResource,
     wireVerticesResource,
 } from './renderResources';
-import { bsdf, camera, color, hashAddress, random, viewSpace } from '../gpu/shaders/math';
+import {
+    basis,
+    bsdf,
+    camera,
+    color,
+    constants,
+    hashAddress,
+    random,
+    viewSpace,
+} from '../gpu/shaders/math';
 import { cameraSpace } from '../scene/flows/shaders';
 import { cameraPointTypes } from '../scene/flows/shaders';
 import { forwardMaterialReady, materialPointTypes } from './point/shaders';
@@ -40,6 +53,9 @@ import pointSpriteSource from '../gpu/wgsl/point_sprite.wgsl?raw';
 import diffuseSpriteSource from '../gpu/wgsl/diffuse/diffuse_sprite.wgsl?raw';
 import wireSource from '../gpu/wgsl/wire.wgsl?raw';
 import forwardRefractionRequestSource from '../gpu/wgsl/forward_refraction_request.wgsl?raw';
+import forwardSubsurfaceIrradianceSource from '../gpu/wgsl/forward_subsurface_irradiance.wgsl?raw';
+import forwardSubsurfaceGatherSource from '../gpu/wgsl/forward_subsurface_gather.wgsl?raw';
+import forwardSubsurfaceApplySource from '../gpu/wgsl/forward_subsurface_apply.wgsl?raw';
 import {
     REFRACTION_REQUEST_BACK_FACE,
     REFRACTION_REQUEST_VALID,
@@ -304,3 +320,104 @@ function refractionRequestModule(multisampled: boolean): WgslModule {
         ],
     });
 }
+
+/**
+ * Luz que entra nos materiais com subsuperfície (spec 011, T113): o vértice do forward e o fragmento que guarda, por
+ * pixel, a irradiância difusa que chega pela frente e a que atravessa o corpo (`fs_subsurface_irradiance`), à frente dos
+ * opacos (a profundidade deles, com ou sem amostras).
+ */
+export const forwardSubsurfaceIrradiance = {
+    /** Alvos sem amostras. */
+    single: subsurfaceIrradianceModule(false),
+    /** Alvos com MSAA (a profundidade dos opacos com amostras; a luz guardada, sem). */
+    multisampled: subsurfaceIrradianceModule(true),
+} as const;
+
+function subsurfaceIrradianceModule(multisampled: boolean): WgslModule {
+    return wgslModule({
+        name: multisampled ? 'forward_subsurface_irradiance_ms' : 'forward_subsurface_irradiance',
+        source: forwardSubsurfaceIrradianceSource,
+        requires: [
+            forward,
+            subsurface,
+            sceneTransmittedLightingReady,
+            multisampled ? transmissionResources.sceneDepthMs : transmissionResources.sceneDepth,
+        ],
+    });
+}
+
+/**
+ * Recursos da difusão da subsuperfície (spec 011, T113): os alvos do `Subsurface` lidos pelos fragmentos que difundem,
+ * privados do estágio que os grava.
+ */
+export const subsurfaceResources = {
+    /** A luz que o perfil espalha (a da frente mais a que atravessa sobre o albedo); alfa 1 onde há. */
+    irradiance: wgslResource({
+        name: 'subsurface_irradiance',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** A luz da frente pela saída do fechamento (o que o passe principal já desenhou); no alfa, a distância à frente. */
+    local: wgslResource({
+        name: 'subsurface_local',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** A profundidade das superfícies com subsuperfície. */
+    depth: wgslResource({
+        name: 'subsurface_depth',
+        binding: { texture: { sample: 'depth' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** O que do lobo sai para quem vê por unidade de luz difundida (o peso, o albedo e as camadas de cima). */
+    exit: wgslResource({
+        name: 'subsurface_exit',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+    /** A luz juntada pelo perfil em volta de cada pixel; no alfa, a distância à frente da câmera. */
+    diffused: wgslResource({
+        name: 'subsurface_diffused',
+        binding: { texture: { sample: 'f32' } },
+        frequency: 'frame',
+        provider: 'private',
+    }),
+} as const;
+
+/**
+ * Difusão da luz sob a superfície (spec 011, T113): o vértice do forward e o fragmento que junta a luz guardada em volta
+ * do ponto pelo perfil de Burley do fechamento (`fs_subsurface_gather`), no alvo `diffused`.
+ */
+export const forwardSubsurfaceGather = wgslModule({
+    name: 'forward_subsurface_gather',
+    source: forwardSubsurfaceGatherSource,
+    requires: [
+        forward,
+        subsurface,
+        basis,
+        constants,
+        cameraSpace,
+        viewSpace,
+        subsurfaceResources.irradiance,
+        subsurfaceResources.depth,
+    ],
+});
+
+/**
+ * A luz difundida somada à cor da cena (spec 011, T113): o vértice do forward e o fragmento que faz a média de
+ * `diffused` na vizinhança da mesma superfície (`fs_subsurface_apply`).
+ */
+export const forwardSubsurfaceApply = wgslModule({
+    name: 'forward_subsurface_apply',
+    source: forwardSubsurfaceApplySource,
+    requires: [
+        forward,
+        subsurfaceResources.diffused,
+        subsurfaceResources.local,
+        subsurfaceResources.exit,
+    ],
+});

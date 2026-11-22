@@ -89,8 +89,14 @@ struct ForwardOut {
     @location(1) light: vec2<f32>,
 }
 
-@fragment
-fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
+// A superfície do fragmento: a normal geométrica voltada para quem vê e o fechamento do ponto `material`, com a água
+// do ponto e o controle de serrilhado especular. Lê derivadas de tela: chamada em fluxo uniforme, no começo do fragmento.
+struct ForwardSurface {
+    n: vec3f,
+    c: Closure,
+}
+
+fn forward_surface(in: VsOut, front: bool) -> ForwardSurface {
     let material = materials[in.material_slot];
     // A face de trás (só a do material de dois lados chega aqui; spec 034, T061a): a normal voltada para quem vê.
     let n = normalize(in.world_normal) * select(-1.0, 1.0, front);
@@ -128,6 +134,14 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
         closure_wet(material_eval(sample, material, in.fn_slot), scene_wetness(in.world_position, n, footprint)),
         variance,
     );
+    return ForwardSurface(n, c);
+}
+
+@fragment
+fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
+    let surface = forward_surface(in, front);
+    let n = surface.n;
+    let c = surface.c;
     let v = forward_view_dir(cameras[forward_frame.cameraSlot], in.world_position);
     let direct = scene_direct_lighting(c, in.world_position, n, v);
     let lit = direct + scene_indirect_lighting(c, in.world_position, n, v);
