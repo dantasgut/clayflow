@@ -100,6 +100,14 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
     let footprint = max(length(dpdx(in.world_position)), length(dpdy(in.world_position)));
     let duvdx = dpdx(in.uv);
     let duvdy = dpdy(in.uv);
+    // Tangentes do uv em mundo (spec 011): a posição é linear no uv dentro do triângulo — dp/dx = P_u u_x + P_v v_x e
+    // dp/dy = P_u u_y + P_v v_y resolvidos para P_u e P_v; uv degenerado (sem variação na tela): zero.
+    let dpdx_world = dpdx(in.world_position);
+    let dpdy_world = dpdy(in.world_position);
+    let uv_det = duvdx.x * duvdy.y - duvdx.y * duvdy.x;
+    let uv_inv = select(0.0, 1.0 / uv_det, abs(uv_det) > 1e-24);
+    let dpdu = (dpdx_world * duvdy.y - dpdy_world * duvdx.y) * uv_inv;
+    let dpdv = (dpdy_world * duvdx.x - dpdx_world * duvdy.x) * uv_inv;
     // Fechamento pelo ponto `material` (spec 009/011; pronto: o das constantes do material).
     let sample = SurfaceSample(
         in.world_position,
@@ -112,6 +120,8 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> ForwardOut {
         footprint,
         duvdx,
         duvdy,
+        dpdu,
+        dpdv,
     );
     // A água no ponto, a película e a dos poros (ponto de cena `scene_wetness`, spec 034; seca, nada muda).
     let c = closure_specular_aa(

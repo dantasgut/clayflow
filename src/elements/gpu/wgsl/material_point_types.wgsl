@@ -1,8 +1,8 @@
 // Tipos do ponto `material` (spec 009): a amostra de superfície que a função recebe (posição de mundo, normal, uv da
 // geometria, tempo simulado e, nas superfícies com geometria diferencial — spec 010 —, a primeira forma E, F, G, as
 // curvaturas K, H, k₁, k₂ e a direção principal de k₁ em mundo; zeros nas outras geometrias; a largura do pixel ou do cone
-// e as derivadas do uv, spec 034) e os parâmetros de superfície que ela devolve (cor base, rugosidade, metalicidade,
-// emissão). O modelo de luz do forward usa a cor base e soma a emissão (Cook-Torrance com rugosidade e metalicidade é
+// e as derivadas do uv, spec 034; as tangentes do uv, spec 011) e os parâmetros de superfície que ela devolve (cor base,
+// rugosidade, metalicidade, emissão). O modelo de luz do forward usa a cor base e soma a emissão (Cook-Torrance com rugosidade e metalicidade é
 // da spec 011).
 // Requer: nada.
 
@@ -20,6 +20,12 @@ struct SurfaceSample {
     footprint: f32,
     duvdx: vec2f,
     duvdy: vec2f,
+    // Tangentes do uv em mundo (spec 011): ∂posição/∂u e ∂posição/∂v, metros por unidade de uv — o referencial dos
+    // padrões de superfície com relevo (`surface.uvSpace`, `surface.bump`) e a direção dos fios e das ranhuras. No
+    // desenho, das derivadas de tela da posição e do uv; zero nos acertos dos raios e nos kernels sem câmera (o relevo
+    // some ali, a cor do padrão continua).
+    dpdu: vec3f,
+    dpdv: vec3f,
 }
 
 struct SurfaceParams {

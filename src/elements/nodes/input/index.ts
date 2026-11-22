@@ -16,6 +16,8 @@ const SURFACE_SAMPLE_FIELDS = {
     footprint: 'f32',
     duvdx: 'vec2f',
     duvdy: 'vec2f',
+    dpdu: 'vec3f',
+    dpdv: 'vec3f',
 } as const;
 
 /** Campos do corpo do ponto `field` (`FieldBody`). */
@@ -46,7 +48,9 @@ export const input = {
     /**
      * A amostra de superfície do ponto `material` (`s`): posição de mundo, normal, uv, tempo, a geometria diferencial
      * da 010 (`metric`, `curvature`, `principal`) e a largura do pixel ou do cone do raio no ponto (`footprint`, em
-     * metros) com as derivadas do uv (`duvdx`, `duvdy`) — a entrada `width` dos nós de ruído (spec 034).
+     * metros) com as derivadas do uv (`duvdx`, `duvdy`) — a entrada `width` dos nós de ruído (spec 034) —; e as
+     * tangentes do uv em mundo (`dpdu`, `dpdv`: ∂posição/∂u e ∂posição/∂v; zero nos acertos dos raios) — o referencial
+     * dos padrões com relevo (`surface.uvSpace`, `surface.bump`; spec 011).
      */
     surfaceSample: (): GraphArgument => graphArgument('s', SURFACE_SAMPLE_FIELDS),
     /** A posição de mundo da amostra do ponto `material` (`s.world_position`). */

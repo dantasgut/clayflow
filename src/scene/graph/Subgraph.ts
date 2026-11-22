@@ -13,6 +13,11 @@ export interface PointSubgraphOptions {
     /** Entradas: argumento do grafo (`graphArgument`) → tipo, na ordem das portas. */
     readonly inputs?: Readonly<Record<string, PortType>>;
     /**
+     * Expressão WGSL de uma entrada sem ligação (como em `defineNode`): ex.: `{ s: 's' }` — o sub-grafo que lê a amostra
+     * de superfície (spec 011: os materiais prontos com padrão) recebe a do ponto `material` sem ligação obrigatória.
+     */
+    readonly defaults?: Readonly<Record<string, string>>;
+    /**
      * Parâmetros expostos (`nó.parâmetro`, nome `nó_parâmetro`; ou `['nó.parâmetro', 'nome']`, com nome próprio — spec
      * 011: o OpenPBR expõe `base_color`): viram parâmetros do nó, com valor por uso, e entradas de mesmo nome — sem
      * ligação vale o parâmetro; ligada, a saída do outro nó. Os outros ficam no código.
@@ -167,6 +172,7 @@ export const Subgraph = {
             links: graph.links,
             output,
             inputs,
+            defaults: options.defaults ?? {},
             keys: keys.map((k) => [k, outer(k)]),
             baked: Object.fromEntries(Object.entries(values).filter(([k]) => !keys.includes(k))),
             defs: graph.order().map((id) => graph.node(id).definition?.name ?? 'arg'),
@@ -219,6 +225,9 @@ export const Subgraph = {
             outputs: { value: returns },
             params: Object.fromEntries(
                 keys.map((k) => [outer(k), { type: params[k]!, default: values[k] ?? 0 }]),
+            ),
+            defaults: Object.fromEntries(
+                Object.entries(options.defaults ?? {}).filter(([k]) => k in inputs),
             ),
             code: module,
             fn,

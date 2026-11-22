@@ -376,7 +376,7 @@ export const rayVolumeMaterial = wgslModule({
     source: `/** A amostra de superfície no acerto de volume \`hit\` no tempo simulado \`time\`. */
 fn ray_volume_sample(hit: RayVolumeHit, time: f32) -> SurfaceSample {
     return SurfaceSample(hit.position, hit.normal, vec2f(0.0), time, vec3f(0.0), vec4f(0.0), vec3f(0.0), 0.0,
-        vec2f(0.0), vec2f(0.0));
+        vec2f(0.0), vec2f(0.0), vec3f(0.0), vec3f(0.0));
 }
 
 /** As constantes do material de um volume: as padrão do \`StandardMaterial\`. */
