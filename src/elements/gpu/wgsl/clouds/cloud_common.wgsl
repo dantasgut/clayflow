@@ -3,6 +3,9 @@
 // perfil de altura por tipo (R5). Espelho de `elements/media/clouds/reference/cloudModel.ts`.
 // Requer: clouds.
 
+/** O teto de passos da marcha por raio (o perfil escolhe menos): o das amostras com luz de um raio também. */
+const CLOUD_MAX_STEPS: u32 = 128u;
+
 /** O intervalo [l0, h0] levado a [l1, h1], sem saturar. */
 fn cloud_remap(v: f32, l0: f32, h0: f32, l1: f32, h1: f32) -> f32 {
     return l1 + (v - l0) * (h1 - l1) / (h0 - l0);

@@ -23,6 +23,12 @@ import cloudDensitySource from '../../gpu/wgsl/clouds/cloud_density.wgsl?raw';
 import cloudShadowLookupSource from '../../gpu/wgsl/clouds/cloud_shadow_lookup.wgsl?raw';
 import cloudShadowPagesSource from '../../gpu/wgsl/clouds/cloud_shadow_pages.wgsl?raw';
 import cloudLightSource from '../../gpu/wgsl/clouds/cloud_light.wgsl?raw';
+import cloudIntegrateSource from '../../gpu/wgsl/clouds/cloud_integrate.wgsl?raw';
+import cloudLightListSource from '../../gpu/wgsl/clouds/cloud_light_list.wgsl?raw';
+import cloudLightSamplesSource from '../../gpu/wgsl/clouds/cloud_light_samples.wgsl?raw';
+import cloudLightArgsSource from '../../gpu/wgsl/clouds/cloud_light_args.wgsl?raw';
+import cloudMarchRaySource from '../../gpu/wgsl/clouds/cloud_march_ray.wgsl?raw';
+import cloudMarchComposeSource from '../../gpu/wgsl/clouds/cloud_march_compose.wgsl?raw';
 import cloudNoiseSource from '../../gpu/wgsl/clouds/cloud_noise.wgsl?raw';
 import cloudCoverageSource from '../../gpu/wgsl/clouds/cloud_coverage.wgsl?raw';
 import cloudCoveragePagesSource from '../../gpu/wgsl/clouds/cloud_coverage_pages.wgsl?raw';
@@ -457,7 +463,7 @@ export const cloudOutputs = Object.freeze({
     ambient: out('cloud_ambient_out', 'rgba16float'),
     shadow: out('cloud_shadow_out', 'rgba16float', '3d'),
     trace: out('cloud_trace_out', 'rgba16float'),
-    traceDepth: out('cloud_trace_depth_out', 'rg32float'),
+    traceDepth: out('cloud_trace_depth_out', 'rgba32float'),
     check: out('cloud_check_out', 'rgba16float'),
     checkNoise: out('cloud_check_noise_out', 'rg32float'),
     view: out('cloud_view_out', 'rgba16float'),
@@ -872,6 +878,104 @@ export const cloudLight = wgslModule({
     ],
 });
 
+/**
+ * Pronto do ponto `cloud_sample_light`: a luz da amostra calculada no próprio laço da marcha (o panorama). A marcha da
+ * tela a adia para o passe da luz (`cloudLightList`, T074).
+ */
+const sampleLightReady = wgslModule({
+    name: 'cloud_sample_light_ready',
+    requires: [cloudLight],
+    source: `fn cloud_sample_light(p: vec3f, cos_theta: f32, light_steps: u32, occ: f32, weight: f32) -> vec3f {
+    return weight * cloud_radiance(p, cos_theta, light_steps, occ);
+}`,
+});
+
+/** O ponto da luz de uma amostra da marcha com o peso dela na soma do raio. */
+export const cloudSampleLightPoint: BindablePoint = {
+    name: 'cloud_sample_light',
+    ready: sampleLightReady,
+};
+
+/** A marcha por um raio (`cloud_integrate`), com a luz de cada amostra pelo ponto `cloud_sample_light`. */
+export const cloudIntegrate = wgslModule({
+    name: 'cloud_integrate',
+    source: cloudIntegrateSource,
+    requires: [
+        cloudCommon,
+        cloudDensity,
+        cloudLight,
+        sampleLightReady,
+        cloudSunVolumeLookup,
+        sky,
+        cloudParamsResource,
+    ],
+});
+
+/** O teto de amostras da lista da luz da marcha: o índice é guardado em f32 (exato até 2²⁴). */
+export const CLOUD_LIGHT_LIST_MAX = sharedConstant('CLOUD_LIGHT_LIST_MAX', 16_777_216, 'u32');
+
+const stagePrivate = (
+    name: string,
+    binding: Parameters<typeof wgslResource>[0]['binding'],
+    type?: Parameters<typeof wgslResource>[0]['type'],
+): WgslResource =>
+    wgslResource({
+        name,
+        binding,
+        ...(type === undefined ? {} : { type }),
+        frequency: 'stage',
+        provider: 'private',
+    });
+
+/**
+ * A lista da luz das amostras da marcha da tela (T074; privada do estágio da marcha): o que a marcha grava de cada
+ * amostra (`a`: o ponto e o peso; `b`: a pegada, a coluna do ambiente, o cosseno com o sol e a amostra anterior do
+ * raio), a luz que o passe da luz grava (`light`), o raio marchado (a luz das amostras fora da lista e a transmitância)
+ * e as palavras do despacho indireto do passe da luz (os grupos, a contagem atômica e a contagem do quadro).
+ */
+export const cloudLightList = Object.freeze({
+    aOut: stagePrivate('cloud_light_list_a_out', {
+        storageTexture: { format: 'rgba32float', access: 'write' },
+    }),
+    bOut: stagePrivate('cloud_light_list_b_out', {
+        storageTexture: { format: 'rgba32float', access: 'write' },
+    }),
+    a: stagePrivate('cloud_light_list_a', { texture: { sample: 'f32' } }),
+    b: stagePrivate('cloud_light_list_b', { texture: { sample: 'f32' } }),
+    lightOut: stagePrivate('cloud_light_list_out', {
+        storageTexture: { format: 'rgba32float', access: 'write' },
+    }),
+    light: stagePrivate('cloud_light_list', { texture: { sample: 'f32' } }),
+    rayOut: stagePrivate('cloud_ray_out', {
+        storageTexture: { format: 'rgba32float', access: 'write' },
+    }),
+    ray: stagePrivate('cloud_ray', { texture: { sample: 'f32' } }),
+    args: stagePrivate(
+        'cloud_light_args',
+        { storage: 'read_write' },
+        { wgsl: 'atomic<u32>', array: true },
+    ),
+    argsRead: stagePrivate(
+        'cloud_light_args_read',
+        { storage: 'read' },
+        { wgsl: 'u32', array: true },
+    ),
+});
+
+/** A implementação do ponto `cloud_sample_light` na marcha da tela: a amostra na lista do quadro. */
+const cloudLightListModule = wgslModule({
+    name: 'cloud_light_list',
+    source: cloudLightListSource,
+    requires: [
+        CLOUD_LIGHT_LIST_MAX.module,
+        cloudLight,
+        cloudSunVolumeLookup,
+        cloudLightList.aOut,
+        cloudLightList.bOut,
+        cloudLightList.args,
+    ],
+});
+
 const bayer = wgslModule({
     name: 'cloud_march_bayer',
     source: cloudBayerSource,
@@ -1083,59 +1187,117 @@ const withFarShadow = (m: WgslModule): WgslModule =>
     bindPoints(m, new Map([[skyAerialFarVisibilityPoint, cloudAerialFarVisibility]]));
 
 /** Marcha principal (sem e com amostras na profundidade da cena), antes da sombra no ar além da tabela. */
-const cloudMarchBase = {
+const marchRay = {
     single: wgslModule({
-        name: 'cloud_march',
-        source: cloudMarchSource,
+        name: 'cloud_march_ray',
+        source: cloudMarchRaySource,
         requires: [
-            WORKGROUP_SIZE.module,
             bayer,
-            cloudLight,
-            sceneLimit,
             sceneDepth.single,
-            viewSpace,
             cameraSpace,
-            skyAerialLookup,
-            sceneNearFogReady,
             random,
             cloudParamsResource,
             camerasResource,
-            cloudOutputs.trace,
-            cloudOutputs.traceDepth,
         ],
     }),
     multisampled: wgslModule({
-        name: 'cloud_march_ms',
-        source: cloudMarchSource,
+        name: 'cloud_march_ray_ms',
+        source: cloudMarchRaySource,
         requires: [
-            WORKGROUP_SIZE.module,
             bayer,
-            cloudLight,
-            sceneLimit,
             sceneDepth.multisampled,
-            viewSpace,
             cameraSpace,
-            skyAerialLookup,
-            sceneNearFogReady,
             random,
             cloudParamsResource,
             camerasResource,
-            cloudOutputs.trace,
-            cloudOutputs.traceDepth,
         ],
     }),
 } as const;
 
-/** Marcha principal (sem e com amostras na profundidade da cena). */
+const marchModule = (ms: boolean): WgslModule =>
+    bindPoints(
+        wgslModule({
+            name: ms ? 'cloud_march_ms' : 'cloud_march',
+            source: cloudMarchSource,
+            requires: [
+                WORKGROUP_SIZE.module,
+                ms ? marchRay.multisampled : marchRay.single,
+                cloudIntegrate,
+                sceneLimit,
+                ms ? sceneDepth.multisampled : sceneDepth.single,
+                viewSpace,
+                cameraSpace,
+                random,
+                cloudParamsResource,
+                camerasResource,
+                cloudLightList.rayOut,
+                cloudOutputs.traceDepth,
+            ],
+        }),
+        new Map([[cloudSampleLightPoint, cloudLightListModule]]),
+    );
+
+/** A marcha da tela: a luz das amostras adiada para o passe da luz (`cloudLightSamplesKernel`). */
 export const cloudMarchKernel = {
-    single: withFarShadow(cloudMarchBase.single),
-    multisampled: withFarShadow(cloudMarchBase.multisampled),
+    single: marchModule(false),
+    multisampled: marchModule(true),
 } as const;
 
-/**
- * Reconstrução temporal no alvo de ¼ (sem e com amostras na profundidade da cena): `cloud_check_main` (o histórico nos
- * marchados, um bloco por invocação) e `cloud_reconstruct_main`.
- */
+/** O passe da luz das amostras da marcha da tela (T074): uma amostra da lista por invocação. */
+export const cloudLightSamplesKernel = wgslModule({
+    name: 'cloud_light_samples',
+    source: cloudLightSamplesSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        cloudLight,
+        cloudSunVolumeLookup,
+        cloudParamsResource,
+        cloudLightList.a,
+        cloudLightList.b,
+        cloudLightList.lightOut,
+        cloudLightList.argsRead,
+    ],
+});
+
+/** Os argumentos do despacho indireto do passe da luz. */
+export const cloudLightArgsKernel = wgslModule({
+    name: 'cloud_light_args_kernel',
+    source: cloudLightArgsSource,
+    requires: [
+        WORKGROUP_SIZE.module,
+        CLOUD_LIGHT_LIST_MAX.module,
+        cloudLightList.a,
+        cloudLightList.args,
+    ],
+});
+
+const composeModule = (ms: boolean): WgslModule =>
+    withFarShadow(
+        wgslModule({
+            name: ms ? 'cloud_march_compose_ms' : 'cloud_march_compose',
+            source: cloudMarchComposeSource,
+            requires: [
+                WORKGROUP_SIZE.module,
+                cloudCommon,
+                ms ? marchRay.multisampled : marchRay.single,
+                skyAerialLookup,
+                sceneNearFogReady,
+                sky,
+                cloudParamsResource,
+                cloudLightList.ray,
+                R.traceDepth,
+                cloudLightList.light,
+                cloudOutputs.trace,
+            ],
+        }),
+    );
+
+/** A composição da marcha: a soma da luz das amostras de cada raio e o que está na frente da nuvem. */
+export const cloudMarchComposeKernel = {
+    single: composeModule(false),
+    multisampled: composeModule(true),
+} as const;
+
 const reconstructRequires = [
     WORKGROUP_SIZE.module,
     color,
@@ -1350,7 +1512,7 @@ export const cloudPanoramaKernel = withFarShadow(
             constants,
             random,
             color,
-            cloudLight,
+            cloudIntegrate,
             skyAerialLookup,
             cloudParamsResource,
             cloudOutputs.panorama,

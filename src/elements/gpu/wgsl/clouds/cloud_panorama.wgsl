@@ -8,7 +8,7 @@
 // desenho os faria agora (as provas: a luminância e a transmitância, nas globais do cache) — a escolha do quadro seguinte
 // os compara com o desenho guardado.
 // Despacho linear: um texel por invocação.
-// Requer: WORKGROUP_SIZE, constants, random, color, cloud_light, sky_aerial_lookup, clouds, cloud_panorama_out,
+// Requer: WORKGROUP_SIZE, constants, random, color, cloud_integrate, sky_aerial_lookup, clouds, cloud_panorama_out,
 // cloud_scatter_pages, cloud_scatter_work, cloud_panorama_stamps, cloud_panorama_clock.
 
 /** A palavra do trabalho do cache com o panorama a refazer (`CLOUD_SCATTER_WORK_PANORAMA`). */

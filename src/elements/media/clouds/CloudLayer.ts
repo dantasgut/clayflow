@@ -642,8 +642,19 @@ export class CloudLayer extends Entity<CloudLayerData> implements Resource {
             // A marcha: um valor por bloco 2 × 2 do alvo reconstruído (¼ da tela; 1/16 no perfil baixo) e a série
             // reconstruída (spec 037).
             target('trace', 'rgba16float', 2 * q.marchScale),
-            // A profundidade da nuvem e a superfície até onde o valor foi marchado (r, g).
-            target('traceDepth', 'rg32float', 2 * q.marchScale),
+            // A profundidade da nuvem e a superfície até onde o valor foi marchado (r, g) e a última amostra do raio na
+            // lista da luz (b; T074).
+            target('traceDepth', 'rgba32float', 2 * q.marchScale),
+            // A luz das amostras da marcha num passe próprio (T074): o raio marchado (a luz das amostras fora da lista e
+            // a transmitância), a lista do quadro — 16 amostras por raio no teto (um texel por amostra; `marchScale / 2`
+            // pixels da tela por texel), o que a marcha grava de cada uma (o ponto e o peso; a pegada, a coluna do
+            // ambiente, o cosseno com o sol e a amostra anterior do raio) e a luz que o passe da luz grava — e as
+            // palavras do despacho indireto dele (os grupos, a contagem atômica e a contagem do quadro).
+            target('ray', 'rgba32float', 2 * q.marchScale),
+            target('lightListA', 'rgba32float', q.marchScale / 2),
+            target('lightListB', 'rgba32float', q.marchScale / 2),
+            target('lightList', 'rgba32float', q.marchScale / 2),
+            { ...wordBuffer('lightArgs', 8 * 4, 'indirect'), allocation: 'onDemand' },
             // O histórico reprojetado no pixel marchado de cada bloco e a variância temporal guardada com ele (brilho e
             // transmitância), do passe por bloco, que a janela do gradiente de cada texel lê (T080).
             target('check', 'rgba16float', 2 * q.marchScale),
