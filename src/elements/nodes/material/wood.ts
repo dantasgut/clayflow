@@ -1,0 +1,55 @@
+import { NodeGraph } from '../../../scene/graph/NodeGraph';
+import type { NodeDefinition } from '../../../scene/graph/NodeDefinition';
+import { Subgraph } from '../../../scene/graph/Subgraph';
+import { bsdf } from '../bsdf';
+import { closure } from '../closure';
+import { woodRaw } from './surface';
+
+// Madeira envernizada (spec 011, R11, US5 cenário 1): a madeira crua (`material.woodRaw`, usada como nó) sob um
+// dielétrico — o verniz — em camada (`closure.layer`), com a cor de absorção do verniz (âmbar).
+
+/** Sub-grafo da madeira envernizada: rugosidade e cor do verniz como padrões. */
+function varnished(
+    name: string,
+    coatRoughness: number,
+    coatColor: readonly [number, number, number],
+): NodeDefinition {
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                wood: woodRaw,
+                coat: bsdf.dielectric.with({ ior: 1.5, roughness: coatRoughness }),
+                out: closure.layer.with({ top_color: [...coatColor] }),
+            },
+            links: [
+                ['coat.value', 'out.top'],
+                ['wood.value', 'out.base'],
+            ],
+            output: 'out.value',
+        }),
+        {
+            name,
+            expose: [
+                ['wood.color', 'base_color'],
+                ['wood.roughness', 'base_roughness'],
+                ['out.top_color', 'coat_color'],
+                ['coat.roughness', 'coat_roughness'],
+                ['coat.ior', 'coat_ior'],
+                ['out.top_weight', 'coat_weight'],
+            ],
+        },
+    );
+}
+
+/**
+ * `material.woodVarnishedGloss` — madeira com verniz brilhante: a madeira crua sob um dielétrico liso. Verniz de
+ * poliuretano/alquídico, IOR 1,5 (`research.md` R11), rugosidade 0,04; cor de absorção âmbar. Parâmetros: `base_color`,
+ * `base_roughness`, `coat_color`, `coat_roughness`, `coat_ior`, `coat_weight`.
+ */
+export const woodVarnishedGloss = varnished('material.woodVarnishedGloss', 0.04, [1, 0.85, 0.6]);
+
+/**
+ * `material.woodVarnishedMatte` — madeira com verniz fosco: o mesmo verniz (IOR 1,5) com agente fosqueante, rugosidade
+ * 0,35, e menos âmbar. Parâmetros: os de `woodVarnishedGloss`.
+ */
+export const woodVarnishedMatte = varnished('material.woodVarnishedMatte', 0.35, [1, 0.92, 0.75]);
