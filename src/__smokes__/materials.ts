@@ -21,10 +21,11 @@
 //   - sanitize: fechamento com NaN não chega ao HDR;
 //   - gallery (US5): os 23 materiais prontos (`Materials.*`), um quadro por família (madeira e couro, tecidos, plásticos e
 //     metais, translúcidos), câmera em perspectiva, cada um numa esfera sobre uma placa do mesmo material, sob o sol, uma
-//     luz de recorte rasante e o hemisfério — a estrutura de cada um à vista (o veio da madeira crua e sob o verniz, o
-//     grão do couro, a trama do jeans e do algodão, as manchas do pelo do veludo, os flocos da pintura, a ferrugem em
-//     manchas, os veios do mármore) e as medidas de reconhecimento: madeira crua sem realce nítido e envernizada com,
-//     veludo com a borda mais clara que o centro, metal escovado com o realce alongado, vidro transparente com o xadrez
+//     luz de recorte rasante, o céu físico e a luz rebatida da cena (o que os lisos refletem) — a estrutura de cada um
+//     à vista (o veio da madeira crua e sob o verniz, o grão do couro, a trama do jeans e do algodão, os flocos da
+//     pintura, a ferrugem em manchas, os veios do mármore) e as medidas de reconhecimento: madeira crua sem realce
+//     nítido e envernizada com, veludo com o centro escuro, a borda clara e sem realce nem manchas duras, metal polido
+//     com o céu refletido por cima e o chão por baixo, metal escovado com o realce alongado, vidro transparente com o xadrez
 //     refratado e sem grão no meio das casas, tecido fino com a luz ambiente do lado contra o sol; o custo de GPU por
 //     quadro de cada família (`--query case=gallery&shot=1` grava os quadros em `fixtures/zzGallery-<família>.png`;
 //     `&family=<família>` desenha só uma);
@@ -35,12 +36,14 @@ import {
     BoxGeometry,
     Camera,
     DirectionalLight,
+    GlobalIllumination,
     MaterialFunction,
     Materials,
     NodeGraph,
     nodes,
     PlaneGeometry,
     PointLight,
+    Sky,
     SphereGeometry,
     StandardMaterial,
     Transform,
@@ -1090,6 +1093,8 @@ const GALLERY_FOV = (21 * Math.PI) / 180;
 /** Direções para as luzes: o sol (de cima, à direita e de frente) e a luz de recorte (rasante, de trás à esquerda). */
 const GALLERY_SUN = [0.45, 0.8, 0.55] as const;
 const GALLERY_RIM = [-0.65, 0.22, -0.72] as const;
+/** Quadros até a leitura: o acúmulo das sondas da luz rebatida. */
+const GALLERY_FRAMES = 240;
 /** Inclinação do eixo do uv das esferas (para trás, em torno de x). */
 const POLE_TILT = (35 * Math.PI) / 180;
 
@@ -1175,9 +1180,21 @@ async function galleryShot(
         ),
     );
     // A mesma luz para todos: o sol, uma luz de recorte rasante por trás (o pelo do veludo, o relevo das tramas) e o
-    // ambiente padrão da cena (o hemisfério céu/chão, o que os lisos refletem).
+    // ambiente — o céu físico desse sol e a luz rebatida da cena (o chão, as placas e os vizinhos), que é o que os
+    // lisos refletem (a radiância das sondas na direção do reflexo).
+    const sun = new DirectionalLight({
+        direction: [...GALLERY_SUN.map((c) => -c), 0],
+        intensity: 3,
+    });
+    app.world.insert(sun);
+    app.world.insert(new Sky({ sun, sunDisk: false }));
     app.world.insert(
-        new DirectionalLight({ direction: [...GALLERY_SUN.map((c) => -c), 0], intensity: 3 }),
+        new GlobalIllumination({
+            quality: 'medium',
+            probeSpacing: 0.5,
+            center: [0, 0.6, 0],
+            screenGather: false,
+        }),
     );
     app.world.insert(
         new DirectionalLight({ direction: [...GALLERY_RIM.map((c) => -c), 0], intensity: 1.2 }),
@@ -1256,8 +1273,9 @@ async function galleryShot(
         );
     }
     const started = performance.now();
-    // 32 quadros: o sinal traçado do vidro (uma amostra por quadro) passa pelo filtro temporal da refração.
-    const img = await renderHdr(app, 32, 1500);
+    // 240 quadros: as sondas da luz rebatida acumulam (histerese 0,97) e o sinal traçado do vidro (uma amostra por
+    // quadro) passa pelo filtro temporal da refração.
+    const img = await renderHdr(app, GALLERY_FRAMES, 1500);
     const ready = performance.now() - started;
     samples.length = 0;
     for (let i = 0; i < 60; i++) {
@@ -1390,32 +1408,33 @@ async function caseGallery(): Promise<void> {
         return unit3([v[0] + side, v[1] - 0.15, v[2]]);
     };
 
+    /** Nitidez do realce: o pico perto da meia direção sobre a mediana do anel de 12 a 16 px em volta dele. */
+    const sharpness = (name: MaterialName): { ratio: number; peak: number } => {
+        const shot = shotOf(name)!;
+        const { v } = view(shot.center.get(name)!);
+        const h = unit3([sun[0] + v[0], sun[1] + v[1], sun[2] + v[2]]);
+        const [x0, y0] = onSphere(shot, name, h);
+        let peak = 0;
+        let at: [number, number] = [x0, y0];
+        for (let dy = -8; dy <= 8; dy++)
+            for (let dx = -8; dx <= 8; dx++) {
+                const v = lum(hdrAt(shot.img, x0 + dx, y0 + dy));
+                if (v > peak) {
+                    peak = v;
+                    at = [x0 + dx, y0 + dy];
+                }
+            }
+        const ring: number[] = [];
+        for (let dy = -16; dy <= 16; dy++)
+            for (let dx = -16; dx <= 16; dx++) {
+                const d = Math.hypot(dx, dy);
+                if (d >= 12 && d <= 16) ring.push(lum(hdrAt(shot.img, at[0] + dx, at[1] + dy)));
+            }
+        ring.sort((a, b) => a - b);
+        return { ratio: peak / ring[ring.length >> 1]!, peak };
+    };
+
     if (shots.has('madeira-couro')) {
-        const shot = shots.get('madeira-couro')!;
-        /** Nitidez do realce: o pico perto da meia direção sobre a mediana do anel de 12 a 16 px em volta dele. */
-        const sharpness = (name: MaterialName): { ratio: number; peak: number } => {
-            const { v } = view(shot.center.get(name)!);
-            const h = unit3([sun[0] + v[0], sun[1] + v[1], sun[2] + v[2]]);
-            const [x0, y0] = onSphere(shot, name, h);
-            let peak = 0;
-            let at: [number, number] = [x0, y0];
-            for (let dy = -8; dy <= 8; dy++)
-                for (let dx = -8; dx <= 8; dx++) {
-                    const v = lum(hdrAt(shot.img, x0 + dx, y0 + dy));
-                    if (v > peak) {
-                        peak = v;
-                        at = [x0 + dx, y0 + dy];
-                    }
-                }
-            const ring: number[] = [];
-            for (let dy = -16; dy <= 16; dy++)
-                for (let dx = -16; dx <= 16; dx++) {
-                    const d = Math.hypot(dx, dy);
-                    if (d >= 12 && d <= 16) ring.push(lum(hdrAt(shot.img, at[0] + dx, at[1] + dy)));
-                }
-            ring.sort((a, b) => a - b);
-            return { ratio: peak / ring[ring.length >> 1]!, peak };
-        };
         const raw = sharpness('woodRaw');
         const gloss = sharpness('woodVarnishedGloss');
         const matte = sharpness('woodVarnishedMatte');
@@ -1480,8 +1499,24 @@ async function caseGallery(): Promise<void> {
         const velvet = rim('velvet');
         const cotton = rim('cotton');
         log(`gallery: borda/centro — veludo ${velvet.toFixed(2)}, algodão ${cotton.toFixed(2)}`);
-        check(velvet > 1.3, `gallery: a borda do veludo não brilha mais que o centro (${velvet})`);
-        check(velvet > cotton, `gallery: o veludo não tem mais borda que o algodão (${cotton})`);
+        // O veludo: o centro escuro e a borda clara (o pelo em pé visto de lado) — bem mais que num tecido sem pelo.
+        check(
+            velvet > 2.5,
+            `gallery: o veludo não tem o centro escuro e a borda clara (${velvet})`,
+        );
+        check(
+            velvet > 2 * cotton,
+            `gallery: o veludo não tem mais borda que o algodão (${cotton})`,
+        );
+        // E fosco: sem realce do sol (o pico perto da meia direção fica no tom da vizinhança) e sem manchas duras (o
+        // pelo penteado muda o tom em regiões largas: quase nada dentro de 7 × 7 pixels).
+        const shine = sharpness('velvet');
+        const blotches = contrast('velvet', facing('velvet'), 24);
+        log(
+            `gallery: veludo — realce do sol (pico / mediana do anel a 12–16 px) ${shine.ratio.toFixed(2)}×; contraste local (desvio / média em 49 × 49 px) ${blotches.toFixed(3)}`,
+        );
+        check(shine.ratio < 1.5, `gallery: o veludo tem realce nítido (${shine.ratio})`);
+        check(blotches < 0.05, `gallery: o veludo tem manchas duras (${blotches})`);
         // A trama: o padrão se repete ao longo das linhas (os fios), no jeans e no algodão; o veludo, sem trama à
         // vista, não se repete.
         const denim = periodicity('denim', facing('denim'), 24, 24);
@@ -1496,16 +1531,6 @@ async function caseGallery(): Promise<void> {
             pile.value < 0.5 * Math.min(denim.value, plain.value),
             `gallery: o veludo se repete como uma trama (${pile.value})`,
         );
-        // As manchas do pelo penteado do veludo: o brilho varia em manchas largas na faixa rasante.
-        // (O desvio inteiro sobre a média, sem tirar a média local: as manchas são mais largas que ela.)
-        const [nx, ny] = onSphere(shot, 'velvet', facing('velvet', -0.9));
-        const napValues = patch(shot.img, nx, ny, 30).flat();
-        const napMean = napValues.reduce((a, b) => a + b, 0) / napValues.length;
-        const nap =
-            Math.sqrt(napValues.reduce((a, b) => a + (b - napMean) ** 2, 0) / napValues.length)
-            / napMean;
-        log(`gallery: manchas do pelo do veludo (desvio / média em 61 × 61 px) ${nap.toFixed(3)}`);
-        check(nap > 0.1, `gallery: o veludo não mostra as manchas do pelo (${nap})`);
         // Tecido fino (desenhado pelo traçado da refração: lobo translúcido) do lado contra o sol: a luz ambiente da
         // cena, como no algodão (desenhado pelo forward) — sem ela nos acertos dos raios, o tecido fino dava 0 ali.
         const away = (name: MaterialName): number => {
@@ -1592,6 +1617,34 @@ async function caseGallery(): Promise<void> {
         check(
             brushed > polished,
             `gallery: o metal polido é mais alongado que o escovado (${polished})`,
+        );
+        // O metal polido reflete o ambiente: onde o reflexo aponta para cima, o céu (azulado); onde aponta para
+        // baixo, o chão neutro — a razão azul / vermelho dos dois pontos (médias de 9 × 9 pixels).
+        const mirrored = (toward: Vec3): number => {
+            const { v } = view(shot.center.get('metalPolished')!);
+            const [x, y] = onSphere(
+                shot,
+                'metalPolished',
+                unit3([v[0] + toward[0], v[1] + toward[1], v[2] + toward[2]]),
+            );
+            let red = 0;
+            let blue = 0;
+            for (let dy = -4; dy <= 4; dy++)
+                for (let dx = -4; dx <= 4; dx++) {
+                    const c = hdrAt(shot.img, x + dx, y + dy);
+                    red += c[0]!;
+                    blue += c[2]!;
+                }
+            return blue / Math.max(red, 1e-6);
+        };
+        const skyTint = mirrored([0, 1, 0]);
+        const floorTint = mirrored([0, -1, 0]);
+        log(
+            `gallery: metal polido — azul / vermelho do reflexo para cima (o céu) ${skyTint.toFixed(2)}, para baixo (o chão) ${floorTint.toFixed(2)}`,
+        );
+        check(
+            skyTint > 1.15 * floorTint,
+            `gallery: o metal polido não reflete o céu por cima e o chão por baixo (${skyTint} × ${floorTint})`,
         );
         // Os flocos da pintura e as manchas da ferrugem contra o plástico brilhante liso.
         const flakes = contrast('carPaint', facing('carPaint'), 24);
