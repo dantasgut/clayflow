@@ -48,7 +48,9 @@
 //     polos), com o deslocamento em várias escalas — o contorno das cascas irregular, o realce da folha cerosa em
 //     pedaços e a fosca sem pico —, `pintura` com o floco físico (a fina sem grão longe do realce, a de floco grosso
 //     com ele) e `madeira-clara` (o freixo cru sem e com a subsuperfície, sem e com o deslocamento: o terminador mais
-//     macio com a difusão);
+//     macio com a difusão); na rodada 11, `telhados-casa`: além das esferas de `telhados`, a telha de barro e a
+//     ardósia num telhado de duas águas (planos inclinados deslocados, a fileira da cumeeira, o beiral), de três
+//     quartos, sob a luz rasante de lado;
 //   - library-compose (US5): madeira crua e metal escovado (nós da biblioteca) misturados por ruído, e um material
 //     pronto com a entrada da cor ligada a outro nó (xadrez).
 // Para rodar: `npm run smoke -- materials [--query case=closure-mix]`. Resultado: `MATERIALS SMOKE PASSED` ou `FAIL: …`.
@@ -2596,7 +2598,8 @@ const measureWood: DisplacedMeasure = (img, at, radius, plain) => {
 /**
  * Os quadros do deslocamento: os materiais de relevo em milímetros e a madeira bruta (`deslocamento`), as cascas
  * (`cascas`), os telhados (`telhados`) e as folhas (`folhas`), estes em esferas grandes (spec 011, T118 e T119); as
- * cascas e as folhas na esfera de parametrização frontal.
+ * cascas e as folhas na esfera de parametrização frontal. Os telhados têm também o quadro do telhado de duas águas
+ * (`telhados-casa`, `galleryRoofs`).
  */
 const DISPLACED: readonly DisplacedFrame[] = [
     {
@@ -2841,6 +2844,358 @@ async function galleryDisplaced(
         `gallery ${frame.name}: contorno (desvio do raio, px, e direções medidas) — ${rough.join(', ')}`,
     );
     frame.measure?.(img, at, R, plain);
+}
+
+/**
+ * Escala do mundo do quadro dos telhados (unidades por metro): cada água tem 3,6 m de largura por 4 m de queda — 18
+ * colunas e 10 fiadas de telha de barro (20 cm × 40 cm à vista), 12 colunas e 20 fiadas de ardósia (30 cm × 20 cm).
+ */
+const ROOF_SCALE = 0.4;
+/** A inclinação das águas e o giro da casa em torno da vertical (a empena esquerda e a água da frente à vista). */
+const ROOF_PITCH = (28 * Math.PI) / 180;
+const ROOF_YAW = (20 * Math.PI) / 180;
+/** A largura (ao longo da cumeeira) e a queda (da cumeeira ao beiral) de uma água, em metros. */
+const ROOF_WIDTH = 3.6;
+const ROOF_FALL = 4;
+/** O beiral além da parede, na queda e na empena, e a altura da parede (m): baixa — o telhado é o assunto. */
+const ROOF_EAVE = 0.45;
+const ROOF_VERGE = 0.25;
+const ROOF_WALL = 1.2;
+/** A distância do centro de cada casa ao meio do quadro e o recuo dela. */
+/** As repetições do padrão por água (em u e em v). */
+const ROOF_PATTERN = 2;
+const ROOF_DX = 1.25;
+const ROOF_Z = -0.7;
+/**
+ * A luz rasante do quadro dos telhados (de onde vem, no referencial da casa: x ao longo da cumeeira, z a queda da água
+ * da frente): do lado da empena direita, um pouco de trás da cumeeira e a 16° do plano da água da frente — as capas
+ * fazem sombra nos canais e o pé de cada fiada, na fiada de baixo; a sombra de uma casa cai no chão, não na vizinha.
+ */
+const ROOF_KEY: Vec3 = [0.86, 0.46, -0.22];
+
+/**
+ * Uma água do telhado: o plano inclinado de `pitch` que desce da cumeeira (v = 0, na origem) ao beiral (v = 1), com u
+ * ao longo da cumeeira no sentido em que a normal (du × dv) aponta para fora — as fiadas correm em u e o pé das telhas
+ * fica para o lado de v maior, o da queda.
+ */
+const ROOF_SLOPE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return vec3f((0.5 - u) * data.width, -v * data.fall * sin(data.pitch), v * data.fall * cos(data.pitch));
+}`;
+
+/**
+ * A fileira da cumeeira: meio cilindro ao longo dela (v), u em volta — de uma água à outra por cima —, com as bordas
+ * `drop` abaixo da origem (apoiadas nas capas das duas águas). A normal aponta para fora.
+ */
+const ROOF_RIDGE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    let a = 3.14159265 * u;
+    return vec3f((0.5 - v) * data.width, data.radius * sin(a) - data.drop, data.radius * cos(a));
+}`;
+
+/**
+ * A empena: o trapézio da parede sob as duas águas, do topo da parede (v = 0, meia largura `half`) até logo abaixo da
+ * cumeeira (v = 1), no plano x = 0.
+ */
+const ROOF_GABLE_CODE = `fn surface_fn(u: f32, v: f32, time: f32, data: SurfaceFnParams) -> vec3f {
+    return vec3f(0.0, v * data.rise, (2.0 * u - 1.0) * data.half * (1.0 - 0.97 * v));
+}`;
+
+/** Um telhado do quadro: o material, as colunas e as fiadas de cada água e os valores a mais (mm, cobertura). */
+interface RoofPiece {
+    readonly name: 'roofTile' | 'roofSlate';
+    readonly tiles: readonly [number, number];
+    /** Os valores do relevo (no material e no deslocamento). */
+    readonly relief: Readonly<Record<string, number>>;
+    /** Os valores só do material. */
+    readonly look: Readonly<Record<string, number | number[]>>;
+    /** A cumeeira de telhas (as capas ao longo do topo): quantas, o raio (m) e a altura do relevo delas (mm). */
+    readonly ridge?: { readonly count: number; readonly radius: number; readonly lift: number };
+}
+
+const ROOFS: readonly RoofPiece[] = [
+    {
+        name: 'roofTile',
+        tiles: [18, 10],
+        relief: { lift: 100 },
+        look: { lichen: 0.46 },
+        ridge: { count: 9, radius: 0.15, lift: 30 },
+    },
+    // A ardósia mais grossa da faixa real (14 mm entre o fundo e o topo de duas placas) e a cumeeira de placas dela.
+    {
+        name: 'roofSlate',
+        tiles: [12, 20],
+        relief: { lift: 14 },
+        // O escorrido da ardósia em tom de ferrugem (a pirita da pedra): o escuro do material some no cinza dela.
+        look: { lichen: 0.42, stain_color: [0.17, 0.12, 0.075] },
+        ridge: { count: 8, radius: 0.09, lift: 8 },
+    },
+];
+
+/** O ponto do mundo de (x, y, z) no referencial da casa de origem `o` (a cumeeira), girada de `ROOF_YAW`. */
+function roofPoint(o: Vec3, p: Vec3): Vec3 {
+    const c = Math.cos(ROOF_YAW);
+    const s = Math.sin(ROOF_YAW);
+    return [o[0] + p[0] * c + p[2] * s, o[1] + p[1], o[2] - p[0] * s + p[2] * c];
+}
+
+/**
+ * O quadro dos telhados de duas águas (`telhados-casa`; spec 011, T119, rodada 11) — a amostra a mais dos telhados, além das esferas de `telhados`: a telha de barro de capa e canal e a ardósia num telhado de duas
+ * águas — cada água uma `ParametricSurface` plana de malha adaptativa (`ROOF_SLOPE_CODE`) com a `DisplacementFunction`
+ * do material, o pé das telhas para o beiral, e a fileira da cumeeira (`ROOF_RIDGE_CODE`, o mesmo material com uma
+ * coluna e as fiadas ao longo dela; o relevo da telha de barro a 100 mm, o da telha de capa e canal de verdade) —, sobre paredes baixas com as empenas, a casa girada de
+ * três quartos, sob a luz rasante de lado com sombra (`ROOF_KEY`). As medidas, na água da frente: desenhado, sem
+ * valores não finitos, a luminância dobrada pela fase da fiada muda ao longo da queda (a sombra da sobreposição) e, na
+ * telha de barro, a dobrada pela fase da coluna também (a capa e o canal).
+ */
+async function galleryRoofs(width: number, height: number): Promise<void> {
+    const query = new URLSearchParams(location.search);
+    const { app, canvas } = await materialApp(width, height, engineErrors, { profiling: true });
+    const samples: number[] = [];
+    app.events.on('gpuFrameTimed', (e) => samples.push(e.totalMs));
+    app.world.insert(
+        new Camera({ projection: 'perspective', fov: GALLERY_FOV, near: 0.5, far: 60 }).add(
+            new Transform({
+                position: [...GALLERY_EYE, 1],
+                rotation: Transform.lookRotation([...GALLERY_EYE], [...GALLERY_TARGET]),
+            }),
+        ),
+    );
+    // A luz de preenchimento: a do sol da galeria vinda da frente e da esquerda (a empena à vista, as paredes, o
+    // fundo), fraca — não projeta sombra: forte, apagaria a das capas e a do pé das fiadas.
+    const sun = new DirectionalLight({
+        direction: [GALLERY_SUN[0], -GALLERY_SUN[1], -GALLERY_SUN[2], 0],
+        intensity: 0.7,
+    });
+    app.world.insert(sun);
+    app.world.insert(new Sky({ sun, sunDisk: false }));
+    app.world.insert(
+        new GlobalIllumination({
+            quality: 'medium',
+            probeSpacing: 0.5,
+            center: [0, 0.6, 0],
+            screenGather: false,
+        }),
+    );
+    const key = unit3(sub3(roofPoint([0, 0, 0], ROOF_KEY), [0, 0, 0]));
+    app.world.insert(
+        new DirectionalLight({
+            direction: [...key.map((c) => -c), 0],
+            intensity: 6,
+            castShadow: true,
+        }),
+    );
+    app.world.insert(
+        new PlaneGeometry({ size: [40, 40] })
+            .add(new StandardMaterial())
+            .add(new Transform({ position: [0, -0.1, 0, 1] }))
+            .add(neutral(0.12)),
+    );
+    galleryWall(app, [0, 5, -6], [40, 20], neutral(0.12));
+    const S = ROOF_SCALE;
+    const W = ROOF_WIDTH * S;
+    const L = ROOF_FALL * S;
+    // A parede: recuada do beiral e da borda da empena; o topo dela logo abaixo do plano das águas.
+    const halfSpan = L * Math.cos(ROOF_PITCH) - ROOF_EAVE * S;
+    const halfLength = W / 2 - ROOF_VERGE * S;
+    const rise = halfSpan * Math.tan(ROOF_PITCH);
+    const under = 0.05 * S;
+    const wall = ROOF_WALL * S;
+    const turn = (angle: number): number[] => [0, Math.sin(angle / 2), 0, Math.cos(angle / 2)];
+    const origin = new Map<string, Vec3>();
+    ROOFS.forEach((roof, i) => {
+        const o: Vec3 = [
+            (i - (ROOFS.length - 1) / 2) * 2 * ROOF_DX,
+            -0.1 + wall + under + rise,
+            ROOF_Z,
+        ];
+        origin.set(roof.name, o);
+        // Duas unidades do padrão por água em cada eixo (as manchas e o líquen na escala de algumas telhas), com as
+        // colunas e as fiadas inteiras: o pé da última fiada no beiral.
+        const values = {
+            pattern_scale: [ROOF_PATTERN, ROOF_PATTERN],
+            scale: S,
+            tiles: [roof.tiles[0] / ROOF_PATTERN, -roof.tiles[1] / ROOF_PATTERN],
+            ...roof.relief,
+        };
+        // As duas águas: a da frente e a de trás (a mesma, meia volta em torno da vertical).
+        for (const back of [false, true])
+            app.world.insert(
+                new ParametricSurface({
+                    domain: [0, 1, 0, 1],
+                    adaptive: { ...RELIEF_MESH, patches: [24, 24], periodic: [false, false] },
+                })
+                    .add(
+                        new SurfaceFunction({
+                            code: ROOF_SLOPE_CODE,
+                            params: { width: 'f32', fall: 'f32', pitch: 'f32' },
+                            values: { width: W, fall: L, pitch: ROOF_PITCH },
+                        }),
+                    )
+                    .add(new StandardMaterial())
+                    .add(
+                        new Transform({
+                            position: [...o, 1],
+                            rotation: turn(ROOF_YAW + (back ? Math.PI : 0)),
+                        }),
+                    )
+                    .add(Materials[roof.name]({ ...values, ...roof.look }))
+                    .add(Displacements[roof.name](values)),
+            );
+        if (roof.ridge !== undefined) {
+            const r = roof.ridge.radius * S;
+            const capped = {
+                pattern_scale: [1, 1],
+                scale: S,
+                tiles: [1, -roof.ridge.count],
+                lift: roof.ridge.lift,
+            };
+            app.world.insert(
+                new ParametricSurface({
+                    domain: [0, 1, 0, 1],
+                    adaptive: { ...RELIEF_MESH, patches: [4, 32], periodic: [false, false] },
+                })
+                    .add(
+                        new SurfaceFunction({
+                            code: ROOF_RIDGE_CODE,
+                            params: { width: 'f32', radius: 'f32', drop: 'f32' },
+                            values: {
+                                width: W,
+                                radius: r,
+                                // As bordas na altura do topo das capas das águas.
+                                drop:
+                                    r * Math.tan(ROOF_PITCH) - 0.0005 * (roof.relief.lift ?? 0) * S,
+                            },
+                        }),
+                    )
+                    .add(new StandardMaterial())
+                    .add(new Transform({ position: [...o, 1], rotation: turn(ROOF_YAW) }))
+                    .add(Materials[roof.name]({ ...capped, ...roof.look }))
+                    .add(Displacements[roof.name](capped)),
+            );
+        }
+        // As paredes e as duas empenas.
+        app.world.insert(
+            new BoxGeometry({ size: [2 * halfLength, wall, 2 * halfSpan] })
+                .add(new StandardMaterial())
+                .add(
+                    new Transform({
+                        position: [o[0], -0.1 + wall / 2, o[2], 1],
+                        rotation: turn(ROOF_YAW),
+                    }),
+                )
+                .add(neutral(0.5)),
+        );
+        for (const side of [-1, 1])
+            app.world.insert(
+                new ParametricSurface({ domain: [0, 1, 0, 1], resolution: [2, 2] })
+                    .add(
+                        new SurfaceFunction({
+                            code: ROOF_GABLE_CODE,
+                            params: { rise: 'f32', half: 'f32' },
+                            values: { rise, half: halfSpan },
+                        }),
+                    )
+                    .add(new StandardMaterial({ doubleSided: true }))
+                    .add(
+                        new Transform({
+                            position: [...roofPoint(o, [side * halfLength, -under - rise, 0]), 1],
+                            rotation: turn(ROOF_YAW),
+                        }),
+                    )
+                    .add(neutral(0.5)),
+            );
+    });
+    const started = performance.now();
+    const img = await renderHdr(app, GALLERY_FRAMES, 1500);
+    const ready = performance.now() - started;
+    samples.length = 0;
+    for (let i = 0; i < 60; i++) {
+        app.step(1 / 60);
+        await nextGpuFrame(app);
+    }
+    samples.sort((a, b) => a - b);
+    const gpuMs = samples[samples.length >> 1] ?? NaN;
+    if (query.get('shot') !== null) {
+        // Os rótulos: no chão, diante do canto da frente de cada casa.
+        const at = new Map<string, Vec3>(
+            [...origin].map(([name, o]) => [name, [o[0] - 0.1, 0, 0.6] as Vec3]),
+        );
+        const labels = await galleryLabels(app, at, width, height);
+        for (let i = 0; i < 3; i++) {
+            app.step(0);
+            await nextGpuFrame(app);
+        }
+        app.step(0);
+        await writeFixture('zzGallery-telhados-casa.png', await toPng(capture(canvas)));
+        for (const label of labels) label.visible = false;
+    }
+    disposeApp(app, canvas);
+    let bad = 0;
+    for (let k = 0; k < img.data.length; k++) if (!Number.isFinite(img.data[k]!)) bad++;
+    log(
+        `gallery telhados-casa: ${ROOFS.length} telhados de duas águas (${ROOF_WIDTH} m × ${ROOF_FALL} m cada água, a ${ROOF_SCALE} unidades por metro), ${width}×${height}; pronto em ${(ready / 1000).toFixed(1)} s; GPU ${gpuMs.toFixed(2)} ms por quadro (mediana); ${bad} valores não finitos`,
+    );
+    check(bad === 0, `gallery telhados-casa: ${bad} valores não finitos no alvo HDR`);
+    /** A luminância do ponto (u, v) da água da frente do telhado de origem `o`. */
+    const slope = (o: Vec3, u: number, v: number): number => {
+        const [x, y] = galleryPixel(
+            roofPoint(o, [
+                (0.5 - u) * W,
+                -v * L * Math.sin(ROOF_PITCH),
+                v * L * Math.cos(ROOF_PITCH),
+            ]),
+            width,
+            height,
+        );
+        return lum(hdrAt(img, Math.round(x), Math.round(y)));
+    };
+    /**
+     * A luminância da água dobrada pela fase da telha em `axis` (0: a coluna, em u; 1: a fiada, em v), em 8 faixas, no
+     * miolo da água (longe das bordas, da cumeeira e do beiral): (máximo − mínimo) / média, e a média.
+     */
+    const folded = (
+        o: Vec3,
+        count: readonly [number, number],
+        axis: 0 | 1,
+    ): { contrast: number; mean: number } => {
+        const bins = new Float64Array(8);
+        const lines = 96;
+        for (let j = 0; j < lines; j++) {
+            const across = 0.15 + (0.7 * (j + 0.5)) / lines;
+            for (let k = 2 * 8; k < (count[axis] - 2) * 8; k++) {
+                const t = (k + 0.5) / (count[axis] * 8);
+                bins[k % 8]! += axis === 0 ? slope(o, t, across) : slope(o, across, t);
+            }
+        }
+        const mean = bins.reduce((a, b) => a + b, 0) / bins.length;
+        return {
+            contrast: (Math.max(...bins) - Math.min(...bins)) / Math.max(mean, 1e-9),
+            mean: mean / (lines * (count[axis] - 4)),
+        };
+    };
+    const floor = lum(hdrAt(img, width >> 1, height - 40));
+    for (const roof of ROOFS) {
+        const o = origin.get(roof.name)!;
+        const courses = folded(o, roof.tiles, 1);
+        const columns = folded(o, roof.tiles, 0);
+        log(
+            `gallery telhados-casa: ${roof.name} — a água da frente ${courses.mean.toFixed(3)} (o chão ${floor.toFixed(3)}); contraste pela fase da fiada ${courses.contrast.toFixed(3)}, pela fase da coluna ${columns.contrast.toFixed(3)}`,
+        );
+        check(
+            courses.mean > 0.01,
+            `gallery telhados-casa: a água de ${roof.name} não foi desenhada (${courses.mean})`,
+        );
+        // Sem meta apertada: o pé de cada fiada e a sombra dele mudam a luminância ao longo da queda.
+        check(
+            courses.contrast > 0.08,
+            `gallery telhados-casa: as fiadas de ${roof.name} não aparecem ao longo da queda (${courses.contrast.toFixed(3)})`,
+        );
+        // Na telha de capa e canal, as colunas também (a capa iluminada de lado, o canal na sombra dela).
+        if (roof.name === 'roofTile')
+            check(
+                columns.contrast > 0.08,
+                `gallery telhados-casa: as capas e os canais de ${roof.name} não aparecem (${columns.contrast.toFixed(3)})`,
+            );
+    }
 }
 
 /**
@@ -3282,6 +3637,8 @@ async function caseGallery(): Promise<void> {
     // O quadro do deslocamento dos materiais novos (as esferas deslocadas sob a luz rasante) também.
     for (const frame of DISPLACED)
         if (only === null || only === frame.name) await galleryDisplaced(frame, W, H);
+    // O quadro dos telhados de duas águas (a telha de barro e a ardósia, além das esferas de `telhados`) também.
+    if (only === null || only === 'telhados-casa') await galleryRoofs(W, H);
     /** O quadro em que o material está (ou `undefined`, com `family=` de outra família). */
     const shotOf = (name: MaterialName | 'empty'): GalleryShot | undefined =>
         [...shots.values()].find((shot) => shot.center.has(name));
