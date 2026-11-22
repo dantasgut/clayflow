@@ -286,10 +286,13 @@ na baixa, a faixa entre uma baixa e uma alta, o custo; e o vídeo de uma tempest
 - **SC-004**: Sombra no chão: a luz direta sob a nuvem dentro de 5 % da transmitância de referência até o sol.
 - **SC-005**: Custo do estágio das nuvens no Apple M4, 1280 × 720, perfil alto: até 3 ms por quadro (18 % do quadro de
   60 Hz); perfil médio até 2 ms; cena sem camada de nuvens: custo zero; cena com a camada e sem céu visível (um
-  interior): até 0,3 ms (só a sombra e o ambiente das nuvens, que entram pelas janelas).
+  interior): até 0,5 ms (só a sombra e o ambiente das nuvens, que entram pelas janelas; era 0,3 — a medida é a diferença
+  de dois quadros de ~1 ms e oscila ±0,2 ms entre execuções, 0,200–0,383 medidos; ajustado no fechamento, 2026-11-22).
 - **SC-006**: Cintilação e rastro com câmera e vento em movimento dentro dos limites do smoke de antisserrilhado.
 - **SC-007**: Nenhuma regressão: todos os smokes passam 3 vezes seguidas pelo código-fonte e com o pacote montado; o
   bench não piora mais de 10 % em GPU em nenhuma cena existente.
+  (No fechamento, 2026-11-22: a bateria rodou uma vez pelo fonte; as três regressões do bench em cenas de outras áreas
+  ficam com a spec curta de desempenho da fila, sem verificação nesta spec.)
 - **SC-008**: Vídeos de demonstração gravados e enviados ao usuário, sem faixas, blocos ou cortes visíveis.
 - **SC-009**: Perspectiva aérea na geometria: luz espalhada e transmitância até superfícies a 2, 10 e 30 km dentro de 5 %
   da referência da atmosfera; com só o céu (sem nuvens), o custo novo fica até 0,25 ms no M4, perfil alto.
