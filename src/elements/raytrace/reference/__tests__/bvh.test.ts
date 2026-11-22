@@ -5,6 +5,7 @@ import {
     expandBits,
     LEAF_BIT,
     morton3,
+    rayBox,
     rayTriangle,
     raySphere,
     refitLeaves,
@@ -196,5 +197,20 @@ describe('referência da estrutura de raios (spec 033, R1)', () => {
             }
         }
         expect(hits).toBeGreaterThan(20);
+    });
+
+    it('caixa vazia (mínimo > máximo) nunca é atingida; a cheia, pela entrada das lâminas', () => {
+        // Pelas lâminas, a caixa invertida daria [−∞, +∞]: todo raio desceria pela parte vazia da hierarquia (os
+        // triângulos além da contagem de uma malha adaptativa abaixo do nível máximo).
+        const empty = { min: [3e38, 3e38, 3e38] as Vec3, max: [-3e38, -3e38, -3e38] as Vec3 };
+        const r = rng(11);
+        for (let k = 0; k < 64; k++) {
+            const origin: Vec3 = [r() * 4 - 2, r() * 4 - 2, r() * 4 - 2];
+            const inv: Vec3 = [1 / (r() - 0.5), 1 / (r() - 0.5), 1 / (r() - 0.5)];
+            expect(rayBox(origin, inv, empty, 3e38)).toBe(Infinity);
+        }
+        const unit = { min: [-1, -1, -1] as Vec3, max: [1, 1, 1] as Vec3 };
+        expect(rayBox([0, 0, -3], [Infinity, Infinity, 1], unit, 100)).toBeCloseTo(2, 12);
+        expect(rayBox([0, 3, -3], [Infinity, Infinity, 1], unit, 100)).toBe(Infinity);
     });
 });

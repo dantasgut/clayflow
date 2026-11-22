@@ -218,8 +218,12 @@ export function refitLeaves(bvh: Bvh, boxes: readonly Aabb[]): void {
     refit(bvh);
 }
 
-/** Interseção raio–caixa por lâminas: a entrada em [0, tMax], ou `Infinity`. */
+/**
+ * Interseção raio–caixa por lâminas: a entrada em [0, tMax], ou `Infinity`. A caixa vazia (mínimo > máximo) nunca é
+ * atingida.
+ */
 export function rayBox(origin: Vec3, invDir: Vec3, box: Aabb, tMax: number): number {
+    if (box.min[0]! > box.max[0]!) return Infinity;
     let t0 = 0;
     let t1 = tMax;
     for (let k = 0; k < 3; k++) {
