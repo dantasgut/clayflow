@@ -12,6 +12,8 @@ import {
     patternShingles,
     patternThreshold,
     patternVeins,
+    patternAreoles,
+    patternBrush,
     patternWeave,
 } from '../reference/pattern';
 import { glintCount } from '../../material/reference/closureNodes';
@@ -732,7 +734,7 @@ describe('padrões com relevo (spec 011)', () => {
         for (const curve of [0, 1.5])
             checkGradient(
                 (p) => {
-                    const o = patternVeins(p, 0, [0, 0], [0.5, 1], 4, 1, curve, 0.2, 6, 2);
+                    const o = patternVeins(p, 0, [0, 0], [0.5, 1], 4, 1, curve, 0.2, 0, 2);
                     return { h: o.height, g: o.gradient };
                 },
                 1,
@@ -742,10 +744,152 @@ describe('padrões com relevo (spec 011)', () => {
         const here = patternVeins([0.37, 0.61], 0, [2, 1], [0.5, 1], 4, 1, 1, 0.05, 8, 2);
         const round = patternVeins([2.37, 1.61], 0, [2, 1], [0.5, 1], 4, 1, 1, 0.05, 8, 2);
         expect(round.height).toBeCloseTo(here.height, 4);
-        expect(round.cell).toBe(here.cell);
+        expect(round.cell).toBeCloseTo(here.cell, 4);
         const far = patternVeins([0.7, 0.5], 2, [0, 0], [0.5, 1], 4, 1, 1, 0.05, 8, 2);
         expect(far.height).toBe(0);
         expect(far.cell).toBe(0.5);
+    });
+    it('nervuras: irregulares, afinando para a ponta e com as terciárias em escada', () => {
+        const at = (
+            p: readonly [number, number],
+            irregular: number,
+            taper: number,
+            ladder: number,
+        ) => patternVeins(p, 0, [0, 0], [0.5, 1], 4, 1, 1, 0.05, 0, 2, irregular, taper, ladder);
+        // A irregularidade desloca as secundárias: a crista regular deixa de estar onde estava em algum ponto.
+        let moved = 0;
+        for (let k = 0; k < 40; k++) {
+            const y = 0.5 + 0.05 + 0.01 * k;
+            const x = 0.75 + (y - 0.5) + (y - 0.5) * (y - 0.5);
+            expect(at([x, y], 0, 0, 0).height).toBeCloseTo(0.7, 3);
+            if (at([x, y], 0.3, 0, 0).height < 0.6) moved++;
+        }
+        expect(moved).toBeGreaterThan(10);
+        // A central afina para a ponta: a meia largura da base (0,05) cai a 40 % no fim da lâmina com `taper` 0,6.
+        expect(at([0.02, 0.5 + 0.03], 0, 0.6, 0).main).toBeGreaterThan(0.1);
+        expect(at([1.98, 0.5 + 0.03], 0, 0.6, 0).main).toBe(0);
+        // As terciárias: nervuras novas (a 0,5 de altura) no limbo entre as secundárias.
+        let rungs = 0;
+        for (const p of POINTS) {
+            const plain = at(p, 0, 0, 0);
+            const stepped = at(p, 0, 0, 8);
+            expect(stepped.height).toBeGreaterThanOrEqual(plain.height - 1e-9);
+            if (plain.height === 0 && stepped.height > 0) {
+                rungs++;
+                expect(stepped.height).toBeLessThanOrEqual(0.4 + 1e-9);
+            }
+        }
+        expect(rungs).toBeGreaterThan(3);
+        // Fecha no período com tudo ligado.
+        const here = patternVeins(
+            [0.37, 0.61],
+            0,
+            [2, 1],
+            [0.5, 1],
+            4,
+            1,
+            1,
+            0.05,
+            8,
+            2,
+            0.3,
+            0.5,
+            8,
+        );
+        const round = patternVeins(
+            [2.37, 1.61],
+            0,
+            [2, 1],
+            [0.5, 1],
+            4,
+            1,
+            1,
+            0.05,
+            8,
+            2,
+            0.3,
+            0.5,
+            8,
+        );
+        expect(round.height).toBeCloseTo(here.height, 4);
+    });
+    it('aréolas: a almofada redonda entre dois pontos, a borda, o período', () => {
+        let walls = 0;
+        let tops = 0;
+        for (const p of POINTS) {
+            const o = patternAreoles(p, 0, [0, 0], 6, 0.8, 0.25, 3);
+            expect(o.height).toBeGreaterThanOrEqual(-1e-9);
+            expect(o.height).toBeLessThanOrEqual(1);
+            expect(o.wall).toBeGreaterThanOrEqual(0);
+            expect(o.wall).toBeLessThanOrEqual(1);
+            // A borda é onde a almofada é baixa: t ≥ 0,75 ⇔ altura ≤ 1 − 0,75².
+            if (o.wall > 0) {
+                walls++;
+                expect(o.height).toBeLessThanOrEqual(1 - 0.75 * 0.75 + 1e-9);
+            }
+            if (o.height > 0.8) tops++;
+        }
+        expect(walls).toBeGreaterThan(3);
+        expect(tops).toBeGreaterThan(3);
+        // Sem deslocamento, a célula é a grade: no ponto dela a almofada vale 1; a meio caminho do vizinho, 0.
+        expect(patternAreoles([0.5, 0.5], 0, [0, 0], 1, 0, 0.25, 1).height).toBeCloseTo(1, 6);
+        expect(patternAreoles([1, 0.5], 0, [0, 0], 1, 0, 0.25, 1).height).toBeCloseTo(0, 6);
+        // As curvas de nível são círculos: a um quarto do caminho, t = 2 · 0,25 / (0,25 + 0,75) em qualquer direção
+        // do eixo — e, na diagonal, o mesmo t a uma distância menor do que a do polígono.
+        expect(patternAreoles([0.75, 0.5], 0, [0, 0], 1, 0, 0.25, 1).height).toBeCloseTo(0.75, 6);
+        const here = patternAreoles([0.37, 0.61], 0, [2, 1], 6, 0.8, 0.25, 3);
+        const round = patternAreoles([2.37, 1.61], 0, [2, 1], 6, 0.8, 0.25, 3);
+        expect(round.height).toBeCloseTo(here.height, 4);
+        expect(round.cell).toBeCloseTo(here.cell, 4);
+        const far = patternAreoles([0.37, 0.61], 2, [0, 0], 6, 0.8, 0.25, 3);
+        expect(far.height).toBe(0.5);
+        expect(far.wall).toBe(0);
+    });
+    it('escova: riscos ao longo de x, direção que varia poucos graus, riscos fundos isolados, gradiente = derivada', () => {
+        let deepest = 0;
+        let gouged = 0;
+        let tilt = 0;
+        for (const p of POINTS) {
+            const o = patternBrush(p, 0, [0, 0], [2, 64], 0.07, [1.5, 3], 0.3, 5);
+            expect(Math.hypot(o.direction[0]!, o.direction[1]!)).toBeCloseTo(1, 6);
+            // A direção fica a poucos graus de x.
+            tilt = Math.max(tilt, Math.abs(o.direction[1]!));
+            expect(o.direction[0]).toBeGreaterThan(0.98);
+            expect(o.deep).toBeGreaterThanOrEqual(0);
+            expect(o.deep).toBeLessThanOrEqual(1);
+            if (o.deep > 0) gouged++;
+            deepest = Math.min(deepest, o.value);
+            // Sem riscos fundos, a altura fica em [-1, 1].
+            const fine = patternBrush(p, 0, [0, 0], [2, 64], 0.07, [1.5, 3], 0, 5);
+            expect(Math.abs(fine.value)).toBeLessThanOrEqual(1);
+            expect(fine.deep).toBe(0);
+        }
+        expect(tilt).toBeGreaterThan(0.005);
+        expect(tilt).toBeLessThan(0.15);
+        expect(gouged).toBeGreaterThan(0);
+        // Os riscos correm ao longo de x: a altura muda muito mais depressa através (y) do que ao longo.
+        let along = 0;
+        let across = 0;
+        for (const p of POINTS) {
+            const g = patternBrush(p, 0, [0, 0], [2, 64], 0.07, [1.5, 3], 0, 5).gradient;
+            along += Math.abs(g[0]!);
+            across += Math.abs(g[1]!);
+        }
+        expect(across).toBeGreaterThan(5 * along);
+        checkGradient(
+            (p) => {
+                const o = patternBrush(p, 0, [0, 0], [1, 8], 0.07, [1.5, 3], 0, 5);
+                return { h: o.value, g: o.gradient };
+            },
+            1,
+            15,
+        );
+        // Fecha no período; abaixo do pixel os riscos vão à média.
+        const here = patternBrush([0.37, 0.61], 0, [2, 1], [2, 64], 0.07, [1.5, 3], 0.3, 5);
+        const round = patternBrush([2.37, 1.61], 0, [2, 1], [2, 64], 0.07, [1.5, 3], 0.3, 5);
+        expect(round.value).toBeCloseTo(here.value, 3);
+        const far = patternBrush([0.37, 0.61], 1, [0, 0], [2, 64], 0.07, [1.5, 3], 0.3, 5);
+        expect(far.value).toBe(0);
     });
     it('brilhos pontuais: a célula do pixel em dois níveis, contínua na troca de nível, fixa no objeto', () => {
         // Sem a largura do pixel, ou com os flocos resolvidos (mais de 5 pixels por floco): sem sorteio.

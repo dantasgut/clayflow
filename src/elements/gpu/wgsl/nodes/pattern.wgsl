@@ -97,6 +97,20 @@ struct NodePatternVeins {
     cell: f32,
 }
 
+struct NodePatternBrush {
+    value: f32,
+    gradient: vec2f,
+    direction: vec2f,
+    deep: f32,
+}
+
+struct NodePatternAreoles {
+    height: f32,
+    gradient: vec2f,
+    cell: f32,
+    wall: f32,
+}
+
 struct NodePatternGlints {
     cells: vec3f,
     count: f32,
@@ -803,64 +817,94 @@ fn node_pattern_shingles(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, shift:
     );
 }
 
-// A borda da célula de Voronoi em `q` (células de período `per`): (distância à borda, a normal dela, o valor em [0, 1]
-// da célula) — a mediatriz mais próxima entre o ponto da célula e os das 5 × 5 em volta.
-fn node_pattern_cell_edge(q: vec2f, per: vec2f, seed: u32) -> vec4f {
+// Os dois pontos de célula mais próximos de `q` (3 × 3 células em volta; `jitter` até 0,8 para valer): a posição de
+// cada um relativa a `q` e o hash do primeiro.
+struct NodePatternCellPair {
+    r1: vec2f,
+    r2: vec2f,
+    h: u32,
+}
+
+fn node_pattern_cell_pair(q: vec2f, per: vec2f, seed: u32, jitter: f32) -> NodePatternCellPair {
     let i = floor(q);
     let f = q - i;
-    var best = 1e30;
-    var r1 = vec2f(0.0);
-    var o1 = vec2f(0.0);
-    var h1 = 0u;
+    var d1 = 1e30;
+    var d2 = 1e30;
+    var out = NodePatternCellPair(vec2f(0.0), vec2f(0.0), 0u);
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
-            let o = vec2f(f32(dx), f32(dy));
-            let c = node_pattern_cell_point(i, o, f, per, seed, 1.0);
+            let c = node_pattern_cell_point(i, vec2f(f32(dx), f32(dy)), f, per, seed, jitter);
             let d = dot(c.r, c.r);
-            if (d < best) {
-                best = d;
-                r1 = c.r;
-                o1 = o;
-                h1 = c.h;
+            if (d < d1) {
+                d2 = d1;
+                out.r2 = out.r1;
+                d1 = d;
+                out.r1 = c.r;
+                out.h = c.h;
+            } else if (d < d2) {
+                d2 = d;
+                out.r2 = c.r;
             }
         }
     }
-    var edge = 1e30;
-    var nrm = vec2f(0.0);
-    for (var dy = -2; dy <= 2; dy++) {
-        for (var dx = -2; dx <= 2; dx++) {
-            if (dx == 0 && dy == 0) { continue; }
-            let c = node_pattern_cell_point(i, o1 + vec2f(f32(dx), f32(dy)), f, per, seed, 1.0);
-            let dr = c.r - r1;
-            let l2 = dot(dr, dr);
-            if (l2 > 1e-12) {
-                let dn = dr * inverseSqrt(l2);
-                let d = dot(0.5 * (r1 + c.r), dn);
-                if (d < edge) {
-                    edge = d;
-                    nrm = dn;
-                }
-            }
-        }
-    }
-    return vec4f(edge, nrm, f32(h1 >> 8u) / 16777215.0);
+    return out;
+}
+
+// A posição na célula arredondada: t = 2 · d₁ / (d₁ + d₂) (d₁, d₂ as distâncias aos dois pontos mais próximos) — 0 no
+// ponto da célula, 1 na borda; as curvas de t constante são círculos (de Apolônio), não polígonos. Devolve (t, ∂t/∂q).
+fn node_pattern_round(c: NodePatternCellPair) -> vec3f {
+    let d1 = max(length(c.r1), 1e-6);
+    let d2 = max(length(c.r2), 1e-6);
+    let s = d1 + d2;
+    return vec3f(2.0 * d1 / s, 2.0 * (d1 * c.r2 / d2 - d2 * c.r1 / d1) / (s * s));
 }
 
 /**
- * Nervuras (spec 011, T118): a folha — a nervura central ao longo de `p.x`, as secundárias que saem dela dos dois
- * lados, alternadas, e a rede fina das vênulas. `scale`: lâminas por unidade de `p.x` (o comprimento) e de `p.y` (a
- * largura; a nervura central no meio de cada lâmina). `veins` secundárias de cada lado por comprimento de lâmina
- * (inteiro: fecha no período); saem com a inclinação `slope` (a tangente do ângulo com a nervura central) e curvam
- * para a ponta com `curve` (o avanço ao longo da lâmina, em larguras, pelo quadrado da distância à nervura central).
- * `thickness` é a meia largura da nervura central, em larguras da lâmina; as secundárias têm a metade e afinam até a
- * margem. As vênulas são as bordas de um Voronoi de `fine` células por unidade de `p` (0: sem vênulas). Saídas:
- * `height` em [0, 1] — 1 na crista da nervura central, 0,7 na das secundárias, 0,35 na das vênulas, 0 no limbo —, com
- * o gradiente ∂/∂p; `main` a nervura central e as secundárias em [0, 1]; `across` a distância à nervura central (0
- * nela, 1 na margem da lâmina); `cell` o valor em [0, 1] da aréola (o limbo entre as vênulas). Abaixo do pixel as
- * nervuras somem (a altura e o gradiente a zero, `cell` a 0,5), as vênulas antes das principais.
+ * Aréolas (spec 011, T120): células arredondadas — as almofadas do limbo de uma folha entre as vênulas, as bolhas, os
+ * seixos. `scale` células por unidade de `p`, o ponto de cada uma deslocado por `jitter` (até 0,8). A posição na
+ * célula é t = 2 · d₁ / (d₁ + d₂), das distâncias aos dois pontos mais próximos: as curvas de nível são círculos, e a
+ * rede das bordas tem os cantos arredondados. `height` = 1 − t² — a almofada abaulada, lisa, 1 no meio e 0 na borda —,
+ * com o `gradient` ∂/∂p; `cell` o valor em [0, 1] da célula (indo a 0,5 na borda: a mancha é redonda); `wall` a borda em [0, 1]: smoothstep(1 − `wall`, 1, t) (a
+ * vênula). Abaixo do pixel: altura e `cell` a 0,5, gradiente e `wall` a zero.
+ */
+fn node_pattern_areoles(p: vec2f, width: f32, wrap: vec2f, scale: f32, jitter: f32, wall: f32, seed: u32)
+    -> NodePatternAreoles {
+    let fx = node_pattern_fit(scale, wrap.x, 1.0);
+    let fy = node_pattern_fit(scale, wrap.y, 1.0);
+    let fr = vec2f(fx.x, fy.x);
+    let c = node_pattern_cell_pair(p * fr, vec2f(fx.y, fy.y), seed, min(jitter, 0.8));
+    let t = node_pattern_round(c);
+    let k = select(1.0, node_pattern_band(width * max(abs(fr.x), abs(fr.y))), width > 0.0);
+    let e = clamp((t.x - 1.0 + wall) / max(wall, 1e-4), 0.0, 1.0);
+    return NodePatternAreoles(
+        mix(0.5, 1.0 - t.x * t.x, k),
+        k * (-2.0 * t.x) * t.yz * fr,
+        mix(0.5, f32(c.h >> 8u) / 16777215.0, k * (1.0 - smoothstep(0.55, 0.9, t.x))),
+        k * e * e * (3.0 - 2.0 * e),
+    );
+}
+
+/**
+ * Nervuras (spec 011, T118 e T120): a folha — a nervura central ao longo de `p.x`, as secundárias que saem dela dos
+ * dois lados, alternadas, as terciárias em escada entre duas secundárias e a rede fina das vênulas. `scale`: lâminas
+ * por unidade de `p.x` (o comprimento) e de `p.y` (a largura; a nervura central no meio de cada lâmina). `veins`
+ * secundárias de cada lado por comprimento de lâmina (inteiro: fecha no período); saem com a inclinação `slope` (a
+ * tangente do ângulo com a nervura central) e curvam para a ponta com `curve` (o avanço ao longo da lâmina, em
+ * larguras, pelo quadrado da distância à nervura central). `irregular` (0 a 0,35): o espaçamento e o ângulo das
+ * secundárias variam de uma para a outra e ao longo de cada uma (um ruído desloca a contagem delas, até essa fração
+ * do espaço entre duas). `thickness` é a meia largura da nervura central na base, em larguras da lâmina; `taper` (0 a
+ * 1) a fração que ela perde até a ponta; as secundárias têm a metade e afinam até a margem. `ladder`: terciárias por
+ * largura de lâmina (0: sem) — degraus que ligam duas secundárias vizinhas, atravessados a elas, cada vão com a sua
+ * fase, tortos. As
+ * vênulas são as bordas arredondadas das aréolas (`node_pattern_round`) de `fine` células por unidade de `p` (0:
+ * sem). Saídas: `height` em [0, 1] — 1 na crista da nervura central, 0,7 na das secundárias, 0,4 na das terciárias,
+ * 0,35 na das vênulas, 0 no limbo —, com o gradiente ∂/∂p (com `irregular`, sem a variação da inclinação ao longo da
+ * nervura); `main` as nervuras central, secundárias e terciárias (estas a 0,35) em [0, 1]; `across` a distância à
+ * nervura central (0 nela, 1 na margem da lâmina); `cell` o valor em [0, 1] da aréola. Abaixo do pixel as nervuras
+ * somem (a altura e o gradiente a zero, `cell` a 0,5), as vênulas antes das principais.
  */
 fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f32, slope: f32, curve: f32,
-    thickness: f32, fine: f32, seed: u32) -> NodePatternVeins {
+    thickness: f32, fine: f32, seed: u32, irregular: f32, taper: f32, ladder: f32) -> NodePatternVeins {
     let fx = node_pattern_fit(scale.x, wrap.x, 1.0);
     let fy = node_pattern_fit(scale.y, wrap.y, 1.0);
     let fr = vec2f(fx.x, fy.x);
@@ -872,8 +916,9 @@ fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f3
     let yb = qy - floor(qy) - 0.5;
     let ay = abs(yb);
     let sy = select(-1.0, 1.0, yb >= 0.0);
-    // A nervura central.
-    let w0 = max(thickness, 1e-4);
+    // A nervura central, mais fina para a ponta.
+    let thin = 1.0 - clamp(taper, 0.0, 1.0) * xb / len;
+    let w0 = max(thickness * thin, 1e-4);
     let t0 = clamp(ay / w0, 0.0, 1.0);
     let m0 = 1.0 - t0 * t0 * (3.0 - 2.0 * t0);
     let g0 = (-6.0 * t0 * (1.0 - t0) / w0) * vec2f(0.0, sy * fr.y);
@@ -881,21 +926,50 @@ fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f3
     let n = max(round(veins), 1.0);
     let sp = len / n;
     let sl = max(slope, 1e-3);
-    let s = (xb - ay / sl - curve * ay * ay) / sp + select(0.0, 0.5, yb < 0.0);
-    let fs = s - floor(s) - 0.5;
     let ds = -1.0 / sl - 2.0 * curve * ay;
-    let gl = sqrt(1.0 + ds * ds);
-    let d1 = abs(fs) * sp / gl;
-    let taper = 0.5 * (1.0 - 1.4 * ay);
-    let w1 = w0 * max(taper, 0.12);
-    let dw1 = select(0.0, -0.7 * w0, taper > 0.12);
+    var s = (xb - ay / sl - curve * ay * ay) / sp + select(0.0, 0.5, yb < 0.0);
+    // ∇s em (x, |y|), em larguras da lâmina.
+    var gs = vec2f(1.0, ds) / sp;
+    let side = select(0u, 1u, yb < 0.0);
+    if (irregular > 0.0) {
+        let wn = node_pattern_noise(vec2f(s, 3.0 * ay), vec2f(n, 0.0), seed + 7u + side);
+        s += irregular * wn.x;
+        gs = gs * (1.0 + irregular * wn.y) + vec2f(0.0, 3.0 * irregular * wn.z);
+    }
+    let fs = s - floor(s) - 0.5;
+    let gl = max(length(gs), 1e-6);
+    let d1 = abs(fs) / gl;
+    let fade = 0.5 * (1.0 - 1.4 * ay);
+    let w1 = w0 * max(fade, 0.12);
+    let dw1 = select(0.0, -0.7 * w0, fade > 0.12);
     let t1 = clamp(d1 / w1, 0.0, 1.0);
     let m1 = 1.0 - t1 * t1 * (3.0 - 2.0 * t1);
     // ∂t1/∂(x, |y|): a distância pela curva, pela inclinação dela (que muda com |y|) e pela largura (que afina).
-    let dt1 = vec2f(select(-1.0, 1.0, fs >= 0.0) / gl,
-        select(-1.0, 1.0, fs >= 0.0) * ds / gl + 2.0 * curve * d1 * ds / (gl * gl) - d1 * dw1 / w1) / w1;
+    let sg = select(-1.0, 1.0, fs >= 0.0);
+    let dt1 = (sg * gs / gl + vec2f(0.0, 2.0 * curve * d1 * ds / (1.0 + ds * ds) - d1 * dw1 / w1)) / w1;
     let g1 = (-6.0 * t1 * (1.0 - t1)) * vec2f(dt1.x, dt1.y * sy) * fr.y;
-    // As vênulas.
+    // As terciárias: os degraus entre duas secundárias — as curvas de tt constante, tt = ladder · |y| + 0,8 · fs +
+    // a fase do vão + um ruído.
+    var m3 = 0.0;
+    var g3 = vec2f(0.0);
+    if (ladder > 0.0) {
+        let span = floor(s);
+        let phase = random_unit(pcg_hash(bitcast<u32>(i32(span - n * floor(span / n))) * 2u + side + seed * 0x9e3779b1u));
+        let wn = node_pattern_noise(vec2f(2.0 * s, 0.25 * ladder * ay), vec2f(2.0 * n, 0.0), seed + 9u + side);
+        // Os degraus atravessam as secundárias: tt cresce ao longo da direção em que elas saem (um número inteiro de
+        // degraus no comprimento da lâmina: fecha no período).
+        let run = vec2f(round(ladder * len / sqrt(1.0 + sl * sl)) / len, ladder * sl / sqrt(1.0 + sl * sl));
+        let tt = run.x * xb + run.y * ay + phase + 0.6 * wn.x;
+        let gt = run + 0.6 * (2.0 * wn.y * gs + vec2f(0.0, 0.25 * ladder * wn.z));
+        let ft = tt - floor(tt) - 0.5;
+        let glt = max(length(gt), 1e-6);
+        let w3 = 0.2 * w0;
+        let t3 = clamp(abs(ft) / glt / w3, 0.0, 1.0);
+        m3 = 1.0 - t3 * t3 * (3.0 - 2.0 * t3);
+        let dt3 = select(-1.0, 1.0, ft >= 0.0) * gt / glt / w3;
+        g3 = (-6.0 * t3 * (1.0 - t3)) * vec2f(dt3.x, dt3.y * sy) * fr.y;
+    }
+    // As vênulas: as bordas arredondadas das aréolas.
     var m2 = 0.0;
     var g2 = vec2f(0.0);
     var cell = 0.5;
@@ -904,21 +978,28 @@ fn node_pattern_veins(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, veins: f3
         let vx = node_pattern_fit(fine, wrap.x, 1.0);
         let vy = node_pattern_fit(fine, wrap.y, 1.0);
         let vr = vec2f(vx.x, vy.x);
-        let e = node_pattern_cell_edge(p * vr, vec2f(vx.y, vy.y), seed);
-        let t2 = clamp(e.x / 0.12, 0.0, 1.0);
+        let c = node_pattern_cell_pair(p * vr, vec2f(vx.y, vy.y), seed, 0.8);
+        let t = node_pattern_round(c);
+        let t2 = clamp((t.x - 0.75) / 0.25, 0.0, 1.0);
         k2 = select(1.0, node_pattern_band(width * max(abs(vr.x), abs(vr.y))), width > 0.0);
-        m2 = k2 * (1.0 - t2 * t2 * (3.0 - 2.0 * t2));
-        g2 = k2 * (6.0 * t2 * (1.0 - t2) / 0.12) * e.yz * vr;
-        cell = mix(0.5, e.w, k2);
+        m2 = k2 * t2 * t2 * (3.0 - 2.0 * t2);
+        g2 = k2 * (6.0 * t2 * (1.0 - t2) / 0.25) * t.yz * vr;
+        // O valor da aréola some na borda dela (a mancha de cada uma é redonda, como a almofada).
+        cell = mix(0.5, f32(c.h >> 8u) / 16777215.0, k2 * (1.0 - smoothstep(0.55, 0.9, t.x)));
     }
     // O detalhe das principais pela largura do pixel em espaços entre secundárias.
     let k1 = select(1.0, node_pattern_band(width * fr.y / min(sp, 1.0)), width > 0.0);
-    let main = max(m0, m1);
+    let k3 = select(1.0, node_pattern_band(width * fr.y * max(ladder, 1.0 / min(sp, 1.0))), width > 0.0);
+    let main = max(max(m0, m1), 0.35 * k3 * m3);
     var height = k1 * m0;
     var gradient = k1 * g0;
     if (0.7 * k1 * m1 > height) {
         height = 0.7 * k1 * m1;
         gradient = 0.7 * k1 * g1;
+    }
+    if (0.4 * k3 * m3 > height) {
+        height = 0.4 * k3 * m3;
+        gradient = 0.4 * k3 * g3;
     }
     if (0.35 * m2 > height) {
         height = 0.35 * m2;
@@ -953,4 +1034,77 @@ fn node_pattern_glints(p: vec2f, width: f32, wrap: vec2f, scale: f32, seed: u32)
         vec3f(f32(ha >> 8u) / 16777215.0, f32(hb >> 8u) / 16777215.0, lod - level),
         side * side / k,
     );
+}
+
+// Um risco fundo isolado da escova: a grade de células `q` (alongadas ao longo de x), uma célula em `chance` com um
+// sulco de ângulo e fundura próprios, que morre nas pontas da célula. Devolve (fundura em [0, 1], ∂/∂q.x, ∂/∂q.y).
+fn node_pattern_brush_gouge(q: vec2f, per: vec2f, seed: u32, chance: f32) -> vec3f {
+    let i = floor(q);
+    let f = q - i;
+    let h = node_pattern_hash(i, per, seed);
+    if (random_unit(h) >= chance) { return vec3f(0.0); }
+    let h2 = pcg_hash(h);
+    let h3 = pcg_hash(h2);
+    let slope = 0.5 * random_unit(h2) - 0.25;
+    let yc = 0.3 + 0.4 * random_unit(h3) + slope * (f.x - 0.5);
+    let depth = 0.4 + 0.6 * random_unit(pcg_hash(h3));
+    let t = clamp(abs(f.y - yc) / 0.09, 0.0, 1.0);
+    let across = 1.0 - t * t * (3.0 - 2.0 * t);
+    let e = clamp(min(f.x, 1.0 - f.x) / 0.25, 0.0, 1.0);
+    let along = e * e * (3.0 - 2.0 * e);
+    let dt = select(-1.0, 1.0, f.y >= yc) / 0.09;
+    let dacross = -6.0 * t * (1.0 - t) * dt;
+    let dalong = 6.0 * e * (1.0 - e) * select(-4.0, 4.0, f.x < 0.5) * select(0.0, 1.0, e < 1.0);
+    return depth * vec3f(across * along, across * dalong - dacross * slope * along, dacross * along);
+}
+
+/**
+ * Escova (spec 011, T120): os riscos de um metal escovado à mão ou de um acabamento acetinado — quatro passadas de
+ * riscos finos ao longo de `p.x`, cada uma com a sua frequência (`scale`: riscos por unidade de `p` ao longo e através,
+ * crescendo de passada em passada) e a sua direção, que varia de lugar para lugar: a coordenada através da escova de
+ * cada passada é deslocada por um ruído largo próprio (`bend_scale` ondas por unidade de `p`), de modo que a inclinação
+ * dos riscos oscila até `spread` (radianos) — os riscos são levemente curvos e os de passadas diferentes se cruzam em
+ * ângulos pequenos. Cada risco é um trecho do ruído alongado: comprimento e fundura variam. Por cima, os riscos fundos
+ * isolados: uma célula em `deep` de duas grades alongadas tem um sulco com ângulo e fundura próprios (até ± 14° na
+ * grade), que morre nas pontas. Saídas: `value` (a altura: os riscos finos em [-1, 1] menos os fundos, até −2,5), o
+ * `gradient` ∂/∂p, `direction` — a direção dos riscos em `p` no ponto (unitária; a tangente do lobo anisotrópico) — e
+ * `deep`, o risco fundo em [0, 1]. Abaixo do pixel os riscos vão à média (a anisotropia do lobo os representa).
+ */
+fn node_pattern_brush(p: vec2f, width: f32, wrap: vec2f, scale: vec2f, spread: f32, bend_scale: vec2f, deep: f32,
+    seed: u32) -> NodePatternBrush {
+    let bx = node_pattern_fit(bend_scale.x, wrap.x, 1.0);
+    let by = node_pattern_fit(bend_scale.y, wrap.y, 1.0);
+    let br = vec2f(bx.x, by.x);
+    // A amplitude do deslocamento que dá a inclinação `spread` (a derivada do ruído chega a ~1,4 por célula).
+    let reach = spread / (1.4 * max(br.x, 1e-6));
+    var sum = vec3f(0.0);
+    var dir = vec2f(0.0);
+    var norm = 0.0;
+    var amp = 1.0;
+    for (var k = 0u; k < 4u; k++) {
+        let fx = node_pattern_fit(scale.x * (1.0 + 0.5 * f32(k)), wrap.x, 1.0);
+        let fy = node_pattern_fit(scale.y * (1.0 + 0.37 * f32(k)), wrap.y, 1.0);
+        let w = node_pattern_noise(p * br, vec2f(bx.y, by.y), seed + 16u + k);
+        let slant = reach * w.yz * br;
+        let v = node_pattern_noise(vec2f(p.x * fx.x, (p.y + reach * w.x) * fy.x), vec2f(fx.y, fy.y), seed + k);
+        let band = select(1.0, node_pattern_band(width * max(abs(fx.x), abs(fy.x))), width > 0.0);
+        sum += amp * band * vec3f(v.x, v.y * fx.x + v.z * fy.x * slant.x, v.z * fy.x * (1.0 + slant.y));
+        dir += amp * normalize(vec2f(1.0 + slant.y, -slant.x));
+        norm += amp;
+        amp *= 0.8;
+    }
+    var out = sum / norm;
+    var gouge = 0.0;
+    if (deep > 0.0) {
+        for (var k = 0u; k < 2u; k++) {
+            let gx = node_pattern_fit(scale.x * (1.5 + f32(k)), wrap.x, 1.0);
+            let gy = node_pattern_fit(scale.y * (0.17 + 0.08 * f32(k)), wrap.y, 1.0);
+            let gr = vec2f(gx.x, gy.x);
+            let g = node_pattern_brush_gouge(p * gr + vec2f(0.5 * f32(k), 0.0), vec2f(gx.y, gy.y), seed + 32u + k, deep);
+            let band = select(1.0, node_pattern_band(width * 5.0 * abs(gr.y)), width > 0.0);
+            out -= 1.5 * band * vec3f(g.x, g.yz * gr);
+            gouge = max(gouge, band * g.x);
+        }
+    }
+    return NodePatternBrush(out.x, out.yz, normalize(dir), gouge);
 }

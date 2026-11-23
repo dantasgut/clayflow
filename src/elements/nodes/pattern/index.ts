@@ -307,14 +307,41 @@ const shingles = defineNode({
 });
 
 /**
- * Nervuras (a folha): a nervura central ao longo de `p.x`, as secundárias que saem dela dos dois lados, alternadas, e a
- * rede fina das vênulas. `scale`: lâminas por unidade de `p.x` (o comprimento) e de `p.y` (a largura; a nervura
- * central no meio de cada lâmina). `veins` secundárias de cada lado por comprimento de lâmina (inteiro); saem com a
- * inclinação `slope` (a tangente do ângulo com a central) e curvam para a ponta com `curve`. `thickness` a meia
- * largura da central, em larguras da lâmina (as secundárias têm a metade e afinam até a margem); `fine` as células da
- * rede de vênulas por unidade de `p` (0: sem). Saídas: `height` em [0, 1] (1 na crista da central, 0,7 na das
- * secundárias, 0,35 na das vênulas, 0 no limbo) e o `gradient`; `main` a central e as secundárias em [0, 1]; `across`
- * a distância à central (0 nela, 1 na margem); `cell` o valor em [0, 1] da aréola entre as vênulas.
+ * Aréolas: células arredondadas (as almofadas do limbo de uma folha entre as vênulas, as bolhas, os seixos) — `scale`
+ * células por unidade de `p`, o ponto de cada uma deslocado por `jitter` (até 0,8). A posição na célula é 2 · d₁ /
+ * (d₁ + d₂), das distâncias aos dois pontos mais próximos: as curvas de nível são círculos e a rede das bordas tem os
+ * cantos arredondados, sem as arestas retas do Voronoi. Saídas: `height` em [0, 1] — a almofada abaulada e lisa, 1 no
+ * meio e 0 na borda — e o `gradient`; `cell` o valor em [0, 1] da célula; `wall` a borda em [0, 1], de largura `wall`
+ * (a fração da meia célula).
+ */
+const areoles = defineNode({
+    name: 'pattern.areoles',
+    inputs: RELIEF_INPUTS,
+    outputs: { height: 'f32', gradient: 'vec2f', cell: 'f32', wall: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'f32', default: 1 },
+        jitter: { type: 'f32', default: 0.8 },
+        wall: { type: 'f32', default: 0.25 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_areoles',
+});
+
+/**
+ * Nervuras (a folha): a nervura central ao longo de `p.x`, as secundárias que saem dela dos dois lados, alternadas, as
+ * terciárias em escada entre duas secundárias e a rede fina das vênulas. `scale`: lâminas por unidade de `p.x` (o
+ * comprimento) e de `p.y` (a largura; a nervura central no meio de cada lâmina). `veins` secundárias de cada lado por
+ * comprimento de lâmina (inteiro); saem com a inclinação `slope` (a tangente do ângulo com a central) e curvam para a
+ * ponta com `curve`; `irregular` (0 a 0,35) varia o espaçamento e o ângulo de uma para a outra e ao longo de cada
+ * uma. `thickness` a meia largura da central na base, em larguras da lâmina, e `taper` (0 a 1) a fração que ela perde
+ * até a ponta (as secundárias têm a metade e afinam até a margem). `ladder`: terciárias por largura de lâmina (0: sem)
+ * — degraus tortos entre duas secundárias vizinhas, cada vão com a sua fase. `fine` as aréolas por unidade de `p` (0:
+ * sem): as vênulas são as bordas arredondadas delas (as de `pattern.areoles` com a mesma semente e `jitter` 0,8).
+ * Saídas: `height` em [0, 1] (1 na crista da central, 0,7 na das secundárias, 0,4 na das terciárias, 0,35 na das
+ * vênulas, 0 no limbo) e o `gradient`; `main` as nervuras central, secundárias e terciárias em [0, 1]; `across` a
+ * distância à central (0 nela, 1 na margem); `cell` o valor em [0, 1] da aréola entre as vênulas.
  */
 const veins = defineNode({
     name: 'pattern.veins',
@@ -329,6 +356,9 @@ const veins = defineNode({
         thickness: { type: 'f32', default: 0.03 },
         fine: { type: 'f32', default: 30 },
         seed: { type: 'u32', default: 0 },
+        irregular: { type: 'f32', default: 0 },
+        taper: { type: 'f32', default: 0 },
+        ladder: { type: 'f32', default: 0 },
     },
     code: nodePattern,
     fn: 'node_pattern_veins',
@@ -356,14 +386,40 @@ const glints = defineNode({
 });
 
 /**
+ * Escova: os riscos de um metal escovado — quatro passadas de riscos finos ao longo de `p.x` (`scale` riscos por
+ * unidade de `p` ao longo e através, crescendo de passada em passada), cada uma com a direção variando de lugar para
+ * lugar até `spread` radianos (um ruído largo de `bend_scale` ondas por unidade de `p` desloca os riscos: levemente
+ * curvos, cruzando-se em ângulos pequenos), e os riscos fundos isolados — uma célula em `deep` (0 a 1) de duas grades
+ * alongadas, cada sulco com ângulo e fundura próprios. Saídas: `value` (os finos em [-1, 1] menos os fundos, até −2,5), o
+ * `gradient`, `direction` (a direção dos riscos em `p`, unitária: a tangente do lobo anisotrópico) e `deep` (o risco
+ * fundo em [0, 1]).
+ */
+const brush = defineNode({
+    name: 'pattern.brush',
+    inputs: RELIEF_INPUTS,
+    outputs: { value: 'f32', gradient: 'vec2f', direction: 'vec2f', deep: 'f32' },
+    params: {
+        ...RELIEF_VALUES,
+        scale: { type: 'vec2f', default: [2, 200] },
+        spread: { type: 'f32', default: 0.06 },
+        bend_scale: { type: 'vec2f', default: [1.5, 3] },
+        deep: { type: 'f32', default: 0.1 },
+        seed: { type: 'u32', default: 0 },
+    },
+    code: nodePattern,
+    fn: 'node_pattern_brush',
+});
+
+/**
  * Padrões: o xadrez em 2D (superfícies planas, uv) e em 3D (sólido); e os padrões com relevo — a trama de tecido, o
- * tricô, as células com sulcos, os anéis de crescimento (com os nós da madeira), os tijolos, as tábuas do assoalho, as fissuras da casca, as mossas, as fiadas sobrepostas do telhado, as nervuras da folha, as células dos brilhos pontuais, o grão e o
+ * tricô, a escova do metal, as células com sulcos, os anéis de crescimento (com os nós da madeira), os tijolos, as tábuas do assoalho, as fissuras da casca, as mossas, as fiadas sobrepostas do telhado, as nervuras da folha, as aréolas arredondadas, as células dos brilhos pontuais, o grão e o
  * limiar com gradiente.
  */
 export const pattern = {
     checker2: checker('checker2', 'vec2f'),
     checker3: checker('checker3', 'vec3f'),
     grain,
+    brush,
     cells,
     rings,
     weave,
@@ -374,6 +430,7 @@ export const pattern = {
     dents,
     shingles,
     veins,
+    areoles,
     glints,
     threshold,
 } as const;
