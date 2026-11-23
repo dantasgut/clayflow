@@ -407,8 +407,8 @@ export const woodWalnut = species('material.woodWalnut', {
 /**
  * `material.woodOakVarnished` — carvalho escurecido e envernizado: a madeira tingida de castanho-escuro (`color`), as
  * linhas dos anéis pouco mais escuras (`late_color`), finas e irregulares, as faixas largas de cor e os vasos — poros
- * alongados e escuros, muitos, ao longo da fibra —, sob um verniz âmbar acetinado-brilhante (rugosidade 0,1: o realce
- * do sol é uma mancha larga) que acompanha o poro aberto e a fibra — a normal do verniz desce em cada vaso
+ * alongados e escuros, muitos, ao longo da fibra —, sob um verniz âmbar acetinado (rugosidade 0,2: o realce
+ * de uma janela ou de um painel é uma mancha larga e macia) que acompanha o poro aberto e a fibra — a normal do verniz desce em cada vaso
  * (`pore_relief`, a altura em unidades do padrão) e ondula com a fibra fina: a mancha do realce sai cortada em
  * tracinhos ao longo da fibra. Parâmetros: os de `woodPine`.
  */
@@ -439,13 +439,13 @@ export const woodOakVarnished = species('material.woodOakVarnished', {
     fleck: 0.1,
     fleck_scale: [22, 260],
     roughness: 0.6,
-    coat: { roughness: 0.13, color: [1, 0.82, 0.6], pore: 0.0034, fiber: 0.0003 },
+    coat: { roughness: 0.2, color: [1, 0.82, 0.6], pore: 0.0034, fiber: 0.0003 },
 });
 
 /**
  * `material.woodMahogany` — mogno envernizado: laranja-avermelhado (`color`) com as linhas dos anéis castanhas
  * (`late_color`), finas, onduladas e de espaçamento irregular — as catedrais e os ovais do corte tangencial —, as
- * faixas da grã revessa ao longo da fibra, os tracinhos escuros dos poros, sob um verniz brilhante (rugosidade 0,06,
+ * faixas da grã revessa ao longo da fibra, os tracinhos escuros dos poros, sob um verniz brilhante (rugosidade 0,11,
  * alaranjado) com o poro de leve aberto; sem nós. Parâmetros: os de `woodPine`.
  */
 export const woodMahogany = species('material.woodMahogany', {
@@ -475,7 +475,7 @@ export const woodMahogany = species('material.woodMahogany', {
     fleck: 0,
     fleck_scale: [16, 210],
     roughness: 0.5,
-    coat: { roughness: 0.07, color: [1, 0.72, 0.45], pore: 0.002, fiber: 0.00016 },
+    coat: { roughness: 0.11, color: [1, 0.72, 0.45], pore: 0.002, fiber: 0.00016 },
 });
 
 /** O carvalho dos assoalhos: os anéis com poucos arcos (a medula longe), o tom variando de tábua para tábua. */
@@ -535,6 +535,117 @@ export const woodFloorHerringbone = species('material.woodFloorHerringbone', {
 });
 
 /**
+ * Sub-grafo de um freixo cru: a cor, o veio e os vasos (os de `material.woodAsh`), o corpo de subsuperfície e o lobo
+ * da interface alongado pela fibra, com o relevo em milímetros de `reliefNode` na normal.
+ */
+function ash(name: string, reliefNode: NodeDefinition): NodeDefinition {
+    return Subgraph.point(
+        new NodeGraph({
+            nodes: {
+                ...patternSpace(ASH_OFFSET),
+                rings: pattern.rings.with(ASH_RINGS),
+                fiber: pattern.grain.with(ASH_FIBER),
+                thread: pattern.grain.with({ scale: [7, 300], octaves: 2, seed: 44 }),
+                pore: pattern.grain.with(ASH_PORE),
+                pit: pattern.threshold.with(ASH_PIT),
+                figure: pattern.grain.with({ scale: [1.1, 8], octaves: 3, gain: 0.55, seed: 45 }),
+                broad: pattern.grain.with({ scale: [0.45, 2.4], octaves: 3, gain: 0.55, seed: 46 }),
+                tone: color.ramp.with({
+                    color_a: [0.66, 0.53, 0.37],
+                    color_b: [0.5, 0.36, 0.21],
+                    low: 0.68,
+                    high: 1,
+                }),
+                year: map.range.with({ out_min: 0.93, out_max: 1.07 }),
+                wide: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.9, out_max: 1.1 }),
+                band: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+                streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
+                hair: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
+                shade_a: math.mul,
+                shade_b: math.mul,
+                shade_c: math.mul,
+                shade: math.mul,
+                lit: math.scale3,
+                // Os vasos abertos: escuros no fundo, só no lenho inicial.
+                early: map.range.with(ASH_EARLY),
+                hollow: map.range.with({ out_min: 0.75, out_max: 0 }),
+                pore_mask: math.mul,
+                pore_color: math.value3.with({ value: [0.2, 0.13, 0.07] }),
+                pored: math.mix3,
+                world: math.value.with({ value: 1 }),
+                body: bsdf.subsurface.with({ radius: [1.1, 0.7, 0.35] }),
+                specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.62, anisotropy: 0.6 }),
+                sum: closure.add,
+                tile: math.value2.with({ value: [1, 1] }),
+                height: reliefNode,
+                normal: surface.reliefNormal,
+                out: closure.normal,
+            },
+            links: [
+                ...SPACE_LINKS,
+                ...patternLinks('rings', 'fiber', 'thread', 'pore', 'figure', 'broad'),
+                ['tile.value', 'uv.scale'],
+                ['pore.value', 'pit.value'],
+                ['pore.gradient', 'pit.gradient'],
+                ['rings.value', 'tone.t'],
+                ['rings.ring', 'year.x'],
+                ['broad.value', 'wide.x'],
+                ['figure.value', 'band.x'],
+                ['fiber.value', 'streak.x'],
+                ['thread.value', 'hair.x'],
+                ['year.value', 'shade_a.a'],
+                ['wide.value', 'shade_a.b'],
+                ['band.value', 'shade_b.a'],
+                ['streak.value', 'shade_b.b'],
+                ['shade_a.value', 'shade_c.a'],
+                ['shade_b.value', 'shade_c.b'],
+                ['shade_c.value', 'shade.a'],
+                ['hair.value', 'shade.b'],
+                ['tone.color', 'lit.v'],
+                ['shade.value', 'lit.s'],
+                ['rings.value', 'early.x'],
+                ['pit.value', 'hollow.x'],
+                ['early.value', 'pore_mask.a'],
+                ['hollow.value', 'pore_mask.b'],
+                ['lit.value', 'pored.a'],
+                ['pore_color.value', 'pored.b'],
+                ['pore_mask.value', 'pored.t'],
+                ['pored.value', 'body.color'],
+                ['world.value', 'body.scale'],
+                ['uv.du', 'specular.tangent'],
+                ['specular.value', 'sum.a'],
+                ['body.value', 'sum.b'],
+                ['s.value', 'height.s'],
+                ['tile.value', 'height.pattern_scale'],
+                ['height.value', 'normal.relief'],
+                ['world.value', 'normal.scale'],
+                ['sum.value', 'out.c'],
+                ['normal.value', 'out.normal'],
+            ],
+            output: 'out.value',
+        }),
+        {
+            name,
+            ...SAMPLE_INPUT,
+            expose: [
+                ['tone.color_a', 'color'],
+                ['tone.color_b', 'late_color'],
+                ['pore_color.value', 'pore_color'],
+                ['specular.roughness', 'roughness'],
+                ['specular.anisotropy', 'anisotropy'],
+                ['body.radius', 'radius'],
+                ['height.ring_height', 'ring_height'],
+                ['height.pore_depth', 'pore_depth'],
+                ['height.fiber_height', 'fiber_height'],
+                ['height.furrow_depth', 'furrow_depth'],
+                ['world.value', 'scale'],
+                ['tile.value', 'pattern_scale'],
+            ],
+        },
+    );
+}
+
+/**
  * `material.woodAsh` — freixo cru: madeira clara e fosca, lixada e escovada de leve, sem verniz nem cera. Creme
  * (`color`), com o veio discreto e irregular — o lenho tardio pouco mais escuro (`late_color`), cada anel com o seu
  * tom, faixas largas, a fibra fina — e os vasos abertos do lenho inicial em tracinhos escuros ao longo do veio
@@ -549,111 +660,22 @@ export const woodFloorHerringbone = species('material.woodFloorHerringbone', {
  * (`ring_height`, 0,12), os poros abertos (`pore_depth`, 0,25) e a fibra levantada (`fiber_height`, 0,08) —, na
  * normal; com `Displacements.woodAsh()` na entidade de uma `ParametricSurface`, na geometria. Parâmetros: `color`,
  * `late_color`, `pore_color`, `roughness`, `anisotropy`, `radius`, `ring_height`, `pore_depth`, `fiber_height`,
- * `scale`, `pattern_scale`.
+ * `furrow_depth`, `scale`, `pattern_scale`.
  */
-export const woodAsh = Subgraph.point(
-    new NodeGraph({
-        nodes: {
-            ...patternSpace(ASH_OFFSET),
-            rings: pattern.rings.with(ASH_RINGS),
-            fiber: pattern.grain.with(ASH_FIBER),
-            thread: pattern.grain.with({ scale: [7, 300], octaves: 2, seed: 44 }),
-            pore: pattern.grain.with(ASH_PORE),
-            pit: pattern.threshold.with(ASH_PIT),
-            figure: pattern.grain.with({ scale: [1.1, 8], octaves: 3, gain: 0.55, seed: 45 }),
-            broad: pattern.grain.with({ scale: [0.45, 2.4], octaves: 3, gain: 0.55, seed: 46 }),
-            tone: color.ramp.with({
-                color_a: [0.66, 0.53, 0.37],
-                color_b: [0.5, 0.36, 0.21],
-                low: 0.68,
-                high: 1,
-            }),
-            year: map.range.with({ out_min: 0.93, out_max: 1.07 }),
-            wide: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.9, out_max: 1.1 }),
-            band: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
-            streak: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.88, out_max: 1.12 }),
-            hair: map.range.with({ in_min: -0.5, in_max: 0.5, out_min: 0.93, out_max: 1.07 }),
-            shade_a: math.mul,
-            shade_b: math.mul,
-            shade_c: math.mul,
-            shade: math.mul,
-            lit: math.scale3,
-            // Os vasos abertos: escuros no fundo, só no lenho inicial.
-            early: map.range.with(ASH_EARLY),
-            hollow: map.range.with({ out_min: 0.75, out_max: 0 }),
-            pore_mask: math.mul,
-            pore_color: math.value3.with({ value: [0.2, 0.13, 0.07] }),
-            pored: math.mix3,
-            world: math.value.with({ value: 1 }),
-            body: bsdf.subsurface.with({ radius: [1.1, 0.7, 0.35] }),
-            specular: bsdf.dielectric.with({ ior: 1.5, roughness: 0.62, anisotropy: 0.6 }),
-            sum: closure.add,
-            tile: math.value2.with({ value: [1, 1] }),
-            height: relief.woodAsh,
-            normal: surface.reliefNormal,
-            out: closure.normal,
-        },
-        links: [
-            ...SPACE_LINKS,
-            ...patternLinks('rings', 'fiber', 'thread', 'pore', 'figure', 'broad'),
-            ['tile.value', 'uv.scale'],
-            ['pore.value', 'pit.value'],
-            ['pore.gradient', 'pit.gradient'],
-            ['rings.value', 'tone.t'],
-            ['rings.ring', 'year.x'],
-            ['broad.value', 'wide.x'],
-            ['figure.value', 'band.x'],
-            ['fiber.value', 'streak.x'],
-            ['thread.value', 'hair.x'],
-            ['year.value', 'shade_a.a'],
-            ['wide.value', 'shade_a.b'],
-            ['band.value', 'shade_b.a'],
-            ['streak.value', 'shade_b.b'],
-            ['shade_a.value', 'shade_c.a'],
-            ['shade_b.value', 'shade_c.b'],
-            ['shade_c.value', 'shade.a'],
-            ['hair.value', 'shade.b'],
-            ['tone.color', 'lit.v'],
-            ['shade.value', 'lit.s'],
-            ['rings.value', 'early.x'],
-            ['pit.value', 'hollow.x'],
-            ['early.value', 'pore_mask.a'],
-            ['hollow.value', 'pore_mask.b'],
-            ['lit.value', 'pored.a'],
-            ['pore_color.value', 'pored.b'],
-            ['pore_mask.value', 'pored.t'],
-            ['pored.value', 'body.color'],
-            ['world.value', 'body.scale'],
-            ['uv.du', 'specular.tangent'],
-            ['specular.value', 'sum.a'],
-            ['body.value', 'sum.b'],
-            ['s.value', 'height.s'],
-            ['tile.value', 'height.pattern_scale'],
-            ['height.value', 'normal.relief'],
-            ['world.value', 'normal.scale'],
-            ['sum.value', 'out.c'],
-            ['normal.value', 'out.normal'],
-        ],
-        output: 'out.value',
-    }),
-    {
-        name: 'material.woodAsh',
-        ...SAMPLE_INPUT,
-        expose: [
-            ['tone.color_a', 'color'],
-            ['tone.color_b', 'late_color'],
-            ['pore_color.value', 'pore_color'],
-            ['specular.roughness', 'roughness'],
-            ['specular.anisotropy', 'anisotropy'],
-            ['body.radius', 'radius'],
-            ['height.ring_height', 'ring_height'],
-            ['height.pore_depth', 'pore_depth'],
-            ['height.fiber_height', 'fiber_height'],
-            ['world.value', 'scale'],
-            ['tile.value', 'pattern_scale'],
-        ],
-    },
-);
+export const woodAsh = ash('material.woodAsh', relief.woodAsh);
+
+/**
+ * `material.woodAshBrushed` — freixo escovado a fundo (a tábua escovada com escova de aço ou jateada, crua): a mesma
+ * madeira de `woodAsh` — clara, fosca, o corpo de subsuperfície (`radius`, (1,1, 0,7, 0,35) mm, estimado) — com o
+ * relevo de `relief.woodAshBrushed`: a fibra macia do lenho inicial removida em sulcos ao longo do veio
+ * (`furrow_depth`, 1,1 mm), o lenho tardio saliente em cristas (`ring_height`, 0,8 mm), os vasos abertos
+ * (`pore_depth`, 0,5 mm) e a fibra levantada (`fiber_height`, 0,15 mm). Na normal, o relevo sombreia o veio; com
+ * `Displacements.woodAshBrushed()` na entidade de uma `ParametricSurface`, vai à geometria — a silhueta fica
+ * serrilhada pelas cristas e os sulcos fazem sombra na luz rasante. A luz que entra pelas cristas finas (da ordem do
+ * milímetro, a do raio de espalhamento) sai do outro lado: a subsuperfície clareia a sombra dos sulcos. Parâmetros:
+ * os de `woodAsh`.
+ */
+export const woodAshBrushed = ash('material.woodAshBrushed', relief.woodAshBrushed);
 
 /**
  * `material.barkBirch` — casca de bétula: lisa, branca e acetinada (`color`; a betulina, rugosidade 0,45), manchada de

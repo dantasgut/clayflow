@@ -74,6 +74,7 @@ const NAMES = [
     'leafMatte',
     'carPaintFlake',
     'woodAsh',
+    'woodAshBrushed',
     'roofTile',
     'roofSlate',
     'paper',
@@ -94,7 +95,7 @@ function inner(name: MaterialName): Record<string, string> {
 }
 
 describe('Materials (spec 011, US5)', () => {
-    it('a biblioteca tem os 71 materiais, cada um um nó registrado sem ligação obrigatória', () => {
+    it('a biblioteca tem os 72 materiais, cada um um nó registrado sem ligação obrigatória', () => {
         expect(Object.keys(Materials).sort()).toEqual([...NAMES].sort());
         for (const name of NAMES) {
             const def = nodes.material[name];
@@ -327,7 +328,7 @@ describe('Materials (spec 011, US5)', () => {
         expect(value('plasticGloss', 'roughness')).toBeLessThanOrEqual(0.1);
         expect(value('metalPolished', 'roughness')).toBeLessThanOrEqual(0.1);
         expect(value('metalPolished', 'anisotropy')).toBe(0);
-        expect(value('metalBrushed', 'anisotropy')).toBeGreaterThanOrEqual(0.5);
+        expect(value('metalBrushed', 'anisotropy')).toBeGreaterThanOrEqual(0.2);
         // Metais: F0 alto (o alumínio do OpenPBR); subsuperfície: o vermelho espalha mais longe.
         const f0 = nodes.material.metalPolished.params.color!.default as number[];
         f0.forEach((v, k) => {
@@ -427,7 +428,7 @@ describe('Materials (spec 011, US5)', () => {
             ]),
         );
         expect(subgraphOrigin(nodes.material.metalBrushed)!.graph.links).toEqual(
-            expect.arrayContaining([['uv.du', 'metal.tangent']]),
+            expect.arrayContaining([['along.value', 'metal.tangent']]),
         );
     });
 
@@ -561,6 +562,7 @@ describe('Materials (spec 011, US5)', () => {
             leafDry: 'pattern.veins',
             leafMatte: 'pattern.veins',
             woodAsh: 'relief.woodAsh',
+            woodAshBrushed: 'relief.woodAshBrushed',
             roofTile: 'pattern.shingles',
             roofSlate: 'pattern.shingles',
             cork: 'pattern.cells',
@@ -588,6 +590,7 @@ describe('Materials (spec 011, US5)', () => {
             'leafMatte',
             'leafDry',
             'woodAsh',
+            'woodAshBrushed',
         ] as const) {
             expect(has(name, 'surface.reliefNormal'), name).toBe(true);
             expect(nodes.material[name].params.scale).toEqual({ type: 'f32', default: 1 });
@@ -640,14 +643,29 @@ describe('Materials (spec 011, US5)', () => {
         }
         // O metal escovado é opaco: um condutor só, anisotrópico, sem transmissão.
         expect(Materials.metalBrushed().lobeMask & LOBES.transmission).toBe(0);
-        expect(nodes.material.metalBrushed.params.anisotropy!.default).toBeGreaterThanOrEqual(0.8);
+        // O acabamento acetinado: o lobo é largo e só moderadamente alongado (as passadas cruzadas alargam-no também
+        // ao longo da escova); a tangente é a direção dos riscos no ponto.
+        expect(nodes.material.metalBrushed.params.anisotropy!.default).toBeGreaterThanOrEqual(0.2);
+        expect(nodes.material.metalBrushed.params.roughness!.default).toBeGreaterThanOrEqual(0.3);
+        expect(subgraphOrigin(nodes.material.metalBrushed)!.graph.links).toEqual(
+            expect.arrayContaining([
+                ['scratch.direction', 'along.direction'],
+                ['along.value', 'metal.tangent'],
+            ]),
+        );
+        // O freixo escovado: a mesma madeira com os sulcos de um milímetro.
+        expect(nodes.material.woodAshBrushed.params.furrow_depth!.default).toBeGreaterThanOrEqual(
+            0.5,
+        );
+        expect(nodes.material.woodAshBrushed.params.furrow_depth!.default).toBeLessThanOrEqual(1.5);
+        expect(nodes.material.woodAsh.params.furrow_depth!.default).toBe(0);
         // A folha é parede fina (a luz de trás atravessa) sob a cutícula de rugosidade variável (lisa no meio das
         // almofadas, fosca nas vênulas), com o relevo em milímetros; a seca é mais fosca e a fosca não tem realce.
         for (const name of ['leaf', 'leafMatte', 'leafDry'] as const) {
             expect(inner(name)).toMatchObject({
                 through: 'bsdf.translucent',
                 cuticle: 'bsdf.dielectric',
-                pad: 'pattern.cells',
+                pad: 'pattern.areoles',
                 height: `relief.${name}`,
                 normal: 'surface.reliefNormal',
             });

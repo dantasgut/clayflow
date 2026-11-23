@@ -59,6 +59,7 @@ export type MaterialName =
     | 'woodMahogany'
     | 'woodOakVarnished'
     | 'woodAsh'
+    | 'woodAshBrushed'
     | 'woodFloorPlanks'
     | 'woodFloorHerringbone'
     | 'bark'
@@ -107,7 +108,7 @@ function factory(definition: NodeDefinition): MaterialFactory {
  * uma máscara, ligar a rugosidade a um ruído), use o nó `nodes.material.<nome>` num `NodeGraph` próprio.
  *
  * Madeira: `woodRaw`, `woodRough`, `woodVarnishedGloss`, `woodVarnishedMatte`, as espécies `woodOak`, `woodWalnut`,
- * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
+ * `woodPine`, `woodMahogany`, `woodOakVarnished`, `woodAsh` (clara, fosca, com subsuperfície), `woodAshBrushed` (a mesma, escovada a fundo: sulcos de 1 mm), os assoalhos `woodFloorPlanks` e `woodFloorHerringbone`, as cascas `bark`, `barkPine` e `barkBirch` e a cortiça
  * `cork` (aglomerada) e `corkStopper` (a rolha). Folhas: `leaf`, `leafMatte`, `leafDry`. Telhados: `roofTile`, `roofSlate`. Tecidos: `cotton`, `wool`, `velvet`, `silk`, `denim`,
  * `sheerFabric`. Dielétricos opacos: `leather`, `rubber`, `ceramic`, `porcelain`, `plasticMatte`, `plasticGloss`,
  * `paper`. Metais: `metalPolished`, `gold`, `copper`, `brass`, `chrome`, `metalBrushed`, `metalHammered`,
@@ -186,6 +187,7 @@ export const Materials: Readonly<Record<MaterialName, MaterialFactory>> = Object
     woodMahogany: factory(material.woodMahogany),
     woodOakVarnished: factory(material.woodOakVarnished),
     woodAsh: factory(material.woodAsh),
+    woodAshBrushed: factory(material.woodAshBrushed),
     woodFloorPlanks: factory(material.woodFloorPlanks),
     woodFloorHerringbone: factory(material.woodFloorHerringbone),
     bark: factory(material.bark),

@@ -268,7 +268,7 @@ function leafOf(
             nodes: {
                 ...patternSpace(),
                 veins: pattern.veins.with(leafVeins(p)),
-                pad: pattern.cells.with(leafPads(p)),
+                pad: pattern.areoles.with(leafPads(p)),
                 mottle: pattern.grain.with({
                     scale: [3, 3],
                     octaves: 4,
@@ -318,8 +318,8 @@ function leafOf(
                 mixed: closure.mix.with({ t: v.translucency }),
                 // A cutícula: lisa no meio da almofada, fosca na vênula; mais fosca nas manchas e na margem.
                 gloss: map.range.with({
-                    in_min: 0,
-                    in_max: 0.4,
+                    in_min: 0.1,
+                    in_max: 0.6,
                     out_min: v.vein_roughness,
                     out_max: v.roughness,
                 }),

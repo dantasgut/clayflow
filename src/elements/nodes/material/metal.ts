@@ -102,31 +102,44 @@ export const brass = metal('material.brass', 0.07, 0, [0.91, 0.778, 0.423], [0.9
  */
 export const chrome = metal('material.chrome', 0.02, 0, [0.549, 0.556, 0.554], [0.75, 0.75, 0.81]);
 
+// O aço inoxidável (liga de ferro e cromo): a refletância de frente do ferro (0,560, 0,570, 0,580) e a do cromo
+// (0,549, 0,556, 0,554) quase coincidem (Akenine-Möller et al., tabela 9.2); a tinta da borda é a do cromo, a camada
+// passiva da superfície.
+const STEEL_F0 = [0.56, 0.57, 0.58] as const;
+const STEEL_F82 = [0.76, 0.76, 0.81] as const;
+
 /**
- * `material.metalBrushed` — metal escovado (alumínio, inox): opaco, cinza-claro, com a escova ao longo de u. O lobo é
- * anisotrópico (0,9, a tangente ao longo da escova): rugosidade 0,08 ao longo dela e 0,35 através (α 0,006 × 0,12) — o
- * realce do sol se estica numa faixa perpendicular à escova. Os riscos (`pattern.grain` alongado 125 : 1 ao longo de u,
- * mais as faixas largas de passadas da lixa, 75 : 1) mudam a rugosidade de risco para risco (de `roughness`, 0,21, a
- * `scratch_roughness`, 0,31) e inclinam a normal através da escova (`relief`, a altura em unidades do padrão): a faixa
- * do realce se quebra em fios. O reflexo do ambiente não é traçado: o eixo largo do lobo é áspero
- * (`closure_base_mirror`) e ele vem da radiância das sondas, já filtrada — borrado, sem imagem de espelho e sem ruído,
- * também no antisserrilhado por amostras. Parâmetros: `color` (F0), `edge_tint` (F82), `roughness`,
- * `scratch_roughness`, `anisotropy`, `relief`, `pattern_scale`.
+ * `material.metalBrushed` — aço inoxidável escovado (o acabamento acetinado, de lixa passada à mão): cinza-chumbo,
+ * sem imagem de espelho — reflete a metade da luz (F0 0,56), e o tom vem do que está em volta: escuro onde reflete o
+ * ambiente escuro, claro nas manchas das fontes de luz. Os riscos são os de `pattern.brush`: quatro passadas de riscos
+ * finos ao longo de u, cada uma com a direção variando alguns graus de lugar para lugar (`spread`, 0,11 rad: levemente
+ * curvos, cruzando-se em ângulos pequenos), de comprimento e fundura variados, e os riscos fundos isolados (`deep`: uma
+ * célula em nove), mais as faixas largas das passadas da lixa (`pattern.grain`). O lobo é largo e anisotrópico
+ * (`anisotropy`, 0,25; rugosidade de `roughness`, 0,33, a `scratch_roughness`, 0,47, de risco para risco e mais nos
+ * fundos), com a tangente na direção dos riscos no ponto (`pattern.brush.direction`): a luz de uma fonte larga (uma
+ * janela, um painel: `RectLight`) aparece como uma mancha grande e macia, esticada através da escova, e os riscos
+ * inclinam a normal (`relief`, a altura em unidades do padrão) e quebram a mancha em fios claros e escuros. O reflexo
+ * do ambiente não é traçado (o lobo é áspero: `closure_base_mirror`): vem da radiância das sondas. Parâmetros: `color`
+ * (F0), `edge_tint` (F82), `roughness`, `scratch_roughness`, `anisotropy`, `relief`, `spread`, `deep`,
+ * `pattern_scale`.
  */
 export const metalBrushed = Subgraph.point(
     new NodeGraph({
         nodes: {
             ...patternSpace(),
-            scratch: pattern.grain.with({ scale: [1.2, 150], octaves: 2, gain: 0.7, seed: 6 }),
-            pass: pattern.grain.with({ scale: [0.6, 45], octaves: 2, gain: 0.6, seed: 16 }),
+            scratch: pattern.brush.with({ scale: [2.2, 300], spread: 0.11, deep: 0.11, seed: 6 }),
+            pass: pattern.grain.with({ scale: [0.6, 38], octaves: 3, gain: 0.6, seed: 16 }),
             both: math.add,
-            rough: map.range.with({ in_min: -0.9, in_max: 0.9, out_min: 0.21, out_max: 0.31 }),
-            relief: surface.bump.with({ strength: 0.0012 }),
-            pass_relief: surface.bump.with({ strength: 0.0012 }),
+            rough: map.range.with({ in_min: -1.6, in_max: 1, out_min: 0.33, out_max: 0.47 }),
+            gouged: map.range.with({ out_min: 0, out_max: 0.18 }),
+            rougher: math.add,
+            along: surface.direction,
+            relief: surface.bump.with({ strength: 0.001 }),
+            pass_relief: surface.bump.with({ strength: 0.0006 }),
             metal: bsdf.conductor.with({
-                color: [...ALUMINIUM_F0],
-                edge_tint: [...ALUMINIUM_F82],
-                anisotropy: 0.9,
+                color: [...STEEL_F0],
+                edge_tint: [...STEEL_F82],
+                anisotropy: 0.25,
             }),
             out: closure.normal,
         },
@@ -136,8 +149,14 @@ export const metalBrushed = Subgraph.point(
             ['scratch.value', 'both.a'],
             ['pass.value', 'both.b'],
             ['both.value', 'rough.x'],
-            ['rough.value', 'metal.roughness'],
-            ['uv.du', 'metal.tangent'],
+            ['scratch.deep', 'gouged.x'],
+            ['rough.value', 'rougher.a'],
+            ['gouged.value', 'rougher.b'],
+            ['rougher.value', 'metal.roughness'],
+            ['scratch.direction', 'along.direction'],
+            ['uv.du', 'along.du'],
+            ['uv.dv', 'along.dv'],
+            ['along.value', 'metal.tangent'],
             ...bumpLinks('relief', 'scratch.gradient'),
             ...bumpLinks('pass_relief', 'pass.gradient', 'relief.value'),
             ['metal.value', 'out.c'],
@@ -155,6 +174,8 @@ export const metalBrushed = Subgraph.point(
             ['rough.out_max', 'scratch_roughness'],
             ['metal.anisotropy', 'anisotropy'],
             ['relief.strength', 'relief'],
+            ['scratch.spread', 'spread'],
+            ['scratch.deep', 'deep'],
             PATTERN_SCALE,
         ],
     },
