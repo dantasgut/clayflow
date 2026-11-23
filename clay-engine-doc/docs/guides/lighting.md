@@ -9,7 +9,7 @@ A luz de uma cena vem de quatro fontes, cada uma um Resource independente:
 
 | Fonte              | Resources                                         | O que dá                                                  |
 | ------------------ | ------------------------------------------------- | --------------------------------------------------------- |
-| Luz direta         | `DirectionalLight`, `PointLight`, `SpotLight`     | a luz que chega em linha reta, com sombra na direcional   |
+| Luz direta         | `DirectionalLight`, `PointLight`, `SpotLight`, `RectLight` | a luz que chega em linha reta, com sombra na direcional; a de área (o painel, a janela) com o realce largo |
 | Ambiente           | `HemisphereLight`, `EnvironmentMap`, `Sky`        | o céu e o chão em volta: o que os raios que escapam veem e o fundo visível |
 | Luz rebatida       | `GlobalIllumination`                              | a luz que bate numa superfície e ilumina outra, e as cáusticas |
 | Meios              | `FogVolume`                                       | névoa iluminada ([Iluminação global](./global_illumination.md)) |
@@ -98,6 +98,38 @@ app.world.insert(
 
 A queda é pelo inverso do quadrado, indo a zero suavemente até o alcance (`range`, padrão 10; 0 = sem alcance). Na
 spot, a transição entre os cones é suave; cones fora de 0 < interno ≤ externo ≤ π/2 são presos, com aviso único.
+
+## Luz de área (painel, janela)
+
+```ts
+import { RectLight } from 'clayflow/web';
+
+app.world.insert(
+    new RectLight({
+        position: [-3, 4.5, 3, 1],   // o centro do painel
+        direction: [0.5, -0.7, -0.5, 0], // a normal do lado que emite
+        right: [1, 0, -1],           // a direção da largura (a parte perpendicular à normal é a que vale)
+        size: [4, 1.8],              // largura × altura
+        intensity: 7,                // luminância do painel, cd/m²
+    }),
+);
+```
+
+O painel emite só pelo lado da `direction`, com a mesma luminância em toda a área e em toda direção. No desenho, cada
+lobo do material é **integrado sobre o retângulo, por pixel e sem sorteio**: o realce é a imagem do painel alargada pelo
+lobo — nítida num cromado, uma mancha larga num verniz, uma mancha macia esticada através da escova num metal escovado
+—, e o difuso recebe a irradiância do painel inteiro. Não há ruído (também no MSAA) nem estado entre quadros.
+
+Como é calculado: o lobo especular parte o retângulo pelas células de uma grade polar das inclinações da micronormal
+(5 anéis de massa conhecida da GGX por 8 raios, com os dois α no lobo anisotrópico); cada célula, refletida até o
+plano da luz e recortada pelo retângulo, entra com a BSDF exata na direção do pedaço vezes o ângulo sólido dele. Os
+lobos largos (difuso, subsuperfície, parede fina, sheen) usam 4 × 4 pontos de Gauss-Legendre. Erro contra a integral
+densa: até 3 % da energia do lobo.
+
+Limites: a luz de área **não projeta sombra**; o painel não aparece no quadro nem nos reflexos traçados (é luz, não
+geometria); na luz rebatida, nos acertos dos raios e na névoa ela vale pelo centro (luminância × área × cosseno, pelo
+inverso do quadrado); não atravessa os materiais com subsuperfície. O custo é fixo por pixel alcançado, por lobo
+especular e por painel (40 células): use poucos painéis.
 
 ## Ambiente
 

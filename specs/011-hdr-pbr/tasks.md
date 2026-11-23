@@ -74,6 +74,10 @@ Acrescentada e fechada (2026-11-22): T119, a rodada 10 da galeria — a folha co
 milímetros (e a folha fosca), as cascas deslocadas em várias escalas, a pintura de carro de floco físico (sem grão) e a
 madeira clara e fosca com subsuperfície e deslocamento, junto da US5.
 
+Acrescentada (2026-11-22), ainda aberta: T120, a rodada 12 da galeria — a luz de área retangular (`RectLight`), o metal
+escovado pela foto de referência, a folha de nervuras curvas e aréolas arredondadas e o freixo escovado com
+deslocamento e subsuperfície, junto da US5. Falta o smoke `materials` inteiro (interrompido) e o painel-índice.
+
 Corrigidos depois (2026-11-22), com a medida no caso `gallery` do smoke `materials`:
 
 - a borda preta do `sheerFabric`: os pontos opacos atingidos pelos raios da refração não recebiam a luz ambiente da cena
@@ -328,6 +332,15 @@ OpenPBR como sub-grafo.
   - **Reconciliação (2026-11-12, 034 T071)**: não feita (sem caso `library-compose`). US5 vai para a 035.
   - **Conferência (2026-11-17)**: (d) não entregue: sem o caso `library-compose`.
   - **Entrega (2026-11-22)**: caso `library-compose` (`b6c0299f`): o grafo do quickstart (madeira crua e metal escovado misturados por `noise.gradient3`) contra cada um sozinho no mesmo lugar — de 16 190 pixels, 70 % iguais à madeira e 30 % com os dois (o ruído vai de −1 a 1 e a mistura prende em [0, 1]); `material.plasticGloss` com a cor ligada a um xadrez por rampa — vermelho/azul 16,0 numa casa e 0,063 na vizinha, pico do realce 91,4.
+
+- [ ] T120 [US5] Rodada 12 da galeria: luz de área retangular, metal escovado pela referência, folha de nervuras curvas e freixo escovado (72 materiais no total)
+  - **Luz de área** (`RectLight`, tipo 3 do pool `Light`, campo novo `axis`; decisão R19): cada lobo integrado sobre o retângulo por pixel, sem sorteio (`closure_area.wgsl`: grade polar do lobo de 5 anéis × 8 raios recortada pelo retângulo; os lobos largos e o especular largo diante do painel por 4 × 4 pontos de Gauss-Legendre). Referência f64 `material/reference/areaLight.ts` (erro até 3 % da energia do lobo). Smoke `lighting`, caso `rect-light`: difuso a menos de 0,1 % da integral densa; especular / integral de 1,015 a 1,033 na mancha e 0,82 na cauda. Sem sombra; o painel não aparece nos reflexos traçados.
+  - **Metal escovado**: `pattern.brush` (quatro passadas de riscos com a direção variando, riscos fundos isolados, a direção local como tangente do lobo); aço inoxidável (F0 0,56), rugosidade 0,33 a 0,47, anisotropia 0,25. Quadro `metal-escovado` (estúdio escuro, três painéis).
+  - **Folha**: `pattern.veins` com `irregular`, `taper` e `ladder` (secundárias curvas e irregulares, central que afina, terciárias em escada) e as vênulas como bordas arredondadas; `pattern.areoles` (almofadas redondas); relevos de 0,3 a 0,7 mm.
+  - **Freixo escovado**: `woodAshBrushed` e `relief.woodAshBrushed` (sulcos de 1,1 mm, anel de 0,8 mm). Quadro `madeira-clara` em bolas de 4,8 cm: sombra dos sulcos (décimo percentil / mediana) 0,786 com a difusão e 0,458 sem; silhueta do lado da luz 1,04 px de desvio na deslocada contra 0,30 na de relevo na normal.
+  - **Custo de GPU por quadro** (1440 × 960, M4, três painéis; antes → depois): `metais` 13,9 → 20,6 ms (medido antes do caminho de Gauss para os lobos largos); `metais-2` 9,1 → 20,5 ms; `madeiras` 13,3 → 20,3 ms; `metal-escovado` (novo) 10,5 ms; `folhas` 44,4 → 38,3 ms (um painel); `madeira-clara` 33,3 → 32,1 ms.
+  - **Verificado por caso**: `lighting` (`rect-light`, `point-falloff`, `spot-cones`, `light-sum`), `nodeGraphs`, `refraction` (`prism`, `dispersed`, `glint`, `rough`, `lit`), `materials` caso `gallery` das famílias `metal-escovado`, `metais`, `metais-2`, `madeiras`, `folhas`, `madeira-clara`; vitest de `src/elements/material`, `src/elements/scene` e `src/elements/nodes`.
+  - **Pendente**: o smoke `materials` inteiro (interrompido a pedido do usuário); as medidas novas do caso `gallery` (contraste e ruído do metal escovado, largura do realce do verniz) escritas e não executadas; o painel-índice; `doc:coverage`.
 
 - [x] T119 [US5] Rodada 10 da galeria: folha (realce em pedaços, fosca, deslocamento), cascas em várias escalas, pintura de carro de floco físico e madeira clara com subsuperfície e deslocamento (71 materiais no total)
   - **Entrega (2026-11-22)**, pedidos do usuário ("Folha não tem esse brilho global, é um brilho por parte da folha e nem toda folha brilha, há folhas foscas também. Para a casca de árvore faltou mapa de deslocamento, assim como para a folha. A pintura de carro está muito granular. Poderia incluir madeira clara e fosca mas com mapa de deslocamento e SSS?"):

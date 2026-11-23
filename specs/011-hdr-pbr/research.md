@@ -461,3 +461,64 @@ do raio, os anéis fecham em voltas; em volta, desviam. O gradiente continua ana
 **Fissuras da casca.** Um Voronoi com frequência por eixo (`pattern.fissures`) dá as placas alongadas e a rede que se
 ramifica e se junta; a distância à borda é levada à métrica de `p`, para a fissura ter a mesma largura em qualquer
 direção.
+
+### R19 — Luz de área retangular e o lobo anisotrópico largo (T120)
+
+**Decisão**: a luz de área é um tipo de luz do pool (`RectLight`, tipo 3: centro, normal, eixo da largura, meias
+medidas, luminância em cd/m²) com uma contribuição própria a `scene_direct_lighting`: a resposta do fechamento com cada
+lobo **integrado sobre o retângulo, por pixel, sem sorteio** (`closure_area_eval`). Os lobos especulares (a base, com a
+anisotropia, e o verniz) partem o retângulo pelas células de uma grade polar no plano das inclinações da micronormal —
+5 anéis de massa conhecida da GGX (até 97 %) por 8 raios, 48 cantos refletidos até o plano da luz, 40 células; cada
+célula, recortada pelo retângulo (Sutherland-Hodgman), entra com o integrando exato na direção do centroide do pedaço
+vezes o ângulo sólido dele, e a célula inteira dentro entra com a massa exata dela. Os lobos largos (difuso,
+subsuperfície, parede fina, sheen) usam os 4 × 4 pontos de Gauss-Legendre do retângulo. Onde as luzes são lidas por
+raio ou por volume (a luz rebatida, os acertos dos raios, a névoa), o painel vale pelo centro (`light_incoming`: a
+luminância pela área e pelo cosseno, pelo inverso do quadrado). Erro medido contra a integral densa (referência f64
+`material/reference/areaLight.ts`): até 3 % da energia do lobo, do espelho (α 0,0025) ao lobo largo (α 0,25),
+isotrópico e anisotrópico, com o painel inteiro, pela metade e fora; o difuso, abaixo de 0,1 % (smoke `lighting`, caso
+`rect-light`).
+
+**Racional**: nas fotos de referência os realces são manchas largas (janela, painel de estúdio), que o sol — um ponto —
+não dá; e o metal escovado mostra as fontes como manchas macias, esticadas através da escova, com os riscos por dentro.
+A integral pelo lobo resolve os dois com a mesma peça: é exata no limite do espelho (as células ficam pequenas no
+plano da luz e desenham a borda do painel com a largura delas, sem serrilha) e no do lobo largo (as células são maiores
+que o painel e ele entra inteiro), e vale para o lobo anisotrópico sem nada a mais — a grade é a do lobo, com os dois α.
+Sem sorteio, não há ruído no MSAA nem estado entre quadros (nenhuma série do canal 037 é necessária).
+
+**O reflexo do ambiente no lobo anisotrópico largo (o metal escovado)**: as manchas das fontes vêm desta integral; o
+resto do ambiente continua vindo da radiância das sondas (`closure_base_mirror`: o eixo largo é áspero, sem raio).
+Avaliadas e descartadas: (a) várias amostras do lobo por pixel, traçadas e acumuladas pelo canal temporal — ruído no
+MSAA (que não acumula) e fantasma no temporal para o que é só a imagem borrada de fontes que a integral analítica dá sem
+custo de raio; (b) a sonda lida em várias direções ao longo do eixo largo — o mapa de cada sonda tem 8 × 8 direções
+(~25° por texel), mais largo que o eixo largo do lobo (α 0,2: ~23° de largura a meia altura): espalhar as leituras não
+muda o que se vê; o que limita é a resolução angular da sonda, não o número de leituras.
+
+**Alternativas**:
+
+- **LTC (Heitz et al. 2016)**: a integral exata de um lobo de cosseno transformado; precisa da tabela de ajuste (a
+  matriz por rugosidade e ângulo, um ajuste não linear por texel), só cobre o GGX isotrópico (o anisotrópico pede uma
+  tabela 4D: Kt et al. 2022) e cada lobo novo pede o seu ajuste. A grade do lobo não tem tabela e vale para qualquer
+  lobo de que se saiba a distribuição das micronormais. Custo: a LTC é mais barata (um polígono integrado por lobo);
+  fica como a otimização possível para os lobos isotrópicos.
+- **Painel emissivo na cena visto pelo reflexo traçado**: só vale para os lobos lisos (um raio), dobra a luz com a das
+  sondas no difuso e deixa o lobo médio e o anisotrópico com a sonda borrada.
+- **Ponto mais representativo (Karis 2013)**: uma luz pontual deslocada com a energia corrigida — a forma da mancha não
+  é a do painel; descartado (aproximação visual).
+- **Amostras fixas no retângulo para o especular**: com o lobo mais estreito que o espaço entre as amostras, a mancha
+  vira pontos.
+
+**Limites conhecidos**: sem sombra da luz de área (a penumbra de um emissor extenso pede a visibilidade integrada — por
+raios ou por um mapa de sombra com a largura do emissor); o painel não aparece no quadro nem nos reflexos traçados (é
+luz, não geometria: uma esfera cromada mostra o painel pelo realce integrado, não pelo raio); a luz que atravessa os
+materiais com subsuperfície (`scene_transmitted_lighting`) não inclui as luzes de área (falta a espessura, que vem do
+mapa de sombra); a cauda do lobo além de 97 % da massa fica de fora (a mancha cai um pouco mais depressa longe do
+painel: até 25 % a menos onde ela vale menos de 5 % do pico); custo fixo de 40 células por lobo especular e por luz de
+área, em todo pixel alcançado (na galeria a 1440 × 960, três painéis: ver a T120).
+
+**Metal escovado.** O acabamento da referência é o acetinado de lixa passada à mão: riscos finos quase paralelos, com a
+direção variando alguns graus e cruzando-se, e riscos fundos isolados. `pattern.brush` dá a altura, a direção local
+dos riscos (a tangente do lobo) e o risco fundo; o lobo é largo (rugosidade 0,33 a 0,47) e só moderadamente alongado
+(anisotropia 0,35): as passadas cruzadas alargam o lobo também ao longo da escova. O condutor é aço inoxidável (F0
+0,56, 0,57, 0,58): o tom chumbo vem de refletir a metade do ambiente escuro, sem escurecer nada. A mancha de uma fonte
+se alonga **através** da escova (é o que as ranhuras fazem com a luz); na referência as manchas são largas ao longo dela
+porque os painéis são largos — a galeria usa painéis mais largos que altos.
