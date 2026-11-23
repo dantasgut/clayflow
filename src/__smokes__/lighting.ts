@@ -6,6 +6,7 @@
 //     (erro ≤ 2 %);
 //   - furnace: esferas brancas num hemisfério branco uniforme, rugosidade 0→1, dielétricas e metálicas (≤ 3 % de 1);
 //   - point-falloff: luz pontual sobre um plano difuso — inverso do quadrado com a janela até o alcance (≤ 2 %);
+//   - rect-light: luz de área retangular — o difuso e o lobo especular de um plano sob o painel contra a integral densa;
 //   - spot-cones: luz spot — plena dentro do cone interno, zero fora do externo, transição suave;
 //   - light-sum: duas direcionais, vermelha e verde, somam na proporção das intensidades;
 //   - normal-scale: esfera com escala (1, 3, 1) — normais desenhadas contra as analíticas (≤ 1°);
@@ -27,6 +28,7 @@ import {
     PlaneGeometry,
     PointLight,
     PointSpriteMaterial,
+    RectLight,
     SphereGeometry,
     SpotLight,
     StandardMaterial,
@@ -36,7 +38,8 @@ import {
 import { capture, settle } from './support/extensionScenes';
 import { hdrAt, readHdrTexture, temporalVariance, type HdrImage } from './support/imageMeasures';
 import { ambientParamsUniform, evalParams } from '../elements/material/reference/closure';
-import { normalize3, type Vec3 } from '../elements/material/reference/bsdf';
+import { cookTorrance, normalize3, type Vec3 } from '../elements/material/reference/bsdf';
+import { areaExact, type AreaRect } from '../elements/material/reference/areaLight';
 
 function log(msg: string): void {
     console.log(`[lighting] ${msg}`);
@@ -275,6 +278,100 @@ async function casePointFalloff(): Promise<void> {
         log(`point-falloff: x = ${x} → ${got.toFixed(4)} (esperado ${exp.toFixed(4)})`);
     }
     check(worst <= 0.02, `point-falloff: erro de ${(100 * worst).toFixed(2)} %`);
+}
+
+/** Condutor branco (F0 1) de rugosidade 0,3: o lobo especular sozinho. */
+const MIRROR_ROUGH = /* wgsl */ `
+fn material_fn(s: SurfaceSample, m: StandardMaterial, data: MaterialFnParams) -> Closure {
+    return closure_conductor(vec3f(1.0), vec3f(1.0), 0.3, 0.0, vec3f(0.0));
+}`;
+
+async function caseRectLight(): Promise<void> {
+    const W = 600;
+    const H = 200;
+    const height = 2;
+    const L = 5;
+    const rect: AreaRect = {
+        center: [0.4, 1.2, 0],
+        ax: [1, 0, 0],
+        ay: [0, 0, 1],
+        normal: [0, -1, 0],
+        half: [0.6, 0.35],
+    };
+    const shot = async (code: string, lobes: ('diffuse' | 'specular')[]): Promise<HdrImage> => {
+        const { app, canvas } = await createApp(W, H);
+        noAmbient(app);
+        topCamera(app, height);
+        app.world.insert(
+            new PlaneGeometry({ size: [12, 12] })
+                .add(new StandardMaterial())
+                .add(new Transform())
+                .add(new MaterialFunction({ code, lobes })),
+        );
+        app.world.insert(
+            new RectLight({
+                position: [...rect.center, 1],
+                direction: [0, -1, 0, 0],
+                right: [1, 0, 0],
+                size: [2 * rect.half[0], 2 * rect.half[1]],
+                intensity: L,
+            }),
+        );
+        const hdr = await renderHdr(app);
+        dispose(app, canvas);
+        return hdr;
+    };
+    const n: Vec3 = [0, 1, 0];
+    // O difuso: ρ/π × a irradiância do painel.
+    const diffuse = await shot(DIFFUSE_ONLY, ['diffuse']);
+    let worst = 0;
+    for (const x of [-2, -1, -0.3, 0.4, 1, 1.8, 2.6]) {
+        const [px, py] = topPixel(x, 0, height, W, H);
+        const got = hdrAt(diffuse, px, py)[0];
+        const at: Vec3 = [topWorldX(px, height, W, H), 0, 0];
+        const exp = (L * areaExact(rect, at, (l) => Math.max(l[1], 0), 200)) / Math.PI;
+        worst = Math.max(worst, relErr(got, exp, 0.01));
+        log(`rect-light: difuso em x = ${x} → ${got.toFixed(4)} (integral ${exp.toFixed(4)})`);
+    }
+    check(worst <= 0.03, `rect-light: difuso a ${(100 * worst).toFixed(2)} % da integral`);
+    // O lobo especular (a câmera de cima: v = +y): a mancha do painel alargada pelo lobo. A integral densa não tem a
+    // compensação do multiespalhamento (um fator só, o mesmo em todo o plano): compara-se a forma, pela razão.
+    const glossy = await shot(MIRROR_ROUGH, ['specular']);
+    const lobe = { f0: [1, 1, 1] as Vec3, f90: [1, 1, 1] as Vec3, roughness: 0.3 };
+    const ratios: number[] = [];
+    let peak = 0;
+    let jump = 0;
+    let last = -1;
+    for (let px = 0; px < W; px++) {
+        const got = hdrAt(glossy, px, H >> 1)[0];
+        if (last >= 0) jump = Math.max(jump, Math.abs(got - last));
+        last = got;
+        peak = Math.max(peak, got);
+    }
+    for (const x of [-0.6, -0.2, 0.1, 0.4, 0.7, 1, 1.4]) {
+        const [px, py] = topPixel(x, 0, height, W, H);
+        const got = hdrAt(glossy, px, py)[0];
+        const at: Vec3 = [topWorldX(px, height, W, H), 0, 0];
+        const exp = L * areaExact(rect, at, (l) => cookTorrance(lobe, n, n, l)[0], 300);
+        ratios.push(got / exp);
+        log(`rect-light: especular em x = ${x} → ${got.toFixed(4)} (integral ${exp.toFixed(4)})`);
+    }
+    // A forma, onde a mancha passa de um décimo do pico; a cauda (a grade do lobo vai até 97 % da massa) à parte.
+    const body = ratios.filter((_, k) => k > 0 && k < ratios.length - 1);
+    const lo = Math.min(...body);
+    const hi = Math.max(...body);
+    const tail = Math.min(ratios[0]!, ratios[ratios.length - 1]!);
+    log(
+        `rect-light: especular / integral de ${lo.toFixed(3)} a ${hi.toFixed(3)} na mancha, ${tail.toFixed(3)} na cauda; pico ${peak.toFixed(3)}; maior degrau entre pixels ${(100 * (jump / peak)).toFixed(2)} % do pico`,
+    );
+    check(lo > 0.95 && hi < 1.1, `rect-light: especular fora da integral (${lo} a ${hi})`);
+    check(hi / lo <= 1.04, `rect-light: a forma da mancha difere da integral (${hi / lo})`);
+    check(tail > 0.75, `rect-light: a cauda da mancha a ${tail} da integral`);
+    // A borda da mancha cai do pico a zero em uns 50 pixels (2 % do pico por pixel): um degrau seria bem maior.
+    check(
+        jump / peak <= 0.05,
+        `rect-light: degrau de ${jump / peak} do pico entre pixels vizinhos`,
+    );
 }
 
 async function caseSpotCones(): Promise<void> {
@@ -521,6 +618,7 @@ const CASES: Record<string, () => Promise<void>> = {
     'brdf-reference': caseBrdfReference,
     furnace: caseFurnace,
     'point-falloff': casePointFalloff,
+    'rect-light': caseRectLight,
     'spot-cones': caseSpotCones,
     'light-sum': caseLightSum,
     'normal-scale': caseNormalScale,

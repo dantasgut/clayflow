@@ -31,6 +31,7 @@ export class DirectionalLight extends Light {
             direction: values.direction ?? [0, -1, 0, 0],
             color: values.color ?? [1, 1, 1, 1],
             cones: [0, 0, Math.max(0, values.angularRadius ?? 0), 0],
+            axis: [0, 0, 0, 0],
         };
         this.shadowMap = castShadow ? new ShadowMap(values.shadow) : undefined;
         if (this.shadowMap !== undefined) this.add(this.shadowMap);

@@ -2,6 +2,7 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { wgslResource } from '../../../scene/shaders/WgslResource';
 import { WORKGROUP_SIZE } from '../../../scene/shaders/engineConstants';
 import closureSource from '../../gpu/wgsl/math/closure.wgsl?raw';
+import closureAreaSource from '../../gpu/wgsl/math/closure_area.wgsl?raw';
 import closureEvalSource from '../../gpu/wgsl/math/closure_eval.wgsl?raw';
 import subsurfaceSource from '../../gpu/wgsl/math/subsurface.wgsl?raw';
 import pbrDfgBuildSource from '../../gpu/wgsl/kernels/pbr_dfg_build.wgsl?raw';
@@ -57,6 +58,17 @@ export const closureEval = wgslModule({
     name: 'closure_eval',
     source: closureEvalSource,
     requires: [closure, bsdf, basis, constants, random, pbrDfgResource, pbrSamplerResource],
+});
+
+/**
+ * A resposta do fechamento a uma luz de área retangular (spec 011, R19): `closure_area_eval` — cada lobo integrado sobre
+ * o retângulo emissor, por pixel e sem sorteio (os especulares pelas células de uma grade polar do lobo recortadas pelo
+ * retângulo; os largos por Gauss-Legendre). Espelho f64 da quadratura em `material/reference/areaLight.ts`.
+ */
+export const closureArea = wgslModule({
+    name: 'closure_area',
+    source: closureAreaSource,
+    requires: [closureEval, constants],
 });
 
 /** Saída do kernel da tabela DFG (a textura do `PbrTables`), privada do `PbrTablesFlow`. */

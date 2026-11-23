@@ -200,87 +200,136 @@ fn closure_glint(c: Closure, nb: vec3f, h: vec3f, d: f32) -> f32 {
     return mix(density.x, density.y, c.glint_cells.z);
 }
 
-// Resposta do fechamento a uma luz de direção `l` (unitária, da superfície para a luz) e radiância `radiance` que chega
-// (irradiância na normal da luz): radiância refletida para `v`. `n` é a normal geométrica de sombreamento.
-fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> vec3f {
-    let nb = closure_lobe_normal(c.normal, n, v);
+// O referencial e os α do lobo especular de base: a tangente (xyz de [0]), a bitangente ([1]) e os α ao longo de cada
+// uma ([2].xy); [2].z é 1 no lobo anisotrópico. A tangente é a direção das ranhuras (metal escovado, fio da seda):
+// anisotropia positiva alisa ao longo dela e aspera através dela — o realce se alonga perpendicular à tangente.
+fn closure_base_frame(c: Closure, nb: vec3f) -> mat3x3f {
+    let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
+    let alpha = r * r;
+    if (closure_has(CLOSURE_ANISOTROPY) && abs(c.specular_anisotropy) > 1e-3) {
+        let t0 = select(closure_default_tangent(nb), c.tangent, dot(c.tangent, c.tangent) > 1e-12);
+        let t = normalize(t0 - nb * dot(nb, t0));
+        return mat3x3f(t, cross(nb, t), vec3f(max(alpha * (1.0 - c.specular_anisotropy), 1e-3),
+            max(alpha * (1.0 + c.specular_anisotropy), 1e-3), 1.0));
+    }
+    return mat3x3f(vec3f(0.0), vec3f(0.0), vec3f(alpha, alpha, 0.0));
+}
+
+// O lobo especular de base para a luz de direção `l`, no referencial `frame` (`closure_base_frame`): F · D · V ·
+// (n·l), sem a compensação do multiespalhamento (`closure_base_boost`). `nb` é a normal do lobo.
+fn closure_base_lobe_in(c: Closure, frame: mat3x3f, nb: vec3f, v: vec3f, l: vec3f) -> vec3f {
+    let nl = max(dot(nb, l), 0.0);
+    if (nl <= 0.0) { return vec3f(0.0); }
     let nv = max(dot(nb, v), 1e-4);
-    let nl_raw = dot(nb, l);
-    let nl = max(nl_raw, 0.0);
     let h = normalize(v + l);
     let nh = max(dot(nb, h), 0.0);
     let vh = max(dot(v, h), 0.0);
-
-    // Especular de base.
-    var spec = vec3f(0.0);
-    if (closure_has(CLOSURE_SPECULAR) && nl > 0.0 && c.dielectric_weight + c.conductor_weight > 0.0) {
-        let r = max(c.specular_roughness, BSDF_MIN_ROUGHNESS);
-        let alpha = r * r;
-        var dv: f32;
-        if (closure_has(CLOSURE_ANISOTROPY) && abs(c.specular_anisotropy) > 1e-3) {
-            let t0 = select(closure_default_tangent(nb), c.tangent, dot(c.tangent, c.tangent) > 1e-12);
-            let t = normalize(t0 - nb * dot(nb, t0));
-            let b = cross(nb, t);
-            // A tangente é a direção das ranhuras (metal escovado, fio da seda): anisotropia positiva alisa ao longo
-            // dela e aspera através dela — o realce se alonga perpendicular à tangente.
-            let at = max(alpha * (1.0 - c.specular_anisotropy), 1e-3);
-            let ab = max(alpha * (1.0 + c.specular_anisotropy), 1e-3);
-            dv = bsdf_d_ggx_aniso(dot(t, h), dot(b, h), nh, at, ab)
-                * bsdf_v_smith_correlated_aniso(at, ab, dot(t, v), dot(b, v), dot(t, l), dot(b, l), nv, nl);
-        } else {
-            let a2 = alpha * alpha;
-            var d = bsdf_d_ggx(nh, a2);
-            if (closure_has(CLOSURE_GLINT)) { d = closure_glint(c, nb, h, d); }
-            dv = d * bsdf_v_smith_correlated(nv, nl, a2);
-        }
-        let dfg = closure_dfg(nv, c.specular_roughness);
-        let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
-        let ws = max(c.dielectric_weight + c.conductor_weight, 1e-6);
-        let f0 = (c.dielectric_weight * f0d * c.dielectric_tint + c.conductor_weight * c.conductor_f0) / ws;
-        spec = closure_base_fresnel(c, vh) * dv * nl * bsdf_multiscatter(f0, dfg.x + dfg.y);
+    var dv: f32;
+    if (frame[2].z > 0.0) {
+        let t = frame[0];
+        let b = frame[1];
+        let at = frame[2].x;
+        let ab = frame[2].y;
+        dv = bsdf_d_ggx_aniso(dot(t, h), dot(b, h), nh, at, ab)
+            * bsdf_v_smith_correlated_aniso(at, ab, dot(t, v), dot(b, v), dot(t, l), dot(b, l), nv, nl);
+    } else {
+        let a2 = frame[2].x * frame[2].x;
+        var d = bsdf_d_ggx(nh, a2);
+        if (closure_has(CLOSURE_GLINT)) { d = closure_glint(c, nb, h, d); }
+        dv = d * bsdf_v_smith_correlated(nv, nl, a2);
     }
+    return closure_base_fresnel(c, vh) * dv * nl;
+}
 
-    // Lobos de baixo do dielétrico.
+// O lobo especular de base para a luz de direção `l`: F · D · V · (n·l), sem a compensação do multiespalhamento.
+fn closure_base_lobe(c: Closure, nb: vec3f, v: vec3f, l: vec3f) -> vec3f {
+    if (!closure_has(CLOSURE_SPECULAR) || dot(nb, l) <= 0.0 || c.dielectric_weight + c.conductor_weight <= 0.0) {
+        return vec3f(0.0);
+    }
+    return closure_base_lobe_in(c, closure_base_frame(c, nb), nb, v, l);
+}
+
+// A compensação do multiespalhamento do especular de base (por canal), para o cosseno `nv` com quem vê.
+fn closure_base_boost(c: Closure, nv: f32) -> vec3f {
+    let dfg = closure_dfg(nv, c.specular_roughness);
+    let f0d = vec3f(bsdf_f0_from_ior(c.dielectric_ior));
+    let ws = max(c.dielectric_weight + c.conductor_weight, 1e-6);
+    let f0 = (c.dielectric_weight * f0d * c.dielectric_tint + c.conductor_weight * c.conductor_f0) / ws;
+    return bsdf_multiscatter(f0, dfg.x + dfg.y);
+}
+
+// Os lobos de baixo do dielétrico para a luz de direção `l`: o difuso, a subsuperfície (o perfil de difusão integrado
+// — a luz que entra no ponto e sai em volta dele, somada: o difuso de albedo `subsurface_color`; a difusão entre
+// pixels e a luz que atravessa são do passe de subsuperfície do desenho) e a parede fina (a luz de trás).
+fn closure_under_lobes(c: Closure, nb: vec3f, v: vec3f, l: vec3f) -> vec3f {
+    let nv = max(dot(nb, v), 1e-4);
+    let nl_raw = dot(nb, l);
+    let nl = max(nl_raw, 0.0);
     var under = vec3f(0.0);
     if (closure_has(CLOSURE_DIFFUSE) && c.diffuse_weight > 0.0 && nl > 0.0) {
         under += c.diffuse_weight * bsdf_oren_nayar_energy(c.diffuse_color, c.diffuse_roughness, nl, nv, dot(l, v));
     }
     if (closure_has(CLOSURE_SUBSURFACE) && c.subsurface_weight > 0.0 && nl > 0.0) {
-        // O perfil de difusão integrado (a luz que entra no ponto e sai em volta dele, somada): o difuso de albedo
-        // `subsurface_color`. A difusão entre pixels e a luz que atravessa são do passe de subsuperfície do desenho.
         under += c.subsurface_weight * c.subsurface_color * (nl / PI);
     }
     if (closure_has(CLOSURE_TRANSLUCENT) && c.translucent_weight > 0.0) {
         under += c.translucent_weight * c.translucent_color / PI * max(-nl_raw, 0.0);
     }
-    let base = spec + closure_under_dielectric(c, nv) * under;
+    return under;
+}
+
+// O lobo do verniz para a luz de direção `l`: peso · F · D · V · (n·l), sem a compensação do multiespalhamento
+// (`closure_coat_boost`). `nc` é a normal do verniz.
+fn closure_coat_lobe(c: Closure, nc: vec3f, v: vec3f, l: vec3f) -> f32 {
+    let ncl = max(dot(nc, l), 0.0);
+    if (!closure_has(CLOSURE_COAT) || c.coat_weight <= 0.0 || ncl <= 0.0) { return 0.0; }
+    let ncv = max(dot(nc, v), 1e-4);
+    let h = normalize(v + l);
+    let r = max(c.coat_roughness, BSDF_MIN_ROUGHNESS);
+    let a2 = r * r * r * r;
+    let f0 = bsdf_f0_from_ior(c.coat_ior);
+    let f = bsdf_f_schlick(vec3f(f0), vec3f(closure_dielectric_f90(f0)), max(dot(v, h), 0.0)).x;
+    return clamp(c.coat_weight, 0.0, 1.0) * f * bsdf_d_ggx(max(dot(nc, h), 0.0), a2)
+        * bsdf_v_smith_correlated(ncv, ncl, a2) * ncl;
+}
+
+// A compensação do multiespalhamento do verniz, para o cosseno `ncv` com quem vê.
+fn closure_coat_boost(c: Closure, ncv: f32) -> f32 {
+    let dfg = closure_dfg(ncv, c.coat_roughness);
+    return bsdf_multiscatter(vec3f(bsdf_f0_from_ior(c.coat_ior)), dfg.x + dfg.y).x;
+}
+
+// O lobo do sheen para a luz de direção `l`.
+fn closure_sheen_lobe(c: Closure, nb: vec3f, v: vec3f, l: vec3f) -> vec3f {
+    let nl = max(dot(nb, l), 0.0);
+    if (!closure_has(CLOSURE_SHEEN) || c.sheen_weight <= 0.0 || nl <= 0.0) { return vec3f(0.0); }
+    let nv = max(dot(nb, v), 1e-4);
+    let nh = max(dot(nb, normalize(v + l)), 0.0);
+    return clamp(c.sheen_weight, 0.0, 1.0) * c.sheen_color * bsdf_d_charlie(nh, c.sheen_roughness)
+        * bsdf_v_neubelt(nv, nl) * nl;
+}
+
+// Resposta do fechamento a uma luz de direção `l` (unitária, da superfície para a luz) e radiância `radiance` que chega
+// (irradiância na normal da luz): radiância refletida para `v`. `n` é a normal geométrica de sombreamento.
+fn closure_eval(c: Closure, n: vec3f, v: vec3f, l: vec3f, radiance: vec3f) -> vec3f {
+    let nb = closure_lobe_normal(c.normal, n, v);
+    let nv = max(dot(nb, v), 1e-4);
+
+    // Especular de base.
+    var spec = closure_base_lobe(c, nb, v, l);
+    if (any(spec > vec3f(0.0))) { spec *= closure_base_boost(c, nv); }
+    let base = spec + closure_under_dielectric(c, nv) * closure_under_lobes(c, nb, v, l);
 
     // Verniz.
     var coat = vec3f(0.0);
     if (closure_has(CLOSURE_COAT) && c.coat_weight > 0.0) {
         let nc = closure_lobe_normal(c.coat_normal, n, v);
-        let ncl = max(dot(nc, l), 0.0);
-        if (ncl > 0.0) {
-            let ncv = max(dot(nc, v), 1e-4);
-            let r = max(c.coat_roughness, BSDF_MIN_ROUGHNESS);
-            let a2 = r * r * r * r;
-            let f0 = bsdf_f0_from_ior(c.coat_ior);
-            let dfg = closure_dfg(ncv, c.coat_roughness);
-            let f = bsdf_f_schlick(vec3f(f0), vec3f(closure_dielectric_f90(f0)), vh).x;
-            coat = vec3f(clamp(c.coat_weight, 0.0, 1.0) * f * bsdf_d_ggx(max(dot(nc, h), 0.0), a2)
-                * bsdf_v_smith_correlated(ncv, ncl, a2) * ncl * bsdf_multiscatter(vec3f(f0), dfg.x + dfg.y).x);
-        }
-    }
-
-    // Sheen.
-    var sheen = vec3f(0.0);
-    if (closure_has(CLOSURE_SHEEN) && c.sheen_weight > 0.0 && nl > 0.0) {
-        sheen = clamp(c.sheen_weight, 0.0, 1.0) * c.sheen_color * bsdf_d_charlie(nh, c.sheen_roughness)
-            * bsdf_v_neubelt(nv, nl) * nl;
+        let lobe = closure_coat_lobe(c, nc, v, l);
+        if (lobe > 0.0) { coat = vec3f(lobe * closure_coat_boost(c, max(dot(nc, v), 1e-4))); }
     }
 
     let below_coat = closure_coat_pass(c, nv) * base;
-    return (sheen + closure_sheen_pass(c, nv) * (coat + below_coat)) * radiance;
+    return (closure_sheen_lobe(c, nb, v, l) + closure_sheen_pass(c, nv) * (coat + below_coat)) * radiance;
 }
 
 // Radiância do hemisfério céu/chão na direção `d` (`up` unitário).

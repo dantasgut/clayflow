@@ -6,7 +6,7 @@ import { sharedConstant } from '../../../scene/shaders/SharedConstant';
 import { NONE } from '../../../scene/shaders/engineConstants';
 import { poolLive } from '../../gpu/compute/shaders';
 import { constants } from '../../gpu/shaders/math';
-import { closure, closureEval, subsurface } from '../../material/pbr/shaders';
+import { closure, closureArea, closureEval, subsurface } from '../../material/pbr/shaders';
 import { HemisphereLightSchema } from '../HemisphereLightSchema';
 import { Light } from '../Light';
 import { lightsResource } from '../resources';
@@ -47,7 +47,10 @@ const hemisphereResource = wgslResource({
  * A luz que chega de uma fonte do pool a um ponto (spec 011; extraída na 033 para os acertos da iluminação global): a
  * direção para a luz, a radiância e a distância (`1e30` na direcional). A direcional sem queda (lux); a pontual e a spot
  * (candela) pelo inverso do quadrado com a janela suave até o alcance `(1 − (d/r)⁴)²`; a spot com a transição em
- * cosseno entre os cones. Radiância 0 fora do alcance.
+ * cosseno entre os cones. A de área retangular (cd/m²) vale aqui pelo centro dela: a intensidade luminosa do painel
+ * visto do ponto (a luminância pela área e pelo cosseno com a normal dele; zero atrás do painel), pelo inverso do
+ * quadrado — o que leem a luz rebatida, os acertos dos raios e a névoa; o desenho integra os lobos sobre o retângulo
+ * (`scene_lighting_rect`). Radiância 0 fora do alcance.
  */
 export const lightIncoming = wgslModule({
     name: 'light_incoming',
@@ -77,6 +80,10 @@ fn light_incoming(light: Light, p: vec3f) -> LightIncoming {
             let t = clamp((dot(-l, normalize(light.direction.xyz)) - cos_out) / max(cos_in - cos_out, 1e-4), 0.0, 1.0);
             radiance = radiance * t * t;
         }
+        if (light.kind == 3u) {
+            radiance = radiance * (4.0 * light.cones.x * light.cones.y)
+                * max(dot(-l, normalize(light.direction.xyz)), 0.0);
+        }
     }
     return LightIncoming(normalize(l), radiance, dist);
 }`,
@@ -85,6 +92,7 @@ fn light_incoming(light: Light, p: vec3f) -> LightIncoming {
 /**
  * As luzes do pool (`DirectionalLight` em lux, `PointLight` e `SpotLight` em candela) num laço sobre os slots vivos:
  * a luz que chega de cada uma (`light_incoming`), a sombra e o meio pelos pontos por luz, e a resposta do fechamento.
+ * As de área ficam com `scene_lighting_rect`.
  */
 const poolLights = wgslModule({
     name: 'scene_lighting_pool',
@@ -103,11 +111,50 @@ const poolLights = wgslModule({
     var sum = vec3f(0.0);
     let count = min(arrayLength(&lights), LIGHT_LIMIT);
     for (var i = 0u; i < count; i++) {
-        if (!pool_live(light_live[i >> 5u], i)) { continue; }
+        if (!pool_live(light_live[i >> 5u], i) || lights[i].kind == 3u) { continue; }
         let inc = light_incoming(lights[i], p);
         if (all(inc.radiance <= vec3f(0.0))) { continue; }
         let radiance = inc.radiance * light_visibility(i, p, n) * light_transmission(i, p);
         sum = sum + closure_eval(c, n, v, inc.l, radiance);
+    }
+    return sum;
+}`,
+});
+
+/**
+ * As luzes de área retangulares do pool (`RectLight`, spec 011, R19) num laço sobre os slots vivos: a resposta do
+ * fechamento com cada lobo integrado sobre o retângulo (`closure_area_eval`), a radiância do painel (a luminância pela
+ * cor) com a janela do alcance pelo centro dele, e a sombra e o meio pelos pontos por luz.
+ */
+const rectLights = wgslModule({
+    name: 'scene_lighting_rect',
+    requires: [
+        closure,
+        closureArea,
+        poolLive,
+        LIGHT_LIMIT.module,
+        lightsResource,
+        lightLiveResource,
+        lightVisibilityReady,
+        lightTransmissionReady,
+    ],
+    source: `fn scene_direct_lighting(c: Closure, p: vec3f, n: vec3f, v: vec3f) -> vec3f {
+    var sum = vec3f(0.0);
+    let count = min(arrayLength(&lights), LIGHT_LIMIT);
+    for (var i = 0u; i < count; i++) {
+        if (!pool_live(light_live[i >> 5u], i) || lights[i].kind != 3u) { continue; }
+        let light = lights[i];
+        var radiance = light.color.rgb * light.intensity;
+        if (light.range > 0.0) {
+            let ratio = distance(light.position.xyz, p) / light.range;
+            let fade = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
+            radiance *= fade * fade;
+        }
+        if (all(radiance <= vec3f(0.0))) { continue; }
+        let normal = normalize(light.direction.xyz);
+        let ax = normalize(light.axis.xyz - normal * dot(normal, light.axis.xyz));
+        let rect = ClosureAreaRect(light.position.xyz, ax, cross(normal, ax), normal, light.cones.xy);
+        sum += closure_area_eval(c, n, v, p, rect, radiance * light_visibility(i, p, n) * light_transmission(i, p));
     }
     return sum;
 }`,
@@ -213,6 +260,17 @@ export const poolLightContribution: SceneContribution = {
         }
         return poolLights;
     },
+};
+
+/**
+ * Contribuição das luzes de área (`RectLight`, spec 011, R19) ao ponto `scene_direct_lighting`: o laço delas, uma vez,
+ * depois do das outras luzes do pool.
+ */
+export const rectLightContribution: SceneContribution = {
+    point: sceneDirectLightingPoint,
+    order: 1,
+    pools: [Light.schema],
+    build: () => rectLights,
 };
 
 /** Contribuição do hemisfério (spec 011, R7) ao ponto `scene_direct_lighting`, depois das luzes do pool. */

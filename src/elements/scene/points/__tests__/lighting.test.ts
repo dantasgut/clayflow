@@ -6,6 +6,7 @@ import { DirectionalLight } from '../../DirectionalLight';
 import { HemisphereLight } from '../../HemisphereLight';
 import { Light } from '../../Light';
 import { PointLight } from '../../PointLight';
+import { RectLight } from '../../RectLight';
 import { ShadowMap } from '../../ShadowMap';
 import { SpotLight } from '../../SpotLight';
 import {
@@ -31,7 +32,9 @@ import {
     hemisphereContribution,
     hemisphereRayLightingContribution,
     LIGHT_LIMIT,
+    lightIncoming,
     poolLightContribution,
+    rectLightContribution,
     poolTransmittedContribution,
 } from '../lightContributions';
 
@@ -136,10 +139,43 @@ describe('pontos de cena do sombreamento (spec 011, T039)', () => {
             expect(light.getSceneContributions()).toEqual([poolLightContribution]);
         const loop = pool!.build(() => 0)!;
         expect(loop).toBe(pool!.build(() => 5));
-        expect(loop.source).toContain('if (!pool_live(light_live[i >> 5u], i)) { continue; }');
+        expect(loop.source).toContain(
+            'if (!pool_live(light_live[i >> 5u], i) || lights[i].kind == 3u) { continue; }',
+        );
         expect(loop.source).toContain('min(arrayLength(&lights), LIGHT_LIMIT)');
         expect(loop.source).toContain('light_visibility(i, p, n) * light_transmission(i, p)');
         expect(() => composeWgsl(loop)).not.toThrow();
+    });
+
+    it('a luz de área tem o laço dela (os lobos integrados sobre o retângulo), depois do das outras', () => {
+        const rect = new RectLight({
+            position: [1, 2, 3, 1],
+            direction: [0, -2, 0, 0],
+            right: [3, 1, 0],
+            size: [2, 0.5],
+            intensity: 4,
+        });
+        // O dado: tipo 3, a normal unitária, as meias medidas e o eixo da largura perpendicular à normal.
+        expect(rect.data.kind).toBe(3);
+        expect(rect.data.castShadow).toBe(0);
+        expect(rect.data.direction).toEqual([0, -1, 0, 0]);
+        expect(rect.data.cones).toEqual([1, 0.25, 0, 0]);
+        expect(rect.data.axis).toEqual([1, 0, 0, 0]);
+        expect(Light.schema.offsetOf('axis')).toBeGreaterThan(Light.schema.offsetOf('cones'));
+        // Sem `right`, o eixo do mundo mais afastado da normal.
+        expect(new RectLight({ direction: [1, 0, 0, 0] }).data.axis).toEqual([0, 1, 0, 0]);
+        for (const light of [new DirectionalLight(), new PointLight(), new SpotLight()])
+            expect(light.data.axis).toEqual([0, 0, 0, 0]);
+        expect(rect.getSceneContributions()).toEqual([rectLightContribution]);
+        expect(rectLightContribution.point).toBe(sceneDirectLightingPoint);
+        expect(rectLightContribution.order).toBeGreaterThan(poolLightContribution.order);
+        const loop = rectLightContribution.build(() => 0)!;
+        expect(loop.source).toContain('lights[i].kind != 3u');
+        expect(loop.source).toContain('closure_area_eval(c, n, v, p, rect,');
+        expect(loop.source).toContain('light_visibility(i, p, n) * light_transmission(i, p)');
+        expect(() => composeWgsl(loop)).not.toThrow();
+        // Lida por raio ou por volume, vale pelo centro: a luminância pela área e pelo cosseno.
+        expect(lightIncoming.source).toContain('4.0 * light.cones.x * light.cones.y');
     });
 
     it('o hemisfério contribui depois das luzes, pela transmissão da luz ambiente (NONE)', () => {

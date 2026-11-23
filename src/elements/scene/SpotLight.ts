@@ -41,6 +41,7 @@ export class SpotLight extends Light {
             direction: values.direction ?? [0, -1, 0, 0],
             color: values.color ?? [1, 1, 1, 1],
             cones: [inner, outer, 0, 0],
+            axis: [0, 0, 0, 0],
         };
     }
 

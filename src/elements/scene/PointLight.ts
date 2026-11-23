@@ -18,6 +18,7 @@ export class PointLight extends Light {
             direction: values.direction ?? [0, 0, 0, 0],
             color: values.color ?? [1, 1, 1, 1],
             cones: [0, 0, 0, 0],
+            axis: [0, 0, 0, 0],
         };
     }
 

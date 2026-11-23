@@ -8,6 +8,8 @@ export { DirectionalLight } from './DirectionalLight';
 export { PointLight } from './PointLight';
 export { SpotLight } from './SpotLight';
 export type { SpotLightValues } from './SpotLight';
+export { RectLight } from './RectLight';
+export type { RectLightValues } from './RectLight';
 export { HemisphereLight } from './HemisphereLight';
 export { EnvironmentMap } from './environment/EnvironmentMap';
 export type { EnvironmentMapData, EnvironmentMapValues } from './environment/EnvironmentMap';
