@@ -166,7 +166,8 @@ describe('Renderer (spec 039, FR-010)', () => {
         r.profile = 'low';
         // O perfil baixo: 8 páginas por nível; os pedidos e a tabela no atlas acompanham (no mínimo 16 × 16 páginas físicas).
         const requests = map.getDescriptors().find((d) => d.id === 'requests');
-        expect(requests?.count).toBe(8 * 8 * SHADOW_MAX_LEVELS);
+        // Duas palavras por página: a menor e a maior profundidade de quem pediu.
+        expect(requests?.count).toBe(8 * 8 * SHADOW_MAX_LEVELS * 2);
         const atlas = map.getDescriptors().find((d) => d.id === 'atlas');
         expect(atlas?.history?.pages?.offset).toBe(shadowTableWords(8) * 4);
         const scatter = froxels.getDescriptors().find((d) => d.id === 'scatter');

@@ -574,3 +574,40 @@ Verificação da junção (2026-11-24, M4, headless): `tsc`, `lint`, `format:che
 (inteiro, com os casos de água), `fluidField` (`caustics`, `close`), `sky`, `clouds` (os nove casos de imagem e o
 `timing`: `high-sun` 2,785 ms, 2,78 antes), `parametricSurfaces` e `rayScene` passaram; `fog` falhou só no tempo
 (névoa 1,08 ms contra 1,05), a falha já registrada da 041.
+
+## Adendo ao fechamento (2026-11-24, depois da galeria)
+
+Entrou depois do fechamento, a pedido, e vai nesta entrega:
+
+- **Madeira maciça** (`woodSolid`, `Displacements.woodSolid`): os anéis no volume — `pattern.trunk`, `pattern.grain3`,
+  `surface.solidSpace` e `surface.solidRelief`; a amostra de superfície ganhou a posição no objeto e as tangentes do uv
+  nela (`object_position`, `dodu`, `dodv`).
+- **Pele detalhada, lábios e olho** (`skinDetailed`, `lips`, `eye`; `pattern.iris`): 77 materiais na biblioteca.
+- **Malha por arrays** (`MeshGeometry`, com `fromObj` e a subdivisão de Catmull-Clark).
+- **Sombra da luz direcional que gira** (correção da 034): o referencial do quadro na série `ShadowMatrix`, o cache de
+  páginas que recomeça e os pedidos; caso `sun-travel` no smoke `lighting`.
+- **Espessura atravessada** (subsuperfície): só pelo nível de página do ponto; sem a página fina, desconhecida.
+
+Pendências novas, sem meta:
+
+- **Uma luz com sombra só**: o motor atende a primeira `DirectionalLight` com `castShadow`; uma segunda é aceita sem
+  aviso e lê páginas que não são dela (sombra e espessura erradas). Falta a sombra para várias luzes e o aviso. É o
+  trabalho seguinte a esta entrega.
+- **Luz que atravessa a pele**: depende da luz com sombra ser a que está atrás; com mais de uma, pisca ou some.
+- **Madeira maciça**: só conferida em esfera (o cubo não foi montado); nos acertos dos raios o padrão usa a posição de
+  mundo (coincide com o desenho só sem transformação); as faixas escuras mais largas que as da referência.
+- **Pele**: uma camada de espalhamento; os poros e as linhas sem direção; as regiões do rosto são máscaras postas à mão
+  na cena (claflow-web), por malha.
+- **Lábios**: saem mais claros e azulados que a cor pedida (causa não achada); o contorno é uma elipse da cena.
+- **Olho**: sem a refração da córnea e sem a linha de lágrima; a esclera sai clara porque as luzes de área não projetam
+  sombra.
+- **Corpo mole no rosto**: a cena esgota o prazo sem desenhar (a montagem na CPU funciona); fora do catálogo.
+- **Iluminação global de perto no rosto**: efeito pequeno, 40 → 83 ms por quadro e um ponto claro solto.
+- **Custo da sombra com a luz girando**: todas as páginas pedidas são redesenhadas a cada quadro; não medido contra o
+  de antes. O limiar da direção passou de 0,08° para 0,006° (`SHADOW_CACHE_TURN`).
+
+Verificação deste adendo (M4, headless): `tsc`, `lint` (0 erros) e `format:check` verdes; Vitest 2377 testes verdes
+(um de nuvens passa sozinho e estoura o prazo com a máquina ocupada); smokes rodados: `nodeGraphs`, `materials`
+(`subsuperficie`, `madeira-pinho`, `madeira-macica`) e `lighting` (`sun-travel`, `penumbra`). **Não rodados depois da
+correção das sombras e da mudança na amostra de superfície**: `materials` inteiro, `sky`, `clouds`, `fog`, `hdr`,
+`refraction`, `fluidField`, `globalIllumination`, `parametricSurfaces`, `rayScene`, `antialiasing`, `render`.
