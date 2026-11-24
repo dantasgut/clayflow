@@ -59,7 +59,9 @@ import { FroxelReachFlow } from './FroxelReachFlow';
 import { SkyOverflowFlow } from './SkyOverflowFlow';
 import { SkyAmbientFlow } from '../../elements/scene/sky/SkyAmbientFlow';
 import { VirtualTextureFlow } from '../../elements/material/virtual/VirtualTextureFlow';
+import { ShadowAtlas } from '../../elements/scene/ShadowAtlas';
 import { ShadowMap } from '../../elements/scene/ShadowMap';
+import { shadowViewsByEvent } from '../../elements/scene/shadowCaster';
 import type { AntialiasingMode } from '../../elements/scene/TemporalAntialiasing';
 
 /** Dependências dos estágios padrão: o World da cena, onde entram os alvos do quadro (`FrameTargets`). */
@@ -68,13 +70,19 @@ export interface PresentationDefaultsOptions {
     readonly world: World;
     /**
      * Eventos da cena: com eles, a entrada de uma `GlobalIllumination` retira o hemisfério (e garante a `RayScene`) e a
-     * saída da última o devolve (spec 033, R7).
+     * saída da última o devolve (spec 033, R7), e as luzes com sombra ganham a sua vista no atlas único das sombras
+     * (spec 013). Obrigatórios: sem eles nenhuma luz teria sombra, em silêncio.
      */
-    readonly events?: EventBus;
+    readonly events: EventBus;
     /** Amostras por pixel dos alvos da cena (MSAA; spec 008). Default 4. */
     readonly samples?: 1 | 4;
     /** Modo do antisserrilhado da cena (spec 034). Default `'temporal'`. */
     readonly antialiasing?: AntialiasingMode;
+    /**
+     * O `maxStorageBufferBindingSize` do adaptador (bytes): o teto do atlas único das sombras (spec 013). Sem ele, o
+     * mínimo do WebGPU.
+     */
+    readonly maxStorageBufferBindingSize?: number;
 }
 
 /**
@@ -128,7 +136,7 @@ interface RegisteredDefaults {
     readonly world: World;
     users: number;
     /** Cancela a troca do hemisfério pela iluminação global. */
-    readonly unsubscribe: (() => void) | undefined;
+    readonly unsubscribe: () => void;
 }
 
 /** Estágios padrão por cena (`FlowRegistry`): registrados uma vez, desregistrados com o último usuário. */
@@ -180,21 +188,26 @@ export function registerPresentationDefaults(
     options.world.insert(ambient);
     const { flows: stages, registrations } = createPresentationDefaults(flows);
     const events = options.events;
-    const unsubscribe =
-        events === undefined
-            ? undefined
-            : ((): (() => void) => {
-                  const offs = [
-                      swapAmbientForGi(options.world, events, ambient, frameTargets),
-                      raySceneForTransmissives(options.world, events, renderer),
-                      subsurfaceForScattering(options.world, events, renderer),
-                      warnRaySceneUnsupported(options.world, events, renderer),
-                      followRenderer(options.world, events, renderer),
-                  ];
-                  return () => {
-                      for (const off of offs) off();
-                  };
-              })();
+    const offs = [
+        swapAmbientForGi(options.world, events, ambient, frameTargets),
+        raySceneForTransmissives(options.world, events, renderer),
+        subsurfaceForScattering(options.world, events, renderer),
+        warnRaySceneUnsupported(options.world, events, renderer),
+        followRenderer(options.world, events, renderer),
+        // Depois do renderizador: o mapa entra nas vistas do atlas já com o tamanho do perfil, e o atlas nasce com os
+        // tetos dele (as vistas, as páginas) e o limite do adaptador.
+        shadowViewsByEvent(options.world, events, () => ({
+            views: renderer.shadows.views,
+            atlasPagesMax: renderer.shadows.atlasPages,
+            ...(options.maxStorageBufferBindingSize === undefined
+                ? {}
+                : { maxBindingSize: options.maxStorageBufferBindingSize }),
+        })),
+        warnShadowUnavailable(events),
+    ];
+    const unsubscribe = (): void => {
+        for (const off of offs) off();
+    };
     const defaults: PresentationDefaults = {
         ...stages,
         renderer,
@@ -227,7 +240,7 @@ export function releasePresentationDefaults(flows: FlowRegistry): boolean {
     entry.users--;
     if (entry.users > 0) return false;
     DEFAULTS_BY_SCENE.delete(flows);
-    entry.unsubscribe?.();
+    entry.unsubscribe();
     for (const registration of [...entry.registrations].reverse()) flows.unregister(registration);
     if (entry.world.entityIdOfResource(entry.ambient) !== undefined)
         entry.world.remove(entry.ambient);
@@ -347,13 +360,33 @@ function warnRaySceneUnsupported(
  * deixam de segui-lo. Devolve o cancelamento.
  */
 function followRenderer(world: World, events: EventBus, renderer: SceneRenderer): () => void {
-    const follows = (r: Resource): r is GlobalIllumination | ShadowMap | CloudLayer =>
-        r instanceof GlobalIllumination || r instanceof ShadowMap || r instanceof CloudLayer;
+    const follows = (r: Resource): r is GlobalIllumination | ShadowMap | ShadowAtlas | CloudLayer =>
+        r instanceof GlobalIllumination
+        || r instanceof ShadowMap
+        || r instanceof ShadowAtlas
+        || r instanceof CloudLayer;
     for (const record of world.allRecords())
         for (const r of record.resources) if (follows(r)) renderer.adopt(r);
     return events.on('resourcesChanged', (e) => {
         for (const r of e.removed) if (follows(r)) renderer.release(r);
         for (const r of e.added) if (follows(r)) renderer.adopt(r);
+    });
+}
+
+/**
+ * A luz que pede sombra e fica sem ela (`shadowUnavailable`, spec 013, R8) chega ao console, uma vez por luz: ela
+ * ilumina sem sombra — acima do teto de luzes com sombra do perfil, ou de um tipo sem sombra. Devolve o cancelamento.
+ */
+function warnShadowUnavailable(events: EventBus): () => void {
+    const warned = new WeakSet<Resource>();
+    return events.on('shadowUnavailable', ({ light, reason }) => {
+        if (warned.has(light)) return;
+        warned.add(light);
+        console.warn(
+            reason === 'limit'
+                ? `clayflow: ${light.constructor.name} com castShadow ficou sem sombra — passou do teto de luzes com sombra do perfil (renderer.shadows.views); a ordem é a de entrada na cena.`
+                : `clayflow: ${light.constructor.name} com castShadow ficou sem sombra — o motor não faz sombra para esse tipo de luz.`,
+        );
     });
 }
 

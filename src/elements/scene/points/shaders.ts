@@ -2,13 +2,13 @@ import { wgslModule } from '../../../scene/shaders/WgslModule';
 import { constants, shadowVirtual } from '../../gpu/shaders/math';
 import shadowVirtualReadSource from '../../gpu/wgsl/math/shadow_virtual_read.wgsl?raw';
 import shadowVirtualThicknessSource from '../../gpu/wgsl/math/shadow_virtual_thickness.wgsl?raw';
-import { shadowCasterAtlasResource } from '../resources';
+import { shadowAtlasResource } from '../resources';
 
 /** A leitura do mapa que projeta (T060h): a tabela e a penumbra pelo atlas em buffer (`shadow_atlas`). */
 export const shadowVirtualRead = wgslModule({
     name: 'shadow_virtual_read',
     source: shadowVirtualReadSource,
-    requires: [constants, shadowVirtual, shadowCasterAtlasResource],
+    requires: [constants, shadowVirtual, shadowAtlasResource],
 });
 
 /**

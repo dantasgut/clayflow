@@ -6,6 +6,7 @@ export { Parent } from './Parent';
 export { Light, type LightData, type LightValues } from './Light';
 export { DirectionalLight } from './DirectionalLight';
 export { PointLight } from './PointLight';
+export type { PointLightValues } from './PointLight';
 export { SpotLight } from './SpotLight';
 export type { SpotLightValues } from './SpotLight';
 export { RectLight } from './RectLight';
@@ -15,6 +16,13 @@ export { EnvironmentMap } from './environment/EnvironmentMap';
 export type { EnvironmentMapData, EnvironmentMapValues } from './environment/EnvironmentMap';
 export type { HemisphereLightData, HemisphereLightValues } from './HemisphereLight';
 export { ShadowMap, type ShadowMapData } from './ShadowMap';
+export {
+    ShadowAtlas,
+    SHADOW_MAX_VIEWS,
+    type ShadowAtlasData,
+    type ShadowAtlasOptions,
+} from './ShadowAtlas';
+export { shadowViewsByEvent } from './shadowCaster';
 export {
     TemporalAntialiasing,
     halton,

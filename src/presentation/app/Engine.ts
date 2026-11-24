@@ -253,10 +253,13 @@ export class Engine {
         await scene.initialize(options.surface, options.canvasOptions, device, options.platform);
         for (const resolver of ELEMENT_CONSUMERS) scene.consumers.registerDefault(resolver);
         options.consumers?.(scene.consumers);
+        // O teto do atlas único das sombras (spec 013) é o da ligação de storage do adaptador.
+        const binding = scene.core.capabilities().limits.maxStorageBufferBindingSize;
         const defaults = registerPresentationDefaults(scene.flows, {
             world: scene.world,
             events: scene.events,
             ...antialiasOf(options.antialias),
+            ...(binding === undefined ? {} : { maxStorageBufferBindingSize: binding }),
         });
         if (options.captureErrors === true) {
             scene.executionSystem.captureErrors = true;

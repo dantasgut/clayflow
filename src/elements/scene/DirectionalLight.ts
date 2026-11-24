@@ -1,3 +1,4 @@
+import { NONE } from '../../scene/shaders/engineConstants';
 import type { SceneContribution } from '../../scene/shaders/WgslPoint';
 import { Light, type LightValues } from './Light';
 import { poolLightContribution, poolTransmittedContribution } from './points/lightContributions';
@@ -40,7 +41,12 @@ export class DirectionalLight extends Light {
                 ? [poolLightContribution]
                 : [
                       poolLightContribution,
-                      ...shadowCasterContributions(() => this.data.castShadow === 1),
+                      // Só com a sombra ligada e uma vista no atlas único (acima do teto, a luz ilumina sem sombra).
+                      ...shadowCasterContributions(
+                          () =>
+                              this.data.castShadow === 1
+                              && this.shadowMap?.data.view !== NONE.value,
+                      ),
                       poolTransmittedContribution,
                   ];
     }

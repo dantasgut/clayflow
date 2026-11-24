@@ -5,18 +5,38 @@
 // borda da vista no quadro seguinte). Cada pedido guarda a faixa de profundidade (espaço da luz) dos pontos que pediram a
 // página (`sv_request_word`): o estágio de sombra leva o pedido ao referencial do quadro dele quando a luz muda de
 // direção. `shadow_request_clear_main` esvazia os pedidos antes.
+// Os pedidos de todas as vistas de sombra vivas num passe (spec 013): os pedidos são um buffer só, uma faixa por vista
+// (`m.requestBase`); cada pixel pede as páginas dele em cada vista viva (`sr.liveMask`, o slot do referencial de cada
+// uma em `sr.views0..3`), com teto constante de vistas (`SV_MAX_VIEWS`). O esvaziamento percorre só as faixas vivas.
 // Requer: shadow_virtual, WORKGROUP_SIZE, `shadow_matrices`, `sr_cameras`, `sr` e `sr_requests` (a profundidade da cena,
 // sem ou com amostras, nas entradas `shadow_request_single` e `shadow_request_ms`).
 
+/** O referencial da vista `v` no quadro (o da face dela, no referencial de várias vistas: a luz pontual). */
+fn shadow_request_view(v: u32) -> ShadowMatrix {
+    let q = (v >> 2u) & 3u;
+    let row = select(select(select(sr.views0, sr.views1, q == 1u), sr.views2, q == 2u), sr.views3, q == 3u);
+    let face = (select(sr.faces0, sr.faces1, v >= 8u) >> ((v & 7u) * 4u)) & 0xFu;
+    return sv_face(shadow_matrices[row[v & 3u]], face);
+}
+
+/** Uma invocação por palavra da faixa de cada vista (`sr.stripWords` por vista, até `sr.viewSpan` vistas). */
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn shadow_request_clear_main(@builtin(global_invocation_id) gid3: vec3u, @builtin(num_workgroups) nwg: vec3u) {
     let i = gid3.x + gid3.y * nwg.x * WORKGROUP_SIZE;
-    if (i >= arrayLength(&sr_requests)) { return; }
+    let strip = max(sr.stripWords, 1u);
+    let v = i / strip;
+    let e = i % strip;
+    if (v >= sr.viewSpan || ((sr.liveMask >> v) & 1u) == 0u) { return; }
+    let m = shadow_request_view(v);
+    // A vista sem níveis (a luz com a sombra desligada) não tem faixa a esvaziar.
+    if (sv_levels(m) == 0u || e >= SV_MAX_LEVELS * m.pagesPerLevel * m.pagesPerLevel * 2u) { return; }
+    let w = m.requestBase + e;
+    if (w >= arrayLength(&sr_requests)) { return; }
     // A menor profundidade no topo da ordem, a maior no fundo (0: sem pedido).
-    if ((i & 1u) == 0u) {
-        atomicStore(&sr_requests[i], 0xFFFFFFFFu);
+    if ((e & 1u) == 0u) {
+        atomicStore(&sr_requests[w], 0xFFFFFFFFu);
     } else {
-        atomicStore(&sr_requests[i], 0u);
+        atomicStore(&sr_requests[w], 0u);
     }
 }
 
@@ -45,14 +65,21 @@ fn shadow_request_at(pixel: vec2u, depth: f32, dims: vec2u) {
     let ndc = pixel_to_ndc(vec2f(pixel) + 0.5, size);
     let h = cam.inverseUnjitteredViewProjection * vec4f(ndc, depth, 1.0);
     let world = h.xyz / h.w;
-    let m = shadow_matrices[sr.casterSlot];
-    if (sv_levels(m) == 0u) { return; }
-    let l = sv_light(m, world);
-    let q = l.xy;
-    let z = sv_order(l.z);
-    let k = sv_level(m, q);
-    // A margem da penumbra (o raio da grade 3 × 3 girada e o deslocamento dentro do texel), menor que uma página.
-    shadow_request_page(m, k, q, 2.0 * sv_texel(m, k), z);
-    let coarse = min(k + 2u, sv_levels(m) - 1u);
-    if (coarse != k) { shadow_request_page(m, coarse, q, 2.0 * sv_texel(m, coarse), z); }
+    for (var v = 0u; v < SV_MAX_VIEWS; v++) {
+        if (v >= sr.viewSpan) { break; }
+        if (((sr.liveMask >> v) & 1u) == 0u) { continue; }
+        let m = shadow_request_view(v);
+        if (sv_levels(m) == 0u) { continue; }
+        let l = sv_light(m, world);
+        let q = l.xy;
+        // Na vista em perspectiva: só o que está no tronco dela (do plano próximo ao alcance, dentro da abertura, com a
+        // margem da penumbra) — na pontual, o ponto perto da aresta entre duas faces pede páginas nas duas.
+        if (m.kind == 1u && (l.z < m.near || l.z > m.far || any(abs(q) > vec2f(1.25)))) { continue; }
+        let z = sv_order(l.z);
+        let k = sv_level_at(m, world, l);
+        // A margem da penumbra (o raio da grade 3 × 3 girada e o deslocamento dentro do texel), menor que uma página.
+        shadow_request_page(m, k, q, 2.0 * sv_texel(m, k), z);
+        let coarse = min(k + 2u, sv_levels(m) - 1u);
+        if (coarse != k) { shadow_request_page(m, coarse, q, 2.0 * sv_texel(m, coarse), z); }
+    }
 }

@@ -43,6 +43,7 @@ import shadowMatrixEyeSource from '../../gpu/wgsl/kernels/shadow_matrix_eye.wgsl
 import shadowMatrixOriginSource from '../../gpu/wgsl/kernels/shadow_matrix_origin.wgsl?raw';
 import { Camera } from '../Camera';
 import { Light } from '../Light';
+import { ShadowAtlas } from '../ShadowAtlas';
 import { ShadowMap } from '../ShadowMap';
 import {
     CameraComposeParamsSchema,
@@ -169,6 +170,14 @@ export const shadowMatrixResources = Object.freeze({
     }),
     /** As matrizes das câmeras (a posição da ativa). */
     cameras: poolRead('shadow_cameras', { schema: Camera.matricesSchema, array: true }),
+    /** As faixas e o reservatório do atlas único (spec 013): a base da vista de cada mapa. */
+    atlas: wgslResource({
+        name: 'shadow_atlas_params',
+        binding: { uniform: true },
+        type: { schema: ShadowAtlas.schema },
+        frequency: 'stage',
+        provider: { slot: 'atlas', descriptor: 'params' },
+    }),
 });
 
 /** Matriz local `M = T · R · S` e matriz de normais de um `Transform` (raízes e níveis da hierarquia). */
@@ -392,11 +401,13 @@ const shadowMatrixCommon = wgslModule({
         shadowMatrixResources.records,
         shadowMatrixResources.list,
         shadowMatrixResources.params,
+        shadowMatrixResources.atlas,
     ],
     structs: [
         Light.schema,
         ShadowMap.schema,
         ShadowMap.matrixSchema,
+        ShadowAtlas.schema,
         ShadowRecordSchema,
         ShadowMatrixInstanceSchema,
         ShadowMatrixParamsSchema,

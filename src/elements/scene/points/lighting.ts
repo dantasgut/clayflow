@@ -1,5 +1,6 @@
 import { wgslModule, type WgslModule } from '../../../scene/shaders/WgslModule';
 import type { ContributionPoint } from '../../../scene/shaders/WgslPoint';
+import { NONE } from '../../../scene/shaders/engineConstants';
 import { closure } from '../../material/pbr/shaders';
 
 // Pontos de cena do sombreamento (spec 031, R4; spec 011, R7): o desenho chama estas funções sem conhecer quem as
@@ -94,6 +95,18 @@ export const sceneLightingReady = wgslModule({
 export const lightVisibilityReady = wgslModule({
     name: 'light_visibility_ready',
     source: 'fn light_visibility(light: u32, p: vec3f, n: vec3f) -> f32 {\n    return 1.0;\n}',
+});
+
+/**
+ * `fn light_shadow_view(light: u32) -> u32` — o mapa de sombra da luz `light` (slot no pool `Light`): o slot dele nos
+ * pools `ShadowMap` e `ShadowMatrix`, ou `NONE` se a luz não tem sombra por páginas (spec 013). Cada luz que projeta
+ * contribui a sua; a leitura da sombra (`light_visibility`, `light_thickness`) é uma só para todas e a consulta por aqui:
+ * o shader não cresce com o número de luzes com sombra. Pronto: nenhuma tem.
+ */
+export const lightShadowViewReady = wgslModule({
+    name: 'light_shadow_view_ready',
+    requires: [NONE.module],
+    source: 'fn light_shadow_view(light: u32) -> u32 {\n    return NONE;\n}',
 });
 
 /**
@@ -200,7 +213,12 @@ export const sceneTransmittedLightingPoint = lightingPoint(
     sceneTransmittedLightingReady,
 );
 
-/** Espessura atravessada pela luz: a do contribuinte que a conhece (o mapa de sombra da luz), em ordem. */
+/**
+ * Espessura atravessada pela luz, por luz (spec 013, R6): cada contribuinte responde só pela sua luz (o mapa de sombra
+ * dela) e desconhece as demais (x < 0); a da luz pedida é a do contribuinte que a conhece — o único —, devolvida no
+ * primeiro que a tiver. Nenhuma luz fica com a espessura de outra, qualquer que seja a ordem dos contribuintes; sem
+ * quem a conheça, desconhecida (nenhuma luz atravessa).
+ */
 export const lightThicknessPoint: ContributionPoint = {
     name: 'light_thickness',
     ready: lightThicknessReady,
@@ -211,14 +229,39 @@ export const lightThicknessPoint: ContributionPoint = {
                 name: `light_thickness:${modules.map((m) => m.name).join('+')}`,
                 requires: modules,
                 source: `fn light_thickness(light: u32, p: vec3f, n: vec3f) -> vec2f {
-    var known = vec2f(-1.0, 0.0);
 ${modules
     .map(
         (_, k) => `    let t${k} = light_thickness_${k}(light, p, n);
-    if (t${k}.x >= 0.0) { known = t${k}; }`,
+    if (t${k}.x >= 0.0) { return t${k}; }`,
     )
     .join('\n')}
-    return known;
+    return vec2f(-1.0, 0.0);
+}`,
+            }),
+        ),
+};
+
+/**
+ * O mapa de sombra de cada luz: cada contribuinte responde só pela sua luz (`NONE` para as demais); o da luz pedida é o
+ * do contribuinte que a conhece — o único.
+ */
+export const lightShadowViewPoint: ContributionPoint = {
+    name: 'light_shadow_view',
+    ready: lightShadowViewReady,
+    functionName: 'light_shadow_view',
+    combine: (modules) =>
+        memo(`shadow-view:${modules.map((m) => m.name).join('+')}`, () =>
+            wgslModule({
+                name: `light_shadow_view:${modules.map((m) => m.name).join('+')}`,
+                requires: [NONE.module, ...modules],
+                source: `fn light_shadow_view(light: u32) -> u32 {
+${modules
+    .map(
+        (_, k) => `    let s${k} = light_shadow_view_${k}(light);
+    if (s${k} != NONE) { return s${k}; }`,
+    )
+    .join('\n')}
+    return NONE;
 }`,
             }),
         ),

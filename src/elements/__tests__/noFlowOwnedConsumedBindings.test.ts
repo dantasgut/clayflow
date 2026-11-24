@@ -46,7 +46,11 @@ describe('nenhum layout nem bind group criado por estágio (SC-004)', () => {
 
     it('com todos os estágios padrão ativos, nenhum dispatch cria objeto de GPU', async () => {
         const s = await renderScene();
-        const defaults = registerPresentationDefaults(s.scene.flows, { world: s.scene.world });
+        // Com os eventos da cena: a luz com sombra ganha a vista dela no atlas único por evento (spec 013).
+        const defaults = registerPresentationDefaults(s.scene.flows, {
+            world: s.scene.world,
+            events: s.scene.events,
+        });
         defaults.post.addEffect(new Vignette());
         defaults.ui.ui.add(
             Object.assign(new UiPanel(), { bounds: { x: 0, y: 0, width: 50, height: 20 } }),

@@ -220,20 +220,20 @@ describe('malha adaptativa (spec 010)', () => {
         s.step();
         s.step();
         expect(s.surface.views.map((v) => [v.key, v.kind, v.error, v.segment])).toEqual([
-            ['light', 'light', 0.5, 1],
+            ['light:0', 'light', 0.5, 1],
         ]);
         const descriptors = new Map(s.surface.getDescriptors().map((d) => [d.id, d]));
         const a = s.surface.adaptive!;
-        expect(descriptors.get('view:light:vertices')).toMatchObject({
+        expect(descriptors.get('view:light:0:vertices')).toMatchObject({
             role: 'vertex',
             count: Math.min(a.vertexCapacity, 2 * a.viewBudget),
             upload: 'never',
         });
-        expect(descriptors.get('view:light:indices')).toMatchObject({
+        expect(descriptors.get('view:light:0:indices')).toMatchObject({
             role: 'index',
             count: Math.min(a.indexCapacity, 3 * a.viewBudget),
         });
-        expect(descriptors.get('view:light:indirect')).toMatchObject({
+        expect(descriptors.get('view:light:0:indirect')).toMatchObject({
             role: 'indirect',
             count: 2,
         });
@@ -249,12 +249,38 @@ describe('malha adaptativa (spec 010)', () => {
         s.step();
         expect(views()).toEqual([]);
         // O mapa desenha a vista: os vértices do desenho da sombra são os da vista.
-        const viewVertices = s.scene.resourceSystem.bufferOf(s.surface, 'view:light:vertices');
+        const viewVertices = s.scene.resourceSystem.bufferOf(s.surface, 'view:light:0:vertices');
         const cameraVertices = s.scene.resourceSystem.bufferOf(s.surface, 'vertices');
         const shadowVertices = s.draws('ShadowFlow').map((d) => d.vertex);
         expect(shadowVertices.length).toBeGreaterThan(0);
         expect(shadowVertices.every((v) => v === viewVertices)).toBe(true);
         expect(shadowVertices.some((v) => v === cameraVertices)).toBe(false);
+    });
+
+    it('vista da luz por vista de sombra (spec 013): uma malha por vista até o teto; acima dele, a malha da câmera', async () => {
+        // Arrange: cinco luzes com sombra (a da cena e mais quatro) — uma a mais que o teto de malhas por superfície.
+        const s = await adaptiveScene(['indirect-first-instance']);
+        for (let i = 1; i <= 4; i++)
+            s.scene.world.insert(
+                new DirectionalLight({ direction: [0.2 * i, -1, 0, 0], castShadow: true }),
+            );
+        // Act
+        for (let i = 0; i < 6; i++) s.step();
+        // Assert: a superfície tem a malha das quatro primeiras vistas.
+        expect(s.surface.views.map((v) => v.key)).toEqual([
+            'light:0',
+            'light:1',
+            'light:2',
+            'light:3',
+        ]);
+        // O mapa desenha cada vista com a malha dela e a quinta com a malha da câmera, num passe só.
+        const rs = s.scene.resourceSystem;
+        const expected = [
+            ...[0, 1, 2, 3].map((v) => rs.bufferOf(s.surface, `view:light:${v}:vertices`)),
+            rs.bufferOf(s.surface, 'vertices'),
+        ];
+        expect(expected.every((b) => b !== undefined)).toBe(true);
+        expect(s.draws('ShadowFlow').map((d) => d.vertex)).toEqual(expected);
     });
 
     it('forward e sombra desenham pelo registro indireto (contagem copiada antes do passe)', async () => {

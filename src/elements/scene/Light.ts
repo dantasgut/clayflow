@@ -23,8 +23,9 @@ export interface LightData {
     /** Cor RGBA linear. */
     color: number[];
     /**
-     * Cones da spot em radianos (`[interno, externo, 0, 0]`); na direcional, `[0, 0, raio angular do disco, 0]` (o sol:
-     * 0,00466 rad); zeros nas outras.
+     * Cones da spot em radianos (`[interno, externo, 0, raio da fonte]`); na direcional, `[0, 0, raio angular do disco,
+     * 0]` (o sol: 0,00466 rad); na pontual, `[0, 0, 0, raio da fonte]` (o raio em metros, para a penumbra da sombra,
+     * spec 013); as meias medidas na de área.
      */
     cones: number[];
     /**
