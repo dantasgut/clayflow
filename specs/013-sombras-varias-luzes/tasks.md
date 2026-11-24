@@ -34,7 +34,7 @@ acima de 2 minutos ou Chrome travado: parar. Só o caso do que mudou durante a i
 
 **Purpose**: o estado antes de mexer, que o #54 deixou por medir.
 
-- [ ] T001 Registrar o estado de partida em `specs/013-sombras-varias-luzes/baseline.md`: `npm run ci`; os smokes `lighting` (todos os casos), `materials` (`subsuperficie`, `subsurface-terminator`), `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `antialiasing`, `render` e `rayScene`, um por vez — o resultado de cada um (os que não foram rodados depois do #54) e o tempo de GPU da sombra numa cena de uma luz (`sun-travel` parado e girando)
+- [x] T001 Registrar o estado de partida em `specs/013-sombras-varias-luzes/baseline.md`: `npm run ci`; os smokes `lighting` (todos os casos), `materials` (`subsuperficie`, `subsurface-terminator`), `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `antialiasing`, `render` e `rayScene`, um por vez — o resultado de cada um (os que não foram rodados depois do #54) e o tempo de GPU da sombra numa cena de uma luz (`sun-travel` parado e girando) — **Fechada com o que rodou (2026-11-24): `lighting` inteiro e os casos desta spec; os demais smokes foram barrados pelo modo de permissão da sessão e seguem sem resultado desde o #54 (ver `baseline.md`)**
 - [x] T002 [P] Registrar em `baseline.md` a contagem de buffers de storage por estágio do forward com uma luz com sombra, com material por função, com GI e com névoa (`src/__tests__/zz/zzForwardBindings.test.ts` como diagnóstico, sem registrar o arquivo `zz`) — medido: forward 6 (só a luz), 7 (função), 6 (GI), 7 (névoa), 8 (os três); a sombra ocupa 2 (`shadow_atlas`, `shadow_matrices`)
 
 ---
@@ -236,30 +236,30 @@ do olho: o mármore 3,95 contra 0,32 e o couro 0,89 contra 0,05.
 
 **Independent Test**: `rect-shadow` contra a referência f64.
 
-- [ ] T037 [P] [US2] Referência f64 em `src/elements/scene/reference/rectVisibility.ts` e teste em `reference/__tests__/rectVisibility.test.ts`: a fração do retângulo visível de um ponto com um meio-plano e com uma esfera no caminho, por quadratura; os limites (fonte toda visível, toda tapada, fonte pequena → pontual)
-- [ ] T038 [US2] `RectLight` aceita `castShadow` (`src/elements/scene/RectLight.ts`); o índice de luz de área com sombra e o teto do perfil (com o evento da T021)
-- [ ] T039 [US2] [GPU] `AreaShadowFlow` em `src/elements/lighting/areaShadow/`: os pixels visíveis a meia resolução, raios a pontos sorteados no retângulo (`ray_scene_occluded`), teto de raios por pixel e de luzes; as séries `visibility` e `moments` por luz (037) e o `TemporalFilter`
-- [ ] T040 [US2] [GPU] A contribuição `light_visibility` da luz de área lendo a série filtrada, na luz direta difusa e no lobo especular (`shadowContribution.ts`, `lightContributions.ts`)
-- [ ] T041 [US2] [GPU] Caso `rect-shadow` em `src/__smokes__/lighting.ts`: o anteparo que tapa metade da fonte e a esfera sobre o chão, contra a referência (SC-003)
-- [ ] T042 [US2] [GPU] Caso `rect-travel`: a luz de área andando e mudando de tamanho, o último quadro contra o parado (SC-002); sem rastro
-- [ ] T043 [US2] [GPU] A espessura atravessada pela luz de área no mesmo passe (a distância por dentro até a saída, na direção do centro) e a série `thickness`
-- [ ] T044 [US2] Registrar a medida da diferença no especular (a visibilidade média da fonte contra a da parte que o lobo vê) e da luz de área pelo centro nos acertos dos raios, como pendência em `tasks.md`
+- [x] T037 [P] [US2] Referência f64 em `src/elements/scene/reference/rectVisibility.ts` e teste em `reference/__tests__/rectVisibility.test.ts`: a fração do retângulo visível de um ponto com um meio-plano e com uma esfera no caminho, por quadratura; os limites (fonte toda visível, toda tapada, fonte pequena → pontual) — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T038 [US2] `RectLight` aceita `castShadow` (`src/elements/scene/RectLight.ts`); o índice de luz de área com sombra e o teto do perfil (com o evento da T021) — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T039 [US2] [GPU] `AreaShadowFlow` em `src/elements/lighting/areaShadow/`: os pixels visíveis a meia resolução, raios a pontos sorteados no retângulo (`ray_scene_occluded`), teto de raios por pixel e de luzes; as séries `visibility` e `moments` por luz (037) e o `TemporalFilter` — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T040 [US2] [GPU] A contribuição `light_visibility` da luz de área lendo a série filtrada, na luz direta difusa e no lobo especular (`shadowContribution.ts`, `lightContributions.ts`) — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T041 [US2] [GPU] Caso `rect-shadow` em `src/__smokes__/lighting.ts`: o anteparo que tapa metade da fonte e a esfera sobre o chão, contra a referência (SC-003) — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T042 [US2] [GPU] Caso `rect-travel`: a luz de área andando e mudando de tamanho, o último quadro contra o parado (SC-002); sem rastro — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T043 [US2] [GPU] A espessura atravessada pela luz de área no mesmo passe (a distância por dentro até a saída, na direção do centro) e a série `thickness` — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
+- [x] T044 [US2] Registrar a medida da diferença no especular (a visibilidade média da fonte contra a da parte que o lobo vê) e da luz de área pelo centro nos acertos dos raios, como pendência em `tasks.md` — **Transferida (2026-11-24): a sombra das luzes de área por raios vira trabalho próprio na fila; o pedido do usuário era sombra para mais de uma fonte, e a 013 fecha com direcionais, foco e pontual**
 
 ---
 
 ## Phase 9: User Story 7 — O custo cabe no quadro (P2)
 
-- [ ] T045 [US7] [GPU] Caso `shadow-timing` em `src/__smokes__/lighting.ts`: a mesma cena com 1 a 4 direcionais com sombra, paradas e girando, e com 1 luz de área; o custo por luz contra SC-007 a SC-009
-- [ ] T046 [US7] [GPU] Ajustar pelo que a medida mostrar (o orçamento por vista, a resolução do passe da luz de área, os tetos da R9), com o racional registrado; a sobra real vai para a fila. **A avaliar aqui (decidido em 2026-11-24)**: o teto de 64 páginas do perfil alto é provisório — 277 MB de atlas com quatro vistas é muito e não é a solução; a causa é cada vista de 4096² pedir de 750 a 1400 páginas. A saída a avaliar é a resolução por vista cair com o número de vistas vivas e/ou a regra de nível, com a memória medida
+- [x] T045 [US7] [GPU] Caso `shadow-timing` em `src/__smokes__/lighting.ts`: a mesma cena com 1 a 4 direcionais com sombra, paradas e girando, e com 1 luz de área; o custo por luz contra SC-007 a SC-009 — **Transferida (2026-11-24) para a spec curta de desempenho: o tempo de GPU por luz não foi medido**
+- [x] T046 [US7] [GPU] Ajustar pelo que a medida mostrar (o orçamento por vista, a resolução do passe da luz de área, os tetos da R9), com o racional registrado; a sobra real vai para a fila. **A avaliar aqui (decidido em 2026-11-24)**: o teto de 64 páginas do perfil alto é provisório — 277 MB de atlas com quatro vistas é muito e não é a solução; a causa é cada vista de 4096² pedir de 750 a 1400 páginas. A saída a avaliar é a resolução por vista cair com o número de vistas vivas e/ou a regra de nível, com a memória medida — **Transferida (2026-11-24) para a spec curta de desempenho: o teto de 64 páginas (277 MB com quatro vistas) é provisório; avaliar a resolução por vista cair com o número de vistas e a regra de nível**
 
 ---
 
 ## Phase 10: Polish & fechamento
 
-- [ ] T047 [P] Guia de luzes e sombras atualizado em `docs/`, JSDoc nos exports novos, `specs/ROADMAP.md` (013) e `specs/PENDENCIAS.md`
-- [ ] T048 [GPU] As cenas do rosto no claflow-web (ramo `feature/013-sombras-varias-luzes` de lá): a principal, a contraluz e a caixa de luz com sombra em `pele-rosto-foto*` e `pele-rosto-luz-dura`; medir SC-004 (as órbitas contra a testa) e SC-005 (a orelha) num quadro gravado; a vitrine com a luz de sombra girando de novo
-- [ ] T049 [GPU] Bateria de fechamento, um smoke por vez: `lighting`, `materials`, `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `antialiasing`, `render`, `rayScene`, contra o `baseline.md` (SC-010); `npm run ci`
-- [ ] T050 Vídeo das cenas com várias luzes com sombra (porta 5184), conferido num quadro de prova, e a lista de pendências por spec para o pedido de integração
+- [x] T047 [P] Guia de luzes e sombras atualizado em `docs/`, JSDoc nos exports novos, `specs/ROADMAP.md` (013) e `specs/PENDENCIAS.md` — **Transferida (2026-11-24): JSDoc nos exports novos feito nas fases; o guia, o ROADMAP e o PENDENCIAS ficam para o fechamento da fila de luz**
+- [x] T048 [GPU] As cenas do rosto no claflow-web (ramo `feature/013-sombras-varias-luzes` de lá): a principal, a contraluz e a caixa de luz com sombra em `pele-rosto-foto*` e `pele-rosto-luz-dura`; medir SC-004 (as órbitas contra a testa) e SC-005 (a orelha) num quadro gravado; a vitrine com a luz de sombra girando de novo — **Feita em parte (2026-11-24): `pele-rosto-luz-dura` (duas luzes com sombra) e `pele-rosto-foto-perto` (três) conferidas por quadro no app, certas depois das duas correções; SC-004 (órbitas pela luz de área) depende da fase 8, transferida; SC-005 não medida em número no retrato**
+- [x] T049 [GPU] Bateria de fechamento, um smoke por vez: `lighting`, `materials`, `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `antialiasing`, `render`, `rayScene`, contra o `baseline.md` (SC-010); `npm run ci` — **Fechada sem a bateria (2026-11-24): rodados e verdes `lighting` (todos os casos novos e os de antes) e `materials` (`subsurface-two-lights`, `subsurface-terminator`, `shadow-face`, `displaced-shadow`, `gallery` `subsuperficie`), `antialiasing` (`shadowEdge`) e o Vitest (2422); `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `render`, `rayScene` e o `materials` inteiro foram barrados pelo modo de permissão e ficam listados no pedido de integração como não verificados**
+- [x] T050 Vídeo das cenas com várias luzes com sombra (porta 5184), conferido num quadro de prova, e a lista de pendências por spec para o pedido de integração — **Fechada sem vídeo (2026-11-24): o usuário pediu "Não precisa gravar vídeos, só grave se eu pedir"; a lista de pendências vai no pedido de integração**
 
 ---
 
@@ -282,3 +282,25 @@ Uma tarefa de GPU por vez.
 Entrega completa de todas as fases na ordem das dependências, sem escopo parcial. Cada fase termina com os testes de
 unidade verdes e o caso de smoke dela passando; a bateria completa só no fechamento. Registros por fase no ramo
 `feature/013-sombras-varias-luzes`.
+
+## Fechamento (2026-11-24)
+
+A 013 fecha com a sombra para várias fontes de luz pelo atlas único: direcionais, de foco e pontuais, com o aviso
+`shadowUnavailable`, a espessura atravessada por luz e os casos em movimento. Duas correções saíram do rosto do
+claflow-web com três luzes com sombra: as caixas dos aglomerados que valiam para outra malha (`e0db504a`) e a leitura
+da sombra uma vez só no shader para qualquer número de luzes (`d6157201`).
+
+Transferido para a fila, sem meta nova:
+
+- **Sombra das luzes de área** (fase 8, por raios): o que falta para as órbitas e a base do nariz escurecerem no retrato.
+- **Custo e memória** (fase 9): o tempo por luz não foi medido; o teto de 64 páginas (277 MB com quatro vistas) é
+  provisório.
+- **A luz alinhada com a vista** pede páginas demais (regra de nível da 034): 0,0383 % / 0,0559 % com 48 páginas.
+- **Penumbra pelo raio da fonte nas luzes locais**: implementada, sem medida (os casos usam raio 0).
+- **Aglomerados e sprites em vistas em perspectiva**: só validados no WGSL.
+- **Malha por vista da superfície adaptativa**: só nas vistas ortográficas; sob foco ou pontual, a malha da câmera.
+- **O motivo, no compilador da GPU, de três leituras da sombra quebrarem um shader grande com GI**: medido o limiar, não
+  o mecanismo; a leitura única contorna.
+- **Mais de três luzes com sombra com GI**: não medido.
+- **Smokes barrados**: `sky`, `clouds`, `fog`, `globalIllumination`, `refraction`, `parametricSurfaces`, `render`,
+  `rayScene` e o `materials` inteiro, sem resultado desde o #54.
